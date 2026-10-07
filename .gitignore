@@ -1,0 +1,22 @@
+/target/
+/dist/
+# Keep private inputs and runtime outputs out of source control.
+*.iso
+*.chd
+*.img
+*.zip
+*.7z
+*.exe
+*.dll
+*.pdb
+*.dmp
+*.log
+*.key
+*.keyfile
+*.pem
+.env
+.env.*
+/data/
+/saves/
+/wccf-revival/
+/wccf-revival.partial/

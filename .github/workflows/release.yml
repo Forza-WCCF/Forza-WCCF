@@ -1,0 +1,70 @@
+name: Draft release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  draft:
+    name: Create draft prerelease
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: windows-x64
+          path: dist
+      - name: Verify and create draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')
+          test "$TAG" = "v$version"
+          test -f "dist/wccf-installer-$TAG-windows-x64.zip"
+          (cd dist && sha256sum --strict -c SHA256SUMS.txt)
+          python3 - <<'PY'
+          import os, zipfile
+          payload = {"wccf-installer.exe", "README.md", "CHANGELOG.md", "LICENSE", "THIRD-PARTY-LICENSES.json"}
+          with zipfile.ZipFile(f'dist/wccf-installer-{os.environ["TAG"]}-windows-x64.zip') as archive:
+              assert set(archive.namelist()) == payload, "Unexpected release archive contents"
+          PY
+          {
+            printf 'Experimental Windows x64 installer %s\n\nSource commit: %s\n\n' "$TAG" "$GITHUB_SHA"
+            printf 'Toolchain: '; python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])'
+            printf '\nNo media, keys, game binaries, runtime kit or saves are included. Supply your own supported image and matching key.\n\n'
+            printf 'SBWG 2010-2011 Rev D: extraction and optional trusted kit setup. SDDY 2017-2018 2.00.00: extraction only.\n\n'
+            printf 'Extraction is not a playable-game claim. Do not launch original unguarded executables. Windows GUI/manual release checks are still required; binaries are unsigned.\n\n'
+            printf 'Verify the ZIP with SHA256SUMS.txt and read the bundled README.\n\n'
+            printf 'Owner checklist: RELEASING.md. This draft must be reviewed before publication.\n\n'
+            cat CHANGELOG.md
+          } > "$RUNNER_TEMP/release-notes.md"
+          if gh release view "$TAG" --json isDraft > "$RUNNER_TEMP/release.json" 2> "$RUNNER_TEMP/release-error.txt"; then
+            python3 -c 'import json, sys; assert json.load(open(sys.argv[1]))["isDraft"], "Refusing to overwrite a published release"' "$RUNNER_TEMP/release.json"
+            gh release upload "$TAG" "dist/wccf-installer-$TAG-windows-x64.zip" dist/SHA256SUMS.txt --clobber
+          else
+            grep -qi 'release not found' "$RUNNER_TEMP/release-error.txt"
+            gh release create "$TAG" "dist/wccf-installer-$TAG-windows-x64.zip" dist/SHA256SUMS.txt \
+              --verify-tag --draft --prerelease --title "WCCF RingEdge Installer $TAG" \
+              --notes-file "$RUNNER_TEMP/release-notes.md"
+          fi
