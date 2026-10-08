@@ -1,5 +1,15 @@
 # Progress
 
+## 2026-10-08 — online with an Aime card
+
+Seat 1 is online: the online icon is green, the Aime screen reads the (emulated) card, AiMeDB gives Aime ID 1,
+the client asks the game server (through control) for the coach list and shows the first-play TUTORIAL / NORMAL
+choice (NORMAL "選択不可" for a new player) instead of OFFLINE guest play. New: three seat patches (ALL.Net
+authorized, billing phase IDLE, AiMeDB host → localhost), `_aime_reader.py` (COM2), `_aimedb.py` (port 22345),
+`play.py` starts both for 17–18. Evidence: `<runtime>\evidence\run13-b`, logs `aime_log.txt`,
+`aimedb_log.txt`, `gamesvr_log.txt`. Safety: routes identical, ping 4/4, HTTPS 200; no Sega host contacted
+(ALL.Net off, AiMeDB local).
+
 ## 2026-10-07 — boot to guest play, controller online (paused)
 
 Observed on Windows 11 + WSL, game `DVR5059A_2_00_00` (SDDY, build 2018-03-15):

@@ -16,6 +16,17 @@ PATCHES = [
     # picture rectangle = the whole back buffer (17-18's "Satellite" layout drew 960x600 at x=32 in a 1024 frame);
     # VA 0x0040210E: dstH=[eax+0x30] dstW=[eax+0x2C] (back buffer), dstY=0, dstX=0 - the kit's 0x00401771 / 0x0040178F
     (0x00150E, "8b513c8b71388b79348b4930", "8b50308b702c33ff33c99090", "picture fills the back buffer"),
+    # online play: the Aime screen (VA 0x0077A0D0) shows OFFLINE guest play unless byte 0x0683653F is set; that byte
+    # needs ALL.Net "authorized" (VA 0x00C78770, alw library state == 1) besides control's own online flag. ALL.Net's
+    # real auth runs link/gateway/traceroute probes of the host network, so it stays off (ALLNET_AUTH=0) and the
+    # state query answers yes, as for the controller below.
+    (0x877B70, "56e84aeeffff", "b801000000c3", "ALL.Net authorized (VA 0x00C78770 returns 1)"),
+    # the seat's online test (VA 0x0040FDC7) also wants ALL.Net's billing phase (status struct +0xF8, filled by
+    # VA 0x004D1430 from VA 0x00C78E00) in 16..24 but not 19 (offline); with ALL.Net off it stays 0. 20 = IDLE.
+    (0x00F1C7, "8bb6f8000000", "be1400000090", "ALL.Net billing phase reads IDLE (20) in the online test"),
+    # AiMeDB (aimelib, VA 0x00D841E0 getaddrinfo, port 22345): Sega's host -> this PC, served by _aimedb.py
+    (0xE2C250, "61696d652e6e616f6d696e65742e6a7000", "6c6f63616c686f73740000000000000000",
+     "AiMeDB host aime.naominet.jp -> localhost"),
 ]
 
 

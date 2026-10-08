@@ -85,3 +85,35 @@ building the kit's C tools: `<workspace>/ringedge/revd-continuation/netguard/too
 (fpr_emu, overlay/wccfpanel.c, mxhook), kit scripts `kit/scripts/` (cards.py, codes_inferred.py, ys_lzw.py,
 club_card_schema.py ...). The live overlay already runs on 17–18 seat 1 (panels, formation board, catalogue button);
 its catalogue is currently empty (`kit/overlay/catalogue.tsv` is a 0-byte placeholder).
+
+## Update 2026-10-08: online + Aime
+
+**Why the client chose OFFLINE.** The Aime screen (client VA 0x0077A0D0) calls `sub_78E0F0(9)` = OFFLINE guest play
+unless byte 0x0683653F (top byte of `dword_683653C`) is set (or the debug option FAKE_FINAL). On a seat
+(`dword_15DD9B4` = satellite no. ≠ 0) the per-frame update VA 0x0040F600 sets bytes 0x0683653C/D only when all of:
+ALL.Net authorized (VA 0x00C78770 == 1); control accepted the seat (byte 0x06836541, set on its "OK"); the control
+link object is connected; ALL.Net billing phase (status struct `dword_6D9EE54`+0xF8, filled by VA 0x004D1430 from
+VA 0x00C78E00 kind 2) in 16..24 but not 19. Byte 0x0683653F then needs (CONTROL_STATE handler VA 0x00410310) the
+Aime reader up (`dword_6D9EE50`+374, set by the reader state machine VA 0x004CF5D0) and control's online flag.
+- ALL.Net here is the `alw` 1.00.06 library inside the client: PowerOn to `http://naominet.jp/sys/servlet/PowerOn`
+  (`Pragma: DFI`, UA `ALL.Net_PC_Win2/ver1.0`) after link/DNS/gateway/traceroute/line-type probes of the host
+  network. Not emulated (it would probe the real network); ALLNET_AUTH stays 0 and two seat patches answer instead.
+- Billing phase codes (VA 0x00C78E00): alpb state 1,2,4..8 → 15 (init), 3 → 16 (test mode), 9 → 17, 10 → 18
+  (accounting), 11 → VA 0x00C78CF0 (idle, 20+), 12 → 19 (OFFLINE), 13 → 25 (fatal).
+- Client option table (name, category, default; 12-byte entries at VA 0x01263058, values at WccfUserOption+4 as
+  ints and +200+index as bools, object `dword_6D9F288`): 1 VIEW_DEBUG_MODE … 5 IS_USE_AIME_READER, 6 ALLNET_AUTH,
+  7 ERROR_3000, 8 IS_REGION_JAPAN, 9 FAKE_FINAL, 14 AIME, 16 GUEST_PLAY … 29 ANNOUNCE_EXPORT.
+
+**Aime reader** (`kit/scripts/_aime_reader.py`): aimelib opens `\\.\COM2` synchronously (VA 0x00D8B0E0); SEGA
+837-15084 NFC reader protocol (parser VA 0x00D87040), same as segatools' sg-nfc/sg-led. Observed boot sequence:
+reset 62, fw 30 ("TN32MSEC003S F/W Ver1.2" = no NFC update), hw 32, LED reset F5 / info F0 (addr 8), Mifare key A
+54 = "WCCFv2" (57 43 43 46 76 32), key B 50 = 60 90 D0 06 32 F5. With LED info "15084\xFF\x10\x00\x12" the client
+flashes `837_15084_1_01.hex` to the LED board every boot (F4, then 187 × F3 Intel-HEX lines, ~13 s) — harmless,
+open. Card read: radio on 40, poll 42, select 43, auth A 55, read blocks 1 and 2 (52; block 2 bytes 6..15 = access
+code BCD), radio off 41.
+
+**AiMeDB** (`kit/scripts/_aimedb.py`): host string VA 0x0122CE50 patched to localhost, TCP 22345, AES-128-ECB key
+"Copyright(C)SEGA", 32-byte header (magic 0xA13E, version **0x3077**, game `SDDY`, store 0, keychip empty). Seen:
+hello 0x64 → 0x65 then goodbye 0x66 at boot; lookup 0x04 (access code at 0x20, then `00 02 00 00 00 00`) → 0x06
+(0x30 bytes, s32 Aime ID at 0x20) accepted. With an Aime ID the client sends COACH_LIST 271 / OLD_COACH_LIST 273
+(aimeId at payload +4) and 317 through control, and shows the first-play TUTORIAL / NORMAL choice.

@@ -66,6 +66,9 @@ PY = sys.executable
 ICC_PIPE, JVS_PIPE = r"\\.\pipe\wccf_icc_seat1", r"\\.\pipe\wccf_jvs_seat1"
 KEYS_INPUT = os.path.join(K.SCRIPTS, "_jvs_seat1_input.txt")     # _keys_seat1.py writes it beside itself
 CARD = os.path.join(K.SAVE, "seat1_club.bin")
+AIME_PIPE = r"\\.\pipe\wccf_aime_seat1"     # 2017-18: the Aime reader (client opens COM2)
+AIME_CARD = os.path.join(K.SAVE, "seat1_aime.txt")
+AIMEDB_PORT = 22345                  # 2017-18: AiMeDB stand-in (seat 1's exe names localhost for aime.naominet.jp)
 RUNNING = os.path.join(K.DATA, "running.json")
 # 17-18 (SDDY): netguard.dll (secondary guard for the IP-helper calls) injected into every game program
 OVERLAY_DLL = os.environ.get("WCCF_OVERLAY_DLL", "wccfpanel.dll")
@@ -408,17 +411,30 @@ def start_cabinet(debug, env, mode, ip, seat_no, seat, roles):
     (2026-10-07) runs only this: the projector, the scene service, the seat lease and the panel helper keep running."""
     p = start("_ringedge_services.py", [LIFE, "ringedge_log.txt"], "run_ringedge.txt", env)
     roles[p.pid] = "keychip / network stand-in"
-    p = start("_icc_reader.py", [ICC_PIPE, LIFE, "icc_log.txt" if debug else "NUL", CARD], "run_cardreader.txt", env,
-              quiet=not debug)
-    roles[p.pid] = "card reader stand-in"
+    # 2017-18 (no xscn scenes): an Aime card on COM2 instead of 2010-11's club card reader on COM3/COM1
+    aime = not os.path.isdir(os.path.join(seat, "data", "motion", "launcherMotion", "xscn"))
+    if aime:
+        p = start("_aime_reader.py", [AIME_PIPE, LIFE, os.path.join(K.LOGS, "aime_log.txt"), AIME_CARD],
+                  "run_cardreader.txt", env)
+        roles[p.pid] = "Aime reader stand-in"
+        p = start("_aimedb.py", [AIMEDB_PORT, LIFE, os.path.join(K.LOGS, "aimedb_log.txt"),
+                                 os.path.join(K.SAVE, "aimedb.json")], "run_aimedb.txt", env)
+        roles[p.pid] = "AiMeDB stand-in"
+        reader_pipe, coms = "wccf_aime_seat1", "COM2=%s;" % AIME_PIPE
+    else:
+        p = start("_icc_reader.py", [ICC_PIPE, LIFE, "icc_log.txt" if debug else "NUL", CARD], "run_cardreader.txt",
+                  env, quiet=not debug)
+        roles[p.pid] = "card reader stand-in"
+        reader_pipe, coms = "wccf_icc_seat1", "COM3=%s;COM1=%s;" % (ICC_PIPE, ICC_PIPE)
     p = start("_jvs_board.py", [JVS_PIPE, LIFE, "jvs_log.txt", KEYS_INPUT], "run_ioboard.txt", env)
     roles[p.pid] = "I/O board stand-in"
-    wait_for("the cabinet's stand-ins", lambda: {40100, 40102, 40106} <= K.listening_ports() and
-             {"wccf_icc_seat1", "wccf_jvs_seat1"} <= K.pipes(), 20)
-    say("  4/6 cabinet stand-ins: keychip/network, card reader (card file data\\save\\seat1_club.bin), I/O board")
+    wait_for("the cabinet's stand-ins", lambda: {40100, 40102, 40106} | ({AIMEDB_PORT} if aime else set()) <= K.listening_ports() and
+             {reader_pipe, "wccf_jvs_seat1"} <= K.pipes(), 20)
+    say("  4/6 cabinet stand-ins: keychip/network, %s, I/O board" % (
+        "Aime reader (card file data\\save\\seat1_aime.txt)" if aime else
+        "card reader (card file data\\save\\seat1_club.bin)"))
 
-    senv = dict(env, MXHOOK_RINGEDGE="1",
-                MXHOOK_COM="COM3=%s;COM1=%s;mxjvs=%s;COM4=%s" % (ICC_PIPE, ICC_PIPE, JVS_PIPE, JVS_PIPE))
+    senv = dict(env, MXHOOK_RINGEDGE="1", MXHOOK_COM=coms + "mxjvs=%s;COM4=%s" % (JVS_PIPE, JVS_PIPE))
     if mode == "remote":    # a match against another player goes through the server's relay (wccfpanel.dll, 2026-10-06)
         senv.update(WCCF_RELAY="%s:%d" % (ip, RELAY_PORT), WCCF_SEAT=str(seat_no))
     if debug:
