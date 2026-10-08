@@ -1,5 +1,13 @@
 # Progress
 
+## 2026-10-08 — players have models
+
+Invisible / headless players fixed: the real Launcher.exe maps prog_data/player_data/{player_data, partnership,
+model_data}.bin as "SDDY_<file>" (u32 size + bytes) before it raises the version byte; the kit's launcher stand-in
+made only the version mapping, so control, the match engines, the projector and the seat found no player/model
+data. With the mappings the online tutorial (manager licence → tutorial match) shows full player models.
+Evidence: `<runtime>\evidence\run14-f`.
+
 ## 2026-10-08 — online with an Aime card
 
 Seat 1 is online: the online icon is green, the Aime screen reads the (emulated) card, AiMeDB gives Aime ID 1,

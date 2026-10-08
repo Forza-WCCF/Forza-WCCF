@@ -8,8 +8,7 @@ works from your own decrypted copy.
 **Status:** boots to attract, START works, OFFLINE guest play (CPU match) is playable with the 2010–11 side
 panels around a 1440×900 picture. Online with an emulated Aime card (local reader + AiMeDB stand-ins): the client
 reads the card, gets an Aime ID and reaches the first-play TUTORIAL / NORMAL choice. Club persistence (game server)
-is in progress. Known issue: players
-invisible in matches. See [docs/PROGRESS.md](docs/PROGRESS.md) and [docs/TASKS.md](docs/TASKS.md).
+is in progress. See [docs/PROGRESS.md](docs/PROGRESS.md) and [docs/TASKS.md](docs/TASKS.md).
 
 ## Layout
 

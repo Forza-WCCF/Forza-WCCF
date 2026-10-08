@@ -142,9 +142,20 @@ if SDDY:
     GAMEID = "SDDY"
 
 
+# 17-18 player and model data (Launcher.exe FUN_00403890, before it sets the version byte): "SDDY_<file>" = u32 size +
+# prog_data/player_data/<file>; a missing file gets no mapping. Without them the client's players have no models.
+SDDY_DATA = ["player_data.bin", "partnership.bin", "model_data.bin", "player_data_diff.bin"]
+
+
 def make_all(with_mosuppl):
     if SDDY:
-        return [make("SDDY_ WCCF 17-18 Ver2.0", b"\x01", 8)]
+        handles = []
+        for name in SDDY_DATA:
+            path = os.path.join(GAME, "prog_data", "player_data", name)
+            if os.path.isfile(path):
+                data = open(path, "rb").read()
+                handles.append(make("SDDY_" + name, struct.pack("<I", len(data)) + data, len(data) + 4))
+        return handles + [make("SDDY_ WCCF 17-18 Ver2.0", b"\x01", 8)]
     handles = []
     for name, path in MOAI:
         data = open(path, "rb").read()

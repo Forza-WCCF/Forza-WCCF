@@ -4,10 +4,16 @@ r"""cards1718.py - make the CATALOGUE's files from your own copy of WCCF 2017-18
     python cards1718.py GAME OUT
       GAME  the folder with client_Release.exe in it (the decrypted 2017-18 "game" folder)
       OUT   where catalogue.tsv and cards\ are written (the overlay's folder)
+    python cards1718.py GAME          the self-check only: every check below, nothing written
+      (needs Pillow; finds cards.py and ys_lzw.py in ../../kit/scripts or on PYTHONPATH)
 
 Writes  catalogue.tsv           one line per card: number, season, rarity, names, line, club, the six stats, total ...
                                 (columns 0-30 exactly as cards.py writes them for 2010-11: the overlay reads them by
-                                position; the later columns are 2017-18's own raw fields, read by nobody but people)
+                                position; the later columns are 2017-18's own raw fields, read by nobody but people).
+                                Rows run newest season first: the overlay keeps only the first 4,096 non-placeholder
+                                lines (wccfpanel.c load_catalogue), so this order keeps 2012-13 .. 2017-18.
+                                is_placeholder = 1 (the overlay skips it): edition 13 "not players" (referees, coaches,
+                                GUESTPLAY stand-ins, the navigator) and Sega's FC SEGA joke cards (NOT_PLAYERS).
         cards\<number>.png      each card's picture, 128x128 (the overlay shows its left 88 columns: the face)
 Reads   client_Release.exe      card number -> record table (int32[0x2CC1] at VA 0x015B5B48; the client indexes it
                                 after "card <= 0x2CC0", e.g. VA 0x453C05) and the club / nationality name table
@@ -26,6 +32,7 @@ import re
 import struct
 import sys
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "kit", "scripts"))
 import cards as C               # the 2010-11 maker: its xaf reader, string helpers, cell(), picture writer
 import ys_lzw                   # noqa: F401  (cards.write_pictures uses it; imported here so a missing file fails early)
 
@@ -33,7 +40,9 @@ REC = 0x620
 RECORDS = 8434
 CARD_TABLE_VA, CARD_TABLE_N = 0x015B5B48, 0x2CC1
 NAMES_VA = 0x0154C428
-PLACEHOLDER_EDITION = 13        # VerName.txt line 13: "選手以外" (not players)
+PLACEHOLDER_EDITION = 13        # VerName.txt line 13 (0-based): "選手以外" (not players)
+# Diego TERADONA, club FC SEGA: 3509's picture is a hand-scrawled "ダミー" (dummy), 9951 a staff Maradona parody
+NOT_PLAYERS = {3509, 9951}
 RARITY = C.RARITY               # 1 REGULAR .. 5 ALL TIME LEGEND: the 3,924 cards 2010-11 shares carry the same bytes
 STAT_NAMES = C.STAT_NAMES
 SEASON_FIX = {1: "2001-02", 9: "2004-05/2005-06"}       # "AOU2002", "Camp NAOMI": no years in the name (cards.py's)
@@ -149,6 +158,22 @@ NATIONS = [
     ("アンゴラ共和国", "Angola"), ("タイ王国", "Thailand"),
 ]
 
+KNOWN = {
+    7049: ("MESSI", "FW", "FC Barcelona", "Argentina", [20, 8, 20, 16, 19, 15], "1987-06-24", 170, 72),
+    7064: ("RONALDO", "FW", "Real Madrid", "Portugal", [20, 5, 19, 19, 19, 15], "1985-02-05", 185, 80),
+    6840: ("M.SALAH", "FW", "Liverpool", "Egypt", [16, 8, 17, 14, 19, 15], "1992-06-15", 175, 71),
+    6904: ("LEWANDOWSKI", "FW", "Bayern Munchen", "Poland", [19, 6, 17, 18, 16, 16], "1988-08-21", 185, 79),
+    7061: ("MODRIĆ", "MF", "Real Madrid", "Croatia", [16, 12, 19, 13, 17, 17], "1985-09-09", 174, 65),
+    6883: ("KAGAWA", "MF", "Borussia Dortmund", "Japan", [16, 10, 17, 13, 16, 16], "1989-03-17", 175, 68),
+    7054: ("SERGIO RAMOS", "DF", "Real Madrid", "Spain", [12, 19, 14, 18, 15, 17], "1986-03-30", 183, 75),
+    7127: ("NEUER", "GK", "Bayern Munchen", "Germany", [10, 20, 14, 18, 14, 13], "1986-03-27", 193, 92),
+    6954: ("BUFFON", "GK", "Juventus", "Italy", [8, 20, 13, 18, 13, 13], "1978-01-28", 191, 91),
+    5980: ("BUFFON", "GK", "Juventus", "Italy", [8, 20, 13, 18, 13, 13], "1978-01-28", 192, 94),      # 2016-17
+    6826: ("MIGNOLET", "GK", "Liverpool", "Belgium", [7, 18, 12, 18, 12, 11], "1988-03-06", 193, 87),
+    1007: ("BA", "FW", "Chelsea", "Senegal", [19, 5, 15, 18, 17, 14], "1985-05-25", 189, 85),           # 2013-14
+    4101: ("SZCZESNY", "GK", "Arsenal", "Poland", [7, 18, 12, 18, 12, 11], "1990-04-18", 195, 93),
+}
+
 
 def game_files(game):
     """{'exe', 'players', 'vername', 'xaf'} under GAME, or None after saying what is missing."""
@@ -233,7 +258,7 @@ def build_rows(files, check):
             continue
         f = parse(recs[idx])
         mism += f["card_no"] != card_no
-        placeholder = f["edition"] == PLACEHOLDER_EDITION
+        placeholder = f["edition"] == PLACEHOLDER_EDITION or card_no in NOT_PLAYERS
         rname, rframe = RARITY.get(f["rarity"], ("", ""))
         elabel = eds.get(f["edition"], "")
         season = "" if placeholder else season_of(f["edition"], elabel)
@@ -278,16 +303,20 @@ def build_rows(files, check):
     check("every real card's club and nationality have a name",
           all(r["club_name"] and r["nationality_name"] for r in real),
           str([r["card_no"] for r in real if not (r["club_name"] and r["nationality_name"])][:10]))
-    # spot checks against the cards themselves (pictures read 2026-10-07)
+    # spot checks: short name, line, club, nationality, the six stats, birth date, height, weight - read off each
+    # card's own back (data/player_card/<image>_B.dds, 256x512, 2026-10-08) except 1007/4101 (read 2026-10-07)
     by_no = {r["card_no"]: r for r in rows}
-    m = by_no.get(1007, {})
-    check("card 1007 is Demba BA, FW, Chelsea, 19 5 15 18 17 14 (its picture's printed stats)",
-          (m.get("name_short_latin"), m.get("position_name"), m.get("club_name"), m.get("stats")) ==
-          ("BA", "FW", "Chelsea", [19, 5, 15, 18, 17, 14]), str((m.get("name_short_latin"), m.get("stats"))))
-    m = by_no.get(4101, {})
-    check("card 4101 is SZCZESNY, GK, Arsenal, Poland, 7 18 12 18 12 11, born 1990-04-18 (its picture's back)",
-          (m.get("position_name"), m.get("club_name"), m.get("nationality_name"), m.get("stats"), m.get("birth_date")) ==
-          ("GK", "Arsenal", "Poland", [7, 18, 12, 18, 12, 11], "1990-04-18"), str((m.get("club_name"), m.get("stats"))))
+    for no, want in KNOWN.items():
+        r = by_no.get(no, {})
+        got = (r.get("name_short_latin"), r.get("position_name"), r.get("club_name"), r.get("nationality_name"),
+               r.get("stats"), r.get("birth_date"), r.get("height_cm"), r.get("weight_kg"))
+        check("card %d is %s" % (no, want[0]), got == want, "read %s" % (got,))
+    check("cards 1 (referee/coach stand-in), 10570 (GUESTPLAY1) and 3509 (dummy) are placeholders",
+          all(by_no.get(n, {}).get("is_placeholder") for n in (1, 10570, 3509)))
+    m = by_no.get(7143, {})     # its back prints "SECRET" and no stats: the record holds 16 16 16 16 16 20
+    check("card 7143 is MARADONA, ALL TIME LEGEND, stored stats 16x5 + 20",
+          (m.get("name_short_latin"), m.get("rarity_name"), m.get("stats")) ==
+          ("MARADONA", "ALL TIME LEGEND", [16, 16, 16, 16, 16, 20]))
     return rows, {e["path"]: e for e in ents if e["is_file"] and e["path"].startswith("data/player_card/")}
 
 
@@ -295,7 +324,7 @@ def write_catalogue(rows, path):
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8", newline="") as fh:
         fh.write("\t".join(COLS) + "\n")
-        for r in rows:
+        for r in sorted(rows, key=lambda r: r["season"], reverse=True):     # stable: card order within a season
             fh.write("\t".join(C.cell(r.get(c)) for c in COLS) + "\n")
     os.replace(tmp, path)                     # whole or not at all: the overlay never reads half a catalogue
 
@@ -305,25 +334,15 @@ def main(argv):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except (AttributeError, ValueError):
         pass
-    if len(argv) != 2:
+    if len(argv) not in (1, 2):
         print(__doc__)
         return 2
-    game, out = os.path.abspath(argv[0]), os.path.abspath(argv[1])
+    game = os.path.abspath(argv[0])
     files = game_files(game)
     if not files:
         print("GAME must be the 2017-18 folder that holds client_Release.exe")
         return 2
-    cards_dir = os.path.join(out, "cards")
-    if os.path.islink(cards_dir) or (hasattr(os.path, "isjunction") and os.path.isjunction(cards_dir)):
-        print("refused: %s is a link to another folder - writing would change that folder" % cards_dir)
-        return 2
-    try:
-        os.makedirs(cards_dir, exist_ok=True)
-    except OSError as ex:
-        print("cannot make %s: %s" % (cards_dir, ex))
-        return 2
     print("game files: %s" % os.path.dirname(files["exe"]))
-
     checks = []
     def check(name, ok, detail=""):
         checks.append((name, bool(ok), detail))
@@ -337,8 +356,19 @@ def main(argv):
     if not all(ok for _, ok, _ in checks):
         print("not written: this copy does not match WCCF 2017-18's player data")
         return 1
+    if len(argv) == 1:                        # the self-check: read and checked, nothing to write
+        return 0
 
-    write_catalogue(rows, os.path.join(out, "catalogue.tsv"))
+    cards_dir = os.path.join(os.path.abspath(argv[1]), "cards")
+    if os.path.islink(cards_dir) or (hasattr(os.path, "isjunction") and os.path.isjunction(cards_dir)):
+        print("refused: %s is a link to another folder - writing would change that folder" % cards_dir)
+        return 2
+    try:
+        os.makedirs(cards_dir, exist_ok=True)
+    except OSError as ex:
+        print("cannot make %s: %s" % (cards_dir, ex))
+        return 2
+    write_catalogue(rows, os.path.join(os.path.dirname(cards_dir), "catalogue.tsv"))
     print("catalogue.tsv: %d cards (%d real, %d placeholders)" % (
         len(rows), sum(1 for r in rows if not r["is_placeholder"]), sum(1 for r in rows if r["is_placeholder"])))
     done, fails = C.write_pictures(rows, toc, files["xaf"], cards_dir)
