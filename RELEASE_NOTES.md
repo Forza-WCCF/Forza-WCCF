@@ -1,53 +1,43 @@
-# WCCF RingEdge Installer v0.1.0
+# Forza-WCCF v0.1.1
 
-**Download `wccf-installer.exe` directly** from the release assets (Windows x64,
-11,473,920 bytes). The optional ZIP contains the same EXE and all documentation.
-`SHA256SUMS.txt` lists the EXE and ZIP checksums. Keep `LICENSE` and
-`THIRD-PARTY-LICENSES.json` with the EXE.
+Download **`wccf-installer.exe`** directly from the release assets (Windows x64).
+The EXE is 11,480,064 bytes; the optional ZIP contains the EXE and documentation. Keep `LICENSE` and
+`THIRD-PARTY-LICENSES.json` alongside the EXE; `SHA256SUMS.txt` covers both downloads.
 
-The repository remains **private**. GitHub sign-in and repository access are
-required to download. No game media, keys, game binaries, runtime kit or saves
-are included; supply your own supported disc image and matching keyfile.
+## Forza-WCCF, two coexisting editions
 
-## Supported media
+- Forza-WCCF branding in the installer window, wizard, CLI, documentation and shortcuts.
+- Default base folder: `C:\Games\Forza-WCCF`.
+- **2010–2011 Rev D / SBWG:** `<base>\2010-2011\game`, with its own kit,
+  settings, logs and saves. Optional trusted 2010–2011 kit setup is supported.
+- **2017–2018 v2.00.00 / SDDY:** `<base>\2017-2018\game`, isolated from 2010–2011.
+  Extraction only; the 2010–2011 kit cannot be applied to it.
+- The wizard selects an installed edition to reuse. Headless mode uses
+  `--game SBWG` or `--game SDDY` when both coexist. New extraction selects
+  the version from its disc layout.
+- Earlier installation folders remain reusable in place. Nothing moves or
+  replaces their game files or saves. Shortcuts include the edition name.
 
-- **2010–2011 Rev D / SBWG:** decryption/extraction; optional trusted, separately
-  supplied 2010–2011 kit setup.
-- **2017–2018 v2.00.00 / SDDY:** decryption/extraction only.
+The original 0.1.0 release remains unchanged; use this newly branded EXE for
+new installs. This is installation coexistence, not a claim about two active
+game runtimes running simultaneously.
 
-Wizard or headless mode; existing game folders are never replaced.
-`--help` and `--version` are supported. Read the accompanying README.
+## Checks and limits
 
-## Build and checks
+Rebuilt with native Windows x64 MSVC/Rust 1.99.0 because executable branding
+and install-path routing changed. Formatting, strict Clippy and four unit tests
+passed; native release build and functional/package checks passed. Checks cover CLI edition validation,
+versioned destination routing, both installed editions, ambiguity rejection,
+separate saves, optional-kit version gating and legacy reuse. No game or kit
+script is executed by synthetic checks. Decryption/NTFS extraction is unchanged;
+prior passing media evidence is reused. No disc extraction, CRC sweep or
+game-tree hashing is repeated for this release.
 
-The EXE is the previously validated native Windows x64 MSVC/Rust 1.99.0 release
-build from executable-source commit
-`25c0f6f2fd3de91d6b975f758d1c8cadab608729`. The release tag also includes
-packaging, documentation and workflow updates; executable source, Cargo.lock
-and toolchain are unchanged, so the EXE was not rebuilt.
+Manual Windows GUI interaction remains unvalidated. Binaries are unsigned.
+This is an experimental prerelease, not a verified playable-game package; no
+completed match or save/reload claim is made. Never launch original unguarded
+extracted executables; use only a compatible guarded runtime.
 
-Quick native headless functional and packaging checks passed for the distributable
-EXE. They cover help/version, malformed arguments, missing destination, synthetic
-SDDY reuse, English rejection, existing-folder preservation, asset allowlist
-and version-tag rejection. No game was launched.
-
-Prior format/Clippy/unit checks and both first-MiB disc checks passed. The prior
-full SDDY extraction matched 6,816 independently recovered files with zero
-mismatches. That evidence is reused; no media extraction, disc CRC sweep or
-game-tree hashing was repeated to publish this release. Checksums were generated
-only for the small files being distributed.
-
-The earlier hosted CI run was cancelled on user pause after format, lint, tests
-and dependency notices passed; its hosted release build/package did not complete.
-This release uses the successfully validated local Windows build.
-
-## Known limits
-
-This is an **experimental prerelease**, published on explicit owner instruction
-using quick functional checks and recorded evidence. Manual Windows GUI interaction
-has not been validated. Binaries are unsigned. Completed gameplay and save/reload
-are not claimed.
-
-Extraction is not a ready-to-play runtime. Do not run original unguarded game
-executables: use only a compatible guarded runtime. No host interface, route
-or firewall changes are needed or made by the installer.
+The repository remains **private**; downloads require GitHub access. No game
+media, keys, runtime kit or saves are included. Supply your own supported image
+and matching keyfile.

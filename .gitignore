@@ -18,5 +18,10 @@
 .env.*
 /data/
 /saves/
+/2010-2011/
+/2017-2018/
+/game/
+/game.partial/
+# Keep legacy runtime output out of source control too.
 /wccf-revival/
 /wccf-revival.partial/

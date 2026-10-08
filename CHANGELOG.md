@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.1 — Forza-WCCF and coexisting editions
+
+- Use Forza-WCCF in the wizard, window title, shortcuts, CLI and documentation.
+- Install 2010–2011 and 2017–2018 under separate version roots, including each
+  game, kit, settings, logs and saves. Shortcuts carry the edition name.
+- Add `--game SBWG|SDDY` and wizard edition selection for unambiguous reuse.
+- Preserve earlier installs in place; installing the other edition never touches them.
+- Publish a newly branded EXE; leave the original 0.1.0 release unchanged.
+- Quick synthetic coexistence checks only; no repeated media extraction or game-tree hashing.
+
 ## 0.1.0 — initial prerelease
 
 - Windows x64 wizard and headless installer for user-supplied RingEdge images.

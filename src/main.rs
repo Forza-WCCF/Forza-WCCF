@@ -1,5 +1,5 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
-//! WCCF installer: decrypt and extract the user's RingEdge disc + key to <dest>\wccf-revival.
+//! Forza-WCCF installer: each RingEdge edition owns <dest>\<edition>\game and its kit/save tree.
 //! The 2010–2011 kit is optional; 2017–2018 is extraction-only. `--iso/--key/--dest` runs headless.
 mod disc;
 mod install;
@@ -49,16 +49,17 @@ struct App {
     error: Option<String>,
     run: Option<Run>,
     setup_done: bool,
+    game_id: &'static str,
 }
 
 fn default_dest() -> String {
     if cfg!(windows) {
         format!(
-            "{}\\Games\\WCCF",
+            "{}\\Games\\Forza-WCCF",
             std::env::var("SystemDrive").unwrap_or("C:".into())
         )
     } else {
-        "WCCF".into()
+        "Forza-WCCF".into()
     }
 }
 
@@ -91,6 +92,7 @@ impl App {
             error: None,
             run: None,
             setup_done: false,
+            game_id: "SBWG",
         }
     }
 
@@ -124,8 +126,8 @@ impl App {
     }
 
     fn selected_game_id(&self) -> Option<&'static str> {
-        if self.reuse && install::game_present(&self.dest()) {
-            install::game_id(&self.dest())
+        if self.reuse && install::game_present(&self.dest(), self.game_id) {
+            Some(self.game_id)
         } else {
             std::fs::metadata(clean(&self.iso))
                 .ok()
@@ -140,7 +142,7 @@ impl App {
 
     /// Validate the selected disc/key and, only when used, the optional kit before copying.
     fn check_files(&self) -> Result<(), String> {
-        if !(self.reuse && install::game_present(&self.dest())) {
+        if !(self.reuse && install::game_present(&self.dest(), self.game_id)) {
             let (iso, key) = (clean(&self.iso), clean(&self.key));
             if !iso.is_file() {
                 return Err("Choose the disc image (.iso) file.".into());
@@ -159,12 +161,16 @@ impl App {
 
     fn start(&mut self, ctx: &egui::Context) {
         let setup = self.setup_enabled();
+        if let Some(id) = self.selected_game_id() {
+            self.game_id = id;
+        }
         self.setup_done = setup;
-        let reuse = self.reuse && install::game_present(&self.dest());
+        let reuse = self.reuse && install::game_present(&self.dest(), self.game_id);
         let plan = Plan {
             dest: self.dest(),
             iso: (!reuse).then(|| clean(&self.iso)),
             key: (!reuse).then(|| clean(&self.key)),
+            game_id: reuse.then_some(self.game_id),
             verify: self.verify,
             setup,
             english: self.english && setup,
@@ -216,7 +222,7 @@ impl App {
     fn body(&mut self, ui: &mut egui::Ui) {
         match self.page {
             Page::Welcome => {
-                ui.heading("WCCF Revival");
+                ui.heading("Forza-WCCF");
                 ui.add_space(8.0);
                 ui.label(
                     "Decrypt and extract World Club Champion Football 2010–2011 (Rev D) or \
@@ -252,24 +258,29 @@ impl App {
                 if !self.dest.is_ascii() {
                     ui.colored_label(egui::Color32::from_rgb(200, 130, 0),
                         "Tip: the game has trouble with accented or non-English letters in folder names. \
-                         A plain path like C:\\Games\\WCCF is safest.");
+                         A plain path like C:\\Games\\Forza-WCCF is safest.");
                 }
-                if install::game_present(&dest) {
-                    ui.colored_label(
-                        egui::Color32::from_rgb(0, 140, 60),
-                        "Game files from an earlier install were found here.",
-                    );
+                for disc in &disc::DISCS {
+                    if install::game_present(&dest, disc.game_id) {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(0, 140, 60),
+                            format!("{} is installed here.", disc.edition),
+                        );
+                    }
                 }
                 ui.add_space(6.0);
-                ui.label(format!(
-                    "The game's files go in the “{}” folder inside it.",
-                    install::GAME_DIR
-                ));
+                ui.label("Both editions can coexist: 2010-2011\\game and 2017-2018\\game, each with its own kit, settings and saves.");
             }
             Page::Files => {
                 ui.heading("Your disc image and key file");
                 ui.add_space(8.0);
-                let have = install::game_present(&self.dest());
+                ui.horizontal(|ui| {
+                    ui.label("Edition to reuse:");
+                    for disc in &disc::DISCS {
+                        ui.selectable_value(&mut self.game_id, disc.game_id, disc.edition);
+                    }
+                });
+                let have = install::game_present(&self.dest(), self.game_id);
                 if have {
                     ui.checkbox(
                         &mut self.reuse,
@@ -390,9 +401,12 @@ impl App {
             Page::Done => {
                 ui.heading("All done!");
                 ui.add_space(8.0);
+                let installed = install::version_paths(&self.dest(), self.game_id)
+                    .unwrap()
+                    .0;
                 ui.label(format!(
-                    "WCCF Revival is installed in {}",
-                    self.dest().display()
+                    "Forza-WCCF is installed in {}",
+                    installed.display()
                 ));
                 ui.add_space(8.0);
                 if self.setup_done {
@@ -410,7 +424,7 @@ impl App {
                 }
                 ui.add_space(10.0);
                 if ui.button("Open install folder").clicked() {
-                    open_folder(&self.dest());
+                    open_folder(&installed);
                 }
             }
         }
@@ -490,7 +504,13 @@ impl eframe::App for App {
                                     Ok(()) if last => self.start(&ctx),
                                     Ok(()) => {
                                         if page == Page::Where {
-                                            self.reuse = install::game_present(&self.dest());
+                                            if let Some(id) =
+                                                install::installed_game_id(&self.dest())
+                                            {
+                                                self.game_id = id;
+                                            }
+                                            self.reuse =
+                                                install::game_present(&self.dest(), self.game_id);
                                         }
                                         self.page = match page {
                                             Page::Welcome => Page::Where,
@@ -531,6 +551,7 @@ fn parse_headless(args: &[String]) -> anyhow::Result<Option<Plan>> {
         dest: PathBuf::new(),
         iso: None,
         key: None,
+        game_id: None,
         kit: None,
         verify: true,
         setup: true,
@@ -540,6 +561,18 @@ fn parse_headless(args: &[String]) -> anyhow::Result<Option<Plan>> {
     let mut args = args.iter();
     while let Some(flag) = args.next() {
         let slot = match flag.as_str() {
+            "--game" => {
+                ensure!(plan.game_id.is_none(), "Duplicate argument --game.");
+                let value = args.next().context("--game requires SBWG or SDDY.")?;
+                plan.game_id = Some(
+                    disc::DISCS
+                        .iter()
+                        .find(|d| d.game_id == value)
+                        .context("--game requires SBWG (2010–2011) or SDDY (2017–2018).")?
+                        .game_id,
+                );
+                continue;
+            }
             "--dest" => &mut dest,
             "--iso" => &mut plan.iso,
             "--key" => &mut plan.key,
@@ -578,10 +611,11 @@ fn headless(args: &[String]) -> anyhow::Result<bool> {
         match args[0].as_str() {
             "--help" | "-h" => {
                 println!(
-                    "WCCF RingEdge installer {}\n\n\
+                    "Forza-WCCF Installer {}\n\n\
                     No arguments: open the Windows wizard.\n\
                     Extract: --iso GAME.iso --key MATCHING_KEY --dest DIR\n\
-                    Reuse:   --dest DIR\n\
+                    Reuse:   --dest DIR --game SBWG|SDDY\n\
+                    Editions coexist in DIR/2010-2011 and DIR/2017-2018 with separate kits/settings/saves.\n\
                     Options: --kit KIT.zip (trusted 2010-2011 kit only), --no-setup, --english, --no-verify\n\
                     Info:    --help, --version\n\n\
                     Supply your own image and key. No game files or keys are included.\n\
@@ -591,7 +625,7 @@ fn headless(args: &[String]) -> anyhow::Result<bool> {
                 return Ok(true);
             }
             "--version" | "-V" => {
-                println!("wccf-installer {}", env!("CARGO_PKG_VERSION"));
+                println!("Forza-WCCF Installer {}", env!("CARGO_PKG_VERSION"));
                 return Ok(true);
             }
             _ => {}
@@ -631,7 +665,7 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
     eframe::run_native(
-        "WCCF Revival installer",
+        "Forza-WCCF Installer",
         opts,
         Box::new(|cc| {
             cc.egui_ctx.set_zoom_factor(1.15);
@@ -665,6 +699,13 @@ mod tests {
         assert_eq!(plan.dest, PathBuf::from("install folder"));
         assert!(!plan.setup && !plan.verify && !plan.shortcuts);
         assert!(parse(&["--dest", "reuse"]).unwrap().unwrap().iso.is_none());
+        assert_eq!(
+            parse(&["--dest", "reuse", "--game", "SDDY"])
+                .unwrap()
+                .unwrap()
+                .game_id,
+            Some("SDDY")
+        );
         for args in [
             vec!["--iso", "disc.iso"],
             vec!["--dest"],
@@ -674,6 +715,9 @@ mod tests {
             vec!["--dest", "a", "--iso", "disc.iso"],
             vec!["--dest", "a", "--key", "key.txt"],
             vec!["--dest", "a", "--typo"],
+            vec!["--dest", "a", "--game"],
+            vec!["--dest", "a", "--game", "unknown"],
+            vec!["--dest", "a", "--game", "SBWG", "--game", "SDDY"],
         ] {
             assert!(
                 parse(&args).is_err(),

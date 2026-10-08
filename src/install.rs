@@ -9,13 +9,15 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-pub const GAME_DIR: &str = "wccf-revival"; // what the kit's setup calls "extracted"
+pub const GAME_DIR: &str = "game";
+const LEGACY_GAME_DIR: &str = "wccf-revival"; // v0.1.0 compatibility only; never rename existing data.
 const HEADROOM: u64 = 600_000_000; // card pictures + seat folder when using the kit
 
 pub struct Plan {
     pub dest: PathBuf,
     pub iso: Option<PathBuf>, // None = reuse the game files already in dest
     pub key: Option<PathBuf>,
+    pub game_id: Option<&'static str>, // select an edition when reusing a shared install root
     pub verify: bool,
     pub setup: bool,
     pub english: bool,
@@ -29,16 +31,38 @@ pub enum Event {
     Log(String),
 }
 
-pub fn game_present(dest: &Path) -> bool {
-    dest.join(GAME_DIR).join("client_Release.exe").is_file()
-}
-
-pub fn game_id(dest: &Path) -> Option<&'static str> {
+fn game_id_in(game: &Path) -> Option<&'static str> {
     let mut ids = disc::DISCS.iter().filter(|d| {
-        dest.join(GAME_DIR)
-            .join(format!("local/{}_Table.dat", d.game_id))
+        game.join(format!("local/{}_Table.dat", d.game_id))
             .is_file()
     });
+    let id = ids.next()?.game_id;
+    ids.next().is_none().then_some(id)
+}
+
+/// Each edition owns its entire kit/settings/save tree, not just its game files.
+pub fn version_paths(dest: &Path, id: &str) -> Result<(PathBuf, PathBuf)> {
+    let disc = disc::DISCS
+        .iter()
+        .find(|d| d.game_id == id)
+        .context("Unknown game edition.")?;
+    let root = dest.join(disc.edition);
+    let legacy = dest.join(LEGACY_GAME_DIR);
+    if !root.exists() && game_id_in(&legacy) == Some(id) {
+        return Ok((dest.to_path_buf(), legacy)); // preserve older installs in place
+    }
+    let game = root.join(GAME_DIR);
+    Ok((root, game))
+}
+
+pub fn game_present(dest: &Path, id: &str) -> bool {
+    version_paths(dest, id).is_ok_and(|(_, game)| {
+        game.join("client_Release.exe").is_file() && game_id_in(&game) == Some(id)
+    })
+}
+
+pub fn installed_game_id(dest: &Path) -> Option<&'static str> {
+    let mut ids = disc::DISCS.iter().filter(|d| game_present(dest, d.game_id));
     let id = ids.next()?.game_id;
     ids.next().is_none().then_some(id)
 }
@@ -80,8 +104,21 @@ fn check(cancel: &AtomicBool) -> Result<()> {
 
 pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()> {
     check(cancel)?;
+    let detected = plan
+        .iso
+        .as_ref()
+        .and_then(|p| fs::metadata(p).ok())
+        .and_then(|m| disc::by_size(m.len()))
+        .map(|d| d.game_id);
     ensure!(
-        plan.iso.is_none() || !plan.dest.join(GAME_DIR).exists(),
+        detected.is_none() || plan.game_id.is_none() || detected == plan.game_id,
+        "The selected edition does not match the disc image."
+    );
+    let id = detected.or(plan.game_id).or_else(|| installed_game_id(&plan.dest))
+        .context("Choose --game SBWG (2010–2011) or --game SDDY (2017–2018) when both or neither edition is installed.")?;
+    let (dest, game) = version_paths(&plan.dest, id)?;
+    ensure!(
+        plan.iso.is_none() || !game.exists(),
         "The game folder already exists. Reuse it without --iso/--key, or choose a new install folder; existing files are never replaced."
     );
     let setup = plan.setup && plan.kit.is_some();
@@ -95,25 +132,19 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
         Some(disc::open(iso, &key)?)
     } else {
         ensure!(
-            game_present(&plan.dest),
+            game_present(&plan.dest, id),
             "The game files are not in {}",
             plan.dest.display()
         );
         None
     };
     if setup {
-        let id = opened
-            .as_ref()
-            .map(|(vol, _)| vol.disc.game_id)
-            .or_else(|| game_id(&plan.dest));
-        check_setup(id)?;
+        check_setup(Some(id))?;
         check_kit_zip(plan.kit.as_ref().unwrap())?;
     }
-    let game = plan.dest.join(GAME_DIR);
-    fs::create_dir_all(&plan.dest)
-        .with_context(|| format!("cannot create {}", plan.dest.display()))?;
+    fs::create_dir_all(&dest).with_context(|| format!("cannot create {}", dest.display()))?;
     if setup {
-        probe_links(&plan.dest)?;
+        probe_links(&dest)?;
     }
     if let Some((mut vol, table)) = opened {
         emit(Event::Log(format!(
@@ -134,24 +165,29 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
             )?;
         }
         ensure!(
-            free_space(&plan.dest).is_none_or(|f| f > vol.size + HEADROOM),
+            free_space(&dest).is_none_or(|f| f > vol.size + HEADROOM),
             "Not enough free space on that drive: allow about 6 GB."
         );
-        extract(&mut vol, &plan.dest, cancel, emit)?;
+        extract(&mut vol, &dest, cancel, emit)?;
     }
     if setup {
         let kit = plan.kit.as_ref().unwrap();
         emit(Event::Stage("Unpacking the kit".into()));
-        unpack_kit(kit, &plan.dest, emit)?;
+        unpack_kit(kit, &dest, emit)?;
         emit(Event::Stage("Setting up the game for this PC".into()));
         check(cancel)?;
-        script(&plan.dest, "setup.py", Some(&game), emit, cancel)?;
+        script(&dest, "setup.py", Some(&game), emit, cancel)?;
         if plan.english {
             emit(Event::Stage("Switching the game to English".into()));
-            script(&plan.dest, "english.py", None, emit, cancel)?;
+            script(&dest, "english.py", None, emit, cancel)?;
         }
         if plan.shortcuts {
-            shortcuts(&plan.dest, emit);
+            let edition = disc::DISCS
+                .iter()
+                .find(|d| d.game_id == id)
+                .unwrap()
+                .edition;
+            shortcuts(&dest, edition, emit);
         }
     } else {
         emit(Event::Log("Extraction only: no kit, English patches or shortcuts applied. These files are not a ready-to-play runtime.".into()));
@@ -236,7 +272,7 @@ fn scan<T: Read + Seek>(ntfs: &Ntfs, fs: &mut T) -> Result<Vec<Item>> {
     Ok(out)
 }
 
-/// Extract into <dest>/wccf-revival.partial, then rename: a cancelled run never leaves a half game folder.
+/// Extract into <dest>/game.partial, then rename: a cancelled run never leaves a half game folder.
 fn extract(
     vol: &mut disc::Volume,
     dest: &Path,
@@ -405,14 +441,14 @@ fn script(
     Ok(())
 }
 
-fn shortcuts(dest: &Path, emit: &dyn Fn(Event)) {
+fn shortcuts(dest: &Path, edition: &str, emit: &dyn Fn(Event)) {
     if !cfg!(windows) {
         return;
     }
     let q = |p: PathBuf| p.display().to_string().replace('\'', "''");
     let ps = format!(
         "$d=[Environment]::GetFolderPath('Desktop');$w=New-Object -ComObject WScript.Shell;\
-         foreach($n in 'PLAY','STOP'){{$s=$w.CreateShortcut(\"$d\\WCCF Revival - $n.lnk\");\
+         foreach($n in 'PLAY','STOP'){{$s=$w.CreateShortcut(\"$d\\Forza-WCCF {edition} - $n.lnk\");\
          $s.TargetPath='{}\\'+$n+'.bat';$s.WorkingDirectory='{}';$s.Save()}}",
         q(dest.into()),
         q(dest.into())
@@ -440,12 +476,12 @@ mod tests {
             .join("target")
             .join(format!("optional-kit-test-{}", std::process::id()));
         fs::create_dir(&root).unwrap();
-        let game = root.join(GAME_DIR);
+        let (edition_root, game) = version_paths(&root, "SDDY").unwrap();
         fs::create_dir_all(game.join("local")).unwrap();
         fs::write(game.join("client_Release.exe"), b"unchanged").unwrap();
         fs::write(game.join("local/SDDY_Table.dat"), b"SDDY").unwrap();
         fs::write(
-            root.join(".probe-a"),
+            edition_root.join(".probe-a"),
             b"do not touch on extraction-only installs",
         )
         .unwrap();
@@ -453,6 +489,7 @@ mod tests {
             dest: root.clone(),
             iso: None,
             key: None,
+            game_id: Some("SDDY"),
             verify: true,
             setup: true,
             english: false,
@@ -463,7 +500,50 @@ mod tests {
         run(&plan, &cancel, &|_| {}).unwrap(); // no kit, even with setup's default true
         assert!(check_setup(Some("SBWG")).is_ok());
         assert!(check_setup(None).is_err());
-        assert_eq!(game_id(&root), Some("SDDY"));
+        assert_eq!(GAME_DIR, "game");
+        assert!(game_present(&root, "SDDY"));
+        assert_eq!(installed_game_id(&root), Some("SDDY"));
+        let (old_root, old_game) = version_paths(&root, "SBWG").unwrap();
+        fs::create_dir_all(old_game.join("local")).unwrap();
+        fs::write(
+            old_game.join("client_Release.exe"),
+            b"old edition unchanged",
+        )
+        .unwrap();
+        fs::write(old_game.join("local/SBWG_Table.dat"), b"SBWG").unwrap();
+        for (dir, bytes) in [
+            (&old_root, b"old save".as_slice()),
+            (&edition_root, b"new save".as_slice()),
+        ] {
+            fs::create_dir_all(dir.join("data/save")).unwrap();
+            fs::write(dir.join("data/save/club.bin"), bytes).unwrap();
+        }
+        assert_ne!(old_root, edition_root);
+        assert!(game_present(&root, "SBWG"));
+        assert_eq!(installed_game_id(&root), None); // never choose an edition silently
+        plan.game_id = None;
+        assert!(
+            run(&plan, &cancel, &|_| {})
+                .unwrap_err()
+                .to_string()
+                .contains("--game")
+        );
+        plan.game_id = Some("SBWG");
+        run(&plan, &cancel, &|_| {}).unwrap();
+        plan.game_id = Some("SDDY");
+        run(&plan, &cancel, &|_| {}).unwrap();
+        assert_eq!(
+            fs::read(old_game.join("client_Release.exe")).unwrap(),
+            b"old edition unchanged"
+        );
+        assert_eq!(
+            fs::read(old_root.join("data/save/club.bin")).unwrap(),
+            b"old save"
+        );
+        assert_eq!(
+            fs::read(edition_root.join("data/save/club.bin")).unwrap(),
+            b"new save"
+        );
 
         let kit = root.join("kit.zip");
         let mut zip = zip::ZipWriter::new(File::create(&kit).unwrap());
@@ -478,7 +558,7 @@ mod tests {
                 .to_string()
                 .contains("does not support")
         );
-        assert!(!root.join("scripts").exists());
+        assert!(!edition_root.join("scripts").exists());
         plan.setup = false;
         run(&plan, &cancel, &|_| {}).unwrap(); // --no-setup ignores a supplied kit
         plan.english = true;
@@ -492,14 +572,32 @@ mod tests {
                 .to_string()
                 .contains("already exists")
         );
-        assert!(!root.join(format!("{GAME_DIR}.partial")).exists());
+        assert!(!edition_root.join(format!("{GAME_DIR}.partial")).exists());
         assert_eq!(
             fs::read(game.join("client_Release.exe")).unwrap(),
             b"unchanged"
         );
         assert_eq!(
-            fs::read(root.join(".probe-a")).unwrap(),
+            fs::read(edition_root.join(".probe-a")).unwrap(),
             b"do not touch on extraction-only installs"
+        );
+        // The old flat install remains usable; installing the other edition gets its own root.
+        let legacy = root.join(LEGACY_GAME_DIR);
+        fs::rename(&game, &legacy).unwrap();
+        fs::remove_dir_all(&edition_root).unwrap();
+        assert_eq!(
+            version_paths(&root, "SDDY").unwrap(),
+            (root.clone(), legacy.clone())
+        );
+        assert!(game_present(&root, "SDDY"));
+        plan.iso = None;
+        plan.key = None;
+        plan.kit = None;
+        run(&plan, &cancel, &|_| {}).unwrap();
+        assert_eq!(version_paths(&root, "SBWG").unwrap().0, old_root);
+        assert_eq!(
+            fs::read(legacy.join("client_Release.exe")).unwrap(),
+            b"unchanged"
         );
         fs::remove_dir_all(root).unwrap();
     }

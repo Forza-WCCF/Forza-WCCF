@@ -1,8 +1,8 @@
-# WCCF RingEdge Installer
+# Forza-WCCF
 
 [![CI](https://github.com/Forza-WCCF/WCCF-Installer/actions/workflows/ci.yml/badge.svg)](https://github.com/Forza-WCCF/WCCF-Installer/actions/workflows/ci.yml)
 
-A Windows x64 wizard that decrypts and extracts **your own** supported World Club
+The Forza-WCCF Windows x64 installer decrypts and extracts **your own** supported World Club
 Champion Football RingEdge disc image. Rust + egui; no Python is needed for extraction.
 
 **No game media, keys, game binaries, saves or runtime kit are distributed here.**
@@ -23,8 +23,8 @@ the game slot. The system/OS-update slot is never extracted.
 
 ## Install
 
-1. Download **[wccf-installer.exe](https://github.com/Forza-WCCF/WCCF-Installer/releases/download/v0.1.0/wccf-installer.exe)**
-   from the [release](https://github.com/Forza-WCCF/WCCF-Installer/releases/tag/v0.1.0).
+1. Download **[wccf-installer.exe](https://github.com/Forza-WCCF/WCCF-Installer/releases/download/v0.1.1/wccf-installer.exe)**
+   from the [release](https://github.com/Forza-WCCF/WCCF-Installer/releases/tag/v0.1.1).
    The repository is private: GitHub sign-in and repository access are required.
    Keep the accompanying `LICENSE` and `THIRD-PARTY-LICENSES.json` with the EXE.
    Alternatively, download the ZIP containing the EXE and all documentation.
@@ -32,13 +32,24 @@ the game slot. The system/OS-update slot is never extracted.
    if you chose the ZIP.
 3. Open `wccf-installer.exe`, choose your own ISO and matching keyfile, then an
    empty install folder. Allow about 6 GB free space and permission to write there.
-4. Leave the kit blank for extraction only. Files appear in
-   `<install folder>\wccf-revival`.
+4. Leave the kit blank for extraction only. New installs use separate trees:
+   `<install folder>\2010-2011\game` and `<install folder>\2017-2018\game`.
+   The default base folder is `C:\Games\Forza-WCCF`.
 
 Existing game folders are **never replaced**. Reuse them in the wizard, or choose
 another destination. Cancelled/failed extraction can leave a
-`wccf-revival.partial` staging folder; a retry replaces that staging folder,
-not an existing game folder. Back up your saves before using any external kit.
+`game.partial` staging folder inside its edition root; a retry replaces that
+staging folder, not an existing game folder. Earlier installations are detected
+and reused in place; no existing files or saves are moved. Back up saves before
+using any external kit.
+
+### Both editions can coexist
+
+Each edition has its own `game`, kit/Python/scripts, `data`, settings, logs and
+saves. Installing one never updates the other. Desktop shortcuts include the
+edition: `Forza-WCCF 2010-2011 - PLAY/STOP`. The wizard lets you choose which
+edition to reuse; use `--game SBWG` or `--game SDDY` in headless mode when both
+are installed. New extraction chooses the edition from the disc layout.
 
 Verify a download in PowerShell:
 
@@ -84,13 +95,14 @@ before destination writes unless `--no-setup` is selected.
 
 ```powershell
 # Extract either supported image; no kit needed:
-.\wccf-installer.exe --iso "D:\Media\GAME.iso" --key "D:\Keys\GAME.key" --dest "D:\Games\WCCF"
+.\wccf-installer.exe --iso "D:\Media\GAME.iso" --key "D:\Keys\GAME.key" --dest "D:\Games\Forza-WCCF"
 
 # Reuse existing extracted files without reading media or keys:
-.\wccf-installer.exe --dest "D:\Games\WCCF"
+.\wccf-installer.exe --dest "D:\Games\Forza-WCCF" --game SBWG
+.\wccf-installer.exe --dest "D:\Games\Forza-WCCF" --game SDDY
 
 # Optional trusted 2010–2011 kit:
-.\wccf-installer.exe --iso REV_D.iso --key REV_D.key --dest "D:\Games\WCCF" --kit KIT.zip --english
+.\wccf-installer.exe --iso REV_D.iso --key REV_D.key --dest "D:\Games\Forza-WCCF" --kit KIT.zip --english
 
 .\wccf-installer.exe --help
 .\wccf-installer.exe --version

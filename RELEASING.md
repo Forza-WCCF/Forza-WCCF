@@ -1,7 +1,7 @@
 # Release checklist
 
 Repository: `Forza-WCCF/WCCF-Installer` (private).
-Release `0.1.0` is an experimental installer prerelease, not a playable-game kit.
+Forza-WCCF `0.1.1` is an experimental installer prerelease, not a playable-game kit.
 
 ## Quick checks, reuse evidence
 
@@ -21,7 +21,7 @@ Release `0.1.0` is an experimental installer prerelease, not a playable-game kit
   belong in source control, hosted CI or release assets.
 
 Windows CI is available for fresh code builds. Manual Windows GUI interaction is
-not yet validated for 0.1.0. The owner explicitly approved publishing the experimental
+not yet validated. The owner explicitly approved publishing the experimental
 prerelease with quick functional checks and prior extraction evidence. No completed
 player-match, save/reload or ready-to-play claim is made.
 
@@ -42,21 +42,21 @@ Do not distribute a lone EXE without the accompanying license notices.
 ## Tag and publish with owner approval
 
 ```sh
-git tag -a v0.1.0 -m "WCCF RingEdge installer 0.1.0 prerelease"
-git push origin main v0.1.0
-gh release create v0.1.0 dist/* --verify-tag --prerelease \
-  --title "WCCF RingEdge Installer v0.1.0" --notes-file RELEASE_NOTES.md
+git tag -a v0.1.1 -m "Forza-WCCF 0.1.1 prerelease"
+git push origin main v0.1.1
+gh release create v0.1.1 dist/* --verify-tag --prerelease \
+  --title "Forza-WCCF v0.1.1" --notes-file RELEASE_NOTES.md
 ```
 
 Pushing a tag does not trigger another build. The direct EXE download is
-`releases/download/v0.1.0/wccf-installer.exe`; repository access is required.
+`releases/download/v0.1.1/wccf-installer.exe`; repository access is required.
 Keep experimental versions marked prerelease. Publication does not make the
 private repository public. Do not modify assets of a published release.
 
 ## Optional hosted draft build
 
 ```sh
-gh workflow run release.yml --ref v0.1.0
+gh workflow run release.yml --ref v0.1.1
 ```
 
 Run this only when a fresh hosted build is wanted **before** publication. It

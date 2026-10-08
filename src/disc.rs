@@ -12,6 +12,7 @@ use std::path::Path;
 pub struct Disc {
     pub name: &'static str,
     pub game_id: &'static str,
+    pub edition: &'static str,
     pub iso_size: u64,
     pub slot_start: u64,
     pub slot_end: u64,
@@ -22,6 +23,7 @@ pub const DISCS: [Disc; 2] = [
     Disc {
         name: "WCCF 2010–2011 (Rev D)",
         game_id: "SBWG",
+        edition: "2010-2011",
         iso_size: 5_034_770_432,
         slot_start: 0x378000,
         slot_end: 0x10D5F8000,
@@ -29,6 +31,7 @@ pub const DISCS: [Disc; 2] = [
     Disc {
         name: "WCCF 2017–2018 v2.00.00 (DVR-5059A)",
         game_id: "SDDY",
+        edition: "2017-2018",
         iso_size: 5_921_865_728,
         slot_start: 0x1FCB8000,
         slot_end: 0x160F38000,
