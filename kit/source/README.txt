@@ -8,7 +8,7 @@ The C source of every program the kit ships. Each was built with Microsoft's C c
   bin\logowin.exe      logowin\logowin_standin.c
                        cl /nologo /O2 /MT /W3 /D_CRT_SECURE_NO_WARNINGS logowin_standin.c /Fe:logowin.exe /link /SUBSYSTEM:WINDOWS
   overlay\wccfpanel.dll   overlay\wccfpanel.c
-                       cl /nologo /LD /O2 /MT /W3 /D_CRT_SECURE_NO_WARNINGS wccfpanel.c /Fe:wccfpanel.dll
+                       cl /nologo /LD /O2 /MT /W3 /D_CRT_SECURE_NO_WARNINGS wccfpanel.c /Fe:wccfpanel.dll /link user32.lib gdi32.lib ole32.lib d3d9.lib windowscodecs.lib ws2_32.lib shell32.lib advapi32.lib winmm.lib shlwapi.lib  (x86 tools)
                           /link d3d9.lib gdi32.lib user32.lib ole32.lib windowscodecs.lib
   overlay\inject.exe   overlay\inject.c (must be 32-bit: it hands the game 32-bit LoadLibraryA's address)
                        cl /nologo /O2 /MT /W3 /D_CRT_SECURE_NO_WARNINGS inject.c /Fe:inject.exe

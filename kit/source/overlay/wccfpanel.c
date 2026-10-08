@@ -1244,7 +1244,7 @@ static struct CatCard *g_cat = NULL;     // the catalogue, placeholders left out
 static int   g_ncat = 0;
 static int   g_browse = 0;               // the browser is open
 static char  g_query[28];
-static int   g_res[4096], g_nres = 0;    // indices into g_cat that match the query and the filters, in sort order
+static int   g_res[16384], g_nres = 0;   // indices into g_cat that match the query and the filters, in sort order
 static int   g_scroll = 0;               // first row shown
 static int   g_bhover = -1;              // the result under the mouse (index into g_res)
 static int   g_bdetail = -1;             // the card in the stats pane (index into g_cat): the last one pointed at
@@ -1342,7 +1342,7 @@ static void run_search_locked(void)
 // (offence defence technique power speed stamina, 1..20), 30 stats_total.  Board thread, once.
 static void load_catalogue(void)
 {
-    char line[8192]; int n = 0, cap = 4096, k; struct CatCard *a; FILE *f = fopen(g_cat_path, "rb");
+    char line[8192]; int n = 0, cap = 16384, k; struct CatCard *a; FILE *f = fopen(g_cat_path, "rb");   // 17-18: 8,396 cards
     if (!f) { logline("browser: no catalogue at %s", g_cat_path); return; }
     a = (struct CatCard *)calloc((size_t)cap, sizeof *a);
     if (!a) { fclose(f); return; }
