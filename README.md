@@ -23,9 +23,13 @@ the game slot. The system/OS-update slot is never extracted.
 
 ## Install
 
-1. Download the Windows x64 ZIP from [Releases](https://github.com/Forza-WCCF/WCCF-Installer/releases)
-   when a release has been approved. Draft releases are visible only to maintainers.
-2. Verify the ZIP against the release's `SHA256SUMS.txt` and unpack it.
+1. Download **[wccf-installer.exe](https://github.com/Forza-WCCF/WCCF-Installer/releases/download/v0.1.0/wccf-installer.exe)**
+   from the [release](https://github.com/Forza-WCCF/WCCF-Installer/releases/tag/v0.1.0).
+   The repository is private: GitHub sign-in and repository access are required.
+   Keep the accompanying `LICENSE` and `THIRD-PARTY-LICENSES.json` with the EXE.
+   Alternatively, download the ZIP containing the EXE and all documentation.
+2. Compare the EXE (or ZIP) with the matching line in `SHA256SUMS.txt`; unpack only
+   if you chose the ZIP.
 3. Open `wccf-installer.exe`, choose your own ISO and matching keyfile, then an
    empty install folder. Allow about 6 GB free space and permission to write there.
 4. Leave the kit blank for extraction only. Files appear in
@@ -39,7 +43,7 @@ not an existing game folder. Back up your saves before using any external kit.
 Verify a download in PowerShell:
 
 ```powershell
-Get-FileHash .\wccf-installer-v0.1.0-windows-x64.zip -Algorithm SHA256
+Get-FileHash .\wccf-installer.exe -Algorithm SHA256
 ```
 
 Compare the hash with the matching line in `SHA256SUMS.txt`. The binaries are
@@ -72,8 +76,9 @@ before destination writes unless `--no-setup` is selected.
 - The local 2017–2018 runtime reached attract/guest play, but player models did
   not render; completed matches and save/reload remain unverified. No runtime
   compatibility is promised by successful extraction.
-- Windows GUI interaction remains a manual release gate. Automated checks use
-  synthetic files and never start the game.
+- Windows GUI interaction has not been manually validated. This experimental
+  prerelease is owner-approved using quick functional checks and prior extraction
+  evidence. Automated checks use synthetic files and never start the game.
 
 ## Headless use
 
@@ -112,12 +117,14 @@ powershell -NoProfile -File scripts/package.ps1
 ```
 
 The release profile uses thin LTO, one codegen unit, abort-on-panic and stripped
-symbols; no host-specific CPU tuning. Packaging creates a ZIP with the EXE,
-README, changelog, MIT license and Windows dependency license notices, plus a
-SHA-256 checksum file in `dist/`.
+symbols; no host-specific CPU tuning. Packaging stages the downloadable EXE,
+README, changelog, MIT license and Windows dependency license notices in `dist/`,
+plus a ZIP containing those files and checksums for the EXE and ZIP.
 
-Optional read-only integration check (never run on hosted CI or supply secrets
-there):
+Optional read-only integration check, only for a concrete decryption regression
+or an explicit request. Reuse passing evidence; do not repeat extraction or
+game-tree hashing for documentation/packaging changes. Never supply media or
+keys to hosted CI:
 
 ```powershell
 $env:WCCF_ISO = 'D:\Media\GAME.iso'
@@ -132,11 +139,14 @@ claim about gameplay.
 
 ## Automation and release
 
-- **CI:** format, strict Clippy, unit tests, Windows MSVC release build, synthetic
-  headless smoke check, dependency-notice completeness and downloadable package.
-- **Draft release:** pushing `v<version>` reuses CI, checks tag/package-version
-  agreement, and creates a **draft prerelease**, never a published release.
-  Write permissions exist only in the final release job; actions are SHA-pinned.
+- **CI:** executable source/dependency changes (or manual runs) get format, strict
+  Clippy, unit tests, Windows MSVC release build, synthetic headless smoke checks,
+  notice completeness and downloadable assets. Documentation/packaging-only
+  changes use quick local checks instead of rebuilding the unchanged EXE.
+- **Draft release:** manually dispatch `release.yml` on an existing `v<version>`
+  tag to build/check a fresh binary and create a draft prerelease. Pushing a tag
+  does not rebuild an already validated local EXE. Publishing requires owner
+  approval. Write permissions exist only in the final job; actions are SHA-pinned.
 - **Dependabot:** weekly grouped Cargo and GitHub Actions updates; no auto-merge.
   Cargo updates must refresh/review `THIRD-PARTY-LICENSES.json` before CI passes.
 

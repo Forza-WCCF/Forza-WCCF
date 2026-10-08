@@ -3,7 +3,13 @@ name: CI
 on:
   push:
     branches: [main]
+    paths: &executable-paths
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
   pull_request:
+    paths: *executable-paths
   workflow_dispatch:
   workflow_call:
 
@@ -51,7 +57,12 @@ jobs:
         with:
           name: windows-x64
           path: |
+            dist/wccf-installer.exe
             dist/wccf-installer-*-windows-x64.zip
             dist/SHA256SUMS.txt
+            dist/README.md
+            dist/CHANGELOG.md
+            dist/LICENSE
+            dist/THIRD-PARTY-LICENSES.json
           if-no-files-found: error
           retention-days: 14

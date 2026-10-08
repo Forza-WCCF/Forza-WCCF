@@ -1,8 +1,9 @@
 name: Draft release
 
+# Run on an existing version tag: gh workflow run release.yml --ref v0.1.0
+# Manual dispatch avoids rebuilding a validated local EXE just to publish it.
 on:
-  push:
-    tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -41,6 +42,7 @@ jobs:
           set -euo pipefail
           version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')
           test "$TAG" = "v$version"
+          test -f dist/wccf-installer.exe
           test -f "dist/wccf-installer-$TAG-windows-x64.zip"
           (cd dist && sha256sum --strict -c SHA256SUMS.txt)
           python3 - <<'PY'
@@ -48,6 +50,9 @@ jobs:
           payload = {"wccf-installer.exe", "README.md", "CHANGELOG.md", "LICENSE", "THIRD-PARTY-LICENSES.json"}
           with zipfile.ZipFile(f'dist/wccf-installer-{os.environ["TAG"]}-windows-x64.zip') as archive:
               assert set(archive.namelist()) == payload, "Unexpected release archive contents"
+          from pathlib import Path
+          expected = payload | {f'wccf-installer-{os.environ["TAG"]}-windows-x64.zip', "SHA256SUMS.txt"}
+          assert {p.name for p in Path("dist").iterdir()} == expected, "Unexpected release asset"
           PY
           {
             printf 'Experimental Windows x64 installer %s\n\nSource commit: %s\n\n' "$TAG" "$GITHUB_SHA"
@@ -55,16 +60,16 @@ jobs:
             printf '\nNo media, keys, game binaries, runtime kit or saves are included. Supply your own supported image and matching key.\n\n'
             printf 'SBWG 2010-2011 Rev D: extraction and optional trusted kit setup. SDDY 2017-2018 2.00.00: extraction only.\n\n'
             printf 'Extraction is not a playable-game claim. Do not launch original unguarded executables. Windows GUI/manual release checks are still required; binaries are unsigned.\n\n'
-            printf 'Verify the ZIP with SHA256SUMS.txt and read the bundled README.\n\n'
+            printf 'Download wccf-installer.exe directly, or the ZIP with all documentation. SHA256SUMS.txt covers both; LICENSE and THIRD-PARTY-LICENSES.json accompany the EXE.\n\n'
             printf 'Owner checklist: RELEASING.md. This draft must be reviewed before publication.\n\n'
             cat CHANGELOG.md
           } > "$RUNNER_TEMP/release-notes.md"
           if gh release view "$TAG" --json isDraft > "$RUNNER_TEMP/release.json" 2> "$RUNNER_TEMP/release-error.txt"; then
             python3 -c 'import json, sys; assert json.load(open(sys.argv[1]))["isDraft"], "Refusing to overwrite a published release"' "$RUNNER_TEMP/release.json"
-            gh release upload "$TAG" "dist/wccf-installer-$TAG-windows-x64.zip" dist/SHA256SUMS.txt --clobber
+            gh release upload "$TAG" dist/* --clobber
           else
             grep -qi 'release not found' "$RUNNER_TEMP/release-error.txt"
-            gh release create "$TAG" "dist/wccf-installer-$TAG-windows-x64.zip" dist/SHA256SUMS.txt \
+            gh release create "$TAG" dist/* \
               --verify-tag --draft --prerelease --title "WCCF RingEdge Installer $TAG" \
               --notes-file "$RUNNER_TEMP/release-notes.md"
           fi

@@ -16,15 +16,21 @@ $stage = Join-Path 'target' 'release-package'
 New-Item $stage -ItemType Directory -Force | Out-Null
 New-Item dist -ItemType Directory -Force | Out-Null
 Copy-Item $Exe (Join-Path $stage 'wccf-installer.exe') -Force
+Copy-Item $Exe 'dist/wccf-installer.exe' -Force
 $docs = @('README.md', 'CHANGELOG.md', 'LICENSE', 'THIRD-PARTY-LICENSES.json')
-foreach ($file in $docs) { Copy-Item $file (Join-Path $stage $file) -Force }
+foreach ($file in $docs) {
+    Copy-Item $file (Join-Path $stage $file) -Force
+    Copy-Item $file (Join-Path 'dist' $file) -Force
+}
 # Explicit payload: never archive the repository, media, kit, saves or target tree.
 $payload = @('wccf-installer.exe') + $docs
 $paths = @($payload | ForEach-Object { Join-Path $stage $_ })
 $archive = Join-Path 'dist' "wccf-installer-$Tag-windows-x64.zip"
 Compress-Archive -Path $paths -DestinationPath $archive -Force
-$hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-"$hash  $(Split-Path $archive -Leaf)" | Set-Content 'dist/SHA256SUMS.txt' -Encoding ASCII
+@('dist/wccf-installer.exe', $archive) | ForEach-Object {
+    $hash = (Get-FileHash $_ -Algorithm SHA256).Hash.ToLowerInvariant()
+    "$hash  $(Split-Path $_ -Leaf)"
+} | Set-Content 'dist/SHA256SUMS.txt' -Encoding ASCII
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zip = [IO.Compression.ZipFile]::OpenRead((Convert-Path $archive))
 try {

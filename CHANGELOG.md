@@ -9,7 +9,7 @@
 - Optional user-supplied 2010–2011 kit; setup is rejected for SDDY before destination writes.
 - Refuse to replace an existing game folder; existing files can be reused without disc inputs.
 - Help/version output and strict headless argument validation.
-- Windows CI, checksummed release bundles and draft-only release automation.
+- Windows CI, downloadable EXE, accompanying license notices, checksummed bundles and manually dispatched draft-release automation.
 
 No game media, keys, extracted files, runtime kit or player saves are included.
 This release prepares files, not a verified playable game. Windows GUI interaction,
