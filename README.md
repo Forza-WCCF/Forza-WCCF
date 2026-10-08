@@ -152,9 +152,9 @@ claim about gameplay.
 ## Automation and release
 
 - **CI:** executable source/dependency changes (or manual runs) get format, strict
-  Clippy (Linux and Windows targets), unit tests, notice completeness and the
-  Windows x64 release EXE on Linux (cross-built with cargo-xwin against Microsoft's
-  CRT/SDK), then synthetic headless smoke checks and the downloadable assets on Windows. Documentation/packaging-only
+  Clippy (Linux and Windows targets), unit tests and notice completeness on Linux,
+  then the Windows MSVC release build, synthetic headless smoke checks and the
+  downloadable assets on Windows. Documentation/packaging-only
   changes use quick local checks instead of rebuilding the unchanged EXE.
 - **Draft release:** manually dispatch `release.yml` on an existing `v<version>`
   tag to build/check a fresh binary and create a draft prerelease. Pushing a tag
