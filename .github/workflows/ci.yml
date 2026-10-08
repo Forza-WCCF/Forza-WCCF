@@ -8,6 +8,7 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
+      - '.github/workflows/ci.yml'
   pull_request:
     paths: *executable-paths
   workflow_dispatch:
@@ -25,10 +26,61 @@ env:
   CARGO_INCREMENTAL: '0'
 
 jobs:
+  # Everything that only needs a compiler runs on Linux: cheaper minutes and a faster build than a Windows runner.
+  # The Windows x64 release EXE is cross-built with cargo-xwin (Microsoft's CRT and SDK libraries, linked by
+  # rust-lld; no dependency compiles C for this target). Only what must run Windows stays on Windows (below).
+  linux:
+    name: Checks and Windows x64 release build (Linux, cross)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchain and the Windows target
+        run: |
+          rustup show
+          rustup target add x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-directories: ~/.cache/cargo-xwin
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Lint (Linux and Windows targets)
+        run: |
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo clippy --locked --all-targets --target x86_64-pc-windows-msvc -- -D warnings
+      - name: Test (no game media or keys)
+        run: cargo test --locked
+      - name: Check dependency license notices
+        shell: pwsh
+        run: ./scripts/check-licenses.ps1
+      - name: Install cargo-xwin (pinned release, checksum verified)
+        env:
+          XWIN_VERSION: 0.23.1
+          XWIN_SHA256: c492c6dfb7e5ac0eee586b796e0fc950ba13077e7f0bbb046f445d71790d5360
+        run: |
+          set -euo pipefail
+          file="cargo-xwin-v$XWIN_VERSION.x86_64-unknown-linux-musl.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/$file" "https://github.com/rust-cross/cargo-xwin/releases/download/v$XWIN_VERSION/$file"
+          echo "$XWIN_SHA256  $RUNNER_TEMP/$file" | sha256sum --strict -c -
+          tar -xzf "$RUNNER_TEMP/$file" -C "$HOME/.cargo/bin" cargo-xwin
+      - name: Build Windows x64 release
+        env:
+          XWIN_ACCEPT_LICENSE: '1'
+        run: cargo xwin build --locked --release --target x86_64-pc-windows-msvc
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: windows-x64-exe
+          path: target/x86_64-pc-windows-msvc/release/wccf-installer.exe
+          if-no-files-found: error
+          retention-days: 1
+
   windows:
-    name: Windows x64 checks and package
+    name: Windows x64 smoke check and package
+    needs: linux
     runs-on: windows-2025
-    timeout-minutes: 45
+    timeout-minutes: 15
     defaults:
       run:
         shell: pwsh
@@ -36,18 +88,12 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - name: Install pinned Rust toolchain
+      - name: Install pinned Rust toolchain (package.ps1 checks notices with cargo tree)
         run: rustup show
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-      - name: Lint
-        run: cargo clippy --locked --all-targets -- -D warnings
-      - name: Test (no game media or keys)
-        run: cargo test --locked
-      - name: Check dependency license notices
-        run: ./scripts/check-licenses.ps1
-      - name: Build Windows x64 release
-        run: cargo build --locked --release --target x86_64-pc-windows-msvc
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: windows-x64-exe
+          path: target/x86_64-pc-windows-msvc/release
       - name: Synthetic headless smoke check
         run: ./scripts/smoke.ps1
       - name: Package

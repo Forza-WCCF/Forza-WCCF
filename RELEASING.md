@@ -20,7 +20,7 @@ Forza-WCCF `0.1.1` is an experimental installer prerelease, not a playable-game 
 - No media, keys, game binaries, runtime kit, saves, personal logs or credentials
   belong in source control, hosted CI or release assets.
 
-Windows CI is available for fresh code builds. Manual Windows GUI interaction is
+CI builds fresh code (Linux cross-build, Windows smoke check). Manual Windows GUI interaction is
 not yet validated. The owner explicitly approved publishing the experimental
 prerelease with quick functional checks and prior extraction evidence. No completed
 player-match, save/reload or ready-to-play claim is made.
