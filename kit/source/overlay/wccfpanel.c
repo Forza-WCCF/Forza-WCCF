@@ -1238,8 +1238,17 @@ static void board_hover(HWND h, int x, int y)
 #define ADD_Y0 529.0f
 #define ADD_X1 1196.0f
 #define ADD_Y1 569.0f
-struct CatCard { int no; char full[48]; char shown[24]; char pos[4]; char club[28]; char season[16]; char rar[16];
-                 unsigned char st[6]; unsigned char total; };      // st: offence defence technique power speed stamina
+struct CatCard { int no; char full[48]; char shown[24]; char pos[4]; char club[28]; char nat[28]; char season[16];
+                 char rar[16]; unsigned char st[6]; unsigned char total;   // st: offence defence technique power speed stamina
+                 unsigned char role[16]; };                     // 1..10 per role (ROLE_NAME), all 0 = not known
+// The roles a card suits (ported from the 2010-11 kit, 76d246f): the first 16 of the player record's hidden values
+// (2010-11 catalogue column hidden_params = record +0x237; 2017-18 hidden_4df_523 = record +0x4DF, the same field),
+// 1..10.  The game names none of them: the names are INFERRED from the players rated 10 in each (CF Drogba, TM Toni,
+// WG Robben, SS Del Piero, OMF Riquelme, OH Xavi, CMF Lampard, DMF Makelele, SMF Giggs, WB Cafu, SB A.Cole, CB Terry,
+// STP Cannavaro, CVR Nesta, SW Matthaus, GK).  2017-18's own new cards (2015-16 on) hold 0 there: no ROLES for them.
+static const char *ROLE_NAME[16] = { "CF", "TM", "WG", "SS", "OMF", "OH", "CMF", "DMF", "SMF", "WB", "SB", "CB",
+                                     "STP", "CVR", "SW", "GK" };
+#define ROLE_GOOD 8                      // a role search word ("dmf") lists cards rated at least this in it
 static struct CatCard *g_cat = NULL;     // the catalogue, placeholders left out, sorted by the shown name
 static int   g_ncat = 0;
 static int   g_browse = 0;               // the browser is open
@@ -1314,11 +1323,28 @@ static int res_cmp(const void *a, const void *b)   // the chosen stat, best firs
     return *(const int *)a - *(const int *)b;     // g_cat is in name order
 }
 
-// g_query + the filters -> g_res: digits = card numbers starting so, else names containing it; then the sort
+// One search word against one card (2026-10-08): a name, a club or a country containing it (2010-11 kit d750f94: "milan",
+// "brazil"), a season ("2017-18", "2017"), the line exactly ("fw"), or a role exactly ("dmf": rated ROLE_GOOD or more);
+// digits also match the card number's start.
+static int word_matches(const struct CatCard *c, const char *w)
+{
+    int k, digits = 1; char num[16];
+    for (const char *p = w; *p; p++) if (*p < '0' || *p > '9') digits = 0;
+    if (digits) { _snprintf(num, sizeof num, "%d", c->no); if (strncmp(num, w, strlen(w)) == 0) return 1; }
+    if (has_text(c->full, w) || has_text(c->shown, w) || has_text(c->club, w) || has_text(c->nat, w) ||
+        has_text(c->season, w) || _stricmp(c->pos, w) == 0) return 1;
+    for (k = 0; k < 16; k++) if (c->role[k] >= ROLE_GOOD && _stricmp(ROLE_NAME[k], w) == 0) return 1;
+    return 0;
+}
+
+// g_query + the filters -> g_res, then the sort.  Only digits = card numbers starting so (as before); otherwise every
+// word must match (word_matches): "barcelona 2017-18", "brazil fw", "italy cb", "messi".
 static void run_search_locked(void)
 {
-    int digits = g_query[0] != 0; size_t ql = strlen(g_query); char num[16];
+    int digits = g_query[0] != 0, nw = 0; size_t ql = strlen(g_query); char num[16], words[sizeof g_query], *w[8], *t;
     for (const char *p = g_query; *p; p++) if (*p < '0' || *p > '9') digits = 0;
+    lstrcpynA(words, g_query, sizeof words);
+    for (t = strtok(words, " "); t && nw < 8; t = strtok(NULL, " ")) w[nw++] = t;
     g_nres = 0;
     for (int i = 0; i < g_ncat && g_nres < (int)(sizeof g_res / sizeof g_res[0]); i++) {
         const struct CatCard *c = &g_cat[i];
@@ -1330,7 +1356,7 @@ static void run_search_locked(void)
             if (out || c->total < g_rlo[6] || c->total > g_rhi[6]) continue;
         }
         if (digits) { _snprintf(num, sizeof num, "%d", c->no); if (strncmp(num, g_query, ql) != 0) continue; }
-        else if (!has_text(c->full, g_query) && !has_text(c->shown, g_query)) continue;
+        else { int k, ok = 1; for (k = 0; k < nw && ok; k++) ok = word_matches(c, w[k]); if (!ok) continue; }
         g_res[g_nres++] = i;
     }
     if (g_sort && g_nres > 1) qsort(g_res, (size_t)g_nres, sizeof g_res[0], res_cmp);
@@ -1343,23 +1369,42 @@ static void run_search_locked(void)
 static void load_catalogue(void)
 {
     char line[8192]; int n = 0, cap = 16384, k; struct CatCard *a; FILE *f = fopen(g_cat_path, "rb");   // 17-18: 8,396 cards
+    int col_nat = 19, col_role = -1;     // found by the header's names: 2010-11 hidden_params (40), 2017-18 hidden_4df_523 (45)
     if (!f) { logline("browser: no catalogue at %s", g_cat_path); return; }
     a = (struct CatCard *)calloc((size_t)cap, sizeof *a);
     if (!a) { fclose(f); return; }
     while (fgets(line, sizeof line, f) && n < cap) {
-        char *fld[32], *p = line; int nf = 1;
+        char *fld[64], *p = line; int nf = 1;
         fld[0] = line;
-        for (; *p && nf < 32; p++) if (*p == '\t') { *p = 0; fld[nf++] = p + 1; }
-        if (nf < 31 || fld[0][0] < '1' || fld[0][0] > '9' || strcmp(fld[9], "1") == 0) continue;   // header, placeholders
+        for (; *p && nf < 64; p++) if (*p == '\t' || *p == '\r' || *p == '\n') { *p = 0; if (nf < 64) fld[nf++] = p + 1; }
+        if (strcmp(fld[0], "card_no") == 0) {                          // the header: where this catalogue keeps them
+            for (k = 0; k < nf; k++) {
+                if (strcmp(fld[k], "nationality_name") == 0) col_nat = k;
+                if (strcmp(fld[k], "hidden_params") == 0 || strcmp(fld[k], "hidden_4df_523") == 0) col_role = k;
+            }
+            continue;
+        }
+        if (nf < 31 || fld[0][0] < '1' || fld[0][0] > '9' || strcmp(fld[9], "1") == 0) continue;   // placeholders
         a[n].no = atoi(fld[0]);
         fold_name(fld[10], a[n].full, sizeof a[n].full);
         fold_name(fld[11], a[n].shown, sizeof a[n].shown);
         fold_name(fld[17], a[n].club, sizeof a[n].club);
+        if (col_nat < nf) fold_name(fld[col_nat], a[n].nat, sizeof a[n].nat);
         lstrcpynA(a[n].pos, fld[15], sizeof a[n].pos);
         lstrcpynA(a[n].season, fld[5], sizeof a[n].season);
         lstrcpynA(a[n].rar, fld[7], sizeof a[n].rar);
         for (k = 0; k < 6; k++) a[n].st[k] = (unsigned char)atoi(fld[24 + k]);
         a[n].total = (unsigned char)atoi(fld[30]);
+        if (col_role >= 0 && col_role < nf) {             // "v v v ...": the first 16 are the roles, kept only if all 1..10
+            const char *q = fld[col_role]; int ok = 1;
+            for (k = 0; k < 16 && ok; k++) {
+                char *end; long v = strtol(q, &end, 10);
+                ok = end != q && v >= 1 && v <= 10;
+                a[n].role[k] = (unsigned char)v;
+                q = end;
+            }
+            if (!ok) memset(a[n].role, 0, sizeof a[n].role);
+        }
         if (a[n].no > 0) n++;
     }
     fclose(f);
@@ -1531,7 +1576,7 @@ static void draw_pane(IDirect3DDevice9 *dev, const struct Geo *g, float s)
     set_picture(dev, g_font_tex, 1);
     put_in_rect(dev, RC(px, y, px + pw, y + 26.0f * s), 0.58f * s, white, c->full[0] ? c->full : c->shown);
     y += 28.0f * s;
-    _snprintf(line, sizeof line, "%s  -  %s", c->pos, c->club[0] ? c->club : "-");
+    _snprintf(line, sizeof line, "%s  -  %s  -  %s", c->pos, c->club[0] ? c->club : "-", c->nat[0] ? c->nat : "-");
     put_in_rect(dev, RC(px, y, px + pw, y + 20.0f * s), 0.42f * s, line_colour(c->pos), line);
     y += 20.0f * s;
     _snprintf(line, sizeof line, "%s  -  %s  -  #%d", c->season, c->rar, c->no);
@@ -1555,6 +1600,21 @@ static void draw_pane(IDirect3DDevice9 *dev, const struct Geo *g, float s)
     _snprintf(line, sizeof line, "TOTAL  %d", c->total);
     put_in_rect(dev, RC(px, y, px + pw, y + 30.0f * s), 0.66f * s, D3DCOLOR_ARGB(255, 255, 138, 42), line);
     y += 34.0f * s;
+    {                                                                   // its best three roles (ROLE_NAME)
+        int best[3] = { -1, -1, -1 }, b, n = 0;
+        for (b = 0; b < 3; b++)
+            for (k = 0; k < 16; k++)
+                if (c->role[k] && k != best[0] && k != best[1] && (best[b] < 0 || c->role[k] > c->role[best[b]])) best[b] = k;
+        line[0] = 0;
+        for (b = 0; b < 3 && best[b] >= 0; b++)
+            n += _snprintf(line + n, sizeof line - n, "%s%s %d", b ? "   " : "ROLES  ", ROLE_NAME[best[b]], c->role[best[b]]);
+        if (line[0]) {
+            put_in_rect(dev, RC(px, y, px + pw, y + 22.0f * s), 0.46f * s, white, line);
+            put_in_rect(dev, RC(px, y + 22.0f * s, px + pw, y + 38.0f * s), 0.34f * s, grey,
+                        "out of 10 - role names inferred, not the game's");
+            y += 44.0f * s;
+        }
+    }
     put_in_rect(dev, RC(px, y, px + pw, y + 20.0f * s), 0.40f * s, on ? D3DCOLOR_ARGB(255, 255, 214, 40) : grey,
                 on ? "ON THE TABLE" : "click its card to put it on the table");
 }
@@ -1705,7 +1765,7 @@ static void browse_draw(IDirect3DDevice9 *dev)
         set_picture(dev, g_font_tex, 1);
         put_str(dev, g.x0 + 24.0f * s, 14.0f * s, 0.85f * s, orange, "CATALOGUE");
         if (g_query[0]) _snprintf(line, sizeof line, "%s%s", g_query, (now / 500) & 1 ? "_" : "");
-        else _snprintf(line, sizeof line, "type a name or a card number%s", (now / 500) & 1 ? "_" : "");
+        else _snprintf(line, sizeof line, "name, club, country, season, FW, DMF... or a card number%s", (now / 500) & 1 ? "_" : "");
         put_str(dev, (float)g.box.left + 10.0f * s, (float)g.box.top + 6.0f * s, 0.72f * s, g_query[0] ? white : grey, line);
         put_str(dev, g.x0 + 24.0f * s, 102.0f * s, 0.42f * s, grey, "POSITION");
         put_str(dev, g.lab_rar, 102.0f * s, 0.42f * s, grey, "RARITY");

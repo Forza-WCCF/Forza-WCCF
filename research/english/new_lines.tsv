@@ -1,0 +1,1351 @@
+key	english	note
+SYS_AIME_QRbutton_0000	Aime Service Site Registration	
+SYS_AIME_error_0000	Error 6501\nAime Card Reader Not Found 	
+SYS_AIME_error_0001	Error 6502\nAn unknown error occurred.\nIf turning the power OFF/ON does not fix it, contact customer support.\nAn error occurred at an unexpected point in the library. The hardware may be faulty.	
+SYS_AIME_error_0002	Error 6503 \nCould not read the Aime.\nReturning to the attract screen.	
+SYS_AIME_error_0003	Error 6504\nAn unsupported card was placed, or the Aime was not recognised.\nHold the Aime correctly over the card reader.	
+SYS_AIME_error_0004	Error 6505\nAn Aime card in use on another cabinet cannot be used.	
+SYS_AIME_error_0005	Error 6506\nThe Aime card reader firmware update failed.\nIf turning the power OFF/ON does not fix it, contact customer support.	
+SYS_AIME_error_0006	Error 6507\nThe Aime card reader could not be initialised.	
+SYS_AIME_error_0007	Error 6508\nCould not access the database.	
+SYS_AIME_error_0008	The Aime card reader is not connected	
+SYS_AIME_error_0009	Invalid data:\ncannot be used	
+SYS_AIME_title_0000	Terms of Use	
+SYS_AIME_title_0001	Service Site Registration	
+SYS_AIME_warning_0000	Notes on using a mobile phone	
+SYS_AIME_warning_0001	Phone trouble	
+SYS_AIME_warning_0002	- The venue and SEGA accept no responsibility for loss, damage or other trouble.\n- Depending on the phone's state, the card reader may not recognise it.	
+SYS_AIME_warning_0003	Personal information	
+SYS_AIME_warning_0004	- Play data is managed using $c[FF6633FF]only the serial number of the phone's IC chip$c.	
+SYS_AIME_warning_0005	$c[b81010FF]If this appears for anything other than a mobile phone, select "No".$c	
+SYS_AIME_warning_0006	Do you agree to the above?	
+SYS_AIME_warning_0007	Register on the Aime service site?	
+SYS_AIME_warning_0008	Once registered, your data can be transferred if you change phones\nor if it is lost or broken	
+SYS_AIME_warning_0009	$c[b81010FF]If you do not register, the game starts using your mobile phone.$c	
+SYS_AIME_warning_0010	Select "Yes" to go to the registration screen.\nYou can also reach it later from the club team list.	
+SYS_AIME_warning_0011	Show the 2D code	
+SYS_AIME_warning_0012	Select "Yes" to show the 2D code	
+SYS_AIME_warning_0013	Register on the Aime service site using the 2D code	
+SYS_AIME_warning_0014	$c[b81010FF]Take care that nobody else uses your 2D code.$c	
+SYS_AIME_warning_0015	Select "Yes" to show a 2D code giving the "Aime service site URL"\nand your "access code".	
+SYS_AIME_warning_0016	Press the Shoot button to close the registration screen.	
+SYS_AIME_warning_0017	Confirming how this mobile phone will be used	
+SYS_AIME_warning_0018	Normal play: play the game using this mobile phone\nData transfer: issue an access code to transfer data	
+SYS_AIME_warning_0019	Once "Normal play" starts, another Aime's data can no longer be transferred to this phone.	
+SYS_AIME_warning_0020	Select "Normal play" to start playing, or "Data transfer"\nto issue an access code.	
+SYS_AIME_warning_0021	Normal play	
+SYS_AIME_warning_0022	Data transfer	
+SYS_AIME_warning_0023	Press the Shoot button to return to the attract screen.\nComplete the data transfer on the Aime service site.	
+SYS_AIMEREAD_message_0000	Press the START button to go to guest play mode.	
+SYS_AIMEREAD_message_0001	Please scan your Aime.	
+SYS_AIMEREAD_warning_0000	Touch your Aime	
+SYS_AIMEREAD_warning_0001	Touch your Aime to show your club team list.	
+SYS_2DCODEREADER_error_0000	The 2D code reader is not connected	
+SYS_2DCODEREADER_error_0001	Could not read the 2D code	
+SYS_QRSEQ_guidance_0000	Register / delete player cards (read 2D code)	
+SYS_QRSEQ_guidance_0001	Place a player card on the reading position	
+SYS_QRSEQ_guidance_0002	- If several copies are registered, all are deleted	
+SYS_QRSEQ_guidance_0003	- A deleted digital card cannot be restored	
+SYS_QRSEQ_guidance_0004	Delete %d of this card?	
+SYS_QRSEQ_guidance_0005	Error code: %s	
+SYS_QRSEQ_guidance_0006	Card: %s	
+SYS_QRSEQ_guidance_0007	Copies of this card registered: %d / 3	
+SYS_QRSEQ_guidance_0008	Cards in the directory: %d / 1000 kinds	
+SYS_QRSEQ_guidance_0009	(Press the End button. Returns automatically after %d seconds)	
+SYS_QRSEQ_guidance_0010	%s is registered to another Aime.	
+SYS_QRSEQ_guidance_0011	3 copies of this player card are already registered.	
+SYS_QRSEQ_guidance_0012	The Player Directory is full.\nTo register a new player card\nyou must delete a registered one.	
+SYS_QRSEQ_guidance_0013	This 2D code does not exist.	
+SYS_QRSEQ_guidance_0014	Registration failed.	
+SYS_QRSEQ_guidance_0015	Register / delete player cards	
+SYS_QRSEQ_guidance_0016	Press $c[FF6633FF]OK$c to show the\n2D code reading screen	
+SYS_QRSEQ_guidance_0017	Unregistered card	
+SYS_QRSEQ_guidance_0018	Added to directory when read	
+SYS_QRSEQ_guidance_0019	Registered card	
+SYS_QRSEQ_guidance_0020	Removed from directory when read	
+SYS_QRSEQ_guidance_0021	Notes	
+SYS_QRSEQ_guidance_0022	A registered card cannot be registered to\nanother Aime until it is deleted	
+SYS_QRSEQ_guidance_0023	Up to 3 copies of the same card with different\nserial codes can be registered	
+SYS_QRSEQ_guidance_0024	The Player Directory belongs to the Aime and is\nshared by all club teams on that Aime	
+SYS_QRSEQ_guidance_0025	Deletion failed.	
+SYS_QRSEQ_guidance_0026	Registered to an Aime.	
+SYS_QRSEQ_guidance_0027	Checking	
+SYS_QRSEQ_guidance_0028	If it does not read well, adjust the card's position slightly	
+SYS_QRSEQ_guidance_0029	1.	
+SYS_QRSEQ_guidance_0030	2.	
+SYS_QRSEQ_guidance_0031	3.	
+SYS_SYS_caution_0002	Starting a new game\nPress the START button	
+SYS_SYS_caution_0006	The manager's remaining term is %d matches.\nPress the START button to start managing this club team.	
+SYS_SYS_caution_0009	This club team has finished its term and is kept for tournaments.\nIt can be used in the tournament mode "WCCF CUP".	
+SYS_SYS_caution_0010	Press the START button to enter the WCCF CUP.	
+SYS_SYS_cloose_0000	New play, continue and card purchase end in %d minutes	
+SYS_SYS_cloose_0004	Closing time: continue and card purchase are not available	
+SYS_SYS_cloose_0007	Creating new club teams ends in %d minutes	
+SYS_SYS_cloose_0008	New club teams cannot be created at the moment	
+SYS_SYS_cloose_0010	Server maintenance is about to start, so the game will end	
+SYS_SYS_warning_0023	Error 5106\nThe card may be damaged\nClub team card discharged	
+SYS_SYS_warning_0041	Many records of sessions that did not end normally were found\nin this club team's data and play log,\nso a penalty was applied to some play data	
+SYS_SYS_warning_0043	Many records of sessions that did not end normally were found\non this IC card and in the play log,\nso the penalty $c[FF6633FF]loss of trade rights$c was applied	
+SYS_SYS_warning_0044	Could not get the club team list.\nReturning to the attract screen.	
+SYS_SYS_warning_0045	Could not get the save data.	
+SYS_SYS_warning_0046	Time is up.\nReturning to the attract screen.	
+SYS_SYS_warning_0047	New club team cards cannot be used.	
+SYS_SYS_warning_0048	Data cannot be carried over from a club team card\nthat has never been played online.	
+SYS_SYS_warning_0049	Do not insert two or more club team cards at once.\nReturning to the attract screen.	
+SYS_SYS_warning_0050	Could not delete the save data.\nReturning to the attract screen.	
+SYS_SYS_warning_0051	Could not add the new manager data.\nReturning to the attract screen.	
+SYS_SYS_warning_0052	Could not add the save data.\nReturning to the attract screen.	
+SYS_SYS_warning_0053	Could not delete the past club team.\nReturning to the attract screen.	
+SYS_SYS_warning_0054	Could not add the past club team.\nReturning to the attract screen.	
+SYS_SYS_warning_0055	Could not save the save data.	
+SYS_SYS_warning_0056	The cabinet is offline,\nso the save data could not be saved.\n\nOnce the network is back, the club team data\nmay be re-sent in data resend mode.	
+SYS_SYS_warning_0057	The save data may not have been saved.	
+SYS_SYS_warning_0058	Remember to take your Aime\nand player cards.	
+SYS_SYS_warning_0059	Data cannot be carried over from a club team card that was already carried over.\nIt can only be used in tournament mode.	
+SYS_SYS_warning_0064	The Aime read cannot be used right now because:\n- it is in use on another cabinet\n- the last game did not end normally\n\nWhat to do:\n- end play on the other cabinet\n- wait 15 minutes after the last read	
+SYS_SYS_warning_0065	Saving the save data.	
+SYS_SYS_warning_0066	Entering the World Trophy ranking.	
+SYS_SYS_warning_0067	Entering a data match.	
+SYS_SYS_warning_0068	Sending the match result.	
+SYS_SYS_warning_0069	The World Trophy ranking\nentry may have failed.	
+SYS_SYS_warning_0070	ERROR 3152\nCould not send the save data	
+SYS_SYS_warning_0071	ERROR 3153\nCould not send the save data	
+SYS_SYS_warning_0072	Many invalid player operations were detected.\nIf this keeps increasing,\nthe account will be suspended.	
+SYS_SYS_warning_0073	This account is locked and cannot play.	
+SYS_DATARETRY_message_0000	Error 3139\nCould not send the club team data\n\nThe data may be re-sent\nPlease call staff	
+SYS_DATARETRY_message_0001	The club team data may not\nhave been saved correctly\n\nTo re-send the data, call staff\nand switch from the attract screen\nto data resend mode	
+SYS_DATARETRY_message_0002	Data resend mode	
+SYS_DATARETRY_message_0003	Hold up the Aime whose data\nyou want to re-send\n\nPress SW2 to return to the attract screen	
+SYS_DATARETRY_message_0004	The following club team data will be re-sent\n%s	
+SYS_DATARETRY_message_0005	Re-sending the backup data	
+SYS_DATARETRY_message_0006	The backup data was re-sent\n\nPress SW2 to return to the attract screen	
+SYS_DATARETRY_message_0007	Returning to the attract screen	
+SYS_DATARETRY_message_0008	There was no data to re-send\n\n* Re-send data from the satellite\nwhere sending failed	
+SYS_DATARETRY_message_0009	Re-sending failed\nPlease check the network	
+SYS_DATARETRY_message_0010	Data resend mode cannot be used now\nReturning to the attract screen\n\nPlease wait until the network is back	
+SYS_DATARETRY_message_0011	Data resend mode: returning to the top screen	
+SYS_DATARETRY_message_0012	Re-send the backup data?\n\nSW1: run   SW2: cancel\n\n$c[FF6633FF]Caution!$c\nRe-sending returns the data\nto the state of the backup.\nAnything played on other satellites\nin the meantime will be lost	
+SYS_DATARETRY_message_0013	Error 3154\nCould not send the club team data\n\nThe data may be re-sent\nPlease call staff	
+SYS_DATARETRY_message_0014	Error 3174\nThe item purchase failed\n\nThe data may be re-sent\nPlease call staff	
+SYS_DATARETRY_message_0015	The following item data will be re-sent\n%s	
+SYS_DATARETRY_message_0016	Re-send the backup data?\n\nSW1: run   SW2: cancel	
+SYS_DATARETRY_message_0017	The item purchase data may not\nhave been saved correctly\n\nTo re-send the data, call staff\nand switch from the attract screen\nto data resend mode	
+SYS_REBOOT_warning_0000	Preparing to restart	
+SYS_REBOOT_warning_0001	Play is not possible until the cabinet restarts	
+SYS_REBOOT_warning_0002	Play entry closes in %d minutes	
+SYS_NET_error_0009	No opponent was found\nPlaying a friendly match against the CPU\n* Win and a sponsor will send you an item	
+SYS_NET_error_0026	Error 3173\nThe game program update failed\nPlease restart the cabinet	
+SYS_GUEST_guidance_0000	In guest play you can play WCCF as follows.	
+SYS_GUEST_guidance_0001	You can play without any cards	
+SYS_GUEST_guidance_0002	You can register 0 to 16 player cards	
+SYS_GUEST_guidance_0003	You play a CPU team with a team provided for you	
+SYS_GUEST_guidance_0004	$c[b81010FF]* Guest play cannot continue, and match results are not saved.$c\n$c[b81010FF]* There is no management in guest play.$c\n$c[b81010FF]* With fewer than 11 player cards, players are filled in automatically for the match.$c	
+SYS_GUEST_guidance_0005	$c[b81010FF]Offline right now, so this is guest play.$c\n$c[b81010FF]In guest play you can play WCCF as follows.$c	
+SYS_GUEST_guidance_0006	$c[b81010FF]Server maintenance starts soon, so this is guest play.$c\n$c[b81010FF]In guest play you can play WCCF as follows.$c	
+SYS_GUEST_message_0000	Start guest play?	
+SYS_GUEST_message_0001	This is guest play club team data.\nPress the START button to start guest play.	
+SYS_GUEST_title_0000	Guest Play	
+SYS_GUEST_title_0001	Currently offline	
+SYS_GUEST_title_0002	Server Maintenance	
+SYS_REMATCH_message_0000	Rematch with\nthe Data button!	
+SYS_REMATCH_message_0001	Insert 100 yen to make this match $c[FFFF00FF]void$c and play a $c[FFFF00FF]rematch$c.	
+SYS_REMATCH_message_0002	* "Team Training" and "Communication" cannot be redone	
+SYS_REMATCH_message_0003	This match's result	
+SYS_REMATCH_message_0009	Void match	
+SYS_REMATCH_message_0011	$c[FF0000FF]- Only 100-yen coins are accepted.$c	
+SYS_REMATCH_message_0012	- Coins over 100 yen are added to your $c[FF0000FF]credits$c	
+SYS_REMATCH_message_0013	- If $c[FF0000FF]time runs out$c while inserting 100 yen, it may be added to your credits	
+SYS_REMATCH_message_0014	Rematch accepted!	
+SYS_REMATCH_message_0015	Communicating. Please wait.	
+SYS_REMATCH_message_0016	The last match has been voided.	
+SYS_REMATCH_message_0017	You chose a rematch, so the last match is $c[FFFF00FF]void$c.\nThis play does not reduce the manager's term.	
+SYS_REMATCH_message_0018	You chose a rematch last time,\nso "Team Training" and "Communication" are not available.	
+SYS_REMATCH_message_0020	Insert one coin to make this match $c[FFFF00FF]void$c and play a $c[FFFF00FF]rematch$c.	
+SYS_REMATCH_message_0022	$c[FF0000FF]Only one coin is accepted.$c	
+SYS_REMATCH_message_0023	- More than one coin is added to your $c[FF0000FF]credits$c.	
+SYS_REMATCH_message_0024	- If $c[FF0000FF]time runs out$c while inserting coins, they may be added to your credits.	
+SYS_REMATCH_message_0025	Sponsor item	
+SYS_REMATCH_message_0026	1 at random	
+SYS_REMATCH_message_0027	You got 1 sponsor item!	
+SYS_ADV_first_0001	First play free!	
+SYS_ADV_first_0002	For the free play, select "Create a new club team".	
+SYS_ADV_guidance_0000	In development mode you can challenge many titles.\nSelect the $c[FF0000FF]Enterprise Cup$c.	
+SYS_ADV_guidance_0001	You can freely choose B-rank titles. Higher cup competitions\nopen once you finish in the top 2 of the Regular League.	
+SYS_ADV_message_0000	The recommended start for WCCF beginners.\nYou learn the controls as the game goes on.	
+SYS_ADV_message_0001	First play 100 yen!	
+SYS_ADV_message_0002	A start for experienced WCCF players.\nThe tutorial cannot be played.	
+SYS_ADV_message_0003	Press the START button\nto start the tutorial.	
+SYS_ADV_message_0004	The tutorial teaching the controls takes $c[FF6633FF]5 plays$c.\n$c[FF6633FF]The 1st play uses no player cards$c.	
+SYS_ADV_message_0005	Press the START button\nto start normal play.	
+SYS_ADV_message_0006	Insert 100 yen\nto start the tutorial.	
+SYS_ADV_message_0007	Only 100-yen coins are accepted.	
+SYS_ADV_message_0008	100 yen per play up to play %d!	
+SYS_ADV_message_0009	%d plays left	
+SYS_ADV_message_0010	Choose any mode from the start.\nThe tutorial cannot be played.	
+SYS_ADV_message_0011	Insert 100 yen\nto start normal play.	
+SYS_ADV_message_0012	Please insert a coin	
+SYS_ADV_message_0013	Insert one coin\nto start the tutorial.	
+SYS_ADV_message_0014	Only one coin is accepted.	
+SYS_ADV_message_0015	One coin per play up to play %d!	
+SYS_ADV_message_0016	Insert one coin\nto start normal play.	
+SYS_ADV_message_0017	Insert 100 yen\nto start playing.	
+SYS_ADV_message_0018	Insert one coin\nto start playing.	
+SYS_ADV_normal_0012	Choose from many titles. Aim to win them all.	
+SYS_ADV_normal_0015	You have not qualified,\nso it cannot be selected.	
+SYS_ADV_normal_0016	Develop your team while playing league and cup matches.\nStrengthen your team and aim to win every title.	
+SYS_ADV_normal_0017	Open	
+SYS_ADV_normal_0018	Closing soon	
+SYS_ADV_normal_0019	Next held	
+SYS_ADV_normal_0020	You cannot enter this competition now.\nIt opens once you are in Regular League 2nd Division or higher.	
+SYS_ADV_normal_0021	You cannot enter this competition now.\nIt opens once you are in Regular League 1st Division or higher.	
+SYS_ADV_normal_0022	You cannot enter this competition now.\nIt opens once you are in the Regular League Premier Division.	
+SYS_ADV_normal_0029	You cannot enter this competition now.\nIt opens once you win an S-rank title.	
+SYS_ADV_normal_0030	Win through online matches and aim for World Class A!	
+SYS_ADV_normal_0031	This cabinet is offline right now.\nNetwork competitions cannot be selected.	
+SYS_ADV_normal_0032	Play matches without using up your term. Choose this to play against friends too!\n* Match records such as wins and goals are not saved.	
+SYS_ADV_normal_0033	[Format] League & Tournament   [Teams] 8	
+SYS_ADV_normal_0034	[Format] Tournament            [Teams] 8	
+SYS_ADV_normal_0035	[Format] One match\nPlay once a day to get an item.	
+SYS_ADV_normal_0036	about %d:%d%d	
+SYS_ADV_normal_0037	A data match entry is in progress.\nThe Universal Cup cannot be selected.	
+SYS_ADV_normal_0038	Not entered	
+SYS_ADV_normal_0039	Today's competition\nis over	
+SYS_ADV_normal_0040	Today's competition\nis cancelled	
+SYS_ADV_normal_0041	Tournament mode	
+SYS_ADV_normal_0042	The Grand Trophy is outside its hours and cannot be selected	
+SYS_ADV_normal_0043	Does not use up your term; match records such as wins and goals are not saved.	
+SYS_ADV_normal_0044	Withdraw from the competition you are in?	
+SYS_ADV_normal_0045	Really withdraw?	
+SYS_ADV_normal_0046	Running; next at	
+SYS_ADV_normal_0047	Today's last\ncompetition is running	
+SYS_ADV_normal_0048	Competition status	
+SYS_ADV_normal_0050	Strengthen your team and aim to win every competition	
+SYS_ADV_normal_0051	about %d:%d%d (JST)	
+SYS_ADV_normal_0052	Next held (JST)	
+SYS_ADV_normal_0053	A competition to reach the top of the ranking with points earned while it runs.\nCompete on total points.	
+SYS_ADV_normal_0054	Outside its hours: cannot be selected now	
+SYS_ADV_normal_0055	This cabinet is offline,\nso it cannot be selected now.	
+SYS_ADV_normal_0056	Challenge Tour running!	
+SYS_ADV_normal_0057	Take on the Challenge Tour against the world's top teams.	
+SYS_ADV_normal_0058	Challenge Tour match 1	
+SYS_ADV_normal_0059	%s match %d	
+SYS_ADV_normal_0064	Cancel tour	
+SYS_ADV_normal_0065	Cancel the Challenge Tour and go to the Regular League opener.\nIs that OK?	
+SYS_ADV_normal_0066	Really cancel?	
+SYS_ADV_normal_0067	Choose the region to tour.	
+SYS_ADV_normal_0068	A region known for dynamic football.\nSuited to developing a physical style.	
+SYS_ADV_normal_0069	A region known for technical football.\nSuited to developing a style built on ball skills.	
+SYS_ADV_normal_0070	A region known for solid defending.\nSuited to developing a defensive style.	
+SYS_ADV_normal_0071	A region known for all-round football.\nSuited to developing a goalkeeper style.	
+SYS_ADV_normal_0072	A region known for speedy football.\nSuited to developing a style built on quick play.	
+SYS_ADV_normal_0073	A region known for football built on athleticism.\nSuited to developing a style built on individual flair.	
+SYS_ADV_normal_0074	A region known for hard-working play.\nSuited to developing a style built on teamwork.	
+SYS_ADV_normal_0075	A region known for creative play.\nSuited to developing an attacking style.	
+SYS_ADV_normal_0076	Players representing their nations gather to train in this region.\nThe best place to experience world-class football.	
+SYS_ADV_normal_0077	You must be in the Regular League Premier Division to enter	
+SYS_ADV_normal_0078	$p[8]$t[0:8]Not available$t$p	unsure: $p/$t codes kept as in the Japanese; $t[0:8] may be a character range
+SYS_ADV_normal_0079	Finish high in the weekly ranking to rise to Area Class.\nYou enter the ranking after %d matches.	
+SYS_ADV_normal_0080	Finish high in the weekly ranking to rise to World Class.\nYou enter the ranking after %d matches.	
+SYS_ADV_normal_0082	Finish high in the weekly ranking to rise to World Class A.\nYou enter the ranking after %d matches.	
+SYS_ADV_normal_0083	Aim to win World Class A in the weekly ranking.\nYou enter the ranking after %d matches.	
+SYS_ADV_normal_0084	Withdraw from the Special Trophy?\n(Your record in the current competition will be reset)	
+SYS_ADV_normal_0085	Really withdraw? \n(Your record in the current competition will be reset)	
+SYS_ADV_normal_0086	Running!	
+SYS_ADV_normal_0087	Play-offs running!	
+SYS_ADV_normal_0088	Withdraw from the Grand Trophy?\n(Your record since the last entry will be reset)	
+SYS_ADV_normal_0089	Are you sure?\n(Your record since the last entry will be reset)	
+SYS_ADV_normal_0090	Withdrawn.	
+SYS_ADV_normal_0092	[Format] League                    [Matches] 7 rounds\nFirst aim for promotion to the 1st Division.	
+SYS_ADV_normal_0093	[Format] League                    [Matches] 7 rounds\nAim for promotion to the Premier Division.	
+SYS_ADV_normal_0094	[Format] League                    [Matches] 7 rounds\nAim to win the Premier Division.	
+SYS_ADV_normal_0095	[Format] Tournament                [Matches] 2\nFor beginners. Step up from here.	
+SYS_ADV_normal_0096	[Format] Tournament                [Matches] 3\nFor intermediate players. Try it once you are used to WCCF.	
+SYS_ADV_normal_0097	[Format] Tournament                [Matches] 4\nFor advanced players. The strongest opponents appear.	
+SYS_ADV_normal_0098	[Format] League                    [Matches] 3\nFor beginners. Step up from here.	
+SYS_ADV_normal_0099	[Format] League & title match      [Matches] 4\nFor intermediate players. Try it once you are used to WCCF.	
+SYS_ADV_normal_0100	[Format] League & tournament       [Matches] 5\nFor advanced players. The strongest opponents appear.	
+SYS_ADV_normal_0101	[Format] Home & away tournament    [Matches] 3\nFor beginners. Step up from here.	
+SYS_ADV_normal_0102	[Format] H&A tournament (with final) [Matches] 4\nFor intermediate players. Try it once you are used to WCCF.	
+SYS_ADV_normal_0103	[Format] Home & away tournament    [Matches] 5\nFor advanced players. The strongest opponents appear.	
+SYS_ADV_normal_0104	[Format] Title match               [Matches] 1\nFor advanced players. A super-strong team appears.	
+SYS_ADV_normal_0105	You cannot enter this competition now.\nIt opens once you are promoted to the Regular League Premier Division.	
+SYS_ADV_normal_0106	[Format] One match                 [Matches] 1\nPlay the best elevens of shops nationwide and aim high in the national shop ranking.	
+SYS_ADV_normal_0107	You cannot enter this competition now.\nYou qualify by being in the Regular League Premier Division.	
+SYS_ADV_normal_0108	You cannot enter this competition now.\nCheck the times on the main monitor.	
+SYS_ADV_normal_0109	You cannot enter this competition now.	
+SYS_ADV_normal_0110	You cannot enter this competition now.\nYou qualify by staying in the Regular League Premier Division.	
+SYS_ADV_normal_0111	A competition to reach the top of the ranking with points earned while it runs.\nCompete on the total points of %d matches.	
+SYS_ADV_normal_0112	The strongest shop best elevens appear.\nWork together to earn the all-areas bonus.	
+SYS_ADV_normal_0113	First-class shop best elevens appear.\nWork together to earn the all-areas bonus.	
+SYS_ADV_normal_0114	Play strong shop best elevens.\nWork together to earn the all-areas bonus.	
+SYS_ADV_normal_0115	Play mid-level shop best elevens.\nWork together to earn the all-areas bonus.	
+SYS_ADV_normal_0116	Play shop best elevens.\nWork together to earn the all-areas bonus.	
+SYS_ADV_normal_0117	Aim to conquer the Hokkaido/Tohoku area!\n* Wins are reset daily.	
+SYS_ADV_normal_0118	Aim to conquer the Kanto area!\n* Wins are reset daily.	
+SYS_ADV_normal_0119	Aim to conquer the Tokyo/Kanagawa area!\n* Wins are reset daily.	
+SYS_ADV_normal_0120	Aim to conquer the Chubu area!\n* Wins are reset daily.	
+SYS_ADV_normal_0121	Aim to conquer the Tokai area!\n* Wins are reset daily.	
+SYS_ADV_normal_0122	Aim to conquer the Kinki area!\n* Wins are reset daily.	
+SYS_ADV_normal_0123	Aim to conquer the Chugoku/Shikoku area!\n* Wins are reset daily.	
+SYS_ADV_normal_0124	Aim to conquer the Kyushu area!\n* Wins are reset daily.	
+SYS_ADV_normal_0126	If you start the Regular League, you can no longer\nenter the running Challenge Tour. Is that OK?	
+SYS_ADV_normal_0127	You cannot enter this competition during the tutorial.	
+SYS_ADV_normal_0128	The strongest shop best elevens appear.\nAll areas conquered! Work together to reach the top!	
+SYS_ADV_normal_0129	First-class shop best elevens appear.\nAll areas conquered! Work together to reach the top!	
+SYS_ADV_normal_0130	Play strong shop best elevens.\nAll areas conquered! Work together to reach the top!	
+SYS_ADV_normal_0131	Play mid-level shop best elevens.\nAll areas conquered! Work together to reach the top!	
+SYS_ADV_normal_0132	Play shop best elevens.\nAll areas conquered! Work together to reach the top!	
+SYS_ADV_normal_0133	Hokkaido/Tohoku area conquered!\n* Wins are reset daily.	
+SYS_ADV_normal_0134	Kanto area conquered!\n* Wins are reset daily.	
+SYS_ADV_normal_0135	Tokyo/Kanagawa area conquered!\n* Wins are reset daily.	
+SYS_ADV_normal_0136	Chubu area conquered!\n* Wins are reset daily.	
+SYS_ADV_normal_0137	Tokai area conquered!\n* Wins are reset daily.	
+SYS_ADV_normal_0138	Kinki area conquered!\n* Wins are reset daily.	
+SYS_ADV_normal_0139	Chugoku/Shikoku area conquered!\n* Wins are reset daily.	
+SYS_ADV_normal_0140	Kyushu area conquered!\n* Wins are reset daily.	
+SYS_ADV_playmenu_0000	Start with the tutorial	
+SYS_ADV_playmenu_0001	Start with normal play	
+SYS_ADV_ranking_0001	Month %d	
+SYS_shop_normal_0000	Item Store	
+SYS_shop_normal_0001	Items you buy are kept in your box on $c[FF6633FF]WCCF.NET$c (wccfnet.jp).\nThe login password can be issued after the game starts, under $c[FF6633FF]View Data$c in team management.	
+SYS_shop_normal_0002	Buy	
+SYS_shop_normal_0003	Bought	
+SYS_shop_normal_0004	Buy this item?	
+SYS_shop_normal_0007	Item bought!\nItems you buy are kept in your box\non $c[990000FF]WCCF.NET$c (wccfnet.jp).	
+SYS_shop_normal_0008	The $c[FF6633FF]uniform$c your players wear in matches.\nSet it on $c[FF6633FF]WCCF.NET$c.	
+SYS_shop_normal_0009	A $c[FF6633FF]banner$c hung in the stands during matches.\nSet it in $c[FF6633FF]team management$c and on $c[FF6633FF]WCCF.NET$c.\nWhile it is set, special commentary may play\nwhen the teams are introduced.	
+SYS_shop_normal_0010	Changes the emblem shown in your association.\nSet it on .NET. Only the association's chairman can.	
+SYS_shop_normal_0011	The $c[FF6633FF]music$c played over\nyour team's goal replays.\nUse the preview button to listen.\nSet it on $c[FF6633FF]WCCF.NET$c.	
+SYS_shop_normal_0012	The $c[FF6633FF]sound effect$c played when you press\nthe Shoot button in a match. It comes as a set of 3;\nuse the preview button to listen.\nSet it on $c[FF6633FF]WCCF.NET$c.	
+SYS_shop_normal_0013	The $c[FF6633FF]training jersey$c your players wear\nin team management. Set it in $c[FF6633FF]team management$c\nand on $c[FF6633FF]WCCF.NET$c.	
+SYS_shop_normal_0016	Goal music	
+SYS_shop_normal_0017	Shoot button sound	
+SYS_shop_normal_0019	Insert 100 yen to confirm the purchase.	
+SYS_shop_normal_0020	- The 100 yen inserted is not added as credit.\n$c[990000FF]- Only 100-yen coins are accepted.$c\n- Coins over 100 yen are added to your $c[990000FF]credits$c.\n- If $c[990000FF]time runs out$c while inserting 100 yen, it may be added\n  to your credits.	
+SYS_shop_normal_0021	Open the Item Store	
+SYS_shop_normal_0022	On sale	
+SYS_shop_normal_0024	100 yen	
+SYS_shop_normal_0025	Insert one coin to confirm the purchase.	
+SYS_shop_normal_0026	- The coin inserted is not added as credit.\n$c[FF0000FF]- Only one coin is accepted.$c\n- More than one coin is added to your $c[FF0000FF]credits$c.\n- If $c[FF0000FF]time runs out$c while inserting a coin, it may be added\n  to your credits.	
+SYS_CARD_warning_0020	Does not meet the regulation\n-- Regulation --\nParameter total (parameter total %d or less)	
+SYS_CARD_warning_0024	There are $c[FF6633FF]not 11 players on the field$c,\nso $c[FF6633FF]players will be filled in automatically during the match$c.\nFinish registering anyway?	
+SYS_CARD_warning_0025	Does not meet the regulation\n-- Regulation --\n%d or more 2017-2018 version cards	
+SYS_CARD_warning_0026	Does not meet the regulation\n-- Regulation --\nREGULAR (regular cards only)\n%d or more 2017-2018 version cards	
+SYS_CARD_warning_0027	Does not meet the regulation\n-- Regulation --\nU-5 (5 or fewer rare & special cards)\n%d or more 2017-2018 version cards	
+SYS_CARD_warning_0028	Does not meet the regulation\n-- Regulation --\nU-5R (5 or fewer rare cards)\n%d or more 2017-2018 version cards	
+SYS_CARD_warning_0029	Does not meet the regulation\n-- Regulation --\nParameter total (parameter total %d or less)\n%d or more 2017-2018 version cards	
+SYS_CARDLIST_help_0000	Reading the list	
+SYS_CARDLIST_help_0001	Filter	
+SYS_CARDLIST_help_0002	Sort	
+SYS_CARDLIST_help_0003	Favourites	
+SYS_CARDLIST_help_0004	Copies registered	
+SYS_CARDLIST_help_0005	Digital card mark	
+SYS_CARDLIST_help_0006	Card picture	
+SYS_CARDLIST_help_0007	The left side lists your registered cards.\nThe right side shows details of the selected card.	
+SYS_CARDLIST_help_0008	Filter which player cards are shown.	
+SYS_CARDLIST_help_0009	Show player cards in any order you like.	
+SYS_CARDLIST_help_0010	Cards set as favourites on WCCF.NET (wccfnet.jp)\nget a star mark.	
+SYS_CARDLIST_help_0011	Up to 3 copies of the same card can be registered.\nOne card icon is shown per copy.	
+SYS_CARDLIST_help_0012	If the registered cards include a digital card,\nits card icon gets a "D".	
+SYS_CARDLIST_help_0013	Press OK while a card picture is selected\nto see both sides of the card.	
+SYS_CARDLIST_label_0009	Club	
+SYS_CARDLIST_label_0010	Shirt number	
+SYS_CARDLIST_label_0011	Date of birth	
+SYS_CARDLIST_label_0012	Height	
+SYS_CARDLIST_label_0013	Weight	
+SYS_CARDLIST_label_0014	Nationality	
+SYS_CARDLIST_label_0015	Version	
+SYS_CARDLIST_label_0016	Card number	
+SYS_CARDLIST_message_0000	No %s cards registered yet.	
+SYS_CARDLIST_message_0001	Favourites are set on WCCF.NET (wccfnet.jp).	
+SYS_CARDLIST_search_0000	Show all	
+SYS_CARDLIST_search_0001	Show favourites	
+SYS_CARDLIST_search_0002	Show FW	
+SYS_CARDLIST_search_0003	Show MF	
+SYS_CARDLIST_search_0004	Show DF	
+SYS_CARDLIST_search_0005	Show GK	
+SYS_CARDLIST_sorting_0000	Sort by card number	
+SYS_CARDLIST_sorting_0001	Sort by OFF	
+SYS_CARDLIST_sorting_0002	Sort by DEF	
+SYS_CARDLIST_sorting_0003	Sort by TEC	
+SYS_CARDLIST_sorting_0004	Sort by POW	
+SYS_CARDLIST_sorting_0005	Sort by SPE	
+SYS_CARDLIST_sorting_0006	Sort by STA	
+SYS_CARDLIST_sorting_0007	Sort by club	
+SYS_CARDLIST_sorting_0008	Sort by player name	
+SYS_CARDLIST_sorting_0009	Sort by nationality	
+SYS_CARDLIST_sorting_0010	Sort by height	
+SYS_CARDLIST_sorting_0011	Sort by weight	
+SYS_TEAMLIST_contents_0002	Term left	
+SYS_TEAMLIST_contents_0003	Titles open	
+SYS_TEAMLIST_contents_0004	Club Team List	
+SYS_TEAMLIST_contents_0005	Tournament Club Team List	
+SYS_TEAMLIST_contents_0006	In tutorial	
+SYS_TEAMLIST_lastchoice_0000	Really delete?	
+SYS_TEAMLIST_menu_0000	Create a new club team	
+SYS_TEAMLIST_menu_0001	Stop creating a new club team	
+SYS_TEAMLIST_menu_0002	Stop the data transfer	
+SYS_TEAMLIST_menu_0003	To past club teams	
+SYS_TEAMLIST_menu_0004	To club teams in term	
+SYS_TEAMLIST_message_0000	Select the club team to use from the club team list.	
+SYS_TEAMLIST_message_0001	Selecting a club team opens its club team data screen.\n$c[FF6633FF]A selected club team is deleted on the club team data screen.$c	
+SYS_TEAMLIST_message_0002	$c[FF6633FF]A deleted club team cannot be restored.$c\nTo really delete this club team, press the Shoot button.	
+SYS_TEAMLIST_message_0003	$c[FF6633FF]Each club team can be transferred only once.$c\nTransfer this club team to the Aime?	
+SYS_TEAMLIST_message_0005	Overwrite manager $c[FF6633FF]%s$c's manager data\nwith part of the club team card's manager data?	
+SYS_TEAMLIST_message_0006	Select the club team to use in tournament mode.	
+SYS_TEAMLIST_message_0007	Stop choosing a club team and end the game?	
+SYS_TEAMLIST_message_0008	Save the finished-term club team data as a tournament team?\n$c[FF6633FF]If you carry it over without saving, it can no longer be saved as a tournament team.$c	
+SYS_TEAMLIST_message_0009	Creating a new club team.	
+SYS_TEAMLIST_message_0010	A finished-term club team kept for tournaments.\nClub teams in this list can be used in the tournament mode "WCCF CUP".	
+SYS_TEAMLIST_message_0011	Select the club team to use in the WCCF CUP.	
+SYS_TEAMLIST_title_0000	Club Team Data	
+SYS_TEAMLIST_warning_0000	You have more than 10 saved club teams,\nso one club team must be deleted.\nSelect the club team to delete.\n$c[FF6633FF]A deleted club team cannot be restored.$c	
+SYS_TEAMLIST_warning_0001	The club team was deleted.\nStarting the new game now.	
+SYS_TEAMLIST_warning_0002	Deletion cancelled.	
+SYS_TEAMLIST_warning_0003	Club team data can be carried over only once.\nData already carried over cannot be carried\nover to another Aime.\nPart of the manager data can be overwritten on the same Aime.\n\n[Manager data overwritten]\nManager ability / salary / level /\ntotal titles / career record	
+SYS_TEAMLIST_warning_0004	The club team data was carried over to the Aime.\nReturning to the club team list.	
+SYS_TEAMLIST_warning_0006	The selected club team's data was deleted\nand the new club team carried over to the Aime.\nReturning to the club team list.	
+SYS_TEAMLIST_warning_0007	Data carry-over cancelled.	
+SYS_TEAMLIST_warning_0008	This club team data has already been carried over.\nData carried over once cannot be carried over to another Aime.	
+SYS_TEAMLIST_warning_0009	Club team data has already been carried over to this Aime.\nPart of the manager data can be overwritten.\n\n[Save data overwritten]\nManager ability / salary / level /\ntotal titles / career record	
+SYS_TEAMLIST_warning_0010	The manager data was overwritten.	
+SYS_TEAMLIST_warning_0011	A club team whose term has ended can be\nsaved as a tournament club team.\nClub teams saved this way can be used\nin the tournament mode "WCCF CUP".\n\nTo start inheriting the manager ability without saving,\nselect "No".	
+SYS_TUTORIAL_cation_0000	[Carrying over save data]	
+SYS_TUTORIAL_cation_0001	Club team card slot	
+SYS_TUTORIAL_cation_0002	$c[b81010FF]To carry WCCF 2010-2011 save data over to an Aime,\ninsert the club team card to carry over into the club team card slot\nwhile the club team list is shown.$c	
+SYS_OLDTEAMENTRY_menu_0002	Stop registering a tournament club team	
+SYS_OLDTEAMENTRY_message_0000	Selecting a club team opens its club team data screen.\n$c[FF6633FF]A selected club team is deleted on the club team data screen.$c	
+SYS_OLDTEAMENTRY_message_0001	$c[FF6633FF]A deleted club team cannot be restored.$c\nReally delete this club team?	
+SYS_OLDTEAMENTRY_warning_0000	The tournament club team is registered.\nIt can be used in tournament mode.	
+SYS_OLDTEAMENTRY_warning_0001	You have more than 10 saved tournament club teams,\nso one must be deleted.\nSelect the tournament club team to delete.\n$c[FF6633FF]A deleted club team cannot be restored.$c	
+SYS_OLDTEAMENTRY_warning_0002	The selected club team's data was deleted\nand the new tournament club team registered.\nIt can be used in tournament mode.	
+SYS_MISSION_data_0000	%s - %s	
+SYS_MISSION_data_0002	Over for today	
+SYS_MISSION_data_0003	Not achieved	
+SYS_MISSION_data_0004	Achieved	
+SYS_MISSION_data_0005	Reward received	
+SYS_MISSION_data_0006	Friends: not achieved	
+SYS_MISSION_data_0007	Friends: achieved	
+SYS_MISSION_data_0009	Reward available	
+SYS_MISSION_head_0000	Friend Mission Info	
+SYS_MISSION_head_0001	Today's hours	
+SYS_MISSION_head_0002	Today's personal reward	
+SYS_MISSION_head_0003	This event's team reward	
+SYS_MISSION_head_0004	Today's hours (JST)	
+SYS_MISSION_message_0000	Friend Mission\nrunning!	
+SYS_MISSION_message_0001	Friend Mission running!	
+SYS_NETPOINT_message_0000	The team funds earned this time are used to buy items and more on WCCF.NET.	
+SYS_NETPOINT_title_0000	Team funds: %dWG earned	
+SYS_GAME_warning_0001	This club team data did not end normally last time\nThe data may not have been saved correctly\nAny data match entry you had applied for\nis cancelled	
+SYS_GAME_warning_0002	This club team data did not end normally last time\nThe data may not have been saved correctly	
+SYS_COMP_ragulation_0006	%s + %d or more new cards	
+SYS_COMP_ragulation_0007	%s + 16 new cards	
+SYS_WCCFCUP_error_0000	The club team card inserted cannot be used in the WCCF CUP\nOnly club team cards whose manager ability was inherited can be used\nReturning to the attract screen	
+SYS_WCCFCUP_error_0001	No club team can enter the WCCF CUP.\nReturning to the attract screen	
+SYS_WCCFCUP_error_0002	Offline right now, so the WCCF CUP cannot be held.\nPlease wait until the network is back.	
+SYS_SEC_data_0000	From:	
+SYS_SEC_data_0001	Birthday:	
+SYS_SEC_data_0002	Hobby:	
+SYS_SEC_data_0003	Trust:	
+SYS_SEC_data_0004	Total term:	
+SYS_SEC_data_0006	%d/%d	unsure: month/day order (Japanese: month %d day %d)
+SYS_SEC_data_0007	From: %s   Birthday: %s   Hobby: %s	
+SYS_SEC_data_0008	CV:	
+SYS_ADDSKILL_choice_0001	Think more about attacking!	
+SYS_ADDSKILL_choice_0002	Think more about defending!	
+SYS_ADDSKILL_choice_0003	Use your technique!	
+SYS_ADDSKILL_choice_0004	Use your power!	
+SYS_ADDSKILL_choice_0005	Use your speed!	
+SYS_ADDSKILL_choice_0006	Just keep running!	
+SYS_ADDSKILL_choice_0007	Be where our attacks start!	
+SYS_ADDSKILL_choice_0008	Don't lose in the air!	
+SYS_ADDSKILL_choice_0009	Win your one-on-ones!	
+SYS_ADDSKILL_choice_0010	Stop every penalty!	
+SYS_ADDSKILL_choice_0011	Come off your line!	
+SYS_ADDSKILL_choice_0012	You're our guardian!	
+SYS_ADDSKILL_choice_0013	Win in the air!	
+SYS_ADDSKILL_choice_0014	Think about holding the ball up!	
+SYS_ADDSKILL_choice_0015	Cut in from the flank!	
+SYS_ADDSKILL_choice_0016	Master runs in behind!	
+SYS_ADDSKILL_choice_0017	Just go for goal!	
+SYS_ADDSKILL_choice_0018	Make chances up front!	
+SYS_ADDSKILL_choice_0019	You're our playmaker!	
+SYS_ADDSKILL_choice_0020	Burst forward from the second line!	
+SYS_ADDSKILL_choice_0021	Rule the midfield!	
+SYS_ADDSKILL_choice_0022	Snuff out their chances!	
+SYS_ADDSKILL_choice_0023	Lead our wing attacks!	
+SYS_ADDSKILL_choice_0024	Own the flank!	
+SYS_ADDSKILL_choice_0025	Stop their wing attacks!	
+SYS_ADDSKILL_choice_0026	Push up from the flank!	
+SYS_ADDSKILL_choice_0027	Feed passes to the front line!	
+SYS_ADDSKILL_choice_0028	Be the heart of the defence!	
+SYS_ADDSKILL_choice_0029	Snuff out their scoring chances!	
+SYS_ADDSKILL_choice_0031	Cover behind the defence!	
+SYS_ADDSKILL_choice_0032	Play an attacking style!	
+SYS_ADDSKILL_choice_0033	Polish your passing!	
+SYS_ADDSKILL_choice_0034	Polish your dribbling!	
+SYS_ADDSKILL_choice_0035	Polish your crossing!	
+SYS_ADDSKILL_choice_0036	Don't miss your chances!	
+SYS_ADDSKILL_choice_0037	Score from free kicks!	
+SYS_ADDSKILL_choice_0038	Unsettle their defence!	
+SYS_ADDSKILL_choice_0039	Polish your technique!	
+SYS_ADDSKILL_choice_0040	Support our defence!	
+SYS_ADDSKILL_choice_0041	Shut down your man!	
+SYS_ADDSKILL_choice_0042	Crush them with fierce defending!	
+SYS_ADDSKILL_choice_0043	Win the ball aggressively!	
+SYS_ADDSKILL_choice_0044	Chase the man on the ball!	
+SYS_ADDSKILL_choice_0045	Polish your kicking power!	
+SYS_ADDSKILL_choice_0046	Blow them away with speed!	
+SYS_ADDSKILL_choice_0047	Run everywhere!	
+SYS_ADDSKILL_choice_0048	Lead the team with fighting spirit!	
+SYS_ADDSKILL_choice_0049	Shine against strong opponents!	
+SYS_ADDSKILL_choice_0050	Shine on the big stage!	
+SYS_ADDSKILL_choice_0051	We're counting on you when it matters!	
+SYS_ADDSKILL_name_0000	-	
+SYS_ADDSKILL_name_0001	Offensive	
+SYS_ADDSKILL_name_0002	Defensive	
+SYS_ADDSKILL_name_0003	Technical	
+SYS_ADDSKILL_name_0004	Powerful	
+SYS_ADDSKILL_name_0005	Speedy	
+SYS_ADDSKILL_name_0006	Toughness	
+SYS_ADDSKILL_name_0007	Build-up GK	
+SYS_ADDSKILL_name_0008	High-ball GK	
+SYS_ADDSKILL_name_0009	Big-save GK	
+SYS_ADDSKILL_name_0010	PK-save GK	
+SYS_ADDSKILL_name_0011	Libero GK	
+SYS_ADDSKILL_name_0012	Guardian	
+SYS_ADDSKILL_name_0013	Target Man	
+SYS_ADDSKILL_name_0014	Post Player	
+SYS_ADDSKILL_name_0015	Winger	
+SYS_ADDSKILL_name_0016	Shadow Striker	
+SYS_ADDSKILL_name_0017	Striker	
+SYS_ADDSKILL_name_0018	Chance Maker	
+SYS_ADDSKILL_name_0019	Playmaker	
+SYS_ADDSKILL_name_0020	Second Attacker	
+SYS_ADDSKILL_name_0021	All-action MF	
+SYS_ADDSKILL_name_0022	Anchor	
+SYS_ADDSKILL_name_0023	Side Attacker	
+SYS_ADDSKILL_name_0024	Wing Back	
+SYS_ADDSKILL_name_0025	Side Defender	
+SYS_ADDSKILL_name_0026	Offensive SB	
+SYS_ADDSKILL_name_0027	Linkman	
+SYS_ADDSKILL_name_0028	Stopper	
+SYS_ADDSKILL_name_0029	Wall	
+SYS_ADDSKILL_name_0030	Air Battler	
+SYS_ADDSKILL_name_0031	Sweeper	
+SYS_ADDSKILL_name_0032	Libero	
+SYS_ADDSKILL_name_0033	Passer	
+SYS_ADDSKILL_name_0034	Dribbler	
+SYS_ADDSKILL_name_0035	Crosser	
+SYS_ADDSKILL_name_0036	Finisher	
+SYS_ADDSKILL_name_0037	FK Artist	
+SYS_ADDSKILL_name_0038	Fantasista	
+SYS_ADDSKILL_name_0039	Technician	
+SYS_ADDSKILL_name_0041	Hard Marker	
+SYS_ADDSKILL_name_0042	Crusher	
+SYS_ADDSKILL_name_0045	Power Shooter	
+SYS_ADDSKILL_name_0046	Speed Star	
+SYS_ADDSKILL_name_0047	Hard Worker	
+SYS_ADDSKILL_name_0048	Fighter	
+SYS_ADDSKILL_name_0049	Giant Killer	
+SYS_ADDSKILL_name_0050	Big-match Player	
+SYS_ADDSKILL_name_0051	Strong Heart	
+CLM_CACCENT_message_0000	Enter the stress position of the club team name.	
+CLM_CEMBLEM_message_0000	Choose an emblem. 	
+CLM_CHOME_exp_0000	%s: many clubs here thrill the crowd with bold attacking.	
+CLM_CHOME_exp_0001	%s: many clubs here build play with elegant passing.	
+CLM_CHOME_exp_0002	%s: many clubs here compete with physical strength.	
+CLM_CHOME_exp_0003	%s: many clubs here are known for solid defending.	
+CLM_CHOME_exp_0004	%s: many clubs here use intense pressing.	
+CLM_CHOME_exp_0005	%s: many clubs here play speedy football.	
+CLM_CHOME_exp_0006	%s: many clubs here value balance.	
+CLM_CHOME_message_0000	Choose the league to play in and your club team's home town.	
+CLM_CHOME_message_0001	Choose your $c[FF0000FF]league$c and $c[FF0000FF]home town$c\nto create your team.	
+CLM_CNAME_message_0000	Register your club team name. It is used in rankings and elsewhere.	
+CLM_CREAD_message_0000	Register the reading of your club team name.	
+CLM_CUNIFORM1_message_0000	Choose your 1st uniform.	
+CLM_CUNIFORM2_message_0000	Choose your 2nd uniform.	
+CLM_MACCENT_message_0000	Enter the stress position of the manager name.	
+CLM_MANAGERNAME_caution_0000	Once set, the name cannot be changed $c[FF6633FF]until your term ends$c.\n\nIs this name OK?	
+CLM_MNAME_caution_0003	Register the reading of your manager name.	
+CLM_MNAME_message_0000	Enter your manager name.	
+CLM_MNAME_select_0000	Change your manager name\nand date of birth?	
+CLM_MNAME_select_0001	Change	
+CLM_MNAME_select_0002	Keep	
+CLM_MNAME_warning_0000	Once set, the name cannot be changed $c[FF6633FF]until your term ends$c.\nPlease enter it carefully.\n\nThis manager name is published with game information on phones,\nPCs and video sites for rankings and similar displays.\nDo not enter $c[FF6633FF]a name that could identify you$c.\n\n$c[FF6633FF]If we find cheating, we may delete\nthe play data.$c	
+CLM_PLAYER_message_0000	Use the basic position and play area on the back of each player card\nto place the card where the player suits best.	
+CLM_PLAYER_message_0001	Up to 11 starters go inside the red frame. To register more than 11,\nplace cards inside the blue frame to register them as substitutes.	
+CLM_SECRETARY__caution_0000	Once chosen, the secretary cannot\nbe changed $c[FF6633FF]until your term ends$c.\nAre you sure?	
+CLM_SECRETARY__message_0000	Choose a secretary to support your club. Press the Key Player button to hear her introduction.	
+MAN_FIRSTPLAY_message_0002	Congratulations on joining the Regular League.\nWin through the league and aim to conquer the top league, the Premier Division.\nDevelop your players in the league and win the cups. 	
+MAN_FIRSTPLAY_message_0003	The tournament begins!	
+MAN_FIRSTPLAY_message_0004	Congratulations on entering the tournaments.\nWin through all kinds of tournaments and aim to be the strongest club.\nConquer every tournament.	
+MAN_FIRSTPLAY_message_0005	The network competition begins!	
+MAN_FIRSTPLAY_message_0006	Congratulations on entering the network competition.\nBeat rivals from all over the country and aim to be the true strongest club.	
+MAN_FIRSTPLAY_message_0007	Got a rare card? Register it in the "Player Directory" first!	
+MAN_FIRSTPLAY_message_0008	1. Check the 2D code	
+MAN_FIRSTPLAY_message_0009	2. Open the "Player Directory" in Team Registration	
+MAN_FIRSTPLAY_message_0010	3. Switch to 2D code reading mode	
+MAN_FIRSTPLAY_message_0011	Cards without a 2D code\nneed no registration	
+MAN_FIRSTPLAY_message_0012	Call it up with START	
+MAN_FIRSTPLAY_message_0013	Confirm here	
+MAN_FIRSTPLAY_message_0015	A card with a 2D code must be added to the "Player Directory"\nbefore you can use it on the cabinet's field.	
+MAN_FIRSTPLAY_message_0016	Meeting room event "Special Coaching"	
+MAN_FIRSTPLAY_message_0017	1. Meet the conditions to trigger "Special Coaching"!	
+MAN_FIRSTPLAY_message_0018	2. Pick a card to guide the player!	
+MAN_FIRSTPLAY_message_0019	3. The player's special ability grows!	
+MAN_FIRSTPLAY_message_0020	Look for players eagerly raising a hand!\nRub the card to communicate!	
+MAN_FIRSTPLAY_message_0021	Choose a role-model player from\nthe cards in your "Player Directory"	
+MAN_FIRSTPLAY_message_0022	A successful "Special Coaching"\nmay even bring a new ability!?	
+MAN_FIRSTPLAY_message_0023	Cards in the "Player Directory" can be used again every time "Special Coaching" happens	
+MAN_FIRSTPLAY_message_0024	Shows how to read cards	
+MAN_FIRSTPLAY_message_0025	Starter development cards received!	
+MAN_FIRSTPLAY_message_0026	Special training on the Challenge Tour:\n"Tour Exchange Match"	
+MAN_FIRSTPLAY_message_0027	1. Players are picked from the Player Directory	
+MAN_FIRSTPLAY_message_0028	2. Watch the scenes once the exchange match starts!	
+MAN_FIRSTPLAY_message_0029	3. Earn an "Evolved Team Style"!	
+MAN_FIRSTPLAY_message_0030	Players linked to the tour region are picked;\nplaying strong teams brings big growth!	
+MAN_FIRSTPLAY_message_0031	The camera focuses on opposing players!\nThe more in focus, the higher the hopes!?	
+MAN_FIRSTPLAY_message_0032	The exchange match result is the key to evolving!\nWatch the region's and opponent's traits too!	
+MAN_FIRSTPLAY_message_0033	Win the tour exchange matches to grow your "team" and "players" a lot!	
+MAN_FIRSTPLAY_message_0034	Development menu (3 kinds of communication)	
+MAN_FIRSTPLAY_message_0035	1. Individual development\n(player level and ability gauges)	
+MAN_FIRSTPLAY_message_0036	2. Combination building\n(link lines between 2 players)	
+MAN_FIRSTPLAY_message_0037	3. Condition care\n(motivation and stamina)	
+MAN_FIRSTPLAY_message_0038	Raising a player's level\nimproves each of his abilities!	
+MAN_FIRSTPLAY_message_0039	When players are linked,\npasses between them succeed more!	
+MAN_FIRSTPLAY_message_0040	Motivation and stamina affect\nhow players move in matches!	
+MAN_FIRSTPLAY_message_0041	You can communicate with players up to 3 times per play.\nMake good use of the 3 kinds to build a team that wins!	
+MAN_FIRSTPLAY_message_0042	Growing your team style	
+MAN_FIRSTPLAY_message_0043	1. Checking team styles	
+MAN_FIRSTPLAY_message_0044	2. Kinds of team style	
+MAN_FIRSTPLAY_message_0045	3. Growing team styles	
+MAN_FIRSTPLAY_message_0046	Check each player's team style\nunder "View Data"!	
+MAN_FIRSTPLAY_message_0047	Set one each of\n"attack", "defence" and "support"!	
+MAN_FIRSTPLAY_message_0048	Grows as the team parameters and\nthe key player's level rise!	
+MAN_FIRSTPLAY_message_0049	Your team style changes how players move and how matches unfold!\nGrow your team style and beat strong opponents!	
+MAN_FIRSTPLAY_message_0050	Manager term and inheriting manager data	
+MAN_FIRSTPLAY_message_0051	1. The manager's term	
+MAN_FIRSTPLAY_message_0052	2. Club offers and resigning	
+MAN_FIRSTPLAY_message_0053	3. Inheriting manager data and licence	
+MAN_FIRSTPLAY_message_0054	When your term ends, you take\ncharge of a new team	
+MAN_FIRSTPLAY_message_0055	You can take an offer or resign\neven in mid-term	
+MAN_FIRSTPLAY_message_0056	Manager data and licence carry\nover to your next team	
+MAN_FIRSTPLAY_message_0057	Build a record during your term and grow your manager level!\nA higher level means better development! Inherit your data and climb higher!	
+MAN_FIRSTPLAY_message_0058	How to play the Union Trophy	
+MAN_FIRSTPLAY_message_0059	1. Choose the area to play	
+MAN_FIRSTPLAY_message_0060	2. Play matches to earn points	
+MAN_FIRSTPLAY_message_0061	3. National ranking announced after the period	
+MAN_FIRSTPLAY_message_0062	Play the best elevens of shops nationwide;\nhigher ranks earn more points!	
+MAN_FIRSTPLAY_message_0063	Conquer an area in one day for a bonus!\nWork together to conquer them all!	
+MAN_FIRSTPLAY_message_0064	Individual and association rankings by\nin-shop contribution; WG is shared out	
+MAN_FIRSTPLAY_message_0065	A competition where everyone in the shop works together to be the No.1 shop nationwide.\nTeam funds earned can be checked and used on WCCF.NET (wccfnet.jp).	
+MAN_FIRSTPLAY_message_0066	Use items in the manager's office!	
+MAN_FIRSTPLAY_message_0067	1. Use an item	
+MAN_FIRSTPLAY_message_0068	2. Choose the item to give in the manager's office	
+MAN_FIRSTPLAY_message_0069	3. Call the player to give it to	
+MAN_FIRSTPLAY_message_0070	When this icon shows, items can be used\napart from normal communication!	
+MAN_FIRSTPLAY_message_0071	Items have various effects;\nread the descriptions to choose!	
+MAN_FIRSTPLAY_message_0072	Rub the player's card to call him.\nHis motivation goes up too!	
+MAN_FIRSTPLAY_message_0073	Items come from the Golden Championship, sponsor missions and more.\nUse items actively to get ahead in developing players.	
+MAN_FIRSTPLAY_message_0074	About the overall manager ranking	
+MAN_FIRSTPLAY_message_0075	1. Earn WCCF points!	
+MAN_FIRSTPLAY_message_0076	2. Aim for the top of the ranking!	
+MAN_FIRSTPLAY_message_0077	3. Top finishers get rare items!	
+MAN_FIRSTPLAY_message_0078	Points also come from achievements\nsuch as titles, not just results.	
+MAN_FIRSTPLAY_message_0079	Points are totalled daily; the month's\nfinal places are fixed at month end.	
+MAN_FIRSTPLAY_message_0080	By monthly place, earn titles and\ntrophies or medals for your record!	
+MAN_FIRSTPLAY_message_0081	A ranking to decide WCCF's No.1 manager is here!\nPoints partly reset every month, so anyone can reach the top!	
+MAN_FIRSTPLAY_message_0082	New: Friend Missions	
+MAN_FIRSTPLAY_message_0083	1. Join a Friend Mission!	
+MAN_FIRSTPLAY_message_0084	2. First go for the personal prize!	
+MAN_FIRSTPLAY_message_0085	3. Play together with friends!	
+MAN_FIRSTPLAY_message_0086	Choose a competition with this mark\nto join a Friend Mission!	
+MAN_FIRSTPLAY_message_0087	The personal prize can be earned every\nday you clear it while the event runs!	
+MAN_FIRSTPLAY_message_0088	Clear it on the same day in the same shop as a\nfriend registered on WCCF.NET for a team prize!	
+MAN_FIRSTPLAY_message_0089	The team prize can be earned once per Friend Mission event!\nPlay at the arcade with friends and go for great prizes!	
+MAN_FIRSTPLAY_message_0090	Golden Championship upgraded!!	
+MAN_FIRSTPLAY_message_0091	1. Enter up to 4 times a day!	
+MAN_FIRSTPLAY_message_0092	2. Far more prize places!	
+MAN_FIRSTPLAY_message_0093	3. Every STAGE you climb	
+MAN_FIRSTPLAY_message_0094	   brings better entry prizes!	
+MAN_FIRSTPLAY_message_0095	Every STAGE's\nregulation is now free!	
+MAN_FIRSTPLAY_message_0096	Win at least once\nto earn a prize!	
+MAN_FIRSTPLAY_message_0097	Enter often\nand win great prizes!	
+MAN_FIRSTPLAY_message_0098	Events making the Golden Championship prizes even better are also planned!!	
+MAN_FIRSTPLAY_message_0099	About NEXT MISSION	
+MAN_FIRSTPLAY_message_0100	1. Check the MISSION!	
+MAN_FIRSTPLAY_message_0101	2. Complete MISSIONS	
+MAN_FIRSTPLAY_message_0102	   to earn points!	
+MAN_FIRSTPLAY_message_0103	3. Save up points	
+MAN_FIRSTPLAY_message_0104	   for rare items!	
+MAN_FIRSTPLAY_message_0105	See the details on the\nView Data screen.	
+MAN_FIRSTPLAY_message_0106	Completing a mission raises\nthe stage number.	
+MAN_FIRSTPLAY_message_0107	Items are kept in your box\non WCCF.NET (wccfnet.jp).	
+MAN_FIRSTPLAY_message_0108	When you play "the next WCCF", your saved points\nget you bargain items!	
+MAN_TUTORIAL_communication_0000	The captain seems to have a question.\nAnswer it and $c[FF6633FF]communicate$c with your players.	
+MAN_TUTORIAL_communication_0001	First, order $c[FF0000FF]team training$c.	
+MAN_TUTORIAL_communication_0002	Choose a training menu.\nThe item you choose decides $c[FF0000FF]which abilities grow$c.	
+MAN_TUTORIAL_communication_0003	Decide when to end training.\nMore training means $c[FF0000FF]bigger growth$c, but stamina drops and\nthe $c[FF0000FF]risk of injury$c rises, so be careful.	
+MAN_TUTORIAL_communication_0004	You can communicate $c[FF0000FF]3 times$c.\nTalk to your players actively.	
+MAN_TUTORIAL_communication_0005	Press the Data button to check $c[FF0000FF]all kinds of data$c.\nTo go straight to the match, select $c[FF0000FF]Start Match$c.	
+MAN_TUTORIAL_guidance_0000	First, practise using the "Shoot button".\nMaster the "Shoot button" and learn how to score.	
+MAN_TUTORIAL_guidance_0001	Next, practise using the "Keeper button".\nMaster the "Keeper button" and learn how to defend.	
+MAN_TUTORIAL_guidance_0002	Select $c[FF0000FF]Start Match$c from the "Match" menu\nto start the match.	
+MAN_TUTORIAL_guidance_0003	At half time you can give $c[FF0000FF]tactical orders$c.\nThe $c[FF0000FF]team parameters change$c with the order you choose.	
+MAN_TUTORIAL_guidance_0004	$c[FF0000FF]A player card is dispensed$c.\n$c[FF0000FF]Register the player$c when you $c[FF0000FF]sign your manager contract$c.	
+MAN_TUTORIAL_guidance_0005	On the ground you run training to $c[FF0000FF]raise individual abilities$c.\nSuccess also $c[FF0000FF]raises the player's motivation$c.\nTo check $c[FF0000FF]player names$c, press the $c[FF0000FF]Shoot button$c.	
+MAN_TUTORIAL_guidance_0006	The training menu affects $c[FF0000FF]how a player grows$c.\nChoose a menu that suits $c[FF0000FF]the ability you want to raise$c.	
+MAN_TUTORIAL_guidance_0007	Add new players to your team in $c[FF0000FF]Team Registration$c.\nTo go straight to the match, select $c[FF0000FF]Start Match$c.	
+MAN_TUTORIAL_guidance_0008	$c[FF0000FF]Place a player card on the board and confirm$c\nto $c[FF0000FF]add that player to your team$c.	
+MAN_TUTORIAL_guidance_0009	Do team training before going to the match.	
+MAN_TUTORIAL_guidance_0010	In the meeting room you coach players to $c[FF0000FF]raise special abilities$c.\nSuccess also $c[FF0000FF]raises the player's motivation$c.\nTo check $c[FF0000FF]player names$c, press the $c[FF0000FF]Shoot button$c.	
+MAN_TUTORIAL_guidance_0011	$c[FF0000FF]Fair assessments$c deepen the players' trust in you.\nAssess players $c[FF0000FF]by how well they did in the last match$c.	
+MAN_TUTORIAL_guidance_0012	Set a manager title in Club Management.	
+MAN_TUTORIAL_guidance_0013	The title you set is $c[FF0000FF]shown on the match screen$c and $c[FF0000FF]called by the commentator$c.\nChoose the title you like and confirm.	
+MAN_TUTORIAL_guidance_0014	In the lounge you can $c[FF0000FF]deepen combinations between players$c.\nCall $c[FF0000FF]2 players$c whose $c[FF0000FF]combination$c you want to build.\nTo check $c[FF0000FF]player names$c, press the $c[FF0000FF]Shoot button$c.	
+MAN_TUTORIAL_guidance_0015	A lively chat should improve $c[FF0000FF]their combination$c.\nA stronger $c[FF0000FF]combination$c makes $c[FF0000FF]passes connect more easily$c in matches.	
+MAN_TUTORIAL_guidance_0016	In the medical room you can $c[FF0000FF]look after the players' condition$c.\n$c[FF0000FF]Injured players are treated$c here too.	
+MAN_TUTORIAL_guidance_0017	Choosing the right treatment can $c[FF0000FF]raise motivation$c\nand $c[FF0000FF]help players recover$c from $c[FF0000FF]fatigue$c and $c[FF0000FF]injury$c.	
+MAN_TUTORIAL_guidance_0018	In the manager's office you can $c[FF0000FF]give players various roles$c.\nAppoint the $c[FF0000FF]captain$c or $c[FF0000FF]set-piece takers$c,\nor $c[FF0000FF]change shirt numbers$c.	
+MAN_TUTORIAL_guidance_0019	$c[FF0000FF]Appoint the right player$c and $c[FF0000FF]his motivation rises$c;\nhe should do well in matches too.	
+MAN_TUTORIAL_guidance_0020	Finally, talk to your $c[FF0000FF]secretary$c\nin the $c[FF0000FF]manager's office$c under $c[FF0000FF]Communication$c.	
+MAN_TUTORIAL_guidance_0021	To $c[FF0000FF]call your secretary$c in the manager's office, press the $c[FF0000FF]START button$c.\nYou can call her $c[FF0000FF]as often as you like$c.	
+MAN_TUTORIAL_guidance_0022	Do $c[FF0000FF]training$c and $c[FF0000FF]communication$c\nto get the team ready before the match.	
+MAN_TUTORIAL_guidance_0023	Open $c[FF0000FF]Offers / Resign$c in $c[FF0000FF]Club Management$c and take an offer.	
+MAN_TUTORIAL_guidance_0024	The offer you choose sets your $c[FF0000FF]league, division, first sponsor\nand starting team parameters$c. As your $c[FF0000FF]manager salary$c grows,\nyour $c[FF0000FF]manager licence$c is renewed. Choose the offer you like.	
+MAN_TUTORIAL_guidance_0025	"Rest" $c[FF0000FF]raises the players' motivation and clears fatigue$c.\nYou cannot do team training in that play.	
+MAN_TUTORIAL_guidance_0026	You can set a banner.\nBanners are hung in the stands of your home stadium.	
+MAN_TUTORIAL_guidance_0027	You can set a jersey.\nPlayers wear the jersey during team management.	
+MAN_TUTORIAL_guidance_0028	The team training menu $c[FF0000FF]"Rest"$c gets the team into shape.\nBut $c[FF0000FF]resting several times in a row$c has $c[FF0000FF]no effect$c, so be careful.	
+MAN_TUTORIAL_guidance_0029	Try $c[FF0000FF]team training$c and communication on the $c[FF0000FF]ground$c.\nYou can communicate $c[FF0000FF]3 times$c.	
+MAN_TUTORIAL_guidance_0030	Try $c[FF0000FF]team training$c and communication in the $c[FF0000FF]meeting room$c.\nYou can communicate $c[FF0000FF]3 times$c.	
+MAN_TUTORIAL_guidance_0031	Try $c[FF0000FF]team training$c and communication in the $c[FF0000FF]lounge$c.\nYou can communicate $c[FF0000FF]3 times$c.	
+MAN_TUTORIAL_guidance_0032	Try $c[FF0000FF]team training$c and communication in the $c[FF0000FF]medical room$c.\nYou can communicate $c[FF0000FF]3 times$c.	
+MAN_TUTORIAL_guidance_0033	Try $c[FF0000FF]team training$c and communication in the $c[FF0000FF]manager's office$c.\nYou can communicate $c[FF0000FF]3 times$c.	
+MAN_TUTORIAL_guidance_0034	This time, do $c[FF0000FF]team training$c and communication $c[FF0000FF]freely$c.\nYou can communicate $c[FF0000FF]3 times$c.	
+MAN_TUTORIAL_guidance_0035	In a tour exchange match you invite $c[FF0000FF]players listed from the Player Directory$c to a training match,\nboosting $c[FF0000FF]team strength$c and $c[FF0000FF]player abilities$c dramatically.	
+MAN_TUTORIAL_guidance_0036	Use the basic position and play area on the back of each player card\nto place it $c[FF0000FF]where the player suits best$c.	
+MAN_TUTORIAL_guidance_0037	Up to $c[FF0000FF]11 starters$c go $c[FF0000FF]inside the red frame$c.\nTo register more than 11, place cards $c[0000FFFF]inside the blue frame$c\nto register them as $c[0000FFFF]substitutes$c.	
+MAN_TUTORIAL_guidance_0038	If the number of FW, MF or DF cards is $c[FF0000FF]extreme$c,\na $c[FF0000FF]warning$c appears at the top right.\nYou may get a $c[FF0000FF]penalty$c in the match, so take care.	
+MAN_TUTORIAL_guidance_0039	Manage your team.\nStart the match when you are ready.	
+MAN_TUTORIAL_guidance_0040	Follow the controls at the bottom of the screen and the message window\nto manage your team.	
+MAN_TUTORIAL_message_0000	Starting the $c[FF6633FF]Shoot button$c tutorial.\nRead the explanation on screen and use the $c[FF6633FF]Shoot button$c.	
+MAN_TUTORIAL_message_0001	When a team-mate nears the opponents' goal, press the\n$c[FF6633FF]Shoot button$c before they take the ball and go for goal!	
+MAN_TUTORIAL_message_0002	That didn't work. Let's try just once more.\nPress the button when $c[FF6633FF]Press the Shoot button!$c appears.	
+MAN_TUTORIAL_message_0003	Starting the $c[66CCFFFF]Keeper button$c tutorial.\nRead the explanation on screen and use the $c[66CCFFFF]Keeper button$c.	
+MAN_TUTORIAL_message_0004	$c[FF6633FF]Let go and he returns towards the goal$c.\nWhen opponents near your goal, press the $c[66CCFFFF]Keeper button$c to defend it!	
+MAN_TUTORIAL_message_0005	Let's try just once more. Keep the $c[66CCFFFF]Keeper button$c held\nas the screen tells you. Hold it $c[FF6633FF]until he has the ball$c to succeed.	
+MAN_TUTORIAL_message_0006	Nobody gets it right at first. Get used to the controls through matches.\nKeep trying and you will get good at it.	
+MAN_TUTORIAL_message_0007	Success! Congratulations!\nIn real matches there are no prompts, so be careful.	
+MAN_TUTORIAL_message_0008	Success! Well done!\nWhile you hold the $c[66CCFFFF]Keeper button$c, $c[FF6633FF]the goalkeeper comes out$c.	
+MAN_TUTORIAL_mission_0000	Use the "Shoot button" and "Keeper button" to beat the opponents!	
+MAN_TUTORIAL_scene_0000	Press [Shoot button] when the prompt appears!	
+MAN_TUTORIAL_scene_0001	Hold [Keeper button] when the prompt appears!	
+MAN_Regist_menu_0005	Change Manager Title	
+MAN_Regist_menu_0006	Change Banner	
+MAN_Regist_menu_0007	Change Jersey	
+MAN_Regist_menu_0008	Roles & Numbers	
+MAN_Regist_menu_0009	Start Match	
+MAN_Regist_message_0003	You can enter the $c[FF0000FF]AREA CHAMPIONSHIP$c.\nEntry closes 30 seconds before kick-off.	
+MAN_Regist_message_0005	You can enter the $c[FF0000FF]ASIA CHAMPIONSHIP$c.\nEntry closes 30 seconds before kick-off.	
+MAN_MENU_button_0002	Change KEY	
+MAN_MENU_button_0010	Choose menu	
+MAN_MENU_button_0011	Switch tactics	
+MAN_MENU_button_0012	Choose training	
+MAN_MENU_button_0013	Select	
+MAN_MENU_button_0014	Choose item to view	
+MAN_MENU_button_0015	Choose opponent	
+MAN_MENU_button_0016	Choose team	
+MAN_MENU_button_0017	Choose key player	
+MAN_MENU_button_0018	Opponent scouting	
+MAN_MENU_button_0019	Close	
+MAN_MENU_button_0020	Game Start	
+MAN_MENU_button_0021	End Game	
+MAN_MENU_button_0022	Items	
+MAN_MENU_button_0023	Use item	
+MAN_MENU_button_0024	Don't use item	
+MAN_MENU_button_0025	Player Directory	
+MAN_MENU_button_0026	Delete card	
+MAN_MENU_button_0027	Call secretary	
+MAN_MENU_button_0028	About the Player Directory	
+MAN_MENU_button_0029	Close help	
+MAN_MENU_button_0030	Introduction	
+MAN_MENU_button_0031	Names ON	
+MAN_MENU_button_0032	Names OFF	
+MAN_MENU_button_0035	Open list	
+MAN_MENU_button_0036	Close list	
+MAN_MENU_button_0038	Choose player to develop	
+MAN_MENU_button_0039	Store	
+MAN_MENU_button_0040	Buy	
+MAN_MENU_button_0042	Preview	
+MAN_TOP_menu_0005	Club Management	
+MAN_TOP_message_0002	Run $c[FF0000FF]team training$c to raise the whole team's abilities.	
+MAN_TOP_message_0003	$c[FF0000FF]Communicate$c with players to improve all kinds of abilities.	
+MAN_TOP_message_0004	See $c[FF0000FF]all kinds of data$c, such as the team's record so far.	
+MAN_TOP_message_0005	Make $c[FF0000FF]entries$c and $c[FF0000FF]requests$c: team registration, match requests and more.\nData match entry is done here too.	
+MAN_setting_menu_0001	Captain	
+MAN_setting_menu_0002	FK taker	
+MAN_setting_menu_0003	CK taker	
+MAN_setting_menu_0004	PK taker	
+MAN_setting_menu_0005	Change numbers	
+MAN_setting_menu_0006	Done	
+MAN_setting_word_0000	Appoint roles and change shirt numbers freely. Choose what to change.	
+MAN_setting_word_0001	Currently appointed	
+MAN_setting_word_0002	Type	
+MAN_setting_word_0003	Aptitude	
+MAN_setting_word_0004	Appoint captain	
+MAN_setting_word_0005	Appoint FK taker	
+MAN_setting_word_0006	Appoint CK taker	
+MAN_setting_word_0007	Appoint PK taker	
+MAN_setting_word_0008	No player appointed	
+MAN_setting_word_0009	A substitute is appointed	
+MAN_setting_word_0010	An injured player is appointed	
+MAN_setting_word_0012	Current number	
+MAN_setting_word_0014	Currently worn by: 	
+MAN_setting_word_0015	Ideal	
+MAN_setting_word_0016	Average	
+MAN_setting_word_0017	Poor	
+MAN_netpass_TITLE_0000	Issue .NET Password	
+MAN_netpass_TITLE_0001	Issuing .NET Password	
+MAN_netpass_TITLE_0002	.NET Password Issued	
+MAN_netpass_button_0000	Issue password	
+MAN_netpass_button_0001	Don't issue password	
+MAN_netpass_message_0000	Issues a password for logging in to the .NET site.\nIssue a password?	
+MAN_netpass_message_0001	From now on, use the password below for WCCF.NET.\nPress the Shoot button to close the window.	
+MAN_netpass_message_0002	New .NET password	
+MAN_netpass_message_0005	.NET password not issued	
+MAN_netpass_message_0006	The .NET password could not be issued.	
+MAN_ENTRY_caution_0000	Some cards need 2D code registration.\nPress the START button and register the 2D code\nof the cards marked "!".	
+MAN_ENTRY_caution_0001	Press the START button and register the codes of the cards marked "!".	
+MAN_ENTRY_message_0000	Place your player cards and confirm.	
+MAN_ENTRY_message_0001	We should be able to run on little money. The club's $c[FF6633FF]finances will do well$c.	
+MAN_ENTRY_message_0002	Top players, yet no money worries. We can expect stable club finances.	
+MAN_ENTRY_message_0003	Our key players are world class. Win prize money to keep the club stable.	
+MAN_ENTRY_message_0004	We have many top players. Win prize money to strengthen our finances.	
+MAN_ENTRY_message_0005	We have gathered world-class players. Earn prize money reliably to avoid $c[FF6633FF]financial trouble$c.	
+MAN_ENTRY_message_0006	A real team of stars. Without prize money to save up, $c[FF6633FF]financial trouble$c is certain.	
+MAN_ENTRY_message_0007	The club's finances are in a very bad state. At this rate the club will $c[FF6633FF]go bankrupt$c!	
+MAN_TEAMENTRY_dataentry_0011	UNIVERSAL CUP entry conditions	
+MAN_TEAMENTRY_dataentry_0012	%d or more new cards	
+MAN_TEAMENTRY_dataentry_0013	16 new cards	
+MAN_DATAENTRY_message_0003	Return to the menu without entering the Area Championship.	
+MAN_DATAENTRY_message_0008	Return to the menu without entering the Asia Championship.	
+MAN_DATAENTRY_window_0003	Regulation breach\n\nChange the regulation\nin $c[FF6633FF]Team Registration$c	
+MAN_DATAENTRY_window_0004	Regulation breach\n\nTo enter, you must\nregister 16 players	
+MAN_DATAENTRY_window_0006	\nEntry for the next AREA CHAMPIONSHIP has already closed.\n$c[FF6633FF]You can enter again from next week$c.	
+MAN_DATAENTRY_window_0009	\nEntry for the next ASIA CHAMPIONSHIP has already closed.\n$c[FF6633FF]You can enter again from next week$c.	
+MAN_GOLDAENTRY_condition_0000	Golden Championship entry conditions	
+MAN_GOLDAENTRY_condition_0005	Regulation: Regular	
+MAN_GOLDAENTRY_condition_0006	Regulation: U-5	
+MAN_GOLDAENTRY_condition_0007	Regulation: U-5R	
+MAN_GOLDAENTRY_condition_0008	Regulation: Free	
+MAN_GOLDAENTRY_condition_0009	Regular cards only	
+MAN_GOLDAENTRY_condition_0010	5 or fewer rare & special	
+MAN_GOLDAENTRY_condition_0011	5 or fewer rare cards	
+MAN_GOLDAENTRY_condition_0012	All cards allowed	
+MAN_GOLDAENTRY_condition_0013	Free entry!	
+MAN_GOLDAENTRY_condition_0014	Entered	
+MAN_GOLDAENTRY_condition_0015	%d plays until entry	
+MAN_GOLDAENTRY_condition_0018	* The team as last registered is used in the Golden Championship\n* You can only enter with 16 players in the team	
+MAN_GOLDAENTRY_condition_0019	Data matches against players nationwide. Enter for one coin once the STAGE is set.	
+MAN_GOLDAENTRY_condition_0022	Entry conditions not met	
+MAN_GOLDAENTRY_condition_0023	Already entered	
+MAN_GOLDAENTRY_condition_0026	Entry opens after %s entry	
+MAN_GOLDAENTRY_condition_0027	%s entry prize	
+MAN_GOLDAENTRY_condition_0028	Enter a data match and win $c[FF0000FF]great prizes$c!	
+MAN_GOLDAENTRY_condition_0029	Win at least once for handy development $c[FF0000FF]items$c!	
+MAN_GOLDAENTRY_condition_0031	Entry	
+MAN_GOLDAENTRY_contents_0000	Only	
+MAN_GOLDAENTRY_contents_0001	plays	
+MAN_GOLDAENTRY_contents_0002	Free now	
+MAN_GOLDAENTRY_contents_0004	%d plays a day	
+MAN_GOLDAENTRY_contents_0005	Insert 100 yen	
+MAN_GOLDAENTRY_contents_0006	100 yen	
+MAN_GOLDAENTRY_contents_0007	Insert one coin	
+MAN_GOLDAENTRY_contents_0008	One coin	
+MAN_GOLDAENTRY_window_0000	The Golden Championship begins	
+MAN_GOLDAENTRY_window_0001	Enter and GET great prizes!	
+MAN_GOLDAENTRY_window_0002	The Golden Championship is a $c[FF6633FF]data match$c held every day.\nA 32-team one-day tournament; results come the next day.\n$c[FF6633FF]Great prizes$c are awarded by final place.	
+MAN_GOLDAENTRY_window_0003	How to enter	
+MAN_GOLDAENTRY_window_0004	You can enter the Golden Championship for $c[FF6633FF]100 yen$c.\nPlay %d times in a day and you can $c[FF6633FF]enter for free$c.	
+MAN_GOLDAENTRY_window_0005	Insert 100 yen to confirm your entry	
+MAN_GOLDAENTRY_window_0007	- $c[FF6633FF]Only 100-yen coins are accepted.$c\n- Coins over 100 yen are added to your $c[FF6633FF]credits$c.\n- If $c[FF6633FF]time runs out$c and the match starts while inserting 100 yen,\n  it may be added to your credits.	
+MAN_GOLDAENTRY_window_0008	Cancel	
+MAN_GOLDAENTRY_window_0009	Play %d times in a day\nto enter for free	
+MAN_GOLDAENTRY_window_0010	You can enter for free right now!	
+MAN_GOLDAENTRY_window_0011	$c[FF6633FF]Play %d times$c in a day to enter for free	
+MAN_GOLDAENTRY_window_0014	You can hold $c[FF6633FF]up to %d items$c.\nItems over the limit are $c[FF6633FF]deleted automatically\nwhen team management ends$c.\nSort your items in the $c[FF6633FF]manager's office$c.	
+MAN_GOLDAENTRY_window_0016	Entry complete!	
+MAN_GOLDAENTRY_window_0017	Collect your result the next day	
+MAN_GOLDAENTRY_window_0018	- Golden Championship results appear $c[FF6633FF]the next day$c.\n- Collect your result $c[FF6633FF]within 30 days$c of entry.\n  After 30 days it can no longer be collected.	
+MAN_GOLDAENTRY_window_0019	You have already entered\nthis regulation	
+MAN_GOLDAENTRY_window_0020	You have already entered this regulation\n\nYou can enter each regulation\nonly $c[FF6633FF]once a day$c.	
+MAN_GOLDAENTRY_window_0021	Only $c[FF6633FF]free entries$c earned by\nplay count are accepted now.	
+MAN_GOLDAENTRY_window_0022	This cabinet is $c[FF6633FF]offline$c now.\nYou cannot enter.	
+MAN_GOLDAENTRY_window_0023	This competition is not being held now.	
+MAN_GOLDAENTRY_window_0024	You can enter the Golden Championship for $c[FF6633FF]one coin$c.\nPlay %d times in a day and you can $c[FF6633FF]enter for free$c.	
+MAN_GOLDAENTRY_window_0025	Insert a coin to confirm your entry	
+MAN_GOLDAENTRY_window_0026	Coins inserted here are not added as credit.	
+MAN_GOLDAENTRY_window_0027	- $c[FF6633FF]Only one coin is accepted.$c\n- More than one coin is added to your $c[FF6633FF]credits$c.\n- If $c[FF6633FF]time runs out$c and the match starts while inserting a coin,\n  it may be added to your credits.	
+MAN_GOLDAENTRY_window_0028	Not enough players in the team.\nYou can only enter with 16 players in the team.	
+MAN_UNIVERSALENTRY_caution_0000	Does not meet the regulation\n\n-- Regulation --\nREGULAR (regular cards only)	
+MAN_UNIVERSALENTRY_caution_0001	Does not meet the regulation\n\n-- Regulation --\nU-5 (5 or fewer rare & special cards)	
+MAN_UNIVERSALENTRY_caution_0002	Does not meet the regulation\n\n-- Regulation --\nU-5R (5 or fewer rare cards)	
+MAN_UNIVERSALENTRY_caution_0003	Does not meet the regulation\n\n-- Regulation --\nParameter total (parameter total %d or less)	
+MAN_UNIVERSALENTRY_caution_0004	Does not meet the regulation\n\n-- Regulation --\n2017-2018 Cards (%d or more 2017-2018 cards)	
+MAN_UNIVERSALENTRY_caution_0005	Does not meet the regulation\n\n-- Regulation --\nREGULAR (regular cards only)\n2017-2018 Cards (%d or more 2017-2018 cards)	
+MAN_UNIVERSALENTRY_caution_0006	Does not meet the regulation\n\n-- Regulation --\nU-5 (5 or fewer rare & special cards)\n2017-2018 Cards (%d or more 2017-2018 cards)	
+MAN_UNIVERSALENTRY_caution_0007	Does not meet the regulation\n\n-- Regulation --\nU-5R (5 or fewer rare cards)\n2017-2018 Cards (%d or more 2017-2018 cards)	
+MAN_UNIVERSALENTRY_caution_0008	Does not meet the regulation\n\n-- Regulation --\nParameter total (parameter total %d or less)\n2017-2018 Cards (%d or more 2017-2018 cards)	
+MAN_UNIVERSALENTRY_caution_0009	The regulation is not met,\nso a friendly match will be played	
+MAN_APPLICATION_action_0000	Set opponent	
+MAN_APPLICATION_action_0002	Play a CPU team	
+MAN_APPLICATION_action_0003	Clear match setting	
+MAN_APPLICATION_message_0004	Choose a manager who sent you a request to fix the match.	
+MAN_APPLICATION_message_0005	You can request a match with a specific opponent until 60 seconds before kick-off.	
+MAN_APPLICATION_message_0006	Matches you without naming an opponent.	
+MAN_APPLICATION_message_0007	Matches you with a CPU team as strong as our club.	
+MAN_APPLICATION_message_0009	The manager you have requested a match with.	
+MAN_APPLICATION_message_0010	You requested a match with %s. The match is fixed when they request you too.	
+MAN_APPLICATION_message_0013	Match setting cleared. You can change it until 60 seconds before kick-off.	
+MAN_APPLICATION_message_0014	Opponent set to a CPU team. You can change it until 60 seconds before kick-off.	
+MAN_ACTIVITY_event_message_0000	%s won the "$c[FF6633FF]Universal Cup$c"!	
+MAN_ACTIVITY_event_message_0001	%s won the "$c[FF6633FF]Universal Championship$c"!	
+MAN_ACTIVITY_event_message_0002	%s won the "$c[FF6633FF]Area Championship$c"!	
+MAN_ACTIVITY_event_message_0003	%s won the "$c[FF6633FF]Japan Winners Championship$c"!	
+MAN_ACTIVITY_event_message_0004	%s won the "$c[FF6633FF]Asia Championship$c"!	
+MAN_ACTIVITY_event_message_0005	%s won the "$c[FF6633FF]World Winners Championship$c"!	
+MAN_ACTIVITY_event_message_0006	%s took 1st place in the "$c[FF6633FF]Union Trophy Ranking$c"!	
+MAN_ACTIVITY_event_message_0007	%s took 1st place in the "$c[FF6633FF]Golden Championship$c"!	
+MAN_ACTIVITY_event_message_0008	%s took 1st place in the "$c[FF6633FF]Special Trophy Ranking$c"!	
+MAN_ACTIVITY_event_message_0009	%s, "$c[FF6633FF]Grand Trophy World Class A$c": $c[FF6633FF]1st place!	
+MAN_ACTIVITY_event_message_0010	%s $c[FF6633FF]won every title!	
+MAN_ACTIVITY_event_message_0011	%s $c[FF6633FF]won every title again!	
+MAN_ACTIVITY_event_message_0012	%s $c[FF6633FF]conquered every Challenge Tour region!	
+MAN_ACTIVITY_event_message_0013	%s $c[FF6633FF]won every Regular League!	
+MAN_ACTIVITY_event_message_0014	%s won $c[FF6633FF]%s$c!	
+MAN_ACTIVITY_event_message_0015	%s $c[FF6633FF]started playing with a new team!	
+MAN_ACTIVITY_event_message_0016	%s $c[FF6633FF]completed a manager's term!	
+MAN_ACTIVITY_event_message_0017	It's %s's manager's $c[FF6633FF]birthday!	
+MAN_ACTIVITY_event_message_0018	%s's team $c[FF6633FF]faces a financial crisis!	
+MAN_ACTIVITY_event_message_0019	%s's team $c[FF6633FF]got a special bonus!	
+MAN_ACTIVITY_event_message_0020	%s's team $c[FF6633FF]rebuilt its clubhouse!	
+MAN_ACTIVITY_event_message_0021	%s's team $c[FF6633FF]rebuilt its stadium!	
+MAN_ACTIVITY_event_message_0022	%s's manager $c[FF6633FF]faces calls for the sack!	
+MAN_ACTIVITY_event_message_0023	%s's manager $c[FF6633FF]is in demand!	
+MAN_ACTIVITY_message_0000	%s got $c[FF6633FF]%s$c "$c[FF6633FF]%s$c"!	
+MAN_ACTIVITY_message_0002	%s got the $c[FF6633FF]item$c "$c[FF6633FF]%s$c"!	
+MAN_ACTIVITY_message_0004	%s got the $c[FF6633FF]title$c "$c[FF6633FF]%s$c"!	
+MAN_ACTIVITY_message_0008	%s won "$c[FF6633FF]%s$c"!	
+MAN_ACTIVITY_message_0009	%s's "$c[FF6633FF]%s$c" was picked for the "$c[FF6633FF]Shop Best Eleven$c"!	
+MAN_ACTIVITY_message_0010	%s's "$c[FF6633FF]%s$c" was named "$c[FF6633FF]Shop MVP$c"!	
+MAN_ACTIVITY_message_0011	It's the $c[FF6633FF]birthday$c of %s's "$c[FF6633FF]%s$c"!	
+MAN_ACTIVITY_message_0012	%s's team's $c[FF6633FF]nickname$c became "$c[FF6633FF]%s$c"!	
+MAN_ACTIVITY_message_0013	%s's team's $c[FF6633FF]official winning streak$c rose to "$c[FF6633FF]%d$c"!	
+MAN_ACTIVITY_message_0014	%s conquered "$c[FF6633FF]%s$c" on the $c[FF6633FF]Challenge Tour$c!	
+MAN_ACTIVITY_message_0015	%s completed a "$c[FF6633FF]Friend Mission$c" at %s!	
+MAN_ACTIVITY_message_0016	Secret region	
+MAN_BANNER_message_0000	Choose the banner to use.	
+MAN_BANNER_message_0001	Name	
+MAN_CLUBOFFER_contents_0000	Club Offer List	
+MAN_CLUBOFFER_contents_0001	Players:	
+MAN_CLUBOFFER_contents_0002	Contract options:	
+MAN_CLUBOFFER_contents_0003	Resign as manager of your current club team.	
+MAN_CLUBOFFER_contents_0004	Salary increase:	
+MAN_CLUBOFFER_contents_0005	Salary bonus	
+MAN_CLUBOFFER_contents_0006	Half-time tactics	
+MAN_CLUBOFFER_contents_0007	Evolved team style	
+MAN_CLUBOFFER_menu_0000	------	
+MAN_CLUBOFFER_message_0000	$c[FF6633FF]To accept an offer$c, choose the team to move to. Beyond 10 offers, the oldest are deleted.	
+MAN_CLUBOFFER_message_0001	Is $c[FF6633FF]%s$c OK?	
+MAN_CLUBOFFER_message_0002	You can accept a $c[FF6633FF]club offer$c or resign $c[FF6633FF]after 20 matches$c.	
+MAN_CLUBOFFER_title_0000	Club Offers / Resign	
+MAN_COACHITEM_message_0000	The player's $c[CC0000FF]level rises greatly$c\nand a $c[CC0000FF]deep bond of trust$c forms\nwith the manager	
+MAN_COACHITEM_message_0001	The player gains\n$c[CC0000FF]a lot of experience$c and\n$c[CC0000FF]levels up$c	
+MAN_COACHITEM_message_0002	The player gains\n$c[CC0000FF]experience$c and\n$c[CC0000FF]levels up$c	
+MAN_COACHITEM_message_0003	The player and $c[CC0000FF]3 team-mates form\na golden bond$c, and a $c[CC0000FF]deep bond of trust$c\nforms between the player and the manager	
+MAN_COACHITEM_message_0004	A $c[CC0000FF]strong bond$c forms between\nthe player and $c[CC0000FF]2 team-mates$c	
+MAN_COACHITEM_message_0005	A $c[CC0000FF]bond$c forms between\nthe player and $c[CC0000FF]1 team-mate$c	
+MAN_COACHITEM_message_0006	A $c[CC0000FF]bond$c forms between the player\nand $c[CC0000FF]1 FW team-mate$c	
+MAN_COACHITEM_message_0007	A $c[CC0000FF]bond$c forms between the player\nand $c[CC0000FF]1 MF team-mate$c	
+MAN_COACHITEM_message_0008	A $c[CC0000FF]bond$c forms between the player\nand $c[CC0000FF]1 DF team-mate$c	
+MAN_COACHITEM_message_0009	A $c[CC0000FF]bond$c forms between the player\nand $c[CC0000FF]1 GK team-mate$c	
+MAN_COACHITEM_message_0010	A $c[CC0000FF]bond$c forms between the player\nand $c[CC0000FF]1 Spanish team-mate$c	
+MAN_COACHITEM_message_0011	A $c[CC0000FF]bond$c forms between the player\nand $c[CC0000FF]1 English team-mate$c	
+MAN_COACHITEM_message_0012	A $c[CC0000FF]bond$c forms between the player\nand $c[CC0000FF]1 Italian team-mate$c	
+MAN_COACHITEM_message_0013	A $c[CC0000FF]bond$c forms between the player\nand $c[CC0000FF]1 German team-mate$c	
+MAN_COACHITEM_message_0014	A $c[CC0000FF]bond$c forms between the player\nand $c[CC0000FF]1 French team-mate$c	
+MAN_COACHITEM_message_0015	A $c[CC0000FF]bond$c forms between the player\nand $c[CC0000FF]1 Dutch team-mate$c	
+MAN_COACHITEM_message_0016	A $c[CC0000FF]bond$c forms between the player\nand $c[CC0000FF]1 Brazilian team-mate$c	
+MAN_COACHITEM_message_0017	A $c[CC0000FF]bond$c forms between the player\nand $c[CC0000FF]1 Argentine team-mate$c	
+MAN_COACHITEM_message_0018	A $c[CC0000FF]bond$c forms between the player\nand $c[CC0000FF]1 Japanese team-mate$c	
+MAN_COACHITEM_message_0052	A $c[CC0000FF]bond$c forms between the player\nand $c[CC0000FF]1 team-mate from\nArsenal FC$c	
+MAN_COACHITEM_message_0053	A $c[CC0000FF]bond$c forms between the player\nand $c[CC0000FF]1 team-mate from\nManchester City FC$c	
+MAN_COACHITEM_message_0054	A $c[CC0000FF]bond$c forms between the player\nand $c[CC0000FF]1 team-mate from\nLiverpool FC$c	
+MAN_COACHITEM_message_0019	The player's\n$c[CC0000FF]condition care$c\n$c[CC0000FF]success rate rises$c\n[Lasts] 5 matches	
+MAN_COACHITEM_message_0020	The player's\n$c[CC0000FF]condition care$c\n$c[CC0000FF]success rate rises$c\n[Lasts] 4 matches	
+MAN_COACHITEM_message_0021	The player's\n$c[CC0000FF]condition care$c\n$c[CC0000FF]success rate rises$c\n[Lasts] 3 matches	
+MAN_COACHITEM_message_0022	The player\n$c[CC0000FF]builds up no fatigue$c\n[Lasts] 4 matches	
+MAN_COACHITEM_message_0023	The player\n$c[CC0000FF]builds up no fatigue$c\n[Lasts] 3 matches	
+MAN_COACHITEM_message_0024	The player\n$c[CC0000FF]builds up no fatigue$c\n[Lasts] 2 matches	
+MAN_COACHITEM_message_0025	The player gets\n$c[CC0000FF]extra experience$c from\n$c[CC0000FF]individual development$c\n[Lasts] 5 matches	
+MAN_COACHITEM_message_0026	The player gets\n$c[CC0000FF]extra experience$c from\n$c[CC0000FF]individual development$c\n[Lasts] 4 matches	
+MAN_COACHITEM_message_0027	The player gets\n$c[CC0000FF]extra experience$c from\n$c[CC0000FF]individual development$c\n[Lasts] 3 matches	
+MAN_COACHITEM_message_0028	The $c[CC0000FF]secretary sometimes follows up$c\nthe player's\n$c[CC0000FF]condition care$c\n[Lasts] 5 matches	
+MAN_COACHITEM_message_0029	The $c[CC0000FF]secretary sometimes follows up$c\nthe player's\n$c[CC0000FF]condition care$c\n[Lasts] 4 matches	
+MAN_COACHITEM_message_0030	The $c[CC0000FF]secretary sometimes follows up$c\nthe player's\n$c[CC0000FF]condition care$c\n[Lasts] 3 matches	
+MAN_COACHITEM_message_0031	The player's\n$c[CC0000FF]combination building$c\n$c[CC0000FF]success rate rises$c\n[Lasts] 5 matches	
+MAN_COACHITEM_message_0032	The player's\n$c[CC0000FF]combination building$c\n$c[CC0000FF]success rate rises$c\n[Lasts] 4 matches	
+MAN_COACHITEM_message_0033	The player's\n$c[CC0000FF]combination building$c\n$c[CC0000FF]success rate rises$c\n[Lasts] 3 matches	
+MAN_COACHITEM_message_0034	The player\n$c[CC0000FF]builds up no discontent$c\n[Lasts] 5 matches	
+MAN_COACHITEM_message_0035	The player\n$c[CC0000FF]builds up no discontent$c\n[Lasts] 4 matches	
+MAN_COACHITEM_message_0036	The player\n$c[CC0000FF]builds up no discontent$c\n[Lasts] 3 matches	
+MAN_COACHITEM_message_0037	The player\n$c[CC0000FF]stays in good form$c\n[Lasts] 4 matches	
+MAN_COACHITEM_message_0038	The player\n$c[CC0000FF]stays in good form$c\n[Lasts] 3 matches	
+MAN_COACHITEM_message_0039	The player\n$c[CC0000FF]stays in good form$c\n[Lasts] 2 matches	
+MAN_COACHITEM_message_0040	The $c[CC0000FF]secretary sometimes follows up$c\nthe player's\n$c[CC0000FF]combination building$c\n[Lasts] 5 matches	
+MAN_COACHITEM_message_0041	The $c[CC0000FF]secretary sometimes follows up$c\nthe player's\n$c[CC0000FF]combination building$c\n[Lasts] 4 matches	
+MAN_COACHITEM_message_0042	The $c[CC0000FF]secretary sometimes follows up$c\nthe player's\n$c[CC0000FF]combination building$c\n[Lasts] 3 matches	
+MAN_COACHITEM_message_0043	The player's\n$c[CC0000FF]combination building$c\n$c[CC0000FF]effect rises$c\n[Lasts] 5 matches	
+MAN_COACHITEM_message_0044	The player's\n$c[CC0000FF]combination building$c\n$c[CC0000FF]effect rises$c\n[Lasts] 4 matches	
+MAN_COACHITEM_message_0045	The player's\n$c[CC0000FF]combination building$c\n$c[CC0000FF]effect rises$c\n[Lasts] 3 matches	
+MAN_COACHITEM_message_0046	The player\n$c[CC0000FF]resists injury$c\n[Lasts] 4 matches	
+MAN_COACHITEM_message_0047	The player\n$c[CC0000FF]resists injury$c\n[Lasts] 3 matches	
+MAN_COACHITEM_message_0048	The player\n$c[CC0000FF]resists injury$c\n[Lasts] 2 matches	
+MAN_COACHITEM_message_0049	The $c[CC0000FF]secretary sometimes follows up$c\nthe player's\n$c[CC0000FF]individual development$c\n[Lasts] 5 matches	
+MAN_COACHITEM_message_0050	The $c[CC0000FF]secretary sometimes follows up$c\nthe player's\n$c[CC0000FF]individual development$c\n[Lasts] 4 matches	
+MAN_COACHITEM_message_0051	The $c[CC0000FF]secretary sometimes follows up$c\nthe player's\n$c[CC0000FF]individual development$c\n[Lasts] 3 matches	
+MAN_COACHITEM_message_0075	Offence ★18\nDefence ★18\nTechnique ★18\nPower ★18\nSpeed ★18\nStamina ★18	
+MAN_COACHITEM_message_0076	Offence ★36\nDefence ★18\nTechnique ★18\nPower ★18\nSpeed ★18\nStamina ★18	
+MAN_COACHITEM_message_0077	Offence ★18\nDefence ★36\nTechnique ★18\nPower ★18\nSpeed ★18\nStamina ★18	
+MAN_COACHITEM_message_0078	Offence ★18\nDefence ★18\nTechnique ★36\nPower ★18\nSpeed ★18\nStamina ★18	
+MAN_COACHITEM_message_0079	Offence ★18\nDefence ★18\nTechnique ★18\nPower ★36\nSpeed ★18\nStamina ★18	
+MAN_COACHITEM_message_0080	Offence ★18\nDefence ★18\nTechnique ★18\nPower ★18\nSpeed ★36\nStamina ★18	
+MAN_COACHITEM_message_0081	Offence ★18\nDefence ★18\nTechnique ★18\nPower ★18\nSpeed ★18\nStamina ★36	
+MAN_COACHITEM_message_0082	Offence ★7\nDefence ★7\nTechnique ★7\nPower ★7\nSpeed ★7\nStamina ★7	
+MAN_COACHITEM_message_0083	Offence ★18\nDefence ★2\nTechnique ★12\nPower ★7\nSpeed ★2\nStamina ★2	
+MAN_COACHITEM_message_0084	Offence ★2\nDefence ★18\nTechnique ★2\nPower ★7\nSpeed ★12\nStamina ★2	
+MAN_COACHITEM_message_0085	Offence ★12\nDefence ★2\nTechnique ★18\nPower ★7\nSpeed ★2\nStamina ★2	
+MAN_COACHITEM_message_0086	Offence ★7\nDefence ★12\nTechnique ★2\nPower ★18\nSpeed ★2\nStamina ★2	
+MAN_COACHITEM_message_0087	Offence ★12\nDefence ★2\nTechnique ★7\nPower ★2\nSpeed ★18\nStamina ★2	
+MAN_COACHITEM_message_0088	Offence ★2\nDefence ★7\nTechnique ★2\nPower ★2\nSpeed ★12\nStamina ★18	
+MAN_COACHITEM_message_0089	Offence ★2\nDefence ★2\nTechnique ★2\nPower ★2\nSpeed ★2\nStamina ★2	
+MAN_COACHITEM_message_0090	Offence ★9\nDefence ★1\nTechnique ★1\nPower ★1\nSpeed ★1\nStamina ★1	
+MAN_COACHITEM_message_0091	Offence ★1\nDefence ★9\nTechnique ★1\nPower ★1\nSpeed ★1\nStamina ★1	
+MAN_COACHITEM_message_0092	Offence ★1\nDefence ★1\nTechnique ★9\nPower ★1\nSpeed ★1\nStamina ★1	
+MAN_COACHITEM_message_0093	Offence ★1\nDefence ★1\nTechnique ★1\nPower ★9\nSpeed ★1\nStamina ★1	
+MAN_COACHITEM_message_0094	Offence ★1\nDefence ★1\nTechnique ★1\nPower ★1\nSpeed ★9\nStamina ★1	
+MAN_COACHITEM_message_0095	Offence ★1\nDefence ★1\nTechnique ★1\nPower ★1\nSpeed ★1\nStamina ★9	
+MAN_COACHITEM_message_0055	A $c[CC0000FF]bond$c forms between the player\nand $c[CC0000FF]1 team-mate from\nParis Saint-Germain FC$c	
+MAN_COACHITEM_message_0056	A $c[CC0000FF]bond$c forms between the player\nand $c[CC0000FF]1 team-mate from\nFC Bayern Munich$c	
+MAN_COACHITEM_message_0057	A $c[CC0000FF]bond$c forms between the player\nand $c[CC0000FF]1 team-mate from\nBorussia Dortmund$c	
+MAN_COACHITEM_message_0058	A $c[CC0000FF]bond$c forms between the player\nand $c[CC0000FF]1 team-mate from\nAC Milan or\nFC Internazionale$c	
+MAN_COACHITEM_message_0059	A $c[CC0000FF]bond$c forms between the player\nand $c[CC0000FF]1 team-mate from\nJuventus$c	
+MAN_COACHITEM_message_0060	A $c[CC0000FF]bond$c forms between the player\nand $c[CC0000FF]1 team-mate from\nAS Roma or SS Lazio$c	
+MAN_COACHITEM_message_0061	A $c[CC0000FF]bond$c forms between the player\nand $c[CC0000FF]1 team-mate from\nSSC Napoli$c	
+MAN_COACHITEM_message_0062	A $c[CC0000FF]bond$c forms between the player\nand $c[CC0000FF]1 team-mate from\nClub Atletico de Madrid\nor Real Madrid CF$c	
+MAN_COACHITEM_message_0063	A $c[CC0000FF]bond$c forms between the player\nand $c[CC0000FF]1 team-mate from\nFC Barcelona$c	
+MAN_COACHITEM_message_0064	A $c[CC0000FF]bond$c forms between the player\nand $c[CC0000FF]1 team-mate from\nVillarreal CF$c	
+MAN_COACHITEM_message_0065	A $c[CC0000FF]bond$c forms between the player\nand $c[CC0000FF]1 team-mate from\nSporting CP$c	
+MAN_COACHITEM_message_0096	Option effect:	
+MAN_COACHITEM_message_0097	Extra ability gained	
+MAN_COACHITEM_message_0099	Golden bond	
+MAN_COACHITEM_message_1000	Choose the item to use and press $c[FF6633FF]OK$c.	
+MAN_COACHITEM_message_1001	$c[FF6633FF]Rub$c the card of the player to give the item to.	
+MAN_COACHITEM_message_1002	Choose the item to delete and press $c[FF6633FF]OK$c.	
+MAN_COACHITEM_message_1003	A deleted item $c[FF6633FF]cannot be restored.$c\nReally delete it?	
+MAN_COACHITEM_message_1004	Item deleted!	
+MAN_COACHITEM_message_1005	Items can be used only once per management session.	
+MAN_COACHITEM_word_0000	Shoes	
+MAN_COACHITEM_word_0001	Wristband	
+MAN_COACHITEM_word_0003	Delete item	
+MAN_COACHITEM_word_0004	Items held	
+MAN_COACHITEM_word_0005	Rarity	
+MAN_COACHITEM_word_0006	Description	
+MAN_COACHTITLE_menu_0001	Next	
+MAN_COACHTITLE_message_0000	Choose the manager title to use.	
+MAN_COACHTITLE_message_0001	How to earn	
+MAN_COACHTITLE_message_0002	Page %d/%d	
+MAN_COM_default_0000	On the ground, individual training raises $c[FF0000FF]individual abilities$c.	
+MAN_COM_default_0001	In the meeting room, assessing players raises $c[FF0000FF]special abilities$c.	
+MAN_COM_default_0002	In the manager's office you can $c[FF0000FF]appoint roles$c to players.	
+MAN_COM_default_0003	In the lounge you talk with 2 players\nto raise their $c[FF0000FF]combination$c.	
+MAN_COM_default_0004	In the medical room you look after players' condition\nand help them recover from $c[FF0000FF]injury$c and low motivation.	
+MAN_COM_menu_0000	Individual development	
+MAN_COM_menu_0002	Condition care	
+MAN_COM_menu_0003	Secretary talk / use items	
+MAN_COM_menu_0004	Meeting	
+MAN_COM_message_0000	Rub the card of the player whose individual abilities you want to develop.\nYou can develop players $c[FF6633FF]%d more times$c.	
+MAN_COM_message_0001	Choose the "Develop" menu or rub a player card to develop players.\nPress the $c[FFFF00FF]Key Player button$c to change the key player.	
+MAN_COM_message_0002	Press the $c[99FF66FF]START button$c to talk to your secretary.\nThe $c[FFFF00FF]Key Player button$c opens the item window.	
+MAN_COM_message_0003	Rub the cards of the $c[FF6633FF]2$c players whose combination you want to build.\nYou can develop players $c[FF6633FF]%d more times$c.	
+MAN_COM_message_0005	Rub the card of the player whose condition you want to care for.\nYou can develop players $c[FF6633FF]%d more times$c.	
+MAN_COM_message_0006	Communicate with players	
+MAN_COM_message_0007	Change the key player to set the team style.\nPress the $c[FFFF00FF]Key Player button$c while rubbing a card.	
+MAN_COM_message_0008	End team management and start the match.\nChoose "Start Match" from the "Match" menu on the left.	
+MAN_COM_message_0009	Press the $c[99FF66FF]START button$c to talk to your secretary.	
+MAN_COM_message_0010	The $c[FFFF00FF]Key Player button$c opens the item window.	
+MAN_COM_message_0011	Here you can talk to your secretary or use your items.\nTalks with the secretary are available from the play after you choose this.	
+MAN_CONT_message_0001	----- Player cards are being dispensed. Don't forget to take them -----	
+MAN_CONT_message_0002	Press the START button to continue.	
+MAN_CONT_message_0005	Press the button	unsure: fragment; the rest of the sentence is drawn elsewhere
+MAN_CONT_message_0006	Press the Key Player button to buy extra player cards.	
+MAN_CONT_message_0007	Press the Shoot button to use 1 credit\nfor 1 player card and a development item.	
+MAN_CONT_message_0008	The 100 yen inserted here is not added as credit.	
+MAN_CONT_message_0009	$c[e6005aFF]- Only 100-yen coins are accepted.$c\n- Coins over 100 yen are added to your $c[e6005aFF]credits$c\n- If $c[e6005aFF]time runs out$c while inserting 100 yen, it may be added to your credits	
+MAN_CONT_message_0012	Insert 100 yen to continue.	
+MAN_CONT_message_0013	Insert one coin\nfor one player card.	
+MAN_CONT_message_0014	The coin inserted here is not added as credit.	
+MAN_CONT_message_0015	- $c[e6005aFF]Only one coin is accepted.$c\n- More than one coin is added to your $c[e6005aFF]credits$c.\n- If $c[e6005aFF]time runs out$c while inserting coins, they may be added to your credits.	
+MAN_CONT_message_0016	Insert one coin to continue.	
+MAN_CONT_message_0017	Could not get the data.	
+MAN_CONT_message_0018	Development item received!	
+MAN_CONT_message_0019	You can check the item in your next management session.	
+MAN_CONT_message_0020	Buy 1 player card with a credit or 100 yen.\nChoose how to pay with the Tactics button left/right.	
+MAN_CONT_message_0021	* To pay with 100 yen, select "Buy for 100 yen" before inserting.	
+MAN_CONT_message_0022	Buy for 100 yen	
+MAN_CONT_message_0023	Buy 1 player card with a credit or one coin.\nChoose how to pay with the Tactics button left/right.	
+MAN_CONT_message_0024	* To pay with one coin, select "Buy for one coin" before inserting.	
+MAN_CONT_message_0025	Buy for one coin	
+MAN_DATA_challenget_0000	Conquest status	
+MAN_DATA_challenget_0001	Team style evolution	
+MAN_DATA_challenget_0002	Attack	
+MAN_DATA_challenget_0003	Defence	
+MAN_DATA_challenget_0004	Support	
+MAN_DATA_challenget_0005	When a team style awakens in a tour exchange match on the Challenge Tour,\nits "Evolved Team Style" becomes available when you set that team style.	
+MAN_DATA_compe_0003	Opponent not yet decided	
+MAN_DATA_contents_0013	Can inherit	
+MAN_DATA_gtranking_0000	World Class A	
+MAN_DATA_gtranking_0001	World Class B	
+MAN_DATA_gtranking_0002	Area Class A	
+MAN_DATA_gtranking_0003	Area Class B	
+MAN_DATA_gtranking_0004	Local Class	
+MAN_DATA_gtranking_0005	Points earned	
+MAN_DATA_gtranking_0006	Points after round %d	
+MAN_DATA_gtranking_0008	Ranking info	
+MAN_DATA_gtranking_0009	Entry points	
+MAN_DATA_gtranking_0012	Times in class	
+MAN_DATA_gtranking_0014	Expected promotion/relegation lines	
+MAN_DATA_gtranking_0016	Stay up	
+MAN_DATA_gtranking_0017	Play-off	
+MAN_DATA_gtranking_0019	Updated %d/%d	unsure: month/day order
+MAN_DATA_gtranking_0020	* Expected figures change with the number of entrants	
+MAN_DATA_gtranking_0021	Expected promotion points	
+MAN_DATA_gtranking_0022	Expected points to stay up	
+MAN_DATA_gtranking_0023	Expected play-off points	
+MAN_DATA_gtranking_0024	* The play-off decides between staying up and relegation	
+MAN_DATA_gtranking_0025	* Below the play-off points, relegation is automatic	
+MAN_DATA_gtranking_0026	$c[FF6633FF]You have not qualified for the Grand Trophy\nJoin the Regular League Premier Division to qualify$c	
+MAN_DATA_gtranking_0027	Your next match is the %s relegation play-off.\nWin it to stay in %s.	
+MAN_DATA_gtranking_0028	Expected 1st-place points	
+MAN_DATA_gtranking_0029	Current info (%s)	
+MAN_DATA_gtranking_0030	Before the start	
+MAN_DATA_gtranking_0031	After round %d	
+MAN_DATA_header_0023	Current class:	
+MAN_DATA_header_0024	GT points:	
+MAN_DATA_header_0025	Overall manager ranking:	
+MAN_DATA_message_0003	You can sign a manager contract inheriting your manager ability.\nTo inherit, press the START button to start the game.	
+MAN_DATA_netpass_0000	Issue .NET\nPassword	
+MAN_DATA_rl_0000	Correct data is shown\nfrom the 13-14 version on	
+MAN_DATA_wtdata_0001	This competition so far	
+MAN_DATA_wtdata_0007	Points this competition	
+MAN_DATA_wtdata_0016	WT points	
+MAN_DATA_wtdata_0017	Yesterday's rank (national)	
+MAN_DATA_wtdata_0018	Yesterday's rank (area)	
+MAN_DATA_wtdata_0019	Best WT points	
+MAN_DATA_wtdata_0020	Last week's rank (national)	
+MAN_DATA_wtdata_0021	Last week's rank (area)	
+MAN_DATA_wtdata_0025	Most WT points earned	
+MAN_FACILITIES_message_0004	On the ground, $c[FF0000FF]team training$c raises the team's abilities.	
+MAN_FACILITIES_message_0005	On the ground you can do $c[FF0000FF]individual training$c.	
+MAN_FACILITIES_message_0006	In the meeting room you give players your assessment to deepen their $c[FF0000FF]tactical understanding$c.	
+MAN_FACILITIES_message_0007	In the manager's office you can $c[FF0000FF]appoint roles$c to players.\nYou can also view data, do $c[FF0000FF]team registration$c and make $c[FF0000FF]match requests$c.	
+MAN_FACILITIES_message_0008	In the lounge you call 2 players to deepen their $c[FF0000FF]combination$c.	
+MAN_FACILITIES_message_0009	In the medical room\nyou call players to manage their $c[FF0000FF]condition$c.	
+MAN_GROUNDITEM_message_0000	Training with $c[FF6633FF]markers$c to $c[FF6633FF]strengthen offence$c.\nRub the card of the player to use the item on.	
+MAN_GROUNDITEM_message_0001	Training with a $c[FF6633FF]medicine ball$c to $c[FF6633FF]strengthen defence$c.\nRub the card of the player to use the item on.	
+MAN_GROUNDITEM_message_0002	Training with $c[FF6633FF]cones$c to $c[FF6633FF]strengthen technique$c.\nRub the card of the player to use the item on.	
+MAN_GROUNDITEM_message_0003	Training with $c[FF6633FF]dumbbells$c to $c[FF6633FF]strengthen muscle$c.\nRub the card of the player to use the item on.	
+MAN_GROUNDITEM_message_0004	Training with $c[FF6633FF]mini hurdles$c to $c[FF6633FF]strengthen speed$c.\nRub the card of the player to use the item on.	
+MAN_GROUNDITEM_message_0005	Training with a $c[FF6633FF]training ladder$c to $c[FF6633FF]strengthen stamina$c.\nRub the card of the player to use the item on.	
+MAN_GROUNDITEM_message_0006	Training with $c[FF6633FF]FK practice dummies$c to $c[FF6633FF]strengthen offence and\ntechnique$c. Rub the card of the player to use the item on.	
+MAN_GROUNDITEM_message_0007	Training with $c[FF6633FF]training poles$c to $c[FF6633FF]strengthen defence and\npower$c. Rub the card of the player to use the item on.	
+MAN_GROUNDITEM_message_0008	Training with $c[FF6633FF]speed rings$c to $c[FF6633FF]strengthen speed and stamina$c.\nRub the card of the player to use the item on.	
+MAN_JERSEY_message_0000	Choose the jersey to use.	
+MAN_LOUNGEITEM_message_0000	A $c[FF6633FF]fighting game$c raises their $c[FF6633FF]attacking mindset$c.\nRub the cards of the 2 players to use the item on.	
+MAN_LOUNGEITEM_message_0001	$c[FF6633FF]"Fortresses of the World Monthly"$c teaches them $c[FF6633FF]rock-solid defending$c.\nRub the cards of the 2 players to use the item on.	
+MAN_LOUNGEITEM_message_0002	A $c[FF6633FF]fashion magazine$c polishes their $c[FF6633FF]stylish technique$c.\nRub the cards of the 2 players to use the item on.	
+MAN_LOUNGEITEM_message_0003	The book $c[FF6633FF]"A Real Man's Body Makeover"$c reveals $c[FF6633FF]the essence of power$c.\nRub the cards of the 2 players to use the item on.	
+MAN_LOUNGEITEM_message_0004	A $c[FF6633FF]racing game$c sharpens their $c[FF6633FF]reflexes$c.\nRub the cards of the 2 players to use the item on.	
+MAN_LOUNGEITEM_message_0005	The book $c[FF6633FF]"Jogging Done Right"$c teaches them $c[FF6633FF]tireless running$c.\nRub the cards of the 2 players to use the item on.	
+MAN_LOUNGEITEM_message_0006	A $c[FF6633FF]football game$c raises their $c[FF6633FF]attacking mindset$c.\nRub the cards of the 2 players to use the item on.	
+MAN_LOUNGEITEM_message_0007	A $c[FF6633FF]puzzle game$c builds an $c[FF6633FF]aggressive attitude$c.\nRub the cards of the 2 players to use the item on.	
+MAN_LOUNGEITEM_message_0008	$c[FF6633FF]Playing cards$c sharpen their $c[FF6633FF]mind games$c.\nRub the cards of the 2 players to use the item on.	
+MAN_LOUNGEITEM_message_0009	$c[FF6633FF]Backgammon$c raises their $c[FF6633FF]sense of speed$c.\nRub the cards of the 2 players to use the item on.	
+MAN_LOUNGEITEM_message_0010	$c[FF6633FF]Chess$c builds their $c[FF6633FF]patience$c.\nRub the cards of the 2 players to use the item on.	
+MAN_LOUNGEITEM_message_0011	$c[FF6633FF]Reversi$c raises their $c[FF6633FF]pressing mindset$c.\nRub the cards of the 2 players to use the item on.	
+MAN_MANAGER_header_0028	Manager:	
+MAN_MATCH_report_benchplayer_perform_0000	Came on and scored a hat-trick: a miracle.	
+MAN_MATCH_report_benchplayer_perform_0001	Came on and scored twice, a big help to the team.	
+MAN_MATCH_report_benchplayer_perform_0002	Came on and smashed in a goal to help win.	
+MAN_MATCH_report_benchplayer_perform_0003	Came on and scored a hat-trick, but we narrowly lost.	
+MAN_MATCH_report_benchplayer_perform_0004	Came on and scored twice, but we narrowly lost.	
+MAN_MATCH_report_benchplayer_perform_0005	Came on and scored, but we could not catch up.	
+MAN_MATCH_report_benchplayer_perform_0006	Came on and set up many goals for the team.	
+MAN_MATCH_report_benchplayer_perform_0007	Came on and made 2 assists for the team.	
+MAN_MATCH_report_benchplayer_perform_0008	Came on and made 1 assist for the team.	
+MAN_MATCH_report_design_0000	Overall team rating	
+MAN_MATCH_report_player_advice_0000	Tired; rest is essential.	
+MAN_MATCH_report_player_advice_0001	Tired; needs rest.	
+MAN_MATCH_report_player_advice_0002	Recovering condition is essential.	
+MAN_MATCH_report_player_advice_0003	Needs to recover condition.	
+MAN_MATCH_report_player_advice_0004	Combination with team-mates is essential.	
+MAN_MATCH_report_player_advice_0005	Needs better combination with team-mates.	
+MAN_MATCH_report_player_advice_0006	Needs better combination with some players.	
+MAN_MATCH_report_player_advice_0007	Still has plenty of room to grow.	
+MAN_MATCH_report_player_advice_0008	Has room to grow.	
+MAN_MATCH_report_player_advice_0009	Needs a chance to escape his slump.	
+MAN_MATCH_report_player_advice_0010	Needs his discontent dealt with.	
+MAN_MATCH_report_player_advice_0011	Better attacking is essential.	
+MAN_MATCH_report_player_advice_0012	Did not seem to function well in attack.	
+MAN_MATCH_report_player_advice_0013	Better defending is essential.	
+MAN_MATCH_report_player_advice_0014	His defensive awareness still seems weak.	
+MAN_MATCH_report_player_advice_0015	Better technique is essential.	
+MAN_MATCH_report_player_advice_0016	Perhaps needs more technique.	
+MAN_MATCH_report_player_advice_0017	Better stamina is essential.	
+MAN_MATCH_report_player_advice_0018	Lack of stamina seems to be his issue.	
+MAN_MATCH_report_player_advice_0019	Better speed is essential.	
+MAN_MATCH_report_player_advice_0020	Was beaten for speed at times.	
+MAN_MATCH_report_player_advice_0021	Better physique is essential.	
+MAN_MATCH_report_player_advice_0022	Was beaten for power at times.	
+MAN_MATCH_report_player_advice_0023	Better individual ability is essential.	
+MAN_MATCH_report_player_advice_0024	Needs better individual ability.	
+MAN_MATCH_report_player_advice_0025	Better attacking tactics are essential.	
+MAN_MATCH_report_player_advice_0026	Attacking tactics need further work.	
+MAN_MATCH_report_player_advice_0027	Do attacking tactics need further work?	
+MAN_MATCH_report_player_advice_0028	Better defensive tactics are essential.	
+MAN_MATCH_report_player_advice_0029	Defensive tactics need further work.	
+MAN_MATCH_report_player_advice_0030	Do defensive tactics need further work?	
+MAN_MATCH_report_player_advice_0031	Better option tactics are essential.	
+MAN_MATCH_report_player_advice_0032	Option tactics need further work.	
+MAN_MATCH_report_player_advice_0033	Do option tactics need further work?	
+MAN_MATCH_report_player_advice_0034	No rating	
+MAN_MATCH_report_player_advice_0035	Did not fit the team's tactics.	
+MAN_MATCH_report_player_advice_0036	Came on but could not show his strength.	
+MAN_MATCH_report_player_advice_0037	Came on but could not get into the team's rhythm.	
+MAN_MATCH_report_player_advice_0038	Injured; needs treatment.	
+MAN_MATCH_report_player_advice_0039	A red card at a bad moment.	
+MAN_MATCH_report_player_perform_0000	With a hat-trick, 	unsure: start of a sentence completed by a MAN_MATCH_report_player_value line
+MAN_MATCH_report_player_perform_0001	With 2 goals, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0002	With a superb goal, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0003	Involved in almost every goal, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0004	With 2 assists, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0005	With a superb assist, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0006	With world-class shooting instinct, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0007	With a great many shots, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0008	With many shots, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0009	With out-of-this-world attacking, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0010	With overwhelming attacking, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0012	With out-of-this-world defending, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0013	With overwhelming defending, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0015	With pinpoint short passes, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0016	With precise short passes, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0017	With accurate short passes, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0018	With pinpoint long passes, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0019	With precise long passes, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0020	With accurate long passes, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0021	Using world-class speed, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0022	Using overwhelming speed, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0024	With a world-class physique, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0025	With an overwhelming physique, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0026	With a strong physique, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0027	With world-class left-wing attacks, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0028	With menacing left-wing attacks, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0029	With effective left-wing attacks, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0030	With world-class right-wing attacks, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0031	With menacing right-wing attacks, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0032	With effective right-wing attacks, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0033	With world-class runs through the middle, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0034	With menacing runs through the middle, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0035	With effective runs through the middle, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0036	With unstoppable dribbling, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0037	With elegant dribbling, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0038	With great individual skill, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0039	With world-class crosses, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0040	With menacing crosses, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0041	With effective crosses, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0042	With out-of-this-world ball winning, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0043	With overwhelming ball winning, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0044	With strong ball winning, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0045	With world-class covering, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0046	With formidable covering, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0047	With reliable covering, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0048	With world-class challenges, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0049	With overwhelming challenges, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0050	With strong challenges, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0051	Giving his all, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0052	With fighting spirit, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0053	With gutsy play, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0056	With sharp movement, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0057	Locking the goal, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0058	With save after save, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0059	With bold saves, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0060	With heavenly catching, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0061	With sticky-gloved catching, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0062	With safe catching, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0063	With great focus, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0064	Showing fine play, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0065	With sound judgement, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_perform_0066	With sharp play, 	unsure: sentence start, see 0000
+MAN_MATCH_report_player_value_0000	he captivated the world.	unsure: end of a sentence begun by a player_perform line
+MAN_MATCH_report_player_value_0001	he held the world spellbound.	unsure: sentence end
+MAN_MATCH_report_player_value_0002	he showed he is a class apart.	unsure: sentence end
+MAN_MATCH_report_player_value_0003	he thrilled the spectators.	unsure: sentence end
+MAN_MATCH_report_player_value_0004	he lived up to the team's hopes.	unsure: sentence end
+MAN_MATCH_report_player_value_0005	he made a big contribution.	unsure: sentence end
+MAN_MATCH_report_player_value_0006	he stood out from the rest.	unsure: sentence end
+MAN_MATCH_report_player_value_0007	he made his presence felt.	unsure: sentence end
+MAN_MATCH_report_player_value_0008	he delivered results.	unsure: sentence end
+MAN_MATCH_report_player_value_0009	he got the job done.	unsure: sentence end
+MAN_MATCH_report_player_value_0010	he inspired his team-mates.	unsure: sentence end
+MAN_MATCH_report_player_value_0011	he led the team.	unsure: sentence end
+MAN_MATCH_report_player_value_0012	he set up the match.	unsure: sentence end
+MAN_MATCH_report_player_value_0013	he set the tempo.	unsure: sentence end
+MAN_MATCH_report_player_value_0014	he did his job.	unsure: sentence end
+MAN_MATCH_report_player_value_0015	he showed his qualities.	unsure: sentence end
+MAN_MATCH_report_team_advice_0000	The whole team looks tired; rest is essential.	
+MAN_MATCH_report_team_advice_0001	The whole team looks tired; perhaps rest is needed.	
+MAN_MATCH_report_team_advice_0002	Some players need rest.	
+MAN_MATCH_report_team_advice_0003	Raising the whole team's condition is essential.	
+MAN_MATCH_report_team_advice_0004	Does the whole team's condition need raising?	
+MAN_MATCH_report_team_advice_0005	Some players' condition needs raising.	
+MAN_MATCH_report_team_advice_0006	Raising the whole team's combination is essential.	
+MAN_MATCH_report_team_advice_0007	Does the whole team's combination need raising?	
+MAN_MATCH_report_team_advice_0008	Some combinations need raising.	
+MAN_MATCH_report_team_advice_0009	A better attacking team style is essential.	
+MAN_MATCH_report_team_advice_0010	The attacking team style needs further work.	
+MAN_MATCH_report_team_advice_0011	Does the attacking team style need further work?	
+MAN_MATCH_report_team_advice_0012	A better defensive team style is essential.	
+MAN_MATCH_report_team_advice_0013	The defensive team style needs further work.	
+MAN_MATCH_report_team_advice_0014	Does the defensive team style need further work?	
+MAN_MATCH_report_team_advice_0015	A better support team style is essential.	
+MAN_MATCH_report_team_advice_0016	The support team style needs further work.	
+MAN_MATCH_report_team_advice_0017	Does the support team style need further work?	
+MAN_MATCH_report_team_advice_0018	A better team style is essential.	
+MAN_MATCH_report_team_advice_0019	The team style needs further work.	
+MAN_MATCH_report_team_advice_0020	Does the team style need further work?	
+MAN_MATCH_report_team_advice_0022	Individual ability needs further work.	
+MAN_MATCH_report_team_advice_0023	Some players' individual ability must improve further.	
+MAN_MATCH_report_team_advice_0024	Better offence is essential.	
+MAN_MATCH_report_team_advice_0025	Does the offence need further work?	
+MAN_MATCH_report_team_advice_0026	Better defence is essential.	
+MAN_MATCH_report_team_advice_0027	Does the defence need further work?	
+MAN_MATCH_report_team_advice_0029	Does technique need further work?	
+MAN_MATCH_report_team_advice_0031	Does stamina need further work?	
+MAN_MATCH_report_team_advice_0033	Does speed need further work?	
+MAN_MATCH_report_team_advice_0034	Better power is essential.	
+MAN_MATCH_report_team_advice_0035	Does power need further work?	
+MAN_MATCH_report_team_advice_0036	Better overall team strength is essential.	
+MAN_MATCH_report_team_advice_0037	Does overall team strength need further work?	
+MAN_MATCH_report_team_advice_0038	Was luck not on our side?	

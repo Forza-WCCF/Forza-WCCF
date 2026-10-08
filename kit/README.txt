@@ -5,8 +5,10 @@ WHAT IT IS
   What makes the community's Rev D download (the "sbwg" zip) run on one Windows PC: Sega's server, the
   projector (the shared big screen) and a player cabinet (seat 1). Around seat 1's picture there is a panel with
   the cabinet's buttons, a FORMATION BOARD for your cards (drag to move, drop on another card to swap, right-click
-  to take a card off), a CATALOGUE of all 3,909 player cards (search, position and rarity filters, sort,
-  a slider per stat, a stats pane; a click puts the card on your table), KEYS, where you choose your own keys or
+  to take a card off), a CATALOGUE of all the player cards (3,909 in 2010-11, 8,396 in 2017-18: search by name,
+  club, country, season, line or role - several words narrow it, e.g. "barcelona 2017" or "italy cb" - position
+  and rarity filters, sort, a slider per stat, a stats pane with the card's best roles where the game has them; a
+  click puts the card on your table), KEYS, where you choose your own keys or
   a game controller's buttons, SETTINGS, and CLUB CARD, your club card and your other clubs.
   The kit holds none of Sega's files. Everything that comes from the game is made by setup from YOUR copy.
 
