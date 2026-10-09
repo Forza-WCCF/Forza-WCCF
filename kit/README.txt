@@ -158,6 +158,9 @@ GOOD TO KNOW
     seat1\wccfpanel.log (beside extracted) as a "badfmt:" line - please share that line.
   - The arcade printed the player cards you earn from a dispenser. There is none here, so the game counted every
     card as owed ("You are owed N Player Card(s)"). The panel now tells the game nothing is owed.
+  - A player card after each match, as the dispenser gave one (a test): when the game hands out a card, a window
+    shows one drawn from the catalogue - 2.5 % better than white and black (RARE, LEGEND, ALL TIME LEGEND), else
+    70 % white (REGULAR), 30 % black (SPECIAL). Only shown, nothing saved; a click shuts it, or it shuts after 20 s.
   - The game is in Japanese; ENGLISH.bat translates most of it (see ENGLISH).
   - Windows 11 slows the timers of a program whose window is minimized or covered, and the server's window starts
     minimized: its loop then ran too slowly for the projector's live matches, which stuttered. The kit tells

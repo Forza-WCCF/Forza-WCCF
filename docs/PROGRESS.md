@@ -1,5 +1,15 @@
 # Progress
 
+## 2026-10-09 — card drop (a test), not yet seen live
+
+Ported the 2010-11 kit's player card after each match (WCCF-Kit-1011 PR #17): a window shows a catalogue card,
+2.5 % RARE or better, else 70 % REGULAR / 30 % SPECIAL; nothing saved. 2010-11 triggers on the club card's session
+mark; 17-18 has none, so the panel hooks the game's own owed-card function FUN_005c0970 (the 2010-11 dispenser fix's
+FUN_004cf650, identical but its addresses; the exe is ASLR, so base + 0x1C0970 and the global read from its mov).
+It now jumps to a counter: no card is owed (the dispenser fix, which never matched 17-18 before: "FUN_004cf650 is
+not the code studied"), and each hand-out shows a card. fakegame: odds PASS, hook PASS (counted 1), window draws
+with the 8,396-card catalogue. Not yet run in the game.
+
 ## 2026-10-08 — players have models
 
 Invisible / headless players fixed: the real Launcher.exe maps prog_data/player_data/{player_data, partnership,

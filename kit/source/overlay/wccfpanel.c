@@ -71,6 +71,10 @@ static int     is_maximized(HWND h);
 static void    dispenser_tick(void);         // the card dispenser fix (below the Present hook's helpers)
 static void    set_tick(void);               // the SETTINGS panel's status (below the KEYS panel)
 static void    club_tick(void);              // the CLUB CARD panel's view (below the SETTINGS panel)
+static void    deal_tick(void);              // a player card after each match (below the close warning)
+static void    deal_selftest(void);          // its odds, WCCFPANEL_DEALTEST=1 (the tests)
+static int     owed_code_at(BYTE *f, int any_global);   // 2017-18's card drop trigger (the card dispenser fix)
+static int     owed_jump(BYTE *f);
 static int     pad_tick(void);               // the KEYS panel's controllers (in the KEYS panel); 1 = back soon
 static void    frame_stats_tick(void);       // seat 1's frame timing, when asked (the frame wait, below the money)
 
@@ -1025,11 +1029,13 @@ static DWORD WINAPI board_thread(LPVOID arg)
         CoCreateInstance(&CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER, &IID_IWICImagingFactory, (void **)&wic);
     if (!wic) logline("board: no picture decoder (WIC) - cards show as plain numbered tiles");
     load_catalogue();
+    { char e[8]; if (GetEnvironmentVariableA("WCCFPANEL_DEALTEST", e, sizeof e) > 0) deal_selftest(); }   // the tests
     for (;;) {
         int no = 0, i, fast;
         board_reread();
         set_tick();                                            // the SETTINGS panel's status, while it is open
         club_tick();                                           // the CLUB CARD panel's view, while it is open
+        deal_tick();                                           // a match finished: a player card is shown
         fast = pad_tick();                                     // the KEYS panel's controllers, while it is open
         EnterCriticalSection(&g_board_cs);                    // one wanted picture at a time, decoded unlocked
         for (i = 0; i < g_npics; i++)
@@ -1139,8 +1145,9 @@ static void board_draw(IDirect3DDevice9 *dev)
                 (float)(r.bottom - r.top) + 6.0f * e, 3.0f * e, D3DCOLOR_ARGB(255, 255, 214, 40));
     }
     if (g_drag >= 0 && g_drag < g_ncards) draw_card(dev, g_drag, 1.12f, 1);
-    else if (g_hover >= 0 && g_hover < g_ncards && GetTickCount() - g_hover_since >= 8000)
-        draw_card(dev, g_hover, 2.4f, 1);      // resting on a card 8 s: shown big enough to read (the player: 350 ms was too eager)
+    else if (g_hover >= 0 && g_hover < g_ncards && GetTickCount() - g_hover_since >= 1000)
+        draw_card(dev, g_hover, 2.4f, 1);      // resting on a card 1 s: shown big (350 ms was too eager, 8 s too slow;
+                                               // card games and tooltips wait about 0.4-1 s)
     LeaveCriticalSection(&g_board_cs);
 }
 
@@ -1539,23 +1546,23 @@ static void draw_chips(IDirect3DDevice9 *dev, const RECT *r, const char **labels
     for (int i = 0; i < n; i++) draw_chip(dev, r[i], labels[i], i == on, s);
 }
 
-// the stats pane: the card big, its name, line and club, season and rarity, the six stats as bars, the total
-static void draw_pane(IDirect3DDevice9 *dev, const struct Geo *g, float s)
+// the stats pane: the card big, its name, line and club, season and rarity, the six stats as bars, the total, and
+// `foot` under it (NULL: whether it is on the table).  g_board_cs held.
+static void draw_pane(IDirect3DDevice9 *dev, RECT pane, const struct CatCard *c, float s, const char *foot)
 {
     static const char *SN[6] = { "OFF", "DEF", "TEC", "POW", "SPD", "STA" };
     DWORD white = D3DCOLOR_ARGB(255, 240, 240, 245), grey = D3DCOLOR_ARGB(255, 150, 156, 170);
-    float px = (float)g->pane.left + 16.0f * s, pw = (float)(g->pane.right - g->pane.left) - 32.0f * s, y;
-    const struct CatCard *c = (g_bdetail >= 0 && g_bdetail < g_ncat) ? &g_cat[g_bdetail] : NULL;
+    float px = (float)pane.left + 16.0f * s, pw = (float)(pane.right - pane.left) - 32.0f * s, y;
     char line[96]; int on = 0, k;
     set_flat(dev);
-    fill_rect(dev, (float)g->pane.left, (float)g->pane.top, (float)(g->pane.right - g->pane.left),
-              (float)(g->pane.bottom - g->pane.top), D3DCOLOR_ARGB(255, 22, 24, 31));
-    fill_rect(dev, (float)g->pane.left, (float)g->pane.top, (float)(g->pane.right - g->pane.left), 3.0f * s,
+    fill_rect(dev, (float)pane.left, (float)pane.top, (float)(pane.right - pane.left),
+              (float)(pane.bottom - pane.top), D3DCOLOR_ARGB(255, 22, 24, 31));
+    fill_rect(dev, (float)pane.left, (float)pane.top, (float)(pane.right - pane.left), 3.0f * s,
               D3DCOLOR_ARGB(255, 255, 138, 42));
     if (!c) {
         if (g_font_tex) {
             set_picture(dev, g_font_tex, 1);
-            put_in_rect(dev, RC(px, (float)g->pane.top + 40.0f * s, px + pw, (float)g->pane.top + 70.0f * s), 0.44f * s, grey,
+            put_in_rect(dev, RC(px, (float)pane.top + 40.0f * s, px + pw, (float)pane.top + 70.0f * s), 0.44f * s, grey,
                         "point at a card to see its stats");
         }
         return;
@@ -1563,8 +1570,8 @@ static void draw_pane(IDirect3DDevice9 *dev, const struct Geo *g, float s)
     for (k = 0; k < g_ncards; k++) if (g_cards[k].no == c->no) on = 1;
     {                                                                   // the card itself, big
         struct CardPic *p = pic_for(c->no);
-        float cw = 176.0f * s, ch = 256.0f * s, cx = (float)g->pane.left + ((float)(g->pane.right - g->pane.left) - cw) * 0.5f;
-        y = (float)g->pane.top + 16.0f * s;
+        float cw = 176.0f * s, ch = 256.0f * s, cx = (float)pane.left + ((float)(pane.right - pane.left) - cw) * 0.5f;
+        y = (float)pane.top + 16.0f * s;
         fill_rect(dev, cx - 2.0f * s, y - 2.0f * s, cw + 4.0f * s, ch + 4.0f * s, D3DCOLOR_ARGB(255, 6, 6, 8));
         if (p && p->state == PIC_READY && p->tex) {
             set_picture(dev, p->tex, 0);
@@ -1615,8 +1622,9 @@ static void draw_pane(IDirect3DDevice9 *dev, const struct Geo *g, float s)
             y += 44.0f * s;
         }
     }
-    put_in_rect(dev, RC(px, y, px + pw, y + 20.0f * s), 0.40f * s, on ? D3DCOLOR_ARGB(255, 255, 214, 40) : grey,
-                on ? "ON THE TABLE" : "click its card to put it on the table");
+    if (foot) put_in_rect(dev, RC(px, y, px + pw, y + 20.0f * s), 0.40f * s, grey, foot);
+    else put_in_rect(dev, RC(px, y, px + pw, y + 20.0f * s), 0.40f * s, on ? D3DCOLOR_ARGB(255, 255, 214, 40) : grey,
+                     on ? "ON THE TABLE" : "click its card to put it on the table");
 }
 
 static int browse_hit_locked(const struct Geo *g, int x, int y)  // the result under a canvas point, -1 = none
@@ -1727,7 +1735,7 @@ static void browse_draw(IDirect3DDevice9 *dev)
     draw_chips(dev, g.rar, RAR_CHIP, 6, g_frar, s);
     draw_chips(dev, g.sort, SORT_CHIP, 8, g_sort, s);
     draw_sliders(dev, &g, s);
-    draw_pane(dev, &g, s);
+    draw_pane(dev, g.pane, (g_bdetail >= 0 && g_bdetail < g_ncat) ? &g_cat[g_bdetail] : NULL, s, NULL);
     for (int row = 0; row < g.rows; row++)
         for (int col = 0; col < g.cols; col++) {
             int r = (g_scroll + row) * g.cols + col, on = 0;
@@ -2925,6 +2933,136 @@ static int card_session_c(const char *path, ULONGLONG since, int *bad, ULONGLONG
     return CS_UNREADABLE;
 }
 
+// ---- a player card after each match (2026-10-09, a test)
+// The player: "when you finish a match the game will dispense a card similar to how it was in real life ... show a
+// window with a card in the catalogue ... 2.5% a card better than white and black, then 70% white and 30% black ...
+// only show, nothing affects club card".  A match is finished when the card's session mark goes from open to closed
+// (the locker-room save, card_session_c).  The card is drawn from catalogue.tsv, every season; nothing is written.
+// 2017-18 has no club card: there a card is shown when the game hands one to the dispenser (g_owed_new, counted by
+// the dispenser fix below).
+#define DEAL_MS 20000                    // the window shuts itself after 20 s (a click on it shuts it sooner)
+static int   g_deal = -1;                // the card on show (index into g_cat), -1 = none
+static DWORD g_deal_until = 0;
+static volatile LONG g_owed_new = 0;     // 2017-18: player cards the game handed out since the board thread looked
+
+static int card_tier(const struct CatCard *c)   // 0 better than black, 1 white (REGULAR), 2 black (SPECIAL)
+{
+    return !strcmp(c->rar, "REGULAR") ? 1 : !strcmp(c->rar, "SPECIAL") ? 2 : 0;
+}
+
+static int deal_tier(void)               // 2.5 %: better than black; the rest: 70 % white, 30 % black
+{
+    if (rand() % 1000 < 25) return 0;
+    return rand() % 100 < 70 ? 1 : 2;
+}
+
+static int deal_pick_locked(int tier)    // a random catalogue card of that tier (index into g_cat), -1 = none
+{
+    int n = 0, k, i;
+    for (i = 0; i < g_ncat; i++) n += card_tier(&g_cat[i]) == tier;
+    if (!n) return -1;
+    k = rand() % n;
+    for (i = 0; i < g_ncat; i++) if (card_tier(&g_cat[i]) == tier && k-- == 0) return i;
+    return -1;
+}
+
+static void deal_now(void)
+{
+    int i;
+    EnterCriticalSection(&g_board_cs);
+    i = deal_pick_locked(deal_tier());
+    if (i >= 0) { g_deal = i; g_deal_until = GetTickCount() + DEAL_MS; }
+    LeaveCriticalSection(&g_board_cs);
+    if (i >= 0) logline("deal: card %d %s (%s) - shown only, nothing saved", g_cat[i].no, g_cat[i].shown,
+                        g_cat[i].rar);
+    else logline("deal: a match finished, but no catalogue card to show");
+}
+
+static void deal_tick(void)              // the board thread, once a second: open -> closed = a match finished
+{
+    static DWORD next = 0; static int seeded = 0, last = -1;
+    char p[MAX_PATH]; ULONGLONG saved; int bad, cs;
+    if (!seeded) { srand(GetTickCount() ^ GetCurrentProcessId()); seeded = 1; }     // rand() is per thread
+    if ((LONG)(GetTickCount() - next) < 0) return;
+    next = GetTickCount() + 1000;
+    if (InterlockedExchange(&g_owed_new, 0) > 0) { deal_now(); return; }   // 2017-18: the game dispensed a card
+    _snprintf(p, MAX_PATH, "%s\\save\\seat1_club.bin", g_data_dir); p[MAX_PATH - 1] = 0;
+    cs = card_session_c(p, 0, &bad, &saved);
+    if (cs != CS_OPEN && cs != CS_CLOSED) return;          // no card, or caught mid-write: wait for the next look
+    if (last == CS_OPEN && cs == CS_CLOSED) deal_now();
+    last = cs;
+}
+
+static RECT deal_rect(void)
+{
+    float s = g_s, w = 320.0f * s, h = 680.0f * s, x = (g_mx0 + g_mx1 - w) * 0.5f, y = (g_ch - h) * 0.5f;
+    return RC(x, y, x + w, y + h);
+}
+
+static void deal_draw(IDirect3DDevice9 *dev)  // the dealt card's window, over the game
+{
+    RECT r; float s = g_s, w, h; const struct CatCard *c; int t; DWORD col;
+    if (g_deal < 0) return;
+    if (!g_font_tex) build_font(dev);
+    EnterCriticalSection(&g_board_cs);
+    if (g_deal < 0 || g_deal >= g_ncat || (LONG)(g_deal_until - GetTickCount()) <= 0) {
+        g_deal = -1; LeaveCriticalSection(&g_board_cs); return;
+    }
+    c = &g_cat[g_deal]; t = card_tier(c);
+    col = t == 0 ? D3DCOLOR_ARGB(255, 255, 214, 40) : t == 2 ? D3DCOLOR_ARGB(255, 150, 156, 170)
+                 : D3DCOLOR_ARGB(255, 240, 240, 245);
+    r = deal_rect(); w = (float)(r.right - r.left); h = (float)(r.bottom - r.top);
+    set_flat(dev);
+    fill_rect(dev, (float)r.left, (float)r.top, w, h, D3DCOLOR_ARGB(250, 13, 14, 19));
+    outline(dev, (float)r.left, (float)r.top, w, h, 3.0f * s, col);
+    if (g_font_tex) {
+        set_picture(dev, g_font_tex, 1);
+        put_in_rect(dev, RC((float)r.left, (float)r.top + 10.0f * s, (float)r.right, (float)r.top + 44.0f * s), 0.72f * s,
+                    col, t == 0 ? "NEW PLAYER CARD - RARE!" : "NEW PLAYER CARD");
+    }
+    draw_pane(dev, RC((float)r.left + 6.0f * s, (float)r.top + 50.0f * s, (float)r.right - 6.0f * s, (float)r.bottom - 6.0f * s),
+              c, s, "test only - not saved to your club - click to close");
+    LeaveCriticalSection(&g_board_cs);
+}
+
+static int deal_click(int x, int y)      // the window procedure: a press on the window shuts it (1 = taken)
+{
+    RECT r = deal_rect(); int hit;
+    EnterCriticalSection(&g_board_cs);
+    hit = g_deal >= 0 && in_rect(&r, x, y);
+    if (hit) g_deal = -1;
+    LeaveCriticalSection(&g_board_cs);
+    return hit;
+}
+
+// WCCFPANEL_DEALTEST=1 (the tests; the board thread, after the catalogue): 200,000 rolls land 2.5 / 68.25 / 29.25 %
+// (+-0.3 points); one card is shown if there is a catalogue
+static void deal_selftest(void)
+{
+    static const double WANT[3] = { 2.5, 68.25, 29.25 };
+    int n[3] = { 0, 0, 0 }, i, k;
+    srand(12345);
+    for (i = 0; i < 200000; i++) n[deal_tier()]++;
+    for (k = 0; k < 3; k++) {
+        double got = n[k] * 100.0 / 200000;
+        logline("deal test: %s  tier %d %.2f %% (want %.2f)", fabs(got - WANT[k]) <= 0.3 ? "PASS" : "FAIL", k, got, WANT[k]);
+    }
+    {   // 2017-18's trigger: FUN_005c0970's head (its own global) found, jumped to owed_hit, called once = one card
+        static const BYTE HEAD[17] = { 0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF8, 0xA1, 0xF4, 0x30, 0x29, 0x01, 0x8B, 0x40, 0x08,
+                                       0x56, 0x57, 0xC3 };
+        BYTE *f = (BYTE *)VirtualAlloc(NULL, 4096, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READ); DWORD old; LONG n;
+        int ok = f && VirtualProtect(f, sizeof HEAD, PAGE_READWRITE, &old);
+        if (ok) { memcpy(f, HEAD, sizeof HEAD); ok = VirtualProtect(f, sizeof HEAD, PAGE_EXECUTE_READ, &old); }
+        ok = ok && owed_code_at(f, 1) && !owed_code_at(f, 0) && owed_jump(f);
+        InterlockedExchange(&g_owed_new, 0);
+        if (ok) ((void (__cdecl *)(void))f)();
+        n = InterlockedExchange(&g_owed_new, 0);
+        logline("deal test: %s  2017-18 dispenser hook (counted %ld, want 1)", ok && n == 1 ? "PASS" : "FAIL", n);
+        if (f) VirtualFree(f, 0, MEM_RELEASE);
+    }
+    deal_now();
+}
+
 static void set_refresh(void)
 {
     struct SetStatus st; char p[MAX_PATH]; WIN32_FILE_ATTRIBUTE_DATA fa; WIN32_FIND_DATAA fd; HANDLE fh;
@@ -3857,6 +3995,7 @@ static void compose(IDirect3DDevice9 *dev, int have_game)
         keys_draw(dev);                             // the KEYS panel, when it is open
         set_draw(dev);                              // the SETTINGS panel, when it is open
         club_draw(dev);                             // the CLUB CARD panel, when it is open
+        deal_draw(dev);                             // a match finished: the player card it gave
         IDirect3DDevice9_EndScene(dev);
     }
 }
@@ -4081,6 +4220,7 @@ static LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM wp, LPARAM lp)
     if (m == WM_LBUTTONDOWN) {
         int wx = (short)LOWORD(lp), wy = (short)HIWORD(lp), x = wx, y = wy, card = 0;
         to_canvas(h, &x, &y);
+        if (deal_click(x, y)) return 0;                                       // the dealt card's window: shut
         RECT ab = add_button(), kb = keys_button(), sb = set_button(), cb = club_button();
         if (x >= ab.left && x < ab.right && y >= ab.top && y < ab.bottom) {   // "+ CARD": the browser open / shut
             if (!g_browse && g_keys) keys_open(h, 0);                         // one panel at a time
@@ -5230,25 +5370,57 @@ static void money_install(int projector)
 // card is owed from now on), and the count kept in its backup memory is set to 0 now and then (it comes back from
 // the backup at each start).  Only in client_Release.exe, and only if the code is byte for byte the one studied;
 // the count is reached the way FUN_004cf650 reaches it: *( *(0x009FBCAC) + 8 ) + 5.
+// 2017-18 (2026-10-09): the same function, byte for byte but its addresses, is FUN_005c0970 (exe base + 0x1C0970,
+// the exe moves: ASLR; its global, 0x012930F4 unmoved, is read from its own mov).  Its four callers are the game's
+// card hand-outs; there it jumps to owed_hit instead of returning: the card is not owed, and it is counted for the
+// card drop (deal_tick).
 static const BYTE OWED_SIG[16] = { 0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF8, 0xA1, 0xAC, 0xBC, 0x9F, 0x00, 0x8B, 0x40, 0x08, 0x56, 0x57 };
 static int g_owed_fix = 0;
+static BYTE **g_owed_at = (BYTE **)0x009FBCAC;          // the count is at *( *g_owed_at + 8 ) + 5
+
+static void __cdecl owed_hit(void) { InterlockedIncrement(&g_owed_new); }   // 2017-18: FUN_005c0970 instead
+
+static int owed_code_at(BYTE *f, int any_global)   // the function studied at f (any_global: its global not compared)
+{
+    MEMORY_BASIC_INFORMATION mi;
+    if (!VirtualQuery(f, &mi, sizeof mi) || mi.State != MEM_COMMIT || (mi.Protect & (PAGE_NOACCESS | PAGE_GUARD))
+        || (BYTE *)mi.BaseAddress + mi.RegionSize < f + sizeof OWED_SIG) return 0;   // a region holds f onwards
+    return memcmp(f, OWED_SIG, 7) == 0 && (any_global || memcmp(f + 7, OWED_SIG + 7, 4) == 0)
+        && memcmp(f + 11, OWED_SIG + 11, sizeof OWED_SIG - 11) == 0;
+}
+
+static int owed_jump(BYTE *f)            // f's first 5 bytes -> jmp owed_hit (1 = done)
+{
+    DWORD old;
+    if (!VirtualProtect(f, 5, PAGE_EXECUTE_READWRITE, &old)) return 0;
+    f[0] = 0xE9; *(DWORD *)(f + 1) = (DWORD)((BYTE *)owed_hit - (f + 5));
+    VirtualProtect(f, 5, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), f, 5);
+    return 1;
+}
 
 static void dispenser_install(void)
 {
-    char exe[MAX_PATH], *nm; BYTE *f = (BYTE *)0x004CF650; DWORD old; MEMORY_BASIC_INFORMATION mi;
+    char exe[MAX_PATH], *nm; BYTE *f = (BYTE *)0x004CF650; DWORD old; int y1718 = 0;
     GetModuleFileNameA(NULL, exe, MAX_PATH);
     nm = strrchr(exe, '\\'); nm = nm ? nm + 1 : exe;
     if (_stricmp(nm, "client_Release.exe") != 0) { logline("dispenser: not the game (%s) - nothing changed", nm); return; }
-    if (!VirtualQuery(f, &mi, sizeof mi) || mi.State != MEM_COMMIT || memcmp(f, OWED_SIG, sizeof OWED_SIG) != 0) {
-        logline("dispenser: FUN_004cf650 is not the code studied - nothing changed");
-        return;
+    if (!owed_code_at(f, 0)) {
+        f = (BYTE *)GetModuleHandleA(NULL) + 0x1C0970; y1718 = 1;
+        if (!owed_code_at(f, 1)) { logline("dispenser: FUN_004cf650 / FUN_005c0970 is not the code studied - nothing changed"); return; }
+        g_owed_at = *(BYTE ***)(f + 7);
     }
-    if (!VirtualProtect(f, 1, PAGE_EXECUTE_READWRITE, &old)) { logline("dispenser: code not writable - nothing changed"); return; }
-    f[0] = 0xC3;                                         // ret: a card it cannot hand out is no longer counted
-    VirtualProtect(f, 1, old, &old);
-    FlushInstructionCache(GetCurrentProcess(), f, 1);
+    if (y1718) {                                         // jmp owed_hit: counted, not owed
+        if (!owed_jump(f)) { logline("dispenser: code not writable - nothing changed"); return; }
+    } else {
+        if (!VirtualProtect(f, 1, PAGE_EXECUTE_READWRITE, &old)) { logline("dispenser: code not writable - nothing changed"); return; }
+        f[0] = 0xC3;                                     // ret: a card it cannot hand out is no longer counted
+        VirtualProtect(f, 1, old, &old);
+        FlushInstructionCache(GetCurrentProcess(), f, 1);
+    }
     g_owed_fix = 1;
-    logline("dispenser: FUN_004cf650 patched (ret) - no player card is owed from now on");
+    if (y1718) logline("dispenser: FUN_005c0970 at %p -> owed_hit - each player card handed out is shown, none owed", f);
+    else logline("dispenser: FUN_004cf650 patched (ret) - no player card is owed from now on");
 }
 
 static void dispenser_tick(void)                         // every 2 s on the render thread: the owed count back to 0
@@ -5258,7 +5430,7 @@ static void dispenser_tick(void)                         // every 2 s on the ren
     if (!g_owed_fix || (LONG)(now - next) < 0) return;
     next = now + 2000;
     __try {
-        BYTE *p = *(BYTE **)0x009FBCAC, *q = p ? *(BYTE **)(p + 8) : NULL;
+        BYTE *p = *g_owed_at, *q = p ? *(BYTE **)(p + 8) : NULL;
         if (q && *(int *)(q + 5) != 0) {
             if (said < 5) { logline("dispenser: %d player card(s) owed -> 0", *(int *)(q + 5)); said++; }
             *(int *)(q + 5) = 0;
