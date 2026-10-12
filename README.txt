@@ -268,8 +268,8 @@ GOOD TO KNOW
     over data\save\seat1_club.bin.
   - Windows may ask whether control_Release.exe may use the network: either answer works, everything stays on
     this PC.
-  - Antivirus programs may dislike bin\winmm.dll (it sits between the game and Windows; it also loads the panel into
-    the game). Its source code is in source\.
+  - Antivirus programs may dislike programs\wccfk.dll (it sits between the game and Windows) and programs\inject.exe
+    (it loads the panel into the game). Their source code is in source\.
   - One copy at a time on a PC.
   - If both pictures freeze while the sound goes on, Windows took the graphics device away from the game
     (a display change, Ctrl+Alt+Del, an administrator prompt ...). The game cannot recover from that:
@@ -293,8 +293,8 @@ GOOD TO KNOW
     it evenly.
 
 FOLDERS
-  programs\  wccfk.dll (the hook), wccfpanel.dll (the panel; the hook loads it into seat 1, and into the projector
-             for its money with commas only), FPR_Emu.exe (card-table helper)
+  programs\  wccfk.dll (the hook), wccfpanel.dll (the panel), inject.exe (loads it into seat 1, and into the
+             projector for its money with commas only), FPR_Emu.exe (card-table helper)
   art\       skin.tex (the panel's picture)
   code\      play, setup and english at the top; cards\ (club cards, the catalogue), hardware\ (stand-ins for the
              cabinet: card reader, I/O board, keyboard, scenes, network, the game's launcher), online\ (joining a

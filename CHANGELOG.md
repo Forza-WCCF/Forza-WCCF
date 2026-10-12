@@ -4,6 +4,14 @@ Community tools for WCCF 2010-11 (Rev D): a launcher, stand-ins for the cabinet'
 your own copy's server, projector and player cabinet run on one Windows PC - and online play on a shared server. The
 game is not included. Newest first; each date is the day that kit was built.
 
+## Not released yet
+
+### Changed
+- The panel is loaded into the game by `programs\inject.exe` again: 3 s after seat 1's window is up, and into the
+  projector once the cabinet is up, as before Kit 5.5. Kit 5.5 had the kit's hook load it from inside the game; that
+  change caused problems and is undone, and the hook no longer reads `WCCF_PANEL`. Antivirus programs may dislike
+  inject.exe: it writes into the running game from outside (VirtualAllocEx + CreateRemoteThread).
+
 ## Kit 6 - 2026-10-11
 
 ### Changed
