@@ -2,11 +2,11 @@
  * mxhook.c - WCCF RingEdge hardware-emulation shim.
  *
  * A drop-in winmm.dll proxy for the arcade game client_Release.exe. The game
- * is a 2010-11 Sega RingEdge title; on a real cabinet it talks to cabinet
+ * is a 2010-11 RingEdge title; on a real cabinet it talks to cabinet
  * hardware (settings chip, save SRAM, JVS IO board, hwmon) through a set of
  * kernel device drivers that do not exist on a plain PC. This shim is the PC
  * stand-in for that hardware - the same role segatools / TeknoParrot play for
- * other Sega boards.
+ * other boards.
  *
  * It is loaded ONLY by the game processes we launch (client_Release and
  * control_Release import winmm by name, and winmm is not a protected KnownDLL,
@@ -15,7 +15,7 @@
  *    straight through (observation);
  *  - blocks DHCP release/renew on the host NIC (it dropped the player's LAN);
  *  - answers the cabinet's NETWORK-ADDRESS question (2026-10-03): both programs
- *    look up this PC's own addresses (gethostbyname) and demand one in Sega's
+ *    look up this PC's own addresses (gethostbyname) and demand one in the publisher's
  *    arcade network 192.168.46.0/24, else error 8001 "Network address error
  *    (DHCP)" - fatal for the cabinet. The hook presents ONE address,
  *    MXHOOK_NET_IP (default 127.0.0.1), and makes the game's
@@ -172,7 +172,7 @@ static int    vcom_for_name(const char *name);     /* virtual serial ports, belo
 static HANDLE vcom_open(int i);
 
 /* ---- RingEdge mx devices (2026-10-04) -------------------------------------
- * In real-cabinet mode (IS_RINGEDGE=1) the player cabinet opens Sega's kernel drivers, which do not
+ * In real-cabinet mode (IS_RINGEDGE=1) the player cabinet opens the original kernel drivers, which do not
  * exist on a PC. MXHOOK_RINGEDGE=1 makes this hook stand in for them, one at a time:
  *  - \\.\mxsram (battery-backed save memory, client amSramInit FUN_008317c0): a real file mxsram.bin in
  *    the working folder (2 MiB). amSramReadInternal / amSramWriteInternal use SetFilePointer + ReadFile /

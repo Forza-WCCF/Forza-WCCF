@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Local stand-in for Sega's WCCF 2017-18 game server ("gmsvr"), which control_Release.exe relays the cabinets'
+"""Local stand-in for the publisher's WCCF 2017-18 game server ("gmsvr"), which control_Release.exe relays the cabinets'
 club requests to (control.c: NetSvrConnect / NetSvrReqmngGame; set GAME_SVR_IP=localhost, GAME_SVR_PORT, FORCE_ONLINE=1).
 
     python _gamesvr.py PORT SECONDS LOGFILE SAVEDIR

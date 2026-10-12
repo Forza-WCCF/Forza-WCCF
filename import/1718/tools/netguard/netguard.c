@@ -1,4 +1,4 @@
-/* netguard.dll - neutralize adapter-level DHCP APIs that Sega RingEdge binaries
+/* netguard.dll - neutralize adapter-level DHCP APIs that RingEdge binaries
  * call on the host, which release the real machine's DHCP lease and kill LAN/WAN
  * connectivity until the adapter is reset.
  *

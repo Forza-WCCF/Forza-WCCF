@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Stand-in for Sega's AiMeDB (Aime card -> Aime ID), for WCCF 2017-18 on one PC.
+"""Stand-in for the original AiMeDB (Aime card -> Aime ID), for WCCF 2017-18 on one PC.
 
     python scripts/_aimedb.py PORT SECONDS LOGFILE DBFILE
 

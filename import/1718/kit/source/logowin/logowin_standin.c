@@ -1,6 +1,6 @@
-/* Stand-in for Sega's logowin.exe (WCCF 2010-11), written 2026-10-03.
+/* Stand-in for the original logowin.exe (WCCF 2010-11), written 2026-10-03.
 
-   Sega's logowin.exe is the server's own screen. control_Release.exe starts it with the message on
+   the original logowin.exe is the server's own screen. control_Release.exe starts it with the message on
    the command line - "logowin.exe error=SYS_NET_error_0014" for an error, or
    "logowin.exe warning=.. sega=.. allnet=.. mainid=.. keychipid=.." for the logo screen - and it
    opens a full-screen, white, ALWAYS-ON-TOP window. On the player's PC that covered his whole screen.
@@ -8,7 +8,7 @@
    This stand-in shows nothing. It appends the time, the starting process and its own command line
    to logowin_messages.txt in the current folder (control starts it in the game folder), then waits
    until the program that started it ends, as the real one stays up while control runs.
-   Sega's original is kept beside it as logowin_sega.exe; to undo, rename them back. */
+   The original is kept beside it as logowin_sega.exe; to undo, rename them back. */
 #include <windows.h>
 #include <tlhelp32.h>
 #include <stdio.h>

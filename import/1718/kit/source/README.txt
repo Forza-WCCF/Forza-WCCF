@@ -21,6 +21,6 @@ What each does, in short:
                 every winmm call through, and stands in for the arcade's devices: serial ports to the card reader
                 and I/O board stand-ins (named pipes), the RingEdge memory, the network address (127.0.0.1)
   FPR_Emu.exe   answers the game's card-table polls with the cards in seat1\fpr_table0.txt
-  logowin.exe   Sega's start-up notice window, replaced by one that only records the notice
+  logowin.exe   the original start-up notice window, replaced by one that only records the notice
   wccfpanel.dll the panel around seat 1's picture (drawn with the game's own Direct3D 9 device)
   inject.exe    loads wccfpanel.dll into seat 1's running game

@@ -32,7 +32,7 @@ PATCHED_CLIENT = "6243C394E9A57B33C23519326EF8A77B0992873A0033B5892A9155C5B827E2
 SEGA_OTHERS = {"control_Release.exe": "23B9553096BB195FC991A1FC141D719DF3C8AE88460959A88CDFC18863A1376F",
                "match_Release.exe": "D6A1D05D9B0D7365F4260A38EC4D25A55D996AABB83F436B59BDE81CEDDACB38"}
 SEGA_LOGOWIN = "0BFB857AF8627282BBEED9F3C977D6EC30F9E110A408E9683008F47637471326"
-# seat 1's exe = Sega's + these 15 changes: (address, file offset, Sega's bytes, new bytes, what)
+# seat 1's exe = the original exe + these 15 changes: (address, file offset, the original bytes, new bytes, what)
 PATCHES = [
     (0x00401771, 0x000B71, "8d8140fcffff", "31c090909090", "picture layout: no left offset"),
     (0x0040178F, 0x000B8F, "c74644c0030000e936ffffff", "894e448b7e30e937ffffff90", "picture layout: full width"),
@@ -80,7 +80,7 @@ EARLIER_KIT_CONFS = {   # byte for byte what an earlier kit wrote: replaced with
     b"# CLIENT_MAX must stay 9 (the game's own default): fewer made the server crash.\r\n"
     b"DHCP=0\r\nIS_RINGEDGE=0\r\nALLNET_AUTH=0\r\nACCEPT_ALL_IP=1\r\nCLIENT_MAX=9\r\nACCEPT_IP_0=127.0.0.1\r\n"
     b"CONTROL_PORT=20002\r\nMATCH_PORT=20003\r\nGAME_SVR_IP=127.0.0.1\r\n"}
-ENGLISH_BACKUP = os.path.join(K.DATA, "english_backup")     # english.py keeps Sega's files here while English is on
+ENGLISH_BACKUP = os.path.join(K.DATA, "english_backup")     # english.py keeps the originals here while English is on
 
 
 class Failed(Exception):
@@ -150,7 +150,8 @@ def make_junction(link, target):
 
 
 def sega_client(game):
-    """path of Sega's client exe: extracted\\'s own, or - while English is on (ENGLISH.bat) - the copy in the backup"""
+    """path of the original client exe: extracted\\'s own, or - while English is on (ENGLISH.bat) - the copy in the
+    backup"""
     p = os.path.join(game, "client_Release.exe")
     b = os.path.join(ENGLISH_BACKUP, "client_Release.exe")
     if K.sha256(p) != SEGA_CLIENT and os.path.isfile(b) and K.sha256(b) == SEGA_CLIENT:
@@ -168,12 +169,12 @@ def english_copy(rel):
 
 
 def patched_client(game):
-    """Sega's client exe with the 15 changes, checked before and after"""
+    """The original client exe with the 15 changes, checked before and after"""
     data = bytearray(open(sega_client(game), "rb").read())
     for va, off, old, new, what in PATCHES:
         old, new = bytes.fromhex(old), bytes.fromhex(new)
         if cards.va_to_offset(data, va) != off or bytes(data[off:off + len(old)]) != old:
-            raise Failed("client_Release.exe at 0x%08X is not Sega's Rev D bytes (%s)" % (va, what))
+            raise Failed("client_Release.exe at 0x%08X is not the original Rev D bytes (%s)" % (va, what))
         data[off:off + len(new)] = new
     if K.sha256(data) != PATCHED_CLIENT:
         raise Failed("the patched exe does not come out as the tested one - not written")
@@ -185,14 +186,14 @@ def check_game(game):
         raise Failed("the game is running - close it first (STOP.bat), then run setup again")
     h = K.sha256(sega_client(game))
     if sega_client(game) != os.path.join(game, "client_Release.exe"):
-        ok("English is on (ENGLISH.bat): Sega's client_Release.exe is checked in data\\english_backup")
+        ok("English is on (ENGLISH.bat): the original client_Release.exe is checked in data\\english_backup")
     if h == PATCHED_CLIENT:
-        raise Failed("extracted\\client_Release.exe is already PATCHED - setup needs Sega's unchanged exe there "
+        raise Failed("extracted\\client_Release.exe is already PATCHED - setup needs the original unchanged exe there "
                      "(only seat1\\ gets the patched copy). Unzip client_Release.exe from the download again.")
     if h != SEGA_CLIENT:
         raise Failed("extracted\\client_Release.exe is not Rev D (SHA-256 %s...) - this kit is for the community's "
                      "Rev D download only" % h[:16])
-    ok("client_Release.exe is Sega's Rev D")
+    ok("client_Release.exe is the original Rev D")
     for n, want in SEGA_OTHERS.items():
         if K.sha256(os.path.join(game, n)) != want:
             note("%s is not the Rev D file this kit was tested with - it may not work" % n)
@@ -214,9 +215,9 @@ def setup_extracted(game):
     lw, sega = os.path.join(game, "logowin.exe"), os.path.join(game, "logowin_sega.exe")
     if not os.path.exists(sega):
         if K.sha256(lw) != SEGA_LOGOWIN:
-            raise Failed("logowin.exe is not Sega's - leaving it alone")
+            raise Failed("logowin.exe is not the original - leaving it alone")
         os.replace(lw, sega)
-        ok("Sega's logowin.exe kept as logowin_sega.exe (it opens a white window over the whole screen)")
+        ok("the original logowin.exe kept as logowin_sega.exe (it opens a white window over the whole screen)")
     copy_if_different(os.path.join(K.BIN, "logowin.exe"), lw, "logowin.exe (the kit's quiet stand-in)")
     write_text(os.path.join(game, "local", "client_user_option.conf"), CONF_PROJECTOR, "projector settings")
     write_text(os.path.join(game, "local", "ctrl_user_option.conf"), CONF_CONTROL, "server settings")
@@ -298,7 +299,7 @@ def undo(game):
     if K.game_processes(game):
         raise Failed("the game is running - close it first (STOP.bat), then undo")
     if os.path.isfile(os.path.join(ENGLISH_BACKUP, "manifest.json")):
-        raise Failed("English is on - run \"ENGLISH.bat off\" first, so Sega's files go back before the undo")
+        raise Failed("English is on - run \"ENGLISH.bat off\" first, so the original files go back before the undo")
     seat = K.seat_dir(game)
     if os.path.isdir(seat):
         if not os.path.isfile(os.path.join(seat, MARKER)):
@@ -345,7 +346,7 @@ def undo(game):
         if os.path.isfile(lw):
             os.remove(lw)
         os.replace(sega, lw)
-        ok("Sega's logowin.exe back in place")
+        ok("the original logowin.exe back in place")
     for n, text in (("client_user_option.conf", CONF_PROJECTOR), ("ctrl_user_option.conf", CONF_CONTROL)):
         p = os.path.join(game, "local", n)
         if os.path.isfile(p):

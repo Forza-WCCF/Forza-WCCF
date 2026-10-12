@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-r"""play.py - start (and stop) WCCF 2010-11 on this PC: Sega's server, the projector (the shared big screen) and the
-player cabinet (seat 1) with the overlay and your keyboard.  PLAY.bat and STOP.bat run it; run SETUP.bat first.
+r"""play.py - start (and stop) WCCF 2010-11 on this PC: the publisher's server, the projector (the shared big screen)
+and the player cabinet (seat 1) with the overlay and your keyboard.  PLAY.bat and STOP.bat run it; run SETUP.bat first.
 
     python play.py            start everything on this PC - or, when the SETTINGS panel chose ONLINE, the cabinets
                               on its server (as "remote ADDRESS"), and this PC if that server does not answer; it
@@ -342,7 +342,7 @@ def apply_english_request():
         return
     if (want == "on") != K.english_on():
         say("  the game's text %s, as the SETTINGS panel asked - this takes a moment ..." % (
-            "into English" if want == "on" else "back to Sega's Japanese"))
+            "into English" if want == "on" else "back to the original Japanese"))
         try:            # english.py swaps each file in one step, so even a stop half way leaves every file in place
             r = subprocess.run([PY, os.path.join(K.SCRIPTS, "english.py"), want], capture_output=True, text=True,
                                encoding="utf-8", errors="replace", timeout=600)
@@ -353,7 +353,7 @@ def apply_english_request():
         if why:
             say("  the text could not be switched (%s) - the game starts as it is" % why)
         else:
-            say("  done: the game's text is %s" % ("English" if want == "on" else "Sega's Japanese"))
+            say("  done: the game's text is %s" % ("English" if want == "on" else "the original Japanese"))
     drop_panel_line("english")
 
 
@@ -527,7 +527,7 @@ def play(debug, mode="local", ip=None, seat_no=None):
                                                    "remote": " - the cabinets, on the server at %s" % ip}.get(mode, "")))
     if not os.path.isdir(os.path.join(game, "data", "motion", "launcherMotion", "xscn")):
         say("  1/%d scene service: not used by this version (no xscn scenes)" % steps)     # 2017-18 (SDDY)
-        # 2017-18 keeps clubs on Sega's game server: control relays to this stand-in (GAME_SVR_IP=localhost)
+        # 2017-18 keeps clubs on the publisher's game server: control relays to this stand-in (GAME_SVR_IP=localhost)
         g = start("_gamesvr.py", [GAMESVR_PORT, life + 120, os.path.join(K.LOGS, "gamesvr_log.txt"),
                                   os.path.join(K.SAVE, "gamesvr")], "run_gamesvr.txt", env)
         roles[g.pid] = "game server stand-in"

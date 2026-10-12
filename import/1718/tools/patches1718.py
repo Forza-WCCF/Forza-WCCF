@@ -24,7 +24,7 @@ PATCHES = [
     # the seat's online test (VA 0x0040FDC7) also wants ALL.Net's billing phase (status struct +0xF8, filled by
     # VA 0x004D1430 from VA 0x00C78E00) in 16..24 but not 19 (offline); with ALL.Net off it stays 0. 20 = IDLE.
     (0x00F1C7, "8bb6f8000000", "be1400000090", "ALL.Net billing phase reads IDLE (20) in the online test"),
-    # AiMeDB (aimelib, VA 0x00D841E0 getaddrinfo, port 22345): Sega's host -> this PC, served by _aimedb.py
+    # AiMeDB (aimelib, VA 0x00D841E0 getaddrinfo, port 22345): the original host -> this PC, served by _aimedb.py
     (0xE2C250, "61696d652e6e616f6d696e65742e6a7000", "6c6f63616c686f73740000000000000000",
      "AiMeDB host aime.naominet.jp -> localhost"),
 ]

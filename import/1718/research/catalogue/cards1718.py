@@ -13,7 +13,8 @@ Writes  catalogue.tsv           one line per card: number, season, rarity, names
                                 Rows run newest season first: the overlay keeps only the first 4,096 non-placeholder
                                 lines (wccfpanel.c load_catalogue), so this order keeps 2012-13 .. 2017-18.
                                 is_placeholder = 1 (the overlay skips it): edition 13 "not players" (referees, coaches,
-                                GUESTPLAY stand-ins, the navigator) and Sega's FC SEGA joke cards (NOT_PLAYERS).
+                                GUESTPLAY stand-ins, the navigator) and the publisher's own joke
+                                cards (NOT_PLAYERS).
         cards\<number>.png      each card's picture, 128x128 (the overlay shows its left 88 columns: the face)
 Reads   client_Release.exe      card number -> record table (int32[0x2CC1] at VA 0x015B5B48; the client indexes it
                                 after "card <= 0x2CC0", e.g. VA 0x453C05) and the club / nationality name table
@@ -41,7 +42,8 @@ RECORDS = 8434
 CARD_TABLE_VA, CARD_TABLE_N = 0x015B5B48, 0x2CC1
 NAMES_VA = 0x0154C428
 PLACEHOLDER_EDITION = 13        # VerName.txt line 13 (0-based): "選手以外" (not players)
-# Diego TERADONA, club FC SEGA: 3509's picture is a hand-scrawled "ダミー" (dummy), 9951 a staff Maradona parody
+# Diego TERADONA, the publisher's own club: 3509's picture is a hand-scrawled "ダミー" (dummy), 9951 a staff Maradona
+# parody
 NOT_PLAYERS = {3509, 9951}
 RARITY = C.RARITY               # 1 REGULAR .. 5 ALL TIME LEGEND: the 3,924 cards 2010-11 shares carry the same bytes
 STAT_NAMES = C.STAT_NAMES
@@ -201,7 +203,7 @@ def exe_tables(exe):
 
 
 def editions(path):
-    """VerName.txt -> {edition: label}; each line is '<name> t|f' (t/f: Sega's own flag, not used here)"""
+    """VerName.txt -> {edition: label}; each line is '<name> t|f' (t/f: the original flag, not used here)"""
     out = {}
     for i, line in enumerate(open(path, "rb").read().decode("cp932").splitlines()):
         out[i] = re.sub(r"\s+[tf]$", "", line.strip()).replace("ロケテスト", " location test").replace(
@@ -288,9 +290,9 @@ def build_rows(files, check):
     check("every card's picture is in the archive", all(r["image_xaf_offset"] is not None for r in rows))
     check("picture names match the archive's case", exact_case == len(rows), "%d/%d" % (exact_case, len(rows)))
     check("every 2009-10+ picture name starts with its season (e.g. 1718_)", not prefix_bad, str(prefix_bad[:10]))
-    # card 443 (GARGO) stores 77 while its six sum to 78 - the same in 2005-06 and 2010-11, so it is Sega's data
+    # card 443 (GARGO) stores 77 while its six sum to 78 - the same in 2005-06 and 2010-11, so it is the original data
     off_sum = sorted(r["card_no"] for r in real if sum(r["stats"]) != r["stats_total"])
-    check("total = the six stats added up (except Sega's card 443)", off_sum in ([], [443]), str(off_sum))
+    check("total = the six stats added up (except the original card 443)", off_sum in ([], [443]), str(off_sum))
     check("every card's face model is in the archive", face_ok == len(rows), "%d/%d" % (face_ok, len(rows)))
     check("every position is GK, DF, MF or FW", all(r["position"] in C.POSITIONS for r in rows))
     check("every real card's rarity is 1..5", all(r["rarity"] in RARITY for r in real))

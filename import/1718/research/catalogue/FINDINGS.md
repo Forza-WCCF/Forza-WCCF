@@ -5,13 +5,13 @@
 - `cards1718.py` reads the 2017-18 data correctly. The card number to record mapping, names, line (GK/DF/MF/FW),
   club, nationality, birth date, height, weight, the six stats and the pictures agree with the cards' own printed
   backs for all 13 spot-checked cards. For the 3,927 card numbers 2010-11 shares, names, line, birth date and stats
-  also agree with the 2010-11 catalogue. The one exception is card 2854, which Sega reused (2010-11 Bernd SCHUSTER,
+  also agree with the 2010-11 catalogue. The one exception is card 2854, which the publisher reused (2010-11 Bernd SCHUSTER,
   2017-18 Thomas MÜLLER). Club, nationality and season labels differ for about 190 shared cards; the 2010-11 ones
   were inferred, and the 2017-18 ones come from the exe's name table and VerName.txt.
 - The catalogue holds 8,434 rows: **8,396 real cards and 38 placeholders**. Placeholders have `is_placeholder` = 1,
   and the overlay skips them. 36 are edition 13 "選手以外" (not players): 11 "Unknown" stand-ins, the chairperson,
   3 referees, 3 coaches, 11 GUESTPLAY default players, the navigator Yurie OSAWA and 6 network coaches. The other 2
-  are the FC SEGA joke player Diego TERADONA (3509 and 9951). Card 3509's picture is a scrawled "ダミー" (dummy).
+  are the joke player Diego TERADONA of the publisher's own club (3509 and 9951). Card 3509's picture is a scrawled "ダミー" (dummy).
   Calling 9951 a placeholder too is a judgement (guess): it is a staff Maradona parody that the 2010-11 catalogue
   offered.
 - The overlay up to 2026-10-08 showed at most 4,096 cards (`load_catalogue`: `cap = 4096`; `g_res[4096]`); the
@@ -87,7 +87,7 @@ This writes `catalogue.tsv` and `cards\<no>.png` (8,434 PNGs of 128×128, about 
 where the overlay reads them. The board thread loads the catalogue once at start, so it appears after the next
 seat-1 start; `seat1\wccfpanel.log` then says `browser: catalogue 8396 cards` (4096 with an overlay built before
 the cap was raised). `kit/overlay/catalogue.tsv` and `kit/overlay/cards/` are in `.gitignore` and must stay out of
-git (Sega-derived).
+git (derived from the publisher's).
 
 ## Open issues
 

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Stand-in for WCCF 2017-18's Aime card reader (SEGA 837-15084 NFC reader, TN32MSEC003S, + its LED board),
+"""Stand-in for WCCF 2017-18's Aime card reader (the publisher's 837-15084 NFC reader, TN32MSEC003S, + its LED board),
 served over a named pipe.
 
     python scripts/_aime_reader.py PIPE_NAME SECONDS [LOGFILE] [CARDFILE]

@@ -1900,9 +1900,9 @@ static struct KAct g_kact[] = {          // left column 0-7 (BUTTONS, CARD + COI
     { "RIGHT",     "R-SIDE",     "tactic, right",    0x27, 0x27, B_RIGHT, COL_GREEN  },
     { "TEST",      "TEST",       "operator menu",    0x70, 0x70, -1,      COL_GREY   },
     { "SERVICE",   "SERVICE",    "",                 0x71, 0x71, -1,      COL_GREY   },
-    // ids stay SENSOR2/3 (keys.txt and _keys_seat1.py use them); the bits are Sega's service switches SW1/SW2, not
-    // card sensors (2026-10-06, docs\research\CARD-DISPENSER-2010-11.md): on Sega's club-card recovery screen SW1
-    // answers "Write the backup data over the Club Card? [SW1] Yes (overwrite)".
+    // ids stay SENSOR2/3 (keys.txt and _keys_seat1.py use them); the bits are the publisher's service switches SW1/SW2,
+    // not card sensors (2026-10-06, docs\research\CARD-DISPENSER-2010-11.md): on the publisher's club-card recovery
+    // screen SW1 answers "Write the backup data over the Club Card? [SW1] Yes (overwrite)".
     { "SENSOR2",   "SW1",        "can overwrite card", 0x38, 0x38, -1,    COL_GREY   },
     { "SENSOR3",   "SW2",        "service: back",    0x39, 0x39, -1,      COL_GREY   },
 };
@@ -3275,7 +3275,7 @@ static void set_draw(IDirect3DDevice9 *dev)
             else { _snprintf(v, sizeof v, "none yet - one is made when a session starts"); col = grey; }
             break;
         case 5:
-            _snprintf(v, sizeof v, "%s", st.english ? "English" : "Japanese (Sega's original)");
+            _snprintf(v, sizeof v, "%s", st.english ? "English" : "Japanese (the original)");
             break;
         }
         v[sizeof v - 1] = 0;
@@ -5036,15 +5036,15 @@ static void relay_selftest(void)
 // (kit_common.find_game): the projector runs from it, seat 1 from seat1\ beside it.  Without WCCF_GAME (the player's own
 // runs): a folder named "extracted".  WCCFPANEL_ROLE=projector|seat1 decides in the tests.
 // ---------------------------------------------------------------- the frame wait (2026-10-06)
-// Sega's frame limiter FUN_0075fcd0 (called right before Present) waits for the next 1/30 s by SPINNING: its loop at
-// 0x0075FD90 calls the clock FUN_00720540 (microseconds) again and again until the frame's due time, held in esi -
+// the original frame limiter FUN_0075fcd0 (called right before Present) waits for the next 1/30 s by SPINNING: its loop
+// at 0x0075FD90 calls the clock FUN_00720540 (microseconds) again and again until the frame's due time, held in esi -
 // a whole processor core per game window, even idle (measured 2026-10-06 on this PC, nothing playing: the projector
 // ~102%, seat 1 ~69% of one core, the server ~96%).  On a 2-core laptop that leaves too little for the game itself (a
 // player: play felt "heavy" from the line-ups on).  That one call now goes to limiter_now(): when the frame is due in
 // more than 3 ms it first SLEEPS on a high-resolution waitable timer until 2 ms before, then returns the clock
-// exactly as FUN_00720540 does - the loop's own compares (and its wrap-around guard) decide as before, so Sega's
+// exactly as FUN_00720540 does - the loop's own compares (and its wrap-around guard) decide as before, so the original
 // timing is unchanged; only the empty spinning goes.  Installed only if the loop's bytes are the ones read
-// (research\money: pe.py dis seat1 0x0075FCD0) and the timer exists (Windows 10 1803+); else Sega's spin stays.
+// (research\money: pe.py dis seat1 0x0075FCD0) and the timer exists (Windows 10 1803+); else the original spin stays.
 // A file "limiter_off" beside this DLL switches it off within a second (A/B tests), "frame_stats" logs seat 1's frame
 // timing every 10 s; WCCFPANEL_LIMITER=0 keeps it out.
 #define LIMITER_CALL  0x0075FD90u                // "call FUN_00720540" inside the spin loop, 16-byte aligned
@@ -5113,7 +5113,7 @@ static DWORD WINAPI limiter_watch(LPVOID arg)    // the two switch files, once a
         LONG on = GetFileAttributesA(off) == INVALID_FILE_ATTRIBUTES, st = GetFileAttributesA(stats) != INVALID_FILE_ATTRIBUTES;
         if (InterlockedExchange(&g_limiter_on, on) != on && g_limiter_in)
             logline("limiter: %s", on ? "ON - the frame wait sleeps until 2 ms before each frame"
-                                      : "OFF (limiter_off beside the DLL) - Sega's spin, as before");
+                                      : "OFF (limiter_off beside the DLL) - the original spin, as before");
         if (InterlockedExchange(&g_stats_on, st) != st) logline("frame stats %s", st ? "on (frame_stats beside the DLL)" : "off");
         if (st && g_limiter_in && (LONG)(GetTickCount() - next) >= 0) {
             LONG s = g_lsleeps, l = g_llate, n = InterlockedExchange(&g_lgaps, 0), sum = InterlockedExchange(&g_lgap_sum, 0);
@@ -5142,7 +5142,7 @@ static void frame_stats_tick(void)               // seat 1's render thread, ever
     if (secs >= 10.0) {
         logline("frames: %d in %.1f s = %.2f a second; %.1f ms apart on average, the longest %.1f ms, %d over 45 ms; "
                 "the frame wait %s", n, secs, n / secs, sum / n, mx, late,
-                g_limiter_in && g_limiter_on ? "sleeps" : "spins (Sega's)");
+                g_limiter_in && g_limiter_on ? "sleeps" : "spins (the original)");
         n = late = 0; sum = mx = 0; t0 = now;
     }
 }
@@ -5154,7 +5154,7 @@ static void limiter_install(void)
     LONG rel = (LONG)((UINT_PTR)limiter_now - (LIMITER_CALL + 5));
     CreateTimerEx cte = (CreateTimerEx)GetProcAddress(GetModuleHandleA("kernel32.dll"), "CreateWaitableTimerExA");
     if (GetEnvironmentVariableA("WCCFPANEL_LIMITER", e, sizeof e) > 0 && e[0] == '0') {
-        logline("limiter: kept out (WCCFPANEL_LIMITER=0) - Sega's spin");
+        logline("limiter: kept out (WCCFPANEL_LIMITER=0) - the original spin");
         return;
     }
     GetModuleFileNameA(NULL, exe, MAX_PATH);
@@ -5165,20 +5165,20 @@ static void limiter_install(void)
     }
     __try {
         if (memcmp(p, LIMITER_LOOP, sizeof LIMITER_LOOP) != 0) {
-            logline("limiter: the frame wait is not the code studied - Sega's spin stays");
+            logline("limiter: the frame wait is not the code studied - the original spin stays");
             return;
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
-        logline("limiter: the frame wait could not be read - Sega's spin stays");
+        logline("limiter: the frame wait could not be read - the original spin stays");
         return;
     }
     g_ltimer = cte ? cte(NULL, NULL, 0x00000002 /* CREATE_WAITABLE_TIMER_HIGH_RESOLUTION */, TIMER_ALL_ACCESS) : NULL;
     if (!g_ltimer) {
-        logline("limiter: no high-resolution timer here (Windows 10 1803 or later has one) - Sega's spin stays");
+        logline("limiter: no high-resolution timer here (Windows 10 1803 or later has one) - the original spin stays");
         return;
     }
     if (!VirtualProtect(p, 8, PAGE_EXECUTE_READWRITE, &prot)) {
-        logline("limiter: the code could not be opened (error %lu) - Sega's spin stays", GetLastError());
+        logline("limiter: the code could not be opened (error %lu) - the original spin stays", GetLastError());
         return;
     }
     old8 = *(volatile LONGLONG *)p;
@@ -5191,13 +5191,14 @@ static void limiter_install(void)
     }
     if (InterlockedCompareExchange64((volatile LONGLONG *)p, new8, old8) != old8) {
         VirtualProtect(p, 8, prot, &prot);
-        logline("limiter: the code changed while being patched - Sega's spin stays");
+        logline("limiter: the code changed while being patched - the original spin stays");
         return;
     }
     VirtualProtect(p, 8, prot, &prot);
     FlushInstructionCache(GetCurrentProcess(), p, 8);
     g_limiter_in = 1;
-    logline("limiter: the frame wait (0x%08lX) now sleeps until 2 ms before each frame; Sega's loop keeps the timing%s",
+    logline("limiter: the frame wait (0x%08lX) now sleeps until 2 ms before each frame; the original loop keeps "
+            "the timing%s",
             (unsigned long)LIMITER_CALL, g_limiter_on ? "" : " - but limiter_off is there: OFF for now");
 }
 

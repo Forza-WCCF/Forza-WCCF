@@ -203,9 +203,9 @@ def build_rows(files, check):
     check("the number at the start of each record is its card number", mism == 0, "%d differ" % mism)
     check("every card's picture is in the archive", all(r["image_xaf_offset"] is not None for r in rows))
     check("picture names match the archive's case", exact_case == len(rows), "%d/%d" % (exact_case, len(rows)))
-    # card 443 (GARGO) stores 77 while its six sum to 78 - the same in the 2005-06 game, so it is Sega's data
+    # card 443 (GARGO) stores 77 while its six sum to 78 - the same in the 2005-06 game, so it is the original data
     off_sum = sorted(r["card_no"] for r in rows if sum(r["stats"]) != r["stats_total"])
-    check("total = the six stats added up (except Sega's card 443)", off_sum in ([], [443]), str(off_sum))
+    check("total = the six stats added up (except the original card 443)", off_sum in ([], [443]), str(off_sum))
     check("every card's face model is in the archive", face_ok == len(rows), "%d/%d" % (face_ok, len(rows)))
     check("every position is GK, DF, MF or FW", all(r["position"] in POSITIONS for r in rows))
     check("every rarity is 1..5", all(r["rarity"] in RARITY for r in rows))
