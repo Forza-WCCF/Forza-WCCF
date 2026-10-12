@@ -396,3 +396,43 @@ fn card_reader_replay() {
         "{scenarios} scenarios, {ios} exchanges"
     );
 }
+
+#[test]
+fn network_replay() {
+    use forza::standins::network::{self, Kind};
+    let recs = records("network");
+    let svcs: [(&str, Kind); 5] = [
+        ("master", Kind::Text),
+        ("installer", Kind::Text),
+        ("keychip", Kind::Text),
+        ("amnet", Kind::Amnet),
+        ("binary", Kind::Binary),
+    ];
+    let mut held = Vec::new();
+    let mut ports = std::collections::HashMap::new();
+    for (name, kind) in svcs {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        ports.insert(name, l.local_addr().unwrap());
+        held.push(network::spawn(l, kind, name, quiet()).unwrap());
+    }
+    let (mut c, mut conn, mut svc) = (None::<TcpStream>, u64::MAX, "");
+    for (i, r) in recs.iter().enumerate() {
+        let (s, n) = (r["svc"].as_str().unwrap(), r["conn"].as_u64().unwrap());
+        let req = unhex(r["req"].as_str().unwrap());
+        if c.is_none() || s != svc || n != conn {
+            let t = TcpStream::connect(ports[s]).unwrap();
+            t.set_read_timeout(Some(Duration::from_millis(350)))
+                .unwrap();
+            c = Some(t);
+            (svc, conn) = (s, n);
+        }
+        let c = c.as_mut().unwrap();
+        let resp = if req.is_empty() {
+            exchange(c, b"", 0)
+        } else {
+            exchange(c, &req, r["split"].as_u64().unwrap() as usize)
+        };
+        assert_eq!(hex(&resp), r["resp"].as_str().unwrap(), "record {i}");
+    }
+    drop(held);
+}
