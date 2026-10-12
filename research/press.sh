@@ -1,6 +1,6 @@
 #!/bin/bash
 # press.sh BUTTON... [wait SECONDS] [cap NAME] - from WSL: tap seat 1's cabinet buttons through the I/O board stand-in's
-# input file (as _keys_seat1.py writes it), 0.35 s held each; "cap NAME" captures the game windows (cap.ps1,
+# input file (as _keys_seat1.py writes it), 0.35 s held each; "cap NAME" captures the game windows (`cargo xtask cap`,
 # PrintWindow: the game's own windows only, never the screen) into $WCCF1718_RUNTIME/evidence/NAME.
 # Buttons: START PRESS SHOOT UP DOWN LEFT RIGHT SERVICE KEEPER DATA KEYPLAYER COIN.
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -13,9 +13,7 @@ w(){ printf '# press.sh\nsys=0x00\np1=%s 0x00\np2=%s %s\ncoin1=%s\ncoin2=0\n' "$
 while [ $# -gt 0 ]; do
   b=$1; shift
   case $b in
-    cap) cp "$HERE/cap.ps1" "$RT/cap.ps1"
-         powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w "$RT/cap.ps1")" \
-           -Root "$(wslpath -w "$RT")" -OutDir "$(wslpath -w "$RT/evidence/$1")"; shift; continue;;
+    cap) (cd "$HERE/.." && cargo xtask cap "$RT" "$RT/evidence/$1"); shift; continue;;
     wait) sleep "$1"; shift; continue;;
     COIN) COIN=$((COIN+1)); w 0x00 0x00 0x00; sleep 0.3; continue;;
   esac

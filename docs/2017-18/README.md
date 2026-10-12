@@ -16,7 +16,7 @@ is in progress. See [docs/PROGRESS.md](docs/PROGRESS.md) and [docs/TASKS.md](doc
 |---|---|
 | `kit/` | Kit 5 + 2017–18 changes (`PLAY1718.bat`, `scripts/play.py`, `_debug_launch.py`, `_ringedge_services.py`, new `_gamesvr.py`) |
 | `tools/setup1718.py`, `patches1718.py` | build the runtime: guarded imports, seat 1 exe patches, controller patch (every original byte checked) |
-| `tools/restart.sh`, `press.sh`, `cap.ps1` | WSL helpers: restart the stack, tap cabinet buttons, capture game windows |
+| `tools/restart.sh`, `press.sh` (`cargo xtask cap`) | WSL helpers: restart the stack, tap cabinet buttons, capture game windows |
 | `tools/netguard/` | `wccfnet.dll` / `netguard.dll` (+ sources): stub the IP-helper calls that drop the host's DHCP lease |
 | `tools/ida/` | headless IDA helpers (`ida_query.py`, `dump.py`) |
 | `docs/` | progress, tasks, research notes, game-server message table, agent workstream briefs |

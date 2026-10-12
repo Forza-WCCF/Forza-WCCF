@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "xtask"]
+members = ["crates/*", "xtask", "xtask/cap"]
 default-members = ["crates/*"]
 
 [workspace.package]
@@ -28,6 +28,8 @@ pbkdf2 = "0.13.0"
 ripemd = "0.2.0"
 object = { version = "0.40.0", default-features = false, features = ["read_core", "pe"] }
 serde_json = "1.0.154"
+png = "0.18.1"
+windows-sys = "0.61.2"
 zip = { version = "9.0.1", default-features = false, features = ["deflate"] }
 
 [workspace.lints.rust]

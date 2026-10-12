@@ -32,6 +32,12 @@ enum Task {
         /// 2010-11 or 2017-18
         edition: String,
     },
+    /// Save the game windows running from ROOT as PNGs in OUTDIR (builds xtask/cap; PrintWindow, never the screen)
+    Cap {
+        /// The runtime folder: only game processes whose exe is under it are captured
+        root: PathBuf,
+        outdir: PathBuf,
+    },
     /// The kit ZIP in dist/
     Package {
         /// 2010-11, 2017-18 or installer
@@ -125,6 +131,7 @@ fn main() -> Result<()> {
             let cc = Cc::new()?;
             build(&root, &kit, &cc).and_then(|()| build_1718(&root, &kit_1718, &cc))
         }
+        Task::Cap { root, outdir } => cap(&root, &outdir),
         Task::Check => check(&root, &stage_root, &kit, &kit_1718),
         Task::Stage { edition } => match edition.as_str() {
             "2010-11" => stage(&root, &kit, MAP, KEEP),
@@ -228,6 +235,21 @@ impl Cc {
         }
         Ok(Cc(cache))
     }
+}
+
+/// `cap.exe` (xtask/cap, in no kit) built for Windows, then run through WSL interop with Windows paths.
+fn cap(game_root: &Path, outdir: &Path) -> Result<()> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .context("no repository root")?;
+    let mut b = rust("build", root);
+    b.args(["--locked", "-p", "cap", "--target", TARGET]);
+    run_ok(b, "cargo build -p cap")?;
+    let exe = root.join("target").join(TARGET).join("debug/cap.exe");
+    let mut c = Command::new(exe);
+    c.arg(win(game_root)).arg(win(outdir));
+    run_env(&mut c);
+    run_ok(c, "cap")
 }
 
 // ---- the staged kit ----
@@ -1067,7 +1089,7 @@ fn scrub(root: &Path, failed: &mut Vec<String>) -> Result<()> {
 
 // ---- no script host ----
 
-/// Keeps the Windows script host out (ROADMAP 4.7): no mention of it in xtask's source, and no tracked `*.ps1` but research/cap.ps1.
+/// Keeps the Windows script host out (ROADMAP 4.7): no mention of it in xtask's source, and no tracked `*.ps1`.
 /// The word is built from two halves so that this file does not spell it either.
 fn no_script_host(root: &Path, failed: &mut Vec<String>) -> Result<()> {
     let word = ["power", "shell"].concat();
@@ -1083,19 +1105,12 @@ fn no_script_host(root: &Path, failed: &mut Vec<String>) -> Result<()> {
     let sh = Shell::new()?;
     sh.change_dir(root);
     let scripts = cmd!(sh, "git ls-files -- *.ps1").read()?;
-    // research/cap.ps1 (the window capture for live runs) is replaced by `cargo xtask cap` in a later commit, after step 4.6
-    // (xtask in WSL); then this allowance goes and no *.ps1 may be tracked at all.
-    bad.extend(
-        scripts
-            .lines()
-            .filter(|l| *l != "research/cap.ps1")
-            .map(str::to_owned),
-    );
+    bad.extend(scripts.lines().map(str::to_owned));
     for b in &bad {
         println!("script host: {b}");
     }
     if bad.is_empty() {
-        println!("script host: none in xtask, no tracked .ps1 but research/cap.ps1");
+        println!("script host: none in xtask, no tracked .ps1");
     } else {
         failed.push(format!("script host ({} places)", bad.len()));
     }
