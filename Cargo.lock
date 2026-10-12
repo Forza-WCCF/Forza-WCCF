@@ -2259,6 +2259,7 @@ name = "launcher"
 version = "7.0.0"
 dependencies = [
  "junction",
+ "regex",
  "serde_json",
  "tempfile",
  "windows-sys 0.61.2",
