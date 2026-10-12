@@ -44,10 +44,11 @@ const MAP: &[(&str, &str)] = &[
     ("README.txt", "editions/2010-11/README.txt"),
     ("CHANGELOG.md", "editions/2010-11/CHANGELOG.md"),
     ("art", "editions/2010-11/art"),
-    ("code", "code"),
+    ("code", "legacy/2010-11/code"),
     ("languages", "editions/2010-11/languages"),
-    ("python", "python"),
+    ("python", "legacy/python"),
     ("source", "source"),
+    ("source", "legacy/2010-11/tests"),
     ("source/launcher", "crates/launcher"),
 ];
 /// Built into the staged kit, so staging leaves them alone.
@@ -712,7 +713,7 @@ fn mask(line: &str) -> String {
     out
 }
 
-/// Every tracked text file (not python/, not binaries): no line names the publisher except the class-C lines of
+/// Every tracked text file (not legacy/python/, not binaries): no line names the publisher except the class-C lines of
 /// xtask/scrub-allow.txt (the JVS board ID, the card reader's AES key, keychip strings, third-party tool and host names, the logowin argument
 /// name in comments, an in-game club name, and the docs quoting them), and no line matches ~/.config/forza-wccf/scrub.txt
 /// (personal data, kept out of the repository). Matches are compared by line text, not by file.
@@ -728,7 +729,7 @@ fn scrub(root: &Path, failed: &mut Vec<String>) -> Result<()> {
     let mut bad = vec![];
     let own = cmd!(
         sh,
-        "git grep -n -I -i -e {name} -e {kana} -- . :!python :!import/1718/kit/python"
+        "git grep -n -I -i -e {name} -e {kana} -- . :!legacy/python :!import/1718/kit/python"
     )
     .ignore_status()
     .read()?;
@@ -753,7 +754,7 @@ fn scrub(root: &Path, failed: &mut Vec<String>) -> Result<()> {
             .collect();
         let hits = cmd!(
             sh,
-            "git grep -n -I -i -E {pats...} -- . :!python :!import/1718/kit/python"
+            "git grep -n -I -i -E {pats...} -- . :!legacy/python :!import/1718/kit/python"
         )
         .ignore_status()
         .read()?;
