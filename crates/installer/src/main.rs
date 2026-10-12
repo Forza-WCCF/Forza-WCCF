@@ -463,10 +463,17 @@ impl eframe::App for App {
             .is_some_and(|r| matches!(r.result, Some(Err(_))));
         egui::Panel::bottom("nav").show(ui, |ui| {
             ui.add_space(6.0);
+            // the error on its own wrapped line: in the buttons' row a long one pushed Back/Next out of the window
+            if let Some(e) = &self.error {
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(e).color(egui::Color32::from_rgb(200, 60, 60)),
+                    )
+                    .wrap(),
+                );
+                ui.add_space(4.0);
+            }
             ui.horizontal(|ui| {
-                if let Some(e) = &self.error {
-                    ui.colored_label(egui::Color32::from_rgb(200, 60, 60), e);
-                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let page = self.page;
                     match page {
