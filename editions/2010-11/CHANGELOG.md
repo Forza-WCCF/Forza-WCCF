@@ -15,6 +15,10 @@ game is not included. Newest first; each date is the day that kit was built.
   inject.exe: it writes into the running game from outside (VirtualAllocEx + CreateRemoteThread).
 - UPDATE no longer looks on GitHub: it points at a placeholder address until Forza-WCCF has a release site, and
   says "No update found" (in English, Italian and Japanese). Launcher.exe no longer asks for a newer kit.
+- First start: Launcher.exe links its folder to C:\Games\Forza-WCCF\2010-2011 (a junction, no administrator rights) and
+  starts again from there, so a kit unzipped into a path with accents or spaces still gives the game a plain path. A
+  folder already at that name is left alone. On a network or FAT drive it runs where it is and, if the path has special
+  characters, says so.
 - The program is called Launcher.exe now (it was PLAY.exe); an update or the first start removes the old PLAY.exe.
 - Launcher.exe is the kit's one program, and a window: PLAY ON (THIS PC, or ONLINE and a server's address - the same
   choice as the in-game SETTINGS, kept in data\panel.txt), LANGUAGE (English, Italiano, Japanese: the window's own

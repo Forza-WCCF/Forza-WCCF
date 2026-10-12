@@ -19,6 +19,7 @@
 #![windows_subsystem = "windows"]
 
 mod choices;
+mod link;
 mod text;
 mod update;
 
@@ -1047,6 +1048,17 @@ fn main() -> ExitCode {
     }
     update::tidy(&kit);
     text::choose(choices::setting(&settings_file(&kit), "language").as_deref());
+    // a plain start (no arguments): first run, the kit folder gets the installer's name (link.rs)
+    if args.is_empty() {
+        match link::first_run(kit.dir()) {
+            link::Outcome::Restart(to) if link::restart(&to) => return ExitCode::SUCCESS,
+            link::Outcome::InPlace { warn: Some(msg) } => {
+                log(&msg);
+                say(msg, 0);
+            }
+            _ => {}
+        }
+    }
     // dropped on Launcher.exe (or given): a game folder to set up
     let folder = args.first().filter(|a| args.len() == 1 && Path::new(a).is_dir());
     let step = match first.as_deref() {

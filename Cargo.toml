@@ -17,6 +17,7 @@ clap = { version = "4.6.7", features = ["derive"] }
 # GUI: eframe's defaults minus `web_screen_reader`; the installer adds `default_fonts` (it draws text, the repo has no fonts yet)
 eframe = { version = "0.36.2", default-features = false, features = ["accesskit", "links", "wgpu", "wayland", "x11"] }
 fs-err = "3.3.2"
+junction = "2.1.0"
 rfd = "0.17.2"
 sha2 = "0.11.0"
 xshell = "0.2.7"
