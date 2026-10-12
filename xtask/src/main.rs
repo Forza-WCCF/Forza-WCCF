@@ -950,6 +950,7 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
     scrub(root, &mut ck.failed)?;
     installer_checks(root, stage_root, &mut ck.failed);
     no_script_host(root, &mut ck.failed)?;
+    launcher_scripts(root, kit, &mut ck.failed)?;
 
     ensure!(ck.failed.is_empty(), "FAILED: {}", ck.failed.join(", "));
     println!("all checks passed");
@@ -1150,6 +1151,31 @@ fn scrub(root: &Path, failed: &mut Vec<String>) -> Result<()> {
         println!("scrub: clean");
     } else {
         failed.push(format!("scrub ({} lines)", bad.len()));
+    }
+    Ok(())
+}
+
+// ---- the launcher's scripts ----
+
+/// The scripts Launcher.exe runs are where it looks for them in the staged kit: its `SCRIPTS` folder, read from its source
+/// (it had looked in `scripts\`, the 2017-18 name, while the 2010-11 kit ships `code\`).
+fn launcher_scripts(root: &Path, kit: &Path, failed: &mut Vec<String>) -> Result<()> {
+    let lib = fs::read_to_string(root.join("crates/launcher/src/lib.rs"))?;
+    let dir = lib
+        .lines()
+        .find_map(|l| {
+            l.strip_prefix("pub const SCRIPTS: &str = \"")?
+                .strip_suffix("\";")
+        })
+        .context("no SCRIPTS in crates/launcher/src/lib.rs")?;
+    let missing: Vec<_> = ["play.py", "setup.py", "english.py"]
+        .iter()
+        .filter(|s| !kit.join(dir).join(s).is_file())
+        .collect();
+    if missing.is_empty() {
+        println!("launcher scripts: {dir}/ has play.py, setup.py, english.py");
+    } else {
+        failed.push(format!("launcher scripts: {dir}/ lacks {missing:?}"));
     }
     Ok(())
 }

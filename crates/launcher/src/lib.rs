@@ -17,6 +17,9 @@ use windows_sys::core::BOOL;
 
 pub use watch::{kit_program_running, run_recorded, spawn_watcher, take_over, watch};
 
+/// The kit's Python scripts folder (`cargo xtask check` checks the staged kit has play.py, setup.py and english.py in it).
+pub const SCRIPTS: &str = "code";
+
 /// The kit folder: the one this exe is in.
 pub struct Kit {
     dir: PathBuf,
@@ -41,10 +44,10 @@ impl Kit {
         self.dir.join("data")
     }
 
-    /// `python\python.exe scripts\<script>`, to add arguments to
-    fn script(&self, script: &str) -> Command {
+    /// `python\python.exe code\<script>`, to add arguments to
+    pub fn script(&self, script: &str) -> Command {
         let mut cmd = Command::new(self.python());
-        cmd.arg(self.dir.join("scripts").join(script));
+        cmd.arg(self.dir.join(SCRIPTS).join(script));
         cmd
     }
 

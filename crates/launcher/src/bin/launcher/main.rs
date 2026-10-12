@@ -29,7 +29,7 @@ use std::io::{BufRead, BufReader, Read};
 use std::os::windows::io::IntoRawHandle;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode, Stdio};
+use std::process::{ExitCode, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::{env, fs, mem, ptr, thread};
@@ -163,13 +163,13 @@ fn log(line: &str) {
 
 // ---- the kit's scripts ------------------------------------------------------------------------------------------
 
-/// python\python.exe scripts\<script> args without a console, its output line by line into the window; its exit
+/// python\python.exe code\<script> args without a console, its output line by line into the window; its exit
 /// code.  play.py's "N/M" step lines move the progress bar.
 fn run_script(kit: &Kit, script: &str, args: &[OsString]) -> Result<i32, String> {
     let shown: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
     log(&format!("> {script} {}", shown.join(" ")));
-    let mut child = Command::new(kit.dir().join("python").join("python.exe"))
-        .arg(kit.dir().join("scripts").join(script))
+    let mut child = kit
+        .script(script)
         .args(args)
         .current_dir(kit.dir())
         .env("PYTHONUTF8", "1")
