@@ -300,7 +300,7 @@ FOLDERS
   code\      play, setup and english at the top; cards\ (club cards, the catalogue), hardware\ (stand-ins for the
              cabinet: card reader, I/O board, keyboard, scenes, network, the game's launcher), online\ (joining a
              server), server\ (running one for others), helpers\ (the panel's helper, sound, the hook)
-  languages\ one folder per language. english\: screen_text.tsv (the translation), sega_rstring.tsv (the original
+  languages\ one folder per language. english\: screen_text.tsv (the translation), original_rstring.tsv (the original
              European English), cpu_names.tsv (team names), exe_text.tsv (the ticker, the dates, money, the
              shop's name), pictures.tsv (writing in the game's pictures); italian\: the Italian, with the original
              Italian where the Japanese is the same - text and fingerprints only

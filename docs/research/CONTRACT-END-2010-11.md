@@ -107,7 +107,7 @@ Normal matches (term > 0) instead post **job 2**, 'I' by 1 [V FUN_005dd1b0 @0x00
 | IC CARD LOADING | FUN_00572c70: FUN_004d8a80 = 2 → result 1 | - | - | [V] |
 | Team IC Card Check | `TeamCardCheckSequenceNode::vfunction20` @0x005743d0, case 2 | the manager card window with ***"Contract ended on this Club Card. Insert it with a new Club Card to transfer manager data."*** (MAN_DATA_message_0001); status 1 to FUN_00576ab0 | none | [V; I that status 1 draws the header "Expired" (MAN_DATA_header_0001)] |
 | no START | FUN_005740e0 starts a session only for result 1 or 3 (or 2/4 in the event mode) | START does nothing | none | [V FUN_005740e0 C line 56] |
-| timeout | FUN_005740e0: countdown < 0 → FUN_004d8ee0(1) (the card interface is closed) → "ICCardTimeOut" | ***"Time's up. Club Card discharged."*** (SYS_SYS_warning_0006) | none; nothing is written to the card | [V; text from the kit's `english\sega_rstring.tsv`; I "nothing written", from the paths: no save is reached] |
+| timeout | FUN_005740e0: countdown < 0 → FUN_004d8ee0(1) (the card interface is closed) → "ICCardTimeOut" | ***"Time's up. Club Card discharged."*** (SYS_SYS_warning_0006) | none; nothing is written to the card | [V; text from the kit's `english\original_rstring.tsv`; I "nothing written", from the paths: no save is reached] |
 
 The card is not changed by this session, so the club stays readable on it [I from the code paths above].
 
@@ -403,7 +403,7 @@ the term is low, so the player never sees the end screen.
 - **Tools** (`.work\research\club_card\`, run read-only): `xref.py`, `jstr.py`, `pe.py`; the message-table walk was
   an inline script, nothing saved.
 - **Data**: `.work\research\club_card\schema.tsv`; `.work\release1011\kit\english\screen_text.tsv` and
-  `sega_rstring.tsv`; `.work\translation\english_test\main_screens_jp.tsv`.
+  `original_rstring.tsv`; `.work\translation\english_test\main_screens_jp.tsv`.
 - **Kit**: `.work\_icc_reader.py`, `.work\release1011\stage_kit.py`, `kit\scripts\play.py`, `club_wallet.py`,
   `club_view.py`, `kit_common.py`, `english.py`; `.work\wccfpanel\wccfpanel.c` (searched, not read in full).
 - **Docs**: `CLUB-CARD-2010-11.md` (field map, penalties, save path), `ALLNET-ONLINE-2010-11.md` 4.2-4.4,

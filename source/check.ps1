@@ -111,6 +111,9 @@ if ($LASTEXITCODE) { $failed += 'English pictures: added to the archive, taken b
 & $py -I (Join-Path $PSScriptRoot 'test_italian_tables.py')
 if ($LASTEXITCODE) { $failed += 'the Italian tables: keys, font and codes' }
 
+& $py -I (Join-Path $PSScriptRoot 'test_backup_manifest.py')
+if ($LASTEXITCODE) { $failed += 'the english_backup list: entries of older kits still read' }
+
 & (Join-Path $PSScriptRoot 'build\test_wholemsg.exe')
 if ($LASTEXITCODE) { $failed += 'whole messages: a batch in pieces waits for its rest, bytes that are no batch are skipped' }
 & $py -I (Join-Path $PSScriptRoot 'test_crash_dump.py')

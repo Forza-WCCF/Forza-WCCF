@@ -50,7 +50,7 @@ game is not included. Newest first; each date is the day that kit was built.
 ### Added
 - ITALIANO in SETUP.exe's GAME LANGUAGE (and `english.py on it`): the game in Italian. Each line comes from this kit's
   Italian (`languages\italian\screen_text.tsv`, 4,477 lines), else the original Italian of the older European WCCF
-  (`languages\italian\sega_rstring.tsv`, 2,705 lines with the same Japanese), else the kit's English - never
+  (`languages\italian\original_rstring.tsv`, 2,705 lines with the same Japanese), else the kit's English - never
   Japanese. The game's font has no accented letters, so the Italian writes them with an apostrophe (perche',
   citta'). Player and CPU team names are the English ones; money stays in dollars. The SETTINGS panel still offers
   only ENGLISH and JAPANESE.
@@ -171,7 +171,7 @@ game is not included. Newest first; each date is the day that kit was built.
 - bin\logowin.exe is gone: The kit's stand-in for the publisher's logo window - a program without a window that waited for
   the server to end - was what a player's Windows Defender flagged. The kit's winmm.dll now answers the server's
   start of logowin itself: the message still goes to logowin_messages.txt in the game folder, and nothing runs.
-  SETUP puts the original logowin.exe back (kept as logowin_sega.exe); an update removes bin\logowin.exe.
+  SETUP puts the original logowin.exe back (kept as logowin_<publisher>.exe); an update removes bin\logowin.exe.
 - The panel is loaded by the game itself: the kit's winmm.dll, which the game already loads, loads wccfpanel.dll
   3 s after the window is up, for seat 1 and the projector. overlay\inject.exe, which wrote it into the running game
   from outside (VirtualAllocEx + CreateRemoteThread, a method antivirus programs watch for), is gone; an update

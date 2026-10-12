@@ -24,19 +24,19 @@ xaf = os.path.join(game, "data", "wccf_data.xaf")
 
 pic = Image.new("RGBA", (16, 16), (0, 0, 0, 0))     # small: the picture fits in one sector
 pic.paste((255, 255, 255, 255), (2, 2, 14, 14))               # "the original writing": a white block
-sega_dds = E.dds_argb(pic)
+original_dds = E.dds_argb(pic)
 entry = bytearray(E.ENTRY)                                    # one file, uncompressed, in sector 1
 entry[:7] = b"pic.dds"
 entry[0x80] = 1
 struct.pack_into("<i", entry, 0x84, -1)
-struct.pack_into("<III", entry, 0x94, len(sega_dds), len(sega_dds), 0)
+struct.pack_into("<III", entry, 0x94, len(original_dds), len(original_dds), 0)
 struct.pack_into("<I", entry, 0xA0, 1)
 hdr = bytearray(E.TOC_AT)
 struct.pack_into("<4s3I", hdr, 0, b"xaf0", 2, E.SECTOR, 1)
 struct.pack_into("<3Q", hdr, 0x18, 2, 1, 1)
-sega = bytes(hdr + entry).ljust(E.SECTOR, b"\0") + sega_dds.ljust(E.SECTOR, b"\0")
+original = bytes(hdr + entry).ljust(E.SECTOR, b"\0") + original_dds.ljust(E.SECTOR, b"\0")
 with open(xaf, "wb") as f:
-    f.write(sega)
+    f.write(original)
 
 
 def archive():
@@ -44,25 +44,25 @@ def archive():
         return f.read()
 
 
-E.sheet = lambda name: [{"sega_sha256": E.sha(sega_dds), "style": "white", "labels": "0,0,15,15=OK",
+E.sheet = lambda name: [{"original_sha256": E.sha(original_dds), "style": "white", "labels": "0,0,15,15=OK",
                          "files": "pic.dds"}]
 pics, note = E.build_pictures(game)
 assert pics, note
 E.pictures_on(game, pics)
 on = archive()
-assert len(on) == 3 * E.SECTOR and on[:E.SECTOR * 2] != sega[:E.SECTOR * 2], "the picture is added at the end"
-assert on[E.SECTOR:E.SECTOR * 2] == sega[E.SECTOR:E.SECTOR * 2], "the original picture is never written over"
+assert len(on) == 3 * E.SECTOR and on[:E.SECTOR * 2] != original[:E.SECTOR * 2], "the picture is added at the end"
+assert on[E.SECTOR:E.SECTOR * 2] == original[E.SECTOR:E.SECTOR * 2], "the original picture is never written over"
 assert struct.unpack_from("<Q", on, 0x18)[0] == 3, "the header's sector count grows"
 e = on[E.TOC_AT:E.TOC_AT + E.ENTRY]
 assert e[0x81] == 0 and struct.unpack_from("<I", e, 0xA0)[0] == 2, "the entry points at the added picture"
-new = Image.open(io.BytesIO(on[2 * E.SECTOR:2 * E.SECTOR + len(sega_dds)])).convert("RGBA")
+new = Image.open(io.BytesIO(on[2 * E.SECTOR:2 * E.SECTOR + len(original_dds)])).convert("RGBA")
 assert new.size == (16, 16) and new.tobytes() != pic.tobytes(), "the original writing is replaced"
 assert new.getchannel("A").getbbox() is not None, "the English is drawn"
 
 E.pictures_on(game, E.build_pictures(game)[0])                 # "on" again builds from the original, not stacked
 assert archive() == on, "on twice gives the same archive"
 
-assert E.pictures_off(game) == 1 and archive() == sega, "off gives back the original archive byte for byte"
+assert E.pictures_off(game) == 1 and archive() == original, "off gives back the original archive byte for byte"
 assert not os.path.exists(E.XAF_STATE)
 
 E.pictures_on(game, pics)                                     # stopped half way: state saved, entries not written
@@ -71,7 +71,7 @@ with open(xaf, "r+b") as f:
     f.write(entry)
     f.seek(0x18)
     f.write(struct.pack("<Q", 2))
-assert E.pictures_off(game) == 1 and archive() == sega, "off after an interrupted on gives back the original archive"
+assert E.pictures_off(game) == 1 and archive() == original, "off after an interrupted on gives back the original archive"
 
 shutil.rmtree(scratch)
 # off by default: with the redrawn pictures in the archive the game did not read a club card (2026-10-11, a real start)

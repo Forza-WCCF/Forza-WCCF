@@ -14,10 +14,10 @@ sys.path.insert(0, os.path.join(KIT, "code"))
 import english as E  # noqa: E402
 
 english = {}
-for name in ("sega_rstring.tsv", "screen_text.tsv"):              # the kit's own English wins, as in build_strings
+for name in ("original_rstring.tsv", "screen_text.tsv"):              # the kit's own English wins, as in build_strings
     english.update({r["key"]: r["english"] for r in E.sheet(name) if (r.get("english") or "").strip()})
 bad, n = [], 0
-for name in ("screen_text.tsv", "sega_rstring.tsv"):
+for name in ("screen_text.tsv", "original_rstring.tsv"):
     rows = E.sheet(name, "italian")
     for k, c in collections.Counter(r["key"] for r in rows).items():
         if c > 1:
