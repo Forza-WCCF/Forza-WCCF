@@ -768,6 +768,7 @@ fn check(root: &Path, kit: &Path, kit_1718: &Path) -> Result<()> {
     );
 
     scrub(root, &mut ck.failed)?;
+    installer_checks(root, &mut ck.failed);
 
     ensure!(ck.failed.is_empty(), "FAILED: {}", ck.failed.join(", "));
     println!("all checks passed");
@@ -968,6 +969,188 @@ fn scrub(root: &Path, failed: &mut Vec<String>) -> Result<()> {
     } else {
         failed.push(format!("scrub ({} lines)", bad.len()));
     }
+    Ok(())
+}
+
+// ---- the installer ----
+
+const INSTALLER: &str = "wccf-installer";
+const LICENSES: &str = "crates/installer/THIRD-PARTY-LICENSES.json";
+
+fn installer_exe(root: &Path) -> PathBuf {
+    root.join("target")
+        .join(TARGET)
+        .join("release")
+        .join(format!("{INSTALLER}.exe"))
+}
+
+/// The installer's own checks (they were crates/installer/scripts/*.ps1): the license notices, then a synthetic headless run
+/// of the release build.
+fn installer_checks(root: &Path, failed: &mut Vec<String>) {
+    for (what, r) in [
+        ("installer licenses", check_licenses(root)),
+        ("installer smoke", smoke(root)),
+    ] {
+        if let Err(e) = r {
+            eprintln!("{what}: {e:#}");
+            failed.push(what.to_owned());
+        }
+    }
+}
+
+/// THIRD-PARTY-LICENSES.json holds a notice with text for every normal/build dependency of the installer on Windows.
+fn check_licenses(root: &Path) -> Result<()> {
+    let bundle: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(root.join(LICENSES))?)?;
+    ensure!(bundle["target"] == TARGET, "Wrong license-bundle target.");
+    let mut notices = HashSet::new();
+    for lib in bundle["third_party_libraries"]
+        .as_array()
+        .context("no third_party_libraries")?
+    {
+        let (name, ver) = (
+            lib["package_name"].as_str().unwrap_or("?"),
+            lib["package_version"].as_str().unwrap_or("?"),
+        );
+        let licenses = lib["licenses"].as_array().filter(|l| !l.is_empty());
+        ensure!(
+            lib["license"].as_str().is_some_and(|l| !l.is_empty()) && licenses.is_some(),
+            "Missing notices: {name}"
+        );
+        for n in licenses.unwrap() {
+            let t = n["text"].as_str().unwrap_or("").trim();
+            ensure!(
+                !t.is_empty() && t != "NOT FOUND",
+                "Missing license text: {name}"
+            );
+        }
+        notices.insert(format!("{name} v{ver}"));
+    }
+    let sh = Shell::new()?;
+    sh.change_dir(root);
+    let fmt = "{p}";
+    let tree = cmd!(sh, "cargo tree --locked -p {INSTALLER} --target {TARGET} -e normal,build --prefix none --format {fmt}")
+        .read()
+        .context("Cannot resolve Windows dependency tree.")?;
+    for line in tree.lines() {
+        let mut w = line.split_whitespace();
+        if let (Some(name), Some(ver)) = (w.next(), w.next().and_then(|v| v.strip_prefix('v'))) {
+            ensure!(
+                name == INSTALLER || notices.contains(&format!("{name} v{ver}")),
+                "Refresh and review {LICENSES}: missing {name} v{ver}"
+            );
+        }
+    }
+    println!("installer: Windows dependency license notices are complete");
+    Ok(())
+}
+
+/// Synthetic headless run of the release installer in a scratch folder: inert placeholder files only, no media, keys, kit or game.
+/// Needs the exe: `cargo build --release -p wccf-installer --target x86_64-pc-windows-msvc` (a Windows exe; WSL interop runs it).
+fn smoke(root: &Path) -> Result<()> {
+    let sh = Shell::new()?;
+    sh.change_dir(root);
+    cmd!(
+        sh,
+        "cargo build --release --locked -p {INSTALLER} --target {TARGET}"
+    )
+    .run()?;
+    let exe = installer_exe(root);
+    let dir = root.join(format!("target/installer-smoke-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir)?;
+    let r = smoke_in(root, &exe, &dir);
+    let _ = fs::remove_dir_all(&dir);
+    r?;
+    println!("Headless release smoke check passed; no game was launched.");
+    Ok(())
+}
+
+fn smoke_in(root: &Path, exe: &Path, dir: &Path) -> Result<()> {
+    // runs the installer; its exit code must be `expected`; returns stdout
+    let run = |args: &[&Path], expected: i32| -> Result<String> {
+        let o = Command::new(exe).args(args).output()?;
+        ensure!(
+            o.status.code() == Some(expected),
+            "Installer returned {:?}, expected {expected}: {args:?}",
+            o.status.code()
+        );
+        Ok(String::from_utf8_lossy(&o.stdout).into_owned())
+    };
+    let p = Path::new;
+    let help = run(&[p("--help")], 0)?;
+    ensure!(
+        help.contains("Forza-WCCF Installer")
+            && help.contains("--game")
+            && !help.contains("Revival"),
+        "Wrong branding or edition help."
+    );
+    ensure!(
+        run(&[p("--version")], 0)?.trim()
+            == format!("Forza-WCCF Installer {}", workspace_version(root)?),
+        "Wrong release version/branding."
+    );
+    run(&[p("--dest")], 1)?;
+    run(&[p("--unknown")], 1)?;
+    let missing = dir.join("absent");
+    run(&[p("--dest"), &missing], 1)?;
+    ensure!(!missing.exists(), "Invalid input wrote a destination.");
+
+    let read = |f: PathBuf| -> Result<String> { Ok(fs::read_to_string(f)?.trim().to_owned()) };
+    let edition = dir.join("2017-2018");
+    let game = edition.join("game");
+    fs::create_dir_all(game.join("local"))?;
+    fs::write(game.join("client_Release.exe"), "inert test placeholder")?;
+    fs::write(game.join("local/SDDY_Table.dat"), "SDDY")?;
+    fs::write(edition.join(".probe-a"), "untouched")?;
+    run(&[p("--dest"), dir], 0)?;
+    let old_edition = dir.join("2010-2011");
+    let old_game = old_edition.join("game");
+    fs::create_dir_all(old_game.join("local"))?;
+    fs::write(old_game.join("client_Release.exe"), "old edition unchanged")?;
+    fs::write(old_game.join("local/SBWG_Table.dat"), "SBWG")?;
+    for f in [&old_edition, &edition] {
+        fs::create_dir_all(f.join("data/save"))?;
+        fs::write(f.join("data/save/club.bin"), f.to_string_lossy().as_bytes())?;
+    }
+    run(&[p("--dest"), dir], 1)?; // both present: require an explicit edition
+    run(&[p("--dest"), dir, p("--game"), p("SBWG")], 0)?;
+    run(&[p("--dest"), dir, p("--game"), p("SDDY")], 0)?;
+    run(
+        &[p("--dest"), dir, p("--game"), p("SDDY"), p("--english")],
+        1,
+    )?;
+    run(
+        &[
+            p("--dest"),
+            dir,
+            p("--game"),
+            p("SDDY"),
+            p("--iso"),
+            p("missing.iso"),
+            p("--key"),
+            p("missing.key"),
+        ],
+        1,
+    )?;
+    ensure!(
+        read(old_game.join("client_Release.exe"))? == "old edition unchanged",
+        "Other edition changed."
+    );
+    for f in [&old_edition, &edition] {
+        ensure!(
+            read(f.join("data/save/club.bin"))? == f.to_string_lossy(),
+            "Edition save changed."
+        );
+    }
+    ensure!(
+        read(game.join("client_Release.exe"))? == "inert test placeholder",
+        "Existing game files changed."
+    );
+    ensure!(
+        read(edition.join(".probe-a"))? == "untouched",
+        "Extraction-only mode ran the hard-link probe."
+    );
     Ok(())
 }
 

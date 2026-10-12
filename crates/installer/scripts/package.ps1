@@ -10,7 +10,6 @@ $version = ($metadata.packages | Where-Object name -eq 'wccf-installer').version
 if (!$version) { throw 'Missing package version.' }
 if (!$Tag) { $Tag = "v$version" }
 if ($Tag -cne "v$version") { throw "Tag $Tag does not match package version v$version." }
-& "$PSScriptRoot/check-licenses.ps1"
 $Exe = (Resolve-Path $Exe).Path
 $stage = Join-Path 'target' 'release-package'
 New-Item $stage -ItemType Directory -Force | Out-Null

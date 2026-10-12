@@ -124,7 +124,7 @@ cargo fmt --all -- --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 cargo build --locked --release --target x86_64-pc-windows-msvc
-powershell -NoProfile -File scripts/smoke.ps1
+cargo xtask check      # from the repository root: also the license notices and the synthetic headless smoke run
 powershell -NoProfile -File scripts/package.ps1
 ```
 
@@ -152,8 +152,8 @@ claim about gameplay.
 ## Checks
 
 Local only (Forza-WCCF monorepo; no CI, nothing published): `cargo fmt --check`, strict Clippy, unit tests,
-`scripts/smoke.ps1` (synthetic headless smoke checks) and `scripts/package.ps1`. A Cargo update refreshes
-`THIRD-PARTY-LICENSES.json` (`scripts/check-licenses.ps1`). ROADMAP step 4 moves these into `cargo xtask check`.
+`cargo xtask check` (which runs the synthetic headless smoke checks and compares `THIRD-PARTY-LICENSES.json` with the
+Windows dependency tree) and `scripts/package.ps1`. A Cargo update refreshes `THIRD-PARTY-LICENSES.json`.
 
 Report bugs without attaching game data, keys or saves; redact personal paths
 and identifiers from logs. Installer source is MIT; dependency licenses are

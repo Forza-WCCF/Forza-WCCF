@@ -10,6 +10,7 @@ description = "cargo xtask build | check | package: the kit's build, checks and 
 anyhow.workspace = true
 clap.workspace = true
 fs-err.workspace = true
+serde_json.workspace = true
 sha2.workspace = true
 xshell.workspace = true
 zip.workspace = true
