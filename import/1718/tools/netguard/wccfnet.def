@@ -1,0 +1,12 @@
+LIBRARY wccfnet.dll
+EXPORTS
+    IpReleaseAddress=IpReleaseAddress@4
+    IpRenewAddress=IpRenewAddress@4
+    CreateIpForwardEntry=CreateIpForwardEntry@4
+    SetIpForwardEntry=SetIpForwardEntry@4
+    GetInterfaceInfo=iphlpapi.GetInterfaceInfo
+    GetIpAddrTable=iphlpapi.GetIpAddrTable
+    GetNetworkParams=iphlpapi.GetNetworkParams
+    GetAdaptersInfo=iphlpapi.GetAdaptersInfo
+    GetIpForwardTable=iphlpapi.GetIpForwardTable
+    GetAdaptersAddresses=iphlpapi.GetAdaptersAddresses
