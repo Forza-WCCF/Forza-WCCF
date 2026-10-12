@@ -90,6 +90,11 @@ impl Shared {
         lock(&self.inputs).p[1][0] & CARD_BIT != 0
     }
 
+    /// Sets the outputs as the board would after the game's command 0x32 (for tests).
+    pub fn set_outputs(&self, outs: Option<Vec<u8>>) {
+        *lock(&self.outputs) = outs;
+    }
+
     /// The game's latest general-purpose output bytes (command 0x32), or `None` before the first.
     pub fn outputs(&self) -> Option<Vec<u8>> {
         lock(&self.outputs).clone()

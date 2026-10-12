@@ -5,6 +5,7 @@
 pub mod card;
 pub mod conf;
 pub mod job;
+pub mod keys;
 pub mod kit;
 pub mod logs;
 pub mod procs;
