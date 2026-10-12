@@ -1,0 +1,224 @@
+_version: 2
+# Every user-facing word of the new screens, in English (the source and the fallback), Italian and Japanese.
+# Placeholders: %{name}. Italian runs ~30 % longer; the widgets fit labels to their width, but keep them short.
+
+common.cancel: {en: "Cancel", it: "Annulla", ja: "キャンセル"}
+common.close: {en: "Close", it: "Chiudi", ja: "閉じる"}
+
+# ---- launcher ----
+launcher.play_section: {en: "PLAY", it: "GIOCA", ja: "プレイ"}
+launcher.where: {en: "WHERE TO PLAY", it: "DOVE GIOCARE", ja: "プレイ場所"}
+launcher.this_pc: {en: "This PC", it: "Questo PC", ja: "このPC"}
+launcher.online: {en: "Online", it: "Online", ja: "オンライン"}
+launcher.address: {en: "SERVER ADDRESS", it: "INDIRIZZO SERVER", ja: "サーバーアドレス"}
+launcher.game_text: {en: "GAME TEXT", it: "TESTO DEL GIOCO", ja: "ゲームの言語"}
+launcher.original_ja: {en: "Original 日本語", it: "日本語 originale", ja: "日本語（オリジナル）"}
+launcher.game_text_hint: {en: "Applied at the next start; switching takes about a minute.", it: "Si applica al prossimo avvio; il cambio richiede circa un minuto.", ja: "次回の起動時に反映されます。切り替えには約1分かかります。"}
+launcher.play: {en: "PLAY", it: "GIOCA", ja: "プレイ"}
+launcher.stop: {en: "STOP THE GAME", it: "FERMA IL GIOCO", ja: "ゲームを終了"}
+launcher.stop_title: {en: "Stop the game?", it: "Fermare il gioco?", ja: "ゲームを終了しますか？"}
+launcher.stop_body: {en: "The game and its helpers close. A club card session that is open is saved first.", it: "Il gioco e i suoi programmi di supporto si chiudono. Una sessione della tessera club aperta viene salvata prima.", ja: "ゲームと補助プログラムを終了します。開いているクラブカードのセッションは先に保存されます。"}
+launcher.status_ready: {en: "Ready. The game folder is set up.", it: "Pronto. La cartella del gioco è configurata.", ja: "準備完了。ゲームフォルダーは設定済みです。"}
+launcher.status_starting: {en: "Starting: the network stand-ins are up, waiting for the game window.", it: "Avvio: i servizi di rete locali sono attivi, in attesa della finestra del gioco.", ja: "起動中：ネットワークの代替サービスが動作中。ゲーム画面を待っています。"}
+launcher.status_not_set_up: {en: "Not set up yet: choose the game folder below, then SET UP.", it: "Non ancora configurato: scegli la cartella del gioco qui sotto, poi CONFIGURA.", ja: "まだ設定されていません。下でゲームフォルダーを選び、「設定する」を押してください。"}
+launcher.setup: {en: "SETUP", it: "CONFIGURAZIONE", ja: "セットアップ"}
+launcher.setup_done: {en: "Set up", it: "Configurato", ja: "設定済み"}
+launcher.setup_needed: {en: "Needs a game folder", it: "Serve una cartella del gioco", ja: "ゲームフォルダーが必要です"}
+launcher.folder_hint: {en: "The game folder: type it, browse, or drop it onto this window.", it: "La cartella del gioco: scrivila, sfogliala o trascinala su questa finestra.", ja: "ゲームフォルダー：入力、参照、またはこのウィンドウにドロップしてください。"}
+launcher.browse: {en: "Browse…", it: "Sfoglia…", ja: "参照…"}
+launcher.set_up: {en: "SET UP", it: "CONFIGURA", ja: "設定する"}
+launcher.undo: {en: "UNDO SETUP", it: "ANNULLA CONFIGURAZIONE", ja: "設定を元に戻す"}
+launcher.update: {en: "UPDATE", it: "AGGIORNAMENTO", ja: "アップデート"}
+launcher.this_version: {en: "This version: %{v}", it: "Questa versione: %{v}", ja: "このバージョン：%{v}"}
+launcher.col_tag: {en: "RELEASE", it: "VERSIONE", ja: "リリース"}
+launcher.col_kind: {en: "KIND", it: "TIPO", ja: "種類"}
+launcher.col_date: {en: "DATE", it: "DATA", ja: "日付"}
+launcher.col_mark: {en: "", it: "", ja: ""}
+launcher.kind_stable: {en: "Release", it: "Stabile", ja: "正式版"}
+launcher.kind_test: {en: "Test build", it: "Versione di prova", ja: "テスト版"}
+launcher.mark_this: {en: "THIS VERSION", it: "QUESTA VERSIONE", ja: "使用中"}
+launcher.mark_newer: {en: "NEWER", it: "PIÙ RECENTE", ja: "新しい版"}
+launcher.update_button: {en: "UPDATE", it: "AGGIORNA", ja: "アップデート"}
+launcher.whats_new: {en: "What's new", it: "Novità", ja: "更新内容"}
+launcher.err_no_answer: {en: "No answer from the update server. Check the connection and try again.", it: "Nessuna risposta dal server degli aggiornamenti. Controlla la connessione e riprova.", ja: "アップデートサーバーから応答がありません。接続を確認して、もう一度お試しください。"}
+launcher.output: {en: "OUTPUT", it: "OUTPUT", ja: "出力"}
+launcher.output_hint: {en: "When something fails, the output says why", it: "Se qualcosa non va, l'output spiega perché", ja: "失敗したときは、ここに理由が出ます"}
+launcher.copy: {en: "Copy", it: "Copia", ja: "コピー"}
+
+# ---- installer ----
+installer.app: {en: "INSTALLER", it: "INSTALLAZIONE", ja: "インストーラー"}
+installer.welcome: {en: "Welcome", it: "Benvenuto", ja: "ようこそ"}
+installer.where: {en: "Where", it: "Dove", ja: "インストール先"}
+installer.files: {en: "Disc files", it: "File del disco", ja: "ディスクのファイル"}
+installer.options: {en: "Options", it: "Opzioni", ja: "オプション"}
+installer.installing: {en: "Installing", it: "Installazione", ja: "インストール中"}
+installer.done: {en: "Done", it: "Fatto", ja: "完了"}
+installer.welcome_body: {en: "This makes a game installation from your own disc image, once per edition.", it: "Crea un'installazione del gioco dalla tua immagine del disco, una volta per edizione.", ja: "お手持ちのディスクイメージからゲームをインストールします。エディションごとに一度だけ行います。"}
+installer.you_need: {en: "YOU NEED", it: "TI SERVE", ja: "必要なもの"}
+installer.need_iso: {en: "The disc image (.iso)", it: "L'immagine del disco (.iso)", ja: "ディスクイメージ（.iso）"}
+installer.need_iso_note: {en: "about 5–6 GB", it: "circa 5–6 GB", ja: "約5〜6 GB"}
+installer.need_key: {en: "Its key file", it: "Il suo file chiave", ja: "そのキーファイル"}
+installer.need_package: {en: "The 2010–11 package", it: "Il pacchetto 2010–11", ja: "2010–11 パッケージ"}
+installer.optional: {en: "optional", it: "facoltativo", ja: "任意"}
+installer.need_space: {en: "About 6 GB free", it: "Circa 6 GB liberi", ja: "約6 GBの空き容量"}
+installer.side_by_side: {en: "Both editions live side by side.", it: "Le due edizioni convivono.", ja: "両エディションを並べて入れられます。"}
+installer.folder: {en: "FOLDER", it: "CARTELLA", ja: "フォルダー"}
+installer.free: {en: "FREE SPACE", it: "SPAZIO LIBERO", ja: "空き容量"}
+installer.free_of: {en: "%{free} GB free on %{drive}", it: "%{free} GB liberi su %{drive}", ja: "%{drive} の空き %{free} GB"}
+installer.layout: {en: "WHAT GOES WHERE", it: "COSA VA DOVE", ja: "インストール後の構成"}
+installer.this_install: {en: "← this install", it: "← questa installazione", ja: "← 今回のインストール"}
+installer.space_ok: {en: "Enough room: the install needs about 6 GB.", it: "Spazio sufficiente: servono circa 6 GB.", ja: "空き容量は十分です（約6 GB必要）。"}
+installer.iso: {en: "DISC IMAGE", it: "IMMAGINE DISCO", ja: "ディスクイメージ"}
+installer.key: {en: "KEY FILE", it: "FILE CHIAVE", ja: "キーファイル"}
+installer.package: {en: "PACKAGE", it: "PACCHETTO", ja: "パッケージ"}
+installer.detected: {en: "EDITION", it: "EDIZIONE", ja: "エディション"}
+installer.iso_ok: {en: "Disc image recognised: the 2010–11 edition.", it: "Immagine del disco riconosciuta: edizione 2010–11.", ja: "ディスクイメージを認識しました：2010–11 エディション。"}
+installer.reuse_hint: {en: "An edition already installed here can be reused: no disc needed.", it: "Un'edizione già installata qui può essere riutilizzata: nessun disco necessario.", ja: "ここにインストール済みのエディションは再利用できます（ディスク不要）。"}
+installer.opt_check: {en: "Check the disc image first", it: "Controlla prima l'immagine del disco", ja: "先にディスクイメージを検査する"}
+installer.opt_check_hint: {en: "Reads the whole image once; about two minutes.", it: "Legge tutta l'immagine una volta; circa due minuti.", ja: "イメージ全体を一度読み込みます（約2分）。"}
+installer.opt_setup: {en: "Set up the game", it: "Configura il gioco", ja: "ゲームを設定する"}
+installer.opt_setup_hint: {en: "Ready to play when the install ends.", it: "Pronto per giocare alla fine dell'installazione.", ja: "インストール後すぐに遊べます。"}
+installer.opt_english: {en: "Play in English", it: "Gioca in inglese", ja: "英語でプレイする"}
+installer.opt_english_hint: {en: "The game text can be changed later in the launcher.", it: "Il testo del gioco si può cambiare poi nel launcher.", ja: "ゲームの言語は後からランチャーで変更できます。"}
+installer.opt_shortcuts: {en: "Desktop shortcuts", it: "Collegamenti sul desktop", ja: "デスクトップにショートカット"}
+installer.opt_shortcuts_hint: {en: "One per edition, named after it.", it: "Uno per edizione, con il suo nome.", ja: "エディションごとに1つ作成します。"}
+installer.back: {en: "Back", it: "Indietro", ja: "戻る"}
+installer.next: {en: "NEXT", it: "AVANTI", ja: "次へ"}
+installer.install: {en: "INSTALL", it: "INSTALLA", ja: "インストール"}
+installer.stage_extract: {en: "Extracting the game files", it: "Estrazione dei file del gioco", ja: "ゲームファイルを展開中"}
+installer.details: {en: "DETAILS", it: "DETTAGLI", ja: "詳細"}
+installer.done_body: {en: "Installed. Start it from the launcher in its folder.", it: "Installato. Avvialo dal launcher nella sua cartella.", ja: "インストールしました。フォルダー内のランチャーから起動してください。"}
+installer.did_extract: {en: "Game files extracted and checked", it: "File del gioco estratti e controllati", ja: "ゲームファイルを展開・検査しました"}
+installer.did_setup: {en: "Game set up", it: "Gioco configurato", ja: "ゲームを設定しました"}
+installer.did_english: {en: "Game text in English", it: "Testo del gioco in inglese", ja: "ゲームの言語：英語"}
+installer.not_shortcuts: {en: "No desktop shortcuts (not chosen)", it: "Nessun collegamento sul desktop (non scelto)", ja: "デスクトップのショートカットなし（未選択）"}
+installer.open_folder: {en: "Open the folder", it: "Apri la cartella", ja: "フォルダーを開く"}
+
+# ---- cabinet buttons ----
+cab.central: {en: "CENTRAL", it: "CENTRALE", ja: "センター"}
+cab.counter: {en: "COUNTER", it: "CONTROPIEDE", ja: "カウンター"}
+cab.l_side: {en: "L-SIDE", it: "FASCIA SX", ja: "左サイド"}
+cab.r_side: {en: "R-SIDE", it: "FASCIA DX", ja: "右サイド"}
+cab.press: {en: "PRESS", it: "PRESSING", ja: "プレス"}
+cab.shoot: {en: "SHOOT", it: "TIRO", ja: "シュート"}
+cab.keeper: {en: "KEEPER", it: "PORTIERE", ja: "キーパー"}
+cab.key_player: {en: "KEY PLAYER", it: "UOMO CHIAVE", ja: "キープレイヤー"}
+cab.data: {en: "DATA", it: "DATI", ja: "データ"}
+cab.start: {en: "START", it: "START", ja: "スタート"}
+cab.card: {en: "CARD", it: "CARTA", ja: "カード"}
+cab.coin: {en: "COIN", it: "GETTONE", ja: "コイン"}
+cab.back: {en: "BACK", it: "INDIETRO", ja: "もどる"}
+
+# ---- panel ----
+panel.tactics: {en: "TACTICS", it: "TATTICA", ja: "作戦"}
+panel.machine: {en: "MACHINE", it: "MACCHINA", ja: "筐体"}
+panel.f11: {en: "F11: window or full screen", it: "F11: finestra o schermo intero", ja: "F11：ウィンドウ／全画面"}
+panel.ping: {en: "%{ms} ms", it: "%{ms} ms", ja: "%{ms} ms"}
+panel.add_card: {en: "+ CARD", it: "+ CARTA", ja: "＋カード"}
+panel.keys: {en: "KEYS", it: "TASTI", ja: "キー設定"}
+panel.settings: {en: "SETTINGS", it: "IMPOSTAZIONI", ja: "設定"}
+panel.club_card: {en: "CLUB CARD", it: "TESSERA CLUB", ja: "クラブカード"}
+panel.close: {en: "CLOSE (Esc)", it: "CHIUDI (Esc)", ja: "閉じる (Esc)"}
+panel.msg_added: {en: "Added to the table: Lucà Ferrè.", it: "Aggiunta al tavolo: Lucà Ferrè.", ja: "テーブルに追加しました：Lucà Ferrè"}
+panel.msg_saved: {en: "Club saved at 15:04.", it: "Club salvato alle 15:04.", ja: "15:04 にクラブを保存しました。"}
+panel.msg_session_open: {en: "Refused: a club card session is open. End the match first.", it: "Rifiutato: è aperta una sessione della tessera club. Termina prima la partita.", ja: "できません：クラブカードのセッション中です。先に試合を終えてください。"}
+
+# ---- formation board ----
+board.title: {en: "FORMATION BOARD", it: "FORMAZIONE", ja: "フォーメーション"}
+board.bench: {en: "BENCH", it: "PANCHINA", ja: "ベンチ"}
+board.zone_attack: {en: "ATTACK", it: "ATTACCO", ja: "攻撃"}
+board.zone_centre: {en: "CENTRE", it: "CENTROCAMPO", ja: "中盤"}
+board.zone_defence: {en: "DEFENCE", it: "DIFESA", ja: "守備"}
+board.hint: {en: "Drag a card onto another to swap. Right-click takes it off.", it: "Trascina una carta su un'altra per scambiarle. Clic destro per toglierla.", ja: "カードを別のカードへドラッグで入れ替え。右クリックで外します。"}
+
+# ---- catalogue ----
+cat.title: {en: "CATALOGUE", it: "CATALOGO", ja: "カタログ"}
+cat.search_hint: {en: "Search: name, club, country, season, position, role or number", it: "Cerca: nome, club, nazione, stagione, ruolo o numero", ja: "検索：名前、クラブ、国、シーズン、ポジション、役割、番号"}
+cat.position: {en: "POSITION", it: "RUOLO", ja: "ポジション"}
+cat.rarity: {en: "RARITY", it: "RARITÀ", ja: "レア度"}
+cat.all: {en: "ALL", it: "TUTTI", ja: "すべて"}
+cat.any: {en: "ANY", it: "TUTTE", ja: "すべて"}
+cat.all_time: {en: "ALL-TIME", it: "ALL-TIME", ja: "オールタイム"}
+cat.legend: {en: "LEGEND", it: "LEGGENDA", ja: "レジェンド"}
+cat.rare: {en: "RARE", it: "RARA", ja: "レア"}
+cat.special: {en: "SPECIAL", it: "SPECIALE", ja: "スペシャル"}
+cat.regular: {en: "REGULAR", it: "NORMALE", ja: "レギュラー"}
+cat.country: {en: "COUNTRY", it: "NAZIONE", ja: "国"}
+cat.club: {en: "CLUB", it: "CLUB", ja: "クラブ"}
+cat.sort: {en: "SORT", it: "ORDINA", ja: "並び順"}
+cat.name: {en: "NAME", it: "NOME", ja: "名前"}
+cat.total: {en: "TOTAL", it: "TOTALE", ja: "総合"}
+cat.off: {en: "OFF", it: "ATT", ja: "攻撃"}
+cat.def: {en: "DEF", it: "DIF", ja: "守備"}
+cat.tec: {en: "TEC", it: "TEC", ja: "技術"}
+cat.pow: {en: "POW", it: "POT", ja: "パワー"}
+cat.spd: {en: "SPD", it: "VEL", ja: "スピード"}
+cat.sta: {en: "STA", it: "RES", ja: "スタミナ"}
+cat.reset: {en: "RESET", it: "AZZERA", ja: "リセット"}
+cat.results: {en: "%{n} CARDS", it: "%{n} CARTE", ja: "%{n} 枚"}
+cat.inferred: {en: "Role (inferred): %{role}", it: "Ruolo (dedotto): %{role}", ja: "役割（推定）：%{role}"}
+cat.role_keeper: {en: "goalkeeper", it: "portiere", ja: "ゴールキーパー"}
+cat.role_wingback: {en: "wing-back", it: "terzino di spinta", ja: "ウイングバック"}
+cat.role_stopper: {en: "stopper", it: "stopper", ja: "ストッパー"}
+cat.role_playmaker: {en: "playmaker", it: "regista", ja: "司令塔"}
+cat.role_box: {en: "box-to-box", it: "tuttocampista", ja: "ボックス・トゥ・ボックス"}
+cat.role_target: {en: "target man", it: "centravanti di peso", ja: "ターゲットマン"}
+cat.role_poacher: {en: "poacher", it: "rapace d'area", ja: "ポーチャー"}
+cat.add: {en: "+ ADD TO THE TABLE", it: "+ AGGIUNGI AL TAVOLO", ja: "＋テーブルに追加"}
+cat.msg_on_table: {en: "Already on the table. The table holds 16.", it: "Già sul tavolo. Il tavolo ne contiene 16.", ja: "すでにテーブルにあります（最大16枚）。"}
+
+# ---- keys ----
+keys.hint: {en: "Click a cell, then press a key or a controller button. A key taken by another action swaps over; right-click clears.", it: "Clicca una casella, poi premi un tasto o un pulsante del controller. Un tasto già usato viene scambiato; clic destro per cancellare.", ja: "セルをクリックしてから、キーかコントローラーのボタンを押します。使用中のキーは入れ替わります。右クリックで解除。"}
+keys.controller_found: {en: "Controller found: %{name}", it: "Controller trovato: %{name}", ja: "コントローラーを検出：%{name}"}
+keys.action: {en: "ACTION", it: "AZIONE", ja: "操作"}
+keys.keyboard: {en: "KEYBOARD", it: "TASTIERA", ja: "キーボード"}
+keys.controller: {en: "CONTROLLER", it: "CONTROLLER", ja: "コントローラー"}
+keys.press_a_key: {en: "PRESS A KEY", it: "PREMI UN TASTO", ja: "キーを押して"}
+keys.up: {en: "UP", it: "SU", ja: "上"}
+keys.down: {en: "DOWN", it: "GIÙ", ja: "下"}
+keys.left: {en: "LEFT", it: "SINISTRA", ja: "左"}
+keys.right: {en: "RIGHT", it: "DESTRA", ja: "右"}
+keys.test: {en: "TEST", it: "TEST", ja: "テスト"}
+keys.service: {en: "SERVICE", it: "SERVIZIO", ja: "サービス"}
+keys.sw1: {en: "SW1", it: "SW1", ja: "SW1"}
+keys.sw2: {en: "SW2", it: "SW2", ja: "SW2"}
+keys.defaults: {en: "Back to the default keys", it: "Ripristina i tasti predefiniti", ja: "初期設定のキーに戻す"}
+
+# ---- settings ----
+settings.now: {en: "NOW", it: "ADESSO", ja: "現在"}
+settings.server: {en: "Server", it: "Server", ja: "サーバー"}
+settings.server_local: {en: "This PC · linked", it: "Questo PC · collegato", ja: "このPC・接続中"}
+settings.session: {en: "Club card session", it: "Sessione tessera club", ja: "クラブカードのセッション"}
+settings.session_none: {en: "Closed", it: "Chiusa", ja: "終了"}
+settings.bad_endings: {en: "Bad endings", it: "Chiusure anomale", ja: "異常終了"}
+settings.last_saved: {en: "Last saved", it: "Ultimo salvataggio", ja: "最終保存"}
+settings.backup: {en: "Latest backup", it: "Ultimo backup", ja: "最新のバックアップ"}
+settings.today_at: {en: "Today, %{t}", it: "Oggi, %{t}", ja: "今日 %{t}"}
+settings.game_text: {en: "Game text", it: "Testo del gioco", ja: "ゲームの言語"}
+settings.version: {en: "Version", it: "Versione", ja: "バージョン"}
+settings.next: {en: "NEXT START", it: "PROSSIMO AVVIO", ja: "次回の起動"}
+settings.restart: {en: "RESTART NOW", it: "RIAVVIA ORA", ja: "今すぐ再起動"}
+settings.restart_again: {en: "CLICK AGAIN TO RESTART (%{s} s)", it: "CLICCA ANCORA PER RIAVVIARE (%{s} s)", ja: "もう一度押すと再起動（%{s} 秒）"}
+settings.view: {en: "VIEW", it: "VISTA", ja: "表示"}
+settings.layout: {en: "LAYOUT", it: "DISPOSIZIONE", ja: "レイアウト"}
+settings.cabinet: {en: "CABINET", it: "CABINATO", ja: "筐体"}
+settings.compact: {en: "COMPACT", it: "COMPATTA", ja: "コンパクト"}
+settings.hover: {en: "CARD HOVER DELAY", it: "RITARDO ANTEPRIMA CARTA", ja: "カード拡大までの時間"}
+settings.logs: {en: "LOGS", it: "LOG", ja: "ログ"}
+settings.send_logs: {en: "SEND LOGS", it: "INVIA I LOG", ja: "ログを送信"}
+settings.sent: {en: "Sent. Your code: %{code}", it: "Inviati. Il tuo codice: %{code}", ja: "送信しました。コード：%{code}"}
+settings.auto_reports: {en: "Automatic crash reports", it: "Segnalazioni automatiche dei crash", ja: "クラッシュの自動報告"}
+settings.auto_reports_hint: {en: "After a crash, its logs go to the server address.", it: "Dopo un crash, i log vanno all'indirizzo del server.", ja: "クラッシュ後、ログをサーバーアドレスへ送ります。"}
+
+# ---- club card ----
+club.label: {en: "CLUB CARD", it: "TESSERA CLUB", ja: "クラブカード"}
+club.manager: {en: "Manager: %{name}", it: "Allenatore: %{name}", ja: "監督：%{name}"}
+club.session_open: {en: "Session open: saved at the end of each match.", it: "Sessione aperta: salvata alla fine di ogni partita.", ja: "セッション中：試合ごとに保存されます。"}
+club.played: {en: "Matches", it: "Partite", ja: "試合数"}
+club.record: {en: "Won · drawn · lost", it: "Vinte · pari · perse", ja: "勝・分・敗"}
+club.your_cards: {en: "YOUR CARDS", it: "LE TUE TESSERE", ja: "あなたのカード"}
+club.last_played: {en: "Last played %{d}", it: "Ultima partita %{d}", ja: "最終プレイ %{d}"}
+club.in_use: {en: "IN USE", it: "IN USO", ja: "使用中"}
+club.new_card: {en: "NEW CARD", it: "NUOVA TESSERA", ja: "新しいカード"}
+club.new_hint: {en: "Start a new club at the next start", it: "Un nuovo club al prossimo avvio", ja: "次回の起動で新しいクラブを始めます"}
+club.clear_bad: {en: "CLEAR BAD ENDINGS", it: "AZZERA CHIUSURE ANOMALE", ja: "異常終了をクリア"}
