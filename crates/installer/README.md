@@ -157,5 +157,5 @@ Local only (Forza-WCCF monorepo; no CI, nothing published): `cargo fmt --check`,
 
 Report bugs without attaching game data, keys or saves; redact personal paths
 and identifiers from logs. Installer source is MIT; dependency licenses are
-listed separately. WCCF/SEGA names identify compatible media; no affiliation
+listed separately. WCCF and publisher names identify compatible media; no affiliation
 or game-data license is implied.

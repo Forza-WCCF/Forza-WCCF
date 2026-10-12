@@ -1,8 +1,8 @@
 # WCCF-Kit-1718
 
-Runs **World Club Champion Football 2017–18 (SDDY, Ver. 2.00.00)** on one Windows PC: Sega's server
+Runs **World Club Champion Football 2017–18 (SDDY, Ver. 2.00.00)** on one Windows PC: the publisher's server
 (control + 4 match engines), the projector and a player cabinet (seat 1), built on
-[WCCF-Kit-1011](https://github.com/Forza-WCCF/WCCF-Kit-1011) (Kit 5). Holds none of Sega's files: setup
+[WCCF-Kit-1011](https://github.com/Forza-WCCF/WCCF-Kit-1011) (Kit 5). Holds none of the original files: setup
 works from your own decrypted copy.
 
 **Status:** boots to attract, START works, OFFLINE guest play (CPU match) is playable with the 2010–11 side

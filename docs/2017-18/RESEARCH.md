@@ -1,7 +1,7 @@
 # Brief for WCCF 2017–18 persistence agents (written by the maintainer, 2026-10-07)
 
 Goal: persistent club data for WCCF 2017–18 (SDDY) on one Windows PC: an emulated Aime card, a local AiMeDB,
-and a local stand-in for Sega's game server, so a club is created, saved and reloaded across restarts.
+and a local stand-in for the publisher's game server, so a club is created, saved and reloaded across restarts.
 
 ## Hard rules (from <workspace>/AGENTS.md and the user)
 
@@ -14,7 +14,7 @@ and a local stand-in for Sega's game server, so a club is created, saved and rel
   `<runtime>\seat1`, `<runtime>\kit`, `<runtime>\ida\*` (read/copy only).
 - Do not touch card/catalogue/player-board work (the user runs that in parallel): `kit/overlay/`, `cards.py`,
   `FPR_Emu`, `fpr_table*`.
-- Never change host network, DNS, hosts file, firewall, routes. No outbound connections to Sega/naominet hosts.
+- Never change host network, DNS, hosts file, firewall, routes. No outbound connections to publisher/naominet hosts.
 - Do not launch further subagents.
 - Report findings with addresses and evidence; mark guesses as guesses.
 
@@ -104,7 +104,7 @@ Aime reader up (`dword_6D9EE50`+374, set by the reader state machine VA 0x004CF5
   ints and +200+index as bools, object `dword_6D9F288`): 1 VIEW_DEBUG_MODE … 5 IS_USE_AIME_READER, 6 ALLNET_AUTH,
   7 ERROR_3000, 8 IS_REGION_JAPAN, 9 FAKE_FINAL, 14 AIME, 16 GUEST_PLAY … 29 ANNOUNCE_EXPORT.
 
-**Aime reader** (`kit/scripts/_aime_reader.py`): aimelib opens `\\.\COM2` synchronously (VA 0x00D8B0E0); SEGA
+**Aime reader** (`kit/scripts/_aime_reader.py`): aimelib opens `\\.\COM2` synchronously (VA 0x00D8B0E0); the publisher's
 837-15084 NFC reader protocol (parser VA 0x00D87040), same as segatools' sg-nfc/sg-led. Observed boot sequence:
 reset 62, fw 30 ("TN32MSEC003S F/W Ver1.2" = no NFC update), hw 32, LED reset F5 / info F0 (addr 8), Mifare key A
 54 = "WCCFv2" (57 43 43 46 76 32), key B 50 = 60 90 D0 06 32 F5. With LED info "15084\xFF\x10\x00\x12" the client

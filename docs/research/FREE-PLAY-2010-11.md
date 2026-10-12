@@ -1,6 +1,6 @@
 # WCCF 2010-11 - coins, credits and free play (read-only research)
 
-Written 2026-10-09. Nothing was run, started or changed. Sources: Sega's client (client_Release.exe: the projector's copy and three seat 1 copies, the same bytes at the
+Written 2026-10-09. Nothing was run, started or changed. Sources: the original client (client_Release.exe: the projector's copy and three seat 1 copies, the same bytes at the
 addresses used here), its Ghidra decompile, `control_Release.exe`, `testmode_Release.exe`, this kit's source and one
 kit hook log.
 
@@ -10,10 +10,10 @@ Tags: **[V]** read by me (address, decompile line, file line). **[I]** inferred 
 
 ## 1. The short answer
 
-- **Credits are counted on the cabinet only** (seat 1, `client_Release.exe`), by Sega's arcade library **amCredit** linked
+- **Credits are counted on the cabinet only** (seat 1, `client_Release.exe`), by the publisher's arcade library **amCredit** linked
   into the game. The server does not count coins or charge anything [V, 2].
 - **Every play costs 1 credit** [V]. How many coins make 1 credit depends on which branch the game took at start-up
-  (1 coin = 1 credit, or Sega's Japanese table where one COIN 1 press counts as 5 coins) [V both branches; which one runs
+  (1 coin = 1 credit, or the original Japanese table where one COIN 1 press counts as 5 coins) [V both branches; which one runs
   on seat 1: A]. Either way one coin is at least one credit [I].
 - **A built-in FREE PLAY exists**: byte 2 of amCredit's 16-byte coin setting [V]. On a real cabinet that setting is
   stored in the cabinet's settings chip (EEPROM) and set from the system test menu [I]. The game's own test program
@@ -59,7 +59,7 @@ Tags: **[V]** read by me (address, decompile line, file line). **[I]** inferred 
 
 The 16-byte coin setting, as amCredit checks it (`FUN_0082bd00@0x0082bd00`, all_client.c:1697965) and uses it:
 
-| Byte | Meaning (Sega's usual COIN ASSIGNMENTS names) | Allowed | Evidence |
+| Byte | Meaning (the publisher's usual COIN ASSIGNMENTS names) | Allowed | Evidence |
 |---|---|---|---|
 | 0 | coin chute type: 0 common, 1 individual | 0-1 | 0 -> every player uses credit slot 0 (`FUN_0082bdf0`) [V; name I] |
 | 1 | service type | 0-1 | used with byte 0 for service credits (`FUN_0082c6a0`) [V; name I] |
@@ -75,7 +75,7 @@ The 16-byte coin setting, as amCredit checks it (`FUN_0082bd00@0x0082bd00`, all_
 - Only with `IS_RINGEDGE=1` (`DAT_00aeac72`) [V :394790].
 - It starts from the game's copy at `0x00BF2038` (= `FUN_007a2ed0()` + 0x28 [V 0x007a3a6c-0x007a3a73]).
 - If `FUN_00406900()` is true (`*DAT_0113751c != 0` and `+0x10 == 0`; what it means is [A]) it overwrites the copy with
-  Sega's fixed setting **but keeps byte 2 (FREE PLAY) as stored** [V :394844-394852]: common chute, COIN 1 x5,
+  the publisher's fixed setting **but keeps byte 2 (FREE PLAY) as stored** [V :394844-394852]: common chute, COIN 1 x5,
   COIN 2 x1, bonus adder 5 (or a bonus table), 3 coins per credit, every play 1 credit. Then a bonus table is chosen
   from the game's SPECIAL CREDIT mode 1-8 [V :395020-395134]. The tables match `testmode_Release.exe`'s texts exactly
   ("MODE_1: 3 COINS 1 CREDIT / 5 COINS 2 CREDITS / 10 COINS 5 CREDITS" ... MODE_5 with 5 coins = 3 credits)
@@ -84,7 +84,7 @@ The 16-byte coin setting, as amCredit checks it (`FUN_0082bd00@0x0082bd00`, all_
   default: common chute, x1, no bonus, **1 coin = 1 credit, every play 1 credit, FREE PLAY 0**
   [V `FUN_0082c240` :1698764-1698786 with `FUN_0082bd00`].
 - So: **1 credit per play** in both branches [V]. One COIN 1 press = 1 credit (default) or 5 coins -> 2 credits with the
-  bonus (Sega's branch) [I from the arithmetic]. Which branch seat 1 takes: [A]. The credit cap is 24 [V
+  bonus (the publisher's branch) [I from the arithmetic]. Which branch seat 1 takes: [A]. The credit cap is 24 [V
   `FUN_007a3c10(0x18, 9, 1, 1, 0, 0)` at :394856 and the callback 0x007a3a50, which skips the region adjustment when
   the 4th argument is 1].
 - Play kinds: kind 0 = starting a game (new card or club card check), kind 1 = CONTINUE [V: the EDX value at each
@@ -113,7 +113,7 @@ With byte 2 of the setting = 1 (`0x00CD0F9A` live):
   or credit picture [V :218599-218633]; what state 1 shows on screen is [A] (probably "FREE PLAY", like the older game's
   attract screen, CONTEXT-HANDOFF.md:776 - the other game, analogy only).
 
-### 3.2 Where Sega keeps it and who sets it
+### 3.2 Where the publisher keeps it and who sets it
 
 - In amBackup **record 1**: settings chip (EEPROM, region 0) at offset 0x20, 32 bytes with a CRC, mirror at 0x220
   [V record table `0x009CB300`: region 0, offset 0x20, size 0x20, CRC on, mirror 0x220; region 0 = 4 KB, read/write
@@ -130,7 +130,7 @@ With byte 2 of the setting = 1 (`0x00CD0F9A` live):
 
 ### 3.3 Why the kit cannot set it with a file today [I, strong]
 
-- The settings chip is opened through Windows' device-setup calls (`SetupDiGetClassDevsA` on Sega's SMBus driver GUID,
+- The settings chip is opened through Windows' device-setup calls (`SetupDiGetClassDevsA` on the publisher's SMBus driver GUID,
   then `CreateFileA`) [V all_client.c:1706526-1706588]. The kit's hook does not provide that device [V
   `source\mxhook\mxhook.c:174-182`: only mxsram, columba and the serial ports], and seat 1's hook log shows no
   `CreateFileA` of any device [V `WCCF-2010-11-kit\data\logs\hook\mxhook_45620.log`: no such line]. So `amEepromInit`
@@ -140,7 +140,7 @@ With byte 2 of the setting = 1 (`0x00CD0F9A` live):
   [V given the failure].
 - (An older note says the game's settings chip "reads/writes a FILE" - CONTEXT-HANDOFF.md:15195. The `eeprom%d.bin` /
   `busram%d.bin` files are teaArcade2's own game regions, `FUN_004f1690`, not amBackup's record 1 [V :393661, :393723].)
-- To use Sega's switch from a file, the hook would have to emulate the SMBus device (GUID, four IOCTLs) and the kit
+- To use the publisher's switch from a file, the hook would have to emulate the SMBus device (GUID, four IOCTLs) and the kit
   would ship a chip image with record 1 and its CRC. That also makes the game load every other chip record (region,
   serial, network settings) for the first time - unknown side effects [I]. Not the least invasive route.
 
@@ -211,7 +211,7 @@ The game's own setting, set live instead of through the missing settings chip. O
 | Option | What | Why not first |
 |---|---|---|
 | Patch the game's free-play test | `0x004F24E0` -> `B0 01 C3` (always yes) | A code patch; credits still counted and taken when present. Works, but changes code where a data byte does the job |
-| Emulate the settings chip | SMBus device in mxhook + a chip image with FREE PLAY and CRC | Truly "Sega's setting from a file", but large, and wakes up every other chip record (3.3) |
+| Emulate the settings chip | SMBus device in mxhook + a chip image with FREE PLAY and CRC | Truly "the publisher's setting from a file", but large, and wakes up every other chip record (3.3) |
 | WCCF Cup FREEPLAY on the server | control's switch | Only in cup mode (3.4) |
 | Driver only (today) | START-adds-a-coin | Fails on the cup two-choice screen (PRESS/SHOOT); depends on 0.15 s ordering |
 

@@ -825,14 +825,14 @@ An encoder is **not built**. The decoder's layout (`LAYOUT` in `decode_club_card
    and the local card has the flag-0 locker-room image. Loading the server copy would create a false improper
    count. Use the sequence numbers.
 3. **A real cut stays a cut.** If the PC dies mid-session, the server holds the START image (flag 1). The next load
-   counts the cut, which is Sega's rule against pulling the plug.
+   counts the cut, which is the publisher's rule against pulling the plug.
 4. **Forgiveness is a policy choice for the server's owner.** If the server itself caused the cut (its own crash or restart,
    logged while a session was open), it can clear the flag on the stored image before the next load. That is done
    between sessions, with the checksum recomputed. The match is still lost; the penalty is avoided.
 5. **Offline play:** allowed on the local cache, marked unsynced, uploaded on reconnect. If another PC played the
    same card meanwhile, refuse the upload and ask the server's owner. Never merge two careers.
 
-### 9.6 What Sega's own protocol already gives the server [V], and the account link (DESIGN)
+### 9.6 What the publisher's own protocol already gives the server [V], and the account link (DESIGN)
 - **ENTRY SVR** (each session at Card Arrange, and at Club Make): the **full card payload**, plus the matching
   history and WT ranks (section 5.4). The server sees the whole club before each session.
 - **Play data** after each locker room: the full payload again.

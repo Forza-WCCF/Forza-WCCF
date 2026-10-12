@@ -25,7 +25,7 @@ the client asks the game server (through control) for the coach list and shows t
 choice (NORMAL "選択不可" for a new player) instead of OFFLINE guest play. New: three seat patches (ALL.Net
 authorized, billing phase IDLE, AiMeDB host → localhost), `_aime_reader.py` (COM2), `_aimedb.py` (port 22345),
 `play.py` starts both for 17–18. Evidence: `<runtime>\evidence\run13-b`, logs `aime_log.txt`,
-`aimedb_log.txt`, `gamesvr_log.txt`. Safety: routes identical, ping 4/4, HTTPS 200; no Sega host contacted
+`aimedb_log.txt`, `gamesvr_log.txt`. Safety: routes identical, ping 4/4, HTTPS 200; no publisher host contacted
 (ALL.Net off, AiMeDB local).
 
 ## 2026-10-07 — boot to guest play, controller online (paused)

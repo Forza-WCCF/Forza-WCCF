@@ -150,9 +150,9 @@ Yes, but only by events in play, and only while it is above 0 [V for the writers
 
 ---
 
-## 4. The new-card transfer (Sega's flow)
+## 4. The new-card transfer (the publisher's flow)
 
-Sega's word is 継承, "succession": the manager's abilities are inherited by a new card. The Japanese warning says to
+the publisher's word is 継承, "succession": the manager's abilities are inherited by a new card. The Japanese warning says to
 insert the old and new cards "２枚重ねて" (two cards stacked) [V `.work\translation\english_test\main_screens_jp.tsv`,
 SYS_SYS_warning_0007].
 
@@ -229,7 +229,7 @@ functions' field lists; Club Make builds them].
 leaves a dead old card and a blank-looking new one. The old club's data is still on the old card [V], so it is
 recoverable by resetting its counter [I].
 
-### 4.5 What control (Sega's server) sees
+### 4.5 What control (the publisher's server) sees
 
 - **ENTRY SVR** is sent at Club Make (`SeqContractPlayer`) and before every match (Card Arrange), carrying the whole
   serialised club, so control receives the new club with the **old** SYSTEM_COACH_ID [cited `ALLNET-ONLINE-2010-11.md`
@@ -242,7 +242,7 @@ recoverable by resetting its counter [I].
   transfer: the presence poll re-selects each card by UID, and the battery backup keys by block 0, so two cards with
   the same UID and block 0 cannot be told apart [I from FUN_004d6a90 and FUN_004d76f0 as described in the notes].
 - With a real game server, the new card would come with the same manager key and a new card ID. control logs
-  "AlreadyIssue" / "MultiIdErr" by what the server answers [cited ALLNET 4.3]; what Sega's server did is [A].
+  "AlreadyIssue" / "MultiIdErr" by what the server answers [cited ALLNET 4.3]; what the publisher's server did is [A].
 
 ---
 
@@ -284,14 +284,14 @@ recoverable by resetting its counter [I].
 
 ### 6.1 The choice
 
-| | A. Renew the contract (keep the club) | B. Sega's transfer (keep the manager) |
+| | A. Renew the contract (keep the club) | B. the publisher's transfer (keep the manager) |
 |---|---|---|
 | what the player keeps | everything: the same club, squad, money, league | manager name, salary, level, records, titles, division, bonded players' growth |
 | what the player loses | nothing | the club; the old card can never be played again |
 | size of the change | one function in `club_wallet.py`, a request word in `play.py`, a line in `club_view.py`, later a panel button | a second card in the reader, a second card file, new requests, a panel button |
 | authentic | no (the kit edits the card) | yes |
 
-The player first asked to keep the club, so this report plans A in full and lists B in 6.4. **Decided afterwards: B, Sega's own transfer** - when a contract ends you put in a new card, as on the arcade. The code shared with this report does B; plan A was not built.
+The player first asked to keep the club, so this report plans A in full and lists B in 6.4. **Decided afterwards: B, the publisher's own transfer** - when a contract ends you put in a new card, as on the arcade. The code shared with this report does B; plan A was not built.
 
 ### 6.2 Plan A: "RENEW CONTRACT", in place, between sessions
 
@@ -341,14 +341,14 @@ the term is low, so the player never sees the end screen.
 5. **Unknown side effects** of raising the term on events that look at it (sponsor offers, contract renewals, the
    "final match" message) [A], and of leaving COACH_RESIGN at 1 after a resignation [A].
 
-### 6.4 Plan B, Sega's transfer (the one chosen and built)
+### 6.4 Plan B, the publisher's transfer (the one chosen and built)
 
 - `_icc_reader.py`: a second card with its **own** UID, block 0 (= its block 7) and serial; Request / Anticoll /
   Select / Halt routed by the selected card; 'R', 'T', 'U', 'S', 'I' on the selected card; each card saved to its own
   file.
 - `play.py` / `club_wallet.py`: a `transfer=FILE` request that puts the expired card and a fresh blank on the reader
   at the next start, and afterwards makes the new card the slot card and moves the old one (counter 0) to `cards\`.
-- Risk: Sega's order kills the old card before the new one is written (4.4). The reader's backup holds the old card,
+- Risk: the publisher's order kills the old card before the new one is written (4.4). The reader's backup holds the old card,
   and its club data is untouched, so it can be revived [I].
 
 ### 6.5 Test plan (copies and the test kit `.work\release1011\cleantest\kit_user` only)
@@ -382,7 +382,7 @@ the term is low, so the player never sees the end screen.
 | 6 | Whether a resignation must be undone (COACH_RESIGN, CLUB_OFFER_ACCEPT) when renewing | [A] | read FUN_005de110 and FUN_005e0170, which read both |
 | 7 | Which Club Make steps a transfer skips (step 5 = home town?) | [I] | read `SeqClubMakeMain` state handling, or T6 |
 | 8 | What FUN_00576ab0's status 0-3 draws ("Active / Expired / Transferred / Transferable"?) | [I] | T3 screenshot |
-| 9 | What Sega's server did with a transferred manager | [A] | no server to ask; only matters for a future private server |
+| 9 | What the publisher's server did with a transferred manager | [A] | no server to ask; only matters for a future private server |
 | 10 | Where the player's real card stands now (term, counter) | [A] | his own decode, when he chooses (not read for this map) |
 
 ---
