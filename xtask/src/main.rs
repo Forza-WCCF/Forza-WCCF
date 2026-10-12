@@ -33,7 +33,7 @@ enum Task {
     },
     /// The kit ZIP in dist/
     Package {
-        /// The edition to package
+        /// 2010-11, 2017-18 or installer
         edition: String,
         /// File name without .zip; version.txt is made from it
         #[arg(long)]
@@ -124,6 +124,7 @@ fn main() -> Result<()> {
             _ => anyhow::bail!("unknown edition {edition} (2010-11 or 2017-18)"),
         },
         Task::Package { edition, name } => match edition.as_str() {
+            "installer" => package_installer(&root, name),
             "2010-11" => package(&root, &kit, &name.unwrap_or_else(|| TOP.into()), true),
             "2017-18" => package(
                 &root,
@@ -1151,6 +1152,67 @@ fn smoke_in(root: &Path, exe: &Path, dir: &Path) -> Result<()> {
         read(edition.join(".probe-a"))? == "untouched",
         "Extraction-only mode ran the hard-link probe."
     );
+    Ok(())
+}
+
+/// `dist/`: the installer exe, its notices, `NAME.zip` of exactly those files, and SHA256SUMS.txt for the exe and the ZIP.
+/// NAME defaults to `wccf-installer-v<version>-windows-x64`. Run `cargo xtask check` first (it builds the exe).
+fn package_installer(root: &Path, name: Option<String>) -> Result<()> {
+    check_licenses(root)?;
+    let exe = installer_exe(root);
+    ensure!(
+        exe.is_file(),
+        "{} is missing: run `cargo xtask check` first",
+        exe.display()
+    );
+    let name = name.unwrap_or_else(|| {
+        format!(
+            "{INSTALLER}-v{}-windows-x64",
+            workspace_version(root).unwrap_or_default()
+        )
+    });
+    let dist = root.join("dist");
+    fs::create_dir_all(&dist)?;
+    // explicit payload: never archive the repository, media, kit, saves or target tree
+    let src = root.join("crates/installer");
+    let docs = [
+        "README.md",
+        "CHANGELOG.md",
+        "LICENSE",
+        "THIRD-PARTY-LICENSES.json",
+    ];
+    let exe_name = format!("{INSTALLER}.exe");
+    let payload: Vec<(String, PathBuf)> = std::iter::once((exe_name.clone(), exe))
+        .chain(docs.iter().map(|d| (d.to_string(), src.join(d))))
+        .collect();
+    let zip_name = format!("{name}.zip");
+    let mut zip = zip::ZipWriter::new(fs::File::create(dist.join(&zip_name))?);
+    let opts = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    for (n, path) in &payload {
+        fs::copy(path, dist.join(n))?;
+        zip.start_file(n, opts)?;
+        std::io::copy(&mut fs::File::open(path)?, &mut zip)?;
+    }
+    zip.finish()?;
+    let mut sums = String::new();
+    for n in [&exe_name, &zip_name] {
+        let hash: String = Sha256::digest(fs::read(dist.join(n))?)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        sums.push_str(&format!("{hash}  {n}\n"));
+    }
+    fs::write(dist.join("SHA256SUMS.txt"), sums)?;
+    let mut ar = zip::ZipArchive::new(fs::File::open(dist.join(&zip_name))?)?;
+    let mut got: Vec<String> = (0..ar.len())
+        .map(|i| Ok(ar.by_index(i)?.name()?.into_owned()))
+        .collect::<Result<_>>()?;
+    let mut want: Vec<String> = payload.into_iter().map(|p| p.0).collect();
+    got.sort();
+    want.sort();
+    ensure!(got == want, "Unexpected release archive contents.");
+    println!("Prepared {}", dist.join(zip_name).display());
     Ok(())
 }
 
