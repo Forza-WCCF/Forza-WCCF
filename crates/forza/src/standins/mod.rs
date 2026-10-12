@@ -1,9 +1,11 @@
-//! The 2017–18 stand-ins, ported from `_aime_reader.py`, `_aimedb.py` and `_gamesvr.py` (step 10, piece J1).
+//! The stand-ins: the 2017–18 ones ported from `_aime_reader.py`, `_aimedb.py` and `_gamesvr.py` (step 10, piece J1)
+//! and the 2010–11 club card reader (piece D).
 //! Each service runs on std threads with blocking I/O; dropping its [`Handle`] stops it.
 
 #[cfg(windows)]
 pub mod aime;
 pub mod aimedb;
+pub mod card_reader;
 pub mod gamesvr;
 
 use std::io::{self, Read};

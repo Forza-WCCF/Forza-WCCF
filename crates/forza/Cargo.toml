@@ -12,6 +12,9 @@ serde_json.workspace = true
 egui.workspace = true
 egui_extras.workspace = true
 rust-i18n.workspace = true
+getrandom = "0.3.4"
+tempfile = "3.27.0"
+time = { version = "0.3.55", features = ["local-offset"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_IO", "Win32_System_Pipes", "Win32_Storage_FileSystem", "Win32_Security"] }

@@ -1548,9 +1548,12 @@ dependencies = [
  "egui",
  "egui_extras",
  "egui_kittest",
+ "getrandom 0.3.4",
  "rust-i18n",
  "serde_json",
  "sha2",
+ "tempfile",
+ "time",
  "windows-sys 0.61.2",
 ]
 
