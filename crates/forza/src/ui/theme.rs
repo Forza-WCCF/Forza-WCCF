@@ -369,6 +369,7 @@ pub fn style(edition: Edition) -> Style {
         visuals,
         // CABINET_LOOK §7: 120-160 ms for hover and press, nothing longer than 300 ms
         animation_time: 0.14,
+        #[cfg(debug_assertions)]
         debug: Default::default(),
         explanation_tooltips: false,
         url_in_tooltip: true,
