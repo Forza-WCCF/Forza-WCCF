@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 r"""setup.py - make your own copy of WCCF 2010-11 (Rev D) run on this PC with the kit.
-Run it once (PLAY.exe, Setup and updates); running it again checks everything and repairs what is missing.
+Run it once (Launcher.exe, Setup and updates); running it again checks everything and repairs what is missing.
 
     python setup.py [GAME]     GAME = the game folder, the one that holds client_Release.exe (or the folder above
                                it); asked for if not given, then remembered in data\settings.json
@@ -410,7 +410,7 @@ def undo(game):
     if K.game_processes(game):
         raise Failed("the game is running - close its window first, then undo")
     if os.path.isfile(os.path.join(ENGLISH_BACKUP, "manifest.json")):
-        raise Failed("English is on - choose GAME TEXT: JAPANESE in PLAY.exe first, so the original files go back before the undo")
+        raise Failed("English is on - choose GAME TEXT: JAPANESE in Launcher.exe first, so the original files go back before the undo")
     seat = K.seat_dir(game)
     if os.path.isdir(seat):
         if not os.path.isfile(os.path.join(seat, MARKER)):
@@ -528,7 +528,7 @@ def main(argv):
     except OSError as ex:
         print("  FAIL  %s" % ex)
         return 1
-    print("Setup done. Start the game with PLAY.exe.")
+    print("Setup done. Start the game with Launcher.exe.")
     return 0
 
 

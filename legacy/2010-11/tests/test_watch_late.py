@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-"""test_watch_late.py - PLAY.exe's watcher and a game window closed while play.py is still starting (check.ps1 runs it
+"""test_watch_late.py - Launcher.exe's watcher and a game window closed while play.py is still starting (check.ps1 runs it
 after build.ps1; no game).  Kit 5.5.1's watcher waited only for the launchers still running when it began, so a window
 closed during the start (play.py waits up to 60 s for the overlay) left the server and the helpers running.
-A scratch kit: the built PLAY.exe, the kit's Python and scripts; its play.py starts sleepers as the run's launchers,
+A scratch kit: the built Launcher.exe, the kit's Python and scripts; its play.py starts sleepers as the run's launchers,
 logs "its window was closed" for them, and writes data\\running.json only after they have ended, as a slow start does.
 Each case must end with the rest stopped: every window gone, or seat 1 gone while the projector still runs - from a
-console (PLAY.exe leaves a watcher process) and from PLAY.exe's window (its own process watches, then ends).
+console (Launcher.exe leaves a watcher process) and from Launcher.exe's window (its own process watches, then ends).
     python source\\test_watch_late.py"""
 import json
 import os
@@ -42,7 +42,7 @@ def case(name, windowed=False):
     try:
         for d in ("data\\logs", "extracted", "seat1", "overlay"):
             os.makedirs(os.path.join(root, d))
-        shutil.copy2(os.path.join(KIT, "PLAY.exe"), root)
+        shutil.copy2(os.path.join(KIT, "Launcher.exe"), root)
         shutil.copytree(os.path.join(KIT, "python"), os.path.join(root, "python"))
         shutil.copytree(os.path.join(KIT, "scripts"), os.path.join(root, "scripts"),
                         ignore=shutil.ignore_patterns("__pycache__"))
@@ -59,10 +59,10 @@ def case(name, windowed=False):
             json.dump({"game": os.path.join(root, "extracted")}, f)
 
         ended = os.path.join(root, "data", "logs", "run_ended.txt")
-        # from a console PLAY.exe prints there and leaves a watcher process; without one (a shortcut, Explorer) it
+        # from a console Launcher.exe prints there and leaves a watcher process; without one (a shortcut, Explorer) it
         # is a window that goes once the game is up, its process watching the run, then ending with it
         detached = 0x00000008 if windowed else 0             # DETACHED_PROCESS: no console to join
-        p = subprocess.Popen([os.path.join(root, "PLAY.exe"), name], cwd=root, stdin=subprocess.DEVNULL,
+        p = subprocess.Popen([os.path.join(root, "Launcher.exe"), name], cwd=root, stdin=subprocess.DEVNULL,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=detached)
         if not windowed:
             p.wait(timeout=60)
@@ -98,5 +98,5 @@ def case(name, windowed=False):
 
 case("late-all")     # every window closed during the start
 case("late-seat")    # seat 1 closed during the start, the projector still up
-case("late-all", windowed=True)     # PLAY.exe's window: it goes, its process watches and ends with the run
+case("late-all", windowed=True)     # Launcher.exe's window: it goes, its process watches and ends with the run
 print("watch: a window closed during the start stops the rest (3 checks passed)")

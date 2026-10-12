@@ -20,8 +20,8 @@ use serde_json::Value;
 use crate::text::{fill, t};
 use crate::{log, say};
 
-/// Launchers of earlier kits that this one replaced: removed unless the kit lists them.  SETUP.exe is PLAY.exe's
-/// window since 2026-10-10.
+/// Launchers of earlier kits that this one replaced: removed unless the kit lists them.  SETUP.exe went into the
+/// one window in 2026-10-10; that window was PLAY.exe until it became Launcher.exe.
 pub const LEGACY: &[&str] = &[
     "PLAY.bat",
     "STOP.bat",
@@ -31,6 +31,7 @@ pub const LEGACY: &[&str] = &[
     "ENGLISH.exe",
     "UPDATE.exe",
     "SETUP.exe",
+    "PLAY.exe",
 ];
 
 #[derive(Clone, Debug, PartialEq)]
@@ -151,7 +152,7 @@ pub fn apply(kit: &Kit, r: &Release) -> Result<(), String> {
         .map_err(|e| e.to_string())?
         .flatten()
         .map(|e| e.path())
-        .find(|p| p.join("PLAY.exe").is_file())
+        .find(|p| p.join("Launcher.exe").is_file())
         .ok_or(t().not_a_kit)?;
 
     running_check(kit)?; // the game may have started during the download
@@ -200,7 +201,7 @@ fn copy_over(from: &Path, to: &Path, top: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// A program that runs (this PLAY.exe) cannot be written over, but it can be moved aside: PLAY.exe.old, deleted at
+/// A program that runs (this Launcher.exe) cannot be written over, but it can be moved aside: Launcher.exe.old, deleted at
 /// the next start.
 fn replace(src: &Path, dst: &Path) -> std::io::Result<()> {
     match fs::copy(src, dst) {
@@ -249,7 +250,7 @@ fn obsolete<'a>(old: &'a [String], new: &[String]) -> Vec<&'a str> {
         .collect()
 }
 
-/// At the start: the PLAY.exe.old an update left, and the launchers an earlier kit had that this one replaced (a kit
+/// At the start: the Launcher.exe.old an update left, and the launchers an earlier kit had that this one replaced (a kit
 /// unzipped by hand over an older one).
 pub fn tidy(kit: &Kit) {
     if let Ok(me) = env::current_exe() {
@@ -318,7 +319,7 @@ mod tests {
     #[test]
     fn obsolete_only_kit_files_gone_from_the_new_kit() {
         let old: Vec<String> = [
-            "PLAY.exe",
+            "Launcher.exe",
             "ENGLISH.exe",
             "SETUP.exe",
             "scripts\\old.py",

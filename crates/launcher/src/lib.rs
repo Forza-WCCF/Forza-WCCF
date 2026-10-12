@@ -1,5 +1,5 @@
-//! PLAY.exe's shared code (in place of the .bat files, 2026-10-08).  It runs one kit script with the kit's own Python
-//! (python\python.exe) in the console PLAY was started from, its arguments passed on as they are, and keeps the run's
+//! Launcher.exe's shared code (in place of the .bat files, 2026-10-08).  It runs one kit script with the kit's own Python
+//! (python\python.exe) in the console Launcher was started from, its arguments passed on as they are, and keeps the run's
 //! watcher (watch.rs): once a game window is closed, it stops the rest.
 
 pub mod release;
@@ -49,7 +49,7 @@ impl Kit {
 
     /// Runs a kit script in this window; its exit code (1 if it could not run).
     pub fn run<S: AsRef<OsStr>>(&self, script: &str, args: &[S]) -> u8 {
-        // Ctrl+C goes to the script (Python stops with its own message), not to PLAY.  A handler, not SetConsoleCtrlHandler(None, TRUE): that one the script would inherit.
+        // Ctrl+C goes to the script (Python stops with its own message), not to Launcher.  A handler, not SetConsoleCtrlHandler(None, TRUE): that one the script would inherit.
         // SAFETY: `keep_window` is a valid handler for the life of the process.
         unsafe { SetConsoleCtrlHandler(Some(keep_window), TRUE) };
         match self.script(script).args(args).status() {

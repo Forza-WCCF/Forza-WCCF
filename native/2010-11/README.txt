@@ -26,10 +26,10 @@ The C source of every program the kit ships. Each was built with Microsoft's C c
                        header: the steps, and the settings that keep a test off the live game)
                        cl /nologo /O2 /MT /W3 /D_CRT_SECURE_NO_WARNINGS fakegame.c /Fe:fakegame.exe /link d3d9.lib user32.lib
 
-PLAY.exe              launcher\ (Rust; the repository's Cargo.toml and Cargo.lock pin every crate; this ZIP carries only
+Launcher.exe              launcher\ (Rust; the repository's Cargo.toml and Cargo.lock pin every crate; this ZIP carries only
                        the launcher's sources, so build from a checkout of the repository with cargo xtask build)
                        cargo build --release --locked -p launcher --target x86_64-pc-windows-msvc
-                       then copy target\x86_64-pc-windows-msvc\release\PLAY.exe to the kit folder.
+                       then copy target\x86_64-pc-windows-msvc\release\Launcher.exe to the kit folder.
                        The C runtime is linked in (.cargo\config.toml); checks: cargo fmt --all --check,
                        cargo clippy --workspace --all-targets -- -D warnings, cargo test --workspace
 
@@ -44,5 +44,5 @@ What each does, in short:
   wccfpanel.dll the panel around seat 1's picture (drawn with the game's own Direct3D 9 device)
   inject.exe    loads wccfpanel.dll into seat 1's running game (and the projector's, for its money)
   launchers     run code\play.py, setup.py or english.py with the kit's Python and keep the window as the .bat
-                files did; PLAY leaves a windowless watcher (PLAY.exe --watch) that stops the rest of the run once a
+                files did; PLAY leaves a windowless watcher (Launcher.exe --watch) that stops the rest of the run once a
                 game window is closed (launcher\src\watch.rs; code\hardware\debugger.py ends the game itself)

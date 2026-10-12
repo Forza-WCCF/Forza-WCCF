@@ -118,7 +118,7 @@ static ULONGLONG ft_q(FILETIME t) { return ((ULONGLONG)t.dwHighDateTime << 32) |
 
 // the kit's version (2026-10-09, the player: "a version number near the ping, so that we can know ... what the issues
 // they get and on what version"): version.txt at the kit's top, written by cargo xtask package - kit-5.5,
-// kit-5.5-test2, or CI's commit (PLAY.exe's update reads the same file); shown without "kit-" ("KIT 5.5").  A kit
+// kit-5.5-test2, or CI's commit (Launcher.exe's update reads the same file); shown without "kit-" ("KIT 5.5").  A kit
 // built by hand has none and shows "dev".  Drawn under the ping meter (ping_draw), online or not, and beside the
 // SETTINGS panel's title (2026-10-10, the player: "we should have version in settings menu").
 static char g_kitver[48] = "dev";
@@ -2944,7 +2944,7 @@ static void keys_hover(int x, int y)
 // ---------------------------------------------------------------- the SETTINGS panel (2026-10-06)
 // The button under CARD and COIN opens it over the middle column, like KEYS.  "NOW": what the hidden windows used to
 // tell - the link to the server, the club card's session mark and bad endings, its last save and backup, the game's
-// text.  "NEXT START": the two settings the player chose - where a plain PLAY.exe plays (THIS PC / ONLINE + an address) and
+// text.  "NEXT START": the two settings the player chose - where a plain Launcher.exe plays (THIS PC / ONLINE + an address) and
 // the game's text (ENGLISH / JAPANESE).  They go to data\panel.txt at once; play.py reads it at its next plain start
 // (read_panel, apply_english_request).  Nothing here changes the running game.
 #define SET_X0 14.0f                     // the SETTINGS button on the design sheet (measure_skin.js)
@@ -2970,7 +2970,7 @@ static int  g_fix_req = 0;               // card_fix=bad_endings: CLEAR BAD ENDI
 static volatile LONG g_set_dirty = 1;    // the status must be read again now
 // RESTART NOW (the player, 2026-10-06: "a button that goes to the next start"): a first click arms it for 8 s, a second
 // writes data\restart.request; panel.py (outside the game - seat 1's debugger would kill a restart the game
-// started) opens "PLAY.exe restart".  Not during a card session.  Not taken in 3 s = no helper: removed, and said.
+// started) opens "Launcher.exe restart".  Not during a card session.  Not taken in 3 s = no helper: removed, and said.
 static DWORD g_rs_armed = 0;             // armed until this tick
 static DWORD g_rs_sent = 0;              // when the request was written (0 = none waiting)
 // SEND LOGS (2026-10-09, the player: "add a button in the settings to send logs to the server, so people can send us
@@ -3031,7 +3031,7 @@ static int set_save_locked(void)
 {
     char text[640]; int n, k; FILE *f;
     n = _snprintf(text, sizeof text, "# WCCF 2010-11 kit - written by the SETTINGS panel in seat 1's window, read by "
-                  "PLAY.exe at its next\n# plain start (play.py). english= is a change asked for that start; PLAY "
+                  "Launcher.exe at its next\n# plain start (play.py). english= is a change asked for that start; PLAY "
                   "takes the line out once it is done.\nplay_on=%s\n", g_on_online ? "online" : "this_pc");
     if (g_server[0]) n += _snprintf(text + n, sizeof text - n, "server=%s\n", g_server);
     if (g_eng_req >= 0) n += _snprintf(text + n, sizeof text - n, "english=%s\n", g_eng_req ? "on" : "off");
@@ -3203,7 +3203,7 @@ static int any_session_open(void)
 
 // ---- closing the window quits the game (2026-10-08)
 // The player: "remove STOP.exe and have a clean quit every time".  Closing seat 1's window (its X, Alt+F4) is how the
-// game is quit: debugger.py ends the game once its window is gone, and PLAY.exe's watcher stops the rest.  During
+// game is quit: debugger.py ends the game once its window is gone, and Launcher.exe's watcher stops the rest.  During
 // a card session that ends the match without its locker-room save - a bad ending on the card - so the first close
 // then only warns, over the picture, and a second close within 8 s quits anyway: the question STOP used to ask.
 #define CLOSE_AGAIN_MS 8000
@@ -3480,7 +3480,7 @@ static void set_tick(void)               // the board thread, every pass: the st
         EnterCriticalSection(&g_board_cs);
         if (GetFileAttributesA(p) != INVALID_FILE_ATTRIBUTES) {
             DeleteFileA(p);
-            lstrcpynA(g_lg_res, "fail the kit's helper did not answer - close the game, PLAY.exe, then try again",
+            lstrcpynA(g_lg_res, "fail the kit's helper did not answer - close the game, Launcher.exe, then try again",
                       sizeof g_lg_res);
             logline("settings: send logs request not picked up - removed");
         }
@@ -3493,7 +3493,7 @@ static void set_tick(void)               // the board thread, every pass: the st
         EnterCriticalSection(&g_board_cs);
         if (GetFileAttributesA(p) != INVALID_FILE_ATTRIBUTES) {
             DeleteFileA(p);                                     // never left lying for a later run to find
-            note_locked(D3DCOLOR_ARGB(255, 255, 110, 90), "the restart helper did not answer - close the game, then PLAY.exe");
+            note_locked(D3DCOLOR_ARGB(255, 255, 110, 90), "the restart helper did not answer - close the game, then Launcher.exe");
             logline("settings: restart request not picked up - removed");
         }
         g_rs_sent = 0;
@@ -3619,7 +3619,7 @@ static void set_draw(IDirect3DDevice9 *dev)
     put_str(dev, g.x0 + 24.0f * s + str_w("SETTINGS", 0.85f * s) + 18.0f * s,
             14.0f * s + (float)g_cellh * (0.85f - 0.5f) * s, 0.5f * s, grey, v);
     put_str(dev, g.x0 + 24.0f * s, 58.0f * s, 0.42f * s, grey,
-            "NOW: what the game's hidden windows used to tell, read live.  NEXT START: what PLAY.exe does next time.");
+            "NOW: what the game's hidden windows used to tell, read live.  NEXT START: what Launcher.exe does next time.");
     put_str(dev, g.x0 + 24.0f * s, 76.0f * s, 0.42f * s, grey, "Esc closes this.  NEXT START waits for the next start; "
             "VIEW changes at once.  Nothing here changes the game itself");
     put_str(dev, g.lx, g.ynow, 0.46f * s, orange, "NOW");
@@ -3696,7 +3696,7 @@ static void set_draw(IDirect3DDevice9 *dev)
         put_str(dev, (float)g.restart.left, (float)g.restart.bottom + 8.0f * s, 0.40f * s, grey,
                 "the game closes and opens again with these NEXT START settings");
     put_str(dev, g.lx, (float)g.restart.bottom + 42.0f * s, 0.42f * s, grey,
-            "Saved at once in data\\panel.txt. A plain PLAY.exe uses it; PLAY.exe local always plays on this PC.");
+            "Saved at once in data\\panel.txt. A plain Launcher.exe uses it; Launcher.exe local always plays on this PC.");
     put_str(dev, g.lx, g.yview, 0.46f * s, orange, "VIEW");
     y = (float)g.cab.top + ((float)(g.cab.bottom - g.cab.top) - (float)g_cellh * 0.44f * s) * 0.5f;
     put_str(dev, g.lx + 12.0f * s, y, 0.44f * s, grey, "LAYOUT");
@@ -3872,7 +3872,7 @@ static void set_click(HWND h, int x, int y)                     // a press insid
                     g_rs_sent = now;
                     note_locked(green, "restarting - the game closes and opens again (about a minute)");
                     logline("settings: restart requested");
-                } else note_locked(red, "could not ask for the restart - close the game, then PLAY.exe");
+                } else note_locked(red, "could not ask for the restart - close the game, then Launcher.exe");
             }
         }
     }
@@ -4141,7 +4141,7 @@ static void club_draw(IDirect3DDevice9 *dev)
     }
     if (strcmp(g_cstate, "ok")) {                                                            // no club to show
         g_cfix = RC(0.0f, 0.0f, 0.0f, 0.0f);
-        const char *msg = !strcmp(g_cstate, "noview") ? "reading the club card - a moment after the start; started with PLAY.exe?" : g_creason;
+        const char *msg = !strcmp(g_cstate, "noview") ? "reading the club card - a moment after the start; started with Launcher.exe?" : g_creason;
         if (g_font_tex) put_fit(dev, lx, 130.0f * s, 0.46f * s, !strcmp(g_cstate, "unreadable") ? club_colour('r') : white,
                                 msg[0] ? msg : g_cstate, lw);            // the left column: YOUR CARDS is beside it
         y = 180.0f * s;
@@ -4319,7 +4319,7 @@ static void club_click(HWND h, int x, int y)
         else lstrcpynA(g_card_req, pick == WAL_NEW ? "new" : g_wal[pick].file, sizeof g_card_req);
         if (!set_save_locked()) note_locked(red, "could not save data\\panel.txt - try again");
         else if (!restart_request())
-            note_locked(red, "could not ask for the restart - close the game, then PLAY.exe does the switch");
+            note_locked(red, "could not ask for the restart - close the game, then Launcher.exe does the switch");
         else {
             g_rs_sent = now;
             note_locked(green, pick == WAL_FIX ? "clearing the bad endings - the game closes and opens again"

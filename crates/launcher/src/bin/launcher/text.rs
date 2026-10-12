@@ -1,4 +1,4 @@
-//! PLAY.exe's words: English, Italian or Japanese - the one picked in the window (data\settings.json "language"),
+//! Launcher.exe's words: English, Italian or Japanese - the one picked in the window (data\settings.json "language"),
 //! else Windows' display language.  The kit's scripts (their output in the window) stay in English.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -110,7 +110,7 @@ const EN: Text = Text {
     pick: "Pick a kit, then UPDATE. \"What's new\" opens its page.",
     none_listed: "No update found.",
     no_answer: "The update server did not answer: {}",
-    retry: "Close PLAY and open it again to retry.",
+    retry: "Close Launcher and open it again to retry.",
     confirm_release: "Put the release {} into this kit folder?\n\nYour club cards, keys and settings (data) are kept. \
                       Close the game first.",
     confirm_test: "Put the test build {} into this kit folder?\n\nYour club cards, keys and settings (data) are kept. \
@@ -125,11 +125,11 @@ const EN: Text = Text {
     close_game: "Close the game first: {} runs from the kit folder.",
     download_failed: "The download failed: {}",
     unzip_failed: "The ZIP did not unzip: {}",
-    not_a_kit: "This ZIP is not a kit: no folder in it holds PLAY.exe.",
+    not_a_kit: "This ZIP is not a kit: no folder in it holds Launcher.exe.",
     write_failed: "{}: could not write it ({}) - close the game and update again.",
     done: "Done.",
     failed: "Failed - the output below says why.",
-    busy: "Wait: PLAY is busy.",
+    busy: "Wait: Launcher is busy.",
 };
 
 const IT: Text = Text {
@@ -175,7 +175,7 @@ const IT: Text = Text {
     pick: "Scegli un kit, poi AGGIORNA. \"Novità\" apre la sua pagina.",
     none_listed: "Nessun aggiornamento trovato.",
     no_answer: "Il server degli aggiornamenti non ha risposto: {}",
-    retry: "Chiudi PLAY e riaprilo per riprovare.",
+    retry: "Chiudi Launcher e riaprilo per riprovare.",
     confirm_release: "Mettere la versione {} in questa cartella del kit?\n\nLe tue carte club, i tasti e le \
                       impostazioni (data) restano. Chiudi prima il gioco.",
     confirm_test: "Mettere la versione di prova {} in questa cartella del kit?\n\nLe tue carte club, i tasti e le \
@@ -192,11 +192,11 @@ const IT: Text = Text {
     close_game: "Chiudi prima il gioco: {} è in esecuzione dalla cartella del kit.",
     download_failed: "Download non riuscito: {}",
     unzip_failed: "Impossibile estrarre lo ZIP: {}",
-    not_a_kit: "Questo ZIP non è un kit: nessuna sua cartella contiene PLAY.exe.",
+    not_a_kit: "Questo ZIP non è un kit: nessuna sua cartella contiene Launcher.exe.",
     write_failed: "{}: scrittura non riuscita ({}) - chiudi il gioco e aggiorna di nuovo.",
     done: "Fatto.",
     failed: "Non riuscito - il motivo è nel testo qui sotto.",
-    busy: "Attendi: PLAY è occupato.",
+    busy: "Attendi: Launcher è occupato.",
 };
 
 const JA: Text = Text {
@@ -242,7 +242,7 @@ const JA: Text = Text {
     pick: "キットを選んで「更新」を押してください。「変更内容」でそのページを開きます。",
     none_listed: "更新は見つかりませんでした。",
     no_answer: "更新サーバーから応答がありません: {}",
-    retry: "PLAY を閉じて、もう一度開いてください。",
+    retry: "Launcher を閉じて、もう一度開いてください。",
     confirm_release: "リリース {} をこのキットフォルダーに入れますか？\n\nクラブカード、キー、設定（data）はそのまま残ります。\
                       先にゲームを閉じてください。",
     confirm_test: "テスト版 {} をこのキットフォルダーに入れますか？\n\nクラブカード、キー、設定（data）はそのまま残ります。\
@@ -257,7 +257,7 @@ const JA: Text = Text {
     close_game: "先にゲームを閉じてください: {} がキットフォルダーから実行されています。",
     download_failed: "ダウンロードに失敗しました: {}",
     unzip_failed: "ZIP を展開できませんでした: {}",
-    not_a_kit: "この ZIP はキットではありません（PLAY.exe を含むフォルダーがありません）。",
+    not_a_kit: "この ZIP はキットではありません（Launcher.exe を含むフォルダーがありません）。",
     write_failed: "{} に書き込めませんでした（{}）。ゲームを閉じて、もう一度更新してください。",
     done: "完了しました。",
     failed: "失敗しました（理由は下の表示にあります）。",

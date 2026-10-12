@@ -326,7 +326,7 @@ def main(argv):
             raise EditError("the game is running (data\\running.json is there) - close the game first")
         kept = save(a.card, raw)
         print("written  %s   (the old card is kept as %s)" % (a.card, kept))
-        print("next    start the game (PLAY.exe): the card is read at the start, so the change shows from then on")
+        print("next    start the game (Launcher.exe): the card is read at the start, so the change shows from then on")
         return 0
     except EditError as e:
         print("refused: %s" % e)

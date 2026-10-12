@@ -4,15 +4,15 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
-description = "PLAY.exe: the WCCF 2010-11 kit's launcher"
+description = "Launcher.exe: the WCCF 2010-11 kit's launcher"
 
 [lib]
 name = "launcher"
 path = "src/lib.rs"
 
 [[bin]]
-name = "PLAY"
-path = "src/bin/play/main.rs"
+name = "Launcher"
+path = "src/bin/launcher/main.rs"
 
 [dependencies]
 serde_json = "1.0.151"

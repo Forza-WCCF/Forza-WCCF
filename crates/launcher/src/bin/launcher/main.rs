@@ -1,18 +1,18 @@
-//! PLAY.exe - the kit's one program, a window (2026-10-10; before, a console that ran play.py, and SETUP.exe beside
+//! Launcher.exe - the kit's one program, a window (2026-10-10; before, a console that ran play.py, and SETUP.exe beside
 //! it for the rest).  Nothing it starts shows a console: the game's two windows are all a player sees.
 //!   PLAY         play on THIS PC or ONLINE on a server, the window's language, the game's text (English,
 //!                Italian or Japanese) - then scripts\play.py starts the game; once it is up this window goes, and this
 //!                process stays behind without a window as the run's watcher (watch.rs): closing a game window stops
-//!                the rest, then PLAY.exe ends.  While the game runs, PLAY.exe opened again offers STOP THE GAME.
+//!                the rest, then Launcher.exe ends.  While the game runs, Launcher.exe opened again offers STOP THE GAME.
 //!   SETUP AND UPDATES (folded away until wanted, or until setup is needed)
 //!                the game folder: set up / repair (scripts\setup.py GAME) and undo; it is typed, picked, dropped on
-//!                the window or on PLAY.exe, and remembered by setup.py in data\settings.json.
+//!                the window or on Launcher.exe, and remembered by setup.py in data\settings.json.
 //!                UPDATE (update.rs): the kit's releases and test builds at UPDATE_URL.
 //! The choices go where the kit already keeps them (choices.rs): data\panel.txt, which the in-game SETTINGS panel
 //! writes too, and data\settings.json.  The scripts' output fills the box at the bottom.
 //!
-//! The command line still works: "PLAY.exe restart" (the in-game RESTART NOW: this window, restarting, then gone),
-//! "PLAY.exe GAME-FOLDER" / "PLAY.exe undo" (setup at once), and play.py's own words (local, server, remote ADDRESS,
+//! The command line still works: "Launcher.exe restart" (the in-game RESTART NOW: this window, restarting, then gone),
+//! "Launcher.exe GAME-FOLDER" / "Launcher.exe undo" (setup at once), and play.py's own words (local, server, remote ADDRESS,
 //! debug, stop, status, show): from a console they print there, as before; from elsewhere (a shortcut) they run in
 //! this window.  "--watch" is the watcher alone, which a console start leaves behind.
 
@@ -1021,7 +1021,7 @@ fn attach_console() -> bool {
     true
 }
 
-/// play.py in the console PLAY.exe was started from, as before 2026-10-10; a start leaves the watcher behind.
+/// play.py in the console Launcher.exe was started from, as before 2026-10-10; a start leaves the watcher behind.
 fn console(kit: &Kit, args: &[OsString]) -> ExitCode {
     let looks_only = args
         .first()
@@ -1047,7 +1047,7 @@ fn main() -> ExitCode {
     }
     update::tidy(&kit);
     text::choose(choices::setting(&settings_file(&kit), "language").as_deref());
-    // dropped on PLAY.exe (or given): a game folder to set up
+    // dropped on Launcher.exe (or given): a game folder to set up
     let folder = args.first().filter(|a| args.len() == 1 && Path::new(a).is_dir());
     let step = match first.as_deref() {
         None => None,

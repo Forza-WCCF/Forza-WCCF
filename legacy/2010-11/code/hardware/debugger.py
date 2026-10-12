@@ -73,7 +73,7 @@ INDEXED = {"client_release.exe": "client", "control_release.exe": "control", "ma
 # The arcade program never quits when its window is closed: the window goes, the program runs on without it (seen
 # 2026-10-08: seat 4's client_Release.exe ran on windowless, so its launcher - this - and the whole run with it
 # stayed).  So for a client (a cabinet or the projector) this launcher ends the program once its window, up for
-# WINDOW_SETTLE s, has been gone for two looks in a row; PLAY.exe's watcher then stops the rest of the run.  The
+# WINDOW_SETTLE s, has been gone for two looks in a row; Launcher.exe's watcher then stops the rest of the run.  The
 # panel (wccfpanel.dll) asks once before a close during a card session.  Never for control: its windows are hidden.
 WINDOW_SETTLE = 5.0
 _u = ctypes.windll.user32

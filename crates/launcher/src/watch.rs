@@ -3,14 +3,14 @@
 //! engines and the kit's helpers (stand-ins, key driver, panel helper) ran on in the background until STOP or their
 //! 12 hours were up.  There is no STOP now: closing a game window is how the game is quit.
 //!
-//! After a start or a restart, PLAY's window goes and its process stays as the watcher (from a console: it leaves
+//! After a start or a restart, Launcher's window goes and its process stays as the watcher (from a console: it leaves
 //! the same exe again, `--watch`, without a window).  It waits for
 //! the run's cabinet and projector launchers (data\running.json; _debug_launch.py ends each game, and itself, when the
 //! game's window is closed) and once one has ended, runs `play.py ended`, which stops the rest of the run - by full
 //! path, nothing else on the PC is touched.  Its output: data\logs\run_ended.txt.  When that stop is refused (the
 //! projector's window closed while seat 1 is in a card session: a match is on), it watches the rest again.
 //!
-//! One watcher per kit folder.  Every PLAY first takes the watch over (`take_over`): it signals the quit event and
+//! One watcher per kit folder.  Every Launcher first takes the watch over (`take_over`): it signals the quit event and
 //! waits for the watch lock, so a watcher never stops a run that a restart is busy with.
 
 use std::ffi::OsString;
@@ -70,7 +70,7 @@ impl Watch {
         r == WAIT_OBJECT_0 || r == WAIT_ABANDONED
     }
 
-    /// True if a PLAY takes the watch over within `wait`.
+    /// True if a Launcher takes the watch over within `wait`.
     fn quit_within(&self, wait: Duration) -> bool {
         let ms = u32::try_from(wait.as_millis()).unwrap_or(INFINITE - 1);
         // SAFETY: a valid event handle.
@@ -78,7 +78,7 @@ impl Watch {
     }
 }
 
-/// Before PLAY runs play.py: the watcher of an earlier run (if any) lets go.
+/// Before Launcher runs play.py: the watcher of an earlier run (if any) lets go.
 pub fn take_over(kit: &Kit) {
     let Ok(w) = Watch::open(kit) else { return };
     // SAFETY: valid handles; the mutex is released by the thread that took it.
@@ -95,13 +95,13 @@ pub fn take_over(kit: &Kit) {
 /// finds by itself whether there is a run to watch, and ends at once if not.
 pub fn spawn_watcher(kit: &Kit) {
     // Windows hands a child every inheritable handle (std's Command always lets it inherit).  This window's own
-    // input and output must not go along: a program that reads PLAY's output through a pipe would otherwise
+    // input and output must not go along: a program that reads Launcher's output through a pipe would otherwise
     // wait for the watcher - for the whole game (found 2026-10-08: a stop returned 35 s late).
     for std in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
         // SAFETY: this process's own standard handles; a missing one makes the call fail harmlessly.
         unsafe { SetHandleInformation(GetStdHandle(std), HANDLE_FLAG_INHERIT, 0) };
     }
-    let exe = env::current_exe().unwrap_or_else(|_| kit.dir.join("PLAY.exe"));
+    let exe = env::current_exe().unwrap_or_else(|_| kit.dir.join("Launcher.exe"));
     let started = Command::new(exe)
         .arg("--watch")
         .stdin(Stdio::null())
@@ -111,11 +111,11 @@ pub fn spawn_watcher(kit: &Kit) {
         .spawn();
     if let Err(e) = started {
         println!("(Closing the game's window will not stop the rest - the watcher did not start: {e}.");
-        println!(" \"PLAY.exe stop\" does.)");
+        println!(" \"Launcher.exe stop\" does.)");
     }
 }
 
-/// `--watch`: once a launcher of the run ends (its game window was closed), stops what is left - unless a PLAY takes
+/// `--watch`: once a launcher of the run ends (its game window was closed), stops what is left - unless a Launcher takes
 /// the watch over first.  A stop refused for a card session leaves the others watched.
 pub fn watch(kit: &Kit) {
     let Ok(w) = Watch::open(kit) else { return };
@@ -168,7 +168,7 @@ fn stop_refused(kit: &Kit) -> bool {
 }
 
 /// How many game windows the run on record has (its cabinet and projector launchers in data\running.json, ended or
-/// not): PLAY's window goes once a start has some, and the process watches them.
+/// not): Launcher's window goes once a start has some, and the process watches them.
 pub fn run_recorded(kit: &Kit) -> usize {
     fs::read_to_string(kit.data().join("running.json")).map_or(0, |text| launcher_pids(&text).len())
 }
@@ -237,8 +237,8 @@ fn open_with_image(pid: u32) -> Option<(OwnedHandle, PathBuf)> {
 }
 
 /// A program that runs from the kit folder (the kit's Python, a launcher, the injector ...), this one aside: the game
-/// or a kit tool is on.  PLAY.exe's UPDATE writes over the kit only
-/// when there is none, and PLAY offers STOP THE GAME while there is one.
+/// or a kit tool is on.  Launcher.exe's UPDATE writes over the kit only
+/// when there is none, and Launcher offers STOP THE GAME while there is one.
 pub fn kit_program_running(kit: &Kit) -> Option<PathBuf> {
     let dir = fs::canonicalize(&kit.dir).ok()?;
     let mut pids = vec![0u32; 4096];

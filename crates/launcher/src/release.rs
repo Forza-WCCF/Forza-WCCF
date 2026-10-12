@@ -1,4 +1,4 @@
-//! The kit's releases at UPDATE_URL (2026-10-09): PLAY.exe's UPDATE lists them and says when a newer release is out.
+//! The kit's releases at UPDATE_URL (2026-10-09): Launcher.exe's UPDATE lists them and says when a newer release is out.
 //! Test builds (pre-releases) are never "newer": only a release is offered that way.
 
 use std::env;

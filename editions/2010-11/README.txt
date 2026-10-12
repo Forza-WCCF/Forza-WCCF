@@ -20,7 +20,7 @@ NEW IN KIT 6
     take over your match from somewhere else.
   - Antivirus: the kit's helper has its own name now (wccfk.dll) instead of posing as a Windows file - that is what
     Windows Defender deleted. Every program of the kit carries its name and version (right-click, Properties).
-  - PLAY.exe is the one window: play, game folder, language, UPDATE. SETUP.exe is gone (PLAY removes it).
+  - Launcher.exe is the one window: play, game folder, language, UPDATE. SETUP.exe is gone (Launcher removes it).
   - ITALIANO in the window's language and game text choices, and more English: players' full names in Latin letters
     and the last Japanese lines a player meets.
   - The kit's version is beside the SETTINGS title too.
@@ -30,8 +30,8 @@ NEW IN KIT 6
     snapshot of a crash - so the cause can be found without asking you. Never your club card. (ONLINE, below.)
   - Hosting a server: the server now gets players' messages only whole - the likely cause of "WCCF CONTROL NOT
     FOUND" removed.
-  - Updating from 5.x: PLAY's UPDATE (Setup and updates), then say yes to "set up now?". Unzipping over the old folder works too: the
-    first PLAY sets the game up for the new helper by itself, and the old folders (scripts\, bin\, overlay\,
+  - Updating from 5.x: Launcher's UPDATE (Setup and updates), then say yes to "set up now?". Unzipping over the old folder works too: the
+    first Launcher sets the game up for the new helper by itself, and the old folders (scripts\, bin\, overlay\,
     english\) are tidied away - your own files in them stay. Your clubs, keys and settings are never touched.
 
 NEW IN KIT 5.5.1
@@ -123,27 +123,27 @@ YOU NEED
 SETUP (once)
   1. Unzip this kit into a folder of its own. Keep the game in a folder of its own too (e.g. D:\Games\WCCF).
      Plain paths are safest: the game has trouble with non-English letters in folder names.
-  2. Drag the game folder onto PLAY.exe. Or open PLAY.exe, open "Setup and updates", pick the game folder (BROWSE,
+  2. Drag the game folder onto Launcher.exe. Or open Launcher.exe, open "Setup and updates", pick the game folder (BROWSE,
      or drag it into the window) and click SET UP / REPAIR.
   3. Setup checks that your copy is Rev D, makes the changes listed under WHAT SETUP CHANGES, then makes the card
-     catalogue and the card pictures from your files (about a minute); what it does shows in PLAY's window.
+     catalogue and the card pictures from your files (about a minute); what it does shows in Launcher's window.
      Running it again checks and repairs.
-  PLAY.exe is one window for the rest too: LANGUAGE (the window's words: English, Italiano or Japanese, else
+  Launcher.exe is one window for the rest too: LANGUAGE (the window's words: English, Italiano or Japanese, else
   Windows' language), GAME TEXT (see ENGLISH), UNDO SETUP and UPDATE, folded under "Setup and updates" until wanted.
-  Updating: PLAY.exe says when a newer kit is out (a release, never a test build) and marks it "(newer)" under
-  UPDATE. For now there is no release site: UPDATE says "No update found" and PLAY.exe asks nobody. Once there
-  is one: close the game, open PLAY.exe, "Setup and updates": under UPDATE it lists the kit's releases and test builds
+  Updating: Launcher.exe says when a newer kit is out (a release, never a test build) and marks it "(newer)" under
+  UPDATE. For now there is no release site: UPDATE says "No update found" and Launcher.exe asks nobody. Once there
+  is one: close the game, open Launcher.exe, "Setup and updates": under UPDATE it lists the kit's releases and test builds
   ("What's new" opens one's page). Pick one, UPDATE: it is downloaded and put into this folder - data\ (your club,
   your other clubs, settings, keys, catalogue, logs) stays as it is - and the files the old kit had and the new one
-  does not are removed. Then PLAY offers to set up the game folder again, and the English with it if you use English.
+  does not are removed. Then Launcher offers to set up the game folder again, and the English with it if you use English.
   A server settings file you edited by hand is kept as .before-kit. By hand, or from Kit 5.4 and older: unzip the new
-  kit over the old folder, then open PLAY.exe (it removes the old .bat files, ENGLISH.exe and SETUP.exe), SET UP /
+  kit over the old folder, then open Launcher.exe (it removes the old .bat files, ENGLISH.exe and SETUP.exe), SET UP /
   REPAIR, and ENGLISH if you use English.
 
 PLAY
-  PLAY.exe starts everything in about 30 seconds: the server, the projector's window, seat 1's window with the
+  Launcher.exe starts everything in about 30 seconds: the server, the projector's window, seat 1's window with the
   panel, and the key driver. Only two windows open, the projector's and seat 1's: the server and the kit's helpers
-  run in the background ("PLAY.exe show" shows the server's console and settings window; "PLAY.exe debug" opens
+  run in the background ("Launcher.exe show" shows the server's console and settings window; "Launcher.exe debug" opens
   every window and keeps full logs).
   Sound: the projector starts muted and seat 1 at 4% of the PC's volume, so the same sounds do not play twice and
   nothing is loud at the start. Windows' Volume Mixer changes either while you play; the next start sets them again.
@@ -174,7 +174,7 @@ PLAY
 SETTINGS (left side, under CARD)
   NOW: the link to the server, your card's session, its bad endings, its last save and backup, the game's text.
   NEXT START: THIS PC (everything on this PC) or ONLINE with a server's address (the cabinets on this PC play on
-  that server), and ENGLISH or JAPANESE (does what PLAY.exe's GAME TEXT does, at the next start). They are kept in
+  that server), and ENGLISH or JAPANESE (does what Launcher.exe's GAME TEXT does, at the next start). They are kept in
   data\panel.txt. RESTART NOW (click it twice) starts the game again with them - not during a match. When the
   server and the language stay the same, only your cabinet restarts and the projector keeps running.
   VIEW, changes at once: LAYOUT CABINET (the cabinet's buttons around the game) or COMPACT (the game larger,
@@ -206,19 +206,19 @@ QUIT
   would end that match without its save, and the card gets a "bad ending" (trade rights are lost at 2). So the first
   close only shows a warning over the game; close again within 8 seconds to quit anyway. (Closing the projector's
   window during a match leaves seat 1 playing; close seat 1 after the match.)
-  A server started with "PLAY.exe server" has no window: "PLAY.exe stop" ends it. A cabinet that played on it from
+  A server started with "Launcher.exe server" has no window: "Launcher.exe stop" ends it. A cabinet that played on it from
   this same PC leaves it running for the other players when its window closes.
   A game window that goes by itself (a crash, not a close) stops nothing else: the projector keeps running. Its log
-  says what happened (data\logs\run_seat1.txt or run_projector.txt); "PLAY.exe stop" ends the rest.
-  A game that is stuck (no window to close, or it will not close): "PLAY.exe stop force".
+  says what happened (data\logs\run_seat1.txt or run_projector.txt); "Launcher.exe stop" ends the rest.
+  A game that is stuck (no window to close, or it will not close): "Launcher.exe stop force".
 
 ONLINE (play with others on one server)
-  One PC hosts: "PLAY.exe server" starts only the server, in the background - no game window opens, and the
-  window that started it closes by itself after 30 seconds while the server keeps running ("PLAY.exe stop" ends
+  One PC hosts: "Launcher.exe server" starts only the server, in the background - no game window opens, and the
+  window that started it closes by itself after 30 seconds while the server keeps running ("Launcher.exe stop" ends
   it). That PC must let in TCP ports 20002, 20030 and 20050 and UDP 20040; at home behind a router, forward those
-  ports to it. Logs that players send with SEND LOGS are kept there in data\player_logs. Each player: "PLAY.exe remote" and the server's address (e.g. PLAY.exe remote 192.168.1.20), or ONLINE
+  ports to it. Logs that players send with SEND LOGS are kept there in data\player_logs. Each player: "Launcher.exe remote" and the server's address (e.g. Launcher.exe remote 192.168.1.20), or ONLINE
   in SETTINGS. Online, each PC runs only its own cabinet - no projector window; the server does not wait for one
-  (PLAY.exe local still has its own projector). The PC that hosts can play too: "PLAY.exe remote"
+  (Launcher.exe local still has its own projector). The PC that hosts can play too: "Launcher.exe remote"
   with its own local address (ipconfig shows it).
   When an online game ends badly - the game crashed, or its link to the server was lost (Error 3000) - the kit sends
   this PC's logs to that server by itself, the same as SEND LOGS: never your club card, and your Windows user name and
@@ -227,7 +227,7 @@ ONLINE (play with others on one server)
   To switch this off: a line auto_logs=0 in data\panel.txt.
 
 ENGLISH (optional)
-  ENGLISH (in PLAY.exe, GAME TEXT) puts the game into English: about 7,200 lines of screen text, the players'
+  ENGLISH (in Launcher.exe, GAME TEXT) puts the game into English: about 7,200 lines of screen text, the players'
   names, short and full (the original Latin spelling, e.g. M.DIARRA and Mahamadou DIARRA) and skill names, the CPU
   teams' names, the projector's "Next match" ticker, the dates on seat 1 (e.g. 2026/10/5 on the manager license), money in dollars, and the
   shop's name on the projector's awards ("Local Shop" - also inside the server program, the only change ENGLISH
@@ -246,14 +246,14 @@ ENGLISH (optional)
   from the original European English of the older WCCF (lines with the same Japanese).
 
 ITALIANO (optional)
-  ITALIANO (in PLAY.exe, GAME TEXT) does what ENGLISH does, in Italian: each line is this kit's Italian, else
+  ITALIANO (in Launcher.exe, GAME TEXT) does what ENGLISH does, in Italian: each line is this kit's Italian, else
   the original Italian of the older European WCCF (lines with the same Japanese), else the English - never Japanese.
   The game's font has no accented letters, so they are written with an apostrophe (perche', citta'). Names of players, CPU teams and supporters' nicknames
   stay as in English (the game puts a nickname's adjective first, which Italian cannot follow); money stays in
   dollars. JAPANESE puts the original files back, ENGLISH switches to English. The SETTINGS panel in the game offers
   only ENGLISH and JAPANESE for now.
 
-WHAT SETUP CHANGES   (UNDO SETUP in PLAY.exe takes all of it back out)
+WHAT SETUP CHANGES   (UNDO SETUP in Launcher.exe takes all of it back out)
   game folder     adds winmm.dll (the kit's hook) and winmm_orig.dll (a copy of your Windows' own winmm.dll)
                   (the hook also keeps the server from starting the original logowin.exe, which opens a white window
                   over the whole screen; a kit that had put a stand-in in its place puts the originals back)
@@ -275,8 +275,8 @@ GOOD TO KNOW
   - One copy at a time on a PC.
   - If both pictures freeze while the sound goes on, Windows took the graphics device away from the game
     (a display change, Ctrl+Alt+Del, an administrator prompt ...). The game cannot recover from that:
-    close its window (or PLAY.exe stop force), then PLAY.exe.
-  - Logs are in data\logs ("PLAY.exe debug" keeps more; the card reader's full log grows about 60 MB an hour).
+    close its window (or Launcher.exe stop force), then Launcher.exe.
+  - Logs are in data\logs ("Launcher.exe debug" keeps more; the card reader's full log grows about 60 MB an hour).
     If a game window closes by itself, its log (run_seat1.txt, run_projector.txt or run_server.txt) says how,
     and for the game's own "invalid parameter" stop it names the function that caused it - share that log.
     The previous run's logs are in data\logs\previous; older runs are zipped in data\logs\archive (about the
@@ -286,7 +286,7 @@ GOOD TO KNOW
     seat1\wccfpanel.log (beside the game folder) as a "badfmt:" line - please share that line.
   - The arcade printed the player cards you earn from a dispenser. There is none here, so the game counted every
     card as owed ("You are owed N Player Card(s)"). The panel now tells the game nothing is owed.
-  - The game is in Japanese; PLAY.exe's GAME TEXT: ENGLISH translates most of it (see ENGLISH).
+  - The game is in Japanese; Launcher.exe's GAME TEXT: ENGLISH translates most of it (see ENGLISH).
   - Windows 11 slows the timers of a program whose window is minimized or covered, and the server's window starts
     minimized: its loop then ran too slowly for the projector's live matches, which stuttered. The kit tells
     Windows not to slow any of the game's programs (data\logs\run_server.txt: "Windows' throttling off").
@@ -305,7 +305,7 @@ FOLDERS
              European English), cpu_names.tsv (team names), exe_text.tsv (the ticker, the dates, money, the
              shop's name), pictures.tsv (writing in the game's pictures); italian\: the Italian, with the original
              Italian where the Japanese is the same - text and fingerprints only
-  source\    the source of every program in programs\ (C) and of PLAY.exe (Rust,
+  source\    the source of every program in programs\ (C) and of Launcher.exe (Rust,
              source\launcher) - source\README.txt: how they were built
   python\    Python 3.13 (python.org's embeddable build) with Pillow
   data\      made on your PC: settings (panel.txt), your club card (save\, with backup\ and your other clubs in

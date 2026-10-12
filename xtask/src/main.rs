@@ -81,7 +81,7 @@ const MAP_1718: &[(&str, &str)] = &[
 ];
 const TOP_1718: &str = "WCCF-2017-18-kit";
 /// Built into the staged kit, so staging leaves them alone.
-const KEEP: &[&str] = &["programs", "PLAY.exe", "source/build"];
+const KEEP: &[&str] = &["programs", "Launcher.exe", "source/build"];
 /// Built into the staged 2017-18 kit (`source/build` also holds the guard wccfnet.dll, which the kit does not ship, and the guard tests).
 const KEEP_1718: &[&str] = &[
     "bin/winmm.dll",
@@ -102,7 +102,7 @@ const PROGRAMS_1718: &[&str] = &[
 ];
 /// What the kit must hold after a build and a package (the ZIP also gets python.exe from git).
 const PROGRAMS: &[&str] = &[
-    "PLAY.exe",
+    "Launcher.exe",
     "programs/wccfk.dll",
     "programs/FPR_Emu.exe",
     "programs/wccfpanel.dll",
@@ -401,10 +401,10 @@ fn build(root: &Path, kit: &Path, cc: &Cc) -> Result<()> {
     ]);
     run_ok(c, "cargo build -p launcher")?;
     fs::copy(
-        root.join("target").join(TARGET).join("release").join("PLAY.exe"),
-        kit.join("PLAY.exe"),
+        root.join("target").join(TARGET).join("release").join("Launcher.exe"),
+        kit.join("Launcher.exe"),
     )?;
-    println!("built {}", kit.join("PLAY.exe").display());
+    println!("built {}", kit.join("Launcher.exe").display());
     Ok(())
 }
 
@@ -723,7 +723,7 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
 
     // the launchers run python\python.exe code\<script>: the kit's modules are found ONLY through python\python313._pth
     // (2026-10-11: scripts\ was renamed to code\ but the _pth still said ..\scripts - every test adds code\ to the path
-    // itself, so they all passed while a real PLAY.exe could not import kit_common). Every file, every folder.
+    // itself, so they all passed while a real Launcher.exe could not import kit_common). Every file, every folder.
     ck.test(
         "every file in code\\ imports through python313._pth, as the launchers run them",
         "test_imports.py",
