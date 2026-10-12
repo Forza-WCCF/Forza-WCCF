@@ -3,7 +3,7 @@
 //!                dropped on the window or on SETUP.exe, and remembered by setup.py in data\settings.json
 //!   LANGUAGE     the game in English (code\english.py on), in Italian (english.py on it) or Sega's Japanese back
 //!                (english.py off)
-//!   UPDATE       the kit's GitHub releases and test builds (pre-releases): the chosen one's kit ZIP is downloaded,
+//!   UPDATE       the kit's releases (UPDATE_URL, a placeholder for now) and test builds (pre-releases): the chosen one's kit ZIP is downloaded,
 //!                unzipped into data\update and copied over the kit folder - data\ (club cards, keys, settings, logs)
 //!                is never written, and nothing is copied while the game or a kit tool runs.  Files the old kit
 //!                shipped (files.txt) that the new one does not are removed; then setup runs again, and the language if on.
@@ -27,7 +27,7 @@ use std::time::Duration;
 use std::{env, fs, mem, ptr, thread};
 
 use launcher::Kit;
-use launcher::release::{REPO, curl, is_newer, system32};
+use launcher::release::{UPDATE_URL, curl, is_newer, no_target, system32};
 use serde_json::Value;
 use text::{fill, t};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
@@ -147,9 +147,9 @@ fn log(line: &str) {
     s.changed = true;
 }
 
-// ---- the kit's releases on GitHub -------------------------------------------------------------------------------
+// ---- the kit's releases at UPDATE_URL ---------------------------------------------------------------------------
 
-/// The releases that have a kit ZIP, newest first (as GitHub lists them).
+/// The releases that have a kit ZIP, newest first (as the target lists them, in GitHub's shape).
 fn releases(json: &str) -> Result<Vec<Release>, String> {
     let list: Vec<Value> = serde_json::from_str(json).map_err(|e| format!("not a list of releases ({e})"))?;
     let zip = |a: &&Value| {
@@ -175,8 +175,12 @@ fn releases(json: &str) -> Result<Vec<Release>, String> {
         .collect())
 }
 
+/// No release target yet (release::no_target): no releases, so UPDATE says it found none.
 fn fetch() -> Result<Vec<Release>, String> {
-    let api = format!("https://api.github.com/repos/{REPO}/releases?per_page=30");
+    if no_target() {
+        return Ok(Vec::new());
+    }
+    let api = format!("{UPDATE_URL}releases?per_page=30");
     let out = curl()
         .args(["-H", "Accept: application/vnd.github+json", "--url", &api])
         .output()
@@ -597,7 +601,9 @@ fn update_clicked(hwnd: HWND) {
 }
 
 fn open_notes(hwnd: HWND) {
-    let page = selected(hwnd).map_or_else(|| format!("https://github.com/{REPO}/releases"), |r| r.page);
+    let Some(page) = selected(hwnd).map(|r| r.page) else {
+        return; // no release picked: no page to open
+    };
     // SAFETY: NUL-terminated strings; Windows opens the page in the default browser.
     unsafe {
         ShellExecuteW(
@@ -929,6 +935,11 @@ mod tests {
             ("https://a/z", 7, "2026-10-09")
         );
         assert!(releases(r#"{"message": "API rate limit exceeded"}"#).is_err());
+    }
+
+    #[test]
+    fn placeholder_finds_no_update() {
+        assert!(fetch().is_ok_and(|list| list.is_empty())); // the window then says t().none_listed, not an error
     }
 
     #[test]

@@ -1,4 +1,4 @@
-//! The kit's releases on GitHub (2026-10-09): SETUP.exe's UPDATE lists them; PLAY.exe says when a newer release is
+//! The kit's releases at UPDATE_URL (2026-10-09): SETUP.exe's UPDATE lists them; PLAY.exe says when a newer release is
 //! out.  Test builds (pre-releases) are never "newer": only a release is offered that way.
 
 use std::env;
@@ -12,7 +12,15 @@ use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
 use crate::Kit;
 
-pub const REPO: &str = "Forza-WCCF/WCCF-Kit-1011";
+/// Where UPDATE looks for releases, answered in the shape of GitHub's releases API (`releases?per_page=30`,
+/// `releases/latest`).  A placeholder until Forza-WCCF has a release target (ROADMAP step 2): `.invalid` never
+/// resolves (RFC 2606).  Pointing UPDATE at a real target is this one line.
+pub const UPDATE_URL: &str = "https://updates.invalid/wccf/";
+
+/// No release target yet: UPDATE finds nothing and nobody is asked.
+pub fn no_target() -> bool {
+    UPDATE_URL.contains(".invalid/")
+}
 
 /// Windows' own program, by full path: never a curl.exe or tar.exe that lies in the kit folder.
 pub fn system32(exe: &str) -> Command {
@@ -71,7 +79,10 @@ pub struct LatestRelease(Option<Child>);
 
 impl LatestRelease {
     pub fn ask() -> Self {
-        let api = format!("https://api.github.com/repos/{REPO}/releases/latest");
+        if no_target() {
+            return Self(None);
+        }
+        let api = format!("{UPDATE_URL}releases/latest");
         let child = curl()
             .args([
                 "--max-time",
@@ -87,7 +98,7 @@ impl LatestRelease {
         Self(child.ok())
     }
 
-    /// Its tag if GitHub has answered within `wait` (an offline PC never holds anything up); else the ask is dropped.
+    /// Its tag if the target has answered within `wait` (an offline PC never holds anything up); else the ask is dropped.
     pub fn tag(self, wait: Duration) -> Option<String> {
         let mut child = self.0?;
         let end = Instant::now() + wait;
@@ -125,5 +136,11 @@ mod tests {
         assert!(is_newer("kit-6", "kit-6-test-af17138"));
         assert!(!is_newer("kit-5.5.1", "kit-6-test-af17138"));
         assert!(is_newer("kit-6.1", "kit-6-test-af17138"));
+    }
+
+    #[test]
+    fn placeholder_asks_nobody() {
+        assert!(no_target());
+        assert!(LatestRelease::ask().tag(Duration::ZERO).is_none());
     }
 }

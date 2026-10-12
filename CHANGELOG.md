@@ -11,6 +11,8 @@ game is not included. Newest first; each date is the day that kit was built.
   projector once the cabinet is up, as before Kit 5.5. Kit 5.5 had the kit's hook load it from inside the game; that
   change caused problems and is undone, and the hook no longer reads `WCCF_PANEL`. Antivirus programs may dislike
   inject.exe: it writes into the running game from outside (VirtualAllocEx + CreateRemoteThread).
+- UPDATE no longer looks on GitHub: it points at a placeholder address until Forza-WCCF has a release site, and
+  says "No update found" (in English, Italian and Japanese). PLAY.exe no longer asks for a newer kit.
 
 ## Kit 6 - 2026-10-11
 

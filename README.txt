@@ -130,7 +130,8 @@ SETUP (once)
   SETUP.exe is one window for the rest too: GAME LANGUAGE (see ENGLISH), UNDO SETUP, and UPDATE. Its own words are
   in English, or in Italian or Japanese when Windows is.
   Updating: PLAY.exe says when a newer kit is out (a release, never a test build), and so does SETUP.exe, which marks
-  it "(newer)". Close the game, open SETUP.exe: under UPDATE it lists the kit's releases and test builds on GitHub
+  it "(newer)". For now there is no release site: UPDATE says "No update found" and PLAY.exe asks nobody. Once there
+  is one: close the game, open SETUP.exe: under UPDATE it lists the kit's releases and test builds
   ("What's new" opens one's page). Pick one, UPDATE: it is downloaded and put into this folder - data\ (your club,
   your other clubs, settings, keys, catalogue, logs) stays as it is - and the files the old kit had and the new one
   does not are removed. Then SETUP offers to set up the game folder again, and the English with it if you use English.

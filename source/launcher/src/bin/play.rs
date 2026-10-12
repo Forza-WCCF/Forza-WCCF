@@ -2,7 +2,7 @@
 //! "status", "show", "restart"; play.py's own help lists them).  After a good start the window closes in 30 seconds;
 //! after a problem, or with "debug", it stays until a key.  The run's watcher stays behind (closing a game window
 //! quits the game: the rest stops too); "status" and "show" only look, so they leave the watch alone.  "stop" (a
-//! game that is stuck) and "stop force" go to play.py like the rest.  Meanwhile it asks GitHub for the kit's latest
+//! game that is stuck) and "stop force" go to play.py like the rest.  Meanwhile it asks UPDATE_URL for the kit's latest
 //! release (not a test build) and says so when it is newer than this kit.
 
 use std::ffi::OsString;
