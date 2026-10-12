@@ -5,7 +5,7 @@ r"""cards1718.py - make the CATALOGUE's files from your own copy of WCCF 2017-18
       GAME  the folder with client_Release.exe in it (the decrypted 2017-18 "game" folder)
       OUT   where catalogue.tsv and cards\ are written (the overlay's folder)
     python cards1718.py GAME          the self-check only: every check below, nothing written
-      (needs Pillow; finds cards.py and ys_lzw.py in ../../kit/scripts or on PYTHONPATH)
+      (needs Pillow; finds cards.py and ys_lzw.py in ../../legacy/2017-18/kit/scripts or on PYTHONPATH)
 
 Writes  catalogue.tsv           one line per card: number, season, rarity, names, line, club, the six stats, total ...
                                 (columns 0-30 exactly as cards.py writes them for 2010-11: the overlay reads them by
@@ -33,7 +33,7 @@ import re
 import struct
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "kit", "scripts"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "legacy", "2017-18", "kit", "scripts"))
 import cards as C               # the 2010-11 maker: its xaf reader, string helpers, cell(), picture writer
 import ys_lzw                   # noqa: F401  (cards.write_pictures uses it; imported here so a missing file fails early)
 

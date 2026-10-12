@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Set up the WCCF 2017-18 (SDDY) runtime for the adapted 2010-11 kit. Run from WSL.
 
-    WCCF1718_GAME=/path/to/decrypted/game  python3 tools/setup1718.py
+    WCCF1718_GAME=/path/to/decrypted/game  python3 legacy/2017-18/tools/setup1718.py   (needs target/kit/2017-18: cargo xtask stage 2017-18)
 
     WCCF1718_GAME     the decrypted 2017-18 game folder (client_Release.exe ...), read only - required
     WCCF1718_RUNTIME  the runtime folder on an NTFS drive (default <runtime>); it must already hold a
@@ -22,8 +22,10 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 SRC = Path(os.environ.get("WCCF1718_GAME") or sys.exit("set WCCF1718_GAME to the decrypted 2017-18 game folder"))
 RT = Path(os.environ.get("WCCF1718_RUNTIME", "<runtime>"))
-GAME, SEAT, KIT = RT / "game", RT / "seat1", HERE.parent / "kit"
-NETGUARD = HERE / "netguard"
+ROOT = HERE.parent.parent.parent  # the repository root
+# the staged kit (cargo xtask stage 2017-18; restart.sh makes it) holds bin\ and overlay\; netguard's wccfnet.dll is not in the kit
+GAME, SEAT, KIT = RT / "game", RT / "seat1", ROOT / "target" / "kit" / "2017-18"
+NETGUARD = ROOT / "native" / "2017-18" / "netguard"
 WINMM = Path("/mnt/c/Windows/SysWOW64/winmm.dll")
 # the name the original logowin.exe is kept under beside it (the kit's setup restores from it)
 LOGOWIN_BACKUP = "logowin_" + bytes.fromhex("73656761").decode() + ".exe"
