@@ -25,7 +25,10 @@ is in progress. See [docs/PROGRESS.md](docs/PROGRESS.md) and [docs/TASKS.md](doc
 ## Quick start (from WSL)
 
 1. Copy the decrypted game folder to an NTFS runtime folder as `<runtime>/game` (default `<runtime>`).
-2. `WCCF1718_GAME=<decrypted game> tools/restart.sh first run1` (setup + start), or after setup run
+2. `WCCF1718_GAME=<decrypted game> legacy/2017-18/tools/restart.sh first run1` (setup + start), after `cargo xtask
+   build` on Windows in the same checkout. The decrypted game is the untouched original whose `client_Release.exe`
+   still imports `IPHLPAPI.DLL` (here: `ringedge/1718-decryption-20261007-1944/game`); the `D:\wccf-1718-*` copies are
+   already guarded and fail setup's check. Or, after setup, run
    `<runtime>\kit\PLAY1718.bat` on Windows. Stop: `kit\STOP.bat force`.
 3. Keys: Enter START, X decide, arrows tactics, 5 coin, F11 window size.
 
