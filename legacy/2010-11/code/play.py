@@ -93,7 +93,7 @@ def kit_pythons():
     run the kit's own python\\python.exe, whichever Python runs this (2026-10-06: "stop" run with the system's Python
     matched THAT one - it found 0 and left 6 stand-ins running, and would have stopped any other program of it)"""
     kit_py = os.path.join(K.KIT, "python", "python.exe")
-    me = os.path.normcase(kit_py if os.path.isfile(kit_py) else PY)
+    me = K.same_form(kit_py if os.path.isfile(kit_py) else PY)
     return [p for p in K.processes() if os.path.normcase(p[3]) == me and p[0] != os.getpid()]
 
 
@@ -268,7 +268,7 @@ def not_server_side(running, roles, py=None):
     """of the running processes (pid, parent, name, path), those that are NOT a server started with "server": the
     server, its match engines and logowin (children of the server), and the kit pythons whose role is the scene
     service or the server launcher"""
-    py = os.path.normcase(py or PY)
+    py = K.same_form(py or PY)
     servers = {p[0] for p in running if p[2].lower() == "control_release.exe"}
     out = []
     for p in running:
@@ -825,7 +825,7 @@ def club_session():
 def stop_guard(force, check, game, seat):
     """The card rule (below), for a stop and for a cabinet restart (2026-10-07): (3, ...) refused - said why - or
     (0, card in?, session state) to go on"""
-    seat_up = any(os.path.normcase(os.path.dirname(p[3])) == os.path.normcase(seat)
+    seat_up = any(os.path.normcase(os.path.dirname(p[3])) == K.same_form(seat)
                   for p in K.game_processes(game) if p[2].lower() == "client_release.exe")
     c = card_in()
     sess, bad = club_session()
@@ -1048,7 +1048,7 @@ def restart_cabinet():
     say("Restarting seat %d's cabinet only - the projector keeps running." % seat_no)
     alive = {p[0] for p in kit_pythons()}
     doomed = [pid for pid, role in roles.items() if is_cabinet_role(role) and pid in alive]
-    seat_dir = os.path.normcase(seat)
+    seat_dir = K.same_form(seat)
     clients = {p[0] for p in K.game_processes(game)
                if p[2].lower() == "client_release.exe" and os.path.normcase(os.path.dirname(p[3])) == seat_dir}
     for pid in doomed:                       # the seat launcher takes its cabinet (and its match engines) down with it

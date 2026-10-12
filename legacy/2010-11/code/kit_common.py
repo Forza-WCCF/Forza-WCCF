@@ -189,9 +189,17 @@ def processes():
     return full
 
 
+def same_form(path):
+    """a path in the form Windows reports a running program's (QueryFullProcessImageNameW): junctions resolved, case
+    folded. A kit started through its first-run link C:\\Games\\Forza-WCCF\\2010-2011 runs programs that Windows
+    reports under the link's target, so a path made from this kit's folder must be put in this form before it is
+    compared with a process's (2026-10-12: "stop" found none of the kit's helpers and left them running)"""
+    return os.path.normcase(os.path.realpath(path))
+
+
 def game_processes(game):
     """the WCCF 2010-11 programs running from this game's folders (extracted, seat1, misc)"""
-    root = os.path.normcase(os.path.dirname(os.path.abspath(game))) + os.sep
+    root = same_form(os.path.dirname(os.path.abspath(game))) + os.sep
     return [p for p in processes() if p[2].lower() in GAME_EXES and os.path.normcase(p[3]).startswith(root)]
 
 

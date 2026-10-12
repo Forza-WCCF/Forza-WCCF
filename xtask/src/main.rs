@@ -794,6 +794,11 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
         "test_ended.py",
         false,
     );
+    ck.test(
+        "a program started through a junction (the first-run link) is found by the kit's path checks",
+        "test_junction_paths.py",
+        false,
+    );
     let c = ck.python(&[code.join("cards/edit.py").to_str().unwrap(), "--self-test"]);
     ck.run("club card editor self-test", c, true);
     ck.test(
