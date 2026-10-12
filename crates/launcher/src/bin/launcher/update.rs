@@ -329,7 +329,7 @@ mod tests {
         ]
         .map(String::from)
         .into();
-        let new: Vec<String> = ["play.exe"].map(String::from).into();
+        let new: Vec<String> = ["launcher.exe"].map(String::from).into();
         assert_eq!(obsolete(&old, &new), ["ENGLISH.exe", "SETUP.exe", "scripts\\old.py"]);
     }
 }

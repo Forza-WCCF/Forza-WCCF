@@ -85,11 +85,11 @@ fn same_path(a: &Path, b: &Path) -> bool {
 
 /// What the name holds, for a kit in `here`.
 fn slot(link: &Path, here: &Path) -> Slot {
-    if junction::exists(link).unwrap_or(false) {
-        let target = junction::get_target(link).ok();
+    // get_target, not junction::exists: that one follows the link and says "no" for a dead junction
+    if let Ok(target) = junction::get_target(link) {
         return Slot::Junction {
-            live: target.as_deref().is_some_and(Path::exists),
-            ours: target.as_deref().is_some_and(|t| same_path(t, here)),
+            live: target.exists(),
+            ours: same_path(&target, here),
         };
     }
     match fs::symlink_metadata(link) {
@@ -254,8 +254,7 @@ mod tests {
                 ours: true
             }
         );
-        fs::create_dir_all(&here).unwrap();
-        make(&link, &other, true).unwrap(); // repoint
+        make(&link, &other, true).unwrap(); // repoint the dead one
         assert_eq!(slot(&link, &other), Slot::Junction { live: true, ours: true });
         junction::delete(&link).unwrap();
         fs::remove_dir(&link).unwrap();
