@@ -1,5 +1,5 @@
 # package.ps1 - the kit ZIP that players download (2026-10-08), after build.ps1: the files git holds at HEAD
-# (git archive; .gitattributes keeps CI's own files out) plus the programs build.ps1 made, all under one folder
+# (git archive; .gitattributes keeps the repository's own files out) plus the programs build.ps1 made, all under one folder
 # WCCF-2010-11-kit\, as the kit was always shipped.  Writes dist\NAME.zip and dist\NAME.zip.sha256.
 #
 #   powershell -ExecutionPolicy Bypass -File source\package.ps1 [-Name WCCF-2010-11-kit-5.4]

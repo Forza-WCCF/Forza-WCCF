@@ -5,9 +5,8 @@ holds only their source (2026-10-08).  From a git checkout, build them all into 
     powershell -ExecutionPolicy Bypass -File source\check.ps1     the checks that need no game (code, key driver, panel)
     powershell -ExecutionPolicy Bypass -File source\package.ps1   the kit ZIP in dist\, as players get it
 
-Needs Visual Studio 2022 (or its Build Tools) with "Desktop development with C++", and rustup.  CI
-(.github\workflows\kit.yml) runs the same three on every push and pull request; a tag kit-* also gets a draft
-release with the ZIP.  The commands each program is built with, for the record (build.ps1 adds /Brepro, so the same
+Needs Visual Studio 2022 (or its Build Tools) with "Desktop development with C++", and rustup.  The
+commands each program is built with, for the record (build.ps1 adds /Brepro, so the same
 source gives the same file, and keeps the compiler's leftovers in source\build\):
 
 The C source of every program the kit ships. Each was built with Microsoft's C compiler for 32-bit x86

@@ -1,4 +1,5 @@
-# check.ps1 - the kit's own checks that need no game (2026-10-08), after build.ps1; CI runs it too (kit.yml):
+# check.ps1 - the kit's own checks that need no game (2026-10-08), after build.ps1:
+#   the launchers: cargo fmt, clippy (warnings fail) and their tests - what CI's kit.yml ran before .github\ went
 #   every script in code\ compiles with the kit's own Python (nothing written)
 #   the key driver's self-test (hardware\keyboard.py --selftest: a scratch file, nothing live)
 #   play.py's choice when a game window ends: a closed window stops the rest, a crash does not (source\test_ended.py)
@@ -163,6 +164,17 @@ foreach ($c in $side) {
     }
     Remove-Item $c.Out, "$($c.Out).err" -ErrorAction SilentlyContinue
 }
+
+# the launchers (Rust): format, lint, tests - the toolchain from launcher\rust-toolchain.toml, read in that folder
+Push-Location (Join-Path $PSScriptRoot 'launcher')
+try {
+    & cargo fmt --all -- --check
+    if ($LASTEXITCODE) { $failed += 'launchers: cargo fmt' }
+    & cargo clippy --locked --all-targets --target x86_64-pc-windows-msvc -- -D warnings
+    if ($LASTEXITCODE) { $failed += 'launchers: cargo clippy' }
+    & cargo test --locked --target x86_64-pc-windows-msvc
+    if ($LASTEXITCODE) { $failed += 'launchers: cargo test' }
+} finally { Pop-Location }
 
 if ($failed) { throw "FAILED: $($failed -join ', ')" }
 Write-Host 'all checks passed'

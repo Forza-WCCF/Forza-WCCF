@@ -2,7 +2,7 @@
 #   programs\wccfk.dll  programs\FPR_Emu.exe  programs\wccfpanel.dll  programs\inject.exe                   (C, 32-bit, MSVC)
 #   PLAY.exe  SETUP.exe                                                                        (Rust, 64-bit)
 # and source\build\fakegame.exe (tests only, not shipped).  Git holds none of them: run this after a checkout, or take
-# the kit ZIP that CI makes (.github\workflows\kit.yml runs this same script).
+# a kit ZIP that package.ps1 made.
 #
 #   powershell -ExecutionPolicy Bypass -File source\build.ps1
 #
