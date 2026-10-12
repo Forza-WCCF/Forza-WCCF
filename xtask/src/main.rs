@@ -401,7 +401,10 @@ fn build(root: &Path, kit: &Path, cc: &Cc) -> Result<()> {
     ]);
     run_ok(c, "cargo build -p launcher")?;
     fs::copy(
-        root.join("target").join(TARGET).join("release").join("Launcher.exe"),
+        root.join("target")
+            .join(TARGET)
+            .join("release")
+            .join("Launcher.exe"),
         kit.join("Launcher.exe"),
     )?;
     println!("built {}", kit.join("Launcher.exe").display());
