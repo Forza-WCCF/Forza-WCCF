@@ -5,6 +5,7 @@
 #[cfg(windows)]
 pub mod aime;
 pub mod aimedb;
+#[cfg(windows)]
 pub mod card_reader;
 pub mod gamesvr;
 #[cfg(windows)]

@@ -203,6 +203,7 @@ fn aime_replay() {
 }
 
 /// `YYYYMMDD-HHMMSS` in a file name -> `<t>` (the recorder's normalisation of the time stamps in backup names).
+#[cfg(windows)]
 fn norm_stamp(name: &str) -> String {
     let b = name.as_bytes();
     let mut out = String::new();
@@ -224,6 +225,7 @@ fn norm_stamp(name: &str) -> String {
 }
 
 /// Every file under `root`: (relative name with `/` and the stamp as `<t>`, size, sha256), sorted.
+#[cfg(windows)]
 fn listing(root: &std::path::Path) -> Vec<(String, u64, String)> {
     fn walk(dir: &std::path::Path, root: &std::path::Path, out: &mut Vec<(String, u64, String)>) {
         for e in std::fs::read_dir(dir).unwrap().flatten() {
