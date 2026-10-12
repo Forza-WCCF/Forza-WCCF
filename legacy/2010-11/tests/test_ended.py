@@ -41,10 +41,14 @@ assert why == ["run_seat1.txt: a crash recorded (SECOND-chance / FATAL)"], why
 why = play.went_wrong(seat, logs(run_seat1=CLOSED, server_link="2026-10-11 20:01:02 UP 1.2.3.4\n"
                                  "2026-10-11 20:09:40 LOST (it was up 518 s)\n"))
 assert why == ["server_link.txt: 2026-10-11 20:09:40 LOST (it was up 518 s)"], why
+assert play.went_wrong(seat, logs(run_seat1=CLOSED, server_link="2026-10-13 00:01:00 UP 1.2.3.4\n"
+                                 "2026-10-13 00:02:03 ENDED (it was up 63 s)\n")) == [], "the player closed it: no report"
 assert play.went_wrong(seat, logs(run_seat1=CLOSED, run_server="  STOP: invalid parameter\n")) == [
     "run_server.txt: a crash recorded (STOP: invalid parameter)"], "a crash of the server on this PC counts too"
 for sign in play.CRASH_SIGNS:                                    # the words must stay the launcher's own
     assert sign in dbg, "debugger.py no longer prints %r" % sign
 with open(os.path.join(KIT, "source", "panel", "wccfpanel.c"), encoding="utf-8") as f:
-    assert " LOST (it was up " in f.read(), "wccfpanel.c no longer writes the LOST line play.py looks for"
-print("ended: 16 checks passed")
+    panel = f.read()
+assert '"LOST"' in panel and " (it was up " in panel, "wccfpanel.c no longer writes the LOST line play.py looks for"
+assert '"ENDED"' in panel and "g_closing" in panel, "wccfpanel.c no longer calls a drop after a close ENDED"
+print("ended: 18 checks passed")

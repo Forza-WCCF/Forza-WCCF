@@ -3445,6 +3445,8 @@ static void sendlogs_poll(void)          // the board thread: the helper's answe
 // The server link, watched all the time (2026-10-11): SETTINGS looked only while it was open, so a link that dropped
 // mid-match left no trace - the player's side of an Error 3000.  One dated line in data\logs\server_link.txt (WCCF_LOGS,
 // a fresh file each run) when it comes up and when it drops; play.py's end of run sends the logs by itself after a drop.
+static volatile LONG g_closing = 0;     // the player closed the window: the link's drop that follows is the end, not a loss
+
 static void link_watch(void)
 {
     static int was = 0; static DWORD last = 0, up_at = 0;
@@ -3461,8 +3463,10 @@ static void link_watch(void)
         if ((f = fopen(path, "a")) != NULL) {
             if (now == 1) fprintf(f, "%04d-%02d-%02d %02d:%02d:%02d UP %s\n", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute,
                                   t.wSecond, peer);
-            else fprintf(f, "%04d-%02d-%02d %02d:%02d:%02d LOST (it was up %lu s)\n", t.wYear, t.wMonth, t.wDay, t.wHour,
-                         t.wMinute, t.wSecond, (unsigned long)((GetTickCount() - up_at) / 1000));
+            // closing the window drops the link too; that drop is ENDED, so play.py sends no report for it (2026-10-12:
+            // every online run the player closed was reported as gone wrong)
+            else fprintf(f, "%04d-%02d-%02d %02d:%02d:%02d %s (it was up %lu s)\n", t.wYear, t.wMonth, t.wDay, t.wHour,
+                         t.wMinute, t.wSecond, g_closing ? "ENDED" : "LOST", (unsigned long)((GetTickCount() - up_at) / 1000));
             fclose(f);
         }
     }
@@ -4753,6 +4757,7 @@ static LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM wp, LPARAM lp)
 {
     if (m == WM_WCCF_FS) { g_fs_msg_pending = 0; set_maximized(h, (int)wp); return 0; }
     if (m == WM_CLOSE && !close_allowed()) return 0;               // a match is on: warned once (close_allowed)
+    if (m == WM_CLOSE) InterlockedExchange(&g_closing, 1);         // the window goes: link_watch calls the drop ENDED
     if (m == WM_DEVICECHANGE) InterlockedExchange(&g_pad_rescan, 1);   // plugged in or out: KEYS looks again (passed on)
     if ((m == WM_KEYDOWN || m == WM_KEYUP) && wp == VK_F11) {        // F11: maximized <-> window (the game never sees it)
         if (m == WM_KEYDOWN && !(lp & 0x40000000) && g_sc_frames > 0 && !g_sc_fail) set_maximized(h, !is_maximized(h));
