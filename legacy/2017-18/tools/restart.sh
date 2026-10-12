@@ -5,7 +5,7 @@
 # and the controller from patches1718.py), start everything again and keep play.py's output as play-NEWTAG.txt.
 #   WCCF1718_GAME     decrypted game folder (needed by setup1718.py)
 #   WCCF1718_RUNTIME  runtime folder (default <runtime>)
-set -e
+set -eo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 RT=${WCCF1718_RUNTIME:-<runtime>}
 E=$RT/evidence
@@ -23,5 +23,5 @@ for p in bin/winmm.dll bin/logowin.exe bin/FPR_Emu.exe overlay/inject.exe overla
   [ -f "$ROOT/target/kit/2017-18/$p" ] || { echo "restart.sh: $p is missing - run cargo xtask build on Windows first" >&2; exit 1; }
 done
 cp -r "$ROOT/target/kit/2017-18/." "$RT/kit/"
-python3 -B "$HERE/setup1718.py" 2>&1 | grep -v -e CMD.EXE -e UNC -e wsl.localhost | grep seat1/
+python3 -B "$HERE/setup1718.py" 2>&1 | { grep -v -e CMD.EXE -e UNC -e wsl.localhost || true; } | tail -4
 cd "$RT/kit" && timeout 400 cmd.exe /c "set WCCF_GUARD_DLL=netguard.dll&& python\\python.exe scripts\\play.py local" 2>&1 | tee "$E/play-$2.txt" | head -12
