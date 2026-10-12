@@ -14,3 +14,13 @@
 
 # Python's caches (a script run from a checkout).
 __pycache__/
+
+# 2017-18: made by the kit's setup on a player's PC, and IDA databases
+/legacy/2017-18/kit/scripts/_jvs_seat1_input.txt
+*.i64
+*.id0
+*.id1
+*.id2
+*.nam
+*.til
+evidence/

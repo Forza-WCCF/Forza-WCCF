@@ -1,11 +1,12 @@
-//! `cargo xtask build | check | package 2010-11`: the 2010-11 kit's build, checks and ZIP, replacing
-//! source/build.ps1, check.ps1 and package.ps1.
+//! `cargo xtask build | check | package <edition> | stage <edition>`: the 2010-11 kit's build, checks and ZIP, replacing
+//! source/build.ps1, check.ps1 and package.ps1; the 2017-18 kit is staged and zipped from its committed programs.
 //!
 //! Windows host only for now (MSVC `cl` for the 32-bit C programs, the kit's own Windows Python for the tests).
 //! The WSL cross-build (`cargo xwin`, `clang-cl`) comes in a later step.
 //!
 //! The kit the players get is staged at `target/kit/2010-11/`, copied from the working tree by one table
-//! ([`MAP`]); the build puts its programs there, `check` tests that folder, `package` zips it.
+//! ([`MAP`]); the build puts its programs there, `check` tests that folder, `package` zips it. The 2017-18 kit
+//! ([`MAP_1718`]) is staged at `target/kit/2017-18/` the same way; `stage` only copies, so it runs on Linux too.
 
 use anyhow::{Context, Result, ensure};
 use clap::Parser;
@@ -25,13 +26,18 @@ enum Task {
     Build,
     /// fmt, clippy, tests, the kit's Python and C self-tests, the scrub
     Check,
+    /// Copy an edition's files into target/kit/<edition>/ (copies only; runs on Linux/WSL too)
+    Stage {
+        /// 2010-11 or 2017-18
+        edition: String,
+    },
     /// The kit ZIP in dist/
     Package {
         /// The edition to package
         edition: String,
         /// File name without .zip; version.txt is made from it
-        #[arg(long, default_value = TOP)]
-        name: String,
+        #[arg(long)]
+        name: Option<String>,
     },
 }
 
@@ -55,6 +61,28 @@ const MAP: &[(&str, &str)] = &[
     ("source/card_table/fpr_emu.c", "native/fpr_emu/fpr_emu.c"),
     ("source/launcher", "crates/launcher"),
 ];
+/// The staged 2017-18 kit <- the repository, same rules as [`MAP`]; later rows overlay earlier ones and a row may be one
+/// file. The kit's programs are the committed prebuilt ones (`native/2017-18/prebuilt`) until xtask builds them.
+const MAP_1718: &[(&str, &str)] = &[
+    ("", "legacy/2017-18/kit"), // scripts/ and the *.bat launchers
+    ("README.txt", "editions/2017-18/README.txt"),
+    ("english", "editions/2017-18/english"),
+    ("overlay/skin.tex", "editions/2017-18/overlay/skin.tex"),
+    ("python", "legacy/python"),
+    ("python/python313._pth", "legacy/2017-18/python313._pth"), // ..\scripts on the path
+    ("bin", "native/2017-18/prebuilt/bin"),
+    ("overlay", "native/2017-18/prebuilt/overlay"),
+    (
+        "overlay/netguard.dll",
+        "native/2017-18/netguard/netguard.dll",
+    ),
+    ("source/README.txt", "native/2017-18/README.txt"),
+    ("source/mxhook", "native/2017-18/mxhook"),
+    ("source/overlay", "native/2017-18/overlay"),
+    ("source/logowin", "native/2017-18/logowin"),
+    ("source/fpr_emu", "native/fpr_emu"),
+];
+const TOP_1718: &str = "WCCF-2017-18-kit";
 /// Built into the staged kit, so staging leaves them alone.
 const KEEP: &[&str] = &["programs", "PLAY.exe", "SETUP.exe", "source/build"];
 /// What the kit must hold after a build and a package (the ZIP also gets python.exe from git).
@@ -73,28 +101,37 @@ fn main() -> Result<()> {
         .context("no repository root")?
         .to_path_buf();
     let kit = root.join("target/kit/2010-11");
+    let kit_1718 = root.join("target/kit/2017-18");
     match Task::parse() {
         Task::Build => build(&root, &kit),
         Task::Check => check(&root, &kit),
-        Task::Package { edition, name } => {
-            ensure!(
-                edition == "2010-11",
-                "only the 2010-11 kit is packaged here (got {edition})"
-            );
-            package(&root, &kit, &name)
-        }
+        Task::Stage { edition } => match edition.as_str() {
+            "2010-11" => stage(&root, &kit, MAP, KEEP),
+            "2017-18" => stage(&root, &kit_1718, MAP_1718, &[]),
+            _ => anyhow::bail!("unknown edition {edition} (2010-11 or 2017-18)"),
+        },
+        Task::Package { edition, name } => match edition.as_str() {
+            "2010-11" => package(&root, &kit, &name.unwrap_or_else(|| TOP.into()), true),
+            "2017-18" => package(
+                &root,
+                &kit_1718,
+                &name.unwrap_or_else(|| TOP_1718.into()),
+                false,
+            ),
+            _ => anyhow::bail!("unknown edition {edition} (2010-11 or 2017-18)"),
+        },
     }
 }
 
 // ---- the staged kit ----
 
-/// Wipe the kit except the built outputs, then copy every tracked file of [`MAP`] from the working tree.
-fn stage(root: &Path, kit: &Path) -> Result<()> {
+/// Wipe the kit except the built outputs (`keep`), then copy every tracked file of `map` from the working tree.
+fn stage(root: &Path, kit: &Path, map: &[(&str, &str)], keep: &[&str]) -> Result<()> {
     fs::create_dir_all(kit)?;
-    wipe(kit, "")?;
+    wipe(kit, "", keep)?;
     let sh = Shell::new()?;
     sh.change_dir(root);
-    for (to, from) in MAP {
+    for (to, from) in map {
         let files = cmd!(sh, "git ls-files -z -- {from}").read()?;
         for f in files.split('\0').filter(|f| !f.is_empty()) {
             let src = root.join(f);
@@ -115,7 +152,7 @@ fn stage(root: &Path, kit: &Path) -> Result<()> {
     Ok(())
 }
 
-fn wipe(dir: &Path, rel: &str) -> Result<()> {
+fn wipe(dir: &Path, rel: &str, keep: &[&str]) -> Result<()> {
     for e in fs::read_dir(dir)? {
         let e = e?;
         let r = if rel.is_empty() {
@@ -123,12 +160,12 @@ fn wipe(dir: &Path, rel: &str) -> Result<()> {
         } else {
             format!("{rel}/{}", e.file_name().to_string_lossy())
         };
-        if KEEP.contains(&r.as_str()) {
+        if keep.contains(&r.as_str()) {
             continue;
         }
         if e.file_type()?.is_dir() {
-            if KEEP.iter().any(|k| k.starts_with(&format!("{r}/"))) {
-                wipe(&e.path(), &r)?;
+            if keep.iter().any(|k| k.starts_with(&format!("{r}/"))) {
+                wipe(&e.path(), &r, keep)?;
             } else {
                 fs::remove_dir_all(e.path())?;
             }
@@ -154,7 +191,7 @@ fn workspace_version(root: &Path) -> Result<String> {
 // ---- build ----
 
 fn build(root: &Path, kit: &Path) -> Result<()> {
-    stage(root, kit)?;
+    stage(root, kit, MAP, KEEP)?;
     let obj = kit.join("source/build");
     fs::create_dir_all(&obj)?;
     fs::create_dir_all(kit.join("programs"))?;
@@ -396,7 +433,7 @@ fn check(root: &Path, kit: &Path) -> Result<()> {
             "{p} is missing: run `cargo xtask build` first"
         );
     }
-    stage(root, kit)?;
+    stage(root, kit, MAP, KEEP)?;
     let mut ck = Checks {
         py: kit.join("python/python.exe"),
         kit: kit.to_owned(),
@@ -733,7 +770,7 @@ fn scrub(root: &Path, failed: &mut Vec<String>) -> Result<()> {
     let mut bad = vec![];
     let own = cmd!(
         sh,
-        "git grep -n -I -i -e {name} -e {kana} -- . :!legacy/python :!import/1718/kit/python"
+        "git grep -n -I -i -e {name} -e {kana} -- . :!legacy/python"
     )
     .ignore_status()
     .read()?;
@@ -756,12 +793,9 @@ fn scrub(root: &Path, failed: &mut Vec<String>) -> Result<()> {
             .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
             .flat_map(|l| ["-e".to_owned(), l.to_owned()])
             .collect();
-        let hits = cmd!(
-            sh,
-            "git grep -n -I -i -E {pats...} -- . :!legacy/python :!import/1718/kit/python"
-        )
-        .ignore_status()
-        .read()?;
+        let hits = cmd!(sh, "git grep -n -I -i -E {pats...} -- . :!legacy/python")
+            .ignore_status()
+            .read()?;
         bad.extend(hits.lines().map(str::to_owned));
     }
     for l in &bad {
@@ -777,17 +811,26 @@ fn scrub(root: &Path, failed: &mut Vec<String>) -> Result<()> {
 
 // ---- package ----
 
-fn package(root: &Path, kit: &Path, name: &str) -> Result<()> {
+/// `built`: the 2010-11 kit, whose programs `cargo xtask build` made and whose version information is checked. The 2017-18
+/// kit (`!built`) builds nothing: its programs are the committed prebuilt ones, which never had version information
+/// (so none is checked), and its ZIP holds exactly the staged tree plus version.txt and files.txt.
+fn package(root: &Path, kit: &Path, name: &str, built: bool) -> Result<()> {
+    let (top, map) = if built {
+        (TOP, MAP)
+    } else {
+        (TOP_1718, MAP_1718)
+    };
+    let programs: &[&str] = if built { PROGRAMS } else { &[] };
     let sh = Shell::new()?;
     sh.change_dir(root);
-    let mapped: Vec<&str> = MAP.iter().map(|m| m.1).collect();
+    let mapped: Vec<&str> = map.iter().map(|m| m.1).collect();
     let dirty = cmd!(sh, "git status --porcelain -- {mapped...}").read()?;
     ensure!(
         dirty.trim().is_empty(),
         "uncommitted changes in files the kit ships; commit them first:\n{dirty}"
     );
-    stage(root, kit)?;
-    for p in PROGRAMS {
+    stage(root, kit, map, if built { KEEP } else { &[] })?;
+    for p in programs {
         ensure!(
             kit.join(p).is_file(),
             "{p} is missing: run `cargo xtask build` first"
@@ -796,7 +839,7 @@ fn package(root: &Path, kit: &Path, name: &str) -> Result<()> {
 
     // every program must carry its version information: a nameless unsigned program is what Windows Defender's
     // machine learning flagged (Kit 5.5's first SETUP.exe, then its winmm.dll)
-    let list = PROGRAMS
+    let list = programs
         .iter()
         .map(|p| format!("'{}'", kit.join(p).display()))
         .collect::<Vec<_>>()
@@ -804,8 +847,12 @@ fn package(root: &Path, kit: &Path, name: &str) -> Result<()> {
     let script = format!(
         "{list} | ForEach-Object {{ $v = (Get-Item $_).VersionInfo; \"$($v.ProductName)|$($v.FileVersion)|$($v.FileDescription)\" }}"
     );
-    let info = cmd!(sh, "powershell -NoProfile -Command {script}").read()?;
-    for (p, line) in PROGRAMS.iter().zip(info.lines()) {
+    let info = if built {
+        cmd!(sh, "powershell -NoProfile -Command {script}").read()?
+    } else {
+        String::new()
+    };
+    for (p, line) in programs.iter().zip(info.lines()) {
         let f: Vec<&str> = line.trim().splitn(3, '|').collect();
         ensure!(
             f.len() == 3 && f[0] == PRODUCT && !f[1].is_empty(),
@@ -817,7 +864,7 @@ fn package(root: &Path, kit: &Path, name: &str) -> Result<()> {
     // for SETUP.exe's update: version.txt, which kit this is, and files.txt, every file this kit ships - an update removes
     // what the old kit's list has and the new one's does not
     let version = name
-        .strip_prefix(TOP)
+        .strip_prefix(top)
         .map_or(name, |v| v.strip_prefix('-').unwrap_or(v));
     if !version.is_empty() {
         fs::write(kit.join("version.txt"), format!("kit-{version}\r\n"))?;
@@ -840,12 +887,12 @@ fn package(root: &Path, kit: &Path, name: &str) -> Result<()> {
     let mut zip = zip::ZipWriter::new(fs::File::create(&zip_path)?);
     let opts = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
-    zip.add_directory(format!("{TOP}/"), opts)?;
+    zip.add_directory(format!("{top}/"), opts)?;
     for d in &dirs {
-        zip.add_directory(format!("{TOP}/{d}/"), opts)?;
+        zip.add_directory(format!("{top}/{d}/"), opts)?;
     }
     for f in &shipped {
-        zip.start_file(format!("{TOP}/{f}"), opts)?;
+        zip.start_file(format!("{top}/{f}"), opts)?;
         std::io::copy(&mut fs::File::open(kit.join(f))?, &mut zip)?;
     }
     zip.finish()?;
@@ -857,18 +904,18 @@ fn package(root: &Path, kit: &Path, name: &str) -> Result<()> {
     for i in 0..ar.len() {
         entries.insert(ar.by_index(i)?.name()?.into_owned()); // each entry's header reads
     }
-    let need = PROGRAMS
+    let need = programs
         .iter()
         .copied()
         .chain(["python/python.exe"])
         .chain((!version.is_empty()).then_some("version.txt"));
     let missing: Vec<_> = need
-        .filter(|n| !entries.contains(&format!("{TOP}/{n}")))
+        .filter(|n| !entries.contains(&format!("{top}/{n}")))
         .collect();
     ensure!(missing.is_empty(), "the ZIP lacks: {}", missing.join(", "));
     println!(
         "the ZIP has every program: {}, python/python.exe",
-        PROGRAMS.join(", ")
+        programs.join(", ")
     );
 
     let hash: String = Sha256::digest(fs::read(&zip_path)?)
