@@ -1,14 +1,13 @@
 //! `cargo xtask build | check | package <edition> | stage <edition>`: the 2010-11 kit's build, checks and ZIP, replacing
 //! source/build.ps1, check.ps1 and package.ps1; the 2017-18 kit is staged and zipped from its committed programs.
 //!
-//! Two hosts. WSL (Linux): `cargo xwin` for the Rust, `clang-cl` + `lld-link` + `llvm-rc` against the MSVC CRT and SDK
-//! that xwin caches for the 32-bit C programs; the tests run the Windows programs through WSL interop. Windows: MSVC `cl`
-//! (to be removed once the WSL build has had its guarded live runs).
+//! WSL is the one build host: `cargo xwin` for the Rust, `clang-cl` + `lld-link` + `llvm-rc` against the MSVC CRT and SDK
+//! that xwin caches for the 32-bit C programs; the tests run the Windows programs through WSL interop.
 //! `FORZA_STAGE_ROOT` (default `target/`) is where the kits are staged and the checks run; Windows programs get Windows paths.
 //!
 //! The kit the players get is staged at `target/kit/2010-11/`, copied from the working tree by one table
 //! ([`MAP`]); the build puts its programs there, `check` tests that folder, `package` zips it. The 2017-18 kit
-//! ([`MAP_1718`]) is staged at `target/kit/2017-18/` the same way; `stage` only copies, so it runs on Linux too.
+//! ([`MAP_1718`]) is staged at `target/kit/2017-18/` the same way; `stage` only copies.
 
 use anyhow::{Context, Result, ensure};
 use clap::Parser;
@@ -28,7 +27,7 @@ enum Task {
     Build,
     /// fmt, clippy, tests, the kit's Python and C self-tests, the scrub
     Check,
-    /// Copy an edition's files into target/kit/<edition>/ (copies only; runs on Linux/WSL too)
+    /// Copy an edition's files into target/kit/<edition>/ (copies only)
     Stage {
         /// 2010-11 or 2017-18
         edition: String,
@@ -110,6 +109,10 @@ const PROGRAMS: &[&str] = &[
 ];
 
 fn main() -> Result<()> {
+    ensure!(
+        cfg!(target_os = "linux"),
+        "cargo xtask runs in WSL (Linux); the Windows programs start through WSL interop"
+    );
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .context("no repository root")?
@@ -119,7 +122,7 @@ fn main() -> Result<()> {
     let kit_1718 = stage_root.join("kit/2017-18");
     match Task::parse() {
         Task::Build => {
-            let cc = Cc::new(&root)?;
+            let cc = Cc::new()?;
             build(&root, &kit, &cc).and_then(|()| build_1718(&root, &kit_1718, &cc))
         }
         Task::Check => check(&root, &stage_root, &kit, &kit_1718),
@@ -149,10 +152,9 @@ fn stage_root(root: &Path) -> PathBuf {
     std::env::var_os("FORZA_STAGE_ROOT").map_or_else(|| root.join("target"), PathBuf::from)
 }
 
-/// A path as the Windows programs want it: `wslpath -w` on Linux (a /mnt/e path becomes E:\..., anything else \\wsl.localhost\...).
+/// A path as the Windows programs want it: `wslpath -w` (a /mnt/e path becomes E:\..., anything else \\wsl.localhost\...).
 fn win(p: &Path) -> String {
-    if cfg!(unix)
-        && let Ok(o) = Command::new("wslpath").arg("-w").arg(p).output()
+    if let Ok(o) = Command::new("wslpath").arg("-w").arg(p).output()
         && o.status.success()
     {
         return String::from_utf8_lossy(&o.stdout).trim_end().to_owned();
@@ -162,7 +164,7 @@ fn win(p: &Path) -> String {
 
 /// A command argument for a Windows program: an absolute Linux path becomes a Windows path (other arguments pass as they are).
 fn win_arg(a: &str) -> String {
-    if cfg!(unix) && a.starts_with('/') {
+    if a.starts_with('/') {
         win(Path::new(a))
     } else {
         a.to_owned()
@@ -172,32 +174,27 @@ fn win_arg(a: &str) -> String {
 /// Before a Windows program starts from Linux: WSL hands the program only the variables listed in WSLENV, so list those the
 /// command sets (`/p`: a path, translated).
 fn run_env(c: &mut Command) {
-    if cfg!(unix) {
-        let list: Vec<String> = c
-            .get_envs()
-            .filter_map(|(k, v)| {
-                let v = v?.to_str()?;
-                Some(format!(
-                    "{}{}",
-                    k.to_str()?,
-                    if v.starts_with('/') { "/p" } else { "" }
-                ))
-            })
-            .collect();
-        if !list.is_empty() {
-            c.env("WSLENV", list.join(":"));
-        }
+    let list: Vec<String> = c
+        .get_envs()
+        .filter_map(|(k, v)| {
+            let v = v?.to_str()?;
+            Some(format!(
+                "{}{}",
+                k.to_str()?,
+                if v.starts_with('/') { "/p" } else { "" }
+            ))
+        })
+        .collect();
+    if !list.is_empty() {
+        c.env("WSLENV", list.join(":"));
     }
 }
 
-/// `cargo <sub>` for the Windows target: on Linux `cargo xwin <sub>` (the MSVC CRT and SDK come from xwin's cache, licence accepted
+/// `cargo xwin <sub>` for the Windows target (the MSVC CRT and SDK come from xwin's cache, licence accepted
 /// by the owner on 2026-10-12).
 fn rust(sub: &str, root: &Path) -> Command {
     let mut c = Command::new("cargo");
-    if cfg!(unix) {
-        c.arg("xwin");
-    }
-    c.arg(sub).current_dir(root);
+    c.args(["xwin", sub]).current_dir(root);
     c.env("XWIN_ACCEPT_LICENSE", "1")
         .env("XWIN_ARCH", "x86,x86_64");
     // `cargo xwin test` would run the test programs under wine; WSL runs them itself (interop), so the runner only passes them on
@@ -213,17 +210,11 @@ fn run_ok(mut c: Command, what: &str) -> Result<()> {
     Ok(())
 }
 
-/// The C compiler: MSVC `cl` on Windows, `clang-cl` + `lld-link` + `llvm-rc` against xwin's 32-bit CRT and SDK on Linux.
-enum Cc {
-    Msvc(Vec<(String, String)>),
-    Clang(PathBuf),
-}
+/// The C compiler: `clang-cl` + `lld-link` + `llvm-rc` against xwin's 32-bit CRT and SDK; holds the xwin cache folder.
+struct Cc(PathBuf);
 
 impl Cc {
-    fn new(root: &Path) -> Result<Cc> {
-        if cfg!(windows) {
-            return msvc_env(root).map(Cc::Msvc);
-        }
+    fn new() -> Result<Cc> {
         let cache = std::env::var_os("XWIN_CACHE_DIR")
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|h| Path::new(&h).join(".cache/cargo-xwin")))
@@ -235,7 +226,7 @@ impl Cc {
                 .env("XWIN_ACCEPT_LICENSE", "1");
             run_ok(c, "cargo xwin cache (the 32-bit CRT and SDK)")?;
         }
-        Ok(Cc::Clang(cache))
+        Ok(Cc(cache))
     }
 }
 
@@ -262,6 +253,7 @@ fn stage(root: &Path, kit: &Path, map: &[(&str, &str)], keep: &[&str]) -> Result
             };
             fs::create_dir_all(dst.parent().unwrap())?;
             fs::copy(&src, &dst)?;
+            // clippy and the tests build xtask for the Windows target too, where there is no mode to set
             #[cfg(unix)]
             if matches!(
                 dst.extension().and_then(|e| e.to_str()),
@@ -511,36 +503,6 @@ fn build_1718(root: &Path, kit: &Path, cc: &Cc) -> Result<()> {
     Ok(())
 }
 
-/// MSVC for 32-bit x86 (the game is 32-bit, so its hook, panel and injector must be): the environment `vcvarsall x86` makes.
-fn msvc_env(root: &Path) -> Result<Vec<(String, String)>> {
-    let sh = Shell::new()?;
-    let pf =
-        std::env::var("ProgramFiles(x86)").unwrap_or_else(|_| r"C:\Program Files (x86)".into());
-    let vswhere = format!(r"{pf}\Microsoft Visual Studio\Installer\vswhere.exe");
-    let vs = cmd!(sh, "{vswhere} -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath")
-        .read()
-        .context("vswhere failed")?;
-    ensure!(
-        !vs.trim().is_empty(),
-        "no Visual Studio with the C++ tools (vswhere found none)"
-    );
-    let bat = root.join("target/vcvars-x86.bat");
-    fs::create_dir_all(bat.parent().unwrap())?;
-    fs::write(
-        &bat,
-        format!(
-            "@call \"{}\\VC\\Auxiliary\\Build\\vcvarsall.bat\" x86 >nul\r\n@set\r\n",
-            vs.trim()
-        ),
-    )?;
-    let out = cmd!(sh, "cmd /c {bat}").read()?;
-    Ok(out
-        .lines()
-        .filter_map(|l| l.split_once('='))
-        .map(|(k, v)| (k.to_owned(), v.trim_end().to_owned()))
-        .collect())
-}
-
 /// The runtime linked in (/MT), so no Visual C++ runtime is needed on the player's PC; /Brepro: the same source, the same file.
 /// `what` becomes the program's version information (what a file's Properties show); no `what`, no resource.
 /// Kit 5.5's winmm.dll, nameless and unsigned, was quarantined as a trojan when it was unzipped (2026-10-10): `package` refuses
@@ -578,27 +540,15 @@ fn build_c(
             obj.join(format!("{name}.res")),
         );
         fs::write(&rc_path, rc)?;
-        match cc {
-            Cc::Msvc(env) => cmd!(sh, "rc /nologo /fo {res_path} {rc_path}")
-                .envs(env.iter().cloned())
-                .run(),
-            Cc::Clang(_) => cmd!(sh, "llvm-rc /FO {res_path} {rc_path}").run(),
-        }
-        .with_context(|| format!("rc failed for {source}"))?;
+        cmd!(sh, "llvm-rc /FO {res_path} {rc_path}")
+            .run()
+            .with_context(|| format!("rc failed for {source}"))?;
         res.push(res_path);
     }
     let input = src.join(source);
     let fe = format!("/Fe{}", out.display());
-    match cc {
-        Cc::Msvc(env) => {
-            let fo = format!("/Fo{}\\", obj.display());
-            let implib = format!("/IMPLIB:{}", obj.join(format!("{name}.lib")).display());
-            let pdb = format!("/PDB:{}", obj.join(format!("{name}.pdb")).display());
-            cmd!(sh, "cl /nologo /O2 /MT /W3 /Brepro /D_CRT_SECURE_NO_WARNINGS {compile...} {input} {fo} {fe} /link /Brepro {implib} {pdb} {res...} {link...}")
-                .envs(env.iter().cloned())
-                .run()
-        }
-        Cc::Clang(x) => {
+    {
+        let x = &cc.0;
             // -Wno-unused-function: clang warns about the panel's two dead statics (draw_overlay, draw_text), which cl only does at /W4
             // the 32-bit CRT and SDK from xwin; no PDB (cl wrote none either: no /DEBUG), so the same source gives the same file
             let inc: Vec<String> = ["crt/include", "sdk/include/ucrt", "sdk/include/um", "sdk/include/shared"]
@@ -613,7 +563,6 @@ fn build_c(
             let fo = format!("/Fo{}/", obj.display());
             cmd!(sh, "clang-cl-19 --target=i686-pc-windows-msvc -fuse-ld=lld /nologo /O2 /MT /W3 -Wno-unused-function /Brepro /D_CRT_SECURE_NO_WARNINGS {compile...} {inc...} {input} {fo} {fe} /link /Brepro {implib} {lib...} {res...} {link...}")
                 .run()
-        }
     }
     .with_context(|| format!("compiling {source} failed"))?;
     println!("built {}", out.display());
@@ -933,10 +882,7 @@ fn panel_selftests(ck: &mut Checks) -> Result<()> {
         kit.join("source/build/fakegame.exe"),
         t.join("fakegame.exe"),
     )?;
-    let mut relay = ck.python(&[
-        kit.join("code/server/relay.py").to_str().unwrap(),
-        if cfg!(unix) { "30" } else { "60" },
-    ]);
+    let mut relay = ck.python(&[kit.join("code/server/relay.py").to_str().unwrap(), "30"]);
     relay.env("WCCF_RELAY_PORT", "20941");
     run_env(&mut relay);
     let mut relay: Child = relay.stdout(Stdio::null()).stderr(Stdio::null()).spawn()?;
@@ -958,9 +904,7 @@ fn panel_selftests(ck: &mut Checks) -> Result<()> {
         .env("WCCF_SKIN", kit.join("art/skin.tex")); // the panel's art (play.py passes it)
     run_env(&mut game);
     let run = game.status();
-    if cfg!(windows) {
-        let _ = relay.kill();
-    } // on WSL a kill would only reach the interop shim: the relay ends by itself after its 30 s
+    // a kill would only reach the interop shim: the relay ends by itself after its 30 s
     let _ = relay.wait();
     let log = String::from_utf8_lossy(&fs::read(t.join("wccfpanel.log")).unwrap_or_default())
         .into_owned();
