@@ -144,7 +144,8 @@ pub fn probe(link: &Path, here: &Path) -> Seen {
 /// Makes (or points) the junction.
 fn make(link: &Path, here: &Path, repoint: bool) -> io::Result<()> {
     if repoint {
-        junction::delete(link)?;
+        junction::delete(link)?; // leaves an empty folder, which create would refuse
+        fs::remove_dir(link)?;
     } else if let Some(parent) = link.parent() {
         fs::create_dir_all(parent)?;
     }
