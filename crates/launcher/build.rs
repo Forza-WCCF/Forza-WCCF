@@ -4,7 +4,7 @@
 // what a file's Properties show. Without it they were nameless unsigned programs, the kind Windows Defender's machine
 // learning distrusts most: Kit 5.5's first SETUP.exe was quarantined as "Trojan:Win32/Sabsik.FL.A!ml" when it was
 // unzipped. Made with the Windows SDK's rc.exe (on PATH after vcvarsall, as cargo xtask build runs it; otherwise the newest
-// under Windows Kits). cargo xtask package refuses a kit whose programs lack it.
+// under Windows Kits) or, on WSL, llvm-rc. cargo xtask package refuses a kit whose programs lack it.
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -45,10 +45,12 @@ fn main() {
     }
 }
 
-/// rc.exe on PATH (after vcvarsall), else the newest x64 one under the Windows Kits.
+/// rc.exe on PATH (after vcvarsall), else llvm-rc (WSL), else the newest x64 rc.exe under the Windows Kits.
 fn find_rc() -> Option<PathBuf> {
-    if Command::new("rc.exe").arg("/?").output().is_ok() {
-        return Some(PathBuf::from("rc.exe"));
+    for rc in ["rc.exe", "llvm-rc"] {
+        if Command::new(rc).arg("/?").output().is_ok() {
+            return Some(PathBuf::from(rc));
+        }
     }
     let kits = Path::new(r"C:\Program Files (x86)\Windows Kits\10\bin");
     let mut found: Vec<PathBuf> = fs::read_dir(kits)

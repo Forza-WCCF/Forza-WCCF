@@ -1,7 +1,8 @@
 # The C runtime linked in, like the kit's C programs (/MT): no Visual C++ runtime needed on the player's PC.
 # /Brepro, as the C programs: no link timestamp, so the same source gives the same exe.
+# /ignore:4099: lld-link (cargo xwin) warns for every object of the CRT libraries whose PDB is not shipped.
 [target.'cfg(all(windows, target_env = "msvc"))']
-rustflags = ["-C", "target-feature=+crt-static", "-C", "link-arg=/Brepro"]
+rustflags = ["-C", "target-feature=+crt-static", "-C", "link-arg=/Brepro", "-C", "link-arg=/ignore:4099"]
 
 [alias]
 xtask = "run -q -p xtask --"
