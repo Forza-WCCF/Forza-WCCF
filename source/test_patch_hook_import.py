@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """test_patch_hook_import.py - renaming the game's winmm import to the kit's hook name (the Defender fix). Built on a
-tiny synthetic PE (Sega's programs do not ship, so a real one cannot be in CI); the real programs are proved
-separately on Ali's PC. check.ps1 runs it.
+tiny synthetic PE (the original programs do not ship, so a real one cannot be in CI); the real programs are proved
+separately on the owner's PC. check.ps1 runs it.
     python source\\test_patch_hook_import.py"""
 import os
 import struct
@@ -20,7 +20,7 @@ def check(cond, what):
         print("FAILED: " + what)
 
 
-def make_pe(dll=b"WINMM.dll"):                          # Sega's Rev D exes import it as uppercase WINMM
+def make_pe(dll=b"WINMM.dll"):                          # the original Rev D exes import it as uppercase WINMM
     """a minimal PE32 that imports `dll` (one import descriptor), for the patcher to work on."""
     b = bytearray(0x300)
     b[0:2] = b"MZ"
@@ -62,7 +62,7 @@ check(sum(a != b for a, b in zip(orig, patched)) <= 9, "at most the 9 name bytes
 # renaming back gives the EXACT original (a pure swap is perfectly reversible)
 check(P.rename_import(patched, frm=b"wccfk.dll", to=b"WINMM.dll") == orig, "renaming back restores the exact original")
 
-# normalized(): the Sega bytes whether or not the rename was applied (idempotency for SETUP's fingerprints)
+# normalized(): the original bytes whether or not the rename was applied (idempotency for SETUP's fingerprints)
 check(P.normalized(orig) == orig, "normalized leaves an un-renamed file alone")
 check(P.normalized(patched) == orig, "normalized un-renames a patched file back to the original")
 

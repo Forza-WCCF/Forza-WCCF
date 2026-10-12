@@ -9,7 +9,7 @@ WHAT IT IS
   to take a card off), a CATALOGUE of all 3,909 player cards (search, position, rarity, country and club filters,
   sort, a slider per stat, a stats pane; a click puts the card on your table), KEYS, where you choose your own keys
   or a game controller's buttons, SETTINGS, and CLUB CARD, your club card and your other clubs.
-  The kit holds none of Sega's files. Everything that comes from the game is made by setup from YOUR copy.
+  The kit holds none of the original files. Everything that comes from the game is made by setup from YOUR copy.
 
 NEW IN KIT 6
   - Your club card is safer: a file held by another program (an antivirus scan, a backup tool) can no longer leave
@@ -20,7 +20,7 @@ NEW IN KIT 6
     take over your match from somewhere else.
   - Antivirus: the kit's helper has its own name now (wccfk.dll) instead of posing as a Windows file - that is what
     Windows Defender deleted. Every program of the kit carries its name and version (right-click, Properties).
-  - ITALIANO in SETUP's language choice (thanks to a contributor), and more English: players' full names in Latin letters
+  - ITALIANO in SETUP's language choice, and more English: players' full names in Latin letters
     and the last Japanese lines a player meets.
   - The kit's version is beside the SETTINGS title too.
   - Simpler folders: code\, programs\, art\, languages\ and data\ (your cards, keys, settings, logs - kept).
@@ -78,7 +78,7 @@ NEW IN KIT 5.3
     FOUND" (Error 3000) on every cabinet at once while players were setting up a match - a bad message from a
     connection. A guard now catches that message-handling crash (in its two forms) and drops the one bad message so
     the server keeps running. On by default when you host. This is ONLY for people who HOST a server; if you just
-    join one, you never saw this and need nothing. (Note: Sega's server can crash other ways too; this covers the
+    join one, you never saw this and need nothing. (Note: the publisher's server can crash other ways too; this covers the
     common one. Keep a way to restart it if it ever stops.)
 
 NEW IN KIT 5.1
@@ -227,7 +227,7 @@ ONLINE (play with others on one server)
 
 ENGLISH (optional)
   ENGLISH (in SETUP.exe, GAME LANGUAGE) puts the game into English: about 7,200 lines of screen text, the players'
-  names, short and full (Sega's own Latin spelling, e.g. M.DIARRA and Mahamadou DIARRA) and skill names, the CPU
+  names, short and full (the original Latin spelling, e.g. M.DIARRA and Mahamadou DIARRA) and skill names, the CPU
   teams' names, the projector's "Next match" ticker, the dates on seat 1 (e.g. 2026/10/5 on the manager license), money in dollars, and the
   shop's name on the projector's awards ("Local Shop" - also inside the server program, the only change ENGLISH
   makes to it).
@@ -237,25 +237,25 @@ ENGLISH (optional)
   Four rare screens still show it in two pieces ("$2 million$299000"): a fan event, a golden age, a financial
   crisis and the end of a contract.
   It is built on your PC from your own game files and every line is checked; the kit holds only the English text.
-  Sega's files are kept in data\english_backup, and JAPANESE puts them back. Close the game first.
+  The original files are kept in data\english_backup, and JAPANESE puts them back. Close the game first.
   Still Japanese: country and prefecture names (the game finds its weather table by them, and English ones crash
   the server), the network-ranking areas, and writing that is part of a picture (logos, titles, the six team stats
   around the hexagon, OK / BACK - redrawing those stopped the game reading club cards, so it is switched off).
-  The English comes from this kit's translation, from Sega's own English that the game files already hold, and
-  from Sega's European English of the older WCCF (lines with the same Japanese).
+  The English comes from this kit's translation, from the original English that the game files already hold, and
+  from the original European English of the older WCCF (lines with the same Japanese).
 
 ITALIANO (optional)
   ITALIANO (in SETUP.exe, GAME LANGUAGE) does what ENGLISH does, in Italian: each line is this kit's Italian, else
-  Sega's own Italian of the older European WCCF (lines with the same Japanese), else the English - never Japanese.
+  the original Italian of the older European WCCF (lines with the same Japanese), else the English - never Japanese.
   The game's font has no accented letters, so they are written with an apostrophe (perche', citta'). Names of players, CPU teams and supporters' nicknames
   stay as in English (the game puts a nickname's adjective first, which Italian cannot follow); money stays in
-  dollars. JAPANESE puts Sega's files back, ENGLISH switches to English. The SETTINGS panel in the game offers
+  dollars. JAPANESE puts the original files back, ENGLISH switches to English. The SETTINGS panel in the game offers
   only ENGLISH and JAPANESE for now.
 
 WHAT SETUP CHANGES   (UNDO SETUP in SETUP.exe takes all of it back out)
   game folder     adds winmm.dll (the kit's hook) and winmm_orig.dll (a copy of your Windows' own winmm.dll)
-                  (the hook also keeps the server from starting Sega's logowin.exe, which opens a white window
-                  over the whole screen; a kit that had put a stand-in in its place puts Sega's back)
+                  (the hook also keeps the server from starting the original logowin.exe, which opens a white window
+                  over the whole screen; a kit that had put a stand-in in its place puts the originals back)
                   adds local\client_user_option.conf (projector) and local\ctrl_user_option.conf (server)
   beside it       seat1\   the player cabinet: links to the game folder's files and folders, its own copy of
                            client_Release.exe with 15 changes (checked byte for byte), its own settings
@@ -300,9 +300,9 @@ FOLDERS
   code\      play, setup and english at the top; cards\ (club cards, the catalogue), hardware\ (stand-ins for the
              cabinet: card reader, I/O board, keyboard, scenes, network, the game's launcher), online\ (joining a
              server), server\ (running one for others), helpers\ (the panel's helper, sound, the hook)
-  languages\ one folder per language. english\: screen_text.tsv (the translation), sega_rstring.tsv (Sega's
+  languages\ one folder per language. english\: screen_text.tsv (the translation), sega_rstring.tsv (the original
              European English), cpu_names.tsv (team names), exe_text.tsv (the ticker, the dates, money, the
-             shop's name), pictures.tsv (writing in the game's pictures); italian\: the Italian, with Sega's
+             shop's name), pictures.tsv (writing in the game's pictures); italian\: the Italian, with the original
              Italian where the Japanese is the same - text and fingerprints only
   source\    the source of every program in programs\ (C) and of PLAY and SETUP.exe (Rust,
              source\launcher) - source\README.txt: how they were built

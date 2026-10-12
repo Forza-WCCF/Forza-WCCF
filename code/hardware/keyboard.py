@@ -58,10 +58,12 @@ ACTIONS = [
     ("COIN", 0x35, None, "one coin"),
     ("TEST", 0x70, ("sys", 0, 0x80), "TEST (operator menu)"),
     ("SERVICE", 0x71, ("p1", 0, 0x40), "SERVICE"),
-    ("SENSOR2", 0, ("p2", 0, 0x10), "Sega's service switch SW1 (bit 28) - NO default key: on Sega's club-card recovery "
+    ("SENSOR2", 0, ("p2", 0, 0x10), "the publisher's service switch SW1 (bit 28) - NO default key: "
+                                    "on the publisher's club-card recovery "
                                     "screen SW1 = 'overwrite the card with the backup', so one stray key could roll "
                                     "the card back; set a key in KEYS only if you need it (A8)"),
-    ("SENSOR3", 0, ("p2", 0, 0x08), "Sega's service switch SW2 (bit 27) - 'back' on Sega's service screens; NO default "
+    ("SENSOR3", 0, ("p2", 0, 0x08), "the publisher's service switch SW2 (bit 27) - 'back' on "
+                                    "the publisher's service screens; NO default "
                                     "key, set one in KEYS if you need it"),
 ]
 DEFAULTS = {a[0]: a[1] for a in ACTIONS}

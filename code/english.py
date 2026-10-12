@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
 r"""english.py - WCCF 2010-11 in English.  Built on this PC from YOUR game files, every line checked, then swapped in
-with Sega's files kept; "off" puts Sega's back.  Nothing of Sega's ships with the kit: languages\english\ holds only English
-text and fingerprints (SHA-256) of Sega's files.
+with the original files kept; "off" puts the originals back.  Nothing of the original ships with the kit:
+languages\english\ holds only English text and fingerprints (SHA-256) of the original files.
 
     python english.py on       (SETUP.exe: ENGLISH)   build, check, then put the English files in place
     python english.py on it    (SETUP.exe: ITALIANO)  the same in Italian: languages\italian\ first, the English where a line has none
-    python english.py off      (SETUP.exe: JAPANESE)  Sega's Japanese files back
+    python english.py off      (SETUP.exe: JAPANESE)  the original Japanese files back
     python english.py check                           say what "on" would do; changes nothing
 
 What changes, in the game's extracted\ folder (seat 1 reads the same files through setup's folder links):
   data\string\string_list.bin + .hf       the screen text: about 7,200 lines in English
-  prog_data\player_data\player_data.bin   player names, short and full, in Sega's own Latin spelling (accents dropped) +
-                                          skill names
+  prog_data\player_data\player_data.bin   player names, short and full, in the original Latin spelling (accents dropped)
+                                          + skill names
   prog_data\cpu_team\cpu_0..251.dat       the CPU teams' names
   client_Release.exe (the projector's) and seat1\client_Release.exe (seat 1's own patched copy)
                                           text inside the program: the "Next match: ..." ticker, dates as 2026/10/5
@@ -19,15 +19,15 @@ What changes, in the game's extracted\ folder (seat 1 reads the same files throu
   data\wccf_data.xaf                      pictures with writing (languages\english\pictures.tsv: the six team stats, OK / BACK),
                                           redrawn in Windows' Arial Bold and ADDED at the archive's end; only their
                                           table-of-contents entries change, and "off" cuts the added end away again
-The first "on" COPIES Sega's files to data\english_backup\ - only files whose fingerprint shows they are Sega's Rev D
-originals; later runs build from that backup again.  Each game file is then replaced in ONE step ("off" too), so a
+The first "on" COPIES the original files to data\english_backup\ - only files whose fingerprint shows they are the
+Rev D originals; later runs build from that backup again.  Each game file is then replaced in ONE step ("off" too), so a
 switch stopped half way (a crash, a kill, a full disk) leaves every file in place - some English, some not - and
 never a missing one: a missing exe would keep the game from starting (2026-10-06).  Kept in Japanese on purpose: country and prefecture names (the
 game finds its weather table by them; English ones crashed the server) and the network-ranking areas.  Other pictures
 with writing in them are not changed.
-Where the English comes from: languages\english\screen_text.tsv (this kit's translation), Sega's own English that the game files
-already hold (a second language column), and languages\english\sega_rstring.tsv (lines from Sega's European English of the
-older WCCF, matched by identical Japanese).
+Where the English comes from: languages\english\screen_text.tsv (this kit's translation), the original English that the
+game files already hold (a second language column), and languages\english\sega_rstring.tsv (lines from the
+original European English of the older WCCF, matched by identical Japanese).
 Exit 0 done; 1 refused or a check failed (nothing changed); 2 no game set up (run SETUP.exe first).
 """
 import bisect
@@ -77,13 +77,13 @@ DATA_FAMILIES = ("MAKE_", "NET_RANK", "GAM_OROGINAL", "GAM_REAL", "GAM_STA", "SY
 SWITCHED_ON = ("SYS_TEAM", "PRO_PRO", "GAM_OROGINAL", "GAM_REAL", "GAM_STA", "INF_FRE", "SYS_COACH", "INF_SUPPORTER",
                "MAKE_city", "MAKE_area")
 # every conversion the game's C runtime takes, so an English line keeps exactly the codes of the game's Japanese line
-# (2026-10-07: Sega's European line "They're giving 110% out there." is "% o" to printf - an octal number - which the
-# old list [dsxXuc] did not see; it went in and Team Training showed "11037620322074ut there")
+# (2026-10-07: the original European line "They're giving 110% out there." is "% o" to printf - an octal number - which
+# the old list [dsxXuc] did not see; it went in and Team Training showed "11037620322074ut there")
 FMT = re.compile(r"%[-+ 0#]*(?:\*|[0-9]+)?(?:\.(?:\*|[0-9]+))?(?:hh|h|ll|l|L|I32|I64|I|w)?[cCdiouxXeEfgGaAnpsSZ%]")
 REC = 0x328                                          # player_data.bin: one player
 SHORT_KANA, SHORT_LATIN, SKILL_EN, SKILL_JP, FIELD = 0x8C, 0xCC, 0x1B7, 0x1F7, 0x40
-# the full name: Sega's Latin one (UTF-16) goes over the card name (katakana; the client's CARD_NAME, read only by the
-# screens).  The other katakana full name at 0x177 stays: it is the key into partnership.bin (client FUN_004e3ea0)
+# the full name: the original Latin one (UTF-16) goes over the card name (katakana; the client's CARD_NAME, read only by
+# the screens).  The other katakana full name at 0x177 stays: it is the key into partnership.bin (client FUN_004e3ea0)
 FULL_LATIN, CARD_NAME = 0x0C, 0x4C
 NAME_AT, NAME_END = 0x144, 0x17C                     # cpu_N.dat: the team name field
 FOLD = {"Ø": "O", "ø": "o", "Æ": "AE", "æ": "ae", "ß": "SS", "Ł": "L", "ł": "l", "Đ": "D", "đ": "d", "Œ": "OE",
@@ -112,7 +112,7 @@ def where(game, rel):
 
 def sega_file(game, rel):
     """the original: the backup once English has been on, else the game's own file. For a program, its import is
-    un-renamed back to Sega's WINMM.dll (norm), so English builds from Sega's original bytes even after SETUP has
+    un-renamed back to the original WINMM.dll (norm), so English builds from the original bytes even after SETUP has
     pointed the program at the kit's hook (wccfk.dll)."""
     b = os.path.join(BACK, rel)
     with open(b if os.path.isfile(b) else where(game, rel), "rb") as f:
@@ -123,7 +123,7 @@ def sega_file(game, rel):
 def build_strings(game, lang="en"):
     raw, hf_raw = sega_file(game, BIN), sega_file(game, HF)
     if sha(raw) != SEGA[BIN] or sha(hf_raw) != SEGA[HF]:
-        raise Failed("data\\string\\string_list.* are not Sega's Rev D files - the English is made for those only")
+        raise Failed("data\\string\\string_list.* are not original Rev D files - the English is made for those only")
     tag, body = raw[:4], raw[8:]
     hf_lines = hf_raw.splitlines(keepends=True)
     nl = b"\r\n" if b"\r\n" in body else b"\n"
@@ -153,14 +153,14 @@ def build_strings(game, lang="en"):
             continue
         s2 = at(nums[1])
         if s2 and not any(c >= 0x80 for c in s2):
-            english[k] = (s2.decode("ascii"), "SEGA second column")
+            english[k] = (s2.decode("ascii"), "original second column")
         elif k in rstring:
-            english[k] = (rstring[k], "SEGA European English")
-    # each line's choices, best first: Italian (the kit's, then Sega's European Italian) before the English, which
+            english[k] = (rstring[k], "original European English")
+    # each line's choices, best first: Italian (the kit's, then the original European Italian) before the English, which
     # stays the fallback - a line with no usable Italian is English, never Japanese
     choices = {k: [v] for k, v in english.items()}
     if lang == "it":
-        for name, src in (("sega_rstring.tsv", "SEGA European Italian"), ("screen_text.tsv", "kit Italian")):
+        for name, src in (("sega_rstring.tsv", "original European Italian"), ("screen_text.tsv", "kit Italian")):
             for r in sheet(name, "italian"):
                 if (r.get("italiano") or "").strip():
                     choices.setdefault(r["key"], []).insert(0, (r["italiano"].strip("\r"), src))
@@ -268,7 +268,7 @@ def build_strings(game, lang="en"):
     by = collections.Counter(used[k] for k in pos)
     note = "%d lines in %s (%s)" % (len(pos), LANGS[lang], ", ".join("%s %d" % kv for kv in sorted(by.items())))
     if sega_bad:
-        note += "; %d of Sega's own lines unusable, the next choice taken" % sega_bad
+        note += "; %d of the original lines unusable, the next choice taken" % sega_bad
     # lines a player can meet that are still Japanese ("check" shows them; the debug menus are left out on purpose)
     left = sorted(k for k, (_, nums) in keys.items() if k not in pos and not blocked(k) and any(c >= 0x80 for c in at(
         nums[0])) and family(k) not in ("SYS_DEBUG", "COM_debug"))
@@ -295,7 +295,7 @@ def put_field(field, value, size):
 def build_names(game):
     pd = bytearray(sega_file(game, PLAYERS))
     if sha(pd) != SEGA[PLAYERS] or len(pd) % REC:
-        raise Failed("prog_data\\player_data\\player_data.bin is not Sega's Rev D file")
+        raise Failed("prog_data\\player_data\\player_data.bin is not the original Rev D file")
     for i in range(len(pd) // REC):
         r = i * REC
         kana = bytes(pd[r + SHORT_KANA:r + SHORT_KANA + FIELD]).split(b"\0")[0].decode("cp932", "replace")
@@ -332,7 +332,7 @@ def build_names(game):
         files[rel] = bytes(d)
     note = "%d players, %d CPU teams" % (len(pd) // REC, len(files) - 1)
     if skipped:
-        note += "; %d team files are not Sega's Rev D ones and stay as they are (%s...)" % (len(skipped), skipped[0])
+        note += "; %d team files are not Rev D ones and stay as they are (%s...)" % (len(skipped), skipped[0])
     return files, note
 
 
@@ -340,9 +340,9 @@ def build_names(game):
 # server only for its own rows - "server" in exe_text.tsv's program column, 2026-10-06: the shop name it sends)
 def build_exe(game, lang="en"):
     sheet_rows, files = sheet("exe_text.tsv"), {}
-    for rel, program, what in ((PROJECTOR, "client", "the projector's client_Release.exe (Sega's Rev D)"),
+    for rel, program, what in ((PROJECTOR, "client", "the projector's client_Release.exe (the original Rev D)"),
                                (SEAT_EXE, "client", "seat 1's client_Release.exe (the copy SETUP.exe makes)"),
-                               (SERVER, "server", "the server's control_Release.exe (Sega's Rev D)")):
+                               (SERVER, "server", "the server's control_Release.exe (the original Rev D)")):
         rows = [r for r in sheet_rows if r["program"] == program]
         if not rows:
             continue
@@ -378,13 +378,14 @@ def build_exe(game, lang="en"):
 
 # ---------------------------------------------------------------- writing in pictures (data\wccf_data.xaf)
 # The game reads data\... only from the archive (client FUN_00424570: no loose file is looked at), so each English
-# picture is ADDED at the archive's end and its table-of-contents entry pointed at it; no byte of Sega's is written
-# over.  "off" puts the old entries back and cuts the file to its old length - no copy of the 1.4 GB file is needed.
-# The archive has no checksum (FUN_00913e20) and the texture loader takes any DDS format (FUN_00765f30); 2026-10-10.
+# picture is ADDED at the archive's end and its table-of-contents entry pointed at it; no byte of the originals is
+# written over.  "off" puts the old entries back and cuts the file to its old length - no copy of the 1.4 GB file is
+# needed. The archive has no checksum (FUN_00913e20) and the texture loader takes any DDS format (FUN_00765f30);
+# 2026-10-10.
 XAF = os.path.join("data", "wccf_data.xaf")
 XAF_STATE = os.path.join(BACK, "wccf_data.xaf.json")
 SECTOR, ENTRY, TOC_AT = 2048, 0xB0, 0x100
-# the writing's colour, its halo (colour + strength, or none) and the halo's width, as Sega drew each picture
+# the writing's colour, its halo (colour + strength, or none) and the halo's width, as the publisher drew each picture
 STYLES = {"glow": ((242, 228, 150), (223, 198, 57, 200), 4), "outline": ((240, 240, 245), (18, 17, 17, 220), 2),
           "grey": ((80, 80, 80), None, 0), "white": ((255, 255, 255), None, 0)}
 
@@ -395,7 +396,8 @@ def arial_bold():
 
 
 def draw_label(im, box, text, style, font_path):
-    """Sega's writing in box cleared, the English drawn in its place: as tall as the box allows, squeezed to fit"""
+    """The original writing in box cleared, the English drawn in its place: as tall as the box allows, squeezed to
+    fit"""
     from PIL import Image, ImageDraw, ImageFilter, ImageFont
     core, halo, spread = STYLES[style]
     x0, y0, x1, y1 = box
@@ -417,7 +419,7 @@ def draw_label(im, box, text, style, font_path):
 
 
 def dds_argb(im):
-    """an uncompressed A8R8G8B8 DDS, the header as Sega's own (e.g. club_make\\CL_Base\\Button.dds)"""
+    """an uncompressed A8R8G8B8 DDS, the header as the original (e.g. club_make\\CL_Base\\Button.dds)"""
     w, h = im.size
     return (struct.pack("<4s7I44x8I5I", b"DDS ", 124, 0x81007, h, w, w * h * 4, 0, 0,
                         32, 0x41, 0, 32, 0xFF0000, 0xFF00, 0xFF, 0xFF000000, 0x1000, 0, 0, 0, 0)
@@ -433,7 +435,8 @@ def load_state():
 
 
 def build_pictures(game, lang="en"):
-    """{archive path: (entry number, English DDS)} from Sega's pictures, each checked against languages\\english\\pictures.tsv"""
+    """{archive path: (entry number, English DDS)} from the original pictures, each checked against
+    languages\\english\\pictures.tsv"""
     from PIL import Image
     font = arial_bold()
     if not font:
@@ -448,14 +451,14 @@ def build_pictures(game, lang="en"):
                     raise Failed("the archive has no %s" % p)
                 e = ents[p]
                 raw = bytes.fromhex(state["entries"][str(e["i"])]) if str(e["i"]) in state["entries"] else None
-                if raw:                                   # English on: Sega's picture is still where it was
+                if raw:                                   # English on: the original picture is still where it was
                     size, stored = struct.unpack_from("<II", raw, 0x94)
                     e = dict(e, size=size, stored=stored, offset=struct.unpack_from("<I", raw, 0xA0)[0] * SECTOR)
                 f.seek(e["offset"])
                 data = f.read(e["stored"])
                 data = unpack.decompress(data, e["size"]) if e["stored"] < e["size"] else data
                 if sha(data) != row["sega_sha256"]:
-                    raise Failed("%s in the archive is not Sega's Rev D picture" % p)
+                    raise Failed("%s in the archive is not the original Rev D picture" % p)
                 im = Image.open(io.BytesIO(data)).convert("RGBA")
                 boxes = [[int(v) for v in lab.split("=")[0].split(",")] for lab in row["labels"].split(";")]
                 if any(a[0] <= b[2] and b[0] <= a[2] and a[1] <= b[3] and b[1] <= a[3]
@@ -471,7 +474,7 @@ def build_pictures(game, lang="en"):
 
 
 def pictures_off(game):
-    """Sega's table-of-contents entries and header back, the added pictures cut off; nothing to do if none"""
+    """The original table-of-contents entries and header back, the added pictures cut off; nothing to do if none"""
     state = load_state()
     if not state:
         return 0
@@ -489,14 +492,14 @@ def pictures_off(game):
 
 
 def pictures_on(game, pics):
-    pictures_off(game)                                   # from Sega's archive every time: never stacked twice
+    pictures_off(game)                                   # from the original archive every time: never stacked twice
     if not pics:
         return
     with open(where(game, XAF), "r+b") as f:
         hdr = f.read(TOC_AT)
         length = f.seek(0, 2)
         if hdr[:4] != b"xaf0" or length % SECTOR or struct.unpack_from("<Q", hdr, 0x18)[0] * SECTOR != length:
-            raise Failed("data\\wccf_data.xaf is not as Sega made it (its length) - pictures left as they are")
+            raise Failed("data\\wccf_data.xaf is not as the publisher made it (its length) - pictures left as they are")
         state = {"length": length, "header": hdr[0x18:0x30].hex(), "entries": {}}
         for p, (i, _) in pics.items():
             f.seek(TOC_AT + i * ENTRY)
@@ -570,8 +573,8 @@ def is_exe(rel):
 
 
 def norm(data, rel):
-    """for a game program, its bytes with the kit's hook import renamed back to Sega's WINMM.dll; other files
-    unchanged. So English's backups and fingerprints are Sega's original bytes whether or not SETUP has renamed the
+    """for a game program, its bytes with the kit's hook import renamed back to the original WINMM.dll; other files
+    unchanged. So English's backups and fingerprints are the original bytes whether or not SETUP has renamed the
     import to the kit's wccfk.dll (the Defender fix)."""
     return H.normalized(data) if is_exe(rel) else data
 
@@ -587,8 +590,8 @@ def apply_hook(rel, path):
 
 
 def backup_copy(rel, src, dst):
-    """Sega's file copied into the backup and read back; it stays in place until its replacement lands in one step. A
-    program is stored as Sega's WINMM original (the import un-renamed), so the backup matches sega_hash."""
+    """The original file copied into the backup and read back; it stays in place until its replacement lands in one
+    step. A program is stored as the original WINMM (the import un-renamed), so the backup matches sega_hash."""
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     with open(src, "rb") as f:
         data = norm(f.read(), rel)
@@ -614,11 +617,11 @@ def turn_on(game, files):
     # written over those originals with no backup left (2026-10-06)
     def unsaved(rel):
         return rel not in man or not os.path.isfile(os.path.join(BACK, rel))
-    for rel in files:                                    # first: every file to be backed up must be Sega's
+    for rel in files:                                    # first: every file to be backed up must be the original
         if unsaved(rel):
             with open(where(game, rel), "rb") as f:
                 if sha(norm(f.read(), rel)) != sega_hash(rel):   # a program may already carry the kit's hook import
-                    raise Failed("%s is neither Sega's original nor backed up - refusing to replace it" % rel)
+                    raise Failed("%s is neither original nor backed up - refusing to replace it" % rel)
     for rel, data in files.items():
         tgt = where(game, rel)
         if unsaved(rel):
@@ -629,7 +632,7 @@ def turn_on(game, files):
         with open(tgt, "rb") as f:
             if sha(f.read()) != sha(data):
                 raise Failed("%s did not write correctly - press JAPANESE in SETUP.exe" % rel)
-        man[rel]["english"] = sha(data)                  # the English bytes with Sega's WINMM import (before the hook)
+        man[rel]["english"] = sha(data)                  # the English bytes with the original WINMM import
         apply_hook(rel, tgt)                              # then load the kit's hook by its own name (wccfk.dll)
     save_manifest(man)
 
@@ -643,8 +646,8 @@ def turn_off(game):
             with open(bak, "rb") as f:
                 data = f.read()
             if sha(data) != h["sega"]:
-                raise Failed("the backup of %s is not Sega's file - left as it is" % rel)
-            put(tgt, data)                               # one step: Sega's file back, never a moment without one
+                raise Failed("the backup of %s is not the original file - left as it is" % rel)
+            put(tgt, data)                               # one step: the original file back, never a moment without one
             apply_hook(rel, tgt)                          # it still loads the kit's hook by its own name (wccfk.dll)
             os.remove(bak)
         elif os.path.isfile(tgt):                        # no backup: put back already, or lost (older kits' bug)
@@ -652,7 +655,7 @@ def turn_off(game):
                 if sha(norm(f.read(), rel)) != h["sega"]:
                     lost.append(rel)
     if lost:                                             # said, and the list kept - never quietly forgotten
-        raise Failed("%d file(s) are not Sega's and have no backup of Sega's file, so they stay as they are (%s%s)"
+        raise Failed("%d file(s) are not original and have no backup of the original, so they stay as they are (%s%s)"
                      % (len(lost), lost[0], ", ..." if len(lost) > 1 else ""))
     if os.path.isfile(MANIFEST):
         os.remove(MANIFEST)
@@ -691,7 +694,7 @@ def main(argv):
             if os.path.isfile(LANG_FILE):
                 os.remove(LANG_FILE)
                 os.rmdir(BACK)                           # empty now: turn_off took everything else out
-            print("  ok    Sega's Japanese files are back (%d files, %d pictures)." % (n, p))
+            print("  ok    the original Japanese files are back (%d files, %d pictures)." % (n, p))
             return 0
         print("  building from your game files ...", flush=True)
         files, notes = build_all(game, lang)
@@ -708,7 +711,7 @@ def main(argv):
         pictures_on(game, pics)
         with open(LANG_FILE, "w", encoding="ascii") as f:
             f.write(lang + "\n")
-        print("  ok    %d files in place and %d pictures in the archive, each read back.  Sega's are in "
+        print("  ok    %d files in place and %d pictures in the archive, each read back.  The originals are in "
               "data\\english_backup (JAPANESE in SETUP.exe puts them back)." % (len(files), len(pics)))
     except Failed as ex:
         print("  FAIL  %s" % ex)

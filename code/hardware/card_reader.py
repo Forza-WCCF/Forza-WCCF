@@ -23,9 +23,10 @@ be used.
 
 NEWCARDFILE (2026-10-08) gives the reader room for a second card, as Flycast's had: when the club card has expired
 (its counter's low byte is 1 - the contract ended, or the card's life ran out) a blank card with its own id is put
-beside it in NEWCARDFILE, and the game runs Sega's manager transfer (the manager goes to the new card, a new club is
-made on it, the old card is marked used up: counter 0, its club left on it). At the next card check the old card is
-off the reader and the new one plays; wallet.finish_transfer() (wallet.py) swaps the two files at the next start. Which cards
+beside it in NEWCARDFILE, and the game runs the publisher's manager transfer (the manager goes to the new card, a new
+club is made on it, the old card is marked used up: counter 0, its club left on it). At the next card check the old
+card is off the reader and the new one plays;
+wallet.finish_transfer() (wallet.py) swaps the two files at the next start. Which cards
 lie on the reader is decided only at LoadKey, the start of the game's card check - never in the middle of a session.
 Without NEWCARDFILE the reader holds one card, as before.
 """
@@ -269,9 +270,9 @@ class Reader:
                 self.log("NEW CARD FILE REFUSED: %s - only the club card is on the reader" % e)
         low = main.counter & 0xFF
         if low == 0 and sec is not None and sec.counter == 0xFFFF:
-            # Sega's order marks the old card used up (job 4) BEFORE it writes the new one: a cut in between leaves
-            # the old club untouched on a "used up" card and a still-blank new one - set the old card back to expired
-            # and the transfer simply runs again
+            # the publisher's order marks the old card used up (job 4) BEFORE it writes the new one: a cut in between
+            # leaves the old club untouched on a "used up" card and a still-blank new one - set the old card back to
+            # expired and the transfer simply runs again
             main.counter = 0xFF01
             main.save()
             self.log("  the last transfer was cut half way - the old card is expired again (0xFF01), it runs again")

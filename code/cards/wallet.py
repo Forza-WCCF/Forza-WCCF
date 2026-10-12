@@ -101,15 +101,15 @@ def counter(card):
 
 
 def used_up(card):
-    """True for a card the game will not play again: counter low byte 0, its manager moved to a new card (Sega's
-    transfer) - kept in your cards as a record, never put back in the slot"""
+    """True for a card the game will not play again: counter low byte 0, its manager moved to a new card (the
+    publisher's transfer) - kept in your cards as a record, never put back in the slot"""
     c = counter(card)
     return c is not None and c != 0xFFFF and c & 0xFF == 0
 
 
 def finish_transfer(slot=None, new=None, folder=None):
-    """after Sega's manager transfer (2026-10-08: the card reader puts a blank card beside an expired one, the game
-    moves the manager to it, makes a new club there and marks the old card used up - counter 0, its club still on
+    """after the publisher's manager transfer (2026-10-08: the card reader puts a blank card beside an expired one, the
+    game moves the manager to it, makes a new club there and marks the old card used up - counter 0, its club still on
     it): the old card goes to your cards as "CLUB - transferred", its table with it, and the new card into the slot.
     At a start, while nothing runs (play.py, before the card reader).  -> (done, what to say); (False, "") when there
     is nothing to finish - no transfer, or one not done yet (the new card still blank).  Two renames, either order of

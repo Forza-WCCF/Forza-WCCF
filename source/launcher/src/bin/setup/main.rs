@@ -1,7 +1,7 @@
 //! SETUP.exe - the kit's window (2026-10-09; before, a console that ran setup.py, and ENGLISH.exe beside it).
 //!   GAME FOLDER  set up / repair (code\setup.py GAME) and undo (setup.py undo GAME); the folder is typed, picked,
 //!                dropped on the window or on SETUP.exe, and remembered by setup.py in data\settings.json
-//!   LANGUAGE     the game in English (code\english.py on), in Italian (english.py on it) or Sega's Japanese back
+//!   LANGUAGE     the game in English (code\english.py on), in Italian (english.py on it) or the original Japanese back
 //!                (english.py off)
 //!   UPDATE       the kit's releases (UPDATE_URL, a placeholder for now) and test builds (pre-releases): the chosen one's kit ZIP is downloaded,
 //!                unzipped into data\update and copied over the kit folder - data\ (club cards, keys, settings, logs)
@@ -405,7 +405,7 @@ fn run_script(kit: &Kit, script: &str, args: &[OsString]) -> Result<(), String> 
     }
 }
 
-/// English is on: english.py's list of Sega's backed-up files is not empty (as kit_common.english_on reads it).
+/// English is on: english.py's list of the original backed-up files is not empty (as kit_common.english_on reads it).
 fn english_on(kit: &Kit) -> bool {
     fs::read_to_string(kit.dir().join("data").join("english_backup").join("manifest.json"))
         .ok()
@@ -414,7 +414,7 @@ fn english_on(kit: &Kit) -> bool {
 }
 
 /// The language english.py has in place, as kit_common.game_language reads it: "en" or "it" (its language.txt;
-/// English before that file existed), "" for Sega's Japanese.
+/// English before that file existed), "" for the original Japanese.
 fn game_language(kit: &Kit) -> String {
     if !english_on(kit) {
         return String::new();

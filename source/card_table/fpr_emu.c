@@ -1,4 +1,4 @@
-/* FPR_Emu.exe - stands in for Sega's card-table emulator, which the WCCF 2010-11 client expects but the disc
+/* FPR_Emu.exe - stands in for the original card-table emulator, which the WCCF 2010-11 client expects but the disc
  * does not have (2026-10-04; protocol: .work/fpr_table.md, checked against the decompile).
  *
  * With FPR_MODE=2 the client (wccf::io::EmulatorFprInterface, FUN_004d2a40) runs

@@ -66,7 +66,8 @@ def misc_dir(game):
 
 
 def english_on():
-    """True if english.py (SETUP.exe's ENGLISH) has English in place: its list of Sega's backed-up files is not empty"""
+    """True if english.py (SETUP.exe's ENGLISH) has English in place: its list of backed-up original files is not
+    empty"""
     try:
         with open(os.path.join(DATA, "english_backup", "manifest.json"), encoding="utf-8") as f:
             return bool(json.load(f))
@@ -80,7 +81,7 @@ TEXT_LANGUAGE = {"on": "en", "it": "it", "off": ""}
 
 def game_language():
     """'en' or 'it' while english.py has the game translated (its language.txt; English before that file existed),
-    '' for Sega's Japanese"""
+    '' for the original Japanese"""
     if not english_on():
         return ""
     try:

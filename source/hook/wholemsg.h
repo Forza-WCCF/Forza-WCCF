@@ -6,13 +6,13 @@
  * disassembly): u32 record count, u32 total size INCLUDING these 8 bytes, then count records of a 16-byte id (text,
  * ended by a NUL unless all 16 are used), a u32 body size and the body. Little-endian.
  *
- * Sega's server reads a batch whole when it arrives whole, as it always did on the arcade's LAN. Over the internet
- * TCP may hand it over in pieces, and the server's code for stitching pieces together is broken: it loses its place
- * and crashes (control_Release+0x129C2 / the memcpy at +0x12A3D) - every player is cut. So the hook keeps the pieces
- * and gives the server only whole batches; the broken stitching code then never runs.
+ * the publisher's server reads a batch whole when it arrives whole, as it always did on the arcade's LAN. Over the
+ * internet TCP may hand it over in pieces, and the server's code for stitching pieces together is broken: it loses its
+ * place and crashes (control_Release+0x129C2 / the memcpy at +0x12A3D) - every player is cut. So the hook keeps the
+ * pieces and gives the server only whole batches; the broken stitching code then never runs.
  *
  * Bytes that cannot be a batch never reach the server either: they are skipped up to the next place a batch can start.
- * Nobody is disconnected for them (Ali, 2026-10-11: no player is ever cut).
+ * Nobody is disconnected for them (the owner, 2026-10-11: no player is ever cut).
  */
 #ifndef WHOLEMSG_H
 #define WHOLEMSG_H

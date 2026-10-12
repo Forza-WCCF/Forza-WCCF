@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-r"""play.py - start (and stop) WCCF 2010-11 on this PC: Sega's server, the projector (the shared big screen) and the
-player cabinet (seat 1) with the overlay and your keyboard.  PLAY.exe runs it; run SETUP.exe first.
+r"""play.py - start (and stop) WCCF 2010-11 on this PC: the publisher's server, the projector (the shared big screen)
+and the player cabinet (seat 1) with the overlay and your keyboard.  PLAY.exe runs it; run SETUP.exe first.
 
     python play.py            start everything on this PC - or, when the SETTINGS panel chose ONLINE, the cabinets
                               on its server (as "remote ADDRESS"), and this PC if that server does not answer;
@@ -425,7 +425,7 @@ def apply_english_request():
     want = read_panel().get("english", "").lower()
     if want not in K.TEXT_LANGUAGE:
         return
-    name = {"on": "English", "it": "Italian", "off": "Sega's Japanese"}[want]
+    name = {"on": "English", "it": "Italian", "off": "the original Japanese"}[want]
     if K.TEXT_LANGUAGE[want] != K.game_language():
         say("  the game's text into %s, as the SETTINGS panel asked - this takes a moment ..." % name)
         try:            # english.py swaps each file in one step, so even a stop half way leaves every file in place

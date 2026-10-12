@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """test_english_pictures.py - English writing in the game's pictures (check.ps1 runs it; no game, nothing live): a
 scratch archive with one picture gets the English added at its end and its entry pointed at it; "on" twice gives the
-same file; "off" gives back Sega's archive byte for byte, also after an "on" stopped before the entries were written.
-    python source\\test_english_pictures.py"""
+same file; "off" gives back the original archive byte for byte, also after an "on" stopped before the entries were
+    written. python source\\test_english_pictures.py"""
 import io
 import os
 import shutil
@@ -23,7 +23,7 @@ os.makedirs(os.path.join(game, "data"))
 xaf = os.path.join(game, "data", "wccf_data.xaf")
 
 pic = Image.new("RGBA", (16, 16), (0, 0, 0, 0))     # small: the picture fits in one sector
-pic.paste((255, 255, 255, 255), (2, 2, 14, 14))               # "Sega's writing": a white block
+pic.paste((255, 255, 255, 255), (2, 2, 14, 14))               # "the original writing": a white block
 sega_dds = E.dds_argb(pic)
 entry = bytearray(E.ENTRY)                                    # one file, uncompressed, in sector 1
 entry[:7] = b"pic.dds"
@@ -51,18 +51,18 @@ assert pics, note
 E.pictures_on(game, pics)
 on = archive()
 assert len(on) == 3 * E.SECTOR and on[:E.SECTOR * 2] != sega[:E.SECTOR * 2], "the picture is added at the end"
-assert on[E.SECTOR:E.SECTOR * 2] == sega[E.SECTOR:E.SECTOR * 2], "Sega's picture is never written over"
+assert on[E.SECTOR:E.SECTOR * 2] == sega[E.SECTOR:E.SECTOR * 2], "the original picture is never written over"
 assert struct.unpack_from("<Q", on, 0x18)[0] == 3, "the header's sector count grows"
 e = on[E.TOC_AT:E.TOC_AT + E.ENTRY]
 assert e[0x81] == 0 and struct.unpack_from("<I", e, 0xA0)[0] == 2, "the entry points at the added picture"
 new = Image.open(io.BytesIO(on[2 * E.SECTOR:2 * E.SECTOR + len(sega_dds)])).convert("RGBA")
-assert new.size == (16, 16) and new.tobytes() != pic.tobytes(), "Sega's writing is replaced"
+assert new.size == (16, 16) and new.tobytes() != pic.tobytes(), "the original writing is replaced"
 assert new.getchannel("A").getbbox() is not None, "the English is drawn"
 
-E.pictures_on(game, E.build_pictures(game)[0])                 # "on" again builds from Sega's picture, not stacked
+E.pictures_on(game, E.build_pictures(game)[0])                 # "on" again builds from the original, not stacked
 assert archive() == on, "on twice gives the same archive"
 
-assert E.pictures_off(game) == 1 and archive() == sega, "off gives back Sega's archive byte for byte"
+assert E.pictures_off(game) == 1 and archive() == sega, "off gives back the original archive byte for byte"
 assert not os.path.exists(E.XAF_STATE)
 
 E.pictures_on(game, pics)                                     # stopped half way: state saved, entries not written
@@ -71,7 +71,7 @@ with open(xaf, "r+b") as f:
     f.write(entry)
     f.seek(0x18)
     f.write(struct.pack("<Q", 2))
-assert E.pictures_off(game) == 1 and archive() == sega, "off after an interrupted on gives back Sega's archive"
+assert E.pictures_off(game) == 1 and archive() == sega, "off after an interrupted on gives back the original archive"
 
 shutil.rmtree(scratch)
 # off by default: with the redrawn pictures in the archive the game did not read a club card (2026-10-11, a real start)

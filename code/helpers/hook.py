@@ -16,7 +16,7 @@ Used by setup.py. Pure bytes in, bytes out - no files touched here, so it is eas
 import struct
 
 HOOK_DLL = b"wccfk.dll"          # the kit's hook under its own name (<= 9 chars: it replaces the import in place)
-SYS_DLL = b"WINMM.dll"           # exactly as Sega's Rev D exes import it (uppercase WINMM) - so renaming back is
+SYS_DLL = b"WINMM.dll"           # exactly as the original Rev D exes import it (uppercase WINMM) - so renaming back is
                                  # byte-exact. Detection is case-insensitive anyway (_import_name_offset).
 
 
@@ -73,7 +73,7 @@ def rename_import(data, frm=SYS_DLL, to=HOOK_DLL):
 
 
 def normalized(data):
-    """`data` with the hook import renamed back to winmm.dll if it was renamed (else unchanged) - the Sega-original
+    """`data` with the hook import renamed back to winmm.dll if it was renamed (else unchanged) - the original
     bytes, so a fingerprint is the same whether or not SETUP has applied the rename yet (idempotency)."""
     return rename_import(data, frm=HOOK_DLL, to=SYS_DLL) if imports_hook(data) else bytes(data)
 

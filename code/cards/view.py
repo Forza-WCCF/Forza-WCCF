@@ -163,7 +163,7 @@ def build(card=CARD, catalogue=CATALOGUE, backups=BACKUPS, running=RUNNING, card
                                                  D.ymd8(one("Coach", "COACH_BIRTHDAY"))))
     c = W.counter(card)                                  # 0 is a real counter (used up): not "or" - it would drop it
     left, low = one("Coach", "COACH_LAST_TERM"), (0xFFFF if c is None else c) & 0xFF
-    if low == 0:                                         # used up: its manager moved to a new card (Sega's transfer)
+    if low == 0:                                         # used up: its manager moved to a new card (its transfer)
         lines.append("row|CONTRACT|transferred - the game will not play this card again|r")
     elif low == 1 or left == 0:                          # last use: the next insert offers the transfer to a new card
         lines.append("row|CONTRACT|ended - put the card in: the game moves your manager to a new card|o")

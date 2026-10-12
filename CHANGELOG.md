@@ -25,7 +25,7 @@ game is not included. Newest first; each date is the day that kit was built.
 - A start compares the game's copy of the hook (wccfk.dll, in the game and in seat1\) with the kit's own and sets
   the game up once if they differ - a newer kit unzipped over this one by hand no longer starts the old hook.
 - Hosting a server: the server program now gets the players' messages only whole. Over the internet a message can
-  arrive in pieces, and Sega's code for putting pieces back together is broken - the most likely cause of the server
+  arrive in pieces, and the publisher's code for putting pieces back together is broken - the most likely cause of the server
   crash that cuts every player ("WCCF CONTROL NOT FOUND", Error 3000). The kit's hook (wccfk.dll) now holds the
   pieces and hands the server each message only once all of it is there; bytes that cannot be a message are skipped,
   and nobody is disconnected for them. WCCF_WHOLEMSG=0 turns it off. The crash was not reproduced on purpose, so this
@@ -49,7 +49,7 @@ game is not included. Newest first; each date is the day that kit was built.
 
 ### Added
 - ITALIANO in SETUP.exe's GAME LANGUAGE (and `english.py on it`): the game in Italian. Each line comes from this kit's
-  Italian (`languages\italian\screen_text.tsv`, 4,477 lines), else Sega's own Italian of the older European WCCF
+  Italian (`languages\italian\screen_text.tsv`, 4,477 lines), else the original Italian of the older European WCCF
   (`languages\italian\sega_rstring.tsv`, 2,705 lines with the same Japanese), else the kit's English - never
   Japanese. The game's font has no accented letters, so the Italian writes them with an apostrophe (perche',
   citta'). Player and CPU team names are the English ones; money stays in dollars. The SETTINGS panel still offers
@@ -73,7 +73,7 @@ game is not included. Newest first; each date is the day that kit was built.
   in memory and a stop ends the launcher at once - after an Error 3000 the file was empty. It is now written
   whenever the game is not waiting on it, so SEND LOGS carries the cabinet's side too.
 - English: the players' full names (the card name, e.g. Mahamadou DIARRA) were still in katakana; they now use
-  Sega's own Latin spelling, accents dropped, like the short names. The second katakana full name stays: the game
+  the original Latin spelling, accents dropped, like the short names. The second katakana full name stays: the game
   looks player partnerships up by it (`partnership.bin`).
 - English: the last 22 Japanese lines a player can meet - the win/loss/draw marks on the manager's career record
   (W, L, D), the weekdays Monday to Saturday, and 12 supporter-group words (Heroes, Stars, Samurai, Tigers, ...).
@@ -85,7 +85,7 @@ game is not included. Newest first; each date is the day that kit was built.
   (`WCCF_PICTURES=1` turns it on to test one).
 - The game no longer refuses to start just because the card CATALOGUE has not been built. The catalogue is only the
   panel's card browser; now the game starts and only the catalogue is empty (SETUP rebuilds it).
-- The card-overwrite switch (SW1) no longer has a key by default. On Sega's card-recovery screen SW1 means "write
+- The card-overwrite switch (SW1) no longer has a key by default. On the publisher's card-recovery screen SW1 means "write
   the backup over your Club Card", and it used to be the `8` key - one stray press could roll your card back. SW1
   and SW2 now have no key unless you set one in KEYS.
 - Closing the game during a manager transfer now warns you too. When your contract ends and the game is making your
@@ -168,10 +168,10 @@ game is not included. Newest first; each date is the day that kit was built.
   an upload, 6 an hour from one address, 1 GB in all (the oldest go). A server must now let in TCP 20050 too.
 
 ### Changed
-- bin\logowin.exe is gone: The kit's stand-in for Sega's logo window - a program without a window that waited for
+- bin\logowin.exe is gone: The kit's stand-in for the publisher's logo window - a program without a window that waited for
   the server to end - was what a player's Windows Defender flagged. The kit's winmm.dll now answers the server's
   start of logowin itself: the message still goes to logowin_messages.txt in the game folder, and nothing runs.
-  SETUP puts Sega's logowin.exe back (kept as logowin_sega.exe); an update removes bin\logowin.exe.
+  SETUP puts the original logowin.exe back (kept as logowin_sega.exe); an update removes bin\logowin.exe.
 - The panel is loaded by the game itself: the kit's winmm.dll, which the game already loads, loads wccfpanel.dll
   3 s after the window is up, for seat 1 and the projector. overlay\inject.exe, which wrote it into the running game
   from outside (VirtualAllocEx + CreateRemoteThread, a method antivirus programs watch for), is gone; an update
@@ -246,7 +246,7 @@ game is not included. Newest first; each date is the day that kit was built.
   message-handling crash (an out-of-bounds read). A live crash showed the same bad message can also blow up in a
   memcpy (an out-of-bounds write) a bit deeper in the same code. The guard now catches **any** fault that happens
   while that message-reassembly function is running and drops the one bad message, so the server keeps going. For
-  hosts only; players who just join need nothing. (Sega's server can crash in other, unrelated ways too - this
+  hosts only; players who just join need nothing. (The publisher's server can crash in other, unrelated ways too - this
   covers the common message-handling one; keep a way to restart the server if it ever stops.)
 
 ## Kit 5.2 - 2026-10-08
