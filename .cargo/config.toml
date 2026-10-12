@@ -1,6 +1,7 @@
 # The C runtime linked in, like the kit's C programs (/MT): no Visual C++ runtime needed on the player's PC.
+# /Brepro, as the C programs: no link timestamp, so the same source gives the same exe.
 [target.'cfg(all(windows, target_env = "msvc"))']
-rustflags = ["-C", "target-feature=+crt-static"]
+rustflags = ["-C", "target-feature=+crt-static", "-C", "link-arg=/Brepro"]
 
 [alias]
 xtask = "run -q -p xtask --"
