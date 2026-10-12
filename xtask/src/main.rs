@@ -41,11 +41,11 @@ const TARGET: &str = "x86_64-pc-windows-msvc";
 
 /// The staged kit <- the repository: (kit path, repository path). Whatever is not here does not ship.
 const MAP: &[(&str, &str)] = &[
-    ("README.txt", "README.txt"),
-    ("CHANGELOG.md", "CHANGELOG.md"),
-    ("art", "art"),
+    ("README.txt", "editions/2010-11/README.txt"),
+    ("CHANGELOG.md", "editions/2010-11/CHANGELOG.md"),
+    ("art", "editions/2010-11/art"),
     ("code", "code"),
-    ("languages", "languages"),
+    ("languages", "editions/2010-11/languages"),
     ("python", "python"),
     ("source", "source"),
     ("source/launcher", "crates/launcher"),
