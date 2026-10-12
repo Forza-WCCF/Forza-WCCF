@@ -47,8 +47,12 @@ const MAP: &[(&str, &str)] = &[
     ("code", "legacy/2010-11/code"),
     ("languages", "editions/2010-11/languages"),
     ("python", "legacy/python"),
-    ("source", "source"),
     ("source", "legacy/2010-11/tests"),
+    ("source/README.txt", "native/2010-11/README.txt"),
+    ("source/hook", "native/2010-11/hook"),
+    ("source/panel", "native/2010-11/panel"),
+    ("source/crashme.c", "native/2010-11/crashme.c"),
+    ("source/card_table/fpr_emu.c", "native/fpr_emu/fpr_emu.c"),
     ("source/launcher", "crates/launcher"),
 ];
 /// Built into the staged kit, so staging leaves them alone.
@@ -163,7 +167,7 @@ fn build(root: &Path, kit: &Path) -> Result<()> {
             &sh,
             &env,
             &version,
-            &root.join("source"),
+            &kit.join("source"),
             &obj,
             source,
             &out,

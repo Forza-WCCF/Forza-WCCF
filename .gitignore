@@ -2,14 +2,13 @@
 # pictures SETUP.exe makes from the player's own game files) - never commit a save.
 /data/
 
-# Built from source\ by cargo xtask build (and by CI into the kit ZIP) - git holds the source, not the programs.
+# Built by cargo xtask build (and by CI into the kit ZIP) - git holds the source, not the programs.
 /PLAY.exe
 /SETUP.exe
 /ENGLISH.exe
 /version.txt
 /files.txt
 /programs/
-/source/build/
 /target/
 /dist/
 
