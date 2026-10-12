@@ -5,3 +5,5 @@
 docs export-ignore
 # the other sources being moved into place (ROADMAP step 3): not in the 2010-11 ZIP
 import export-ignore
+# the other editions and tools (ROADMAP step 3 layout): not in the 2010-11 ZIP
+crates export-ignore
