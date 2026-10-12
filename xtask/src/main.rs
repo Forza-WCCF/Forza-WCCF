@@ -12,7 +12,7 @@ use anyhow::{Context, Result, ensure};
 use clap::Parser;
 use fs_err as fs;
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
@@ -1245,22 +1245,19 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
 
     // every program must carry its version information: a nameless unsigned program is what Windows Defender's
     // machine learning flagged (Kit 5.5's first SETUP.exe, then its winmm.dll)
-    let list = programs
-        .iter()
-        .map(|p| format!("'{}'", kit.join(p).display()))
-        .collect::<Vec<_>>()
-        .join(",");
-    let script = format!(
-        "{list} | ForEach-Object {{ $v = (Get-Item $_).VersionInfo; \"$($v.ProductName)|$($v.FileVersion)|$($v.FileDescription)\" }}"
-    );
-    let info = cmd!(sh, "powershell -NoProfile -Command {script}").read()?;
-    for (p, line) in programs.iter().zip(info.lines()) {
-        let f: Vec<&str> = line.trim().splitn(3, '|').collect();
+    for p in programs {
+        let v = version_strings(&fs::read(kit.join(p))?).unwrap_or_default();
+        let get = |k: &str| v.get(k).map_or("", String::as_str);
         ensure!(
-            f.len() == 3 && f[0] == product && !f[1].is_empty(),
+            get("ProductName") == product && !get("FileVersion").is_empty(),
             "{p} has no version information - see xtask build"
         );
-        println!("{p} : {} {} - {}", f[0], f[1], f[2]);
+        println!(
+            "{p} : {} {} - {}",
+            get("ProductName"),
+            get("FileVersion"),
+            get("FileDescription")
+        );
     }
 
     // for SETUP.exe's update: version.txt, which kit this is, and files.txt, every file this kit ships - an update removes
@@ -1332,6 +1329,93 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
         fs::metadata(&zip_path)?.len() as f64 / 1048576.0
     );
     Ok(())
+}
+
+/// The string table of a PE file's version resource (ProductName, FileVersion, ...), read in Rust so it works on any host.
+/// `object` reaches the resource directory (it hands out the RT_VERSION data), so `pelite` is not needed; the VS_VERSIONINFO
+/// block layout inside the data is parsed here.
+fn version_strings(file: &[u8]) -> Result<HashMap<String, String>> {
+    use object::read::pe::{ImageNtHeaders, PeFile};
+    use object::{FileKind, pe};
+    fn rsrc<P: ImageNtHeaders>(file: &[u8]) -> Result<&[u8]> {
+        let pe = PeFile::<P>::parse(file)?;
+        let sections = pe.section_table();
+        let dir = pe
+            .data_directories()
+            .resource_directory(file, &sections)?
+            .context("no resources")?;
+        let mut table = dir.root()?;
+        // RT_VERSION, then the first name/id, then the first language
+        for level in 0..3 {
+            let entry = table
+                .entries
+                .iter()
+                .find(|e| {
+                    level > 0 || e.name_or_id.get(object::LittleEndian) == u32::from(pe::RT_VERSION)
+                })
+                .context("no version resource")?;
+            match entry.data(dir)? {
+                object::read::pe::ResourceDirectoryEntryData::Table(t) => table = t,
+                object::read::pe::ResourceDirectoryEntryData::Data(d) => {
+                    let rva = d.offset_to_data.get(object::LittleEndian);
+                    let size = d.size.get(object::LittleEndian) as usize;
+                    let data = sections
+                        .pe_data_at(file, rva)
+                        .context("resource outside the file")?;
+                    return data.get(..size).context("short resource");
+                }
+            }
+        }
+        anyhow::bail!("version resource too deep")
+    }
+    let data = match FileKind::parse(file)? {
+        FileKind::Pe32 => rsrc::<pe::ImageNtHeaders32>(file)?,
+        FileKind::Pe64 => rsrc::<pe::ImageNtHeaders64>(file)?,
+        _ => anyhow::bail!("not a PE file"),
+    };
+    // VS_VERSIONINFO: blocks of (length, value length, type, UTF-16 key, 4-aligned value, 4-aligned child blocks)
+    fn blocks(d: &[u8], out: &mut HashMap<String, String>) {
+        let u16_at = |i: usize| {
+            d.get(i..i + 2)
+                .map(|b| u16::from_le_bytes([b[0], b[1]]) as usize)
+        };
+        let (mut at, a4) = (0, |n: usize| n.div_ceil(4) * 4);
+        while let (Some(len), Some(vlen), Some(ty)) = (u16_at(at), u16_at(at + 2), u16_at(at + 4)) {
+            let Some(block) = d.get(at..at + len).filter(|_| len >= 6) else {
+                return;
+            };
+            let key_end = (6..block.len() - 1)
+                .step_by(2)
+                .find(|&i| block[i] == 0 && block[i + 1] == 0)
+                .unwrap_or(block.len() - 1);
+            let units = |b: &[u8]| {
+                b.as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|c| u16::from_le_bytes(*c))
+                    .collect::<Vec<_>>()
+            };
+            let key = String::from_utf16_lossy(&units(&block[6..key_end]));
+            let value = a4(key_end + 2);
+            let size = if ty == 1 { vlen * 2 } else { vlen };
+            if ty == 1
+                && vlen > 0
+                && let Some(v) = block.get(value..value + size)
+            {
+                out.insert(
+                    key,
+                    String::from_utf16_lossy(&units(v))
+                        .trim_end_matches('\0')
+                        .to_owned(),
+                );
+            }
+            blocks(block.get(a4(value + size)..).unwrap_or_default(), out);
+            at += a4(len);
+        }
+    }
+    let mut out = HashMap::new();
+    blocks(data, &mut out);
+    Ok(out)
 }
 
 /// Files and folders of the kit, as '/' paths under it, without the build's leftovers (source/build).
