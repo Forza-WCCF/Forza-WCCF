@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""test_english_pictures.py - English writing in the game's pictures (check.ps1 runs it; no game, nothing live): a
+"""test_english_pictures.py - English writing in the game's pictures (cargo xtask check runs it; no game, nothing live): a
 scratch archive with one picture gets the English added at its end and its entry pointed at it; "on" twice gives the
 same file; "off" gives back the original archive byte for byte, also after an "on" stopped before the entries were
     written. python source\\test_english_pictures.py"""

@@ -3,8 +3,8 @@
 // PLAY.exe and SETUP.exe carry Windows version information (2026-10-10): product, publisher, description and version,
 // what a file's Properties show. Without it they were nameless unsigned programs, the kind Windows Defender's machine
 // learning distrusts most: Kit 5.5's first SETUP.exe was quarantined as "Trojan:Win32/Sabsik.FL.A!ml" when it was
-// unzipped. Made with the Windows SDK's rc.exe (on PATH after vcvarsall, as build.ps1 runs it; otherwise the newest
-// under Windows Kits). source\package.ps1 refuses a kit whose programs lack it.
+// unzipped. Made with the Windows SDK's rc.exe (on PATH after vcvarsall, as cargo xtask build runs it; otherwise the newest
+// under Windows Kits). cargo xtask package refuses a kit whose programs lack it.
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};

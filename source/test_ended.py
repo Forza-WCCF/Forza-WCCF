@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""test_ended.py - play.py's choice when a game window's launcher ends (check.ps1 runs it; nothing live, no game):
+"""test_ended.py - play.py's choice when a game window's launcher ends (cargo xtask check runs it; nothing live, no game):
 a closed window stops the rest, a crash stops nothing while another game window runs (the projector keeps running).
     python source\\test_ended.py"""
 import os

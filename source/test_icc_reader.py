@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""test_icc_reader.py - the club-card reader's saving and recovery (check.ps1 runs it; scratch files only, no game,
+"""test_icc_reader.py - the club-card reader's saving and recovery (cargo xtask check runs it; scratch files only, no game,
 no pipe). Covers the two player-safety fixes:
   A2 - a save that cannot reach the disk never writes the card in place; the card on disk stays the last good one and
        the newest is kept in memory and retried.

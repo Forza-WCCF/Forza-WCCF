@@ -2,7 +2,7 @@
 """test_crash_dump.py - a crash leaves its memory snapshots (debugger.py write_dumps, 2026-10-11): source\\build\\crashme.exe
 (a write to address 0, 32-bit like the game) runs as the "client" under the real debugger.py from a scratch folder;
 data\\dumps must get a lean and a full snapshot, both real minidumps, and the launcher's report must name them.
-check.ps1 runs it after build.ps1; nothing of the game runs.
+cargo xtask check runs it after cargo xtask build; nothing of the game runs.
     python source\\test_crash_dump.py"""
 import os
 import shutil

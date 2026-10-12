@@ -117,7 +117,7 @@ static DWORD  g_hover_since = 0;
 static ULONGLONG ft_q(FILETIME t) { return ((ULONGLONG)t.dwHighDateTime << 32) | t.dwLowDateTime; }
 
 // the kit's version (2026-10-09, the player: "a version number near the ping, so that we can know ... what the issues
-// they get and on what version"): version.txt at the kit's top, written by source\package.ps1 - kit-5.5,
+// they get and on what version"): version.txt at the kit's top, written by cargo xtask package - kit-5.5,
 // kit-5.5-test2, or CI's commit (SETUP.exe's update reads the same file); shown without "kit-" ("KIT 5.5").  A kit
 // built by hand has none and shows "dev".  Drawn under the ping meter (ping_draw), online or not, and beside the
 // SETTINGS panel's title (2026-10-10, the player: "we should have version in settings menu").
@@ -3053,7 +3053,7 @@ static int set_save_locked(void)
     return 0;
 }
 
-// the tests only (check.ps1: WCCFPANEL_SETTEST, a scratch data\): a save keeps what the panel does not show -
+// the tests only (cargo xtask check: WCCFPANEL_SETTEST, a scratch data\): a save keeps what the panel does not show -
 // auto_logs=0, the player's "no automatic report" (play.py, 2026-10-11) - and the choices it does show
 static void set_selftest(void)
 {

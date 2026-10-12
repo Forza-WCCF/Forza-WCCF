@@ -1,3 +1,6 @@
 # The C runtime linked in, like the kit's C programs (/MT): no Visual C++ runtime needed on the player's PC.
 [target.'cfg(all(windows, target_env = "msvc"))']
 rustflags = ["-C", "target-feature=+crt-static"]
+
+[alias]
+xtask = "run -q -p xtask --"

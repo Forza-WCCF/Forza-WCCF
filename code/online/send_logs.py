@@ -30,7 +30,7 @@ DUMPS_SENT = 3                             # a cabinet's lean snapshot: ~1 MB, ~
 
 
 def version(kit=KIT):
-    """this kit's version.txt ("kit-5.5", written by package.ps1) without "kit-": "5.5"; none: "dev" """
+    """this kit's version.txt ("kit-5.5", written by cargo xtask package) without "kit-": "5.5"; none: "dev" """
     try:
         with open(os.path.join(kit, "version.txt"), encoding="ascii", errors="replace") as f:
             words = f.read().split()

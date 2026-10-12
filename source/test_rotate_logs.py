@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """test_rotate_logs.py - log rotation never stops a start (A9): a held file in the log folder must not raise
-(check.ps1 runs it; scratch folders only, no game). Also checks the normal rotation moves this run's logs aside.
+(cargo xtask check runs it; scratch folders only, no game). Also checks the normal rotation moves this run's logs aside.
     python source\\test_rotate_logs.py"""
 import os
 import shutil

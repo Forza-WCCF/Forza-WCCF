@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """test_imports.py - every file in code\\ (every folder) imports the way the launchers run the kit: through
 python\\python313._pth alone - nothing is added to the path here.  2026-10-11: a folder renamed without the _pth, and a
-file moved one folder deeper, both passed every other test (they add code\\ to the path themselves).  check.ps1 runs it
+file moved one folder deeper, both passed every other test (they add code\\ to the path themselves).  cargo xtask check runs it
 with the kit's Python.
     python\\python.exe -I source\\test_imports.py"""
 import importlib

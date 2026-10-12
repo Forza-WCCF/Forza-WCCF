@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""test_backup_manifest.py - the english_backup list reads entries written under the old key (check.ps1 runs it): kits
+"""test_backup_manifest.py - the english_backup list reads entries written under the old key (cargo xtask check runs it): kits
 before 2026-10-12 named the original file's fingerprint after the publisher, newer ones write "original".
 python source\\test_backup_manifest.py"""
 import os

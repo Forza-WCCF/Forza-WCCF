@@ -2,7 +2,7 @@
 # pictures SETUP.exe makes from the player's own game files) - never commit a save.
 /data/
 
-# Built from source\ by source\build.ps1 (and by CI into the kit ZIP) - git holds the source, not the programs.
+# Built from source\ by cargo xtask build (and by CI into the kit ZIP) - git holds the source, not the programs.
 /PLAY.exe
 /SETUP.exe
 /ENGLISH.exe

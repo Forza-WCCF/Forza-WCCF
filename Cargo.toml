@@ -1,12 +1,22 @@
 [workspace]
 resolver = "3"
-members = ["crates/*"]
+members = ["crates/*", "xtask"]
+default-members = ["crates/*"]
 
 [workspace.package]
 version = "7.0.0"
 edition = "2024"
 rust-version = "1.99"
 publish = false
+
+[workspace.dependencies]
+# only what a crate uses is listed (ROADMAP step 4 has the full list); xtask: build, checks, the ZIP
+anyhow = "1.0.104"
+clap = { version = "4.6.7", features = ["derive"] }
+fs-err = "3.3.2"
+sha2 = "0.11.0"
+xshell = "0.2.7"
+zip = { version = "9.0.1", default-features = false, features = ["deflate"] }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

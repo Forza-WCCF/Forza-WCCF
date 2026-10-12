@@ -330,7 +330,7 @@ fn old_exe(exe: &Path) -> PathBuf {
     name.into()
 }
 
-/// files.txt: every file a kit ships, one path under the kit folder per line (source\package.ps1 writes it).
+/// files.txt: every file a kit ships, one path under the kit folder per line (cargo xtask package writes it).
 fn manifest(path: &Path) -> Option<Vec<String>> {
     let text = fs::read_to_string(path).ok()?;
     let lines = text.trim_start_matches('\u{feff}').lines();

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""test_italian_tables.py - the Italian tables against the kit's English (check.ps1 runs it; no game): each key once,
+"""test_italian_tables.py - the Italian tables against the kit's English (cargo xtask check runs it; no game): each key once,
 every line in the game's font (cp932), and the kit's Italian with the same printf and colour codes as the kit's English
 line of that key (a line of the original Italian that does not fit is left for the English by english.py) -
 a stray "%" ("100% presto" is "% p" to printf) or a lost "%s" would show junk or stop the game.  english.py checks the

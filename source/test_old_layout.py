@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """test_old_layout.py - a kit updated from before kit 6 (scripts\\ english\\ bin\\ overlay\\) is tidied by setup: the catalogue
-and card pictures move to data\\cache\\, the old kit's own files go, a player's own file stays (check.ps1 runs it;
+and card pictures move to data\\cache\\, the old kit's own files go, a player's own file stays (cargo xtask check runs it;
 a scratch folder, no game).
     python source\\test_old_layout.py"""
 import os

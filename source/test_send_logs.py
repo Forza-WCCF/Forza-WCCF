@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""test_send_logs.py - SEND LOGS: send_logs.py packs and sends, server\\log_inbox.py keeps - and refuses what it must (check.ps1
+"""test_send_logs.py - SEND LOGS: send_logs.py packs and sends, server\\log_inbox.py keeps - and refuses what it must (cargo xtask check
 runs it; nothing of the game runs).  A scratch kit; inboxes on 127.0.0.1:20952 and :20953.
     python source\\test_send_logs.py"""
 import io

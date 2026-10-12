@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """test_seat_lease.py - the seat lease reconnects and re-claims its seat after the desk connection breaks (A5).
 A tiny fake seat desk on loopback hands out seat 3, then drops the first connection; the lease must come back with
-"WANT SEAT 3" (check.ps1 runs it; loopback only, no game, no real desk).
+"WANT SEAT 3" (cargo xtask check runs it; loopback only, no game, no real desk).
     python source\\test_seat_lease.py"""
 import json
 import os

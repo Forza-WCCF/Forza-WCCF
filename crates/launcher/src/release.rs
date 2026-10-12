@@ -47,7 +47,7 @@ pub fn curl() -> Command {
 }
 
 impl Kit {
-    /// version.txt from the kit ZIP (source\package.ps1 writes it): kit-5.4, kit-5.5-test1, kit-6-test-<commit>.
+    /// version.txt from the kit ZIP (cargo xtask package writes it): kit-5.4, kit-5.5-test1, kit-6-test-<commit>.
     pub fn version(&self) -> Option<String> {
         let v = fs::read_to_string(self.dir.join("version.txt")).ok()?;
         Some(v.trim().to_owned()).filter(|v| !v.is_empty())

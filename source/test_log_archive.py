@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """test_log_archive.py - the run before last is zipped into data\\logs\\archive, never just deleted, and the archive
-keeps to its size (check.ps1 runs it; scratch folders only, nothing live).
+keeps to its size (cargo xtask check runs it; scratch folders only, nothing live).
     python source\\test_log_archive.py"""
 import os
 import sys

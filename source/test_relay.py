@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """test_relay.py - the match relay's seat-ownership rule (A6): a live seat cannot be taken over by another address,
-so no one can hijack a player's match by sending "WRL1R" + a seat (check.ps1 runs it; no sockets, no game).
+so no one can hijack a player's match by sending "WRL1R" + a seat (cargo xtask check runs it; no sockets, no game).
     python source\\test_relay.py"""
 import os
 import sys

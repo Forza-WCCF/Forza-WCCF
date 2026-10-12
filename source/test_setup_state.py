@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """test_setup_state.py - a missing card CATALOGUE (a panel-only extra) must NOT stop a start (A10); a game that is
-not set up still does (check.ps1 runs it; scratch folders, no game).
+not set up still does (cargo xtask check runs it; scratch folders, no game).
     python source\\test_setup_state.py"""
 import os
 import sys

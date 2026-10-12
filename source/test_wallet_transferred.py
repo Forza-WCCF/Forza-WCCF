@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """test_wallet_transferred.py - after a manager transfer the old card is used up (counter low byte 0): the CLUB CARD
 panel lists it as transferred with no PLAY THIS CLUB, a switch to it is refused, and an ended contract says so
-(check.ps1 runs it; cards made here in a scratch folder - no game, no real card).
+(cargo xtask check runs it; cards made here in a scratch folder - no game, no real card).
     python source\\test_wallet_transferred.py"""
 import os
 import shutil

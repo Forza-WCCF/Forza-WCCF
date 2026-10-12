@@ -34,7 +34,7 @@ import kit_common as K
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 # the live files shared with the I/O board stand-in, in the kit's data\ (not in code\, 2026-10-11).  play.KEYS_INPUT
-# names the same file: its stop guard reads the card state from it (check.ps1 asserts the two agree)
+# names the same file: its stop guard reads the card state from it (cargo xtask check asserts the two agree)
 RUN = K.DATA
 LIVE = os.path.join(RUN, "_jvs_seat1_input.txt")
 

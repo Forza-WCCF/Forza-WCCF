@@ -1,12 +1,13 @@
 The source of every program the kit ships, and how each is built.  The kit ZIP carries the built programs; git
-holds only their source (2026-10-08).  From a git checkout, build them all into their places with:
+holds only their source (2026-10-08).  The kit is built from the Forza-WCCF repository with cargo xtask (a Windows
+PC with Rust; this ZIP carries no Cargo files):
 
-    powershell -ExecutionPolicy Bypass -File source\build.ps1     the C programs (32-bit, MSVC) and the launchers (Rust)
-    powershell -ExecutionPolicy Bypass -File source\check.ps1     the checks that need no game (code, key driver, panel)
-    powershell -ExecutionPolicy Bypass -File source\package.ps1   the kit ZIP in dist\, as players get it
+    cargo xtask build              the C programs (32-bit, MSVC) and the launchers (Rust), staged in target\kit\2010-11\
+    cargo xtask check              the checks that need no game (code, key driver, panel) and the Rust checks
+    cargo xtask package 2010-11    the kit ZIP in dist\, as players get it
 
 Needs Visual Studio 2022 (or its Build Tools) with "Desktop development with C++", and rustup.  The
-commands each program is built with, for the record (build.ps1 adds /Brepro, so the same
+commands each program is built with, for the record (xtask adds /Brepro, so the same
 source gives the same file, and keeps the compiler's leftovers in source\build\):
 
 The C source of every program the kit ships. Each was built with Microsoft's C compiler for 32-bit x86
@@ -26,7 +27,7 @@ The C source of every program the kit ships. Each was built with Microsoft's C c
                        cl /nologo /O2 /MT /W3 /D_CRT_SECURE_NO_WARNINGS fakegame.c /Fe:fakegame.exe /link d3d9.lib user32.lib
 
 PLAY.exe, SETUP.exe   launcher\ (Rust; the repository's Cargo.toml and Cargo.lock pin every crate; this ZIP carries only
-                       the launcher's sources, so build from a checkout of the repository)
+                       the launcher's sources, so build from a checkout of the repository with cargo xtask build)
                        cargo build --release --locked -p launcher --target x86_64-pc-windows-msvc
                        then copy target\x86_64-pc-windows-msvc\release\{PLAY,SETUP}.exe to the kit folder.
                        The C runtime is linked in (.cargo\config.toml); checks: cargo fmt --all --check,

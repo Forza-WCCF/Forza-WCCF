@@ -1,4 +1,4 @@
-/* test_wholemsg.c - wholemsg.h on its own (check.ps1 builds and runs it; no game, no network).
+/* test_wholemsg.c - wholemsg.h on its own (cargo xtask check builds and runs it; no game, no network).
  *   cl /nologo /W3 test_wholemsg.c && test_wholemsg.exe */
 #include <stdio.h>
 #include <string.h>

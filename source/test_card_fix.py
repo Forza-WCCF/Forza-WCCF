@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""test_card_fix.py - a missing club-card helper file never stops a start (check.ps1 runs it; nothing live, no game,
+"""test_card_fix.py - a missing club-card helper file never stops a start (cargo xtask check runs it; nothing live, no game,
 no real card): decode.py and edit.py raise ImportError instead of exiting, and play.py's
 apply_card_fix then says so, takes the card_fix request out of panel.txt and lets the start go on.
     python source\\test_card_fix.py"""

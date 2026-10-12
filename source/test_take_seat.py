@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""test_take_seat.py - play._seat_decision: the seat an online PC takes from the seat desk's answer (check.ps1 runs
+"""test_take_seat.py - play._seat_decision: the seat an online PC takes from the seat desk's answer (cargo xtask check runs
 it; nothing live). A4: only "no broker" falls back to seat 1; full / taken / refused / no answer STOP, so two PCs
 never land on seat 1.
     python source\\test_take_seat.py"""
