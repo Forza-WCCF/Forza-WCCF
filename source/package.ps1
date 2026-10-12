@@ -17,6 +17,14 @@ if ($LASTEXITCODE) { throw 'git archive failed' }
 & tar -xf $tar -C $root
 if ($LASTEXITCODE) { throw 'tar failed' }
 Remove-Item $tar
+# the launchers' source lives in crates\launcher (crates\ is export-ignore'd): the ZIP still carries it as source\launcher\
+$launcherDir = Join-Path $root 'source\launcher'
+New-Item -ItemType Directory -Force $launcherDir | Out-Null
+& git -C $kit archive --format=tar -o $tar 'HEAD:crates/launcher'
+if ($LASTEXITCODE) { throw 'git archive (launcher) failed' }
+& tar -xf $tar -C $launcherDir
+if ($LASTEXITCODE) { throw 'tar (launcher) failed' }
+Remove-Item $tar
 
 $built = 'PLAY.exe', 'SETUP.exe', 'programs\wccfk.dll', 'programs\FPR_Emu.exe',
          'programs\wccfpanel.dll', 'programs\inject.exe'
@@ -27,7 +35,7 @@ foreach ($f in $built) {
     New-Item -ItemType Directory -Force (Split-Path $to) | Out-Null
     Copy-Item $from $to
 }
-# every program must carry its version information (source\launcher\build.rs, source\build.ps1, 2026-10-10): a nameless
+# every program must carry its version information (crates\launcher\build.rs, source\build.ps1, 2026-10-10): a nameless
 # unsigned program is what Windows Defender's machine learning flagged (Kit 5.5's first SETUP.exe, then its winmm.dll)
 foreach ($f in 'PLAY.exe', 'SETUP.exe', 'programs\wccfk.dll', 'programs\FPR_Emu.exe', 'programs\wccfpanel.dll', 'programs\inject.exe') {
     $v = (Get-Item (Join-Path $root $f)).VersionInfo

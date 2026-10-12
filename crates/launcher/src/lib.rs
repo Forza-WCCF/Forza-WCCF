@@ -98,9 +98,11 @@ fn wait_key(limit: Option<Duration>) {
     // SAFETY: plain Win32 calls on this process's own standard input handle.
     let input: HANDLE = unsafe { GetStdHandle(STD_INPUT_HANDLE) };
     let mut mode = 0;
+    // SAFETY: `input` is this process's own standard input handle, checked non-null and valid first; `mode` is a live local.
     if input.is_null() || input == INVALID_HANDLE_VALUE || unsafe { GetConsoleMode(input, &mut mode) } == 0 {
         return;
     }
+    // SAFETY: `input` is a valid console input handle (GetConsoleMode just succeeded on it).
     unsafe { FlushConsoleInputBuffer(input) }; // a key pressed while the script ran does not count
     let end = limit.map(|d| Instant::now() + d);
     loop {
@@ -112,15 +114,18 @@ fn wait_key(limit: Option<Duration>) {
             },
         };
         // the input handle is signalled for every console event (mouse, focus, a key let go): read them one by one
+        // SAFETY: `input` is a valid console input handle; waiting on it changes nothing.
         if unsafe { WaitForSingleObject(input, ms) } != WAIT_OBJECT_0 {
             return;
         }
         // SAFETY: INPUT_RECORD is plain data; ReadConsoleInputW fills at most the one record given.
         let mut rec: INPUT_RECORD = unsafe { mem::zeroed() };
         let mut read = 0;
+        // SAFETY: `input` is a valid console input handle; `rec` and `read` are live locals and one record is asked for.
         if unsafe { ReadConsoleInputW(input, &mut rec, 1, &mut read) } == 0 {
             return;
         }
+        // SAFETY: EventType == KEY_EVENT says the union holds a KEY_EVENT_RECORD, so reading `KeyEvent` is sound.
         if read == 1 && u32::from(rec.EventType) == KEY_EVENT && unsafe { rec.Event.KeyEvent.bKeyDown } != 0 {
             return;
         }

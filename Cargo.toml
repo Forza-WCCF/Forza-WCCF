@@ -1,0 +1,30 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "7.0.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+undocumented_unsafe_blocks = "warn"
+dbg_macro = "warn"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"          # safe: children sit in a Job object with KILL_ON_JOB_CLOSE, so an abort still stops them
+strip = true
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 2            # egui, image, aes at usable speed in debug builds; our own code stays fast to compile

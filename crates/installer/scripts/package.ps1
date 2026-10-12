@@ -1,5 +1,5 @@
 param(
-    [string]$Exe = 'target/x86_64-pc-windows-msvc/release/wccf-installer.exe',
+    [string]$Exe = '../../target/x86_64-pc-windows-msvc/release/wccf-installer.exe',
     [string]$Tag = ''
 )
 $ErrorActionPreference = 'Stop'

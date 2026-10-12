@@ -10,7 +10,7 @@
 /files.txt
 /programs/
 /source/build/
-/source/launcher/target/
+/target/
 /dist/
 
 # Python's caches (a script run from a checkout).

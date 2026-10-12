@@ -25,11 +25,12 @@ The C source of every program the kit ships. Each was built with Microsoft's C c
                        header: the steps, and the settings that keep a test off the live game)
                        cl /nologo /O2 /MT /W3 /D_CRT_SECURE_NO_WARNINGS fakegame.c /Fe:fakegame.exe /link d3d9.lib user32.lib
 
-PLAY.exe, SETUP.exe   launcher\ (Rust; Cargo.lock pins every crate)
-                       cargo build --release --locked --target x86_64-pc-windows-msvc
+PLAY.exe, SETUP.exe   launcher\ (Rust; the repository's Cargo.toml and Cargo.lock pin every crate; this ZIP carries only
+                       the launcher's sources, so build from a checkout of the repository)
+                       cargo build --release --locked -p launcher --target x86_64-pc-windows-msvc
                        then copy target\x86_64-pc-windows-msvc\release\{PLAY,SETUP}.exe to the kit folder.
-                       The C runtime is linked in (launcher\.cargo\config.toml); checks: cargo fmt --check,
-                       cargo clippy --all-targets -- -D warnings, cargo test
+                       The C runtime is linked in (.cargo\config.toml); checks: cargo fmt --all --check,
+                       cargo clippy --workspace --all-targets -- -D warnings, cargo test --workspace
 
 art\skin.tex is a picture (the panel's art, 1728x1080, BGRA) rendered from the project's skin page; it has no
 source here.

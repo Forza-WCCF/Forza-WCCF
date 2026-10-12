@@ -23,10 +23,10 @@ cmd /c "`"$vcvars`" x86 >nul && set" | ForEach-Object {
 }
 
 # the runtime linked in (/MT): no Visual C++ runtime needed on the player's PC; /Brepro: the same source, the same file.
-# $what: the program's version information (as source\launcher\build.rs gives PLAY.exe and SETUP.exe), what a file's
+# $what: the program's version information (as crates\launcher\build.rs gives PLAY.exe and SETUP.exe), what a file's
 # Properties show. Kit 5.5's winmm.dll, nameless and unsigned, was quarantined as "Trojan:Win32/Posilod.CA!cl" when it
 # was unzipped (2026-10-10); source\package.ps1 refuses a kit whose programs lack it
-$version = (Select-String -Path (Join-Path $src 'launcher\Cargo.toml') -Pattern '^version = "(.+)"$').Matches[0].Groups[1].Value
+$version = (Select-String -Path (Join-Path $kit 'Cargo.toml') -Pattern '^version = "(.+)"$').Matches[0].Groups[1].Value   # [workspace.package]
 function Build-C([string]$source, [string]$out, [string]$what, [string[]]$compile = @(), [string[]]$link = @()) {
     $name = [IO.Path]::GetFileNameWithoutExtension($out)
     $file = [IO.Path]::GetFileName($out)
@@ -78,14 +78,14 @@ Build-C 'panel\fakegame.c' "$obj\fakegame.exe" '' @() @('d3d9.lib', 'user32.lib'
 Build-C 'hook\test_wholemsg.c' "$obj\test_wholemsg.exe" ''
 Build-C 'crashme.c' "$obj\crashme.exe" ''
 
-# the launchers: the toolchain is pinned by source\launcher\rust-toolchain.toml, every crate by Cargo.lock, the static
-# runtime by source\launcher\.cargo\config.toml - rustup and cargo read those two from the CURRENT folder: build there
-Push-Location (Join-Path $src 'launcher')
+# the launchers: the toolchain is pinned by rust-toolchain.toml at the repository root, every crate by Cargo.lock, the
+# static runtime by .cargo\config.toml - rustup and cargo read those from the CURRENT folder: build at the root
+Push-Location $kit
 try {
-    & cargo build --release --locked --target x86_64-pc-windows-msvc
+    & cargo build --release --locked -p launcher --target x86_64-pc-windows-msvc
     if ($LASTEXITCODE) { throw 'cargo build failed' }
 } finally { Pop-Location }
 foreach ($exe in 'PLAY', 'SETUP') {
-    Copy-Item (Join-Path $src "launcher\target\x86_64-pc-windows-msvc\release\$exe.exe") (Join-Path $kit "$exe.exe")
+    Copy-Item (Join-Path $kit "target\x86_64-pc-windows-msvc\release\$exe.exe") (Join-Path $kit "$exe.exe")
     Write-Host "built $kit\$exe.exe"
 }

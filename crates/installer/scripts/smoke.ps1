@@ -1,4 +1,4 @@
-param([string]$Exe = 'target/x86_64-pc-windows-msvc/release/wccf-installer.exe')
+param([string]$Exe = '../../target/x86_64-pc-windows-msvc/release/wccf-installer.exe')
 $ErrorActionPreference = 'Stop'
 Set-Location (Split-Path -Parent $PSScriptRoot)
 $Exe = (Resolve-Path $Exe).Path
@@ -16,7 +16,7 @@ try {
     $help = Get-Content (Join-Path $root 'stdout.txt') -Raw
     if ($help -notmatch 'Forza-WCCF Installer' -or $help -notmatch '--game' -or $help -match 'Revival') { throw 'Wrong branding or edition help.' }
     Invoke-Installer @('--version') 0
-    $manifest = Get-Content Cargo.toml -Raw
+    $manifest = Get-Content ../../Cargo.toml -Raw   # [workspace.package]
     if ($manifest -notmatch '(?m)^version = "([^"]+)"') { throw 'Missing package version.' }
     $version = $Matches[1]
     if ((Get-Content (Join-Path $root 'stdout.txt') -Raw).Trim() -ne "Forza-WCCF Installer $version") { throw 'Wrong release version/branding.' }

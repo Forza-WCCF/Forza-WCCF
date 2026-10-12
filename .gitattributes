@@ -8,3 +8,8 @@ import export-ignore
 # the other editions and tools (ROADMAP step 3 layout): not in the 2010-11 ZIP
 crates export-ignore
 research export-ignore
+# the Rust workspace's root files: the 2010-11 ZIP carries the launcher sources (package.ps1 adds them as source\launcher\) but not the workspace
+/Cargo.toml export-ignore
+/Cargo.lock export-ignore
+/rust-toolchain.toml export-ignore
+/.cargo export-ignore

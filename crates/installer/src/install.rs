@@ -472,9 +472,7 @@ mod tests {
 
     #[test]
     fn kit_is_optional_and_never_applied_to_sddy() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("target")
-            .join(format!("optional-kit-test-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("optional-kit-test-{}", std::process::id()));
         fs::create_dir(&root).unwrap();
         let (edition_root, game) = version_paths(&root, "SDDY").unwrap();
         fs::create_dir_all(game.join("local")).unwrap();
