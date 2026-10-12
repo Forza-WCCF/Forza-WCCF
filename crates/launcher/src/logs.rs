@@ -16,7 +16,7 @@ use zip::{CompressionMethod, DateTime, ZipWriter};
 pub const ARCHIVE_LIMIT: u64 = 200 * 1024 * 1024;
 
 /// A time on this PC's clock (UTC if Windows cannot say the offset).
-fn local(t: SystemTime) -> OffsetDateTime {
+pub(crate) fn local(t: SystemTime) -> OffsetDateTime {
     let utc = OffsetDateTime::from(t);
     UtcOffset::local_offset_at(utc).map_or(utc, |o| utc.to_offset(o))
 }

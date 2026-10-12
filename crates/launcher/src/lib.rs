@@ -4,6 +4,7 @@
 
 pub mod card;
 pub mod conf;
+pub mod debug;
 pub mod job;
 pub mod keys;
 pub mod kit;
