@@ -26,9 +26,6 @@
  *
  *  - answers the server's start of logowin.exe itself (no process): see
  *    "logowin" below (2026-10-09; before, the kit put a stand-in exe there);
- *  - loads the kit's overlay (WCCF_PANEL, wccfpanel.dll) once the game's
- *    window is up, for seat 1 and the projector (2026-10-09; before, the
- *    kit's inject.exe wrote it into the game from outside);
  *  - gives the server (control_Release) the players' messages only whole
  *    (2026-10-11): a message in pieces crashed it - see "whole messages".
  *
@@ -43,7 +40,6 @@
 #include <stdarg.h>
 #include <string.h>
 #include "winmm_fwd.h"   /* forwards the game's 3 timer functions to Windows' own winmm */
-#pragma comment(lib, "user32.lib")   /* the overlay: EnumWindows, to see the game's window */
 
 /* ---- logging ----------------------------------------------------------- */
 
@@ -1251,51 +1247,8 @@ static void install_hooks(void)
             g_net_on && real_gethostbyname != 0, g_net_on && real_inet_addr != 0);
 }
 
-/* ---- the kit's overlay (2026-10-09) -------------------------------------
- * WCCF_PANEL = the kit's programs\wccfpanel.dll. play.py names it only for
- * seat 1 and the projector (never the server). 3 s after this game shows a
- * window - when play.py used to inject it - this process loads it itself, a
- * plain LoadLibrary. Before, overlay\inject.exe wrote the path into the game
- * and started a thread there (VirtualAllocEx + CreateRemoteThread), which
- * antivirus programs flag. No window in 120 s: not loaded, the game runs on. */
-
-static char g_panel[MAX_PATH];
-
-static BOOL CALLBACK panel_window(HWND h, LPARAM found)
-{
-    DWORD pid = 0;
-    GetWindowThreadProcessId(h, &pid);
-    if (pid == GetCurrentProcessId() && IsWindowVisible(h)) {
-        *(int *)found = 1;
-        return FALSE;
-    }
-    return TRUE;
-}
-
-static DWORD WINAPI panel_thread(LPVOID arg)
-{
-    int found = 0, tries;
-    (void)arg;
-    for (tries = 0; tries < 240 && !found; tries++) {
-        Sleep(500);
-        EnumWindows(panel_window, (LPARAM)&found);
-    }
-    if (!found) {
-        logline("overlay: no window of this game in 120 s - %s not loaded", g_panel);
-        return 0;
-    }
-    Sleep(3000);
-    if (LoadLibraryA(g_panel))
-        logline("overlay: %s loaded", g_panel);
-    else
-        logline("overlay: %s did NOT load (error %lu)", g_panel, GetLastError());
-    return 0;
-}
-
 BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
 {
-    DWORD n;
-    HANDLE t;
     (void)reserved;
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(inst);
@@ -1304,10 +1257,6 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
         InterlockedExchange(&g_ready, 1);
         g_verbose = (GetEnvironmentVariableA("MXHOOK_VERBOSE", NULL, 0) > 0);
         install_hooks();
-        /* the thread starts once the loader is done with every DLL: LoadLibrary is safe there, never here */
-        n = GetEnvironmentVariableA("WCCF_PANEL", g_panel, MAX_PATH);
-        if (n > 0 && n < MAX_PATH && (t = CreateThread(NULL, 0, panel_thread, NULL, 0, NULL)) != NULL)
-            CloseHandle(t);
     }
     return TRUE;
 }
