@@ -38,6 +38,8 @@ enum Task {
         root: PathBuf,
         outdir: PathBuf,
     },
+    /// Build and open the UI design gallery (crates/forza/examples/gallery.rs) through WSL interop
+    Gallery,
     /// The kit ZIP in dist/
     Package {
         /// 2010-11, 2017-18 or installer
@@ -132,6 +134,7 @@ fn main() -> Result<()> {
             build_all(&root, &kit, &kit_1718, &cc)
         }
         Task::Cap { root, outdir } => cap(&root, &outdir),
+        Task::Gallery => gallery(&root),
         Task::Check => check(&root, &stage_root, &kit, &kit_1718),
         Task::Stage { edition } => match edition.as_str() {
             "2010-11" => stage(&root, &kit, MAP, KEEP),
@@ -235,6 +238,20 @@ impl Cc {
         }
         Ok(Cc(cache))
     }
+}
+
+/// The design gallery built for Windows and started from the repository root, where it finds `assets/fonts/`.
+fn gallery(root: &Path) -> Result<()> {
+    let mut c = rust("build", root);
+    c.args(["-p", "forza", "--example", "gallery", "--target", TARGET]);
+    run_ok(c, "cargo build --example gallery")?;
+    let exe = root
+        .join("target")
+        .join(TARGET)
+        .join("debug/examples/gallery.exe");
+    let mut g = Command::new(exe);
+    g.current_dir(root);
+    run_ok(g, "gallery.exe")
 }
 
 /// `cap.exe` (xtask/cap, in no kit) built for Windows, then run through WSL interop with Windows paths.
