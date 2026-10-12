@@ -9,7 +9,7 @@
 Makes: game\\ (server + projector, guarded), seat1\\ (player cabinet: links + its own patched exe), misc\\.
 
 Never touches the decrypted originals (SRC). Guard: client/control import wccfnet.dll instead of IPHLPAPI.DLL
-(netguard/wccfnet.dll stubs the four IP-helper calls); the original exe hashes are checked first.
+(the built wccfnet.dll stubs the four IP-helper calls); the original exe hashes are checked first.
 """
 import hashlib
 import json
@@ -23,9 +23,9 @@ HERE = Path(__file__).resolve().parent
 SRC = Path(os.environ.get("WCCF1718_GAME") or sys.exit("set WCCF1718_GAME to the decrypted 2017-18 game folder"))
 RT = Path(os.environ.get("WCCF1718_RUNTIME", "<runtime>"))
 ROOT = HERE.parent.parent.parent  # the repository root
-# the staged kit (cargo xtask stage 2017-18; restart.sh makes it) holds bin\ and overlay\; netguard's wccfnet.dll is not in the kit
+# the built, staged kit (cargo xtask build) holds bin\ and overlay\; the guard wccfnet.dll is built beside it, in source\build (not shipped)
 GAME, SEAT, KIT = RT / "game", RT / "seat1", ROOT / "target" / "kit" / "2017-18"
-NETGUARD = ROOT / "native" / "2017-18" / "netguard"
+GUARDS = {"wccfnet.dll": KIT / "source" / "build" / "wccfnet.dll", "netguard.dll": KIT / "overlay" / "netguard.dll"}
 WINMM = Path("/mnt/c/Windows/SysWOW64/winmm.dll")
 # the name the original logowin.exe is kept under beside it (the kit's setup restores from it)
 LOGOWIN_BACKUP = "logowin_" + bytes.fromhex("73656761").decode() + ".exe"
@@ -94,8 +94,8 @@ def main():
                 sys.exit("%s is neither the original nor its guarded copy" % exe)
             put(GAME / exe, g)
         report[exe] = {"original": sha(orig), "guarded": sha(g)}
-    for dll in ("wccfnet.dll", "netguard.dll"):
-        shutil.copyfile(NETGUARD / dll, GAME / dll)
+    for dll, built in GUARDS.items():
+        shutil.copyfile(built, GAME / dll)
         report[dll] = sha((GAME / dll).read_bytes())
     shutil.copyfile(WINMM, GAME / "winmm_orig.dll")
     shutil.copyfile(KIT / "bin" / "winmm.dll", GAME / "winmm.dll")

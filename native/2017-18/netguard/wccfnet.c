@@ -1,11 +1,24 @@
 /* Imported by the pinned WCCF runtime copies instead of IPHLPAPI.DLL.
  * Unlike launcher injection, an ordinary DLL import also protects children.
- * Read-only IP helper APIs are forwarded in wccfnet.def. No adapter changes. */
+ * The four calls below are stubs; the read-only IP helper APIs are forwarded (pragmas below). No adapter changes. */
+#define IPHLPAPI_DLL_LINKAGE /* these functions are defined here, not imported */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <iphlpapi.h>
 #include <stdio.h>
 #include <string.h>
+
+/* The four stubs keep their undecorated names; the rest is forwarded to the real IPHLPAPI . */
+#pragma comment(linker, "/export:IpReleaseAddress=_IpReleaseAddress@4")
+#pragma comment(linker, "/export:IpRenewAddress=_IpRenewAddress@4")
+#pragma comment(linker, "/export:CreateIpForwardEntry=_CreateIpForwardEntry@4")
+#pragma comment(linker, "/export:SetIpForwardEntry=_SetIpForwardEntry@4")
+#pragma comment(linker, "/export:GetInterfaceInfo=iphlpapi.GetInterfaceInfo")
+#pragma comment(linker, "/export:GetIpAddrTable=iphlpapi.GetIpAddrTable")
+#pragma comment(linker, "/export:GetNetworkParams=iphlpapi.GetNetworkParams")
+#pragma comment(linker, "/export:GetAdaptersInfo=iphlpapi.GetAdaptersInfo")
+#pragma comment(linker, "/export:GetIpForwardTable=iphlpapi.GetIpForwardTable")
+#pragma comment(linker, "/export:GetAdaptersAddresses=iphlpapi.GetAdaptersAddresses")
 
 static DWORD blocked(const char *name) {
     char path[MAX_PATH], line[128];

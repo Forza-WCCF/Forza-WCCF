@@ -22,7 +22,7 @@ use xshell::{Shell, cmd};
 #[derive(Parser)]
 #[command(about = "Build, check and package the kit")]
 enum Task {
-    /// Compile the C programs and the launchers into the staged kit
+    /// Compile the C programs and the launchers into the staged kits (2010-11 and 2017-18)
     Build,
     /// fmt, clippy, tests, the kit's Python and C self-tests, the scrub
     Check,
@@ -43,6 +43,7 @@ enum Task {
 
 const TOP: &str = "WCCF-2010-11-kit";
 const PRODUCT: &str = "WCCF 2010-11 kit";
+const PRODUCT_1718: &str = "WCCF 2017-18 kit";
 const TARGET: &str = "x86_64-pc-windows-msvc";
 
 /// The staged kit <- the repository: (kit path, repository path). Whatever is not here does not ship.
@@ -62,7 +63,7 @@ const MAP: &[(&str, &str)] = &[
     ("source/launcher", "crates/launcher"),
 ];
 /// The staged 2017-18 kit <- the repository, same rules as [`MAP`]; later rows overlay earlier ones and a row may be one
-/// file. The kit's programs are the committed prebuilt ones (`native/2017-18/prebuilt`) until xtask builds them.
+/// file. The kit's programs are not here: `build` compiles them into the staged kit ([`KEEP_1718`]).
 const MAP_1718: &[(&str, &str)] = &[
     ("", "legacy/2017-18/kit"), // scripts/ and the *.bat launchers
     ("README.txt", "editions/2017-18/README.txt"),
@@ -70,12 +71,6 @@ const MAP_1718: &[(&str, &str)] = &[
     ("overlay/skin.tex", "editions/2017-18/overlay/skin.tex"),
     ("python", "legacy/python"),
     ("python/python313._pth", "legacy/2017-18/python313._pth"), // ..\scripts on the path
-    ("bin", "native/2017-18/prebuilt/bin"),
-    ("overlay", "native/2017-18/prebuilt/overlay"),
-    (
-        "overlay/netguard.dll",
-        "native/2017-18/netguard/netguard.dll",
-    ),
     ("source/README.txt", "native/2017-18/README.txt"),
     ("source/mxhook", "native/2017-18/mxhook"),
     ("source/overlay", "native/2017-18/overlay"),
@@ -85,6 +80,24 @@ const MAP_1718: &[(&str, &str)] = &[
 const TOP_1718: &str = "WCCF-2017-18-kit";
 /// Built into the staged kit, so staging leaves them alone.
 const KEEP: &[&str] = &["programs", "PLAY.exe", "SETUP.exe", "source/build"];
+/// Built into the staged 2017-18 kit (`source/build` also holds the guard wccfnet.dll, which the kit does not ship, and the guard tests).
+const KEEP_1718: &[&str] = &[
+    "bin/winmm.dll",
+    "bin/logowin.exe",
+    "bin/FPR_Emu.exe",
+    "overlay/inject.exe",
+    "overlay/wccfpanel.dll",
+    "overlay/netguard.dll",
+    "source/build",
+];
+const PROGRAMS_1718: &[&str] = &[
+    "bin/winmm.dll",
+    "bin/logowin.exe",
+    "bin/FPR_Emu.exe",
+    "overlay/inject.exe",
+    "overlay/wccfpanel.dll",
+    "overlay/netguard.dll",
+];
 /// What the kit must hold after a build and a package (the ZIP also gets python.exe from git).
 const PROGRAMS: &[&str] = &[
     "PLAY.exe",
@@ -103,11 +116,11 @@ fn main() -> Result<()> {
     let kit = root.join("target/kit/2010-11");
     let kit_1718 = root.join("target/kit/2017-18");
     match Task::parse() {
-        Task::Build => build(&root, &kit),
-        Task::Check => check(&root, &kit),
+        Task::Build => build(&root, &kit).and_then(|()| build_1718(&root, &kit_1718)),
+        Task::Check => check(&root, &kit, &kit_1718),
         Task::Stage { edition } => match edition.as_str() {
             "2010-11" => stage(&root, &kit, MAP, KEEP),
-            "2017-18" => stage(&root, &kit_1718, MAP_1718, &[]),
+            "2017-18" => stage(&root, &kit_1718, MAP_1718, KEEP_1718),
             _ => anyhow::bail!("unknown edition {edition} (2010-11 or 2017-18)"),
         },
         Task::Package { edition, name } => match edition.as_str() {
@@ -203,6 +216,7 @@ fn build(root: &Path, kit: &Path) -> Result<()> {
         build_c(
             &sh,
             &env,
+            PRODUCT,
             &version,
             &kit.join("source"),
             &obj,
@@ -281,6 +295,107 @@ fn build(root: &Path, kit: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The 2017-18 programs, compiled from `native/2017-18` into the staged kit at the paths the scripts read.
+fn build_1718(root: &Path, kit: &Path) -> Result<()> {
+    stage(root, kit, MAP_1718, KEEP_1718)?;
+    let obj = kit.join("source/build");
+    for d in ["bin", "overlay"] {
+        fs::create_dir_all(kit.join(d))?;
+    }
+    fs::create_dir_all(&obj)?;
+    let env = msvc_env(root)?;
+    let version = workspace_version(root)?;
+    let sh = Shell::new()?;
+    sh.change_dir(root);
+    let src = root.join("native/2017-18");
+    let c = |source: &str, out: PathBuf, what: &str, compile: &[&str], link: &[&str]| {
+        build_c(
+            &sh,
+            &env,
+            PRODUCT_1718,
+            &version,
+            &src,
+            &obj,
+            source,
+            &out,
+            what,
+            compile,
+            link,
+        )
+    };
+    c(
+        "mxhook/mxhook.c",
+        kit.join("bin/winmm.dll"),
+        "stands in for the cabinet's hardware, loaded by the game in place of winmm.dll",
+        &["/LD"],
+        &[],
+    )?;
+    c(
+        "logowin/logowin_standin.c",
+        kit.join("bin/logowin.exe"),
+        "the start-up notice window, replaced by one that only records the notice",
+        &[],
+        &["/SUBSYSTEM:WINDOWS"],
+    )?;
+    c(
+        "../fpr_emu/fpr_emu.c",
+        kit.join("bin/FPR_Emu.exe"),
+        "the card table's stand-in",
+        &[],
+        &["user32.lib"],
+    )?;
+    c(
+        "overlay/inject.c",
+        kit.join("overlay/inject.exe"),
+        "loads the kit's panel into the running game",
+        &[],
+        &[],
+    )?;
+    c(
+        "overlay/wccfpanel.c",
+        kit.join("overlay/wccfpanel.dll"),
+        "the kit's on-screen panel",
+        &["/LD"],
+        &[
+            "d3d9.lib",
+            "gdi32.lib",
+            "user32.lib",
+            "ole32.lib",
+            "windowscodecs.lib",
+        ],
+    )?;
+    c(
+        "netguard/netguard.c",
+        kit.join("overlay/netguard.dll"),
+        "secondary network guard: stubs the IP helper calls that drop the host's DHCP lease",
+        &["/LD"],
+        &[],
+    )?;
+    c(
+        "netguard/wccfnet.c",
+        obj.join("wccfnet.dll"),
+        "the primary network guard: the game programs import it instead of IPHLPAPI.DLL",
+        &["/LD"],
+        &[],
+    )?;
+    // tests only, not shipped
+    c(
+        "netguard/test_wccfnet.c",
+        obj.join("test_wccfnet.exe"),
+        "",
+        &[],
+        &[],
+    )?;
+    c(
+        "netguard/test_netguard.c",
+        obj.join("test_netguard.exe"),
+        "",
+        &[],
+        &["iphlpapi.lib"],
+    )?;
+    Ok(())
+}
+
 /// MSVC for 32-bit x86 (the game is 32-bit, so its hook, panel and injector must be): the environment `vcvarsall x86` makes.
 fn msvc_env(root: &Path) -> Result<Vec<(String, String)>> {
     let sh = Shell::new()?;
@@ -319,6 +434,7 @@ fn msvc_env(root: &Path) -> Result<Vec<(String, String)>> {
 fn build_c(
     sh: &Shell,
     env: &[(String, String)],
+    product: &str,
     version: &str,
     src: &Path,
     obj: &Path,
@@ -338,8 +454,8 @@ fn build_c(
     if !what.is_empty() {
         let rc = format!(
             "1 VERSIONINFO\r\nFILEVERSION {comma}\r\nPRODUCTVERSION {comma}\r\nFILEOS 0x40004\r\nFILETYPE {kind}\r\nBEGIN\r\nBLOCK \"StringFileInfo\"\r\nBEGIN\r\nBLOCK \"040904b0\"\r\nBEGIN\r\n\
-             VALUE \"CompanyName\", \"Forza-WCCF community\"\r\nVALUE \"FileDescription\", \"{PRODUCT} - {file}: {what}\"\r\nVALUE \"FileVersion\", \"{version}\"\r\nVALUE \"InternalName\", \"{name}\"\r\n\
-             VALUE \"LegalCopyright\", \"Community-made tools for your own copy of the game; the game is not included\"\r\nVALUE \"OriginalFilename\", \"{file}\"\r\nVALUE \"ProductName\", \"{PRODUCT}\"\r\n\
+             VALUE \"CompanyName\", \"Forza-WCCF community\"\r\nVALUE \"FileDescription\", \"{product} - {file}: {what}\"\r\nVALUE \"FileVersion\", \"{version}\"\r\nVALUE \"InternalName\", \"{name}\"\r\n\
+             VALUE \"LegalCopyright\", \"Community-made tools for your own copy of the game; the game is not included\"\r\nVALUE \"OriginalFilename\", \"{file}\"\r\nVALUE \"ProductName\", \"{product}\"\r\n\
              VALUE \"ProductVersion\", \"{version}\"\r\nEND\r\nEND\r\nBLOCK \"VarFileInfo\"\r\nBEGIN\r\nVALUE \"Translation\", 0x409, 1200\r\nEND\r\nEND\r\n"
         );
         let (rc_path, res_path) = (
@@ -422,7 +538,7 @@ impl Checks {
     }
 }
 
-fn check(root: &Path, kit: &Path) -> Result<()> {
+fn check(root: &Path, kit: &Path, kit_1718: &Path) -> Result<()> {
     for p in PROGRAMS.iter().chain(&[
         "source/build/fakegame.exe",
         "source/build/test_wholemsg.exe",
@@ -431,6 +547,16 @@ fn check(root: &Path, kit: &Path) -> Result<()> {
         ensure!(
             kit.join(p).is_file(),
             "{p} is missing: run `cargo xtask build` first"
+        );
+    }
+    for p in PROGRAMS_1718.iter().chain(&[
+        "source/build/wccfnet.dll",
+        "source/build/test_wccfnet.exe",
+        "source/build/test_netguard.exe",
+    ]) {
+        ensure!(
+            kit_1718.join(p).is_file(),
+            "2017-18 {p} is missing: run `cargo xtask build` first"
         );
     }
     stage(root, kit, MAP, KEEP)?;
@@ -586,6 +712,7 @@ fn check(root: &Path, kit: &Path) -> Result<()> {
     );
 
     panel_selftests(&mut ck)?;
+    guard_tests(&mut ck, kit_1718)?;
 
     for (what, t) in side {
         match t.join().expect("check thread") {
@@ -719,6 +846,41 @@ fn panel_selftests(ck: &mut Checks) -> Result<()> {
     Ok(())
 }
 
+/// The 2017-18 network guards, never the real IP helper calls: test_wccfnet.exe loads wccfnet.dll from a scratch folder and calls
+/// its four stubs (each must return 0 and log a line); test_netguard.exe imports the four IP helper calls and checks netguard.dll
+/// moved them into itself before calling anything.
+fn guard_tests(ck: &mut Checks, kit: &Path) -> Result<()> {
+    let t = std::env::temp_dir().join(format!("wccfnet-check-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&t);
+    fs::create_dir_all(&t)?;
+    for (from, to) in [
+        ("source/build/wccfnet.dll", "wccfnet.dll"),
+        ("overlay/netguard.dll", "netguard.dll"),
+        ("source/build/test_wccfnet.exe", "test_wccfnet.exe"),
+        ("source/build/test_netguard.exe", "test_netguard.exe"),
+    ] {
+        fs::copy(kit.join(from), t.join(to))?;
+    }
+    for (what, exe, dll) in [
+        (
+            "the guard wccfnet.dll: four stubs return 0 and log, nothing reaches IPHLPAPI",
+            "test_wccfnet.exe",
+            "wccfnet.dll",
+        ),
+        (
+            "netguard.dll: the four IP helper imports now point into it",
+            "test_netguard.exe",
+            "netguard.dll",
+        ),
+    ] {
+        let mut c = Command::new(t.join(exe));
+        c.arg(t.join(dll)).current_dir(&t);
+        ck.run(what, c, false);
+    }
+    let _ = fs::remove_dir_all(&t);
+    Ok(())
+}
+
 // ---- scrub ----
 
 /// The publisher's name (and its katakana), built from bytes so this file does not spell it.
@@ -811,16 +973,15 @@ fn scrub(root: &Path, failed: &mut Vec<String>) -> Result<()> {
 
 // ---- package ----
 
-/// `built`: the 2010-11 kit, whose programs `cargo xtask build` made and whose version information is checked. The 2017-18
-/// kit (`!built`) builds nothing: its programs are the committed prebuilt ones, which never had version information
-/// (so none is checked), and its ZIP holds exactly the staged tree plus version.txt and files.txt.
-fn package(root: &Path, kit: &Path, name: &str, built: bool) -> Result<()> {
-    let (top, map) = if built {
-        (TOP, MAP)
+/// `is_1011`: the 2010-11 kit, else the 2017-18 kit. Both hold the programs `cargo xtask build` made, and their version
+/// information is checked; the 2017-18 ZIP leaves out `source/build` (the guard wccfnet.dll and its tests live there).
+fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
+    let (top, map, keep, product) = if is_1011 {
+        (TOP, MAP, KEEP, PRODUCT)
     } else {
-        (TOP_1718, MAP_1718)
+        (TOP_1718, MAP_1718, KEEP_1718, PRODUCT_1718)
     };
-    let programs: &[&str] = if built { PROGRAMS } else { &[] };
+    let programs: &[&str] = if is_1011 { PROGRAMS } else { PROGRAMS_1718 };
     let sh = Shell::new()?;
     sh.change_dir(root);
     let mapped: Vec<&str> = map.iter().map(|m| m.1).collect();
@@ -829,7 +990,7 @@ fn package(root: &Path, kit: &Path, name: &str, built: bool) -> Result<()> {
         dirty.trim().is_empty(),
         "uncommitted changes in files the kit ships; commit them first:\n{dirty}"
     );
-    stage(root, kit, map, if built { KEEP } else { &[] })?;
+    stage(root, kit, map, keep)?;
     for p in programs {
         ensure!(
             kit.join(p).is_file(),
@@ -847,15 +1008,11 @@ fn package(root: &Path, kit: &Path, name: &str, built: bool) -> Result<()> {
     let script = format!(
         "{list} | ForEach-Object {{ $v = (Get-Item $_).VersionInfo; \"$($v.ProductName)|$($v.FileVersion)|$($v.FileDescription)\" }}"
     );
-    let info = if built {
-        cmd!(sh, "powershell -NoProfile -Command {script}").read()?
-    } else {
-        String::new()
-    };
+    let info = cmd!(sh, "powershell -NoProfile -Command {script}").read()?;
     for (p, line) in programs.iter().zip(info.lines()) {
         let f: Vec<&str> = line.trim().splitn(3, '|').collect();
         ensure!(
-            f.len() == 3 && f[0] == PRODUCT && !f[1].is_empty(),
+            f.len() == 3 && f[0] == product && !f[1].is_empty(),
             "{p} has no version information - see xtask build"
         );
         println!("{p} : {} {} - {}", f[0], f[1], f[2]);

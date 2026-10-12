@@ -1,17 +1,20 @@
-The C source of every program the kit ships. Each was built with Microsoft's C compiler for 32-bit x86
-(Visual Studio Build Tools, "vcvarsall.bat x86"), the runtime linked in (/MT), so no Visual C++ runtime is needed.
+The C source of every program the kit ships. `cargo xtask build` compiles each with Microsoft's C compiler for 32-bit
+x86 (Visual Studio Build Tools; xtask loads "vcvarsall.bat x86"): cl /O2 /MT /W3 /Brepro /D_CRT_SECURE_NO_WARNINGS,
+the runtime linked in (/MT) so no Visual C++ runtime is needed, and a VERSIONINFO resource (product "WCCF 2017-18 kit").
+The programs land in target\kit\2017-18 at the paths below; `cargo xtask package 2017-18` zips that folder.
 
-  bin\winmm.dll        mxhook\mxhook.c (+ winmm_fwd.h: forwards all 192 winmm functions to winmm_orig.dll)
-                       cl /nologo /LD /O2 /MT /W3 /D_CRT_SECURE_NO_WARNINGS mxhook.c /Fe:winmm.dll
-  bin\FPR_Emu.exe      fpr_emu\fpr_emu.c
-                       cl /nologo /O2 /MT /W3 /D_CRT_SECURE_NO_WARNINGS fpr_emu.c /Fe:FPR_Emu.exe /link user32.lib
-  bin\logowin.exe      logowin\logowin_standin.c
-                       cl /nologo /O2 /MT /W3 /D_CRT_SECURE_NO_WARNINGS logowin_standin.c /Fe:logowin.exe /link /SUBSYSTEM:WINDOWS
-  overlay\wccfpanel.dll   overlay\wccfpanel.c
-                       cl /nologo /LD /O2 /MT /W3 /D_CRT_SECURE_NO_WARNINGS wccfpanel.c /Fe:wccfpanel.dll /link user32.lib gdi32.lib ole32.lib d3d9.lib windowscodecs.lib ws2_32.lib shell32.lib advapi32.lib winmm.lib shlwapi.lib  (x86 tools)
-                          /link d3d9.lib gdi32.lib user32.lib ole32.lib windowscodecs.lib
+  bin\winmm.dll        mxhook\mxhook.c (+ winmm_fwd.h: forwards all 192 winmm functions to winmm_orig.dll)   /LD
+  bin\FPR_Emu.exe      ..\fpr_emu\fpr_emu.c                                       link: user32.lib
+  bin\logowin.exe      logowin\logowin_standin.c                                  link: /SUBSYSTEM:WINDOWS
+  overlay\wccfpanel.dll   overlay\wccfpanel.c   /LD     link: d3d9 gdi32 user32 ole32 windowscodecs (the source's
+                       #pragma comment(lib) adds advapi32 and ws2_32; nothing else is needed)
   overlay\inject.exe   overlay\inject.c (must be 32-bit: it hands the game 32-bit LoadLibraryA's address)
-                       cl /nologo /O2 /MT /W3 /D_CRT_SECURE_NO_WARNINGS inject.c /Fe:inject.exe
+  overlay\netguard.dll netguard\netguard.c   /LD    (secondary guard: patches the game's IPHLPAPI imports)
+  source\build\wccfnet.dll   netguard\wccfnet.c   /LD   (the primary guard, not in the kit's ZIP: setup1718.py copies it into the
+                       runtime's game folder, where the game programs import it instead of IPHLPAPI.DLL; the four stubs
+                       are exported undecorated, six read-only calls are forwarded to iphlpapi, all by linker pragmas)
+  source\build\test_wccfnet.exe, test_netguard.exe   netguard\test_*.c: `cargo xtask check` loads each guard from a scratch
+                       folder and proves the four calls return 0 without reaching the real IP helper
 
 overlay\skin.tex is a picture (the panel's art, 1728x1080, BGRA) rendered from the project's skin page; it has no
 source here.
