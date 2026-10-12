@@ -81,7 +81,7 @@ const MAP_1718: &[(&str, &str)] = &[
 ];
 const TOP_1718: &str = "WCCF-2017-18-kit";
 /// Built into the staged kit, so staging leaves them alone.
-const KEEP: &[&str] = &["programs", "PLAY.exe", "SETUP.exe", "source/build"];
+const KEEP: &[&str] = &["programs", "PLAY.exe", "source/build"];
 /// Built into the staged 2017-18 kit (`source/build` also holds the guard wccfnet.dll, which the kit does not ship, and the guard tests).
 const KEEP_1718: &[&str] = &[
     "bin/winmm.dll",
@@ -103,7 +103,6 @@ const PROGRAMS_1718: &[&str] = &[
 /// What the kit must hold after a build and a package (the ZIP also gets python.exe from git).
 const PROGRAMS: &[&str] = &[
     "PLAY.exe",
-    "SETUP.exe",
     "programs/wccfk.dll",
     "programs/FPR_Emu.exe",
     "programs/wccfpanel.dll",
@@ -401,13 +400,11 @@ fn build(root: &Path, kit: &Path, cc: &Cc) -> Result<()> {
         TARGET,
     ]);
     run_ok(c, "cargo build -p launcher")?;
-    for exe in ["PLAY.exe", "SETUP.exe"] {
-        fs::copy(
-            root.join("target").join(TARGET).join("release").join(exe),
-            kit.join(exe),
-        )?;
-        println!("built {}", kit.join(exe).display());
-    }
+    fs::copy(
+        root.join("target").join(TARGET).join("release").join("PLAY.exe"),
+        kit.join("PLAY.exe"),
+    )?;
+    println!("built {}", kit.join("PLAY.exe").display());
     Ok(())
 }
 

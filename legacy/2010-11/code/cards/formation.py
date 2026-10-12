@@ -279,7 +279,7 @@ def main():
     game = K.find_game(K.load_settings().get("game"))
     seat = K.seat_dir(game) if game else None
     if not seat:
-        print("not set up yet - run SETUP.exe first")
+        print("not set up yet - set up first: PLAY.exe, Setup and updates")
         return 2
     name, _squad = club_of(CARD)
     boards = all_boards(K.SAVE)

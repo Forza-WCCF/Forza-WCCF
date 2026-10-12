@@ -26,10 +26,10 @@ The C source of every program the kit ships. Each was built with Microsoft's C c
                        header: the steps, and the settings that keep a test off the live game)
                        cl /nologo /O2 /MT /W3 /D_CRT_SECURE_NO_WARNINGS fakegame.c /Fe:fakegame.exe /link d3d9.lib user32.lib
 
-PLAY.exe, SETUP.exe   launcher\ (Rust; the repository's Cargo.toml and Cargo.lock pin every crate; this ZIP carries only
+PLAY.exe              launcher\ (Rust; the repository's Cargo.toml and Cargo.lock pin every crate; this ZIP carries only
                        the launcher's sources, so build from a checkout of the repository with cargo xtask build)
                        cargo build --release --locked -p launcher --target x86_64-pc-windows-msvc
-                       then copy target\x86_64-pc-windows-msvc\release\{PLAY,SETUP}.exe to the kit folder.
+                       then copy target\x86_64-pc-windows-msvc\release\PLAY.exe to the kit folder.
                        The C runtime is linked in (.cargo\config.toml); checks: cargo fmt --all --check,
                        cargo clippy --workspace --all-targets -- -D warnings, cargo test --workspace
 
@@ -37,7 +37,7 @@ art\skin.tex is a picture (the panel's art, 1728x1080, BGRA) rendered from the p
 source here.
 
 What each does, in short:
-  wccfk.dll     loaded by the game under its own name (SETUP renames the game's WINMM.dll import to it,
+  wccfk.dll     loaded by the game under its own name (setup renames the game's WINMM.dll import to it,
                 code\helpers\hook.py); passes the game's three timer calls on to Windows' winmm, and stands in for the arcade's devices: serial ports to the card reader
                 and I/O board stand-ins (named pipes), the RingEdge memory, the network address (127.0.0.1)
   FPR_Emu.exe   answers the game's card-table polls with the cards in seat1\fpr_table0.txt

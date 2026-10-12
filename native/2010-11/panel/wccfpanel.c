@@ -118,7 +118,7 @@ static ULONGLONG ft_q(FILETIME t) { return ((ULONGLONG)t.dwHighDateTime << 32) |
 
 // the kit's version (2026-10-09, the player: "a version number near the ping, so that we can know ... what the issues
 // they get and on what version"): version.txt at the kit's top, written by cargo xtask package - kit-5.5,
-// kit-5.5-test2, or CI's commit (SETUP.exe's update reads the same file); shown without "kit-" ("KIT 5.5").  A kit
+// kit-5.5-test2, or CI's commit (PLAY.exe's update reads the same file); shown without "kit-" ("KIT 5.5").  A kit
 // built by hand has none and shows "dev".  Drawn under the ping meter (ping_draw), online or not, and beside the
 // SETTINGS panel's title (2026-10-10, the player: "we should have version in settings menu").
 static char g_kitver[48] = "dev";

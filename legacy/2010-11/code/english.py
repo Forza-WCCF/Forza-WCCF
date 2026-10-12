@@ -3,9 +3,9 @@ r"""english.py - WCCF 2010-11 in English.  Built on this PC from YOUR game files
 with the original files kept; "off" puts the originals back.  Nothing of the original ships with the kit:
 languages\english\ holds only English text and fingerprints (SHA-256) of the original files.
 
-    python english.py on       (SETUP.exe: ENGLISH)   build, check, then put the English files in place
-    python english.py on it    (SETUP.exe: ITALIANO)  the same in Italian: languages\italian\ first, the English where a line has none
-    python english.py off      (SETUP.exe: JAPANESE)  the original Japanese files back
+    python english.py on       (PLAY: GAME TEXT ENGLISH)   build, check, then put the English files in place
+    python english.py on it    (PLAY: GAME TEXT ITALIANO)  the same in Italian: languages\italian\ first, the English where a line has none
+    python english.py off      (PLAY: GAME TEXT JAPANESE) the original Japanese files back
     python english.py check                           say what "on" would do; changes nothing
 
 What changes, in the game's extracted\ folder (seat 1 reads the same files through setup's folder links):
@@ -28,7 +28,7 @@ with writing in them are not changed.
 Where the English comes from: languages\english\screen_text.tsv (this kit's translation), the original English that the
 game files already hold (a second language column), and languages\english\original_rstring.tsv (lines from the
 original European English of the older WCCF, matched by identical Japanese).
-Exit 0 done; 1 refused or a check failed (nothing changed); 2 no game set up (run SETUP.exe first).
+Exit 0 done; 1 refused or a check failed (nothing changed); 2 no game set up (set up first: PLAY.exe, Setup and updates).
 """
 import bisect
 import collections
@@ -341,14 +341,14 @@ def build_names(game):
 def build_exe(game, lang="en"):
     sheet_rows, files = sheet("exe_text.tsv"), {}
     for rel, program, what in ((PROJECTOR, "client", "the projector's client_Release.exe (the original Rev D)"),
-                               (SEAT_EXE, "client", "seat 1's client_Release.exe (the copy SETUP.exe makes)"),
+                               (SEAT_EXE, "client", "seat 1's client_Release.exe (the copy setup makes)"),
                                (SERVER, "server", "the server's control_Release.exe (the original Rev D)")):
         rows = [r for r in sheet_rows if r["program"] == program]
         if not rows:
             continue
         d = bytearray(original_file(game, rel))
         if sha(d) != ORIGINAL[rel]:
-            raise Failed("%s is not the expected file - run SETUP.exe first" % what)
+            raise Failed("%s is not the expected file - set up again first (PLAY.exe, Setup and updates)" % what)
         size = len(d)
         for r in rows:
             o, n = int(r["offset"], 16), int(r["length"])
@@ -534,7 +534,7 @@ def pictures_on(game, pics):
             e = f.read(ENTRY)
             f.seek(struct.unpack_from("<I", e, 0xA0)[0] * SECTOR)
             if e != entries[i] or f.read(len(blob)) != blob:
-                raise Failed("%s did not write correctly - press JAPANESE in SETUP.exe" % p)
+                raise Failed("%s did not write correctly - choose GAME TEXT: JAPANESE in PLAY.exe" % p)
 
 
 def build_all(game, lang="en"):
@@ -637,7 +637,7 @@ def turn_on(game, files):
         put(tgt, data)                                   # one step: the game's file is never missing (2026-10-06)
         with open(tgt, "rb") as f:
             if sha(f.read()) != sha(data):
-                raise Failed("%s did not write correctly - press JAPANESE in SETUP.exe" % rel)
+                raise Failed("%s did not write correctly - choose GAME TEXT: JAPANESE in PLAY.exe" % rel)
         man[rel]["english"] = sha(data)                  # the English bytes with the original WINMM import
         apply_hook(rel, tgt)                              # then load the kit's hook by its own name (wccfk.dll)
     save_manifest(man)
@@ -683,7 +683,7 @@ def main(argv):
         return 1
     game = K.find_game(K.load_settings().get("game"))
     if not game:
-        print("The game is not set up yet - run SETUP.exe first.")
+        print("The game is not set up yet - set up first: PLAY.exe, Setup and updates.")
         return 2
     print("WCCF 2010-11 kit - %s %s - game: %s" % (LANGS[lang], mode, game))
     try:
@@ -718,7 +718,7 @@ def main(argv):
         with open(LANG_FILE, "w", encoding="ascii") as f:
             f.write(lang + "\n")
         print("  ok    %d files in place and %d pictures in the archive, each read back.  The originals are in "
-              "data\\english_backup (JAPANESE in SETUP.exe puts them back)." % (len(files), len(pics)))
+              "data\\english_backup (GAME TEXT: JAPANESE in PLAY.exe puts them back)." % (len(files), len(pics)))
     except Failed as ex:
         print("  FAIL  %s" % ex)
         return 1

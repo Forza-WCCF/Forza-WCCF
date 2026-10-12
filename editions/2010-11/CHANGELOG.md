@@ -15,6 +15,30 @@ game is not included. Newest first; each date is the day that kit was built.
   inject.exe: it writes into the running game from outside (VirtualAllocEx + CreateRemoteThread).
 - UPDATE no longer looks on GitHub: it points at a placeholder address until Forza-WCCF has a release site, and
   says "No update found" (in English, Italian and Japanese). PLAY.exe no longer asks for a newer kit.
+- PLAY.exe is the kit's one program, and a window: PLAY ON (THIS PC, or ONLINE and a server's address - the same
+  choice as the in-game SETTINGS, kept in data\panel.txt), LANGUAGE (English, Italiano, Japanese: the window's own
+  words, kept in data\settings.json) and GAME TEXT (English, Italiano or Japanese, switched at the start), then PLAY. Its
+  progress and the scripts' output show in the window, never in a console; once the game is up the window goes and
+  PLAY.exe stays without one as the run's watcher, ending with the run. A start that fails keeps the window open,
+  unfolded, with the reason.
+- SETUP.exe is gone: its game folder (SET UP / REPAIR, UNDO SETUP), UPDATE and its release list are in PLAY under "Setup
+  and updates", folded away until wanted (open on the first start, before setup). A game folder dropped on PLAY.exe
+  is set up. UNDO SETUP turns English off first instead of refusing. PLAY removes the old SETUP.exe (an update from
+  SETUP.exe leaves it behind, as it is running).
+- While the game runs, PLAY.exe opened again offers STOP THE GAME (asks first: during a match it costs a bad ending),
+  for a stuck game - before, "PLAY.exe stop force" in a console.
+- RESTART NOW (in-game SETTINGS and CLUB CARD) shows PLAY's window while it restarts, then it goes: no console.
+- From a command prompt PLAY.exe still takes play.py's words (local, server, remote ADDRESS, debug, stop, status,
+  show) and prints there; the prompt does not wait for it ("start /wait PLAY.exe server" does). Started from a
+  shortcut with those words, it runs them in its window.
+- The kit's helpers (the stand-ins, the key driver, the panel helper, the server's launcher) run with no console
+  window at all: before, each had a console window that was only hidden, which a terminal program set as Windows'
+  default can still show or flash. "PLAY.exe debug" still opens the key driver's window.
+
+### Fixed
+- A game window closed while the game was still starting no longer leaves the server and the helpers running: the
+  watcher counts the launchers that are still running and, when one has already ended, stops the rest by the same
+  rules (a closed window stops the rest; a crash or an open card session does not).
 
 ## Kit 6 - 2026-10-11
 

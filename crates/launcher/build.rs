@@ -1,6 +1,6 @@
-// SETUP.exe is a window: Windows' current look for its controls (Common Controls 6, also the progress bar's).
+// PLAY.exe is a window: Windows' current look for its controls (Common Controls 6, also the progress bar's).
 //
-// PLAY.exe and SETUP.exe carry Windows version information (2026-10-10): product, publisher, description and version,
+// PLAY.exe carries Windows version information (2026-10-10): product, publisher, description and version,
 // what a file's Properties show. Without it they were nameless unsigned programs, the kind Windows Defender's machine
 // learning distrusts most: Kit 5.5's first SETUP.exe was quarantined as "Trojan:Win32/Sabsik.FL.A!ml" when it was
 // unzipped. Made with the Windows SDK's rc.exe (on PATH after vcvarsall, as cargo xtask build runs it; otherwise the newest
@@ -11,38 +11,31 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
-    println!("cargo:rustc-link-arg-bin=SETUP=/MANIFEST:EMBED");
+    println!("cargo:rustc-link-arg-bin=PLAY=/MANIFEST:EMBED");
     println!(
-        "cargo:rustc-link-arg-bin=SETUP=/MANIFESTDEPENDENCY:type='win32' name='Microsoft.Windows.Common-Controls' \
+        "cargo:rustc-link-arg-bin=PLAY=/MANIFESTDEPENDENCY:type='win32' name='Microsoft.Windows.Common-Controls' \
          version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'"
     );
     println!("cargo:rerun-if-changed=build.rs");
     let Some(rc) = find_rc() else {
-        println!("cargo:warning=no rc.exe (Windows SDK): PLAY.exe and SETUP.exe built without version information");
+        println!("cargo:warning=no rc.exe (Windows SDK): PLAY.exe built without version information");
         return;
     };
     let out = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
     let version = env::var("CARGO_PKG_VERSION").expect("CARGO_PKG_VERSION");
-    for (bin, what) in [
-        ("PLAY", "starts the game: server, projector and seat 1"),
-        (
-            "SETUP",
-            "sets up the game folder, the game's language and the kit's updates",
-        ),
-    ] {
-        let script = out.join(format!("{bin}.rc"));
-        let res = out.join(format!("{bin}.res"));
-        fs::write(&script, version_rc(bin, what, &version)).expect("write the .rc");
-        let ok = Command::new(&rc)
-            .arg("/nologo")
-            .arg("/fo")
-            .arg(&res)
-            .arg(&script)
-            .status()
-            .is_ok_and(|s| s.success());
-        assert!(ok, "rc.exe could not make {}", res.display());
-        println!("cargo:rustc-link-arg-bin={bin}={}", res.display());
-    }
+    let what = "starts the game (server, projector and seat 1), sets up the game folder and updates the kit";
+    let script = out.join("PLAY.rc");
+    let res = out.join("PLAY.res");
+    fs::write(&script, version_rc("PLAY", what, &version)).expect("write the .rc");
+    let ok = Command::new(&rc)
+        .arg("/nologo")
+        .arg("/fo")
+        .arg(&res)
+        .arg(&script)
+        .status()
+        .is_ok_and(|s| s.success());
+    assert!(ok, "rc.exe could not make {}", res.display());
+    println!("cargo:rustc-link-arg-bin=PLAY={}", res.display());
 }
 
 /// rc.exe on PATH (after vcvarsall), else llvm-rc (WSL), else the newest x64 rc.exe under the Windows Kits.

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 r"""setup.py - make your own copy of WCCF 2010-11 (Rev D) run on this PC with the kit.
-Run it once (SETUP.exe); running it again checks everything and repairs what is missing.
+Run it once (PLAY.exe, Setup and updates); running it again checks everything and repairs what is missing.
 
     python setup.py [GAME]     GAME = the game folder, the one that holds client_Release.exe (or the folder above
                                it); asked for if not given, then remembered in data\settings.json
@@ -219,7 +219,7 @@ def check_game(game):
         raise Failed("the game is running - close its window first, then run setup again")
     h = norm_sha(original_client(game))
     if original_client(game) != os.path.join(game, "client_Release.exe"):
-        ok("English is on (SETUP.exe's ENGLISH): the original client_Release.exe is checked in data\\english_backup")
+        ok("English is on (PLAY's GAME TEXT): the original client_Release.exe is checked in data\\english_backup")
     if h == PATCHED_CLIENT:
         raise Failed("the game folder's client_Release.exe is already PATCHED - setup needs the unchanged exe there "
                      "(only seat1\\ gets the patched copy). Put your own unchanged client_Release.exe back first.")
@@ -410,7 +410,7 @@ def undo(game):
     if K.game_processes(game):
         raise Failed("the game is running - close its window first, then undo")
     if os.path.isfile(os.path.join(ENGLISH_BACKUP, "manifest.json")):
-        raise Failed("English is on - press JAPANESE in SETUP.exe first, so the original files go back before the undo")
+        raise Failed("English is on - choose GAME TEXT: JAPANESE in PLAY.exe first, so the original files go back before the undo")
     seat = K.seat_dir(game)
     if os.path.isdir(seat):
         if not os.path.isfile(os.path.join(seat, MARKER)):

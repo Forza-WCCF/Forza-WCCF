@@ -3,8 +3,9 @@
 //! engines and the kit's helpers (stand-ins, key driver, panel helper) ran on in the background until STOP or their
 //! 12 hours were up.  There is no STOP now: closing a game window is how the game is quit.
 //!
-//! After a start or a restart, PLAY leaves a watcher: the same exe again, `--watch`, without a window.  It waits for
-//! the run's cabinet and projector launchers (data\running.json; hardware\debugger.py ends each game, and itself, when the
+//! After a start or a restart, PLAY's window goes and its process stays as the watcher (from a console: it leaves
+//! the same exe again, `--watch`, without a window).  It waits for
+//! the run's cabinet and projector launchers (data\running.json; _debug_launch.py ends each game, and itself, when the
 //! game's window is closed) and once one has ended, runs `play.py ended`, which stops the rest of the run - by full
 //! path, nothing else on the PC is touched.  Its output: data\logs\run_ended.txt.  When that stop is refused (the
 //! projector's window closed while seat 1 is in a card session: a match is on), it watches the rest again.
@@ -121,7 +122,13 @@ pub fn watch(kit: &Kit) {
     if !w.lock(TAKE_OVER) {
         return;
     }
-    let mut launchers = run_launchers(kit);
+    let (recorded, mut launchers) = run_launchers(kit);
+    // A game window closed while play.py was still starting (the overlay is waited for up to 60 s): its launcher ended
+    // before this watcher began, and waiting only for the others left the rest running (2026-10-10).  play.py ended
+    // decides, as for any end: a closed window stops the rest, a crash or a card session does not.
+    if launchers.len() < recorded && (w.quit_within(GRACE) || !stop_refused(kit)) {
+        return;
+    }
     while !launchers.is_empty() {
         let handles: Vec<HANDLE> = [raw(&w.quit)].into_iter().chain(launchers.iter().map(raw)).collect();
         let count = u32::try_from(handles.len()).unwrap_or(u32::MAX);
@@ -160,19 +167,24 @@ fn stop_refused(kit: &Kit) -> bool {
     cmd.status().is_ok_and(|s| s.code() == Some(3))
 }
 
-/// The run's cabinet and projector launchers that still run: from data\running.json, each checked to be the kit's
-/// own Python (a process id Windows gave to another program since is left alone).
-fn run_launchers(kit: &Kit) -> Vec<OwnedHandle> {
+/// How many game windows the run on record has (its cabinet and projector launchers in data\running.json, ended or
+/// not): PLAY's window goes once a start has some, and the process watches them.
+pub fn run_recorded(kit: &Kit) -> usize {
+    fs::read_to_string(kit.data().join("running.json")).map_or(0, |text| launcher_pids(&text).len())
+}
+
+/// How many cabinet and projector launchers data\running.json names, and those that still run, each checked to be
+/// the kit's own Python (a process id Windows gave to another program since counts as ended, and is left alone).
+fn run_launchers(kit: &Kit) -> (usize, Vec<OwnedHandle>) {
     let Ok(text) = fs::read_to_string(kit.data().join("running.json")) else {
-        return Vec::new();
+        return (0, Vec::new());
     };
     let Ok(python) = fs::canonicalize(kit.python()) else {
-        return Vec::new();
+        return (0, Vec::new());
     };
-    launcher_pids(&text)
-        .into_iter()
-        .filter_map(|pid| open_if_runs(pid, &python))
-        .collect()
+    let pids = launcher_pids(&text);
+    let running = pids.iter().filter_map(|&pid| open_if_runs(pid, &python)).collect();
+    (pids.len(), running)
 }
 
 /// The process ids of running.json's launchers: "seat N launcher" and "projector launcher" (not the server's).
@@ -225,7 +237,8 @@ fn open_with_image(pid: u32) -> Option<(OwnedHandle, PathBuf)> {
 }
 
 /// A program that runs from the kit folder (the kit's Python, a launcher, the injector ...), this one aside: the game
-/// or a kit tool is on.  SETUP.exe's update writes over the kit only when there is none.
+/// or a kit tool is on.  PLAY.exe's UPDATE writes over the kit only
+/// when there is none, and PLAY offers STOP THE GAME while there is one.
 pub fn kit_program_running(kit: &Kit) -> Option<PathBuf> {
     let dir = fs::canonicalize(&kit.dir).ok()?;
     let mut pids = vec![0u32; 4096];

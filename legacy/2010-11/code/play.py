@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 r"""play.py - start (and stop) WCCF 2010-11 on this PC: the publisher's server, the projector (the shared big screen)
-and the player cabinet (seat 1) with the overlay and your keyboard.  PLAY.exe runs it; run SETUP.exe first.
+and the player cabinet (seat 1) with the overlay and your keyboard.  PLAY.exe runs it; set up first (PLAY.exe, Setup and updates).
 
     python play.py            start everything on this PC - or, when the SETTINGS panel chose ONLINE, the cabinets
                               on its server (as "remote ADDRESS"), and this PC if that server does not answer;
@@ -76,7 +76,7 @@ KEYS_INPUT = os.path.join(K.DATA, "_jvs_seat1_input.txt")        # = hardware\ke
 CARD = os.path.join(K.SAVE, "seat1_club.bin")
 RUNNING = os.path.join(K.DATA, "running.json")
 PANEL = os.path.join(K.DATA, "panel.txt")         # the SETTINGS panel's choices (wccfpanel.dll writes it)
-CREATE_NEW_CONSOLE = 0x10
+CREATE_NEW_CONSOLE, CREATE_NO_WINDOW = 0x10, 0x08000000
 SW_HIDE, SW_SHOWMINNOACTIVE = 0, 7
 
 
@@ -114,16 +114,20 @@ def card_in():
 
 
 def start(script, args, log_name, env, show=SW_HIDE, quiet=False):
-    """a kit script in its own (hidden) console; output to data\\logs\\<log_name>"""
-    si = subprocess.STARTUPINFO()
-    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-    si.wShowWindow = show
+    """a kit script in a console of its own; output to data\\logs\\<log_name>.  Hidden (the default): a console with
+    no window at all (CREATE_NO_WINDOW, 2026-10-10) - a hidden window is still a console window, which a terminal
+    program set as Windows' default may show, or flash at the start; the script runs the same either way"""
+    flags, si = CREATE_NO_WINDOW, None
+    if show != SW_HIDE:                       # "debug": the key driver's window, minimized
+        flags, si = CREATE_NEW_CONSOLE, subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = show
     out = None
     if log_name:
         out = subprocess.DEVNULL if quiet else open(os.path.join(K.LOGS, log_name), "w", encoding="utf-8")
     return subprocess.Popen([PY, "-u", os.path.join(K.SCRIPTS, script)] + [str(a) for a in args], cwd=K.LOGS,
                             env=env, stdout=out, stderr=subprocess.STDOUT if out else None,
-                            creationflags=CREATE_NEW_CONSOLE, startupinfo=si)
+                            creationflags=flags, startupinfo=si)
 
 
 def valid_ipv4(s):
@@ -148,7 +152,7 @@ def set_control_ip(conf, ip):
     with open(conf, "rb") as f:
         raw = f.read()
     if not re.search(rb"(?m)^CONTROL_IP=", raw):
-        raise Failed("%s has no CONTROL_IP line - run SETUP.exe again" % conf)
+        raise Failed("%s has no CONTROL_IP line - set up again (PLAY.exe, Setup and updates)" % conf)
     out = re.sub(rb"(?m)^(CONTROL_IP|MATCH_IP)=[^\r\n]*", lambda m: m.group(1) + b"=" + ip.encode("ascii"), raw)
     if out == raw:
         return False
@@ -168,7 +172,7 @@ def set_satellite_no(conf, n):
     with open(conf, "rb") as f:
         raw = f.read()
     if not re.search(rb"(?m)^SATELLITE_NO=", raw):
-        raise Failed("%s has no SATELLITE_NO line - run SETUP.exe again" % conf)
+        raise Failed("%s has no SATELLITE_NO line - set up again (PLAY.exe, Setup and updates)" % conf)
     out = re.sub(rb"(?m)^SATELLITE_NO=[^\r\n]*", b"SATELLITE_NO=%d" % n, raw)
     if out == raw:
         return False
@@ -357,10 +361,10 @@ def setup_state():
     game = K.find_game(K.load_settings().get("game"))
     seat = K.seat_dir(game) if game else None
     if not game or not os.path.isfile(os.path.join(seat, ".wccf-kit")):
-        say("Not set up yet - run SETUP.exe first.")
+        say("Not set up yet - set up first: PLAY.exe, Setup and updates.")
         return None, None
     if not os.path.isfile(os.path.join(K.CACHE, "catalogue.tsv")):     # the panel's card browser only (A10) - not the
-        say("  (the card CATALOGUE is not built yet - the panel's catalogue will be empty; SETUP.exe rebuilds it)")
+        say("  (the card CATALOGUE is not built yet - the panel's catalogue will be empty; set up rebuilds it)")
     return game, seat                                                  # game: it must never stop a start
 
 
@@ -368,7 +372,7 @@ def ensure_hook(game, seat):
     """kit 6 loads its hook as wccfk.dll (setup renames the game's import to it).  A game set up by an older kit still
     has the fake winmm.dll Windows Defender deletes - kit 6 unzipped over the old one, or the update's "set up now?"
     answered no - and a newer kit unzipped over this one by hand leaves the game the OLD wccfk.dll (setup copies it).
-    Set it up once, as SETUP.exe does, instead of starting the old hook or refusing.  True = ready."""
+    Set it up once, as PLAY's Setup does, instead of starting the old hook or refusing.  True = ready."""
     kit = os.path.join(K.PROGRAMS, "wccfk.dll")
     try:
         if all(filecmp.cmp(kit, os.path.join(d, "wccfk.dll"), shallow=False) for d in (game, seat)):
@@ -376,10 +380,10 @@ def ensure_hook(game, seat):
     except OSError:                                  # a copy is missing
         pass
     say("The game's copy of the kit's helper (wccfk.dll) is missing or not this kit's - setting the game up for it "
-        "once (as SETUP.exe does) ...")
+        "once (as PLAY's Setup does) ...")
     if subprocess.call([PY, os.path.join(K.SCRIPTS, "setup.py"), game]) == 0:
         return True
-    say("Setting the game up did not finish (see above) - open SETUP.exe and press set up.")
+    say("Setting the game up did not finish (see above) - open PLAY.exe, Setup and updates, and press set up.")
     return False
 
 
@@ -420,8 +424,8 @@ def drop_panel_line(name, path=None):
 
 def apply_english_request():
     """the SETTINGS panel's "english=on" / "english=it" / "english=off": done now, before anything starts (english.py
-    refuses while the game runs), then taken out of the file - a request, not a lasting setting, so SETUP.exe's GAME
-    LANGUAGE still works"""
+    refuses while the game runs), then taken out of the file - a request, not a lasting setting, so PLAY's GAME
+    TEXT still works"""
     want = read_panel().get("english", "").lower()
     if want not in K.TEXT_LANGUAGE:
         return

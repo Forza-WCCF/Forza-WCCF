@@ -20,7 +20,8 @@ NEW IN KIT 6
     take over your match from somewhere else.
   - Antivirus: the kit's helper has its own name now (wccfk.dll) instead of posing as a Windows file - that is what
     Windows Defender deleted. Every program of the kit carries its name and version (right-click, Properties).
-  - ITALIANO in SETUP's language choice, and more English: players' full names in Latin letters
+  - PLAY.exe is the one window: play, game folder, language, UPDATE. SETUP.exe is gone (PLAY removes it).
+  - ITALIANO in the window's language and game text choices, and more English: players' full names in Latin letters
     and the last Japanese lines a player meets.
   - The kit's version is beside the SETTINGS title too.
   - Simpler folders: code\, programs\, art\, languages\ and data\ (your cards, keys, settings, logs - kept).
@@ -29,13 +30,13 @@ NEW IN KIT 6
     snapshot of a crash - so the cause can be found without asking you. Never your club card. (ONLINE, below.)
   - Hosting a server: the server now gets players' messages only whole - the likely cause of "WCCF CONTROL NOT
     FOUND" removed.
-  - Updating from 5.x: SETUP's UPDATE, then say yes to "set up now?". Unzipping over the old folder works too: the
+  - Updating from 5.x: PLAY's UPDATE (Setup and updates), then say yes to "set up now?". Unzipping over the old folder works too: the
     first PLAY sets the game up for the new helper by itself, and the old folders (scripts\, bin\, overlay\,
     english\) are tidied away - your own files in them stay. Your clubs, keys and settings are never touched.
 
 NEW IN KIT 5.5.1
   - Fixed: Kit 5.5 played on this PC even with ONLINE chosen in SETTINGS (and did not see the club card, English
-    and card fix choices there). Update with SETUP.exe's UPDATE, or unzip this kit over the old folder.
+    and card fix choices there). Update with UPDATE, or unzip this kit over the old folder.
 
 NEW IN KIT 5.5
   - Free play: the game's own FREE PLAY is on, so you never need a coin - not even on the screen after a cup match.
@@ -122,22 +123,22 @@ YOU NEED
 SETUP (once)
   1. Unzip this kit into a folder of its own. Keep the game in a folder of its own too (e.g. D:\Games\WCCF).
      Plain paths are safest: the game has trouble with non-English letters in folder names.
-  2. Drag the game folder onto SETUP.exe. Or open SETUP.exe, pick the game folder (BROWSE, or drag it into the
-     window) and click SET UP / REPAIR.
+  2. Drag the game folder onto PLAY.exe. Or open PLAY.exe, open "Setup and updates", pick the game folder (BROWSE,
+     or drag it into the window) and click SET UP / REPAIR.
   3. Setup checks that your copy is Rev D, makes the changes listed under WHAT SETUP CHANGES, then makes the card
-     catalogue and the card pictures from your files (about a minute); what it does shows in SETUP's window.
+     catalogue and the card pictures from your files (about a minute); what it does shows in PLAY's window.
      Running it again checks and repairs.
-  SETUP.exe is one window for the rest too: GAME LANGUAGE (see ENGLISH), UNDO SETUP, and UPDATE. Its own words are
-  in English, or in Italian or Japanese when Windows is.
-  Updating: PLAY.exe says when a newer kit is out (a release, never a test build), and so does SETUP.exe, which marks
-  it "(newer)". For now there is no release site: UPDATE says "No update found" and PLAY.exe asks nobody. Once there
-  is one: close the game, open SETUP.exe: under UPDATE it lists the kit's releases and test builds
+  PLAY.exe is one window for the rest too: LANGUAGE (the window's words: English, Italiano or Japanese, else
+  Windows' language), GAME TEXT (see ENGLISH), UNDO SETUP and UPDATE, folded under "Setup and updates" until wanted.
+  Updating: PLAY.exe says when a newer kit is out (a release, never a test build) and marks it "(newer)" under
+  UPDATE. For now there is no release site: UPDATE says "No update found" and PLAY.exe asks nobody. Once there
+  is one: close the game, open PLAY.exe, "Setup and updates": under UPDATE it lists the kit's releases and test builds
   ("What's new" opens one's page). Pick one, UPDATE: it is downloaded and put into this folder - data\ (your club,
   your other clubs, settings, keys, catalogue, logs) stays as it is - and the files the old kit had and the new one
-  does not are removed. Then SETUP offers to set up the game folder again, and the English with it if you use English.
+  does not are removed. Then PLAY offers to set up the game folder again, and the English with it if you use English.
   A server settings file you edited by hand is kept as .before-kit. By hand, or from Kit 5.4 and older: unzip the new
-  kit over the old folder, then open SETUP.exe (it removes the old .bat files and ENGLISH.exe), SET UP / REPAIR, and
-  ENGLISH if you use English.
+  kit over the old folder, then open PLAY.exe (it removes the old .bat files, ENGLISH.exe and SETUP.exe), SET UP /
+  REPAIR, and ENGLISH if you use English.
 
 PLAY
   PLAY.exe starts everything in about 30 seconds: the server, the projector's window, seat 1's window with the
@@ -173,7 +174,7 @@ PLAY
 SETTINGS (left side, under CARD)
   NOW: the link to the server, your card's session, its bad endings, its last save and backup, the game's text.
   NEXT START: THIS PC (everything on this PC) or ONLINE with a server's address (the cabinets on this PC play on
-  that server), and ENGLISH or JAPANESE (does what SETUP.exe's GAME LANGUAGE does, at the next start). They are kept in
+  that server), and ENGLISH or JAPANESE (does what PLAY.exe's GAME TEXT does, at the next start). They are kept in
   data\panel.txt. RESTART NOW (click it twice) starts the game again with them - not during a match. When the
   server and the language stay the same, only your cabinet restarts and the projector keeps running.
   VIEW, changes at once: LAYOUT CABINET (the cabinet's buttons around the game) or COMPACT (the game larger,
@@ -226,7 +227,7 @@ ONLINE (play with others on one server)
   To switch this off: a line auto_logs=0 in data\panel.txt.
 
 ENGLISH (optional)
-  ENGLISH (in SETUP.exe, GAME LANGUAGE) puts the game into English: about 7,200 lines of screen text, the players'
+  ENGLISH (in PLAY.exe, GAME TEXT) puts the game into English: about 7,200 lines of screen text, the players'
   names, short and full (the original Latin spelling, e.g. M.DIARRA and Mahamadou DIARRA) and skill names, the CPU
   teams' names, the projector's "Next match" ticker, the dates on seat 1 (e.g. 2026/10/5 on the manager license), money in dollars, and the
   shop's name on the projector's awards ("Local Shop" - also inside the server program, the only change ENGLISH
@@ -245,14 +246,14 @@ ENGLISH (optional)
   from the original European English of the older WCCF (lines with the same Japanese).
 
 ITALIANO (optional)
-  ITALIANO (in SETUP.exe, GAME LANGUAGE) does what ENGLISH does, in Italian: each line is this kit's Italian, else
+  ITALIANO (in PLAY.exe, GAME TEXT) does what ENGLISH does, in Italian: each line is this kit's Italian, else
   the original Italian of the older European WCCF (lines with the same Japanese), else the English - never Japanese.
   The game's font has no accented letters, so they are written with an apostrophe (perche', citta'). Names of players, CPU teams and supporters' nicknames
   stay as in English (the game puts a nickname's adjective first, which Italian cannot follow); money stays in
   dollars. JAPANESE puts the original files back, ENGLISH switches to English. The SETTINGS panel in the game offers
   only ENGLISH and JAPANESE for now.
 
-WHAT SETUP CHANGES   (UNDO SETUP in SETUP.exe takes all of it back out)
+WHAT SETUP CHANGES   (UNDO SETUP in PLAY.exe takes all of it back out)
   game folder     adds winmm.dll (the kit's hook) and winmm_orig.dll (a copy of your Windows' own winmm.dll)
                   (the hook also keeps the server from starting the original logowin.exe, which opens a white window
                   over the whole screen; a kit that had put a stand-in in its place puts the originals back)
@@ -285,7 +286,7 @@ GOOD TO KNOW
     seat1\wccfpanel.log (beside the game folder) as a "badfmt:" line - please share that line.
   - The arcade printed the player cards you earn from a dispenser. There is none here, so the game counted every
     card as owed ("You are owed N Player Card(s)"). The panel now tells the game nothing is owed.
-  - The game is in Japanese; SETUP.exe's ENGLISH translates most of it (see ENGLISH).
+  - The game is in Japanese; PLAY.exe's GAME TEXT: ENGLISH translates most of it (see ENGLISH).
   - Windows 11 slows the timers of a program whose window is minimized or covered, and the server's window starts
     minimized: its loop then ran too slowly for the projector's live matches, which stuttered. The kit tells
     Windows not to slow any of the game's programs (data\logs\run_server.txt: "Windows' throttling off").
@@ -304,7 +305,7 @@ FOLDERS
              European English), cpu_names.tsv (team names), exe_text.tsv (the ticker, the dates, money, the
              shop's name), pictures.tsv (writing in the game's pictures); italian\: the Italian, with the original
              Italian where the Japanese is the same - text and fingerprints only
-  source\    the source of every program in programs\ (C) and of PLAY and SETUP.exe (Rust,
+  source\    the source of every program in programs\ (C) and of PLAY.exe (Rust,
              source\launcher) - source\README.txt: how they were built
   python\    Python 3.13 (python.org's embeddable build) with Pillow
   data\      made on your PC: settings (panel.txt), your club card (save\, with backup\ and your other clubs in

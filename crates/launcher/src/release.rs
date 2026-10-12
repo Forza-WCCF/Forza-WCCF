@@ -1,20 +1,19 @@
-//! The kit's releases at UPDATE_URL (2026-10-09): SETUP.exe's UPDATE lists them; PLAY.exe says when a newer release is
-//! out.  Test builds (pre-releases) are never "newer": only a release is offered that way.
+//! The kit's releases at UPDATE_URL (2026-10-09): PLAY.exe's UPDATE lists them and says when a newer release is out.
+//! Test builds (pre-releases) are never "newer": only a release is offered that way.
 
 use std::env;
+use std::fs;
 use std::os::windows::process::CommandExt;
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
-use std::{fs, thread};
+use std::process::{Command, Stdio};
 
 use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
 use crate::Kit;
 
-/// Where UPDATE looks for releases, answered in the shape of GitHub's releases API (`releases?per_page=30`,
-/// `releases/latest`).  A placeholder until Forza-WCCF has a release target (ROADMAP step 2): `.invalid` never
-/// resolves (RFC 2606).  Pointing UPDATE at a real target is this one line.
+/// Where UPDATE looks for releases, answered in the shape of GitHub's releases API (`releases?per_page=30`). A
+/// placeholder until Forza-WCCF has a release target (ROADMAP step 2): `.invalid` never resolves (RFC 2606). Pointing
+/// UPDATE at a real target is this one line.
 pub const UPDATE_URL: &str = "https://updates.invalid/wccf/";
 
 /// No release target yet: UPDATE finds nothing and nobody is asked.
@@ -74,47 +73,6 @@ pub fn is_newer(tag: &str, installed: &str) -> bool {
     }
 }
 
-/// The latest release (never a test build: GitHub's "latest" skips pre-releases and drafts), asked in the background.
-pub struct LatestRelease(Option<Child>);
-
-impl LatestRelease {
-    pub fn ask() -> Self {
-        if no_target() {
-            return Self(None);
-        }
-        let api = format!("{UPDATE_URL}releases/latest");
-        let child = curl()
-            .args([
-                "--max-time",
-                "10",
-                "-H",
-                "Accept: application/vnd.github+json",
-                "--url",
-                &api,
-            ])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn();
-        Self(child.ok())
-    }
-
-    /// Its tag if the target has answered within `wait` (an offline PC never holds anything up); else the ask is dropped.
-    pub fn tag(self, wait: Duration) -> Option<String> {
-        let mut child = self.0?;
-        let end = Instant::now() + wait;
-        while child.try_wait().ok()?.is_none() {
-            if Instant::now() >= end {
-                let _ = child.kill();
-                return None;
-            }
-            thread::sleep(Duration::from_millis(50));
-        }
-        let out = child.wait_with_output().ok()?;
-        let json: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
-        json["tag_name"].as_str().map(str::to_owned)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -136,11 +94,5 @@ mod tests {
         assert!(is_newer("kit-6", "kit-6-test-af17138"));
         assert!(!is_newer("kit-5.5.1", "kit-6-test-af17138"));
         assert!(is_newer("kit-6.1", "kit-6-test-af17138"));
-    }
-
-    #[test]
-    fn placeholder_asks_nobody() {
-        assert!(no_target());
-        assert!(LatestRelease::ask().tag(Duration::ZERO).is_none());
     }
 }

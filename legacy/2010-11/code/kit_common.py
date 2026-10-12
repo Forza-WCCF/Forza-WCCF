@@ -13,7 +13,7 @@ PROGRAMS = os.path.join(KIT, "programs")   # the kit's compiled programs (was bi
 ART = os.path.join(KIT, "art")             # shipped art: skin.tex (was overlay\)
 LANGUAGES = os.path.join(KIT, "languages")  # one folder per language: english\ (was english\ at the top)
 DATA = os.path.join(KIT, "data")
-CACHE = os.path.join(DATA, "cache")        # made by SETUP from the player's game: catalogue.tsv, cards\ (was overlay\)
+CACHE = os.path.join(DATA, "cache")        # made by setup from the player's game: catalogue.tsv, cards\ (was overlay\)
 LOGS = os.path.join(DATA, "logs")
 SAVE = os.path.join(DATA, "save")
 SETTINGS = os.path.join(DATA, "settings.json")
@@ -66,7 +66,7 @@ def misc_dir(game):
 
 
 def english_on():
-    """True if english.py (SETUP.exe's ENGLISH) has English in place: its list of backed-up original files is not
+    """True if english.py (PLAY's GAME TEXT) has English in place: its list of backed-up original files is not
     empty"""
     try:
         with open(os.path.join(DATA, "english_backup", "manifest.json"), encoding="utf-8") as f:

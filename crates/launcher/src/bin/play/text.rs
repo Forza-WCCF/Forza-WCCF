@@ -1,11 +1,28 @@
-//! SETUP.exe's words: English, or Italian or Japanese when Windows' display language is one of those.  The kit's
-//! scripts (their output in the window) stay in English.
+//! PLAY.exe's words: English, Italian or Japanese - the one picked in the window (data\settings.json "language"),
+//! else Windows' display language.  The kit's scripts (their output in the window) stay in English.
+
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use windows_sys::Win32::Globalization::GetUserDefaultUILanguage;
 
 pub struct Text {
     pub title: &'static str,
-    pub intro: &'static str,
+    pub play: &'static str,
+    pub stop_game: &'static str,
+    pub stop_confirm: &'static str,
+    pub play_on: &'static str,
+    pub this_pc: &'static str,
+    pub online: &'static str,
+    pub language: &'static str,
+    pub more: &'static str,
+    pub less: &'static str,
+    pub starting: &'static str,
+    pub restarting: &'static str,
+    pub stopping: &'static str,
+    pub running: &'static str,
+    pub not_set_up: &'static str,
+    pub bad_address: &'static str,
+    pub start_failed: &'static str,
     pub game_folder: &'static str,
     pub browse: &'static str,
     pub browse_title: &'static str,
@@ -17,9 +34,6 @@ pub struct Text {
     pub english: &'static str,
     pub italian: &'static str,
     pub japanese: &'static str,
-    pub english_is_on: &'static str,
-    pub italian_is_on: &'static str,
-    pub japanese_is_on: &'static str,
     pub update_heading: &'static str,
     pub not_known: &'static str,
     pub update: &'static str,
@@ -54,8 +68,24 @@ pub struct Text {
 }
 
 const EN: Text = Text {
-    title: "WCCF kit - setup",
-    intro: "Sets up the game folder for the kit, chooses the game's language and updates the kit. Close the game first.",
+    play: "PLAY",
+    stop_game: "STOP THE GAME",
+    stop_confirm: "Stop the game now?\n\nIf you can, close its window instead. During a match, stopping it gives your card a bad \
+                   ending (trade rights are lost at 2).",
+    play_on: "Play on:",
+    this_pc: "This PC",
+    online: "Online, server:",
+    language: "Language:",
+    more: "Setup and updates  ▼",
+    less: "Setup and updates  ▲",
+    starting: "Starting the game - about 30 seconds ...",
+    restarting: "Restarting, as SETTINGS asked ...",
+    stopping: "Stopping the game ...",
+    running: "The game is running. Close its window to quit (STOP THE GAME if it is stuck).",
+    not_set_up: "Set up first: pick your game folder under Setup and updates, then Set up / repair.",
+    bad_address: "Type the server's address: four numbers with dots, e.g. 192.168.1.20.",
+    start_failed: "The game did not start - the details below say why.",
+    title: "WCCF 2010-11 kit",
     game_folder: "Game folder:",
     browse: "Browse...",
     browse_title: "Pick the game folder (the one with client_Release.exe)",
@@ -63,13 +93,10 @@ const EN: Text = Text {
     undo: "Undo setup",
     undo_confirm: "Put the game folder back the way it was before setup?",
     no_folder: "Pick the game folder first (the one with client_Release.exe).",
-    game_text: "Game language:",
+    game_text: "Game text:",
     english: "English",
     italian: "Italian",
     japanese: "Japanese",
-    english_is_on: "Now: English",
-    italian_is_on: "Now: Italian",
-    japanese_is_on: "Now: Japanese (the original)",
     update_heading: "Update the kit - this kit: {}",
     not_known: "not known",
     update: "UPDATE",
@@ -78,12 +105,12 @@ const EN: Text = Text {
     test_build: "test build",
     this_kit: "(this kit)",
     newer: "(newer)",
-    available: "{} is out: it is selected above - click UPDATE.",
+    available: "A newer kit is out: {} - Setup and updates, UPDATE.",
     asking: "Looking for updates ...",
     pick: "Pick a kit, then UPDATE. \"What's new\" opens its page.",
     none_listed: "No update found.",
     no_answer: "The update server did not answer: {}",
-    retry: "Close SETUP and start it again to retry.",
+    retry: "Close PLAY and open it again to retry.",
     confirm_release: "Put the release {} into this kit folder?\n\nYour club cards, keys and settings (data) are kept. \
                       Close the game first.",
     confirm_test: "Put the test build {} into this kit folder?\n\nYour club cards, keys and settings (data) are kept. \
@@ -102,13 +129,28 @@ const EN: Text = Text {
     write_failed: "{}: could not write it ({}) - close the game and update again.",
     done: "Done.",
     failed: "Failed - the output below says why.",
-    busy: "Wait: SETUP is busy.",
+    busy: "Wait: PLAY is busy.",
 };
 
 const IT: Text = Text {
-    title: "Kit WCCF - configurazione",
-    intro: "Configura la cartella del gioco per il kit, sceglie la lingua del gioco e aggiorna il kit. Chiudi prima il \
-            gioco.",
+    play: "GIOCA",
+    stop_game: "FERMA IL GIOCO",
+    stop_confirm: "Fermare il gioco adesso?\n\nSe puoi, chiudi invece la sua finestra. Durante una partita, fermarlo dà alla tua \
+                   carta un bad ending (a 2 si perdono i diritti di scambio).",
+    play_on: "Gioca su:",
+    this_pc: "Questo PC",
+    online: "Online, server:",
+    language: "Lingua:",
+    more: "Configurazione e aggiornamenti  ▼",
+    less: "Configurazione e aggiornamenti  ▲",
+    starting: "Avvio del gioco - circa 30 secondi ...",
+    restarting: "Riavvio, come richiesto da SETTINGS ...",
+    stopping: "Arresto del gioco ...",
+    running: "Il gioco è in esecuzione. Chiudi la sua finestra per uscire (FERMA IL GIOCO se è bloccato).",
+    not_set_up: "Prima la configurazione: scegli la cartella del gioco in Configurazione e aggiornamenti, poi Configura / ripara.",
+    bad_address: "Scrivi l'indirizzo del server: quattro numeri separati da punti, ad es. 192.168.1.20.",
+    start_failed: "Il gioco non è partito - il motivo è nei dettagli qui sotto.",
+    title: "Kit WCCF 2010-11",
     game_folder: "Cartella del gioco:",
     browse: "Sfoglia...",
     browse_title: "Scegli la cartella del gioco (quella con client_Release.exe)",
@@ -116,13 +158,10 @@ const IT: Text = Text {
     undo: "Annulla configurazione",
     undo_confirm: "Riportare la cartella del gioco com'era prima della configurazione?",
     no_folder: "Scegli prima la cartella del gioco (quella con client_Release.exe).",
-    game_text: "Lingua del gioco:",
+    game_text: "Testi del gioco:",
     english: "Inglese",
     italian: "Italiano",
     japanese: "Giapponese",
-    english_is_on: "Ora: inglese",
-    italian_is_on: "Ora: italiano",
-    japanese_is_on: "Ora: giapponese (originale)",
     update_heading: "Aggiorna il kit - questo kit: {}",
     not_known: "sconosciuto",
     update: "AGGIORNA",
@@ -131,12 +170,12 @@ const IT: Text = Text {
     test_build: "prova",
     this_kit: "(questo kit)",
     newer: "(più recente)",
-    available: "È uscito {}: è selezionato qui sopra - premi AGGIORNA.",
+    available: "È uscito un kit più recente: {} - Configurazione e aggiornamenti, AGGIORNA.",
     asking: "Ricerca degli aggiornamenti ...",
     pick: "Scegli un kit, poi AGGIORNA. \"Novità\" apre la sua pagina.",
     none_listed: "Nessun aggiornamento trovato.",
     no_answer: "Il server degli aggiornamenti non ha risposto: {}",
-    retry: "Chiudi SETUP e riavvialo per riprovare.",
+    retry: "Chiudi PLAY e riaprilo per riprovare.",
     confirm_release: "Mettere la versione {} in questa cartella del kit?\n\nLe tue carte club, i tasti e le \
                       impostazioni (data) restano. Chiudi prima il gioco.",
     confirm_test: "Mettere la versione di prova {} in questa cartella del kit?\n\nLe tue carte club, i tasti e le \
@@ -157,12 +196,28 @@ const IT: Text = Text {
     write_failed: "{}: scrittura non riuscita ({}) - chiudi il gioco e aggiorna di nuovo.",
     done: "Fatto.",
     failed: "Non riuscito - il motivo è nel testo qui sotto.",
-    busy: "Attendi: SETUP è occupato.",
+    busy: "Attendi: PLAY è occupato.",
 };
 
 const JA: Text = Text {
-    title: "WCCF キット - セットアップ",
-    intro: "キット用のゲームフォルダーのセットアップ、ゲームの言語の切り替え、キットの更新を行います。先にゲームを閉じてください。",
+    play: "プレイ",
+    stop_game: "ゲームを終了",
+    stop_confirm: "今すぐゲームを終了しますか？\n\nできれば代わりにゲームのウィンドウを閉じてください。試合中に終了すると、カードに\
+                   バッドエンドが記録されます（2 回でトレード権を失います）。",
+    play_on: "プレイ先:",
+    this_pc: "この PC",
+    online: "オンライン:",
+    language: "言語:",
+    more: "セットアップと更新  ▼",
+    less: "セットアップと更新  ▲",
+    starting: "ゲームを起動しています（約 30 秒）...",
+    restarting: "SETTINGS の指示で再起動しています...",
+    stopping: "ゲームを終了しています...",
+    running: "ゲームは実行中です。終了するにはゲームのウィンドウを閉じてください（固まった場合は「ゲームを終了」）。",
+    not_set_up: "まずセットアップしてください:「セットアップと更新」でゲームフォルダーを選び、「セットアップ / 修復」を押します。",
+    bad_address: "サーバーのアドレスを入力してください（ドットで区切った 4 つの数字、例: 192.168.1.20）。",
+    start_failed: "ゲームを起動できませんでした（理由は下の詳細にあります）。",
+    title: "WCCF 2010-11 キット",
     game_folder: "ゲームフォルダー:",
     browse: "参照...",
     browse_title: "ゲームフォルダー（client_Release.exe があるフォルダー）を選んでください",
@@ -170,13 +225,10 @@ const JA: Text = Text {
     undo: "セットアップを元に戻す",
     undo_confirm: "ゲームフォルダーをセットアップ前の状態に戻しますか？",
     no_folder: "先にゲームフォルダー（client_Release.exe があるフォルダー）を選んでください。",
-    game_text: "ゲームの言語:",
+    game_text: "ゲームの文字:",
     english: "英語",
     italian: "イタリア語",
     japanese: "日本語",
-    english_is_on: "現在: 英語",
-    italian_is_on: "現在: イタリア語",
-    japanese_is_on: "現在: 日本語（オリジナル）",
     update_heading: "キットの更新 - このキット: {}",
     not_known: "不明",
     update: "更新",
@@ -185,12 +237,12 @@ const JA: Text = Text {
     test_build: "テスト版",
     this_kit: "（このキット）",
     newer: "（新しい版）",
-    available: "{} が公開されています。上で選択済みです。「更新」を押してください。",
+    available: "新しいキットが公開されています: {}（「セットアップと更新」の「更新」）",
     asking: "更新を確認しています...",
     pick: "キットを選んで「更新」を押してください。「変更内容」でそのページを開きます。",
     none_listed: "更新は見つかりませんでした。",
     no_answer: "更新サーバーから応答がありません: {}",
-    retry: "SETUP を閉じて、もう一度起動してください。",
+    retry: "PLAY を閉じて、もう一度開いてください。",
     confirm_release: "リリース {} をこのキットフォルダーに入れますか？\n\nクラブカード、キー、設定（data）はそのまま残ります。\
                       先にゲームを閉じてください。",
     confirm_test: "テスト版 {} をこのキットフォルダーに入れますか？\n\nクラブカード、キー、設定（data）はそのまま残ります。\
@@ -212,19 +264,45 @@ const JA: Text = Text {
     busy: "処理中です。終わるまでお待ちください。",
 };
 
-/// The words for Windows' display language: LANG_ITALIAN 0x10, LANG_JAPANESE 0x11, else English.  WCCF_KIT_LANG=it,
-/// ja or en picks one (to check a translation on any PC).
-pub fn t() -> &'static Text {
+/// The languages, in the window's list: code, name in its own language, words.
+pub const LANGUAGES: [(&str, &str, &Text); 3] =
+    [("en", "English", &EN), ("it", "Italiano", &IT), ("ja", "日本語", &JA)];
+
+static CHOSEN: AtomicUsize = AtomicUsize::new(usize::MAX);
+
+/// The words picked: `set` (the window's list), else WCCF_KIT_LANG=en|it|ja (to check a translation on any PC), the
+/// one saved in data\settings.json, Windows' display language (LANG_ITALIAN 0x10, LANG_JAPANESE 0x11), English.
+pub fn choose(saved: Option<&str>) {
+    let env = std::env::var("WCCF_KIT_LANG").ok();
     // SAFETY: a plain query without arguments.
-    let windows = unsafe { GetUserDefaultUILanguage() } & 0x3ff;
-    match std::env::var("WCCF_KIT_LANG").as_deref() {
-        Ok("it") => &IT,
-        Ok("ja") => &JA,
-        Ok("en") => &EN,
-        _ if windows == 0x10 => &IT,
-        _ if windows == 0x11 => &JA,
-        _ => &EN,
-    }
+    let windows = match unsafe { GetUserDefaultUILanguage() } & 0x3ff {
+        0x10 => "it",
+        0x11 => "ja",
+        _ => "en",
+    };
+    let code = [env.as_deref(), saved]
+        .into_iter()
+        .flatten()
+        .find(|c| index(c).is_some())
+        .unwrap_or(windows);
+    set(code);
+}
+
+fn index(code: &str) -> Option<usize> {
+    LANGUAGES.iter().position(|(c, _, _)| *c == code)
+}
+
+pub fn set(code: &str) {
+    CHOSEN.store(index(code).unwrap_or(0), Ordering::Relaxed);
+}
+
+/// The chosen language's place in LANGUAGES.
+pub fn chosen() -> usize {
+    CHOSEN.load(Ordering::Relaxed).min(LANGUAGES.len() - 1)
+}
+
+pub fn t() -> &'static Text {
+    LANGUAGES[chosen()].2
 }
 
 /// `text` with each "{}" filled, in order.

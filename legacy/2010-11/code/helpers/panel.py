@@ -4,8 +4,9 @@ r"""panel.py - does what the in-game panels ask for and cannot do from inside th
     python panel.py SECONDS [DATA PLAY_EXE [hidden]]        (DATA, PLAY_EXE, hidden: tests only)
 
 RESTART NOW (the SETTINGS panel, 2026-10-06): the panel writes data\restart.request; this helper takes the file away
-and opens "PLAY.exe restart" in a window of its own: a stop by the card rule (during a card session it explains
-and asks), then a plain start with the NEXT START settings.  It has to come from out here: seat 1 runs under a
+and starts "PLAY.exe restart" (PLAY's window while it restarts, then gone; no console since 2026-10-10): a stop by
+the card rule (during a card session it is refused, and PLAY's window says why), then a plain start with the NEXT
+START settings.  It has to come from out here: seat 1 runs under a
 debugger that follows the programs it starts, so a restart started by the game itself would be killed half way.
 A request that is already there when the helper starts (left by a run that ended) is removed, never carried out.
 
