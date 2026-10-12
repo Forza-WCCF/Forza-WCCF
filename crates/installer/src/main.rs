@@ -445,7 +445,8 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         self.poll();
         for f in ctx.input(|i| i.raw.dropped_files.clone()) {
-            if let (Some(p), Page::Files) = (f.path, self.page) {
+            if self.page == Page::Files {
+                let p = f.path();
                 let ext = p.extension().map(|e| e.to_ascii_lowercase());
                 let field = match ext.as_deref().and_then(|e| e.to_str()) {
                     Some("iso") => &mut self.iso,

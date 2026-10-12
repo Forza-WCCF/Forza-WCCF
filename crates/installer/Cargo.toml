@@ -9,20 +9,19 @@ license = "MIT"
 repository = "https://github.com/Forza-WCCF/WCCF-Installer"
 
 [dependencies]
-aes = "0.9.3"
-anyhow = "1.0.104"
-crc32fast = "1.5.2"
-eframe = "0.35.0"
-fs4 = "1.1.0"
-hmac = "0.13.0"
-ntfs = "0.4.0"
-pbkdf2 = "0.13.0"
-rfd = "0.17.2"
-ripemd = "0.2.0"
-zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+aes.workspace = true
+anyhow.workspace = true
+crc32fast.workspace = true
+eframe = { workspace = true, features = ["default_fonts"] }
+fs4.workspace = true
+ntfs.workspace = true
+pbkdf2.workspace = true
+rfd.workspace = true
+ripemd.workspace = true
+zip.workspace = true
 
 [dev-dependencies]
-sha2 = "0.11.0"
+sha2.workspace = true
 
 [lints]
 workspace = true

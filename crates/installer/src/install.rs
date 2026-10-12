@@ -77,7 +77,11 @@ pub fn check_setup(game_id: Option<&str>) -> Result<()> {
 
 /// The kit zip may hold the files directly or inside one top folder (WCCF-2010-11-kit/...).
 fn kit_prefix(zip: &mut zip::ZipArchive<File>) -> Result<String> {
-    let names: Vec<String> = zip.file_names().map(String::from).collect();
+    let names = zip
+        .file_names()
+        .map(|n| n.map(|n| n.into_owned()))
+        .collect::<Result<Vec<String>, _>>()
+        .context("That zip has an unreadable file name.")?;
     let setup = names
         .iter()
         .find(|n| *n == "scripts/setup.py" || n.ends_with("/scripts/setup.py"));
