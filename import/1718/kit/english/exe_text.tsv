@@ -1,4 +1,4 @@
-program	offset	length	sega_sha256	english	where
+program	offset	length	original_sha256	english	where
 client	0x63B4D8	12	D89FC29A7812311EF65F175FF52FD77B8E367967C8511C2B37AF10389360BDC7	Next match: 	projector information banner (seen on screen 2026-10-05), first piece
 client	0x63B4B8	31	FFC41765CF31A50E6D617664C21CD40B2BB994DEB43EF64810CD3C7D5E1C90BE	. Please register your entry.	projector information banner, last piece
 client	0x6132C4	12	6DFFB7A7805B5A6598AFEC2C97645AA427434B55384D3F19024D96D9ED15CFA4	%d/%d/%d	dates on seat 1 (manager license "DATE ISSUED"), like the other dates on that screen

@@ -128,7 +128,7 @@ ENGLISH (optional)
 
 WHAT SETUP CHANGES   ("SETUP.bat undo" takes all of it back out)
   in extracted\   adds winmm.dll (the kit's hook) and winmm_orig.dll (a copy of your Windows' own winmm.dll)
-                  renames logowin.exe to logowin_sega.exe and puts a quiet stand-in in its place
+                  renames logowin.exe to logowin_<publisher>.exe and puts a quiet stand-in in its place
                   (the original logowin.exe opens a white window over the whole screen)
                   adds local\client_user_option.conf (projector) and local\ctrl_user_option.conf (server)
   beside it       seat1\   the player cabinet: links to extracted\'s files and folders, its own copy of
@@ -176,7 +176,7 @@ FOLDERS
              setup adds catalogue.tsv and cards\
   scripts\   setup, play, english, the card maker, the launcher, and stand-ins for the arcade's hardware
              (keychip and network, card reader, I/O board, scene service) and the key driver
-  english\   the kit's English: screen_text.tsv (the translation), sega_rstring.tsv (the original European English),
+  english\   the kit's English: screen_text.tsv (the translation), original_rstring.tsv (the original European English),
              cpu_names.tsv (team names), exe_text.tsv (the ticker, the dates, money, the shop's name) - text and
              fingerprints only
   source\    the C source of every program in bin\ and overlay\ (source\README.txt: how they were built)

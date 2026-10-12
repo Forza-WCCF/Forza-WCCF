@@ -8,7 +8,7 @@
    This stand-in shows nothing. It appends the time, the starting process and its own command line
    to logowin_messages.txt in the current folder (control starts it in the game folder), then waits
    until the program that started it ends, as the real one stays up while control runs.
-   The original is kept beside it as logowin_sega.exe; to undo, rename them back. */
+   The original is kept beside it as logowin_<publisher>.exe; to undo, rename them back. */
 #include <windows.h>
 #include <tlhelp32.h>
 #include <stdio.h>

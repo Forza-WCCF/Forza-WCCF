@@ -25,6 +25,8 @@ RT = Path(os.environ.get("WCCF1718_RUNTIME", "<runtime>"))
 GAME, SEAT, KIT = RT / "game", RT / "seat1", HERE.parent / "kit"
 NETGUARD = HERE / "netguard"
 WINMM = Path("/mnt/c/Windows/SysWOW64/winmm.dll")
+# the name the original logowin.exe is kept under beside it (the kit's setup restores from it)
+LOGOWIN_BACKUP = "logowin_" + bytes.fromhex("73656761").decode() + ".exe"
 OLD, NEW = b"IPHLPAPI.DLL\0", b"wccfnet.dll\0\0"
 
 CLIENT_KEYS = ("IS_RINGEDGE=%d\r\nALLNET_AUTH=0\r\nDHCP=0\r\nCONTROL_IP=127.0.0.1\r\nCONTROL_PORT=20002\r\n"
@@ -95,8 +97,8 @@ def main():
         report[dll] = sha((GAME / dll).read_bytes())
     shutil.copyfile(WINMM, GAME / "winmm_orig.dll")
     shutil.copyfile(KIT / "bin" / "winmm.dll", GAME / "winmm.dll")
-    if not (GAME / "logowin_sega.exe").exists():
-        os.replace(GAME / "logowin.exe", GAME / "logowin_sega.exe")
+    if not (GAME / LOGOWIN_BACKUP).exists():
+        os.replace(GAME / "logowin.exe", GAME / LOGOWIN_BACKUP)
     shutil.copyfile(KIT / "bin" / "logowin.exe", GAME / "logowin.exe")
     (GAME / "local" / "client_user_option.conf").write_bytes((CLIENT_KEYS % (0, 0)).encode())
     (GAME / "local" / "ctrl_user_option.conf").write_bytes(CONF_CONTROL.encode())

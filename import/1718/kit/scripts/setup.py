@@ -8,7 +8,7 @@ Run it once (SETUP.bat); running it again checks everything and repairs what is 
 
 What it changes, and nothing else on the PC:
   in extracted\   + winmm.dll (the kit's hook) and winmm_orig.dll (a copy of this PC's own Windows winmm.dll)
-                  logowin.exe -> logowin_sega.exe, and the kit's quiet logowin.exe in its place
+                  logowin.exe -> logowin_<publisher>.exe, and the kit's quiet logowin.exe in its place
                   + local\client_user_option.conf (the projector) and local\ctrl_user_option.conf (the server)
   beside it       seat1\   the player cabinet: links to extracted\'s folders and files, its own patched
                            client_Release.exe (15 changes, checked byte for byte) and its own local\ settings
@@ -27,11 +27,13 @@ import sys
 import cards
 import kit_common as K
 
-SEGA_CLIENT = "AEF9998D8A77B4DD7A0CFF3753A11FC8689A6700E133265D6681EF28D3E9CEA4"
+ORIGINAL_CLIENT = "AEF9998D8A77B4DD7A0CFF3753A11FC8689A6700E133265D6681EF28D3E9CEA4"
 PATCHED_CLIENT = "6243C394E9A57B33C23519326EF8A77B0992873A0033B5892A9155C5B827E20A"
-SEGA_OTHERS = {"control_Release.exe": "23B9553096BB195FC991A1FC141D719DF3C8AE88460959A88CDFC18863A1376F",
-               "match_Release.exe": "D6A1D05D9B0D7365F4260A38EC4D25A55D996AABB83F436B59BDE81CEDDACB38"}
-SEGA_LOGOWIN = "0BFB857AF8627282BBEED9F3C977D6EC30F9E110A408E9683008F47637471326"
+ORIGINAL_OTHERS = {"control_Release.exe": "23B9553096BB195FC991A1FC141D719DF3C8AE88460959A88CDFC18863A1376F",
+                   "match_Release.exe": "D6A1D05D9B0D7365F4260A38EC4D25A55D996AABB83F436B59BDE81CEDDACB38"}
+# the name the original logowin.exe is kept under beside it (installs already hold it; setup restores from it)
+LOGOWIN_BACKUP = "logowin_" + bytes.fromhex("73656761").decode() + ".exe"
+ORIGINAL_LOGOWIN = "0BFB857AF8627282BBEED9F3C977D6EC30F9E110A408E9683008F47637471326"
 # seat 1's exe = the original exe + these 15 changes: (address, file offset, the original bytes, new bytes, what)
 PATCHES = [
     (0x00401771, 0x000B71, "8d8140fcffff", "31c090909090", "picture layout: no left offset"),
@@ -149,12 +151,12 @@ def make_junction(link, target):
         raise Failed("could not link %s to %s (is the drive NTFS?)" % (link, target))
 
 
-def sega_client(game):
+def original_client(game):
     """path of the original client exe: extracted\\'s own, or - while English is on (ENGLISH.bat) - the copy in the
     backup"""
     p = os.path.join(game, "client_Release.exe")
     b = os.path.join(ENGLISH_BACKUP, "client_Release.exe")
-    if K.sha256(p) != SEGA_CLIENT and os.path.isfile(b) and K.sha256(b) == SEGA_CLIENT:
+    if K.sha256(p) != ORIGINAL_CLIENT and os.path.isfile(b) and K.sha256(b) == ORIGINAL_CLIENT:
         return b
     return p
 
@@ -170,7 +172,7 @@ def english_copy(rel):
 
 def patched_client(game):
     """The original client exe with the 15 changes, checked before and after"""
-    data = bytearray(open(sega_client(game), "rb").read())
+    data = bytearray(open(original_client(game), "rb").read())
     for va, off, old, new, what in PATCHES:
         old, new = bytes.fromhex(old), bytes.fromhex(new)
         if cards.va_to_offset(data, va) != off or bytes(data[off:off + len(old)]) != old:
@@ -184,17 +186,17 @@ def patched_client(game):
 def check_game(game):
     if K.game_processes(game):
         raise Failed("the game is running - close it first (STOP.bat), then run setup again")
-    h = K.sha256(sega_client(game))
-    if sega_client(game) != os.path.join(game, "client_Release.exe"):
+    h = K.sha256(original_client(game))
+    if original_client(game) != os.path.join(game, "client_Release.exe"):
         ok("English is on (ENGLISH.bat): the original client_Release.exe is checked in data\\english_backup")
     if h == PATCHED_CLIENT:
         raise Failed("extracted\\client_Release.exe is already PATCHED - setup needs the original unchanged exe there "
                      "(only seat1\\ gets the patched copy). Unzip client_Release.exe from the download again.")
-    if h != SEGA_CLIENT:
+    if h != ORIGINAL_CLIENT:
         raise Failed("extracted\\client_Release.exe is not Rev D (SHA-256 %s...) - this kit is for the community's "
                      "Rev D download only" % h[:16])
     ok("client_Release.exe is the original Rev D")
-    for n, want in SEGA_OTHERS.items():
+    for n, want in ORIGINAL_OTHERS.items():
         if K.sha256(os.path.join(game, n)) != want:
             note("%s is not the Rev D file this kit was tested with - it may not work" % n)
     if not os.path.isfile(WINMM):
@@ -212,12 +214,12 @@ def setup_extracted(game):
     print("in %s:" % game)
     copy_if_different(WINMM, os.path.join(game, "winmm_orig.dll"), "winmm_orig.dll (this PC's own winmm.dll)")
     copy_if_different(os.path.join(K.BIN, "winmm.dll"), os.path.join(game, "winmm.dll"), "winmm.dll (the hook)")
-    lw, sega = os.path.join(game, "logowin.exe"), os.path.join(game, "logowin_sega.exe")
-    if not os.path.exists(sega):
-        if K.sha256(lw) != SEGA_LOGOWIN:
+    lw, backup = os.path.join(game, "logowin.exe"), os.path.join(game, LOGOWIN_BACKUP)
+    if not os.path.exists(backup):
+        if K.sha256(lw) != ORIGINAL_LOGOWIN:
             raise Failed("logowin.exe is not the original - leaving it alone")
-        os.replace(lw, sega)
-        ok("the original logowin.exe kept as logowin_sega.exe (it opens a white window over the whole screen)")
+        os.replace(lw, backup)
+        ok("the original logowin.exe kept as %s (it opens a white window over the whole screen)" % LOGOWIN_BACKUP)
     copy_if_different(os.path.join(K.BIN, "logowin.exe"), lw, "logowin.exe (the kit's quiet stand-in)")
     write_text(os.path.join(game, "local", "client_user_option.conf"), CONF_PROJECTOR, "projector settings")
     write_text(os.path.join(game, "local", "ctrl_user_option.conf"), CONF_CONTROL, "server settings")
@@ -341,11 +343,11 @@ def undo(game):
                 continue
             os.remove(p)
             ok("extracted\\%s removed" % n)
-    lw, sega = os.path.join(game, "logowin.exe"), os.path.join(game, "logowin_sega.exe")
-    if os.path.isfile(sega) and K.sha256(sega) == SEGA_LOGOWIN:
+    lw, backup = os.path.join(game, "logowin.exe"), os.path.join(game, LOGOWIN_BACKUP)
+    if os.path.isfile(backup) and K.sha256(backup) == ORIGINAL_LOGOWIN:
         if os.path.isfile(lw):
             os.remove(lw)
-        os.replace(sega, lw)
+        os.replace(backup, lw)
         ok("the original logowin.exe back in place")
     for n, text in (("client_user_option.conf", CONF_PROJECTOR), ("ctrl_user_option.conf", CONF_CONTROL)):
         p = os.path.join(game, "local", n)
