@@ -2,6 +2,7 @@
 //! (python\python.exe) in the console Launcher was started from, its arguments passed on as they are, and keeps the run's
 //! watcher (watch.rs): once a game window is closed, it stops the rest.
 
+pub mod job;
 pub mod release;
 mod watch;
 

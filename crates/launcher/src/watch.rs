@@ -268,7 +268,7 @@ fn folder_key(dir: &Path) -> u64 {
     })
 }
 
-fn wide(s: &str) -> Vec<u16> {
+pub(crate) fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain([0]).collect()
 }
 
@@ -278,7 +278,7 @@ fn raw(h: &OwnedHandle) -> HANDLE {
 
 /// # Safety
 /// `h` is a handle just returned to this process, owned by nobody else.
-unsafe fn owned(h: HANDLE) -> io::Result<OwnedHandle> {
+pub(crate) unsafe fn owned(h: HANDLE) -> io::Result<OwnedHandle> {
     if h.is_null() {
         Err(io::Error::last_os_error())
     } else {
