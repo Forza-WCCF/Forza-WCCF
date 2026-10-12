@@ -129,7 +129,7 @@ fn main() -> Result<()> {
     match Task::parse() {
         Task::Build => {
             let cc = Cc::new()?;
-            build(&root, &kit, &cc).and_then(|()| build_1718(&root, &kit_1718, &cc))
+            build_all(&root, &kit, &kit_1718, &cc)
         }
         Task::Cap { root, outdir } => cap(&root, &outdir),
         Task::Check => check(&root, &stage_root, &kit, &kit_1718),
@@ -328,28 +328,68 @@ fn workspace_version(root: &Path) -> Result<String> {
 
 // ---- build ----
 
-fn build(root: &Path, kit: &Path, cc: &Cc) -> Result<()> {
+/// Compile jobs running at once: every C program of both editions and the launcher, joined by `build_all`.
+type Jobs<'s> = Vec<std::thread::ScopedJoinHandle<'s, (String, Result<()>)>>;
+
+/// Stage both kits, build everything at once (about 20 processes, no two writing the same file: each output stem is
+/// unique in its edition's `source/build`), then report every failure.
+fn build_all(root: &Path, kit: &Path, kit_1718: &Path, cc: &Cc) -> Result<()> {
+    let mut failed = vec![];
+    let res = std::thread::scope(|s| {
+        let mut jobs = build(s, root, kit, cc)?;
+        jobs.extend(build_1718(s, root, kit_1718, cc)?);
+        for j in jobs {
+            let (what, r) = j.join().expect("build thread");
+            if let Err(e) = r {
+                failed.push(format!("{what}: {e:#}"));
+            }
+        }
+        Ok::<_, anyhow::Error>(())
+    });
+    res?;
+    ensure!(
+        failed.is_empty(),
+        "{} build step(s) failed:\n{}",
+        failed.len(),
+        failed.join("\n")
+    );
+    fs::copy(
+        root.join("target")
+            .join(TARGET)
+            .join("release")
+            .join("Launcher.exe"),
+        kit.join("Launcher.exe"),
+    )?;
+    println!("built {}", kit.join("Launcher.exe").display());
+    Ok(())
+}
+
+fn build<'s>(
+    s: &'s std::thread::Scope<'s, '_>,
+    root: &Path,
+    kit: &Path,
+    cc: &'s Cc,
+) -> Result<Jobs<'s>> {
     stage(root, kit, MAP, KEEP)?;
     let obj = kit.join("source/build");
     fs::create_dir_all(&obj)?;
     fs::create_dir_all(kit.join("programs"))?;
     let version = workspace_version(root)?;
-    let sh = Shell::new()?;
-    sh.change_dir(root);
-    let c = |source: &str, out: PathBuf, what: &str, compile: &[&str], link: &[&str]| {
-        build_c(
-            &sh,
-            cc,
-            PRODUCT,
-            &version,
-            &kit.join("source"),
-            &obj,
-            source,
-            &out,
-            what,
-            compile,
-            link,
-        )
+    let (src, mut jobs) = (kit.join("source"), vec![]);
+    let mut c = |source: &'static str,
+                 out: PathBuf,
+                 what: &'static str,
+                 compile: &'static [&'static str],
+                 link: &'static [&'static str]| {
+        let (version, src, obj) = (version.clone(), src.clone(), obj.clone());
+        jobs.push(s.spawn(move || {
+            let r = Shell::new().map_err(Into::into).and_then(|sh| {
+                build_c(
+                    &sh, cc, PRODUCT, &version, &src, &obj, source, &out, what, compile, link,
+                )
+            });
+            (source.to_owned(), r)
+        }));
     };
     let p = kit.join("programs");
     c(
@@ -358,14 +398,14 @@ fn build(root: &Path, kit: &Path, cc: &Cc) -> Result<()> {
         "the kit's hook in the game: stands in for the cabinet's hardware",
         &["/LD"],
         &[],
-    )?;
+    );
     c(
         "card_table/fpr_emu.c",
         p.join("FPR_Emu.exe"),
         "the card table's stand-in",
         &[],
         &["user32.lib"],
-    )?;
+    );
     c(
         "panel/wccfpanel.c",
         p.join("wccfpanel.dll"),
@@ -378,14 +418,14 @@ fn build(root: &Path, kit: &Path, cc: &Cc) -> Result<()> {
             "ole32.lib",
             "windowscodecs.lib",
         ],
-    )?;
+    );
     c(
         "panel/inject.c",
         p.join("inject.exe"),
         "loads the kit's panel into the running game",
         &[],
         &[],
-    )?;
+    );
     // tests only, not shipped
     c(
         "panel/fakegame.c",
@@ -393,15 +433,15 @@ fn build(root: &Path, kit: &Path, cc: &Cc) -> Result<()> {
         "",
         &[],
         &["d3d9.lib", "user32.lib"],
-    )?;
+    );
     c(
         "hook/test_wholemsg.c",
         obj.join("test_wholemsg.exe"),
         "",
         &[],
         &[],
-    )?;
-    c("crashme.c", obj.join("crashme.exe"), "", &[], &[])?;
+    );
+    c("crashme.c", obj.join("crashme.exe"), "", &[], &[]);
 
     // the toolchain is pinned by rust-toolchain.toml, the crates by Cargo.lock, the static runtime by .cargo/config.toml
     let mut c = rust("build", root);
@@ -413,20 +453,22 @@ fn build(root: &Path, kit: &Path, cc: &Cc) -> Result<()> {
         "--target",
         TARGET,
     ]);
-    run_ok(c, "cargo build -p launcher")?;
-    fs::copy(
-        root.join("target")
-            .join(TARGET)
-            .join("release")
-            .join("Launcher.exe"),
-        kit.join("Launcher.exe"),
-    )?;
-    println!("built {}", kit.join("Launcher.exe").display());
-    Ok(())
+    jobs.push(s.spawn(move || {
+        (
+            "cargo build -p launcher".into(),
+            run_ok(c, "cargo build -p launcher"),
+        )
+    }));
+    Ok(jobs)
 }
 
 /// The 2017-18 programs, compiled from `native/2017-18` into the staged kit at the paths the scripts read.
-fn build_1718(root: &Path, kit: &Path, cc: &Cc) -> Result<()> {
+fn build_1718<'s>(
+    s: &'s std::thread::Scope<'s, '_>,
+    root: &Path,
+    kit: &Path,
+    cc: &'s Cc,
+) -> Result<Jobs<'s>> {
     stage(root, kit, MAP_1718, KEEP_1718)?;
     let obj = kit.join("source/build");
     for d in ["bin", "overlay"] {
@@ -434,23 +476,31 @@ fn build_1718(root: &Path, kit: &Path, cc: &Cc) -> Result<()> {
     }
     fs::create_dir_all(&obj)?;
     let version = workspace_version(root)?;
-    let sh = Shell::new()?;
-    sh.change_dir(root);
-    let src = root.join("native/2017-18");
-    let c = |source: &str, out: PathBuf, what: &str, compile: &[&str], link: &[&str]| {
-        build_c(
-            &sh,
-            cc,
-            PRODUCT_1718,
-            &version,
-            &src,
-            &obj,
-            source,
-            &out,
-            what,
-            compile,
-            link,
-        )
+    let (src, mut jobs) = (root.join("native/2017-18"), vec![]);
+    let mut c = |source: &'static str,
+                 out: PathBuf,
+                 what: &'static str,
+                 compile: &'static [&'static str],
+                 link: &'static [&'static str]| {
+        let (version, src, obj) = (version.clone(), src.clone(), obj.clone());
+        jobs.push(s.spawn(move || {
+            let r = Shell::new().map_err(Into::into).and_then(|sh| {
+                build_c(
+                    &sh,
+                    cc,
+                    PRODUCT_1718,
+                    &version,
+                    &src,
+                    &obj,
+                    source,
+                    &out,
+                    what,
+                    compile,
+                    link,
+                )
+            });
+            (source.to_owned(), r)
+        }));
     };
     c(
         "mxhook/mxhook.c",
@@ -458,28 +508,28 @@ fn build_1718(root: &Path, kit: &Path, cc: &Cc) -> Result<()> {
         "stands in for the cabinet's hardware, loaded by the game in place of winmm.dll",
         &["/LD"],
         &[],
-    )?;
+    );
     c(
         "logowin/logowin_standin.c",
         kit.join("bin/logowin.exe"),
         "the start-up notice window, replaced by one that only records the notice",
         &[],
         &["/SUBSYSTEM:WINDOWS"],
-    )?;
+    );
     c(
         "../fpr_emu/fpr_emu.c",
         kit.join("bin/FPR_Emu.exe"),
         "the card table's stand-in",
         &[],
         &["user32.lib"],
-    )?;
+    );
     c(
         "overlay/inject.c",
         kit.join("overlay/inject.exe"),
         "loads the kit's panel into the running game",
         &[],
         &[],
-    )?;
+    );
     c(
         "overlay/wccfpanel.c",
         kit.join("overlay/wccfpanel.dll"),
@@ -492,21 +542,21 @@ fn build_1718(root: &Path, kit: &Path, cc: &Cc) -> Result<()> {
             "ole32.lib",
             "windowscodecs.lib",
         ],
-    )?;
+    );
     c(
         "netguard/netguard.c",
         kit.join("overlay/netguard.dll"),
         "secondary network guard: stubs the IP helper calls that drop the host's DHCP lease",
         &["/LD"],
         &[],
-    )?;
+    );
     c(
         "netguard/wccfnet.c",
         obj.join("wccfnet.dll"),
         "the primary network guard: the game programs import it instead of IPHLPAPI.DLL",
         &["/LD"],
         &[],
-    )?;
+    );
     // tests only, not shipped
     c(
         "netguard/test_wccfnet.c",
@@ -514,15 +564,15 @@ fn build_1718(root: &Path, kit: &Path, cc: &Cc) -> Result<()> {
         "",
         &[],
         &[],
-    )?;
+    );
     c(
         "netguard/test_netguard.c",
         obj.join("test_netguard.exe"),
         "",
         &[],
         &["iphlpapi.lib"],
-    )?;
-    Ok(())
+    );
+    Ok(jobs)
 }
 
 /// The runtime linked in (/MT), so no Visual C++ runtime is needed on the player's PC; /Brepro: the same source, the same file.
