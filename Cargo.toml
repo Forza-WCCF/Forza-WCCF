@@ -42,8 +42,7 @@ dbg_macro = "warn"
 
 [profile.release]
 opt-level = 3
-lto = "fat"
-codegen-units = 1
+lto = "thin"            # fat LTO + one codegen unit rebuilt the installer in 51 s, thin in 14 s; the exe is ~17 % larger
 panic = "abort"          # safe: children sit in a Job object with KILL_ON_JOB_CLOSE, so an abort still stops them
 strip = true
 
