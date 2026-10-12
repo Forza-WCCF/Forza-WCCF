@@ -6,6 +6,7 @@ pub mod card;
 pub mod conf;
 pub mod job;
 pub mod kit;
+pub mod logs;
 pub mod release;
 mod watch;
 
