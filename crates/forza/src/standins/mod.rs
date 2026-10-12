@@ -7,6 +7,8 @@ pub mod aime;
 pub mod aimedb;
 pub mod card_reader;
 pub mod gamesvr;
+#[cfg(windows)]
+pub mod io_board;
 
 use std::io::{self, Read};
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -26,7 +28,7 @@ pub struct Handle {
 }
 
 impl Handle {
-    pub(crate) fn new(stop: Arc<AtomicBool>, thread: JoinHandle<()>) -> Self {
+    pub fn new(stop: Arc<AtomicBool>, thread: JoinHandle<()>) -> Self {
         Self {
             stop,
             thread: Some(thread),
