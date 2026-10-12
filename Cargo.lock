@@ -2260,6 +2260,7 @@ version = "7.0.0"
 dependencies = [
  "junction",
  "serde_json",
+ "tempfile",
  "windows-sys 0.61.2",
 ]
 

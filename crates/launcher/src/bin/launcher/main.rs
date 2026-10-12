@@ -276,11 +276,7 @@ fn pick_text(hwnd: HWND, lang: &str) {
 }
 
 fn panel_file(kit: &Kit) -> PathBuf {
-    kit.dir().join("data").join("panel.txt")
-}
-
-fn settings_file(kit: &Kit) -> PathBuf {
-    kit.dir().join("data").join("settings.json")
+    kit.data().join("panel.txt")
 }
 
 fn this_kit(kit: &Kit) -> String {
@@ -556,7 +552,7 @@ fn language_picked(hwnd: HWND) {
         return;
     };
     text::set(code);
-    let _ = choices::set_setting(&settings_file(&Kit::here()), "language", code);
+    let _ = choices::set_setting(&Kit::here().settings_file(), "language", code);
     // the game's text follows: Japanese for 日本語, Italian for Italiano, else English (still a choice of its own)
     pick_text(
         hwnd,
@@ -948,7 +944,7 @@ fn window(kit: &Kit, first: Option<Step>, folder: Option<&OsStr>) {
             pick(hwnd, ID_THIS_PC, ID_ONLINE);
         }
         let server = choices::panel_value(&panel, "server")
-            .or_else(|| choices::setting(&settings_file(kit), "server"))
+            .or_else(|| choices::setting(&kit.settings_file(), "server"))
             .unwrap_or_default();
         set_text(hwnd, ID_SERVER, &server);
         pick_text(
@@ -961,7 +957,7 @@ fn window(kit: &Kit, first: Option<Step>, folder: Option<&OsStr>) {
             },
         );
         let game = folder.map_or_else(
-            || choices::setting(&settings_file(kit), "game").unwrap_or_default(),
+            || choices::setting(&kit.settings_file(), "game").unwrap_or_default(),
             |f| f.to_string_lossy().into_owned(),
         );
         set_text(hwnd, ID_FOLDER, &game);
@@ -1047,7 +1043,7 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     update::tidy(&kit);
-    text::choose(choices::setting(&settings_file(&kit), "language").as_deref());
+    text::choose(choices::setting(&kit.settings_file(), "language").as_deref());
     // a plain start (no arguments): first run, the kit folder gets the installer's name (link.rs)
     if args.is_empty() {
         match link::first_run(kit.dir()) {

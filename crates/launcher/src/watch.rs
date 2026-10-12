@@ -149,7 +149,7 @@ pub fn watch(kit: &Kit) {
 /// `play.py ended`, hidden, its output added to data\logs\run_ended.txt; true if it refused (exit 3: a card session
 /// is open on a cabinet that still runs).
 fn stop_refused(kit: &Kit) -> bool {
-    let logs = kit.data().join("logs");
+    let logs = kit.logs();
     let mut cmd = kit.script("play.py");
     cmd.arg("ended").stdin(Stdio::null()).creation_flags(CREATE_NO_WINDOW);
     let log = fs::create_dir_all(&logs).and_then(|()| {

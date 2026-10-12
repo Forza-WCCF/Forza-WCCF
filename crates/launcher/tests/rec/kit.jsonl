@@ -1,0 +1,15 @@
+{"tree": ["plain\\game\\client_Release.exe", "plain\\game\\control_Release.exe", "plain\\game\\match_Release.exe", "above\\extracted\\client_Release.exe", "above\\extracted\\control_Release.exe", "above\\extracted\\match_Release.exe", "both\\client_Release.exe", "both\\control_Release.exe", "both\\match_Release.exe", "both\\extracted\\client_Release.exe", "both\\extracted\\control_Release.exe", "both\\extracted\\match_Release.exe", "short\\game\\client_Release.exe", "short\\game\\control_Release.exe", "with space\\game\\client_release.exe", "with space\\game\\control_release.exe", "with space\\game\\match_release.exe"]}
+{"input": "", "game": null, "seat": null, "misc": null}
+{"input": "plain\\game", "game": "plain\\game", "seat": "plain\\seat1", "misc": "plain\\misc"}
+{"input": "plain", "game": null, "seat": null, "misc": null}
+{"input": "above", "game": "above\\extracted", "seat": "above\\seat1", "misc": "above\\misc"}
+{"input": "above\\extracted", "game": "above\\extracted", "seat": "above\\seat1", "misc": "above\\misc"}
+{"input": "both", "game": "both", "seat": "seat1", "misc": "misc"}
+{"input": "short\\game", "game": null, "seat": null, "misc": null}
+{"input": "nowhere", "game": null, "seat": null, "misc": null}
+{"input": "  plain\\game  ", "game": "plain\\game", "seat": "plain\\seat1", "misc": "plain\\misc"}
+{"input": "\"with space\\game\"", "game": "with space\\game", "seat": "with space\\seat1", "misc": "with space\\misc"}
+{"input": " \"above\" ", "game": "above\\extracted", "seat": "above\\seat1", "misc": "above\\misc"}
+{"input": "plain\\game\\", "game": "plain\\game", "seat": "plain\\seat1", "misc": "plain\\misc"}
+{"input": "plain/game", "game": "plain\\game", "seat": "plain\\seat1", "misc": "plain\\misc"}
+{"input": "plain\\x\\..\\game", "game": "plain\\game", "seat": "plain\\seat1", "misc": "plain\\misc"}
