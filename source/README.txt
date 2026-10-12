@@ -20,6 +20,8 @@ The C source of every program the kit ships. Each was built with Microsoft's C c
   programs\wccfpanel.dll   panel\wccfpanel.c
                        cl /nologo /LD /O2 /MT /W3 /D_CRT_SECURE_NO_WARNINGS wccfpanel.c /Fe:wccfpanel.dll
                           /link d3d9.lib gdi32.lib user32.lib ole32.lib windowscodecs.lib
+  programs\inject.exe  panel\inject.c (must be 32-bit: it hands the game 32-bit LoadLibraryA's address)
+                       cl /nologo /O2 /MT /W3 /D_CRT_SECURE_NO_WARNINGS inject.c /Fe:inject.exe
   panel\fakegame.c     not shipped: a stand-in for seat 1's game window to see the panel without the game (its
                        header: the steps, and the settings that keep a test off the live game)
                        cl /nologo /O2 /MT /W3 /D_CRT_SECURE_NO_WARNINGS fakegame.c /Fe:fakegame.exe /link d3d9.lib user32.lib
@@ -39,6 +41,7 @@ What each does, in short:
                 and I/O board stand-ins (named pipes), the RingEdge memory, the network address (127.0.0.1)
   FPR_Emu.exe   answers the game's card-table polls with the cards in seat1\fpr_table0.txt
   wccfpanel.dll the panel around seat 1's picture (drawn with the game's own Direct3D 9 device)
+  inject.exe    loads wccfpanel.dll into seat 1's running game (and the projector's, for its money)
   launchers     run code\play.py, setup.py or english.py with the kit's Python and keep the window as the .bat
                 files did; PLAY leaves a windowless watcher (PLAY.exe --watch) that stops the rest of the run once a
                 game window is closed (launcher\src\watch.rs; code\hardware\debugger.py ends the game itself)

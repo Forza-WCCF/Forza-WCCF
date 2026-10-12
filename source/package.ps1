@@ -19,7 +19,7 @@ if ($LASTEXITCODE) { throw 'tar failed' }
 Remove-Item $tar
 
 $built = 'PLAY.exe', 'SETUP.exe', 'programs\wccfk.dll', 'programs\FPR_Emu.exe',
-         'programs\wccfpanel.dll'
+         'programs\wccfpanel.dll', 'programs\inject.exe'
 foreach ($f in $built) {
     $from = Join-Path $kit $f
     if (-not (Test-Path $from)) { throw "$f is missing - run source\build.ps1 first" }
@@ -29,7 +29,7 @@ foreach ($f in $built) {
 }
 # every program must carry its version information (source\launcher\build.rs, source\build.ps1, 2026-10-10): a nameless
 # unsigned program is what Windows Defender's machine learning flagged (Kit 5.5's first SETUP.exe, then its winmm.dll)
-foreach ($f in 'PLAY.exe', 'SETUP.exe', 'programs\wccfk.dll', 'programs\FPR_Emu.exe', 'programs\wccfpanel.dll') {
+foreach ($f in 'PLAY.exe', 'SETUP.exe', 'programs\wccfk.dll', 'programs\FPR_Emu.exe', 'programs\wccfpanel.dll', 'programs\inject.exe') {
     $v = (Get-Item (Join-Path $root $f)).VersionInfo
     if ($v.ProductName -ne 'WCCF 2010-11 kit' -or -not $v.FileVersion) { throw "$f has no version information - see source\build.ps1" }
     Write-Host "$f : $($v.ProductName) $($v.FileVersion) - $($v.FileDescription)"

@@ -1,5 +1,5 @@
 # build.ps1 - every program the kit ships, built from source\ into the places the kit runs them from (2026-10-08):
-#   programs\wccfk.dll  programs\FPR_Emu.exe  programs\wccfpanel.dll                                        (C, 32-bit, MSVC)
+#   programs\wccfk.dll  programs\FPR_Emu.exe  programs\wccfpanel.dll  programs\inject.exe                   (C, 32-bit, MSVC)
 #   PLAY.exe  SETUP.exe                                                                        (Rust, 64-bit)
 # and source\build\fakegame.exe (tests only, not shipped).  Git holds none of them: run this after a checkout, or take
 # the kit ZIP that CI makes (.github\workflows\kit.yml runs this same script).
@@ -13,7 +13,7 @@ $src = $PSScriptRoot
 $obj = Join-Path $src 'build'
 New-Item -ItemType Directory -Force $obj, (Join-Path $kit 'programs') | Out-Null
 
-# MSVC for 32-bit x86: the game is 32-bit, so its hook and its panel must be too
+# MSVC for 32-bit x86: the game is 32-bit, so its hook, its panel and the injector must be too
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
 if (-not $vs) { throw 'no Visual Studio with the C++ tools (vswhere found none)' }
@@ -73,6 +73,7 @@ END
 Build-C 'hook\wccfk.c' "$kit\programs\wccfk.dll" "the kit's hook in the game: stands in for the cabinet's hardware" @('/LD')
 Build-C 'card_table\fpr_emu.c' "$kit\programs\FPR_Emu.exe" "the card table's stand-in" @() @('user32.lib')
 Build-C 'panel\wccfpanel.c' "$kit\programs\wccfpanel.dll" "the kit's on-screen panel" @('/LD') @('d3d9.lib', 'gdi32.lib', 'user32.lib', 'ole32.lib', 'windowscodecs.lib')
+Build-C 'panel\inject.c' "$kit\programs\inject.exe" "loads the kit's panel into the running game"
 Build-C 'panel\fakegame.c' "$obj\fakegame.exe" '' @() @('d3d9.lib', 'user32.lib')
 Build-C 'hook\test_wholemsg.c' "$obj\test_wholemsg.exe" ''
 Build-C 'crashme.c' "$obj\crashme.exe" ''
