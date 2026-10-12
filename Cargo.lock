@@ -1543,11 +1543,15 @@ dependencies = [
 name = "forza"
 version = "7.0.0"
 dependencies = [
+ "aes",
  "eframe",
  "egui",
  "egui_extras",
  "egui_kittest",
  "rust-i18n",
+ "serde_json",
+ "sha2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
