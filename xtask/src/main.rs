@@ -636,7 +636,9 @@ impl Checks {
         let mut c = Command::new(&self.py);
         c.arg("-I")
             .args(args.iter().map(|a| win_arg(a)))
-            .current_dir(&self.kit);
+            .current_dir(&self.kit)
+            // the test servers (seat desk, relay, log inbox) listen on loopback only: no firewall prompt per python.exe
+            .env("WCCF_BIND", "127.0.0.1");
         c
     }
 
@@ -682,6 +684,13 @@ impl Checks {
 }
 
 fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<()> {
+    // one check at a time on this PC: the tests use fixed local ports (the relay on 20941, the seat desk on 20932-20936),
+    // and two checks at once (two worktrees) failed each other's relay checks
+    let lock = std::fs::File::create(std::env::temp_dir().join("forza-xtask-check.lock"))?;
+    if lock.try_lock().is_err() {
+        println!("waiting for another `cargo xtask check` on this PC ...");
+        lock.lock()?;
+    }
     for p in PROGRAMS.iter().chain(&[
         "source/build/fakegame.exe",
         "source/build/test_wholemsg.exe",

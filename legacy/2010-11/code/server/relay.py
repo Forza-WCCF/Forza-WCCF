@@ -66,7 +66,7 @@ def main(argv):
     log_file = argv[1] if len(argv) > 1 else None
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        s.bind(("0.0.0.0", PORT))
+        s.bind((os.environ.get("WCCF_BIND", "0.0.0.0"), PORT))
     except OSError as ex:
         log("cannot listen on UDP %d (%s) - is a relay already running?" % (PORT, ex))
         return 1

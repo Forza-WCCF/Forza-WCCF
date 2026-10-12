@@ -254,7 +254,7 @@ def main(argv):
         in_game.path = os.path.join(os.path.dirname(os.path.abspath(log_file)), "_dbg_control.txt")
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        srv.bind(("0.0.0.0", PORT))
+        srv.bind((os.environ.get("WCCF_BIND", "0.0.0.0"), PORT))
     except OSError as ex:
         log("cannot listen on TCP %d (%s) - is a seat broker already running?" % (PORT, ex))
         return 1

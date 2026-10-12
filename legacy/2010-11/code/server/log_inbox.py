@@ -140,7 +140,7 @@ def main(argv):
     folder = argv[2] if len(argv) > 2 else os.path.join(base, "player_logs")
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        srv.bind(("0.0.0.0", PORT))
+        srv.bind((os.environ.get("WCCF_BIND", "0.0.0.0"), PORT))
     except OSError as ex:
         log("cannot listen on TCP %d (%s) - is a log inbox already running?" % (PORT, ex))
         return 1
