@@ -770,6 +770,7 @@ fn check(root: &Path, kit: &Path, kit_1718: &Path) -> Result<()> {
 
     scrub(root, &mut ck.failed)?;
     installer_checks(root, &mut ck.failed);
+    no_script_host(root, &mut ck.failed)?;
 
     ensure!(ck.failed.is_empty(), "FAILED: {}", ck.failed.join(", "));
     println!("all checks passed");
@@ -969,6 +970,43 @@ fn scrub(root: &Path, failed: &mut Vec<String>) -> Result<()> {
         println!("scrub: clean");
     } else {
         failed.push(format!("scrub ({} lines)", bad.len()));
+    }
+    Ok(())
+}
+
+// ---- no script host ----
+
+/// Keeps the Windows script host out (ROADMAP 4.7): no mention of it in xtask's source, and no tracked `*.ps1` but research/cap.ps1.
+/// The word is built from two halves so that this file does not spell it either.
+fn no_script_host(root: &Path, failed: &mut Vec<String>) -> Result<()> {
+    let word = ["power", "shell"].concat();
+    let mut bad = vec![];
+    for e in fs::read_dir(root.join("xtask/src"))? {
+        let path = e?.path();
+        for (n, l) in fs::read_to_string(&path)?.lines().enumerate() {
+            if l.to_ascii_lowercase().contains(&word) {
+                bad.push(format!("{}:{}", path.display(), n + 1));
+            }
+        }
+    }
+    let sh = Shell::new()?;
+    sh.change_dir(root);
+    let scripts = cmd!(sh, "git ls-files -- *.ps1").read()?;
+    // research/cap.ps1 (the window capture for live runs) is replaced by `cargo xtask cap` in a later commit, after step 4.6
+    // (xtask in WSL); then this allowance goes and no *.ps1 may be tracked at all.
+    bad.extend(
+        scripts
+            .lines()
+            .filter(|l| *l != "research/cap.ps1")
+            .map(str::to_owned),
+    );
+    for b in &bad {
+        println!("script host: {b}");
+    }
+    if bad.is_empty() {
+        println!("script host: none in xtask, no tracked .ps1 but research/cap.ps1");
+    } else {
+        failed.push(format!("script host ({} places)", bad.len()));
     }
     Ok(())
 }
