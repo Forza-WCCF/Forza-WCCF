@@ -7,6 +7,14 @@ use forza::ui::Lang;
 use forza::ui::theme::{self, Edition};
 use forza::ui::{installer, launcher, panel};
 
+/// One test on the GPU at a time: wgpu devices made in parallel crashed the test process now and then (exit 116,
+/// about 1 run in 4 on 2026-10-12); one after another they never did.
+fn gpu() -> std::sync::MutexGuard<'static, ()> {
+    static GPU: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    GPU.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 fn harness<'a>(size: Vec2, edition: Edition, mut show: impl FnMut(&mut Ui) + 'a) -> Harness<'a> {
     let dir = theme::font_dir();
     let mut fresh = true;
@@ -44,6 +52,7 @@ fn snap(
 
 #[test]
 fn launcher_screens() {
+    let _gpu = gpu();
     let mut all = SnapshotResults::new();
     use launcher::Scenario::*;
     for lang in Lang::ALL {
@@ -69,6 +78,7 @@ fn launcher_screens() {
 
 #[test]
 fn installer_pages() {
+    let _gpu = gpu();
     let mut all = SnapshotResults::new();
     for lang in Lang::ALL {
         for page in installer::Page::ALL {
@@ -84,6 +94,7 @@ fn installer_pages() {
 
 #[test]
 fn panel_pages() {
+    let _gpu = gpu();
     let mut all = SnapshotResults::new();
     for lang in Lang::ALL {
         for page in panel::Page::ALL {
@@ -104,6 +115,7 @@ fn panel_pages() {
 
 #[test]
 fn panel_2017_18_and_compact() {
+    let _gpu = gpu();
     let mut all = SnapshotResults::new();
     let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
     snap(
@@ -127,6 +139,7 @@ fn panel_2017_18_and_compact() {
 
 #[test]
 fn widget_sheet() {
+    let _gpu = gpu();
     let mut all = SnapshotResults::new();
     for lang in [Lang::En, Lang::Ja] {
         let mut st = panel::WidgetSheet::sample(lang);
@@ -143,6 +156,7 @@ fn widget_sheet() {
 
 #[test]
 fn board_interaction() {
+    let _gpu = gpu();
     let mut st = panel::PanelState::sample(Edition::E1011, Lang::En, panel::Page::Game);
     let mut h = harness(panel::SIZE, Edition::E1011, |ui| panel::show(ui, &mut st));
     h.run_steps(4);
