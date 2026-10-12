@@ -1,5 +1,5 @@
 //! The stand-ins: the 2017–18 ones ported from `_aime_reader.py`, `_aimedb.py` and `_gamesvr.py` (step 10, piece J1)
-//! the 2010–11 club card reader (piece D) and network stand-ins (piece C).
+//! the 2010–11 club card reader (piece D), network stand-ins (piece C), I/O board (piece E) and scene service (piece B).
 //! Each service runs on std threads with blocking I/O; dropping its [`Handle`] stops it.
 
 #[cfg(windows)]
@@ -10,6 +10,8 @@ pub mod gamesvr;
 #[cfg(windows)]
 pub mod io_board;
 pub mod network;
+#[cfg(windows)]
+pub mod scenes;
 
 use std::io::{self, Read};
 use std::net::{SocketAddr, TcpListener, TcpStream};
