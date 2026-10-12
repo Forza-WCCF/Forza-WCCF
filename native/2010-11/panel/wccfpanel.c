@@ -415,6 +415,7 @@ static UINT  g_gw = 0, g_gh = 0;         // the game's own frame size (its back-
 // press them) - the game takes the left; the right strip keeps the field, CATALOGUE and KEYS, with SETTINGS and
 // CLUB CARD moved under them (compact_strip).  SETTINGS > VIEW > LAYOUT switches it at once; data\panel.txt keeps it.
 static int   g_compact = 0;
+static int   g_hover_ms = 1000;   // hover_delay_ms in data\panel.txt: a card rests this long under the mouse, then shows big (0-5000)
 static int   g_auto_off = 0;      // auto_logs=0 in data\panel.txt (play.py's automatic report off): kept through a save
 
 static RECT strip_rect(float x0, float y0, float x1, float y1)    // sheet px in the right strip -> canvas (pinned right)
@@ -1113,8 +1114,8 @@ static void board_draw(IDirect3DDevice9 *dev)
                 (float)(r.bottom - r.top) + 6.0f * e, 3.0f * e, D3DCOLOR_ARGB(255, 255, 214, 40));
     }
     if (g_drag >= 0 && g_drag < g_ncards) draw_card(dev, g_drag, 1.12f, 1);
-    else if (g_hover >= 0 && g_hover < g_ncards && GetTickCount() - g_hover_since >= 3000)
-        board_caption(dev, draw_card(dev, g_hover, 2.4f, 1), g_cards[g_hover].no);   // resting on a card 3 s: shown big
+    else if (g_hover >= 0 && g_hover < g_ncards && GetTickCount() - g_hover_since >= (DWORD)g_hover_ms)
+        board_caption(dev, draw_card(dev, g_hover, 2.4f, 1), g_cards[g_hover].no);   // resting on a card for hover_delay_ms: shown big
                                                // with who it is (350 ms was too eager, 8 s too slow, 1 s too soon -
                                                // the owner chose 3 s, 2026-10-09)
     LeaveCriticalSection(&g_board_cs);
@@ -3002,7 +3003,7 @@ static int valid_ipv4(const char *s)     // = play.py valid_ipv4: four numbers 0
 static void set_load_locked(void)
 {
     FILE *f = fopen(g_panel_path, "rb"); char line[256];
-    g_on_online = 0; g_server[0] = 0; g_eng_req = -1; g_card_req[0] = 0; g_fix_req = 0; g_compact = 0; g_auto_off = 0;
+    g_on_online = 0; g_server[0] = 0; g_eng_req = -1; g_card_req[0] = 0; g_fix_req = 0; g_compact = 0; g_auto_off = 0; g_hover_ms = 1000;
     if (!f) return;
     while (fgets(line, sizeof line, f)) {
         char *p = strchr(line, '#'), *eq, *name, *val;
@@ -3016,6 +3017,10 @@ static void set_load_locked(void)
         else if (!_stricmp(name, "card")) lstrcpynA(g_card_req, val, sizeof g_card_req);
         else if (!_stricmp(name, "card_fix")) g_fix_req = !_stricmp(val, "bad_endings");
         else if (!_stricmp(name, "layout")) g_compact = !_stricmp(val, "compact");
+        else if (!_stricmp(name, "hover_delay_ms")) {       // 0-5000; not a number or out of range: 1000
+            char *end; long v = strtol(val, &end, 10);
+            g_hover_ms = *val && !*end && v >= 0 && v <= 5000 ? (int)v : 1000;
+        }
         else if (!_stricmp(name, "auto_logs")) g_auto_off = !strcmp(val, "0");
     }
     fclose(f);
@@ -3033,6 +3038,7 @@ static int set_save_locked(void)
     if (g_card_req[0]) n += _snprintf(text + n, sizeof text - n, "card=%s\n", g_card_req);
     if (g_fix_req) n += _snprintf(text + n, sizeof text - n, "card_fix=bad_endings\n");
     if (g_compact) n += _snprintf(text + n, sizeof text - n, "layout=compact\n");     // the VIEW: kept, not a request
+    n += _snprintf(text + n, sizeof text - n, "hover_delay_ms=%d\n", g_hover_ms);     // the VIEW: how long a card rests before it shows big
     if (g_auto_off) n += _snprintf(text + n, sizeof text - n, "auto_logs=0\n");       // the player's choice: kept
     f = fopen(g_panel_tmp, "wb");
     if (!f) { logline("settings: could not write %s", g_panel_tmp); return 0; }
@@ -3068,6 +3074,25 @@ static void set_selftest(void)
     logline("settings test: %s  a save keeps auto_logs=0", ok && strstr(buf, "\nauto_logs=0\n") ? "PASS" : "FAIL");
     logline("settings test: %s  a save keeps ONLINE and the server", ok && strstr(buf, "\nplay_on=online\n") &&
             strstr(buf, "\nserver=1.2.3.4\n") ? "PASS" : "FAIL");
+    {   // hover_delay_ms: missing -> 1000; a value is read and saved; out of range or not a number -> 1000 (0 and 5000 are kept)
+        static const char *const HIN[] = { "play_on=online\n", "hover_delay_ms=2000\n", "hover_delay_ms=5000\n",
+                                          "hover_delay_ms=0\n", "hover_delay_ms=5001\n", "hover_delay_ms=abc\n" };
+        static const int WANT[] = { 1000, 2000, 5000, 0, 1000, 1000 };
+        int k, good = 1, kept;
+        for (k = 0; k < 6; k++) {
+            if ((f = fopen(g_panel_path, "wb")) != NULL) { fputs(HIN[k], f); fclose(f); }
+            EnterCriticalSection(&g_board_cs); set_load_locked(); LeaveCriticalSection(&g_board_cs);
+            if (g_hover_ms != WANT[k]) { good = 0; logline("settings test: hover_delay_ms case %d read %d, wanted %d", k, g_hover_ms, WANT[k]); }
+        }
+        logline("settings test: %s  hover_delay_ms: missing, bad or out of range reads 1000; 0, 2000, 5000 are kept",
+                good ? "PASS" : "FAIL");
+        if ((f = fopen(g_panel_path, "wb")) != NULL) { fputs("hover_delay_ms=2000\n", f); fclose(f); }
+        EnterCriticalSection(&g_board_cs); set_load_locked(); kept = set_save_locked(); LeaveCriticalSection(&g_board_cs);
+        got = 0; if ((f = fopen(g_panel_path, "rb")) != NULL) { got = fread(buf, 1, sizeof buf - 1, f); fclose(f); }
+        buf[got] = 0;
+        logline("settings test: %s  a save keeps hover_delay_ms=2000",
+                kept && strstr(buf, "\nhover_delay_ms=2000\n") ? "PASS" : "FAIL");
+    }
 }
 
 static void set_init(void)               // the init thread: where data\ is, and what the file says
@@ -3496,11 +3521,11 @@ static void fmt_when(char *out, size_t cap, ULONGLONG t)   // a file time as the
 // the panel's parts, in canvas pixels over the middle column: title + help + X; "NOW" with six rows; "NEXT START"
 // with two rows of choices (THIS PC / ONLINE + the address box, ENGLISH / JAPANESE) and RESTART NOW; "VIEW" with the
 // LAYOUT (CABINET / COMPACT, 2026-10-06), which changes at once
-struct SGeo { float x0, x1, lx, vx, rowh, ynow, ynext, yview; RECT close, pc, online, addr, eng, jap, restart, cab, cmp, logs; };
+struct SGeo { float x0, x1, lx, vx, rowh, ynow, ynext, yview; RECT close, pc, online, addr, eng, jap, restart, cab, cmp, hov[4], logs; };
 
 static void set_geo(struct SGeo *g)
 {
-    float s = g_s, y;
+    float s = g_s, y; int i;
     g->x0 = g_mx0; g->x1 = g_mx1; g->rowh = 38.0f * s;
     g->lx = g->x0 + 24.0f * s; g->vx = g->x0 + 230.0f * s;
     g->close = RC(g->x1 - 58.0f * s, 12.0f * s, g->x1 - 18.0f * s, 50.0f * s);
@@ -3519,7 +3544,9 @@ static void set_geo(struct SGeo *g)
     y = g->yview + 36.0f * s;
     g->cab = RC(g->vx, y, g->vx + 130.0f * s, y + 36.0f * s);
     g->cmp = RC(g->vx + 140.0f * s, y, g->vx + 270.0f * s, y + 36.0f * s);
-    y += 36.0f * s + 30.0f * s;                            // under LAYOUT's note: LOGS - SEND LOGS (2026-10-09)
+    y += 36.0f * s + 30.0f * s;                            // under LAYOUT's note: CARD HOVER, four chips
+    for (i = 0; i < 4; i++) g->hov[i] = RC(g->vx + (float)i * 70.0f * s, y, g->vx + (float)i * 70.0f * s + 60.0f * s, y + 36.0f * s);
+    y += 36.0f * s + 30.0f * s;                            // under its note: LOGS - SEND LOGS (2026-10-09)
     g->logs = RC(g->vx, y, g->vx + 270.0f * s, y + 38.0f * s);
 }
 
@@ -3541,6 +3568,8 @@ static void set_draw(IDirect3DDevice9 *dev)
     DWORD white = D3DCOLOR_ARGB(255, 240, 240, 245), grey = D3DCOLOR_ARGB(255, 150, 156, 170);
     DWORD orange = D3DCOLOR_ARGB(255, 255, 138, 42), green = D3DCOLOR_ARGB(255, 120, 230, 120);
     DWORD yellow = D3DCOLOR_ARGB(255, 255, 214, 40), red = D3DCOLOR_ARGB(255, 255, 110, 90);
+    static const char *HOVLABEL[4] = { "0.5 S", "1 S", "2 S", "3 S" };
+    static const int HOVMS[4] = { 500, 1000, 2000, 3000 };
     static const char *LABEL[6] = { "SERVER", "CLUB CARD", "BAD ENDINGS", "LAST SAVED", "LATEST BACKUP", "GAME TEXT" };
     if (!g_set) return;
     if (!g_font_tex) build_font(dev);
@@ -3578,6 +3607,7 @@ static void set_draw(IDirect3DDevice9 *dev)
     }
     set_chip(dev, g.cab, "CABINET", !g_compact, s);
     set_chip(dev, g.cmp, "COMPACT", g_compact, s);
+    for (i = 0; i < 4; i++) set_chip(dev, g.hov[i], HOVLABEL[i], g_hover_ms == HOVMS[i], s);
     {
         int armed = g_lg_armed && (LONG)(g_lg_armed - now) > 0, busy = g_lg_sent || !strcmp(g_lg_res, "sending");
         set_chip(dev, g.logs, busy ? "SENDING ..." : armed ? "CLICK AGAIN TO SEND" : "SEND LOGS", armed || busy, s);
@@ -3673,6 +3703,10 @@ static void set_draw(IDirect3DDevice9 *dev)
     put_str(dev, (float)g.cab.left, (float)g.cab.bottom + 8.0f * s, 0.40f * s, grey, g_compact
             ? "COMPACT: the game larger, no cabinet buttons - your keys and controller press them; changes at once"
             : "CABINET: the cabinet's buttons around the game.  COMPACT: the game larger, without them");
+    y = (float)g.hov[0].top + ((float)(g.hov[0].bottom - g.hov[0].top) - (float)g_cellh * 0.44f * s) * 0.5f;
+    put_str(dev, g.lx + 12.0f * s, y, 0.44f * s, grey, "CARD HOVER");
+    put_str(dev, (float)g.hov[0].left, (float)g.hov[0].bottom + 8.0f * s, 0.40f * s, grey,
+            "how long the mouse rests on a card in the formation board before the card shows big; changes at once");
     y = (float)g.logs.top + ((float)(g.logs.bottom - g.logs.top) - (float)g_cellh * 0.44f * s) * 0.5f;
     put_str(dev, g.lx + 12.0f * s, y, 0.44f * s, grey, "LOGS");
     if (!strncmp(g_lg_res, "ok ", 3)) {                                      // the code, big: the player tells us it
@@ -3796,6 +3830,13 @@ static void set_click(HWND h, int x, int y)                     // a press insid
                 else note_locked(green, "CABINET: the cabinet's buttons are back around the game");
                 logline("settings: layout %s", want ? "compact" : "cabinet");
             }
+        } else if (in_rect(&g.hov[0], x, y) || in_rect(&g.hov[1], x, y) || in_rect(&g.hov[2], x, y) || in_rect(&g.hov[3], x, y)) {
+            static const int HOVMS[4] = { 500, 1000, 2000, 3000 };     // CARD HOVER: at once, and kept
+            int k = in_rect(&g.hov[1], x, y) ? 1 : in_rect(&g.hov[2], x, y) ? 2 : in_rect(&g.hov[3], x, y) ? 3 : 0;
+            g_hover_ms = HOVMS[k];
+            if (!set_save_locked()) note_locked(red, "could not save data\\panel.txt - the delay changed for now");
+            else note_locked(green, "a card shows big after %d.%d s on it", HOVMS[k] / 1000, HOVMS[k] % 1000 / 100);
+            logline("settings: card hover %d ms", HOVMS[k]);
         } else if (in_rect(&g.logs, x, y)) {                  // SEND LOGS: click twice
             DWORD now = GetTickCount(), yellow = D3DCOLOR_ARGB(255, 255, 214, 40);
             if (g_lg_sent || !strcmp(g_lg_res, "sending")) {

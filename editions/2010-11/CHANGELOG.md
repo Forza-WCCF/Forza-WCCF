@@ -7,6 +7,8 @@ game is not included. Newest first; each date is the day that kit was built.
 ## Not released yet
 
 ### Changed
+- The formation board shows a card big after the mouse rests on it 1 s, not 3 s. SETTINGS > CARD HOVER sets it
+  (0.5, 1, 2 or 3 s, at once); `hover_delay_ms=` in `data\panel.txt` takes 0 to 5000 and falls back to 1000.
 - The panel is loaded into the game by `programs\inject.exe` again: 3 s after seat 1's window is up, and into the
   projector once the cabinet is up, as before Kit 5.5. Kit 5.5 had the kit's hook load it from inside the game; that
   change caused problems and is undone, and the hook no longer reads `WCCF_PANEL`. Antivirus programs may dislike
