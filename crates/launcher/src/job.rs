@@ -3,8 +3,11 @@
 //! on their own, and no process may break away.  `stop` is the ordered quit: `WM_CLOSE` to the run's windows, a wait,
 //! then `TerminateJobObject`.  Nothing here goes by process name or by a remembered pid: the job is the list.
 
-use std::os::windows::io::{AsRawHandle, OwnedHandle};
+use std::ffi::{OsStr, OsString};
+use std::os::windows::ffi::OsStrExt;
+use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::os::windows::process::CommandExt;
+use std::path::Path;
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
 use std::{io, mem, ptr};
@@ -17,9 +20,12 @@ use windows_sys::Win32::System::JobObjects::{
     JobObjectAssociateCompletionPortInformation, JobObjectBasicAccountingInformation, JobObjectBasicProcessIdList,
     JobObjectExtendedLimitInformation, QueryInformationJobObject, SetInformationJobObject, TerminateJobObject,
 };
-use windows_sys::Win32::System::Threading::{CREATE_NO_WINDOW, CREATE_SUSPENDED};
+use windows_sys::Win32::System::Threading::{
+    CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateProcessW, DEBUG_ONLY_THIS_PROCESS,
+    DEBUG_PROCESS, PROCESS_INFORMATION, ResumeThread, STARTF_USESHOWWINDOW, STARTUPINFOW, TerminateProcess,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetWindowThreadProcessId, IsWindowVisible, PostMessageW, WM_CLOSE,
+    EnumWindows, GetWindowThreadProcessId, IsWindowVisible, PostMessageW, SW_HIDE, WM_CLOSE,
 };
 
 use crate::watch::owned;
@@ -79,6 +85,42 @@ impl Job {
             let _ = child.kill();
             Err(err)
         }
+    }
+
+    /// Starts `exe` in the job under a debugger: the calling thread becomes its debugger, so call this on the thread
+    /// that then runs the debug loop (`WaitForDebugEvent` answers only the thread that created the process).  `follow`
+    /// debugs its children too (`DEBUG_PROCESS`), else only it (`DEBUG_ONLY_THIS_PROCESS`).  The process is created
+    /// suspended and resumed once it is in the job: it runs no instruction, and its debug events start, only then.
+    /// `hide` starts its windows hidden (`SW_HIDE`).  `env` is added to this process's environment.  It ends when the
+    /// calling thread ends (Windows' kill-on-exit for debuggers), or with the job.
+    pub fn spawn_debug(
+        &self,
+        exe: &Path,
+        args: &[String],
+        dir: &Path,
+        env: &[(&str, &str)],
+        follow: bool,
+        hide: bool,
+    ) -> io::Result<Debuggee> {
+        let (child, thread) = create_debug_suspended(exe, args, dir, env, follow, hide)?;
+        // SAFETY: both handles are live and ours.
+        let ok = unsafe {
+            AssignProcessToJobObject(self.job.as_raw_handle(), child.process.as_raw_handle()) != 0
+                && ResumeThread(thread.as_raw_handle()) != u32::MAX
+        };
+        if ok {
+            Ok(child)
+        } else {
+            let err = io::Error::last_os_error();
+            // SAFETY: the process handle is ours.
+            unsafe { TerminateProcess(child.process.as_raw_handle(), 1) };
+            Err(err)
+        }
+    }
+
+    /// The job's handle (for `IsProcessInJob`).
+    pub fn handle(&self) -> HANDLE {
+        self.job.as_raw_handle()
     }
 
     /// Processes in the job now (grandchildren included).
@@ -152,6 +194,100 @@ impl Job {
             list.ids[..list.listed as usize].iter().map(|&p| p as u32).collect()
         }
     }
+}
+
+/// A process `spawn_debug` started: its id and its own handle (all access).
+pub struct Debuggee {
+    pub pid: u32,
+    pub process: OwnedHandle,
+}
+
+/// Creates the process suspended under this thread's debugger; its process and its first thread.
+fn create_debug_suspended(
+    exe: &Path,
+    args: &[String],
+    dir: &Path,
+    env: &[(&str, &str)],
+    follow: bool,
+    hide: bool,
+) -> io::Result<(Debuggee, OwnedHandle)> {
+    let mut line = quote(&exe.to_string_lossy());
+    for a in args {
+        line.push(' ');
+        line.push_str(&quote(a));
+    }
+    let mut line: Vec<u16> = line.encode_utf16().chain([0]).collect();
+    let exe: Vec<u16> = exe.as_os_str().encode_wide().chain([0]).collect();
+    let dir: Vec<u16> = dir.as_os_str().encode_wide().chain([0]).collect();
+    let mut vars: Vec<(OsString, OsString)> = std::env::vars_os()
+        .filter(|(k, _)| !env.iter().any(|(e, _)| OsStr::new(e).eq_ignore_ascii_case(k)))
+        .collect();
+    vars.extend(env.iter().map(|(k, v)| (k.into(), v.into())));
+    let mut block = Vec::new();
+    for (k, v) in &vars {
+        block.extend(k.encode_wide());
+        block.push(u16::from(b'='));
+        block.extend(v.encode_wide());
+        block.push(0);
+    }
+    block.push(0);
+    // SAFETY: zeroed STARTUPINFOW with its size is valid; every string is NUL-ended and outlives the call; the command
+    // line is writable as CreateProcessW wants; the returned handles are owned at once.
+    unsafe {
+        let mut si: STARTUPINFOW = mem::zeroed();
+        si.cb = size_of::<STARTUPINFOW>() as u32;
+        if hide {
+            si.dwFlags = STARTF_USESHOWWINDOW;
+            si.wShowWindow = SW_HIDE as u16;
+        }
+        let mut pi: PROCESS_INFORMATION = mem::zeroed();
+        let flags = if follow { DEBUG_PROCESS } else { DEBUG_ONLY_THIS_PROCESS };
+        if CreateProcessW(
+            exe.as_ptr(),
+            line.as_mut_ptr(),
+            ptr::null(),
+            ptr::null(),
+            FALSE,
+            flags | CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT,
+            block.as_ptr().cast(),
+            dir.as_ptr(),
+            &si,
+            &mut pi,
+        ) == FALSE
+        {
+            return Err(io::Error::last_os_error());
+        }
+        Ok((
+            Debuggee {
+                pid: pi.dwProcessId,
+                process: OwnedHandle::from_raw_handle(pi.hProcess),
+            },
+            OwnedHandle::from_raw_handle(pi.hThread),
+        ))
+    }
+}
+
+/// One argument as the C runtime splits a command line back (quotes only when needed; backslashes before a quote
+/// doubled).
+fn quote(a: &str) -> String {
+    if !a.is_empty() && !a.contains([' ', '\t', '"']) {
+        return a.to_owned();
+    }
+    let mut out = String::from('"');
+    let mut slashes = 0;
+    for c in a.chars() {
+        if c == '\\' {
+            slashes += 1;
+            continue;
+        }
+        let n = if c == '"' { 2 * slashes + 1 } else { slashes };
+        out.extend(std::iter::repeat_n('\\', n));
+        out.push(c);
+        slashes = 0;
+    }
+    out.extend(std::iter::repeat_n('\\', 2 * slashes));
+    out.push('"');
+    out
 }
 
 /// `EnumWindows` callback: `WM_CLOSE` to the visible window if its process is in the list in `lparam`.
@@ -332,6 +468,77 @@ mod tests {
         assert_ne!(deaf.wait().unwrap().code(), Some(0));
         assert_ne!(hang.wait().unwrap().code(), Some(0));
         assert!(t.elapsed() < Duration::from_secs(30));
+    }
+
+    /// spawn_debug's order, step by step: created suspended under this thread's debugger, the child sends no debug event
+    /// (it has not run) and is outside the job; once assigned it is inside; only after the resume does its first event,
+    /// the process start, arrive.  Then it ends and the job empties.
+    #[test]
+    fn a_debugged_child_is_in_the_job_before_it_runs() {
+        use windows_sys::Win32::Foundation::{CloseHandle, DBG_CONTINUE};
+        use windows_sys::Win32::System::Diagnostics::Debug::{
+            CREATE_PROCESS_DEBUG_EVENT, ContinueDebugEvent, DEBUG_EVENT, EXIT_PROCESS_DEBUG_EVENT, WaitForDebugEvent,
+        };
+        use windows_sys::Win32::System::JobObjects::IsProcessInJob;
+
+        let job = Job::new().unwrap();
+        let me = env::current_exe().unwrap();
+        let args = ["stand_in_entry".to_owned(), "--nocapture".to_owned()];
+        let dir = env::temp_dir();
+        let (child, thread) = create_debug_suspended(&me, &args, &dir, &[(MODE, "sleep")], false, false).unwrap();
+        let p = child.process.as_raw_handle();
+        let in_job = || {
+            let mut r = FALSE;
+            // SAFETY: live handles and a live out-parameter.
+            assert_ne!(unsafe { IsProcessInJob(p, job.handle(), &mut r) }, FALSE);
+            r != FALSE
+        };
+        let mut de: DEBUG_EVENT = Default::default();
+        // SAFETY: the event is a live local; this thread is the child's debugger.
+        let wait = |de: &mut DEBUG_EVENT, ms| unsafe { WaitForDebugEvent(de, ms) } != FALSE;
+        assert!(!wait(&mut de, 500), "a debug event before the resume: the child ran");
+        assert!(!in_job());
+        // SAFETY: live handles.
+        assert_ne!(unsafe { AssignProcessToJobObject(job.handle(), p) }, FALSE);
+        assert!(in_job());
+        assert!(!wait(&mut de, 300), "a debug event before the resume: the child ran");
+        // SAFETY: the child's suspended first thread.
+        assert_ne!(unsafe { ResumeThread(thread.as_raw_handle()) }, u32::MAX);
+        assert!(wait(&mut de, 10_000));
+        assert_eq!(
+            (de.dwDebugEventCode, de.dwProcessId),
+            (CREATE_PROCESS_DEBUG_EVENT, child.pid)
+        );
+        // SAFETY: the event's file handle is ours; the event is answered; the process handle is ours.
+        unsafe {
+            CloseHandle(de.u.CreateProcessInfo.hFile);
+            ContinueDebugEvent(de.dwProcessId, de.dwThreadId, DBG_CONTINUE);
+            TerminateProcess(p, 1);
+        }
+        // a debugged process finishes ending once its debugger has seen it go
+        let t = Instant::now();
+        loop {
+            assert!(t.elapsed() < Duration::from_secs(20), "no end event");
+            if !wait(&mut de, 500) {
+                continue;
+            }
+            let code = de.dwDebugEventCode;
+            // SAFETY: answers the event just received.
+            unsafe { ContinueDebugEvent(de.dwProcessId, de.dwThreadId, DBG_CONTINUE) };
+            if code == EXIT_PROCESS_DEBUG_EVENT && de.dwProcessId == child.pid {
+                break;
+            }
+        }
+        assert!(job.wait_empty(Duration::from_secs(10)));
+    }
+
+    #[test]
+    fn arguments_are_quoted_as_the_c_runtime_reads_them() {
+        assert_eq!(quote("arg=1"), "arg=1");
+        assert_eq!(quote(""), "\"\"");
+        assert_eq!(quote(r"C:\a b\x.exe"), r#""C:\a b\x.exe""#);
+        assert_eq!(quote(r#"a\"b"#), r#""a\\\"b""#);
+        assert_eq!(quote(r#"dir\ x\"#), r#""dir\ x\\""#);
     }
 
     #[test]
