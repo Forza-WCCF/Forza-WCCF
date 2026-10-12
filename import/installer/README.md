@@ -149,21 +149,12 @@ including hex-text keyfiles. Historical full SDDY extraction matched 6,816 files
 byte-for-byte against independent recovery; that is extraction evidence, not a
 claim about gameplay.
 
-## Automation and release
+## Checks
 
-- **CI:** executable source/dependency changes (or manual runs) get format, strict
-  Clippy (Linux and Windows targets), unit tests and notice completeness on Linux,
-  then the Windows MSVC release build, synthetic headless smoke checks and the
-  downloadable assets on Windows. Documentation/packaging-only
-  changes use quick local checks instead of rebuilding the unchanged EXE.
-- **Draft release:** manually dispatch `release.yml` on an existing `v<version>`
-  tag to build/check a fresh binary and create a draft prerelease. Pushing a tag
-  does not rebuild an already validated local EXE. Publishing requires owner
-  approval. Write permissions exist only in the final job; actions are SHA-pinned.
-- **Dependabot:** weekly grouped Cargo and GitHub Actions updates; no auto-merge.
-  Cargo updates must refresh/review `THIRD-PARTY-LICENSES.json` before CI passes.
+Local only (Forza-WCCF monorepo; no CI, nothing published): `cargo fmt --check`, strict Clippy, unit tests,
+`scripts/smoke.ps1` (synthetic headless smoke checks) and `scripts/package.ps1`. A Cargo update refreshes
+`THIRD-PARTY-LICENSES.json` (`scripts/check-licenses.ps1`). ROADMAP step 4 moves these into `cargo xtask check`.
 
-See [RELEASING.md](RELEASING.md) for the approval checklist and tag commands.
 Report bugs without attaching game data, keys or saves; redact personal paths
 and identifiers from logs. Installer source is MIT; dependency licenses are
 listed separately. WCCF/SEGA names identify compatible media; no affiliation
