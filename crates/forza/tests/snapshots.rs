@@ -163,13 +163,15 @@ fn widget_sheet() {
 fn board_interaction() {
     let _gpu = gpu();
     let mut st = panel::PanelState::sample(Edition::E1011, Lang::En, panel::Page::Game);
+    let spots = st.board.spots;
+    let at = |slot| panel::board_slot_center(panel::SIZE.x, &spots, slot);
     let mut h = harness(panel::SIZE, 1.0, Edition::E1011, |ui| {
         panel::show(ui, &mut st)
     });
     h.run_steps(4);
     // a box-to-box midfielder in hand over the striker on the left of midfield: the heat zone and a FITS badge
-    let from = panel::board_slot_center(6);
-    let to = panel::board_slot_center(5);
+    let from = at(6);
+    let to = at(5);
     h.drag_at(from);
     h.run_steps(2);
     h.hover_at(to);
@@ -178,7 +180,7 @@ fn board_interaction() {
     h.drop_at(to);
     h.run_steps(2);
     // the big card of a centre back, with its position map and the heat zone on the pitch
-    h.hover_at(panel::board_slot_center(2));
+    h.hover_at(at(2));
     h.run_steps(8); // past the 1 s hover delay at 0.25 s a step
     h.snapshot("board_hover_en");
 }

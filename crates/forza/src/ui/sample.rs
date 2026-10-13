@@ -6,7 +6,7 @@ use egui::pos2;
 
 #[allow(clippy::too_many_arguments)] // one sample card per call, every field named in order
 fn card(
-    number: u16,
+    number: u32,
     name: &str,
     club: &str,
     country: &str,
@@ -18,12 +18,15 @@ fn card(
     Card {
         number,
         name: name.into(),
+        short: String::new(),
         club: club.into(),
         country: country.into(),
         season: "10-11".into(),
         pos,
         rarity,
         stats,
+        // TOTAL on a 60-100 scale from the six 1-20 stats
+        total: (60 + stats.iter().map(|&s| s as u32).sum::<u32>() * 40 / 120) as u8,
         aptitude,
     }
 }

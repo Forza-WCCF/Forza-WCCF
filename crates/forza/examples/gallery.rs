@@ -54,12 +54,12 @@ struct Gallery {
     screen: Screen,
     ctx: egui::Context,
     /// Card numbers that have a picture in `FORZA_CARDS`, lowest first; empty without it.
-    pictures: Vec<u16>,
+    pictures: Vec<u32>,
 }
 
 /// The card numbers with a `<number>.png` in `dir`, lowest first.
-fn picture_numbers(dir: &std::path::Path) -> Vec<u16> {
-    let mut v: Vec<u16> = std::fs::read_dir(dir)
+fn picture_numbers(dir: &std::path::Path) -> Vec<u32> {
+    let mut v: Vec<u32> = std::fs::read_dir(dir)
         .into_iter()
         .flatten()
         .flatten()

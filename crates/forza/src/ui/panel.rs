@@ -117,17 +117,67 @@ pub struct PanelState {
     pub club_pick: usize,
     /// The game's own frame as a texture of the panel DLL's painter; `None` draws the stand-in picture.
     pub picture: Option<egui::TextureId>,
+    // what a frame hands the panel DLL
+    /// Where the game's picture was drawn while no page covers it: clicks there go to the game.
+    pub picture_rect: Option<Rect>,
+    /// The board changed this frame (a card moved, swapped or taken off): the card table is written.
+    pub board_changed: bool,
+    /// A cabinet button pressed this frame: its action's name in keys.txt (START, PRESS, SHOOT, UP, ...).
+    pub pressed: Option<&'static str>,
+    /// The cabinet button whose key is down (lit until the key goes up).
+    pub held: Option<&'static str>,
 }
 
 impl PanelState {
-    pub fn sample(edition: Edition, lang: Lang, page: Page) -> Self {
-        let board = super::sample::board();
+    /// The panel at rest: the game page, no message, the default keys, the board given.
+    pub fn new(edition: Edition, lang: Lang, board: Board) -> Self {
         PanelState {
             edition,
             lang,
-            page,
+            page: Page::Game,
             board,
             hover_delay: 1.0,
+            tactics: [false; 5],
+            online: false,
+            ping_ms: 0,
+            message: None,
+            catalogue: Catalogue {
+                search: String::new(),
+                pos: 0,
+                rarity: 0,
+                country: String::new(),
+                club: String::new(),
+                sort: 0,
+                ranges: [(1, 20); 6],
+                total: (60, 100),
+                focus: 0,
+                message: None,
+            },
+            keys: ACTIONS
+                .iter()
+                .map(|(_, k, c, _)| ((*k).to_owned(), (*c).to_owned()))
+                .collect(),
+            capturing: None,
+            changed: None,
+            next_online: false,
+            address: String::new(),
+            game_text: 0,
+            compact: false,
+            hover_choice: 1,
+            auto_reports: true,
+            restart_armed: false,
+            club_pick: 0,
+            picture: None,
+            picture_rect: None,
+            board_changed: false,
+            pressed: None,
+            held: None,
+        }
+    }
+
+    pub fn sample(edition: Edition, lang: Lang, page: Page) -> Self {
+        PanelState {
+            page,
             tactics: [false, true, true, false, false],
             online: page != Page::Settings,
             ping_ms: 38,
@@ -148,30 +198,25 @@ impl PanelState {
                 focus: 5,
                 message: Some((Tone::Notice, "cat.msg_on_table")),
             },
-            keys: ACTIONS
-                .iter()
-                .map(|(_, k, c, _)| ((*k).to_owned(), (*c).to_owned()))
-                .collect(),
             capturing: (page == Page::Keys).then_some(2),
             changed: (page == Page::Keys).then_some(4),
             next_online: true,
             address: "192.168.1.20".into(),
             game_text: 1,
-            compact: false,
-            hover_choice: 1,
-            auto_reports: true,
             restart_armed: page == Page::Settings,
             club_pick: 1,
-            picture: None,
+            held: Some("KEYPLAYER"), // lit on the design sheets
+            ..Self::new(edition, lang, super::sample::board())
         }
     }
 }
 
-/// The centre of a formation slot on the sheet (for tests that drag cards).
-pub fn board_slot_center(slot: usize) -> Pos2 {
-    let r = Rect::from_min_max(pos2(SIZE.x - BOARD_W, 0.0), SIZE.to_pos2()).shrink(16.0);
+/// The centre of a formation slot (0-10 the pitch, 11-15 the bench) on a sheet `width` points wide whose board has
+/// these spots (for tests that drag cards).
+pub fn board_slot_center(width: f32, spots: &[Pos2; 11], slot: usize) -> Pos2 {
+    let r = Rect::from_min_max(pos2(width - BOARD_W, 0.0), pos2(width, SIZE.y)).shrink(16.0);
     let pitch = board::pitch_rect(r.min + vec2(0.0, BOARD_HEAD), r.width());
-    board::spot_rect(pitch, super::sample::board().spots[slot]).center()
+    board::slot_rects(pitch, pitch.bottom() + 12.0, spots)[slot].center()
 }
 
 pub fn show(ui: &mut Ui, st: &mut PanelState) {
@@ -228,6 +273,7 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         Stroke::new(1.0, theme::RIM),
     );
     game_picture(ui, pic, st.picture);
+    st.picture_rect = (st.page == Page::Game).then_some(pic);
     if st.page == Page::Game
         && let Some((tone, key)) = st.message
     {
@@ -251,11 +297,29 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
     let (wa, wb, wc, gap) = (300.0, 300.0, 204.0, 16.0);
     let x0 = area.center().x - (wa + wb + wc + 2.0 * gap) / 2.0;
     let top = area.top();
-    let put = |ui: &mut Ui, r: Rect, key: &str, kind: Cab, lit: bool| {
-        ui.put(r, |ui: &mut Ui| {
-            cabinet(ui, r.size(), &tr!(lang, key), kind, lit)
-        })
-    };
+    // a press sends the action's key down (the panel DLL lets it up after the release); lit while the key is down
+    let held = st.held;
+    let mut pressed = None;
+    let mut put =
+        |ui: &mut Ui, r: Rect, key: &str, action: Option<&'static str>, kind: Cab, lit: bool| {
+            let resp = ui.put(r, |ui: &mut Ui| {
+                cabinet(
+                    ui,
+                    r.size(),
+                    &tr!(lang, key),
+                    kind,
+                    lit || (action.is_some() && action == held),
+                )
+            });
+            if action.is_some()
+                && resp.contains_pointer()
+                && ui.is_enabled()
+                && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary))
+            {
+                pressed = action;
+            }
+            resp
+        };
     let caps_at = |ui: &Ui, x: f32, key: &str| {
         ui.painter().text(
             pos2(x, top + 8.0),
@@ -278,20 +342,18 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
     );
     let cell = vec2(94.0, 60.0);
     let cells = [
-        (0, (0.0, 0.0), "cab.central"),
-        (1, (0.0, -1.0), "cab.counter"),
-        (2, (-1.0, 0.0), "cab.l_side"),
-        (3, (1.0, 0.0), "cab.r_side"),
-        (4, (0.0, 1.0), "cab.press"),
+        (0, (0.0, 0.0), "cab.central", "UP"),
+        (1, (0.0, -1.0), "cab.counter", "DOWN"),
+        (2, (-1.0, 0.0), "cab.l_side", "LEFT"),
+        (3, (1.0, 0.0), "cab.r_side", "RIGHT"),
+        (4, (0.0, 1.0), "cab.press", "PRESS"),
     ];
-    for (i, (dx, dy), key) in cells {
+    for (i, (dx, dy), key, action) in cells {
         let r = Rect::from_center_size(
             plate.center() + vec2(dx * (cell.x + 4.0), dy * (cell.y + 4.0)),
             cell,
         );
-        if put(ui, r, key, Cab::Tactic, st.tactics[i]).clicked() {
-            st.tactics[i] = !st.tactics[i];
-        }
+        put(ui, r, key, Some(action), Cab::Tactic, st.tactics[i]);
     }
     // the play buttons: SHOOT the biggest
     let xb = x0 + wa + gap;
@@ -301,6 +363,7 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
         ui,
         Rect::from_min_size(pos2(xb, y), vec2(wb, 80.0)),
         "cab.shoot",
+        Some("SHOOT"),
         Cab::Shoot,
         false,
     );
@@ -308,6 +371,7 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
         ui,
         Rect::from_min_size(pos2(xb, y + 86.0), vec2(half, 58.0)),
         "cab.keeper",
+        Some("KEEPER"),
         Cab::Keeper,
         false,
     );
@@ -315,13 +379,15 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
         ui,
         Rect::from_min_size(pos2(xb + half + 6.0, y + 86.0), vec2(half, 58.0)),
         "cab.key_player",
+        Some("KEYPLAYER"),
         Cab::KeyPlayer,
-        true,
+        false,
     );
     put(
         ui,
         Rect::from_min_size(pos2(xb, y + 150.0), vec2(wb, 46.0)),
         "cab.data",
+        Some("DATA"),
         Cab::Data,
         false,
     );
@@ -329,20 +395,33 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
     let xc = xb + wb + gap;
     caps_at(ui, xc, "panel.machine");
     let half = (wc - 6.0) / 2.0;
-    let row = |ui: &mut Ui, n: f32, keys: [&str; 2], enabled: bool| {
-        for (k, key) in keys.into_iter().enumerate() {
+    let mut row = |ui: &mut Ui, n: f32, keys: [(&str, Option<&'static str>); 2], enabled: bool| {
+        for (k, (key, action)) in keys.into_iter().enumerate() {
             let r = Rect::from_min_size(
                 pos2(xc + k as f32 * (half + 6.0), y + n * 50.0),
                 vec2(half, 44.0),
             );
-            ui.add_enabled_ui(enabled || k == 0, |ui| put(ui, r, key, Cab::Plain, false));
+            ui.add_enabled_ui(enabled || k == 0, |ui| {
+                put(ui, r, key, action, Cab::Plain, false)
+            });
         }
     };
-    row(ui, 0.0, ["cab.start", "cab.card"], true);
+    row(
+        ui,
+        0.0,
+        [("cab.start", Some("START")), ("cab.card", Some("CARD"))],
+        true,
+    );
     if st.edition == Edition::E1718 {
         // BACK sends nothing yet
-        row(ui, 1.0, ["cab.coin", "cab.back"], false);
+        row(
+            ui,
+            1.0,
+            [("cab.coin", Some("COIN")), ("cab.back", None)],
+            false,
+        );
     }
+    st.pressed = st.pressed.or(pressed);
 }
 
 /// The bottom bar: the edition, the four page buttons (lit while their page is open), the ping and the window key.
@@ -470,7 +549,7 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     );
     let mut b = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(pitch.min, r.max)));
     b.spacing_mut().item_spacing.y = 4.0;
-    board::formation_board(&mut b, &mut st.board, st.hover_delay, lang);
+    st.board_changed |= board::formation_board(&mut b, &mut st.board, st.hover_delay, lang);
     b.add_space(4.0);
     b.label(
         egui::RichText::new(tr!(lang, "board.hint"))
@@ -776,7 +855,11 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                         }
                     });
             });
-            strip.cell(|ui| stats_pane(ui, &cards[c.focus], c.message, lang));
+            if let Some(card) = cards.get(c.focus) {
+                strip.cell(|ui| stats_pane(ui, card, c.message, lang));
+            } else {
+                strip.empty();
+            }
         });
 }
 
@@ -829,7 +912,7 @@ fn stats_pane(ui: &mut Ui, card: &Card, message: Option<(Tone, &'static str)>, l
                             .color(theme::TEXT_DIM),
                     );
                     ui.label(
-                        egui::RichText::new(card.total().to_string())
+                        egui::RichText::new(card.total.to_string())
                             .font(theme::display(48.0))
                             .color(theme::AMBER),
                     );

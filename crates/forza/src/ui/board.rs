@@ -72,25 +72,28 @@ impl Rarity {
 /// A player card: what the catalogue lists and the board holds. Stats in card-back order: OFF DEF TEC POW SPD STA.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Card {
-    pub number: u16,
+    pub number: u32,
     pub name: String,
+    /// The name the card's face shows (the catalogue's short name); empty = the full name's last word.
+    pub short: String,
     pub club: String,
     pub country: String,
     pub season: String,
     pub pos: Position,
     pub rarity: Rarity,
     pub stats: [u8; 6],
+    /// TOTAL as the card prints it.
+    pub total: u8,
     pub aptitude: Aptitude,
 }
 
 impl Card {
-    pub fn total(&self) -> u8 {
-        // TOTAL on a 60-100 scale from the six 1-20 stats
-        (60 + self.stats.iter().map(|&s| s as u32).sum::<u32>() * 40 / 120) as u8
-    }
-
     fn short_name(&self) -> &str {
-        self.name.rsplit(' ').next().unwrap_or(&self.name)
+        if self.short.is_empty() {
+            self.name.rsplit(' ').next().unwrap_or(&self.name)
+        } else {
+            &self.short
+        }
     }
 }
 
@@ -378,7 +381,7 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
     p.text(
         band.right_center() + vec2(-4.0, 0.5),
         Align2::RIGHT_CENTER,
-        card.total().to_string(),
+        card.total.to_string(),
         theme::display(fs),
         Color32::WHITE.gamma_multiply(alpha),
     );
@@ -546,6 +549,35 @@ pub fn spot_rect(pitch: Rect, spot: Pos2) -> Rect {
     r.translate(vec2(0.0, (pitch.bottom() - 4.0 - r.bottom()).min(0.0)))
 }
 
+/// Where every slot's card sits: the 11 pitch slots at their spots, the 5 bench slots in a row from `bench_top`
+/// (the board puts the bench 12 points under the pitch).
+pub fn slot_rects(pitch: Rect, bench_top: f32, spots: &[Pos2; 11]) -> [Rect; 16] {
+    let mut rects = [Rect::NOTHING; 16];
+    for (i, s) in spots.iter().enumerate() {
+        rects[i] = spot_rect(pitch, *s);
+    }
+    let small = card_size(pitch.width()) * BENCH_SCALE;
+    let row = Rect::from_min_size(
+        pos2(pitch.left() + LABEL_LANE, bench_top),
+        vec2(pitch.width() - LABEL_LANE, small.y + 12.0),
+    );
+    let gap = (row.width() - 5.0 * small.x) / 6.0;
+    for b in 0..5 {
+        rects[11 + b] =
+            Rect::from_min_size(row.min + vec2(gap + b as f32 * (small.x + gap), 6.0), small);
+    }
+    rects
+}
+
+/// A sheet point on `pitch` as a spot (the inverse of [`spot_rect`]'s centre, kept on the pitch).
+fn spot_at(pitch: Rect, p: Pos2) -> Pos2 {
+    let lane = pitch.with_min_x(pitch.left() + LABEL_LANE);
+    pos2(
+        ((p.x - lane.left()) / lane.width()).clamp(0.0, 1.0),
+        ((p.y - pitch.top()) / pitch.height()).clamp(0.0, 1.0),
+    )
+}
+
 /// The pitch a board of this width draws, from `top_left`.
 pub fn pitch_rect(top_left: Pos2, width: f32) -> Rect {
     Rect::from_min_size(top_left, vec2(width, width * PITCH_ASPECT))
@@ -571,10 +603,6 @@ pub fn formation_board(ui: &mut Ui, board: &mut Board, hover_delay: f32, lang: L
     let card = card_size(pitch.width());
 
     let mut changed = false;
-    let mut rects = [Rect::NOTHING; 16];
-    for (i, s) in board.spots.iter().enumerate() {
-        rects[i] = spot_rect(pitch, *s);
-    }
     // the bench under the pitch: a well with its name running up the left like the zones
     ui.add_space(8.0);
     let small = card * BENCH_SCALE;
@@ -587,12 +615,7 @@ pub fn formation_board(ui: &mut Ui, board: &mut Board, hover_delay: f32, lang: L
         &tr!(lang, "board.bench"),
         theme::TEXT_DIM,
     );
-    let row = bench.with_min_x(bench.left() + LABEL_LANE);
-    let gap = (row.width() - 5.0 * small.x) / 6.0;
-    for b in 0..5 {
-        rects[11 + b] =
-            Rect::from_min_size(row.min + vec2(gap + b as f32 * (small.x + gap), 6.0), small);
-    }
+    let rects = slot_rects(pitch, bench.top(), &board.spots);
 
     let hover_id = Id::new("board-hover");
     let mut hovered_card = None;
@@ -686,6 +709,23 @@ pub fn formation_board(ui: &mut Ui, board: &mut Board, hover_delay: f32, lang: L
             board.slots.swap(*from, slot);
             changed = true;
         }
+    }
+
+    // dropped on the pitch away from every slot: the card moves there (a bench card takes a free pitch slot)
+    if let Some(from) = dragging
+        && pointer.is_some_and(|p| pitch.contains(p))
+        && ui.input(|i| i.pointer.any_released())
+        && egui::DragAndDrop::take_payload::<usize>(ui.ctx()).is_some()
+        && let Some(to) = if from < 11 {
+            Some(from)
+        } else {
+            (0..11).find(|&s| board.slots[s].is_none())
+        }
+        && let Some(p) = pointer
+    {
+        board.slots.swap(from, to);
+        board.spots[to] = spot_at(pitch, p);
+        changed = true;
     }
 
     // the big card after a resting mouse
