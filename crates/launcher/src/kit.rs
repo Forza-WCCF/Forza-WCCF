@@ -60,9 +60,10 @@ impl Kit {
         &self.dir
     }
 
-    /// The kit's edition, from its layout: a `scripts\` folder is the 2017-18 kit's.
+    /// The kit's edition, from its layout: a `scripts\` folder without `code\` is the 2017-18 kit's (an older 2010-11
+    /// kit had scripts\ too, and an update over it may leave one beside code\).
     pub fn edition(&self) -> Edition {
-        if self.dir.join(SCRIPTS_1718).is_dir() {
+        if self.dir.join(SCRIPTS_1718).is_dir() && !self.dir.join(SCRIPTS).is_dir() {
             Edition::E1718
         } else {
             Edition::E1011
@@ -192,4 +193,24 @@ pub fn seat_dir(game: &Path) -> PathBuf {
 /// The FPR_Emu helper's folder beside the game folder.
 pub fn misc_dir(game: &Path) -> PathBuf {
     game.parent().unwrap_or(game).join("misc")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_edition_comes_from_the_layout() {
+        let dir = tempfile::tempdir().unwrap();
+        let kit = Kit::at(dir.path());
+        assert_eq!(kit.edition(), Edition::E1011);
+        fs::create_dir(dir.path().join(SCRIPTS_1718)).unwrap();
+        assert_eq!(kit.edition(), Edition::E1718);
+        fs::create_dir(dir.path().join(SCRIPTS)).unwrap();
+        assert_eq!(
+            kit.edition(),
+            Edition::E1011,
+            "an old 2010-11 kit's scripts\\ left beside code\\"
+        );
+    }
 }
