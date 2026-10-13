@@ -5,7 +5,10 @@
 //     fakegame.exe PANEL.dll STEP ...
 //       wait:MS          let MS milliseconds of frames go by
 //       click:X,Y        a left click at X,Y in the window (client pixels)
-//       move:X,Y         the mouse to X,Y, no click
+//       move:X,Y         the mouse to X,Y, no click (the left button held after a down:)
+//       down:X,Y         the left button pressed at X,Y (a drag: down, moves, up)
+//       up:X,Y           the left button released at X,Y
+//       rclick:X,Y       a right click at X,Y
 //       close            the window's X (WM_CLOSE): like the real game, the program runs on after its window goes
 //       type:TEXT        the keys of TEXT (letters, digits, space)
 //       key:VK           one key by its virtual-key code (27 Esc, 8 Backspace, 13 Enter)
@@ -13,6 +16,8 @@
 //                        this exe) once a new size has held for 10 frames
 //       copy:NAME        wccfpanel_frame.bmp copied to NAME
 //       unload           FreeLibrary on the panel: the frames go on without it
+//
+// The window says which mouse buttons reach it ("game: left down at X,Y"): what the panel passes on to the game.
 //
 // Each frame checks that the device comes back from Present as the game left it (render target, viewport, scissor
 // test, a cull mode set at start) and says so once if not, or if a Present fails.
@@ -39,6 +44,15 @@
 
 static HWND g_win;
 static HMODULE g_panel;
+static WPARAM g_buttons;                         // the buttons held by the steps (MK_LBUTTON)
+
+static LRESULT CALLBACK game_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
+{
+    const char *what = m == WM_LBUTTONDOWN ? "left down" : m == WM_LBUTTONUP ? "left up" :
+                       m == WM_RBUTTONDOWN ? "right down" : m == WM_RBUTTONUP ? "right up" : NULL;
+    if (what) printf("game: %s at %d,%d\n", what, (short)LOWORD(lp), (short)HIWORD(lp));
+    return DefWindowProcA(h, m, wp, lp);
+}
 
 static void client_size(int w, int h)
 {
@@ -67,7 +81,25 @@ static int step(const char *s, const char *dir)
     }
     if (!strcmp(s, "close")) { PostMessageA(g_win, WM_CLOSE, 0, 0); return 150; }
     if (!strncmp(s, "move:", 5) && sscanf(s + 5, "%d,%d", &a, &b) == 2) {
+        PostMessageA(g_win, WM_MOUSEMOVE, g_buttons, MAKELPARAM(a, b));
+        return 150;
+    }
+    if (!strncmp(s, "down:", 5) && sscanf(s + 5, "%d,%d", &a, &b) == 2) {
+        g_buttons = MK_LBUTTON;
         PostMessageA(g_win, WM_MOUSEMOVE, 0, MAKELPARAM(a, b));
+        PostMessageA(g_win, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(a, b));
+        return 150;
+    }
+    if (!strncmp(s, "up:", 3) && sscanf(s + 3, "%d,%d", &a, &b) == 2) {
+        g_buttons = 0;
+        PostMessageA(g_win, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(a, b));
+        PostMessageA(g_win, WM_LBUTTONUP, 0, MAKELPARAM(a, b));
+        return 150;
+    }
+    if (!strncmp(s, "rclick:", 7) && sscanf(s + 7, "%d,%d", &a, &b) == 2) {
+        PostMessageA(g_win, WM_MOUSEMOVE, 0, MAKELPARAM(a, b));
+        PostMessageA(g_win, WM_RBUTTONDOWN, MK_RBUTTON, MAKELPARAM(a, b));
+        PostMessageA(g_win, WM_RBUTTONUP, 0, MAKELPARAM(a, b));
         return 150;
     }
     if (!strncmp(s, "type:", 5)) {
@@ -116,7 +148,7 @@ int main(int argc, char **argv)
     WNDCLASSA wc; IDirect3D9 *d3d; IDirect3DDevice9 *dev = NULL; D3DPRESENT_PARAMETERS pp;
     int next = 2; DWORD due;
     setvbuf(stdout, NULL, _IONBF, 0);            // the lines reach a test's pipe even if the panel takes us down
-    if (argc < 2) { printf("fakegame.exe PANEL.dll [wait:MS click:X,Y move:X,Y close type:TEXT key:VK size:W,H copy:NAME unload ...]\n"); return 2; }
+    if (argc < 2) { printf("fakegame.exe PANEL.dll [wait:MS click:X,Y move:X,Y down:X,Y up:X,Y rclick:X,Y close type:TEXT key:VK size:W,H copy:NAME unload ...]\n"); return 2; }
 #ifdef IPHLP
     { volatile int never = 0; if (never) IpRenewAddress(NULL); }   // never called: only its import is wanted
 #endif
@@ -124,7 +156,7 @@ int main(int argc, char **argv)
     sl = strrchr(dir, '\\'); if (sl) *sl = 0;
 
     ZeroMemory(&wc, sizeof wc);
-    wc.lpfnWndProc = DefWindowProcA; wc.hInstance = GetModuleHandleA(NULL); wc.lpszClassName = "fakegame";
+    wc.lpfnWndProc = game_proc; wc.hInstance = GetModuleHandleA(NULL); wc.lpszClassName = "fakegame";
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     RegisterClassA(&wc);
     g_win = CreateWindowExA(0, "fakegame", "fakegame (wccfpanel test)", WS_OVERLAPPEDWINDOW, -32000, -32000,
