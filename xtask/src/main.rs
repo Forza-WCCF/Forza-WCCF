@@ -32,7 +32,7 @@ enum Task {
         /// 2010-11 or 2017-18
         edition: String,
     },
-    /// Save the game windows running from ROOT as PNGs in OUTDIR (builds xtask/cap; PrintWindow, never the screen)
+    /// Save the game windows running from ROOT as PNGs in OUTDIR (builds xtask/cap; Windows.Graphics.Capture per window, PrintWindow fallback, never the screen)
     Cap {
         /// The runtime folder: only game processes whose exe is under it are captured
         root: PathBuf,

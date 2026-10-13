@@ -714,6 +714,7 @@ name = "cap"
 version = "7.0.0"
 dependencies = [
  "png",
+ "windows",
  "windows-sys 0.61.2",
 ]
 

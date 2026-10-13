@@ -1,7 +1,11 @@
 //! `cap <root> <outdir>`: save every visible top-level window of the game processes (`client_Release.exe`,
-//! `control_Release.exe`) whose exe lies under `root` as `<kind>-<pid>.png`, one line per capture. PrintWindow with
-//! PW_RENDERFULLCONTENT asks the window for its own content: never the screen, so other apps never end up in a capture.
+//! `control_Release.exe`) whose exe lies under `root` as `<kind>-<pid>.png`, one line per capture naming the method.
+//! Windows.Graphics.Capture on the window handle (`wgc`) takes the window's own composed content, Direct3D included;
+//! PrintWindow with PW_RENDERFULLCONTENT (`printwindow`, blank for the game's Direct3D 9 windows) is the fallback when
+//! WGC is unavailable. Both read one window, never the screen, so other apps never end up in a capture.
 //! Replaces research/cap.ps1. Windows only; `cargo xtask cap` builds and runs it.
+
+mod wgc;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -100,13 +104,27 @@ fn windows_of() -> Vec<(HWND, u32)> {
     v
 }
 
-/// The window's own pixels as (width, height, RGBA), restoring it first when minimized.
-fn grab(h: HWND) -> Option<(u32, u32, Vec<u8>)> {
-    // SAFETY: GDI objects are created, used and freed here; the DIB section memory is read only while the bitmap is alive.
+/// The window's own pixels as (width, height, RGBA, method), restoring it first when minimized: WGC, else PrintWindow.
+fn grab(h: HWND) -> Option<(u32, u32, Vec<u8>, &'static str)> {
+    // SAFETY: `h` is a window handle; IsIconic and ShowWindow accept any value.
     unsafe {
         if IsIconic(h) != 0 {
             ShowWindow(h, SW_RESTORE);
         }
+    }
+    match wgc::grab(h) {
+        Ok((w, ht, px)) => Some((w, ht, px, "wgc")),
+        Err(e) => {
+            eprintln!("cap: WGC failed ({e}), PrintWindow instead");
+            print_window(h).map(|(w, ht, px)| (w, ht, px, "printwindow"))
+        }
+    }
+}
+
+/// PrintWindow(PW_RENDERFULLCONTENT) into a DIB section: (width, height, RGBA).
+fn print_window(h: HWND) -> Option<(u32, u32, Vec<u8>)> {
+    // SAFETY: GDI objects are created, used and freed here; the DIB section memory is read only while the bitmap is alive.
+    unsafe {
         let mut r: RECT = std::mem::zeroed();
         GetWindowRect(h, &mut r);
         let (w, ht) = (r.right - r.left, r.bottom - r.top);
@@ -168,7 +186,9 @@ pub fn capture(root: &str, out: &Path) -> Result<Vec<String>, Box<dyn std::error
     let mut seen: HashMap<u32, u32> = HashMap::new();
     for (pid, exe, path) in procs {
         for &(h, _) in wins.iter().filter(|w| w.1 == pid) {
-            let Some((w, ht, px)) = grab(h) else { continue };
+            let Some((w, ht, px, how)) = grab(h) else {
+                continue;
+            };
             let n = seen.entry(pid).and_modify(|n| *n += 1).or_insert(1);
             let k = kind(&exe, &path);
             // a second window of the same process gets a suffix, so no capture overwrites another
@@ -180,7 +200,7 @@ pub fn capture(root: &str, out: &Path) -> Result<Vec<String>, Box<dyn std::error
             let f: PathBuf = out.join(name);
             save(&f, w, ht, &px)?;
             lines.push(format!(
-                "{k} pid {pid} '{}' {w}x{ht} -> {}",
+                "{k} pid {pid} '{}' {w}x{ht} {how} -> {}",
                 title(h),
                 f.display()
             ));
@@ -228,6 +248,135 @@ mod tests {
     fn root_match() {
         assert!(under(r"D:\K\", r"d:\k\game\client_Release.exe"));
         assert!(!under(r"D:\k", r"D:\kit2\client_Release.exe"));
+    }
+
+    use windows_sys::Win32::Graphics::Gdi::{CreateSolidBrush, UpdateWindow};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, MSG, PM_REMOVE,
+        PeekMessageW, RegisterClassW, WNDCLASSW, WS_POPUP, WS_VISIBLE,
+    };
+
+    /// A 240x160 popup window of our own at (x, 100), its class background `bg` (a COLORREF, 0 = none).
+    fn test_window(class: &str, x: i32, bg: u32) -> HWND {
+        let name: Vec<u16> = class.encode_utf16().chain([0]).collect();
+        // SAFETY: the class name outlives both calls; DefWindowProcW handles every message.
+        unsafe {
+            let wc = WNDCLASSW {
+                lpfnWndProc: Some(DefWindowProcW),
+                lpszClassName: name.as_ptr(),
+                hbrBackground: if bg == 0 {
+                    std::ptr::null_mut()
+                } else {
+                    CreateSolidBrush(bg)
+                },
+                ..std::mem::zeroed()
+            };
+            RegisterClassW(&wc);
+            let h = CreateWindowExW(
+                0,
+                name.as_ptr(),
+                name.as_ptr(),
+                WS_POPUP | WS_VISIBLE,
+                x,
+                100,
+                240,
+                160,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null(),
+            );
+            assert!(!h.is_null(), "CreateWindowExW");
+            UpdateWindow(h);
+            h
+        }
+    }
+
+    /// Let the window thread answer its messages for `ms` so the compositor has its content.
+    fn pump(ms: u64) {
+        let end = std::time::Instant::now() + std::time::Duration::from_millis(ms);
+        while std::time::Instant::now() < end {
+            // SAFETY: a zeroed MSG filled by PeekMessageW and dispatched on this, the windows' thread.
+            unsafe {
+                let mut m: MSG = std::mem::zeroed();
+                while PeekMessageW(&mut m, std::ptr::null_mut(), 0, 0, PM_REMOVE) != 0 {
+                    DispatchMessageW(&m);
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
+    /// grab() on `h`: the method used and the centre pixel's RGB.
+    fn centre(h: HWND) -> (&'static str, [u8; 3]) {
+        let (w, ht, px, how) = grab(h).expect("grab");
+        let i = ((ht / 2 * w + w / 2) * 4) as usize;
+        (how, [px[i], px[i + 1], px[i + 2]])
+    }
+
+    /// A GDI-painted window: its brush colour at the centre (RGB(10, 200, 30) is COLORREF 0x1EC80A).
+    #[test]
+    fn gdi_window() {
+        let h = test_window("cap-test-gdi", 100, 0x001E_C80A);
+        pump(300);
+        let (how, rgb) = centre(h);
+        println!("gdi window: {how} {rgb:?}");
+        // SAFETY: our own window, destroyed on its thread.
+        unsafe { DestroyWindow(h) };
+        assert_eq!(rgb, [10, 200, 30], "via {how}");
+    }
+
+    /// A window presented by a D3D11 flip-model swap chain (cleared to RGB(51, 102, 204)): the Direct3D path the game's
+    /// windows need, where PrintWindow comes back blank.
+    #[test]
+    fn d3d_window() {
+        use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
+        use windows::Win32::Graphics::Dxgi::Common::{
+            DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC,
+        };
+        use windows::Win32::Graphics::Dxgi::{
+            CreateDXGIFactory2, DXGI_CREATE_FACTORY_FLAGS, DXGI_PRESENT, DXGI_SWAP_CHAIN_DESC1,
+            DXGI_SWAP_EFFECT_FLIP_DISCARD, DXGI_USAGE_RENDER_TARGET_OUTPUT, IDXGIFactory2,
+        };
+        let h = test_window("cap-test-d3d", 400, 0);
+        let (dev, ctx) = wgc::device().expect("D3D11 device");
+        // SAFETY: D3D11/DXGI calls on objects created here, for our own window.
+        unsafe {
+            let f: IDXGIFactory2 = CreateDXGIFactory2(DXGI_CREATE_FACTORY_FLAGS(0)).unwrap();
+            let desc = DXGI_SWAP_CHAIN_DESC1 {
+                Width: 240,
+                Height: 160,
+                Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                SampleDesc: DXGI_SAMPLE_DESC {
+                    Count: 1,
+                    Quality: 0,
+                },
+                BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
+                BufferCount: 2,
+                SwapEffect: DXGI_SWAP_EFFECT_FLIP_DISCARD,
+                ..Default::default()
+            };
+            let sc = f
+                .CreateSwapChainForHwnd(
+                    &dev,
+                    windows::Win32::Foundation::HWND(h),
+                    &desc,
+                    None,
+                    None,
+                )
+                .unwrap();
+            let back: ID3D11Texture2D = sc.GetBuffer(0).unwrap();
+            let mut rtv = None;
+            dev.CreateRenderTargetView(&back, None, Some(&mut rtv))
+                .unwrap();
+            ctx.ClearRenderTargetView(rtv.as_ref().unwrap(), &[0.2, 0.4, 0.8, 1.0]);
+            sc.Present(0, DXGI_PRESENT(0)).unwrap();
+            pump(300);
+            let (how, rgb) = centre(h);
+            println!("d3d window: {how} {rgb:?}");
+            DestroyWindow(h);
+            assert_eq!(rgb, [51, 102, 204], "via {how}");
+        }
     }
 
     /// A root that matches no game process: zero captures, no error.
