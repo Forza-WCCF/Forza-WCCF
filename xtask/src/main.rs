@@ -475,6 +475,14 @@ fn build<'s>(
         &[],
         &["d3d9.lib", "user32.lib"],
     );
+    // fakegame with an IP-helper import: the 2017-18 guard's tests rename it to wccfnet.dll as setup1718.py does
+    c(
+        "panel/fakegame_iphlp.c",
+        obj.join("fakegame_iphlp.exe"),
+        "",
+        &[],
+        &["d3d9.lib", "user32.lib", "iphlpapi.lib"],
+    );
     c(
         "hook/test_wholemsg.c",
         obj.join("test_wholemsg.exe"),
@@ -757,6 +765,7 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
     }
     for p in PROGRAMS.iter().chain(&[
         "source/build/fakegame.exe",
+        "source/build/fakegame_iphlp.exe",
         "source/build/test_wholemsg.exe",
         "source/build/crashme.exe",
     ]) {

@@ -26,6 +26,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef IPHLP    /* fakegame_iphlp.c: the 2017-18 guard's tests want a program that imports the IP-helper calls */
+#include <iphlpapi.h>
+#endif
 
 #define GAME_W 1440
 #define GAME_H 900
@@ -85,6 +88,9 @@ int main(int argc, char **argv)
     WNDCLASSA wc; IDirect3D9 *d3d; IDirect3DDevice9 *dev = NULL; D3DPRESENT_PARAMETERS pp;
     int next = 2; DWORD due;
     if (argc < 2) { printf("fakegame.exe PANEL.dll [wait:MS click:X,Y move:X,Y close type:TEXT key:VK size:W,H copy:NAME ...]\n"); return 2; }
+#ifdef IPHLP
+    { volatile int never = 0; if (never) IpRenewAddress(NULL); }   // never called: only its import is wanted
+#endif
     GetModuleFileNameA(NULL, dir, MAX_PATH);
     sl = strrchr(dir, '\\'); if (sl) *sl = 0;
 

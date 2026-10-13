@@ -66,6 +66,8 @@ pub struct Text {
     pub failed: &'static str,
     pub busy: &'static str,
     pub unguarded: &'static str,
+    pub not_guarded: &'static str,
+    pub setup_1718: &'static str,
     pub stop_anyway: &'static str,
     pub link_taken: &'static str,
     pub link_no_junction: &'static str,
@@ -138,6 +140,11 @@ const EN: Text = Text {
     unguarded: "NOT started: Windows was told to load only its own copies of system files for programs started from \
                 here (\"Prefer System32 images\" - a WSL terminal does this), so the game would run without the kit's \
                 guard. Start Launcher.exe from Explorer (double-click it).",
+    not_guarded: "NOT started: the 2017-18 network guard is not in place (setup-hashes.json is missing or does not \
+                  match, or a game program is not the guarded copy), so the game could change this PC's network \
+                  settings. Run setup1718.py again (legacy/2017-18/tools/setup1718.py), then start again. The details \
+                  are in Launcher's window.",
+    setup_1718: "The 2017-18 game is set up with setup1718.py (legacy/2017-18/tools/setup1718.py, from WSL), not here.",
     stop_anyway: "Your club card is in the reader, or a match is on: stopping now can give the card a bad ending \
                   (trade rights are lost at 2). The details are in Launcher's window.\n\nStop the game anyway?",
     link_taken: "This folder's path has special characters, which the game may not handle, and {} is already used by another Forza-WCCF folder. Running from here. If the game does not start, move the kit to a plain path such as C:\\Games.",
@@ -213,6 +220,11 @@ const IT: Text = Text {
     unguarded: "NON avviato: Windows ha ricevuto l'ordine di caricare solo le proprie copie dei file di sistema per i \
                 programmi avviati da qui (\"Prefer System32 images\" - lo fa un terminale WSL), quindi il gioco \
                 girerebbe senza la protezione del kit. Avvia Launcher.exe da Esplora file (doppio clic).",
+    not_guarded: "NON avviato: la protezione di rete del 2017-18 non è a posto (setup-hashes.json manca o non \
+                  corrisponde, oppure un programma del gioco non è la copia protetta), quindi il gioco potrebbe \
+                  cambiare le impostazioni di rete di questo PC. Esegui di nuovo setup1718.py \
+                  (legacy/2017-18/tools/setup1718.py), poi riavvia. I dettagli sono nella finestra di Launcher.",
+    setup_1718: "Il gioco 2017-18 si configura con setup1718.py (legacy/2017-18/tools/setup1718.py, da WSL), non qui.",
     stop_anyway: "La tua carta del club è nel lettore, oppure è in corso una partita: fermare adesso può dare alla \
                   carta un finale negativo (a 2 si perdono i diritti di scambio). I dettagli sono nella finestra di \
                   Launcher.\n\nFermare comunque il gioco?",
@@ -287,6 +299,11 @@ const JA: Text = Text {
     unguarded: "起動しませんでした: ここから起動するプログラムは Windows 自身のシステムファイルだけを読み込むよう指示されて\
                 います（\"Prefer System32 images\" - WSL のターミナルがこれを行います）。このままではキットの保護なしで\
                 ゲームが動きます。エクスプローラーから Launcher.exe を起動してください（ダブルクリック）。",
+    not_guarded: "起動しませんでした: 2017-18 のネットワーク保護が整っていません（setup-hashes.json がないか一致しない、\
+                  またはゲームのプログラムが保護済みのコピーではありません）。このままではゲームがこの PC のネットワーク\
+                  設定を変えるおそれがあります。setup1718.py（legacy/2017-18/tools/setup1718.py）をもう一度実行してから\
+                  起動してください。詳細は Launcher のウィンドウにあります。",
+    setup_1718: "2017-18 のゲームはここではなく setup1718.py（legacy/2017-18/tools/setup1718.py、WSL から）で設定します。",
     stop_anyway: "クラブカードがリーダーに入っているか、試合中です。今終了するとカードにバッドエンドが付くことがあります\
                   （2 回でトレード権を失います）。詳細は Launcher のウィンドウにあります。\n\nそれでもゲームを終了しますか？",
     link_taken: "このフォルダーのパスには、ゲームが扱えないかもしれない特殊な文字があり、{} は別の Forza-WCCF フォルダーが使用中です。ここから起動します。ゲームが起動しない場合は、キットを C:\\Games のような英数字だけのパスへ移動してください。",

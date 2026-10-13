@@ -415,7 +415,7 @@ fn network_replay() {
     for (name, kind) in svcs {
         let l = TcpListener::bind("127.0.0.1:0").unwrap();
         ports.insert(name, l.local_addr().unwrap());
-        held.push(network::spawn(l, kind, name, quiet()).unwrap());
+        held.push(network::spawn(l, kind, name, "SBWG", quiet()).unwrap());
     }
     let (mut c, mut conn, mut svc) = (None::<TcpStream>, u64::MAX, "");
     for (i, r) in recs.iter().enumerate() {

@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use launcher::debug::{Options, Role, maps, run};
 use launcher::job::Job;
+use launcher::kit::Edition;
 use windows_sys::Win32::System::Memory::{FILE_MAP_READ, MapViewOfFile, UnmapViewOfFile};
 
 /// A stand-in from the kit build, copied into `dir` as `name`.
@@ -274,7 +275,7 @@ fn the_shared_memory_holds_the_motion_files() {
     }
     let id = format!("wccftest_{}", std::process::id());
     let mut out = Vec::new();
-    let handles = maps::make_all(&mut out, game.path(), &id, true).unwrap();
+    let handles = maps::make_all(&mut out, game.path(), &id, true, Edition::E1011).unwrap();
     assert_eq!(handles.len(), 5);
     let view = |i: usize, n: usize| {
         // SAFETY: a live mapping handle; the view is read within its size and unmapped.
@@ -304,4 +305,35 @@ fn the_shared_memory_holds_the_motion_files() {
         "{text}"
     );
     drop(small);
+}
+
+/// 2017-18's mappings: the player data files there are (a size, then the file) and the version byte, nothing of
+/// 2010-11's.
+#[test]
+fn the_2017_18_shared_memory_holds_the_player_data() {
+    let game = tempfile::tempdir().unwrap();
+    let dir = game.path().join("prog_data/player_data");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("player_data.bin"), [7, 8, 9]).unwrap();
+    fs::write(dir.join("model_data.bin"), [4]).unwrap();
+    let id = format!("wccftest1718_{}", std::process::id());
+    let mut out = Vec::new();
+    let handles = maps::make_all(&mut out, game.path(), &id, true, Edition::E1718).unwrap();
+    assert_eq!(handles.len(), 3, "two files and the version");
+    let view = |i: usize, n: usize| {
+        // SAFETY: a live mapping handle; the view is read within its size and unmapped.
+        unsafe {
+            let v = MapViewOfFile(handles[i].as_raw_handle(), FILE_MAP_READ, 0, 0, 0);
+            assert!(!v.Value.is_null());
+            let b = std::slice::from_raw_parts(v.Value.cast::<u8>(), n).to_vec();
+            UnmapViewOfFile(v);
+            b
+        }
+    };
+    assert_eq!(view(0, 7), [3, 0, 0, 0, 7, 8, 9]);
+    assert_eq!(view(1, 5), [1, 0, 0, 0, 4]);
+    assert_eq!(view(2, 1), [1]);
+    let text = String::from_utf8(out).unwrap();
+    assert!(text.contains(&format!("{id}_ WCCF 17-18 Ver2.0")), "{text}");
+    assert!(!text.contains("moai") && !text.contains("status"), "{text}");
 }

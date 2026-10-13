@@ -50,6 +50,8 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 csv = "1.4.0"
+object.workspace = true
+sha2.workspace = true
 
 [dev-dependencies]
 tempfile = "3.27.0"

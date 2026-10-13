@@ -1,5 +1,11 @@
-//! The run: WCCF 2010-11 started, kept and stopped on this PC (port of Kit 6's play.py, which this replaces, and of the
-//! watcher that ended a run when a game window closed).
+//! The run: WCCF 2010-11 or 2017-18 started, kept and stopped on this PC (port of Kit 6's play.py, which this
+//! replaces, of the 2017-18 kit's older fork of it, and of the watcher that ended a run when a game window closed).
+//!
+//! The edition comes from the kit (`Kit::edition`).  2017-18 differs in: its stand-ins (no scene service; the game
+//! server stand-in beside control; the Aime reader on COM2 and AiMeDB instead of the club card reader; the keychip
+//! says SDDY), its shared memory (`debug::maps`), its guard (`crate::guard` before anything starts, then netguard.dll
+//! injected into control, the projector and seat 1), the server's projector rule (the first PC gets it), and what it
+//! leaves out (the club card's steps and view, the log inbox, the automatic report, the message guard).
 //!
 //! Order, each step waiting for the one before: scene service -> server and its 4 match engines -> projector -> the
 //! cabinet's stand-ins (keychip and network, card reader, I/O board) -> seat 1 -> its overlay -> the key driver -> the
@@ -44,7 +50,7 @@ use std::{env, ptr};
 use crate::helper::{self, Helper, Target, ViewFiles};
 use forza::online::seat::{self, Lease};
 use forza::online::send_logs::{self, Scrub};
-use forza::standins::{Handle, Log, card_reader, io_board, network, scenes};
+use forza::standins::{Handle, Log, aime, aimedb, card_reader, gamesvr, io_board, network, scenes};
 use regex::Regex;
 use windows_sys::Win32::Foundation::{ERROR_ALREADY_EXISTS, FALSE, GetLastError};
 use windows_sys::Win32::System::Threading::{CreateMutexW, OpenMutexW, SYNCHRONIZATION_SYNCHRONIZE};
@@ -52,8 +58,8 @@ use windows_sys::Win32::System::Threading::{CreateMutexW, OpenMutexW, SYNCHRONIZ
 use crate::card;
 use crate::debug::{self, Maps, Options};
 use crate::job::Job;
-use crate::kit::{find_game_named, seat_dir};
-use crate::{Kit, choices, conf, logs, procs};
+use crate::kit::{Edition, find_game_named, seat_dir};
+use crate::{Kit, choices, conf, guard, logs, procs};
 pub use rules::{Mode, Words};
 
 /// Exit codes, as play.py's: 0 ok, 1 a step failed, 2 not set up (or wrong words), 3 refused; 4 refused because
@@ -63,6 +69,8 @@ pub const FAILED: i32 = 1;
 pub const NOT_SET_UP: i32 = 2;
 pub const REFUSED: i32 = 3;
 pub const UNGUARDED: i32 = 4;
+/// 2017-18: refused because the network guard setup1718.py makes is not in place.
+pub const NOT_GUARDED: i32 = 5;
 
 /// A month and a day: a backstop only.  A player's run ends when its game window is closed; a server for others
 /// stays up all month (a keeper task on that machine restarts it whenever it stops).
@@ -77,6 +85,9 @@ pub const UNGUARDED_TEXT: &str = "NOT started: Windows was told to make the prog
     Launcher.exe - a WSL terminal does this). The game would then run without the kit's hook, which keeps it from \
     changing this PC's network settings. Start Launcher.exe from Explorer (double-click it) instead.";
 const NOT_SET_UP_TEXT: &str = "Not set up yet - set up first: Launcher.exe, Setup and updates.";
+pub const NOT_GUARDED_TEXT: &str = "NOT started: the 2017-18 network guard is not in place, so the game could change \
+    this PC's network settings (it has dropped the DHCP lease before). Run setup1718.py again \
+    (legacy/2017-18/tools/setup1718.py, see docs/2017-18/README.md), then start again. What is wrong:";
 
 /// Where a run tells what it does: the window's box or the console.  `ask` gets a yes/no question (no one to ask:
 /// no); `running` hears when the game is up (true) and when the run is over (false).
@@ -108,6 +119,10 @@ pub struct Params {
     pub network_ports: [u16; 6],
     pub icc_pipe: String,
     pub jvs_pipe: String,
+    /// 2017-18: the Aime reader's pipe (COM2), AiMeDB's port and the game server stand-in's port.
+    pub aime_pipe: String,
+    pub aimedb_port: u16,
+    pub gamesvr_port: u16,
     pub scenes: scenes::Names,
     /// The shared memory's name prefix (`debug::maps::GAME_ID`); None: none made.
     pub maps: Option<String>,
@@ -134,11 +149,21 @@ impl Params {
             network_ports: network::SERVICES.map(|s| s.0),
             icc_pipe: r"\\.\pipe\wccf_icc_seat1".into(),
             jvs_pipe: r"\\.\pipe\wccf_jvs_seat1".into(),
+            aime_pipe: r"\\.\pipe\wccf_aime_seat1".into(),
+            aimedb_port: 22345,
+            gamesvr_port: 20050, // ctrl_user_option.conf GAME_SVR_PORT
             scenes: scenes::Names::game(),
             maps: Some(debug::maps::GAME_ID.into()),
             shared: io_board::Shared::new(),
             extra_watch: Mutex::default(),
         }
+    }
+
+    /// The game's names for the kit's edition (2017-18: its shared memory's prefix).
+    pub fn of(kit: &Kit) -> Self {
+        let mut p = Self::game();
+        p.maps = Some(kit.edition().game_id().into());
+        p
     }
 
     fn client(&self) -> &str {
@@ -454,9 +479,15 @@ fn addr(ip: &str, port: u16) -> Option<SocketAddr> {
 
 // ---- the start ----------------------------------------------------------------------------------------------------
 
-/// The game folder setup recorded, found by the run's program names.
+/// The game folder setup recorded, found by the run's program names; 2017-18 without a record: `game\` beside the kit
+/// (setup1718.py's runtime: `kit\`, `game\`, `seat1\`).
 fn game_folder(kit: &Kit, p: &Params) -> Option<PathBuf> {
-    find_game_named(kit.settings().get("game")?.as_str()?, p.programs.clone())
+    let set = kit.settings().get("game").and_then(|g| g.as_str().map(str::to_owned));
+    let set = set.or_else(|| match kit.edition() {
+        Edition::E1718 => Some(kit.dir().parent()?.join("game").display().to_string()),
+        Edition::E1011 => None,
+    })?;
+    find_game_named(&set, p.programs.clone())
 }
 
 /// The game's programs (by the run's names) running from the game folder and the folders beside it.
@@ -631,7 +662,9 @@ pub enum End {
 struct Cabinet {
     keys: Option<Handle>,
     board: Option<Handle>,
+    /// The club card reader (2010-11) or the Aime reader (2017-18).
     reader: Option<Handle>,
+    aimedb: Option<Handle>,
     net: Vec<Handle>,
     extra: Vec<(String, bool, Handle)>,
 }
@@ -641,6 +674,7 @@ impl Cabinet {
         self.keys.is_some()
             || self.board.is_some()
             || self.reader.is_some()
+            || self.aimedb.is_some()
             || !self.net.is_empty()
             || !self.extra.is_empty()
     }
@@ -651,6 +685,7 @@ pub struct Run<'a> {
     kit: &'a Kit,
     p: &'a Params,
     ui: &'a dyn Ui,
+    edition: Edition,
     game: PathBuf,
     seat: PathBuf,
     mode: Mode,
@@ -668,6 +703,8 @@ pub struct Run<'a> {
     helper: Option<Helper>,
     cabinet: Cabinet,
     scenes: Option<Handle>,
+    /// 2017-18: the game server stand-in (control keeps the clubs there).
+    gamesvr: Option<Handle>,
     lease: Option<Lease>,
     _lock: OwnedHandle,
 }
@@ -683,9 +720,17 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         return Err(NOT_SET_UP);
     };
     let seat = seat_dir(&game);
-    if !seat.join(".wccf-kit").is_file() {
+    let edition = kit.edition();
+    if edition == Edition::E1011 && !seat.join(".wccf-kit").is_file() {
         ui.say(NOT_SET_UP_TEXT);
         return Err(NOT_SET_UP);
+    }
+    // before anything of the run exists: no game program may start unguarded (AGENTS.md section 5)
+    if edition == Edition::E1718
+        && let Err(why) = guard::check(&game, &seat, p.client(), p.control())
+    {
+        ui.say(&format!("{NOT_GUARDED_TEXT} {why}"));
+        return Err(NOT_GUARDED);
     }
     if !kit.cache().join("catalogue.tsv").is_file() {
         // the panel's card browser only: never a reason not to start
@@ -722,6 +767,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         kit,
         p,
         ui,
+        edition,
         game,
         seat,
         mode,
@@ -738,6 +784,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         helper: None,
         cabinet: Cabinet::default(),
         scenes: None,
+        gamesvr: None,
         lease: None,
         _lock: lock,
     };
@@ -832,32 +879,35 @@ impl Run<'_> {
         let say = file_log(self.logs().join("run_helper.txt"));
         let mut h = Helper::default();
         let (kit, job, logs, env) = (Kit::at(self.kit.dir()), self.job.clone(), self.logs(), self.kit_env());
-        h.club_view(
-            ViewFiles::new(&self.kit.data()),
-            move |stop| {
-                let cmd = python_cmd(&kit, &logs, &env, "card_steps.py", &["view".to_owned()]);
-                let (code, out) = run_in_job(
-                    &job,
-                    cmd,
-                    &logs.join("run_club_view.txt"),
-                    Duration::from_secs(60),
-                    stop,
-                )?;
-                let last = out
-                    .lines()
-                    .rev()
-                    .find(|l| !l.trim().is_empty())
-                    .unwrap_or("-")
-                    .trim()
-                    .to_owned();
-                if code == 0 {
-                    Ok(last.trim_start_matches("club card view written: ").to_owned())
-                } else {
-                    Err(last)
-                }
-            },
-            say.clone(),
-        );
+        // 2017-18 keeps its clubs on the game server stand-in: no club card file to show
+        if self.edition == Edition::E1011 {
+            h.club_view(
+                ViewFiles::new(&self.kit.data()),
+                move |stop| {
+                    let cmd = python_cmd(&kit, &logs, &env, "card_steps.py", &["view".to_owned()]);
+                    let (code, out) = run_in_job(
+                        &job,
+                        cmd,
+                        &logs.join("run_club_view.txt"),
+                        Duration::from_secs(60),
+                        stop,
+                    )?;
+                    let last = out
+                        .lines()
+                        .rev()
+                        .find(|l| !l.trim().is_empty())
+                        .unwrap_or("-")
+                        .trim()
+                        .to_owned();
+                    if code == 0 {
+                        Ok(last.trim_start_matches("club card view written: ").to_owned())
+                    } else {
+                        Err(last)
+                    }
+                },
+                say.clone(),
+            );
+        }
         let (logs, mut targets) = (self.logs(), Vec::new());
         if projector {
             let logs = logs.clone();
@@ -880,6 +930,9 @@ impl Run<'_> {
     /// bad endings cleared, the table following the club), done while the card reader is not running; never a reason
     /// not to start.
     fn card_steps(&self, what: &[&str]) {
+        if self.edition == Edition::E1718 {
+            return; // its club is on the game server stand-in, its card is an Aime: no club card file
+        }
         let mut args: Vec<String> = what.iter().map(|s| (*s).to_owned()).collect();
         args.push(self.seat.display().to_string());
         match self.run_child(
@@ -1026,11 +1079,13 @@ impl Run<'_> {
                 game: self.game.clone(),
                 id,
                 mosuppl: true,
+                edition: self.edition,
             }),
             dbg_file: self.logs().join(format!("_dbg_{prog}{tag}.txt")),
             dumps: self.kit.data().join("dumps"),
             index: index.is_dir().then_some(index),
-            msgguard: env::var("WCCF_MSGGUARD").map_or(true, |v| v != "0"),
+            // control+0x1226A is 2010-11's control: never 2017-18's
+            msgguard: self.edition == Edition::E1011 && env::var("WCCF_MSGGUARD").map_or(true, |v| v != "0"),
             env: self.kit_env().into_iter().chain(env).collect(),
             stop: Some(stop.clone()),
         };
@@ -1077,16 +1132,31 @@ impl Run<'_> {
             .count()
     }
 
-    /// The overlay into the running game: "" when it loaded, else why not.
-    fn inject(&self, pid: u32) -> String {
-        let mut cmd = Command::new(self.kit.programs().join("inject.exe"));
-        cmd.arg(pid.to_string()).arg(self.kit.programs().join("wccfpanel.dll"));
+    /// A DLL into the running game (the overlay, wccfpanel.dll, or 2017-18's netguard.dll): "" when it loaded, else
+    /// why not.
+    fn inject(&self, pid: u32, dll: &Path) -> String {
+        let mut cmd = Command::new(self.kit.program("inject.exe"));
+        cmd.arg(pid.to_string()).arg(dll);
         match self.run_child(cmd, "run_inject.txt", Duration::from_secs(60)) {
             Ok((0, _)) => String::new(),
             Ok((code, out)) if out.trim().is_empty() => format!("exit {code}"),
             Ok((_, out)) => out.trim().to_owned(),
             Err(e) => e,
         }
+    }
+
+    /// 2017-18: netguard.dll (the game folder's, whose hash the guard checked) into a game program - the second line
+    /// behind wccfnet.dll; said, never a reason to stop (as play.py's inject_guard).
+    fn netguard(&self, pid: u32, what: &str) {
+        if self.edition != Edition::E1718 {
+            return;
+        }
+        let why = self.inject(pid, &self.game.join("netguard.dll"));
+        self.say(&if why.is_empty() {
+            format!("     {what}: netguard.dll loaded")
+        } else {
+            format!("     {what}: netguard.dll NOT loaded ({why})")
+        });
     }
 
     fn start_all(&mut self) -> Result<(), Failed> {
@@ -1101,7 +1171,9 @@ impl Run<'_> {
                 );
             }
         } else {
-            self.ensure_hook()?;
+            if self.edition == Edition::E1011 {
+                self.ensure_hook()?; // 2017-18: setup1718.py puts its hook in place
+            }
             for line in logs::rotate(&self.logs())? {
                 self.say(&line);
             }
@@ -1119,7 +1191,8 @@ impl Run<'_> {
             self.seat.join(r"local\client_user_option.conf"),
         ];
         self.say(&format!(
-            "Starting WCCF 2010-11 from {}{}",
+            "Starting WCCF {} from {}{}",
+            self.edition.name(),
             self.game.display(),
             match &self.mode {
                 Mode::Server => " - the server side only".to_owned(),
@@ -1127,7 +1200,9 @@ impl Run<'_> {
                 Mode::Local => String::new(),
             }
         ));
-        if self.beside_server {
+        if self.edition == Edition::E1718 {
+            self.start_gamesvr(steps)?;
+        } else if self.beside_server {
             self.say(&format!(
                 "  1/{steps} scene service (the server's, already running on this PC)"
             ));
@@ -1152,7 +1227,9 @@ impl Run<'_> {
                     p.control_port
                 )));
             }
-            self.send_pending_report();
+            if self.edition == Edition::E1011 {
+                self.send_pending_report(); // 2017-18's server has no log inbox
+            }
             let (seat, here) = self.take_seat(&ip, want)?;
             (self.seat_no, projector) = (seat, here);
             for c in &confs {
@@ -1174,6 +1251,9 @@ impl Run<'_> {
                 }
                 conf::set_satellite_no(&confs[1], 1)?;
                 conf::set_conf_value(&confs[1], "WAIT_PROJECTOR", "1")?; // the game's own way, its projector here
+                conf::set_conf_value(&ctrl_conf, "WAIT_PROJECTOR", "1")?;
+            } else if self.edition == Edition::E1718 {
+                // a server for others: its seat desk gives the first PC the projector, which control waits for
                 conf::set_conf_value(&ctrl_conf, "WAIT_PROJECTOR", "1")?;
             } else {
                 // a server for others: no projector waited for (the seat desk gives no PC the projector)
@@ -1201,6 +1281,7 @@ impl Run<'_> {
                     cmd.arg(helper::console::ARG).arg(ctl.pid.to_string());
                     let _ = self.run_child(cmd, "run_console.txt", Duration::from_secs(15));
                 }
+                self.netguard(ctl.pid, "server");
                 if !self.debug {
                     procs::hide_windows(ctl.pid); // it starts hidden; a window it shows by itself is hidden here
                 }
@@ -1221,14 +1302,21 @@ impl Run<'_> {
             self.start_game(Role::Projector, args, &game, false, Vec::new())?;
             self.say("  3/6 projector (seat 0) - its window opens in a few seconds");
         } else {
-            self.say("  3/6 projector: none on this PC - online, each PC runs only its own cabinet");
+            self.say(match self.edition {
+                Edition::E1011 => "  3/6 projector: none on this PC - online, each PC runs only its own cabinet",
+                Edition::E1718 => "  3/6 projector: none on this PC - the server's first PC shows it",
+            });
         }
         self.start_cabinet()?;
         if projector {
+            if let Some(pid) = self.launched(Role::Projector) {
+                self.netguard(pid, "projector");
+            }
             // the overlay in its money-only mode: the projector's amounts with commas; it plays on without it
+            let panel = self.kit.program("wccfpanel.dll");
             let why = self
                 .launched(Role::Projector)
-                .map_or_else(|| "its process was not found".into(), |pid| self.inject(pid));
+                .map_or_else(|| "its process was not found".into(), |pid| self.inject(pid, &panel));
             self.say(&if why.is_empty() {
                 "       projector: amounts with commas".to_owned()
             } else {
@@ -1251,7 +1339,14 @@ impl Run<'_> {
         self.say("Running. Click the cabinet's window, then play with the keyboard (it works only while a game window is in front):");
         self.say("  Enter START (free play - no coin needed)   X decide   C shoot   arrows: tactics");
         self.say("  I club card in / out   F1 test menu   F11 window size   - or click the buttons around the picture");
-        self.say("First time: put the card in with I, and the game makes your club. It is saved in data\\save\\seat1_club.bin.");
+        self.say(match self.edition {
+            Edition::E1011 => {
+                "First time: put the card in with I, and the game makes your club. It is saved in data\\save\\seat1_club.bin."
+            }
+            Edition::E1718 => {
+                "Your Aime card is data\\save\\seat1_aime.txt; the game server stand-in keeps your club in data\\save\\gamesvr."
+            }
+        });
         self.say(
             "To finish: let the card come out after a match, then close the game's window - the rest stops with it.",
         );
@@ -1268,8 +1363,8 @@ impl Run<'_> {
             ("WCCF_RELAY_PORT".to_owned(), self.p.relay_port.to_string()),
             ("WCCF_INBOX_PORT".to_owned(), self.p.inbox_port.to_string()),
         ]);
-        let mut cmd = Command::new(self.kit.programs().join("forza-server.exe"));
-        cmd.args(["--edition", "2010-11", "all"])
+        let mut cmd = Command::new(self.kit.program("forza-server.exe"));
+        cmd.args(["--edition", self.edition.name(), "all"])
             .arg((LIFE.as_secs() + 60).to_string())
             .arg(&logs);
         clean_env(&mut cmd, &logs, &env);
@@ -1290,17 +1385,23 @@ impl Run<'_> {
             .is_some_and(|(r, c)| *r == role && c.try_wait().is_ok_and(|s| s.is_none()));
         if alive {
             self.say(&format!(
-                "     seat desk: TCP {} - each player's PC gets the next free seat (its cabinet only, no projector)",
-                self.p.seat_port
+                "     seat desk: TCP {} - each player's PC gets the next free seat ({})",
+                self.p.seat_port,
+                match self.edition {
+                    Edition::E1011 => "its cabinet only, no projector",
+                    Edition::E1718 => "the first also the projector",
+                }
             ));
             self.say(&format!(
                 "     match relay: UDP {} - a match between two players goes through this machine",
                 self.p.relay_port
             ));
-            self.say(&format!(
-                "     log inbox: TCP {} - logs players send from SETTINGS go to data\\player_logs",
-                self.p.inbox_port
-            ));
+            if self.edition == Edition::E1011 {
+                self.say(&format!(
+                    "     log inbox: TCP {} - logs players send from SETTINGS go to data\\player_logs",
+                    self.p.inbox_port
+                ));
+            }
         } else {
             self.say(&format!(
                 "     the {role} did not start or ended (data\\logs\\{out}, seat_broker.txt, match_relay.txt, log_inbox.txt)"
@@ -1311,10 +1412,16 @@ impl Run<'_> {
         self.say(
             "Server running. On each player's PC: Launcher.exe remote, then this machine's address - the one their PC",
         );
-        self.say(&format!(
-            "can reach. This machine must let in TCP ports {}, {} and {}, and UDP {}. Launcher.exe stop ends it.",
-            self.p.control_port, self.p.seat_port, self.p.inbox_port, self.p.relay_port
-        ));
+        self.say(&match self.edition {
+            Edition::E1011 => format!(
+                "can reach. This machine must let in TCP ports {}, {} and {}, and UDP {}. Launcher.exe stop ends it.",
+                self.p.control_port, self.p.seat_port, self.p.inbox_port, self.p.relay_port
+            ),
+            Edition::E1718 => format!(
+                "can reach. This machine must let in TCP ports {} and {}, and UDP {}. Launcher.exe stop ends it.",
+                self.p.control_port, self.p.seat_port, self.p.relay_port
+            ),
+        });
         Ok(())
     }
 
@@ -1329,37 +1436,49 @@ impl Run<'_> {
                     "the cabinet's stand-ins did not come up: 127.0.0.1:{port} ({e})"
                 ))
             })?;
-            self.cabinet
-                .net
-                .push(network::spawn(listener, kind, name, net_log.clone())?);
+            self.cabinet.net.push(network::spawn(
+                listener,
+                kind,
+                name,
+                self.kit.edition().game_id(),
+                net_log.clone(),
+            )?);
         }
         self.cabinet.extra = std::mem::take(&mut *p.extra_watch.lock().unwrap_or_else(PoisonError::into_inner));
-        let (slot, new) = self.card_files();
-        // the card reader logs every byte: only with "debug" (~60 MB an hour)
-        let icc_log: Log = if self.debug {
-            file_log(self.logs().join("icc_log.txt"))
+        let coms = if self.edition == Edition::E1718 {
+            self.start_aime()?;
+            format!("COM2={}", p.aime_pipe)
         } else {
-            Arc::new(|_: &str| {})
+            let (slot, new) = self.card_files();
+            // the card reader logs every byte: only with "debug" (~60 MB an hour)
+            let icc_log: Log = if self.debug {
+                file_log(self.logs().join("icc_log.txt"))
+            } else {
+                Arc::new(|_: &str| {})
+            };
+            self.cabinet.reader = Some(
+                card_reader::spawn(&p.icc_pipe, Some(&slot), Some(&new), icc_log)
+                    .map_err(|e| Failed(format!("the card reader stand-in did not start ({e})")))?,
+            );
+            format!("COM3={0};COM1={0}", p.icc_pipe)
         };
-        self.cabinet.reader = Some(
-            card_reader::spawn(&p.icc_pipe, Some(&slot), Some(&new), icc_log)
-                .map_err(|e| Failed(format!("the card reader stand-in did not start ({e})")))?,
-        );
         let jvs_log = file_log(self.logs().join("jvs_log.txt"));
         self.cabinet.board = Some(
             io_board::spawn(&p.jvs_pipe, p.shared.clone(), jvs_log)
                 .map_err(|e| Failed(format!("the I/O board stand-in did not start ({e})")))?,
         );
-        self.say(
-            "  4/6 cabinet stand-ins: keychip/network, card reader (card file data\\save\\seat1_club.bin), I/O board",
-        );
+        self.say(match self.edition {
+            Edition::E1011 => {
+                "  4/6 cabinet stand-ins: keychip/network, card reader (card file data\\save\\seat1_club.bin), I/O board"
+            }
+            Edition::E1718 => {
+                "  4/6 cabinet stand-ins: keychip/network, Aime reader (card file data\\save\\seat1_aime.txt), AiMeDB, I/O board"
+            }
+        });
 
         let mut env = vec![
             ("MXHOOK_RINGEDGE".to_owned(), "1".to_owned()),
-            (
-                "MXHOOK_COM".into(),
-                format!("COM3={0};COM1={0};mxjvs={1};COM4={1}", p.icc_pipe, p.jvs_pipe),
-            ),
+            ("MXHOOK_COM".into(), format!("{coms};mxjvs={0};COM4={0}", p.jvs_pipe)),
         ];
         if let Some(ip) = self.ip() {
             // a match against another player goes through the server's relay (wccfpanel.dll)
@@ -1393,10 +1512,11 @@ impl Run<'_> {
             || procs::has_window(pid),
         )?;
         self.say(&format!("  5/6 seat {n} (the player cabinet) - window up"));
+        self.netguard(pid, &format!("seat {n}"));
         thread::sleep(Duration::from_secs(3));
         let olog = self.seat.join("wccfpanel.log");
         let skip = fs::metadata(&olog).map_or(0, |m| m.len() as usize);
-        let why = self.inject(pid);
+        let why = self.inject(pid, &self.kit.program("wccfpanel.dll"));
         if why.is_empty() {
             let up = wait_for(
                 "the overlay",
@@ -1424,6 +1544,53 @@ impl Run<'_> {
             p.shared.clone(),
             keys_path,
             file_log(self.logs().join("run_keys.txt")),
+        ));
+        Ok(())
+    }
+
+    /// 2017-18's card: the Aime reader on its pipe (the game opens COM2) and AiMeDB, which gives the card its Aime id.
+    fn start_aime(&mut self) -> Result<(), Failed> {
+        let (p, save) = (self.p, self.kit.save());
+        fs::create_dir_all(&save)?;
+        let log = file_log(self.logs().join("aime_log.txt"));
+        self.cabinet.reader = Some(
+            aime::spawn(&p.aime_pipe, Some(&save.join("seat1_aime.txt")), log)
+                .map_err(|e| Failed(format!("the Aime reader stand-in did not start ({e})")))?,
+        );
+        let listener = TcpListener::bind(("127.0.0.1", p.aimedb_port)).map_err(|e| {
+            Failed(format!(
+                "the AiMeDB stand-in did not start: 127.0.0.1:{} ({e})",
+                p.aimedb_port
+            ))
+        })?;
+        let log = file_log(self.logs().join("aimedb_log.txt"));
+        self.cabinet.aimedb = Some(
+            aimedb::spawn(listener, save.join("aimedb.json"), log)
+                .map_err(|e| Failed(format!("the AiMeDB stand-in did not start ({e})")))?,
+        );
+        Ok(())
+    }
+
+    /// Step 1 for 2017-18: no scene service; control keeps the clubs on the game server, so the stand-in runs beside
+    /// it (ctrl_user_option.conf GAME_SVR_IP=localhost).  A cabinet on a server uses that server's.
+    fn start_gamesvr(&mut self, steps: u32) -> Result<(), Failed> {
+        if matches!(self.mode, Mode::Remote(..)) {
+            self.say(&format!("  1/{steps} game server stand-in: the server's"));
+            return Ok(());
+        }
+        let port = self.p.gamesvr_port;
+        let listener = TcpListener::bind(("127.0.0.1", port)).map_err(|e| {
+            Failed(format!(
+                "the game server stand-in did not start: 127.0.0.1:{port} ({e})"
+            ))
+        })?;
+        let log = file_log(self.logs().join("gamesvr_log.txt"));
+        self.gamesvr = Some(
+            gamesvr::spawn(listener, self.kit.save().join("gamesvr"), log)
+                .map_err(|e| Failed(format!("the game server stand-in did not start ({e})")))?,
+        );
+        self.say(&format!(
+            "  1/{steps} game server stand-in on port {port} (club saves in data\\save\\gamesvr)"
         ));
         Ok(())
     }
@@ -1480,6 +1647,9 @@ impl Run<'_> {
     /// sends, never the club card), or data\report.pending for the next start; panel.txt auto_logs=0 turns it off.
     fn report_bad_run(&self, why: &[String]) {
         let Some(ip) = self.ip() else { return };
+        if self.edition == Edition::E1718 {
+            return; // its server has no log inbox
+        }
         let panel = choices::read(&self.kit.data().join("panel.txt"));
         if why.is_empty() || choices::panel_value(&panel, "auto_logs").as_deref() == Some("0") {
             return;
@@ -1599,7 +1769,7 @@ impl Run<'_> {
 
     /// Stand-in and helper threads that ended by themselves (a panic, an error) are said once, in the run log; the run
     /// stops when the game cannot go on without one (the card reader, the I/O board, the scene service, the network
-    /// stand-ins).  The key driver and the helpers are said and the game goes on.
+    /// stand-ins; 2017-18: the Aime reader, AiMeDB, the game server).  The key driver and the helpers are said and the game goes on.
     fn check_threads(&mut self) -> Option<End> {
         let mut found: Vec<(String, bool, String)> = Vec::new();
         let mut look = |name: String, essential: bool, h: Option<&mut Handle>| {
@@ -1610,7 +1780,13 @@ impl Run<'_> {
         for (h, s) in self.cabinet.net.iter_mut().zip(network::SERVICES) {
             look(format!("the network stand-in {}", s.1), true, Some(h));
         }
-        look("the card reader stand-in".into(), true, self.cabinet.reader.as_mut());
+        let reader = match self.edition {
+            Edition::E1011 => "the card reader stand-in",
+            Edition::E1718 => "the Aime reader stand-in",
+        };
+        look(reader.into(), true, self.cabinet.reader.as_mut());
+        look("the AiMeDB stand-in".into(), true, self.cabinet.aimedb.as_mut());
+        look("the game server stand-in".into(), true, self.gamesvr.as_mut());
         look("the I/O board stand-in".into(), true, self.cabinet.board.as_mut());
         look("the key driver".into(), false, self.cabinet.keys.as_mut());
         look("the scene service".into(), true, self.scenes.as_mut());
@@ -1730,6 +1906,7 @@ impl Run<'_> {
         }
         self.cabinet = Cabinet::default();
         self.scenes = None;
+        self.gamesvr = None;
         self.lease = None;
     }
 
@@ -1782,7 +1959,10 @@ impl Run<'_> {
             return None;
         }
         if !fits {
-            self.say("Restarting WCCF 2010-11, as the SETTINGS panel asked.");
+            self.say(&format!(
+                "Restarting WCCF {}, as the SETTINGS panel asked.",
+                self.edition.name()
+            ));
             self.shutdown();
             self.card_steps(&["keep"]);
             let _ = fs::remove_file(self.running_file());
@@ -1899,8 +2079,17 @@ impl Run<'_> {
         }
         let threads = [
             ("scene service", self.scenes.is_some()),
+            ("game server stand-in", self.gamesvr.is_some()),
             ("keychip / network stand-in", !self.cabinet.net.is_empty()),
-            ("card reader stand-in", self.cabinet.reader.is_some()),
+            (
+                if self.edition == Edition::E1718 {
+                    "Aime reader stand-in"
+                } else {
+                    "card reader stand-in"
+                },
+                self.cabinet.reader.is_some(),
+            ),
+            ("AiMeDB stand-in", self.cabinet.aimedb.is_some()),
             ("I/O board stand-in", self.cabinet.board.is_some()),
             ("key driver", self.cabinet.keys.is_some()),
             ("seat lease", self.lease.is_some()),

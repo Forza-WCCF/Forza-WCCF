@@ -5,6 +5,7 @@ pub mod card;
 pub mod choices;
 pub mod conf;
 pub mod debug;
+pub mod guard;
 pub mod helper;
 pub mod job;
 pub mod keys;
@@ -14,4 +15,4 @@ pub mod procs;
 pub mod release;
 pub mod run;
 
-pub use kit::{Kit, SCRIPTS};
+pub use kit::{Edition, Kit, SCRIPTS};

@@ -114,6 +114,8 @@ pub struct Maps {
     pub id: String,
     /// SBWG_moSuppl too (the client crashes without it; control does not read it).
     pub mosuppl: bool,
+    /// Which game's mappings.
+    pub edition: crate::kit::Edition,
 }
 
 /// One debugged run, as debugger.py's command line said it.
@@ -544,7 +546,7 @@ pub fn run(opts: &Options, job: &Job, out: &mut dyn Write) -> io::Result<i32> {
         }
     );
     let _maps: Vec<OwnedHandle> = match &opts.maps {
-        Some(m) => maps::make_all(out, &m.game, &m.id, m.mosuppl)?,
+        Some(m) => maps::make_all(out, &m.game, &m.id, m.mosuppl, m.edition)?,
         None => Vec::new(),
     };
     // SAFETY: the pseudo handle of this process.

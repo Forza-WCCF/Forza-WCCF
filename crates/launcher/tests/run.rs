@@ -48,7 +48,12 @@ fn free_port() -> u16 {
 
 /// A stand-in from the kit build, copied as `name`.
 fn stand_in(exe: &str, to: &Path) {
-    let built = Path::new("../../target/kit/2010-11/source/build").join(exe);
+    built_copy("2010-11/source/build", exe, to);
+}
+
+/// A file of a staged kit (`target/kit/<from>/<exe>`), copied to `to`.
+fn built_copy(from: &str, exe: &str, to: &Path) {
+    let built = Path::new("../../target/kit").join(from).join(exe);
     assert!(
         built.is_file(),
         "{} is missing: run cargo xtask build first",
@@ -115,6 +120,9 @@ fn params(tag: &str, shared: Arc<Shared>) -> Params {
         network_ports: [0; 6],
         icc_pipe: format!(r"\\.\pipe\wccftest_icc_{tag}_{pid}"),
         jvs_pipe: format!(r"\\.\pipe\wccftest_jvs_{tag}_{pid}"),
+        aime_pipe: format!(r"\\.\pipe\wccftest_aime_{tag}_{pid}"),
+        aimedb_port: free_port(),
+        gamesvr_port: free_port(),
         scenes: Names::scratch(&format!("wccftest_{tag}_{pid}")),
         maps: None,
         shared,
@@ -633,4 +641,158 @@ fn server_mode_runs_forza_server_and_stop_ends_it() {
     assert_eq!(code, run::OK, "{answer}\n{}", ui.text());
     let rc = ended_clean(&kit, top.path(), &ui, t, Duration::from_secs(60));
     assert_eq!(rc, run::OK, "{}", ui.text());
+}
+
+// ---- 2017-18 ---------------------------------------------------------------------------------------------------
+
+/// fakegame_iphlp.exe with its IPHLPAPI.DLL import renamed to wccfnet.dll, as setup1718.py makes the game's guarded
+/// copies (the same bytes: the name and one more NUL in its place).
+fn guarded_copy(to: &Path) {
+    stand_in("fakegame_iphlp.exe", to);
+    let mut exe = fs::read(to).unwrap();
+    let old = b"iphlpapi.dll\0";
+    let at: Vec<usize> = exe
+        .windows(old.len())
+        .enumerate()
+        .filter(|(_, w)| w.eq_ignore_ascii_case(old))
+        .map(|(i, _)| i)
+        .collect();
+    assert_eq!(at.len(), 1, "one import name");
+    exe[at[0]..at[0] + old.len()].copy_from_slice(b"wccfnet.dll\0\0");
+    fs::write(to, exe).unwrap();
+}
+
+/// The import check on built programs: the stand-in as built imports IPHLPAPI.DLL, the plain fakegame imports no
+/// guard, and only the renamed copy passes.
+#[test]
+fn the_guard_reads_the_import_table() {
+    let dir = tempfile::tempdir().unwrap();
+    let (plain, iphlp, guarded) = (
+        dir.path().join("plain.exe"),
+        dir.path().join("iphlp.exe"),
+        dir.path().join("guarded.exe"),
+    );
+    stand_in("fakegame.exe", &plain);
+    stand_in("fakegame_iphlp.exe", &iphlp);
+    guarded_copy(&guarded);
+    let check = |p: &Path| launcher::guard::imports(&fs::read(p).unwrap());
+    let why = check(&iphlp).unwrap_err();
+    assert!(why.contains("still imports IPHLPAPI.DLL"), "{why}");
+    let why = check(&plain).unwrap_err();
+    assert!(why.contains("does not import wccfnet.dll"), "{why}");
+    check(&guarded).unwrap();
+}
+
+fn sha(path: &Path) -> String {
+    use sha2::Digest;
+    sha2::Sha256::digest(fs::read(path).unwrap())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// A 2017-18 runtime as setup1718.py leaves it, of stand-ins: `top\kit` (scripts\, overlay\, data\; no settings - the
+/// game is found beside the kit), `top\game`, `top\seat1` and `top\setup-hashes.json`.
+fn scratch_kit_1718(top: &Path) -> Kit {
+    let (kit, game, seat) = (top.join("kit"), top.join("game"), top.join("seat1"));
+    for d in [kit.join("scripts"), kit.join("overlay"), kit.join("data"), seat.clone()] {
+        fs::create_dir_all(d).unwrap();
+    }
+    guarded_copy(&game.join("standin_client.exe"));
+    guarded_copy(&game.join("standin_control.exe")); // checked, never run: the tests play on a "server"
+    guarded_copy(&seat.join("standin_client.exe"));
+    fs::write(game.join("standin_match.exe"), b"never run").unwrap();
+    built_copy("2017-18/source/build", "wccfnet.dll", &game.join("wccfnet.dll"));
+    built_copy("2017-18/source/build", "wccfnet.dll", &seat.join("wccfnet.dll"));
+    built_copy("2017-18/overlay", "netguard.dll", &game.join("netguard.dll"));
+    // the real inject.exe, so netguard.dll goes into seat 1's stand-in as into the game; no panel (wccfpanel.dll)
+    built_copy("2017-18/overlay", "inject.exe", &kit.join(r"overlay\inject.exe"));
+    for dir in [&game, &seat] {
+        fs::create_dir_all(dir.join("local")).unwrap();
+        fs::write(
+            dir.join(r"local\client_user_option.conf"),
+            b"CONTROL_IP=127.0.0.1\r\nMATCH_IP=127.0.0.1\r\nSATELLITE_NO=1\r\n",
+        )
+        .unwrap();
+    }
+    let hashes = serde_json::json!({
+        "standin_client.exe": {"original": "-", "guarded": sha(&game.join("standin_client.exe"))},
+        "standin_control.exe": {"original": "-", "guarded": sha(&game.join("standin_control.exe"))},
+        "wccfnet.dll": sha(&game.join("wccfnet.dll")),
+        "netguard.dll": sha(&game.join("netguard.dll")),
+        "seat1/standin_client.exe": sha(&seat.join("standin_client.exe")),
+    });
+    fs::write(top.join("setup-hashes.json"), hashes.to_string()).unwrap();
+    let kit = Kit::at(kit);
+    assert_eq!(kit.edition(), launcher::Edition::E1718);
+    kit
+}
+
+/// A changed guarded program, a record that is gone, or a program that imports IPHLPAPI.DLL: the start is refused
+/// before anything of the run exists - no lock, no logs, nothing running.
+#[test]
+fn a_2017_18_kit_that_is_not_guarded_starts_nothing() {
+    let top = tempfile::Builder::new().prefix("wccf-1718-").tempdir().unwrap();
+    let kit = scratch_kit_1718(top.path());
+    let (game, seat) = (top.path().join("game"), top.path().join("seat1"));
+    let refused = |what: &str, part: &str| {
+        let ui = Said::default();
+        let rc = run::command(&kit, &params("unguarded", Shared::new()), &["local".into()], &ui);
+        let said = ui.text();
+        assert_eq!(rc, run::NOT_GUARDED, "{what}: {said}");
+        assert!(
+            said.contains("the 2017-18 network guard is not in place") && said.contains(part),
+            "{what}: {said}"
+        );
+        assert!(!run::is_on(&kit, Kind::Run));
+        assert!(!kit.logs().exists(), "{what}: no logs");
+        assert!(running_from(top.path()).is_empty());
+    };
+    fs::write(seat.join("standin_client.exe"), b"not the guarded copy").unwrap();
+    refused("a wrong hash", "is not the file setup1718.py made");
+    guarded_copy(&seat.join("standin_client.exe"));
+
+    stand_in("fakegame_iphlp.exe", &game.join("standin_control.exe"));
+    let mut record: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(top.path().join("setup-hashes.json")).unwrap()).unwrap();
+    record["standin_control.exe"]["guarded"] = sha(&game.join("standin_control.exe")).into();
+    fs::write(top.path().join("setup-hashes.json"), record.to_string()).unwrap();
+    refused("an unguarded control recorded as guarded", "still imports IPHLPAPI.DLL");
+
+    fs::remove_file(top.path().join("setup-hashes.json")).unwrap();
+    refused("no record", "setup-hashes.json cannot be read");
+}
+
+/// 2017-18 on a scratch server: the guard passes, the Aime reader, AiMeDB, the network and I/O board stand-ins come
+/// up, seat 1 starts; closing its window ends the run with nothing left.
+#[test]
+fn closing_seat_1_ends_the_2017_18_run() {
+    let top = tempfile::Builder::new().prefix("wccf-1718-").tempdir().unwrap();
+    let kit = scratch_kit_1718(top.path());
+    let p = params("close1718", Shared::new());
+    let _control = TcpListener::bind(("127.0.0.1", p.control_port)).unwrap(); // "the server answers"
+    let _desk = seat_desk(p.seat_port);
+    let aimedb = p.aimedb_port;
+    let (ui, t) = run_on_thread(&kit, p, &["remote", "127.0.0.1"]);
+    wait_said(&ui, &t, "  6/6 ", 120);
+    let said = ui.text();
+    assert!(said.contains("Starting WCCF 2017-18 from"), "{said}");
+    assert!(
+        said.contains("Aime reader (card file data\\save\\seat1_aime.txt), AiMeDB"),
+        "{said}"
+    );
+    assert!(
+        said.contains("seat 1: netguard.dll loaded"),
+        "the guard DLL is injected: {said}"
+    );
+    assert!(
+        std::net::TcpStream::connect(("127.0.0.1", aimedb)).is_ok(),
+        "AiMeDB listens"
+    );
+    let rc = ended_clean(&kit, top.path(), &ui, t, Duration::from_secs(60));
+    let said = ui.text();
+    assert_eq!(rc, run::OK, "{said}");
+    assert!(said.contains("The game has ended: closed by the player."), "{said}");
+    let aime = fs::read_to_string(kit.save().join("seat1_aime.txt")).unwrap();
+    assert!(aime.trim().len() >= 20, "the Aime card was made: {aime}");
 }

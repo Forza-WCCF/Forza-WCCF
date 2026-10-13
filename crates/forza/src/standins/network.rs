@@ -37,11 +37,13 @@ pub const SERVICES: [(u16, &str, Kind); 6] = [
     (40107, "keychip-bin", Kind::Binary),
 ];
 
+/// The keychip's game id key: answered with the game's id (2010-11 "SBWG", 2017-18 "SDDY"), given to [`spawn`].
+const GAME_ID: &str = "keychip.appboot.gameid";
 /// Answers to `key=?` (and to any key listed here that is not in `EXTRA`). DOC/DISC/GUESS notes: `network.py`.
 const ANSWERS: [(&str, &str); 16] = [
     ("keychip.status", "available"),
     ("keychip.version", "0104"),
-    ("keychip.appboot.gameid", "SBWG"),
+    (GAME_ID, "SBWG"),
     ("keychip.appboot.platformid", "AAL"),
     ("keychip.appboot.region", "1"),
     ("keychip.appboot.modeltype", "01"),
@@ -104,14 +106,18 @@ fn pair(part: &[u8]) -> (&[u8], &[u8]) {
     }
 }
 
-/// The PCP answer for one request line (master, installer, keychip).
-pub fn answer(line: &[u8]) -> Vec<u8> {
+/// The PCP answer for one request line (master, installer, keychip); `game_id` answers the keychip's game id.
+pub fn answer(line: &[u8], game_id: &str) -> Vec<u8> {
     let mut out: Vec<Vec<u8>> = Vec::new();
     let mut keychip = false;
     for part in line.split(|&b| b == b'&') {
         let (k, v) = pair(part);
         keychip |= k.starts_with(b"keychip.");
-        let known = lookup(&ANSWERS, k);
+        let known = if k == GAME_ID.as_bytes() {
+            Some(game_id)
+        } else {
+            lookup(&ANSWERS, k)
+        };
         let value: &[u8] = if v == b"?" || (known.is_some() && lookup(&EXTRA, k).is_none()) {
             known.unwrap_or("0").as_bytes()
         } else {
@@ -153,19 +159,20 @@ fn text(b: &[u8]) -> String {
     b.iter().map(|&c| c as char).collect()
 }
 
-/// Serves one port of `kind` on `listener` (use `127.0.0.1:0` in tests); `name` heads its log lines. Stops when the
-/// returned handle is dropped.
+/// Serves one port of `kind` on `listener` (use `127.0.0.1:0` in tests); `name` heads its log lines, `game_id` is the
+/// keychip's game id. Stops when the returned handle is dropped.
 pub fn spawn(
     listener: TcpListener,
     kind: Kind,
     name: &'static str,
+    game_id: &'static str,
     log: Log,
 ) -> io::Result<Handle> {
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
     accept_loop(listener, stop, move |conn, peer| {
         log(&format!("{name:<13} {} connected", peer.port()));
-        let _ = client(conn, kind, name, &log, &flag);
+        let _ = client(conn, kind, name, game_id, &log, &flag);
         if kind == Kind::Binary {
             log(&format!("{name:<13} {} closed", peer.port()));
         }
@@ -176,6 +183,7 @@ fn client(
     mut conn: TcpStream,
     kind: Kind,
     name: &str,
+    game_id: &str,
     log: &Log,
     stop: &AtomicBool,
 ) -> io::Result<()> {
@@ -210,7 +218,7 @@ fn client(
             let mut reply = if kind == Kind::Amnet {
                 amnet_answer(line)
             } else {
-                answer(line)
+                answer(line, game_id)
             };
             log(&format!("{name:<13} ask  {}", text(line)));
             log(&format!("{name:<13} say  {}", text(&reply)));
@@ -220,6 +228,19 @@ fn client(
                 b"\r\n>"
             });
             conn.write_all(&reply)?;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_keychip_says_the_edition_game_id() {
+        for id in ["SBWG", "SDDY"] {
+            assert_eq!(
+                super::answer(b"keychip.appboot.gameid=?", id),
+                format!("keychip.appboot.gameid={id}&result=0").into_bytes()
+            );
         }
     }
 }

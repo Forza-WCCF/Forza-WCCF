@@ -1,6 +1,6 @@
-//! The kit folder (the one Launcher.exe is in) and what is in it: its Python, its scripts, data\ (settings, logs, the
-//! club card, the cache), and the game folder setup recorded in data\settings.json with the seat and misc folders beside
-//! it.  Port of kit_common.py's paths, load_settings, find_game, seat_dir and misc_dir.
+//! The kit folder (the one Launcher.exe is in) and what is in it: its edition, its Python, its scripts, data\ (settings,
+//! logs, the club card, the cache), and the game folder setup recorded in data\settings.json with the seat and misc
+//! folders beside it.  Port of kit_common.py's paths, load_settings, find_game, seat_dir and misc_dir.
 
 use std::env;
 use std::fs;
@@ -9,6 +9,35 @@ use std::process::Command;
 
 /// The kit's Python scripts folder (`cargo xtask check` checks the staged kit has the scripts Launcher.exe runs in it).
 pub const SCRIPTS: &str = "code";
+/// The 2017-18 kit's scripts folder (setup.py, english.py, cards.py; its run is Launcher.exe's).
+pub const SCRIPTS_1718: &str = "scripts";
+
+/// Which game a kit runs.  The two kits are laid out differently: 2010-11 has `code\` and `programs\`, 2017-18 has
+/// `scripts\`, `bin\` (the hook, logowin, FPR_Emu, forza-server) and `overlay\` (inject.exe, the panel, netguard.dll,
+/// the catalogue).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Edition {
+    E1011,
+    E1718,
+}
+
+impl Edition {
+    /// "2010-11" or "2017-18": the run's words and `forza-server --edition`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::E1011 => "2010-11",
+            Self::E1718 => "2017-18",
+        }
+    }
+
+    /// The game's id: the keychip's answer and the shared memory's name prefix.
+    pub fn game_id(self) -> &'static str {
+        match self {
+            Self::E1011 => "SBWG",
+            Self::E1718 => "SDDY",
+        }
+    }
+}
 
 /// The kit folder: the one this exe is in.
 pub struct Kit {
@@ -31,6 +60,15 @@ impl Kit {
         &self.dir
     }
 
+    /// The kit's edition, from its layout: a `scripts\` folder is the 2017-18 kit's.
+    pub fn edition(&self) -> Edition {
+        if self.dir.join(SCRIPTS_1718).is_dir() {
+            Edition::E1718
+        } else {
+            Edition::E1011
+        }
+    }
+
     pub fn python(&self) -> PathBuf {
         self.dir.join("python").join("python.exe")
     }
@@ -40,13 +78,28 @@ impl Kit {
         self.dir.join("programs")
     }
 
+    /// One of the kit's programs (inject.exe, wccfpanel.dll, forza-server.exe, netguard.dll) where its edition keeps
+    /// it.
+    pub fn program(&self, name: &str) -> PathBuf {
+        match self.edition() {
+            Edition::E1011 => self.programs().join(name),
+            Edition::E1718 if matches!(name, "inject.exe" | "wccfpanel.dll" | "netguard.dll") => {
+                self.dir.join("overlay").join(name)
+            }
+            Edition::E1718 => self.dir.join("bin").join(name),
+        }
+    }
+
     pub fn data(&self) -> PathBuf {
         self.dir.join("data")
     }
 
-    /// Made by setup from the player's game: catalogue.tsv, cards\.
+    /// Made by setup from the player's game: catalogue.tsv, cards\ (2017-18: in overlay\).
     pub fn cache(&self) -> PathBuf {
-        self.data().join("cache")
+        match self.edition() {
+            Edition::E1011 => self.data().join("cache"),
+            Edition::E1718 => self.dir.join("overlay"),
+        }
     }
 
     pub fn logs(&self) -> PathBuf {
@@ -98,10 +151,14 @@ impl Kit {
         }
     }
 
-    /// `python\python.exe code\<script>`, to add arguments to
+    /// `python\python.exe code\<script>` (2017-18: `scripts\<script>`), to add arguments to
     pub fn script(&self, script: &str) -> Command {
+        let dir = match self.edition() {
+            Edition::E1011 => SCRIPTS,
+            Edition::E1718 => SCRIPTS_1718,
+        };
         let mut cmd = Command::new(self.python());
-        cmd.arg(self.dir.join(SCRIPTS).join(script));
+        cmd.arg(self.dir.join(dir).join(script));
         cmd
     }
 }

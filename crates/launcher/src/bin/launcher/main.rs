@@ -37,7 +37,7 @@ use std::{env, mem, ptr, thread};
 
 use launcher::release::is_newer;
 use launcher::run::{self, Params};
-use launcher::{Kit, choices};
+use launcher::{Edition, Kit, choices};
 use text::{LANGUAGES, fill, t};
 use update::Release;
 use windows_sys::Win32::Foundation::{HWND, INVALID_HANDLE_VALUE, LPARAM, LRESULT, RECT, WPARAM};
@@ -173,6 +173,9 @@ fn log(line: &str) {
 /// python\python.exe code\<script> args without a console, its output line by line into the window; its exit
 /// code.  play.py's "N/M" step lines move the progress bar.
 fn run_script(kit: &Kit, script: &str, args: &[OsString]) -> Result<i32, String> {
+    if kit.edition() == Edition::E1718 && script == "setup.py" {
+        return Err(t().setup_1718.into()); // its setup is setup1718.py, from WSL (step 11 ports it)
+    }
     let shown: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
     log(&format!("> {script} {}", shown.join(" ")));
     let mut child = kit
@@ -295,7 +298,7 @@ fn start(steps: Vec<Step>) {
                 Step::Game(args) => {
                     let words: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
                     log(&format!("> {}", words.join(" ")));
-                    let rc = run::command(&kit, &Params::game(), &words, &WindowUi);
+                    let rc = run::command(&kit, &Params::of(&kit), &words, &WindowUi);
                     game = Some(u8::try_from(rc).unwrap_or(1));
                     Ok(())
                 }
@@ -311,6 +314,7 @@ fn start(steps: Vec<Step>) {
             (Ok(()), Some(tag), _) => fill(t().updated, &[tag]),
             (Ok(()), None, Some(2)) => t().not_set_up.to_owned(),
             (Ok(()), None, Some(4)) => t().unguarded.to_owned(),
+            (Ok(()), None, Some(5)) => t().not_guarded.to_owned(),
             (Ok(()), None, Some(rc)) if rc != 0 => t().start_failed.to_owned(),
             (Ok(()), None, _) => t().done.to_owned(),
         };
@@ -376,8 +380,8 @@ fn stop_game(force: bool) {
         } else {
             vec!["stop".into()]
         };
-        run::command(&Kit::here(), &Params::game(), &words, &WindowUi);
         let kit = Kit::here();
+        run::command(&kit, &Params::of(&kit), &words, &WindowUi);
         RUNNING.store(run::any_on(&kit), Ordering::Relaxed);
         shared().changed = true;
     });
@@ -1031,7 +1035,9 @@ fn window(kit: &Kit, first: Option<Step>, folder: Option<&OsStr>) {
         DragAcceptFiles(hwnd, 1);
         ShowWindow(hwnd, SW_SHOWNORMAL);
         SetTimer(hwnd, 1, 100, None);
-        ask_updates();
+        if kit.edition() == Edition::E1011 {
+            ask_updates(); // the releases are 2010-11 kits: never offered to the 2017-18 kit
+        }
         if let Some(step) = first {
             start(vec![step]);
         }
@@ -1132,7 +1138,16 @@ fn console(kit: &Kit, args: &[OsString]) -> ExitCode {
     unsafe { SetConsoleCtrlHandler(Some(on_ctrl), 1) };
     println!();
     let words: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
-    let rc = run::command(kit, &Params::game(), &words, &ConsoleUi);
+    let rc = run::command(kit, &Params::of(kit), &words, &ConsoleUi);
+    // the run's own lines are English: its refusals also in the chosen language
+    let said = match rc {
+        run::UNGUARDED => Some(t().unguarded),
+        run::NOT_GUARDED => Some(t().not_guarded),
+        _ => None,
+    };
+    if let Some(line) = said.filter(|_| text::chosen() != 0) {
+        println!("{line}");
+    }
     ExitCode::from(u8::try_from(rc).unwrap_or(1))
 }
 
@@ -1144,10 +1159,14 @@ fn main() -> ExitCode {
     }
     let kit = Kit::here();
     let first = args.first().map(|a| a.to_string_lossy().to_ascii_lowercase());
-    update::tidy(&kit);
+    // the 2017-18 kit: no updates (the releases are 2010-11 kits) and no first-run link (its name is 2010-11's place)
+    let e1011 = kit.edition() == Edition::E1011;
+    if e1011 {
+        update::tidy(&kit);
+    }
     text::choose(choices::setting(&kit.settings_file(), "language").as_deref());
     // a plain start (no arguments): first run, the kit folder gets the installer's name (link.rs)
-    if args.is_empty() {
+    if args.is_empty() && e1011 {
         match link::first_run(kit.dir()) {
             link::Outcome::Restart(to) if link::restart(&to) => return ExitCode::SUCCESS,
             link::Outcome::InPlace { warn: Some(msg) } => {

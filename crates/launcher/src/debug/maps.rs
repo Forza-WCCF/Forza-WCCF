@@ -1,6 +1,7 @@
 //! The shared memory the game reads at start (debugger.py's make_all, as _shm_provider.py): the 3 `<id>_*.moai` from the
-//! game's files with a size prefix, `<id>_status` byte[0]=1 and `<id>_moSuppl`.  An existing mapping too small for its
-//! payload is reported, never overrun.
+//! game's files with a size prefix, `<id>_status` byte[0]=1 and `<id>_moSuppl`; 2017-18 (`_debug_launch.py`) reads
+//! its player and model data instead and waits for its version mapping.  An existing mapping too small for its payload
+//! is reported, never overrun.
 
 use std::io::{self, Write};
 use std::os::windows::io::{FromRawHandle, OwnedHandle};
@@ -14,6 +15,7 @@ use windows_sys::Win32::System::Memory::{
 };
 
 use crate::job::wide;
+use crate::kit::Edition;
 
 /// The game's name for its mappings.
 pub const GAME_ID: &str = "SBWG";
@@ -108,10 +110,39 @@ pub fn make(out: &mut dyn Write, full: &str, payload: &[u8], size: usize) -> Opt
     Some(h)
 }
 
-/// Every mapping the game reads, named `<id>_...` (`GAME_ID` for the game; tests use a name of their own).  The handles
-/// keep them alive: hold them for the run.
-pub fn make_all(out: &mut dyn Write, game: &Path, id: &str, with_mosuppl: bool) -> io::Result<Vec<OwnedHandle>> {
+/// 2017-18's player and model data (its launcher, FUN_00403890, before it sets the version byte): `<id>_<file>` = a u32
+/// size + prog_data/player_data/<file>; a missing file gets no mapping.  Without them the client's players have no
+/// models.
+const SDDY_DATA: [&str; 4] = [
+    "player_data.bin",
+    "partnership.bin",
+    "model_data.bin",
+    "player_data_diff.bin",
+];
+
+/// Every mapping the game reads, named `<id>_...` (the edition's game id for the game; tests use a name of their own).
+/// 2017-18: its player data, then `<id>_ WCCF 17-18 Ver2.0` byte[0]=1 (control waits up to 60 s for it); no moai and no
+/// moSuppl.  The handles keep them alive: hold them for the run.
+pub fn make_all(
+    out: &mut dyn Write,
+    game: &Path,
+    id: &str,
+    with_mosuppl: bool,
+    edition: Edition,
+) -> io::Result<Vec<OwnedHandle>> {
     let mut handles = Vec::new();
+    if edition == Edition::E1718 {
+        for name in SDDY_DATA {
+            let Ok(data) = fs::read(game.join("prog_data/player_data").join(name)) else {
+                continue;
+            };
+            let mut payload = (data.len() as u32).to_le_bytes().to_vec();
+            payload.extend_from_slice(&data);
+            handles.extend(make(out, &format!("{id}_{name}"), &payload, data.len() + 4));
+        }
+        handles.extend(make(out, &format!("{id}_ WCCF 17-18 Ver2.0"), &[1], 8));
+        return Ok(handles);
+    }
     for (name, path) in MOAI {
         let data = fs::read(game.join(path))?;
         let mut payload = (data.len() as u32).to_le_bytes().to_vec();
