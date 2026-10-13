@@ -115,6 +115,8 @@ pub struct PanelState {
     pub restart_armed: bool,
     // club card
     pub club_pick: usize,
+    /// The game's own frame as a texture of the panel DLL's painter; `None` draws the stand-in picture.
+    pub picture: Option<egui::TextureId>,
 }
 
 impl PanelState {
@@ -160,6 +162,7 @@ impl PanelState {
             auto_reports: true,
             restart_armed: page == Page::Settings,
             club_pick: 1,
+            picture: None,
         }
     }
 }
@@ -224,7 +227,7 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         ],
         Stroke::new(1.0, theme::RIM),
     );
-    game_picture(ui, pic);
+    game_picture(ui, pic, st.picture);
     if st.page == Page::Game
         && let Some((tone, key)) = st.message
     {
@@ -479,8 +482,13 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
 // ---- the game picture ----
 
 /// A neutral stand-in for the game's picture: diagonal hatching and its size.
-fn game_picture(ui: &mut Ui, pic: Rect) {
+fn game_picture(ui: &mut Ui, pic: Rect, picture: Option<egui::TextureId>) {
     let p = ui.painter();
+    if let Some(tex) = picture {
+        let uv = Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0));
+        p.image(tex, pic, uv, Color32::WHITE);
+        return;
+    }
     widgets::gradient(
         p,
         pic,
