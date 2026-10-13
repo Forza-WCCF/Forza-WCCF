@@ -54,6 +54,8 @@ const TOP: &str = "WCCF-2010-11-kit";
 const PRODUCT: &str = "WCCF 2010-11 kit";
 const PRODUCT_1718: &str = "WCCF 2017-18 kit";
 const TARGET: &str = "x86_64-pc-windows-msvc";
+/// The game is 32-bit, so is a DLL that goes into it.
+const PANEL_TARGET: &str = "i686-pc-windows-msvc";
 
 /// The staged kit <- the repository: (kit path, repository path). Whatever is not here does not ship.
 const MAP: &[(&str, &str)] = &[
@@ -507,6 +509,27 @@ fn build<'s>(
             "cargo build -p launcher -p forza-server".into(),
             run_ok(c, "cargo build -p launcher -p forza-server"),
         )
+    }));
+    // the Rust panel (step 9.4), 32-bit like the game; tests only until it replaces wccfpanel.dll, so not in programs/
+    let mut c = rust("build", root);
+    c.args([
+        "--release",
+        "--locked",
+        "-p",
+        "forza-panel",
+        "--target",
+        PANEL_TARGET,
+    ]);
+    let (dll, to) = (
+        root.join("target")
+            .join(PANEL_TARGET)
+            .join("release/forza_panel.dll"),
+        obj.join("forza_panel.dll"),
+    );
+    jobs.push(s.spawn(move || {
+        let r = run_ok(c, "cargo build -p forza-panel")
+            .and_then(|()| fs::copy(&dll, &to).map(drop).map_err(Into::into));
+        ("cargo build -p forza-panel".into(), r)
     }));
     Ok(jobs)
 }

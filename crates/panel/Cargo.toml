@@ -1,0 +1,36 @@
+[package]
+name = "forza-panel"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "The in-game panel: a 32-bit DLL in the game drawing forza::ui through its own Direct3D 9 painter (step 9.4)"
+
+[lib]
+name = "forza_panel"
+crate-type = ["cdylib"]
+
+# The game is 32-bit: the DLL is built for i686-pc-windows-msvc only (`cargo xtask build`). On any other target the
+# crate is empty (lib.rs), so the workspace's x86_64 clippy and tests still build it.
+[target.'cfg(target_arch = "x86")'.dependencies]
+forza.workspace = true
+egui.workspace = true
+# the frame dump (wccfpanel_frame.bmp, fakegame's `size:`/`copy:` steps)
+image = { version = "0.25.10", default-features = false, features = ["bmp"] }
+windows = { workspace = true, features = [
+    "Win32_Graphics_Direct3D9",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[dev-dependencies]
+image = { version = "0.25.10", default-features = false, features = ["bmp"] }
+
+[lints]
+workspace = true

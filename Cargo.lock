@@ -1584,6 +1584,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "forza-panel"
+version = "7.0.0"
+dependencies = [
+ "egui",
+ "forza",
+ "image",
+ "windows",
+]
+
+[[package]]
 name = "forza-server"
 version = "7.0.0"
 dependencies = [
