@@ -5,6 +5,8 @@ asks for while the card reader is not running (moved here from play.py; Python u
                                               and "card_fix=bad_endings", each taken out of data\panel.txt once done;
                                               "board": then the cards on the table follow the club in the slot
     python card_steps.py keep SEAT            after a stop: the cards on the table kept with their club
+    python card_steps.py view                 data\club_view.txt written now (the run's helper asks whenever the card
+                                              changes; the CLUB CARD panel reads it)
 Anything wrong is said, and never stops the start: the game starts with the card that is in the slot.
 """
 import os
@@ -113,6 +115,14 @@ def main(argv):
         apply_card_fix()
         if argv[1:-1] == ["board"]:
             apply_board(argv[-1])
+        return 0
+    if argv == ["view"]:
+        from cards import view
+        lines = view.build(card=CARD, catalogue=os.path.join(K.CACHE, "catalogue.tsv"),
+                           backups=os.path.join(K.SAVE, "backup"), running=os.path.join(K.DATA, "running.json"),
+                           cards=os.path.join(K.SAVE, "cards"))
+        view.write(lines, os.path.join(K.DATA, "club_view.txt"))
+        say("club card view written: %s" % (lines[0] if lines else "-"))
         return 0
     if len(argv) == 2 and argv[0] == "keep":
         keep(argv[1])

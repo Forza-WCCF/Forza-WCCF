@@ -1121,6 +1121,10 @@ fn console(kit: &Kit, args: &[OsString]) -> ExitCode {
 
 fn main() -> ExitCode {
     let args: Vec<OsString> = env::args_os().skip(1).collect();
+    // the run's child that switches QuickEdit off in the server's console (it changes its own console): nothing else
+    if args.first().is_some_and(|a| a == launcher::helper::console::ARG) {
+        return ExitCode::from(u8::try_from(launcher::helper::console::child_main(&args[1..])).unwrap_or(1));
+    }
     let kit = Kit::here();
     let first = args.first().map(|a| a.to_string_lossy().to_ascii_lowercase());
     update::tidy(&kit);

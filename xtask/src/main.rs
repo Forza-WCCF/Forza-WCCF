@@ -1134,8 +1134,6 @@ fn launcher_scripts(root: &Path, kit: &Path, failed: &mut Vec<String>) -> Result
         "setup.py",
         "english.py",
         "card_steps.py",
-        "helpers/panel.py",
-        "helpers/console.py",
         "server/seat_desk.py",
         "server/relay.py",
         "server/log_inbox.py",

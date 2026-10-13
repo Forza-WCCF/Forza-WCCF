@@ -118,6 +118,7 @@ fn params(tag: &str, shared: Arc<Shared>) -> Params {
         scenes: Names::scratch(&format!("wccftest_{tag}_{pid}")),
         maps: None,
         shared,
+        extra_watch: Default::default(),
     }
 }
 
@@ -543,4 +544,48 @@ fn a_stand_in_that_cannot_start_stops_the_start() {
         said.contains("FAILED: the card reader stand-in did not start"),
         "{said}"
     );
+}
+
+/// A stand-in thread that panics: the supervisor says it in the run log; an essential one stops the run (nothing left,
+/// exit 1), one the game can do without leaves the run going until the player closes seat 1.
+fn run_with_panicking_stand_in(tag: &str, essential: bool) -> (String, i32) {
+    let top = tempfile::Builder::new().prefix("wccf-run-").tempdir().unwrap();
+    let (kit, _seat) = scratch_kit(top.path());
+    let p = params(tag, Shared::new());
+    let thread = thread::spawn(|| panic!("boom"));
+    let handle = forza::standins::Handle::new(Arc::new(AtomicBool::new(false)), thread);
+    p.extra_watch
+        .lock()
+        .unwrap()
+        .push(("the test stand-in".into(), essential, handle));
+    let _control = TcpListener::bind(("127.0.0.1", p.control_port)).unwrap();
+    let _desk = seat_desk(p.seat_port);
+    let (ui, t) = run_on_thread(&kit, p, &["remote", "127.0.0.1"]);
+    let rc = ended_clean(&kit, top.path(), &ui, t, Duration::from_secs(120));
+    (ui.text(), rc)
+}
+
+#[test]
+fn an_essential_stand_in_that_panics_stops_the_run() {
+    let (said, rc) = run_with_panicking_stand_in("panic1", true);
+    assert_eq!(rc, run::FAILED, "{said}");
+    assert!(
+        said.contains(
+            "the test stand-in ended by itself (its thread panicked: boom) - the game cannot go on without it: \
+             stopping the run."
+        ),
+        "{said}"
+    );
+    assert!(said.contains("Stopped: the test stand-in ended by itself."), "{said}");
+}
+
+#[test]
+fn a_stand_in_the_game_can_do_without_is_said_and_the_run_goes_on() {
+    let (said, rc) = run_with_panicking_stand_in("panic2", false);
+    assert_eq!(rc, run::OK, "{said}");
+    assert!(
+        said.contains("the test stand-in ended by itself (its thread panicked: boom) - the game goes on without it."),
+        "{said}"
+    );
+    assert!(said.contains("The game has ended: closed by the player."), "{said}");
 }

@@ -40,6 +40,26 @@ impl Handle {
     }
 
     pub fn stop(self) {}
+
+    /// How the service's main thread ended, once it has - before the handle was dropped that is never planned, so the
+    /// run's supervisor says it (and stops if the service was essential).  None while it runs.  Said once: the
+    /// thread is taken.
+    pub fn died(&mut self) -> Option<String> {
+        if !self.thread.as_ref()?.is_finished() {
+            return None;
+        }
+        Some(match self.thread.take()?.join() {
+            Ok(()) => "its thread returned".to_owned(),
+            Err(p) => {
+                let msg = p
+                    .downcast_ref::<&str>()
+                    .map(|s| (*s).to_owned())
+                    .or_else(|| p.downcast_ref::<String>().cloned())
+                    .unwrap_or_default();
+                format!("its thread panicked: {msg}")
+            }
+        })
+    }
 }
 
 impl Drop for Handle {

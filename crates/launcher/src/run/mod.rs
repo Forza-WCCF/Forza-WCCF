@@ -3,7 +3,7 @@
 //!
 //! Order, each step waiting for the one before: scene service -> server and its 4 match engines -> projector -> the
 //! cabinet's stand-ins (keychip and network, card reader, I/O board) -> seat 1 -> its overlay -> the key driver -> the
-//! panel helper.  The stand-ins are threads of this process (`forza::standins`); every program starts through one
+//! helper threads.  The stand-ins are threads of this process (`forza::standins`); every program starts through one
 //! `Job` (`KILL_ON_JOB_CLOSE`: nothing outlives this process), each game program under a debugger thread of its own
 //! (`debug::run`) that creates it and pumps its events.
 //!
@@ -18,9 +18,12 @@
 //! memory) or the game has a card session open - that would end a match without its locker-room save and give the card
 //! a bad ending - unless forced or the person at the stop says so.
 //!
-//! Still Python, started as children in the job without a window: helpers\panel.py (the club card view and the
-//! starting volumes), helpers\console.py, card_steps.py (the CLUB CARD panel's requests and the table), english.py,
-//! setup.py, and the server side's seat desk, relay and log inbox.
+//! The helper threads (`crate::helper`: the club card view, the starting volumes) and the stand-ins are watched by the
+//! supervisor: one that ends by itself (a panic, an error) is said in the run log, and the run stops if the game cannot
+//! go on without it (the card reader, the I/O board, the scene service, the network stand-ins).
+//!
+//! Still Python, started as children in the job without a window: card_steps.py (the CLUB CARD panel's requests, the
+//! table and the club card view), english.py, setup.py, and the server side's seat desk, relay and log inbox.
 
 pub mod rules;
 
@@ -31,12 +34,13 @@ use std::os::windows::io::{FromRawHandle, OwnedHandle};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, Sender, channel};
-use std::sync::{Arc, Mutex};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime};
 use std::{env, ptr};
 
+use crate::helper::{self, Helper, Target, ViewFiles};
 use forza::online::seat::{self, Lease};
 use forza::online::send_logs::{self, Scrub};
 use forza::standins::{Handle, Log, card_reader, io_board, network, scenes};
@@ -108,6 +112,9 @@ pub struct Params {
     pub maps: Option<String>,
     /// The cabinet's inputs, shared by the key driver and the I/O board stand-in.
     pub shared: Arc<io_board::Shared>,
+    /// Extra stand-in threads for the supervisor to watch (name, essential, handle); a cabinet takes them when it
+    /// starts.  Tests put a thread that panics here; the game has none.
+    pub extra_watch: Mutex<Vec<(String, bool, Handle)>>,
 }
 
 impl Params {
@@ -129,6 +136,7 @@ impl Params {
             scenes: scenes::Names::game(),
             maps: Some(debug::maps::GAME_ID.into()),
             shared: io_board::Shared::new(),
+            extra_watch: Mutex::default(),
         }
     }
 
@@ -497,6 +505,64 @@ fn wait_for(
     }))
 }
 
+/// A kit Python script, without an earlier run's MXHOOK_ / WCCF settings and with `env`.
+fn python_cmd(kit: &Kit, logs: &Path, env: &[(String, String)], script: &str, args: &[String]) -> Command {
+    let mut cmd = kit.script(script);
+    cmd.args(args).current_dir(logs).stdin(Stdio::null());
+    for (k, _) in env::vars_os() {
+        let up = k.to_string_lossy().to_uppercase();
+        if up.starts_with("MXHOOK_") || up.starts_with("WCCF") {
+            cmd.env_remove(k);
+        }
+    }
+    cmd.envs(env.iter().map(|(k, v)| (k, v)))
+        .env("PYTHONUTF8", "1")
+        .env("PYTHONIOENCODING", "utf-8")
+        .env("PYTHONUNBUFFERED", "1");
+    cmd
+}
+
+/// `cmd` in the job, its output to `log`; its exit code and output once it ends within `limit` (or `stop` is set: it
+/// is ended then).
+fn run_in_job(
+    job: &Job,
+    mut cmd: Command,
+    log: &Path,
+    limit: Duration,
+    stop: &AtomicBool,
+) -> Result<(i32, String), String> {
+    let out = File::create(log).map_err(|e| e.to_string())?;
+    let err = out.try_clone().map_err(|e| e.to_string())?;
+    cmd.stdout(out).stderr(err);
+    let mut child = job.spawn(&mut cmd).map_err(|e| e.to_string())?;
+    let end = Instant::now() + limit;
+    loop {
+        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+            let text = fs::read(log)
+                .map(|b| String::from_utf8_lossy(&b).into_owned())
+                .unwrap_or_default();
+            return Ok((status.code().unwrap_or(1), text));
+        }
+        if stop.load(Ordering::Relaxed) || Instant::now() >= end {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(if stop.load(Ordering::Relaxed) {
+                "the run is ending".to_owned()
+            } else {
+                format!("it did not finish in {} s", limit.as_secs())
+            });
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// The program's id from its debugger's "launched NAME pid N" line in `data\logs\<log>`, once it is there.
+fn launched_pid(logs: &Path, log: &str) -> Option<u32> {
+    let text = fs::read_to_string(logs.join(log)).ok()?;
+    let re = Regex::new(r"launched \S+ pid (\d+)").expect("a fixed pattern");
+    re.captures(&text)?[1].parse().ok()
+}
+
 /// A log of the run's stand-ins: data\logs\<name>, a line each with the seconds since it started.
 fn file_log(path: PathBuf) -> Log {
     let t0 = Instant::now();
@@ -560,11 +626,16 @@ struct Cabinet {
     board: Option<Handle>,
     reader: Option<Handle>,
     net: Vec<Handle>,
+    extra: Vec<(String, bool, Handle)>,
 }
 
 impl Cabinet {
     fn on(&self) -> bool {
-        self.keys.is_some() || self.board.is_some() || self.reader.is_some() || !self.net.is_empty()
+        self.keys.is_some()
+            || self.board.is_some()
+            || self.reader.is_some()
+            || !self.net.is_empty()
+            || !self.extra.is_empty()
     }
 }
 
@@ -587,6 +658,7 @@ pub struct Run<'a> {
     /// Ended game programs: their logs (for the end's decisions).
     gone: Vec<Role>,
     kids: Vec<(&'static str, Child)>,
+    helper: Option<Helper>,
     cabinet: Cabinet,
     scenes: Option<Handle>,
     lease: Option<Lease>,
@@ -656,6 +728,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         next_id: 0,
         gone: Vec::new(),
         kids: Vec::new(),
+        helper: None,
         cabinet: Cabinet::default(),
         scenes: None,
         lease: None,
@@ -728,42 +801,12 @@ impl Run<'_> {
 
     /// A kit Python script, without an earlier run's MXHOOK_ / WCCF settings and with this run's.
     fn python(&self, script: &str, args: &[String]) -> Command {
-        let mut cmd = self.kit.script(script);
-        cmd.args(args).current_dir(self.logs()).stdin(Stdio::null());
-        for (k, _) in env::vars_os() {
-            let up = k.to_string_lossy().to_uppercase();
-            if up.starts_with("MXHOOK_") || up.starts_with("WCCF") {
-                cmd.env_remove(k);
-            }
-        }
-        cmd.envs(self.kit_env())
-            .env("PYTHONUTF8", "1")
-            .env("PYTHONIOENCODING", "utf-8")
-            .env("PYTHONUNBUFFERED", "1");
-        cmd
+        python_cmd(self.kit, &self.logs(), &self.kit_env(), script, args)
     }
 
     /// `cmd` in the job, its output to data\logs\<log>; its exit code and output once it ends within `limit`.
-    fn run_child(&self, mut cmd: Command, log: &str, limit: Duration) -> Result<(i32, String), String> {
-        let path = self.logs().join(log);
-        let out = File::create(&path).map_err(|e| e.to_string())?;
-        let err = out.try_clone().map_err(|e| e.to_string())?;
-        cmd.stdout(out).stderr(err);
-        let mut child = self.job.spawn(&mut cmd).map_err(|e| e.to_string())?;
-        let end = Instant::now() + limit;
-        loop {
-            if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
-                let text = fs::read(&path)
-                    .map(|b| String::from_utf8_lossy(&b).into_owned())
-                    .unwrap_or_default();
-                return Ok((status.code().unwrap_or(1), text));
-            }
-            if Instant::now() >= end {
-                let _ = child.kill();
-                return Err(format!("it did not finish in {} s", limit.as_secs()));
-            }
-            thread::sleep(Duration::from_millis(100));
-        }
+    fn run_child(&self, cmd: Command, log: &str, limit: Duration) -> Result<(i32, String), String> {
+        run_in_job(&self.job, cmd, &self.logs().join(log), limit, &AtomicBool::new(false))
     }
 
     /// A kit Python helper that runs with the game (in the job, no window); said and skipped if it cannot start.
@@ -783,6 +826,56 @@ impl Run<'_> {
                 false
             }
         }
+    }
+
+    /// The helper threads: the club card view (view.py when the card changes) and the starting volumes of the projector
+    /// (muted) and seat 1.  They never stop the run.
+    fn start_helper(&mut self, projector: bool) {
+        let say = file_log(self.logs().join("run_helper.txt"));
+        let mut h = Helper::default();
+        let (kit, job, logs, env) = (Kit::at(self.kit.dir()), self.job.clone(), self.logs(), self.kit_env());
+        h.club_view(
+            ViewFiles::new(&self.kit.data()),
+            move |stop| {
+                let cmd = python_cmd(&kit, &logs, &env, "card_steps.py", &["view".to_owned()]);
+                let (code, out) = run_in_job(
+                    &job,
+                    cmd,
+                    &logs.join("run_club_view.txt"),
+                    Duration::from_secs(60),
+                    stop,
+                )?;
+                let last = out
+                    .lines()
+                    .rev()
+                    .find(|l| !l.trim().is_empty())
+                    .unwrap_or("-")
+                    .trim()
+                    .to_owned();
+                if code == 0 {
+                    Ok(last.trim_start_matches("club card view written: ").to_owned())
+                } else {
+                    Err(last)
+                }
+            },
+            say.clone(),
+        );
+        let (logs, mut targets) = (self.logs(), Vec::new());
+        if projector {
+            let logs = logs.clone();
+            targets.push(Target {
+                name: "the projector",
+                pid: Box::new(move || launched_pid(&logs, Role::Projector.log())),
+                mute: true,
+            });
+        }
+        targets.push(Target {
+            name: "seat 1",
+            pid: Box::new(move || launched_pid(&logs, Role::Seat.log())),
+            mute: false,
+        });
+        h.start_volumes(targets, Helper::core_audio(), say);
+        self.helper = Some(h);
     }
 
     /// The card steps the CLUB CARD panel asked for (card_steps.py: a manager transfer finished, a card switch, its
@@ -967,9 +1060,7 @@ impl Run<'_> {
 
     /// The program's id from its debugger's "launched NAME pid N" line, once it is there.
     fn launched(&self, role: Role) -> Option<u32> {
-        let text = fs::read_to_string(self.logs().join(role.log())).ok()?;
-        let re = Regex::new(r"launched \S+ pid (\d+)").expect("a fixed pattern");
-        re.captures(&text)?[1].parse().ok()
+        launched_pid(&self.logs(), role.log())
     }
 
     /// The job's processes now, with their names.
@@ -1104,12 +1195,14 @@ impl Run<'_> {
                 .into_iter()
                 .find(|q| q.name.eq_ignore_ascii_case(p.control()))
             {
-                // a click in the server's console would freeze it (text-selection mode): switch that off
-                let _ = self.run_child(
-                    self.python(r"helpers\console.py", &[ctl.pid.to_string()]),
-                    "run_console.txt",
-                    Duration::from_secs(15),
-                );
+                // a click in the server's console would freeze it (text-selection mode): switch that off, in a child of
+                // Launcher.exe (it changes the console of the process that does it)
+                let exe = self.kit.dir().join("Launcher.exe");
+                if exe.is_file() {
+                    let mut cmd = Command::new(exe);
+                    cmd.arg(helper::console::ARG).arg(ctl.pid.to_string());
+                    let _ = self.run_child(cmd, "run_console.txt", Duration::from_secs(15));
+                }
                 if !self.debug {
                     procs::hide_windows(ctl.pid); // it starts hidden; a window it shows by itself is hidden here
                 }
@@ -1144,12 +1237,7 @@ impl Run<'_> {
                 format!("       projector: its amounts stay without commas ({why})")
             });
         }
-        self.start_kid(
-            "panel helper",
-            r"helpers\panel.py",
-            &[LIFE.as_secs().to_string()],
-            "run_helper.txt",
-        );
+        self.start_helper(projector);
         self.write_running();
         self.say("");
         if let Mode::Remote(ip, _) = &self.mode {
@@ -1250,6 +1338,7 @@ impl Run<'_> {
                 .net
                 .push(network::spawn(listener, kind, name, net_log.clone())?);
         }
+        self.cabinet.extra = std::mem::take(&mut *p.extra_watch.lock().unwrap_or_else(PoisonError::into_inner));
         let (slot, new) = self.card_files();
         // the card reader logs every byte: only with "debug" (~60 MB an hour)
         let icc_log: Log = if self.debug {
@@ -1490,7 +1579,17 @@ impl Run<'_> {
         self.ui.running(true);
         self.poll_requests();
         loop {
-            let Ok(ev) = self.rx.recv() else { return End::Over(OK) };
+            let ev = match self.rx.recv_timeout(Duration::from_millis(500)) {
+                Ok(ev) => ev,
+                Err(RecvTimeoutError::Timeout) => {
+                    if let Some(end) = self.check_threads() {
+                        self.ui.running(false);
+                        return end;
+                    }
+                    continue;
+                }
+                Err(RecvTimeoutError::Disconnected) => return End::Over(OK),
+            };
             let end = match ev {
                 Event::Ended(id) => self.ended(id),
                 Event::Restart => self.restart(),
@@ -1501,6 +1600,52 @@ impl Run<'_> {
                 return end;
             }
         }
+    }
+
+    /// Stand-in and helper threads that ended by themselves (a panic, an error) are said once, in the run log; the run
+    /// stops when the game cannot go on without one (the card reader, the I/O board, the scene service, the network
+    /// stand-ins).  The key driver and the helpers are said and the game goes on.
+    fn check_threads(&mut self) -> Option<End> {
+        let mut found: Vec<(String, bool, String)> = Vec::new();
+        let mut look = |name: String, essential: bool, h: Option<&mut Handle>| {
+            if let Some(why) = h.and_then(Handle::died) {
+                found.push((name, essential, why));
+            }
+        };
+        for (h, s) in self.cabinet.net.iter_mut().zip(network::SERVICES) {
+            look(format!("the network stand-in {}", s.1), true, Some(h));
+        }
+        look("the card reader stand-in".into(), true, self.cabinet.reader.as_mut());
+        look("the I/O board stand-in".into(), true, self.cabinet.board.as_mut());
+        look("the key driver".into(), false, self.cabinet.keys.as_mut());
+        look("the scene service".into(), true, self.scenes.as_mut());
+        for (name, essential, h) in &mut self.cabinet.extra {
+            look(name.clone(), *essential, Some(h));
+        }
+        if let Some(h) = &mut self.helper {
+            found.extend(
+                h.died()
+                    .into_iter()
+                    .map(|(n, why)| (format!("the {n} helper"), false, why)),
+            );
+        }
+        let mut stop = None;
+        for (name, essential, why) in found {
+            if essential {
+                self.say(&format!(
+                    "{name} ended by itself ({why}) - the game cannot go on without it: stopping the run."
+                ));
+                stop.get_or_insert(name);
+            } else {
+                self.say(&format!(
+                    "{name} ended by itself ({why}) - the game goes on without it."
+                ));
+            }
+        }
+        let name = stop?;
+        Some(match self.finish(false, &format!("Stopped: {name} ended by itself.")) {
+            End::Over(_) | End::Again => End::Over(FAILED),
+        })
     }
 
     /// The card rule now: the refusal's words, or None to go on.
@@ -1563,10 +1708,11 @@ impl Run<'_> {
         }
     }
 
-    /// Ends every process of the run, in order: the Python helpers, the game programs through their debuggers, then
+    /// Ends every process of the run, in order: the helper threads and the Python kids, the game programs through their debuggers, then
     /// `Job::stop` for whatever is left (its windows closed, then ended after the deadline); then the stand-ins, the
     /// key driver first.
     fn shutdown(&mut self) {
+        self.helper = None; // joins its threads (a view being made is given up)
         for (_, c) in &mut self.kids {
             let _ = c.kill();
             let _ = c.wait();
@@ -1648,7 +1794,7 @@ impl Run<'_> {
             thread::sleep(Duration::from_secs(2)); // Windows frees the ports and pipes
             return Some(End::Again);
         }
-        // the projector, the scene service, the seat lease and the panel helper are never touched, so the projector
+        // the projector, the scene service, the seat lease and the helper threads are never touched, so the projector
         // stays in step with the server
         self.say(&format!(
             "Restarting seat {}'s cabinet only - the projector keeps running.",
