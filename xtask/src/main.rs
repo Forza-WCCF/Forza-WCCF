@@ -135,7 +135,10 @@ fn main() -> Result<()> {
         }
         Task::Cap { root, outdir } => cap(&root, &outdir),
         Task::Gallery => gallery(&root),
-        Task::Check => check(&root, &stage_root, &kit, &kit_1718),
+        // check and package build first: both used whatever programs were staged last, and a ZIP shipped a Launcher.exe
+        // older than its own scripts (2026-10-13, the first Rust run started a deleted panel.py)
+        Task::Check => build_all(&root, &kit, &kit_1718, &Cc::new()?)
+            .and_then(|()| check(&root, &stage_root, &kit, &kit_1718)),
         Task::Stage { edition } => match edition.as_str() {
             "2010-11" => stage(&root, &kit, MAP, KEEP),
             "2017-18" => stage(&root, &kit_1718, MAP_1718, KEEP_1718),
@@ -143,6 +146,11 @@ fn main() -> Result<()> {
         },
         Task::Package { edition, name } => match edition.as_str() {
             "installer" => package_installer(&root, name),
+            "2010-11" | "2017-18"
+                if let Err(e) = build_all(&root, &kit, &kit_1718, &Cc::new()?) =>
+            {
+                Err(e)
+            }
             "2010-11" => package(&root, &kit, &name.unwrap_or_else(|| TOP.into()), true),
             "2017-18" => package(
                 &root,
