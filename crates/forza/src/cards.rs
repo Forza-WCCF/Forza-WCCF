@@ -52,13 +52,10 @@ const SPOTS_442: [(Position, f32, f32); 11] = [
 
 /// The bench band whose spot is nearest `y`.
 pub fn bench_band(y: f32) -> usize {
-    let mut b = 0;
-    for i in 1..5 {
-        if (BENCH_Y[i] - y).abs() < (BENCH_Y[b] - y).abs() {
-            b = i;
-        }
-    }
-    b
+    // the first of two as near, as the C panel's loop
+    (0..5)
+        .min_by(|&a, &b| (BENCH_Y[a] - y).abs().total_cmp(&(BENCH_Y[b] - y).abs()))
+        .unwrap_or(0)
 }
 
 // ---- the table file ----
