@@ -923,8 +923,22 @@ fn panel_selftests(ck: &mut Checks) -> Result<()> {
     let mut relay = ck.python(&[kit.join("code/server/relay.py").to_str().unwrap(), "30"]);
     relay.env("WCCF_RELAY_PORT", "20941");
     run_env(&mut relay);
-    let mut relay: Child = relay.stdout(Stdio::null()).stderr(Stdio::null()).spawn()?;
-    std::thread::sleep(Duration::from_secs(1));
+    let mut relay: Child = relay.stdout(Stdio::piped()).stderr(Stdio::null()).spawn()?;
+    // waits for its "listening" line (a fixed second lost the race under load, 2026-10-13); the rest of its output is
+    // drained, so its prints never block or break
+    let out = std::io::BufReader::new(relay.stdout.take().context("the relay's output")?);
+    let (up, listening) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut up = Some(up);
+        for l in std::io::BufRead::lines(out).map_while(Result::ok) {
+            if l.contains("listening")
+                && let Some(u) = up.take()
+            {
+                let _ = u.send(());
+            }
+        }
+    });
+    let _ = listening.recv_timeout(Duration::from_secs(20));
     let mut game = Command::new(t.join("fakegame.exe"));
     game.current_dir(&t)
         .arg(win(&kit.join("programs/wccfpanel.dll")))
