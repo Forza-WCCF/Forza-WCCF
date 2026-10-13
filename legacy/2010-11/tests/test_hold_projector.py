@@ -64,7 +64,7 @@ def desk(tmp, port, hold_text, fw):
     env = dict(os.environ, WCCF_BROKER_PORT=str(port), WCCF_HOLD_FW=fw)
     p = subprocess.Popen([sys.executable, "-B", os.path.join(KIT, "code", "server", "seat_desk.py"), "60",
                           os.path.join(logs, "seat_broker.txt")], env=env, stdout=subprocess.DEVNULL)
-    wait_for(lambda: os.path.exists(os.path.join(logs, "seat_broker.txt")), 5)
+    wait_for(lambda: os.path.exists(os.path.join(logs, "seat_broker.txt")), 20)    # a slow start under load (2026-10-13)
     time.sleep(0.5)
     return p, os.path.join(logs, "_dbg_control.txt"), os.path.join(logs, "seat_broker.txt")
 
@@ -124,9 +124,14 @@ try:
     tmp4 = tempfile.mkdtemp(prefix="hold_")
     p, _g, d4 = desk(tmp4, 20936, "10.0.0.9", tmp4)                # WCCF_HOLD_FW is a folder: the rule cannot be set
     procs.append(p)
-    time.sleep(1.0)
-    with open(d4, encoding="utf-8") as f:
-        t4 = f.read()
+    def said():                                                 # waits for the line, not a fixed second (flaky under load)
+        try:
+            with open(d4, encoding="utf-8") as f:
+                return f.read()
+        except OSError:
+            return ""
+    wait_for(lambda: "could not be set" in said(), 20)
+    t4 = said()
     check("the rule cannot be set: said, HOLD 0 (the box is not told it is held), seats still given",
           "could not be set" in t4 and ask(20936, "HOLD") == "HOLD 0" and ask(20936, "WANT").startswith("SEAT"), "")
 finally:
