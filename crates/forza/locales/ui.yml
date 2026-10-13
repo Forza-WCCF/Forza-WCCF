@@ -130,6 +130,12 @@ board.zone_attack: {en: "ATTACK", it: "ATTACCO", ja: "攻撃"}
 board.zone_centre: {en: "CENTRE", it: "CENTROCAMPO", ja: "中盤"}
 board.zone_defence: {en: "DEFENCE", it: "DIFESA", ja: "守備"}
 board.hint: {en: "Drag a card onto another to swap. Right-click takes it off.", it: "Trascina una carta su un'altra per scambiarle. Clic destro per toglierla.", ja: "カードを別のカードへドラッグで入れ替え。右クリックで外します。"}
+board.fit_best: {en: "BEST POSITION", it: "POSIZIONE IDEALE", ja: "ベストポジション"}
+board.fit_ok: {en: "FITS", it: "ADATTO", ja: "適性あり"}
+board.fit_out: {en: "OUT OF POSITION", it: "FUORI RUOLO", ja: "ポジション外"}
+board.no_data: {en: "No position data for this card", it: "Nessun dato sulle posizioni per questa carta", ja: "このカードにはポジションのデータがありません"}
+board.positions: {en: "POSITIONS", it: "POSIZIONI", ja: "適性ポジション"}
+board.roles: {en: "Best roles (names inferred): %{roles}", it: "Ruoli migliori (nomi dedotti): %{roles}", ja: "得意な役割（名称は推定）：%{roles}"}
 
 # ---- catalogue ----
 cat.title: {en: "CATALOGUE", it: "CATALOGO", ja: "カタログ"}

@@ -1,6 +1,8 @@
-//! The in-game panel on its 1440×900 design sheet: the cabinet strip (0-190), the game picture in the middle, the
-//! formation strip (1060-1440), and the pages that open over the picture: CATALOGUE, KEYS, SETTINGS, CLUB CARD.
-//! The sheet scales by `min(H/900, W/1440)` through `pixels_per_point`; this code works in sheet points.
+//! The in-game panel on its 1440×900 design sheet. The FORMATION BOARD owns the right strip (the last 580 points);
+//! the middle holds the game picture at the top, the cabinet deck under it (tactics, SHOOT, KEEPER, KEY PLAYER, DATA,
+//! the machine's buttons) and the bar of page buttons along the bottom. Pages (CATALOGUE, KEYS, SETTINGS, CLUB CARD)
+//! open over the picture and the deck. The sheet scales by `min(H/900, W/1440)` through `pixels_per_point`; this code
+//! works in sheet points, and a wider sheet widens the middle.
 
 use super::Lang;
 use super::board::{self, Board, Card, Position, Rarity};
@@ -12,19 +14,14 @@ use super::widgets::{
 use egui::{Align2, Color32, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 
 pub const SIZE: egui::Vec2 = egui::vec2(1440.0, 900.0);
-pub const LEFT: f32 = 190.0;
-pub const RIGHT: f32 = 1060.0;
-/// Where the formation board's pitch sits on the sheet.
-pub const BOARD: Rect = Rect {
-    min: Pos2 {
-        x: 1076.0,
-        y: 176.0,
-    },
-    max: Pos2 {
-        x: 1424.0,
-        y: 176.0 + 348.0 * 1.32,
-    },
-};
+/// The formation strip's width, pinned to the right edge.
+pub const BOARD_W: f32 = 580.0;
+/// The strip's title row above the pitch.
+const BOARD_HEAD: f32 = 34.0;
+/// The bar of page buttons along the bottom of the middle.
+const TABS_H: f32 = 60.0;
+/// The cabinet deck under the picture keeps at least this; on wide sheets the picture stops growing first.
+const DECK_MIN: f32 = 300.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Page {
@@ -169,76 +166,105 @@ impl PanelState {
 
 /// The centre of a formation slot on the sheet (for tests that drag cards).
 pub fn board_slot_center(slot: usize) -> Pos2 {
-    let s = super::sample::board().spots[slot];
-    BOARD.min + vec2(s.x * BOARD.width(), s.y * BOARD.height())
+    let r = Rect::from_min_max(pos2(SIZE.x - BOARD_W, 0.0), SIZE.to_pos2()).shrink(16.0);
+    let pitch = board::pitch_rect(r.min + vec2(0.0, BOARD_HEAD), r.width());
+    board::spot_rect(pitch, super::sample::board().spots[slot]).center()
 }
 
 pub fn show(ui: &mut Ui, st: &mut PanelState) {
     let lang = st.lang;
-    if !st.compact {
-        egui::Panel::left("panel-cabinet")
-            .exact_size(LEFT)
-            .resizable(false)
-            .show_separator_line(false)
-            .frame(egui::Frame::new())
-            .show(ui, |ui| cabinet_strip(ui, st, lang));
-    }
     egui::Panel::right("panel-board")
-        .exact_size(SIZE.x - RIGHT)
+        .exact_size(BOARD_W)
         .resizable(false)
         .show_separator_line(false)
         .frame(egui::Frame::new())
         .show(ui, |ui| board_strip(ui, st, lang));
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(theme::WELL))
-        .show(ui, |ui| {
-            game_picture(ui, st);
-            if st.page != Page::Game {
-                page(ui, st, lang);
-            }
-        });
+        .show(ui, |ui| middle(ui, st, lang));
 }
 
-// ---- the strips ----
+// ---- the middle: picture, deck, page bar ----
 
-fn strip_ground(ui: &Ui, left_edge: bool) {
-    let r = ui.max_rect();
+fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
+    let area = ui.max_rect();
+    let tabs = area.with_min_y(area.bottom() - TABS_H);
+    let above = area.with_max_y(tabs.top());
+    // the picture keeps its aspect, as wide as the middle unless the deck would get too short
+    let reserve = if st.compact { 60.0 } else { DECK_MIN };
+    let h = (area.width() / 1.6).min(above.height() - reserve);
+    // compact: no deck, so the picture sits in the middle with the message line under it
+    let y = if st.compact {
+        above.top() + (above.height() - reserve) / 2.0
+    } else {
+        above.top() + h / 2.0
+    };
+    let pic = Rect::from_center_size(pos2(area.center().x, y), vec2(h * 1.6, h));
+    let deck = above.with_min_y(pic.bottom());
     let p = ui.painter();
     widgets::gradient(
         p,
-        r,
+        deck,
         0,
         Color32::from_rgb(0x12, 0x1C, 0x2E),
         theme::NIGHT,
         true,
     );
-    let x = if left_edge {
-        r.left() + 0.5
-    } else {
-        r.right() - 0.5
-    };
+    p.rect_filled(tabs, 0, theme::NIGHT);
+    for y in [deck.top(), tabs.top()] {
+        p.line_segment(
+            [pos2(area.left(), y + 0.5), pos2(area.right(), y + 0.5)],
+            Stroke::new(1.0, theme::RIM),
+        );
+    }
     p.line_segment(
-        [pos2(x, r.top()), pos2(x, r.bottom())],
+        [
+            pos2(area.right() - 0.5, area.top()),
+            pos2(area.right() - 0.5, area.bottom()),
+        ],
         Stroke::new(1.0, theme::RIM),
     );
+    game_picture(ui, pic);
+    if st.page == Page::Game
+        && let Some((tone, key)) = st.message
+    {
+        let r = Rect::from_center_size(pos2(deck.center().x, deck.top() + 27.0), vec2(520.0, 34.0));
+        ui.scope_builder(egui::UiBuilder::new().max_rect(r), |ui| {
+            status_line(ui, tone, &tr!(lang, key))
+        });
+    }
+    if !st.compact {
+        cabinet_deck(ui, st, deck.with_min_y(deck.top() + 54.0), lang);
+    }
+    page_bar(ui, st, tabs, lang);
+    if st.page != Page::Game {
+        let mut pg = ui.new_child(egui::UiBuilder::new().max_rect(above));
+        page(&mut pg, st, lang);
+    }
 }
 
-fn cabinet_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
-    strip_ground(ui, false);
-    let r = ui.max_rect().shrink2(vec2(10.0, 12.0));
-    let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(r));
-    let ui = &mut ui;
-    ui.spacing_mut().item_spacing = vec2(4.0, 8.0);
-    ui.horizontal(|ui| {
-        let (m, _) = ui.allocate_exact_size(vec2(26.0, 30.0), Sense::hover());
-        widgets::mark(ui.painter(), m.center(), st.edition.accent());
-        widgets::badge(ui, st.edition);
-    });
-    ui.add_space(4.0);
-    caps(ui, &tr!(lang, "panel.tactics"));
+/// The cabinet's controls under the picture, three columns centred: the tactic cross, the play buttons, the machine.
+fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
+    let (wa, wb, wc, gap) = (300.0, 300.0, 204.0, 16.0);
+    let x0 = area.center().x - (wa + wb + wc + 2.0 * gap) / 2.0;
+    let top = area.top();
+    let put = |ui: &mut Ui, r: Rect, key: &str, kind: Cab, lit: bool| {
+        ui.put(r, |ui: &mut Ui| {
+            cabinet(ui, r.size(), &tr!(lang, key), kind, lit)
+        })
+    };
+    let caps_at = |ui: &Ui, x: f32, key: &str| {
+        ui.painter().text(
+            pos2(x, top + 8.0),
+            Align2::LEFT_CENTER,
+            tr!(lang, key),
+            theme::display(15.0),
+            theme::TEXT_DIM,
+        );
+    };
     // the plus-shaped tactic cluster on its plate
-    let cell = 54.0;
-    let (plate, _) = ui.allocate_exact_size(vec2(r.width(), cell * 3.0 + 6.0), Sense::hover());
+    caps_at(ui, x0, "panel.tactics");
+    let plate = Rect::from_min_size(pos2(x0, top + 20.0), vec2(wa, 196.0));
     ui.painter()
         .rect_filled(plate, theme::RADIUS_BIG, theme::WELL);
     ui.painter().rect_stroke(
@@ -247,97 +273,115 @@ fn cabinet_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         Stroke::new(1.0, theme::RIM),
         StrokeKind::Inside,
     );
-    let o = plate.center();
+    let cell = vec2(94.0, 60.0);
     let cells = [
-        (0, (0.0, 0.0), tr!(lang, "cab.central")),
-        (1, (0.0, -1.0), tr!(lang, "cab.counter")),
-        (2, (-1.0, 0.0), tr!(lang, "cab.l_side")),
-        (3, (1.0, 0.0), tr!(lang, "cab.r_side")),
-        (4, (0.0, 1.0), tr!(lang, "cab.press")),
+        (0, (0.0, 0.0), "cab.central"),
+        (1, (0.0, -1.0), "cab.counter"),
+        (2, (-1.0, 0.0), "cab.l_side"),
+        (3, (1.0, 0.0), "cab.r_side"),
+        (4, (0.0, 1.0), "cab.press"),
     ];
-    for (i, (dx, dy), label) in cells {
-        let rect = Rect::from_center_size(
-            o + vec2(dx * (cell + 2.0), dy * (cell - 2.0)),
-            vec2(cell, cell - 6.0),
+    for (i, (dx, dy), key) in cells {
+        let r = Rect::from_center_size(
+            plate.center() + vec2(dx * (cell.x + 4.0), dy * (cell.y + 4.0)),
+            cell,
         );
-        let resp = ui.put(rect, |ui: &mut Ui| {
-            cabinet(ui, rect.size(), &label, Cab::Tactic, st.tactics[i])
-        });
-        if resp.clicked() {
+        if put(ui, r, key, Cab::Tactic, st.tactics[i]).clicked() {
             st.tactics[i] = !st.tactics[i];
         }
     }
-    let w = r.width();
-    let half = (w - 4.0) / 2.0;
-    cabinet(
+    // the play buttons: SHOOT the biggest
+    let xb = x0 + wa + gap;
+    let half = (wb - 6.0) / 2.0;
+    let y = top + 20.0;
+    put(
         ui,
-        vec2(w, 72.0),
-        &tr!(lang, "cab.shoot"),
+        Rect::from_min_size(pos2(xb, y), vec2(wb, 80.0)),
+        "cab.shoot",
         Cab::Shoot,
         false,
     );
-    ui.horizontal(|ui| {
-        cabinet(
-            ui,
-            vec2(half, 56.0),
-            &tr!(lang, "cab.keeper"),
-            Cab::Keeper,
-            false,
-        );
-        cabinet(
-            ui,
-            vec2(half, 56.0),
-            &tr!(lang, "cab.key_player"),
-            Cab::KeyPlayer,
-            true,
-        );
-    });
-    cabinet(ui, vec2(w, 44.0), &tr!(lang, "cab.data"), Cab::Data, false);
-    ui.add_space(4.0);
-    caps(ui, &tr!(lang, "panel.machine"));
-    ui.horizontal(|ui| {
-        cabinet(
-            ui,
-            vec2(half, 40.0),
-            &tr!(lang, "cab.start"),
-            Cab::Plain,
-            false,
-        );
-        cabinet(
-            ui,
-            vec2(half, 40.0),
-            &tr!(lang, "cab.card"),
-            Cab::Plain,
-            false,
-        );
-    });
-    if st.edition == Edition::E1718 {
-        ui.horizontal(|ui| {
-            cabinet(
-                ui,
-                vec2(half, 40.0),
-                &tr!(lang, "cab.coin"),
-                Cab::Plain,
-                false,
+    put(
+        ui,
+        Rect::from_min_size(pos2(xb, y + 86.0), vec2(half, 58.0)),
+        "cab.keeper",
+        Cab::Keeper,
+        false,
+    );
+    put(
+        ui,
+        Rect::from_min_size(pos2(xb + half + 6.0, y + 86.0), vec2(half, 58.0)),
+        "cab.key_player",
+        Cab::KeyPlayer,
+        true,
+    );
+    put(
+        ui,
+        Rect::from_min_size(pos2(xb, y + 150.0), vec2(wb, 46.0)),
+        "cab.data",
+        Cab::Data,
+        false,
+    );
+    // the machine
+    let xc = xb + wb + gap;
+    caps_at(ui, xc, "panel.machine");
+    let half = (wc - 6.0) / 2.0;
+    let row = |ui: &mut Ui, n: f32, keys: [&str; 2], enabled: bool| {
+        for (k, key) in keys.into_iter().enumerate() {
+            let r = Rect::from_min_size(
+                pos2(xc + k as f32 * (half + 6.0), y + n * 50.0),
+                vec2(half, 44.0),
             );
-            ui.add_enabled_ui(false, |ui| {
-                cabinet(
-                    ui,
-                    vec2(half, 40.0),
-                    &tr!(lang, "cab.back"),
-                    Cab::Plain,
-                    false,
-                )
-            });
-        });
+            ui.add_enabled_ui(enabled || k == 0, |ui| put(ui, r, key, Cab::Plain, false));
+        }
+    };
+    row(ui, 0.0, ["cab.start", "cab.card"], true);
+    if st.edition == Edition::E1718 {
+        // BACK sends nothing yet
+        row(ui, 1.0, ["cab.coin", "cab.back"], false);
     }
-    // the foot of the strip: ping (online only) and the window key
-    let foot = Rect::from_min_max(pos2(r.left(), r.bottom() - 52.0), r.max);
+}
+
+/// The bottom bar: the edition, the four page buttons (lit while their page is open), the ping and the window key.
+fn page_bar(ui: &mut Ui, st: &mut PanelState, bar: Rect, lang: Lang) {
+    let r = bar.shrink2(vec2(12.0, 8.0));
+    let p = ui.painter();
+    widgets::mark(p, pos2(r.left() + 11.0, r.center().y), st.edition.accent());
+    let mut b = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(
+        pos2(r.left() + 30.0, r.center().y - 11.0),
+        pos2(r.left() + 130.0, r.center().y + 11.0),
+    )));
+    widgets::badge(&mut b, st.edition);
+    let pages = [
+        (Page::Catalogue, "panel.add_card"),
+        (Page::Keys, "panel.keys"),
+        (Page::Settings, "panel.settings"),
+        (Page::ClubCard, "panel.club_card"),
+    ];
+    let w = 124.0;
+    for (i, (pg, key)) in pages.into_iter().enumerate() {
+        let t = Rect::from_min_size(
+            pos2(r.left() + 132.0 + i as f32 * (w + 6.0), r.top()),
+            vec2(w, r.height()),
+        );
+        let open = st.page == pg;
+        let resp = ui.put(t, |ui: &mut Ui| {
+            cabinet(ui, t.size(), &tr!(lang, key), Cab::Tactic, open)
+        });
+        if resp.clicked() {
+            st.page = if open { Page::Game } else { pg };
+        }
+    }
+    // the right end: ping (online only) over the window key
+    let right = Rect::from_min_max(
+        pos2(r.left() + 132.0 + 4.0 * (w + 6.0) + 8.0, r.top()),
+        r.max,
+    );
     let p = ui.painter();
     if st.online {
         ping(
             p,
-            Rect::from_min_size(foot.min, vec2(w, 22.0)),
+            Rect::from_min_size(right.min, vec2(right.width(), 18.0)),
             st.ping_ms,
             lang,
         );
@@ -347,12 +391,24 @@ fn cabinet_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         &tr!(lang, "panel.f11"),
         theme::body(11.0),
         theme::TEXT_FAINT,
-        w,
+        right.width(),
     );
     p.galley(
-        pos2(foot.left(), foot.bottom() - g.size().y),
+        pos2(right.left(), right.bottom() - g.size().y),
         g,
         theme::TEXT_FAINT,
+    );
+}
+
+fn strip_ground(ui: &Ui) {
+    let r = ui.max_rect();
+    widgets::gradient(
+        ui.painter(),
+        r,
+        0,
+        Color32::from_rgb(0x12, 0x1C, 0x2E),
+        theme::NIGHT,
+        true,
     );
 }
 
@@ -390,50 +446,29 @@ fn ping(p: &egui::Painter, r: Rect, ms: u32, lang: Lang) {
 }
 
 fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
-    strip_ground(ui, true);
-    let r = ui.max_rect().shrink2(vec2(16.0, 16.0));
-    let mut tabs = ui.new_child(egui::UiBuilder::new().max_rect(r));
-    tabs.spacing_mut().item_spacing = vec2(8.0, 8.0);
-    let w = (r.width() - 8.0) / 2.0;
-    let pages = [
-        (Page::Catalogue, tr!(lang, "panel.add_card")),
-        (Page::Keys, tr!(lang, "panel.keys")),
-        (Page::Settings, tr!(lang, "panel.settings")),
-        (Page::ClubCard, tr!(lang, "panel.club_card")),
-    ];
-    for row in pages.chunks(2) {
-        tabs.horizontal(|ui| {
-            for (pg, label) in row {
-                let open = st.page == *pg;
-                if cabinet(ui, vec2(w, 44.0), label, Cab::Tactic, open).clicked() {
-                    st.page = if open { Page::Game } else { *pg };
-                }
-            }
-        });
-    }
+    strip_ground(ui);
+    let r = ui.max_rect().shrink(16.0);
+    let pitch = board::pitch_rect(r.min + vec2(0.0, BOARD_HEAD), r.width());
     let p = ui.painter();
     p.text(
-        pos2(BOARD.left(), BOARD.top() - 14.0),
+        pos2(r.left(), r.top() + 12.0),
         Align2::LEFT_CENTER,
         tr!(lang, "board.title"),
-        theme::display(20.0),
+        theme::display(24.0),
         theme::TEXT,
     );
     let count = st.board.slots.iter().flatten().count();
     p.text(
-        pos2(BOARD.right(), BOARD.top() - 14.0),
+        pos2(r.right(), r.top() + 12.0),
         Align2::RIGHT_CENTER,
         format!("{count}/16"),
-        theme::display(18.0),
+        theme::display(20.0),
         theme::TEXT_DIM,
     );
-    let mut b = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(
-        BOARD.min,
-        pos2(BOARD.right(), r.bottom()),
-    )));
+    let mut b = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(pitch.min, r.max)));
     b.spacing_mut().item_spacing.y = 4.0;
     board::formation_board(&mut b, &mut st.board, st.hover_delay, lang);
-    b.add_space(6.0);
+    b.add_space(4.0);
     b.label(
         egui::RichText::new(tr!(lang, "board.hint"))
             .font(theme::body(12.0))
@@ -441,12 +476,10 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     );
 }
 
-// ---- the middle ----
+// ---- the game picture ----
 
-fn game_picture(ui: &mut Ui, st: &PanelState) {
-    let area = ui.max_rect();
-    let h = area.width() * 900.0 / 1440.0;
-    let pic = Rect::from_center_size(area.center(), vec2(area.width(), h));
+/// A neutral stand-in for the game's picture: diagonal hatching and its size.
+fn game_picture(ui: &mut Ui, pic: Rect) {
     let p = ui.painter();
     widgets::gradient(
         p,
@@ -479,20 +512,6 @@ fn game_picture(ui: &mut Ui, st: &PanelState) {
         Stroke::new(1.0, Color32::from_white_alpha(18)),
         StrokeKind::Inside,
     );
-    if st.page == Page::Game
-        && let Some((tone, key)) = st.message
-    {
-        let r = Rect::from_center_size(
-            pos2(
-                area.center().x,
-                pic.bottom() + (area.bottom() - pic.bottom()) / 2.0,
-            ),
-            vec2(520.0, 34.0),
-        );
-        ui.scope_builder(egui::UiBuilder::new().max_rect(r), |ui| {
-            status_line(ui, tone, &tr!(st.lang, key))
-        });
-    }
 }
 
 fn page(ui: &mut Ui, st: &mut PanelState, lang: Lang) {

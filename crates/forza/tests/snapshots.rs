@@ -15,12 +15,17 @@ fn gpu() -> std::sync::MutexGuard<'static, ()> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-fn harness<'a>(size: Vec2, edition: Edition, mut show: impl FnMut(&mut Ui) + 'a) -> Harness<'a> {
+fn harness<'a>(
+    size: Vec2,
+    pixels_per_point: f32,
+    edition: Edition,
+    mut show: impl FnMut(&mut Ui) + 'a,
+) -> Harness<'a> {
     let dir = theme::font_dir();
     let mut fresh = true;
     Harness::builder()
         .with_size(size)
-        .with_pixels_per_point(1.0)
+        .with_pixels_per_point(pixels_per_point)
         .build_ui(move |ui| {
             if fresh {
                 // our fonts take effect from the next frame: draw nothing on this one
@@ -44,7 +49,7 @@ fn snap(
     edition: Edition,
     show: impl FnMut(&mut Ui),
 ) {
-    let mut h = harness(size, edition, show);
+    let mut h = harness(size, 1.0, edition, show);
     h.run_steps(8);
     h.snapshot(name);
     all.extend_harness(&mut h);
@@ -158,10 +163,13 @@ fn widget_sheet() {
 fn board_interaction() {
     let _gpu = gpu();
     let mut st = panel::PanelState::sample(Edition::E1011, Lang::En, panel::Page::Game);
-    let mut h = harness(panel::SIZE, Edition::E1011, |ui| panel::show(ui, &mut st));
+    let mut h = harness(panel::SIZE, 1.0, Edition::E1011, |ui| {
+        panel::show(ui, &mut st)
+    });
     h.run_steps(4);
-    let from = panel::board_slot_center(9);
-    let to = panel::board_slot_center(6);
+    // a box-to-box midfielder in hand over the striker on the left of midfield: the heat zone and a FITS badge
+    let from = panel::board_slot_center(6);
+    let to = panel::board_slot_center(5);
     h.drag_at(from);
     h.run_steps(2);
     h.hover_at(to);
@@ -169,7 +177,20 @@ fn board_interaction() {
     h.snapshot("board_drag_en");
     h.drop_at(to);
     h.run_steps(2);
+    // the big card of a centre back, with its position map and the heat zone on the pitch
     h.hover_at(panel::board_slot_center(2));
     h.run_steps(8); // past the 1 s hover delay at 0.25 s a step
     h.snapshot("board_hover_en");
+}
+
+/// A 1920×1080 screen: the sheet scales by 1.2 and the 1600-point-wide sheet gives the extra width to the middle.
+#[test]
+fn panel_1920x1080() {
+    let _gpu = gpu();
+    let mut st = panel::PanelState::sample(Edition::E1011, Lang::It, panel::Page::Game);
+    let mut h = harness(Vec2::new(1600.0, 900.0), 1.2, Edition::E1011, |ui| {
+        panel::show(ui, &mut st)
+    });
+    h.run_steps(8);
+    h.snapshot("panel_game_1080_it");
 }
