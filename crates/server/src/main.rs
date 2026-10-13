@@ -52,7 +52,8 @@ enum Service {
         log_file: Option<PathBuf>,
         folder: Option<PathBuf>,
     },
-    /// All three, as `play.py server` starts them; LOGS_DIR gets seat_broker.txt, match_relay.txt, log_inbox.txt
+    /// All three (2017-18: the desk and the relay), as `play.py server` started them; LOGS_DIR gets seat_broker.txt,
+    /// match_relay.txt, log_inbox.txt
     All {
         life: Option<f64>,
         logs_dir: Option<PathBuf>,
@@ -191,14 +192,19 @@ fn main() {
                 file("match_relay.txt"),
                 file("log_inbox.txt"),
             );
-            (
-                life.unwrap_or(day),
-                vec![
-                    start_desk(ed, desk_log.as_deref(), file_log(desk_log.clone())),
-                    start_relay(ed, file_log(relay_log)),
-                    start_inbox(inbox_log.as_deref(), None, file_log(inbox_log.clone())),
-                ],
-            )
+            let mut services = vec![
+                start_desk(ed, desk_log.as_deref(), file_log(desk_log.clone())),
+                start_relay(ed, file_log(relay_log)),
+            ];
+            // 2017-18 has no log inbox, and its game server stand-in holds the inbox's port 20050
+            if ed == Edition::E1011 {
+                services.push(start_inbox(
+                    inbox_log.as_deref(),
+                    None,
+                    file_log(inbox_log.clone()),
+                ));
+            }
+            (life.unwrap_or(day), services)
         }
     };
     let failed = services.iter().any(Result::is_err);
