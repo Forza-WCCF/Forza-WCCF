@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""kit_common.py - what setup.py and play.py share: the kit's folders, its settings file, the game folder's shape,
+"""kit_common.py - what setup.py, english.py and the cards share: the kit's folders, its settings file, the game folder's shape,
 and which WCCF 2010-11 programs are running (found by their full path, so nothing else on the PC is touched)."""
 import ctypes
 import ctypes.wintypes as w
@@ -159,7 +159,6 @@ _k.Process32NextW.argtypes = [w.HANDLE, ctypes.POINTER(_PE32)]
 _k.OpenProcess.restype = w.HANDLE
 _k.OpenProcess.argtypes = [w.DWORD, w.BOOL, w.DWORD]
 _k.QueryFullProcessImageNameW.argtypes = [w.HANDLE, w.DWORD, w.LPWSTR, ctypes.POINTER(w.DWORD)]
-_k.TerminateProcess.argtypes = [w.HANDLE, w.UINT]
 _k.CloseHandle.argtypes = [w.HANDLE]
 
 
@@ -202,105 +201,3 @@ def game_processes(game):
     root = same_form(os.path.dirname(os.path.abspath(game))) + os.sep
     return [p for p in processes() if p[2].lower() in GAME_EXES and os.path.normcase(p[3]).startswith(root)]
 
-
-def kill(pid):
-    h = _k.OpenProcess(0x0001, False, pid)              # PROCESS_TERMINATE
-    if not h:
-        return False
-    ok = bool(_k.TerminateProcess(h, 1))
-    _k.CloseHandle(h)
-    return ok
-
-
-# ---- what is listening, which pipes exist, a process's windows ------------------------------------------------
-class _TcpRow(ctypes.Structure):
-    _fields_ = [("state", w.DWORD), ("laddr", w.DWORD), ("lport", w.DWORD), ("raddr", w.DWORD), ("rport", w.DWORD)]
-
-
-def listening_ports():
-    """TCP ports something listens on (IPv4) - from Windows' own table, not netstat's translated text"""
-    ip = ctypes.WinDLL("iphlpapi")
-    for _ in range(5):
-        size = w.DWORD(0)
-        ip.GetTcpTable(None, ctypes.byref(size), False)
-        buf = ctypes.create_string_buffer(size.value + 1024)
-        size = w.DWORD(len(buf))
-        if ip.GetTcpTable(buf, ctypes.byref(size), False) == 0:
-            n = ctypes.c_uint32.from_buffer(buf).value
-            rows = (_TcpRow * n).from_buffer(buf, 4)
-            return {((r.lport & 0xFF) << 8) | ((r.lport >> 8) & 0xFF) for r in rows if r.state == 2}   # 2 = LISTEN
-    return set()
-
-
-def pipes():
-    try:
-        return {n.lower() for n in os.listdir("\\\\.\\pipe\\")}
-    except OSError:
-        return set()
-
-
-_u = ctypes.WinDLL("user32")
-_u.GetWindowThreadProcessId.argtypes = [w.HWND, ctypes.POINTER(w.DWORD)]
-_u.IsWindowVisible.argtypes = [w.HWND]
-_u.GetClassNameW.argtypes = [w.HWND, w.LPWSTR, ctypes.c_int]
-_u.GetWindowTextW.argtypes = [w.HWND, w.LPWSTR, ctypes.c_int]
-_u.ShowWindowAsync.argtypes = [w.HWND, ctypes.c_int]
-
-
-def windows_of(pid):
-    """the visible top-level windows of a process"""
-    found = []
-    cb_t = ctypes.WINFUNCTYPE(w.BOOL, w.HWND, w.LPARAM)
-
-    def cb(h, _lp):
-        p = w.DWORD()
-        _u.GetWindowThreadProcessId(h, ctypes.byref(p))
-        if p.value == pid and _u.IsWindowVisible(h):
-            found.append(h)
-        return True
-    _u.EnumWindows(cb_t(cb), 0)
-    return found
-
-
-def top_windows(pid):
-    """[(window, class name, title, visible)] of every top-level window of a process (a console window counts as
-    the program's that writes to it)"""
-    found = []
-    cb_t = ctypes.WINFUNCTYPE(w.BOOL, w.HWND, w.LPARAM)
-
-    def cb(h, _lp):
-        p = w.DWORD()
-        _u.GetWindowThreadProcessId(h, ctypes.byref(p))
-        if p.value == pid:
-            c, t = ctypes.create_unicode_buffer(256), ctypes.create_unicode_buffer(256)
-            _u.GetClassNameW(h, c, 256)
-            _u.GetWindowTextW(h, t, 256)
-            found.append((h, c.value, t.value, bool(_u.IsWindowVisible(h))))
-        return True
-    _u.EnumWindows(cb_t(cb), 0)
-    return found
-
-
-SHOWN_CLASSES = ("#32770", "ConsoleWindowClass")     # a dialog, a console: what the server and the scripts open
-
-
-def hide_windows(pid):
-    """hide every visible top-level window of a process; -> their titles.  Asynchronous: it never waits for the
-    program (a stuck one included), so the windows go a moment later"""
-    out = []
-    for h, _c, t, vis in top_windows(pid):
-        if vis:
-            _u.ShowWindowAsync(h, 0)                    # SW_HIDE
-            out.append(t)
-    return out
-
-
-def show_windows(pid):
-    """show a process's hidden dialog and console windows again, without taking the keyboard - never its other
-    hidden windows (Windows' own helpers such as "Default IME"); -> their titles"""
-    out = []
-    for h, c, t, vis in top_windows(pid):
-        if c in SHOWN_CLASSES and not vis:
-            _u.ShowWindowAsync(h, 4)                    # SW_SHOWNOACTIVATE
-            out.append(t)
-    return out

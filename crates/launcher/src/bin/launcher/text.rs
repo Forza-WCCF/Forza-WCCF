@@ -65,6 +65,8 @@ pub struct Text {
     pub done: &'static str,
     pub failed: &'static str,
     pub busy: &'static str,
+    pub unguarded: &'static str,
+    pub stop_anyway: &'static str,
     pub link_taken: &'static str,
     pub link_no_junction: &'static str,
     pub link_failed: &'static str,
@@ -133,6 +135,11 @@ const EN: Text = Text {
     done: "Done.",
     failed: "Failed - the output below says why.",
     busy: "Wait: Launcher is busy.",
+    unguarded: "NOT started: Windows was told to load only its own copies of system files for programs started from \
+                here (\"Prefer System32 images\" - a WSL terminal does this), so the game would run without the kit's \
+                guard. Start Launcher.exe from Explorer (double-click it).",
+    stop_anyway: "Your club card is in the reader, or a match is on: stopping now can give the card a bad ending \
+                  (trade rights are lost at 2). The details are in Launcher's window.\n\nStop the game anyway?",
     link_taken: "This folder's path has special characters, which the game may not handle, and {} is already used by another Forza-WCCF folder. Running from here. If the game does not start, move the kit to a plain path such as C:\\Games.",
     link_no_junction: "This folder's path has special characters, which the game may not handle, and Windows can only link folders on local NTFS drives. Running from here. If the game does not start, move the kit to a plain path such as C:\\Games.",
     link_failed: "This folder's path has special characters, which the game may not handle, and linking it to {} failed ({}). Running from here. If the game does not start, move the kit to a plain path such as C:\\Games.",
@@ -203,6 +210,12 @@ const IT: Text = Text {
     done: "Fatto.",
     failed: "Non riuscito - il motivo è nel testo qui sotto.",
     busy: "Attendi: Launcher è occupato.",
+    unguarded: "NON avviato: Windows ha ricevuto l'ordine di caricare solo le proprie copie dei file di sistema per i \
+                programmi avviati da qui (\"Prefer System32 images\" - lo fa un terminale WSL), quindi il gioco \
+                girerebbe senza la protezione del kit. Avvia Launcher.exe da Esplora file (doppio clic).",
+    stop_anyway: "La tua carta del club è nel lettore, oppure è in corso una partita: fermare adesso può dare alla \
+                  carta un finale negativo (a 2 si perdono i diritti di scambio). I dettagli sono nella finestra di \
+                  Launcher.\n\nFermare comunque il gioco?",
     link_taken: "Il percorso di questa cartella ha caratteri speciali che il gioco potrebbe non gestire, e {} è già usata da un'altra cartella Forza-WCCF. Avvio da qui. Se il gioco non parte, sposta il kit in un percorso semplice come C:\\Games.",
     link_no_junction: "Il percorso di questa cartella ha caratteri speciali che il gioco potrebbe non gestire, e Windows può collegare solo cartelle su dischi NTFS locali. Avvio da qui. Se il gioco non parte, sposta il kit in un percorso semplice come C:\\Games.",
     link_failed: "Il percorso di questa cartella ha caratteri speciali che il gioco potrebbe non gestire, e il collegamento a {} non è riuscito ({}). Avvio da qui. Se il gioco non parte, sposta il kit in un percorso semplice come C:\\Games.",
@@ -271,6 +284,11 @@ const JA: Text = Text {
     done: "完了しました。",
     failed: "失敗しました（理由は下の表示にあります）。",
     busy: "処理中です。終わるまでお待ちください。",
+    unguarded: "起動しませんでした: ここから起動するプログラムは Windows 自身のシステムファイルだけを読み込むよう指示されて\
+                います（\"Prefer System32 images\" - WSL のターミナルがこれを行います）。このままではキットの保護なしで\
+                ゲームが動きます。エクスプローラーから Launcher.exe を起動してください（ダブルクリック）。",
+    stop_anyway: "クラブカードがリーダーに入っているか、試合中です。今終了するとカードにバッドエンドが付くことがあります\
+                  （2 回でトレード権を失います）。詳細は Launcher のウィンドウにあります。\n\nそれでもゲームを終了しますか？",
     link_taken: "このフォルダーのパスには、ゲームが扱えないかもしれない特殊な文字があり、{} は別の Forza-WCCF フォルダーが使用中です。ここから起動します。ゲームが起動しない場合は、キットを C:\\Games のような英数字だけのパスへ移動してください。",
     link_no_junction: "このフォルダーのパスには、ゲームが扱えないかもしれない特殊な文字があり、Windows がリンクできるのはローカルの NTFS ドライブ上のフォルダーだけです。ここから起動します。ゲームが起動しない場合は、キットを C:\\Games のような英数字だけのパスへ移動してください。",
     link_failed: "このフォルダーのパスには、ゲームが扱えないかもしれない特殊な文字があり、{} へのリンクに失敗しました（{}）。ここから起動します。ゲームが起動しない場合は、キットを C:\\Games のような英数字だけのパスへ移動してください。",

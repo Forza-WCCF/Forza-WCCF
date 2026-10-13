@@ -1,9 +1,11 @@
 //! Launcher.exe - the kit's one program, a window (2026-10-10; before, a console that ran play.py, and SETUP.exe beside
 //! it for the rest).  Nothing it starts shows a console: the game's two windows are all a player sees.
 //!   PLAY         play on THIS PC or ONLINE on a server, the window's language, the game's text (English,
-//!                Italian or Japanese) - then scripts\play.py starts the game; once it is up this window goes, and this
-//!                process stays behind without a window as the run's watcher (watch.rs): closing a game window stops
-//!                the rest, then Launcher.exe ends.  While the game runs, Launcher.exe opened again offers STOP THE GAME.
+//!                Italian or Japanese) - then this process runs the game (launcher::run) and holds every process of it
+//!                in one Job until it ends.  Once the game is up this window is minimized; closing a game window ends
+//!                the run, and then Launcher.exe ends too.  Closing this window (or STOP THE GAME) asks the run to stop
+//!                by the card rule: with the club card in or a match on, it asks first.  Launcher.exe opened again
+//!                while the game runs offers STOP THE GAME, which asks the running Launcher.exe.
 //!   SETUP AND UPDATES (folded away until wanted, or until setup is needed)
 //!                the game folder: set up / repair (scripts\setup.py GAME) and undo; it is typed, picked, dropped on
 //!                the window or on Launcher.exe, and remembered by setup.py in data\settings.json.
@@ -11,10 +13,10 @@
 //! The choices go where the kit already keeps them (choices.rs): data\panel.txt, which the in-game SETTINGS panel
 //! writes too, and data\settings.json.  The scripts' output fills the box at the bottom.
 //!
-//! The command line still works: "Launcher.exe restart" (the in-game RESTART NOW: this window, restarting, then gone),
-//! "Launcher.exe GAME-FOLDER" / "Launcher.exe undo" (setup at once), and play.py's own words (local, server, remote ADDRESS,
-//! debug, stop, status, show): from a console they print there, as before; from elsewhere (a shortcut) they run in
-//! this window.  "--watch" is the watcher alone, which a console start leaves behind.
+//! The command line still works: "Launcher.exe GAME-FOLDER" / "Launcher.exe undo" (setup at once), and play.py's words
+//! (local, server, remote ADDRESS [seat N], debug, stop, status, show, restart): from a console they print there and a
+//! start holds the console until the run ends (Ctrl+C asks it to stop, by the card rule); from elsewhere (a shortcut)
+//! they run in this window.
 
 #![windows_subsystem = "windows"]
 
@@ -30,10 +32,11 @@ use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{ExitCode, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
 use std::{env, mem, ptr, thread};
 
 use launcher::release::is_newer;
+use launcher::run::{self, Params};
 use launcher::{Kit, choices};
 use text::{LANGUAGES, fill, t};
 use update::Release;
@@ -43,7 +46,8 @@ use windows_sys::Win32::Graphics::Gdi::{
 };
 use windows_sys::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoTaskMemFree};
 use windows_sys::Win32::System::Console::{
-    ATTACH_PARENT_PROCESS, AttachConsole, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, SetStdHandle,
+    ATTACH_PARENT_PROCESS, AttachConsole, CTRL_BREAK_EVENT, CTRL_C_EVENT, CTRL_CLOSE_EVENT, GetConsoleMode,
+    GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, SetConsoleCtrlHandler, SetStdHandle,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::SystemServices::{SS_ETCHEDHORZ, SS_RIGHT};
@@ -58,7 +62,7 @@ use windows_sys::Win32::UI::Shell::{
     SHBrowseForFolderW, SHGetPathFromIDListW, ShellExecuteW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
-use windows_sys::core::{PCWSTR, w};
+use windows_sys::core::{BOOL, PCWSTR, w};
 
 const ID_FOLDER: i32 = 10;
 const ID_BROWSE: i32 = 11;
@@ -100,7 +104,7 @@ const WIDTH: i32 = 600;
 enum Step {
     Script(&'static str, Vec<OsString>),
     Update(Release),
-    /// play.py with these words; its exit code is the result
+    /// The run (launcher::run) with play.py's words; its exit code is the result
     Game(Vec<OsString>),
 }
 
@@ -133,12 +137,15 @@ static SHARED: Mutex<Shared> = Mutex::new(Shared {
     changed: true,
 });
 
-/// This process took the run's watch over (watch.rs): once its window is gone it watches the run, whatever the start
-/// did - a refused restart leaves the run running, and someone must stop the rest when its window is closed.
-static WATCHES: AtomicBool = AtomicBool::new(false);
-/// The game (or a kit tool) runs from this kit folder: PLAY offers STOP THE GAME.
+/// The game is up in this process (its run is supervised here): the window is minimized, closing it asks the run to stop.
+static UP: AtomicBool = AtomicBool::new(false);
+/// The game came up during the current job: when the run then ends well, Launcher.exe ends with it.
+static WAS_UP: AtomicBool = AtomicBool::new(false);
+/// A run is on in this kit folder (here or in another Launcher.exe): PLAY offers STOP THE GAME.
 static RUNNING: AtomicBool = AtomicBool::new(false);
 static UNFOLD: AtomicBool = AtomicBool::new(false);
+/// The window was minimized for the game that is up (once per run, so the player can bring it back).
+static MINIMIZED: AtomicBool = AtomicBool::new(false);
 /// The screen's dots per inch (96 at 100 %), for the window's size.
 static DPI: AtomicI32 = AtomicI32::new(96);
 
@@ -267,6 +274,7 @@ fn start(steps: Vec<Step>) {
         if s.busy {
             return;
         }
+        WAS_UP.store(false, Ordering::Relaxed);
         s.busy = true;
         s.progress = 0;
         s.changed = true;
@@ -284,24 +292,24 @@ fn start(steps: Vec<Step>) {
                 }
                 Step::Update(r) => update::apply(&kit, r).map(|()| updated = Some(r.tag.clone())),
                 Step::Game(args) => {
-                    let looks_only = args.first().is_some_and(|a| a == "status" || a == "show");
-                    if !looks_only {
-                        launcher::take_over(&kit); // an earlier run's watcher lets go: this process watches now
-                        WATCHES.store(true, Ordering::Relaxed);
-                    }
-                    run_script(&kit, "play.py", args).map(|rc| game = Some(u8::try_from(rc).unwrap_or(1)))
+                    let words: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
+                    log(&format!("> {}", words.join(" ")));
+                    let rc = run::command(&kit, &Params::game(), &words, &WindowUi);
+                    game = Some(u8::try_from(rc).unwrap_or(1));
+                    Ok(())
                 }
             };
             if result.is_err() {
                 break;
             }
         }
-        RUNNING.store(launcher::kit_program_running(&kit).is_some(), Ordering::Relaxed);
+        RUNNING.store(run::any_on(&kit), Ordering::Relaxed);
         let failed = result.is_err() || game.is_some_and(|rc| rc != 0);
         let status = match (&result, &updated, game) {
             (Err(e), _, _) => e.clone(),
             (Ok(()), Some(tag), _) => fill(t().updated, &[tag]),
             (Ok(()), None, Some(2)) => t().not_set_up.to_owned(),
+            (Ok(()), None, Some(4)) => t().unguarded.to_owned(),
             (Ok(()), None, Some(rc)) if rc != 0 => t().start_failed.to_owned(),
             (Ok(()), None, _) => t().done.to_owned(),
         };
@@ -315,6 +323,62 @@ fn start(steps: Vec<Step>) {
         s.game = game;
         s.busy = false;
         s.changed = true;
+    });
+}
+
+/// The run's lines go to the output box (its "N/M" steps move the bar); its question - stop anyway, after the card
+/// rule refused a stop - is asked in a message box; the game up minimizes the window.
+struct WindowUi;
+
+impl run::Ui for WindowUi {
+    fn say(&self, line: &str) {
+        if let Some(per_mille) = step(line) {
+            let mut s = shared();
+            s.progress = s.progress.max(per_mille);
+        }
+        log(line);
+    }
+
+    fn ask(&self, _question: &str) -> bool {
+        let text = wide(t().stop_anyway);
+        // SAFETY: NUL-terminated strings; no owner (any thread may ask), kept in front of the game.
+        unsafe {
+            MessageBoxW(
+                ptr::null_mut(),
+                text.as_ptr(),
+                wide(t().title).as_ptr(),
+                MB_YESNO | MB_ICONQUESTION | MB_TOPMOST | MB_SETFOREGROUND,
+            ) == IDYES
+        }
+    }
+
+    fn running(&self, up: bool) {
+        UP.store(up, Ordering::Relaxed);
+        WAS_UP.fetch_or(up, Ordering::Relaxed);
+        RUNNING.store(up, Ordering::Relaxed);
+        let mut s = shared();
+        if up {
+            s.status = t().running.into();
+            s.progress = 1000;
+        }
+        s.changed = true;
+    }
+}
+
+/// STOP THE GAME, or this window closed while the game runs: the running game is asked to stop (`force`: without the
+/// card rule), on a thread of its own - the run itself may be this process's job.
+fn stop_game(force: bool) {
+    say(t().stopping, 0);
+    thread::spawn(move || {
+        let words: Vec<String> = if force {
+            vec!["stop".into(), "force".into()]
+        } else {
+            vec!["stop".into()]
+        };
+        run::command(&Kit::here(), &Params::game(), &words, &WindowUi);
+        let kit = Kit::here();
+        RUNNING.store(run::any_on(&kit), Ordering::Relaxed);
+        shared().changed = true;
     });
 }
 
@@ -483,8 +547,7 @@ fn open_notes(hwnd: HWND) {
 fn play_clicked(hwnd: HWND) {
     if RUNNING.load(Ordering::Relaxed) {
         if ask(hwnd, t().stop_confirm) {
-            say(t().stopping, 0);
-            start(vec![Step::Game(vec!["stop".into(), "force".into()])]);
+            stop_game(true);
         }
         return;
     }
@@ -639,11 +702,22 @@ fn refresh(hwnd: HWND) {
     };
     let kit = Kit::here();
     let installed = this_kit(&kit);
-    // the game is up: this window goes, and the process watches the run (main, after the window)
-    if game == Some(0) && WATCHES.load(Ordering::Relaxed) && launcher::run_recorded(&kit) > 0 {
+    // the run this process held has ended well: Launcher.exe ends with it
+    if game == Some(0) && WAS_UP.load(Ordering::Relaxed) {
         // SAFETY: our own window, from its own thread.
         unsafe { DestroyWindow(hwnd) };
         return;
+    }
+    // SAFETY: our own window, from its own thread.
+    unsafe {
+        if UP.load(Ordering::Relaxed) && IsIconic(hwnd) == 0 && !MINIMIZED.swap(true, Ordering::Relaxed) {
+            ShowWindow(hwnd, SW_MINIMIZE); // the game's windows are in front; this one waits in the taskbar
+        } else if game.is_some() && IsIconic(hwnd) != 0 {
+            ShowWindow(hwnd, SW_RESTORE); // the run ended badly: what it said is shown
+        }
+    }
+    if !UP.load(Ordering::Relaxed) {
+        MINIMIZED.store(false, Ordering::Relaxed);
     }
     if failed {
         unfold(hwnd, true);
@@ -751,6 +825,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         WM_TIMER => {
             refresh(hwnd);
+            0
+        }
+        // closing Launcher while the game runs is a quit: asked of the run, by the card rule
+        WM_CLOSE if UP.load(Ordering::Relaxed) => {
+            stop_game(false);
             0
         }
         // never a kit left half copied, nor a start half done: the window stays while a job runs
@@ -938,7 +1017,7 @@ fn window(kit: &Kit, first: Option<Step>, folder: Option<&OsStr>) {
             |f| f.to_string_lossy().into_owned(),
         );
         set_text(hwnd, ID_FOLDER, &game);
-        RUNNING.store(launcher::kit_program_running(kit).is_some(), Ordering::Relaxed);
+        RUNNING.store(run::any_on(kit), Ordering::Relaxed);
         retext(hwnd);
         let unset = game.is_empty();
         unfold(hwnd, unset || folder.is_some());
@@ -995,30 +1074,55 @@ fn attach_console() -> bool {
     true
 }
 
-/// play.py in the console Launcher.exe was started from, as before 2026-10-10; a start leaves the watcher behind.
+/// The kit folder, for the console's Ctrl+C handler.
+static CONSOLE_KIT: OnceLock<PathBuf> = OnceLock::new();
+
+/// Ctrl+C, Ctrl+Break or the console closed: the run is asked to stop by the card rule (it says what it does).  A closed
+/// console ends this process a few seconds later anyway, and the Job ends the run with it.
+unsafe extern "system" fn on_ctrl(event: u32) -> BOOL {
+    if let Some(dir) = CONSOLE_KIT.get() {
+        run::ask_stop(&Kit::at(dir.clone()));
+    }
+    i32::from(event == CTRL_C_EVENT || event == CTRL_BREAK_EVENT || event == CTRL_CLOSE_EVENT)
+}
+
+/// The console's lines and its question: answered only by someone at a real console keyboard (never by a pipe or a
+/// file - those read as no).
+struct ConsoleUi;
+
+impl run::Ui for ConsoleUi {
+    fn say(&self, line: &str) {
+        println!("{line}");
+    }
+
+    fn ask(&self, question: &str) -> bool {
+        let mut mode = 0;
+        // SAFETY: this process's own input handle; a missing one makes the call fail.
+        if unsafe { GetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), &mut mode) } == 0 {
+            return false;
+        }
+        print!("{question}");
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+        let mut answer = String::new();
+        std::io::stdin().read_line(&mut answer).is_ok() && matches!(answer.trim().to_lowercase().as_str(), "y" | "yes")
+    }
+}
+
+/// The run in the console Launcher.exe was started from: a start holds the console until the run ends.
 fn console(kit: &Kit, args: &[OsString]) -> ExitCode {
-    let looks_only = args
-        .first()
-        .is_some_and(|a| a.eq_ignore_ascii_case("status") || a.eq_ignore_ascii_case("show"));
-    if !looks_only {
-        launcher::take_over(kit);
-    }
+    let _ = CONSOLE_KIT.set(kit.dir().to_path_buf());
+    // SAFETY: `on_ctrl` is a valid handler for the life of the process.
+    unsafe { SetConsoleCtrlHandler(Some(on_ctrl), 1) };
     println!();
-    let rc = kit.run("play.py", args);
-    if !looks_only {
-        launcher::spawn_watcher(kit);
-    }
-    ExitCode::from(rc)
+    let words: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
+    let rc = run::command(kit, &Params::game(), &words, &ConsoleUi);
+    ExitCode::from(u8::try_from(rc).unwrap_or(1))
 }
 
 fn main() -> ExitCode {
     let args: Vec<OsString> = env::args_os().skip(1).collect();
     let kit = Kit::here();
     let first = args.first().map(|a| a.to_string_lossy().to_ascii_lowercase());
-    if first.as_deref() == Some("--watch") {
-        launcher::watch(&kit);
-        return ExitCode::SUCCESS;
-    }
     update::tidy(&kit);
     text::choose(choices::setting(&kit.settings_file(), "language").as_deref());
     // a plain start (no arguments): first run, the kit folder gets the installer's name (link.rs)
@@ -1046,9 +1150,6 @@ fn main() -> ExitCode {
         Some(_) => Some(Step::Game(args.clone())),
     };
     window(&kit, step, folder.map(OsString::as_os_str));
-    if WATCHES.load(Ordering::Relaxed) {
-        launcher::watch(&kit); // the game's windows are the run now; returns at once if there is no run
-    }
     ExitCode::SUCCESS
 }
 

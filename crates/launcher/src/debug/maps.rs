@@ -13,7 +13,7 @@ use windows_sys::Win32::System::Memory::{
     VirtualQuery,
 };
 
-use crate::watch::wide;
+use crate::job::wide;
 
 /// The game's name for its mappings.
 pub const GAME_ID: &str = "SBWG";

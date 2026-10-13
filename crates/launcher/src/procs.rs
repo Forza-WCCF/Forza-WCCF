@@ -138,6 +138,17 @@ pub fn game_processes(game: &Path) -> Vec<Proc> {
         .collect()
 }
 
+/// A program running from `dir` (in the form Windows reports it), this process aside: Launcher.exe's UPDATE writes
+/// over the kit only when there is none.
+pub fn running_from(dir: &Path) -> Option<PathBuf> {
+    let root = same_form(dir) + "\\";
+    let me = std::process::id();
+    processes()
+        .into_iter()
+        .find(|p| p.pid != me && normcase(&p.path).starts_with(&root))
+        .map(|p| p.path)
+}
+
 /// Ends a process at once (no questions to the program): true if Windows did.
 pub fn kill(pid: u32) -> bool {
     // SAFETY: the handle is checked and closed once.

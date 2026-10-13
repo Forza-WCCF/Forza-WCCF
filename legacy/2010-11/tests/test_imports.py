@@ -54,7 +54,7 @@ for name in names:
     except Exception as ex:  # noqa: BLE001 - any failure to import is the finding
         check(False, "import %s: %s: %s" % (name, type(ex).__name__, ex))
 
-# imports inside functions (run only when that feature is used - SEND LOGS imports online.send_logs on a click):
+# imports inside functions (run only when that feature is used - the club card steps import cards\\ at a start):
 # every import line in every file must name something Python can find
 import ast  # noqa: E402
 import importlib.util  # noqa: E402
@@ -80,9 +80,9 @@ for root, dirs, files in os.walk(code):
                     found = False
                 check(found, "%s line %d: import %s - not found" % (os.path.relpath(path, code), node.lineno, w))
 
-# a file one folder deeper must not take "two folders up" for the kit
-from online import send_logs  # noqa: E402
-check(os.path.normcase(send_logs.KIT) == os.path.normcase(K.KIT), "send_logs.KIT is the kit (%s)" % send_logs.KIT)
+# a file one folder deeper finds the kit through kit_common, never "two folders up" from itself
+from cards import view  # noqa: E402
+check(os.path.normcase(os.path.dirname(view.RUNNING)) == os.path.normcase(K.DATA), "cards.view finds data\\ (%s)" % view.RUNNING)
 
 print("imports: %d files in code\\ import through python313._pth, %d failed" % (len(names), len(fails)))
 sys.exit(1 if fails else 0)

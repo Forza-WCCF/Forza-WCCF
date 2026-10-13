@@ -28,12 +28,25 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetWindowThreadProcessId, IsWindowVisible, PostMessageW, SW_HIDE, WM_CLOSE,
 };
 
-use crate::watch::owned;
-
 #[link(name = "ntdll")]
 unsafe extern "system" {
     /// Undocumented but stable since NT 5: resumes every thread of the process (here: its one suspended thread).
     fn NtResumeProcess(process: HANDLE) -> i32;
+}
+
+pub(crate) fn wide(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain([0]).collect()
+}
+
+/// # Safety
+/// `h` is a handle just returned to this process, owned by nobody else.
+pub(crate) unsafe fn owned(h: HANDLE) -> io::Result<OwnedHandle> {
+    if h.is_null() {
+        Err(io::Error::last_os_error())
+    } else {
+        // SAFETY: as the caller promises.
+        Ok(unsafe { OwnedHandle::from_raw_handle(h) })
+    }
 }
 
 /// How long `stop` waits for the job to empty after `TerminateJobObject`.
@@ -354,7 +367,6 @@ mod tests {
     };
 
     use super::*;
-    use crate::watch::wide;
 
     const MODE: &str = "WCCF_JOB_STAND_IN";
 

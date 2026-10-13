@@ -1,6 +1,5 @@
-//! Launcher.exe's shared code (in place of the .bat files, 2026-10-08).  It runs one kit script with the kit's own Python
-//! (python\python.exe) in the console Launcher was started from, its arguments passed on as they are, and keeps the run's
-//! watcher (watch.rs): once a game window is closed, it stops the rest.
+//! Launcher.exe's shared code: the kit folder, the run (`run`: play.py in Rust, step 10) and what it is built on - the
+//! Job object, the debugger, the key driver, the game's settings files, the club card's session, the logs.
 
 pub mod card;
 pub mod choices;
@@ -13,7 +12,5 @@ pub mod logs;
 pub mod procs;
 pub mod release;
 pub mod run;
-mod watch;
 
 pub use kit::{Kit, SCRIPTS};
-pub use watch::{kit_program_running, run_recorded, spawn_watcher, take_over, watch};

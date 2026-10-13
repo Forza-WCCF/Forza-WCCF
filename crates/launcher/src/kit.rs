@@ -3,16 +3,11 @@
 //! it.  Port of kit_common.py's paths, load_settings, find_game, seat_dir and misc_dir.
 
 use std::env;
-use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use windows_sys::Win32::Foundation::{FALSE, TRUE};
-use windows_sys::Win32::System::Console::{CTRL_BREAK_EVENT, CTRL_C_EVENT, SetConsoleCtrlHandler};
-use windows_sys::core::BOOL;
-
-/// The kit's Python scripts folder (`cargo xtask check` checks the staged kit has play.py, setup.py and english.py in it).
+/// The kit's Python scripts folder (`cargo xtask check` checks the staged kit has the scripts Launcher.exe runs in it).
 pub const SCRIPTS: &str = "code";
 
 /// The kit folder: the one this exe is in.
@@ -108,28 +103,6 @@ impl Kit {
         let mut cmd = Command::new(self.python());
         cmd.arg(self.dir.join(SCRIPTS).join(script));
         cmd
-    }
-
-    /// Runs a kit script in this window; its exit code (1 if it could not run).
-    pub fn run<S: AsRef<OsStr>>(&self, script: &str, args: &[S]) -> u8 {
-        // Ctrl+C goes to the script (Python stops with its own message), not to Launcher.  A handler, not SetConsoleCtrlHandler(None, TRUE): that one the script would inherit.
-        // SAFETY: `keep_window` is a valid handler for the life of the process.
-        unsafe { SetConsoleCtrlHandler(Some(keep_window), TRUE) };
-        match self.script(script).args(args).status() {
-            Ok(status) => status.code().and_then(|c| u8::try_from(c).ok()).unwrap_or(1),
-            Err(e) => {
-                println!("Could not start the kit's Python ({}): {e}", self.python().display());
-                1
-            }
-        }
-    }
-}
-
-unsafe extern "system" fn keep_window(event: u32) -> BOOL {
-    if event == CTRL_C_EVENT || event == CTRL_BREAK_EVENT {
-        TRUE
-    } else {
-        FALSE
     }
 }
 

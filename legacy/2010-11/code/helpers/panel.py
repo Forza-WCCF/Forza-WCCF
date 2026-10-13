@@ -1,40 +1,26 @@
 # -*- coding: utf-8 -*-
-r"""panel.py - does what the in-game panels ask for and cannot do from inside the game.  play.py starts it
-(hidden) with the cabinets; the end of the run ends it with everything else.
-    python panel.py SECONDS [DATA PLAY_EXE [hidden]]        (DATA, PLAY_EXE, hidden: tests only)
+r"""panel.py - does what the in-game panels ask for and cannot do from inside the game.  The run in Launcher.exe
+(crates\launcher\src\run) starts it without a window with the cabinets; the end of the run ends it with everything else.
+    python panel.py SECONDS [DATA]        (DATA: tests only)
 
-RESTART NOW (the SETTINGS panel, 2026-10-06): the panel writes data\restart.request; this helper takes the file away
-and starts "Launcher.exe restart" (PLAY's window while it restarts, then gone; no console since 2026-10-10): a stop by
-the card rule (during a card session it is refused, and PLAY's window says why), then a plain start with the NEXT
-START settings.  It has to come from out here: seat 1 runs under a
-debugger that follows the programs it starts, so a restart started by the game itself would be killed half way.
-A request that is already there when the helper starts (left by a run that ended) is removed, never carried out.
+RESTART NOW (data\restart.request) and SEND LOGS (data\sendlogs.request -> data\sendlogs.result) are done by the run in
+Launcher.exe itself since step 10 (piece G); this helper keeps the rest until piece H ports it.
 
 THE CLUB CARD panel's view (2026-10-06): data\club_view.txt, rewritten by view.py (with decode.py, the
 reader the website will use) whenever the card, its backups or the run change - once the card has held still for a
 second, so the game's bursts of saves are not read half way.  A view that cannot be written is said once and never
 stops the helper: RESTART NOW does not depend on it.
 
-SEND LOGS (the SETTINGS panel, 2026-10-09): the panel writes data\sendlogs.request with the server's address; this
-helper takes it away, packs and sends the logs (online\send_logs.py) in a thread of its own, and writes data\sendlogs.result
-for the panel: "sending", then "ok CODE" or "fail WHY".  An old request at the start is removed, never sent.
-
 THE STARTING VOLUMES (2026-10-06): sound.py - the projector muted, seat 1 very low - set once for each, as
 soon as it has opened its sound (looked for every 0.5 s for 10 minutes after the start); never again, so a change in
-the Volume Mixer stays.  The game folder comes from play.py (WCCF_GAME); without it nothing is set.  Like the view, it
+the Volume Mixer stays.  The game folder comes from the run (WCCF_GAME); without it nothing is set.  Like the view, it
 never stops the helper.
 """
 import os
-import re
-import subprocess
 import sys
-import threading
 import time
 
 import kit_common as K
-
-HERE = os.path.dirname(os.path.abspath(__file__))
-CREATE_NEW_CONSOLE, CREATE_NO_WINDOW = 0x10, 0x08000000
 
 
 def say(msg):
@@ -89,57 +75,6 @@ class ClubView:
                 self.said = True
 
 
-class SendLogs:
-    """SEND LOGS: data\\sendlogs.request (the address) -> online\\send_logs.py in a thread -> data\\sendlogs.result"""
-
-    def __init__(self, data):
-        self.req, self.res = os.path.join(data, "sendlogs.request"), os.path.join(data, "sendlogs.result")
-        self.kit, self.job = os.path.dirname(os.path.abspath(data)), None
-        if os.path.exists(self.req):
-            try:
-                os.remove(self.req)
-                say("an old SEND LOGS request (from a run that ended) removed - not sent")
-            except OSError:
-                pass
-
-    def result(self, text):
-        try:
-            with open(self.res + ".tmp", "w", encoding="ascii", errors="replace") as f:
-                f.write(text + "\n")
-            os.replace(self.res + ".tmp", self.res)
-        except OSError as ex:
-            say("SEND LOGS: the result could not be written: %s" % ex)
-
-    def run(self, address):
-        try:
-            from online import send_logs
-            blob, n = send_logs.pack(self.kit)
-            ok, what = send_logs.send(address, blob, send_logs.version(self.kit))
-            say("SEND LOGS to %s: %d files, %d KB - %s" % (address, n, len(blob) // 1024,
-                                                          "code " + what if ok else "not sent: " + what))
-            self.result(("ok %s" if ok else "fail %s") % what)
-        except Exception as ex:             # never stops the helper: the panel is told
-            say("SEND LOGS failed: %r" % ex)
-            self.result("fail could not pack the logs (%s)" % ex.__class__.__name__)
-
-    def tick(self):
-        if not os.path.exists(self.req) or (self.job and self.job.is_alive()):
-            return
-        try:
-            with open(self.req, encoding="ascii", errors="replace") as f:
-                address = f.read().strip()
-            os.remove(self.req)             # taken first: one request, one upload
-        except OSError:
-            return
-        if not re.fullmatch(r"\d{1,3}(\.\d{1,3}){3}", address):
-            self.result("fail no server address - type it under PLAY ON first")
-            return
-        self.result("sending")
-        say("SEND LOGS asked - packing and sending to %s" % address)
-        self.job = threading.Thread(target=self.run, args=(address,), daemon=True)
-        self.job.start()
-
-
 class SoundDefaults:
     """the projector muted and seat 1 at sound.GAME_VOLUME, each set once, when it has first opened its
     sound; mod: helpers.sound, or a stand-in (the tests)"""
@@ -188,35 +123,12 @@ def main(argv):
         return 2
     life = int(argv[0])
     data = argv[1] if len(argv) > 1 else K.DATA
-    play = argv[2] if len(argv) > 2 else os.path.join(K.KIT, "Launcher.exe")
-    flags = CREATE_NO_WINDOW if argv[3:] == ["hidden"] else CREATE_NEW_CONSOLE
-    req = os.path.join(data, "restart.request")
-    if os.path.exists(req):
-        try:
-            os.remove(req)
-            say("an old restart request (from a run that ended) removed - not carried out")
-        except OSError as ex:
-            say("an old restart request could not be removed: %s" % ex)
-    say("watching %s" % req)
     view = ClubView(data)
     sound = SoundDefaults(os.environ.get("WCCF_GAME"), time.time())
-    logs = SendLogs(data)
     end = time.time() + life
     while time.time() < end:
         view.tick(time.time())
         sound.tick(time.time())
-        logs.tick()
-        if os.path.exists(req):
-            try:
-                os.remove(req)                  # taken first: one request, one restart
-            except OSError:
-                time.sleep(0.5)
-                continue
-            say("RESTART NOW asked - opening Launcher.exe restart in its own window")
-            try:
-                subprocess.Popen([play, "restart"], cwd=os.path.dirname(play), creationflags=flags, close_fds=True)
-            except OSError as ex:
-                say("could not open Launcher.exe restart: %s" % ex)
         time.sleep(0.5)
     return 0
 

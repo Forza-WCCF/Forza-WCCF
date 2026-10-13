@@ -86,7 +86,7 @@ pub fn fetch() -> Result<Vec<Release>, String> {
 }
 
 fn running_check(kit: &Kit) -> Result<(), String> {
-    match launcher::kit_program_running(kit) {
+    match launcher::procs::running_from(kit.dir()) {
         Some(p) => {
             let name = p.file_name().map_or(p.as_os_str(), OsStr::new).display().to_string();
             Err(fill(t().close_game, &[&name]))
