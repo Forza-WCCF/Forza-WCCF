@@ -29,3 +29,21 @@ fn quickedit_is_switched_off_in_another_programs_console() {
     assert!(text.contains("pid x: NOT changed (not a process id)"), "{text}");
     assert_eq!(out.status.code(), Some(1), "{text}");
 }
+
+/// Output redirected to a file lands in the file, not in the parent's console (`Launcher.exe status > out.txt`).
+#[test]
+fn redirected_output_goes_to_the_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let exe = dir.path().join("Launcher.exe");
+    std::fs::copy(env!("CARGO_BIN_EXE_Launcher"), &exe).unwrap();
+    let out = dir.path().join("out.txt");
+    let status = Command::new(&exe)
+        .arg("status")
+        .current_dir(dir.path())
+        .stdin(Stdio::null())
+        .stdout(std::fs::File::create(&out).unwrap())
+        .status()
+        .unwrap();
+    let text = std::fs::read_to_string(&out).unwrap();
+    assert!(text.contains("Nothing running."), "{status:?} {text:?}");
+}

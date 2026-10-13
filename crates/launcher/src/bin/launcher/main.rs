@@ -40,10 +40,11 @@ use launcher::run::{self, Params};
 use launcher::{Kit, choices};
 use text::{LANGUAGES, fill, t};
 use update::Release;
-use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows_sys::Win32::Foundation::{HWND, INVALID_HANDLE_VALUE, LPARAM, LRESULT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
     COLOR_BTNFACE, CreateFontIndirectW, FW_BOLD, GetDC, GetDeviceCaps, HFONT, LOGPIXELSY, ReleaseDC,
 };
+use windows_sys::Win32::Storage::FileSystem::{FILE_TYPE_DISK, FILE_TYPE_PIPE, GetFileType};
 use windows_sys::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoTaskMemFree};
 use windows_sys::Win32::System::Console::{
     ATTACH_PARENT_PROCESS, AttachConsole, CTRL_BREAK_EVENT, CTRL_C_EVENT, CTRL_CLOSE_EVENT, GetConsoleMode,
@@ -1047,13 +1048,24 @@ fn window(kit: &Kit, first: Option<Step>, folder: Option<&OsStr>) {
 
 // ---- from a console ---------------------------------------------------------------------------------------------
 
-/// Started from a console (cmd, PowerShell): its output goes there.  A program built as a window has no console of
-/// its own, so it joins the one it was started from; false if there is none.
+/// A standard handle that a file or a pipe from the parent stands behind (`Launcher.exe status > out.txt`).
+fn redirected(which: u32) -> bool {
+    // SAFETY: plain Win32 calls on this process's own standard handle.
+    unsafe {
+        let h = GetStdHandle(which);
+        !h.is_null() && h != INVALID_HANDLE_VALUE && matches!(GetFileType(h), FILE_TYPE_DISK | FILE_TYPE_PIPE)
+    }
+}
+
+/// Started from a console (cmd, PowerShell): its output goes there, unless the parent redirected it to a file or a
+/// pipe - then it goes there and the console (if any) only serves Ctrl+C.  A program built as a window has no console of
+/// its own, so it joins the one it was started from; false if there is neither a console nor a redirection.
 fn attach_console() -> bool {
+    let (out, input) = (redirected(STD_OUTPUT_HANDLE), redirected(STD_INPUT_HANDLE));
     // SAFETY: plain Win32 calls; each console handle is opened once and handed to Windows as this process's own.
     unsafe {
         if AttachConsole(ATTACH_PARENT_PROCESS) == 0 {
-            return false;
+            return out;
         }
         let open = |name: &str| {
             OpenOptions::new()
@@ -1063,12 +1075,14 @@ fn attach_console() -> bool {
                 .ok()
                 .map(|f| f.into_raw_handle())
         };
-        if let Some(out) = open("CONOUT$") {
-            SetStdHandle(STD_OUTPUT_HANDLE, out);
-            SetStdHandle(STD_ERROR_HANDLE, out);
+        if !out && let Some(h) = open("CONOUT$") {
+            SetStdHandle(STD_OUTPUT_HANDLE, h);
+            if !redirected(STD_ERROR_HANDLE) {
+                SetStdHandle(STD_ERROR_HANDLE, h);
+            }
         }
-        if let Some(input) = open("CONIN$") {
-            SetStdHandle(STD_INPUT_HANDLE, input);
+        if !input && let Some(h) = open("CONIN$") {
+            SetStdHandle(STD_INPUT_HANDLE, h);
         }
     }
     true
@@ -1097,8 +1111,11 @@ impl run::Ui for ConsoleUi {
 
     fn ask(&self, question: &str) -> bool {
         let mut mode = 0;
-        // SAFETY: this process's own input handle; a missing one makes the call fail.
-        if unsafe { GetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), &mut mode) } == 0 {
+        // SAFETY: this process's own handles; a missing one makes the call fail.  Both must be the console.
+        if unsafe {
+            GetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), &mut mode) == 0
+                || GetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), &mut mode) == 0
+        } {
             return false;
         }
         print!("{question}");
