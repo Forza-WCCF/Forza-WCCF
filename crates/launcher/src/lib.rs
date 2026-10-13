@@ -3,6 +3,7 @@
 //! watcher (watch.rs): once a game window is closed, it stops the rest.
 
 pub mod card;
+pub mod choices;
 pub mod conf;
 pub mod debug;
 pub mod job;
@@ -11,6 +12,7 @@ pub mod kit;
 pub mod logs;
 pub mod procs;
 pub mod release;
+pub mod run;
 mod watch;
 
 pub use kit::{Kit, SCRIPTS};

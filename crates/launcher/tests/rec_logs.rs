@@ -145,7 +145,21 @@ fn rotate_case(root: &Path, rec: &Value) {
             json!([p, v[1]])
         })
         .collect();
-    assert_eq!(Value::from(t), rec["tree"], "{}", rec["case"]);
+    // the one change from play.py: a previous-<time> folder an earlier start set aside goes at the next start
+    let set_aside = |v: &Value| v[0].as_str().unwrap().contains("previous-20261001");
+    let want: Vec<Value> = rec["tree"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|v| !set_aside(v))
+        .cloned()
+        .collect();
+    assert!(
+        !t.iter().any(set_aside),
+        "{}: the old previous-<time> folder is gone",
+        rec["case"]
+    );
+    assert_eq!(Value::from(t), Value::from(want), "{}", rec["case"]);
 }
 
 #[test]

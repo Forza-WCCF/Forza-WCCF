@@ -18,7 +18,6 @@
 
 #![windows_subsystem = "windows"]
 
-mod choices;
 mod link;
 mod text;
 mod update;
@@ -32,10 +31,10 @@ use std::path::{Path, PathBuf};
 use std::process::{ExitCode, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
-use std::{env, fs, mem, ptr, thread};
+use std::{env, mem, ptr, thread};
 
-use launcher::Kit;
 use launcher::release::is_newer;
+use launcher::{Kit, choices};
 use text::{LANGUAGES, fill, t};
 use update::Release;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
@@ -216,28 +215,6 @@ fn step(line: &str) -> Option<u32> {
     let m: String = rest.chars().take_while(char::is_ascii_digit).collect();
     let (n, m) = (n.parse::<u32>().ok()?, m.parse::<u32>().ok()?);
     (n <= m && m > 0 && rest[m.to_string().len()..].starts_with(' ')).then(|| n * 1000 / m)
-}
-
-/// English is on: english.py's list of the original files it backed up is not empty (as kit_common.english_on reads it).
-fn english_on(kit: &Kit) -> bool {
-    fs::read_to_string(kit.dir().join("data").join("english_backup").join("manifest.json"))
-        .ok()
-        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-        .is_some_and(|v| v.as_object().is_some_and(|o| !o.is_empty()) || v.as_array().is_some_and(|a| !a.is_empty()))
-}
-
-/// The language english.py has in place, as kit_common.game_language reads it: "en" or "it" (its language.txt; English
-/// before that file existed), "" for the original Japanese.
-fn game_language(kit: &Kit) -> &'static str {
-    if !english_on(kit) {
-        return "";
-    }
-    let file = kit.dir().join("data").join("english_backup").join("language.txt");
-    if fs::read_to_string(file).is_ok_and(|t| t.trim() == "it") {
-        "it"
-    } else {
-        "en"
-    }
 }
 
 /// english.py's arguments that put `lang` ("en", "it" or "" for the original Japanese) in place.
@@ -528,7 +505,7 @@ fn play_clicked(hwnd: HWND) {
         panel = choices::set_panel_value(&panel, "server", Some(&server));
     }
     // a change only: play.py switches the game's text at the start (english.py), then takes the line out
-    let change = (lang != game_language(&kit)).then_some(match lang {
+    let change = (lang != kit.game_language()).then_some(match lang {
         "en" => "on",
         "it" => "it",
         _ => "off",
@@ -719,7 +696,7 @@ fn refresh(hwnd: HWND) {
             s.changed = true;
         }
         let game = get_text(hwnd, ID_FOLDER);
-        let lang = game_language(&kit);
+        let lang = kit.game_language();
         let question = match lang {
             "en" => t().after_update_english,
             "it" => t().after_update_italian,
@@ -751,7 +728,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                     if let Some(game) = folder(hwnd).filter(|_| ask(hwnd, t().undo_confirm)) {
                         // setup.py refuses an undo while English is on: the original files go back first
                         let mut steps = Vec::new();
-                        if english_on(&Kit::here()) {
+                        if Kit::here().english_on() {
                             steps.push(Step::Script("english.py", vec!["off".into()]));
                         }
                         steps.push(Step::Script("setup.py", vec!["undo".into(), game]));
@@ -953,7 +930,7 @@ fn window(kit: &Kit, first: Option<Step>, folder: Option<&OsStr>) {
                 Some("on") => "en",
                 Some("it") => "it",
                 Some("off") => "",
-                _ => game_language(kit),
+                _ => kit.game_language(),
             },
         );
         let game = folder.map_or_else(

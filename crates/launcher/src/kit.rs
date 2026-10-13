@@ -79,6 +79,30 @@ impl Kit {
         find_game(self.settings().get("game")?.as_str()?)
     }
 
+    /// English is on: english.py's list of the original files it backed up is not empty (kit_common.english_on).
+    pub fn english_on(&self) -> bool {
+        fs::read_to_string(self.data().join("english_backup").join("manifest.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+            .is_some_and(|v| {
+                v.as_object().is_some_and(|o| !o.is_empty()) || v.as_array().is_some_and(|a| !a.is_empty())
+            })
+    }
+
+    /// The language english.py has in place (kit_common.game_language): "en" or "it" (its language.txt; English before
+    /// that file existed), "" for the original Japanese.
+    pub fn game_language(&self) -> &'static str {
+        if !self.english_on() {
+            return "";
+        }
+        let file = self.data().join("english_backup").join("language.txt");
+        if fs::read_to_string(file).is_ok_and(|t| t.trim() == "it") {
+            "it"
+        } else {
+            "en"
+        }
+    }
+
     /// `python\python.exe code\<script>`, to add arguments to
     pub fn script(&self, script: &str) -> Command {
         let mut cmd = Command::new(self.python());
@@ -109,19 +133,25 @@ unsafe extern "system" fn keep_window(event: u32) -> BOOL {
     }
 }
 
+/// The game's three programs, as find_game looks for them.
+pub const GAME_PROGRAMS: [&str; 3] = ["client_Release.exe", "control_Release.exe", "match_Release.exe"];
+
 /// The game folder (the one with the three game programs) from a path to it or to the folder above it (its
 /// `extracted\`); spaces and quotes around the path do not count.
 pub fn find_game(path: &str) -> Option<PathBuf> {
+    find_game_named(path, GAME_PROGRAMS)
+}
+
+/// find_game with the programs' names given (a run's tests use stand-ins under names of their own).
+pub fn find_game_named<S: AsRef<str>>(path: &str, programs: [S; 3]) -> Option<PathBuf> {
     if path.is_empty() {
         return None;
     }
     let path = path.trim().trim_matches('"');
     let path = std::path::absolute(if path.is_empty() { "." } else { path }).ok()?;
-    [path.clone(), path.join("extracted")].into_iter().find(|p| {
-        ["client_Release.exe", "control_Release.exe", "match_Release.exe"]
-            .iter()
-            .all(|n| p.join(n).is_file())
-    })
+    [path.clone(), path.join("extracted")]
+        .into_iter()
+        .find(|p| programs.iter().all(|n| p.join(n.as_ref()).is_file()))
 }
 
 /// The cabinet's folder beside the game folder.

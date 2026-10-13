@@ -114,10 +114,17 @@ pub fn archive_run(folder: &Path, archive: &Path, limit: u64) -> io::Result<bool
 }
 
 /// At a start: previous\ zipped into archive\, the last run's logs into previous\, and a fresh hook\ folder.  What it
-/// had to step around, in the words to say; an error only if `logs` or its hook\ cannot be made.
+/// had to step around, in the words to say; an error only if `logs` or its hook\ cannot be made.  A previous-<time>
+/// folder set aside by an earlier start (a file in it was busy then) goes now (play.py left them for ever); one still
+/// busy stays until a later start.
 pub fn rotate(logs: &Path) -> io::Result<Vec<String>> {
     let mut said = Vec::new();
     fs::create_dir_all(logs)?;
+    for e in fs::read_dir(logs)?.flatten() {
+        if e.file_name().to_string_lossy().starts_with("previous-") && e.file_type().is_ok_and(|t| t.is_dir()) {
+            let _ = fs::remove_dir_all(e.path());
+        }
+    }
     let prev = logs.join("previous");
     if prev.is_dir() {
         if let Err(ex) = archive_run(&prev, &logs.join("archive"), ARCHIVE_LIMIT) {

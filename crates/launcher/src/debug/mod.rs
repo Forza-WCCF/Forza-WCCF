@@ -34,6 +34,8 @@ use std::os::windows::io::{AsRawHandle, OwnedHandle};
 use std::path::{Path, PathBuf};
 use std::ptr;
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::{
@@ -137,6 +139,10 @@ pub struct Options {
     pub index: Option<PathBuf>,
     /// The message-reassembly guard for control (WCCF_MSGGUARD, on unless "0").
     pub msgguard: bool,
+    /// Added to the program's environment (the run's WCCF_ and MXHOOK_ settings).
+    pub env: Vec<(String, String)>,
+    /// Set by the run to end the program now (a quit or a cabinet restart), as the timeout does.
+    pub stop: Option<Arc<AtomicBool>>,
 }
 
 macro_rules! say {
@@ -552,12 +558,11 @@ pub fn run(opts: &Options, job: &Job, out: &mut dyn Write) -> io::Result<i32> {
         if high { "yes" } else { "NO" },
         full_speed(me).unwrap_or("NO")
     );
-    let env: &[(&str, &str)] = if opts.debug_heap {
-        &[]
-    } else {
-        &[("_NO_DEBUG_HEAP", "1")]
-    };
-    let child = job.spawn_debug(&opts.exe, &opts.args, run_dir, env, opts.follow, opts.hide)?;
+    let mut env: Vec<(&str, &str)> = opts.env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    if !opts.debug_heap {
+        env.push(("_NO_DEBUG_HEAP", "1"));
+    }
+    let child = job.spawn_debug(&opts.exe, &opts.args, run_dir, &env, opts.follow, opts.hide)?;
     let main = child.pid;
     say!(
         out,
@@ -590,6 +595,15 @@ pub fn run(opts: &Options, job: &Job, out: &mut dyn Write) -> io::Result<i32> {
     let mut main_exited = false;
     let mut de = DEBUG_EVENT::default();
     while t0.elapsed() < opts.timeout {
+        if opts.stop.as_ref().is_some_and(|s| s.load(Ordering::Relaxed)) {
+            say!(
+                out,
+                "  t+{:5.1}s the run is stopping - ending {exe_name}",
+                t0.elapsed().as_secs_f64()
+            );
+            timed_out = false;
+            break;
+        }
         let now = t0.elapsed().as_secs_f64();
         if watch_window && now >= next_win_check {
             // its window closed: the game ends

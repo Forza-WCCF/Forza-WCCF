@@ -179,7 +179,8 @@ impl Job {
         }
     }
 
-    fn pids(&self) -> Vec<u32> {
+    /// The ids of the processes in the job now (at most 256).
+    pub fn pids(&self) -> Vec<u32> {
         #[repr(C)]
         struct List {
             assigned: u32,

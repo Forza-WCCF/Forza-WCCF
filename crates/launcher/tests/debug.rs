@@ -42,6 +42,8 @@ fn options(exe: PathBuf, top: &Path, role: Role) -> Options {
         dumps: top.join("data/dumps"),
         index: None,
         msgguard: true,
+        env: Vec::new(),
+        stop: None,
     }
 }
 
