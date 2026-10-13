@@ -3,6 +3,9 @@
 //! `WCCF_BIND` (0.0.0.0), `WCCF_BROKER_PORT` (20030), `WCCF_BROKER_SILENT` (75), `WCCF_CONTROL_LOG`, `WCCF_HOLD_FILE`,
 //! `WCCF_HOLD_FW`, `WCCF_RELAY_PORT` (20040), `WCCF_RELAY_FORGET` (30), `WCCF_INBOX_PORT` (20050),
 //! `WCCF_INBOX_PER_HOUR` (6), `WCCF_INBOX_KEEP` (1 GB). Exit 0 = ran its time, 1 = a port could not be bound.
+//!
+//! The 2010-11 kit ships the Windows build (`cargo xtask build` puts it in `programs\forza-server.exe`; `Launcher.exe server`
+//! starts `forza-server all`). A Linux build is manual: `cargo build --release -p forza-server`.
 
 use clap::{Parser, Subcommand, ValueEnum};
 use forza_server::{Edition, Handle, Log, desk, file_log, inbox, init_clock, relay};
