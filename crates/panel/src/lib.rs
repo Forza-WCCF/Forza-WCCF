@@ -10,20 +10,29 @@
 //! wants. Reset releases what lives in the DEFAULT pool. Unloading the DLL (`FreeLibrary`) puts the bytes, the window
 //! procedure and the device back as they were.
 //!
-//! Test switch: `FORZA_PANEL_DUMP=1` writes `wccfpanel_frame.bmp` beside the program once a window size has held for
-//! 10 frames (fakegame.exe's `size:` and `copy:` steps).
+//! The panel's data (step 9.4b, [`kit`]): the edition and the language, the player's catalogue and card pictures, the
+//! hover delay; the formation board is the game's card table (`fpr_table0.txt` in the game's folder, read again when
+//! someone else changes it, written on every move, swap and take-off: `forza::cards`). The cabinet buttons press their
+//! keys from keys.txt as the C panel does (down on the press, up after the release and at least 140 ms). Clicks on
+//! the game's picture go to the game, moved into its own client area, for its own on-screen buttons.
+//!
+//! Test switches: `FORZA_PANEL_DUMP=1` writes `wccfpanel_frame.bmp` beside the program every 10 frames once a window
+//! size has held for 10 (fakegame.exe's `size:` and `copy:` steps); `WCCFPANEL_DRYKEYS=1` logs the keys instead of
+//! pressing them.
 #![cfg(target_arch = "x86")]
 
+mod kit;
 mod painter;
 
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, TextureId, ViewportId, pos2, vec2};
-use forza::ui::Lang;
-use forza::ui::panel::{self, Page, PanelState};
-use forza::ui::theme::{self, Edition};
+use forza::cards::{self, Placed, TableFile};
+use forza::ui::board::Card;
+use forza::ui::panel::{self, PanelState};
+use forza::ui::theme;
 use std::cell::Cell;
 use std::ffi::c_void;
 use std::io::Write as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicUsize, Ordering::Relaxed};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -66,9 +75,14 @@ static WINDOW: AtomicIsize = AtomicIsize::new(0);
 static OLD_PROC: AtomicIsize = AtomicIsize::new(0);
 static SCALE: AtomicU32 = AtomicU32::new(0x3F80_0000); // pixels per point (f32 bits), 1.0 until the first frame
 static WANTS_KEYS: AtomicBool = AtomicBool::new(false);
-static WANTS_POINTER: AtomicBool = AtomicBool::new(false);
 static EXE_DIR: OnceLock<PathBuf> = OnceLock::new();
 static DLL_DIR: OnceLock<PathBuf> = OnceLock::new();
+static FILES: OnceLock<kit::Files> = OnceLock::new();
+static CATALOGUE: OnceLock<Vec<Card>> = OnceLock::new();
+/// The game's picture on the window (pixels) while no page covers it: clicks there are the game's.
+static PICTURE: Mutex<Option<egui::Rect>> = Mutex::new(None);
+/// The mouse buttons whose press went to the game (bit per button): their release goes there too.
+static GAME_DOWN: AtomicU32 = AtomicU32::new(0);
 
 thread_local! {
     static IN_PRESENT: Cell<bool> = const { Cell::new(false) };
@@ -112,6 +126,24 @@ extern "system" fn DllMain(inst: HINSTANCE, reason: u32, reserved: *mut c_void) 
 fn init() {
     std::thread::sleep(Duration::from_millis(300));
     log(&format!("forza-panel init (pid {})", std::process::id()));
+    let files = kit::Files::find(DLL_DIR.get().map_or(Path::new(""), PathBuf::as_path));
+    let catalogue = cards::load_catalogue(&files.catalogue).unwrap_or_else(|e| {
+        log(&format!(
+            "no catalogue at {}: {e}",
+            files.catalogue.display()
+        ));
+        Vec::new()
+    });
+    log(&format!(
+        "edition {}, data {}, catalogue {} cards, pictures {}, keys {}",
+        files.edition.label(),
+        files.data.display(),
+        catalogue.len(),
+        files.cards.display(),
+        files.keys.display()
+    ));
+    let _ = CATALOGUE.set(catalogue);
+    let _ = FILES.set(files);
     // SAFETY: the throwaway device is ours; the detours replace functions with the same signature
     match unsafe { device_functions() } {
         // SAFETY: as above
@@ -333,6 +365,12 @@ unsafe extern "system" fn hook_reset(dev: *mut c_void, pp: *mut D3DPRESENT_PARAM
 struct Render {
     ctx: egui::Context,
     st: PanelState,
+    table: TableFile,
+    /// The table as last read or written; `st.board.cards[i]` is `placed[i]`.
+    placed: Vec<Placed>,
+    /// A cabinet button's key that is down, since when; the mouse still held on it.
+    key: Option<(u32, Instant)>,
+    mouse_down: bool,
     painter: painter::Painter,
     start: Instant,
     sc: Option<(IDirect3DSwapChain9, u32, u32, HWND)>,
@@ -354,18 +392,38 @@ unsafe impl Send for Render {}
 impl Render {
     fn new() -> Render {
         let ctx = egui::Context::default();
+        let files = FILES.get_or_init(|| kit::Files::find(Path::new("")));
         let dir = font_dir();
-        if let Err(e) = theme::install(&ctx, Edition::E1011, &dir) {
+        if let Err(e) = theme::install(&ctx, files.edition, &dir) {
             log(&format!(
                 "fonts from {}: {e} (egui's own fonts used)",
                 dir.display()
             ));
         }
-        let mut st = PanelState::sample(Edition::E1011, Lang::En, Page::Game);
+        forza::ui::board::set_picture_dir(&ctx, Some(files.cards.clone()));
+        let mut table = TableFile::in_dir(EXE_DIR.get().map_or(Path::new(""), PathBuf::as_path));
+        let placed = table.read().unwrap_or_default();
+        log(&format!(
+            "board: table {} - {} card(s)",
+            table.table.display(),
+            placed.len()
+        ));
+        let lang = files.lang();
+        let mut st = PanelState::new(files.edition, lang, cards::board(&placed, catalogue()));
+        st.hover_delay = files.hover_delay();
         st.picture = Some(GAME);
+        log(&format!(
+            "language {}, hover delay {} s",
+            lang.code(),
+            st.hover_delay
+        ));
         Render {
             ctx,
             st,
+            table,
+            placed,
+            key: None,
+            mouse_down: false,
             painter: painter::Painter::default(),
             start: Instant::now(),
             sc: None,
@@ -601,10 +659,18 @@ impl Render {
             .entry(ViewportId::ROOT)
             .or_default()
             .native_pixels_per_point = Some(ppp);
+        self.table_in();
         let st = &mut self.st;
         let out = self.ctx.run_ui(raw, |ui| panel::show(ui, st));
         WANTS_KEYS.store(self.ctx.egui_wants_keyboard_input(), Relaxed);
-        WANTS_POINTER.store(self.ctx.egui_wants_pointer_input(), Relaxed);
+        if let Ok(mut p) = PICTURE.lock() {
+            *p = self
+                .st
+                .picture_rect
+                .map(|r| egui::Rect::from_min_max(r.min * ppp, r.max * ppp));
+        }
+        self.table_out();
+        self.keys();
         let prims = self.ctx.tessellate(out.shapes, out.pixels_per_point);
         // SAFETY: the device the painter's textures belong to, on its render thread
         match unsafe {
@@ -624,13 +690,79 @@ impl Render {
         }
     }
 
-    /// `wccfpanel_frame.bmp` beside the program, once a window size has held for 10 frames.
+    /// The table read again when someone else changed it (FPR_Emu's own panel, a hand edit), never mid-drag.
+    fn table_in(&mut self) {
+        if self.frames.is_multiple_of(8)
+            && !egui::DragAndDrop::has_any_payload(&self.ctx)
+            && self.table.changed()
+            && let Some(placed) = self.table.read()
+        {
+            log(&format!("board: table read - {} card(s)", placed.len()));
+            self.st.board = cards::board(&placed, catalogue());
+            self.placed = placed;
+        }
+    }
+
+    /// A move, swap or take-off on the board: the table written whole (and the formation copy beside it); a write
+    /// that could not be swapped in is tried again next frame.
+    fn table_out(&mut self) {
+        if std::mem::take(&mut self.st.board_changed) {
+            self.placed = cards::table_after(&self.placed, &self.st.board);
+            // the board's cards follow the table's order again
+            self.st.board = cards::board(&self.placed, catalogue());
+            let line: Vec<String> = self
+                .placed
+                .iter()
+                .map(|c| format!("{}@{:.3},{:.3}", c.no, c.x, c.y))
+                .collect();
+            log(&format!(
+                "board: {} card(s): {}",
+                line.len(),
+                line.join(" ")
+            ));
+        } else if !self.table.pending {
+            return;
+        }
+        if let Err(e) = self.table.write(&self.placed) {
+            log(&format!("board: table write pending ({e})"));
+        }
+    }
+
+    /// The cabinet buttons' keys: down on a press, up once the mouse is released and the key has been down 140 ms
+    /// (the C panel's rule: a press shorter than the game's input poll would be missed).
+    fn keys(&mut self) {
+        let files = FILES.get();
+        if let Some(action) = self.st.pressed.take() {
+            if let Some((vk, _)) = self.key.take() {
+                kit::send_key(vk, true, log);
+            }
+            let vk = files.map_or(0, |f| f.key_of(action));
+            log(&format!("button {action} -> key 0x{vk:02X}"));
+            kit::send_key(vk, false, log);
+            self.key = Some((vk, Instant::now()));
+            self.st.held = Some(action);
+            self.mouse_down = true;
+        }
+        if self.mouse_down && !self.ctx.input(|i| i.pointer.primary_down()) {
+            self.mouse_down = false;
+        }
+        if let Some((vk, since)) = self.key
+            && !self.mouse_down
+            && since.elapsed() >= Duration::from_millis(140)
+        {
+            kit::send_key(vk, true, log);
+            self.key = None;
+            self.st.held = None;
+        }
+    }
+
+    /// `wccfpanel_frame.bmp` beside the program, every 10 frames once a window size has held for 10.
     unsafe fn dump(&mut self, dev: &IDirect3DDevice9, scbb: &IDirect3DSurface9, w: u32, h: u32) {
         if self.size != (w, h) {
             (self.size, self.held) = ((w, h), 0);
         }
         self.held += 1;
-        if self.held != 10 {
+        if !self.held.is_multiple_of(10) {
             return;
         }
         // SAFETY: a system-memory copy of our back buffer, read within its locked rows
@@ -667,19 +799,23 @@ impl Render {
             };
             read()
         };
-        let path = EXE_DIR
-            .get()
-            .cloned()
-            .unwrap_or_default()
-            .join("wccfpanel_frame.bmp");
+        let dir = EXE_DIR.get().cloned().unwrap_or_default();
+        // written aside, then swapped in: a copy taken meanwhile never sees half a picture
+        let tmp = dir.join("wccfpanel_frame~.bmp");
         match rgb.map_err(|e| e.to_string()).and_then(|rgb| {
-            image::save_buffer(&path, &rgb, w, h, image::ExtendedColorType::Rgb8)
+            image::save_buffer(&tmp, &rgb, w, h, image::ExtendedColorType::Rgb8)
+                .and_then(|()| Ok(std::fs::rename(&tmp, dir.join("wccfpanel_frame.bmp"))?))
                 .map_err(|e| e.to_string())
         }) {
-            Ok(()) => log(&format!("frame dump {w}x{h}")),
+            Ok(()) if self.held == 10 => log(&format!("frame dump {w}x{h}")),
+            Ok(()) => {}
             Err(e) => log(&format!("frame dump: {e}")),
         }
     }
+}
+
+fn catalogue() -> &'static [Card] {
+    CATALOGUE.get().map_or(&[], Vec::as_slice)
 }
 
 /// The fonts: a `fonts/` folder beside the DLL or one above it (the kit's top), else the repository's `assets/fonts/`
@@ -735,10 +871,13 @@ fn game_window() -> Option<HWND> {
 }
 
 unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
-    if input(m, wp, lp) {
-        return LRESULT(0); // egui's: the game does not see it
-    }
-    // SAFETY: the procedure we replaced, with the message as it came
+    let lp = match to_game(h, m, lp) {
+        Some(game) => game,
+        None if input(m, wp, lp) => return LRESULT(0), // egui's: the game does not see it
+        None => lp,
+    };
+    // SAFETY: the procedure we replaced, with the message as it came (a mouse message on the picture moved into the
+    // game's client area)
     unsafe {
         CallWindowProcW(
             std::mem::transmute::<isize, WNDPROC>(OLD_PROC.load(Relaxed)),
@@ -748,6 +887,57 @@ unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LR
             lp,
         )
     }
+}
+
+/// A mouse message on the game's picture (or the release of a button pressed there), moved from the picture into the
+/// game's whole client area, where the game drew its frame before the panel shrank it; `None` = not the game's.
+fn to_game(h: HWND, m: u32, lp: LPARAM) -> Option<LPARAM> {
+    let bit = match m {
+        WM_MOUSEMOVE => 0,
+        WM_LBUTTONDOWN | WM_LBUTTONUP | WM_LBUTTONDBLCLK => 1,
+        WM_RBUTTONDOWN | WM_RBUTTONUP | WM_RBUTTONDBLCLK => 2,
+        WM_MBUTTONDOWN | WM_MBUTTONUP | WM_MBUTTONDBLCLK => 4,
+        _ => return None,
+    };
+    let pic = (*PICTURE.lock().ok()?)?;
+    let p = pos2(f32::from(lp.0 as i16), f32::from((lp.0 >> 16) as i16));
+    let down = matches!(m, WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN);
+    let up = matches!(m, WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP);
+    let held = GAME_DOWN.load(Relaxed);
+    let ours = if up {
+        held & bit != 0
+    } else {
+        pic.contains(p) || (m == WM_MOUSEMOVE && held != 0)
+    };
+    if !ours {
+        return None;
+    }
+    if down {
+        GAME_DOWN.fetch_or(bit, Relaxed);
+    } else if up {
+        GAME_DOWN.fetch_and(!bit, Relaxed);
+    }
+    let mut cr = RECT::default();
+    // SAFETY: a plain window query
+    unsafe { GetClientRect(h, &mut cr) }.ok()?;
+    let at = |v: f32, a: f32, b: f32, size: i32| {
+        (((v - a) / (b - a) * size as f32) as i32).clamp(0, (size - 1).max(0))
+    };
+    let (gx, gy) = (
+        at(p.x, pic.left(), pic.right(), cr.right),
+        at(p.y, pic.top(), pic.bottom(), cr.bottom),
+    );
+    if down {
+        log(&format!(
+            "click at {},{} -> the game at {gx},{gy}",
+            p.x as i32, p.y as i32
+        ));
+    }
+    // egui follows the pointer, but the press is the game's
+    push(vec![Event::PointerMoved(
+        pos2(p.x, p.y) / f32::from_bits(SCALE.load(Relaxed)),
+    )]);
+    Some(LPARAM(((gy as u16 as isize) << 16) | gx as u16 as isize))
 }
 
 fn modifiers() -> Modifiers {
@@ -794,7 +984,7 @@ fn input(m: u32, wp: WPARAM, lp: LPARAM) -> bool {
     let (events, keys): (Vec<Event>, bool) = match m {
         WM_MOUSEMOVE => {
             push(vec![Event::PointerMoved(pos)]);
-            return false; // the game follows the mouse too
+            return true; // off the game's picture (to_game): not the game's
         }
         WM_LBUTTONDOWN => (button(PointerButton::Primary, true), false),
         WM_LBUTTONUP => (button(PointerButton::Primary, false), false),
@@ -829,11 +1019,8 @@ fn input(m: u32, wp: WPARAM, lp: LPARAM) -> bool {
         _ => return false,
     };
     push(events);
-    if keys {
-        WANTS_KEYS.load(Relaxed)
-    } else {
-        WANTS_POINTER.load(Relaxed)
-    }
+    // the mouse off the game's picture is the panel's (to_game took the picture's); keys only while egui types
+    !keys || WANTS_KEYS.load(Relaxed)
 }
 
 fn push(mut events: Vec<Event>) {

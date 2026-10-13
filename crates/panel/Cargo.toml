@@ -15,10 +15,14 @@ crate-type = ["cdylib"]
 [target.'cfg(target_arch = "x86")'.dependencies]
 forza.workspace = true
 egui.workspace = true
+# the kit's layout (its edition) and keys.txt's rules, as the run and the key driver read them
+launcher = { path = "../launcher" }
+serde_json.workspace = true
 # the frame dump (wccfpanel_frame.bmp, fakegame's `size:`/`copy:` steps)
 image = { version = "0.25.10", default-features = false, features = ["bmp"] }
 windows = { workspace = true, features = [
     "Win32_Graphics_Direct3D9",
+    "Win32_Globalization",
     "Win32_Graphics_Gdi",
     "Win32_System_Diagnostics_Debug",
     "Win32_System_LibraryLoader",
@@ -30,7 +34,12 @@ windows = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
-image = { version = "0.25.10", default-features = false, features = ["bmp"] }
+image = { version = "0.25.10", default-features = false, features = ["bmp", "png"] }
+
+# the test's card table and board geometry
+[target.'cfg(target_arch = "x86")'.dev-dependencies]
+forza.workspace = true
+egui.workspace = true
 
 [lints]
 workspace = true

@@ -1591,6 +1591,8 @@ dependencies = [
  "egui",
  "forza",
  "image",
+ "launcher",
+ "serde_json",
  "windows",
 ]
 
