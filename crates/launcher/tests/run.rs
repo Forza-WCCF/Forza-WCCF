@@ -591,3 +591,43 @@ fn a_stand_in_the_game_can_do_without_is_said_and_the_run_goes_on() {
     );
     assert!(said.contains("The game has ended: closed by the player."), "{said}");
 }
+
+/// `server` mode: the control program is a stand-in (the test's own listener holds the control port), `forza-server all`
+/// from the kit build is the seat desk, relay and inbox; it answers a WANT on the test's port, and stop ends the run
+/// with nothing left.
+#[test]
+fn server_mode_runs_forza_server_and_stop_ends_it() {
+    let top = tempfile::Builder::new().prefix("wccf-run-").tempdir().unwrap();
+    let (kit, _seat) = scratch_kit(top.path());
+    let built = Path::new("../../target/kit/2010-11/programs/forza-server.exe");
+    assert!(
+        built.is_file(),
+        "{} is missing: run cargo xtask build first",
+        built.display()
+    );
+    fs::copy(built, kit.programs().join("forza-server.exe")).unwrap();
+    let game = top.path().join(r"game\extracted");
+    stand_in("fakegame.exe", &game.join("standin_control.exe"));
+    fs::write(game.join(r"local\ctrl_user_option.conf"), b"WAIT_PROJECTOR=1\r\n").unwrap();
+    let mut p = params("server", Shared::new());
+    p.control_args = ["version.dll", "wait:120000"].map(String::from).to_vec();
+    p.match_engines = 0;
+    let _control = TcpListener::bind(("127.0.0.1", p.control_port)).unwrap();
+    let seat_port = p.seat_port;
+    let (ui, t) = run_on_thread(&kit, p, &["server"]);
+    wait_said(&ui, &t, "Server running.", 90);
+
+    let mut conn = std::net::TcpStream::connect(("127.0.0.1", seat_port)).unwrap();
+    conn.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    conn.write_all(b"WANT\n").unwrap();
+    let mut reply = String::new();
+    BufReader::new(conn).read_line(&mut reply).unwrap();
+    assert!(reply.starts_with("SEAT 1 PROJECTOR"), "{reply:?}\n{}", ui.text());
+    let desk_log = fs::read_to_string(kit.logs().join("seat_broker.txt")).unwrap();
+    assert!(desk_log.contains("listening on TCP"), "{desk_log}");
+
+    let (code, answer) = run::request(&kit, Kind::Server, "stop").expect("a server run is on");
+    assert_eq!(code, run::OK, "{answer}\n{}", ui.text());
+    let rc = ended_clean(&kit, top.path(), &ui, t, Duration::from_secs(60));
+    assert_eq!(rc, run::OK, "{}", ui.text());
+}

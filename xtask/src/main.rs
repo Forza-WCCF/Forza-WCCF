@@ -110,6 +110,7 @@ const PROGRAMS_1718: &[&str] = &[
 /// What the kit must hold after a build and a package (the ZIP also gets python.exe from git).
 const PROGRAMS: &[&str] = &[
     "Launcher.exe",
+    "programs/forza-server.exe",
     "programs/wccfk.dll",
     "programs/FPR_Emu.exe",
     "programs/wccfpanel.dll",
@@ -391,6 +392,16 @@ fn build_all(root: &Path, kit: &Path, kit_1718: &Path, cc: &Cc) -> Result<()> {
         kit.join("Launcher.exe"),
     )?;
     println!("built {}", kit.join("Launcher.exe").display());
+    let server = kit.join("programs/forza-server.exe");
+    fs::create_dir_all(server.parent().unwrap())?;
+    fs::copy(
+        root.join("target")
+            .join(TARGET)
+            .join("release")
+            .join("forza-server.exe"),
+        &server,
+    )?;
+    println!("built {}", server.display());
     Ok(())
 }
 
@@ -480,13 +491,15 @@ fn build<'s>(
         "--locked",
         "-p",
         "launcher",
+        "-p",
+        "forza-server",
         "--target",
         TARGET,
     ]);
     jobs.push(s.spawn(move || {
         (
-            "cargo build -p launcher".into(),
-            run_ok(c, "cargo build -p launcher"),
+            "cargo build -p launcher -p forza-server".into(),
+            run_ok(c, "cargo build -p launcher -p forza-server"),
         )
     }));
     Ok(jobs)
@@ -797,11 +810,6 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
         false,
     );
     ck.test(
-        "the match relay: a live seat cannot be taken over by another address",
-        "test_relay.py",
-        true,
-    );
-    ck.test(
         "an older kit's scripts\\ bin\\ overlay\\ tidied, the catalogue moved to data\\cache\\",
         "test_old_layout.py",
         true,
@@ -816,26 +824,6 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
         "test_wallet_transferred.py",
         false,
     );
-
-    // The checks that wait on their own servers (the seat desk) run side by side, beside the panel's
-    // self-tests below (each on its own ports); their last line and exit code are read once they end.
-    let side: Vec<_> = [
-        (
-            "the seat desk: never a seat that is in the game",
-            "test_seat_desk_game.py",
-        ),
-        (
-            "the projector box: held until a player is in",
-            "test_hold_projector.py",
-        ),
-    ]
-    .into_iter()
-    .map(|(what, script)| {
-        let mut c = ck.python(&[kit.join("source").join(script).to_str().unwrap()]);
-        run_env(&mut c);
-        (what, std::thread::spawn(move || c.output()))
-    })
-    .collect();
 
     ck.test(
         "English pictures: added to the archive, taken back out byte for byte",
@@ -861,22 +849,6 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
 
     panel_selftests(&mut ck)?;
     guard_tests(&mut ck, kit_1718)?;
-
-    for (what, t) in side {
-        match t.join().expect("check thread") {
-            Ok(o) if o.status.success() => ck.report(what, &o, true),
-            Ok(o) => {
-                let all = [o.stdout.as_slice(), o.stderr.as_slice()].concat();
-                let text = String::from_utf8_lossy(&all).into_owned();
-                let lines: Vec<&str> = text.lines().collect();
-                for l in &lines[lines.len().saturating_sub(20)..] {
-                    println!("  {l}");
-                }
-                ck.failed.push(what.to_owned());
-            }
-            Err(e) => ck.fail(what, &e.to_string()),
-        }
-    }
 
     // the Rust workspace, xtask included: format, lint, tests - the toolchain from rust-toolchain.toml, read in the root
     let cargo = |what: &str, mut c: Command, failed: &mut Vec<String>| {
@@ -914,7 +886,7 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
 }
 
 /// The panel's money, relay and dealt-card self-tests: wccfpanel.dll loaded by fakegame.exe in a scratch folder; the relay test plays
-/// two seats through code\server\relay.py on 127.0.0.1:20941 - the C side and the Python side of the match relay checked against each other.
+/// two seats through `forza-server relay` on 127.0.0.1:20941 - the C side and the Rust side of the match relay checked against each other.
 /// The frame-wait test (WCCFPANEL_LIMITERTEST) measures milliseconds and stays out: a busy machine fails it.
 fn panel_selftests(ck: &mut Checks) -> Result<()> {
     let what = "panel self-tests";
@@ -928,8 +900,8 @@ fn panel_selftests(ck: &mut Checks) -> Result<()> {
         kit.join("source/build/fakegame.exe"),
         t.join("fakegame.exe"),
     )?;
-    let mut relay = ck.python(&[kit.join("code/server/relay.py").to_str().unwrap(), "30"]);
-    relay.env("WCCF_RELAY_PORT", "20941");
+    let mut relay = Command::new(kit.join("programs/forza-server.exe"));
+    relay.args(["relay", "30"]).env("WCCF_RELAY_PORT", "20941");
     run_env(&mut relay);
     let mut relay: Child = relay.stdout(Stdio::piped()).stderr(Stdio::null()).spawn()?;
     // waits for its "listening" line (a fixed second lost the race under load, 2026-10-13); the rest of its output is
@@ -1138,14 +1110,7 @@ fn launcher_scripts(root: &Path, kit: &Path, failed: &mut Vec<String>) -> Result
                 .strip_suffix("\";")
         })
         .context("no SCRIPTS in crates/launcher/src/kit.rs")?;
-    let scripts = [
-        "setup.py",
-        "english.py",
-        "card_steps.py",
-        "server/seat_desk.py",
-        "server/relay.py",
-        "server/log_inbox.py",
-    ];
+    let scripts = ["setup.py", "english.py", "card_steps.py"];
     let missing: Vec<_> = scripts
         .iter()
         .filter(|s| !kit.join(dir).join(s).is_file())

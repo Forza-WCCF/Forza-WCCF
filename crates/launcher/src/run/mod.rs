@@ -23,7 +23,8 @@
 //! go on without it (the card reader, the I/O board, the scene service, the network stand-ins).
 //!
 //! Still Python, started as children in the job without a window: card_steps.py (the CLUB CARD panel's requests, the
-//! table and the club card view), english.py, setup.py, and the server side's seat desk, relay and log inbox.
+//! table and the club card view), english.py and setup.py.  The server side is `programs\forza-server.exe all`, also a
+//! child in the job.
 
 pub mod rules;
 
@@ -508,18 +509,24 @@ fn wait_for(
 /// A kit Python script, without an earlier run's MXHOOK_ / WCCF settings and with `env`.
 fn python_cmd(kit: &Kit, logs: &Path, env: &[(String, String)], script: &str, args: &[String]) -> Command {
     let mut cmd = kit.script(script);
-    cmd.args(args).current_dir(logs).stdin(Stdio::null());
+    cmd.args(args);
+    clean_env(&mut cmd, logs, env);
+    cmd.env("PYTHONUTF8", "1")
+        .env("PYTHONIOENCODING", "utf-8")
+        .env("PYTHONUNBUFFERED", "1");
+    cmd
+}
+
+/// `cmd` in `logs`, without an earlier run's MXHOOK_ / WCCF settings and with `env`.
+fn clean_env(cmd: &mut Command, logs: &Path, env: &[(String, String)]) {
+    cmd.current_dir(logs).stdin(Stdio::null());
     for (k, _) in env::vars_os() {
         let up = k.to_string_lossy().to_uppercase();
         if up.starts_with("MXHOOK_") || up.starts_with("WCCF") {
             cmd.env_remove(k);
         }
     }
-    cmd.envs(env.iter().map(|(k, v)| (k, v)))
-        .env("PYTHONUTF8", "1")
-        .env("PYTHONIOENCODING", "utf-8")
-        .env("PYTHONUNBUFFERED", "1");
-    cmd
+    cmd.envs(env.iter().map(|(k, v)| (k, v)));
 }
 
 /// `cmd` in the job, its output to `log`; its exit code and output once it ends within `limit` (or `stop` is set: it
@@ -817,25 +824,6 @@ impl Run<'_> {
     /// `cmd` in the job, its output to data\logs\<log>; its exit code and output once it ends within `limit`.
     fn run_child(&self, cmd: Command, log: &str, limit: Duration) -> Result<(i32, String), String> {
         run_in_job(&self.job, cmd, &self.logs().join(log), limit, &AtomicBool::new(false))
-    }
-
-    /// A kit Python helper that runs with the game (in the job, no window); said and skipped if it cannot start.
-    fn start_kid(&mut self, role: &'static str, script: &str, args: &[String], log: &str) -> bool {
-        let mut cmd = self.python(script, args);
-        let started = File::create(self.logs().join(log)).and_then(|out| {
-            cmd.stderr(out.try_clone()?).stdout(out);
-            self.job.spawn(&mut cmd)
-        });
-        match started {
-            Ok(child) => {
-                self.kids.push((role, child));
-                true
-            }
-            Err(e) => {
-                self.say(&format!("     the {role} did not start ({e})"));
-                false
-            }
-        }
     }
 
     /// The helper threads: the club card view (view.py when the card changes) and the starting volumes of the projector
@@ -1270,56 +1258,53 @@ impl Run<'_> {
         Ok(())
     }
 
-    /// "server": the seat desk, the match relay and the log inbox (still Python), then the run waits for a stop.
+    /// "server": `forza-server all` (the seat desk, the match relay and the log inbox in one Job child, each with its
+    /// own log in data\logs), then the run waits for a stop.
     fn start_server_side(&mut self) -> Result<(), Failed> {
-        let life = (LIFE.as_secs() + 60).to_string();
         let logs = self.logs();
-        let parts: [(&'static str, &str, &str, &str, String); 3] = [
-            (
-                "seat desk",
-                r"server\seat_desk.py",
-                "seat_broker.txt",
-                "run_seat_broker.txt",
-                format!(
-                    "     seat desk: TCP {} - each player's PC gets the next free seat (its cabinet only, no projector)",
-                    self.p.seat_port
-                ),
-            ),
-            (
-                "match relay",
-                r"server\relay.py",
-                "match_relay.txt",
-                "run_match_relay.txt",
-                format!(
-                    "     match relay: UDP {} - a match between two players goes through this machine",
-                    self.p.relay_port
-                ),
-            ),
-            (
-                "log inbox",
-                r"server\log_inbox.py",
-                "log_inbox.txt",
-                "run_log_inbox.txt",
-                format!(
-                    "     log inbox: TCP {} - logs players send from SETTINGS go to data\\player_logs",
-                    self.p.inbox_port
-                ),
-            ),
-        ];
-        for (role, script, log, out, up) in parts {
-            let args = [life.clone(), logs.join(log).display().to_string()];
-            let started = self.start_kid(role, script, &args, out);
-            thread::sleep(Duration::from_millis(1500));
-            let alive = started
-                && self
-                    .kids
-                    .last_mut()
-                    .is_some_and(|(_, c)| c.try_wait().is_ok_and(|s| s.is_none()));
-            self.say(&if alive {
-                up
-            } else {
-                format!("     the {role} did not start (data\\logs\\{out})")
-            });
+        let mut env = self.kit_env();
+        env.extend([
+            ("WCCF_BROKER_PORT".to_owned(), self.p.seat_port.to_string()),
+            ("WCCF_RELAY_PORT".to_owned(), self.p.relay_port.to_string()),
+            ("WCCF_INBOX_PORT".to_owned(), self.p.inbox_port.to_string()),
+        ]);
+        let mut cmd = Command::new(self.kit.programs().join("forza-server.exe"));
+        cmd.args(["--edition", "2010-11", "all"])
+            .arg((LIFE.as_secs() + 60).to_string())
+            .arg(&logs);
+        clean_env(&mut cmd, &logs, &env);
+        let out = "run_forza_server.txt";
+        let role = "online server";
+        let started = File::create(logs.join(out)).and_then(|f| {
+            cmd.stderr(f.try_clone()?).stdout(f);
+            self.job.spawn(&mut cmd)
+        });
+        match started {
+            Ok(child) => self.kids.push((role, child)),
+            Err(e) => self.say(&format!("     the {role} did not start ({e})")),
+        }
+        thread::sleep(Duration::from_millis(1500));
+        let alive = self
+            .kids
+            .last_mut()
+            .is_some_and(|(r, c)| *r == role && c.try_wait().is_ok_and(|s| s.is_none()));
+        if alive {
+            self.say(&format!(
+                "     seat desk: TCP {} - each player's PC gets the next free seat (its cabinet only, no projector)",
+                self.p.seat_port
+            ));
+            self.say(&format!(
+                "     match relay: UDP {} - a match between two players goes through this machine",
+                self.p.relay_port
+            ));
+            self.say(&format!(
+                "     log inbox: TCP {} - logs players send from SETTINGS go to data\\player_logs",
+                self.p.inbox_port
+            ));
+        } else {
+            self.say(&format!(
+                "     the {role} did not start or ended (data\\logs\\{out}, seat_broker.txt, match_relay.txt, log_inbox.txt)"
+            ));
         }
         self.write_running();
         self.say("");
