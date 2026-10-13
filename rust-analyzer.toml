@@ -1,0 +1,4 @@
+# The launcher, the stand-ins and the panel are Windows programs (built from WSL with cargo xwin): analyse them for the
+# Windows target, or every std::os::windows path reads as an error.
+[cargo]
+target = "x86_64-pc-windows-msvc"
