@@ -1,5 +1,6 @@
 //! The design gallery: every screen and widget state with sample data, in English, Italian or Japanese, for either
-//! edition. `cargo xtask gallery` builds and starts it.
+//! edition. `cargo xtask gallery` builds and starts it. With `FORZA_CARDS=<folder>` (the kit's `data\cache\cards`
+//! on this PC), the sample cards wear the first real pictures of that folder; without it, the drawn stand-in.
 
 use eframe::egui;
 use egui::{Rect, Ui, vec2};
@@ -52,6 +53,20 @@ struct Gallery {
     edition: Edition,
     screen: Screen,
     ctx: egui::Context,
+    /// Card numbers that have a picture in `FORZA_CARDS`, lowest first; empty without it.
+    pictures: Vec<u16>,
+}
+
+/// The card numbers with a `<number>.png` in `dir`, lowest first.
+fn picture_numbers(dir: &std::path::Path) -> Vec<u16> {
+    let mut v: Vec<u16> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| e.path().file_stem()?.to_str()?.parse().ok())
+        .collect();
+    v.sort_unstable();
+    v
 }
 
 impl Gallery {
@@ -68,6 +83,12 @@ impl Gallery {
             }
             Item::Widgets => Screen::Widgets(panel::WidgetSheet::sample(l)),
         };
+        // real pictures: the sample cards take the numbers of the folder's first pictures
+        if let Screen::Panel(st) = &mut self.screen {
+            for (card, n) in st.board.cards.iter_mut().zip(&self.pictures) {
+                card.number = *n;
+            }
+        }
         // the accent follows the edition
         self.ctx.set_global_style(theme::style(e));
     }
@@ -155,6 +176,9 @@ fn main() -> eframe::Result {
         options,
         Box::new(|cc| {
             theme::install(&cc.egui_ctx, Edition::E1011, &theme::font_dir())?;
+            let cards = std::env::var_os("FORZA_CARDS").map(std::path::PathBuf::from);
+            let pictures = cards.as_deref().map(picture_numbers).unwrap_or_default();
+            forza::ui::board::set_picture_dir(&cc.egui_ctx, cards);
             let item = Item::Launcher(launcher::Scenario::Ready);
             let mut g = Gallery {
                 item,
@@ -162,6 +186,7 @@ fn main() -> eframe::Result {
                 edition: Edition::E1011,
                 screen: Screen::Widgets(panel::WidgetSheet::sample(Lang::En)),
                 ctx: cc.egui_ctx.clone(),
+                pictures,
             };
             g.rebuild();
             Ok(Box::new(g))

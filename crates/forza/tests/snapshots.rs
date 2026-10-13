@@ -194,3 +194,41 @@ fn panel_1920x1080() {
     h.run_steps(8);
     h.snapshot("panel_game_1080_it");
 }
+
+/// Card pictures load from the folder `set_picture_dir` names: a made-up 128×128 PNG (the original pictures' size)
+/// for card 6, none for card 7, which keeps the drawn stand-in. Board, bench, catalogue and big sizes.
+#[test]
+fn card_pictures() {
+    let _gpu = gpu();
+    let dir = tempfile::tempdir().expect("a temp folder");
+    let png = image::RgbaImage::from_fn(128, 128, |x, y| {
+        image::Rgba([(x * 2) as u8, 90, (y * 2) as u8, 255])
+    });
+    png.save(dir.path().join("6.png")).expect("a PNG written");
+    let cards = forza::ui::sample::cards();
+    let path = dir.path().to_owned();
+    let mut first = true;
+    let mut h = harness(Vec2::new(860.0, 200.0), 1.0, Edition::E1011, |ui| {
+        if first {
+            forza::ui::board::set_picture_dir(ui.ctx(), Some(path.clone()));
+            first = false;
+        }
+        ui.horizontal(|ui| {
+            for card in [&cards[5], &cards[6]] {
+                for w in [63.0, 79.0, 84.0, 130.0] {
+                    let (r, _) = ui.allocate_exact_size(
+                        Vec2::new(w, (w * 1.4f32).round()),
+                        egui::Sense::hover(),
+                    );
+                    forza::ui::board::card_face(ui.painter(), r, card, Default::default());
+                }
+            }
+        });
+    });
+    // the file loads on a thread: step until it shows
+    for _ in 0..40 {
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    h.snapshot("card_pictures");
+}

@@ -223,6 +223,66 @@ pub fn heat_zone(pitch: Rect, apt: &Aptitude) -> egui::Shape {
     ])
 }
 
+// ---- card pictures ----
+
+/// Names the folder of card pictures, `<number>.png` each (the kit's `data\cache\cards`, extracted at setup on the
+/// player's PC), or none for the drawn stand-in. Pictures load in the background through egui's loaders and stay
+/// cached, so scrolling the catalogue never waits on a file.
+pub fn set_picture_dir(ctx: &egui::Context, dir: Option<std::path::PathBuf>) {
+    ctx.data_mut(|d| d.insert_temp(Id::new("card-pictures"), dir));
+}
+
+/// The card's picture in `r`; the stand-in while it loads, when the file is missing, or with no folder set.
+fn card_picture(p: &Painter, r: Rect, card: &Card, rim: Color32, alpha: f32) {
+    gradient(
+        p,
+        r,
+        2,
+        theme::RAISED_HI.gamma_multiply(alpha),
+        theme::DEEP.gamma_multiply(alpha),
+        true,
+    );
+    let dir = p
+        .ctx()
+        .data(|d| d.get_temp::<Option<std::path::PathBuf>>(Id::new("card-pictures")))
+        .flatten();
+    if let Some(dir) = dir {
+        // `file:///C:\...` on Windows, `file:///home/...` elsewhere: what egui_extras' file loader parses
+        let file = dir.join(format!("{}.png", card.number));
+        let uri = format!(
+            "file:///{}",
+            file.display().to_string().trim_start_matches('/')
+        );
+        if let Ok(egui::load::TexturePoll::Ready { texture }) = p.ctx().try_load_texture(
+            &uri,
+            egui::TextureOptions::LINEAR,
+            egui::SizeHint::default(),
+        ) {
+            p.image(
+                texture.id,
+                r,
+                Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+                Color32::WHITE.gamma_multiply(alpha),
+            );
+            return;
+        }
+    }
+    // the stand-in: a neutral head-and-shoulders silhouette, plainly not a photo
+    let col = rim
+        .lerp_to_gamma(theme::RAISED_HI, 0.55)
+        .gamma_multiply(0.75 * alpha);
+    let w = r.width();
+    let base = r.center_bottom();
+    let arc: Vec<Pos2> = (0..=16)
+        .map(|i| {
+            let a = std::f32::consts::PI * (1.0 + i as f32 / 16.0);
+            base + vec2(a.cos() * w * 0.4, a.sin() * w * 0.34)
+        })
+        .collect();
+    fan(p, base - vec2(0.0, w * 0.1), &arc, col);
+    p.circle_filled(base - vec2(0.0, w * 0.55), w * 0.18, col);
+}
+
 /// Paints a rarity mark: ALL-TIME a ringed star, LEGEND a star, RARE a diamond, SPECIAL a hexagon, REGULAR nothing.
 pub fn rarity_mark(p: &Painter, c: Pos2, size: f32, rarity: Rarity) {
     let col = rarity.rim();
@@ -258,8 +318,8 @@ pub struct Look {
     pub selected: bool,
 }
 
-/// The card face, upright 58:81. Small sizes show the position band, the name and TOTAL; large ones add the club,
-/// the initial as a monogram and the season. No pictures: a neutral frame and text.
+/// The card face, upright 58:81: the position band with TOTAL, the player's picture, the name on its foot; large ones
+/// add the club and the season. The picture comes from the folder [`set_picture_dir`] names, else a drawn stand-in.
 pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
     let big = rect.width() >= 90.0;
     let r = (rect.width() * 0.08) as u8;
@@ -294,7 +354,7 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
         true,
     );
     // the position band
-    let band_h = (rect.height() * 0.2).max(13.0);
+    let band_h = (rect.height() * 0.17).max(13.0);
     let band = Rect::from_min_size(rect.min, vec2(rect.width(), band_h));
     let pc = card.pos.color().gamma_multiply(alpha);
     p.rect_filled(
@@ -323,40 +383,52 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
         Color32::WHITE.gamma_multiply(alpha),
     );
 
-    let body = rect.with_min_y(band.bottom());
+    // the picture: a square under the band, as wide as the card allows (the original pictures are 128x128)
+    let inset = if big { 6.0 } else { 3.0 };
+    let side = rect.width() - 2.0 * inset;
+    let pic = Rect::from_min_size(
+        band.left_bottom() + vec2(inset, inset * 0.7),
+        vec2(side, side),
+    );
+    card_picture(p, pic, card, rim, alpha);
+    // a scrim under the name, so it reads on any picture
+    let scrim = pic.with_min_y(pic.bottom() - pic.height() * 0.38);
+    gradient(
+        p,
+        scrim,
+        0,
+        Color32::TRANSPARENT,
+        Color32::from_black_alpha((200.0 * alpha) as u8),
+        true,
+    );
     if big {
-        // a monogram where the original has a picture
-        let initial: String = card.short_name().chars().take(1).collect();
-        p.text(
-            body.center() - vec2(0.0, body.height() * 0.14),
-            Align2::CENTER_CENTER,
-            initial,
-            theme::display(body.height() * 0.5),
-            rim.gamma_multiply(0.22 * alpha),
-        );
-        let name_y = body.bottom() - body.height() * 0.3;
-        centered_text(
+        let g = fit(
             p,
-            Rect::from_center_size(
-                pos2(body.center().x, name_y),
-                vec2(rect.width() - 10.0, 20.0),
-            ),
             &card.name,
-            theme::display(rect.width() * 0.16),
+            theme::display(rect.width() * 0.15),
             theme::TEXT.gamma_multiply(alpha),
+            pic.width() - 8.0,
+        );
+        p.galley(
+            pos2(
+                pic.center().x - g.size().x / 2.0,
+                pic.bottom() - g.size().y - 2.0,
+            ),
+            g,
+            theme::TEXT,
         );
         centered_text(
             p,
-            Rect::from_center_size(
-                pos2(body.center().x, name_y + rect.width() * 0.15),
-                vec2(rect.width() - 10.0, 14.0),
+            Rect::from_min_max(
+                pos2(rect.left() + 6.0, pic.bottom() + 1.0),
+                pos2(rect.right() - 6.0, pic.bottom() + rect.width() * 0.12),
             ),
             &card.club,
             theme::body(rect.width() * 0.09),
             theme::TEXT_DIM.gamma_multiply(alpha),
         );
         p.text(
-            body.left_bottom() + vec2(6.0, -4.0),
+            rect.left_bottom() + vec2(6.0, -4.0),
             Align2::LEFT_BOTTOM,
             &card.season,
             theme::display(rect.width() * 0.1),
@@ -364,37 +436,30 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
         );
         rarity_mark(
             p,
-            body.right_bottom() + vec2(-11.0, -11.0),
+            rect.right_bottom() + vec2(-11.0, -11.0),
             14.0,
             card.rarity,
         );
     } else {
-        let name = card.short_name();
         let g = fit(
             p,
-            name,
-            theme::display(rect.width() * 0.3),
+            card.short_name(),
+            theme::display(rect.width() * 0.26),
             theme::TEXT.gamma_multiply(alpha),
             rect.width() - 6.0,
         );
+        // the name sits on the picture's foot and the card's bottom edge
         p.galley(
             pos2(
-                body.center().x - g.size().x / 2.0,
-                body.bottom() - g.size().y - 3.0,
+                rect.center().x - g.size().x / 2.0,
+                rect.bottom() - g.size().y - 2.0,
             ),
             g,
             theme::TEXT,
         );
-        p.text(
-            body.center() - vec2(0.0, body.height() * 0.16),
-            Align2::CENTER_CENTER,
-            card.number.to_string(),
-            theme::display(rect.width() * 0.34),
-            rim.gamma_multiply(0.5 * alpha),
-        );
         rarity_mark(
             p,
-            pos2(body.right() - 7.0, body.top() + 7.0),
+            pos2(pic.right() - 6.0, pic.top() + 6.0),
             9.0,
             card.rarity,
         );

@@ -185,6 +185,8 @@ pub fn install(ctx: &Context, edition: Edition, font_dir: &Path) -> std::io::Res
     ctx.set_fonts(fonts(font_dir)?);
     ctx.set_theme(egui::Theme::Dark);
     ctx.set_global_style(style(edition));
+    // the card pictures: PNG files through egui's loaders
+    egui_extras::install_image_loaders(ctx);
     Ok(())
 }
 

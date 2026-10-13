@@ -241,6 +241,7 @@ impl Cc {
 }
 
 /// The design gallery built for Windows and started from the repository root, where it finds `assets/fonts/`.
+/// `FORZA_CARDS` (a folder of card pictures, Linux or Windows path) passes on to it.
 fn gallery(root: &Path) -> Result<()> {
     let mut c = rust("build", root);
     c.args(["-p", "forza", "--example", "gallery", "--target", TARGET]);
@@ -251,6 +252,10 @@ fn gallery(root: &Path) -> Result<()> {
         .join("debug/examples/gallery.exe");
     let mut g = Command::new(exe);
     g.current_dir(root);
+    if let Some(cards) = std::env::var_os("FORZA_CARDS") {
+        g.env("FORZA_CARDS", cards);
+    }
+    run_env(&mut g);
     run_ok(g, "gallery.exe")
 }
 
