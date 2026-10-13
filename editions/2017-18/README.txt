@@ -19,7 +19,7 @@ NEW IN KIT 5
   - English: Prize Money on the fan event and golden age (all titles won) screens is one amount with commas
     ($5,431,900 - it read "$5 million$431900"); Team Training's "They're giving their all out there" (it showed a
     junk number). Run ENGLISH.bat again after updating.
-  - Hosting a server (PLAY.bat server): it runs for 32 days instead of 12 hours, and waits for a projector to join
+  - Hosting a server (Launcher.exe server): it runs for 32 days instead of 12 hours, and waits for a projector to join
     before its first round.
 
 NEW IN KIT 4
@@ -50,15 +50,15 @@ SETUP (once)
   2. Drag the "extracted" folder onto SETUP.bat (or double-click SETUP.bat and drag the folder into its window).
   3. Setup checks that your copy is Rev D, makes the changes listed under WHAT SETUP CHANGES, then makes the card
      catalogue and the card pictures from your files (about a minute). Running it again checks and repairs.
-  Updating from an earlier kit: STOP.bat, unzip the new kit over the old folder (data\ keeps your club, your other
+  Updating from an earlier kit: Launcher.exe stop, unzip the new kit over the old folder (data\ keeps your club, your other
   clubs, settings, keys and catalogue), then SETUP.bat again, and ENGLISH.bat again if you use English (it then also
   does this kit's newer English: money, the result screen, the shop's name). A server settings file you edited by
   hand is kept as .before-kit.
 
 PLAY
-  PLAY.bat starts everything in about 30 seconds: the server, the projector's window, seat 1's window with the
+  Launcher.exe starts everything in about 30 seconds: the server, the projector's window, seat 1's window with the
   panel, and the key driver. Only two windows open, the projector's and seat 1's: the server and the kit's helpers
-  run in the background ("PLAY.bat show" shows the server's console and settings window; "PLAY.bat debug" opens
+  run in the background ("Launcher.exe show" shows the server's console and settings window; "Launcher.exe debug" opens
   every window and keeps full logs).
   Sound: the projector starts muted and seat 1 at 4% of the PC's volume, so the same sounds do not play twice and
   nothing is loud at the start. Windows' Volume Mixer changes either while you play; the next start sets them again.
@@ -104,10 +104,10 @@ CLUB CARD (left side, under SETTINGS)
   data\save\cards.
 
 STOP
-  After a match the card comes out by itself (or press I). Then STOP.bat.
+  After a match the card comes out by itself (or press I). Then Launcher.exe stop.
   During a match (the game marks a card session open from START to the locker-room save) STOP says what stopping
   would cost - that match, and a "bad ending" on the card (trade rights are lost at 2) - and asks: type Y to stop
-  anyway, just Enter leaves the game running. "STOP.bat force" stops without asking - only for a stuck game.
+  anyway, just Enter leaves the game running. "Launcher.exe stop force" stops without asking - only for a stuck game.
 
 ENGLISH (optional)
   ENGLISH.bat puts the game into English: about 7,200 lines of screen text, the players' names (the original Latin
@@ -139,7 +139,7 @@ WHAT SETUP CHANGES   ("SETUP.bat undo" takes all of it back out)
 GOOD TO KNOW
   - Your club card is saved safely: each save goes to a temporary file first and replaces the card in one step, so
     a crash or a power cut cannot leave a broken card. Before the first save of each session the card is copied to
-    data\save\backup (the newest 20 are kept; CLUB CARD lists them). To go back to one: STOP.bat, then copy it
+    data\save\backup (the newest 20 are kept; CLUB CARD lists them). To go back to one: Launcher.exe stop, then copy it
     over data\save\seat1_club.bin.
   - Windows may ask whether control_Release.exe may use the network: either answer works, everything stays on
     this PC.
@@ -148,8 +148,8 @@ GOOD TO KNOW
   - One copy at a time on a PC.
   - If both pictures freeze while the sound goes on, Windows took the graphics device away from the game
     (a display change, Ctrl+Alt+Del, an administrator prompt ...). The game cannot recover from that:
-    STOP.bat force, then PLAY.bat.
-  - Logs are in data\logs ("PLAY.bat debug" keeps more; the card reader's full log grows about 60 MB an hour).
+    Launcher.exe stop force, then Launcher.exe again.
+  - Logs are in data\logs ("Launcher.exe debug" keeps more; the card reader's full log grows about 60 MB an hour).
     If a game window closes by itself, its log (run_seat1.txt, run_projector.txt or run_server.txt) says how,
     and for the game's own "invalid parameter" stop it names the function that caused it - share that log.
     The previous run's logs are in data\logs\previous.

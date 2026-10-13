@@ -74,7 +74,7 @@ const MAP: &[(&str, &str)] = &[
 /// The staged 2017-18 kit <- the repository, same rules as [`MAP`]; later rows overlay earlier ones and a row may be one
 /// file. The kit's programs are not here: `build` compiles them into the staged kit ([`KEEP_1718`]).
 const MAP_1718: &[(&str, &str)] = &[
-    ("", "legacy/2017-18/kit"), // scripts/ and the *.bat launchers
+    ("", "legacy/2017-18/kit"), // scripts/ (setup, English, cards) and SETUP.bat, ENGLISH.bat; the run is Launcher.exe
     ("README.txt", "editions/2017-18/README.txt"),
     ("english", "editions/2017-18/english"),
     ("overlay/skin.tex", "editions/2017-18/overlay/skin.tex"),
@@ -91,6 +91,8 @@ const TOP_1718: &str = "WCCF-2017-18-kit";
 const KEEP: &[&str] = &["programs", "Launcher.exe", "source/build"];
 /// Built into the staged 2017-18 kit (`source/build` also holds the guard wccfnet.dll, which the kit does not ship, and the guard tests).
 const KEEP_1718: &[&str] = &[
+    "Launcher.exe",
+    "bin/forza-server.exe",
     "bin/winmm.dll",
     "bin/logowin.exe",
     "bin/FPR_Emu.exe",
@@ -100,6 +102,8 @@ const KEEP_1718: &[&str] = &[
     "source/build",
 ];
 const PROGRAMS_1718: &[&str] = &[
+    "Launcher.exe",
+    "bin/forza-server.exe",
     "bin/winmm.dll",
     "bin/logowin.exe",
     "bin/FPR_Emu.exe",
@@ -384,24 +388,18 @@ fn build_all(root: &Path, kit: &Path, kit_1718: &Path, cc: &Cc) -> Result<()> {
         failed.len(),
         failed.join("\n")
     );
-    fs::copy(
-        root.join("target")
-            .join(TARGET)
-            .join("release")
-            .join("Launcher.exe"),
-        kit.join("Launcher.exe"),
-    )?;
-    println!("built {}", kit.join("Launcher.exe").display());
-    let server = kit.join("programs/forza-server.exe");
-    fs::create_dir_all(server.parent().unwrap())?;
-    fs::copy(
-        root.join("target")
-            .join(TARGET)
-            .join("release")
-            .join("forza-server.exe"),
-        &server,
-    )?;
-    println!("built {}", server.display());
+    // the same two programs in both kits: Launcher.exe runs either edition (launcher::kit::Edition, from the layout)
+    let release = root.join("target").join(TARGET).join("release");
+    for (exe, to) in [
+        ("Launcher.exe", kit.join("Launcher.exe")),
+        ("forza-server.exe", kit.join("programs/forza-server.exe")),
+        ("Launcher.exe", kit_1718.join("Launcher.exe")),
+        ("forza-server.exe", kit_1718.join("bin/forza-server.exe")),
+    ] {
+        fs::create_dir_all(to.parent().unwrap())?;
+        fs::copy(release.join(exe), &to)?;
+        println!("built {}", to.display());
+    }
     Ok(())
 }
 
@@ -1437,8 +1435,11 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
     for p in programs {
         let v = version_strings(&fs::read(kit.join(p))?).unwrap_or_default();
         let get = |k: &str| v.get(k).map_or("", String::as_str);
+        // Launcher.exe and forza-server.exe are one build for both kits: they name the 2010-11 kit
+        let shared =
+            matches!(*p, "Launcher.exe" | "bin/forza-server.exe") && get("ProductName") == PRODUCT;
         ensure!(
-            get("ProductName") == product && !get("FileVersion").is_empty(),
+            (get("ProductName") == product || shared) && !get("FileVersion").is_empty(),
             "{p} has no version information - see xtask build"
         );
         println!(
