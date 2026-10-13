@@ -50,7 +50,8 @@ dbg_macro = "warn"
 [profile.release]
 opt-level = 3
 lto = "thin"            # fat LTO + one codegen unit rebuilt the installer in 51 s, thin in 14 s; the exe is ~17 % larger
-panic = "abort"          # safe: children sit in a Job object with KILL_ON_JOB_CLOSE, so an abort still stops them
+# panic unwinds (the default): a stand-in thread that panics ends alone, and the run's supervisor stops the game with
+# a message (launcher::run check_threads); with "abort" the whole Launcher.exe vanished and the Job closed the game unsaid
 strip = true
 
 [profile.dev]
