@@ -14,7 +14,7 @@ is in progress. See [docs/PROGRESS.md](docs/PROGRESS.md) and [docs/TASKS.md](doc
 
 | Path | What |
 |---|---|
-| `kit/` | Kit 5 + 2017–18 changes (`PLAY1718.bat`, `scripts/play.py`, `_debug_launch.py`, `_ringedge_services.py`, new `_gamesvr.py`) |
+| `kit/` | `scripts/` (setup, English, cards: Python until step 11), `SETUP.bat`, `ENGLISH.bat`; the run is `Launcher.exe` (`crates/launcher`, `Edition::E1718`), which `cargo xtask build` copies into the staged kit |
 | `tools/setup1718.py`, `patches1718.py` | build the runtime: guarded imports, seat 1 exe patches, controller patch (every original byte checked) |
 | `tools/restart.sh`, `press.sh` (`cargo xtask cap`) | WSL helpers: restart the stack, tap cabinet buttons, capture game windows |
 | `tools/netguard/` | `wccfnet.dll` / `netguard.dll` (+ sources): stub the IP-helper calls that drop the host's DHCP lease |
@@ -25,11 +25,13 @@ is in progress. See [docs/PROGRESS.md](docs/PROGRESS.md) and [docs/TASKS.md](doc
 ## Quick start (from WSL)
 
 1. Copy the decrypted game folder to an NTFS runtime folder as `<runtime>/game` (default `<runtime>`).
-2. `WCCF1718_GAME=<decrypted game> legacy/2017-18/tools/restart.sh first run1` (setup + start), after `cargo xtask
-   build` on Windows in the same checkout. The decrypted game is the untouched original whose `client_Release.exe`
-   still imports `IPHLPAPI.DLL` (here: `ringedge/1718-decryption-20261007-1944/game`); the `D:\wccf-1718-*` copies are
-   already guarded and fail setup's check. Or, after setup, run
-   `<runtime>\kit\PLAY1718.bat` on Windows. Stop: `kit\STOP.bat force`.
+2. `cargo xtask build`, then `WCCF1718_GAME=<decrypted game> legacy/2017-18/tools/restart.sh TAG` (stage, sync to
+   `<runtime>/kit`, setup; it never starts the game). The decrypted game is the untouched original whose
+   `client_Release.exe` still imports `IPHLPAPI.DLL` (here: `ringedge/1718-decryption-20261007-1944/game`); the
+   `D:\wccf-1718-*` copies are already guarded and fail setup's check.
+   Start on Windows: `<runtime>\kit\Launcher.exe` (double-click; from a console `Launcher.exe local`). It refuses to
+   start (exit 5) unless `<runtime>\setup-hashes.json` matches the guarded programs and they import `wccfnet.dll`.
+   Stop: close the game's window, or `Launcher.exe stop` (`stop force` for a stuck game).
 3. Keys: Enter START, X decide, arrows tactics, 5 coin, F11 window size.
 
 Working with an AI coding agent: start with [AGENTS.md](AGENTS.md).
