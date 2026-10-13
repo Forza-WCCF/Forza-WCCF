@@ -217,6 +217,8 @@ fn closing_seat_1_ends_the_run_and_the_card_rule_holds() {
         "{said}"
     );
     assert!(said.contains("The game has ended: closed by the player."), "{said}");
+    let logged = std::fs::read_to_string(kit.logs().join("run_launcher.txt")).unwrap_or_default();
+    assert!(logged.contains("closed by the player"), "the run's lines are in run_launcher.txt too:\n{logged}");
     assert!(!run::is_on(&kit, Kind::Run), "the lock went with the run");
     assert!(
         !kit.data().join("running.json").exists(),

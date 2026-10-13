@@ -763,6 +763,16 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
 impl Run<'_> {
     fn say(&self, line: &str) {
         self.ui.say(line);
+        // and in data\logs\run_launcher.txt: the window's box and a console are gone when they close, and a console
+        // Launcher.exe's lines do not reach a cmd redirect (first live run, 2026-10-13: the start's lines were lost)
+        if let Ok(mut f) = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(self.logs().join("run_launcher.txt"))
+        {
+            let t = crate::logs::local(std::time::SystemTime::now());
+            let _ = writeln!(f, "{:02}:{:02}:{:02}  {line}", t.hour(), t.minute(), t.second());
+        }
     }
 
     fn logs(&self) -> PathBuf {
