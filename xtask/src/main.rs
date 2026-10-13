@@ -776,29 +776,6 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
         true,
     );
 
-    // the key driver's live file is where play.py's stop guard reads the card state, and the I/O board's outputs file is
-    // beside it (hardware\io_board.py derives it): if they ever disagree, the stop guard reads "card out" with a card in
-    let c = ck.python(&["-c", r"import os, play; from hardware import keyboard as k; n = os.path.normcase; assert n(play.KEYS_INPUT) == n(k.LIVE), (play.KEYS_INPUT, k.LIVE); assert n(k.OUTPUTS) == n(k.LIVE[:-len('_input.txt')] + '_outputs.txt'); assert os.path.basename(os.path.dirname(k.LIVE)) == 'data'; print('key driver files: in data\\, the same for play.py and the I/O board')"]);
-    ck.run(
-        "the key driver, the I/O board and play.py name the same live files in data\\",
-        c,
-        false,
-    );
-
-    // Kit 5.5 reused the name PANEL for wccfpanel.dll: a plain start read the dll as data\panel.txt and never went online
-    let c = ck.python(&["-c", "import sys; sys.path.insert(0, sys.argv[1]); import play; assert play.PANEL.endswith('panel.txt'), play.PANEL; print('play.py: PANEL is panel.txt')", code_s]);
-    ck.run("play.py PANEL", c, false);
-
-    let c = ck.python(&[
-        code.join("hardware/keyboard.py").to_str().unwrap(),
-        "--selftest",
-    ]);
-    ck.run("key driver self-test", c, true);
-    ck.test(
-        "play.py ended: a closed window vs a crash",
-        "test_ended.py",
-        false,
-    );
     ck.test(
         "a program started through a junction (the first-run link) is found by the kit's path checks",
         "test_junction_paths.py",
@@ -812,33 +789,8 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
         false,
     );
     ck.test(
-        "the card reader: a failed save never writes in place; a bad card does not lock out",
-        "test_icc_reader.py",
-        false,
-    );
-    ck.test(
-        "the seat decision: only \"no broker\" falls back to seat 1; other answers stop",
-        "test_take_seat.py",
-        false,
-    );
-    ck.test(
-        "the seat lease reconnects and re-claims its seat after a break",
-        "test_seat_lease.py",
-        true,
-    );
-    ck.test(
         "the match relay: a live seat cannot be taken over by another address",
         "test_relay.py",
-        true,
-    );
-    ck.test(
-        "log rotation never stops a start when a log file is held open",
-        "test_rotate_logs.py",
-        false,
-    );
-    ck.test(
-        "a missing card catalogue does not stop a start",
-        "test_setup_state.py",
         true,
     );
     ck.test(
@@ -852,17 +804,12 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
         false,
     );
     ck.test(
-        "logs: the run before last zipped, the archive kept to its size",
-        "test_log_archive.py",
-        false,
-    );
-    ck.test(
         "a transferred card: listed as such, never played again",
         "test_wallet_transferred.py",
         false,
     );
 
-    // The checks that wait on their own servers (the seat desk, SEND LOGS) run side by side, beside the panel's
+    // The checks that wait on their own servers (the seat desk) run side by side, beside the panel's
     // self-tests below (each on its own ports); their last line and exit code are read once they end.
     let side: Vec<_> = [
         (
@@ -872,10 +819,6 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
         (
             "the projector box: held until a player is in",
             "test_hold_projector.py",
-        ),
-        (
-            "SEND LOGS: packed, sent, kept - and refused when it must be",
-            "test_send_logs.py",
         ),
     ]
     .into_iter()
@@ -905,11 +848,6 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
     ck.run(
         "whole messages: a batch in pieces waits for its rest, bytes that are no batch are skipped",
         Command::new(kit.join("source/build/test_wholemsg.exe")),
-        false,
-    );
-    ck.test(
-        "a crash leaves its memory snapshots (lean + full) in data\\dumps",
-        "test_crash_dump.py",
         false,
     );
 
@@ -1001,7 +939,7 @@ fn panel_selftests(ck: &mut Checks) -> Result<()> {
         .env("WCCFPANEL_DEALTEST", "1") // the dealt card's odds
         .env("WCCFPANEL_SETTEST", "1") // a panel.txt save keeps auto_logs=0
         .env("WCCF_RELAY_PORT", "20941")
-        .env("WCCF_SKIN", kit.join("art/skin.tex")); // the panel's art (play.py passes it)
+        .env("WCCF_SKIN", kit.join("art/skin.tex")); // the panel's art (the run passes it)
     run_env(&mut game);
     let run = game.status();
     // a kill would only reach the interop shim: the relay ends by itself after its 30 s
@@ -1167,23 +1105,36 @@ fn scrub(root: &Path, failed: &mut Vec<String>) -> Result<()> {
 
 // ---- the launcher's scripts ----
 
-/// The scripts Launcher.exe runs are where it looks for them in the staged kit: its `SCRIPTS` folder, read from its source
-/// (it had looked in `scripts\`, the 2017-18 name, while the 2010-11 kit ships `code\`).
+/// The scripts Launcher.exe runs (the run in `crates/launcher/src/run` and the window's SETUP) are where it looks for them in
+/// the staged kit: its `SCRIPTS` folder, read from its source.
 fn launcher_scripts(root: &Path, kit: &Path, failed: &mut Vec<String>) -> Result<()> {
-    let lib = fs::read_to_string(root.join("crates/launcher/src/lib.rs"))?;
-    let dir = lib
+    let src = fs::read_to_string(root.join("crates/launcher/src/kit.rs"))?;
+    let dir = src
         .lines()
         .find_map(|l| {
             l.strip_prefix("pub const SCRIPTS: &str = \"")?
                 .strip_suffix("\";")
         })
-        .context("no SCRIPTS in crates/launcher/src/lib.rs")?;
-    let missing: Vec<_> = ["play.py", "setup.py", "english.py"]
+        .context("no SCRIPTS in crates/launcher/src/kit.rs")?;
+    let scripts = [
+        "setup.py",
+        "english.py",
+        "card_steps.py",
+        "helpers/panel.py",
+        "helpers/console.py",
+        "server/seat_desk.py",
+        "server/relay.py",
+        "server/log_inbox.py",
+    ];
+    let missing: Vec<_> = scripts
         .iter()
         .filter(|s| !kit.join(dir).join(s).is_file())
         .collect();
     if missing.is_empty() {
-        println!("launcher scripts: {dir}/ has play.py, setup.py, english.py");
+        println!(
+            "launcher scripts: {dir}/ has the {} scripts Launcher.exe runs",
+            scripts.len()
+        );
     } else {
         failed.push(format!("launcher scripts: {dir}/ lacks {missing:?}"));
     }
