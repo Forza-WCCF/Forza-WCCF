@@ -34,7 +34,7 @@ def desk(name, silent=75.0, hold=None, edition="2010-11", fw=True):
     log = os.path.join(tmp, "data", "logs", "seat_broker.txt")
     script = DESK if edition == "2010-11" else BROKER
     srv = C.Server(name, script, ["60", log], env, port, cfg={"edition": edition, "silent": silent, "hold": hold,
-                                                           "fw": bool(fw)}, tmp=tmp)
+                                                           "fw": "folder" if fw == "folder" else "file"}, tmp=tmp)
     srv.log = log
     return srv
 

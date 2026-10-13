@@ -78,7 +78,7 @@ def scenarios():
     s.urecv("c")
     out.append(s.finish())
 
-    s = relay("hijack")                         # a live seat is its owner's; a quiet one is free (A6)
+    s = relay("hijack", forget=2.0)                         # a live seat is its owner's; a quiet one is free (A6)
     for c in "abc":
         s.uopen(c)
     s.usend("a", R(1))
@@ -95,7 +95,7 @@ def scenarios():
     s.usend("a", D(2, 1, b"seat 2 is still b"))
     s.urecv("b")
     s.urecv("c")
-    s.sleep(FORGET + 0.4)                       # seat 1 (a) and seat 2 (b) go quiet
+    s.sleep(2.4)                                # seat 1 (a) and seat 2 (b) go quiet
     s.usend("c", R(1))                          # now the stranger may have seat 1
     s.usend("b", D(1, 2, b"now c's"))
     s.urecv("c")
