@@ -12,6 +12,10 @@
 //       size:W,H         the window's client size: the panel writes its frame dump (wccfpanel_frame.bmp, beside
 //                        this exe) once a new size has held for 10 frames
 //       copy:NAME        wccfpanel_frame.bmp copied to NAME
+//       unload           FreeLibrary on the panel: the frames go on without it
+//
+// Each frame checks that the device comes back from Present as the game left it (render target, viewport, scissor
+// test, a cull mode set at start) and says so once if not, or if a Present fails.
 //
 // The panel's game-only parts (money, the % guard, the dispenser, the relay) check that they are in the real game
 // and stay off here.  Run it with WCCFPANEL_DRYKEYS=1 (button keys are logged, never pressed),
@@ -34,6 +38,7 @@
 #define GAME_H 900
 
 static HWND g_win;
+static HMODULE g_panel;
 
 static void client_size(int w, int h)
 {
@@ -69,6 +74,10 @@ static int step(const char *s, const char *dir)
         for (const char *p = s + 5; *p; p++) post_key((WPARAM)(VkKeyScanA(*p) & 0xFF));
         return 150;
     }
+    if (!strcmp(s, "unload")) {
+        printf(FreeLibrary(g_panel) ? "unloaded the panel\n" : "unload failed (%lu)\n", GetLastError());
+        return 0;
+    }
     if (!strncmp(s, "key:", 4)) { post_key((WPARAM)atoi(s + 4)); return 150; }
     if (!strncmp(s, "size:", 5) && sscanf(s + 5, "%d,%d", &a, &b) == 2) { client_size(a, b); return 600; }
     if (!strncmp(s, "copy:", 5)) {
@@ -82,12 +91,32 @@ static int step(const char *s, const char *dir)
     return 0;
 }
 
+// the device as the game left it, after a Present the panel may have drawn in; said once
+static void check_device(IDirect3DDevice9 *dev, HRESULT hr)
+{
+    static int said = 0;
+    IDirect3DSurface9 *rt = NULL, *bb = NULL; D3DVIEWPORT9 vp; DWORD cull = 0, scissor = 1;
+    IDirect3DDevice9_GetRenderTarget(dev, 0, &rt);
+    IDirect3DDevice9_GetBackBuffer(dev, 0, 0, D3DBACKBUFFER_TYPE_MONO, &bb);
+    IDirect3DDevice9_GetViewport(dev, &vp);
+    IDirect3DDevice9_GetRenderState(dev, D3DRS_CULLMODE, &cull);
+    IDirect3DDevice9_GetRenderState(dev, D3DRS_SCISSORTESTENABLE, &scissor);
+    if (!said && (FAILED(hr) || !rt || rt != bb || vp.Width != GAME_W || vp.Height != GAME_H || cull != D3DCULL_CW || scissor)) {
+        said = 1;
+        printf("device changed: Present hr=0x%08lX, render target %s, viewport %lux%lu, cull %lu, scissor %lu\n",
+               (unsigned long)hr, rt == bb ? "kept" : "changed", vp.Width, vp.Height, cull, scissor);
+    }
+    if (rt) IDirect3DSurface9_Release(rt);
+    if (bb) IDirect3DSurface9_Release(bb);
+}
+
 int main(int argc, char **argv)
 {
     char dir[MAX_PATH], *sl;
     WNDCLASSA wc; IDirect3D9 *d3d; IDirect3DDevice9 *dev = NULL; D3DPRESENT_PARAMETERS pp;
     int next = 2; DWORD due;
-    if (argc < 2) { printf("fakegame.exe PANEL.dll [wait:MS click:X,Y move:X,Y close type:TEXT key:VK size:W,H copy:NAME ...]\n"); return 2; }
+    setvbuf(stdout, NULL, _IONBF, 0);            // the lines reach a test's pipe even if the panel takes us down
+    if (argc < 2) { printf("fakegame.exe PANEL.dll [wait:MS click:X,Y move:X,Y close type:TEXT key:VK size:W,H copy:NAME unload ...]\n"); return 2; }
 #ifdef IPHLP
     { volatile int never = 0; if (never) IpRenewAddress(NULL); }   // never called: only its import is wanted
 #endif
@@ -113,8 +142,10 @@ int main(int argc, char **argv)
                                        D3DCREATE_SOFTWARE_VERTEXPROCESSING | D3DCREATE_FPU_PRESERVE, &pp, &dev))) {
         dev = NULL;                              // a machine without a graphics device (CI): the panel still loads and
         printf("no Direct3D 9 device - the panel loads, nothing is drawn\n");   // its self-tests run (WCCFPANEL_*TEST)
+    } else {
+        IDirect3DDevice9_SetRenderState(dev, D3DRS_CULLMODE, D3DCULL_CW);       // not the default: a panel must keep it
     }
-    if (!LoadLibraryA(argv[1])) { printf("could not load %s (%lu)\n", argv[1], GetLastError()); return 1; }
+    if (!(g_panel = LoadLibraryA(argv[1]))) { printf("could not load %s (%lu)\n", argv[1], GetLastError()); return 1; }
 
     due = GetTickCount() + 2500;                 // the panel's init: its own Present detour, the window, the files
     for (;;) {
@@ -134,7 +165,8 @@ int main(int argc, char **argv)
             IDirect3DDevice9_Clear(dev, 1, &band, D3DCLEAR_TARGET, D3DCOLOR_XRGB(34, 120, 58), 1.0f, 0);
             IDirect3DDevice9_BeginScene(dev);
             IDirect3DDevice9_EndScene(dev);
-            IDirect3DDevice9_Present(dev, NULL, NULL, NULL, NULL);
+            HRESULT hr = IDirect3DDevice9_Present(dev, NULL, NULL, NULL, NULL);
+            check_device(dev, hr);
         }
         Sleep(15);
     }
