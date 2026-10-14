@@ -86,154 +86,13 @@ const CARD: usize = 10;
 const COIN: usize = 11;
 const START: usize = 0;
 
-/// Keys an action may have: letters, digits, the number pad, F1-F9 and F12-F24, arrows and the keys around them, Enter
-/// Space Tab Backspace Shift Ctrl Pause and the punctuation keys. Never Esc (it closes the panels), F10 (Windows' menu
-/// key froze the game window), F11 (the window's size), Alt, the Windows keys, the lock keys or a mouse button.
-pub fn is_allowed(vk: i128) -> bool {
-    matches!(vk,
-        0x08 | 0x09 | 0x0D | 0x10 | 0x11 | 0x13 | 0x20..=0x28 | 0x2D | 0x2E | 0xE2
-        | 0x30..=0x39 | 0x41..=0x5A | 0x60..=0x78 | 0x7B..=0x87 | 0xBA..=0xC0 | 0xDB..=0xDF)
-}
+pub use forza::keys::{PAD_AXIS, PAD_BUTTON, PAD_HAT, is_allowed, key_label, pad_code, pad_label, pad_token};
+#[cfg(windows)]
+pub use win::{Winmm, pad_name};
 
-/// Controller controls are numbers above every key code, so keys and controls share one set: 0x100 + n = button n
-/// (1-32); 0x200 + 2 * axis + (1 for +) = a stick or axis direction (axes X Y Z R U V; up is Y-); 0x300 + n = the
-/// hat's up/right/down/left. The KEYS panel (`wccfpanel.dll`) reads controllers the same way: keep these numbers, the
-/// words and the rest rule of [`PadDevice`] equal in both.
-pub const PAD_BUTTON: u32 = 0x100;
-pub const PAD_AXIS: u32 = 0x200;
-pub const PAD_HAT: u32 = 0x300;
-const AXES: &str = "XYZRUV";
-const HATS: [&str; 4] = ["UP", "RIGHT", "DOWN", "LEFT"];
 /// An axis direction is pressed past half way, let go back inside 0.3 (no flicker).
 const PAD_ON: f64 = 0.5;
 const PAD_OFF: f64 = 0.3;
-
-/// A control's word in `keys.txt` ("B3", "X+", "HAT UP").
-pub fn pad_token(code: u32) -> Option<String> {
-    if (PAD_BUTTON + 1..=PAD_BUTTON + 32).contains(&code) {
-        return Some(format!("B{}", code - PAD_BUTTON));
-    }
-    if (PAD_AXIS..PAD_AXIS + 12).contains(&code) {
-        let (axis, plus) = ((code - PAD_AXIS) / 2, (code - PAD_AXIS) % 2);
-        return Some(format!(
-            "{}{}",
-            AXES.as_bytes()[axis as usize] as char,
-            if plus == 1 { "+" } else { "-" }
-        ));
-    }
-    if (PAD_HAT..PAD_HAT + 4).contains(&code) {
-        return Some(format!("HAT {}", HATS[(code - PAD_HAT) as usize]));
-    }
-    None
-}
-
-/// `keys.txt`'s word -> the control, 0 if it is none (case and spaces do not matter: "hat up" = "HATUP").
-pub fn pad_code(word: &str) -> u32 {
-    let t: Vec<char> = word
-        .split_whitespace()
-        .collect::<String>()
-        .to_uppercase()
-        .chars()
-        .collect();
-    let s: String = t.iter().collect();
-    if let Some(rest) = s.strip_prefix("HAT")
-        && let Some(i) = HATS.iter().position(|h| *h == rest)
-    {
-        return PAD_HAT + i as u32;
-    }
-    if t.len() == 2
-        && (t[1] == '+' || t[1] == '-')
-        && let Some(axis) = AXES.chars().position(|c| c == t[0])
-    {
-        return PAD_AXIS + 2 * axis as u32 + u32::from(t[1] == '+');
-    }
-    let n: String = t.iter().skip(1).collect();
-    if t.first() == Some(&'B')
-        && !n.is_empty()
-        && n.len() <= 4
-        && n.bytes().all(|b| b.is_ascii_digit())
-        && let Ok(v) = n.parse::<u32>()
-        && (1..=32).contains(&v)
-    {
-        return PAD_BUTTON + v;
-    }
-    0
-}
-
-/// A control's name on screen and in the log.
-pub fn pad_label(code: u32) -> String {
-    if code == 0 {
-        return "(none)".into();
-    }
-    if (PAD_BUTTON + 1..=PAD_BUTTON + 32).contains(&code) {
-        return format!("Button {}", code - PAD_BUTTON);
-    }
-    if (PAD_AXIS..PAD_AXIS + 12).contains(&code) {
-        let (axis, plus) = ((code - PAD_AXIS) / 2, ((code - PAD_AXIS) % 2) as usize);
-        return match axis {
-            0 => ["Stick Left", "Stick Right"][plus].into(),
-            1 => ["Stick Up", "Stick Down"][plus].into(),
-            _ => format!("Axis {}{}", AXES.as_bytes()[axis as usize] as char, ["-", "+"][plus]),
-        };
-    }
-    if (PAD_HAT..PAD_HAT + 4).contains(&code) {
-        let h = HATS[(code - PAD_HAT) as usize].to_lowercase();
-        let mut c = h.chars();
-        let first = c.next().map(|f| f.to_uppercase().to_string()).unwrap_or_default();
-        return format!("D-pad {first}{}", c.as_str());
-    }
-    format!("0x{code:X}")
-}
-
-/// A key's name for the log: letters and digits as they are, else the common names.
-pub fn key_label(vk: u32) -> String {
-    match vk {
-        0x30..=0x39 | 0x41..=0x5A => (vk as u8 as char).to_string(),
-        0x70..=0x87 => format!("F{}", vk - 0x6F),
-        0x60..=0x69 => format!("Num{}", vk - 0x60),
-        _ => match vk {
-            0x08 => "Backspace",
-            0x09 => "Tab",
-            0x0D => "Enter",
-            0x10 => "Shift",
-            0x11 => "Ctrl",
-            0x13 => "Pause",
-            0x20 => "Space",
-            0x21 => "PgUp",
-            0x22 => "PgDn",
-            0x23 => "End",
-            0x24 => "Home",
-            0x25 => "Left",
-            0x26 => "Up",
-            0x27 => "Right",
-            0x28 => "Down",
-            0x2D => "Insert",
-            0x2E => "Delete",
-            0x6A => "Num*",
-            0x6B => "Num+",
-            0x6C => "NumSep",
-            0x6D => "Num-",
-            0x6E => "Num.",
-            0x6F => "Num/",
-            0xBA => ";",
-            0xBB => "=",
-            0xBC => ",",
-            0xBD => "-",
-            0xBE => ".",
-            0xBF => "/",
-            0xC0 => "`",
-            0xDB => "[",
-            0xDC => "\\",
-            0xDD => "]",
-            0xDE => "'",
-            0xDF => "OEM8",
-            0xE2 => "<>",
-            0 => "(none)",
-            _ => return format!("0x{vk:02X}"),
-        }
-        .into(),
-    }
-}
 
 // ---- keys.txt
 
@@ -343,7 +202,12 @@ fn hex02(v: i128) -> String {
 /// line is skipped (that action keeps its default); a key given twice stays with the first action, and the later one
 /// goes back to its default if that is free, else it has no key (0). Never fails: the file may be mid-swap.
 pub fn load_keys(raw: &[u8]) -> ([u32; 16], Vec<String>) {
-    let mut keys = default_keys();
+    load_keys_with(raw, default_keys())
+}
+
+/// [`load_keys`] with other default keys (in [`ACTIONS`] order): the 2017-18 kit's SW1 and SW2 have keys.
+pub fn load_keys_with(raw: &[u8], defaults: [u32; 16]) -> ([u32; 16], Vec<String>) {
+    let mut keys = defaults;
     let mut notes = Vec::new();
     let mut given: Vec<usize> = Vec::new();
     for ln in lines(raw) {
@@ -385,7 +249,7 @@ pub fn load_keys(raw: &[u8]) -> ([u32; 16], Vec<String>) {
         if vk != 0
             && let Some(&(_, who)) = owner.iter().find(|(k, _)| *k == vk)
         {
-            let d = ACTIONS[n].vk;
+            let d = defaults[n];
             let later = order[i + 1..].iter().any(|&m| keys[m] == d);
             keys[n] = if !owner.iter().any(|(k, _)| *k == d) && !later {
                 d
