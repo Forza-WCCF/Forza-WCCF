@@ -96,6 +96,11 @@ fn answer(cmd: u16, payload: &[u8], save_dir: &Path) -> Option<(u16, Vec<u8>)> {
     if size >= 4 && payload.len() >= 4 {
         body[..4].copy_from_slice(&payload[..4]);
     }
+    if matches!(cmd, 307 | 311) {
+        // GHOST_TEAM, BEST_ELEVEN: errCode 0 would install an all-zero team; 1 = none, the client plays a CPU team
+        // (docs/research/ONLINE-2017-18.md)
+        body[4..8].copy_from_slice(&1u32.to_le_bytes());
+    }
     if cmd == 277 {
         // SAVE_DATA_SET: keep it
         let _ = std::fs::create_dir_all(save_dir);
