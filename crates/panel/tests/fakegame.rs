@@ -334,6 +334,34 @@ fn board_and_buttons_with_real_data() {
             .collect::<Vec<_>>(),
         ["game: left down at 720,448", "game: left up at 720,448"]
     );
+
+    // 3. CATALOGUE from the bar (+ CARD), a typed search, Enter: the first card found goes on the table where the C
+    // panel puts it (the free DF spot, the lowest free slot); Esc closes the page
+    let _ = fs::remove_file(seat.join("forza_panel.log"));
+    run(&[
+        "wait:2500".into(),
+        "click:206,870".into(),
+        "wait:400".into(),
+        "type:backa".into(),
+        "wait:400".into(),
+        "key:13".into(),
+        "wait:400".into(),
+        "key:27".into(),
+        "wait:400".into(),
+    ]);
+    let log = fs::read_to_string(seat.join("forza_panel.log")).unwrap_or_default();
+    println!("forza_panel.log:\n{log}");
+    for line in [
+        "page catalogue",
+        "catalogue: card 102 added - 3 card(s)",
+        "page game",
+    ] {
+        assert!(log.contains(line), "the panel's log has no '{line}'");
+    }
+    assert_eq!(
+        fs::read_to_string(&table).unwrap(),
+        format!("{header}1 101 0.000 0.900\n3 103 -0.200 0.600\n2 102 -0.600 0.550\n")
+    );
     if env::var_os("FORZA_PANEL_KEEP").is_none() {
         let _ = fs::remove_dir_all(&t);
     }

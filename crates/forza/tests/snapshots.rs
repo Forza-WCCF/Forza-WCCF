@@ -234,3 +234,66 @@ fn card_pictures() {
     }
     h.snapshot("card_pictures");
 }
+
+/// CATALOGUE as a player uses it: the page opens with the search line taking the keys, typed words narrow the list,
+/// Enter asks for the first card listed, and the table takes it with a message; Esc closes the page.
+#[test]
+fn catalogue_search_and_add() {
+    use std::cell::RefCell;
+    let _gpu = gpu();
+    let st = RefCell::new(panel::PanelState::sample(
+        Edition::E1011,
+        Lang::En,
+        panel::Page::Catalogue,
+    ));
+    {
+        let mut s = st.borrow_mut();
+        s.catalogue.filter = panel::Filter::default();
+        s.message = None;
+    }
+    let mut h = harness(panel::SIZE, 1.0, Edition::E1011, |ui| {
+        panel::show(ui, &mut st.borrow_mut())
+    });
+    h.run_steps(4);
+    assert_eq!(
+        st.borrow().catalogue.results.len(),
+        forza::ui::sample::cards().len()
+    );
+    h.event(egui::Event::Text("italia porto".into()));
+    h.run_steps(2);
+    let first = {
+        let s = st.borrow();
+        assert_eq!(s.catalogue.filter.search, "italia porto");
+        let names: Vec<&str> = s
+            .catalogue
+            .results
+            .iter()
+            .map(|&i| s.cards[i].name.as_str())
+            .collect();
+        assert!(!names.is_empty() && names.len() < 4, "{names:?}");
+        s.cards[s.catalogue.results[0]].number
+    };
+    h.key_press(egui::Key::Enter);
+    h.run_steps(1);
+    let mut placed = Vec::new();
+    {
+        let mut s = st.borrow_mut();
+        let no = s.add.take();
+        assert_eq!(no, Some(first));
+        assert!(panel::add_card(&mut s, &mut placed, first));
+    }
+    h.run_steps(2);
+    h.snapshot("panel_catalogue_added_en");
+    assert_eq!(placed.len(), 1);
+    assert!(
+        st.borrow()
+            .message
+            .as_ref()
+            .unwrap()
+            .text
+            .ends_with("added (1/16)")
+    );
+    h.key_press(egui::Key::Escape);
+    h.run_steps(1);
+    assert_eq!(st.borrow().page, panel::Page::Game);
+}

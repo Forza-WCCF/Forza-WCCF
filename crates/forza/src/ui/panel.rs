@@ -11,7 +11,9 @@ use super::widgets::{
     self, Cab, Face, KeyState, Tone, action, cabinet, cabinet_face, caps, chip, field, key_cell,
     range_slider, segmented, stat_bar, status_line,
 };
+use crate::cards::{self, AddRefused, Placed};
 use egui::{Align2, Color32, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
+use std::sync::Arc;
 
 pub const SIZE: egui::Vec2 = egui::vec2(1440.0, 900.0);
 /// The formation strip's width, pinned to the right edge.
@@ -72,21 +74,192 @@ pub const ACTIONS: [(&str, &str, &str, Cab); 16] = [
     ("keys.sw2", "2", "", Cab::Plain),
 ];
 
-#[derive(Clone, Debug)]
-pub struct Catalogue {
+/// What the catalogue lists: the search line, the filters and the sort (`wccfpanel.c` `run_search_locked`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Filter {
     pub search: String,
     /// 0 ALL, then GK DF MF FW.
     pub pos: usize,
     /// 0 ANY, then ALL-TIME LEGEND RARE SPECIAL REGULAR.
     pub rarity: usize,
+    /// "" = any.
     pub country: String,
     pub club: String,
+    /// 0 NAME, 1 TOTAL, then OFF DEF TEC POW SPD STA.
     pub sort: usize,
     pub ranges: [(u8, u8); 6],
     pub total: (u8, u8),
-    /// The card under the mouse, for the stats pane.
-    pub focus: usize,
-    pub message: Option<(Tone, &'static str)>,
+}
+
+impl Default for Filter {
+    fn default() -> Self {
+        Filter {
+            search: String::new(),
+            pos: 0,
+            rarity: 0,
+            country: String::new(),
+            club: String::new(),
+            sort: 0,
+            ranges: [(1, 20); 6],
+            total: (60, 100),
+        }
+    }
+}
+
+/// The catalogue's words for the search, worked out once: each card's name, short name, club, country and season
+/// folded ([`fold`]), the cards in name order, and the countries and clubs A to Z with their numbers of cards.
+#[derive(Clone, Debug, Default)]
+pub struct Index {
+    folded: Vec<String>,
+    order: Vec<usize>,
+    pub countries: Vec<(String, usize)>,
+    pub clubs: Vec<(String, usize)>,
+}
+
+/// Plain lower-case letters: accents dropped and other scripts spelt out, so "kaka" finds KAKÀ and "bartoli" BÀRTOLI.
+pub fn fold(s: &str) -> String {
+    deunicode::deunicode(s).to_lowercase()
+}
+
+impl Index {
+    pub fn new(cards: &[Card]) -> Index {
+        let folded: Vec<String> = cards
+            .iter()
+            .map(|c| {
+                fold(
+                    &[&c.name, &c.short, &c.club, &c.country, &c.season]
+                        .map(|s| s.as_str())
+                        .join("\n"),
+                )
+            })
+            .collect();
+        // the C panel's catalogue order: by the shown name, then the number
+        let mut order: Vec<usize> = (0..cards.len()).collect();
+        order.sort_by_cached_key(|&i| (fold(cards[i].short_name()), cards[i].number));
+        let picks = |of: fn(&Card) -> &str| {
+            let mut v: Vec<(String, usize)> = Vec::new();
+            for c in cards {
+                let name = of(c);
+                if name.is_empty() {
+                    continue;
+                }
+                match v.iter_mut().find(|(n, _)| n == name) {
+                    Some((_, k)) => *k += 1,
+                    None => v.push((name.to_owned(), 1)),
+                }
+            }
+            v.sort_by_cached_key(|(n, _)| fold(n));
+            v
+        };
+        Index {
+            folded,
+            order,
+            countries: picks(|c| &c.country),
+            clubs: picks(|c| &c.club),
+        }
+    }
+}
+
+/// A role search word ("dmf") lists the cards rated at least this in that role.
+const ROLE_GOOD: u8 = 8;
+
+/// One search word (folded) against one card: in its name, club, country or season; its line exactly ("fw"); a role
+/// it is rated [`ROLE_GOOD`] or more in ("dmf"); digits also match the start of the card number.
+fn word_matches(c: &Card, folded: &str, w: &str) -> bool {
+    (w.bytes().all(|b| b.is_ascii_digit()) && c.number.to_string().starts_with(w))
+        || folded.contains(w)
+        || c.pos.code().eq_ignore_ascii_case(w)
+        || board::ROLES
+            .iter()
+            .zip(c.aptitude.roles)
+            .any(|(r, v)| v >= ROLE_GOOD && r.eq_ignore_ascii_case(w))
+}
+
+/// The cards that pass the filter, in its sort's order: only digits = the card numbers starting so; otherwise every
+/// word must match ([`word_matches`]): "milan 2004-05", "brazil fw", "italy cb". NAME is the catalogue's name order;
+/// a stat sorts best first, ties by TOTAL, then by name.
+pub fn search(cards: &[Card], index: &Index, f: &Filter) -> Vec<usize> {
+    let q = f.search.trim();
+    let digits = !q.is_empty() && q.bytes().all(|b| b.is_ascii_digit());
+    let words: Vec<String> = q.split_whitespace().map(fold).collect();
+    let mut out: Vec<usize> = index
+        .order
+        .iter()
+        .copied()
+        .filter(|&i| {
+            let c = &cards[i];
+            (f.pos == 0 || Position::ALL.get(f.pos - 1) == Some(&c.pos))
+                && (f.rarity == 0 || Rarity::ALL.get(f.rarity - 1) == Some(&c.rarity))
+                && (f.country.is_empty() || c.country == f.country)
+                && (f.club.is_empty() || c.club == f.club)
+                && c.stats
+                    .iter()
+                    .zip(f.ranges)
+                    .all(|(v, (lo, hi))| (lo..=hi).contains(v))
+                && (f.total.0..=f.total.1).contains(&c.total)
+                && if digits {
+                    c.number.to_string().starts_with(q)
+                } else {
+                    words.iter().all(|w| word_matches(c, &index.folded[i], w))
+                }
+        })
+        .collect();
+    if f.sort > 0 {
+        let key = |i: usize| match f.sort {
+            1 => cards[i].total,
+            s => cards[i].stats[(s - 2).min(5)],
+        };
+        out.sort_by(|&a, &b| {
+            key(b)
+                .cmp(&key(a))
+                .then(cards[b].total.cmp(&cards[a].total))
+        });
+    }
+    out
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Catalogue {
+    pub filter: Filter,
+    /// The card in the stats pane (an index into the catalogue): the last one pointed at.
+    pub focus: Option<usize>,
+    /// The cards the filter lets through, in its order ([`search`]), worked out again when it changes.
+    pub results: Vec<usize>,
+    searched: Option<Filter>,
+    index: Option<Index>,
+}
+
+impl Catalogue {
+    /// The index made once and the search run again when the filter changed; `true` = the results changed.
+    fn refresh(&mut self, cards: &[Card]) -> bool {
+        let index = self.index.get_or_insert_with(|| Index::new(cards));
+        if self.searched.as_ref() == Some(&self.filter) {
+            return false;
+        }
+        self.results = search(cards, index, &self.filter);
+        self.searched = Some(self.filter.clone());
+        true
+    }
+}
+
+/// A message line (done, refused or failed, notice), shown for [`NOTE_SECS`] from the frame it first appears.
+#[derive(Clone, Debug)]
+pub struct Note {
+    pub tone: Tone,
+    pub text: String,
+    shown: Option<f64>,
+}
+
+const NOTE_SECS: f64 = 4.0;
+
+impl Note {
+    pub fn new(tone: Tone, text: String) -> Note {
+        Note {
+            tone,
+            text,
+            shown: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -95,12 +268,15 @@ pub struct PanelState {
     pub lang: Lang,
     pub page: Page,
     pub board: Board,
+    /// The player's catalogue (the CATALOGUE page's cards).
+    pub cards: Arc<[Card]>,
     pub hover_delay: f32,
     /// CENTRAL, COUNTER, L-SIDE, R-SIDE, PRESS: lit when the order is on.
     pub tactics: [bool; 5],
     pub online: bool,
     pub ping_ms: u32,
-    pub message: Option<(Tone, &'static str)>,
+    /// The last thing done, refused or worth knowing; one line for every page.
+    pub message: Option<Note>,
     pub catalogue: Catalogue,
     pub keys: Vec<(String, String)>,
     pub capturing: Option<usize>,
@@ -126,33 +302,25 @@ pub struct PanelState {
     pub pressed: Option<&'static str>,
     /// The cabinet button whose key is down (lit until the key goes up).
     pub held: Option<&'static str>,
+    /// A catalogue card to put on the table (its number): [`add_card`].
+    pub add: Option<u32>,
 }
 
 impl PanelState {
-    /// The panel at rest: the game page, no message, the default keys, the board given.
-    pub fn new(edition: Edition, lang: Lang, board: Board) -> Self {
+    /// The panel at rest: the game page, no message, the default keys, the board and the catalogue given.
+    pub fn new(edition: Edition, lang: Lang, board: Board, cards: Arc<[Card]>) -> Self {
         PanelState {
             edition,
             lang,
             page: Page::Game,
             board,
+            cards,
             hover_delay: 1.0,
             tactics: [false; 5],
             online: false,
             ping_ms: 0,
             message: None,
-            catalogue: Catalogue {
-                search: String::new(),
-                pos: 0,
-                rarity: 0,
-                country: String::new(),
-                club: String::new(),
-                sort: 0,
-                ranges: [(1, 20); 6],
-                total: (60, 100),
-                focus: 0,
-                message: None,
-            },
+            catalogue: Catalogue::default(),
             keys: ACTIONS
                 .iter()
                 .map(|(_, k, c, _)| ((*k).to_owned(), (*c).to_owned()))
@@ -172,31 +340,37 @@ impl PanelState {
             board_changed: false,
             pressed: None,
             held: None,
+            add: None,
         }
     }
 
+    /// A message for the line every page shows.
+    pub fn note(&mut self, tone: Tone, text: String) {
+        self.message = Some(Note::new(tone, text));
+    }
+
     pub fn sample(edition: Edition, lang: Lang, page: Page) -> Self {
+        let msg = match page {
+            Page::Catalogue => (Tone::Done, tr!(lang, "panel.msg_added")),
+            Page::ClubCard => (Tone::Refused, tr!(lang, "panel.msg_session_open")),
+            _ => (Tone::Notice, tr!(lang, "panel.msg_saved")),
+        };
         PanelState {
             page,
             tactics: [false, true, true, false, false],
             online: page != Page::Settings,
             ping_ms: 38,
-            message: Some(match page {
-                Page::Catalogue => (Tone::Done, "panel.msg_added"),
-                Page::ClubCard => (Tone::Refused, "panel.msg_session_open"),
-                _ => (Tone::Notice, "panel.msg_saved"),
-            }),
+            message: Some(Note::new(msg.0, msg.1)),
             catalogue: Catalogue {
-                search: "ital".into(),
-                pos: 0,
-                rarity: 0,
-                country: "Italia".into(),
-                club: String::new(),
-                sort: 1,
-                ranges: [(10, 20), (1, 20), (12, 20), (1, 20), (1, 20), (1, 20)],
-                total: (70, 100),
-                focus: 5,
-                message: Some((Tone::Notice, "cat.msg_on_table")),
+                filter: Filter {
+                    search: "ital".into(),
+                    country: "Italia".into(),
+                    sort: 1,
+                    ranges: [(10, 20), (1, 20), (12, 20), (1, 20), (1, 20), (1, 20)],
+                    total: (70, 100),
+                    ..Filter::default()
+                },
+                ..Catalogue::default()
             },
             capturing: (page == Page::Keys).then_some(2),
             changed: (page == Page::Keys).then_some(4),
@@ -206,9 +380,43 @@ impl PanelState {
             restart_armed: page == Page::Settings,
             club_pick: 1,
             held: Some("KEYPLAYER"), // lit on the design sheets
-            ..Self::new(edition, lang, super::sample::board())
+            ..Self::new(
+                edition,
+                lang,
+                super::sample::board(),
+                super::sample::cards().into(),
+            )
         }
     }
+}
+
+/// The catalogue's card `no` put on the table where the C panel puts it ([`cards::add`]); the message says how it
+/// went (added, already on the table, the table full). `true` = the table changed: the caller writes it.
+pub fn add_card(st: &mut PanelState, placed: &mut Vec<Placed>, no: u32) -> bool {
+    let lang = st.lang;
+    let Some(card) = st.cards.iter().find(|c| c.number == no) else {
+        return false;
+    };
+    let name = card.short_name().to_owned();
+    let (tone, text, added) = match cards::add(placed, no, card.pos) {
+        Ok(_) => (
+            Tone::Done,
+            tr!(lang, "cat.msg_added", name = name, n = placed.len()),
+            true,
+        ),
+        Err(AddRefused::AlreadyOn) => (
+            Tone::Notice,
+            tr!(lang, "cat.msg_on_table", name = name),
+            false,
+        ),
+        Err(AddRefused::Full) => (Tone::Refused, tr!(lang, "cat.msg_full"), false),
+        Err(AddRefused::NoPlace) => (Tone::Refused, tr!(lang, "cat.msg_no_place"), false),
+    };
+    if added {
+        st.board = cards::board(placed, &st.cards);
+    }
+    st.note(tone, text);
+    added
 }
 
 /// The centre of a formation slot (0-10 the pitch, 11-15 the bench) on a sheet `width` points wide whose board has
@@ -274,12 +482,10 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     );
     game_picture(ui, pic, st.picture);
     st.picture_rect = (st.page == Page::Game).then_some(pic);
-    if st.page == Page::Game
-        && let Some((tone, key)) = st.message
-    {
+    if st.page == Page::Game {
         let r = Rect::from_center_size(pos2(deck.center().x, deck.top() + 27.0), vec2(520.0, 34.0));
         ui.scope_builder(egui::UiBuilder::new().max_rect(r), |ui| {
-            status_line(ui, tone, &tr!(lang, key))
+            note_line(ui, &mut st.message)
         });
     }
     if !st.compact {
@@ -602,6 +808,11 @@ fn game_picture(ui: &mut Ui, pic: Rect, picture: Option<egui::TextureId>) {
 }
 
 fn page(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
+    // Esc closes the page, unless a KEYS cell is waiting for its key (Esc cancels that)
+    if st.capturing.is_none() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        st.page = Page::Game;
+        return;
+    }
     let r = ui.max_rect().shrink(12.0);
     ui.painter()
         .rect_filled(ui.max_rect(), 0, Color32::from_black_alpha(120));
@@ -701,60 +912,87 @@ fn rarity_key(r: Rarity) -> &'static str {
     }
 }
 
+/// The message line, while its time lasts.
+fn note_line(ui: &mut Ui, message: &mut Option<Note>) {
+    let now = ui.input(|i| i.time);
+    let Some(n) = message else { return };
+    let at = *n.shown.get_or_insert(now);
+    if now - at < NOTE_SECS {
+        status_line(ui, n.tone, &n.text);
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_secs_f64(NOTE_SECS - (now - at)));
+    } else {
+        *message = None;
+    }
+}
+
 fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
+    let cards = st.cards.clone();
     let c = &mut st.catalogue;
+    let fresh = c.refresh(&cards);
+    let mut add = None;
     ui.spacing_mut().item_spacing = vec2(6.0, 8.0);
-    ui.add(
-        egui::TextEdit::singleline(&mut c.search)
+    // Enter puts the first card listed on the table; typed letters always go to the search line
+    if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
+        add = c.results.first().map(|&i| cards[i].number);
+    }
+    let search = ui.add(
+        egui::TextEdit::singleline(&mut c.filter.search)
+            .id_salt("cat-search")
             .hint_text(tr!(lang, "cat.search_hint"))
             .font(theme::body(16.0))
             .desired_width(f32::INFINITY)
             .margin(vec2(12.0, 8.0)),
     );
+    if !search.has_focus() && !egui::Popup::is_any_open(ui.ctx()) {
+        search.request_focus();
+    }
+    let f = &mut c.filter;
     let label_w = 110.0;
     ui.horizontal_wrapped(|ui| {
         field(ui, &tr!(lang, "cat.position"), label_w);
-        if chip(ui, &tr!(lang, "cat.all"), c.pos == 0, None).clicked() {
-            c.pos = 0;
+        if chip(ui, &tr!(lang, "cat.all"), f.pos == 0, None).clicked() {
+            f.pos = 0;
         }
         for (i, p) in Position::ALL.iter().enumerate() {
-            if chip(ui, p.code(), c.pos == i + 1, Some(p.color())).clicked() {
-                c.pos = i + 1;
+            if chip(ui, p.code(), f.pos == i + 1, Some(p.color())).clicked() {
+                f.pos = i + 1;
             }
         }
         ui.add_space(16.0);
+        let index = c.index.as_ref();
         field(ui, &tr!(lang, "cat.country"), 80.0);
         combo(
             ui,
             "country",
-            &mut c.country,
-            &["Italia", "Hispania", "日本", "Nordland"],
+            &mut f.country,
+            index.map_or(&[][..], |x| &x.countries),
             lang,
         );
         field(ui, &tr!(lang, "cat.club"), 56.0);
         combo(
             ui,
             "club",
-            &mut c.club,
-            &["Porto Azzurro", "Kitakaze", "Real Olmedo"],
+            &mut f.club,
+            index.map_or(&[][..], |x| &x.clubs),
             lang,
         );
     });
     ui.horizontal_wrapped(|ui| {
         field(ui, &tr!(lang, "cat.rarity"), label_w);
-        if chip(ui, &tr!(lang, "cat.any"), c.rarity == 0, None).clicked() {
-            c.rarity = 0;
+        if chip(ui, &tr!(lang, "cat.any"), f.rarity == 0, None).clicked() {
+            f.rarity = 0;
         }
         for (i, r) in Rarity::ALL.iter().enumerate() {
             if chip(
                 ui,
                 &tr!(lang, rarity_key(*r)),
-                c.rarity == i + 1,
+                f.rarity == i + 1,
                 Some(r.rim()),
             )
             .clicked()
             {
-                c.rarity = i + 1;
+                f.rarity = i + 1;
             }
         }
     });
@@ -771,8 +1009,8 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             &tr!(lang, STATS[5]),
         ];
         for (i, s) in sorts.iter().enumerate() {
-            if chip(ui, s, c.sort == i, None).clicked() {
-                c.sort = i;
+            if chip(ui, s, f.sort == i, None).clicked() {
+                f.sort = i;
             }
         }
     });
@@ -792,78 +1030,101 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                         range_slider(
                             ui,
                             &tr!(lang, STATS[i * 2]),
-                            &mut c.ranges[i * 2],
+                            &mut f.ranges[i * 2],
                             (1, 20),
                             w,
                         );
                         range_slider(
                             ui,
                             &tr!(lang, STATS[i * 2 + 1]),
-                            &mut c.ranges[i * 2 + 1],
+                            &mut f.ranges[i * 2 + 1],
                             (1, 20),
                             w,
                         );
                         ui.end_row();
                     }
-                    range_slider(ui, &tr!(lang, "cat.total"), &mut c.total, (60, 100), w);
+                    range_slider(ui, &tr!(lang, "cat.total"), &mut f.total, (60, 100), w);
                     ui.horizontal(|ui| {
                         ui.add_space(w - 110.0);
                         if action(ui, &tr!(lang, "cat.reset")).clicked() {
-                            c.ranges = [(1, 20); 6];
-                            c.total = (60, 100);
+                            f.ranges = [(1, 20); 6];
+                            f.total = (60, 100);
                         }
                     });
                     ui.end_row();
                 });
         });
     // results and the stats pane
-    let cards = &st.board.cards;
-    let on_table: Vec<usize> = st.board.slots.iter().flatten().copied().collect();
+    let on_table: Vec<u32> = st
+        .board
+        .slots
+        .iter()
+        .flatten()
+        .filter_map(|&i| st.board.cards.get(i).map(|k| k.number))
+        .collect();
+    let results = &c.results;
+    let focus = &mut c.focus;
+    let message = &mut st.message;
     egui_extras::StripBuilder::new(ui)
         .size(egui_extras::Size::remainder())
         .size(egui_extras::Size::exact(250.0))
         .horizontal(|mut strip| {
             strip.cell(|ui| {
                 ui.horizontal(|ui| {
-                    caps(ui, &tr!(lang, "cat.results", n = cards.len()));
+                    caps(ui, &tr!(lang, "cat.results", n = results.len()));
                 });
-                egui::ScrollArea::vertical()
+                let size = vec2(84.0, 118.0);
+                let gap = 10.0;
+                let per_row = ((ui.available_width() + gap) / (size.x + gap))
+                    .floor()
+                    .max(1.0) as usize;
+                let mut area = egui::ScrollArea::vertical()
                     .id_salt("results")
-                    .auto_shrink(false)
-                    .show(ui, |ui| {
-                        ui.spacing_mut().item_spacing = vec2(10.0, 10.0);
-                        let size = vec2(84.0, 118.0);
-                        let per_row = ((ui.available_width() + 10.0) / (size.x + 10.0))
-                            .floor()
-                            .max(1.0) as usize;
-                        for row in cards.chunks(per_row).enumerate() {
-                            ui.horizontal(|ui| {
-                                for (j, card) in row.1.iter().enumerate() {
-                                    let i = row.0 * per_row + j;
-                                    let resp = board::catalogue_card(
-                                        ui,
-                                        card,
-                                        size,
-                                        i == c.focus,
-                                        on_table.contains(&i),
-                                    );
-                                    if resp.hovered() {
-                                        c.focus = i;
-                                    }
+                    .auto_shrink(false);
+                if fresh {
+                    area = area.vertical_scroll_offset(0.0); // a new search starts at the top
+                }
+                ui.spacing_mut().item_spacing = vec2(gap, gap);
+                // only the rows in sight are laid out: the whole catalogue is thousands of cards
+                area.show_rows(ui, size.y, results.len().div_ceil(per_row), |ui, rows| {
+                    for row in rows {
+                        ui.horizontal(|ui| {
+                            for &i in results.iter().skip(row * per_row).take(per_row) {
+                                let card = &cards[i];
+                                let resp = board::catalogue_card(
+                                    ui,
+                                    card,
+                                    size,
+                                    *focus == Some(i),
+                                    on_table.contains(&card.number),
+                                );
+                                if resp.hovered() {
+                                    *focus = Some(i);
                                 }
-                            });
-                        }
-                    });
+                                if resp.clicked() {
+                                    add = Some(card.number);
+                                }
+                            }
+                        });
+                    }
+                });
             });
-            if let Some(card) = cards.get(c.focus) {
-                strip.cell(|ui| stats_pane(ui, card, c.message, lang));
-            } else {
-                strip.empty();
-            }
+            strip.cell(|ui| {
+                let shown = focus
+                    .filter(|i| results.contains(i))
+                    .or(results.first().copied());
+                if let Some(card) = shown.and_then(|i| cards.get(i))
+                    && stats_pane(ui, card, lang)
+                {
+                    add = Some(card.number);
+                }
+                note_line(ui, message);
+            });
         });
+    st.add = st.add.or(add);
 }
 
-fn combo(ui: &mut Ui, id: &str, value: &mut String, options: &[&str], lang: Lang) {
+fn combo(ui: &mut Ui, id: &str, value: &mut String, options: &[(String, usize)], lang: Lang) {
     let all = tr!(lang, "cat.all");
     let shown = if value.is_empty() {
         all.clone()
@@ -873,10 +1134,11 @@ fn combo(ui: &mut Ui, id: &str, value: &mut String, options: &[&str], lang: Lang
     egui::ComboBox::from_id_salt(id)
         .selected_text(shown)
         .width(150.0)
+        .height(400.0)
         .show_ui(ui, |ui| {
             ui.selectable_value(value, String::new(), all);
-            for o in options {
-                ui.selectable_value(value, (*o).to_owned(), *o);
+            for (o, n) in options {
+                ui.selectable_value(value, o.clone(), format!("{o} ({n})"));
             }
         });
 }
@@ -894,7 +1156,8 @@ fn inferred_role(card: &Card) -> &'static str {
     }
 }
 
-fn stats_pane(ui: &mut Ui, card: &Card, message: Option<(Tone, &'static str)>, lang: Lang) {
+/// The card's stats and its ADD button; `true` = ADD clicked.
+fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> bool {
     egui::Frame::new()
         .fill(theme::WELL)
         .corner_radius(theme::RADIUS_BIG)
@@ -950,11 +1213,9 @@ fn stats_pane(ui: &mut Ui, card: &Card, message: Option<(Tone, &'static str)>, l
                 stat_bar(ui, &tr!(lang, *k), v, w);
             }
             ui.add_space(6.0);
-            cabinet(ui, vec2(w, 44.0), &tr!(lang, "cat.add"), Cab::Go, true);
-            if let Some((tone, key)) = message {
-                status_line(ui, tone, &tr!(lang, key));
-            }
-        });
+            cabinet(ui, vec2(w, 44.0), &tr!(lang, "cat.add"), Cab::Go, true).clicked()
+        })
+        .inner
 }
 
 // ---- KEYS ----
@@ -1323,9 +1584,7 @@ fn club_card(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                         false,
                     )
                 });
-                if let Some((tone, key)) = st.message {
-                    status_line(ui, tone, &tr!(lang, key));
-                }
+                note_line(ui, &mut st.message);
                 if st.edition == Edition::E1011 {
                     ui.add_space(8.0);
                     cabinet(
@@ -1634,4 +1893,176 @@ pub fn widget_sheet(ui: &mut Ui, ws: &mut WidgetSheet) {
                 });
             });
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::board::Aptitude;
+
+    fn card(
+        no: u32,
+        name: &str,
+        club: &str,
+        country: &str,
+        pos: Position,
+        stats: [u8; 6],
+        total: u8,
+    ) -> Card {
+        Card {
+            number: no,
+            name: name.into(),
+            short: name.rsplit(' ').next().unwrap_or(name).to_uppercase(),
+            club: club.into(),
+            country: country.into(),
+            season: "2004-05".into(),
+            pos,
+            rarity: if no.is_multiple_of(2) {
+                Rarity::Legend
+            } else {
+                Rarity::Regular
+            },
+            stats,
+            total,
+            aptitude: Aptitude::default(),
+        }
+    }
+
+    fn cards() -> Vec<Card> {
+        use Position::*;
+        let mut v = vec![
+            card(
+                10,
+                "Ricardo Kakà",
+                "Milano Rossa",
+                "Brasilia",
+                Mf,
+                [18, 6, 18, 12, 16, 14],
+                88,
+            ),
+            card(
+                101,
+                "Jens Ødegård",
+                "Nordhavn",
+                "Nordland",
+                Df,
+                [6, 17, 10, 15, 12, 15],
+                80,
+            ),
+            card(
+                210,
+                "Andrea Bàrtoli",
+                "Milano Rossa",
+                "Italia",
+                Fw,
+                [19, 4, 15, 16, 14, 12],
+                88,
+            ),
+            card(
+                32,
+                "Paolo Abate",
+                "Porto Azzurro",
+                "Italia",
+                Gk,
+                [2, 16, 8, 12, 9, 13],
+                72,
+            ),
+        ];
+        v[1].aptitude.roles[7] = 9; // DMF 9
+        v[3].aptitude.roles[7] = 7; // DMF 7: not a DMF by the search
+        v
+    }
+
+    fn found(cards: &[Card], f: &Filter) -> Vec<u32> {
+        search(cards, &Index::new(cards), f)
+            .into_iter()
+            .map(|i| cards[i].number)
+            .collect()
+    }
+
+    fn q(search: &str) -> Filter {
+        Filter {
+            search: search.into(),
+            ..Filter::default()
+        }
+    }
+
+    #[test]
+    fn search_words_and_numbers() {
+        let c = cards();
+        assert_eq!(fold("KAKÀ Ødegård"), "kaka odegard");
+        // NAME order is the short names' (ABATE, BARTOLI, KAKA, ODEGARD)
+        assert_eq!(found(&c, &q("")), [32, 210, 10, 101]);
+        assert_eq!(found(&c, &q("kaka")), [10]);
+        assert_eq!(found(&c, &q("milano")), [210, 10]);
+        // words ANDed, over name, club, country, season, the line and the roles
+        assert_eq!(found(&c, &q("milano fw")), [210]);
+        assert_eq!(found(&c, &q("italia 2004-05")), [32, 210]);
+        assert_eq!(found(&c, &q("dmf")), [101]);
+        assert_eq!(found(&c, &q("brasilia porto")), Vec::<u32>::new());
+        // digits alone: the card numbers starting so; a digits word among others also matches a number's start
+        assert_eq!(found(&c, &q("10")), [10, 101]);
+        assert_eq!(found(&c, &q("21 milano")), [210]);
+        assert_eq!(found(&c, &q("2004")), Vec::<u32>::new());
+    }
+
+    #[test]
+    fn filters_and_sorts() {
+        let c = cards();
+        let f = |g: fn(&mut Filter)| {
+            let mut f = Filter::default();
+            g(&mut f);
+            found(&c, &f)
+        };
+        assert_eq!(f(|f| f.pos = 3), [10]); // MF
+        assert_eq!(f(|f| f.rarity = 2), [32, 210, 10]); // LEGEND
+        assert_eq!(f(|f| f.country = "Italia".into()), [32, 210]);
+        assert_eq!(f(|f| f.club = "Nordhavn".into()), [101]);
+        assert_eq!(f(|f| f.ranges[0] = (15, 20)), [210, 10]); // OFF 15-20
+        assert_eq!(f(|f| f.total = (60, 80)), [32, 101]);
+        // TOTAL best first, ties by name; a stat best first, ties by TOTAL
+        assert_eq!(f(|f| f.sort = 1), [210, 10, 101, 32]);
+        assert_eq!(f(|f| f.sort = 3), [101, 32, 10, 210]); // DEF
+        assert_eq!(f(|f| f.sort = 4), [10, 210, 101, 32]); // TEC
+        let index = Index::new(&c);
+        assert_eq!(
+            index.countries,
+            [
+                ("Brasilia".into(), 1),
+                ("Italia".into(), 2),
+                ("Nordland".into(), 1)
+            ]
+        );
+    }
+
+    #[test]
+    fn add_card_says_how_it_went() {
+        let mut st = PanelState::new(
+            Edition::E1011,
+            Lang::En,
+            cards::board(&[], &[]),
+            cards().into(),
+        );
+        let mut placed = Vec::new();
+        assert!(add_card(&mut st, &mut placed, 10));
+        assert_eq!(placed[0].no, 10);
+        assert_eq!(st.board.cards[0].number, 10);
+        assert_eq!(st.message.as_ref().unwrap().text, "KAKÀ added (1/16)");
+        assert!(!add_card(&mut st, &mut placed, 10));
+        assert_eq!(
+            st.message.as_ref().unwrap().text,
+            "KAKÀ is already on the table"
+        );
+        for no in 1000..1015 {
+            placed.push(Placed {
+                slot: 0,
+                no,
+                x: 9.0,
+                y: 0.0,
+            });
+        }
+        assert!(!add_card(&mut st, &mut placed, 32));
+        assert_eq!(st.message.as_ref().unwrap().tone, Tone::Refused);
+        assert!(!add_card(&mut st, &mut placed, 999)); // not in the catalogue: nothing happens
+    }
 }

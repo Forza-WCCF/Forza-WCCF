@@ -88,7 +88,7 @@ pub struct Card {
 }
 
 impl Card {
-    fn short_name(&self) -> &str {
+    pub fn short_name(&self) -> &str {
         if self.short.is_empty() {
             self.name.rsplit(' ').next().unwrap_or(&self.name)
         } else {

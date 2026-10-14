@@ -34,7 +34,7 @@ use std::ffi::c_void;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicUsize, Ordering::Relaxed};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Direct3D9::*;
@@ -75,10 +75,12 @@ static WINDOW: AtomicIsize = AtomicIsize::new(0);
 static OLD_PROC: AtomicIsize = AtomicIsize::new(0);
 static SCALE: AtomicU32 = AtomicU32::new(0x3F80_0000); // pixels per point (f32 bits), 1.0 until the first frame
 static WANTS_KEYS: AtomicBool = AtomicBool::new(false);
+/// A page is open: its keys are the page's, never the game's.
+static PAGE_OPEN: AtomicBool = AtomicBool::new(false);
 static EXE_DIR: OnceLock<PathBuf> = OnceLock::new();
 static DLL_DIR: OnceLock<PathBuf> = OnceLock::new();
 static FILES: OnceLock<kit::Files> = OnceLock::new();
-static CATALOGUE: OnceLock<Vec<Card>> = OnceLock::new();
+static CATALOGUE: OnceLock<Arc<[Card]>> = OnceLock::new();
 /// The game's picture on the window (pixels) while no page covers it: clicks there are the game's.
 static PICTURE: Mutex<Option<egui::Rect>> = Mutex::new(None);
 /// The mouse buttons whose press went to the game (bit per button): their release goes there too.
@@ -142,7 +144,7 @@ fn init() {
         files.cards.display(),
         files.keys.display()
     ));
-    let _ = CATALOGUE.set(catalogue);
+    let _ = CATALOGUE.set(catalogue.into());
     let _ = FILES.set(files);
     // SAFETY: the throwaway device is ours; the detours replace functions with the same signature
     match unsafe { device_functions() } {
@@ -409,7 +411,8 @@ impl Render {
             placed.len()
         ));
         let lang = files.lang();
-        let mut st = PanelState::new(files.edition, lang, cards::board(&placed, catalogue()));
+        let cards = CATALOGUE.get().cloned().unwrap_or_else(|| Arc::new([]));
+        let mut st = PanelState::new(files.edition, lang, cards::board(&placed, &cards), cards);
         st.hover_delay = files.hover_delay();
         st.picture = Some(GAME);
         log(&format!(
@@ -663,12 +666,14 @@ impl Render {
         let st = &mut self.st;
         let out = self.ctx.run_ui(raw, |ui| panel::show(ui, st));
         WANTS_KEYS.store(self.ctx.egui_wants_keyboard_input(), Relaxed);
+        self.page_open();
         if let Ok(mut p) = PICTURE.lock() {
             *p = self
                 .st
                 .picture_rect
                 .map(|r| egui::Rect::from_min_max(r.min * ppp, r.max * ppp));
         }
+        self.add();
         self.table_out();
         self.keys();
         let prims = self.ctx.tessellate(out.shapes, out.pixels_per_point);
@@ -725,6 +730,47 @@ impl Render {
         }
         if let Err(e) = self.table.write(&self.placed) {
             log(&format!("board: table write pending ({e})"));
+        }
+    }
+
+    /// A page opened or closed: while one is open, the key driver leaves the keys alone (the window's WCCF_TYPING, as
+    /// the C panel sets it), and the window procedure keeps them from the game.
+    fn page_open(&mut self) {
+        let open = self.st.page != panel::Page::Game;
+        if PAGE_OPEN.swap(open, Relaxed) == open {
+            return;
+        }
+        let h = HWND(WINDOW.load(Relaxed) as *mut c_void);
+        if !h.is_invalid() {
+            // SAFETY: a window of this process and a constant name
+            unsafe {
+                if open {
+                    let _ = SetPropW(
+                        h,
+                        w!("WCCF_TYPING"),
+                        Some(HANDLE(std::ptr::without_provenance_mut(1))),
+                    );
+                } else {
+                    let _ = RemovePropW(h, w!("WCCF_TYPING"));
+                }
+            }
+        }
+        log(&format!("page {}", self.st.page.tag()));
+    }
+
+    /// A catalogue card asked for (a click, Enter or ADD): put on the table and the table written.
+    fn add(&mut self) {
+        let Some(no) = self.st.add.take() else { return };
+        if panel::add_card(&mut self.st, &mut self.placed, no) {
+            log(&format!(
+                "catalogue: card {no} added - {} card(s)",
+                self.placed.len()
+            ));
+            if let Err(e) = self.table.write(&self.placed) {
+                log(&format!("board: table write pending ({e})"));
+            }
+        } else {
+            log(&format!("catalogue: card {no} not added"));
         }
     }
 
@@ -815,7 +861,7 @@ impl Render {
 }
 
 fn catalogue() -> &'static [Card] {
-    CATALOGUE.get().map_or(&[], Vec::as_slice)
+    CATALOGUE.get().map_or(&[], |c| c)
 }
 
 /// The fonts: a `fonts/` folder beside the DLL or one above it (the kit's top), else the repository's `assets/fonts/`
@@ -1019,8 +1065,9 @@ fn input(m: u32, wp: WPARAM, lp: LPARAM) -> bool {
         _ => return false,
     };
     push(events);
-    // the mouse off the game's picture is the panel's (to_game took the picture's); keys only while egui types
-    !keys || WANTS_KEYS.load(Relaxed)
+    // the mouse off the game's picture is the panel's (to_game took the picture's); keys while egui types or a page
+    // is open
+    !keys || WANTS_KEYS.load(Relaxed) || PAGE_OPEN.load(Relaxed)
 }
 
 fn push(mut events: Vec<Event>) {

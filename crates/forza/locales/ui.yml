@@ -171,7 +171,10 @@ cat.role_box: {en: "box-to-box", it: "tuttocampista", ja: "ボックス・トゥ
 cat.role_target: {en: "target man", it: "centravanti di peso", ja: "ターゲットマン"}
 cat.role_poacher: {en: "poacher", it: "rapace d'area", ja: "ポーチャー"}
 cat.add: {en: "+ ADD TO THE TABLE", it: "+ AGGIUNGI AL TAVOLO", ja: "＋テーブルに追加"}
-cat.msg_on_table: {en: "Already on the table. The table holds 16.", it: "Già sul tavolo. Il tavolo ne contiene 16.", ja: "すでにテーブルにあります（最大16枚）。"}
+cat.msg_added: {en: "%{name} added (%{n}/16)", it: "%{name} aggiunto (%{n}/16)", ja: "%{name} を追加しました（%{n}/16）"}
+cat.msg_on_table: {en: "%{name} is already on the table", it: "%{name} è già sul tavolo", ja: "%{name} はすでにテーブルにあります"}
+cat.msg_full: {en: "The table is full: 16 cards (right-click one to take it off)", it: "Il tavolo è pieno: 16 carte (clic destro su una per toglierla)", ja: "テーブルは満杯です：16枚（右クリックで外せます）"}
+cat.msg_no_place: {en: "No free place: right-click a card to take it off", it: "Nessun posto libero: clic destro su una carta per toglierla", ja: "空きがありません：カードを右クリックして外してください"}
 
 # ---- keys ----
 keys.hint: {en: "Click a cell, then press a key or a controller button. A key taken by another action swaps over; right-click clears.", it: "Clicca una casella, poi premi un tasto o un pulsante del controller. Un tasto già usato viene scambiato; clic destro per cancellare.", ja: "セルをクリックしてから、キーかコントローラーのボタンを押します。使用中のキーは入れ替わります。右クリックで解除。"}
