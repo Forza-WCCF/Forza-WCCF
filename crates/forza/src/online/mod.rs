@@ -37,9 +37,13 @@ impl Want {
     }
 
     /// Reads a line without its end the way the desk does: `WANT`, or `WANT SEAT n` with n in 1..=8 (the desk
-    /// answers `ERR` to everything else, a seat number out of range included).
+    /// answers `ERR` to everything else, a seat number out of range included). A trailing `TOKEN t` (the upstream
+    /// kit 7's account sign-in) is accepted and ignored: Forza-WCCF keeps its own identity (owner, 2026-10-14).
     pub fn parse(line: &str) -> Option<Want> {
-        let w: Vec<&str> = line.split_whitespace().collect();
+        let mut w: Vec<&str> = line.split_whitespace().collect();
+        if let [.., "TOKEN", _] = w[..] {
+            w.truncate(w.len() - 2);
+        }
         match w[..] {
             ["WANT"] => Some(Want::Any),
             ["WANT", "SEAT", n] if n.bytes().all(|b| b.is_ascii_digit()) => {
@@ -170,6 +174,8 @@ mod tests {
         for w in [Want::Any, Want::Seat(1), Want::Seat(8)] {
             assert_eq!(Want::parse(w.line().trim_end()), Some(w));
         }
+        assert_eq!(Want::parse("WANT TOKEN abc"), Some(Want::Any));
+        assert_eq!(Want::parse("WANT SEAT 2 TOKEN abc"), Some(Want::Seat(2)));
         for bad in [
             "",
             "WANT SEAT",
@@ -179,6 +185,8 @@ mod tests {
             "WANT SEAT -1",
             "WANT 3",
             "HELLO",
+            "WANT TOKEN",
+            "TOKEN abc",
         ] {
             assert_eq!(Want::parse(bad), None, "{bad}");
         }
