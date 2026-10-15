@@ -325,3 +325,8 @@ club.row_session: {en: "SESSION", it: "SESSIONE", ja: "セッション"}
 club.row_bad: {en: "BAD ENDINGS", it: "CHIUSURE ANOMALE", ja: "異常終了"}
 club.row_copies: {en: "SAVED COPIES", it: "COPIE SALVATE", ja: "保存コピー"}
 club.row_saved: {en: "CARD SAVED", it: "TESSERA SALVATA", ja: "カード保存"}
+
+# ---- the card deal after a match ----
+deal.title: {en: "NEW PLAYER CARD", it: "NUOVA CARTA GIOCATORE", ja: "新しい選手カード"}
+deal.title_rare: {en: "NEW PLAYER CARD: RARE!", it: "NUOVA CARTA GIOCATORE: RARA!", ja: "新しい選手カード：レア！"}
+deal.foot: {en: "Only shown, not on your club card. Click to close.", it: "Solo mostrata, non va sulla tessera. Clicca per chiudere.", ja: "表示のみで、クラブカードには入りません。クリックで閉じます。"}

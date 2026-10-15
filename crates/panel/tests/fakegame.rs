@@ -173,10 +173,14 @@ fn board_and_buttons_with_real_data() {
     fs::write(
         data.join("cache/catalogue.tsv"),
         format!(
-            "{head}{}{}{}",
+            "{head}{}{}{}{}{}",
             row(101, "KEEPA", "GK", &format!("{low} 10")),
             row(102, "BACKA", "DF", "1 1 1 1 1 1 1 4 1 7 9 10 8 8 7 1"),
             row(103, "STRIKA", "FW", "10 7 4 8 3 2 1 1 2 1 1 1 1 1 1 1"),
+            // a white and a black card, for the deal's every tier
+            row(104, "WHITA", "MF", &format!("{low} 1")).replace("\t4\tLEGEND\t", "\t1\tREGULAR\t"),
+            row(105, "BLACKA", "MF", &format!("{low} 1"))
+                .replace("\t4\tLEGEND\t", "\t2\tSPECIAL\t"),
         ),
     )
     .unwrap();
@@ -215,8 +219,9 @@ fn board_and_buttons_with_real_data() {
         let p = panel::board_slot_center(1440.0, &spots, slot);
         format!("{},{}", p.x as i32, p.y as i32)
     };
-    let run = |steps: &[String]| {
+    let run_with = |env: &[(&str, &str)], steps: &[String]| {
         let out = Command::new(seat.join("fakegame.exe"))
+            .envs(env.iter().copied())
             .current_dir(&seat)
             .env("FORZA_PANEL_DUMP", "1")
             .env("WCCFPANEL_DRYKEYS", "1")
@@ -230,6 +235,7 @@ fn board_and_buttons_with_real_data() {
         assert!(out.status.success(), "fakegame ended with {}", out.status);
         said
     };
+    let run = |steps: &[String]| run_with(&[], steps);
 
     // 1. the bench card (slot 11) dragged onto the empty pitch slot 2 (the free 4-4-2 spot -0.2, 0.6)
     let mid = panel::board_slot_center(1440.0, &spots, 11)
@@ -253,7 +259,7 @@ fn board_and_buttons_with_real_data() {
     );
     for line in [
         "edition 2010–11",
-        "catalogue 3 cards",
+        "catalogue 5 cards",
         "board: table",
         "language it, hover delay 0.3 s",
     ] {
@@ -461,6 +467,30 @@ fn board_and_buttons_with_real_data() {
         want.text(false)
     );
     assert!(!data.join("restart.request").exists());
+
+    // 6. a card dealt (WCCFPANEL_DEALTEST: at once, as after a match) over the picture: a click on it closes it and
+    // does not reach the game
+    let _ = fs::remove_file(seat.join("forza_panel.log"));
+    let said = run_with(
+        &[("WCCFPANEL_DEALTEST", "1")],
+        &[
+            "wait:2500".into(),
+            "copy:deal.bmp".into(),
+            "click:430,420".into(),
+            "wait:400".into(),
+        ],
+    );
+    let log = fs::read_to_string(seat.join("forza_panel.log")).unwrap_or_default();
+    println!("forza_panel.log:\n{log}");
+    assert!(log.contains("deal: card 10"), "no card dealt");
+    assert!(
+        log.contains("deal: closed"),
+        "the click did not close the deal"
+    );
+    assert!(
+        !said.contains("game: left down"),
+        "the click went through to the game"
+    );
     if env::var_os("FORZA_PANEL_KEEP").is_none() {
         let _ = fs::remove_dir_all(&t);
     }

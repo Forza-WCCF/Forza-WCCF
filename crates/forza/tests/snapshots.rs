@@ -449,3 +449,27 @@ fn club_card_switch_and_clear() {
     h.run_steps(2);
     assert_eq!(st.borrow().page, panel::Page::Game);
 }
+
+/// The card dealt after a match over the game: NEW PLAYER CARD with the card, its stats and TOTAL; the picture's clicks
+/// stay off while it shows; a click on it closes it.
+#[test]
+fn card_deal() {
+    use std::cell::RefCell;
+    let _gpu = gpu();
+    let st = RefCell::new(panel::PanelState::new(
+        Edition::E1011,
+        Lang::En,
+        forza::ui::sample::board(),
+        forza::ui::sample::cards().into(),
+    ));
+    st.borrow_mut().deal = Some(panel::Deal::new(3));
+    let mut h = harness(panel::SIZE, 1.0, Edition::E1011, |ui| {
+        panel::show(ui, &mut st.borrow_mut())
+    });
+    h.run_steps(4);
+    assert!(st.borrow().picture_rect.is_none());
+    h.snapshot("panel_deal_en");
+    h.get_by_label_contains("NEW PLAYER CARD").click();
+    h.run_steps(2);
+    assert!(st.borrow().deal.is_none() && st.borrow().picture_rect.is_some());
+}

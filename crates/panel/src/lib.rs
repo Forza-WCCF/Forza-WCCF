@@ -387,6 +387,9 @@ struct Render {
     restart_at: Option<Instant>,
     logs_at: Option<Instant>,
     logs_stamp: Option<std::time::SystemTime>,
+    /// The deal: when the club card was last looked at, and its session then.
+    deal_at: Instant,
+    deal_last: Option<launcher::card::Session>,
     /// CLUB CARD: when club_view.txt was last looked at, and its time then.
     club_at: Option<Instant>,
     club_stamp: Option<std::time::SystemTime>,
@@ -458,6 +461,8 @@ impl Render {
             logs_stamp: stamp(&files.request("sendlogs.result")),
             club_at: None,
             club_stamp: None,
+            deal_at: Instant::now(),
+            deal_last: None,
             painter: painter::Painter::default(),
             start: Instant::now(),
             sc: None,
@@ -696,9 +701,14 @@ impl Render {
         self.table_in();
         self.settings_in();
         self.club_in();
+        self.deal_in();
         self.keys_in();
+        let dealt = self.st.deal.is_some();
         let st = &mut self.st;
         let out = self.ctx.run_ui(raw, |ui| panel::show(ui, st));
+        if dealt && self.st.deal.is_none() {
+            log("deal: closed");
+        }
         WANTS_KEYS.store(self.ctx.egui_wants_keyboard_input(), Relaxed);
         self.page_open();
         if let Ok(mut p) = PICTURE.lock() {
@@ -929,6 +939,47 @@ impl Render {
         ok
     }
 
+    /// A card dealt after each match (wccfpanel.c deal_tick): once a second the club card's session; open, then closed
+    /// (the locker-room save) = a match finished. `WCCFPANEL_DEALTEST=1` deals one at the first frame (the tests).
+    /// Only shown: nothing is written.
+    fn deal_in(&mut self) {
+        use launcher::card::{self, Session};
+        let test = self.frames == 0 && std::env::var("WCCFPANEL_DEALTEST").is_ok_and(|v| v == "1");
+        if !test && self.deal_at.elapsed() < Duration::from_secs(1) {
+            return;
+        }
+        self.deal_at = Instant::now();
+        let finished = test || {
+            let Some(f) = FILES.get() else { return };
+            let (now, _) = card::session(&f.data.join("save").join(card::SLOT), None);
+            // no card, or caught mid-write: wait for the next look
+            if !matches!(now, Session::Open | Session::Closed) {
+                return;
+            }
+            let was = self.deal_last.replace(now);
+            was == Some(Session::Open) && now == Session::Closed
+        };
+        if finished {
+            self.deal();
+        }
+    }
+
+    fn deal(&mut self) {
+        match cards::deal_now(catalogue()) {
+            Some(i) => {
+                let c = &catalogue()[i];
+                log(&format!(
+                    "deal: card {} {} ({:?}) - shown only, the club card is not changed",
+                    c.number,
+                    c.short_name(),
+                    c.rarity
+                ));
+                self.st.deal = Some(panel::Deal::new(i));
+            }
+            None => log("deal: a match finished, but no catalogue card to show"),
+        }
+    }
+
     /// CLUB CARD: data\club_view.txt read on opening and again each second while open when it changed (the run's helper
     /// rewrites it whole whenever the card changes); the slot's session read with it, for the refusal.
     fn club_in(&mut self) {
@@ -937,7 +988,11 @@ impl Render {
             return;
         }
         let opened = self.last_page != panel::Page::ClubCard;
-        if !opened && self.club_at.is_some_and(|t| t.elapsed() < Duration::from_secs(1)) {
+        if !opened
+            && self
+                .club_at
+                .is_some_and(|t| t.elapsed() < Duration::from_secs(1))
+        {
             return;
         }
         self.club_at = Some(Instant::now());
@@ -959,7 +1014,11 @@ impl Render {
             v.lines.len(),
             v.squad.len(),
             v.backups.len(),
-            if v.session.is_empty() { "-" } else { &v.session },
+            if v.session.is_empty() {
+                "-"
+            } else {
+                &v.session
+            },
             v.wallet.len()
         ));
     }
@@ -969,7 +1028,9 @@ impl Render {
     fn club_out(&mut self) {
         use forza::ui::panel::ClubPick;
         use forza::ui::widgets::Tone;
-        let Some(pick) = self.st.club_request.take() else { return };
+        let Some(pick) = self.st.club_request.take() else {
+            return;
+        };
         let Some(f) = FILES.get() else { return };
         if f.status().card == panel::CardState::Open {
             log("club: switch refused - a card session is open");

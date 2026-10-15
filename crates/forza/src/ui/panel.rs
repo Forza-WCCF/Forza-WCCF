@@ -370,6 +370,8 @@ pub struct PanelState {
     pub club_armed: Option<(ClubPick, f64)>,
     /// A choice asked for by its second click: data\panel.txt's card= or card_fix=, then RESTART NOW.
     pub club_request: Option<ClubPick>,
+    /// A card dealt after a match: shown over the game for [`DEAL_SECS`], or until a click closes it.
+    pub deal: Option<Deal>,
     /// The game's own frame as a texture of the panel DLL's painter; `None` draws the stand-in picture.
     pub picture: Option<egui::TextureId>,
     // what a frame hands the panel DLL
@@ -428,6 +430,7 @@ impl PanelState {
             club: ClubView::default(),
             club_armed: None,
             club_request: None,
+            deal: None,
             picture: None,
             picture_rect: None,
             board_changed: false,
@@ -608,7 +611,8 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         Stroke::new(1.0, theme::RIM),
     );
     game_picture(ui, pic, st.picture);
-    st.picture_rect = (st.page == Page::Game).then_some(pic);
+    // the dealt card covers the picture: clicks there are its own
+    st.picture_rect = (st.page == Page::Game && st.deal.is_none()).then_some(pic);
     if st.page == Page::Game {
         let r = Rect::from_center_size(pos2(deck.center().x, deck.top() + 27.0), vec2(520.0, 34.0));
         ui.scope_builder(egui::UiBuilder::new().max_rect(r), |ui| {
@@ -622,6 +626,134 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     if st.page != Page::Game {
         let mut pg = ui.new_child(egui::UiBuilder::new().max_rect(above));
         page(&mut pg, st, lang);
+    }
+    deal_window(ui, st, above, lang);
+}
+
+// ---- the card deal ----
+
+/// How long a dealt card stays (`wccfpanel.c` DEAL_MS).
+pub const DEAL_SECS: f64 = 20.0;
+
+/// A card dealt after a match: its index in the catalogue, when it goes (egui's clock, set when first shown).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Deal {
+    pub card: usize,
+    pub until: Option<f64>,
+}
+
+impl Deal {
+    pub fn new(card: usize) -> Deal {
+        Deal { card, until: None }
+    }
+}
+
+/// The dealt card's window over the middle, as `wccfpanel.c` `deal_draw`: NEW PLAYER CARD (RARE! for a card better
+/// than black), the card big, its name, club, stats and TOTAL; it says it is only shown. A click on it closes it.
+fn deal_window(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
+    let Some(d) = st.deal.as_mut() else { return };
+    let Some(card) = st.cards.get(d.card).cloned() else {
+        st.deal = None;
+        return;
+    };
+    let now = ui.input(|i| i.time);
+    let until = *d.until.get_or_insert(now + DEAL_SECS);
+    if now >= until {
+        st.deal = None;
+        return;
+    }
+    ui.ctx()
+        .request_repaint_after(std::time::Duration::from_secs_f64(until - now));
+    let rare = cards::deal_class(&card) == 0;
+    let col = match cards::deal_class(&card) {
+        0 => theme::GOLD,
+        2 => theme::TEXT_DIM,
+        _ => theme::TEXT,
+    };
+    let size = vec2(360.0, 640.0f32.min(area.height() - 20.0));
+    let r = Rect::from_center_size(area.center(), size);
+    let resp = egui::Area::new(egui::Id::new("deal"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(r.min)
+        .show(ui.ctx(), |ui| {
+            let (r, resp) = ui.allocate_exact_size(size, Sense::click());
+            let p = ui.painter().clone();
+            p.add(
+                egui::Shadow {
+                    offset: [0, 10],
+                    blur: 30,
+                    spread: 0,
+                    color: Color32::from_black_alpha(180),
+                }
+                .as_shape(r, theme::RADIUS_BIG),
+            );
+            p.rect_filled(r, theme::RADIUS_BIG, theme::DEEP);
+            p.rect_stroke(
+                r,
+                theme::RADIUS_BIG,
+                Stroke::new(3.0, col),
+                StrokeKind::Inside,
+            );
+            let title = tr!(
+                lang,
+                if rare {
+                    "deal.title_rare"
+                } else {
+                    "deal.title"
+                }
+            );
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &title));
+            let g = widgets::fit(&p, &title, theme::display(28.0), col, size.x - 24.0);
+            p.galley(
+                pos2(r.center().x - g.size().x / 2.0, r.top() + 14.0),
+                g,
+                col,
+            );
+            let face = Rect::from_center_size(
+                pos2(r.center().x, r.top() + 60.0 + 140.0),
+                vec2(200.0, 280.0),
+            );
+            board::card_face(&p, face, &card, board::Look::default());
+            let mut y = face.bottom() + 12.0;
+            let g = widgets::fit(
+                &p,
+                &card.name,
+                theme::display(22.0),
+                theme::TEXT,
+                size.x - 24.0,
+            );
+            p.galley(pos2(r.center().x - g.size().x / 2.0, y), g, theme::TEXT);
+            y += 28.0;
+            let line = format!("{} · {} · {}", card.club, card.country, card.season);
+            let g = widgets::fit(&p, &line, theme::body(12.0), theme::TEXT_DIM, size.x - 24.0);
+            p.galley(pos2(r.center().x - g.size().x / 2.0, y), g, theme::TEXT_DIM);
+            y += 24.0;
+            let mut c = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(
+                pos2(r.left() + 24.0, y),
+                pos2(r.right() - 24.0, r.bottom() - 34.0),
+            )));
+            c.spacing_mut().item_spacing.y = 3.0;
+            let w = c.available_width();
+            for (k, v) in STATS.iter().zip(card.stats) {
+                stat_bar(&mut c, &tr!(lang, *k), v, w);
+            }
+            c.label(
+                egui::RichText::new(format!("{}  {}", tr!(lang, "cat.total"), card.total))
+                    .font(theme::display(20.0))
+                    .color(theme::AMBER),
+            );
+            p.text(
+                pos2(r.center().x, r.bottom() - 18.0),
+                Align2::CENTER_CENTER,
+                tr!(lang, "deal.foot"),
+                theme::body(12.0),
+                theme::TEXT_DIM,
+            );
+            resp
+        })
+        .inner;
+    if resp.clicked() {
+        st.deal = None;
     }
 }
 
