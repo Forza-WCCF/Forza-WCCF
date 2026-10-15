@@ -29,7 +29,7 @@ pub enum Line {
 }
 
 pub struct Action {
-    /// Its name in `keys.txt` (the on-screen buttons' names, `wccfpanel.dll`).
+    /// Its name in `keys.txt` (the on-screen buttons' names, `forza_panel.dll`).
     pub name: &'static str,
     /// The default key (virtual-key code); 0 = none.
     pub vk: u32,
@@ -980,7 +980,7 @@ mod win {
 
         /// A game window in front - or the combined window of fpr_panel.py (it marks itself WCCF_GAME_HOST), unless
         /// its card search box has the keyboard (it sets WCCF_TYPING) and the mouse is not over the game: typing a
-        /// player's name presses no buttons. The in-game card browser (wccfpanel.dll) sets WCCF_TYPING on the GAME
+        /// player's name presses no buttons. The in-game card browser (forza_panel.dll) sets WCCF_TYPING on the GAME
         /// window itself while it is open - no buttons then either.
         pub fn game_in_front(&mut self) -> bool {
             // SAFETY: no arguments.

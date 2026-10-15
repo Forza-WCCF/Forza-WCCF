@@ -79,12 +79,12 @@ impl Kit {
         self.dir.join("programs")
     }
 
-    /// One of the kit's programs (inject.exe, wccfpanel.dll, forza-server.exe, netguard.dll) where its edition keeps
+    /// One of the kit's programs (inject.exe, forza_panel.dll, forza-server.exe, netguard.dll) where its edition keeps
     /// it.
     pub fn program(&self, name: &str) -> PathBuf {
         match self.edition() {
             Edition::E1011 => self.programs().join(name),
-            Edition::E1718 if matches!(name, "inject.exe" | "wccfpanel.dll" | "netguard.dll") => {
+            Edition::E1718 if matches!(name, "inject.exe" | "forza_panel.dll" | "netguard.dll") => {
                 self.dir.join("overlay").join(name)
             }
             Edition::E1718 => self.dir.join("bin").join(name),

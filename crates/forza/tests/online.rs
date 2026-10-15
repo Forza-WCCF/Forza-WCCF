@@ -1,6 +1,8 @@
 //! Replays the recordings of `online/seat.py` and `online/send_logs.py` (`tests/rec/seat.jsonl`, `send_logs.jsonl`,
 //! made against the real seat desk and log inbox by `rec_i1_online.py`) against `forza::online`: a scripted server
 //! plays the recorded replies and checks the client's bytes; packs are compared by entry names, sizes and hashes.
+//! Step 9.4c renamed seat 1's panel log in `send_logs.jsonl` (seat1/wccfpanel.log -> seat1/forza_panel.log, the Rust
+//! panel's); nothing else in the recording changed.
 
 use forza::online::seat::{self, Fault, Timing};
 use forza::online::send_logs::{self, Scrub, SendError};

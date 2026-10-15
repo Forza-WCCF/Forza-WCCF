@@ -84,6 +84,9 @@ pub const UNGUARDED_TEXT: &str = "NOT started: Windows was told to make the prog
     Windows' own copies of system files (\"Prefer System32 images\", passed on by the program that started \
     Launcher.exe - a WSL terminal does this). The game would then run without the kit's hook, which keeps it from \
     changing this PC's network settings. Start Launcher.exe from Explorer (double-click it) instead.";
+/// The panel's line in `seat1\forza_panel.log` once its Present detour has drawn a frame: the run's proof it is up.
+pub(crate) const PANEL_UP: &str = "first frame shown";
+
 const NOT_SET_UP_TEXT: &str = "Not set up yet - set up first: Launcher.exe, Setup and updates.";
 pub const NOT_GUARDED_TEXT: &str = "NOT started: the 2017-18 network guard is not in place, so the game could change \
     this PC's network settings (it has dropped the DHCP lease before). Run setup1718.py again \
@@ -1132,7 +1135,7 @@ impl Run<'_> {
             .count()
     }
 
-    /// A DLL into the running game (the overlay, wccfpanel.dll, or 2017-18's netguard.dll): "" when it loaded, else
+    /// A DLL into the running game (the panel, forza_panel.dll, or 2017-18's netguard.dll): "" when it loaded, else
     /// why not.
     fn inject(&self, pid: u32, dll: &Path) -> String {
         let mut cmd = Command::new(self.kit.program("inject.exe"));
@@ -1313,7 +1316,7 @@ impl Run<'_> {
                 self.netguard(pid, "projector");
             }
             // the overlay in its money-only mode: the projector's amounts with commas; it plays on without it
-            let panel = self.kit.program("wccfpanel.dll");
+            let panel = self.kit.program("forza_panel.dll");
             let why = self
                 .launched(Role::Projector)
                 .map_or_else(|| "its process was not found".into(), |pid| self.inject(pid, &panel));
@@ -1481,7 +1484,7 @@ impl Run<'_> {
             ("MXHOOK_COM".into(), format!("{coms};mxjvs={0};COM4={0}", p.jvs_pipe)),
         ];
         if let Some(ip) = self.ip() {
-            // a match against another player goes through the server's relay (wccfpanel.dll)
+            // a match against another player goes through the server's relay (forza_panel.dll)
             env.push(("WCCF_RELAY".into(), format!("{ip}:{}", p.relay_port)));
             env.push(("WCCF_SEAT".into(), self.seat_no.to_string()));
         }
@@ -1514,9 +1517,9 @@ impl Run<'_> {
         self.say(&format!("  5/6 seat {n} (the player cabinet) - window up"));
         self.netguard(pid, &format!("seat {n}"));
         thread::sleep(Duration::from_secs(3));
-        let olog = self.seat.join("wccfpanel.log");
+        let olog = self.seat.join("forza_panel.log");
         let skip = fs::metadata(&olog).map_or(0, |m| m.len() as usize);
-        let why = self.inject(pid, &self.kit.program("wccfpanel.dll"));
+        let why = self.inject(pid, &self.kit.program("forza_panel.dll"));
         if why.is_empty() {
             let up = wait_for(
                 "the overlay",
@@ -1525,13 +1528,13 @@ impl Run<'_> {
                 || true,
                 || {
                     fs::read(&olog)
-                        .is_ok_and(|t| String::from_utf8_lossy(t.get(skip..).unwrap_or_default()).contains("maximized"))
+                        .is_ok_and(|t| String::from_utf8_lossy(t.get(skip..).unwrap_or_default()).contains(PANEL_UP))
                 },
             );
             self.say(&if up.is_ok() {
                 format!("  6/6 overlay in seat {n}'s window")
             } else {
-                "  6/6 overlay loaded (it did not report its window yet - see seat1\\wccfpanel.log)".to_owned()
+                "  6/6 overlay loaded (it did not report its window yet - see seat1\\forza_panel.log)".to_owned()
             });
         } else {
             // the game runs without the overlay - never a reason to take the game away

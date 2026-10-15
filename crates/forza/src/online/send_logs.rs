@@ -51,7 +51,7 @@ fn files_in(dir: &Path) -> Vec<PathBuf> {
     v
 }
 
-/// `(name in the ZIP, path)` of what goes in. `game` is the game's executable: its folder's `seat1\wccfpanel.log`.
+/// `(name in the ZIP, path)` of what goes in. `game` is the game's executable: its folder's `seat1\forza_panel.log`.
 fn files(kit: &Path, game: Option<&Path>) -> Vec<(String, PathBuf)> {
     let data = kit.join("data");
     let mut out = vec![];
@@ -74,8 +74,8 @@ fn files(kit: &Path, game: Option<&Path>) -> Vec<(String, PathBuf)> {
     out.push(("version.txt".into(), kit.join("version.txt")));
     if let Some(dir) = game.and_then(Path::parent) {
         out.push((
-            "seat1/wccfpanel.log".into(),
-            dir.join("seat1").join("wccfpanel.log"),
+            "seat1/forza_panel.log".into(),
+            dir.join("seat1").join("forza_panel.log"),
         ));
     }
     out.retain(|(_, p)| p.is_file());

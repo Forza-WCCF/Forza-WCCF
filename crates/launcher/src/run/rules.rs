@@ -161,7 +161,7 @@ pub fn after_end(gone: &[&str], others_alive: bool, read: impl Fn(&str) -> Strin
 }
 
 /// Why a run went wrong, empty if it did not (play.py's went_wrong): a game window that went without being closed, a
-/// crash a launcher recorded, the server link lost (wccfpanel.dll's server_link.txt; a drop after the player's close is
+/// crash a launcher recorded, the server link lost (forza_panel.dll's server_link.txt; a drop after the player's close is
 /// written ENDED, not LOST, and is no fault).
 pub fn went_wrong(launcher_logs: &[&str], read: impl Fn(&str) -> String) -> Vec<String> {
     let mut why: Vec<String> = launcher_logs
@@ -427,7 +427,7 @@ mod tests {
         assert_eq!(why, ["run_server.txt: a crash recorded (STOP: invalid parameter)"]);
     }
 
-    /// The words must stay the launcher's and the panel's own (test_ended.py read debugger.py and wccfpanel.c).
+    /// The words must stay the launcher's and the panel's own (test_ended.py read debugger.py and wccfpanel.c; now the Rust panel's link_watch).
     #[test]
     fn the_words_match_their_writers() {
         let dbg = include_str!("../debug/mod.rs");
@@ -438,14 +438,19 @@ mod tests {
         for s in CRASH_SIGNS {
             assert!(dbg.contains(s), "debug::run no longer prints {s:?}");
         }
-        let panel = include_str!("../../../../native/2010-11/panel/wccfpanel.c");
+        let panel = include_str!("../../../panel/src/lib.rs");
         assert!(
             panel.contains("\"LOST\"") && panel.contains(" (it was up "),
-            "wccfpanel.c's LOST line"
+            "forza-panel link_watch's LOST line"
         );
         assert!(
-            panel.contains("\"ENDED\"") && panel.contains("g_closing"),
-            "wccfpanel.c's ENDED after a close"
+            panel.contains("\"ENDED\"") && panel.contains("CLOSING.load"),
+            "forza-panel link_watch's ENDED after a close"
+        );
+        assert!(
+            panel.contains(&format!("\"{}", super::super::PANEL_UP)),
+            "the panel no longer logs the line the run waits for ({:?})",
+            super::super::PANEL_UP
         );
         assert!(
             panel.contains("running.json"),

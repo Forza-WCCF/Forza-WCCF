@@ -711,7 +711,7 @@ fn scratch_kit_1718(top: &Path) -> Kit {
     built_copy("2017-18/source/build", "wccfnet.dll", &game.join("wccfnet.dll"));
     built_copy("2017-18/source/build", "wccfnet.dll", &seat.join("wccfnet.dll"));
     built_copy("2017-18/overlay", "netguard.dll", &game.join("netguard.dll"));
-    // the real inject.exe, so netguard.dll goes into seat 1's stand-in as into the game; no panel (wccfpanel.dll)
+    // the real inject.exe, so netguard.dll goes into seat 1's stand-in as into the game; no panel (forza_panel.dll)
     built_copy("2017-18/overlay", "inject.exe", &kit.join(r"overlay\inject.exe"));
     for dir in [&game, &seat] {
         fs::create_dir_all(dir.join("local")).unwrap();
