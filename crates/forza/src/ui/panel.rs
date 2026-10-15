@@ -2834,6 +2834,7 @@ mod tests {
     ) -> Card {
         Card {
             number: no,
+            record: None,
             name: name.into(),
             short: name.rsplit(' ').next().unwrap_or(name).to_uppercase(),
             club: club.into(),

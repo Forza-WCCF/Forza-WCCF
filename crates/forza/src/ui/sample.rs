@@ -17,6 +17,7 @@ fn card(
 ) -> Card {
     Card {
         number,
+        record: Some(number),
         name: name.into(),
         short: String::new(),
         club: club.into(),

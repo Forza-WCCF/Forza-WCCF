@@ -73,6 +73,8 @@ impl Rarity {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Card {
     pub number: u32,
+    /// The card's record in the game's player_data.bin (the catalogue's record_index): its links' key.
+    pub record: Option<u32>,
     pub name: String,
     /// The name the card's face shows (the catalogue's short name); empty = the full name's last word.
     pub short: String,

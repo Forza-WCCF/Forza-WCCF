@@ -5,6 +5,8 @@
 //! `write_table_locked`, `write_panel_state_locked`, `board_add_locked`, `load_catalogue`); both files come out byte
 //! for byte as it writes them.
 
+pub mod links;
+
 use crate::ui::board::{Aptitude, Board, Card, Position, Rarity};
 use egui::{Pos2, pos2};
 use std::fs;
@@ -285,6 +287,7 @@ fn unknown(no: u32, y: f32) -> Card {
     };
     Card {
         number: no,
+        record: None,
         name: no.to_string(),
         short: no.to_string(),
         club: String::new(),
@@ -390,6 +393,7 @@ pub fn table_after(before: &[Placed], board: &Board) -> Vec<Placed> {
 /// `catalogue.tsv` (one card per line, tab-separated, UTF-8, a header naming the columns) -> its cards, in the
 /// file's order. Columns by name: card_no, season, rarity_name, is_placeholder (1 = skipped), name_full_latin,
 /// name_short_latin, position_name, club_name, nationality_name, stat_offence .. stat_stamina, stats_total, and the
+/// record_index (the card's player_data.bin record, for [`links`]), the
 /// 16 role ratings as the first 16 numbers of hidden_params (2010-11) or hidden_4df_523 (2017-18), kept only when
 /// all are 1-10.
 pub fn load_catalogue(path: &Path) -> io::Result<Vec<Card>> {
@@ -405,6 +409,7 @@ pub fn load_catalogue(path: &Path) -> io::Result<Vec<Card>> {
             .position(|h| names.iter().any(|n| h == n.as_bytes()))
     };
     let c_no = col(&["card_no"]).ok_or_else(|| io::Error::other("no card_no column"))?;
+    let c_rec = col(&["record_index"]);
     let [
         season,
         rarity,
@@ -464,6 +469,7 @@ pub fn load_catalogue(path: &Path) -> io::Result<Vec<Card>> {
         }
         out.push(Card {
             number,
+            record: get(c_rec).parse().ok(),
             name: get(full),
             short: get(short),
             club: get(club),
@@ -714,6 +720,7 @@ mod tests {
         fs::write(&path, format!("{head}{rows}")).unwrap();
         let cat = load_catalogue(&path).unwrap();
         assert_eq!(cat.len(), 2);
+        assert_eq!((cat[0].record, cat[1].record), (Some(0), Some(2)));
         let a = &cat[0];
         assert_eq!(
             (a.number, a.name.as_str(), a.short.as_str(), a.pos, a.rarity),
