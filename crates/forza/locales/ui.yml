@@ -138,6 +138,13 @@ board.fit_out: {en: "OUT OF POSITION", it: "FUORI RUOLO", ja: "ポジション�
 board.no_data: {en: "No position data for this card", it: "Nessun dato sulle posizioni per questa carta", ja: "このカードにはポジションのデータがありません"}
 board.positions: {en: "POSITIONS", it: "POSIZIONI", ja: "適性ポジション"}
 board.roles: {en: "Best roles (names inferred): %{roles}", it: "Ruoli migliori (nomi dedotti): %{roles}", ja: "得意な役割（名称は推定）：%{roles}"}
+board.links_of: {en: "LINKS · %{name}", it: "INTESE · %{name}", ja: "%{name}の連携"}
+board.on_team: {en: "ON THE TEAM", it: "IN SQUADRA", ja: "チーム内"}
+board.not_on_team: {en: "BEST PARTNERS NOT ON THE TEAM", it: "MIGLIORI INTESE FUORI SQUADRA", ja: "チーム外の相性の良い選手"}
+board.no_links: {en: "No links on this team yet.", it: "Ancora nessuna intesa in questa squadra.", ja: "このチームではまだ連携がありません。"}
+board.more: {en: "+%{n} more", it: "+ altri %{n}", ja: "ほか%{n}人"}
+cat.affinity: {en: "AFFINITY", it: "AFFINITÀ", ja: "相性"}
+cat.no_partners: {en: "No listed partners.", it: "Nessuna intesa registrata.", ja: "登録された相性の選手はいません。"}
 
 # ---- catalogue ----
 cat.title: {en: "CATALOGUE", it: "CATALOGO", ja: "カタログ"}

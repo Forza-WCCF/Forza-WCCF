@@ -322,6 +322,54 @@ pub fn board() -> Board {
     }
 }
 
+/// Invented links for [`board`]'s cards (numbers = sample index + 1): club links of every stage between pitch cards
+/// (1-2 thin, 3-4 gold, 7-8 thick, 10-16 gold, 8-10 thin at 199, 5-9 thick; 2-11 at 120 draws nothing; 8-12 thick to
+/// the bench), and affinity for card 8 from synthetic files in the 2010-11 layout: 7 at 5, 10 at 4, 13 and 18 (not on
+/// the team) at 5 and 4, 19 at 2, 3 at 1; no client program, so unlisted pairs have none.
+pub fn links() -> super::board::Links {
+    use crate::cards::links::{Affinity, E1011};
+    let cards = cards();
+    let mut pd = vec![0u8; 0x328 * 21];
+    for n in 1..=20usize {
+        let key = format!("P{n}");
+        pd[n * 0x328 + 0x177..][..key.len()].copy_from_slice(key.as_bytes());
+    }
+    let mut pairs = Vec::new();
+    for (a, b, v) in [
+        (8, 7, 5),
+        (10, 8, 4),
+        (8, 13, 5),
+        (8, 18, 4),
+        (19, 8, 2),
+        (8, 3, 1),
+    ] {
+        let mut r = [0u8; 129];
+        let (a, b) = (format!("P{a}"), format!("P{b}"));
+        r[..a.len()].copy_from_slice(a.as_bytes());
+        r[64..64 + b.len()].copy_from_slice(b.as_bytes());
+        r[128] = v;
+        pairs.extend(r);
+    }
+    super::board::Links {
+        club: [
+            (1, 2, 160),
+            (3, 4, 255),
+            (7, 8, 230),
+            (10, 16, 255),
+            (8, 10, 199),
+            (5, 9, 205),
+            (2, 11, 120),
+            (8, 12, 240),
+        ]
+        .into_iter()
+        .map(|(a, b, v)| ((a, b), v))
+        .collect(),
+        affinity: Some(std::sync::Arc::new(Affinity::parse(
+            E1011, &cards, &pd, &pairs, None,
+        ))),
+    }
+}
+
 /// A club card view as the run's helper writes it (data\club_view.txt), for an invented club: a cut last session and
 /// one bad ending, a squad of five, two other cards (one used up by a manager transfer).
 pub fn club_view() -> crate::club_view::ClubView {

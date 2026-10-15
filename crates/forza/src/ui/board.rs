@@ -4,10 +4,13 @@
 use super::Lang;
 use super::theme;
 use super::widgets::{centered_text, fan, fit, gradient};
+use crate::cards::links::Affinity;
 use egui::{
     Align2, Color32, Id, Order, Painter, Pos2, Rect, Response, Sense, Shadow, Stroke, StrokeKind,
     Ui, pos2, vec2,
 };
+use std::collections::HashMap;
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Position {
@@ -502,6 +505,90 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
     }
 }
 
+// ---- links ----
+
+/// What the board knows of links: the club's link (0-255) between two of its cards, from the club card; the players'
+/// affinity (1-5), from the game's own files ([`crate::cards::links`]). Empty: no lines, no lists.
+#[derive(Clone, Debug, Default)]
+pub struct Links {
+    /// Smaller card number first.
+    pub club: HashMap<(u32, u32), u8>,
+    pub affinity: Option<Arc<Affinity>>,
+}
+
+impl Links {
+    pub fn link(&self, a: u32, b: u32) -> u8 {
+        self.club.get(&(a.min(b), a.max(b))).copied().unwrap_or(0)
+    }
+
+    pub fn affinity(&self, a: u32, b: u32) -> Option<u8> {
+        self.affinity.as_ref()?.level(a, b)
+    }
+
+    /// In `a`'s group: a line drawn between them, or the best affinity (4-5, the game's "best affinity").
+    fn grouped(&self, a: u32, b: u32) -> bool {
+        a == b
+            || Stage::of(self.link(a, b)).is_some()
+            || self.affinity(a, b).is_some_and(|v| v >= 4)
+    }
+}
+
+/// The lines the game draws for a link: none below 150, a thin white line from 150, a thick white line from 200, the
+/// golden link at 255.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stage {
+    Thin,
+    Thick,
+    Gold,
+}
+
+impl Stage {
+    pub fn of(link: u8) -> Option<Stage> {
+        match link {
+            255 => Some(Stage::Gold),
+            200.. => Some(Stage::Thick),
+            150.. => Some(Stage::Thin),
+            _ => None,
+        }
+    }
+}
+
+/// A link line: a dark casing so it reads on the pitch, then thin white 2, thick white 4.5, or gold 6 with a dark rail
+/// down its middle - width and the rail tell the stages apart without colour.
+pub fn link_line(shapes: &mut Vec<egui::Shape>, a: Pos2, b: Pos2, stage: Stage, alpha: f32) {
+    let (w, col) = match stage {
+        Stage::Thin => (2.0, Color32::WHITE),
+        Stage::Thick => (4.5, Color32::WHITE),
+        Stage::Gold => (6.0, theme::GOLD),
+    };
+    shapes.push(egui::Shape::line_segment(
+        [a, b],
+        Stroke::new(w + 2.5, Color32::from_black_alpha((120.0 * alpha) as u8)),
+    ));
+    shapes.push(egui::Shape::line_segment(
+        [a, b],
+        Stroke::new(w, col.gamma_multiply(alpha)),
+    ));
+    if stage == Stage::Gold {
+        shapes.push(egui::Shape::line_segment(
+            [a, b],
+            Stroke::new(1.5, theme::INK.gamma_multiply(alpha)),
+        ));
+    }
+}
+
+/// Affinity as five dots from `left_center`, the level's filled.
+pub fn affinity_dots(p: &Painter, left_center: Pos2, level: u8) {
+    for k in 0..5u8 {
+        let c = left_center + vec2(4.0 + f32::from(k) * 9.0, 0.0);
+        if k < level {
+            p.circle_filled(c, 3.5, theme::AMBER);
+        } else {
+            p.circle_stroke(c, 3.0, Stroke::new(1.0, theme::TEXT_FAINT));
+        }
+    }
+}
+
 // ---- the formation board ----
 
 /// The card table: 16 slots, 0-10 on the pitch (0 the keeper), 11-15 on the bench; each holds a card index or nothing.
@@ -511,6 +598,13 @@ pub struct Board {
     pub slots: [Option<usize>; 16],
     /// Where each pitch slot sits, 0..1 across the card lane and 0 (attack) .. 1 (own goal) down.
     pub spots: [Pos2; 11],
+}
+
+impl Board {
+    /// The card number in a slot.
+    pub fn number(&self, slot: usize) -> Option<u32> {
+        self.slots[slot].map(|ci| self.cards[ci].number)
+    }
 }
 
 /// The zone a pitch point is in: attack at the top, the centre, defence near the own goal, the keeper's box.
@@ -593,8 +687,16 @@ fn on_pitch(pitch: Rect, p: Pos2) -> Pos2 {
 /// Draws the board and handles it: drag a card onto another to swap (the target is lit while dragging), right-click
 /// takes a card off, a resting mouse shows the card big after `hover_delay` seconds. While a card is dragged or shown
 /// big, the pitch shows its suitable positions as a heat zone, and the drop target says how well it fits there.
-/// Returns true when it changed.
-pub fn formation_board(ui: &mut Ui, board: &mut Board, hover_delay: f32, lang: Lang) -> bool {
+/// With `links`, lines join every two linked pitch cards by the club's link stage; a selected card (clicked, or in
+/// hand) brings its group forward - its lines bright, the others and the cards outside its group dimmed - and a list
+/// beside the board names its partners, on the team and not. Returns true when it changed.
+pub fn formation_board(
+    ui: &mut Ui,
+    board: &mut Board,
+    links: &Links,
+    hover_delay: f32,
+    lang: Lang,
+) -> bool {
     let width = ui.available_width();
     let (pitch, _) = ui.allocate_exact_size(vec2(width, width * PITCH_ASPECT), Sense::hover());
     let dragging = egui::DragAndDrop::payload::<usize>(ui.ctx()).map(|a| *a);
@@ -602,7 +704,21 @@ pub fn formation_board(ui: &mut Ui, board: &mut Board, hover_delay: f32, lang: L
     paint_pitch(ui.painter(), pitch, Some(lang));
     // the heat zone goes over the pitch and under the cards, once we know whose it is
     let heat_at = ui.painter().add(egui::Shape::Noop);
+    // the link lines over it, under the cards
+    let lines_at = ui.painter().add(egui::Shape::Noop);
     let card = card_size(pitch.width());
+    // the selection: the card in hand, else the card clicked last (while it is on the board)
+    let select_id = Id::new("board-select");
+    let clicked_card = ui
+        .data(|d| d.get_temp::<Option<u32>>(select_id))
+        .flatten()
+        .filter(|n| (0..16).any(|s| board.number(s) == Some(*n)));
+    // no links known: no selection, the board as it was
+    let has_links = links.affinity.is_some() || !links.club.is_empty();
+    let selected = dragging
+        .and_then(|d| board.number(d))
+        .or(clicked_card)
+        .filter(|_| has_links);
 
     let mut changed = false;
     // the bench under the pitch: a well with its name running up the left like the zones
@@ -648,19 +764,37 @@ pub fn formation_board(ui: &mut Ui, board: &mut Board, hover_delay: f32, lang: L
                     c,
                     Look {
                         ghost: is_dragged,
+                        selected: selected == Some(c.number),
                         target: hovered_by_drag,
                         warn,
                         ..Look::default()
                     },
                 );
+                if let Some(s) = selected
+                    && !is_dragged
+                    && !links.grouped(s, c.number)
+                {
+                    p.rect_filled(
+                        rect,
+                        (rect.width() * 0.08) as u8,
+                        Color32::from_black_alpha(140),
+                    );
+                }
                 if resp.hovered() && dragging.is_none() {
                     hovered_card = Some((slot, ci, rect));
                 }
-                // a click turns the big card over (and back)
+                // a click turns the big card over (and back) and selects it (and lets it go)
                 if resp.clicked() {
+                    let no = c.number;
                     ui.data_mut(|d| {
                         let f = d.get_temp_mut_or_default::<Option<usize>>(flip_id);
                         *f = if *f == Some(slot) { None } else { Some(slot) };
+                        let s = d.get_temp_mut_or_default::<Option<u32>>(select_id);
+                        *s = if clicked_card == Some(no) {
+                            None
+                        } else {
+                            Some(no)
+                        };
                     });
                 }
                 if is_dragged && let Some(pt) = pointer {
@@ -738,6 +872,42 @@ pub fn formation_board(ui: &mut Ui, board: &mut Board, hover_delay: f32, lang: L
         changed = true;
     }
 
+    // the link lines between pitch cards: the selection's group last, so it lies on top
+    let mut back = Vec::new();
+    let mut front = Vec::new();
+    for i in 0..11 {
+        for j in i + 1..11 {
+            let (Some(a), Some(b)) = (board.number(i), board.number(j)) else {
+                continue;
+            };
+            let Some(stage) = Stage::of(links.link(a, b)) else {
+                continue;
+            };
+            let lit = selected.is_none_or(|s| s == a || s == b);
+            let (to, alpha) = if lit {
+                (&mut front, 1.0)
+            } else {
+                (&mut back, 0.3)
+            };
+            link_line(to, rects[i].center(), rects[j].center(), stage, alpha);
+        }
+    }
+    back.append(&mut front);
+    ui.painter().set(lines_at, egui::Shape::Vec(back));
+    // the list while the card is in hand or the mouse is on the board: elsewhere it would cover the pages
+    if let Some(s) = selected
+        && (dragging.is_some() || pointer.is_some_and(|p| pitch.union(bench).contains(p)))
+    {
+        partner_list(
+            ui,
+            board,
+            links,
+            s,
+            pos2(ui.max_rect().left() - 16.0, bench.bottom()),
+            lang,
+        );
+    }
+
     // the big card after a resting mouse
     let now = ui.input(|i| i.time);
     let mut shown_big = None;
@@ -800,6 +970,113 @@ pub fn formation_board(ui: &mut Ui, board: &mut Board, hover_delay: f32, lang: L
         }
     }
     changed
+}
+
+/// One row of a partner list: the link's line (when one is drawn), the name, the affinity dots.
+pub fn partner_row(ui: &mut Ui, name: &str, link: Option<Stage>, affinity: Option<u8>, width: f32) {
+    let (r, _) = ui.allocate_exact_size(vec2(width, 18.0), Sense::hover());
+    let p = ui.painter();
+    if let Some(stage) = link {
+        let mut v = Vec::new();
+        let y = r.center().y;
+        link_line(
+            &mut v,
+            pos2(r.left() + 2.0, y),
+            pos2(r.left() + 26.0, y),
+            stage,
+            1.0,
+        );
+        p.extend(v);
+    }
+    let g = fit(p, name, theme::body(12.0), theme::TEXT, width - 32.0 - 50.0);
+    p.galley(
+        pos2(r.left() + 32.0, r.center().y - g.size().y / 2.0),
+        g,
+        theme::TEXT,
+    );
+    if let Some(v) = affinity {
+        affinity_dots(p, pos2(r.right() - 46.0, r.center().y), v);
+    }
+}
+
+/// The selected card's partners beside the board, its bottom right at `anchor`: team-mates it is linked with (a line)
+/// or has the best affinity with, then the best partners not on the team (at most six).
+fn partner_list(ui: &Ui, board: &Board, links: &Links, sel: u32, anchor: Pos2, lang: Lang) {
+    let on: Vec<&Card> = board
+        .slots
+        .iter()
+        .flatten()
+        .map(|&ci| &board.cards[ci])
+        .collect();
+    let Some(me) = on.iter().find(|c| c.number == sel) else {
+        return;
+    };
+    let mut mates: Vec<(&Card, u8, Option<u8>)> = on
+        .iter()
+        .filter(|c| c.number != sel && links.grouped(sel, c.number))
+        .map(|c| (*c, links.link(sel, c.number), links.affinity(sel, c.number)))
+        .collect();
+    mates.sort_by_key(|&(c, v, a)| (std::cmp::Reverse((v, a)), c.number));
+    let away: Vec<(&str, u8)> = links
+        .affinity
+        .iter()
+        .flat_map(|a| a.partners(sel))
+        .filter(|(p, v)| *v >= 4 && !p.cards.iter().any(|n| on.iter().any(|c| c.number == *n)))
+        .map(|(p, v)| (p.name.as_str(), v))
+        .collect();
+    let w = 230.0;
+    egui::Area::new(Id::new("board-partners"))
+        .order(Order::Foreground)
+        .pivot(Align2::RIGHT_BOTTOM)
+        .fixed_pos(anchor)
+        .interactable(false)
+        .show(ui.ctx(), |ui| {
+            egui::Frame::new()
+                .fill(theme::DEEP)
+                .stroke(Stroke::new(1.0, theme::RIM_HI))
+                .corner_radius(theme::RADIUS_BIG)
+                .inner_margin(10)
+                .show(ui, |ui| {
+                    ui.set_width(w);
+                    ui.spacing_mut().item_spacing.y = 2.0;
+                    let head = |ui: &mut Ui, t: String| {
+                        ui.label(
+                            egui::RichText::new(t)
+                                .font(theme::display(13.0))
+                                .color(theme::TEXT_DIM),
+                        );
+                    };
+                    ui.label(
+                        egui::RichText::new(tr!(lang, "board.links_of", name = me.short_name()))
+                            .font(theme::display(16.0))
+                            .color(theme::TEXT),
+                    );
+                    head(ui, tr!(lang, "board.on_team"));
+                    if mates.is_empty() {
+                        ui.label(
+                            egui::RichText::new(tr!(lang, "board.no_links"))
+                                .font(theme::body(12.0))
+                                .color(theme::TEXT_FAINT),
+                        );
+                    }
+                    for (c, v, a) in &mates {
+                        partner_row(ui, c.short_name(), Stage::of(*v), *a, w);
+                    }
+                    if !away.is_empty() {
+                        head(ui, tr!(lang, "board.not_on_team"));
+                        for (name, v) in away.iter().take(6) {
+                            partner_row(ui, name, None, Some(*v), w);
+                        }
+                        if away.len() > 6 {
+                            ui.label(
+                                egui::RichText::new(tr!(lang, "board.more", n = away.len() - 6))
+                                    .font(theme::body(11.0))
+                                    .color(theme::TEXT_FAINT),
+                            );
+                        }
+                    }
+                });
+        });
 }
 
 /// A pill under the drop target: BEST POSITION pale with dark ink, FITS amber, OUT OF POSITION red. The words say it,

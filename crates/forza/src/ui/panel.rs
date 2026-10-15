@@ -331,6 +331,8 @@ pub struct PanelState {
     pub lang: Lang,
     pub page: Page,
     pub board: Board,
+    /// The club's links and the players' affinity, for the board's lines and the partner lists.
+    pub links: board::Links,
     /// The player's catalogue (the CATALOGUE page's cards).
     pub cards: Arc<[Card]>,
     pub hover_delay: f32,
@@ -410,6 +412,7 @@ impl PanelState {
             lang,
             page: Page::Game,
             board,
+            links: board::Links::default(),
             cards,
             hover_delay: 1.0,
             tactics: [false; 5],
@@ -1090,7 +1093,8 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     );
     let mut b = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(pitch.min, r.max)));
     b.spacing_mut().item_spacing.y = 4.0;
-    st.board_changed |= board::formation_board(&mut b, &mut st.board, st.hover_delay, lang);
+    st.board_changed |=
+        board::formation_board(&mut b, &mut st.board, &st.links, st.hover_delay, lang);
     b.add_space(4.0);
     b.label(
         egui::RichText::new(tr!(lang, "board.hint"))
@@ -1403,8 +1407,14 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let results = &c.results;
     let focus = &mut c.focus;
     let message = &mut st.message;
-    egui_extras::StripBuilder::new(ui)
-        .size(egui_extras::Size::remainder())
+    let links = &st.links;
+    // the affinity column when the game's links are known
+    let with_affinity = links.affinity.is_some();
+    let mut strips = egui_extras::StripBuilder::new(ui).size(egui_extras::Size::remainder());
+    if with_affinity {
+        strips = strips.size(egui_extras::Size::exact(220.0));
+    }
+    strips
         .size(egui_extras::Size::exact(250.0))
         .horizontal(|mut strip| {
             strip.cell(|ui| {
@@ -1447,11 +1457,19 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                     }
                 });
             });
+            let shown = focus
+                .filter(|i| results.contains(i))
+                .or(results.first().copied())
+                .and_then(|i| cards.get(i));
+            if with_affinity {
+                strip.cell(|ui| {
+                    if let Some(card) = shown {
+                        affinity_pane(ui, card, links, &on_table, lang);
+                    }
+                });
+            }
             strip.cell(|ui| {
-                let shown = focus
-                    .filter(|i| results.contains(i))
-                    .or(results.first().copied());
-                if let Some(card) = shown.and_then(|i| cards.get(i))
+                if let Some(card) = shown
                     && stats_pane(ui, card, lang)
                 {
                     add = Some(card.number);
@@ -1492,6 +1510,48 @@ fn inferred_role(card: &Card) -> &'static str {
         Position::Fw if s[3] >= 16 => "cat.role_target",
         Position::Fw => "cat.role_poacher",
     }
+}
+
+/// The card's partners by affinity, best first (from the game's own files), a tick on those already on the table.
+fn affinity_pane(ui: &mut Ui, card: &Card, links: &board::Links, on_table: &[u32], lang: Lang) {
+    egui::Frame::new()
+        .fill(theme::WELL)
+        .corner_radius(theme::RADIUS_BIG)
+        .inner_margin(10)
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.spacing_mut().item_spacing.y = 2.0;
+            caps(ui, &tr!(lang, "cat.affinity"));
+            let w = ui.available_width();
+            let partners: Vec<_> = links
+                .affinity
+                .iter()
+                .flat_map(|a| a.partners(card.number))
+                .collect();
+            if partners.is_empty() {
+                ui.label(
+                    egui::RichText::new(tr!(lang, "cat.no_partners"))
+                        .font(theme::body(12.0))
+                        .color(theme::TEXT_FAINT),
+                );
+            }
+            egui::ScrollArea::vertical()
+                .id_salt("affinity")
+                .auto_shrink([false, true])
+                .show(ui, |ui| {
+                    for (p, v) in partners {
+                        let r = ui.cursor();
+                        board::partner_row(ui, &p.name, None, Some(v), w - 22.0);
+                        if p.cards.iter().any(|n| on_table.contains(n)) {
+                            super::widgets::tone_icon(
+                                ui.painter(),
+                                pos2(r.left() + w - 9.0, r.top() + 9.0),
+                                Tone::Done,
+                            );
+                        }
+                    }
+                });
+        });
 }
 
 /// The card's stats and its ADD button; `true` = ADD clicked.

@@ -193,6 +193,39 @@ fn board_interaction() {
     h.snapshot("board_back_en");
 }
 
+/// Links on the board (synthetic): every stage between pitch cards at rest; a click on card 8 (slot 7) brings its group
+/// forward with its partner list; the catalogue's stats pane lists the same card's affinity, ticks on the team.
+#[test]
+fn board_links() {
+    let _gpu = gpu();
+    let mut st = panel::PanelState::sample(Edition::E1011, Lang::En, panel::Page::Game);
+    st.links = forza::ui::sample::links();
+    let spots = st.board.spots;
+    let at = |slot| panel::board_slot_center(panel::SIZE.x, &spots, slot);
+    let st = std::cell::RefCell::new(st);
+    let mut h = harness(panel::SIZE, 1.0, Edition::E1011, |ui| {
+        panel::show(ui, &mut st.borrow_mut())
+    });
+    h.run_steps(4);
+    h.snapshot("board_links_en");
+    h.drag_at(at(7));
+    h.run_steps(1);
+    h.drop_at(at(7));
+    // the mouse on the pitch off the cards, so no big card covers the list
+    h.hover_at(egui::pos2(1150.0, 280.0));
+    h.run_steps(3);
+    h.snapshot("board_links_selected_en");
+    {
+        let mut s = st.borrow_mut();
+        s.page = panel::Page::Catalogue;
+        s.catalogue.filter = Default::default();
+        s.catalogue.focus = Some(7);
+    }
+    h.hover_at(egui::pos2(500.0, 440.0));
+    h.run_steps(4);
+    h.snapshot("panel_catalogue_affinity_en");
+}
+
 /// A 1920×1080 screen: the sheet scales by 1.2 and the 1600-point-wide sheet gives the extra width to the middle.
 #[test]
 fn panel_1920x1080() {
