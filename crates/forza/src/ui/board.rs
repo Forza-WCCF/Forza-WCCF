@@ -618,6 +618,7 @@ pub fn formation_board(ui: &mut Ui, board: &mut Board, hover_delay: f32, lang: L
     let rects = slot_rects(pitch, bench.top(), &board.spots);
 
     let hover_id = Id::new("board-hover");
+    let flip_id = Id::new("board-flip");
     let mut hovered_card = None;
     let mut drop_target = None;
     for (slot, &rect) in rects.iter().enumerate() {
@@ -652,6 +653,13 @@ pub fn formation_board(ui: &mut Ui, board: &mut Board, hover_delay: f32, lang: L
                 );
                 if resp.hovered() && dragging.is_none() {
                     hovered_card = Some((slot, ci, rect));
+                }
+                // a click turns the big card over (and back)
+                if resp.clicked() {
+                    ui.data_mut(|d| {
+                        let f = d.get_temp_mut_or_default::<Option<usize>>(flip_id);
+                        *f = if *f == Some(slot) { None } else { Some(slot) };
+                    });
                 }
                 if is_dragged && let Some(pt) = pointer {
                     // the lifted card follows the pointer above everything
@@ -741,8 +749,16 @@ pub fn formation_board(ui: &mut Ui, board: &mut Board, hover_delay: f32, lang: L
                 e.1
             });
             let left = hover_delay as f64 - (now - since);
-            if left <= 0.0 {
-                big_card(ui, &board.cards[ci], rect, ui.max_rect().left(), lang);
+            // turned over until the mouse rests on another card
+            let back = ui.data_mut(|d| {
+                let f = d.get_temp_mut_or_default::<Option<usize>>(flip_id);
+                if f.is_some_and(|s| s != slot) {
+                    *f = None;
+                }
+                *f == Some(slot)
+            });
+            if left <= 0.0 || back {
+                big_card(ui, &board.cards[ci], rect, ui.max_rect().left(), back, lang);
                 shown_big = Some(ci);
             } else {
                 ui.ctx()
@@ -926,9 +942,204 @@ pub fn aptitude_map(p: &Painter, rect: Rect, apt: &Aptitude, lang: Lang) {
     }
 }
 
+/// The card's back (the players' request, 2026-10-14), upright as the face: the number, name and line on a band; the
+/// suitable positions as the original card's back maps them, a small pitch with the heat zone and each role rated 5
+/// or more marked with its rating (the three best named); the six stats and TOTAL beside it. From the 16 role ratings
+/// (the names and spots are the project's inference: [`ROLES`]); 2017-18's own cards say "no position data".
+pub fn card_back(p: &Painter, rect: Rect, card: &Card, lang: Lang) {
+    let r = (rect.width() * 0.08) as u8;
+    let rim = card.rarity.rim();
+    p.add(
+        Shadow {
+            offset: [0, 6],
+            blur: 16,
+            spread: 0,
+            color: Color32::from_black_alpha(150),
+        }
+        .as_shape(rect, r),
+    );
+    gradient(
+        p,
+        rect,
+        r,
+        Color32::from_rgb(0x1A, 0x27, 0x3D),
+        theme::WELL,
+        true,
+    );
+    p.rect_stroke(rect, r, Stroke::new(2.0, rim), StrokeKind::Inside);
+    let w = rect.width();
+    let unit = w / 200.0; // drawn for a card 200 wide, scaled
+    // the band: number, name, line
+    let band = Rect::from_min_size(
+        rect.min + vec2(6.0, 6.0) * unit,
+        vec2(w - 12.0 * unit, 26.0 * unit),
+    );
+    p.rect_filled(
+        band,
+        (4.0 * unit) as u8,
+        card.pos.color().gamma_multiply(0.85),
+    );
+    p.text(
+        band.left_center() + vec2(6.0 * unit, 0.0),
+        Align2::LEFT_CENTER,
+        format!("#{}", card.number),
+        theme::display(13.0 * unit),
+        Color32::WHITE,
+    );
+    p.text(
+        band.right_center() - vec2(6.0 * unit, 0.0),
+        Align2::RIGHT_CENTER,
+        card.pos.code(),
+        theme::display(15.0 * unit),
+        Color32::WHITE,
+    );
+    let g = fit(
+        p,
+        card.short_name(),
+        theme::display(15.0 * unit),
+        Color32::WHITE,
+        band.width() - 90.0 * unit,
+    );
+    p.galley(band.center() - g.size() / 2.0, g, Color32::WHITE);
+    // the position map, left
+    let map_w = w * 0.58;
+    let map = Rect::from_min_size(
+        pos2(rect.left() + 8.0 * unit, band.bottom() + 8.0 * unit),
+        vec2(map_w, map_w * PITCH_ASPECT),
+    );
+    aptitude_map(p, map, &card.aptitude, lang);
+    if card.aptitude.known() {
+        let best: Vec<&str> = card.aptitude.top().iter().map(|(n, _)| *n).collect();
+        for ((name, rating), spots) in ROLES.iter().zip(card.aptitude.roles).zip(ROLE_SPOTS) {
+            if rating < 5 {
+                continue;
+            }
+            for &(x, y) in spots {
+                let c = map.lerp_inside(vec2(x, y));
+                let fill = if rating >= 8 {
+                    Color32::from_rgb(0xFF, 0xF6, 0xD0)
+                } else {
+                    theme::AMBER
+                };
+                p.circle_filled(c, 6.5 * unit, fill);
+                p.circle_stroke(c, 6.5 * unit, Stroke::new(1.0, theme::INK));
+                p.text(
+                    c,
+                    Align2::CENTER_CENTER,
+                    rating.to_string(),
+                    theme::bold(9.0 * unit),
+                    theme::INK,
+                );
+                if best.contains(name) {
+                    p.text(
+                        c + vec2(0.0, 8.0 * unit),
+                        Align2::CENTER_TOP,
+                        *name,
+                        theme::display(9.0 * unit),
+                        Color32::WHITE,
+                    );
+                }
+            }
+        }
+    }
+    // the stats, right of the map
+    let col = Rect::from_min_max(
+        pos2(map.right() + 8.0 * unit, map.top()),
+        pos2(rect.right() - 8.0 * unit, map.bottom()),
+    );
+    let names = [
+        "cat.off", "cat.def", "cat.tec", "cat.pow", "cat.spd", "cat.sta",
+    ];
+    let row = col.height() / 8.0;
+    for (i, (k, v)) in names.iter().zip(card.stats).enumerate() {
+        let y = col.top() + row * (i as f32 + 0.5);
+        p.text(
+            pos2(col.left(), y),
+            Align2::LEFT_CENTER,
+            tr!(lang, *k),
+            theme::display(11.0 * unit),
+            theme::TEXT_DIM,
+        );
+        p.text(
+            pos2(col.right(), y),
+            Align2::RIGHT_CENTER,
+            v.to_string(),
+            theme::display(16.0 * unit),
+            super::widgets::stat_color(v),
+        );
+    }
+    let y = col.top() + row * 6.0;
+    p.line_segment(
+        [pos2(col.left(), y), pos2(col.right(), y)],
+        Stroke::new(1.0, theme::RIM),
+    );
+    p.text(
+        pos2(col.left(), y + row),
+        Align2::LEFT_CENTER,
+        tr!(lang, "cat.total"),
+        theme::display(11.0 * unit),
+        theme::TEXT_DIM,
+    );
+    p.text(
+        pos2(col.right(), y + row),
+        Align2::RIGHT_CENTER,
+        card.total.to_string(),
+        theme::display(22.0 * unit),
+        theme::AMBER,
+    );
+    // under the map: the 16 ratings, four to a row (the best lit), and the season
+    let grid = Rect::from_min_max(
+        pos2(rect.left() + 10.0 * unit, map.bottom() + 6.0 * unit),
+        pos2(rect.right() - 10.0 * unit, rect.bottom() - 20.0 * unit),
+    );
+    if card.aptitude.known() {
+        let (cw, rh) = (grid.width() / 4.0, grid.height() / 4.0);
+        for (i, (name, rating)) in ROLES.iter().zip(card.aptitude.roles).enumerate() {
+            let c = pos2(
+                grid.left() + cw * (i % 4) as f32,
+                grid.top() + rh * ((i / 4) as f32 + 0.5),
+            );
+            let ink = match rating {
+                8.. => Color32::from_rgb(0xFF, 0xF6, 0xD0),
+                5.. => theme::AMBER,
+                _ => theme::TEXT_FAINT,
+            };
+            p.text(
+                c,
+                Align2::LEFT_CENTER,
+                *name,
+                theme::display(10.0 * unit),
+                theme::TEXT_DIM,
+            );
+            p.text(
+                c + vec2(cw - 8.0 * unit, 0.0),
+                Align2::RIGHT_CENTER,
+                rating.to_string(),
+                theme::display(12.0 * unit),
+                ink,
+            );
+        }
+    } else {
+        let g = p.layout(
+            tr!(lang, "board.no_data"),
+            theme::body(11.0 * unit),
+            theme::TEXT_DIM,
+            grid.width(),
+        );
+        p.galley(grid.center() - g.size() / 2.0, g, theme::TEXT_DIM);
+    }
+    p.text(
+        pos2(rect.right() - 10.0 * unit, rect.bottom() - 11.0 * unit),
+        Align2::RIGHT_CENTER,
+        card.season.as_str(),
+        theme::display(11.0 * unit),
+        theme::TEXT_DIM,
+    );
+}
+
 /// The big card beside the board with its caption: a card at 2.6x and its line of facts, and the card back's
 /// suitable positions beside it.
-fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, lang: Lang) {
+fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, back: bool, lang: Lang) {
     let size = CARD_SMALL * 2.6;
     // the map under its 22 px heading, as tall as the card
     let map = vec2((size.y - 22.0) / PITCH_ASPECT, size.y - 22.0);
@@ -956,21 +1167,29 @@ fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, lang: Lang) {
                 .show(ui, |ui| {
                     let wide = size.x + 10.0 + map.x;
                     ui.set_max_width(wide);
-                    ui.horizontal_top(|ui| {
-                        ui.spacing_mut().item_spacing.x = 10.0;
-                        let (r, _) = ui.allocate_exact_size(size, Sense::hover());
-                        card_face(ui.painter(), r, card, Look::default());
-                        ui.vertical(|ui| {
-                            ui.spacing_mut().item_spacing.y = 4.0;
-                            ui.label(
-                                egui::RichText::new(tr!(lang, "board.positions"))
-                                    .font(theme::display(14.0))
-                                    .color(theme::TEXT_DIM),
-                            );
-                            let (m, _) = ui.allocate_exact_size(map, Sense::hover());
-                            aptitude_map(ui.painter(), m, &card.aptitude, lang);
+                    if back {
+                        // turned over: the back, as wide as the face and the map
+                        let w = size.x + 10.0 + map.x;
+                        let (r, _) =
+                            ui.allocate_exact_size(vec2(w, w * 81.0 / 58.0), Sense::hover());
+                        card_back(ui.painter(), r, card, lang);
+                    } else {
+                        ui.horizontal_top(|ui| {
+                            ui.spacing_mut().item_spacing.x = 10.0;
+                            let (r, _) = ui.allocate_exact_size(size, Sense::hover());
+                            card_face(ui.painter(), r, card, Look::default());
+                            ui.vertical(|ui| {
+                                ui.spacing_mut().item_spacing.y = 4.0;
+                                ui.label(
+                                    egui::RichText::new(tr!(lang, "board.positions"))
+                                        .font(theme::display(14.0))
+                                        .color(theme::TEXT_DIM),
+                                );
+                                let (m, _) = ui.allocate_exact_size(map, Sense::hover());
+                                aptitude_map(ui.painter(), m, &card.aptitude, lang);
+                            });
                         });
-                    });
+                    }
                     ui.label(
                         egui::RichText::new(&card.name)
                             .font(theme::display(20.0))
@@ -1021,6 +1240,18 @@ fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, lang: Lang) {
                                 );
                             }
                         });
+                    ui.label(
+                        egui::RichText::new(tr!(
+                            lang,
+                            if back {
+                                "board.flip_back"
+                            } else {
+                                "board.flip"
+                            }
+                        ))
+                        .font(theme::body(11.0))
+                        .color(theme::TEXT_FAINT),
+                    );
                 });
         });
 }

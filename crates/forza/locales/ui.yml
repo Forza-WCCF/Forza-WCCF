@@ -124,6 +124,8 @@ panel.msg_saved: {en: "Club saved at 15:04.", it: "Club salvato alle 15:04.", ja
 panel.msg_session_open: {en: "Refused: a club card session is open. End the match first.", it: "Rifiutato: è aperta una sessione della tessera club. Termina prima la partita.", ja: "できません：クラブカードのセッション中です。先に試合を終えてください。"}
 
 # ---- formation board ----
+board.flip: {en: "Click the card: its back.", it: "Clicca la carta: il retro.", ja: "カードをクリックで裏面。"}
+board.flip_back: {en: "Click again: its face.", it: "Clicca di nuovo: il fronte.", ja: "もう一度クリックで表面。"}
 board.title: {en: "FORMATION BOARD", it: "FORMAZIONE", ja: "フォーメーション"}
 board.bench: {en: "BENCH", it: "PANCHINA", ja: "ベンチ"}
 board.zone_attack: {en: "ATTACK", it: "ATTACCO", ja: "攻撃"}
@@ -329,4 +331,4 @@ club.row_saved: {en: "CARD SAVED", it: "TESSERA SALVATA", ja: "カード保存"}
 # ---- the card deal after a match ----
 deal.title: {en: "NEW PLAYER CARD", it: "NUOVA CARTA GIOCATORE", ja: "新しい選手カード"}
 deal.title_rare: {en: "NEW PLAYER CARD: RARE!", it: "NUOVA CARTA GIOCATORE: RARA!", ja: "新しい選手カード：レア！"}
-deal.foot: {en: "Only shown, not on your club card. Click to close.", it: "Solo mostrata, non va sulla tessera. Clicca per chiudere.", ja: "表示のみで、クラブカードには入りません。クリックで閉じます。"}
+deal.foot: {en: "Only shown, not on your club card. The card turns over; a click elsewhere closes.", it: "Solo mostrata, non va sulla tessera. La carta si gira; un clic altrove chiude.", ja: "表示のみでクラブカードには入りません。カードは裏返せます。ほかをクリックで閉じます。"}

@@ -184,6 +184,13 @@ fn board_interaction() {
     h.hover_at(at(2));
     h.run_steps(8); // past the 1 s hover delay at 0.25 s a step
     h.snapshot("board_hover_en");
+    // a click turns the big card over: its back, the position map with the ratings and the stats
+    h.drag_at(at(2));
+    h.run_steps(1);
+    h.drop_at(at(2));
+    h.hover_at(at(2));
+    h.run_steps(3);
+    h.snapshot("board_back_en");
 }
 
 /// A 1920×1080 screen: the sheet scales by 1.2 and the 1600-point-wide sheet gives the extra width to the middle.
@@ -469,7 +476,17 @@ fn card_deal() {
     h.run_steps(4);
     assert!(st.borrow().picture_rect.is_none());
     h.snapshot("panel_deal_en");
-    h.get_by_label_contains("NEW PLAYER CARD").click();
+    // a click on the card turns it over; one beside it closes the window
+    let r = h.get_by_label_contains("NEW PLAYER CARD").rect();
+    let card = egui::pos2(r.center().x, r.top() + 200.0);
+    h.drag_at(card);
+    h.drop_at(card);
+    h.run_steps(2);
+    assert!(st.borrow().deal.as_ref().is_some_and(|d| d.back));
+    h.snapshot("panel_deal_back_en");
+    let foot = egui::pos2(r.center().x, r.bottom() - 60.0);
+    h.drag_at(foot);
+    h.drop_at(foot);
     h.run_steps(2);
     assert!(st.borrow().deal.is_none() && st.borrow().picture_rect.is_some());
 }

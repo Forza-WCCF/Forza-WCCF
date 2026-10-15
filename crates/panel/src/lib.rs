@@ -703,11 +703,17 @@ impl Render {
         self.club_in();
         self.deal_in();
         self.keys_in();
-        let dealt = self.st.deal.is_some();
+        let dealt = self.st.deal.as_ref().map(|d| d.back);
         let st = &mut self.st;
         let out = self.ctx.run_ui(raw, |ui| panel::show(ui, st));
-        if dealt && self.st.deal.is_none() {
-            log("deal: closed");
+        match (dealt, self.st.deal.as_ref().map(|d| d.back)) {
+            (Some(_), None) => log("deal: closed"),
+            (Some(a), Some(b)) if a != b => log(if b {
+                "deal: turned over"
+            } else {
+                "deal: face up"
+            }),
+            _ => {}
         }
         WANTS_KEYS.store(self.ctx.egui_wants_keyboard_input(), Relaxed);
         self.page_open();

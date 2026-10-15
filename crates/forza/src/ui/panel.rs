@@ -640,11 +640,17 @@ pub const DEAL_SECS: f64 = 20.0;
 pub struct Deal {
     pub card: usize,
     pub until: Option<f64>,
+    /// Turned over: its back.
+    pub back: bool,
 }
 
 impl Deal {
     pub fn new(card: usize) -> Deal {
-        Deal { card, until: None }
+        Deal {
+            card,
+            until: None,
+            back: false,
+        }
     }
 }
 
@@ -664,6 +670,7 @@ fn deal_window(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
     }
     ui.ctx()
         .request_repaint_after(std::time::Duration::from_secs_f64(until - now));
+    let back = d.back;
     let rare = cards::deal_class(&card) == 0;
     let col = match cards::deal_class(&card) {
         0 => theme::GOLD,
@@ -713,7 +720,11 @@ fn deal_window(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
                 pos2(r.center().x, r.top() + 60.0 + 140.0),
                 vec2(200.0, 280.0),
             );
-            board::card_face(&p, face, &card, board::Look::default());
+            if back {
+                board::card_back(&p, face, &card, lang);
+            } else {
+                board::card_face(&p, face, &card, board::Look::default());
+            }
             let mut y = face.bottom() + 12.0;
             let g = widgets::fit(
                 &p,
@@ -742,18 +753,33 @@ fn deal_window(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
                     .font(theme::display(20.0))
                     .color(theme::AMBER),
             );
-            p.text(
-                pos2(r.center().x, r.bottom() - 18.0),
-                Align2::CENTER_CENTER,
+            let g = p.layout(
                 tr!(lang, "deal.foot"),
                 theme::body(12.0),
                 theme::TEXT_DIM,
+                size.x - 32.0,
             );
-            resp
+            p.galley(
+                pos2(
+                    r.center().x - g.size().x / 2.0,
+                    r.bottom() - 10.0 - g.size().y,
+                ),
+                g,
+                theme::TEXT_DIM,
+            );
+            // a click on the card turns it over; anywhere else closes the window
+            let on_card = resp.clicked()
+                && resp
+                    .interact_pointer_pos()
+                    .is_some_and(|p| face.contains(p));
+            (resp, on_card)
         })
         .inner;
-    if resp.clicked() {
-        st.deal = None;
+    if resp.0.clicked() {
+        match st.deal.as_mut() {
+            Some(d) if resp.1 => d.back = !d.back,
+            _ => st.deal = None,
+        }
     }
 }
 
