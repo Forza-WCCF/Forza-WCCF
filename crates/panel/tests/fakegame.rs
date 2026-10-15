@@ -166,8 +166,9 @@ fn board_and_buttons_with_real_data() {
                 image_xaf_stored_size\timage_size\timage_packed\talt_png_2005_06_build\thidden_params\n";
     let row = |no: u32, name: &str, pos: &str, roles: &str| {
         format!(
-            "{no}\t0\t1\t1\tx\t10-11\t4\tLEGEND\tGold\t0\t{name} Test\t{name}\t{name}\t\t\t{pos}\t1\tNowhere FC\t1\t\
-             Nowhere\t9\t1980-01-01\t180\t75\t12\t12\t12\t12\t12\t12\t72\t\t\t\t\t0\t0\t0\t0\t\t{roles} 5 5\n"
+            "{no}\t{}\t1\t1\tx\t10-11\t4\tLEGEND\tGold\t0\t{name} Test\t{name}\t{name}\t\t\t{pos}\t1\tNowhere FC\t1\t\
+             Nowhere\t9\t1980-01-01\t180\t75\t12\t12\t12\t12\t12\t12\t72\t\t\t\t\t0\t0\t0\t0\t\t{roles} 5 5\n",
+            no - 101 // its record in the made-up player_data.bin
         )
     };
     let low = "1 1 1 1 1 1 1 1 1 1 1 1 1 1 1";
@@ -193,6 +194,26 @@ fn board_and_buttons_with_real_data() {
             .unwrap();
     }
     let seat = t.join("seat1");
+    // links (synthetic, the 2010-11 layouts): each card its own player (key at record +0x177), 101 and 103 listed at
+    // affinity 5; the club card holds 101, 102, 103 in slots 0-2 with a thin link (160) between 101 and 102
+    let pd = seat.join("prog_data/player_data");
+    fs::create_dir_all(&pd).unwrap();
+    let mut players = vec![0u8; 0x328 * 5];
+    for k in 0..5 {
+        players[k * 0x328 + 0x177..][..3].copy_from_slice(format!("K{k}0").as_bytes());
+    }
+    fs::write(pd.join("player_data.bin"), players).unwrap();
+    let mut pair = vec![0u8; 129];
+    pair[..3].copy_from_slice(b"K00");
+    pair[64..67].copy_from_slice(b"K20");
+    pair[128] = 5;
+    fs::write(pd.join("partnership.bin"), pair).unwrap();
+    fs::create_dir_all(data.join("save")).unwrap();
+    fs::write(
+        data.join("save/seat1_club.bin"),
+        club_card(&[101, 102, 103], 160),
+    )
+    .unwrap();
     let table = seat.join("fpr_table0.txt");
     let start = [
         cards::Placed {
@@ -264,6 +285,8 @@ fn board_and_buttons_with_real_data() {
         "catalogue 5 cards",
         "board: table",
         "language it, hover delay 0.3 s",
+        "links: affinity 1 listed pair(s) of 5 player(s), default rule off",
+        "- 3 pair(s), 1 drawn (150+), 0 golden",
     ] {
         assert!(log.contains(line), "the panel's log has no '{line}'");
     }
@@ -499,6 +522,31 @@ fn board_and_buttons_with_real_data() {
     if env::var_os("FORZA_PANEL_KEEP").is_none() {
         let _ = fs::remove_dir_all(&t);
     }
+}
+
+/// A club card file with `cards` in its first squad slots (PLAYER_CARD_NO, 14 bits from payload bit 6688 + 312 i)
+/// and the link of slots 0 and 1 (pair 0 of CLUB_PLAYER_COOPERATION_INFO, 8 bits from bit 3650); both copies good.
+fn club_card(cards: &[u32], link: u8) -> Vec<u8> {
+    let mut raw = vec![0u8; 16 + 256 * 16];
+    let put = |buf: &mut [u8], start: usize, width: usize, v: u32| {
+        for b in 0..width {
+            if (v >> (width - 1 - b)) & 1 == 1 {
+                buf[(start + b) >> 3] |= 0x80 >> ((start + b) & 7);
+            }
+        }
+    };
+    for start in [16 + 8 * 16, 16 + 8 * 16 + 0x690] {
+        let copy = &mut raw[start..start + 0x690];
+        for (i, &c) in cards.iter().enumerate() {
+            put(copy, 6688 + 312 * i, 14, c);
+        }
+        put(copy, 3650, 8, u32::from(link));
+        let sum = copy[..0x68C].chunks(4).fold(0u32, |t, w| {
+            t.wrapping_add(u32::from_le_bytes([w[0], w[1], w[2], w[3]]))
+        });
+        copy[0x68C..].copy_from_slice(&sum.to_le_bytes());
+    }
+    raw
 }
 
 /// A club card file whose session is open (the flag set in both copies, their checksums good): launcher::card's

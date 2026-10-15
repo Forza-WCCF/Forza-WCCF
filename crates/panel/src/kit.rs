@@ -8,6 +8,8 @@
 //!   `data\cache\catalogue.tsv` and `data\cache\cards\`, 2017-18's beside the DLL.
 //! - The keys: `WCCF_KEYS`, else `data\keys.txt` when `data\` is there, else beside the DLL.
 //! - The card table and its formation copy: the game's own folder (the program's), never configured.
+//! - Links (`lib.rs` `affinity`, `links_in`): `prog_data\player_data\` in the game's own folder and the program itself,
+//!   read once; the club card `data\save\seat1_club.bin`, read again when it changes (2010-11 only).
 //! - The language: `WCCF_KIT_LANG`, else `data\settings.json`'s `language`, else Windows' display language, else
 //!   English (the launcher's order).
 

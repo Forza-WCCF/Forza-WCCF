@@ -86,6 +86,8 @@ static EXE_DIR: OnceLock<PathBuf> = OnceLock::new();
 static DLL_DIR: OnceLock<PathBuf> = OnceLock::new();
 static FILES: OnceLock<kit::Files> = OnceLock::new();
 static CATALOGUE: OnceLock<Arc<[Card]>> = OnceLock::new();
+/// The players' affinity from the game's own files (`prog_data\player_data\` beside the program), when readable.
+static AFFINITY: OnceLock<Option<Arc<cards::links::Affinity>>> = OnceLock::new();
 /// The game's picture on the window (pixels) while no page covers it: clicks there are the game's.
 static PICTURE: Mutex<Option<egui::Rect>> = Mutex::new(None);
 /// The mouse buttons whose press went to the game (bit per button): their release goes there too.
@@ -210,6 +212,7 @@ fn init() {
         files.cards.display(),
         files.keys.display()
     ));
+    let _ = AFFINITY.set(affinity(e1718, &catalogue));
     let _ = CATALOGUE.set(catalogue.into());
     let _ = FILES.set(files);
     // SAFETY: the throwaway device is ours; the detours replace functions with the same signature
@@ -240,6 +243,33 @@ fn init() {
         std::thread::sleep(Duration::from_millis(500));
     }
     INIT_DONE.store(true, Relaxed);
+}
+
+/// The players' affinity from the game's own files: `prog_data\player_data\` in the program's folder, the default
+/// rule's tables from the program itself (2010-11; 2017-18 listed pairs only). Read-only; logged with counts.
+fn affinity(e1718: bool, catalogue: &[Card]) -> Option<Arc<cards::links::Affinity>> {
+    let exe = std::env::current_exe().ok()?;
+    let game = exe.parent()?;
+    let layout = if e1718 {
+        cards::links::E1718
+    } else {
+        cards::links::E1011
+    };
+    match cards::links::Affinity::load(layout, game, &exe, catalogue) {
+        Ok(a) => {
+            let (pairs, rule) = a.counts();
+            log(&format!(
+                "links: affinity {pairs} listed pair(s) of {} player(s), default rule {}",
+                a.people.len(),
+                if rule { "on" } else { "off" }
+            ));
+            Some(Arc::new(a))
+        }
+        Err(e) => {
+            log(&format!("links: no affinity ({e})"));
+            None
+        }
+    }
 }
 
 /// The projector, as `wccfpanel.c` `is_projector`: WCCFPANEL_ROLE (projector or not), else a program in a folder
@@ -652,6 +682,9 @@ struct Render {
     /// The deal: when the club card was last looked at, and its session then.
     deal_at: Instant,
     deal_last: Option<launcher::card::Session>,
+    /// Links: when the club card was last looked at, and its time then.
+    links_at: Option<Instant>,
+    links_stamp: Option<Option<std::time::SystemTime>>,
     /// CLUB CARD: when club_view.txt was last looked at, and its time then.
     club_at: Option<Instant>,
     club_stamp: Option<std::time::SystemTime>,
@@ -721,6 +754,8 @@ impl Render {
             logs_at: None,
             // an answer from an earlier run is not shown
             logs_stamp: stamp(&files.request("sendlogs.result")),
+            links_at: None,
+            links_stamp: None,
             club_at: None,
             club_stamp: None,
             deal_at: Instant::now(),
@@ -970,6 +1005,7 @@ impl Render {
             .or_default()
             .native_pixels_per_point = Some(ppp);
         self.table_in();
+        self.links_in();
         self.settings_in();
         self.club_in();
         self.deal_in();
@@ -1043,6 +1079,43 @@ impl Render {
             self.st.board = cards::board(&placed, catalogue());
             self.placed = placed;
         }
+    }
+
+    /// The board's links: the club card's link values (data\save\seat1_club.bin, read again every 2 s when its time
+    /// changed) with the affinity read at the start. 2017-18: its card's link values are not located, affinity only.
+    fn links_in(&mut self) {
+        if self
+            .links_at
+            .is_some_and(|t| t.elapsed() < Duration::from_secs(2))
+        {
+            return;
+        }
+        self.links_at = Some(Instant::now());
+        let Some(f) = FILES.get() else { return };
+        let card = f.data.join("save").join(launcher::card::SLOT);
+        let st = stamp(&card);
+        if self.links_stamp == Some(st) {
+            return;
+        }
+        self.links_stamp = Some(st);
+        let club = if f.edition == theme::Edition::E1718 {
+            log("links: 2017-18 club link values not located - no lines, affinity only");
+            None
+        } else {
+            cards::links::ClubLinks::read(&card)
+        };
+        let club = club.map(|c| c.by_cards()).unwrap_or_default();
+        log(&format!(
+            "links: club card {} - {} pair(s), {} drawn (150+), {} golden",
+            card.display(),
+            club.len(),
+            club.values().filter(|&&v| v >= 150).count(),
+            club.values().filter(|&&v| v == 255).count()
+        ));
+        self.st.links = forza::ui::board::Links {
+            club,
+            affinity: AFFINITY.get().cloned().flatten(),
+        };
     }
 
     /// A move, swap or take-off on the board: the table written whole (and the formation copy beside it); a write
