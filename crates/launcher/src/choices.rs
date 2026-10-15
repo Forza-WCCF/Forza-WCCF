@@ -73,16 +73,7 @@ pub fn setting(path: &Path, key: &str) -> Option<String> {
     json[key].as_str().map(str::to_owned)
 }
 
-/// Four numbers 0-255 with dots, only the digits 0-9, as play.py's valid_ipv4 (the game takes no names).
-pub fn valid_address(s: &str) -> bool {
-    let parts: Vec<&str> = s.split('.').collect();
-    parts.len() == 4
-        && parts.iter().all(|p| {
-            (1..=3).contains(&p.len())
-                && p.bytes().all(|b| b.is_ascii_digit())
-                && p.parse::<u16>().is_ok_and(|n| n <= 255)
-        })
-}
+pub use forza::panel_txt::valid_address;
 
 #[cfg(test)]
 mod tests {

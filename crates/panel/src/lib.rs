@@ -382,6 +382,11 @@ struct Render {
     pads_held: std::collections::BTreeSet<u32>,
     /// When the controllers were last looked for.
     pads_scan: Instant,
+    /// SETTINGS: when NOW was read; when RESTART NOW and SEND LOGS were asked; SEND LOGS' answer file as last read.
+    status_at: Option<Instant>,
+    restart_at: Option<Instant>,
+    logs_at: Option<Instant>,
+    logs_stamp: Option<std::time::SystemTime>,
     painter: painter::Painter,
     start: Instant,
     sc: Option<(IDirect3DSwapChain9, u32, u32, HWND)>,
@@ -422,7 +427,9 @@ impl Render {
         let lang = files.lang();
         let cards = CATALOGUE.get().cloned().unwrap_or_else(|| Arc::new([]));
         let mut st = PanelState::new(files.edition, lang, cards::board(&placed, &cards), cards);
-        st.hover_delay = files.hover_delay();
+        st.file = files.panel_file();
+        st.hover_delay = st.file.hover_ms as f32 / 1000.0;
+        st.address = st.file.server.clone();
         (st.keys, st.pads) = files.load_keys();
         st.picture = Some(GAME);
         log(&format!(
@@ -441,6 +448,11 @@ impl Render {
             pads: None,
             pads_held: Default::default(),
             pads_scan: Instant::now(),
+            status_at: None,
+            restart_at: None,
+            logs_at: None,
+            // an answer from an earlier run is not shown
+            logs_stamp: stamp(&files.request("sendlogs.result")),
             painter: painter::Painter::default(),
             start: Instant::now(),
             sc: None,
@@ -677,6 +689,7 @@ impl Render {
             .or_default()
             .native_pixels_per_point = Some(ppp);
         self.table_in();
+        self.settings_in();
         self.keys_in();
         let st = &mut self.st;
         let out = self.ctx.run_ui(raw, |ui| panel::show(ui, st));
@@ -690,6 +703,7 @@ impl Render {
         }
         self.add();
         self.keys_out();
+        self.settings_out();
         self.table_out();
         self.keys();
         let prims = self.ctx.tessellate(out.shapes, out.pixels_per_point);
@@ -772,6 +786,132 @@ impl Render {
             }
         }
         log(&format!("page {}", self.st.page.tag()));
+    }
+
+    /// SETTINGS: opened, data\panel.txt read again (the run may have done a request since) and NOW read; while open, NOW
+    /// read again each second. Always: SEND LOGS' answer, and a request no run took within 3 s (RESTART NOW) or 5 s
+    /// (SEND LOGS) taken back and said.
+    fn settings_in(&mut self) {
+        use forza::ui::widgets::Tone;
+        let Some(f) = FILES.get() else { return };
+        let open = self.st.page == panel::Page::Settings;
+        if open && self.last_page != panel::Page::Settings {
+            self.st.file = f.panel_file();
+            self.st.address = self.st.file.server.clone();
+            self.status_at = None;
+        }
+        if open
+            && self
+                .status_at
+                .is_none_or(|t| t.elapsed() >= Duration::from_secs(1))
+        {
+            let logs = self.st.status.logs.take();
+            let before = format!(
+                "{:?}",
+                (
+                    &self.st.status.link,
+                    self.st.status.card,
+                    self.st.status.bad
+                )
+            );
+            self.st.status = f.status();
+            self.st.status.logs = logs;
+            let after = format!(
+                "{:?}",
+                (
+                    &self.st.status.link,
+                    self.st.status.card,
+                    self.st.status.bad
+                )
+            );
+            if before != after {
+                log(&format!("settings: status {after}"));
+            }
+            self.status_at = Some(Instant::now());
+        }
+        let result = f.request("sendlogs.result");
+        let st = stamp(&result);
+        if st.is_some()
+            && st != self.logs_stamp
+            && let Ok(t) = std::fs::read_to_string(&result)
+        {
+            let line: String = t.lines().next().unwrap_or("").chars().take(95).collect();
+            log(&format!("settings: send logs - {line}"));
+            self.logs_stamp = st;
+            self.logs_at = None;
+            self.st.logs_sent = false;
+            self.st.status.logs = Some(line);
+        }
+        for (what, at, secs) in [
+            ("restart.request", &mut self.restart_at, 3),
+            ("sendlogs.request", &mut self.logs_at, 5),
+        ] {
+            if at.is_some_and(|t| t.elapsed() >= Duration::from_secs(secs)) {
+                *at = None;
+                if std::fs::remove_file(f.request(what)).is_ok() {
+                    log(&format!("settings: {what} not picked up - removed"));
+                    self.st.say(Tone::Refused, "settings.msg_no_helper");
+                    self.st.restart_sent &= what != "restart.request";
+                    self.st.logs_sent &= what != "sendlogs.request";
+                }
+            }
+        }
+    }
+
+    /// SETTINGS' changes: data\panel.txt written whole; RESTART NOW and SEND LOGS asked of the run through their
+    /// request files (the run takes them within half a second), RESTART NOW refused during a card session.
+    fn settings_out(&mut self) {
+        use forza::ui::widgets::Tone;
+        let Some(f) = FILES.get() else { return };
+        if std::mem::take(&mut self.st.file_changed) {
+            let p = &self.st.file;
+            match f.save_panel(p) {
+                Ok(()) => log(&format!(
+                    "settings: saved play_on={} server={} english={} layout={} hover={} auto_logs={}",
+                    if p.online { "online" } else { "this_pc" },
+                    if p.server.is_empty() { "-" } else { &p.server },
+                    p.english.as_deref().unwrap_or("-"),
+                    if p.compact { "compact" } else { "cabinet" },
+                    p.hover_ms,
+                    if p.auto_logs_off { "off" } else { "on" },
+                )),
+                Err(e) => {
+                    log(&format!("settings: could not save panel.txt: {e}"));
+                    self.st.say(Tone::Refused, "settings.msg_not_saved");
+                }
+            }
+        }
+        if std::mem::take(&mut self.st.restart) {
+            if f.status().card == panel::CardState::Open {
+                log("settings: restart refused - a card session is open");
+                self.st.say(Tone::Refused, "panel.msg_session_open");
+            } else {
+                let text = format!(
+                    "RESTART NOW - asked by the SETTINGS panel in seat 1 (pid {})\n",
+                    std::process::id()
+                );
+                if kit::swap_write(&f.request("restart.request"), &text).is_ok() {
+                    log("settings: restart requested");
+                    self.restart_at = Some(Instant::now());
+                    self.st.restart_sent = true;
+                    self.st.say(Tone::Done, "settings.msg_restarting");
+                } else {
+                    self.st.say(Tone::Refused, "settings.msg_restart_failed");
+                }
+            }
+        }
+        if std::mem::take(&mut self.st.send_logs) {
+            let server = self.st.file.server.clone();
+            if kit::swap_write(&f.request("sendlogs.request"), &format!("{server}\n")).is_ok() {
+                log(&format!("settings: send logs asked (to {server})"));
+                self.logs_at = Some(Instant::now());
+                self.st.logs_sent = true;
+                self.st.status.logs = None;
+                self.st.say(Tone::Notice, "settings.msg_sending");
+            } else {
+                self.st.say(Tone::Refused, "settings.msg_logs_failed");
+            }
+        }
     }
 
     /// KEYS: opened, keys.txt read again (it may have been edited by hand) and the controllers looked for afresh;
@@ -953,6 +1093,10 @@ impl Render {
             Err(e) => log(&format!("frame dump: {e}")),
         }
     }
+}
+
+fn stamp(p: &Path) -> Option<std::time::SystemTime> {
+    std::fs::metadata(p).and_then(|m| m.modified()).ok()
 }
 
 /// The controllers through winmm (from the system folder: seat 1's own winmm.dll is the hook), or the test's

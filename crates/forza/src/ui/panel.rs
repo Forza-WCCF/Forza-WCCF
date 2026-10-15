@@ -12,6 +12,7 @@ use super::widgets::{
     range_slider, segmented, stat_bar, status_line,
 };
 use crate::cards::{self, AddRefused, Placed};
+use crate::panel_txt::{PanelFile, valid_address};
 use egui::{Align2, Color32, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 use std::sync::Arc;
 
@@ -262,6 +263,67 @@ impl Note {
     }
 }
 
+/// The link to the game server (this process's TCP link to its control port).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Link {
+    #[default]
+    Unknown,
+    Down,
+    /// Up, to this address (127.0.0.1: this PC).
+    Up(String),
+}
+
+/// The club card's session as `launcher::card::Session` reads it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CardState {
+    #[default]
+    None,
+    Unreadable,
+    New,
+    Open,
+    Cut,
+    Closed,
+}
+
+/// A file time as SETTINGS shows it: the local time ("15:04", or the date when older than a day) and its age in seconds.
+pub type When = (String, u64);
+
+/// SETTINGS' NOW, read by the panel DLL.
+#[derive(Clone, Debug, Default)]
+pub struct Status {
+    pub link: Link,
+    pub card: CardState,
+    pub bad: Option<u32>,
+    pub saved: Option<When>,
+    /// The newest backup and how many are kept.
+    pub backup: Option<(When, usize)>,
+    /// The game's text now: "en", "it", "" (the original Japanese); `None` until read.
+    pub text: Option<&'static str>,
+    pub version: String,
+    /// SEND LOGS' answer from the run: "sending", "ok CODE", "fail WHY".
+    pub logs: Option<String>,
+}
+
+/// [`When`] of a file time.
+pub fn when(t: std::time::SystemTime, now: std::time::SystemTime) -> When {
+    let age = now.duration_since(t).map_or(0, |d| d.as_secs());
+    let local = time::OffsetDateTime::from(t)
+        .to_offset(time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC));
+    let text = if age < 86400 {
+        format!("{:02}:{:02}", local.hour(), local.minute())
+    } else {
+        format!(
+            "{}-{:02}-{:02} {:02}:{:02}",
+            local.year(),
+            u8::from(local.month()),
+            local.day(),
+            local.hour(),
+            local.minute()
+        )
+    };
+    (text, age)
+}
+
 #[derive(Clone, Debug)]
 pub struct PanelState {
     pub edition: Edition,
@@ -289,13 +351,17 @@ pub struct PanelState {
     /// The controllers found (KEYS).
     pub pad_names: Vec<String>,
     // settings
-    pub next_online: bool,
+    /// data\panel.txt's choices: the next start, the view.
+    pub file: PanelFile,
+    /// The address line while typing.
     pub address: String,
-    pub game_text: usize,
-    pub compact: bool,
-    pub hover_choice: usize,
-    pub auto_reports: bool,
-    pub restart_armed: bool,
+    /// What SETTINGS shows under NOW, read about once a second while it is open.
+    pub status: Status,
+    /// RESTART NOW / SEND LOGS armed by a first click until this time (egui's clock); asked for (waiting for the run).
+    pub restart_armed: f64,
+    pub restart_sent: bool,
+    pub logs_armed: f64,
+    pub logs_sent: bool,
     // club card
     pub club_pick: usize,
     /// The game's own frame as a texture of the panel DLL's painter; `None` draws the stand-in picture.
@@ -313,6 +379,11 @@ pub struct PanelState {
     pub add: Option<u32>,
     /// The bindings changed: keys.txt is written.
     pub keys_changed: bool,
+    /// The choices changed: data\panel.txt is written.
+    pub file_changed: bool,
+    /// RESTART NOW asked (data\restart.request); SEND LOGS asked (data\sendlogs.request).
+    pub restart: bool,
+    pub send_logs: bool,
     // what the panel DLL hands a frame
     /// Keys pressed since the last frame while a page is open (virtual-key code, Alt held), repeats left out.
     pub vk_down: Vec<(u32, bool)>,
@@ -341,13 +412,13 @@ impl PanelState {
             pad_capturing: None,
             changed: None,
             pad_names: Vec::new(),
-            next_online: false,
+            file: PanelFile::default(),
             address: String::new(),
-            game_text: 0,
-            compact: false,
-            hover_choice: 1,
-            auto_reports: true,
-            restart_armed: false,
+            status: Status::default(),
+            restart_armed: 0.0,
+            restart_sent: false,
+            logs_armed: 0.0,
+            logs_sent: false,
             club_pick: 0,
             picture: None,
             picture_rect: None,
@@ -356,6 +427,9 @@ impl PanelState {
             held: None,
             add: None,
             keys_changed: false,
+            file_changed: false,
+            restart: false,
+            send_logs: false,
             vk_down: Vec::new(),
             pad_down: None,
         }
@@ -401,10 +475,28 @@ impl PanelState {
                 0, 0, 0,
             ],
             pad_names: vec!["Gamepad 1".to_owned()],
-            next_online: true,
+            file: PanelFile {
+                online: true,
+                server: "192.168.1.20".into(),
+                english: Some("it".into()),
+                ..PanelFile::default()
+            },
             address: "192.168.1.20".into(),
-            game_text: 1,
-            restart_armed: page == Page::Settings,
+            status: Status {
+                link: Link::Up("192.168.1.20".into()),
+                card: CardState::Closed,
+                bad: Some(0),
+                saved: Some(("15:04".into(), 360)),
+                backup: Some((("14:58".into(), 720), 3)),
+                text: Some("en"),
+                version: "7.0.0".into(),
+                logs: Some("ok 7K4-QD2".into()),
+            },
+            restart_armed: if page == Page::Settings {
+                f64::INFINITY
+            } else {
+                0.0
+            },
             club_pick: 1,
             held: Some("KEYPLAYER"), // lit on the design sheets
             ..Self::new(
@@ -474,10 +566,10 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let tabs = area.with_min_y(area.bottom() - TABS_H);
     let above = area.with_max_y(tabs.top());
     // the picture keeps its aspect, as wide as the middle unless the deck would get too short
-    let reserve = if st.compact { 60.0 } else { DECK_MIN };
+    let reserve = if st.file.compact { 60.0 } else { DECK_MIN };
     let h = (area.width() / 1.6).min(above.height() - reserve);
     // compact: no deck, so the picture sits in the middle with the message line under it
-    let y = if st.compact {
+    let y = if st.file.compact {
         above.top() + (above.height() - reserve) / 2.0
     } else {
         above.top() + h / 2.0
@@ -515,7 +607,7 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             note_line(ui, &mut st.message)
         });
     }
-    if !st.compact {
+    if !st.file.compact {
         cabinet_deck(ui, st, deck.with_min_y(deck.top() + 54.0), lang);
     }
     page_bar(ui, st, tabs, lang);
@@ -1506,17 +1598,36 @@ fn kv(ui: &mut Ui, k: &str, v: &str, dot: Option<Color32>) {
             let (r, _) = ui.allocate_exact_size(vec2(10.0, 10.0), Sense::hover());
             ui.painter().circle_filled(r.center(), 4.0, c);
         }
-        ui.label(
-            egui::RichText::new(v)
-                .color(theme::TEXT)
-                .font(theme::bold(14.0)),
+        // a long value is cut short (the whole of it on hover), never wider than its column
+        ui.add(
+            egui::Label::new(
+                egui::RichText::new(v)
+                    .color(theme::TEXT)
+                    .font(theme::bold(14.0)),
+            )
+            .truncate(),
         );
     });
     ui.end_row();
 }
 
+/// "15:04 (6 min ago)".
+fn when_text(lang: Lang, (t, age): &When) -> String {
+    match age {
+        0..60 => tr!(lang, "settings.just_now", t = t),
+        60..3600 => tr!(lang, "settings.min_ago", t = t, n = age / 60),
+        3600..86400 => tr!(lang, "settings.h_ago", t = t, n = age / 3600),
+        _ => t.clone(),
+    }
+}
+
+/// The game's text choices: (english= word, text now, label).
+const TEXTS: [(&str, &str); 3] = [("on", "en"), ("it", "it"), ("off", "")];
+
 fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let accent = st.edition.accent();
+    let now = ui.input(|i| i.time);
+    let s = st.status.clone();
     ui.columns(2, |cols| {
         let (a, b) = cols.split_at_mut(1);
         let left = &mut a[0];
@@ -1530,34 +1641,60 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                 .striped(true)
                 .min_col_width(150.0)
                 .show(ui, |ui| {
-                    kv(
-                        ui,
-                        &tr!(lang, "settings.server"),
-                        &tr!(lang, "settings.server_local"),
-                        Some(theme::GREEN),
+                    let (v, c) = match &s.link {
+                        Link::Up(p) if p == "127.0.0.1" => {
+                            (tr!(lang, "settings.link_local"), theme::GREEN)
+                        }
+                        Link::Up(p) => (tr!(lang, "settings.link_online", ip = p), theme::GREEN),
+                        Link::Down => (tr!(lang, "settings.link_down"), theme::RED_TEXT),
+                        Link::Unknown => (tr!(lang, "settings.unknown"), theme::TEXT_FAINT),
+                    };
+                    kv(ui, &tr!(lang, "settings.server"), &v, Some(c));
+                    let (k, c) = match s.card {
+                        CardState::Open => ("settings.card_open", theme::AMBER),
+                        CardState::Closed => ("settings.card_closed", theme::GREEN),
+                        CardState::Cut => ("settings.card_cut", theme::AMBER),
+                        CardState::New => ("settings.card_new", theme::TEXT_FAINT),
+                        CardState::Unreadable => ("settings.card_unreadable", theme::RED_TEXT),
+                        CardState::None => ("settings.card_none", theme::TEXT_FAINT),
+                    };
+                    kv(ui, &tr!(lang, "settings.session"), &tr!(lang, k), Some(c));
+                    let (v, c) = match s.bad {
+                        None => ("-".to_owned(), None),
+                        Some(0) => ("0".to_owned(), Some(theme::GREEN)),
+                        Some(1) => (tr!(lang, "settings.bad_one"), Some(theme::AMBER)),
+                        Some(n) => (tr!(lang, "settings.bad_many", n = n), Some(theme::RED_TEXT)),
+                    };
+                    kv(ui, &tr!(lang, "settings.bad_endings"), &v, c);
+                    let v = s
+                        .saved
+                        .as_ref()
+                        .map_or_else(|| tr!(lang, "settings.never"), |w| when_text(lang, w));
+                    kv(ui, &tr!(lang, "settings.last_saved"), &v, None);
+                    let v = s.backup.as_ref().map_or_else(
+                        || tr!(lang, "settings.no_backup"),
+                        |(w, n)| tr!(lang, "settings.backups", t = when_text(lang, w), n = n),
                     );
+                    kv(ui, &tr!(lang, "settings.backup"), &v, None);
+                    let v = match s.text {
+                        Some("en") => "English".to_owned(),
+                        Some("it") => "Italiano".to_owned(),
+                        Some(_) => tr!(lang, "launcher.original_ja"),
+                        None => "-".to_owned(),
+                    };
+                    kv(ui, &tr!(lang, "settings.game_text"), &v, None);
                     kv(
                         ui,
-                        &tr!(lang, "settings.session"),
-                        &tr!(lang, "settings.session_none"),
-                        Some(theme::TEXT_FAINT),
-                    );
-                    kv(ui, &tr!(lang, "settings.bad_endings"), "0", None);
-                    kv(ui, &tr!(lang, "settings.last_saved"), "15:04", None);
-                    kv(
-                        ui,
-                        &tr!(lang, "settings.backup"),
-                        &tr!(lang, "settings.today_at", t = "14:58"),
+                        &tr!(lang, "settings.version"),
+                        &format!("Forza-WCCF {}", s.version),
                         None,
                     );
-                    kv(ui, &tr!(lang, "settings.game_text"), "English", None);
-                    kv(ui, &tr!(lang, "settings.version"), "Forza-WCCF 7.0.0", None);
                 });
         });
         widgets::section(left, &tr!(lang, "settings.view"), accent, |ui| {
             let w = ui.available_width();
             field(ui, &tr!(lang, "settings.layout"), w);
-            let mut i = st.compact as usize;
+            let mut i = st.file.compact as usize;
             if segmented(
                 ui,
                 &mut i,
@@ -1567,15 +1704,35 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                 ],
                 w,
             ) {
-                st.compact = i == 1;
+                st.file.compact = i == 1;
+                st.file_changed = true;
+                st.say(
+                    Tone::Done,
+                    if i == 1 {
+                        "settings.msg_compact"
+                    } else {
+                        "settings.msg_cabinet"
+                    },
+                );
             }
             field(ui, &tr!(lang, "settings.hover"), w);
-            segmented(ui, &mut st.hover_choice, &["0.5 s", "1 s", "2 s", "3 s"], w);
+            const HOVER: [u32; 4] = [500, 1000, 2000, 3000];
+            let mut i = HOVER
+                .iter()
+                .position(|&m| m == st.file.hover_ms)
+                .unwrap_or(usize::MAX);
+            if segmented(ui, &mut i, &["0.5 s", "1 s", "2 s", "3 s"], w) {
+                st.file.hover_ms = HOVER[i];
+                st.hover_delay = HOVER[i] as f32 / 1000.0;
+                st.file_changed = true;
+                let t = format!("{}", st.hover_delay);
+                st.note(Tone::Done, tr!(lang, "settings.msg_hover", s = t));
+            }
         });
         widgets::section(right, &tr!(lang, "settings.next"), accent, |ui| {
             let w = ui.available_width();
             field(ui, &tr!(lang, "launcher.where"), w);
-            let mut i = st.next_online as usize;
+            let mut i = st.file.online as usize;
             if segmented(
                 ui,
                 &mut i,
@@ -1585,67 +1742,181 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                 ],
                 w,
             ) {
-                st.next_online = i == 1;
+                if i == 0 {
+                    st.file.online = false;
+                    st.file_changed = true;
+                    st.say(Tone::Done, "settings.msg_this_pc");
+                } else if valid_address(&st.file.server) {
+                    st.file.online = true;
+                    st.file_changed = true;
+                    let ip = st.file.server.clone();
+                    st.note(Tone::Done, tr!(lang, "settings.msg_online", ip = ip));
+                } else {
+                    st.address.clear();
+                    st.say(Tone::Notice, "settings.msg_type_address");
+                    ui.memory_mut(|m| m.request_focus(egui::Id::new("settings-address")));
+                }
             }
-            if st.next_online {
-                ui.add(
-                    egui::TextEdit::singleline(&mut st.address)
-                        .font(theme::mono(15.0))
-                        .desired_width(w)
-                        .margin(vec2(10.0, 7.0)),
-                );
+            // the server's address: digits and dots; Enter (or a click elsewhere) keeps a good one, Esc leaves it
+            let r = ui.add(
+                egui::TextEdit::singleline(&mut st.address)
+                    .id(egui::Id::new("settings-address"))
+                    .char_limit(15)
+                    .hint_text(tr!(lang, "settings.address_hint"))
+                    .font(theme::mono(15.0))
+                    .desired_width(w)
+                    .margin(vec2(10.0, 7.0)),
+            );
+            st.address.retain(|c| c.is_ascii_digit() || c == '.');
+            if r.lost_focus() {
+                if ui.input(|i| i.key_pressed(egui::Key::Escape)) || st.address == st.file.server {
+                    st.address = st.file.server.clone();
+                } else if valid_address(&st.address) {
+                    st.file.server = st.address.clone();
+                    st.file.online = true;
+                    st.file_changed = true;
+                    let ip = st.file.server.clone();
+                    st.note(Tone::Done, tr!(lang, "settings.msg_online", ip = ip));
+                } else {
+                    let a = std::mem::replace(&mut st.address, st.file.server.clone());
+                    st.note(Tone::Refused, tr!(lang, "settings.msg_not_address", a = a));
+                }
             }
             field(ui, &tr!(lang, "launcher.game_text"), w);
-            segmented(
+            let shown = st.file.english.as_deref().or_else(|| {
+                let t = s.text?;
+                TEXTS.iter().find(|x| x.1 == t).map(|x| x.0)
+            });
+            let mut i = TEXTS
+                .iter()
+                .position(|x| Some(x.0) == shown)
+                .unwrap_or(usize::MAX);
+            if segmented(
                 ui,
-                &mut st.game_text,
+                &mut i,
                 &["English", "Italiano", &tr!(lang, "launcher.original_ja")],
                 w,
-            );
+            ) {
+                match s.text {
+                    None => st.say(Tone::Notice, "settings.msg_reading_text"),
+                    Some(now) => {
+                        let same = TEXTS[i].1 == now;
+                        st.file.english = (!same).then(|| TEXTS[i].0.to_owned());
+                        st.file_changed = true;
+                        st.say(
+                            Tone::Done,
+                            if same {
+                                "settings.msg_text_stays"
+                            } else {
+                                "settings.msg_text_changes"
+                            },
+                        );
+                    }
+                }
+            }
             ui.add_space(4.0);
-            let label = if st.restart_armed {
-                tr!(lang, "settings.restart_again", s = 6)
+            let armed = st.restart_armed > now;
+            let label = if st.restart_sent {
+                tr!(lang, "settings.restarting")
+            } else if armed {
+                let left = (st.restart_armed - now).ceil().min(8.0) as u32;
+                tr!(lang, "settings.restart_again", s = left)
             } else {
                 tr!(lang, "settings.restart")
             };
+            if armed && st.restart_armed.is_finite() {
+                ui.ctx()
+                    .request_repaint_after(std::time::Duration::from_millis(250));
+            }
+            let lit = armed || st.restart_sent;
             if cabinet(
                 ui,
                 vec2(w, 48.0),
                 &label,
-                if st.restart_armed {
-                    Cab::Tactic
-                } else {
-                    Cab::Plain
-                },
-                st.restart_armed,
+                if lit { Cab::Tactic } else { Cab::Plain },
+                lit,
             )
             .clicked()
             {
-                st.restart_armed = !st.restart_armed;
+                if st.restart_sent {
+                    st.say(Tone::Notice, "settings.msg_restart_asked");
+                } else if s.card == CardState::Open {
+                    st.say(Tone::Refused, "panel.msg_session_open");
+                } else if !armed {
+                    st.restart_armed = now + 8.0;
+                    st.say(Tone::Notice, "settings.msg_restart_armed");
+                } else {
+                    st.restart_armed = 0.0;
+                    st.restart = true;
+                }
             }
+            let (hint, c) = if s.card == CardState::Open {
+                ("settings.restart_refused", theme::RED_TEXT)
+            } else {
+                ("settings.restart_hint", theme::TEXT_DIM)
+            };
+            ui.label(
+                egui::RichText::new(tr!(lang, hint))
+                    .font(theme::body(12.0))
+                    .color(c),
+            );
         });
         widgets::section(right, &tr!(lang, "settings.logs"), accent, |ui| {
             let w = ui.available_width();
-            cabinet(
+            let armed = st.logs_armed > now;
+            let busy = st.logs_sent || s.logs.as_deref() == Some("sending");
+            let label = if busy {
+                tr!(lang, "settings.sending")
+            } else if armed {
+                tr!(lang, "settings.send_again")
+            } else {
+                tr!(lang, "settings.send_logs")
+            };
+            if cabinet(ui, vec2(w, 44.0), &label, Cab::Data, armed || busy).clicked() {
+                if busy {
+                    st.say(Tone::Notice, "settings.msg_sending");
+                } else if !valid_address(&st.file.server) {
+                    st.say(Tone::Refused, "settings.msg_logs_need_server");
+                } else if !armed {
+                    st.logs_armed = now + 8.0;
+                    let ip = st.file.server.clone();
+                    st.note(Tone::Notice, tr!(lang, "settings.msg_logs_armed", ip = ip));
+                } else {
+                    st.logs_armed = 0.0;
+                    st.send_logs = true;
+                }
+            }
+            match s.logs.as_deref() {
+                Some(r) if r.starts_with("ok ") => {
+                    status_line(ui, Tone::Done, &tr!(lang, "settings.sent", code = &r[3..]));
+                }
+                Some(r) if r.starts_with("fail ") => {
+                    status_line(
+                        ui,
+                        Tone::Refused,
+                        &tr!(lang, "settings.not_sent", why = &r[5..]),
+                    );
+                }
+                _ if busy => {
+                    status_line(ui, Tone::Notice, &tr!(lang, "settings.msg_sending"));
+                }
+                _ => {}
+            }
+            let mut auto = !st.file.auto_logs_off;
+            if widgets::toggle_row(
                 ui,
-                vec2(w, 44.0),
-                &tr!(lang, "settings.send_logs"),
-                Cab::Data,
-                false,
-            );
-            status_line(
-                ui,
-                Tone::Done,
-                &tr!(lang, "settings.sent", code = "7K4-QD2"),
-            );
-            widgets::toggle_row(
-                ui,
-                &mut st.auto_reports,
+                &mut auto,
                 &tr!(lang, "settings.auto_reports"),
                 &tr!(lang, "settings.auto_reports_hint"),
-            );
+            )
+            .clicked()
+            {
+                st.file.auto_logs_off = !auto;
+                st.file_changed = true;
+            }
         });
     });
+    note_line(ui, &mut st.message);
 }
 
 // ---- CLUB CARD ----

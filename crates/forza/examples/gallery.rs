@@ -78,7 +78,7 @@ impl Gallery {
             Item::Panel(p) => Screen::Panel(Box::new(panel::PanelState::sample(e, l, p))),
             Item::Compact => {
                 let mut st = panel::PanelState::sample(e, l, panel::Page::Game);
-                st.compact = true;
+                st.file.compact = true;
                 Screen::Panel(Box::new(st))
             }
             Item::Widgets => Screen::Widgets(panel::WidgetSheet::sample(l)),

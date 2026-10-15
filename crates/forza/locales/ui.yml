@@ -209,13 +209,10 @@ keys.defaults: {en: "Back to the default keys", it: "Ripristina i tasti predefin
 # ---- settings ----
 settings.now: {en: "NOW", it: "ADESSO", ja: "現在"}
 settings.server: {en: "Server", it: "Server", ja: "サーバー"}
-settings.server_local: {en: "This PC · linked", it: "Questo PC · collegato", ja: "このPC・接続中"}
 settings.session: {en: "Club card session", it: "Sessione tessera club", ja: "クラブカードのセッション"}
-settings.session_none: {en: "Closed", it: "Chiusa", ja: "終了"}
 settings.bad_endings: {en: "Bad endings", it: "Chiusure anomale", ja: "異常終了"}
 settings.last_saved: {en: "Last saved", it: "Ultimo salvataggio", ja: "最終保存"}
 settings.backup: {en: "Latest backup", it: "Ultimo backup", ja: "最新のバックアップ"}
-settings.today_at: {en: "Today, %{t}", it: "Oggi, %{t}", ja: "今日 %{t}"}
 settings.game_text: {en: "Game text", it: "Testo del gioco", ja: "ゲームの言語"}
 settings.version: {en: "Version", it: "Versione", ja: "バージョン"}
 settings.next: {en: "NEXT START", it: "PROSSIMO AVVIO", ja: "次回の起動"}
@@ -231,6 +228,51 @@ settings.send_logs: {en: "SEND LOGS", it: "INVIA I LOG", ja: "ログを送信"}
 settings.sent: {en: "Sent. Your code: %{code}", it: "Inviati. Il tuo codice: %{code}", ja: "送信しました。コード：%{code}"}
 settings.auto_reports: {en: "Automatic crash reports", it: "Segnalazioni automatiche dei crash", ja: "クラッシュの自動報告"}
 settings.auto_reports_hint: {en: "After a crash, its logs go to the server address.", it: "Dopo un crash, i log vanno all'indirizzo del server.", ja: "クラッシュ後、ログをサーバーアドレスへ送ります。"}
+settings.just_now: {en: "%{t} (just now)", it: "%{t} (proprio ora)", ja: "%{t}（たった今）"}
+settings.min_ago: {en: "%{t} (%{n} min ago)", it: "%{t} (%{n} min fa)", ja: "%{t}（%{n} 分前）"}
+settings.h_ago: {en: "%{t} (%{n} h ago)", it: "%{t} (%{n} h fa)", ja: "%{t}（%{n} 時間前）"}
+settings.link_local: {en: "This PC · connected", it: "Questo PC · collegato", ja: "このPC・接続中"}
+settings.link_online: {en: "Online %{ip} · connected", it: "Online %{ip} · collegato", ja: "オンライン %{ip}・接続中"}
+settings.link_down: {en: "Not connected to the server", it: "Non collegato al server", ja: "サーバーに接続していません"}
+settings.unknown: {en: "Cannot tell", it: "Non rilevabile", ja: "不明"}
+settings.card_open: {en: "OPEN: a match is on, do not stop the game", it: "APERTA: partita in corso, non fermare il gioco", ja: "セッション中：試合中です。ゲームを止めないでください"}
+settings.card_closed: {en: "Closed: safe to close the game", it: "Chiusa: puoi chiudere il gioco", ja: "終了：ゲームを閉じても安全です"}
+settings.card_cut: {en: "The last session did not end normally", it: "L'ultima sessione non è finita normalmente", ja: "前回のセッションは正常に終了しませんでした"}
+settings.card_new: {en: "A new card: no club made yet", it: "Tessera nuova: nessun club ancora", ja: "新しいカード：クラブはまだありません"}
+settings.card_unreadable: {en: "The card file cannot be read", it: "Il file della tessera non è leggibile", ja: "カードのファイルを読み込めません"}
+settings.card_none: {en: "No club card yet: put one in with the CARD key", it: "Nessuna tessera: inseriscila con il tasto CARD", ja: "クラブカードがありません。CARDキーで挿入してください"}
+settings.bad_one: {en: "1 (at 2, trade rights are lost)", it: "1 (a 2 si perdono i diritti di scambio)", ja: "1（2回で移籍の権利を失います）"}
+settings.bad_many: {en: "%{n} (trade rights lost; every 5th also costs money)", it: "%{n} (diritti di scambio persi; ogni 5ª costa anche denaro)", ja: "%{n}（移籍の権利なし。5回ごとに資金も減ります）"}
+settings.never: {en: "Never", it: "Mai", ja: "なし"}
+settings.no_backup: {en: "None yet: one is made when a session starts", it: "Ancora nessuno: se ne crea uno all'inizio di ogni sessione", ja: "まだありません。セッション開始時に作成されます"}
+settings.backups: {en: "%{t} (%{n} kept)", it: "%{t} (%{n} conservati)", ja: "%{t}（%{n} 件保存）"}
+settings.address_hint: {en: "Server address", it: "Indirizzo del server", ja: "サーバーアドレス"}
+settings.restart_hint: {en: "The game closes and opens again with these NEXT START settings.", it: "Il gioco si chiude e si riapre con queste impostazioni del PROSSIMO AVVIO.", ja: "ゲームを閉じ、次回の起動の設定で開き直します。"}
+settings.restart_refused: {en: "Not during a club card session: after the locker-room save.", it: "Non durante una sessione della tessera: dopo il salvataggio negli spogliatoi.", ja: "クラブカードのセッション中はできません。ロッカールームでの保存の後に。"}
+settings.restarting: {en: "RESTARTING …", it: "RIAVVIO IN CORSO …", ja: "再起動中…"}
+settings.sending: {en: "SENDING …", it: "INVIO IN CORSO …", ja: "送信中…"}
+settings.send_again: {en: "CLICK AGAIN TO SEND", it: "CLICCA ANCORA PER INVIARE", ja: "もう一度押すと送信"}
+settings.not_sent: {en: "Not sent: %{why}", it: "Non inviati: %{why}", ja: "送信できませんでした：%{why}"}
+settings.msg_compact: {en: "COMPACT: the game larger, no cabinet buttons", it: "COMPATTA: il gioco più grande, senza pulsanti del cabinato", ja: "コンパクト：ゲーム画面を大きく、筐体ボタンなし"}
+settings.msg_cabinet: {en: "CABINET: the cabinet's buttons are back", it: "CABINATO: tornano i pulsanti del cabinato", ja: "筐体：筐体ボタンを表示します"}
+settings.msg_hover: {en: "A card shows big after %{s} s on it", it: "Una carta si ingrandisce dopo %{s} s", ja: "%{s} 秒でカードを拡大表示します"}
+settings.msg_this_pc: {en: "Next start: this PC", it: "Prossimo avvio: questo PC", ja: "次回の起動：このPC"}
+settings.msg_online: {en: "Next start: online, on the server at %{ip}", it: "Prossimo avvio: online, sul server %{ip}", ja: "次回の起動：オンライン（サーバー %{ip}）"}
+settings.msg_type_address: {en: "Type the server's address, then Enter", it: "Scrivi l'indirizzo del server, poi Invio", ja: "サーバーのアドレスを入力して Enter"}
+settings.msg_not_address: {en: "\"%{a}\" is not an address: four numbers 0-255 with dots", it: "\"%{a}\" non è un indirizzo: quattro numeri 0-255 separati da punti", ja: "「%{a}」はアドレスではありません（0〜255の数字4つをドットで区切る）"}
+settings.msg_reading_text: {en: "One moment: reading which text the game has now", it: "Un momento: sto leggendo il testo attuale del gioco", ja: "少々お待ちください：現在のゲームの言語を確認中"}
+settings.msg_text_stays: {en: "The game's text stays as it is", it: "Il testo del gioco resta com'è", ja: "ゲームの言語は変わりません"}
+settings.msg_text_changes: {en: "The game's text changes at the next start (that start takes a moment longer)", it: "Il testo del gioco cambia al prossimo avvio (che richiede un po' di più)", ja: "次回の起動時にゲームの言語を切り替えます（少し時間がかかります）"}
+settings.msg_restart_armed: {en: "Click RESTART NOW again to restart the game now", it: "Clicca di nuovo RIAVVIA ORA per riavviare il gioco", ja: "もう一度「今すぐ再起動」を押すと再起動します"}
+settings.msg_restart_asked: {en: "Already asked: the game closes and opens again", it: "Già richiesto: il gioco si chiude e si riapre", ja: "要求済みです。ゲームを閉じて開き直します"}
+settings.msg_restarting: {en: "Restarting: the game closes and opens again (about a minute)", it: "Riavvio: il gioco si chiude e si riapre (circa un minuto)", ja: "再起動します。ゲームを閉じて開き直します（約1分）"}
+settings.msg_restart_failed: {en: "Could not ask for the restart: close the game, then start it again", it: "Impossibile chiedere il riavvio: chiudi il gioco e riavvialo", ja: "再起動を要求できませんでした。ゲームを閉じてから起動し直してください"}
+settings.msg_no_helper: {en: "Nothing took the request: close the game, then start it again from the launcher", it: "Nessuno ha raccolto la richiesta: chiudi il gioco e riavvialo dal launcher", ja: "要求が受け付けられませんでした。ゲームを閉じてランチャーから起動し直してください"}
+settings.msg_logs_failed: {en: "Could not ask for it: try again", it: "Impossibile chiederlo: riprova", ja: "要求できませんでした。もう一度お試しください"}
+settings.msg_sending: {en: "Packing and sending the logs: a few seconds", it: "Preparo e invio i log: qualche secondo", ja: "ログをまとめて送信中です（数秒）"}
+settings.msg_logs_need_server: {en: "Type the server's address under WHERE TO PLAY first: the logs go there", it: "Prima scrivi l'indirizzo del server in DOVE GIOCARE: i log vanno lì", ja: "先に「プレイ場所」にサーバーのアドレスを入力してください。ログはそこへ送られます"}
+settings.msg_logs_armed: {en: "Click SEND LOGS again to send this game's logs to %{ip}", it: "Clicca di nuovo INVIA I LOG per inviarli a %{ip}", ja: "もう一度「ログを送信」を押すと %{ip} に送ります"}
+settings.msg_not_saved: {en: "Could not save data\\panel.txt: try again", it: "Impossibile salvare data\\panel.txt: riprova", ja: "data\\panel.txt を保存できませんでした。もう一度お試しください"}
 
 # ---- club card ----
 club.label: {en: "CLUB CARD", it: "TESSERA CLUB", ja: "クラブカード"}

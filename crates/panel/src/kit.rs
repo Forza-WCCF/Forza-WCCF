@@ -11,10 +11,14 @@
 //! - The language: `WCCF_KIT_LANG`, else `data\settings.json`'s `language`, else Windows' display language, else
 //!   English (the launcher's order).
 
+use forza::panel_txt::PanelFile;
 use forza::ui::Lang;
+use forza::ui::panel::{CardState, Link, Status, when};
 use forza::ui::theme::Edition;
 use std::env;
+use std::ffi::c_void;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 use windows::Win32::Globalization::GetUserDefaultUILanguage;
 use windows::Win32::Media::Multimedia::{JOY_RETURNPOVCTS, JOYCAPSW, JOYINFOEX};
 use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
@@ -89,24 +93,80 @@ impl Files {
             .unwrap_or(Lang::En)
     }
 
-    /// `hover_delay_ms` in data\panel.txt, in seconds: 0-5000 ms; missing, not a number or out of range: 1000.
-    pub fn hover_delay(&self) -> f32 {
-        let text = std::fs::read(self.data.join("panel.txt")).unwrap_or_default();
-        let mut ms = 1000;
-        for line in String::from_utf8_lossy(&text).lines() {
-            let line = line.split('#').next().unwrap_or("");
-            if let Some((name, val)) = line.split_once('=')
-                && name.trim().eq_ignore_ascii_case("hover_delay_ms")
-            {
-                ms = val
+    /// data\panel.txt's choices (missing: this PC, no request, 1 s hover).
+    pub fn panel_file(&self) -> PanelFile {
+        PanelFile::parse(&std::fs::read(self.data.join("panel.txt")).unwrap_or_default())
+    }
+
+    pub fn save_panel(&self, f: &PanelFile) -> std::io::Result<()> {
+        swap_write(
+            &self.data.join("panel.txt"),
+            &f.text(self.edition == Edition::E1718),
+        )
+    }
+
+    /// RESTART NOW's and SEND LOGS' requests to the run (`data\restart.request`, `data\sendlogs.request`) and SEND
+    /// LOGS' answer (`data\sendlogs.result`).
+    pub fn request(&self, what: &str) -> PathBuf {
+        self.data.join(what)
+    }
+
+    /// SETTINGS' NOW, as `wccfpanel.c` `set_refresh` reads it: the link to the server, the club card's session and bad
+    /// endings (the card being played, a manager transfer's new card included; open only if written since this run
+    /// started, running.json), its last save and backups, the game's text, the version.
+    pub fn status(&self) -> Status {
+        use launcher::card::{self, Session};
+        let since = std::fs::metadata(self.data.join("running.json"))
+            .and_then(|m| m.modified())
+            .ok();
+        let save = self.data.join("save");
+        let (session, bad) =
+            card::club_session(&save.join(card::SLOT), &save.join(card::NEW), since);
+        let now = SystemTime::now();
+        let saved = std::fs::metadata(save.join(card::SLOT))
+            .and_then(|m| m.modified())
+            .ok()
+            .filter(|_| session != Session::None);
+        let backups: Vec<SystemTime> = std::fs::read_dir(save.join("backup"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| {
+                let n = e.file_name().to_string_lossy().into_owned();
+                n.starts_with("seat1_club.bin.") && n.ends_with(".bak")
+            })
+            .filter_map(|e| e.metadata().ok()?.modified().ok())
+            .collect();
+        let kit = launcher::Kit::at(self.data.parent().unwrap_or(&self.data));
+        let version = std::fs::read_to_string(kit.dir().join("version.txt"))
+            .ok()
+            .map(|v| {
+                v.lines()
+                    .next()
+                    .unwrap_or("")
                     .trim()
-                    .parse::<u32>()
-                    .ok()
-                    .filter(|v| *v <= 5000)
-                    .unwrap_or(1000);
-            }
+                    .trim_start_matches("kit-")
+                    .to_owned()
+            })
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
+        Status {
+            link: server_link(),
+            card: match session {
+                Session::None => CardState::None,
+                Session::Unreadable => CardState::Unreadable,
+                Session::New => CardState::New,
+                Session::Open => CardState::Open,
+                Session::Cut => CardState::Cut,
+                Session::Closed => CardState::Closed,
+            },
+            bad,
+            saved: saved.map(|t| when(t, now)),
+            backup: backups.iter().max().map(|&t| (when(t, now), backups.len())),
+            text: Some(kit.game_language()),
+            version,
+            logs: None,
         }
-        ms as f32 / 1000.0
     }
 
     /// keys.txt's keys and controller controls in the KEYS page's order (`forza::keys::NAMES`), by the key driver's
@@ -138,20 +198,62 @@ impl Files {
     /// keys.txt as the KEYS page writes it, whole: `keys.txt.panel`, then one swap (the key driver may be reading it
     /// this instant: 40 tries 5 ms apart, as `wccfpanel.c`).
     pub fn save_keys(&self, keys: &[u32; 16], pads: &[u32; 16]) -> std::io::Result<()> {
-        let text = forza::keys::keys_text(self.edition == Edition::E1718, keys, pads);
-        let mut tmp = self.keys.clone().into_os_string();
-        tmp.push(".panel");
-        std::fs::write(&tmp, text)?;
-        let mut last = Ok(());
-        for _ in 0..40 {
-            last = std::fs::rename(&tmp, &self.keys);
-            if last.is_ok() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(5));
-        }
-        last
+        swap_write(
+            &self.keys,
+            &forza::keys::keys_text(self.edition == Edition::E1718, keys, pads),
+        )
     }
+}
+
+/// A file written whole: `NAME.panel`, then one swap; the reader may hold it this instant: 40 tries 5 ms apart, as
+/// `wccfpanel.c`.
+pub fn swap_write(path: &Path, text: &str) -> std::io::Result<()> {
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".panel");
+    std::fs::write(&tmp, text)?;
+    let mut last = Ok(());
+    for _ in 0..40 {
+        last = std::fs::rename(&tmp, path);
+        if last.is_ok() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    last
+}
+
+/// This process's TCP link to the game server's control port (20002), as `wccfpanel.c` `server_link`: the IP-helper
+/// table read through iphlpapi.dll loaded by name (read only; the game's own IP-helper calls stay guarded).
+fn server_link() -> Link {
+    type GetTable = unsafe extern "system" fn(*mut c_void, *mut u32, i32, u32, i32, u32) -> u32;
+    static GET: std::sync::OnceLock<Option<GetTable>> = std::sync::OnceLock::new();
+    // SAFETY: the system's own module, never freed; GetExtendedTcpTable has this signature
+    let get = GET.get_or_init(|| unsafe {
+        let m = LoadLibraryW(windows::core::w!("iphlpapi.dll")).ok()?;
+        let f = GetProcAddress(m, windows::core::s!("GetExtendedTcpTable"))?;
+        Some(std::mem::transmute::<Proc, GetTable>(f))
+    });
+    let Some(get) = get else { return Link::Unknown };
+    let mut size = 0u32;
+    // SAFETY: first the size, then a buffer of it (and some): AF_INET, TCP_TABLE_OWNER_PID_ALL
+    unsafe {
+        get(std::ptr::null_mut(), &mut size, 0, 2, 5, 0);
+        let mut buf = vec![0u32; (size as usize + 4096) / 4];
+        let mut n = (buf.len() * 4) as u32;
+        if get(buf.as_mut_ptr().cast(), &mut n, 0, 2, 5, 0) != 0 {
+            return Link::Unknown;
+        }
+        let me = std::process::id();
+        // MIB_TCPROW_OWNER_PID: state, local address, local port, remote address, remote port, process
+        for row in buf[1..].as_chunks::<6>().0.iter().take(buf[0] as usize) {
+            let port = u16::from_be((row[4] & 0xFFFF) as u16);
+            if row[5] == me && port == 20002 && row[0] == 5 {
+                let [a, b, c, d] = row[3].to_le_bytes();
+                return Link::Up(format!("{a}.{b}.{c}.{d}"));
+            }
+        }
+    }
+    Link::Down
 }
 
 /// winmm's joystick calls from the system folder, as `wccfpanel.c` `pad_api` takes them: seat 1's own winmm.dll is the

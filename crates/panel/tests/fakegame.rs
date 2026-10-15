@@ -422,6 +422,45 @@ fn board_and_buttons_with_real_data() {
         fs::read_to_string(data.join("keys.txt")).unwrap(),
         forza::keys::keys_text(false, &keys, &pads)
     );
+
+    // 5. SETTINGS from the bar: COMPACT and a 2 s hover written to data\panel.txt as the C panel writes it; RESTART
+    // NOW clicked twice writes data\restart.request, which no run takes here: after 3 s it is taken back and said
+    let _ = fs::remove_file(seat.join("forza_panel.log"));
+    run(&[
+        "wait:2500".into(),
+        "click:466,870".into(), // SETTINGS
+        "wait:1500".into(),
+        "click:321,559".into(), // COMPACT
+        "click:275,647".into(), // 2 s
+        "wait:300".into(),
+        "click:632,392".into(), // RESTART NOW
+        "wait:300".into(),
+        "click:632,392".into(), // again
+        "wait:4000".into(),
+        "key:27".into(),
+        "wait:400".into(),
+    ]);
+    let log = fs::read_to_string(seat.join("forza_panel.log")).unwrap_or_default();
+    println!("forza_panel.log:\n{log}");
+    for line in [
+        "page settings",
+        "settings: saved play_on=this_pc server=- english=- layout=compact hover=2000 auto_logs=on",
+        "settings: restart requested",
+        "settings: restart.request not picked up - removed",
+        "page game",
+    ] {
+        assert!(log.contains(line), "the panel's log has no '{line}'");
+    }
+    let want = forza::panel_txt::PanelFile {
+        compact: true,
+        hover_ms: 2000,
+        ..Default::default()
+    };
+    assert_eq!(
+        fs::read_to_string(data.join("panel.txt")).unwrap(),
+        want.text(false)
+    );
+    assert!(!data.join("restart.request").exists());
     if env::var_os("FORZA_PANEL_KEEP").is_none() {
         let _ = fs::remove_dir_all(&t);
     }

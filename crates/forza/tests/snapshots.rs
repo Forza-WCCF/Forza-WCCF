@@ -132,7 +132,7 @@ fn panel_2017_18_and_compact() {
         |ui| panel::show(ui, &mut st),
     );
     st = panel::PanelState::sample(Edition::E1011, Lang::It, panel::Page::Game);
-    st.compact = true;
+    st.file.compact = true;
     snap(
         &mut all,
         "panel_compact_it",
@@ -335,4 +335,56 @@ fn keys_click_then_press() {
         assert_eq!((s.keys[2], s.keys[1], s.keys_changed), (0x58, 0x43, true));
     }
     h.snapshot("panel_keys_swapped_en");
+}
+
+/// SETTINGS as a player uses it: COMPACT and a 2 s hover change at once and mark data\panel.txt for writing; RESTART
+/// NOW needs a second click, and is refused while a club card session is open.
+#[test]
+fn settings_choices_and_restart() {
+    use std::cell::RefCell;
+    let _gpu = gpu();
+    let st = RefCell::new(panel::PanelState::new(
+        Edition::E1011,
+        Lang::En,
+        forza::ui::sample::board(),
+        forza::ui::sample::cards().into(),
+    ));
+    {
+        let mut s = st.borrow_mut();
+        s.page = panel::Page::Settings;
+        s.status.text = Some("en");
+        s.status.card = panel::CardState::Open;
+    }
+    let mut h = harness(panel::SIZE, 1.0, Edition::E1011, |ui| {
+        panel::show(ui, &mut st.borrow_mut())
+    });
+    h.run_steps(3);
+    h.get_by_label("COMPACT").click();
+    h.get_by_label("2 s").click();
+    h.run_steps(1);
+    {
+        let mut s = st.borrow_mut();
+        assert!(
+            s.file.compact && s.file_changed && s.file.hover_ms == 2000 && s.hover_delay == 2.0
+        );
+        s.file_changed = false;
+    }
+    h.get_by_label("Italiano").click();
+    h.run_steps(1);
+    assert_eq!(st.borrow().file.english.as_deref(), Some("it"));
+    h.get_by_role_and_label(egui::accesskit::Role::RadioButton, "English")
+        .click();
+    h.run_steps(1);
+    assert_eq!(st.borrow().file.english, None); // the text it has now: no request
+    h.get_by_label("RESTART NOW").click();
+    h.run_steps(1);
+    assert!(!st.borrow().restart);
+    st.borrow_mut().status.card = panel::CardState::Closed;
+    h.get_by_label("RESTART NOW").click();
+    h.run_steps(1);
+    h.run_steps(1);
+    h.get_by_label_contains("CLICK AGAIN").click();
+    h.run_steps(1);
+    assert!(st.borrow().restart);
+    h.snapshot("panel_settings_changed_en");
 }
