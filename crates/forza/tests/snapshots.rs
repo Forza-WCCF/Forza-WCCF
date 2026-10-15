@@ -490,3 +490,16 @@ fn card_deal() {
     h.run_steps(2);
     assert!(st.borrow().deal.is_none() && st.borrow().picture_rect.is_some());
 }
+
+/// The warning after a close refused during a card session, over the whole middle.
+#[test]
+fn close_warning() {
+    let _gpu = gpu();
+    let mut st = panel::PanelState::sample(Edition::E1011, Lang::It, panel::Page::Game);
+    st.close_warn = true;
+    let mut h = harness(panel::SIZE, 1.0, Edition::E1011, |ui| {
+        panel::show(ui, &mut st)
+    });
+    h.run_steps(4);
+    h.snapshot("panel_close_warning_it");
+}

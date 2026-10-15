@@ -370,6 +370,8 @@ pub struct PanelState {
     pub club_armed: Option<(ClubPick, f64)>,
     /// A choice asked for by its second click: data\panel.txt's card= or card_fix=, then RESTART NOW.
     pub club_request: Option<ClubPick>,
+    /// The window's close was refused during a card session: the warning shows (the panel DLL sets it while it holds).
+    pub close_warn: bool,
     /// A card dealt after a match: shown over the game for [`DEAL_SECS`], or until a click closes it.
     pub deal: Option<Deal>,
     /// The game's own frame as a texture of the panel DLL's painter; `None` draws the stand-in picture.
@@ -430,6 +432,7 @@ impl PanelState {
             club: ClubView::default(),
             club_armed: None,
             club_request: None,
+            close_warn: false,
             deal: None,
             picture: None,
             picture_rect: None,
@@ -628,6 +631,33 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         page(&mut pg, st, lang);
     }
     deal_window(ui, st, above, lang);
+    if st.close_warn {
+        close_warning(ui, area, lang);
+    }
+}
+
+/// The close warning over everything, as `wccfpanel.c` `close_draw`: a match is on, closing now costs the card a bad
+/// ending, a second close within 8 s quits anyway.
+fn close_warning(ui: &Ui, area: Rect, lang: Lang) {
+    let p = ui
+        .ctx()
+        .layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("close-warn")));
+    let r = Rect::from_center_size(area.center(), vec2(area.width() - 60.0, 150.0));
+    p.rect_filled(r, theme::RADIUS_BIG, Color32::from_rgba_unmultiplied(24, 14, 14, 245));
+    p.rect_stroke(r, theme::RADIUS_BIG, Stroke::new(3.0, theme::RED_TEXT), StrokeKind::Inside);
+    let w = r.width() - 32.0;
+    for (i, (key, font, col)) in [
+        ("close.title", theme::display(30.0), theme::RED_TEXT),
+        ("close.body", theme::body(16.0), theme::TEXT),
+        ("close.again", theme::bold(16.0), theme::GOLD),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let g = widgets::fit(&p, &tr!(lang, key), font, col, w);
+        let y = r.top() + 30.0 + 42.0 * i as f32;
+        p.galley(pos2(r.center().x - g.size().x / 2.0, y - g.size().y / 2.0), g, col);
+    }
 }
 
 // ---- the card deal ----

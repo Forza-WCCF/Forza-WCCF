@@ -26,6 +26,7 @@ fn every_key_in_three_languages() {
                 "settings",
                 "club",
                 "deal",
+                "close",
             ];
             if !known.contains(&section)
                 || rest.is_empty()

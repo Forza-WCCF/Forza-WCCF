@@ -22,6 +22,7 @@
 #![cfg(target_arch = "x86")]
 
 mod kit;
+mod net;
 mod painter;
 
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, TextureId, ViewportId, pos2, vec2};
@@ -87,6 +88,24 @@ static CATALOGUE: OnceLock<Arc<[Card]>> = OnceLock::new();
 static PICTURE: Mutex<Option<egui::Rect>> = Mutex::new(None);
 /// The mouse buttons whose press went to the game (bit per button): their release goes there too.
 static GAME_DOWN: AtomicU32 = AtomicU32::new(0);
+/// This process is the projector (the second game window): money and the frame wait only, no panel.
+static PROJECTOR: AtomicBool = AtomicBool::new(false);
+/// A frame has been shown on our own swap chain: the window may be maximized (F11).
+static SHOWN: AtomicBool = AtomicBool::new(false);
+/// The player closed the window: the server link's drop that follows is the end (ENDED), not a loss.
+static CLOSING: AtomicBool = AtomicBool::new(false);
+/// A close refused during a card session, until this time (ms since START): a second close then quits.
+static CLOSE_UNTIL: AtomicU32 = AtomicU32::new(0);
+static START: OnceLock<Instant> = OnceLock::new();
+/// The window's maximized state for WCCFPANEL_FS_RECT (tests: a pretend screen), and the size it had before.
+static TEST_MAX: Mutex<Option<RECT>> = Mutex::new(None);
+/// Our own window message: maximized (wParam 1) or the game's size (0), done on the window's thread.
+const WM_FORZA_FS: u32 = WM_APP + 0x57;
+
+/// Milliseconds since the DLL loaded.
+fn ms() -> u32 {
+    START.get_or_init(Instant::now).elapsed().as_millis() as u32
+}
 
 thread_local! {
     static IN_PRESENT: Cell<bool> = const { Cell::new(false) };
@@ -99,10 +118,15 @@ fn log(msg: &str) {
             .and_then(|e| e.parent().map(Into::into))
             .unwrap_or_default()
     });
+    // the projector logs into the run's logs (WCCF_LOGS), as wccfpanel.c; seat 1 beside the program
+    let path = match std::env::var_os("WCCF_LOGS").filter(|_| PROJECTOR.load(Relaxed)) {
+        Some(logs) => PathBuf::from(logs).join("forza_panel_projector.log"),
+        None => dir.join("forza_panel.log"),
+    };
     if let Ok(mut f) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(dir.join("forza_panel.log"))
+        .open(path)
     {
         let _ = writeln!(f, "{msg}");
     }
@@ -128,9 +152,25 @@ extern "system" fn DllMain(inst: HINSTANCE, reason: u32, reserved: *mut c_void) 
 }
 
 fn init() {
+    ms();
     std::thread::sleep(Duration::from_millis(300));
-    log(&format!("forza-panel init (pid {})", std::process::id()));
     let files = kit::Files::find(DLL_DIR.get().map_or(Path::new(""), PathBuf::as_path));
+    if is_projector() {
+        PROJECTOR.store(true, Relaxed);
+        log(&format!(
+            "forza-panel init (pid {}) - the PROJECTOR: money with commas and the frame wait only, no panels",
+            std::process::id()
+        ));
+        let _ = FILES.set(files);
+        INIT_DONE.store(true, Relaxed);
+        return;
+    }
+    log(&format!("forza-panel init (pid {})", std::process::id()));
+    if std::env::var_os("WCCF_LOGS").is_some() {
+        // ponytail: runs for the process's life (the game never unloads the panel; only a run sets WCCF_LOGS, never
+        // the unload test)
+        std::thread::spawn(link_watch);
+    }
     let catalogue = cards::load_catalogue(&files.catalogue).unwrap_or_else(|e| {
         log(&format!(
             "no catalogue at {}: {e}",
@@ -176,6 +216,200 @@ fn init() {
         std::thread::sleep(Duration::from_millis(500));
     }
     INIT_DONE.store(true, Relaxed);
+}
+
+/// The projector, as `wccfpanel.c` `is_projector`: WCCFPANEL_ROLE (projector or not), else a program in a folder
+/// named "extracted", else the program's folder is WCCF_GAME.
+fn is_projector() -> bool {
+    if let Ok(r) = std::env::var("WCCFPANEL_ROLE") {
+        return r.eq_ignore_ascii_case("projector");
+    }
+    let Some(dir) = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(Path::to_path_buf))
+    else {
+        return false;
+    };
+    if dir
+        .file_name()
+        .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case("extracted"))
+    {
+        return true;
+    }
+    std::env::var_os("WCCF_GAME")
+        .and_then(|g| std::path::absolute(g).ok())
+        .is_some_and(|g| {
+            let g = g.to_string_lossy();
+            let g = g.trim_end_matches('\\');
+            g.eq_ignore_ascii_case(&dir.to_string_lossy())
+        })
+}
+
+/// The server link, watched all the time (`wccfpanel.c` `link_watch`): every 2 s this process's link to the server's
+/// control port; one dated line in WCCF_LOGS\server_link.txt when it comes up ("UP 1.2.3.4") and when it drops ("LOST
+/// (it was up N s)", or ENDED after the player closed the window: no fault). The run reads it (launcher run::rules).
+fn link_watch() {
+    use forza::ui::panel::Link;
+    let Some(dir) = std::env::var_os("WCCF_LOGS") else {
+        return;
+    };
+    let path = PathBuf::from(dir).join("server_link.txt");
+    // the tests' link (WCCFPANEL_LINKTEST=ADDRESS:PORT): this process connects there itself
+    let _test = std::env::var("WCCFPANEL_LINKTEST")
+        .ok()
+        .and_then(|a| std::net::TcpStream::connect(a).ok());
+    let mut up_at: Option<Instant> = None;
+    loop {
+        let now = match kit::server_link() {
+            Link::Unknown => None,
+            Link::Up(peer) => Some(Some(peer)),
+            Link::Down => Some(None),
+        };
+        if let Some(now) = now
+            && now.is_some() != up_at.is_some()
+        {
+            // SAFETY: a plain clock query
+            let t = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
+            let stamp = format!(
+                "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+                t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond
+            );
+            let line = match (&now, up_at) {
+                (Some(peer), _) => format!("{stamp} UP {peer}\n"),
+                (None, at) => format!(
+                    "{stamp} {} (it was up {} s)\n",
+                    if CLOSING.load(Relaxed) {
+                        "ENDED"
+                    } else {
+                        "LOST"
+                    },
+                    at.map_or(0, |a| a.elapsed().as_secs())
+                ),
+            };
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+            {
+                let _ = f.write_all(line.as_bytes());
+            }
+            up_at = now.map(|_| Instant::now());
+        }
+        std::thread::sleep(Duration::from_secs(2));
+    }
+}
+
+/// WM_CLOSE (`wccfpanel.c` `close_allowed`): during a card session (the club card or a manager transfer's new card,
+/// open since this run started) the first close only warns, for 8 s; a second close within them quits anyway.
+fn close_allowed() -> bool {
+    let until = CLOSE_UNTIL.load(Relaxed);
+    if until != 0 && ms() < until {
+        log("close: closed again during the card session - the game ends");
+        return true;
+    }
+    let open = FILES.get().is_some_and(|f| {
+        use launcher::card;
+        let since = stamp(&f.data.join("running.json"));
+        let save = f.data.join("save");
+        card::club_session(&save.join(card::SLOT), &save.join(card::NEW), since).0
+            == card::Session::Open
+    });
+    if !open {
+        log("close: the window closes - the game ends");
+        return true;
+    }
+    CLOSE_UNTIL.store(ms() + 8000, Relaxed);
+    log("close: a card session is open - warned, not closed");
+    false
+}
+
+/// WCCFPANEL_FS_RECT=x,y,w,h (tests): a pretend screen off every real monitor.
+fn test_screen() -> Option<RECT> {
+    let v = std::env::var("WCCFPANEL_FS_RECT").ok()?;
+    let n: Vec<i32> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+    let [x, y, w, h] = n[..] else { return None };
+    (w > 0 && h > 0).then_some(RECT {
+        left: x,
+        top: y,
+        right: x + w,
+        bottom: y + h,
+    })
+}
+
+fn is_maximized(h: HWND) -> bool {
+    if test_screen().is_some() {
+        return TEST_MAX.lock().is_ok_and(|m| m.is_some());
+    }
+    // SAFETY: a plain window query
+    unsafe { IsZoomed(h) }.as_bool()
+}
+
+/// Maximized with its title bar kept (minimize, maximize/restore and close), or the game's own size, as `wccfpanel.c`
+/// `set_maximized`; on the window's thread.
+fn set_maximized(h: HWND, on: bool) {
+    // SAFETY: window calls on a window of this process, from its own thread
+    unsafe {
+        let st = GetWindowLongW(h, GWL_STYLE);
+        let want = (st & !(WS_POPUP.0 as i32))
+            | (WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX).0 as i32;
+        if want != st {
+            SetWindowLongW(h, GWL_STYLE, want);
+            let _ = SetWindowPos(
+                h,
+                None,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE
+                    | SWP_NOSIZE
+                    | SWP_NOZORDER
+                    | SWP_NOOWNERZORDER
+                    | SWP_NOACTIVATE
+                    | SWP_FRAMECHANGED,
+            );
+        }
+        if let Some(m) = test_screen() {
+            let Ok(mut saved) = TEST_MAX.lock() else {
+                return;
+            };
+            let flags = SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE;
+            if on && saved.is_none() {
+                let mut r = RECT::default();
+                let _ = GetWindowRect(h, &mut r);
+                *saved = Some(r);
+                let _ = SetWindowPos(
+                    h,
+                    None,
+                    m.left,
+                    m.top,
+                    m.right - m.left,
+                    m.bottom - m.top,
+                    flags,
+                );
+            } else if !on && let Some(r) = saved.take() {
+                let _ = SetWindowPos(
+                    h,
+                    None,
+                    r.left,
+                    r.top,
+                    r.right - r.left,
+                    r.bottom - r.top,
+                    flags,
+                );
+            }
+        } else {
+            let _ = ShowWindow(h, if on { SW_MAXIMIZE } else { SW_RESTORE });
+        }
+        let mut cr = RECT::default();
+        let _ = GetClientRect(h, &mut cr);
+        log(&format!(
+            "{}: client now {}x{}",
+            if on { "maximized" } else { "window" },
+            cr.right,
+            cr.bottom
+        ));
+    }
 }
 
 /// FreeLibrary: everything back as it was, on the thread that unloads us. The real game never unloads the panel;
@@ -519,6 +753,15 @@ impl Render {
             self.frames += 1;
             if self.frames == 1 {
                 log(&format!("first frame shown ({w}x{h})"));
+                SHOWN.store(true, Relaxed);
+                // shown at the window's own size, so a bigger window is safe: maximized once, at the start
+                // (WCCFPANEL_FULLSCREEN=0 keeps the game's size: the tests)
+                if std::env::var("WCCFPANEL_FULLSCREEN").is_ok_and(|v| v.starts_with('0')) {
+                    log("fullscreen at start: no");
+                } else {
+                    // a message to the game's window, handled by our window procedure on its thread
+                    let _ = PostMessageW(Some(target), WM_FORZA_FS, WPARAM(1), LPARAM(0));
+                }
             }
             if self.frames.is_multiple_of(600) {
                 self.cost(false);
@@ -703,6 +946,11 @@ impl Render {
         self.club_in();
         self.deal_in();
         self.keys_in();
+        let until = CLOSE_UNTIL.load(Relaxed);
+        self.st.close_warn = until != 0 && ms() < until;
+        if self.st.close_warn {
+            self.ctx.request_repaint();
+        }
         let dealt = self.st.deal.as_ref().map(|d| d.back);
         let st = &mut self.st;
         let out = self.ctx.run_ui(raw, |ui| panel::show(ui, st));
@@ -1337,6 +1585,22 @@ fn game_window() -> Option<HWND> {
 }
 
 unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    match m {
+        WM_FORZA_FS => {
+            set_maximized(h, wp.0 != 0);
+            return LRESULT(0);
+        }
+        WM_CLOSE if !close_allowed() => return LRESULT(0), // a match is on: warned once
+        WM_CLOSE => CLOSING.store(true, Relaxed), // the window goes: link_watch calls the drop ENDED
+        // F11: maximized <-> the game's size, once frames are shown; the game never sees it
+        WM_KEYDOWN | WM_KEYUP if wp.0 == 0x7A => {
+            if m == WM_KEYDOWN && lp.0 & (1 << 30) == 0 && SHOWN.load(Relaxed) {
+                set_maximized(h, !is_maximized(h));
+            }
+            return LRESULT(0);
+        }
+        _ => {}
+    }
     let lp = match to_game(h, m, lp) {
         Some(game) => game,
         None if input(m, wp, lp) => return LRESULT(0), // egui's: the game does not see it

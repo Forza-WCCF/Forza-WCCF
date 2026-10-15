@@ -54,6 +54,7 @@ fn panel_draws_in_fakegame() {
     // KEYS on the bar of page buttons (forza::ui::panel: the middle's bottom 60 points), at 1440x900 one point a pixel
     let out = Command::new(t.join("fakegame.exe"))
         .current_dir(&t)
+        .env("WCCFPANEL_FULLSCREEN", "0") // never maximized over the player's screen
         .env("FORZA_PANEL_DUMP", "1")
         .env("WCCF_DATA", t.join("data")) // no data: the panel's empty board, nothing read from above the folder
         .args([
@@ -221,6 +222,7 @@ fn board_and_buttons_with_real_data() {
     };
     let run_with = |env: &[(&str, &str)], steps: &[String]| {
         let out = Command::new(seat.join("fakegame.exe"))
+            .env("WCCFPANEL_FULLSCREEN", "0")
             .envs(env.iter().copied())
             .current_dir(&seat)
             .env("FORZA_PANEL_DUMP", "1")
@@ -376,6 +378,7 @@ fn board_and_buttons_with_real_data() {
     let at_rest = "0 0 2 0 32767 32767 0 0 0 0 65535 Test Pad\n";
     fs::write(&pad, at_rest).unwrap();
     let game = Command::new(seat.join("fakegame.exe"))
+        .env("WCCFPANEL_FULLSCREEN", "0")
         .current_dir(&seat)
         .env("WCCFPANEL_FAKEPAD", &pad)
         .env_remove("WCCF_KIT_LANG")
@@ -493,6 +496,94 @@ fn board_and_buttons_with_real_data() {
         !said.contains("game: left down"),
         "the click went through to the game"
     );
+    if env::var_os("FORZA_PANEL_KEEP").is_none() {
+        let _ = fs::remove_dir_all(&t);
+    }
+}
+
+/// A club card file whose session is open (the flag set in both copies, their checksums good): launcher::card's
+/// layout (a 16-byte header, copies A and B of 0x690 bytes from block 8, USER_INJUSTICE_FLAG at bit 595).
+fn open_card() -> Vec<u8> {
+    let mut raw = vec![0u8; 16 + 256 * 16];
+    for start in [16 + 8 * 16, 16 + 8 * 16 + 0x690] {
+        raw[start + 595 / 8] |= 0x80 >> (595 % 8);
+        let sum = raw[start..start + 0x68C]
+            .chunks(4)
+            .fold(0u32, |t, w| t.wrapping_add(u32::from_le_bytes([w[0], w[1], w[2], w[3]])));
+        raw[start + 0x68C..start + 0x690].copy_from_slice(&sum.to_le_bytes());
+    }
+    raw
+}
+
+/// The window's own behaviour, in a scratch kit: maximized at the start onto a pretend screen (WCCFPANEL_FS_RECT, off
+/// every monitor) and F11 back to the game's size; during a card session the first close only warns and a second
+/// within 8 s closes; the server link (the panel's own test link to a port of the test's, WCCFPANEL_LINKTEST) written
+/// UP to WCCF_LOGS\server_link.txt and, dropped after the player's close, ENDED - not LOST.
+#[test]
+fn window_close_and_server_link() {
+    for f in ["fakegame.exe", "forza_panel.dll"] {
+        assert!(
+            Path::new(BUILD).join(f).is_file(),
+            "{BUILD}/{f} is missing: run cargo xtask build first"
+        );
+    }
+    let t = env::temp_dir().join(format!("forza-panel-close-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&t);
+    for d in ["programs", "data/save", "seat1", "logs"] {
+        fs::create_dir_all(t.join(d)).unwrap();
+    }
+    fs::copy(Path::new(BUILD).join("forza_panel.dll"), t.join("programs/forza_panel.dll")).unwrap();
+    fs::copy(Path::new(BUILD).join("fakegame.exe"), t.join("seat1/fakegame.exe")).unwrap();
+    copy_dir(Path::new("../../assets/fonts"), &t.join("fonts"));
+    fs::write(t.join("data/save/seat1_club.bin"), open_card()).unwrap();
+    let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = server.local_addr().unwrap().port();
+    let started = std::time::Instant::now();
+    // the link: accepted, held until after the player's second close (8.2 s), then dropped
+    let link = std::thread::spawn(move || {
+        let (conn, _) = server.accept().unwrap();
+        std::thread::sleep(std::time::Duration::from_secs(10).saturating_sub(started.elapsed()));
+        drop(conn);
+    });
+    let seat = t.join("seat1");
+    let out = Command::new(seat.join("fakegame.exe"))
+        .current_dir(&seat)
+        .env("WCCFPANEL_FS_RECT", "-4000,-4000,1700,1000")
+        .env("WCCF_LOGS", t.join("logs"))
+        .env("WCCFPANEL_CONTROL_PORT", port.to_string())
+        .env("WCCFPANEL_LINKTEST", format!("127.0.0.1:{port}"))
+        .env("WCCFPANEL_DRYKEYS", "1")
+        .env_remove("WCCF_KIT_LANG")
+        .args([
+            "../programs/forza_panel.dll",
+            "wait:2500",
+            "key:122", // F11
+            "wait:1000",
+            "close",
+            "wait:1500",
+            "close",
+            "wait:6000",
+        ])
+        .output()
+        .unwrap();
+    link.join().unwrap();
+    let said = String::from_utf8_lossy(&out.stdout);
+    let log = fs::read_to_string(seat.join("forza_panel.log")).unwrap_or_default();
+    let links = fs::read_to_string(t.join("logs/server_link.txt")).unwrap_or_default();
+    println!("fakegame:\n{said}\nforza_panel.log:\n{log}\nserver_link.txt:\n{links}");
+    assert!(out.status.success(), "fakegame ended with {}", out.status);
+    for line in [
+        "maximized: client now ",
+        "window: client now 1440x900",
+        "close: a card session is open - warned, not closed",
+        "close: closed again during the card session - the game ends",
+    ] {
+        assert!(log.contains(line), "the panel's log has no '{line}'");
+    }
+    let lines: Vec<&str> = links.lines().collect();
+    assert_eq!(lines.len(), 2, "{links}");
+    assert!(lines[0].ends_with(" UP 127.0.0.1"), "{links}");
+    assert!(lines[1].contains(" ENDED (it was up "), "{links}");
     if env::var_os("FORZA_PANEL_KEEP").is_none() {
         let _ = fs::remove_dir_all(&t);
     }

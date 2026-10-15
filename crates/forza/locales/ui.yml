@@ -332,3 +332,8 @@ club.row_saved: {en: "CARD SAVED", it: "TESSERA SALVATA", ja: "カード保存"}
 deal.title: {en: "NEW PLAYER CARD", it: "NUOVA CARTA GIOCATORE", ja: "新しい選手カード"}
 deal.title_rare: {en: "NEW PLAYER CARD: RARE!", it: "NUOVA CARTA GIOCATORE: RARA!", ja: "新しい選手カード：レア！"}
 deal.foot: {en: "Only shown, not on your club card. The card turns over; a click elsewhere closes.", it: "Solo mostrata, non va sulla tessera. La carta si gira; un clic altrove chiude.", ja: "表示のみでクラブカードには入りません。カードは裏返せます。ほかをクリックで閉じます。"}
+
+# ---- closing the window during a card session ----
+close.title: {en: "A MATCH IS ON: THE GAME DID NOT CLOSE", it: "PARTITA IN CORSO: IL GIOCO NON SI È CHIUSO", ja: "試合中：ゲームは終了していません"}
+close.body: {en: "Closing now ends it without the locker-room save: your card gets a bad ending.", it: "Chiudere ora la termina senza il salvataggio negli spogliatoi: la tessera riceve una chiusura anomala.", ja: "今閉じるとロッカールームで保存されずに終わり、カードに異常終了が記録されます。"}
+close.again: {en: "Close the window again within 8 seconds to quit anyway.", it: "Chiudi di nuovo la finestra entro 8 secondi per uscire comunque.", ja: "それでも終了するには、8秒以内にもう一度ウィンドウを閉じてください。"}

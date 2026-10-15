@@ -224,7 +224,7 @@ pub fn swap_write(path: &Path, text: &str) -> std::io::Result<()> {
 
 /// This process's TCP link to the game server's control port (20002), as `wccfpanel.c` `server_link`: the IP-helper
 /// table read through iphlpapi.dll loaded by name (read only; the game's own IP-helper calls stay guarded).
-fn server_link() -> Link {
+pub fn server_link() -> Link {
     type GetTable = unsafe extern "system" fn(*mut c_void, *mut u32, i32, u32, i32, u32) -> u32;
     static GET: std::sync::OnceLock<Option<GetTable>> = std::sync::OnceLock::new();
     // SAFETY: the system's own module, never freed; GetExtendedTcpTable has this signature
@@ -244,10 +244,15 @@ fn server_link() -> Link {
             return Link::Unknown;
         }
         let me = std::process::id();
+        // the tests' own port (WCCFPANEL_CONTROL_PORT), never the server's on a PC that may be playing
+        let want = env::var("WCCFPANEL_CONTROL_PORT")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(20002u16);
         // MIB_TCPROW_OWNER_PID: state, local address, local port, remote address, remote port, process
         for row in buf[1..].as_chunks::<6>().0.iter().take(buf[0] as usize) {
             let port = u16::from_be((row[4] & 0xFFFF) as u16);
-            if row[5] == me && port == 20002 && row[0] == 5 {
+            if row[5] == me && port == want && row[0] == 5 {
                 let [a, b, c, d] = row[3].to_le_bytes();
                 return Link::Up(format!("{a}.{b}.{c}.{d}"));
             }
