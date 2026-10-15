@@ -337,6 +337,7 @@ pub struct PanelState {
     /// CENTRAL, COUNTER, L-SIDE, R-SIDE, PRESS: lit when the order is on.
     pub tactics: [bool; 5],
     pub online: bool,
+    /// The round trip to the server's relay (online only); `u32::MAX` = no answer for 6 s.
     pub ping_ms: u32,
     /// The last thing done, refused or worth knowing; one line for every page.
     pub message: Option<Note>,
@@ -639,12 +640,22 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
 /// The close warning over everything, as `wccfpanel.c` `close_draw`: a match is on, closing now costs the card a bad
 /// ending, a second close within 8 s quits anyway.
 fn close_warning(ui: &Ui, area: Rect, lang: Lang) {
-    let p = ui
-        .ctx()
-        .layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("close-warn")));
+    let p = ui.ctx().layer_painter(egui::LayerId::new(
+        egui::Order::Tooltip,
+        egui::Id::new("close-warn"),
+    ));
     let r = Rect::from_center_size(area.center(), vec2(area.width() - 60.0, 150.0));
-    p.rect_filled(r, theme::RADIUS_BIG, Color32::from_rgba_unmultiplied(24, 14, 14, 245));
-    p.rect_stroke(r, theme::RADIUS_BIG, Stroke::new(3.0, theme::RED_TEXT), StrokeKind::Inside);
+    p.rect_filled(
+        r,
+        theme::RADIUS_BIG,
+        Color32::from_rgba_unmultiplied(24, 14, 14, 245),
+    );
+    p.rect_stroke(
+        r,
+        theme::RADIUS_BIG,
+        Stroke::new(3.0, theme::RED_TEXT),
+        StrokeKind::Inside,
+    );
     let w = r.width() - 32.0;
     for (i, (key, font, col)) in [
         ("close.title", theme::display(30.0), theme::RED_TEXT),
@@ -656,7 +667,11 @@ fn close_warning(ui: &Ui, area: Rect, lang: Lang) {
     {
         let g = widgets::fit(&p, &tr!(lang, key), font, col, w);
         let y = r.top() + 30.0 + 42.0 * i as f32;
-        p.galley(pos2(r.center().x - g.size().x / 2.0, y - g.size().y / 2.0), g, col);
+        p.galley(
+            pos2(r.center().x - g.size().x / 2.0, y - g.size().y / 2.0),
+            g,
+            col,
+        );
     }
 }
 
@@ -1015,9 +1030,10 @@ fn strip_ground(ui: &Ui) {
     );
 }
 
-/// The ping meter: five bars and the milliseconds.
+/// The ping meter: five bars and the milliseconds; `u32::MAX` = no answer for 6 s ("-- ms", no bar lit).
 fn ping(p: &egui::Painter, r: Rect, ms: u32, lang: Lang) {
     let good = match ms {
+        u32::MAX => 0,
         0..=40 => 5,
         41..=80 => 4,
         81..=140 => 3,
@@ -1042,7 +1058,11 @@ fn ping(p: &egui::Painter, r: Rect, ms: u32, lang: Lang) {
     p.text(
         pos2(r.left() + 36.0, r.center().y + 2.0),
         Align2::LEFT_CENTER,
-        tr!(lang, "panel.ping", ms = ms),
+        if ms == u32::MAX {
+            tr!(lang, "panel.ping", ms = "--")
+        } else {
+            tr!(lang, "panel.ping", ms = ms)
+        },
         theme::display(15.0),
         theme::TEXT_DIM,
     );

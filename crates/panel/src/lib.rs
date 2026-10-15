@@ -22,8 +22,10 @@
 #![cfg(target_arch = "x86")]
 
 mod kit;
+mod money;
 mod net;
 mod painter;
+mod patches;
 
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, TextureId, ViewportId, pos2, vec2};
 use forza::cards::{self, Placed, TableFile};
@@ -161,11 +163,33 @@ fn init() {
             "forza-panel init (pid {}) - the PROJECTOR: money with commas and the frame wait only, no panels",
             std::process::id()
         ));
+        let e1718 = files.edition == theme::Edition::E1718;
         let _ = FILES.set(files);
+        money::money_install(e1718, true, log);
+        patches::limiter_start(
+            e1718,
+            DLL_DIR.get().map_or(Path::new(""), PathBuf::as_path),
+            log,
+        ); // the frame wait sleeps instead of spinning a core
         INIT_DONE.store(true, Relaxed);
         return;
     }
     log(&format!("forza-panel init (pid {})", std::process::id()));
+    if std::env::var_os("WCCFPANEL_RELAYTEST").is_some() {
+        net::relay_selftest(log); // the tests only
+    }
+    let e1718 = files.edition == theme::Edition::E1718;
+    money::fmt_guard_install(e1718, log); // a bad % no longer stops seat 1
+    money::money_install(e1718, false, log); // amounts with commas (after the guard: box texts go through it)
+    patches::limiter_start(
+        e1718,
+        DLL_DIR.get().map_or(Path::new(""), PathBuf::as_path),
+        log,
+    );
+    net::relay_install(e1718, log); // on a server: a match against another player through its relay
+    net::ping_install(log); // on a server: the ping meter
+    patches::dispenser_install(e1718, log); // no player card owed to a dispenser that is not there
+    patches::free_play_install(e1718, log); // the original FREE PLAY: no coin needed anywhere
     if std::env::var_os("WCCF_LOGS").is_some() {
         // ponytail: runs for the process's life (the game never unloads the panel; only a run sets WCCF_LOGS, never
         // the unload test)
@@ -570,6 +594,10 @@ unsafe extern "system" fn hook_present(
         return unsafe { orig(dev, src, dst, wnd, dirty) };
     }
     IN_PRESENT.set(true);
+    // the game's own parts, every frame (each acts on its own clock): as wccfpanel.c hook_present
+    patches::frame_stats_tick(log);
+    patches::dispenser_tick(log);
+    patches::free_play_tick(log);
     // a panic must not cross into the game: the panel stops, the game goes on
     let shown = std::panic::catch_unwind(|| {
         // SAFETY: the game's device, alive for the call; we are on its render thread
@@ -946,6 +974,14 @@ impl Render {
         self.club_in();
         self.deal_in();
         self.keys_in();
+        // the ping meter, online only
+        match net::ping_ms() {
+            None => self.st.online = false,
+            Some(ms) => {
+                self.st.online = true;
+                self.st.ping_ms = u32::try_from(ms).unwrap_or(u32::MAX);
+            }
+        }
         let until = CLOSE_UNTIL.load(Relaxed);
         self.st.close_warn = until != 0 && ms() < until;
         if self.st.close_warn {
@@ -1203,7 +1239,8 @@ impl Render {
             return;
         }
         self.deal_at = Instant::now();
-        let finished = test || {
+        // 2017-18: the game handed out a player card (the dispenser fix counts them)
+        let finished = test || patches::take_owed_new() > 0 || {
             let Some(f) = FILES.get() else { return };
             let (now, _) = card::session(&f.data.join("save").join(card::SLOT), None);
             // no card, or caught mid-write: wait for the next look

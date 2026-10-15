@@ -507,9 +507,9 @@ fn open_card() -> Vec<u8> {
     let mut raw = vec![0u8; 16 + 256 * 16];
     for start in [16 + 8 * 16, 16 + 8 * 16 + 0x690] {
         raw[start + 595 / 8] |= 0x80 >> (595 % 8);
-        let sum = raw[start..start + 0x68C]
-            .chunks(4)
-            .fold(0u32, |t, w| t.wrapping_add(u32::from_le_bytes([w[0], w[1], w[2], w[3]])));
+        let sum = raw[start..start + 0x68C].chunks(4).fold(0u32, |t, w| {
+            t.wrapping_add(u32::from_le_bytes([w[0], w[1], w[2], w[3]]))
+        });
         raw[start + 0x68C..start + 0x690].copy_from_slice(&sum.to_le_bytes());
     }
     raw
@@ -532,8 +532,16 @@ fn window_close_and_server_link() {
     for d in ["programs", "data/save", "seat1", "logs"] {
         fs::create_dir_all(t.join(d)).unwrap();
     }
-    fs::copy(Path::new(BUILD).join("forza_panel.dll"), t.join("programs/forza_panel.dll")).unwrap();
-    fs::copy(Path::new(BUILD).join("fakegame.exe"), t.join("seat1/fakegame.exe")).unwrap();
+    fs::copy(
+        Path::new(BUILD).join("forza_panel.dll"),
+        t.join("programs/forza_panel.dll"),
+    )
+    .unwrap();
+    fs::copy(
+        Path::new(BUILD).join("fakegame.exe"),
+        t.join("seat1/fakegame.exe"),
+    )
+    .unwrap();
     copy_dir(Path::new("../../assets/fonts"), &t.join("fonts"));
     fs::write(t.join("data/save/seat1_club.bin"), open_card()).unwrap();
     let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -584,6 +592,67 @@ fn window_close_and_server_link() {
     assert_eq!(lines.len(), 2, "{links}");
     assert!(lines[0].ends_with(" UP 127.0.0.1"), "{links}");
     assert!(lines[1].contains(" ENDED (it was up "), "{links}");
+    if env::var_os("FORZA_PANEL_KEEP").is_none() {
+        let _ = fs::remove_dir_all(&t);
+    }
+}
+
+/// The projector (WCCFPANEL_ROLE=projector): no panel at all - no Present detour, no window - only money with commas
+/// and the frame wait, which check that they are in the real game and stay off in fakegame; its log goes to
+/// WCCF_LOGS\forza_panel_projector.log. The money display's self-test (WCCFPANEL_MONEYTEST: every place's role with
+/// the game's arguments faked, amounts with thousands separators cut to their boxes) passes there.
+#[test]
+fn projector_role_and_money() {
+    for f in ["fakegame.exe", "forza_panel.dll"] {
+        assert!(
+            Path::new(BUILD).join(f).is_file(),
+            "{BUILD}/{f} is missing: run cargo xtask build first"
+        );
+    }
+    let t = env::temp_dir().join(format!("forza-panel-projector-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&t);
+    for d in ["programs", "data", "extracted", "logs"] {
+        fs::create_dir_all(t.join(d)).unwrap();
+    }
+    fs::copy(
+        Path::new(BUILD).join("forza_panel.dll"),
+        t.join("programs/forza_panel.dll"),
+    )
+    .unwrap();
+    fs::copy(
+        Path::new(BUILD).join("fakegame.exe"),
+        t.join("extracted/fakegame.exe"),
+    )
+    .unwrap();
+    let game = t.join("extracted");
+    let out = Command::new(game.join("fakegame.exe"))
+        .current_dir(&game)
+        .env("WCCFPANEL_FULLSCREEN", "0")
+        .env_remove("WCCFPANEL_ROLE") // the folder named "extracted" says it, as in the 2010-11 kit
+        .env("WCCF_LOGS", t.join("logs"))
+        .env("WCCFPANEL_MONEYTEST", "1")
+        .args(["../programs/forza_panel.dll", "wait:3000"])
+        .output()
+        .unwrap();
+    let said = String::from_utf8_lossy(&out.stdout);
+    let log = fs::read_to_string(t.join("logs/forza_panel_projector.log")).unwrap_or_default();
+    println!("fakegame:\n{said}\nforza_panel_projector.log:\n{log}");
+    assert!(out.status.success(), "fakegame ended with {}", out.status);
+    assert!(log.contains("the PROJECTOR"), "not taken for the projector");
+    assert!(
+        log.contains("money: off - not the game (fakegame.exe)"),
+        "money not off"
+    );
+    let tests = log
+        .lines()
+        .find(|l| l.contains("money test: ") && l.contains(" checks, "));
+    assert!(
+        tests.is_some_and(|l| l.ends_with(" checks, 0 failed")),
+        "money test: {tests:?}"
+    );
+    assert!(!log.contains("FAIL"), "a money test failed");
+    assert!(!log.contains("Present detoured") && !game.join("forza_panel.log").exists());
+    assert!(!said.contains("device changed"));
     if env::var_os("FORZA_PANEL_KEEP").is_none() {
         let _ = fs::remove_dir_all(&t);
     }

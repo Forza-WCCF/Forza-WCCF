@@ -12,7 +12,6 @@
 //!
 //! Protocol bytes (all to the relay, UDP): `"WRL1"` then a kind byte. `R seat` = hello; `D to from payload` = data out;
 //! `F from ip4 payload` = data in; `P seq4` echo, answered `Q seq4`.
-#![allow(dead_code)]
 
 use std::ffi::c_void;
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
