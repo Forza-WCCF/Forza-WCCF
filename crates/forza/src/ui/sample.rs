@@ -320,3 +320,21 @@ pub fn board() -> Board {
         ],
     }
 }
+
+/// A club card view as the run's helper writes it (data\club_view.txt), for an invented club: a cut last session and
+/// one bad ending, a squad of five, two other cards (one used up by a manager transfer).
+pub fn club_view() -> crate::club_view::ClubView {
+    crate::club_view::ClubView::parse(
+        b"state|ok\nhead|CLUB\nrow|CLUB|KITAKAZE ESTE  (founded 2026-09-02)|w\n\
+          row|MANAGER|H. SAKURABA  (born 1980-04-01)|w\nrow|CONTRACT|38 matches left|w\n\
+          row|LEAGUE|Div 3, leg 2: 4th - W7 D2 L3, 21-14, 23 pts|w\nrow|ALL MATCHES|W81 D27 L34 - best win streak 6|w\n\
+          row|PRIZE MONEY|$3,597,000|w\nhead|CARD HEALTH\n\
+          row|SESSION|the last session did not end normally|y\nrow|BAD ENDINGS|1 - at 2, trade rights are lost|y\n\
+          row|SAVED COPIES|both good, the same|g\nrow|CARD SAVED|2026-10-12 15:04|w\n\
+          squad|1|ROSSETTI|GK|30|0|0|good|-\nsquad|4|OKONKWO|DF|28|2|1|good|-\nsquad|8|VALDEMAR|MF|31|6|9|fair|-\n\
+          squad|10|IBARRA|MF|25|9|7|good|knee\nsquad|9|LINDQVIST|FW|29|17|4|good|-\n\
+          session|cut\nbackup|2026-10-12 14:58\n\
+          wallet|porto_azzurro.bin|PORTO AZZURRO FC|W12 D4 L9 - last played 2026-10-03\n\
+          wallet|nordhavn.bin|NORDHAVN UNITED|W40 D11 L20 - last played 2026-09-21|transferred\n",
+    )
+}

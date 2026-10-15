@@ -159,7 +159,10 @@ mod tests {
         assert_eq!(v.wallet[1].file, "b.bin");
 
         let none = ClubView::parse(b"state|none|no club card in the slot yet\nsession|none\n");
-        assert_eq!((none.state.as_str(), none.reason.as_str()), ("none", "no club card in the slot yet"));
+        assert_eq!(
+            (none.state.as_str(), none.reason.as_str()),
+            ("none", "no club card in the slot yet")
+        );
         assert_eq!(ClubView::parse(b"").state, "unreadable");
         assert_eq!(ClubView::default().state, "noview");
     }

@@ -387,6 +387,9 @@ struct Render {
     restart_at: Option<Instant>,
     logs_at: Option<Instant>,
     logs_stamp: Option<std::time::SystemTime>,
+    /// CLUB CARD: when club_view.txt was last looked at, and its time then.
+    club_at: Option<Instant>,
+    club_stamp: Option<std::time::SystemTime>,
     painter: painter::Painter,
     start: Instant,
     sc: Option<(IDirect3DSwapChain9, u32, u32, HWND)>,
@@ -453,6 +456,8 @@ impl Render {
             logs_at: None,
             // an answer from an earlier run is not shown
             logs_stamp: stamp(&files.request("sendlogs.result")),
+            club_at: None,
+            club_stamp: None,
             painter: painter::Painter::default(),
             start: Instant::now(),
             sc: None,
@@ -690,6 +695,7 @@ impl Render {
             .native_pixels_per_point = Some(ppp);
         self.table_in();
         self.settings_in();
+        self.club_in();
         self.keys_in();
         let st = &mut self.st;
         let out = self.ctx.run_ui(raw, |ui| panel::show(ui, st));
@@ -704,6 +710,7 @@ impl Render {
         self.add();
         self.keys_out();
         self.settings_out();
+        self.club_out();
         self.table_out();
         self.keys();
         let prims = self.ctx.tessellate(out.shapes, out.pixels_per_point);
@@ -886,14 +893,8 @@ impl Render {
                 log("settings: restart refused - a card session is open");
                 self.st.say(Tone::Refused, "panel.msg_session_open");
             } else {
-                let text = format!(
-                    "RESTART NOW - asked by the SETTINGS panel in seat 1 (pid {})\n",
-                    std::process::id()
-                );
-                if kit::swap_write(&f.request("restart.request"), &text).is_ok() {
+                if self.ask_restart(f, "SETTINGS") {
                     log("settings: restart requested");
-                    self.restart_at = Some(Instant::now());
-                    self.st.restart_sent = true;
                     self.st.say(Tone::Done, "settings.msg_restarting");
                 } else {
                     self.st.say(Tone::Refused, "settings.msg_restart_failed");
@@ -911,6 +912,90 @@ impl Render {
             } else {
                 self.st.say(Tone::Refused, "settings.msg_logs_failed");
             }
+        }
+    }
+
+    /// data\restart.request for the run (`page` names who asked); taken back after 3 s when no run took it.
+    fn ask_restart(&mut self, f: &kit::Files, page: &str) -> bool {
+        let text = format!(
+            "RESTART NOW - asked by the {page} panel in seat 1 (pid {})\n",
+            std::process::id()
+        );
+        let ok = kit::swap_write(&f.request("restart.request"), &text).is_ok();
+        if ok {
+            self.restart_at = Some(Instant::now());
+            self.st.restart_sent = true;
+        }
+        ok
+    }
+
+    /// CLUB CARD: data\club_view.txt read on opening and again each second while open when it changed (the run's helper
+    /// rewrites it whole whenever the card changes); the slot's session read with it, for the refusal.
+    fn club_in(&mut self) {
+        let Some(f) = FILES.get() else { return };
+        if self.st.page != panel::Page::ClubCard {
+            return;
+        }
+        let opened = self.last_page != panel::Page::ClubCard;
+        if !opened && self.club_at.is_some_and(|t| t.elapsed() < Duration::from_secs(1)) {
+            return;
+        }
+        self.club_at = Some(Instant::now());
+        let path = f.data.join("club_view.txt");
+        let st = stamp(&path);
+        if !opened && st == self.club_stamp {
+            return;
+        }
+        self.club_stamp = st;
+        self.st.status.card = f.status().card;
+        self.st.club = match std::fs::read(&path) {
+            Ok(raw) => forza::club_view::ClubView::parse(&raw),
+            Err(_) => Default::default(),
+        };
+        let v = &self.st.club;
+        log(&format!(
+            "club: view read (state {}, {} lines, {} players, {} backups, session {}, {} other cards)",
+            v.state,
+            v.lines.len(),
+            v.squad.len(),
+            v.backups.len(),
+            if v.session.is_empty() { "-" } else { &v.session },
+            v.wallet.len()
+        ));
+    }
+
+    /// CLUB CARD's choice, asked by its second click: data\panel.txt read again with card=FILE / card=new or
+    /// card_fix=bad_endings added, written whole, then RESTART NOW (the run switches the cards while nothing runs).
+    fn club_out(&mut self) {
+        use forza::ui::panel::ClubPick;
+        use forza::ui::widgets::Tone;
+        let Some(pick) = self.st.club_request.take() else { return };
+        let Some(f) = FILES.get() else { return };
+        if f.status().card == panel::CardState::Open {
+            log("club: switch refused - a card session is open");
+            self.st.say(Tone::Refused, "club.session_refused");
+            return;
+        }
+        let mut file = f.panel_file();
+        match &pick {
+            ClubPick::Fix => file.card_fix = true,
+            ClubPick::New => file.card = "new".into(),
+            ClubPick::Card { file: name, .. } => file.card = name.clone(),
+        }
+        if let Err(e) = f.save_panel(&file) {
+            log(&format!("club: could not save panel.txt: {e}"));
+            self.st.say(Tone::Refused, "settings.msg_not_saved");
+            return;
+        }
+        self.st.file = file;
+        if !self.ask_restart(f, "CLUB CARD") {
+            self.st.say(Tone::Refused, "club.msg_restart_failed");
+        } else if pick == ClubPick::Fix {
+            log("club: clear bad endings requested");
+            self.st.say(Tone::Done, "club.msg_fixing");
+        } else {
+            log(&format!("club: switch to {} requested", self.st.file.card));
+            self.st.say(Tone::Done, "club.msg_switching");
         }
     }
 

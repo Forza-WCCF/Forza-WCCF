@@ -277,12 +277,51 @@ settings.msg_not_saved: {en: "Could not save data\\panel.txt: try again", it: "I
 # ---- club card ----
 club.label: {en: "CLUB CARD", it: "TESSERA CLUB", ja: "クラブカード"}
 club.manager: {en: "Manager: %{name}", it: "Allenatore: %{name}", ja: "監督：%{name}"}
-club.session_open: {en: "Session open: saved at the end of each match.", it: "Sessione aperta: salvata alla fine di ogni partita.", ja: "セッション中：試合ごとに保存されます。"}
-club.played: {en: "Matches", it: "Partite", ja: "試合数"}
-club.record: {en: "Won · drawn · lost", it: "Vinte · pari · perse", ja: "勝・分・敗"}
 club.your_cards: {en: "YOUR CARDS", it: "LE TUE TESSERE", ja: "あなたのカード"}
-club.last_played: {en: "Last played %{d}", it: "Ultima partita %{d}", ja: "最終プレイ %{d}"}
-club.in_use: {en: "IN USE", it: "IN USO", ja: "使用中"}
-club.new_card: {en: "NEW CARD", it: "NUOVA TESSERA", ja: "新しいカード"}
-club.new_hint: {en: "Start a new club at the next start", it: "Un nuovo club al prossimo avvio", ja: "次回の起動で新しいクラブを始めます"}
 club.clear_bad: {en: "CLEAR BAD ENDINGS", it: "AZZERA CHIUSURE ANOMALE", ja: "異常終了をクリア"}
+club.new_card: {en: "NEW CLUB CARD", it: "NUOVA TESSERA CLUB", ja: "新しいクラブカード"}
+club.new_again: {en: "CLICK AGAIN FOR A NEW CARD", it: "CLICCA DI NUOVO PER UNA NUOVA TESSERA", ja: "もう一度押すと新しいカード"}
+club.play: {en: "PLAY THIS CLUB", it: "GIOCA QUESTO CLUB", ja: "このクラブでプレイ"}
+club.click_again: {en: "CLICK AGAIN", it: "CLICCA DI NUOVO", ja: "もう一度押す"}
+club.transferred: {en: "TRANSFERRED", it: "TRASFERITA", ja: "移籍済み"}
+club.clear_again: {en: "CLICK AGAIN TO CLEAR", it: "CLICCA DI NUOVO PER AZZERARE", ja: "もう一度押すとクリア"}
+club.clear_hint: {en: "Back to 0 at a restart; trade rights the game already took stay lost.", it: "Tornano a 0 al riavvio; i diritti di scambio già tolti dal gioco restano persi.", ja: "再起動時に0に戻ります。ゲームがすでに取り消したトレード権は戻りません。"}
+club.intro: {en: "The club card in the slot as the game reads it, updated each time the game saves it. YOUR CARDS: switch club or start a new one (the game restarts). Esc closes this.", it: "La tessera club nello slot come la legge il gioco, aggiornata a ogni salvataggio. LE TUE TESSERE: cambia club o iniziane uno nuovo (il gioco si riavvia). Esc chiude.", ja: "スロットのクラブカードをゲームと同じように表示します（保存のたびに更新）。あなたのカード：クラブの切り替えや新規作成（ゲームは再起動します）。Escで閉じます。"}
+club.noview: {en: "Reading the club card: a moment after the start. Started with Launcher.exe?", it: "Lettura della tessera club: un attimo dopo l'avvio. Avviato con Launcher.exe?", ja: "クラブカードを読み込み中：起動後しばらくお待ちください。Launcher.exeから起動しましたか？"}
+club.none_1718: {en: "2017–18 keeps the clubs on the game server: there is no club card file to show.", it: "Il 2017–18 tiene i club sul server di gioco: non c'è un file della tessera da mostrare.", ja: "2017–18はクラブをゲームサーバーに保存します。表示するクラブカードのファイルはありません。"}
+club.backups: {en: "BACKUPS", it: "BACKUP", ja: "バックアップ"}
+club.backups_hint: {en: "In data\\save\\backup; restoring one comes later.", it: "In data\\save\\backup; il ripristino arriverà più avanti.", ja: "data\\save\\backup にあります。復元は今後対応します。"}
+club.squad: {en: "SQUAD", it: "ROSA", ja: "スカッド"}
+club.sq_no: {en: "NO", it: "N.", ja: "番号"}
+club.sq_name: {en: "NAME", it: "NOME", ja: "名前"}
+club.sq_pos: {en: "POS", it: "RUOLO", ja: "ポジ"}
+club.sq_apps: {en: "APPS", it: "PRES", ja: "出場"}
+club.sq_goals: {en: "GOALS", it: "GOL", ja: "得点"}
+club.sq_assists: {en: "AST", it: "ASS", ja: "アシスト"}
+club.sq_cond: {en: "COND", it: "FORMA", ja: "調子"}
+club.injured: {en: "A name in red: injured.", it: "Nome in rosso: infortunato.", ja: "赤い名前：負傷中。"}
+club.no_others: {en: "No other cards yet: NEW CLUB CARD keeps this one safe here.", it: "Nessun'altra tessera: NUOVA TESSERA CLUB conserva questa qui.", ja: "ほかのカードはまだありません。「新しいクラブカード」で今のカードはここに保管されます。"}
+club.session_refused: {en: "Not during a card session: after the locker-room save.", it: "Non durante una sessione della tessera: dopo il salvataggio negli spogliatoi.", ja: "カードのセッション中はできません。ロッカールームでの保存の後に。"}
+club.switch_hint: {en: "A switch restarts the game; no card is ever deleted.", it: "Un cambio riavvia il gioco; nessuna tessera viene mai cancellata.", ja: "切り替えるとゲームが再起動します。カードが削除されることはありません。"}
+club.msg_asked: {en: "Already asked: the game closes and opens again.", it: "Già richiesto: il gioco si chiude e si riapre.", ja: "依頼済みです：ゲームを閉じて再び開きます。"}
+club.msg_blank: {en: "The slot already holds a blank card: put it in (CARD) and the game makes a club.", it: "Nello slot c'è già una tessera vuota: inseriscila (CARD) e il gioco crea un club.", ja: "スロットには白紙のカードがあります。カードを入れる（CARD）とゲームがクラブを作ります。"}
+club.msg_arm_fix: {en: "Click again: the bad endings go back to 0, the game restarts.", it: "Clicca di nuovo: le chiusure anomale tornano a 0, il gioco si riavvia.", ja: "もう一度押すと異常終了が0に戻り、ゲームが再起動します。"}
+club.msg_arm_new: {en: "Click again: this club goes to YOUR CARDS, a new card into the slot.", it: "Clicca di nuovo: questo club va in LE TUE TESSERE, una nuova tessera nello slot.", ja: "もう一度押すと、このクラブは「あなたのカード」へ、新しいカードがスロットへ入ります。"}
+club.msg_arm_play: {en: "Click again to play %{club}: the game restarts with it.", it: "Clicca di nuovo per giocare con %{club}: il gioco si riavvia con questo club.", ja: "もう一度押すと%{club}でプレイします。ゲームが再起動します。"}
+club.msg_switching: {en: "Switching: the game closes and opens again (about a minute).", it: "Cambio in corso: il gioco si chiude e si riapre (circa un minuto).", ja: "切り替え中：ゲームを閉じて再び開きます（約1分）。"}
+club.msg_fixing: {en: "Clearing the bad endings: the game closes and opens again.", it: "Azzeramento delle chiusure anomale: il gioco si chiude e si riapre.", ja: "異常終了をクリア中：ゲームを閉じて再び開きます。"}
+club.msg_restart_failed: {en: "Could not ask for the restart: close the game, then Launcher.exe does the switch.", it: "Impossibile chiedere il riavvio: chiudi il gioco, poi Launcher.exe fa il cambio.", ja: "再起動を依頼できませんでした。ゲームを閉じると Launcher.exe が切り替えます。"}
+club.row_club: {en: "CLUB", it: "CLUB", ja: "クラブ"}
+club.row_manager: {en: "MANAGER", it: "ALLENATORE", ja: "監督"}
+club.row_contract: {en: "CONTRACT", it: "CONTRATTO", ja: "契約"}
+club.row_salary: {en: "SALARY", it: "STIPENDIO", ja: "年俸"}
+club.row_league: {en: "LEAGUE", it: "CAMPIONATO", ja: "リーグ"}
+club.row_all_matches: {en: "ALL MATCHES", it: "TUTTE LE PARTITE", ja: "全試合"}
+club.row_prize: {en: "PRIZE MONEY", it: "PREMI", ja: "賞金"}
+club.row_trade: {en: "TRADE RIGHTS", it: "DIRITTI DI SCAMBIO", ja: "トレード権"}
+club.row_last_played: {en: "LAST PLAYED", it: "ULTIMA PARTITA", ja: "最終プレイ"}
+club.row_health: {en: "CARD HEALTH", it: "STATO DELLA TESSERA", ja: "カードの状態"}
+club.row_session: {en: "SESSION", it: "SESSIONE", ja: "セッション"}
+club.row_bad: {en: "BAD ENDINGS", it: "CHIUSURE ANOMALE", ja: "異常終了"}
+club.row_copies: {en: "SAVED COPIES", it: "COPIE SALVATE", ja: "保存コピー"}
+club.row_saved: {en: "CARD SAVED", it: "TESSERA SALVATA", ja: "カード保存"}

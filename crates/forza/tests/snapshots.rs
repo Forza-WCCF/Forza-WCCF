@@ -388,3 +388,64 @@ fn settings_choices_and_restart() {
     assert!(st.borrow().restart);
     h.snapshot("panel_settings_changed_en");
 }
+
+/// CLUB CARD as a player uses it: the view's club, rows and squad; PLAY THIS CLUB needs a second click and asks for that
+/// card (data\panel.txt's card=, then the restart); a transferred card has no button; refused while a card session is
+/// open; CLEAR BAD ENDINGS the same way (2010-11); Esc closes the page.
+#[test]
+fn club_card_switch_and_clear() {
+    use forza::ui::panel::ClubPick;
+    use std::cell::RefCell;
+    let _gpu = gpu();
+    let st = RefCell::new(panel::PanelState::new(
+        Edition::E1011,
+        Lang::En,
+        forza::ui::sample::board(),
+        forza::ui::sample::cards().into(),
+    ));
+    {
+        let mut s = st.borrow_mut();
+        s.page = panel::Page::ClubCard;
+        s.club = forza::ui::sample::club_view();
+    }
+    let mut h = harness(panel::SIZE, 1.0, Edition::E1011, |ui| {
+        panel::show(ui, &mut st.borrow_mut())
+    });
+    h.run_steps(3);
+    assert_eq!(
+        h.query_all_by_label("PLAY THIS CLUB").count(),
+        1,
+        "a transferred card has no button"
+    );
+    h.get_by_label("PLAY THIS CLUB").click();
+    h.run_steps(2);
+    assert!(st.borrow().club_request.is_none());
+    h.get_by_label("CLICK AGAIN").click();
+    h.run_steps(2);
+    assert_eq!(
+        st.borrow_mut().club_request.take(),
+        Some(ClubPick::Card {
+            file: "porto_azzurro.bin".into(),
+            club: "PORTO AZZURRO FC".into()
+        })
+    );
+    st.borrow_mut().club.session = "open".into();
+    h.get_by_label("NEW CLUB CARD").click();
+    h.run_steps(2);
+    h.get_by_label("NEW CLUB CARD").click();
+    h.run_steps(2);
+    assert!(
+        st.borrow().club_request.is_none(),
+        "refused during a session"
+    );
+    st.borrow_mut().club.session = "cut".into();
+    h.get_by_label("CLEAR BAD ENDINGS").click();
+    h.run_steps(2);
+    h.get_by_label("CLICK AGAIN TO CLEAR").click();
+    h.run_steps(2);
+    assert_eq!(st.borrow_mut().club_request.take(), Some(ClubPick::Fix));
+    h.snapshot("panel_clubcard_view_en");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert_eq!(st.borrow().page, panel::Page::Game);
+}
