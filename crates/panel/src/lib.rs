@@ -77,6 +77,8 @@ static SCALE: AtomicU32 = AtomicU32::new(0x3F80_0000); // pixels per point (f32 
 static WANTS_KEYS: AtomicBool = AtomicBool::new(false);
 /// A page is open: its keys are the page's, never the game's.
 static PAGE_OPEN: AtomicBool = AtomicBool::new(false);
+/// Keys pressed while a page is open (virtual-key code, Alt held), repeats left out: KEYS takes them.
+static VK_DOWN: Mutex<Vec<(u32, bool)>> = Mutex::new(Vec::new());
 static EXE_DIR: OnceLock<PathBuf> = OnceLock::new();
 static DLL_DIR: OnceLock<PathBuf> = OnceLock::new();
 static FILES: OnceLock<kit::Files> = OnceLock::new();
@@ -373,6 +375,13 @@ struct Render {
     /// A cabinet button's key that is down, since when; the mouse still held on it.
     key: Option<(u32, Instant)>,
     mouse_down: bool,
+    /// The page shown last frame (KEYS opening reads keys.txt again and looks for controllers).
+    last_page: panel::Page,
+    /// The controllers, while KEYS is open, and the controls held at the last look.
+    pads: Option<launcher::keys::Pads>,
+    pads_held: std::collections::BTreeSet<u32>,
+    /// When the controllers were last looked for.
+    pads_scan: Instant,
     painter: painter::Painter,
     start: Instant,
     sc: Option<(IDirect3DSwapChain9, u32, u32, HWND)>,
@@ -414,6 +423,7 @@ impl Render {
         let cards = CATALOGUE.get().cloned().unwrap_or_else(|| Arc::new([]));
         let mut st = PanelState::new(files.edition, lang, cards::board(&placed, &cards), cards);
         st.hover_delay = files.hover_delay();
+        (st.keys, st.pads) = files.load_keys();
         st.picture = Some(GAME);
         log(&format!(
             "language {}, hover delay {} s",
@@ -427,6 +437,10 @@ impl Render {
             placed,
             key: None,
             mouse_down: false,
+            last_page: panel::Page::Game,
+            pads: None,
+            pads_held: Default::default(),
+            pads_scan: Instant::now(),
             painter: painter::Painter::default(),
             start: Instant::now(),
             sc: None,
@@ -663,6 +677,7 @@ impl Render {
             .or_default()
             .native_pixels_per_point = Some(ppp);
         self.table_in();
+        self.keys_in();
         let st = &mut self.st;
         let out = self.ctx.run_ui(raw, |ui| panel::show(ui, st));
         WANTS_KEYS.store(self.ctx.egui_wants_keyboard_input(), Relaxed);
@@ -674,6 +689,7 @@ impl Render {
                 .map(|r| egui::Rect::from_min_max(r.min * ppp, r.max * ppp));
         }
         self.add();
+        self.keys_out();
         self.table_out();
         self.keys();
         let prims = self.ctx.tessellate(out.shapes, out.pixels_per_point);
@@ -758,6 +774,83 @@ impl Render {
         log(&format!("page {}", self.st.page.tag()));
     }
 
+    /// KEYS: opened, keys.txt read again (it may have been edited by hand) and the controllers looked for afresh;
+    /// while open, the keys pressed and the first controller control pressed since the last frame; closed, the
+    /// controllers let go.
+    fn keys_in(&mut self) {
+        let keys = self.st.page == panel::Page::Keys;
+        let typed = VK_DOWN
+            .lock()
+            .map(|mut v| std::mem::take(&mut *v))
+            .unwrap_or_default();
+        if keys != (self.last_page == panel::Page::Keys) {
+            if keys {
+                if let Some(f) = FILES.get() {
+                    (self.st.keys, self.st.pads) = f.load_keys();
+                }
+                let p = pads();
+                p.rescan();
+                self.pads = Some(p);
+                self.pads_scan = Instant::now();
+                self.pads_held.clear();
+            } else {
+                self.pads = None;
+            }
+        }
+        self.last_page = self.st.page;
+        if !keys {
+            return;
+        }
+        for (vk, alt) in &typed {
+            log(&format!(
+                "keys: key 0x{vk:02X}{}",
+                if *alt { " with Alt" } else { "" }
+            ));
+        }
+        self.st.vk_down.extend(typed);
+        if let Some(p) = &self.pads {
+            // ponytail: looked for on the render thread every 2 s while KEYS is open (an empty slot answered in 0.01 ms
+            // for the C panel; a thread of our own would outlive an unloaded DLL); a thread if a PC proves slow
+            if self.pads_scan.elapsed() >= Duration::from_secs(2) {
+                p.rescan();
+                self.pads_scan = Instant::now();
+            }
+            let held = p.poll();
+            let new: Vec<u32> = held.difference(&self.pads_held).copied().collect();
+            // the first control pressed: a button, else the hat, else a stick or axis (wccfpanel.c pad_tick)
+            let first = new
+                .iter()
+                .find(|&&c| c < launcher::keys::PAD_AXIS)
+                .or_else(|| new.iter().find(|&&c| c >= launcher::keys::PAD_HAT))
+                .or(new.first());
+            if let Some(&c) = first {
+                log(&format!(
+                    "keys: controller {}",
+                    launcher::keys::pad_label(c)
+                ));
+                self.st.pad_down = Some(c);
+            }
+            self.pads_held = held;
+            self.st.pad_names = p.names();
+        }
+    }
+
+    /// The bindings changed on KEYS: keys.txt written whole (the key driver reads it again at once).
+    fn keys_out(&mut self) {
+        if !std::mem::take(&mut self.st.keys_changed) {
+            return;
+        }
+        let Some(f) = FILES.get() else { return };
+        match f.save_keys(&self.st.keys, &self.st.pads) {
+            Ok(()) => log(&format!("keys: saved {}", f.keys.display())),
+            Err(e) => {
+                log(&format!("keys: could not save {}: {e}", f.keys.display()));
+                self.st
+                    .say(forza::ui::widgets::Tone::Refused, "keys.msg_not_saved");
+            }
+        }
+    }
+
     /// A catalogue card asked for (a click, Enter or ADD): put on the table and the table written.
     fn add(&mut self) {
         let Some(no) = self.st.add.take() else { return };
@@ -777,12 +870,14 @@ impl Render {
     /// The cabinet buttons' keys: down on a press, up once the mouse is released and the key has been down 140 ms
     /// (the C panel's rule: a press shorter than the game's input poll would be missed).
     fn keys(&mut self) {
-        let files = FILES.get();
         if let Some(action) = self.st.pressed.take() {
             if let Some((vk, _)) = self.key.take() {
                 kit::send_key(vk, true, log);
             }
-            let vk = files.map_or(0, |f| f.key_of(action));
+            let vk = forza::keys::NAMES
+                .iter()
+                .position(|n| *n == action)
+                .map_or(0, |i| self.st.keys[i]);
             log(&format!("button {action} -> key 0x{vk:02X}"));
             kit::send_key(vk, false, log);
             self.key = Some((vk, Instant::now()));
@@ -857,6 +952,35 @@ impl Render {
             Ok(()) => {}
             Err(e) => log(&format!("frame dump: {e}")),
         }
+    }
+}
+
+/// The controllers through winmm (from the system folder: seat 1's own winmm.dll is the hook), or the test's
+/// (`WCCFPANEL_FAKEPAD`).
+fn pads() -> launcher::keys::Pads {
+    // ponytail: winmm looked up again at each KEYS opening; cheap (the module stays loaded)
+    let say: forza::standins::Log = Arc::new(|m: &str| log(&format!("pads: {m}")));
+    match std::env::var_os("WCCFPANEL_FAKEPAD").filter(|v| !v.is_empty()) {
+        Some(file) => {
+            log("pads: FAKE controllers (a test)");
+            let names = kit::FakePads(file.clone().into());
+            launcher::keys::Pads::new(
+                Box::new(kit::FakePads(file.into())),
+                say,
+                Box::new(move |c| names.name(c)),
+            )
+        }
+        None => match kit::SysWinmm::load() {
+            Some(w) => {
+                launcher::keys::Pads::new(Box::new(w), say, Box::new(launcher::keys::pad_name))
+            }
+            None => {
+                log(
+                    "pads: no joystick calls in the system's winmm.dll - controllers cannot be read here",
+                );
+                launcher::keys::Pads::new(Box::new(kit::NoPads), say, Box::new(|_| String::new()))
+            }
+        },
     }
 }
 
@@ -1052,7 +1176,15 @@ fn input(m: u32, wp: WPARAM, lp: LPARAM) -> bool {
             push(vec![Event::PointerGone]);
             return false;
         }
-        WM_KEYDOWN | WM_SYSKEYDOWN => (key(true).into_iter().collect(), true),
+        WM_KEYDOWN | WM_SYSKEYDOWN => {
+            if PAGE_OPEN.load(Relaxed)
+                && lp.0 & (1 << 30) == 0
+                && let Ok(mut v) = VK_DOWN.lock()
+            {
+                v.push((wp.0 as u32, lp.0 & (1 << 29) != 0));
+            }
+            (key(true).into_iter().collect(), true)
+        }
         WM_KEYUP | WM_SYSKEYUP => (key(false).into_iter().collect(), true),
         WM_CHAR => (
             char::from_u32(wp.0 as u32)

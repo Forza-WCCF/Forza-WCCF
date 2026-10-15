@@ -177,7 +177,20 @@ cat.msg_full: {en: "The table is full: 16 cards (right-click one to take it off)
 cat.msg_no_place: {en: "No free place: right-click a card to take it off", it: "Nessun posto libero: clic destro su una carta per toglierla", ja: "空きがありません：カードを右クリックして外してください"}
 
 # ---- keys ----
-keys.hint: {en: "Click a cell, then press a key or a controller button. A key taken by another action swaps over; right-click clears.", it: "Clicca una casella, poi premi un tasto o un pulsante del controller. Un tasto già usato viene scambiato; clic destro per cancellare.", ja: "セルをクリックしてから、キーかコントローラーのボタンを押します。使用中のキーは入れ替わります。右クリックで解除。"}
+keys.hint: {en: "Click a cell, then press a key or a controller button. A key taken by another action swaps over; right-click clears a controller cell.", it: "Clicca una casella, poi premi un tasto o un pulsante del controller. Un tasto già usato viene scambiato; clic destro per cancellare un comando del controller.", ja: "セルをクリックしてから、キーかコントローラーのボタンを押します。使用中のキーは入れ替わります。右クリックでコントローラーの割り当てを解除。"}
+keys.no_controller: {en: "No controller found yet: plug one in, it shows here.", it: "Nessun controller trovato: collegane uno, comparirà qui.", ja: "コントローラーが見つかりません。接続するとここに表示されます。"}
+keys.none: {en: "none", it: "nessuno", ja: "なし"}
+keys.msg_keeps: {en: "%{action} keeps %{key}", it: "%{action} resta su %{key}", ja: "%{action} は %{key} のままです"}
+keys.msg_set: {en: "%{action} = %{key}", it: "%{action} = %{key}", ja: "%{action} = %{key}"}
+keys.msg_swapped: {en: "%{action} = %{key}   (%{other} gets %{old})", it: "%{action} = %{key}   (%{other} passa a %{old})", ja: "%{action} = %{key}（%{other} は %{old} に）"}
+keys.msg_refused: {en: "%{key} cannot be used: pick another key", it: "%{key} non si può usare: scegli un altro tasto", ja: "%{key} は使えません。別のキーを選んでください"}
+keys.msg_is_a_key: {en: "%{key} is a key: for keys, click the KEYBOARD cell", it: "%{key} è un tasto: per i tasti clicca la casella TASTIERA", ja: "%{key} はキーです。キーはキーボードのセルで設定します"}
+keys.msg_is_a_control: {en: "That was the controller's %{key}: for it, click the CONTROLLER cell", it: "Era %{key} del controller: per quello clicca la casella CONTROLLER", ja: "コントローラーの %{key} です。コントローラーのセルで設定します"}
+keys.msg_no_pad_yet: {en: "No controller found yet: plug one in, then press its button", it: "Nessun controller trovato: collegane uno, poi premi il pulsante", ja: "コントローラーが見つかりません。接続してからボタンを押してください"}
+keys.msg_no_control: {en: "%{action} has no controller control", it: "%{action} non ha comandi del controller", ja: "%{action} にはコントローラーの割り当てがありません"}
+keys.msg_cleared: {en: "%{action}: no controller control", it: "%{action}: nessun comando del controller", ja: "%{action}：コントローラーの割り当てを解除しました"}
+keys.msg_defaults: {en: "The default keys are back, no controller controls", it: "Tornati i tasti predefiniti, nessun comando del controller", ja: "初期設定のキーに戻しました（コントローラーの割り当てなし）"}
+keys.msg_not_saved: {en: "Could not save keys.txt: try again", it: "Impossibile salvare keys.txt: riprova", ja: "keys.txt を保存できませんでした。もう一度お試しください"}
 keys.controller_found: {en: "Controller found: %{name}", it: "Controller trovato: %{name}", ja: "コントローラーを検出：%{name}"}
 keys.action: {en: "ACTION", it: "AZIONE", ja: "操作"}
 keys.keyboard: {en: "KEYBOARD", it: "TASTIERA", ja: "キーボード"}

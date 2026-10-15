@@ -362,6 +362,66 @@ fn board_and_buttons_with_real_data() {
         fs::read_to_string(&table).unwrap(),
         format!("{header}1 101 0.000 0.900\n3 103 -0.200 0.600\n2 102 -0.600 0.550\n")
     );
+
+    // 4. KEYS from the bar: SHOOT's key cell clicked, then H; KEEPER's controller cell clicked, then a (fake)
+    // controller's button 3 pressed after the controller was found at rest; keys.txt written as the C panel writes it
+    let _ = fs::remove_file(seat.join("forza_panel.log"));
+    let pad = t.join("pad.txt");
+    let at_rest = "0 0 2 0 32767 32767 0 0 0 0 65535 Test Pad\n";
+    fs::write(&pad, at_rest).unwrap();
+    let game = Command::new(seat.join("fakegame.exe"))
+        .current_dir(&seat)
+        .env("WCCFPANEL_FAKEPAD", &pad)
+        .env_remove("WCCF_KIT_LANG")
+        .arg("../programs/forza_panel.dll")
+        .args([
+            "wait:2500",
+            "click:336,870", // KEYS
+            "wait:600",
+            "click:335,309", // SHOOT's key
+            "wait:300",
+            "key:72", // H
+            "wait:300",
+            "click:551,347", // KEEPER's controller cell
+            "wait:6000",
+            "key:27",
+            "wait:400",
+        ])
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    // the button goes down once H has been taken and the controller cell clicked (300 ms later)
+    for _ in 0..200 {
+        let log = fs::read_to_string(seat.join("forza_panel.log")).unwrap_or_default();
+        if log.contains("keys: key 0x48") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    std::thread::sleep(std::time::Duration::from_millis(2000));
+    fs::write(&pad, at_rest.replacen("0 0 2", "0 4 2", 1)).unwrap(); // button 3 down
+    let out = game.wait_with_output().unwrap();
+    assert!(out.status.success(), "fakegame ended with {}", out.status);
+    let log = fs::read_to_string(seat.join("forza_panel.log")).unwrap_or_default();
+    println!("forza_panel.log:\n{log}");
+    for line in [
+        "page keys",
+        "pads: FAKE controllers",
+        "controller found: Test Pad",
+        "keys: controller Button 3",
+        "keys: saved",
+        "page game",
+    ] {
+        assert!(log.contains(line), "the panel's log has no '{line}'");
+    }
+    let mut keys = forza::keys::defaults(false);
+    keys[2] = 0x48;
+    let mut pads = [0; 16];
+    pads[3] = 0x103;
+    assert_eq!(
+        fs::read_to_string(data.join("keys.txt")).unwrap(),
+        forza::keys::keys_text(false, &keys, &pads)
+    );
     if env::var_os("FORZA_PANEL_KEEP").is_none() {
         let _ = fs::remove_dir_all(&t);
     }

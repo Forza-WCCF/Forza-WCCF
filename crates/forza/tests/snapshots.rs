@@ -2,6 +2,7 @@
 //! (`UPDATE_SNAPSHOTS=1` writes new ones). Rendered with wgpu on the machine's GPU.
 
 use egui::{Ui, Vec2};
+use egui_kittest::kittest::Queryable;
 use egui_kittest::{Harness, SnapshotResults};
 use forza::ui::Lang;
 use forza::ui::theme::{self, Edition};
@@ -296,4 +297,42 @@ fn catalogue_search_and_add() {
     h.key_press(egui::Key::Escape);
     h.run_steps(1);
     assert_eq!(st.borrow().page, panel::Page::Game);
+}
+
+/// KEYS as a player uses it: a click on SHOOT's key cell, then a key: SHOOT takes it and the action that had it takes
+/// SHOOT's old key; the bindings are marked for keys.txt. Esc while a cell waits cancels it, not the page.
+#[test]
+fn keys_click_then_press() {
+    use std::cell::RefCell;
+    let _gpu = gpu();
+    let st = RefCell::new(panel::PanelState::new(
+        Edition::E1011,
+        Lang::En,
+        forza::ui::sample::board(),
+        forza::ui::sample::cards().into(),
+    ));
+    st.borrow_mut().page = panel::Page::Keys;
+    let mut h = harness(panel::SIZE, 1.0, Edition::E1011, |ui| {
+        panel::show(ui, &mut st.borrow_mut())
+    });
+    h.run_steps(3);
+    h.get_by_label("C").click(); // SHOOT's key
+    h.run_steps(1);
+    assert_eq!(st.borrow().capturing, Some(2));
+    h.key_press(egui::Key::Escape);
+    st.borrow_mut().vk_down = vec![(0x1B, false)];
+    h.run_steps(1);
+    assert_eq!(
+        (st.borrow().capturing, st.borrow().page),
+        (None, panel::Page::Keys)
+    );
+    h.get_by_label("C").click();
+    h.run_steps(1);
+    st.borrow_mut().vk_down = vec![(0x58, false)]; // X, PRESS's key
+    h.run_steps(2);
+    {
+        let s = st.borrow();
+        assert_eq!((s.keys[2], s.keys[1], s.keys_changed), (0x58, 0x43, true));
+    }
+    h.snapshot("panel_keys_swapped_en");
 }

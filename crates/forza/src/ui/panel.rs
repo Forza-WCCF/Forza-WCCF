@@ -54,24 +54,24 @@ impl Page {
     }
 }
 
-/// The 16 bindable actions, in the KEYS page's order: (text key, keyboard, controller, cabinet colour).
-pub const ACTIONS: [(&str, &str, &str, Cab); 16] = [
-    ("cab.start", "Enter", "Start", Cab::Plain),
-    ("cab.press", "Q", "LB", Cab::Tactic),
-    ("cab.shoot", "Space", "A", Cab::Shoot),
-    ("cab.keeper", "K", "B", Cab::Keeper),
-    ("cab.data", "D", "Y", Cab::Data),
-    ("cab.key_player", "P", "X", Cab::KeyPlayer),
-    ("cab.card", "C", "Back", Cab::Plain),
-    ("cab.coin", "5", "", Cab::Plain),
-    ("keys.up", "↑", "D-pad ↑", Cab::Tactic),
-    ("keys.down", "↓", "D-pad ↓", Cab::Tactic),
-    ("keys.left", "←", "D-pad ←", Cab::Tactic),
-    ("keys.right", "→", "D-pad →", Cab::Tactic),
-    ("keys.test", "F9", "", Cab::Plain),
-    ("keys.service", "F10", "", Cab::Plain),
-    ("keys.sw1", "1", "", Cab::Plain),
-    ("keys.sw2", "2", "", Cab::Plain),
+/// The 16 bindable actions, in the KEYS page's order (`forza::keys::NAMES`): (text key, cabinet colour).
+pub const ACTIONS: [(&str, Cab); 16] = [
+    ("cab.start", Cab::Plain),
+    ("cab.press", Cab::Tactic),
+    ("cab.shoot", Cab::Shoot),
+    ("cab.keeper", Cab::Keeper),
+    ("cab.data", Cab::Data),
+    ("cab.key_player", Cab::KeyPlayer),
+    ("cab.card", Cab::Plain),
+    ("cab.coin", Cab::Plain),
+    ("cab.central", Cab::Tactic),
+    ("cab.counter", Cab::Tactic),
+    ("cab.l_side", Cab::Tactic),
+    ("cab.r_side", Cab::Tactic),
+    ("keys.test", Cab::Plain),
+    ("keys.service", Cab::Plain),
+    ("keys.sw1", Cab::Plain),
+    ("keys.sw2", Cab::Plain),
 ];
 
 /// What the catalogue lists: the search line, the filters and the sort (`wccfpanel.c` `run_search_locked`).
@@ -278,9 +278,16 @@ pub struct PanelState {
     /// The last thing done, refused or worth knowing; one line for every page.
     pub message: Option<Note>,
     pub catalogue: Catalogue,
-    pub keys: Vec<(String, String)>,
+    /// Each action's key (virtual-key code, 0 none) and controller control (`forza::keys`), in [`ACTIONS`] order.
+    pub keys: [u32; 16],
+    pub pads: [u32; 16],
+    /// The action whose KEY cell waits for a key; whose CONTROLLER cell waits for a control.
     pub capturing: Option<usize>,
+    pub pad_capturing: Option<usize>,
+    /// The action changed last (its cells lit).
     pub changed: Option<usize>,
+    /// The controllers found (KEYS).
+    pub pad_names: Vec<String>,
     // settings
     pub next_online: bool,
     pub address: String,
@@ -304,6 +311,13 @@ pub struct PanelState {
     pub held: Option<&'static str>,
     /// A catalogue card to put on the table (its number): [`add_card`].
     pub add: Option<u32>,
+    /// The bindings changed: keys.txt is written.
+    pub keys_changed: bool,
+    // what the panel DLL hands a frame
+    /// Keys pressed since the last frame while a page is open (virtual-key code, Alt held), repeats left out.
+    pub vk_down: Vec<(u32, bool)>,
+    /// A controller control pressed since the last frame (KEYS open).
+    pub pad_down: Option<u32>,
 }
 
 impl PanelState {
@@ -321,12 +335,12 @@ impl PanelState {
             ping_ms: 0,
             message: None,
             catalogue: Catalogue::default(),
-            keys: ACTIONS
-                .iter()
-                .map(|(_, k, c, _)| ((*k).to_owned(), (*c).to_owned()))
-                .collect(),
+            keys: crate::keys::defaults(edition == Edition::E1718),
+            pads: [0; 16],
             capturing: None,
+            pad_capturing: None,
             changed: None,
+            pad_names: Vec::new(),
             next_online: false,
             address: String::new(),
             game_text: 0,
@@ -341,12 +355,20 @@ impl PanelState {
             pressed: None,
             held: None,
             add: None,
+            keys_changed: false,
+            vk_down: Vec::new(),
+            pad_down: None,
         }
     }
 
     /// A message for the line every page shows.
     pub fn note(&mut self, tone: Tone, text: String) {
         self.message = Some(Note::new(tone, text));
+    }
+
+    /// A message by its text key, in the panel's language.
+    pub fn say(&mut self, tone: Tone, key: &str) {
+        self.note(tone, tr!(self.lang, key));
     }
 
     pub fn sample(edition: Edition, lang: Lang, page: Page) -> Self {
@@ -374,6 +396,11 @@ impl PanelState {
             },
             capturing: (page == Page::Keys).then_some(2),
             changed: (page == Page::Keys).then_some(4),
+            pads: [
+                0x10A, 0x105, 0x101, 0x102, 0x104, 0x103, 0x109, 0, 0x300, 0x302, 0x303, 0x301, 0,
+                0, 0, 0,
+            ],
+            pad_names: vec!["Gamepad 1".to_owned()],
             next_online: true,
             address: "192.168.1.20".into(),
             game_text: 1,
@@ -809,7 +836,10 @@ fn game_picture(ui: &mut Ui, pic: Rect, picture: Option<egui::TextureId>) {
 
 fn page(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     // Esc closes the page, unless a KEYS cell is waiting for its key (Esc cancels that)
-    if st.capturing.is_none() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+    if st.capturing.is_none()
+        && st.pad_capturing.is_none()
+        && ui.input(|i| i.key_pressed(egui::Key::Escape))
+    {
         st.page = Page::Game;
         return;
     }
@@ -1220,13 +1250,151 @@ fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> bool {
 
 // ---- KEYS ----
 
+/// The keys and controls the page was given since the last frame, by `wccfpanel.c`'s rules (`keys_key`,
+/// `pad_assign_locked`, `pad_tick`): a waiting KEY cell takes an allowed key, and the action that had it takes the
+/// waiting one's old key (Esc cancels; Alt or a key that must stay free is refused); a waiting CONTROLLER cell takes the
+/// control pressed, swapped the same way. Each change sets `keys_changed` (keys.txt is written).
+pub fn keys_input(st: &mut PanelState) {
+    let lang = st.lang;
+    let label = |i: usize| tr!(lang, ACTIONS[i].0);
+    for (vk, alt) in std::mem::take(&mut st.vk_down) {
+        if let Some(k) = st.pad_capturing {
+            if vk == 0x1B {
+                st.pad_capturing = None;
+                let now = pad_name(lang, st.pads[k]);
+                st.note(
+                    Tone::Notice,
+                    tr!(lang, "keys.msg_keeps", action = label(k), key = now),
+                );
+            } else {
+                let key = crate::keys::key_label(vk);
+                st.note(Tone::Notice, tr!(lang, "keys.msg_is_a_key", key = key));
+            }
+            continue;
+        }
+        let Some(k) = st.capturing else { continue };
+        let old = st.keys[k];
+        if vk == 0x1B || vk == old {
+            st.capturing = None;
+            let key = key_name(lang, old);
+            st.note(
+                Tone::Notice,
+                tr!(lang, "keys.msg_keeps", action = label(k), key = key),
+            );
+        } else if alt || !crate::keys::is_allowed(i128::from(vk)) {
+            let key = if alt && vk != 0x12 {
+                "Alt".into()
+            } else {
+                crate::keys::key_label(vk)
+            };
+            st.note(Tone::Refused, tr!(lang, "keys.msg_refused", key = key));
+        } else {
+            let other = (0..16).find(|&j| j != k && st.keys[j] == vk);
+            st.keys[k] = vk;
+            if let Some(j) = other {
+                st.keys[j] = old;
+            }
+            (st.capturing, st.changed, st.keys_changed) = (None, Some(k), true);
+            let text = match other {
+                Some(j) => tr!(
+                    lang,
+                    "keys.msg_swapped",
+                    action = label(k),
+                    key = key_name(lang, vk),
+                    other = label(j),
+                    old = key_name(lang, old)
+                ),
+                None => tr!(
+                    lang,
+                    "keys.msg_set",
+                    action = label(k),
+                    key = key_name(lang, vk)
+                ),
+            };
+            st.note(Tone::Done, text);
+        }
+    }
+    let Some(code) = st.pad_down.take() else {
+        return;
+    };
+    if let Some(k) = st.pad_capturing {
+        let old = st.pads[k];
+        st.pad_capturing = None;
+        if code == old {
+            st.note(
+                Tone::Notice,
+                tr!(
+                    lang,
+                    "keys.msg_keeps",
+                    action = label(k),
+                    key = pad_name(lang, code)
+                ),
+            );
+            return;
+        }
+        let other = (0..16).find(|&j| j != k && st.pads[j] == code);
+        st.pads[k] = code;
+        if let Some(j) = other {
+            st.pads[j] = old;
+        }
+        (st.changed, st.keys_changed) = (Some(k), true);
+        let text = match other {
+            Some(j) => tr!(
+                lang,
+                "keys.msg_swapped",
+                action = label(k),
+                key = pad_name(lang, code),
+                other = label(j),
+                old = pad_name(lang, old)
+            ),
+            None => tr!(
+                lang,
+                "keys.msg_set",
+                action = label(k),
+                key = pad_name(lang, code)
+            ),
+        };
+        st.note(Tone::Done, text);
+    } else if st.capturing.is_some() {
+        st.note(
+            Tone::Notice,
+            tr!(lang, "keys.msg_is_a_control", key = pad_name(lang, code)),
+        );
+    }
+}
+
+fn key_name(lang: Lang, vk: u32) -> String {
+    if vk == 0 {
+        tr!(lang, "keys.none")
+    } else {
+        crate::keys::key_label(vk)
+    }
+}
+
+fn pad_name(lang: Lang, code: u32) -> String {
+    if code == 0 {
+        tr!(lang, "keys.none")
+    } else {
+        crate::keys::pad_label(code)
+    }
+}
+
 fn keys(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
+    keys_input(st);
     ui.label(egui::RichText::new(tr!(lang, "keys.hint")).color(theme::TEXT_DIM));
-    status_line(
-        ui,
-        Tone::Done,
-        &tr!(lang, "keys.controller_found", name = "Gamepad 1"),
-    );
+    if st.pad_names.is_empty() {
+        status_line(ui, Tone::Notice, &tr!(lang, "keys.no_controller"));
+    } else {
+        status_line(
+            ui,
+            Tone::Done,
+            &tr!(
+                lang,
+                "keys.controller_found",
+                name = st.pad_names.join(", ")
+            ),
+        );
+    }
     ui.add_space(4.0);
     let cell_w = 200.0;
     egui::Grid::new("keys")
@@ -1245,14 +1413,24 @@ fn keys(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             }
         });
     ui.add_space(6.0);
-    action(ui, &tr!(lang, "keys.defaults"));
+    ui.horizontal(|ui| {
+        if action(ui, &tr!(lang, "keys.defaults")).clicked() {
+            st.keys = crate::keys::defaults(st.edition == Edition::E1718);
+            st.pads = [0; 16];
+            (st.capturing, st.pad_capturing, st.changed, st.keys_changed) =
+                (None, None, None, true);
+            st.say(Tone::Done, "keys.msg_defaults");
+        }
+        ui.add_space(12.0);
+        note_line(ui, &mut st.message);
+    });
 }
 
 fn row(ui: &mut Ui, st: &mut PanelState, lang: Lang, i: usize, cell_w: f32) {
-    let (key, _, _, kind) = ACTIONS[i];
-    let disabled = key == "cab.coin" && st.edition == Edition::E1011;
+    let (key, kind) = ACTIONS[i];
+    let disabled = key == "cab.coin" && st.edition == Edition::E1011; // free play: COIN is not needed
     let (r, _) = ui.allocate_exact_size(vec2(130.0, 30.0), Sense::hover());
-    let lit = st.capturing == Some(i);
+    let lit = st.capturing == Some(i) || st.pad_capturing == Some(i);
     cabinet_face(
         ui.painter(),
         r,
@@ -1267,31 +1445,51 @@ fn row(ui: &mut Ui, st: &mut PanelState, lang: Lang, i: usize, cell_w: f32) {
         },
     );
     ui.label("");
-    let (k, c) = &st.keys[i];
-    let state = |text: &str, cap: bool| {
+    let state = |bound: bool, cap: bool| {
         if cap {
             KeyState::Capturing
+        } else if !bound {
+            KeyState::Empty
         } else if st.changed == Some(i) {
             KeyState::Changed
-        } else if text.is_empty() {
-            KeyState::Empty
         } else {
             KeyState::Bound
         }
     };
-    let ks = state(k, lit);
-    let cs = state(c, false);
-    let (k, c) = (k.clone(), c.clone());
+    let ks = state(st.keys[i] != 0, st.capturing == Some(i));
+    let cs = state(st.pads[i] != 0, st.pad_capturing == Some(i));
+    let (k, c) = (
+        crate::keys::key_label(st.keys[i]),
+        crate::keys::pad_label(st.pads[i]),
+    );
     let r1 = key_cell(ui, &k, ks, cell_w, lang);
     let r2 = key_cell(ui, &c, cs, cell_w, lang);
-    if r1.clicked() || r2.clicked() {
-        st.capturing = Some(i);
+    if r1.clicked() {
+        st.pad_capturing = None;
+        st.capturing = (st.capturing != Some(i)).then_some(i); // a second click cancels
+        st.message = None;
     }
-    if r1.secondary_clicked() {
-        st.keys[i].0.clear();
+    if r2.clicked() {
+        st.capturing = None;
+        st.pad_capturing = (st.pad_capturing != Some(i)).then_some(i);
+        st.message = None;
+        if st.pad_capturing.is_some() && st.pad_names.is_empty() {
+            st.say(Tone::Notice, "keys.msg_no_pad_yet");
+        }
     }
     if r2.secondary_clicked() {
-        st.keys[i].1.clear();
+        st.pad_capturing = None;
+        let label = tr!(lang, key);
+        if st.pads[i] == 0 {
+            st.note(
+                Tone::Notice,
+                tr!(lang, "keys.msg_no_control", action = label),
+            );
+        } else {
+            st.pads[i] = 0;
+            st.keys_changed = true;
+            st.note(Tone::Done, tr!(lang, "keys.msg_cleared", action = label));
+        }
     }
 }
 
@@ -2064,5 +2262,54 @@ mod tests {
         assert!(!add_card(&mut st, &mut placed, 32));
         assert_eq!(st.message.as_ref().unwrap().tone, Tone::Refused);
         assert!(!add_card(&mut st, &mut placed, 999)); // not in the catalogue: nothing happens
+    }
+
+    #[test]
+    fn keys_swap_refuse_and_cancel() {
+        let mut st = PanelState::new(
+            Edition::E1011,
+            Lang::En,
+            cards::board(&[], &[]),
+            cards().into(),
+        );
+        // SHOOT (C) takes X, PRESS's key: PRESS gets C
+        st.capturing = Some(2);
+        st.vk_down = vec![(0x58, false)];
+        keys_input(&mut st);
+        assert_eq!((st.keys[2], st.keys[1], st.capturing), (0x58, 0x43, None));
+        assert!(std::mem::take(&mut st.keys_changed));
+        assert_eq!(
+            st.message.as_ref().unwrap().text,
+            "SHOOT = X   (PRESS gets C)"
+        );
+        // Esc and F10 (must stay free) and Alt+G: refused or cancelled, nothing changes
+        st.capturing = Some(0);
+        st.vk_down = vec![(0x79, false), (0x47, true)];
+        keys_input(&mut st);
+        assert_eq!(
+            st.message.as_ref().unwrap().text,
+            "Alt cannot be used: pick another key"
+        );
+        assert_eq!(st.capturing, Some(0));
+        st.vk_down = vec![(0x1B, false)];
+        keys_input(&mut st);
+        assert_eq!(
+            (st.keys[0], st.capturing, st.keys_changed),
+            (0x0D, None, false)
+        );
+        // a controller button for KEEPER, then the same button for DATA: KEEPER gives it up
+        st.pad_capturing = Some(3);
+        st.pad_down = Some(0x103);
+        keys_input(&mut st);
+        st.pad_capturing = Some(4);
+        st.pad_down = Some(0x103);
+        keys_input(&mut st);
+        assert_eq!((st.pads[3], st.pads[4]), (0, 0x103));
+        assert_eq!(
+            crate::keys::keys_text(false, &st.keys, &st.pads)
+                .lines()
+                .last(),
+            Some("PAD DATA=B3")
+        );
     }
 }
