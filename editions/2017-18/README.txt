@@ -155,7 +155,7 @@ GOOD TO KNOW
     The previous run's logs are in data\logs\previous.
   - Seat 1 used to close itself at the start of some matches: the game draws a text it cannot format (a stray %).
     The panel now catches that one case: the text is shown as it is, the game goes on, and the text is written to
-    seat1\wccfpanel.log (beside extracted) as a "badfmt:" line - please share that line.
+    seat1\forza_panel.log (beside extracted) as a "badfmt:" line - please share that line.
   - The arcade printed the player cards you earn from a dispenser. There is none here, so the game counted every
     card as owed ("You are owed N Player Card(s)"). The panel now tells the game nothing is owed.
   - A player card after each match, as the dispenser gave one (a test): when the game hands out a card, a window
@@ -171,9 +171,10 @@ GOOD TO KNOW
 
 FOLDERS
   bin\       winmm.dll (the hook), FPR_Emu.exe (card-table helper), logowin.exe (stand-in)
-  overlay\   wccfpanel.dll (the panel), inject.exe (loads it into seat 1, and into the projector for its money with
+  overlay\   forza_panel.dll (the panel), inject.exe (loads it into seat 1, and into the projector for its money with
              commas only), skin.tex (its picture);
              setup adds catalogue.tsv and cards\
+  fonts\     the panel's fonts and their licences (Noto Sans JP, Barlow Condensed, Hack)
   scripts\   setup, play, english, the card maker, the launcher, and stand-ins for the arcade's hardware
              (keychip and network, card reader, I/O board, scene service) and the key driver
   english\   the kit's English: screen_text.tsv (the translation), original_rstring.tsv (the original European English),

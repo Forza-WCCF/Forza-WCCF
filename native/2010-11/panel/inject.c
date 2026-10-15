@@ -1,5 +1,5 @@
-// inject.exe (32-bit) - load wccfpanel.dll into a running 32-bit process (seat 1's client_Release.exe).
-//   inject.exe <pid> <full\path\to\wccfpanel.dll>
+// inject.exe (32-bit) - load forza_panel.dll (the panel) into a running 32-bit process (seat 1's client_Release.exe).
+//   inject.exe <pid> <full\path\to\forza_panel.dll>
 // 32-bit so its kernel32!LoadLibraryA address matches the 32-bit target.
 #include <windows.h>
 #include <stdio.h>

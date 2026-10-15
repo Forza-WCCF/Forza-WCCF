@@ -62,6 +62,7 @@ const MAP: &[(&str, &str)] = &[
     ("README.txt", "editions/2010-11/README.txt"),
     ("CHANGELOG.md", "editions/2010-11/CHANGELOG.md"),
     ("art", "editions/2010-11/art"),
+    ("fonts", "assets/fonts"), // the panel's fonts (forza-panel font_dir: a fonts\ above its DLL) and their licences
     ("code", "legacy/2010-11/code"),
     ("languages", "editions/2010-11/languages"),
     ("python", "legacy/python"),
@@ -81,6 +82,7 @@ const MAP_1718: &[(&str, &str)] = &[
     ("english", "editions/2017-18/english"),
     ("italian", "editions/2017-18/italian"), // english.py on it: key + Italian, the English behind each key
     ("overlay/skin.tex", "editions/2017-18/overlay/skin.tex"),
+    ("fonts", "assets/fonts"),
     ("python", "legacy/python"),
     ("python/python313._pth", "legacy/2017-18/python313._pth"), // ..\scripts on the path
     ("source/README.txt", "native/2017-18/README.txt"),
@@ -104,7 +106,7 @@ const KEEP_1718: &[&str] = &[
     "bin/logowin.exe",
     "bin/FPR_Emu.exe",
     "overlay/inject.exe",
-    "overlay/wccfpanel.dll",
+    "overlay/forza_panel.dll",
     "overlay/netguard.dll",
     "source/build",
 ];
@@ -115,7 +117,7 @@ const PROGRAMS_1718: &[&str] = &[
     "bin/logowin.exe",
     "bin/FPR_Emu.exe",
     "overlay/inject.exe",
-    "overlay/wccfpanel.dll",
+    "overlay/forza_panel.dll",
     "overlay/netguard.dll",
 ];
 /// What the kit must hold after a build and a package (the ZIP also gets python.exe from git).
@@ -124,7 +126,7 @@ const PROGRAMS: &[&str] = &[
     "programs/forza-server.exe",
     "programs/wccfk.dll",
     "programs/FPR_Emu.exe",
-    "programs/wccfpanel.dll",
+    "programs/forza_panel.dll",
     "programs/inject.exe",
 ];
 
@@ -399,16 +401,26 @@ fn build_all(root: &Path, kit: &Path, kit_1718: &Path, cc: &Cc) -> Result<()> {
         failed.len(),
         failed.join("\n")
     );
-    // the same two programs in both kits: Launcher.exe runs either edition (launcher::kit::Edition, from the layout)
+    // the same three programs in both kits: Launcher.exe runs either edition (launcher::kit::Edition, from the layout),
+    // forza_panel.dll finds its edition the same way
     let release = root.join("target").join(TARGET).join("release");
-    for (exe, to) in [
-        ("Launcher.exe", kit.join("Launcher.exe")),
-        ("forza-server.exe", kit.join("programs/forza-server.exe")),
-        ("Launcher.exe", kit_1718.join("Launcher.exe")),
-        ("forza-server.exe", kit_1718.join("bin/forza-server.exe")),
+    let panel = kit.join("source/build/forza_panel.dll");
+    for (from, to) in [
+        (release.join("Launcher.exe"), kit.join("Launcher.exe")),
+        (
+            release.join("forza-server.exe"),
+            kit.join("programs/forza-server.exe"),
+        ),
+        (panel.clone(), kit.join("programs/forza_panel.dll")),
+        (release.join("Launcher.exe"), kit_1718.join("Launcher.exe")),
+        (
+            release.join("forza-server.exe"),
+            kit_1718.join("bin/forza-server.exe"),
+        ),
+        (panel, kit_1718.join("overlay/forza_panel.dll")),
     ] {
         fs::create_dir_all(to.parent().unwrap())?;
-        fs::copy(release.join(exe), &to)?;
+        fs::copy(from, &to)?;
         println!("built {}", to.display());
     }
     Ok(())
@@ -424,6 +436,8 @@ fn build<'s>(
     let obj = kit.join("source/build");
     fs::create_dir_all(&obj)?;
     fs::create_dir_all(kit.join("programs"))?;
+    // programs\ is kept between builds: the C panel it held up to step 9.4c must not ship beside forza_panel.dll
+    let _ = fs::remove_file(kit.join("programs/wccfpanel.dll"));
     let version = workspace_version(root)?;
     let (src, mut jobs) = (kit.join("source"), vec![]);
     let mut c = |source: &'static str,
@@ -455,19 +469,6 @@ fn build<'s>(
         "the card table's stand-in",
         &[],
         &["user32.lib"],
-    );
-    c(
-        "panel/wccfpanel.c",
-        p.join("wccfpanel.dll"),
-        "the kit's on-screen panel",
-        &["/LD"],
-        &[
-            "d3d9.lib",
-            "gdi32.lib",
-            "user32.lib",
-            "ole32.lib",
-            "windowscodecs.lib",
-        ],
     );
     c(
         "panel/inject.c",
@@ -514,7 +515,7 @@ fn build<'s>(
         TARGET,
     ]);
     let launcher = c;
-    // the Rust panel (step 9.4), 32-bit like the game; tests only until it replaces wccfpanel.dll, so not in programs/
+    // the panel (step 9.4c: in place of the C wccfpanel.dll), 32-bit like the game; build_all copies it into both kits
     let mut c = rust("build", root);
     c.args([
         "--release",
@@ -610,19 +611,6 @@ fn build_1718<'s>(
         "loads the kit's panel into the running game",
         &[],
         &[],
-    );
-    c(
-        "overlay/wccfpanel.c",
-        kit.join("overlay/wccfpanel.dll"),
-        "the kit's on-screen panel",
-        &["/LD"],
-        &[
-            "d3d9.lib",
-            "gdi32.lib",
-            "user32.lib",
-            "ole32.lib",
-            "windowscodecs.lib",
-        ],
     );
     c(
         "netguard/netguard.c",
@@ -931,15 +919,17 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
     Ok(())
 }
 
-/// The panel's money, relay and dealt-card self-tests: wccfpanel.dll loaded by fakegame.exe in a scratch folder; the relay test plays
-/// two seats through `forza-server relay` on 127.0.0.1:20941 - the C side and the Rust side of the match relay checked against each other.
-/// The frame-wait test (WCCFPANEL_LIMITERTEST) measures milliseconds and stays out: a busy machine fails it.
+/// The panel's money and relay self-tests: forza_panel.dll loaded by fakegame.exe in a scratch folder (the 2010-11 kit's
+/// copy, so its fonts are found above it); the relay test plays two seats through `forza-server relay` on 127.0.0.1:20941 -
+/// the panel's and the server's sides of the match relay checked against each other; the panel must have drawn a frame
+/// without a panic. The deal is not here: its odds are forza::cards' unit test, its window crates/panel's fakegame stage 6.
+/// The frame-wait timing stays out: a busy machine fails it (crates/panel's unit tests cover its arithmetic).
 fn panel_selftests(ck: &mut Checks) -> Result<()> {
     let what = "panel self-tests";
     let kit = ck.kit.clone();
     let t = ck
         .tmp
-        .join(format!("wccfpanel-check-{}", std::process::id()));
+        .join(format!("forza-panel-check-{}", std::process::id()));
     let _ = fs::remove_dir_all(&t);
     fs::create_dir_all(t.join("data"))?;
     fs::copy(
@@ -967,7 +957,7 @@ fn panel_selftests(ck: &mut Checks) -> Result<()> {
     let _ = listening.recv_timeout(Duration::from_secs(20));
     let mut game = Command::new(t.join("fakegame.exe"));
     game.current_dir(&t)
-        .arg(win(&kit.join("programs/wccfpanel.dll")))
+        .arg(win(&kit.join("programs/forza_panel.dll")))
         .arg("wait:12000")
         .env("WCCFPANEL_ROLE", "seat1") // the cabinet's code path (the panel would take a folder named "extracted" for the projector)
         .env("WCCFPANEL_DRYKEYS", "1") // keys logged, never pressed
@@ -976,15 +966,12 @@ fn panel_selftests(ck: &mut Checks) -> Result<()> {
         .env("WCCF_KEYS", t.join("data/keys.txt"))
         .env("WCCFPANEL_MONEYTEST", "1")
         .env("WCCFPANEL_RELAYTEST", "1")
-        .env("WCCFPANEL_DEALTEST", "1") // the dealt card's odds
-        .env("WCCFPANEL_SETTEST", "1") // a panel.txt save keeps auto_logs=0
-        .env("WCCF_RELAY_PORT", "20941")
-        .env("WCCF_SKIN", kit.join("art/skin.tex")); // the panel's art (the run passes it)
+        .env("WCCF_RELAY_PORT", "20941");
     run_env(&mut game);
     let run = game.status();
     // a kill would only reach the interop shim: the relay ends by itself after its 30 s
     let _ = relay.wait();
-    let log = String::from_utf8_lossy(&fs::read(t.join("wccfpanel.log")).unwrap_or_default())
+    let log = String::from_utf8_lossy(&fs::read(t.join("forza_panel.log")).unwrap_or_default())
         .into_owned();
     let log: Vec<&str> = log.lines().collect();
     let tests = log
@@ -999,7 +986,10 @@ fn panel_selftests(ck: &mut Checks) -> Result<()> {
                 && !r.starts_with(' ')
         })
     });
-    let done = money && log.iter().any(|l| l.contains("relay test: done"));
+    let done = money
+        && log.iter().any(|l| l.contains("relay test: done"))
+        && log.iter().any(|l| l.contains("first frame shown"))
+        && !log.iter().any(|l| l.contains("panicked"));
     for l in &bad {
         println!("{l}");
     }
@@ -1481,9 +1471,11 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
     for p in programs {
         let v = version_strings(&fs::read(kit.join(p))?).unwrap_or_default();
         let get = |k: &str| v.get(k).map_or("", String::as_str);
-        // Launcher.exe and forza-server.exe are one build for both kits: they name the 2010-11 kit
-        let shared =
-            matches!(*p, "Launcher.exe" | "bin/forza-server.exe") && get("ProductName") == PRODUCT;
+        // Launcher.exe, forza-server.exe and forza_panel.dll are one build for both kits: they name the 2010-11 kit
+        let shared = matches!(
+            *p,
+            "Launcher.exe" | "bin/forza-server.exe" | "overlay/forza_panel.dll"
+        ) && get("ProductName") == PRODUCT;
         ensure!(
             (get("ProductName") == product || shared) && !get("FileVersion").is_empty(),
             "{p} has no version information - see xtask build"

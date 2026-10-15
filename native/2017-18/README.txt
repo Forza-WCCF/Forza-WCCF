@@ -6,8 +6,9 @@ The programs land in target\kit\2017-18 at the paths below; `cargo xtask package
   bin\winmm.dll        mxhook\mxhook.c (+ winmm_fwd.h: forwards all 192 winmm functions to winmm_orig.dll)   /LD
   bin\FPR_Emu.exe      ..\fpr_emu\fpr_emu.c                                       link: user32.lib
   bin\logowin.exe      logowin\logowin_standin.c                                  link: /SUBSYSTEM:WINDOWS
-  overlay\wccfpanel.dll   overlay\wccfpanel.c   /LD     link: d3d9 gdi32 user32 ole32 windowscodecs (the source's
-                       #pragma comment(lib) adds advapi32 and ws2_32; nothing else is needed)
+  overlay\forza_panel.dll   the repository's crates\panel (Rust, i686-pc-windows-msvc), one build for both kits; its
+                       fonts are fonts\ at the kit's top. overlay\wccfpanel.c is the C panel it replaced, no longer
+                       built or shipped
   overlay\inject.exe   overlay\inject.c (must be 32-bit: it hands the game 32-bit LoadLibraryA's address)
   overlay\netguard.dll netguard\netguard.c   /LD    (secondary guard: patches the game's IPHLPAPI imports)
   source\build\wccfnet.dll   netguard\wccfnet.c   /LD   (the primary guard, not in the kit's ZIP: setup1718.py copies it into the
@@ -25,5 +26,5 @@ What each does, in short:
                 and I/O board stand-ins (named pipes), the RingEdge memory, the network address (127.0.0.1)
   FPR_Emu.exe   answers the game's card-table polls with the cards in seat1\fpr_table0.txt
   logowin.exe   the original start-up notice window, replaced by one that only records the notice
-  wccfpanel.dll the panel around seat 1's picture (drawn with the game's own Direct3D 9 device)
-  inject.exe    loads wccfpanel.dll into seat 1's running game
+  forza_panel.dll the panel around seat 1's picture (drawn with the game's own Direct3D 9 device)
+  inject.exe    loads forza_panel.dll into seat 1's running game

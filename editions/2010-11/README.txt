@@ -283,7 +283,7 @@ GOOD TO KNOW
     last 200 MB of them, the oldest go first).
   - Seat 1 used to close itself at the start of some matches: the game draws a text it cannot format (a stray %).
     The panel now catches that one case: the text is shown as it is, the game goes on, and the text is written to
-    seat1\wccfpanel.log (beside the game folder) as a "badfmt:" line - please share that line.
+    seat1\forza_panel.log (beside the game folder) as a "badfmt:" line - please share that line.
   - The arcade printed the player cards you earn from a dispenser. There is none here, so the game counted every
     card as owed ("You are owed N Player Card(s)"). The panel now tells the game nothing is owed.
   - The game is in Japanese; Launcher.exe's GAME TEXT: ENGLISH translates most of it (see ENGLISH).
@@ -295,9 +295,10 @@ GOOD TO KNOW
     it evenly.
 
 FOLDERS
-  programs\  wccfk.dll (the hook), wccfpanel.dll (the panel), inject.exe (loads it into seat 1, and into the
+  programs\  wccfk.dll (the hook), forza_panel.dll (the panel), inject.exe (loads it into seat 1, and into the
              projector for its money with commas only), FPR_Emu.exe (card-table helper)
   art\       skin.tex (the panel's picture)
+  fonts\     the panel's fonts and their licences (Noto Sans JP, Barlow Condensed, Hack)
   code\      play, setup and english at the top; cards\ (club cards, the catalogue), hardware\ (stand-ins for the
              cabinet: card reader, I/O board, keyboard, scenes, network, the game's launcher), online\ (joining a
              server), server\ (running one for others), helpers\ (the panel's helper, sound, the hook)

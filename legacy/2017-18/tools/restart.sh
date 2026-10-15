@@ -19,7 +19,7 @@ ROOT=$(cd "$HERE/../../.." && pwd)
 # WSL's cargo in its own target dir; the stage keeps the built programs
 (cd "$ROOT" && CARGO_TARGET_DIR="$ROOT/target/wsl" cargo xtask stage 2017-18)
 for p in Launcher.exe bin/forza-server.exe bin/winmm.dll bin/logowin.exe bin/FPR_Emu.exe overlay/inject.exe \
-         overlay/wccfpanel.dll overlay/netguard.dll source/build/wccfnet.dll; do
+         overlay/forza_panel.dll overlay/netguard.dll source/build/wccfnet.dll; do
   [ -f "$ROOT/target/kit/2017-18/$p" ] || { echo "restart.sh: $p is missing - run cargo xtask build first" >&2; exit 1; }
 done
 cp -r "$ROOT/target/kit/2017-18/." "$RT/kit/"
