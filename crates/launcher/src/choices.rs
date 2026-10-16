@@ -59,12 +59,20 @@ pub fn write(path: &Path, text: &str) -> io::Result<()> {
 }
 
 /// settings.json with `key` set; every other key stays (setup.py's "game" and "server").
+pub fn set_setting_bool(path: &Path, key: &str, value: bool) -> io::Result<()> {
+    set_value(path, key, Value::Bool(value))
+}
+
 pub fn set_setting(path: &Path, key: &str, value: &str) -> io::Result<()> {
+    set_value(path, key, Value::String(value.to_owned()))
+}
+
+fn set_value(path: &Path, key: &str, value: Value) -> io::Result<()> {
     let mut json = serde_json::from_str::<Value>(&read(path))
         .ok()
         .filter(Value::is_object)
         .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
-    json[key] = Value::String(value.to_owned());
+    json[key] = value;
     write(path, &serde_json::to_string_pretty(&json).map_err(io::Error::other)?)
 }
 
@@ -122,6 +130,8 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("wccf-choices-test-{}", std::process::id()));
         let path = dir.join("settings.json");
         write(&path, r#"{"game": "D:\\WCCF\\extracted", "server": "1.2.3.4"}"#).unwrap();
+        set_setting_bool(&path, "skip_tutorial", true).unwrap();
+        assert!(read(&path).contains("\"skip_tutorial\": true"));
         set_setting(&path, "language", "it").unwrap();
         assert_eq!(setting(&path, "language").as_deref(), Some("it"));
         assert_eq!(setting(&path, "game").as_deref(), Some(r"D:\WCCF\extracted"));

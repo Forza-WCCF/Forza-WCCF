@@ -69,7 +69,7 @@ pub const FAILED: i32 = 1;
 pub const NOT_SET_UP: i32 = 2;
 pub const REFUSED: i32 = 3;
 pub const UNGUARDED: i32 = 4;
-/// 2017-18: refused because the network guard setup1718.py makes is not in place.
+/// 2017-18: refused because the network guard Setup makes is not in place.
 pub const NOT_GUARDED: i32 = 5;
 
 /// A month and a day: a backstop only.  A player's run ends when its game window is closed; a server for others
@@ -89,8 +89,8 @@ pub(crate) const PANEL_UP: &str = "first frame shown";
 
 const NOT_SET_UP_TEXT: &str = "Not set up yet - set up first: Launcher.exe, Setup and updates.";
 pub const NOT_GUARDED_TEXT: &str = "NOT started: the 2017-18 network guard is not in place, so the game could change \
-    this PC's network settings (it has dropped the DHCP lease before). Run setup1718.py again \
-    (legacy/2017-18/tools/setup1718.py, see docs/2017-18/README.md), then start again. What is wrong:";
+    this PC's network settings (it has dropped the DHCP lease before). Press Set up / repair in \
+    Launcher (Setup and updates), then start again. What is wrong:";
 
 /// Where a run tells what it does: the window's box or the console.  `ask` gets a yes/no question (no one to ask:
 /// no); `running` hears when the game is up (true) and when the run is over (false).
@@ -450,6 +450,9 @@ fn plain_mode(kit: &Kit, p: &Params, ui: &dyn Ui) -> Mode {
     if !choices::panel_value(&panel, "play_on").is_some_and(|v| v.eq_ignore_ascii_case("online")) {
         return Mode::Local;
     }
+    if kit.edition() == Edition::E1718 {
+        return Mode::Server; // start refuses it: 2017-18 online is not built, and the panel asked for online
+    }
     let ip = choices::panel_value(&panel, "server").unwrap_or_default();
     if !choices::valid_address(&ip) {
         ui.say(&format!(
@@ -757,6 +760,10 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
     };
     let seat = seat_dir(&game);
     let edition = kit.edition();
+    if rules::online_refused(edition, &mode) {
+        ui.say(rules::ONLINE_1718_TEXT);
+        return Err(REFUSED);
+    }
     if edition == Edition::E1011 && !seat.join(".wccf-kit").is_file() {
         ui.say(NOT_SET_UP_TEXT);
         return Err(NOT_SET_UP);

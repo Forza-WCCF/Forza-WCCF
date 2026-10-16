@@ -56,12 +56,12 @@ fn version_rc(bin: &str, what: &str, version: &str) -> String {
         "1 VERSIONINFO\nFILEVERSION {comma}\nPRODUCTVERSION {comma}\nFILEOS 0x40004\nFILETYPE {kind}\nBEGIN\n\
          BLOCK \"StringFileInfo\"\nBEGIN\nBLOCK \"040904b0\"\nBEGIN\n\
          VALUE \"CompanyName\", \"Forza-WCCF community\"\n\
-         VALUE \"FileDescription\", \"WCCF 2010-11 kit - {bin}: {what}\"\n\
+         VALUE \"FileDescription\", \"Forza-WCCF - {bin}: {what}\"\n\
          VALUE \"FileVersion\", \"{version}\"\n\
          VALUE \"InternalName\", \"{bin}\"\n\
          VALUE \"LegalCopyright\", \"Community-made tools for your own copy of the game; the game is not included\"\n\
          VALUE \"OriginalFilename\", \"{file}\"\n\
-         VALUE \"ProductName\", \"WCCF 2010-11 kit\"\n\
+         VALUE \"ProductName\", \"Forza-WCCF\"\n\
          VALUE \"ProductVersion\", \"{version}\"\n\
          END\nEND\nBLOCK \"VarFileInfo\"\nBEGIN\nVALUE \"Translation\", 0x409, 1200\nEND\nEND\n"
     )

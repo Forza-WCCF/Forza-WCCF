@@ -1623,6 +1623,7 @@ dependencies = [
  "clap",
  "forza",
  "getrandom 0.3.4",
+ "ipnet",
  "regex",
  "serde_json",
  "sha2",
@@ -2162,6 +2163,12 @@ checksum = "4250ce6452e92010fdf7268ccc5d14faa80bb12fc741938534c58f16804e03c7"
 dependencies = [
  "hybrid-array",
 ]
+
+[[package]]
+name = "ipnet"
+version = "2.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "791930b43c0d5973160d90a8f3894509f2b273430f5c5c73b668636d0287c5c0"
 
 [[package]]
 name = "is-docker"
