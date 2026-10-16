@@ -66,7 +66,7 @@ pub fn hashes(record: &Path, files: &[(PathBuf, Vec<String>)]) -> Result<(), Str
         let got: String = Sha256::digest(&data).iter().map(|b| format!("{b:02x}")).collect();
         if !got.eq_ignore_ascii_case(want.trim()) {
             return Err(format!(
-                "{} is not the file setup1718.py made (SHA-256 {got}, recorded {want})",
+                "{} is not the file Setup made (SHA-256 {got}, recorded {want})",
                 path.display()
             ));
         }
@@ -148,7 +148,7 @@ mod tests {
 
         fs::write(&a, b"the original").unwrap();
         let why = hashes(&record, &files).unwrap_err();
-        assert!(why.contains("a.exe is not the file setup1718.py made"), "{why}");
+        assert!(why.contains("a.exe is not the file Setup made"), "{why}");
         fs::write(&a, b"guarded copy").unwrap();
 
         let json = serde_json::json!({"a.exe": {"original": sha(b"guarded copy")}, "b.dll": sha(b"the guard")});

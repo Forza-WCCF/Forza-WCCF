@@ -59,6 +59,14 @@ pub enum Words {
     Wrong(String),
 }
 
+/// 2017-18 online play is not built: a server or remote run is refused (what the player is told).
+pub const ONLINE_1718_TEXT: &str = "Online play for 2017-18 is not ready yet. Play on this PC (Launcher.exe local).";
+
+/// This edition has no online play yet: only 2017-18, and only for the modes that need a server.
+pub fn online_refused(edition: crate::Edition, mode: &Mode) -> bool {
+    edition == crate::Edition::E1718 && *mode != Mode::Local
+}
+
 pub const USAGE: &str = "Launcher.exe [local | server | remote [ADDRESS] [seat N]] [debug] | stop [force | check] | \
                          status | show | restart";
 
@@ -246,6 +254,17 @@ pub fn english_change(panel: &str, language: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn online_1718_is_refused() {
+        use crate::Edition::{E1011, E1718};
+        let remote = Mode::Remote("192.168.1.20".into(), None);
+        assert!(online_refused(E1718, &remote));
+        assert!(online_refused(E1718, &Mode::Server));
+        assert!(!online_refused(E1718, &Mode::Local));
+        assert!(!online_refused(E1011, &remote));
+        assert!(!online_refused(E1011, &Mode::Server));
+    }
 
     fn w(s: &str) -> Vec<String> {
         s.split_whitespace().map(String::from).collect()
