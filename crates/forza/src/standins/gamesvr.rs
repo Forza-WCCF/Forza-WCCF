@@ -9,8 +9,9 @@
 
 use super::{Handle, Log, accept_loop, read_some};
 use rusqlite::{Connection, OptionalExtension, params};
+use std::collections::HashMap;
 use std::io::{self, Write};
-use std::net::TcpListener;
+use std::net::{IpAddr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -648,7 +649,7 @@ pub fn spawn(listener: TcpListener, save_dir: PathBuf, log: Log) -> io::Result<H
 
 /// [`spawn`] with the game folder: COACH_LIST pre-registers the game's 2D-code cards ([`rare_cards`]), and with
 /// `skip_tutorial` a first COACH_LIST for an Aime id without a club makes one from `prog_data\cpu_team\cpu_50.dat`,
-/// so the mode screen offers NORMAL.
+/// so the mode screen offers NORMAL. Request dumps on, no connection limit (the Launcher's local stand-in).
 pub fn spawn_with(
     listener: TcpListener,
     save_dir: PathBuf,
@@ -656,6 +657,76 @@ pub fn spawn_with(
     game: Option<PathBuf>,
     skip_tutorial: bool,
 ) -> io::Result<Handle> {
+    let o = Options {
+        game,
+        skip_tutorial,
+        ..Options::default()
+    };
+    spawn_opts(listener, save_dir, log, o)
+}
+
+/// What [`spawn_with`] takes, plus the server's switches.
+#[derive(Clone)]
+pub struct Options {
+    /// Peers it returns false for are closed at accept (None = everyone)
+    pub allow: Option<Arc<dyn Fn(IpAddr) -> bool + Send + Sync>>,
+    pub game: Option<PathBuf>,
+    pub skip_tutorial: bool,
+    /// Write each request payload to `save_dir/req_<cmd>_<ms>.bin` (last 200 kept)
+    pub dump: bool,
+    /// Concurrent connections per peer IP; 0 = no limit
+    pub max_per_ip: usize,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            allow: None,
+            game: None,
+            skip_tutorial: false,
+            dump: true,
+            max_per_ip: 0,
+        }
+    }
+}
+
+/// Largest legal frame: the biggest answer or request payload plus the 40-byte header.
+pub const MAX_FRAME: usize = 33600 + 40;
+
+/// Frame length from a header (floored at 40: the Python hangs below it), or the oversized value it claims.
+fn frame_len(header: &[u8]) -> Result<usize, usize> {
+    let n = (u32_at(header, 16) as usize).max(40);
+    if n > MAX_FRAME { Err(n) } else { Ok(n) }
+}
+
+struct Slot<'a>(&'a Mutex<HashMap<IpAddr, usize>>, IpAddr);
+impl Drop for Slot<'_> {
+    fn drop(&mut self) {
+        let mut m = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(n) = m.get_mut(&self.1) {
+            *n -= 1;
+            if *n == 0 {
+                m.remove(&self.1);
+            }
+        }
+    }
+}
+
+/// [`spawn_with`] with [`Options`].
+pub fn spawn_opts(
+    listener: TcpListener,
+    save_dir: PathBuf,
+    log: Log,
+    opts: Options,
+) -> io::Result<Handle> {
+    let Options {
+        allow,
+        game,
+        skip_tutorial,
+        dump,
+        max_per_ip,
+    } = opts;
+    let peers: Arc<Mutex<HashMap<IpAddr, usize>>> = Arc::default();
     std::fs::create_dir_all(&save_dir)?;
     let rare = match game.as_deref().map(rare_cards) {
         Some(Ok(r)) => r,
@@ -674,6 +745,20 @@ pub fn spawn_with(
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
     accept_loop(listener, stop, move |mut conn, peer| {
+        if allow.as_ref().is_some_and(|f| !f(peer.ip())) {
+            log(&format!("refused {peer}: not on the allowlist"));
+            return;
+        }
+        let _slot = {
+            let mut m = peers.lock().unwrap_or_else(PoisonError::into_inner);
+            let n = m.entry(peer.ip()).or_insert(0);
+            if max_per_ip > 0 && *n >= max_per_ip {
+                log(&format!("refused {peer}: {max_per_ip} connections already"));
+                return;
+            }
+            *n += 1;
+            Slot(&peers, peer.ip())
+        };
         log(&format!("connected {peer}"));
         let mut buf: Vec<u8> = Vec::new();
         let mut tmp = vec![0u8; 65536];
@@ -700,8 +785,13 @@ pub fn spawn_with(
                     buf.drain(..skip.unwrap_or(buf.len()));
                     continue;
                 }
-                // ponytail: the Python hangs on a size below 40; floor it so a bad header cannot spin.
-                let size = (u32_at(&buf, 16) as usize).max(40);
+                let size = match frame_len(&buf) {
+                    Ok(n) => n,
+                    Err(n) => {
+                        log(&format!("{peer}: frame of {n} bytes, closing"));
+                        return;
+                    }
+                };
                 if buf.len() < size {
                     break;
                 }
@@ -724,7 +814,7 @@ pub fn spawn_with(
                     "<- cmd {cmd} seq {seq} status {status} payload {} conn {id} text {text:?} first {first}",
                     payload.len()
                 ));
-                if !payload.is_empty() {
+                if dump && !payload.is_empty() {
                     let ms = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
                         .map_or(0, |d| d.as_millis());
@@ -938,6 +1028,56 @@ mod tests {
             let (_, b, why) = answer(cmd, &[0; 32], &store, None, &rare, &log).unwrap();
             assert!(why.is_none() && u32_at(&b, 4) == 0, "cmd {cmd}");
         }
+    }
+
+    #[test]
+    fn frame_cap_rejects_before_buffering() {
+        let mut h = [0u8; 40];
+        h[16..20].copy_from_slice(&(MAX_FRAME as u32).to_le_bytes());
+        assert_eq!(frame_len(&h), Ok(MAX_FRAME));
+        h[16..20].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert_eq!(frame_len(&h), Err(u32::MAX as usize));
+        h[16..20].copy_from_slice(&0u32.to_le_bytes());
+        assert_eq!(frame_len(&h), Ok(40), "a size below 40 is floored");
+        const { assert!(MAX_FRAME >= 8572 + 40) }
+    }
+
+    #[test]
+    fn oversized_header_closes_and_per_ip_limit_holds() {
+        use std::io::Read;
+        let dir = tempfile::tempdir().unwrap();
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        let o = Options {
+            max_per_ip: 1,
+            dump: false,
+            ..Options::default()
+        };
+        let _svc = spawn_opts(l, dir.path().into(), Arc::new(|_| {}), o).unwrap();
+        let mut a = std::net::TcpStream::connect(addr).unwrap();
+        let mut h = [0u8; 40];
+        h[..8].copy_from_slice(&MAGIC);
+        h[16..20].copy_from_slice(&u32::MAX.to_le_bytes());
+        std::io::Write::write_all(&mut a, &h).unwrap();
+        a.set_read_timeout(Some(std::time::Duration::from_secs(3)))
+            .unwrap();
+        assert_eq!(a.read(&mut [0u8; 8]).unwrap(), 0, "closed by the server");
+        // the slot is free again: a second connection is served, a third at the same time is not
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let _b = std::net::TcpStream::connect(addr).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let mut c = std::net::TcpStream::connect(addr).unwrap();
+        c.set_read_timeout(Some(std::time::Duration::from_secs(3)))
+            .unwrap();
+        assert_eq!(c.read(&mut [0u8; 8]).unwrap(), 0, "over the per-IP limit");
+        assert!(
+            std::fs::read_dir(dir.path()).unwrap().all(|e| !e
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with("req_")),
+            "dump off"
+        );
     }
 
     #[test]

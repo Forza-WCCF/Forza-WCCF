@@ -10,6 +10,7 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use forza_server::{Edition, Handle, Log, desk, file_log, inbox, init_clock, relay};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 #[derive(Parser)]
@@ -51,6 +52,34 @@ enum Service {
         life: f64,
         log_file: Option<PathBuf>,
         folder: Option<PathBuf>,
+    },
+    /// The 2017-18 game server stand-in (TCP, SQLite clubs and saves; needs `--edition 2017-18`). Binds `WCCF_BIND`,
+    /// else 127.0.0.1 (not 0.0.0.0: it has no authentication). Refuses every client but loopback and the allowlist
+    /// (`--allow`, `--allow-file`) unless `--allow-any`. 8 connections per client IP, request dumps off.
+    Gmsvr {
+        #[arg(long, default_value_t = 20060)]
+        port: u16,
+        /// Where `gamesvr.db` lives
+        #[arg(long, default_value = "gmsvr-data")]
+        store: PathBuf,
+        /// The game folder: pre-registers its 2D-code cards (`player_data.bin`) and feeds `--skip-tutorial`
+        #[arg(long)]
+        game_data: Option<PathBuf>,
+        /// A first COACH_LIST for an unknown Aime id makes a club from `cpu_50.dat`, skipping the tutorial
+        #[arg(long)]
+        skip_tutorial: bool,
+        /// Clients allowed besides loopback: an IP or CIDR, repeatable
+        #[arg(long)]
+        allow: Vec<ipnet::IpNet>,
+        /// File of allowed IPs/CIDRs, one per line (`#` comments); re-read when it changes
+        #[arg(long)]
+        allow_file: Option<PathBuf>,
+        /// Accept every client (no allowlist)
+        #[arg(long)]
+        allow_any: bool,
+        /// Keep the last 200 request payloads as `req_*.bin` in the store folder
+        #[arg(long)]
+        dump: bool,
     },
     /// All three (2017-18: the desk and the relay), as `play.py server` started them; LOGS_DIR gets seat_broker.txt,
     /// match_relay.txt, log_inbox.txt
@@ -152,6 +181,76 @@ fn start_inbox(
     })
 }
 
+/// `--allow` entries plus the lines of `file`, which is re-read when its modified time changes.
+fn allowlist(
+    fixed: Vec<ipnet::IpNet>,
+    file: Option<PathBuf>,
+) -> Arc<dyn Fn(std::net::IpAddr) -> bool + Send + Sync> {
+    type Cache = Option<(std::time::SystemTime, Vec<ipnet::IpNet>)>;
+    let cache = Mutex::new(Cache::None);
+    Arc::new(move |ip| {
+        if ip.is_loopback() || fixed.iter().any(|n| n.contains(&ip)) {
+            return true;
+        }
+        let Some(f) = &file else { return false };
+        let Ok(m) = std::fs::metadata(f).and_then(|m| m.modified()) else {
+            return false;
+        };
+        let mut c = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if c.as_ref().is_none_or(|(t, _)| *t != m) {
+            let nets = std::fs::read_to_string(f).unwrap_or_default();
+            let nets = nets
+                .lines()
+                .filter_map(|l| {
+                    l.split('#')
+                        .next()?
+                        .trim()
+                        .parse::<ipnet::IpNet>()
+                        .ok()
+                        .or_else(|| {
+                            l.split('#')
+                                .next()?
+                                .trim()
+                                .parse::<std::net::IpAddr>()
+                                .ok()
+                                .map(ipnet::IpNet::from)
+                        })
+                })
+                .collect();
+            *c = Some((m, nets));
+        }
+        c.as_ref()
+            .is_some_and(|(_, v)| v.iter().any(|n| n.contains(&ip)))
+    })
+}
+
+fn start_gmsvr(
+    port: u16,
+    store: &Path,
+    game: Option<&Path>,
+    skip_tutorial: bool,
+    dump: bool,
+    allow: Option<Arc<dyn Fn(std::net::IpAddr) -> bool + Send + Sync>>,
+    log: Log,
+) -> std::io::Result<forza::standins::Handle> {
+    let host = std::env::var("WCCF_BIND").unwrap_or_else(|_| "127.0.0.1".into());
+    let listener = std::net::TcpListener::bind((host.as_str(), port)).inspect_err(|e| {
+        log(&format!("cannot listen on TCP {host}:{port} ({e})"));
+    })?;
+    log(&format!(
+        "game server on {host}:{port}, store {}",
+        store.display()
+    ));
+    let o = forza::standins::gamesvr::Options {
+        allow,
+        game: game.map(Path::to_path_buf),
+        skip_tutorial,
+        dump,
+        max_per_ip: 8,
+    };
+    forza::standins::gamesvr::spawn_opts(listener, store.to_path_buf(), log, o)
+}
+
 fn main() {
     init_clock();
     let cli = Cli::parse();
@@ -185,6 +284,35 @@ fn main() {
                 file_log(log_file.clone()),
             )],
         ),
+        Service::Gmsvr {
+            port,
+            store,
+            game_data,
+            skip_tutorial,
+            dump,
+            allow,
+            allow_file,
+            allow_any,
+        } => {
+            if ed != Edition::E1718 {
+                eprintln!("gmsvr is a 2017-18 service: pass --edition 2017-18");
+                std::process::exit(2);
+            }
+            let Ok(_svc) = start_gmsvr(
+                *port,
+                store,
+                game_data.as_deref(),
+                *skip_tutorial,
+                *dump,
+                (!allow_any).then(|| allowlist(allow.clone(), allow_file.clone())),
+                file_log(None),
+            ) else {
+                std::process::exit(1);
+            };
+            loop {
+                std::thread::park();
+            }
+        }
         Service::All { life, logs_dir } => {
             let file = |n: &str| logs_dir.as_ref().map(|d| d.join(n));
             let (desk_log, relay_log, inbox_log) = (
@@ -217,4 +345,29 @@ fn main() {
     );
     drop(running);
     std::process::exit(i32::from(failed));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn allowlist_loopback_cidr_and_file() {
+        let ip = |s: &str| s.parse::<std::net::IpAddr>().unwrap();
+        let f = std::env::temp_dir().join(format!("forza_allow_{}.txt", std::process::id()));
+        std::fs::write(
+            &f,
+            "# players\n203.0.113.7\n198.51.100.0/24 # club\nnonsense\n",
+        )
+        .unwrap();
+        let a = allowlist(vec!["192.0.2.0/30".parse().unwrap()], Some(f.clone()));
+        assert!(a(ip("127.0.0.1")) && a(ip("192.0.2.3")));
+        assert!(a(ip("203.0.113.7")) && a(ip("198.51.100.200")));
+        assert!(!a(ip("203.0.113.8")) && !a(ip("192.0.2.4")));
+        assert!(
+            !allowlist(vec![], None)(ip("8.8.8.8")),
+            "empty list refuses"
+        );
+        let _ = std::fs::remove_file(f);
+    }
 }
