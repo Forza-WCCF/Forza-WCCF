@@ -43,13 +43,16 @@ with tempfile.TemporaryDirectory() as t:
         S.make_junction(os.path.join(t, "b"), os.path.join(t, "a"))   # again: nothing to do
         open(os.path.join(t, "a", "f"), "w").close()
         assert os.path.isfile(os.path.join(t, "b", "f"))
-# free play: the one patch turns the default coin setting's byte 2 on, and refuses any other original byte
+# free play: four entries (two stores sent through int3 padding); each checks its original bytes, and the result sets bit 16
 fp = [e for e in S.P.PATCHES if "FREE PLAY" in e[3]]
-assert len(fp) == 1 and fp[0][1:3] == ("00", "01")
-buf = bytes(fp[0][0] + 1)
-assert S.P.apply(buf, fp)[fp[0][0]] == 1
+assert len(fp) == 4
+buf = bytearray(0x940000)
+for off, old, _, _ in fp:
+    buf[off:off + len(old) // 2] = bytes.fromhex(old)
+out = S.P.apply(bytes(buf), fp)
+assert out[0x2368FA + 2:0x2368FA + 4] == b"\xe8\x10" and out[0x937C40] == 0xE9
 try:
-    S.P.apply(b"\x02" * (fp[0][0] + 1), fp)
+    S.P.apply(bytes(0x940000), fp)
     raise AssertionError("a changed original byte was accepted")
 except ValueError:
     pass
