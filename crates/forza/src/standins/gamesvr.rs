@@ -295,6 +295,9 @@ impl Store {
             (20736, 32, 12),
             (21538, 32, 12),
             (22221, 6, 13), // COACH_TUTORIAL_PROGRESS: finished
+            // SAVEDATA_DEBUG_VERSION, which club making sets: any other value and the client never sends the
+            // end-of-play save 277 (client sub_804E00, docs/research/ONLINE-2017-18.md)
+            (18752, 32, 20120221),
         ] {
             put_bits(&mut block, bit, width, value);
         }
@@ -775,7 +778,7 @@ mod tests {
         assert_eq!(u32_at(&body, 8 + 128 + 60), 0, "a single record");
         let save = ask(275, [5, coach, card], Some(&game));
         assert_eq!(u32_at(&save, 4), 0);
-        // the template with the six fields patched
+        // the template with the seven fields patched
         let mut want = template[..BLOCK].to_vec();
         for (bit, width, value) in [
             (0, 32, 12),
@@ -784,6 +787,7 @@ mod tests {
             (20736, 32, 12),
             (21538, 32, 12),
             (22221, 6, 13),
+            (18752, 32, 20120221),
         ] {
             let at = |b: &[u8]| get_bits(b, bit, width);
             put_bits(&mut want, bit, width, value);
