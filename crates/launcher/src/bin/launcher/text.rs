@@ -77,7 +77,7 @@ pub struct Text {
     pub hq_pack: &'static str,
     pub choose_pack: &'static str,
     pub pack_title: &'static str,
-    pub pictures_next: &'static str,
+    pub making_pictures: &'static str,
 }
 
 const EN: Text = Text {
@@ -161,7 +161,7 @@ const EN: Text = Text {
     hq_pack: "High-quality pack",
     choose_pack: "Choose pack...",
     pack_title: "Pick the high-quality card pack (forza-wccf-cards-*.zip)",
-    pictures_next: "The card pictures change at the next PLAY (about a minute the first time).",
+    making_pictures: "Making the card pictures ... (about a minute)",
 };
 
 const IT: Text = Text {
@@ -248,7 +248,7 @@ const IT: Text = Text {
     hq_pack: "Pacchetto alta qualità",
     choose_pack: "Scegli pacchetto...",
     pack_title: "Scegli il pacchetto di immagini carte in alta qualità (forza-wccf-cards-*.zip)",
-    pictures_next: "Le immagini delle carte cambiano al prossimo GIOCA (circa un minuto la prima volta).",
+    making_pictures: "Creo le immagini delle carte ... (circa un minuto)",
 };
 
 const JA: Text = Text {
@@ -332,7 +332,7 @@ const JA: Text = Text {
     hq_pack: "高画質パック",
     choose_pack: "パックを選択...",
     pack_title: "高画質カード画像パックを選んでください（forza-wccf-cards-*.zip）",
-    pictures_next: "カード画像は次の「プレイ」から変わります（初回は約1分かかります）。",
+    making_pictures: "カード画像を作成中...（約1分）",
 };
 
 /// The languages, in the window's list: code, name in its own language, words.

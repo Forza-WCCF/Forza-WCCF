@@ -3,8 +3,7 @@
 //! smear) or, as an option, from the high-quality pack (a ZIP of card scans with `cards.db` linking them to both
 //! games' card numbers). The game's pictures (`<number>.png`) are always there, so a card the pack lacks keeps its
 //! own; the pack's (`<number>.jpg`) come beside them and the board takes them first.
-//! Ported from the 2010-11 maker (`cards.py`: `xaf_toc`, `write_pictures`; `ys_lzw.py`); both editions keep the same
-//! archive format, and each `player_data.bin` record names its card number and picture.
+//! Both editions keep the same archive format, and each `player_data.bin` record names its card number and picture.
 
 use image::{DynamicImage, ImageFormat};
 use std::collections::HashMap;
@@ -22,7 +21,7 @@ fn bad(what: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, what.into())
 }
 
-/// The game's `YS\x02\x00` LZW stream (yabukita::StreamAdapterLZW, `ys_lzw.py`): 9- to 12-bit codes MSB first, the
+/// The game's `YS\x02\x00` LZW stream (yabukita::StreamAdapterLZW): 9- to 12-bit codes MSB first, the
 /// width grows one code early, no clear code: the dictionary starts over at 4095 entries and the next code is a root.
 pub fn lzw(data: &[u8], size: usize) -> io::Result<Vec<u8>> {
     if !data.starts_with(b"YS\x02\x00") {
@@ -99,7 +98,7 @@ struct Entry {
     size: usize,
 }
 
-/// The archive's `data/player_card/` files by lower-case name (`cards.py` `xaf_toc`).
+/// The archive's `data/player_card/` files by lower-case name.
 fn player_cards(xaf: &mut File) -> io::Result<HashMap<String, Entry>> {
     let mut hdr = [0u8; 0x100];
     xaf.read_exact(&mut hdr)?;
@@ -203,7 +202,7 @@ pub fn from_game(game: &Path, out: &Path) -> io::Result<(usize, Vec<String>)> {
 }
 
 /// The pack's card per game card number: the name+stats link first, then a regular printing, then the oldest
-/// (the pack's own `export_cards.py` order).
+/// (the pack's own export order).
 const PICK: &str = "SELECT l.game_card_no, c.front FROM game_link l JOIN cards c USING (ver, card)
     WHERE l.game = ?1 AND c.front IS NOT NULL
     ORDER BY l.game_card_no, l.method != 'name+stats', c.card LIKE '%EXTRA%', c.ver, c.card";

@@ -129,6 +129,8 @@ enum Step {
     Update(Release),
     /// The run (launcher::run) with play.py's words; its exit code is the result
     Game(Vec<OsString>),
+    /// The card pictures (launcher::run::make_pictures), after setup and when the pictures choice changes
+    Pictures,
 }
 
 /// What the worker threads tell the window; the window looks every 100 ms.
@@ -317,6 +319,12 @@ fn start(steps: Vec<Step>) {
                     run_script(&kit, script, args).and_then(|rc| if rc == 0 { Ok(()) } else { Err(t().failed.into()) })
                 }
                 Step::Update(r) => update::apply(&kit, r).map(|()| updated = Some(r.tag.clone())),
+                Step::Pictures => {
+                    say(t().making_pictures, 0);
+                    run::make_pictures(&kit, &Params::of(&kit), &WindowUi)
+                        .then_some(())
+                        .ok_or_else(|| t().failed.to_owned())
+                }
                 Step::Game(args) => {
                     let words: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
                     log(&format!("> {}", words.join(" ")));
@@ -544,7 +552,7 @@ fn dropped(hwnd: HWND, drop: HDROP) {
 }
 
 /// The board's card pictures: the game's own, or the high-quality pack (data\\settings.json "card_pictures" and
-/// "card_pack"; the run makes them, launcher::run).  The pack is asked for when none is known yet, or with Choose pack.
+/// "card_pack"; made at setup and here, launcher::run::make_pictures).  The pack is asked for when none is known yet, or with Choose pack.
 fn pictures_picked(hwnd: HWND, hq: bool, choose: bool) {
     let file = Kit::here().settings_file();
     let known = choices::setting(&file, "card_pack").filter(|p| Path::new(p).is_file());
@@ -571,7 +579,7 @@ fn pictures_picked(hwnd: HWND, hq: bool, choose: bool) {
         pick(hwnd, ID_PICS_HQ, ID_PICS_GAME);
     }
     match done {
-        Ok(()) => say(t().pictures_next, 0),
+        Ok(()) => start(vec![Step::Pictures]),
         Err(e) => say(
             fill(t().write_failed, &[&file.display().to_string(), &e.to_string()]),
             0,
@@ -868,7 +876,7 @@ fn refresh(hwnd: HWND) {
             _ => t().after_update,
         };
         if !game.is_empty() && ask(hwnd, question) {
-            let mut steps = vec![Step::Script("setup.py", vec![game.into()])];
+            let mut steps = vec![Step::Script("setup.py", vec![game.into()]), Step::Pictures];
             if !lang.is_empty() {
                 steps.push(Step::Script("english.py", language_args(lang)));
             }
@@ -886,7 +894,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 ID_BROWSE => browse(hwnd),
                 ID_SETUP => {
                     if let Some(game) = folder(hwnd) {
-                        start(vec![Step::Script("setup.py", vec![game])]);
+                        start(vec![Step::Script("setup.py", vec![game]), Step::Pictures]);
                     }
                 }
                 ID_UNDO => {
@@ -961,7 +969,7 @@ unsafe fn font(scale: i32, bold: bool) -> HFONT {
 }
 
 /// The window, and its message loop until it is closed (or gone because the game is up).
-fn window(kit: &Kit, first: Option<Step>, folder: Option<&OsStr>) {
+fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
     // SAFETY: plain Win32 window set-up on this (the only UI) thread; every string is NUL-terminated and lives
     // across its call, every handle comes from the call before.
     unsafe {
@@ -1136,8 +1144,8 @@ fn window(kit: &Kit, first: Option<Step>, folder: Option<&OsStr>) {
         if kit.edition() == Edition::E1011 {
             ask_updates(); // the releases are 2010-11 kits: never offered to the 2017-18 kit
         }
-        if let Some(step) = first {
-            start(vec![step]);
+        if !first.is_empty() {
+            start(first);
         }
 
         let mut msg: MSG = mem::zeroed();
@@ -1277,15 +1285,15 @@ fn main() -> ExitCode {
     // dropped on Launcher.exe (or given): a game folder to set up
     let folder = args.first().filter(|a| args.len() == 1 && Path::new(a).is_dir());
     let step = match first.as_deref() {
-        None => None,
-        Some(_) if folder.is_some() => Some(Step::Script("setup.py", args.clone())),
-        Some("undo") => Some(Step::Script("setup.py", args.clone())),
+        None => Vec::new(),
+        Some(_) if folder.is_some() => vec![Step::Script("setup.py", args.clone()), Step::Pictures],
+        Some("undo") => vec![Step::Script("setup.py", args.clone())],
         Some("restart") => {
             say(t().restarting, 0);
-            Some(Step::Game(args.clone()))
+            vec![Step::Game(args.clone())]
         }
         Some(_) if attach_console() => return console(&kit, &args),
-        Some(_) => Some(Step::Game(args.clone())),
+        Some(_) => vec![Step::Game(args.clone())],
     };
     window(&kit, step, folder.map(OsString::as_os_str));
     ExitCode::SUCCESS

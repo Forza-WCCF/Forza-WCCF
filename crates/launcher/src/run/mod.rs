@@ -490,11 +490,16 @@ fn game_folder(kit: &Kit, p: &Params) -> Option<PathBuf> {
     find_game_named(&set, p.programs.clone())
 }
 
-/// The board's card pictures, made once (`forza::cards::pictures::ensure`) into the folder the panel reads: the
-/// player's game's own, and with data\settings.json "card_pictures": "hq" the high-quality pack at "card_pack" over
-/// them; never a reason not to start.
-fn card_pictures(kit: &Kit, game: &Path, edition: Edition, ui: &dyn Ui) {
-    let ed = match edition {
+/// The board's card pictures, made at setup (and again when Launcher's choice changes) by
+/// `forza::cards::pictures::ensure` into the folder the panel reads: the player's game's own, and with
+/// data\\settings.json "card_pictures": "hq" the high-quality pack at "card_pack" over them. The run only reads them.
+/// `true` when they are in place.
+pub fn make_pictures(kit: &Kit, p: &Params, ui: &dyn Ui) -> bool {
+    let Some(game) = game_folder(kit, p) else {
+        ui.say("  (no game is set up yet - the card pictures are made when you set up)");
+        return false;
+    };
+    let ed = match kit.edition() {
         Edition::E1011 => "1011",
         Edition::E1718 => "1718",
     };
@@ -507,10 +512,12 @@ fn card_pictures(kit: &Kit, game: &Path, edition: Edition, ui: &dyn Ui) {
         }
     }
     let say = |l: &str| ui.say(l);
-    if let Err(e) = forza::cards::pictures::ensure(game, ed, &kit.cache().join("cards"), pack.as_deref(), &say) {
-        ui.say(&format!(
-            "  (the card pictures could not be made: {e} - the board shows stand-ins)"
-        ));
+    match forza::cards::pictures::ensure(&game, ed, &kit.cache().join("cards"), pack.as_deref(), &say) {
+        Ok(()) => true,
+        Err(e) => {
+            ui.say(&format!("  (the card pictures could not be made: {e} - the board shows stand-ins)"));
+            false
+        }
     }
 }
 
@@ -779,9 +786,6 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         ));
         return Err(REFUSED);
     };
-    if kind == Kind::Run {
-        card_pictures(kit, &game, edition, ui);
-    }
     let job = match Job::new() {
         Ok(j) => Arc::new(j),
         Err(e) => {
