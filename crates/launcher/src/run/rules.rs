@@ -55,6 +55,8 @@ pub enum Words {
     Status,
     Show,
     Restart,
+    /// Make the card pictures (what SETUP.bat runs after setup).
+    Pictures,
     /// Wrong words: what to say (exit 2).
     Wrong(String),
 }
@@ -68,7 +70,7 @@ pub fn online_refused(edition: crate::Edition, mode: &Mode) -> bool {
 }
 
 pub const USAGE: &str = "Launcher.exe [local | server | remote [ADDRESS] [seat N]] [debug] | stop [force | check] | \
-                         status | show | restart";
+                         status | show | restart | pictures";
 
 /// play.py main()'s reading of its words.
 pub fn parse(words: &[String]) -> Words {
@@ -83,6 +85,7 @@ pub fn parse(words: &[String]) -> Words {
         Some("status") => return Words::Status,
         Some("show") if a.len() == 1 => return Words::Show,
         Some("restart") => return Words::Restart,
+        Some("pictures") if a.len() == 1 => return Words::Pictures,
         _ => {}
     }
     let debug = a.iter().any(|w| w == "debug");
@@ -351,6 +354,8 @@ mod tests {
         assert_eq!(parse(&w("status")), Words::Status);
         assert_eq!(parse(&w("show")), Words::Show);
         assert_eq!(parse(&w("restart")), Words::Restart);
+        assert_eq!(parse(&w("Pictures")), Words::Pictures);
+        assert!(matches!(parse(&w("pictures now")), Words::Wrong(_)));
     }
 
     #[test]

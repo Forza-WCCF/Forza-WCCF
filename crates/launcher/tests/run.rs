@@ -651,7 +651,7 @@ fn server_mode_runs_forza_server_and_stop_ends_it() {
 
 // ---- 2017-18 ---------------------------------------------------------------------------------------------------
 
-/// fakegame_iphlp.exe with its IPHLPAPI.DLL import renamed to wccfnet.dll, as setup1718.py makes the game's guarded
+/// fakegame_iphlp.exe with its IPHLPAPI.DLL import renamed to wccfnet.dll, as the 2017-18 setup makes the game's guarded
 /// copies (the same bytes: the name and one more NUL in its place).
 fn guarded_copy(to: &Path) {
     stand_in("fakegame_iphlp.exe", to);
@@ -708,8 +708,8 @@ fn scratch_kit_1718(top: &Path) -> Kit {
     guarded_copy(&game.join("standin_control.exe")); // checked, never run: the tests play on a "server"
     guarded_copy(&seat.join("standin_client.exe"));
     fs::write(game.join("standin_match.exe"), b"never run").unwrap();
-    built_copy("2017-18/source/build", "wccfnet.dll", &game.join("wccfnet.dll"));
-    built_copy("2017-18/source/build", "wccfnet.dll", &seat.join("wccfnet.dll"));
+    built_copy("2017-18/bin", "wccfnet.dll", &game.join("wccfnet.dll"));
+    built_copy("2017-18/bin", "wccfnet.dll", &seat.join("wccfnet.dll"));
     built_copy("2017-18/overlay", "netguard.dll", &game.join("netguard.dll"));
     // the real inject.exe, so netguard.dll goes into seat 1's stand-in as into the game; no panel (forza_panel.dll)
     built_copy("2017-18/overlay", "inject.exe", &kit.join(r"overlay\inject.exe"));
