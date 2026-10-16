@@ -504,12 +504,7 @@ fn build<'s>(
         "--target",
         TARGET,
     ]);
-    jobs.push(s.spawn(move || {
-        (
-            "cargo build -p launcher -p forza-server".into(),
-            run_ok(c, "cargo build -p launcher -p forza-server"),
-        )
-    }));
+    let launcher = c;
     // the Rust panel (step 9.4), 32-bit like the game; tests only until it replaces wccfpanel.dll, so not in programs/
     let mut c = rust("build", root);
     c.args([
@@ -526,10 +521,12 @@ fn build<'s>(
             .join("release/forza_panel.dll"),
         obj.join("forza_panel.dll"),
     );
+    // one thread for both: two `cargo xwin` at once race on cargo-xwin's clang-cl symlink ("failed to remove file")
     jobs.push(s.spawn(move || {
-        let r = run_ok(c, "cargo build -p forza-panel")
+        let r = run_ok(launcher, "cargo build -p launcher -p forza-server")
+            .and_then(|()| run_ok(c, "cargo build -p forza-panel"))
             .and_then(|()| fs::copy(&dll, &to).map(drop).map_err(Into::into));
-        ("cargo build -p forza-panel".into(), r)
+        ("cargo build -p launcher -p forza-server -p forza-panel".into(), r)
     }));
     Ok(jobs)
 }
