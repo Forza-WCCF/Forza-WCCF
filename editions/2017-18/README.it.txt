@@ -22,7 +22,7 @@ INSTALLAZIONE (una volta)
   1. Estraete questo download in una cartella tutta sua, con un percorso semplice (ad es. C:\Games\Forza-WCCF-2017-18).
   2. Avviate Launcher.exe. Windows può avvisare che il programma non è firmato: vedere PROBLEMI NOTI.
   3. Aprite "Configurazione e aggiornamenti", scegliete la cartella del gioco e premete "Configura / ripara". La
-     configurazione crea una copia protetta dei programmi del gioco (la cartella originale non viene modificata), il
+     configurazione crea una copia protetta dei programmi del gioco (la cartella originale non viene modificata; i programmi originali restano in original\), il
      catalogo delle carte e le immagini delle carte; richiede circa un minuto. Rieseguendola, controlla e ripara.
   Le installazioni 2010-11 e 2017-18 restano separate, ciascuna con i propri file di gioco, dati, log e salvataggi.
   Non possono funzionare insieme sullo stesso PC: usano le stesse porte locali. Chiudete l'una prima di avviare l'altra.
@@ -32,7 +32,7 @@ COME SI GIOCA
   suoi salvataggi restano su questo PC, in data\save\gamesvr (fatene una copia di sicurezza). Testi del gioco: inglese,
   italiano o giapponese originale - sceglieteli in Launcher.exe prima di GIOCA.
   La prima volta: una carta nuova parte con la licenza di manager, un tutorial di 5 partite e la creazione del club,
-  circa 30 minuti. Nella configurazione potete attivare "Salta il tutorial": una carta nuova riceve un club già pronto
+  circa 30 minuti. Spuntate la casella "Salta il tutorial" in Launcher.exe prima di GIOCA: una carta nuova riceve un club già pronto
   e va direttamente alla schermata principale.
   Fate clic sulla finestra del gioco, poi:
       Invio   START (gioco libero: la moneta viene inserita da sola)
@@ -61,6 +61,18 @@ PROBLEMI NOTI
     segnalate il nome del file e il messaggio di Defender (vedere LOG E SEGNALAZIONI).
   - Gli antivirus possono non gradire overlay\inject.exe (carica il pannello nel gioco) e bin\winmm.dll (sta tra il
     gioco e Windows). Il loro codice sorgente è in source\.
+
+ANTIVIRUS E SMARTSCREEN
+  I programmi non sono firmati. Per funzionare, Launcher.exe avvia i programmi del gioco con l'interfaccia di debug di
+  Windows e vi carica due DLL di Forza-WCCF: forza_panel.dll disegna il pannello sul fotogramma del gioco; netguard.dll
+  e wccfnet.dll delle copie protette sostituiscono le chiamate del gioco agli adattatori di rete, così il gioco non può
+  far perdere a questo PC la concessione di rete (lease). La configurazione modifica copie dei programmi del gioco,
+  mai gli originali, che salva in original\. Gli antivirus possono trattarlo come uno strumento per barare. I file di
+  ogni versione sono inviati a Microsoft come falso positivo prima della pubblicazione.
+  Se Defender segnala ancora un file: non disattivatelo. Annotate il nome del rilevamento, ripristinate il file dalla
+  cronologia di protezione solo se proviene dal download ufficiale, e segnalatelo: <link per le segnalazioni: da
+  compilare a cura del proprietario>
+  SmartScreen: scegliete "Ulteriori informazioni", poi "Esegui comunque".
 
 SICUREZZA
   Forza-WCCF non modifica mai le impostazioni di rete del PC (indirizzi, route, firewall). Le chiamate di rete del

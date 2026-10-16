@@ -22,7 +22,7 @@ INSTALL (once)
   1. Unzip this download into a folder of its own, with a plain path (e.g. C:\Games\Forza-WCCF-2017-18).
   2. Run Launcher.exe. Windows may warn about an unsigned program: see KNOWN ISSUES.
   3. Open Setup and updates, choose your game folder, press Set up. Setup makes a guarded copy of the game's
-     programs (your original folder is not changed), the card catalogue and the card pictures; it takes about a
+     programs (your original folder is not changed; the original programs are kept in original\), the card catalogue and the card pictures; it takes about a
      minute. Running it again checks and repairs.
   The 2010-11 and 2017-18 installs stay separate, each with its own game files, data, logs and saves. They cannot run
   at the same time on one PC: both use the same local ports. Close one before you start the other.
@@ -32,7 +32,7 @@ PLAY
   saves are kept on this PC, in data\save\gamesvr (back that folder up). Game text: English, Italiano or the original
   Japanese - pick it in Launcher.exe before PLAY.
   First time: a new card starts with the manager licence, a tutorial of 5 plays and the club set-up, about 30 minutes.
-  In Setup you can turn on "Skip the tutorial": a new card then gets a ready club and goes straight to the main screen.
+  Tick the "Skip the tutorial" box in Launcher.exe before PLAY: a new card then gets a ready club and goes straight to the main screen.
   Click the game window, then:
       Enter   START (free play: a coin goes in for you)
       X       PRESS (decide)       C   SHOOT        B   KEEPER
@@ -58,6 +58,17 @@ KNOWN ISSUES
     Defender said (see BUGS).
   - Antivirus programs may dislike overlay\inject.exe (it loads the panel into the game) and bin\winmm.dll (it sits
     between the game and Windows). Their source code is in source\.
+
+ANTIVIRUS AND SMARTSCREEN
+  The programs are unsigned. To work, Launcher.exe starts the game's programs under the Windows debugging interface
+  and loads two of Forza-WCCF's DLLs into them: forza_panel.dll draws the panel on the game's frame; netguard.dll and
+  the guarded copies' wccfnet.dll stub the game's network-adapter calls, so the game cannot drop this PC's network
+  lease. Setup patches copies of the game's programs, never the originals, which it backs up in original\. Antivirus
+  programs may treat this like a cheat tool. Each release's files are submitted to Microsoft as a false positive before
+  it is published.
+  If Defender still flags a file: do not turn Defender off. Note the detection name, restore the file from Protection
+  history only if it came from the official download, and report it: <report link: owner fills in>
+  SmartScreen: choose "More info", then "Run anyway".
 
 SAFETY
   Forza-WCCF never changes this PC's network settings (addresses, routes, firewall). The game's own network calls are
