@@ -108,6 +108,225 @@ fn gamesvr_replay() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+// The club store (docs/research/ONLINE-2017-18.md, "M1"): synthetic requests at the documented offsets.
+const AIME: u32 = 582_349_731;
+const REV: u32 = 47565;
+
+fn le(b: &mut [u8], at: usize, v: u32) {
+    b[at..at + 4].copy_from_slice(&v.to_le_bytes());
+}
+
+fn word(b: &[u8], at: usize) -> u32 {
+    u32::from_le_bytes(b[at..at + 4].try_into().unwrap())
+}
+
+fn sum(b: &[u8]) -> u32 {
+    b.chunks(4).fold(0u32, |s, w| {
+        s.wrapping_add(u32::from_le_bytes(w.try_into().unwrap()))
+    })
+}
+
+/// A request of `size` bytes with slot 1, the Aime id at +4 and the revision at `rev_at`; `set` fills the rest.
+fn req(size: usize, rev_at: usize, set: impl FnOnce(&mut [u8])) -> Vec<u8> {
+    let mut b = vec![0u8; size];
+    le(&mut b, 0, 1);
+    le(&mut b, 4, AIME);
+    le(&mut b, rev_at, REV);
+    set(&mut b);
+    b
+}
+
+/// Sends one framed request and returns the answer's payload, checking the answer's command is `cmd + 1`.
+fn ask(c: &mut TcpStream, cmd: u16, payload: &[u8]) -> Vec<u8> {
+    let mut h = vec![0u8; 40];
+    h[..8].copy_from_slice(&[0xF1, 0xC0, 0x80, 0x44, 0xB4, 0x9E, 0xDA, 0x3C]);
+    h[8..10].copy_from_slice(&cmd.to_le_bytes());
+    le(&mut h, 16, 40 + payload.len() as u32);
+    h.extend_from_slice(payload);
+    c.write_all(&h).unwrap();
+    let mut head = [0u8; 40];
+    c.read_exact(&mut head).unwrap();
+    assert_eq!(u16::from_le_bytes([head[8], head[9]]), cmd + 1);
+    let mut body = vec![0u8; word(&head, 16) as usize - 40];
+    c.read_exact(&mut body).unwrap();
+    assert_eq!(word(&body, 0), 1, "cmd {cmd}: slot echoed");
+    body
+}
+
+fn coach_list(c: &mut TcpStream) -> Vec<u8> {
+    ask(c, 271, &req(20, 16, |_| {}))
+}
+
+/// COACH_LIST_ADD kind 1: (coachId, cardId).
+fn new_club(c: &mut TcpStream) -> (u32, u32) {
+    let a = ask(c, 279, &req(36, 32, |b| b[12] = 1));
+    assert_eq!(word(&a, 4), 0, "COACH_LIST_ADD errCode");
+    (word(&a, 8), word(&a, 12))
+}
+
+/// A synthetic save block: word i = i * 0x9E37_79B9 (non-zero, wraps).
+fn block() -> Vec<u8> {
+    (0..768u32)
+        .flat_map(|i| i.wrapping_mul(0x9E37_79B9).wrapping_add(7).to_le_bytes())
+        .collect()
+}
+
+/// SAVE_DATA_SET of `blk` for a club, with the client's block sum at +5,236 (`bad` spoils it).
+fn save_set(coach: u32, card: u32, kind: u8, blk: &[u8], bad: bool) -> Vec<u8> {
+    req(8572, 5940, |b| {
+        le(b, 8, coach);
+        le(b, 12, card);
+        b[24] = kind;
+        b[28..3100].copy_from_slice(blk);
+        b[3100..3104].copy_from_slice(&[12, 0, 0, 12]); // version 12, size 3,072
+        b[3104..3109].copy_from_slice(b"FORZA");
+        b[3160..3164].copy_from_slice(b"WCCF");
+        b[3240] = 5;
+        le(b, 5236, sum(blk).wrapping_add(u32::from(bad)));
+    })
+}
+
+fn save_data(c: &mut TcpStream, coach: u32, card: u32) -> Vec<u8> {
+    ask(
+        c,
+        275,
+        &req(32, 28, |b| {
+            le(b, 8, coach);
+            le(b, 12, card);
+        }),
+    )
+}
+
+/// A SAVE_DATA answer holds `blk` and passes the client's two checks (sub_780DC0).
+fn assert_loads(a: &[u8], blk: &[u8]) {
+    assert_eq!(a.len(), 6176);
+    assert_eq!(word(a, 4), 0, "SAVE_DATA errCode");
+    assert_eq!(&a[8..3080], blk, "block round trip");
+    assert_eq!(&a[3080..3084], &[12, 0, 0, 12], "version and size");
+    let c1 = word(a, 3084);
+    assert!(c1 != 0 && c1 == sum(blk), "C1");
+    let mut z = a.to_vec();
+    le(&mut z, 3088, 0);
+    let c2 = word(a, 3088);
+    assert!(c2 != 0 && c2 == sum(&z), "C2");
+}
+
+#[test]
+fn gamesvr_save_round_trip() {
+    let dir = scratch("gamesvr_rt");
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let _svc = gamesvr::spawn(l.try_clone().unwrap(), dir.clone(), quiet()).unwrap();
+    let mut c = connect(&l);
+    let (coach, card) = new_club(&mut c);
+    assert!(coach != 0 && card != 0);
+    // no save yet: refused, never zeros (3107 on screen either way, but the club is not listed)
+    assert_eq!(word(&save_data(&mut c, coach, card), 4), 1);
+    assert_eq!(
+        word(&coach_list(&mut c), 8 + 60),
+        0,
+        "unsaved club not listed"
+    );
+    let blk = block();
+    let bad = ask(&mut c, 277, &save_set(coach, card, 1, &blk, true));
+    assert_eq!(word(&bad, 4), 1, "wrong block sum refused");
+    let ok = ask(&mut c, 277, &save_set(coach, card, 1, &blk, false));
+    assert_eq!((ok.len(), word(&ok, 4), word(&ok, 8)), (76, 0, coach));
+    assert_loads(&save_data(&mut c, coach, card), &blk);
+    // wrong revision and unknown ids are refused
+    let mut r = save_set(coach, card, 2, &blk, false);
+    le(&mut r, 5940, 1);
+    assert_eq!(word(&ask(&mut c, 277, &r), 4), 1, "revision");
+    assert_eq!(
+        word(&save_data(&mut c, coach + 1, card), 4),
+        1,
+        "unknown coach"
+    );
+    // INJUSTICE_COUNT: max(0, count + delta)
+    let inj = |c: &mut TcpStream, d: i32| {
+        let a = ask(
+            c,
+            289,
+            &req(28, 24, |b| {
+                le(b, 8, coach);
+                le(b, 12, card);
+                le(b, 16, d as u32);
+            }),
+        );
+        assert_eq!(word(&a, 4), 0);
+        word(&a, 8)
+    };
+    assert_eq!(
+        [
+            inj(&mut c, 1),
+            inj(&mut c, -1),
+            inj(&mut c, -1),
+            inj(&mut c, 0)
+        ],
+        [1, 0, 0, 0]
+    );
+    // EXTENDS_NEW_ID: a new cardId; the save follows the club, the old card no longer loads it
+    let a = ask(
+        &mut c,
+        287,
+        &req(28, 24, |b| {
+            le(b, 8, coach);
+            le(b, 12, card);
+        }),
+    );
+    let new = word(&a, 8);
+    assert!(word(&a, 4) == 0 && new != 0 && new != card);
+    assert_eq!(word(&save_data(&mut c, coach, card), 4), 1);
+    assert_loads(&save_data(&mut c, coach, new), &blk);
+    // ITEM_LIST: errCode 1, the loaded club keeps its own item values
+    assert_eq!(word(&ask(&mut c, 285, &req(24, 20, |_| {})), 4), 1);
+    drop((c, _svc));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn gamesvr_new_club_survives_restart() {
+    let dir = scratch("gamesvr_restart");
+    let blk = block();
+    let (coach, card) = {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let _svc = gamesvr::spawn(l.try_clone().unwrap(), dir.clone(), quiet()).unwrap();
+        let mut c = connect(&l);
+        let list = coach_list(&mut c);
+        assert_eq!((list.len(), word(&list, 4)), (9292, 0));
+        assert!(
+            list[8..].iter().all(|b| *b == 0),
+            "unknown Aime id: no clubs"
+        );
+        let (coach, card) = new_club(&mut c);
+        let ok = ask(&mut c, 277, &save_set(coach, card, 1, &blk, false));
+        assert_eq!(word(&ok, 4), 0);
+        (coach, card)
+    }; // the stand-in stops here
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let _svc = gamesvr::spawn(l.try_clone().unwrap(), dir.clone(), quiet()).unwrap();
+    let mut c = connect(&l);
+    let list = coach_list(&mut c);
+    assert_eq!(word(&list, 4), 0);
+    let r = &list[8..8 + 128];
+    assert_eq!(
+        (word(r, 0), word(r, 60)),
+        (coach, card),
+        "record 0 is the club"
+    );
+    assert_eq!(
+        (&r[4..9], &r[64..68], r[122], r[123]),
+        (&b"FORZA"[..], &b"WCCF"[..], 5, 0)
+    );
+    assert_eq!(word(&list, 8 + 128 + 60), 0, "one club only");
+    assert_loads(&save_data(&mut c, coach, card), &blk);
+    // the next club gets new ids
+    let (c2, k2) = new_club(&mut c);
+    assert!(c2 != coach && k2 != card);
+    assert!(dir.join("gamesvr.db").is_file());
+    drop((c, _svc));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 #[test]
 fn aimedb_replay() {
     let dir = scratch("aimedb");
