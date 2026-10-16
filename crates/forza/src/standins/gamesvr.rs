@@ -110,6 +110,25 @@ const REVISION: u32 = 47565;
 const BLOCK: usize = 3072;
 /// Raw request files kept in `save_dir` as evidence; older ones are deleted.
 const KEEP_FILES: usize = 200;
+/// The card master `prog_data\player_data\player_data.bin`: records of 0x620 bytes, +648 u16 the card number, +0x5DD
+/// 2 = a 2D-code card, which plays only once the Aime's World Players List registers it (client sub_5BF6E0).
+const RECORD: usize = 0x620;
+/// COACH_LIST 272's World Players List: 1,000 entries of 8 bytes at +1,292.
+const PLAYERS_LIST: usize = 1292;
+
+/// The card numbers of the game's 2D-code cards (943 in the 2017-18 master), from the card master in `game`.
+pub fn rare_cards(game: &Path) -> io::Result<Vec<u32>> {
+    let master = std::fs::read(
+        game.join("prog_data")
+            .join("player_data")
+            .join("player_data.bin"),
+    )?;
+    Ok(master
+        .chunks_exact(RECORD)
+        .filter(|r| r[0x5DD] == 2)
+        .map(|r| u32::from(u16_at(r, 648)))
+        .collect())
+}
 
 /// Wrapping sum of the little-endian u32 words: C1 over a block, C2 over a whole SAVE_DATA answer.
 fn sum32(b: &[u8]) -> u32 {
@@ -402,6 +421,7 @@ fn club(
     body: &mut [u8],
     store: &Mutex<Store>,
     skip: Option<&Path>,
+    rare: &[u32],
     log: &Log,
 ) -> Result<(), String> {
     // request size and the revision's offset (docs/research/ONLINE-2017-18.md, "M1")
@@ -457,6 +477,14 @@ fn club(
             r[122] = c.rec122;
             r[123] = c.plays;
             put(r, 124, c.titles);
+        }
+        if aime != 0 {
+            // the server pre-registers every 2D-code card (registrations 1, owned 0, flag 0): there is no 2D-code
+            // reader to register them one by one (docs/research/ONLINE-2017-18.md, "2D-code cards")
+            for (e, &no) in body[PLAYERS_LIST..].chunks_exact_mut(8).zip(rare) {
+                put(e, 0, no);
+                e[4] = 1;
+            }
         }
         return Ok(());
     }
@@ -537,6 +565,7 @@ fn answer(
     payload: &[u8],
     store: &Mutex<Store>,
     skip: Option<&Path>,
+    rare: &[u32],
     log: &Log,
 ) -> Option<(u16, Vec<u8>, Option<String>)> {
     if cmd == 18 {
@@ -562,7 +591,7 @@ fn answer(
         // (docs/research/ONLINE-2017-18.md)
         put(&mut body, 4, 1);
     }
-    let refused = club(cmd, payload, &mut body, store, skip, log).err();
+    let refused = club(cmd, payload, &mut body, store, skip, rare, log).err();
     if refused.is_some() {
         put(&mut body, 4, 1);
     }
@@ -590,18 +619,31 @@ fn prune(dir: &Path, keep: usize) {
 /// Serves the game server stand-in on `listener` (use `127.0.0.1:0` in tests). Requests are logged, the clubs kept
 /// in `save_dir/gamesvr.db`, the last 200 request payloads in `save_dir`. Stops when the returned handle is dropped.
 pub fn spawn(listener: TcpListener, save_dir: PathBuf, log: Log) -> io::Result<Handle> {
-    spawn_with(listener, save_dir, log, None)
+    spawn_with(listener, save_dir, log, None, false)
 }
 
-/// [`spawn`] with the tutorial skip: given the game folder, a first COACH_LIST for an Aime id without a club makes one
-/// from `prog_data\cpu_team\cpu_50.dat`, so the mode screen offers NORMAL.
+/// [`spawn`] with the game folder: COACH_LIST pre-registers the game's 2D-code cards ([`rare_cards`]), and with
+/// `skip_tutorial` a first COACH_LIST for an Aime id without a club makes one from `prog_data\cpu_team\cpu_50.dat`,
+/// so the mode screen offers NORMAL.
 pub fn spawn_with(
     listener: TcpListener,
     save_dir: PathBuf,
     log: Log,
-    skip_tutorial: Option<PathBuf>,
+    game: Option<PathBuf>,
+    skip_tutorial: bool,
 ) -> io::Result<Handle> {
     std::fs::create_dir_all(&save_dir)?;
+    let rare = match game.as_deref().map(rare_cards) {
+        Some(Ok(r)) => r,
+        Some(Err(e)) => {
+            log(&format!(
+                "no 2D-code cards pre-registered: player_data.bin ({e})"
+            ));
+            Vec::new()
+        }
+        None => Vec::new(),
+    };
+    let skip_tutorial = game.filter(|_| skip_tutorial);
     let store = Arc::new(Mutex::new(
         Store::open(&save_dir.join("gamesvr.db")).map_err(io::Error::other)?,
     ));
@@ -665,7 +707,7 @@ pub fn spawn_with(
                     let _ = std::fs::write(save_dir.join(format!("req_{cmd}_{ms}.bin")), &payload);
                     prune(&save_dir, KEEP_FILES);
                 }
-                match answer(cmd, &payload, &store, skip_tutorial.as_deref(), &log) {
+                match answer(cmd, &payload, &store, skip_tutorial.as_deref(), &rare, &log) {
                     Some((rcmd, body, refused)) => {
                         if let Some(why) = refused {
                             log(&format!("   refused cmd {cmd}: {why} (errCode 1)"));
@@ -727,6 +769,7 @@ mod tests {
             &[0; 20],
             &store,
             None,
+            &[],
             &(Arc::new(|_: &str| {}) as Log),
         )
         .unwrap();
@@ -761,7 +804,9 @@ mod tests {
         let store = Mutex::new(Store::open(&dir.path().join("gamesvr.db")).unwrap());
         let log: Log = Arc::new(|_: &str| {});
         let ask = |cmd, ids, skip: Option<&Path>| {
-            answer(cmd, &req(cmd, ids), &store, skip, &log).unwrap().1
+            answer(cmd, &req(cmd, ids), &store, skip, &[], &log)
+                .unwrap()
+                .1
         };
 
         // off: no club, errCode 0, unchanged
@@ -810,8 +855,49 @@ mod tests {
         // Aime id 0 and a short template make nothing
         assert_eq!(u32_at(&ask(271, [0, 0, 0], Some(&game)), 8 + 60), 0);
         std::fs::write(game.join("prog_data/cpu_team/cpu_50.dat"), [0; 100]).unwrap();
-        let (_, body, why) = answer(271, &req(271, [6, 0, 0]), &store, Some(&game), &log).unwrap();
+        let (_, body, why) =
+            answer(271, &req(271, [6, 0, 0]), &store, Some(&game), &[], &log).unwrap();
         assert!(why.is_some() && u32_at(&body, 8 + 60) == 0);
+    }
+
+    #[test]
+    fn coach_list_pre_registers_the_2d_code_cards() {
+        let dir = tempfile::tempdir().unwrap();
+        let game = dir.path().join("game");
+        std::fs::create_dir_all(game.join("prog_data/player_data")).unwrap();
+        // three card-master records: 7127 and 1007 need a 2D code (+0x5DD = 2), 7054 does not (1)
+        let mut master = vec![0u8; 3 * RECORD];
+        for (i, (no, kind)) in [(7127u16, 2u8), (7054, 1), (1007, 2)]
+            .into_iter()
+            .enumerate()
+        {
+            master[i * RECORD + 648..][..2].copy_from_slice(&no.to_le_bytes());
+            master[i * RECORD + 0x5DD] = kind;
+        }
+        std::fs::write(game.join("prog_data/player_data/player_data.bin"), &master).unwrap();
+        let rare = rare_cards(&game).unwrap();
+        assert_eq!(rare, [7127, 1007]);
+
+        let store = Mutex::new(Store::open(&dir.path().join("gamesvr.db")).unwrap());
+        let log: Log = Arc::new(|_: &str| {});
+        let body = answer(271, &req(271, [5, 0, 0]), &store, None, &rare, &log)
+            .unwrap()
+            .1;
+        assert_eq!(u32_at(&body, 4), 0);
+        // World Players List entries: card, registrations 1, owned 0, flag 0
+        assert_eq!(&body[1292..1300], &[0xD7, 0x1B, 0, 0, 1, 0, 0, 0]);
+        assert_eq!(&body[1300..1308], &[0xEF, 0x03, 0, 0, 1, 0, 0, 0]);
+        assert!(body[1308..].iter().all(|b| *b == 0));
+        // Aime id 0 (guest): no list
+        let guest = answer(271, &req(271, [0, 0, 0]), &store, None, &rare, &log)
+            .unwrap()
+            .1;
+        assert!(guest[1292..].iter().all(|b| *b == 0));
+        // QR_REGIST, QR_DEL_SERIAL, QR_DEL_CARDID: accepted
+        for cmd in [295, 297, 299] {
+            let (_, b, why) = answer(cmd, &[0; 32], &store, None, &rare, &log).unwrap();
+            assert!(why.is_none() && u32_at(&b, 4) == 0, "cmd {cmd}");
+        }
     }
 
     #[test]
