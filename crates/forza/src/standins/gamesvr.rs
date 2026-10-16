@@ -131,6 +131,22 @@ fn fill_save_data(body: &mut [u8], block: &[u8], version: u16, size: u16) {
     put(body, 3088, c2);
 }
 
+/// Record +124 of a skip club: bit 4 (TitleHolder) of the mask `sub_792740` reads; with none of 1..8, 19, 21 set the
+/// club list shows "tutorial in progress".
+const SKIP_TITLES: u32 = 1 << 4;
+
+/// Writes `value` into the low `width` bits at `bit` of a bit-packed block (bit 0 = most significant bit of byte 0).
+fn put_bits(block: &mut [u8], bit: usize, width: usize, value: u32) {
+    for i in 0..width {
+        let (byte, mask) = ((bit + i) / 8, 0x80 >> ((bit + i) % 8));
+        if value >> (width - 1 - i) & 1 == 1 {
+            block[byte] |= mask;
+        } else {
+            block[byte] &= !mask;
+        }
+    }
+}
+
 /// One stored club, as a COACH_LIST record needs it.
 struct Club {
     coach: u32,
@@ -139,6 +155,7 @@ struct Club {
     name2: Vec<u8>,
     rec122: u8,
     plays: u8,
+    titles: u32,
 }
 
 /// The clubs and their saves, `<save_dir>/gamesvr.db`. Ids are allocated from counters and never 0.
@@ -153,6 +170,7 @@ CREATE TABLE IF NOT EXISTS coaches (
     name2      BLOB    NOT NULL DEFAULT x'', -- record +64, SAVE_DATA_SET +3,160
     rec122     INTEGER NOT NULL DEFAULT 0,   -- record +122, SAVE_DATA_SET +3,240
     play_count INTEGER NOT NULL DEFAULT 0,   -- record +123
+    titles     INTEGER NOT NULL DEFAULT 0,   -- record +124 (enterable-titles mask; set for skip clubs only)
     created    INTEGER NOT NULL,
     updated    INTEGER NOT NULL,
     PRIMARY KEY (aime_id, coach_id)
@@ -190,13 +208,22 @@ impl Store {
     pub fn open(path: &Path) -> rusqlite::Result<Self> {
         let db = Connection::open(path)?;
         db.execute_batch(SCHEMA)?;
+        // stores made before `titles` existed
+        let has: bool = db.query_row(
+            "SELECT count(*) > 0 FROM pragma_table_info('coaches') WHERE name = 'titles'",
+            [],
+            |r| r.get(0),
+        )?;
+        if !has {
+            db.execute_batch("ALTER TABLE coaches ADD COLUMN titles INTEGER NOT NULL DEFAULT 0")?;
+        }
         Ok(Self(db))
     }
 
     /// The clubs of `aime` that hold a save (a listed club without one would end in error 3107), oldest first.
     fn clubs(&self, aime: u32) -> rusqlite::Result<Vec<Club>> {
         let mut q = self.0.prepare(
-            "SELECT c.coach_id, c.card_id, c.name1, c.name2, c.rec122, c.play_count FROM coaches c
+            "SELECT c.coach_id, c.card_id, c.name1, c.name2, c.rec122, c.play_count, c.titles FROM coaches c
              JOIN saves s USING (aime_id, coach_id) WHERE c.aime_id = ?1 ORDER BY c.coach_id LIMIT 10",
         )?;
         q.query_map([aime], |r| {
@@ -207,6 +234,7 @@ impl Store {
                 name2: r.get(3)?,
                 rec122: r.get(4)?,
                 plays: r.get(5)?,
+                titles: r.get(6)?,
             })
         })?
         .collect()
@@ -251,14 +279,26 @@ impl Store {
         let (mut n1, mut n2) = (b"FORZA".to_vec(), b"FORZA WCCF".to_vec());
         n1.resize(56, 0);
         n2.resize(56, 0);
+        // the client upgrades a save with SYSTEM_VERSION < 11 through a bad address, so patch the template
+        let mut block = template.to_vec();
+        for (bit, width, value) in [
+            (0, 32, 12),
+            (185, 32, card),
+            (217, 32, coach),
+            (20736, 32, 12),
+            (21538, 32, 12),
+            (22221, 6, 13), // COACH_TUTORIAL_PROGRESS: finished
+        ] {
+            put_bits(&mut block, bit, width, value);
+        }
         tx.execute(
-            "INSERT INTO coaches (aime_id, coach_id, card_id, name1, name2, rec122, play_count, created, updated)
-             VALUES (?1, ?2, ?3, ?4, ?5, 0, 0, ?6, ?6)",
-            params![aime, coach, card, n1, n2, now()],
+            "INSERT INTO coaches (aime_id, coach_id, card_id, name1, name2, rec122, play_count, titles, created, updated)
+             VALUES (?1, ?2, ?3, ?4, ?5, 0, 0, ?6, ?7, ?7)",
+            params![aime, coach, card, n1, n2, SKIP_TITLES, now()],
         )?;
         tx.execute(
             "INSERT INTO saves VALUES (?1, ?2, ?3, 12, 3072, 1, ?4)",
-            params![aime, coach, template, now()],
+            params![aime, coach, block, now()],
         )?;
         tx.commit()?;
         Ok(Some((coach, card)))
@@ -406,6 +446,7 @@ fn club(
             r[64..64 + c.name2.len().min(56)].copy_from_slice(&c.name2[..c.name2.len().min(56)]);
             r[122] = c.rec122;
             r[123] = c.plays;
+            put(r, 124, c.titles);
         }
         return Ok(());
     }
@@ -647,6 +688,19 @@ mod tests {
     }
 
     #[test]
+    fn put_bits_is_msb_first() {
+        let mut b = [0u8; 2780];
+        put_bits(&mut b, 0, 32, 12);
+        assert_eq!(b[..4], [0, 0, 0, 12]);
+        put_bits(&mut b, 22221, 6, 13); // 001101 at bits 22221..22227: byte 2777 bits 5..7, byte 2778 bits 0..2
+        assert_eq!((b[2777], b[2778]), (0b0000_0001, 0b1010_0000));
+        put_bits(&mut b, 22221, 6, 0);
+        assert_eq!((b[2777], b[2778]), (0, 0));
+        put_bits(&mut b, 185, 32, u32::MAX); // 1 + 31 bits across bytes 23..27
+        assert_eq!(b[23..28], [0x7F, 0xFF, 0xFF, 0xFF, 0x80]);
+    }
+
+    #[test]
     fn the_secretaries_are_unlocked() {
         let dir = tempfile::tempdir().unwrap();
         let store = Mutex::new(Store::open(&dir.path().join("gamesvr.db")).unwrap());
@@ -697,12 +751,32 @@ mod tests {
         assert_eq!(&body[8 + 4..8 + 9], b"FORZA");
         assert_eq!(&body[8 + 64..8 + 74], b"FORZA WCCF");
         assert_eq!((body[8 + 122], body[8 + 123]), (0, 0));
+        assert_eq!(u32_at(&body, 8 + 124), SKIP_TITLES);
         assert_eq!(u32_at(&body, 8 + 128 + 60), 0, "a single record");
         let save = ask(275, [5, coach, card], Some(&game));
         assert_eq!(u32_at(&save, 4), 0);
-        assert_eq!(&save[8..8 + BLOCK], &template[..BLOCK]);
+        // the template with the six fields patched
+        let mut want = template[..BLOCK].to_vec();
+        for (bit, width, value) in [
+            (0, 32, 12),
+            (185, 32, card),
+            (217, 32, coach),
+            (20736, 32, 12),
+            (21538, 32, 12),
+            (22221, 6, 13),
+        ] {
+            let at = |b: &[u8]| {
+                (0..width).fold(0u32, |v, i| {
+                    v << 1 | u32::from(b[(bit + i) / 8] >> (7 - (bit + i) % 8) & 1)
+                })
+            };
+            put_bits(&mut want, bit, width, value);
+            assert_eq!(at(&want), value);
+            assert_eq!(at(&save[8..8 + BLOCK]), value, "bit {bit}");
+        }
+        assert_eq!(&save[8..8 + BLOCK], &want[..]);
         assert_eq!(u32_at(&save, 3080), 12 | (3072 << 16));
-        assert_eq!(u32_at(&save, 3084), sum32(&template[..BLOCK]));
+        assert_eq!(u32_at(&save, 3084), sum32(&want));
         assert_ne!(u32_at(&save, 3088), 0);
         // a second 271 returns the same club
         let again = ask(271, [5, 0, 0], Some(&game));
