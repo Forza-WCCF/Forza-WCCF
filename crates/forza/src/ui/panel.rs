@@ -17,8 +17,9 @@ use crate::panel_txt::{PanelFile, valid_address};
 use egui::{Align2, Color32, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 use std::sync::Arc;
 
+/// The game's own picture size (both editions) and the smallest sheet: a smaller window scales this sheet down.
 pub const SIZE: egui::Vec2 = egui::vec2(1440.0, 900.0);
-/// The formation strip's width, pinned to the right edge.
+/// The formation strip's least width, pinned to the right edge (its width at 1440x900).
 pub const BOARD_W: f32 = 580.0;
 /// The strip's title row above the pitch.
 const BOARD_HEAD: f32 = 34.0;
@@ -26,6 +27,56 @@ const BOARD_HEAD: f32 = 34.0;
 const TABS_H: f32 = 60.0;
 /// The cabinet deck under the picture keeps at least this; on wide sheets the picture stops growing first.
 const DECK_MIN: f32 = 300.0;
+/// What the board's height needs per point of pitch width (pitch 1.25, bench, hint) and besides (head, margins).
+const BOARD_PER_W: f32 = 1.42;
+const BOARD_EXTRA: f32 = 120.0;
+
+/// Points per pixel for a window of `w` x `h` pixels: 1 from 1440x900 up (a bigger window gets a bigger sheet, so the
+/// game's picture can grow past its own size), 2 from 2880x1800 (4K), the window's ratio to 1440x900 below that.
+pub fn scale(w: f32, h: f32) -> f32 {
+    let fit = (w / SIZE.x).min(h / SIZE.y);
+    if fit >= 2.0 { 2.0 } else { fit.min(1.0) }
+}
+
+/// Where the parts sit on a sheet: the formation board on the right, the game's picture 16:10 at the top of the
+/// middle (centred), the cabinet deck under it, the page bar along the bottom. A pure function of the sheet.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Layout {
+    pub board: Rect,
+    pub middle: Rect,
+    pub picture: Rect,
+    pub deck: Rect,
+    pub tabs: Rect,
+}
+
+/// The layout of `sheet` (at least 1440x900): the picture takes the largest 16:10 size that leaves the board its
+/// least width and the deck its least height (compact: a message line, no deck); the board then takes what the
+/// picture left, up to what its own height can use; the middle takes the rest.
+pub fn layout(sheet: Rect, compact: bool) -> Layout {
+    let reserve = if compact { 60.0 } else { DECK_MIN };
+    let h = ((sheet.width() - BOARD_W) / 1.6).min(sheet.height() - TABS_H - reserve);
+    let board_max = (sheet.height() - BOARD_EXTRA) / BOARD_PER_W + 32.0;
+    let bw = (sheet.width() - h * 1.6).clamp(BOARD_W, board_max.max(BOARD_W));
+    let board = Rect::from_min_max(pos2(sheet.right() - bw, sheet.top()), sheet.max);
+    let middle = sheet.with_max_x(board.left());
+    let tabs = middle.with_min_y(middle.bottom() - TABS_H);
+    let above = middle.with_max_y(tabs.top());
+    // compact: no deck, so the picture sits in the middle with the message line under it
+    let y = if compact {
+        above.top() + (above.height() - reserve) / 2.0
+    } else {
+        above.top() + h / 2.0
+    };
+    let picture = Rect::from_center_size(pos2(middle.center().x, y), vec2(h * 1.6, h));
+    let deck = above.with_min_y(picture.bottom());
+    Layout {
+        board,
+        middle,
+        picture,
+        deck,
+        tabs,
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Page {
@@ -559,41 +610,38 @@ pub fn add_card(st: &mut PanelState, placed: &mut Vec<Placed>, no: u32) -> bool 
 /// The centre of a formation slot (0-10 the pitch, 11-15 the bench) on a sheet `width` points wide whose board has
 /// these spots (for tests that drag cards).
 pub fn board_slot_center(width: f32, spots: &[Pos2; 11], slot: usize) -> Pos2 {
-    let r = Rect::from_min_max(pos2(width - BOARD_W, 0.0), pos2(width, SIZE.y)).shrink(16.0);
+    let r = layout(Rect::from_min_size(Pos2::ZERO, vec2(width, SIZE.y)), false)
+        .board
+        .shrink(16.0);
     let pitch = board::pitch_rect(r.min + vec2(0.0, BOARD_HEAD), r.width());
     board::slot_rects(pitch, pitch.bottom() + 12.0, spots)[slot].center()
 }
 
 pub fn show(ui: &mut Ui, st: &mut PanelState) {
     let lang = st.lang;
+    let lay = layout(ui.max_rect(), st.file.compact);
     egui::Panel::right("panel-board")
-        .exact_size(BOARD_W)
+        .exact_size(lay.board.width())
         .resizable(false)
         .show_separator_line(false)
         .frame(egui::Frame::new())
         .show(ui, |ui| board_strip(ui, st, lang));
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(theme::WELL))
-        .show(ui, |ui| middle(ui, st, lang));
+        .show(ui, |ui| middle(ui, st, lang, &lay));
 }
 
 // ---- the middle: picture, deck, page bar ----
 
-fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
-    let area = ui.max_rect();
-    let tabs = area.with_min_y(area.bottom() - TABS_H);
+fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
+    let Layout {
+        middle: area,
+        picture: pic,
+        deck,
+        tabs,
+        ..
+    } = *lay;
     let above = area.with_max_y(tabs.top());
-    // the picture keeps its aspect, as wide as the middle unless the deck would get too short
-    let reserve = if st.file.compact { 60.0 } else { DECK_MIN };
-    let h = (area.width() / 1.6).min(above.height() - reserve);
-    // compact: no deck, so the picture sits in the middle with the message line under it
-    let y = if st.file.compact {
-        above.top() + (above.height() - reserve) / 2.0
-    } else {
-        above.top() + h / 2.0
-    };
-    let pic = Rect::from_center_size(pos2(area.center().x, y), vec2(h * 1.6, h));
-    let deck = above.with_min_y(pic.bottom());
     let p = ui.painter();
     widgets::gradient(
         p,
@@ -1053,12 +1101,8 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
     let xc = xb + wb + GAP;
     caps_at(ui, xc, "panel.machine");
     let half = (wc - 6.0) / 2.0;
-    // CARD, then COIN and BACK where the cabinet has them (2017-18); BACK sends nothing yet
-    let mut keys = vec![("cab.card", Some("CARD"), true)];
-    if st.edition == Edition::E1718 {
-        keys.extend([("cab.coin", Some("COIN"), true), ("cab.back", None, false)]);
-    }
-    for (n, (key, action, enabled)) in keys.into_iter().enumerate() {
+    // CARD only: free play needs no COIN, and BACK sent nothing
+    for (n, (key, action, enabled)) in [("cab.card", Some("CARD"), true)].into_iter().enumerate() {
         let r = Rect::from_min_size(
             pos2(
                 xc + (n % 2) as f32 * (half + 6.0),
@@ -2992,6 +3036,80 @@ pub fn widget_sheet(ui: &mut Ui, ws: &mut WidgetSheet) {
 mod tests {
     use super::*;
     use crate::ui::board::Aptitude;
+
+    fn sheet_of(w: f32, h: f32) -> Rect {
+        // what a window of w x h pixels shows, in points
+        let ppp = scale(w, h);
+        Rect::from_min_size(Pos2::ZERO, vec2(w, h) / ppp)
+    }
+
+    #[test]
+    fn layout_fits_every_window() {
+        let windows = [
+            (1440.0, 900.0),
+            (1600.0, 900.0),
+            (1280.0, 800.0),
+            (1920.0, 1049.0),
+            (1920.0, 1080.0),
+            (2560.0, 1369.0),
+            (2560.0, 1440.0),
+            (3440.0, 1440.0),
+            (3840.0, 2160.0),
+        ];
+        for (w, h) in windows {
+            for compact in [false, true] {
+                let sheet = sheet_of(w, h);
+                assert!(sheet.width() >= SIZE.x - 0.01 && sheet.height() >= SIZE.y - 0.01);
+                let l = layout(sheet, compact);
+                let at = format!("{w}x{h} compact {compact}: {l:?}");
+                // inside, and no part overlaps another
+                assert!(
+                    sheet.contains_rect(l.board) && l.board.width() >= BOARD_W,
+                    "{at}"
+                );
+                assert!(l.middle.contains_rect(l.picture), "{at}");
+                assert!(
+                    l.middle.contains_rect(l.deck) && l.middle.contains_rect(l.tabs),
+                    "{at}"
+                );
+                assert!(l.board.left() >= l.middle.right() - 0.01, "{at}");
+                assert!(l.picture.bottom() <= l.tabs.top() + 0.01, "{at}");
+                assert!(
+                    l.deck.bottom() <= l.tabs.top() + 0.01
+                        && l.picture.bottom() <= l.deck.top() + 0.01,
+                    "{at}"
+                );
+                // 16:10, and the deck keeps its height
+                assert!(
+                    (l.picture.width() / l.picture.height() - 1.6).abs() < 1e-3,
+                    "{at}"
+                );
+                assert!(compact || l.deck.height() >= DECK_MIN - 0.01, "{at}");
+                // the board's pitch, bench and hint fit its height
+                let bw = l.board.width() - 32.0;
+                assert!(
+                    compact || BOARD_PER_W * bw + BOARD_EXTRA <= l.board.height() + 1.0,
+                    "{at}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn layout_numbers() {
+        // 1440x900 as before: the picture 860 wide, the board 580
+        let l = layout(sheet_of(1440.0, 900.0), false);
+        assert!((l.picture.width() - 860.0).abs() < 0.01 && l.board.width() == 580.0);
+        // a 2560x1440 client: the game's picture at 1.2x (1728x1080), the board takes the rest
+        let l = layout(sheet_of(2560.0, 1440.0), false);
+        assert_eq!(l.picture.size(), vec2(1728.0, 1080.0));
+        assert_eq!(l.board.width(), 832.0);
+        assert_eq!(l.deck.height(), 300.0);
+        // 4K: the sheet is 2x
+        assert_eq!(scale(3840.0, 2160.0), 2.0);
+        assert_eq!(scale(2560.0, 1369.0), 1.0);
+        assert!((scale(1280.0, 800.0) - 0.8889).abs() < 1e-3);
+    }
 
     #[test]
     fn deck_layout_is_the_cabinet() {

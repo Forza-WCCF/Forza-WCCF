@@ -983,8 +983,8 @@ impl Render {
     }
 
     unsafe fn paint(&mut self, dev: &IDirect3DDevice9, w: u32, h: u32) -> bool {
-        // the 1440x900 design sheet scaled to fit; a wider window widens the middle (forza::ui::panel)
-        let ppp = (h as f32 / panel::SIZE.y).min(w as f32 / panel::SIZE.x);
+        // 1 point a pixel from 1440x900 up (a bigger window, a bigger sheet), 2 from 4K, scaled down below (forza::ui::panel)
+        let ppp = panel::scale(w as f32, h as f32);
         SCALE.store(ppp.to_bits(), Relaxed);
         let mut raw = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
