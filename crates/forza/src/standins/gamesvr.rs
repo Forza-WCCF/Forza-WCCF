@@ -153,6 +153,11 @@ fn fill_save_data(body: &mut [u8], block: &[u8], version: u16, size: u16) {
 /// Record +124 of a skip club: bit 4 (TitleHolder) of the mask `sub_792740` reads; with none of 1..8, 19, 21 set the
 /// club list shows "tutorial in progress".
 const SKIP_TITLES: u32 = 1 << 4;
+/// The skip club's manager and club names, full-width Shift-JIS as the game's name entry writes them: "ＦＯＲＺＡ",
+/// "ＦＯＲＺＡ　ＷＣＣＦ".
+const SKIP_COACH: &[u8] = b"\x82\x65\x82\x6E\x82\x71\x82\x79\x82\x60";
+const SKIP_CLUB: &[u8] =
+    b"\x82\x65\x82\x6E\x82\x71\x82\x79\x82\x60\x81\x40\x82\x76\x82\x62\x82\x62\x82\x65";
 
 /// Writes `value` into the low `width` bits at `bit` of a bit-packed block (bit 0 = most significant bit of byte 0).
 fn put_bits(block: &mut [u8], bit: usize, width: usize, value: u32) {
@@ -302,11 +307,22 @@ impl Store {
             return Ok(None);
         }
         let (coach, card) = (next_id(&tx, "coach")?, next_id(&tx, "card")?);
-        let (mut n1, mut n2) = (b"FORZA".to_vec(), b"FORZA WCCF".to_vec());
+        let (mut n1, mut n2) = (SKIP_COACH.to_vec(), SKIP_CLUB.to_vec());
         n1.resize(56, 0);
         n2.resize(56, 0);
         // the client upgrades a save with SYSTEM_VERSION < 11 through a bad address, so patch the template
         let mut block = template.to_vec();
+        // the names inside the block, which the club screens show (the template's are CPU and World Best Eleven),
+        // each followed by its reading: block bytes 76 manager, 132 its reading, 324 club, 380 its reading
+        for (at, name) in [
+            (76, &n1[..]),
+            (132, b"FORZA"),
+            (324, &n2[..]),
+            (380, b"FORZA WCCF"),
+        ] {
+            block[at..at + 56].fill(0);
+            block[at..at + name.len()].copy_from_slice(name);
+        }
         for (bit, width, value) in [
             (0, 32, 12),
             (185, 32, card),
@@ -317,6 +333,7 @@ impl Store {
             // SAVEDATA_DEBUG_VERSION, which club making sets: any other value and the client never sends the
             // end-of-play save 277 (client sub_804E00, docs/research/ONLINE-2017-18.md)
             (18752, 32, 20120221),
+            (1504, 25, 20000101), // the manager's birthday, YYYYMMDD (the template's is 1900-01-01)
         ] {
             put_bits(&mut block, bit, width, value);
         }
@@ -794,6 +811,12 @@ mod tests {
         r
     }
 
+    fn pad(name: &[u8]) -> Vec<u8> {
+        let mut v = name.to_vec();
+        v.resize(56, 0);
+        v
+    }
+
     #[test]
     fn skip_tutorial_makes_one_club_from_the_template() {
         let dir = tempfile::tempdir().unwrap();
@@ -815,8 +838,8 @@ mod tests {
         let body = ask(271, [5, 0, 0], Some(&game));
         let (coach, card) = (u32_at(&body, 8), u32_at(&body, 8 + 60));
         assert!(coach != 0 && card != 0);
-        assert_eq!(&body[8 + 4..8 + 9], b"FORZA");
-        assert_eq!(&body[8 + 64..8 + 74], b"FORZA WCCF");
+        assert_eq!(&body[8 + 4..8 + 4 + 56], &pad(SKIP_COACH)[..]);
+        assert_eq!(&body[8 + 64..8 + 64 + 56], &pad(SKIP_CLUB)[..]);
         // a full term (100 matches): 0 is a term that has ended, and the client offers to retire the club
         assert_eq!((body[8 + 122], body[8 + 123]), (100, 0));
         assert_eq!(u32_at(&body, 8 + 124), SKIP_TITLES);
@@ -833,11 +856,21 @@ mod tests {
             (21538, 32, 12),
             (22221, 6, 13),
             (18752, 32, 20120221),
+            (1504, 25, 20000101),
         ] {
             let at = |b: &[u8]| get_bits(b, bit, width);
             put_bits(&mut want, bit, width, value);
             assert_eq!(at(&want), value);
             assert_eq!(at(&save[8..8 + BLOCK]), value, "bit {bit}");
+        }
+        // the names: manager and club with their readings
+        for (at, name) in [
+            (76, pad(SKIP_COACH)),
+            (132, pad(b"FORZA")),
+            (324, pad(SKIP_CLUB)),
+            (380, pad(b"FORZA WCCF")),
+        ] {
+            want[at..at + 56].copy_from_slice(&name);
         }
         assert_eq!(&save[8..8 + BLOCK], &want[..]);
         assert_eq!(u32_at(&save, 3080), 12 | (3072 << 16));
