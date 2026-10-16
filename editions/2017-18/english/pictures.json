@@ -1,0 +1,185 @@
+{"about": "Forza-WCCF 2017-18: the writing inside the game's pictures, redrawn at setup from the player's own files (scripts/pictures1718.py). Keyed by the SHA-256 of the unpacked original; boxes are x0,y0,x1,y1 inclusive; our own words only.",
+ "pictures": [
+  {"id": "scm_parameter_1112", "where": "the six stat names beside the team hexagon", "sha256": "2F10E135A5FE1BE21447474214153A1702961CFFF8F9E3FA52E3AB4F2321518A", "files": ["data/sb_data/client_common/SCM_Parameter/1112_SCM_Parameter.dds"], "style": {"core": "auto", "halo": [0, 0, 0, 230], "halo_px": 1, "blur": 0.7},
+   "labels": [
+    {"box": [198, 3, 255, 19], "en": "Offence", "clear": [194, 0, 255, 21]},
+    {"box": [198, 24, 255, 41], "en": "Technique", "clear": [194, 22, 255, 43]},
+    {"box": [198, 46, 255, 63], "en": "Speed", "clear": [194, 44, 255, 65]},
+    {"box": [198, 67, 255, 85], "en": "Stamina", "clear": [194, 66, 255, 87]},
+    {"box": [198, 89, 255, 106], "en": "Power", "clear": [194, 88, 255, 108]},
+    {"box": [198, 110, 255, 126], "en": "Defence", "clear": [194, 109, 255, 127]}]},
+  {"id": "mng_menu_1617_00", "where": "the management menu buttons (normal and lit)", "sha256": "F079CC72CC4E0D448E57E63D3F32A5713234603B830DF0DF10537FB949FC1C9E", "files": ["data/sb_data/management/MNG_Menu/1617_MNG_Menu_00.dds"], "style": {"core": "auto", "halo": [120, 80, 30, 200], "halo_px": 1, "blur": 1.0},
+   "labels": [
+    {"box": [140, 3, 172, 19], "en": "Train", "clear": [138, 0, 174, 21]},
+    {"box": [140, 23, 172, 39], "en": "Setup", "clear": [138, 20, 174, 41]},
+    {"box": [140, 43, 172, 59], "en": "Match", "clear": [138, 40, 174, 61]},
+    {"box": [140, 63, 172, 79], "en": "Back", "clear": [138, 60, 174, 81]},
+    {"box": [176, 3, 208, 19], "en": "Train", "clear": [175, 0, 211, 21]},
+    {"box": [176, 23, 208, 39], "en": "Setup", "clear": [175, 20, 211, 41]},
+    {"box": [176, 43, 208, 59], "en": "Match", "clear": [175, 40, 211, 61]},
+    {"box": [176, 63, 208, 79], "en": "Back", "clear": [175, 60, 211, 81]}]},
+  {"id": "scm_timer_3", "where": "the countdown captions in the footer (every lobby and match)", "sha256": "FDA4629AF882CE1891BA9851E31DAB1EE7725916BBA69275E51C85F6458B6C14", "files": ["data/sb_data/client_common/SCM_Footer/SCM_Timer_3.dds"], "style": {"core": "auto", "halo": "core", "halo_alpha": 110, "halo_px": 1, "blur": 0.6},
+   "labels": [
+    {"box": [64, 46, 156, 59], "en": "Next match in", "clear": [62, 42, 158, 62]},
+    {"box": [64, 66, 142, 79], "en": "Please wait", "clear": [62, 63, 158, 82]},
+    {"box": [162, 46, 240, 59], "en": "Kick-off in", "clear": [160, 42, 243, 62]},
+    {"box": [162, 66, 240, 79], "en": "Entry closes in", "clear": [160, 63, 243, 82]},
+    {"box": [162, 86, 240, 99], "en": "Card out in", "clear": [160, 83, 243, 102]},
+    {"box": [174, 106, 226, 119], "en": "Time left", "clear": [160, 103, 243, 122]}]},
+  {"id": "scm_foot_wait", "where": "the footer while waiting: next match / please wait (with its mirror image)", "sha256": "C163DE1D92A0EFFC76A380368610831B815F15F660B3AE1DC8396376F8F01C22", "files": ["data/sb_data/client_common/SCM_Foot/SCM_Foot_Wait.dds"], "style": {"core": "auto", "halo": null, "align": "left"}, "clear": [[0, 0, 127, 15], [0, 17, 127, 33]], "reflect": {"src": [0, 19, 127, 31], "dst_y": 42, "alpha": [0.25, 0.03]},
+   "labels": [
+    {"box": [0, 2, 96, 13], "en": "Next match in"},
+    {"box": [0, 20, 96, 31], "en": "Please wait"}]},
+  {"id": "title_management", "where": "the section title Management", "sha256": "54C157883D7BF3C656F54956E20A562DA6EC1E25453D8E29B561FB0349BDF2CF", "files": ["data/sb_data/management/MNG_TitleLogoManagement/Title_tex_1.dds"], "style": {"core": "auto", "halo": [226, 188, 60, 190], "halo_px": 2, "blur": 3, "align": "left"}, "clear": [[0, 0, 511, 63]],
+   "labels": [
+    {"box": [4, 6, 404, 58], "en": "MANAGEMENT"}]},
+  {"id": "title_team", "where": "the section title Team", "sha256": "A0543681041A01F87E772A6F621D6E60ACF19A38F779B97B3862FC10D956D8C5", "files": ["data/sb_data/management/MNG_TitleLogoManagement/Title_tex_2.dds"], "style": {"core": "auto", "halo": [226, 188, 60, 190], "halo_px": 2, "blur": 3, "align": "left"}, "clear": [[0, 0, 255, 63]],
+   "labels": [
+    {"box": [6, 6, 180, 58], "en": "TEAM"}]},
+  {"id": "scm_parameta_max_a", "where": "the six big stat words round the hexagon", "sha256": "E63721B99D82529B57DB9AF156A53B8736A78608CE3AE6510AE40EE0E3139EC1", "files": ["data/sb_data/client_common/SCM_Parameter/SCM_Parameta_max.dds"], "style": {"core": "auto", "halo": [223, 198, 57, 255], "halo_px": 1, "blur": 2.5, "squeeze": 0.7, "size": 16}, "clear": [[0, 0, 127, 127]],
+   "labels": [
+    {"box": [63, 9, 122, 34], "en": "OFFENCE"},
+    {"box": [5, 30, 57, 56], "en": "STAMINA"},
+    {"box": [67, 42, 117, 67], "en": "SPEED"},
+    {"box": [5, 63, 58, 89], "en": "POWER"},
+    {"box": [73, 75, 121, 103], "en": "TECHNIQUE"},
+    {"box": [5, 96, 72, 123], "en": "DEFENCE"}]},
+  {"id": "scm_parameta_max_p", "where": "the six big stat words round the hexagon", "sha256": "EDC822488AAA25FC90AA6F3E04121745597DAE27CA253ACFF30068D7F419FED5", "files": ["data/sb_data/projector/PBGM_Formation/SCM_Parameta_max.dds"], "style": {"core": "auto", "halo": [223, 198, 57, 255], "halo_px": 1, "blur": 2.5, "squeeze": 0.7, "size": 16}, "clear": [[0, 0, 127, 127]],
+   "labels": [
+    {"box": [63, 9, 122, 34], "en": "OFFENCE"},
+    {"box": [5, 30, 57, 56], "en": "STAMINA"},
+    {"box": [67, 42, 117, 67], "en": "SPEED"},
+    {"box": [5, 63, 58, 89], "en": "POWER"},
+    {"box": [73, 75, 121, 103], "en": "TECHNIQUE"},
+    {"box": [5, 96, 72, 123], "en": "DEFENCE"}]},
+  {"id": "scm_parameta_max_t", "where": "the six big stat words round the hexagon", "sha256": "8A90F194C338D634D216710DDF41BD293B83621ABEF46AAE62C85C4C0B4B5D1F", "files": ["data/sb_data/client_common/SCM_StyleParaTac/SCM_Parameta_max.dds", "data/sb_data/information/INF_ManagerOffer/SCM_Parameta_max.dds"], "style": {"core": "auto", "halo": [223, 198, 57, 255], "halo_px": 1, "blur": 2.5, "squeeze": 0.7, "size": 16}, "clear": [[0, 0, 127, 127]],
+   "labels": [
+    {"box": [63, 9, 122, 34], "en": "OFFENCE"},
+    {"box": [5, 30, 57, 56], "en": "TACKLING"},
+    {"box": [67, 42, 117, 67], "en": "SPEED"},
+    {"box": [5, 63, 58, 89], "en": "POWER"},
+    {"box": [73, 75, 121, 103], "en": "CONTROL"},
+    {"box": [5, 96, 72, 123], "en": "DEFENCE"}]},
+  {"id": "scm_parameta_small", "where": "the small stat names on the tactics screens (16-bit)", "sha256": "4882EF3A8CD87B8E9DE9C4473357569C5D9992606E2AF13DDA62DECA5282BED9", "files": ["data/sb_data/client_common/SCM_StyleParaTac/SCM_Parameta.dds"], "style": {"core": "auto", "halo": [18, 17, 17, 220], "halo_px": 1, "blur": 0.7},
+   "labels": [
+    {"box": [198, 3, 255, 19], "en": "Offence", "clear": [194, 0, 255, 21]},
+    {"box": [198, 24, 255, 41], "en": "Control", "clear": [194, 22, 255, 43]},
+    {"box": [198, 46, 255, 63], "en": "Speed", "clear": [194, 44, 255, 65]},
+    {"box": [198, 67, 255, 85], "en": "Tackling", "clear": [194, 66, 255, 87]},
+    {"box": [198, 89, 255, 106], "en": "Power", "clear": [194, 88, 255, 108]},
+    {"box": [198, 110, 255, 126], "en": "Defence", "clear": [194, 109, 255, 127]}]},
+  {"id": "inf_mo_para", "where": "the stat names in a manager offer", "sha256": "A86B2356155E80752FE3FFE0D0B430C284C43C022F0A1801A6E161B007633F26", "files": ["data/sb_data/information/INF_ManagerOffer/INF_MO_Para.dds"], "style": {"core": "auto", "halo": [18, 17, 17, 220], "halo_px": 1, "blur": 0.7},
+   "labels": [
+    {"box": [150, 4, 207, 18], "en": "Offence"},
+    {"box": [150, 25, 207, 42], "en": "Control"},
+    {"box": [150, 46, 207, 62], "en": "Speed"},
+    {"box": [150, 68, 207, 85], "en": "Tackling"},
+    {"box": [16, 97, 63, 112], "en": "Power"},
+    {"box": [67, 97, 129, 112], "en": "Defence"}]},
+  {"id": "mng_training_00", "where": "the training screen: stat names and the stat-up tag", "sha256": "2FF29F0314A7452AE1CB594F1BAFF383294D30E67DD2CFF11E8A810FD9751C81", "files": ["data/sb_data/management/MNG_Training/1617_MNG_Training_00.dds"], "style": {"core": "auto", "halo": null},
+   "labels": [
+    {"box": [124, 35, 172, 44], "en": "Offence", "clear": [121, 34, 175, 45]},
+    {"box": [124, 47, 172, 56], "en": "Defence", "clear": [121, 46, 175, 57]},
+    {"box": [124, 59, 172, 68], "en": "Technique", "clear": [121, 58, 175, 69]},
+    {"box": [124, 71, 172, 80], "en": "Power", "clear": [121, 70, 175, 81]},
+    {"box": [124, 83, 172, 92], "en": "Speed", "clear": [121, 82, 175, 93]},
+    {"box": [124, 95, 172, 104], "en": "Stamina", "clear": [121, 94, 175, 105]},
+    {"box": [1, 144, 32, 158], "en": "Stats", "clear": [0, 143, 33, 159], "halo": [170, 20, 10, 255], "halo_px": 1, "blur": 0}]},
+  {"id": "warning_button", "where": "the confirm window's buttons", "sha256": "9A534876A4913241497830730A8C0A5C3D22278B09B30FFAA906382F1A8B4B45", "files": ["data/sb_data/management/MNG_MTG_RegistrationConf/SCM_WarningWindow_Button.dds"], "style": {"core": "auto", "halo": null},
+   "labels": [
+    {"box": [0, 0, 23, 12], "en": "OK"},
+    {"box": [0, 14, 23, 26], "en": "Back"}]},
+  {"id": "club_button", "where": "the orange and blue buttons' names in club making", "sha256": "285D510A4B2C432635B6FA5225AB3AF5EC4CBFDE0A848FC008567B38ADBDFC33", "files": ["data/sb_data/club_make/CL_Base/Button.dds", "data/sb_data/club_make/CL_LicenceBase/Button.dds", "data/sb_data/UniTest/Button.dds"], "style": {"core": "auto", "halo": null},
+   "labels": [
+    {"box": [0, 18, 27, 31], "en": "OK"},
+    {"box": [35, 18, 63, 31], "en": "Back"}]},
+  {"id": "kantoku_syuunin", "where": "club making: appointed as manager", "sha256": "8883AFBCAE413318AB890D627AB5F1343477BA6C4DC809D6736AD6437B9DA829", "files": ["data/sb_data/club_make/CL_ManagerLicence/kantoku_syuunin.dds"], "style": {"core": "auto", "halo": [226, 188, 60, 190], "halo_px": 2, "blur": 3}, "clear": [[0, 0, 255, 68]],
+   "labels": [
+    {"box": [4, 4, 246, 60], "en": "NEW MANAGER"}]},
+  {"id": "licence_logo", "where": "club making: manager licence issued (the rank letters stay)", "sha256": "7547A7B7BFA32524749DED0CF60998C49B6753544D4302837A93CACCC2757428", "files": ["data/sb_data/club_make/CL_LicenceCard/CL_Lisence_card_Logo.dds"], "style": {"core": "auto", "halo": [226, 188, 60, 190], "halo_px": 2, "blur": 3}, "clear": [[0, 0, 374, 63]],
+   "labels": [
+    {"box": [4, 4, 366, 50], "en": "LICENCE ISSUED"}]},
+  {"id": "licence_title_a", "where": "the licence card's title: manager licence issued (the rank letters stay)", "sha256": "341160D99D7829D5DDC8E4E3190345E6EBE57BBB1EE1F73D81345AA32B013235", "files": ["data/sb_data/management/MNG_LicenseCardAIML/Manager_LicenseTitle.dds"], "style": {"core": "auto", "halo": [226, 188, 60, 190], "halo_px": 2, "blur": 3}, "clear": [[0, 0, 374, 63]],
+   "labels": [
+    {"box": [4, 4, 366, 50], "en": "LICENCE ISSUED"}]},
+  {"id": "licence_title_b", "where": "the licence card's title: manager licence issued (the rank letters stay)", "sha256": "7E93984C9A2CBD6D3EAB0EBE20193C6F42A739F3E0B9B4EB1EBE13BE8A2F3449", "files": ["data/sb_data/management/MNG_LicenseCardCML/Manager_LicenseTitle.dds", "data/sb_data/management/MNG_LicenseCardGIML/Manager_LicenseTitle.dds", "data/sb_data/management/MNG_LicenseCardIML/Manager_LicenseTitle.dds", "data/sb_data/management/MNG_LicenseCardNML/Manager_LicenseTitle.dds"], "style": {"core": "auto", "halo": [226, 188, 60, 190], "halo_px": 2, "blur": 3}, "clear": [[0, 0, 374, 63]],
+   "labels": [
+    {"box": [4, 4, 366, 50], "en": "LICENCE ISSUED"}]},
+  {"id": "licence_title_c", "where": "the licence card's title: manager licence issued (the rank letters stay)", "sha256": "CD5C881F41147345E596C849EA3355C29E15AE2CB37D732AFE74777F96C38762", "files": ["data/sb_data/management/MNG_LicenseCardSIML/Manager_LicenseTitle.dds"], "style": {"core": "auto", "halo": [226, 188, 60, 190], "halo_px": 2, "blur": 3}, "clear": [[0, 0, 374, 63]],
+   "labels": [
+    {"box": [4, 4, 366, 50], "en": "LICENCE ISSUED"}]},
+  {"id": "title_licence_entry", "where": "club making title: manager licence registration", "sha256": "13A72B60CB519750D651430700FDC8B7A3DDB1ADB72B6A6A26921CE324D7D82C", "files": ["data/sb_data/club_make/CL_TitleLogoLicenseEntry/Title_Tex.dds"], "style": {"core": "auto", "halo": [226, 188, 60, 190], "halo_px": 2, "blur": 3, "align": "left"}, "clear": [[0, 0, 511, 63]],
+   "labels": [
+    {"box": [4, 6, 500, 58], "en": "LICENCE REGISTRATION"}]},
+  {"id": "title_manager_contract", "where": "club making title: manager contract", "sha256": "4E17A22F4391B923E39DA28A48D4ADEE0A2DDC49A6E4C46E99139C545C27EAEF", "files": ["data/sb_data/club_make/CL_TitleLogoManagerContract/Title_tex_Manager_Contract.dds"], "style": {"core": "auto", "halo": [226, 188, 60, 190], "halo_px": 2, "blur": 3, "align": "left"}, "clear": [[0, 0, 255, 63]],
+   "labels": [
+    {"box": [6, 6, 248, 58], "en": "MANAGER CONTRACT"}]},
+  {"id": "title_pk", "where": "the penalty shoot-out title", "sha256": "AC352737431705AD57CEAE56EAA34503DDC7B619C4F3762A5810A62A1B1D77B4", "files": ["data/sb_data/client_game/GM_TitleLogo_PK/Title_tex_PK.dds"], "style": {"core": "auto", "halo": [226, 188, 60, 190], "halo_px": 2, "blur": 3, "align": "left"}, "clear": [[0, 0, 255, 63]],
+   "labels": [
+    {"box": [4, 4, 158, 58], "en": "PENALTIES"}]},
+  {"id": "waiting_ward", "where": "the lobby: tournament in progress", "sha256": "60F1583A25577FDCC112CF370B03A3D885EC9AA0EE1934E560C6B62061B49B7D", "files": ["data/sb_data/client_adv/CMPM_Waiting/CMPM_Waiting_Ward.dds"], "style": {"core": "auto", "halo": "core", "halo_alpha": 150, "halo_px": 2, "blur": 3}, "clear": [[0, 0, 127, 127]],
+   "labels": [
+    {"box": [6, 12, 121, 56], "en": "TOURNAMENT"},
+    {"box": [6, 64, 121, 110], "en": "ON NOW"}]},
+  {"id": "result_rounds", "where": "prize money: how far the team went", "sha256": "5E9B5D83B49A92FB231E71F352D1975F7D0D5B00B6D3C52318D77D1637417A8F", "files": ["data/sb_data/client_game/AGM_PrizeMoney/PAGM_APM_Result_0.dds"], "style": {"core": "auto", "halo": [226, 188, 60, 190], "halo_px": 3, "blur": 4},
+   "labels": [
+    {"box": [14, 8, 330, 88], "en": "ROUND 1 EXIT", "clear": [0, 0, 345, 98]},
+    {"box": [6, 108, 340, 190], "en": "SEMI-FINALIST", "clear": [0, 99, 345, 197]},
+    {"box": [6, 206, 340, 288], "en": "SEMI-FINAL EXIT", "clear": [0, 198, 345, 295]},
+    {"box": [30, 304, 318, 388], "en": "FINALIST", "clear": [0, 296, 345, 393]},
+    {"box": [54, 402, 288, 486], "en": "RUNNER-UP", "clear": [0, 394, 345, 500]}]},
+  {"id": "result_places", "where": "prize money: final places", "sha256": "5F55D5A0BE6A3A8B7F7D431609EDDB36EAA74969B4255219D5E9D4B34CC2917E", "files": ["data/sb_data/client_game/AGM_PrizeMoney/PAGM_APM_Result_1.dds"], "style": {"core": "auto", "halo": [226, 188, 60, 190], "halo_px": 3, "blur": 4},
+   "labels": [
+    {"box": [12, 8, 152, 92], "en": "1st", "clear": [4, 2, 160, 98]},
+    {"box": [178, 8, 324, 92], "en": "2nd", "clear": [170, 2, 332, 98]},
+    {"box": [346, 8, 494, 92], "en": "3rd", "clear": [338, 2, 502, 98]},
+    {"box": [12, 106, 152, 190], "en": "4th", "clear": [4, 100, 160, 196]},
+    {"box": [178, 106, 324, 190], "en": "5th", "clear": [170, 100, 332, 196]},
+    {"box": [346, 106, 494, 190], "en": "6th", "clear": [338, 100, 502, 196]},
+    {"box": [12, 204, 152, 290], "en": "7th", "clear": [4, 198, 160, 296]},
+    {"box": [178, 204, 324, 290], "en": "8th", "clear": [170, 198, 332, 296]}]},
+  {"id": "new_tactic", "where": "match end: new tactic won", "sha256": "EA521F389704E8D33B67AC4BCCBEBCE26575A4D71D3F3B71978B9DB5140345B2", "files": ["data/sb_data/client_game/AGM_ContractEnd/1011_AGM_ContractEnd_BG_2.dds"], "style": {"core": [42, 40, 44], "halo": null, "fill": "rows"},
+   "labels": [
+    {"box": [18, 15, 203, 52], "en": "NEW TACTIC", "clear": [15, 13, 207, 53]}]},
+  {"id": "contract_end", "where": "final results: contract ended, ranking record", "sha256": "F34424C0BC7398112FC3C2530C871720B33ED3AC69C45F975858EBF5A2F9F515", "files": ["data/sb_data/client_game/AGM_ContractEnd/ADV_ContractEnd_01.dds"], "style": {"core": "auto", "halo": null},
+   "labels": [
+    {"box": [114, 15, 184, 29], "en": "RL CAREER"},
+    {"box": [44, 178, 216, 222], "en": "CONTRACT OVER", "clear": [42, 176, 221, 223], "core": [44, 40, 42], "fill": "rows"}]},
+  {"id": "mission_tutorial", "where": "the tutorial mission prompts", "sha256": "FCDC1A6E55118AA8916A0BAC135E5BA74048ECF589118191D13E1BA3D5E250D5", "files": ["data/sb_data/client_game/GM_Mission/GM_Mission_Tutorial.dds"], "style": {"core": "auto", "halo": null},
+   "labels": [
+    {"box": [137, 3, 250, 30], "en": "PRESS THE", "clear": [134, 0, 255, 31]},
+    {"box": [137, 34, 252, 62], "en": "SHOOT", "clear": [134, 32, 255, 63]},
+    {"box": [137, 66, 214, 95], "en": "BUTTON!", "clear": [134, 64, 218, 96]},
+    {"box": [2, 98, 206, 126], "en": "KEEP THE BALL!", "clear": [0, 97, 212, 127]}]},
+  {"id": "itemshop_buttons", "where": "the item shop's buy / bought buttons", "sha256": "BBC4D316D3C21C968C551026CB78B60BAB65484CAA68E60BC7B626F50846E6D0", "files": ["data/sb_data/client_adv/ADV_ItemShop/ItemShop_Texture.dds"], "style": {"core": "auto", "halo": null, "fill": "rows"},
+   "labels": [
+    {"box": [11, 143, 73, 159], "en": "Buy"},
+    {"box": [125, 143, 186, 159], "en": "Bought"},
+    {"box": [11, 186, 73, 202], "en": "Buy"}]},
+  {"id": "netmode_select", "where": "mode select: for beginners / for experienced players", "sha256": "5CC6607A69A115A4B7FDCA259F831FED82DF5671A3A103CFCEAD602E9550B9EB", "files": ["data/sb_data/client_adv/ADV_NetModeSelect/ADV_NetModeSelect2.dds"], "style": {"core": "auto", "halo": null, "fill": "rows"},
+   "labels": [
+    {"box": [20, 54, 100, 75], "en": "For beginners", "size": 15},
+    {"box": [242, 54, 322, 75], "en": "For veterans", "size": 15}]},
+  {"id": "birthday_ok", "where": "club making birthday: the OK bar", "sha256": "169161903FF5C55076AE19708D968CBA32B3D77BD92E8300CA36754290E9C4DA", "files": ["data/sb_data/club_make/CL_Birthday/CL_B_base_03.dds"], "style": {"core": [240, 240, 240], "halo": null, "fill": "rows"},
+   "labels": [
+    {"box": [157, 61, 223, 78], "en": "OK"}]},
+  {"id": "secretary_skills", "where": "choosing the secretary: individual / special skills", "sha256": "3E5B5D32EBFEFD613143BDA7F8760ADE1554DAA685E8C0D3F6180C6320B702F9", "files": ["data/sb_data/club_make/CL_SecretarySelect/MNG_Communication_0.dds"], "style": {"core": "auto", "halo": null},
+   "labels": [
+    {"box": [446, 19, 508, 36], "en": "Individual"},
+    {"box": [446, 44, 508, 60], "en": "Special"}]},
+  {"id": "stat_up_tag", "where": "communication: the stat-up tag", "sha256": "488AC23724E06ADD5A21D8665A537407F2C54E58FB1245454913B0011E89762C", "files": ["data/sb_data/management/MNG_Communication/MNG_Communication_0.dds"], "style": {"core": "auto", "halo": [170, 20, 10, 255], "halo_px": 1, "blur": 0},
+   "labels": [
+    {"box": [65, 89, 97, 103], "en": "Stats", "clear": [64, 88, 97, 104]}]},
+  {"id": "stadium_repair", "where": "stadium repair: ball speed, injury resistance, fast/slow/high/low", "sha256": "D449718167B02EDBE799FA7512B2CA9DC73B339A74AC559454A02B5D7824DDD0", "files": ["data/sb_data/information/INF_StadiumRepair/1011_INF_StadiumRepair_Grass.dds"], "style": {"core": "auto", "halo": null}, "clear": [[0, 240, 110, 255]],
+   "labels": [
+    {"box": [0, 209, 80, 223], "en": "Ball speed"},
+    {"box": [4, 225, 78, 238], "en": "Injury resist."},
+    {"box": [1, 242, 24, 254], "en": "Fast"},
+    {"box": [28, 242, 52, 254], "en": "Slow"},
+    {"box": [56, 242, 80, 254], "en": "High"},
+    {"box": [84, 242, 104, 254], "en": "Low"}]},
+  {"id": "golden_rank_items", "where": "golden championship entry: prize ranks (the 1st place badge stays)", "sha256": "8F46E6A6A9497FAC8DA32607E3BCF3FE93511E04D539D983CF06783E02DAD674", "files": ["data/sb_data/management/MNG_GoldChampEntry/1213_MNG_Entry_GoldenChampionship_Rankitem.dds"], "style": {"core": "auto", "halo": null},
+   "labels": [
+    {"box": [68, 6, 116, 21], "en": "2nd-4th"},
+    {"box": [68, 26, 119, 41], "en": "5th-16th"}]}
+ ]}
