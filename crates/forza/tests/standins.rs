@@ -125,10 +125,10 @@ fn aimedb_replay() {
         assert_eq!(hex(&resp), r["resp"].as_str().unwrap(), "record {i}");
     }
     drop(svc);
-    // a new service on the same file knows the cards: the first access code of the recording keeps ID 1
+    // a new service on the same file knows the cards: the first access code of the recording keeps its hashed ID
     let svc = aimedb::Db::open(db).unwrap();
     assert_eq!(svc.len(), 5);
-    assert_eq!(svc.aime_id("11112222333344445555"), 1);
+    assert_eq!(svc.aime_id("11112222333344445555"), 582_349_731);
     let _ = std::fs::remove_dir_all(dir);
 }
 

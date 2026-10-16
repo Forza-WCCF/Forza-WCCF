@@ -6,11 +6,12 @@
 //! (access code) -> 0x06, 0x05 register -> 0x06, 0x01 FeliCa lookup -> 0x03, 0x09 log -> 0x0A, 0x0B campaign ->
 //! 0x0C, 0x0D touch -> 0x0E, 0x0F lookup2 -> 0x10, 0x11 FeliCa lookup2 -> 0x12, 0x13 log2 -> 0x14, 0x64 hello ->
 //! 0x65, 0x66 goodbye. The database (JSON, written atomically) maps access codes to Aime IDs; an unknown card gets
-//! a new ID on lookup, so a card always has one club owner.
+//! a new ID on lookup (a stable hash of the access code), so a card always has one club owner.
 
 use super::{Handle, Log, accept_loop, read_some};
 use aes::Aes128;
 use aes::cipher::{Array, BlockCipherDecrypt, BlockCipherEncrypt, KeyInit};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::io::{self, Write};
 use std::net::{TcpListener, TcpStream};
@@ -81,7 +82,11 @@ impl Db {
     pub fn aime_id(&self, code: &str) -> i32 {
         let mut cards = self.cards.lock().unwrap();
         if !cards.contains_key(code) {
-            let id = cards.values().max().copied().unwrap_or(0) + 1;
+            // ponytail: 31-bit hash of the access code, so homes sharing a game server do not share club owners;
+            // two cards collide with probability ~n^2/2^32 for n cards (n = 1000 gives about 1 in 4300). Past
+            // that, hand out IDs from the game server instead.
+            let h = Sha256::digest(code.as_bytes());
+            let id = (u32::from_be_bytes([h[0], h[1], h[2], h[3]]) & 0x7FFF_FFFF).max(1) as i32;
             cards.insert(code.to_string(), id);
             let tmp = self.path.with_extension("json.tmp");
             let saved = (|| {
@@ -285,5 +290,17 @@ mod tests {
         assert_eq!(hex(&b), "69c4e0d86a7b0430d8cdb78070b4c55a");
         Aes::new(&key).decrypt(&mut b);
         assert_eq!(b, pt);
+    }
+
+    #[test]
+    fn aime_id_is_stable_per_card() {
+        let dir = std::env::temp_dir().join(format!("aimedb_id_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b) = ("11112222333344445555", "11112222333344445556");
+        let id = |f: &str, c: &str| Db::open(dir.join(f)).unwrap().aime_id(c);
+        assert_eq!(id("one.json", a), id("two.json", a));
+        assert_ne!(id("one.json", a), id("one.json", b));
+        assert!(id("one.json", a) > 0);
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
