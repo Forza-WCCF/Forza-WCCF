@@ -222,8 +222,12 @@ fn rust(sub: &str, root: &Path) -> Command {
     c.args(["xwin", sub]).current_dir(root);
     c.env("XWIN_ACCEPT_LICENSE", "1")
         .env("XWIN_ARCH", "x86,x86_64");
-    // `cargo xwin test` would run the test programs under wine; WSL runs them itself (interop), so the runner only passes them on
-    c.env("CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUNNER", "env");
+    // `cargo xwin test` would run the test programs under wine; WSL runs them itself (interop), and winrun.sh starts
+    // the launcher's run tests through explorer.exe (interop's "Prefer System32 images" would make the run refuse)
+    c.env(
+        "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUNNER",
+        root.join("xtask/winrun.sh"),
+    );
     c
 }
 
