@@ -1288,7 +1288,7 @@ COM_SEC_COACH_hint_0022	"Un'$c[FF6633FF]Istruzione Speciale$c riuscita puo' dare
 COM_SEC_COACH_hint_0023	"Per $c[FF6633FF]cambiare i giocatori$c registrati nella squadra,\n scelga $c[FF6633FF]Registrazione Squadra$c nel $c[FF6633FF]Menu Impostazioni$c e scambi le carte."
 COM_SEC_COACH_hint_0024	"La $c[FF6633FF]Classifica Allenatore Generale$c elegge l'allenatore n. 1\n in base ai punti di risultati, titoli vinti e altro."
 COM_SEC_COACH_hint_0025	"Superando le $c[FF6633FF]missioni$c date dagli $c[FF6633FF]sponsor$c si ricevono\n vari $c[FF6633FF]oggetti$c secondo il settore dello sponsor."
-COM_SEC_COACH_hint_0026	"In base ai risultati in $c[FF6633FF]Campionato$c e $c[FF6633FF]Challenge Tour$c,\n altre squadre potrebbero mandarLe un'$c[FF6633FF]offerta$c da Allenatore."
+COM_SEC_COACH_hint_0026	"In base ai risultati in $c[FF6633FF]Campionato$c e $c[FF6633FF]Challenge Tour$c,\n altre squadre potrebbero mandarLe un'$c[FF6633FF]offerta$c da allenatore."
 COM_SEC_COACH_hint_0027	"Con $c[FF6633FF]Assegna Ruoli$c nel menu impostazioni puo' cambiare liberamente\n $c[FF6633FF]battitori$c, $c[FF6633FF]Capitano$c, $c[FF6633FF]numeri di maglia$c e altro. Si guidi con l'indicatore di idoneita'."
 COM_SEC_COACH_hint_0028	"Da $c[FF6633FF]Offerte Club / Dimissioni$c nel menu impostazioni puo' $c[FF6633FF]dimettersi$c.\n Alla partita successiva creera' una nuova squadra."
 COM_SEC_COACH_hint_0029	"I $c[FF6633FF]titoli$c ottenuti compaiono in $c[FF6633FF]Cambia Titolo Allenatore$c nel menu impostazioni.\n Il titolo scelto appare a schermo e viene $c[FF6633FF]annunciato$c in partita."
@@ -1393,7 +1393,7 @@ COM_SEC_COACH_hint_0127	"In ogni struttura, dopo che parla con un giocatore,\n a
 COM_SEC_COACH_hint_0128	"Il livello Allenatore $c[FF6633FF]sale quando lo stipendio raggiunge un certo valore$c.\n Dopo il Livello S, salendo ancora, passa a una $c[FF6633FF]licenza superiore$c."
 COM_SEC_COACH_hint_0129	"Soddisfacendo le varie $c[FF6633FF]condizioni$c ottiene un $c[FF6633FF]titolo$c.\n Ci sono anche $c[FF6633FF]titoli speciali$c per la sfida dati e il Grand Trophy."
 COM_SEC_COACH_hint_0130	"I giocatori con un forte $c[FF6633FF]legame di fiducia$c con l'allenatore sembrano avere\n $c[FF6633FF]maggiori effetti di crescita$c personale. Dialoghi bene e si guadagni la loro $c[FF6633FF]fiducia$c."
-COM_SEC_COACH_hint_0131	"Salendo di $c[FF6633FF]livello Allenatore$c, gli $c[FF6633FF]effetti di crescita$c dei giocatori aumentano.\n Accumuli $c[FF6633FF]risultati$c da Allenatore e faccia crescere la squadra!"
+COM_SEC_COACH_hint_0131	"Salendo di $c[FF6633FF]livello Allenatore$c, gli $c[FF6633FF]effetti di crescita$c dei giocatori aumentano.\n Accumuli $c[FF6633FF]risultati$c da allenatore e faccia crescere la squadra!"
 COM_SEC_COACH_hint_0132	"I giocatori con un forte $c[FF6633FF]legame di fiducia$c con l'allenatore sembrano avere\n $c[FF6633FF]maggiori effetti di crescita$c personale. Dialoghi bene e si guadagni la loro $c[FF6633FF]fiducia$c."
 COM_SEC_COACH_hint_0133	"Lo scontento dei giocatori cresce se $c[FF6633FF]non si vince$c, $c[FF6633FF]si gioca poco$c,\n $c[FF6633FF]non si vincono titoli$c o $c[FF6633FF]non si dialoga con loro$c."
 COM_SEC_COACH_hint_0134	"Quando lo $c[FF6633FF]scontento$c dei giocatori cresce, si vedono effetti come il $c[FF6633FF]morale di squadra piu' basso$c.\n Gestisca la squadra in modo da evitarlo."
@@ -1493,7 +1493,7 @@ COM_SEC_COACH_hint_0227	"Se rinnova l'$c[FF6633FF]Ufficio dell'allenatore$c dell
 COM_SEC_COACH_hint_0228	"In base ai $c[FF6633FF]risultati$c Suoi e della squadra, potrebbe poter\n $c[FF6633FF]rinnovare$c le strutture della $c[FF6633FF]sede$c."
 COM_SEC_COACH_hint_0229	"Nelle $c[FF6633FF]Amichevoli del Tour$c, certi $c[FF6633FF]stili di squadra evoluti$c sono piu' facili da ottenere\n in base alla regione ospitante e al $c[FF6633FF]tema di allenamento$c scelto."
 COM_SEC_COACH_hint_0230	"Il $c[FF6633FF]gradimento dei tifosi$c $c[FF6633FF]cambia$c secondo come gioca.\n Varia anche per regione, quindi conta cosa $c[FF6633FF]soddisfa i tifosi$c."
-COM_SEC_COACH_hint_0231	"Con la $c[FF6633FF]Licenza Allenatore$c $c[FF6633FF]AIML$c entra tra i Allenatore di altissimo livello.\n Punti a uno $c[FF6633FF]stipendio di 15 miliardi di yen$c!"
+COM_SEC_COACH_hint_0231	"Con la $c[FF6633FF]Licenza Allenatore$c $c[FF6633FF]AIML$c entra tra gli allenatori di altissimo livello.\n Punti a uno $c[FF6633FF]stipendio di 15 miliardi di yen$c!"
 COM_SEC_COACH_hint_0232	"Se rinnova il $c[FF6633FF]Campo di allenamento$c della $c[FF6633FF]sede$c,\n la crescita e' piu' efficace e ottiene $c[FF6633FF]piu' esperienza$c."
 COM_SEC_COACH_hint_0233	"Se rinnova la $c[FF6633FF]Lounge$c della $c[FF6633FF]sede$c,\n la crescita e' piu' efficace e i dialoghi sull'intesa $c[FF6633FF]riescono piu' spesso$c."
 COM_SEC_COACH_hint_0234	"Se rinnova la $c[FF6633FF]Sala Medica$c della $c[FF6633FF]sede$c,\n la Cura Condizione $c[FF6633FF]riesce piu' spesso$c."
@@ -1515,7 +1515,7 @@ COM_SEC_COACH_hint_0249	"Se non trova una $c[FF6633FF]linea di passaggio$c, il g
 COM_SEC_COACH_hint_0250	"Quando la $c[FF6633FF]resistenza$c arriva a zero, la prestazione $c[FF6633FF]cala$c piu' di tutti.\n Lascia anche $c[FF6633FF]stanchezza$c, quindi lo sostituisca presto."
 COM_SEC_COACH_hint_0251	"Ogni giocatore ha in tutto oltre $c[FF6633FF]100 parametri dettagliati$c, tra cui\n abilita' $c[FF6633FF]fisiche$c e abilita' come $c[FF6633FF]pensiero e tendenze$c."
 COM_SEC_COACH_hint_0252	"Attivando uno $c[FF6633FF]stile di squadra evoluto$c,\n i giocatori possono fare $c[FF6633FF]movimenti$c che lo stile normale non mostra."
-COM_SEC_COACH_hint_0253	"Gli effetti di $c[FF6633FF]Super Sub$c, $c[FF6633FF]Giant Killer$c e simili sembrano variare con la\n $c[FF6633FF]fiducia$c fra giocatore e Allenatore."
+COM_SEC_COACH_hint_0253	"Gli effetti di $c[FF6633FF]Super Sub$c, $c[FF6633FF]Giant Killer$c e simili sembrano variare con la\n $c[FF6633FF]fiducia$c fra giocatore e allenatore."
 COM_SEC_COACH_hint_0254	"Un giocatore che e' gia' $c[FF6633FF]Giant Killer$c o $c[FF6633FF]Big Match Player$c e impara\n la stessa abilita' come extra sembra $c[FF6633FF]attivarla piu' facilmente$c."
 COM_SEC_COACH_hint_0255	"Portando uno $c[FF6633FF]stile di squadra del club$c o $c[FF6633FF]nazionale$c al $c[FF6633FF]grado S$c\n puo' ottenere un $c[FF6633FF]titolo$c con il suo nome."
 COM_SEC_COACH_hint_0256	"Conviene padroneggiare piu' $c[FF6633FF]stili di squadra$c e adattarli alla situazione.\n Quando le cose vanno male, un $c[FF6633FF]cambio tattico audace$c puo' pagare."
@@ -4686,17 +4686,17 @@ INF_Notice_message_0032	Allenatore, complimenti per il secondo posto!\nRaggiunge
 INF_Notice_message_0033	Allenatore %s!\n\nUn giocatore sembra aver bisogno di $c[FF0000FF]istruzioni speciali$c.\n\nLa comunicazione con Lei non e' andata bene\ne il giocatore e' turbato.\n\nQuando torna alla sede, controlli se c'e' un giocatore\n$c[FF0000FF]con la testa tra le mani nella Sala Riunioni$c.
 INF_Notice_message_0034	Allenatore %s!\n\nUn giocatore sembra aver bisogno di $c[FF0000FF]istruzioni speciali$c.\n\nLa comunicazione con Lei sembra aver\nacceso la sua ambizione.\n\nQuando torna alla sede, controlli se c'e' un giocatore\nche $c[FF0000FF]si fa notare con impegno nella Sala Riunioni$c.
 INF_Notice_message_0035	Allenatore %s!\n\nGrazie ai risultati dello Special Trophy, lo $c[FF0000FF]sponsor inviera' dei premi$c.\n\nChe attesa!\n\nTorni alla sede e controlli quali sono.
-INF_Notice_message_0036	Bel lavoro.\nHai preso confidenza con le partite?\n\nOra creerai la tua squadra.\n\nIl primo obiettivo con la nuova squadra e'\n$c[FF0000FF]vincere l'Enterprise Cup$c.\n\nImpegnati!
+INF_Notice_message_0036	Bel lavoro.\nHa preso confidenza con le partite?\n\nOra creera' la Sua squadra.\n\nIl primo obiettivo con la nuova squadra e'\n$c[FF0000FF]vincere l'Enterprise Cup$c.\n\nSi impegni!
 INF_Notice_message_0037	Allenatore %s!\n\nLo sponsor sembra convinto della prestazione di questo turno.\nPresto ricevera' un $c[FF0000FF]bel regalo dallo sponsor$c.\n\nAnche i giocatori sentono che il risultato vale.
 INF_Notice_message_0038	Allenatore %s!\n\nLo sponsor e' soddisfatto della prestazione di questo turno.\nPresto ricevera' un $c[FF0000FF]bel regalo dallo sponsor$c.\n\nCon questi risultati i giocatori sono piu' sicuri.
 INF_Notice_message_0039	Allenatore %s!\n\nLo sponsor e' entusiasta della prestazione di questo turno.\nPresto ricevera' un $c[FF0000FF]bel regalo dallo sponsor$c.\n\nLa squadra ha ora certezza della direzione da seguire.
 INF_Notice_message_0040	Allenatore, complimenti per il titolo!\n\nVincendo l'Oceans Cup ha ottenuto\nl'accesso al $c[FF0000FF]Grand Trophy$c.\nOra appartiene a %s.\nSi impegni per ottenere un buon risultato.
-INF_Notice_message_0041	Complimenti per la vittoria in amichevole!\n\nLo sponsor ha lodato l'impegno della squadra.\nPresto riceverai un $c[FF0000FF]bel regalo dallo sponsor$c.\n\nChe attesa!\n\nTorna alla sede e controlla i premi.
-INF_Notice_message_0042	Complimenti per la grande vittoria in amichevole!\n\nLo sponsor non ha nascosto la sorpresa.\nPresto riceverai un $c[FF0000FF]bel regalo dallo sponsor$c.\n\nChe attesa!\n\nTorna alla sede e controlla i premi.
-INF_Notice_message_0043	Complimenti per la vittoria schiacciante in amichevole!\n\nLo sponsor ha avuto parole di elogio.\nPresto riceverai un $c[FF0000FF]bel regalo dallo sponsor$c.\n\nChe attesa!\n\nTorna alla sede e controlla i premi.
+INF_Notice_message_0041	Complimenti per la vittoria in amichevole!\n\nLo sponsor ha lodato l'impegno della squadra.\nPresto ricevera' un $c[FF0000FF]bel regalo dallo sponsor$c.\n\nChe attesa!\n\nTorni alla sede e controlli i premi.
+INF_Notice_message_0042	Complimenti per la grande vittoria in amichevole!\n\nLo sponsor non ha nascosto la sorpresa.\nPresto ricevera' un $c[FF0000FF]bel regalo dallo sponsor$c.\n\nChe attesa!\n\nTorni alla sede e controlli i premi.
+INF_Notice_message_0043	Complimenti per la vittoria schiacciante in amichevole!\n\nLo sponsor ha avuto parole di elogio.\nPresto ricevera' un $c[FF0000FF]bel regalo dallo sponsor$c.\n\nChe attesa!\n\nTorni alla sede e controlli i premi.
 INF_Notice_message_0044	Complimenti!\n\nHai ricevuto una $c[FF0000FF]carta digitale di allenamento$c come premio del tutorial.\n\nLa carta viene $c[FF0000FF]data per ogni tutorial completato$c,\n$c[FF0000FF]distribuita$c: impegnati per finirli tutti!
 INF_Notice_message_0045	Bel lavoro nel tutorial.\n\nQuando i giocatori giocano, si accumula $c[FF0000FF]stanchezza e cala la resistenza$c.\nCon troppa stanchezza non rendono al massimo: attenzione.\n\nFai recuperare chi e' in cattiva forma $c[FF0000FF]lasciandolo a riposo$c, oppure con\n$c[FF0000FF]Riposo$c e $c[FF0000FF]messa a punto$c.
-INF_Notice_message_0046	Complimenti!\n\nPer aver completato tutti i tutorial hai ricevuto\n$c[FF0000FF]2 carte digitali di allenamento$c.\n\nNella prossima partita potrai nominarli coach.\nNominali per l'allenamento in cui eccellono e rafforza la squadra.
+INF_Notice_message_0046	Complimenti!\n\nPer aver completato tutti i tutorial ha ricevuto\n$c[FF0000FF]2 carte digitali di allenamento$c.\n\nNella prossima partita potra' nominarli coach.\nLi nomini per l'allenamento in cui eccellono e rafforzi la squadra.
 INF_Notice_message_0047	Allenatore %s!\n\nComplimenti per aver $c[FF0000FF]completato la Missione Amici$c!\nAlla prossima partita avra' un $c[FF0000FF]premio personale$c.\n\nSe un allenatore Suo $c[FF0000FF]amico$c su WCCF.NET (wccfnet.jp)\n$c[FF0000FF]completa oggi la Missione Amici nello stesso negozio$c,\nricevera' anche un $c[FF0000FF]premio di collaborazione$c.
 INF_Notice_message_0048	Allenatore %s!\n\nComplimenti per $c[FF0000FF]NEXT MISSION COMPLETE!$c\nHa raggiunto i punti obiettivo e riceve un $c[FF0000FF]bel premio$c.\n* I premi vanno nel box di WCCF.NET (wccfnet.jp)\n\nPuntiamo a COMPLETARE anche le altre\n'NEXT MISSION'!!
 INF_Notice_message_0049	Allenatore %s!\n\nComplimenti per $c[FF0000FF]NEXT MISSION COMPLETE!$c\n\nPuntiamo a COMPLETARE anche le altre\n'NEXT MISSION'!!
@@ -6402,7 +6402,7 @@ SYS_OLDTEAMENTRY_message_0000	Scegliendo un club si apre la schermata Dati club.
 SYS_OLDTEAMENTRY_message_0001	$c[FF6633FF]Un club eliminato non si puo' recuperare.$c\nVuoi davvero eliminare questo club?
 INF_TERM_message_0001	Sotto la Sua guida la squadra e' diventata $c[FF0000FF]fortissima$c.\nVinciamo anche l'ultima partita con le Sue scelte!!
 INF_TERM_message_0002	Grazie a Lei siamo riusciti a $c[FF0000FF]far crescere bene la squadra$c.\nVinciamo anche questa partita e chiudiamo in bellezza!!
-INF_TERM_message_0003	Sei riuscito a $c[FF0000FF]tirare fuori un buon rendimento$c da questa squadra.\nPortiamola alla vittoria nell'ultima partita e chiudiamo!!
+INF_TERM_message_0003	E' riuscito a $c[FF0000FF]tirare fuori un buon rendimento$c da questa squadra.\nPortiamola alla vittoria nell'ultima partita e chiudiamo!!
 INF_TERM_message_0004	Questa squadra forse poteva $c[FF0000FF]puntare un po' piu' in alto$c.\nBattiamoci per la vittoria nell'ultima partita!!
 INF_TERM_message_0005	Con questa squadra non siamo riusciti a $c[FF0000FF]ottenere i risultati sperati$c.\nGuidiamola alla vittoria nell'ultima partita per costruire il futuro!!
 INF_059_message_0000	Grazie per aver partecipato alla Japan Winners Championship.\nContiamo su di te anche la prossima volta.
