@@ -338,6 +338,15 @@ pub fn command(kit: &Kit, p: &Params, words: &[String], ui: &dyn Ui) -> i32 {
             }
         }
         Words::Restart => play(kit, p, None, false, ui),
+        Words::Pictures => {
+            ui.say("Making the card pictures (the first time takes a while)...");
+            if make_pictures(kit, p, ui) {
+                ui.say("The card pictures are in place.");
+                OK
+            } else {
+                FAILED
+            }
+        }
         Words::Plain { debug } => play(kit, p, None, debug, ui),
         Words::Start { mode, debug } => {
             if let Mode::Remote(ip, _) = &mode
