@@ -1586,11 +1586,11 @@ impl Run<'_> {
         })?;
         let log = file_log(self.logs().join("gamesvr_log.txt"));
         // data\settings.json "skip_tutorial": true makes the stand-in give a new Aime id a club from the game's cpu_50.dat
+        // (the run's game folder: setup1718.py records no "game" setting)
         let skip = self.kit.settings()["skip_tutorial"]
             .as_bool()
             .unwrap_or(false)
-            .then(|| self.kit.game())
-            .flatten();
+            .then(|| self.game.clone());
         self.gamesvr = Some(
             gamesvr::spawn_with(listener, self.kit.save().join("gamesvr"), log, skip)
                 .map_err(|e| Failed(format!("the game server stand-in did not start ({e})")))?,

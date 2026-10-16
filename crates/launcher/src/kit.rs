@@ -123,11 +123,6 @@ impl Kit {
             .unwrap_or_else(|| serde_json::json!({}))
     }
 
-    /// The game folder setup recorded ("game" in data\settings.json), if it still has the game's programs.
-    pub fn game(&self) -> Option<PathBuf> {
-        find_game(self.settings().get("game")?.as_str()?)
-    }
-
     /// English is on: english.py's list of the original files it backed up is not empty (kit_common.english_on).
     pub fn english_on(&self) -> bool {
         fs::read_to_string(self.data().join("english_backup").join("manifest.json"))
