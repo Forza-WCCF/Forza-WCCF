@@ -277,8 +277,8 @@ fn gamesvr_save_round_trip() {
     assert!(word(&a, 4) == 0 && new != 0 && new != card);
     assert_eq!(word(&save_data(&mut c, coach, card), 4), 1);
     assert_loads(&save_data(&mut c, coach, new), &blk);
-    // ITEM_LIST: errCode 1, the loaded club keeps its own item values
-    assert_eq!(word(&ask(&mut c, 285, &req(24, 20, |_| {})), 4), 1);
+    // ITEM_LIST: errCode 0 (card-in shows error 3107 on any other), also for a club it does not know
+    assert_eq!(word(&ask(&mut c, 285, &req(24, 20, |_| {})), 4), 0);
     drop((c, _svc));
     let _ = std::fs::remove_dir_all(dir);
 }
