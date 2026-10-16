@@ -1,0 +1,24 @@
+Forza-WCCF 2017-18 - release notes
+==================================
+
+0.1.0-alpha.1
+-------------
+First alpha: the 2017-18 game plays offline on one PC, one seat, from your own game files.
+
+  - Game server stand-in: the game's club and save requests are answered by a server on this PC. Clubs and saves are
+    kept in data\save\gamesvr and survive restarts (new card, tutorial, club set-up, matches, restart: the same club
+    loads, no error 3107).
+  - Rare 2D-code cards: the server registers the game's 2D-code cards, so they work in the World Players List and in
+    team registration.
+  - Skip the tutorial: an option that gives a new card a ready club, so it goes straight to the main screen.
+  - A new Rust panel with the cabinet's look: the CENTRAL / COUNTER / L-SIDE / R-SIDE triangles, PRESS, DATA, SHOOT,
+    KEEPER, KEY PLAYER and START buttons, the formation board, the keys.
+  - Card pictures, made at setup from your game files (or from the optional high-quality pack).
+  - Game text in English and Italian, as well as the original Japanese.
+  - The network guard: the game's network calls are stubbed, and Launcher.exe refuses to start the game without it.
+
+Known issues: the control program may crash after about 90 minutes idle; registering a team may wait about 95 seconds;
+the programs are unsigned. Not in this alpha: career mode, online or LAN play, installer support for 2017-18, pause,
+render scale. See README.txt.
+
+Versions after this one go above this line.
