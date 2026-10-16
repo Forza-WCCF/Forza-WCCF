@@ -464,7 +464,12 @@ pub fn relay_install(e1718: bool, log: fn(&str)) {
     let (rs, rr) = slot_rvas(e1718);
     let (slot_sendto, slot_recvfrom) = (me.0 as usize + rs, me.0 as usize + rr);
     // SAFETY: reading the program's own import table; the slots are mapped in the game (the test above holds).
-    let held = unsafe { (*(slot_sendto as *const usize), *(slot_recvfrom as *const usize)) };
+    let held = unsafe {
+        (
+            *(slot_sendto as *const usize),
+            *(slot_recvfrom as *const usize),
+        )
+    };
     if held != (st, rf) {
         return say("relay: off - the game's sendto / recvfrom imports are not the ones read");
     }
