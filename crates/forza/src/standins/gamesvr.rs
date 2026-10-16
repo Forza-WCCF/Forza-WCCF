@@ -16,8 +16,9 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// The secretaries' unlock bytes in answer 238.
-const SECRETARIES: std::ops::Range<usize> = 1176..1212;
+/// The secretaries' unlock bytes in answer 238: GAME_CTRL bytes 1176..1211, the block starting at +16 (+8 and +12
+/// are a date and time, left 0: the control may set the PC's clock from them).
+const SECRETARIES: std::ops::Range<usize> = 16 + 1176..16 + 1212;
 const MAGIC: [u8; 8] = [0xF1, 0xC0, 0x80, 0x44, 0xB4, 0x9E, 0xDA, 0x3C];
 /// Response command and payload size (control.c response dispatcher 0x408C50 and the message table).
 const RESP: &[(u16, usize)] = &[
@@ -428,8 +429,8 @@ fn answer(
         body[..4].copy_from_slice(&payload[..4]);
     }
     if cmd == 237 {
-        // the 0x5A54-byte block the control copies whole over the client's defaults: bytes 1176..1211 unlock the 36
-        // secretaries (default 1); all zero leaves none, and the club's SECRETARY step loads a picture that is not on
+        // the control copies payload +16.. as GAME_CTRL (sub_4419F0) and sends it to every seat, over the client's
+        // defaults; GAME_CTRL bytes 1176..1211 unlock the 36 secretaries (default 1); all zero leaves none, and the club's SECRETARY step loads a picture that is not on
         // the disc and reads a null pointer (client 0x424AB2, docs/research/ONLINE-2017-18.md)
         body[SECRETARIES].fill(1);
     }
@@ -577,6 +578,9 @@ mod tests {
         let (cmd, body, _) = answer(237, &[0; 20], &store).unwrap();
         assert_eq!((cmd, body.len()), (238, 0x5A54));
         assert!(body[SECRETARIES].iter().all(|b| *b == 1));
+        // the four secretaries with an id (26..29) and the date and time left 0
+        assert!((26..30).all(|n| body[16 + 1176 + n] == 1));
+        assert!(body[8..16].iter().all(|b| *b == 0));
     }
 
     #[test]
