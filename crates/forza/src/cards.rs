@@ -5,6 +5,7 @@
 //! `write_table_locked`, `write_panel_state_locked`, `board_add_locked`, `load_catalogue`); both files come out byte
 //! for byte as it writes them.
 
+pub mod hq;
 pub mod links;
 pub mod pictures;
 
@@ -363,7 +364,7 @@ pub fn board(cards: &[Placed], catalogue: &[Card]) -> Board {
 /// change keeps its line as it was, so a move rewrites only what moved.
 pub fn table_after(before: &[Placed], board: &Board) -> Vec<Placed> {
     let shown = self::board(before, &[]).slots;
-    before
+    let mut out: Vec<Placed> = before
         .iter()
         .enumerate()
         .filter_map(|(i, old)| {
@@ -386,7 +387,29 @@ pub fn table_after(before: &[Placed], board: &Board) -> Vec<Placed> {
             };
             Some(Placed { x, y, ..*old })
         })
-        .collect()
+        .collect();
+    // cards the board took in (dropped from the catalogue): new lines, on the lowest free slot numbers
+    for (s, ci) in board.slots.iter().enumerate() {
+        let Some(i) = ci.filter(|&i| i >= before.len()) else {
+            continue;
+        };
+        let (x, y) = if s < 11 {
+            let sp = board.spots[s];
+            (round3(sp.x * 2.0 - 1.0), round3(sp.y * 2.0 - 1.0))
+        } else {
+            (BENCH_X, BENCH_Y[s - 11])
+        };
+        let slot = (1..=MAX_CARDS as i32)
+            .find(|n| !out.iter().any(|c| c.slot == *n))
+            .unwrap_or(1);
+        out.push(Placed {
+            slot,
+            no: board.cards[i].number,
+            x,
+            y,
+        });
+    }
+    out
 }
 
 // ---- the catalogue ----
