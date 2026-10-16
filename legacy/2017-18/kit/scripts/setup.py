@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-r"""setup.py - set up your copy of WCCF 2017-18 for the Forza-WCCF kit (once; run it again to check and repair).
+r"""setup.py - set up your copy of WCCF 2017-18 for Forza-WCCF (once; run it again to check and repair).
 
-    python\python.exe scripts\setup.py GAME      GAME = the decrypted game folder (client_Release.exe, control_Release.exe)
+    python\python.exe scripts\setup.py GAME      ("undo GAME" puts the originals back)   GAME = the decrypted game folder (client_Release.exe, control_Release.exe)
 
 Works in place on that folder, so give it your own copy.  The runtime is the folder that holds GAME:
     original\    the untouched client_Release.exe and control_Release.exe, kept on the first run; every later run
@@ -148,7 +148,7 @@ def copy_in(src, dst, what):
 
 
 def setup_game(game, kit=K.KIT):
-    """game\\ (server + projector, guarded) and seat1\; returns what setup-hashes.json holds"""
+    """game\\ (server + projector, guarded) and seat1\\; returns what setup-hashes.json holds"""
     rt = os.path.dirname(game)
     seat = os.path.join(rt, "seat1")
     bin_, overlay = os.path.join(kit, "bin"), os.path.join(kit, "overlay")
@@ -204,6 +204,30 @@ def setup_game(game, kit=K.KIT):
     return report
 
 
+def undo(game):
+    """the game folder as it was: the original programs and logo back, the kit's files, seat1\\ and the record removed"""
+    rt = os.path.dirname(game)
+    for exe in PINNED:
+        shutil.copyfile(os.path.join(rt, "original", exe), os.path.join(game, exe))
+    backup = os.path.join(game, LOGOWIN_BACKUP)
+    if os.path.isfile(backup):
+        os.replace(backup, os.path.join(game, "logowin.exe"))
+    for f in ("winmm.dll", "winmm_orig.dll", "wccfnet.dll", "netguard.dll"):
+        if os.path.isfile(os.path.join(game, f)):
+            os.remove(os.path.join(game, f))
+    seat = os.path.join(rt, "seat1")
+    for n in JUNCTION_DIRS:          # a junction goes with rmdir; rmtree would walk into game\
+        if os.path.lexists(os.path.join(seat, n)):
+            os.rmdir(os.path.join(seat, n))
+    shutil.rmtree(seat, ignore_errors=True)
+    if os.path.isfile(os.path.join(rt, "setup-hashes.json")):
+        os.remove(os.path.join(rt, "setup-hashes.json"))
+    s = K.load_settings()
+    s.pop("game", None)
+    K.save_settings(s)
+    print("Undone: the original programs are back in %s. Your club card stays in data\\save." % game)
+
+
 def setup_catalogue(game, force=False):
     """overlay\\catalogue.tsv, for the board; the card pictures are the Launcher's (forza::cards::pictures)"""
     out = os.path.join(K.OVERLAY, "catalogue.tsv")
@@ -220,8 +244,9 @@ def main(argv):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except (AttributeError, ValueError):
         pass
+    undoing = argv[:1] == ["undo"]
     force_cards = "cards" in argv
-    rest = [a for a in argv if a != "cards"]
+    rest = [a for a in argv if a not in ("cards", "undo")]
     game = find_game(rest[0] if rest else K.load_settings().get("game"))
     if rest and not game:
         print("no WCCF 2017-18 game files in %s (client_Release.exe, control_Release.exe)" % rest[0])
@@ -235,8 +260,11 @@ def main(argv):
         if not game:
             print("no WCCF 2017-18 game files there - run setup again and give the game folder")
             return 2
-    print("WCCF 2017-18 kit - setup - game: %s" % game)
+    print("Forza-WCCF 2017-18 - %s - game: %s" % ("undo" if undoing else "setup", game))
     try:
+        if undoing:
+            undo(game)
+            return 0
         rep = setup_game(game)
         for k, v in rep.items():
             print("  ok    %s" % k)

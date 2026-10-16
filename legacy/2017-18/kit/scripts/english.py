@@ -547,7 +547,7 @@ def main(argv):
     if not game:
         print("The game is not set up yet - set it up first.")
         return 2
-    print("WCCF 2017-18 kit - %s %s - game: %s" % (LANGS[lang], mode, game))
+    print("Forza-WCCF 2017-18 - %s %s - game: %s" % (LANGS[lang], mode, game))
     try:
         if K.game_processes(game):
             if mode != "check":
