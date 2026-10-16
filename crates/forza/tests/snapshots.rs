@@ -238,7 +238,8 @@ fn panel_1920x1080() {
     h.snapshot("panel_game_1080_it");
 }
 
-/// Card pictures load from the folder `set_picture_dir` names: a made-up 128×128 PNG (the original pictures' size)
+/// Card pictures load from the folder `set_picture_dir` names: a made-up 128×128 PNG (the original pictures' size; the
+/// slot shows the card face, its left 88 columns, cut square from the top)
 /// for card 6, none for card 7, which keeps the drawn stand-in. Board, bench, catalogue and big sizes.
 #[test]
 fn card_pictures() {

@@ -490,6 +490,21 @@ fn game_folder(kit: &Kit, p: &Params) -> Option<PathBuf> {
     find_game_named(&set, p.programs.clone())
 }
 
+/// The board's card pictures, made from the player's game once (`forza::cards::pictures::ensure`) into the folder
+/// the panel reads; never a reason not to start.
+fn card_pictures(kit: &Kit, game: &Path, edition: Edition, ui: &dyn Ui) {
+    let ed = match edition {
+        Edition::E1011 => "1011",
+        Edition::E1718 => "1718",
+    };
+    let say = |l: &str| ui.say(l);
+    if let Err(e) = forza::cards::pictures::ensure(game, ed, &kit.cache().join("cards"), None, &say) {
+        ui.say(&format!(
+            "  (the card pictures could not be made: {e} - the board shows stand-ins)"
+        ));
+    }
+}
+
 /// The game's programs (by the run's names) running from the game folder and the folders beside it.
 fn strays(game: &Path, p: &Params) -> Vec<procs::Proc> {
     let root = procs::same_form(game.parent().unwrap_or(game)) + "\\";
@@ -755,6 +770,9 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         ));
         return Err(REFUSED);
     };
+    if kind == Kind::Run {
+        card_pictures(kit, &game, edition, ui);
+    }
     let job = match Job::new() {
         Ok(j) => Arc::new(j),
         Err(e) => {
