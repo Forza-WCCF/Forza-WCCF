@@ -1076,6 +1076,12 @@ fn mask(line: &str) -> String {
     out
 }
 
+/// Whether `text` names the publisher outside words that only contain the name: the 2017-18 secretary's surname
+/// Hasegawa does ("Ha<P>wa").
+fn names_publisher(text: &str) -> bool {
+    mask(&text.to_ascii_lowercase().replace("hasegawa", "")).contains("<P>")
+}
+
 /// Every tracked text file (not legacy/python/, not binaries): no line names the publisher except the class-C lines of
 /// xtask/scrub-allow.txt (the JVS board ID, the card reader's AES key, keychip strings, third-party tool and host names, the logowin argument
 /// name in comments, an in-game club name, and the docs quoting them), and no line matches ~/.config/forza-wccf/scrub.txt
@@ -1099,7 +1105,8 @@ fn scrub(root: &Path, failed: &mut Vec<String>) -> Result<()> {
     bad.extend(
         own.lines()
             .filter(|l| {
-                !allow.contains(mask(l.splitn(3, ':').nth(2).unwrap_or("").trim()).as_str())
+                let text = l.splitn(3, ':').nth(2).unwrap_or("").trim();
+                names_publisher(text) && !allow.contains(mask(text).as_str())
             })
             .map(str::to_owned),
     );
@@ -1674,6 +1681,16 @@ mod tests {
             "a <P> b <P><P>"
         );
         assert_eq!(mask("nothing here"), "nothing here");
+    }
+
+    #[test]
+    fn a_surname_that_contains_the_name_is_no_mention() {
+        let [p, _] = publisher();
+        assert!(!names_publisher("I'm Yu Hasegawa, your secretary."));
+        assert!(names_publisher(&format!(
+            "Hasegawa of {}",
+            p.to_uppercase()
+        )));
     }
 
     #[test]
