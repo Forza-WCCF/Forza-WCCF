@@ -715,7 +715,7 @@ fn language_picked(hwnd: HWND) {
 fn retext(hwnd: HWND) {
     let tx = t();
     let kit = Kit::here();
-    let title = wide(&format!("{} - {}", tx.title, kit.dir().display()));
+    let title = wide(&format!("{} {} - {}", tx.title, kit.edition().name(), kit.dir().display()));
     // SAFETY: a NUL-terminated string for our own window.
     unsafe { SetWindowTextW(hwnd, title.as_ptr()) };
     for (id, words) in [
