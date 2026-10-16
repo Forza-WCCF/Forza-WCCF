@@ -134,6 +134,9 @@ pub struct Params {
     /// Extra stand-in threads for the supervisor to watch (name, essential, handle); a cabinet takes them when it
     /// starts.  Tests put a thread that panics here; the game has none.
     pub extra_watch: Mutex<Vec<(String, bool, Handle)>>,
+    /// 2017-18 online modes (remote, server) run instead of being refused: the online work and its tests; players
+    /// get the refusal (the alpha has no 2017-18 online).
+    pub online_1718: bool,
 }
 
 impl Params {
@@ -157,6 +160,7 @@ impl Params {
             gamesvr_port: 20050, // ctrl_user_option.conf GAME_SVR_PORT
             scenes: scenes::Names::game(),
             maps: Some(debug::maps::GAME_ID.into()),
+            online_1718: false,
             shared: io_board::Shared::new(),
             extra_watch: Mutex::default(),
         }
@@ -769,7 +773,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
     };
     let seat = seat_dir(&game);
     let edition = kit.edition();
-    if rules::online_refused(edition, &mode) {
+    if rules::online_refused(edition, &mode) && !p.online_1718 {
         ui.say(rules::ONLINE_1718_TEXT);
         return Err(REFUSED);
     }
@@ -1595,6 +1599,7 @@ impl Run<'_> {
         self.cabinet.keys = Some(crate::keys::spawn(
             p.shared.clone(),
             keys_path,
+            self.kit.edition() != Edition::E1718, // 2017-18's game is in FREE PLAY itself (setup's patch)
             file_log(self.logs().join("run_keys.txt")),
         ));
         Ok(())

@@ -27,7 +27,17 @@ PATCHES = [
     # AiMeDB (aimelib, VA 0x00D841E0 getaddrinfo, port 22345): the original host -> this PC, served by _aimedb.py
     (0xE2C250, "61696d652e6e616f6d696e65742e6a7000", "6c6f63616c686f73740000000000000000",
      "AiMeDB host aime.naominet.jp -> localhost"),
+    # FREE PLAY: the credit library (amCredit, VA 0x00D386A0) takes its coin setting from the backup record, else from
+    # this default block (VA 0x0121F1C8, bytes 00 01 00 01 ...). Byte 2 is the coin mode: 1 = FREE PLAY (VA 0x00D37E30
+    # returns "enough" and VA 0x00D381A0 shows no credit text). A fresh install has no record, so the default applies.
+    (0xE1E5CA, "00", "01", "FREE PLAY: default coin setting byte 2 = 1 (VA 0x0121F1CA)"),
 ]
+
+# the projector (seat 0, game\\client_Release.exe) gets only the two ALL.Net answers: its corner status icon reads the
+# same online flags as seat 1's (VA 0x009C4630 via 0x0683653D/F, set at VA 0x0040FDC7), so without them it shows OFFLINE
+# although the control link is up.  No picture, board or keychip patch: it is the central monitor.
+ONLINE_OFFSETS = (0x877B70, 0x00F1C7)
+PROJECTOR_PATCHES = [p for p in PATCHES if p[0] in ONLINE_OFFSETS]
 
 
 # the server (control_Release.exe in game\): one change - its ALL.Net library's "network up" check (FUN_004B73C0)

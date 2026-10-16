@@ -125,6 +125,7 @@ fn params(tag: &str, shared: Arc<Shared>) -> Params {
         gamesvr_port: free_port(),
         scenes: Names::scratch(&format!("wccftest_{tag}_{pid}")),
         maps: None,
+        online_1718: true, // the 2017-18 run test plays remote, so the server is the test's
         shared,
         extra_watch: Default::default(),
     }

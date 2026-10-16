@@ -158,6 +158,8 @@ def setup_game(game, kit=K.KIT):
         g = guarded(orig)
         if exe == "control_Release.exe":
             g = P.apply(g, P.CONTROL_PATCHES)
+        else:
+            g = P.apply(g, P.PROJECTOR_PATCHES)   # the projector's status icon needs the same ALL.Net answers as seat 1
         if not os.path.isfile(os.path.join(game, exe)) or read(os.path.join(game, exe)) != g:
             put(os.path.join(game, exe), g)
         report[exe] = {"original": sha(orig), "guarded": sha(g)}

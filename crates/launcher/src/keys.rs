@@ -6,8 +6,8 @@
 //!
 //! Which key does what comes from `keys.txt` (written by the KEYS panel in seat 1's window; missing = the defaults in
 //! [`ACTIONS`]), read again whenever it changes. Each action can also have one control on a game controller, from
-//! `PAD NAME=B3` lines, read with winmm's joystick calls. Free play: every START press first puts in a coin, and START
-//! itself reaches the game a moment later. The club card goes in and out with a key; the game's own ejection (output
+//! `PAD NAME=B3` lines, read with winmm's joystick calls. The game itself runs in FREE PLAY (2017-18: setup changes the
+//! default coin setting; 2010-11: the panel sets it), so START puts in no coin; the COIN key stays for the KEYS page. 2010-11 keeps the coin on START. The club card goes in and out with a key; the game's own ejection (output
 //! byte 1 bit 0x08, the "waiting for a card" signal) takes it out.
 //!
 //! The logic below is pure and replayed against `keyboard.py` (`tests/rec/keys.jsonl`); only [`spawn`] touches Windows.
@@ -339,10 +339,6 @@ pub struct Switches {
     pub p2: [u8; 2],
 }
 
-/// Free play (the player, 2026-10-04): every START press puts a coin in first, and START itself reaches the game a
-/// moment later, so the credit is counted before START is seen. This is the driver paying for you, not the game's own
-/// FREE PLAY setting.
-const FREE_PLAY: bool = true;
 /// Seconds between that coin and START reaching the game.
 const START_DELAY: f64 = 0.15;
 /// Seconds after the press until which START stays held even if the key was only tapped.
@@ -359,11 +355,19 @@ const EJECT_HOLD: f64 = 0.25;
 pub struct Bindings {
     pub keys: [u32; 16],
     pub pads: [u32; 16],
+    /// Every START press first puts a coin in (the driver paying; the recorded replay of `keyboard.py` expects it).
+    /// The Launcher turns it off for 2017-18 (setup makes the game itself FREE PLAY); 2010-11's free play is the
+    /// panel's in-memory patch, so its START still pays.
+    pub start_coin: bool,
 }
 
 impl Bindings {
     pub fn new(keys: [u32; 16], pads: [u32; 16]) -> Self {
-        Self { keys, pads }
+        Self {
+            keys,
+            pads,
+            start_coin: true,
+        }
     }
 
     pub fn defaults() -> Self {
@@ -438,7 +442,7 @@ impl Bindings {
             coin += 1;
             events.push(format!("coin inserted (counter {coin})"));
         }
-        if FREE_PLAY && edges >> START & 1 == 1 {
+        if self.start_coin && edges >> START & 1 == 1 {
             coin += 1;
             events.push(format!("coin put in for you - free play (counter {coin})"));
         }
@@ -818,7 +822,7 @@ fn file_stamp(path: &std::path::Path) -> Option<(SystemTime, u64)> {
 /// keyboard and controllers every 10 ms while a game window is in front, and sets the switches on `shared`. Dropping the
 /// handle stops it and lets go of every button.
 #[cfg(windows)]
-pub fn spawn(shared: Arc<Shared>, keys_path: std::path::PathBuf, log: Log) -> Handle {
+pub fn spawn(shared: Arc<Shared>, keys_path: std::path::PathBuf, start_coin: bool, log: Log) -> Handle {
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
     let thread = thread::spawn(move || {
@@ -828,7 +832,10 @@ pub fn spawn(shared: Arc<Shared>, keys_path: std::path::PathBuf, log: Log) -> Ha
             let raw = read(p);
             let ((keys, notes), (pads, pnotes)) = (load_keys(&raw), load_pads(&raw));
             (
-                Bindings::new(keys, pads),
+                Bindings {
+                    start_coin,
+                    ..Bindings::new(keys, pads)
+                },
                 notes.into_iter().chain(pnotes).collect::<Vec<_>>(),
             )
         };
@@ -858,7 +865,11 @@ pub fn spawn(shared: Arc<Shared>, keys_path: std::path::PathBuf, log: Log) -> Ha
             log(&format!("  keys.txt: {n}"));
         }
         log(&format!("now: card {}.", if shared.card_in() { "IN" } else { "OUT" }));
-        log("FREE PLAY: every Enter (START) puts a coin in for you first - no need for 5.");
+        log(if start_coin {
+            "FREE PLAY: every Enter (START) puts a coin in for you first - no need for 5."
+        } else {
+            "FREE PLAY is the game's own: Enter (START) puts in no coin (5 is still a coin)."
+        });
         log("CARD: when the game ejects the card it comes out by itself - press I to put it back in.");
         let mut pads: Option<Pads> = None;
         let mut os = win::Foreground::default();
@@ -1103,5 +1114,20 @@ mod win {
         name.chars()
             .map(|c| if (' '..'\u{7f}').contains(&c) { c } else { '?' })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn start_puts_in_a_coin_only_when_asked() {
+        let (start, none) = (BTreeSet::from([0x0D]), BTreeSet::new());
+        let mut b = Bindings::defaults();
+        assert_eq!(b.step(&start, &none, false, 0).1, 1);
+        b.start_coin = false;
+        assert_eq!(b.step(&start, &none, false, 0).1, 0);
+        assert_eq!(b.step(&BTreeSet::from([0x35]), &none, false, 0).1, 1); // COIN still works
     }
 }
