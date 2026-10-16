@@ -52,7 +52,7 @@ enum Task {
 
 const TOP: &str = "WCCF-2010-11-kit";
 const PRODUCT: &str = "WCCF 2010-11 kit";
-const PRODUCT_1718: &str = "WCCF 2017-18 kit";
+const PRODUCT_1718: &str = "Forza-WCCF 2017-18";
 const TARGET: &str = "x86_64-pc-windows-msvc";
 /// The game is 32-bit, so is a DLL that goes into it.
 const PANEL_TARGET: &str = "i686-pc-windows-msvc";
@@ -90,19 +90,24 @@ const MAP_1718: &[(&str, &str)] = &[
         "source/test_game_text.py",
         "legacy/2017-18/tests/test_game_text.py",
     ),
+    (
+        "source/test_setup1718.py",
+        "legacy/2017-18/tests/test_setup1718.py",
+    ),
     ("source/mxhook", "native/2017-18/mxhook"),
     ("source/overlay", "native/2017-18/overlay"),
     ("source/logowin", "native/2017-18/logowin"),
     ("source/fpr_emu", "native/fpr_emu"),
 ];
-const TOP_1718: &str = "WCCF-2017-18-kit";
+const TOP_1718: &str = "Forza-WCCF-2017-18";
 /// Built into the staged kit, so staging leaves them alone.
 const KEEP: &[&str] = &["programs", "Launcher.exe", "source/build"];
-/// Built into the staged 2017-18 kit (`source/build` also holds the guard wccfnet.dll, which the kit does not ship, and the guard tests).
+/// Built into the staged 2017-18 kit (`source/build` holds the guard tests, which the kit does not ship; the guard `bin/wccfnet.dll` ships, setup copies it into the game runtime).
 const KEEP_1718: &[&str] = &[
     "Launcher.exe",
     "bin/forza-server.exe",
     "bin/winmm.dll",
+    "bin/wccfnet.dll",
     "bin/logowin.exe",
     "bin/FPR_Emu.exe",
     "overlay/inject.exe",
@@ -114,6 +119,7 @@ const PROGRAMS_1718: &[&str] = &[
     "Launcher.exe",
     "bin/forza-server.exe",
     "bin/winmm.dll",
+    "bin/wccfnet.dll",
     "bin/logowin.exe",
     "bin/FPR_Emu.exe",
     "overlay/inject.exe",
@@ -621,7 +627,7 @@ fn build_1718<'s>(
     );
     c(
         "netguard/wccfnet.c",
-        obj.join("wccfnet.dll"),
+        kit.join("bin/wccfnet.dll"),
         "the primary network guard: the game programs import it instead of IPHLPAPI.DLL",
         &["/LD"],
         &[],
@@ -793,7 +799,6 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
         );
     }
     for p in PROGRAMS_1718.iter().chain(&[
-        "source/build/wccfnet.dll",
         "source/build/test_wccfnet.exe",
         "source/build/test_netguard.exe",
     ]) {
@@ -880,6 +885,15 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
         c,
         false,
     );
+
+    // setup1718's own selftest (agent A's), once it exists
+    let t = kit_1718.join("source/test_setup1718.py");
+    if t.is_file() {
+        let c = ck.python(&[t.to_str().unwrap()]);
+        ck.run("2017-18 setup: the selftest", c, false);
+    } else {
+        println!("skipped: legacy/2017-18/tests/test_setup1718.py does not exist yet");
+    }
 
     panel_selftests(&mut ck)?;
     guard_tests(&mut ck, kit_1718)?;
@@ -1016,7 +1030,7 @@ fn guard_tests(ck: &mut Checks, kit: &Path) -> Result<()> {
     let _ = fs::remove_dir_all(&t);
     fs::create_dir_all(&t)?;
     for (from, to) in [
-        ("source/build/wccfnet.dll", "wccfnet.dll"),
+        ("bin/wccfnet.dll", "wccfnet.dll"),
         ("overlay/netguard.dll", "netguard.dll"),
         ("source/build/test_wccfnet.exe", "test_wccfnet.exe"),
         ("source/build/test_netguard.exe", "test_netguard.exe"),
@@ -1442,7 +1456,7 @@ fn package_installer(root: &Path, name: Option<String>) -> Result<()> {
 // ---- package ----
 
 /// `is_1011`: the 2010-11 kit, else the 2017-18 kit. Both hold the programs `cargo xtask build` made, and their version
-/// information is checked; the 2017-18 ZIP leaves out `source/build` (the guard wccfnet.dll and its tests live there).
+/// information is checked; both ZIPs leave out `source/build` (the 2017-18 guard tests live there; its guard `bin/wccfnet.dll` ships).
 fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
     let (top, map, keep, product) = if is_1011 {
         (TOP, MAP, KEEP, PRODUCT)
@@ -1486,6 +1500,32 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
             get("FileVersion"),
             get("FileDescription")
         );
+    }
+
+    // Defender hygiene: no shipped exe/dll is packed (a UPX section is what machine-learning scanners flag), and no test
+    // program (source/build, which `walk` leaves out) reaches the kit.
+    // Optional signing hook: with FORZA_SIGN_CMD set (e.g. `osslsigncode sign -pkcs12 k.pfx -in {f} -out {f}.s && mv {f}.s {f}`
+    // or `signtool sign /f k.pfx /fd sha256 {f}`), every shipped exe/dll goes through it, `{f}` replaced by the file's path,
+    // before files.txt and the ZIP are made. Unset: no signing (owner decision pending).
+    let (mut bins, mut dirs0) = (BTreeSet::new(), BTreeSet::new());
+    walk(kit, "", &mut bins, &mut dirs0)?;
+    for f in bins.iter().filter(|f| {
+        let f = f.to_ascii_lowercase();
+        f.ends_with(".exe") || f.ends_with(".dll")
+    }) {
+        let bytes = fs::read(kit.join(f))?;
+        ensure!(
+            !bytes.windows(4).any(|w| w == b"UPX!" || w == b"UPX0"),
+            "{f} is UPX-packed: scanners flag packed programs"
+        );
+        if let Some(cmdline) = std::env::var_os("FORZA_SIGN_CMD") {
+            let path = kit.join(f).display().to_string();
+            let line = cmdline.to_string_lossy().replace("{f}", &path);
+            ensure!(
+                Command::new("sh").arg("-c").arg(&line).status()?.success(),
+                "FORZA_SIGN_CMD failed for {f}"
+            );
+        }
     }
 
     // for SETUP.exe's update: version.txt, which kit this is, and files.txt, every file this kit ships - an update removes
