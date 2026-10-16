@@ -21,8 +21,8 @@ use std::sync::Arc;
 pub const SIZE: egui::Vec2 = egui::vec2(1440.0, 900.0);
 /// The formation strip's least width, pinned to the right edge (its width at 1440x900).
 pub const BOARD_W: f32 = 580.0;
-/// The strip's title row above the pitch.
-const BOARD_HEAD: f32 = 34.0;
+/// Space above the pitch inside the strip (no title row any more).
+const BOARD_HEAD: f32 = 0.0;
 /// The bar of page buttons along the bottom of the middle.
 const TABS_H: f32 = 60.0;
 /// The cabinet deck under the picture keeps at least this; on wide sheets the picture stops growing first.
@@ -1229,22 +1229,6 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     strip_ground(ui);
     let r = ui.max_rect().shrink(16.0);
     let pitch = board::pitch_rect(r.min + vec2(0.0, BOARD_HEAD), r.width());
-    let p = ui.painter();
-    p.text(
-        pos2(r.left(), r.top() + 12.0),
-        Align2::LEFT_CENTER,
-        tr!(lang, "board.title"),
-        theme::display(24.0),
-        theme::TEXT,
-    );
-    let count = st.board.slots.iter().flatten().count();
-    p.text(
-        pos2(r.right(), r.top() + 12.0),
-        Align2::RIGHT_CENTER,
-        format!("{count}/16"),
-        theme::display(20.0),
-        theme::TEXT_DIM,
-    );
     let mut b = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(pitch.min, r.max)));
     b.spacing_mut().item_spacing.y = 4.0;
     st.board_changed |=

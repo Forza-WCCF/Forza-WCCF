@@ -47,7 +47,9 @@ use windows::Win32::System::LibraryLoader::{DisableThreadLibraryCalls, GetModule
 use windows::Win32::System::Memory::*;
 use windows::Win32::System::SystemServices::{DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH};
 use windows::Win32::System::Threading::{GetCurrentProcess, GetCurrentProcessId};
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL, VK_MENU, VK_SHIFT};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    GetCapture, GetKeyState, ReleaseCapture, SetCapture, VK_CONTROL, VK_MENU, VK_SHIFT,
+};
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{BOOL, HRESULT, Interface, w};
 
@@ -1708,6 +1710,30 @@ unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LR
                 set_maximized(h, !is_maximized(h));
             }
             return LRESULT(0);
+        }
+        // a button held on the panel keeps the mouse, so its release arrives even outside the window (drag and drop)
+        WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN => {
+            // SAFETY: capture for our own window, from its own thread
+            unsafe {
+                if GetCapture() != h {
+                    SetCapture(h);
+                    log("drag: capture on");
+                }
+            }
+        }
+        WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP if wp.0 & 0x13 == 0 => {
+            // SAFETY: as above
+            unsafe {
+                if GetCapture() == h {
+                    let _ = ReleaseCapture();
+                    log("drag: capture off");
+                }
+            }
+        }
+        // WM_CAPTURECHANGED: another window took the mouse; egui must not wait for a release it will not get
+        0x0215 if lp.0 != h.0 as isize => {
+            log("drag: capture lost");
+            push(vec![Event::PointerGone]);
         }
         _ => {}
     }
