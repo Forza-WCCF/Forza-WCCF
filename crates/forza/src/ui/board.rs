@@ -4,6 +4,7 @@
 use super::Lang;
 use super::theme;
 use super::widgets::{centered_text, fan, fit, gradient};
+use crate::cards::hq::{self, Hq};
 use crate::cards::links::Affinity;
 use egui::{
     Align2, Color32, Id, Order, Painter, Pos2, Rect, Response, Sense, Shadow, Stroke, StrokeKind,
@@ -254,6 +255,76 @@ fn face_uv(size: Vec2, aspect: f32) -> Rect {
     }
 }
 
+fn picture_dir(ctx: &egui::Context) -> Option<std::path::PathBuf> {
+    ctx.data(|d| d.get_temp::<Option<std::path::PathBuf>>(Id::new("card-pictures")))
+        .flatten()
+}
+
+/// The card's picture file `<number>.<ext>` in the folder as a ready texture; `None` while it loads or when there is
+/// no such file (a miss is remembered: the folder is made once, at setup).
+fn load_picture(
+    ctx: &egui::Context,
+    dir: &std::path::Path,
+    number: u32,
+    ext: &str,
+) -> Option<(egui::TextureId, Vec2)> {
+    let file = dir.join(format!("{number}.{ext}"));
+    // `file:///C:\...` on Windows, `file:///home/...` elsewhere: what egui_extras' file loader parses
+    let uri = format!(
+        "file:///{}",
+        file.display().to_string().trim_start_matches('/')
+    );
+    let miss = Id::new(("card-picture-miss", &uri));
+    if ctx.data(|d| d.get_temp::<bool>(miss)).is_some() {
+        return None;
+    }
+    let loaded = ctx.try_load_texture(
+        &uri,
+        egui::TextureOptions::LINEAR,
+        egui::SizeHint::default(),
+    );
+    if loaded.is_err() {
+        ctx.data_mut(|d| d.insert_temp(miss, true));
+    }
+    match loaded {
+        Ok(egui::load::TexturePoll::Ready { texture }) => Some((texture.id, texture.size)),
+        _ => None,
+    }
+}
+
+/// The pack's real values by card number (`hq_stats.tsv` beside the pictures), read once per folder.
+fn hq_map(ctx: &egui::Context) -> Option<std::sync::Arc<std::collections::HashMap<u32, Hq>>> {
+    let dir = picture_dir(ctx)?;
+    let id = Id::new(("card-hq", &dir));
+    if let Some(m) =
+        ctx.data(|d| d.get_temp::<std::sync::Arc<std::collections::HashMap<u32, Hq>>>(id))
+    {
+        return Some(m);
+    }
+    let m = std::sync::Arc::new(hq::load(&dir.join(hq::FILE)));
+    ctx.data_mut(|d| d.insert_temp(id, m.clone()));
+    Some(m)
+}
+
+/// The card with the pack's real position, stats and TOTAL when it has them (the game catalogue's numbers
+/// otherwise): what the board draws and lists.
+pub fn real<'a>(ctx: &egui::Context, card: &'a Card) -> std::borrow::Cow<'a, Card> {
+    let Some(h) = hq_map(ctx).and_then(|m| m.get(&card.number).copied()) else {
+        return std::borrow::Cow::Borrowed(card);
+    };
+    let mut c = card.clone();
+    c.stats = h.stats;
+    c.total = h.total;
+    c.pos = match &h.pos {
+        b"GK" => Position::Gk,
+        b"DF" => Position::Df,
+        b"MF" => Position::Mf,
+        b"FW" => Position::Fw,
+        _ => c.pos,
+    };
+    std::borrow::Cow::Owned(c)
+}
+
 /// The card's picture in `r`; the stand-in while it loads, when the file is missing, or with no folder set.
 fn card_picture(p: &Painter, r: Rect, card: &Card, rim: Color32, alpha: f32) {
     gradient(
@@ -264,42 +335,16 @@ fn card_picture(p: &Painter, r: Rect, card: &Card, rim: Color32, alpha: f32) {
         theme::DEEP.gamma_multiply(alpha),
         true,
     );
-    let dir = p
-        .ctx()
-        .data(|d| d.get_temp::<Option<std::path::PathBuf>>(Id::new("card-pictures")))
-        .flatten();
-    if let Some(dir) = dir {
-        // the high-quality pack's scan first, then the game's own (pictures::ensure makes both)
-        for ext in ["jpg", "png"] {
-            // `file:///C:\...` on Windows, `file:///home/...` elsewhere: what egui_extras' file loader parses
-            let file = dir.join(format!("{}.{ext}", card.number));
-            let uri = format!(
-                "file:///{}",
-                file.display().to_string().trim_start_matches('/')
-            );
-            // a miss (no such file) is remembered: the folder is made once, at setup
-            let miss = Id::new(("card-picture-miss", &uri));
-            if p.ctx().data(|d| d.get_temp::<bool>(miss)).is_some() {
-                continue;
-            }
-            let loaded = p.ctx().try_load_texture(
-                &uri,
-                egui::TextureOptions::LINEAR,
-                egui::SizeHint::default(),
-            );
-            if loaded.is_err() {
-                p.ctx().data_mut(|d| d.insert_temp(miss, true));
-            }
-            if let Ok(egui::load::TexturePoll::Ready { texture }) = loaded {
-                p.image(
-                    texture.id,
-                    r,
-                    face_uv(texture.size, r.aspect_ratio()),
-                    Color32::WHITE.gamma_multiply(alpha),
-                );
-                return;
-            }
-        }
+    if let Some(dir) = picture_dir(p.ctx())
+        && let Some((id, size)) = load_picture(p.ctx(), &dir, card.number, "png")
+    {
+        p.image(
+            id,
+            r,
+            face_uv(size, r.aspect_ratio()),
+            Color32::WHITE.gamma_multiply(alpha),
+        );
+        return;
     }
     // the stand-in: a neutral head-and-shoulders silhouette, plainly not a photo
     let col = rim
@@ -355,6 +400,7 @@ pub struct Look {
 /// The card face, upright 58:81: the position band with TOTAL, the player's picture, the name on its foot; large ones
 /// add the club and the season. The picture comes from the folder [`set_picture_dir`] names, else a drawn stand-in.
 pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
+    let card = &*real(p.ctx(), card);
     let big = rect.width() >= 90.0;
     let r = (rect.width() * 0.08) as u8;
     let alpha = if look.ghost { 0.3 } else { 1.0 };
@@ -377,6 +423,19 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
         p.add(s.as_shape(rect, r));
     }
     let rim = card.rarity.rim();
+    // the pack's scan is the whole card face: its own band, picture, name and numbers
+    if let Some(dir) = picture_dir(p.ctx())
+        && let Some((id, _)) = load_picture(p.ctx(), &dir, card.number, "jpg")
+    {
+        p.image(
+            id,
+            rect,
+            Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)),
+            Color32::WHITE.gamma_multiply(alpha),
+        );
+        face_marks(p, rect, r, card, rim, alpha, look);
+        return;
+    }
     gradient(
         p,
         rect,
@@ -498,6 +557,11 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
             card.rarity,
         );
     }
+    face_marks(p, rect, r, card, rim, alpha, look);
+}
+
+/// The rim (amber when selected or a drop target) and the out-of-position corner, over the face or the scan.
+fn face_marks(p: &Painter, rect: Rect, r: u8, card: &Card, rim: Color32, alpha: f32, look: Look) {
     let rim_stroke = if look.target || look.selected {
         Stroke::new(if look.target { 3.0 } else { 2.0 }, theme::AMBER)
     } else {
@@ -633,6 +697,70 @@ impl Board {
     }
 }
 
+impl Board {
+    fn first_free(&self, slots: std::ops::Range<usize>) -> Option<usize> {
+        slots.into_iter().find(|&s| self.slots[s].is_none())
+    }
+
+    /// A card on the table already (by number).
+    fn holds(&self, number: u32) -> bool {
+        (0..16).any(|s| self.number(s) == Some(number))
+    }
+
+    /// A card dragged within the board dropped on `slot`: the two trade places (an empty slot takes the card).
+    pub fn swap(&mut self, from: usize, slot: usize) {
+        self.slots.swap(from, slot);
+    }
+
+    /// A pitch card dropped on open pitch lies at `spot`; a bench card takes the first free pitch slot there (none
+    /// free: it stays). Returns whether anything moved.
+    pub fn move_to(&mut self, from: usize, spot: Pos2) -> bool {
+        let to = if from < 11 {
+            from
+        } else if let Some(s) = self.first_free(0..11) {
+            s
+        } else {
+            return false;
+        };
+        self.slots.swap(from, to);
+        self.spots[to] = spot;
+        true
+    }
+
+    /// A catalogue card dropped on `slot`: it takes the place, and the card there goes to the first free bench box
+    /// (or off the table when the bench is full). A card already on the table is left alone.
+    pub fn put(&mut self, card: &Card, slot: usize) -> bool {
+        if self.holds(card.number) {
+            return false;
+        }
+        self.cards.push(card.clone());
+        if let Some(old) = self.slots[slot].take() {
+            if let Some(b) = self.first_free(11..16) {
+                self.slots[b] = Some(old);
+            }
+        }
+        self.slots[slot] = Some(self.cards.len() - 1);
+        true
+    }
+
+    /// A catalogue card dropped on open pitch: the first free pitch slot, there at `spot`, else the first free
+    /// bench box; nothing when the table is full or holds the card already.
+    pub fn put_free(&mut self, card: &Card, spot: Pos2) -> bool {
+        if self.holds(card.number) {
+            return false;
+        }
+        let Some(s) = self.first_free(0..16) else {
+            return false;
+        };
+        self.cards.push(card.clone());
+        self.slots[s] = Some(self.cards.len() - 1);
+        if s < 11 {
+            self.spots[s] = spot;
+        }
+        true
+    }
+}
+
 /// The zone a pitch point is in: attack at the top, the centre, defence near the own goal, the keeper's box.
 fn zone(y: f32) -> Position {
     match y {
@@ -710,6 +838,12 @@ fn on_pitch(pitch: Rect, p: Pos2) -> Pos2 {
     ((p - pitch.min) / pitch.size()).to_pos2()
 }
 
+/// Where a card in hand is drawn from the pointer: up and to the left, so the target under it stays in sight; it lands
+/// where it is shown.
+fn lift_offset(card: Vec2) -> Vec2 {
+    vec2(-card.x * 0.45, -card.y * 0.55)
+}
+
 /// Draws the board and handles it: drag a card onto another to swap (the target is lit while dragging), right-click
 /// takes a card off, a resting mouse shows the card big after `hover_delay` seconds. While a card is dragged or shown
 /// big, the pitch shows its suitable positions as a heat zone, and the drop target says how well it fits there.
@@ -726,6 +860,8 @@ pub fn formation_board(
     let width = ui.available_width();
     let (pitch, _) = ui.allocate_exact_size(vec2(width, width * PITCH_ASPECT), Sense::hover());
     let dragging = egui::DragAndDrop::payload::<usize>(ui.ctx()).map(|a| *a);
+    // a card dragged out of the catalogue
+    let incoming = egui::DragAndDrop::payload::<Card>(ui.ctx());
     let pointer = ui.ctx().pointer_latest_pos();
     paint_pitch(ui.painter(), pitch, Some(lang));
     // the heat zone goes over the pitch and under the cards, once we know whose it is
@@ -768,8 +904,9 @@ pub fn formation_board(
     for (slot, &rect) in rects.iter().enumerate() {
         let resp = ui.interact(rect, Id::new(("board-slot", slot)), Sense::click_and_drag());
         let p = ui.painter();
-        let hovered_by_drag =
-            dragging.is_some_and(|d| d != slot) && resp.dnd_hover_payload::<usize>().is_some();
+        let hovered_by_drag = (dragging.is_some_and(|d| d != slot)
+            && resp.dnd_hover_payload::<usize>().is_some())
+            || resp.dnd_hover_payload::<Card>().is_some();
         if hovered_by_drag {
             drop_target = Some((slot, rect));
         }
@@ -829,7 +966,7 @@ pub fn formation_board(
                         .ctx()
                         .layer_painter(egui::LayerId::new(Order::Tooltip, Id::new("board-lift")));
                     // up and to the left of the pointer, so the swap target under it stays in sight
-                    let at = pt + vec2(-card.x * 0.45, -card.y * 0.55);
+                    let at = pt + lift_offset(card);
                     card_face(
                         &lp,
                         Rect::from_center_size(at, card * 1.08),
@@ -873,29 +1010,53 @@ pub fn formation_board(
                 );
             }
         }
-        if let Some(from) = resp.dnd_release_payload::<usize>()
-            && *from != slot
-        {
-            board.slots.swap(*from, slot);
-            changed = true;
+        if let Some(from) = resp.dnd_release_payload::<usize>() {
+            if *from != slot {
+                board.swap(*from, slot);
+                changed = true;
+            } else if slot < 11
+                && let Some(pt) = pointer
+            {
+                // dropped on its own place: a short move across the pitch
+                changed |= board.move_to(slot, spot_at(pitch, pt + lift_offset(card)));
+            }
+        } else if let Some(c) = resp.dnd_release_payload::<Card>() {
+            changed |= board.put(&c, slot);
         }
     }
 
-    // dropped on the pitch away from every slot: the card moves there (a bench card takes a free pitch slot)
-    if let Some(from) = dragging
+    // dropped on the pitch away from every slot: the card lies where it was shown (a bench card takes a free pitch
+    // slot; a catalogue card too)
+    if (dragging.is_some() || incoming.is_some())
         && pointer.is_some_and(|p| pitch.contains(p))
         && ui.input(|i| i.pointer.any_released())
-        && egui::DragAndDrop::take_payload::<usize>(ui.ctx()).is_some()
-        && let Some(to) = if from < 11 {
-            Some(from)
-        } else {
-            (0..11).find(|&s| board.slots[s].is_none())
-        }
-        && let Some(p) = pointer
+        && let Some(pt) = pointer
     {
-        board.slots.swap(from, to);
-        board.spots[to] = spot_at(pitch, p);
-        changed = true;
+        let spot = spot_at(pitch, pt + lift_offset(card));
+        if let Some(from) = dragging
+            && egui::DragAndDrop::take_payload::<usize>(ui.ctx()).is_some()
+        {
+            changed |= board.move_to(from, spot);
+        } else if let Some(c) = incoming.clone()
+            && egui::DragAndDrop::take_payload::<Card>(ui.ctx()).is_some()
+        {
+            changed |= board.put_free(&c, spot);
+        }
+    }
+    // a catalogue card in hand follows the pointer too
+    if let (Some(c), Some(pt)) = (incoming.as_ref(), pointer) {
+        let lp = ui
+            .ctx()
+            .layer_painter(egui::LayerId::new(Order::Tooltip, Id::new("board-lift")));
+        card_face(
+            &lp,
+            Rect::from_center_size(pt + lift_offset(card), card * 1.08),
+            c,
+            Look {
+                lifted: true,
+                ..Look::default()
+            },
+        );
     }
 
     // the link lines between pitch cards: the selection's group last, so it lies on top
@@ -1252,6 +1413,7 @@ pub fn aptitude_map(p: &Painter, rect: Rect, apt: &Aptitude, lang: Lang) {
 /// or more marked with its rating (the three best named); the six stats and TOTAL beside it. From the 16 role ratings
 /// (the names and spots are the project's inference: [`ROLES`]); 2017-18's own cards say "no position data".
 pub fn card_back(p: &Painter, rect: Rect, card: &Card, lang: Lang) {
+    let card = &*real(p.ctx(), card);
     let r = (rect.width() * 0.08) as u8;
     let rim = card.rarity.rim();
     p.add(
@@ -1445,6 +1607,7 @@ pub fn card_back(p: &Painter, rect: Rect, card: &Card, lang: Lang) {
 /// The big card beside the board with its caption: a card at 2.6x and its line of facts, and the card back's
 /// suitable positions beside it.
 fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, back: bool, lang: Lang) {
+    let card = &*real(ui.ctx(), card);
     let size = CARD_SMALL * 2.6;
     // the map under its 22 px heading, as tall as the card
     let map = vec2((size.y - 22.0) / PITCH_ASPECT, size.y - 22.0);
@@ -1569,7 +1732,8 @@ pub fn catalogue_card(
     selected: bool,
     on_table: bool,
 ) -> Response {
-    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click_and_drag());
+    resp.dnd_set_drag_payload(card.clone());
     let lift = ui
         .ctx()
         .animate_bool_with_time(resp.id, resp.hovered(), 0.12);
@@ -1612,5 +1776,118 @@ mod tests {
         // the face made here (88x128): its top square
         let r = face_uv(vec2(88.0, 128.0), 1.0);
         assert!((r.max.y - 88.0 / 128.0).abs() < 1e-6);
+    }
+
+    fn card(n: u32) -> Card {
+        Card {
+            number: n,
+            record: None,
+            name: n.to_string(),
+            short: String::new(),
+            club: String::new(),
+            country: String::new(),
+            season: String::new(),
+            pos: Position::Mf,
+            rarity: Rarity::Regular,
+            stats: [0; 6],
+            total: 0,
+            aptitude: Aptitude::default(),
+        }
+    }
+
+    /// Cards 1..=3 on pitch slots 0..=2, card 4 on the first bench box.
+    fn table() -> Board {
+        let mut b = Board {
+            cards: (1..=4).map(card).collect(),
+            slots: [None; 16],
+            spots: [pos2(0.5, 0.5); 11],
+        };
+        b.slots[..3].copy_from_slice(&[Some(0), Some(1), Some(2)]);
+        b.slots[11] = Some(3);
+        b
+    }
+
+    #[test]
+    fn a_card_moves_swaps_and_goes_to_the_bench() {
+        let mut b = table();
+        // free move on the pitch: the spot changes, the slot stays
+        assert!(b.move_to(1, pos2(0.1, 0.2)));
+        assert_eq!((b.spots[1], b.number(1)), (pos2(0.1, 0.2), Some(2)));
+        // swap with another card, a bench card, and an empty bench box
+        b.swap(0, 2);
+        assert_eq!((b.number(0), b.number(2)), (Some(3), Some(1)));
+        b.swap(0, 11);
+        assert_eq!((b.number(0), b.number(11)), (Some(4), Some(3)));
+        b.swap(1, 13);
+        assert_eq!((b.number(1), b.number(13)), (None, Some(2)));
+        // a bench card dropped on the pitch takes the first free pitch slot, at the drop spot
+        assert!(b.move_to(13, pos2(0.9, 0.9)));
+        assert_eq!((b.number(1), b.spots[1]), (Some(2), pos2(0.9, 0.9)));
+        assert_eq!(b.number(13), None);
+    }
+
+    #[test]
+    fn a_catalogue_card_goes_on_the_pitch_or_over_a_place() {
+        let mut b = table();
+        assert!(b.put_free(&card(9), pos2(0.3, 0.3)));
+        assert_eq!((b.number(3), b.spots[3]), (Some(9), pos2(0.3, 0.3)));
+        // already on the table: refused
+        assert!(!b.put_free(&card(9), pos2(0.0, 0.0)) && !b.put(&card(1), 5));
+        // over a card: it takes the place and the old card goes to the first free bench box
+        assert!(b.put(&card(10), 0));
+        assert_eq!((b.number(0), b.number(12)), (Some(10), Some(1)));
+        // a full bench: the old card goes off
+        for s in 11..16 {
+            b.slots[s].get_or_insert(0);
+        }
+        assert!(b.put(&card(11), 2));
+        assert!(!b.holds(3) && b.number(2) == Some(11));
+    }
+
+    #[test]
+    fn what_the_board_took_in_is_written_to_the_table() {
+        use crate::cards::{Placed, table_after};
+        let before: Vec<Placed> = (1..=3)
+            .map(|i| Placed {
+                slot: i,
+                no: 100 + i as u32,
+                x: -0.5 + i as f32 / 4.0,
+                y: 0.1,
+            })
+            .collect();
+        let mut b = crate::cards::board(&before, &[]);
+        assert!(b.put_free(&card(555), pos2(0.5, 0.75)));
+        let after = table_after(&before, &b);
+        assert_eq!(after[..3], before[..]);
+        assert_eq!((after[3].slot, after[3].no), (4, 555));
+        assert_eq!((after[3].x, after[3].y), (0.0, 0.5));
+    }
+
+    #[test]
+    fn the_packs_real_stats_replace_the_catalogues() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(
+            d.path().join(hq::FILE),
+            "7\tFW\t19\t6\t17\t13\t18\t15\t88\n",
+        )
+        .unwrap();
+        let ctx = egui::Context::default();
+        set_picture_dir(&ctx, Some(d.path().to_path_buf()));
+        let seven = card(7);
+        let c = real(&ctx, &seven);
+        assert_eq!(
+            (c.pos, c.stats, c.total),
+            (Position::Fw, [19, 6, 17, 13, 18, 15], 88)
+        );
+        // a card the pack lacks, and no pack at all: the game's numbers
+        assert!(matches!(
+            real(&ctx, &card(8)),
+            std::borrow::Cow::Borrowed(_)
+        ));
+        set_picture_dir(&ctx, None);
+        assert!(matches!(
+            real(&ctx, &card(7)),
+            std::borrow::Cow::Borrowed(_)
+        ));
     }
 }
