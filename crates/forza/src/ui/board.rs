@@ -734,10 +734,10 @@ impl Board {
             return false;
         }
         self.cards.push(card.clone());
-        if let Some(old) = self.slots[slot].take() {
-            if let Some(b) = self.first_free(11..16) {
-                self.slots[b] = Some(old);
-            }
+        if let Some(old) = self.slots[slot].take()
+            && let Some(b) = self.first_free(11..16)
+        {
+            self.slots[b] = Some(old);
         }
         self.slots[slot] = Some(self.cards.len() - 1);
         true
