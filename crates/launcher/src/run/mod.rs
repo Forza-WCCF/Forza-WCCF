@@ -802,10 +802,10 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
     match run.start_all() {
         Ok(()) => Ok(run),
         Err(Failed(why)) => {
-            // an empty reason: the game is not set up (said already)
+            // an empty reason: the game is not set up (said already); the reason goes in run_launcher.txt too
             if !why.is_empty() {
-                ui.say(&format!("FAILED: {why}"));
-                ui.say("Stopping what was started ...");
+                run.say(&format!("FAILED: {why}"));
+                run.say("Stopping what was started ...");
             }
             run.shutdown();
             let _ = fs::remove_file(run.running_file());
@@ -1433,7 +1433,7 @@ impl Run<'_> {
         for (&(_, name, kind), &port) in network::SERVICES.iter().zip(&p.network_ports) {
             let listener = TcpListener::bind(("127.0.0.1", port)).map_err(|e| {
                 Failed(format!(
-                    "the cabinet's stand-ins did not come up: 127.0.0.1:{port} ({e})"
+                    "the cabinet's stand-ins did not come up: 127.0.0.1:{port} ({e}) - is the other edition's game running?"
                 ))
             })?;
             self.cabinet.net.push(network::spawn(

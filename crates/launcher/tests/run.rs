@@ -557,6 +557,12 @@ fn a_stand_in_that_cannot_start_stops_the_start() {
         said.contains("FAILED: the card reader stand-in did not start"),
         "{said}"
     );
+    // the reason outlives the window: a failed start once left no trace in the log (run 5a, 2026-10-16)
+    let logged = std::fs::read_to_string(kit.logs().join("run_launcher.txt")).unwrap_or_default();
+    assert!(
+        logged.contains("FAILED: the card reader stand-in did not start"),
+        "{logged}"
+    );
 }
 
 /// A stand-in thread that panics: the supervisor says it in the run log; an essential one stops the run (nothing left,
