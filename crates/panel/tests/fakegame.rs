@@ -526,6 +526,7 @@ fn board_and_buttons_with_real_data() {
 
 /// A club card file with `cards` in its first squad slots (PLAYER_CARD_NO, 14 bits from payload bit 6688 + 312 i)
 /// and the link of slots 0 and 1 (pair 0 of CLUB_PLAYER_COOPERATION_INFO, 8 bits from bit 3650); both copies good.
+#[cfg(target_arch = "x86")]
 fn club_card(cards: &[u32], link: u8) -> Vec<u8> {
     let mut raw = vec![0u8; 16 + 256 * 16];
     let put = |buf: &mut [u8], start: usize, width: usize, v: u32| {
