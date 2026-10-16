@@ -1599,7 +1599,8 @@ impl Run<'_> {
         self.cabinet.keys = Some(crate::keys::spawn(
             p.shared.clone(),
             keys_path,
-            true, // ponytail: 2017-18 -> `edition() != Edition::E1718` once its FREE PLAY patch is seen working live
+            // START puts in a coin only where the game is not in FREE PLAY: 2017-18 runs it from the panel (seen live, run 8)
+            self.kit.edition() != Edition::E1718,
             file_log(self.logs().join("run_keys.txt")),
         ));
         Ok(())
