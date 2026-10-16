@@ -15,6 +15,8 @@ Recipe (english\pictures.json, "pictures" list):
   id, where (what the player sees), sha256 (of the unpacked original), files (archive paths with that picture),
   style {core: "auto" | "dark" | [r,g,b], halo: [r,g,b,a] | "core" (+ halo_alpha) | null, halo_px, blur, fill,
          squeeze, align, size},
+  clear [[x0,y0,x1,y1], ...] (areas cleared before the labels), reflect {src, dst_y, alpha: [top, bottom]} (a
+  mirrored, fading copy of src under it, redrawn from the new writing),
   labels [{box: [x0,y0,x1,y1] (inclusive), en: words, optional clear: [x0,y0,x1,y1] (a larger area to clear),
            and any style key for this label only}]
   fill: "clear" (alpha 0, default), "rows" (each column blended from the row above the area to the row below),
@@ -83,8 +85,8 @@ def chosen(r, path, names):
 
 # ---------------------------------------------------------------- drawing
 def colour(im, box, how):
-    """the original writing's colour: the median of the brightest ("auto") or darkest ("dark") 40% of the opaque
-    pixels in the box; or the recipe's [r,g,b]"""
+    """the original writing's colour: the median of the brightest 40% ("auto") or the darkest 14% ("dark") of the
+    opaque pixels in the box; or the recipe's [r,g,b]"""
     if isinstance(how, list):
         return tuple(how[:3])
     d = im.crop((box[0], box[1], box[2] + 1, box[3] + 1)).tobytes()
@@ -92,7 +94,8 @@ def colour(im, box, how):
     if not px:
         return (255, 255, 255)
     px.sort(key=lambda p: p[0] * 3 + p[1] * 6 + p[2], reverse=how != "dark")
-    px = px[:max(1, len(px) * 2 // 5)]
+    px = px[:max(1, len(px) * (2 if how != "dark" else 1) // (5 if how != "dark" else 7))]   # dark writing sits on
+    #                                                     an opaque plate, so it is the smaller part of the box
     return tuple(sorted(p[c] for p in px)[len(px) // 2] for c in range(3))
 
 
@@ -146,15 +149,34 @@ def draw(im, box, text, st, core, font_path):
     im.alpha_composite(Image.merge("RGBA", Image.new("RGB", im.size, tuple(core)).split() + (mask,)))
 
 
+def reflect(im, rf):
+    """the mirror image under a line of writing, as the original has it: src flipped to dst_y, fading a0 -> a1"""
+    from PIL import Image
+    x0, y0, x1, y1 = rf["src"]
+    a0, a1 = rf["alpha"]
+    m = im.crop((x0, y0, x1 + 1, y1 + 1)).transpose(Image.FLIP_TOP_BOTTOM)
+    h = m.height
+    fade = Image.new("L", m.size)
+    fade.putdata([round(255 * (a0 + (a1 - a0) * (y / max(1, h - 1)))) for y in range(h) for _ in range(m.width)])
+    m.putalpha(Image.frombytes("L", m.size, bytes(a * f // 255 for a, f in zip(m.getchannel("A").tobytes(),
+                                                                               fade.tobytes()))))
+    im.paste((0, 0, 0, 0), (x0, rf["dst_y"], x1 + 1, rf["dst_y"] + h))
+    im.alpha_composite(m, (x0, rf["dst_y"]))
+
+
 def redraw(im, r, font_path):
     """every label of recipe r cleared first, then drawn (a neighbour's halo is never cleared away)"""
     orig = im.copy()
+    for area in r.get("clear", []):
+        clear(im, area, r.get("style", {}).get("fill", "clear"))
     for lab in r["labels"]:
         st = dict(r.get("style", {}), **lab)
         clear(im, lab.get("clear", lab["box"]), st.get("fill", "clear"))
     for lab in r["labels"]:
         st = dict(r.get("style", {}), **lab)
         draw(im, lab["box"], lab["text"], st, colour(orig, lab["box"], st.get("core", "auto")), font_path)
+    if r.get("reflect"):
+        reflect(im, r["reflect"])
     return im
 
 
