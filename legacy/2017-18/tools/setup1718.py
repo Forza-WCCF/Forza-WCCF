@@ -6,7 +6,8 @@
     WCCF1718_GAME     the decrypted 2017-18 game folder (client_Release.exe ...), read only - required
     WCCF1718_RUNTIME  the runtime folder on an NTFS drive (default <runtime>); it must already hold a
                       plain copy of the game in game\\ (see docs/PROGRESS.md "Setup")
-Makes: game\\ (server + projector, guarded), seat1\\ (player cabinet: links + its own patched exe), misc\\.
+Makes: game\\ (server + projector, guarded), seat1\\ (player cabinet: links + its own patched exe
+and the card-table helper).
 
 Never touches the decrypted originals (SRC). Guard: client/control import wccfnet.dll instead of IPHLPAPI.DLL
 (the built wccfnet.dll stubs the four IP-helper calls); the original exe hashes are checked first.
@@ -30,6 +31,8 @@ WINMM = Path("/mnt/c/Windows/SysWOW64/winmm.dll")
 # the name the original logowin.exe is kept under beside it (the kit's setup restores from it)
 LOGOWIN_BACKUP = "logowin_" + bytes.fromhex("73656761").decode() + ".exe"
 OLD, NEW = b"IPHLPAPI.DLL\0", b"wccfnet.dll\0\0"
+# the card-table helper as the client names it, relative to seat 1's folder
+FPR_EMU = "./FlatPanelReader_Emulator/FPR_Emu.exe"
 
 CLIENT_KEYS = ("IS_RINGEDGE=%d\r\nALLNET_AUTH=0\r\nDHCP=0\r\nCONTROL_IP=127.0.0.1\r\nCONTROL_PORT=20002\r\n"
                "MATCH_IP=127.0.0.1\r\nMATCH_PORT=20003\r\nFPR_MODE=2\r\nFULL_SCREEN_MODE=0\r\nWAIT_PROJECTOR=1\r\n"
@@ -125,9 +128,13 @@ def main():
     report["seat1/client_Release.exe"] = sha(want)
     (SEAT / "local" / "client_user_option.conf").write_bytes((CLIENT_KEYS % (1, 1)).encode())
     shutil.copyfile(GAME / "local" / "SDDY_Table.dat", SEAT / "local" / "SDDY_Table.dat")
-    helper = RT / "misc" / "FlatPanelReader_Emulator" / "exe"
-    helper.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(KIT / "bin" / "FPR_Emu.exe", helper / "FPR_Emu.exe")
+    # the 2017-18 client starts the card-table helper from its own folder (2010-11: ..\misc\...\exe\); with no
+    # helper there the game reads no cards ("0 Card(s)" at team registration, live run 4)
+    if FPR_EMU.encode() not in want:
+        sys.exit("seat 1's client no longer names %s" % FPR_EMU)
+    helper = SEAT / FPR_EMU
+    helper.parent.mkdir(exist_ok=True)
+    shutil.copyfile(KIT / "bin" / "FPR_Emu.exe", helper)
     (RT / "setup-hashes.json").write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps(report, indent=2))
 
