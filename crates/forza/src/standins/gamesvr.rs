@@ -147,6 +147,13 @@ fn put_bits(block: &mut [u8], bit: usize, width: usize, value: u32) {
     }
 }
 
+/// The `width`-bit field at `bit` of a save block, most significant bit first (put_bits' reverse).
+fn get_bits(block: &[u8], bit: usize, width: usize) -> u32 {
+    (0..width).fold(0, |v, i| {
+        v << 1 | u32::from(block[(bit + i) / 8] >> (7 - (bit + i) % 8) & 1)
+    })
+}
+
 /// One stored club, as a COACH_LIST record needs it.
 struct Club {
     coach: u32,
@@ -401,7 +408,7 @@ fn club(
         277 => (8572, 5940),
         279 => (36, 32),
         287 | 289 => (28, 24),
-        285 => return Err("ITEM_LIST: no item store, the club keeps its own values".into()),
+        285 => (24, 20),
         _ => return Ok(()),
     };
     if req.len() < need {
@@ -492,6 +499,14 @@ fn club(
                 return Err(format!("stored block of {} bytes", block.len()));
             }
             fill_save_data(body, &block, version, size);
+        }
+        285 => {
+            // ITEM_LIST: errCode 0 is a must at card-in (else error 3107); the answer is the server's NET values,
+            // kept in no save, so zeros, but +700/+701 CLUB_SHOP_UNIFORM, which the block keeps at bits 24249/24257
+            if let Some((block, ..)) = st.save(aime, coach, card).map_err(db)? {
+                body[700] = get_bits(&block, 24249, 8) as u8;
+                body[701] = get_bits(&block, 24257, 8) as u8;
+            }
         }
         287 => {
             let new = st
@@ -720,7 +735,11 @@ mod tests {
     }
 
     fn req(cmd: u16, ids: [u32; 3]) -> Vec<u8> {
-        let (len, rev) = if cmd == 271 { (20, 16) } else { (32, 28) };
+        let (len, rev) = match cmd {
+            271 => (20, 16),
+            285 => (24, 20),
+            _ => (32, 28),
+        };
         let mut r = vec![0u8; len];
         put(&mut r, 4, ids[0]);
         put(&mut r, 8, ids[1]);
@@ -765,11 +784,7 @@ mod tests {
             (21538, 32, 12),
             (22221, 6, 13),
         ] {
-            let at = |b: &[u8]| {
-                (0..width).fold(0u32, |v, i| {
-                    v << 1 | u32::from(b[(bit + i) / 8] >> (7 - (bit + i) % 8) & 1)
-                })
-            };
+            let at = |b: &[u8]| get_bits(b, bit, width);
             put_bits(&mut want, bit, width, value);
             assert_eq!(at(&want), value);
             assert_eq!(at(&save[8..8 + BLOCK]), value, "bit {bit}");
@@ -778,6 +793,11 @@ mod tests {
         assert_eq!(u32_at(&save, 3080), 12 | (3072 << 16));
         assert_eq!(u32_at(&save, 3084), sum32(&want));
         assert_ne!(u32_at(&save, 3088), 0);
+        // ITEM_LIST: errCode 0, the shop uniforms from the block
+        let items = ask(285, [5, coach, card], Some(&game));
+        assert_eq!(u32_at(&items, 4), 0);
+        let uniform = |bit| get_bits(&want, bit, 8) as u8;
+        assert_eq!((items[700], items[701]), (uniform(24249), uniform(24257)));
         // a second 271 returns the same club
         let again = ask(271, [5, 0, 0], Some(&game));
         assert_eq!(again[8..8 + 128], body[8..8 + 128]);
