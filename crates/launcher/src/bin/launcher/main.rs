@@ -590,7 +590,10 @@ fn pictures_picked(hwnd: HWND, hq: bool, choose: bool) {
 fn skip_picked(hwnd: HWND) {
     let file = Kit::here().settings_file();
     if let Err(e) = choices::set_setting_bool(&file, "skip_tutorial", checked(hwnd, ID_SKIP)) {
-        say(fill(t().write_failed, &[&file.display().to_string(), &e.to_string()]), 0);
+        say(
+            fill(t().write_failed, &[&file.display().to_string(), &e.to_string()]),
+            0,
+        );
     }
 }
 
@@ -715,7 +718,12 @@ fn language_picked(hwnd: HWND) {
 fn retext(hwnd: HWND) {
     let tx = t();
     let kit = Kit::here();
-    let title = wide(&format!("{} {} - {}", tx.title, kit.edition().name(), kit.dir().display()));
+    let title = wide(&format!(
+        "{} {} - {}",
+        tx.title,
+        kit.edition().name(),
+        kit.dir().display()
+    ));
     // SAFETY: a NUL-terminated string for our own window.
     unsafe { SetWindowTextW(hwnd, title.as_ptr()) };
     for (id, words) in [
