@@ -876,10 +876,11 @@ fn refresh(hwnd: HWND) {
             _ => t().after_update,
         };
         if !game.is_empty() && ask(hwnd, question) {
-            let mut steps = vec![Step::Script("setup.py", vec![game.into()]), Step::Pictures];
+            let mut steps = vec![Step::Script("setup.py", vec![game.into()])];
             if !lang.is_empty() {
                 steps.push(Step::Script("english.py", language_args(lang)));
             }
+            steps.push(Step::Pictures); // last: a failure here must not skip english.py
             start(steps);
         }
     }

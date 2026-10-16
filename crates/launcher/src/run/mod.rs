@@ -515,7 +515,9 @@ pub fn make_pictures(kit: &Kit, p: &Params, ui: &dyn Ui) -> bool {
     match forza::cards::pictures::ensure(&game, ed, &kit.cache().join("cards"), pack.as_deref(), &say) {
         Ok(()) => true,
         Err(e) => {
-            ui.say(&format!("  (the card pictures could not be made: {e} - the board shows stand-ins)"));
+            ui.say(&format!(
+                "  (the card pictures could not be made: {e} - the board shows stand-ins)"
+            ));
             false
         }
     }

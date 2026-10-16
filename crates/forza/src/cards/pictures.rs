@@ -33,7 +33,7 @@ pub fn lzw(data: &[u8], size: usize) -> io::Result<Vec<u8>> {
     }
     let (mut acc, mut nbits, mut pos) = (0u32, 0u32, 4usize);
     let (mut width, mut next, mut restart, mut prev) = (9u32, 256usize, true, 0usize);
-    let mut out = Vec::with_capacity(size);
+    let mut out = Vec::with_capacity(size.min(1 << 24));
     let mut stack = Vec::with_capacity(4096);
     let emit =
         |out: &mut Vec<u8>, stack: &mut Vec<u8>, prefix: &[u16], chr: &[u8], mut c: usize| {
@@ -107,7 +107,12 @@ fn player_cards(xaf: &mut File) -> io::Result<HashMap<String, Entry>> {
     }
     let u32_at = |b: &[u8], o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
     let (sector, n) = (u64::from(u32_at(&hdr, 8)), u32_at(&hdr, 12) as usize);
-    let mut toc = vec![0u8; n * 0xB0];
+    let len = xaf.metadata()?.len();
+    let toc_len = n
+        .checked_mul(0xB0)
+        .filter(|&b| b as u64 <= len)
+        .ok_or_else(|| bad("xaf0 table larger than the file"))?;
+    let mut toc = vec![0u8; toc_len];
     xaf.read_exact(&mut toc)?;
     let ents: Vec<&[u8]> = toc.chunks(0xB0).collect();
     let name = |e: &[u8]| {
@@ -138,14 +143,15 @@ fn player_cards(xaf: &mut File) -> io::Result<HashMap<String, Entry>> {
 
 /// Each card's number and picture name from `player_data.bin` (2010-11: 0x328-byte records from +0; 2017-18:
 /// 0x620-byte records, the same fields from +0x288 and the picture name at +0x564).
-fn cards(players: &[u8]) -> io::Result<Vec<(u16, String)>> {
-    let (rec, no, img) = if players.len().is_multiple_of(0x620) {
+fn cards(players: &[u8], edition: &str) -> io::Result<Vec<(u16, String)>> {
+    let (rec, no, img) = if edition == "1718" {
         (0x620, 0x288, 0x564)
-    } else if players.len().is_multiple_of(0x328) {
-        (0x328, 0, 0x2DA)
     } else {
-        return Err(bad("player_data.bin: not either edition's records"));
+        (0x328, 0, 0x2DA)
     };
+    if !players.len().is_multiple_of(rec) {
+        return Err(bad("player_data.bin: not this edition's records"));
+    }
     Ok(players
         .chunks(rec)
         .map(|r| {
@@ -171,15 +177,19 @@ fn save(img: &DynamicImage, path: &Path) -> io::Result<()> {
 
 /// Every card's face from the game in `game` (the folder with `prog_data` and `data`) into `out` as
 /// `<number>.png`, 88x128 -> (written, failures). One bad picture never stops the rest.
-pub fn from_game(game: &Path, out: &Path) -> io::Result<(usize, Vec<String>)> {
+pub fn from_game(game: &Path, edition: &str, out: &Path) -> io::Result<(usize, Vec<String>)> {
     let players = fs::read(game.join("prog_data/player_data/player_data.bin"))?;
     let mut xaf = File::open(game.join("data/wccf_data.xaf"))?;
+    let file_len = xaf.metadata()?.len();
     let toc = player_cards(&mut xaf)?;
     fs::create_dir_all(out)?;
     let (mut done, mut fails) = (0, Vec::new());
-    for (no, name) in cards(&players)? {
+    for (no, name) in cards(&players, edition)? {
         let mut one = || -> io::Result<()> {
             let e = toc.get(&name).ok_or_else(|| bad("not in the archive"))?;
+            if e.stored as u64 > file_len || e.size > 1 << 26 {
+                return Err(bad("size beyond the archive"));
+            }
             let mut raw = vec![0u8; e.stored];
             xaf.seek(SeekFrom::Start(e.offset))?;
             xaf.read_exact(&mut raw)?;
@@ -286,13 +296,16 @@ pub fn ensure(
     }
     if !made {
         say("  making the card pictures from your game files ...");
-        let (n, fails) = from_game(game, cards)?;
+        let (n, fails) = from_game(game, edition, cards)?;
         say(&format!(
             "  {n} card pictures from the game, {} failed",
             fails.len()
         ));
         for f in fails.iter().take(5) {
             say(&format!("    {f}"));
+        }
+        if n == 0 {
+            return Err(bad("no card picture could be made from the game"));
         }
     }
     if let Some(p) = pack {
@@ -456,7 +469,8 @@ mod tests {
         let var = |n| std::env::var_os(n).map(PathBuf::from);
         let out = var("FORZA_PICTURES_OUT").unwrap();
         let t = std::time::Instant::now();
-        let (n, fails) = from_game(&var("FORZA_PICTURES_GAME").unwrap(), &out).unwrap();
+        let ed = std::env::var("FORZA_PICTURES_EDITION").unwrap();
+        let (n, fails) = from_game(&var("FORZA_PICTURES_GAME").unwrap(), &ed, &out).unwrap();
         println!(
             "game: {n} pictures, {} failed {:?}, {:?}",
             fails.len(),
@@ -465,7 +479,6 @@ mod tests {
         );
         assert!(n > 3000 && fails.len() < 50);
         if let Some(pack) = var("FORZA_PICTURES_PACK") {
-            let ed = std::env::var("FORZA_PICTURES_EDITION").unwrap();
             let (n, fails) = from_pack(&pack, &ed, &out).unwrap();
             println!(
                 "pack: {n} pictures, {} failed {:?}, {:?}",
