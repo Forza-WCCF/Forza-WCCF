@@ -300,7 +300,7 @@ impl Store {
         }
         tx.execute(
             "INSERT INTO coaches (aime_id, coach_id, card_id, name1, name2, rec122, play_count, titles, created, updated)
-             VALUES (?1, ?2, ?3, ?4, ?5, 0, 0, ?6, ?7, ?7)",
+             VALUES (?1, ?2, ?3, ?4, ?5, 100, 0, ?6, ?7, ?7)",
             params![aime, coach, card, n1, n2, SKIP_TITLES, now()],
         )?;
         tx.execute(
@@ -769,7 +769,8 @@ mod tests {
         assert!(coach != 0 && card != 0);
         assert_eq!(&body[8 + 4..8 + 9], b"FORZA");
         assert_eq!(&body[8 + 64..8 + 74], b"FORZA WCCF");
-        assert_eq!((body[8 + 122], body[8 + 123]), (0, 0));
+        // a full term (100 matches): 0 is a term that has ended, and the client offers to retire the club
+        assert_eq!((body[8 + 122], body[8 + 123]), (100, 0));
         assert_eq!(u32_at(&body, 8 + 124), SKIP_TITLES);
         assert_eq!(u32_at(&body, 8 + 128 + 60), 0, "a single record");
         let save = ask(275, [5, coach, card], Some(&game));
