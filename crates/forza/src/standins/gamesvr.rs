@@ -232,6 +232,38 @@ impl Store {
         Ok(Some((coach, card)))
     }
 
+    /// A saved club for `aime` built from a template block (the tutorial-skip club): (coachId, cardId), or None at 10 clubs.
+    fn new_skip_club(
+        &mut self,
+        aime: u32,
+        template: &[u8],
+    ) -> rusqlite::Result<Option<(u32, u32)>> {
+        let tx = self.0.transaction()?;
+        let n: u32 = tx.query_row(
+            "SELECT count(*) FROM saves WHERE aime_id = ?1",
+            [aime],
+            |r| r.get(0),
+        )?;
+        if n >= 10 {
+            return Ok(None);
+        }
+        let (coach, card) = (next_id(&tx, "coach")?, next_id(&tx, "card")?);
+        let (mut n1, mut n2) = (b"FORZA".to_vec(), b"FORZA WCCF".to_vec());
+        n1.resize(56, 0);
+        n2.resize(56, 0);
+        tx.execute(
+            "INSERT INTO coaches (aime_id, coach_id, card_id, name1, name2, rec122, play_count, created, updated)
+             VALUES (?1, ?2, ?3, ?4, ?5, 0, 0, ?6, ?6)",
+            params![aime, coach, card, n1, n2, now()],
+        )?;
+        tx.execute(
+            "INSERT INTO saves VALUES (?1, ?2, ?3, 12, 3072, 1, ?4)",
+            params![aime, coach, template, now()],
+        )?;
+        tx.commit()?;
+        Ok(Some((coach, card)))
+    }
+
     /// Stores a SAVE_DATA_SET request's block and record fields; false when (aime, coach, card) is no club.
     fn set_save(&mut self, aime: u32, coach: u32, card: u32, req: &[u8]) -> rusqlite::Result<bool> {
         let kind = req[24];
@@ -314,7 +346,14 @@ impl Store {
 
 /// Answers a club message from the store into `body` (slot at +0 already). Err = refused, with the reason; the
 /// caller answers errCode 1. Other messages are left as zeros.
-fn club(cmd: u16, req: &[u8], body: &mut [u8], store: &Mutex<Store>) -> Result<(), String> {
+fn club(
+    cmd: u16,
+    req: &[u8],
+    body: &mut [u8],
+    store: &Mutex<Store>,
+    skip: Option<&Path>,
+    log: &Log,
+) -> Result<(), String> {
     // request size and the revision's offset (docs/research/ONLINE-2017-18.md, "M1")
     let (need, rev_at) = match cmd {
         271 => (20, 16),
@@ -335,8 +374,31 @@ fn club(cmd: u16, req: &[u8], body: &mut [u8], store: &Mutex<Store>) -> Result<(
     let db = |e: rusqlite::Error| format!("store: {e}");
     let mut st = store.lock().unwrap_or_else(PoisonError::into_inner);
     if cmd == 271 {
-        // unknown Aime id or 0: no records, the client starts the new-club flow
-        for (i, c) in st.clubs(aime).map_err(db)?.iter().enumerate() {
+        // unknown Aime id or 0: no records, the client starts the new-club flow (unless the tutorial is skipped)
+        let mut clubs = st.clubs(aime).map_err(db)?;
+        if let (true, Some(game)) = (clubs.is_empty() && aime != 0, skip) {
+            let path = game.join("prog_data").join("cpu_team").join("cpu_50.dat");
+            let template = std::fs::read(&path)
+                .ok()
+                .filter(|t| t.len() >= BLOCK)
+                .ok_or_else(|| {
+                    format!(
+                        "skip_tutorial: {} is missing or shorter than {BLOCK} bytes",
+                        path.display()
+                    )
+                })?;
+            if st
+                .new_skip_club(aime, &template[..BLOCK])
+                .map_err(db)?
+                .is_some()
+            {
+                log(&format!(
+                    "skip_tutorial: club made for Aime id {aime} from cpu_50.dat"
+                ));
+                clubs = st.clubs(aime).map_err(db)?;
+            }
+        }
+        for (i, c) in clubs.iter().enumerate() {
             let r = &mut body[8 + 128 * i..][..128];
             put(r, 0, c.coach);
             r[4..4 + c.name1.len().min(56)].copy_from_slice(&c.name1[..c.name1.len().min(56)]);
@@ -415,6 +477,8 @@ fn answer(
     cmd: u16,
     payload: &[u8],
     store: &Mutex<Store>,
+    skip: Option<&Path>,
+    log: &Log,
 ) -> Option<(u16, Vec<u8>, Option<String>)> {
     if cmd == 18 {
         // GMSVR_ECHO keep-alive
@@ -439,7 +503,7 @@ fn answer(
         // (docs/research/ONLINE-2017-18.md)
         put(&mut body, 4, 1);
     }
-    let refused = club(cmd, payload, &mut body, store).err();
+    let refused = club(cmd, payload, &mut body, store, skip, log).err();
     if refused.is_some() {
         put(&mut body, 4, 1);
     }
@@ -467,6 +531,17 @@ fn prune(dir: &Path, keep: usize) {
 /// Serves the game server stand-in on `listener` (use `127.0.0.1:0` in tests). Requests are logged, the clubs kept
 /// in `save_dir/gamesvr.db`, the last 200 request payloads in `save_dir`. Stops when the returned handle is dropped.
 pub fn spawn(listener: TcpListener, save_dir: PathBuf, log: Log) -> io::Result<Handle> {
+    spawn_with(listener, save_dir, log, None)
+}
+
+/// [`spawn`] with the tutorial skip: given the game folder, a first COACH_LIST for an Aime id without a club makes one
+/// from `prog_data\cpu_team\cpu_50.dat`, so the mode screen offers NORMAL.
+pub fn spawn_with(
+    listener: TcpListener,
+    save_dir: PathBuf,
+    log: Log,
+    skip_tutorial: Option<PathBuf>,
+) -> io::Result<Handle> {
     std::fs::create_dir_all(&save_dir)?;
     let store = Arc::new(Mutex::new(
         Store::open(&save_dir.join("gamesvr.db")).map_err(io::Error::other)?,
@@ -531,7 +606,7 @@ pub fn spawn(listener: TcpListener, save_dir: PathBuf, log: Log) -> io::Result<H
                     let _ = std::fs::write(save_dir.join(format!("req_{cmd}_{ms}.bin")), &payload);
                     prune(&save_dir, KEEP_FILES);
                 }
-                match answer(cmd, &payload, &store) {
+                match answer(cmd, &payload, &store, skip_tutorial.as_deref(), &log) {
                     Some((rcmd, body, refused)) => {
                         if let Some(why) = refused {
                             log(&format!("   refused cmd {cmd}: {why} (errCode 1)"));
@@ -575,12 +650,69 @@ mod tests {
     fn the_secretaries_are_unlocked() {
         let dir = tempfile::tempdir().unwrap();
         let store = Mutex::new(Store::open(&dir.path().join("gamesvr.db")).unwrap());
-        let (cmd, body, _) = answer(237, &[0; 20], &store).unwrap();
+        let (cmd, body, _) = answer(
+            237,
+            &[0; 20],
+            &store,
+            None,
+            &(Arc::new(|_: &str| {}) as Log),
+        )
+        .unwrap();
         assert_eq!((cmd, body.len()), (238, 0x5A54));
         assert!(body[SECRETARIES].iter().all(|b| *b == 1));
         // the four secretaries with an id (26..29) and the date and time left 0
         assert!((26..30).all(|n| body[16 + 1176 + n] == 1));
         assert!(body[8..16].iter().all(|b| *b == 0));
+    }
+
+    fn req(cmd: u16, ids: [u32; 3]) -> Vec<u8> {
+        let (len, rev) = if cmd == 271 { (20, 16) } else { (32, 28) };
+        let mut r = vec![0u8; len];
+        put(&mut r, 4, ids[0]);
+        put(&mut r, 8, ids[1]);
+        put(&mut r, 12, ids[2]);
+        put(&mut r, rev, REVISION);
+        r
+    }
+
+    #[test]
+    fn skip_tutorial_makes_one_club_from_the_template() {
+        let dir = tempfile::tempdir().unwrap();
+        let game = dir.path().join("game");
+        std::fs::create_dir_all(game.join("prog_data").join("cpu_team")).unwrap();
+        let template: Vec<u8> = (0..BLOCK + 8).map(|i| (i * 7 + 1) as u8).collect();
+        std::fs::write(game.join("prog_data/cpu_team/cpu_50.dat"), &template).unwrap();
+        let store = Mutex::new(Store::open(&dir.path().join("gamesvr.db")).unwrap());
+        let log: Log = Arc::new(|_: &str| {});
+        let ask = |cmd, ids, skip: Option<&Path>| {
+            answer(cmd, &req(cmd, ids), &store, skip, &log).unwrap().1
+        };
+
+        // off: no club, errCode 0, unchanged
+        assert_eq!(u32_at(&ask(271, [5, 0, 0], None), 8 + 60), 0);
+        // on: one record with ids and the template
+        let body = ask(271, [5, 0, 0], Some(&game));
+        let (coach, card) = (u32_at(&body, 8), u32_at(&body, 8 + 60));
+        assert!(coach != 0 && card != 0);
+        assert_eq!(&body[8 + 4..8 + 9], b"FORZA");
+        assert_eq!(&body[8 + 64..8 + 74], b"FORZA WCCF");
+        assert_eq!((body[8 + 122], body[8 + 123]), (0, 0));
+        assert_eq!(u32_at(&body, 8 + 128 + 60), 0, "a single record");
+        let save = ask(275, [5, coach, card], Some(&game));
+        assert_eq!(u32_at(&save, 4), 0);
+        assert_eq!(&save[8..8 + BLOCK], &template[..BLOCK]);
+        assert_eq!(u32_at(&save, 3080), 12 | (3072 << 16));
+        assert_eq!(u32_at(&save, 3084), sum32(&template[..BLOCK]));
+        assert_ne!(u32_at(&save, 3088), 0);
+        // a second 271 returns the same club
+        let again = ask(271, [5, 0, 0], Some(&game));
+        assert_eq!(again[8..8 + 128], body[8..8 + 128]);
+        assert_eq!(u32_at(&again, 8 + 128 + 60), 0);
+        // Aime id 0 and a short template make nothing
+        assert_eq!(u32_at(&ask(271, [0, 0, 0], Some(&game)), 8 + 60), 0);
+        std::fs::write(game.join("prog_data/cpu_team/cpu_50.dat"), [0; 100]).unwrap();
+        let (_, body, why) = answer(271, &req(271, [6, 0, 0]), &store, Some(&game), &log).unwrap();
+        assert!(why.is_some() && u32_at(&body, 8 + 60) == 0);
     }
 
     #[test]
