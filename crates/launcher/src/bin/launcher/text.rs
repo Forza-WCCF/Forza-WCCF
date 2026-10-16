@@ -72,6 +72,12 @@ pub struct Text {
     pub link_taken: &'static str,
     pub link_no_junction: &'static str,
     pub link_failed: &'static str,
+    pub card_pictures: &'static str,
+    pub from_game: &'static str,
+    pub hq_pack: &'static str,
+    pub choose_pack: &'static str,
+    pub pack_title: &'static str,
+    pub pictures_next: &'static str,
 }
 
 const EN: Text = Text {
@@ -150,6 +156,12 @@ const EN: Text = Text {
     link_taken: "This folder's path has special characters, which the game may not handle, and {} is already used by another Forza-WCCF folder. Running from here. If the game does not start, move the kit to a plain path such as C:\\Games.",
     link_no_junction: "This folder's path has special characters, which the game may not handle, and Windows can only link folders on local NTFS drives. Running from here. If the game does not start, move the kit to a plain path such as C:\\Games.",
     link_failed: "This folder's path has special characters, which the game may not handle, and linking it to {} failed ({}). Running from here. If the game does not start, move the kit to a plain path such as C:\\Games.",
+    card_pictures: "Card pictures:",
+    from_game: "From the game",
+    hq_pack: "High-quality pack",
+    choose_pack: "Choose pack...",
+    pack_title: "Pick the high-quality card pack (forza-wccf-cards-*.zip)",
+    pictures_next: "The card pictures change at the next PLAY (about a minute the first time).",
 };
 
 const IT: Text = Text {
@@ -231,6 +243,12 @@ const IT: Text = Text {
     link_taken: "Il percorso di questa cartella ha caratteri speciali che il gioco potrebbe non gestire, e {} è già usata da un'altra cartella Forza-WCCF. Avvio da qui. Se il gioco non parte, sposta il kit in un percorso semplice come C:\\Games.",
     link_no_junction: "Il percorso di questa cartella ha caratteri speciali che il gioco potrebbe non gestire, e Windows può collegare solo cartelle su dischi NTFS locali. Avvio da qui. Se il gioco non parte, sposta il kit in un percorso semplice come C:\\Games.",
     link_failed: "Il percorso di questa cartella ha caratteri speciali che il gioco potrebbe non gestire, e il collegamento a {} non è riuscito ({}). Avvio da qui. Se il gioco non parte, sposta il kit in un percorso semplice come C:\\Games.",
+    card_pictures: "Immagini carte:",
+    from_game: "Dal gioco",
+    hq_pack: "Pacchetto alta qualità",
+    choose_pack: "Scegli pacchetto...",
+    pack_title: "Scegli il pacchetto di immagini carte in alta qualità (forza-wccf-cards-*.zip)",
+    pictures_next: "Le immagini delle carte cambiano al prossimo GIOCA (circa un minuto la prima volta).",
 };
 
 const JA: Text = Text {
@@ -309,6 +327,12 @@ const JA: Text = Text {
     link_taken: "このフォルダーのパスには、ゲームが扱えないかもしれない特殊な文字があり、{} は別の Forza-WCCF フォルダーが使用中です。ここから起動します。ゲームが起動しない場合は、キットを C:\\Games のような英数字だけのパスへ移動してください。",
     link_no_junction: "このフォルダーのパスには、ゲームが扱えないかもしれない特殊な文字があり、Windows がリンクできるのはローカルの NTFS ドライブ上のフォルダーだけです。ここから起動します。ゲームが起動しない場合は、キットを C:\\Games のような英数字だけのパスへ移動してください。",
     link_failed: "このフォルダーのパスには、ゲームが扱えないかもしれない特殊な文字があり、{} へのリンクに失敗しました（{}）。ここから起動します。ゲームが起動しない場合は、キットを C:\\Games のような英数字だけのパスへ移動してください。",
+    card_pictures: "カード画像:",
+    from_game: "ゲームから",
+    hq_pack: "高画質パック",
+    choose_pack: "パックを選択...",
+    pack_title: "高画質カード画像パックを選んでください（forza-wccf-cards-*.zip）",
+    pictures_next: "カード画像は次の「プレイ」から変わります（初回は約1分かかります）。",
 };
 
 /// The languages, in the window's list: code, name in its own language, words.

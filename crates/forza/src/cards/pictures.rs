@@ -253,7 +253,12 @@ pub fn from_pack(pack: &Path, edition: &str, out: &Path) -> io::Result<(usize, V
 /// What the folder should hold: the game's pictures, or the pack's over them.
 fn wanted(pack: Option<&Path>) -> String {
     match pack {
-        Some(p) => format!("{VERSION} hq {}", p.display()),
+        // its size too: a newer pack saved over the old one is taken again
+        Some(p) => format!(
+            "{VERSION} hq {} {}",
+            fs::metadata(p).map_or(0, |m| m.len()),
+            p.display()
+        ),
         None => format!("{VERSION} game"),
     }
 }
@@ -404,6 +409,44 @@ mod tests {
         })
         .unwrap();
         assert!(said.borrow().is_empty());
+    }
+
+    #[test]
+    fn the_pack_adds_its_scans_and_goes_again() {
+        let d = tempfile::tempdir().unwrap();
+        fake_game(d.path());
+        // a pack: cards.db linking two scans to card 7049 (the name+stats one wins) and a scan for 2010-11 only
+        let db = d.path().join("cards.db");
+        let con = rusqlite::Connection::open(&db).unwrap();
+        con.execute_batch(
+            "CREATE TABLE cards (ver INTEGER, card TEXT, front TEXT);
+             CREATE TABLE game_link (ver INTEGER, card TEXT, game TEXT, game_card_no INTEGER, method TEXT);
+             INSERT INTO cards VALUES (28, '240', 'images/a.jpg'), (29, 'A01', 'images/b.jpg'), (13, '1', 'images/c.jpg');
+             INSERT INTO game_link VALUES (29, 'A01', '1718', 7049, 'name+season'), (28, '240', '1718', 7049, 'name+stats'),
+                                          (13, '1', '1011', 1, 'name+stats');",
+        )
+        .unwrap();
+        drop(con);
+        let pack = d.path().join("pack.zip");
+        let mut z = zip::ZipWriter::new(File::create(&pack).unwrap());
+        for (name, bytes) in [
+            ("cards.db", fs::read(&db).unwrap()),
+            ("images/a.jpg", b"A".to_vec()),
+            ("images/b.jpg", b"B".to_vec()),
+            ("images/c.jpg", b"C".to_vec()),
+        ] {
+            z.start_file(name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            std::io::Write::write_all(&mut z, &bytes).unwrap();
+        }
+        z.finish().unwrap();
+        let out = d.path().join("cards");
+        ensure(d.path(), "1718", &out, Some(&pack), &|_| {}).unwrap();
+        assert_eq!(fs::read(out.join("7049.jpg")).unwrap(), b"A");
+        assert!(out.join("7049.png").is_file() && !out.join("1.jpg").exists());
+        // back to the game's own: the scans go, the game's pictures stay
+        ensure(d.path(), "1718", &out, None, &|_| {}).unwrap();
+        assert!(!out.join("7049.jpg").exists() && out.join("7049.png").is_file());
     }
 
     /// The player's own game and, if given, the pack: `FORZA_PICTURES_GAME` (the game folder), `FORZA_PICTURES_OUT`
