@@ -7,6 +7,7 @@
 //! answered from a SQLite store, `<save_dir>/gamesvr.db`, by the recipe of docs/research/ONLINE-2017-18.md ("M1");
 //! every other message gets zeros. A request the store refuses (short, wrong revision, unknown ids) gets errCode 1.
 
+use super::vs::{self, Matcher, VsConfig};
 use super::{Handle, Log, accept_loop, read_some};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::HashMap;
@@ -591,6 +592,7 @@ fn answer(
     store: &Mutex<Store>,
     skip: Option<&Path>,
     rare: &[u32],
+    vs: Option<&Vs>,
     log: &Log,
 ) -> Option<(u16, Vec<u8>, Option<String>)> {
     if cmd == 18 {
@@ -616,11 +618,41 @@ fn answer(
         // (docs/research/ONLINE-2017-18.md)
         put(&mut body, 4, 1);
     }
+    if let Some(vs) = vs {
+        vs.fill(cmd, payload, &mut body);
+    }
     let refused = club(cmd, payload, &mut body, store, skip, rare, log).err();
     if refused.is_some() {
         put(&mut body, 4, 1);
     }
     Some((rcmd, body, refused))
+}
+
+/// The VS switch (M3): the reflect address 202 hands out and the entry matcher.
+struct Vs {
+    cfg: VsConfig,
+    matcher: Matcher,
+}
+
+impl Vs {
+    /// 202, 224, 238, 243 and 245 answers (the slot echo is in `body` already).
+    fn fill(&self, cmd: u16, payload: &[u8], body: &mut [u8]) {
+        let t = std::time::Instant::now();
+        match cmd {
+            201 => vs::fill_login(body, &self.cfg),
+            223 => vs::fill_round(body, now()),
+            237 => vs::fill_thresholds(body),
+            243 => {
+                self.matcher.enter(payload, t);
+            }
+            245 => {
+                if let Some(m) = self.matcher.poll(payload, t) {
+                    body[4..].copy_from_slice(&m[4..]);
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Keeps the newest `keep` `.bin` files in `dir`.
@@ -676,6 +708,8 @@ pub struct Options {
     pub dump: bool,
     /// Concurrent connections per peer IP; 0 = no limit
     pub max_per_ip: usize,
+    /// Direct VS over the internet (M3); None keeps the local stand-in's behaviour
+    pub vs: Option<VsConfig>,
 }
 
 impl Default for Options {
@@ -686,6 +720,7 @@ impl Default for Options {
             skip_tutorial: false,
             dump: true,
             max_per_ip: 0,
+            vs: None,
         }
     }
 }
@@ -725,7 +760,14 @@ pub fn spawn_opts(
         skip_tutorial,
         dump,
         max_per_ip,
+        vs,
     } = opts;
+    let vs = vs.map(|cfg| {
+        Arc::new(Vs {
+            cfg,
+            matcher: Matcher::default(),
+        })
+    });
     let peers: Arc<Mutex<HashMap<IpAddr, usize>>> = Arc::default();
     std::fs::create_dir_all(&save_dir)?;
     let rare = match game.as_deref().map(rare_cards) {
@@ -821,7 +863,15 @@ pub fn spawn_opts(
                     let _ = std::fs::write(save_dir.join(format!("req_{cmd}_{ms}.bin")), &payload);
                     prune(&save_dir, KEEP_FILES);
                 }
-                match answer(cmd, &payload, &store, skip_tutorial.as_deref(), &rare, &log) {
+                match answer(
+                    cmd,
+                    &payload,
+                    &store,
+                    skip_tutorial.as_deref(),
+                    &rare,
+                    vs.as_deref(),
+                    &log,
+                ) {
                     Some((rcmd, body, refused)) => {
                         if let Some(why) = refused {
                             log(&format!("   refused cmd {cmd}: {why} (errCode 1)"));
@@ -884,6 +934,7 @@ mod tests {
             &store,
             None,
             &[],
+            None,
             &(Arc::new(|_: &str| {}) as Log),
         )
         .unwrap();
@@ -924,7 +975,7 @@ mod tests {
         let store = Mutex::new(Store::open(&dir.path().join("gamesvr.db")).unwrap());
         let log: Log = Arc::new(|_: &str| {});
         let ask = |cmd, ids, skip: Option<&Path>| {
-            answer(cmd, &req(cmd, ids), &store, skip, &[], &log)
+            answer(cmd, &req(cmd, ids), &store, skip, &[], None, &log)
                 .unwrap()
                 .1
         };
@@ -985,8 +1036,16 @@ mod tests {
         // Aime id 0 and a short template make nothing
         assert_eq!(u32_at(&ask(271, [0, 0, 0], Some(&game)), 8 + 60), 0);
         std::fs::write(game.join("prog_data/cpu_team/cpu_50.dat"), [0; 100]).unwrap();
-        let (_, body, why) =
-            answer(271, &req(271, [6, 0, 0]), &store, Some(&game), &[], &log).unwrap();
+        let (_, body, why) = answer(
+            271,
+            &req(271, [6, 0, 0]),
+            &store,
+            Some(&game),
+            &[],
+            None,
+            &log,
+        )
+        .unwrap();
         assert!(why.is_some() && u32_at(&body, 8 + 60) == 0);
     }
 
@@ -1010,7 +1069,7 @@ mod tests {
 
         let store = Mutex::new(Store::open(&dir.path().join("gamesvr.db")).unwrap());
         let log: Log = Arc::new(|_: &str| {});
-        let body = answer(271, &req(271, [5, 0, 0]), &store, None, &rare, &log)
+        let body = answer(271, &req(271, [5, 0, 0]), &store, None, &rare, None, &log)
             .unwrap()
             .1;
         assert_eq!(u32_at(&body, 4), 0);
@@ -1019,13 +1078,13 @@ mod tests {
         assert_eq!(&body[1300..1308], &[0xEF, 0x03, 0, 0, 1, 0, 0, 0]);
         assert!(body[1308..].iter().all(|b| *b == 0));
         // Aime id 0 (guest): no list
-        let guest = answer(271, &req(271, [0, 0, 0]), &store, None, &rare, &log)
+        let guest = answer(271, &req(271, [0, 0, 0]), &store, None, &rare, None, &log)
             .unwrap()
             .1;
         assert!(guest[1292..].iter().all(|b| *b == 0));
         // QR_REGIST, QR_DEL_SERIAL, QR_DEL_CARDID: accepted
         for cmd in [295, 297, 299] {
-            let (_, b, why) = answer(cmd, &[0; 32], &store, None, &rare, &log).unwrap();
+            let (_, b, why) = answer(cmd, &[0; 32], &store, None, &rare, None, &log).unwrap();
             assert!(why.is_none() && u32_at(&b, 4) == 0, "cmd {cmd}");
         }
     }

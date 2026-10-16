@@ -80,6 +80,12 @@ enum Service {
         /// Keep the last 200 request payloads as `req_*.bin` in the store folder
         #[arg(long)]
         dump: bool,
+        /// Direct VS (M3): the public IPv4 the clients reach the reflect service at; enables VS in the game server
+        #[arg(long, requires = "reflect_port")]
+        vs_public_ip: Option<std::net::Ipv4Addr>,
+        /// UDP port of the reflect service (bound on `WCCF_BIND`)
+        #[arg(long, requires = "vs_public_ip")]
+        reflect_port: Option<u16>,
     },
     /// All three (2017-18: the desk and the relay), as `play.py server` started them; LOGS_DIR gets seat_broker.txt,
     /// match_relay.txt, log_inbox.txt
@@ -224,6 +230,7 @@ fn allowlist(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn start_gmsvr(
     port: u16,
     store: &Path,
@@ -231,8 +238,9 @@ fn start_gmsvr(
     skip_tutorial: bool,
     dump: bool,
     allow: Option<Arc<dyn Fn(std::net::IpAddr) -> bool + Send + Sync>>,
+    vs: Option<forza::standins::vs::VsConfig>,
     log: Log,
-) -> std::io::Result<forza::standins::Handle> {
+) -> std::io::Result<Vec<forza::standins::Handle>> {
     let host = std::env::var("WCCF_BIND").unwrap_or_else(|_| "127.0.0.1".into());
     let listener = std::net::TcpListener::bind((host.as_str(), port)).inspect_err(|e| {
         log(&format!("cannot listen on TCP {host}:{port} ({e})"));
@@ -247,8 +255,30 @@ fn start_gmsvr(
         skip_tutorial,
         dump,
         max_per_ip: 8,
+        vs,
     };
-    forza::standins::gamesvr::spawn_opts(listener, store.to_path_buf(), log, o)
+    let mut handles = Vec::new();
+    if let Some(cfg) = vs {
+        let sock =
+            std::net::UdpSocket::bind((host.as_str(), cfg.reflect_port)).inspect_err(|e| {
+                log(&format!(
+                    "cannot listen on UDP {host}:{} ({e})",
+                    cfg.reflect_port
+                ));
+            })?;
+        log(&format!(
+            "VS on: reflect {host}:{} advertised as {}",
+            cfg.reflect_port, cfg.public_ip
+        ));
+        handles.push(forza::standins::vs::spawn_reflect(sock, log.clone())?);
+    }
+    handles.push(forza::standins::gamesvr::spawn_opts(
+        listener,
+        store.to_path_buf(),
+        log,
+        o,
+    )?);
+    Ok(handles)
 }
 
 fn main() {
@@ -293,6 +323,8 @@ fn main() {
             allow,
             allow_file,
             allow_any,
+            vs_public_ip,
+            reflect_port,
         } => {
             if ed != Edition::E1718 {
                 eprintln!("gmsvr is a 2017-18 service: pass --edition 2017-18");
@@ -305,6 +337,12 @@ fn main() {
                 *skip_tutorial,
                 *dump,
                 (!allow_any).then(|| allowlist(allow.clone(), allow_file.clone())),
+                vs_public_ip
+                    .zip(*reflect_port)
+                    .map(|(public_ip, reflect_port)| forza::standins::vs::VsConfig {
+                        public_ip,
+                        reflect_port,
+                    }),
                 file_log(None),
             ) else {
                 std::process::exit(1);
