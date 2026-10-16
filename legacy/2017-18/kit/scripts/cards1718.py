@@ -4,8 +4,10 @@ r"""cards1718.py - make the CATALOGUE's files from your own copy of WCCF 2017-18
     python cards1718.py GAME OUT
       GAME  the folder with client_Release.exe in it (the decrypted 2017-18 "game" folder)
       OUT   where catalogue.tsv and cards\ are written (the overlay's folder)
+    python cards1718.py GAME OUT --catalogue-only    catalogue.tsv only, no cards\ (setup.py does this; the Launcher
+                                makes the pictures)
     python cards1718.py GAME          the self-check only: every check below, nothing written
-      (needs Pillow; finds cards.py and ys_lzw.py in ../../legacy/2017-18/kit/scripts or on PYTHONPATH)
+      (needs Pillow; cards.py and ys_lzw.py are beside this file)
 
 Writes  catalogue.tsv           one line per card: number, season, rarity, names, line, club, the six stats, total ...
                                 (columns 0-30 exactly as cards.py writes them for 2010-11: the overlay reads them by
@@ -33,7 +35,7 @@ import re
 import struct
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "legacy", "2017-18", "kit", "scripts"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cards as C               # the 2010-11 maker: its xaf reader, string helpers, cell(), picture writer
 import ys_lzw                   # noqa: F401  (cards.write_pictures uses it; imported here so a missing file fails early)
 
@@ -104,7 +106,7 @@ CLUBS = [
     ("ロサンゼルス・ギャラクシー", "LA Galaxy"), ("リーズ・ユナイテッド", "Leeds United"),
     ("マンチェスター・シティーFC", "Manchester City"), ("レスター・シティーFC", "Leicester City"),
     ("柏レイソル", "Kashiwa Reysol"), ("アルビレックス新潟", "Albirex Niigata"), ("大宮アルディージャ", "Omiya Ardija"),
-    ("愛媛FC", "Ehime FC"), ("FCセガ", "FC SEGA"), ("バイヤー04レバークーゼン", "Bayer Leverkusen"),
+    ("愛媛FC", "Ehime FC"), ("FC" + bytes.fromhex("e382bbe382ac").decode(), "FC (the publisher)"), ("バイヤー04レバークーゼン", "Bayer Leverkusen"),
     ("オリンピアコスFC", "Olympiacos"), ("アスレティック・クラブ", "Athletic Club"),
     ("FCシャフタール・ドネツク", "Shakhtar Donetsk"), ("FCゼニト・サンクトペテルブルク", "Zenit St Petersburg"),
     ("SCインテルナシオナル", "Internacional"), ("浦項スティーラース", "Pohang Steelers"), ("フィテッセ", "Vitesse"),
@@ -336,6 +338,8 @@ def main(argv):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except (AttributeError, ValueError):
         pass
+    only = "--catalogue-only" in argv
+    argv = [a for a in argv if a != "--catalogue-only"]
     if len(argv) not in (1, 2):
         print(__doc__)
         return 2
@@ -362,6 +366,11 @@ def main(argv):
         return 0
 
     cards_dir = os.path.join(os.path.abspath(argv[1]), "cards")
+    if only:
+        os.makedirs(os.path.dirname(cards_dir), exist_ok=True)
+        write_catalogue(rows, os.path.join(os.path.dirname(cards_dir), "catalogue.tsv"))
+        print("catalogue.tsv: %d cards" % len(rows))
+        return 0
     if os.path.islink(cards_dir) or (hasattr(os.path, "isjunction") and os.path.isjunction(cards_dir)):
         print("refused: %s is a link to another folder - writing would change that folder" % cards_dir)
         return 2
