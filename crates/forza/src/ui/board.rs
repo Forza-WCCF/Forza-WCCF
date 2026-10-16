@@ -277,11 +277,20 @@ fn card_picture(p: &Painter, r: Rect, card: &Card, rim: Color32, alpha: f32) {
                 "file:///{}",
                 file.display().to_string().trim_start_matches('/')
             );
-            if let Ok(egui::load::TexturePoll::Ready { texture }) = p.ctx().try_load_texture(
+            // a miss (no such file) is remembered: the folder is made once, at setup
+            let miss = Id::new(("card-picture-miss", &uri));
+            if p.ctx().data(|d| d.get_temp::<bool>(miss)).is_some() {
+                continue;
+            }
+            let loaded = p.ctx().try_load_texture(
                 &uri,
                 egui::TextureOptions::LINEAR,
                 egui::SizeHint::default(),
-            ) {
+            );
+            if loaded.is_err() {
+                p.ctx().data_mut(|d| d.insert_temp(miss, true));
+            }
+            if let Ok(egui::load::TexturePoll::Ready { texture }) = loaded {
                 p.image(
                     texture.id,
                     r,
