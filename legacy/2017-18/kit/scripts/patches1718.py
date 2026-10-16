@@ -29,6 +29,12 @@ PATCHES = [
      "AiMeDB host aime.naominet.jp -> localhost"),
 ]
 
+# the projector (seat 0, game\\client_Release.exe) gets only the two ALL.Net answers: its corner status icon reads the
+# same online flags as seat 1's (VA 0x009C4630 via 0x0683653D/F, set at VA 0x0040FDC7), so without them it shows OFFLINE
+# although the control link is up.  No picture, board or keychip patch: it is the central monitor.
+ONLINE_OFFSETS = (0x877B70, 0x00F1C7)
+PROJECTOR_PATCHES = [p for p in PATCHES if p[0] in ONLINE_OFFSETS]
+
 
 # the server (control_Release.exe in game\): one change - its ALL.Net library's "network up" check (FUN_004B73C0)
 # answers yes, so it connects to the local game server stand-in (FORCE_ONLINE=1, GAME_SVR_IP=localhost).
