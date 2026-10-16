@@ -34,10 +34,18 @@ const WSAEMSGSIZE: i32 = 10040;
 const MSG_PEEK: i32 = 2;
 /// `SIO_UDP_CONNRESET` = `_WSAIOW(IOC_VENDOR, 12)`.
 const SIO_UDP_CONNRESET: u32 = 0x9800_000C;
-/// The import slots in `client_Release.exe` (WS2_32 #20 `sendto`, #17 `recvfrom`). Both editions' sources use the
-/// same two addresses.
-const SLOT_SENDTO: usize = 0x0097_E8FC;
-const SLOT_RECVFROM: usize = 0x0097_E8F8;
+/// The preferred image base of `client_Release.exe`, in both editions (2017-18 is ASLR, so it may load elsewhere).
+const PREFERRED_BASE: usize = 0x0040_0000;
+
+/// The import slots in `client_Release.exe` (WS2_32 #20 `sendto`, #17 `recvfrom`) as offsets from the image base,
+/// read from each edition's PE import table: (`sendto`, `recvfrom`). 2010-11 has `recvfrom` first, 2017-18 `sendto`.
+const fn slot_rvas(e1718: bool) -> (usize, usize) {
+    if e1718 {
+        (0x011A_9D88 - PREFERRED_BASE, 0x011A_9D8C - PREFERRED_BASE)
+    } else {
+        (0x0097_E8FC - PREFERRED_BASE, 0x0097_E8F8 - PREFERRED_BASE)
+    }
+}
 
 #[link(name = "ws2_32")]
 unsafe extern "system" {
@@ -410,8 +418,8 @@ fn relay_watch() {
 }
 
 /// `relay_install`: seat n's cabinet on a server (the run set `WCCF_RELAY` and `WCCF_SEAT`). Both editions: the
-/// program must be `client_Release.exe` at 0x00400000 and the two slots must hold ws2_32's own `sendto` / `recvfrom`.
-pub fn relay_install(_e1718: bool, log: fn(&str)) {
+/// program must be `client_Release.exe` and the two slots must hold ws2_32's own `sendto` / `recvfrom`.
+pub fn relay_install(e1718: bool, log: fn(&str)) {
     let _ = LOG.set(log);
     let Ok(v) = std::env::var("WCCF_RELAY") else {
         return;
@@ -436,11 +444,10 @@ pub fn relay_install(_e1718: bool, log: fn(&str)) {
     let nm = path.rsplit('\\').next().unwrap_or(&path);
     // SAFETY: plain module lookups.
     let (me, ws) = unsafe { (GetModuleHandleW(None), GetModuleHandleW(w!("ws2_32.dll"))) };
-    let me_ok = me.is_ok_and(|m| m.0 as usize == 0x0040_0000);
-    let Ok(ws) = ws else {
+    let (Ok(me), Ok(ws)) = (me, ws) else {
         return say(&format!("relay: off - not the game ({nm})"));
     };
-    if !nm.eq_ignore_ascii_case("client_Release.exe") || !me_ok {
+    if !nm.eq_ignore_ascii_case("client_Release.exe") {
         return say(&format!("relay: off - not the game ({nm})"));
     }
     // SAFETY: names are NUL-terminated literals.
@@ -454,13 +461,10 @@ pub fn relay_install(_e1718: bool, log: fn(&str)) {
         return say("relay: off - the game's sendto / recvfrom imports are not the ones read");
     };
     let (st, rf) = (st as usize, rf as usize);
+    let (rs, rr) = slot_rvas(e1718);
+    let (slot_sendto, slot_recvfrom) = (me.0 as usize + rs, me.0 as usize + rr);
     // SAFETY: reading the program's own import table; the slots are mapped in the game (the test above holds).
-    let held = unsafe {
-        (
-            *(SLOT_SENDTO as *const usize),
-            *(SLOT_RECVFROM as *const usize),
-        )
-    };
+    let held = unsafe { (*(slot_sendto as *const usize), *(slot_recvfrom as *const usize)) };
     if held != (st, rf) {
         return say("relay: off - the game's sendto / recvfrom imports are not the ones read");
     }
@@ -469,9 +473,9 @@ pub fn relay_install(_e1718: bool, log: fn(&str)) {
     *RELAY.lock().unwrap_or_else(|e| e.into_inner()) = SockaddrIn::new(ip, port);
     MY_SEAT.store(seat as u32, Relaxed);
     let mut old = PAGE_PROTECTION_FLAGS(0);
+    let lo = slot_sendto.min(slot_recvfrom) as *const c_void; // the two slots are adjacent
     // SAFETY: the two adjacent slots, 8 bytes.
-    let opened =
-        unsafe { VirtualProtect(SLOT_RECVFROM as *const c_void, 8, PAGE_READWRITE, &mut old) };
+    let opened = unsafe { VirtualProtect(lo, 8, PAGE_READWRITE, &mut old) };
     if let Err(e) = opened {
         return say(&format!(
             "relay: off - the import slots could not be opened (error {})",
@@ -481,9 +485,9 @@ pub fn relay_install(_e1718: bool, log: fn(&str)) {
     RELAY_ON.store(true, Release); // before the slots change: the hooks must find it on
     // SAFETY: the slots are writable now; the hooks have the real functions' signatures.
     unsafe {
-        *(SLOT_SENDTO as *mut usize) = relay_sendto as *const () as usize;
-        *(SLOT_RECVFROM as *mut usize) = relay_recvfrom as *const () as usize;
-        let _ = VirtualProtect(SLOT_RECVFROM as *const c_void, 8, old, &mut old);
+        *(slot_sendto as *mut usize) = relay_sendto as *const () as usize;
+        *(slot_recvfrom as *mut usize) = relay_recvfrom as *const () as usize;
+        let _ = VirtualProtect(lo, 8, old, &mut old);
     }
     std::thread::spawn(relay_watch);
     say(&format!(
@@ -810,6 +814,18 @@ pub fn ping_ms() -> Option<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Slot RVAs from each edition's PE import table; a relocated 2017-18 image moves them with its base.
+    #[test]
+    fn slot_table() {
+        assert_eq!(slot_rvas(false), (0x57_E8FC, 0x57_E8F8));
+        assert_eq!(slot_rvas(true), (0xDA_9D88, 0xDA_9D8C));
+        // at the preferred base the RVAs give back the original virtual addresses
+        assert_eq!(PREFERRED_BASE + slot_rvas(false).0, 0x97_E8FC);
+        assert_eq!(PREFERRED_BASE + slot_rvas(true).1, 0x11A_9D8C);
+        // moved by ASLR to 0x1000_0000
+        assert_eq!(0x1000_0000 + slot_rvas(true).0, 0x10DA_9D88);
+    }
 
     fn sa(ip: [u8; 4], port: u16) -> SockaddrIn {
         SockaddrIn::new(ip, port)
