@@ -28,6 +28,8 @@ tempfile = "3.27.0"
 time = { version = "0.3.55", features = ["local-offset"] }
 # the catalogue's search: accents and other scripts folded to plain letters ("kaka" finds KAKÀ)
 deunicode = { version = "1.6.2", optional = true }
+# the game server stand-in's club store (gamesvr.db); bundled: no system SQLite on the cabinet PC
+rusqlite = { version = "0.40.2", features = ["bundled"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_IO", "Win32_System_Pipes", "Win32_Storage_FileSystem", "Win32_Security", "Win32_System_Memory", "Win32_System_Threading"] }
