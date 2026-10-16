@@ -53,6 +53,13 @@ try:
     raise AssertionError("a changed original byte was accepted")
 except ValueError:
     pass
+import patches1718 as P  # noqa: E402
+assert len(P.PROJECTOR_PATCHES) == 2 and all(p in P.PATCHES for p in P.PROJECTOR_PATCHES)
+buf = bytearray(0xA00000)                                  # the projector gets exactly the two ALL.Net changes
+for off, old, _, _ in P.PROJECTOR_PATCHES:
+    buf[off:off + len(old) // 2] = bytes.fromhex(old)
+out = P.apply(bytes(buf), P.PROJECTOR_PATCHES)
+assert sum(a != b for a, b in zip(buf, out)) == 10 and out[0x877B70:0x877B76].hex() == "b801000000c3"
 assert S.find_game(os.path.join(os.sep, "no", "such")) is None
 print("2017-18 setup: unknown programs refused, originals kept and reused, settings merged%s"
       % (", junction made" if sys.platform == "win32" else ""))
