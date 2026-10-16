@@ -755,7 +755,7 @@ fn a_2017_18_kit_that_is_not_guarded_starts_nothing() {
         assert!(running_from(top.path()).is_empty());
     };
     fs::write(seat.join("standin_client.exe"), b"not the guarded copy").unwrap();
-    refused("a wrong hash", "is not the file setup1718.py made");
+    refused("a wrong hash", "is not the file Setup made");
     guarded_copy(&seat.join("standin_client.exe"));
 
     stand_in("fakegame_iphlp.exe", &game.join("standin_control.exe"));

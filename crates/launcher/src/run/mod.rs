@@ -486,7 +486,7 @@ fn addr(ip: &str, port: u16) -> Option<SocketAddr> {
 // ---- the start ----------------------------------------------------------------------------------------------------
 
 /// The game folder setup recorded, found by the run's program names; 2017-18 without a record: `game\` beside the kit
-/// (setup1718.py's runtime: `kit\`, `game\`, `seat1\`).
+/// (the 2017-18 setup's runtime: `kit\`, `game\`, `seat1\`).
 fn game_folder(kit: &Kit, p: &Params) -> Option<PathBuf> {
     let set = kit.settings().get("game").and_then(|g| g.as_str().map(str::to_owned));
     let set = set.or_else(|| match kit.edition() {
@@ -1215,7 +1215,7 @@ impl Run<'_> {
             }
         } else {
             if self.edition == Edition::E1011 {
-                self.ensure_hook()?; // 2017-18: setup1718.py puts its hook in place
+                self.ensure_hook()?; // 2017-18: setup.py puts its hook in place
             }
             for line in logs::rotate(&self.logs())? {
                 self.say(&line);
@@ -1628,7 +1628,7 @@ impl Run<'_> {
             ))
         })?;
         let log = file_log(self.logs().join("gamesvr_log.txt"));
-        // the run's game folder (setup1718.py records no "game" setting): the stand-in pre-registers its 2D-code cards,
+        // the run's game folder (also recorded as "game" by the 2017-18 setup): the stand-in pre-registers its 2D-code cards,
         // and data\settings.json "skip_tutorial": true makes it give a new Aime id a club from the game's cpu_50.dat
         let skip = self.kit.settings()["skip_tutorial"].as_bool().unwrap_or(false);
         let game = Some(self.game.clone());

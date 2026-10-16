@@ -1,5 +1,5 @@
 //! The 2017-18 network guard, checked before any of its game programs starts.  The game calls four IP-helper functions
-//! that drop this PC's DHCP lease and change its routes; `setup1718.py` makes copies of client_Release.exe and
+//! that drop this PC's DHCP lease and change its routes; setup (`scripts\setup.py`) makes copies of client_Release.exe and
 //! control_Release.exe that import them from the kit's `wccfnet.dll` (four stubs) instead of IPHLPAPI.DLL, and records
 //! the hashes of what it made in `<runtime>\setup-hashes.json`.  A run starts only when every recorded file is still
 //! the one setup made, and each guarded program's import table names wccfnet.dll and not IPHLPAPI.DLL.
@@ -13,7 +13,7 @@ use object::pe::ImageNtHeaders32;
 use object::read::pe::{Import, PeFile32};
 use sha2::{Digest, Sha256};
 
-/// setup1718.py's record, in the runtime folder (the one above the game folder).
+/// Setup's record, in the runtime folder (the one above the game folder).
 pub const HASHES: &str = "setup-hashes.json";
 /// The guard DLL the guarded programs import.
 pub const WCCFNET: &str = "wccfnet.dll";
