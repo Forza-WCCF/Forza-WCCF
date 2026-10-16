@@ -10,6 +10,8 @@ kit: english\ holds only English text and fingerprints (SHA-256) of the original
                                                    wherever a line has none or its Italian does not fit
     python english.py check    (ENGLISH.bat check) say what "on" would do; changes nothing
     python english.py selftest GAME [SCRATCH [it]] round trip + known lines + on/off on copies; never touches GAME
+    pictures=SPEC after on/check (or WCCF_PICTURES=SPEC): which pictures get their writing redrawn: all (default),
+                 none, or names separated by commas (e.g. pictures=1112_SCM_Parameter); see pictures1718.py
 
 What changes, in the game folder (seat 1 reads the same files through setup's folder links data\ and prog_data\):
   data\string\string_list.bin + .hf          the screen text as the SERVER (control_Release.exe) reads it
@@ -18,13 +20,15 @@ What changes, in the game folder (seat 1 reads the same files through setup's fo
   prog_data\player_data\player_data.bin      player names in the original Latin spelling (accents dropped) + skill
                                              names (the launcher maps this file for every program at start)
   prog_data\cpu_team\cpu_0..598.dat          the CPU teams' names
+  data\wccf_data.xaf                         the writing inside pictures (english\pictures.json): each redrawn
+                                             picture is ADDED at the archive's end and its entry pointed at it;
+                                             "off" cuts it off again, byte for byte (pictures1718.py)
 No program file changes: text inside the exes is left to the seat patch list (tools\patches1718.py).
 The first "on" COPIES the original files to data\english_backup\ - only files whose fingerprint shows they are the
 original 2.00.00 files; later runs build from that backup again.  Each game file is replaced in ONE step ("off" too),
 so a switch stopped half way leaves every file in place, never a missing one.  Kept in Japanese on purpose: country
 and prefecture names (the server builds its weather table keyed by their TEXT, control FUN_00422B50 from the area
 table at VA 0x0067DEE8 - English ones crashed the 2010-11 server), league names and the network-ranking areas.
-Pictures with writing in them are not changed.
 Where the English comes from: english\screen_text.tsv (this kit's translation; lines of the 2010-11 kit carried over
 where 2017-18 has the identical Japanese), the original English that the game files already hold (the second language
 column), and english\original_rstring.tsv (the original European English of the older WCCF, carried by identical
@@ -44,10 +48,13 @@ import struct
 import sys
 import unicodedata
 
+import pictures1718 as P
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 KIT = os.path.dirname(HERE)                              # kit\english and kit\italian beside kit\scripts
 LANGS = {"en": "English", "it": "Italian"}               # "on it": Italian, with the English wherever a line has none
 BACK = MANIFEST = None                                    # kit\data\english_backup (set in main/selftest)
+XAF_STATE = "wccf_data.xaf.json"                          # in BACK: the archive's way back while pictures are on
 BIN, HF = os.path.join("data", "string", "string_list.bin"), os.path.join("data", "string", "string_list.hf")
 ENUM = os.path.join("prog_data", "enumdata", "StringListTableRecord.bin")
 PLAYERS = os.path.join("prog_data", "player_data", "player_data.bin")
@@ -516,14 +523,43 @@ def selftest(game, scratch, lang="en"):
             assert en[k] == at(nb, nk[k][1][0]), "client and server differ at " + k
     pd = open(os.path.join(copy, PLAYERS), "rb").read()
     assert pd[500 * REC + SHORT_KANA:500 * REC + SHORT_KANA + 7] == b"VANOLI\0", "player 500's short name"
+    pnote = selftest_pictures(game, copy, lang)
     n = turn_off(copy)
     after = {rel: sha(open(os.path.join(copy, rel), "rb").read()) for rel in rels}
     assert after == before, "off did not restore the original files byte for byte"
     assert not os.path.exists(BACK), "backup folder left behind"
     shutil.rmtree(copy)
-    print("selftest ok (%s): round trips identical; %s; on, on again, off -> %d files back byte-identical"
-          % (LANGS[lang], "; ".join(notes), n))
+    print("selftest ok (%s): round trips identical; %s; on, on again, off -> %d files back byte-identical; %s"
+          % (LANGS[lang], "; ".join(notes), n, pnote))
     return 0
+
+
+def file_sha(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for b in iter(lambda: f.read(1 << 24), b""):
+            h.update(b)
+    return h.hexdigest().upper()
+
+
+def selftest_pictures(game, copy, lang):
+    """the pictures on a copy of the archive: on, on again (the same file), off (the original archive byte for byte)"""
+    src, xaf = os.path.join(game, P.XAF), os.path.join(copy, P.XAF)
+    os.makedirs(os.path.dirname(xaf), exist_ok=True)
+    shutil.copyfile(src, xaf)
+    before, state = file_sha(xaf), os.path.join(BACK, XAF_STATE)
+    assert before == file_sha(src), "the archive copy"
+    pics, notes = P.build(copy, KIT, lang, os.environ.get("WCCF_PICTURES"), state)
+    P.apply(copy, pics, state)
+    on = file_sha(xaf)
+    P.apply(copy, P.build(copy, KIT, lang, os.environ.get("WCCF_PICTURES"), state)[0], state)
+    assert file_sha(xaf) == on, "pictures on twice: not the same archive"
+    grown = os.path.getsize(xaf) - os.path.getsize(src)
+    assert P.restore(copy, state) == len(pics), "pictures off"
+    assert file_sha(xaf) == before, "pictures off did not give back the original archive byte for byte"
+    os.remove(xaf)
+    return "%s; on, on again (same archive, %d bytes added), off -> wccf_data.xaf byte-identical" % (
+        "; ".join(notes), grown)
 
 
 def main(argv):
@@ -532,6 +568,10 @@ def main(argv):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except (AttributeError, ValueError):
         pass
+    spec = os.environ.get("WCCF_PICTURES")
+    for a in [a for a in argv if a.lower().startswith("pictures=")]:
+        spec = a.split("=", 1)[1]
+        argv.remove(a)
     mode = (argv[0].lower() if argv else "on")
     if mode == "selftest" and len(argv) >= 2:
         scratch = argv[2] if len(argv) > 2 else os.path.join(HERE, "_selftest")
@@ -553,26 +593,30 @@ def main(argv):
             if mode != "check":
                 raise Failed("the game is running - close it first, then run this again")
             print("  NOTE  the game is running: \"on\" and \"off\" will refuse until it is closed")
+        state = os.path.join(BACK, XAF_STATE)
         if mode == "off":
-            if not load_manifest():
+            if not load_manifest() and not os.path.isfile(state):
                 print("  The game's text is the original Japanese already - nothing to do.")
                 return 0
+            p = P.restore(game, state)
             n = turn_off(game)
-            print("  ok    the original Japanese files are back (%d files)." % n)
+            print("  ok    the original Japanese files are back (%d files, %d pictures)." % (n, p))
             return 0
         print("  building from your game files ...", flush=True)
         files, notes = build_all(game, lang)
-        for n in notes:
+        pics, pnotes = P.build(game, KIT, lang, spec, state)
+        for n in notes + pnotes:
             print("  ok    " + n)
         if mode == "check":
             man = load_manifest()
-            print("  check only - nothing changed.  \"on\" would replace %d files (%d of them backed up first)."
-                  % (len(files), sum(1 for r in files if r not in man)))
+            print("  check only - nothing changed.  \"on\" would replace %d files (%d of them backed up first) and "
+                  "redraw %d pictures." % (len(files), sum(1 for r in files if r not in man), len(pics)))
             return 0
         turn_on(game, files, lang)
-        print("  ok    %d files in place, each read back.  The originals are in data\\english_backup (ENGLISH.bat off "
-              "puts them back)." % len(files))
-    except (Failed, OSError) as ex:
+        P.apply(game, pics, state)
+        print("  ok    %d files and %d pictures in place, each read back.  The originals are in data\\english_backup "
+              "(ENGLISH.bat off puts them back)." % (len(files), len(pics)))
+    except (Failed, P.Failed, OSError) as ex:
         print("  FAIL  %s" % ex)
         return 1
     print("%s is on. Start the game with Launcher.exe." % LANGS[lang])

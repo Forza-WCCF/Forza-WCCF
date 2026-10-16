@@ -98,6 +98,10 @@ const MAP_1718: &[(&str, &str)] = &[
         "source/test_setup1718.py",
         "legacy/2017-18/tests/test_setup1718.py",
     ),
+    (
+        "source/test_pictures1718.py",
+        "legacy/2017-18/tests/test_pictures1718.py",
+    ),
     ("source/mxhook", "native/2017-18/mxhook"),
     ("source/overlay", "native/2017-18/overlay"),
     ("source/logowin", "native/2017-18/logowin"),
@@ -886,6 +890,16 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
     let c = ck.python(&[kit_1718.join("source/test_game_text.py").to_str().unwrap()]);
     ck.run(
         "2017-18 game text: Italian first, the English behind it, codes kept",
+        c,
+        false,
+    );
+
+    let c = ck.python(&[kit_1718
+        .join("source/test_pictures1718.py")
+        .to_str()
+        .unwrap()]);
+    ck.run(
+        "2017-18 pictures: added to the archive, taken back out byte for byte",
         c,
         false,
     );

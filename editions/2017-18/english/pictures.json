@@ -1,0 +1,38 @@
+{"about": "Forza-WCCF 2017-18: the writing inside the game's pictures, redrawn at setup from the player's own files (scripts/pictures1718.py). Keyed by the SHA-256 of the unpacked original; boxes are x0,y0,x1,y1 inclusive; our own words only.",
+ "pictures": [
+  {"id": "scm_parameter_1112", "where": "the six stat names beside the team hexagon",
+   "sha256": "2F10E135A5FE1BE21447474214153A1702961CFFF8F9E3FA52E3AB4F2321518A",
+   "files": ["data/sb_data/client_common/SCM_Parameter/1112_SCM_Parameter.dds"],
+   "style": {"core": "auto", "halo": [0, 0, 0, 230], "halo_px": 1, "blur": 0.7},
+   "labels": [
+    {"box": [198, 3, 255, 19], "clear": [194, 0, 255, 21], "en": "Offence"},
+    {"box": [198, 24, 255, 41], "clear": [194, 22, 255, 43], "en": "Technique"},
+    {"box": [198, 46, 255, 63], "clear": [194, 44, 255, 65], "en": "Speed"},
+    {"box": [198, 67, 255, 85], "clear": [194, 66, 255, 87], "en": "Stamina"},
+    {"box": [198, 89, 255, 106], "clear": [194, 88, 255, 108], "en": "Power"},
+    {"box": [198, 110, 255, 126], "clear": [194, 109, 255, 127], "en": "Defence"}]},
+  {"id": "mng_menu_1617_00", "where": "the management menu buttons (normal and lit)",
+   "sha256": "F079CC72CC4E0D448E57E63D3F32A5713234603B830DF0DF10537FB949FC1C9E",
+   "files": ["data/sb_data/management/MNG_Menu/1617_MNG_Menu_00.dds"],
+   "style": {"core": "auto", "halo": [120, 80, 30, 200], "halo_px": 1, "blur": 1.0},
+   "labels": [
+    {"box": [140, 3, 172, 19], "clear": [138, 0, 174, 21], "en": "Train"},
+    {"box": [140, 23, 172, 39], "clear": [138, 22, 174, 41], "en": "Setup"},
+    {"box": [140, 43, 172, 59], "clear": [138, 42, 174, 61], "en": "Match"},
+    {"box": [140, 63, 172, 79], "clear": [138, 62, 174, 81], "en": "Back"},
+    {"box": [176, 3, 208, 19], "clear": [175, 0, 211, 21], "en": "Train"},
+    {"box": [176, 23, 208, 39], "clear": [175, 22, 211, 41], "en": "Setup"},
+    {"box": [176, 43, 208, 59], "clear": [175, 42, 211, 61], "en": "Match"},
+    {"box": [176, 63, 208, 79], "clear": [175, 62, 211, 81], "en": "Back"}]},
+  {"id": "scm_timer_3", "where": "the countdown captions in the footer (every lobby and match)",
+   "sha256": "FDA4629AF882CE1891BA9851E31DAB1EE7725916BBA69275E51C85F6458B6C14",
+   "files": ["data/sb_data/client_common/SCM_Footer/SCM_Timer_3.dds"],
+   "style": {"core": "auto", "halo": "core", "halo_alpha": 110, "halo_px": 1, "blur": 0.6},
+   "labels": [
+    {"box": [64, 46, 156, 59], "clear": [62, 42, 158, 62], "en": "Next match in"},
+    {"box": [64, 66, 142, 79], "clear": [62, 63, 158, 82], "en": "Please wait"},
+    {"box": [162, 46, 240, 59], "clear": [160, 42, 243, 62], "en": "Kick-off in"},
+    {"box": [162, 66, 240, 79], "clear": [160, 63, 243, 82], "en": "Entry closes in"},
+    {"box": [162, 86, 240, 99], "clear": [160, 83, 243, 102], "en": "Card out in"},
+    {"box": [174, 106, 226, 119], "clear": [160, 103, 243, 122], "en": "Time left"}]}
+ ]}
