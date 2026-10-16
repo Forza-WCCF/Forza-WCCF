@@ -98,8 +98,9 @@ const ID_L_PICS: i32 = 45;
 const ID_PICS_GAME: i32 = 46;
 const ID_PICS_HQ: i32 = 47;
 const ID_PACK: i32 = 48;
+const ID_SKIP: i32 = 49;
 /// Disabled while a job runs.
-const BUTTONS: [i32; 17] = [
+const BUTTONS: [i32; 18] = [
     ID_BROWSE,
     ID_SETUP,
     ID_UNDO,
@@ -117,11 +118,12 @@ const BUTTONS: [i32; 17] = [
     ID_PICS_GAME,
     ID_PICS_HQ,
     ID_PACK,
+    ID_SKIP,
 ];
 
 /// The window's client height folded and unfolded (96-dpi pixels), and its width.
 const FOLDED: i32 = 282;
-const UNFOLDED: i32 = 752;
+const UNFOLDED: i32 = 780;
 const WIDTH: i32 = 600;
 
 enum Step {
@@ -197,9 +199,6 @@ fn log(line: &str) {
 /// python\python.exe code\<script> args without a console, its output line by line into the window; its exit
 /// code.  play.py's "N/M" step lines move the progress bar.
 fn run_script(kit: &Kit, script: &str, args: &[OsString]) -> Result<i32, String> {
-    if kit.edition() == Edition::E1718 && script == "setup.py" {
-        return Err(t().setup_1718.into()); // its setup is setup1718.py, from WSL (step 11 ports it)
-    }
     let shown: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
     log(&format!("> {script} {}", shown.join(" ")));
     let mut child = kit
@@ -587,6 +586,14 @@ fn pictures_picked(hwnd: HWND, hq: bool, choose: bool) {
     }
 }
 
+/// The "Skip the tutorial" box (2017-18): data\\settings.json "skip_tutorial", which run::start_gamesvr reads.
+fn skip_picked(hwnd: HWND) {
+    let file = Kit::here().settings_file();
+    if let Err(e) = choices::set_setting_bool(&file, "skip_tutorial", checked(hwnd, ID_SKIP)) {
+        say(fill(t().write_failed, &[&file.display().to_string(), &e.to_string()]), 0);
+    }
+}
+
 /// The open-file box for the pack's ZIP.
 fn pick_pack(hwnd: HWND) -> Option<String> {
     let title = wide(t().pack_title);
@@ -649,6 +656,10 @@ fn play_clicked(hwnd: HWND) {
     let kit = Kit::here();
     let online = checked(hwnd, ID_ONLINE);
     let server = get_text(hwnd, ID_SERVER);
+    if online && kit.edition() == Edition::E1718 {
+        say(t().online_1718, 0);
+        return;
+    }
     if online && !choices::valid_address(&server) {
         say(t().bad_address, 0);
         // SAFETY: a control of our own window.
@@ -726,6 +737,7 @@ fn retext(hwnd: HWND) {
         (ID_PICS_GAME, tx.from_game),
         (ID_PICS_HQ, tx.hq_pack),
         (ID_PACK, tx.choose_pack),
+        (ID_SKIP, tx.skip_tutorial),
     ] {
         set_text(hwnd, id, words);
     }
@@ -914,6 +926,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 ID_PICS_GAME => pictures_picked(hwnd, false, false),
                 ID_PICS_HQ => pictures_picked(hwnd, true, false),
                 ID_PACK => pictures_picked(hwnd, true, true),
+                ID_SKIP => skip_picked(hwnd),
                 _ => {}
             }
             0
@@ -1080,18 +1093,19 @@ fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
         child(w!("BUTTON"), radio | tab, ID_PICS_GAME, 124, 364, 150, 24);
         child(w!("BUTTON"), radio, ID_PICS_HQ, 278, 364, 170, 24);
         child(w!("BUTTON"), tab, ID_PACK, 452, 364, 136, 24);
-        child(w!("STATIC"), SS_ETCHEDHORZ, 0, 12, 396, 576, 2);
-        child(w!("STATIC"), 0, ID_HEADING, 12, 406, 576, 20);
+        child(w!("BUTTON"), BS_AUTOCHECKBOX as u32 | tab, ID_SKIP, 124, 392, 300, 24);
+        child(w!("STATIC"), SS_ETCHEDHORZ, 0, 12, 424, 576, 2);
+        child(w!("STATIC"), 0, ID_HEADING, 12, 434, 576, 20);
         let list_style = (LBS_NOTIFY | LBS_USETABSTOPS) as u32 | WS_VSCROLL | tab;
-        let list = child(w!("LISTBOX"), list_style, ID_LIST, 12, 428, 576, 100);
+        let list = child(w!("LISTBOX"), list_style, ID_LIST, 12, 456, 576, 100);
         let stops: [i32; 3] = [90, 150, 210]; // dialog units: tag, kind, date, "(this kit)"
         SendMessageW(list, LB_SETTABSTOPS, stops.len(), stops.as_ptr() as LPARAM);
-        child(w!("BUTTON"), tab, ID_UPDATE, 12, 532, 130, 28);
-        child(w!("BUTTON"), tab, ID_NOTES, 150, 532, 130, 28);
-        child(w!("STATIC"), 0, ID_UPNOTE, 290, 532, 298, 36);
-        child(w!("STATIC"), SS_ETCHEDHORZ, 0, 12, 574, 576, 2);
+        child(w!("BUTTON"), tab, ID_UPDATE, 12, 560, 130, 28);
+        child(w!("BUTTON"), tab, ID_NOTES, 150, 560, 130, 28);
+        child(w!("STATIC"), 0, ID_UPNOTE, 290, 560, 298, 36);
+        child(w!("STATIC"), SS_ETCHEDHORZ, 0, 12, 602, 576, 2);
         let out = (ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL) as u32 | WS_VSCROLL;
-        let out = child(w!("EDIT"), out, ID_LOG, 12, 584, 576, 156);
+        let out = child(w!("EDIT"), out, ID_LOG, 12, 612, 576, 156);
         SendMessageW(out, EM_SETLIMITTEXT, 0, 0); // more than the 32,767 characters a box takes by default
 
         // the choices as they are now
@@ -1114,6 +1128,12 @@ fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
             pick(hwnd, ID_PICS_HQ, ID_PICS_GAME);
         } else {
             pick(hwnd, ID_PICS_GAME, ID_PICS_HQ);
+        }
+        if kit.settings()["skip_tutorial"].as_bool() == Some(true) {
+            SendMessageW(item(hwnd, ID_SKIP), BM_SETCHECK, BST_CHECKED as usize, 0);
+        }
+        if kit.edition() != Edition::E1718 {
+            ShowWindow(item(hwnd, ID_SKIP), SW_HIDE);
         }
         pick_text(
             hwnd,
