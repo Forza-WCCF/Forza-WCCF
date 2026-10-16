@@ -109,7 +109,7 @@ def main():
     (SEAT / "local").mkdir(parents=True, exist_ok=True)
     for n in JUNCTION_DIRS:
         if not (SEAT / n).exists():
-            os.system('cmd.exe /c mklink /J "%s" "%s" >/dev/null' % (win(SEAT / n), win(GAME / n)))
+            os.system('/mnt/c/Windows/System32/cmd.exe /c mklink /J "%s" "%s" >/dev/null' % (win(SEAT / n), win(GAME / n)))
         assert (SEAT / n).exists(), n
     for f in GAME.iterdir():
         low = f.name.lower()
