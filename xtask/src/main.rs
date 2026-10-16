@@ -79,10 +79,15 @@ const MAP_1718: &[(&str, &str)] = &[
     ("", "legacy/2017-18/kit"), // scripts/ (setup, English, cards) and SETUP.bat, ENGLISH.bat; the run is Launcher.exe
     ("README.txt", "editions/2017-18/README.txt"),
     ("english", "editions/2017-18/english"),
+    ("italian", "editions/2017-18/italian"), // english.py on it: key + Italian, the English behind each key
     ("overlay/skin.tex", "editions/2017-18/overlay/skin.tex"),
     ("python", "legacy/python"),
     ("python/python313._pth", "legacy/2017-18/python313._pth"), // ..\scripts on the path
     ("source/README.txt", "native/2017-18/README.txt"),
+    (
+        "source/test_game_text.py",
+        "legacy/2017-18/tests/test_game_text.py",
+    ),
     ("source/mxhook", "native/2017-18/mxhook"),
     ("source/overlay", "native/2017-18/overlay"),
     ("source/logowin", "native/2017-18/logowin"),
@@ -878,6 +883,13 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
     ck.run(
         "whole messages: a batch in pieces waits for its rest, bytes that are no batch are skipped",
         Command::new(kit.join("source/build/test_wholemsg.exe")),
+        false,
+    );
+
+    let c = ck.python(&[kit_1718.join("source/test_game_text.py").to_str().unwrap()]);
+    ck.run(
+        "2017-18 game text: Italian first, the English behind it, codes kept",
+        c,
         false,
     );
 
