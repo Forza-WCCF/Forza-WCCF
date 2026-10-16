@@ -78,7 +78,11 @@ const MAP: &[(&str, &str)] = &[
 /// file. The kit's programs are not here: `build` compiles them into the staged kit ([`KEEP_1718`]).
 const MAP_1718: &[(&str, &str)] = &[
     ("", "legacy/2017-18/kit"), // scripts/ (setup, English, cards) and SETUP.bat, ENGLISH.bat; the run is Launcher.exe
+    ("SETUP.bat", "editions/2017-18/SETUP.bat"), // overrides the legacy one
     ("README.txt", "editions/2017-18/README.txt"),
+    ("README.it.txt", "editions/2017-18/README.it.txt"),
+    ("README.ja.txt", "editions/2017-18/README.ja.txt"),
+    ("CHANGES.txt", "editions/2017-18/CHANGES.txt"),
     ("english", "editions/2017-18/english"),
     ("italian", "editions/2017-18/italian"), // english.py on it: key + Italian, the English behind each key
     ("overlay/skin.tex", "editions/2017-18/overlay/skin.tex"),
