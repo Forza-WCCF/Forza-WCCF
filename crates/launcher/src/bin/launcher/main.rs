@@ -53,6 +53,9 @@ use windows_sys::Win32::System::Console::{
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::SystemServices::{SS_ETCHEDHORZ, SS_RIGHT};
 use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
+use windows_sys::Win32::UI::Controls::Dialogs::{
+    GetOpenFileNameW, OFN_FILEMUSTEXIST, OFN_NOCHANGEDIR, OFN_PATHMUSTEXIST, OPENFILENAMEW,
+};
 use windows_sys::Win32::UI::Controls::{
     BST_CHECKED, EM_REPLACESEL, EM_SETLIMITTEXT, EM_SETSEL, ICC_PROGRESS_CLASS, INITCOMMONCONTROLSEX,
     InitCommonControlsEx, PBM_SETPOS, PBM_SETRANGE32, PROGRESS_CLASSW,
@@ -91,15 +94,34 @@ const ID_L_LANG: i32 = 41;
 const ID_L_TEXT: i32 = 42;
 const ID_L_FOLDER: i32 = 43;
 const ID_TEXT_IT: i32 = 44;
+const ID_L_PICS: i32 = 45;
+const ID_PICS_GAME: i32 = 46;
+const ID_PICS_HQ: i32 = 47;
+const ID_PACK: i32 = 48;
 /// Disabled while a job runs.
-const BUTTONS: [i32; 14] = [
-    ID_BROWSE, ID_SETUP, ID_UNDO, ID_UPDATE, ID_NOTES, ID_THIS_PC, ID_ONLINE, ID_SERVER, ID_LANG, ID_TEXT_EN,
-    ID_TEXT_IT, ID_TEXT_JA, ID_PLAY, ID_FOLDER,
+const BUTTONS: [i32; 17] = [
+    ID_BROWSE,
+    ID_SETUP,
+    ID_UNDO,
+    ID_UPDATE,
+    ID_NOTES,
+    ID_THIS_PC,
+    ID_ONLINE,
+    ID_SERVER,
+    ID_LANG,
+    ID_TEXT_EN,
+    ID_TEXT_IT,
+    ID_TEXT_JA,
+    ID_PLAY,
+    ID_FOLDER,
+    ID_PICS_GAME,
+    ID_PICS_HQ,
+    ID_PACK,
 ];
 
 /// The window's client height folded and unfolded (96-dpi pixels), and its width.
 const FOLDED: i32 = 282;
-const UNFOLDED: i32 = 720;
+const UNFOLDED: i32 = 752;
 const WIDTH: i32 = 600;
 
 enum Step {
@@ -107,6 +129,8 @@ enum Step {
     Update(Release),
     /// The run (launcher::run) with play.py's words; its exit code is the result
     Game(Vec<OsString>),
+    /// The card pictures (launcher::run::make_pictures), after setup and when the pictures choice changes
+    Pictures,
 }
 
 /// What the worker threads tell the window; the window looks every 100 ms.
@@ -295,6 +319,12 @@ fn start(steps: Vec<Step>) {
                     run_script(&kit, script, args).and_then(|rc| if rc == 0 { Ok(()) } else { Err(t().failed.into()) })
                 }
                 Step::Update(r) => update::apply(&kit, r).map(|()| updated = Some(r.tag.clone())),
+                Step::Pictures => {
+                    say(t().making_pictures, 0);
+                    run::make_pictures(&kit, &Params::of(&kit), &WindowUi)
+                        .then_some(())
+                        .ok_or_else(|| t().failed.to_owned())
+                }
                 Step::Game(args) => {
                     let words: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
                     log(&format!("> {}", words.join(" ")));
@@ -521,6 +551,66 @@ fn dropped(hwnd: HWND, drop: HDROP) {
     }
 }
 
+/// The board's card pictures: the game's own, or the high-quality pack (data\\settings.json "card_pictures" and
+/// "card_pack"; made at setup and here, launcher::run::make_pictures).  The pack is asked for when none is known yet, or with Choose pack.
+fn pictures_picked(hwnd: HWND, hq: bool, choose: bool) {
+    let file = Kit::here().settings_file();
+    let known = choices::setting(&file, "card_pack").filter(|p| Path::new(p).is_file());
+    let pack = if !hq {
+        None
+    } else if let Some(p) = known.filter(|_| !choose) {
+        Some(p)
+    } else if let Some(p) = pick_pack(hwnd) {
+        Some(p)
+    } else {
+        // no pack: the choice stays as it was
+        let was = choices::setting(&file, "card_pictures").as_deref() == Some("hq");
+        let (on, off) = if was {
+            (ID_PICS_HQ, ID_PICS_GAME)
+        } else {
+            (ID_PICS_GAME, ID_PICS_HQ)
+        };
+        pick(hwnd, on, off);
+        return;
+    };
+    let mut done = choices::set_setting(&file, "card_pictures", if pack.is_some() { "hq" } else { "game" });
+    if let Some(p) = &pack {
+        done = done.and_then(|()| choices::set_setting(&file, "card_pack", p));
+        pick(hwnd, ID_PICS_HQ, ID_PICS_GAME);
+    }
+    match done {
+        Ok(()) => start(vec![Step::Pictures]),
+        Err(e) => say(
+            fill(t().write_failed, &[&file.display().to_string(), &e.to_string()]),
+            0,
+        ),
+    }
+}
+
+/// The open-file box for the pack's ZIP.
+fn pick_pack(hwnd: HWND) -> Option<String> {
+    let title = wide(t().pack_title);
+    let filter: Vec<u16> = "ZIP\0*.zip\0\0".encode_utf16().collect();
+    let mut path = vec![0u16; 32_768];
+    let mut ofn = OPENFILENAMEW {
+        lStructSize: size_of::<OPENFILENAMEW>() as u32,
+        hwndOwner: hwnd,
+        lpstrFilter: filter.as_ptr(),
+        lpstrFile: path.as_mut_ptr(),
+        nMaxFile: path.len() as u32,
+        lpstrTitle: title.as_ptr(),
+        Flags: OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR,
+        ..Default::default()
+    };
+    // SAFETY: the structure, the filter, the title and the path buffer live across the call; the buffer's length is
+    // the one given.
+    if unsafe { GetOpenFileNameW(&mut ofn) } == 0 {
+        return None;
+    }
+    let len = path.iter().position(|&c| c == 0).unwrap_or(path.len());
+    Some(String::from_utf16_lossy(&path[..len]))
+}
+
 fn update_clicked(hwnd: HWND) {
     let Some(r) = selected(hwnd) else { return };
     if ask(
@@ -632,6 +722,10 @@ fn retext(hwnd: HWND) {
         (ID_UNDO, tx.undo),
         (ID_UPDATE, tx.update),
         (ID_NOTES, tx.whats_new),
+        (ID_L_PICS, tx.card_pictures),
+        (ID_PICS_GAME, tx.from_game),
+        (ID_PICS_HQ, tx.hq_pack),
+        (ID_PACK, tx.choose_pack),
     ] {
         set_text(hwnd, id, words);
     }
@@ -786,6 +880,7 @@ fn refresh(hwnd: HWND) {
             if !lang.is_empty() {
                 steps.push(Step::Script("english.py", language_args(lang)));
             }
+            steps.push(Step::Pictures); // last: a failure here must not skip english.py
             start(steps);
         }
     }
@@ -800,7 +895,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 ID_BROWSE => browse(hwnd),
                 ID_SETUP => {
                     if let Some(game) = folder(hwnd) {
-                        start(vec![Step::Script("setup.py", vec![game])]);
+                        start(vec![Step::Script("setup.py", vec![game]), Step::Pictures]);
                     }
                 }
                 ID_UNDO => {
@@ -816,6 +911,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 }
                 ID_UPDATE => update_clicked(hwnd),
                 ID_NOTES => open_notes(hwnd),
+                ID_PICS_GAME => pictures_picked(hwnd, false, false),
+                ID_PICS_HQ => pictures_picked(hwnd, true, false),
+                ID_PACK => pictures_picked(hwnd, true, true),
                 _ => {}
             }
             0
@@ -872,7 +970,7 @@ unsafe fn font(scale: i32, bold: bool) -> HFONT {
 }
 
 /// The window, and its message loop until it is closed (or gone because the game is up).
-fn window(kit: &Kit, first: Option<Step>, folder: Option<&OsStr>) {
+fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
     // SAFETY: plain Win32 window set-up on this (the only UI) thread; every string is NUL-terminated and lives
     // across its call, every handle comes from the call before.
     unsafe {
@@ -978,18 +1076,22 @@ fn window(kit: &Kit, first: Option<Step>, folder: Option<&OsStr>) {
         child(w!("BUTTON"), tab, ID_BROWSE, 488, 294, 100, 24);
         child(w!("BUTTON"), tab, ID_SETUP, 124, 326, 180, 28);
         child(w!("BUTTON"), tab, ID_UNDO, 312, 326, 168, 28);
-        child(w!("STATIC"), SS_ETCHEDHORZ, 0, 12, 364, 576, 2);
-        child(w!("STATIC"), 0, ID_HEADING, 12, 374, 576, 20);
+        child(w!("STATIC"), 0, ID_L_PICS, 12, 368, 110, 20);
+        child(w!("BUTTON"), radio | tab, ID_PICS_GAME, 124, 364, 150, 24);
+        child(w!("BUTTON"), radio, ID_PICS_HQ, 278, 364, 170, 24);
+        child(w!("BUTTON"), tab, ID_PACK, 452, 364, 136, 24);
+        child(w!("STATIC"), SS_ETCHEDHORZ, 0, 12, 396, 576, 2);
+        child(w!("STATIC"), 0, ID_HEADING, 12, 406, 576, 20);
         let list_style = (LBS_NOTIFY | LBS_USETABSTOPS) as u32 | WS_VSCROLL | tab;
-        let list = child(w!("LISTBOX"), list_style, ID_LIST, 12, 396, 576, 100);
+        let list = child(w!("LISTBOX"), list_style, ID_LIST, 12, 428, 576, 100);
         let stops: [i32; 3] = [90, 150, 210]; // dialog units: tag, kind, date, "(this kit)"
         SendMessageW(list, LB_SETTABSTOPS, stops.len(), stops.as_ptr() as LPARAM);
-        child(w!("BUTTON"), tab, ID_UPDATE, 12, 500, 130, 28);
-        child(w!("BUTTON"), tab, ID_NOTES, 150, 500, 130, 28);
-        child(w!("STATIC"), 0, ID_UPNOTE, 290, 500, 298, 36);
-        child(w!("STATIC"), SS_ETCHEDHORZ, 0, 12, 542, 576, 2);
+        child(w!("BUTTON"), tab, ID_UPDATE, 12, 532, 130, 28);
+        child(w!("BUTTON"), tab, ID_NOTES, 150, 532, 130, 28);
+        child(w!("STATIC"), 0, ID_UPNOTE, 290, 532, 298, 36);
+        child(w!("STATIC"), SS_ETCHEDHORZ, 0, 12, 574, 576, 2);
         let out = (ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL) as u32 | WS_VSCROLL;
-        let out = child(w!("EDIT"), out, ID_LOG, 12, 552, 576, 156);
+        let out = child(w!("EDIT"), out, ID_LOG, 12, 584, 576, 156);
         SendMessageW(out, EM_SETLIMITTEXT, 0, 0); // more than the 32,767 characters a box takes by default
 
         // the choices as they are now
@@ -1008,6 +1110,11 @@ fn window(kit: &Kit, first: Option<Step>, folder: Option<&OsStr>) {
             .or_else(|| choices::setting(&kit.settings_file(), "server"))
             .unwrap_or_default();
         set_text(hwnd, ID_SERVER, &server);
+        if choices::setting(&kit.settings_file(), "card_pictures").as_deref() == Some("hq") {
+            pick(hwnd, ID_PICS_HQ, ID_PICS_GAME);
+        } else {
+            pick(hwnd, ID_PICS_GAME, ID_PICS_HQ);
+        }
         pick_text(
             hwnd,
             match choices::panel_value(&panel, "english").as_deref() {
@@ -1038,8 +1145,8 @@ fn window(kit: &Kit, first: Option<Step>, folder: Option<&OsStr>) {
         if kit.edition() == Edition::E1011 {
             ask_updates(); // the releases are 2010-11 kits: never offered to the 2017-18 kit
         }
-        if let Some(step) = first {
-            start(vec![step]);
+        if !first.is_empty() {
+            start(first);
         }
 
         let mut msg: MSG = mem::zeroed();
@@ -1179,15 +1286,15 @@ fn main() -> ExitCode {
     // dropped on Launcher.exe (or given): a game folder to set up
     let folder = args.first().filter(|a| args.len() == 1 && Path::new(a).is_dir());
     let step = match first.as_deref() {
-        None => None,
-        Some(_) if folder.is_some() => Some(Step::Script("setup.py", args.clone())),
-        Some("undo") => Some(Step::Script("setup.py", args.clone())),
+        None => Vec::new(),
+        Some(_) if folder.is_some() => vec![Step::Script("setup.py", args.clone()), Step::Pictures],
+        Some("undo") => vec![Step::Script("setup.py", args.clone())],
         Some("restart") => {
             say(t().restarting, 0);
-            Some(Step::Game(args.clone()))
+            vec![Step::Game(args.clone())]
         }
         Some(_) if attach_console() => return console(&kit, &args),
-        Some(_) => Some(Step::Game(args.clone())),
+        Some(_) => vec![Step::Game(args.clone())],
     };
     window(&kit, step, folder.map(OsString::as_os_str));
     ExitCode::SUCCESS

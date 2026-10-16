@@ -18,9 +18,10 @@ sha2.workspace = true
 csv = { version = "1.4.0", optional = true }
 serde_json.workspace = true
 egui = { workspace = true, optional = true }
-# `file` and `image`: the card pictures, read and decoded off the UI thread by egui's loaders (PNG only)
+# `file` and `image`: the card pictures, read and decoded off the UI thread by egui's loaders (PNG only); image's
+# `dds` and `jpeg`: the pictures made from the game (DXT1) and from the high-quality pack (forza::cards::pictures)
 egui_extras = { workspace = true, optional = true, features = ["file", "image"] }
-image = { version = "0.25.10", default-features = false, features = ["png"], optional = true }
+image = { version = "0.25.10", default-features = false, features = ["png", "dds", "jpeg"], optional = true }
 rust-i18n = { workspace = true, optional = true }
 zip.workspace = true
 getrandom = "0.3.4"

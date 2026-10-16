@@ -7,7 +7,7 @@ use super::widgets::{centered_text, fan, fit, gradient};
 use crate::cards::links::Affinity;
 use egui::{
     Align2, Color32, Id, Order, Painter, Pos2, Rect, Response, Sense, Shadow, Stroke, StrokeKind,
-    Ui, pos2, vec2,
+    Ui, Vec2, pos2, vec2,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -240,6 +240,20 @@ pub fn set_picture_dir(ctx: &egui::Context, dir: Option<std::path::PathBuf>) {
     ctx.data_mut(|d| d.insert_temp(Id::new("card-pictures"), dir));
 }
 
+/// The part of a card picture of `size` that fills a slot of `aspect` (width / height): the card face (a square
+/// picture is the game's whole 128x128 one, its face the left 88 columns), cut to the slot's shape from the top, where
+/// the player is.
+fn face_uv(size: Vec2, aspect: f32) -> Rect {
+    let fw = if size.x == size.y { 88.0 / 128.0 } else { 1.0 };
+    let face = vec2(size.x * fw, size.y);
+    if face.x / face.y > aspect {
+        let w = face.y * aspect / size.x;
+        Rect::from_min_max(pos2((fw - w) / 2.0, 0.0), pos2((fw + w) / 2.0, 1.0))
+    } else {
+        Rect::from_min_max(pos2(0.0, 0.0), pos2(fw, face.x / aspect / size.y))
+    }
+}
+
 /// The card's picture in `r`; the stand-in while it loads, when the file is missing, or with no folder set.
 fn card_picture(p: &Painter, r: Rect, card: &Card, rim: Color32, alpha: f32) {
     gradient(
@@ -255,24 +269,36 @@ fn card_picture(p: &Painter, r: Rect, card: &Card, rim: Color32, alpha: f32) {
         .data(|d| d.get_temp::<Option<std::path::PathBuf>>(Id::new("card-pictures")))
         .flatten();
     if let Some(dir) = dir {
-        // `file:///C:\...` on Windows, `file:///home/...` elsewhere: what egui_extras' file loader parses
-        let file = dir.join(format!("{}.png", card.number));
-        let uri = format!(
-            "file:///{}",
-            file.display().to_string().trim_start_matches('/')
-        );
-        if let Ok(egui::load::TexturePoll::Ready { texture }) = p.ctx().try_load_texture(
-            &uri,
-            egui::TextureOptions::LINEAR,
-            egui::SizeHint::default(),
-        ) {
-            p.image(
-                texture.id,
-                r,
-                Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
-                Color32::WHITE.gamma_multiply(alpha),
+        // the high-quality pack's scan first, then the game's own (pictures::ensure makes both)
+        for ext in ["jpg", "png"] {
+            // `file:///C:\...` on Windows, `file:///home/...` elsewhere: what egui_extras' file loader parses
+            let file = dir.join(format!("{}.{ext}", card.number));
+            let uri = format!(
+                "file:///{}",
+                file.display().to_string().trim_start_matches('/')
             );
-            return;
+            // a miss (no such file) is remembered: the folder is made once, at setup
+            let miss = Id::new(("card-picture-miss", &uri));
+            if p.ctx().data(|d| d.get_temp::<bool>(miss)).is_some() {
+                continue;
+            }
+            let loaded = p.ctx().try_load_texture(
+                &uri,
+                egui::TextureOptions::LINEAR,
+                egui::SizeHint::default(),
+            );
+            if loaded.is_err() {
+                p.ctx().data_mut(|d| d.insert_temp(miss, true));
+            }
+            if let Ok(egui::load::TexturePoll::Ready { texture }) = loaded {
+                p.image(
+                    texture.id,
+                    r,
+                    face_uv(texture.size, r.aspect_ratio()),
+                    Color32::WHITE.gamma_multiply(alpha),
+                );
+                return;
+            }
         }
     }
     // the stand-in: a neutral head-and-shoulders silhouette, plainly not a photo
@@ -1569,4 +1595,22 @@ pub fn catalogue_card(
         );
     }
     resp
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_square_slot_takes_the_top_of_the_card_face() {
+        // the game's whole 128x128 picture: its face is the left 88 columns
+        let r = face_uv(vec2(128.0, 128.0), 1.0);
+        assert_eq!((r.min, r.max), (pos2(0.0, 0.0), pos2(0.6875, 0.6875)));
+        // the pack's 180x254 scan: all its width, as much height from the top
+        let r = face_uv(vec2(180.0, 254.0), 1.0);
+        assert_eq!((r.min, r.max), (pos2(0.0, 0.0), pos2(1.0, 180.0 / 254.0)));
+        // the face made here (88x128): its top square
+        let r = face_uv(vec2(88.0, 128.0), 1.0);
+        assert!((r.max.y - 88.0 / 128.0).abs() < 1e-6);
+    }
 }

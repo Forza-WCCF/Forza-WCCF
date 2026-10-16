@@ -6,6 +6,7 @@
 //! for byte as it writes them.
 
 pub mod links;
+pub mod pictures;
 
 use crate::ui::board::{Aptitude, Board, Card, Position, Rarity};
 use egui::{Pos2, pos2};
