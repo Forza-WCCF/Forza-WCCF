@@ -6,8 +6,10 @@ kit: english\ holds only English text and fingerprints (SHA-256) of the original
 
     python english.py on       (ENGLISH.bat)       build, check, then put the English files in place
     python english.py off      (ENGLISH.bat off)   the original Japanese files back
+    python english.py on it    (ENGLISH.bat on it) the same in Italian: italian\screen_text.tsv first, the English
+                                                   wherever a line has none or its Italian does not fit
     python english.py check    (ENGLISH.bat check) say what "on" would do; changes nothing
-    python english.py selftest GAME [SCRATCH]      round trip + known lines + on/off on copies; never touches GAME
+    python english.py selftest GAME [SCRATCH [it]] round trip + known lines + on/off on copies; never touches GAME
 
 What changes, in the game folder (seat 1 reads the same files through setup's folder links data\ and prog_data\):
   data\string\string_list.bin + .hf          the screen text as the SERVER (control_Release.exe) reads it
@@ -20,13 +22,14 @@ No program file changes: text inside the exes is left to the seat patch list (to
 The first "on" COPIES the original files to data\english_backup\ - only files whose fingerprint shows they are the
 original 2.00.00 files; later runs build from that backup again.  Each game file is replaced in ONE step ("off" too),
 so a switch stopped half way leaves every file in place, never a missing one.  Kept in Japanese on purpose: country
-and prefecture names (the server builds its weather table keyed by their TEXT, control FUN_00422B50 from the area table at VA
-0x0067DEE8 - English ones crashed the 2010-11 server), league names and the network-ranking areas.  Pictures with
-writing in them are not changed.
+and prefecture names (the server builds its weather table keyed by their TEXT, control FUN_00422B50 from the area
+table at VA 0x0067DEE8 - English ones crashed the 2010-11 server), league names and the network-ranking areas.
+Pictures with writing in them are not changed.
 Where the English comes from: english\screen_text.tsv (this kit's translation; lines of the 2010-11 kit carried over
 where 2017-18 has the identical Japanese), the original English that the game files already hold (the second language
 column), and english\original_rstring.tsv (the original European English of the older WCCF, carried by identical
-Japanese).
+Japanese).  Each line takes the first of these that keeps the codes of the game's Japanese line; "on it" puts
+italian\screen_text.tsv (key + Italian) before them all, and data\english_backup\language.txt says which is on.
 Exit 0 done; 1 refused or a check failed (nothing changed); 2 no game set up (set it up first).
 """
 import bisect
@@ -42,7 +45,8 @@ import sys
 import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ENG = os.path.join(os.path.dirname(HERE), "english")      # kit\english beside kit\scripts
+KIT = os.path.dirname(HERE)                              # kit\english and kit\italian beside kit\scripts
+LANGS = {"en": "English", "it": "Italian"}               # "on it": Italian, with the English wherever a line has none
 BACK = MANIFEST = None                                    # kit\data\english_backup (set in main/selftest)
 BIN, HF = os.path.join("data", "string", "string_list.bin"), os.path.join("data", "string", "string_list.hf")
 ENUM = os.path.join("prog_data", "enumdata", "StringListTableRecord.bin")
@@ -76,8 +80,9 @@ def sha(data):
     return hashlib.sha256(data).hexdigest().upper()
 
 
-def sheet(name):
-    with open(os.path.join(ENG, name), encoding="utf-8", newline="") as fh:
+def sheet(name, folder="english"):
+    """a table in the kit's english or italian folder"""
+    with open(os.path.join(KIT, folder, name), encoding="utf-8", newline="") as fh:
         return list(csv.DictReader(fh, delimiter="\t", quoting=csv.QUOTE_NONE))
 
 
@@ -133,69 +138,78 @@ def blocked(k):
     return f.startswith(DATA_FAMILIES) and not any(f.startswith(e) for e in SWITCHED_ON)
 
 
-def english_lines(body, keys):
-    """{key: (text, source)}: the kit's table first, then the original second column, then the original European
-    English"""
-    english = {}
+def kit_lines(lang="en"):
+    """{key: [(text, source), ...]} best first: for "it" the kit's Italian, then the kit's English behind it as that
+    key's fallback; a key the Italian sheet lacks is English"""
+    lines = {}
     for r in sheet("screen_text.tsv"):
-        if (r.get("english") or "").strip() and r["key"] not in english:
-            english[r["key"]] = (r["english"].strip("\r"), "kit")
+        if (r.get("english") or "").strip() and r["key"] not in lines:
+            lines[r["key"]] = [(r["english"].strip("\r"), "kit")]
+    if lang == "it":
+        for r in sheet("screen_text.tsv", "italian"):
+            if (r.get("italiano") or "").strip():
+                lines.setdefault(r["key"], []).insert(0, (r["italiano"].strip("\r"), "kit Italian"))
+    return lines
+
+
+def screen_lines(body, keys, lang="en"):
+    """each Japanese line's choices, best first: the kit's (kit_lines), then the original second column, then the
+    original European English"""
+    choices = kit_lines(lang)
     rstring = {r["key"]: r["english"] for r in sheet("original_rstring.tsv")}
     for k, (_, nums) in keys.items():
-        if k in english or not any(c >= 0x80 for c in at(body, nums[0])):
+        if not any(c >= 0x80 for c in at(body, nums[0])):
             continue
         s2 = at(body, nums[1])
         if s2 and not any(c >= 0x80 for c in s2):
-            english[k] = (s2.decode("ascii"), "original second column")
+            choices.setdefault(k, []).append((s2.decode("ascii"), "original second column"))
         elif k in rstring:
-            english[k] = (rstring[k], "original European English")
-    return english
+            choices.setdefault(k, []).append((rstring[k], "original European English"))
+    return choices
 
 
-def encode_lines(body, keys, english):
-    """{key: cp932 bytes} for every usable line; the kit's own lines must all pass"""
-    bad, enc, original_bad = [], {}, 0
-    for k, (text, src) in sorted(english.items()):
-        mine = src == "kit"
+def encoded(jp, text):
+    """the line as the game's bytes and None, or None and what is wrong with it: a line keeps exactly the printf and
+    $ codes of the game's Japanese line"""
+    if text.strip() == "<empty>":
+        if FMT.findall(jp) or CODES.findall(jp):
+            return None, "<empty> would drop the Japanese line's codes"
+        return b"", None
+    en = text.replace("\\n", "\n")
+    if FMT.findall(jp) != FMT.findall(en):
+        return None, "codes %s, the game's line has %s" % (FMT.findall(en), FMT.findall(jp))
+    if FMT.sub("", en).count("%") > FMT.sub("", jp).count("%"):
+        return None, "a % sign that is no printf code - the game would show junk or stop"
+    if collections.Counter(CODES.findall(jp)) != collections.Counter(CODES.findall(en)):
+        return None, "$ codes %s, the game's line has %s" % (CODES.findall(en), CODES.findall(jp))
+    try:
+        b = en.encode("cp932")
+    except UnicodeEncodeError:
+        return None, "a letter the game's font cannot show"
+    if b"\0" in b:
+        return None, "holds an end byte"
+    return b, None
+
+
+def encode_lines(body, keys, choices):
+    """{key: cp932 bytes}, {key: source} for every line with a choice that fits, the first that does; and the kit's
+    lines that did not fit (they give way to the next choice, never a line with other codes than the game's)"""
+    enc, used, misfit = {}, {}, []
+    for k, options in sorted(choices.items()):
         if k not in keys:
-            if mine:
-                bad.append("%s: no such line in the game" % k)
+            misfit += ["%s: no such line in the game" % k for _, src in options if src.startswith("kit")]
             continue
         if blocked(k):
             continue
         jp = at(body, keys[k][1][0]).decode("cp932", "replace")
-        problem = None
-        if text.strip() == "<empty>":
-            if FMT.findall(jp) or CODES.findall(jp):
-                problem = "<empty> would drop the Japanese line's codes"
-            else:
-                enc[k] = b""
-                continue
-        en = text.replace("\\n", "\n")
-        if not problem and FMT.findall(jp) != FMT.findall(en):
-            problem = "codes %s, the game's line has %s" % (FMT.findall(en), FMT.findall(jp))
-        if not problem and FMT.sub("", en).count("%") > FMT.sub("", jp).count("%"):
-            problem = "a % sign that is no printf code - the game would show junk or stop"
-        if not problem and collections.Counter(CODES.findall(jp)) != collections.Counter(CODES.findall(en)):
-            problem = "$ codes %s, the game's line has %s" % (CODES.findall(en), CODES.findall(jp))
-        b = b""
-        if not problem:
-            try:
-                b = en.encode("cp932")
-            except UnicodeEncodeError:
-                problem = "a letter the game's font cannot show"
-        if not problem and b"\0" in b:
-            problem = "holds an end byte"
-        if problem:
-            if mine:
-                bad.append("%s: %s" % (k, problem))
-            else:
-                original_bad += 1
-            continue
-        enc[k] = b
-    if bad:
-        raise Failed("the kit's English has %d problem(s), e.g. %s" % (len(bad), "; ".join(bad[:3])))
-    return enc, original_bad
+        for text, src in options:
+            b, problem = encoded(jp, text)
+            if not problem:
+                enc[k], used[k] = b, src
+                break
+            if src.startswith("kit"):
+                misfit.append("%s (%s): %s" % (k, src, problem))
+    return enc, used, misfit
 
 
 def pack_strings(raw, hf_raw, enc):
@@ -284,21 +298,21 @@ def pack_enum(enum_raw, body, keys, enc):
     return new, done
 
 
-def build_strings(game):
+def build_strings(game, lang="en"):
     raw, hf_raw, enum_raw = original_file(game, BIN), original_file(game, HF), original_file(game, ENUM)
     for rel, d in ((BIN, raw), (HF, hf_raw), (ENUM, enum_raw)):
         if sha(d) != ORIGINAL[rel]:
             raise Failed("%s is not the original 2.00.00 file - the English is made for that only" % rel)
     body, keys = read_strings(raw, hf_raw)
-    english = english_lines(body, keys)
-    enc, original_bad = encode_lines(body, keys, english)
+    enc, used, misfit = encode_lines(body, keys, screen_lines(body, keys, lang))
     new_bin, new_hf, pos = pack_strings(raw, hf_raw, enc)
     new_enum, done = pack_enum(enum_raw, body, keys, enc)
-    by = collections.Counter(english[k][1] for k in pos)
-    note = "%d lines in English (%s); %d in the clients' table" % (
-        len(pos), ", ".join("%s %d" % kv for kv in sorted(by.items())), len(done))
-    if original_bad:
-        note += "; %d of the original English lines unusable, left Japanese" % original_bad
+    by = collections.Counter(used[k] for k in pos)
+    note = "%d lines in %s (%s); %d in the clients' table" % (
+        len(pos), LANGS[lang], ", ".join("%s %d" % kv for kv in sorted(by.items())), len(done))
+    if misfit:
+        note += "; %d of the kit's lines do not fit this game's line and gave way to the next choice (%s)" % (
+            len(misfit), misfit[0])
     return {BIN: new_bin, HF: new_hf, ENUM: new_enum}, note
 
 
@@ -357,10 +371,10 @@ def build_names(game):
     return files, note
 
 
-def build_all(game):
+def build_all(game, lang="en"):
     files, notes = {}, []
     for fn in (build_strings, build_names):
-        f, n = fn(game)
+        f, n = fn(game, lang) if fn is build_strings else fn(game)
         files.update(f)
         notes.append(n)
     return files, notes
@@ -415,7 +429,7 @@ def original_hash(rel):
     return None
 
 
-def turn_on(game, files):
+def turn_on(game, files, lang="en"):
     man = load_manifest()
 
     def unsaved(rel):                                    # not listed, or its backup gone (an "off" stopped half way)
@@ -437,6 +451,7 @@ def turn_on(game, files):
                 raise Failed("%s did not write correctly - run ENGLISH.bat off" % rel)
         man[rel]["english"] = sha(data)
     save_manifest(man)
+    put(os.path.join(BACK, "language.txt"), (lang + "\n").encode("ascii"))   # Launcher.exe reads it (game_language)
 
 
 def turn_off(game):
@@ -458,8 +473,9 @@ def turn_off(game):
     if lost:
         raise Failed("%d file(s) are not the original and have no backup of the original file, so they stay as they "
                      "are (%s%s)" % (len(lost), lost[0], ", ..." if len(lost) > 1 else ""))
-    if os.path.isfile(MANIFEST):
-        os.remove(MANIFEST)
+    for f in (MANIFEST, os.path.join(BACK, "language.txt")):
+        if os.path.isfile(f):
+            os.remove(f)
     for dp, dn, fn in os.walk(BACK, topdown=False):
         if not os.listdir(dp):
             os.rmdir(dp)
@@ -467,7 +483,7 @@ def turn_off(game):
 
 
 # ---------------------------------------------------------------- self-check (on copies only)
-def selftest(game, scratch):
+def selftest(game, scratch, lang="en"):
     """round trip, known lines, then on / off on a copy of the changed files under SCRATCH; GAME is only read"""
     global BACK, MANIFEST
     raw, hf_raw = open(os.path.join(game, BIN), "rb").read(), open(os.path.join(game, HF), "rb").read()
@@ -485,15 +501,15 @@ def selftest(game, scratch):
     BACK = os.path.join(scratch, "english_backup")
     MANIFEST = os.path.join(BACK, "manifest.json")
     shutil.rmtree(BACK, ignore_errors=True)
-    files, notes = build_all(copy)
-    turn_on(copy, files)
-    turn_on(copy, build_all(copy)[0])                    # a second "on" builds from the backup, same result
+    files, notes = build_all(copy, lang)
+    turn_on(copy, files, lang)
+    turn_on(copy, build_all(copy, lang)[0], lang)        # a second "on" builds from the backup, same result
     nb, nk = read_strings(open(os.path.join(copy, BIN), "rb").read(), open(os.path.join(copy, HF), "rb").read())
     en = {f[0].decode(): f[2] for _, f in read_enum(open(os.path.join(copy, ENUM), "rb").read())}
     orig = {f[0].decode(): f[2] for _, f in read_enum(enum_raw)}
     for k in ("MAKE_country_000", "MAKE_prefecture_000"):    # data families: Japanese in both files
         assert at(nb, nk[k][1][0]) == at(body, keys[k][1][0]) == en[k], k
-    for k in ("CLM_MANAGER_result_0002", "MAKE_city_000"):   # known lines: English in both files
+    for k in ("CLM_MANAGER_result_0002", "MAKE_city_000"):   # known lines: the kit's language in both files
         assert at(nb, nk[k][1][0]).isascii() and en[k] == at(nb, nk[k][1][0]), k
     for k in nk:                                          # every line: the clients' table says what the server's says
         if k in en and orig[k] == at(body, keys[k][1][0]):
@@ -505,13 +521,13 @@ def selftest(game, scratch):
     assert after == before, "off did not restore the original files byte for byte"
     assert not os.path.exists(BACK), "backup folder left behind"
     shutil.rmtree(copy)
-    print("selftest ok: round trips identical; " + "; ".join(notes) + "; on, on again, off -> %d files back "
-          "byte-identical" % n)
+    print("selftest ok (%s): round trips identical; %s; on, on again, off -> %d files back byte-identical"
+          % (LANGS[lang], "; ".join(notes), n))
     return 0
 
 
 def main(argv):
-    global BACK, MANIFEST, ENG
+    global BACK, MANIFEST
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except (AttributeError, ValueError):
@@ -519,18 +535,19 @@ def main(argv):
     mode = (argv[0].lower() if argv else "on")
     if mode == "selftest" and len(argv) >= 2:
         scratch = argv[2] if len(argv) > 2 else os.path.join(HERE, "_selftest")
-        return selftest(argv[1], scratch)
-    if mode not in ("on", "off", "check"):
+        return selftest(argv[1], scratch, argv[3] if len(argv) > 3 else "en")
+    lang = argv[1].lower() if len(argv) > 1 else "en"
+    if mode not in ("on", "off", "check") or lang not in LANGS:
         print(__doc__)
         return 1
     import kit_common as K
-    ENG, BACK = os.path.join(K.KIT, "english"), os.path.join(K.DATA, "english_backup")
+    BACK = os.path.join(K.DATA, "english_backup")
     MANIFEST = os.path.join(BACK, "manifest.json")
     game = K.find_game(K.load_settings().get("game"))
     if not game:
         print("The game is not set up yet - set it up first.")
         return 2
-    print("WCCF 2017-18 kit - English %s - game: %s" % (mode, game))
+    print("WCCF 2017-18 kit - %s %s - game: %s" % (LANGS[lang], mode, game))
     try:
         if K.game_processes(game):
             if mode != "check":
@@ -538,13 +555,13 @@ def main(argv):
             print("  NOTE  the game is running: \"on\" and \"off\" will refuse until it is closed")
         if mode == "off":
             if not load_manifest():
-                print("  English is not on - nothing to do.")
+                print("  The game's text is the original Japanese already - nothing to do.")
                 return 0
             n = turn_off(game)
             print("  ok    the original Japanese files are back (%d files)." % n)
             return 0
         print("  building from your game files ...", flush=True)
-        files, notes = build_all(game)
+        files, notes = build_all(game, lang)
         for n in notes:
             print("  ok    " + n)
         if mode == "check":
@@ -552,13 +569,13 @@ def main(argv):
             print("  check only - nothing changed.  \"on\" would replace %d files (%d of them backed up first)."
                   % (len(files), sum(1 for r in files if r not in man)))
             return 0
-        turn_on(game, files)
-        print("  ok    %d files in place, each read back.  The originals are in data\\english_backup (ENGLISH.bat off puts "
-              "them back)." % len(files))
+        turn_on(game, files, lang)
+        print("  ok    %d files in place, each read back.  The originals are in data\\english_backup (ENGLISH.bat off "
+              "puts them back)." % len(files))
     except (Failed, OSError) as ex:
         print("  FAIL  %s" % ex)
         return 1
-    print("English is on. Start the game with Launcher.exe.")
+    print("%s is on. Start the game with Launcher.exe." % LANGS[lang])
     return 0
 
 
