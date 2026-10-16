@@ -27,10 +27,14 @@ PATCHES = [
     # AiMeDB (aimelib, VA 0x00D841E0 getaddrinfo, port 22345): the original host -> this PC, served by _aimedb.py
     (0xE2C250, "61696d652e6e616f6d696e65742e6a7000", "6c6f63616c686f73740000000000000000",
      "AiMeDB host aime.naominet.jp -> localhost"),
-    # FREE PLAY: the credit library (amCredit, VA 0x00D386A0) takes its coin setting from the backup record, else from
-    # this default block (VA 0x0121F1C8, bytes 00 01 00 01 ...). Byte 2 is the coin mode: 1 = FREE PLAY (VA 0x00D37E30
-    # returns "enough" and VA 0x00D381A0 shows no credit text). A fresh install has no record, so the default applies.
-    (0xE1E5CA, "00", "01", "FREE PLAY: default coin setting byte 2 = 1 (VA 0x0121F1CA)"),
+    # FREE PLAY. The credit library (amCredit, VA 0x00D386A0) loads its 16-byte coin setting from a saved record or the
+    # game's own defaults; byte 2 = 1 is FREE PLAY (VA 0x00D37E30 says "enough", VA 0x00D381A0 shows no credit text).
+    # The setting reaches VA 0x00654B180 by two stores (VA 0x00D38840 record/default, VA 0x00D387E7 no record); each is
+    # sent through a few bytes of int3 padding that first sets bit 16 (byte 2), so no saved record can switch it off.
+    (0x937C40, "a380b15406", "e9b5ec8fff", "FREE PLAY: coin setting store -> VA 0x006374FA"),
+    (0x2368FA, "cc" * 14, "0fbae810a380b15406e93d137000", "FREE PLAY: sets byte 2, stores, back to VA 0x00D38845"),
+    (0x937BE7, "890d80b15406", "e9363792ff90", "FREE PLAY: coin setting store (no record) -> VA 0x0065BF22"),
+    (0x25B322, "cc" * 15, "0fbae910890d80b15406e9bcc86d00", "FREE PLAY: sets byte 2, stores, back to VA 0x00D387ED"),
 ]
 
 # the projector (seat 0, game\\client_Release.exe) gets only the two ALL.Net answers: its corner status icon reads the
