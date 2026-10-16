@@ -240,6 +240,10 @@ pub fn from_pack(pack: &Path, edition: &str, out: &Path) -> io::Result<(usize, V
     };
     fs::create_dir_all(out)?;
     let (mut done, mut fails, mut last) = (0, Vec::new(), None);
+    // the real stats come along into the same folder (the board reads them from there)
+    if let Err(e) = super::hq::from_db(db.path(), edition, out) {
+        fails.push(format!("stats: {e}"));
+    }
     for (no, front) in picks {
         if last.replace(no) == Some(no) {
             continue; // a reprint: the first one wins
@@ -289,6 +293,7 @@ pub fn ensure(
     // the game's pictures stay while this version made them; the pack's go, and come back if wanted
     let made = fs::read_to_string(&marker).is_ok_and(|m| m.starts_with(&format!("{VERSION} ")));
     let _ = fs::remove_file(&marker); // half made stays "not made"
+    let _ = fs::remove_file(cards.join(super::hq::FILE));
     for f in fs::read_dir(cards).into_iter().flatten().flatten() {
         if f.path().extension().is_some_and(|e| e == "jpg") {
             fs::remove_file(f.path())?;
@@ -431,9 +436,11 @@ mod tests {
         let db = d.path().join("cards.db");
         let con = rusqlite::Connection::open(&db).unwrap();
         con.execute_batch(
-            "CREATE TABLE cards (ver INTEGER, card TEXT, front TEXT);
+            "CREATE TABLE cards (ver INTEGER, card TEXT, front TEXT, position TEXT, off INTEGER, def INTEGER, tec INTEGER,
+                                 pow INTEGER, spe INTEGER, sta INTEGER, tot INTEGER);
              CREATE TABLE game_link (ver INTEGER, card TEXT, game TEXT, game_card_no INTEGER, method TEXT);
-             INSERT INTO cards VALUES (28, '240', 'images/a.jpg'), (29, 'A01', 'images/b.jpg'), (13, '1', 'images/c.jpg');
+             INSERT INTO cards VALUES (28, '240', 'images/a.jpg', 'FW', 1, 2, 3, 4, 5, 6, 21),
+                 (29, 'A01', 'images/b.jpg', 'MF', 1, 1, 1, 1, 1, 1, 6), (13, '1', 'images/c.jpg', 'GK', 1, 1, 1, 1, 1, 1, 6);
              INSERT INTO game_link VALUES (29, 'A01', '1718', 7049, 'name+season'), (28, '240', '1718', 7049, 'name+stats'),
                                           (13, '1', '1011', 1, 'name+stats');",
         )
@@ -456,9 +463,11 @@ mod tests {
         ensure(d.path(), "1718", &out, Some(&pack), &|_| {}).unwrap();
         assert_eq!(fs::read(out.join("7049.jpg")).unwrap(), b"A");
         assert!(out.join("7049.png").is_file() && !out.join("1.jpg").exists());
+        assert!(out.join(super::super::hq::FILE).is_file());
         // back to the game's own: the scans go, the game's pictures stay
         ensure(d.path(), "1718", &out, None, &|_| {}).unwrap();
         assert!(!out.join("7049.jpg").exists() && out.join("7049.png").is_file());
+        assert!(!out.join(super::super::hq::FILE).exists());
     }
 
     /// The player's own game and, if given, the pack: `FORZA_PICTURES_GAME` (the game folder), `FORZA_PICTURES_OUT`
