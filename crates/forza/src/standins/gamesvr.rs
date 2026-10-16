@@ -124,7 +124,9 @@ pub fn rare_cards(game: &Path) -> io::Result<Vec<u32>> {
             .join("player_data.bin"),
     )?;
     Ok(master
-        .chunks_exact(RECORD)
+        .as_chunks::<RECORD>()
+        .0
+        .iter()
         .filter(|r| r[0x5DD] == 2)
         .map(|r| u32::from(u16_at(r, 648)))
         .collect())
@@ -498,7 +500,12 @@ fn club(
         if aime != 0 {
             // the server pre-registers every 2D-code card (registrations 1, owned 0, flag 0): there is no 2D-code
             // reader to register them one by one (docs/research/ONLINE-2017-18.md, "2D-code cards")
-            for (e, &no) in body[PLAYERS_LIST..].chunks_exact_mut(8).zip(rare) {
+            for (e, &no) in body[PLAYERS_LIST..]
+                .as_chunks_mut::<8>()
+                .0
+                .iter_mut()
+                .zip(rare)
+            {
                 put(e, 0, no);
                 e[4] = 1;
             }
