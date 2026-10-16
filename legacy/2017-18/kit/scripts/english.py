@@ -1,29 +1,33 @@
 # -*- coding: utf-8 -*-
-r"""english.py - WCCF 2010-11 in English.  Built on this PC from YOUR game files, every line checked, then swapped in
-with the original files kept; "off" puts the originals back.  Nothing of the original ships with the kit: english\ holds
-only English text and fingerprints (SHA-256) of the original files.
+r"""english.py - WCCF 2017-18 (SDDY 2.00.00) in English.  Built on this PC from YOUR game files, every line checked,
+then swapped in with the original files kept; "off" puts the originals back.  Nothing of the original ships with the
+kit: english\ holds only English text and fingerprints (SHA-256) of the original files.  The 2017-18 branch of the
+2010-11 kit's english.py; Launcher.exe runs it at a start when the game text was changed (data\panel.txt english=).
 
     python english.py on       (ENGLISH.bat)       build, check, then put the English files in place
     python english.py off      (ENGLISH.bat off)   the original Japanese files back
     python english.py check    (ENGLISH.bat check) say what "on" would do; changes nothing
+    python english.py selftest GAME [SCRATCH]      round trip + known lines + on/off on copies; never touches GAME
 
-What changes, in the game's extracted\ folder (seat 1 reads the same files through setup's folder links):
-  data\string\string_list.bin + .hf       the screen text: about 7,200 lines in English
-  prog_data\player_data\player_data.bin   player names in the original Latin spelling (accents dropped) + skill names
-  prog_data\cpu_team\cpu_0..251.dat       the CPU teams' names
-  client_Release.exe (the projector's) and seat1\client_Release.exe (seat 1's own patched copy)
-                                          text inside the program: the "Next match: ..." ticker, dates as 2026/10/5
-  control_Release.exe (the server)        the shop name it sends when the network gives none ("Local Shop")
+What changes, in the game folder (seat 1 reads the same files through setup's folder links data\ and prog_data\):
+  data\string\string_list.bin + .hf          the screen text as the SERVER (control_Release.exe) reads it
+  prog_data\enumdata\StringListTableRecord.bin   the same screen text as the CLIENTS (seat 1 and the projector) read it:
+                                             2017-18's client never opens string_list.*; it loads this table
+  prog_data\player_data\player_data.bin      player names in the original Latin spelling (accents dropped) + skill
+                                             names (the launcher maps this file for every program at start)
+  prog_data\cpu_team\cpu_0..598.dat          the CPU teams' names
+No program file changes: text inside the exes is left to the seat patch list (tools\patches1718.py).
 The first "on" COPIES the original files to data\english_backup\ - only files whose fingerprint shows they are the
-Rev D originals; later runs build from that backup again.  Each game file is then replaced in ONE step ("off" too), so a
-switch stopped half way (a crash, a kill, a full disk) leaves every file in place - some English, some not - and
-never a missing one: a missing exe would keep the game from starting (2026-10-06).  Kept in Japanese on purpose: country and prefecture names (the
-game finds its weather table by them; English ones crashed the server) and the network-ranking areas.  Pictures with
+original 2.00.00 files; later runs build from that backup again.  Each game file is replaced in ONE step ("off" too),
+so a switch stopped half way leaves every file in place, never a missing one.  Kept in Japanese on purpose: country
+and prefecture names (the server builds its weather table keyed by their TEXT, control FUN_00422B50 from the area table at VA
+0x0067DEE8 - English ones crashed the 2010-11 server), league names and the network-ranking areas.  Pictures with
 writing in them are not changed.
-Where the English comes from: english\screen_text.tsv (this kit's translation), the original English that the game files
-already hold (a second language column), and english\original_rstring.tsv (lines from the original European English of
-the older WCCF, matched by identical Japanese).
-Exit 0 done; 1 refused or a check failed (nothing changed); 2 no game set up (run SETUP.bat first).
+Where the English comes from: english\screen_text.tsv (this kit's translation; lines of the 2010-11 kit carried over
+where 2017-18 has the identical Japanese), the original English that the game files already hold (the second language
+column), and english\original_rstring.tsv (the original European English of the older WCCF, carried by identical
+Japanese).
+Exit 0 done; 1 refused or a check failed (nothing changed); 2 no game set up (set it up first).
 """
 import bisect
 import collections
@@ -32,40 +36,34 @@ import hashlib
 import json
 import os
 import re
+import shutil
+import struct
 import sys
 import unicodedata
 
-import kit_common as K
-
-ENG = os.path.join(K.KIT, "english")
-BACK = os.path.join(K.DATA, "english_backup")
-MANIFEST = os.path.join(BACK, "manifest.json")
+HERE = os.path.dirname(os.path.abspath(__file__))
+ENG = os.path.join(os.path.dirname(HERE), "english")      # kit\english beside kit\scripts
+BACK = MANIFEST = None                                    # kit\data\english_backup (set in main/selftest)
 BIN, HF = os.path.join("data", "string", "string_list.bin"), os.path.join("data", "string", "string_list.hf")
+ENUM = os.path.join("prog_data", "enumdata", "StringListTableRecord.bin")
 PLAYERS = os.path.join("prog_data", "player_data", "player_data.bin")
 TEAMS = os.path.join("prog_data", "cpu_team")
-PROJECTOR = "client_Release.exe"
-SEAT_EXE = os.path.join("seat1", "client_Release.exe")     # seat 1's own copy, beside extracted\ (see where())
-SERVER = "control_Release.exe"                           # the server; SETUP never changes it (setup.py ORIGINAL_OTHERS)
-ORIGINAL = {BIN: "F71368483B76E3DA89AA4651B33BFDE6BFEE9A3C381F9EEC8CA6E9E8C9DF43F4",       # Rev D, as downloaded
-        HF: "B6A56A3DFC6494017151371F4313FCAC8BDF80C5B83B3DD9D84A652CC25BAF2A",
-        PLAYERS: "B0D39E32C195C60E9D366071A94932CBCE4E2EEAF3C83A897664F147161C2519",
-        PROJECTOR: "AEF9998D8A77B4DD7A0CFF3753A11FC8689A6700E133265D6681EF28D3E9CEA4",
-        SEAT_EXE: "6243C394E9A57B33C23519326EF8A77B0992873A0033B5892A9155C5B827E20A",   # = setup.py's PATCHED_CLIENT
-        SERVER: "23B9553096BB195FC991A1FC141D719DF3C8AE88460959A88CDFC18863A1376F"}
-# families the game may use as DATA: kept Japanese unless switched on below.  The server and the client look their
-# weather table up by the COUNTRY / PREFECTURE name (control FUN_004229b0, client FUN_00430b20) - English ones crashed
-# the server; cities and stadiums are referred to by key and are safe (checked in the code, 2026-10-05).
+ORIGINAL = {BIN: "EAB584BA8F96698F0FC438DD8C46282B852E5B7C72F885110FEB189FD004CE43",  # 2.00.00 (DVR5059A, 2018-03-15)
+        HF: "23D63FE4468D7F820CA8CF4424F1995C4FEA02C90827015DD1FB936BADE61D43",
+        ENUM: "574E40B205632DC23E28852CBAD87DF45711EF05A46513F8FADF4E237BB93495",
+        PLAYERS: "1F8D79BC980D9E67B3E2F6A975F1A669D4CE3C7EBB413DA09B4A8D5F5DC6FFFA"}
+# families the game may use as DATA: kept Japanese unless switched on below (the 2010-11 kit's list, checked again
+# for 2017-18: control FUN_00422B50 keys its weather map by the area + country/prefecture TEXT; cities by key)
 DATA_FAMILIES = ("MAKE_", "NET_RANK", "GAM_OROGINAL", "GAM_REAL", "GAM_STA", "SYS_TEAM", "INF_SUPPORTER",
                  "SYS_COACH", "PRO_PRO", "INF_FRE")
 SWITCHED_ON = ("SYS_TEAM", "PRO_PRO", "GAM_OROGINAL", "GAM_REAL", "GAM_STA", "INF_FRE", "SYS_COACH", "INF_SUPPORTER",
                "MAKE_city", "MAKE_area")
-# every conversion the game's C runtime takes, so an English line keeps exactly the codes of the game's Japanese line
-# (2026-10-07: the original European line "They're giving 110% out there." is "% o" to printf - an octal number - which
-# the old list [dsxXuc] did not see; it went in and Team Training showed "11037620322074ut there")
+# every conversion the C runtime takes, so an English line keeps exactly the codes of the game's Japanese line
 FMT = re.compile(r"%[-+ 0#]*(?:\*|[0-9]+)?(?:\.(?:\*|[0-9]+))?(?:hh|h|ll|l|L|I32|I64|I|w)?[cCdiouxXeEfgGaAnpsSZ%]")
-REC = 0x328                                          # player_data.bin: one player
-SHORT_KANA, SHORT_LATIN, SKILL_EN, SKILL_JP, FIELD = 0x8C, 0xCC, 0x1B7, 0x1F7, 0x40
-NAME_AT, NAME_END = 0x144, 0x17C                     # cpu_N.dat: the team name field
+CODES = re.compile(r"\$[A-Za-z](?:\[[^\]]*\])?")          # $c[RRGGBBAA] .. $c colour, $p[..] $p, $t[..] $t
+REC = 0x620                                              # player_data.bin: one player (2010-11: 0x328)
+SHORT_KANA, SHORT_LATIN, SKILL_EN, SKILL_JP, FIELD = 0x330, 0x370, 0x45F, 0x49F, 0x40
+NAME_AT, NAME_END = 0x144, 0x17C                         # cpu_N.dat: the team name field (as 2010-11)
 FOLD = {"Ø": "O", "ø": "o", "Æ": "AE", "æ": "ae", "ß": "SS", "Ł": "L", "ł": "l", "Đ": "D", "đ": "d", "Œ": "OE",
         "œ": "oe", "ı": "i", "Þ": "TH", "ð": "d"}
 
@@ -83,58 +81,79 @@ def sheet(name):
         return list(csv.DictReader(fh, delimiter="\t", quoting=csv.QUOTE_NONE))
 
 
-def where(game, rel):
-    """a file's place: under extracted\\, or seat1\\... = seat 1's folder beside it"""
-    if rel.startswith("seat1" + os.sep):
-        return os.path.join(K.seat_dir(game), rel[len("seat1") + 1:])
-    return os.path.join(game, rel)
-
-
 def original_file(game, rel):
     """the original: the backup once English has been on, else the game's own file"""
     b = os.path.join(BACK, rel)
-    with open(b if os.path.isfile(b) else where(game, rel), "rb") as f:
+    with open(b if os.path.isfile(b) else os.path.join(game, rel), "rb") as f:
         return f.read()
 
 
-# ---------------------------------------------------------------- the screen text
-def build_strings(game):
-    raw, hf_raw = original_file(game, BIN), original_file(game, HF)
-    if sha(raw) != ORIGINAL[BIN] or sha(hf_raw) != ORIGINAL[HF]:
-        raise Failed("data\\string\\string_list.* are not original Rev D files - the English is made for those only")
-    tag, body = raw[:4], raw[8:]
-    hf_lines = hf_raw.splitlines(keepends=True)
-    nl = b"\r\n" if b"\r\n" in body else b"\n"
+# ---------------------------------------------------------------- the two screen-text files
+def read_enum(d):
+    """StringListTableRecord.bin: u32 count, then per line u32 id + 8 x (u32 length, cp932 bytes, no end byte):
+    key, the original comment, japanese, english, italian, spanish, french, german"""
+    n, = struct.unpack_from("<I", d, 0)
+    p, recs = 4, []
+    for _ in range(n):
+        rid, = struct.unpack_from("<I", d, p)
+        p += 4
+        f = []
+        for _ in range(8):
+            ln, = struct.unpack_from("<I", d, p)
+            f.append(d[p + 4:p + 4 + ln])
+            p += 4 + ln
+        recs.append((rid, f))
+    if p != len(d):
+        raise Failed("StringListTableRecord.bin has %d bytes after its last line" % (len(d) - p))
+    return recs
 
-    def at(p, b=body):
-        return b[p:b.find(b"\0", p)]
 
+def write_enum(recs):
+    out = [struct.pack("<I", len(recs))]
+    for rid, f in recs:
+        out.append(struct.pack("<I", rid) + b"".join(struct.pack("<I", len(x)) + x for x in f))
+    return b"".join(out)
+
+
+def read_strings(raw, hf_raw):
+    body = raw[8:]
     keys = {}
-    for i, line in enumerate(hf_lines[1:], 1):
+    for i, line in enumerate(hf_raw.splitlines(keepends=True)[1:], 1):
         p = line.split()
         keys[p[0].decode("ascii")] = (i, [int(x) for x in p[1:]])
+    return body, keys
 
-    def family(k):
-        return "_".join(k.split("_")[:2])
 
-    def blocked(k):
-        f = family(k)
-        return f.startswith(DATA_FAMILIES) and not any(f.startswith(e) for e in SWITCHED_ON)
+def at(body, p):
+    return body[p:body.find(b"\0", p)]
 
+
+def blocked(k):
+    f = "_".join(k.split("_")[:2])
+    return f.startswith(DATA_FAMILIES) and not any(f.startswith(e) for e in SWITCHED_ON)
+
+
+def english_lines(body, keys):
+    """{key: (text, source)}: the kit's table first, then the original second column, then the original European
+    English"""
     english = {}
     for r in sheet("screen_text.tsv"):
         if (r.get("english") or "").strip() and r["key"] not in english:
             english[r["key"]] = (r["english"].strip("\r"), "kit")
     rstring = {r["key"]: r["english"] for r in sheet("original_rstring.tsv")}
     for k, (_, nums) in keys.items():
-        if k in english or not any(c >= 0x80 for c in at(nums[0])):
+        if k in english or not any(c >= 0x80 for c in at(body, nums[0])):
             continue
-        s2 = at(nums[1])
+        s2 = at(body, nums[1])
         if s2 and not any(c >= 0x80 for c in s2):
             english[k] = (s2.decode("ascii"), "original second column")
         elif k in rstring:
             english[k] = (rstring[k], "original European English")
+    return english
 
+
+def encode_lines(body, keys, english):
+    """{key: cp932 bytes} for every usable line; the kit's own lines must all pass"""
     bad, enc, original_bad = [], {}, 0
     for k, (text, src) in sorted(english.items()):
         mine = src == "kit"
@@ -144,10 +163,10 @@ def build_strings(game):
             continue
         if blocked(k):
             continue
-        jp = at(keys[k][1][0]).decode("cp932", "replace")
+        jp = at(body, keys[k][1][0]).decode("cp932", "replace")
         problem = None
         if text.strip() == "<empty>":
-            if FMT.findall(jp) or "$c" in jp or "$p" in jp:
+            if FMT.findall(jp) or CODES.findall(jp):
                 problem = "<empty> would drop the Japanese line's codes"
             else:
                 enc[k] = b""
@@ -157,15 +176,14 @@ def build_strings(game):
             problem = "codes %s, the game's line has %s" % (FMT.findall(en), FMT.findall(jp))
         if not problem and FMT.sub("", en).count("%") > FMT.sub("", jp).count("%"):
             problem = "a % sign that is no printf code - the game would show junk or stop"
-        if not problem and (jp.count("$c[") != en.count("$c[") or jp.count("$c") != en.count("$c")):
-            problem = "colour codes differ from the game's line"
+        if not problem and collections.Counter(CODES.findall(jp)) != collections.Counter(CODES.findall(en)):
+            problem = "$ codes %s, the game's line has %s" % (CODES.findall(en), CODES.findall(jp))
         b = b""
         if not problem:
             try:
                 b = en.encode("cp932")
             except UnicodeEncodeError:
                 problem = "a letter the game's font cannot show"
-        b = b.replace(b"\n", nl) if nl != b"\n" else b
         if not problem and b"\0" in b:
             problem = "holds an end byte"
         if problem:
@@ -177,7 +195,14 @@ def build_strings(game):
         enc[k] = b
     if bad:
         raise Failed("the kit's English has %d problem(s), e.g. %s" % (len(bad), "; ".join(bad[:3])))
+    return enc, original_bad
 
+
+def pack_strings(raw, hf_raw, enc):
+    """string_list.bin/.hf with slot 0 (Japanese) of each key in enc replaced; same size, read back"""
+    tag, body = raw[:4], raw[8:]
+    hf_lines = hf_raw.splitlines(keepends=True)
+    _, keys = read_strings(raw, hf_raw)
     # free space: a translated line's old Japanese, if nothing else points at it or inside it; then the zero padding
     refs = collections.defaultdict(set)
     for k, (_, nums) in keys.items():
@@ -187,7 +212,7 @@ def build_strings(game):
     own, free = {}, []
     for k in enc:
         p = keys[k][1][0]
-        end = p + len(at(p)) + 1
+        end = p + len(at(body, p)) + 1
         lo, hi = bisect.bisect_left(ref_sorted, p), bisect.bisect_left(ref_sorted, end)
         if refs[p] == {(k, 0)} and hi - lo == 1:
             own[k] = (p, end)
@@ -196,7 +221,7 @@ def build_strings(game):
     for k, (p, end) in own.items():
         new_body[p:end] = bytes(end - p)
     pos, spill = {}, []
-    for k, b in sorted(enc.items(), key=lambda kv: -len(kv[1])):
+    for k, b in sorted(enc.items(), key=lambda kv: (-len(kv[1]), kv[0])):
         if k in own and len(b) + 1 <= own[k][1] - own[k][0]:
             p = own[k][0]
             new_body[p:p + len(b)] = b
@@ -225,22 +250,56 @@ def build_strings(game):
         m = re.match(rb"(\S+\s+)(\d+)", hf_lines[i])
         new_hf[i] = m.group(1) + str(p).encode("ascii") + hf_lines[i][m.end():]
     nb, wrong = bytes(new_body), 0                     # read back every slot of every key
-    for i, line in enumerate(new_hf[1:], 1):
+    for line in new_hf[1:]:
         p = line.split()
         k, nums = p[0].decode("ascii"), [int(x) for x in p[1:]]
         old = keys[k][1]
         if nums[1:] != old[1:]:
             wrong += 1
         for s, n in enumerate(nums):
-            if at(n, nb) != (enc[k] if (s == 0 and k in pos) else at(old[s])):
+            if at(nb, n) != (enc[k] if (s == 0 and k in pos) else at(body, old[s])):
                 wrong += 1
     if wrong or len(new_bin) != len(raw) or new_hf[0] != hf_lines[0]:
         raise Failed("the built screen text does not read back as intended (%d places) - nothing changed" % wrong)
+    return new_bin, b"".join(new_hf), pos
+
+
+def pack_enum(enum_raw, body, keys, enc):
+    """StringListTableRecord.bin with the Japanese column of each key in enc replaced - only where its Japanese is the
+    server file's (the codes were checked against that); read back"""
+    recs = read_enum(enum_raw)
+    done = {}
+    for rid, f in recs:
+        k = f[0].decode("ascii")
+        if k in enc and k in keys and f[2] == at(body, keys[k][1][0]):
+            f[2] = enc[k]
+            done[k] = enc[k]
+    new = write_enum(recs)
+    back = {f[0].decode("ascii"): f for _, f in read_enum(new)}
+    old = read_enum(enum_raw)
+    if len(back) != len(old) or any(back[f[0].decode("ascii")][:2] + back[f[0].decode("ascii")][3:] != f[:2] + f[3:]
+                                    or back[f[0].decode("ascii")][2] != done.get(f[0].decode("ascii"), f[2])
+                                    for _, f in old):
+        raise Failed("the built client screen text does not read back as intended - nothing changed")
+    return new, done
+
+
+def build_strings(game):
+    raw, hf_raw, enum_raw = original_file(game, BIN), original_file(game, HF), original_file(game, ENUM)
+    for rel, d in ((BIN, raw), (HF, hf_raw), (ENUM, enum_raw)):
+        if sha(d) != ORIGINAL[rel]:
+            raise Failed("%s is not the original 2.00.00 file - the English is made for that only" % rel)
+    body, keys = read_strings(raw, hf_raw)
+    english = english_lines(body, keys)
+    enc, original_bad = encode_lines(body, keys, english)
+    new_bin, new_hf, pos = pack_strings(raw, hf_raw, enc)
+    new_enum, done = pack_enum(enum_raw, body, keys, enc)
     by = collections.Counter(english[k][1] for k in pos)
-    note = "%d lines in English (%s)" % (len(pos), ", ".join("%s %d" % kv for kv in sorted(by.items())))
+    note = "%d lines in English (%s); %d in the clients' table" % (
+        len(pos), ", ".join("%s %d" % kv for kv in sorted(by.items())), len(done))
     if original_bad:
         note += "; %d of the original English lines unusable, left Japanese" % original_bad
-    return {BIN: new_bin, HF: b"".join(new_hf)}, note
+    return {BIN: new_bin, HF: new_hf, ENUM: new_enum}, note
 
 
 # ---------------------------------------------------------------- player and team names
@@ -261,7 +320,7 @@ def put_field(field, value, size):
 def build_names(game):
     pd = bytearray(original_file(game, PLAYERS))
     if sha(pd) != ORIGINAL[PLAYERS] or len(pd) % REC:
-        raise Failed("prog_data\\player_data\\player_data.bin is not the original Rev D file")
+        raise Failed("prog_data\\player_data\\player_data.bin is not the original 2.00.00 file")
     for i in range(len(pd) // REC):
         r = i * REC
         kana = bytes(pd[r + SHORT_KANA:r + SHORT_KANA + FIELD]).split(b"\0")[0].decode("cp932", "replace")
@@ -293,52 +352,14 @@ def build_names(game):
         files[rel] = bytes(d)
     note = "%d players, %d CPU teams" % (len(pd) // REC, len(files) - 1)
     if skipped:
-        note += "; %d team files are not Rev D ones and stay as they are (%s...)" % (len(skipped), skipped[0])
+        note += "; %d team files are not the original 2.00.00 ones and stay as they are (%s...)" % (
+            len(skipped), skipped[0])
     return files, note
-
-
-# ---------------------------------------------------------------- text inside the programs (both client copies; the
-# server only for its own rows - "server" in exe_text.tsv's program column, 2026-10-06: the shop name it sends)
-def build_exe(game):
-    sheet_rows, files = sheet("exe_text.tsv"), {}
-    for rel, program, what in ((PROJECTOR, "client", "the projector's client_Release.exe (the original Rev D)"),
-                               (SEAT_EXE, "client", "seat 1's client_Release.exe (the copy SETUP.bat makes)"),
-                               (SERVER, "server", "the server's control_Release.exe (the original Rev D)")):
-        rows = [r for r in sheet_rows if r["program"] == program]
-        if not rows:
-            continue
-        d = bytearray(original_file(game, rel))
-        if sha(d) != ORIGINAL[rel]:
-            raise Failed("%s is not the expected file - run SETUP.bat first" % what)
-        size = len(d)
-        for r in rows:
-            o, n, en = int(r["offset"], 16), int(r["length"]), r["english"]
-            if sha(bytes(d[o:o + n])) != r["original_sha256"] or d[o + n] != 0:
-                raise Failed("%s at %s is not the text the kit expects" % (what, r["offset"]))
-            room = n + 1
-            while o + room < len(d) and d[o + room] == 0:
-                room += 1
-            if len(en) + 1 > room or not all(32 <= ord(c) < 127 for c in en):
-                raise Failed("the kit's text at %s does not fit" % r["offset"])
-            # over exactly the room measured (the text, its end byte, the zeros that were there): never a byte more
-            # or less - before 2026-10-06 a text longer than the original + 1 made the file grow, shifting everything
-            # after it (docs\research\MONEY-2010-11.md 7.3)
-            d[o:o + room] = en.encode("ascii") + b"\0" * (room - len(en))
-        if len(d) != size:
-            raise Failed("%s would change size (%d -> %d bytes) - nothing written" % (what, size, len(d)))
-        files[rel] = bytes(d)
-    unknown = sorted(set(r["program"] for r in sheet_rows) - {"client", "server"})
-    if unknown:
-        raise Failed("exe_text.tsv names a program the kit does not know: %s" % ", ".join(unknown))
-    n_client = sum(1 for r in sheet_rows if r["program"] == "client")
-    n_server = len(sheet_rows) - n_client
-    return files, "%d texts inside the program, in the projector's and seat 1's copies%s" % (
-        n_client, ", and %d in the server" % n_server if n_server else "")
 
 
 def build_all(game):
     files, notes = {}, []
-    for fn in (build_strings, build_names, build_exe):
+    for fn in (build_strings, build_names):
         f, n = fn(game)
         files.update(f)
         notes.append(n)
@@ -346,6 +367,12 @@ def build_all(game):
 
 
 # ---------------------------------------------------------------- swapping files in and out
+def original_of(h):
+    """the original file's fingerprint in a backup-list entry (beside "english"): research copies of this script wrote
+    it under another key, so the one key that is not "english" is read whatever it is called"""
+    return h["original"] if "original" in h else next(v for k, v in h.items() if k != "english")
+
+
 def load_manifest():
     try:
         with open(MANIFEST, encoding="utf-8") as f:
@@ -368,7 +395,7 @@ def put(path, data):
 
 
 def backup_copy(src, dst):
-    """The original file copied into the backup and read back; it stays in place until its replacement lands in one
+    """the original file copied into the backup and read back; it stays in place until its replacement lands in one
     step"""
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     with open(src, "rb") as f:
@@ -388,31 +415,23 @@ def original_hash(rel):
     return None
 
 
-def original_of(h):
-    """The original file's fingerprint in a backup-list entry (beside "english").  Kits before 2026-10-12 wrote the
-    entry's key under another name; the one key that is not "english" is read whatever it is called."""
-    return h["original"] if "original" in h else next(v for k, v in h.items() if k != "english")
-
-
 def turn_on(game, files):
     man = load_manifest()
-    # a file needs its backup made if the list lacks it OR its backup is gone: an "off" stopped half way has put
-    # some originals back (their backups removed) while the list still names them - a kill test found English then
-    # written over those originals with no backup left (2026-10-06)
-    def unsaved(rel):
+
+    def unsaved(rel):                                    # not listed, or its backup gone (an "off" stopped half way)
         return rel not in man or not os.path.isfile(os.path.join(BACK, rel))
     for rel in files:                                    # first: every file to be backed up must be the original
         if unsaved(rel):
-            with open(where(game, rel), "rb") as f:
+            with open(os.path.join(game, rel), "rb") as f:
                 if sha(f.read()) != original_hash(rel):
-                    raise Failed("%s is neither original nor backed up - refusing to replace it" % rel)
+                    raise Failed("%s is neither the original nor backed up - refusing to replace it" % rel)
     for rel, data in files.items():
-        tgt = where(game, rel)
+        tgt = os.path.join(game, rel)
         if unsaved(rel):
             backup_copy(tgt, os.path.join(BACK, rel))
             man[rel] = {"original": original_hash(rel)}
             save_manifest(man)                           # after each backup: an interruption never loses one
-        put(tgt, data)                                   # one step: the game's file is never missing (2026-10-06)
+        put(tgt, data)                                   # one step: the game's file is never missing
         with open(tgt, "rb") as f:
             if sha(f.read()) != sha(data):
                 raise Failed("%s did not write correctly - run ENGLISH.bat off" % rel)
@@ -424,7 +443,7 @@ def turn_off(game):
     man = load_manifest()
     lost = []
     for rel, h in man.items():
-        bak, tgt = os.path.join(BACK, rel), where(game, rel)
+        bak, tgt = os.path.join(BACK, rel), os.path.join(game, rel)
         if os.path.isfile(bak):
             with open(bak, "rb") as f:
                 data = f.read()
@@ -432,13 +451,13 @@ def turn_off(game):
                 raise Failed("the backup of %s is not the original file - left as it is" % rel)
             put(tgt, data)                               # one step: the original file back, never a moment without one
             os.remove(bak)
-        elif os.path.isfile(tgt):                        # no backup: put back already, or lost (older kits' bug)
+        elif os.path.isfile(tgt):                        # no backup: put back already, or lost
             with open(tgt, "rb") as f:
                 if sha(f.read()) != original_of(h):
                     lost.append(rel)
-    if lost:                                             # said, and the list kept - never quietly forgotten
-        raise Failed("%d file(s) are not original and have no backup of the original, so they stay as they are (%s%s)"
-                     % (len(lost), lost[0], ", ..." if len(lost) > 1 else ""))
+    if lost:
+        raise Failed("%d file(s) are not the original and have no backup of the original file, so they stay as they "
+                     "are (%s%s)" % (len(lost), lost[0], ", ..." if len(lost) > 1 else ""))
     if os.path.isfile(MANIFEST):
         os.remove(MANIFEST)
     for dp, dn, fn in os.walk(BACK, topdown=False):
@@ -447,24 +466,75 @@ def turn_off(game):
     return len(man)
 
 
+# ---------------------------------------------------------------- self-check (on copies only)
+def selftest(game, scratch):
+    """round trip, known lines, then on / off on a copy of the changed files under SCRATCH; GAME is only read"""
+    global BACK, MANIFEST
+    raw, hf_raw = open(os.path.join(game, BIN), "rb").read(), open(os.path.join(game, HF), "rb").read()
+    enum_raw = open(os.path.join(game, ENUM), "rb").read()
+    body, keys = read_strings(raw, hf_raw)
+    assert pack_strings(raw, hf_raw, {})[:2] == (raw, hf_raw), "string_list round trip"
+    assert write_enum(read_enum(enum_raw)) == enum_raw, "StringListTableRecord round trip"
+    assert pack_enum(enum_raw, body, keys, {})[0] == enum_raw, "StringListTableRecord rebuild"
+    copy = os.path.join(scratch, "game")
+    rels = [BIN, HF, ENUM, PLAYERS] + [os.path.join(TEAMS, r["file"]) for r in sheet("cpu_names.tsv")]
+    for rel in rels:
+        os.makedirs(os.path.dirname(os.path.join(copy, rel)), exist_ok=True)
+        shutil.copyfile(os.path.join(game, rel), os.path.join(copy, rel))
+    before = {rel: sha(open(os.path.join(copy, rel), "rb").read()) for rel in rels}
+    BACK = os.path.join(scratch, "english_backup")
+    MANIFEST = os.path.join(BACK, "manifest.json")
+    shutil.rmtree(BACK, ignore_errors=True)
+    files, notes = build_all(copy)
+    turn_on(copy, files)
+    turn_on(copy, build_all(copy)[0])                    # a second "on" builds from the backup, same result
+    nb, nk = read_strings(open(os.path.join(copy, BIN), "rb").read(), open(os.path.join(copy, HF), "rb").read())
+    en = {f[0].decode(): f[2] for _, f in read_enum(open(os.path.join(copy, ENUM), "rb").read())}
+    orig = {f[0].decode(): f[2] for _, f in read_enum(enum_raw)}
+    for k in ("MAKE_country_000", "MAKE_prefecture_000"):    # data families: Japanese in both files
+        assert at(nb, nk[k][1][0]) == at(body, keys[k][1][0]) == en[k], k
+    for k in ("CLM_MANAGER_result_0002", "MAKE_city_000"):   # known lines: English in both files
+        assert at(nb, nk[k][1][0]).isascii() and en[k] == at(nb, nk[k][1][0]), k
+    for k in nk:                                          # every line: the clients' table says what the server's says
+        if k in en and orig[k] == at(body, keys[k][1][0]):
+            assert en[k] == at(nb, nk[k][1][0]), "client and server differ at " + k
+    pd = open(os.path.join(copy, PLAYERS), "rb").read()
+    assert pd[500 * REC + SHORT_KANA:500 * REC + SHORT_KANA + 7] == b"VANOLI\0", "player 500's short name"
+    n = turn_off(copy)
+    after = {rel: sha(open(os.path.join(copy, rel), "rb").read()) for rel in rels}
+    assert after == before, "off did not restore the original files byte for byte"
+    assert not os.path.exists(BACK), "backup folder left behind"
+    shutil.rmtree(copy)
+    print("selftest ok: round trips identical; " + "; ".join(notes) + "; on, on again, off -> %d files back "
+          "byte-identical" % n)
+    return 0
+
+
 def main(argv):
+    global BACK, MANIFEST, ENG
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except (AttributeError, ValueError):
         pass
     mode = (argv[0].lower() if argv else "on")
+    if mode == "selftest" and len(argv) >= 2:
+        scratch = argv[2] if len(argv) > 2 else os.path.join(HERE, "_selftest")
+        return selftest(argv[1], scratch)
     if mode not in ("on", "off", "check"):
         print(__doc__)
         return 1
+    import kit_common as K
+    ENG, BACK = os.path.join(K.KIT, "english"), os.path.join(K.DATA, "english_backup")
+    MANIFEST = os.path.join(BACK, "manifest.json")
     game = K.find_game(K.load_settings().get("game"))
     if not game:
-        print("The game is not set up yet - run SETUP.bat first.")
+        print("The game is not set up yet - set it up first.")
         return 2
-    print("WCCF 2010-11 kit - English %s - game: %s" % (mode, game))
+    print("WCCF 2017-18 kit - English %s - game: %s" % (mode, game))
     try:
         if K.game_processes(game):
             if mode != "check":
-                raise Failed("the game is running - close it first (STOP.bat), then run this again")
+                raise Failed("the game is running - close it first, then run this again")
             print("  NOTE  the game is running: \"on\" and \"off\" will refuse until it is closed")
         if mode == "off":
             if not load_manifest():
@@ -483,15 +553,12 @@ def main(argv):
                   % (len(files), sum(1 for r in files if r not in man)))
             return 0
         turn_on(game, files)
-        print("  ok    %d files in place, each read back.  The originals are in data\\english_backup "
-              "(ENGLISH.bat off puts them back)." % len(files))
-    except Failed as ex:
+        print("  ok    %d files in place, each read back.  The originals are in data\\english_backup (ENGLISH.bat off puts "
+              "them back)." % len(files))
+    except (Failed, OSError) as ex:
         print("  FAIL  %s" % ex)
         return 1
-    except OSError as ex:
-        print("  FAIL  %s" % ex)
-        return 1
-    print("English is on. Start the game with PLAY.bat.")
+    print("English is on. Start the game with Launcher.exe.")
     return 0
 
 
