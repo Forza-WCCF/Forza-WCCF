@@ -51,8 +51,17 @@ Design translation **[I]**:
 - The panel draws exactly that layout (`deck_layout` in `crates/forza/src/ui/panel.rs`): shapes are round, square or triangle, and clicks count only on the shape.
 - Small buttons carry their label beside them, the big ones inside.
 - Buttons keep an idle, hover and pressed state (3 px travel). Key presses do not light them; only an active tactic order lights its triangle or square.
-- The MACHINE group (CARD, COIN, BACK), the formation board and the bottom bar stay modern.
+- The MACHINE group (CARD only: free play needs no COIN, and the BACK button sent nothing), the formation board and the bottom bar stay modern.
 - KEYS panel: show the physical layout of the cabinet cluster next to each bound key, so the binding reads as "this key presses that cabinet button".
+
+### Window layout (owner decision 2026-10-17: model on a 2K monitor)
+
+The game renders 1440x900 in both editions (the panel's swap chain follows the game window's client area; `fakegame` asserts it). The panel window maximizes once after the first frame, so a 2560x1440 monitor gives a client of about 2560x1369 (title bar, taskbar) and no window sizing code is needed. `forza::ui::panel::layout` is a pure function of the window rect, tested for no overlaps, 16:10 and the old size at 1440x900:
+
+- Scale: `scale(w, h)` is 1 point a pixel from 1440x900 up (a bigger window is a bigger sheet), 2 from 2880x1800, and the ratio to 1440x900 below that, so the sheet is never smaller than 1440x900.
+- The picture takes the largest 16:10 size that leaves the board 580 points and the deck 300 plus the 60-point bar. At 2560x1440 that is 1728x1080, exactly 1.2x the game, the board gets 832 and the deck stays 300 high. A maximized 2560x1369 window gives about 1614x1009 (1.12x), board 920. At 1440x900 nothing changes (860x537.5, board 580). At 1920x1080: 1102x689 or larger.
+- The board takes what the picture leaves, capped by what its own height uses (pitch 1.25 x width plus bench and hint); the picture is centred in the middle. The deck keeps `deck_layout` and is centred under the picture.
+- Not snapped to an integer scale: 1.2x needs 1440 points of height, which a maximized window lacks; the picture is resampled smoothly instead.
 
 ## 5. Colour palette (all values estimates [I])
 
