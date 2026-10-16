@@ -8,8 +8,8 @@ use super::Lang;
 use super::board::{self, Board, Card, Position, Rarity};
 use super::theme::{self, Edition};
 use super::widgets::{
-    self, Cab, Face, KeyState, Tone, action, cabinet, cabinet_face, caps, chip, field, key_cell,
-    range_slider, segmented, stat_bar, status_line,
+    self, Cab, Dir, Face, KeyState, Shape, Tone, action, cabinet, cabinet_face, cabinet_shaped,
+    caps, chip, field, key_cell, range_slider, segmented, shape_contains, stat_bar, status_line,
 };
 use crate::cards::{self, AddRefused, Placed};
 use crate::club_view::{self as forza_club, ClubView};
@@ -58,8 +58,8 @@ impl Page {
 
 /// The 16 bindable actions, in the KEYS page's order (`forza::keys::NAMES`): (text key, cabinet colour).
 pub const ACTIONS: [(&str, Cab); 16] = [
-    ("cab.start", Cab::Plain),
-    ("cab.press", Cab::Tactic),
+    ("cab.start", Cab::Go),
+    ("cab.press", Cab::Press),
     ("cab.shoot", Cab::Shoot),
     ("cab.keeper", Cab::Keeper),
     ("cab.data", Cab::Data),
@@ -831,34 +831,182 @@ fn deal_window(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
     }
 }
 
-/// The cabinet's controls under the picture, three columns centred: the tactic cross, the play buttons, the machine.
+/// One button of the cabinet's two plates: where it sits and how it looks. `label` is the side a small button's name
+/// is printed on (the big ones carry it inside); `tactic` indexes `PanelState::tactics`.
+pub struct DeckItem {
+    pub key: &'static str,
+    pub action: &'static str,
+    pub kind: Cab,
+    pub shape: Shape,
+    pub rect: Rect,
+    pub label: Option<Dir>,
+    pub tactic: Option<usize>,
+}
+
+const PLATE: egui::Vec2 = vec2(300.0, 196.0);
+const GAP: f32 = 16.0;
+
+/// The left plate's top left corner, with the MACHINE column's below: the three groups are centred in `area`.
+fn deck_x0(area: Rect) -> f32 {
+    area.center().x - (2.0 * PLATE.x + 204.0 + 2.0 * GAP) / 2.0
+}
+
+/// The two plates as on the cabinet from 2006-07 to 2017-18. Left: a diamond of yellow triangles (CENTRAL up, COUNTER
+/// down, L-SIDE left, R-SIDE right) round a red PRESS square, a small green DATA square beside it. Right: big red
+/// SHOOT and big blue KEEPER side by side under the small yellow KEY PLAYER and small green START.
+pub fn deck_layout(area: Rect) -> Vec<DeckItem> {
+    let x0 = deck_x0(area);
+    let plate = Rect::from_min_size(pos2(x0, area.top() + 20.0), PLATE);
+    let c = plate.center();
+    let (sq, tl, g) = (52.0, 34.0, 2.0);
+    let off = sq / 2.0 + g + tl / 2.0;
+    let item = |key, action, kind, shape, centre: Pos2, size: egui::Vec2, label, tactic| DeckItem {
+        key,
+        action,
+        kind,
+        shape,
+        rect: Rect::from_center_size(centre, size),
+        label,
+        tactic,
+    };
+    let (tall, wide) = (vec2(sq, tl), vec2(tl, sq));
+    let tri = |d| Shape::Tri(d);
+    let right = Rect::from_min_size(pos2(x0 + PLATE.x + GAP, plate.top()), PLATE);
+    let (rc, big, small) = (right.center(), 96.0, 34.0);
+    vec![
+        item(
+            "cab.central",
+            "UP",
+            Cab::Tactic,
+            tri(Dir::Up),
+            c - vec2(0.0, off),
+            tall,
+            Some(Dir::Up),
+            Some(0),
+        ),
+        item(
+            "cab.counter",
+            "DOWN",
+            Cab::Tactic,
+            tri(Dir::Down),
+            c + vec2(0.0, off),
+            tall,
+            Some(Dir::Down),
+            Some(1),
+        ),
+        item(
+            "cab.l_side",
+            "LEFT",
+            Cab::Tactic,
+            tri(Dir::Left),
+            c - vec2(off, 0.0),
+            wide,
+            Some(Dir::Left),
+            Some(2),
+        ),
+        item(
+            "cab.r_side",
+            "RIGHT",
+            Cab::Tactic,
+            tri(Dir::Right),
+            c + vec2(off, 0.0),
+            wide,
+            Some(Dir::Right),
+            Some(3),
+        ),
+        item(
+            "cab.press",
+            "PRESS",
+            Cab::Press,
+            Shape::Square,
+            c,
+            vec2(sq, sq),
+            None,
+            Some(4),
+        ),
+        item(
+            "cab.data",
+            "DATA",
+            Cab::Data,
+            Shape::Square,
+            c + vec2(100.0, -62.0),
+            vec2(30.0, 30.0),
+            Some(Dir::Down),
+            None,
+        ),
+        item(
+            "cab.key_player",
+            "KEYPLAYER",
+            Cab::KeyPlayer,
+            Shape::Round,
+            pos2(right.left() + 80.0, right.top() + 22.0),
+            vec2(small, small),
+            Some(Dir::Down),
+            None,
+        ),
+        item(
+            "cab.start",
+            "START",
+            Cab::Go,
+            Shape::Round,
+            pos2(right.right() - 80.0, right.top() + 22.0),
+            vec2(small, small),
+            Some(Dir::Down),
+            None,
+        ),
+        item(
+            "cab.shoot",
+            "SHOOT",
+            Cab::Shoot,
+            Shape::Round,
+            pos2(rc.x - big / 2.0 - 6.0, right.bottom() - 6.0 - big / 2.0),
+            vec2(big, big),
+            None,
+            None,
+        ),
+        item(
+            "cab.keeper",
+            "KEEPER",
+            Cab::Keeper,
+            Shape::Round,
+            pos2(rc.x + big / 2.0 + 6.0, right.bottom() - 6.0 - big / 2.0),
+            vec2(big, big),
+            None,
+            None,
+        ),
+    ]
+}
+
+/// The cabinet's controls under the picture, three columns centred: the tactic diamond, the play buttons, the machine.
 fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
-    let (wa, wb, wc, gap) = (300.0, 300.0, 204.0, 16.0);
-    let x0 = area.center().x - (wa + wb + wc + 2.0 * gap) / 2.0;
+    let (wb, wc) = (PLATE.x, 204.0);
+    let x0 = deck_x0(area);
     let top = area.top();
-    // a press sends the action's key down (the panel DLL lets it up after the release); lit while the key is down
-    let held = st.held;
+    // a press sends the action's key down (the panel DLL lets it up after the release); the buttons do not light
     let mut pressed = None;
-    let mut put =
-        |ui: &mut Ui, r: Rect, key: &str, action: Option<&'static str>, kind: Cab, lit: bool| {
-            let resp = ui.put(r, |ui: &mut Ui| {
-                cabinet(
-                    ui,
-                    r.size(),
-                    &tr!(lang, key),
-                    kind,
-                    lit || (action.is_some() && action == held),
-                )
-            });
-            if action.is_some()
-                && resp.contains_pointer()
-                && ui.is_enabled()
-                && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary))
-            {
-                pressed = action;
-            }
-            resp
-        };
+    let mut put = |ui: &mut Ui,
+                   r: Rect,
+                   key: &str,
+                   action: Option<&'static str>,
+                   kind: Cab,
+                   shape: Shape,
+                   lit: bool| {
+        let resp = ui.put(r, |ui: &mut Ui| {
+            cabinet_shaped(ui, r.size(), &tr!(lang, key), kind, shape, lit)
+        });
+        if action.is_some()
+            && ui.is_enabled()
+            && ui.input(|i| {
+                i.pointer.button_pressed(egui::PointerButton::Primary)
+                    && i.pointer
+                        .interact_pos()
+                        .is_some_and(|p| shape_contains(shape, r, p))
+            })
+        {
+            pressed = action;
+        }
+        resp
+    };
     let caps_at = |ui: &Ui, x: f32, key: &str| {
         ui.painter().text(
             pos2(x, top + 8.0),
@@ -868,97 +1016,59 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
             theme::TEXT_DIM,
         );
     };
-    // the plus-shaped tactic cluster on its plate
     caps_at(ui, x0, "panel.tactics");
-    let plate = Rect::from_min_size(pos2(x0, top + 20.0), vec2(wa, 196.0));
-    ui.painter()
-        .rect_filled(plate, theme::RADIUS_BIG, theme::WELL);
-    ui.painter().rect_stroke(
-        plate,
-        theme::RADIUS_BIG,
-        Stroke::new(1.0, theme::RIM),
-        StrokeKind::Inside,
-    );
-    let cell = vec2(94.0, 60.0);
-    let cells = [
-        (0, (0.0, 0.0), "cab.central", "UP"),
-        (1, (0.0, -1.0), "cab.counter", "DOWN"),
-        (2, (-1.0, 0.0), "cab.l_side", "LEFT"),
-        (3, (1.0, 0.0), "cab.r_side", "RIGHT"),
-        (4, (0.0, 1.0), "cab.press", "PRESS"),
-    ];
-    for (i, (dx, dy), key, action) in cells {
-        let r = Rect::from_center_size(
-            plate.center() + vec2(dx * (cell.x + 4.0), dy * (cell.y + 4.0)),
-            cell,
+    for x in [x0, x0 + PLATE.x + GAP] {
+        let plate = Rect::from_min_size(pos2(x, top + 20.0), PLATE);
+        ui.painter()
+            .rect_filled(plate, theme::RADIUS_BIG, theme::WELL);
+        ui.painter().rect_stroke(
+            plate,
+            theme::RADIUS_BIG,
+            Stroke::new(1.0, theme::RIM),
+            StrokeKind::Inside,
         );
-        put(ui, r, key, Some(action), Cab::Tactic, st.tactics[i]);
     }
-    // the play buttons: SHOOT the biggest
-    let xb = x0 + wa + gap;
-    let half = (wb - 6.0) / 2.0;
+    for it in deck_layout(area) {
+        let lit = it.tactic.is_some_and(|i| st.tactics[i]);
+        put(ui, it.rect, it.key, Some(it.action), it.kind, it.shape, lit);
+        if let Some(side) = it.label {
+            let (anchor, at) = match side {
+                Dir::Up => (Align2::CENTER_BOTTOM, it.rect.center_top() - vec2(0.0, 4.0)),
+                Dir::Down => (Align2::CENTER_TOP, it.rect.center_bottom() + vec2(0.0, 4.0)),
+                Dir::Left => (Align2::RIGHT_CENTER, it.rect.left_center() - vec2(4.0, 0.0)),
+                Dir::Right => (Align2::LEFT_CENTER, it.rect.right_center() + vec2(4.0, 0.0)),
+            };
+            ui.painter().text(
+                at,
+                anchor,
+                tr!(lang, it.key),
+                theme::display(14.0),
+                theme::TEXT_DIM,
+            );
+        }
+    }
     let y = top + 20.0;
-    put(
-        ui,
-        Rect::from_min_size(pos2(xb, y), vec2(wb, 80.0)),
-        "cab.shoot",
-        Some("SHOOT"),
-        Cab::Shoot,
-        false,
-    );
-    put(
-        ui,
-        Rect::from_min_size(pos2(xb, y + 86.0), vec2(half, 58.0)),
-        "cab.keeper",
-        Some("KEEPER"),
-        Cab::Keeper,
-        false,
-    );
-    put(
-        ui,
-        Rect::from_min_size(pos2(xb + half + 6.0, y + 86.0), vec2(half, 58.0)),
-        "cab.key_player",
-        Some("KEYPLAYER"),
-        Cab::KeyPlayer,
-        false,
-    );
-    put(
-        ui,
-        Rect::from_min_size(pos2(xb, y + 150.0), vec2(wb, 46.0)),
-        "cab.data",
-        Some("DATA"),
-        Cab::Data,
-        false,
-    );
+    let xb = x0 + wb + GAP;
     // the machine
-    let xc = xb + wb + gap;
+    let xc = xb + wb + GAP;
     caps_at(ui, xc, "panel.machine");
     let half = (wc - 6.0) / 2.0;
-    let mut row = |ui: &mut Ui, n: f32, keys: [(&str, Option<&'static str>); 2], enabled: bool| {
-        for (k, (key, action)) in keys.into_iter().enumerate() {
-            let r = Rect::from_min_size(
-                pos2(xc + k as f32 * (half + 6.0), y + n * 50.0),
-                vec2(half, 44.0),
-            );
-            ui.add_enabled_ui(enabled || k == 0, |ui| {
-                put(ui, r, key, action, Cab::Plain, false)
-            });
-        }
-    };
-    row(
-        ui,
-        0.0,
-        [("cab.start", Some("START")), ("cab.card", Some("CARD"))],
-        true,
-    );
+    // CARD, then COIN and BACK where the cabinet has them (2017-18); BACK sends nothing yet
+    let mut keys = vec![("cab.card", Some("CARD"), true)];
     if st.edition == Edition::E1718 {
-        // BACK sends nothing yet
-        row(
-            ui,
-            1.0,
-            [("cab.coin", Some("COIN")), ("cab.back", None)],
-            false,
+        keys.extend([("cab.coin", Some("COIN"), true), ("cab.back", None, false)]);
+    }
+    for (n, (key, action, enabled)) in keys.into_iter().enumerate() {
+        let r = Rect::from_min_size(
+            pos2(
+                xc + (n % 2) as f32 * (half + 6.0),
+                y + (n / 2) as f32 * 50.0,
+            ),
+            vec2(half, 44.0),
         );
+        ui.add_enabled_ui(enabled, |ui| {
+            put(ui, r, key, action, Cab::Plain, Shape::Key, false)
+        });
     }
     st.pressed = st.pressed.or(pressed);
 }
@@ -2705,7 +2815,7 @@ pub fn widget_sheet(ui: &mut Ui, ws: &mut WidgetSheet) {
                     (Cab::Keeper, "cab.keeper"),
                     (Cab::KeyPlayer, "cab.key_player"),
                     (Cab::Data, "cab.data"),
-                    (Cab::Plain, "cab.start"),
+                    (Cab::Go, "cab.start"),
                     (Cab::Go, "launcher.play"),
                 ];
                 for (kind, key) in kinds {
@@ -2882,6 +2992,33 @@ pub fn widget_sheet(ui: &mut Ui, ws: &mut WidgetSheet) {
 mod tests {
     use super::*;
     use crate::ui::board::Aptitude;
+
+    #[test]
+    fn deck_layout_is_the_cabinet() {
+        let area = Rect::from_min_size(pos2(0.0, 0.0), vec2(900.0, 240.0));
+        let items = deck_layout(area);
+        let at = |a: &str| items.iter().find(|i| i.action == a).unwrap().rect;
+        assert_eq!(items.len(), 10);
+        // the diamond: CENTRAL above PRESS above COUNTER, L-SIDE left of PRESS, R-SIDE right of it
+        assert!(at("UP").bottom() <= at("PRESS").top() && at("PRESS").bottom() <= at("DOWN").top());
+        assert!(
+            at("LEFT").right() <= at("PRESS").left() && at("PRESS").right() <= at("RIGHT").left()
+        );
+        // the right plate: SHOOT and KEEPER big, side by side, the other two small
+        assert!(at("SHOOT").right() <= at("KEEPER").left() && at("SHOOT").width() > 80.0);
+        assert!(at("KEYPLAYER").width() < 50.0 && at("START").width() < 50.0);
+        for (n, a) in items.iter().enumerate() {
+            assert!(area.contains_rect(a.rect), "{} leaves the area", a.action);
+            for b in &items[n + 1..] {
+                assert!(
+                    !a.rect.intersects(b.rect),
+                    "{} overlaps {}",
+                    a.action,
+                    b.action
+                );
+            }
+        }
+    }
 
     fn card(
         no: u32,

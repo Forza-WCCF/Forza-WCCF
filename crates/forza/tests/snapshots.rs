@@ -536,3 +536,33 @@ fn close_warning() {
     h.run_steps(4);
     h.snapshot("panel_close_warning_it");
 }
+
+/// The cabinet's triangles and round buttons send their action when clicked.
+#[test]
+fn cabinet_shapes_click() {
+    use std::cell::RefCell;
+    let _gpu = gpu();
+    let st = RefCell::new(panel::PanelState::new(
+        Edition::E1011,
+        Lang::En,
+        forza::ui::sample::board(),
+        forza::ui::sample::cards().into(),
+    ));
+    let mut h = harness(panel::SIZE, 1.0, Edition::E1011, |ui| {
+        panel::show(ui, &mut st.borrow_mut())
+    });
+    h.run_steps(3);
+    for (label, action) in [
+        ("CENTRAL", "UP"),
+        ("COUNTER", "DOWN"),
+        ("PRESS", "PRESS"),
+        ("SHOOT", "SHOOT"),
+        ("KEEPER", "KEEPER"),
+        ("START", "START"),
+    ] {
+        st.borrow_mut().pressed = None;
+        h.get_by_label(label).click();
+        h.run_steps(2);
+        assert_eq!(st.borrow().pressed, Some(action), "{label}");
+    }
+}

@@ -118,8 +118,10 @@ pub fn section<R>(ui: &mut Ui, title: &str, accent: Color32, add: impl FnOnce(&m
 /// What a cabinet button does decides its colour.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cab {
-    /// CENTRAL, COUNTER, L-SIDE, R-SIDE, PRESS: amber when the order is active.
+    /// CENTRAL, COUNTER, L-SIDE, R-SIDE: the cabinet's yellow triangles; lit while the order is active.
     Tactic,
+    /// PRESS: the red square at the diamond's centre.
+    Press,
     Shoot,
     Keeper,
     KeyPlayer,
@@ -136,10 +138,10 @@ impl Cab {
     pub fn color(self) -> Color32 {
         match self {
             Cab::Tactic => theme::AMBER,
-            Cab::Shoot | Cab::Stop => theme::RED,
+            Cab::Shoot | Cab::Stop | Cab::Press => theme::RED,
             Cab::Keeper => theme::BLUE,
             Cab::KeyPlayer => theme::GOLD,
-            Cab::Data => theme::CYAN,
+            Cab::Data => theme::GREEN,
             Cab::Plain => Color32::from_rgb(0x9A, 0xA8, 0xC0),
             Cab::Go => theme::GREEN,
         }
@@ -154,10 +156,64 @@ impl Cab {
     }
 }
 
+/// A direction: a triangle's apex, or the side a label is printed on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Dir {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+/// The outline of a cabinet button: the modern key, or the shapes of the real cabinet's plates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Shape {
+    Key,
+    Round,
+    Square,
+    Tri(Dir),
+}
+
+fn tri_points(d: Dir, r: Rect) -> [Pos2; 3] {
+    match d {
+        Dir::Up => [r.center_top(), r.left_bottom(), r.right_bottom()],
+        Dir::Down => [r.center_bottom(), r.left_top(), r.right_top()],
+        Dir::Left => [r.left_center(), r.right_top(), r.right_bottom()],
+        Dir::Right => [r.right_center(), r.left_top(), r.left_bottom()],
+    }
+}
+
+/// Whether `p` lies on the button: the whole box for a key or square, the circle, or the triangle.
+pub fn shape_contains(shape: Shape, r: Rect, p: Pos2) -> bool {
+    match shape {
+        Shape::Key | Shape::Square => r.contains(p),
+        Shape::Round => (p - r.center()).length() <= r.width().min(r.height()) / 2.0,
+        Shape::Tri(d) => {
+            let [a, b, c] = tri_points(d, r);
+            let side = |u: Pos2, v: Pos2| (v.x - u.x) * (p.y - u.y) - (v.y - u.y) * (p.x - u.x);
+            let s = [side(a, b), side(b, c), side(c, a)];
+            s.iter().all(|x| *x >= 0.0) || s.iter().all(|x| *x <= 0.0)
+        }
+    }
+}
+
 /// A chunky arcade button: a face on a darker skirt that travels 4 px down while held, a lamp window that glows when
 /// `lit`, and a label in the condensed display face fitted to the width. Hold it: the response's
 /// `is_pointer_button_down_on()` is the key's down state.
 pub fn cabinet(ui: &mut Ui, size: egui::Vec2, label: &str, kind: Cab, lit: bool) -> Response {
+    cabinet_shaped(ui, size, label, kind, Shape::Key, lit)
+}
+
+/// `cabinet` in any shape. Only a key or a shape at least 50 px across prints its label inside; the caller prints
+/// the others' beside them. `label` is the accessible name either way.
+pub fn cabinet_shaped(
+    ui: &mut Ui,
+    size: egui::Vec2,
+    label: &str,
+    kind: Cab,
+    shape: Shape,
+    lit: bool,
+) -> Response {
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let enabled = ui.is_enabled();
     resp.widget_info(|| WidgetInfo::selected(WidgetType::Button, enabled, lit, label));
@@ -169,13 +225,16 @@ pub fn cabinet(ui: &mut Ui, size: egui::Vec2, label: &str, kind: Cab, lit: bool)
             0.06,
         );
         let glow = ctx.animate_bool_with_time(resp.id.with("lit"), lit, 0.16);
-        let hover =
-            ctx.animate_bool_with_time(resp.id.with("hover"), resp.hovered() && enabled, 0.12);
-        cabinet_face(
+        let over = resp
+            .hover_pos()
+            .is_some_and(|p| shape_contains(shape, rect, p));
+        let hover = ctx.animate_bool_with_time(resp.id.with("hover"), over && enabled, 0.12);
+        cabinet_shape_face(
             ui.painter(),
             rect,
             label,
             kind,
+            shape,
             Face {
                 lit,
                 glow,
@@ -208,6 +267,14 @@ pub struct Face {
 
 /// Paints a cabinet button in any state (the widget sheet shows a pressed one without a mouse).
 pub fn cabinet_face(p: &Painter, rect: Rect, label: &str, kind: Cab, f: Face) {
+    cabinet_shape_face(p, rect, label, kind, Shape::Key, f)
+}
+
+/// `cabinet_face` in any shape. The cabinet's shapes are solid colour on a darker skirt, with no lamp window.
+pub fn cabinet_shape_face(p: &Painter, rect: Rect, label: &str, kind: Cab, shape: Shape, f: Face) {
+    if shape != Shape::Key {
+        return solid_face(p, rect, label, kind, shape, f);
+    }
     let base = if f.enabled {
         kind.color()
     } else {
@@ -289,6 +356,62 @@ pub fn cabinet_face(p: &Painter, rect: Rect, label: &str, kind: Cab, f: Face) {
         theme::display(fsize),
         ink,
     );
+}
+
+fn solid_face(p: &Painter, rect: Rect, label: &str, kind: Cab, shape: Shape, f: Face) {
+    let base = if f.enabled {
+        kind.color()
+    } else {
+        theme::TEXT_FAINT
+    };
+    let travel = 3.0;
+    let skirt = rect.with_min_y(rect.min.y + travel);
+    let face = Rect::from_min_size(
+        rect.min + vec2(0.0, f.press * travel),
+        rect.size() - vec2(0.0, travel),
+    );
+    let fill = if f.lit {
+        base.lerp_to_gamma(Color32::WHITE, 0.3)
+    } else {
+        base.lerp_to_gamma(Color32::WHITE, 0.1 * f.hover)
+    };
+    let rim = Stroke::new(1.0, base.lerp_to_gamma(Color32::BLACK, 0.4));
+    let draw = |r: Rect, fill: Color32, stroke: Stroke| match shape {
+        Shape::Round => {
+            p.circle(r.center(), r.width().min(r.height()) / 2.0, fill, stroke);
+        }
+        Shape::Tri(d) => {
+            p.add(egui::Shape::convex_polygon(
+                tri_points(d, r).to_vec(),
+                fill,
+                stroke,
+            ));
+        }
+        _ => {
+            p.rect(r, 4, fill, stroke, StrokeKind::Inside);
+        }
+    };
+    draw(
+        skirt,
+        base.lerp_to_gamma(Color32::BLACK, 0.55),
+        Stroke::NONE,
+    );
+    draw(face, fill, rim);
+    if shape == Shape::Round {
+        let hl = Rect::from_center_size(
+            face.center() - vec2(0.0, face.height() * 0.08),
+            face.size() * 0.66,
+        );
+        p.circle_filled(
+            hl.center(),
+            hl.width() / 2.0,
+            fill.lerp_to_gamma(Color32::WHITE, 0.12),
+        );
+    }
+    if face.width().min(face.height()) >= 50.0 {
+        let fsize = (face.height() * 0.22).clamp(13.0, 24.0);
+        centered_text(p, face, label, theme::display(fsize), Color32::WHITE);
+    }
 }
 
 // ---- choices ----
@@ -948,4 +1071,25 @@ pub fn toggle_row(ui: &mut Ui, on: &mut bool, title: &str, hint: &str) -> Respon
     );
     p.galley(pos2(x, rect.top() + 23.0), g, theme::TEXT_DIM);
     resp
+}
+
+#[cfg(test)]
+mod shape_tests {
+    use super::*;
+
+    #[test]
+    fn hit_test_follows_the_shape() {
+        let r = Rect::from_min_size(pos2(0.0, 0.0), vec2(40.0, 40.0));
+        let corner = pos2(1.0, 1.0);
+        assert!(shape_contains(Shape::Square, r, corner));
+        assert!(!shape_contains(Shape::Round, r, corner));
+        assert!(shape_contains(Shape::Round, r, r.center()));
+        // an up triangle: apex at the top middle, so the top corners are outside, the bottom ones inside
+        assert!(!shape_contains(Shape::Tri(Dir::Up), r, corner));
+        assert!(shape_contains(Shape::Tri(Dir::Up), r, pos2(1.0, 39.0)));
+        assert!(shape_contains(Shape::Tri(Dir::Up), r, r.center()));
+        // a left triangle: apex at the left middle
+        assert!(!shape_contains(Shape::Tri(Dir::Left), r, corner));
+        assert!(shape_contains(Shape::Tri(Dir::Left), r, pos2(39.0, 1.0)));
+    }
 }

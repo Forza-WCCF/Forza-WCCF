@@ -45,10 +45,13 @@ The sources describe the screens only in outline; visual detail is **[I]** unles
 
 Sourced list for the 2009–11 satellite [S3, S4]: card movement (not a button), **five tactic buttons**, **data display**, **key player**, **shoot**, **goalkeeper**. The 2012-era list in the Japanese encyclopedia adds behaviour: shoot is manual (shots are not automatic), the goalkeeper button is held to send the keeper forward, the key-player button is held while morale is at maximum to fire a special order [S1]. The tactic cluster is four directions plus a centre button; orders are left, right, centre, counterattack and pressure, and several can be pressed together [S2, S3 describe the same set]. Lit tactic buttons narrow pass options when the side directions stay lit [S3].
 
+Photo findings (cabinet from 2006–07, unchanged to 2017–18; owner decision 2026-10-16, one look for both editions). Left plate: a diamond of four yellow triangles (up CENTRAL, down COUNTER, left L-SIDE, right R-SIDE) round a red PRESS square at the centre, with a small green DATA square beside it; the labels are printed beside the triangles. Right plate: a big red SHOOT and a big blue KEEPER round button side by side, a small yellow round KEY PLAYER and a small green round START. The game's own legend reads green start, yellow KEY, red decide, blue back.
+
 Design translation **[I]**:
-- Draw the tactic cluster as a plus-shaped group: four directional keys and one centre, each a rounded square with a lit state.
-- Shoot is the largest, most saturated button; goalkeeper and key player are secondary.
-- Buttons have three visible states: idle, lit (active order), pressed (2 px travel).
+- The panel draws exactly that layout (`deck_layout` in `crates/forza/src/ui/panel.rs`): shapes are round, square or triangle, and clicks count only on the shape.
+- Small buttons carry their label beside them, the big ones inside.
+- Buttons keep an idle, hover and pressed state (3 px travel). Key presses do not light them; only an active tactic order lights its triangle or square.
+- The MACHINE group (CARD, COIN, BACK), the formation board and the bottom bar stay modern.
 - KEYS panel: show the physical layout of the cabinet cluster next to each bound key, so the binding reads as "this key presses that cabinet button".
 
 ## 5. Colour palette (all values estimates [I])
