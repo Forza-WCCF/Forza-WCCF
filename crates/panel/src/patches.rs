@@ -687,34 +687,52 @@ pub fn dispenser_tick(log: fn(&str)) {
     }
 }
 
-// ---------------------------------------------------------------- free play (2010-11)
-// The original FREE PLAY: byte 2 of the credit library's coin setting (DAT_00cd0f9a). At 1 every credit check passes
-// and no credit is taken (FUN_0082bdf0, FUN_0082be60, FUN_0082c4b0). The library clears its block when it starts and
-// then sets DAT_00cd0f90 = 1: from then on the byte is set here, and again every 2 s. Only if the code that reads it
-// (0x0082BFE0) is the one studied. The key driver's coin on START stays as the fallback.
+// ---------------------------------------------------------------- free play
+// The original FREE PLAY: byte 2 of the credit library's coin setting. At 1 every credit check passes and no credit is
+// taken. The library clears its block when it starts and then sets its "credits up" word to 1: from then on the byte is
+// set here, and again every 2 s. Only if the code that reads it is the one studied. The key driver's coin on START stays
+// as the fallback. 2010-11 (fixed addresses): check FUN_0082BFE0, word 0x00CD0F90, byte 0x00CD0F9A. 2017-18 (the
+// program is relocated, so RVAs): check 0x00D381A0 (sub_D381A0), word 0x0654B178, byte 0x0654B182. (A code stub that
+// stored the byte in the exe broke the relocated 2017-18 client: the stub's absolute operand and jump were not in the
+// relocation table.)
 
 const FREE_SIG: [u8; 19] = [
     0x33, 0xC0, 0x39, 0x05, 0x90, 0x0F, 0xCD, 0x00, 0x75, 0x03, 0xC2, 0x04, 0x00, 0x38, 0x05, 0x9A,
     0x0F, 0xCD, 0x00,
 ];
-const FREE_CHECK: usize = 0x0082_BFE0;
-const CREDITS_UP: usize = 0x00CD_0F90;
-const FREE_BYTE: usize = 0x00CD_0F9A;
+const BASE_1718: usize = 0x0040_0000;
+/// (check, credits-up word, free-play byte) as virtual addresses at the preferred base, per edition.
+const FREE_2010: [usize; 3] = [0x0082_BFE0, 0x00CD_0F90, 0x00CD_0F9A];
+const FREE_1718: [usize; 3] = [0x00D3_81A0, 0x0654_B178, 0x0654_B182];
+static CREDITS_UP: AtomicUsize = AtomicUsize::new(0);
+static FREE_BYTE: AtomicUsize = AtomicUsize::new(0);
 static FREE_PLAY: AtomicBool = AtomicBool::new(false);
 static FREE_NEXT: Mutex<Option<Instant>> = Mutex::new(None);
 static FREE_SAID: AtomicU32 = AtomicU32::new(0);
 
-/// The C's `free_play_install` (2010-11). 2017-18 has no free play in the C: nothing done, nothing logged.
+/// Is `code` the credit check studied, with its two operands at `credits` and `byte`? (The operands are the only
+/// bytes that move with the base.)
+fn free_sig_ok(code: &[u8; 19], credits: usize, byte: usize) -> bool {
+    code[..4] == FREE_SIG[..4]
+        && code[8..15] == FREE_SIG[8..15]
+        && u32::from_le_bytes([code[4], code[5], code[6], code[7]]) as usize == credits
+        && u32::from_le_bytes([code[15], code[16], code[17], code[18]]) as usize == byte
+}
+
+/// The C's `free_play_install`: 2010-11 and 2017-18 each at their own addresses.
 pub fn free_play_install(e1718: bool, log: fn(&str)) {
-    if e1718 {
-        return;
-    }
     let nm = exe_name();
     if !is_client(&nm) {
         log(&format!("free play: not the game ({nm}) - nothing changed"));
         return;
     }
-    if read::<19>(FREE_CHECK) != Some(FREE_SIG) {
+    let [check, credits, byte] = if e1718 {
+        let base = exe_base();
+        FREE_1718.map(|va| va - BASE_1718 + base)
+    } else {
+        FREE_2010
+    };
+    if !read::<19>(check).is_some_and(|c| free_sig_ok(&c, credits, byte)) {
         log(
             "free play: the credit check is not the code studied - nothing changed (a coin is still put in on START)",
         );
@@ -722,7 +740,7 @@ pub fn free_play_install(e1718: bool, log: fn(&str)) {
     }
     let mut mi = MEMORY_BASIC_INFORMATION::default();
     // SAFETY: VirtualQuery fills our own structure
-    let got = unsafe { VirtualQuery(Some(CREDITS_UP as *const c_void), &mut mi, size_of_val(&mi)) };
+    let got = unsafe { VirtualQuery(Some(credits as *const c_void), &mut mi, size_of_val(&mi)) };
     if got == 0
         || mi.State != MEM_COMMIT
         || (mi.Protect & (PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READWRITE)).0 == 0
@@ -730,6 +748,8 @@ pub fn free_play_install(e1718: bool, log: fn(&str)) {
         log("free play: the credit setting is not writable memory - nothing changed");
         return;
     }
+    CREDITS_UP.store(credits, Relaxed);
+    FREE_BYTE.store(byte, Relaxed);
     FREE_PLAY.store(true, Relaxed);
     log("free play: on - set as soon as the game's credits start, then every 2 s");
 }
@@ -739,9 +759,10 @@ pub fn free_play_tick(log: fn(&str)) {
     if !FREE_PLAY.load(Relaxed) || !every_2s(&FREE_NEXT) {
         return;
     }
+    let (credits, byte) = (CREDITS_UP.load(Relaxed), FREE_BYTE.load(Relaxed));
     let reached = (|| {
-        if read_u32(CREDITS_UP)? == 1 && read::<1>(FREE_BYTE)?[0] != 1 {
-            write_data(FREE_BYTE, &[1]).then_some(())?;
+        if read_u32(credits)? == 1 && read::<1>(byte)?[0] != 1 {
+            write_data(byte, &[1]).then_some(())?;
             if FREE_SAID.load(Relaxed) < 3 {
                 log("free play: the game's credits are running - FREE PLAY set");
                 FREE_SAID.fetch_add(1, Relaxed);
@@ -777,6 +798,22 @@ mod tests {
     fn memory_checks_read_and_refuse() {
         let buf = FREE_SIG;
         assert_eq!(read::<19>(buf.as_ptr() as usize), Some(FREE_SIG));
+        assert!(free_sig_ok(&FREE_SIG, FREE_2010[1], FREE_2010[2]));
+        let mut y1718 = FREE_SIG; // 2017-18, relocated by 0x10000
+        y1718[4..8].copy_from_slice(&(FREE_1718[1] as u32 + 0x1_0000).to_le_bytes());
+        y1718[15..19].copy_from_slice(&(FREE_1718[2] as u32 + 0x1_0000).to_le_bytes());
+        assert!(free_sig_ok(
+            &y1718,
+            FREE_1718[1] + 0x1_0000,
+            FREE_1718[2] + 0x1_0000
+        ));
+        assert!(!free_sig_ok(&y1718, FREE_1718[1], FREE_1718[2])); // the base moved: operands must follow
+        y1718[0] ^= 1;
+        assert!(!free_sig_ok(
+            &y1718,
+            FREE_1718[1] + 0x1_0000,
+            FREE_1718[2] + 0x1_0000
+        ));
         assert_eq!(read::<4>(0x10), None); // unmapped: refused, not a fault
         let mut word = 7u32;
         assert!(write_data(&raw mut word as usize, &0u32.to_le_bytes()));
