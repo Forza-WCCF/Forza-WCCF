@@ -226,16 +226,33 @@ fn board_links() {
     h.snapshot("panel_catalogue_affinity_en");
 }
 
-/// A 1920×1080 screen: the sheet scales by 1.2 and the 1600-point-wide sheet gives the extra width to the middle.
+/// A 1920×1080 screen: one point a pixel, a 1920×1080 sheet; the picture grows past the game's size, the board keeps its height's width.
 #[test]
 fn panel_1920x1080() {
     let _gpu = gpu();
     let mut st = panel::PanelState::sample(Edition::E1011, Lang::It, panel::Page::Game);
-    let mut h = harness(Vec2::new(1600.0, 900.0), 1.2, Edition::E1011, |ui| {
+    let mut h = harness(Vec2::new(1920.0, 1080.0), 1.0, Edition::E1011, |ui| {
         panel::show(ui, &mut st)
     });
     h.run_steps(8);
     h.snapshot("panel_game_1080_it");
+}
+
+/// A 2560×1440 screen (the design target): the picture at 1.2x (1728×1080), the board in the rest, the deck under the picture.
+#[test]
+fn panel_2560x1440() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for (ed, lang, name) in [
+        (Edition::E1011, Lang::En, "panel_game_1440p_1011_en"),
+        (Edition::E1718, Lang::En, "panel_game_1440p_1718_en"),
+    ] {
+        let mut st = panel::PanelState::sample(ed, lang, panel::Page::Game);
+        snap(&mut all, name, Vec2::new(2560.0, 1440.0), ed, |ui| {
+            panel::show(ui, &mut st)
+        });
+    }
+    all.unwrap();
 }
 
 /// Card pictures load from the folder `set_picture_dir` names: a made-up 128×128 PNG (the original pictures' size; the
