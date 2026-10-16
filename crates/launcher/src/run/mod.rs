@@ -1595,6 +1595,7 @@ impl Run<'_> {
         self.cabinet.keys = Some(crate::keys::spawn(
             p.shared.clone(),
             keys_path,
+            self.kit.edition() != Edition::E1718, // 2017-18's game is in FREE PLAY itself (setup's patch)
             file_log(self.logs().join("run_keys.txt")),
         ));
         Ok(())

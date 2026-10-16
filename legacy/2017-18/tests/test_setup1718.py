@@ -43,6 +43,16 @@ with tempfile.TemporaryDirectory() as t:
         S.make_junction(os.path.join(t, "b"), os.path.join(t, "a"))   # again: nothing to do
         open(os.path.join(t, "a", "f"), "w").close()
         assert os.path.isfile(os.path.join(t, "b", "f"))
+# free play: the one patch turns the default coin setting's byte 2 on, and refuses any other original byte
+fp = [e for e in S.P.PATCHES if "FREE PLAY" in e[3]]
+assert len(fp) == 1 and fp[0][1:3] == ("00", "01")
+buf = bytes(fp[0][0] + 1)
+assert S.P.apply(buf, fp)[fp[0][0]] == 1
+try:
+    S.P.apply(b"\x02" * (fp[0][0] + 1), fp)
+    raise AssertionError("a changed original byte was accepted")
+except ValueError:
+    pass
 assert S.find_game(os.path.join(os.sep, "no", "such")) is None
 print("2017-18 setup: unknown programs refused, originals kept and reused, settings merged%s"
       % (", junction made" if sys.platform == "win32" else ""))
