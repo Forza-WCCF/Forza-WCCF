@@ -78,6 +78,39 @@ pub fn layout(sheet: Rect, compact: bool) -> Layout {
     }
 }
 
+/// Where the projector's frame (`size` pixels) goes in `area` (the board's strip), as (screen rect, texture uv) pairs.
+/// A frame twice as wide as tall or more is the two projector screens side by side: the left one on top, the right
+/// one under it, each as large as fits, centred. Anything else is one picture.
+pub fn projector_view(area: Rect, size: egui::Vec2) -> Vec<(Rect, Rect)> {
+    let halves = size.x >= 2.0 * size.y;
+    let (n, aspect) = if halves {
+        (2.0, size.x / 2.0 / size.y)
+    } else {
+        (1.0, size.x / size.y.max(1.0))
+    };
+    let w = area.width().min(area.height() / n * aspect);
+    let h = w / aspect;
+    let top = area.center().y - h * n / 2.0;
+    let uvs: &[Rect] = if halves {
+        &[
+            Rect::from_min_max(pos2(0.0, 0.0), pos2(0.5, 1.0)),
+            Rect::from_min_max(pos2(0.5, 0.0), pos2(1.0, 1.0)),
+        ]
+    } else {
+        &[Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0))]
+    };
+    uvs.iter()
+        .enumerate()
+        .map(|(i, uv)| {
+            let r = Rect::from_min_size(
+                pos2(area.center().x - w / 2.0, top + h * i as f32),
+                vec2(w, h),
+            );
+            (r, *uv)
+        })
+        .collect()
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Page {
     Game,
@@ -430,6 +463,10 @@ pub struct PanelState {
     pub deal: Option<Deal>,
     /// The game's own frame as a texture of the panel DLL's painter; `None` draws the stand-in picture.
     pub picture: Option<egui::TextureId>,
+    /// PROJECTOR is on: the projector's picture takes the board's strip.
+    pub projector_on: bool,
+    /// The projector's latest frame (texture, size in pixels) while its frames arrive; `None`: not running.
+    pub projector: Option<(egui::TextureId, egui::Vec2)>,
     // what a frame hands the panel DLL
     /// Where the game's picture was drawn while no page covers it: clicks there go to the game.
     pub picture_rect: Option<Rect>,
@@ -490,6 +527,8 @@ impl PanelState {
             close_warn: false,
             deal: None,
             picture: None,
+            projector_on: false,
+            projector: None,
             picture_rect: None,
             board_changed: false,
             pressed: None,
@@ -625,7 +664,13 @@ pub fn show(ui: &mut Ui, st: &mut PanelState) {
         .resizable(false)
         .show_separator_line(false)
         .frame(egui::Frame::new())
-        .show(ui, |ui| board_strip(ui, st, lang));
+        .show(ui, |ui| {
+            if st.projector_on {
+                projector_strip(ui, st.projector, lang);
+            } else {
+                board_strip(ui, st, lang);
+            }
+        });
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(theme::WELL))
         .show(ui, |ui| middle(ui, st, lang, &lay));
@@ -1114,6 +1159,21 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
             put(ui, r, key, action, Cab::Plain, Shape::Key, false)
         });
     }
+    // PROJECTOR: the panel's own switch (no key), lit while the projector's picture takes the board's place
+    let r = Rect::from_min_size(pos2(xc + half + 6.0, y), vec2(half, 44.0));
+    if put(
+        ui,
+        r,
+        "cab.projector",
+        None,
+        Cab::Plain,
+        Shape::Key,
+        st.projector_on,
+    )
+    .clicked()
+    {
+        st.projector_on = !st.projector_on;
+    }
     st.pressed = st.pressed.or(pressed);
 }
 
@@ -1239,6 +1299,34 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             .font(theme::body(12.0))
             .color(theme::TEXT_FAINT),
     );
+}
+
+/// The projector's picture in the board's place (PROJECTOR on), or a line saying it is not running.
+fn projector_strip(ui: &mut Ui, frame: Option<(egui::TextureId, egui::Vec2)>, lang: Lang) {
+    strip_ground(ui);
+    let area = ui.max_rect().shrink(16.0);
+    let p = ui.painter();
+    match frame {
+        Some((tex, size)) => {
+            for (r, uv) in projector_view(area, size) {
+                p.image(tex, r, uv, Color32::WHITE);
+                p.rect_stroke(r, 0, Stroke::new(1.0, theme::RIM), StrokeKind::Outside);
+            }
+        }
+        None => {
+            for (i, (key, font, col)) in [
+                ("panel.projector_off", theme::display(22.0), theme::TEXT_DIM),
+                ("panel.projector_wait", theme::body(13.0), theme::TEXT_FAINT),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let g = widgets::fit(p, &tr!(lang, key), font, col, area.width());
+                let at = pos2(area.center().x, area.center().y - 14.0 + 30.0 * i as f32);
+                p.galley(at - g.size() / 2.0, g, col);
+            }
+        }
+    }
 }
 
 // ---- the game picture ----
@@ -3093,6 +3181,50 @@ mod tests {
         assert_eq!(scale(3840.0, 2160.0), 2.0);
         assert_eq!(scale(2560.0, 1369.0), 1.0);
         assert!((scale(1280.0, 800.0) - 0.8889).abs() < 1e-3);
+    }
+
+    #[test]
+    fn projector_view_fits_the_board() {
+        for (w, h) in [
+            (1440.0, 900.0),
+            (1920.0, 1080.0),
+            (2560.0, 1440.0),
+            (3440.0, 1440.0),
+        ] {
+            let l = layout(sheet_of(w, h), false);
+            let area = l.board.shrink(16.0);
+            // the projector's 1600x600: two 4:3 screens, stacked, inside the strip, as wide as it allows
+            let v = projector_view(area, vec2(1600.0, 600.0));
+            assert_eq!(v.len(), 2);
+            for (r, uv) in &v {
+                assert!(area.expand(0.01).contains_rect(*r), "{w}x{h}: {r:?}");
+                assert!((r.width() / r.height() - 4.0 / 3.0).abs() < 1e-3);
+                assert_eq!(uv.width(), 0.5);
+            }
+            assert!((v[0].0.bottom() - v[1].0.top()).abs() < 0.01);
+            assert_eq!(v[0].1.left(), 0.0);
+            assert!(
+                (v[0].0.width() - area.width()).abs() < 0.01
+                    || (v[1].0.bottom() - v[0].0.top() - area.height()).abs() < 0.01
+            );
+        }
+        // at 2560x1440 each screen is 800x600
+        let l = layout(sheet_of(2560.0, 1440.0), false);
+        assert_eq!(
+            projector_view(l.board.shrink(16.0), vec2(800.0, 300.0))[0]
+                .0
+                .size(),
+            vec2(800.0, 600.0)
+        );
+        // a single screen: one picture
+        assert_eq!(
+            projector_view(
+                Rect::from_min_size(Pos2::ZERO, vec2(400.0, 900.0)),
+                vec2(800.0, 600.0)
+            )
+            .len(),
+            1
+        );
     }
 
     #[test]
