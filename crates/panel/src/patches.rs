@@ -719,12 +719,45 @@ fn free_sig_ok(code: &[u8; 19], credits: usize, byte: usize) -> bool {
         && u32::from_le_bytes([code[15], code[16], code[17], code[18]]) as usize == byte
 }
 
+// The red "2D-code reader not connected" notice (top right, no USB camera here). It is a row of the game's notice
+// table: the notice shows while that row's condition function returns true. 2017-18's condition (sub_5F4A20, RVA
+// 0x001F4A20 from the preferred base) is `cmp byte [flag], 0 / setz al / ret` on the "reader found" flag. Only that table
+// row calls it, so `xor eax, eax / ret` hides the notice and leaves the flag, and so the reader logic, as it was. Written
+// in memory after the loader's relocation (an exe patch over the flag's absolute operand would be rewritten by it).
+const QR_COND: usize = 0x005F_4A20;
+const QR_FLAG: usize = 0x0157_29A6;
+
+/// Is `code` the notice's condition, comparing the flag at `flag`? (The operand is the only byte run that moves.)
+fn qr_cond_ok(code: &[u8; 11], flag: usize) -> bool {
+    code[..2] == [0x80, 0x3D]
+        && code[6..] == [0x00, 0x0F, 0x94, 0xC0, 0xC3]
+        && u32::from_le_bytes([code[2], code[3], code[4], code[5]]) as usize == flag
+}
+
+/// 2017-18 only: no red "2D-code reader not connected" notice. Called by `free_play_install` (the game process only).
+fn qr_notice_hide(log: fn(&str)) {
+    let base = exe_base();
+    let at = QR_COND - BASE_1718 + base;
+    if !read::<11>(at).is_some_and(|c| qr_cond_ok(&c, QR_FLAG - BASE_1718 + base)) {
+        log("qr notice: the condition is not the code studied - nothing changed");
+    } else if !patch_code(at, &[0x33, 0xC0, 0xC3]) {
+        log("qr notice: code not writable - nothing changed");
+    } else {
+        log(&format!(
+            "qr notice: sub_5F4A20 at {at:08X} -> xor eax,eax / ret - the \"2D-code reader not connected\" notice stays hidden"
+        ));
+    }
+}
+
 /// The C's `free_play_install`: 2010-11 and 2017-18 each at their own addresses.
 pub fn free_play_install(e1718: bool, log: fn(&str)) {
     let nm = exe_name();
     if !is_client(&nm) {
         log(&format!("free play: not the game ({nm}) - nothing changed"));
         return;
+    }
+    if e1718 {
+        qr_notice_hide(log);
     }
     let [check, credits, byte] = if e1718 {
         let base = exe_base();
@@ -819,6 +852,16 @@ mod tests {
         assert!(write_data(&raw mut word as usize, &0u32.to_le_bytes()));
         assert_eq!(word, 0);
         assert!(!write_data(0x10, &[1]));
+    }
+
+    #[test]
+    fn qr_condition_signature() {
+        let mut code = [0x80, 0x3D, 0, 0, 0, 0, 0x00, 0x0F, 0x94, 0xC0, 0xC3];
+        code[2..6].copy_from_slice(&(QR_FLAG as u32 + 0x1_0000).to_le_bytes()); // relocated by 0x10000
+        assert!(qr_cond_ok(&code, QR_FLAG + 0x1_0000));
+        assert!(!qr_cond_ok(&code, QR_FLAG)); // the base moved: the operand must follow
+        code[7] ^= 1;
+        assert!(!qr_cond_ok(&code, QR_FLAG + 0x1_0000));
     }
 
     #[test]

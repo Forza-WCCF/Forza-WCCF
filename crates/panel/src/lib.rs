@@ -16,6 +16,9 @@
 //! keys from keys.txt as the C panel does (down on the press, up after the release and at least 140 ms). Clicks on
 //! the game's picture go to the game, moved into its own client area, for its own on-screen buttons.
 //!
+//! In the projector the panel draws nothing: its Present copies the frame for seat 1's PROJECTOR switch and its window
+//! leaves the screen while seat 1 shows it ([`projector`]).
+//!
 //! Test switches: `FORZA_PANEL_DUMP=1` writes `wccfpanel_frame.bmp` beside the program every 10 frames once a window
 //! size has held for 10 (fakegame.exe's `size:` and `copy:` steps); `WCCFPANEL_DRYKEYS=1` logs the keys instead of
 //! pressing them.
@@ -27,6 +30,7 @@ mod money;
 mod net;
 mod painter;
 mod patches;
+mod projector;
 
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, TextureId, ViewportId, pos2, vec2};
 use forza::cards::{self, Placed, TableFile};
@@ -65,6 +69,8 @@ type ResetFn = unsafe extern "system" fn(*mut c_void, *mut D3DPRESENT_PARAMETERS
 
 /// The game's frame, as the painter knows it.
 const GAME: TextureId = TextureId::User(0);
+/// The projector's frame (PROJECTOR), from the shared section.
+const PROJ: TextureId = TextureId::User(1);
 
 /// The trampolines (the detoured functions' first bytes, then a jump back).
 static PRESENT: AtomicUsize = AtomicUsize::new(0);
@@ -95,8 +101,11 @@ static AFFINITY: OnceLock<Option<Arc<cards::links::Affinity>>> = OnceLock::new()
 static PICTURE: Mutex<Option<egui::Rect>> = Mutex::new(None);
 /// The mouse buttons whose press went to the game (bit per button): their release goes there too.
 static GAME_DOWN: AtomicU32 = AtomicU32::new(0);
-/// This process is the projector (the second game window): money and the frame wait only, no panel.
+/// This process is the projector (the second game window): money, the frame wait and its frames for seat 1, no panel.
 static PROJECTOR: AtomicBool = AtomicBool::new(false);
+/// The projector's frames for seat 1 ([`projector`]): the shared section, and (projector) the copy at Present.
+static SHM: OnceLock<Option<projector::Shm>> = OnceLock::new();
+static CAPTURE: Mutex<Option<projector::Capture>> = Mutex::new(None);
 /// A frame has been shown on our own swap chain: the window may be maximized (F11).
 static SHOWN: AtomicBool = AtomicBool::new(false);
 /// The player closed the window: the server link's drop that follows is the end (ENDED), not a loss.
@@ -166,7 +175,7 @@ fn init() {
     if is_projector() {
         PROJECTOR.store(true, Relaxed);
         log(&format!(
-            "forza-panel init (pid {}) - the PROJECTOR: money with commas and the frame wait only, no panels",
+            "forza-panel init (pid {}) - the PROJECTOR: money with commas, the frame wait and its frames for seat 1, no panels",
             std::process::id()
         ));
         let e1718 = files.edition == theme::Edition::E1718;
@@ -177,6 +186,22 @@ fn init() {
             DLL_DIR.get().map_or(Path::new(""), PathBuf::as_path),
             log,
         ); // the frame wait sleeps instead of spinning a core
+        // its frames for seat 1's PROJECTOR, and its window off the screen while seat 1 shows them
+        if shm().is_some() {
+            if let Ok(mut c) = CAPTURE.lock() {
+                *c = Some(projector::Capture::new());
+            }
+            hook_device();
+            if std::env::var("WCCFPANEL_PROJECTOR_WINDOW")
+                .is_ok_and(|v| v.eq_ignore_ascii_case("keep"))
+            {
+                log("projector: its window stays where it is (WCCFPANEL_PROJECTOR_WINDOW=keep)");
+            } else {
+                std::thread::spawn(hide_watch);
+            }
+        } else {
+            log("projector: no shared section - seat 1 shows no projector picture");
+        }
         INIT_DONE.store(true, Relaxed);
         return;
     }
@@ -219,20 +244,7 @@ fn init() {
     let _ = AFFINITY.set(affinity(e1718, &catalogue));
     let _ = CATALOGUE.set(catalogue.into());
     let _ = FILES.set(files);
-    // SAFETY: the throwaway device is ours; the detours replace functions with the same signature
-    match unsafe { device_functions() } {
-        // SAFETY: as above
-        Some((present, reset)) => unsafe {
-            if let Some(t) = detour(present, hook_present as *const () as usize) {
-                PRESENT.store(t, Relaxed);
-                log("Present detoured");
-            }
-            if let Some(t) = detour(reset, hook_reset as *const () as usize) {
-                RESET.store(t, Relaxed);
-            }
-        },
-        None => log("no throwaway Direct3D 9 device: not hooked"),
-    }
+    hook_device();
     // injected early? wait up to 60 s for the game's window
     for _ in 0..120 {
         if let Some(h) = game_window() {
@@ -251,6 +263,54 @@ fn init() {
 
 /// The players' affinity from the game's own files: `prog_data\player_data\` in the program's folder, the default
 /// rule's tables from the program itself (2010-11; 2017-18 listed pairs only). Read-only; logged with counts.
+/// Present and Reset detoured (seat 1: the panel; the projector: its frame copied for seat 1).
+fn hook_device() {
+    // SAFETY: the throwaway device is ours; the detours replace functions with the same signature
+    match unsafe { device_functions() } {
+        // SAFETY: as above
+        Some((present, reset)) => unsafe {
+            if let Some(t) = detour(present, hook_present as *const () as usize) {
+                PRESENT.store(t, Relaxed);
+                log("Present detoured");
+            }
+            if let Some(t) = detour(reset, hook_reset as *const () as usize) {
+                RESET.store(t, Relaxed);
+            }
+        },
+        None => log("no throwaway Direct3D 9 device: not hooked"),
+    }
+}
+
+/// The shared section for the projector's frames (made on first use; the same for both processes of a run).
+fn shm() -> Option<&'static projector::Shm> {
+    SHM.get_or_init(|| {
+        let name = projector::name(DLL_DIR.get().map_or(Path::new(""), PathBuf::as_path));
+        let s = projector::Shm::create(&name);
+        log(&format!(
+            "projector frames: section {name} {}",
+            if s.is_some() { "open" } else { "NOT made" }
+        ));
+        s
+    })
+    .as_ref()
+}
+
+/// The projector: its window off the screen while seat 1 shows its picture, back when seat 1 stops ([`projector::Hider`]).
+fn hide_watch() {
+    // ponytail: runs for the process's life (the projector never unloads the panel)
+    let wnd = loop {
+        if let Some(h) = game_window() {
+            break h;
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    };
+    let mut hider = projector::Hider::new(wnd);
+    loop {
+        hider.tick(shm().and_then(projector::Shm::reader), log);
+        std::thread::sleep(Duration::from_millis(500));
+    }
+}
+
 fn affinity(e1718: bool, catalogue: &[Card]) -> Option<Arc<cards::links::Affinity>> {
     let exe = std::env::current_exe().ok()?;
     let game = exe.parent()?;
@@ -628,6 +688,28 @@ unsafe extern "system" fn hook_present(
         return unsafe { orig(dev, src, dst, wnd, dirty) };
     }
     IN_PRESENT.set(true);
+    if PROJECTOR.load(Relaxed) {
+        // the projector: its frame copied for seat 1, nothing drawn
+        if std::panic::catch_unwind(|| {
+            // SAFETY: the game's device, alive for the call; we are on its render thread
+            if let Some(dev) = unsafe { IDirect3DDevice9::from_raw_borrowed(&dev) }
+                && let Some(shm) = shm()
+                && let Ok(mut c) = CAPTURE.lock()
+                && let Some(c) = c.as_mut()
+            {
+                // SAFETY: as above
+                unsafe { c.tick(dev, shm, log) };
+            }
+        })
+        .is_err()
+        {
+            DEAD.store(true, Relaxed);
+            log("projector: a frame copy panicked - copies stop");
+        }
+        IN_PRESENT.set(false);
+        // SAFETY: as above
+        return unsafe { orig(dev, src, dst, wnd, dirty) };
+    }
     // the game's own parts, every frame (each acts on its own clock): as wccfpanel.c hook_present
     patches::frame_stats_tick(log);
     patches::dispenser_tick(log);
@@ -655,6 +737,11 @@ unsafe extern "system" fn hook_reset(dev: *mut c_void, pp: *mut D3DPRESENT_PARAM
         && let Some(r) = r.as_mut()
     {
         r.release_default();
+    }
+    if let Ok(mut c) = CAPTURE.lock()
+        && let Some(c) = c.as_mut()
+    {
+        c.release();
     }
     log("device reset");
     // SAFETY: the original Reset through its trampoline
@@ -697,6 +784,10 @@ struct Render {
     sc: Option<(IDirect3DSwapChain9, u32, u32, HWND)>,
     sc_failed: bool,
     game: Option<(IDirect3DTexture9, IDirect3DSurface9, u32, u32)>,
+    /// PROJECTOR: the projector's frame as a texture (size), the frame it holds, the frame last seen and when.
+    proj: Option<(IDirect3DTexture9, u32, u32)>,
+    proj_up: u32,
+    proj_seen: (u32, Option<Instant>),
     max_tex: usize,
     dump: bool,
     size: (u32, u32),
@@ -769,6 +860,9 @@ impl Render {
             sc: None,
             sc_failed: false,
             game: None,
+            proj: None,
+            proj_up: 0,
+            proj_seen: (0, None),
             max_tex: 2048,
             dump: std::env::var_os("FORZA_PANEL_DUMP").is_some_and(|v| v == "1"),
             size: (0, 0),
@@ -1014,6 +1108,8 @@ impl Render {
         self.club_in();
         self.deal_in();
         self.keys_in();
+        // SAFETY: the game's device, on its render thread
+        unsafe { self.projector_in(dev) };
         // the ping meter, online only
         match net::ping_ms() {
             None => self.st.online = false,
@@ -1070,6 +1166,83 @@ impl Render {
                 false
             }
         }
+    }
+
+    /// PROJECTOR: seat 1's heartbeat into the shared section, and the projector's newest frame into a texture while
+    /// PROJECTOR is on; `st.projector` is that frame while frames keep coming (2 s), else None (not running).
+    unsafe fn projector_in(&mut self, dev: &IDirect3DDevice9) {
+        let Some(shm) = shm() else {
+            self.st.projector = None;
+            return;
+        };
+        shm.beat(HWND(WINDOW.load(Relaxed) as *mut c_void));
+        let frame = shm.frame();
+        if let Some((seq, w, h)) = frame
+            && seq != self.proj_seen.0
+        {
+            if self.proj_seen.1.is_none() {
+                log(&format!(
+                    "projector: first frame from the projector ({w}x{h})"
+                ));
+            }
+            self.proj_seen = (seq, Some(Instant::now()));
+        }
+        let live = self
+            .proj_seen
+            .1
+            .is_some_and(|t| t.elapsed() < Duration::from_secs(2));
+        if !self.st.projector_on || !live {
+            self.st.projector = None;
+            return;
+        }
+        if let Some((seq, w, h)) = frame
+            && seq != self.proj_up
+        {
+            // SAFETY: a MANAGED texture of this device, written within its locked rows
+            let up = unsafe {
+                (|| -> windows::core::Result<()> {
+                    if self.proj.as_ref().is_none_or(|p| (p.1, p.2) != (w, h)) {
+                        self.proj = None;
+                        let mut t = None;
+                        dev.CreateTexture(
+                            w,
+                            h,
+                            1,
+                            0,
+                            D3DFMT_X8R8G8B8,
+                            D3DPOOL_MANAGED,
+                            &mut t,
+                            std::ptr::null_mut(),
+                        )?;
+                        self.proj = Some((t.ok_or_else(windows::core::Error::empty)?, w, h));
+                    }
+                    let Some((t, ..)) = &self.proj else {
+                        return Ok(());
+                    };
+                    let mut lr = D3DLOCKED_RECT::default();
+                    t.LockRect(0, &mut lr, std::ptr::null(), 0)?;
+                    for y in 0..h as usize {
+                        let src = shm.row(w, y);
+                        std::slice::from_raw_parts_mut(
+                            lr.pBits.cast::<u8>().add(y * lr.Pitch as usize),
+                            src.len(),
+                        )
+                        .copy_from_slice(src);
+                    }
+                    t.UnlockRect(0)
+                })()
+            };
+            match up {
+                // a frame written meanwhile: this one may be torn, the next frame copies the new one
+                Ok(()) if shm.still(seq) => self.proj_up = seq,
+                Ok(()) => {}
+                Err(e) => log(&format!("projector: texture {w}x{h}: {e}")),
+            }
+        }
+        self.st.projector = self.proj.as_ref().map(|(t, w, h)| {
+            self.painter.set_user(PROJ, t.clone()); // again after a reset, which drops the painter's own
+            (PROJ, vec2(*w as f32, *h as f32))
+        });
     }
 
     /// The table read again when someone else changed it (FPR_Emu's own panel, a hand edit), never mid-drag.

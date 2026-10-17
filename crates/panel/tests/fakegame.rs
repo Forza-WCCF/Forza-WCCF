@@ -335,11 +335,20 @@ fn board_and_buttons_with_real_data() {
 
     // 2. a right-click takes card 102 off; SHOOT (keys.txt: G) presses its key; a click on the picture is the game's
     let _ = fs::remove_file(seat.join("forza_panel.log"));
+    // SHOOT's centre from the panel's own layout at 1440x900 (one point per pixel), so the click follows the deck
+    let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1440.0, 900.0));
+    let deck = panel::layout(sheet, false).deck;
+    let shoot = panel::deck_layout(deck.with_min_y(deck.top() + 54.0)) // the deck under its message line, as show() has it
+        .into_iter()
+        .find(|it| it.key == "SHOOT")
+        .expect("the deck has SHOOT")
+        .rect
+        .center();
     let said = run(&[
         "wait:2500".into(),
         format!("rclick:{}", at(1)),
         "wait:300".into(),
-        "click:478,651".into(), // SHOOT, under the picture (forza::ui::panel's cabinet deck at 1440x900)
+        format!("click:{},{}", shoot.x as i32, shoot.y as i32), // SHOOT, in the cabinet deck under the picture
         "wait:400".into(),
         "click:430,268".into(), // the middle of the picture (0..860 x 0..537.5)
         "wait:300".into(),
@@ -646,7 +655,7 @@ fn window_close_and_server_link() {
     }
 }
 
-/// The projector (WCCFPANEL_ROLE=projector): no panel at all - no Present detour, no window - only money with commas
+/// The projector (WCCFPANEL_ROLE=projector): no panel drawn - its Present copies the frame for seat 1's PROJECTOR - money with commas
 /// and the frame wait, which check that they are in the real game and stay off in fakegame; its log goes to
 /// WCCF_LOGS\forza_panel_projector.log. The money display's self-test (WCCFPANEL_MONEYTEST: every place's role with
 /// the game's arguments faked, amounts with thousands separators cut to their boxes) passes there.
@@ -700,7 +709,16 @@ fn projector_role_and_money() {
         "money test: {tests:?}"
     );
     assert!(!log.contains("FAIL"), "a money test failed");
-    assert!(!log.contains("Present detoured") && !game.join("forza_panel.log").exists());
+    // its frames go to seat 1's PROJECTOR through the shared section; no panel drawn, no seat log
+    assert!(
+        log.contains("projector: frames shared ") || said.contains("no Direct3D 9 device"),
+        "no frames shared"
+    );
+    assert!(!log.contains("first frame shown") && !game.join("forza_panel.log").exists());
+    assert!(
+        !log.contains("window moved off-screen"),
+        "moved with no seat 1 reading"
+    );
     assert!(!said.contains("device changed"));
     if env::var_os("FORZA_PANEL_KEEP").is_none() {
         let _ = fs::remove_dir_all(&t);

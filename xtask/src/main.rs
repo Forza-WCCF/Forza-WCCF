@@ -77,8 +77,7 @@ const MAP: &[(&str, &str)] = &[
 /// The staged 2017-18 kit <- the repository, same rules as [`MAP`]; later rows overlay earlier ones and a row may be one
 /// file. The kit's programs are not here: `build` compiles them into the staged kit ([`KEEP_1718`]).
 const MAP_1718: &[(&str, &str)] = &[
-    ("", "legacy/2017-18/kit"), // scripts/ (setup, English, cards) and SETUP.bat, ENGLISH.bat; the run is Launcher.exe
-    ("SETUP.bat", "editions/2017-18/SETUP.bat"), // overrides the legacy one
+    ("", "legacy/2017-18/kit"), // scripts/ (setup, English, cards); no .bat: it would open a console; the run is Launcher.exe
     ("README.txt", "editions/2017-18/README.txt"),
     ("README.it.txt", "editions/2017-18/README.it.txt"),
     ("README.ja.txt", "editions/2017-18/README.ja.txt"),
@@ -123,6 +122,23 @@ const KEEP_1718: &[&str] = &[
     "overlay/netguard.dll",
     "source/build",
 ];
+/// Shipped programs that may be console programs, each started only by Launcher.exe with CREATE_NO_WINDOW and its output
+/// read through a file or a pipe: python.exe (setup scripts; Launcher.exe's `script` and the installer), inject.exe (exit
+/// code and message read from a pipe), forza-server.exe (log file).  FPR_Emu.exe is not here: the game starts it.
+const CONSOLE_OK: &[&str] = &[
+    "python/python.exe",
+    "overlay/inject.exe",
+    "programs/inject.exe",
+    "bin/forza-server.exe",
+    "programs/forza-server.exe",
+];
+/// The Subsystem field of a PE file's optional header (2 GUI, 3 console).
+fn pe_subsystem(b: &[u8]) -> Option<u16> {
+    let at = |o: usize, n: usize| b.get(o..o + n);
+    let pe = u32::from_le_bytes(at(0x3c, 4)?.try_into().ok()?) as usize;
+    (at(pe, 4)? == b"PE\0\0").then_some(())?;
+    Some(u16::from_le_bytes(at(pe + 24 + 68, 2)?.try_into().ok()?))
+}
 const PROGRAMS_1718: &[&str] = &[
     "Launcher.exe",
     "bin/forza-server.exe",
@@ -482,7 +498,7 @@ fn build<'s>(
         p.join("FPR_Emu.exe"),
         "the card table's stand-in",
         &[],
-        &["user32.lib"],
+        &["user32.lib", "/SUBSYSTEM:WINDOWS", "/ENTRY:mainCRTStartup"], // the game starts it: no console window
     );
     c(
         "panel/inject.c",
@@ -617,7 +633,7 @@ fn build_1718<'s>(
         kit.join("bin/FPR_Emu.exe"),
         "the card table's stand-in",
         &[],
-        &["user32.lib"],
+        &["user32.lib", "/SUBSYSTEM:WINDOWS", "/ENTRY:mainCRTStartup"], // the game starts it: no console window
     );
     c(
         "overlay/inject.c",
@@ -1537,6 +1553,14 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
             !bytes.windows(4).any(|w| w == b"UPX!" || w == b"UPX0"),
             "{f} is UPX-packed: scanners flag packed programs"
         );
+        // no console window may reach a player: every program is a GUI-subsystem one (a console program started by the
+        // game itself gets a window of its own), except these, which the launcher starts with CREATE_NO_WINDOW
+        if f.to_ascii_lowercase().ends_with(".exe") && !CONSOLE_OK.contains(&f.as_str()) {
+            ensure!(
+                pe_subsystem(&bytes) == Some(2),
+                "{f} is a console program: link it /SUBSYSTEM:WINDOWS or list it in CONSOLE_OK with a reason"
+            );
+        }
         if let Some(cmdline) = std::env::var_os("FORZA_SIGN_CMD") {
             let path = kit.join(f).display().to_string();
             let line = cmdline.to_string_lossy().replace("{f}", &path);

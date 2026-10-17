@@ -226,9 +226,9 @@ int main(int argc, char **argv)
     char logpath[MAX_PATH];
     DWORD pp;
 
-    /* the stdout handle IS the game's pipe: take it, then leave the console the game made for us */
+    /* the stdout handle IS the game's pipe; this is a GUI-subsystem program (xtask: /SUBSYSTEM:WINDOWS), so no console
+       window appears, and the game's inherited handle is still ours */
     g_out = GetStdHandle(STD_OUTPUT_HANDLE);
-    FreeConsole();
     g_table = table_from_command_line();
     if (g_table < 0 || g_table > 1)
         g_table = 1;                 /* unknown: serve it empty rather than give our cards to the wrong reader */
