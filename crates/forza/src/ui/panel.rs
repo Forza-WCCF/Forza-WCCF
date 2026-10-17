@@ -31,11 +31,22 @@ const DECK_MIN: f32 = 300.0;
 const BOARD_PER_W: f32 = 1.42;
 const BOARD_EXTRA: f32 = 120.0;
 
-/// Points per pixel for a window of `w` x `h` pixels: 1 from 1440x900 up (a bigger window gets a bigger sheet, so the
-/// game's picture can grow past its own size), 2 from 2880x1800 (4K), the window's ratio to 1440x900 below that.
-pub fn scale(w: f32, h: f32) -> f32 {
+/// Points per pixel for a window of `w` x `h` pixels on a monitor of `dpi` (96 = 100%): 1 from 1440x900 up (a bigger
+/// window gets a bigger sheet, so the game's picture can grow past its own size), 2 from 2880x1800 (4K), the window's
+/// ratio to 1440x900 below that. A monitor Windows scales (120 dpi = 125%) sets it instead, so text is as big as in
+/// other programs and drawn at the screen's own pixels, but never so much that the sheet drops under 1440x900 points.
+pub fn scale(w: f32, h: f32, dpi: f32) -> f32 {
     let fit = (w / SIZE.x).min(h / SIZE.y);
-    if fit >= 2.0 { 2.0 } else { fit.min(1.0) }
+    let monitor = dpi / 96.0;
+    if fit < 1.0 {
+        fit
+    } else if monitor > 1.0 {
+        monitor.min(fit)
+    } else if fit >= 2.0 {
+        2.0
+    } else {
+        1.0
+    }
 }
 
 /// Where the parts sit on a sheet: the formation board on the right, the game's picture 16:10 at the top of the
@@ -3087,7 +3098,7 @@ mod tests {
 
     fn sheet_of(w: f32, h: f32) -> Rect {
         // what a window of w x h pixels shows, in points
-        let ppp = scale(w, h);
+        let ppp = scale(w, h, 96.0);
         Rect::from_min_size(Pos2::ZERO, vec2(w, h) / ppp)
     }
 
@@ -3154,9 +3165,21 @@ mod tests {
         assert_eq!(l.board.width(), 832.0);
         assert_eq!(l.deck.height(), 300.0);
         // 4K: the sheet is 2x
-        assert_eq!(scale(3840.0, 2160.0), 2.0);
-        assert_eq!(scale(2560.0, 1369.0), 1.0);
-        assert!((scale(1280.0, 800.0) - 0.8889).abs() < 1e-3);
+        assert_eq!(scale(3840.0, 2160.0, 96.0), 2.0);
+        assert_eq!(scale(2560.0, 1369.0, 96.0), 1.0);
+        assert!((scale(1280.0, 800.0, 96.0) - 0.8889).abs() < 1e-3);
+    }
+
+    #[test]
+    fn scale_follows_the_monitor() {
+        // 2560x1440 at 125%, maximized: 1.25, a 2048x1099 sheet drawn at the screen's pixels
+        assert_eq!(scale(2560.0, 1374.0, 120.0), 1.25);
+        assert_eq!(scale(3840.0, 2088.0, 144.0), 1.5);
+        assert_eq!(scale(3840.0, 2160.0, 96.0), 2.0); // 100%: the 4K rule
+        // the sheet stays at least 1440x900 points: 1600x1000 at 150% gets 1.111, a smaller window scales down
+        assert!((scale(1600.0, 1000.0, 144.0) - 1.1111).abs() < 1e-3);
+        assert!((scale(1280.0, 800.0, 120.0) - 0.8889).abs() < 1e-3);
+        assert_eq!(scale(2560.0, 1440.0, 288.0), 1.6);
     }
 
     #[test]

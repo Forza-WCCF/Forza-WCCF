@@ -646,6 +646,13 @@ fn run_in_job(
     }
 }
 
+/// The game programs' compatibility layer (`rules::compat_layer`): crisp on a screen scaled above 100%.  The control's
+/// match engines, its children, inherit it.
+fn game_dpi() -> (String, String) {
+    let key = "__COMPAT_LAYER";
+    (key.into(), rules::compat_layer(env::var(key).ok().as_deref()))
+}
+
 /// The program's id from its debugger's "launched NAME pid N" line in `data\logs\<log>`, once it is there.
 fn launched_pid(logs: &Path, log: &str) -> Option<u32> {
     let text = fs::read_to_string(logs.join(log)).ok()?;
@@ -1142,7 +1149,7 @@ impl Run<'_> {
             index: index.is_dir().then_some(index),
             // control+0x1226A is 2010-11's control: never 2017-18's
             msgguard: self.edition == Edition::E1011 && env::var("WCCF_MSGGUARD").map_or(true, |v| v != "0"),
-            env: self.kit_env().into_iter().chain(env).collect(),
+            env: self.kit_env().into_iter().chain(env).chain([game_dpi()]).collect(),
             stop: Some(stop.clone()),
         };
         let mut log = File::create(self.logs().join(role.log()))?;

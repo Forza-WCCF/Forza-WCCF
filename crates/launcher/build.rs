@@ -8,8 +8,23 @@
 #[path = "version_rc.rs"]
 mod version_rc;
 
+// Launcher.exe is system-DPI-aware (2026-10-17): its manifest says so, Windows then gives it the screen's own pixels
+// (no blurry stretch at 125%), and main.rs scales every coordinate and its fonts by the screen's dpi at the start.
+const DPI_MANIFEST: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true</dpiAware>
+    </windowsSettings>
+  </application>
+</assembly>
+"#;
+
 fn main() {
+    let dpi = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR")).join("dpi.manifest");
+    std::fs::write(&dpi, DPI_MANIFEST).expect("write dpi.manifest");
     println!("cargo:rustc-link-arg-bin=Launcher=/MANIFEST:EMBED");
+    println!("cargo:rustc-link-arg-bin=Launcher=/MANIFESTINPUT:{}", dpi.display());
     println!(
         "cargo:rustc-link-arg-bin=Launcher=/MANIFESTDEPENDENCY:type='win32' name='Microsoft.Windows.Common-Controls' \
          version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'"
