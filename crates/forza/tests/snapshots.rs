@@ -255,6 +255,59 @@ fn panel_2560x1440() {
     all.unwrap();
 }
 
+/// PROJECTOR on at 2560x1440: the projector's 1600x600 frame (a made-up 800x300 copy: a pitch on the left screen, a
+/// table on the right) in the board's strip, its two screens stacked; then the same switch with no projector running.
+#[test]
+fn panel_projector() {
+    let _gpu = gpu();
+    let frame = egui::ColorImage::new(
+        [800, 300],
+        (0..800 * 300i32)
+            .map(|i| {
+                let (x, y) = (i % 800, i / 800);
+                if x < 400 {
+                    let line = x % 100 < 2 || y % 75 < 2 || (x - 200).abs() < 2;
+                    if line {
+                        egui::Color32::WHITE
+                    } else {
+                        egui::Color32::from_rgb(0x2E, 0x8B, 0x3A + (y / 30) as u8)
+                    }
+                } else if y % 30 < 2 {
+                    egui::Color32::from_rgb(0x60, 0x70, 0x90)
+                } else {
+                    egui::Color32::from_rgb(0x14, 0x1E, 0x3C + (x % 40) as u8)
+                }
+            })
+            .collect(),
+    );
+    let mut all = SnapshotResults::new();
+    for (name, lang, with_frame) in [
+        ("panel_projector_1440p_1718_en", Lang::En, true),
+        ("panel_projector_off_1440p_1718_it", Lang::It, false),
+    ] {
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+        st.projector_on = true;
+        let mut tex = None;
+        snap(
+            &mut all,
+            name,
+            Vec2::new(2560.0, 1440.0),
+            Edition::E1718,
+            |ui| {
+                if with_frame && tex.is_none() {
+                    let t = ui
+                        .ctx()
+                        .load_texture("projector", frame.clone(), Default::default());
+                    st.projector = Some((t.id(), Vec2::new(800.0, 300.0)));
+                    tex = Some(t);
+                }
+                panel::show(ui, &mut st)
+            },
+        );
+    }
+    all.unwrap();
+}
+
 /// Card pictures load from the folder `set_picture_dir` names: a made-up 128×128 PNG (the original pictures' size; the
 /// slot shows the card face, its left 88 columns, cut square from the top)
 /// for card 6, none for card 7, which keeps the drawn stand-in. Board, bench, catalogue and big sizes.

@@ -646,7 +646,7 @@ fn window_close_and_server_link() {
     }
 }
 
-/// The projector (WCCFPANEL_ROLE=projector): no panel at all - no Present detour, no window - only money with commas
+/// The projector (WCCFPANEL_ROLE=projector): no panel drawn - its Present copies the frame for seat 1's PROJECTOR - money with commas
 /// and the frame wait, which check that they are in the real game and stay off in fakegame; its log goes to
 /// WCCF_LOGS\forza_panel_projector.log. The money display's self-test (WCCFPANEL_MONEYTEST: every place's role with
 /// the game's arguments faked, amounts with thousands separators cut to their boxes) passes there.
@@ -700,7 +700,16 @@ fn projector_role_and_money() {
         "money test: {tests:?}"
     );
     assert!(!log.contains("FAIL"), "a money test failed");
-    assert!(!log.contains("Present detoured") && !game.join("forza_panel.log").exists());
+    // its frames go to seat 1's PROJECTOR through the shared section; no panel drawn, no seat log
+    assert!(
+        log.contains("projector: frames shared ") || said.contains("no Direct3D 9 device"),
+        "no frames shared"
+    );
+    assert!(!log.contains("first frame shown") && !game.join("forza_panel.log").exists());
+    assert!(
+        !log.contains("window moved off-screen"),
+        "moved with no seat 1 reading"
+    );
     assert!(!said.contains("device changed"));
     if env::var_os("FORZA_PANEL_KEEP").is_none() {
         let _ = fs::remove_dir_all(&t);
