@@ -995,7 +995,6 @@ fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
     // SAFETY: plain Win32 window set-up on this (the only UI) thread; every string is NUL-terminated and lives
     // across its call, every handle comes from the call before.
     unsafe {
-        SetProcessDPIAware();
         CoInitializeEx(ptr::null(), COINIT_APARTMENTTHREADED as u32); // the folder picker's new style needs COM
         let screen = GetDC(ptr::null_mut());
         let dpi = GetDeviceCaps(screen, LOGPIXELSY as i32);

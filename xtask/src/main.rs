@@ -1537,6 +1537,17 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
         );
     }
 
+    // Launcher.exe declares DPI awareness in its manifest (crates/launcher/build.rs): without it Windows stretches the
+    // window blurry on a screen scaled above 100%
+    for p in programs.iter().filter(|p| p.ends_with("Launcher.exe")) {
+        let file = fs::read(kit.join(p))?;
+        let manifest = resource(&file, object::pe::RT_MANIFEST).unwrap_or_default();
+        ensure!(
+            String::from_utf8_lossy(manifest).contains("dpiAware"),
+            "{p} has no dpiAware manifest - see crates/launcher/build.rs"
+        );
+    }
+
     // Defender hygiene: no shipped exe/dll is packed (a UPX section is what machine-learning scanners flag), and no test
     // program (source/build, which `walk` leaves out) reaches the kit.
     // Optional signing hook: with FORZA_SIGN_CMD set (e.g. `osslsigncode sign -pkcs12 k.pfx -in {f} -out {f}.s && mv {f}.s {f}`
@@ -1642,13 +1653,12 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
     Ok(())
 }
 
-/// The string table of a PE file's version resource (ProductName, FileVersion, ...), read in Rust so it works on any host.
-/// `object` reaches the resource directory (it hands out the RT_VERSION data), so `pelite` is not needed; the VS_VERSIONINFO
-/// block layout inside the data is parsed here.
-fn version_strings(file: &[u8]) -> Result<HashMap<String, String>> {
+/// The first resource of type `ty` (RT_VERSION, RT_MANIFEST ...) in a PE file; `object` reaches the resource directory, so
+/// `pelite` is not needed.
+fn resource(file: &[u8], ty: u16) -> Result<&[u8]> {
     use object::read::pe::{ImageNtHeaders, PeFile};
     use object::{FileKind, pe};
-    fn rsrc<P: ImageNtHeaders>(file: &[u8]) -> Result<&[u8]> {
+    fn rsrc<P: ImageNtHeaders>(file: &[u8], ty: u16) -> Result<&[u8]> {
         let pe = PeFile::<P>::parse(file)?;
         let sections = pe.section_table();
         let dir = pe
@@ -1656,15 +1666,13 @@ fn version_strings(file: &[u8]) -> Result<HashMap<String, String>> {
             .resource_directory(file, &sections)?
             .context("no resources")?;
         let mut table = dir.root()?;
-        // RT_VERSION, then the first name/id, then the first language
+        // the type, then the first name/id, then the first language
         for level in 0..3 {
             let entry = table
                 .entries
                 .iter()
-                .find(|e| {
-                    level > 0 || e.name_or_id.get(object::LittleEndian) == u32::from(pe::RT_VERSION)
-                })
-                .context("no version resource")?;
+                .find(|e| level > 0 || e.name_or_id.get(object::LittleEndian) == u32::from(ty))
+                .context("no such resource")?;
             match entry.data(dir)? {
                 object::read::pe::ResourceDirectoryEntryData::Table(t) => table = t,
                 object::read::pe::ResourceDirectoryEntryData::Data(d) => {
@@ -1677,13 +1685,19 @@ fn version_strings(file: &[u8]) -> Result<HashMap<String, String>> {
                 }
             }
         }
-        anyhow::bail!("version resource too deep")
+        anyhow::bail!("resource too deep")
     }
-    let data = match FileKind::parse(file)? {
-        FileKind::Pe32 => rsrc::<pe::ImageNtHeaders32>(file)?,
-        FileKind::Pe64 => rsrc::<pe::ImageNtHeaders64>(file)?,
+    match FileKind::parse(file)? {
+        FileKind::Pe32 => rsrc::<pe::ImageNtHeaders32>(file, ty),
+        FileKind::Pe64 => rsrc::<pe::ImageNtHeaders64>(file, ty),
         _ => anyhow::bail!("not a PE file"),
-    };
+    }
+}
+
+/// The string table of a PE file's version resource (ProductName, FileVersion, ...), read in Rust so it works on any host;
+/// the VS_VERSIONINFO block layout inside the data is parsed here.
+fn version_strings(file: &[u8]) -> Result<HashMap<String, String>> {
+    let data = resource(file, object::pe::RT_VERSION)?;
     // VS_VERSIONINFO: blocks of (length, value length, type, UTF-16 key, 4-aligned value, 4-aligned child blocks)
     fn blocks(d: &[u8], out: &mut HashMap<String, String>) {
         let u16_at = |i: usize| {
