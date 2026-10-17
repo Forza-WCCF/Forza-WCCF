@@ -1,5 +1,6 @@
-//! Player cards and the FORMATION BOARD: the card face (81:58, upright), the rarity marks, and the pitch with its three
-//! zones where cards are dragged, swapped, taken off and shown big on a resting mouse.
+//! Player cards and the FORMATION BOARD: the card face (upright), the rarity marks, and the pitch where cards lie
+//! anywhere, as on the cabinet's table (no fixed spots), and are dragged, swapped, taken off and shown big on a
+//! resting mouse.
 
 use super::Lang;
 use super::theme;
@@ -241,18 +242,20 @@ pub fn set_picture_dir(ctx: &egui::Context, dir: Option<std::path::PathBuf>) {
     ctx.data_mut(|d| d.insert_temp(Id::new("card-pictures"), dir));
 }
 
-/// The part of a card picture of `size` that fills a slot of `aspect` (width / height): the card face (a square
-/// picture is the game's whole 128x128 one, its face the left 88 columns), cut to the slot's shape from the top, where
-/// the player is.
-fn face_uv(size: Vec2, aspect: f32) -> Rect {
+/// The card face in a picture of `size`, whole (never cut): a square picture is the game's 128x128 one, its face
+/// the left 88 columns; any other is the face itself (the pack's scans). Returns its uv part and its aspect.
+fn face_uv(size: Vec2) -> (Rect, f32) {
     let fw = if size.x == size.y { 88.0 / 128.0 } else { 1.0 };
-    let face = vec2(size.x * fw, size.y);
-    if face.x / face.y > aspect {
-        let w = face.y * aspect / size.x;
-        Rect::from_min_max(pos2((fw - w) / 2.0, 0.0), pos2((fw + w) / 2.0, 1.0))
-    } else {
-        Rect::from_min_max(pos2(0.0, 0.0), pos2(fw, face.x / aspect / size.y))
-    }
+    (
+        Rect::from_min_max(Pos2::ZERO, pos2(fw, 1.0)),
+        size.x * fw / size.y,
+    )
+}
+
+/// The largest rect of `aspect` (width / height) centred in `r`: the whole picture, with bars where shapes differ.
+fn letterbox(r: Rect, aspect: f32) -> Rect {
+    let w = r.width().min(r.height() * aspect);
+    Rect::from_center_size(r.center(), vec2(w, w / aspect))
 }
 
 fn picture_dir(ctx: &egui::Context) -> Option<std::path::PathBuf> {
@@ -325,8 +328,8 @@ pub fn real<'a>(ctx: &egui::Context, card: &'a Card) -> std::borrow::Cow<'a, Car
     std::borrow::Cow::Owned(c)
 }
 
-/// The card's picture in `r`; the stand-in while it loads, when the file is missing, or with no folder set.
-fn card_picture(p: &Painter, r: Rect, card: &Card, rim: Color32, alpha: f32) {
+/// The drawn stand-in for a card with no picture (still loading, no file, or no folder set).
+fn card_picture(p: &Painter, r: Rect, rim: Color32, alpha: f32) {
     gradient(
         p,
         r,
@@ -335,17 +338,6 @@ fn card_picture(p: &Painter, r: Rect, card: &Card, rim: Color32, alpha: f32) {
         theme::DEEP.gamma_multiply(alpha),
         true,
     );
-    if let Some(dir) = picture_dir(p.ctx())
-        && let Some((id, size)) = load_picture(p.ctx(), &dir, card.number, "png")
-    {
-        p.image(
-            id,
-            r,
-            face_uv(size, r.aspect_ratio()),
-            Color32::WHITE.gamma_multiply(alpha),
-        );
-        return;
-    }
     // the stand-in: a neutral head-and-shoulders silhouette, plainly not a photo
     let col = rim
         .lerp_to_gamma(theme::RAISED_HI, 0.55)
@@ -397,8 +389,10 @@ pub struct Look {
     pub selected: bool,
 }
 
-/// The card face, upright 58:81: the position band with TOTAL, the player's picture, the name on its foot; large ones
-/// add the club and the season. The picture comes from the folder [`set_picture_dir`] names, else a drawn stand-in.
+/// The card face, upright at the real card's shape ([`CARD_ASPECT`]): the card's picture whole, never cut (the pack's
+/// scan `<number>.jpg`, else the game's face `<number>.png`, letterboxed on a dark ground when its shape differs),
+/// from the folder [`set_picture_dir`] names; else a drawn face: the position band with TOTAL, a stand-in, the name on
+/// its foot, and on large ones the club and the season.
 pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
     let card = &*real(p.ctx(), card);
     let big = rect.width() >= 90.0;
@@ -423,14 +417,17 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
         p.add(s.as_shape(rect, r));
     }
     let rim = card.rarity.rim();
-    // the pack's scan is the whole card face: its own band, picture, name and numbers
+    // a picture is the whole card face (its own band, photo, name and numbers): shown whole
     if let Some(dir) = picture_dir(p.ctx())
-        && let Some((id, _)) = load_picture(p.ctx(), &dir, card.number, "jpg")
+        && let Some((id, size)) = load_picture(p.ctx(), &dir, card.number, "jpg")
+            .or_else(|| load_picture(p.ctx(), &dir, card.number, "png"))
     {
+        let (uv, aspect) = face_uv(size);
+        p.rect_filled(rect, r, theme::DEEP.gamma_multiply(alpha));
         p.image(
             id,
-            rect,
-            Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)),
+            letterbox(rect, aspect),
+            uv,
             Color32::WHITE.gamma_multiply(alpha),
         );
         face_marks(p, rect, r, card, rim, alpha, look);
@@ -483,7 +480,7 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
         band.left_bottom() + vec2(inset, inset * 0.7),
         vec2(side, side),
     );
-    card_picture(p, pic, card, rim, alpha);
+    card_picture(p, pic, rim, alpha);
     // a scrim under the name, so it reads on any picture
     let scrim = pic.with_min_y(pic.bottom() - pic.height() * 0.38);
     gradient(
@@ -681,7 +678,8 @@ pub fn affinity_dots(p: &Painter, left_center: Pos2, level: u8) {
 
 // ---- the formation board ----
 
-/// The card table: 16 slots, 0-10 on the pitch (0 the keeper), 11-15 on the bench; each holds a card index or nothing.
+/// The card table: 16 slots, 0-10 on the pitch, 11-15 the bench's five boxes; each holds a card index or nothing. A
+/// pitch slot is not a place: its card lies at its spot, anywhere on the pitch, and an empty pitch slot is not drawn.
 #[derive(Clone, Debug)]
 pub struct Board {
     pub cards: Vec<Card>,
@@ -712,8 +710,8 @@ impl Board {
         self.slots.swap(from, slot);
     }
 
-    /// A pitch card dropped on open pitch lies at `spot`; a bench card takes the first free pitch slot there (none
-    /// free: it stays). Returns whether anything moved.
+    /// A card dropped on open pitch lies exactly at `spot`: a pitch card moves there, a bench card goes on the pitch
+    /// there (11 on the pitch already: it stays). Returns whether anything moved.
     pub fn move_to(&mut self, from: usize, spot: Pos2) -> bool {
         let to = if from < 11 {
             from
@@ -743,8 +741,8 @@ impl Board {
         true
     }
 
-    /// A catalogue card dropped on open pitch: the first free pitch slot, there at `spot`, else the first free
-    /// bench box; nothing when the table is full or holds the card already.
+    /// A catalogue card dropped on open pitch lies exactly at `spot` (11 on the pitch already: the first free bench
+    /// box); nothing when the table is full or holds the card already.
     pub fn put_free(&mut self, card: &Card, spot: Pos2) -> bool {
         if self.holds(card.number) {
             return false;
@@ -771,8 +769,10 @@ fn zone(y: f32) -> Position {
     }
 }
 
+/// A card's width over its height: the pack's scans (180x254, the printed card's shape; a 63x88 mm card is 0.716).
+pub const CARD_ASPECT: f32 = 180.0 / 254.0;
 /// The catalogue's and the widget sheet's card size; the board scales its cards with the pitch ([`card_size`]).
-pub const CARD_SMALL: egui::Vec2 = egui::vec2(50.0, 70.0);
+pub const CARD_SMALL: egui::Vec2 = egui::vec2(50.0, 50.0 / CARD_ASPECT);
 /// The pitch is this many times as tall as it is wide.
 pub const PITCH_ASPECT: f32 = 1.25;
 /// The strip down the pitch's left edge that holds the zone names; no card reaches into it.
@@ -780,13 +780,14 @@ const LABEL_LANE: f32 = 26.0;
 /// The bench's cards against the pitch's.
 const BENCH_SCALE: f32 = 0.8;
 
-/// A pitch card for a pitch this wide: 58:81, about a seventh of the width.
+/// A pitch card for a pitch this wide: the card's shape ([`CARD_ASPECT`]), about a seventh of the width.
 pub fn card_size(pitch_w: f32) -> egui::Vec2 {
     let w = (pitch_w * 0.145).round();
-    vec2(w, (w * 1.4).round())
+    vec2(w, (w / CARD_ASPECT).round())
 }
 
-/// Where a pitch slot's card sits: spots run across the pitch right of the zone names, and no card leaves the pitch.
+/// Where a pitch card sits: centred on its spot across the pitch right of the zone names, pushed back inside when its
+/// edge would leave the pitch (the spot itself, what the table holds, is kept).
 pub fn spot_rect(pitch: Rect, spot: Pos2) -> Rect {
     let lane = pitch.with_min_x(pitch.left() + LABEL_LANE);
     let r = Rect::from_center_size(
@@ -796,10 +797,15 @@ pub fn spot_rect(pitch: Rect, spot: Pos2) -> Rect {
         ),
         card_size(pitch.width()),
     );
-    r.translate(vec2(0.0, (pitch.bottom() - 4.0 - r.bottom()).min(0.0)))
+    let inside = lane.shrink(4.0);
+    let push = |lo: f32, hi: f32, min: f32, max: f32| (min - lo).max(0.0) + (max - hi).min(0.0);
+    r.translate(vec2(
+        push(r.left(), r.right(), inside.left(), inside.right()),
+        push(r.top(), r.bottom(), inside.top(), inside.bottom()),
+    ))
 }
 
-/// Where every slot's card sits: the 11 pitch slots at their spots, the 5 bench slots in a row from `bench_top`
+/// Where every slot's card sits: the 11 pitch slots at their spots (empty ones too, unused), the 5 bench slots in a row from `bench_top`
 /// (the board puts the bench 12 points under the pitch).
 pub fn slot_rects(pitch: Rect, bench_top: f32, spots: &[Pos2; 11]) -> [Rect; 16] {
     let mut rects = [Rect::NOTHING; 16];
@@ -844,7 +850,8 @@ fn lift_offset(card: Vec2) -> Vec2 {
     vec2(-card.x * 0.45, -card.y * 0.55)
 }
 
-/// Draws the board and handles it: drag a card onto another to swap (the target is lit while dragging), right-click
+/// Draws the board and handles it: a card dropped on open pitch lies exactly there (the cabinet's table has no fixed
+/// spots), a card dropped onto another swaps with it (the target is lit while dragging), right-click
 /// takes a card off, a resting mouse shows the card big after `hover_delay` seconds. While a card is dragged or shown
 /// big, the pitch shows its suitable positions as a heat zone, and the drop target says how well it fits there.
 /// With `links`, lines join every two linked pitch cards by the club's link stage; a selected card (clicked, or in
@@ -902,6 +909,10 @@ pub fn formation_board(
     let mut hovered_card = None;
     let mut drop_target = None;
     for (slot, &rect) in rects.iter().enumerate() {
+        // no spot boxes on the pitch: an empty pitch slot is no place and takes no drop
+        if slot < 11 && board.slots[slot].is_none() {
+            continue;
+        }
         let resp = ui.interact(rect, Id::new(("board-slot", slot)), Sense::click_and_drag());
         let p = ui.painter();
         let hovered_by_drag = (dragging.is_some_and(|d| d != slot)
@@ -1025,8 +1036,7 @@ pub fn formation_board(
         }
     }
 
-    // dropped on the pitch away from every slot: the card lies where it was shown (a bench card takes a free pitch
-    // slot; a catalogue card too)
+    // dropped on open pitch: the card lies where it was shown, from the pitch, the bench or the catalogue
     if (dragging.is_some() || incoming.is_some())
         && pointer.is_some_and(|p| pitch.contains(p))
         && ui.input(|i| i.pointer.any_released())
@@ -1117,7 +1127,8 @@ pub fn formation_board(
                 *f == Some(slot)
             });
             if left <= 0.0 || back {
-                big_card(ui, &board.cards[ci], rect, ui.max_rect().left(), back, lang);
+                let left = ui.max_rect().left();
+                big_card(ui, &board.cards[ci], rect, left, card, back, lang);
                 shown_big = Some(ci);
             } else {
                 ui.ctx()
@@ -1604,16 +1615,37 @@ pub fn card_back(p: &Painter, rect: Rect, card: &Card, lang: Lang) {
     );
 }
 
-/// The big card beside the board with its caption: a card at 2.6x and its line of facts, and the card back's
-/// suitable positions beside it.
-fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, back: bool, lang: Lang) {
+/// Room around the big card's face: the frame's margins, and its caption under it (name, facts, roles, stats).
+const BIG_FRAME: f32 = 22.0;
+const BIG_CAPTION: f32 = 150.0;
+
+/// How much the big card enlarges a `tile`: 4x, or the most that keeps the face, the position map beside it and the
+/// caption inside `room` (the space left of the board, the window's height); never under 1x.
+fn big_scale(tile: Vec2, room: Vec2) -> f32 {
+    // the face k * tile, 10 apart the map (k * tile.y - 22) / PITCH_ASPECT wide, the frame round them
+    let by_w = (room.x - BIG_FRAME - 10.0 + 22.0 / PITCH_ASPECT) / (tile.x + tile.y / PITCH_ASPECT);
+    let by_h = (room.y - BIG_FRAME - BIG_CAPTION) / tile.y;
+    by_w.min(by_h).clamp(1.0, 4.0)
+}
+
+/// The big card beside the board, kept inside the window, with its caption: the whole card face at 4x the board's
+/// `tile` (less when the window is too small, [`big_scale`]), the card back's suitable positions beside it, and its
+/// line of facts.
+fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, tile: Vec2, back: bool, lang: Lang) {
     let card = &*real(ui.ctx(), card);
-    let size = CARD_SMALL * 2.6;
+    let screen = ui.ctx().content_rect();
+    let room = vec2(board_left - 32.0 - screen.left(), screen.height() - 32.0);
+    let size = tile * big_scale(tile, room);
     // the map under its 22 px heading, as tall as the card
     let map = vec2((size.y - 22.0) / PITCH_ASPECT, size.y - 22.0);
+    // turned over: the back, as wide as the face and the map unless that is too tall
+    let back_w = (size.x + 10.0 + map.x).min((room.y - BIG_FRAME - BIG_CAPTION) * CARD_ASPECT);
+    let body_h = if back { back_w / CARD_ASPECT } else { size.y };
     let pos = pos2(
         board_left - 16.0,
-        (near.center().y - size.y / 2.0).max(16.0),
+        (near.center().y - size.y / 2.0)
+            .min(screen.bottom() - 16.0 - BIG_FRAME - BIG_CAPTION - body_h)
+            .max(screen.top() + 16.0),
     );
     egui::Area::new(Id::new("board-big"))
         .order(Order::Tooltip)
@@ -1637,9 +1669,9 @@ fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, back: bool, lang:
                     ui.set_max_width(wide);
                     if back {
                         // turned over: the back, as wide as the face and the map
-                        let w = size.x + 10.0 + map.x;
+                        let w = back_w;
                         let (r, _) =
-                            ui.allocate_exact_size(vec2(w, w * 81.0 / 58.0), Sense::hover());
+                            ui.allocate_exact_size(vec2(w, w / CARD_ASPECT), Sense::hover());
                         card_back(ui.painter(), r, card, lang);
                     } else {
                         ui.horizontal_top(|ui| {
@@ -1766,16 +1798,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_square_slot_takes_the_top_of_the_card_face() {
-        // the game's whole 128x128 picture: its face is the left 88 columns
-        let r = face_uv(vec2(128.0, 128.0), 1.0);
-        assert_eq!((r.min, r.max), (pos2(0.0, 0.0), pos2(0.6875, 0.6875)));
-        // the pack's 180x254 scan: all its width, as much height from the top
-        let r = face_uv(vec2(180.0, 254.0), 1.0);
-        assert_eq!((r.min, r.max), (pos2(0.0, 0.0), pos2(1.0, 180.0 / 254.0)));
-        // the face made here (88x128): its top square
-        let r = face_uv(vec2(88.0, 128.0), 1.0);
-        assert!((r.max.y - 88.0 / 128.0).abs() < 1e-6);
+    fn a_card_picture_is_shown_whole() {
+        // the game's whole 128x128 picture: its face, the left 88 columns, all its height
+        let (uv, a) = face_uv(vec2(128.0, 128.0));
+        assert_eq!(
+            (uv.min, uv.max, a),
+            (pos2(0.0, 0.0), pos2(0.6875, 1.0), 0.6875)
+        );
+        // the pack's 180x254 scan: all of it, and the tile has its shape
+        let (uv, a) = face_uv(vec2(180.0, 254.0));
+        assert_eq!(
+            (uv.min, uv.max, a),
+            (pos2(0.0, 0.0), pos2(1.0, 1.0), CARD_ASPECT)
+        );
+        let tile = card_size(400.0);
+        assert!((tile.x / tile.y - CARD_ASPECT).abs() < 0.01, "{tile:?}");
+        // the game's narrower face in a card tile: full height, bars at the sides, nothing cut
+        let r = Rect::from_min_size(pos2(10.0, 20.0), tile);
+        let l = letterbox(r, 0.6875);
+        assert!(r.contains_rect(l) && (l.height() - r.height()).abs() < 1e-3);
+        assert!((l.width() / l.height() - 0.6875).abs() < 1e-4 && l.center() == r.center());
+        // a wider picture: full width, bars above and below
+        let l = letterbox(r, 1.0);
+        assert!((l.width() - r.width()).abs() < 1e-3 && l.height() < r.height());
     }
 
     fn card(n: u32) -> Card {
@@ -1861,6 +1906,91 @@ mod tests {
         assert_eq!(after[..3], before[..]);
         assert_eq!((after[3].slot, after[3].no), (4, 555));
         assert_eq!((after[3].x, after[3].y), (0.0, 0.5));
+    }
+
+    /// Free placement through to the table file: a card dropped anywhere on the pitch keeps that exact place (three
+    /// decimals), a drop past the pitch is clamped to its lines, a bench card and a catalogue card land where dropped,
+    /// a drop onto a card swaps the two, and a card dropped on a bench box takes the box's band.
+    #[test]
+    fn cards_lie_where_they_are_dropped() {
+        use crate::cards::{Placed, table_after, table_text};
+        let pitch = pitch_rect(pos2(100.0, 50.0), 400.0);
+        let lane = pitch.with_min_x(pitch.left() + LABEL_LANE);
+        let at = |x: f32, y: f32| {
+            pos2(
+                lane.left() + x * lane.width(),
+                pitch.top() + y * pitch.height(),
+            )
+        };
+        let pl = |slot, no, x, y| Placed { slot, no, x, y };
+        let before = vec![
+            pl(1, 101, 0.0, 0.9),
+            pl(2, 102, -0.6, 0.55),
+            pl(3, 103, 1.24, 0.34),
+        ];
+        let mut b = crate::cards::board(&before, &[]);
+        // anywhere on the pitch: exactly there
+        assert!(b.move_to(0, spot_at(pitch, at(0.3215, 0.8))));
+        // past the pitch: clamped to the touchline and the far goal line
+        assert!(b.move_to(1, spot_at(pitch, pitch.right_top() + vec2(90.0, -90.0))));
+        let t = table_after(&before, &b);
+        assert_eq!(
+            t,
+            [pl(1, 101, -0.357, 0.6), pl(2, 102, 1.0, -1.0), before[2]]
+        );
+        // the bench card (box 14, band 0.34) onto open pitch: there, not on a 4-4-2 spot
+        assert_eq!(b.slots[14], Some(2));
+        assert!(b.move_to(14, spot_at(pitch, at(0.75, 0.25))));
+        // a catalogue card dropped on open pitch: there too
+        assert!(b.put_free(&card(555), spot_at(pitch, at(0.1, 0.5))));
+        let t = table_after(&before, &b);
+        assert_eq!(t[2], pl(3, 103, 0.5, -0.5));
+        assert_eq!(t[3], pl(4, 555, -0.8, 0.0));
+        assert!(table_text(&t).ends_with("3 103 0.500 -0.500\n4 555 -0.800 0.000\n"));
+        // onto another card: the two trade places
+        let (s103, s555) = (b.slots.iter().position(|&s| s == Some(2)).unwrap(), 3);
+        b.swap(s103, s555);
+        let t2 = table_after(&t, &b);
+        assert_eq!((t2[2].x, t2[2].y, t2[3].x, t2[3].y), (-0.8, 0.0, 0.5, -0.5));
+        // onto the last bench box: that box's band
+        b.swap(0, 15);
+        let t3 = table_after(&t2, &b);
+        assert_eq!((t3[0].x, t3[0].y), (crate::cards::BENCH_X, 0.68));
+    }
+
+    /// The big card is 4x the tile when the window has room, else the most that keeps it, its map and caption inside.
+    #[test]
+    fn the_big_card_is_four_times_the_tile_when_it_fits() {
+        let tile = card_size(400.0);
+        assert_eq!(big_scale(tile, vec2(1200.0, 1400.0)), 4.0);
+        let room = vec2(400.0, 600.0);
+        let k = big_scale(tile, room);
+        assert!(k > 1.0 && k < 4.0, "{k}");
+        let face = tile * k;
+        let need_w = face.x + 10.0 + (face.y - 22.0) / PITCH_ASPECT + BIG_FRAME;
+        let need_h = face.y + BIG_FRAME + BIG_CAPTION;
+        assert!(
+            need_w <= room.x + 0.01 && need_h <= room.y + 0.01,
+            "{need_w} {need_h}"
+        );
+        assert_eq!(big_scale(tile, vec2(10.0, 10.0)), 1.0);
+    }
+
+    /// A card's tile stays on the pitch at any spot, and lies centred on its spot away from the edges.
+    #[test]
+    fn a_card_never_leaves_the_pitch() {
+        let pitch = pitch_rect(pos2(0.0, 0.0), 400.0);
+        for s in [
+            pos2(0.0, 0.0),
+            pos2(1.0, 1.0),
+            pos2(0.0, 1.0),
+            pos2(1.0, 0.0),
+        ] {
+            assert!(pitch.contains_rect(spot_rect(pitch, s)), "{s:?}");
+        }
+        let lane = pitch.with_min_x(LABEL_LANE);
+        let mid = spot_rect(pitch, pos2(0.5, 0.5)).center();
+        assert!((mid - lane.center()).length() < 0.01);
     }
 
     #[test]
