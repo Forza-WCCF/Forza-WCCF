@@ -437,11 +437,13 @@ fn limiter_install(dll_dir: &Path, log: fn(&str)) {
 /// change, the two switch files. The limiter is the same in both editions (`e1718` changes nothing; see
 /// [`limiter_install`]).
 pub fn limiter_start(e1718: bool, dll_dir: &Path, log: fn(&str)) {
-    let _ = e1718;
     if std::env::var_os("WCCFPANEL_LIMITERTEST").is_some_and(|v| !v.is_empty()) {
         limiter_selftest(log);
     }
     limiter_install(dll_dir, log);
+    if e1718 && crate::is_projector() {
+        prj_gate_install(log); // here because both roles call limiter_start and lib.rs is not ours to change
+    }
     let dir = dll_dir.to_path_buf();
     // ponytail: the watcher runs for the process's life, as the C's; the real game never unloads the panel. Only in
     // the game: fakegame's FreeLibrary would leave it running in freed code (its switch files serve the game alone)
@@ -749,6 +751,48 @@ fn qr_notice_hide(log: fn(&str)) {
     }
 }
 
+// The projector's "Now Synchronizing with the Control" screen. After its warning movie, PrjWakeupWarning's update
+// (sub_88B1B0) moves on to the schedule (Prj Advertise) only while the control is in ENTRY (state 1) with more than
+// 20 s of entry left; the control's first ENTRY is over before the projector looks, and the next one is a whole round
+// (up to ~20 min) away. At 0x0088B2B3 eax = the projector scheduler (sub_84FEF0), edi = the control's state byte. The
+// new code goes to the schedule (0x0088B2FE, the original "pass" branch) always; outside ENTRY it first forgets the
+// last entry time (scheduler +0x60/+0x64 = -1, as Advertise's own init does), else the schedule (sub_883E90) would read
+// a stale 0 and restart itself every 2 s. In ENTRY it keeps the live time, so the round goes on as the original does:
+// the schedule waits for the next entry end, then Before Game and the live match. Only relative calls and jumps in the
+// checked bytes, so nothing here moves with the base (the loader's fix-ups nearest are at 0x0088B2CB and 0x0088B2DF).
+const PRJ_GATE: usize = 0x0088_B2A9;
+/// 0x0088B2A9: call sub_84FEF0 / mov ecx,[eax] / movsx edi,byte [ecx] / cmp edi,1 / jnz / push eax / call sub_850210
+/// / test edx,edx / jg pass / jl wait / cmp eax,14h / ja pass.
+const PRJ_GATE_SIG: [u8; 32] = [
+    0xE8, 0x42, 0x4C, 0xFC, 0xFF, 0x8B, 0x08, 0x0F, 0xBE, 0x39, 0x83, 0xFF, 0x01, 0x75, 0x11, 0x50,
+    0xE8, 0x52, 0x4F, 0xFC, 0xFF, 0x85, 0xD2, 0x7F, 0x3C, 0x7C, 0x05, 0x83, 0xF8, 0x14, 0x77, 0x35,
+];
+/// At 0x0088B2B3 (sig byte 10): cmp edi,1 / je pass / mov dword [eax+60h],-1 / mov dword [eax+64h],-1 / jmp pass / nop.
+const PRJ_GATE_NEW: [u8; 22] = [
+    0x83, 0xFF, 0x01, 0x74, 0x46, 0xC7, 0x40, 0x60, 0xFF, 0xFF, 0xFF, 0xFF, 0xC7, 0x40, 0x64, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xEB, 0x36, 0x90,
+];
+/// 0x0088B2FE, the "pass" branch both jumps land on: push 0 / push esi / call (sub_439200, the next sequence).
+const PRJ_PASS_SIG: [u8; 4] = [0x6A, 0x00, 0x56, 0xE8];
+
+/// 2017-18 projector only: it leaves "Now Synchronizing with the Control" on its first look. Called from
+/// `limiter_start`.
+fn prj_gate_install(log: fn(&str)) {
+    let at = PRJ_GATE - BASE_1718 + exe_base();
+    if read::<32>(at) != Some(PRJ_GATE_SIG) || read::<4>(at + 0x55) != Some(PRJ_PASS_SIG) {
+        log(
+            "projector gate: not the code studied - nothing changed (it waits for an entry window)",
+        );
+    } else if !patch_code(at + 10, &PRJ_GATE_NEW) {
+        log("projector gate: code not writable - nothing changed (it waits for an entry window)");
+    } else {
+        log(&format!(
+            "projector gate: sub_88B1B0 at {:08X} -> the schedule after the warning, whatever the control's state - no \"Synchronizing with the Control\" wait",
+            at + 10
+        ));
+    }
+}
+
 /// The C's `free_play_install`: 2010-11 and 2017-18 each at their own addresses.
 pub fn free_play_install(e1718: bool, log: fn(&str)) {
     let nm = exe_name();
@@ -825,6 +869,20 @@ mod tests {
             bad[i] ^= 0xFF;
             assert!(!owed_sig_ok(&bad, true), "byte {i}");
         }
+    }
+
+    #[test]
+    fn projector_gate_lands_on_pass() {
+        // the original's "jg pass" (sig byte 23) and the new je/jmp all reach the same pass branch, sig offset 0x55
+        let jump = |code: &[u8], at: usize| at + 2 + code[at + 1] as usize;
+        assert_eq!(jump(&PRJ_GATE_SIG, 23), 0x55);
+        let mut new = PRJ_GATE_SIG;
+        new[10..].copy_from_slice(&PRJ_GATE_NEW);
+        assert_eq!((new[13], jump(&new, 13)), (0x74, 0x55)); // in ENTRY: straight on
+        assert_eq!((new[29], jump(&new, 29)), (0xEB, 0x55)); // outside: after the two -1s
+        assert_eq!(new[15..19], [0xC7, 0x40, 0x60, 0xFF]); // scheduler +0x60 (entry seconds) and +0x64 (its high half)
+        assert_eq!(new[22..26], [0xC7, 0x40, 0x64, 0xFF]);
+        assert_eq!(new[..10], PRJ_GATE_SIG[..10]); // the call and the state read stay
     }
 
     #[test]
