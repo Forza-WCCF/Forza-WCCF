@@ -21,6 +21,7 @@
 //! pressing them.
 #![cfg(target_arch = "x86")]
 
+mod exe_text;
 mod kit;
 mod money;
 mod net;
@@ -161,6 +162,7 @@ fn init() {
     ms();
     std::thread::sleep(Duration::from_millis(300));
     let files = kit::Files::find(DLL_DIR.get().map_or(Path::new(""), PathBuf::as_path));
+    exe_text::install(files.edition == theme::Edition::E1718, &files.data, log); // seat 1 and the projector
     if is_projector() {
         PROJECTOR.store(true, Relaxed);
         log(&format!(

@@ -18,6 +18,7 @@ egui.workspace = true
 # the kit's layout (its edition) and keys.txt's rules, as the run and the key driver read them
 launcher = { path = "../launcher" }
 serde_json.workspace = true
+sha2.workspace = true # exe_text: the original texts' hashes
 # the frame dump (wccfpanel_frame.bmp, fakegame's `size:`/`copy:` steps)
 image = { version = "0.25.10", default-features = false, features = ["bmp"] }
 windows = { workspace = true, features = [

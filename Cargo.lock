@@ -1613,6 +1613,7 @@ dependencies = [
  "image",
  "launcher",
  "serde_json",
+ "sha2",
  "windows",
 ]
 
