@@ -55,7 +55,7 @@ pub enum Words {
     Status,
     Show,
     Restart,
-    /// Make the card pictures (what SETUP.bat runs after setup).
+    /// Make the card pictures (what the Setup step runs last; also from a console).
     Pictures,
     /// Wrong words: what to say (exit 2).
     Wrong(String),
