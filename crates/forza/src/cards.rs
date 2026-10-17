@@ -39,7 +39,8 @@ pub const BENCH_X: f32 = 1.24;
 pub const BENCH_Y: [f32; 5] = [-0.68, -0.34, 0.0, 0.34, 0.68];
 const ON_BENCH: f32 = 1.16;
 
-/// The 4-4-2 spots a new card takes, with their lines (the C panel's `board_add_locked`, fpr_panel.py's default_spot).
+/// The 4-4-2 spots a card added with no drop point ("+ CARD") takes, with their lines (the C panel's
+/// `board_add_locked`, fpr_panel.py's default_spot). Dropped cards lie where they are dropped.
 const SPOTS_442: [(Position, f32, f32); 11] = [
     (Position::Gk, 0.0, 0.9),
     (Position::Df, -0.6, 0.55),
@@ -225,8 +226,10 @@ pub enum AddRefused {
     NoPlace,
 }
 
-/// A card put where fpr_panel.py would put it: its own line's free 4-4-2 spot, else any line's (DF, MF, FW, GK), else
-/// the first free bench box; with the lowest free slot number. At most 16 cards.
+/// A card added with no drop point, where fpr_panel.py would put it: its own line's free 4-4-2 spot, else any line's
+/// (DF, MF, FW, GK), else the first free bench box; with the lowest free slot number. At most 16 cards. A pitch spot
+/// is free with no pitch card within 0.15 of it (cards lie anywhere, so not only exactly on it); a bench box with no
+/// card on its band.
 pub fn add(cards: &mut Vec<Placed>, no: u32, pos: Position) -> Result<Placed, AddRefused> {
     if cards.iter().any(|c| c.no == no) {
         return Err(AddRefused::AlreadyOn);
@@ -235,9 +238,13 @@ pub fn add(cards: &mut Vec<Placed>, no: u32, pos: Position) -> Result<Placed, Ad
         return Err(AddRefused::Full);
     }
     let taken = |x: f32, y: f32| {
-        cards
-            .iter()
-            .any(|c| (c.x - x).abs() < 0.005 && (c.y - y).abs() < 0.005)
+        cards.iter().any(|c| {
+            if x > ON_BENCH {
+                c.on_bench() && bench_band(c.y) == bench_band(y)
+            } else {
+                !c.on_bench() && (c.x - x).abs() < 0.15 && (c.y - y).abs() < 0.15
+            }
+        })
     };
     let on_field = cards.iter().filter(|c| !c.on_bench()).count();
     let order = [pos, Position::Df, Position::Mf, Position::Fw, Position::Gk];
@@ -304,8 +311,8 @@ fn unknown(no: u32, y: f32) -> Card {
 }
 
 /// The table on the board: `board.cards[i]` is `cards[i]`. Pitch cards fill the pitch slots in the table's order at
-/// their own places; bench cards take their band's box (or the next free one); the empty pitch slots wait on the free
-/// 4-4-2 spots. Cards past what the board holds (more than 11 on the pitch, or 5 on the bench) stay in the table
+/// their own places; bench cards take their band's box (or the next free one); the empty pitch slots (not drawn) keep
+/// the free 4-4-2 spots, for tests that aim at them. Cards past what the board holds (more than 11 on the pitch, or 5 on the bench) stay in the table
 /// without a slot.
 pub fn board(cards: &[Placed], catalogue: &[Card]) -> Board {
     let mut slots = [None; 16];
@@ -678,6 +685,14 @@ mod tests {
         assert_eq!(add(&mut t, 90, Position::Df), Err(AddRefused::Full));
         t.remove(0);
         assert_eq!(add(&mut t, 91, Position::Df), Ok(p(1, 91, 0.0, 0.9)));
+        // a keeper moved a little off its spot still holds it: the next card does not land on top of it
+        let mut t = vec![p(1, 50, 0.05, 0.84), p(2, 51, 1.24, -0.7)];
+        assert_eq!(add(&mut t, 60, Position::Gk), Ok(p(3, 60, -0.6, 0.55)));
+        let mut full: Vec<Placed> = (0..11)
+            .map(|i| p(i + 1, 100 + i as u32, 0.0, 0.0))
+            .collect();
+        full.push(p(12, 200, 1.24, -0.7));
+        assert_eq!(add(&mut full, 60, Position::Gk), Ok(p(13, 60, 1.24, -0.34)));
     }
 
     fn sample() -> Vec<Placed> {
