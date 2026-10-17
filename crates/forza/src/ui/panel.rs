@@ -478,7 +478,7 @@ impl PanelState {
             board,
             links: board::Links::default(),
             cards,
-            hover_delay: 1.0,
+            hover_delay: 0.5,
             tactics: [false; 5],
             online: false,
             ping_ms: 0,

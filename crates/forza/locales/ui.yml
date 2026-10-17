@@ -134,7 +134,7 @@ board.bench: {en: "BENCH", it: "PANCHINA", ja: "ベンチ"}
 board.zone_attack: {en: "ATTACK", it: "ATTACCO", ja: "攻撃"}
 board.zone_centre: {en: "CENTRE", it: "CENTROCAMPO", ja: "中盤"}
 board.zone_defence: {en: "DEFENCE", it: "DIFESA", ja: "守備"}
-board.hint: {en: "Drag a card onto another to swap. Right-click takes it off.", it: "Trascina una carta su un'altra per scambiarle. Clic destro per toglierla.", ja: "カードを別のカードへドラッグで入れ替え。右クリックで外します。"}
+board.hint: {en: "Drop a card anywhere on the pitch; onto another to swap. Right-click takes it off.", it: "Lascia una carta dove vuoi sul campo; su un'altra per scambiarle. Clic destro per toglierla.", ja: "カードはピッチのどこにでも置けます。別のカードに重ねると入れ替え。右クリックで外します。"}
 board.fit_best: {en: "BEST POSITION", it: "POSIZIONE IDEALE", ja: "ベストポジション"}
 board.fit_ok: {en: "FITS", it: "ADATTO", ja: "適性あり"}
 board.fit_out: {en: "OUT OF POSITION", it: "FUORI RUOLO", ja: "ポジション外"}

@@ -29,7 +29,7 @@ pub struct PanelFile {
     pub card_fix: bool,
     /// layout=compact.
     pub compact: bool,
-    /// hover_delay_ms=: 0-5000; missing, not a number or out of range: 1000.
+    /// hover_delay_ms=: 0-5000; missing, not a number or out of range: 500.
     pub hover_ms: u32,
     /// auto_logs=0: no automatic crash report.
     pub auto_logs_off: bool,
@@ -44,7 +44,7 @@ impl Default for PanelFile {
             card: String::new(),
             card_fix: false,
             compact: false,
-            hover_ms: 1000,
+            hover_ms: 500,
             auto_logs_off: false,
         }
     }
@@ -76,7 +76,7 @@ impl PanelFile {
                         .parse::<i64>()
                         .ok()
                         .filter(|v| (0..=5000).contains(v))
-                        .unwrap_or(1000) as u32;
+                        .unwrap_or(500) as u32;
                 }
                 "auto_logs" => f.auto_logs_off = val == "0",
                 _ => {}
@@ -132,7 +132,7 @@ mod tests {
             f.text(false).as_bytes(),
             b"# WCCF 2010-11 kit - written by the SETTINGS panel in seat 1's window, read by Launcher.exe at its next\n\
 # plain start (play.py). english= is a change asked for that start; PLAY takes the line out once it is done.\n\
-play_on=online\nserver=1.2.3.4\nenglish=off\nhover_delay_ms=1000\nauto_logs=0\n"
+play_on=online\nserver=1.2.3.4\nenglish=off\nhover_delay_ms=500\nauto_logs=0\n"
         );
         let all = PanelFile {
             card: "new".into(),
@@ -148,11 +148,11 @@ play_on=online\nserver=1.2.3.4\nenglish=off\nhover_delay_ms=1000\nauto_logs=0\n"
             all.text(false).ends_with("play_on=this_pc\nenglish=it\ncard=new\ncard_fix=bad_endings\nlayout=compact\nhover_delay_ms=2000\n")
         );
         for (line, ms) in [
-            ("", 1000),
+            ("", 500),
             ("hover_delay_ms=5000", 5000),
             ("hover_delay_ms=0", 0),
-            ("hover_delay_ms=5001", 1000),
-            ("hover_delay_ms=abc", 1000),
+            ("hover_delay_ms=5001", 500),
+            ("hover_delay_ms=abc", 500),
         ] {
             assert_eq!(PanelFile::parse(line.as_bytes()).hover_ms, ms, "{line}");
         }
