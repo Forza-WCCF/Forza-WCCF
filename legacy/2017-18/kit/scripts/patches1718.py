@@ -41,12 +41,6 @@ PROJECTOR_PATCHES = [p for p in PATCHES if p[0] in ONLINE_OFFSETS]
 # With ALLNET_AUTH=0 the library never comes up and control never tries the game server (control.c 0x440C80).
 CONTROL_PATCHES = [
     (0x0B67C0, "56e8aaf2ffff", "b801000000c3", "network up (FUN_004B73C0 returns 1)"),
-    # the projector leaves its "Now Synchronizing with the Control" screen (client VA 0x0088B2A9) only while the
-    # control is in ENTRY (state 1) with more than 20 s of entry left. The first ENTRY starts 5 s after control's
-    # state object is made (VA 0x00455B59 cmp eax,5000) once the projector has said INIT, which it does at boot,
-    # long before it can look; the next ENTRY comes a whole round (up to ~20 min) later. Hold the boot state 120 s
-    # instead, so the projector catches the first one. An immediate, not an address: no relocation touches it.
-    (0x054F59, "3d88130000", "3dc0d40100", "first ENTRY not before 120 s after boot (VA 0x00455B59, 5000 -> 120000 ms)"),
 ]
 
 
