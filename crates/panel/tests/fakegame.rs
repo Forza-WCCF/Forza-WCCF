@@ -260,7 +260,7 @@ fn board_and_buttons_with_real_data() {
     };
     let run = |steps: &[String]| run_with(&[], steps);
 
-    // 1. the bench card (slot 11) dragged onto the empty pitch slot 2 (the free 4-4-2 spot -0.2, 0.6)
+    // 1. the bench card (slot 11) dragged onto the pitch where 4-4-2 has a free spot (-0.2, 0.6); it lies where dropped
     let mid = panel::board_slot_center(1440.0, &spots, 11)
         .lerp(panel::board_slot_center(1440.0, &spots, 2), 0.5);
     let said = run(&[
@@ -292,15 +292,34 @@ fn board_and_buttons_with_real_data() {
     }
     let header =
         "# written by the in-game card board (wccfpanel.dll) - read by FPR_Emu.exe (table 0)\n";
+    // free placement: the card lies where it was shown when let go - on the pitch, near the empty 4-4-2 spot
+    let after = fs::read_to_string(&table).unwrap();
+    let l103 = after
+        .lines()
+        .find(|l| l.starts_with("3 103 "))
+        .unwrap_or_else(|| panic!("card 103 is not in the table:\n{after}"))
+        .to_owned();
+    let xy: Vec<f32> = l103
+        .split(' ')
+        .skip(2)
+        .map(|v| v.parse().unwrap())
+        .collect();
+    assert!(
+        (xy[0] + 0.2).abs() < 0.2 && (xy[1] - 0.6).abs() < 0.2,
+        "card 103 landed at {xy:?}, not near -0.2, 0.6"
+    );
     assert_eq!(
-        fs::read_to_string(&table).unwrap(),
-        format!("{header}1 101 0.000 0.900\n2 102 -0.600 0.550\n3 103 -0.200 0.600\n")
+        after,
+        format!("{header}1 101 0.000 0.900\n2 102 -0.600 0.550\n{l103}\n")
     );
     assert_eq!(
         fs::read_to_string(seat.join("fpr_panel_state.json")).unwrap(),
-        "{\n \"placed\": [\n  {\"slot\": 1, \"no\": 101, \"x\": 0.000, \"y\": 0.900},\n  \
-         {\"slot\": 2, \"no\": 102, \"x\": -0.600, \"y\": 0.550},\n  \
-         {\"slot\": 3, \"no\": 103, \"x\": -0.200, \"y\": 0.600}\n ],\n \"mirror\": false\n}\n"
+        format!(
+            "{{\n \"placed\": [\n  {{\"slot\": 1, \"no\": 101, \"x\": 0.000, \"y\": 0.900}},\n  \
+             {{\"slot\": 2, \"no\": 102, \"x\": -0.600, \"y\": 0.550}},\n  \
+             {{\"slot\": 3, \"no\": 103, \"x\": {:.3}, \"y\": {:.3}}}\n ],\n \"mirror\": false\n}}\n",
+            xy[0], xy[1]
+        )
     );
     // card 101's magenta picture on its card (slot 0, the keeper's spot)
     let start_img = image::open(seat.join("start.bmp")).unwrap().to_rgb8();
@@ -357,7 +376,7 @@ fn board_and_buttons_with_real_data() {
     println!("forza_panel.log:\n{log}");
     assert_eq!(
         fs::read_to_string(&table).unwrap(),
-        format!("{header}1 101 0.000 0.900\n3 103 -0.200 0.600\n")
+        format!("{header}1 101 0.000 0.900\n{l103}\n")
     );
     for line in [
         "button SHOOT -> key 0x47",
@@ -400,7 +419,7 @@ fn board_and_buttons_with_real_data() {
     }
     assert_eq!(
         fs::read_to_string(&table).unwrap(),
-        format!("{header}1 101 0.000 0.900\n3 103 -0.200 0.600\n2 102 -0.600 0.550\n")
+        format!("{header}1 101 0.000 0.900\n{l103}\n2 102 -0.600 0.550\n")
     );
 
     // 4. KEYS from the bar: SHOOT's key cell clicked, then H; KEEPER's controller cell clicked, then a (fake)
