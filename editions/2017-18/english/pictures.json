@@ -181,5 +181,32 @@
   {"id": "golden_rank_items", "where": "golden championship entry: prize ranks (the 1st place badge stays)", "sha256": "8F46E6A6A9497FAC8DA32607E3BCF3FE93511E04D539D983CF06783E02DAD674", "files": ["data/sb_data/management/MNG_GoldChampEntry/1213_MNG_Entry_GoldenChampionship_Rankitem.dds"], "style": {"core": "auto", "halo": null},
    "labels": [
     {"box": [68, 6, 116, 21], "en": "2nd-4th"},
-    {"box": [68, 26, 119, 41], "en": "5th-16th"}]}
+    {"box": [68, 26, 119, 41], "en": "5th-16th"}]},
+  {"id": "bgm_pl_base_a", "where": "the match's formation board: small and glowing stat names", "sha256": "EDC44A3378225D90A5DA329C7DB4886317690249568EEB01CC0D950BA544DEE8", "files": ["data/sb_data/client_game/BGM_PlayerListFormation/BGM_PL_Base_a.dds"], "style": {"core": "auto", "halo": [18, 17, 17, 220], "halo_px": 1, "blur": 0.7},
+   "labels": [
+    {"box": [456, 103, 510, 117], "en": "Offence"},
+    {"box": [456, 125, 510, 138], "en": "Technique"},
+    {"box": [456, 146, 510, 160], "en": "Speed"},
+    {"box": [456, 168, 510, 181], "en": "Stamina"},
+    {"box": [456, 189, 510, 203], "en": "Power"},
+    {"box": [456, 210, 510, 224], "en": "Defence"},
+    {"box": [448, 248, 506, 271], "en": "OFFENCE", "core": "auto", "halo": [223, 198, 57, 255], "halo_px": 1, "blur": 2.5, "squeeze": 0.7, "size": 18},
+    {"box": [454, 316, 508, 340], "en": "TECHNIQUE", "core": "auto", "halo": [223, 198, 57, 255], "halo_px": 1, "blur": 2.5, "squeeze": 0.7, "size": 18},
+    {"box": [451, 282, 502, 306], "en": "SPEED", "core": "auto", "halo": [223, 198, 57, 255], "halo_px": 1, "blur": 2.5, "squeeze": 0.7, "size": 18},
+    {"box": [391, 269, 441, 293], "en": "STAMINA", "core": "auto", "halo": [223, 198, 57, 255], "halo_px": 1, "blur": 2.5, "squeeze": 0.7, "size": 18},
+    {"box": [391, 302, 441, 325], "en": "POWER", "core": "auto", "halo": [223, 198, 57, 255], "halo_px": 1, "blur": 2.5, "squeeze": 0.7, "size": 18},
+    {"box": [392, 336, 454, 360], "en": "DEFENCE", "core": "auto", "halo": [223, 198, 57, 255], "halo_px": 1, "blur": 2.5, "squeeze": 0.7, "size": 18}]},
+  {"id": "birthday_ymd", "where": "club making birthday: year / month / day", "sha256": "5C475E61FB45DDA2F4A2AA274B9C6F2FA4A6D5A31275BD2063428B01BF3A6404", "files": ["data/sb_data/club_make/CL_Birthday/CL_B_base_01.dds"], "style": {"core": "dark", "halo": null, "fill": "rows"},
+   "labels": [
+    {"box": [130, 14, 147, 29], "en": "Y"},
+    {"box": [169, 14, 186, 29], "en": "M"},
+    {"box": [208, 14, 224, 29], "en": "D"},
+    {"box": [127, 47, 145, 63], "en": "Y", "core": [240, 240, 240]},
+    {"box": [235, 47, 253, 63], "en": "M", "core": [240, 240, 240]}]},
+  {"id": "birthday_d", "where": "club making birthday: day column", "sha256": "5D1D72E967937114D635B00FA2FD761657C4C4E3E351A9CC7FD129ACD1EA9B1E", "files": ["data/sb_data/club_make/CL_Birthday/CL_B_base_02.dds"], "style": {"core": [240, 240, 240], "halo": null, "fill": "rows"},
+   "labels": [
+    {"box": [91, 47, 107, 63], "en": "D"}]},
+  {"id": "rotate_button", "where": "uniform edit: the rotate button", "sha256": "2718E96CF3EBB0EF3C4C84931F10BA09DEF0A3087A1C9DF218A7D8763AB8A122", "files": ["data/sb_data/club_make/CL_UniformEdit/0809_CL_rotate_button.dds"], "style": {"core": "auto", "halo": null},
+   "labels": [
+    {"box": [0, 16, 31, 30], "en": "Turn"}]}
  ]}
