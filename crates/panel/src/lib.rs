@@ -441,6 +441,25 @@ fn close_allowed() -> bool {
     false
 }
 
+/// The screen's dpi as this process sees it: the real one when the game runs DPI-aware (the Launcher starts it with
+/// `__COMPAT_LAYER=HighDpiAware`), 96 when Windows stretches it. Asked once: a system-aware process keeps the dpi it
+/// started with (no WM_DPICHANGED), so a change of the scaling takes a new start.
+fn screen_dpi() -> i32 {
+    static DPI: OnceLock<i32> = OnceLock::new();
+    *DPI.get_or_init(|| {
+        use windows::Win32::Graphics::Gdi::{GetDC, GetDeviceCaps, LOGPIXELSY, ReleaseDC};
+        // SAFETY: the screen's device context, given back at once
+        let dpi = unsafe {
+            let dc = GetDC(None);
+            let dpi = GetDeviceCaps(Some(dc), LOGPIXELSY);
+            ReleaseDC(None, dc);
+            dpi
+        };
+        log(&format!("screen: {dpi} dpi"));
+        if dpi > 0 { dpi } else { 96 }
+    })
+}
+
 /// WCCFPANEL_FS_RECT=x,y,w,h (tests): a pretend screen off every real monitor.
 fn test_screen() -> Option<RECT> {
     let v = std::env::var("WCCFPANEL_FS_RECT").ok()?;
@@ -1081,8 +1100,9 @@ impl Render {
     }
 
     unsafe fn paint(&mut self, dev: &IDirect3DDevice9, w: u32, h: u32) -> bool {
-        // 1 point a pixel from 1440x900 up (a bigger window, a bigger sheet), 2 from 4K, scaled down below (forza::ui::panel)
-        let ppp = panel::scale(w as f32, h as f32);
+        // 1 point a pixel from 1440x900 up (a bigger window, a bigger sheet), 2 from 4K, the monitor's scaling when
+        // Windows scales it (125% = 1.25), scaled down below 1440x900 (forza::ui::panel)
+        let ppp = panel::scale(w as f32, h as f32, screen_dpi() as f32);
         SCALE.store(ppp.to_bits(), Relaxed);
         let mut raw = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
