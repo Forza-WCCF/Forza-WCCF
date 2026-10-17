@@ -254,9 +254,29 @@ pub fn english_change(panel: &str, language: &str) -> Option<&'static str> {
     (want != language).then_some(want)
 }
 
+/// The `__COMPAT_LAYER` a game program starts with: `existing` (the Launcher's own, if any) plus `HighDpiAware`.  The
+/// game programs declare no DPI awareness, so on a screen scaled above 100% Windows draws them at a lower size and
+/// stretches the picture (and the panel on it) blurry; this per-process compatibility layer makes Windows give them
+/// real pixels instead.  Nothing on the host changes: it is an environment variable of the child alone.
+pub fn compat_layer(existing: Option<&str>) -> String {
+    let mut layers: Vec<&str> = existing.unwrap_or_default().split_whitespace().collect();
+    if !layers.iter().any(|l| l.eq_ignore_ascii_case("HighDpiAware")) {
+        layers.push("HighDpiAware");
+    }
+    layers.join(" ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn game_programs_are_dpi_aware() {
+        assert_eq!(compat_layer(None), "HighDpiAware");
+        assert_eq!(compat_layer(Some("")), "HighDpiAware");
+        assert_eq!(compat_layer(Some("~ RUNASADMIN")), "~ RUNASADMIN HighDpiAware");
+        assert_eq!(compat_layer(Some("highdpiaware")), "highdpiaware");
+    }
 
     #[test]
     fn online_1718_is_refused() {
