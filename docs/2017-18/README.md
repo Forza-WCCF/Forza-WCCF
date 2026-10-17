@@ -14,7 +14,7 @@ is in progress. See [docs/PROGRESS.md](docs/PROGRESS.md) and [docs/TASKS.md](doc
 
 | Path | What |
 |---|---|
-| `kit/` | `scripts/` (setup, English, cards: Python until step 11), `SETUP.bat`, `ENGLISH.bat`; the run is `Launcher.exe` (`crates/launcher`, `Edition::E1718`), which `cargo xtask build` copies into the staged kit |
+| `kit/` | `scripts/` (setup, English, cards: Python until step 11), no `.bat` (a console); the run is `Launcher.exe` (`crates/launcher`, `Edition::E1718`), which `cargo xtask build` copies into the staged kit |
 | `tools/setup1718.py`, `patches1718.py` | build the runtime: guarded imports, seat 1 exe patches, controller patch (every original byte checked) |
 | `tools/restart.sh`, `press.sh` (`cargo xtask cap`) | WSL helpers: restart the stack, tap cabinet buttons, capture game windows |
 | `tools/netguard/` | `wccfnet.dll` / `netguard.dll` (+ sources): stub the IP-helper calls that drop the host's DHCP lease |
