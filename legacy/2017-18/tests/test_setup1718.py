@@ -50,6 +50,11 @@ for off, old, _, _ in P.PROJECTOR_PATCHES:
     buf[off:off + len(old) // 2] = bytes.fromhex(old)
 out = P.apply(bytes(buf), P.PROJECTOR_PATCHES)
 assert sum(a != b for a, b in zip(buf, out)) == 10 and out[0x877B70:0x877B76].hex() == "b801000000c3"
+ctl = bytearray(0x100000)                                  # the control: network up, and the first ENTRY held 120 s
+for off, old, _, _ in P.CONTROL_PATCHES:
+    ctl[off:off + len(old) // 2] = bytes.fromhex(old)
+out = P.apply(bytes(ctl), P.CONTROL_PATCHES)
+assert int.from_bytes(out[0x054F5A:0x054F5E], "little") == 120000 and out[0x054F59] == 0x3D
 assert S.find_game(os.path.join(os.sep, "no", "such")) is None
 print("2017-18 setup: unknown programs refused, originals kept and reused, settings merged%s"
       % (", junction made" if sys.platform == "win32" else ""))
