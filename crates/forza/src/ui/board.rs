@@ -242,18 +242,20 @@ pub fn set_picture_dir(ctx: &egui::Context, dir: Option<std::path::PathBuf>) {
     ctx.data_mut(|d| d.insert_temp(Id::new("card-pictures"), dir));
 }
 
-/// The part of a card picture of `size` that fills a slot of `aspect` (width / height): the card face (a square
-/// picture is the game's whole 128x128 one, its face the left 88 columns), cut to the slot's shape from the top, where
-/// the player is.
-fn face_uv(size: Vec2, aspect: f32) -> Rect {
+/// The card face in a picture of `size`, whole (never cut): a square picture is the game's 128x128 one, its face
+/// the left 88 columns; any other is the face itself (the pack's scans). Returns its uv part and its aspect.
+fn face_uv(size: Vec2) -> (Rect, f32) {
     let fw = if size.x == size.y { 88.0 / 128.0 } else { 1.0 };
-    let face = vec2(size.x * fw, size.y);
-    if face.x / face.y > aspect {
-        let w = face.y * aspect / size.x;
-        Rect::from_min_max(pos2((fw - w) / 2.0, 0.0), pos2((fw + w) / 2.0, 1.0))
-    } else {
-        Rect::from_min_max(pos2(0.0, 0.0), pos2(fw, face.x / aspect / size.y))
-    }
+    (
+        Rect::from_min_max(Pos2::ZERO, pos2(fw, 1.0)),
+        size.x * fw / size.y,
+    )
+}
+
+/// The largest rect of `aspect` (width / height) centred in `r`: the whole picture, with bars where shapes differ.
+fn letterbox(r: Rect, aspect: f32) -> Rect {
+    let w = r.width().min(r.height() * aspect);
+    Rect::from_center_size(r.center(), vec2(w, w / aspect))
 }
 
 fn picture_dir(ctx: &egui::Context) -> Option<std::path::PathBuf> {
@@ -326,8 +328,8 @@ pub fn real<'a>(ctx: &egui::Context, card: &'a Card) -> std::borrow::Cow<'a, Car
     std::borrow::Cow::Owned(c)
 }
 
-/// The card's picture in `r`; the stand-in while it loads, when the file is missing, or with no folder set.
-fn card_picture(p: &Painter, r: Rect, card: &Card, rim: Color32, alpha: f32) {
+/// The drawn stand-in for a card with no picture (still loading, no file, or no folder set).
+fn card_picture(p: &Painter, r: Rect, rim: Color32, alpha: f32) {
     gradient(
         p,
         r,
@@ -336,17 +338,6 @@ fn card_picture(p: &Painter, r: Rect, card: &Card, rim: Color32, alpha: f32) {
         theme::DEEP.gamma_multiply(alpha),
         true,
     );
-    if let Some(dir) = picture_dir(p.ctx())
-        && let Some((id, size)) = load_picture(p.ctx(), &dir, card.number, "png")
-    {
-        p.image(
-            id,
-            r,
-            face_uv(size, r.aspect_ratio()),
-            Color32::WHITE.gamma_multiply(alpha),
-        );
-        return;
-    }
     // the stand-in: a neutral head-and-shoulders silhouette, plainly not a photo
     let col = rim
         .lerp_to_gamma(theme::RAISED_HI, 0.55)
@@ -398,8 +389,10 @@ pub struct Look {
     pub selected: bool,
 }
 
-/// The card face, upright 58:81: the position band with TOTAL, the player's picture, the name on its foot; large ones
-/// add the club and the season. The picture comes from the folder [`set_picture_dir`] names, else a drawn stand-in.
+/// The card face, upright at the real card's shape ([`CARD_ASPECT`]): the card's picture whole, never cut (the pack's
+/// scan `<number>.jpg`, else the game's face `<number>.png`, letterboxed on a dark ground when its shape differs),
+/// from the folder [`set_picture_dir`] names; else a drawn face: the position band with TOTAL, a stand-in, the name on
+/// its foot, and on large ones the club and the season.
 pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
     let card = &*real(p.ctx(), card);
     let big = rect.width() >= 90.0;
@@ -424,14 +417,17 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
         p.add(s.as_shape(rect, r));
     }
     let rim = card.rarity.rim();
-    // the pack's scan is the whole card face: its own band, picture, name and numbers
+    // a picture is the whole card face (its own band, photo, name and numbers): shown whole
     if let Some(dir) = picture_dir(p.ctx())
-        && let Some((id, _)) = load_picture(p.ctx(), &dir, card.number, "jpg")
+        && let Some((id, size)) = load_picture(p.ctx(), &dir, card.number, "jpg")
+            .or_else(|| load_picture(p.ctx(), &dir, card.number, "png"))
     {
+        let (uv, aspect) = face_uv(size);
+        p.rect_filled(rect, r, theme::DEEP.gamma_multiply(alpha));
         p.image(
             id,
-            rect,
-            Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)),
+            letterbox(rect, aspect),
+            uv,
             Color32::WHITE.gamma_multiply(alpha),
         );
         face_marks(p, rect, r, card, rim, alpha, look);
@@ -484,7 +480,7 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
         band.left_bottom() + vec2(inset, inset * 0.7),
         vec2(side, side),
     );
-    card_picture(p, pic, card, rim, alpha);
+    card_picture(p, pic, rim, alpha);
     // a scrim under the name, so it reads on any picture
     let scrim = pic.with_min_y(pic.bottom() - pic.height() * 0.38);
     gradient(
@@ -773,8 +769,10 @@ fn zone(y: f32) -> Position {
     }
 }
 
+/// A card's width over its height: the pack's scans (180x254, the printed card's shape; a 63x88 mm card is 0.716).
+pub const CARD_ASPECT: f32 = 180.0 / 254.0;
 /// The catalogue's and the widget sheet's card size; the board scales its cards with the pitch ([`card_size`]).
-pub const CARD_SMALL: egui::Vec2 = egui::vec2(50.0, 70.0);
+pub const CARD_SMALL: egui::Vec2 = egui::vec2(50.0, 50.0 / CARD_ASPECT);
 /// The pitch is this many times as tall as it is wide.
 pub const PITCH_ASPECT: f32 = 1.25;
 /// The strip down the pitch's left edge that holds the zone names; no card reaches into it.
@@ -782,10 +780,10 @@ const LABEL_LANE: f32 = 26.0;
 /// The bench's cards against the pitch's.
 const BENCH_SCALE: f32 = 0.8;
 
-/// A pitch card for a pitch this wide: 58:81, about a seventh of the width.
+/// A pitch card for a pitch this wide: the card's shape ([`CARD_ASPECT`]), about a seventh of the width.
 pub fn card_size(pitch_w: f32) -> egui::Vec2 {
     let w = (pitch_w * 0.145).round();
-    vec2(w, (w * 1.4).round())
+    vec2(w, (w / CARD_ASPECT).round())
 }
 
 /// Where a pitch card sits: centred on its spot across the pitch right of the zone names, pushed back inside when its
@@ -1651,7 +1649,7 @@ fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, back: bool, lang:
                         // turned over: the back, as wide as the face and the map
                         let w = size.x + 10.0 + map.x;
                         let (r, _) =
-                            ui.allocate_exact_size(vec2(w, w * 81.0 / 58.0), Sense::hover());
+                            ui.allocate_exact_size(vec2(w, w / CARD_ASPECT), Sense::hover());
                         card_back(ui.painter(), r, card, lang);
                     } else {
                         ui.horizontal_top(|ui| {
@@ -1778,16 +1776,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_square_slot_takes_the_top_of_the_card_face() {
-        // the game's whole 128x128 picture: its face is the left 88 columns
-        let r = face_uv(vec2(128.0, 128.0), 1.0);
-        assert_eq!((r.min, r.max), (pos2(0.0, 0.0), pos2(0.6875, 0.6875)));
-        // the pack's 180x254 scan: all its width, as much height from the top
-        let r = face_uv(vec2(180.0, 254.0), 1.0);
-        assert_eq!((r.min, r.max), (pos2(0.0, 0.0), pos2(1.0, 180.0 / 254.0)));
-        // the face made here (88x128): its top square
-        let r = face_uv(vec2(88.0, 128.0), 1.0);
-        assert!((r.max.y - 88.0 / 128.0).abs() < 1e-6);
+    fn a_card_picture_is_shown_whole() {
+        // the game's whole 128x128 picture: its face, the left 88 columns, all its height
+        let (uv, a) = face_uv(vec2(128.0, 128.0));
+        assert_eq!(
+            (uv.min, uv.max, a),
+            (pos2(0.0, 0.0), pos2(0.6875, 1.0), 0.6875)
+        );
+        // the pack's 180x254 scan: all of it, and the tile has its shape
+        let (uv, a) = face_uv(vec2(180.0, 254.0));
+        assert_eq!(
+            (uv.min, uv.max, a),
+            (pos2(0.0, 0.0), pos2(1.0, 1.0), CARD_ASPECT)
+        );
+        let tile = card_size(400.0);
+        assert!((tile.x / tile.y - CARD_ASPECT).abs() < 0.01, "{tile:?}");
+        // the game's narrower face in a card tile: full height, bars at the sides, nothing cut
+        let r = Rect::from_min_size(pos2(10.0, 20.0), tile);
+        let l = letterbox(r, 0.6875);
+        assert!(r.contains_rect(l) && (l.height() - r.height()).abs() < 1e-3);
+        assert!((l.width() / l.height() - 0.6875).abs() < 1e-4 && l.center() == r.center());
+        // a wider picture: full width, bars above and below
+        let l = letterbox(r, 1.0);
+        assert!((l.width() - r.width()).abs() < 1e-3 && l.height() < r.height());
     }
 
     fn card(n: u32) -> Card {
