@@ -78,37 +78,13 @@ pub fn layout(sheet: Rect, compact: bool) -> Layout {
     }
 }
 
-/// Where the projector's frame (`size` pixels) goes in `area` (the board's strip), as (screen rect, texture uv) pairs.
-/// A frame twice as wide as tall or more is the two projector screens side by side: the left one on top, the right
-/// one under it, each as large as fits, centred. Anything else is one picture.
-pub fn projector_view(area: Rect, size: egui::Vec2) -> Vec<(Rect, Rect)> {
-    let halves = size.x >= 2.0 * size.y;
-    let (n, aspect) = if halves {
-        (2.0, size.x / 2.0 / size.y)
-    } else {
-        (1.0, size.x / size.y.max(1.0))
-    };
-    let w = area.width().min(area.height() / n * aspect);
-    let h = w / aspect;
-    let top = area.center().y - h * n / 2.0;
-    let uvs: &[Rect] = if halves {
-        &[
-            Rect::from_min_max(pos2(0.0, 0.0), pos2(0.5, 1.0)),
-            Rect::from_min_max(pos2(0.5, 0.0), pos2(1.0, 1.0)),
-        ]
-    } else {
-        &[Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0))]
-    };
-    uvs.iter()
-        .enumerate()
-        .map(|(i, uv)| {
-            let r = Rect::from_min_size(
-                pos2(area.center().x - w / 2.0, top + h * i as f32),
-                vec2(w, h),
-            );
-            (r, *uv)
-        })
-        .collect()
+/// Where the projector's frame (`size` pixels: its two screens side by side, 1600x600) goes in `area` (the board's
+/// strip): as it is, scaled down to the strip's width (never up), centred.
+pub fn projector_view(area: Rect, size: egui::Vec2) -> Rect {
+    let s = (area.width() / size.x.max(1.0))
+        .min(area.height() / size.y.max(1.0))
+        .min(1.0);
+    Rect::from_center_size(area.center(), size * s)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1308,10 +1284,10 @@ fn projector_strip(ui: &mut Ui, frame: Option<(egui::TextureId, egui::Vec2)>, la
     let p = ui.painter();
     match frame {
         Some((tex, size)) => {
-            for (r, uv) in projector_view(area, size) {
-                p.image(tex, r, uv, Color32::WHITE);
-                p.rect_stroke(r, 0, Stroke::new(1.0, theme::RIM), StrokeKind::Outside);
-            }
+            let r = projector_view(area, size);
+            let uv = Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0));
+            p.image(tex, r, uv, Color32::WHITE);
+            p.rect_stroke(r, 0, Stroke::new(1.0, theme::RIM), StrokeKind::Outside);
         }
         None => {
             for (i, (key, font, col)) in [
@@ -3191,39 +3167,19 @@ mod tests {
             (2560.0, 1440.0),
             (3440.0, 1440.0),
         ] {
-            let l = layout(sheet_of(w, h), false);
-            let area = l.board.shrink(16.0);
-            // the projector's 1600x600: two 4:3 screens, stacked, inside the strip, as wide as it allows
-            let v = projector_view(area, vec2(1600.0, 600.0));
-            assert_eq!(v.len(), 2);
-            for (r, uv) in &v {
-                assert!(area.expand(0.01).contains_rect(*r), "{w}x{h}: {r:?}");
-                assert!((r.width() / r.height() - 4.0 / 3.0).abs() < 1e-3);
-                assert_eq!(uv.width(), 0.5);
-            }
-            assert!((v[0].0.bottom() - v[1].0.top()).abs() < 0.01);
-            assert_eq!(v[0].1.left(), 0.0);
-            assert!(
-                (v[0].0.width() - area.width()).abs() < 0.01
-                    || (v[1].0.bottom() - v[0].0.top() - area.height()).abs() < 0.01
-            );
+            let area = layout(sheet_of(w, h), false).board.shrink(16.0);
+            // the projector's 1600x600 as it is: both screens side by side, 8:3, the strip's width, centred
+            let r = projector_view(area, vec2(1600.0, 600.0));
+            assert!(area.expand(0.01).contains_rect(r), "{w}x{h}: {r:?}");
+            assert!((r.width() / r.height() - 8.0 / 3.0).abs() < 1e-3);
+            assert!((r.width() - area.width()).abs() < 0.01);
+            assert!((r.center().y - area.center().y).abs() < 0.01);
         }
-        // at 2560x1440 each screen is 800x600
-        let l = layout(sheet_of(2560.0, 1440.0), false);
+        // never scaled up: the 800x300 copy in an 800-wide strip at 2560x1440
+        let area = layout(sheet_of(2560.0, 1440.0), false).board.shrink(16.0);
         assert_eq!(
-            projector_view(l.board.shrink(16.0), vec2(800.0, 300.0))[0]
-                .0
-                .size(),
-            vec2(800.0, 600.0)
-        );
-        // a single screen: one picture
-        assert_eq!(
-            projector_view(
-                Rect::from_min_size(Pos2::ZERO, vec2(400.0, 900.0)),
-                vec2(800.0, 600.0)
-            )
-            .len(),
-            1
+            projector_view(area, vec2(800.0, 300.0)).size(),
+            vec2(800.0, 300.0)
         );
     }
 
