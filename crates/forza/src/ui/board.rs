@@ -1127,7 +1127,8 @@ pub fn formation_board(
                 *f == Some(slot)
             });
             if left <= 0.0 || back {
-                big_card(ui, &board.cards[ci], rect, ui.max_rect().left(), back, lang);
+                let left = ui.max_rect().left();
+                big_card(ui, &board.cards[ci], rect, left, card, back, lang);
                 shown_big = Some(ci);
             } else {
                 ui.ctx()
@@ -1614,16 +1615,37 @@ pub fn card_back(p: &Painter, rect: Rect, card: &Card, lang: Lang) {
     );
 }
 
-/// The big card beside the board with its caption: a card at 2.6x and its line of facts, and the card back's
-/// suitable positions beside it.
-fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, back: bool, lang: Lang) {
+/// Room around the big card's face: the frame's margins, and its caption under it (name, facts, roles, stats).
+const BIG_FRAME: f32 = 22.0;
+const BIG_CAPTION: f32 = 150.0;
+
+/// How much the big card enlarges a `tile`: 4x, or the most that keeps the face, the position map beside it and the
+/// caption inside `room` (the space left of the board, the window's height); never under 1x.
+fn big_scale(tile: Vec2, room: Vec2) -> f32 {
+    // the face k * tile, 10 apart the map (k * tile.y - 22) / PITCH_ASPECT wide, the frame round them
+    let by_w = (room.x - BIG_FRAME - 10.0 + 22.0 / PITCH_ASPECT) / (tile.x + tile.y / PITCH_ASPECT);
+    let by_h = (room.y - BIG_FRAME - BIG_CAPTION) / tile.y;
+    by_w.min(by_h).clamp(1.0, 4.0)
+}
+
+/// The big card beside the board, kept inside the window, with its caption: the whole card face at 4x the board's
+/// `tile` (less when the window is too small, [`big_scale`]), the card back's suitable positions beside it, and its
+/// line of facts.
+fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, tile: Vec2, back: bool, lang: Lang) {
     let card = &*real(ui.ctx(), card);
-    let size = CARD_SMALL * 2.6;
+    let screen = ui.ctx().content_rect();
+    let room = vec2(board_left - 32.0 - screen.left(), screen.height() - 32.0);
+    let size = tile * big_scale(tile, room);
     // the map under its 22 px heading, as tall as the card
     let map = vec2((size.y - 22.0) / PITCH_ASPECT, size.y - 22.0);
+    // turned over: the back, as wide as the face and the map unless that is too tall
+    let back_w = (size.x + 10.0 + map.x).min((room.y - BIG_FRAME - BIG_CAPTION) * CARD_ASPECT);
+    let body_h = if back { back_w / CARD_ASPECT } else { size.y };
     let pos = pos2(
         board_left - 16.0,
-        (near.center().y - size.y / 2.0).max(16.0),
+        (near.center().y - size.y / 2.0)
+            .min(screen.bottom() - 16.0 - BIG_FRAME - BIG_CAPTION - body_h)
+            .max(screen.top() + 16.0),
     );
     egui::Area::new(Id::new("board-big"))
         .order(Order::Tooltip)
@@ -1647,7 +1669,7 @@ fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, back: bool, lang:
                     ui.set_max_width(wide);
                     if back {
                         // turned over: the back, as wide as the face and the map
-                        let w = size.x + 10.0 + map.x;
+                        let w = back_w;
                         let (r, _) =
                             ui.allocate_exact_size(vec2(w, w / CARD_ASPECT), Sense::hover());
                         card_back(ui.painter(), r, card, lang);
@@ -1934,6 +1956,24 @@ mod tests {
         b.swap(0, 15);
         let t3 = table_after(&t2, &b);
         assert_eq!((t3[0].x, t3[0].y), (crate::cards::BENCH_X, 0.68));
+    }
+
+    /// The big card is 4x the tile when the window has room, else the most that keeps it, its map and caption inside.
+    #[test]
+    fn the_big_card_is_four_times_the_tile_when_it_fits() {
+        let tile = card_size(400.0);
+        assert_eq!(big_scale(tile, vec2(1200.0, 1400.0)), 4.0);
+        let room = vec2(400.0, 600.0);
+        let k = big_scale(tile, room);
+        assert!(k > 1.0 && k < 4.0, "{k}");
+        let face = tile * k;
+        let need_w = face.x + 10.0 + (face.y - 22.0) / PITCH_ASPECT + BIG_FRAME;
+        let need_h = face.y + BIG_FRAME + BIG_CAPTION;
+        assert!(
+            need_w <= room.x + 0.01 && need_h <= room.y + 0.01,
+            "{need_w} {need_h}"
+        );
+        assert_eq!(big_scale(tile, vec2(10.0, 10.0)), 1.0);
     }
 
     /// A card's tile stays on the pitch at any spot, and lies centred on its spot away from the edges.
