@@ -32,4 +32,8 @@
  "secretary_skills": ["Individuale", "Speciale"],
  "stat_up_tag": ["Abilità"],
  "stadium_repair": ["Velocità palla", "Res. infortuni", "Veloce", "Lenta", "Alta", "Bassa"],
- "golden_rank_items": ["2°-4°", "5°-16°"]}
+ "golden_rank_items": ["2°-4°", "5°-16°"],
+ "bgm_pl_base_a": ["Attacco", "Tecnica", "Velocità", "Resistenza", "Potenza", "Difesa", "ATTACCO", "TECNICA", "VELOCITÀ", "RESISTENZA", "POTENZA", "DIFESA"],
+ "birthday_ymd": ["A", "M", "G", "A", "M"],
+ "birthday_d": ["G"],
+ "rotate_button": ["Ruota"]}
