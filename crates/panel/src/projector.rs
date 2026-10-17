@@ -349,22 +349,55 @@ pub fn fit(w: u32, h: u32) -> (u32, u32) {
     )
 }
 
-/// The projector's window off the player's screen while seat 1 shows its picture: moved left of every monitor, out of
-/// the taskbar and Alt+Tab, still shown (never minimized: the game keeps presenting), and put back as it was once
-/// seat 1's heartbeat stops. Left alone when seat 1's window is on another monitor (a real second screen), and with
+/// The projector's window off the player's screen while seat 1 runs: moved left of every monitor, out of the taskbar
+/// and Alt+Tab, still shown (never minimized: the game keeps presenting). It goes away once seat 1's heartbeat first
+/// names seat 1's window and stays away while that window exists (seat 1 does not draw, so does not beat, while it
+/// loads); it comes back only when that window is gone, and only a new seat 1 window (a cabinet restart) sends it
+/// away again. Left alone when seat 1's window is on another monitor (a real second screen), and with
 /// WCCFPANEL_PROJECTOR_WINDOW=keep.
 pub struct Hider {
     wnd: HWND,
-    /// Where it was and its extended style, while moved away.
-    saved: Option<(RECT, isize)>,
+    /// While moved away: seat 1's window and process, where the window was and its extended style.
+    saved: Option<(isize, u32, RECT, isize)>,
+    /// The seat 1 window already decided on (put back after it went, or left on its own monitor).
+    done: Option<isize>,
+}
+
+#[derive(Debug, PartialEq)]
+enum Act {
+    Hide(isize),
+    Restore,
+    Stay,
+}
+
+/// The decision: `away_for` the seat window the projector window is away for, `alive` whether it still exists,
+/// `fresh` the window a fresh heartbeat names, `done` the one already decided on.
+fn act(away_for: Option<isize>, alive: bool, fresh: Option<isize>, done: Option<isize>) -> Act {
+    match (away_for, fresh) {
+        (Some(_), _) if !alive => Act::Restore,
+        (Some(_), _) => Act::Stay,
+        (None, Some(s)) if Some(s) != done => Act::Hide(s),
+        _ => Act::Stay,
+    }
+}
+
+fn pid_of(h: HWND) -> u32 {
+    let mut pid = 0;
+    // SAFETY: a plain window query
+    unsafe { GetWindowThreadProcessId(h, Some(&mut pid)) };
+    pid
 }
 
 impl Hider {
     pub fn new(wnd: HWND) -> Hider {
-        Hider { wnd, saved: None }
+        Hider {
+            wnd,
+            saved: None,
+            done: None,
+        }
     }
 
-    /// One look (every half second): hide or put back.
+    /// One look (every half second): `seat` is the window a fresh heartbeat names.
     pub fn tick(&mut self, seat: Option<HWND>, log: fn(&str)) {
         let mut r = RECT::default();
         // SAFETY: window queries and changes on a window of this process; the async forms never wait for its thread
@@ -372,16 +405,28 @@ impl Hider {
             if GetWindowRect(self.wnd, &mut r).is_err() {
                 return;
             }
-            let home = self.saved.map_or(r, |s| s.0);
-            let want = seat.is_some_and(|s| {
-                MonitorFromWindow(s, MONITOR_DEFAULTTONEAREST)
-                    == MonitorFromRect(&home, MONITOR_DEFAULTTONEAREST)
+            let alive = self.saved.is_some_and(|(s, pid, ..)| {
+                let h = HWND(s as *mut _);
+                IsWindow(Some(h)).as_bool() && pid_of(h) == pid
             });
             let away_x = GetSystemMetrics(SM_XVIRTUALSCREEN) - (r.right - r.left) - 64;
-            match (want, self.saved) {
-                (true, None) => {
+            match act(
+                self.saved.map(|s| s.0),
+                alive,
+                seat.map(|h| h.0 as isize),
+                self.done,
+            ) {
+                Act::Hide(s) => {
+                    let h = HWND(s as *mut _);
+                    if MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST)
+                        != MonitorFromRect(&r, MONITOR_DEFAULTTONEAREST)
+                    {
+                        self.done = Some(s);
+                        log("projector: window left where it is - seat 1 is on another monitor");
+                        return;
+                    }
                     let ex = GetWindowLongPtrW(self.wnd, GWL_EXSTYLE) as isize;
-                    self.saved = Some((r, ex));
+                    self.saved = Some((s, pid_of(h), r, ex));
                     let _ = ShowWindowAsync(self.wnd, SW_HIDE); // the taskbar sees a style change on show only
                     SetWindowLongPtrW(
                         self.wnd,
@@ -391,23 +436,28 @@ impl Hider {
                     self.place(away_x, r.top);
                     let _ = ShowWindowAsync(self.wnd, SW_SHOWNOACTIVATE);
                     log(&format!(
-                        "projector: window moved off-screen (x {away_x}, was {},{}) - seat 1 shows its picture",
+                        "projector: window moved off-screen (x {away_x}, was {},{}), out of the taskbar, while seat 1's \
+                         window {s:#x} exists",
                         r.left, r.top
                     ));
                 }
-                // the game put it back by itself: away again
-                (true, Some(_)) if r.right > GetSystemMetrics(SM_XVIRTUALSCREEN) => {
+                // the game put it back by itself: away again, quietly
+                Act::Stay
+                    if self.saved.is_some() && r.right > GetSystemMetrics(SM_XVIRTUALSCREEN) =>
+                {
                     self.place(away_x, r.top)
                 }
-                (false, Some((old, ex))) => {
-                    self.saved = None;
-                    let _ = ShowWindowAsync(self.wnd, SW_HIDE);
-                    SetWindowLongPtrW(self.wnd, GWL_EXSTYLE, ex as _);
-                    self.place(old.left, old.top);
-                    let _ = ShowWindowAsync(self.wnd, SW_SHOWNOACTIVATE);
-                    log("projector: window back on screen - seat 1 no longer shows its picture");
+                Act::Restore => {
+                    if let Some((s, _, old, ex)) = self.saved.take() {
+                        self.done = Some(s);
+                        let _ = ShowWindowAsync(self.wnd, SW_HIDE);
+                        SetWindowLongPtrW(self.wnd, GWL_EXSTYLE, ex as _);
+                        self.place(old.left, old.top);
+                        let _ = ShowWindowAsync(self.wnd, SW_SHOWNOACTIVATE);
+                        log("projector: window back on screen - seat 1's window is gone");
+                    }
                 }
-                _ => {}
+                Act::Stay => {}
             }
         }
     }
@@ -431,6 +481,19 @@ impl Hider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hider_never_flaps() {
+        // away once a heartbeat names seat 1's window; a stale heartbeat (seat 1 loading) changes nothing
+        assert_eq!(act(None, false, Some(7), None), Act::Hide(7));
+        assert_eq!(act(Some(7), true, None, None), Act::Stay);
+        // back only when that window is gone; the same window never sends it away again
+        assert_eq!(act(Some(7), false, Some(7), None), Act::Restore);
+        assert_eq!(act(None, false, Some(7), Some(7)), Act::Stay);
+        // a new seat 1 window (a cabinet restart) does
+        assert_eq!(act(None, false, Some(9), Some(7)), Act::Hide(9));
+        assert_eq!(act(None, false, None, None), Act::Stay);
+    }
 
     #[test]
     fn round_trip() {

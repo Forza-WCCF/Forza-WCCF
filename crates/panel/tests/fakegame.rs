@@ -340,7 +340,7 @@ fn board_and_buttons_with_real_data() {
     let deck = panel::layout(sheet, false).deck;
     let shoot = panel::deck_layout(deck.with_min_y(deck.top() + 54.0)) // the deck under its message line, as show() has it
         .into_iter()
-        .find(|it| it.key == "SHOOT")
+        .find(|it| it.action == "SHOOT")
         .expect("the deck has SHOOT")
         .rect
         .center();

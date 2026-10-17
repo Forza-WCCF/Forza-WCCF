@@ -256,7 +256,7 @@ fn panel_2560x1440() {
 }
 
 /// PROJECTOR on at 2560x1440: the projector's 1600x600 frame (a made-up 800x300 copy: a pitch on the left screen, a
-/// table on the right) in the board's strip, its two screens stacked; then the same switch with no projector running.
+/// table on the right) in the board's strip as it is, side by side; then the same switch with no projector running.
 #[test]
 fn panel_projector() {
     let _gpu = gpu();
