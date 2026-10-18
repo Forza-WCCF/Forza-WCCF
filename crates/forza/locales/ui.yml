@@ -161,6 +161,9 @@ installer.not_setup: {en: "Game not set up (no package)", it: "Gioco non configu
 installer.not_english: {en: "Game text unchanged", it: "Testo del gioco invariato", ja: "ゲームの言語は変更なし"}
 installer.did_shortcuts: {en: "Desktop shortcuts added", it: "Collegamenti sul desktop aggiunti", ja: "デスクトップにショートカットを追加しました"}
 installer.extract_only_note: {en: "These are the original files, not a game that starts by itself. Do not run them directly.", it: "Sono i file originali, non un gioco che si avvia da solo. Non eseguirli direttamente.", ja: "これは元のファイルで、そのまま起動できるゲームではありません。直接実行しないでください。"}
+installer.done_guard: {en: "Start the game only from Launcher.exe: it starts the guarded copies. Never start the original game programs directly.", it: "Avvia il gioco solo da Launcher.exe: avvia le copie protette. Non avviare mai direttamente i programmi originali del gioco.", ja: "ゲームは Launcher.exe から起動してください。元のプログラムは直接起動しないでください。"}
+installer.done_network: {en: "The installer did not change this PC's network settings.", it: "L'installazione non ha modificato le impostazioni di rete di questo PC.", ja: "インストーラーはこのPCのネットワーク設定を変更していません。"}
+installer.done_dx: {en: "If the game does not start, install DirectX 9 (June 2010 runtime).", it: "Se il gioco non si avvia, installa DirectX 9 (runtime di giugno 2010).", ja: "起動しない場合は DirectX 9（2010年6月版ランタイム）を入れてください。"}
 installer.err_folder: {en: "Choose an install folder.", it: "Scegli una cartella di installazione.", ja: "インストール先フォルダーを選んでください。"}
 installer.err_iso: {en: "Choose the disc image (.iso) file.", it: "Scegli il file dell'immagine del disco (.iso).", ja: "ディスクイメージ（.iso）を選んでください。"}
 installer.err_key: {en: "Choose the key file.", it: "Scegli il file chiave.", ja: "キーファイルを選んでください。"}
