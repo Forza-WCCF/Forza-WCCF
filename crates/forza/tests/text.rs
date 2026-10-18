@@ -9,7 +9,7 @@ fn every_key_in_three_languages() {
     let table: HashMap<&str, &str> = yml.lines().filter_map(|l| l.split_once(": {")).collect();
     let mut missing = vec![];
     // the screens, and Launcher.exe's messages (forza::ui::text)
-    let files = ["src/ui", "../launcher/src/bin/launcher"]
+    let files = ["src/ui", "../launcher/src/bin/launcher", "../installer/src"]
         .iter()
         .flat_map(|d| std::fs::read_dir(d).unwrap());
     for e in files {

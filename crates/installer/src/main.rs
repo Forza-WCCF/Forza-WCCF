@@ -3,6 +3,7 @@
 //! The 2010–2011 kit is optional; 2017–2018 is extraction-only. `--iso/--key/--dest` runs headless.
 //! The window is `forza::ui::installer` (the approved design) over the state kept here; this file runs what it asks.
 mod disc;
+mod err;
 mod install;
 
 use eframe::egui;
@@ -17,7 +18,7 @@ use std::sync::mpsc::{Receiver, channel};
 
 enum Msg {
     Ev(Event),
-    Done(Result<(), String>),
+    Done(anyhow::Result<()>),
 }
 
 struct Run {
@@ -147,10 +148,11 @@ impl App {
                     &[("e", &e.to_string())],
                 )
             })?;
-            disc::open(&iso, &key).map_err(|e| format!("{e:#}"))?;
+            disc::open(&iso, &key).map_err(|e| err::localize(&e, self.st.lang))?;
         }
         if self.setup_enabled() {
-            install::check_kit_zip(&self.kit().unwrap()).map_err(|e| format!("{e:#}"))?;
+            install::check_kit_zip(&self.kit().unwrap())
+                .map_err(|e| err::localize(&e, self.st.lang))?;
         }
         Ok(())
     }
@@ -197,7 +199,7 @@ impl App {
                 let _ = tx.send(Msg::Ev(e));
                 ctx.request_repaint();
             };
-            let r = install::run(&plan, &c, &emit).map_err(|e| format!("{e:#}"));
+            let r = install::run(&plan, &c, &emit);
             let _ = tx.send(Msg::Done(r));
             ctx.request_repaint();
         });
@@ -228,11 +230,15 @@ impl App {
                     st.running = false;
                     match r {
                         Ok(()) => st.page = Page::Done,
-                        Err(e) if e == "Cancelled." => {
+                        Err(e) if err::is_cancelled(&e) => {
                             st.error = Some(text(lang, "installer.cancelled", &[]))
                         }
                         Err(e) => {
-                            st.error = Some(format!("{} {e}", text(lang, "installer.stopped", &[])))
+                            st.error = Some(format!(
+                                "{} {}",
+                                text(lang, "installer.stopped", &[]),
+                                err::localize(&e, lang)
+                            ))
                         }
                     }
                 }

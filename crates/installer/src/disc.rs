@@ -1,9 +1,10 @@
 //! WCCF RingEdge disc image -> decrypted game volume, read-only, nothing mounted.
 //! Procedure: ringedge/revd-continuation/DECRYPTION.md (TrueCrypt 4.3a hidden volume at the game slot's tail,
 //! AES-256 / LRW / RIPEMD-160 / 2000 iterations, 16-byte keyfile, empty password).
+use crate::err::{InstallError as E, path};
 use aes::Aes256;
 use aes::cipher::{Array, BlockCipherDecrypt, KeyInit};
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Result, bail, ensure};
 use ripemd::Ripemd160;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
@@ -148,7 +149,7 @@ fn read_header(raw: &[u8; 512], keyfile: &[u8]) -> Option<Result<Header>> {
         return None;
     }
     if be16(70) > PROGRAM_VERSION {
-        return Some(Err(anyhow::anyhow!("volume needs a newer TrueCrypt")));
+        return Some(Err(E::NewerTrueCrypt.into()));
     }
     let hidden_size = u64::from_be_bytes(h[92..100].try_into().unwrap());
     Some(Ok(Header {
@@ -176,8 +177,9 @@ fn check_metadata(f: &mut File, disc: &Disc) -> Result<Vec<u32>> {
         .collect();
     ensure!(
         h.finalize() == table[0],
-        "the disc's own checksum table is damaged or this is not the {} image",
-        disc.name
+        E::ChecksumTable {
+            name: disc.name.to_string()
+        }
     );
     Ok(table)
 }
@@ -190,33 +192,41 @@ pub fn verify_blocks(
     mut progress: impl FnMut(u64),
     mut keep_going: impl FnMut() -> Result<()>,
 ) -> Result<()> {
-    let mut f = File::open(iso)?;
+    let mut f = open_iso(iso)?;
     ensure!(
         f.metadata()?.len() == disc.iso_size
             && table.len() as u64 == (disc.slot_end - disc.slot_start) / SEGMENT,
-        "disc and checksum table do not match"
+        E::TableMismatch
     );
     let mut block = vec![0u8; SEGMENT as usize];
     for (i, &want) in table.iter().enumerate().skip(1) {
         keep_going()?;
         f.seek(SeekFrom::Start(disc.slot_start + i as u64 * SEGMENT))?;
-        f.read_exact(&mut block)
-            .context("short read - is the ISO complete?")?;
+        f.read_exact(&mut block).map_err(|_| E::ShortRead)?;
         ensure!(
             crc32fast::hash(&block) == want,
-            "block {i} of the disc image is corrupt - download or rip it again"
+            E::BlockCorrupt { block: i }
         );
         progress(i as u64 * SEGMENT);
     }
     Ok(())
 }
 
+fn open_iso(iso: &Path) -> Result<File> {
+    Ok(File::open(iso).map_err(|e| E::CannotOpen {
+        path: path(iso),
+        detail: e.to_string(),
+    })?)
+}
+
 /// Returns the decrypted game volume (an NTFS image, read on demand) and the slot's block CRC table.
 pub fn open(iso: &Path, keyfile: &[u8]) -> Result<(Volume, Vec<u32>)> {
-    let mut f = File::open(iso).with_context(|| format!("cannot open {}", iso.display()))?;
+    let mut f = open_iso(iso)?;
     let len = f.metadata()?.len();
-    let disc = by_size(len).with_context(|| format!(
-        "{} is {len} bytes; supported images are 2010–2011 Rev D (5,034,770,432) and 2017–2018 DVR-5059A (5,921,865,728)", iso.display()))?;
+    let disc = by_size(len).ok_or_else(|| E::UnsupportedSize {
+        path: path(iso),
+        len,
+    })?;
     let table = check_metadata(&mut f, disc)?;
     let mut raw = [0u8; 512];
     f.seek(SeekFrom::Start(disc.slot_end - HIDDEN_HEADER_OFFSET))?;
@@ -225,7 +235,7 @@ pub fn open(iso: &Path, keyfile: &[u8]) -> Result<(Volume, Vec<u32>)> {
         .iter()
         .find_map(|k| read_header(&raw, k))
     else {
-        bail!("that key file does not unlock this disc");
+        bail!(E::WrongKey);
     };
     let header = header?;
     let size = header.hidden_size;
@@ -233,7 +243,7 @@ pub fn open(iso: &Path, keyfile: &[u8]) -> Result<(Volume, Vec<u32>)> {
         size > 0
             && size % 512 == 0
             && size <= disc.slot_end - disc.slot_start - HIDDEN_HEADER_OFFSET - 512,
-        "unexpected volume size in the disc header"
+        E::BadVolumeSize
     );
     let base = disc.slot_end - HIDDEN_HEADER_OFFSET - size;
     let vol = Volume {
