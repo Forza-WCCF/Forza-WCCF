@@ -463,22 +463,14 @@ fn headless(args: &[String]) -> anyhow::Result<bool> {
     Ok(true)
 }
 
-fn main() -> eframe::Result {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    match headless(&args) {
-        Ok(true) => return Ok(()),
-        Ok(false) => {}
-        Err(e) => {
-            eprintln!("ERROR: {e:#}");
-            std::process::exit(1);
-        }
-    }
+fn run_window(renderer: eframe::Renderer) -> eframe::Result {
     let opts = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Forza-WCCF Installer")
             .with_decorations(false)
             .with_inner_size(installer::SIZE)
             .with_min_inner_size([560.0, 400.0]),
+        renderer,
         ..Default::default()
     };
     eframe::run_native(
@@ -495,6 +487,43 @@ fn main() -> eframe::Result {
             Ok(Box::new(App::new()))
         }),
     )
+}
+
+fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match headless(&args) {
+        Ok(true) => return,
+        Ok(false) => {}
+        Err(e) => {
+            eprintln!("ERROR: {e:#}");
+            std::process::exit(1);
+        }
+    }
+    // wgpu first; a PC without Vulkan/DX12 support gets OpenGL. FORZA_RENDERER=glow|wgpu forces one (testing).
+    let tries = match std::env::var("FORZA_RENDERER").as_deref() {
+        Ok("glow") => vec![eframe::Renderer::Glow],
+        Ok("wgpu") => vec![eframe::Renderer::Wgpu],
+        _ => vec![eframe::Renderer::Wgpu, eframe::Renderer::Glow],
+    };
+    let mut last = Ok(());
+    for renderer in tries {
+        last = run_window(renderer);
+        if last.is_ok() {
+            return;
+        }
+    }
+    if let Err(e) = last {
+        rfd::MessageDialog::new()
+            .set_level(rfd::MessageLevel::Error)
+            .set_title("Forza-WCCF Installer")
+            .set_description(text(
+                Lang::detect(),
+                "installer.err_window",
+                &[("detail", &e.to_string())],
+            ))
+            .show();
+        std::process::exit(1);
+    }
 }
 
 #[cfg(test)]

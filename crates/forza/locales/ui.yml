@@ -194,6 +194,7 @@ installer.err_kit_windows: {en: "The game setup runs on Windows only (python\\py
 installer.err_kit_edition: {en: "The 2010–2011 package does not support this game version. Leave the package blank or turn off setup to extract only.", it: "Il pacchetto 2010–2011 non supporta questa versione del gioco. Lascia vuoto il pacchetto o disattiva la configurazione per la sola estrazione.", ja: "2010–2011 パッケージはこのバージョンのゲームに対応していません。パッケージを空にするか設定をオフにして、展開のみを行ってください。"}
 installer.err_script: {en: "The game setup failed: %{detail}", it: "La configurazione del gioco non è riuscita: %{detail}", ja: "ゲームの設定に失敗しました：%{detail}"}
 installer.err_other: {en: "%{detail}", it: "%{detail}", ja: "%{detail}"}
+installer.err_window: {en: "The installer cannot open its window.\n\n%{detail}", it: "L'installer non riesce ad aprire la sua finestra.\n\n%{detail}", ja: "インストーラーのウィンドウを開けません。\n\n%{detail}"}
 installer.err_folder: {en: "Choose an install folder.", it: "Scegli una cartella di installazione.", ja: "インストール先フォルダーを選んでください。"}
 installer.err_iso: {en: "Choose the disc image (.iso) file.", it: "Scegli il file dell'immagine del disco (.iso).", ja: "ディスクイメージ（.iso）を選んでください。"}
 installer.err_key: {en: "Choose the key file.", it: "Scegli il file chiave.", ja: "キーファイルを選んでください。"}
