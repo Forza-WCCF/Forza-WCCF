@@ -51,6 +51,26 @@ pub struct Config {
     pub log: Log,
 }
 
+/// The public relay (webpki roots) and the reflect port gmsvr's `--vslink-port` defaults to.
+pub const RELAY_URL: &str = "https://relay.wccf.it:8443";
+pub const REFLECT_PORT: u16 = 20090;
+
+impl Config {
+    /// What the Launcher runs: the public relay, direct paths allowed, reflect on `127.0.0.1:20090`.
+    pub fn public(gmsvr: SocketAddr, key: PathBuf, log: Log) -> Self {
+        let url: RelayUrl = RELAY_URL.parse().expect("RELAY_URL is a URL");
+        Config {
+            gmsvr,
+            reflect: SocketAddrV4::new(Ipv4Addr::LOCALHOST, REFLECT_PORT),
+            relay: RelayMap::from(url),
+            ca: None,
+            relay_only: false,
+            key,
+            log,
+        }
+    }
+}
+
 /// A running vslink. Dropping `handle` stops it within 100 ms.
 pub struct Link {
     pub handle: Handle,

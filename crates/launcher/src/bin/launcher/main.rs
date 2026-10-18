@@ -101,8 +101,9 @@ const ID_PACK: i32 = 48;
 const ID_SKIP: i32 = 49;
 const ID_L_CLUB: i32 = 50;
 const ID_CLUB: i32 = 51;
+const ID_VSLINK: i32 = 52;
 /// Disabled while a job runs.
-const BUTTONS: [i32; 19] = [
+const BUTTONS: [i32; 20] = [
     ID_BROWSE,
     ID_SETUP,
     ID_UNDO,
@@ -122,6 +123,7 @@ const BUTTONS: [i32; 19] = [
     ID_PACK,
     ID_SKIP,
     ID_CLUB,
+    ID_VSLINK,
 ];
 
 /// The window's client height folded and unfolded (96-dpi pixels), and its width.
@@ -589,6 +591,17 @@ fn pictures_picked(hwnd: HWND, hq: bool, choose: bool) {
     }
 }
 
+/// The "Direct VS link" box (2017-18): data\\settings.json "vs_link" (default on), which run::start_vslink reads.
+fn vslink_picked(hwnd: HWND) {
+    let file = Kit::here().settings_file();
+    if let Err(e) = choices::set_setting_bool(&file, "vs_link", checked(hwnd, ID_VSLINK)) {
+        say(
+            fill(t().write_failed, &[&file.display().to_string(), &e.to_string()]),
+            0,
+        );
+    }
+}
+
 /// The "Skip the tutorial" box (2017-18): data\\settings.json "skip_tutorial", which run::start_gamesvr reads.
 fn skip_picked(hwnd: HWND) {
     let file = Kit::here().settings_file();
@@ -682,7 +695,13 @@ fn play_clicked(hwnd: HWND) {
             return;
         }
         if let Err(e) = choices::set_setting(&kit.settings_file(), "club_server", club.trim()) {
-            say(fill(t().write_failed, &[&kit.settings_file().display().to_string(), &e.to_string()]), 0);
+            say(
+                fill(
+                    t().write_failed,
+                    &[&kit.settings_file().display().to_string(), &e.to_string()],
+                ),
+                0,
+            );
             return;
         }
     }
@@ -764,6 +783,7 @@ fn retext(hwnd: HWND) {
         (ID_PACK, tx.choose_pack),
         (ID_SKIP, tx.skip_tutorial),
         (ID_L_CLUB, tx.club_server),
+        (ID_VSLINK, tx.vs_link),
     ] {
         set_text(hwnd, id, words);
     }
@@ -953,6 +973,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 ID_PICS_HQ => pictures_picked(hwnd, true, false),
                 ID_PACK => pictures_picked(hwnd, true, true),
                 ID_SKIP => skip_picked(hwnd),
+                ID_VSLINK => vslink_picked(hwnd),
                 _ => {}
             }
             0
@@ -1122,6 +1143,7 @@ fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
         child(w!("BUTTON"), BS_AUTOCHECKBOX as u32 | tab, ID_SKIP, 124, 392, 300, 24);
         child(w!("STATIC"), 0, ID_L_CLUB, 12, 428, 110, 20);
         child(w!("EDIT"), ES_AUTOHSCROLL as u32 | tab, ID_CLUB, 124, 422, 300, 24);
+        child(w!("BUTTON"), BS_AUTOCHECKBOX as u32 | tab, ID_VSLINK, 432, 422, 156, 24);
         child(w!("STATIC"), SS_ETCHEDHORZ, 0, 12, 456, 576, 2);
         child(w!("STATIC"), 0, ID_HEADING, 12, 466, 576, 20);
         let list_style = (LBS_NOTIFY | LBS_USETABSTOPS) as u32 | WS_VSCROLL | tab;
@@ -1160,11 +1182,19 @@ fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
         if kit.settings()["skip_tutorial"].as_bool() == Some(true) {
             SendMessageW(item(hwnd, ID_SKIP), BM_SETCHECK, BST_CHECKED as usize, 0);
         }
-        set_text(hwnd, ID_CLUB, &choices::setting(&kit.settings_file(), "club_server").unwrap_or_default());
+        set_text(
+            hwnd,
+            ID_CLUB,
+            &choices::setting(&kit.settings_file(), "club_server").unwrap_or_default(),
+        );
+        if kit.settings()["vs_link"].as_bool() != Some(false) {
+            SendMessageW(item(hwnd, ID_VSLINK), BM_SETCHECK, BST_CHECKED as usize, 0);
+        }
         if kit.edition() != Edition::E1718 {
             ShowWindow(item(hwnd, ID_SKIP), SW_HIDE);
             ShowWindow(item(hwnd, ID_L_CLUB), SW_HIDE);
             ShowWindow(item(hwnd, ID_CLUB), SW_HIDE);
+            ShowWindow(item(hwnd, ID_VSLINK), SW_HIDE);
         }
         pick_text(
             hwnd,

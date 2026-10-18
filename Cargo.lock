@@ -3329,6 +3329,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "time",
+ "vslink",
  "windows",
  "windows-sys 0.61.2",
  "zip",

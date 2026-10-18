@@ -96,7 +96,10 @@ pub fn parse_club_server(s: &str) -> Option<(String, u16)> {
     let ok = !host.is_empty()
         && host.len() <= 253
         && host.split('.').all(|l| {
-            !l.is_empty() && !l.starts_with('-') && !l.ends_with('-') && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+            !l.is_empty()
+                && !l.starts_with('-')
+                && !l.ends_with('-')
+                && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
         });
     ok.then(|| (host.to_owned(), port))
 }
@@ -107,9 +110,22 @@ mod tests {
 
     #[test]
     fn club_server_parse() {
-        assert_eq!(parse_club_server("club.example.org"), Some(("club.example.org".into(), 20060)));
+        assert_eq!(
+            parse_club_server("club.example.org"),
+            Some(("club.example.org".into(), 20060))
+        );
         assert_eq!(parse_club_server(" 10.0.0.5:2000 "), Some(("10.0.0.5".into(), 2000)));
-        for bad in ["", "host:", "host:0", "host:70000", ":20060", "a b", "-x.org", "a..b", "h:1:2"] {
+        for bad in [
+            "",
+            "host:",
+            "host:0",
+            "host:70000",
+            ":20060",
+            "a b",
+            "-x.org",
+            "a..b",
+            "h:1:2",
+        ] {
             assert_eq!(parse_club_server(bad), None, "{bad}");
         }
     }
