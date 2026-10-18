@@ -8,6 +8,11 @@ description = "Forza-WCCF's direct VS link for the 2017-18 edition: loopback tok
 
 [dependencies]
 forza = { workspace = true, default-features = false }
+bytes.workspace = true
+getrandom.workspace = true
+iroh.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "time", "sync", "macros", "io-util"] }
+
 
 [lints]
 workspace = true
