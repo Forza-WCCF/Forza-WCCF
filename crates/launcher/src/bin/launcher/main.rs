@@ -343,18 +343,13 @@ fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain([0]).collect()
 }
 
-/// STOP THE GAME, or this window closed while the game runs: the running game is asked to stop (`force`: without the
-/// card rule), on a thread of its own - the run itself may be this process's job.
-fn stop_game(force: bool) {
+/// STOP THE GAME (clicked twice), or this window closed while the game runs: the running game is asked to stop by the
+/// card rule, on a thread of its own - the run itself may be this process's job.
+fn stop_game() {
     say(t("launcher.msg_stopping"), 0);
-    thread::spawn(move || {
-        let words: Vec<String> = if force {
-            vec!["stop".into(), "force".into()]
-        } else {
-            vec!["stop".into()]
-        };
+    thread::spawn(|| {
         let kit = Kit::here();
-        run::command(&kit, &Params::of(&kit), &words, &WindowUi);
+        run::command(&kit, &Params::of(&kit), &["stop".to_owned()], &WindowUi);
         RUNNING.store(run::any_on(&kit), Ordering::Relaxed);
         poke();
     });
@@ -455,6 +450,7 @@ impl App {
             output_open: false,
             output: Vec::new(),
             confirm: None,
+            stop_armed: 0.0,
         };
         App {
             st,
@@ -481,7 +477,7 @@ impl App {
     /// The question for the player, in the window's language.
     fn ask(&mut self, question: &str, yes: &str, then: Action) {
         let yes = ui_text(self.st.lang, yes, &[]);
-        self.st.confirm = Some(Confirm::new(question, yes, false, then));
+        self.st.confirm = Some(Confirm::new(question, yes, then));
     }
 
     /// The game folder box, or a message that it is empty.
@@ -556,7 +552,7 @@ impl App {
         if ctx.input(|i| i.viewport().close_requested()) {
             if UP.load(Ordering::Relaxed) {
                 ctx.send_viewport_cmd(ViewportCommand::CancelClose);
-                stop_game(false);
+                stop_game();
             } else if self.st.busy {
                 ctx.send_viewport_cmd(ViewportCommand::CancelClose);
                 say(t("launcher.msg_busy"), shared().progress);
@@ -569,7 +565,7 @@ impl App {
         let kit = Kit::here();
         match a {
             Action::Play => self.play(&kit),
-            Action::Stop => stop_game(true),
+            Action::Stop => stop_game(),
             Action::SetUp => {
                 if let Some(game) = self.folder() {
                     start(vec![Step::Script("setup.py", vec![game]), Step::Pictures]);

@@ -29,7 +29,7 @@ pub struct Release {
 pub enum Action {
     /// PLAY, with the choices in the state.
     Play,
-    /// STOP THE GAME, confirmed.
+    /// STOP THE GAME, clicked twice: stop by the card rule (the run asks first with a club card in or a match on).
     Stop,
     /// SET UP the folder in the state.
     SetUp,
@@ -61,32 +61,18 @@ pub struct Confirm {
     pub title: String,
     pub body: String,
     pub yes: String,
-    /// The yes button is red (it stops something).
-    pub stop: bool,
     pub then: Action,
 }
 
 impl Confirm {
     /// A question as one text: its first paragraph is the title, the rest the body.
-    pub fn new(question: &str, yes: String, stop: bool, then: Action) -> Self {
+    pub fn new(question: &str, yes: String, then: Action) -> Self {
         let (title, body) = question.split_once("\n\n").unwrap_or((question, ""));
         Confirm {
             title: title.to_owned(),
             body: body.to_owned(),
             yes,
-            stop,
             then,
-        }
-    }
-
-    /// STOP THE GAME?
-    pub fn stop(lang: Lang) -> Self {
-        Confirm {
-            title: tr!(lang, "launcher.stop_title"),
-            body: tr!(lang, "launcher.stop_body"),
-            yes: tr!(lang, "launcher.stop"),
-            stop: true,
-            then: Action::Stop,
         }
     }
 }
@@ -128,6 +114,20 @@ pub struct LauncherState {
     pub output: Vec<String>,
     /// A question shown in a modal.
     pub confirm: Option<Confirm>,
+    /// STOP THE GAME is armed until this time (egui seconds); a second click before it stops the game.
+    pub stop_armed: f64,
+}
+
+/// Seconds a STOP THE GAME click stays armed.
+const STOP_ARM: f64 = 8.0;
+
+/// One click on STOP THE GAME at `now`, armed until `armed`: the new `armed` and whether the game is to stop.
+fn stop_click(armed: f64, now: f64) -> (f64, bool) {
+    if armed > now {
+        (0.0, true)
+    } else {
+        (now + STOP_ARM, false)
+    }
 }
 
 /// The states the owner reviews.
@@ -135,7 +135,7 @@ pub struct LauncherState {
 pub enum Scenario {
     Ready,
     Running,
-    StopConfirm,
+    StopArmed,
     NotSetUp,
     Update,
     /// SETUP open on 2017–18 (card pictures, skip the tutorial), a setup running.
@@ -189,6 +189,7 @@ impl LauncherState {
             .map(String::from)
             .into(),
             confirm: None,
+            stop_armed: 0.0,
         };
         if edition == Edition::E1718 {
             st.folder = r"C:\Games\Forza-WCCF\2017-2018".into();
@@ -196,15 +197,15 @@ impl LauncherState {
         }
         match s {
             Scenario::Ready => {}
-            Scenario::Running | Scenario::StopConfirm => {
+            Scenario::Running | Scenario::StopArmed => {
                 st.running = true;
                 st.busy = true;
                 st.online = true;
                 st.steps = Some((5, 7));
                 st.status = Some((Tone::Notice, tr!(lang, "launcher.msg_starting")));
                 st.output_open = true;
-                if s == Scenario::StopConfirm {
-                    st.confirm = Some(Confirm::stop(lang));
+                if s == Scenario::StopArmed {
+                    st.stop_armed = f64::INFINITY; // never lapses: the snapshot shows 8 s
                 }
             }
             Scenario::NotSetUp => {
@@ -378,7 +379,16 @@ fn play(
         });
         ui.add_space(4.0);
         let size = vec2(ui.available_width(), 64.0);
-        let (label, kind) = if st.running {
+        let now = ui.input(|i| i.time);
+        let armed = st.running && st.stop_armed > now;
+        if armed && st.stop_armed.is_finite() {
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(250));
+        }
+        let (label, kind) = if armed {
+            let left = (st.stop_armed - now).ceil().min(STOP_ARM) as u32;
+            (tr!(lang, "launcher.stop_again", s = left), Cab::Stop)
+        } else if st.running {
             (tr!(lang, "launcher.stop"), Cab::Stop)
         } else {
             (tr!(lang, "launcher.play"), Cab::Go)
@@ -391,7 +401,11 @@ fn play(
             .inner;
         if resp.clicked() {
             if st.running {
-                st.confirm = Some(Confirm::stop(lang));
+                let (a, stop) = stop_click(st.stop_armed, now);
+                st.stop_armed = a;
+                if stop {
+                    *act = Some(Action::Stop);
+                }
             } else {
                 *act = Some(Action::Play);
             }
@@ -402,7 +416,9 @@ fn play(
                 None => progress(ui, st.progress, ui.available_width()),
             };
         }
-        if let Some((tone, text)) = &st.status {
+        if armed {
+            status_line(ui, Tone::Notice, &tr!(lang, "launcher.msg_stop_armed"));
+        } else if let Some((tone, text)) = &st.status {
             status_line(ui, *tone, text);
         }
     });
@@ -642,13 +658,12 @@ fn output(ui: &mut Ui, st: &mut LauncherState, lang: Lang) {
 
 fn confirm_modal(ui: &mut Ui, st: &mut LauncherState, c: &Confirm, lang: Lang) -> Option<Action> {
     let mut act = None;
-    let rim = if c.stop { theme::RED } else { theme::RIM };
     let modal = egui::Modal::new(egui::Id::new("launcher-confirm"))
         .backdrop_color(Color32::from_black_alpha(150))
         .frame(
             egui::Frame::new()
                 .fill(theme::DEEP)
-                .stroke(egui::Stroke::new(1.0, rim))
+                .stroke(egui::Stroke::new(1.0, theme::RIM))
                 .corner_radius(theme::RADIUS_BIG)
                 .inner_margin(20),
         )
@@ -664,8 +679,7 @@ fn confirm_modal(ui: &mut Ui, st: &mut LauncherState, c: &Confirm, lang: Lang) -
             }
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                let kind = if c.stop { Cab::Stop } else { Cab::Go };
-                if cabinet(ui, vec2(196.0, 48.0), &c.yes, kind, true).clicked() {
+                if cabinet(ui, vec2(196.0, 48.0), &c.yes, Cab::Go, true).clicked() {
                     act = Some(c.then);
                 }
                 if cabinet(
@@ -685,4 +699,18 @@ fn confirm_modal(ui: &mut Ui, st: &mut LauncherState, c: &Confirm, lang: Lang) -
         st.confirm = None;
     }
     act
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stop_needs_two_clicks_within_the_window() {
+        let (armed, stop) = stop_click(0.0, 10.0);
+        assert!(!stop && armed == 10.0 + STOP_ARM);
+        assert_eq!(stop_click(armed, 12.0), (0.0, true));
+        // lapsed: the click arms again
+        assert_eq!(stop_click(armed, 18.5), (18.5 + STOP_ARM, false));
+    }
 }
