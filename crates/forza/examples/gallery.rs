@@ -155,7 +155,9 @@ impl eframe::App for Gallery {
                     child.set_clip_rect(rect.intersect(ui.clip_rect()));
                     match &mut self.screen {
                         Screen::Launcher(st) => launcher::show(&mut child, st),
-                        Screen::Installer(st) => installer::show(&mut child, st),
+                        Screen::Installer(st) => {
+                            installer::show(&mut child, st);
+                        }
                         Screen::Panel(st) => panel::show(&mut child, st),
                         Screen::Widgets(st) => panel::widget_sheet(&mut child, st),
                     }

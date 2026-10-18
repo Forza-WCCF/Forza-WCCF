@@ -72,8 +72,8 @@ installer.iso: {en: "DISC IMAGE", it: "IMMAGINE DISCO", ja: "ディスクイメ�
 installer.key: {en: "KEY FILE", it: "FILE CHIAVE", ja: "キーファイル"}
 installer.package: {en: "PACKAGE", it: "PACCHETTO", ja: "パッケージ"}
 installer.detected: {en: "EDITION", it: "EDIZIONE", ja: "エディション"}
-installer.iso_ok: {en: "Disc image recognised: the 2010–11 edition.", it: "Immagine del disco riconosciuta: edizione 2010–11.", ja: "ディスクイメージを認識しました：2010–11 エディション。"}
-installer.reuse_hint: {en: "An edition already installed here can be reused: no disc needed.", it: "Un'edizione già installata qui può essere riutilizzata: nessun disco necessario.", ja: "ここにインストール済みのエディションは再利用できます（ディスク不要）。"}
+installer.iso_ok: {en: "Disc image recognised: the %{edition} edition.", it: "Immagine del disco riconosciuta: edizione %{edition}.", ja: "ディスクイメージを認識しました：%{edition} エディション。"}
+installer.reuse_hint: {en: "Skips the disc image and the key file.", it: "Salta l'immagine del disco e il file chiave.", ja: "ディスクイメージとキーファイルは不要になります。"}
 installer.opt_check: {en: "Check the disc image first", it: "Controlla prima l'immagine del disco", ja: "先にディスクイメージを検査する"}
 installer.opt_check_hint: {en: "Reads the whole image once; about two minutes.", it: "Legge tutta l'immagine una volta; circa due minuti.", ja: "イメージ全体を一度読み込みます（約2分）。"}
 installer.opt_setup: {en: "Set up the game", it: "Configura il gioco", ja: "ゲームを設定する"}
@@ -85,7 +85,12 @@ installer.opt_shortcuts_hint: {en: "One per edition, named after it.", it: "Uno 
 installer.back: {en: "Back", it: "Indietro", ja: "戻る"}
 installer.next: {en: "NEXT", it: "AVANTI", ja: "次へ"}
 installer.install: {en: "INSTALL", it: "INSTALLA", ja: "インストール"}
+installer.stage_start: {en: "Starting", it: "Avvio", ja: "開始しています"}
+installer.stage_verify: {en: "Checking the disc image", it: "Controllo dell'immagine del disco", ja: "ディスクイメージを検査中"}
 installer.stage_extract: {en: "Extracting the game files", it: "Estrazione dei file del gioco", ja: "ゲームファイルを展開中"}
+installer.stage_setup: {en: "Setting up the game for this PC", it: "Configurazione del gioco per questo PC", ja: "このPC向けにゲームを設定中"}
+installer.stage_english: {en: "Switching the game text to English", it: "Passaggio del testo del gioco all'inglese", ja: "ゲームの言語を英語に切り替え中"}
+installer.bytes_of: {en: "%{done} GB of %{total} GB", it: "%{done} GB di %{total} GB", ja: "%{done} GB / %{total} GB"}
 installer.details: {en: "DETAILS", it: "DETTAGLI", ja: "詳細"}
 installer.done_body: {en: "Installed. Start it from the launcher in its folder.", it: "Installato. Avvialo dal launcher nella sua cartella.", ja: "インストールしました。フォルダー内のランチャーから起動してください。"}
 installer.did_extract: {en: "Game files extracted and checked", it: "File del gioco estratti e controllati", ja: "ゲームファイルを展開・検査しました"}
@@ -93,6 +98,27 @@ installer.did_setup: {en: "Game set up", it: "Gioco configurato", ja: "ゲーム
 installer.did_english: {en: "Game text in English", it: "Testo del gioco in inglese", ja: "ゲームの言語：英語"}
 installer.not_shortcuts: {en: "No desktop shortcuts (not chosen)", it: "Nessun collegamento sul desktop (non scelto)", ja: "デスクトップのショートカットなし（未選択）"}
 installer.open_folder: {en: "Open the folder", it: "Apri la cartella", ja: "フォルダーを開く"}
+installer.welcome_note: {en: "Without the package this only extracts the original files. Nothing is sent anywhere, and your disc image is never changed.", it: "Senza il pacchetto vengono solo estratti i file originali. Non viene inviato nulla e l'immagine del disco non viene modificata.", ja: "パッケージがない場合は元のファイルを展開するだけです。何も送信されず、ディスクイメージは変更されません。"}
+installer.installed_here: {en: "← already installed", it: "← già installata", ja: "← インストール済み"}
+installer.space_low: {en: "Only %{free} GB free: the install needs about 6 GB.", it: "Solo %{free} GB liberi: servono circa 6 GB.", ja: "空きは %{free} GB のみです（約6 GB必要）。"}
+installer.space_unknown: {en: "The install needs about 6 GB.", it: "Servono circa 6 GB.", ja: "約6 GBの空き容量が必要です。"}
+installer.ascii_tip: {en: "Accented or non-English letters in a folder name can trouble the game. A plain path like C:\\Games\\Forza-WCCF is safest.", it: "Lettere accentate o non inglesi nel nome di una cartella possono dare problemi al gioco. Un percorso semplice come C:\\Games\\Forza-WCCF è il più sicuro.", ja: "フォルダー名にアクセント付き文字や英語以外の文字があると、ゲームが正しく動かないことがあります。C:\\Games\\Forza-WCCF のような単純なパスが安全です。"}
+installer.reuse: {en: "Use the game files already here", it: "Usa i file del gioco già presenti", ja: "ここにあるゲームファイルを使う"}
+installer.reusing: {en: "Reusing the %{edition} files already in this folder.", it: "Uso i file %{edition} già presenti in questa cartella.", ja: "このフォルダーにある %{edition} のファイルを再利用します。"}
+installer.iso_unsupported: {en: "Unsupported image size. Use the 2010–11 Rev D or the 2017–18 v2.00.00 disc image.", it: "Dimensione dell'immagine non supportata. Usa l'immagine 2010–11 Rev D o 2017–18 v2.00.00.", ja: "未対応のイメージサイズです。2010–11 Rev D または 2017–18 v2.00.00 のディスクイメージを使ってください。"}
+installer.drop_hint: {en: "You can also drag the files onto this window.", it: "Puoi anche trascinare i file su questa finestra.", ja: "ファイルをこのウィンドウにドラッグすることもできます。"}
+installer.opt_setup_na: {en: "Needs the 2010–11 package and the 2010–11 edition.", it: "Richiede il pacchetto 2010–11 e l'edizione 2010–11.", ja: "2010–11 パッケージと2010–11 エディションが必要です。"}
+installer.done_body_extract: {en: "The original files are extracted.", it: "I file originali sono stati estratti.", ja: "元のファイルを展開しました。"}
+installer.not_setup: {en: "Game not set up (no package)", it: "Gioco non configurato (nessun pacchetto)", ja: "ゲームは未設定（パッケージなし）"}
+installer.not_english: {en: "Game text unchanged", it: "Testo del gioco invariato", ja: "ゲームの言語は変更なし"}
+installer.did_shortcuts: {en: "Desktop shortcuts added", it: "Collegamenti sul desktop aggiunti", ja: "デスクトップにショートカットを追加しました"}
+installer.extract_only_note: {en: "These are the original files, not a game that starts by itself. Do not run them directly.", it: "Sono i file originali, non un gioco che si avvia da solo. Non eseguirli direttamente.", ja: "これは元のファイルで、そのまま起動できるゲームではありません。直接実行しないでください。"}
+installer.err_folder: {en: "Choose an install folder.", it: "Scegli una cartella di installazione.", ja: "インストール先フォルダーを選んでください。"}
+installer.err_iso: {en: "Choose the disc image (.iso) file.", it: "Scegli il file dell'immagine del disco (.iso).", ja: "ディスクイメージ（.iso）を選んでください。"}
+installer.err_key: {en: "Choose the key file.", it: "Scegli il file chiave.", ja: "キーファイルを選んでください。"}
+installer.err_key_read: {en: "Cannot read the key file: %{e}", it: "Impossibile leggere il file chiave: %{e}", ja: "キーファイルを読み込めません：%{e}"}
+installer.cancelled: {en: "Installation cancelled.", it: "Installazione annullata.", ja: "インストールを中止しました。"}
+installer.stopped: {en: "The installation stopped.", it: "L'installazione si è fermata.", ja: "インストールが停止しました。"}
 
 # ---- cabinet buttons ----
 cab.central: {en: "CENTRAL", it: "CENTRALE", ja: "センター"}
