@@ -821,11 +821,17 @@ fn installing(ui: &mut Ui, st: &mut InstallerState, lang: Lang) {
 }
 
 fn done(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Action>) {
+    // the extraction-only page has one more note; a short window scrolls instead of hiding the button
+    egui::ScrollArea::vertical().show(ui, |ui| done_body(ui, st, lang, out));
+}
+
+fn done_body(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Action>) {
     let body = if st.did[1] {
         "installer.done_body"
     } else {
         "installer.done_body_extract"
     };
+    ui.spacing_mut().item_spacing.y = 3.0;
     status_line(ui, Tone::Done, &tr!(lang, body));
     ui.horizontal(|ui| {
         field(ui, &tr!(lang, "installer.folder"), 120.0);
@@ -868,6 +874,20 @@ fn done(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Actio
     if !st.did[1] {
         status_line(ui, Tone::Notice, &tr!(lang, "installer.extract_only_note"));
     }
+    ui.add_space(-2.0);
+    ui.spacing_mut().item_spacing.y = 2.0;
+    for key in [
+        "installer.done_guard",
+        "installer.done_network",
+        "installer.done_dx",
+    ] {
+        ui.label(
+            egui::RichText::new(tr!(lang, key))
+                .size(12.0)
+                .color(theme::TEXT_DIM),
+        );
+    }
+    ui.spacing_mut().item_spacing.y = 8.0;
     ui.add_space(4.0);
     if action(ui, &tr!(lang, "installer.open_folder")).clicked() {
         out.get_or_insert(Action::OpenFolder);

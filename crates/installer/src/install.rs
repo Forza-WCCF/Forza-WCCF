@@ -1,7 +1,8 @@
 //! The install pipeline: verify disc -> extract game -> optional kit setup (English, shortcuts).
 //! Runs on a worker thread; reports through `emit`, stops when `cancel` is set.
 use crate::disc;
-use anyhow::{Context, Result, bail, ensure};
+use crate::err::{InstallError as E, path as shown};
+use anyhow::{Result, bail, ensure};
 use forza::ui::installer::Step;
 use ntfs::{Ntfs, NtfsReadSeek, structured_values::NtfsFileNamespace};
 use std::fs::{self, File};
@@ -46,7 +47,7 @@ pub fn version_paths(dest: &Path, id: &str) -> Result<(PathBuf, PathBuf)> {
     let disc = disc::DISCS
         .iter()
         .find(|d| d.game_id == id)
-        .context("Unknown game edition.")?;
+        .ok_or(E::UnknownEdition)?;
     let root = dest.join(disc.edition);
     let legacy = dest.join(LEGACY_GAME_DIR);
     if !root.exists() && game_id_in(&legacy) == Some(id) {
@@ -69,10 +70,7 @@ pub fn installed_game_id(dest: &Path) -> Option<&'static str> {
 }
 
 pub fn check_setup(game_id: Option<&str>) -> Result<()> {
-    ensure!(
-        game_id == Some("SBWG"),
-        "The 2010–2011 kit does not support this game version. Leave the kit blank or turn off setup to extract only."
-    );
+    ensure!(game_id == Some("SBWG"), E::KitEdition);
     Ok(())
 }
 
@@ -82,17 +80,20 @@ fn kit_prefix(zip: &mut zip::ZipArchive<File>) -> Result<String> {
         .file_names()
         .map(|n| n.map(|n| n.into_owned()))
         .collect::<Result<Vec<String>, _>>()
-        .context("That zip has an unreadable file name.")?;
+        .map_err(|_| E::ZipName)?;
     let setup = names
         .iter()
         .find(|n| *n == "scripts/setup.py" || n.ends_with("/scripts/setup.py"));
-    let setup = setup.context("That zip is not the WCCF kit (scripts/setup.py is missing).")?;
+    let setup = setup.ok_or(E::NotKitZip)?;
     Ok(setup.trim_end_matches("scripts/setup.py").to_string())
 }
 
 pub fn check_kit_zip(path: &Path) -> Result<()> {
-    let f = File::open(path).with_context(|| format!("cannot open {}", path.display()))?;
-    let mut zip = zip::ZipArchive::new(f).context("That file is not a valid zip.")?;
+    let f = File::open(path).map_err(|e| E::CannotOpen {
+        path: shown(path),
+        detail: e.to_string(),
+    })?;
+    let mut zip = zip::ZipArchive::new(f).map_err(|_| E::NotZip)?;
     kit_prefix(&mut zip).map(drop)
 }
 
@@ -109,7 +110,7 @@ pub fn total_space(path: &Path) -> Option<u64> {
 }
 
 fn check(cancel: &AtomicBool) -> Result<()> {
-    ensure!(!cancel.load(Ordering::Relaxed), "Cancelled.");
+    ensure!(!cancel.load(Ordering::Relaxed), E::Cancelled);
     Ok(())
 }
 
@@ -123,29 +124,27 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
         .map(|d| d.game_id);
     ensure!(
         detected.is_none() || plan.game_id.is_none() || detected == plan.game_id,
-        "The selected edition does not match the disc image."
+        E::EditionMismatch
     );
-    let id = detected.or(plan.game_id).or_else(|| installed_game_id(&plan.dest))
-        .context("Choose --game SBWG (2010–2011) or --game SDDY (2017–2018) when both or neither edition is installed.")?;
+    let id = detected
+        .or(plan.game_id)
+        .or_else(|| installed_game_id(&plan.dest))
+        .ok_or(E::NeedGame)?;
     let (dest, game) = version_paths(&plan.dest, id)?;
-    ensure!(
-        plan.iso.is_none() || !game.exists(),
-        "The game folder already exists. Reuse it without --iso/--key, or choose a new install folder; existing files are never replaced."
-    );
+    ensure!(plan.iso.is_none() || !game.exists(), E::GameFolderExists);
     let setup = plan.setup && plan.kit.is_some();
-    ensure!(
-        !plan.english || setup,
-        "English requires a kit and setup; omit --english for extraction only."
-    );
+    ensure!(!plan.english || setup, E::EnglishNeedsSetup);
     let opened = if let Some(iso) = &plan.iso {
-        let key = fs::read(plan.key.as_ref().context("no key file")?)
-            .context("cannot read the key file")?;
+        let key = fs::read(plan.key.as_ref().ok_or(E::NoKey)?).map_err(|e| E::KeyRead {
+            detail: e.to_string(),
+        })?;
         Some(disc::open(iso, &key)?)
     } else {
         ensure!(
             game_present(&plan.dest, id),
-            "The game files are not in {}",
-            plan.dest.display()
+            E::GameMissing {
+                path: shown(&plan.dest)
+            }
         );
         None
     };
@@ -153,7 +152,10 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
         check_setup(Some(id))?;
         check_kit_zip(plan.kit.as_ref().unwrap())?;
     }
-    fs::create_dir_all(&dest).with_context(|| format!("cannot create {}", dest.display()))?;
+    fs::create_dir_all(&dest).map_err(|e| E::CannotCreate {
+        path: shown(&dest),
+        detail: e.to_string(),
+    })?;
     if setup {
         probe_links(&dest)?;
     }
@@ -177,7 +179,7 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
         }
         ensure!(
             free_space(&dest).is_none_or(|f| f > vol.size + HEADROOM),
-            "Not enough free space on that drive: allow about 6 GB."
+            E::NoSpace
         );
         extract(&mut vol, &dest, cancel, emit)?;
     }
@@ -212,10 +214,7 @@ fn probe_links(dest: &Path) -> Result<()> {
     fs::write(&a, b"x")?;
     let linked = fs::hard_link(&a, &b);
     let _ = (fs::remove_file(&a), fs::remove_file(&b));
-    linked.context(
-        "This drive cannot hold the game: it must be formatted as NTFS (normal for C: and D:). \
-        Pick a folder on another drive.",
-    )
+    Ok(linked.map_err(|_| E::NotNtfsDrive)?)
 }
 
 struct Item {
@@ -291,7 +290,7 @@ fn extract(
 ) -> Result<()> {
     emit(Event::Stage(Step::Extract));
     emit(Event::Progress(0, 0));
-    let ntfs = Ntfs::new(vol).context("the decrypted volume is not NTFS - wrong key file?")?;
+    let ntfs = Ntfs::new(vol).map_err(|_| E::NotNtfsVolume)?;
     let items = scan(&ntfs, vol)?;
     let total: u64 = items.iter().map(|i| i.size).sum();
     let (game, partial) = (
@@ -314,8 +313,10 @@ fn extract(
             fs::create_dir_all(&path)?;
             continue;
         }
-        let mut out =
-            File::create(&path).with_context(|| format!("cannot write {}", path.display()))?;
+        let mut out = File::create(&path).map_err(|e| E::CannotWrite {
+            path: shown(&path),
+            detail: e.to_string(),
+        })?;
         let file = ntfs.file(vol, it.rec)?;
         if let Some(d) = file.data(vol, "") {
             let item = d?;
@@ -334,21 +335,17 @@ fn extract(
     }
     ensure!(
         partial.join("client_Release.exe").is_file(),
-        "extraction finished but client_Release.exe is missing"
+        E::ExtractIncomplete
     );
     check(cancel)?;
-    ensure!(
-        !game.exists(),
-        "The game folder already exists; existing files are never replaced."
-    );
+    ensure!(!game.exists(), E::GameFolderExists);
     fs::rename(&partial, &game)?;
     Ok(())
 }
 
 /// Unpack the kit zip into dest (README, PLAY.bat, python, scripts ...); an existing data\ (club, keys) is kept.
 fn unpack_kit(zip_path: &Path, dest: &Path, emit: &dyn Fn(Event)) -> Result<()> {
-    let mut zip =
-        zip::ZipArchive::new(File::open(zip_path)?).context("The kit is not a valid zip.")?;
+    let mut zip = zip::ZipArchive::new(File::open(zip_path)?).map_err(|_| E::NotZip)?;
     let prefix = kit_prefix(&mut zip)?;
     let keep_data = dest.join("data").exists();
     let total: u64 = (0..zip.len())
@@ -358,9 +355,7 @@ fn unpack_kit(zip_path: &Path, dest: &Path, emit: &dyn Fn(Event)) -> Result<()> 
     for i in 0..zip.len() {
         let mut f = zip.by_index(i)?;
         // enclosed_name rejects absolute paths and ".." (a crafted zip must stay inside dest)
-        let name = f
-            .enclosed_name()
-            .context("the kit zip contains an unsafe path")?;
+        let name = f.enclosed_name().ok_or(E::KitUnsafePath)?;
         let Ok(rel) = name.strip_prefix(prefix.trim_end_matches('/')) else {
             continue;
         };
@@ -377,7 +372,10 @@ fn unpack_kit(zip_path: &Path, dest: &Path, emit: &dyn Fn(Event)) -> Result<()> 
         }
         done += std::io::copy(
             &mut f,
-            &mut File::create(&out).with_context(|| format!("cannot write {}", out.display()))?,
+            &mut File::create(&out).map_err(|e| E::CannotWrite {
+                path: shown(&out),
+                detail: e.to_string(),
+            })?,
         )?;
         emit(Event::Progress(done, total));
     }
@@ -394,7 +392,7 @@ fn script(
 ) -> Result<()> {
     let python = dest.join("python/python.exe");
     if !cfg!(windows) || !python.is_file() {
-        bail!("The kit's setup runs on Windows only (python\\python.exe was not found).");
+        bail!(E::KitNeedsWindows);
     }
     let mut cmd = Command::new(python);
     cmd.arg(dest.join("scripts").join(name))
@@ -439,14 +437,15 @@ fn script(
         }
         if cancel.load(Ordering::Relaxed) {
             let _ = child.kill();
-            bail!("Cancelled.");
+            bail!(E::Cancelled);
         }
     }
     let status = child.wait()?;
     ensure!(
         status.success(),
-        "{}",
-        failed.unwrap_or_else(|| format!("{name} stopped with {status}"))
+        E::Script {
+            detail: failed.unwrap_or_else(|| format!("{name}: {status}"))
+        }
     );
     Ok(())
 }
