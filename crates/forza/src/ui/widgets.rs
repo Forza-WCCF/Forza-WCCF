@@ -868,34 +868,7 @@ pub fn title_bar(ui: &mut Ui, edition: Edition, lang: &mut Lang) -> TitleAction 
     child.add_space(34.0 + name_w + 10.0);
     badge(&mut child, edition);
     child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-        ui.spacing_mut().item_spacing.x = 2.0;
-        for (glyph, act) in [(1, TitleAction::Close), (0, TitleAction::Minimize)] {
-            let (r, resp) = ui.allocate_exact_size(vec2(40.0, 32.0), Sense::click());
-            let hot = resp.hovered();
-            let p = ui.painter();
-            if hot {
-                p.rect_filled(
-                    r,
-                    4,
-                    if glyph == 1 {
-                        theme::RED
-                    } else {
-                        theme::RAISED_HI
-                    },
-                );
-            }
-            let c = r.center();
-            let s = Stroke::new(1.5, if hot { Color32::WHITE } else { theme::TEXT_DIM });
-            if glyph == 1 {
-                p.line_segment([c + vec2(-5.0, -5.0), c + vec2(5.0, 5.0)], s);
-                p.line_segment([c + vec2(-5.0, 5.0), c + vec2(5.0, -5.0)], s);
-            } else {
-                p.line_segment([c + vec2(-6.0, 0.0), c + vec2(6.0, 0.0)], s);
-            }
-            if resp.clicked() {
-                action = act;
-            }
-        }
+        action = window_buttons(ui);
         ui.add_space(10.0);
         let mut i = Lang::ALL.iter().position(|l| l == lang).unwrap_or(0);
         ui.allocate_ui(vec2(132.0, 30.0), |ui| {
@@ -910,6 +883,40 @@ pub fn title_bar(ui: &mut Ui, edition: Edition, lang: &mut Lang) -> TitleAction 
         TitleAction::None => {}
     }
     ui.advance_cursor_after_rect(rect);
+    action
+}
+
+/// Minimize and close, drawn right to left from the current position (call inside a right-to-left layout).
+pub fn window_buttons(ui: &mut Ui) -> TitleAction {
+    let mut action = TitleAction::None;
+    ui.spacing_mut().item_spacing.x = 2.0;
+    for (glyph, act) in [(1, TitleAction::Close), (0, TitleAction::Minimize)] {
+        let (r, resp) = ui.allocate_exact_size(vec2(40.0, 32.0), Sense::click());
+        let hot = resp.hovered();
+        let p = ui.painter();
+        if hot {
+            p.rect_filled(
+                r,
+                4,
+                if glyph == 1 {
+                    theme::RED
+                } else {
+                    theme::RAISED_HI
+                },
+            );
+        }
+        let c = r.center();
+        let s = Stroke::new(1.5, if hot { Color32::WHITE } else { theme::TEXT_DIM });
+        if glyph == 1 {
+            p.line_segment([c + vec2(-5.0, -5.0), c + vec2(5.0, 5.0)], s);
+            p.line_segment([c + vec2(-5.0, 5.0), c + vec2(5.0, -5.0)], s);
+        } else {
+            p.line_segment([c + vec2(-6.0, 0.0), c + vec2(6.0, 0.0)], s);
+        }
+        if resp.clicked() {
+            action = act;
+        }
+    }
     action
 }
 

@@ -47,3 +47,34 @@ impl Lang {
         }
     }
 }
+
+/// One UI string for a program that draws its own screen (the installer builds messages outside `forza::ui`).
+pub fn text(lang: Lang, key: &str) -> String {
+    rust_i18n::t!(key, locale = lang.code()).into_owned()
+}
+
+impl Lang {
+    /// A language code: `en`, `it` or `ja`.
+    pub fn from_code(code: &str) -> Option<Lang> {
+        Lang::ALL.into_iter().find(|l| l.code() == code.trim())
+    }
+
+    /// The program's language: `WCCF_KIT_LANG=en|it|ja` (to check a translation on any PC), else Windows' display
+    /// language, else English.
+    pub fn detect() -> Lang {
+        if let Some(l) = std::env::var("WCCF_KIT_LANG")
+            .ok()
+            .and_then(|c| Lang::from_code(&c))
+        {
+            return l;
+        }
+        #[cfg(windows)]
+        // SAFETY: a plain query without arguments.
+        match unsafe { windows_sys::Win32::Globalization::GetUserDefaultUILanguage() } & 0x3ff {
+            0x10 => return Lang::It, // LANG_ITALIAN
+            0x11 => return Lang::Ja, // LANG_JAPANESE
+            _ => {}
+        }
+        Lang::En
+    }
+}
