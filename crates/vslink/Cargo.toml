@@ -13,6 +13,9 @@ getrandom.workspace = true
 iroh.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "time", "sync", "macros", "io-util"] }
 
+[dev-dependencies]
+# the in-process relay server (iroh::test_utils::run_relay_server) and CaTlsConfig::insecure_skip_verify
+iroh = { workspace = true, features = ["test-utils"] }
 
 [lints]
 workspace = true
