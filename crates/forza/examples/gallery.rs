@@ -24,7 +24,7 @@ impl Item {
         let mut v = vec![
             (Item::Launcher(Ready), "Launcher"),
             (Item::Launcher(Running), "running"),
-            (Item::Launcher(StopConfirm), "stop?"),
+            (Item::Launcher(StopArmed), "stop?"),
             (Item::Launcher(NotSetUp), "not set up"),
             (Item::Launcher(Update), "update"),
             (Item::Launcher(Busy), "busy"),

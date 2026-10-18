@@ -65,7 +65,7 @@ fn launcher_screens() {
         for (s, ed, tag) in [
             (Ready, Edition::E1011, "ready"),
             (Running, Edition::E1718, "running"),
-            (StopConfirm, Edition::E1718, "stop"),
+            (StopArmed, Edition::E1718, "stop"),
             (NotSetUp, Edition::E1011, "setup"),
             (Update, Edition::E1011, "update"),
             (Busy, Edition::E1718, "busy"),

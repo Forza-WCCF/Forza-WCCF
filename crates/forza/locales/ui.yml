@@ -16,8 +16,8 @@ launcher.original_ja: {en: "Original 日本語", it: "日本語 originale", ja: 
 launcher.game_text_hint: {en: "Applied at the next start; switching takes about a minute.", it: "Si applica al prossimo avvio; il cambio richiede circa un minuto.", ja: "次回の起動時に反映されます。切り替えには約1分かかります。"}
 launcher.play: {en: "PLAY", it: "GIOCA", ja: "プレイ"}
 launcher.stop: {en: "STOP THE GAME", it: "FERMA IL GIOCO", ja: "ゲームを終了"}
-launcher.stop_title: {en: "Stop the game now?", it: "Fermare il gioco adesso?", ja: "今すぐゲームを終了しますか？"}
-launcher.stop_body: {en: "If you can, close its window instead. During a match, stopping it gives your card a bad ending (trade rights are lost at 2).", it: "Se puoi, chiudi invece la sua finestra. Durante una partita, fermarlo dà alla tua carta un bad ending (a 2 si perdono i diritti di scambio).", ja: "できれば代わりにゲームのウィンドウを閉じてください。試合中に終了すると、カードにバッドエンドが記録されます（2 回でトレード権を失います）。"}
+launcher.stop_again: {en: "CLICK AGAIN TO STOP (%{s} s)", it: "CLICCA ANCORA PER FERMARE (%{s} s)", ja: "もう一度押すと終了（%{s} 秒）"}
+launcher.msg_stop_armed: {en: "Click STOP THE GAME again to stop the game. With a club card in or a match on, the game asks first.", it: "Clicca di nuovo FERMA IL GIOCO per fermare il gioco. Con una carta club inserita o una partita in corso, il gioco chiede prima.", ja: "もう一度「ゲームを終了」を押すとゲームを終了します。クラブカードが入っているか試合中のときは、先にゲームが確認します。"}
 launcher.status_ready: {en: "Ready. The game folder is set up.", it: "Pronto. La cartella del gioco è configurata.", ja: "準備完了。ゲームフォルダーは設定済みです。"}
 launcher.status_not_set_up: {en: "Not set up yet: choose the game folder below, then SET UP.", it: "Non ancora configurato: scegli la cartella del gioco qui sotto, poi CONFIGURA.", ja: "まだ設定されていません。下でゲームフォルダーを選び、「設定する」を押してください。"}
 launcher.setup: {en: "SETUP", it: "CONFIGURAZIONE", ja: "セットアップ"}

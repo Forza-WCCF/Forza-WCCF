@@ -343,18 +343,13 @@ fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain([0]).collect()
 }
 
-/// STOP THE GAME, or this window closed while the game runs: the running game is asked to stop (`force`: without the
-/// card rule), on a thread of its own - the run itself may be this process's job.
-fn stop_game(force: bool) {
+/// STOP THE GAME (clicked twice), or this window closed while the game runs: the running game is asked to stop by the
+/// card rule, on a thread of its own - the run itself may be this process's job.
+fn stop_game() {
     say(t("launcher.msg_stopping"), 0);
-    thread::spawn(move || {
-        let words: Vec<String> = if force {
-            vec!["stop".into(), "force".into()]
-        } else {
-            vec!["stop".into()]
-        };
+    thread::spawn(|| {
         let kit = Kit::here();
-        run::command(&kit, &Params::of(&kit), &words, &WindowUi);
+        run::command(&kit, &Params::of(&kit), &["stop".to_owned()], &WindowUi);
         RUNNING.store(run::any_on(&kit), Ordering::Relaxed);
         poke();
     });
@@ -455,6 +450,7 @@ impl App {
             output_open: false,
             output: Vec::new(),
             confirm: None,
+            stop_armed: 0.0,
         };
         App {
             st,
@@ -481,7 +477,7 @@ impl App {
     /// The question for the player, in the window's language.
     fn ask(&mut self, question: &str, yes: &str, then: Action) {
         let yes = ui_text(self.st.lang, yes, &[]);
-        self.st.confirm = Some(Confirm::new(question, yes, false, then));
+        self.st.confirm = Some(Confirm::new(question, yes, then));
     }
 
     /// The game folder box, or a message that it is empty.
@@ -556,7 +552,7 @@ impl App {
         if ctx.input(|i| i.viewport().close_requested()) {
             if UP.load(Ordering::Relaxed) {
                 ctx.send_viewport_cmd(ViewportCommand::CancelClose);
-                stop_game(false);
+                stop_game();
             } else if self.st.busy {
                 ctx.send_viewport_cmd(ViewportCommand::CancelClose);
                 say(t("launcher.msg_busy"), shared().progress);
@@ -569,7 +565,7 @@ impl App {
         let kit = Kit::here();
         match a {
             Action::Play => self.play(&kit),
-            Action::Stop => stop_game(true),
+            Action::Stop => stop_game(),
             Action::SetUp => {
                 if let Some(game) = self.folder() {
                     start(vec![Step::Script("setup.py", vec![game]), Step::Pictures]);
@@ -762,8 +758,6 @@ impl eframe::App for App {
 
 /// The window, until it is closed (or gone because the game is up and then ended well).
 fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
-    let app = App::new(kit, folder);
-    let ed = app.st.edition;
     if kit.edition() == Edition::E1011 {
         ask_updates(); // the releases are 2010-11 kits: never offered to the 2017-18 kit
     }
@@ -771,33 +765,55 @@ fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
         start(first);
     }
     let title = format!("{TITLE} {} - {}", kit.edition().name(), kit.dir().display());
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title(&title)
-            .with_inner_size(screen::SIZE)
-            .with_resizable(false)
-            .with_maximize_button(false)
-            .with_decorations(false)
-            .with_drag_and_drop(true)
-            .with_icon(egui::IconData::default()), // Windows' own, not eframe's
-        ..Default::default()
-    };
     let fonts = theme::font_dir();
-    let ran = eframe::run_native(
-        &title,
-        options,
-        Box::new(move |cc| {
-            let _ = CTX.set(cc.egui_ctx.clone());
-            if let Err(e) = theme::install(&cc.egui_ctx, ed, &fonts) {
-                return Err(tf(
-                    "launcher.msg_no_fonts",
-                    &[("error", &format!("{}: {e}", fonts.display()))],
-                )
-                .into());
+    // wgpu first; if it cannot open the window (no Direct3D/Vulkan), OpenGL once. FORZA_RENDERER=glow|wgpu forces one.
+    let forced = match std::env::var("FORZA_RENDERER").as_deref() {
+        Ok("glow") => Some(eframe::Renderer::Glow),
+        Ok("wgpu") => Some(eframe::Renderer::Wgpu),
+        _ => None,
+    };
+    let mut tries = forced.map_or(vec![eframe::Renderer::Wgpu, eframe::Renderer::Glow], |r| vec![r]);
+    let mut ran = Ok(());
+    while !tries.is_empty() {
+        let renderer = tries.remove(0);
+        let options = eframe::NativeOptions {
+            renderer,
+            viewport: egui::ViewportBuilder::default()
+                .with_title(&title)
+                .with_inner_size(screen::SIZE)
+                .with_resizable(false)
+                .with_maximize_button(false)
+                .with_decorations(false)
+                .with_drag_and_drop(true)
+                .with_icon(egui::IconData::default()), // Windows' own, not eframe's
+            ..Default::default()
+        };
+        let fonts = &fonts;
+        ran = eframe::run_native(
+            &title,
+            options,
+            Box::new(move |cc| {
+                let _ = CTX.set(cc.egui_ctx.clone());
+                log(&format!("window: {renderer:?} renderer"));
+                let app = App::new(kit, folder);
+                if let Err(e) = theme::install(&cc.egui_ctx, app.st.edition, fonts) {
+                    return Err(tf(
+                        "launcher.msg_no_fonts",
+                        &[("error", &format!("{}: {e}", fonts.display()))],
+                    )
+                    .into());
+                }
+                Ok(Box::new(app))
+            }),
+        );
+        match &ran {
+            // the window never opened with this renderer: the next one, and the error in the log
+            Err(e) if !matches!(e, eframe::Error::AppCreation(_)) && !tries.is_empty() => {
+                log(&format!("window: {renderer:?} renderer failed ({e}), trying the next"));
             }
-            Ok(Box::new(app))
-        }),
-    );
+            _ => break,
+        }
+    }
     if let Err(e) = ran {
         let text = match e {
             eframe::Error::AppCreation(e) => e.to_string(),
