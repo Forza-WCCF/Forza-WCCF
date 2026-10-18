@@ -8,13 +8,15 @@
 #[path = "version_rc.rs"]
 mod version_rc;
 
-// Launcher.exe is system-DPI-aware (2026-10-17): its manifest says so, Windows then gives it the screen's own pixels
-// (no blurry stretch at 125%), and main.rs scales every coordinate and its fonts by the screen's dpi at the start.
+// Launcher.exe is DPI-aware (2026-10-17): its manifest says so, Windows then gives it the screen's own pixels (no blurry
+// stretch at 125%). Per monitor since the window is eframe (step 9.4): egui scales to each screen's dpi as it moves;
+// `dpiAware` stays for Windows before 10 1607.
 const DPI_MANIFEST: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
   <application xmlns="urn:schemas-microsoft-com:asm.v3">
     <windowsSettings>
-      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true</dpiAware>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
     </windowsSettings>
   </application>
 </assembly>

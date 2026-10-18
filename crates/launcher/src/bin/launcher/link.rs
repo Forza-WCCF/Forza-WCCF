@@ -164,7 +164,7 @@ pub enum Outcome {
 
 /// `here` is this kit folder as the process was started, never resolved.
 pub fn first_run(here: &Path) -> Outcome {
-    use crate::text::{fill, t};
+    use crate::text::{t, tf};
     let link = link_path();
     if env::var_os(LINKED).is_some() || same_path(&link, here) {
         return Outcome::InPlace { warn: None };
@@ -175,12 +175,15 @@ pub fn first_run(here: &Path) -> Outcome {
     };
     let action = decide(probe(&link, here));
     match action {
-        Action::InPlaceTaken => say(fill(t().link_taken, &[&link.display().to_string()])),
-        Action::InPlaceNoJunction => say(t().link_no_junction.to_owned()),
+        Action::InPlaceTaken => say(tf("launcher.msg_link_taken", &[("path", &link.display().to_string())])),
+        Action::InPlaceNoJunction => say(t("launcher.msg_link_no_junction")),
         Action::UseLink => Outcome::Restart(link),
         Action::Link | Action::Repoint => match make(&link, here, action == Action::Repoint) {
             Ok(()) => Outcome::Restart(link),
-            Err(e) => say(fill(t().link_failed, &[&link.display().to_string(), &e.to_string()])),
+            Err(e) => say(tf(
+                "launcher.msg_link_failed",
+                &[("path", &link.display().to_string()), ("error", &e.to_string())],
+            )),
         },
     }
 }

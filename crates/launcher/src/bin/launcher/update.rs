@@ -17,7 +17,7 @@ use launcher::Kit;
 use launcher::release::{UPDATE_URL, curl, no_target, system32};
 use serde_json::Value;
 
-use crate::text::{fill, t};
+use crate::text::{t, tf};
 use crate::{log, say};
 
 /// Launchers of earlier kits that this one replaced: removed unless the kit lists them.  SETUP.exe went into the
@@ -89,7 +89,7 @@ fn running_check(kit: &Kit) -> Result<(), String> {
     match launcher::procs::running_from(kit.dir()) {
         Some(p) => {
             let name = p.file_name().map_or(p.as_os_str(), OsStr::new).display().to_string();
-            Err(fill(t().close_game, &[&name]))
+            Err(tf("launcher.msg_close_game", &[("name", &name)]))
         }
         None => Ok(()),
     }
@@ -105,21 +105,21 @@ pub fn apply(kit: &Kit, r: &Release) -> Result<(), String> {
     let _ = fs::remove_dir_all(&work);
     fs::create_dir_all(&unzipped).map_err(|e| format!("{}: {e}", work.display()))?;
 
-    log(&fill(t().downloading, &[&r.tag]));
+    log(&tf("launcher.msg_downloading", &[("tag", &r.tag)]));
     let mut child = curl()
         .arg("-o")
         .arg(&zip)
         .args(["--url", &r.zip_url])
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| fill(t().download_failed, &[&e.to_string()]))?;
+        .map_err(|e| tf("launcher.msg_download_failed", &[("error", &e.to_string())]))?;
     while child.try_wait().map_err(|e| e.to_string())?.is_none() {
         let got = fs::metadata(&zip).map_or(0, |m| m.len());
         let mb = |b: u64| b as f64 / 1_048_576.0;
         say(
             format!(
                 "{}  {:.1} / {:.1} MB",
-                fill(t().downloading, &[&r.tag]),
+                tf("launcher.msg_downloading", &[("tag", &r.tag)]),
                 mb(got),
                 mb(r.zip_size)
             ),
@@ -129,23 +129,26 @@ pub fn apply(kit: &Kit, r: &Release) -> Result<(), String> {
     }
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
     if !out.status.success() {
-        return Err(fill(
-            t().download_failed,
-            &[String::from_utf8_lossy(&out.stderr).trim()],
+        return Err(tf(
+            "launcher.msg_download_failed",
+            &[("error", String::from_utf8_lossy(&out.stderr).trim())],
         ));
     }
 
-    log(t().unzipping);
-    say(t().unzipping, 920);
+    log(&t("launcher.msg_unzipping"));
+    say(t("launcher.msg_unzipping"), 920);
     let out = system32("tar.exe")
         .arg("-xf")
         .arg(&zip)
         .arg("-C")
         .arg(&unzipped)
         .output()
-        .map_err(|e| fill(t().unzip_failed, &[&e.to_string()]))?;
+        .map_err(|e| tf("launcher.msg_unzip_failed", &[("error", &e.to_string())]))?;
     if !out.status.success() {
-        return Err(fill(t().unzip_failed, &[String::from_utf8_lossy(&out.stderr).trim()]));
+        return Err(tf(
+            "launcher.msg_unzip_failed",
+            &[("error", String::from_utf8_lossy(&out.stderr).trim())],
+        ));
     }
     // the kit ZIP holds one folder (WCCF-2010-11-kit\) with the kit in it
     let top = fs::read_dir(&unzipped)
@@ -153,11 +156,11 @@ pub fn apply(kit: &Kit, r: &Release) -> Result<(), String> {
         .flatten()
         .map(|e| e.path())
         .find(|p| p.join("Launcher.exe").is_file())
-        .ok_or(t().not_a_kit)?;
+        .ok_or_else(|| t("launcher.msg_not_a_kit"))?;
 
     running_check(kit)?; // the game may have started during the download
-    log(&fill(t().copying, &[&r.tag]));
-    say(fill(t().copying, &[&r.tag]), 950);
+    log(&tf("launcher.msg_copying", &[("tag", &r.tag)]));
+    say(tf("launcher.msg_copying", &[("tag", &r.tag)]), 950);
     let mut old = manifest(&dir.join("files.txt")).unwrap_or_default();
     old.extend(LEGACY.iter().map(|&f| f.to_owned()));
     let new = manifest(&top.join("files.txt"));
@@ -193,7 +196,12 @@ fn copy_over(from: &Path, to: &Path, top: bool) -> Result<(), String> {
         } else {
             replace(&src, &dst)
         };
-        written.map_err(|e| fill(t().write_failed, &[&dst.display().to_string(), &e.to_string()]))?;
+        written.map_err(|e| {
+            tf(
+                "launcher.msg_write_failed",
+                &[("path", &dst.display().to_string()), ("error", &e.to_string())],
+            )
+        })?;
         if dir {
             copy_over(&src, &dst, false)?;
         }
@@ -297,7 +305,7 @@ mod tests {
     #[test]
     fn placeholder_finds_no_update() {
         assert!(no_target());
-        assert!(fetch().is_ok_and(|list| list.is_empty())); // the window then says t().none_listed, not an error
+        assert!(fetch().is_ok_and(|list| list.is_empty())); // the window then says launcher.msg_none_listed, not an error
     }
 
     #[test]

@@ -1,17 +1,19 @@
 //! Launcher.exe - the kit's one program, a window (2026-10-10; before, a console that ran play.py, and SETUP.exe beside
-//! it for the rest).  Nothing it starts shows a console: the game's two windows are all a player sees.
+//! it for the rest).  Nothing it starts shows a console: the game's two windows are all a player sees.  The window is
+//! eframe drawing forza's launcher screen (forza::ui::launcher, step 9.4): this file fills its state from the kit and
+//! does what the player asks for there.
 //!   PLAY         play on THIS PC or ONLINE on a server, the window's language, the game's text (English,
 //!                Italian or Japanese) - then this process runs the game (launcher::run) and holds every process of it
 //!                in one Job until it ends.  Once the game is up this window is minimized; closing a game window ends
 //!                the run, and then Launcher.exe ends too.  Closing this window (or STOP THE GAME) asks the run to stop
 //!                by the card rule: with the club card in or a match on, it asks first.  Launcher.exe opened again
 //!                while the game runs offers STOP THE GAME, which asks the running Launcher.exe.
-//!   SETUP AND UPDATES (folded away until wanted, or until setup is needed)
-//!                the game folder: set up / repair (scripts\setup.py GAME) and undo; it is typed, picked, dropped on
-//!                the window or on Launcher.exe, and remembered by setup.py in data\settings.json.
-//!                UPDATE (update.rs): the kit's releases and test builds at UPDATE_URL.
+//!   SETUP        the game folder: set up / repair (scripts\setup.py GAME) and undo; it is typed, picked, dropped on
+//!                the window or on Launcher.exe, and remembered by setup.py in data\settings.json.  The card pictures
+//!                (the game's or the high-quality pack) and, for 2017-18, skip the tutorial.
+//!   UPDATE       (update.rs, 2010-11 only): the kit's releases and test builds at UPDATE_URL.
 //! The choices go where the kit already keeps them (choices.rs): data\panel.txt, which the in-game SETTINGS panel
-//! writes too, and data\settings.json.  The scripts' output fills the box at the bottom.
+//! writes too, and data\settings.json.  The scripts' output fills OUTPUT.
 //!
 //! The command line still works: "Launcher.exe GAME-FOLDER" / "Launcher.exe undo" (setup at once), and play.py's words
 //! (local, server, remote ADDRESS [seat N], debug, stop, status, show, restart): from a console they print there and a
@@ -31,100 +33,36 @@ use std::os::windows::io::IntoRawHandle;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{ExitCode, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
+use std::time::Duration;
 use std::{env, mem, ptr, thread};
 
+use eframe::egui;
+use egui::ViewportCommand;
+use forza::ui::launcher::{self as screen, Action, Confirm, LauncherState};
+use forza::ui::theme;
+use forza::ui::widgets::Tone;
+use forza::ui::{Lang, text as ui_text};
 use launcher::release::is_newer;
 use launcher::run::{self, Params};
 use launcher::{Edition, Kit, choices};
-use text::{LANGUAGES, fill, t};
+use text::{t, tf};
 use update::Release;
-use windows_sys::Win32::Foundation::{HWND, INVALID_HANDLE_VALUE, LPARAM, LRESULT, RECT, WPARAM};
-use windows_sys::Win32::Graphics::Gdi::{
-    COLOR_BTNFACE, CreateFontIndirectW, FW_BOLD, GetDC, GetDeviceCaps, HFONT, LOGPIXELSY, ReleaseDC,
-};
+use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
 use windows_sys::Win32::Storage::FileSystem::{FILE_TYPE_DISK, FILE_TYPE_PIPE, GetFileType};
-use windows_sys::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoTaskMemFree};
 use windows_sys::Win32::System::Console::{
     ATTACH_PARENT_PROCESS, AttachConsole, CTRL_BREAK_EVENT, CTRL_C_EVENT, CTRL_CLOSE_EVENT, GetConsoleMode,
     GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, SetConsoleCtrlHandler, SetStdHandle,
 };
-use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows_sys::Win32::System::SystemServices::{SS_ETCHEDHORZ, SS_RIGHT};
 use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
-use windows_sys::Win32::UI::Controls::Dialogs::{
-    GetOpenFileNameW, OFN_FILEMUSTEXIST, OFN_NOCHANGEDIR, OFN_PATHMUSTEXIST, OPENFILENAMEW,
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    IDYES, MB_ICONERROR, MB_ICONQUESTION, MB_OK, MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO, MessageBoxW,
 };
-use windows_sys::Win32::UI::Controls::{
-    BST_CHECKED, EM_REPLACESEL, EM_SETLIMITTEXT, EM_SETSEL, ICC_PROGRESS_CLASS, INITCOMMONCONTROLSEX,
-    InitCommonControlsEx, PBM_SETPOS, PBM_SETRANGE32, PROGRESS_CLASSW,
-};
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, SetFocus};
-use windows_sys::Win32::UI::Shell::{
-    BIF_NEWDIALOGSTYLE, BIF_RETURNONLYFSDIRS, BROWSEINFOW, DragAcceptFiles, DragFinish, DragQueryFileW, HDROP,
-    SHBrowseForFolderW, SHGetPathFromIDListW, ShellExecuteW,
-};
-use windows_sys::Win32::UI::WindowsAndMessaging::*;
-use windows_sys::core::{BOOL, PCWSTR, w};
+use windows_sys::core::BOOL;
 
-const ID_FOLDER: i32 = 10;
-const ID_BROWSE: i32 = 11;
-const ID_SETUP: i32 = 12;
-const ID_UNDO: i32 = 13;
-const ID_HEADING: i32 = 17;
-const ID_LIST: i32 = 18;
-const ID_UPDATE: i32 = 19;
-const ID_NOTES: i32 = 20;
-const ID_STATUS: i32 = 21;
-const ID_BAR: i32 = 22;
-const ID_LOG: i32 = 23;
-const ID_THIS_PC: i32 = 30;
-const ID_ONLINE: i32 = 31;
-const ID_SERVER: i32 = 32;
-const ID_LANG: i32 = 33;
-const ID_TEXT_EN: i32 = 34;
-const ID_TEXT_JA: i32 = 35;
-const ID_PLAY: i32 = 36;
-const ID_MORE: i32 = 37;
-const ID_VERSION: i32 = 38;
-const ID_UPNOTE: i32 = 39;
-const ID_L_PLAY_ON: i32 = 40;
-const ID_L_LANG: i32 = 41;
-const ID_L_TEXT: i32 = 42;
-const ID_L_FOLDER: i32 = 43;
-const ID_TEXT_IT: i32 = 44;
-const ID_L_PICS: i32 = 45;
-const ID_PICS_GAME: i32 = 46;
-const ID_PICS_HQ: i32 = 47;
-const ID_PACK: i32 = 48;
-const ID_SKIP: i32 = 49;
-/// Disabled while a job runs.
-const BUTTONS: [i32; 18] = [
-    ID_BROWSE,
-    ID_SETUP,
-    ID_UNDO,
-    ID_UPDATE,
-    ID_NOTES,
-    ID_THIS_PC,
-    ID_ONLINE,
-    ID_SERVER,
-    ID_LANG,
-    ID_TEXT_EN,
-    ID_TEXT_IT,
-    ID_TEXT_JA,
-    ID_PLAY,
-    ID_FOLDER,
-    ID_PICS_GAME,
-    ID_PICS_HQ,
-    ID_PACK,
-    ID_SKIP,
-];
-
-/// The window's client height folded and unfolded (96-dpi pixels), and its width.
-const FOLDED: i32 = 282;
-const UNFOLDED: i32 = 780;
-const WIDTH: i32 = 600;
+/// The message boxes' title (the window's own title bar draws the name itself).
+const TITLE: &str = "Forza-WCCF";
 
 enum Step {
     Script(&'static str, Vec<OsString>),
@@ -135,33 +73,33 @@ enum Step {
     Pictures,
 }
 
-/// What the worker threads tell the window; the window looks every 100 ms.
+/// What the worker threads tell the window; each change wakes it (`poke`).
 struct Shared {
     releases: Vec<Release>,
-    listed: bool, // `releases` is new: the list box gets it
-    status: String,
-    update_note: String,
-    progress: u32,    // of 1000
-    log: String,      // lines for the output box, not shown yet
-    busy: bool,       // a job runs
-    updated: bool,    // an update has just finished: offer setup
-    failed: bool,     // the last job failed: unfold, so its output shows
-    game: Option<u8>, // a Game step has just ended with this exit code
-    changed: bool,
+    listed: bool, // `releases` is new: the list gets it
+    status: Option<(Tone, String)>,
+    update_note: Option<(Tone, String)>,
+    progress: u32,             // of 1000
+    steps: Option<(u32, u32)>, // the run's "N/M" step lines: N of M
+    log: Vec<String>,          // lines for OUTPUT, not shown yet
+    busy: bool,                // a job runs
+    updated: bool,             // an update has just finished: offer setup
+    failed: bool,              // the last job failed: OUTPUT opens, so its output shows
+    game: Option<u8>,          // a Game step has just ended with this exit code
 }
 
 static SHARED: Mutex<Shared> = Mutex::new(Shared {
     releases: Vec::new(),
     listed: false,
-    status: String::new(),
-    update_note: String::new(),
+    status: None,
+    update_note: None,
     progress: 0,
-    log: String::new(),
+    steps: None,
+    log: Vec::new(),
     busy: false,
     updated: false,
     failed: false,
     game: None,
-    changed: true,
 });
 
 /// The game is up in this process (its run is supervised here): the window is minimized, closing it asks the run to stop.
@@ -170,31 +108,54 @@ static UP: AtomicBool = AtomicBool::new(false);
 static WAS_UP: AtomicBool = AtomicBool::new(false);
 /// A run is on in this kit folder (here or in another Launcher.exe): PLAY offers STOP THE GAME.
 static RUNNING: AtomicBool = AtomicBool::new(false);
-static UNFOLD: AtomicBool = AtomicBool::new(false);
 /// The window was minimized for the game that is up (once per run, so the player can bring it back).
 static MINIMIZED: AtomicBool = AtomicBool::new(false);
-/// The screen's dots per inch (96 at 100 %), for the window's size.
-static DPI: AtomicI32 = AtomicI32::new(96);
+/// The window's context, so the workers can wake it.
+static CTX: OnceLock<egui::Context> = OnceLock::new();
 
 fn shared() -> MutexGuard<'static, Shared> {
     SHARED.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// The window looks again (also while it is minimized: eframe then runs only `App::logic`).
+fn poke() {
+    if let Some(c) = CTX.get() {
+        c.request_repaint();
+    }
+}
+
+fn say_tone(tone: Tone, status: impl Into<String>, progress: u32) {
+    {
+        let mut s = shared();
+        s.status = Some((tone, status.into()));
+        s.progress = progress;
+    }
+    poke();
+}
+
 fn say(status: impl Into<String>, progress: u32) {
-    let mut s = shared();
-    s.status = status.into();
-    s.progress = progress;
-    s.changed = true;
+    say_tone(Tone::Notice, status, progress);
+}
+
+fn refuse(status: impl Into<String>) {
+    say_tone(Tone::Refused, status, 0);
 }
 
 fn log(line: &str) {
-    let mut s = shared();
-    s.log.push_str(line);
-    s.log.push_str("\r\n");
-    s.changed = true;
+    shared().log.push(line.to_owned());
+    poke();
 }
 
 // ---- the kit's scripts ------------------------------------------------------------------------------------------
+
+/// A step line moves the bar: never back.
+fn stepped(line: &str) {
+    if let Some((n, m)) = step(line) {
+        let mut s = shared();
+        s.progress = s.progress.max(n * 1000 / m);
+        s.steps = Some(s.steps.filter(|&(d, t)| t == m && d >= n).unwrap_or((n, m)));
+    }
+}
 
 /// python\python.exe code\<script> args without a console, its output line by line into the window; its exit
 /// code.  play.py's "N/M" step lines move the progress bar.
@@ -226,10 +187,7 @@ fn run_script(kit: &Kit, script: &str, args: &[OsString]) -> Result<i32, String>
             let mut line = Vec::new();
             while pipe.read_until(b'\n', &mut line).is_ok_and(|n| n > 0) {
                 let text = String::from_utf8_lossy(&line);
-                if let Some(per_mille) = step(&text) {
-                    let mut s = shared();
-                    s.progress = s.progress.max(per_mille);
-                }
+                stepped(&text);
                 log(text.trim_end());
                 line.clear();
             }
@@ -243,12 +201,12 @@ fn run_script(kit: &Kit, script: &str, args: &[OsString]) -> Result<i32, String>
     Ok(status.code().unwrap_or(1))
 }
 
-/// "  4/6 cabinet stand-ins ..." -> 4 of 6, in thousandths.
-fn step(line: &str) -> Option<u32> {
+/// "  4/6 cabinet stand-ins ..." -> 4 of 6.
+fn step(line: &str) -> Option<(u32, u32)> {
     let (n, rest) = line.trim_start().split_once('/')?;
     let m: String = rest.chars().take_while(char::is_ascii_digit).collect();
     let (n, m) = (n.parse::<u32>().ok()?, m.parse::<u32>().ok()?);
-    (n <= m && m > 0 && rest[m.to_string().len()..].starts_with(' ')).then(|| n * 1000 / m)
+    (n <= m && m > 0 && rest[m.to_string().len()..].starts_with(' ')).then_some((n, m))
 }
 
 /// english.py's arguments that put `lang` ("en", "it" or "" for the original Japanese) in place.
@@ -260,30 +218,11 @@ fn language_args(lang: &str) -> Vec<OsString> {
     }
 }
 
-/// The game's text as the window shows it.
-fn text_choice(hwnd: HWND) -> &'static str {
-    if checked(hwnd, ID_TEXT_EN) {
-        "en"
-    } else if checked(hwnd, ID_TEXT_IT) {
-        "it"
-    } else {
-        ""
-    }
-}
+/// The game's text: the screen's place (English, Italian, the original Japanese) <-> english.py's code.
+const GAME_TEXT: [&str; 3] = ["en", "it", ""];
 
-/// The game's text radio buttons: only `lang` ("en", "it", else Japanese) on.
-fn pick_text(hwnd: HWND, lang: &str) {
-    for (id, code) in [(ID_TEXT_EN, "en"), (ID_TEXT_IT, "it"), (ID_TEXT_JA, "")] {
-        // SAFETY: a button of our own window.
-        unsafe {
-            SendMessageW(
-                item(hwnd, id),
-                BM_SETCHECK,
-                if code == lang { BST_CHECKED as usize } else { 0 },
-                0,
-            )
-        };
-    }
+fn game_text_of(code: &str) -> usize {
+    GAME_TEXT.iter().position(|&c| c == code).unwrap_or(2)
 }
 
 fn panel_file(kit: &Kit) -> PathBuf {
@@ -291,7 +230,7 @@ fn panel_file(kit: &Kit) -> PathBuf {
 }
 
 fn this_kit(kit: &Kit) -> String {
-    kit.version().unwrap_or_else(|| t().not_known.into())
+    kit.version().unwrap_or_else(|| t("launcher.msg_not_known"))
 }
 
 /// The steps one by one in a worker; the first that fails ends the job.
@@ -304,8 +243,9 @@ fn start(steps: Vec<Step>) {
         WAS_UP.store(false, Ordering::Relaxed);
         s.busy = true;
         s.progress = 0;
-        s.changed = true;
+        s.steps = None;
     }
+    poke();
     thread::spawn(move || {
         let kit = Kit::here();
         let mut result = Ok(());
@@ -315,14 +255,15 @@ fn start(steps: Vec<Step>) {
             result = match &step {
                 Step::Script(script, args) => {
                     say(format!("{script} ..."), 0);
-                    run_script(&kit, script, args).and_then(|rc| if rc == 0 { Ok(()) } else { Err(t().failed.into()) })
+                    run_script(&kit, script, args)
+                        .and_then(|rc| if rc == 0 { Ok(()) } else { Err(t("launcher.msg_failed")) })
                 }
                 Step::Update(r) => update::apply(&kit, r).map(|()| updated = Some(r.tag.clone())),
                 Step::Pictures => {
-                    say(t().making_pictures, 0);
+                    say(t("launcher.msg_making_pictures"), 0);
                     run::make_pictures(&kit, &Params::of(&kit), &WindowUi)
                         .then_some(())
-                        .ok_or_else(|| t().failed.to_owned())
+                        .ok_or_else(|| t("launcher.msg_failed"))
                 }
                 Step::Game(args) => {
                     let words: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
@@ -340,69 +281,72 @@ fn start(steps: Vec<Step>) {
         let failed = result.is_err() || game.is_some_and(|rc| rc != 0);
         let status = match (&result, &updated, game) {
             (Err(e), _, _) => e.clone(),
-            (Ok(()), Some(tag), _) => fill(t().updated, &[tag]),
-            (Ok(()), None, Some(2)) => t().not_set_up.to_owned(),
-            (Ok(()), None, Some(4)) => t().unguarded.to_owned(),
-            (Ok(()), None, Some(5)) => t().not_guarded.to_owned(),
-            (Ok(()), None, Some(rc)) if rc != 0 => t().start_failed.to_owned(),
-            (Ok(()), None, _) => t().done.to_owned(),
+            (Ok(()), Some(tag), _) => tf("launcher.msg_updated", &[("tag", tag)]),
+            (Ok(()), None, Some(2)) => ui_text(text::lang(), "launcher.status_not_set_up", &[]),
+            (Ok(()), None, Some(4)) => t("launcher.msg_unguarded"),
+            (Ok(()), None, Some(5)) => t("launcher.msg_not_guarded"),
+            (Ok(()), None, Some(rc)) if rc != 0 => t("launcher.msg_start_failed"),
+            (Ok(()), None, _) => t("launcher.msg_done"),
         };
         log(&status);
         log("");
-        let mut s = shared();
-        s.status = status;
-        s.progress = if failed { 0 } else { 1000 };
-        s.updated = updated.is_some();
-        s.failed = failed;
-        s.game = game;
-        s.busy = false;
-        s.changed = true;
+        {
+            let mut s = shared();
+            s.status = Some((if failed { Tone::Refused } else { Tone::Done }, status));
+            s.progress = if failed { 0 } else { 1000 };
+            s.updated = updated.is_some();
+            s.failed = failed;
+            s.game = game;
+            s.busy = false;
+        }
+        poke();
     });
 }
 
-/// The run's lines go to the output box (its "N/M" steps move the bar); its question - stop anyway, after the card
-/// rule refused a stop - is asked in a message box; the game up minimizes the window.
+/// The run's lines go to OUTPUT (its "N/M" steps move the bar); its question - stop anyway, after the card rule
+/// refused a stop - is asked in a message box in front of the game; the game up minimizes the window.
 struct WindowUi;
 
 impl run::Ui for WindowUi {
     fn say(&self, line: &str) {
-        if let Some(per_mille) = step(line) {
-            let mut s = shared();
-            s.progress = s.progress.max(per_mille);
-        }
+        stepped(line);
         log(line);
     }
 
     fn ask(&self, _question: &str) -> bool {
-        let text = wide(t().stop_anyway);
-        // SAFETY: NUL-terminated strings; no owner (any thread may ask), kept in front of the game.
-        unsafe {
-            MessageBoxW(
-                ptr::null_mut(),
-                text.as_ptr(),
-                wide(t().title).as_ptr(),
-                MB_YESNO | MB_ICONQUESTION | MB_TOPMOST | MB_SETFOREGROUND,
-            ) == IDYES
-        }
+        // no owner (any thread may ask), kept in front of the game
+        message(
+            &t("launcher.msg_stop_anyway"),
+            MB_YESNO | MB_ICONQUESTION | MB_TOPMOST | MB_SETFOREGROUND,
+        ) == IDYES
     }
 
     fn running(&self, up: bool) {
         UP.store(up, Ordering::Relaxed);
         WAS_UP.fetch_or(up, Ordering::Relaxed);
         RUNNING.store(up, Ordering::Relaxed);
-        let mut s = shared();
         if up {
-            s.status = t().running.into();
-            s.progress = 1000;
+            say(t("launcher.msg_running"), 1000);
         }
-        s.changed = true;
+        poke();
     }
+}
+
+/// A Windows message box with no owner; its answer.
+fn message(text: &str, style: u32) -> i32 {
+    let (text, title) = (wide(text), wide(TITLE));
+    // SAFETY: NUL-terminated strings that live across the call; no owner window.
+    unsafe { MessageBoxW(ptr::null_mut(), text.as_ptr(), title.as_ptr(), style) }
+}
+
+fn wide(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain([0]).collect()
 }
 
 /// STOP THE GAME, or this window closed while the game runs: the running game is asked to stop (`force`: without the
 /// card rule), on a thread of its own - the run itself may be this process's job.
 fn stop_game(force: bool) {
-    say(t().stopping, 0);
+    say(t("launcher.msg_stopping"), 0);
     thread::spawn(move || {
         let words: Vec<String> = if force {
             vec!["stop".into(), "force".into()]
@@ -412,777 +356,454 @@ fn stop_game(force: bool) {
         let kit = Kit::here();
         run::command(&kit, &Params::of(&kit), &words, &WindowUi);
         RUNNING.store(run::any_on(&kit), Ordering::Relaxed);
-        shared().changed = true;
+        poke();
     });
 }
 
 /// The release list, asked in the background when the window opens.
 fn ask_updates() {
+    shared().update_note = Some((Tone::Notice, t("launcher.msg_asking")));
     thread::spawn(|| {
-        shared().update_note = t().asking.into();
         let found = update::fetch();
         let installed = this_kit(&Kit::here());
-        let mut s = shared();
-        match found {
-            Ok(list) if !list.is_empty() => {
-                if let Some(r) = list.iter().find(|r| !r.test && is_newer(&r.tag, &installed)) {
-                    if !s.busy {
-                        s.status = fill(t().available, &[&r.tag]);
+        {
+            let mut s = shared();
+            match found {
+                Ok(list) if !list.is_empty() => {
+                    if let Some(r) = list.iter().find(|r| !r.test && is_newer(&r.tag, &installed)) {
+                        if !s.busy {
+                            s.status = Some((Tone::Notice, tf("launcher.msg_available", &[("tag", &r.tag)])));
+                        }
+                        s.update_note = None;
+                    } else {
+                        s.update_note = Some((Tone::Notice, t("launcher.msg_pick")));
                     }
-                    s.update_note = String::new();
-                } else {
-                    s.update_note = t().pick.into();
+                    s.releases = list;
+                    s.listed = true;
                 }
-                s.releases = list;
-                s.listed = true;
+                Ok(_) => s.update_note = Some((Tone::Done, t("launcher.msg_none_listed"))),
+                Err(e) => s.update_note = Some((Tone::Refused, tf("launcher.msg_no_answer", &[("error", &e)]))),
             }
-            Ok(_) => s.update_note = t().none_listed.into(),
-            Err(e) => s.update_note = format!("{} {}", fill(t().no_answer, &[&e]), t().retry),
         }
-        s.changed = true;
+        poke();
     });
 }
 
 // ---- the window -------------------------------------------------------------------------------------------------
 
-fn wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain([0]).collect()
+/// The window: the screen's state, the kit, the releases behind its list.
+struct App {
+    st: LauncherState,
+    releases: Vec<Release>,
 }
 
-fn item(hwnd: HWND, id: i32) -> HWND {
-    // SAFETY: a control of our own window (null if there is none: every call below takes that).
-    unsafe { GetDlgItem(hwnd, id) }
-}
-
-fn set_text(hwnd: HWND, id: i32, text: &str) {
-    // SAFETY: a NUL-terminated string for a control of our own window.
-    unsafe { SetWindowTextW(item(hwnd, id), wide(text).as_ptr()) };
-}
-
-fn get_text(hwnd: HWND, id: i32) -> String {
-    let c = item(hwnd, id);
-    // SAFETY: the buffer holds the length Windows reports plus the NUL.
-    unsafe {
-        let mut buf = vec![0u16; GetWindowTextLengthW(c) as usize + 1];
-        let n = GetWindowTextW(c, buf.as_mut_ptr(), buf.len() as i32);
-        String::from_utf16_lossy(&buf[..n.max(0) as usize]).trim().to_owned()
-    }
-}
-
-fn checked(hwnd: HWND, id: i32) -> bool {
-    // SAFETY: a button of our own window.
-    unsafe { SendMessageW(item(hwnd, id), BM_GETCHECK, 0, 0) == BST_CHECKED as LRESULT }
-}
-
-/// One of a pair of radio buttons on, the other off.
-fn pick(hwnd: HWND, on: i32, off: i32) {
-    // SAFETY: buttons of our own window.
-    unsafe {
-        SendMessageW(item(hwnd, on), BM_SETCHECK, BST_CHECKED as usize, 0);
-        SendMessageW(item(hwnd, off), BM_SETCHECK, 0, 0);
-    }
-}
-
-fn ask(hwnd: HWND, text: &str) -> bool {
-    // SAFETY: NUL-terminated strings, our own window as the owner.
-    unsafe {
-        MessageBoxW(
-            hwnd,
-            wide(text).as_ptr(),
-            wide(t().title).as_ptr(),
-            MB_YESNO | MB_ICONQUESTION,
-        ) == IDYES
-    }
-}
-
-fn selected(hwnd: HWND) -> Option<Release> {
-    // SAFETY: a list box of our own window.
-    let i = unsafe { SendMessageW(item(hwnd, ID_LIST), LB_GETCURSEL, 0, 0) };
-    usize::try_from(i).ok().and_then(|i| shared().releases.get(i).cloned())
-}
-
-/// The game folder box, or a message that it is empty.
-fn folder(hwnd: HWND) -> Option<OsString> {
-    let f = get_text(hwnd, ID_FOLDER);
-    if f.is_empty() {
-        unfold(hwnd, true);
-        say(t().no_folder, 0);
-        return None;
-    }
-    Some(f.into())
-}
-
-fn browse(hwnd: HWND) {
-    let title = wide(t().browse_title);
-    let info = BROWSEINFOW {
-        hwndOwner: hwnd,
-        lpszTitle: title.as_ptr(),
-        ulFlags: BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE,
-        ..Default::default()
-    };
-    // SAFETY: `info` and `title` live across the call; the path buffer is MAX_PATH long, as Windows asks; the item
-    // list Windows gives back is freed once.
-    unsafe {
-        let pidl = SHBrowseForFolderW(&info);
-        if pidl.is_null() {
-            return;
-        }
-        let mut path = [0u16; 260];
-        let ok = SHGetPathFromIDListW(pidl, path.as_mut_ptr());
-        CoTaskMemFree(pidl.cast());
-        if ok != 0 {
-            let len = path.iter().position(|&c| c == 0).unwrap_or(path.len());
-            set_text(hwnd, ID_FOLDER, &String::from_utf16_lossy(&path[..len]));
-        }
-    }
-}
-
-fn dropped(hwnd: HWND, drop: HDROP) {
-    // SAFETY: the drop handle Windows gave with WM_DROPFILES, finished once; the buffer and its length go together.
-    unsafe {
-        let mut path = vec![0u16; 32_768];
-        let n = DragQueryFileW(drop, 0, path.as_mut_ptr(), path.len() as u32);
-        DragFinish(drop);
-        if n > 0 {
-            unfold(hwnd, true);
-            set_text(hwnd, ID_FOLDER, &String::from_utf16_lossy(&path[..n as usize]));
-        }
-    }
-}
-
-/// The board's card pictures: the game's own, or the high-quality pack (data\\settings.json "card_pictures" and
-/// "card_pack"; made at setup and here, launcher::run::make_pictures).  The pack is asked for when none is known yet, or with Choose pack.
-fn pictures_picked(hwnd: HWND, hq: bool, choose: bool) {
-    let file = Kit::here().settings_file();
-    let known = choices::setting(&file, "card_pack").filter(|p| Path::new(p).is_file());
-    let pack = if !hq {
-        None
-    } else if let Some(p) = known.filter(|_| !choose) {
-        Some(p)
-    } else if let Some(p) = pick_pack(hwnd) {
-        Some(p)
-    } else {
-        // no pack: the choice stays as it was
-        let was = choices::setting(&file, "card_pictures").as_deref() == Some("hq");
-        let (on, off) = if was {
-            (ID_PICS_HQ, ID_PICS_GAME)
-        } else {
-            (ID_PICS_GAME, ID_PICS_HQ)
+impl App {
+    /// The state as the kit has it now; `folder` given (dropped on Launcher.exe) opens SETUP.
+    fn new(kit: &Kit, folder: Option<&OsStr>) -> Self {
+        let ed = match kit.edition() {
+            Edition::E1718 => theme::Edition::E1718,
+            Edition::E1011 => theme::Edition::E1011,
         };
-        pick(hwnd, on, off);
-        return;
-    };
-    let mut done = choices::set_setting(&file, "card_pictures", if pack.is_some() { "hq" } else { "game" });
-    if let Some(p) = &pack {
-        done = done.and_then(|()| choices::set_setting(&file, "card_pack", p));
-        pick(hwnd, ID_PICS_HQ, ID_PICS_GAME);
-    }
-    match done {
-        Ok(()) => start(vec![Step::Pictures]),
-        Err(e) => say(
-            fill(t().write_failed, &[&file.display().to_string(), &e.to_string()]),
-            0,
-        ),
-    }
-}
-
-/// The "Skip the tutorial" box (2017-18): data\\settings.json "skip_tutorial", which run::start_gamesvr reads.
-fn skip_picked(hwnd: HWND) {
-    let file = Kit::here().settings_file();
-    if let Err(e) = choices::set_setting_bool(&file, "skip_tutorial", checked(hwnd, ID_SKIP)) {
-        say(
-            fill(t().write_failed, &[&file.display().to_string(), &e.to_string()]),
-            0,
-        );
-    }
-}
-
-/// The open-file box for the pack's ZIP.
-fn pick_pack(hwnd: HWND) -> Option<String> {
-    let title = wide(t().pack_title);
-    let filter: Vec<u16> = "ZIP\0*.zip\0\0".encode_utf16().collect();
-    let mut path = vec![0u16; 32_768];
-    let mut ofn = OPENFILENAMEW {
-        lStructSize: size_of::<OPENFILENAMEW>() as u32,
-        hwndOwner: hwnd,
-        lpstrFilter: filter.as_ptr(),
-        lpstrFile: path.as_mut_ptr(),
-        nMaxFile: path.len() as u32,
-        lpstrTitle: title.as_ptr(),
-        Flags: OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR,
-        ..Default::default()
-    };
-    // SAFETY: the structure, the filter, the title and the path buffer live across the call; the buffer's length is
-    // the one given.
-    if unsafe { GetOpenFileNameW(&mut ofn) } == 0 {
-        return None;
-    }
-    let len = path.iter().position(|&c| c == 0).unwrap_or(path.len());
-    Some(String::from_utf16_lossy(&path[..len]))
-}
-
-fn update_clicked(hwnd: HWND) {
-    let Some(r) = selected(hwnd) else { return };
-    if ask(
-        hwnd,
-        &fill(if r.test { t().confirm_test } else { t().confirm_release }, &[&r.tag]),
-    ) {
-        start(vec![Step::Update(r)]);
-    }
-}
-
-fn open_notes(hwnd: HWND) {
-    let Some(page) = selected(hwnd).map(|r| r.page) else {
-        return;
-    };
-    // SAFETY: NUL-terminated strings; Windows opens the page in the default browser.
-    unsafe {
-        ShellExecuteW(
-            hwnd,
-            w!("open"),
-            wide(&page).as_ptr(),
-            ptr::null(),
-            ptr::null(),
-            SW_SHOWNORMAL,
-        )
-    };
-}
-
-/// PLAY: the choices into data\panel.txt, then play.py.  While the game runs: STOP THE GAME.
-fn play_clicked(hwnd: HWND) {
-    if RUNNING.load(Ordering::Relaxed) {
-        if ask(hwnd, t().stop_confirm) {
-            stop_game(true);
-        }
-        return;
-    }
-    let kit = Kit::here();
-    let online = checked(hwnd, ID_ONLINE);
-    let server = get_text(hwnd, ID_SERVER);
-    if online && kit.edition() == Edition::E1718 {
-        say(t().online_1718, 0);
-        return;
-    }
-    if online && !choices::valid_address(&server) {
-        say(t().bad_address, 0);
-        // SAFETY: a control of our own window.
-        unsafe { SetFocus(item(hwnd, ID_SERVER)) };
-        return;
-    }
-    let lang = text_choice(hwnd);
-    let path = panel_file(&kit);
-    let mut panel = choices::read(&path);
-    panel = choices::set_panel_value(&panel, "play_on", Some(if online { "online" } else { "this_pc" }));
-    if !server.is_empty() {
-        panel = choices::set_panel_value(&panel, "server", Some(&server));
-    }
-    // a change only: play.py switches the game's text at the start (english.py), then takes the line out
-    let change = (lang != kit.game_language()).then_some(match lang {
-        "en" => "on",
-        "it" => "it",
-        _ => "off",
-    });
-    panel = choices::set_panel_value(&panel, "english", change);
-    if let Err(e) = choices::write(&path, &panel) {
-        say(
-            fill(t().write_failed, &[&path.display().to_string(), &e.to_string()]),
-            0,
-        );
-        return;
-    }
-    say(t().starting, 0);
-    start(vec![Step::Game(Vec::new())]);
-}
-
-fn language_picked(hwnd: HWND) {
-    // SAFETY: a combo box of our own window.
-    let i = unsafe { SendMessageW(item(hwnd, ID_LANG), CB_GETCURSEL, 0, 0) };
-    let Some(&(code, _, _)) = usize::try_from(i).ok().and_then(|i| LANGUAGES.get(i)) else {
-        return;
-    };
-    text::set(code);
-    let _ = choices::set_setting(&Kit::here().settings_file(), "language", code);
-    // the game's text follows: Japanese for 日本語, Italian for Italiano, else English (still a choice of its own)
-    pick_text(
-        hwnd,
-        match code {
-            "ja" => "",
-            "it" => "it",
-            _ => "en",
-        },
-    );
-    retext(hwnd);
-}
-
-/// Every word of the window in the language chosen.
-fn retext(hwnd: HWND) {
-    let tx = t();
-    let kit = Kit::here();
-    let title = wide(&format!(
-        "{} {} - {}",
-        tx.title,
-        kit.edition().name(),
-        kit.dir().display()
-    ));
-    // SAFETY: a NUL-terminated string for our own window.
-    unsafe { SetWindowTextW(hwnd, title.as_ptr()) };
-    for (id, words) in [
-        (ID_L_PLAY_ON, tx.play_on),
-        (ID_THIS_PC, tx.this_pc),
-        (ID_ONLINE, tx.online),
-        (ID_L_LANG, tx.language),
-        (ID_L_TEXT, tx.game_text),
-        (ID_TEXT_EN, tx.english),
-        (ID_TEXT_IT, tx.italian),
-        (ID_TEXT_JA, tx.japanese),
-        (ID_L_FOLDER, tx.game_folder),
-        (ID_BROWSE, tx.browse),
-        (ID_SETUP, tx.set_up),
-        (ID_UNDO, tx.undo),
-        (ID_UPDATE, tx.update),
-        (ID_NOTES, tx.whats_new),
-        (ID_L_PICS, tx.card_pictures),
-        (ID_PICS_GAME, tx.from_game),
-        (ID_PICS_HQ, tx.hq_pack),
-        (ID_PACK, tx.choose_pack),
-        (ID_SKIP, tx.skip_tutorial),
-    ] {
-        set_text(hwnd, id, words);
-    }
-    set_text(
-        hwnd,
-        ID_PLAY,
-        if RUNNING.load(Ordering::Relaxed) {
-            tx.stop_game
-        } else {
-            tx.play
-        },
-    );
-    set_text(
-        hwnd,
-        ID_MORE,
-        if UNFOLD.load(Ordering::Relaxed) {
-            tx.less
-        } else {
-            tx.more
-        },
-    );
-    let mut s = shared();
-    s.listed = !s.releases.is_empty(); // "release", "(this kit)" ... again
-    s.changed = true;
-}
-
-/// Setup and updates shown, or folded away.
-fn unfold(hwnd: HWND, open: bool) {
-    UNFOLD.store(open, Ordering::Relaxed);
-    set_text(hwnd, ID_MORE, if open { t().less } else { t().more });
-    // SAFETY: our own window; the rectangle is filled by Windows.
-    unsafe {
-        let dpi = DPI.load(Ordering::Relaxed);
-        let mut rect = RECT {
-            left: 0,
-            top: 0,
-            right: WIDTH * dpi / 96,
-            bottom: (if open { UNFOLDED } else { FOLDED }) * dpi / 96,
-        };
-        AdjustWindowRectEx(&mut rect, GetWindowLongW(hwnd, GWL_STYLE) as u32, 0, 0);
-        SetWindowPos(
-            hwnd,
-            ptr::null_mut(),
-            0,
-            0,
-            rect.right - rect.left,
-            rect.bottom - rect.top,
-            SWP_NOMOVE | SWP_NOZORDER,
-        );
-    }
-}
-
-/// The timer: what the workers said since the last look.
-fn refresh(hwnd: HWND) {
-    let (status, note, progress, log, busy, has_list, list, updated, failed, game) = {
-        let mut s = shared();
-        if !mem::take(&mut s.changed) {
-            return;
-        }
-        let list = mem::take(&mut s.listed).then(|| s.releases.clone());
-        (
-            s.status.clone(),
-            s.update_note.clone(),
-            s.progress,
-            mem::take(&mut s.log),
-            s.busy,
-            !s.releases.is_empty(),
-            list,
-            mem::take(&mut s.updated),
-            mem::take(&mut s.failed),
-            s.game.take(),
-        )
-    };
-    let kit = Kit::here();
-    let installed = this_kit(&kit);
-    // the run this process held has ended well: Launcher.exe ends with it
-    if game == Some(0) && WAS_UP.load(Ordering::Relaxed) {
-        // SAFETY: our own window, from its own thread.
-        unsafe { DestroyWindow(hwnd) };
-        return;
-    }
-    // SAFETY: our own window, from its own thread.
-    unsafe {
-        if UP.load(Ordering::Relaxed) && IsIconic(hwnd) == 0 && !MINIMIZED.swap(true, Ordering::Relaxed) {
-            ShowWindow(hwnd, SW_MINIMIZE); // the game's windows are in front; this one waits in the taskbar
-        } else if game.is_some() && IsIconic(hwnd) != 0 {
-            ShowWindow(hwnd, SW_RESTORE); // the run ended badly: what it said is shown
-        }
-    }
-    if !UP.load(Ordering::Relaxed) {
-        MINIMIZED.store(false, Ordering::Relaxed);
-    }
-    if failed {
-        unfold(hwnd, true);
-    }
-    set_text(hwnd, ID_STATUS, &status);
-    set_text(hwnd, ID_UPNOTE, &note);
-    set_text(hwnd, ID_HEADING, &fill(t().update_heading, &[&installed]));
-    let shown = kit
-        .version()
-        .map(|v| format!("Kit {}", v.strip_prefix("kit-").unwrap_or(&v)));
-    set_text(hwnd, ID_VERSION, &shown.unwrap_or_default());
-    let running = RUNNING.load(Ordering::Relaxed);
-    set_text(hwnd, ID_PLAY, if running { t().stop_game } else { t().play });
-    // SAFETY: controls of our own window; every string is NUL-terminated and copied by the control.
-    unsafe {
-        SendMessageW(item(hwnd, ID_BAR), PBM_SETPOS, progress as usize, 0);
-        for id in BUTTONS {
-            let on = !busy && (id != ID_UPDATE || has_list);
-            EnableWindow(item(hwnd, id), i32::from(on));
-        }
-        if !log.is_empty() {
-            let out = item(hwnd, ID_LOG);
-            let end = GetWindowTextLengthW(out) as usize;
-            SendMessageW(out, EM_SETSEL, end, end as LPARAM);
-            SendMessageW(out, EM_REPLACESEL, 0, wide(&log).as_ptr() as LPARAM);
-        }
-        if let Some(list) = list {
-            let box_ = item(hwnd, ID_LIST);
-            SendMessageW(box_, LB_RESETCONTENT, 0, 0);
-            for r in &list {
-                let kind = if r.test { t().test_build } else { t().release };
-                let mark = if r.tag == installed {
-                    t().this_kit
-                } else if !r.test && is_newer(&r.tag, &installed) {
-                    t().newer
-                } else {
-                    ""
-                };
-                let line = wide(&format!("{}\t{kind}\t{}\t{mark}", r.tag, r.date));
-                SendMessageW(box_, LB_ADDSTRING, 0, line.as_ptr() as LPARAM);
-            }
-            let first = list.iter().position(|r| !r.test).unwrap_or(0);
-            SendMessageW(box_, LB_SETCURSEL, first, 0);
-        }
-    }
-    if updated {
-        {
-            let mut s = shared();
-            s.listed = true; // the "(this kit)" mark moves
-            s.changed = true;
-        }
-        let game = get_text(hwnd, ID_FOLDER);
-        let lang = kit.game_language();
-        let question = match lang {
-            "en" => t().after_update_english,
-            "it" => t().after_update_italian,
-            _ => t().after_update,
-        };
-        if !game.is_empty() && ask(hwnd, question) {
-            let mut steps = vec![Step::Script("setup.py", vec![game.into()])];
-            if !lang.is_empty() {
-                steps.push(Step::Script("english.py", language_args(lang)));
-            }
-            steps.push(Step::Pictures); // last: a failure here must not skip english.py
-            start(steps);
-        }
-    }
-}
-
-unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
-    match msg {
-        WM_COMMAND if (wp >> 16) as u32 == BN_CLICKED => {
-            match (wp & 0xffff) as i32 {
-                ID_PLAY => play_clicked(hwnd),
-                ID_MORE => unfold(hwnd, !UNFOLD.load(Ordering::Relaxed)),
-                ID_BROWSE => browse(hwnd),
-                ID_SETUP => {
-                    if let Some(game) = folder(hwnd) {
-                        start(vec![Step::Script("setup.py", vec![game]), Step::Pictures]);
-                    }
-                }
-                ID_UNDO => {
-                    if let Some(game) = folder(hwnd).filter(|_| ask(hwnd, t().undo_confirm)) {
-                        // setup.py refuses an undo while English is on: the original files go back first
-                        let mut steps = Vec::new();
-                        if Kit::here().english_on() {
-                            steps.push(Step::Script("english.py", vec!["off".into()]));
-                        }
-                        steps.push(Step::Script("setup.py", vec!["undo".into(), game]));
-                        start(steps);
-                    }
-                }
-                ID_UPDATE => update_clicked(hwnd),
-                ID_NOTES => open_notes(hwnd),
-                ID_PICS_GAME => pictures_picked(hwnd, false, false),
-                ID_PICS_HQ => pictures_picked(hwnd, true, false),
-                ID_PACK => pictures_picked(hwnd, true, true),
-                ID_SKIP => skip_picked(hwnd),
-                _ => {}
-            }
-            0
-        }
-        WM_COMMAND if (wp >> 16) as u32 == CBN_SELCHANGE && (wp & 0xffff) as i32 == ID_LANG => {
-            language_picked(hwnd);
-            0
-        }
-        WM_DROPFILES => {
-            dropped(hwnd, wp as HDROP);
-            0
-        }
-        WM_TIMER => {
-            refresh(hwnd);
-            0
-        }
-        // closing Launcher while the game runs is a quit: asked of the run, by the card rule
-        WM_CLOSE if UP.load(Ordering::Relaxed) => {
-            stop_game(false);
-            0
-        }
-        // never a kit left half copied, nor a start half done: the window stays while a job runs
-        WM_CLOSE if shared().busy => {
-            say(t().busy, shared().progress);
-            0
-        }
-        WM_DESTROY => {
-            // SAFETY: plain Win32 call.
-            unsafe { PostQuitMessage(0) };
-            0
-        }
-        // SAFETY: the message as Windows gave it.
-        _ => unsafe { DefWindowProcW(hwnd, msg, wp, lp) },
-    }
-}
-
-/// The message font, `scale` times its height, bold if asked.
-///
-/// # Safety
-/// Plain Win32 calls; the font is never freed (it lives as long as the window).
-unsafe fn font(scale: i32, bold: bool) -> HFONT {
-    // SAFETY: the structure is plain data, filled by Windows.
-    unsafe {
-        let mut metrics: NONCLIENTMETRICSW = mem::zeroed();
-        metrics.cbSize = size_of::<NONCLIENTMETRICSW>() as u32;
-        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, metrics.cbSize, (&raw mut metrics).cast(), 0);
-        let mut f = metrics.lfMessageFont;
-        f.lfHeight *= scale;
-        if bold {
-            f.lfWeight = FW_BOLD as i32;
-        }
-        CreateFontIndirectW(&f)
-    }
-}
-
-/// The window, and its message loop until it is closed (or gone because the game is up).
-fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
-    // SAFETY: plain Win32 window set-up on this (the only UI) thread; every string is NUL-terminated and lives
-    // across its call, every handle comes from the call before.
-    unsafe {
-        CoInitializeEx(ptr::null(), COINIT_APARTMENTTHREADED as u32); // the folder picker's new style needs COM
-        let screen = GetDC(ptr::null_mut());
-        let dpi = GetDeviceCaps(screen, LOGPIXELSY as i32);
-        ReleaseDC(ptr::null_mut(), screen);
-        DPI.store(dpi, Ordering::Relaxed);
-        let s = |v: i32| v * dpi / 96;
-        let icc = INITCOMMONCONTROLSEX {
-            dwSize: size_of::<INITCOMMONCONTROLSEX>() as u32,
-            dwICC: ICC_PROGRESS_CLASS,
-        };
-        InitCommonControlsEx(&icc);
-        let (normal, big) = (font(1, false), font(2, true));
-
-        let instance = GetModuleHandleW(ptr::null());
-        let class = WNDCLASSW {
-            lpfnWndProc: Some(wndproc),
-            hInstance: instance,
-            hCursor: LoadCursorW(ptr::null_mut(), IDC_ARROW),
-            hbrBackground: (COLOR_BTNFACE + 1) as usize as _,
-            lpszClassName: w!("WccfKitPlay"),
-            ..mem::zeroed()
-        };
-        RegisterClassW(&class);
-        let style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
-        let mut rect = RECT {
-            left: 0,
-            top: 0,
-            right: s(WIDTH),
-            bottom: s(FOLDED),
-        };
-        AdjustWindowRectEx(&mut rect, style, 0, 0);
-        let hwnd = CreateWindowExW(
-            0,
-            w!("WccfKitPlay"),
-            w!(""),
-            style,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            rect.right - rect.left,
-            rect.bottom - rect.top,
-            ptr::null_mut(),
-            ptr::null_mut(),
-            instance,
-            ptr::null(),
-        );
-        let child = |class: PCWSTR, style: u32, id: i32, x: i32, y: i32, cx: i32, cy: i32| {
-            let framed = class == w!("LISTBOX") || class == w!("EDIT");
-            let c = CreateWindowExW(
-                if framed { WS_EX_CLIENTEDGE } else { 0 },
-                class,
-                w!(""),
-                WS_CHILD | WS_VISIBLE | style,
-                s(x),
-                s(y),
-                s(cx),
-                s(cy),
-                hwnd,
-                id as usize as HMENU,
-                instance,
-                ptr::null(),
-            );
-            SendMessageW(c, WM_SETFONT, normal as usize, 0);
-            c
-        };
-        let tab = WS_TABSTOP | WS_GROUP;
-        let radio = BS_AUTORADIOBUTTON as u32;
-        let title = child(w!("STATIC"), 0, 0, 12, 10, 360, 36);
-        SetWindowTextW(title, w!("WCCF 2010-11"));
-        SendMessageW(title, WM_SETFONT, big as usize, 0);
-        child(w!("STATIC"), SS_RIGHT, ID_VERSION, 372, 22, 216, 20);
-        child(w!("STATIC"), 0, ID_L_PLAY_ON, 12, 60, 110, 20);
-        child(w!("BUTTON"), radio | tab, ID_THIS_PC, 124, 56, 110, 24);
-        child(w!("BUTTON"), radio, ID_ONLINE, 238, 56, 150, 24);
-        child(w!("EDIT"), ES_AUTOHSCROLL as u32 | tab, ID_SERVER, 392, 55, 196, 24);
-        child(w!("STATIC"), 0, ID_L_LANG, 12, 96, 110, 20);
-        let lang = child(
-            w!("COMBOBOX"),
-            CBS_DROPDOWNLIST as u32 | WS_VSCROLL | tab,
-            ID_LANG,
-            124,
-            90,
-            110,
-            200,
-        );
-        child(w!("STATIC"), 0, ID_L_TEXT, 244, 96, 96, 20);
-        child(w!("BUTTON"), radio | tab, ID_TEXT_EN, 344, 92, 80, 24);
-        child(w!("BUTTON"), radio, ID_TEXT_IT, 424, 92, 80, 24);
-        child(w!("BUTTON"), radio, ID_TEXT_JA, 504, 92, 84, 24);
-        let play = child(w!("BUTTON"), BS_DEFPUSHBUTTON as u32 | tab, ID_PLAY, 12, 128, 576, 48);
-        SendMessageW(play, WM_SETFONT, big as usize, 0);
-        child(w!("STATIC"), 0, ID_STATUS, 12, 184, 576, 36);
-        let bar = child(PROGRESS_CLASSW, 0, ID_BAR, 12, 222, 576, 12);
-        SendMessageW(bar, PBM_SETRANGE32, 0, 1000);
-        child(w!("BUTTON"), tab, ID_MORE, 12, 244, 280, 28);
-
-        child(w!("STATIC"), SS_ETCHEDHORZ, 0, 12, 284, 576, 2);
-        child(w!("STATIC"), 0, ID_L_FOLDER, 12, 300, 110, 20);
-        child(w!("EDIT"), ES_AUTOHSCROLL as u32 | tab, ID_FOLDER, 124, 294, 356, 24);
-        child(w!("BUTTON"), tab, ID_BROWSE, 488, 294, 100, 24);
-        child(w!("BUTTON"), tab, ID_SETUP, 124, 326, 180, 28);
-        child(w!("BUTTON"), tab, ID_UNDO, 312, 326, 168, 28);
-        child(w!("STATIC"), 0, ID_L_PICS, 12, 368, 110, 20);
-        child(w!("BUTTON"), radio | tab, ID_PICS_GAME, 124, 364, 150, 24);
-        child(w!("BUTTON"), radio, ID_PICS_HQ, 278, 364, 170, 24);
-        child(w!("BUTTON"), tab, ID_PACK, 452, 364, 136, 24);
-        child(w!("BUTTON"), BS_AUTOCHECKBOX as u32 | tab, ID_SKIP, 124, 392, 300, 24);
-        child(w!("STATIC"), SS_ETCHEDHORZ, 0, 12, 424, 576, 2);
-        child(w!("STATIC"), 0, ID_HEADING, 12, 434, 576, 20);
-        let list_style = (LBS_NOTIFY | LBS_USETABSTOPS) as u32 | WS_VSCROLL | tab;
-        let list = child(w!("LISTBOX"), list_style, ID_LIST, 12, 456, 576, 100);
-        let stops: [i32; 3] = [90, 150, 210]; // dialog units: tag, kind, date, "(this kit)"
-        SendMessageW(list, LB_SETTABSTOPS, stops.len(), stops.as_ptr() as LPARAM);
-        child(w!("BUTTON"), tab, ID_UPDATE, 12, 560, 130, 28);
-        child(w!("BUTTON"), tab, ID_NOTES, 150, 560, 130, 28);
-        child(w!("STATIC"), 0, ID_UPNOTE, 290, 560, 298, 36);
-        child(w!("STATIC"), SS_ETCHEDHORZ, 0, 12, 602, 576, 2);
-        let out = (ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL) as u32 | WS_VSCROLL;
-        let out = child(w!("EDIT"), out, ID_LOG, 12, 612, 576, 156);
-        SendMessageW(out, EM_SETLIMITTEXT, 0, 0); // more than the 32,767 characters a box takes by default
-
-        // the choices as they are now
-        for (_, name, _) in LANGUAGES {
-            SendMessageW(lang, CB_ADDSTRING, 0, wide(name).as_ptr() as LPARAM);
-        }
-        SendMessageW(lang, CB_SETCURSEL, text::chosen(), 0);
         let panel = choices::read(&panel_file(kit));
+        let settings = kit.settings_file();
         let online = choices::panel_value(&panel, "play_on").is_some_and(|v| v.eq_ignore_ascii_case("online"));
-        if online {
-            pick(hwnd, ID_ONLINE, ID_THIS_PC);
-        } else {
-            pick(hwnd, ID_THIS_PC, ID_ONLINE);
-        }
-        let server = choices::panel_value(&panel, "server")
-            .or_else(|| choices::setting(&kit.settings_file(), "server"))
+        let address = choices::panel_value(&panel, "server")
+            .or_else(|| choices::setting(&settings, "server"))
             .unwrap_or_default();
-        set_text(hwnd, ID_SERVER, &server);
-        if choices::setting(&kit.settings_file(), "card_pictures").as_deref() == Some("hq") {
-            pick(hwnd, ID_PICS_HQ, ID_PICS_GAME);
-        } else {
-            pick(hwnd, ID_PICS_GAME, ID_PICS_HQ);
-        }
-        if kit.settings()["skip_tutorial"].as_bool() == Some(true) {
-            SendMessageW(item(hwnd, ID_SKIP), BM_SETCHECK, BST_CHECKED as usize, 0);
-        }
-        if kit.edition() != Edition::E1718 {
-            ShowWindow(item(hwnd, ID_SKIP), SW_HIDE);
-        }
-        pick_text(
-            hwnd,
-            match choices::panel_value(&panel, "english").as_deref() {
-                Some("on") => "en",
-                Some("it") => "it",
-                Some("off") => "",
-                _ => kit.game_language(),
-            },
-        );
+        let game_text = match choices::panel_value(&panel, "english").as_deref() {
+            Some("on") => "en",
+            Some("it") => "it",
+            Some("off") => "",
+            _ => kit.game_language(),
+        };
         let game = folder.map_or_else(
-            || choices::setting(&kit.settings_file(), "game").unwrap_or_default(),
+            || choices::setting(&settings, "game").unwrap_or_default(),
             |f| f.to_string_lossy().into_owned(),
         );
-        set_text(hwnd, ID_FOLDER, &game);
         RUNNING.store(run::any_on(kit), Ordering::Relaxed);
-        retext(hwnd);
-        let unset = game.is_empty();
-        unfold(hwnd, unset || folder.is_some());
-        if unset {
-            say(t().not_set_up, 0);
+        let set_up = !game.is_empty();
+        if !set_up {
+            say(ui_text(text::lang(), "launcher.status_not_set_up", &[]), 0);
         } else if RUNNING.load(Ordering::Relaxed) {
-            say(t().running, 0);
+            say(t("launcher.msg_running"), 0);
+        } else if shared().status.is_none() {
+            say_tone(Tone::Done, ui_text(text::lang(), "launcher.status_ready", &[]), 0);
         }
+        let st = LauncherState {
+            edition: ed,
+            lang: text::lang(),
+            online,
+            address,
+            game_text: game_text_of(game_text),
+            set_up,
+            running: RUNNING.load(Ordering::Relaxed),
+            busy: false,
+            steps: None,
+            progress: 0.0,
+            status: None,
+            setup_open: !set_up || folder.is_some(),
+            folder: game,
+            pictures_hq: choices::setting(&settings, "card_pictures").as_deref() == Some("hq"),
+            skip_tutorial: (kit.edition() == Edition::E1718)
+                .then(|| kit.settings()["skip_tutorial"].as_bool() == Some(true)),
+            updates: kit.edition() == Edition::E1011,
+            version: version(kit),
+            update_open: false,
+            update_status: None,
+            releases: Vec::new(),
+            selected: None,
+            output_open: false,
+            output: Vec::new(),
+            confirm: None,
+        };
+        App {
+            st,
+            releases: Vec::new(),
+        }
+    }
 
-        DragAcceptFiles(hwnd, 1);
-        ShowWindow(hwnd, SW_SHOWNORMAL);
-        SetTimer(hwnd, 1, 100, None);
-        if kit.edition() == Edition::E1011 {
-            ask_updates(); // the releases are 2010-11 kits: never offered to the 2017-18 kit
-        }
-        if !first.is_empty() {
-            start(first);
-        }
+    /// The release list with this folder's marks.
+    fn list(&mut self, kit: &Kit) {
+        let installed = this_kit(kit);
+        self.st.releases = self
+            .releases
+            .iter()
+            .map(|r| screen::Release {
+                tag: r.tag.clone(),
+                test: r.test,
+                date: r.date.clone(),
+                this: r.tag == installed,
+                newer: !r.test && is_newer(&r.tag, &installed),
+            })
+            .collect();
+    }
 
-        let mut msg: MSG = mem::zeroed();
-        while GetMessageW(&mut msg, ptr::null_mut(), 0, 0) > 0 {
-            if IsDialogMessageW(hwnd, &msg) == 0 {
-                TranslateMessage(&msg);
-                DispatchMessageW(&msg);
+    /// The question for the player, in the window's language.
+    fn ask(&mut self, question: &str, yes: &str, then: Action) {
+        let yes = ui_text(self.st.lang, yes, &[]);
+        self.st.confirm = Some(Confirm::new(question, yes, false, then));
+    }
+
+    /// The game folder box, or a message that it is empty.
+    fn folder(&mut self) -> Option<OsString> {
+        let f = self.st.folder.trim();
+        if f.is_empty() {
+            self.st.setup_open = true;
+            refuse(t("launcher.msg_no_folder"));
+            return None;
+        }
+        Some(f.into())
+    }
+
+    /// What the workers said since the last look; the window minimized for the game, back when its run ended badly,
+    /// closed when it ended well.  Runs also while the window is minimized.
+    fn look(&mut self, ctx: &egui::Context) {
+        let (log, list, updated, failed, game) = {
+            let mut s = shared();
+            self.st.status.clone_from(&s.status);
+            self.st.update_status.clone_from(&s.update_note);
+            self.st.progress = s.progress as f32 / 1000.0;
+            self.st.steps = s.steps.map(|(n, m)| (n as usize, m as usize));
+            self.st.busy = s.busy;
+            (
+                mem::take(&mut s.log),
+                mem::take(&mut s.listed).then(|| s.releases.clone()),
+                mem::take(&mut s.updated),
+                mem::take(&mut s.failed),
+                s.game.take(),
+            )
+        };
+        self.st.running = RUNNING.load(Ordering::Relaxed);
+        self.st.output.extend(log);
+        let kit = Kit::here();
+        // the run this process held has ended well: Launcher.exe ends with it
+        if game == Some(0) && WAS_UP.load(Ordering::Relaxed) {
+            ctx.send_viewport_cmd(ViewportCommand::Close);
+            return;
+        }
+        let minimized = ctx.input(|i| i.viewport().minimized) == Some(true);
+        if UP.load(Ordering::Relaxed) && !minimized && !MINIMIZED.swap(true, Ordering::Relaxed) {
+            ctx.send_viewport_cmd(ViewportCommand::Minimized(true)); // the game's windows are in front; this one waits
+        } else if game.is_some() && minimized {
+            ctx.send_viewport_cmd(ViewportCommand::Minimized(false)); // the run ended badly: what it said is shown
+            ctx.send_viewport_cmd(ViewportCommand::Focus);
+        }
+        if !UP.load(Ordering::Relaxed) {
+            MINIMIZED.store(false, Ordering::Relaxed);
+        }
+        if failed {
+            self.st.output_open = true;
+        }
+        if let Some(list) = list {
+            self.st.selected = Some(list.iter().position(|r| !r.test).unwrap_or(0));
+            self.releases = list;
+            self.list(&kit);
+        }
+        if updated {
+            self.st.version = version(&kit);
+            self.list(&kit); // the "this version" mark moves
+            let question = match kit.game_language() {
+                "en" => t("launcher.msg_after_update_english"),
+                "it" => t("launcher.msg_after_update_italian"),
+                _ => t("launcher.msg_after_update"),
+            };
+            if !self.st.folder.trim().is_empty() {
+                self.ask(&question, "launcher.set_up", Action::SetUpAfterUpdate);
             }
         }
+        // closing Launcher while the game runs is a quit: asked of the run, by the card rule; and never a kit left
+        // half copied, nor a start half done: the window stays while a job runs
+        if ctx.input(|i| i.viewport().close_requested()) {
+            if UP.load(Ordering::Relaxed) {
+                ctx.send_viewport_cmd(ViewportCommand::CancelClose);
+                stop_game(false);
+            } else if self.st.busy {
+                ctx.send_viewport_cmd(ViewportCommand::CancelClose);
+                say(t("launcher.msg_busy"), shared().progress);
+            }
+        }
+    }
+
+    /// What the player asked for in the screen.
+    fn act(&mut self, a: Action, ctx: &egui::Context, frame: &eframe::Frame) {
+        let kit = Kit::here();
+        match a {
+            Action::Play => self.play(&kit),
+            Action::Stop => stop_game(true),
+            Action::SetUp => {
+                if let Some(game) = self.folder() {
+                    start(vec![Step::Script("setup.py", vec![game]), Step::Pictures]);
+                }
+            }
+            Action::Undo => {
+                if self.folder().is_some() {
+                    self.ask(&t("launcher.msg_undo_confirm"), "launcher.undo", Action::UndoNow);
+                }
+            }
+            Action::UndoNow => {
+                if let Some(game) = self.folder() {
+                    // setup.py refuses an undo while English is on: the original files go back first
+                    let mut steps = Vec::new();
+                    if kit.english_on() {
+                        steps.push(Step::Script("english.py", vec!["off".into()]));
+                    }
+                    steps.push(Step::Script("setup.py", vec!["undo".into(), game]));
+                    start(steps);
+                }
+            }
+            Action::Browse => {
+                let picked = rfd::FileDialog::new()
+                    .set_title(t("launcher.msg_browse_title"))
+                    .set_parent(frame)
+                    .pick_folder();
+                if let Some(p) = picked {
+                    self.st.folder = p.display().to_string();
+                }
+            }
+            Action::Pictures { choose } => self.pictures(&kit, frame, choose),
+            Action::SkipTutorial => {
+                let file = kit.settings_file();
+                let on = self.st.skip_tutorial == Some(true);
+                if let Err(e) = choices::set_setting_bool(&file, "skip_tutorial", on) {
+                    refuse(write_failed(&file, &e));
+                }
+            }
+            Action::Update(i) => {
+                if let Some(r) = self.releases.get(i) {
+                    let key = if r.test {
+                        "launcher.msg_confirm_test"
+                    } else {
+                        "launcher.msg_confirm_release"
+                    };
+                    let question = tf(key, &[("tag", &r.tag)]);
+                    self.ask(&question, "launcher.update_button", Action::UpdateNow(i));
+                }
+            }
+            Action::UpdateNow(i) => {
+                if let Some(r) = self.releases.get(i) {
+                    start(vec![Step::Update(r.clone())]);
+                }
+            }
+            Action::WhatsNew(i) => {
+                if let Some(r) = self.releases.get(i) {
+                    ctx.open_url(egui::OpenUrl::new_tab(&r.page));
+                }
+            }
+            Action::SetUpAfterUpdate => {
+                let lang = kit.game_language();
+                let mut steps = vec![Step::Script("setup.py", vec![self.st.folder.trim().into()])];
+                if !lang.is_empty() {
+                    steps.push(Step::Script("english.py", language_args(lang)));
+                }
+                steps.push(Step::Pictures); // last: a failure here must not skip english.py
+                start(steps);
+            }
+            Action::Language => {
+                let lang = self.st.lang;
+                text::set(lang);
+                let _ = choices::set_setting(&kit.settings_file(), "language", lang.code());
+                // the game's text follows: Japanese for 日本語, Italian for Italiano, else English (still a choice of
+                // its own)
+                self.st.game_text = match lang {
+                    Lang::Ja => 2,
+                    Lang::It => 1,
+                    Lang::En => 0,
+                };
+            }
+        }
+    }
+
+    /// PLAY: the choices into data\panel.txt, then the run.
+    fn play(&mut self, kit: &Kit) {
+        let online = self.st.online;
+        let server = self.st.address.trim().to_owned();
+        if online && kit.edition() == Edition::E1718 {
+            refuse(t("launcher.msg_online_1718"));
+            return;
+        }
+        if online && !choices::valid_address(&server) {
+            refuse(t("launcher.msg_bad_address"));
+            return;
+        }
+        let lang = GAME_TEXT[self.st.game_text.min(2)];
+        let path = panel_file(kit);
+        let mut panel = choices::read(&path);
+        panel = choices::set_panel_value(&panel, "play_on", Some(if online { "online" } else { "this_pc" }));
+        if !server.is_empty() {
+            panel = choices::set_panel_value(&panel, "server", Some(&server));
+        }
+        // a change only: play.py switches the game's text at the start (english.py), then takes the line out
+        let change = (lang != kit.game_language()).then_some(match lang {
+            "en" => "on",
+            "it" => "it",
+            _ => "off",
+        });
+        panel = choices::set_panel_value(&panel, "english", change);
+        if let Err(e) = choices::write(&path, &panel) {
+            refuse(write_failed(&path, &e));
+            return;
+        }
+        say(t("launcher.msg_starting"), 0);
+        start(vec![Step::Game(Vec::new())]);
+    }
+
+    /// The board's card pictures: the game's own, or the high-quality pack (data\\settings.json "card_pictures" and
+    /// "card_pack"; made at setup and here, launcher::run::make_pictures).  The pack is asked for when none is known
+    /// yet, or with "Choose pack".
+    fn pictures(&mut self, kit: &Kit, frame: &eframe::Frame, choose: bool) {
+        let file = kit.settings_file();
+        let hq = self.st.pictures_hq || choose;
+        let known = choices::setting(&file, "card_pack").filter(|p| Path::new(p).is_file());
+        let pack = if !hq {
+            None
+        } else if let Some(p) = known.filter(|_| !choose) {
+            Some(p)
+        } else if let Some(p) = rfd::FileDialog::new()
+            .set_title(t("launcher.msg_pack_title"))
+            .add_filter("ZIP", &["zip"])
+            .set_parent(frame)
+            .pick_file()
+        {
+            Some(p.display().to_string())
+        } else {
+            // no pack: the choice stays as it was
+            self.st.pictures_hq = choices::setting(&file, "card_pictures").as_deref() == Some("hq");
+            return;
+        };
+        self.st.pictures_hq = pack.is_some();
+        let mut done = choices::set_setting(&file, "card_pictures", if pack.is_some() { "hq" } else { "game" });
+        if let Some(p) = &pack {
+            done = done.and_then(|()| choices::set_setting(&file, "card_pack", p));
+        }
+        match done {
+            Ok(()) => start(vec![Step::Pictures]),
+            Err(e) => refuse(write_failed(&file, &e)),
+        }
+    }
+}
+
+fn write_failed(path: &Path, e: &std::io::Error) -> String {
+    tf(
+        "launcher.msg_write_failed",
+        &[("path", &path.display().to_string()), ("error", &e.to_string())],
+    )
+}
+
+/// This folder's version as the window shows it ("kit-7.0.0" -> "7.0.0").
+fn version(kit: &Kit) -> String {
+    let v = this_kit(kit);
+    v.strip_prefix("kit-").map(str::to_owned).unwrap_or(v)
+}
+
+impl eframe::App for App {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.look(ctx);
+        // a safety net for anything that changed without a poke
+        ctx.request_repaint_after(Duration::from_secs(1));
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        // a folder dropped on the window: the game folder
+        let dropped = ui.input(|i| i.raw.dropped_files.first().map(|f| f.path().to_path_buf()));
+        if let Some(p) = dropped.filter(|_| !self.st.busy) {
+            self.st.folder = p.display().to_string();
+            self.st.setup_open = true;
+        }
+        if let Some(a) = screen::show(ui, &mut self.st) {
+            let ctx = ui.ctx().clone();
+            self.act(a, &ctx, frame);
+        }
+    }
+
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        theme::NIGHT.to_normalized_gamma_f32()
+    }
+}
+
+/// The window, until it is closed (or gone because the game is up and then ended well).
+fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
+    let app = App::new(kit, folder);
+    let ed = app.st.edition;
+    if kit.edition() == Edition::E1011 {
+        ask_updates(); // the releases are 2010-11 kits: never offered to the 2017-18 kit
+    }
+    if !first.is_empty() {
+        start(first);
+    }
+    let title = format!("{TITLE} {} - {}", kit.edition().name(), kit.dir().display());
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_title(&title)
+            .with_inner_size(screen::SIZE)
+            .with_resizable(false)
+            .with_maximize_button(false)
+            .with_decorations(false)
+            .with_drag_and_drop(true)
+            .with_icon(egui::IconData::default()), // Windows' own, not eframe's
+        ..Default::default()
+    };
+    let fonts = theme::font_dir();
+    let ran = eframe::run_native(
+        &title,
+        options,
+        Box::new(move |cc| {
+            let _ = CTX.set(cc.egui_ctx.clone());
+            if let Err(e) = theme::install(&cc.egui_ctx, ed, &fonts) {
+                return Err(tf(
+                    "launcher.msg_no_fonts",
+                    &[("error", &format!("{}: {e}", fonts.display()))],
+                )
+                .into());
+            }
+            Ok(Box::new(app))
+        }),
+    );
+    if let Err(e) = ran {
+        let text = match e {
+            eframe::Error::AppCreation(e) => e.to_string(),
+            e => tf("launcher.msg_no_window", &[("error", &e.to_string())]),
+        };
+        message(&text, MB_OK | MB_ICONERROR);
     }
 }
 
@@ -1275,11 +896,11 @@ fn console(kit: &Kit, args: &[OsString]) -> ExitCode {
     let rc = run::command(kit, &Params::of(kit), &words, &ConsoleUi);
     // the run's own lines are English: its refusals also in the chosen language
     let said = match rc {
-        run::UNGUARDED => Some(t().unguarded),
-        run::NOT_GUARDED => Some(t().not_guarded),
+        run::UNGUARDED => Some(t("launcher.msg_unguarded")),
+        run::NOT_GUARDED => Some(t("launcher.msg_not_guarded")),
         _ => None,
     };
-    if let Some(line) = said.filter(|_| text::chosen() != 0) {
+    if let Some(line) = said.filter(|_| text::lang() != Lang::En) {
         println!("{line}");
     }
     ExitCode::from(u8::try_from(rc).unwrap_or(1))
@@ -1317,7 +938,7 @@ fn main() -> ExitCode {
         Some(_) if folder.is_some() => vec![Step::Script("setup.py", args.clone()), Step::Pictures],
         Some("undo") => vec![Step::Script("setup.py", args.clone())],
         Some("restart") => {
-            say(t().restarting, 0);
+            say(t("launcher.msg_restarting"), 0);
             vec![Step::Game(args.clone())]
         }
         Some(_) if attach_console() => return console(&kit, &args),
@@ -1340,9 +961,9 @@ mod tests {
 
     #[test]
     fn play_py_steps() {
-        assert_eq!(step("  4/6 cabinet stand-ins: keychip/network"), Some(666));
-        assert_eq!(step("  1/2 scene service"), Some(500));
-        assert_eq!(step("  6/6 overlay in seat 1's window"), Some(1000));
+        assert_eq!(step("  4/6 cabinet stand-ins: keychip/network"), Some((4, 6)));
+        assert_eq!(step("  1/2 scene service"), Some((1, 2)));
+        assert_eq!(step("  6/6 overlay in seat 1's window"), Some((6, 6)));
         assert_eq!(step("     seat desk: TCP 20030"), None);
         assert_eq!(step("see data\\logs\\run_seat1.txt"), None);
         assert_eq!(step("  7/6 x"), None);
@@ -1350,8 +971,24 @@ mod tests {
     }
 
     #[test]
-    fn fill_in_order() {
-        assert_eq!(fill("{}: {} ({})", &["a", "b"]), "a: b ()");
-        assert_eq!(fill("no gaps", &["a"]), "no gaps");
+    fn messages_filled_in_each_language() {
+        for lang in Lang::ALL {
+            text::set(lang);
+            let s = tf("launcher.msg_write_failed", &[("path", "P"), ("error", "E")]);
+            assert!(s.contains('P') && s.contains('E') && !s.contains("%{"), "{s}");
+            assert!(
+                !t("launcher.msg_done").starts_with("launcher."),
+                "{lang:?}: the key, not its text"
+            );
+        }
+        text::set(Lang::En);
+    }
+
+    #[test]
+    fn game_text_places() {
+        assert_eq!(game_text_of("en"), 0);
+        assert_eq!(game_text_of("it"), 1);
+        assert_eq!(game_text_of(""), 2);
+        assert_eq!(GAME_TEXT[game_text_of("it")], "it");
     }
 }

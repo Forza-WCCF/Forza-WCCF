@@ -15,7 +15,10 @@ name = "Launcher"
 path = "src/bin/launcher/main.rs"
 
 [dependencies]
+# the window: forza's launcher screen in eframe (wgpu; our fonts from fonts\, no default_fonts), pickers through rfd
+eframe.workspace = true
 forza.workspace = true
+rfd.workspace = true
 regex = "1.13.1"
 serde_json = "1.0.151"
 time = { version = "0.3.55", features = ["local-offset"] }
