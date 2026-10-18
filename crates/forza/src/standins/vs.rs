@@ -5,7 +5,7 @@
 use super::{Handle, Log};
 use std::collections::HashMap;
 use std::io;
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::PoisonError;
@@ -19,6 +19,8 @@ const MAGIC: [u8; 8] = [0xF1, 0xC0, 0x80, 0x44, 0xB4, 0x9E, 0xDA, 0x3C];
 pub struct VsConfig {
     pub public_ip: Ipv4Addr,
     pub reflect_port: u16,
+    /// UDP port of the loopback reflect address (`127.0.0.1:<port>`) 202 gives to logins from a vslink-capable PC
+    pub vslink_port: u16,
 }
 
 /// Entry window in seconds (answer 224 +8 and +12; the client needs >= 9).
@@ -46,6 +48,12 @@ pub fn round(unix_secs: i64) -> u32 {
 pub fn fill_login(body: &mut [u8], cfg: &VsConfig) {
     body[8..12].copy_from_slice(&cfg.public_ip.octets());
     body[12..14].copy_from_slice(&cfg.reflect_port.to_le_bytes());
+}
+
+/// 202 body for a login from a PC with a live vslink hello: the local sidecar answers the reflect probe.
+pub fn fill_login_loopback(body: &mut [u8], cfg: &VsConfig) {
+    body[8..12].copy_from_slice(&Ipv4Addr::LOCALHOST.octets());
+    body[12..14].copy_from_slice(&cfg.vslink_port.to_le_bytes());
 }
 
 /// 238 payload: the relay thresholds in GAME_CTRL bytes 12, 14, 15 (payload +28 u16 ms, +30 and +31 u8 percent). A
@@ -88,9 +96,27 @@ impl Entry {
     }
 }
 
-/// The waiting 243 entries and the pairs made from them.
+/// How long a vslink hello and a token registration live (vslink repeats the hello every 60 s).
+const LINK_TTL: Duration = Duration::from_secs(600);
+
+/// What vslink told gmsvr: which PCs run it, and the EndpointId behind each token.
 #[derive(Default)]
-pub struct Matcher(Mutex<Vec<Entry>>);
+struct Links {
+    capable: HashMap<IpAddr, Instant>,
+    ids: HashMap<(u32, u16), ([u8; 32], Instant)>,
+}
+
+/// The waiting 243 entries and the pairs made from them, plus the vslink registry.
+#[derive(Default)]
+pub struct Matcher {
+    entries: Mutex<Vec<Entry>>,
+    links: Mutex<Links>,
+}
+
+/// An address in 127/8 (`addr().0` holds the octets in memory order).
+fn is_loopback(ip: u32) -> bool {
+    ip.to_le_bytes()[0] == 127
+}
 
 /// A card id as 245 sends it (-1 for none) and 243 stores it (0).
 fn card(c: u32) -> u32 {
@@ -103,6 +129,7 @@ fn compatible(a: &Entry, b: &Entry) -> bool {
         && cb != 0
         && a.req[16] == b.req[16]
         && a.req[4..8] == b.req[4..8]
+        && is_loopback(a.addr().0) == is_loopback(b.addr().0)
         && (a.addr().0 != b.addr().0 || u32_at(&a.req, 48) != u32_at(&b.req, 48))
         && !a.history().any(|c| c == cb)
         && !b.history().any(|c| c == ca)
@@ -143,7 +170,47 @@ fn build(me: &Entry, other: &Entry, seed: u32, home: u32) -> [u8; MATCH_LEN] {
 
 impl Matcher {
     fn lock(&self) -> std::sync::MutexGuard<'_, Vec<Entry>> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+        self.entries.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn links(&self) -> std::sync::MutexGuard<'_, Links> {
+        self.links.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// A 900: `ip` runs vslink.
+    pub fn hello(&self, ip: IpAddr, now: Instant) {
+        self.links().capable.insert(ip, now);
+    }
+
+    /// Whether `ip` said hello within [`LINK_TTL`].
+    pub fn capable(&self, ip: IpAddr, now: Instant) -> bool {
+        let mut l = self.links();
+        l.capable.retain(|_, t| now.duration_since(*t) < LINK_TTL);
+        l.capable.contains_key(&ip)
+    }
+
+    /// A 902: token (ip in memory order, port) -> EndpointId. First wins until the TTL; false on a collision.
+    pub fn register(&self, ip: u32, port: u16, id: [u8; 32], now: Instant) -> bool {
+        let mut l = self.links();
+        l.ids.retain(|_, (_, t)| now.duration_since(*t) < LINK_TTL);
+        l.ids.entry((ip, port)).or_insert((id, now)).0 == id
+    }
+
+    /// A 904: once the entry holding this token is paired, the opponent's token (ip, port) and EndpointId (zeros if
+    /// it never registered).
+    pub fn lookup(&self, ip: u32, port: u16, now: Instant) -> Option<([u8; 6], [u8; 32])> {
+        let p = {
+            let mut v = self.lock();
+            v.retain(|x| now.duration_since(x.at) < ENTRY_TTL);
+            v.iter().find(|x| x.addr() == (ip, port))?.pair?
+        };
+        let key = (u32_at(&p, 16), u16_at(&p, 120));
+        let mut token = [0u8; 6];
+        token[..4].copy_from_slice(&p[16..20]);
+        token[4..].copy_from_slice(&p[120..122]);
+        let mut l = self.links();
+        l.ids.retain(|_, (_, t)| now.duration_since(*t) < LINK_TTL);
+        Some((token, l.ids.get(&key).map_or([0; 32], |(id, _)| *id)))
     }
 
     /// A 243. Port 0 is CANCEL: the seat's entry goes. Otherwise the whole request replaces the seat's entry.
@@ -324,6 +391,7 @@ mod tests {
             &VsConfig {
                 public_ip: Ipv4Addr::new(1, 2, 3, 4),
                 reflect_port: 0x1234,
+                vslink_port: 20090,
             },
         );
         assert_eq!(b[8..14], [1, 2, 3, 4, 0x34, 0x12]);
@@ -410,5 +478,78 @@ mod tests {
             reflect(&p, src),
             Reflect::Relay(SocketAddrV4::new(Ipv4Addr::new(1, 1, 1, 1), 99))
         );
+    }
+
+    fn paired(m: &Matcher, t: Instant, a_ip: [u8; 4], b_ip: [u8; 4]) {
+        assert!(m.enter(&entry(1, 7, a_ip, 20001, 111, 5), t));
+        assert!(m.enter(&entry(2, 7, b_ip, 20002, 222, 6), t));
+    }
+
+    #[test]
+    fn vslink_register_collision_and_ttl() {
+        let m = Matcher::default();
+        let t = Instant::now();
+        let ip = IpAddr::from([1, 2, 3, 4]);
+        assert!(!m.capable(ip, t));
+        m.hello(ip, t);
+        assert!(m.capable(ip, t) && !m.capable([1, 2, 3, 5].into(), t));
+        assert!(!m.capable(ip, t + LINK_TTL));
+        let tok = u32::from_le_bytes([127, 1, 2, 3]);
+        assert!(m.register(tok, 20001, [7; 32], t));
+        assert!(m.register(tok, 20001, [7; 32], t), "same id again is fine");
+        assert!(!m.register(tok, 20001, [8; 32], t), "first wins");
+        assert!(
+            m.register(tok, 20001, [8; 32], t + LINK_TTL),
+            "expired token is free"
+        );
+    }
+
+    #[test]
+    fn vslink_lookup_before_and_after_pairing() {
+        let m = Matcher::default();
+        let t = Instant::now();
+        let (ta, tb) = ([127, 1, 1, 1], [127, 2, 2, 2]);
+        let (ka, kb) = (u32::from_le_bytes(ta), u32::from_le_bytes(tb));
+        assert!(m.register(ka, 20001, [0xAA; 32], t));
+        assert!(m.enter(&entry(1, 7, ta, 20001, 111, 5), t));
+        assert_eq!(m.lookup(ka, 20001, t), None, "unpaired");
+        assert!(m.enter(&entry(2, 7, tb, 20002, 222, 6), t));
+        assert_eq!(m.lookup(ka, 20001, t), None, "not polled yet");
+        m.poll(&poll_req(1, 111, 5), t).unwrap();
+        // b has not registered: zeros; a is known to b
+        let (tok, id) = m.lookup(ka, 20001, t).unwrap();
+        assert_eq!(
+            (tok[..4].to_vec(), u16_at(&tok, 4), id),
+            (tb.to_vec(), 20002, [0; 32])
+        );
+        assert!(m.register(kb, 20002, [0xBB; 32], t));
+        assert_eq!(m.lookup(ka, 20001, t).unwrap().1, [0xBB; 32]);
+        let (tok, id) = m.lookup(kb, 20002, t).unwrap();
+        assert_eq!(
+            (tok[..4].to_vec(), u16_at(&tok, 4), id),
+            (ta.to_vec(), 20001, [0xAA; 32])
+        );
+        assert_eq!(m.lookup(ka, 20009, t), None, "unknown token");
+        // registrations expire (the entries, at 60 s, are gone by then too)
+        assert_eq!(m.lookup(ka, 20001, t + LINK_TTL), None);
+    }
+
+    #[test]
+    fn loopback_and_public_never_pair() {
+        let t = Instant::now();
+        for (a, b, pairs) in [
+            ([127, 1, 1, 1], [9, 9, 9, 2], false),
+            ([9, 9, 9, 2], [127, 1, 1, 1], false),
+            ([127, 1, 1, 1], [127, 2, 2, 2], true),
+            ([9, 9, 9, 1], [9, 9, 9, 2], true),
+        ] {
+            let m = Matcher::default();
+            paired(&m, t, a, b);
+            assert_eq!(
+                m.poll(&poll_req(1, 111, 5), t).is_some(),
+                pairs,
+                "{a:?} {b:?}"
+            );
+        }
     }
 }

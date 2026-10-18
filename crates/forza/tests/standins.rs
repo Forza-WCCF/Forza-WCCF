@@ -672,6 +672,7 @@ fn vs_two_clients_pair_through_reflect() {
         vs: Some(VsConfig {
             public_ip: Ipv4Addr::LOCALHOST,
             reflect_port,
+            vslink_port: 20090,
         }),
         ..Default::default()
     };

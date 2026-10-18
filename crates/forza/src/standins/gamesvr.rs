@@ -16,6 +16,7 @@ use std::net::{IpAddr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Instant;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// The secretaries' unlock bytes in answer 238: GAME_CTRL bytes 1176..1211, the block starting at +16 (+8 and +12
@@ -25,6 +26,9 @@ const MAGIC: [u8; 8] = [0xF1, 0xC0, 0x80, 0x44, 0xB4, 0x9E, 0xDA, 0x3C];
 /// Response command and payload size (control.c response dispatcher 0x408C50 and the message table).
 const RESP: &[(u16, usize)] = &[
     (202, 16),
+    (901, 8),
+    (903, 8),
+    (905, 48),
     (224, 92),
     (226, 260),
     (228, 12),
@@ -68,14 +72,14 @@ const RESP: &[(u16, usize)] = &[
     (318, 32),
 ];
 
-fn checksum(h: &[u8]) -> u8 {
+pub fn checksum(h: &[u8]) -> u8 {
     h.iter().enumerate().fold(
         0u8,
         |s, (i, b)| if i == 24 { s } else { s.wrapping_add(*b) },
     )
 }
 
-fn header(cmd: u16, seq: u16, status: u32, size: usize, conn: u32) -> [u8; 40] {
+pub fn header(cmd: u16, seq: u16, status: u32, size: usize, conn: u32) -> [u8; 40] {
     let mut h = [0u8; 40];
     h[..8].copy_from_slice(&MAGIC);
     h[8..10].copy_from_slice(&cmd.to_le_bytes());
@@ -592,7 +596,7 @@ fn answer(
     store: &Mutex<Store>,
     skip: Option<&Path>,
     rare: &[u32],
-    vs: Option<&Vs>,
+    vs: Option<(&Vs, IpAddr)>,
     log: &Log,
 ) -> Option<(u16, Vec<u8>, Option<String>)> {
     if cmd == 18 {
@@ -618,8 +622,8 @@ fn answer(
         // (docs/research/ONLINE-2017-18.md)
         put(&mut body, 4, 1);
     }
-    if let Some(vs) = vs {
-        vs.fill(cmd, payload, &mut body);
+    if let Some((vs, peer)) = vs {
+        vs.fill(cmd, payload, peer, &mut body);
     }
     let refused = club(cmd, payload, &mut body, store, skip, rare, log).err();
     if refused.is_some() {
@@ -635,11 +639,34 @@ struct Vs {
 }
 
 impl Vs {
-    /// 202, 224, 238, 243 and 245 answers (the slot echo is in `body` already).
-    fn fill(&self, cmd: u16, payload: &[u8], body: &mut [u8]) {
-        let t = std::time::Instant::now();
+    /// 202, 224, 238, 243, 245 and the vslink 901, 903, 905 answers (the slot echo is in `body` already).
+    fn fill(&self, cmd: u16, payload: &[u8], peer: IpAddr, body: &mut [u8]) {
+        let t = Instant::now();
         match cmd {
+            201 if self.matcher.capable(peer, t) => vs::fill_login_loopback(body, &self.cfg),
             201 => vs::fill_login(body, &self.cfg),
+            // vslink (docs/IROH_VS_PLAN.md 2.3): status 1 = accepted
+            900 if payload.len() >= 36 => {
+                self.matcher.hello(peer, t);
+                put(body, 4, 1);
+            }
+            902 if payload.len() >= 40 => {
+                let id = payload[8..40].try_into().unwrap();
+                let ok = self
+                    .matcher
+                    .register(u32_at(payload, 0), u16_at(payload, 4), id, t);
+                put(body, 4, u32::from(ok));
+            }
+            904 if payload.len() >= 6 => {
+                if let Some((tok, id)) =
+                    self.matcher
+                        .lookup(u32_at(payload, 0), u16_at(payload, 4), t)
+                {
+                    put(body, 4, 1);
+                    body[8..14].copy_from_slice(&tok);
+                    body[16..48].copy_from_slice(&id);
+                }
+            }
             223 => vs::fill_round(body, now()),
             237 => vs::fill_thresholds(body),
             243 => {
@@ -869,7 +896,7 @@ pub fn spawn_opts(
                     &store,
                     skip_tutorial.as_deref(),
                     &rare,
-                    vs.as_deref(),
+                    vs.as_deref().map(|v| (v, peer.ip())),
                     &log,
                 ) {
                     Some((rcmd, body, refused)) => {

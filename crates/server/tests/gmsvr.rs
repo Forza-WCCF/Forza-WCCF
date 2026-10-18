@@ -24,6 +24,10 @@ fn word(b: &[u8], at: usize) -> u32 {
 }
 
 fn start(dir: &std::path::Path) -> (Server, TcpStream) {
+    start_with(dir, &[])
+}
+
+fn start_with(dir: &std::path::Path, extra: &[&str]) -> (Server, TcpStream) {
     let port = {
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         l.local_addr().unwrap().port()
@@ -38,6 +42,7 @@ fn start(dir: &std::path::Path) -> (Server, TcpStream) {
             "--store",
         ])
         .arg(dir)
+        .args(extra)
         .env_remove("WCCF_BIND")
         .stdout(std::process::Stdio::null())
         .spawn()
@@ -129,4 +134,58 @@ fn gmsvr_answers_coach_list_and_replays_a_save() {
             .starts_with("req_")),
         "no request dumps without --dump"
     );
+}
+
+#[test]
+fn vslink_hello_turns_the_202_reflect_loopback() {
+    let free_udp = || {
+        std::net::UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port()
+            .to_string()
+    };
+    let dir = std::env::temp_dir().join(format!("forza_gmsvr_vs_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let reflect = free_udp();
+    let (_srv, mut c) = start_with(
+        &dir,
+        &[
+            "--vs-public-ip",
+            "9.9.9.9",
+            "--reflect-port",
+            &reflect,
+            "--vslink-port",
+            "20091",
+        ],
+    );
+    let login = |c: &mut TcpStream| ask(c, 201, &req(28, 24)).1;
+    let before = login(&mut c);
+    assert_eq!(before[8..12], [9, 9, 9, 9]);
+    assert_eq!(
+        u16::from_le_bytes([before[12], before[13]]).to_string(),
+        reflect
+    );
+
+    let mut hello = vec![0u8; 36];
+    hello[4..].fill(0xAB);
+    let (rc, r) = ask(&mut c, 900, &hello);
+    assert_eq!((rc, r.len(), word(&r, 4)), (901, 8, 1));
+    let after = login(&mut c);
+    assert_eq!(after[8..12], [127, 0, 0, 1]);
+    assert_eq!(u16::from_le_bytes([after[12], after[13]]), 20091);
+
+    // register, then lookup while unpaired answers zeros
+    let mut reg = vec![0u8; 40];
+    reg[..4].copy_from_slice(&[127, 5, 6, 7]);
+    reg[4..6].copy_from_slice(&20001u16.to_le_bytes());
+    reg[8..].fill(0xCD);
+    assert_eq!(ask(&mut c, 902, &reg).1[4], 1);
+    assert_eq!(ask(&mut c, 902, &reg).1[4], 1, "same id again");
+    reg[8] = 0;
+    assert_eq!(ask(&mut c, 902, &reg).1[4], 0, "collision");
+    let (rc, l) = ask(&mut c, 904, &reg[..6]);
+    assert_eq!((rc, l.len(), word(&l, 4)), (905, 48, 0));
+    assert!(l[8..].iter().all(|b| *b == 0));
 }
