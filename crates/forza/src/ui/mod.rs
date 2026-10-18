@@ -11,6 +11,14 @@ macro_rules! tr {
     };
 }
 
+/// `tr!` for other crates (Launcher.exe's messages): the text of `key` in `lang`, each `%{name}` filled from `args`.
+pub fn text(lang: Lang, key: &str, args: &[(&str, &str)]) -> String {
+    let s = rust_i18n::t!(key, locale = lang.code());
+    let names: Vec<&str> = args.iter().map(|a| a.0).collect();
+    let values: Vec<String> = args.iter().map(|a| a.1.to_owned()).collect();
+    rust_i18n::replace_patterns(&s, &names, &values)
+}
+
 pub mod board;
 pub mod installer;
 pub mod launcher;

@@ -68,6 +68,7 @@ fn launcher_screens() {
             (StopConfirm, Edition::E1718, "stop"),
             (NotSetUp, Edition::E1011, "setup"),
             (Update, Edition::E1011, "update"),
+            (Busy, Edition::E1718, "busy"),
         ] {
             let mut st = launcher::LauncherState::sample(ed, lang, s);
             snap(
@@ -75,7 +76,9 @@ fn launcher_screens() {
                 &format!("launcher_{tag}_{}", lang.code()),
                 launcher::SIZE,
                 ed,
-                |ui| launcher::show(ui, &mut st),
+                |ui| {
+                    launcher::show(ui, &mut st);
+                },
             );
         }
     }

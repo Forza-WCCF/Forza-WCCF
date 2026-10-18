@@ -1,5 +1,5 @@
 //! Every text key the screens use is in `locales/ui.yml` with English, Italian and Japanese (rust-i18n falls back to
-//! English silently, so a missing translation would not show otherwise).
+//! English silently, so a missing translation would not show otherwise). Launcher.exe's keys are checked here too.
 
 use std::collections::HashMap;
 
@@ -8,7 +8,11 @@ fn every_key_in_three_languages() {
     let yml = std::fs::read_to_string("locales/ui.yml").unwrap();
     let table: HashMap<&str, &str> = yml.lines().filter_map(|l| l.split_once(": {")).collect();
     let mut missing = vec![];
-    for e in std::fs::read_dir("src/ui").unwrap() {
+    // the screens, and Launcher.exe's messages (forza::ui::text)
+    let files = ["src/ui", "../launcher/src/bin/launcher"]
+        .iter()
+        .flat_map(|d| std::fs::read_dir(d).unwrap());
+    for e in files {
         let src = std::fs::read_to_string(e.unwrap().path()).unwrap();
         for piece in src.split('"').skip(1).step_by(2) {
             let Some((section, rest)) = piece.split_once('.') else {
@@ -30,6 +34,7 @@ fn every_key_in_three_languages() {
             ];
             if !known.contains(&section)
                 || rest.is_empty()
+                || ["txt", "exe"].contains(&rest) // file names: "panel.txt", "launcher.exe"
                 || !rest
                     .chars()
                     .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')

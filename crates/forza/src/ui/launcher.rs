@@ -1,9 +1,12 @@
-//! The launcher: one frameless 600 px window to play, set up, update and read the output. Layout over sample state.
+//! The launcher: one frameless 600 px window to play, set up, update and read the output. [`show`] draws a
+//! [`LauncherState`] and returns what the player asked for; Launcher.exe (crates/launcher) does it and fills the state
+//! from the real kit, the gallery and the snapshots draw [`LauncherState::sample`].
 
 use super::Lang;
 use super::theme::{self, Edition};
 use super::widgets::{
-    self, Cab, Tone, action, cabinet, field, fold, segmented, status_line, steps, title_bar,
+    self, Cab, Tone, action, cabinet, field, fold, progress, segmented, status_line, steps,
+    title_bar, toggle_row,
 };
 use egui::{Color32, Ui, vec2};
 
@@ -13,11 +16,79 @@ pub const SIZE: egui::Vec2 = egui::vec2(600.0, 720.0);
 #[derive(Clone, Debug)]
 pub struct Release {
     pub tag: String,
-    /// "launcher.kind_stable" or "launcher.kind_test"
-    pub kind: &'static str,
+    /// A test build (a pre-release), else a release.
+    pub test: bool,
     pub date: String,
+    /// The version in this folder.
     pub this: bool,
     pub newer: bool,
+}
+
+/// What the player asked for this frame. Launcher.exe does it; the gallery ignores it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    /// PLAY, with the choices in the state.
+    Play,
+    /// STOP THE GAME, confirmed.
+    Stop,
+    /// SET UP the folder in the state.
+    SetUp,
+    /// UNDO SETUP asked: Launcher.exe checks the folder and asks to confirm.
+    Undo,
+    /// UNDO SETUP, confirmed.
+    UndoNow,
+    /// Browse for the game folder.
+    Browse,
+    /// The card pictures choice changed (`pictures_hq`), or "Choose pack…" (`choose`).
+    Pictures { choose: bool },
+    /// The skip-the-tutorial switch changed.
+    SkipTutorial,
+    /// UPDATE to the release at this place in the list: Launcher.exe asks to confirm.
+    Update(usize),
+    /// UPDATE, confirmed.
+    UpdateNow(usize),
+    /// "What's new" of the release at this place in the list.
+    WhatsNew(usize),
+    /// After an update: set the game folder up again, confirmed.
+    SetUpAfterUpdate,
+    /// The window's language changed (`lang`).
+    Language,
+}
+
+/// A question in a modal: a title, an optional body, the button that says yes and what yes does.
+#[derive(Clone, Debug)]
+pub struct Confirm {
+    pub title: String,
+    pub body: String,
+    pub yes: String,
+    /// The yes button is red (it stops something).
+    pub stop: bool,
+    pub then: Action,
+}
+
+impl Confirm {
+    /// A question as one text: its first paragraph is the title, the rest the body.
+    pub fn new(question: &str, yes: String, stop: bool, then: Action) -> Self {
+        let (title, body) = question.split_once("\n\n").unwrap_or((question, ""));
+        Confirm {
+            title: title.to_owned(),
+            body: body.to_owned(),
+            yes,
+            stop,
+            then,
+        }
+    }
+
+    /// STOP THE GAME?
+    pub fn stop(lang: Lang) -> Self {
+        Confirm {
+            title: tr!(lang, "launcher.stop_title"),
+            body: tr!(lang, "launcher.stop_body"),
+            yes: tr!(lang, "launcher.stop"),
+            stop: true,
+            then: Action::Stop,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -28,19 +99,35 @@ pub struct LauncherState {
     pub address: String,
     /// 0 English, 1 Italian, 2 the original Japanese.
     pub game_text: usize,
+    /// A game folder is set up.
     pub set_up: bool,
+    /// A run is on in this folder (here or in another Launcher.exe): PLAY offers STOP THE GAME.
     pub running: bool,
-    pub confirm_stop: bool,
-    pub step: (usize, usize),
-    /// A message key and its tone.
-    pub status: Option<(Tone, &'static str)>,
+    /// A job runs (setup, an update, the run): the choices wait.
+    pub busy: bool,
+    /// The job's steps done of all (a start's "N/M" lines), else its progress 0..1.
+    pub steps: Option<(usize, usize)>,
+    pub progress: f32,
+    /// The status line: a tone and its text.
+    pub status: Option<(Tone, String)>,
     pub setup_open: bool,
     pub folder: String,
+    /// The card pictures: the high-quality pack, else the game's own.
+    pub pictures_hq: bool,
+    /// The skip-the-tutorial switch (2017–18 only).
+    pub skip_tutorial: Option<bool>,
+    /// The UPDATE section (2010–11 only: the releases are 2010–11 versions).
+    pub updates: bool,
+    /// The version in this folder.
+    pub version: String,
     pub update_open: bool,
-    pub update_status: Option<(Tone, &'static str)>,
+    pub update_status: Option<(Tone, String)>,
     pub releases: Vec<Release>,
+    pub selected: Option<usize>,
     pub output_open: bool,
     pub output: Vec<String>,
+    /// A question shown in a modal.
+    pub confirm: Option<Confirm>,
 }
 
 /// The states the owner reviews.
@@ -51,13 +138,15 @@ pub enum Scenario {
     StopConfirm,
     NotSetUp,
     Update,
+    /// SETUP open on 2017–18 (card pictures, skip the tutorial), a setup running.
+    Busy,
 }
 
 impl LauncherState {
     pub fn sample(edition: Edition, lang: Lang, s: Scenario) -> Self {
-        let release = |tag: &str, kind, date: &str, this, newer| Release {
+        let release = |tag: &str, test, date: &str, this, newer| Release {
             tag: tag.into(),
-            kind,
+            test,
             date: date.into(),
             this,
             newer,
@@ -70,25 +159,25 @@ impl LauncherState {
             game_text: 0,
             set_up: true,
             running: false,
-            confirm_stop: false,
-            step: (0, 7),
-            status: Some((Tone::Done, "launcher.status_ready")),
+            busy: false,
+            steps: None,
+            progress: 0.0,
+            status: Some((Tone::Done, tr!(lang, "launcher.status_ready"))),
             setup_open: false,
             folder: r"C:\Games\Forza-WCCF\2010-2011".into(),
+            pictures_hq: false,
+            skip_tutorial: None,
+            updates: edition == Edition::E1011,
+            version: "7.0.0".into(),
             update_open: false,
             update_status: None,
             releases: vec![
-                release(
-                    "v7.1.0-test.2",
-                    "launcher.kind_test",
-                    "2026-10-11",
-                    false,
-                    false,
-                ),
-                release("v7.0.1", "launcher.kind_stable", "2026-10-09", false, true),
-                release("v7.0.0", "launcher.kind_stable", "2026-09-28", true, false),
-                release("v6.4.2", "launcher.kind_stable", "2026-08-30", false, false),
+                release("v7.1.0-test.2", true, "2026-10-11", false, false),
+                release("v7.0.1", false, "2026-10-09", false, true),
+                release("v7.0.0", false, "2026-09-28", true, false),
+                release("v6.4.2", false, "2026-08-30", false, false),
             ],
+            selected: Some(1),
             output_open: false,
             output: [
                 "[15:02:11] start: seat 1, this PC",
@@ -99,38 +188,58 @@ impl LauncherState {
             ]
             .map(String::from)
             .into(),
+            confirm: None,
         };
         if edition == Edition::E1718 {
             st.folder = r"C:\Games\Forza-WCCF\2017-2018".into();
+            st.skip_tutorial = Some(true);
         }
         match s {
             Scenario::Ready => {}
             Scenario::Running | Scenario::StopConfirm => {
                 st.running = true;
+                st.busy = true;
                 st.online = true;
-                st.step = (5, 7);
-                st.status = Some((Tone::Notice, "launcher.status_starting"));
+                st.steps = Some((5, 7));
+                st.status = Some((Tone::Notice, tr!(lang, "launcher.msg_starting")));
                 st.output_open = true;
-                st.confirm_stop = s == Scenario::StopConfirm;
+                if s == Scenario::StopConfirm {
+                    st.confirm = Some(Confirm::stop(lang));
+                }
             }
             Scenario::NotSetUp => {
                 st.set_up = false;
                 st.setup_open = true;
                 st.folder = r"D:\Arcade\disc-image".into();
-                st.status = Some((Tone::Notice, "launcher.status_not_set_up"));
+                st.status = Some((Tone::Notice, tr!(lang, "launcher.status_not_set_up")));
             }
             Scenario::Update => {
                 st.update_open = true;
-                st.update_status = Some((Tone::Refused, "launcher.err_no_answer"));
+                st.update_status = Some((
+                    Tone::Refused,
+                    tr!(
+                        lang,
+                        "launcher.msg_no_answer",
+                        error = "curl: (6) Could not resolve host"
+                    ),
+                ));
+            }
+            Scenario::Busy => {
+                st.busy = true;
+                st.setup_open = true;
+                st.pictures_hq = true;
+                st.progress = 0.42;
+                st.status = Some((Tone::Notice, tr!(lang, "launcher.msg_making_pictures")));
             }
         }
         st
     }
 }
 
-/// The whole launcher window.
-pub fn show(ui: &mut Ui, st: &mut LauncherState) {
-    let lang = st.lang;
+/// The whole launcher window; what the player asked for, if anything.
+pub fn show(ui: &mut Ui, st: &mut LauncherState) -> Option<Action> {
+    let mut act = None;
+    let was = st.lang;
     let accent = st.edition.accent();
     egui::Panel::top("launcher-title")
         .exact_size(44.0)
@@ -139,6 +248,10 @@ pub fn show(ui: &mut Ui, st: &mut LauncherState) {
         .show(ui, |ui| {
             title_bar(ui, st.edition, &mut st.lang);
         });
+    if st.lang != was {
+        act = Some(Action::Language);
+    }
+    let lang = st.lang;
     egui::CentralPanel::default()
         .frame(
             egui::Frame::new()
@@ -150,7 +263,7 @@ pub fn show(ui: &mut Ui, st: &mut LauncherState) {
                 .auto_shrink(false)
                 .show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 10.0;
-                    play(ui, st, lang, accent);
+                    play(ui, st, lang, accent, &mut act);
                     let summary = if st.set_up {
                         tr!(lang, "launcher.setup_done")
                     } else {
@@ -163,20 +276,22 @@ pub fn show(ui: &mut Ui, st: &mut LauncherState) {
                         &summary,
                         &mut open,
                         accent,
-                        |ui| setup(ui, st, lang),
+                        |ui| setup(ui, st, lang, &mut act),
                     );
                     st.setup_open = open;
-                    let mut open = st.update_open;
-                    let summary = tr!(lang, "launcher.this_version", v = "7.0.0");
-                    fold(
-                        ui,
-                        &tr!(lang, "launcher.update"),
-                        &summary,
-                        &mut open,
-                        accent,
-                        |ui| update(ui, st, lang),
-                    );
-                    st.update_open = open;
+                    let version = tr!(lang, "launcher.this_version", v = st.version.as_str());
+                    if st.updates {
+                        let mut open = st.update_open;
+                        fold(
+                            ui,
+                            &tr!(lang, "launcher.update"),
+                            &version,
+                            &mut open,
+                            accent,
+                            |ui| update(ui, st, lang, &mut act),
+                        );
+                        st.update_open = open;
+                    }
                     let mut open = st.output_open;
                     fold(
                         ui,
@@ -187,18 +302,36 @@ pub fn show(ui: &mut Ui, st: &mut LauncherState) {
                         |ui| output(ui, st, lang),
                     );
                     st.output_open = open;
+                    if !st.updates {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                            ui.label(
+                                egui::RichText::new(version)
+                                    .font(theme::body(12.0))
+                                    .color(theme::TEXT_FAINT),
+                            );
+                        });
+                    }
                 });
         });
-    if st.confirm_stop {
-        stop_modal(ui, st, lang);
+    if let Some(c) = st.confirm.clone()
+        && let Some(a) = confirm_modal(ui, st, &c, lang)
+    {
+        act = Some(a);
     }
+    act
 }
 
-fn play(ui: &mut Ui, st: &mut LauncherState, lang: Lang, accent: Color32) {
+fn play(
+    ui: &mut Ui,
+    st: &mut LauncherState,
+    lang: Lang,
+    accent: Color32,
+    act: &mut Option<Action>,
+) {
     widgets::section(ui, &tr!(lang, "launcher.play_section"), accent, |ui| {
         let label_w = 150.0;
         let w = ui.available_width() - label_w;
-        ui.add_enabled_ui(!st.running, |ui| {
+        ui.add_enabled_ui(!st.running && !st.busy, |ui| {
             ui.horizontal(|ui| {
                 field(ui, &tr!(lang, "launcher.where"), label_w);
                 let mut i = st.online as usize;
@@ -250,69 +383,131 @@ fn play(ui: &mut Ui, st: &mut LauncherState, lang: Lang, accent: Color32) {
         } else {
             (tr!(lang, "launcher.play"), Cab::Go)
         };
+        // STOP THE GAME stays on while this Launcher.exe runs the game (that run is its job)
         let resp = ui
-            .add_enabled_ui(st.set_up, |ui| cabinet(ui, size, &label, kind, true))
+            .add_enabled_ui(st.running || !st.busy, |ui| {
+                cabinet(ui, size, &label, kind, st.set_up || st.running)
+            })
             .inner;
-        if resp.clicked() && st.running {
-            st.confirm_stop = true;
+        if resp.clicked() {
+            if st.running {
+                st.confirm = Some(Confirm::stop(lang));
+            } else {
+                *act = Some(Action::Play);
+            }
         }
-        if st.running {
-            steps(ui, st.step.0, st.step.1, ui.available_width());
+        if st.busy {
+            match st.steps {
+                Some((n, m)) => steps(ui, n, m, ui.available_width()),
+                None => progress(ui, st.progress, ui.available_width()),
+            };
         }
-        if let Some((tone, key)) = st.status {
-            status_line(ui, tone, &tr!(lang, key));
+        if let Some((tone, text)) = &st.status {
+            status_line(ui, *tone, text);
         }
     });
 }
 
-fn setup(ui: &mut Ui, st: &mut LauncherState, lang: Lang) {
-    ui.label(
-        egui::RichText::new(tr!(lang, "launcher.folder_hint"))
-            .font(theme::body(13.0))
-            .color(theme::TEXT_DIM),
-    );
-    ui.horizontal(|ui| {
-        let browse = tr!(lang, "launcher.browse");
-        let bw = ui
-            .painter()
-            .layout_no_wrap(browse.clone(), theme::bold(14.0), theme::TEXT)
-            .size()
-            .x
-            + 40.0;
-        ui.add(
-            egui::TextEdit::singleline(&mut st.folder)
-                .font(theme::mono(14.0))
-                .desired_width(ui.available_width() - bw)
-                .margin(vec2(10.0, 7.0)),
+fn setup(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Action>) {
+    ui.add_enabled_ui(!st.busy, |ui| {
+        ui.label(
+            egui::RichText::new(tr!(lang, "launcher.folder_hint"))
+                .font(theme::body(13.0))
+                .color(theme::TEXT_DIM),
         );
-        action(ui, &browse);
-    });
-    ui.horizontal(|ui| {
-        let w = (ui.available_width() - 8.0) / 2.0;
-        cabinet(
-            ui,
-            vec2(w, 44.0),
-            &tr!(lang, "launcher.set_up"),
-            Cab::Go,
-            !st.set_up,
-        );
-        ui.add_enabled_ui(st.set_up, |ui| {
-            cabinet(
+        ui.horizontal(|ui| {
+            let browse = tr!(lang, "launcher.browse");
+            let bw = text_w(ui, &browse) + 40.0;
+            ui.add(
+                egui::TextEdit::singleline(&mut st.folder)
+                    .font(theme::mono(14.0))
+                    .desired_width(ui.available_width() - bw)
+                    .margin(vec2(10.0, 7.0)),
+            );
+            if action(ui, &browse).clicked() {
+                *act = Some(Action::Browse);
+            }
+        });
+        ui.horizontal(|ui| {
+            let w = (ui.available_width() - 8.0) / 2.0;
+            if cabinet(
                 ui,
                 vec2(w, 44.0),
-                &tr!(lang, "launcher.undo"),
-                Cab::Plain,
-                false,
+                &tr!(lang, "launcher.set_up"),
+                Cab::Go,
+                !st.set_up,
             )
+            .clicked()
+            {
+                *act = Some(Action::SetUp);
+            }
+            let can_undo = !st.folder.trim().is_empty();
+            let undo = ui.add_enabled_ui(can_undo, |ui| {
+                cabinet(
+                    ui,
+                    vec2(w, 44.0),
+                    &tr!(lang, "launcher.undo"),
+                    Cab::Plain,
+                    false,
+                )
+            });
+            if undo.inner.clicked() {
+                *act = Some(Action::Undo);
+            }
         });
+        ui.add_space(2.0);
+        ui.horizontal(|ui| {
+            let label_w = 150.0;
+            field(ui, &tr!(lang, "launcher.card_pictures"), label_w);
+            let choose = tr!(lang, "launcher.choose_pack");
+            let w = ui.available_width() - text_w(ui, &choose) - 40.0;
+            let mut i = st.pictures_hq as usize;
+            if segmented(
+                ui,
+                &mut i,
+                &[
+                    &tr!(lang, "launcher.from_game"),
+                    &tr!(lang, "launcher.hq_pack"),
+                ],
+                w,
+            ) {
+                st.pictures_hq = i == 1;
+                *act = Some(Action::Pictures { choose: false });
+            }
+            if action(ui, &choose).clicked() {
+                *act = Some(Action::Pictures { choose: true });
+            }
+        });
+        if let Some(skip) = &mut st.skip_tutorial
+            && toggle_row(
+                ui,
+                skip,
+                &tr!(lang, "launcher.skip_tutorial"),
+                &tr!(lang, "launcher.skip_tutorial_hint"),
+            )
+            .clicked()
+        {
+            *act = Some(Action::SkipTutorial);
+        }
     });
 }
 
-fn update(ui: &mut Ui, st: &mut LauncherState, lang: Lang) {
+/// The width of a secondary action's label.
+fn text_w(ui: &Ui, text: &str) -> f32 {
+    ui.painter()
+        .layout_no_wrap(text.to_owned(), theme::bold(14.0), theme::TEXT)
+        .size()
+        .x
+}
+
+fn update(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Action>) {
     use egui_extras::{Column, TableBuilder};
+    let mut clicked = None;
     TableBuilder::new(ui)
         .id_salt("releases")
         .striped(true)
+        .sense(egui::Sense::click())
+        .max_scroll_height(140.0)
         .column(Column::exact(150.0))
         .column(Column::exact(110.0))
         .column(Column::exact(100.0))
@@ -334,8 +529,9 @@ fn update(ui: &mut Ui, st: &mut LauncherState, lang: Lang) {
             }
         })
         .body(|mut body| {
-            for r in &st.releases {
+            for (i, r) in st.releases.iter().enumerate() {
                 body.row(26.0, |mut row| {
+                    row.set_selected(st.selected == Some(i));
                     row.col(|ui| {
                         ui.label(
                             egui::RichText::new(&r.tag)
@@ -343,9 +539,14 @@ fn update(ui: &mut Ui, st: &mut LauncherState, lang: Lang) {
                                 .color(theme::TEXT),
                         );
                     });
+                    let kind = if r.test {
+                        "launcher.kind_test"
+                    } else {
+                        "launcher.kind_stable"
+                    };
                     row.col(|ui| {
                         ui.label(
-                            egui::RichText::new(tr!(lang, r.kind))
+                            egui::RichText::new(tr!(lang, kind))
                                 .font(theme::body(13.0))
                                 .color(theme::TEXT_DIM),
                         );
@@ -369,23 +570,41 @@ fn update(ui: &mut Ui, st: &mut LauncherState, lang: Lang) {
                             widgets::chip(ui, &tr!(lang, "launcher.mark_newer"), true, None);
                         }
                     });
+                    if row.response().clicked() {
+                        clicked = Some(i);
+                    }
                 });
             }
         });
+    if clicked.is_some() && !st.busy {
+        st.selected = clicked;
+    }
     ui.add_space(4.0);
+    let chosen = st.selected.filter(|&i| i < st.releases.len());
     ui.horizontal(|ui| {
-        cabinet(
-            ui,
-            vec2(200.0, 44.0),
-            &tr!(lang, "launcher.update_button"),
-            Cab::Go,
-            true,
-        );
+        let can = chosen.is_some() && !st.busy;
+        let up = ui.add_enabled_ui(can, |ui| {
+            cabinet(
+                ui,
+                vec2(200.0, 44.0),
+                &tr!(lang, "launcher.update_button"),
+                Cab::Go,
+                true,
+            )
+        });
+        if let (true, Some(i)) = (up.inner.clicked(), chosen) {
+            *act = Some(Action::Update(i));
+        }
         ui.add_space(4.0);
-        action(ui, &tr!(lang, "launcher.whats_new"));
+        let notes = ui.add_enabled_ui(chosen.is_some(), |ui| {
+            action(ui, &tr!(lang, "launcher.whats_new"))
+        });
+        if let (true, Some(i)) = (notes.inner.clicked(), chosen) {
+            *act = Some(Action::WhatsNew(i));
+        }
     });
-    if let Some((tone, key)) = st.update_status {
-        status_line(ui, tone, &tr!(lang, key));
+    if let Some((tone, text)) = &st.update_status {
+        status_line(ui, *tone, text);
     }
 }
 
@@ -396,55 +615,58 @@ fn output(ui: &mut Ui, st: &mut LauncherState, lang: Lang) {
         .inner_margin(10)
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            egui::ScrollArea::vertical()
-                .max_height(120.0)
+            let font = theme::mono(12.5);
+            let row = ui.fonts_mut(|f| f.row_height(&font));
+            // setup's output runs to thousands of lines: only the rows in view are laid out
+            egui::ScrollArea::both()
+                .max_height(160.0)
+                .auto_shrink([false, true])
                 .stick_to_bottom(true)
-                .show(ui, |ui| {
-                    for l in &st.output {
-                        ui.label(
-                            egui::RichText::new(l)
-                                .font(theme::mono(12.5))
-                                .color(Color32::from_rgb(0xA8, 0xD8, 0xB0)),
+                .show_rows(ui, row, st.output.len(), |ui, range| {
+                    for l in &st.output[range] {
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(l)
+                                    .font(font.clone())
+                                    .color(Color32::from_rgb(0xA8, 0xD8, 0xB0)),
+                            )
+                            .extend(),
                         );
                     }
                 });
         });
-    ui.horizontal(|ui| {
-        action(ui, &tr!(lang, "launcher.copy"));
-        action(ui, &tr!(lang, "settings.send_logs"));
-    });
+    if action(ui, &tr!(lang, "launcher.copy")).clicked() {
+        ui.ctx().copy_text(st.output.join("\r\n"));
+    }
 }
 
-fn stop_modal(ui: &mut Ui, st: &mut LauncherState, lang: Lang) {
-    egui::Modal::new(egui::Id::new("stop-confirm"))
+fn confirm_modal(ui: &mut Ui, st: &mut LauncherState, c: &Confirm, lang: Lang) -> Option<Action> {
+    let mut act = None;
+    let rim = if c.stop { theme::RED } else { theme::RIM };
+    let modal = egui::Modal::new(egui::Id::new("launcher-confirm"))
         .backdrop_color(Color32::from_black_alpha(150))
         .frame(
             egui::Frame::new()
                 .fill(theme::DEEP)
-                .stroke(egui::Stroke::new(1.0, theme::RED))
+                .stroke(egui::Stroke::new(1.0, rim))
                 .corner_radius(theme::RADIUS_BIG)
                 .inner_margin(20),
         )
         .show(ui.ctx(), |ui| {
             ui.set_width(400.0);
             ui.label(
-                egui::RichText::new(tr!(lang, "launcher.stop_title"))
+                egui::RichText::new(&c.title)
                     .font(theme::display(26.0))
                     .color(theme::TEXT),
             );
-            ui.label(egui::RichText::new(tr!(lang, "launcher.stop_body")).color(theme::TEXT_DIM));
+            if !c.body.is_empty() {
+                ui.label(egui::RichText::new(&c.body).color(theme::TEXT_DIM));
+            }
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if cabinet(
-                    ui,
-                    vec2(196.0, 48.0),
-                    &tr!(lang, "launcher.stop"),
-                    Cab::Stop,
-                    true,
-                )
-                .clicked()
-                {
-                    st.confirm_stop = false;
+                let kind = if c.stop { Cab::Stop } else { Cab::Go };
+                if cabinet(ui, vec2(196.0, 48.0), &c.yes, kind, true).clicked() {
+                    act = Some(c.then);
                 }
                 if cabinet(
                     ui,
@@ -455,8 +677,12 @@ fn stop_modal(ui: &mut Ui, st: &mut LauncherState, lang: Lang) {
                 )
                 .clicked()
                 {
-                    st.confirm_stop = false;
+                    st.confirm = None;
                 }
             });
         });
+    if act.is_some() || modal.should_close() {
+        st.confirm = None;
+    }
+    act
 }
