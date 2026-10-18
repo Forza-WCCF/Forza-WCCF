@@ -99,8 +99,10 @@ const ID_PICS_GAME: i32 = 46;
 const ID_PICS_HQ: i32 = 47;
 const ID_PACK: i32 = 48;
 const ID_SKIP: i32 = 49;
+const ID_L_CLUB: i32 = 50;
+const ID_CLUB: i32 = 51;
 /// Disabled while a job runs.
-const BUTTONS: [i32; 18] = [
+const BUTTONS: [i32; 19] = [
     ID_BROWSE,
     ID_SETUP,
     ID_UNDO,
@@ -119,11 +121,12 @@ const BUTTONS: [i32; 18] = [
     ID_PICS_HQ,
     ID_PACK,
     ID_SKIP,
+    ID_CLUB,
 ];
 
 /// The window's client height folded and unfolded (96-dpi pixels), and its width.
 const FOLDED: i32 = 282;
-const UNFOLDED: i32 = 780;
+const UNFOLDED: i32 = 812;
 const WIDTH: i32 = 600;
 
 enum Step {
@@ -669,6 +672,20 @@ fn play_clicked(hwnd: HWND) {
         unsafe { SetFocus(item(hwnd, ID_SERVER)) };
         return;
     }
+    if kit.edition() == Edition::E1718 {
+        // the club server (run::start_gamesvr reads it): empty = this PC
+        let club = get_text(hwnd, ID_CLUB);
+        if !club.trim().is_empty() && choices::parse_club_server(&club).is_none() {
+            say(t().bad_club, 0);
+            // SAFETY: a control of our own window.
+            unsafe { SetFocus(item(hwnd, ID_CLUB)) };
+            return;
+        }
+        if let Err(e) = choices::set_setting(&kit.settings_file(), "club_server", club.trim()) {
+            say(fill(t().write_failed, &[&kit.settings_file().display().to_string(), &e.to_string()]), 0);
+            return;
+        }
+    }
     let lang = text_choice(hwnd);
     let path = panel_file(&kit);
     let mut panel = choices::read(&path);
@@ -746,6 +763,7 @@ fn retext(hwnd: HWND) {
         (ID_PICS_HQ, tx.hq_pack),
         (ID_PACK, tx.choose_pack),
         (ID_SKIP, tx.skip_tutorial),
+        (ID_L_CLUB, tx.club_server),
     ] {
         set_text(hwnd, id, words);
     }
@@ -1102,18 +1120,20 @@ fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
         child(w!("BUTTON"), radio, ID_PICS_HQ, 278, 364, 170, 24);
         child(w!("BUTTON"), tab, ID_PACK, 452, 364, 136, 24);
         child(w!("BUTTON"), BS_AUTOCHECKBOX as u32 | tab, ID_SKIP, 124, 392, 300, 24);
-        child(w!("STATIC"), SS_ETCHEDHORZ, 0, 12, 424, 576, 2);
-        child(w!("STATIC"), 0, ID_HEADING, 12, 434, 576, 20);
+        child(w!("STATIC"), 0, ID_L_CLUB, 12, 428, 110, 20);
+        child(w!("EDIT"), ES_AUTOHSCROLL as u32 | tab, ID_CLUB, 124, 422, 300, 24);
+        child(w!("STATIC"), SS_ETCHEDHORZ, 0, 12, 456, 576, 2);
+        child(w!("STATIC"), 0, ID_HEADING, 12, 466, 576, 20);
         let list_style = (LBS_NOTIFY | LBS_USETABSTOPS) as u32 | WS_VSCROLL | tab;
-        let list = child(w!("LISTBOX"), list_style, ID_LIST, 12, 456, 576, 100);
+        let list = child(w!("LISTBOX"), list_style, ID_LIST, 12, 488, 576, 100);
         let stops: [i32; 3] = [90, 150, 210]; // dialog units: tag, kind, date, "(this kit)"
         SendMessageW(list, LB_SETTABSTOPS, stops.len(), stops.as_ptr() as LPARAM);
-        child(w!("BUTTON"), tab, ID_UPDATE, 12, 560, 130, 28);
-        child(w!("BUTTON"), tab, ID_NOTES, 150, 560, 130, 28);
-        child(w!("STATIC"), 0, ID_UPNOTE, 290, 560, 298, 36);
-        child(w!("STATIC"), SS_ETCHEDHORZ, 0, 12, 602, 576, 2);
+        child(w!("BUTTON"), tab, ID_UPDATE, 12, 592, 130, 28);
+        child(w!("BUTTON"), tab, ID_NOTES, 150, 592, 130, 28);
+        child(w!("STATIC"), 0, ID_UPNOTE, 290, 592, 298, 36);
+        child(w!("STATIC"), SS_ETCHEDHORZ, 0, 12, 634, 576, 2);
         let out = (ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL) as u32 | WS_VSCROLL;
-        let out = child(w!("EDIT"), out, ID_LOG, 12, 612, 576, 156);
+        let out = child(w!("EDIT"), out, ID_LOG, 12, 644, 576, 156);
         SendMessageW(out, EM_SETLIMITTEXT, 0, 0); // more than the 32,767 characters a box takes by default
 
         // the choices as they are now
@@ -1140,8 +1160,11 @@ fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
         if kit.settings()["skip_tutorial"].as_bool() == Some(true) {
             SendMessageW(item(hwnd, ID_SKIP), BM_SETCHECK, BST_CHECKED as usize, 0);
         }
+        set_text(hwnd, ID_CLUB, &choices::setting(&kit.settings_file(), "club_server").unwrap_or_default());
         if kit.edition() != Edition::E1718 {
             ShowWindow(item(hwnd, ID_SKIP), SW_HIDE);
+            ShowWindow(item(hwnd, ID_L_CLUB), SW_HIDE);
+            ShowWindow(item(hwnd, ID_CLUB), SW_HIDE);
         }
         pick_text(
             hwnd,

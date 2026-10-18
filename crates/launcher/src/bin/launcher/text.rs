@@ -68,6 +68,8 @@ pub struct Text {
     pub unguarded: &'static str,
     pub not_guarded: &'static str,
     pub skip_tutorial: &'static str,
+    pub club_server: &'static str,
+    pub bad_club: &'static str,
     pub online_1718: &'static str,
     pub stop_anyway: &'static str,
     pub link_taken: &'static str,
@@ -152,6 +154,8 @@ const EN: Text = Text {
                   settings. Press Set up / repair under Setup and updates, then start again. The details \
                   are in Launcher's window.",
     skip_tutorial: "Skip the tutorial",
+    club_server: "Club server (empty: this PC):",
+    bad_club: "Type the club server as HOST or HOST:PORT (default port 20060), or leave it empty to play with this PC's own club.",
     online_1718: "Online play for 2017-18 is not ready yet. Play on this PC.",
     stop_anyway: "Your club card is in the reader, or a match is on: stopping now can give the card a bad ending \
                   (trade rights are lost at 2). The details are in Launcher's window.\n\nStop the game anyway?",
@@ -239,6 +243,8 @@ const IT: Text = Text {
                   cambiare le impostazioni di rete di questo PC. Premi Configura / ripara in Configurazione e aggiornamenti, \
                   poi riavvia. I dettagli sono nella finestra di Launcher.",
     skip_tutorial: "Salta il tutorial",
+    club_server: "Server club (vuoto: questo PC):",
+    bad_club: "Scrivi il server dei club come HOST o HOST:PORTA (porta predefinita 20060), oppure lascia vuoto per usare i club di questo PC.",
     online_1718: "Il gioco online per il 2017-18 non è ancora pronto. Gioca su questo PC.",
     stop_anyway: "La tua carta del club è nel lettore, oppure è in corso una partita: fermare adesso può dare alla \
                   carta un finale negativo (a 2 si perdono i diritti di scambio). I dettagli sono nella finestra di \
@@ -325,6 +331,8 @@ const JA: Text = Text {
                   設定を変えるおそれがあります。「セットアップと更新」の「セットアップ / 修復」をもう一度押してから\
                   起動してください。詳細は Launcher のウィンドウにあります。",
     skip_tutorial: "チュートリアルを省略",
+    club_server: "クラブサーバー（空欄: このPC）:",
+    bad_club: "クラブサーバーを HOST または HOST:PORT（既定のポートは 20060）で入力してください。空欄ならこのPCのクラブを使います。",
     online_1718: "2017-18 のオンラインプレイはまだ準備できていません。このPCで遊んでください。",
     stop_anyway: "クラブカードがリーダーに入っているか、試合中です。今終了するとカードにバッドエンドが付くことがあります\
                   （2 回でトレード権を失います）。詳細は Launcher のウィンドウにあります。\n\nそれでもゲームを終了しますか？",
