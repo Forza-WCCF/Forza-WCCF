@@ -12,7 +12,8 @@ repository = "https://github.com/Forza-WCCF/WCCF-Installer"
 aes.workspace = true
 anyhow.workspace = true
 crc32fast.workspace = true
-eframe = { workspace = true, features = ["default_fonts"] }
+eframe.workspace = true
+forza.workspace = true
 fs4.workspace = true
 ntfs.workspace = true
 pbkdf2.workspace = true

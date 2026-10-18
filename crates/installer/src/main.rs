@@ -1,25 +1,19 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 //! Forza-WCCF installer: each RingEdge edition owns <dest>\<edition>\game and its kit/save tree.
 //! The 2010–2011 kit is optional; 2017–2018 is extraction-only. `--iso/--key/--dest` runs headless.
+//! The window is `forza::ui::installer` (the approved design) over the state kept here; this file runs what it asks.
 mod disc;
 mod install;
 
-use eframe::egui::{self, RichText};
+use eframe::egui;
+use forza::ui::installer::{self, Action, Field, InstallerState, Page, Space, Step};
+use forza::ui::theme::{self, Edition};
+use forza::ui::{Lang, text};
 use install::{Event, Plan};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, channel};
-
-#[derive(Clone, Copy, PartialEq)]
-enum Page {
-    Welcome,
-    Where,
-    Files,
-    Options,
-    Install,
-    Done,
-}
 
 enum Msg {
     Ev(Event),
@@ -29,27 +23,11 @@ enum Msg {
 struct Run {
     rx: Receiver<Msg>,
     cancel: Arc<AtomicBool>,
-    stage: String,
-    progress: (u64, u64),
-    log: Vec<String>,
-    result: Option<Result<(), String>>,
 }
 
 struct App {
-    page: Page,
-    dest: String,
-    iso: String,
-    key: String,
-    reuse: bool,
-    verify: bool,
-    setup: bool,
-    english: bool,
-    shortcuts: bool,
-    kit: String,
-    error: Option<String>,
+    st: InstallerState,
     run: Option<Run>,
-    setup_done: bool,
-    game_id: &'static str,
 }
 
 fn default_dest() -> String {
@@ -76,81 +54,99 @@ fn gb(b: u64) -> String {
     }
 }
 
+fn game_id(e: Edition) -> &'static str {
+    match e {
+        Edition::E1011 => "SBWG",
+        Edition::E1718 => "SDDY",
+    }
+}
+
+fn edition_of(id: &str) -> Edition {
+    if id == "SDDY" {
+        Edition::E1718
+    } else {
+        Edition::E1011
+    }
+}
+
 impl App {
     fn new() -> Self {
         App {
-            page: Page::Welcome,
-            dest: default_dest(),
-            iso: String::new(),
-            key: String::new(),
-            reuse: false,
-            verify: true,
-            setup: true,
-            english: false,
-            shortcuts: true,
-            kit: String::new(),
-            error: None,
+            st: InstallerState::new(Lang::detect(), default_dest()),
             run: None,
-            setup_done: false,
-            game_id: "SBWG",
         }
+    }
+
+    fn t(&self, key: &str) -> String {
+        text(self.st.lang, key, &[])
     }
 
     fn dest(&self) -> PathBuf {
-        std::path::absolute(clean(&self.dest)).unwrap_or_else(|_| clean(&self.dest))
-    }
-
-    fn file_row(
-        ui: &mut egui::Ui,
-        label: &str,
-        text: &mut String,
-        enabled: bool,
-        pick: impl FnOnce() -> Option<PathBuf>,
-    ) {
-        ui.label(RichText::new(label).strong());
-        ui.horizontal(|ui| {
-            ui.add_enabled_ui(enabled, |ui| {
-                ui.add(egui::TextEdit::singleline(text).desired_width(ui.available_width() - 90.0));
-                if ui.button("Browse…").clicked()
-                    && let Some(p) = pick()
-                {
-                    *text = p.display().to_string();
-                }
-            });
-        });
+        let d = clean(&self.st.folder);
+        std::path::absolute(&d).unwrap_or(d)
     }
 
     fn kit(&self) -> Option<PathBuf> {
-        let path = clean(&self.kit);
+        let path = clean(&self.st.package);
         (!path.as_os_str().is_empty()).then_some(path)
     }
 
-    fn selected_game_id(&self) -> Option<&'static str> {
-        if self.reuse && install::game_present(&self.dest(), self.game_id) {
-            Some(self.game_id)
-        } else {
-            std::fs::metadata(clean(&self.iso))
-                .ok()
-                .and_then(|m| disc::by_size(m.len()))
-                .map(|d| d.game_id)
+    /// What the folder, the disc image and the package say, for the screen to show. Runs every frame, as the
+    /// text boxes change under the person's hands.
+    fn refresh(&mut self) {
+        let (dest, kit) = (self.dest(), self.kit());
+        let st = &mut self.st;
+        st.installed = disc::DISCS
+            .iter()
+            .filter(|d| install::game_present(&dest, d.game_id))
+            .map(|d| edition_of(d.game_id))
+            .collect();
+        if st.installed.is_empty() {
+            st.reuse = false;
+        } else if !st.installed.contains(&st.edition) {
+            st.edition = st.installed[0];
         }
+        let size = std::fs::metadata(clean(&st.iso)).ok().map(|m| m.len());
+        let found = size.and_then(disc::by_size);
+        st.detected = found.map(|d| edition_of(d.game_id));
+        st.unsupported = size.is_some() && found.is_none();
+        st.setup_possible = kit.is_some() && st.target() == Some(Edition::E1011);
+        st.space = install::free_space(&dest).map(|free| Space {
+            free,
+            total: install::total_space(&dest).unwrap_or(free),
+            drive: {
+                let s = dest.to_string_lossy();
+                if s.as_bytes().get(1) == Some(&b':') {
+                    s[..2].to_string()
+                } else {
+                    String::new()
+                }
+            },
+        });
+        st.ascii_tip = !st.folder.is_ascii();
     }
 
     fn setup_enabled(&self) -> bool {
-        self.setup && self.kit().is_some() && self.selected_game_id() == Some("SBWG")
+        self.st.options[1] && self.st.setup_possible
     }
 
     /// Validate the selected disc/key and, only when used, the optional kit before copying.
     fn check_files(&self) -> Result<(), String> {
-        if !(self.reuse && install::game_present(&self.dest(), self.game_id)) {
-            let (iso, key) = (clean(&self.iso), clean(&self.key));
+        if !self.st.reuse {
+            let (iso, key) = (clean(&self.st.iso), clean(&self.st.key));
             if !iso.is_file() {
-                return Err("Choose the disc image (.iso) file.".into());
+                return Err(self.t("installer.err_iso"));
             }
             if !key.is_file() {
-                return Err("Choose the key file.".into());
+                return Err(self.t("installer.err_key"));
             }
-            let key = std::fs::read(&key).map_err(|e| format!("Cannot read the key file: {e}"))?;
+            let key = std::fs::read(&key).map_err(|e| {
+                text(
+                    self.st.lang,
+                    "installer.err_key_read",
+                    &[("e", &e.to_string())],
+                )
+            })?;
             disc::open(&iso, &key).map_err(|e| format!("{e:#}"))?;
         }
         if self.setup_enabled() {
@@ -161,22 +157,38 @@ impl App {
 
     fn start(&mut self, ctx: &egui::Context) {
         let setup = self.setup_enabled();
-        if let Some(id) = self.selected_game_id() {
-            self.game_id = id;
-        }
-        self.setup_done = setup;
-        let reuse = self.reuse && install::game_present(&self.dest(), self.game_id);
+        let st = &self.st;
+        let id = st.target().map(game_id);
+        let reuse = st.reuse;
         let plan = Plan {
             dest: self.dest(),
-            iso: (!reuse).then(|| clean(&self.iso)),
-            key: (!reuse).then(|| clean(&self.key)),
-            game_id: reuse.then_some(self.game_id),
-            verify: self.verify,
+            iso: (!reuse).then(|| clean(&st.iso)),
+            key: (!reuse).then(|| clean(&st.key)),
+            game_id: reuse.then_some(game_id(st.edition)),
+            verify: st.options[0],
             setup,
-            english: self.english && setup,
-            shortcuts: self.shortcuts && setup,
+            english: st.options[2] && setup,
+            shortcuts: st.options[3] && setup,
             kit: self.kit(),
         };
+        let mut steps = vec![];
+        if !reuse && plan.verify {
+            steps.push(Step::Verify);
+        }
+        if !reuse {
+            steps.push(Step::Extract);
+        }
+        if setup {
+            steps.push(Step::Setup);
+        }
+        if plan.english {
+            steps.push(Step::English);
+        }
+        let did = [!reuse, setup, plan.english, plan.shortcuts];
+        let done_path = id
+            .and_then(|id| install::version_paths(&plan.dest, id).ok())
+            .map(|p| p.0.display().to_string())
+            .unwrap_or_default();
         let (tx, rx) = channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let (c, ctx) = (cancel.clone(), ctx.clone());
@@ -189,245 +201,106 @@ impl App {
             let _ = tx.send(Msg::Done(r));
             ctx.request_repaint();
         });
-        self.run = Some(Run {
-            rx,
-            cancel,
-            stage: "Starting".into(),
-            progress: (0, 0),
-            log: vec![],
-            result: None,
-        });
-        self.page = Page::Install;
+        self.run = Some(Run { rx, cancel });
+        let st = &mut self.st;
+        st.steps = steps;
+        (st.stage, st.fraction, st.bytes, st.running) = (0, 0.0, None, true);
+        (st.log, st.error, st.did, st.done_path) = (vec![], None, did, done_path);
+        st.page = Page::Installing;
     }
 
     fn poll(&mut self) {
-        let Some(run) = &mut self.run else { return };
+        let Some(run) = &self.run else { return };
+        let (lang, st) = (self.st.lang, &mut self.st);
         while let Ok(m) = run.rx.try_recv() {
             match m {
                 Msg::Ev(Event::Stage(s)) => {
-                    run.log.push(format!("— {s}"));
-                    run.stage = s;
-                    run.progress = (0, 0);
+                    st.log.push(format!("— {}", s.title(lang)));
+                    st.stage = st.steps.iter().position(|x| *x == s).unwrap_or(st.stage);
+                    (st.fraction, st.bytes) = (0.0, None);
                 }
-                Msg::Ev(Event::Progress(d, t)) => run.progress = (d, t),
-                Msg::Ev(Event::Log(l)) => run.log.push(l),
-                Msg::Done(r) => run.result = Some(r),
+                Msg::Ev(Event::Progress(d, t)) => {
+                    st.fraction = if t > 0 { d as f32 / t as f32 } else { 0.0 };
+                    st.bytes = (t > 0).then_some((d, t));
+                }
+                Msg::Ev(Event::Log(l)) => st.log.push(l),
+                Msg::Done(r) => {
+                    st.running = false;
+                    match r {
+                        Ok(()) => st.page = Page::Done,
+                        Err(e) if e == "Cancelled." => {
+                            st.error = Some(text(lang, "installer.cancelled", &[]))
+                        }
+                        Err(e) => {
+                            st.error = Some(format!("{} {e}", text(lang, "installer.stopped", &[])))
+                        }
+                    }
+                }
             }
-        }
-        if matches!(run.result, Some(Ok(()))) {
-            self.page = Page::Done;
         }
     }
 
-    fn body(&mut self, ui: &mut egui::Ui) {
-        match self.page {
-            Page::Welcome => {
-                ui.heading("Forza-WCCF");
-                ui.add_space(8.0);
-                ui.label(
-                    "Decrypt and extract World Club Champion Football 2010–2011 (Rev D) or \
-                          2017–2018 v2.00.00 (DVR-5059A), from your own disc image.",
-                );
-                ui.add_space(8.0);
-                ui.label(RichText::new("You will need").strong());
-                ui.label("•  the game's disc image (an .iso file, about 5–6 GB)");
-                ui.label("•  the matching key file for it");
-                ui.label("•  optional: WCCF-2010-11-kit.zip for 2010–2011 setup only");
-                ui.label("•  about 6 GB of free space (NTFS is needed only for kit setup)");
-                ui.add_space(8.0);
-                ui.label("Without a kit, this only extracts the original files; it does not make them playable. \
-                          Nothing is sent anywhere, and your disc image is never changed.");
+    fn browse(&mut self, field: Field) {
+        let mut dialog = rfd::FileDialog::new();
+        let picked = match field {
+            Field::Folder => dialog.set_title(self.t("installer.folder")).pick_folder(),
+            Field::Iso => {
+                dialog = dialog.add_filter(self.t("installer.iso"), &["iso"]);
+                dialog.pick_file()
             }
-            Page::Where => {
-                ui.heading("Where should the game go?");
-                ui.add_space(8.0);
-                Self::file_row(ui, "Install folder", &mut self.dest, true, || {
-                    rfd::FileDialog::new()
-                        .set_title("Install folder")
-                        .pick_folder()
-                });
-                let dest = self.dest();
-                ui.add_space(6.0);
-                match install::free_space(&dest) {
-                    Some(f) => ui.label(format!(
-                        "Free space on that drive: {}   (needed: about 6 GB)",
-                        gb(f)
-                    )),
-                    None => ui.label("Needed: about 6 GB"),
+            Field::Key => dialog.pick_file(),
+            Field::Package => {
+                dialog = dialog.add_filter("zip", &["zip"]);
+                dialog.pick_file()
+            }
+        };
+        if let Some(p) = picked {
+            let st = &mut self.st;
+            let slot = match field {
+                Field::Folder => &mut st.folder,
+                Field::Iso => &mut st.iso,
+                Field::Key => &mut st.key,
+                Field::Package => &mut st.package,
+            };
+            *slot = p.display().to_string();
+        }
+    }
+
+    fn next(&mut self, ctx: &egui::Context) {
+        let page = self.st.page;
+        self.st.error = None;
+        let step = match page {
+            Page::Where if self.st.folder.trim().is_empty() => Err(self.t("installer.err_folder")),
+            Page::Files | Page::Options => self.check_files(),
+            _ => Ok(()),
+        };
+        match step {
+            Err(e) => self.st.error = Some(e),
+            Ok(()) if page == Page::Options => self.start(ctx),
+            Ok(()) => {
+                if page == Page::Where {
+                    if let Some(id) = install::installed_game_id(&self.dest()) {
+                        self.st.edition = edition_of(id);
+                    }
+                    self.st.reuse = install::game_present(&self.dest(), game_id(self.st.edition));
+                }
+                self.st.page = match page {
+                    Page::Welcome => Page::Where,
+                    Page::Where => Page::Files,
+                    _ => Page::Options,
                 };
-                if !self.dest.is_ascii() {
-                    ui.colored_label(egui::Color32::from_rgb(200, 130, 0),
-                        "Tip: the game has trouble with accented or non-English letters in folder names. \
-                         A plain path like C:\\Games\\Forza-WCCF is safest.");
-                }
-                for disc in &disc::DISCS {
-                    if install::game_present(&dest, disc.game_id) {
-                        ui.colored_label(
-                            egui::Color32::from_rgb(0, 140, 60),
-                            format!("{} is installed here.", disc.edition),
-                        );
-                    }
-                }
-                ui.add_space(6.0);
-                ui.label("Both editions can coexist: 2010-2011\\game and 2017-2018\\game, each with its own kit, settings and saves.");
-            }
-            Page::Files => {
-                ui.heading("Your disc image and key file");
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    ui.label("Edition to reuse:");
-                    for disc in &disc::DISCS {
-                        ui.selectable_value(&mut self.game_id, disc.game_id, disc.edition);
-                    }
-                });
-                let have = install::game_present(&self.dest(), self.game_id);
-                if have {
-                    ui.checkbox(
-                        &mut self.reuse,
-                        "The game files are already here: use them (no disc needed)",
-                    );
-                    ui.add_space(6.0);
-                }
-                let on = !(have && self.reuse);
-                Self::file_row(ui, "Disc image (.iso)", &mut self.iso, on, || {
-                    rfd::FileDialog::new()
-                        .add_filter("Disc image", &["iso"])
-                        .pick_file()
-                });
-                ui.add_space(6.0);
-                Self::file_row(ui, "Key file", &mut self.key, on, || {
-                    rfd::FileDialog::new().pick_file()
-                });
-                ui.add_space(6.0);
-                Self::file_row(
-                    ui,
-                    "Optional kit (WCCF-2010-11-kit.zip; 2010–2011 only)",
-                    &mut self.kit,
-                    true,
-                    || {
-                        rfd::FileDialog::new()
-                            .add_filter("Kit zip", &["zip"])
-                            .pick_file()
-                    },
-                );
-                ui.add_space(6.0);
-                ui.weak("Tip: you can also drag the files onto this window.");
-                if on {
-                    let iso = clean(&self.iso);
-                    if let Ok(m) = std::fs::metadata(&iso) {
-                        if let Some(disc) = disc::by_size(m.len()) {
-                            ui.label(format!("Detected: {}", disc.name));
-                        } else {
-                            ui.colored_label(egui::Color32::from_rgb(200, 60, 60),
-                                "Unsupported image size. Use 2010–2011 Rev D or 2017–2018 DVR-5059A.");
-                        }
-                    }
-                }
-            }
-            Page::Options => {
-                ui.heading("Options");
-                ui.add_space(8.0);
-                ui.checkbox(&mut self.verify, "Check the disc image first");
-                ui.weak(
-                    "      Finds a damaged copy before the long unpacking. Adds about a minute.",
-                );
-                ui.add_space(6.0);
-                let can_setup = self.kit().is_some() && self.selected_game_id() == Some("SBWG");
-                ui.add_enabled_ui(can_setup, |ui| {
-                    ui.checkbox(
-                        &mut self.setup,
-                        "Set up the game with the optional 2010–2011 kit",
-                    );
-                });
-                if can_setup {
-                    ui.weak("      Installs the community kit and prepares the card catalogue (about a minute).");
-                } else {
-                    ui.weak("      Extraction only. The kit is optional and does not support 2017–2018.");
-                }
-                ui.add_space(6.0);
-                ui.add_enabled_ui(self.setup_enabled(), |ui| {
-                    ui.checkbox(&mut self.english, "Play in English");
-                    ui.weak("      Translates most of the on-screen text. Can be undone later (ENGLISH.bat off).");
-                    ui.add_space(6.0);
-                    ui.checkbox(&mut self.shortcuts, "Add Play and Stop shortcuts to the desktop");
-                });
-            }
-            Page::Install => {
-                ui.heading("Installing");
-                ui.add_space(8.0);
-                let Some(run) = &self.run else { return };
-                match &run.result {
-                    None => {
-                        ui.label(RichText::new(&run.stage).strong());
-                        let (d, t) = run.progress;
-                        if t > 0 {
-                            ui.add(
-                                egui::ProgressBar::new(d as f32 / t as f32)
-                                    .show_percentage()
-                                    .text(format!("{} of {}", gb(d), gb(t))),
-                            );
-                        } else {
-                            ui.add(egui::ProgressBar::new(0.0).animate(true));
-                        }
-                        ui.add_space(6.0);
-                        ui.weak("This takes a few minutes. You can leave the window open and do something else.");
-                    }
-                    Some(Err(e)) => {
-                        ui.colored_label(
-                            egui::Color32::from_rgb(200, 60, 60),
-                            RichText::new(if e == "Cancelled." {
-                                "Installation cancelled."
-                            } else {
-                                "The installation stopped."
-                            })
-                            .strong(),
-                        );
-                        ui.label(e);
-                    }
-                    Some(Ok(())) => {}
-                }
-                ui.add_space(8.0);
-                egui::CollapsingHeader::new("Show details").show(ui, |ui| {
-                    egui::ScrollArea::vertical()
-                        .max_height(150.0)
-                        .stick_to_bottom(true)
-                        .show(ui, |ui| {
-                            for l in &run.log {
-                                ui.monospace(l);
-                            }
-                        });
-                });
-            }
-            Page::Done => {
-                ui.heading("All done!");
-                ui.add_space(8.0);
-                let installed = install::version_paths(&self.dest(), self.game_id)
-                    .unwrap()
-                    .0;
-                ui.label(format!(
-                    "Forza-WCCF is installed in {}",
-                    installed.display()
-                ));
-                ui.add_space(8.0);
-                if self.setup_done {
-                    ui.label(RichText::new("Optional kit setup complete").strong());
-                    ui.label("Read your kit's instructions before using Play/Stop. The installer does not verify gameplay or saves.");
-                    ui.label("Only launch a hash-verified guarded runtime with network protection. Do not run the original executables directly.");
-                    ui.add_space(8.0);
-                    ui.weak("The installer does not change host interfaces, routes or firewall settings.");
-                    ui.weak("A compatible runtime may also require DirectX 9 (June 2010 runtime).");
-                } else {
-                    ui.label(RichText::new("Decryption and extraction complete").strong());
-                    ui.label("No kit, English patches or Play/Stop shortcuts were applied.");
-                    ui.label("The original executables are not a ready-to-play runtime. Do not launch them \
-                              without a compatible loader and network protection.");
-                }
-                ui.add_space(10.0);
-                if ui.button("Open install folder").clicked() {
-                    open_folder(&installed);
-                }
             }
         }
+    }
+
+    fn back(&mut self) {
+        self.st.error = None;
+        self.st.page = match self.st.page {
+            Page::Where => Page::Welcome,
+            Page::Files => Page::Where,
+            Page::Options => Page::Files,
+            _ => Page::Options,
+        };
     }
 }
 
@@ -445,107 +318,35 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         self.poll();
         for f in ctx.input(|i| i.raw.dropped_files.clone()) {
-            if self.page == Page::Files {
+            if self.st.page == Page::Files {
                 let p = f.path();
                 let ext = p.extension().map(|e| e.to_ascii_lowercase());
+                let st = &mut self.st;
                 let field = match ext.as_deref().and_then(|e| e.to_str()) {
-                    Some("iso") => &mut self.iso,
-                    Some("zip") => &mut self.kit,
-                    _ => &mut self.key,
+                    Some("iso") => &mut st.iso,
+                    Some("zip") => &mut st.package,
+                    _ => &mut st.key,
                 };
                 *field = p.display().to_string();
             }
         }
-        let running = self.run.as_ref().is_some_and(|r| r.result.is_none());
-        let failed = self
-            .run
-            .as_ref()
-            .is_some_and(|r| matches!(r.result, Some(Err(_))));
-        egui::Panel::bottom("nav").show(ui, |ui| {
-            ui.add_space(6.0);
-            // the error on its own wrapped line: in the buttons' row a long one pushed Back/Next out of the window
-            if let Some(e) = &self.error {
-                ui.add(
-                    egui::Label::new(
-                        egui::RichText::new(e).color(egui::Color32::from_rgb(200, 60, 60)),
-                    )
-                    .wrap(),
-                );
-                ui.add_space(4.0);
+        self.refresh();
+        let act = installer::show(ui, &mut self.st);
+        match act {
+            Some(Action::Drag) => ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag),
+            Some(Action::Minimize) => ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true)),
+            Some(Action::Close) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+            Some(Action::Cancel) => {
+                if let Some(run) = &self.run {
+                    run.cancel.store(true, Ordering::Relaxed);
+                }
             }
-            ui.horizontal(|ui| {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let page = self.page;
-                    match page {
-                        Page::Install if running => {
-                            if ui.button("Cancel").clicked() {
-                                self.run
-                                    .as_ref()
-                                    .unwrap()
-                                    .cancel
-                                    .store(true, Ordering::Relaxed);
-                            }
-                        }
-                        Page::Install if failed => {
-                            if ui.button("Back").clicked() {
-                                self.page = Page::Options;
-                            }
-                        }
-                        Page::Done => {
-                            if ui.button("Close").clicked() {
-                                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                            }
-                        }
-                        _ => {
-                            let last = page == Page::Options;
-                            if ui.button(if last { "Install" } else { "Next" }).clicked() {
-                                self.error = None;
-                                let step: Result<(), String> = match page {
-                                    Page::Where if self.dest.trim().is_empty() => {
-                                        Err("Choose an install folder.".into())
-                                    }
-                                    Page::Files | Page::Options => self.check_files(),
-                                    _ => Ok(()),
-                                };
-                                match step {
-                                    Err(e) => self.error = Some(e),
-                                    Ok(()) if last => self.start(&ctx),
-                                    Ok(()) => {
-                                        if page == Page::Where {
-                                            if let Some(id) =
-                                                install::installed_game_id(&self.dest())
-                                            {
-                                                self.game_id = id;
-                                            }
-                                            self.reuse =
-                                                install::game_present(&self.dest(), self.game_id);
-                                        }
-                                        self.page = match page {
-                                            Page::Welcome => Page::Where,
-                                            Page::Where => Page::Files,
-                                            _ => Page::Options,
-                                        };
-                                    }
-                                }
-                            }
-                            if page != Page::Welcome && ui.button("Back").clicked() {
-                                self.error = None;
-                                self.page = match page {
-                                    Page::Where => Page::Welcome,
-                                    Page::Files => Page::Where,
-                                    _ => Page::Files,
-                                };
-                            }
-                        }
-                    }
-                });
-            });
-            ui.add_space(6.0);
-        });
-        egui::CentralPanel::default().show(ui, |ui| {
-            ui.add_space(6.0);
-            self.body(ui);
-        });
+            Some(Action::Back) => self.back(),
+            Some(Action::Next | Action::Install) => self.next(&ctx),
+            Some(Action::Browse(f)) => self.browse(f),
+            Some(Action::OpenFolder) => open_folder(Path::new(&self.st.done_path)),
+            None => {}
+        }
     }
 }
 
@@ -644,7 +445,7 @@ fn headless(args: &[String]) -> anyhow::Result<bool> {
     };
     let last = std::cell::Cell::new(0u64);
     let emit = |e: Event| match e {
-        Event::Stage(s) => println!("== {s}"),
+        Event::Stage(s) => println!("== {}", s.title(Lang::En)),
         Event::Log(l) => println!("{l}"),
         Event::Progress(d, t) if t > 0 && d / (256 << 20) != last.replace(d / (256 << 20)) => {
             println!("   {} / {}", gb(d), gb(t))
@@ -668,7 +469,9 @@ fn main() -> eframe::Result {
     }
     let opts = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([680.0, 470.0])
+            .with_title("Forza-WCCF Installer")
+            .with_decorations(false)
+            .with_inner_size(installer::SIZE)
             .with_min_inner_size([560.0, 400.0]),
         ..Default::default()
     };
@@ -676,7 +479,13 @@ fn main() -> eframe::Result {
         "Forza-WCCF Installer",
         opts,
         Box::new(|cc| {
-            cc.egui_ctx.set_zoom_factor(1.15);
+            // one exe, no kit around it yet: the fonts travel inside
+            let fonts = theme::fonts_from(
+                include_bytes!("../../../assets/fonts/NotoSansJP-VF.ttf"),
+                include_bytes!("../../../assets/fonts/BarlowCondensed-Bold.ttf"),
+                include_bytes!("../../../assets/fonts/Hack-Regular.ttf"),
+            );
+            theme::install_fonts(&cc.egui_ctx, Edition::E1011, fonts);
             Ok(Box::new(App::new()))
         }),
     )

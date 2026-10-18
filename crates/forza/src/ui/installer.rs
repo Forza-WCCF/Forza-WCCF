@@ -1,13 +1,22 @@
 //! The installer: a six-page wizard (680×470, resizable) with a step rail on the left and Back / Next below.
+//!
+//! [`show`] draws the state it is given and returns what the person asked for as an [`Action`]; the program owns the
+//! logic (pickers, checks, the install thread) and writes the results back into [`InstallerState`]. The gallery and
+//! the snapshots run it over [`InstallerState::sample`] and ignore the actions. The window has no system frame: the
+//! rail and the top strip move it, and the corner buttons minimize and close.
 
 use super::Lang;
 use super::theme::{self, Edition};
 use super::widgets::{
-    self, Cab, Tone, action, cabinet, field, progress, status_line, steps, toggle_row,
+    self, Cab, TitleAction, Tone, action, cabinet, chip, field, progress, status_line, steps,
+    toggle_row,
 };
-use egui::{Align2, Color32, Rect, Sense, Stroke, Ui, pos2, vec2};
+use egui::{Align2, Color32, Id, Rect, Sense, Stroke, Ui, pos2, vec2};
 
 pub const SIZE: egui::Vec2 = egui::vec2(680.0, 470.0);
+
+/// What the install needs on disk, for the free-space bar and its message.
+pub const NEEDED_BYTES: u64 = 6_000_000_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Page {
@@ -52,6 +61,64 @@ impl Page {
     }
 }
 
+/// The stages of an install, in the order they run; a run lists the ones it will do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Step {
+    Verify,
+    Extract,
+    Setup,
+    English,
+}
+
+impl Step {
+    fn key(self) -> &'static str {
+        match self {
+            Step::Verify => "installer.stage_verify",
+            Step::Extract => "installer.stage_extract",
+            Step::Setup => "installer.stage_setup",
+            Step::English => "installer.stage_english",
+        }
+    }
+
+    /// The stage's name in `lang`.
+    pub fn title(self, lang: Lang) -> String {
+        super::text(lang, self.key(), &[])
+    }
+}
+
+/// The text boxes that have a Browse button.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Field {
+    Folder,
+    Iso,
+    Key,
+    Package,
+}
+
+/// What a click asked the program to do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    Back,
+    Next,
+    Install,
+    Cancel,
+    Close,
+    Minimize,
+    /// The person grabbed the window's own title area.
+    Drag,
+    Browse(Field),
+    OpenFolder,
+}
+
+/// Disk space of the install folder's drive.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Space {
+    pub free: u64,
+    pub total: u64,
+    /// "C:", or empty when unknown.
+    pub drive: String,
+}
+
 #[derive(Clone, Debug)]
 pub struct InstallerState {
     pub lang: Lang,
@@ -60,28 +127,88 @@ pub struct InstallerState {
     pub iso: String,
     pub key: String,
     pub package: String,
+    /// The edition the disc image is, by its size.
     pub detected: Option<Edition>,
+    /// The disc image has a size no supported edition has.
+    pub unsupported: bool,
+    /// Editions already installed in the folder.
+    pub installed: Vec<Edition>,
+    /// Use the installed `edition` instead of a disc image.
+    pub reuse: bool,
+    pub edition: Edition,
     /// Check the disc image, set up the game, play in English, desktop shortcuts.
     pub options: [bool; 4],
+    /// Setting up needs a package and the 2010–11 edition.
+    pub setup_possible: bool,
+    pub space: Option<Space>,
+    /// The folder name has letters outside ASCII, which the game handles badly.
+    pub ascii_tip: bool,
+    /// A refusal for the page the person is on, already in their language.
+    pub error: Option<String>,
+    /// The stages this run will do, and the one it is in.
+    pub steps: Vec<Step>,
     pub stage: usize,
+    pub running: bool,
     pub fraction: f32,
+    /// Bytes done and total of the stage, when it counts bytes.
+    pub bytes: Option<(u64, u64)>,
     pub details_open: bool,
     pub log: Vec<String>,
+    /// The finished install's folder, and what was done: extract, set up, English, shortcuts.
+    pub done_path: String,
+    pub did: [bool; 4],
 }
 
 impl InstallerState {
-    pub fn sample(lang: Lang, page: Page) -> Self {
+    /// A fresh wizard on its first page.
+    pub fn new(lang: Lang, folder: String) -> Self {
         InstallerState {
             lang,
-            page,
-            folder: r"C:\Games\Forza-WCCF".into(),
+            page: Page::Welcome,
+            folder,
+            iso: String::new(),
+            key: String::new(),
+            package: String::new(),
+            detected: None,
+            unsupported: false,
+            installed: vec![],
+            reuse: false,
+            edition: Edition::E1011,
+            options: [true, true, false, true],
+            setup_possible: false,
+            space: None,
+            ascii_tip: false,
+            error: None,
+            steps: vec![],
+            stage: 0,
+            running: false,
+            fraction: 0.0,
+            bytes: None,
+            details_open: false,
+            log: vec![],
+            done_path: String::new(),
+            did: [false; 4],
+        }
+    }
+
+    pub fn sample(lang: Lang, page: Page) -> Self {
+        InstallerState {
             iso: r"D:\Images\disc-2010-11.iso".into(),
             key: r"D:\Images\disc-2010-11.key".into(),
-            package: String::new(),
             detected: Some(Edition::E1011),
+            installed: vec![Edition::E1718],
             options: [true, true, true, false],
-            stage: 2,
+            setup_possible: true,
+            space: Some(Space {
+                free: 41_200_000_000,
+                total: 143_000_000_000,
+                drive: "C:".into(),
+            }),
+            steps: vec![Step::Verify, Step::Extract, Step::Setup, Step::English],
+            stage: 1,
+            running: true,
             fraction: 0.62,
+            bytes: Some((3_360_000_000, 5_420_000_000)),
             details_open: true,
             log: [
                 "check: disc image 5.42 GB, sha-256 matches its key",
@@ -90,18 +217,47 @@ impl InstallerState {
             ]
             .map(String::from)
             .into(),
+            done_path: r"C:\Games\Forza-WCCF\2010-2011".into(),
+            did: [true, true, true, false],
+            package: r"D:\Images\WCCF-2010-11-kit.zip".into(),
+            ..InstallerState::new(lang, r"C:\Games\Forza-WCCF".into())
+        }
+        .on(page)
+    }
+
+    fn on(mut self, page: Page) -> Self {
+        self.page = page;
+        self
+    }
+
+    /// The edition this install is about: the one reused, else the one the disc image is.
+    pub fn target(&self) -> Option<Edition> {
+        if self.reuse {
+            Some(self.edition)
+        } else {
+            self.detected
         }
     }
 }
 
-pub fn show(ui: &mut Ui, st: &mut InstallerState) {
+fn gb(bytes: u64) -> String {
+    format!("{:.1}", bytes as f64 / 1e9)
+}
+
+/// The whole installer window. Returns the first action asked for this frame.
+pub fn show(ui: &mut Ui, st: &mut InstallerState) -> Option<Action> {
     let lang = st.lang;
+    let win = ui.max_rect();
+    let mut out = None;
     egui::Panel::left("installer-rail")
         .exact_size(196.0)
         .resizable(false)
         .show_separator_line(false)
         .frame(egui::Frame::new())
-        .show(ui, |ui| rail(ui, st.page, lang));
+        .show(ui, |ui| {
+            drag_area(ui, ui.max_rect(), "installer-drag-rail", &mut out);
+            rail(ui, st.page, lang)
+        });
     egui::Panel::bottom("installer-footer")
         .exact_size(64.0)
         .show_separator_line(false)
@@ -110,7 +266,7 @@ pub fn show(ui: &mut Ui, st: &mut InstallerState) {
                 .fill(theme::NIGHT)
                 .inner_margin(egui::Margin::symmetric(20, 10)),
         )
-        .show(ui, |ui| footer(ui, st, lang));
+        .show(ui, |ui| footer(ui, st, lang, &mut out));
     egui::CentralPanel::default()
         .frame(
             egui::Frame::new()
@@ -123,6 +279,12 @@ pub fn show(ui: &mut Ui, st: &mut InstallerState) {
                 }),
         )
         .show(ui, |ui| {
+            let strip = Rect::from_min_max(
+                pos2(ui.max_rect().left(), win.top()),
+                pos2(win.right(), win.top() + 14.0),
+            );
+            drag_area(ui, strip, "installer-drag-top", &mut out);
+            window_corner(ui, win, &mut out);
             ui.spacing_mut().item_spacing.y = 10.0;
             ui.label(
                 egui::RichText::new(st.page.title(lang))
@@ -131,13 +293,45 @@ pub fn show(ui: &mut Ui, st: &mut InstallerState) {
             );
             match st.page {
                 Page::Welcome => welcome(ui, lang),
-                Page::Where => where_(ui, st, lang),
-                Page::Files => files(ui, st, lang),
+                Page::Where => where_(ui, st, lang, &mut out),
+                Page::Files => files(ui, st, lang, &mut out),
                 Page::Options => options(ui, st, lang),
                 Page::Installing => installing(ui, st, lang),
-                Page::Done => done(ui, st, lang),
+                Page::Done => done(ui, st, lang, &mut out),
+            }
+            if st.page != Page::Installing
+                && let Some(e) = &st.error
+            {
+                status_line(ui, Tone::Refused, e);
             }
         });
+    out
+}
+
+/// Grabbing this area moves the window (the program starts the drag).
+fn drag_area(ui: &mut Ui, rect: Rect, id: &'static str, out: &mut Option<Action>) {
+    let r = ui.interact(rect, Id::new(id), Sense::click_and_drag());
+    if r.drag_started_by(egui::PointerButton::Primary) {
+        out.get_or_insert(Action::Drag);
+    }
+}
+
+/// Minimize and close in the window's top right corner.
+fn window_corner(ui: &mut Ui, win: Rect, out: &mut Option<Action>) {
+    let r = Rect::from_min_size(
+        pos2(win.right() - 4.0 - 82.0, win.top() + 4.0),
+        vec2(82.0, 32.0),
+    );
+    let mut child = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(r)
+            .layout(egui::Layout::right_to_left(egui::Align::Center)),
+    );
+    match widgets::window_buttons(&mut child) {
+        TitleAction::Minimize => _ = out.get_or_insert(Action::Minimize),
+        TitleAction::Close => _ = out.get_or_insert(Action::Close),
+        TitleAction::None => {}
+    }
 }
 
 fn rail(ui: &mut Ui, page: Page, lang: Lang) {
@@ -225,7 +419,7 @@ fn rail(ui: &mut Ui, page: Page, lang: Lang) {
     }
 }
 
-fn footer(ui: &mut Ui, st: &mut InstallerState, lang: Lang) {
+fn footer(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Action>) {
     let r = ui.max_rect();
     ui.painter().line_segment(
         [
@@ -236,20 +430,30 @@ fn footer(ui: &mut Ui, st: &mut InstallerState, lang: Lang) {
     );
     ui.horizontal_centered(|ui| {
         let first = st.page == Page::Welcome;
-        let busy = st.page == Page::Installing;
-        if st.page != Page::Done {
-            ui.add_enabled_ui(!first && !busy, |ui| {
-                action(ui, &tr!(lang, "installer.back"))
-            });
+        let busy = st.page == Page::Installing && st.running;
+        if st.page != Page::Done
+            && ui
+                .add_enabled_ui(!first && !busy, |ui| {
+                    action(ui, &tr!(lang, "installer.back"))
+                })
+                .inner
+                .clicked()
+        {
+            out.get_or_insert(Action::Back);
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let (label, kind) = match st.page {
-                Page::Options => (tr!(lang, "installer.install"), Cab::Go),
-                Page::Installing => (tr!(lang, "common.cancel"), Cab::Plain),
-                Page::Done => (tr!(lang, "common.close"), Cab::Go),
-                _ => (tr!(lang, "installer.next"), Cab::Go),
+            let (label, kind, act) = match st.page {
+                Page::Options => (tr!(lang, "installer.install"), Cab::Go, Action::Install),
+                Page::Installing if busy => {
+                    (tr!(lang, "common.cancel"), Cab::Plain, Action::Cancel)
+                }
+                Page::Installing => (tr!(lang, "common.close"), Cab::Plain, Action::Close),
+                Page::Done => (tr!(lang, "common.close"), Cab::Go, Action::Close),
+                _ => (tr!(lang, "installer.next"), Cab::Go, Action::Next),
             };
-            cabinet(ui, vec2(150.0, 44.0), &label, kind, kind == Cab::Go);
+            if cabinet(ui, vec2(150.0, 44.0), &label, kind, kind == Cab::Go).clicked() {
+                out.get_or_insert(act);
+            }
         });
     });
 }
@@ -277,6 +481,7 @@ fn bullet(ui: &mut Ui, text: &str, note: &str) {
 }
 
 fn welcome(ui: &mut Ui, lang: Lang) {
+    ui.spacing_mut().item_spacing.y = 6.0;
     ui.label(egui::RichText::new(tr!(lang, "installer.welcome_body")).color(theme::TEXT_DIM));
     ui.add_space(4.0);
     widgets::caps(ui, &tr!(lang, "installer.you_need"));
@@ -302,9 +507,23 @@ fn welcome(ui: &mut Ui, lang: Lang) {
                 .color(theme::TEXT_DIM),
         );
     });
+    ui.add_space(2.0);
+    ui.label(
+        egui::RichText::new(tr!(lang, "installer.welcome_note"))
+            .font(theme::body(12.0))
+            .color(theme::TEXT_DIM),
+    );
 }
 
-fn path_row(ui: &mut Ui, label: &str, value: &mut String, lang: Lang) {
+/// A label, a text box and a Browse button.
+fn path_row(
+    ui: &mut Ui,
+    label: &str,
+    value: &mut String,
+    lang: Lang,
+    which: Field,
+    out: &mut Option<Action>,
+) {
     ui.horizontal(|ui| {
         field(ui, label, 120.0);
         let browse = tr!(lang, "launcher.browse");
@@ -320,43 +539,70 @@ fn path_row(ui: &mut Ui, label: &str, value: &mut String, lang: Lang) {
                 .desired_width(ui.available_width() - bw)
                 .margin(vec2(8.0, 7.0)),
         );
-        action(ui, &browse);
+        if action(ui, &browse).clicked() {
+            out.get_or_insert(Action::Browse(which));
+        }
     });
 }
 
-fn where_(ui: &mut Ui, st: &mut InstallerState, lang: Lang) {
-    path_row(ui, &tr!(lang, "installer.folder"), &mut st.folder, lang);
-    ui.horizontal(|ui| {
-        field(ui, &tr!(lang, "installer.free"), 120.0);
-        let w = ui.available_width();
-        let (r, _) = ui.allocate_exact_size(vec2(w, 30.0), Sense::hover());
-        let p = ui.painter();
-        let bar = Rect::from_min_size(r.min + vec2(0.0, 8.0), vec2(w - 120.0, 14.0));
-        p.rect_filled(bar, 3, theme::WELL);
-        p.rect_filled(
-            Rect::from_min_size(bar.min, vec2(bar.width() * 0.71, bar.height())),
-            3,
-            theme::RIM_HI,
-        );
-        // the 6 GB the install takes, on top of what is used
-        p.rect_filled(
-            Rect::from_min_size(
-                bar.min + vec2(bar.width() * 0.71, 0.0),
-                vec2(bar.width() * 0.05, bar.height()),
-            ),
-            0,
-            theme::AMBER,
-        );
-        p.text(
-            r.right_center(),
-            Align2::RIGHT_CENTER,
-            tr!(lang, "installer.free_of", free = "41.2", drive = "C:"),
-            theme::display(16.0),
-            theme::TEXT,
-        );
-    });
+fn edition_name(e: Edition) -> &'static str {
+    match e {
+        Edition::E1011 => "2010-2011",
+        Edition::E1718 => "2017-2018",
+    }
+}
+
+fn where_(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Action>) {
+    path_row(
+        ui,
+        &tr!(lang, "installer.folder"),
+        &mut st.folder,
+        lang,
+        Field::Folder,
+        out,
+    );
+    if let Some(sp) = &st.space {
+        ui.horizontal(|ui| {
+            field(ui, &tr!(lang, "installer.free"), 120.0);
+            let w = ui.available_width();
+            let (r, _) = ui.allocate_exact_size(vec2(w, 30.0), Sense::hover());
+            let p = ui.painter();
+            let bar = Rect::from_min_size(r.min + vec2(0.0, 8.0), vec2(w - 120.0, 14.0));
+            let total = sp.total.max(1) as f32;
+            let used = ((sp.total.saturating_sub(sp.free)) as f32 / total).clamp(0.0, 1.0);
+            let need = (NEEDED_BYTES as f32 / total).min(1.0 - used);
+            p.rect_filled(bar, 3, theme::WELL);
+            p.rect_filled(
+                Rect::from_min_size(bar.min, vec2(bar.width() * used, bar.height())),
+                3,
+                theme::RIM_HI,
+            );
+            // the 6 GB the install takes, on top of what is used
+            p.rect_filled(
+                Rect::from_min_size(
+                    bar.min + vec2(bar.width() * used, 0.0),
+                    vec2(bar.width() * need, bar.height()),
+                ),
+                0,
+                theme::AMBER,
+            );
+            p.text(
+                r.right_center(),
+                Align2::RIGHT_CENTER,
+                tr!(
+                    lang,
+                    "installer.free_of",
+                    free = gb(sp.free),
+                    drive = sp.drive
+                ),
+                theme::display(16.0),
+                theme::TEXT,
+            );
+        });
+    }
     ui.add_space(4.0);
     widgets::caps(ui, &tr!(lang, "installer.layout"));
+    let target = st.target();
     egui::Frame::new()
         .fill(theme::WELL)
         .corner_radius(theme::RADIUS)
@@ -365,60 +611,182 @@ fn where_(ui: &mut Ui, st: &mut InstallerState, lang: Lang) {
             ui.set_width(ui.available_width());
             let mono =
                 |t: &str, c: Color32| egui::RichText::new(t).font(theme::mono(13.0)).color(c);
-            ui.label(mono(r"C:\Games\Forza-WCCF\", theme::TEXT));
-            ui.horizontal(|ui| {
-                ui.label(mono("  ├─ 2010-2011", Edition::E1011.accent()));
-                ui.label(
-                    egui::RichText::new(tr!(lang, "installer.this_install"))
-                        .font(theme::body(12.0))
-                        .color(theme::TEXT_DIM),
-                );
-            });
-            ui.label(mono("  └─ 2017-2018", Edition::E1718.accent()));
+            ui.label(mono(
+                &format!(r"{}\", st.folder.trim().trim_end_matches('\\')),
+                theme::TEXT,
+            ));
+            for (i, e) in [Edition::E1011, Edition::E1718].into_iter().enumerate() {
+                ui.horizontal(|ui| {
+                    let branch = if i == 0 { "  ├─ " } else { "  └─ " };
+                    ui.label(mono(&format!("{branch}{}", edition_name(e)), e.accent()));
+                    let note = if st.installed.contains(&e) {
+                        tr!(lang, "installer.installed_here")
+                    } else if target == Some(e) {
+                        tr!(lang, "installer.this_install")
+                    } else {
+                        String::new()
+                    };
+                    ui.label(
+                        egui::RichText::new(note)
+                            .font(theme::body(12.0))
+                            .color(theme::TEXT_DIM),
+                    );
+                });
+            }
         });
-    status_line(ui, Tone::Notice, &tr!(lang, "installer.space_ok"));
+    match &st.space {
+        Some(sp) if sp.free < NEEDED_BYTES => status_line(
+            ui,
+            Tone::Refused,
+            &tr!(lang, "installer.space_low", free = gb(sp.free)),
+        ),
+        Some(_) => status_line(ui, Tone::Notice, &tr!(lang, "installer.space_ok")),
+        None => status_line(ui, Tone::Notice, &tr!(lang, "installer.space_unknown")),
+    };
+    if st.ascii_tip {
+        status_line(ui, Tone::Notice, &tr!(lang, "installer.ascii_tip"));
+    }
 }
 
-fn files(ui: &mut Ui, st: &mut InstallerState, lang: Lang) {
-    path_row(ui, &tr!(lang, "installer.iso"), &mut st.iso, lang);
-    path_row(ui, &tr!(lang, "installer.key"), &mut st.key, lang);
-    path_row(ui, &tr!(lang, "installer.package"), &mut st.package, lang);
+fn files(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Action>) {
+    if !st.installed.is_empty() {
+        toggle_row(
+            ui,
+            &mut st.reuse,
+            &tr!(lang, "installer.reuse"),
+            &tr!(lang, "installer.reuse_hint"),
+        );
+        if st.reuse && st.installed.len() > 1 {
+            ui.horizontal(|ui| {
+                field(ui, &tr!(lang, "installer.detected"), 120.0);
+                for e in st.installed.clone() {
+                    if chip(ui, e.label(), st.edition == e, Some(e.accent())).clicked() {
+                        st.edition = e;
+                    }
+                }
+            });
+        }
+    }
+    let disc = !st.reuse;
+    ui.add_enabled_ui(disc, |ui| {
+        path_row(
+            ui,
+            &tr!(lang, "installer.iso"),
+            &mut st.iso,
+            lang,
+            Field::Iso,
+            out,
+        );
+        path_row(
+            ui,
+            &tr!(lang, "installer.key"),
+            &mut st.key,
+            lang,
+            Field::Key,
+            out,
+        );
+    });
+    path_row(
+        ui,
+        &tr!(lang, "installer.package"),
+        &mut st.package,
+        lang,
+        Field::Package,
+        out,
+    );
     ui.horizontal(|ui| {
         field(ui, &tr!(lang, "installer.detected"), 120.0);
-        if let Some(e) = st.detected {
+        if let Some(e) = st.target() {
             widgets::badge(ui, e);
         }
     });
-    status_line(ui, Tone::Done, &tr!(lang, "installer.iso_ok"));
+    if st.reuse {
+        status_line(
+            ui,
+            Tone::Done,
+            &tr!(
+                lang,
+                "installer.reusing",
+                edition = edition_name(st.edition)
+            ),
+        );
+    } else if let Some(e) = st.detected {
+        status_line(
+            ui,
+            Tone::Done,
+            &tr!(lang, "installer.iso_ok", edition = e.label()),
+        );
+    } else if st.unsupported {
+        status_line(ui, Tone::Refused, &tr!(lang, "installer.iso_unsupported"));
+    }
     ui.label(
-        egui::RichText::new(tr!(lang, "installer.reuse_hint"))
+        egui::RichText::new(tr!(lang, "installer.drop_hint"))
             .font(theme::body(12.0))
             .color(theme::TEXT_DIM),
     );
 }
 
 fn options(ui: &mut Ui, st: &mut InstallerState, lang: Lang) {
-    let rows = [
-        ("installer.opt_check", "installer.opt_check_hint"),
-        ("installer.opt_setup", "installer.opt_setup_hint"),
-        ("installer.opt_english", "installer.opt_english_hint"),
-        ("installer.opt_shortcuts", "installer.opt_shortcuts_hint"),
-    ];
     ui.spacing_mut().item_spacing.y = 2.0;
-    for (i, (t, h)) in rows.iter().enumerate() {
-        toggle_row(ui, &mut st.options[i], &tr!(lang, *t), &tr!(lang, *h));
+    let (can, on) = (st.setup_possible, st.setup_possible && st.options[1]);
+    let setup_hint = if can {
+        tr!(lang, "installer.opt_setup_hint")
+    } else {
+        tr!(lang, "installer.opt_setup_na")
+    };
+    let rows = [
+        (
+            true,
+            "installer.opt_check",
+            tr!(lang, "installer.opt_check_hint"),
+        ),
+        (can, "installer.opt_setup", setup_hint),
+        (
+            on,
+            "installer.opt_english",
+            tr!(lang, "installer.opt_english_hint"),
+        ),
+        (
+            on,
+            "installer.opt_shortcuts",
+            tr!(lang, "installer.opt_shortcuts_hint"),
+        ),
+    ];
+    for (i, (enabled, t, h)) in rows.into_iter().enumerate() {
+        // a row that cannot apply shows off and keeps the chosen value for when it can
+        let mut v = enabled && st.options[i];
+        ui.add_enabled_ui(enabled, |ui| toggle_row(ui, &mut v, &tr!(lang, t), &h));
+        if enabled {
+            st.options[i] = v;
+        }
     }
 }
 
 fn installing(ui: &mut Ui, st: &mut InstallerState, lang: Lang) {
     let w = ui.available_width();
+    let name = match st.steps.get(st.stage) {
+        Some(s) => s.title(lang),
+        None => tr!(lang, "installer.stage_start"),
+    };
     ui.label(
-        egui::RichText::new(tr!(lang, "installer.stage_extract"))
+        egui::RichText::new(name)
             .font(theme::bold(16.0))
             .color(theme::TEXT),
     );
     progress(ui, st.fraction, w);
-    steps(ui, st.stage, 5, w);
+    if let Some((d, t)) = st.bytes {
+        ui.label(
+            egui::RichText::new(tr!(lang, "installer.bytes_of", done = gb(d), total = gb(t)))
+                .font(theme::body(12.0))
+                .color(theme::TEXT_DIM),
+        );
+    }
+    steps(ui, st.stage, st.steps.len().max(1), w);
+    if !st.running
+        && let Some(e) = &st.error
+    {
+        status_line(ui, Tone::Refused, e);
+    }
     let mut open = st.details_open;
     widgets::fold(
         ui,
@@ -433,36 +801,51 @@ fn installing(ui: &mut Ui, st: &mut InstallerState, lang: Lang) {
                 .inner_margin(10)
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
-                    for l in &st.log {
-                        ui.label(
-                            egui::RichText::new(l)
-                                .font(theme::mono(12.0))
-                                .color(Color32::from_rgb(0xA8, 0xD8, 0xB0)),
-                        );
-                    }
+                    egui::ScrollArea::vertical()
+                        .max_height(96.0)
+                        .auto_shrink([false, true])
+                        .stick_to_bottom(true)
+                        .show(ui, |ui| {
+                            for l in &st.log {
+                                ui.label(
+                                    egui::RichText::new(l)
+                                        .font(theme::mono(12.0))
+                                        .color(Color32::from_rgb(0xA8, 0xD8, 0xB0)),
+                                );
+                            }
+                        });
                 });
         },
     );
     st.details_open = open;
 }
 
-fn done(ui: &mut Ui, st: &mut InstallerState, lang: Lang) {
-    status_line(ui, Tone::Done, &tr!(lang, "installer.done_body"));
+fn done(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Action>) {
+    let body = if st.did[1] {
+        "installer.done_body"
+    } else {
+        "installer.done_body_extract"
+    };
+    status_line(ui, Tone::Done, &tr!(lang, body));
     ui.horizontal(|ui| {
         field(ui, &tr!(lang, "installer.folder"), 120.0);
         ui.label(
-            egui::RichText::new(format!(r"{}\2010-2011", st.folder))
+            egui::RichText::new(&st.done_path)
                 .font(theme::mono(13.0))
                 .color(theme::TEXT),
         );
     });
     let rows = [
-        (true, "installer.did_extract"),
-        (true, "installer.did_setup"),
-        (true, "installer.did_english"),
-        (false, "installer.not_shortcuts"),
+        (st.did[0], "installer.did_extract", "installer.did_extract"),
+        (st.did[1], "installer.did_setup", "installer.not_setup"),
+        (st.did[2], "installer.did_english", "installer.not_english"),
+        (
+            st.did[3],
+            "installer.did_shortcuts",
+            "installer.not_shortcuts",
+        ),
     ];
-    for (ok, k) in rows {
+    for (ok, yes, no) in rows {
         ui.horizontal(|ui| {
             let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
             if ok {
@@ -473,13 +856,20 @@ fn done(ui: &mut Ui, st: &mut InstallerState, lang: Lang) {
                     Stroke::new(2.0, theme::TEXT_FAINT),
                 );
             }
-            ui.label(egui::RichText::new(tr!(lang, k)).color(if ok {
-                theme::TEXT
-            } else {
-                theme::TEXT_DIM
-            }));
+            ui.label(
+                egui::RichText::new(tr!(lang, if ok { yes } else { no })).color(if ok {
+                    theme::TEXT
+                } else {
+                    theme::TEXT_DIM
+                }),
+            );
         });
     }
+    if !st.did[1] {
+        status_line(ui, Tone::Notice, &tr!(lang, "installer.extract_only_note"));
+    }
     ui.add_space(4.0);
-    action(ui, &tr!(lang, "installer.open_folder"));
+    if action(ui, &tr!(lang, "installer.open_folder")).clicked() {
+        out.get_or_insert(Action::OpenFolder);
+    }
 }

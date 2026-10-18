@@ -140,7 +140,20 @@ fn read_static(dir: &Path, name: &str) -> std::io::Result<&'static [u8]> {
 
 /// Our three families, registered explicitly (eframe's `default_fonts` stays off).
 pub fn fonts(dir: &Path) -> std::io::Result<FontDefinitions> {
-    let noto = read_static(dir, NOTO)?;
+    Ok(fonts_from(
+        read_static(dir, NOTO)?,
+        read_static(dir, BARLOW)?,
+        read_static(dir, HACK)?,
+    ))
+}
+
+/// The same families from font bytes already in memory: a program with no `fonts/` folder beside it (the installer)
+/// embeds `assets/fonts/` and calls this.
+pub fn fonts_from(
+    noto: &'static [u8],
+    barlow: &'static [u8],
+    hack: &'static [u8],
+) -> FontDefinitions {
     let weight = |w: f32, scale: f32, y: f32| {
         FontData::from_static(noto).tweak(FontTweak {
             coords: VariationCoords::new([(b"wght", w)]),
@@ -158,14 +171,10 @@ pub fn fonts(dir: &Path) -> std::io::Result<FontDefinitions> {
     // kana and kanji beside Barlow's tall condensed capitals: a little smaller and lower, so lines align
     defs.font_data
         .insert("noto-display".into(), Arc::new(weight(760.0, 0.86, 0.04)));
-    defs.font_data.insert(
-        "barlow".into(),
-        Arc::new(FontData::from_static(read_static(dir, BARLOW)?)),
-    );
-    defs.font_data.insert(
-        "hack".into(),
-        Arc::new(FontData::from_static(read_static(dir, HACK)?)),
-    );
+    defs.font_data
+        .insert("barlow".into(), Arc::new(FontData::from_static(barlow)));
+    defs.font_data
+        .insert("hack".into(), Arc::new(FontData::from_static(hack)));
     let fam = |v: &[&str]| v.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
     defs.families
         .insert(FontFamily::Proportional, fam(&["noto"]));
@@ -177,17 +186,22 @@ pub fn fonts(dir: &Path) -> std::io::Result<FontDefinitions> {
     );
     defs.families
         .insert(FontFamily::Monospace, fam(&["hack", "noto"]));
-    Ok(defs)
+    defs
 }
 
 /// Fonts and style on a context: what every Forza-WCCF program calls once at start.
 pub fn install(ctx: &Context, edition: Edition, font_dir: &Path) -> std::io::Result<()> {
-    ctx.set_fonts(fonts(font_dir)?);
+    install_fonts(ctx, edition, fonts(font_dir)?);
+    Ok(())
+}
+
+/// [`install`] with the fonts already loaded.
+pub fn install_fonts(ctx: &Context, edition: Edition, fonts: FontDefinitions) {
+    ctx.set_fonts(fonts);
     ctx.set_theme(egui::Theme::Dark);
     ctx.set_global_style(style(edition));
     // the card pictures: PNG files through egui's loaders
     egui_extras::install_image_loaders(ctx);
-    Ok(())
 }
 
 // ---- the style ----

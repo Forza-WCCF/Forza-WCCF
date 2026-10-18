@@ -94,7 +94,7 @@ fn installer_pages() {
             let mut st = installer::InstallerState::sample(lang, page);
             let name = format!("installer_{}_{}", page.tag(), lang.code());
             snap(&mut all, &name, installer::SIZE, Edition::E1011, |ui| {
-                installer::show(ui, &mut st)
+                installer::show(ui, &mut st);
             });
         }
     }

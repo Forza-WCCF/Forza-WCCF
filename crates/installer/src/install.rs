@@ -2,6 +2,7 @@
 //! Runs on a worker thread; reports through `emit`, stops when `cancel` is set.
 use crate::disc;
 use anyhow::{Context, Result, bail, ensure};
+use forza::ui::installer::Step;
 use ntfs::{Ntfs, NtfsReadSeek, structured_values::NtfsFileNamespace};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read, Seek, Write};
@@ -26,7 +27,7 @@ pub struct Plan {
 }
 
 pub enum Event {
-    Stage(String),
+    Stage(Step),
     Progress(u64, u64), // done, total (0 total = unknown)
     Log(String),
 }
@@ -101,6 +102,12 @@ pub fn free_space(path: &Path) -> Option<u64> {
         .and_then(|p| fs4::available_space(p).ok())
 }
 
+pub fn total_space(path: &Path) -> Option<u64> {
+    path.ancestors()
+        .find(|p| p.exists())
+        .and_then(|p| fs4::total_space(p).ok())
+}
+
 fn check(cancel: &AtomicBool) -> Result<()> {
     ensure!(!cancel.load(Ordering::Relaxed), "Cancelled.");
     Ok(())
@@ -156,7 +163,7 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
             vol.disc.name, vol.disc.game_id
         )));
         if plan.verify {
-            emit(Event::Stage("Checking the disc image".into()));
+            emit(Event::Stage(Step::Verify));
             let total = (table.len() - 1) as u64 * 0x40000;
             disc::verify_blocks(
                 plan.iso.as_ref().unwrap(),
@@ -176,13 +183,12 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
     }
     if setup {
         let kit = plan.kit.as_ref().unwrap();
-        emit(Event::Stage("Unpacking the kit".into()));
+        emit(Event::Stage(Step::Setup));
         unpack_kit(kit, &dest, emit)?;
-        emit(Event::Stage("Setting up the game for this PC".into()));
         check(cancel)?;
         script(&dest, "setup.py", Some(&game), emit, cancel)?;
         if plan.english {
-            emit(Event::Stage("Switching the game to English".into()));
+            emit(Event::Stage(Step::English));
             script(&dest, "english.py", None, emit, cancel)?;
         }
         if plan.shortcuts {
@@ -283,7 +289,7 @@ fn extract(
     cancel: &AtomicBool,
     emit: &dyn Fn(Event),
 ) -> Result<()> {
-    emit(Event::Stage("Reading the game's file list".into()));
+    emit(Event::Stage(Step::Extract));
     emit(Event::Progress(0, 0));
     let ntfs = Ntfs::new(vol).context("the decrypted volume is not NTFS - wrong key file?")?;
     let items = scan(&ntfs, vol)?;
@@ -296,7 +302,7 @@ fn extract(
         fs::remove_dir_all(&partial)?;
     }
     fs::create_dir_all(&partial)?;
-    emit(Event::Stage(format!(
+    emit(Event::Log(format!(
         "Copying {} game files from the disc",
         items.len()
     )));
