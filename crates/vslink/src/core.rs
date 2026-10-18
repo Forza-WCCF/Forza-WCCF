@@ -125,18 +125,18 @@ pub fn decode(datagram: &[u8]) -> Option<(u8, &[u8])> {
 
 /// Which local socket an inbound game datagram is sent from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum From {
+pub enum Via {
     /// The reflect socket (127.0.0.1:R): relay mode, header +50 (destination port) set.
     Reflect,
     /// The socket bound on the opponent's token.
     Peer,
 }
 
-pub fn deliver_from(game: &[u8]) -> From {
+pub fn deliver_from(game: &[u8]) -> Via {
     if game.get(50).is_some_and(|&b| b != 0) {
-        From::Reflect
+        Via::Reflect
     } else {
-        From::Peer
+        Via::Peer
     }
 }
 
@@ -240,10 +240,10 @@ mod tests {
     #[test]
     fn deliver_from_header_byte_50() {
         let mut g = vec![0u8; 60];
-        assert_eq!(deliver_from(&g), From::Peer);
+        assert_eq!(deliver_from(&g), Via::Peer);
         g[50] = 0x20;
-        assert_eq!(deliver_from(&g), From::Reflect);
-        assert_eq!(deliver_from(&g[..50]), From::Peer);
+        assert_eq!(deliver_from(&g), Via::Reflect);
+        assert_eq!(deliver_from(&g[..50]), Via::Peer);
     }
 
     #[test]
