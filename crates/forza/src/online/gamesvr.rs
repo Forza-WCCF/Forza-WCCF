@@ -649,8 +649,13 @@ impl Vs {
             201 if self.matcher.capable(peer, t) => vs::fill_login_loopback(body, &self.cfg),
             201 => vs::fill_login(body, &self.cfg),
             // vslink (docs/IROH_VS_PLAN.md 2.3): status 1 = accepted
+            // +36..+52: the lobby VS room's ticket, when the run has one (vs::hello_payload)
             900 if payload.len() >= 36 => {
-                self.matcher.hello(peer, t);
+                let id = payload[4..36].try_into().unwrap();
+                let ticket = payload.get(vs::HELLO_TICKET).map(|b| {
+                    String::from_utf8_lossy(b.split(|c| *c == 0).next().unwrap_or(&[])).into_owned()
+                });
+                self.matcher.hello(peer, id, ticket.as_deref(), t);
                 put(body, 4, 1);
             }
             902 if payload.len() >= 40 => {

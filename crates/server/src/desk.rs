@@ -4,9 +4,16 @@
 //!
 //! Lines in [`forza::online`]'s words: `WANT` / `WANT SEAT n` -> `SEAT n PROJECTOR p` | `TAKEN n` | `FULL` | `ERR ...`,
 //! then `PING` -> `PONG`. `RELEASE t` -> `OK` | `GONE` drops a lobby reservation. `HOLD` -> `HOLD 1` | `HOLD 0` (2010-11 only; the box asks it).
+//!
+//! The lobby's VS rooms ([`forza::online::lobby`] has the words): `CREATE vs [open]` -> `ROOM id code t` | `FULL`,
+//! `RESERVE room-id [2]` -> `TICKET t 2` | `FULL` | `TAKEN` | `CLOSED`, `READY id t`, `CLOSE id t`, and `HEARTBEAT` /
+//! `RELEASE` for room tickets as for shop seats. Each live room ticket is told to the shared [`Matcher`], which pairs
+//! the two PCs holding one room's tickets with each other only (`crates/server/README.md`, "VS rooms").
 
 use crate::{Edition, Handle, Log};
-use forza::online::lobby::{self, Lobby, Reserved, Shop, State as ShopState, VsRoom};
+use forza::online::lobby::{
+    self, Created, Lobby, Occupant, Reserved, Shop, State as ShopState, VsRoom,
+};
 use forza::online::vs::Matcher;
 use forza::online::{Reply, SEATS, Want};
 use regex::Regex;
@@ -52,8 +59,14 @@ pub struct DeskConfig {
     pub lobby_gap: Duration,
     /// The `LOBBY` answer is rebuilt at most this often (1 s; tests set 0).
     pub lobby_cache: Duration,
-    /// The game server's VS matcher when they run together (`forza-server all`): `LOBBY` lists its rooms.
+    /// The game server's VS matcher when they run together (`forza-server all`): the desk tells it which room each
+    /// live room ticket sits in.
     pub vs: Option<Arc<Matcher>>,
+    /// VS rooms the desk holds at most; `CREATE vs` answers `FULL` beyond (200 keep `LOBBY` far below 64 KiB).
+    pub max_rooms: usize,
+    /// `RESERVE` and `CREATE` per address in [`DeskConfig::ask_window`], else `ERR slow` (20 per 60 s).
+    pub ask_limit: u32,
+    pub ask_window: Duration,
 }
 
 impl DeskConfig {
@@ -75,6 +88,9 @@ impl DeskConfig {
             lobby_gap: Duration::from_secs(2),
             lobby_cache: Duration::from_secs(1),
             vs: None,
+            max_rooms: 200,
+            ask_limit: 20,
+            ask_window: Duration::from_secs(60),
         }
     }
 }
@@ -208,6 +224,25 @@ pub fn read_hold_ip(path: &Path) -> Option<String> {
     (parts.len() == 4 && parts.iter().all(|p| octet(p))).then(|| ip.to_string())
 }
 
+/// A player in a VS room: the ticket is the secret, the club id the random name the lobby shows.
+struct Sitter {
+    ticket: String,
+    club: String,
+    ready: bool,
+    end: Instant,
+}
+
+/// A VS room `CREATE vs` made: seat 1 the host, seat 2 the guest. Id, code and key are random, never from a request.
+struct Room {
+    id: String,
+    code: String,
+    /// `CREATE vs open` (QUICK MATCH): the next `CREATE vs open` sits down here.
+    open: bool,
+    /// The matcher's name for this room.
+    key: u64,
+    seats: [Option<Sitter>; 2],
+}
+
 #[derive(Default)]
 struct State {
     leases: HashMap<u8, (String, u64)>,
@@ -216,6 +251,8 @@ struct State {
     next_id: u64,
     /// 2017-18: the seat whose PC shows the projector.
     projector: Option<u8>,
+    /// VS rooms, oldest first.
+    rooms: Vec<Room>,
 }
 
 struct Shared {
@@ -231,6 +268,35 @@ struct Shared {
     lobby_cached: Mutex<Option<(Instant, String)>>,
     /// Open connections per address ([`MAX_PER_IP`]).
     open: Mutex<HashMap<String, usize>>,
+    /// `RESERVE` + `CREATE` per address: window start, count.
+    asks: Mutex<HashMap<String, (Instant, u32)>>,
+}
+
+impl Shared {
+    /// Tells the matcher where `ticket` sits now (`None`: nowhere).
+    fn bind(&self, ticket: &str, room: Option<u64>) {
+        if let Some(m) = &self.cfg.vs {
+            m.room_ticket(ticket, room);
+        }
+    }
+
+    /// One more `RESERVE` or `CREATE` from `ip`; true when that is over the limit.
+    fn slow(&self, ip: &str, now: Instant) -> bool {
+        let w = self.cfg.ask_window;
+        let mut asks = self.asks.lock().unwrap();
+        asks.retain(|_, (t, _)| now.duration_since(*t) < w);
+        let a = asks.entry(ip.to_string()).or_insert((now, 0));
+        a.1 += 1;
+        a.1 > self.cfg.ask_limit
+    }
+
+    /// Drops a whole room (its host left, or its lease ended) and the guest's ticket with it.
+    fn drop_room(&self, r: &Room) {
+        for s in r.seats.iter().flatten() {
+            self.bind(&s.ticket, None);
+        }
+        (self.log)(&format!("VS room {}: closed", r.code));
+    }
 }
 
 fn random_hex(n: usize) -> String {
@@ -239,9 +305,21 @@ fn random_hex(n: usize) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
-/// Drops the leases that ran out.
-fn expire(st: &mut State, now: Instant) {
+/// Drops the leases that ran out: shop reservations, room guests, and rooms whose host's lease ended.
+fn expire(sh: &Shared, st: &mut State, now: Instant) {
     st.reserved.retain(|_, (_, end)| *end > now);
+    for r in &mut st.rooms {
+        if let Some(g) = r.seats[1].take_if(|g| g.end <= now) {
+            sh.bind(&g.ticket, None);
+        }
+    }
+    st.rooms.retain(|r| {
+        let live = r.seats[0].as_ref().is_some_and(|h| h.end > now);
+        if !live {
+            sh.drop_room(r);
+        }
+        live
+    });
 }
 
 /// The firewall rule on (block `ip` on TCP 20002) or off; never two of it.
@@ -436,6 +514,9 @@ fn session(
     }
     match line.split_whitespace().collect::<Vec<_>>()[..] {
         ["LOBBY", edition] => return lobby_answer(sh, ip, edition, &mut out),
+        ["RESERVE" | "CREATE", ..] if sh.slow(ip, Instant::now()) => {
+            return out.write_all(b"ERR slow\n");
+        }
         ["RESERVE", id] => return reserve(sh, id, None, &mut out),
         ["RESERVE", id, n] => {
             return match n.parse().ok().filter(|n| SEATS.contains(n)) {
@@ -445,6 +526,10 @@ fn session(
         }
         ["HEARTBEAT", t] => return heartbeat(sh, t, &mut out),
         ["RELEASE", t] => return release(sh, t, &mut out),
+        ["CREATE", "vs"] => return create(sh, false, &mut out),
+        ["CREATE", "vs", "open"] => return create(sh, true, &mut out),
+        ["READY", id, t] => return ready(sh, id, t, &mut out),
+        ["CLOSE", id, t] => return close(sh, id, t, &mut out),
         _ => {}
     }
     // `WANT ... TICKET t` claims the seat `RESERVE` held
@@ -460,7 +545,7 @@ fn session(
     };
     {
         let mut st = sh.state.lock().unwrap();
-        expire(&mut st, Instant::now());
+        expire(sh, &mut st, Instant::now());
         let others: BTreeMap<u32, String> = if e1011 {
             sh.in_game.lock().unwrap().now()
         } else {
@@ -618,10 +703,13 @@ fn lobby_answer(sh: &Shared, ip: &str, edition: &str, out: &mut TcpStream) -> io
     {
         return out.write_all(line.as_bytes());
     }
-    let seats = {
+    let (seats, vs) = {
         let mut st = sh.state.lock().unwrap();
-        expire(&mut st, now);
-        used(sh, &st).len() as u8
+        expire(sh, &mut st, now);
+        (
+            used(sh, &st).len() as u8,
+            st.rooms.iter().map(vs_room).collect(),
+        )
     };
     let (phase, next_entry) = sh.in_game.lock().unwrap().phase(now);
     let shop = Shop {
@@ -649,12 +737,7 @@ fn lobby_answer(sh: &Shared, ip: &str, edition: &str, out: &mut TcpStream) -> io
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_secs()),
         shops: vec![shop],
-        vs: sh.cfg.vs.as_ref().map_or_else(Vec::new, |m| {
-            m.rooms(now)
-                .into_iter()
-                .map(|(id, players)| vs_room(id, players))
-                .collect()
-        }),
+        vs,
     }
     .line();
     debug_assert!(answer.len() <= lobby::MAX_ANSWER);
@@ -662,20 +745,135 @@ fn lobby_answer(sh: &Shared, ip: &str, edition: &str, out: &mut TcpStream) -> io
     out.write_all(answer.as_bytes())
 }
 
-/// A matcher room as the lobby shows it: id and code both from the room's random number, never from the entry.
-fn vs_room(id: u64, players: u8) -> VsRoom {
+/// A room as the lobby shows it: random id, code and club ids, the ready flags; never a ticket or an address.
+fn vs_room(r: &Room) -> VsRoom {
+    let occupants: Vec<Occupant> = (1u8..)
+        .zip(&r.seats)
+        .filter_map(|(seat, s)| {
+            s.as_ref().map(|s| Occupant {
+                seat,
+                club: s.club.clone(),
+                ready: s.ready,
+            })
+        })
+        .collect();
     VsRoom {
-        id: format!("{:08x}", id as u32),
-        // ponytail: letters from the id's top half; B4's `CREATE vs` rooms will hand out their own codes
-        code: (0..4)
-            .map(|i| char::from(b'A' + ((id >> (32 + 8 * i)) % 26) as u8))
-            .collect(),
-        players,
+        id: r.id.clone(),
+        code: r.code.clone(),
+        players: occupants.len() as u8,
         max: 2,
         kind: 2,
         lang: None,
-        // the matcher's entries carry no lobby seats; B4's `CREATE vs` rooms list theirs
-        occupants: Vec::new(),
+        occupants,
+    }
+}
+
+fn sitter(sh: &Shared, now: Instant) -> Sitter {
+    Sitter {
+        ticket: random_hex(8),
+        club: crate::inbox::code(4),
+        ready: false,
+        end: now + sh.cfg.reserve_lease,
+    }
+}
+
+/// `CREATE vs` -> `ROOM id code t` with this PC on seat 1, or `FULL`. `CREATE vs open` sits down on seat 2 of the
+/// oldest open room still waiting (the same `ROOM` answer), else makes an open room.
+fn create(sh: &Shared, open: bool, out: &mut TcpStream) -> io::Result<()> {
+    let now = Instant::now();
+    let mut st = sh.state.lock().unwrap();
+    expire(sh, &mut st, now);
+    if open && let Some(r) = st.rooms.iter_mut().find(|r| r.open && r.seats[1].is_none()) {
+        let s = sitter(sh, now);
+        sh.bind(&s.ticket, Some(r.key));
+        let reply = Created::Room {
+            id: r.id.clone(),
+            code: r.code.clone(),
+            ticket: s.ticket.clone(),
+        };
+        r.seats[1] = Some(s);
+        (sh.log)(&format!("VS room {}: paired from the open pool", r.code));
+        drop(st);
+        return out.write_all(reply.line().as_bytes());
+    }
+    if st.rooms.len() >= sh.cfg.max_rooms {
+        drop(st);
+        return out.write_all(Created::Full.line().as_bytes());
+    }
+    let id = loop {
+        let id = random_hex(4);
+        if id != sh.shop_id && st.rooms.iter().all(|r| r.id != id) {
+            break id;
+        }
+    };
+    let code = loop {
+        let c = crate::inbox::code(4);
+        if st.rooms.iter().all(|r| r.code != c) {
+            break c;
+        }
+    };
+    let s = sitter(sh, now);
+    let key = getrandom::u64().expect("the OS has randomness");
+    sh.bind(&s.ticket, Some(key));
+    let reply = Created::Room {
+        id: id.clone(),
+        code: code.clone(),
+        ticket: s.ticket.clone(),
+    };
+    st.rooms.push(Room {
+        id,
+        code: code.clone(),
+        open,
+        key,
+        seats: [Some(s), None],
+    });
+    (sh.log)(&format!(
+        "VS room {code}: made{} - {} rooms",
+        if open { " (open pool)" } else { "" },
+        st.rooms.len()
+    ));
+    drop(st);
+    out.write_all(reply.line().as_bytes())
+}
+
+/// The room `id` and the seat (0 host, 1 guest) whose ticket is `t`.
+fn sat(st: &mut State, id: &str, t: &str) -> Option<(usize, usize)> {
+    let r = st.rooms.iter().position(|r| r.id == id)?;
+    let s = st.rooms[r]
+        .seats
+        .iter()
+        .position(|s| s.as_ref().is_some_and(|s| s.ticket == t))?;
+    Some((r, s))
+}
+
+/// `READY id t` -> `OK` (the ticket's seat is ready) or `GONE`.
+fn ready(sh: &Shared, id: &str, t: &str, out: &mut TcpStream) -> io::Result<()> {
+    let mut st = sh.state.lock().unwrap();
+    expire(sh, &mut st, Instant::now());
+    let ok = sat(&mut st, id, t).map(|(r, s)| {
+        st.rooms[r].seats[s].as_mut().unwrap().ready = true;
+    });
+    drop(st);
+    out.write_all(if ok.is_some() { b"OK\n" } else { b"GONE\n" })
+}
+
+/// `CLOSE id t` -> `OK` or `GONE`: the host's ticket closes the room (the guest's ticket goes too, its `HEARTBEAT`
+/// then answers `GONE`); a guest's ticket leaves its seat.
+fn close(sh: &Shared, id: &str, t: &str, out: &mut TcpStream) -> io::Result<()> {
+    let mut st = sh.state.lock().unwrap();
+    expire(sh, &mut st, Instant::now());
+    let ok = sat(&mut st, id, t).map(|at| leave(sh, &mut st, at));
+    drop(st);
+    out.write_all(if ok.is_some() { b"OK\n" } else { b"GONE\n" })
+}
+
+/// Seat `s` of room `r` leaves: the host takes the room with it.
+fn leave(sh: &Shared, st: &mut State, (r, s): (usize, usize)) {
+    if s == 0 {
+        let room = st.rooms.remove(r);
+        sh.drop_room(&room);
+    } else if let Some(g) = st.rooms[r].seats[1].take() {
+        sh.bind(&g.ticket, None);
     }
 }
 
@@ -684,8 +882,22 @@ fn vs_room(id: u64, players: u8) -> VsRoom {
 fn reserve(sh: &Shared, id: &str, seat: Option<u8>, out: &mut TcpStream) -> io::Result<()> {
     let mut st = sh.state.lock().unwrap();
     let now = Instant::now();
-    expire(&mut st, now);
-    let reply = if id != sh.shop_id {
+    expire(sh, &mut st, now);
+    let reply = if let Some(r) = st.rooms.iter_mut().find(|r| r.id == id) {
+        // a VS room: the guest's seat 2 only
+        match (seat, &r.seats[1]) {
+            (Some(n), _) if n != 2 => Reserved::Taken,
+            (Some(_), Some(_)) => Reserved::Taken,
+            (None, Some(_)) => Reserved::Full,
+            (_, None) => {
+                let s = sitter(sh, now);
+                sh.bind(&s.ticket, Some(r.key));
+                let ticket = s.ticket.clone();
+                r.seats[1] = Some(s);
+                Reserved::Ticket { ticket, seat: 2 }
+            }
+        }
+    } else if id != sh.shop_id {
         Reserved::Closed
     } else {
         let busy = used(sh, &st);
@@ -712,12 +924,21 @@ fn take(st: &mut State, seat: u8, now: Instant, lease: Duration) -> Reserved {
 fn heartbeat(sh: &Shared, t: &str, out: &mut TcpStream) -> io::Result<()> {
     let mut st = sh.state.lock().unwrap();
     let now = Instant::now();
-    expire(&mut st, now);
-    let ok = st
+    expire(sh, &mut st, now);
+    let end = now + sh.cfg.reserve_lease;
+    let s = &mut *st;
+    let ok = s
         .reserved
         .values_mut()
-        .find(|(k, _)| k == t)
-        .map(|(_, end)| *end = now + sh.cfg.reserve_lease);
+        .map(|(k, e)| (&*k, e))
+        .chain(
+            s.rooms
+                .iter_mut()
+                .flat_map(|r| r.seats.iter_mut().flatten())
+                .map(|s| (&s.ticket, &mut s.end)),
+        )
+        .find(|(k, _)| *k == t)
+        .map(|(_, e)| *e = end);
     drop(st);
     out.write_all(if ok.is_some() { b"OK\n" } else { b"GONE\n" })
 }
@@ -725,10 +946,20 @@ fn heartbeat(sh: &Shared, t: &str, out: &mut TcpStream) -> io::Result<()> {
 /// `RELEASE t` -> `OK` (the seat is free at once) or `GONE`. The ticket is the secret, so only its holder gets here.
 fn release(sh: &Shared, t: &str, out: &mut TcpStream) -> io::Result<()> {
     let mut st = sh.state.lock().unwrap();
-    expire(&mut st, Instant::now());
+    expire(sh, &mut st, Instant::now());
     let had = st.reserved.len();
     st.reserved.retain(|_, (k, _)| k != t);
-    let ok = st.reserved.len() < had;
+    let in_room = st.rooms.iter().enumerate().find_map(|(r, room)| {
+        let s = room
+            .seats
+            .iter()
+            .position(|s| s.as_ref().is_some_and(|s| s.ticket == t))?;
+        Some((r, s))
+    });
+    if let Some(at) = in_room {
+        leave(sh, &mut st, at);
+    }
+    let ok = st.reserved.len() < had || in_room.is_some();
     drop(st);
     out.write_all(if ok { b"OK\n" } else { b"GONE\n" })
 }
@@ -748,6 +979,7 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
         lobby_seen: Mutex::default(),
         lobby_cached: Mutex::default(),
         open: Mutex::default(),
+        asks: Mutex::default(),
     });
     log(&format!(
         "seat broker listening on TCP {}: seats 1-8, {}",

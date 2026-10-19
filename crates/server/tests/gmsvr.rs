@@ -191,7 +191,8 @@ fn vslink_hello_turns_the_202_reflect_loopback() {
 }
 
 #[test]
-fn all_shares_the_matcher_with_the_desk_lobby() {
+/// The gate's loopback run: CREATE, the guest's RESERVE, READY twice, and both runs' 243 entries pair with each other.
+fn all_pairs_a_lobby_room_on_the_game_server() {
     let free = |udp: bool| {
         if udp {
             let s = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -205,6 +206,7 @@ fn all_shares_the_matcher_with_the_desk_lobby() {
     let dir = std::env::temp_dir().join(format!("forza_all_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let (desk, gm) = (free(false), free(false));
+    let gm_port: u16 = gm.parse().unwrap();
     let child = Command::new(env!("CARGO_BIN_EXE_forza-server"))
         .args([
             "--edition",
@@ -243,27 +245,79 @@ fn all_shares_the_matcher_with_the_desk_lobby() {
         }
     };
     c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-    // a 243 entry: slot 1, address 10.1.2.3:20001, card 987654321
-    let mut entry = vec![0u8; 280];
-    le(&mut entry, 0, 1);
-    entry[8..12].copy_from_slice(&[10, 1, 2, 3]);
-    entry[12..14].copy_from_slice(&20001u16.to_le_bytes());
-    le(&mut entry, 44, 987_654_321);
-    assert_eq!(ask(&mut c, 243, &entry).0, 244);
+    use forza::online::lobby::{self, Created, Reserved};
     let desk: std::net::SocketAddr = format!("127.0.0.1:{desk}").parse().unwrap();
-    let mut raw = TcpStream::connect(desk).unwrap();
-    raw.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-    raw.write_all(b"LOBBY 2017-18\n").unwrap();
-    let mut json = String::new();
-    raw.read_to_string(&mut json).unwrap();
-    let l = forza::online::lobby::Lobby::parse(&json).unwrap();
-    assert_eq!(l.vs.len(), 1, "{json}");
-    assert_eq!(
-        (l.vs[0].players, l.vs[0].max, l.vs[0].code.len()),
-        (1, 2, 4)
-    );
+    // host makes a room, the guest reserves its seat 2, both press READY
+    let Ok(Created::Room {
+        id,
+        code,
+        ticket: host,
+    }) = lobby::create(desk, false)
+    else {
+        panic!("no room")
+    };
+    let Ok(Reserved::Ticket {
+        ticket: guest,
+        seat: 2,
+    }) = lobby::reserve(desk, &id)
+    else {
+        panic!("no guest seat")
+    };
+    assert_eq!(lobby::ready(desk, &id, &host), Ok(true));
+    assert_eq!(lobby::ready(desk, &id, &guest), Ok(true));
+    // three PCs' runs on the game server: a stranger in the open pool first, then the room's host and guest. Each
+    // vslink says hello (900, the room ticket at +36), registers its token (902), then its control sends the 243.
+    let pc = |c: &mut TcpStream, n: u8, ticket: Option<&str>| {
+        let mut gm = TcpStream::connect(("127.0.0.1", gm_port)).unwrap();
+        gm.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let (rc, r) = ask(
+            &mut gm,
+            900,
+            &forza::online::vs::hello_payload(&[n; 32], ticket),
+        );
+        assert_eq!((rc, word(&r, 4)), (901, 1));
+        let mut reg = vec![0u8; 40];
+        reg[..4].copy_from_slice(&[127, n, n, n]);
+        reg[4..6].copy_from_slice(&(20000 + u16::from(n)).to_le_bytes());
+        reg[8..].fill(n);
+        assert_eq!(ask(&mut gm, 902, &reg).1[4], 1);
+        let mut entry = vec![0u8; 280];
+        le(&mut entry, 0, u32::from(n));
+        le(&mut entry, 4, u32::from(n)); // other rounds: a room pairs across them
+        entry[8..14].copy_from_slice(&reg[..6]);
+        le(&mut entry, 44, 900_000_000 + u32::from(n));
+        assert_eq!(ask(c, 243, &entry).0, 244);
+    };
+    let poll = |c: &mut TcpStream, n: u8| {
+        let mut p = vec![0u8; 20];
+        le(&mut p, 0, u32::from(n));
+        le(&mut p, 8, 900_000_000 + u32::from(n));
+        let (rc, r) = ask(c, 245, &p);
+        assert_eq!(rc, 246);
+        word(&r, 12)
+    };
+    pc(&mut c, 1, None);
+    pc(&mut c, 2, Some(&host));
+    pc(&mut c, 3, Some(&guest));
+    assert_eq!(poll(&mut c, 3), 900_000_002, "the guest gets the host");
+    assert_eq!(poll(&mut c, 2), 900_000_003, "the host gets the guest");
+    assert_eq!(poll(&mut c, 1), 0, "the stranger still waits");
+    let json = {
+        let mut raw = TcpStream::connect(desk).unwrap();
+        raw.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        raw.write_all(b"LOBBY 2017-18\n").unwrap();
+        let mut json = String::new();
+        raw.read_to_string(&mut json).unwrap();
+        json
+    };
+    // the room as the lobby lists it (one LOBBY per address every 2 s, so only here): random ids, no address,
+    // card number or ticket
+    let l = lobby::Lobby::parse(&json).unwrap();
+    let room = l.vs.iter().find(|r| r.id == id).unwrap();
+    assert_eq!((room.code.as_str(), room.players), (code.as_str(), 2));
+    assert!(room.occupants.iter().all(|o| o.ready), "{json}");
     assert!(
-        !json.contains("10.1.2.3") && !json.contains("987654321"),
+        !json.contains("127.") && !json.contains("900000") && !json.contains(&host),
         "{json}"
     );
 }

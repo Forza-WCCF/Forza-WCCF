@@ -82,9 +82,10 @@ fn trim(sh: &Shared) {
     }
 }
 
-fn code() -> String {
+/// `n` characters of [`CODE_CHARS`] (the inbox's 5-character codes, the desk's VS room codes and club ids).
+pub(crate) fn code(n: usize) -> String {
     let mut out = String::new();
-    while out.len() < 5 {
+    while out.len() < n {
         let mut b = [0u8; 1];
         getrandom::fill(&mut b).expect("the OS random source");
         // 248 = 8 * 31: no modulo bias
@@ -203,7 +204,7 @@ fn upload(
         no(conn, "not a ZIP".into());
         return Ok(());
     }
-    let code = code();
+    let code = code(5);
     let name = format!("{}_{code}_{ip}_{version}.zip", stamp(now(), true));
     std::fs::create_dir_all(&sh.cfg.folder)?;
     let path = sh.cfg.folder.join(&name);

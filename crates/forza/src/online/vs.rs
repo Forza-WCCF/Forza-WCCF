@@ -75,8 +75,6 @@ pub fn fill_round(body: &mut [u8], unix_secs: i64) {
 struct Entry {
     req: [u8; ENTRY_LEN],
     at: Instant,
-    /// Random per entry, never derived from the request: the lobby's room id; a pair shares the older entry's
-    room: u64,
     /// The 246 for this seat once paired (slot not yet echoed)
     pair: Option<[u8; MATCH_LEN]>,
 }
@@ -102,11 +100,62 @@ impl Entry {
 /// How long a vslink hello and a token registration live (vslink repeats the hello every 60 s).
 const LINK_TTL: Duration = Duration::from_secs(600);
 
-/// What vslink told gmsvr: which PCs run it, and the EndpointId behind each token.
+/// What vslink told gmsvr: which PCs run it, the EndpointId behind each token, and the lobby room ticket each
+/// EndpointId's hello carried; and what the desk told it: the room each live ticket sits in.
 #[derive(Debug, Default)]
 struct Links {
     capable: HashMap<IpAddr, Instant>,
     ids: HashMap<(u32, u16), ([u8; 32], Instant)>,
+    tickets: HashMap<[u8; 32], (String, Instant)>,
+    rooms: HashMap<String, u64>,
+}
+
+/// Where an entry may find its partner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Pool {
+    /// No room ticket: M3's open pool.
+    Open,
+    /// The PC holds a lobby room's ticket: only the other PC of that room.
+    Room(u64),
+    /// A room ticket the desk no longer holds (room closed, lease ended): pairs with nobody.
+    Lost,
+}
+
+impl Links {
+    /// The entry's pool: its token -> the EndpointId that registered it (902) -> the ticket that id's hello (900)
+    /// carried -> the desk's room for that ticket.
+    fn pool(&self, e: &Entry) -> Pool {
+        let ticket = self
+            .ids
+            .get(&e.addr())
+            .and_then(|(id, _)| self.tickets.get(id));
+        match ticket {
+            None => Pool::Open,
+            Some((t, _)) => self.rooms.get(t).map_or(Pool::Lost, |r| Pool::Room(*r)),
+        }
+    }
+}
+
+/// The room ticket field of a vslink hello (900): payload +36..+52, ASCII, NUL-padded.
+pub const HELLO_TICKET: std::ops::Range<usize> = 36..52;
+
+/// A vslink hello (900) payload: +4 the EndpointId, and with a lobby VS room +36 its ticket (the `ROOM`/`TICKET`
+/// answer's `t`, at most 16 bytes; ROADMAP "Online lobby view", `crates/server/README.md`).
+pub fn hello_payload(id: &[u8; 32], ticket: Option<&str>) -> Vec<u8> {
+    let mut p = vec![
+        0u8;
+        if ticket.is_some() {
+            HELLO_TICKET.end
+        } else {
+            36
+        }
+    ];
+    p[4..36].copy_from_slice(id);
+    if let Some(t) = ticket {
+        let n = t.len().min(HELLO_TICKET.len());
+        p[36..36 + n].copy_from_slice(&t.as_bytes()[..n]);
+    }
+    p
 }
 
 /// The waiting 243 entries and the pairs made from them, plus the vslink registry.
@@ -126,16 +175,22 @@ fn card(c: u32) -> u32 {
     if c == u32::MAX { 0 } else { c }
 }
 
-fn compatible(a: &Entry, b: &Entry) -> bool {
+/// Two entries may pair: both open, or both in the same lobby room. A room pair was chosen by its players, so it
+/// skips the round (the two homes' ENTRY windows are not in step) and the rematch history.
+fn compatible(a: &Entry, b: &Entry, pa: Pool, pb: Pool) -> bool {
+    let room = match (pa, pb) {
+        (Pool::Open, Pool::Open) => false,
+        (Pool::Room(x), Pool::Room(y)) if x == y => true,
+        _ => return false,
+    };
     let (ca, cb) = (u32_at(&a.req, 44), u32_at(&b.req, 44));
     ca != 0
         && cb != 0
         && a.req[16] == b.req[16]
-        && a.req[4..8] == b.req[4..8]
+        && (room || a.req[4..8] == b.req[4..8])
         && is_loopback(a.addr().0) == is_loopback(b.addr().0)
         && (a.addr().0 != b.addr().0 || u32_at(&a.req, 48) != u32_at(&b.req, 48))
-        && !a.history().any(|c| c == cb)
-        && !b.history().any(|c| c == ca)
+        && (room || !a.history().any(|c| c == cb) && !b.history().any(|c| c == ca))
 }
 
 /// Copies `src` into `dst` as a C string no longer than `dst` (NUL kept).
@@ -180,9 +235,27 @@ impl Matcher {
         self.links.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// A 900: `ip` runs vslink.
-    pub fn hello(&self, ip: IpAddr, now: Instant) {
-        self.links().capable.insert(ip, now);
+    /// A 900: `ip` runs vslink as EndpointId `id`; `ticket` is the lobby room ticket its hello carried (a hello
+    /// without one takes the id back to the open pool).
+    pub fn hello(&self, ip: IpAddr, id: [u8; 32], ticket: Option<&str>, now: Instant) {
+        let mut l = self.links();
+        l.capable.insert(ip, now);
+        l.tickets
+            .retain(|_, (_, t)| now.duration_since(*t) < LINK_TTL);
+        match ticket.filter(|t| !t.is_empty()) {
+            Some(t) => l.tickets.insert(id, (t.to_owned(), now)),
+            None => l.tickets.remove(&id),
+        };
+    }
+
+    /// The desk: `ticket` sits in the room `room` now (`None`: the ticket is gone). The two PCs holding one room's
+    /// tickets pair only with each other.
+    pub fn room_ticket(&self, ticket: &str, room: Option<u64>) {
+        let mut l = self.links();
+        match room {
+            Some(r) => l.rooms.insert(ticket.to_owned(), r),
+            None => l.rooms.remove(ticket),
+        };
     }
 
     /// Whether `ip` said hello within [`LINK_TTL`].
@@ -225,7 +298,6 @@ impl Matcher {
         let e = Entry {
             req,
             at: now,
-            room: getrandom::u64().unwrap_or(0),
             pair: None,
         };
         let mut v = self.lock();
@@ -250,12 +322,17 @@ impl Matcher {
         if let Some(p) = v[me].pair {
             return Some(p);
         }
-        // the oldest compatible waiting entry
-        let other = v
-            .iter()
-            .enumerate()
-            .find(|(i, x)| *i != me && x.pair.is_none() && compatible(&v[me], x))?
-            .0;
+        // the oldest compatible waiting entry (lock order: entries, then links)
+        let other = {
+            let l = self.links();
+            let pm = l.pool(&v[me]);
+            v.iter()
+                .enumerate()
+                .find(|(i, x)| {
+                    *i != me && x.pair.is_none() && compatible(&v[me], x, pm, l.pool(x))
+                })?
+                .0
+        };
         let seed = getrandom::u32().unwrap_or(0x1234_5678);
         let hc = u32_at(&v[me.min(other)].req, 44); // the older entry is Home
         let (for_me, for_other) = (
@@ -264,28 +341,11 @@ impl Matcher {
         );
         v[me].pair = Some(for_me);
         v[other].pair = Some(for_other);
-        let room = v[me.min(other)].room;
-        (v[me].room, v[other].room) = (room, room);
         Some(for_me)
     }
 
     pub fn waiting(&self) -> usize {
         self.lock().len()
-    }
-
-    /// The lobby's VS rooms (ROADMAP "Lobby listing"): (random room id, players), a waiting entry 1, a pair 2 until
-    /// its entries expire.
-    pub fn rooms(&self, now: Instant) -> Vec<(u64, u8)> {
-        let mut v = self.lock();
-        v.retain(|x| now.duration_since(x.at) < ENTRY_TTL);
-        let mut rooms: Vec<(u64, u8)> = Vec::new();
-        for e in v.iter() {
-            match rooms.iter_mut().find(|(r, _)| *r == e.room) {
-                Some((_, n)) => *n += 1,
-                None => rooms.push((e.room, 1)),
-            }
-        }
-        rooms
     }
 }
 
@@ -450,22 +510,6 @@ mod tests {
     }
 
     #[test]
-    fn rooms_a_waiting_entry_is_one_a_pair_is_two() {
-        let m = Matcher::default();
-        let t = Instant::now();
-        m.enter(&entry(1, 7, [9, 9, 9, 1], 20001, 111, 5), t);
-        assert_eq!(m.rooms(t).iter().map(|r| r.1).collect::<Vec<_>>(), [1]);
-        m.enter(&entry(2, 7, [9, 9, 9, 2], 20002, 222, 6), t);
-        assert_eq!(m.rooms(t).len(), 2);
-        m.poll(&poll_req(1, 111, 5), t).unwrap();
-        m.enter(&entry(3, 7, [9, 9, 9, 3], 20003, 333, 7), t);
-        let mut n: Vec<u8> = m.rooms(t).iter().map(|r| r.1).collect();
-        n.sort();
-        assert_eq!(n, [1, 2]);
-        assert!(m.rooms(t + ENTRY_TTL).is_empty());
-    }
-
-    #[test]
     fn no_partner_waits_cancel_and_expiry() {
         let m = Matcher::default();
         let t = Instant::now();
@@ -528,7 +572,7 @@ mod tests {
         let t = Instant::now();
         let ip = IpAddr::from([1, 2, 3, 4]);
         assert!(!m.capable(ip, t));
-        m.hello(ip, t);
+        m.hello(ip, [1; 32], None, t);
         assert!(m.capable(ip, t) && !m.capable([1, 2, 3, 5].into(), t));
         assert!(!m.capable(ip, t + LINK_TTL));
         let tok = u32::from_le_bytes([127, 1, 2, 3]);
@@ -569,6 +613,88 @@ mod tests {
         assert_eq!(m.lookup(ka, 20009, t), None, "unknown token");
         // registrations expire (the entries, at 60 s, are gone by then too)
         assert_eq!(m.lookup(ka, 20001, t + LINK_TTL), None);
+    }
+
+    /// A vslink PC: token 127.n.n.n:2000n registered as EndpointId [n; 32], its hello with `ticket`; its 243.
+    fn pc(m: &Matcher, t: Instant, n: u8, ticket: Option<&str>, round: u32) -> Vec<u8> {
+        let ip = [127, n, n, n];
+        let port = 20000 + u16::from(n);
+        m.hello(IpAddr::from([10, 0, 0, n]), [n; 32], ticket, t);
+        assert!(m.register(u32::from_le_bytes(ip), port, [n; 32], t));
+        let e = entry(u32::from(n), round, ip, port, 100 + u32::from(n), 5);
+        assert!(m.enter(&e, t));
+        e
+    }
+
+    /// The card id of the partner a seat got, if any.
+    fn partner(m: &Matcher, t: Instant, n: u8) -> Option<u32> {
+        m.poll(&poll_req(u32::from(n), 100 + u32::from(n), 5), t)
+            .map(|p| u32_at(&p, 12))
+    }
+
+    #[test]
+    fn rooms_pair_only_inside_and_open_pool_apart() {
+        let m = Matcher::default();
+        let t = Instant::now();
+        m.room_ticket("ta1", Some(1));
+        m.room_ticket("ta2", Some(1));
+        m.room_ticket("tb1", Some(2));
+        m.room_ticket("tb2", Some(2));
+        // oldest first: an open entry and room B's host wait before room A's pair
+        pc(&m, t, 1, None, 7);
+        pc(&m, t, 2, Some("tb1"), 7);
+        pc(&m, t, 3, Some("ta1"), 7);
+        pc(&m, t, 4, Some("ta2"), 8); // another round: a room pair skips it
+        pc(&m, t, 5, None, 7);
+        pc(&m, t, 6, Some("tb2"), 7);
+        assert_eq!(partner(&m, t, 4), Some(103), "room A pairs, across rounds");
+        assert_eq!(partner(&m, t, 3), Some(104));
+        assert_eq!(
+            partner(&m, t, 6),
+            Some(102),
+            "room B, never with A or the open pool"
+        );
+        assert_eq!(
+            partner(&m, t, 5),
+            Some(101),
+            "the open pool pairs as M3 does"
+        );
+        assert_eq!(partner(&m, t, 1), Some(105));
+    }
+
+    #[test]
+    fn a_room_ticket_the_desk_dropped_pairs_with_nobody() {
+        let m = Matcher::default();
+        let t = Instant::now();
+        m.room_ticket("ta1", Some(1));
+        m.room_ticket("ta2", Some(1));
+        pc(&m, t, 1, Some("ta1"), 7);
+        pc(&m, t, 2, None, 7);
+        m.room_ticket("ta2", None); // the host closed the room before the guest's run entered
+        pc(&m, t, 3, Some("ta2"), 7);
+        assert_eq!(
+            partner(&m, t, 3),
+            None,
+            "a lost ticket is not the open pool"
+        );
+        assert_eq!(
+            partner(&m, t, 1),
+            None,
+            "the room's host waits for its own guest"
+        );
+        // a later hello without a ticket takes the PC back to the open pool
+        m.hello(IpAddr::from([10, 0, 0, 3]), [3; 32], None, t);
+        assert_eq!(partner(&m, t, 3), Some(102));
+    }
+
+    #[test]
+    fn hello_payload_carries_the_ticket() {
+        let p = hello_payload(&[7; 32], Some("0123456789abcdef"));
+        assert_eq!(
+            (p.len(), &p[4..36], &p[HELLO_TICKET]),
+            (52, &[7u8; 32][..], &b"0123456789abcdef"[..])
+        );
+        assert_eq!(hello_payload(&[7; 32], None).len(), 36);
     }
 
     #[test]
