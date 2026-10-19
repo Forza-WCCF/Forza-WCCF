@@ -151,7 +151,16 @@ pub fn fetch(addr: SocketAddr, edition: &str) -> Result<Lobby, String> {
 
 /// `RESERVE id`: a seat held for [`LEASE_SECS`]. Claim it with `WANT ... TICKET t`.
 pub fn reserve(addr: SocketAddr, id: &str) -> Result<Reserved, String> {
-    let a = ask(addr, &format!("RESERVE {id}\n"))?;
+    reserve_seat(addr, id, None)
+}
+
+/// `RESERVE id n`: that seat (a rejoin), or the lowest free one when `seat` is `None`.
+pub fn reserve_seat(addr: SocketAddr, id: &str, seat: Option<u8>) -> Result<Reserved, String> {
+    let line = match seat {
+        Some(n) => format!("RESERVE {id} {n}\n"),
+        None => format!("RESERVE {id}\n"),
+    };
+    let a = ask(addr, &line)?;
     Reserved::parse(&a).ok_or(a)
 }
 

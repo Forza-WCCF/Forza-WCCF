@@ -23,6 +23,7 @@
 #![windows_subsystem = "windows"]
 
 mod link;
+mod online;
 mod text;
 mod update;
 
@@ -390,6 +391,7 @@ fn ask_updates() {
 struct App {
     st: LauncherState,
     releases: Vec<Release>,
+    online: online::Online,
 }
 
 impl App {
@@ -421,11 +423,15 @@ impl App {
         } else if shared().status.is_none() {
             say_tone(Tone::Done, ui_text(text::lang(), "launcher.status_ready", &[]), 0);
         }
+        let online_state = online::Online::new(&settings, &address);
+        let mut lobby = screen::lobby_for(ed);
+        lobby.address = address;
         let st = LauncherState {
             edition: ed,
             lang: text::lang(),
             online,
-            address,
+            lobby,
+            rejoin: None,
             game_text: game_text_of(game_text),
             set_up,
             running: RUNNING.load(Ordering::Relaxed),
@@ -452,6 +458,7 @@ impl App {
         App {
             st,
             releases: Vec::new(),
+            online: online_state,
         }
     }
 
@@ -509,6 +516,8 @@ impl App {
         self.st.running = RUNNING.load(Ordering::Relaxed);
         self.st.output.extend(log);
         let kit = Kit::here();
+        self.online
+            .look(&mut self.st, kit.edition().name(), &kit.settings_file());
         // the run this process held has ended well: Launcher.exe ends with it
         if game == Some(0) && WAS_UP.load(Ordering::Relaxed) {
             ctx.send_viewport_cmd(ViewportCommand::Close);
@@ -631,6 +640,8 @@ impl App {
                 steps.push(Step::Pictures); // last: a failure here must not skip english.py
                 start(steps);
             }
+            Action::Lobby(a) => self.online.act(a, &mut self.st, &kit.settings_file()),
+            Action::Rejoin => self.online.rejoin(),
             Action::Language => {
                 let lang = self.st.lang;
                 text::set(lang);
@@ -649,12 +660,16 @@ impl App {
     /// PLAY: the choices into data\panel.txt, then the run.
     fn play(&mut self, kit: &Kit) {
         let online = self.st.online;
-        let server = self.st.address.trim().to_owned();
+        let mut server = self.st.lobby.address.trim().to_owned();
         if online && kit.edition() == Edition::E1718 {
             refuse(t("launcher.msg_online_1718"));
             return;
         }
-        if online && !choices::valid_address(&server) {
+        // a seat the lobby reserved: its server and ticket; else the Direct address, as before the lobby
+        let seat = online.then(|| self.online.take_ticket()).flatten();
+        if let Some((s, _)) = &seat {
+            server.clone_from(s);
+        } else if online && !choices::valid_address(&server) {
             refuse(t("launcher.msg_bad_address"));
             return;
         }
@@ -665,6 +680,7 @@ impl App {
         if !server.is_empty() {
             panel = choices::set_panel_value(&panel, "server", Some(&server));
         }
+        panel = choices::set_panel_value(&panel, "ticket", seat.as_ref().map(|(_, t)| t.as_str()));
         // a change only: play.py switches the game's text at the start (english.py), then takes the line out
         let change = (lang != kit.game_language()).then_some(match lang {
             "en" => "on",

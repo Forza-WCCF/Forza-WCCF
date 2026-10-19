@@ -87,9 +87,9 @@ pub struct Lease {
 }
 
 /// Sends one `WANT` line and reads the desk's reply line.
-fn ask(conn: &mut TcpStream, want: Want, timeout: Duration) -> io::Result<String> {
+fn ask(conn: &mut TcpStream, line: &str, timeout: Duration) -> io::Result<String> {
     conn.set_read_timeout(Some(timeout))?;
-    conn.write_all(want.line().as_bytes())?;
+    conn.write_all(line.as_bytes())?;
     let mut line = Vec::new();
     let mut b = [0u8; 256];
     while !line.contains(&b'\n') {
@@ -107,9 +107,17 @@ fn ask(conn: &mut TcpStream, want: Want, timeout: Duration) -> io::Result<String
     Ok(String::from_utf8_lossy(&line[..end]).into_owned())
 }
 
+/// The `WANT` line, with `TICKET t` when the lobby reserved the seat (`RESERVE`, the desk's lobby words).
+fn want_line(want: Want, ticket: Option<&str>) -> String {
+    match ticket {
+        Some(t) => format!("{} TICKET {t}\n", want.line().trim_end()),
+        None => want.line(),
+    }
+}
+
 fn connect(addr: SocketAddr, t: &Timing, want: Want) -> io::Result<(TcpStream, String)> {
     let mut c = TcpStream::connect_timeout(&addr, t.connect)?;
-    let line = ask(&mut c, want, t.answer)?;
+    let line = ask(&mut c, &want.line(), t.answer)?;
     Ok((c, line))
 }
 
@@ -150,6 +158,19 @@ pub fn claim(
     t: Timing,
     log: Log,
 ) -> Result<Lease, SeatError> {
+    claim_with(addr, want, None, life, t, log)
+}
+
+/// [`claim`] for a seat the lobby reserved: `WANT ... TICKET t`. The desk spends the ticket on the first claim, so
+/// a reclaim after a break asks for the seat by number, as before.
+pub fn claim_with(
+    addr: SocketAddr,
+    want: Option<u8>,
+    ticket: Option<&str>,
+    life: Duration,
+    t: Timing,
+    log: Log,
+) -> Result<Lease, SeatError> {
     let end = Instant::now() + life;
     let first = want.map_or(Want::Any, Want::Seat);
     let err = |fault, detail: String| SeatError { fault, detail };
@@ -157,7 +178,8 @@ pub fn claim(
         Ok(c) => c,
         Err(e) => return Err(err(Fault::NoBroker, e.to_string())),
     };
-    let line = ask(&mut conn, first, t.answer).map_err(|e| err(Fault::NoAnswer, e.to_string()))?;
+    let line = ask(&mut conn, &want_line(first, ticket), t.answer)
+        .map_err(|e| err(Fault::NoAnswer, e.to_string()))?;
     let (seat, projector) = match Reply::parse(&line) {
         Reply::Seat { seat, projector } => (seat, projector),
         r => {
@@ -231,6 +253,16 @@ mod tests {
     }
 
     /// `test_take_seat.py`: only "no broker" falls back to a seat; full, taken, refused and no answer stop.
+    #[test]
+    fn ticket_rides_on_the_want_line() {
+        assert_eq!(want_line(Want::Any, Some("ab12")), "WANT TICKET ab12\n");
+        assert_eq!(
+            want_line(Want::Seat(3), Some("ab12")),
+            "WANT SEAT 3 TICKET ab12\n"
+        );
+        assert_eq!(want_line(Want::Any, None), "WANT\n");
+    }
+
     #[test]
     fn only_no_broker_falls_back() {
         assert_eq!(err(Fault::NoBroker).no_desk_seat(None), Some((1, true)));

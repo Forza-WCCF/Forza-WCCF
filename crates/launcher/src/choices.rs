@@ -67,6 +67,15 @@ pub fn set_setting(path: &Path, key: &str, value: &str) -> io::Result<()> {
     set_value(path, key, Value::String(value.to_owned()))
 }
 
+/// Any JSON value under `key` (the `servers` list, the last lobby seat).
+pub fn set_setting_json(path: &Path, key: &str, value: Value) -> io::Result<()> {
+    set_value(path, key, value)
+}
+
+pub fn setting_json(path: &Path, key: &str) -> Option<Value> {
+    serde_json::from_str::<Value>(&read(path)).ok()?.get(key).cloned()
+}
+
 fn set_value(path: &Path, key: &str, value: Value) -> io::Result<()> {
     let mut json = serde_json::from_str::<Value>(&read(path))
         .ok()
