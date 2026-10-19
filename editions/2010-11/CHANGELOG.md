@@ -7,6 +7,9 @@ game is not included. Newest first; each date is the day that kit was built.
 ## Not released yet
 
 ### Changed
+- No Python in the kit: setup, undo, the game's text (English, Italiano, Japanese) and the club card's steps and view
+  run inside Launcher.exe, so the kit has no `python\` or `code\` folder any more. The command-line card editor
+  (`code\cards\edit.py`) went with them; CLEAR BAD ENDINGS and the card switches in Launcher.exe stay.
 - The formation board shows a card big after the mouse rests on it 1 s, not 3 s. SETTINGS > CARD HOVER sets it
   (0.5, 1, 2 or 3 s, at once); `hover_delay_ms=` in `data\panel.txt` takes 0 to 5000 and falls back to 1000.
 - The panel is loaded into the game by `programs\inject.exe` again: 3 s after seat 1's window is up, and into the

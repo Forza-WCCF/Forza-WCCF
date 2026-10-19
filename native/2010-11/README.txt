@@ -3,7 +3,7 @@ holds only their source (2026-10-08).  The kit is built from the Forza-WCCF repo
 PC with Rust; this ZIP carries no Cargo files):
 
     cargo xtask build              the C programs (32-bit, MSVC) and the launchers (Rust), staged in target\kit\2010-11\
-    cargo xtask check              the checks that need no game (code, key driver, panel) and the Rust checks
+    cargo xtask check              the checks that need no game (key driver, panel) and the Rust checks
     cargo xtask package 2010-11    the kit ZIP in dist\, as players get it
 
 Needs Visual Studio 2022 (or its Build Tools) with "Desktop development with C++", and rustup.  The
@@ -37,12 +37,11 @@ art\skin.tex is a picture (the panel's art, 1728x1080, BGRA) rendered from the p
 source here.
 
 What each does, in short:
-  wccfk.dll     loaded by the game under its own name (setup renames the game's WINMM.dll import to it,
-                code\helpers\hook.py); passes the game's three timer calls on to Windows' winmm, and stands in for the arcade's devices: serial ports to the card reader
+  wccfk.dll     loaded by the game under its own name (setup renames the game's WINMM.dll import to it);
+                passes the game's three timer calls on to Windows' winmm, and stands in for the arcade's devices: serial ports to the card reader
                 and I/O board stand-ins (named pipes), the RingEdge memory, the network address (127.0.0.1)
   FPR_Emu.exe   answers the game's card-table polls with the cards in seat1\fpr_table0.txt
   forza_panel.dll the panel around seat 1's picture (drawn with the game's own Direct3D 9 device)
   inject.exe    loads forza_panel.dll into seat 1's running game (and the projector's, for its money)
-  launchers     run code\play.py, setup.py or english.py with the kit's Python and keep the window as the .bat
-                files did; PLAY leaves a windowless watcher (Launcher.exe --watch) that stops the rest of the run once a
-                game window is closed (launcher\src\watch.rs; code\hardware\debugger.py ends the game itself)
+  Launcher.exe  the kit's one program: setup, the game's text, the club card's steps and the run, which stops
+                everything it started once a game window is closed (launcher\src)

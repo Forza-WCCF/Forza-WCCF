@@ -78,14 +78,6 @@ fn edition_of(game_id: &str) -> Option<Edition> {
         .find(|e| e.game_id() == game_id)
 }
 
-/// The kit's scripts folder, as the launcher's `Kit::script` picks it (`code\` for 2010-11, `scripts\` for 2017-18).
-fn scripts_dir(e: Edition) -> &'static str {
-    match e {
-        Edition::E1011 => "code",
-        Edition::E1718 => "scripts",
-    }
-}
-
 /// The kit's edition must be the game's.
 pub fn check_setup(game_id: Option<&str>, kit: Edition) -> Result<()> {
     ensure!(
@@ -99,8 +91,8 @@ pub fn check_setup(game_id: Option<&str>, kit: Edition) -> Result<()> {
 }
 
 /// The kit zip may hold the files directly or inside one top folder (WCCF-2010-11-kit/...). A kit has Launcher.exe at
-/// its top and is 2010-11 with `code/setup.py`, 2017-18 with `scripts/setup.py` plus `bin/` or `overlay/` (an old
-/// 2010-11 kit had `scripts/` too, but no `bin/` or `overlay/`).
+/// its top and its edition's folders beside it ([`Edition::of_kit`]: `programs/` for 2010-11, `bin/` or `overlay/` for
+/// 2017-18).
 fn kit_prefix(zip: &mut zip::ZipArchive<File>) -> Result<(Edition, String)> {
     let names = zip
         .file_names()
@@ -112,21 +104,12 @@ fn kit_prefix(zip: &mut zip::ZipArchive<File>) -> Result<(Edition, String)> {
             .iter()
             .any(|n| n == p || n.starts_with(&format!("{p}/")))
     };
-    for edition in [Edition::E1011, Edition::E1718] {
-        let setup = format!("{}/setup.py", scripts_dir(edition));
-        for n in names.iter().filter(|n| n.ends_with(&setup)) {
-            let prefix = &n[..n.len() - setup.len()];
-            if !(prefix.is_empty() || prefix.ends_with('/'))
-                || !names.contains(&format!("{prefix}Launcher.exe"))
-            {
-                continue;
-            }
-            if edition == Edition::E1718
-                && !has(&format!("{prefix}bin"))
-                && !has(&format!("{prefix}overlay"))
-            {
-                continue;
-            }
+    for n in names.iter().filter(|n| n.ends_with("Launcher.exe")) {
+        let prefix = &n[..n.len() - "Launcher.exe".len()];
+        if !(prefix.is_empty() || prefix.ends_with('/')) {
+            continue;
+        }
+        if let Some(edition) = Edition::of_kit(|d| has(&format!("{prefix}{d}"))) {
             return Ok((edition, prefix.to_string()));
         }
     }
@@ -557,7 +540,7 @@ mod tests {
 
         let kit = root.join("kit.zip");
         let mut zip = zip::ZipWriter::new(File::create(&kit).unwrap());
-        for n in ["Launcher.exe", "code/setup.py"] {
+        for n in ["Launcher.exe", "programs/wccfk.dll"] {
             zip.start_file(n, zip::write::SimpleFileOptions::default())
                 .unwrap();
             zip.write_all(b"not executed").unwrap();
@@ -634,28 +617,25 @@ mod tests {
             kit_prefix(&mut zip::ZipArchive::new(File::open(p).unwrap()).unwrap())
                 .map_err(|e| e.to_string())
         };
-        let a = ["Launcher.exe", "code/setup.py"];
-        let b = ["Launcher.exe", "scripts/setup.py", "bin/x.dll"];
+        let a = ["Launcher.exe", "programs/wccfk.dll"];
+        let b = ["Launcher.exe", "bin/x.dll"];
         assert_eq!(prefix(&a), Ok((Edition::E1011, String::new())));
         assert_eq!(prefix(&b), Ok((Edition::E1718, String::new())));
         assert_eq!(
-            prefix(&["K/Launcher.exe", "K/code/setup.py"]),
+            prefix(&["K/Launcher.exe", "K/programs/wccfk.dll"]),
             Ok((Edition::E1011, "K/".into()))
         );
         assert_eq!(
-            prefix(&[
-                "K/Launcher.exe",
-                "K/scripts/setup.py",
-                "K/overlay/inject.exe"
-            ]),
+            prefix(&["K/Launcher.exe", "K/overlay/inject.exe"]),
             Ok((Edition::E1718, "K/".into()))
         );
-        // an old 2010-11 kit (scripts/ without bin/ or overlay/), a missing Launcher.exe and a foreign zip are not kits
+        // an old kit with only scripts/, a missing Launcher.exe and a foreign zip are not kits
         for files in [
             &["Launcher.exe", "scripts/setup.py"][..],
-            &["code/setup.py"],
-            &["Launcher.exe", "xcode/setup.py"],
-            &["code/setup.py", "Launcher.exe/child"],
+            &["programs/wccfk.dll"],
+            &["Launcher.exe", "xprograms/wccfk.dll"],
+            &["programs/wccfk.dll", "Launcher.exe/child"],
+            &["K/Launcher.exe", "programs/wccfk.dll"],
             &["readme.txt"],
         ] {
             assert!(

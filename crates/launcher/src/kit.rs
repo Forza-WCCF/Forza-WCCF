@@ -1,4 +1,4 @@
-//! The kit folder (the one Launcher.exe is in) and what is in it: its edition, its Python, its scripts, data\ (settings,
+//! The kit folder (the one Launcher.exe is in) and what is in it: its edition, its programs, data\ (settings,
 //! logs, the club card, the cache), and the game folder setup recorded in data\settings.json with the seat and misc
 //! folders beside it.  Port of kit_common.py's paths, load_settings, find_game, seat_dir and misc_dir.
 
@@ -6,9 +6,9 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Which game a kit runs.  The two kits are laid out differently: 2010-11 has `code\` and `programs\`, 2017-18 has
-/// `scripts\`, `bin\` (the hook, logowin, FPR_Emu, forza-server) and `overlay\` (inject.exe, the panel, netguard.dll,
-/// the catalogue); [`Kit::edition`] tells them apart.
+/// Which game a kit runs.  The two kits are laid out differently: 2010-11 has `programs\`, 2017-18 has `bin\` (the
+/// hook, logowin, FPR_Emu, forza-server) and `overlay\` (inject.exe, the panel, netguard.dll, the catalogue);
+/// [`Kit::edition`] tells them apart.
 pub use forza::Edition;
 
 /// The kit folder: the one this exe is in.
@@ -31,17 +31,10 @@ impl Kit {
             .unwrap_or_else(|| "Launcher.exe".into())
     }
 
-    /// The edition whose current kit layout `dir` holds: `code\` (2010-11), or `scripts\` with `bin\` or `overlay\`
-    /// (2017-18).  An older kit with only `scripts\` has neither.
+    /// The edition whose current kit layout `dir` holds ([`Edition::of_kit`]).  An older kit with only `scripts\` has
+    /// neither.
     pub fn layout(dir: &Path) -> Option<Edition> {
-        let (old, new) = (Edition::E1011.layout(), Edition::E1718.layout());
-        if dir.join(old.scripts).is_dir() {
-            Some(Edition::E1011)
-        } else if dir.join(new.scripts).is_dir() && (dir.join(new.bin).is_dir() || dir.join(new.overlay).is_dir()) {
-            Some(Edition::E1718)
-        } else {
-            None
-        }
+        Edition::of_kit(|name| dir.join(name).is_dir())
     }
 
     /// The folder holds a kit of either edition.
@@ -58,16 +51,9 @@ impl Kit {
         &self.dir
     }
 
-    /// The kit's edition, from its layout: a `scripts\` folder without `code\` is the 2017-18 kit's (an older 2010-11
-    /// kit had scripts\ too, and an update over it may leave one beside code\).
+    /// The kit's edition, from its layout; 2010-11 when it holds neither.
     pub fn edition(&self) -> Edition {
-        if self.dir.join(Edition::E1718.layout().scripts).is_dir()
-            && !self.dir.join(Edition::E1011.layout().scripts).is_dir()
-        {
-            Edition::E1718
-        } else {
-            Edition::E1011
-        }
+        Self::layout(&self.dir).unwrap_or(Edition::E1011)
     }
 
     /// The kit's compiled programs: the hook, the panel, card-table.
@@ -111,7 +97,7 @@ impl Kit {
             .unwrap_or_else(|| serde_json::json!({}))
     }
 
-    /// English is on: english.py's list of the original files it backed up is not empty (kit_common.english_on).
+    /// English is on: the game text's list of the original files it backed up is not empty (kit_common.english_on).
     pub fn english_on(&self) -> bool {
         fs::read_to_string(self.data().join("english_backup").join("manifest.json"))
             .ok()
@@ -121,7 +107,7 @@ impl Kit {
             })
     }
 
-    /// The language english.py has in place (kit_common.game_language): "en" or "it" (its language.txt; English before
+    /// The language the game's text has in place (kit_common.game_language): "en" or "it" (its language.txt; English before
     /// that file existed), "" for the original Japanese.
     pub fn game_language(&self) -> &'static str {
         if !self.english_on() {
@@ -176,13 +162,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let kit = Kit::at(dir.path());
         assert_eq!(kit.edition(), Edition::E1011);
-        fs::create_dir(dir.path().join(Edition::E1718.layout().scripts)).unwrap();
+        fs::create_dir(dir.path().join("overlay")).unwrap();
         assert_eq!(kit.edition(), Edition::E1718);
-        fs::create_dir(dir.path().join(Edition::E1011.layout().scripts)).unwrap();
+        fs::create_dir(dir.path().join("programs")).unwrap();
         assert_eq!(
             kit.edition(),
             Edition::E1011,
-            "an old 2010-11 kit's scripts\\ left beside code\\"
+            "an old 2010-11 kit's overlay\\ left beside programs\\"
         );
     }
 
@@ -191,13 +177,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let kit = Kit::at(dir.path());
         assert!(!kit.is_kit());
-        fs::create_dir(dir.path().join(Edition::E1718.layout().scripts)).unwrap();
+        fs::create_dir(dir.path().join("scripts")).unwrap();
         assert!(!kit.is_kit(), "an older kit with only scripts\\");
         fs::create_dir(dir.path().join("overlay")).unwrap();
         assert!(kit.is_kit());
         assert_eq!(Kit::layout(dir.path()), Some(Edition::E1718));
         let other = tempfile::tempdir().unwrap();
-        fs::create_dir(other.path().join(Edition::E1011.layout().scripts)).unwrap();
+        fs::create_dir(other.path().join("programs")).unwrap();
         assert_eq!(Kit::layout(other.path()), Some(Edition::E1011));
     }
 }

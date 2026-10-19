@@ -118,7 +118,7 @@ YOU NEED
   - your own copy of the game, Rev D, as a folder of files: the game folder is the one that holds
     client_Release.exe, control_Release.exe and match_Release.exe. Setup checks that it is Rev D.
   - DirectX 9: Microsoft's "DirectX End-User Runtime (June 2010)". Setup tells you if it is missing.
-  Nothing else: Python is inside the kit.
+  Nothing else to install.
 
 SETUP (once)
   1. Unzip this kit into a folder of its own. Keep the game in a folder of its own too (e.g. D:\Games\WCCF).
@@ -195,8 +195,6 @@ CLUB CARD (left side, under SETTINGS)
   CLEAR BAD ENDINGS (under CARD HEALTH, while the card has a bad ending or its last session was cut): click twice,
   and the game restarts with the card's bad endings back to 0 (the old card goes to data\save\backup first). Not
   during a match. Trade rights or money the game already took for them stay as they are.
-  Any other field of the card: python\python.exe code\cards\edit.py data\save\seat1_club.bin --help
-  (close the game first; it shows what it would change and writes only with --write).
 
 QUIT
   After a match the card comes out by itself (or press I). Then close the game's window (its X, or Alt+F4): the game
@@ -299,16 +297,12 @@ FOLDERS
              projector for its money with commas only), FPR_Emu.exe (card-table helper)
   art\       skin.tex (the panel's picture)
   fonts\     the panel's fonts and their licences (Noto Sans JP, Barlow Condensed, Hack)
-  code\      play, setup and english at the top; cards\ (club cards, the catalogue), hardware\ (stand-ins for the
-             cabinet: card reader, I/O board, keyboard, scenes, network, the game's launcher), online\ (joining a
-             server), server\ (running one for others), helpers\ (the panel's helper, sound, the hook)
   languages\ one folder per language. english\: screen_text.tsv (the translation), original_rstring.tsv (the original
              European English), cpu_names.tsv (team names), exe_text.tsv (the ticker, the dates, money, the
              shop's name), pictures.tsv (writing in the game's pictures); italian\: the Italian, with the original
              Italian where the Japanese is the same - text and fingerprints only
   source\    the source of every program in programs\ (C) and of Launcher.exe (Rust,
              source\launcher) - source\README.txt: how they were built
-  python\    Python 3.13 (python.org's embeddable build) with Pillow
   data\      made on your PC: settings (panel.txt), your club card (save\, with backup\ and your other clubs in
              cards\), your keys (keys.txt), logs, and cache\ (the catalogue and card pictures setup makes from
              your game - made again if deleted)
