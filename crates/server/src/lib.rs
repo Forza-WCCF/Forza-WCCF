@@ -19,11 +19,7 @@ use time::{OffsetDateTime, UtcOffset};
 
 /// Which edition's clients the server talks to. Only the seat desk and the relay differ (see [`desk::DeskConfig`],
 /// [`relay::RelayConfig`]).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Edition {
-    E1011,
-    E1718,
-}
+pub use forza::Edition;
 
 static OFFSET: OnceLock<UtcOffset> = OnceLock::new();
 

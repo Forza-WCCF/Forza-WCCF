@@ -50,10 +50,7 @@ impl Files {
         let edition = match env::var("WCCF_EDITION").as_deref() {
             Ok("2017-18" | "1718") => Edition::E1718,
             Ok("2010-11" | "1011") => Edition::E1011,
-            _ => match launcher::Kit::at(kit).edition() {
-                launcher::Edition::E1718 => Edition::E1718,
-                launcher::Edition::E1011 => Edition::E1011,
-            },
+            _ => launcher::Kit::at(kit).edition(),
         };
         let data = var("WCCF_DATA").unwrap_or_else(|| kit.join("data"));
         let cache = match edition {

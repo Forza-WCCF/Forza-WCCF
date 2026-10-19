@@ -68,22 +68,10 @@ pub const GRID: f32 = 4.0;
 pub const RADIUS: u8 = 4;
 pub const RADIUS_BIG: u8 = 8;
 
-/// The two editions. One design language; each has its own accent so a screen says which edition it belongs to.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Edition {
-    E1011,
-    E1718,
-}
+pub use crate::Edition;
 
+/// One design language; each edition has its own accent so a screen says which edition it belongs to.
 impl Edition {
-    /// The badge text; an en dash, as the project writes it.
-    pub fn label(self) -> &'static str {
-        match self {
-            Edition::E1011 => "2010–11",
-            Edition::E1718 => "2017–18",
-        }
-    }
-
     /// 2010–11 is cooler (an ice cyan), 2017–18 warmer (the rarity gold).
     pub fn accent(self) -> Color32 {
         match self {

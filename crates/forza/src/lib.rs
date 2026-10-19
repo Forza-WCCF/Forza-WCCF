@@ -6,6 +6,39 @@
 //! `club_view`: data\club_view.txt, the CLUB CARD page's view of the club card (the run's helper writes it).
 //! `cards`: the player's catalogue and the game's card table, read at runtime from the player's folders (step 9.4b).
 
+/// The two editions; the one type the theme, the launcher, the server and the panel share.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Edition {
+    E1011,
+    E1718,
+}
+
+impl Edition {
+    /// "2010-11" or "2017-18": the run's words and `forza-server --edition`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::E1011 => "2010-11",
+            Self::E1718 => "2017-18",
+        }
+    }
+
+    /// The badge text; an en dash, as the project writes it.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::E1011 => "2010–11",
+            Self::E1718 => "2017–18",
+        }
+    }
+
+    /// The game's id: the keychip's answer and the shared memory's name prefix.
+    pub fn game_id(self) -> &'static str {
+        match self {
+            Self::E1011 => "SBWG",
+            Self::E1718 => "SDDY",
+        }
+    }
+}
+
 #[cfg(feature = "ui")]
 rust_i18n::i18n!("locales", fallback = "en");
 

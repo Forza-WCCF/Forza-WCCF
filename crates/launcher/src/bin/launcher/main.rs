@@ -395,10 +395,7 @@ struct App {
 impl App {
     /// The state as the kit has it now; `folder` given (dropped on Launcher.exe) opens SETUP.
     fn new(kit: &Kit, folder: Option<&OsStr>) -> Self {
-        let ed = match kit.edition() {
-            Edition::E1718 => theme::Edition::E1718,
-            Edition::E1011 => theme::Edition::E1011,
-        };
+        let ed = kit.edition();
         let panel = choices::read(&panel_file(kit));
         let settings = kit.settings_file();
         let online = choices::panel_value(&panel, "play_on").is_some_and(|v| v.eq_ignore_ascii_case("online"));

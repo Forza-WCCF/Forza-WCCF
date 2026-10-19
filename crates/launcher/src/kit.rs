@@ -14,30 +14,8 @@ pub const SCRIPTS_1718: &str = "scripts";
 
 /// Which game a kit runs.  The two kits are laid out differently: 2010-11 has `code\` and `programs\`, 2017-18 has
 /// `scripts\`, `bin\` (the hook, logowin, FPR_Emu, forza-server) and `overlay\` (inject.exe, the panel, netguard.dll,
-/// the catalogue).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Edition {
-    E1011,
-    E1718,
-}
-
-impl Edition {
-    /// "2010-11" or "2017-18": the run's words and `forza-server --edition`.
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::E1011 => "2010-11",
-            Self::E1718 => "2017-18",
-        }
-    }
-
-    /// The game's id: the keychip's answer and the shared memory's name prefix.
-    pub fn game_id(self) -> &'static str {
-        match self {
-            Self::E1011 => "SBWG",
-            Self::E1718 => "SDDY",
-        }
-    }
-}
+/// the catalogue); [`Kit::edition`] tells them apart.
+pub use forza::Edition;
 
 /// The kit folder: the one this exe is in.
 pub struct Kit {
