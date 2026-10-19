@@ -77,7 +77,8 @@ fn run(cfg: RelayConfig, log: Log, sock: UdpSocket, stop: Arc<AtomicBool>) {
     };
     let (mut counts, mut drops) = (BTreeMap::<(u8, u8), u32>::new(), BTreeMap::<u8, u32>::new());
     let mut next_report = Instant::now() + r.cfg.report;
-    let mut buf = [0u8; 4200];
+    // no per-datagram allocation: receive and build the outgoing packet in these two stack buffers
+    let (mut buf, mut out) = ([0u8; 4200], [0u8; 4208]);
     while !stop.load(Ordering::Relaxed) {
         let now = Instant::now();
         if now >= next_report {
@@ -147,10 +148,10 @@ fn run(cfg: RelayConfig, log: Log, sock: UdpSocket, stop: Arc<AtomicBool>) {
             b'P' => {
                 // a ping from a cabinet's meter: its bytes back, as "Q"
                 if n <= 64 {
-                    let mut q = MAGIC.to_vec();
-                    q.push(b'Q');
-                    q.extend_from_slice(&data[5..]);
-                    let _ = sock.send_to(&q, addr);
+                    out[..4].copy_from_slice(MAGIC);
+                    out[4] = b'Q';
+                    out[5..n].copy_from_slice(&data[5..]);
+                    let _ = sock.send_to(&out[..n], addr);
                 }
             }
             b'R' if (1..=8).contains(&data[5]) => {
@@ -166,11 +167,11 @@ fn run(cfg: RelayConfig, log: Log, sock: UdpSocket, stop: Arc<AtomicBool>) {
                     *drops.entry(to).or_default() += 1;
                     continue;
                 };
-                let mut f = MAGIC.to_vec();
-                f.extend_from_slice(&[b'F', from]);
-                f.extend_from_slice(&src.ip().octets());
-                f.extend_from_slice(&data[7..]);
-                match sock.send_to(&f, target) {
+                out[..4].copy_from_slice(MAGIC);
+                out[4..6].copy_from_slice(&[b'F', from]);
+                out[6..10].copy_from_slice(&src.ip().octets());
+                out[10..n + 3].copy_from_slice(&data[7..]);
+                match sock.send_to(&out[..n + 3], target) {
                     Ok(_) => *counts.entry((from, to)).or_default() += 1,
                     Err(_) => *drops.entry(to).or_default() += 1,
                 }
