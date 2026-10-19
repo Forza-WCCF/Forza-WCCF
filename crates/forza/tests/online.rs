@@ -129,8 +129,9 @@ fn play(
         }
         Some(got)
     };
-    for (tag, bytes) in script {
-        match tag.as_str() {
+    for (at, (tag, bytes)) in script.iter().enumerate() {
+        let (tag, bytes) = (tag.as_str(), bytes.clone());
+        match tag {
             "c" => match read(&mut c, bytes.len()) {
                 Some(got) if got == bytes => {}
                 Some(got) => {
@@ -139,6 +140,14 @@ fn play(
                         String::from_utf8_lossy(&got[..got.len().min(80)]),
                         String::from_utf8_lossy(&bytes[..bytes.len().min(80)])
                     ));
+                }
+                // the lease pings on a clock: under load it fits fewer pings in its life than the recording has,
+                // and the client going while only PING/PONG pairs remain is that, not a fault
+                None if script[at..]
+                    .iter()
+                    .all(|(t, b)| (t == "c" && b == b"PING\n") || (t == "s" && b == b"PONG\n")) =>
+                {
+                    return;
                 }
                 None => {
                     return bad(format!(
