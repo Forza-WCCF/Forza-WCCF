@@ -6,6 +6,7 @@
 //! then `PING` -> `PONG`. `HOLD` -> `HOLD 1` | `HOLD 0` (2010-11 only; the box asks it).
 
 use crate::{Edition, Handle, Log};
+use forza::online::lobby::{self, Lobby, Reserved, Shop, State as ShopState};
 use forza::online::{Reply, SEATS, Want};
 use regex::Regex;
 use std::collections::{BTreeMap, HashMap};
@@ -15,7 +16,11 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+/// Open connections one address may hold at once (the desk answers the rest by hanging up). A cabinet has 8 PCs;
+/// the rest is room for lobby polls behind one NAT.
+const MAX_PER_IP: usize = 16;
 
 const HOLD_RULE: &str = "WCCF hold projector box";
 
@@ -36,6 +41,16 @@ pub struct DeskConfig {
     pub hold_fw_test: Option<PathBuf>,
     /// How often the hold looks at the game (the Python: 1 s).
     pub hold_every: Duration,
+    /// The shop's name in the lobby (`WCCF_SHOP_NAME`, `--name`), at most 24 characters.
+    pub name: String,
+    /// The shop's language in the lobby: `en`, `it` or `ja` (`WCCF_SHOP_LANG`); unset = not declared.
+    pub lang: Option<String>,
+    /// How long a `RESERVE` holds its seat without a `HEARTBEAT` (60 s; tests shorten it).
+    pub reserve_lease: Duration,
+    /// One `LOBBY` per address in this time, else `ERR slow` (2 s; tests set 0).
+    pub lobby_gap: Duration,
+    /// The `LOBBY` answer is rebuilt at most this often (1 s; tests set 0).
+    pub lobby_cache: Duration,
 }
 
 impl DeskConfig {
@@ -49,6 +64,13 @@ impl DeskConfig {
             hold_file: None,
             hold_fw_test: None,
             hold_every: Duration::from_secs(1),
+            name: std::env::var("WCCF_SHOP_NAME").unwrap_or_else(|_| "Forza-WCCF".into()),
+            lang: std::env::var("WCCF_SHOP_LANG")
+                .ok()
+                .filter(|l| ["en", "it", "ja"].contains(&l.as_str())),
+            reserve_lease: Duration::from_secs(lobby::LEASE_SECS),
+            lobby_gap: Duration::from_secs(2),
+            lobby_cache: Duration::from_secs(1),
         }
     }
 }
@@ -144,6 +166,8 @@ pub fn read_hold_ip(path: &Path) -> Option<String> {
 #[derive(Default)]
 struct State {
     leases: HashMap<u8, (String, u64)>,
+    /// `RESERVE`d seats: seat -> (ticket, lease end). A seat in here is busy until claimed or expired.
+    reserved: HashMap<u8, (String, Instant)>,
     next_id: u64,
     /// 2017-18: the seat whose PC shows the projector.
     projector: Option<u8>,
@@ -155,6 +179,24 @@ struct Shared {
     state: Mutex<State>,
     in_game: Mutex<InGame>,
     held: AtomicBool,
+    /// This run's shop id in the lobby: random, never stored.
+    shop_id: String,
+    /// Last `LOBBY` per address, and the cached answer with its build time.
+    lobby_seen: Mutex<HashMap<String, Instant>>,
+    lobby_cached: Mutex<Option<(Instant, String)>>,
+    /// Open connections per address ([`MAX_PER_IP`]).
+    open: Mutex<HashMap<String, usize>>,
+}
+
+fn random_hex(n: usize) -> String {
+    let mut b = vec![0u8; n];
+    getrandom::fill(&mut b).expect("the OS has randomness");
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+/// Drops the leases that ran out.
+fn expire(st: &mut State, now: Instant) {
+    st.reserved.retain(|_, (_, end)| *end > now);
 }
 
 /// The firewall rule on (block `ip` on TCP 20002) or off; never two of it.
@@ -344,8 +386,32 @@ fn session(
         let held = sh.held.load(Ordering::Relaxed);
         return out.write_all(if held { b"HOLD 1\n" } else { b"HOLD 0\n" });
     }
+    match line.split_whitespace().collect::<Vec<_>>()[..] {
+        ["LOBBY", edition] => return lobby_answer(sh, ip, edition, &mut out),
+        ["RESERVE", id] => return reserve(sh, id, None, &mut out),
+        ["RESERVE", id, n] => {
+            return match n.parse().ok().filter(|n| SEATS.contains(n)) {
+                Some(n) => reserve(sh, id, Some(n), &mut out),
+                None => out.write_all(b"ERR seat\n"),
+            };
+        }
+        ["HEARTBEAT", t] => return heartbeat(sh, t, &mut out),
+        _ => {}
+    }
+    // `WANT ... TICKET t` claims the seat `RESERVE` held
+    let (line, ticket) = match line.split_whitespace().collect::<Vec<_>>()[..] {
+        [.., "TICKET", t] => (
+            line.rsplitn(3, char::is_whitespace)
+                .last()
+                .unwrap_or("")
+                .to_string(),
+            Some(t.to_string()),
+        ),
+        _ => (line, None),
+    };
     {
         let mut st = sh.state.lock().unwrap();
+        expire(&mut st, Instant::now());
         let others: BTreeMap<u32, String> = if e1011 {
             sh.in_game.lock().unwrap().now()
         } else {
@@ -354,59 +420,81 @@ fn session(
         .into_iter()
         .filter(|(_, a)| a != ip)
         .collect();
-        let busy =
-            |st: &State, s: u8| st.leases.contains_key(&s) || others.contains_key(&u32::from(s));
-        let seat = match Want::parse(&line) {
-            Some(Want::Any) => {
-                let Some(seat) = SEATS.clone().find(|&s| !busy(&st, s)) else {
-                    out.write_all(Reply::Full.line().as_bytes())?;
-                    log(&format!("{peer}: no seat - all 8 taken"));
-                    return Ok(());
-                };
-                let skipped: Vec<u8> = SEATS
-                    .clone()
-                    .filter(|&s| {
-                        s < seat
-                            && !st.leases.contains_key(&s)
-                            && others.contains_key(&u32::from(s))
-                    })
-                    .collect();
-                if !skipped.is_empty() {
-                    let seats = skipped
-                        .iter()
-                        .map(u8::to_string)
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    let addrs = skipped
-                        .iter()
-                        .map(|s| others[&u32::from(*s)].as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    log(&format!(
-                        "{peer}: seat {seats} skipped - in the game ({addrs}) with no lease"
-                    ));
-                }
-                seat
+        let busy = |st: &State, s: u8| {
+            st.leases.contains_key(&s)
+                || st.reserved.contains_key(&s)
+                || others.contains_key(&u32::from(s))
+        };
+        let want = Want::parse(&line);
+        let seat = if let Some(t) = ticket {
+            let held = st
+                .reserved
+                .iter()
+                .find(|(_, (k, _))| *k == t)
+                .map(|(s, _)| *s);
+            let (Some(want), Some(seat)) = (want, held) else {
+                return out.write_all(b"ERR ticket\n");
+            };
+            if let Want::Seat(n) = want
+                && n != seat
+            {
+                return out.write_all(Reply::Taken(n).line().as_bytes());
             }
-            Some(Want::Seat(n)) => {
-                if busy(&st, n) {
-                    out.write_all(Reply::Taken(n).line().as_bytes())?;
-                    let by = if st.leases.contains_key(&n) {
-                        String::new()
-                    } else {
-                        format!(" (in the game by {})", others[&u32::from(n)])
+            st.reserved.remove(&seat);
+            seat
+        } else {
+            match want {
+                Some(Want::Any) => {
+                    let Some(seat) = SEATS.clone().find(|&s| !busy(&st, s)) else {
+                        out.write_all(Reply::Full.line().as_bytes())?;
+                        log(&format!("{peer}: no seat - all 8 taken"));
+                        return Ok(());
                     };
-                    log(&format!("{peer}: seat {n} refused - taken{by}"));
-                    return Ok(());
+                    let skipped: Vec<u8> = SEATS
+                        .clone()
+                        .filter(|&s| {
+                            s < seat
+                                && !st.leases.contains_key(&s)
+                                && others.contains_key(&u32::from(s))
+                        })
+                        .collect();
+                    if !skipped.is_empty() {
+                        let seats = skipped
+                            .iter()
+                            .map(u8::to_string)
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        let addrs = skipped
+                            .iter()
+                            .map(|s| others[&u32::from(*s)].as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        log(&format!(
+                            "{peer}: seat {seats} skipped - in the game ({addrs}) with no lease"
+                        ));
+                    }
+                    seat
                 }
-                n
-            }
-            None => {
-                return out.write_all(
-                    Reply::Err("say WANT or WANT SEAT n".into())
-                        .line()
-                        .as_bytes(),
-                );
+                Some(Want::Seat(n)) => {
+                    if busy(&st, n) {
+                        out.write_all(Reply::Taken(n).line().as_bytes())?;
+                        let by = if st.leases.contains_key(&n) || st.reserved.contains_key(&n) {
+                            String::new()
+                        } else {
+                            format!(" (in the game by {})", others[&u32::from(n)])
+                        };
+                        log(&format!("{peer}: seat {n} refused - taken{by}"));
+                        return Ok(());
+                    }
+                    n
+                }
+                None => {
+                    return out.write_all(
+                        Reply::Err("say WANT or WANT SEAT n".into())
+                            .line()
+                            .as_bytes(),
+                    );
+                }
             }
         };
         st.next_id += 1;
@@ -438,6 +526,118 @@ fn session(
     }
 }
 
+/// Seats in use: led by a lease, held by a reservation, or in the game (2010-11).
+fn used(sh: &Shared, st: &State) -> Vec<u8> {
+    let game = if sh.cfg.edition == Edition::E1011 {
+        sh.in_game.lock().unwrap().now()
+    } else {
+        BTreeMap::new()
+    };
+    SEATS
+        .filter(|s| {
+            st.leases.contains_key(s)
+                || st.reserved.contains_key(s)
+                || game.contains_key(&u32::from(*s))
+        })
+        .collect()
+}
+
+/// `LOBBY edition`: this desk's shop as the one JSON line, then the hang-up. The answer holds no address, card
+/// number, Aime id or name of a person; ids are random per run.
+fn lobby_answer(sh: &Shared, ip: &str, edition: &str, out: &mut TcpStream) -> io::Result<()> {
+    if edition != sh.cfg.edition.name() {
+        return out.write_all(b"ERR edition\n");
+    }
+    let now = Instant::now();
+    {
+        let mut seen = sh.lobby_seen.lock().unwrap();
+        seen.retain(|_, t| now.duration_since(*t) < sh.cfg.lobby_gap.max(Duration::from_secs(60)));
+        if seen
+            .insert(ip.to_string(), now)
+            .is_some_and(|t| now.duration_since(t) < sh.cfg.lobby_gap)
+        {
+            return out.write_all(b"ERR slow\n");
+        }
+    }
+    let mut cache = sh.lobby_cached.lock().unwrap();
+    if let Some((at, line)) = cache.as_ref()
+        && now.duration_since(*at) < sh.cfg.lobby_cache
+    {
+        return out.write_all(line.as_bytes());
+    }
+    let seats = used(sh, &sh.state.lock().unwrap()).len() as u8;
+    // ponytail: only OPEN and FULL; IN MATCH and next ENTRY need a control-log marker not yet identified
+    let shop = Shop {
+        id: sh.shop_id.clone(),
+        name: sh.cfg.name.chars().take(24).collect(),
+        seats,
+        max: SEATS.count() as u8,
+        state: if seats >= 8 {
+            ShopState::Full
+        } else {
+            ShopState::Open
+        },
+        next_entry: None,
+        lang: sh.cfg.lang.clone(),
+    };
+    let answer = Lobby {
+        v: lobby::VERSION,
+        edition: sh.cfg.edition.name().into(),
+        at: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs()),
+        shops: vec![shop],
+        vs: vec![],
+    }
+    .line();
+    debug_assert!(answer.len() <= lobby::MAX_ANSWER);
+    *cache = Some((now, answer.clone()));
+    out.write_all(answer.as_bytes())
+}
+
+/// `RESERVE id [n]`: a ticket for the lowest free seat (or seat n) for the lease, `FULL`, `TAKEN` (n is busy) or
+/// `CLOSED` (not this desk's shop).
+fn reserve(sh: &Shared, id: &str, seat: Option<u8>, out: &mut TcpStream) -> io::Result<()> {
+    let mut st = sh.state.lock().unwrap();
+    let now = Instant::now();
+    expire(&mut st, now);
+    let reply = if id != sh.shop_id {
+        Reserved::Closed
+    } else {
+        let busy = used(sh, &st);
+        match seat {
+            Some(n) if busy.contains(&n) => Reserved::Taken,
+            Some(n) => take(&mut st, n, now, sh.cfg.reserve_lease),
+            None => match SEATS.clone().find(|s| !busy.contains(s)) {
+                Some(n) => take(&mut st, n, now, sh.cfg.reserve_lease),
+                None => Reserved::Full,
+            },
+        }
+    };
+    drop(st);
+    out.write_all(reply.line().as_bytes())
+}
+
+fn take(st: &mut State, seat: u8, now: Instant, lease: Duration) -> Reserved {
+    let ticket = random_hex(8);
+    st.reserved.insert(seat, (ticket.clone(), now + lease));
+    Reserved::Ticket { ticket, seat }
+}
+
+/// `HEARTBEAT t` -> `OK` (lease extended) or `GONE`.
+fn heartbeat(sh: &Shared, t: &str, out: &mut TcpStream) -> io::Result<()> {
+    let mut st = sh.state.lock().unwrap();
+    let now = Instant::now();
+    expire(&mut st, now);
+    let ok = st
+        .reserved
+        .values_mut()
+        .find(|(k, _)| k == t)
+        .map(|(_, end)| *end = now + sh.cfg.reserve_lease);
+    drop(st);
+    out.write_all(if ok.is_some() { b"OK\n" } else { b"GONE\n" })
+}
+
 /// Starts the desk. Err(io error) when the port cannot be bound (the caller logs "cannot listen ...").
 pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
     let listener = TcpListener::bind((cfg.bind.as_str(), cfg.port))?;
@@ -449,6 +649,10 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
         log: log.clone(),
         state: Mutex::default(),
         held: AtomicBool::new(false),
+        shop_id: random_hex(4),
+        lobby_seen: Mutex::default(),
+        lobby_cached: Mutex::default(),
+        open: Mutex::default(),
     });
     log(&format!(
         "seat broker listening on TCP {}: seats 1-8, {}",
@@ -493,7 +697,25 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
             let Ok(conn) = conn else { continue };
             let Ok(peer) = conn.peer_addr() else { continue };
             let sh = sh.clone();
-            thread::spawn(move || serve(&sh, conn, peer.to_string()));
+            let ip = peer.ip().to_string();
+            {
+                let mut open = sh.open.lock().unwrap();
+                let n = open.entry(ip.clone()).or_default();
+                if *n >= MAX_PER_IP {
+                    continue; // dropped: hangs up
+                }
+                *n += 1;
+            }
+            thread::spawn(move || {
+                serve(&sh, conn, peer.to_string());
+                let mut open = sh.open.lock().unwrap();
+                if let Some(n) = open.get_mut(&ip) {
+                    *n -= 1;
+                    if *n == 0 {
+                        open.remove(&ip);
+                    }
+                }
+            });
         }
     }));
     Ok(Handle::new(addr, stop, true, threads, ticker))
