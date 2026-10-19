@@ -5,7 +5,6 @@
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 /// Which game a kit runs.  The two kits are laid out differently: 2010-11 has `code\` and `programs\`, 2017-18 has
 /// `scripts\`, `bin\` (the hook, logowin, FPR_Emu, forza-server) and `overlay\` (inject.exe, the panel, netguard.dll,
@@ -71,10 +70,6 @@ impl Kit {
         }
     }
 
-    pub fn python(&self) -> PathBuf {
-        self.dir.join("python").join("python.exe")
-    }
-
     /// The kit's compiled programs: the hook, the panel, card-table.
     pub fn programs(&self) -> PathBuf {
         self.dir.join("programs")
@@ -138,13 +133,6 @@ impl Kit {
         } else {
             "en"
         }
-    }
-
-    /// `python\python.exe <scripts folder>\<script>`, to add arguments to
-    pub fn script(&self, script: &str) -> Command {
-        let mut cmd = Command::new(self.python());
-        cmd.arg(self.dir.join(self.edition().layout().scripts).join(script));
-        cmd
     }
 }
 
