@@ -16,5 +16,6 @@ pub mod logs;
 pub mod procs;
 pub mod release;
 pub mod run;
+pub mod setup;
 
 pub use kit::{Edition, Kit};
