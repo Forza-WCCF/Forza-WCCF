@@ -43,6 +43,9 @@ PLAY
   KEY PLAYER and START. The panel's FORMATION BOARD shows your cards: drag one to move it, drop it on another to swap.
   Rare 2D-code cards work: the game server lists them as registered.
   Put your card in soon after starting; take it out (I) after a match, then close the game window.
+  Online VS (with a club server set in Launcher.exe): "Direct VS link" connects you to the other player's PC. The first time,
+  Windows Firewall may ask about Launcher.exe: allow it for direct connections; if you deny it, VS still works through
+  the relay (relay.wccf.it), only with more delay. Untick the box to turn the link off.
 
 WHAT IS NOT IN THIS ALPHA
   - Career mode.

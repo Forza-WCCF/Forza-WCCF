@@ -45,6 +45,10 @@ COME SI GIOCA
   rilasciatela su un'altra per scambiarle.
   Le carte rare con codice 2D funzionano: il server di gioco le elenca come registrate.
   Inserite la carta subito dopo l'avvio; dopo una partita toglietela (I), poi chiudete la finestra del gioco.
+  VS online (con un server club impostato in Launcher.exe): il "Collegamento VS diretto" vi collega al PC dell'altro
+  giocatore. La prima volta Windows Firewall può chiedere di Launcher.exe: consentitelo per le connessioni dirette; se lo
+  negate, il VS funziona comunque tramite il relay (relay.wccf.it), con un po' più di ritardo. Togliete la spunta per
+  disattivare il collegamento.
 
 COSA NON C'È IN QUESTA ALPHA
   - La modalità carriera.

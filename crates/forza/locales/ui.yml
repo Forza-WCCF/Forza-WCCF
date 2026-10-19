@@ -50,6 +50,8 @@ launcher.skip_tutorial: {en: "Skip the tutorial", it: "Salta il tutorial", ja: "
 launcher.skip_tutorial_hint: {en: "Applied at the next start.", it: "Si applica al prossimo avvio.", ja: "次回の起動時に反映されます。"}
 launcher.club_server: {en: "Club server", it: "Server club", ja: "クラブサーバー"}
 launcher.club_server_hint: {en: "empty: this PC", it: "vuoto: questo PC", ja: "空欄: このPC"}
+launcher.vs_link: {en: "Direct VS link (relay.wccf.it)", it: "Collegamento VS diretto (relay.wccf.it)", ja: "ダイレクトVSリンク (relay.wccf.it)"}
+launcher.vs_link_hint: {en: "Used with a club server.", it: "Si usa con un server club.", ja: "クラブサーバー使用時に使います。"}
 # messages: the status line, the questions, the output; the run's own lines stay English
 launcher.msg_starting: {en: "Starting the game - about 30 seconds ...", it: "Avvio del gioco - circa 30 secondi ...", ja: "ゲームを起動しています（約 30 秒）..."}
 launcher.msg_restarting: {en: "Restarting, as SETTINGS asked ...", it: "Riavvio, come richiesto da SETTINGS ...", ja: "SETTINGS の指示で再起動しています..."}

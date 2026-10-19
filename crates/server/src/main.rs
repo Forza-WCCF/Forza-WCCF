@@ -86,6 +86,9 @@ enum Service {
         /// UDP port of the reflect service (bound on `WCCF_BIND`)
         #[arg(long, requires = "vs_public_ip")]
         reflect_port: Option<u16>,
+        /// UDP port of the loopback reflect address given to PCs that run vslink (`127.0.0.1:<port>`)
+        #[arg(long, default_value_t = 20090)]
+        vslink_port: u16,
     },
     /// All three (2017-18: the desk and the relay), as `play.py server` started them; LOGS_DIR gets seat_broker.txt,
     /// match_relay.txt, log_inbox.txt
@@ -325,6 +328,7 @@ fn main() {
             allow_any,
             vs_public_ip,
             reflect_port,
+            vslink_port,
         } => {
             if ed != Edition::E1718 {
                 eprintln!("gmsvr is a 2017-18 service: pass --edition 2017-18");
@@ -342,6 +346,7 @@ fn main() {
                     .map(|(public_ip, reflect_port)| forza::standins::vs::VsConfig {
                         public_ip,
                         reflect_port,
+                        vslink_port: *vslink_port,
                     }),
                 file_log(None),
             ) else {

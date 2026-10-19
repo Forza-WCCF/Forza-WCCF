@@ -446,6 +446,7 @@ impl App {
                 .then(|| kit.settings()["skip_tutorial"].as_bool() == Some(true)),
             club_server: (kit.edition() == Edition::E1718)
                 .then(|| choices::setting(&settings, "club_server").unwrap_or_default()),
+            vs_link: (kit.edition() == Edition::E1718).then(|| kit.settings()["vs_link"].as_bool() != Some(false)),
             updates: kit.edition() == Edition::E1011,
             version: version(kit),
             update_open: false,
@@ -609,6 +610,14 @@ impl App {
                 let file = kit.settings_file();
                 let on = self.st.skip_tutorial == Some(true);
                 if let Err(e) = choices::set_setting_bool(&file, "skip_tutorial", on) {
+                    refuse(write_failed(&file, &e));
+                }
+            }
+            Action::VsLink => {
+                // data\settings.json "vs_link" (default on), which run::start_vslink reads
+                let file = kit.settings_file();
+                let on = self.st.vs_link != Some(false);
+                if let Err(e) = choices::set_setting_bool(&file, "vs_link", on) {
                     refuse(write_failed(&file, &e));
                 }
             }
