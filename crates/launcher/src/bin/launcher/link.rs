@@ -1,6 +1,6 @@
 //! First run (ROADMAP step 5): a kit unzipped into a path with spaces, accents or a user name in non-English letters
 //! gets a proper name.  Launcher.exe links its folder to the place the installer uses,
-//! `%SystemDrive%\Games\Forza-WCCF\2010-2011` (installer `install.rs` `version_paths`), with a directory junction (no
+//! `%SystemDrive%\Games\Forza-WCCF\2010-2011` (installer `install.rs` `version_paths`; the 2017-18 kit uses its own `2017-2018`), with a directory junction (no
 //! administrator rights), and starts again from the link path, so the game sees the plain path.  Paths are compared
 //! as text and never resolved: `fs::canonicalize` would undo the junction.
 //!
@@ -9,13 +9,12 @@
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
 
+use launcher::{Edition, Kit};
 use windows_sys::Win32::Storage::FileSystem::{GetDriveTypeW, GetVolumeInformationW};
 
 /// GetDriveTypeW: a network drive (the constant lives in a feature this crate does not otherwise need).
 const DRIVE_REMOTE: u32 = 4;
 
-/// The installer's name for this edition (`disc.rs`), under `Games\Forza-WCCF`.
-const EDITION: &str = "2010-2011";
 /// Set for the restarted copy, so a link that does not hold (the process reports the target's path) cannot loop.
 const LINKED: &str = "WCCF_LAUNCHER_LINKED";
 
@@ -68,9 +67,10 @@ pub fn decide(seen: Seen) -> Action {
 
 // ---- the filesystem ---------------------------------------------------------------------------------------------
 
-pub fn link_path() -> PathBuf {
+/// The installer's place for the edition's kit: `%SystemDrive%\Games\Forza-WCCF\<folder>`.
+pub fn link_path(edition: Edition) -> PathBuf {
     let drive = env::var("SystemDrive").unwrap_or_else(|_| "C:".to_owned());
-    PathBuf::from(format!("{drive}\\Games\\Forza-WCCF\\{EDITION}"))
+    PathBuf::from(format!("{drive}\\Games\\Forza-WCCF\\{}", edition.folder()))
 }
 
 /// Paths as text, without the `\\?\` / `\??\` prefix, trailing separators or case.
@@ -163,9 +163,9 @@ pub enum Outcome {
 }
 
 /// `here` is this kit folder as the process was started, never resolved.
-pub fn first_run(here: &Path) -> Outcome {
+pub fn first_run(here: &Path, edition: Edition) -> Outcome {
     use crate::text::{t, tf};
-    let link = link_path();
+    let link = link_path(edition);
     if env::var_os(LINKED).is_some() || same_path(&link, here) {
         return Outcome::InPlace { warn: None };
     }
@@ -190,7 +190,7 @@ pub fn first_run(here: &Path) -> Outcome {
 
 /// Starts the copy in the link, which is then the one that runs.
 pub fn restart(link: &Path) -> bool {
-    std::process::Command::new(link.join("Launcher.exe"))
+    std::process::Command::new(link.join(Kit::exe_name()))
         .current_dir(link)
         .env(LINKED, "1")
         .spawn()
@@ -219,6 +219,19 @@ mod tests {
         assert_eq!(decide(seen(j(false, false), false)), InPlaceNoJunction);
         assert_eq!(decide(seen(Slot::Taken, false)), InPlaceTaken); // the name wins: nothing to make
         assert_eq!(decide(seen(j(true, true), false)), UseLink); // an existing link keeps working
+    }
+
+    #[test]
+    fn decision_table_for_both_editions() {
+        for ed in [Edition::E1011, Edition::E1718] {
+            assert!(link_path(ed).ends_with(format!("Games\\Forza-WCCF\\{}", ed.folder())));
+            let j = |live, ours| Slot::Junction { live, ours };
+            assert_eq!(decide(seen(Slot::Free, true)), Link);
+            assert_eq!(decide(seen(j(false, false), true)), Repoint);
+            assert_eq!(decide(seen(j(true, true), true)), UseLink);
+            assert_eq!(decide(seen(Slot::Taken, true)), InPlaceTaken);
+        }
+        assert_ne!(link_path(Edition::E1011), link_path(Edition::E1718));
     }
 
     #[test]

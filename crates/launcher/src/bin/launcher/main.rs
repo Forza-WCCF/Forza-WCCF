@@ -927,15 +927,15 @@ fn main() -> ExitCode {
     }
     let kit = Kit::here();
     let first = args.first().map(|a| a.to_string_lossy().to_ascii_lowercase());
-    // the 2017-18 kit: no updates (the releases are 2010-11 kits) and no first-run link (its name is 2010-11's place)
+    // the 2017-18 kit: no updates (the releases are 2010-11 kits)
     let e1011 = kit.edition() == Edition::E1011;
     if e1011 {
         update::tidy(&kit);
     }
     text::choose(choices::setting(&kit.settings_file(), "language").as_deref());
-    // a plain start (no arguments): first run, the kit folder gets the installer's name (link.rs)
-    if args.is_empty() && e1011 {
-        match link::first_run(kit.dir()) {
+    // a plain start (no arguments): first run, the kit folder gets the installer's name for its edition (link.rs)
+    if args.is_empty() {
+        match link::first_run(kit.dir(), kit.edition()) {
             link::Outcome::Restart(to) if link::restart(&to) => return ExitCode::SUCCESS,
             link::Outcome::InPlace { warn: Some(msg) } => {
                 log(&msg);

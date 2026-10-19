@@ -1338,7 +1338,7 @@ impl Run<'_> {
             {
                 // a click in the server's console would freeze it (text-selection mode): switch that off, in a child of
                 // Launcher.exe (it changes the console of the process that does it)
-                let exe = self.kit.dir().join("Launcher.exe");
+                let exe = self.kit.dir().join(Kit::exe_name());
                 if exe.is_file() {
                     let mut cmd = Command::new(exe);
                     cmd.arg(helper::console::ARG).arg(ctl.pid.to_string());

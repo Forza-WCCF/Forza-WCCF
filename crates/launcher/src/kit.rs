@@ -29,6 +29,31 @@ impl Kit {
         Self { dir }
     }
 
+    /// This program's own file name (Launcher.exe, or whatever the release calls it).
+    pub fn exe_name() -> std::ffi::OsString {
+        env::current_exe()
+            .ok()
+            .and_then(|p| p.file_name().map(ToOwned::to_owned))
+            .unwrap_or_else(|| "Launcher.exe".into())
+    }
+
+    /// The edition whose current kit layout `dir` holds: `code\` (2010-11), or `scripts\` with `bin\` or `overlay\`
+    /// (2017-18).  An older kit with only `scripts\` has neither.
+    pub fn layout(dir: &Path) -> Option<Edition> {
+        if dir.join(SCRIPTS).is_dir() {
+            Some(Edition::E1011)
+        } else if dir.join(SCRIPTS_1718).is_dir() && (dir.join("bin").is_dir() || dir.join("overlay").is_dir()) {
+            Some(Edition::E1718)
+        } else {
+            None
+        }
+    }
+
+    /// The folder holds a kit of either edition.
+    pub fn is_kit(&self) -> bool {
+        Self::layout(&self.dir).is_some()
+    }
+
     /// A kit in `dir` (tests, tools).
     pub fn at(dir: impl Into<PathBuf>) -> Self {
         Self { dir: dir.into() }
@@ -185,5 +210,20 @@ mod tests {
             Edition::E1011,
             "an old 2010-11 kit's scripts\\ left beside code\\"
         );
+    }
+
+    #[test]
+    fn is_kit_needs_a_current_layout() {
+        let dir = tempfile::tempdir().unwrap();
+        let kit = Kit::at(dir.path());
+        assert!(!kit.is_kit());
+        fs::create_dir(dir.path().join(SCRIPTS_1718)).unwrap();
+        assert!(!kit.is_kit(), "an older kit with only scripts\\");
+        fs::create_dir(dir.path().join("overlay")).unwrap();
+        assert!(kit.is_kit());
+        assert_eq!(Kit::layout(dir.path()), Some(Edition::E1718));
+        let other = tempfile::tempdir().unwrap();
+        fs::create_dir(other.path().join(SCRIPTS)).unwrap();
+        assert_eq!(Kit::layout(other.path()), Some(Edition::E1011));
     }
 }
