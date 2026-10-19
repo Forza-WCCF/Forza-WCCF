@@ -1,5 +1,5 @@
-//! The install steps (ROADMAP step 11), ported from the kit's `setup.py`.  One module per edition (`e1718`; 2010-11 is
-//! `setup.py` in `legacy/2010-11/code` until it lands here), sharing the helpers below: SHA-256 and whole-file writes,
+//! The install steps (ROADMAP step 11), ported from the kit's `setup.py`.  One module per edition (`e1718`, `e1011`),
+//! sharing the helpers below: SHA-256 and whole-file writes,
 //! the pinned originals kept in `original\`, byte-checked patches, the import rename that makes a guarded copy, folder
 //! junctions and the kit's `data\settings.json`.  The edition's folder names are in [`crate::layout`].
 
@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
+pub mod e1011;
 pub mod e1718;
 
 /// What went wrong, in words for the player.
@@ -63,6 +64,14 @@ pub fn put(path: &Path, data: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// Writes `data` whole through a temporary file beside `path`, then swaps it in: a crash never leaves half a file, and
+/// a hard link at `path` is replaced, never written through to the file it shares.
+pub fn replace(path: &Path, data: &[u8]) -> Result<()> {
+    let tmp = PathBuf::from(format!("{}.tmp", path.display()));
+    fs::write(&tmp, data).at(&tmp)?;
+    fs::rename(&tmp, path).at(path)
+}
+
 /// Copies a file the kit or Windows provides; a missing one is named for the player.
 pub fn copy_in(src: &Path, dst: &Path, what: &str) -> Result<()> {
     if !src.is_file() {
@@ -103,6 +112,14 @@ pub fn original(
         put(backup, &data)?;
     }
     Ok(data)
+}
+
+/// The name the original logowin.exe is kept under beside it (the 2017-18 setup; the 2010-11 kit before 2026-10-09).
+pub fn logowin_backup() -> String {
+    format!(
+        "logowin_{}.exe",
+        String::from_utf8_lossy(&[0x73, 0x65, 0x67, 0x61])
+    )
 }
 
 /// One byte-checked change to a program: the file offset, the original bytes, the new ones.
@@ -161,23 +178,34 @@ fn rva_off(d: &[u8], rva: usize) -> Result<usize> {
     Err(Error(format!("{rva:#x} is in no section")))
 }
 
-/// The 32-bit program with its one import of the DLL `old` renamed to `new` (same length, as the file holds the name
-/// with its NUL: pass both NUL-terminated and equally long); the name is matched without regard to case.
-pub fn rename_import(data: &[u8], old: &[u8], new: &[u8]) -> Result<Vec<u8>> {
-    assert_eq!(old.len(), new.len());
-    let mut d = data.to_vec();
-    let nt = u32_at(&d, 60)?;
-    let mut off = rva_off(&d, u32_at(&d, nt + 24 + 96 + 8)?)?;
+/// The file offsets of the 32-bit program's import names equal to `dll` (NUL-terminated), matched without regard to case.
+fn import_names(d: &[u8], dll: &[u8]) -> Result<Vec<usize>> {
+    let nt = u32_at(d, 60)?;
+    let mut off = rva_off(d, u32_at(d, nt + 24 + 96 + 8)?)?;
     let mut hits = Vec::new();
-    while u32_at(&d, off + 12)? != 0 {
-        let name = rva_off(&d, u32_at(&d, off + 12)?)?;
-        if d.get(name..name + old.len())
-            .is_some_and(|n| n.eq_ignore_ascii_case(old))
+    while u32_at(d, off + 12)? != 0 {
+        let name = rva_off(d, u32_at(d, off + 12)?)?;
+        if d.get(name..name + dll.len())
+            .is_some_and(|n| n.eq_ignore_ascii_case(dll))
         {
             hits.push(name);
         }
         off += 20;
     }
+    Ok(hits)
+}
+
+/// Whether the 32-bit program imports `dll` (NUL-terminated); a file that is not one does not.
+pub fn imports(data: &[u8], dll: &[u8]) -> bool {
+    import_names(data, dll).is_ok_and(|h| !h.is_empty())
+}
+
+/// The 32-bit program with its one import of the DLL `old` renamed to `new` (same length, as the file holds the name
+/// with its NUL: pass both NUL-terminated and equally long); the name is matched without regard to case.
+pub fn rename_import(data: &[u8], old: &[u8], new: &[u8]) -> Result<Vec<u8>> {
+    assert_eq!(old.len(), new.len());
+    let mut d = data.to_vec();
+    let hits = import_names(&d, old)?;
     let [at] = hits[..] else {
         let name = String::from_utf8_lossy(&old[..old.len() - 1]).into_owned();
         return Err(Error(format!(
@@ -207,6 +235,17 @@ pub fn make_junction(link: &Path, target: &Path) -> Result<()> {
 #[cfg(windows)]
 fn junction_to(target: &Path, link: &Path) -> Result<()> {
     junction::create(target, link).at(link)
+}
+
+/// Where the folder link `link` points, or None when it is not one.
+#[cfg(windows)]
+pub fn junction_target(link: &Path) -> Option<PathBuf> {
+    junction::get_target(link).ok()
+}
+
+#[cfg(not(windows))]
+pub fn junction_target(_: &Path) -> Option<PathBuf> {
+    None
 }
 
 #[cfg(not(windows))]
@@ -297,4 +336,27 @@ pub fn find_game(path: &str, programs: &[&str], below: &str) -> Option<PathBuf> 
     [path.clone(), path.join(below)]
         .into_iter()
         .find(|p| programs.iter().all(|n| p.join(n).is_file()))
+}
+
+/// A minimal 32-bit PE with one section (VA 0x1000, file 0x200) whose import table names `dlls`, and `extra` after it.
+#[cfg(test)]
+pub(crate) fn pe(dlls: &[&str], extra: &[u8]) -> Vec<u8> {
+    let mut d = vec![0u8; 0x200 + 0x1000];
+    d[60..64].copy_from_slice(&0x40u32.to_le_bytes());
+    d[0x40..0x44].copy_from_slice(b"PE\0\0");
+    d[0x46..0x48].copy_from_slice(&1u16.to_le_bytes()); // one section
+    d[0x54..0x56].copy_from_slice(&0xE0u16.to_le_bytes()); // optional header size
+    d[0x40 + 24 + 96 + 8..][..4].copy_from_slice(&0x1000u32.to_le_bytes()); // import table at RVA 0x1000
+    let s = 0x40 + 24 + 0xE0;
+    for (at, v) in [(8, 0x1000u32), (12, 0x1000), (16, 0x1000), (20, 0x200)] {
+        d[s + at..][..4].copy_from_slice(&v.to_le_bytes());
+    }
+    let mut name = 0x1100;
+    for (i, dll) in dlls.iter().enumerate() {
+        d[0x200 + i * 20 + 12..][..4].copy_from_slice(&(name as u32).to_le_bytes());
+        d[0x200 + name - 0x1000..][..dll.len()].copy_from_slice(dll.as_bytes());
+        name += 0x20;
+    }
+    d[0x200 + 0x800..][..extra.len()].copy_from_slice(extra);
+    d
 }

@@ -27,6 +27,8 @@ rust-i18n = { workspace = true, optional = true }
 zip.workspace = true
 getrandom = "0.3.4"
 tempfile = "3.27.0"
+# setup (2010-11): whether seat 1's hard link is already the game's file
+same-file = "1.0.6"
 time = { version = "0.3.55", features = ["local-offset"] }
 # the catalogue's search: accents and other scripts folded to plain letters ("kaka" finds KAKÀ)
 deunicode = { version = "1.6.2", optional = true }
