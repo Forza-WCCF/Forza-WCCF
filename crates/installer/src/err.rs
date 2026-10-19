@@ -54,7 +54,6 @@ pub enum InstallError {
     NotNtfsVolume,
     ExtractIncomplete,
     KitUnsafePath,
-    KitNeedsWindows,
     KitEdition {
         kit: &'static str,
         game: &'static str,
@@ -103,7 +102,6 @@ impl InstallError {
             NotNtfsVolume => "installer.err_volume_ntfs",
             ExtractIncomplete => "installer.err_extract_incomplete",
             KitUnsafePath => "installer.err_kit_unsafe",
-            KitNeedsWindows => "installer.err_kit_windows",
             KitEdition { .. } => "installer.err_kit_edition",
             Script { .. } => "installer.err_script",
             Other { .. } => "installer.err_other",
@@ -206,7 +204,6 @@ mod tests {
             NotNtfsVolume,
             ExtractIncomplete,
             KitUnsafePath,
-            KitNeedsWindows,
             KitEdition {
                 kit: "a",
                 game: "b",
