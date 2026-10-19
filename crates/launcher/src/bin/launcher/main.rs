@@ -35,7 +35,7 @@ use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{ExitCode, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::Duration;
 use std::{env, mem, ptr, thread};
 
@@ -519,8 +519,15 @@ impl App {
         self.st.running = RUNNING.load(Ordering::Relaxed);
         self.st.output.extend(log);
         let kit = Kit::here();
-        self.online
-            .look(&mut self.st, kit.edition().name(), &kit.settings_file());
+        // the VS room's countdown ran out: the run starts as PLAY would
+        if self
+            .online
+            .look(&mut self.st, kit.edition().name(), &kit.settings_file())
+            && !self.st.busy
+            && !self.st.running
+        {
+            self.play(&kit);
+        }
         // the run this process held has ended well: Launcher.exe ends with it
         if game == Some(0) && WAS_UP.load(Ordering::Relaxed) {
             ctx.send_viewport_cmd(ViewportCommand::Close);
@@ -768,7 +775,51 @@ fn version(kit: &Kit) -> String {
     v.strip_prefix("kit-").map(str::to_owned).unwrap_or(v)
 }
 
+/// Gamepad presses since the window last looked, as the lobby's keys (`forza::ui::lobby::pad_key`).
+static PAD_KEYS: Mutex<Vec<egui::Key>> = Mutex::new(Vec::new());
+
+/// Reads every controller (winmm, as the keys driver does) every 30 ms; a control newly pressed that the lobby knows
+/// becomes a key for the window's next frame.
+fn pad_thread() {
+    std::thread::spawn(|| {
+        let pads = launcher::keys::winmm_pads(Arc::new(log));
+        let mut was = std::collections::BTreeSet::new();
+        loop {
+            let now = pads.poll();
+            let new: Vec<egui::Key> = now
+                .difference(&was)
+                .filter_map(|c| forza::ui::lobby::pad_key(*c))
+                .collect();
+            if !new.is_empty() {
+                PAD_KEYS.lock().unwrap_or_else(PoisonError::into_inner).extend(new);
+                poke();
+            }
+            was = now;
+            std::thread::sleep(Duration::from_millis(30));
+        }
+    });
+}
+
 impl eframe::App for App {
+    /// The gamepad's keys, only while the window has the focus and the lobby shows.
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
+        let keys = mem::take(&mut *PAD_KEYS.lock().unwrap_or_else(PoisonError::into_inner));
+        if !raw.focused || !self.st.online {
+            return;
+        }
+        for key in keys {
+            for pressed in [true, false] {
+                raw.events.push(egui::Event::Key {
+                    key,
+                    physical_key: None,
+                    pressed,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                });
+            }
+        }
+    }
+
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.look(ctx);
         // a safety net for anything that changed without a poke
@@ -801,6 +852,7 @@ fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
     if !first.is_empty() {
         start(first);
     }
+    pad_thread();
     let title = format!("{TITLE} {} - {}", kit.edition().name(), kit.dir().display());
     let fonts = theme::font_dir();
     // wgpu first; if it cannot open the window (no Direct3D/Vulkan), OpenGL once. FORZA_RENDERER=glow|wgpu forces one.

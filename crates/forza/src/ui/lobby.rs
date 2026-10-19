@@ -93,6 +93,64 @@ pub struct Room {
     /// One entry per seat; `None` is an empty seat.
     pub seats: Vec<Option<Occupant>>,
     pub next_entry: Option<u32>,
+    /// This PC's seat, as an index into `seats`.
+    pub mine: Option<usize>,
+    /// Seconds left before the run starts (VS: both ready, or no opponent in time).
+    pub countdown: Option<u32>,
+    /// No opponent came in time: the game gives this PC a CPU team.
+    pub cpu: bool,
+}
+
+impl Room {
+    /// A room of `n` empty seats.
+    pub fn new(title: &str, kind: Kind, n: usize) -> Room {
+        Room {
+            title: title.into(),
+            kind,
+            seats: vec![None; n],
+            next_entry: None,
+            mine: None,
+            countdown: None,
+            cpu: false,
+        }
+    }
+
+    /// Every seat taken and ready.
+    pub fn all_ready(&self) -> bool {
+        !self.seats.is_empty()
+            && self
+                .seats
+                .iter()
+                .all(|s| s.as_ref().is_some_and(|o| o.ready))
+    }
+
+    /// This PC pressed READY.
+    pub fn ready_here(&self) -> bool {
+        self.mine
+            .and_then(|i| self.seats.get(i)?.as_ref())
+            .is_some_and(|o| o.ready)
+    }
+}
+
+/// The gamepad, read with winmm by Launcher.exe and fed to [`show`] as these keys: D-pad (and the left stick) the
+/// arrows, A Enter, B Escape, LB/RB the kinds (Left/Right), X refresh (F5), Y HOST VS (H). `code` is a
+/// `forza::keys` control number (`PAD_BUTTON + n` for button n, `PAD_HAT + 0..4` up right down left, `PAD_AXIS +
+/// 2 * axis + plus`). Buttons as an XInput pad reports them through winmm: 1 A, 2 B, 3 X, 4 Y, 5 LB, 6 RB.
+pub fn pad_key(code: u32) -> Option<Key> {
+    use crate::keys::{PAD_AXIS, PAD_BUTTON, PAD_HAT};
+    Some(match code {
+        c if c == PAD_HAT || c == PAD_AXIS + 2 => Key::ArrowUp,
+        c if c == PAD_HAT + 1 || c == PAD_AXIS + 1 => Key::ArrowRight,
+        c if c == PAD_HAT + 2 || c == PAD_AXIS + 3 => Key::ArrowDown,
+        c if c == PAD_HAT + 3 || c == PAD_AXIS => Key::ArrowLeft,
+        c if c == PAD_BUTTON + 1 => Key::Enter,
+        c if c == PAD_BUTTON + 2 => Key::Escape,
+        c if c == PAD_BUTTON + 3 => Key::F5,
+        c if c == PAD_BUTTON + 4 => Key::H,
+        c if c == PAD_BUTTON + 5 => Key::ArrowLeft,
+        c if c == PAD_BUTTON + 6 => Key::ArrowRight,
+        _ => return None,
+    })
 }
 
 /// What the player chose; the caller acts on it.
@@ -142,16 +200,28 @@ pub enum Scenario {
     Offline,
     RoomWait,
     Greyed,
+    /// The VS ROOMS list.
+    VsList,
+    /// HOST VS just made a room: its code, this PC alone and not ready yet.
+    Host,
+    /// Both ready: the 5 s countdown.
+    RoomReady,
+    /// No opponent in time: the CPU line and the countdown.
+    Cpu,
 }
 
 impl Scenario {
-    pub const ALL: [Scenario; 6] = [
+    pub const ALL: [Scenario; 10] = [
         Scenario::List,
         Scenario::Empty,
         Scenario::Full,
         Scenario::Offline,
         Scenario::RoomWait,
         Scenario::Greyed,
+        Scenario::VsList,
+        Scenario::Host,
+        Scenario::RoomReady,
+        Scenario::Cpu,
     ];
 
     pub fn tag(self) -> &'static str {
@@ -162,6 +232,10 @@ impl Scenario {
             Scenario::Offline => "offline",
             Scenario::RoomWait => "room_wait",
             Scenario::Greyed => "greyed",
+            Scenario::VsList => "vs_list",
+            Scenario::Host => "host",
+            Scenario::RoomReady => "room_ready",
+            Scenario::Cpu => "cpu",
         }
     }
 }
@@ -307,21 +381,27 @@ impl LobbyView {
                     r.state = NoAnswer;
                 }
             }
-            Scenario::RoomWait => {
+            Scenario::RoomWait | Scenario::Host | Scenario::RoomReady | Scenario::Cpu => {
+                let club = |c: &str, ready| {
+                    Some(Occupant {
+                        club: c.into(),
+                        ready,
+                    })
+                };
                 v.kind = Kind::Vs;
-                v.room = Some(Room {
-                    title: "K7QM".into(),
-                    kind: Kind::Vs,
-                    seats: vec![
-                        Some(Occupant {
-                            club: "A7K2".into(),
-                            ready: true,
-                        }),
-                        None,
-                    ],
-                    next_entry: None,
-                });
+                let mut r = Room::new("K7QM", Kind::Vs, 2);
+                r.mine = Some(0);
+                r.seats[0] = club("A7K2", s != Scenario::Host);
+                if s == Scenario::RoomReady {
+                    r.seats[1] = club("Q3ZD", true);
+                    r.countdown = Some(3);
+                }
+                if s == Scenario::Cpu {
+                    (r.cpu, r.countdown) = (true, Some(5));
+                }
+                v.room = Some(r);
             }
+            Scenario::VsList => v.kind = Kind::Vs,
             Scenario::Greyed => {
                 v.grey[0] = Some(Grey::Shops1718);
                 v.shops.clear();
@@ -400,8 +480,12 @@ fn keys(ui: &Ui, v: &mut LobbyView) -> Option<LobbyAction> {
     if pressed(Key::F5, none) {
         return Some(LobbyAction::Refresh);
     }
-    if v.room.is_some() {
-        return pressed(Key::Enter, none).then_some(LobbyAction::Ready);
+    if let Some(r) = &v.room {
+        let can = !r.ready_here() && r.countdown.is_none();
+        return (pressed(Key::Enter, none) && can).then_some(LobbyAction::Ready);
+    }
+    if pressed(Key::H, none) && v.grey[Kind::Vs as usize].is_none() && !v.offline {
+        return Some(LobbyAction::HostVs);
     }
     let n = v.visible().len();
     if pressed(Key::ArrowDown, none) && v.selected + 1 < n {
@@ -433,6 +517,16 @@ fn keys(ui: &Ui, v: &mut LobbyView) -> Option<LobbyAction> {
 
 /// Draws the lobby from `v` and returns what the player chose this frame.
 pub fn show(ui: &mut Ui, v: &mut LobbyView, lang: Lang) -> Option<LobbyAction> {
+    show_with(ui, v, lang, |_| {})
+}
+
+/// [`show`], with `more` drawn under the address in the Direct address fold (the 2017-18 club server rows).
+pub fn show_with(
+    ui: &mut Ui,
+    v: &mut LobbyView,
+    lang: Lang,
+    more: impl FnOnce(&mut Ui),
+) -> Option<LobbyAction> {
     let mut act = if ui.ctx().egui_wants_keyboard_input() {
         None
     } else {
@@ -465,6 +559,7 @@ pub fn show(ui: &mut Ui, v: &mut LobbyView, lang: Lang) -> Option<LobbyAction> {
             if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
                 act = Some(LobbyAction::DirectAddress(v.address.clone()));
             }
+            more(ui);
         },
     );
     act
@@ -837,36 +932,87 @@ fn room_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
         ui.add_space(4.0);
     }
     ui.add_space(6.0);
-    let all_ready = !room.seats.is_empty()
-        && room
-            .seats
-            .iter()
-            .all(|s| s.as_ref().is_some_and(|o| o.ready));
-    let line = if all_ready && room.kind == Kind::Vs {
-        Some((Tone::Done, tr!(lang, "lobby.starting")))
-    } else {
-        room.next_entry.map(|s| {
-            let t = clock(s);
-            (Tone::Notice, tr!(lang, "lobby.next_entry", t = t))
-        })
-    };
-    if let Some((tone, text)) = line {
-        status_line(ui, tone, &text);
-        ui.add_space(8.0);
+    let vs = room.kind == Kind::Vs;
+    let mut lines = vec![];
+    if room.cpu {
+        lines.push((Tone::Notice, tr!(lang, "lobby.cpu")));
+    }
+    match room.countdown {
+        Some(s) if room.cpu => lines.push((Tone::Done, tr!(lang, "lobby.starting_in", s = s))),
+        Some(s) => lines.push((Tone::Done, tr!(lang, "lobby.both_ready_in", s = s))),
+        None if vs && room.all_ready() => lines.push((Tone::Done, tr!(lang, "lobby.starting"))),
+        None if vs && room.seats.iter().any(Option::is_none) => {
+            lines.push((Tone::Notice, tr!(lang, "lobby.wait_opponent")))
+        }
+        None => {
+            if let Some(s) = room.next_entry {
+                let t = clock(s);
+                lines.push((Tone::Notice, tr!(lang, "lobby.next_entry", t = t)));
+            }
+        }
     }
     if let Some(Notice::RoomClosed) = v.notice {
-        status_line(ui, Tone::Notice, &tr!(lang, "lobby.room_closed"));
+        lines.push((Tone::Notice, tr!(lang, "lobby.room_closed")));
+    }
+    if let (true, Some(s)) = (v.stale(), v.updated_s) {
+        lines.push((Tone::Notice, tr!(lang, "lobby.stale_room", s = s)));
+    }
+    for (tone, text) in lines {
+        status_line(ui, tone, &text);
         ui.add_space(8.0);
     }
     let gap = 8.0;
     let size = vec2((w - gap) / 2.0, 40.0);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = gap;
-        if cabinet(ui, size, &tr!(lang, "lobby.ready"), Cab::Go, false).clicked() {
+        let can = !room.ready_here() && room.countdown.is_none();
+        let ready = ui.add_enabled_ui(can, |ui| {
+            cabinet(ui, size, &tr!(lang, "lobby.ready"), Cab::Go, can)
+        });
+        if ready.inner.clicked() {
             *act = Some(LobbyAction::Ready);
         }
         if cabinet(ui, size, &tr!(lang, "lobby.leave"), Cab::Stop, false).clicked() {
             *act = Some(LobbyAction::Leave);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::keys::{PAD_AXIS, PAD_BUTTON, PAD_HAT};
+
+    #[test]
+    fn pad_buttons_are_the_lobby_keys() {
+        for (code, key) in [
+            (PAD_HAT, Key::ArrowUp),
+            (PAD_HAT + 1, Key::ArrowRight),
+            (PAD_HAT + 2, Key::ArrowDown),
+            (PAD_HAT + 3, Key::ArrowLeft),
+            (PAD_AXIS, Key::ArrowLeft),
+            (PAD_AXIS + 1, Key::ArrowRight),
+            (PAD_AXIS + 2, Key::ArrowUp),
+            (PAD_AXIS + 3, Key::ArrowDown),
+            (PAD_BUTTON + 1, Key::Enter),
+            (PAD_BUTTON + 2, Key::Escape),
+            (PAD_BUTTON + 3, Key::F5),
+            (PAD_BUTTON + 4, Key::H),
+            (PAD_BUTTON + 5, Key::ArrowLeft),
+            (PAD_BUTTON + 6, Key::ArrowRight),
+        ] {
+            assert_eq!(pad_key(code), Some(key), "{code:#x}");
+        }
+        // Back, Start, the sticks' clicks, the triggers and the right stick do nothing here
+        for code in [
+            PAD_BUTTON + 7,
+            PAD_BUTTON + 8,
+            PAD_BUTTON + 9,
+            PAD_AXIS + 4,
+            PAD_AXIS + 6,
+            0x0D,
+        ] {
+            assert_eq!(pad_key(code), None, "{code:#x}");
+        }
+    }
 }

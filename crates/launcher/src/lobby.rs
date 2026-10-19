@@ -4,7 +4,7 @@
 //! dropping a [`Poller`] or a [`Beat`] ends its thread.
 
 use forza::online::SEAT_PORT;
-use forza::online::lobby::{self, Lobby, Reserved, State};
+use forza::online::lobby::{self, Created, Lobby, Reserved, State, VsRoom};
 use forza::ui::Lang;
 use forza::ui::lobby::{LobbyView, Row, RowState};
 use std::collections::HashMap;
@@ -43,12 +43,29 @@ pub enum Msg {
     },
     /// The desk no longer holds the seat for this ticket.
     Gone { ticket: String },
+    /// The desk's answer to HOST VS (`CREATE vs`) or QUICK MATCH on VS ROOMS (`CREATE vs open`).
+    Created {
+        server: String,
+        result: Result<Created, String>,
+    },
+    /// The desk's answer to READY: false when the room or the seat is gone.
+    Readied { id: String, result: Result<bool, String> },
 }
 
 /// `ip` or `ip:port` as a socket address (the seat desk's port by default).
 pub fn socket(server: &str) -> Option<SocketAddr> {
     let s = server.trim();
     s.parse().ok().or_else(|| format!("{s}:{SEAT_PORT}").parse().ok())
+}
+
+/// `CLOSE id ticket` on its own thread (the host leaves its VS room; best effort like [`release`]).
+pub fn close(server: &str, id: &str, ticket: &str) -> thread::JoinHandle<()> {
+    let (a, id, ticket) = (socket(server), id.to_owned(), ticket.to_owned());
+    thread::spawn(move || {
+        if let Some(a) = a {
+            let _ = lobby::close(a, &id, &ticket);
+        }
+    })
 }
 
 /// `RELEASE ticket` on its own thread (best effort: the lease lapses by itself if this fails). Join the handle
@@ -107,21 +124,44 @@ impl Poller {
         let _ = self.nudge.send(());
     }
 
+    /// One call to `server` on a worker; `msg` turns the address (or why there is none) into the answer's message.
+    fn call(&self, server: &str, wake: Wake, msg: impl FnOnce(Result<SocketAddr, String>) -> Msg + Send + 'static) {
+        let (a, out) = (
+            socket(server).ok_or_else(|| "not an address".to_owned()),
+            self.tx.clone(),
+        );
+        thread::spawn(move || {
+            let _ = out.send(msg(a));
+            wake();
+        });
+    }
+
     /// JOIN: `RESERVE id` (or `RESERVE id n` for a rejoin) on a worker; the answer comes back as [`Msg::Reserved`].
     pub fn reserve(&self, server: &str, id: &str, name: &str, seat: Option<u8>, wake: Wake) {
-        let (server, id, name, out) = (server.to_owned(), id.to_owned(), name.to_owned(), self.tx.clone());
-        thread::spawn(move || {
-            let result = match socket(&server) {
-                Some(a) => lobby::reserve_seat(a, &id, seat),
-                None => Err("not an address".into()),
-            };
-            let _ = out.send(Msg::Reserved {
-                server,
-                id,
-                name,
-                result,
-            });
-            wake();
+        let (server2, id, name) = (server.to_owned(), id.to_owned(), name.to_owned());
+        self.call(server, wake, move |a| Msg::Reserved {
+            result: a.and_then(|a| lobby::reserve_seat(a, &id, seat)),
+            server: server2,
+            id,
+            name,
+        });
+    }
+
+    /// HOST VS (`open` false) or QUICK MATCH on VS ROOMS (`open` true); the answer comes back as [`Msg::Created`].
+    pub fn create(&self, server: &str, open: bool, wake: Wake) {
+        let server2 = server.to_owned();
+        self.call(server, wake, move |a| Msg::Created {
+            result: a.and_then(|a| lobby::create(a, open)),
+            server: server2,
+        });
+    }
+
+    /// READY in room `id`; the answer comes back as [`Msg::Readied`].
+    pub fn ready(&self, server: &str, id: &str, ticket: &str, wake: Wake) {
+        let (id, ticket) = (id.to_owned(), ticket.to_owned());
+        self.call(server, wake, move |a| Msg::Readied {
+            result: a.and_then(|a| lobby::ready(a, &id, &ticket)),
+            id,
         });
     }
 
@@ -224,6 +264,29 @@ impl Book {
             }
             Err(_) => e.misses += 1,
         }
+    }
+
+    /// VS room `id` as its server listed it last.
+    pub fn room(&self, id: &str) -> Option<&VsRoom> {
+        self.servers
+            .values()
+            .filter_map(|e| e.lobby.as_ref())
+            .flat_map(|l| &l.vs)
+            .find(|r| r.id == id)
+    }
+
+    /// The first server that answered, for HOST VS.
+    pub fn answering(&self) -> Option<&String> {
+        self.order.iter().find(|s| {
+            self.servers
+                .get(*s)
+                .is_some_and(|e| e.lobby.is_some() && e.misses < MISSES)
+        })
+    }
+
+    /// When `server` last answered.
+    pub fn answered(&self, server: &str) -> Option<Instant> {
+        self.servers.get(server).and_then(|e| e.at)
     }
 
     /// True when every server in the list has missed [`MISSES`] polls in a row.
