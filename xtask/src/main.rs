@@ -25,8 +25,15 @@ use xshell::{Shell, cmd};
 enum Task {
     /// Compile the C programs and the launchers into the staged kits (2010-11 and 2017-18)
     Build,
-    /// fmt, clippy, tests, the kit's Python and C self-tests, the scrub
-    Check,
+    /// fmt, clippy, tests, the kit's Python and C self-tests, the scrub; `check quick` = fmt, clippy and the tests of the crates changed since --base
+    Check {
+        /// `quick`: only the crates changed since the base (and their dependents); no release build, no kit, no smoke
+        #[arg(value_parser = ["quick"])]
+        mode: Option<String>,
+        /// What `quick` diffs against (its merge-base with HEAD, plus the working tree)
+        #[arg(long, default_value = QUICK_BASE)]
+        base: String,
+    },
     /// Copy an edition's files into target/kit/<edition>/ (copies only)
     Stage {
         /// 2010-11 or 2017-18
@@ -50,6 +57,7 @@ enum Task {
     },
 }
 
+const QUICK_BASE: &str = "integ-20261019";
 const TOP: &str = "WCCF-2010-11-kit";
 const PRODUCT: &str = "WCCF 2010-11 kit";
 const PRODUCT_1718: &str = "Forza-WCCF 2017-18";
@@ -342,8 +350,13 @@ fn main() -> Result<()> {
         Task::Gallery => gallery(&root),
         // check and package build first: both used whatever programs were staged last, and a ZIP shipped a Launcher.exe
         // older than its own scripts (2026-10-13, the first Rust run started a deleted panel.py)
-        Task::Check => build_all(&root, &kit, &kit_1718, &Cc::new()?)
-            .and_then(|()| check(&root, &stage_root, &kit, &kit_1718)),
+        Task::Check { mode, base } => {
+            if mode.is_some() {
+                return quick(&root, &stage_root, &base);
+            }
+            build_all(&root, &kit, &kit_1718, &Cc::new()?)
+                .and_then(|()| check(&root, &stage_root, &kit, &kit_1718))
+        }
         Task::Stage { edition } => match edition.as_str() {
             "2010-11" => stage(&root, &kit, ED_1011.map, ED_1011.keep),
             "2017-18" => stage(&root, &kit_1718, ED_1718.map, ED_1718.keep),
@@ -874,14 +887,138 @@ impl Checks {
     }
 }
 
-fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<()> {
-    // one check at a time on this PC: the tests use fixed local ports (the relay on 20941, the seat desk on 20932-20936),
-    // and two checks at once (two worktrees) failed each other's relay checks
+/// One check at a time on this PC (held until dropped).
+fn check_lock() -> Result<std::fs::File> {
     let lock = std::fs::File::create(std::env::temp_dir().join("forza-xtask-check.lock"))?;
     if lock.try_lock().is_err() {
         println!("waiting for another `cargo xtask check` on this PC ...");
         lock.lock()?;
     }
+    Ok(lock)
+}
+
+/// Workspace packages whose files differ from the base's merge-base with HEAD (committed, staged, unstaged or untracked),
+/// plus every package that depends on one by path. A change to xtask, Cargo.lock, a Cargo.toml or the toolchain means all.
+fn changed_packages(root: &Path, base: &str) -> Result<Option<BTreeSet<String>>> {
+    let git = |args: &[&str]| -> Result<String> {
+        let o = Command::new("git").args(args).current_dir(root).output()?;
+        ensure!(o.status.success(), "git {} failed", args.join(" "));
+        Ok(String::from_utf8(o.stdout)?)
+    };
+    let mb = git(&["merge-base", base, "HEAD"])?.trim().to_owned();
+    let mut files = git(&["diff", "--name-only", &mb])?;
+    files += &git(&["ls-files", "--others", "--exclude-standard"])?;
+    let meta = Command::new("cargo")
+        .args(["metadata", "--format-version", "1", "--no-deps", "--locked"])
+        .current_dir(root)
+        .output()?;
+    ensure!(meta.status.success(), "cargo metadata failed");
+    let meta: serde_json::Value = serde_json::from_slice(&meta.stdout)?;
+    let pkgs = meta["packages"].as_array().context("no packages")?;
+    // (name, dir relative to the root, names of path dependencies)
+    let info: Vec<(String, String, Vec<String>)> = pkgs
+        .iter()
+        .map(|p| {
+            let dir = Path::new(p["manifest_path"].as_str().unwrap_or_default())
+                .parent()
+                .and_then(|d| d.strip_prefix(root).ok())
+                .map(|d| d.display().to_string())
+                .unwrap_or_default();
+            let deps = p["dependencies"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|d| !d["path"].is_null())
+                .filter_map(|d| d["name"].as_str().map(str::to_owned))
+                .collect();
+            (p["name"].as_str().unwrap_or_default().to_owned(), dir, deps)
+        })
+        .collect();
+    let mut hit = BTreeSet::new();
+    for f in files.lines() {
+        let xtask = f == "xtask" || f.starts_with("xtask/");
+        if xtask || f == "Cargo.lock" || f == "rust-toolchain.toml" || f.starts_with(".cargo/") {
+            return Ok(None);
+        }
+        // the owning package: the longest package dir that prefixes the file
+        if let Some((n, _, _)) = info
+            .iter()
+            .filter(|(_, d, _)| !d.is_empty() && f.starts_with(&format!("{d}/")))
+            .max_by_key(|(_, d, _)| d.len())
+        {
+            hit.insert(n.clone());
+        } else if f == "Cargo.toml" {
+            return Ok(None);
+        }
+    }
+    // dependents, to a fixed point
+    loop {
+        let more: Vec<String> = info
+            .iter()
+            .filter(|(n, _, deps)| !hit.contains(n) && deps.iter().any(|d| hit.contains(d)))
+            .map(|(n, _, _)| n.clone())
+            .collect();
+        if more.is_empty() {
+            return Ok(Some(hit));
+        }
+        hit.extend(more);
+    }
+}
+
+/// `cargo xtask check quick`: fmt, clippy and tests for the packages changed since `base`; no release build, kit or smoke.
+fn quick(root: &Path, stage_root: &Path, base: &str) -> Result<()> {
+    let _lock = check_lock()?;
+    let pkgs = changed_packages(root, base)?;
+    let scope: Vec<String> = match &pkgs {
+        None => {
+            println!("quick: xtask, Cargo.lock or a manifest changed: whole workspace");
+            vec!["--workspace".into()]
+        }
+        Some(p) if p.is_empty() => {
+            println!("quick: no crate changed since {base}: fmt only");
+            vec![]
+        }
+        Some(p) => {
+            println!(
+                "quick: {}",
+                p.iter().cloned().collect::<Vec<_>>().join(", ")
+            );
+            p.iter()
+                .flat_map(|n| ["-p".to_owned(), n.clone()])
+                .collect()
+        }
+    };
+    // the launcher's and the panel's tests start the C stand-ins and the panel DLL that `cargo xtask build` puts in the kit
+    let needs_kit = pkgs
+        .as_ref()
+        .is_none_or(|p| p.contains("launcher") || p.contains("forza-panel"));
+    let stand_in = stage_root.join("kit/2010-11/source/build/fakegame.exe");
+    ensure!(
+        !needs_kit || stand_in.is_file(),
+        "{} is missing: the launcher and panel tests need the stand-ins; run `cargo xtask build` once",
+        stand_in.display()
+    );
+    let mut fmt = Command::new("cargo");
+    fmt.args(["fmt", "--all", "--check"]).current_dir(root);
+    run_ok(fmt, "cargo fmt")?;
+    if scope.is_empty() {
+        return Ok(());
+    }
+    let mut clippy = rust("clippy", root);
+    clippy.args(["--locked", "--all-targets", "--target", TARGET]);
+    clippy.args(&scope).args(["--", "-D", "warnings"]);
+    run_ok(clippy, "cargo clippy")?;
+    let mut test = rust("test", root);
+    test.args(["--locked", "--target", TARGET]).args(&scope);
+    run_ok(test, "cargo test")?;
+    println!("quick check passed (no release build, no installer smoke, no kit tests)");
+    Ok(())
+}
+
+fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<()> {
+    // one check at a time on this PC: the tests use fixed local ports (the relay on 20941, the seat desk on 20932-20936),
+    // and two checks at once (two worktrees) failed each other's relay checks
+    let _lock = check_lock()?;
     for p in PROGRAMS.iter().chain(&[
         "source/build/fakegame.exe",
         "source/build/fakegame_iphlp.exe",
@@ -1367,6 +1504,7 @@ fn no_script_host(root: &Path, failed: &mut Vec<String>) -> Result<()> {
 const INSTALLER: &str = "wccf-installer";
 const LICENSES: &str = "crates/installer/THIRD-PARTY-LICENSES.json";
 
+/// `profile`: "release" (the ZIP's) or "smoke" (same code, no LTO: faster to link).
 fn installer_exe(root: &Path) -> PathBuf {
     root.join("target")
         .join(TARGET)
