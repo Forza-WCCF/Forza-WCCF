@@ -8,12 +8,22 @@ use std::path::Path;
 pub enum InstallError {
     Cancelled,
     NewerTrueCrypt,
-    ChecksumTable { name: String },
+    ChecksumTable {
+        name: String,
+    },
     TableMismatch,
     ShortRead,
-    BlockCorrupt { block: usize },
-    CannotOpen { path: String, detail: String },
-    UnsupportedSize { path: String, len: u64 },
+    BlockCorrupt {
+        block: usize,
+    },
+    CannotOpen {
+        path: String,
+        detail: String,
+    },
+    UnsupportedSize {
+        path: String,
+        len: u64,
+    },
     WrongKey,
     BadVolumeSize,
     UnknownEdition,
@@ -25,19 +35,36 @@ pub enum InstallError {
     GameFolderExists,
     EnglishNeedsSetup,
     NoKey,
-    KeyRead { detail: String },
-    GameMissing { path: String },
-    CannotCreate { path: String, detail: String },
-    CannotWrite { path: String, detail: String },
+    KeyRead {
+        detail: String,
+    },
+    GameMissing {
+        path: String,
+    },
+    CannotCreate {
+        path: String,
+        detail: String,
+    },
+    CannotWrite {
+        path: String,
+        detail: String,
+    },
     NoSpace,
     NotNtfsDrive,
     NotNtfsVolume,
     ExtractIncomplete,
     KitUnsafePath,
     KitNeedsWindows,
-    KitEdition,
-    Script { detail: String },
-    Other { detail: String },
+    KitEdition {
+        kit: &'static str,
+        game: &'static str,
+    },
+    Script {
+        detail: String,
+    },
+    Other {
+        detail: String,
+    },
 }
 
 pub fn path(p: &Path) -> String {
@@ -77,7 +104,7 @@ impl InstallError {
             ExtractIncomplete => "installer.err_extract_incomplete",
             KitUnsafePath => "installer.err_kit_unsafe",
             KitNeedsWindows => "installer.err_kit_windows",
-            KitEdition => "installer.err_kit_edition",
+            KitEdition { .. } => "installer.err_kit_edition",
             Script { .. } => "installer.err_script",
             Other { .. } => "installer.err_other",
         }
@@ -96,6 +123,7 @@ impl InstallError {
             UnsupportedSize { path, len } => vec![("path", path.clone()), ("len", len.to_string())],
             KeyRead { detail } => vec![("e", detail.clone())],
             GameMissing { path } => vec![("path", path.clone())],
+            KitEdition { kit, game } => vec![("kit", kit.to_string()), ("game", game.to_string())],
             Script { detail } | Other { detail } => vec![("detail", detail.clone())],
             _ => vec![],
         }
@@ -179,7 +207,10 @@ mod tests {
             ExtractIncomplete,
             KitUnsafePath,
             KitNeedsWindows,
-            KitEdition,
+            KitEdition {
+                kit: "a",
+                game: "b",
+            },
             Script { detail: s() },
             Other { detail: s() },
         ];

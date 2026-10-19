@@ -3,6 +3,7 @@
 use crate::disc;
 use crate::err::{InstallError as E, path as shown};
 use anyhow::{Result, bail, ensure};
+use forza::Edition;
 use forza::ui::installer::Step;
 use ntfs::{Ntfs, NtfsReadSeek, structured_values::NtfsFileNamespace};
 use std::fs::{self, File};
@@ -69,32 +70,75 @@ pub fn installed_game_id(dest: &Path) -> Option<&'static str> {
     ids.next().is_none().then_some(id)
 }
 
-pub fn check_setup(game_id: Option<&str>) -> Result<()> {
-    ensure!(game_id == Some("SBWG"), E::KitEdition);
+/// The edition a game id belongs to.
+fn edition_of(game_id: &str) -> Option<Edition> {
+    [Edition::E1011, Edition::E1718]
+        .into_iter()
+        .find(|e| e.game_id() == game_id)
+}
+
+/// The kit's scripts folder, as the launcher's `Kit::script` picks it (`code\` for 2010-11, `scripts\` for 2017-18).
+fn scripts_dir(e: Edition) -> &'static str {
+    match e {
+        Edition::E1011 => "code",
+        Edition::E1718 => "scripts",
+    }
+}
+
+/// The kit's edition must be the game's.
+pub fn check_setup(game_id: Option<&str>, kit: Edition) -> Result<()> {
+    ensure!(
+        game_id.and_then(edition_of) == Some(kit),
+        E::KitEdition {
+            kit: kit.label(),
+            game: game_id.and_then(edition_of).map_or("?", Edition::label),
+        }
+    );
     Ok(())
 }
 
-/// The kit zip may hold the files directly or inside one top folder (WCCF-2010-11-kit/...).
-fn kit_prefix(zip: &mut zip::ZipArchive<File>) -> Result<String> {
+/// The kit zip may hold the files directly or inside one top folder (WCCF-2010-11-kit/...). A kit has Launcher.exe at
+/// its top and is 2010-11 with `code/setup.py`, 2017-18 with `scripts/setup.py` plus `bin/` or `overlay/` (an old
+/// 2010-11 kit had `scripts/` too, but no `bin/` or `overlay/`).
+fn kit_prefix(zip: &mut zip::ZipArchive<File>) -> Result<(Edition, String)> {
     let names = zip
         .file_names()
         .map(|n| n.map(|n| n.into_owned()))
         .collect::<Result<Vec<String>, _>>()
         .map_err(|_| E::ZipName)?;
-    let setup = names
-        .iter()
-        .find(|n| *n == "scripts/setup.py" || n.ends_with("/scripts/setup.py"));
-    let setup = setup.ok_or(E::NotKitZip)?;
-    Ok(setup.trim_end_matches("scripts/setup.py").to_string())
+    let has = |p: &str| {
+        names
+            .iter()
+            .any(|n| n == p || n.starts_with(&format!("{p}/")))
+    };
+    for edition in [Edition::E1011, Edition::E1718] {
+        let setup = format!("{}/setup.py", scripts_dir(edition));
+        for n in names.iter().filter(|n| n.ends_with(&setup)) {
+            let prefix = &n[..n.len() - setup.len()];
+            if !(prefix.is_empty() || prefix.ends_with('/'))
+                || !has(&format!("{prefix}Launcher.exe"))
+            {
+                continue;
+            }
+            if edition == Edition::E1718
+                && !has(&format!("{prefix}bin"))
+                && !has(&format!("{prefix}overlay"))
+            {
+                continue;
+            }
+            return Ok((edition, prefix.to_string()));
+        }
+    }
+    Err(E::NotKitZip.into())
 }
 
-pub fn check_kit_zip(path: &Path) -> Result<()> {
+pub fn check_kit_zip(path: &Path) -> Result<Edition> {
     let f = File::open(path).map_err(|e| E::CannotOpen {
         path: shown(path),
         detail: e.to_string(),
     })?;
     let mut zip = zip::ZipArchive::new(f).map_err(|_| E::NotZip)?;
-    kit_prefix(&mut zip).map(drop)
+    kit_prefix(&mut zip).map(|(e, _)| e)
 }
 
 pub fn free_space(path: &Path) -> Option<u64> {
@@ -149,8 +193,7 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
         None
     };
     if setup {
-        check_setup(Some(id))?;
-        check_kit_zip(plan.kit.as_ref().unwrap())?;
+        check_setup(Some(id), check_kit_zip(plan.kit.as_ref().unwrap())?)?;
     }
     fs::create_dir_all(&dest).map_err(|e| E::CannotCreate {
         path: shown(&dest),
@@ -185,20 +228,16 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
     }
     if setup {
         let kit = plan.kit.as_ref().unwrap();
+        let edition = edition_of(id).unwrap();
         emit(Event::Stage(Step::Setup));
         unpack_kit(kit, &dest, emit)?;
         check(cancel)?;
-        script(&dest, "setup.py", Some(&game), emit, cancel)?;
+        script(&dest, edition, "setup.py", Some(&game), emit, cancel)?;
         if plan.english {
             emit(Event::Stage(Step::English));
-            script(&dest, "english.py", None, emit, cancel)?;
+            script(&dest, edition, "english.py", None, emit, cancel)?;
         }
         if plan.shortcuts {
-            let edition = disc::DISCS
-                .iter()
-                .find(|d| d.game_id == id)
-                .unwrap()
-                .edition;
             shortcuts(&dest, edition, emit);
         }
     } else {
@@ -343,10 +382,10 @@ fn extract(
     Ok(())
 }
 
-/// Unpack the kit zip into dest (README, PLAY.bat, python, scripts ...); an existing data\ (club, keys) is kept.
+/// Unpack the kit zip into dest (Launcher.exe, README, python, scripts ...); an existing data\ (club, keys) is kept.
 fn unpack_kit(zip_path: &Path, dest: &Path, emit: &dyn Fn(Event)) -> Result<()> {
     let mut zip = zip::ZipArchive::new(File::open(zip_path)?).map_err(|_| E::NotZip)?;
-    let prefix = kit_prefix(&mut zip)?;
+    let (_, prefix) = kit_prefix(&mut zip)?;
     let keep_data = dest.join("data").exists();
     let total: u64 = (0..zip.len())
         .filter_map(|i| zip.by_index(i).ok().map(|f| f.size()))
@@ -385,6 +424,7 @@ fn unpack_kit(zip_path: &Path, dest: &Path, emit: &dyn Fn(Event)) -> Result<()> 
 /// Run one of the kit's scripts with its bundled Python and stream its output into the log.
 fn script(
     dest: &Path,
+    edition: Edition,
     name: &str,
     arg: Option<&Path>,
     emit: &dyn Fn(Event),
@@ -395,7 +435,7 @@ fn script(
         bail!(E::KitNeedsWindows);
     }
     let mut cmd = Command::new(python);
-    cmd.arg(dest.join("scripts").join(name))
+    cmd.arg(dest.join(scripts_dir(edition)).join(name))
         .args(arg)
         .current_dir(dest)
         .env("PYTHONUNBUFFERED", "1")
@@ -450,15 +490,16 @@ fn script(
     Ok(())
 }
 
-fn shortcuts(dest: &Path, edition: &str, emit: &dyn Fn(Event)) {
+fn shortcuts(dest: &Path, edition: Edition, emit: &dyn Fn(Event)) {
     if !cfg!(windows) {
         return;
     }
     let q = |p: PathBuf| p.display().to_string().replace('\'', "''");
     let ps = format!(
         "$d=[Environment]::GetFolderPath('Desktop');$w=New-Object -ComObject WScript.Shell;\
-         foreach($n in 'PLAY','STOP'){{$s=$w.CreateShortcut(\"$d\\Forza-WCCF {edition} - $n.lnk\");\
-         $s.TargetPath='{}\\'+$n+'.bat';$s.WorkingDirectory='{}';$s.Save()}}",
+         $s=$w.CreateShortcut(\"$d\\Forza-WCCF {}.lnk\");\
+         $s.TargetPath='{}\\Launcher.exe';$s.WorkingDirectory='{}';$s.Save()",
+        edition.label(),
         q(dest.into()),
         q(dest.into())
     );
@@ -467,10 +508,9 @@ fn shortcuts(dest: &Path, edition: &str, emit: &dyn Fn(Event)) {
     #[cfg(windows)]
     std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000);
     match cmd.status() {
-        Ok(s) if s.success() => emit(Event::Log("Desktop shortcuts created.".into())),
+        Ok(s) if s.success() => emit(Event::Log("Desktop shortcut created.".into())),
         _ => emit(Event::Log(
-            "Could not create the desktop shortcuts (PLAY.bat in the install folder still works)."
-                .into(),
+            "Could not create the desktop shortcut (Launcher.exe in the install folder still works).".into(),
         )),
     }
 }
@@ -505,8 +545,6 @@ mod tests {
         };
         let cancel = AtomicBool::new(false);
         run(&plan, &cancel, &|_| {}).unwrap(); // no kit, even with setup's default true
-        assert!(check_setup(Some("SBWG")).is_ok());
-        assert!(check_setup(None).is_err());
         assert_eq!(GAME_DIR, "game");
         assert!(game_present(&root, "SDDY"));
         assert_eq!(installed_game_id(&root), Some("SDDY"));
@@ -554,16 +592,18 @@ mod tests {
 
         let kit = root.join("kit.zip");
         let mut zip = zip::ZipWriter::new(File::create(&kit).unwrap());
-        zip.start_file("scripts/setup.py", zip::write::SimpleFileOptions::default())
-            .unwrap();
-        zip.write_all(b"not executed").unwrap();
+        for n in ["Launcher.exe", "code/setup.py"] {
+            zip.start_file(n, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(b"not executed").unwrap();
+        }
         zip.finish().unwrap();
         plan.kit = Some(kit);
         assert!(
             run(&plan, &cancel, &|_| {})
                 .unwrap_err()
                 .to_string()
-                .contains("does not support")
+                .contains("is for 2010–11")
         );
         assert!(!edition_root.join("scripts").exists());
         plan.setup = false;
@@ -607,5 +647,67 @@ mod tests {
             b"unchanged"
         );
         fs::remove_dir_all(root).unwrap();
+    }
+
+    fn kit_zip(dir: &Path, name: &str, files: &[&str]) -> PathBuf {
+        let path = dir.join(name);
+        let mut zip = zip::ZipWriter::new(File::create(&path).unwrap());
+        for n in files {
+            zip.start_file(*n, zip::write::SimpleFileOptions::default())
+                .unwrap();
+        }
+        zip.finish().unwrap();
+        path
+    }
+
+    #[test]
+    fn kit_zip_edition_and_prefix() {
+        let dir = std::env::temp_dir().join(format!("kit-zip-test-{}", std::process::id()));
+        fs::create_dir(&dir).unwrap();
+        let prefix = |files: &[&str]| {
+            let p = kit_zip(&dir, "k.zip", files);
+            kit_prefix(&mut zip::ZipArchive::new(File::open(p).unwrap()).unwrap())
+                .map_err(|e| e.to_string())
+        };
+        let a = ["Launcher.exe", "code/setup.py"];
+        let b = ["Launcher.exe", "scripts/setup.py", "bin/x.dll"];
+        assert_eq!(prefix(&a), Ok((Edition::E1011, String::new())));
+        assert_eq!(prefix(&b), Ok((Edition::E1718, String::new())));
+        assert_eq!(
+            prefix(&["K/Launcher.exe", "K/code/setup.py"]),
+            Ok((Edition::E1011, "K/".into()))
+        );
+        assert_eq!(
+            prefix(&[
+                "K/Launcher.exe",
+                "K/scripts/setup.py",
+                "K/overlay/inject.exe"
+            ]),
+            Ok((Edition::E1718, "K/".into()))
+        );
+        // an old 2010-11 kit (scripts/ without bin/ or overlay/), a missing Launcher.exe and a foreign zip are not kits
+        for files in [
+            &["Launcher.exe", "scripts/setup.py"][..],
+            &["code/setup.py"],
+            &["Launcher.exe", "xcode/setup.py"],
+            &["readme.txt"],
+        ] {
+            assert!(
+                prefix(files)
+                    .unwrap_err()
+                    .contains("not a Forza-WCCF package"),
+                "{files:?}"
+            );
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn kit_edition_must_match_the_game() {
+        assert!(check_setup(Some("SBWG"), Edition::E1011).is_ok());
+        assert!(check_setup(Some("SDDY"), Edition::E1718).is_ok());
+        assert!(check_setup(Some("SDDY"), Edition::E1011).is_err());
+        assert!(check_setup(Some("SBWG"), Edition::E1718).is_err());
+        assert!(check_setup(None, Edition::E1011).is_err());
     }
 }
