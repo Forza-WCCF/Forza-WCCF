@@ -51,6 +51,17 @@ pub fn socket(server: &str) -> Option<SocketAddr> {
     s.parse().ok().or_else(|| format!("{s}:{SEAT_PORT}").parse().ok())
 }
 
+/// `RELEASE ticket` on its own thread (best effort: the lease lapses by itself if this fails). Join the handle
+/// when the process is about to exit.
+pub fn release(server: &str, ticket: &str) -> thread::JoinHandle<()> {
+    let (a, ticket) = (socket(server), ticket.to_owned());
+    thread::spawn(move || {
+        if let Some(a) = a {
+            let _ = lobby::release(a, &ticket);
+        }
+    })
+}
+
 /// The polling thread. Alive only while the lobby is shown: drop it and the thread ends at its next wake.
 pub struct Poller {
     pub rx: Receiver<Msg>,

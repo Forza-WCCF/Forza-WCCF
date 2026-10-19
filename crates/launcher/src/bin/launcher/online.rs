@@ -6,7 +6,7 @@ use forza::online::lobby::{HEARTBEAT_EVERY, Reserved};
 use forza::ui::launcher::LauncherState;
 use forza::ui::lobby::{Kind, LobbyAction, Notice, Occupant, Room};
 use launcher::choices;
-use launcher::lobby::{Beat, Book, Msg, Poller, REJOIN_SECS, Wake, quick_shop};
+use launcher::lobby::{Beat, Book, Msg, Poller, REJOIN_SECS, Wake, quick_shop, release};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::Path;
@@ -34,6 +34,20 @@ struct Last {
 
 fn unix() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
+/// Gives a held seat back to the desk unless PLAY already spent the ticket.
+fn let_go(h: Option<Held>) -> Option<std::thread::JoinHandle<()>> {
+    h.filter(|h| !h.played).map(|h| release(&h.server, &h.ticket))
+}
+
+impl Drop for Online {
+    /// The Launcher closes: the seat goes back now (the call has a short timeout).
+    fn drop(&mut self) {
+        if let Some(j) = let_go(self.held.take()) {
+            let _ = j.join();
+        }
+    }
 }
 
 #[derive(Default)]
@@ -76,12 +90,11 @@ impl Online {
             })
         });
         let servers = servers(settings, address);
-        Online {
-            book: Book::new(&servers),
-            servers,
-            last,
-            ..Online::default()
-        }
+        let mut o = Online::default();
+        o.book = Book::new(&servers);
+        o.servers = servers;
+        o.last = last;
+        o
     }
 
     fn save_last(&self, settings: &Path) {
@@ -116,7 +129,7 @@ impl Online {
             self.poller = None;
         }
         if !st.online {
-            self.held = None;
+            let_go(self.held.take());
             st.lobby.room = None;
         }
         if self.was_running && !st.running {
@@ -235,8 +248,8 @@ impl Online {
             LobbyAction::Refresh => self.poller.iter().for_each(Poller::refresh),
             LobbyAction::Leave => {
                 if st.lobby.room.is_some() {
-                    // the heartbeat stops; the desk frees the seat when the 60 s lease lapses
-                    self.held = None;
+                    // the heartbeat stops and the desk frees the seat now
+                    let_go(self.held.take());
                     self.last = None;
                     self.save_last(settings);
                     st.lobby.room = None;

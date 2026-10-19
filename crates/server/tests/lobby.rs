@@ -233,3 +233,22 @@ fn ticket_never_claims_a_seat_taken_meanwhile() {
     );
     let _ = std::fs::remove_file(&log);
 }
+
+#[test]
+fn release_frees_the_seat_at_once_and_spent_tickets_are_gone() {
+    let d = desk(|_| {});
+    let id = shop_id(d.addr());
+    let Reserved::Ticket { ticket, seat } = lobby::reserve(d.addr(), &id).unwrap() else {
+        panic!()
+    };
+    assert_eq!(lobby::fetch(d.addr(), "2017-18").unwrap().shops[0].seats, 1);
+    assert_eq!(lobby::release(d.addr(), &ticket), Ok(true));
+    assert_eq!(lobby::fetch(d.addr(), "2017-18").unwrap().shops[0].seats, 0);
+    assert!(
+        matches!(lobby::reserve_seat(d.addr(), &id, Some(seat)), Ok(Reserved::Ticket { seat: s, .. }) if s == seat)
+    );
+    // released, unknown and claimed tickets say GONE
+    assert_eq!(lobby::release(d.addr(), &ticket), Ok(false));
+    assert_eq!(lobby::release(d.addr(), "nope"), Ok(false));
+    assert_eq!(lobby::heartbeat(d.addr(), &ticket), Ok(false));
+}

@@ -137,3 +137,25 @@ fn silent_servers_show_no_answer_and_the_list_goes_offline() {
     assert_eq!(view.shops[0].state, RowState::NoAnswer);
     assert_eq!(view.updated_s, Some(20));
 }
+
+#[test]
+fn leave_releases_the_seat_at_once() {
+    let d = desk();
+    let server = d.addr().to_string();
+    let id = forza::online::lobby::fetch(d.addr(), "2017-18").unwrap().shops[0]
+        .id
+        .clone();
+    let Ok(Reserved::Ticket { ticket, seat }) = forza::online::lobby::reserve(d.addr(), &id) else {
+        panic!("no ticket");
+    };
+    launcher::lobby::release(&server, &ticket).join().unwrap();
+    assert_eq!(
+        forza::online::lobby::fetch(d.addr(), "2017-18").unwrap().shops[0].seats,
+        0
+    );
+    assert_eq!(forza::online::lobby::heartbeat(d.addr(), &ticket), Ok(false));
+    assert!(matches!(
+        forza::online::lobby::reserve_seat(d.addr(), &id, Some(seat)),
+        Ok(Reserved::Ticket { .. })
+    ));
+}

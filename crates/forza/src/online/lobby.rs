@@ -173,6 +173,15 @@ pub fn heartbeat(addr: SocketAddr, ticket: &str) -> Result<bool, String> {
     }
 }
 
+/// `RELEASE t`: the seat is free at once; false when the ticket is spent, expired or unknown.
+pub fn release(addr: SocketAddr, ticket: &str) -> Result<bool, String> {
+    match ask(addr, &format!("RELEASE {ticket}\n"))?.as_str() {
+        "OK" => Ok(true),
+        "GONE" => Ok(false),
+        other => Err(other.into()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

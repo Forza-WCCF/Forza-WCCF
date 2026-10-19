@@ -3,7 +3,7 @@
 //! control's debug log), and holds the projector box out of the game until a player is in (2010-11).
 //!
 //! Lines in [`forza::online`]'s words: `WANT` / `WANT SEAT n` -> `SEAT n PROJECTOR p` | `TAKEN n` | `FULL` | `ERR ...`,
-//! then `PING` -> `PONG`. `HOLD` -> `HOLD 1` | `HOLD 0` (2010-11 only; the box asks it).
+//! then `PING` -> `PONG`. `RELEASE t` -> `OK` | `GONE` drops a lobby reservation. `HOLD` -> `HOLD 1` | `HOLD 0` (2010-11 only; the box asks it).
 
 use crate::{Edition, Handle, Log};
 use forza::online::lobby::{self, Lobby, Reserved, Shop, State as ShopState};
@@ -437,6 +437,7 @@ fn session(
             };
         }
         ["HEARTBEAT", t] => return heartbeat(sh, t, &mut out),
+        ["RELEASE", t] => return release(sh, t, &mut out),
         _ => {}
     }
     // `WANT ... TICKET t` claims the seat `RESERVE` held
@@ -690,6 +691,17 @@ fn heartbeat(sh: &Shared, t: &str, out: &mut TcpStream) -> io::Result<()> {
         .map(|(_, end)| *end = now + sh.cfg.reserve_lease);
     drop(st);
     out.write_all(if ok.is_some() { b"OK\n" } else { b"GONE\n" })
+}
+
+/// `RELEASE t` -> `OK` (the seat is free at once) or `GONE`. The ticket is the secret, so only its holder gets here.
+fn release(sh: &Shared, t: &str, out: &mut TcpStream) -> io::Result<()> {
+    let mut st = sh.state.lock().unwrap();
+    expire(&mut st, Instant::now());
+    let had = st.reserved.len();
+    st.reserved.retain(|_, (k, _)| k != t);
+    let ok = st.reserved.len() < had;
+    drop(st);
+    out.write_all(if ok { b"OK\n" } else { b"GONE\n" })
 }
 
 /// Starts the desk. Err(io error) when the port cannot be bound (the caller logs "cannot listen ...").
