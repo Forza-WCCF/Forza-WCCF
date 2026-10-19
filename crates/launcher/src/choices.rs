@@ -92,9 +92,52 @@ pub fn setting(path: &Path, key: &str) -> Option<String> {
 
 pub use forza::panel_txt::valid_address;
 
+/// The 2017-18 club server's default port (`forza-server --edition 2017-18 gmsvr`).
+pub const CLUB_PORT: u16 = 20060;
+
+/// data\\settings.json "club_server": "" = this PC; "HOST" or "HOST:PORT" (host: a name or IPv4 address).
+pub fn parse_club_server(s: &str) -> Option<(String, u16)> {
+    let s = s.trim();
+    let (host, port) = match s.rsplit_once(':') {
+        Some((h, p)) => (h, p.parse::<u16>().ok().filter(|&p| p != 0)?),
+        None => (s, CLUB_PORT),
+    };
+    let ok = !host.is_empty()
+        && host.len() <= 253
+        && host.split('.').all(|l| {
+            !l.is_empty()
+                && !l.starts_with('-')
+                && !l.ends_with('-')
+                && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        });
+    ok.then(|| (host.to_owned(), port))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn club_server_parse() {
+        assert_eq!(
+            parse_club_server("club.example.org"),
+            Some(("club.example.org".into(), 20060))
+        );
+        assert_eq!(parse_club_server(" 10.0.0.5:2000 "), Some(("10.0.0.5".into(), 2000)));
+        for bad in [
+            "",
+            "host:",
+            "host:0",
+            "host:70000",
+            ":20060",
+            "a b",
+            "-x.org",
+            "a..b",
+            "h:1:2",
+        ] {
+            assert_eq!(parse_club_server(bad), None, "{bad}");
+        }
+    }
 
     #[test]
     fn panel_lines() {

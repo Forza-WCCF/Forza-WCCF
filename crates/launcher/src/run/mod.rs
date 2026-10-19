@@ -36,7 +36,7 @@ pub mod rules;
 
 use std::fs::{self, File};
 use std::io::{self, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::os::windows::io::{FromRawHandle, OwnedHandle};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -1644,6 +1644,35 @@ impl Run<'_> {
             return Ok(());
         }
         let port = self.p.gamesvr_port;
+        let club = choices::setting(&self.kit.settings_file(), "club_server").filter(|s| !s.trim().is_empty());
+        let ctrl_conf = self.game.join(r"local\ctrl_user_option.conf");
+        if let (Some(c), Mode::Local) = (&club, &self.mode) {
+            let (host, cport) = choices::parse_club_server(c).ok_or_else(|| {
+                Failed(format!(
+                    "club_server \"{c}\" in data\\settings.json is not HOST or HOST:PORT"
+                ))
+            })?;
+            // Note: only "localhost" is proven as GAME_SVR_IP (a literal 127.0.0.1 means the publisher's address);
+            // a numeric IP or a hostname needs the live test.
+            let found = (host.as_str(), cport)
+                .to_socket_addrs()
+                .ok()
+                .and_then(|mut a| a.find(|a| TcpStream::connect_timeout(a, Duration::from_secs(5)).is_ok()));
+            if found.is_none() {
+                return Err(Failed(format!(
+                    "the club server {host}:{cport} does not answer (check the address, that forza-server is running, and the firewall), or clear club_server in data\\settings.json to use this PC"
+                )));
+            }
+            conf::set_conf_value(&ctrl_conf, "GAME_SVR_IP", &host)?;
+            conf::set_conf_value(&ctrl_conf, "GAME_SVR_PORT", &cport.to_string())?;
+            self.say(&format!(
+                "  1/{steps} club server: {host}:{cport} (no local game server stand-in)"
+            ));
+            return Ok(());
+        }
+        // this PC: back to the stand-in's address after a club-server run
+        conf::set_conf_value(&ctrl_conf, "GAME_SVR_IP", "localhost")?;
+        conf::set_conf_value(&ctrl_conf, "GAME_SVR_PORT", &port.to_string())?;
         let listener = TcpListener::bind(("127.0.0.1", port)).map_err(|e| {
             Failed(format!(
                 "the game server stand-in did not start: 127.0.0.1:{port} ({e})"
