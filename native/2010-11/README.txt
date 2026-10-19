@@ -4,6 +4,7 @@ PC with Rust; this ZIP carries no Cargo files):
 
     cargo xtask build              the C programs (32-bit, MSVC) and the launchers (Rust), staged in target\kit\2010-11\
     cargo xtask check              the checks that need no game (code, key driver, panel) and the Rust checks
+    cargo xtask check quick        fmt, clippy and tests of the crates changed since --base (needs one `cargo xtask build` first)
     cargo xtask package 2010-11    the kit ZIP in dist\, as players get it
 
 Needs Visual Studio 2022 (or its Build Tools) with "Desktop development with C++", and rustup.  The

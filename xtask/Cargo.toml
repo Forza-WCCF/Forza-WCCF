@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
-description = "cargo xtask build | check | package: the kit's build, checks and ZIP"
+description = "cargo xtask build | check [quick] | package: the kit's build, checks and ZIP"
 
 [dependencies]
 anyhow.workspace = true
