@@ -22,6 +22,7 @@ pub fn text(lang: Lang, key: &str, args: &[(&str, &str)]) -> String {
 pub mod board;
 pub mod installer;
 pub mod launcher;
+pub mod lobby;
 pub mod panel;
 pub mod sample;
 pub mod theme;

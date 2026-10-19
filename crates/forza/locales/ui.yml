@@ -455,3 +455,44 @@ deal.foot: {en: "Only shown, not on your club card. The card turns over; a click
 close.title: {en: "A MATCH IS ON: THE GAME DID NOT CLOSE", it: "PARTITA IN CORSO: IL GIOCO NON SI È CHIUSO", ja: "試合中：ゲームは終了していません"}
 close.body: {en: "Closing now ends it without the locker-room save: your card gets a bad ending.", it: "Chiudere ora la termina senza il salvataggio negli spogliatoi: la tessera riceve una chiusura anomala.", ja: "今閉じるとロッカールームで保存されずに終わり、カードに異常終了が記録されます。"}
 close.again: {en: "Close the window again within 8 seconds to quit anyway.", it: "Chiudi di nuovo la finestra entro 8 secondi per uscire comunque.", ja: "それでも終了するには、8秒以内にもう一度ウィンドウを閉じてください。"}
+
+# ---- online lobby ----
+lobby.title: {en: "LOBBY", it: "LOBBY", ja: "ロビー"}
+lobby.shops: {en: "SHOPS", it: "SALE GIOCHI", ja: "店舗"}
+lobby.vs: {en: "VS ROOMS", it: "SFIDE VS", ja: "対戦ルーム"}
+lobby.players: {en: "PLAYERS", it: "GIOCATORI", ja: "人数"}
+lobby.open: {en: "OPEN", it: "APERTA", ja: "受付中"}
+lobby.in_match: {en: "IN MATCH", it: "IN PARTITA", ja: "試合中"}
+lobby.full: {en: "FULL", it: "PIENA", ja: "満席"}
+lobby.closed: {en: "CLOSED", it: "CHIUSA", ja: "終了"}
+lobby.join: {en: "JOIN", it: "ENTRA", ja: "参加"}
+lobby.quick: {en: "QUICK MATCH", it: "PARTITA RAPIDA", ja: "クイックマッチ"}
+lobby.host: {en: "HOST VS", it: "CREA SFIDA", ja: "ルームを作る"}
+lobby.ready: {en: "READY", it: "PRONTO", ja: "準備OK"}
+lobby.leave: {en: "LEAVE", it: "ESCI", ja: "退出"}
+lobby.direct: {en: "Direct address", it: "Indirizzo diretto", ja: "アドレスを直接入力"}
+lobby.next_entry: {en: "Next ENTRY in %{t}", it: "Prossima ENTRY tra %{t}", ja: "次のエントリーまで %{t}"}
+lobby.wait_entry: {en: "You play from the next ENTRY, in about %{t}.", it: "Giochi dalla prossima ENTRY, tra circa %{t}.", ja: "次のエントリー（約 %{t} 後）から参加します。"}
+# beyond the ROADMAP table: columns, filters, room lines and status lines
+lobby.name: {en: "NAME", it: "NOME", ja: "名前"}
+lobby.code: {en: "CODE", it: "CODICE", ja: "コード"}
+lobby.ping: {en: "PING", it: "PING", ja: "Ping"}
+lobby.lang: {en: "LANG", it: "LINGUA", ja: "言語"}
+lobby.state: {en: "STATE", it: "STATO", ja: "状態"}
+lobby.refresh: {en: "Refresh", it: "Aggiorna", ja: "更新"}
+lobby.updated: {en: "updated %{s} s ago", it: "aggiornato %{s} s fa", ja: "%{s} 秒前に更新"}
+lobby.all_langs: {en: "All", it: "Tutte", ja: "すべて"}
+lobby.open_only: {en: "Open only", it: "Solo aperte", ja: "受付中のみ"}
+lobby.ping_lt: {en: "< 150 ms", it: "< 150 ms", ja: "150 ms 未満"}
+lobby.no_answer: {en: "NO ANSWER", it: "NESSUNA RISPOSTA", ja: "応答なし"}
+lobby.needs_version: {en: "needs version %{v}", it: "serve la versione %{v}", ja: "バージョン %{v} が必要"}
+lobby.club: {en: "Club #%{id}", it: "Club #%{id}", ja: "クラブ #%{id}"}
+lobby.waiting: {en: "waiting…", it: "in attesa…", ja: "待機中…"}
+lobby.starting: {en: "Both ready: starting", it: "Entrambi pronti: si parte", ja: "両者準備OK：開始します"}
+lobby.empty: {en: "Nothing here yet: host a VS room or type an address.", it: "Ancora niente qui: crea una sfida VS o scrivi un indirizzo.", ja: "まだ何もありません。対戦ルームを作るか、アドレスを入力してください。"}
+lobby.offline: {en: "The server is not answering. Type another address below.", it: "Il server non risponde. Scrivi un altro indirizzo qui sotto.", ja: "サーバーが応答しません。下に別のアドレスを入力してください。"}
+lobby.taken: {en: "That seat was just taken. The list is refreshed.", it: "Quel posto è appena stato preso. L'elenco è aggiornato.", ja: "その席はたった今埋まりました。一覧を更新しました。"}
+lobby.room_closed: {en: "The host closed the room.", it: "L'host ha chiuso la stanza.", ja: "ホストがルームを閉じました。"}
+lobby.stale: {en: "Updated %{s} s ago. JOIN waits for the next answer.", it: "Aggiornato %{s} s fa. ENTRA attende la prossima risposta.", ja: "%{s} 秒前の情報です。次の応答まで参加できません。"}
+lobby.grey_shops_1718: {en: "SHOPS for 2017-18 are not available yet.", it: "Le SALE GIOCHI per 2017-18 non sono ancora disponibili.", ja: "2017-18 の店舗はまだ利用できません。"}
+lobby.grey_vs_1011: {en: "VS ROOMS for 2010-11 are not available yet.", it: "Le SFIDE VS per 2010-11 non sono ancora disponibili.", ja: "2010-11 の対戦ルームはまだ利用できません。"}

@@ -6,7 +6,7 @@ use egui_kittest::kittest::Queryable;
 use egui_kittest::{Harness, SnapshotResults};
 use forza::ui::Lang;
 use forza::ui::theme::{self, Edition};
-use forza::ui::{installer, launcher, panel};
+use forza::ui::{installer, launcher, lobby, panel};
 
 /// One test on the GPU at a time: wgpu devices made in parallel crashed the test process now and then (exit 116,
 /// about 1 run in 4 on 2026-10-12); one after another they never did.
@@ -639,4 +639,55 @@ fn cabinet_shapes_click() {
         h.run_steps(2);
         assert_eq!(st.borrow().pressed, Some(action), "{label}");
     }
+}
+
+/// The online lobby on sample data: every scenario in the three languages, at 1 and 2 pixels per point.
+#[test]
+fn lobby_screens() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for (ppp, suffix) in [(1.0, ""), (2.0, "_2x")] {
+        for s in lobby::Scenario::ALL {
+            for lang in Lang::ALL {
+                let mut v = lobby::LobbyView::sample(s);
+                let mut h = harness(lobby::SIZE, ppp, Edition::E1718, |ui| {
+                    lobby::show(ui, &mut v, lang);
+                });
+                h.run_steps(8);
+                h.snapshot(format!("lobby_{}_{}{suffix}", s.tag(), lang.code()));
+                all.extend_harness(&mut h);
+            }
+        }
+    }
+    all.unwrap();
+}
+
+/// Down, Down, Enter on the sample list joins the third row; Right switches to the VS rooms, F5 and Esc answer.
+#[test]
+fn lobby_keys() {
+    use lobby::LobbyAction::*;
+    let _gpu = gpu();
+    let v = std::cell::RefCell::new(lobby::LobbyView::sample(lobby::Scenario::List));
+    let got = std::cell::RefCell::new(None);
+    let mut h = harness(lobby::SIZE, 1.0, Edition::E1718, |ui| {
+        if let Some(a) = lobby::show(ui, &mut v.borrow_mut(), Lang::En) {
+            *got.borrow_mut() = Some(a);
+        }
+    });
+    h.run_steps(4);
+    let third = v.borrow().shops[2].id.clone();
+    for key in [egui::Key::ArrowDown, egui::Key::ArrowDown, egui::Key::Enter] {
+        h.key_press(key);
+        h.run_steps(2);
+    }
+    assert_eq!(got.take(), Some(Join(third)));
+    h.key_press(egui::Key::ArrowRight);
+    h.run_steps(2);
+    assert_eq!(v.borrow().kind, lobby::Kind::Vs);
+    h.key_press(egui::Key::F5);
+    h.run_steps(2);
+    assert_eq!(got.take(), Some(Refresh));
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert_eq!(got.take(), Some(Leave));
 }
