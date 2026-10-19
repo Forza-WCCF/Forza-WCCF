@@ -441,6 +441,10 @@ fn session(
                 return out.write_all(Reply::Taken(n).line().as_bytes());
             }
             st.reserved.remove(&seat);
+            // the seat may have been taken since RESERVE: the reservation is gone, the client asks again
+            if st.leases.contains_key(&seat) || others.contains_key(&u32::from(seat)) {
+                return out.write_all(Reply::Taken(seat).line().as_bytes());
+            }
             seat
         } else {
             match want {
@@ -565,7 +569,11 @@ fn lobby_answer(sh: &Shared, ip: &str, edition: &str, out: &mut TcpStream) -> io
     {
         return out.write_all(line.as_bytes());
     }
-    let seats = used(sh, &sh.state.lock().unwrap()).len() as u8;
+    let seats = {
+        let mut st = sh.state.lock().unwrap();
+        expire(&mut st, now);
+        used(sh, &st).len() as u8
+    };
     // ponytail: only OPEN and FULL; IN MATCH and next ENTRY need a control-log marker not yet identified
     let shop = Shop {
         id: sh.shop_id.clone(),

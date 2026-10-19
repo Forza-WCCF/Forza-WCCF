@@ -184,3 +184,47 @@ fn per_address_connection_cap() {
     assert!(s.is_empty(), "{s}");
     drop(held);
 }
+
+#[test]
+fn lobby_drops_expired_reservations() {
+    let d = desk(|c| c.reserve_lease = Duration::from_millis(300));
+    let id = shop_id(d.addr());
+    for _ in 0..8 {
+        assert!(matches!(
+            lobby::reserve(d.addr(), &id),
+            Ok(Reserved::Ticket { .. })
+        ));
+    }
+    std::thread::sleep(Duration::from_millis(500));
+    let shop = &lobby::fetch(d.addr(), "2017-18").unwrap().shops[0];
+    assert_eq!((shop.seats, shop.state), (0, State::Open));
+}
+
+#[test]
+fn ticket_never_claims_a_seat_taken_meanwhile() {
+    let log = std::env::temp_dir().join(format!("forza_lobby_ctl_{}.txt", std::process::id()));
+    let _ = std::fs::remove_file(&log);
+    let mut c = DeskConfig::new(Edition::E1011);
+    c.bind = "127.0.0.1".into();
+    c.port = 0;
+    c.lobby_gap = Duration::ZERO;
+    c.lobby_cache = Duration::ZERO;
+    c.control_log = Some(log.clone());
+    let d = start(c, std::sync::Arc::new(|_| {})).unwrap();
+    let id = lobby::fetch(d.addr(), "2010-11").unwrap().shops[0]
+        .id
+        .clone();
+    let Reserved::Ticket { ticket, seat } = lobby::reserve(d.addr(), &id).unwrap() else {
+        panic!()
+    };
+    assert_eq!(seat, 1);
+    // control now has another address on seat 1
+    std::fs::write(&log, "client[0]: sateID=1\n++ACCEPT++ '10.9.9.9:5000'\n").unwrap();
+    assert_eq!(say(d.addr(), &format!("WANT TICKET {ticket}")), "TAKEN 1");
+    // the reservation is gone
+    assert_eq!(
+        say(d.addr(), &format!("WANT TICKET {ticket}")),
+        "ERR ticket"
+    );
+    let _ = std::fs::remove_file(&log);
+}
