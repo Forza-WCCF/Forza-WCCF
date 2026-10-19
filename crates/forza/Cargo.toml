@@ -9,7 +9,7 @@ description = "Forza-WCCF's shared UI: the theme, the bespoke widgets and the sc
 [features]
 # `ui` (default): the egui screens. The Linux server builds `forza` with `--no-default-features`.
 default = ["ui"]
-ui = ["dep:csv", "dep:deunicode", "dep:egui", "dep:encoding_rs", "dep:egui_extras", "dep:image", "dep:rust-i18n"]
+ui = ["dep:csv", "dep:deunicode", "dep:egui", "dep:encoding_rs", "dep:egui_extras", "dep:image", "dep:regex", "dep:rust-i18n", "dep:unicode-normalization"]
 
 [dependencies]
 aes.workspace = true
@@ -17,7 +17,7 @@ sha2.workspace = true
 # the catalogue (catalogue.tsv), forza::cards
 csv = { version = "1.4.0", optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["preserve_order"] }   # forza::text keeps the backup manifest's key order
 egui = { workspace = true, optional = true }
 # `file` and `image`: the card pictures, read and decoded off the UI thread by egui's loaders (PNG only); image's
 # `dds` and `jpeg`: the pictures made from the game (DXT1) and from the high-quality pack (forza::cards::pictures)
@@ -30,6 +30,9 @@ tempfile = "3.27.0"
 time = { version = "0.3.55", features = ["local-offset"] }
 # the catalogue's search: accents and other scripts folded to plain letters ("kaka" finds KAKÀ)
 deunicode = { version = "1.6.2", optional = true }
+# the game text (forza::text): the printf/$ codes of a line, and the Latin spelling of player names
+regex = { version = "1.13.1", optional = true }
+unicode-normalization = { version = "0.1.25", optional = true }
 # the catalogue reads the original records' Shift-JIS (cp932) names
 encoding_rs = { version = "0.8.42", optional = true }
 # the game server stand-in's club store (gamesvr.db); bundled: no system SQLite on the cabinet PC
@@ -59,4 +62,8 @@ workspace = true
 
 [[example]]
 name = "catalogue"
+required-features = ["ui"]
+
+[[example]]
+name = "english"
 required-features = ["ui"]
