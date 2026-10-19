@@ -795,7 +795,7 @@ fn setup_cards(kit: &Path, game: &Path, force: bool, say: &Say) -> Result<()> {
             return Ok(());
         }
         say.line("  making the catalogue and the card pictures from your game files (about a minute) ...");
-        if catalogue::run(Edition::E1011, game, &cache, say.0) != 0 {
+        if catalogue::run(Edition::E1011, game, &cache, catalogue::Output::All, say.0) != 0 {
             return Err(Error(
                 "the card catalogue could not be made (see above)".into(),
             ));
