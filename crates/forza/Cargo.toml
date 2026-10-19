@@ -9,7 +9,7 @@ description = "Forza-WCCF's shared UI: the theme, the bespoke widgets and the sc
 [features]
 # `ui` (default): the egui screens. The Linux server builds `forza` with `--no-default-features`.
 default = ["ui"]
-ui = ["dep:csv", "dep:deunicode", "dep:egui", "dep:egui_extras", "dep:image", "dep:rust-i18n"]
+ui = ["dep:csv", "dep:deunicode", "dep:egui", "dep:encoding_rs", "dep:egui_extras", "dep:image", "dep:rust-i18n"]
 
 [dependencies]
 aes.workspace = true
@@ -29,6 +29,8 @@ tempfile = "3.27.0"
 time = { version = "0.3.55", features = ["local-offset"] }
 # the catalogue's search: accents and other scripts folded to plain letters ("kaka" finds KAKÀ)
 deunicode = { version = "1.6.2", optional = true }
+# the catalogue reads the original records' Shift-JIS (cp932) names
+encoding_rs = { version = "0.8.42", optional = true }
 # the game server stand-in's club store (gamesvr.db); bundled: no system SQLite on the cabinet PC
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 
@@ -53,3 +55,7 @@ required-features = ["ui"]
 
 [lints]
 workspace = true
+
+[[example]]
+name = "catalogue"
+required-features = ["ui"]

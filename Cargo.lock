@@ -1586,6 +1586,7 @@ dependencies = [
  "egui",
  "egui_extras",
  "egui_kittest",
+ "encoding_rs",
  "getrandom 0.3.4",
  "image",
  "rusqlite",
