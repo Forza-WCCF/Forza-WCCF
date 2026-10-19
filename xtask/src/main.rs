@@ -1002,6 +1002,7 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
 
     panel_selftests(&mut ck)?;
     guard_tests(&mut ck, kit_1718)?;
+    launcher_imports(&mut ck, kit_1718);
 
     // the Rust workspace, xtask included: format, lint, tests - the toolchain from rust-toolchain.toml, read in the root
     let cargo = |what: &str, mut c: Command, failed: &mut Vec<String>| {
@@ -1160,6 +1161,52 @@ fn guard_tests(ck: &mut Checks, kit: &Path) -> Result<()> {
     }
     let _ = fs::remove_dir_all(&t);
     Ok(())
+}
+
+/// The Launcher (64-bit, with vslink and iroh in it) must not import the IP helper calls wccfnet.dll stubs: iroh's netwatch
+/// reads adapters and routes (GetAdaptersAddresses and the like), which is fine, but a release, renew or route write never.
+fn launcher_imports(ck: &mut Checks, kit: &Path) {
+    const BLOCKED: [&str; 4] = [
+        "IpReleaseAddress",
+        "IpRenewAddress",
+        "CreateIpForwardEntry",
+        "SetIpForwardEntry",
+    ];
+    let what = "Launcher.exe imports none of the four guarded IP helper calls";
+    let found = || -> Result<Vec<String>> {
+        use object::LittleEndian as LE;
+        use object::pe::ImageNtHeaders64;
+        use object::read::pe::{Import, PeFile64};
+        let data = fs::read(kit.join("Launcher.exe"))?;
+        let pe = PeFile64::parse(&*data)?;
+        let mut found = vec![];
+        let Some(table) = pe.import_table()? else {
+            return Ok(found);
+        };
+        let mut descs = table.descriptors()?;
+        while let Some(d) = descs.next()? {
+            let lib = String::from_utf8_lossy(table.name(d.name.get(LE))?).into_owned();
+            let first = match d.original_first_thunk.get(LE) {
+                0 => d.first_thunk.get(LE),
+                rva => rva,
+            };
+            let mut thunks = table.thunks(first)?;
+            while let Some(t) = thunks.next::<ImageNtHeaders64>()? {
+                if let Import::Name(_, n) = table.import::<ImageNtHeaders64>(t)? {
+                    let n = String::from_utf8_lossy(n);
+                    if BLOCKED.contains(&&*n) {
+                        found.push(format!("{n} from {lib}"));
+                    }
+                }
+            }
+        }
+        Ok(found)
+    };
+    match found() {
+        Ok(f) if f.is_empty() => println!("ok: {what}"),
+        Ok(f) => ck.fail(what, &f.join(", ")),
+        Err(e) => ck.fail(what, &format!("{e:#}")),
+    }
 }
 
 // ---- scrub ----

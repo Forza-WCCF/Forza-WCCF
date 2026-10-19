@@ -7,6 +7,7 @@
 //! answered from a SQLite store, `<save_dir>/gamesvr.db`, by the recipe of docs/research/ONLINE-2017-18.md ("M1");
 //! every other message gets zeros. A request the store refuses (short, wrong revision, unknown ids) gets errCode 1.
 
+use super::vs::{self, Matcher, VsConfig};
 use super::{Handle, Log, accept_loop, read_some};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::HashMap;
@@ -15,6 +16,7 @@ use std::net::{IpAddr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Instant;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// The secretaries' unlock bytes in answer 238: GAME_CTRL bytes 1176..1211, the block starting at +16 (+8 and +12
@@ -24,6 +26,9 @@ const MAGIC: [u8; 8] = [0xF1, 0xC0, 0x80, 0x44, 0xB4, 0x9E, 0xDA, 0x3C];
 /// Response command and payload size (control.c response dispatcher 0x408C50 and the message table).
 const RESP: &[(u16, usize)] = &[
     (202, 16),
+    (901, 8),
+    (903, 8),
+    (905, 48),
     (224, 92),
     (226, 260),
     (228, 12),
@@ -67,14 +72,14 @@ const RESP: &[(u16, usize)] = &[
     (318, 32),
 ];
 
-fn checksum(h: &[u8]) -> u8 {
+pub fn checksum(h: &[u8]) -> u8 {
     h.iter().enumerate().fold(
         0u8,
         |s, (i, b)| if i == 24 { s } else { s.wrapping_add(*b) },
     )
 }
 
-fn header(cmd: u16, seq: u16, status: u32, size: usize, conn: u32) -> [u8; 40] {
+pub fn header(cmd: u16, seq: u16, status: u32, size: usize, conn: u32) -> [u8; 40] {
     let mut h = [0u8; 40];
     h[..8].copy_from_slice(&MAGIC);
     h[8..10].copy_from_slice(&cmd.to_le_bytes());
@@ -591,6 +596,7 @@ fn answer(
     store: &Mutex<Store>,
     skip: Option<&Path>,
     rare: &[u32],
+    vs: Option<(&Vs, IpAddr)>,
     log: &Log,
 ) -> Option<(u16, Vec<u8>, Option<String>)> {
     if cmd == 18 {
@@ -616,11 +622,64 @@ fn answer(
         // (docs/research/ONLINE-2017-18.md)
         put(&mut body, 4, 1);
     }
+    if let Some((vs, peer)) = vs {
+        vs.fill(cmd, payload, peer, &mut body);
+    }
     let refused = club(cmd, payload, &mut body, store, skip, rare, log).err();
     if refused.is_some() {
         put(&mut body, 4, 1);
     }
     Some((rcmd, body, refused))
+}
+
+/// The VS switch (M3): the reflect address 202 hands out and the entry matcher.
+struct Vs {
+    cfg: VsConfig,
+    matcher: Matcher,
+}
+
+impl Vs {
+    /// 202, 224, 238, 243, 245 and the vslink 901, 903, 905 answers (the slot echo is in `body` already).
+    fn fill(&self, cmd: u16, payload: &[u8], peer: IpAddr, body: &mut [u8]) {
+        let t = Instant::now();
+        match cmd {
+            201 if self.matcher.capable(peer, t) => vs::fill_login_loopback(body, &self.cfg),
+            201 => vs::fill_login(body, &self.cfg),
+            // vslink (docs/IROH_VS_PLAN.md 2.3): status 1 = accepted
+            900 if payload.len() >= 36 => {
+                self.matcher.hello(peer, t);
+                put(body, 4, 1);
+            }
+            902 if payload.len() >= 40 => {
+                let id = payload[8..40].try_into().unwrap();
+                let ok = self
+                    .matcher
+                    .register(u32_at(payload, 0), u16_at(payload, 4), id, t);
+                put(body, 4, u32::from(ok));
+            }
+            904 if payload.len() >= 6 => {
+                if let Some((tok, id)) =
+                    self.matcher
+                        .lookup(u32_at(payload, 0), u16_at(payload, 4), t)
+                {
+                    put(body, 4, 1);
+                    body[8..14].copy_from_slice(&tok);
+                    body[16..48].copy_from_slice(&id);
+                }
+            }
+            223 => vs::fill_round(body, now()),
+            237 => vs::fill_thresholds(body),
+            243 => {
+                self.matcher.enter(payload, t);
+            }
+            245 => {
+                if let Some(m) = self.matcher.poll(payload, t) {
+                    body[4..].copy_from_slice(&m[4..]);
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Keeps the newest `keep` `.bin` files in `dir`.
@@ -676,6 +735,8 @@ pub struct Options {
     pub dump: bool,
     /// Concurrent connections per peer IP; 0 = no limit
     pub max_per_ip: usize,
+    /// Direct VS over the internet (M3); None keeps the local stand-in's behaviour
+    pub vs: Option<VsConfig>,
 }
 
 impl Default for Options {
@@ -686,6 +747,7 @@ impl Default for Options {
             skip_tutorial: false,
             dump: true,
             max_per_ip: 0,
+            vs: None,
         }
     }
 }
@@ -725,7 +787,14 @@ pub fn spawn_opts(
         skip_tutorial,
         dump,
         max_per_ip,
+        vs,
     } = opts;
+    let vs = vs.map(|cfg| {
+        Arc::new(Vs {
+            cfg,
+            matcher: Matcher::default(),
+        })
+    });
     let peers: Arc<Mutex<HashMap<IpAddr, usize>>> = Arc::default();
     std::fs::create_dir_all(&save_dir)?;
     let rare = match game.as_deref().map(rare_cards) {
@@ -821,7 +890,15 @@ pub fn spawn_opts(
                     let _ = std::fs::write(save_dir.join(format!("req_{cmd}_{ms}.bin")), &payload);
                     prune(&save_dir, KEEP_FILES);
                 }
-                match answer(cmd, &payload, &store, skip_tutorial.as_deref(), &rare, &log) {
+                match answer(
+                    cmd,
+                    &payload,
+                    &store,
+                    skip_tutorial.as_deref(),
+                    &rare,
+                    vs.as_deref().map(|v| (v, peer.ip())),
+                    &log,
+                ) {
                     Some((rcmd, body, refused)) => {
                         if let Some(why) = refused {
                             log(&format!("   refused cmd {cmd}: {why} (errCode 1)"));
@@ -884,6 +961,7 @@ mod tests {
             &store,
             None,
             &[],
+            None,
             &(Arc::new(|_: &str| {}) as Log),
         )
         .unwrap();
@@ -924,7 +1002,7 @@ mod tests {
         let store = Mutex::new(Store::open(&dir.path().join("gamesvr.db")).unwrap());
         let log: Log = Arc::new(|_: &str| {});
         let ask = |cmd, ids, skip: Option<&Path>| {
-            answer(cmd, &req(cmd, ids), &store, skip, &[], &log)
+            answer(cmd, &req(cmd, ids), &store, skip, &[], None, &log)
                 .unwrap()
                 .1
         };
@@ -985,8 +1063,16 @@ mod tests {
         // Aime id 0 and a short template make nothing
         assert_eq!(u32_at(&ask(271, [0, 0, 0], Some(&game)), 8 + 60), 0);
         std::fs::write(game.join("prog_data/cpu_team/cpu_50.dat"), [0; 100]).unwrap();
-        let (_, body, why) =
-            answer(271, &req(271, [6, 0, 0]), &store, Some(&game), &[], &log).unwrap();
+        let (_, body, why) = answer(
+            271,
+            &req(271, [6, 0, 0]),
+            &store,
+            Some(&game),
+            &[],
+            None,
+            &log,
+        )
+        .unwrap();
         assert!(why.is_some() && u32_at(&body, 8 + 60) == 0);
     }
 
@@ -1010,7 +1096,7 @@ mod tests {
 
         let store = Mutex::new(Store::open(&dir.path().join("gamesvr.db")).unwrap());
         let log: Log = Arc::new(|_: &str| {});
-        let body = answer(271, &req(271, [5, 0, 0]), &store, None, &rare, &log)
+        let body = answer(271, &req(271, [5, 0, 0]), &store, None, &rare, None, &log)
             .unwrap()
             .1;
         assert_eq!(u32_at(&body, 4), 0);
@@ -1019,13 +1105,13 @@ mod tests {
         assert_eq!(&body[1300..1308], &[0xEF, 0x03, 0, 0, 1, 0, 0, 0]);
         assert!(body[1308..].iter().all(|b| *b == 0));
         // Aime id 0 (guest): no list
-        let guest = answer(271, &req(271, [0, 0, 0]), &store, None, &rare, &log)
+        let guest = answer(271, &req(271, [0, 0, 0]), &store, None, &rare, None, &log)
             .unwrap()
             .1;
         assert!(guest[1292..].iter().all(|b| *b == 0));
         // QR_REGIST, QR_DEL_SERIAL, QR_DEL_CARDID: accepted
         for cmd in [295, 297, 299] {
-            let (_, b, why) = answer(cmd, &[0; 32], &store, None, &rare, &log).unwrap();
+            let (_, b, why) = answer(cmd, &[0; 32], &store, None, &rare, None, &log).unwrap();
             assert!(why.is_none() && u32_at(&b, 4) == 0, "cmd {cmd}");
         }
     }

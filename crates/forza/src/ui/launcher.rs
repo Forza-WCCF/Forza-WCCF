@@ -44,6 +44,8 @@ pub enum Action {
     Pictures { choose: bool },
     /// The skip-the-tutorial switch changed.
     SkipTutorial,
+    /// The direct VS link switch changed.
+    VsLink,
     /// UPDATE to the release at this place in the list: Launcher.exe asks to confirm.
     Update(usize),
     /// UPDATE, confirmed.
@@ -110,6 +112,10 @@ pub struct LauncherState {
     pub pictures_hq: bool,
     /// The skip-the-tutorial switch (2017–18 only).
     pub skip_tutorial: Option<bool>,
+    /// The club server, "HOST" or "HOST:PORT", empty for this PC (2017–18 only; saved at PLAY).
+    pub club_server: Option<String>,
+    /// The direct VS link switch, for club-server runs (2017–18 only).
+    pub vs_link: Option<bool>,
     /// The UPDATE section (2010–11 only: the releases are 2010–11 versions).
     pub updates: bool,
     /// The version in this folder.
@@ -193,6 +199,8 @@ impl LauncherState {
             folder: r"C:\Games\Forza-WCCF\2010-2011".into(),
             pictures_hq: false,
             skip_tutorial: None,
+            club_server: None,
+            vs_link: None,
             updates: edition == Edition::E1011,
             version: "7.0.0".into(),
             update_open: false,
@@ -220,6 +228,8 @@ impl LauncherState {
         if edition == Edition::E1718 {
             st.folder = r"C:\Games\Forza-WCCF\2017-2018".into();
             st.skip_tutorial = Some(true);
+            st.club_server = Some(String::new());
+            st.vs_link = Some(true);
         }
         match s {
             Scenario::Ready => {}
@@ -536,6 +546,29 @@ fn setup(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Actio
             .clicked()
         {
             *act = Some(Action::SkipTutorial);
+        }
+        if let Some(club) = &mut st.club_server {
+            ui.horizontal(|ui| {
+                field(ui, &tr!(lang, "launcher.club_server"), 150.0);
+                ui.add(
+                    egui::TextEdit::singleline(club)
+                        .font(theme::mono(14.0))
+                        .hint_text(tr!(lang, "launcher.club_server_hint"))
+                        .desired_width(ui.available_width())
+                        .margin(vec2(10.0, 7.0)),
+                );
+            });
+        }
+        if let Some(on) = &mut st.vs_link
+            && toggle_row(
+                ui,
+                on,
+                &tr!(lang, "launcher.vs_link"),
+                &tr!(lang, "launcher.vs_link_hint"),
+            )
+            .clicked()
+        {
+            *act = Some(Action::VsLink);
         }
     });
 }

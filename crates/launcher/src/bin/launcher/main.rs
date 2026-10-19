@@ -444,6 +444,9 @@ impl App {
             pictures_hq: choices::setting(&settings, "card_pictures").as_deref() == Some("hq"),
             skip_tutorial: (kit.edition() == Edition::E1718)
                 .then(|| kit.settings()["skip_tutorial"].as_bool() == Some(true)),
+            club_server: (kit.edition() == Edition::E1718)
+                .then(|| choices::setting(&settings, "club_server").unwrap_or_default()),
+            vs_link: (kit.edition() == Edition::E1718).then(|| kit.settings()["vs_link"].as_bool() != Some(false)),
             updates: kit.edition() == Edition::E1011,
             version: version(kit),
             update_open: false,
@@ -610,6 +613,14 @@ impl App {
                     refuse(write_failed(&file, &e));
                 }
             }
+            Action::VsLink => {
+                // data\settings.json "vs_link" (default on), which run::start_vslink reads
+                let file = kit.settings_file();
+                let on = self.st.vs_link != Some(false);
+                if let Err(e) = choices::set_setting_bool(&file, "vs_link", on) {
+                    refuse(write_failed(&file, &e));
+                }
+            }
             Action::Update(i) => {
                 if let Some(r) = self.releases.get(i) {
                     let key = if r.test {
@@ -672,6 +683,19 @@ impl App {
         } else if online && !choices::valid_address(&server) {
             refuse(t("launcher.msg_bad_address"));
             return;
+        }
+        if let Some(club) = &self.st.club_server {
+            // the club server (run::start_gamesvr reads it): empty = this PC
+            let club = club.trim();
+            if !club.is_empty() && choices::parse_club_server(club).is_none() {
+                refuse(t("launcher.msg_bad_club"));
+                return;
+            }
+            let file = kit.settings_file();
+            if let Err(e) = choices::set_setting(&file, "club_server", club) {
+                refuse(write_failed(&file, &e));
+                return;
+            }
         }
         let lang = GAME_TEXT[self.st.game_text.min(2)];
         let path = panel_file(kit);

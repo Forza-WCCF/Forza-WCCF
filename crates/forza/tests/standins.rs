@@ -657,3 +657,86 @@ fn network_replay() {
     }
     drop(held);
 }
+
+/// M3: two fake cabinets log in, probe the reflect service, enter (243), poll (245) and get mirrored 246s.
+#[test]
+fn vs_two_clients_pair_through_reflect() {
+    use forza::standins::vs::{VsConfig, spawn_reflect};
+    use std::net::{Ipv4Addr, UdpSocket};
+    let dir = scratch("vs");
+    let udp = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let reflect_port = udp.local_addr().unwrap().port();
+    let _r = spawn_reflect(udp, quiet()).unwrap();
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let o = gamesvr::Options {
+        vs: Some(VsConfig {
+            public_ip: Ipv4Addr::LOCALHOST,
+            reflect_port,
+            vslink_port: 20090,
+        }),
+        ..Default::default()
+    };
+    let _svc = gamesvr::spawn_opts(l.try_clone().unwrap(), dir, quiet(), o).unwrap();
+    // a client: login, probe, returns (tcp, public ip, public port)
+    let client = |shop: u32| {
+        let mut c = connect(&l);
+        let login = ask(&mut c, 201, &req(28, 24, |b| le(b, 8, shop)));
+        assert_eq!(login[8..12], [127, 0, 0, 1]);
+        let port = u16::from_le_bytes([login[12], login[13]]);
+        assert_eq!(port, reflect_port);
+        let u = UdpSocket::bind("127.0.0.1:0").unwrap();
+        u.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let mut p = [0u8; 58];
+        p[..8].copy_from_slice(&[0xF1, 0xC0, 0x80, 0x44, 0xB4, 0x9E, 0xDA, 0x3C]);
+        p[8] = 1;
+        p[16] = 58;
+        u.send_to(&p, ("127.0.0.1", port)).unwrap();
+        let mut r = [0u8; 128];
+        assert_eq!(u.recv(&mut r).unwrap(), 58);
+        assert_eq!(r[52..56], [127, 0, 0, 1]);
+        let mine = u.local_addr().unwrap().port();
+        assert_eq!(u16::from_le_bytes([r[56], r[57]]), mine);
+        (c, mine)
+    };
+    let (mut a, pa) = client(5);
+    let (mut b, pb) = client(6);
+    let round = word(&ask(&mut a, 223, &req(20, 16, |_| {})), 4);
+    let entry = |port: u16, card: u32, shop: u32| {
+        let mut e = vec![0u8; 280];
+        le(&mut e, 0, 1);
+        le(&mut e, 4, round);
+        e[8..12].copy_from_slice(&[127, 0, 0, 1]);
+        e[12..14].copy_from_slice(&port.to_le_bytes());
+        le(&mut e, 44, card);
+        le(&mut e, 48, shop);
+        e
+    };
+    let poll = |c: &mut TcpStream, card: u32, shop: u32| {
+        let mut q = vec![0u8; 20];
+        le(&mut q, 0, 1);
+        le(&mut q, 4, round);
+        le(&mut q, 8, card);
+        le(&mut q, 12, shop);
+        ask(c, 245, &q)
+    };
+    assert_eq!(ask(&mut a, 243, &entry(pa, 111, 5)).len(), 12);
+    let early = poll(&mut a, 111, 5);
+    assert_eq!((word(&early, 12), early[122]), (0, 0), "keep waiting");
+    // a cancelled entry never pairs
+    ask(&mut b, 243, &entry(0, 222, 6));
+    assert_eq!(poll(&mut a, 111, 5)[122], 0);
+    ask(&mut b, 243, &entry(pb, 222, 6));
+    let (ra, rb) = (poll(&mut a, 111, 5), poll(&mut b, 222, 6));
+    assert_eq!((word(&ra, 12), word(&rb, 12)), (222, 111));
+    assert_eq!((ra[122], rb[122]), (1, 1));
+    assert_eq!(word(&ra, 116), word(&rb, 116), "same seed");
+    assert_eq!(ra[16..20], [127, 0, 0, 1]);
+    assert_eq!(
+        (
+            u16::from_le_bytes([ra[120], ra[121]]),
+            u16::from_le_bytes([rb[120], rb[121]])
+        ),
+        (pb, pa)
+    );
+    assert_eq!(poll(&mut a, 111, 5)[116..120], ra[116..120], "stable");
+}

@@ -32,6 +32,12 @@ pub fn set_satellite_no(conf: &Path, n: u32) -> io::Result<bool> {
 /// line ends; true if the file changed.
 pub fn set_conf_value(conf: &Path, key: &str, value: &str) -> io::Result<bool> {
     let raw = fs::read(conf)?;
+    let out = conf_text_with(&raw, key, value)?;
+    write(conf, &raw, &out)
+}
+
+/// `set_conf_value` on the file's bytes.
+pub fn conf_text_with(raw: &[u8], key: &str, value: &str) -> io::Result<Vec<u8>> {
     let nl: &[u8] = if raw.windows(2).any(|w| w == b"\r\n") {
         b"\r\n"
     } else {
@@ -39,14 +45,13 @@ pub fn set_conf_value(conf: &Path, key: &str, value: &str) -> io::Result<bool> {
     };
     let line = format!("{key}={value}");
     let pat = Regex::new(&format!(r"(?m-u)^{}=[^\r\n]*", regex::escape(key))).map_err(io::Error::other)?;
-    let out = if pat.is_match(&raw) {
-        pat.replace_all(&raw, regex::bytes::NoExpand(line.as_bytes()))
+    Ok(if pat.is_match(raw) {
+        pat.replace_all(raw, regex::bytes::NoExpand(line.as_bytes()))
             .into_owned()
     } else {
         let sep: &[u8] = if raw.ends_with(nl) || raw.is_empty() { b"" } else { nl };
-        [&raw, sep, line.as_bytes(), nl].concat()
-    };
-    write(conf, &raw, &out)
+        [raw, sep, line.as_bytes(), nl].concat()
+    })
 }
 
 fn need(conf: &Path, raw: &[u8], key: &str) -> io::Result<()> {
@@ -73,4 +78,18 @@ fn write(conf: &Path, raw: &[u8], out: &[u8]) -> io::Result<bool> {
         return Err(io::Error::other(format!("could not write {}", conf.display())));
     }
     Ok(true)
+}
+
+#[cfg(test)]
+mod club_tests {
+    use super::conf_text_with;
+
+    #[test]
+    fn rewrite_keeps_other_lines_and_line_ends() {
+        let t = b"A=1\r\nGAME_SVR_IP=localhost\r\nGAME_SVR_PORT=20050\r\n";
+        let t = conf_text_with(t, "GAME_SVR_IP", "club.example.org").unwrap();
+        let t = conf_text_with(&t, "GAME_SVR_PORT", "20060").unwrap();
+        assert_eq!(t, b"A=1\r\nGAME_SVR_IP=club.example.org\r\nGAME_SVR_PORT=20060\r\n");
+        assert_eq!(conf_text_with(b"A=1", "K", "v").unwrap(), b"A=1\nK=v\n");
+    }
 }
