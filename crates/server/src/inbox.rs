@@ -109,12 +109,12 @@ fn clean_version(v: &str) -> String {
         .collect()
 }
 
-fn serve(sh: &Shared, mut conn: TcpStream, ip: &str) {
+fn serve(sh: &Shared, conn: &mut TcpStream, ip: &str) {
     let no = |conn: &mut TcpStream, why: String| {
         let _ = conn.write_all(UploadReply::No(why.clone()).line().as_bytes());
         (sh.log)(&format!("{ip}: refused - {why}"));
     };
-    if let Err(e) = upload(sh, &mut conn, ip, no) {
+    if let Err(e) = upload(sh, conn, ip, no) {
         (sh.log)(&format!("{ip}: upload failed - {e}"));
     }
 }
@@ -246,14 +246,19 @@ pub fn start(cfg: InboxConfig, log: Log) -> io::Result<Handle> {
             let ip = peer.ip().to_string();
             if sh.active.fetch_add(1, Ordering::SeqCst) >= SLOTS {
                 sh.active.fetch_sub(1, Ordering::SeqCst);
-                let _ = conn.write_all(b"NO busy - try again in a minute\n");
                 (sh.log)(&format!("{ip}: refused - 4 uploads already coming in"));
+                // off the accept loop: hang_up waits for the PC
+                thread::spawn(move || {
+                    let _ = conn.write_all(b"NO busy - try again in a minute\n");
+                    crate::hang_up(conn);
+                });
                 continue;
             }
             let sh = sh.clone();
             thread::spawn(move || {
-                serve(&sh, conn, &ip);
-                sh.active.fetch_sub(1, Ordering::SeqCst);
+                serve(&sh, &mut conn, &ip);
+                sh.active.fetch_sub(1, Ordering::SeqCst); // the slot is free before we wait for the PC
+                crate::hang_up(conn);
             });
         }
     });

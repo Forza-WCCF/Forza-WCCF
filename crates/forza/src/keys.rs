@@ -157,9 +157,15 @@ pub fn key_label(vk: u32) -> String {
 
 // ---- the KEYS page's actions and keys.txt
 
-/// The 16 actions by their names in keys.txt, in the KEYS page's order (`wccfpanel.c` `g_kact`): the buttons, CARD and
-/// COIN, the tactics, the operator's.
-pub const NAMES: [&str; 16] = [
+/// How many actions keys.txt binds.
+pub const COUNT: usize = 17;
+/// PAUSE's place in [`NAMES`]: the panel's own action (the match held, `forza_panel.dll`), no cabinet input, so the key
+/// driver (`launcher::keys`) skips its line and it has no controller control.
+pub const PAUSE: usize = 16;
+
+/// The actions by their names in keys.txt, in the KEYS page's order (`wccfpanel.c` `g_kact`, then PAUSE): the buttons,
+/// CARD and COIN, the tactics, the operator's, the panel's pause.
+pub const NAMES: [&str; COUNT] = [
     "START",
     "PRESS",
     "SHOOT",
@@ -176,21 +182,46 @@ pub const NAMES: [&str; 16] = [
     "SERVICE",
     "SENSOR2",
     "SENSOR3",
+    "PAUSE",
 ];
 
 /// The default keys in [`NAMES`] order. SW1 and SW2 (SENSOR2/3) have none in 2010-11: on the original's club-card
-/// recovery screen SW1 overwrites the card with its backup; the 2017-18 kit gives them 8 and 9.
-pub fn defaults(e1718: bool) -> [u32; 16] {
+/// recovery screen SW1 overwrites the card with its backup; the 2017-18 kit gives them 8 and 9. PAUSE is P.
+pub fn defaults(e1718: bool) -> [u32; COUNT] {
     let sw = if e1718 { [0x38, 0x39] } else { [0, 0] };
     [
         0x0D, 0x58, 0x43, 0x42, 0x53, 0x44, 0x49, 0x35, 0x26, 0x28, 0x25, 0x27, 0x70, 0x71, sw[0],
-        sw[1],
+        sw[1], 0x50,
     ]
 }
 
-/// keys.txt as the KEYS page writes it, byte for byte as `wccfpanel.c` `keys_save_locked` (each edition's own first
-/// lines): every action's key in [`NAMES`] order ("# NAME has no key" for none), then the controller controls.
-pub fn keys_text(e1718: bool, keys: &[u32; 16], pads: &[u32; 16]) -> String {
+/// PAUSE's key from keys.txt (the key driver skips the line): its last good `PAUSE=0x50` line, else `default`; none
+/// (0) when another action already has that key (`taken`), as the driver gives a key to one action only.
+pub fn pause_key(raw: &[u8], default: u32, taken: &[u32]) -> u32 {
+    let mut vk = default;
+    for line in String::from_utf8_lossy(raw).lines() {
+        let Some((name, val)) = line.split('#').next().and_then(|l| l.split_once('=')) else {
+            continue;
+        };
+        if !name.trim().eq_ignore_ascii_case("PAUSE") {
+            continue;
+        }
+        let val = val.trim();
+        let n = match val.strip_prefix("0x").or_else(|| val.strip_prefix("0X")) {
+            Some(hex) => u32::from_str_radix(hex, 16).ok(),
+            None => val.parse().ok(),
+        };
+        if let Some(n) = n.filter(|n| is_allowed(i128::from(*n))) {
+            vk = n;
+        }
+    }
+    if taken.contains(&vk) { 0 } else { vk }
+}
+
+/// keys.txt as the KEYS page writes it, as `wccfpanel.c` `keys_save_locked` with PAUSE added (each edition's own first
+/// lines): every action's key in [`NAMES`] order ("# NAME has no key" for none), then the controller controls (none for
+/// PAUSE).
+pub fn keys_text(e1718: bool, keys: &[u32; COUNT], pads: &[u32; COUNT]) -> String {
     let driver = if e1718 {
         "_keys_seat1.py"
     } else {
@@ -209,7 +240,7 @@ pub fn keys_text(e1718: bool, keys: &[u32; 16], pads: &[u32; 16]) -> String {
     }
     s += "# controllers (any game controller): B1-B32 its buttons, X- X+ Y- Y+ the stick (left right up down),\n# Z R \
           U V its other axes (+ or -), HAT UP / RIGHT / DOWN / LEFT its d-pad\n";
-    for (name, pad) in NAMES.iter().zip(pads) {
+    for (name, pad) in NAMES.iter().zip(pads).take(PAUSE) {
         if let Some(w) = pad_token(*pad) {
             s += &format!("PAD {name}={w}\n");
         }
@@ -222,12 +253,12 @@ mod tests {
     use super::*;
 
     /// The C panel's own output for these bindings (2010-11 header, SHOOT moved to G, SW1/SW2 without keys, two
-    /// controller controls).
+    /// controller controls), with PAUSE's line added.
     #[test]
     fn keys_txt_as_the_c_panel_writes_it() {
         let mut keys = defaults(false);
         keys[2] = 0x47;
-        let mut pads = [0; 16];
+        let mut pads = [0; COUNT];
         pads[2] = PAD_BUTTON + 3;
         pads[8] = PAD_HAT;
         assert_eq!(
@@ -235,14 +266,34 @@ mod tests {
             b"# WCCF 2010-11 kit - which key and which controller control does what. Written by the KEYS panel\n\
 # in seat 1's window, read by the key driver (keyboard.py). Delete this file to get the default keys back.\n\
 START=0x0D\nPRESS=0x58\nSHOOT=0x47\nKEEPER=0x42\nDATA=0x53\nKEYPLAYER=0x44\nCARD=0x49\nCOIN=0x35\nUP=0x26\n\
-DOWN=0x28\nLEFT=0x25\nRIGHT=0x27\nTEST=0x70\nSERVICE=0x71\n# SENSOR2 has no key\n# SENSOR3 has no key\n\
+DOWN=0x28\nLEFT=0x25\nRIGHT=0x27\nTEST=0x70\nSERVICE=0x71\n# SENSOR2 has no key\n# SENSOR3 has no key\nPAUSE=0x50\n\
 # controllers (any game controller): B1-B32 its buttons, X- X+ Y- Y+ the stick (left right up down),\n\
 # Z R U V its other axes (+ or -), HAT UP / RIGHT / DOWN / LEFT its d-pad\n\
 PAD SHOOT=B3\nPAD UP=HAT UP\n"
         );
-        assert!(keys_text(true, &defaults(true), &[0; 16]).contains("(_keys_seat1.py)"));
+        assert!(keys_text(true, &defaults(true), &[0; COUNT]).contains("(_keys_seat1.py)"));
         assert!(
-            keys_text(true, &defaults(true), &[0; 16]).contains("\nSENSOR2=0x38\nSENSOR3=0x39\n")
+            keys_text(true, &defaults(true), &[0; COUNT])
+                .contains("\nSENSOR2=0x38\nSENSOR3=0x39\n")
+        );
+    }
+
+    #[test]
+    fn pause_key_from_keys_txt() {
+        let taken = &defaults(false)[..PAUSE];
+        assert_eq!(pause_key(b"", 0x50, taken), 0x50);
+        assert_eq!(
+            pause_key(b"START=0x0D\nPAUSE=0x13 # Pause\n", 0x50, taken),
+            0x13
+        );
+        assert_eq!(pause_key(b"pause = 80\n", 0x13, taken), 0x50);
+        assert_eq!(pause_key(b"PAUSE=0x1B\nPAUSE=junk\n", 0x50, taken), 0x50); // Esc is never a key; junk skipped
+        assert_eq!(pause_key(b"PAUSE=0x58\n", 0x50, taken), 0); // PRESS's X
+        assert_eq!(
+            keys_text(false, &defaults(false), &[0x101; COUNT])
+                .matches("PAD ")
+                .count(),
+            PAUSE
         );
     }
 }

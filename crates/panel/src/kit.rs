@@ -13,6 +13,7 @@
 //! - The language: `WCCF_KIT_LANG`, else `data\settings.json`'s `language`, else Windows' display language, else
 //!   English (the launcher's order).
 
+use forza::keys::{COUNT, PAUSE};
 use forza::panel_txt::PanelFile;
 use forza::ui::Lang;
 use forza::ui::panel::{CardState, Link, Status, when};
@@ -170,7 +171,7 @@ impl Files {
 
     /// keys.txt's keys and controller controls in the KEYS page's order (`forza::keys::NAMES`), by the key driver's
     /// rules (`launcher::keys::load_keys_with`, `load_pads`) and this edition's defaults.
-    pub fn load_keys(&self) -> ([u32; 16], [u32; 16]) {
+    pub fn load_keys(&self) -> ([u32; COUNT], [u32; COUNT]) {
         use launcher::keys::{ACTIONS, load_keys_with, load_pads};
         let raw = std::fs::read(&self.keys).unwrap_or_default();
         let ui = forza::keys::defaults(self.edition == Edition::E1718);
@@ -183,7 +184,7 @@ impl Files {
         };
         let (keys, _) = load_keys_with(&raw, std::array::from_fn(|i| ui[at(ACTIONS[i].name)]));
         let (pads, _) = load_pads(&raw);
-        let back = |v: [u32; 16]| {
+        let back = |v: [u32; 16]| -> [u32; COUNT] {
             std::array::from_fn(|i| {
                 ACTIONS
                     .iter()
@@ -191,12 +192,15 @@ impl Files {
                     .map_or(0, |j| v[j])
             })
         };
-        (back(keys), back(pads))
+        let mut keys = back(keys);
+        // PAUSE is the panel's own: the key driver skips its line
+        keys[PAUSE] = forza::keys::pause_key(&raw, ui[PAUSE], &keys[..PAUSE]);
+        (keys, back(pads))
     }
 
     /// keys.txt as the KEYS page writes it, whole: `keys.txt.panel`, then one swap (the key driver may be reading it
     /// this instant: 40 tries 5 ms apart, as `wccfpanel.c`).
-    pub fn save_keys(&self, keys: &[u32; 16], pads: &[u32; 16]) -> std::io::Result<()> {
+    pub fn save_keys(&self, keys: &[u32; COUNT], pads: &[u32; COUNT]) -> std::io::Result<()> {
         swap_write(
             &self.keys,
             &forza::keys::keys_text(self.edition == Edition::E1718, keys, pads),
@@ -224,6 +228,44 @@ pub fn swap_write(path: &Path, text: &str) -> std::io::Result<()> {
 /// This process's TCP link to the game server's control port (20002), as `wccfpanel.c` `server_link`: the IP-helper
 /// table read through iphlpapi.dll loaded by name (read only; the game's own IP-helper calls stay guarded).
 pub fn server_link() -> Link {
+    let Some(rows) = tcp_rows() else {
+        return Link::Unknown;
+    };
+    let me = std::process::id();
+    let want = control_port();
+    // MIB_TCPROW_OWNER_PID: state, local address, local port, remote address, remote port, process
+    for row in rows {
+        let port = u16::from_be((row[4] & 0xFFFF) as u16);
+        if row[5] == me && port == want && row[0] == 5 {
+            let [a, b, c, d] = row[3].to_le_bytes();
+            return Link::Up(format!("{a}.{b}.{c}.{d}"));
+        }
+    }
+    Link::Down
+}
+
+/// The seats linked to the control `pid` on this PC: its connections on the control port (the projector counts).
+pub fn seats_on(pid: u32) -> Option<usize> {
+    let want = control_port();
+    let rows = tcp_rows()?;
+    Some(
+        rows.iter()
+            .filter(|r| r[5] == pid && r[0] == 5 && u16::from_be((r[2] & 0xFFFF) as u16) == want)
+            .count(),
+    )
+}
+
+/// The control port: 20002, or the tests' own (WCCFPANEL_CONTROL_PORT), never the server's on a PC that may be playing.
+fn control_port() -> u16 {
+    env::var("WCCFPANEL_CONTROL_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(20002u16)
+}
+
+/// Every IPv4 TCP connection with its process (MIB_TCPROW_OWNER_PID: state, local address, local port, remote address,
+/// remote port, process).
+fn tcp_rows() -> Option<Vec<[u32; 6]>> {
     type GetTable = unsafe extern "system" fn(*mut c_void, *mut u32, i32, u32, i32, u32) -> u32;
     static GET: std::sync::OnceLock<Option<GetTable>> = std::sync::OnceLock::new();
     // SAFETY: the system's own module, never freed; GetExtendedTcpTable has this signature
@@ -232,7 +274,7 @@ pub fn server_link() -> Link {
         let f = GetProcAddress(m, windows::core::s!("GetExtendedTcpTable"))?;
         Some(std::mem::transmute::<Proc, GetTable>(f))
     });
-    let Some(get) = get else { return Link::Unknown };
+    let get = (*get)?;
     let mut size = 0u32;
     // SAFETY: first the size, then a buffer of it (and some): AF_INET, TCP_TABLE_OWNER_PID_ALL
     unsafe {
@@ -240,24 +282,18 @@ pub fn server_link() -> Link {
         let mut buf = vec![0u32; (size as usize + 4096) / 4];
         let mut n = (buf.len() * 4) as u32;
         if get(buf.as_mut_ptr().cast(), &mut n, 0, 2, 5, 0) != 0 {
-            return Link::Unknown;
+            return None;
         }
-        let me = std::process::id();
-        // the tests' own port (WCCFPANEL_CONTROL_PORT), never the server's on a PC that may be playing
-        let want = env::var("WCCFPANEL_CONTROL_PORT")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(20002u16);
-        // MIB_TCPROW_OWNER_PID: state, local address, local port, remote address, remote port, process
-        for row in buf[1..].as_chunks::<6>().0.iter().take(buf[0] as usize) {
-            let port = u16::from_be((row[4] & 0xFFFF) as u16);
-            if row[5] == me && port == want && row[0] == 5 {
-                let [a, b, c, d] = row[3].to_le_bytes();
-                return Link::Up(format!("{a}.{b}.{c}.{d}"));
-            }
-        }
+        Some(
+            buf[1..]
+                .as_chunks::<6>()
+                .0
+                .iter()
+                .take(buf[0] as usize)
+                .copied()
+                .collect(),
+        )
     }
-    Link::Down
 }
 
 /// winmm's joystick calls from the system folder, as `wccfpanel.c` `pad_api` takes them: seat 1's own winmm.dll is the

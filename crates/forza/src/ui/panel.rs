@@ -127,8 +127,8 @@ impl Page {
     }
 }
 
-/// The 16 bindable actions, in the KEYS page's order (`forza::keys::NAMES`): (text key, cabinet colour).
-pub const ACTIONS: [(&str, Cab); 16] = [
+/// The bindable actions, in the KEYS page's order (`forza::keys::NAMES`): (text key, cabinet colour).
+pub const ACTIONS: [(&str, Cab); crate::keys::COUNT] = [
     ("cab.start", Cab::Go),
     ("cab.press", Cab::Press),
     ("cab.shoot", Cab::Shoot),
@@ -145,6 +145,7 @@ pub const ACTIONS: [(&str, Cab); 16] = [
     ("keys.service", Cab::Plain),
     ("keys.sw1", Cab::Plain),
     ("keys.sw2", Cab::Plain),
+    ("keys.pause", Cab::Plain),
 ];
 
 /// What the catalogue lists: the search line, the filters and the sort (`wccfpanel.c` `run_search_locked`).
@@ -416,8 +417,8 @@ pub struct PanelState {
     pub message: Option<Note>,
     pub catalogue: Catalogue,
     /// Each action's key (virtual-key code, 0 none) and controller control (`forza::keys`), in [`ACTIONS`] order.
-    pub keys: [u32; 16],
-    pub pads: [u32; 16],
+    pub keys: [u32; crate::keys::COUNT],
+    pub pads: [u32; crate::keys::COUNT],
     /// The action whose KEY cell waits for a key; whose CONTROLLER cell waits for a control.
     pub capturing: Option<usize>,
     pub pad_capturing: Option<usize>,
@@ -477,6 +478,11 @@ pub struct PanelState {
     pub vk_down: Vec<(u32, bool)>,
     /// A controller control pressed since the last frame (KEYS open).
     pub pad_down: Option<u32>,
+    // pause (the panel DLL holds the game's frames: `forza::pause`)
+    /// PAUSE pressed on the page bar this frame: a pause asked for, or the pause ended.
+    pub pause_asked: bool,
+    /// Paused: the seconds left before the match goes on by itself; the PAUSED page shows.
+    pub paused: Option<u64>,
 }
 
 impl PanelState {
@@ -496,7 +502,7 @@ impl PanelState {
             message: None,
             catalogue: Catalogue::default(),
             keys: crate::keys::defaults(edition == Edition::E1718),
-            pads: [0; 16],
+            pads: [0; crate::keys::COUNT],
             capturing: None,
             pad_capturing: None,
             changed: None,
@@ -527,6 +533,8 @@ impl PanelState {
             send_logs: false,
             vk_down: Vec::new(),
             pad_down: None,
+            pause_asked: false,
+            paused: None,
         }
     }
 
@@ -567,7 +575,7 @@ impl PanelState {
             changed: (page == Page::Keys).then_some(4),
             pads: [
                 0x10A, 0x105, 0x101, 0x102, 0x104, 0x103, 0x109, 0, 0x300, 0x302, 0x303, 0x301, 0,
-                0, 0, 0,
+                0, 0, 0, 0,
             ],
             pad_names: vec!["Gamepad 1".to_owned()],
             file: PanelFile {
@@ -715,8 +723,57 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
         page(&mut pg, st, lang);
     }
     deal_window(ui, st, above, lang);
+    if let Some(left) = st.paused {
+        let key = crate::keys::key_label(st.keys[crate::keys::PAUSE]);
+        paused(ui, pic, lang, &key, left);
+    }
     if st.close_warn {
         close_warning(ui, area, lang);
+    }
+}
+
+/// The PAUSED page over the game's picture (the game's last frame stays under it): how to resume and the seconds left
+/// before the match goes on by itself.
+fn paused(ui: &Ui, pic: Rect, lang: Lang, key: &str, left: u64) {
+    let p = ui.ctx().layer_painter(egui::LayerId::new(
+        egui::Order::Foreground,
+        egui::Id::new("paused"),
+    ));
+    p.rect_filled(pic, 0, Color32::from_black_alpha(150));
+    let r = Rect::from_center_size(pic.center(), vec2((pic.width() - 40.0).min(560.0), 150.0));
+    p.rect_filled(
+        r,
+        theme::RADIUS_BIG,
+        Color32::from_rgba_unmultiplied(10, 16, 28, 240),
+    );
+    p.rect_stroke(
+        r,
+        theme::RADIUS_BIG,
+        Stroke::new(3.0, theme::GOLD),
+        StrokeKind::Inside,
+    );
+    let w = r.width() - 32.0;
+    let lines = [
+        (tr!(lang, "pause.title"), theme::display(36.0), theme::GOLD),
+        (
+            tr!(lang, "pause.body", key = key),
+            theme::body(16.0),
+            theme::TEXT,
+        ),
+        (
+            tr!(lang, "pause.left", s = left),
+            theme::bold(16.0),
+            theme::TEXT_DIM,
+        ),
+    ];
+    for (i, (text, font, col)) in lines.into_iter().enumerate() {
+        let g = widgets::fit(&p, &text, font, col, w);
+        let y = r.top() + 34.0 + 42.0 * i as f32;
+        p.galley(
+            pos2(r.center().x - g.size().x / 2.0, y - g.size().y / 2.0),
+            g,
+            col,
+        );
     }
 }
 
@@ -1180,7 +1237,9 @@ fn page_bar(ui: &mut Ui, st: &mut PanelState, bar: Rect, lang: Lang) {
         (Page::Settings, "panel.settings"),
         (Page::ClubCard, "panel.club_card"),
     ];
-    let w = 124.0;
+    // the four pages and PAUSE; the right end keeps ~140 points for the ping and the window key at 1440x900
+    let w = 106.0;
+    let n = pages.len() as f32;
     for (i, (pg, key)) in pages.into_iter().enumerate() {
         let t = Rect::from_min_size(
             pos2(r.left() + 132.0 + i as f32 * (w + 6.0), r.top()),
@@ -1194,9 +1253,31 @@ fn page_bar(ui: &mut Ui, st: &mut PanelState, bar: Rect, lang: Lang) {
             st.page = if open { Page::Game } else { pg };
         }
     }
+    // PAUSE: asks the panel DLL for a pause (it says why when it refuses), RESUME while paused
+    let t = Rect::from_min_size(
+        pos2(r.left() + 132.0 + n * (w + 6.0), r.top()),
+        vec2(w, r.height()),
+    );
+    let key = if st.paused.is_some() {
+        "pause.resume"
+    } else {
+        "pause.button"
+    };
+    let resp = ui.put(t, |ui: &mut Ui| {
+        cabinet(
+            ui,
+            t.size(),
+            &tr!(lang, key),
+            Cab::Plain,
+            st.paused.is_some(),
+        )
+    });
+    if resp.clicked() {
+        st.pause_asked = true;
+    }
     // the right end: ping (online only) over the window key
     let right = Rect::from_min_max(
-        pos2(r.left() + 132.0 + 4.0 * (w + 6.0) + 8.0, r.top()),
+        pos2(r.left() + 132.0 + (n + 1.0) * (w + 6.0) + 8.0, r.top()),
         r.max,
     );
     let p = ui.painter();
@@ -1870,7 +1951,7 @@ pub fn keys_input(st: &mut PanelState) {
             };
             st.note(Tone::Refused, tr!(lang, "keys.msg_refused", key = key));
         } else {
-            let other = (0..16).find(|&j| j != k && st.keys[j] == vk);
+            let other = (0..ACTIONS.len()).find(|&j| j != k && st.keys[j] == vk);
             st.keys[k] = vk;
             if let Some(j) = other {
                 st.keys[j] = old;
@@ -1913,7 +1994,7 @@ pub fn keys_input(st: &mut PanelState) {
             );
             return;
         }
-        let other = (0..16).find(|&j| j != k && st.pads[j] == code);
+        let other = (0..ACTIONS.len()).find(|&j| j != k && st.pads[j] == code);
         st.pads[k] = code;
         if let Some(j) = other {
             st.pads[j] = old;
@@ -1980,7 +2061,7 @@ fn keys(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let cell_w = 200.0;
     egui::Grid::new("keys")
         .num_columns(4)
-        .spacing(vec2(16.0, 6.0))
+        .spacing(vec2(16.0, 3.0))
         .striped(false)
         .show(ui, |ui| {
             caps(ui, &tr!(lang, "keys.action"));
@@ -1997,7 +2078,7 @@ fn keys(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     ui.horizontal(|ui| {
         if action(ui, &tr!(lang, "keys.defaults")).clicked() {
             st.keys = crate::keys::defaults(st.edition == Edition::E1718);
-            st.pads = [0; 16];
+            st.pads = [0; crate::keys::COUNT];
             (st.capturing, st.pad_capturing, st.changed, st.keys_changed) =
                 (None, None, None, true);
             st.say(Tone::Done, "keys.msg_defaults");
@@ -2044,6 +2125,15 @@ fn row(ui: &mut Ui, st: &mut PanelState, lang: Lang, i: usize, cell_w: f32) {
         crate::keys::pad_label(st.pads[i]),
     );
     let r1 = key_cell(ui, &k, ks, cell_w, lang);
+    if i == crate::keys::PAUSE {
+        ui.label(""); // the panel's own key: the key driver reads no controller for it
+        if r1.clicked() {
+            st.pad_capturing = None;
+            st.capturing = (st.capturing != Some(i)).then_some(i);
+            st.message = None;
+        }
+        return;
+    }
     let r2 = key_cell(ui, &c, cs, cell_w, lang);
     if r1.clicked() {
         st.pad_capturing = None;

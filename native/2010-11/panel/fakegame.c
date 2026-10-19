@@ -16,6 +16,8 @@
 //                        this exe) once a new size has held for 10 frames
 //       copy:NAME        wccfpanel_frame.bmp copied to NAME
 //       unload           FreeLibrary on the panel: the frames go on without it
+//       sysmove:MS       MS from now (inside a pause's hold too) the window's Move command (WM_SYSCOMMAND SC_MOVE),
+//                        then 2 s later an Esc, which ends Windows' move loop if the command got that far
 //
 // The window says which mouse buttons reach it ("game: left down at X,Y"): what the panel passes on to the game.
 //
@@ -68,6 +70,18 @@ static void post_key(WPARAM vk)
     PostMessageA(g_win, WM_KEYUP, vk, lp | (1u << 30) | (1u << 31));
 }
 
+static void CALLBACK sysmove_timer(HWND h, UINT m, UINT_PTR id, DWORD t)
+{
+    (void)m; (void)t;
+    KillTimer(h, id);
+    if (id == 1) {
+        PostMessageA(h, WM_SYSCOMMAND, SC_MOVE, 0);
+        SetTimer(h, 2, 2000, sysmove_timer);
+    } else {
+        post_key(VK_ESCAPE);
+    }
+}
+
 // one step of the command line; returns how long to let frames run before the next one (ms)
 static int step(const char *s, const char *dir)
 {
@@ -110,6 +124,7 @@ static int step(const char *s, const char *dir)
         printf(FreeLibrary(g_panel) ? "unloaded the panel\n" : "unload failed (%lu)\n", GetLastError());
         return 0;
     }
+    if (!strncmp(s, "sysmove:", 8)) { SetTimer(g_win, 1, (UINT)atoi(s + 8), sysmove_timer); return 0; }
     if (!strncmp(s, "key:", 4)) { post_key((WPARAM)atoi(s + 4)); return 150; }
     if (!strncmp(s, "size:", 5) && sscanf(s + 5, "%d,%d", &a, &b) == 2) { client_size(a, b); return 600; }
     if (!strncmp(s, "copy:", 5)) {
@@ -148,7 +163,7 @@ int main(int argc, char **argv)
     WNDCLASSA wc; IDirect3D9 *d3d; IDirect3DDevice9 *dev = NULL; D3DPRESENT_PARAMETERS pp;
     int next = 2; DWORD due;
     setvbuf(stdout, NULL, _IONBF, 0);            // the lines reach a test's pipe even if the panel takes us down
-    if (argc < 2) { printf("fakegame.exe PANEL.dll [wait:MS click:X,Y move:X,Y down:X,Y up:X,Y rclick:X,Y close type:TEXT key:VK size:W,H copy:NAME unload ...]\n"); return 2; }
+    if (argc < 2) { printf("fakegame.exe PANEL.dll [wait:MS click:X,Y move:X,Y down:X,Y up:X,Y rclick:X,Y close type:TEXT key:VK size:W,H copy:NAME unload sysmove:MS ...]\n"); return 2; }
 #ifdef IPHLP
     { volatile int never = 0; if (never) IpRenewAddress(NULL); }   // never called: only its import is wanted
 #endif
