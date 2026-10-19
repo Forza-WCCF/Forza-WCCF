@@ -10,7 +10,9 @@ use windows::Win32::Media::Audio::{
     DEVICE_STATE_ACTIVE, IAudioSessionControl2, IAudioSessionManager2, IMMDeviceEnumerator, ISimpleAudioVolume,
     MMDeviceEnumerator, eRender,
 };
-use windows::Win32::System::Com::{CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoUninitialize};
+use windows::Win32::System::Com::{
+    CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize,
+};
 use windows::core::{Interface, Result};
 
 /// Seat 1 starts at 4%: "very low", as the player's own Volume Mixer had it (2026-10-06); the projector, muted, is at
@@ -36,9 +38,9 @@ impl Drop for Com {
     }
 }
 
-/// `f(process id, its volume control)` for every sound session on every active playback device.  A device or session
-/// that cannot be read is skipped, never the whole list; Err only when there is no device enumerator at all.
-fn each_session(mut f: impl FnMut(u32, &ISimpleAudioVolume)) -> Result<()> {
+/// `f(process id, the session, its volume control)` for every sound session on every active playback device.  A device
+/// or session that cannot be read is skipped, never the whole list; Err only when there is no device enumerator at all.
+fn each_session(mut f: impl FnMut(u32, &IAudioSessionControl2, &ISimpleAudioVolume)) -> Result<()> {
     let _com = Com::start();
     // SAFETY: Core Audio's documented object creation and calls; every interface is released when dropped.
     unsafe {
@@ -53,10 +55,11 @@ fn each_session(mut f: impl FnMut(u32, &ISimpleAudioVolume)) -> Result<()> {
                 continue;
             };
             for j in 0..sessions.GetCount().unwrap_or(0) {
-                let Ok(ctl) = sessions.GetSession(j) else { continue };
-                let pid = ctl.cast::<IAudioSessionControl2>().and_then(|c| c.GetProcessId());
-                if let (Ok(pid), Ok(vol)) = (pid, ctl.cast::<ISimpleAudioVolume>()) {
-                    f(pid, &vol);
+                let Ok(ctl) = sessions.GetSession(j).and_then(|c| c.cast::<IAudioSessionControl2>()) else {
+                    continue;
+                };
+                if let (Ok(pid), Ok(vol)) = (ctl.GetProcessId(), ctl.cast::<ISimpleAudioVolume>()) {
+                    f(pid, &ctl, &vol);
                 }
             }
         }
@@ -68,7 +71,7 @@ fn each_session(mut f: impl FnMut(u32, &ISimpleAudioVolume)) -> Result<()> {
 /// sessions were set (0: the process has no sound open yet).
 pub fn apply(pid: u32, volume: Option<f32>, mute: Option<bool>) -> Result<usize> {
     let mut done = 0;
-    each_session(|p, vol| {
+    each_session(|p, _, vol| {
         if p != pid {
             return;
         }
@@ -86,7 +89,7 @@ pub fn apply(pid: u32, volume: Option<f32>, mute: Option<bool>) -> Result<usize>
 /// (volume, muted) of every sound session of process `pid`; read only.
 pub fn read(pid: u32) -> Result<Vec<(f32, bool)>> {
     let mut out = Vec::new();
-    each_session(|p, vol| {
+    each_session(|p, _, vol| {
         if p == pid {
             // SAFETY: `vol` is a live ISimpleAudioVolume.
             if let (Ok(level), Ok(muted)) = unsafe { (vol.GetMasterVolume(), vol.GetMute()) } {
@@ -95,4 +98,45 @@ pub fn read(pid: u32) -> Result<Vec<(f32, bool)>> {
         }
     })?;
     Ok(out)
+}
+
+/// A session's identity: Windows' session instance id, one per open session.
+fn instance(ctl: &IAudioSessionControl2) -> Option<String> {
+    // SAFETY: the id is a string Core Audio allocated for us; read, then freed once.
+    unsafe {
+        let p = ctl.GetSessionInstanceIdentifier().ok()?;
+        let id = p.to_string().ok();
+        CoTaskMemFree(Some(p.0 as *const _));
+        id
+    }
+}
+
+/// (identity, muted) of every sound session of process `pid`; read only.
+pub fn mutes(pid: u32) -> Result<Vec<(String, bool)>> {
+    let mut out = Vec::new();
+    each_session(|p, ctl, vol| {
+        if p == pid
+            && let Some(id) = instance(ctl)
+            // SAFETY: `vol` is a live ISimpleAudioVolume.
+            && let Ok(muted) = unsafe { vol.GetMute() }
+        {
+            out.push((id, muted.as_bool()));
+        }
+    })?;
+    Ok(out)
+}
+
+/// The sessions of process `pid` whose identity is in `ids` muted or unmuted; the identities that were set.
+pub fn set_mute(pid: u32, ids: &[String], mute: bool) -> Result<Vec<String>> {
+    let mut done = Vec::new();
+    each_session(|p, ctl, vol| {
+        if p == pid
+            && let Some(id) = instance(ctl).filter(|id| ids.contains(id))
+            // SAFETY: `vol` is a live ISimpleAudioVolume; a null event context is allowed.
+            && unsafe { vol.SetMute(mute, std::ptr::null()) }.is_ok()
+        {
+            done.push(id);
+        }
+    })?;
+    Ok(done)
 }

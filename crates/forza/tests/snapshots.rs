@@ -630,6 +630,24 @@ fn close_warning() {
     h.snapshot("panel_close_warning_it");
 }
 
+/// The PAUSED page over the game's picture (Japanese: the longest lines), and RESUME on the page bar asking for the
+/// pause's end.
+#[test]
+fn paused_page() {
+    let _gpu = gpu();
+    let mut st = panel::PanelState::sample(Edition::E1718, Lang::Ja, panel::Page::Game);
+    st.paused = Some(14);
+    let st = std::cell::RefCell::new(st);
+    let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+        panel::show(ui, &mut st.borrow_mut())
+    });
+    h.run_steps(4);
+    h.snapshot("panel_paused_ja");
+    h.get_by_label("再開").click();
+    h.run_steps(2);
+    assert!(st.borrow().pause_asked, "RESUME did not ask");
+}
+
 /// The cabinet's triangles and round buttons send their action when clicked.
 #[test]
 fn cabinet_shapes_click() {

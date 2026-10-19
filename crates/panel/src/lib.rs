@@ -30,6 +30,7 @@ mod money;
 mod net;
 mod painter;
 mod patches;
+mod pause;
 mod projector;
 
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, TextureId, ViewportId, pos2, vec2};
@@ -729,6 +730,18 @@ unsafe extern "system" fn hook_present(
         // SAFETY: as above
         return unsafe { orig(dev, src, dst, wnd, dirty) };
     }
+    // the pause key or button: a pause holds the game right here, before its frame is shown
+    if std::panic::catch_unwind(|| {
+        // SAFETY: the game's device, alive for the call; we are on its render thread
+        if let Some(dev) = unsafe { IDirect3DDevice9::from_raw_borrowed(&dev) } {
+            pause::present(dev, wnd);
+        }
+    })
+    .is_err()
+    {
+        pause::HELD.store(false, Relaxed);
+        log("pause: panicked - the game goes on");
+    }
     // the game's own parts, every frame (each acts on its own clock): as wccfpanel.c hook_present
     patches::frame_stats_tick(log);
     patches::dispenser_tick(log);
@@ -1156,6 +1169,10 @@ impl Render {
             _ => {}
         }
         WANTS_KEYS.store(self.ctx.egui_wants_keyboard_input(), Relaxed);
+        pause::KEY.store(self.st.keys[forza::keys::PAUSE], Relaxed);
+        if std::mem::take(&mut self.st.pause_asked) {
+            pause::ASK.store(true, Relaxed);
+        }
         self.page_open();
         if let Ok(mut p) = PICTURE.lock() {
             *p = self
@@ -1892,6 +1909,9 @@ fn game_window() -> Option<HWND> {
 }
 
 unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    if let Some(r) = pause::message(m, wp, lp) {
+        return r;
+    }
     match m {
         WM_FORZA_FS => {
             set_maximized(h, wp.0 != 0);

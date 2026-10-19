@@ -67,6 +67,21 @@ fn the_projector_starts_muted_and_seat_1_low() {
         "{now:?}"
     );
     assert_eq!(sound::read(pid).unwrap()[0], (level, muted), "restored");
+    // one session by its identity (the pause's mute): an unknown id sets nothing, the session's own id sets it alone
+    let ids = sound::mutes(pid).unwrap();
+    assert_eq!(ids.len(), before.len(), "{ids:?}");
+    let id = ids[0].0.clone();
+    let one = std::slice::from_ref(&id);
+    assert!(
+        sound::set_mute(pid, &["no such session".to_owned()], !muted)
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(sound::mutes(pid).unwrap()[0], (id.clone(), muted));
+    assert_eq!(sound::set_mute(pid, one, !muted).unwrap(), one);
+    assert_eq!(sound::mutes(pid).unwrap()[0], (id.clone(), !muted));
+    sound::set_mute(pid, one, muted).unwrap();
+    assert_eq!(sound::mutes(pid).unwrap()[0], (id, muted), "restored by id");
     // a process with no session is not an error: nothing set
     assert_eq!(sound::apply(u32::MAX - 1, Some(0.5), Some(true)).unwrap(), 0);
 }
