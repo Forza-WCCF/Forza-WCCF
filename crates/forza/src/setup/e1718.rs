@@ -20,6 +20,7 @@ use super::{
     merge_settings, original, put, read, rename_import, sha,
 };
 use crate::Edition;
+#[cfg(feature = "ui")]
 use crate::cards::catalogue::Output;
 
 /// The decrypted 2017-18 game's two programs and the SHA-256 each must have (every patch checks its own bytes as well).
@@ -332,6 +333,7 @@ pub fn run(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
 
 /// `overlay\catalogue.tsv`, for the board, made from the game unless it is there and `force` is off. `say` hears the
 /// progress lines. The card pictures are the Launcher's (`forza::cards::pictures`).
+#[cfg(feature = "ui")]
 pub fn setup_catalogue(kit: &Path, game: &Path, force: bool, say: &dyn Fn(&str)) -> Result<()> {
     let overlay = kit.join(Edition::E1718.layout().overlay);
     if overlay.join("catalogue.tsv").is_file() && !force {
