@@ -8,11 +8,11 @@
 //! every other message gets zeros. A request the store refuses (short, wrong revision, unknown ids) gets errCode 1.
 
 use super::vs::{self, Matcher, VsConfig};
-use super::{Handle, Log, accept_loop, read_some};
+use crate::service::{Handle, Log, accept_loop, read_some};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::HashMap;
-use std::io::{self, Write};
-use std::net::{IpAddr, TcpListener};
+use std::io::{self, IoSlice, Write};
+use std::net::{IpAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -246,6 +246,9 @@ fn next_id(db: &Connection, name: &str) -> rusqlite::Result<u32> {
 impl Store {
     pub fn open(path: &Path) -> rusqlite::Result<Self> {
         let db = Connection::open(path)?;
+        // WAL: a commit appends to gamesvr.db-wal; NORMAL syncs at checkpoints, so a power cut can lose the last
+        // commits but never corrupts the store
+        db.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
         db.execute_batch(SCHEMA)?;
         // stores made before `titles` existed
         let has: bool = db.query_row(
@@ -635,7 +638,7 @@ fn answer(
 /// The VS switch (M3): the reflect address 202 hands out and the entry matcher.
 struct Vs {
     cfg: VsConfig,
-    matcher: Matcher,
+    matcher: Arc<Matcher>,
 }
 
 impl Vs {
@@ -737,6 +740,9 @@ pub struct Options {
     pub max_per_ip: usize,
     /// Direct VS over the internet (M3); None keeps the local stand-in's behaviour
     pub vs: Option<VsConfig>,
+    /// The matcher VS uses, when another service shares it (`forza-server all`: the desk lists its rooms); None =
+    /// a new one
+    pub matcher: Option<Arc<Matcher>>,
 }
 
 impl Default for Options {
@@ -748,6 +754,7 @@ impl Default for Options {
             dump: true,
             max_per_ip: 0,
             vs: None,
+            matcher: None,
         }
     }
 }
@@ -759,6 +766,29 @@ pub const MAX_FRAME: usize = 33600 + 40;
 fn frame_len(header: &[u8]) -> Result<usize, usize> {
     let n = (u32_at(header, 16) as usize).max(40);
     if n > MAX_FRAME { Err(n) } else { Ok(n) }
+}
+
+/// Fills `buf` from the link; false when the peer closed (or `stop` is set) first.
+fn fill(conn: &mut TcpStream, buf: &mut [u8], stop: &AtomicBool) -> io::Result<bool> {
+    let mut at = 0;
+    while at < buf.len() {
+        match read_some(conn, &mut buf[at..], stop)? {
+            0 => return Ok(false),
+            n => at += n,
+        }
+    }
+    Ok(true)
+}
+
+/// Header and body in one vectored write (one segment, no copy into a frame buffer).
+fn send(conn: &mut TcpStream, head: &[u8], body: &[u8]) -> io::Result<()> {
+    let n = conn.write_vectored(&[IoSlice::new(head), IoSlice::new(body)])?;
+    if n < head.len() {
+        conn.write_all(&head[n..])?;
+        conn.write_all(body)
+    } else {
+        conn.write_all(&body[n - head.len()..])
+    }
 }
 
 struct Slot<'a>(&'a Mutex<HashMap<IpAddr, usize>>, IpAddr);
@@ -788,11 +818,12 @@ pub fn spawn_opts(
         dump,
         max_per_ip,
         vs,
+        matcher,
     } = opts;
     let vs = vs.map(|cfg| {
         Arc::new(Vs {
             cfg,
-            matcher: Matcher::default(),
+            matcher: matcher.unwrap_or_default(),
         })
     });
     let peers: Arc<Mutex<HashMap<IpAddr, usize>>> = Arc::default();
@@ -829,89 +860,90 @@ pub fn spawn_opts(
             Slot(&peers, peer.ip())
         };
         log(&format!("connected {peer}"));
-        let mut buf: Vec<u8> = Vec::new();
-        let mut tmp = vec![0u8; 65536];
+        // the header on the stack, one payload buffer per link (it grows to at most MAX_FRAME - 40 bytes)
+        let (mut head, mut have) = ([0u8; 40], 0);
+        let mut payload: Vec<u8> = Vec::new();
         loop {
-            match read_some(&mut conn, &mut tmp, &flag) {
-                Ok(0) => break,
-                Ok(n) => buf.extend_from_slice(&tmp[..n]),
+            match fill(&mut conn, &mut head[have..], &flag) {
+                Ok(true) => {}
+                Ok(false) => break,
                 Err(e) => {
                     log(&format!("recv error {e}"));
                     break;
                 }
             }
-            while buf.len() >= 40 {
-                if buf[..8] != MAGIC {
-                    let skip = buf
-                        .windows(8)
-                        .skip(1)
-                        .position(|w| w == MAGIC)
-                        .map(|i| i + 1);
-                    log(&format!(
-                        "resync: dropped {} bytes",
-                        skip.unwrap_or(buf.len())
-                    ));
-                    buf.drain(..skip.unwrap_or(buf.len()));
-                    continue;
+            if head[..8] != MAGIC {
+                // keep from the next place a magic can start: a whole one, or its first bytes at the end
+                let skip = (1..40)
+                    .find(|&i| {
+                        let n = (40 - i).min(8);
+                        head[i..i + n] == MAGIC[..n]
+                    })
+                    .unwrap_or(40);
+                log(&format!("resync: dropped {skip} bytes"));
+                head.copy_within(skip.., 0);
+                have = 40 - skip;
+                continue;
+            }
+            have = 0;
+            let size = match frame_len(&head) {
+                Ok(n) => n,
+                Err(n) => {
+                    log(&format!("{peer}: frame of {n} bytes, closing"));
+                    return;
                 }
-                let size = match frame_len(&buf) {
-                    Ok(n) => n,
-                    Err(n) => {
-                        log(&format!("{peer}: frame of {n} bytes, closing"));
-                        return;
-                    }
-                };
-                if buf.len() < size {
+            };
+            payload.resize(size - 40, 0);
+            match fill(&mut conn, &mut payload, &flag) {
+                Ok(true) => {}
+                Ok(false) => break,
+                Err(e) => {
+                    log(&format!("recv error {e}"));
                     break;
                 }
-                let (cmd, seq) = (
-                    u16::from_le_bytes([buf[8], buf[9]]),
-                    u16::from_le_bytes([buf[10], buf[11]]),
-                );
-                let (status, id) = (u32_at(&buf, 12), u32_at(&buf, 20));
-                let payload = buf[40..size].to_vec();
-                let text =
-                    String::from_utf8_lossy(buf[25..40].split(|b| *b == 0).next().unwrap_or(&[]))
-                        .into_owned();
-                buf.drain(..size);
-                let first: String = payload
-                    .iter()
-                    .take(48)
-                    .map(|b| format!("{b:02x}"))
-                    .collect();
-                log(&format!(
-                    "<- cmd {cmd} seq {seq} status {status} payload {} conn {id} text {text:?} first {first}",
-                    payload.len()
-                ));
-                if dump && !payload.is_empty() {
-                    let ms = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .map_or(0, |d| d.as_millis());
-                    let _ = std::fs::write(save_dir.join(format!("req_{cmd}_{ms}.bin")), &payload);
-                    prune(&save_dir, KEEP_FILES);
-                }
-                match answer(
-                    cmd,
-                    &payload,
-                    &store,
-                    skip_tutorial.as_deref(),
-                    &rare,
-                    vs.as_deref().map(|v| (v, peer.ip())),
-                    &log,
-                ) {
-                    Some((rcmd, body, refused)) => {
-                        if let Some(why) = refused {
-                            log(&format!("   refused cmd {cmd}: {why} (errCode 1)"));
-                        }
-                        let mut out = header(rcmd, seq, 1, body.len(), id).to_vec();
-                        out.extend_from_slice(&body);
-                        if conn.write_all(&out).is_err() {
-                            return;
-                        }
-                        log(&format!("-> cmd {rcmd} payload {}", body.len()));
+            }
+            let (cmd, seq) = (
+                u16::from_le_bytes([head[8], head[9]]),
+                u16::from_le_bytes([head[10], head[11]]),
+            );
+            let (status, id) = (u32_at(&head, 12), u32_at(&head, 20));
+            let text =
+                String::from_utf8_lossy(head[25..40].split(|b| *b == 0).next().unwrap_or(&[]));
+            let first: String = payload
+                .iter()
+                .take(48)
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            log(&format!(
+                "<- cmd {cmd} seq {seq} status {status} payload {} conn {id} text {text:?} first {first}",
+                payload.len()
+            ));
+            if dump && !payload.is_empty() {
+                let ms = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_or(0, |d| d.as_millis());
+                let _ = std::fs::write(save_dir.join(format!("req_{cmd}_{ms}.bin")), &payload);
+                prune(&save_dir, KEEP_FILES);
+            }
+            match answer(
+                cmd,
+                &payload,
+                &store,
+                skip_tutorial.as_deref(),
+                &rare,
+                vs.as_deref().map(|v| (v, peer.ip())),
+                &log,
+            ) {
+                Some((rcmd, body, refused)) => {
+                    if let Some(why) = refused {
+                        log(&format!("   refused cmd {cmd}: {why} (errCode 1)"));
                     }
-                    None => log(&format!("   (no answer for cmd {cmd})")),
+                    if send(&mut conn, &header(rcmd, seq, 1, body.len(), id), &body).is_err() {
+                        return;
+                    }
+                    log(&format!("-> cmd {rcmd} payload {}", body.len()));
                 }
+                None => log(&format!("   (no answer for cmd {cmd})")),
             }
         }
         log(&format!("closed {peer}"));

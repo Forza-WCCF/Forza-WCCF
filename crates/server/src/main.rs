@@ -1,5 +1,7 @@
-//! `forza-server`: the online server's three services in one program (the Python `server/seat_desk.py`, `relay.py`,
-//! `log_inbox.py` it replaces each took `LIFE_SECONDS [LOG_FILE]`). Environment variables and defaults as the Python's:
+//! `forza-server`: every online service in one program: `desk | relay | inbox | gmsvr | reflect | all` (the Python
+//! `server/seat_desk.py`, `relay.py`, `log_inbox.py` it replaced each took `LIFE_SECONDS [LOG_FILE]`, as `desk`,
+//! `relay` and `inbox` still do). Ports are flags (`--port`, and `--desk-port` ... for `all`) so both editions share
+//! one host; a flag wins over the Python's environment variables, which win over the defaults:
 //! `WCCF_BIND` (0.0.0.0), `WCCF_BROKER_PORT` (20030), `WCCF_BROKER_SILENT` (75), `WCCF_CONTROL_LOG`, `WCCF_HOLD_FILE`,
 //! `WCCF_HOLD_FW`, `WCCF_RELAY_PORT` (20040), `WCCF_RELAY_FORGET` (30), `WCCF_INBOX_PORT` (20050),
 //! `WCCF_INBOX_PER_HOUR` (6), `WCCF_INBOX_KEEP` (1 GB). Exit 0 = ran its time, 1 = a port could not be bound.
@@ -7,7 +9,9 @@
 //! The 2010-11 kit ships the Windows build (`cargo xtask build` puts it in `programs\forza-server.exe`; `Launcher.exe server`
 //! starts `forza-server all`). A Linux build is manual: `cargo build --release -p forza-server`.
 
+use clap::Args;
 use clap::{Parser, Subcommand, ValueEnum};
+use forza::online::{gamesvr, vs};
 use forza_server::{Edition, Handle, Log, desk, file_log, inbox, init_clock, relay};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -16,7 +20,7 @@ use std::time::Duration;
 #[derive(Parser)]
 #[command(
     version,
-    about = "The Forza-WCCF online server: seat desk, match relay, log inbox"
+    about = "The Forza-WCCF online server: seat desk, match relay, log inbox, game server, reflect"
 )]
 struct Cli {
     /// Whose clients: the seat desk and the relay differ a little (2017-18: the first PC shows the projector, no
@@ -39,63 +43,114 @@ enum Ed {
 enum Service {
     /// The seat desk (TCP 20030)
     Desk {
+        /// TCP port (else `WCCF_BROKER_PORT`, else 20030)
+        #[arg(long)]
+        port: Option<u16>,
         life: Option<f64>,
         log_file: Option<PathBuf>,
     },
     /// The match relay (UDP 20040)
     Relay {
+        /// UDP port (else `WCCF_RELAY_PORT`, else 20040)
+        #[arg(long)]
+        port: Option<u16>,
         life: Option<f64>,
         log_file: Option<PathBuf>,
     },
     /// The log inbox (TCP 20050); FOLDER defaults to `player_logs` beside the log file's folder
     Inbox {
+        /// TCP port (else `WCCF_INBOX_PORT`, else 20050)
+        #[arg(long)]
+        port: Option<u16>,
         life: f64,
         log_file: Option<PathBuf>,
         folder: Option<PathBuf>,
     },
-    /// The 2017-18 game server stand-in (TCP, SQLite clubs and saves; needs `--edition 2017-18`). Binds `WCCF_BIND`,
-    /// else 127.0.0.1 (not 0.0.0.0: it has no authentication). Refuses every client but loopback and the allowlist
+    /// The 2017-18 game server (TCP, SQLite clubs and saves; needs `--edition 2017-18`). Binds `WCCF_BIND`, else
+    /// 127.0.0.1 (not 0.0.0.0: it has no authentication). Refuses every client but loopback and the allowlist
     /// (`--allow`, `--allow-file`) unless `--allow-any`. 8 connections per client IP, request dumps off.
     Gmsvr {
         #[arg(long, default_value_t = 20060)]
         port: u16,
-        /// Where `gamesvr.db` lives
-        #[arg(long, default_value = "gmsvr-data")]
-        store: PathBuf,
-        /// The game folder: pre-registers its 2D-code cards (`player_data.bin`) and feeds `--skip-tutorial`
-        #[arg(long)]
-        game_data: Option<PathBuf>,
-        /// A first COACH_LIST for an unknown Aime id makes a club from `cpu_50.dat`, skipping the tutorial
-        #[arg(long)]
-        skip_tutorial: bool,
-        /// Clients allowed besides loopback: an IP or CIDR, repeatable
-        #[arg(long)]
-        allow: Vec<ipnet::IpNet>,
-        /// File of allowed IPs/CIDRs, one per line (`#` comments); re-read when it changes
-        #[arg(long)]
-        allow_file: Option<PathBuf>,
-        /// Accept every client (no allowlist)
-        #[arg(long)]
-        allow_any: bool,
-        /// Keep the last 200 request payloads as `req_*.bin` in the store folder
-        #[arg(long)]
-        dump: bool,
-        /// Direct VS (M3): the public IPv4 the clients reach the reflect service at; enables VS in the game server
-        #[arg(long, requires = "reflect_port")]
-        vs_public_ip: Option<std::net::Ipv4Addr>,
-        /// UDP port of the reflect service (bound on `WCCF_BIND`)
-        #[arg(long, requires = "vs_public_ip")]
-        reflect_port: Option<u16>,
-        /// UDP port of the loopback reflect address given to PCs that run vslink (`127.0.0.1:<port>`)
-        #[arg(long, default_value_t = 20090)]
-        vslink_port: u16,
+        #[command(flatten)]
+        g: GmsvrOpts,
     },
-    /// All three (2017-18: the desk and the relay), as `play.py server` started them; LOGS_DIR gets seat_broker.txt,
-    /// match_relay.txt, log_inbox.txt
+    /// The 2017-18 VS reflect service alone (UDP; the echo that tells a PC its public address, and the NAT relay
+    /// between probed addresses). `gmsvr --vs-public-ip` runs its own.
+    Reflect {
+        #[arg(long, default_value_t = 20070)]
+        port: u16,
+        life: Option<f64>,
+        log_file: Option<PathBuf>,
+    },
+    /// The shop's services together: the desk, the relay and (2010-11) the log inbox or (2017-18) the game server
+    /// sharing its VS matcher with the desk's lobby. LOGS_DIR gets seat_broker.txt, match_relay.txt, log_inbox.txt,
+    /// gmsvr.txt
     All {
+        #[arg(long)]
+        desk_port: Option<u16>,
+        #[arg(long)]
+        relay_port: Option<u16>,
+        /// 2010-11 only
+        #[arg(long)]
+        inbox_port: Option<u16>,
+        /// 2017-18 only
+        #[arg(long, default_value_t = 20060)]
+        gmsvr_port: u16,
+        /// 2017-18: no game server (the Launcher's server mode runs its own stand-in on the PC)
+        #[arg(long)]
+        no_gmsvr: bool,
+        #[command(flatten)]
+        g: GmsvrOpts,
         life: Option<f64>,
         logs_dir: Option<PathBuf>,
     },
+}
+
+/// The game server's switches, for `gmsvr` and `all`.
+#[derive(Args)]
+struct GmsvrOpts {
+    /// Where `gamesvr.db` lives
+    #[arg(long, default_value = "gmsvr-data")]
+    store: PathBuf,
+    /// The game folder: pre-registers its 2D-code cards (`player_data.bin`) and feeds `--skip-tutorial`
+    #[arg(long)]
+    game_data: Option<PathBuf>,
+    /// A first COACH_LIST for an unknown Aime id makes a club from `cpu_50.dat`, skipping the tutorial
+    #[arg(long)]
+    skip_tutorial: bool,
+    /// Clients allowed besides loopback: an IP or CIDR, repeatable
+    #[arg(long)]
+    allow: Vec<ipnet::IpNet>,
+    /// File of allowed IPs/CIDRs, one per line (`#` comments); re-read when it changes
+    #[arg(long)]
+    allow_file: Option<PathBuf>,
+    /// Accept every client (no allowlist)
+    #[arg(long)]
+    allow_any: bool,
+    /// Keep the last 200 request payloads as `req_*.bin` in the store folder
+    #[arg(long)]
+    dump: bool,
+    /// Direct VS (M3): the public IPv4 the clients reach the reflect service at; enables VS in the game server
+    #[arg(long, requires = "reflect_port")]
+    vs_public_ip: Option<std::net::Ipv4Addr>,
+    /// UDP port of the reflect service (bound on `WCCF_BIND`)
+    #[arg(long, requires = "vs_public_ip")]
+    reflect_port: Option<u16>,
+    /// UDP port of the loopback reflect address given to PCs that run vslink (`127.0.0.1:<port>`)
+    #[arg(long, default_value_t = 20090)]
+    vslink_port: u16,
+}
+
+impl GmsvrOpts {
+    fn vs(&self) -> Option<vs::VsConfig> {
+        let (public_ip, reflect_port) = self.vs_public_ip.zip(self.reflect_port)?;
+        Some(vs::VsConfig {
+            public_ip,
+            reflect_port,
+            vslink_port: self.vslink_port,
+        })
+    }
 }
 
 fn env<T: std::str::FromStr>(name: &str, default: T) -> T {
@@ -126,10 +181,17 @@ fn data_dir(log_file: Option<&Path>) -> PathBuf {
         .unwrap_or_default()
 }
 
-fn start_desk(ed: Edition, log_file: Option<&Path>, log: Log) -> std::io::Result<Handle> {
+fn start_desk(
+    ed: Edition,
+    port: Option<u16>,
+    log_file: Option<&Path>,
+    vs: Option<Arc<vs::Matcher>>,
+    log: Log,
+) -> std::io::Result<Handle> {
     let mut c = desk::DeskConfig::new(ed);
     c.bind = bind();
-    c.port = env("WCCF_BROKER_PORT", c.port);
+    c.port = port.unwrap_or_else(|| env("WCCF_BROKER_PORT", c.port));
+    c.vs = vs;
     c.silent = Duration::from_secs_f64(env("WCCF_BROKER_SILENT", 75.0));
     c.control_log = env_path("WCCF_CONTROL_LOG").or_else(|| {
         log_file.map(|f| {
@@ -151,10 +213,10 @@ fn start_desk(ed: Edition, log_file: Option<&Path>, log: Log) -> std::io::Result
     })
 }
 
-fn start_relay(ed: Edition, log: Log) -> std::io::Result<Handle> {
+fn start_relay(ed: Edition, port: Option<u16>, log: Log) -> std::io::Result<Handle> {
     let mut c = relay::RelayConfig::new(ed);
     c.bind = bind();
-    c.port = env("WCCF_RELAY_PORT", c.port);
+    c.port = port.unwrap_or_else(|| env("WCCF_RELAY_PORT", c.port));
     c.forget = Duration::from_secs_f64(env("WCCF_RELAY_FORGET", 30.0));
     let port = c.port;
     relay::start(c, log.clone()).inspect_err(|e| {
@@ -165,6 +227,7 @@ fn start_relay(ed: Edition, log: Log) -> std::io::Result<Handle> {
 }
 
 fn start_inbox(
+    port: Option<u16>,
     log_file: Option<&Path>,
     folder: Option<&Path>,
     log: Log,
@@ -179,7 +242,7 @@ fn start_inbox(
     });
     let mut c = inbox::InboxConfig::new(folder);
     c.bind = bind();
-    c.port = env("WCCF_INBOX_PORT", c.port);
+    c.port = port.unwrap_or_else(|| env("WCCF_INBOX_PORT", c.port));
     c.per_hour = env("WCCF_INBOX_PER_HOUR", c.per_hour);
     c.keep = env("WCCF_INBOX_KEEP", c.keep);
     let port = c.port;
@@ -233,55 +296,53 @@ fn allowlist(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Binds and starts the reflect service on `host:port`.
+fn start_reflect(host: &str, port: u16, log: Log) -> std::io::Result<forza::service::Handle> {
+    let sock = std::net::UdpSocket::bind((host, port)).inspect_err(|e| {
+        log(&format!("cannot listen on UDP {host}:{port} ({e})"));
+    })?;
+    log(&format!("reflect on UDP {host}:{port}"));
+    vs::spawn_reflect(sock, log)
+}
+
+/// The game server on `port` (and its reflect service when VS is on); `matcher` is shared with the desk in `all`.
 fn start_gmsvr(
+    g: &GmsvrOpts,
     port: u16,
-    store: &Path,
-    game: Option<&Path>,
-    skip_tutorial: bool,
-    dump: bool,
-    allow: Option<Arc<dyn Fn(std::net::IpAddr) -> bool + Send + Sync>>,
-    vs: Option<forza::standins::vs::VsConfig>,
+    matcher: Option<Arc<vs::Matcher>>,
     log: Log,
-) -> std::io::Result<Vec<forza::standins::Handle>> {
+) -> std::io::Result<Vec<forza::service::Handle>> {
     let host = std::env::var("WCCF_BIND").unwrap_or_else(|_| "127.0.0.1".into());
     let listener = std::net::TcpListener::bind((host.as_str(), port)).inspect_err(|e| {
         log(&format!("cannot listen on TCP {host}:{port} ({e})"));
     })?;
     log(&format!(
         "game server on {host}:{port}, store {}",
-        store.display()
+        g.store.display()
     ));
-    let o = forza::standins::gamesvr::Options {
-        allow,
-        game: game.map(Path::to_path_buf),
-        skip_tutorial,
-        dump,
+    let o = gamesvr::Options {
+        allow: (!g.allow_any).then(|| allowlist(g.allow.clone(), g.allow_file.clone())),
+        game: g.game_data.clone(),
+        skip_tutorial: g.skip_tutorial,
+        dump: g.dump,
         max_per_ip: 8,
-        vs,
+        vs: g.vs(),
+        matcher,
     };
     let mut handles = Vec::new();
-    if let Some(cfg) = vs {
-        let sock =
-            std::net::UdpSocket::bind((host.as_str(), cfg.reflect_port)).inspect_err(|e| {
-                log(&format!(
-                    "cannot listen on UDP {host}:{} ({e})",
-                    cfg.reflect_port
-                ));
-            })?;
-        log(&format!(
-            "VS on: reflect {host}:{} advertised as {}",
-            cfg.reflect_port, cfg.public_ip
-        ));
-        handles.push(forza::standins::vs::spawn_reflect(sock, log.clone())?);
+    if let Some(cfg) = o.vs {
+        log(&format!("VS on: reflect advertised as {}", cfg.public_ip));
+        handles.push(start_reflect(&host, cfg.reflect_port, log.clone())?);
     }
-    handles.push(forza::standins::gamesvr::spawn_opts(
-        listener,
-        store.to_path_buf(),
-        log,
-        o,
-    )?);
+    handles.push(gamesvr::spawn_opts(listener, g.store.clone(), log, o)?);
     Ok(handles)
+}
+
+fn need_1718(ed: Edition, what: &str) {
+    if ed != Edition::E1718 {
+        eprintln!("{what} is a 2017-18 service: pass --edition 2017-18");
+        std::process::exit(2);
+    }
 }
 
 fn main() {
@@ -292,101 +353,119 @@ fn main() {
         Ed::E1718 => Edition::E1718,
     };
     let day = 12.0 * 3600.0;
+    // the game server and the reflect service are forza's services, the rest this crate's: kept apart, stopped alike
+    let mut forza_svcs: Vec<std::io::Result<forza::service::Handle>> = Vec::new();
     let (life, services): (f64, Vec<std::io::Result<Handle>>) = match &cli.service {
-        Service::Desk { life, log_file } => (
+        Service::Desk {
+            port,
+            life,
+            log_file,
+        } => (
             life.unwrap_or(day),
             vec![start_desk(
                 ed,
+                *port,
                 log_file.as_deref(),
+                None,
                 file_log(log_file.clone()),
             )],
         ),
-        Service::Relay { life, log_file } => (
+        Service::Relay {
+            port,
+            life,
+            log_file,
+        } => (
             life.unwrap_or(day),
-            vec![start_relay(ed, file_log(log_file.clone()))],
+            vec![start_relay(ed, *port, file_log(log_file.clone()))],
         ),
         Service::Inbox {
+            port,
             life,
             log_file,
             folder,
         } => (
             *life,
             vec![start_inbox(
+                *port,
                 log_file.as_deref(),
                 folder.as_deref(),
                 file_log(log_file.clone()),
             )],
         ),
-        Service::Gmsvr {
-            port,
-            store,
-            game_data,
-            skip_tutorial,
-            dump,
-            allow,
-            allow_file,
-            allow_any,
-            vs_public_ip,
-            reflect_port,
-            vslink_port,
-        } => {
-            if ed != Edition::E1718 {
-                eprintln!("gmsvr is a 2017-18 service: pass --edition 2017-18");
-                std::process::exit(2);
+        Service::Gmsvr { port, g } => {
+            need_1718(ed, "gmsvr");
+            match start_gmsvr(g, *port, None, file_log(None)) {
+                Ok(h) => forza_svcs.extend(h.into_iter().map(Ok)),
+                Err(_) => std::process::exit(1),
             }
-            let Ok(_svc) = start_gmsvr(
-                *port,
-                store,
-                game_data.as_deref(),
-                *skip_tutorial,
-                *dump,
-                (!allow_any).then(|| allowlist(allow.clone(), allow_file.clone())),
-                vs_public_ip
-                    .zip(*reflect_port)
-                    .map(|(public_ip, reflect_port)| forza::standins::vs::VsConfig {
-                        public_ip,
-                        reflect_port,
-                        vslink_port: *vslink_port,
-                    }),
-                file_log(None),
-            ) else {
-                std::process::exit(1);
-            };
-            loop {
-                std::thread::park();
-            }
+            (f64::INFINITY, vec![])
         }
-        Service::All { life, logs_dir } => {
+        Service::Reflect {
+            port,
+            life,
+            log_file,
+        } => {
+            need_1718(ed, "reflect");
+            forza_svcs.push(start_reflect(&bind(), *port, file_log(log_file.clone())));
+            (life.unwrap_or(day), vec![])
+        }
+        Service::All {
+            desk_port,
+            relay_port,
+            inbox_port,
+            gmsvr_port,
+            no_gmsvr,
+            g,
+            life,
+            logs_dir,
+        } => {
             let file = |n: &str| logs_dir.as_ref().map(|d| d.join(n));
             let (desk_log, relay_log, inbox_log) = (
                 file("seat_broker.txt"),
                 file("match_relay.txt"),
                 file("log_inbox.txt"),
             );
+            let gmsvr = ed == Edition::E1718 && !no_gmsvr;
+            // one matcher: the game server pairs the 243 entries, the desk's LOBBY lists them as VS rooms
+            let matcher = (gmsvr && g.vs().is_some()).then(Arc::<vs::Matcher>::default);
             let mut services = vec![
-                start_desk(ed, desk_log.as_deref(), file_log(desk_log.clone())),
-                start_relay(ed, file_log(relay_log)),
+                start_desk(
+                    ed,
+                    *desk_port,
+                    desk_log.as_deref(),
+                    matcher.clone(),
+                    file_log(desk_log.clone()),
+                ),
+                start_relay(ed, *relay_port, file_log(relay_log)),
             ];
-            // 2017-18 has no log inbox, and its game server stand-in holds the inbox's port 20050
+            // 2017-18 has no log inbox: its 20050 is the Launcher's game server stand-in on each PC
             if ed == Edition::E1011 {
                 services.push(start_inbox(
+                    *inbox_port,
                     inbox_log.as_deref(),
                     None,
                     file_log(inbox_log.clone()),
                 ));
             }
+            if gmsvr {
+                match start_gmsvr(g, *gmsvr_port, matcher, file_log(file("gmsvr.txt"))) {
+                    Ok(h) => forza_svcs.extend(h.into_iter().map(Ok)),
+                    Err(e) => forza_svcs.push(Err(e)),
+                }
+            }
             (life.unwrap_or(day), services)
         }
     };
-    let failed = services.iter().any(Result::is_err);
+    let failed = services.iter().any(Result::is_err) || forza_svcs.iter().any(Result::is_err);
     let running: Vec<Handle> = services.into_iter().flatten().collect();
-    if running.is_empty() {
+    let forza_running: Vec<forza::service::Handle> = forza_svcs.into_iter().flatten().collect();
+    if running.is_empty() && forza_running.is_empty() {
         std::process::exit(1);
     }
     std::thread::sleep(
         Duration::try_from_secs_f64(life).unwrap_or(Duration::from_secs(u32::MAX.into())),
     );
-    drop(running);
+    drop((running, forza_running));
     std::process::exit(i32::from(failed));
 }
 

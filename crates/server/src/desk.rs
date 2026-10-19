@@ -6,7 +6,8 @@
 //! then `PING` -> `PONG`. `RELEASE t` -> `OK` | `GONE` drops a lobby reservation. `HOLD` -> `HOLD 1` | `HOLD 0` (2010-11 only; the box asks it).
 
 use crate::{Edition, Handle, Log};
-use forza::online::lobby::{self, Lobby, Reserved, Shop, State as ShopState};
+use forza::online::lobby::{self, Lobby, Reserved, Shop, State as ShopState, VsRoom};
+use forza::online::vs::Matcher;
 use forza::online::{Reply, SEATS, Want};
 use regex::Regex;
 use std::collections::{BTreeMap, HashMap};
@@ -51,6 +52,8 @@ pub struct DeskConfig {
     pub lobby_gap: Duration,
     /// The `LOBBY` answer is rebuilt at most this often (1 s; tests set 0).
     pub lobby_cache: Duration,
+    /// The game server's VS matcher when they run together (`forza-server all`): `LOBBY` lists its rooms.
+    pub vs: Option<Arc<Matcher>>,
 }
 
 impl DeskConfig {
@@ -71,6 +74,7 @@ impl DeskConfig {
             reserve_lease: Duration::from_secs(lobby::LEASE_SECS),
             lobby_gap: Duration::from_secs(2),
             lobby_cache: Duration::from_secs(1),
+            vs: None,
         }
     }
 }
@@ -645,12 +649,32 @@ fn lobby_answer(sh: &Shared, ip: &str, edition: &str, out: &mut TcpStream) -> io
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_secs()),
         shops: vec![shop],
-        vs: vec![],
+        vs: sh.cfg.vs.as_ref().map_or_else(Vec::new, |m| {
+            m.rooms(now)
+                .into_iter()
+                .map(|(id, players)| vs_room(id, players))
+                .collect()
+        }),
     }
     .line();
     debug_assert!(answer.len() <= lobby::MAX_ANSWER);
     *cache = Some((now, answer.clone()));
     out.write_all(answer.as_bytes())
+}
+
+/// A matcher room as the lobby shows it: id and code both from the room's random number, never from the entry.
+fn vs_room(id: u64, players: u8) -> VsRoom {
+    VsRoom {
+        id: format!("{:08x}", id as u32),
+        // ponytail: letters from the id's top half; B4's `CREATE vs` rooms will hand out their own codes
+        code: (0..4)
+            .map(|i| char::from(b'A' + ((id >> (32 + 8 * i)) % 26) as u8))
+            .collect(),
+        players,
+        max: 2,
+        kind: 2,
+        lang: None,
+    }
 }
 
 /// `RESERVE id [n]`: a ticket for the lowest free seat (or seat n) for the lease, `FULL`, `TAKEN` (n is busy) or

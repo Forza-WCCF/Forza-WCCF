@@ -1,7 +1,7 @@
 //! Sans-IO core: loopback tokens, the seat map, the probe echo, `[seat]` framing and the routing rules. No sockets, no
 //! clock, no randomness of its own: the caller passes random bits in.
 
-use forza::standins::vs::{PROBE_LEN, Reflect, reflect};
+use forza::online::vs::{PROBE_LEN, Reflect, reflect};
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddrV4};
 

@@ -5,8 +5,9 @@
 
 use crate::core::{self, Pair, SEAT_BASE, Seats, Via};
 use bytes::Bytes;
-use forza::standins::vs::{Reflect, reflect};
-use forza::standins::{Handle, Log, gamesvr};
+use forza::online::gamesvr;
+use forza::online::vs::{Reflect, reflect};
+use forza::service::{Handle, Log};
 use iroh::endpoint::{Connection, IdleTimeout, QuicTransportConfig, presets};
 use iroh::tls::CaTlsConfig;
 use iroh::{Endpoint, EndpointAddr, PublicKey, RelayMap, RelayMode, RelayUrl, SecretKey};

@@ -7,7 +7,7 @@ pub mod desk;
 pub mod inbox;
 pub mod relay;
 
-pub use forza::standins::Log;
+pub use forza::service::Log;
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;

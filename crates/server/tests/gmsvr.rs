@@ -189,3 +189,81 @@ fn vslink_hello_turns_the_202_reflect_loopback() {
     assert_eq!((rc, l.len(), word(&l, 4)), (905, 48, 0));
     assert!(l[8..].iter().all(|b| *b == 0));
 }
+
+#[test]
+fn all_shares_the_matcher_with_the_desk_lobby() {
+    let free = |udp: bool| {
+        if udp {
+            let s = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+            s.local_addr().unwrap().port()
+        } else {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            l.local_addr().unwrap().port()
+        }
+        .to_string()
+    };
+    let dir = std::env::temp_dir().join(format!("forza_all_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let (desk, gm) = (free(false), free(false));
+    let child = Command::new(env!("CARGO_BIN_EXE_forza-server"))
+        .args([
+            "--edition",
+            "2017-18",
+            "all",
+            "--desk-port",
+            &desk,
+            "--relay-port",
+        ])
+        .arg(free(true))
+        .args([
+            "--gmsvr-port",
+            &gm,
+            "--vs-public-ip",
+            "9.9.9.9",
+            "--reflect-port",
+        ])
+        .arg(free(true))
+        .arg("--store")
+        .arg(&dir)
+        .args(["30", &dir.join("logs").to_string_lossy()])
+        .env("WCCF_BIND", "127.0.0.1")
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let _srv = Server(child);
+    std::fs::create_dir_all(dir.join("logs")).unwrap();
+    let t = Instant::now();
+    let mut c = loop {
+        match TcpStream::connect(("127.0.0.1", gm.parse::<u16>().unwrap())) {
+            Ok(c) => break c,
+            Err(_) if t.elapsed() < Duration::from_secs(10) => {
+                std::thread::sleep(Duration::from_millis(50))
+            }
+            Err(e) => panic!("all did not bind the game server: {e}"),
+        }
+    };
+    c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    // a 243 entry: slot 1, address 10.1.2.3:20001, card 987654321
+    let mut entry = vec![0u8; 280];
+    le(&mut entry, 0, 1);
+    entry[8..12].copy_from_slice(&[10, 1, 2, 3]);
+    entry[12..14].copy_from_slice(&20001u16.to_le_bytes());
+    le(&mut entry, 44, 987_654_321);
+    assert_eq!(ask(&mut c, 243, &entry).0, 244);
+    let desk: std::net::SocketAddr = format!("127.0.0.1:{desk}").parse().unwrap();
+    let mut raw = TcpStream::connect(desk).unwrap();
+    raw.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    raw.write_all(b"LOBBY 2017-18\n").unwrap();
+    let mut json = String::new();
+    raw.read_to_string(&mut json).unwrap();
+    let l = forza::online::lobby::Lobby::parse(&json).unwrap();
+    assert_eq!(l.vs.len(), 1, "{json}");
+    assert_eq!(
+        (l.vs[0].players, l.vs[0].max, l.vs[0].code.len()),
+        (1, 2, 4)
+    );
+    assert!(
+        !json.contains("10.1.2.3") && !json.contains("987654321"),
+        "{json}"
+    );
+}

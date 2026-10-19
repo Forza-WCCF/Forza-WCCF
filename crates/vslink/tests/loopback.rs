@@ -3,7 +3,8 @@
 //! hello/ack, a 3.2 KB team block in 16-byte chunks, relay-mode packets through the reflect address and 1,000 pings.
 //! Every datagram a fake client receives must come from its reflect address or the opponent's token.
 
-use forza::standins::{Log, gamesvr, vs::VsConfig};
+use forza::online::{gamesvr, vs::VsConfig};
+use forza::service::Log;
 use iroh::tls::CaTlsConfig;
 use std::collections::BTreeSet;
 use std::io::{Read, Write};

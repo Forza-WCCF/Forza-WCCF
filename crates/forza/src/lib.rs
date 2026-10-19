@@ -1,6 +1,8 @@
 //! Forza-WCCF's shared code. `ui`: the theme, the bespoke widgets and the screens of the step 9 design.
-//! `online`: the client side of online play (seat lease, SEND LOGS) and the protocol the server shares (step 10 I1).
-//! `standins`: the 2017–18 Aime reader, AiMeDB and game server stand-ins (step 10).
+//! `online`: the client side of online play (seat lease, SEND LOGS), the protocol the server shares (step 10 I1), and
+//! the 2017–18 game server and VS matcher that both the Launcher's stand-in and `forza-server` run.
+//! `standins`: the cabinet stand-ins on the player's PC: the 2017–18 Aime reader and AiMeDB, the 2010–11 card reader,
+//! network, I/O board and scenes (step 10). `service`: the log sink, handle and accept loop every service shares.
 //! `panel_txt`: data\panel.txt, the SETTINGS page's choices for the next start and the view.
 //! `keys`: keys.txt's keys and controller controls, shared by the key driver and the KEYS page.
 //! `pause`: the rules of the in-game panel's capped pause (where it is allowed, the cap and the gap).
@@ -62,6 +64,7 @@ pub mod layout;
 pub mod online;
 pub mod panel_txt;
 pub mod pause;
+pub mod service;
 pub mod setup;
 pub mod standins;
 #[cfg(feature = "ui")]

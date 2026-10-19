@@ -1,15 +1,18 @@
 //! The client side of online play (step 10, piece I1; ports `online/seat.py` and `online/send_logs.py`) and the wire
 //! protocol the server's seat desk and log inbox (piece I2) share with it. No Windows-only code: the Linux server
-//! builds this module too.
+//! builds this module too. [`gamesvr`] and [`vs`]: the 2017-18 game server and its VS matcher and reflect service,
+//! run by the Launcher's local stand-in and by `forza-server gmsvr`.
 //!
 //! Seat desk (TCP [`SEAT_PORT`]), ASCII lines:
 //! `WANT` or `WANT SEAT n` -> `SEAT n PROJECTOR p`, `TAKEN n`, `FULL` or `ERR ...`; then `PING` -> `PONG`.
 //! Log inbox (TCP [`INBOX_PORT`]), one upload per connection: `WCCFLOGS1 SIZE VERSION\n`, SIZE bytes of ZIP, then
 //! `OK CODE\n` or `NO reason\n`.
 
+pub mod gamesvr;
 pub mod lobby;
 pub mod seat;
 pub mod send_logs;
+pub mod vs;
 
 /// The seat desk's port on the server (the Python's `WCCF_BROKER_PORT` default).
 pub const SEAT_PORT: u16 = 20030;

@@ -48,9 +48,10 @@ use std::time::{Duration, Instant, SystemTime};
 use std::{env, ptr};
 
 use crate::helper::{self, Helper, Target, ViewFiles};
+use forza::online::gamesvr;
 use forza::online::seat::{self, Lease};
 use forza::online::send_logs::{self, Scrub};
-use forza::standins::{Handle, Log, aime, aimedb, card_reader, gamesvr, io_board, network, scenes};
+use forza::standins::{Handle, Log, aime, aimedb, card_reader, io_board, network, scenes};
 use regex::Regex;
 use windows_sys::Win32::Foundation::{ERROR_ALREADY_EXISTS, FALSE, GetLastError};
 use windows_sys::Win32::System::Threading::{CreateMutexW, OpenMutexW, SYNCHRONIZATION_SYNCHRONIZE};
@@ -1430,9 +1431,12 @@ impl Run<'_> {
             ("WCCF_INBOX_PORT".to_owned(), self.p.inbox_port.to_string()),
         ]);
         let mut cmd = Command::new(self.kit.program("forza-server.exe"));
-        cmd.args(["--edition", self.edition.name(), "all"])
-            .arg((LIFE.as_secs() + 60).to_string())
-            .arg(&logs);
+        cmd.args(["--edition", self.edition.name(), "all"]);
+        if self.edition == Edition::E1718 {
+            // this PC's game server is the run's own stand-in (start_gamesvr)
+            cmd.arg("--no-gmsvr");
+        }
+        cmd.arg((LIFE.as_secs() + 60).to_string()).arg(&logs);
         clean_env(&mut cmd, &logs, &env);
         let out = "run_forza_server.txt";
         let role = "online server";
