@@ -13,6 +13,7 @@ pub mod io_board;
 pub mod network;
 #[cfg(windows)]
 pub mod scenes;
+pub mod vs;
 
 use std::io::{self, Read};
 use std::net::{SocketAddr, TcpListener, TcpStream};
