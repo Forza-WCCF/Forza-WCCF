@@ -3,9 +3,51 @@
 //! holds no addresses, card numbers or names of people.
 
 use serde::{Deserialize, Serialize};
+use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpStream};
+use std::time::Duration;
 
 /// The wire version this build reads and writes.
 pub const VERSION: u32 = 1;
+/// The desk never answers `LOBBY` with more than this many bytes; the client reads no more.
+pub const MAX_ANSWER: usize = 64 * 1024;
+/// A reserved seat is held this long without a `HEARTBEAT`; clients send one every [`HEARTBEAT_EVERY`] seconds.
+pub const LEASE_SECS: u64 = 60;
+pub const HEARTBEAT_EVERY: u64 = 20;
+
+/// The desk's answer to `RESERVE id` (or `RESERVE id n`): `TICKET t n`, `FULL`, `TAKEN` (the seat asked for is
+/// busy) or `CLOSED` (not this desk's shop).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Reserved {
+    Ticket { ticket: String, seat: u8 },
+    Full,
+    Taken,
+    Closed,
+}
+
+impl Reserved {
+    pub fn line(&self) -> String {
+        match self {
+            Reserved::Ticket { ticket, seat } => format!("TICKET {ticket} {seat}\n"),
+            Reserved::Full => "FULL\n".into(),
+            Reserved::Taken => "TAKEN\n".into(),
+            Reserved::Closed => "CLOSED\n".into(),
+        }
+    }
+
+    pub fn parse(line: &str) -> Option<Reserved> {
+        match line.split_whitespace().collect::<Vec<_>>()[..] {
+            ["TICKET", t, n] => Some(Reserved::Ticket {
+                ticket: t.into(),
+                seat: n.parse().ok()?,
+            }),
+            ["FULL"] => Some(Reserved::Full),
+            ["TAKEN"] => Some(Reserved::Taken),
+            ["CLOSED"] => Some(Reserved::Closed),
+            _ => None,
+        }
+    }
+}
 
 /// A shop's phase, as the desk reads it from the control's log.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -79,6 +121,46 @@ impl Lobby {
         let mut s = serde_json::to_string(self).expect("plain data serializes");
         s.push('\n');
         s
+    }
+}
+
+/// Connect, send, read time-outs: the Launcher's polling thread must never hang on a dead desk.
+const TIMEOUT: Duration = Duration::from_secs(3);
+
+/// One request line, one answer line (at most [`MAX_ANSWER`] bytes), the desk hangs up.
+fn ask(addr: SocketAddr, line: &str) -> Result<String, String> {
+    let io = |e: std::io::Error| e.to_string();
+    let mut c = TcpStream::connect_timeout(&addr, TIMEOUT).map_err(io)?;
+    c.set_read_timeout(Some(TIMEOUT)).map_err(io)?;
+    c.set_write_timeout(Some(TIMEOUT)).map_err(io)?;
+    c.write_all(line.as_bytes()).map_err(io)?;
+    let mut buf = Vec::new();
+    c.take(MAX_ANSWER as u64 + 1)
+        .read_to_end(&mut buf)
+        .map_err(io)?;
+    if buf.len() > MAX_ANSWER {
+        return Err("answer too long".into());
+    }
+    Ok(String::from_utf8_lossy(&buf).trim().to_string())
+}
+
+/// `LOBBY edition`: the desk's answer, or why there is none (`ERR slow` included).
+pub fn fetch(addr: SocketAddr, edition: &str) -> Result<Lobby, String> {
+    Lobby::parse(&ask(addr, &format!("LOBBY {edition}\n"))?)
+}
+
+/// `RESERVE id`: a seat held for [`LEASE_SECS`]. Claim it with `WANT ... TICKET t`.
+pub fn reserve(addr: SocketAddr, id: &str) -> Result<Reserved, String> {
+    let a = ask(addr, &format!("RESERVE {id}\n"))?;
+    Reserved::parse(&a).ok_or(a)
+}
+
+/// `HEARTBEAT t`: true while the desk still holds the seat (send every [`HEARTBEAT_EVERY`] seconds).
+pub fn heartbeat(addr: SocketAddr, ticket: &str) -> Result<bool, String> {
+    match ask(addr, &format!("HEARTBEAT {ticket}\n"))?.as_str() {
+        "OK" => Ok(true),
+        "GONE" => Ok(false),
+        other => Err(other.into()),
     }
 }
 
