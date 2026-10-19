@@ -10,6 +10,7 @@ mod codes;
 pub mod hq;
 pub mod links;
 pub mod pictures;
+pub mod steps;
 
 use crate::ui::board::{Aptitude, Board, Card, Position, Rarity};
 use egui::{Pos2, pos2};
