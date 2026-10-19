@@ -126,6 +126,163 @@ const KEEP_1718: &[&str] = &[
     "overlay/netguard.dll",
     "source/build",
 ];
+/// One C job: `src` is read from the edition's source folder, `out` is relative to the staged kit; no `what`, no version
+/// resource. `link` and `compile` are extra clang-cl arguments.
+struct Cj {
+    src: &'static str,
+    out: &'static str,
+    what: &'static str,
+    compile: &'static [&'static str],
+    link: &'static [&'static str],
+}
+
+const fn cj(
+    src: &'static str,
+    out: &'static str,
+    what: &'static str,
+    compile: &'static [&'static str],
+    link: &'static [&'static str],
+) -> Cj {
+    Cj {
+        src,
+        out,
+        what,
+        compile,
+        link,
+    }
+}
+
+/// What differs between the two kits: the staging table, the programs `build` keeps, the ZIP's top folder and product
+/// name, where the C sources are read from (relative to the kit, else the repository) and which C programs are built.
+struct Ed {
+    map: &'static [(&'static str, &'static str)],
+    keep: &'static [&'static str],
+    top: &'static str,
+    product: &'static str,
+    /// the 2010-11 kit builds from its own staged `source/`, the 2017-18 kit from the repository's `native/2017-18`
+    src: &'static str,
+    in_kit: bool,
+    /// folders `build` makes in the staged kit
+    dirs: &'static [&'static str],
+    jobs: &'static [Cj],
+}
+
+const NO_CONSOLE: &[&str] = &["user32.lib", "/SUBSYSTEM:WINDOWS", "/ENTRY:mainCRTStartup"]; // the game starts it: no console window
+const ED_1011: Ed = Ed {
+    map: MAP,
+    keep: KEEP,
+    top: TOP,
+    product: PRODUCT,
+    src: "source",
+    in_kit: true,
+    dirs: &["programs", "source/build"],
+    jobs: &[
+        cj(
+            "hook/wccfk.c",
+            "programs/wccfk.dll",
+            "the kit's hook in the game: stands in for the cabinet's hardware",
+            &["/LD"],
+            &[],
+        ),
+        // tests only, not shipped
+        cj(
+            "panel/fakegame.c",
+            "source/build/fakegame.exe",
+            "",
+            &[],
+            &["d3d9.lib", "user32.lib"],
+        ),
+        // fakegame with an IP-helper import: the 2017-18 guard's tests rename it to wccfnet.dll as setup1718.py does
+        cj(
+            "panel/fakegame_iphlp.c",
+            "source/build/fakegame_iphlp.exe",
+            "",
+            &[],
+            &["d3d9.lib", "user32.lib", "iphlpapi.lib"],
+        ),
+        cj(
+            "hook/test_wholemsg.c",
+            "source/build/test_wholemsg.exe",
+            "",
+            &[],
+            &[],
+        ),
+        cj("crashme.c", "source/build/crashme.exe", "", &[], &[]),
+    ],
+};
+const ED_1718: Ed = Ed {
+    map: MAP_1718,
+    keep: KEEP_1718,
+    top: TOP_1718,
+    product: PRODUCT_1718,
+    src: "native/2017-18",
+    in_kit: false,
+    dirs: &["bin", "overlay", "source/build"],
+    jobs: &[
+        cj(
+            "mxhook/mxhook.c",
+            "bin/winmm.dll",
+            "stands in for the cabinet's hardware, loaded by the game in place of winmm.dll",
+            &["/LD"],
+            &[],
+        ),
+        cj(
+            "logowin/logowin_standin.c",
+            "bin/logowin.exe",
+            "the start-up notice window, replaced by one that only records the notice",
+            &[],
+            &["/SUBSYSTEM:WINDOWS"],
+        ),
+        cj(
+            "netguard/netguard.c",
+            "overlay/netguard.dll",
+            "secondary network guard: stubs the IP helper calls that drop the host's DHCP lease",
+            &["/LD"],
+            &[],
+        ),
+        cj(
+            "netguard/wccfnet.c",
+            "bin/wccfnet.dll",
+            "the primary network guard: the game programs import it instead of IPHLPAPI.DLL",
+            &["/LD"],
+            &[],
+        ),
+        // tests only, not shipped
+        cj(
+            "netguard/test_wccfnet.c",
+            "source/build/test_wccfnet.exe",
+            "",
+            &[],
+            &[],
+        ),
+        cj(
+            "netguard/test_netguard.c",
+            "source/build/test_netguard.exe",
+            "",
+            &[],
+            &["iphlpapi.lib"],
+        ),
+    ],
+};
+/// Programs both kits ship unchanged: compiled once from `native/` into the 2010-11 kit's `source/build`, which
+/// `build_all` copies into both kits.
+const COMMON: &[Cj] = &[
+    cj(
+        "common/inject.c",
+        "source/build/inject.exe",
+        "loads the kit's panel into the running game",
+        &[],
+        &[],
+    ),
+    cj(
+        "fpr_emu/fpr_emu.c",
+        "source/build/FPR_Emu.exe",
+        "the card table's stand-in",
+        &[],
+        NO_CONSOLE,
+    ),
+];
+
 /// Shipped programs that may be console programs, each started only by Launcher.exe with CREATE_NO_WINDOW and its output
 /// read through a file or a pipe: python.exe (setup scripts; Launcher.exe's `script` and the installer), inject.exe (exit
 /// code and message read from a pipe), forza-server.exe (log file).  FPR_Emu.exe is not here: the game starts it.
@@ -188,8 +345,8 @@ fn main() -> Result<()> {
         Task::Check => build_all(&root, &kit, &kit_1718, &Cc::new()?)
             .and_then(|()| check(&root, &stage_root, &kit, &kit_1718)),
         Task::Stage { edition } => match edition.as_str() {
-            "2010-11" => stage(&root, &kit, MAP, KEEP),
-            "2017-18" => stage(&root, &kit_1718, MAP_1718, KEEP_1718),
+            "2010-11" => stage(&root, &kit, ED_1011.map, ED_1011.keep),
+            "2017-18" => stage(&root, &kit_1718, ED_1718.map, ED_1718.keep),
             _ => anyhow::bail!("unknown edition {edition} (2010-11 or 2017-18)"),
         },
         Task::Package { edition, name } => match edition.as_str() {
@@ -419,8 +576,16 @@ fn build_all(root: &Path, kit: &Path, kit_1718: &Path, cc: &Cc) -> Result<()> {
     let mut failed = vec![];
     let res = std::thread::scope(|s| {
         let mut jobs = build(s, root, kit, cc)?;
-        jobs.extend(build_1718(s, root, kit_1718, cc)?);
-        jobs.extend(build_common(s, root, kit, cc)?);
+        jobs.extend(build_c_jobs(s, root, kit_1718, cc, &ED_1718)?);
+        jobs.extend(spawn_c(
+            s,
+            root,
+            kit,
+            cc,
+            PRODUCT_COMMON,
+            &root.join("native"),
+            COMMON,
+        )?);
         for j in jobs {
             let (what, r) = j.join().expect("build thread");
             if let Err(e) = r {
@@ -472,61 +637,10 @@ fn build<'s>(
     kit: &Path,
     cc: &'s Cc,
 ) -> Result<Jobs<'s>> {
-    stage(root, kit, MAP, KEEP)?;
-    let obj = kit.join("source/build");
-    fs::create_dir_all(&obj)?;
-    fs::create_dir_all(kit.join("programs"))?;
+    let mut jobs = build_c_jobs(s, root, kit, cc, &ED_1011)?;
     // programs\ is kept between builds: the C panel it held up to step 9.4c must not ship beside forza_panel.dll
     let _ = fs::remove_file(kit.join("programs/wccfpanel.dll"));
-    let version = workspace_version(root)?;
-    let (src, mut jobs) = (kit.join("source"), vec![]);
-    let mut c = |source: &'static str,
-                 out: PathBuf,
-                 what: &'static str,
-                 compile: &'static [&'static str],
-                 link: &'static [&'static str]| {
-        let (version, src, obj) = (version.clone(), src.clone(), obj.clone());
-        jobs.push(s.spawn(move || {
-            let r = Shell::new().map_err(Into::into).and_then(|sh| {
-                build_c(
-                    &sh, cc, PRODUCT, &version, &src, &obj, source, &out, what, compile, link,
-                )
-            });
-            (source.to_owned(), r)
-        }));
-    };
-    let p = kit.join("programs");
-    c(
-        "hook/wccfk.c",
-        p.join("wccfk.dll"),
-        "the kit's hook in the game: stands in for the cabinet's hardware",
-        &["/LD"],
-        &[],
-    );
-    // tests only, not shipped
-    c(
-        "panel/fakegame.c",
-        obj.join("fakegame.exe"),
-        "",
-        &[],
-        &["d3d9.lib", "user32.lib"],
-    );
-    // fakegame with an IP-helper import: the 2017-18 guard's tests rename it to wccfnet.dll as setup1718.py does
-    c(
-        "panel/fakegame_iphlp.c",
-        obj.join("fakegame_iphlp.exe"),
-        "",
-        &[],
-        &["d3d9.lib", "user32.lib", "iphlpapi.lib"],
-    );
-    c(
-        "hook/test_wholemsg.c",
-        obj.join("test_wholemsg.exe"),
-        "",
-        &[],
-        &[],
-    );
-    c("crashme.c", obj.join("crashme.exe"), "", &[], &[]);
+    let obj = kit.join("source/build");
 
     // the toolchain is pinned by rust-toolchain.toml, the crates by Cargo.lock, the static runtime by .cargo/config.toml
     let mut c = rust("build", root);
@@ -570,142 +684,56 @@ fn build<'s>(
     Ok(jobs)
 }
 
-/// Programs both kits ship unchanged, compiled once from `native/` into the 2010-11 kit's `source/build`; `build_all`
-/// copies each into both kits.
-fn build_common<'s>(
+/// Stages the edition's kit, makes its folders and spawns one thread per C job.
+fn build_c_jobs<'s>(
     s: &'s std::thread::Scope<'s, '_>,
     root: &Path,
     kit: &Path,
     cc: &'s Cc,
+    ed: &Ed,
 ) -> Result<Jobs<'s>> {
-    let obj = kit.join("source/build");
-    fs::create_dir_all(&obj)?;
-    let version = workspace_version(root)?;
-    let src = root.join("native");
-    let mut jobs = vec![];
-    for (source, what, link) in [
-        (
-            "common/inject.c",
-            "loads the kit's panel into the running game",
-            &[] as &'static [&'static str],
-        ),
-        (
-            "fpr_emu/fpr_emu.c",
-            "the card table's stand-in",
-            // the game starts it: no console window
-            &["user32.lib", "/SUBSYSTEM:WINDOWS", "/ENTRY:mainCRTStartup"],
-        ),
-    ] {
-        let (version, src, obj) = (version.clone(), src.clone(), obj.clone());
-        let out = obj
-            .join(Path::new(source).file_stem().unwrap())
-            .with_extension("exe");
-        jobs.push(s.spawn(move || {
-            let r = Shell::new().map_err(Into::into).and_then(|sh| {
-                build_c(
-                    &sh,
-                    cc,
-                    PRODUCT_COMMON,
-                    &version,
-                    &src,
-                    &obj,
-                    source,
-                    &out,
-                    what,
-                    &[],
-                    link,
-                )
-            });
-            (source.to_owned(), r)
-        }));
-    }
-    Ok(jobs)
-}
-
-/// The 2017-18 programs, compiled from `native/2017-18` into the staged kit at the paths the scripts read.
-fn build_1718<'s>(
-    s: &'s std::thread::Scope<'s, '_>,
-    root: &Path,
-    kit: &Path,
-    cc: &'s Cc,
-) -> Result<Jobs<'s>> {
-    stage(root, kit, MAP_1718, KEEP_1718)?;
-    let obj = kit.join("source/build");
-    for d in ["bin", "overlay"] {
+    stage(root, kit, ed.map, ed.keep)?;
+    for d in ed.dirs {
         fs::create_dir_all(kit.join(d))?;
     }
-    fs::create_dir_all(&obj)?;
-    let version = workspace_version(root)?;
-    let (src, mut jobs) = (root.join("native/2017-18"), vec![]);
-    let mut c = |source: &'static str,
-                 out: PathBuf,
-                 what: &'static str,
-                 compile: &'static [&'static str],
-                 link: &'static [&'static str]| {
-        let (version, src, obj) = (version.clone(), src.clone(), obj.clone());
-        jobs.push(s.spawn(move || {
-            let r = Shell::new().map_err(Into::into).and_then(|sh| {
-                build_c(
-                    &sh,
-                    cc,
-                    PRODUCT_1718,
-                    &version,
-                    &src,
-                    &obj,
-                    source,
-                    &out,
-                    what,
-                    compile,
-                    link,
-                )
-            });
-            (source.to_owned(), r)
-        }));
+    let src = if ed.in_kit {
+        kit.join(ed.src)
+    } else {
+        root.join(ed.src)
     };
-    c(
-        "mxhook/mxhook.c",
-        kit.join("bin/winmm.dll"),
-        "stands in for the cabinet's hardware, loaded by the game in place of winmm.dll",
-        &["/LD"],
-        &[],
-    );
-    c(
-        "logowin/logowin_standin.c",
-        kit.join("bin/logowin.exe"),
-        "the start-up notice window, replaced by one that only records the notice",
-        &[],
-        &["/SUBSYSTEM:WINDOWS"],
-    );
-    c(
-        "netguard/netguard.c",
-        kit.join("overlay/netguard.dll"),
-        "secondary network guard: stubs the IP helper calls that drop the host's DHCP lease",
-        &["/LD"],
-        &[],
-    );
-    c(
-        "netguard/wccfnet.c",
-        kit.join("bin/wccfnet.dll"),
-        "the primary network guard: the game programs import it instead of IPHLPAPI.DLL",
-        &["/LD"],
-        &[],
-    );
-    // tests only, not shipped
-    c(
-        "netguard/test_wccfnet.c",
-        obj.join("test_wccfnet.exe"),
-        "",
-        &[],
-        &[],
-    );
-    c(
-        "netguard/test_netguard.c",
-        obj.join("test_netguard.exe"),
-        "",
-        &[],
-        &["iphlpapi.lib"],
-    );
-    Ok(jobs)
+    spawn_c(s, root, kit, cc, ed.product, &src, ed.jobs)
+}
+
+fn spawn_c<'s>(
+    s: &'s std::thread::Scope<'s, '_>,
+    root: &Path,
+    kit: &Path,
+    cc: &'s Cc,
+    product: &'static str,
+    src: &Path,
+    jobs: &'static [Cj],
+) -> Result<Jobs<'s>> {
+    let (version, obj) = (workspace_version(root)?, kit.join("source/build"));
+    Ok(jobs
+        .iter()
+        .map(|j| {
+            let (version, src, obj, out) = (
+                version.clone(),
+                src.to_owned(),
+                obj.clone(),
+                kit.join(j.out),
+            );
+            s.spawn(move || {
+                let r = Shell::new().map_err(Into::into).and_then(|sh| {
+                    build_c(
+                        &sh, cc, product, &version, &src, &obj, j.src, &out, j.what, j.compile,
+                        j.link,
+                    )
+                });
+                (j.src.to_owned(), r)
+            })
+        })
+        .collect())
 }
 
 /// The runtime linked in (/MT), so no Visual C++ runtime is needed on the player's PC; /Brepro: the same source, the same file.
@@ -1526,11 +1554,13 @@ fn package_installer(root: &Path, name: Option<String>) -> Result<()> {
 /// `is_1011`: the 2010-11 kit, else the 2017-18 kit. Both hold the programs `cargo xtask build` made, and their version
 /// information is checked; both ZIPs leave out `source/build` (the 2017-18 guard tests live there; its guard `bin/wccfnet.dll` ships).
 fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
-    let (top, map, keep, product) = if is_1011 {
-        (TOP, MAP, KEEP, PRODUCT)
-    } else {
-        (TOP_1718, MAP_1718, KEEP_1718, PRODUCT_1718)
-    };
+    let Ed {
+        top,
+        map,
+        keep,
+        product,
+        ..
+    } = if is_1011 { ED_1011 } else { ED_1718 };
     let programs: &[&str] = if is_1011 { PROGRAMS } else { PROGRAMS_1718 };
     let sh = Shell::new()?;
     sh.change_dir(root);
