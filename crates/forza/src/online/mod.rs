@@ -7,6 +7,7 @@
 //! Log inbox (TCP [`INBOX_PORT`]), one upload per connection: `WCCFLOGS1 SIZE VERSION\n`, SIZE bytes of ZIP, then
 //! `OK CODE\n` or `NO reason\n`.
 
+pub mod lobby;
 pub mod seat;
 pub mod send_logs;
 

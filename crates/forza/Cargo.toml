@@ -16,6 +16,7 @@ aes.workspace = true
 sha2.workspace = true
 # the catalogue (catalogue.tsv), forza::cards
 csv = { version = "1.4.0", optional = true }
+serde = { version = "1.0.229", features = ["derive"] }
 serde_json.workspace = true
 egui = { workspace = true, optional = true }
 # `file` and `image`: the card pictures, read and decoded off the UI thread by egui's loaders (PNG only); image's

@@ -1590,6 +1590,7 @@ dependencies = [
  "image",
  "rusqlite",
  "rust-i18n",
+ "serde",
  "serde_json",
  "sha2",
  "tempfile",
