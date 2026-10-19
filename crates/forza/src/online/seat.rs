@@ -3,7 +3,7 @@
 //! seat (A5). Dropping the [`Lease`] ends the lease and the seat is free again at once.
 
 use super::{Reply, Want};
-use crate::standins::{Handle, Log};
+use crate::service::{Handle, Log};
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpStream};
 use std::sync::Arc;

@@ -1,7 +1,8 @@
 //! Replays the recordings of the Python stand-ins (`tests/rec/*.jsonl`, made by the throwaway recorders of step 10
 //! piece J1 from synthetic requests) against the Rust services and compares byte for byte.
 
-use forza::standins::{Handle, Log, aimedb, gamesvr};
+use forza::online::gamesvr;
+use forza::standins::{Handle, Log, aimedb};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
@@ -661,7 +662,7 @@ fn network_replay() {
 /// M3: two fake cabinets log in, probe the reflect service, enter (243), poll (245) and get mirrored 246s.
 #[test]
 fn vs_two_clients_pair_through_reflect() {
-    use forza::standins::vs::{VsConfig, spawn_reflect};
+    use forza::online::vs::{VsConfig, spawn_reflect};
     use std::net::{Ipv4Addr, UdpSocket};
     let dir = scratch("vs");
     let udp = UdpSocket::bind("127.0.0.1:0").unwrap();

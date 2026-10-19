@@ -2,7 +2,7 @@
 //! reflect service. Layouts are field tables from `docs/research/ONLINE-2017-18.md` and the M3 notes; offsets marked
 //! A there are assumptions until a live capture.
 
-use super::{Handle, Log};
+use crate::service::{Handle, Log};
 use std::collections::HashMap;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket};
@@ -71,9 +71,12 @@ pub fn fill_round(body: &mut [u8], unix_secs: i64) {
     body[12..16].copy_from_slice(&WINDOW_SECS.to_le_bytes());
 }
 
+#[derive(Debug)]
 struct Entry {
     req: [u8; ENTRY_LEN],
     at: Instant,
+    /// Random per entry, never derived from the request: the lobby's room id; a pair shares the older entry's
+    room: u64,
     /// The 246 for this seat once paired (slot not yet echoed)
     pair: Option<[u8; MATCH_LEN]>,
 }
@@ -100,14 +103,14 @@ impl Entry {
 const LINK_TTL: Duration = Duration::from_secs(600);
 
 /// What vslink told gmsvr: which PCs run it, and the EndpointId behind each token.
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct Links {
     capable: HashMap<IpAddr, Instant>,
     ids: HashMap<(u32, u16), ([u8; 32], Instant)>,
 }
 
 /// The waiting 243 entries and the pairs made from them, plus the vslink registry.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Matcher {
     entries: Mutex<Vec<Entry>>,
     links: Mutex<Links>,
@@ -222,6 +225,7 @@ impl Matcher {
         let e = Entry {
             req,
             at: now,
+            room: getrandom::u64().unwrap_or(0),
             pair: None,
         };
         let mut v = self.lock();
@@ -260,11 +264,28 @@ impl Matcher {
         );
         v[me].pair = Some(for_me);
         v[other].pair = Some(for_other);
+        let room = v[me.min(other)].room;
+        (v[me].room, v[other].room) = (room, room);
         Some(for_me)
     }
 
     pub fn waiting(&self) -> usize {
         self.lock().len()
+    }
+
+    /// The lobby's VS rooms (ROADMAP "Lobby listing"): (random room id, players), a waiting entry 1, a pair 2 until
+    /// its entries expire.
+    pub fn rooms(&self, now: Instant) -> Vec<(u64, u8)> {
+        let mut v = self.lock();
+        v.retain(|x| now.duration_since(x.at) < ENTRY_TTL);
+        let mut rooms: Vec<(u64, u8)> = Vec::new();
+        for e in v.iter() {
+            match rooms.iter_mut().find(|(r, _)| *r == e.room) {
+                Some((_, n)) => *n += 1,
+                None => rooms.push((e.room, 1)),
+            }
+        }
+        rooms
     }
 }
 
@@ -426,6 +447,22 @@ mod tests {
         assert_ne!(u32_at(&pb, 20), u32_at(&pb, 8));
         assert_eq!(pa[216..248], b[16..48]);
         assert_eq!(pb[216..248], a[16..48]);
+    }
+
+    #[test]
+    fn rooms_a_waiting_entry_is_one_a_pair_is_two() {
+        let m = Matcher::default();
+        let t = Instant::now();
+        m.enter(&entry(1, 7, [9, 9, 9, 1], 20001, 111, 5), t);
+        assert_eq!(m.rooms(t).iter().map(|r| r.1).collect::<Vec<_>>(), [1]);
+        m.enter(&entry(2, 7, [9, 9, 9, 2], 20002, 222, 6), t);
+        assert_eq!(m.rooms(t).len(), 2);
+        m.poll(&poll_req(1, 111, 5), t).unwrap();
+        m.enter(&entry(3, 7, [9, 9, 9, 3], 20003, 333, 7), t);
+        let mut n: Vec<u8> = m.rooms(t).iter().map(|r| r.1).collect();
+        n.sort();
+        assert_eq!(n, [1, 2]);
+        assert!(m.rooms(t + ENTRY_TTL).is_empty());
     }
 
     #[test]
