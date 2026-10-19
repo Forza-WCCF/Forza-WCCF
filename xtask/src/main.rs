@@ -456,6 +456,8 @@ fn build_all(root: &Path, kit: &Path, kit_1718: &Path, cc: &Cc) -> Result<()> {
         (panel, kit_1718.join("overlay/forza_panel.dll")),
         (common("inject.exe"), kit.join("programs/inject.exe")),
         (common("inject.exe"), kit_1718.join("overlay/inject.exe")),
+        (common("fpr_emu.exe"), kit.join("programs/FPR_Emu.exe")),
+        (common("fpr_emu.exe"), kit_1718.join("bin/FPR_Emu.exe")),
     ] {
         fs::create_dir_all(to.parent().unwrap())?;
         fs::copy(from, &to)?;
@@ -500,13 +502,6 @@ fn build<'s>(
         "the kit's hook in the game: stands in for the cabinet's hardware",
         &["/LD"],
         &[],
-    );
-    c(
-        "card_table/fpr_emu.c",
-        p.join("FPR_Emu.exe"),
-        "the card table's stand-in",
-        &[],
-        &["user32.lib", "/SUBSYSTEM:WINDOWS", "/ENTRY:mainCRTStartup"], // the game starts it: no console window
     );
     // tests only, not shipped
     c(
@@ -588,17 +583,37 @@ fn build_common<'s>(
     let version = workspace_version(root)?;
     let src = root.join("native");
     let mut jobs = vec![];
-    for (source, what, link) in [(
-        "common/inject.c",
-        "loads the kit's panel into the running game",
-        &[] as &'static [&'static str],
-    )] {
+    for (source, what, link) in [
+        (
+            "common/inject.c",
+            "loads the kit's panel into the running game",
+            &[] as &'static [&'static str],
+        ),
+        (
+            "fpr_emu/fpr_emu.c",
+            "the card table's stand-in",
+            // the game starts it: no console window
+            &["user32.lib", "/SUBSYSTEM:WINDOWS", "/ENTRY:mainCRTStartup"],
+        ),
+    ] {
         let (version, src, obj) = (version.clone(), src.clone(), obj.clone());
-        let out = obj.join(Path::new(source).file_stem().unwrap()).with_extension("exe");
+        let out = obj
+            .join(Path::new(source).file_stem().unwrap())
+            .with_extension("exe");
         jobs.push(s.spawn(move || {
             let r = Shell::new().map_err(Into::into).and_then(|sh| {
                 build_c(
-                    &sh, cc, PRODUCT_COMMON, &version, &src, &obj, source, &out, what, &[], link,
+                    &sh,
+                    cc,
+                    PRODUCT_COMMON,
+                    &version,
+                    &src,
+                    &obj,
+                    source,
+                    &out,
+                    what,
+                    &[],
+                    link,
                 )
             });
             (source.to_owned(), r)
@@ -660,13 +675,6 @@ fn build_1718<'s>(
         "the start-up notice window, replaced by one that only records the notice",
         &[],
         &["/SUBSYSTEM:WINDOWS"],
-    );
-    c(
-        "../fpr_emu/fpr_emu.c",
-        kit.join("bin/FPR_Emu.exe"),
-        "the card table's stand-in",
-        &[],
-        &["user32.lib", "/SUBSYSTEM:WINDOWS", "/ENTRY:mainCRTStartup"], // the game starts it: no console window
     );
     c(
         "netguard/netguard.c",
