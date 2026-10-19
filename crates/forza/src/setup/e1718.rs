@@ -1,0 +1,648 @@
+//! 2017-18 setup (`setup.py`): set up your copy of the decrypted game for Forza-WCCF, once; run it again to check and
+//! repair.  Works in place on the game folder; the runtime is the folder that holds it:
+//!
+//! - `original\` the untouched client_Release.exe and control_Release.exe, kept on the first run; every later run
+//!   patches from them, so running setup again never stacks a patch (a second run changes nothing)
+//! - `game\` the server and projector: guarded programs (they import wccfnet.dll, which stubs the four IP-helper
+//!   calls, instead of IPHLPAPI.DLL), the kit's winmm.dll / logowin.exe stand-ins, the settings files
+//! - `seat1\` the player's cabinet: junctions to game's folders, hard links to its files, its own patched
+//!   client_Release.exe, the card-table helper
+//! - `setup-hashes.json` the SHA-256 of what setup made; Launcher.exe starts nothing unless every file still matches
+//!
+//! It also writes the kit's `data\settings.json` "game".  The card catalogue (overlay\catalogue.tsv) is not made here
+//! yet: `scripts\cards1718.py --catalogue-only` still makes it (step 11, `cards/catalogue.py`).
+
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use super::{
+    Error, Hash, Patch, Report, Result, apply, copy_in, make_dir, make_junction, merge_settings,
+    original, put, read, rename_import, sha,
+};
+use crate::Edition;
+
+/// The decrypted 2017-18 game's two programs and the SHA-256 each must have (every patch checks its own bytes as well).
+const PINNED: [(&str, &str); 2] = [
+    (
+        "client_Release.exe",
+        "8b55456f04ad4766fa1226738951954ab77f77ae2e4d7d0b57b88544a283e5ca",
+    ),
+    (
+        "control_Release.exe",
+        "0539087f72a238fab5a69f0f294205ff186028c7b9d3b9a1f95973fc19f27c5f",
+    ),
+];
+const OLD: &[u8] = b"IPHLPAPI.DLL\0";
+const NEW: &[u8] = b"wccfnet.dll\0\0";
+/// The name the original logowin.exe is kept under beside it.
+fn logowin_backup() -> String {
+    format!(
+        "logowin_{}.exe",
+        String::from_utf8_lossy(&[0x73, 0x65, 0x67, 0x61])
+    )
+}
+/// The card-table helper as the client names it, relative to seat 1's folder.
+const FPR_EMU: &str = "FlatPanelReader_Emulator/FPR_Emu.exe";
+const CONF_CLIENT: &str = "local/client_user_option.conf";
+const JUNCTION_DIRS: [&str; 9] = [
+    "AI",
+    "data",
+    "lighting",
+    "Microsoft.VC90.CRT",
+    "Microsoft.VC90.MFC",
+    "prog_data",
+    "script",
+    "shader",
+    "update",
+];
+
+fn client_keys(seat: u8) -> String {
+    format!(
+        "IS_RINGEDGE={seat}\r\nALLNET_AUTH=0\r\nDHCP=0\r\nCONTROL_IP=127.0.0.1\r\nCONTROL_PORT=20002\r\n\
+         MATCH_IP=127.0.0.1\r\nMATCH_PORT=20003\r\nFPR_MODE=2\r\nFULL_SCREEN_MODE=0\r\nWAIT_PROJECTOR=1\r\n\
+         SATELLITE_NO={seat}\r\n"
+    )
+}
+
+/// Online through the local game server stand-in; "127.0.0.1" itself would mean "use the address ALL.Net gave", so the
+/// stand-in is named localhost.
+const CONF_CONTROL: &str = "DHCP=0\r\nIS_RINGEDGE=0\r\nALLNET_AUTH=0\r\nACCEPT_ALL_IP=1\r\nCLIENT_MAX=9\r\n\
+    ACCEPT_IP_0=127.0.0.1\r\nCONTROL_PORT=20002\r\nMATCH_PORT=20003\r\nFIX_REST_ENTRY_TIME=120\r\n\
+    FORCE_ONLINE=1\r\nGAME_SVR_IP=localhost\r\nGAME_SVR_PORT=20050\r\nWAIT_PROJECTOR=1\r\n";
+
+const ALLNET_AUTHORIZED: Patch = Patch {
+    at: 0x877b70,
+    old: &[0x56, 0xe8, 0x4a, 0xee, 0xff, 0xff],
+    new: &[0xb8, 0x01, 0x00, 0x00, 0x00, 0xc3],
+    what: "ALL.Net authorized (VA 0x00C78770 returns 1)",
+};
+
+const ALLNET_BILLING_IDLE: Patch = Patch {
+    at: 0xf1c7,
+    old: &[0x8b, 0xb6, 0xf8, 0x00, 0x00, 0x00],
+    new: &[0xbe, 0x14, 0x00, 0x00, 0x00, 0x90],
+    what: "ALL.Net billing phase reads IDLE (20) in the online test",
+};
+
+/// Seat 1's client_Release.exe (the 2010-11 kit's patches as each proved needed).
+static SEAT: [Patch; 15] = [
+    Patch {
+        at: 0x1db8a0,
+        old: &[0x6a, 0xff, 0x68],
+        new: &[0xb0, 0x01, 0xc3],
+        what: "keychip check passes (error 0949); VA 0x005DC4A0, 2010-11 kit's 0x004E0AE0",
+    },
+    Patch {
+        at: 0x1ce5b1,
+        old: &[0x01],
+        new: &[0x00],
+        what: "I/O board in JVS mode 0 (COM4); VA 0x005CF1B1 push 1 -> push 0, 2010-11 kit's 0x004D91C9",
+    },
+    Patch {
+        at: 0x1f3820,
+        old: &[0x80, 0x3d, 0x6e],
+        new: &[0x32, 0xc0, 0xc3],
+        what: "resolution check passes (error 0910); VA 0x005F4420, 2010-11 kit's 0x004EE102",
+    },
+    Patch {
+        at: 0x1f3720,
+        old: &[0x55, 0x8b, 0xec],
+        new: &[0x32, 0xc0, 0xc3],
+        what: "camera firmware check passes (error 0xC05); VA 0x005F4320, 2010-11 kit's 0x004EE000",
+    },
+    Patch {
+        at: 0x1f37a0,
+        old: &[0x80, 0x3d, 0x6e],
+        new: &[0x32, 0xc0, 0xc3],
+        what: "camera board check passes (error 5801); VA 0x005F43A0, 2010-11 kit's 0x004EE080",
+    },
+    Patch {
+        at: 0x376f06,
+        old: &[0xc7, 0x46, 0x04, 0xb7, 0x14, 0x00, 0x00],
+        new: &[0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90],
+        what: "main board error 5303 not raised; 2010-11 kit's 0x00570C2A",
+    },
+    Patch {
+        at: 0x376f3d,
+        old: &[0xc7, 0x46, 0x04, 0x19, 0x00, 0x00, 0x00],
+        new: &[0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90],
+        what: "main board error 0025 not raised; 2010-11 kit's 0x00570C61",
+    },
+    Patch {
+        at: 0x376f74,
+        old: &[0xc7, 0x46, 0x04, 0x1a, 0x00, 0x00, 0x00],
+        new: &[0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90],
+        what: "main board error 0026 not raised; 2010-11 kit's 0x00570C98",
+    },
+    Patch {
+        at: 0xdd7e90,
+        old: &[0x01, 0x00, 0x00, 0x00],
+        new: &[0x02, 0x00, 0x00, 0x00],
+        what: "smooth texture scaling; 2010-11 kit's 0x00988668",
+    },
+    Patch {
+        at: 0xf93088,
+        old: &[0x20, 0x03],
+        new: &[0xa0, 0x05],
+        what: "screen width 800 -> 1440; 2010-11 kit's 0x009FBCE8",
+    },
+    Patch {
+        at: 0xf9308c,
+        old: &[0x58, 0x02],
+        new: &[0x84, 0x03],
+        what: "screen height 600 -> 900; 2010-11 kit's 0x009FBCEC",
+    },
+    Patch {
+        at: 0x150e,
+        old: &[
+            0x8b, 0x51, 0x3c, 0x8b, 0x71, 0x38, 0x8b, 0x79, 0x34, 0x8b, 0x49, 0x30,
+        ],
+        new: &[
+            0x8b, 0x50, 0x30, 0x8b, 0x70, 0x2c, 0x33, 0xff, 0x33, 0xc9, 0x90, 0x90,
+        ],
+        what: "picture fills the back buffer",
+    },
+    ALLNET_AUTHORIZED,
+    ALLNET_BILLING_IDLE,
+    Patch {
+        at: 0xe2c250,
+        old: &[
+            0x61, 0x69, 0x6d, 0x65, 0x2e, 0x6e, 0x61, 0x6f, 0x6d, 0x69, 0x6e, 0x65, 0x74, 0x2e,
+            0x6a, 0x70, 0x00,
+        ],
+        new: &[
+            0x6c, 0x6f, 0x63, 0x61, 0x6c, 0x68, 0x6f, 0x73, 0x74, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00,
+        ],
+        what: "AiMeDB host aime.naominet.jp -> localhost",
+    },
+];
+
+/// The projector (game\\client_Release.exe): only the two ALL.Net answers, so its corner status icon agrees with seat 1's.
+static PROJECTOR: [Patch; 2] = [ALLNET_AUTHORIZED, ALLNET_BILLING_IDLE];
+
+/// The server (control_Release.exe): its ALL.Net library's "network up" check answers yes, so it connects to the local
+/// game server stand-in (FORCE_ONLINE=1, GAME_SVR_IP=localhost).
+static CONTROL: [Patch; 1] = [Patch {
+    at: 0xb67c0,
+    old: &[0x56, 0xe8, 0xaa, 0xf2, 0xff, 0xff],
+    new: &[0xb8, 0x01, 0x00, 0x00, 0x00, 0xc3],
+    what: "network up (FUN_004B73C0 returns 1)",
+}];
+
+/// What setup checks and changes; [`Spec::game`] is the real game's, tests give their own.
+pub struct Spec {
+    /// (program, SHA-256) of client_Release.exe and control_Release.exe
+    pub pinned: [(&'static str, &'static str); 2],
+    pub seat: &'static [Patch],
+    pub projector: &'static [Patch],
+    pub control: &'static [Patch],
+    /// Windows' 32-bit winmm.dll, kept beside the game as winmm_orig.dll
+    pub winmm: PathBuf,
+}
+
+impl Spec {
+    pub fn game() -> Self {
+        let root = std::env::var_os("SystemRoot")
+            .map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from);
+        Self {
+            pinned: PINNED,
+            seat: &SEAT,
+            projector: &PROJECTOR,
+            control: &CONTROL,
+            winmm: root.join("SysWOW64").join("winmm.dll"),
+        }
+    }
+}
+
+/// The game folder (the one with client_Release.exe and control_Release.exe) from a path to it or to the runtime above it.
+pub fn find_game(path: &str) -> Option<PathBuf> {
+    super::find_game(path, &[PINNED[0].0, PINNED[1].0], "game")
+}
+
+/// game\ (server + projector, guarded) and seat1\; returns what setup-hashes.json holds.
+pub fn setup_game(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
+    let lay = Edition::E1718.layout();
+    let rt = game.parent().unwrap_or(game);
+    let seat = rt.join("seat1");
+    let (bin, overlay) = (kit.join(lay.bin), kit.join(lay.overlay));
+    let mut report = Report::default();
+    for (i, (exe, pinned)) in spec.pinned.iter().enumerate() {
+        let orig = original(
+            exe,
+            &game.join(exe),
+            &rt.join("original").join(exe),
+            pinned,
+            "2017-18",
+        )?;
+        let g = rename_import(&orig, OLD, NEW)?;
+        // the projector's status icon needs the same ALL.Net answers as seat 1
+        let g = apply(&g, if i == 1 { spec.control } else { spec.projector })?;
+        if fs::read(game.join(exe)).ok().as_deref() != Some(&g) {
+            put(&game.join(exe), &g)?;
+        }
+        report
+            .0
+            .push(((*exe).into(), Hash::Pair(sha(&orig), sha(&g))));
+    }
+    for (dll, built) in [
+        ("wccfnet.dll", bin.join("wccfnet.dll")),
+        ("netguard.dll", overlay.join("netguard.dll")),
+    ] {
+        copy_in(&built, &game.join(dll), "the network guard")?;
+        report
+            .0
+            .push((dll.into(), Hash::One(sha(&read(&game.join(dll))?))));
+    }
+    copy_in(
+        &spec.winmm,
+        &game.join("winmm_orig.dll"),
+        "Windows' 32-bit winmm.dll",
+    )?;
+    copy_in(
+        &bin.join("winmm.dll"),
+        &game.join("winmm.dll"),
+        "the cabinet stand-in",
+    )?;
+    if !game.join(logowin_backup()).exists() {
+        fs::rename(game.join("logowin.exe"), game.join(logowin_backup()))?;
+    }
+    copy_in(
+        &bin.join("logowin.exe"),
+        &game.join("logowin.exe"),
+        "the logo stand-in",
+    )?;
+    make_dir(&game.join("local"))?;
+    put(&game.join(CONF_CLIENT), client_keys(0).as_bytes())?;
+    put(
+        &game.join("local/ctrl_user_option.conf"),
+        CONF_CONTROL.as_bytes(),
+    )?;
+
+    // seat 1: junctions to game\'s folders, hard links to its files, its own exe and settings
+    make_dir(&seat.join("local"))?;
+    for n in JUNCTION_DIRS {
+        make_junction(&seat.join(n), &game.join(n))?;
+    }
+    for entry in fs::read_dir(game)? {
+        let name = entry?.file_name();
+        let low = name.to_string_lossy().to_lowercase();
+        let (src, dst) = (game.join(&name), seat.join(&name));
+        if !src.is_file()
+            || low == "client_release.exe"
+            || [".log", ".bin", ".bmp", ".tmp", ".txt"]
+                .iter()
+                .any(|e| low.ends_with(e))
+            || dst.exists()
+        {
+            continue;
+        }
+        fs::hard_link(&src, &dst)?;
+    }
+    let client = spec.pinned[0].0;
+    let want = apply(
+        &rename_import(&read(&rt.join("original").join(client))?, OLD, NEW)?,
+        spec.seat,
+    )?;
+    let seat_exe = seat.join(client);
+    if fs::read(&seat_exe).ok().as_deref() != Some(&want) {
+        put(&seat_exe, &want)?;
+    }
+    report
+        .0
+        .push((format!("seat1/{client}"), Hash::One(sha(&want))));
+    put(&seat.join(CONF_CLIENT), client_keys(1).as_bytes())?;
+    let table = Path::new("local/SDDY_Table.dat");
+    fs::copy(game.join(table), seat.join(table))?;
+    // the 2017-18 client starts the card-table helper from its own folder; with none there the game reads no cards
+    let named = format!("./{FPR_EMU}");
+    if !want.windows(named.len()).any(|w| w == named.as_bytes()) {
+        return Err(Error(format!("seat 1's client no longer names {FPR_EMU}")));
+    }
+    let helper = seat.join(FPR_EMU);
+    make_dir(helper.parent().unwrap_or(&helper))?;
+    copy_in(&bin.join("FPR_Emu.exe"), &helper, "the card-table helper")?;
+    fs::write(rt.join("setup-hashes.json"), report.json())?;
+    Ok(report)
+}
+
+/// The whole setup as the command line runs it: the game, the log and save folders, the kit's settings.
+pub fn run(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
+    let report = setup_game(kit, game, spec)?;
+    let data = kit.join("data");
+    make_dir(&data.join("logs"))?;
+    make_dir(&data.join("save"))?;
+    merge_settings(&data.join("settings.json"), "game", &game.to_string_lossy())?;
+    Ok(report)
+}
+
+/// The game folder as it was: the original programs and logo back, the kit's files, seat1\ and the record removed.
+pub fn undo(kit: &Path, game: &Path, spec: &Spec) -> Result<()> {
+    let rt = game.parent().unwrap_or(game);
+    for (exe, _) in spec.pinned {
+        let from = rt.join("original").join(exe);
+        fs::copy(&from, game.join(exe)).map_err(|e| Error(format!("{}: {e}", from.display())))?;
+    }
+    let backup = game.join(logowin_backup());
+    if backup.is_file() {
+        fs::rename(&backup, game.join("logowin.exe"))?;
+    }
+    for f in ["winmm.dll", "winmm_orig.dll", "wccfnet.dll", "netguard.dll"] {
+        if game.join(f).is_file() {
+            fs::remove_file(game.join(f))?;
+        }
+    }
+    let seat = rt.join("seat1");
+    for n in JUNCTION_DIRS {
+        // a junction goes with remove_dir; remove_dir_all would walk into game\
+        if seat.join(n).symlink_metadata().is_ok() {
+            fs::remove_dir(seat.join(n))?;
+        }
+    }
+    let _ = fs::remove_dir_all(&seat);
+    if rt.join("setup-hashes.json").is_file() {
+        fs::remove_file(rt.join("setup-hashes.json"))?;
+    }
+    let settings = kit.join("data/settings.json");
+    let mut s = super::load_settings(&settings);
+    s.remove("game");
+    super::save_settings(&settings, s)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A minimal 32-bit PE with one section (VA 0x1000, file 0x200) whose import table names `dlls`, and `extra` after it.
+    pub(crate) fn pe(dlls: &[&str], extra: &[u8]) -> Vec<u8> {
+        let mut d = vec![0u8; 0x200 + 0x1000];
+        d[60..64].copy_from_slice(&0x40u32.to_le_bytes());
+        d[0x40..0x44].copy_from_slice(b"PE\0\0");
+        d[0x46..0x48].copy_from_slice(&1u16.to_le_bytes()); // one section
+        d[0x54..0x56].copy_from_slice(&0xE0u16.to_le_bytes()); // optional header size
+        d[0x40 + 24 + 96 + 8..][..4].copy_from_slice(&0x1000u32.to_le_bytes()); // import table at RVA 0x1000
+        let s = 0x40 + 24 + 0xE0;
+        for (at, v) in [(8, 0x1000u32), (12, 0x1000), (16, 0x1000), (20, 0x200)] {
+            d[s + at..][..4].copy_from_slice(&v.to_le_bytes());
+        }
+        let mut name = 0x1100;
+        for (i, dll) in dlls.iter().enumerate() {
+            d[0x200 + i * 20 + 12..][..4].copy_from_slice(&(name as u32).to_le_bytes());
+            d[0x200 + name - 0x1000..][..dll.len()].copy_from_slice(dll.as_bytes());
+            name += 0x20;
+        }
+        d[0x200 + 0x800..][..extra.len()].copy_from_slice(extra);
+        d
+    }
+
+    #[test]
+    fn the_import_is_renamed_once() {
+        let exe = pe(&["KERNEL32.dll", "iphlpapi.dll"], b"");
+        let g = rename_import(&exe, OLD, NEW).unwrap();
+        let diff = exe.iter().zip(&g).filter(|(a, b)| a != b).count();
+        assert_eq!(&g[0x300 + 0x20..][..13], NEW);
+        assert!((10..=13).contains(&diff), "{diff}");
+        assert!(
+            rename_import(&pe(&["KERNEL32.dll"], b""), OLD, NEW)
+                .unwrap_err()
+                .0
+                .contains("0 IPHLPAPI.DLL")
+        );
+        let two = pe(&["IPHLPAPI.DLL", "iphlpapi.dll"], b"");
+        assert!(
+            rename_import(&two, OLD, NEW)
+                .unwrap_err()
+                .0
+                .contains("2 IPHLPAPI.DLL")
+        );
+        assert!(
+            rename_import(&exe[..100], OLD, NEW).is_err(),
+            "cut short is an error, not a panic"
+        );
+    }
+
+    #[test]
+    fn a_patch_needs_its_original_bytes() {
+        let p = [Patch {
+            at: 2,
+            old: &[3, 4],
+            new: &[9, 9],
+            what: "x",
+        }];
+        assert_eq!(apply(&[1, 2, 3, 4, 5], &p).unwrap(), [1, 2, 9, 9, 5]);
+        assert!(
+            apply(&[1, 2, 3, 5, 5], &p)
+                .unwrap_err()
+                .0
+                .contains("0x000002")
+        );
+        assert!(apply(&[1, 2, 3], &p).is_err());
+        assert!(
+            SEAT.iter()
+                .chain(&CONTROL)
+                .all(|p| p.old.len() == p.new.len())
+        );
+    }
+
+    static T_SEAT: [Patch; 1] = [Patch {
+        at: 0x900,
+        old: &[0, 0],
+        new: &[7, 7],
+        what: "seat",
+    }];
+    static T_PROJ: [Patch; 1] = [Patch {
+        at: 0x910,
+        old: &[0],
+        new: &[8],
+        what: "projector",
+    }];
+    static T_CTRL: [Patch; 1] = [Patch {
+        at: 0x920,
+        old: &[0],
+        new: &[9],
+        what: "control",
+    }];
+
+    fn tree(root: &Path) -> Vec<(String, String)> {
+        fn walk(dir: &Path, root: &Path, out: &mut Vec<(String, String)>) {
+            for e in fs::read_dir(dir).unwrap() {
+                let p = e.unwrap().path();
+                let rel = p
+                    .strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                if p.is_dir() {
+                    out.push((rel.clone(), "dir".into()));
+                    if !p.symlink_metadata().unwrap().file_type().is_symlink()
+                        && !rel.starts_with("seat1/")
+                    {
+                        walk(&p, root, out);
+                    }
+                } else {
+                    out.push((rel, sha(&fs::read(&p).unwrap())));
+                }
+            }
+        }
+        let mut out = vec![];
+        walk(root, root, &mut out);
+        out.sort();
+        out
+    }
+
+    #[test]
+    fn setup_makes_the_runtime_twice_and_undo_restores_it() {
+        let top = tempfile::tempdir().unwrap();
+        let (kit, rt) = (top.path().join("kit"), top.path().join("rt"));
+        let game = rt.join("game");
+        for d in ["bin", "overlay", "data"] {
+            fs::create_dir_all(kit.join(d)).unwrap();
+        }
+        for (d, n) in [
+            ("bin", "wccfnet.dll"),
+            ("overlay", "netguard.dll"),
+            ("bin", "winmm.dll"),
+            ("bin", "logowin.exe"),
+            ("bin", "FPR_Emu.exe"),
+        ] {
+            fs::write(kit.join(d).join(n), format!("kit {n}")).unwrap();
+        }
+        fs::write(kit.join("data/settings.json"), "{\"keep\": 1}").unwrap();
+        fs::create_dir_all(game.join("local")).unwrap();
+        for d in JUNCTION_DIRS {
+            fs::create_dir_all(game.join(d)).unwrap();
+        }
+        let client = pe(&["IPHLPAPI.DLL"], format!("./{FPR_EMU}").as_bytes());
+        let control = pe(&["iphlpapi.dll"], b"control");
+        fs::write(game.join("client_Release.exe"), &client).unwrap();
+        fs::write(game.join("control_Release.exe"), &control).unwrap();
+        fs::write(game.join("logowin.exe"), "their logo").unwrap();
+        fs::write(game.join("other.dll"), "other").unwrap();
+        fs::write(game.join("notes.txt"), "text").unwrap();
+        fs::write(game.join("local/SDDY_Table.dat"), "table").unwrap();
+        fs::write(top.path().join("winmm.dll"), "windows winmm").unwrap();
+        // the pinned hashes are static in the real spec; a test leaks its own
+        let leak = |b: &[u8]| -> &'static str { Box::leak(sha(b).into_boxed_str()) };
+        let spec = Spec {
+            pinned: [
+                ("client_Release.exe", leak(&client)),
+                ("control_Release.exe", leak(&control)),
+            ],
+            seat: &T_SEAT,
+            projector: &T_PROJ,
+            control: &T_CTRL,
+            winmm: top.path().join("winmm.dll"),
+        };
+        let before = tree(&rt);
+
+        let report = run(&kit, &game, &spec).unwrap();
+        assert_eq!(report.0.len(), 5);
+        let record = fs::read_to_string(rt.join("setup-hashes.json")).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&record).unwrap();
+        assert_eq!(json["client_Release.exe"]["original"], sha(&client));
+        assert_eq!(json["wccfnet.dll"], sha(b"kit wccfnet.dll"));
+        assert!(
+            record.ends_with("}\r\n") && record.starts_with("{\r\n  \"client_Release.exe\": {\r\n")
+        );
+        let seat = rt.join("seat1");
+        let seat_exe = fs::read(seat.join("client_Release.exe")).unwrap();
+        assert_eq!(json["seat1/client_Release.exe"], sha(&seat_exe));
+        assert_eq!(&seat_exe[0x900..0x902], [7, 7]);
+        assert_eq!(fs::read(game.join("client_Release.exe")).unwrap()[0x910], 8);
+        assert_eq!(
+            fs::read(game.join("control_Release.exe")).unwrap()[0x920],
+            9
+        );
+        assert_eq!(
+            fs::read(rt.join("original/client_Release.exe")).unwrap(),
+            client
+        );
+        assert_eq!(
+            fs::read(game.join("winmm_orig.dll")).unwrap(),
+            b"windows winmm"
+        );
+        assert_eq!(
+            fs::read(game.join(logowin_backup())).unwrap(),
+            b"their logo"
+        );
+        assert_eq!(
+            fs::read(game.join("logowin.exe")).unwrap(),
+            b"kit logowin.exe"
+        );
+        assert_eq!(fs::read(seat.join("other.dll")).unwrap(), b"other");
+        assert!(
+            !seat.join("notes.txt").exists(),
+            "text files are not linked"
+        );
+        assert_eq!(fs::read(seat.join(FPR_EMU)).unwrap(), b"kit FPR_Emu.exe");
+        assert_eq!(
+            fs::read(seat.join("local/SDDY_Table.dat")).unwrap(),
+            b"table"
+        );
+        assert!(
+            fs::read_to_string(seat.join(CONF_CLIENT))
+                .unwrap()
+                .contains("SATELLITE_NO=1")
+        );
+        #[cfg(windows)]
+        assert_eq!(
+            junction::get_target(seat.join("AI")).unwrap(),
+            game.join("AI")
+        );
+        let s: serde_json::Value =
+            serde_json::from_slice(&fs::read(kit.join("data/settings.json")).unwrap()).unwrap();
+        assert_eq!(
+            (s["keep"].as_i64(), s["game"].as_str()),
+            (Some(1), game.to_str())
+        );
+
+        let again = tree(&rt);
+        run(&kit, &game, &spec).unwrap();
+        assert_eq!(tree(&rt), again, "a second run changes nothing");
+
+        undo(&kit, &game, &spec).unwrap();
+        assert_eq!(fs::read(game.join("logowin.exe")).unwrap(), b"their logo");
+        assert_eq!(fs::read(game.join("client_Release.exe")).unwrap(), client);
+        assert!(
+            !seat.exists()
+                && !rt.join("setup-hashes.json").exists()
+                && !game.join("wccfnet.dll").exists()
+        );
+        assert!(
+            game.join("AI").is_dir(),
+            "undo does not walk into game\\ through the links"
+        );
+        let s: serde_json::Value =
+            serde_json::from_slice(&fs::read(kit.join("data/settings.json")).unwrap()).unwrap();
+        assert!(s.get("game").is_none() && s["keep"] == 1);
+        let after: Vec<_> = tree(&rt)
+            .into_iter()
+            // undo keeps original\ and the two settings files it wrote in game\local, as setup.py's undo does
+            .filter(|(p, _)| !p.starts_with("original") && !p.ends_with("_user_option.conf"))
+            .collect();
+        assert_eq!(after, before);
+    }
+
+    #[test]
+    fn a_program_that_is_not_the_pinned_original_is_refused() {
+        let top = tempfile::tempdir().unwrap();
+        let exe = top.path().join("client_Release.exe");
+        fs::write(&exe, "a patched one").unwrap();
+        let err = original(
+            "client_Release.exe",
+            &exe,
+            &top.path().join("original/client_Release.exe"),
+            &sha(b"x"),
+            "2017-18",
+        )
+        .unwrap_err();
+        assert!(
+            err.0.contains("is not the original WCCF 2017-18 program"),
+            "{err}"
+        );
+        assert!(
+            !top.path().join("original").exists(),
+            "nothing is kept for a refused program"
+        );
+    }
+}

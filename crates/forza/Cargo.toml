@@ -39,6 +39,7 @@ encoding_rs = { version = "0.8.42", optional = true }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 
 [target.'cfg(windows)'.dependencies]
+junction.workspace = true
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Globalization", "Win32_System_IO", "Win32_System_Pipes", "Win32_Storage_FileSystem", "Win32_Security", "Win32_System_Memory", "Win32_System_Threading"] }
 
 [dev-dependencies]
