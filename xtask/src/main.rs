@@ -419,7 +419,8 @@ fn rust(sub: &str, root: &Path) -> Command {
     let mut c = Command::new("cargo");
     c.args(["xwin", sub]).current_dir(root);
     c.env("XWIN_ACCEPT_LICENSE", "1")
-        .env("XWIN_ARCH", "x86,x86_64");
+        .env("XWIN_ARCH", "x86,x86_64")
+        .env("XWIN_CACHE_DIR", xwin_root());
     // `cargo xwin test` would run the test programs under wine; WSL runs them itself (interop), and winrun.sh starts
     // the launcher's run tests through explorer.exe (interop's "Prefer System32 images" would make the run refuse)
     c.env(
@@ -437,20 +438,28 @@ fn run_ok(mut c: Command, what: &str) -> Result<()> {
     Ok(())
 }
 
+/// xtask's own xwin cache (`XWIN_CACHE_DIR`), apart from the default `~/.cache/cargo-xwin` that a bare `cargo xwin`
+/// uses: xwin re-downloads its cache whenever a run asks for architectures its `DONE` line lacks, deleting `dl\` and
+/// `unpack\` under every build in flight, so one bare run with the default `x86_64,aarch64` broke two full checks
+/// (2026-10-19). xtask always asks for `x86,x86_64`, so its cache never flips.
+fn xwin_root() -> PathBuf {
+    std::env::var_os("HOME").map_or_else(
+        || PathBuf::from(".xwin-cache"),
+        |h| Path::new(&h).join(".cache/cargo-xwin-xtask"),
+    )
+}
+
 /// The C compiler: `clang-cl` + `lld-link` + `llvm-rc` against xwin's 32-bit CRT and SDK; holds the xwin cache folder.
 struct Cc(PathBuf);
 
 impl Cc {
     fn new() -> Result<Cc> {
-        let cache = std::env::var_os("XWIN_CACHE_DIR")
-            .map(PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|h| Path::new(&h).join(".cache/cargo-xwin")))
-            .context("no HOME")?
-            .join("xwin");
+        let cache = xwin_root().join("xwin");
         if !cache.join("sdk/lib/um/x86").is_dir() {
             let mut c = Command::new("cargo");
             c.args(["xwin", "cache", "xwin", "--xwin-arch", "x86,x86_64"])
-                .env("XWIN_ACCEPT_LICENSE", "1");
+                .env("XWIN_ACCEPT_LICENSE", "1")
+                .env("XWIN_CACHE_DIR", xwin_root());
             run_ok(c, "cargo xwin cache (the 32-bit CRT and SDK)")?;
         }
         Ok(Cc(cache))
