@@ -1505,15 +1505,15 @@ const INSTALLER: &str = "wccf-installer";
 const LICENSES: &str = "crates/installer/THIRD-PARTY-LICENSES.json";
 
 /// `profile`: "release" (the ZIP's) or "smoke" (same code, no LTO: faster to link).
-fn installer_exe(root: &Path) -> PathBuf {
+fn installer_exe(root: &Path, profile: &str) -> PathBuf {
     root.join("target")
         .join(TARGET)
-        .join("release")
+        .join(profile)
         .join(format!("{INSTALLER}.exe"))
 }
 
 /// The installer's own checks (they were crates/installer/scripts/*.ps1): the license notices, then a synthetic headless run
-/// of the release build.
+/// of the smoke-profile build.
 fn installer_checks(root: &Path, stage_root: &Path, failed: &mut Vec<String>) {
     for (what, r) in [
         ("installer licenses", check_licenses(root)),
@@ -1573,20 +1573,29 @@ fn check_licenses(root: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Synthetic headless run of the release installer in a scratch folder: inert placeholder files only, no media, keys, kit or game.
-/// Needs the exe: `cargo build --release -p wccf-installer --target x86_64-pc-windows-msvc` (a Windows exe; WSL interop runs it).
+/// Synthetic headless run of the installer (smoke profile) in a scratch folder: inert placeholder files only, no media, keys, kit or game.
+/// Needs the exe: `cargo build --profile smoke -p wccf-installer --target x86_64-pc-windows-msvc` (a Windows exe; WSL interop runs it).
 fn smoke(root: &Path, stage_root: &Path) -> Result<()> {
     let mut c = rust("build", root);
-    c.args(["--release", "--locked", "-p", INSTALLER, "--target", TARGET]);
-    run_ok(c, "cargo build -p wccf-installer")?;
-    let exe = installer_exe(root);
+    // the smoke profile inherits release (opt level, panic, strip, debug assertions off) minus LTO and codegen-units = 1
+    c.args([
+        "--profile",
+        "smoke",
+        "--locked",
+        "-p",
+        INSTALLER,
+        "--target",
+        TARGET,
+    ]);
+    run_ok(c, "cargo build -p wccf-installer (smoke profile)")?;
+    let exe = installer_exe(root, "smoke");
     let dir = stage_root.join(format!("installer-smoke-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir)?;
     let r = smoke_in(root, &exe, &dir);
     let _ = fs::remove_dir_all(&dir);
     r?;
-    println!("Headless release smoke check passed; no game was launched.");
+    println!("Headless smoke check passed; no game was launched.");
     Ok(())
 }
 
@@ -1683,12 +1692,12 @@ fn smoke_in(root: &Path, exe: &Path, dir: &Path) -> Result<()> {
 /// NAME defaults to `wccf-installer-v<version>-windows-x64`. Run `cargo xtask check` first (it builds the exe).
 fn package_installer(root: &Path, name: Option<String>) -> Result<()> {
     check_licenses(root)?;
-    let exe = installer_exe(root);
-    ensure!(
-        exe.is_file(),
-        "{} is missing: run `cargo xtask check` first",
-        exe.display()
-    );
+    // the check's smoke exe is a no-LTO build; the ZIP gets the release profile
+    let mut c = rust("build", root);
+    c.args(["--release", "--locked", "-p", INSTALLER, "--target", TARGET]);
+    run_ok(c, "cargo build --release -p wccf-installer")?;
+    let exe = installer_exe(root, "release");
+    ensure!(exe.is_file(), "{} is missing", exe.display());
     let name = name.unwrap_or_else(|| {
         format!(
             "{INSTALLER}-v{}-windows-x64",
