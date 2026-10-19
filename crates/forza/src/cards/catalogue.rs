@@ -1397,10 +1397,21 @@ fn write_pictures(
     Ok((done, fails))
 }
 
-/// Makes `out/catalogue.tsv` and `out/cards/<number>.png` from the game in `game`. Returns the old script's exit
-/// code: 0 written and every check passed, 1 a check failed (nothing written if it was a catalogue check),
-/// 2 a game file is missing or `out` cannot be written. `say` hears the progress lines.
-pub fn run(edition: Edition, game: &Path, out: &Path, say: &dyn Fn(&str)) -> i32 {
+/// What `run` writes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Output {
+    /// Read and check only (the script's one-argument form).
+    CheckOnly,
+    /// `catalogue.tsv` alone (`--catalogue-only`: what the 2017-18 setup makes; the Launcher makes the pictures).
+    CatalogueOnly,
+    /// `catalogue.tsv` and `cards/<number>.png`.
+    All,
+}
+
+/// Makes `out/catalogue.tsv` and `out/cards/<number>.png` (as `output` says) from the game in `game`. Returns the old
+/// script's exit code: 0 written and every check passed, 1 a check failed (nothing written if it was a catalogue
+/// check), 2 a game file is missing or `out` cannot be written. `say` hears the progress lines.
+pub fn run(edition: Edition, game: &Path, out: &Path, output: Output, say: &dyn Fn(&str)) -> i32 {
     let Some(files) = game_files(edition, game, say) else {
         say(&format!(
             "GAME must be the {} game folder, the one that holds client_Release.exe",
@@ -1409,17 +1420,6 @@ pub fn run(edition: Edition, game: &Path, out: &Path, say: &dyn Fn(&str)) -> i32
         return 2;
     };
     let cards_dir = out.join("cards");
-    if fs::symlink_metadata(&cards_dir).is_ok_and(|m| m.file_type().is_symlink()) {
-        say(&format!(
-            "refused: {} is a link to another folder - writing would change that folder",
-            cards_dir.display()
-        ));
-        return 2;
-    }
-    if let Err(e) = fs::create_dir_all(&cards_dir) {
-        say(&format!("cannot make {}: {e}", cards_dir.display()));
-        return 2;
-    }
     say(&format!(
         "game files: {}",
         files.exe.parent().unwrap().display()
@@ -1456,6 +1456,25 @@ pub fn run(edition: Edition, game: &Path, out: &Path, say: &dyn Fn(&str)) -> i32
         ));
         return 1;
     }
+    if output == Output::CheckOnly {
+        return 0;
+    }
+    if output == Output::All {
+        if fs::symlink_metadata(&cards_dir).is_ok_and(|m| m.file_type().is_symlink()) {
+            say(&format!(
+                "refused: {} is a link to another folder - writing would change that folder",
+                cards_dir.display()
+            ));
+            return 2;
+        }
+        if let Err(e) = fs::create_dir_all(&cards_dir) {
+            say(&format!("cannot make {}: {e}", cards_dir.display()));
+            return 2;
+        }
+    } else if let Err(e) = fs::create_dir_all(out) {
+        say(&format!("cannot make {}: {e}", out.display()));
+        return 2;
+    }
     if let Err(e) = write_catalogue(
         match edition {
             Edition::E1011 => &COLS,
@@ -1473,6 +1492,9 @@ pub fn run(edition: Edition, game: &Path, out: &Path, say: &dyn Fn(&str)) -> i32
         rows.len(),
         rows.len() - real
     ));
+    if output == Output::CatalogueOnly {
+        return 0;
+    }
     match write_pictures(&rows, &toc, &ents, &files.xaf, &cards_dir, say) {
         Ok((done, fails)) => {
             say(&format!("pictures: {done} of {} written", rows.len()));

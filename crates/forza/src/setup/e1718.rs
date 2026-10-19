@@ -9,8 +9,8 @@
 //!   client_Release.exe, the card-table helper
 //! - `setup-hashes.json` the SHA-256 of what setup made; Launcher.exe starts nothing unless every file still matches
 //!
-//! It also writes the kit's `data\settings.json` "game".  The card catalogue (overlay\catalogue.tsv) is not made here
-//! yet: `scripts\cards1718.py --catalogue-only` still makes it (step 11, `cards/catalogue.py`).
+//! It also writes the kit's `data\settings.json` "game".  The card catalogue (overlay\catalogue.tsv) is
+//! `setup_catalogue`, a separate step like `setup.py`'s; the card pictures are the Launcher's.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -20,6 +20,7 @@ use super::{
     original, put, read, rename_import, sha,
 };
 use crate::Edition;
+use crate::cards::catalogue::Output;
 
 /// The decrypted 2017-18 game's two programs and the SHA-256 each must have (every patch checks its own bytes as well).
 const PINNED: [(&str, &str); 2] = [
@@ -334,6 +335,22 @@ pub fn run(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
     make_dir(&data.join("save"))?;
     merge_settings(&data.join("settings.json"), "game", &game.to_string_lossy())?;
     Ok(report)
+}
+
+/// `overlay\catalogue.tsv`, for the board, made from the game unless it is there and `force` is off. `say` hears the
+/// progress lines. The card pictures are the Launcher's (`forza::cards::pictures`).
+pub fn setup_catalogue(kit: &Path, game: &Path, force: bool, say: &dyn Fn(&str)) -> Result<()> {
+    let overlay = kit.join(Edition::E1718.layout().overlay);
+    if overlay.join("catalogue.tsv").is_file() && !force {
+        say("  ok    the card catalogue is made (run setup with 'cards' to make it again)");
+        return Ok(());
+    }
+    match crate::cards::catalogue::run(Edition::E1718, game, &overlay, Output::CatalogueOnly, say) {
+        0 => Ok(()),
+        _ => Err(Error(
+            "the card catalogue could not be made from this game".into(),
+        )),
+    }
 }
 
 /// The game folder as it was: the original programs and logo back, the kit's files, seat1\ and the record removed.
