@@ -87,6 +87,13 @@ struct InGame {
     sate: Regex,
     accept: Regex,
     gone: Regex,
+    step: Regex,
+    /// Control's last state (0-7, see [`InGame::phase`]) and the start of its last ENTRY.
+    state: Option<u8>,
+    entry_start: Option<Instant>,
+    /// ENTRY start to next ENTRY start. The `optionTime` line (ENTRY seconds, 120 in every observed cycle) is
+    /// not read: the lobby has no field for the remaining ENTRY seconds.
+    cycle: Option<Duration>,
 }
 
 impl InGame {
@@ -101,6 +108,10 @@ impl InGame {
             sate: Regex::new(r"client\[\d+\]\s*:\s*sateID=(\d+)").unwrap(),
             accept: Regex::new(r"\+\+ACCEPT\+\+\s+'([0-9.]+):\d+'").unwrap(),
             gone: Regex::new(r"---DISCONNECT---\s*sateID=(\d+)").unwrap(),
+            step: Regex::new(r"^state\s+\w+\(\d\)\s*->\s*\w+\((\d)\)").unwrap(),
+            state: None,
+            entry_start: None,
+            cycle: None,
         }
     }
 
@@ -108,9 +119,30 @@ impl InGame {
         (self.born, self.pos, self.seat) = (born, 0, None);
         self.part.clear();
         self.seats.clear();
+        (self.state, self.entry_start, self.cycle) = (None, None, None);
     }
 
     fn now(&mut self) -> BTreeMap<u32, String> {
+        self.at(Instant::now())
+    }
+
+    /// Control's state and the seconds to its next ENTRY: `Some(0)` during ENTRY, `None` until a full cycle was
+    /// seen. Times are when the desk read the lines, not the `ctime` text on them: a late look (the desk starting
+    /// on a running log, a stalled poll) dates every new line to that look. A cycle read in one go has length 0
+    /// and is dropped. ponytail: parse the ctime text if that ceiling ever matters.
+    fn phase(&mut self, now: Instant) -> (Option<u8>, Option<u32>) {
+        self.at(now);
+        let next = match (self.state, self.entry_start, self.cycle) {
+            (Some(1), ..) => Some(0),
+            (_, Some(start), Some(cycle)) => {
+                Some((start + cycle).saturating_duration_since(now).as_secs() as u32)
+            }
+            _ => None,
+        };
+        (self.state, next)
+    }
+
+    fn at(&mut self, now: Instant) -> BTreeMap<u32, String> {
         let Some(meta) = self.path.as_ref().and_then(|p| std::fs::metadata(p).ok()) else {
             self.reset(None);
             return BTreeMap::new();
@@ -132,6 +164,15 @@ impl InGame {
         let mut lines: Vec<&str> = text.split('\n').collect();
         self.part = lines.pop().unwrap_or("").to_string(); // a line control is still writing: next time
         for line in lines {
+            if let Some(m) = self.step.captures(line) {
+                self.state = m[1].parse().ok();
+                if self.state == Some(1) {
+                    if let Some(prev) = self.entry_start {
+                        self.cycle = Some(now.duration_since(prev)).filter(|c| !c.is_zero());
+                    }
+                    self.entry_start = Some(now);
+                }
+            }
             if let Some(m) = self.sate.captures(line) {
                 self.seat = m[1].parse().ok();
             }
@@ -441,6 +482,10 @@ fn session(
                 return out.write_all(Reply::Taken(n).line().as_bytes());
             }
             st.reserved.remove(&seat);
+            // the seat may have been taken since RESERVE: the reservation is gone, the client asks again
+            if st.leases.contains_key(&seat) || others.contains_key(&u32::from(seat)) {
+                return out.write_all(Reply::Taken(seat).line().as_bytes());
+            }
             seat
         } else {
             match want {
@@ -565,19 +610,28 @@ fn lobby_answer(sh: &Shared, ip: &str, edition: &str, out: &mut TcpStream) -> io
     {
         return out.write_all(line.as_bytes());
     }
-    let seats = used(sh, &sh.state.lock().unwrap()).len() as u8;
-    // ponytail: only OPEN and FULL; IN MATCH and next ENTRY need a control-log marker not yet identified
+    let seats = {
+        let mut st = sh.state.lock().unwrap();
+        expire(&mut st, now);
+        used(sh, &st).len() as u8
+    };
+    let (phase, next_entry) = sh.in_game.lock().unwrap().phase(now);
     let shop = Shop {
         id: sh.shop_id.clone(),
         name: sh.cfg.name.chars().take(24).collect(),
         seats,
         max: SEATS.count() as u8,
+        // Control's states: 0 boot, 1 ENTRY (seats open), 2 CR_DATA_WAIT, 3 MATCHING_WAIT, 4 MATCHING, 5 GAME,
+        // 6 GAME_RESULT_WAIT, 7 GAME_RESULT. From 2 to 6 a PC that connects waits for the next ENTRY; in 7 and 1 it
+        // can sit down, so those stay OPEN.
         state: if seats >= 8 {
             ShopState::Full
+        } else if phase.is_some_and(|p| (2..=6).contains(&p)) {
+            ShopState::InMatch
         } else {
             ShopState::Open
         },
-        next_entry: None,
+        next_entry,
         lang: sh.cfg.lang.clone(),
     };
     let answer = Lobby {
@@ -719,4 +773,83 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
         }
     }));
     Ok(Handle::new(addr, stop, true, threads, ticker))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    fn tmp(what: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("forza_deskunit_{what}_{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        d.join("game.log")
+    }
+
+    fn step(from: &str, to: &str) -> String {
+        format!("state  {from} -> {to} :whatever\n")
+    }
+
+    #[test]
+    fn lobby_phase_follows_control_states() {
+        let path = tmp("lobby_phase");
+        let mut log = std::fs::File::create(&path).unwrap();
+        let mut g = InGame::new(Some(path.clone()));
+        let t0 = Instant::now();
+        assert_eq!(g.phase(t0), (None, None));
+
+        write!(
+            log,
+            "noise\nstate garbage\nstate  A(x) -> B(y)\n{}",
+            step("PRJ_BOOT_WAIT(0)", "ENTRY(1)")
+        )
+        .unwrap();
+        assert_eq!(g.phase(t0), (Some(1), Some(0)));
+        write!(log, "{}", step("ENTRY(1)", "CR_DATA_WAIT(2)")).unwrap();
+        assert_eq!(g.phase(t0 + Duration::from_secs(120)), (Some(2), None));
+        for (to, n) in [
+            ("MATCHING_WAIT(3)", 3),
+            ("MATCHING(4)", 4),
+            ("GAME(5)", 5),
+            ("GAME_RESULT_WAIT(6)", 6),
+        ] {
+            write!(log, "{}", step("X(0)", to)).unwrap();
+            assert_eq!(g.phase(t0 + Duration::from_secs(130)).0, Some(n));
+        }
+        write!(log, "{}", step("GAME_RESULT_WAIT(6)", "GAME_RESULT(7)")).unwrap();
+        assert_eq!(g.phase(t0 + Duration::from_secs(300)).0, Some(7));
+
+        // second ENTRY 400 s after the first: cycle 400 s
+        write!(log, "{}partial", step("GAME_RESULT(7)", "ENTRY(1)")).unwrap();
+        assert_eq!(g.phase(t0 + Duration::from_secs(400)), (Some(1), Some(0)));
+        write!(log, " line\n{}", step("ENTRY(1)", "CR_DATA_WAIT(2)")).unwrap();
+        assert_eq!(g.phase(t0 + Duration::from_secs(520)), (Some(2), Some(280)));
+        assert_eq!(g.phase(t0 + Duration::from_secs(900)), (Some(2), Some(0))); // overdue: never negative
+    }
+
+    #[test]
+    fn restart_log_forgets_the_old_run() {
+        let path = tmp("restart_log");
+        std::fs::write(&path, step("ENTRY(1)", "GAME(5)") + &"x".repeat(200) + "\n").unwrap();
+        let mut g = InGame::new(Some(path.clone()));
+        assert_eq!(g.phase(Instant::now()).0, Some(5));
+        std::fs::write(&path, step("PRJ_BOOT_WAIT(0)", "ENTRY(1)")).unwrap(); // shorter: a new run
+        assert_eq!(g.phase(Instant::now()), (Some(1), Some(0)));
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(g.phase(Instant::now()), (None, None));
+    }
+
+    #[test]
+    fn a_backlog_read_in_one_go_gives_no_cycle() {
+        let path = tmp("backlog");
+        std::fs::write(
+            &path,
+            step("A(0)", "ENTRY(1)") + &step("ENTRY(1)", "GAME(5)") + &step("GAME(5)", "ENTRY(1)"),
+        )
+        .unwrap();
+        assert_eq!(
+            InGame::new(Some(path)).phase(Instant::now()),
+            (Some(1), Some(0))
+        );
+    }
 }
