@@ -124,11 +124,12 @@ cargo fmt --all -- --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 cargo build --locked --release --target x86_64-pc-windows-msvc
-cargo xtask check      # from the repository root: also the license notices and the synthetic headless smoke run
+cargo xtask check      # from the repository root: also the license notices and the synthetic headless smoke run (smoke profile: release without LTO)
+cargo xtask check quick  # only the crates changed since --base (default integ-20261019) and their dependents: fmt, clippy, tests
 cargo xtask package installer
 ```
 
-The release profile uses thin LTO, one codegen unit, abort-on-panic and stripped
+The release profile (the ZIP's) uses thin LTO, one codegen unit, abort-on-panic and stripped
 symbols; no host-specific CPU tuning. Packaging stages the downloadable EXE,
 README, changelog, MIT license and Windows dependency license notices in `dist/`,
 plus a ZIP containing those files and checksums for the EXE and ZIP.
