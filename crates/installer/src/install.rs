@@ -116,7 +116,7 @@ fn kit_prefix(zip: &mut zip::ZipArchive<File>) -> Result<(Edition, String)> {
         for n in names.iter().filter(|n| n.ends_with(&setup)) {
             let prefix = &n[..n.len() - setup.len()];
             if !(prefix.is_empty() || prefix.ends_with('/'))
-                || !has(&format!("{prefix}Launcher.exe"))
+                || !names.contains(&format!("{prefix}Launcher.exe"))
             {
                 continue;
             }
@@ -690,6 +690,7 @@ mod tests {
             &["Launcher.exe", "scripts/setup.py"][..],
             &["code/setup.py"],
             &["Launcher.exe", "xcode/setup.py"],
+            &["code/setup.py", "Launcher.exe/child"],
             &["readme.txt"],
         ] {
             assert!(
