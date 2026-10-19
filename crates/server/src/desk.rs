@@ -674,6 +674,8 @@ fn vs_room(id: u64, players: u8) -> VsRoom {
         max: 2,
         kind: 2,
         lang: None,
+        // the matcher's entries carry no lobby seats; B4's `CREATE vs` rooms list theirs
+        occupants: Vec::new(),
     }
 }
 
