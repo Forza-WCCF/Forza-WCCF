@@ -6,3 +6,5 @@
 pub mod decode;
 pub mod edit;
 mod schema;
+pub mod view;
+pub mod wallet;
