@@ -621,8 +621,8 @@ fn build_all(root: &Path, kit: &Path, kit_1718: &Path, cc: &Cc) -> Result<()> {
         (panel, kit_1718.join("overlay/forza_panel.dll")),
         (common("inject.exe"), kit.join("programs/inject.exe")),
         (common("inject.exe"), kit_1718.join("overlay/inject.exe")),
-        (common("fpr_emu.exe"), kit.join("programs/FPR_Emu.exe")),
-        (common("fpr_emu.exe"), kit_1718.join("bin/FPR_Emu.exe")),
+        (common("FPR_Emu.exe"), kit.join("programs/FPR_Emu.exe")),
+        (common("FPR_Emu.exe"), kit_1718.join("bin/FPR_Emu.exe")),
     ] {
         fs::create_dir_all(to.parent().unwrap())?;
         fs::copy(from, &to)?;
