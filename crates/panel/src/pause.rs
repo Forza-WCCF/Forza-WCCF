@@ -5,17 +5,18 @@
 //! window's messages (no "Not responding"), draws the PAUSED page over the game's last frame on the panel's own swap
 //! chain, and waits for the pause key, the panel's RESUME or the cap ([`forza::pause::CAP`]). The game's sound session
 //! is muted and the control's Stop checkbox (ID 1035) set so the pause does not count against the 980 s GAME cap; each
-//! is given back only if the pause set it. The rules themselves are `forza::pause`'s (tested there).
+//! is given back only if the pause set it, and stays owed until the give-back is confirmed: retried at later Presents,
+//! outside the hold, and no new pause while Stop is owed. The rules themselves are `forza::pause`'s (tested there).
 //!
 //! Test switch: `WCCFPANEL_PAUSETEST=MS` (fakegame) passes the gate with made-up facts (a local match, no control
 //! found) and ends each pause after MS milliseconds instead of the cap.
 
 use crate::{FILES, RENDER, log, patches};
-use forza::pause::{self, Borrowed, Facts, Refusal, Timer};
+use forza::pause::{self, Facts, Owed, Refusal, Timer};
 use forza::ui::widgets::Tone;
 use std::ffi::c_void;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering::Relaxed};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::Graphics::Direct3D9::IDirect3DDevice9;
@@ -30,15 +31,21 @@ pub static HELD: AtomicBool = AtomicBool::new(false);
 /// The window was closed while held: the pause ends, then the window gets its WM_CLOSE again.
 static CLOSE_AFTER: AtomicBool = AtomicBool::new(false);
 
-/// What the pause keeps between pauses: the gap's timer, and what it borrowed from the control and the sound.
+/// What the pause keeps between pauses: the gap's timer, what it owes the control and the sound, and the Stop
+/// checkbox it set (a window handle).
 #[derive(Default)]
 struct State {
     timer: Timer,
-    stop: Borrowed,
-    mute: Borrowed,
+    owed: Owed,
+    stop_box: Option<isize>,
 }
 
 static STATE: Mutex<Option<State>> = Mutex::new(None);
+
+/// The state, also after a panic that held it (what it owes must outlive the panic).
+fn state() -> MutexGuard<'static, Option<State>> {
+    STATE.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 /// The test switch: the hold's length in ms instead of the cap.
 fn test_ms() -> Option<u64> {
@@ -138,32 +145,95 @@ fn card_age() -> Option<Duration> {
     .min()
 }
 
-/// The game's sound sessions: all muted (`Some(true)`), not all (`Some(false)`), none open (`None`). On a thread of
-/// its own, so COM never changes on the game's thread.
-fn muted() -> Option<bool> {
-    let pid = std::process::id();
-    std::thread::spawn(move || launcher::helper::sound::read(pid))
-        .join()
-        .ok()?
-        .ok()
-        .filter(|v| !v.is_empty())
-        .map(|v| v.iter().all(|s| s.1))
+/// `f` on a thread of its own, so COM never changes on the game's thread; `None` if the thread could not start or
+/// panicked.
+fn on_thread<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+    std::thread::Builder::new().spawn(f).ok()?.join().ok()
 }
 
-fn set_mute(on: bool) {
+/// The game's sound sessions (id, muted); `None` when none are open or they cannot be read.
+fn sessions() -> Option<Vec<(String, bool)>> {
     let pid = std::process::id();
-    let r = std::thread::spawn(move || launcher::helper::sound::apply(pid, None, Some(on))).join();
-    if !matches!(r, Ok(Ok(n)) if n > 0) {
+    on_thread(move || launcher::helper::sound::mutes(pid))?
+        .ok()
+        .filter(|v| !v.is_empty())
+}
+
+/// These sessions muted or unmuted; the ones that were set.
+fn set_mute(ids: Vec<String>, on: bool) -> Vec<String> {
+    let pid = std::process::id();
+    on_thread(move || launcher::helper::sound::set_mute(pid, &ids, on))
+        .and_then(Result::ok)
+        .unwrap_or_default()
+}
+
+/// What an ended pause still owes, tried now if a try is due: Stop cleared and confirmed clear (or its control gone),
+/// the sessions it muted unmuted. On the game's thread, never inside the hold.
+fn settle(st: &mut State) {
+    let Some(n) = st.owed.due(Instant::now()) else {
+        return;
+    };
+    if st.owed.stop_owed() {
+        let b = st.stop_box.map(|b| HWND(b as *mut c_void));
+        // SAFETY: a plain query on a window handle, which may be stale
+        let cleared = match b.filter(|&b| unsafe { IsWindow(Some(b)) }.as_bool()) {
+            Some(b) => {
+                let _ = ask(b, BM_SETCHECK, 0);
+                ask(b, BM_GETCHECK, 0) == Some(0)
+            }
+            None => true, // the control's window is gone, its Stop with it
+        };
+        if cleared {
+            st.owed.stop_cleared();
+        }
+    }
+    let muted = st.owed.muted();
+    if !muted.is_empty() {
+        st.owed.unmuted(&set_mute(muted, false));
+    }
+    let settled = st.owed.settled();
+    if settled && n > 1 {
+        log(&format!("pause: given back at try {n}"));
+    } else if !settled && (n == 1 || n == pause::RETRIES) {
         log(&format!(
-            "pause: the sound could not be {}",
-            if on { "muted" } else { "unmuted" }
+            "pause: not given back yet (try {n} of {}): Stop {}, {} sound session(s) still muted{}",
+            pause::RETRIES,
+            if st.owed.stop_owed() {
+                "maybe still set"
+            } else {
+                "clear"
+            },
+            st.owed.muted().len(),
+            match (n == pause::RETRIES, st.owed.stop_owed()) {
+                (false, _) => "",
+                (true, false) => " - given up",
+                (true, true) => " - given up, no more pauses",
+            }
         ));
+    }
+}
+
+/// While the hold runs: on every way out, unwinding included, the game gets its input back and the PAUSED page goes.
+struct Holding;
+
+impl Drop for Holding {
+    fn drop(&mut self) {
+        HELD.store(false, Relaxed);
+        if let Ok(mut r) = RENDER.lock()
+            && let Some(r) = r.as_mut()
+        {
+            r.st.paused = None;
+        }
     }
 }
 
 /// The pause key or button, acted on at the game's Present (the game's thread, before its frame is shown): a pause
 /// asked for is checked, then held here until it ends.
 pub fn present(dev: &IDirect3DDevice9, wnd: HWND) {
+    {
+        let mut st = state();
+        settle(st.get_or_insert_with(State::default));
+    }
     if !ASK.swap(false, Relaxed) {
         return;
     }
@@ -184,7 +254,7 @@ pub fn present(dev: &IDirect3DDevice9, wnd: HWND) {
     } else {
         shop_state(e1718)
     };
-    let Ok(mut st) = STATE.lock() else { return };
+    let mut st = state();
     let st = st.get_or_insert_with(State::default);
     let refused = {
         let Ok(mut r) = RENDER.lock() else { return };
@@ -205,6 +275,7 @@ pub fn present(dev: &IDirect3DDevice9, wnd: HWND) {
             card_age: if test.is_some() { None } else { card_age() },
             own_picture: r.sc.is_some(),
             stop: stop_found,
+            stop_owed: st.owed.stop_owed(),
         };
         let refused = pause::allowed(&facts)
             .err()
@@ -224,55 +295,49 @@ pub fn present(dev: &IDirect3DDevice9, wnd: HWND) {
         log(&format!("pause: refused - {why:?} ({facts:?})"));
         return;
     }
-    // what the pause borrows: Stop (only now, in state 5, if it was clear) and the sound (only if not muted)
+    // what the pause borrows: Stop (only now, in state 5, if it was clear) and the sound sessions not muted; owed
+    // from before the set, as a set that timed out may still happen
     let stop = match stop_box {
-        Some(b) if pause::take_stop(&mut st.stop, shop, stop_found) => {
-            let set = ask(b, BM_SETCHECK, 1).is_some() && ask(b, BM_GETCHECK, 0) == Some(1);
-            if !set {
-                st.stop.give_back();
-            }
-            if set {
+        Some(b) if st.owed.take_stop(shop, stop_found) => {
+            st.stop_box = Some(b.0 as isize);
+            let _ = ask(b, BM_SETCHECK, 1);
+            if ask(b, BM_GETCHECK, 0) == Some(1) {
                 "set"
             } else {
-                "NOT set (no answer) - the 20 s cap alone"
+                "NOT confirmed set (no answer) - the 20 s cap alone"
             }
         }
         Some(_) => "not read (no answer) - the 20 s cap alone",
         None if pid.is_some() => "not found - the 20 s cap alone",
         None => "no control",
     };
-    let sound = muted();
-    if st.mute.take(sound) {
-        set_mute(true);
-    }
-    log(&format!(
-        "pause: on (shop state {shop:?}; Stop {stop}; sound {})",
-        match sound {
-            Some(false) => "muted",
-            Some(true) => "already muted - left alone",
-            None => "none open",
+    let found = sessions().unwrap_or_default();
+    let take = st.owed.take_mute(&found);
+    let sound = match (found.len(), take.len()) {
+        (0, _) => "none open".to_owned(),
+        (_, 0) => "already muted - left alone".to_owned(),
+        (all, n) => {
+            let set = set_mute(take, true).len();
+            format!(
+                "{set} of {n} muted ({} of {all} were the player's)",
+                all - n
+            )
         }
+    };
+    log(&format!(
+        "pause: on (shop state {shop:?}; Stop {stop}; sound {sound})"
     ));
+    let holding = Holding;
     HELD.store(true, Relaxed);
     let (why, frames) = hold(dev, wnd, &st.timer, test);
-    HELD.store(false, Relaxed);
+    drop(holding);
     let held = st.timer.end(Instant::now());
-    if st.stop.give_back()
-        && let Some(b) = stop_box
-        && ask(b, BM_SETCHECK, 0).is_none()
-    {
-        log("pause: Stop could not be cleared (no answer from the control)");
-    }
-    if st.mute.give_back() {
-        set_mute(false);
-    }
-    if let Ok(mut r) = RENDER.lock()
+    settle(st);
+    if why == "cap"
+        && let Ok(mut r) = RENDER.lock()
         && let Some(r) = r.as_mut()
     {
-        r.st.paused = None;
-        if why == "cap" {
-            r.st.say(Tone::Notice, "pause.msg_resumed_cap");
-        }
+        r.st.say(Tone::Notice, "pause.msg_resumed_cap");
     }
     log(&format!(
         "pause: off ({why}) after {} ms, {frames} frame(s) of the PAUSED page",
@@ -306,8 +371,12 @@ fn hold(
     loop {
         let t0 = Instant::now();
         let mut m = MSG::default();
-        // SAFETY: the game's thread's own message queue, pumped as the game's loop does
-        while unsafe { PeekMessageW(&mut m, None, 0, 0, PM_REMOVE) }.as_bool() {
+        // a bounded batch per frame, so a queue that keeps filling never starves the cap's check below
+        for _ in 0..64 {
+            // SAFETY: the game's thread's own message queue, pumped as the game's loop does
+            if !unsafe { PeekMessageW(&mut m, None, 0, 0, PM_REMOVE) }.as_bool() {
+                break;
+            }
             if m.message == WM_QUIT {
                 // SAFETY: the quit message put back for the game's own loop
                 unsafe { PostQuitMessage(m.wParam.0 as i32) };
@@ -362,7 +431,9 @@ fn hold(
 }
 
 /// The window procedure's part: while held every input is egui's or ours, never the game's (`None`: not input, the
-/// game's procedure gets it); otherwise the pause key asks for a pause unless egui types or a page is open.
+/// game's procedure gets it), and nothing enters Windows' own modal loops (moving or sizing the window, its system
+/// menu), which would hold the hold past its cap; otherwise the pause key asks for a pause unless egui types or a
+/// page is open.
 pub fn message(m: u32, wp: WPARAM, lp: LPARAM) -> Option<LRESULT> {
     let key = KEY.load(Relaxed);
     let is_key = key != 0 && wp.0 as u32 == key;
@@ -384,6 +455,11 @@ pub fn message(m: u32, wp: WPARAM, lp: LPARAM) -> Option<LRESULT> {
             CLOSE_AFTER.store(true, Relaxed);
             Some(LRESULT(0))
         }
+        // the window's X: the close path above, without Windows tracking the button in its own loop
+        WM_NCLBUTTONDOWN if wp.0 == HTCLOSE as usize => {
+            CLOSE_AFTER.store(true, Relaxed);
+            Some(LRESULT(0))
+        }
         WM_KEYDOWN | WM_KEYUP if is_key => {
             if m == WM_KEYDOWN && lp.0 & (1 << 30) == 0 {
                 ASK.store(true, Relaxed);
@@ -400,6 +476,9 @@ pub fn message(m: u32, wp: WPARAM, lp: LPARAM) -> Option<LRESULT> {
             }
             Some(LRESULT(0))
         }
+        WM_NCLBUTTONDOWN | WM_NCLBUTTONDBLCLK | WM_NCRBUTTONDOWN | WM_NCRBUTTONUP
+        | WM_NCRBUTTONDBLCLK | WM_CONTEXTMENU => Some(LRESULT(0)),
+        WM_SYSCOMMAND if (wp.0 & 0xFFF0) as u32 != SC_CLOSE => Some(LRESULT(0)),
         _ => None,
     }
 }

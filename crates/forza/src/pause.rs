@@ -1,8 +1,9 @@
 //! Pause P1 (`docs/research/PAUSE.md` §5): the in-game panel holds the game's frames for a short, capped pause in a
 //! local match. These are its rules, kept apart from the DLL so the workspace's tests run them: where a pause is
 //! allowed, the cap and the gap between pauses, and the "give back only what we took" rule for the control's Stop
-//! checkbox and the game's mute.
+//! checkbox and the game's mute, kept owed until each is confirmed given back.
 
+use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
 
 /// The longest pause: auto-resume after it. Below every wall-clock limit that keeps counting while the seat's frames
@@ -34,6 +35,8 @@ pub struct Facts {
     pub own_picture: bool,
     /// The control's Stop checkbox as read; `None`: not found (the 20 s cap keeps the pause safe without it).
     pub stop: Option<bool>,
+    /// An earlier pause's Stop is not confirmed cleared yet ([`Owed`]).
+    pub stop_owed: bool,
 }
 
 /// Why a pause was refused; each has its notice in the panel's texts (`pause.msg_*`).
@@ -92,7 +95,7 @@ pub fn allowed(f: &Facts) -> Result<(), Refusal> {
     if !f.own_picture {
         return Err(Refusal::NoPicture);
     }
-    if f.stop == Some(true) {
+    if f.stop == Some(true) || f.stop_owed {
         return Err(Refusal::StopSet);
     }
     Ok(())
@@ -133,27 +136,92 @@ impl Timer {
     }
 }
 
-/// A switch the pause borrows (the control's Stop checkbox, the game's mute): set only when it was found clear, and
-/// on resume cleared only if the pause set it, so a Stop or a mute someone else set is never undone.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Borrowed(bool);
+/// The least time between two tries to give back what a pause owes.
+pub const RETRY: Duration = Duration::from_secs(1);
+/// Tries per pause before giving up (logged); an owed Stop still refuses every later pause.
+pub const RETRIES: u32 = 60;
 
-impl Borrowed {
-    /// The switch as found (`None`: none found): whether to set it now. The pause owns it from here.
-    pub fn take(&mut self, found: Option<bool>) -> bool {
-        self.0 = found == Some(false);
-        self.0
-    }
-
-    /// Whether to clear it now (only if [`take`](Self::take) set it); after this the pause owns nothing.
-    pub fn give_back(&mut self) -> bool {
-        std::mem::take(&mut self.0)
-    }
+/// What the pause borrowed and still owes: the control's Stop checkbox and the game's muted sound sessions (by
+/// session id). Set only when found clear, so a Stop or a mute someone else set is never undone; owed from the moment
+/// a set may have happened (a timed-out answer may still have set it) until the clear is confirmed.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Owed {
+    stop: bool,
+    muted: BTreeSet<String>,
+    tries: u32,
+    last: Option<Instant>,
 }
 
-/// Stop is set only in the match: the shop state read just before, and the checkbox as found.
-pub fn take_stop(stop: &mut Borrowed, shop_state: Option<u32>, found: Option<bool>) -> bool {
-    stop.take(found.filter(|_| shop_state == Some(GAME)))
+impl Owed {
+    /// Stop as found, with the shop state read just before: whether to set it now (only clear, only in the match).
+    pub fn take_stop(&mut self, shop_state: Option<u32>, found: Option<bool>) -> bool {
+        let take = shop_state == Some(GAME) && found == Some(false);
+        if take {
+            self.stop = true;
+            self.fresh();
+        }
+        take
+    }
+
+    /// The game's sessions as read (id, muted): the clear ones, to mute now; each owed from here.
+    pub fn take_mute(&mut self, sessions: &[(String, bool)]) -> Vec<String> {
+        let clear: Vec<String> = sessions
+            .iter()
+            .filter(|s| !s.1)
+            .map(|s| s.0.clone())
+            .collect();
+        if !clear.is_empty() {
+            self.muted.extend(clear.iter().cloned());
+            self.fresh();
+        }
+        clear
+    }
+
+    fn fresh(&mut self) {
+        self.tries = 0;
+        self.last = None;
+    }
+
+    /// Stop may still be checked by an earlier pause: no new pause.
+    pub fn stop_owed(&self) -> bool {
+        self.stop
+    }
+
+    /// The sessions still to unmute.
+    pub fn muted(&self) -> Vec<String> {
+        self.muted.iter().cloned().collect()
+    }
+
+    /// Something is owed and a try is due now: its number (1 = the first, at resume). At most one per [`RETRY`],
+    /// [`RETRIES`] in all.
+    pub fn due(&mut self, now: Instant) -> Option<u32> {
+        let wait = self
+            .last
+            .is_some_and(|l| now.saturating_duration_since(l) < RETRY);
+        if self.settled() || self.tries >= RETRIES || wait {
+            return None;
+        }
+        self.tries += 1;
+        self.last = Some(now);
+        Some(self.tries)
+    }
+
+    /// Stop confirmed clear.
+    pub fn stop_cleared(&mut self) {
+        self.stop = false;
+    }
+
+    /// These sessions were unmuted.
+    pub fn unmuted(&mut self, ids: &[String]) {
+        for id in ids {
+            self.muted.remove(id);
+        }
+    }
+
+    /// Nothing owed.
+    pub fn settled(&self) -> bool {
+        !self.stop && self.muted.is_empty()
+    }
 }
 
 #[cfg(test)]
@@ -284,26 +352,84 @@ mod tests {
 
     #[test]
     fn stop_cleared_only_if_we_set_it() {
-        let mut b = Borrowed::default();
-        // found clear in the match: set, then cleared on resume, once
-        assert!(take_stop(&mut b, Some(GAME), Some(false)));
-        assert!(b.give_back());
-        assert!(!b.give_back());
-        // already set by someone else: left alone both ways
-        assert!(!take_stop(&mut b, Some(GAME), Some(true)));
-        assert!(!b.give_back());
-        // not found: nothing to do
-        assert!(!take_stop(&mut b, Some(GAME), None));
-        assert!(!b.give_back());
-        // never outside state 5
+        let mut o = Owed::default();
+        // already set by someone else, not found, or outside state 5: never taken
+        assert!(!o.take_stop(Some(GAME), Some(true)));
+        assert!(!o.take_stop(Some(GAME), None));
         for state in [None, Some(0), Some(1), Some(4), Some(6), Some(7)] {
-            assert!(!take_stop(&mut b, state, Some(false)), "state {state:?}");
-            assert!(!b.give_back());
+            assert!(!o.take_stop(state, Some(false)), "state {state:?}");
         }
-        // the mute: the player's own mute kept
-        assert!(!b.take(Some(true)));
-        assert!(!b.give_back());
-        assert!(b.take(Some(false)));
-        assert!(b.give_back());
+        assert!(o.settled());
+        assert_eq!(o.due(Instant::now()), None);
+        // found clear in the match: set, owed until confirmed
+        assert!(o.take_stop(Some(GAME), Some(false)));
+        assert!(o.stop_owed() && !o.settled());
+        o.stop_cleared();
+        assert!(o.settled());
+    }
+
+    #[test]
+    fn a_clear_is_retried_until_confirmed() {
+        let t0 = Instant::now();
+        let mut o = Owed::default();
+        assert!(o.take_stop(Some(GAME), Some(false)));
+        // the first try at once (resume), then at most one per RETRY
+        assert_eq!(o.due(t0), Some(1));
+        assert_eq!(o.due(t0 + Duration::from_millis(500)), None);
+        assert_eq!(o.due(t0 + RETRY), Some(2));
+        // no new pause while Stop is owed
+        let f = Facts {
+            shop_state: Some(GAME),
+            seats: Some(1),
+            own_picture: true,
+            stop: Some(false),
+            stop_owed: o.stop_owed(),
+            ..Facts::default()
+        };
+        assert_eq!(allowed(&f), Err(Refusal::StopSet));
+        // bounded: RETRIES tries in all, then given up (the pause still refused)
+        let mut n = 2;
+        while o.due(t0 + RETRY * (n + 1)).is_some() {
+            n += 1;
+        }
+        assert_eq!(n, RETRIES);
+        assert!(o.stop_owed());
+        // confirmed: nothing owed, pauses allowed again
+        o.stop_cleared();
+        assert!(o.settled());
+        assert_eq!(
+            allowed(&Facts {
+                stop_owed: false,
+                ..f
+            }),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn only_the_sessions_we_muted_are_unmuted() {
+        let t0 = Instant::now();
+        let mut o = Owed::default();
+        let s = |id: &str, muted| (id.to_owned(), muted);
+        // the player muted "a": left alone; "b" and "c" muted by the pause
+        let take = o.take_mute(&[s("a", true), s("b", false), s("c", false)]);
+        assert_eq!(take, ["b", "c"]);
+        assert_eq!(o.muted(), ["b", "c"]);
+        assert_eq!(o.due(t0), Some(1));
+        // "c" could not be unmuted (its device gone): still owed, tried again later
+        o.unmuted(&["b".to_owned()]);
+        assert_eq!(o.muted(), ["c"]);
+        assert!(!o.settled() && !o.stop_owed());
+        // a new pause meanwhile: "c" (still muted by us) stays owed, "a" still the player's
+        assert_eq!(
+            o.take_mute(&[s("a", true), s("c", true)]),
+            Vec::<String>::new()
+        );
+        assert_eq!(o.due(t0 + RETRY), Some(2));
+        o.unmuted(&["c".to_owned()]);
+        assert!(o.settled());
+        // all already muted: nothing taken, nothing owed
+        assert!(o.take_mute(&[s("a", true)]).is_empty());
+        assert!(o.settled());
     }
 }

@@ -747,7 +747,8 @@ fn projector_role_and_money() {
 /// Pause (WCCFPANEL_PAUSETEST=1500: the gate passed with made-up facts, each pause 1.5 s instead of the 20 s cap): P
 /// holds the game inside its Present while the panel draws the PAUSED page and pumps the window's messages (the key's
 /// release arrives during the hold and is kept from the game), then the game goes on; P again within 10 s is refused,
-/// and the game's device is as it left it.
+/// and the game's device is as it left it. The window's Move command during the hold (which would enter Windows'
+/// own move loop) does not hold it past its cap.
 #[test]
 fn pause_holds_the_game() {
     for f in ["fakegame.exe", "forza_panel.dll"] {
@@ -773,7 +774,8 @@ fn pause_holds_the_game() {
         .args([
             "forza_panel.dll",
             "wait:2500",
-            "key:80", // P
+            "sysmove:500", // inside the hold
+            "key:80",      // P
             "wait:500",
             "key:80", // within the 10 s gap
             "wait:500",
@@ -799,6 +801,11 @@ fn pause_holds_the_game() {
         .filter_map(|n| n.parse().ok())
         .collect();
     assert!(nums[0] >= 1500, "held only {} ms: {off}", nums[0]);
+    assert!(
+        nums[0] < 2300,
+        "held {} ms: past its cap (the Move command's loop?): {off}",
+        nums[0]
+    );
     assert!(
         nums[1] >= 10,
         "the PAUSED page drew only {} frames: {off}",
