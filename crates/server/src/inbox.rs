@@ -109,15 +109,6 @@ fn clean_version(v: &str) -> String {
         .collect()
 }
 
-/// Ends a connection after our last line. Closing with the PC's bytes still unread makes the OS send a reset, which
-/// can discard the answer before the PC reads it (a refusal sent while the upload is still arriving). So: FIN after
-/// the answer, then read off what the PC still sends (a little, briefly) until it hangs up.
-fn hang_up(conn: TcpStream) {
-    let _ = conn.shutdown(std::net::Shutdown::Write);
-    let _ = conn.set_read_timeout(Some(Duration::from_secs(2)));
-    let _ = io::copy(&mut (&conn).take(1 << 20), &mut io::sink());
-}
-
 fn serve(sh: &Shared, conn: &mut TcpStream, ip: &str) {
     let no = |conn: &mut TcpStream, why: String| {
         let _ = conn.write_all(UploadReply::No(why.clone()).line().as_bytes());
@@ -259,7 +250,7 @@ pub fn start(cfg: InboxConfig, log: Log) -> io::Result<Handle> {
                 // off the accept loop: hang_up waits for the PC
                 thread::spawn(move || {
                     let _ = conn.write_all(b"NO busy - try again in a minute\n");
-                    hang_up(conn);
+                    crate::hang_up(conn);
                 });
                 continue;
             }
@@ -267,7 +258,7 @@ pub fn start(cfg: InboxConfig, log: Log) -> io::Result<Handle> {
             thread::spawn(move || {
                 serve(&sh, &mut conn, &ip);
                 sh.active.fetch_sub(1, Ordering::SeqCst); // the slot is free before we wait for the PC
-                hang_up(conn);
+                crate::hang_up(conn);
             });
         }
     });

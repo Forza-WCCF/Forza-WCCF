@@ -8,13 +8,14 @@ pub mod inbox;
 pub mod relay;
 
 pub use forza::standins::Log;
-use std::io::Write;
+use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 use std::thread::JoinHandle;
+use std::time::Duration;
 use time::{OffsetDateTime, UtcOffset};
 
 /// Which edition's clients the server talks to. Only the seat desk and the relay differ (see [`desk::DeskConfig`],
@@ -119,4 +120,13 @@ impl Drop for Handle {
             let _ = t.join();
         }
     }
+}
+
+/// Ends a connection after our last line. Closing with the PC's bytes still unread makes the OS send a reset, which
+/// can discard the answer before the PC reads it (a refusal sent while the upload is still arriving). So: FIN after
+/// the answer, then read off what the PC still sends (a little, briefly) until it hangs up.
+pub(crate) fn hang_up(conn: TcpStream) {
+    let _ = conn.shutdown(std::net::Shutdown::Write);
+    let _ = conn.set_read_timeout(Some(Duration::from_secs(2)));
+    let _ = io::copy(&mut (&conn).take(1 << 20), &mut io::sink());
 }

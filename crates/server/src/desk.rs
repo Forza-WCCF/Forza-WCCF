@@ -387,7 +387,9 @@ fn taken(st: &State) -> String {
         .join(", ")
 }
 
-fn serve(sh: &Shared, conn: TcpStream, peer: String) {
+/// Returns the connection for [`crate::hang_up`], which the caller runs once the per-IP slot is free.
+fn serve(sh: &Shared, conn: TcpStream, peer: String) -> Option<TcpStream> {
+    let keep = conn.try_clone().ok();
     let _ = conn.set_read_timeout(Some(sh.cfg.silent));
     let _ = conn.set_write_timeout(Some(sh.cfg.silent));
     let mut lease: Option<(u8, u64)> = None;
@@ -405,6 +407,7 @@ fn serve(sh: &Shared, conn: TcpStream, peer: String) {
             ));
         }
     }
+    keep
 }
 
 fn session(
@@ -756,18 +759,24 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
                 let mut open = sh.open.lock().unwrap();
                 let n = open.entry(ip.clone()).or_default();
                 if *n >= MAX_PER_IP {
-                    continue; // dropped: hangs up
+                    continue; // dropped without an answer: nothing to lose to a reset
                 }
                 *n += 1;
             }
             thread::spawn(move || {
-                serve(&sh, conn, peer.to_string());
-                let mut open = sh.open.lock().unwrap();
-                if let Some(n) = open.get_mut(&ip) {
-                    *n -= 1;
-                    if *n == 0 {
-                        open.remove(&ip);
+                let keep = serve(&sh, conn, peer.to_string());
+                {
+                    let mut open = sh.open.lock().unwrap();
+                    if let Some(n) = open.get_mut(&ip) {
+                        *n -= 1;
+                        if *n == 0 {
+                            open.remove(&ip);
+                        }
                     }
+                }
+                // slot and lease are free before we wait for the PC to read our last line
+                if let Some(keep) = keep {
+                    crate::hang_up(keep);
                 }
             });
         }
