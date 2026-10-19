@@ -70,6 +70,7 @@ const MAP: &[(&str, &str)] = &[
     ("source/README.txt", "native/2010-11/README.txt"),
     ("source/hook", "native/2010-11/hook"),
     ("source/panel", "native/2010-11/panel"),
+    ("source/panel/inject.c", "native/common/inject.c"),
     ("source/crashme.c", "native/2010-11/crashme.c"),
     ("source/card_table/fpr_emu.c", "native/fpr_emu/fpr_emu.c"),
     ("source/launcher", "crates/launcher"),
@@ -103,9 +104,12 @@ const MAP_1718: &[(&str, &str)] = &[
     ),
     ("source/mxhook", "native/2017-18/mxhook"),
     ("source/overlay", "native/2017-18/overlay"),
+    ("source/overlay/inject.c", "native/common/inject.c"),
     ("source/logowin", "native/2017-18/logowin"),
     ("source/fpr_emu", "native/fpr_emu"),
 ];
+/// Product name in the version information of programs both kits share.
+const PRODUCT_COMMON: &str = "Forza-WCCF";
 const TOP_1718: &str = "Forza-WCCF-2017-18";
 /// Built into the staged kit, so staging leaves them alone.
 const KEEP: &[&str] = &["programs", "Launcher.exe", "source/build"];
@@ -416,6 +420,7 @@ fn build_all(root: &Path, kit: &Path, kit_1718: &Path, cc: &Cc) -> Result<()> {
     let res = std::thread::scope(|s| {
         let mut jobs = build(s, root, kit, cc)?;
         jobs.extend(build_1718(s, root, kit_1718, cc)?);
+        jobs.extend(build_common(s, root, kit, cc)?);
         for j in jobs {
             let (what, r) = j.join().expect("build thread");
             if let Err(e) = r {
@@ -435,6 +440,7 @@ fn build_all(root: &Path, kit: &Path, kit_1718: &Path, cc: &Cc) -> Result<()> {
     // forza_panel.dll finds its edition the same way
     let release = root.join("target").join(TARGET).join("release");
     let panel = kit.join("source/build/forza_panel.dll");
+    let common = |f: &str| kit.join("source/build").join(f);
     for (from, to) in [
         (release.join("Launcher.exe"), kit.join("Launcher.exe")),
         (
@@ -448,6 +454,8 @@ fn build_all(root: &Path, kit: &Path, kit_1718: &Path, cc: &Cc) -> Result<()> {
             kit_1718.join("bin/forza-server.exe"),
         ),
         (panel, kit_1718.join("overlay/forza_panel.dll")),
+        (common("inject.exe"), kit.join("programs/inject.exe")),
+        (common("inject.exe"), kit_1718.join("overlay/inject.exe")),
     ] {
         fs::create_dir_all(to.parent().unwrap())?;
         fs::copy(from, &to)?;
@@ -499,13 +507,6 @@ fn build<'s>(
         "the card table's stand-in",
         &[],
         &["user32.lib", "/SUBSYSTEM:WINDOWS", "/ENTRY:mainCRTStartup"], // the game starts it: no console window
-    );
-    c(
-        "panel/inject.c",
-        p.join("inject.exe"),
-        "loads the kit's panel into the running game",
-        &[],
-        &[],
     );
     // tests only, not shipped
     c(
@@ -574,6 +575,38 @@ fn build<'s>(
     Ok(jobs)
 }
 
+/// Programs both kits ship unchanged, compiled once from `native/` into the 2010-11 kit's `source/build`; `build_all`
+/// copies each into both kits.
+fn build_common<'s>(
+    s: &'s std::thread::Scope<'s, '_>,
+    root: &Path,
+    kit: &Path,
+    cc: &'s Cc,
+) -> Result<Jobs<'s>> {
+    let obj = kit.join("source/build");
+    fs::create_dir_all(&obj)?;
+    let version = workspace_version(root)?;
+    let src = root.join("native");
+    let mut jobs = vec![];
+    for (source, what, link) in [(
+        "common/inject.c",
+        "loads the kit's panel into the running game",
+        &[] as &'static [&'static str],
+    )] {
+        let (version, src, obj) = (version.clone(), src.clone(), obj.clone());
+        let out = obj.join(Path::new(source).file_stem().unwrap()).with_extension("exe");
+        jobs.push(s.spawn(move || {
+            let r = Shell::new().map_err(Into::into).and_then(|sh| {
+                build_c(
+                    &sh, cc, PRODUCT_COMMON, &version, &src, &obj, source, &out, what, &[], link,
+                )
+            });
+            (source.to_owned(), r)
+        }));
+    }
+    Ok(jobs)
+}
+
 /// The 2017-18 programs, compiled from `native/2017-18` into the staged kit at the paths the scripts read.
 fn build_1718<'s>(
     s: &'s std::thread::Scope<'s, '_>,
@@ -634,13 +667,6 @@ fn build_1718<'s>(
         "the card table's stand-in",
         &[],
         &["user32.lib", "/SUBSYSTEM:WINDOWS", "/ENTRY:mainCRTStartup"], // the game starts it: no console window
-    );
-    c(
-        "overlay/inject.c",
-        kit.join("overlay/inject.exe"),
-        "loads the kit's panel into the running game",
-        &[],
-        &[],
     );
     c(
         "netguard/netguard.c",
