@@ -17,6 +17,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use xshell::{Shell, cmd};
 
@@ -58,6 +59,10 @@ enum Task {
 }
 
 const QUICK_BASE: &str = "integ-20261019";
+/// Set by `check` (both tiers): `rust()` then builds with `CARGO_INCREMENTAL=0`, so sccache can serve the workspace crates
+/// across worktrees; builds while editing stay incremental.
+static NO_INCREMENTAL: AtomicBool = AtomicBool::new(false);
+
 const TOP: &str = "WCCF-2010-11-kit";
 const PRODUCT: &str = "WCCF 2010-11 kit";
 const PRODUCT_1718: &str = "Forza-WCCF 2017-18";
@@ -351,6 +356,7 @@ fn main() -> Result<()> {
         // check and package build first: both used whatever programs were staged last, and a ZIP shipped a Launcher.exe
         // older than its own scripts (2026-10-13, the first Rust run started a deleted panel.py)
         Task::Check { mode, base } => {
+            NO_INCREMENTAL.store(true, Ordering::Relaxed);
             if mode.is_some() {
                 return quick(&root, &stage_root, &base);
             }
@@ -431,6 +437,9 @@ fn run_env(c: &mut Command) {
 fn rust(sub: &str, root: &Path) -> Command {
     let mut c = Command::new("cargo");
     c.args(["xwin", sub]).current_dir(root);
+    if NO_INCREMENTAL.load(Ordering::Relaxed) {
+        c.env("CARGO_INCREMENTAL", "0");
+    }
     c.env("XWIN_ACCEPT_LICENSE", "1")
         .env("XWIN_ARCH", "x86,x86_64")
         .env("XWIN_CACHE_DIR", xwin_root());
