@@ -22,6 +22,14 @@ impl Edition {
         }
     }
 
+    /// The folder name under `Games\Forza-WCCF` (the installer's `disc.rs` names).
+    pub fn folder(self) -> &'static str {
+        match self {
+            Self::E1011 => "2010-2011",
+            Self::E1718 => "2017-2018",
+        }
+    }
+
     /// The badge text; an en dash, as the project writes it.
     pub fn label(self) -> &'static str {
         match self {

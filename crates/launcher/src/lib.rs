@@ -7,6 +7,7 @@ pub mod conf;
 pub mod debug;
 pub mod guard;
 pub mod helper;
+pub mod home;
 pub mod job;
 pub mod keys;
 pub mod kit;
