@@ -70,3 +70,7 @@ required-features = ["ui"]
 [[example]]
 name = "english"
 required-features = ["ui"]
+
+[[example]]
+name = "card_steps"
+required-features = ["ui"]

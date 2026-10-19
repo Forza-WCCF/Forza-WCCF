@@ -974,7 +974,7 @@ impl Ctx {
 }
 
 // ---------------------------------------------------------------- player and team names
-fn fold(s: &str) -> String {
+pub(crate) fn fold(s: &str) -> String {
     let s: String = s
         .chars()
         .map(|c| match c {
