@@ -100,14 +100,19 @@ fn reserve_then_want_ticket_claims_that_seat() {
     };
     assert_eq!(seat, 1);
     // the reserved seat is busy for others, and the ticket's owner gets it
-    assert_eq!(say(d.addr(), "WANT"), "SEAT 2 PROJECTOR 1");
+    // held open: a dropped connection frees its seat and projector on the desk's own thread, which would race
+    // the ticket's answer below
+    let mut other = TcpStream::connect(d.addr()).unwrap();
+    other.write_all(b"WANT\n").unwrap();
+    let mut b = [0u8; 64];
+    let n = other.read(&mut b).unwrap();
+    assert_eq!(&b[..n], b"SEAT 2 PROJECTOR 1\n");
     assert_eq!(say(d.addr(), "WANT SEAT 1"), "TAKEN 1");
     let mut c = TcpStream::connect(d.addr()).unwrap();
     c.write_all(format!("WANT TICKET {ticket}\n").as_bytes())
         .unwrap();
-    let mut b = [0u8; 64];
     let n = c.read(&mut b).unwrap();
-    assert_eq!(&b[..n], b"SEAT 1 PROJECTOR 1\n");
+    assert_eq!(&b[..n], b"SEAT 1 PROJECTOR 0\n");
     // a ticket is good once
     assert_eq!(
         say(d.addr(), &format!("WANT SEAT 3 TICKET {ticket}")),
