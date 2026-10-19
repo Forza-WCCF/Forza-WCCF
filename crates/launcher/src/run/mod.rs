@@ -1668,7 +1668,14 @@ impl Run<'_> {
     fn take_seat(&mut self, ip: &str, want: Option<u8>) -> Result<(u8, bool), Failed> {
         let at = addr(ip, self.p.seat_port).ok_or_else(|| Failed(format!("{ip} is not an address")))?;
         let log = file_log(self.logs().join("run_seat_lease.txt"));
-        match seat::claim(at, want, LIFE, seat::Timing::default(), log) {
+        // a seat the lobby reserved: data\panel.txt "ticket=" (single use, so the line goes before the claim)
+        let panel = self.kit.data().join("panel.txt");
+        let text = choices::read(&panel);
+        let ticket = choices::panel_value(&text, "ticket").filter(|t| !t.is_empty());
+        if ticket.is_some() {
+            let _ = choices::write(&panel, &choices::set_panel_value(&text, "ticket", None));
+        }
+        match seat::claim_with(at, want, ticket.as_deref(), LIFE, seat::Timing::default(), log) {
             Ok(lease) => {
                 let got = (lease.seat, lease.projector);
                 self.lease = Some(lease);

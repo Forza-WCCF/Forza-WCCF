@@ -10,7 +10,7 @@ launcher.play_section: {en: "PLAY", it: "GIOCA", ja: "プレイ"}
 launcher.where: {en: "WHERE TO PLAY", it: "DOVE GIOCARE", ja: "プレイ場所"}
 launcher.this_pc: {en: "This PC", it: "Questo PC", ja: "このPC"}
 launcher.online: {en: "Online", it: "Online", ja: "オンライン"}
-launcher.address: {en: "SERVER ADDRESS", it: "INDIRIZZO SERVER", ja: "サーバーアドレス"}
+launcher.rejoin: {en: "Rejoin %{name}, seat %{seat}", it: "Rientra in %{name}, posto %{seat}", ja: "%{name} の席 %{seat} に戻る"}
 launcher.game_text: {en: "GAME TEXT", it: "TESTO DEL GIOCO", ja: "ゲームの言語"}
 launcher.original_ja: {en: "Original 日本語", it: "日本語 originale", ja: "日本語（オリジナル）"}
 launcher.game_text_hint: {en: "Applied at the next start; switching takes about a minute.", it: "Si applica al prossimo avvio; il cambio richiede circa un minuto.", ja: "次回の起動時に反映されます。切り替えには約1分かかります。"}

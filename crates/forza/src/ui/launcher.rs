@@ -3,6 +3,7 @@
 //! from the real kit, the gallery and the snapshots draw [`LauncherState::sample`].
 
 use super::Lang;
+use super::lobby::{self, Grey, Kind, LobbyAction, LobbyView, Scenario as LobbyScenario};
 use super::theme::{self, Edition};
 use super::widgets::{
     self, Cab, Tone, action, cabinet, field, fold, progress, segmented, status_line, steps,
@@ -25,7 +26,7 @@ pub struct Release {
 }
 
 /// What the player asked for this frame. Launcher.exe does it; the gallery ignores it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
     /// PLAY, with the choices in the state.
     Play,
@@ -53,6 +54,10 @@ pub enum Action {
     SetUpAfterUpdate,
     /// The window's language changed (`lang`).
     Language,
+    /// The player chose something in the online lobby.
+    Lobby(LobbyAction),
+    /// "Rejoin ..." (`rejoin`): reserve the last seat again.
+    Rejoin,
 }
 
 /// A question in a modal: a title, an optional body, the button that says yes and what yes does.
@@ -82,7 +87,10 @@ pub struct LauncherState {
     pub edition: Edition,
     pub lang: Lang,
     pub online: bool,
-    pub address: String,
+    /// The online lobby; its Direct address is the server PLAY uses when no lobby row is chosen.
+    pub lobby: LobbyView,
+    /// The last seat, offered again within the desk's 75 s: "Rejoin FORZA the game server, seat 3".
+    pub rejoin: Option<String>,
     /// 0 English, 1 Italian, 2 the original Japanese.
     pub game_text: usize,
     /// A game folder is set up.
@@ -140,6 +148,23 @@ pub enum Scenario {
     Update,
     /// SETUP open on 2017–18 (card pictures, skip the tutorial), a setup running.
     Busy,
+    /// ONLINE chosen: the lobby with sample rows.
+    Online,
+}
+
+/// An empty lobby for the edition: the kind with nothing behind it greyed (2017–18 shops, 2010–11 VS).
+pub fn lobby_for(edition: Edition) -> LobbyView {
+    let mut v = LobbyView::new();
+    match edition {
+        Edition::E1011 => {
+            v.grey[Kind::Vs as usize] = Some(Grey::Vs1011);
+        }
+        Edition::E1718 => {
+            v.grey[Kind::Shops as usize] = Some(Grey::Shops1718);
+            v.kind = Kind::Vs;
+        }
+    }
+    v
 }
 
 impl LauncherState {
@@ -155,7 +180,8 @@ impl LauncherState {
             edition,
             lang,
             online: false,
-            address: "192.168.1.20".into(),
+            lobby: lobby_for(edition),
+            rejoin: None,
             game_text: 0,
             set_up: true,
             running: false,
@@ -224,6 +250,13 @@ impl LauncherState {
                         error = "curl: (6) Could not resolve host"
                     ),
                 ));
+            }
+            Scenario::Online => {
+                st.online = true;
+                let mut v = LobbyView::sample(LobbyScenario::List);
+                v.grey = st.lobby.grey;
+                v.kind = st.lobby.kind;
+                st.lobby = v;
             }
             Scenario::Busy => {
                 st.busy = true;
@@ -349,15 +382,14 @@ fn play(
                 }
             });
             if st.online {
-                ui.horizontal(|ui| {
-                    field(ui, &tr!(lang, "launcher.address"), label_w);
-                    ui.add(
-                        egui::TextEdit::singleline(&mut st.address)
-                            .font(theme::mono(15.0))
-                            .desired_width(w)
-                            .margin(vec2(10.0, 7.0)),
-                    );
-                });
+                if let Some(text) = st.rejoin.clone()
+                    && action(ui, &text).clicked()
+                {
+                    *act = Some(Action::Rejoin);
+                }
+                if let Some(a) = lobby::show(ui, &mut st.lobby, lang) {
+                    *act = Some(Action::Lobby(a));
+                }
             }
             ui.horizontal(|ui| {
                 field(ui, &tr!(lang, "launcher.game_text"), label_w);
@@ -680,7 +712,7 @@ fn confirm_modal(ui: &mut Ui, st: &mut LauncherState, c: &Confirm, lang: Lang) -
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 if cabinet(ui, vec2(196.0, 48.0), &c.yes, Cab::Go, true).clicked() {
-                    act = Some(c.then);
+                    act = Some(c.then.clone());
                 }
                 if cabinet(
                     ui,

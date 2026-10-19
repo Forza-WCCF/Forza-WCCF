@@ -11,6 +11,7 @@ pub mod home;
 pub mod job;
 pub mod keys;
 pub mod kit;
+pub mod lobby;
 pub mod logs;
 pub mod procs;
 pub mod release;

@@ -85,6 +85,25 @@ fn launcher_screens() {
     all.unwrap();
 }
 
+/// ONLINE chosen: the lobby inside the launcher (taller than the window, which scrolls).
+#[test]
+fn launcher_online() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    let mut st =
+        launcher::LauncherState::sample(Edition::E1011, Lang::En, launcher::Scenario::Online);
+    snap(
+        &mut all,
+        "launcher_online_en",
+        Vec2::new(launcher::SIZE.x, 1000.0),
+        Edition::E1011,
+        |ui| {
+            launcher::show(ui, &mut st);
+        },
+    );
+    all.unwrap();
+}
+
 #[test]
 fn installer_pages() {
     let _gpu = gpu();

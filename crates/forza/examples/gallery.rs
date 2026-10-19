@@ -28,6 +28,7 @@ impl Item {
             (Item::Launcher(NotSetUp), "not set up"),
             (Item::Launcher(Update), "update"),
             (Item::Launcher(Busy), "busy"),
+            (Item::Launcher(Online), "online"),
         ];
         for p in installer::Page::ALL {
             v.push((Item::Installer(p), p.tag()));
@@ -42,8 +43,8 @@ impl Item {
 }
 
 enum Screen {
-    Launcher(launcher::LauncherState),
-    Installer(installer::InstallerState),
+    Launcher(Box<launcher::LauncherState>),
+    Installer(Box<installer::InstallerState>),
     Panel(Box<panel::PanelState>),
     Widgets(panel::WidgetSheet),
 }
@@ -74,8 +75,12 @@ impl Gallery {
     fn rebuild(&mut self) {
         let (l, e) = (self.lang, self.edition);
         self.screen = match self.item {
-            Item::Launcher(s) => Screen::Launcher(launcher::LauncherState::sample(e, l, s)),
-            Item::Installer(p) => Screen::Installer(installer::InstallerState::sample(l, p)),
+            Item::Launcher(s) => {
+                Screen::Launcher(Box::new(launcher::LauncherState::sample(e, l, s)))
+            }
+            Item::Installer(p) => {
+                Screen::Installer(Box::new(installer::InstallerState::sample(l, p)))
+            }
             Item::Panel(p) => Screen::Panel(Box::new(panel::PanelState::sample(e, l, p))),
             Item::Compact => {
                 let mut st = panel::PanelState::sample(e, l, panel::Page::Game);
