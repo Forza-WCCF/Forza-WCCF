@@ -438,11 +438,11 @@ fn board_and_buttons_with_real_data() {
             "wait:2500",
             "click:336,870", // KEYS
             "wait:600",
-            "click:335,309", // SHOOT's key
+            "click:335,300", // SHOOT's key
             "wait:300",
             "key:72", // H
             "wait:300",
-            "click:551,347", // KEEPER's controller cell
+            "click:551,335", // KEEPER's controller cell
             "wait:6000",
             "key:27",
             "wait:400",
@@ -476,7 +476,7 @@ fn board_and_buttons_with_real_data() {
     }
     let mut keys = forza::keys::defaults(false);
     keys[2] = 0x48;
-    let mut pads = [0; 16];
+    let mut pads = [0; forza::keys::COUNT];
     pads[3] = 0x103;
     assert_eq!(
         fs::read_to_string(data.join("keys.txt")).unwrap(),
@@ -739,6 +739,77 @@ fn projector_role_and_money() {
         "moved with no seat 1 reading"
     );
     assert!(!said.contains("device changed"));
+    if env::var_os("FORZA_PANEL_KEEP").is_none() {
+        let _ = fs::remove_dir_all(&t);
+    }
+}
+
+/// Pause (WCCFPANEL_PAUSETEST=1500: the gate passed with made-up facts, each pause 1.5 s instead of the 20 s cap): P
+/// holds the game inside its Present while the panel draws the PAUSED page and pumps the window's messages (the key's
+/// release arrives during the hold and is kept from the game), then the game goes on; P again within 10 s is refused,
+/// and the game's device is as it left it.
+#[test]
+fn pause_holds_the_game() {
+    for f in ["fakegame.exe", "forza_panel.dll"] {
+        assert!(
+            Path::new(BUILD).join(f).is_file(),
+            "{BUILD}/{f} is missing: run cargo xtask build first"
+        );
+    }
+    let t = env::temp_dir().join(format!("forza-panel-pause-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&t);
+    fs::create_dir_all(t.join("data")).unwrap();
+    for f in ["fakegame.exe", "forza_panel.dll"] {
+        fs::copy(Path::new(BUILD).join(f), t.join(f)).unwrap();
+    }
+    copy_dir(Path::new("../../assets/fonts"), &t.join("fonts"));
+    let started = std::time::Instant::now();
+    let out = Command::new(t.join("fakegame.exe"))
+        .current_dir(&t)
+        .env("WCCFPANEL_FULLSCREEN", "0")
+        .env("WCCF_DATA", t.join("data"))
+        .env("WCCFPANEL_PAUSETEST", "1500")
+        .env_remove("WCCF_RELAY")
+        .args([
+            "forza_panel.dll",
+            "wait:2500",
+            "key:80", // P
+            "wait:500",
+            "key:80", // within the 10 s gap
+            "wait:500",
+        ])
+        .output()
+        .unwrap();
+    let took = started.elapsed();
+    let said = String::from_utf8_lossy(&out.stdout);
+    let log = fs::read_to_string(t.join("forza_panel.log")).unwrap_or_default();
+    println!("fakegame:\n{said}\nforza_panel.log:\n{log}");
+    assert!(out.status.success(), "fakegame ended with {}", out.status);
+    assert!(
+        !said.contains("device changed"),
+        "the hold left the game's device changed"
+    );
+    assert!(log.contains("pause: on ("), "no pause");
+    let off = log
+        .lines()
+        .find(|l| l.contains("pause: off (cap) after "))
+        .expect("the pause did not end at its cap");
+    let nums: Vec<u64> = off
+        .split(|c: char| !c.is_ascii_digit())
+        .filter_map(|n| n.parse().ok())
+        .collect();
+    assert!(nums[0] >= 1500, "held only {} ms: {off}", nums[0]);
+    assert!(
+        nums[1] >= 10,
+        "the PAUSED page drew only {} frames: {off}",
+        nums[1]
+    );
+    assert!(
+        log.contains("pause: refused - TooSoon("),
+        "the gap did not refuse"
+    );
+    // the hold adds its 1.5 s to fakegame's own 2.5 + 0.5 + 0.15 + 0.5 + 0.15 s of steps
+    assert!(took.as_millis() >= 5000, "fakegame ran only {took:?}");
     if env::var_os("FORZA_PANEL_KEEP").is_none() {
         let _ = fs::remove_dir_all(&t);
     }

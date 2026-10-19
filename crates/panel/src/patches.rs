@@ -29,19 +29,19 @@ use windows::core::s;
 // ---------------------------------------------------------------- shared helpers
 
 /// The program's file name (the C's `strrchr(exe, '\\')` on `GetModuleFileNameA(NULL)`).
-fn exe_name() -> String {
+pub(crate) fn exe_name() -> String {
     std::env::current_exe()
         .ok()
         .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
         .unwrap_or_default()
 }
 
-fn is_client(name: &str) -> bool {
+pub(crate) fn is_client(name: &str) -> bool {
     name.eq_ignore_ascii_case("client_Release.exe")
 }
 
 /// The program's base address (`GetModuleHandleA(NULL)`).
-fn exe_base() -> usize {
+pub(crate) fn exe_base() -> usize {
     // SAFETY: GetModuleHandleW(NULL) only reads the process's own module list
     unsafe { GetModuleHandleW(None) }.map_or(0, |h| h.0 as usize)
 }
@@ -63,7 +63,7 @@ fn read<const N: usize>(at: usize) -> Option<[u8; N]> {
     Some(b)
 }
 
-fn read_u32(at: usize) -> Option<u32> {
+pub(crate) fn read_u32(at: usize) -> Option<u32> {
     read::<4>(at).map(u32::from_le_bytes)
 }
 

@@ -324,6 +324,7 @@ keys.test: {en: "TEST", it: "TEST", ja: "テスト"}
 keys.service: {en: "SERVICE", it: "SERVIZIO", ja: "サービス"}
 keys.sw1: {en: "SW1", it: "SW1", ja: "SW1"}
 keys.sw2: {en: "SW2", it: "SW2", ja: "SW2"}
+keys.pause: {en: "PAUSE", it: "PAUSA", ja: "一時停止"}
 keys.defaults: {en: "Back to the default keys", it: "Ripristina i tasti predefiniti", ja: "初期設定のキーに戻す"}
 
 # ---- settings ----
@@ -455,3 +456,19 @@ deal.foot: {en: "Only shown, not on your club card. The card turns over; a click
 close.title: {en: "A MATCH IS ON: THE GAME DID NOT CLOSE", it: "PARTITA IN CORSO: IL GIOCO NON SI È CHIUSO", ja: "試合中：ゲームは終了していません"}
 close.body: {en: "Closing now ends it without the locker-room save: your card gets a bad ending.", it: "Chiudere ora la termina senza il salvataggio negli spogliatoi: la tessera riceve una chiusura anomala.", ja: "今閉じるとロッカールームで保存されずに終わり、カードに異常終了が記録されます。"}
 close.again: {en: "Close the window again within 8 seconds to quit anyway.", it: "Chiudi di nuovo la finestra entro 8 secondi per uscire comunque.", ja: "それでも終了するには、8秒以内にもう一度ウィンドウを閉じてください。"}
+
+# ---- pause (the panel holds the match, at most 20 s) ----
+pause.button: {en: "PAUSE", it: "PAUSA", ja: "一時停止"}
+pause.resume: {en: "RESUME", it: "RIPRENDI", ja: "再開"}
+pause.title: {en: "PAUSED", it: "IN PAUSA", ja: "一時停止中"}
+pause.body: {en: "Press %{key} or RESUME to play on.", it: "Premi %{key} o RIPRENDI per continuare.", ja: "%{key} か「再開」で続けます。"}
+pause.left: {en: "The match goes on by itself in %{s} s.", it: "La partita riprende da sola tra %{s} s.", ja: "%{s} 秒後に試合は自動で再開します。"}
+pause.msg_resumed_cap: {en: "The pause reached its 20 seconds: the match goes on.", it: "La pausa ha raggiunto i 20 secondi: la partita riprende.", ja: "一時停止が20秒に達したため、試合を再開しました。"}
+pause.msg_not_match: {en: "Pause works only during a match.", it: "La pausa funziona solo durante una partita.", ja: "一時停止は試合中のみ使えます。"}
+pause.msg_online: {en: "No pause online: only in a game on this PC.", it: "Niente pausa online: solo in una partita su questo PC.", ja: "オンラインでは一時停止できません。このPCでのプレイのみです。"}
+pause.msg_seats: {en: "No pause with another seat linked.", it: "Niente pausa con un'altra postazione collegata.", ja: "他の席が接続中は一時停止できません。"}
+pause.msg_projector: {en: "No pause while the projector runs.", it: "Niente pausa mentre il proiettore è acceso.", ja: "プロジェクターの動作中は一時停止できません。"}
+pause.msg_card: {en: "The card is being saved: try again in a moment.", it: "La tessera è in salvataggio: riprova tra un attimo.", ja: "カードを保存中です。少し待ってからもう一度どうぞ。"}
+pause.msg_no_picture: {en: "No pause in full-screen mode.", it: "Niente pausa a schermo intero.", ja: "全画面モードでは一時停止できません。"}
+pause.msg_stop_set: {en: "No pause: the game clock is already stopped.", it: "Niente pausa: l'orologio di gioco è già fermo.", ja: "一時停止できません：ゲームの時計はすでに止まっています。"}
+pause.msg_too_soon: {en: "Next pause in %{s} s.", it: "Prossima pausa tra %{s} s.", ja: "次の一時停止まであと %{s} 秒です。"}
