@@ -16,8 +16,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::{
-    Error, Hash, Patch, Report, Result, apply, copy_in, make_dir, make_junction, merge_settings,
-    original, put, read, rename_import, sha,
+    Error, Hash, Patch, Report, Result, apply, copy_in, logowin_backup, make_dir, make_junction,
+    merge_settings, original, put, read, rename_import, sha,
 };
 use crate::Edition;
 use crate::cards::catalogue::Output;
@@ -35,13 +35,6 @@ const PINNED: [(&str, &str); 2] = [
 ];
 const OLD: &[u8] = b"IPHLPAPI.DLL\0";
 const NEW: &[u8] = b"wccfnet.dll\0\0";
-/// The name the original logowin.exe is kept under beside it.
-fn logowin_backup() -> String {
-    format!(
-        "logowin_{}.exe",
-        String::from_utf8_lossy(&[0x73, 0x65, 0x67, 0x61])
-    )
-}
 /// The card-table helper as the client names it, relative to seat 1's folder.
 const FPR_EMU: &str = "FlatPanelReader_Emulator/FPR_Emu.exe";
 const CONF_CLIENT: &str = "local/client_user_option.conf";
@@ -389,28 +382,7 @@ pub fn undo(kit: &Path, game: &Path, spec: &Spec) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// A minimal 32-bit PE with one section (VA 0x1000, file 0x200) whose import table names `dlls`, and `extra` after it.
-    pub(crate) fn pe(dlls: &[&str], extra: &[u8]) -> Vec<u8> {
-        let mut d = vec![0u8; 0x200 + 0x1000];
-        d[60..64].copy_from_slice(&0x40u32.to_le_bytes());
-        d[0x40..0x44].copy_from_slice(b"PE\0\0");
-        d[0x46..0x48].copy_from_slice(&1u16.to_le_bytes()); // one section
-        d[0x54..0x56].copy_from_slice(&0xE0u16.to_le_bytes()); // optional header size
-        d[0x40 + 24 + 96 + 8..][..4].copy_from_slice(&0x1000u32.to_le_bytes()); // import table at RVA 0x1000
-        let s = 0x40 + 24 + 0xE0;
-        for (at, v) in [(8, 0x1000u32), (12, 0x1000), (16, 0x1000), (20, 0x200)] {
-            d[s + at..][..4].copy_from_slice(&v.to_le_bytes());
-        }
-        let mut name = 0x1100;
-        for (i, dll) in dlls.iter().enumerate() {
-            d[0x200 + i * 20 + 12..][..4].copy_from_slice(&(name as u32).to_le_bytes());
-            d[0x200 + name - 0x1000..][..dll.len()].copy_from_slice(dll.as_bytes());
-            name += 0x20;
-        }
-        d[0x200 + 0x800..][..extra.len()].copy_from_slice(extra);
-        d
-    }
+    use crate::setup::pe;
 
     #[test]
     fn the_import_is_renamed_once() {

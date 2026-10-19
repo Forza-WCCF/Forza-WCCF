@@ -2077,6 +2077,7 @@ dependencies = [
  "regex",
  "rusqlite",
  "rust-i18n",
+ "same-file",
  "serde",
  "serde_json",
  "sha2",
