@@ -5,6 +5,8 @@
 //! `write_table_locked`, `write_panel_state_locked`, `board_add_locked`, `load_catalogue`); both files come out byte
 //! for byte as it writes them.
 
+pub mod catalogue;
+mod codes;
 pub mod hq;
 pub mod links;
 pub mod pictures;
