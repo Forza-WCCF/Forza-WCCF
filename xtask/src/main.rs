@@ -1262,16 +1262,13 @@ fn scrub(root: &Path, failed: &mut Vec<String>) -> Result<()> {
 // ---- the launcher's scripts ----
 
 /// The scripts Launcher.exe runs (the run in `crates/launcher/src/run` and the window's SETUP) are where it looks for them in
-/// the staged kit: its `SCRIPTS` folder, read from its source.
+/// the staged kit: the 2010-11 layout's `scripts` folder, read from its source.
 fn launcher_scripts(root: &Path, kit: &Path, failed: &mut Vec<String>) -> Result<()> {
-    let src = fs::read_to_string(root.join("crates/launcher/src/kit.rs"))?;
+    let src = fs::read_to_string(root.join("crates/forza/src/layout.rs"))?;
     let dir = src
         .lines()
-        .find_map(|l| {
-            l.strip_prefix("pub const SCRIPTS: &str = \"")?
-                .strip_suffix("\";")
-        })
-        .context("no SCRIPTS in crates/launcher/src/kit.rs")?;
+        .find_map(|l| l.trim().strip_prefix("scripts: \"")?.strip_suffix("\","))
+        .context("no scripts folder in crates/forza/src/layout.rs")?;
     let scripts = ["setup.py", "english.py", "card_steps.py"];
     let missing: Vec<_> = scripts
         .iter()

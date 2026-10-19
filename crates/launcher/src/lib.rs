@@ -17,4 +17,4 @@ pub mod procs;
 pub mod release;
 pub mod run;
 
-pub use kit::{Edition, Kit, SCRIPTS};
+pub use kit::{Edition, Kit};

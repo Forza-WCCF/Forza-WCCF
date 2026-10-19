@@ -79,9 +79,11 @@ pub fn rows_in(here: &Path, roots: &[PathBuf]) -> Vec<Row> {
 /// The edition this folder is for when it has no edition name: its game's table, else its layout (an older
 /// scripts-only kit is 2010-11's).
 fn edition_of_here(here: &Path) -> Option<Edition> {
-    game_edition(&game_of(here))
-        .or_else(|| Kit::layout(here))
-        .or_else(|| here.join(crate::kit::SCRIPTS_1718).is_dir().then_some(Edition::E1011))
+    game_edition(&game_of(here)).or_else(|| Kit::layout(here)).or_else(|| {
+        here.join(Edition::E1718.layout().scripts)
+            .is_dir()
+            .then_some(Edition::E1011)
+    })
 }
 
 fn candidates(here: &Path, ed: Edition, roots: &[PathBuf]) -> Vec<PathBuf> {
@@ -145,7 +147,7 @@ fn classify(dir: &Path, ed: Edition) -> Option<State> {
             State::Ready
         });
     }
-    if dir.join(crate::kit::SCRIPTS_1718).is_dir() {
+    if dir.join(Edition::E1718.layout().scripts).is_dir() {
         return Some(State::OldFiles);
     }
     (table == Some(ed) && game.join("client_Release.exe").is_file()).then_some(State::GameOnly)

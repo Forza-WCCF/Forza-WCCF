@@ -7,11 +7,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// The kit's Python scripts folder (`cargo xtask check` checks the staged kit has the scripts Launcher.exe runs in it).
-pub const SCRIPTS: &str = "code";
-/// The 2017-18 kit's scripts folder (setup.py, english.py, cards.py; its run is Launcher.exe's).
-pub const SCRIPTS_1718: &str = "scripts";
-
 /// Which game a kit runs.  The two kits are laid out differently: 2010-11 has `code\` and `programs\`, 2017-18 has
 /// `scripts\`, `bin\` (the hook, logowin, FPR_Emu, forza-server) and `overlay\` (inject.exe, the panel, netguard.dll,
 /// the catalogue); [`Kit::edition`] tells them apart.
@@ -40,9 +35,10 @@ impl Kit {
     /// The edition whose current kit layout `dir` holds: `code\` (2010-11), or `scripts\` with `bin\` or `overlay\`
     /// (2017-18).  An older kit with only `scripts\` has neither.
     pub fn layout(dir: &Path) -> Option<Edition> {
-        if dir.join(SCRIPTS).is_dir() {
+        let (old, new) = (Edition::E1011.layout(), Edition::E1718.layout());
+        if dir.join(old.scripts).is_dir() {
             Some(Edition::E1011)
-        } else if dir.join(SCRIPTS_1718).is_dir() && (dir.join("bin").is_dir() || dir.join("overlay").is_dir()) {
+        } else if dir.join(new.scripts).is_dir() && (dir.join(new.bin).is_dir() || dir.join(new.overlay).is_dir()) {
             Some(Edition::E1718)
         } else {
             None
@@ -66,7 +62,9 @@ impl Kit {
     /// The kit's edition, from its layout: a `scripts\` folder without `code\` is the 2017-18 kit's (an older 2010-11
     /// kit had scripts\ too, and an update over it may leave one beside code\).
     pub fn edition(&self) -> Edition {
-        if self.dir.join(SCRIPTS_1718).is_dir() && !self.dir.join(SCRIPTS).is_dir() {
+        if self.dir.join(Edition::E1718.layout().scripts).is_dir()
+            && !self.dir.join(Edition::E1011.layout().scripts).is_dir()
+        {
             Edition::E1718
         } else {
             Edition::E1011
@@ -85,13 +83,8 @@ impl Kit {
     /// One of the kit's programs (inject.exe, forza_panel.dll, forza-server.exe, netguard.dll) where its edition keeps
     /// it.
     pub fn program(&self, name: &str) -> PathBuf {
-        match self.edition() {
-            Edition::E1011 => self.programs().join(name),
-            Edition::E1718 if matches!(name, "inject.exe" | "forza_panel.dll" | "netguard.dll") => {
-                self.dir.join("overlay").join(name)
-            }
-            Edition::E1718 => self.dir.join("bin").join(name),
-        }
+        let lay = self.edition().layout();
+        self.dir.join(lay.program_dir(name)).join(name)
     }
 
     pub fn data(&self) -> PathBuf {
@@ -100,10 +93,7 @@ impl Kit {
 
     /// Made by setup from the player's game: catalogue.tsv, cards\ (2017-18: in overlay\).
     pub fn cache(&self) -> PathBuf {
-        match self.edition() {
-            Edition::E1011 => self.data().join("cache"),
-            Edition::E1718 => self.dir.join("overlay"),
-        }
+        self.dir.join(self.edition().layout().cache)
     }
 
     pub fn logs(&self) -> PathBuf {
@@ -150,14 +140,10 @@ impl Kit {
         }
     }
 
-    /// `python\python.exe code\<script>` (2017-18: `scripts\<script>`), to add arguments to
+    /// `python\python.exe <scripts folder>\<script>`, to add arguments to
     pub fn script(&self, script: &str) -> Command {
-        let dir = match self.edition() {
-            Edition::E1011 => SCRIPTS,
-            Edition::E1718 => SCRIPTS_1718,
-        };
         let mut cmd = Command::new(self.python());
-        cmd.arg(self.dir.join(dir).join(script));
+        cmd.arg(self.dir.join(self.edition().layout().scripts).join(script));
         cmd
     }
 }
@@ -202,9 +188,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let kit = Kit::at(dir.path());
         assert_eq!(kit.edition(), Edition::E1011);
-        fs::create_dir(dir.path().join(SCRIPTS_1718)).unwrap();
+        fs::create_dir(dir.path().join(Edition::E1718.layout().scripts)).unwrap();
         assert_eq!(kit.edition(), Edition::E1718);
-        fs::create_dir(dir.path().join(SCRIPTS)).unwrap();
+        fs::create_dir(dir.path().join(Edition::E1011.layout().scripts)).unwrap();
         assert_eq!(
             kit.edition(),
             Edition::E1011,
@@ -217,13 +203,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let kit = Kit::at(dir.path());
         assert!(!kit.is_kit());
-        fs::create_dir(dir.path().join(SCRIPTS_1718)).unwrap();
+        fs::create_dir(dir.path().join(Edition::E1718.layout().scripts)).unwrap();
         assert!(!kit.is_kit(), "an older kit with only scripts\\");
         fs::create_dir(dir.path().join("overlay")).unwrap();
         assert!(kit.is_kit());
         assert_eq!(Kit::layout(dir.path()), Some(Edition::E1718));
         let other = tempfile::tempdir().unwrap();
-        fs::create_dir(other.path().join(SCRIPTS)).unwrap();
+        fs::create_dir(other.path().join(Edition::E1011.layout().scripts)).unwrap();
         assert_eq!(Kit::layout(other.path()), Some(Edition::E1011));
     }
 }

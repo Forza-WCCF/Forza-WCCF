@@ -5,6 +5,8 @@
 //! `keys`: keys.txt's keys and controller controls, shared by the key driver and the KEYS page.
 //! `pause`: the rules of the in-game panel's capped pause (where it is allowed, the cap and the gap).
 //! `club_view`: data\club_view.txt, the CLUB CARD page's view of the club card (the run's helper writes it).
+//! `layout`: the folder names of each edition's kit.
+//! `setup`: the install steps (step 11): the guarded, patched copies of the game and the seat folder.
 //! `cards`: the player's catalogue and the game's card table, read at runtime from the player's folders (step 9.4b).
 
 /// The two editions; the one type the theme, the launcher, the server and the panel share.
@@ -55,9 +57,11 @@ rust_i18n::i18n!("locales", fallback = "en");
 pub mod cards;
 pub mod club_view;
 pub mod keys;
+pub mod layout;
 pub mod online;
 pub mod panel_txt;
 pub mod pause;
+pub mod setup;
 pub mod standins;
 #[cfg(feature = "ui")]
 pub mod ui;
