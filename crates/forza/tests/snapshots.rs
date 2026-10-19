@@ -104,6 +104,29 @@ fn launcher_online() {
     all.unwrap();
 }
 
+/// ONLINE on 2017-18 with the Direct address fold open: the club server and the VS link switch live there now (SETUP
+/// no longer runs past the window).
+#[test]
+fn launcher_online_1718() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for lang in Lang::ALL {
+        let mut st =
+            launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Online);
+        st.lobby.direct_open = true;
+        snap(
+            &mut all,
+            &format!("launcher_online_1718_{}", lang.code()),
+            Vec2::new(launcher::SIZE.x, 1100.0),
+            Edition::E1718,
+            |ui| {
+                launcher::show(ui, &mut st);
+            },
+        );
+    }
+    all.unwrap();
+}
+
 #[test]
 fn installer_pages() {
     let _gpu = gpu();
@@ -699,7 +722,8 @@ fn lobby_screens() {
     all.unwrap();
 }
 
-/// Down, Down, Enter on the sample list joins the third row; Right switches to the VS rooms, F5 and Esc answer.
+/// Down, Down, Enter on the sample list joins the third row; Right switches to the VS rooms, F5 and Esc answer; H
+/// hosts a VS room, Enter in it is READY.
 #[test]
 fn lobby_keys() {
     use lobby::LobbyAction::*;
@@ -724,6 +748,31 @@ fn lobby_keys() {
     h.key_press(egui::Key::F5);
     h.run_steps(2);
     assert_eq!(got.take(), Some(Refresh));
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert_eq!(got.take(), Some(Leave));
+    // H (the pad's Y) hosts; in the room Enter is READY, once
+    h.key_press(egui::Key::H);
+    h.run_steps(2);
+    assert_eq!(got.take(), Some(HostVs));
+    let mut room = lobby::Room::new("K7QM", lobby::Kind::Vs, 2);
+    room.mine = Some(0);
+    room.seats[0] = Some(lobby::Occupant {
+        club: "A7K2".into(),
+        ready: false,
+    });
+    v.borrow_mut().room = Some(room);
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(2);
+    assert_eq!(got.take(), Some(Ready));
+    if let Some(r) = &mut v.borrow_mut().room {
+        r.seats[0].as_mut().unwrap().ready = true;
+    }
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(2);
+    assert_eq!(got.take(), None, "READY twice");
     h.key_press(egui::Key::Escape);
     h.run_steps(2);
     assert_eq!(got.take(), Some(Leave));

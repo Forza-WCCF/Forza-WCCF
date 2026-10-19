@@ -939,6 +939,13 @@ pub fn spawn(shared: Arc<Shared>, keys_path: std::path::PathBuf, start_coin: boo
     Handle::new(stop, thread)
 }
 
+/// Every controller through Windows' winmm joystick calls, looked for every 2 s ([`Pads::spawn`]): the Launcher's
+/// lobby reads the gamepad with it.
+#[cfg(windows)]
+pub fn winmm_pads(say: Log) -> Pads {
+    Pads::spawn(Box::new(win::Winmm), say, Box::new(win::pad_name))
+}
+
 #[cfg(windows)]
 mod win {
     use super::{Caps, Info, PadApi};

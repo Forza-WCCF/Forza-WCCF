@@ -1,6 +1,15 @@
 //! The desk's `LOBBY edition` answer: one JSON line listing the shops and VS rooms the Launcher's lobby view shows
-//! (ROADMAP, "Online lobby view"). Wire types only: no socket, no polling. Ids are random per server run; the answer
-//! holds no addresses, card numbers or names of people.
+//! (ROADMAP, "Online lobby view"), and the client calls of the other words. Ids are random per server run; no answer
+//! holds addresses, card numbers or names of people.
+//!
+//! The words, one line each way, the desk hangs up after its answer:
+//! - `LOBBY edition` -> one [`Lobby`] JSON line, or `ERR slow`.
+//! - `RESERVE id [n]` -> [`Reserved`]: a shop seat or the guest seat of a VS room.
+//! - `HEARTBEAT t`, `RELEASE t` -> `OK` | `GONE`.
+//! - `CREATE vs` -> [`Created`]: a VS room with this PC on seat 1; `CREATE vs open` puts it in the open pool instead
+//!   (the desk pairs it with the oldest room waiting there, else makes one; QUICK MATCH on VS ROOMS).
+//! - `READY id t` -> `OK` | `GONE`: the ticket's seat in room `id` is ready (READY).
+//! - `CLOSE id t` -> `OK` | `GONE`: the host's ticket closes room `id` (LEAVE by the host).
 
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
@@ -76,6 +85,15 @@ pub struct Shop {
     pub lang: Option<String>,
 }
 
+/// A player in a VS room: the seat (1 = the host), a random club id, and whether READY was pressed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Occupant {
+    pub seat: u8,
+    pub club: String,
+    #[serde(default)]
+    pub ready: bool,
+}
+
 /// One VS room: a one-PC shop waiting for, or holding, its opponent.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VsRoom {
@@ -88,6 +106,98 @@ pub struct VsRoom {
     pub kind: u8,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lang: Option<String>,
+    /// Who sits in the room, by random club id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub occupants: Vec<Occupant>,
+}
+
+/// The desk's answer to `CREATE vs`: `ROOM id code t` (this PC on seat 1, `t` a ticket like `RESERVE`'s) or `FULL`
+/// (the desk holds as many rooms as it takes).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Created {
+    Room {
+        id: String,
+        code: String,
+        ticket: String,
+    },
+    Full,
+}
+
+impl Created {
+    pub fn line(&self) -> String {
+        match self {
+            Created::Room { id, code, ticket } => format!("ROOM {id} {code} {ticket}\n"),
+            Created::Full => "FULL\n".into(),
+        }
+    }
+
+    pub fn parse(line: &str) -> Option<Created> {
+        match line.split_whitespace().collect::<Vec<_>>()[..] {
+            ["ROOM", id, code, t] => Some(Created::Room {
+                id: id.into(),
+                code: code.into(),
+                ticket: t.into(),
+            }),
+            ["FULL"] => Some(Created::Full),
+            _ => None,
+        }
+    }
+}
+
+/// A request line the Launcher sends (the server side parses these).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Ask {
+    Lobby { edition: String },
+    Reserve { id: String, seat: Option<u8> },
+    Heartbeat { ticket: String },
+    Release { ticket: String },
+    Create { open: bool },
+    Ready { id: String, ticket: String },
+    Close { id: String, ticket: String },
+}
+
+impl Ask {
+    pub fn line(&self) -> String {
+        match self {
+            Ask::Lobby { edition } => format!("LOBBY {edition}\n"),
+            Ask::Reserve { id, seat: None } => format!("RESERVE {id}\n"),
+            Ask::Reserve { id, seat: Some(n) } => format!("RESERVE {id} {n}\n"),
+            Ask::Heartbeat { ticket } => format!("HEARTBEAT {ticket}\n"),
+            Ask::Release { ticket } => format!("RELEASE {ticket}\n"),
+            Ask::Create { open: false } => "CREATE vs\n".into(),
+            Ask::Create { open: true } => "CREATE vs open\n".into(),
+            Ask::Ready { id, ticket } => format!("READY {id} {ticket}\n"),
+            Ask::Close { id, ticket } => format!("CLOSE {id} {ticket}\n"),
+        }
+    }
+
+    pub fn parse(line: &str) -> Option<Ask> {
+        let s = |x: &str| x.to_owned();
+        Some(match line.split_whitespace().collect::<Vec<_>>()[..] {
+            ["LOBBY", e] => Ask::Lobby { edition: s(e) },
+            ["RESERVE", id] => Ask::Reserve {
+                id: s(id),
+                seat: None,
+            },
+            ["RESERVE", id, n] => Ask::Reserve {
+                id: s(id),
+                seat: Some(n.parse().ok()?),
+            },
+            ["HEARTBEAT", t] => Ask::Heartbeat { ticket: s(t) },
+            ["RELEASE", t] => Ask::Release { ticket: s(t) },
+            ["CREATE", "vs"] => Ask::Create { open: false },
+            ["CREATE", "vs", "open"] => Ask::Create { open: true },
+            ["READY", id, t] => Ask::Ready {
+                id: s(id),
+                ticket: s(t),
+            },
+            ["CLOSE", id, t] => Ask::Close {
+                id: s(id),
+                ticket: s(t),
+            },
+            _ => return None,
+        })
+    }
 }
 
 /// The whole answer.
@@ -146,7 +256,52 @@ fn ask(addr: SocketAddr, line: &str) -> Result<String, String> {
 
 /// `LOBBY edition`: the desk's answer, or why there is none (`ERR slow` included).
 pub fn fetch(addr: SocketAddr, edition: &str) -> Result<Lobby, String> {
-    Lobby::parse(&ask(addr, &format!("LOBBY {edition}\n"))?)
+    Lobby::parse(&ask(
+        addr,
+        &Ask::Lobby {
+            edition: edition.into(),
+        }
+        .line(),
+    )?)
+}
+
+/// `OK` true, `GONE` false, anything else the error.
+fn ok_gone(a: String) -> Result<bool, String> {
+    match a.as_str() {
+        "OK" => Ok(true),
+        "GONE" => Ok(false),
+        _ => Err(a),
+    }
+}
+
+/// `CREATE vs` (or `CREATE vs open`, the open pool): a room with this PC on seat 1.
+pub fn create(addr: SocketAddr, open: bool) -> Result<Created, String> {
+    let a = ask(addr, &Ask::Create { open }.line())?;
+    Created::parse(&a).ok_or(a)
+}
+
+/// `READY id t`: true while the room and the ticket's seat still exist.
+pub fn ready(addr: SocketAddr, id: &str, ticket: &str) -> Result<bool, String> {
+    ok_gone(ask(
+        addr,
+        &Ask::Ready {
+            id: id.into(),
+            ticket: ticket.into(),
+        }
+        .line(),
+    )?)
+}
+
+/// `CLOSE id t`: the host closes the room (the guest's ticket is let go by the desk).
+pub fn close(addr: SocketAddr, id: &str, ticket: &str) -> Result<bool, String> {
+    ok_gone(ask(
+        addr,
+        &Ask::Close {
+            id: id.into(),
+            ticket: ticket.into(),
+        }
+        .line(),
+    )?)
 }
 
 /// `RESERVE id`: a seat held for [`LEASE_SECS`]. Claim it with `WANT ... TICKET t`.
@@ -156,30 +311,37 @@ pub fn reserve(addr: SocketAddr, id: &str) -> Result<Reserved, String> {
 
 /// `RESERVE id n`: that seat (a rejoin), or the lowest free one when `seat` is `None`.
 pub fn reserve_seat(addr: SocketAddr, id: &str, seat: Option<u8>) -> Result<Reserved, String> {
-    let line = match seat {
-        Some(n) => format!("RESERVE {id} {n}\n"),
-        None => format!("RESERVE {id}\n"),
-    };
-    let a = ask(addr, &line)?;
+    let a = ask(
+        addr,
+        &Ask::Reserve {
+            id: id.into(),
+            seat,
+        }
+        .line(),
+    )?;
     Reserved::parse(&a).ok_or(a)
 }
 
 /// `HEARTBEAT t`: true while the desk still holds the seat (send every [`HEARTBEAT_EVERY`] seconds).
 pub fn heartbeat(addr: SocketAddr, ticket: &str) -> Result<bool, String> {
-    match ask(addr, &format!("HEARTBEAT {ticket}\n"))?.as_str() {
-        "OK" => Ok(true),
-        "GONE" => Ok(false),
-        other => Err(other.into()),
-    }
+    ok_gone(ask(
+        addr,
+        &Ask::Heartbeat {
+            ticket: ticket.into(),
+        }
+        .line(),
+    )?)
 }
 
 /// `RELEASE t`: the seat is free at once; false when the ticket is spent, expired or unknown.
 pub fn release(addr: SocketAddr, ticket: &str) -> Result<bool, String> {
-    match ask(addr, &format!("RELEASE {ticket}\n"))?.as_str() {
-        "OK" => Ok(true),
-        "GONE" => Ok(false),
-        other => Err(other.into()),
-    }
+    ok_gone(ask(
+        addr,
+        &Ask::Release {
+            ticket: ticket.into(),
+        }
+        .line(),
+    )?)
 }
 
 #[cfg(test)]
@@ -198,6 +360,108 @@ mod tests {
         assert_eq!(l.vs[0].code, "K7QM");
         assert_eq!(l.line(), format!("{SAMPLE}\n"));
         assert_eq!(Lobby::parse(&l.line()).unwrap(), l);
+    }
+
+    #[test]
+    fn room_occupants_round_trip() {
+        let j = r#"{"v":1,"edition":"2017-18","at":1,"vs":[{"id":"r7x1","code":"K7QM","players":2,"max":2,"kind":2,"occupants":[{"seat":1,"club":"A7K2","ready":true},{"seat":2,"club":"Q3ZD","ready":false}]}]}"#;
+        let l = Lobby::parse(j).unwrap();
+        assert_eq!(l.vs[0].occupants[1].club, "Q3ZD");
+        assert!(l.vs[0].occupants[0].ready && !l.vs[0].occupants[1].ready);
+        assert_eq!(Lobby::parse(&l.line()).unwrap(), l);
+    }
+
+    #[test]
+    fn words_round_trip() {
+        for a in [
+            Ask::Lobby {
+                edition: "2017-18".into(),
+            },
+            Ask::Reserve {
+                id: "r7x1".into(),
+                seat: None,
+            },
+            Ask::Reserve {
+                id: "k3".into(),
+                seat: Some(3),
+            },
+            Ask::Heartbeat {
+                ticket: "t1".into(),
+            },
+            Ask::Release {
+                ticket: "t1".into(),
+            },
+            Ask::Create { open: false },
+            Ask::Create { open: true },
+            Ask::Ready {
+                id: "r7x1".into(),
+                ticket: "t1".into(),
+            },
+            Ask::Close {
+                id: "r7x1".into(),
+                ticket: "t1".into(),
+            },
+        ] {
+            assert_eq!(Ask::parse(&a.line()), Some(a.clone()), "{a:?}");
+        }
+        assert_eq!(Ask::Create { open: false }.line(), "CREATE vs\n");
+        assert_eq!(Ask::parse("READY r7x1"), None); // no ticket: no seat to mark
+        assert_eq!(Ask::parse("CREATE shop"), None);
+        for c in [
+            Created::Room {
+                id: "r7x1".into(),
+                code: "K7QM".into(),
+                ticket: "t9".into(),
+            },
+            Created::Full,
+        ] {
+            assert_eq!(Created::parse(&c.line()), Some(c.clone()));
+        }
+        assert_eq!(Created::parse("ERR slow"), None);
+    }
+
+    /// The client calls against a stand-in desk that answers each word as B4's desk will.
+    #[test]
+    fn client_calls_send_the_words() {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        let desk = std::thread::spawn(move || {
+            let mut heard = vec![];
+            for _ in 0..4 {
+                let (c, _) = l.accept().unwrap();
+                let mut line = String::new();
+                std::io::BufRead::read_line(&mut std::io::BufReader::new(&c), &mut line).unwrap();
+                let answer = match Ask::parse(&line) {
+                    Some(Ask::Create { open: false }) => "ROOM r7x1 K7QM t9\n",
+                    Some(Ask::Create { open: true }) => "FULL\n",
+                    Some(Ask::Ready { .. }) => "OK\n",
+                    Some(Ask::Close { .. }) => "GONE\n",
+                    _ => "ERR\n",
+                };
+                (&c).write_all(answer.as_bytes()).unwrap();
+                heard.push(line);
+            }
+            heard
+        });
+        let room = Created::Room {
+            id: "r7x1".into(),
+            code: "K7QM".into(),
+            ticket: "t9".into(),
+        };
+        assert_eq!(create(addr, false), Ok(room));
+        assert_eq!(create(addr, true), Ok(Created::Full));
+        assert_eq!(ready(addr, "r7x1", "t9"), Ok(true));
+        assert_eq!(close(addr, "r7x1", "t9"), Ok(false));
+        let heard = desk.join().unwrap();
+        assert_eq!(
+            heard,
+            [
+                "CREATE vs\n",
+                "CREATE vs open\n",
+                "READY r7x1 t9\n",
+                "CLOSE r7x1 t9\n"
+            ]
+        );
     }
 
     #[test]

@@ -397,8 +397,16 @@ fn play(
                 {
                     *act = Some(Action::Rejoin);
                 }
-                if let Some(a) = lobby::show(ui, &mut st.lobby, lang) {
+                let mut vs_link = false;
+                let (club_server, link) = (&mut st.club_server, &mut st.vs_link);
+                // the 2017-18 club server rows live with online play, under the Direct address
+                let chose = lobby::show_with(ui, &mut st.lobby, lang, |ui| {
+                    vs_link = club_rows(ui, club_server, link, lang);
+                });
+                if let Some(a) = chose {
                     *act = Some(Action::Lobby(a));
+                } else if vs_link {
+                    *act = Some(Action::VsLink);
                 }
             }
             ui.horizontal(|ui| {
@@ -547,30 +555,37 @@ fn setup(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Actio
         {
             *act = Some(Action::SkipTutorial);
         }
-        if let Some(club) = &mut st.club_server {
-            ui.horizontal(|ui| {
-                field(ui, &tr!(lang, "launcher.club_server"), 150.0);
-                ui.add(
-                    egui::TextEdit::singleline(club)
-                        .font(theme::mono(14.0))
-                        .hint_text(tr!(lang, "launcher.club_server_hint"))
-                        .desired_width(ui.available_width())
-                        .margin(vec2(10.0, 7.0)),
-                );
-            });
-        }
-        if let Some(on) = &mut st.vs_link
-            && toggle_row(
-                ui,
-                on,
-                &tr!(lang, "launcher.vs_link"),
-                &tr!(lang, "launcher.vs_link_hint"),
-            )
-            .clicked()
-        {
-            *act = Some(Action::VsLink);
-        }
     });
+}
+
+/// The 2017-18 club server and the direct VS link switch (when the edition has them); true when the switch changed.
+fn club_rows(
+    ui: &mut Ui,
+    club_server: &mut Option<String>,
+    vs_link: &mut Option<bool>,
+    lang: Lang,
+) -> bool {
+    if let Some(club) = club_server {
+        ui.horizontal(|ui| {
+            field(ui, &tr!(lang, "launcher.club_server"), 150.0);
+            ui.add(
+                egui::TextEdit::singleline(club)
+                    .font(theme::mono(14.0))
+                    .hint_text(tr!(lang, "launcher.club_server_hint"))
+                    .desired_width(ui.available_width())
+                    .margin(vec2(10.0, 7.0)),
+            );
+        });
+    }
+    vs_link.as_mut().is_some_and(|on| {
+        toggle_row(
+            ui,
+            on,
+            &tr!(lang, "launcher.vs_link"),
+            &tr!(lang, "launcher.vs_link_hint"),
+        )
+        .clicked()
+    })
 }
 
 /// The width of a secondary action's label.
