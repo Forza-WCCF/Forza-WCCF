@@ -2,48 +2,46 @@ Forza-WCCF 2017-18 - 0.1.0-alpha.1
 ==================================
 (Italiano: README.it.txt - 日本語: README.ja.txt)
 
-This is an alpha: it plays, it is not finished, and it needs testers. Read WHAT IS NOT IN THIS ALPHA and KNOWN ISSUES
-before you start.
+Alpha: playable, unfinished, needs testers. Read WHAT IS NOT IN THIS ALPHA and KNOWN ISSUES first.
 
 NEW IN THIS RELEASE (not released yet)
-  - No Python: setup, the card catalogue, the card pictures and the game's text run inside Launcher.exe. Nothing to
-    install; the download is smaller (no python\ or scripts\ folder).
-  - Online play is on. Choose Online in Launcher.exe and the LOBBY lists VS ROOMS: HOST VS makes a room with a 4-letter
-    code, QUICK MATCH takes the oldest open room (or opens one), both players press READY, a 5-second countdown starts
-    the game. The lobby works with the keyboard and a gamepad.
-  - Online, every card has its own Aime ID, so two homes never share one club.
+  - No Python: setup, the card catalogue, the card pictures and the game's text run inside Launcher.exe. The download
+    is smaller (no python\ or scripts\ folder).
+  - Online play. Choose Online in Launcher.exe; the LOBBY lists VS ROOMS. HOST VS makes a room with a 4-letter code,
+    QUICK MATCH takes the oldest open room (or opens one), both players press READY, a 5-second countdown starts the
+    game. Keyboard and gamepad.
+  - Online, every card has its own Aime ID: two homes never share one club.
   - The Club server and Direct VS link rows moved under ONLINE, in the "Direct address" fold.
-  - Pause: P (or the PAUSE button) holds a match on this PC for up to 20 seconds.
-  - The installer's --kit step takes this edition's ZIP too (see the installer's README).
+  - Pause: P (or the PAUSE button) holds a match for up to 20 seconds.
+  - The installer's --kit step takes this edition's ZIP (see the installer's README).
 
 WHAT IT IS
-  World Club Champion Football 2017-18 on one Windows PC, one seat, from YOUR OWN game files; online VS with another
-  home is optional. Forza-WCCF stands in for the arcade's hardware and servers: the game server (your club and its saves), the network and keychip,
-  the Aime card reader, the I/O board. Around the game window there is a panel with the cabinet's buttons and a
-  formation board for your cards. Forza-WCCF holds none of the original files: everything that comes from the game is
-  made from your copy.
+  World Club Champion Football 2017-18 on one Windows PC, one seat, from YOUR OWN game files. Online VS with another
+  home is optional. Forza-WCCF replaces the arcade's hardware and servers: game server (your club and saves), network
+  and keychip, Aime card reader, I/O board. A panel around the game window has the cabinet's buttons and a formation
+  board for your cards. Forza-WCCF holds no original files; everything from the game is made from your copy.
 
 YOU NEED
   - Windows 10 or 11, 64-bit.
   - Your own decrypted 2017-18 game folder (the one with client_Release.exe and control_Release.exe).
     <where to get the game: owner fills in>
-  - Nothing else: no WSL, nothing to install.
+  - Nothing else (no WSL).
 
 INSTALL (once)
   1. Unzip this download into a folder of its own, with a plain path (e.g. C:\Games\Forza-WCCF-2017-18).
   2. Run Launcher.exe. Windows may warn about an unsigned program: see KNOWN ISSUES.
-  3. Open Setup and updates, choose your game folder, press Set up. Setup makes a guarded copy of the game's
-     programs (your original folder is not changed; the original programs are kept in original\), the card catalogue and the card pictures; it takes about a
-     minute. Running it again checks and repairs.
-  The 2010-11 and 2017-18 installs stay separate, each with its own game files, data, logs and saves. They cannot run
-  at the same time on one PC: both use the same local ports. Close one before you start the other.
+  3. Open Setup and updates, choose your game folder, press Set up (about a minute). Setup makes a guarded copy of the
+     game's programs, the card catalogue and the card pictures. Your game folder is not changed; the original programs
+     are kept in original\. Running Setup again checks and repairs.
+  The 2010-11 and 2017-18 installs are separate: own game files, data, logs and saves. They use the same local ports,
+  so close one before you start the other.
 
 PLAY
-  Press PLAY in Launcher.exe. The game takes about 30 seconds to start. Your Aime card is emulated; your club and its
-  saves are kept on this PC, in data\save\gamesvr (back that folder up). Game text: English, Italiano or the original
-  Japanese - pick it in Launcher.exe before PLAY.
-  First time: a new card starts with the manager licence, a tutorial of 5 plays and the club set-up, about 30 minutes.
-  Tick the "Skip the tutorial" box in Launcher.exe before PLAY: a new card then gets a ready club and goes straight to the main screen.
+  Press PLAY in Launcher.exe. The game starts in about 30 seconds. The Aime card is emulated. Your club and saves are
+  in data\save\gamesvr (back it up). Game text: English, Italiano or the original Japanese; pick it in Launcher.exe
+  before PLAY.
+  A new card starts with the manager licence, a 5-play tutorial and the club set-up (about 30 minutes). To skip them,
+  tick "Skip the tutorial" in Launcher.exe before PLAY: a new card gets a ready club and goes to the main screen.
   Click the game window, then:
       Enter   START (free play: a coin goes in for you)
       X       PRESS (decide)       C   SHOOT        B   KEEPER
@@ -52,26 +50,25 @@ PLAY
       I       Aime card in / out   5   a coin        F1  test menu
   or click the panel's buttons: the triangles (CENTRAL, COUNTER, L-SIDE, R-SIDE), PRESS, DATA, SHOOT, KEEPER,
   KEY PLAYER and START. The panel's FORMATION BOARD shows your cards: drag one to move it, drop it on another to swap.
-  Rare 2D-code cards work: the game server lists them as registered.
+  Rare 2D-code cards work (the game server lists them as registered).
   Put your card in soon after starting; take it out (I) after a match, then close the game window.
-  P       pause a match on this PC (up to 20 seconds, then it goes on by itself; P or RESUME ends it sooner; the next
-          pause waits 10 seconds). Not online, not with another seat linked, not while the projector runs. Change the
-          key under KEYS.
+  P       pause a match (20 seconds at most, then it resumes; P or RESUME resumes sooner; the next pause waits
+          10 seconds). Not online, not with another seat linked, not while the projector runs. Rebind under KEYS.
 
 ONLINE (VS between two homes)
   1. In Launcher.exe pick Online. Open "Direct address" and type the server's address (HOST or HOST:PORT); the
-     lobby asks every address you have typed. The project's server lets in only addresses on its allow list: ask
-     its operator to add yours. SHOPS stays greyed for 2017-18; VS ROOMS is the list.
-  2. HOST VS makes a room and shows its code (e.g. K7QM): tell your friend, who picks that room and presses JOIN.
-     QUICK MATCH joins the oldest open room still waiting, or opens one. LEAVE (Esc) gives the seat up.
-  3. Each player presses READY. When both are ready a 5-second countdown starts the game. If you are ready and nobody
-     comes for about 90 seconds, the game starts with a CPU team instead.
+     lobby asks every address you typed. The project's server admits only addresses on its allow list: ask its
+     operator to add yours. SHOPS stays greyed for 2017-18; use VS ROOMS.
+  2. HOST VS makes a room and shows its code (e.g. K7QM). Tell your friend, who picks that room and presses JOIN.
+     QUICK MATCH joins the oldest open room, or opens one. LEAVE (Esc) gives up the seat.
+  3. Each player presses READY; a 5-second countdown starts the game. If you are ready and nobody joins within about
+     90 seconds, the game starts with a CPU team.
   4. Lobby keys: Up/Down row, Left/Right or Tab the list, Enter join or READY, H HOST VS, F5 refresh, Esc leave.
      Gamepad: D-pad or left stick move, A = Enter, B = Esc, X = refresh, Y = HOST VS, LB/RB = the list.
-  "Club server" (under Direct address) sets where your club is kept; empty means the server you chose. "Direct VS
-  link" (relay.wccf.it) connects your PC to the other player's. The first time, Windows Firewall may ask about
-  Launcher.exe: allow it for direct connections; if you deny it, VS still works through the relay, only with more
-  delay. Untick the box to turn the link off. Pick This PC to go back to your own club on this PC.
+  "Club server" (under Direct address) is where your club is kept; empty means the server you chose. "Direct VS
+  link" (relay.wccf.it) connects your PC to the other player's; untick it to turn it off. Windows Firewall may ask
+  about Launcher.exe the first time: allow it for direct connections. If you deny it, VS runs through the relay with
+  more delay. Pick This PC to return to your own club on this PC.
 
 WHAT IS NOT IN THIS ALPHA
   - Career mode.
@@ -79,36 +76,33 @@ WHAT IS NOT IN THIS ALPHA
   - A render scale.
 
 KNOWN ISSUES
-  - The control program may crash after about 90 minutes idle. Close the game and start again; your club is kept.
+  - The control program may crash after about 90 minutes idle. Restart the game; your club is kept.
   - Registering a team may wait about 95 seconds before it goes on.
-  - Online VS between two homes has not yet been played end to end on two PCs; treat it as a test.
-  - The programs are not signed. Windows SmartScreen may say "Windows protected your PC": choose "More info", then
-    "Run anyway". If Microsoft Defender flags a file, do not turn Defender off: report the file name and what
-    Defender said (see BUGS).
-  - Antivirus programs may dislike overlay\inject.exe (it loads the panel into the game) and bin\winmm.dll (it sits
-    between the game and Windows). Their source code is in source\.
+  - Online VS between two homes has not been played end to end on two PCs yet; treat it as a test.
+  - The programs are unsigned. For SmartScreen and Defender see ANTIVIRUS AND SMARTSCREEN.
+  - Antivirus programs may flag overlay\inject.exe (loads the panel into the game) and bin\winmm.dll (sits between
+    the game and Windows). Their source is in source\.
 
 ANTIVIRUS AND SMARTSCREEN
-  The programs are unsigned. To work, Launcher.exe starts the game's programs under the Windows debugging interface
-  and loads two of Forza-WCCF's DLLs into them: forza_panel.dll draws the panel on the game's frame; netguard.dll and
-  the guarded copies' wccfnet.dll stub the game's network-adapter calls, so the game cannot drop this PC's network
-  lease. Setup patches copies of the game's programs, never the originals, which it backs up in original\. Antivirus
-  programs may treat this like a cheat tool. Each release's files are submitted to Microsoft as a false positive before
-  it is published.
-  If Defender still flags a file: do not turn Defender off. Note the detection name, restore the file from Protection
+  The programs are unsigned. Launcher.exe starts the game's programs under the Windows debugging interface and loads
+  two Forza-WCCF DLLs into them: forza_panel.dll draws the panel on the game's frame; netguard.dll and the guarded
+  copies' wccfnet.dll stub the game's network-adapter calls, so the game cannot drop this PC's network lease. Setup
+  patches copies of the game's programs, never the originals (backed up in original\). Antivirus programs may treat
+  this like a cheat tool. Each release's files are submitted to Microsoft as a false positive before publication.
+  SmartScreen ("Windows protected your PC"): choose "More info", then "Run anyway".
+  If Defender flags a file: do not turn Defender off. Note the detection name, restore the file from Protection
   history only if it came from the official download, and report it: <report link: owner fills in>
-  SmartScreen: choose "More info", then "Run anyway".
 
 SAFETY
-  Forza-WCCF never changes this PC's network settings (addresses, routes, firewall). The game's own network calls are
-  replaced by a guard before the game starts, and Launcher.exe refuses to start the game if the guard is not in place.
-  The game never reaches the publisher's hosts: they are redirected to stand-ins on this PC. Windows may ask whether
-  control_Release.exe may use the network: either answer works, everything stays on this PC.
+  Forza-WCCF never changes this PC's network settings (addresses, routes, firewall). A guard replaces the game's own
+  network calls before it starts; Launcher.exe refuses to start the game without the guard. The game never reaches the
+  publisher's hosts: they are redirected to stand-ins on this PC. If Windows asks whether control_Release.exe may use
+  the network, either answer works.
 
 LOGS AND BUGS
-  Logs are in data\logs; the previous run's are in data\logs\previous. To report a bug, send the logs: the panel's
-  SETTINGS has SEND LOGS (it needs a server address to send to; otherwise zip data\logs and send it by hand), and say
-  what you did and what you saw. For a Defender or SmartScreen warning, add the file name and the warning's text.
+  Logs are in data\logs; the previous run's are in data\logs\previous. To report a bug, send the logs and say what you
+  did and what you saw. The panel's SETTINGS has SEND LOGS (needs a server address); otherwise zip data\logs and send
+  it by hand. For a Defender or SmartScreen warning, add the file name and the warning's text.
 
 FOLDERS
   bin\       winmm.dll (the hook), FPR_Emu.exe (card-table helper), logowin.exe (stand-in), forza-server.exe

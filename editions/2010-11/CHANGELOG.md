@@ -7,58 +7,44 @@ game is not included. Newest first; each date is the day that kit was built.
 ## Not released yet
 
 ### Added
-- The online lobby. Online in Launcher.exe lists the SHOPS of the servers you typed under "Direct address": name,
-  players x/8, ping, language, state (open, in match, full, closed, no answer) and the time to the next ENTRY, with
-  filters for language, open only and ping. JOIN takes a seat on the server (you play from the next ENTRY), LEAVE gives it
-  up, and REJOIN takes the same seat back for 75 seconds after the game or Launcher closed. Keyboard (Up/Down,
-  Left/Right or Tab, Enter, F5, Esc) and gamepad (D-pad or left stick, A, B, X, LB/RB). VS ROOMS is greyed for this
-  edition. Texts in English, Italian and Japanese.
-- Pause. P (or the PAUSE button in the page bar; the key is in KEYS) holds a match for up to 20 seconds with a PAUSED
-  page over the game's last frame and the game's sound muted. It works only in a match on this PC with no other seat
-  linked and no projector running; otherwise the panel says why. The next pause waits 10 seconds.
-- The installer's `--kit` step sets this kit up inside the installer, without Python.
+- Online lobby. Online in Launcher.exe lists the shops of the servers you typed under "Direct address": name, players
+  x/8, ping, language, state and time to the next ENTRY, with filters for language, open only and ping. JOIN takes a
+  seat, LEAVE gives it up, REJOIN takes the same seat back for 75 seconds. Keyboard and gamepad control. VS ROOMS is
+  greyed out. English, Italian and Japanese.
+- Pause. P (or the PAUSE button; the key is in KEYS) holds a match for up to 20 seconds. It works only in a match on
+  this PC with no other seat linked and no projector running; otherwise the panel gives the reason. The next pause
+  waits 10 seconds.
+- The installer's `--kit` step sets this kit up without Python.
 
 ### Changed
-- No Python in the kit: setup, undo, the game's text (English, Italiano, Japanese) and the club card's steps and view
-  run inside Launcher.exe, so the kit has no `python\` or `code\` folder any more. The command-line card editor
-  (`code\cards\edit.py`) went with them; CLEAR BAD ENDINGS and the card switches in Launcher.exe stay.
-- The formation board shows a card big after the mouse rests on it 1 s, not 3 s. SETTINGS > CARD HOVER sets it
-  (0.5, 1, 2 or 3 s, at once); `hover_delay_ms=` in `data\panel.txt` takes 0 to 5000 and falls back to 1000.
-- The panel is loaded into the game by `programs\inject.exe` again: 3 s after seat 1's window is up, and into the
-  projector once the cabinet is up, as before Kit 5.5. Kit 5.5 had the kit's hook load it from inside the game; that
-  change caused problems and is undone, and the hook no longer reads `WCCF_PANEL`. Antivirus programs may dislike
-  inject.exe: it writes into the running game from outside (VirtualAllocEx + CreateRemoteThread).
-- UPDATE no longer looks on GitHub: it points at a placeholder address until Forza-WCCF has a release site, and
-  says "No update found" (in English, Italian and Japanese). Launcher.exe no longer asks for a newer kit.
-- First start: Launcher.exe links its folder to C:\Games\Forza-WCCF\2010-2011 (a junction, no administrator rights) and
-  starts again from there, so a kit unzipped into a path with accents or spaces still gives the game a plain path. A
-  folder already at that name is left alone. On a network or FAT drive it runs where it is and, if the path has special
-  characters, says so.
-- The program is called Launcher.exe now (it was PLAY.exe); an update or the first start removes the old PLAY.exe.
-- Launcher.exe is the kit's one program, and a window: PLAY ON (THIS PC, or ONLINE and a server's address - the same
-  choice as the in-game SETTINGS, kept in data\panel.txt), LANGUAGE (English, Italiano, Japanese: the window's own
-  words, kept in data\settings.json) and GAME TEXT (English, Italiano or Japanese, switched at the start), then PLAY. Its
-  progress and the scripts' output show in the window, never in a console; once the game is up the window goes and
-  Launcher.exe stays without one as the run's watcher, ending with the run. A start that fails keeps the window open,
-  unfolded, with the reason.
-- SETUP.exe is gone: its game folder (SET UP / REPAIR, UNDO SETUP), UPDATE and its release list are in PLAY under "Setup
-  and updates", folded away until wanted (open on the first start, before setup). A game folder dropped on Launcher.exe
-  is set up. UNDO SETUP turns English off first instead of refusing. PLAY removes the old SETUP.exe (an update from
-  SETUP.exe leaves it behind, as it is running).
-- While the game runs, Launcher.exe opened again offers STOP THE GAME (asks first: during a match it costs a bad ending),
-  for a stuck game - before, "Launcher.exe stop force" in a console.
-- RESTART NOW (in-game SETTINGS and CLUB CARD) shows PLAY's window while it restarts, then it goes: no console.
-- From a command prompt Launcher.exe still takes play.py's words (local, server, remote ADDRESS, debug, stop, status,
-  show) and prints there; the prompt does not wait for it ("start /wait Launcher.exe server" does). Started from a
-  shortcut with those words, it runs them in its window.
-- The kit's helpers (the stand-ins, the key driver, the panel helper, the server's launcher) run with no console
-  window at all: before, each had a console window that was only hidden, which a terminal program set as Windows'
-  default can still show or flash. "Launcher.exe debug" still opens the key driver's window.
+- No Python in the kit: setup, undo, the game's text and the club card steps run inside Launcher.exe. There is no
+  `python\` or `code\` folder and no command-line card editor (`edit.py`). CLEAR BAD ENDINGS and the card switches stay.
+- The formation board shows a card big after the mouse rests on it 1 s (was 3 s). SETTINGS > CARD HOVER sets it to
+  0.5, 1, 2 or 3 s; `hover_delay_ms=` in `data\panel.txt` takes 0 to 5000.
+- `programs\inject.exe` loads the panel into the game again, as before Kit 5.5: 3 s after seat 1's window is up, and
+  into the projector once the cabinet is up. Loading it from the hook caused problems. Antivirus programs may flag
+  inject.exe.
+- UPDATE no longer looks on GitHub. It says "No update found" until Forza-WCCF has a release site, and Launcher.exe no
+  longer checks for a newer kit.
+- First start: Launcher.exe links its folder to C:\Games\Forza-WCCF\2010-2011 (a junction, no administrator rights)
+  and restarts from there, so a path with accents or spaces still gives the game a plain path. An existing folder at
+  that name is left alone. On a network or FAT drive it runs in place and warns if the path has special characters.
+- PLAY.exe is now Launcher.exe; an update or the first start removes PLAY.exe.
+- Launcher.exe is the kit's one window: PLAY ON (THIS PC, or ONLINE and a server's address), LANGUAGE (English,
+  Italiano, Japanese) and GAME TEXT (English, Italiano, Japanese), then PLAY. Progress shows in the window, never in a
+  console. Once the game is up the window closes and Launcher.exe keeps watching without one. A failed start keeps the
+  window open with the reason.
+- SETUP.exe is gone. Its game folder, SET UP / REPAIR, UNDO SETUP and UPDATE are under "Setup and updates" in
+  Launcher.exe (open on the first start). Dropping a game folder on Launcher.exe sets it up. UNDO SETUP turns English
+  off first instead of refusing. Launcher.exe removes the old SETUP.exe.
+- Launcher.exe opened while the game runs offers STOP THE GAME (asks first: during a match it costs a bad ending).
+- RESTART NOW shows Launcher's window while it restarts, with no console.
+- From a command prompt Launcher.exe still takes local, server, remote ADDRESS, debug, stop, status and show, and
+  prints there. The prompt does not wait for it; "start /wait Launcher.exe server" does.
+- The kit's helpers run with no console window. "Launcher.exe debug" still opens the key driver's window.
 
 ### Fixed
-- A game window closed while the game was still starting no longer leaves the server and the helpers running: the
-  watcher counts the launchers that are still running and, when one has already ended, stops the rest by the same
-  rules (a closed window stops the rest; a crash or an open card session does not).
+- Closing the game window while the game was still starting no longer leaves the server and helpers running.
 
 ## Kit 6 - 2026-10-11
 

@@ -2,333 +2,189 @@ WCCF 2010-11 (Rev D) on a PC - the kit
 ======================================
 
 WHAT IT IS
-  Community-made tools for your own copy of WCCF 2010-11 (Rev D): a launcher, stand-ins for the cabinet's hardware
-  and an in-game panel, so the game's server, the projector (the shared big screen) and a player cabinet (seat 1)
-  run on one Windows PC. The game itself is not part of the kit. Around seat 1's picture there is a panel with
-  the cabinet's buttons, a FORMATION BOARD for your cards (drag to move, drop on another card to swap, right-click
-  to take a card off), a CATALOGUE of all 3,909 player cards (search, position, rarity, country and club filters,
-  sort, a slider per stat, a stats pane; a click puts the card on your table), KEYS, where you choose your own keys
-  or a game controller's buttons, SETTINGS, and CLUB CARD, your club card and your other clubs.
-  The kit holds none of the original files. Everything that comes from the game is made by setup from YOUR copy.
+  Community tools for your own copy of WCCF 2010-11 (Rev D): a launcher, stand-ins for the cabinet's hardware and an
+  in-game panel. The server, the projector (the shared big screen) and a player cabinet (seat 1) run on one Windows PC.
+  The game itself is not included, and the kit holds none of the original files: setup makes everything from your copy.
+  The panel around seat 1's picture has:
+    cabinet buttons
+    FORMATION BOARD   your cards on a table: drag to move, drop on a card to swap, right-click to take one off
+    CATALOGUE         all 3,909 player cards: search, filters, sort, a slider per stat; a click puts a card on your table
+    KEYS              your own keys or a game controller's buttons
+    SETTINGS          server, language, view, logs
+    CLUB CARD         your club card and your other clubs
+  Release notes: CHANGELOG.md.
 
-NEW IN THE NEXT KIT (not released yet)
-  - No Python: setup, undo, the game's text (English, Italiano, Japanese) and the club card's steps run inside
-    Launcher.exe, so the kit has no python\ or code\ folder. The command-line card editor (edit.py) is gone; CLEAR BAD
-    ENDINGS and the card switches stay in Launcher.exe and the in-game CLUB CARD.
-  - The online lobby: choose Online in Launcher.exe and it lists the SHOPS of the servers you have typed in (name,
-    players x/8, ping, language, state, time to the next ENTRY). JOIN takes a seat; REJOIN takes the same seat back.
-    See ONLINE below.
-  - Pause: P (or the PAUSE button) holds a match for up to 20 seconds. See PAUSE.
+NOT RELEASED YET
+  - No Python: setup, undo, the game's text (English, Italiano, Japanese) and the club card steps run inside
+    Launcher.exe. The kit has no python\ or code\ folder, and the command-line card editor (edit.py) is gone.
+  - Online lobby: choose Online in Launcher.exe to see the shops of your servers. See ONLINE.
+  - Pause: P holds a match for up to 20 seconds. See PAUSE.
   - The installer's --kit step sets up this kit without Python (see the installer's README).
 
-NEW IN KIT 6
-  - Your club card is safer: a file held by another program (an antivirus scan, a backup tool) can no longer leave
-    a half-written card, and a damaged card no longer stops the game - you get a fresh card and the old one is kept.
-  - A long session is no longer closed after 12 hours, even mid-match. Closing the game during a manager transfer
-    warns you first. The card-overwrite switch (SW1) has no key unless you give it one in KEYS.
-  - Online: a short network blip no longer loses your seat, two PCs can no longer land on one seat, and nobody can
-    take over your match from somewhere else.
-  - Antivirus: the kit's helper has its own name now (wccfk.dll) instead of posing as a Windows file - that is what
-    Windows Defender deleted. Every program of the kit carries its name and version (right-click, Properties).
-  - Launcher.exe is the one window: play, game folder, language, UPDATE. SETUP.exe is gone (Launcher removes it).
-  - ITALIANO in the window's language and game text choices, and more English: players' full names in Latin letters
-    and the last Japanese lines a player meets.
-  - The kit's version is beside the SETTINGS title too.
-  - Simpler folders: code\, programs\, art\, languages\ and data\ (your cards, keys, settings, logs - kept).
-  - Online: your PC runs only your own game - no projector window any more (the first player used to get it).
-  - When something goes wrong online (a crash, Error 3000) the logs reach the server by themselves, with a memory
-    snapshot of a crash - so the cause can be found without asking you. Never your club card. (ONLINE, below.)
-  - Hosting a server: the server now gets players' messages only whole - the likely cause of "WCCF CONTROL NOT
-    FOUND" removed.
-  - Updating from 5.x: Launcher's UPDATE (Setup and updates), then say yes to "set up now?". Unzipping over the old folder works too: the
-    first Launcher sets the game up for the new helper by itself, and the old folders (scripts\, bin\, overlay\,
-    english\) are tidied away - your own files in them stay. Your clubs, keys and settings are never touched.
-
-NEW IN KIT 5.5.1
-  - Fixed: Kit 5.5 played on this PC even with ONLINE chosen in SETTINGS (and did not see the club card, English
-    and card fix choices there). Update with UPDATE, or unzip this kit over the old folder.
-
-NEW IN KIT 5.5
-  - Free play: the game's own FREE PLAY is on, so you never need a coin - not even on the screen after a cup match.
-    The COIN and BACK buttons are gone, and DATA and CARD are full width.
-  - When your contract ends, put the card in again after the last match: the game moves your manager to a new card
-    and you make a new club. The old card is kept in YOUR CARDS as "transferred".
-  - SETUP.exe is a window: your game folder, the game's language (English or Japanese - ENGLISH.exe is gone), and
-    UPDATE, which updates the kit for you from now on (your clubs, keys and settings are never touched). PLAY.exe
-    tells you when a newer kit is out.
-  - Antivirus: overlay\inject.exe and bin\logowin.exe are gone - what Windows Defender blocked on one player's PC.
-    The panel now loads from inside the game itself, and the server's logo window is answered by the kit's hook.
-  - After each match, a player card is shown as the cabinet's dispenser gave one - only shown, nothing is added to
-    your club card.
-  - CATALOGUE: search with several words (milan 2004, brazil fw); each card's pane shows the roles it suits best.
-    On the FORMATION BOARD a card shows big after the mouse rests on it 3 s.
-  - The kit's version (KIT 5.5) is at the top right of the game. SETTINGS > LOGS > SEND LOGS sends your logs (never
-    your club card) to the server you play on and shows a code: post the code in Discord with what went wrong.
-  - Online: no more two players on one seat after a server restart (the second one was never let in), and the
-    shared server notices when it stops letting players in and restarts by itself.
-  - Fixed: on a PC left on for more than 24 days, the "You are owed N Player Card(s)" fix did not run.
-  - Updating from 5.4: unzip this kit over the old folder, then open SETUP.exe and SET UP / REPAIR (and English if
-    you use it). Next time, SETUP's UPDATE does it for you.
-
-NEW IN KIT 5.4
-  - Closing the game's window quits the game, cleanly, every time: the game and everything the kit started with it
-    (the server, its match engines, the kit's helpers) stop by themselves. Before, the game and its helpers ran on
-    hidden in the background. There is no STOP any more. During a match the first close only warns you (it would
-    cost your card a bad ending); close again within 8 seconds to quit anyway. A game that crashes stops nothing
-    else: the projector keeps running.
-  - CLUB CARD: CLEAR BAD ENDINGS (click twice) sets the card's bad endings back to 0 at a restart.
-  - CATALOGUE: COUNTRY and CLUB (top right) - pick from a list of every country or club with its number of cards
-    (type to narrow it); on the card under the mouse, SAME CLUB and SAME COUNTRY show its clubmates or countrymen.
-  - Hosting a server: when the crash guard cannot catch a crash, data\logs\run_server.txt now says why
-    ("MSGPARSE guard stepped aside: ...") - please share that line.
-  - PLAY, SETUP and ENGLISH are programs (.exe) instead of .bat files; they are used the same way.
-    Updating: delete the old PLAY.bat, STOP.bat, SETUP.bat and ENGLISH.bat.
-
-NEW IN KIT 5.3
-  - Hosting a server (PLAY.exe server) is sturdier against a crash. The server could drop with "WCCF CONTROL NOT
-    FOUND" (Error 3000) on every cabinet at once while players were setting up a match - a bad message from a
-    connection. A guard now catches that message-handling crash (in its two forms) and drops the one bad message so
-    the server keeps running. On by default when you host. This is ONLY for people who HOST a server; if you just
-    join one, you never saw this and need nothing. (Note: the publisher's server can crash other ways too; this covers the
-    common one. Keep a way to restart it if it ever stops.)
-
-NEW IN KIT 5.1
-  - Each club card keeps its own formation board: the table you set up moves with the card. Switch clubs in CLUB
-    CARD and the table you left for that club comes back; a club played for the first time gets its squad laid out
-    in a 4-4-2 with the substitutes on the bench. The board lives beside the card file (a .board folder) and moves
-    with it. A table that belongs to no card is kept in data\save\boards_unknown, never thrown away.
-  - YOUR CARDS shows every club you have: when they do not all fit, they are in pages (< PREV, NEXT >, or the
-    mouse wheel).
-
-NEW IN KIT 5
-  - A ping meter when you play online: bars and "80 ms" at the top right, above the game - green under 100 ms,
-    yellow under 200, red above. It is your trip to the server; against another player, theirs adds to it.
-  - Switching club cards restarts only your cabinet: the projector keeps running and never has to sync again.
-  - English: Prize Money on the fan event and golden age (all titles won) screens is one amount with commas
-    ($5,431,900 - it read "$5 million$431900"); Team Training's "They're giving their all out there" (it showed a
-    junk number). Choose English again after updating (SETUP.exe, "Game language").
-  - Hosting a server (PLAY.exe server): it runs for 32 days instead of 12 hours, and waits for a projector to join
-    before its first round.
-
-NEW IN KIT 4
-  - Game controllers in KEYS: a USB encoder under real cabinet buttons, an arcade stick or a gamepad.
-  - SETTINGS: this PC or online, English or Japanese, restart; VIEW: the CABINET layout or COMPACT (the game larger,
-    no cabinet buttons). CLUB CARD: your club as the game reads it, and more than one club (YOUR CARDS).
-  - Only two windows (projector and seat 1); the projector starts muted and seat 1 quiet.
-  - Your card is saved safely, with backups; closing the game during a match asks first.
-  - Each button's whole picture is clickable, rim and shadow too.
-  - English: money in dollars, with commas on seat 1 and the projector ($3,982,700); the result screen's stats and
-    goal minutes; the projector's "League"; "Contract: 88"; the shop's name.
-  - Online with others (SETTINGS > ONLINE and a server's address): each PC that joins gets the next free seat by
-    itself, the first one also the projector, and a match between two players goes through the server - nothing
-    else to install.
-
 YOU NEED
-  - Windows 10 or 11, 64-bit, with the game on an NTFS drive (normal for C: and D:)
-  - your own copy of the game, Rev D, as a folder of files: the game folder is the one that holds
-    client_Release.exe, control_Release.exe and match_Release.exe. Setup checks that it is Rev D.
-  - DirectX 9: Microsoft's "DirectX End-User Runtime (June 2010)". Setup tells you if it is missing.
-  Nothing else to install.
+  - Windows 10 or 11, 64-bit, with the game on an NTFS drive (C: and D: normally are)
+  - your copy of the game, Rev D, as a folder of files. The game folder holds client_Release.exe, control_Release.exe
+    and match_Release.exe.
+  - DirectX 9: Microsoft's "DirectX End-User Runtime (June 2010)". Setup warns you if it is missing.
 
 SETUP (once)
-  1. Unzip this kit into a folder of its own. Keep the game in a folder of its own too (e.g. D:\Games\WCCF).
-     Plain paths are safest: the game has trouble with non-English letters in folder names.
-  2. Drag the game folder onto Launcher.exe. Or open Launcher.exe, open "Setup and updates", pick the game folder (BROWSE,
-     or drag it into the window) and click SET UP / REPAIR.
-  3. Setup checks that your copy is Rev D, makes the changes listed under WHAT SETUP CHANGES, then makes the card
-     catalogue and the card pictures from your files (about a minute); what it does shows in Launcher's window.
-     Running it again checks and repairs.
-  Launcher.exe is one window for the rest too: LANGUAGE (the window's words: English, Italiano or Japanese, else
-  Windows' language), GAME TEXT (see ENGLISH), UNDO SETUP and UPDATE, folded under "Setup and updates" until wanted.
-  Updating: Launcher.exe says when a newer kit is out (a release, never a test build) and marks it "(newer)" under
-  UPDATE. For now there is no release site: UPDATE says "No update found" and Launcher.exe asks nobody. Once there
-  is one: close the game, open Launcher.exe, "Setup and updates": under UPDATE it lists the kit's releases and test builds
-  ("What's new" opens one's page). Pick one, UPDATE: it is downloaded and put into this folder - data\ (your club,
-  your other clubs, settings, keys, catalogue, logs) stays as it is - and the files the old kit had and the new one
-  does not are removed. Then Launcher offers to set up the game folder again, and the English with it if you use English.
-  A server settings file you edited by hand is kept as .before-kit. By hand, or from Kit 5.4 and older: unzip the new
-  kit over the old folder, then open Launcher.exe (it removes the old .bat files, ENGLISH.exe and SETUP.exe), SET UP /
-  REPAIR, and ENGLISH if you use English.
+  1. Unzip the kit into its own folder. Keep the game in its own folder too, on a plain path such as D:\Games\WCCF
+     (the game fails on non-English letters in folder names).
+  2. Drag the game folder onto Launcher.exe. Or open Launcher.exe, "Setup and updates", pick the game folder (BROWSE or
+     drag it in) and click SET UP / REPAIR.
+  3. Setup checks for Rev D, makes the changes listed under WHAT SETUP CHANGES, then builds the card catalogue and
+     pictures from your files (about a minute). Run it again to check and repair.
+  Launcher.exe also has LANGUAGE (English, Italiano, Japanese; default is Windows' language), GAME TEXT (see ENGLISH),
+  UNDO SETUP and UPDATE, all under "Setup and updates".
+  UPDATE: there is no release site yet, so it says "No update found". To update by hand, unzip the new kit over the old
+  folder, open Launcher.exe, then SET UP / REPAIR (and GAME TEXT again if you use English). Your data\ folder (clubs,
+  keys, settings, logs) is never touched.
 
 PLAY
-  Launcher.exe starts everything in about 30 seconds: the server, the projector's window, seat 1's window with the
-  panel, and the key driver. Only two windows open, the projector's and seat 1's: the server and the kit's helpers
-  run in the background ("Launcher.exe show" shows the server's console and settings window; "Launcher.exe debug" opens
-  every window and keeps full logs).
-  Sound: the projector starts muted and seat 1 at 4% of the PC's volume, so the same sounds do not play twice and
-  nothing is loud at the start. Windows' Volume Mixer changes either while you play; the next start sets them again.
-  The game runs in rounds, like an arcade: an entry window, then the matches. The kit keeps each entry window open
-  for 2 minutes (the game's own 40 seconds were too short for a seat that had just started, which then waited a
-  whole 12-minute round, the projector meanwhile on "Now Synchronizing"). Put your card in soon after starting
-  and you play in the first round. To change the 2 minutes: FIX_REST_ENTRY_TIME in
-  local\ctrl_user_option.conf in the game folder (seconds).
+  Launcher.exe starts the server, the projector window, seat 1's window with the panel, and the key driver in about
+  30 seconds. Only the projector and seat 1 show windows. "Launcher.exe show" also shows the server's console;
+  "Launcher.exe debug" opens every window and keeps full logs.
+  Sound: the projector starts muted and seat 1 at 4% of the PC's volume. Change either in Windows' Volume Mixer; the
+  next start resets them.
+  The game runs in rounds: an entry window, then the matches. The kit keeps the entry window open for 2 minutes.
+  Put your card in soon after starting to play in the first round. To change it, edit FIX_REST_ENTRY_TIME (seconds) in
+  local\ctrl_user_option.conf in the game folder.
   Click seat 1's window, then:
-      I       club card in / out (with a new card the game makes your club: manager license, club name)
-      Enter   START (play is free: the game's own FREE PLAY is switched on - no coin needed)
+      I       club card in / out (a new card makes your club: manager license, club name)
+      Enter   START (free play: no coin needed)
       X       decide          C   shoot          arrows   tactics
       F1      test menu       F11 window size
-  or click the buttons around the picture. Keys only count while a game window is in front.
-  P       pause a match (see PAUSE below)
-  Your own keys: the KEYS button (right of START) lists every cabinet button with a KEY box and a CONTROLLER box.
-  Click a KEY box, press the key you want; a key another button already has swaps over. Esc, F10, F11, Alt and the
-  Windows keys stay free.
-  A game controller: click a CONTROLLER box, then press a button or move the stick or d-pad. It works with a USB
-  encoder under real cabinet buttons that shows up as a game controller, an arcade stick or a gamepad; under RESET,
-  CONTROLLERS shows what Windows sees and what is pressed right now. Right-click a CONTROLLER box to clear it. Keys
-  and controller work together. An encoder that types keys (a "keyboard encoder") goes in the KEY boxes.
-  Every change works at once and is kept in data\keys.txt (RESET, or deleting that file, gives the keys above back
-  and clears the controller).
+      P       pause a match
+  The buttons around the picture do the same. Keys count only while a game window is in front.
+  KEYS (right of START) lists every cabinet button with a KEY box and a CONTROLLER box.
+    Key: click a KEY box and press the key. A key another button has swaps over. Esc, F10, F11, Alt and the Windows
+    keys stay free.
+    Controller: click a CONTROLLER box, then press a button or move the stick or d-pad. A USB encoder under real
+    cabinet buttons, an arcade stick and a gamepad work. RESET > CONTROLLERS shows what Windows sees. Right-click a
+    CONTROLLER box to clear it. An encoder that types keys goes in the KEY boxes.
+    Changes work at once and are kept in data\keys.txt. RESET (or deleting that file) restores the keys above.
   Your club is saved in data\save\seat1_club.bin. Back it up.
-  The kit's version (KIT 5.5 ...) is at the top right of the game, under the ping when you play online: give it
-  when you report a problem.
+  The kit's version is at the top right of the game. Give it when you report a problem.
 
 PAUSE
-  P, or the PAUSE button in the page bar, holds a match for up to 20 seconds with a PAUSED page over the game's last
-  frame and the game's sound muted. P or RESUME ends it sooner; the match goes on by itself after 20 seconds, and the
-  next pause waits 10 seconds. It works only in a match on this PC with no other seat linked and no projector running;
-  otherwise the panel says why (online, projector, card being saved, game clock already stopped, full-screen mode).
-  Change the key in KEYS.
+  P or the PAUSE button holds a match for up to 20 seconds: a PAUSED page covers the last frame and the sound is
+  muted. P or RESUME ends it early. The next pause waits 10 seconds. Change the key in KEYS.
+  It works only in a match on this PC with no other seat linked and no projector running. Otherwise the panel gives
+  the reason.
 
 SETTINGS (left side, under CARD)
-  NOW: the link to the server, your card's session, its bad endings, its last save and backup, the game's text.
-  NEXT START: THIS PC (everything on this PC) or ONLINE with a server's address (the cabinets on this PC play on
-  that server), and ENGLISH or JAPANESE (does what Launcher.exe's GAME TEXT does, at the next start). They are kept in
-  data\panel.txt. RESTART NOW (click it twice) starts the game again with them - not during a match. When the
-  server and the language stay the same, only your cabinet restarts and the projector keeps running.
-  VIEW, changes at once: LAYOUT CABINET (the cabinet's buttons around the game) or COMPACT (the game larger,
-  without them - your keys or controller press them; SETTINGS and CLUB CARD move under CATALOGUE and KEYS).
-  LOGS: SEND LOGS (click twice) sends this game's logs to the server you play on (the address under PLAY ON) -
-  never your club card, and your Windows user name and PC name are taken out of them. You get a short code: post
-  it in Discord with what went wrong.
+  NOW           link to the server, card session, bad endings, last save and backup, game text
+  NEXT START    THIS PC, or ONLINE with a server's address; ENGLISH or JAPANESE (same as GAME TEXT in Launcher.exe).
+                Kept in data\panel.txt.
+  RESTART NOW   click twice; restarts the game with these choices. Not during a match. If server and language are
+                unchanged, only your cabinet restarts.
+  VIEW          LAYOUT CABINET (buttons around the game) or COMPACT (larger game, no buttons: use your keys or
+                controller; SETTINGS and CLUB CARD move under CATALOGUE and KEYS). Takes effect at once.
+  LOGS          SEND LOGS (click twice) sends this game's logs to the server you play on. Your club card is never
+                sent, and your Windows user name and PC name are removed. You get a code: post it in Discord with
+                what went wrong.
 
 CLUB CARD (left side, under SETTINGS)
-  Your club card as the game reads it: club, manager, contract, league, prize money; the card's health (a session
-  open or closed, bad endings, its two saved copies, backups); the squad (a name in red is injured). It follows
-  each save of the card.
-  YOUR CARDS - more than one club: NEW CLUB CARD puts this club aside and a blank card in the slot; put it in (I)
-  and the game makes a new club. PLAY THIS CLUB puts that club back in the slot. Click twice; each switch restarts
-  your cabinet (about a minute) while the projector keeps running, never during a match, and no card is ever
-  deleted. The clubs put aside are in
-  data\save\cards.
-  CLEAR BAD ENDINGS (under CARD HEALTH, while the card has a bad ending or its last session was cut): click twice,
-  and the game restarts with the card's bad endings back to 0 (the old card goes to data\save\backup first). Not
-  during a match. Trade rights or money the game already took for them stay as they are.
+  Shows your club card: club, manager, contract, league, prize money, card health (session, bad endings, saved
+  copies, backups) and the squad (red = injured). It updates at each save.
+  YOUR CARDS (more than one club)
+    NEW CLUB CARD   puts this club aside and a blank card in the slot. Put it in (I) and the game makes a new club.
+    PLAY THIS CLUB  puts that club back in the slot.
+    Click twice. Each switch restarts your cabinet (about a minute) and never runs during a match. No card is ever
+    deleted; the other clubs are in data\save\cards.
+  Each club keeps its own formation board. A new club gets a 4-4-2 with the substitutes on the bench. The board sits
+  beside the card file (a .board folder). A table that belongs to no card goes to data\save\boards_unknown.
+  CLEAR BAD ENDINGS (under CARD HEALTH, when the card has a bad ending): click twice. The game restarts with the bad
+  endings at 0; the old card goes to data\save\backup first. Not during a match. Trade rights or money already taken
+  stay taken.
+  When a contract ends, put the card in again after the last match: the game moves your manager to a new card and you
+  make a new club. The old card is kept in YOUR CARDS as "transferred".
 
 QUIT
-  After a match the card comes out by itself (or press I). Then close the game's window (its X, or Alt+F4): the game
-  ends, and everything the kit started with it stops too - the projector, the server, its match engines and the
-  kit's helpers (data\logs\run_ended.txt says what was stopped). Closing the projector's window does the same.
-  During a match (the game marks a card session open from START to the locker-room save) closing seat 1's window
-  would end that match without its save, and the card gets a "bad ending" (trade rights are lost at 2). So the first
-  close only shows a warning over the game; close again within 8 seconds to quit anyway. (Closing the projector's
-  window during a match leaves seat 1 playing; close seat 1 after the match.)
-  A server started with "Launcher.exe server" has no window: "Launcher.exe stop" ends it. A cabinet that played on it from
-  this same PC leaves it running for the other players when its window closes.
-  A game window that goes by itself (a crash, not a close) stops nothing else: the projector keeps running. Its log
-  says what happened (data\logs\run_seat1.txt or run_projector.txt); "Launcher.exe stop" ends the rest.
-  A game that is stuck (no window to close, or it will not close): "Launcher.exe stop force".
+  After a match the card comes out by itself (or press I). Then close the game window (X or Alt+F4). Everything the
+  kit started stops too: the projector, the server, its match engines and helpers. data\logs\run_ended.txt lists what
+  was stopped. Closing the projector's window does the same.
+  During a match, closing seat 1 ends it without a save and gives the card a bad ending (trade rights are lost at 2).
+  The first close only shows a warning; close again within 8 seconds to quit anyway. Closing the projector during a
+  match leaves seat 1 playing.
+  "Launcher.exe stop" ends a server started with "Launcher.exe server". "Launcher.exe stop force" ends a stuck game.
+  A game window that crashes stops nothing else; the projector keeps running. Its log (data\logs\run_seat1.txt or
+  run_projector.txt) says what happened.
 
-ONLINE (play with others on one server)
-  The lobby: in Launcher.exe pick Online. Open "Direct address" and type a server's address (HOST or HOST:PORT; the
-  lobby asks every address you have typed). SHOPS lists that server's shops: NAME, PLAYERS (x/8), PING, LANG and
-  STATE (OPEN, IN MATCH, FULL, CLOSED, NO ANSWER) with the time to the shop's next ENTRY. Filters: language, open
-  only, ping under 150 ms. Pick a row and press JOIN: you hold a seat and play from the next ENTRY (the lobby says in
-  about how long), then PLAY. LEAVE gives the seat up. If the game or Launcher closes, REJOIN (offered for 75
-  seconds) takes the same seat back. VS ROOMS is greyed for 2010-11 ("not available yet"). Keys: Up/Down row,
-  Left/Right or Tab the list, Enter join, F5 refresh, Esc leave. Gamepad: D-pad or left stick move, A = Enter,
-  B = Esc, X = refresh, LB/RB = the list.
-  One PC hosts: "Launcher.exe server" starts only the server, in the background - no game window opens, and the
-  window that started it closes by itself after 30 seconds while the server keeps running ("Launcher.exe stop" ends
-  it). That PC must let in TCP ports 20002, 20030 and 20050 and UDP 20040; at home behind a router, forward those
-  ports to it. Logs that players send with SEND LOGS are kept there in data\player_logs. Each player: "Launcher.exe remote" and the server's address (e.g. Launcher.exe remote 192.168.1.20), or ONLINE
-  in SETTINGS. Online, each PC runs only its own cabinet - no projector window; the server does not wait for one
-  (Launcher.exe local still has its own projector). The PC that hosts can play too: "Launcher.exe remote"
-  with its own local address (ipconfig shows it).
-  When an online game ends badly - the game crashed, or its link to the server was lost (Error 3000) - the kit sends
-  this PC's logs to that server by itself, the same as SEND LOGS: never your club card, and your Windows user name and
-  PC name are blanked out. If the game crashed, a memory snapshot of that moment goes with them, so the cause can be
-  found (data\dumps keeps the newest 5 on your PC). If the server cannot be reached then, the next start sends it.
-  To switch this off: a line auto_logs=0 in data\panel.txt.
+ONLINE
+  Lobby: in Launcher.exe choose Online. Under "Direct address" type a server (HOST or HOST:PORT). SHOPS lists its
+  shops: NAME, PLAYERS (x/8), PING, LANG and STATE (OPEN, IN MATCH, FULL, CLOSED, NO ANSWER), with the time to the
+  next ENTRY. Filters: language, open only, ping under 150 ms.
+  Pick a row and press JOIN to take a seat, then PLAY. LEAVE gives the seat up. If the game or Launcher closes,
+  REJOIN (offered for 75 seconds) takes the same seat back. VS ROOMS is greyed out ("not available yet").
+  Keys: Up/Down row, Left/Right or Tab list, Enter join, F5 refresh, Esc leave.
+  Gamepad: D-pad or left stick move, A = Enter, B = Esc, X = refresh, LB/RB = list.
+  Each PC runs only its own cabinet. Without the lobby: "Launcher.exe remote ADDRESS" (for example
+  Launcher.exe remote 192.168.1.20), or ONLINE in SETTINGS. "Launcher.exe local" has its own projector.
+  Hosting: "Launcher.exe server" starts only the server, in the background. The window that started it closes after
+  30 seconds. The PC must allow TCP ports 20002, 20030 and 20050 and UDP port 20040; behind a router, forward them.
+  The host can play too: "Launcher.exe remote" with its own address (ipconfig shows it). Logs that players send are
+  kept in data\player_logs.
+  When an online game ends badly (a crash, or a lost link to the server: Error 3000), the kit sends this PC's logs to
+  the server, same as SEND LOGS. Your club card is never sent. After a crash, a memory snapshot goes along;
+  data\dumps keeps the newest 5. If the server cannot be reached, the next start sends them.
+  To turn this off, add the line auto_logs=0 to data\panel.txt.
 
-ENGLISH (optional)
-  ENGLISH (in Launcher.exe, GAME TEXT) puts the game into English: about 7,200 lines of screen text, the players'
-  names, short and full (the original Latin spelling, e.g. M.DIARRA and Mahamadou DIARRA) and skill names, the CPU
-  teams' names, the projector's "Next match" ticker, the dates on seat 1 (e.g. 2026/10/5 on the manager license), money in dollars, and the
-  shop's name on the projector's awards ("Local Shop" - also inside the server program, the only change ENGLISH
-  makes to it).
-  Awards the game saved before English was on keep the names they were saved with (e.g. the CPU's Best Eleven
-  team, in Japanese, on the projector's MVP and Best Eleven awards).
-  With English on, the panel also writes money as one amount with commas ($3,982,700) on seat 1 and the projector.
-  Four rare screens still show it in two pieces ("$2 million$299000"): a fan event, a golden age, a financial
-  crisis and the end of a contract.
-  It is built on your PC from your own game files and every line is checked; the kit holds only the English text.
-  The original files are kept in data\english_backup, and JAPANESE puts them back. Close the game first.
-  Still Japanese: country and prefecture names (the game finds its weather table by them, and English ones crash
-  the server), the network-ranking areas, and writing that is part of a picture (logos, titles, the six team stats
-  around the hexagon, OK / BACK - redrawing those stopped the game reading club cards, so it is switched off).
-  The English comes from this kit's translation, from the original English that the game files already hold, and
-  from the original European English of the older WCCF (lines with the same Japanese).
+ENGLISH, ITALIANO (optional)
+  GAME TEXT in Launcher.exe switches the game's language. JAPANESE puts the original files back. Close the game first.
+  ENGLISH covers about 7,200 lines of screen text, player names (original Latin spelling, e.g. M.DIARRA), skill names,
+  CPU team names, the projector's "Next match" ticker, dates, money in dollars with commas ($3,982,700) and the shop
+  name ("Local Shop"). It is built on your PC from your game files, and every line is checked. The originals are kept
+  in data\english_backup.
+  Still Japanese: country and prefecture names (English ones crash the server), the network-ranking areas, and
+  writing inside pictures (logos, titles, the six team stats, OK / BACK).
+  Four rare screens show money in two pieces ("$2 million$299000"): a fan event, a golden age, a financial crisis and
+  the end of a contract.
+  Awards saved before English was on keep their Japanese names.
+  ITALIANO works the same way. Each line is this kit's Italian, else the original Italian of the older European WCCF,
+  else English; never Japanese. The game's font has no accented letters, so they are written with an apostrophe
+  (perche', citta'). Player and CPU team names and supporters' nicknames stay in English. The in-game SETTINGS panel
+  offers only ENGLISH and JAPANESE for now.
 
-ITALIANO (optional)
-  ITALIANO (in Launcher.exe, GAME TEXT) does what ENGLISH does, in Italian: each line is this kit's Italian, else
-  the original Italian of the older European WCCF (lines with the same Japanese), else the English - never Japanese.
-  The game's font has no accented letters, so they are written with an apostrophe (perche', citta'). Names of players, CPU teams and supporters' nicknames
-  stay as in English (the game puts a nickname's adjective first, which Italian cannot follow); money stays in
-  dollars. JAPANESE puts the original files back, ENGLISH switches to English. The SETTINGS panel in the game offers
-  only ENGLISH and JAPANESE for now.
-
-WHAT SETUP CHANGES   (UNDO SETUP in Launcher.exe takes all of it back out)
-  game folder     adds winmm.dll (the kit's hook) and winmm_orig.dll (a copy of your Windows' own winmm.dll)
-                  (the hook also keeps the server from starting the original logowin.exe, which opens a white window
-                  over the whole screen; a kit that had put a stand-in in its place puts the originals back)
-                  adds local\client_user_option.conf (projector) and local\ctrl_user_option.conf (server)
-  beside it       seat1\   the player cabinet: links to the game folder's files and folders, its own copy of
-                           client_Release.exe with 15 changes (checked byte for byte), its own settings
-                  misc\FlatPanelReader_Emulator\exe\FPR_Emu.exe   the card-table helper the game starts
-  Nothing else on the PC is changed.
+WHAT SETUP CHANGES   (UNDO SETUP in Launcher.exe reverses all of it)
+  game folder   adds wccfk.dll (the kit's hook) and points the game's programs at it; adds local\client_user_option.conf
+                (projector) and local\ctrl_user_option.conf (server)
+  beside it     seat1\  the player cabinet: links to the game folder's files, its own copy of client_Release.exe with
+                        15 changes, its own settings
+                misc\FlatPanelReader_Emulator\exe\FPR_Emu.exe  the card-table helper the game starts
+  Nothing else on the PC changes.
 
 GOOD TO KNOW
-  - Your club card is saved safely: each save goes to a temporary file first and replaces the card in one step, so
-    a crash or a power cut cannot leave a broken card. Before the first save of each session the card is copied to
-    data\save\backup (the newest 20 are kept; CLUB CARD lists them). To go back to one: close the game, then copy it
-    over data\save\seat1_club.bin.
-  - Windows may ask whether control_Release.exe may use the network: either answer works, everything stays on
-    this PC.
-  - Antivirus programs may dislike programs\wccfk.dll (it sits between the game and Windows) and programs\inject.exe
-    (it loads the panel into the game). Their source code is in source\.
+  - Club card saves go to a temporary file first, so a crash or power cut cannot leave a broken card. Before the first
+    save of each session the card is copied to data\save\backup (the newest 20 are kept; CLUB CARD lists them). To
+    restore one, close the game and copy it over data\save\seat1_club.bin.
+  - Windows may ask whether control_Release.exe may use the network. Either answer works; everything stays on this PC.
+  - Antivirus programs may flag programs\wccfk.dll (it sits between the game and Windows) and programs\inject.exe (it
+    loads the panel into the game). Their source is in source\.
   - One copy at a time on a PC.
-  - If both pictures freeze while the sound goes on, Windows took the graphics device away from the game
-    (a display change, Ctrl+Alt+Del, an administrator prompt ...). The game cannot recover from that:
-    close its window (or Launcher.exe stop force), then Launcher.exe.
+  - If both pictures freeze while the sound goes on, Windows took the graphics device from the game (a display change,
+    Ctrl+Alt+Del, an administrator prompt). Close the game window (or "Launcher.exe stop force"), then start again.
   - Logs are in data\logs ("Launcher.exe debug" keeps more; the card reader's full log grows about 60 MB an hour).
-    If a game window closes by itself, its log (run_seat1.txt, run_projector.txt or run_server.txt) says how,
-    and for the game's own "invalid parameter" stop it names the function that caused it - share that log.
-    The previous run's logs are in data\logs\previous; older runs are zipped in data\logs\archive (about the
-    last 200 MB of them, the oldest go first).
-  - Seat 1 used to close itself at the start of some matches: the game draws a text it cannot format (a stray %).
-    The panel now catches that one case: the text is shown as it is, the game goes on, and the text is written to
-    seat1\forza_panel.log (beside the game folder) as a "badfmt:" line - please share that line.
-  - The arcade printed the player cards you earn from a dispenser. There is none here, so the game counted every
-    card as owed ("You are owed N Player Card(s)"). The panel now tells the game nothing is owed.
-  - The game is in Japanese; Launcher.exe's GAME TEXT: ENGLISH translates most of it (see ENGLISH).
-  - Windows 11 slows the timers of a program whose window is minimized or covered, and the server's window starts
-    minimized: its loop then ran too slowly for the projector's live matches, which stuttered. The kit tells
-    Windows not to slow any of the game's programs (data\logs\run_server.txt: "Windows' throttling off").
-  - The game draws 30 pictures a second, as the arcade did, and syncs them to the screen only when the main monitor
-    runs at exactly 60 Hz. On other refresh rates movement can look slightly uneven; a screen at 60 or 120 Hz shows
-    it evenly.
+    The previous run is in data\logs\previous; older runs are zipped in data\logs\archive (about 200 MB, oldest
+    removed first). If a game window closes by itself, its log (run_seat1.txt, run_projector.txt or run_server.txt)
+    says why. Share that log.
+  - If seat 1 closes at the start of a match, the game drew a text it cannot format (a stray %). The panel shows the
+    text as it is and writes a "badfmt:" line to seat1\forza_panel.log. Share that line.
+  - The game counts every earned player card as owed ("You are owed N Player Card(s)") because there is no dispenser.
+    The panel tells the game nothing is owed.
+  - Windows 11 slows the timers of minimized or covered programs, which made the projector's live matches stutter. The
+    kit switches that throttling off for the game's programs (see data\logs\run_server.txt).
+  - The game draws 30 pictures a second and syncs them to the screen only when the main monitor runs at exactly 60 Hz.
+    At other refresh rates movement can look uneven; 60 and 120 Hz are even.
 
 FOLDERS
-  programs\  wccfk.dll (the hook), forza_panel.dll (the panel), inject.exe (loads it into seat 1, and into the
-             projector for its money with commas only), FPR_Emu.exe (card-table helper)
-  art\       skin.tex (the panel's picture)
-  fonts\     the panel's fonts and their licences (Noto Sans JP, Barlow Condensed, Hack)
-  languages\ one folder per language. english\: screen_text.tsv (the translation), original_rstring.tsv (the original
-             European English), cpu_names.tsv (team names), exe_text.tsv (the ticker, the dates, money, the
-             shop's name), pictures.tsv (writing in the game's pictures); italian\: the Italian, with the original
-             Italian where the Japanese is the same - text and fingerprints only
-  source\    the source of every program in programs\ (C) and of Launcher.exe (Rust,
-             source\launcher) - source\README.txt: how they were built
-  data\      made on your PC: settings (panel.txt), your club card (save\, with backup\ and your other clubs in
-             cards\), your keys (keys.txt), logs, and cache\ (the catalogue and card pictures setup makes from
-             your game - made again if deleted)
+  programs\   wccfk.dll (hook), forza_panel.dll (panel), inject.exe (loads the panel into seat 1, and into the
+              projector for money with commas), FPR_Emu.exe (card-table helper)
+  art\        skin.tex (the panel's picture)
+  fonts\      the panel's fonts and licences (Noto Sans JP, Barlow Condensed, Hack)
+  languages\  one folder per language. english\: screen_text.tsv, original_rstring.tsv, cpu_names.tsv, exe_text.tsv,
+              pictures.tsv. italian\: the Italian text. Text and fingerprints only.
+  source\     source of every program in programs\ (C) and of Launcher.exe (Rust, source\launcher); how they were
+              built: source\README.txt
+  data\       made on your PC: settings (panel.txt), club card (save\, with backup\ and your other clubs in cards\),
+              keys (keys.txt), logs, and cache\ (catalogue and card pictures; rebuilt if deleted)

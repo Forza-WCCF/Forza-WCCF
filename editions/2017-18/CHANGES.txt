@@ -3,42 +3,41 @@ Forza-WCCF 2017-18 - release notes
 
 Not released yet
 ----------------
-Online play, the lobby and no Python. The owner sets the version and the date at release.
+Online play, the lobby, no Python. Version and date are set at release.
 
   - No Python: setup, the card catalogue, the card pictures and the game's text run inside Launcher.exe. The kit has no
     python\ or scripts\ folder.
-  - Online play: choose Online in Launcher.exe. The game plays against the game server you name (the "Club server" row,
-    else the lobby's server) instead of the stand-in on this PC; "This PC" goes back to the stand-in. Remote and server
-    modes stay 2010-11 only.
+  - Online play: choose Online in Launcher.exe. The game uses the game server you name (the "Club server" row, else the
+    lobby's server) instead of the stand-in on this PC; "This PC" goes back to the stand-in. Remote and server modes
+    stay 2010-11 only.
   - The lobby lists VS ROOMS (SHOPS stays greyed for 2017-18). HOST VS makes a room with a 4-letter code, QUICK MATCH
     takes the oldest open room or opens one, READY on both sides starts a 5-second countdown, and a lone READY for about
     90 seconds starts the game with a CPU team. Keyboard (Up/Down, Left/Right or Tab, Enter, H, F5, Esc) and gamepad
     (D-pad or left stick, A, B, X, Y, LB/RB). Texts in English, Italian and Japanese.
-  - A VS room pairs its two PCs only with each other, over the direct VS link (relay.wccf.it) when the firewall lets it
-    through, else over the relay.
-  - Online, each card gets its own Aime ID, worked out from the card's code, so two homes never share one club. On
-    "This PC" the clubs you already have keep their IDs.
+  - A VS room connects its two PCs over the direct VS link (relay.wccf.it) when the firewall allows it, else over the
+    relay.
+  - Online, each card gets its own Aime ID, derived from the card's code: two homes never share one club. On "This PC"
+    existing clubs keep their IDs.
   - The Club server and Direct VS link rows moved from SETUP into ONLINE's "Direct address" fold.
-  - Pause: P or the PAUSE button holds a match for up to 20 seconds; not online, not with another seat linked, not while
-    a projector runs. The key is in KEYS.
+  - Pause: P or the PAUSE button holds a match for up to 20 seconds. Not online, not with another seat linked, not while
+    a projector runs. Key: KEYS.
   - The installer's --kit step takes this edition's ZIP (it must match the game's edition).
 
 Not in this release: career mode, LAN play, shops with several seats, a render scale. Online needs a server that allows
-your address (the project's server keeps an allow list). Live VS between two PCs has not yet been played end to end.
+your address (the project's server keeps an allow list). Live VS between two PCs has not been played end to end yet.
 
 0.1.0-alpha.1
 -------------
 First alpha: the 2017-18 game plays offline on one PC, one seat, from your own game files.
 
-  - Game server stand-in: the game's club and save requests are answered by a server on this PC. Clubs and saves are
-    kept in data\save\gamesvr and survive restarts (new card, tutorial, club set-up, matches, restart: the same club
-    loads, no error 3107).
-  - Rare 2D-code cards: the server registers the game's 2D-code cards, so they work in the World Players List and in
-    team registration.
-  - Skip the tutorial: an option that gives a new card a ready club, so it goes straight to the main screen.
-  - A new Rust panel with the cabinet's look: the CENTRAL / COUNTER / L-SIDE / R-SIDE triangles, PRESS, DATA, SHOOT,
-    KEEPER, KEY PLAYER and START buttons, the formation board, the keys.
-  - Card pictures, made at setup from your game files (or from the optional high-quality pack).
+  - Game server stand-in: a server on this PC answers the game's club and save requests. Clubs and saves are kept in
+    data\save\gamesvr and survive restarts (new card, tutorial, club set-up, matches, restart: the same club loads, no
+    error 3107).
+  - Rare 2D-code cards work in the World Players List and in team registration.
+  - Skip the tutorial: a new card gets a ready club and goes to the main screen.
+  - New Rust panel in the cabinet's look: CENTRAL / COUNTER / L-SIDE / R-SIDE triangles, PRESS, DATA, SHOOT, KEEPER,
+    KEY PLAYER and START buttons, formation board, keys.
+  - Card pictures, made at setup from your game files (or the optional high-quality pack).
   - Game text in English and Italian, as well as the original Japanese.
   - The network guard: the game's network calls are stubbed, and Launcher.exe refuses to start the game without it.
 

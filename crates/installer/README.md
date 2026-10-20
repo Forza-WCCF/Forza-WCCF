@@ -6,8 +6,7 @@ The Forza-WCCF Windows x64 installer decrypts and extracts **your own** supporte
 Champion Football RingEdge disc image. Rust + egui; no Python is needed, for extraction or for the kit step.
 
 **No game media, keys, game binaries, saves or runtime kit are distributed here.**
-Extraction prepares the original files; it does not make them playable.
-This is an experimental installer, not a verified playable-game release.
+Extraction prepares the original files; it does not make them playable. Experimental installer, not a verified playable-game release.
 
 ## Supported images
 
@@ -90,9 +89,7 @@ No kit is fetched automatically or included in releases. `--no-setup` ignores a 
 - The local 2017–2018 runtime reached attract/guest play, but player models did
   not render; completed matches and save/reload remain unverified. No runtime
   compatibility is promised by successful extraction.
-- Windows GUI interaction has not been manually validated. This experimental
-  prerelease is owner-approved using quick functional checks and prior extraction
-  evidence. Automated checks use synthetic files and never start the game.
+- The Windows GUI has not been validated by hand. Automated checks use synthetic files and never start the game.
 
 ## Headless use
 
@@ -137,10 +134,7 @@ symbols; no host-specific CPU tuning. Packaging stages the downloadable EXE,
 README, changelog, MIT license and Windows dependency license notices in `dist/`,
 plus a ZIP containing those files and checksums for the EXE and ZIP.
 
-Optional read-only integration check, only for a concrete decryption regression
-or an explicit request. Reuse passing evidence; do not repeat extraction or
-game-tree hashing for documentation/packaging changes. Never supply media or
-keys to hosted CI:
+Optional read-only integration check, for a decryption regression only. Never supply media or keys to hosted CI:
 
 ```powershell
 $env:WCCF_ISO = 'D:\Media\GAME.iso'
@@ -148,10 +142,7 @@ $env:WCCF_KEY = 'D:\Keys\GAME.key'
 cargo test --locked --release first_mib_matches_known_decryption -- --ignored
 ```
 
-This checks independently recovered first-MiB hashes for either supported disc,
-including hex-text keyfiles. Historical full SDDY extraction matched 6,816 files
-byte-for-byte against independent recovery; that is extraction evidence, not a
-claim about gameplay.
+This checks independently recovered first-MiB hashes for either disc, including hex-text keyfiles. A full SDDY extraction matched 6,816 files byte-for-byte against independent recovery; that is extraction evidence, not a gameplay claim.
 
 ## Checks
 
