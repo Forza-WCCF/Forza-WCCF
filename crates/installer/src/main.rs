@@ -1,6 +1,6 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 //! Forza-WCCF installer: each RingEdge edition owns <dest>\<edition>\game and its kit/save tree.
-//! The 2010–2011 kit is optional; 2017–2018 is extraction-only. `--iso/--key/--dest` runs headless.
+//! The kit (the package) is optional and must match the game's edition; without it the game is only extracted. `--iso/--key/--dest` runs headless.
 //! The window is `forza::ui::installer` (the approved design) over the state kept here; this file runs what it asks.
 mod disc;
 mod err;
@@ -111,7 +111,7 @@ impl App {
         let found = size.and_then(disc::by_size);
         st.detected = found.map(|d| edition_of(d.game_id));
         st.unsupported = size.is_some() && found.is_none();
-        st.setup_possible = kit.is_some() && st.target() == Some(Edition::E1011);
+        st.setup_possible = kit.is_some() && st.target().is_some();
         st.space = install::free_space(&dest).map(|free| Space {
             free,
             total: install::total_space(&dest).unwrap_or(free),
@@ -151,7 +151,9 @@ impl App {
             disc::open(&iso, &key).map_err(|e| err::localize(&e, self.st.lang))?;
         }
         if self.setup_enabled() {
+            // as headless (install::run): a kit zip, of the game's edition
             install::check_kit_zip(&self.kit().unwrap())
+                .and_then(|kit| install::check_setup(self.st.target().map(game_id), kit))
                 .map_err(|e| err::localize(&e, self.st.lang))?;
         }
         Ok(())
@@ -431,7 +433,7 @@ fn headless(args: &[String]) -> anyhow::Result<bool> {
                     Extract: --iso GAME.iso --key MATCHING_KEY --dest DIR\n\
                     Reuse:   --dest DIR --game SBWG|SDDY\n\
                     Editions coexist in DIR/2010-2011 and DIR/2017-2018 with separate kits/settings/saves.\n\
-                    Options: --kit KIT.zip (trusted 2010-2011 kit only), --no-setup, --english, --no-verify\n\
+                    Options: --kit KIT.zip (the trusted kit of the game's edition), --no-setup, --english, --no-verify\n\
                     Info:    --help, --version\n\n\
                     Supply your own image and key. No game files or keys are included.\n\
                     Existing game folders are never replaced. Extraction does not make the game playable.",
@@ -529,6 +531,46 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The wizard offers setup for a 2017-18 game as for 2010-11, with headless's checks: the kit of the game's edition.
+    #[test]
+    fn the_wizard_sets_up_either_edition_with_its_own_kit() {
+        let dir =
+            std::env::temp_dir().join(format!("installer-wizard-test-{}", std::process::id()));
+        let game = dir.join(r"2017-2018").join(install::GAME_DIR);
+        std::fs::create_dir_all(game.join("local")).unwrap();
+        std::fs::write(game.join("client_Release.exe"), b"").unwrap();
+        std::fs::write(game.join("local/SDDY_Table.dat"), b"").unwrap();
+        let zip = |name: &str, inner: &str| {
+            let path = dir.join(name);
+            let mut z = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+            for n in ["Launcher.exe", inner] {
+                z.start_file(n, zip::write::SimpleFileOptions::default())
+                    .unwrap();
+            }
+            z.finish().unwrap();
+            path.display().to_string()
+        };
+        let mut app = App::new();
+        app.st.folder = dir.display().to_string();
+        app.st.page = Page::Where;
+        app.next(&egui::Context::default()); // the installed 2017-18 game, reused
+        assert_eq!(
+            (app.st.page, app.st.target()),
+            (Page::Files, Some(Edition::E1718))
+        );
+        app.st.package = zip("k1718.zip", "bin/x.dll");
+        app.refresh();
+        assert!(app.setup_enabled(), "setup offered for 2017-18");
+        assert_eq!(app.check_files(), Ok(()));
+        app.st.package = zip("k1011.zip", "programs/x.dll");
+        app.refresh();
+        assert!(
+            app.check_files().is_err(),
+            "a 2010-11 kit for a 2017-18 game"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn headless_arguments_are_validated_before_installing() {

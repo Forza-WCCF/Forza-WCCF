@@ -60,19 +60,21 @@ Get-FileHash .\wccf-installer.exe -Algorithm SHA256
 Compare the hash with the matching line in `SHA256SUMS.txt`. The binaries are
 not Authenticode-signed; do not disable antivirus or bypass protection blindly.
 
-### Optional kit (2010–2011 only)
+### Optional kit (either edition)
 
-A trusted, separately supplied `WCCF-2010-11-kit.zip` can run `scripts/setup.py`,
-optionally `english.py`, and create Play/Stop shortcuts. The ZIP may contain the
-kit directly or inside one top-level folder. Its bundled Windows Python and an
-NTFS destination are required. **Kit setup executes code from the ZIP:** only
-select a kit whose source and provenance you trust. An existing `data\` folder
-is preserved during kit unpacking.
+A trusted, separately supplied Forza-WCCF kit zip of the game's edition (2010–11:
+`Launcher.exe` with `programs/`; 2017–18: `Launcher.exe` with `bin/` or `overlay/`)
+sets the game up, optionally switches its text to English, and creates
+shortcuts; the wizard and `--kit` run the same checks. The ZIP may contain the
+kit directly or inside one top-level folder. An NTFS destination is required.
+**Kit setup runs code from the ZIP:** only select a kit whose source and
+provenance you trust. An existing `data\` folder is preserved during kit
+unpacking.
 
 The community kit is a separate project:
 [Forza-WCCF/WCCF-Kit](https://github.com/Forza-WCCF/WCCF-Kit).
-No kit is fetched automatically or included in releases. SDDY setup is rejected
-before destination writes unless `--no-setup` is selected.
+No kit is fetched automatically or included in releases. A kit of the other
+edition is refused before any destination write.
 
 ### Runtime safety and limits
 
