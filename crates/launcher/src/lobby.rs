@@ -8,7 +8,7 @@ use forza::online::lobby::{self, Created, Lobby, Reserved, State, VsRoom};
 use forza::ui::Lang;
 use forza::ui::lobby::{LobbyView, Row, RowState};
 use std::collections::HashMap;
-use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::net::{SocketAddr, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::{Arc, mpsc::Receiver};
@@ -59,8 +59,7 @@ pub fn valid_server(server: &str) -> bool {
 
 /// A `servers` entry as a socket address; a name is resolved (it may block: call it on a worker).
 pub fn socket(server: &str) -> Option<SocketAddr> {
-    let (host, port) = crate::choices::host_port(server, SEAT_PORT)?;
-    (host.as_str(), port).to_socket_addrs().ok()?.find(SocketAddr::is_ipv4)
+    crate::choices::resolve(server, SEAT_PORT)
 }
 
 /// `CLOSE id ticket` on its own thread (the host leaves its VS room; best effort like [`release`]).

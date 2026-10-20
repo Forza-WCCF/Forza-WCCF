@@ -674,7 +674,7 @@ impl App {
         let seat = online.then(|| self.online.take_ticket(vs_only)).flatten();
         if let Some((s, _)) = &seat {
             server.clone_from(s);
-        } else if online && !choices::valid_address(&server) && !club_only {
+        } else if online && !launcher::lobby::valid_server(&server) && !club_only {
             refuse(t("launcher.msg_bad_address"));
             return;
         }

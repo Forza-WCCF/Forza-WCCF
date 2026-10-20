@@ -169,12 +169,13 @@ pub fn parse(words: &[String]) -> Words {
             }
             match words.as_slice() {
                 [] => Words::RemoteRemembered { seat, debug },
-                [ip] if crate::choices::valid_address(ip) => Words::Start {
+                [ip] if crate::choices::host_port(ip, forza::online::SEAT_PORT).is_some() => Words::Start {
                     mode: Mode::Remote((*ip).to_owned(), seat),
                     debug,
                 },
                 [ip] => Words::Wrong(format!(
-                    "\"{ip}\" is not an address the game can use: it takes four numbers 0-255 with dots, no names."
+                    "\"{ip}\" is not a server address: a name or four numbers 0-255 with dots, then :PORT if its seat desk is \
+                     not on the usual port."
                 )),
                 _ => Words::Wrong(USAGE.into()),
             }
@@ -448,7 +449,16 @@ mod tests {
             }
         );
         assert!(matches!(parse(&w("remote 1.2.3.4 seat 9")), Words::Wrong(m) if m.starts_with("Seats are 1 to 8")));
-        assert!(matches!(parse(&w("remote host.example")), Words::Wrong(m) if m.contains("no names")));
+        // a lobby entry as written: a name, ":port" the seat desk's (run::Run resolves it at step 2)
+        assert_eq!(
+            parse(&w("remote lobby.example:20032 seat 2")),
+            Words::Start {
+                mode: Mode::Remote("lobby.example:20032".into(), Some(2)),
+                debug: false
+            }
+        );
+        assert!(matches!(parse(&w("remote a_b")), Words::Wrong(m) if m.contains("not a server address")));
+        assert!(matches!(parse(&w("remote host:0")), Words::Wrong(_)));
         assert!(matches!(parse(&w("remote 1.2.3.4 5.6.7.8")), Words::Wrong(_)));
         assert!(
             matches!(parse(&w("ended")), Words::Wrong(_)),
