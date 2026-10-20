@@ -15,6 +15,7 @@
 use crate::Edition;
 
 mod bcn;
+mod coach_title;
 mod pictures;
 mod pil;
 
@@ -189,6 +190,7 @@ fn spec(e: Edition) -> Spec {
                     ENUM,
                     "574E40B205632DC23E28852CBAD87DF45711EF05A46513F8FADF4E237BB93495",
                 ),
+                (coach_title::TITLES, coach_title::TITLES_SHA),
                 (
                     PLAYERS,
                     "1F8D79BC980D9E67B3E2F6A975F1A669D4CE3C7EBB413DA09B4A8D5F5DC6FFFA",
@@ -1218,6 +1220,9 @@ impl Ctx {
         };
         add(self.build_strings(lang)?);
         add(self.build_names()?);
+        if self.ed == Edition::E1718 {
+            add(self.build_titles(lang)?);
+        }
         if self.ed == Edition::E1011 {
             add(self.build_exe(lang)?);
         }
