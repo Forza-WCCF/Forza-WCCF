@@ -1,5 +1,5 @@
 //! `cargo run -p forza --example english -- 2010-11|2017-18 on|off|check [it] GAME BACKUP SHEETS`: the game text in
-//! English or Italian (the comparison with `english.py`; the shipped path still runs Python). SHEETS is
+//! English or Italian (the comparison with `english.py`; Launcher.exe and the installer call the same `run`). SHEETS is
 //! `editions/<edition>`; BACKUP is the kit's `data/english_backup`.
 use forza::{
     Edition,
