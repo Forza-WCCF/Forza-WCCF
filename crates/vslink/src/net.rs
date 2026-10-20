@@ -6,7 +6,7 @@
 use crate::core::{self, Pair, SEAT_BASE, Seats, Via};
 use bytes::Bytes;
 use forza::online::gamesvr;
-use forza::online::vs::{Reflect, reflect};
+use forza::online::vs::{Reflect, hello_payload, reflect};
 use forza::service::{Handle, Log};
 use iroh::endpoint::{Connection, IdleTimeout, QuicTransportConfig, presets};
 use iroh::tls::CaTlsConfig;
@@ -53,18 +53,6 @@ pub struct Config {
     /// The lobby VS room's ticket, sent in every hello so gmsvr pairs this PC only within its room; None = the open
     /// pool
     pub ticket: Option<String>,
-}
-
-/// A hello (900) payload: +4 the EndpointId; with a lobby VS room's ticket, +36..+52 the ticket in ASCII, NUL-padded
-/// (`crates/server/README.md` "VS rooms"; the server side reads it as `forza::online::vs::HELLO_TICKET`).
-pub fn hello_payload(id: &[u8; 32], ticket: Option<&str>) -> Vec<u8> {
-    let mut p = vec![0u8; if ticket.is_some() { 52 } else { 36 }];
-    p[4..36].copy_from_slice(id);
-    if let Some(t) = ticket {
-        let n = t.len().min(16);
-        p[36..36 + n].copy_from_slice(&t.as_bytes()[..n]);
-    }
-    p
 }
 
 /// The public relay (webpki roots) and the reflect port gmsvr's `--vslink-port` defaults to.
