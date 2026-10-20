@@ -45,7 +45,7 @@ fn board_as_recorded() {
         })
         .expect("pipe never opened");
     let (mut replies, mut steps) = (0, 0);
-    for (i, line) in include_str!("rec/io_board.jsonl").lines().enumerate() {
+    for (i, line) in include_str!("../rec/io_board.jsonl").lines().enumerate() {
         let r: Value = serde_json::from_str(line).unwrap();
         if let Some(s) = r.get("state") {
             shared.set_inputs(Inputs {
