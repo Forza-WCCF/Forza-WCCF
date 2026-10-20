@@ -8,11 +8,17 @@
 //! `string_list.bin/.hf` and the clients' `StringListTableRecord.bin`, `player_data.bin`, `cpu_team/cpu_N.dat`.
 //!
 //! The manifest (`<backup>/manifest.json`, `{rel: {original, english}}`, indent 1) and `language.txt` are the files
-//! the Python scripts write and read, so a game switched by one can be switched back by the other. Not ported: the
-//! pictures with writing (`data/wccf_data.xaf`, drawn with a font; the 2010-11 script has them off, the 2017-18 one on
-//! by default); `off` refuses while their state file is present. `selftest` stays Python.
+//! the Python scripts write and read, so a game switched by one can be switched back by the other. The pictures with
+//! writing (`data/wccf_data.xaf`, [`pictures`]): 2017-18 redraws them on `on` as its script did; 2010-11 keeps them
+//! off as its script did, and both editions take back pictures a Python kit added. `selftest` is not ported.
 
 use crate::Edition;
+
+mod bcn;
+mod pictures;
+mod pil;
+
+const PICTURES_OFF: &str = "pictures stay Japanese: their English is switched off (with it the game did not read a club card)";
 use regex::Regex;
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
@@ -200,7 +206,7 @@ static FMT: LazyLock<Regex> = LazyLock::new(|| {
 /// `$c[RRGGBBAA] .. $c` colour, `$p[..] $p`, `$t[..] $t`.
 static CODES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\$[A-Za-z](?:\[[^\]]*\])?").unwrap());
 
-fn sha(d: &[u8]) -> String {
+pub(crate) fn sha(d: &[u8]) -> String {
     Sha256::digest(d)
         .iter()
         .map(|b| format!("{b:02X}"))
@@ -1329,7 +1335,8 @@ impl Ctx {
             let (bak, tgt) = (self.backup.join(&rel), self.at(&rel));
             let want = original_of(h).unwrap_or("");
             if bak.is_file() {
-                let data = fs::read(&bak)?;
+                // a program's backup as the original WINMM import (an older kit's raw copy is the same bytes)
+                let data = norm(fs::read(&bak)?, &rel)?;
                 if sha(&data) != want {
                     return fail(format!(
                         "the backup of {rel} is not the original file - left as it is"
@@ -1395,31 +1402,30 @@ pub fn run(
     ));
     let r = (|| -> R<()> {
         let c = Ctx::new(ed, game, backup, sheets)?;
-        let state = backup.join("wccf_data.xaf.json");
+        let state = backup.join(pictures::STATE);
         if mode == Mode::Off {
             if c.load_manifest().is_empty() && !state.is_file() {
                 say("  The game's text is the original Japanese already - nothing to do.");
                 return Ok(());
             }
-            if state.is_file() {
-                return fail(
-                    "pictures are on (wccf_data.xaf.json): switch the text off with the Python script, which restores them",
-                );
-            }
+            let p = pictures::restore(game, &state)?;
             let n = c.turn_off()?;
             say(&format!(
-                "  ok    the original Japanese files are back ({n} files, 0 pictures)."
+                "  ok    the original Japanese files are back ({n} files, {p} pictures)."
             ));
             return Ok(());
         }
-        if state.is_file() {
-            return fail(
-                "pictures are on (wccf_data.xaf.json): this build does not restore them - use the Python script",
-            );
-        }
         say("  building from your game files ...");
         let (files, notes) = c.build_all(lang)?;
-        for n in notes.lines() {
+        // 2010-11: the pictures stay off (with them the game did not read a club card); "on" only takes back any
+        // a Python kit with WCCF_PICTURES=1 added
+        let (pics, pnotes) = if ed == Edition::E1718 {
+            let spec = std::env::var("WCCF_PICTURES").ok();
+            pictures::build(game, sheets, lang == Lang::It, spec.as_deref(), &state)?
+        } else {
+            (vec![], vec![PICTURES_OFF.into()])
+        };
+        for n in notes.lines().chain(pnotes.iter().map(String::as_str)) {
             say(&format!("  ok    {n}"));
         }
         if mode == Mode::Check {
@@ -1429,15 +1435,18 @@ pub fn run(
                 .filter(|(r, _)| !man.contains_key(&key(r)))
                 .count();
             say(&format!(
-                "  check only - nothing changed.  \"on\" would replace {} files ({fresh} of them backed up first).",
-                files.len()
+                "  check only - nothing changed.  \"on\" would replace {} files ({fresh} of them backed up first) and redraw {} pictures.",
+                files.len(),
+                pics.len()
             ));
             return Ok(());
         }
         c.turn_on(&files, lang)?;
+        pictures::apply(game, &pics, &state)?;
         say(&format!(
-            "  ok    {} files in place, each read back.  The originals are in data\\english_backup.",
-            files.len()
+            "  ok    {} files and {} pictures in place, each read back.  The originals are in data\\english_backup.",
+            files.len(),
+            pics.len()
         ));
         say(&format!(
             "{} is on. Start the game with Launcher.exe.",
@@ -1629,6 +1638,225 @@ mod tests {
         assert_eq!(
             fs::read(game.join("prog_data/cpu_team/cpu_1.dat")).unwrap(),
             b"not the original"
+        );
+    }
+
+    #[test]
+    fn original_of_reads_the_old_key_and_the_new() {
+        let old = String::from_utf8(vec![0x73, 0x65, 0x67, 0x61]).unwrap(); // the name older kits wrote
+        let mut cases = vec![
+            serde_json::json!({ old.as_str(): "AB", "english": "CD" }),
+            serde_json::json!({ "original": "AB", "english": "CD" }),
+            serde_json::json!({ old.as_str(): "AB" }),
+        ];
+        cases.push(serde_json::json!({ "original": "AB" }));
+        assert!(
+            cases.iter().all(|e| original_of(e) == Some("AB")),
+            "{cases:?}"
+        );
+        assert_eq!(original_of(&serde_json::json!({ "english": "CD" })), None);
+    }
+
+    /// Two files backed up and switched on by an older Python kit: the old key and Windows backslash keys. With
+    /// `half` the second file's "off" had already run (backup gone, game file original).
+    fn old_kit_state(half: bool) -> (tempfile::TempDir, Ctx, Vec<(String, Vec<u8>)>) {
+        let t = tempfile::tempdir().unwrap();
+        let (game, backup) = (t.path().join("game"), t.path().join("backup"));
+        let old = String::from_utf8(vec![0x73, 0x65, 0x67, 0x61]).unwrap();
+        let (mut man, mut files) = (Map::new(), vec![]);
+        for (i, rel) in [
+            "prog_data/cpu_team/cpu_1.dat",
+            "data/string/string_list.bin",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let (orig, new) = (vec![i as u8 + 1; 64], vec![i as u8 + 9; 64]);
+            let done = half && i == 1;
+            fs::create_dir_all(game.join(rel).parent().unwrap()).unwrap();
+            fs::write(game.join(rel), if done { &orig } else { &new }).unwrap();
+            if !done {
+                fs::create_dir_all(backup.join(rel).parent().unwrap()).unwrap();
+                fs::write(backup.join(rel), &orig).unwrap();
+            }
+            let e = serde_json::json!({ old.as_str(): sha(&orig), "english": sha(&new) });
+            man.insert(rel.replace('/', "\\"), e);
+            files.push((rel.to_string(), orig));
+        }
+        fs::create_dir_all(&backup).unwrap();
+        fs::write(
+            backup.join("manifest.json"),
+            serde_json::to_vec(&man).unwrap(),
+        )
+        .unwrap();
+        fs::write(backup.join("language.txt"), "it\n").unwrap();
+        (t, Ctx::new_bare(Edition::E1718, &game, &backup), files)
+    }
+
+    #[test]
+    fn an_older_kits_manifest_turns_off() {
+        for half in [false, true] {
+            let (t, c, files) = old_kit_state(half);
+            assert_eq!(c.turn_off().unwrap(), 2, "half={half}");
+            for (rel, orig) in files {
+                assert_eq!(fs::read(t.path().join("game").join(rel)).unwrap(), orig);
+            }
+            assert!(!t.path().join("backup").exists(), "half={half}");
+        }
+    }
+
+    #[test]
+    fn the_hook_import_rename_is_a_pure_name_swap() {
+        let orig = pe(SYS_DLL);
+        let hooked = rename_import(&orig, SYS_DLL, HOOK_DLL).unwrap();
+        assert_eq!(hooked.len(), orig.len());
+        assert!(orig.iter().zip(&hooked).filter(|(a, b)| a != b).count() <= SYS_DLL.len());
+        assert!(
+            !hooked
+                .to_ascii_lowercase()
+                .windows(5)
+                .any(|w| w == b"winmm")
+        );
+        assert_eq!(rename_import(&hooked, HOOK_DLL, SYS_DLL).unwrap(), orig);
+        assert!(
+            rename_import(&hooked, SYS_DLL, HOOK_DLL).is_err(),
+            "already renamed"
+        );
+        assert!(
+            rename_import(&pe(b"other.dll"), SYS_DLL, HOOK_DLL).is_err(),
+            "no such import"
+        );
+    }
+
+    /// Sheets in a scratch folder, 2017-18 layout (no `languages/`).
+    fn sheets_1718(files: &[(&str, &str)]) -> (tempfile::TempDir, Ctx) {
+        let t = tempfile::tempdir().unwrap();
+        for (path, text) in files {
+            let p = t.path().join(path);
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+            fs::write(p, text).unwrap();
+        }
+        let mut c = Ctx::new_bare(Edition::E1718, Path::new("g"), Path::new("b"));
+        c.sheets = t.path().into();
+        (t, c)
+    }
+
+    #[test]
+    fn game_text_1718_puts_italian_first_and_english_never_shows_italian() {
+        let (_t, c) = sheets_1718(&[
+            (
+                "english/screen_text.tsv",
+                "key\tenglish\nK_BOTH\tkit\nK_EN\tkit\n",
+            ),
+            ("english/original_rstring.tsv", "key\tenglish\n"),
+            (
+                "italian/screen_text.tsv",
+                "key\titaliano\nK_BOTH\tkit Italian\n",
+            ),
+        ]);
+        let none = Keys::new();
+        let en = c.choices(b"\0", &none, Lang::En).unwrap();
+        let it = c.choices(b"\0", &none, Lang::It).unwrap();
+        assert_eq!(
+            it["K_BOTH"],
+            [("kit Italian".into(), "kit Italian"), ("kit".into(), "kit")]
+        );
+        assert_eq!(
+            it["K_BOTH"][1], en["K_BOTH"][0],
+            "the English stays behind it"
+        );
+        assert_eq!(
+            it["K_EN"], en["K_EN"],
+            "a key with no Italian stays English"
+        );
+        assert!(
+            en.values().flatten().all(|(_, s)| *s == "kit"),
+            "English shows no Italian"
+        );
+    }
+
+    #[test]
+    fn game_text_1718_falls_back_when_a_line_loses_a_code_or_a_letter() {
+        let (body, _, _) = encoding_rs::SHIFT_JIS.encode("あ$c[FF6633FF]%d$c\0");
+        let keys = Keys::from([("CLM_X_0000".to_string(), (1, vec![0, 0]))]);
+        let c = |first: &str| -> Choices {
+            Choices::from([(
+                "CLM_X_0000".to_string(),
+                vec![
+                    (first.to_string(), "kit Italian"),
+                    ("$c[FF6633FF]%d$c points".to_string(), "kit"),
+                ],
+            )])
+        };
+        let e = Edition::E1718;
+        let (enc, used, misfit, _) = encode_lines(e, &body, &keys, &c("%d punti"), b"\n");
+        assert_eq!(
+            enc["CLM_X_0000"], b"$c[FF6633FF]%d$c points",
+            "lost the colour code"
+        );
+        assert_eq!((used["CLM_X_0000"], misfit.len()), ("kit", 1));
+        let (enc, ..) = encode_lines(e, &body, &keys, &c("$c[FF6633FF]%d$c punti"), b"\n");
+        assert_eq!(enc["CLM_X_0000"], b"$c[FF6633FF]%d$c punti");
+        // a letter outside the game's font (cp932) also falls back
+        let (enc, _, misfit, _) =
+            encode_lines(e, &body, &keys, &c("$c[FF6633FF]%d$c \u{141}"), b"\n");
+        assert_eq!(
+            (enc["CLM_X_0000"].as_slice(), misfit.len()),
+            (&b"$c[FF6633FF]%d$c points"[..], 1)
+        );
+    }
+
+    #[test]
+    fn the_italian_tables_2010_11_match_the_english() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../editions/2010-11");
+        let mut c = Ctx::new_bare(Edition::E1011, Path::new("g"), Path::new("b"));
+        c.sheets = dir;
+        let mut english = HashMap::new(); // the kit's own English wins, as in `choices`
+        for name in ["original_rstring.tsv", "screen_text.tsv"] {
+            for r in c.sheet(name, "english").unwrap() {
+                if !cell(&r, "english").trim().is_empty() {
+                    english.insert(cell(&r, "key").to_string(), cell(&r, "english").to_string());
+                }
+            }
+        }
+        let (mut bad, mut n) = (vec![], 0);
+        for name in ["screen_text.tsv", "original_rstring.tsv"] {
+            let rows = c.sheet(name, "italian").unwrap();
+            let mut seen = HashSet::new();
+            for r in &rows {
+                let (k, it) = (cell(r, "key"), cell(r, "italiano"));
+                n += 1;
+                if !seen.insert(k) {
+                    bad.push(format!("{name} {k}: twice"));
+                }
+                if encoding_rs::SHIFT_JIS.encode(it).2 {
+                    bad.push(format!("{name} {k}: a letter the game's font cannot show"));
+                }
+                let Some(en) = english
+                    .get(k)
+                    .filter(|e| name == "screen_text.tsv" && e.trim() != "<empty>")
+                else {
+                    continue; // the original's lines: a misfit is left for the English
+                };
+                let fmt = |s: &str| {
+                    FMT.find_iter(s)
+                        .map(|m| m.as_str().to_string())
+                        .collect::<Vec<_>>()
+                };
+                if fmt(it) != fmt(en) || it.matches("$c").count() != en.matches("$c").count() {
+                    bad.push(format!(
+                        "{name} {k}: codes {:?}, the English has {:?}",
+                        fmt(it),
+                        fmt(en)
+                    ));
+                }
+            }
+        }
+        assert!(
+            n > 0 && bad.is_empty(),
+            "{} problem(s): {:?}",
+            bad.len(),
+            &bad[..bad.len().min(5)]
         );
     }
 
