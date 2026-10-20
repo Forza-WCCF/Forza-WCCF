@@ -194,6 +194,8 @@ pub struct Board {
     shared: Arc<Shared>,
     log: Log,
     last: Option<Vec<u8>>,
+    /// The outputs for the panel in the game (seat 1's cabinet).
+    out: Option<super::jvs_out::Map>,
 }
 
 impl Board {
@@ -203,6 +205,7 @@ impl Board {
             shared,
             log,
             last: None,
+            out: super::jvs_out::Map::create(1),
         }
     }
 
@@ -217,6 +220,9 @@ impl Board {
             hexs(&outs)
         };
         (self.log)(&format!("outputs now: {text}"));
+        if let Some(m) = &self.out {
+            m.set(&outs);
+        }
         *cur = Some(outs);
     }
 

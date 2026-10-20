@@ -233,6 +233,7 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
                 }
             })?;
         }
+        pictures(&dest, edition, &folder, emit);
         if plan.shortcuts {
             shortcuts(&dest, edition, emit);
         }
@@ -438,6 +439,25 @@ fn kit_step(emit: &dyn Fn(Event), step: impl FnOnce(&dyn Fn(&str)) -> i32) -> Re
     Ok(())
 }
 
+/// The board's card pictures, as Launcher's Setup makes them. A failure is logged; the install stands.
+fn pictures(dest: &Path, edition: Edition, folder: &str, emit: &dyn Fn(Event)) {
+    let say = |l: &str| emit(Event::Log(l.to_owned()));
+    let Some(game) = forza::setup::find_edition_game(edition, folder) else {
+        return say("Card pictures failed: game folder not found. The board shows placeholders.");
+    };
+    let ed = if edition == Edition::E1011 {
+        "1011"
+    } else {
+        "1718"
+    };
+    let cards = dest.join(edition.layout().cache).join("cards");
+    if let Err(e) = forza::cards::pictures::ensure(&game, ed, &cards, None, &say) {
+        say(&format!(
+            "Card pictures failed: {e}. The board shows placeholders."
+        ));
+    }
+}
+
 fn shortcuts(dest: &Path, edition: Edition, emit: &dyn Fn(Event)) {
     if !cfg!(windows) {
         return;
@@ -466,6 +486,28 @@ fn shortcuts(dest: &Path, edition: Edition, emit: &dyn Fn(Event)) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pictures_step_runs_ensure_and_survives_failure() {
+        let dir = std::env::temp_dir().join(format!("pictures-step-test-{}", std::process::id()));
+        let game = dir.join("game");
+        fs::create_dir_all(&game).unwrap();
+        let lines = std::cell::RefCell::new(Vec::new());
+        let emit = |e: Event| {
+            if let Event::Log(l) = e {
+                lines.borrow_mut().push(l);
+            }
+        };
+        // no game files: the step reports and returns instead of failing the install
+        pictures(&dir, Edition::E1718, &game.to_string_lossy(), &emit);
+        assert!(
+            lines
+                .borrow()
+                .iter()
+                .any(|l| l.contains("Card pictures failed"))
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn kit_is_optional_and_never_applied_to_sddy() {

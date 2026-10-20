@@ -106,6 +106,7 @@ static GAME_DOWN: AtomicU32 = AtomicU32::new(0);
 /// This process is the projector (the second game window): money, the frame wait and its frames for seat 1, no panel.
 static PROJECTOR: AtomicBool = AtomicBool::new(false);
 /// The projector's frames for seat 1 ([`projector`]): the shared section, and (projector) the copy at Present.
+static JVS_OUT: OnceLock<Option<forza::standins::jvs_out::Map>> = OnceLock::new();
 static SHM: OnceLock<Option<projector::Shm>> = OnceLock::new();
 static CAPTURE: Mutex<Option<projector::Capture>> = Mutex::new(None);
 /// A frame has been shown on our own swap chain: the window may be maximized (F11).
@@ -1144,6 +1145,15 @@ impl Render {
         self.keys_in();
         // SAFETY: the game's device, on its render thread
         unsafe { self.projector_in(dev) };
+        // the tactics lamps from the I/O board's outputs (2017-18 only; 2010-11's bits are not mapped)
+        if self.st.edition == theme::Edition::E1718
+            && let Some(o) = JVS_OUT
+                .get_or_init(|| forza::standins::jvs_out::Map::create(1))
+                .as_ref()
+                .and_then(|m| m.get())
+        {
+            self.st.tactics = forza::standins::jvs_out::tactics(&o);
+        }
         // the ping meter, online only
         match net::ping_ms() {
             None => self.st.online = false,
