@@ -78,7 +78,7 @@ mod map {
         /// The latest outputs, or `None` before the game's first command 0x32.
         pub fn get(&self) -> Option<[u8; 3]> {
             let w = self.word().load(Acquire);
-            (w & VALID != 0).then(|| [w as u8, (w >> 8) as u8, (w >> 16) as u8])
+            (w & VALID != 0).then_some([w as u8, (w >> 8) as u8, (w >> 16) as u8])
         }
     }
 
