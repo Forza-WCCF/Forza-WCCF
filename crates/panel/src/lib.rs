@@ -1337,6 +1337,11 @@ impl Render {
     fn table_out(&mut self) {
         if std::mem::take(&mut self.st.board_changed) {
             self.placed = cards::table_after(&self.placed, &self.st.board);
+            // a card in hand: the table follows it, the board stays as it is (a rebuild reorders the slots the drag
+            // holds), no log line per frame
+            if egui::DragAndDrop::has_any_payload(&self.ctx) {
+                return self.table_write();
+            }
             // the board's cards follow the table's order again
             self.st.board = cards::board(&self.placed, catalogue());
             let line: Vec<String> = self
@@ -1352,6 +1357,10 @@ impl Render {
         } else if !self.table.pending {
             return;
         }
+        self.table_write();
+    }
+
+    fn table_write(&mut self) {
         if let Err(e) = self.table.write(&self.placed) {
             log(&format!("board: table write pending ({e})"));
         }
@@ -1946,7 +1955,8 @@ unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LR
             }
         }
         // WM_CAPTURECHANGED: another window took the mouse; egui must not wait for a release it will not get
-        0x0215 if lp.0 != h.0 as isize => {
+        // (lParam 0 is our own ReleaseCapture on every release: not lost)
+        0x0215 if lp.0 != 0 && lp.0 != h.0 as isize => {
             log("drag: capture lost");
             push(vec![Event::PointerGone]);
         }
