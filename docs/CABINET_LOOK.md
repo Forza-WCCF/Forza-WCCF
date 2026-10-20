@@ -51,7 +51,7 @@ Design translation **[I]**:
 - The panel draws exactly that layout (`deck_layout` in `crates/forza/src/ui/panel.rs`): shapes are round, square or triangle, and clicks count only on the shape.
 - Small buttons carry their label beside them, the big ones inside.
 - Buttons keep an idle, hover and pressed state (3 px travel). Key presses do not light them; only an active tactic order lights its triangle or square.
-- The MACHINE group (CARD, and the panel's own PROJECTOR switch: free play needs no COIN, and the BACK button sent nothing), the formation board and the bottom bar stay modern.
+- The MACHINE group (CARD only: free play needs no COIN, and the BACK button sent nothing), the formation board and the bottom bar stay modern.
 - KEYS panel: show the physical layout of the cabinet cluster next to each bound key, so the binding reads as "this key presses that cabinet button".
 
 ### Window layout (owner decision 2026-10-17: model on a 2K monitor)
@@ -63,13 +63,14 @@ The game renders 1440x900 in both editions (the panel's swap chain follows the g
 - The board takes what the picture leaves, capped by what its own height uses (pitch 1.25 x width plus bench and hint); the picture is centred in the middle. The deck keeps `deck_layout` and is centred under the picture.
 - Not snapped to an integer scale: 1.2x needs 1440 points of height, which a maximized window lacks; the picture is resampled smoothly instead.
 
-### The projector in the panel (owner request 2026-10-17: no black windows)
+### The projector window (owner decision 2026-10-21: the in-panel view is gone)
 
-The projector (the second game process, 1600x600: two 800x600 screens side by side) no longer needs a window of its own on the player's screen:
+The projector (the second game process, 1600x600: two 800x600 screens side by side) has its own window again, in both editions (`crates/panel/src/projector.rs`, `fullscreen.rs`):
 
-- PROJECTOR (IT PROIETTORE, JA プロジェクター) sits beside CARD in the MACHINE group. While it is lit, the projector's picture takes the board's strip as the frame is: both screens side by side (8:3), scaled down to the strip's width and centred (`projector_view`, tested at 1440x900 to 3440x1440; 800x300 at 2560x1440). The game picture and the deck do not move. With no frames for 2 s the strip says "Projector not running". Snapshots: `panel_projector_1440p_1718_en.png`, `panel_projector_off_1440p_1718_it.png`. It has no key and is not kept across starts; compact mode has no deck and so no switch.
-- Frames: the panel in the projector copies its back buffer at Present, about 12 a second, downscaled to 800x300, into the section `Local\ForzaWCCF.projector.<hash of WCCF_LOGS>` (64-byte header: magic, frame counter as a seqlock, width, height, format BGRX, seat 1's heartbeat and window). The copy never waits on the GPU: StretchRect into a small render target, GetRenderTargetData into system memory, a `D3DLOCK_DONOTWAIT` lock on a later Present (`crates/panel/src/projector.rs`). Seat 1 uploads a frame into a managed texture only while PROJECTOR is on.
-- The projector's window: once seat 1's heartbeat names seat 1's window and that window is on the same monitor, the projector panel moves the window left of every monitor, out of the taskbar and Alt+Tab (tool window), still shown so the game keeps presenting; it never minimizes it. It stays away while that window exists, not while the heartbeat is fresh: seat 1 draws nothing (so sends no heartbeat) while it loads, and a heartbeat rule made the window come and go (run 11). It comes back only when seat 1's window is gone; only a new seat 1 window (a cabinet restart) sends it away again. A window on another monitor (a real second screen) stays. `WCCFPANEL_PROJECTOR_WINDOW=keep` turns the move off.
+- The window gets a caption and a sizing border and starts at the game's 1600x600 client, scaled down (shape kept) and moved inside the monitor's work area when the screen is smaller. The game's back buffer keeps its size (no device reset).
+- At the game's own client size the game's Present runs untouched. At any other size the panel draws the frame letterboxed on black bars on a swap chain of its own at the client size (one StretchRect) and shows that instead; any failure falls back to the game's Present.
+- F11 or a double-click: borderless full screen on the monitor the window is on. Esc leaves it. The panel window's F11 uses the same helper (`fullscreen::toggle`: style and placement saved, WS_POPUP over the monitor, both restored on leaving); Esc there also leaves and still reaches the panel.
+- Gone: the PROJECTOR switch, the frame section shared with seat 1, the move off-screen and `WCCFPANEL_PROJECTOR_WINDOW`.
 
 ## 5. Colour palette (all values estimates [I])
 

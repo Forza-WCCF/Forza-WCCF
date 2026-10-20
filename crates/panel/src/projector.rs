@@ -1,480 +1,209 @@
-//! The projector's picture in seat 1's panel, and the projector's own window off the player's screen.
-//!
-//! The projector process (its panel in projector mode) copies its frame at Present, downscaled to at most
-//! [`MAX_W`]x[`MAX_H`], about 12 times a second, into a named shared memory section ([`Shm`]); seat 1's panel reads
-//! it and draws it as a texture (PROJECTOR). The copy never waits for the GPU: a StretchRect into a small render target,
-//! GetRenderTargetData into a system-memory surface, and a lock on a later Present with `D3DLOCK_DONOTWAIT`.
-//!
-//! The section: a 64-byte header, then the pixels (B, G, R, X bytes, `width * 4` a row). `seq` is odd while the
-//! projector writes and counts frames (two a frame); seat 1 writes its heartbeat (`reader_ms`) and its window there,
-//! and the projector moves its own window off-screen while that heartbeat is fresh and seat 1's window shares its
-//! monitor ([`Hider`]).
+//! The projector's own window: resizable, the picture letterboxed to the client area, and (with [`crate::fullscreen`])
+//! borderless full screen. The game's back buffer keeps its size (1600x600, two screens side by side); no device Reset.
+//! At the game's own client size its Present runs untouched. At any other size the panel draws the frame, scaled with
+//! its shape kept on black bars, on a swap chain of its own at the client size and shows that instead
+//! (`wccfpanel.c` `present_composed`).
 
-use std::sync::atomic::{AtomicU32, Ordering::*};
-use windows::Win32::Foundation::*;
+use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::Graphics::Direct3D9::*;
-use windows::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONEAREST, MonitorFromRect, MonitorFromWindow};
-use windows::Win32::System::Memory::*;
+use windows::Win32::Graphics::Gdi::{
+    GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
+};
 use windows::Win32::UI::WindowsAndMessaging::*;
-use windows::core::{HRESULT, HSTRING, PCWSTR};
+use windows::core::HRESULT;
 
-pub const MAX_W: u32 = 800;
-pub const MAX_H: u32 = 600;
-const HEAD: usize = 64;
-const SIZE: usize = HEAD + (MAX_W * MAX_H * 4) as usize;
-const MAGIC: u32 = u32::from_le_bytes(*b"FPRJ");
-/// The pixels' format: B, G, R, X bytes (D3DFMT_X8R8G8B8 in memory).
-pub const BGRX: u32 = 1;
-/// A heartbeat older than this is no reader.
-const FRESH_MS: u32 = 3000;
-
-#[repr(C)]
-struct Head {
-    magic: AtomicU32,
-    seq: AtomicU32,
-    width: AtomicU32,
-    height: AtomicU32,
-    format: AtomicU32,
-    reader_ms: AtomicU32,
-    reader_wnd: AtomicU32,
-}
-
-// CreateFileMappingW without the windows crate's Win32_Security feature (the default security is all it needs)
-#[link(name = "kernel32")]
-unsafe extern "system" {
-    fn CreateFileMappingW(
-        file: HANDLE,
-        sa: *const std::ffi::c_void,
-        protect: u32,
-        high: u32,
-        low: u32,
-        name: PCWSTR,
-    ) -> HANDLE;
-}
-
-/// Milliseconds on a clock both processes share (the wall clock, cut to 32 bits).
-pub fn now_ms() -> u32 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u32)
-}
-
-/// The section's name for a run: its logs folder (WCCF_LOGS, the same for the projector and seat 1), else `fallback`.
-pub fn name(fallback: &std::path::Path) -> String {
-    use std::hash::{Hash, Hasher};
-    let key = std::env::var_os("WCCF_LOGS").map_or_else(
-        || fallback.to_string_lossy().to_lowercase(),
-        |l| l.to_string_lossy().to_lowercase(),
+/// The frame `(bw, bh)` scaled to fit the client `(cw, ch)`, its shape kept, centred.
+pub fn letterbox(cw: u32, ch: u32, bw: u32, bh: u32) -> RECT {
+    let s = (cw as f32 / bw.max(1) as f32).min(ch as f32 / bh.max(1) as f32);
+    let (w, h) = (
+        ((bw as f32 * s) as i32).clamp(1, cw as i32),
+        ((bh as f32 * s) as i32).clamp(1, ch as i32),
     );
-    let mut h = std::hash::DefaultHasher::new();
-    key.trim_end_matches('\\').hash(&mut h);
-    format!("Local\\ForzaWCCF.projector.{:016x}", h.finish())
-}
-
-/// The shared section, mapped. Both sides create it (the second gets the first's).
-pub struct Shm {
-    handle: HANDLE,
-    view: MEMORY_MAPPED_VIEW_ADDRESS,
-}
-
-// SAFETY: the view is shared memory touched only through atomics (the header) and whole-row copies
-unsafe impl Send for Shm {}
-// SAFETY: as above
-unsafe impl Sync for Shm {}
-
-impl Shm {
-    pub fn create(name: &str) -> Option<Shm> {
-        // SAFETY: a page-file section of SIZE bytes and its view, closed in Drop
-        unsafe {
-            let handle = CreateFileMappingW(
-                INVALID_HANDLE_VALUE,
-                std::ptr::null(),
-                PAGE_READWRITE.0,
-                0,
-                SIZE as u32,
-                PCWSTR(HSTRING::from(name).as_ptr()),
-            );
-            if handle.is_invalid() {
-                return None;
-            }
-            let view = MapViewOfFile(handle, FILE_MAP_ALL_ACCESS, 0, 0, SIZE);
-            if view.Value.is_null() {
-                let _ = CloseHandle(handle);
-                return None;
-            }
-            Some(Shm { handle, view })
-        }
-    }
-
-    fn head(&self) -> &Head {
-        // SAFETY: the view is SIZE bytes, page-aligned; Head is atomics only
-        unsafe { &*self.view.Value.cast::<Head>() }
-    }
-
-    fn pixels(&self) -> *mut u8 {
-        // SAFETY: inside the view
-        unsafe { self.view.Value.cast::<u8>().add(HEAD) }
-    }
-
-    /// One frame of `w` x `h` (at most MAX_W x MAX_H), row `y` filled by `row(y, dst)`.
-    pub fn write(&self, w: u32, h: u32, mut row: impl FnMut(usize, &mut [u8])) {
-        let (w, h) = (w.min(MAX_W), h.min(MAX_H));
-        let hd = self.head();
-        let s = hd.seq.load(Relaxed) | 1;
-        hd.seq.store(s, Release); // odd: being written
-        for y in 0..h as usize {
-            // SAFETY: row y of w * 4 bytes lies inside the view (w, h within the maxima)
-            let dst = unsafe {
-                std::slice::from_raw_parts_mut(
-                    self.pixels().add(y * w as usize * 4),
-                    w as usize * 4,
-                )
-            };
-            row(y, dst);
-        }
-        hd.width.store(w, Relaxed);
-        hd.height.store(h, Relaxed);
-        hd.format.store(BGRX, Relaxed);
-        hd.magic.store(MAGIC, Relaxed);
-        hd.seq.store(s.wrapping_add(1), Release); // even: complete
-    }
-
-    /// The latest complete frame: (seq, width, height); None before the first or while one is written.
-    pub fn frame(&self) -> Option<(u32, u32, u32)> {
-        let hd = self.head();
-        let s = hd.seq.load(Acquire);
-        let (w, h) = (hd.width.load(Relaxed), hd.height.load(Relaxed));
-        (hd.magic.load(Relaxed) == MAGIC
-            && hd.format.load(Relaxed) == BGRX
-            && s.is_multiple_of(2)
-            && (1..=MAX_W).contains(&w)
-            && (1..=MAX_H).contains(&h))
-        .then_some((s, w, h))
-    }
-
-    /// Row `y` of the frame [`frame`](Self::frame) gave (`w` pixels wide).
-    pub fn row(&self, w: u32, y: usize) -> &[u8] {
-        let w = w.min(MAX_W) as usize;
-        let y = y.min(MAX_H as usize - 1);
-        // SAFETY: inside the view
-        unsafe { std::slice::from_raw_parts(self.pixels().add(y * w * 4), w * 4) }
-    }
-
-    /// The frame `seq` was not overwritten meanwhile (a read between `frame` and this is whole).
-    pub fn still(&self, seq: u32) -> bool {
-        self.head().seq.load(Acquire) == seq
-    }
-
-    /// Seat 1: it is there, and its window.
-    pub fn beat(&self, wnd: HWND) {
-        let hd = self.head();
-        hd.reader_wnd.store(wnd.0 as usize as u32, Relaxed);
-        hd.reader_ms.store(now_ms(), Release);
-    }
-
-    /// The projector: seat 1's window while its heartbeat is fresh.
-    pub fn reader(&self) -> Option<HWND> {
-        let hd = self.head();
-        let at = hd.reader_ms.load(Acquire);
-        let wnd = hd.reader_wnd.load(Relaxed);
-        (at != 0 && now_ms().wrapping_sub(at) < FRESH_MS && wnd != 0)
-            .then_some(HWND(wnd as usize as *mut _))
+    let (x, y) = ((cw as i32 - w) / 2, (ch as i32 - h) / 2);
+    RECT {
+        left: x,
+        top: y,
+        right: x + w,
+        bottom: y + h,
     }
 }
 
-impl Drop for Shm {
-    fn drop(&mut self) {
-        // SAFETY: our own view and handle
-        unsafe {
-            let _ = UnmapViewOfFile(self.view);
-            let _ = CloseHandle(self.handle);
-        }
-    }
-}
-
-/// The projector's side on its render thread: the frame copied about every [`EVERY_MS`] without waiting for the GPU.
-pub struct Capture {
-    rt: Option<(IDirect3DSurface9, IDirect3DSurface9, u32, u32)>, // render target, system-memory copy, size
-    pending: bool,
-    last: Option<std::time::Instant>,
-    pub frames: u32,
-    presents: u32,
-    spent: std::time::Duration,
-    failed: bool,
-}
-
-// SAFETY: the surfaces are used only on the game's render thread (behind CAPTURE's lock); Reset, which releases
-// them, runs there too
-unsafe impl Send for Capture {}
-
-const EVERY_MS: u64 = 80;
-const D3DERR_WASSTILLDRAWING: HRESULT = HRESULT(0x8876_021C_u32 as i32);
-
-impl Capture {
-    pub fn new() -> Capture {
-        Capture {
-            rt: None,
-            pending: false,
-            last: None,
-            frames: 0,
-            presents: 0,
-            spent: Default::default(),
-            failed: false,
-        }
-    }
-
-    /// Before a device reset: the DEFAULT-pool render target goes (made again on the next copy).
-    pub fn release(&mut self) {
-        self.rt = None;
-        self.pending = false;
-    }
-
-    /// At each Present: a finished copy into `shm`, then a new one when due.
-    ///
-    /// # Safety
-    /// `dev` is the game's device, on its render thread.
-    pub unsafe fn tick(&mut self, dev: &IDirect3DDevice9, shm: &Shm, log: fn(&str)) {
-        if self.failed {
-            return;
-        }
-        let t0 = std::time::Instant::now();
-        // SAFETY: as the caller promises; the lock is read within its rows and unlocked
-        let r = unsafe { self.step(dev, shm, log) };
-        if let Err(e) = r {
-            self.failed = true;
-            log(&format!(
-                "projector: frame copy failed ({e}) - seat 1 shows no projector picture"
-            ));
-        }
-        self.spent += t0.elapsed();
-        self.presents += 1;
-    }
-
-    unsafe fn step(
-        &mut self,
-        dev: &IDirect3DDevice9,
-        shm: &Shm,
-        log: fn(&str),
-    ) -> windows::core::Result<()> {
-        // SAFETY: device calls with objects of this device and out-parameters we own
-        unsafe {
-            if self.pending
-                && let Some((_, sys, w, h)) = &self.rt
-            {
-                let mut lr = D3DLOCKED_RECT::default();
-                match sys.LockRect(
-                    &mut lr,
-                    std::ptr::null(),
-                    (D3DLOCK_READONLY | D3DLOCK_DONOTWAIT) as u32,
-                ) {
-                    Ok(()) => {
-                        shm.write(*w, *h, |y, dst| {
-                            let src = std::slice::from_raw_parts(
-                                lr.pBits.cast::<u8>().add(y * lr.Pitch as usize),
-                                dst.len(),
-                            );
-                            dst.copy_from_slice(src);
-                        });
-                        sys.UnlockRect()?;
-                        self.pending = false;
-                        self.frames += 1;
-                        if self.frames == 1 {
-                            log(&format!("projector: frames shared {w}x{h}"));
-                        } else if self.frames.is_multiple_of(750) {
-                            log(&format!(
-                                "projector: {} frames shared, {:.2} ms a Present on average",
-                                self.frames,
-                                self.spent.as_secs_f64() * 1000.0 / f64::from(self.presents.max(1))
-                            ));
-                        }
-                    }
-                    Err(e) if e.code() == D3DERR_WASSTILLDRAWING => return Ok(()),
-                    Err(e) => return Err(e),
-                }
-            }
-            if self
-                .last
-                .is_some_and(|t| t.elapsed().as_millis() < u128::from(EVERY_MS))
-            {
-                return Ok(());
-            }
-            self.last = Some(std::time::Instant::now());
-            let bb = dev.GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO)?;
-            let mut d = D3DSURFACE_DESC::default();
-            bb.GetDesc(&mut d)?;
-            let (w, h) = fit(d.Width, d.Height);
-            if self.rt.as_ref().is_none_or(|r| (r.2, r.3) != (w, h)) {
-                self.rt = None;
-                let (mut rt, mut sys) = (None, None);
-                dev.CreateRenderTarget(
-                    w,
-                    h,
-                    D3DFMT_X8R8G8B8,
-                    D3DMULTISAMPLE_NONE,
-                    0,
-                    false,
-                    &mut rt,
-                    std::ptr::null_mut(),
-                )?;
-                dev.CreateOffscreenPlainSurface(
-                    w,
-                    h,
-                    D3DFMT_X8R8G8B8,
-                    D3DPOOL_SYSTEMMEM,
-                    &mut sys,
-                    std::ptr::null_mut(),
-                )?;
-                let none = windows::core::Error::empty;
-                self.rt = Some((rt.ok_or_else(none)?, sys.ok_or_else(none)?, w, h));
-            }
-            let Some((rt, sys, _, _)) = &self.rt else {
-                return Ok(());
-            };
-            dev.StretchRect(&bb, std::ptr::null(), rt, std::ptr::null(), D3DTEXF_LINEAR)?;
-            dev.GetRenderTargetData(rt, sys)?;
-            self.pending = true;
-            Ok(())
-        }
-    }
-}
-
-/// The copy's size: the frame scaled down to fit MAX_W x MAX_H (never up), its ratio kept.
-pub fn fit(w: u32, h: u32) -> (u32, u32) {
-    let s = (MAX_W as f32 / w.max(1) as f32)
-        .min(MAX_H as f32 / h.max(1) as f32)
+/// The start size: the game's client `(cw, ch)` as it is, or scaled down (shape kept) until the window with its frame
+/// `(fw, fh)` fits the work area `(ww, wh)`.
+pub fn clamp_client(cw: i32, ch: i32, fw: i32, fh: i32, ww: i32, wh: i32) -> (i32, i32) {
+    let s = ((ww - fw) as f32 / cw as f32)
+        .min((wh - fh) as f32 / ch as f32)
         .min(1.0);
+    if s >= 1.0 {
+        return (cw, ch);
+    }
     (
-        ((w as f32 * s) as u32).max(1),
-        ((h as f32 * s) as u32).max(1),
+        ((cw as f32 * s) as i32).max(160),
+        ((ch as f32 * s) as i32).max(60),
     )
 }
 
-/// The projector's window off the player's screen while seat 1 runs: moved left of every monitor, out of the taskbar
-/// and Alt+Tab, still shown (never minimized: the game keeps presenting). It goes away once seat 1's heartbeat first
-/// names seat 1's window and stays away while that window exists (seat 1 does not draw, so does not beat, while it
-/// loads); it comes back only when that window is gone, and only a new seat 1 window (a cabinet restart) sends it
-/// away again. Left alone when seat 1's window is on another monitor (a real second screen), and with
-/// WCCFPANEL_PROJECTOR_WINDOW=keep.
-pub struct Hider {
-    wnd: HWND,
-    /// While moved away: seat 1's window and process, where the window was and its extended style.
-    saved: Option<(isize, u32, RECT, isize)>,
-    /// The seat 1 window already decided on (put back after it went, or left on its own monitor).
-    done: Option<isize>,
-}
-
-#[derive(Debug, PartialEq)]
-enum Act {
-    Hide(isize),
-    Restore,
-    Stay,
-}
-
-/// The decision: `away_for` the seat window the projector window is away for, `alive` whether it still exists,
-/// `fresh` the window a fresh heartbeat names, `done` the one already decided on.
-fn act(away_for: Option<isize>, alive: bool, fresh: Option<isize>, done: Option<isize>) -> Act {
-    match (away_for, fresh) {
-        (Some(_), _) if !alive => Act::Restore,
-        (Some(_), _) => Act::Stay,
-        (None, Some(s)) if Some(s) != done => Act::Hide(s),
-        _ => Act::Stay,
+/// The work area (the monitor without the taskbar) of the monitor `h` is on; `over` stands in for it (the tests).
+pub fn work_area(h: HWND, over: Option<RECT>) -> RECT {
+    if let Some(r) = over {
+        return r;
     }
+    let mut mi = MONITORINFO {
+        cbSize: size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    // SAFETY: plain queries with an out-parameter we own
+    unsafe {
+        let _ = GetMonitorInfoW(MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST), &mut mi);
+    }
+    mi.rcWork
 }
 
-fn pid_of(h: HWND) -> u32 {
-    let mut pid = 0;
-    // SAFETY: a plain window query
-    unsafe { GetWindowThreadProcessId(h, Some(&mut pid)) };
-    pid
-}
-
-impl Hider {
-    pub fn new(wnd: HWND) -> Hider {
-        Hider {
-            wnd,
-            saved: None,
-            done: None,
-        }
-    }
-
-    /// One look (every half second): `seat` is the window a fresh heartbeat names.
-    pub fn tick(&mut self, seat: Option<HWND>, log: fn(&str)) {
-        let mut r = RECT::default();
-        // SAFETY: window queries and changes on a window of this process; the async forms never wait for its thread
-        unsafe {
-            if GetWindowRect(self.wnd, &mut r).is_err() {
-                return;
-            }
-            let alive = self.saved.is_some_and(|(s, pid, ..)| {
-                let h = HWND(s as *mut _);
-                IsWindow(Some(h)).as_bool() && pid_of(h) == pid
-            });
-            let away_x = GetSystemMetrics(SM_XVIRTUALSCREEN) - (r.right - r.left) - 64;
-            match act(
-                self.saved.map(|s| s.0),
-                alive,
-                seat.map(|h| h.0 as isize),
-                self.done,
-            ) {
-                Act::Hide(s) => {
-                    let h = HWND(s as *mut _);
-                    if MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST)
-                        != MonitorFromRect(&r, MONITOR_DEFAULTTONEAREST)
-                    {
-                        self.done = Some(s);
-                        log("projector: window left where it is - seat 1 is on another monitor");
-                        return;
-                    }
-                    let ex = GetWindowLongPtrW(self.wnd, GWL_EXSTYLE) as isize;
-                    self.saved = Some((s, pid_of(h), r, ex));
-                    let _ = ShowWindowAsync(self.wnd, SW_HIDE); // the taskbar sees a style change on show only
-                    SetWindowLongPtrW(
-                        self.wnd,
-                        GWL_EXSTYLE,
-                        ((ex | WS_EX_TOOLWINDOW.0 as isize) & !(WS_EX_APPWINDOW.0 as isize)) as _,
-                    );
-                    self.place(away_x, r.top);
-                    let _ = ShowWindowAsync(self.wnd, SW_SHOWNOACTIVATE);
-                    log(&format!(
-                        "projector: window moved off-screen (x {away_x}, was {},{}), out of the taskbar, while seat 1's \
-                         window {s:#x} exists",
-                        r.left, r.top
-                    ));
-                }
-                // the game put it back by itself: away again, quietly
-                Act::Stay
-                    if self.saved.is_some() && r.right > GetSystemMetrics(SM_XVIRTUALSCREEN) =>
-                {
-                    self.place(away_x, r.top)
-                }
-                Act::Restore => {
-                    if let Some((s, _, old, ex)) = self.saved.take() {
-                        self.done = Some(s);
-                        let _ = ShowWindowAsync(self.wnd, SW_HIDE);
-                        SetWindowLongPtrW(self.wnd, GWL_EXSTYLE, ex as _);
-                        self.place(old.left, old.top);
-                        let _ = ShowWindowAsync(self.wnd, SW_SHOWNOACTIVATE);
-                        log("projector: window back on screen - seat 1's window is gone");
-                    }
-                }
-                Act::Stay => {}
-            }
-        }
-    }
-
-    fn place(&self, x: i32, y: i32) {
-        // SAFETY: as in tick
-        let _ = unsafe {
-            SetWindowPos(
-                self.wnd,
-                None,
-                x,
-                y,
-                0,
-                0,
-                SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS,
-            )
+/// Once, on the window's thread: a frame with a caption and a sizing border, the client at the game's size or smaller
+/// to fit the work area, the whole window moved inside it.
+pub fn frame(h: HWND, over: Option<RECT>, log: fn(&str)) {
+    // SAFETY: window calls on a window of this process, from its own thread
+    unsafe {
+        let mut cr = RECT::default();
+        let _ = GetClientRect(h, &mut cr);
+        let (cw, ch) = (cr.right.max(1), cr.bottom.max(1));
+        let st =
+            (GetWindowLongW(h, GWL_STYLE) & !(WS_POPUP.0 as i32)) | WS_OVERLAPPEDWINDOW.0 as i32;
+        SetWindowLongW(h, GWL_STYLE, st);
+        let ex = WINDOW_EX_STYLE(GetWindowLongW(h, GWL_EXSTYLE) as u32);
+        let mut o = RECT {
+            right: cw,
+            bottom: ch,
+            ..Default::default()
         };
+        let _ = AdjustWindowRectEx(&mut o, WINDOW_STYLE(st as u32), false, ex);
+        let (fw, fh) = (o.right - o.left - cw, o.bottom - o.top - ch);
+        let wa = work_area(h, over);
+        let (w, hh) = clamp_client(cw, ch, fw, fh, wa.right - wa.left, wa.bottom - wa.top);
+        let (ow, oh) = (w + fw, hh + fh);
+        let mut wr = RECT::default();
+        let _ = GetWindowRect(h, &mut wr);
+        let x = wr.left.clamp(wa.left, (wa.right - ow).max(wa.left));
+        let y = wr.top.clamp(wa.top, (wa.bottom - oh).max(wa.top));
+        let _ = SetWindowPos(
+            h,
+            None,
+            x,
+            y,
+            ow,
+            oh,
+            SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        );
+        log(&format!(
+            "projector: resizable window, client {w}x{hh} (game {cw}x{ch}) at {x},{y}"
+        ));
+    }
+}
+
+/// The projector's swap chain at the client size, made on the first frame that needs it.
+#[derive(Default)]
+pub struct View {
+    sc: Option<(IDirect3DSwapChain9, u32, u32)>,
+    failed: bool,
+    shown: Option<(u32, u32)>,
+}
+
+// SAFETY: used only on the game's render thread (behind VIEW's lock); Reset, which releases it, runs there too
+unsafe impl Send for View {}
+
+impl View {
+    /// Before a device reset: the swap chain goes (made again on the next frame).
+    pub fn release(&mut self) {
+        self.sc = None;
+    }
+
+    /// At Present: the game's frame letterboxed into `wnd`'s client area and shown, and the Present's result; `None`
+    /// when the game's own Present should run (client = back buffer, minimized, or anything failed).
+    ///
+    /// # Safety
+    /// `dev` is the game's device, on its render thread.
+    pub unsafe fn present(
+        &mut self,
+        dev: &IDirect3DDevice9,
+        wnd: HWND,
+        log: fn(&str),
+    ) -> Option<HRESULT> {
+        if self.failed || wnd.is_invalid() {
+            return None;
+        }
+        // SAFETY: device and window calls with objects of this device and out-parameters we own
+        unsafe {
+            let mut cr = RECT::default();
+            if IsIconic(wnd).as_bool()
+                || GetClientRect(wnd, &mut cr).is_err()
+                || cr.right < 1
+                || cr.bottom < 1
+            {
+                return None;
+            }
+            let (cw, ch) = (cr.right as u32, cr.bottom as u32);
+            let bb = dev.GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO).ok()?;
+            let mut d = D3DSURFACE_DESC::default();
+            bb.GetDesc(&mut d).ok()?;
+            if (cw, ch) == (d.Width, d.Height) {
+                return None;
+            }
+            if self.sc.as_ref().is_none_or(|s| (s.1, s.2) != (cw, ch)) {
+                self.sc = None;
+                let mut ip = D3DPRESENT_PARAMETERS::default();
+                dev.GetSwapChain(0)
+                    .ok()?
+                    .GetPresentParameters(&mut ip)
+                    .ok()?;
+                let mut pp = D3DPRESENT_PARAMETERS {
+                    BackBufferWidth: cw,
+                    BackBufferHeight: ch,
+                    BackBufferFormat: D3DFMT_X8R8G8B8,
+                    BackBufferCount: 1,
+                    SwapEffect: D3DSWAPEFFECT_DISCARD,
+                    hDeviceWindow: wnd,
+                    Windowed: true.into(),
+                    PresentationInterval: ip.PresentationInterval, // the game's own pacing
+                    ..Default::default()
+                };
+                let mut sc = None;
+                if !ip.Windowed.as_bool()
+                    || dev.CreateAdditionalSwapChain(&mut pp, &mut sc).is_err()
+                {
+                    self.failed = true;
+                    log(
+                        "projector: no swap chain of its own - the picture stays at the game's size",
+                    );
+                    return None;
+                }
+                self.sc = Some((sc?, cw, ch));
+            }
+            let sc = &self.sc.as_ref()?.0;
+            let scbb = sc.GetBackBuffer(0, D3DBACKBUFFER_TYPE_MONO).ok()?;
+            dev.ColorFill(&scbb, std::ptr::null(), 0xFF00_0000).ok()?;
+            let dst = letterbox(cw, ch, d.Width, d.Height);
+            dev.StretchRect(&bb, std::ptr::null(), &scbb, &dst, D3DTEXF_LINEAR)
+                .ok()?;
+            if self.shown != Some((cw, ch)) {
+                self.shown = Some((cw, ch));
+                log(&format!(
+                    "projector: composed {}x{} into {cw}x{ch}",
+                    d.Width, d.Height
+                ));
+            }
+            Some(
+                match sc.Present(
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    HWND::default(),
+                    std::ptr::null(),
+                    0,
+                ) {
+                    Ok(()) => HRESULT(0),
+                    Err(e) => e.code(),
+                },
+            )
+        }
     }
 }
 
@@ -483,45 +212,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hider_never_flaps() {
-        // away once a heartbeat names seat 1's window; a stale heartbeat (seat 1 loading) changes nothing
-        assert_eq!(act(None, false, Some(7), None), Act::Hide(7));
-        assert_eq!(act(Some(7), true, None, None), Act::Stay);
-        // back only when that window is gone; the same window never sends it away again
-        assert_eq!(act(Some(7), false, Some(7), None), Act::Restore);
-        assert_eq!(act(None, false, Some(7), Some(7)), Act::Stay);
-        // a new seat 1 window (a cabinet restart) does
-        assert_eq!(act(None, false, Some(9), Some(7)), Act::Hide(9));
-        assert_eq!(act(None, false, None, None), Act::Stay);
+    fn letterbox_keeps_the_shape() {
+        let r = |l, t, rr, b| RECT {
+            left: l,
+            top: t,
+            right: rr,
+            bottom: b,
+        };
+        // 1600x600 into a 1200x700 client: full width, bars above and below
+        assert_eq!(letterbox(1200, 700, 1600, 600), r(0, 125, 1200, 575));
+        // into 3200x1000: full height, bars left and right
+        assert_eq!(letterbox(3200, 1000, 1600, 600), r(267, 0, 2933, 1000));
+        assert_eq!(letterbox(1600, 600, 1600, 600), r(0, 0, 1600, 600));
     }
 
     #[test]
-    fn round_trip() {
-        let name = format!("Local\\ForzaWCCF.projector.test{}", std::process::id());
-        let a = Shm::create(&name).expect("the section");
-        let b = Shm::create(&name).expect("the same section, again");
-        assert_eq!(b.frame(), None, "no frame before the first");
-        assert_eq!(b.reader(), None);
-        a.write(4, 2, |y, row| {
-            for (x, px) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
-                px.copy_from_slice(&[x as u8, y as u8, 7, 0]);
-            }
-        });
-        let (s, w, h) = b.frame().expect("a frame");
-        assert_eq!((w, h), (4, 2));
-        assert_eq!(b.row(w, 1)[8..12], [2, 1, 7, 0]);
-        assert!(b.still(s));
-        a.write(4, 2, |_, row| row.fill(9));
-        let (s2, ..) = b.frame().unwrap();
-        assert_eq!(s2, s + 2);
-        assert!(!b.still(s) && b.row(4, 0)[0] == 9);
-        // too big: cut to the maxima
-        a.write(5000, 5000, |_, row| row.fill(1));
-        assert_eq!(b.frame().map(|f| (f.1, f.2)), Some((MAX_W, MAX_H)));
-        // seat 1's heartbeat
-        b.beat(HWND(0x1234 as *mut _));
-        assert_eq!(a.reader(), Some(HWND(0x1234 as *mut _)));
-        assert_eq!(fit(1600, 600), (800, 300));
-        assert_eq!(fit(640, 480), (640, 480));
+    fn start_size_fits_the_work_area() {
+        // fits: the game's size
+        assert_eq!(clamp_client(1600, 600, 16, 39, 2560, 1400), (1600, 600));
+        // 1440x860 work area: 1424 wide, shape kept
+        let (w, h) = clamp_client(1600, 600, 16, 39, 1440, 860);
+        assert_eq!(w, 1424);
+        assert!((533..=534).contains(&h));
+        // never absurdly small
+        assert!(clamp_client(1600, 600, 16, 39, 100, 100).0 >= 160);
     }
 }

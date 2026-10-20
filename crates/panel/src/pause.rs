@@ -259,10 +259,6 @@ pub fn present(dev: &IDirect3DDevice9, wnd: HWND) {
     let refused = {
         let Ok(mut r) = RENDER.lock() else { return };
         let Some(r) = r.as_mut() else { return };
-        let projector = r
-            .proj_seen
-            .1
-            .is_some_and(|t| t.elapsed() < Duration::from_secs(2));
         let facts = Facts {
             shop_state: shop,
             online: std::env::var_os("WCCF_RELAY").is_some_and(|v| !v.is_empty()),
@@ -271,7 +267,7 @@ pub fn present(dev: &IDirect3DDevice9, wnd: HWND) {
             } else {
                 pid.and_then(crate::kit::seats_on)
             },
-            projector,
+            projector: false, // the seat count already includes a projector; the frame section that told is gone
             card_age: if test.is_some() { None } else { card_age() },
             own_picture: r.sc.is_some(),
             stop: stop_found,

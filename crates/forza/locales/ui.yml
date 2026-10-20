@@ -220,7 +220,6 @@ cab.start: {en: "START", it: "START", ja: "スタート"}
 cab.card: {en: "CARD", it: "CARTA", ja: "カード"}
 cab.coin: {en: "COIN", it: "GETTONE", ja: "コイン"}
 cab.back: {en: "BACK", it: "INDIETRO", ja: "もどる"}
-cab.projector: {en: "PROJECTOR", it: "PROIETTORE", ja: "プロジェクター"}
 
 # ---- panel ----
 panel.tactics: {en: "TACTICS", it: "TATTICA", ja: "作戦"}
@@ -231,8 +230,6 @@ panel.add_card: {en: "+ CARD", it: "+ CARTA", ja: "＋カード"}
 panel.keys: {en: "KEYS", it: "TASTI", ja: "キー設定"}
 panel.settings: {en: "SETTINGS", it: "IMPOSTAZIONI", ja: "設定"}
 panel.club_card: {en: "CLUB CARD", it: "TESSERA CLUB", ja: "クラブカード"}
-panel.projector_off: {en: "Projector not running", it: "Proiettore spento", ja: "プロジェクターは動いていません"}
-panel.projector_wait: {en: "Waiting for the projector...", it: "In attesa del proiettore...", ja: "プロジェクター待機中..."}
 panel.close: {en: "CLOSE (Esc)", it: "CHIUDI (Esc)", ja: "閉じる (Esc)"}
 panel.msg_added: {en: "Added to the table: Lucà Ferrè.", it: "Aggiunta al tavolo: Lucà Ferrè.", ja: "テーブルに追加しました：Lucà Ferrè"}
 panel.msg_saved: {en: "Club saved at 15:04.", it: "Club salvato alle 15:04.", ja: "15:04 にクラブを保存しました。"}

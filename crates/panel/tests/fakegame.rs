@@ -593,7 +593,7 @@ fn open_card() -> Vec<u8> {
 }
 
 /// The window's own behaviour, in a scratch kit: maximized at the start onto a pretend screen (WCCFPANEL_FS_RECT, off
-/// every monitor) and F11 back to the game's size; during a card session the first close only warns and a second
+/// every monitor), F11 into borderless full screen on it and back, Esc out of it; during a card session the first close only warns and a second
 /// within 8 s closes; the server link (the panel's own test link to a port of the test's, WCCFPANEL_LINKTEST) written
 /// UP to WCCF_LOGS\server_link.txt and, dropped after the player's close, ENDED - not LOST.
 #[test]
@@ -624,10 +624,10 @@ fn window_close_and_server_link() {
     let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = server.local_addr().unwrap().port();
     let started = std::time::Instant::now();
-    // the link: accepted, held until after the player's second close (8.2 s), then dropped
+    // the link: accepted, held until after the player's second close (about 12 s), then dropped
     let link = std::thread::spawn(move || {
         let (conn, _) = server.accept().unwrap();
-        std::thread::sleep(std::time::Duration::from_secs(10).saturating_sub(started.elapsed()));
+        std::thread::sleep(std::time::Duration::from_secs(14).saturating_sub(started.elapsed()));
         drop(conn);
     });
     let seat = t.join("seat1");
@@ -642,8 +642,14 @@ fn window_close_and_server_link() {
         .args([
             "../programs/forza_panel.dll",
             "wait:2500",
-            "key:122", // F11
-            "wait:1000",
+            "key:122", // F11: full screen
+            "wait:800",
+            "key:122", // F11: back
+            "wait:800",
+            "key:122", // F11: full screen again
+            "wait:800",
+            "key:27", // Esc: out of it
+            "wait:800",
             "close",
             "wait:1500",
             "close",
@@ -659,12 +665,17 @@ fn window_close_and_server_link() {
     assert!(out.status.success(), "fakegame ended with {}", out.status);
     for line in [
         "maximized: client now ",
-        "window: client now 1440x900",
+        "fullscreen: client now 1700x1000",
         "close: a card session is open - warned, not closed",
         "close: closed again during the card session - the game ends",
     ] {
         assert!(log.contains(line), "the panel's log has no '{line}'");
     }
+    assert_eq!(
+        log.matches("window: client now ").count(),
+        2,
+        "F11 and Esc each leave full screen"
+    );
     let lines: Vec<&str> = links.lines().collect();
     assert_eq!(lines.len(), 2, "{links}");
     assert!(lines[0].ends_with(" UP 127.0.0.1"), "{links}");
@@ -674,7 +685,8 @@ fn window_close_and_server_link() {
     }
 }
 
-/// The projector (WCCFPANEL_ROLE=projector): no panel drawn - its Present copies the frame for seat 1's PROJECTOR - money with commas
+/// The projector (WCCFPANEL_ROLE=projector): no panel drawn - its window is resizable, composes the picture at any size
+/// and goes full screen on F11 / double-click and back on Esc (a pretend screen, WCCFPANEL_FS_RECT) - money with commas
 /// and the frame wait, which check that they are in the real game and stay off in fakegame; its log goes to
 /// WCCF_LOGS\forza_panel_projector.log. The money display's self-test (WCCFPANEL_MONEYTEST: every place's role with
 /// the game's arguments faked, amounts with thousands separators cut to their boxes) passes there.
@@ -708,7 +720,17 @@ fn projector_role_and_money() {
         .env_remove("WCCFPANEL_ROLE") // the folder named "extracted" says it, as in the 2010-11 kit
         .env("WCCF_LOGS", t.join("logs"))
         .env("WCCFPANEL_MONEYTEST", "1")
-        .args(["../programs/forza_panel.dll", "wait:3000"])
+        .env("WCCFPANEL_FS_RECT", "-4000,-4000,1700,1000")
+        .args([
+            "../programs/forza_panel.dll",
+            "wait:2000",
+            "size:1200,700",
+            "wait:800",
+            "key:122", // F11: full screen
+            "wait:800",
+            "key:27", // Esc: out of it
+            "wait:800",
+        ])
         .output()
         .unwrap();
     let said = String::from_utf8_lossy(&out.stdout);
@@ -728,16 +750,19 @@ fn projector_role_and_money() {
         "money test: {tests:?}"
     );
     assert!(!log.contains("FAIL"), "a money test failed");
-    // its frames go to seat 1's PROJECTOR through the shared section; no panel drawn, no seat log
-    assert!(
-        log.contains("projector: frames shared ") || said.contains("no Direct3D 9 device"),
-        "no frames shared"
-    );
+    // resizable, the picture composed at the new size, full screen on the pretend screen and back; no panel drawn
+    for line in [
+        "projector: resizable window, client ",
+        "projector: composed 1440x900 into 1200x700",
+        "projector: fullscreen: client now 1700x1000",
+        "projector: window: client now ",
+    ] {
+        assert!(
+            log.contains(line) || said.contains("no Direct3D 9 device"),
+            "the projector's log has no '{line}'"
+        );
+    }
     assert!(!log.contains("first frame shown") && !game.join("forza_panel.log").exists());
-    assert!(
-        !log.contains("window moved off-screen"),
-        "moved with no seat 1 reading"
-    );
     assert!(!said.contains("device changed"));
     if env::var_os("FORZA_PANEL_KEEP").is_none() {
         let _ = fs::remove_dir_all(&t);

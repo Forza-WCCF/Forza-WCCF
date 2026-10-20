@@ -16,8 +16,8 @@
 //! keys from keys.txt as the C panel does (down on the press, up after the release and at least 140 ms). Clicks on
 //! the game's picture go to the game, moved into its own client area, for its own on-screen buttons.
 //!
-//! In the projector the panel draws nothing: its Present copies the frame for seat 1's PROJECTOR switch and its window
-//! leaves the screen while seat 1 shows it ([`projector`]).
+//! In the projector the panel draws nothing: its window is resizable, the picture letterboxed to it, and F11 /
+//! double-click / Esc give it borderless full screen ([`projector`], [`fullscreen`]).
 //!
 //! Test switches: `FORZA_PANEL_DUMP=1` writes `wccfpanel_frame.bmp` beside the program every 10 frames once a window
 //! size has held for 10 (fakegame.exe's `size:` and `copy:` steps); `WCCFPANEL_DRYKEYS=1` logs the keys instead of
@@ -25,6 +25,7 @@
 #![cfg(target_arch = "x86")]
 
 mod exe_text;
+mod fullscreen;
 mod kit;
 mod money;
 mod net;
@@ -52,10 +53,12 @@ use windows::Win32::Graphics::Gdi::RGNDATA;
 use windows::Win32::System::Diagnostics::Debug::FlushInstructionCache;
 use windows::Win32::System::LibraryLoader::{DisableThreadLibraryCalls, GetModuleFileNameW};
 use windows::Win32::System::Memory::*;
+use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::System::SystemServices::{DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH};
 use windows::Win32::System::Threading::{GetCurrentProcess, GetCurrentProcessId};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetCapture, GetKeyState, ReleaseCapture, SetCapture, VK_CONTROL, VK_MENU, VK_SHIFT,
+    GetCapture, GetDoubleClickTime, GetKeyState, ReleaseCapture, SetCapture, VK_CONTROL, VK_MENU,
+    VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{BOOL, HRESULT, Interface, w};
@@ -71,8 +74,6 @@ type ResetFn = unsafe extern "system" fn(*mut c_void, *mut D3DPRESENT_PARAMETERS
 
 /// The game's frame, as the painter knows it.
 const GAME: TextureId = TextureId::User(0);
-/// The projector's frame (PROJECTOR), from the shared section.
-const PROJ: TextureId = TextureId::User(1);
 
 /// The trampolines (the detoured functions' first bytes, then a jump back).
 static PRESENT: AtomicUsize = AtomicUsize::new(0);
@@ -105,10 +106,12 @@ static PICTURE: Mutex<Option<egui::Rect>> = Mutex::new(None);
 static GAME_DOWN: AtomicU32 = AtomicU32::new(0);
 /// This process is the projector (the second game window): money, the frame wait and its frames for seat 1, no panel.
 static PROJECTOR: AtomicBool = AtomicBool::new(false);
-/// The projector's frames for seat 1 ([`projector`]): the shared section, and (projector) the copy at Present.
 static JVS_OUT: OnceLock<Option<forza::standins::jvs_out::Map>> = OnceLock::new();
-static SHM: OnceLock<Option<projector::Shm>> = OnceLock::new();
-static CAPTURE: Mutex<Option<projector::Capture>> = Mutex::new(None);
+/// The projector's picture composed into its resized window ([`projector::View`]).
+static VIEW: Mutex<Option<projector::View>> = Mutex::new(None);
+/// Full screen: the panel's window and the projector's, each with what leaving restores ([`fullscreen`]).
+static PANEL_FS: fullscreen::Slot = Mutex::new(None);
+static PROJ_FS: fullscreen::Slot = Mutex::new(None);
 /// A frame has been shown on our own swap chain: the window may be maximized (F11).
 static SHOWN: AtomicBool = AtomicBool::new(false);
 /// The player closed the window: the server link's drop that follows is the end (ENDED), not a loss.
@@ -120,6 +123,8 @@ static START: OnceLock<Instant> = OnceLock::new();
 static TEST_MAX: Mutex<Option<RECT>> = Mutex::new(None);
 /// Our own window message: maximized (wParam 1) or the game's size (0), done on the window's thread.
 const WM_FORZA_FS: u32 = WM_APP + 0x57;
+/// The projector's window made resizable, done on the window's thread.
+const WM_FORZA_PROJ: u32 = WM_APP + 0x58;
 
 /// Milliseconds since the DLL loaded.
 fn ms() -> u32 {
@@ -189,22 +194,8 @@ fn init() {
             DLL_DIR.get().map_or(Path::new(""), PathBuf::as_path),
             log,
         ); // the frame wait sleeps instead of spinning a core
-        // its frames for seat 1's PROJECTOR, and its window off the screen while seat 1 shows them
-        if shm().is_some() {
-            if let Ok(mut c) = CAPTURE.lock() {
-                *c = Some(projector::Capture::new());
-            }
-            hook_device();
-            if std::env::var("WCCFPANEL_PROJECTOR_WINDOW")
-                .is_ok_and(|v| v.eq_ignore_ascii_case("keep"))
-            {
-                log("projector: its window stays where it is (WCCFPANEL_PROJECTOR_WINDOW=keep)");
-            } else {
-                std::thread::spawn(hide_watch);
-            }
-        } else {
-            log("projector: no shared section - seat 1 shows no projector picture");
-        }
+        hook_device(); // its window composes the picture at any size
+        std::thread::spawn(projector_window);
         INIT_DONE.store(true, Relaxed);
         return;
     }
@@ -284,34 +275,22 @@ fn hook_device() {
     }
 }
 
-/// The shared section for the projector's frames (made on first use; the same for both processes of a run).
-fn shm() -> Option<&'static projector::Shm> {
-    SHM.get_or_init(|| {
-        let name = projector::name(DLL_DIR.get().map_or(Path::new(""), PathBuf::as_path));
-        let s = projector::Shm::create(&name);
-        log(&format!(
-            "projector frames: section {name} {}",
-            if s.is_some() { "open" } else { "NOT made" }
-        ));
-        s
-    })
-    .as_ref()
-}
-
-/// The projector: its window off the screen while seat 1 shows its picture, back when seat 1 stops ([`projector::Hider`]).
-fn hide_watch() {
-    // ponytail: runs for the process's life (the projector never unloads the panel)
+/// The projector: its window made resizable and given the F11 / double-click / Esc handling ([`proj_wndproc`]).
+fn projector_window() {
+    // ponytail: runs once; the projector never unloads the panel
     let wnd = loop {
         if let Some(h) = game_window() {
             break h;
         }
         std::thread::sleep(Duration::from_millis(500));
     };
-    let mut hider = projector::Hider::new(wnd);
-    loop {
-        hider.tick(shm().and_then(projector::Shm::reader), log);
-        std::thread::sleep(Duration::from_millis(500));
-    }
+    // SAFETY: a window of this process; cross-thread subclassing within a process is allowed
+    let old =
+        unsafe { SetWindowLongPtrW(wnd, GWLP_WNDPROC, proj_wndproc as *const () as usize as _) };
+    OLD_PROC.store(old as isize, Relaxed);
+    WINDOW.store(wnd.0 as isize, Relaxed);
+    // SAFETY: as above; the message is handled by proj_wndproc on the window's thread
+    let _ = unsafe { PostMessageW(Some(wnd), WM_FORZA_PROJ, WPARAM(0), LPARAM(0)) };
 }
 
 fn affinity(e1718: bool, catalogue: &[Card]) -> Option<Arc<cards::links::Affinity>> {
@@ -476,14 +455,6 @@ fn test_screen() -> Option<RECT> {
     })
 }
 
-fn is_maximized(h: HWND) -> bool {
-    if test_screen().is_some() {
-        return TEST_MAX.lock().is_ok_and(|m| m.is_some());
-    }
-    // SAFETY: a plain window query
-    unsafe { IsZoomed(h) }.as_bool()
-}
-
 /// Maximized with its title bar kept (minimize, maximize/restore and close), or the game's own size, as `wccfpanel.c`
 /// `set_maximized`; on the window's thread.
 fn set_maximized(h: HWND, on: bool) {
@@ -549,6 +520,77 @@ fn set_maximized(h: HWND, on: bool) {
             cr.right,
             cr.bottom
         ));
+    }
+}
+
+/// F11 on `slot`'s window: borderless full screen, or back; logs the client size.
+fn toggle_fullscreen(h: HWND, slot: &fullscreen::Slot) {
+    let on = fullscreen::toggle(h, slot, test_screen());
+    log_fullscreen(h, on);
+}
+
+fn log_fullscreen(h: HWND, on: bool) {
+    let mut cr = RECT::default();
+    // SAFETY: a plain window query
+    let _ = unsafe { GetClientRect(h, &mut cr) };
+    let who = if PROJECTOR.load(Relaxed) {
+        "projector: "
+    } else {
+        ""
+    };
+    log(&format!(
+        "{who}{}: client now {}x{}",
+        if on { "fullscreen" } else { "window" },
+        cr.right,
+        cr.bottom
+    ));
+}
+
+/// The projector's window procedure: its frame (once), F11 and a double-click for borderless full screen, Esc to leave;
+/// everything else is the game's.
+unsafe extern "system" fn proj_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    static LAST_CLICK: AtomicU32 = AtomicU32::new(0);
+    match m {
+        WM_FORZA_PROJ => {
+            projector::frame(h, test_screen(), log);
+            return LRESULT(0);
+        }
+        WM_KEYDOWN | WM_KEYUP if wp.0 == 0x7A => {
+            if m == WM_KEYDOWN && lp.0 & (1 << 30) == 0 {
+                toggle_fullscreen(h, &PROJ_FS);
+            }
+            return LRESULT(0);
+        }
+        WM_KEYDOWN if wp.0 == 0x1B && fullscreen::leave(h, &PROJ_FS, test_screen()) => {
+            log_fullscreen(h, false);
+            return LRESULT(0);
+        }
+        WM_LBUTTONDBLCLK => {
+            toggle_fullscreen(h, &PROJ_FS);
+            return LRESULT(0);
+        }
+        // a window class without CS_DBLCLKS: two presses within the double-click time
+        WM_LBUTTONDOWN => {
+            // SAFETY: plain queries
+            let (now, gap) = unsafe { (GetTickCount(), GetDoubleClickTime()) };
+            let last = LAST_CLICK.swap(now, Relaxed);
+            if last != 0 && now.wrapping_sub(last) <= gap {
+                LAST_CLICK.store(0, Relaxed);
+                toggle_fullscreen(h, &PROJ_FS);
+                return LRESULT(0);
+            }
+        }
+        _ => {}
+    }
+    // SAFETY: the procedure we replaced, with the message as it came
+    unsafe {
+        CallWindowProcW(
+            std::mem::transmute::<isize, WNDPROC>(OLD_PROC.load(Relaxed)),
+            h,
+            m,
+            wp,
+            lp,
+        )
     }
 }
 
@@ -711,26 +753,26 @@ unsafe extern "system" fn hook_present(
     }
     IN_PRESENT.set(true);
     if PROJECTOR.load(Relaxed) {
-        // the projector: its frame copied for seat 1, nothing drawn
-        if std::panic::catch_unwind(|| {
+        // the projector: nothing drawn; its picture composed into the resized window, else the game's own Present
+        let shown = std::panic::catch_unwind(|| {
             // SAFETY: the game's device, alive for the call; we are on its render thread
-            if let Some(dev) = unsafe { IDirect3DDevice9::from_raw_borrowed(&dev) }
-                && let Some(shm) = shm()
-                && let Ok(mut c) = CAPTURE.lock()
-                && let Some(c) = c.as_mut()
-            {
-                // SAFETY: as above
-                unsafe { c.tick(dev, shm, log) };
+            let dev = unsafe { IDirect3DDevice9::from_raw_borrowed(&dev) }?;
+            let wnd = HWND(WINDOW.load(Relaxed) as *mut c_void);
+            let mut v = VIEW.lock().ok()?;
+            // SAFETY: as above
+            unsafe {
+                v.get_or_insert_with(Default::default)
+                    .present(dev, wnd, log)
             }
         })
-        .is_err()
-        {
+        .unwrap_or_else(|_| {
             DEAD.store(true, Relaxed);
-            log("projector: a frame copy panicked - copies stop");
-        }
+            log("projector: a frame panicked - the picture stays at the game's size");
+            None
+        });
         IN_PRESENT.set(false);
         // SAFETY: as above
-        return unsafe { orig(dev, src, dst, wnd, dirty) };
+        return shown.unwrap_or_else(|| unsafe { orig(dev, src, dst, wnd, dirty) });
     }
     // the pause key or button: a pause holds the game right here, before its frame is shown
     if std::panic::catch_unwind(|| {
@@ -772,10 +814,10 @@ unsafe extern "system" fn hook_reset(dev: *mut c_void, pp: *mut D3DPRESENT_PARAM
     {
         r.release_default();
     }
-    if let Ok(mut c) = CAPTURE.lock()
-        && let Some(c) = c.as_mut()
+    if let Ok(mut v) = VIEW.lock()
+        && let Some(v) = v.as_mut()
     {
-        c.release();
+        v.release();
     }
     log("device reset");
     // SAFETY: the original Reset through its trampoline
@@ -818,10 +860,6 @@ struct Render {
     sc: Option<(IDirect3DSwapChain9, u32, u32, HWND)>,
     sc_failed: bool,
     game: Option<(IDirect3DTexture9, IDirect3DSurface9, u32, u32)>,
-    /// PROJECTOR: the projector's frame as a texture (size), the frame it holds, the frame last seen and when.
-    proj: Option<(IDirect3DTexture9, u32, u32)>,
-    proj_up: u32,
-    proj_seen: (u32, Option<Instant>),
     max_tex: usize,
     dump: bool,
     size: (u32, u32),
@@ -894,9 +932,6 @@ impl Render {
             sc: None,
             sc_failed: false,
             game: None,
-            proj: None,
-            proj_up: 0,
-            proj_seen: (0, None),
             max_tex: 2048,
             dump: std::env::var_os("FORZA_PANEL_DUMP").is_some_and(|v| v == "1"),
             size: (0, 0),
@@ -1143,8 +1178,6 @@ impl Render {
         self.club_in();
         self.deal_in();
         self.keys_in();
-        // SAFETY: the game's device, on its render thread
-        unsafe { self.projector_in(dev) };
         // the tactics lamps from the I/O board's outputs (2017-18 only; 2010-11's bits are not mapped)
         if self.st.edition == theme::Edition::E1718
             && let Some(o) = JVS_OUT
@@ -1214,83 +1247,6 @@ impl Render {
                 false
             }
         }
-    }
-
-    /// PROJECTOR: seat 1's heartbeat into the shared section, and the projector's newest frame into a texture while
-    /// PROJECTOR is on; `st.projector` is that frame while frames keep coming (2 s), else None (not running).
-    unsafe fn projector_in(&mut self, dev: &IDirect3DDevice9) {
-        let Some(shm) = shm() else {
-            self.st.projector = None;
-            return;
-        };
-        shm.beat(HWND(WINDOW.load(Relaxed) as *mut c_void));
-        let frame = shm.frame();
-        if let Some((seq, w, h)) = frame
-            && seq != self.proj_seen.0
-        {
-            if self.proj_seen.1.is_none() {
-                log(&format!(
-                    "projector: first frame from the projector ({w}x{h})"
-                ));
-            }
-            self.proj_seen = (seq, Some(Instant::now()));
-        }
-        let live = self
-            .proj_seen
-            .1
-            .is_some_and(|t| t.elapsed() < Duration::from_secs(2));
-        if !self.st.projector_on || !live {
-            self.st.projector = None;
-            return;
-        }
-        if let Some((seq, w, h)) = frame
-            && seq != self.proj_up
-        {
-            // SAFETY: a MANAGED texture of this device, written within its locked rows
-            let up = unsafe {
-                (|| -> windows::core::Result<()> {
-                    if self.proj.as_ref().is_none_or(|p| (p.1, p.2) != (w, h)) {
-                        self.proj = None;
-                        let mut t = None;
-                        dev.CreateTexture(
-                            w,
-                            h,
-                            1,
-                            0,
-                            D3DFMT_X8R8G8B8,
-                            D3DPOOL_MANAGED,
-                            &mut t,
-                            std::ptr::null_mut(),
-                        )?;
-                        self.proj = Some((t.ok_or_else(windows::core::Error::empty)?, w, h));
-                    }
-                    let Some((t, ..)) = &self.proj else {
-                        return Ok(());
-                    };
-                    let mut lr = D3DLOCKED_RECT::default();
-                    t.LockRect(0, &mut lr, std::ptr::null(), 0)?;
-                    for y in 0..h as usize {
-                        let src = shm.row(w, y);
-                        std::slice::from_raw_parts_mut(
-                            lr.pBits.cast::<u8>().add(y * lr.Pitch as usize),
-                            src.len(),
-                        )
-                        .copy_from_slice(src);
-                    }
-                    t.UnlockRect(0)
-                })()
-            };
-            match up {
-                // a frame written meanwhile: this one may be torn, the next frame copies the new one
-                Ok(()) if shm.still(seq) => self.proj_up = seq,
-                Ok(()) => {}
-                Err(e) => log(&format!("projector: texture {w}x{h}: {e}")),
-            }
-        }
-        self.st.projector = self.proj.as_ref().map(|(t, w, h)| {
-            self.painter.set_user(PROJ, t.clone()); // again after a reset, which drops the painter's own
-            (PROJ, vec2(*w as f32, *h as f32))
-        });
     }
 
     /// The table read again when someone else changed it (FPR_Emu's own panel, a hand edit), never mid-drag.
@@ -1944,12 +1900,19 @@ unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LR
         }
         WM_CLOSE if !close_allowed() => return LRESULT(0), // a match is on: warned once
         WM_CLOSE => CLOSING.store(true, Relaxed), // the window goes: link_watch calls the drop ENDED
-        // F11: maximized <-> the game's size, once frames are shown; the game never sees it
+        // F11: borderless full screen <-> the window as it was (maximized at the start), once frames are shown; the
+        // game never sees it
         WM_KEYDOWN | WM_KEYUP if wp.0 == 0x7A => {
             if m == WM_KEYDOWN && lp.0 & (1 << 30) == 0 && SHOWN.load(Relaxed) {
-                set_maximized(h, !is_maximized(h));
+                toggle_fullscreen(h, &PANEL_FS);
             }
             return LRESULT(0);
+        }
+        // Esc leaves full screen, and still goes on to egui and the game (it closes the deal window and the server field)
+        WM_KEYDOWN if wp.0 == 0x1B && fullscreen::is_on(&PANEL_FS) => {
+            if fullscreen::leave(h, &PANEL_FS, test_screen()) {
+                log_fullscreen(h, false);
+            }
         }
         // a button held on the panel keeps the mouse, so its release arrives even outside the window (drag and drop)
         WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN => {
