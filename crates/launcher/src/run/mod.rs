@@ -797,6 +797,8 @@ pub struct Run<'a> {
     gamesvr: Option<Handle>,
     /// 2017-18 with a club server: the direct VS link (crates/vslink), beside the game.
     vslink: Option<Handle>,
+    /// 2017-18 online: where this run's VS plays (RESTART NOW keeps the cabinet only for the same target).
+    vs_target: Option<rules::VsTarget>,
     lease: Option<Lease>,
     _lock: OwnedHandle,
 }
@@ -882,6 +884,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         scenes: None,
         gamesvr: None,
         vslink: None,
+        vs_target: None,
         lease: None,
         _lock: lock,
     };
@@ -1696,6 +1699,7 @@ impl Run<'_> {
             let panel = choices::read(&panel_file);
             let club = choices::setting(&self.kit.settings_file(), "club_server").unwrap_or_default();
             let t = rules::vs_target(&panel, &club).map_err(Failed)?;
+            self.vs_target = Some(t.clone());
             // Note: only "localhost" is proven as GAME_SVR_IP (a literal 127.0.0.1 means the publisher's address);
             // a numeric IP or a hostname needs the live test.
             let found = reach(&t.host, t.port).ok_or_else(|| {
@@ -2141,7 +2145,14 @@ impl Run<'_> {
     fn restart(&mut self) -> Option<End> {
         self.say("RESTART NOW asked.");
         let panel = choices::read(&self.kit.data().join("panel.txt"));
-        let fits = rules::cabinet_restart_fits(&self.mode, self.alive(Role::Seat), &panel, self.kit.game_language());
+        let club = choices::setting(&self.kit.settings_file(), "club_server").unwrap_or_default();
+        let fits = rules::cabinet_restart_fits(
+            &self.mode,
+            self.alive(Role::Seat),
+            &panel,
+            self.kit.game_language(),
+            (&club, self.vs_target.as_ref()),
+        );
         if let Some(why) = self.refusal(false) {
             self.say(&why);
             self.say("NOT restarted - the game is still running.");

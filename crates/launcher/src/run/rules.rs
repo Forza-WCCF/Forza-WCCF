@@ -272,8 +272,16 @@ pub fn seat_refusal(e: &SeatError, asked: Option<u8>, ip: &str) -> String {
 
 /// RESTART NOW needs only the cabinet (play.py's cabinet_restart_fits) when a plain start would play the same way -
 /// THIS PC, or ONLINE on the same server - and no change of the game's text is asked: the projector would come back
-/// exactly as it is, so it is kept.  `panel` is data\panel.txt, `language` the game's text now ("en", "it", "").
-pub fn cabinet_restart_fits(mode: &Mode, has_cabinet: bool, panel: &str, language: &str) -> bool {
+/// exactly as it is, so it is kept.  `panel` is data\panel.txt, `language` the game's text now ("en", "it", "");
+/// `vs` (2017-18 online) data\settings.json `club_server` and the [`VsTarget`] the run started with: the same game
+/// server, and no other VS room's ticket waiting in the panel (the run's own ticket left it at the start).
+pub fn cabinet_restart_fits(
+    mode: &Mode,
+    has_cabinet: bool,
+    panel: &str,
+    language: &str,
+    vs: (&str, Option<&VsTarget>),
+) -> bool {
     use crate::choices::panel_value;
     if !has_cabinet {
         return false;
@@ -285,7 +293,16 @@ pub fn cabinet_restart_fits(mode: &Mode, has_cabinet: bool, panel: &str, languag
     match mode {
         Mode::Remote(ip, _) => online && panel_value(panel, "server").as_deref() == Some(ip.as_str()),
         Mode::Local => !online,
-        Mode::Vs(ip) => online && panel_value(panel, "server").as_deref() == Some(ip.as_str()),
+        Mode::Vs(_) => {
+            let (club, started) = vs;
+            online
+                && started.is_some_and(|s| {
+                    vs_target(panel, club).is_ok_and(|now| {
+                        (now.host.as_str(), now.port) == (s.host.as_str(), s.port)
+                            && now.room.is_none_or(|r| Some(&r) == s.room.as_ref())
+                    })
+                })
+        }
         Mode::Server => false,
     }
 }
@@ -600,37 +617,71 @@ mod tests {
 
     #[test]
     fn restart_keeps_the_projector_only_when_nothing_changes() {
+        const NO_VS: (&str, Option<&VsTarget>) = ("", None);
         let remote = Mode::Remote("1.2.3.4".into(), None);
-        assert!(cabinet_restart_fits(&Mode::Local, true, "play_on=this_pc\n", ""));
-        assert!(cabinet_restart_fits(&Mode::Local, true, "", "en"));
-        assert!(!cabinet_restart_fits(&Mode::Local, false, "", ""), "no cabinet running");
+        assert!(cabinet_restart_fits(&Mode::Local, true, "play_on=this_pc\n", "", NO_VS));
+        assert!(cabinet_restart_fits(&Mode::Local, true, "", "en", NO_VS));
+        assert!(
+            !cabinet_restart_fits(&Mode::Local, false, "", "", NO_VS),
+            "no cabinet running"
+        );
         assert!(!cabinet_restart_fits(
             &Mode::Local,
             true,
             "play_on=online\nserver=1.2.3.4\n",
-            ""
+            "",
+            NO_VS
         ));
         assert!(cabinet_restart_fits(
             &remote,
             true,
             "play_on=online\nserver=1.2.3.4\n",
-            ""
+            "",
+            NO_VS
         ));
         assert!(!cabinet_restart_fits(
             &remote,
             true,
             "play_on=online\nserver=5.6.7.8\n",
-            ""
+            "",
+            NO_VS
         ));
         assert!(
-            !cabinet_restart_fits(&Mode::Local, true, "english=on\n", ""),
+            !cabinet_restart_fits(&Mode::Local, true, "english=on\n", "", NO_VS),
             "a text switch needs a full restart"
         );
         assert!(
-            cabinet_restart_fits(&Mode::Local, true, "english=on\n", "en"),
+            cabinet_restart_fits(&Mode::Local, true, "english=on\n", "en", NO_VS),
             "already English: no switch"
         );
-        assert!(!cabinet_restart_fits(&Mode::Server, true, "", ""));
+        assert!(!cabinet_restart_fits(&Mode::Server, true, "", "", NO_VS));
+        // 2017-18 online: the game server the run started on, and no new room's ticket
+        let vs = Mode::Vs("1.2.3.4".into());
+        let on = "play_on=online\nserver=1.2.3.4\n";
+        let club = vs_target(on, "club.example:20061").unwrap();
+        assert!(cabinet_restart_fits(
+            &vs,
+            true,
+            on,
+            "",
+            ("club.example:20061", Some(&club))
+        ));
+        assert!(
+            !cabinet_restart_fits(&vs, true, on, "", ("", Some(&club))),
+            "club server taken off"
+        );
+        assert!(!cabinet_restart_fits(&vs, true, on, "", ("other.example", Some(&club))));
+        let room = vs_target("play_on=online\nserver=1.2.3.4\nticket=ab12\n", "").unwrap();
+        assert!(
+            cabinet_restart_fits(&vs, true, on, "", ("", Some(&room))),
+            "the room's ticket was spent"
+        );
+        let next = "play_on=online\nserver=1.2.3.4\nticket=cd34\n";
+        assert!(
+            !cabinet_restart_fits(&vs, true, next, "", ("", Some(&room))),
+            "another room"
+        );
+        assert!(!cabinet_restart_fits(&vs, true, on, "", ("", None)));
         assert_eq!(english_change("english=IT\n", "en"), Some("it"));
         assert_eq!(english_change("english=off\n", ""), None);
         assert_eq!(english_change("english=maybe\n", ""), None);
