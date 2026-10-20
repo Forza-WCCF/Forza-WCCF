@@ -114,6 +114,7 @@ const KEEP_1718: &[&str] = &[
     "bin/forza-server.exe",
     "bin/winmm.dll",
     "bin/wccfnet.dll",
+    "bin/ICMP.DLL",
     "bin/logowin.exe",
     "bin/FPR_Emu.exe",
     "overlay/inject.exe",
@@ -242,7 +243,21 @@ const ED_1718: Ed = Ed {
             &["/LD"],
             &[],
         ),
+        cj(
+            "netguard/icmp.c",
+            "bin/ICMP.DLL",
+            "stand-in ICMP.DLL: the game's pings return at once instead of timing out",
+            &["/LD"],
+            &[],
+        ),
         // tests only, not shipped
+        cj(
+            "netguard/test_icmp.c",
+            "source/build/test_icmp.exe",
+            "",
+            &[],
+            &[],
+        ),
         cj(
             "netguard/test_wccfnet.c",
             "source/build/test_wccfnet.exe",
@@ -298,6 +313,7 @@ const PROGRAMS_1718: &[&str] = &[
     "bin/forza-server.exe",
     "bin/winmm.dll",
     "bin/wccfnet.dll",
+    "bin/ICMP.DLL",
     "bin/logowin.exe",
     "bin/FPR_Emu.exe",
     "overlay/inject.exe",
@@ -1004,6 +1020,7 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
     for p in PROGRAMS_1718.iter().chain(&[
         "source/build/test_wccfnet.exe",
         "source/build/test_netguard.exe",
+        "source/build/test_icmp.exe",
     ]) {
         ensure!(
             kit_1718.join(p).is_file(),
@@ -1162,6 +1179,8 @@ fn guard_tests(ck: &mut Checks, kit: &Path) -> Result<()> {
         ("overlay/netguard.dll", "netguard.dll"),
         ("source/build/test_wccfnet.exe", "test_wccfnet.exe"),
         ("source/build/test_netguard.exe", "test_netguard.exe"),
+        ("bin/ICMP.DLL", "ICMP.DLL"),
+        ("source/build/test_icmp.exe", "test_icmp.exe"),
     ] {
         fs::copy(kit.join(from), t.join(to))?;
     }
@@ -1175,6 +1194,11 @@ fn guard_tests(ck: &mut Checks, kit: &Path) -> Result<()> {
             "netguard.dll: the four IP helper imports now point into it",
             "test_netguard.exe",
             "netguard.dll",
+        ),
+        (
+            "ICMP.DLL stand-in: three exports, IcmpSendEcho returns 0 at once",
+            "test_icmp.exe",
+            "ICMP.DLL",
         ),
     ] {
         let mut c = Command::new(t.join(exe));

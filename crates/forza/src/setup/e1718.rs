@@ -4,7 +4,7 @@
 //! - `original\` the untouched client_Release.exe and control_Release.exe, kept on the first run; every later run
 //!   patches from them, so running setup again never stacks a patch (a second run changes nothing)
 //! - `game\` the server and projector: guarded programs (they import wccfnet.dll, which stubs the four IP-helper
-//!   calls, instead of IPHLPAPI.DLL), the kit's winmm.dll / logowin.exe stand-ins, the settings files
+//!   calls, instead of IPHLPAPI.DLL), the kit's winmm.dll / logowin.exe / ICMP.DLL stand-ins, the settings files
 //! - `seat1\` the player's cabinet: junctions to game's folders, hard links to its files, its own patched
 //!   client_Release.exe, the card-table helper
 //! - `setup-hashes.json` the SHA-256 of what setup made; Launcher.exe starts nothing unless every file still matches
@@ -243,6 +243,7 @@ pub fn setup_game(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
     for (dll, built) in [
         ("wccfnet.dll", bin.join("wccfnet.dll")),
         ("netguard.dll", overlay.join("netguard.dll")),
+        ("ICMP.DLL", bin.join("ICMP.DLL")),
     ] {
         copy_in(&built, &game.join(dll), "the network guard")?;
         report
@@ -359,7 +360,13 @@ pub fn undo(kit: &Path, game: &Path, spec: &Spec) -> Result<()> {
     if backup.is_file() {
         fs::rename(&backup, game.join("logowin.exe"))?;
     }
-    for f in ["winmm.dll", "winmm_orig.dll", "wccfnet.dll", "netguard.dll"] {
+    for f in [
+        "winmm.dll",
+        "winmm_orig.dll",
+        "wccfnet.dll",
+        "netguard.dll",
+        "ICMP.DLL",
+    ] {
         if game.join(f).is_file() {
             fs::remove_file(game.join(f))?;
         }
@@ -491,6 +498,7 @@ mod tests {
         }
         for (d, n) in [
             ("bin", "wccfnet.dll"),
+            ("bin", "ICMP.DLL"),
             ("overlay", "netguard.dll"),
             ("bin", "winmm.dll"),
             ("bin", "logowin.exe"),
@@ -527,11 +535,16 @@ mod tests {
         let before = tree(&rt);
 
         let report = run(&kit, &game, &spec).unwrap();
-        assert_eq!(report.0.len(), 5);
+        assert_eq!(report.0.len(), 6);
         let record = fs::read_to_string(rt.join("setup-hashes.json")).unwrap();
         let json: serde_json::Value = serde_json::from_str(&record).unwrap();
         assert_eq!(json["client_Release.exe"]["original"], sha(&client));
         assert_eq!(json["wccfnet.dll"], sha(b"kit wccfnet.dll"));
+        assert_eq!(json["ICMP.DLL"], sha(b"kit ICMP.DLL"));
+        assert_eq!(
+            fs::read(rt.join("seat1/ICMP.DLL")).unwrap(),
+            b"kit ICMP.DLL"
+        );
         assert!(
             record.ends_with("}\r\n") && record.starts_with("{\r\n  \"client_Release.exe\": {\r\n")
         );
@@ -598,6 +611,7 @@ mod tests {
             !seat.exists()
                 && !rt.join("setup-hashes.json").exists()
                 && !game.join("wccfnet.dll").exists()
+                && !game.join("ICMP.DLL").exists()
         );
         assert!(
             game.join("AI").is_dir(),
