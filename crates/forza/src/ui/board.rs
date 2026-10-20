@@ -915,6 +915,17 @@ fn drag_centre(pointer: Pos2, grab: Vec2, card: Vec2) -> Pos2 {
     pointer + grab * card
 }
 
+/// The slot whose card lies under `centre`, other than the dragged one: the drop target. `shown` says which slots
+/// are drawn (an empty pitch slot is no place).
+fn target_slot(
+    rects: &[Rect; 16],
+    shown: impl Fn(usize) -> bool,
+    dragged: Option<usize>,
+    centre: Pos2,
+) -> Option<usize> {
+    (0..16).find(|&s| Some(s) != dragged && shown(s) && rects[s].contains(centre))
+}
+
 /// The grab of the drag in progress: the card centre less the press point, as a fraction of the card. Board drags
 /// store it on their first frame; a catalogue card stores it when its drag starts ([`catalogue_card`]).
 fn grab_id() -> Id {
@@ -982,8 +993,8 @@ pub fn formation_board(
             && ui.data(|d| d.get_temp::<Vec2>(grab_id())).is_none()
             && let Some(press) = ui.input(|i| i.pointer.press_origin())
         {
-            let rest = slot_rects(pitch, bench.top(), &board.spots)[from].center();
-            ui.data_mut(|d| d.insert_temp(grab_id(), (rest - press) / card));
+            let rest = slot_rects(pitch, bench.top(), &board.spots)[from];
+            ui.data_mut(|d| d.insert_temp(grab_id(), (rest.center() - press) / rest.size()));
         }
     } else {
         ui.data_mut(|d| d.remove::<Vec2>(grab_id()));
@@ -1020,6 +1031,15 @@ pub fn formation_board(
     let flip_id = Id::new("board-flip");
     let mut hovered_card = None;
     let mut drop_target = None;
+    // the swap target is the card under the held card's centre (as drawn), not under the pointer
+    let target = pointer.and_then(|p| {
+        target_slot(
+            &rects,
+            |s| s >= 11 || board.slots[s].is_some(),
+            dragging,
+            drag_centre(p, grab, card),
+        )
+    });
     for (slot, &rect) in rects.iter().enumerate() {
         // no spot boxes on the pitch: an empty pitch slot is no place and takes no drop
         if slot < 11 && board.slots[slot].is_none() {
@@ -1027,9 +1047,7 @@ pub fn formation_board(
         }
         let resp = ui.interact(rect, Id::new(("board-slot", slot)), Sense::click_and_drag());
         let p = ui.painter();
-        let hovered_by_drag = (dragging.is_some_and(|d| d != slot)
-            && resp.dnd_hover_payload::<usize>().is_some())
-            || resp.dnd_hover_payload::<Card>().is_some();
+        let hovered_by_drag = (dragging.is_some() || incoming.is_some()) && target == Some(slot);
         if hovered_by_drag {
             drop_target = Some((slot, rect));
         }
@@ -1133,22 +1151,23 @@ pub fn formation_board(
                 );
             }
         }
-        if let Some(from) = resp.dnd_release_payload::<usize>() {
-            if *from != slot {
-                if let Some(o) = origin {
-                    // the other card goes where this one was lifted from
-                    board.spots[*from] = o;
-                }
-                board.swap(*from, slot);
-                changed = true;
-            } else if slot < 11
-                && let Some(pt) = pointer
-            {
-                // dropped on its own place: a short move across the pitch
-                changed |= board.move_to(slot, spot_at(pitch, drag_centre(pt, grab, card)));
+    }
+
+    // a release: onto the target card (swap, or put the catalogue card there), else on open pitch
+    if ui.input(|i| i.pointer.any_released()) {
+        if let (Some(from), Some(t)) = (dragging, target)
+            && egui::DragAndDrop::take_payload::<usize>(ui.ctx()).is_some()
+        {
+            if let Some(o) = origin {
+                // the other card goes where this one was lifted from
+                board.spots[from] = o;
             }
-        } else if let Some(c) = resp.dnd_release_payload::<Card>() {
-            changed |= board.put(&c, slot);
+            board.swap(from, t);
+            changed = true;
+        } else if let (Some(c), Some(t)) = (incoming.clone(), target)
+            && egui::DragAndDrop::take_payload::<Card>(ui.ctx()).is_some()
+        {
+            changed |= board.put(&c, t);
         }
     }
 
@@ -1950,6 +1969,22 @@ pub fn catalogue_card(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_card_dropped_on_the_next_one_targets_it() {
+        // slot 0 follows the pointer and overlaps slot 1: the target is slot 1, never the dragged slot itself
+        let mut rects = [Rect::NOTHING; 16];
+        rects[0] = Rect::from_min_size(pos2(90.0, 0.0), vec2(80.0, 120.0));
+        rects[1] = Rect::from_min_size(pos2(100.0, 0.0), vec2(80.0, 120.0));
+        assert_eq!(
+            target_slot(&rects, |_| true, Some(0), pos2(150.0, 50.0)),
+            Some(1)
+        );
+        assert_eq!(
+            target_slot(&rects, |_| true, Some(0), pos2(95.0, 50.0)),
+            None
+        );
+    }
 
     #[test]
     fn a_dragged_card_stays_where_it_was_taken() {
