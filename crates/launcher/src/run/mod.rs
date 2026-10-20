@@ -1567,7 +1567,7 @@ impl Run<'_> {
                 },
             );
             self.say(&if up.is_ok() {
-                format!("  6/6 panels loaded")
+                "  6/6 panels loaded".to_owned()
             } else {
                 "  6/6 panels loaded (no confirmation yet; see seat1\\forza_panel.log)".to_owned()
             });
