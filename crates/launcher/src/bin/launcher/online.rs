@@ -30,6 +30,10 @@ struct Held {
     server: String,
     /// PLAY started: the run spends the ticket, so a `GONE` from the desk is expected now.
     played: bool,
+    /// The heartbeat lives as long as this window, and the window outlives every run it starts: the run is a thread
+    /// of this process (`start`'s `Step::Game`) whose Job ends the game when the process goes (`job.rs`,
+    /// KILL_ON_JOB_CLOSE), and `main.rs` cancels a close while a run is busy or up (a close asks the run to stop, by
+    /// the card rule). The THIS PC / ONLINE choice is greyed while a run is on, so `look` never lets go mid-run.
     _beat: Beat,
     /// A VS room: its id, and whether this PC made it (LEAVE then closes it).
     vs: Option<(String, bool)>,
