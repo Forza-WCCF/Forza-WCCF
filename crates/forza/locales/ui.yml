@@ -51,6 +51,9 @@ launcher.vs_link: {en: "Direct VS link", it: "Collegamento VS diretto", ja: "ダ
 launcher.vs_link_hint: {en: "For VS matches between homes.", it: "Per le partite VS tra case.", ja: "家どうしのVS対戦用。"}
 # messages: the status line, the questions, the output; the run's own lines stay English
 launcher.msg_starting: {en: "Starting the game ...", it: "Avvio del gioco ...", ja: "ゲームを起動しています..."}
+launcher.stage_server: {en: "Game server (about 45 s) ...", it: "Server di gioco (circa 45 s) ...", ja: "ゲームサーバー（約45秒）..."}
+launcher.stage_window: {en: "Opening the game window ...", it: "Apertura della finestra di gioco ...", ja: "ゲームのウィンドウを開いています..."}
+launcher.stage_screen: {en: "Loading the game screen (about 30 s) ...", it: "Caricamento della schermata di gioco (circa 30 s) ...", ja: "ゲーム画面を読み込んでいます（約30秒）..."}
 launcher.msg_restarting: {en: "Restarting ...", it: "Riavvio ...", ja: "再起動しています..."}
 launcher.msg_stopping: {en: "Stopping the game ...", it: "Arresto del gioco ...", ja: "ゲームを終了しています..."}
 launcher.msg_running: {en: "Game running.", it: "Gioco in esecuzione.", ja: "ゲーム実行中。"}
@@ -527,7 +530,6 @@ pause.msg_too_soon: {en: "Next pause in %{s} s.", it: "Prossima pausa tra %{s} s
 # ---- language, logs, edition-aware warnings ----
 launcher.msg_stop_anyway_1718: {en: "A match is on. Stop anyway?", it: "Partita in corso. Fermare comunque?", ja: "試合中です。終了しますか？"}
 close.body_1718: {en: "Closing now ends the match.", it: "Chiudere ora termina la partita.", ja: "今閉じると試合が終了します。"}
-launcher.original_ja_text: {en: "Original Japanese game text", it: "Testo originale giapponese", ja: "ゲームの日本語（オリジナル）"}
 launcher.save_logs: {en: "SAVE LOGS", it: "SALVA LOG", ja: "ログを保存"}
 settings.save_logs: {en: "SAVE LOGS", it: "SALVA LOG", ja: "ログを保存"}
 logs.saved: {en: "Saved: %{path}", it: "Salvato: %{path}", ja: "保存しました：%{path}"}

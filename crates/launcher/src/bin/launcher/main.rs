@@ -34,7 +34,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{env, mem, ptr, thread};
 
 use eframe::egui;
@@ -85,6 +85,8 @@ struct Shared {
     update_note: Option<(Tone, String)>,
     progress: u32,             // of 1000
     steps: Option<(u32, u32)>, // the run's "N/M" step lines: N of M
+    began: Option<Instant>,    // the job's start
+    stage_at: Option<Instant>, // the last step line
     log: Vec<String>,          // lines for OUTPUT, not shown yet
     busy: bool,                // a job runs
     updated: bool,             // an update has just finished: offer setup
@@ -99,6 +101,8 @@ static SHARED: Mutex<Shared> = Mutex::new(Shared {
     update_note: None,
     progress: 0,
     steps: None,
+    began: None,
+    stage_at: None,
     log: Vec::new(),
     busy: false,
     updated: false,
@@ -157,9 +161,27 @@ fn stepped(line: &str) {
     if let Some((n, m)) = step(line) {
         let mut s = shared();
         s.progress = s.progress.max(n * 1000 / m);
+        let before = s.steps;
         s.steps = Some(s.steps.filter(|&(d, t)| t == m && d >= n).unwrap_or((n, m)));
+        if s.steps != before {
+            s.stage_at = Some(Instant::now());
+            // a game start (6 steps): name what the player waits for
+            if let Some(key) = (m == 6).then(|| STAGES.get(s.steps.map_or(0, |(d, _)| d as usize))).flatten() {
+                s.status = Some((Tone::Notice, t(key)));
+            }
+        }
     }
 }
+
+/// The status line after step N of a game start (index N; 0 and 6 keep the line they have).
+const STAGES: [&str; 6] = [
+    "launcher.msg_starting",
+    "launcher.stage_server",
+    "launcher.stage_window",
+    "launcher.stage_window",
+    "launcher.stage_window",
+    "launcher.stage_screen",
+];
 
 /// A setup or text step's lines into OUTPUT; Ok when it is done, else the status that says why.
 fn setup_step(rc: i32) -> Result<(), String> {
@@ -178,11 +200,26 @@ fn step(line: &str) -> Option<(u32, u32)> {
     (n <= m && m > 0 && rest[m.to_string().len()..].starts_with(' ')).then_some((n, m))
 }
 
-/// The game's text: the screen's place (English, Italian, the original Japanese) <-> its code ("en", "it", "").
-const GAME_TEXT: [&str; 3] = ["en", "it", ""];
+/// The game's text follows the launcher language: "en", "it" or "" (the original Japanese). Hidden override, not in
+/// the UI: env WCCF_GAME_TEXT or settings.json "game_text" = en | it | original.
+fn game_text_for(lang: Lang, over: Option<&str>) -> &'static str {
+    match over.map(str::to_ascii_lowercase).as_deref() {
+        Some("en") => "en",
+        Some("it") => "it",
+        Some("original" | "ja") => "",
+        _ => match lang {
+            Lang::En => "en",
+            Lang::It => "it",
+            Lang::Ja => "",
+        },
+    }
+}
 
-fn game_text_of(code: &str) -> usize {
-    GAME_TEXT.iter().position(|&c| c == code).unwrap_or(2)
+fn game_text(kit: &Kit) -> &'static str {
+    let over = std::env::var("WCCF_GAME_TEXT")
+        .ok()
+        .or_else(|| choices::setting(&kit.settings_file(), "game_text"));
+    game_text_for(text::lang(), over.as_deref())
 }
 
 fn panel_file(kit: &Kit) -> PathBuf {
@@ -204,6 +241,8 @@ fn start(steps: Vec<Step>) {
         s.busy = true;
         s.progress = 0;
         s.steps = None;
+        s.began = Some(Instant::now());
+        s.stage_at = s.began;
     }
     poke();
     thread::spawn(move || {
@@ -429,12 +468,6 @@ impl App {
         let address = choices::panel_value(&panel, "server")
             .or_else(|| choices::setting(&settings, "server"))
             .unwrap_or_default();
-        let game_text = match choices::panel_value(&panel, "english").as_deref() {
-            Some("on") => "en",
-            Some("it") => "it",
-            Some("off") => "",
-            _ => kit.game_language(),
-        };
         let game = folder.map_or_else(
             || choices::setting(&settings, "game").unwrap_or_default(),
             |f| f.to_string_lossy().into_owned(),
@@ -457,11 +490,11 @@ impl App {
             online,
             lobby,
             rejoin: None,
-            game_text: game_text_of(game_text),
             set_up,
             running: RUNNING.load(Ordering::Relaxed),
             busy: false,
             steps: None,
+            clock: (0.0, 0.0),
             progress: 0.0,
             status: None,
             setup_open: !set_up || folder.is_some(),
@@ -532,6 +565,9 @@ impl App {
             self.st.update_status.clone_from(&s.update_note);
             self.st.progress = s.progress as f32 / 1000.0;
             self.st.steps = s.steps.map(|(n, m)| (n as usize, m as usize));
+            self.st.clock = s.began.zip(s.stage_at).map_or((0.0, 0.0), |(b, a)| {
+                (a.elapsed().as_secs_f32(), b.elapsed().as_secs_f32())
+            });
             self.st.busy = s.busy;
             (
                 mem::take(&mut s.log),
@@ -690,7 +726,7 @@ impl App {
                 }
             }
             Action::SetUpAfterUpdate => {
-                let lang = kit.game_language();
+                let lang = game_text(&kit);
                 let mut steps = vec![Step::Setup {
                     folder: self.st.folder.trim().into(),
                     undo: false,
@@ -707,13 +743,6 @@ impl App {
                 let lang = self.st.lang;
                 text::set(lang);
                 let _ = choices::set_setting(&kit.settings_file(), "language", lang.code());
-                // the game's text follows: Japanese for 日本語, Italian for Italiano, else English (still a choice of
-                // its own)
-                self.st.game_text = match lang {
-                    Lang::Ja => 2,
-                    Lang::It => 1,
-                    Lang::En => 0,
-                };
             }
         }
     }
@@ -747,7 +776,7 @@ impl App {
                 return;
             }
         }
-        let lang = GAME_TEXT[self.st.game_text.min(2)];
+        let lang = game_text(kit);
         let path = panel_file(kit);
         let mut panel = choices::read(&path);
         panel = choices::set_panel_value(&panel, "play_on", Some(if online { "online" } else { "this_pc" }));
@@ -866,7 +895,7 @@ impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.look(ctx);
         // a safety net for anything that changed without a poke
-        ctx.request_repaint_after(Duration::from_secs(1));
+        ctx.request_repaint_after(Duration::from_millis(if self.st.busy { 250 } else { 1000 }));
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
@@ -896,7 +925,7 @@ fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
         start(first);
     }
     pad_thread();
-    let title = format!("{TITLE} {} - {}", kit.edition().name(), kit.dir().display());
+    let title = format!("Launcher - {TITLE} {}", kit.edition().name());
     let fonts = theme::font_dir();
     // wgpu first; if it cannot open the window (no Direct3D/Vulkan), OpenGL once. FORZA_RENDERER=glow|wgpu forces one.
     let forced = match std::env::var("FORZA_RENDERER").as_deref() {
@@ -1138,10 +1167,11 @@ mod tests {
     }
 
     #[test]
-    fn game_text_places() {
-        assert_eq!(game_text_of("en"), 0);
-        assert_eq!(game_text_of("it"), 1);
-        assert_eq!(game_text_of(""), 2);
-        assert_eq!(GAME_TEXT[game_text_of("it")], "it");
+    fn game_text_follows_language() {
+        assert_eq!(game_text_for(Lang::En, None), "en");
+        assert_eq!(game_text_for(Lang::It, None), "it");
+        assert_eq!(game_text_for(Lang::Ja, None), "");
+        assert_eq!(game_text_for(Lang::En, Some("original")), "");
+        assert_eq!(game_text_for(Lang::Ja, Some("en")), "en");
     }
 }
