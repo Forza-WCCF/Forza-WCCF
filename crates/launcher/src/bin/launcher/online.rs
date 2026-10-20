@@ -30,6 +30,10 @@ struct Held {
     server: String,
     /// PLAY started: the run spends the ticket, so a `GONE` from the desk is expected now.
     played: bool,
+    /// The heartbeat lives as long as this window, and the window outlives every run it starts: the run is a thread
+    /// of this process (`start`'s `Step::Game`) whose Job ends the game when the process goes (`job.rs`,
+    /// KILL_ON_JOB_CLOSE), and `main.rs` cancels a close while a run is busy or up (a close asks the run to stop, by
+    /// the card rule). The THIS PC / ONLINE choice is greyed while a run is on, so `look` never lets go mid-run.
     _beat: Beat,
     /// A VS room: its id, and whether this PC made it (LEAVE then closes it).
     vs: Option<(String, bool)>,
@@ -95,24 +99,8 @@ pub struct Online {
     clock: Clock,
 }
 
-/// The `servers` setting; none saved yet: the address the player had before (so nothing changes for old setups).
-pub fn servers(settings: &Path, address: &str) -> Vec<String> {
-    let saved = choices::setting_json(settings, "servers").and_then(|v| {
-        v.as_array().map(|a| {
-            a.iter()
-                .filter_map(|s| s.as_str().map(str::to_owned))
-                .collect::<Vec<_>>()
-        })
-    });
-    match saved {
-        Some(s) => s,
-        None if choices::valid_address(address) => vec![address.to_owned()],
-        None => vec![],
-    }
-}
-
 impl Online {
-    pub fn new(settings: &Path, address: &str) -> Online {
+    pub fn new(settings: &Path, address: &str, edition: launcher::Edition) -> Online {
         let last = choices::setting_json(settings, "lobby_last").and_then(|v| {
             Some(Last {
                 server: v["server"].as_str()?.into(),
@@ -122,7 +110,7 @@ impl Online {
                 at: v["at"].as_u64()?,
             })
         });
-        let servers = servers(settings, address);
+        let servers = launcher::lobby::servers(settings, address, edition);
         let mut o = Online::default();
         o.book = Book::new(&servers);
         o.servers = servers;

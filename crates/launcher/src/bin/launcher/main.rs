@@ -398,7 +398,7 @@ impl App {
         } else if shared().status.is_none() {
             say_tone(Tone::Done, ui_text(text::lang(), "launcher.status_ready", &[]), 0);
         }
-        let online_state = online::Online::new(&settings, &address);
+        let online_state = online::Online::new(&settings, &address, ed);
         let mut lobby = screen::lobby_for(ed);
         lobby.address = address;
         let st = LauncherState {
@@ -674,7 +674,7 @@ impl App {
         let seat = online.then(|| self.online.take_ticket(vs_only)).flatten();
         if let Some((s, _)) = &seat {
             server.clone_from(s);
-        } else if online && !choices::valid_address(&server) && !club_only {
+        } else if online && !launcher::lobby::valid_server(&server) && !club_only {
             refuse(t("launcher.msg_bad_address"));
             return;
         }

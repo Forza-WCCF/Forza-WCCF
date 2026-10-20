@@ -3,12 +3,14 @@
 //! `forza::ui::lobby` draws, and the reserve and heartbeat workers behind JOIN.  The window owns the threads' handles;
 //! dropping a [`Poller`] or a [`Beat`] ends its thread.
 
+use crate::Edition;
 use forza::online::SEAT_PORT;
 use forza::online::lobby::{self, Created, Lobby, Reserved, State, VsRoom};
 use forza::ui::Lang;
 use forza::ui::lobby::{LobbyView, Row, RowState};
 use std::collections::HashMap;
-use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::net::{SocketAddr, TcpStream};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::{Arc, mpsc::Receiver};
@@ -52,6 +54,39 @@ pub enum Msg {
     Readied { id: String, result: Result<bool, String> },
 }
 
+/// The project's lobby server for 2010-11 (its seat desk on the usual port, [`SEAT_PORT`]); a name may replace it.
+pub const PROJECT_SERVER_1011: &str = "203.0.113.10:20030";
+/// The project's lobby server for 2017-18 (its desk beside the game server on 20060).
+pub const PROJECT_SERVER_1718: &str = "203.0.113.10:20032";
+
+/// The `servers` setting the lobby asks; none saved yet: the address the player had before (if any), then the
+/// project's server for `edition`.
+pub fn servers(settings: &Path, address: &str, edition: Edition) -> Vec<String> {
+    let saved = crate::choices::setting_json(settings, "servers").and_then(|v| {
+        v.as_array().map(|a| {
+            a.iter()
+                .filter_map(|s| s.as_str().map(str::to_owned))
+                .collect::<Vec<_>>()
+        })
+    });
+    if let Some(s) = saved.filter(|s| !s.is_empty()) {
+        return s;
+    }
+    let project = match edition {
+        Edition::E1011 => PROJECT_SERVER_1011,
+        Edition::E1718 => PROJECT_SERVER_1718,
+    };
+    let mut list: Vec<String> = Some(address.trim())
+        .filter(|a| valid_server(a))
+        .map(str::to_owned)
+        .into_iter()
+        .collect();
+    if !list.iter().any(|a| a == project) {
+        list.push(project.to_owned());
+    }
+    list
+}
+
 /// A `servers` entry: `host` or `host:port`, the host a name or an IPv4 address (the seat desk's port by default).
 pub fn valid_server(server: &str) -> bool {
     crate::choices::host_port(server, SEAT_PORT).is_some()
@@ -59,8 +94,7 @@ pub fn valid_server(server: &str) -> bool {
 
 /// A `servers` entry as a socket address; a name is resolved (it may block: call it on a worker).
 pub fn socket(server: &str) -> Option<SocketAddr> {
-    let (host, port) = crate::choices::host_port(server, SEAT_PORT)?;
-    (host.as_str(), port).to_socket_addrs().ok()?.find(SocketAddr::is_ipv4)
+    crate::choices::resolve(server, SEAT_PORT)
 }
 
 /// `CLOSE id ticket` on its own thread (the host leaves its VS room; best effort like [`release`]).

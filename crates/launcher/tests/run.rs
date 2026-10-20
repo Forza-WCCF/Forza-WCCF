@@ -166,7 +166,7 @@ fn running_from(dir: &Path) -> Vec<String> {
         .collect()
 }
 
-/// Online on a scratch server: the cabinet starts, a stop is refused while the club card is in, closing seat 1's
+/// Online on a scratch server named `localhost:DESK-PORT`: the cabinet starts, a stop is refused while the club card is in, closing seat 1's
 /// window ends the run (nothing of it left in < 30 s), and the end says the player closed it.
 #[test]
 fn closing_seat_1_ends_the_run_and_the_card_rule_holds() {
@@ -176,11 +176,14 @@ fn closing_seat_1_ends_the_run_and_the_card_rule_holds() {
     shared.set_switches(0, [0, 0], [CARD_BIT, 0]); // the club card is in when the key driver starts
     let p = params("close", shared);
     let _control = TcpListener::bind(("127.0.0.1", p.control_port)).unwrap(); // "the server answers"
-    let _desk = seat_desk(p.seat_port);
+    // written as the lobby lists it: a name, and the seat desk on a port of its own (not p.seat_port)
+    let desk_port = free_port();
+    let _desk = seat_desk(desk_port);
     let ui = Arc::new(Said::default());
     let kit_dir = kit.dir().to_path_buf();
     let (u, kd) = (ui.clone(), kit_dir.clone());
-    let t = thread::spawn(move || run::command(&Kit::at(kd), &p, &["remote".into(), "127.0.0.1".into()], &*u));
+    let server = format!("localhost:{desk_port}");
+    let t = thread::spawn(move || run::command(&Kit::at(kd), &p, &["remote".into(), server], &*u));
 
     let t0 = Instant::now();
     while !ui.up.load(Ordering::Relaxed) {
@@ -195,8 +198,16 @@ fn closing_seat_1_ends_the_run_and_the_card_rule_holds() {
     let said = ui.text();
     assert!(said.contains("  5/6 seat 1 (the player cabinet) - window up"), "{said}");
     assert!(said.contains("this PC is seat 1"), "{said}");
+    assert!(
+        !said.contains("has no seat desk"),
+        "the claim went to the desk's own port: {said}"
+    );
     assert!(run::is_on(&kit, Kind::Run), "the run's lock is held");
     let running = fs::read_to_string(kit.data().join("running.json")).unwrap();
+    assert!(
+        running.contains("\"server\":\"127.0.0.1\""),
+        "the name resolved: {running}"
+    );
     assert!(
         running.contains("\"started\"") && !running.contains("processes"),
         "a start stamp: {running}"

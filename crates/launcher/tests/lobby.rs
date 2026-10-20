@@ -172,3 +172,22 @@ fn servers_take_host_port_and_names() {
     assert!(valid_server("lobby.wccf.it") && valid_server("203.0.113.10:20032"));
     assert!(!valid_server("") && !valid_server("host:0") && !valid_server("a b"));
 }
+
+#[test]
+fn the_project_server_is_asked_when_none_is_saved() {
+    use launcher::Edition;
+    use launcher::lobby::{PROJECT_SERVER_1011, PROJECT_SERVER_1718, servers, valid_server};
+    let dir = tempfile::tempdir().unwrap();
+    let settings = dir.path().join("settings.json");
+    assert!(valid_server(PROJECT_SERVER_1011) && valid_server(PROJECT_SERVER_1718));
+    assert_eq!(servers(&settings, "", Edition::E1011), [PROJECT_SERVER_1011]);
+    assert_eq!(servers(&settings, "", Edition::E1718), [PROJECT_SERVER_1718]);
+    // the address of an older setup stays first
+    assert_eq!(
+        servers(&settings, "10.0.0.5", Edition::E1011),
+        ["10.0.0.5", PROJECT_SERVER_1011]
+    );
+    // a saved list (typed addresses go in front of the default, online.rs) is asked as saved
+    launcher::choices::set_setting_json(&settings, "servers", serde_json::json!(["lobby.example:20040"])).unwrap();
+    assert_eq!(servers(&settings, "10.0.0.5", Edition::E1011), ["lobby.example:20040"]);
+}

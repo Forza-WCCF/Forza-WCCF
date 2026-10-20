@@ -362,9 +362,11 @@ pub fn command(kit: &Kit, p: &Params, words: &[String], ui: &dyn Ui) -> i32 {
             play(kit, p, Some(mode), debug, ui)
         }
         Words::RemoteRemembered { seat, debug } => match choices::setting(&kit.settings_file(), "server") {
-            Some(ip) if choices::valid_address(&ip) => play(kit, p, Some(Mode::Remote(ip, seat)), debug, ui),
+            Some(ip) if choices::host_port(&ip, p.seat_port).is_some() => {
+                play(kit, p, Some(Mode::Remote(ip, seat)), debug, ui)
+            }
             _ => {
-                ui.say("Which server? Launcher.exe remote, then the server's address (four numbers with dots).");
+                ui.say("Which server? Launcher.exe remote, then the server's address or name (HOST, or HOST:PORT for its seat desk's port).");
                 NOT_SET_UP
             }
         },
@@ -490,14 +492,15 @@ fn plain_mode(kit: &Kit, p: &Params, ui: &dyn Ui) -> Mode {
             }
         };
     }
-    if !choices::valid_address(&ip) {
+    let host = choices::host_port(&ip, p.seat_port).map(|(h, _)| h);
+    let Some(host) = host else {
         ui.say(&format!(
             "The SETTINGS panel says play online, but \"{ip}\" is not a server address - playing on this PC. (In the \
              game: SETTINGS, then type the address again.)"
         ));
         return Mode::Local;
-    }
-    if !answers(&ip, p.control_port) {
+    };
+    if reach(&host, p.control_port).is_none() {
         ui.say(&format!(
             "The SETTINGS panel says play online, but the server at {ip} does not answer - playing on this PC instead. \
              (The panel keeps ONLINE for next time; THIS PC there stops this try.)"
@@ -778,6 +781,9 @@ pub struct Run<'a> {
     /// 2017-18 online: where this run's VS plays (RESTART NOW keeps the cabinet only for the same target).
     vs_target: Option<rules::VsTarget>,
     lease: Option<Lease>,
+    /// Remote: the server as the game takes it (its IPv4 address) and its seat desk's port (`host:port` written:
+    /// that port), found at step 2 from [`Mode::Remote`]'s entry.
+    remote: Option<(String, u16)>,
     _lock: OwnedHandle,
 }
 
@@ -864,6 +870,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         vslink: None,
         vs_target: None,
         lease: None,
+        remote: None,
         _lock: lock,
     };
     // requests left by a run that ended are never carried out
@@ -920,11 +927,9 @@ impl Run<'_> {
         (save.join(card::SLOT), save.join(card::NEW))
     }
 
+    /// Remote: the server's IPv4 address (once step 2 found it).
     fn ip(&self) -> Option<&str> {
-        match &self.mode {
-            Mode::Remote(ip, _) => Some(ip),
-            _ => None,
-        }
+        self.remote.as_ref().map(|(ip, _)| ip.as_str())
     }
 
     /// What every program of the run gets: where the game and the logs are, and where the panel finds its data.
@@ -1277,10 +1282,15 @@ impl Run<'_> {
         }
 
         let mut projector = true;
-        if let Mode::Remote(ip, want) = self.mode.clone() {
+        if let Mode::Remote(entry, want) = self.mode.clone() {
+            // the entry as written: a name or an IPv4 address, ":port" the seat desk's (the lobby's entry)
+            let (ip, desk) = choices::resolve(&entry, p.seat_port)
+                .map(|a| (a.ip().to_string(), a.port()))
+                .ok_or_else(|| Failed(format!("\"{entry}\" is not a server this PC can find")))?;
+            self.remote = Some((ip.clone(), desk));
             if !answers(&ip, p.control_port) {
                 return Err(Failed(format!(
-                    "the server at {ip} does not answer on port {} - is it running there (Launcher.exe server), and \
+                    "the server at {entry} does not answer on port {} - is it running there (Launcher.exe server), and \
                      is that port open to this PC? (Launcher.exe local plays on this PC instead)",
                     p.control_port
                 )));
@@ -1738,7 +1748,8 @@ impl Run<'_> {
 
     /// Online: this PC's seat from the server's seat desk, held while the run lasts; None asked = the next free seat.
     fn take_seat(&mut self, ip: &str, want: Option<u8>) -> Result<(u8, bool), Failed> {
-        let at = addr(ip, self.p.seat_port).ok_or_else(|| Failed(format!("{ip} is not an address")))?;
+        let desk = self.remote.as_ref().map_or(self.p.seat_port, |r| r.1);
+        let at = addr(ip, desk).ok_or_else(|| Failed(format!("{ip} is not an address")))?;
         let log = file_log(self.logs().join("run_seat_lease.txt"));
         // a seat the lobby reserved: data\panel.txt "ticket=" (single use, so the line goes before the claim)
         let panel = self.kit.data().join("panel.txt");
