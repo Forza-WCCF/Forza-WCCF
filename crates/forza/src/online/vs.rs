@@ -56,12 +56,27 @@ pub fn fill_login_loopback(body: &mut [u8], cfg: &VsConfig) {
     body[12..14].copy_from_slice(&cfg.vslink_port.to_le_bytes());
 }
 
-/// 238 payload: the relay thresholds in GAME_CTRL bytes 12, 14, 15 (payload +28 u16 ms, +30 and +31 u8 percent). A
-/// until a live capture.
-pub fn fill_thresholds(body: &mut [u8]) {
+/// How many REQ_MATCH polls a client makes, 10 s apart, before its control commits the CPU fallback (GAME_CTRL byte
+/// 19,740, client game state +0x5310; a received 0 replaces the client's default of 26 and means no polls, so no 245
+/// and no pair). The first poll comes 10 s after the entry, so the fallback lands about 10 * POLLS s in: 90 s.
+pub const POLLS: u8 = 9;
+/// 238 payload offset of [`POLLS`] (GAME_CTRL starts at payload +16).
+const POLLS_AT: usize = 16 + 19_740;
+/// 238 payload offsets of the Grand Trophy window, u16 HHMM start and end (GAME_CTRL bytes 7,622 / 7,624; control
+/// checkGrandTrophyOpen 0x4568A0). A closed window (equal values, zeros) does not stop the entry but turns the VS game
+/// into a friendly result with 243 +16 kbn 0; 0..2400 is open all day and keeps VS a Grand Trophy match.
+const GT_OPEN_AT: usize = 16 + 7_622;
+const GT_CLOSE_AT: usize = 16 + 7_624;
+
+/// 238 payload (GAME_CTRL from +16): the relay thresholds in bytes 12, 14, 15 (payload +28 u16 ms, +30 and +31 u8
+/// percent, A until a live capture), the poll count and the Grand Trophy window.
+pub fn fill_game_ctrl(body: &mut [u8]) {
     body[28..30].copy_from_slice(&200u16.to_le_bytes());
     body[30] = 20;
     body[31] = 50;
+    body[POLLS_AT] = POLLS;
+    body[GT_OPEN_AT..GT_OPEN_AT + 2].copy_from_slice(&0u16.to_le_bytes());
+    body[GT_CLOSE_AT..GT_CLOSE_AT + 2].copy_from_slice(&2400u16.to_le_bytes());
 }
 
 /// 224 body (92 bytes): round id and the entry window.
@@ -480,8 +495,10 @@ mod tests {
         fill_round(&mut r, 400);
         assert_eq!((u32_at(&r, 4), u32_at(&r, 8), u32_at(&r, 12)), (10, 40, 40));
         let mut c = vec![0u8; 0x5A54];
-        fill_thresholds(&mut c);
+        fill_game_ctrl(&mut c);
         assert_eq!((u16_at(&c, 28), c[30], c[31]), (200, 20, 50));
+        assert_eq!(c[19_756], POLLS);
+        assert_eq!((u16_at(&c, 7_638), u16_at(&c, 7_640)), (0, 2400));
     }
 
     #[test]
