@@ -26,7 +26,7 @@ use xshell::{Shell, cmd};
 enum Task {
     /// Compile the C programs and the launchers into the staged kits (2010-11 and 2017-18)
     Build,
-    /// fmt, clippy, tests, the kit's Python and C self-tests, the scrub; `check quick` = fmt, clippy and the tests of the crates changed since --base
+    /// fmt, clippy, tests, the kit's C self-tests, the scrub; `check quick` = fmt, clippy and the tests of the crates changed since --base
     Check {
         /// `quick`: only the crates changed since the base (and their dependents); no release build, no kit, no smoke
         #[arg(value_parser = ["quick"])]
@@ -76,10 +76,7 @@ const MAP: &[(&str, &str)] = &[
     ("CHANGELOG.md", "editions/2010-11/CHANGELOG.md"),
     ("art", "editions/2010-11/art"),
     ("fonts", "assets/fonts"), // the panel's fonts (forza-panel font_dir: a fonts\ above its DLL) and their licences
-    ("code", "legacy/2010-11/code"),
     ("languages", "editions/2010-11/languages"),
-    ("python", "legacy/python"),
-    ("source", "legacy/2010-11/tests"),
     ("source/README.txt", "native/2010-11/README.txt"),
     ("source/hook", "native/2010-11/hook"),
     ("source/panel", "native/2010-11/panel"),
@@ -91,30 +88,15 @@ const MAP: &[(&str, &str)] = &[
 /// The staged 2017-18 kit <- the repository, same rules as [`MAP`]; later rows overlay earlier ones and a row may be one
 /// file. The kit's programs are not here: `build` compiles them into the staged kit ([`KEEP_1718`]).
 const MAP_1718: &[(&str, &str)] = &[
-    ("", "legacy/2017-18/kit"), // scripts/ (setup, English, cards); no .bat: it would open a console; the run is Launcher.exe
     ("README.txt", "editions/2017-18/README.txt"),
     ("README.it.txt", "editions/2017-18/README.it.txt"),
     ("README.ja.txt", "editions/2017-18/README.ja.txt"),
     ("CHANGES.txt", "editions/2017-18/CHANGES.txt"),
     ("english", "editions/2017-18/english"),
-    ("italian", "editions/2017-18/italian"), // english.py on it: key + Italian, the English behind each key
+    ("italian", "editions/2017-18/italian"), // the Italian text: key + Italian, the English behind each key
     ("overlay/skin.tex", "editions/2017-18/overlay/skin.tex"),
     ("fonts", "assets/fonts"),
-    ("python", "legacy/python"),
-    ("python/python313._pth", "legacy/2017-18/python313._pth"), // ..\scripts on the path
     ("source/README.txt", "native/2017-18/README.txt"),
-    (
-        "source/test_game_text.py",
-        "legacy/2017-18/tests/test_game_text.py",
-    ),
-    (
-        "source/test_setup1718.py",
-        "legacy/2017-18/tests/test_setup1718.py",
-    ),
-    (
-        "source/test_pictures1718.py",
-        "legacy/2017-18/tests/test_pictures1718.py",
-    ),
     ("source/mxhook", "native/2017-18/mxhook"),
     ("source/overlay", "native/2017-18/overlay"),
     ("source/overlay/inject.c", "native/common/inject.c"),
@@ -205,7 +187,7 @@ const ED_1011: Ed = Ed {
             &[],
             &["d3d9.lib", "user32.lib"],
         ),
-        // fakegame with an IP-helper import: the 2017-18 guard's tests rename it to wccfnet.dll as setup1718.py does
+        // fakegame with an IP-helper import: the 2017-18 guard's tests rename it to wccfnet.dll as setup does
         cj(
             "panel/fakegame_iphlp.c",
             "source/build/fakegame_iphlp.exe",
@@ -297,10 +279,8 @@ const COMMON: &[Cj] = &[
 ];
 
 /// Shipped programs that may be console programs, each started only by Launcher.exe with CREATE_NO_WINDOW and its output
-/// read through a file or a pipe: python.exe (setup scripts; Launcher.exe's `script` and the installer), inject.exe (exit
-/// code and message read from a pipe), forza-server.exe (log file).  FPR_Emu.exe is not here: the game starts it.
+/// read through a file or a pipe: inject.exe (exit code and message read from a pipe), forza-server.exe (log file).  FPR_Emu.exe is not here: the game starts it.
 const CONSOLE_OK: &[&str] = &[
-    "python/python.exe",
     "overlay/inject.exe",
     "programs/inject.exe",
     "bin/forza-server.exe",
@@ -324,7 +304,7 @@ const PROGRAMS_1718: &[&str] = &[
     "overlay/forza_panel.dll",
     "overlay/netguard.dll",
 ];
-/// What the kit must hold after a build and a package (the ZIP also gets python.exe from git).
+/// What the kit must hold after a build and a package.
 const PROGRAMS: &[&str] = &[
     "Launcher.exe",
     "programs/forza-server.exe",
@@ -837,7 +817,6 @@ fn build_c(
 
 /// What `check` collects: the failed checks' names.
 struct Checks {
-    py: PathBuf,
     kit: PathBuf,
     /// scratch folders of the checks, beside the kit (a Windows drive when the kit is on one)
     tmp: PathBuf,
@@ -845,16 +824,6 @@ struct Checks {
 }
 
 impl Checks {
-    fn python(&self, args: &[&str]) -> Command {
-        let mut c = Command::new(&self.py);
-        c.arg("-I")
-            .args(args.iter().map(|a| win_arg(a)))
-            .current_dir(&self.kit)
-            // the test servers (seat desk, relay, log inbox) listen on loopback only: no firewall prompt per python.exe
-            .env("WCCF_BIND", "127.0.0.1");
-        c
-    }
-
     /// Run a check's command to its end; print its output (only the last line if `last`); a nonzero exit fails `what`.
     fn run(&mut self, what: &str, mut c: Command, last: bool) {
         run_env(&mut c);
@@ -886,13 +855,6 @@ impl Checks {
     fn fail(&mut self, what: &str, why: &str) {
         eprintln!("{what}: {why}");
         self.failed.push(what.to_owned());
-    }
-
-    /// A kit script `source/NAME` run as a check; `last`: show only its last output line.
-    fn test(&mut self, what: &str, script: &str, last: bool) {
-        let path = self.kit.join("source").join(script);
-        let c = self.python(&[path.to_str().unwrap()]);
-        self.run(what, c, last);
     }
 }
 
@@ -1050,101 +1012,15 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
     }
     stage(root, kit, MAP, KEEP)?;
     let mut ck = Checks {
-        py: kit.join("python/python.exe"),
         kit: kit.to_owned(),
         tmp: stage_root.join("check-tmp"),
         failed: vec![],
     };
-    let code = kit.join("code");
-    let code_s = code.to_str().unwrap();
-
-    let c = ck.python(&["-c", "import pathlib, sys; [compile(p.read_bytes(), str(p), 'exec') for p in sorted(pathlib.Path(sys.argv[1]).rglob('*.py'))]; print('code: all compile (every folder)')", code_s]);
-    ck.run("code compile", c, false);
-
-    // the launchers run python\python.exe code\<script>: the kit's modules are found ONLY through python\python313._pth
-    // (2026-10-11: scripts\ was renamed to code\ but the _pth still said ..\scripts - every test adds code\ to the path
-    // itself, so they all passed while a real Launcher.exe could not import kit_common). Every file, every folder.
-    ck.test(
-        "every file in code\\ imports through python313._pth, as the launchers run them",
-        "test_imports.py",
-        true,
-    );
-
-    ck.test(
-        "a program started through a junction (the first-run link) is found by the kit's path checks",
-        "test_junction_paths.py",
-        false,
-    );
-    let c = ck.python(&[code.join("cards/edit.py").to_str().unwrap(), "--self-test"]);
-    ck.run("club card editor self-test", c, true);
-    ck.test(
-        "a missing card helper file must not stop a start",
-        "test_card_fix.py",
-        false,
-    );
-    ck.test(
-        "an older kit's scripts\\ bin\\ overlay\\ tidied, the catalogue moved to data\\cache\\",
-        "test_old_layout.py",
-        true,
-    );
-    ck.test(
-        "the hook-import patcher: winmm -> wccfk, valid checksum, reversible",
-        "test_patch_hook_import.py",
-        false,
-    );
-    ck.test(
-        "a transferred card: listed as such, never played again",
-        "test_wallet_transferred.py",
-        false,
-    );
-
-    ck.test(
-        "English pictures: added to the archive, taken back out byte for byte",
-        "test_english_pictures.py",
-        false,
-    );
-    ck.test(
-        "the Italian tables: keys, font and codes",
-        "test_italian_tables.py",
-        false,
-    );
-    ck.test(
-        "the english_backup list: entries of older kits still read",
-        "test_backup_manifest.py",
-        false,
-    );
-
     ck.run(
         "whole messages: a batch in pieces waits for its rest, bytes that are no batch are skipped",
         Command::new(kit.join("source/build/test_wholemsg.exe")),
         false,
     );
-
-    let c = ck.python(&[kit_1718.join("source/test_game_text.py").to_str().unwrap()]);
-    ck.run(
-        "2017-18 game text: Italian first, the English behind it, codes kept",
-        c,
-        false,
-    );
-
-    let c = ck.python(&[kit_1718
-        .join("source/test_pictures1718.py")
-        .to_str()
-        .unwrap()]);
-    ck.run(
-        "2017-18 pictures: added to the archive, taken back out byte for byte",
-        c,
-        false,
-    );
-
-    // setup1718's own selftest (agent A's), once it exists
-    let t = kit_1718.join("source/test_setup1718.py");
-    if t.is_file() {
-        let c = ck.python(&[t.to_str().unwrap()]);
-        ck.run("2017-18 setup: the selftest", c, false);
-    } else {
-        println!("skipped: legacy/2017-18/tests/test_setup1718.py does not exist yet");
-    }
 
     panel_selftests(&mut ck)?;
     guard_tests(&mut ck, kit_1718)?;
@@ -1178,7 +1054,7 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
     scrub(root, &mut ck.failed)?;
     installer_checks(root, stage_root, &mut ck.failed);
     no_script_host(root, &mut ck.failed)?;
-    launcher_scripts(root, kit, &mut ck.failed)?;
+    no_python(&[kit, kit_1718], &mut ck.failed)?;
 
     ensure!(ck.failed.is_empty(), "FAILED: {}", ck.failed.join(", "));
     println!("all checks passed");
@@ -1452,28 +1328,29 @@ fn scrub(root: &Path, failed: &mut Vec<String>) -> Result<()> {
     Ok(())
 }
 
-// ---- the launcher's scripts ----
+// ---- no Python ----
 
-/// The scripts Launcher.exe runs (the run in `crates/launcher/src/run` and the window's SETUP) are where it looks for them in
-/// the staged kit: the 2010-11 layout's `scripts` folder, read from its source.
-fn launcher_scripts(root: &Path, kit: &Path, failed: &mut Vec<String>) -> Result<()> {
-    let src = fs::read_to_string(root.join("crates/forza/src/layout.rs"))?;
-    let dir = src
-        .lines()
-        .find_map(|l| l.trim().strip_prefix("scripts: \"")?.strip_suffix("\","))
-        .context("no scripts folder in crates/forza/src/layout.rs")?;
-    let scripts = ["setup.py", "english.py", "card_steps.py"];
-    let missing: Vec<_> = scripts
-        .iter()
-        .filter(|s| !kit.join(dir).join(s).is_file())
-        .collect();
-    if missing.is_empty() {
-        println!(
-            "launcher scripts: {dir}/ has the {} scripts Launcher.exe runs",
-            scripts.len()
-        );
-    } else {
-        failed.push(format!("launcher scripts: {dir}/ lacks {missing:?}"));
+/// The staged kits ship no Python (2026-10-20: setup, the game's text and the card steps are Launcher.exe's own): no
+/// python.exe and no .py file anywhere in them.
+fn no_python(kits: &[&Path], failed: &mut Vec<String>) -> Result<()> {
+    for kit in kits {
+        let (mut files, mut dirs) = (BTreeSet::new(), BTreeSet::new());
+        walk(kit, "", &mut files, &mut dirs)?;
+        let found: Vec<&String> = files
+            .iter()
+            .filter(|f| {
+                let f = f.to_lowercase();
+                f.ends_with(".py") || f.ends_with("python.exe")
+            })
+            .collect();
+        if found.is_empty() {
+            println!(
+                "no Python: {} holds no python.exe and no .py",
+                kit.display()
+            );
+        } else {
+            failed.push(format!("no Python: {} holds {found:?}", kit.display()));
+        }
     }
     Ok(())
 }
@@ -1892,7 +1769,7 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
     zip.finish()?;
 
     // read the ZIP back: every program must be in it, not only in the folder it was made from
-    // (a kit without them cannot start); python.exe comes from git, the rest from the build
+    // (a kit without them cannot start)
     let mut ar = zip::ZipArchive::new(fs::File::open(&zip_path)?)?;
     let mut entries = HashSet::new();
     for i in 0..ar.len() {
@@ -1901,16 +1778,12 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
     let need = programs
         .iter()
         .copied()
-        .chain(["python/python.exe"])
         .chain((!version.is_empty()).then_some("version.txt"));
     let missing: Vec<_> = need
         .filter(|n| !entries.contains(&format!("{top}/{n}")))
         .collect();
     ensure!(missing.is_empty(), "the ZIP lacks: {}", missing.join(", "));
-    println!(
-        "the ZIP has every program: {}, python/python.exe",
-        programs.join(", ")
-    );
+    println!("the ZIP has every program: {}", programs.join(", "));
 
     let hash: String = Sha256::digest(fs::read(&zip_path)?)
         .iter()

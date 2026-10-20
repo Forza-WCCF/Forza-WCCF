@@ -1,4 +1,5 @@
-//! Replays tests/rec/kit.jsonl (legacy/2010-11/tests/rec_a_kit.py: kit_common.find_game, seat_dir, misc_dir).
+//! Replays tests/rec/kit.jsonl, recorded once from the Python kit's kit_common.find_game, seat_dir and misc_dir
+//! (legacy/2010-11/tests/rec_a_kit.py, which no check runs any more).
 
 use std::fs;
 use std::path::Path;

@@ -2,14 +2,15 @@
 //! Runs on a worker thread; reports through `emit`, stops when `cancel` is set.
 use crate::disc;
 use crate::err::{InstallError as E, path as shown};
-use anyhow::{Result, bail, ensure};
+use anyhow::{Result, ensure};
 use forza::Edition;
+use forza::text::{Lang, Mode};
 use forza::ui::installer::Step;
 use ntfs::{Ntfs, NtfsReadSeek, structured_values::NtfsFileNamespace};
 use std::fs::{self, File};
-use std::io::{BufRead, BufReader, Read, Seek, Write};
+use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub const GAME_DIR: &str = "game";
@@ -77,14 +78,6 @@ fn edition_of(game_id: &str) -> Option<Edition> {
         .find(|e| e.game_id() == game_id)
 }
 
-/// The kit's scripts folder, as the launcher's `Kit::script` picks it (`code\` for 2010-11, `scripts\` for 2017-18).
-fn scripts_dir(e: Edition) -> &'static str {
-    match e {
-        Edition::E1011 => "code",
-        Edition::E1718 => "scripts",
-    }
-}
-
 /// The kit's edition must be the game's.
 pub fn check_setup(game_id: Option<&str>, kit: Edition) -> Result<()> {
     ensure!(
@@ -98,8 +91,8 @@ pub fn check_setup(game_id: Option<&str>, kit: Edition) -> Result<()> {
 }
 
 /// The kit zip may hold the files directly or inside one top folder (WCCF-2010-11-kit/...). A kit has Launcher.exe at
-/// its top and is 2010-11 with `code/setup.py`, 2017-18 with `scripts/setup.py` plus `bin/` or `overlay/` (an old
-/// 2010-11 kit had `scripts/` too, but no `bin/` or `overlay/`).
+/// its top and its edition's folders beside it ([`Edition::of_kit`]: `programs/` for 2010-11, `bin/` or `overlay/` for
+/// 2017-18).
 fn kit_prefix(zip: &mut zip::ZipArchive<File>) -> Result<(Edition, String)> {
     let names = zip
         .file_names()
@@ -111,21 +104,12 @@ fn kit_prefix(zip: &mut zip::ZipArchive<File>) -> Result<(Edition, String)> {
             .iter()
             .any(|n| n == p || n.starts_with(&format!("{p}/")))
     };
-    for edition in [Edition::E1011, Edition::E1718] {
-        let setup = format!("{}/setup.py", scripts_dir(edition));
-        for n in names.iter().filter(|n| n.ends_with(&setup)) {
-            let prefix = &n[..n.len() - setup.len()];
-            if !(prefix.is_empty() || prefix.ends_with('/'))
-                || !names.contains(&format!("{prefix}Launcher.exe"))
-            {
-                continue;
-            }
-            if edition == Edition::E1718
-                && !has(&format!("{prefix}bin"))
-                && !has(&format!("{prefix}overlay"))
-            {
-                continue;
-            }
+    for n in names.iter().filter(|n| n.ends_with("Launcher.exe")) {
+        let prefix = &n[..n.len() - "Launcher.exe".len()];
+        if !(prefix.is_empty() || prefix.ends_with('/')) {
+            continue;
+        }
+        if let Some(edition) = Edition::of_kit(|d| has(&format!("{prefix}{d}"))) {
             return Ok((edition, prefix.to_string()));
         }
     }
@@ -232,10 +216,22 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
         emit(Event::Stage(Step::Setup));
         unpack_kit(kit, &dest, emit)?;
         check(cancel)?;
-        script(&dest, edition, "setup.py", Some(&game), emit, cancel)?;
+        let folder = game.to_string_lossy();
+        kit_step(emit, |say| {
+            forza::setup::kit_setup(edition, &dest, &folder, false, false, say)
+        })?;
         if plan.english {
+            check(cancel)?;
             emit(Event::Stage(Step::English));
-            script(&dest, edition, "english.py", None, emit, cancel)?;
+            kit_step(emit, |say| {
+                match forza::setup::find_edition_game(edition, &folder) {
+                    Some(g) => {
+                        let backup = dest.join("data").join("english_backup");
+                        forza::text::run(edition, &g, &backup, &dest, Mode::On, Lang::En, say)
+                    }
+                    None => 2,
+                }
+            })?;
         }
         if plan.shortcuts {
             shortcuts(&dest, edition, emit);
@@ -421,70 +417,22 @@ fn unpack_kit(zip_path: &Path, dest: &Path, emit: &dyn Fn(Event)) -> Result<()> 
     Ok(())
 }
 
-/// Run one of the kit's scripts with its bundled Python and stream its output into the log.
-fn script(
-    dest: &Path,
-    edition: Edition,
-    name: &str,
-    arg: Option<&Path>,
-    emit: &dyn Fn(Event),
-    cancel: &AtomicBool,
-) -> Result<()> {
-    let python = dest.join("python/python.exe");
-    if !cfg!(windows) || !python.is_file() {
-        bail!(E::KitNeedsWindows);
-    }
-    let mut cmd = Command::new(python);
-    cmd.arg(dest.join(scripts_dir(edition)).join(name))
-        .args(arg)
-        .current_dir(dest)
-        .env("PYTHONUNBUFFERED", "1")
-        .env("PYTHONIOENCODING", "utf-8")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    #[cfg(windows)]
-    std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000); // CREATE_NO_WINDOW
-    let mut child = cmd.spawn()?;
-    let err = child.stderr.take().unwrap();
-    let (tx, rx) = std::sync::mpsc::channel::<String>();
-    let tx2 = tx.clone();
-    std::thread::spawn(move || {
-        BufReader::new(err)
-            .lines()
-            .map_while(Result::ok)
-            .for_each(|l| drop(tx2.send(l)))
-    });
-    let out = child.stdout.take().unwrap();
-    std::thread::spawn(move || {
-        BufReader::new(out)
-            .lines()
-            .map_while(Result::ok)
-            .for_each(|l| drop(tx.send(l)))
-    });
+/// One of the kit's steps (setup, the game's text) in this process, its lines into the log; a failure is its FAIL
+/// line.  It cannot be cancelled half way: the cancel is looked at between steps.
+fn kit_step(emit: &dyn Fn(Event), step: impl FnOnce(&dyn Fn(&str)) -> i32) -> Result<()> {
+    let failed = std::cell::RefCell::new(None);
+    let say = |line: &str| {
+        if line.contains("FAIL") {
+            *failed.borrow_mut() = Some(line.trim().to_owned());
+        }
+        emit(Event::Log(line.to_owned()));
+    };
     emit(Event::Progress(0, 0));
-    let mut failed = None;
-    loop {
-        match rx.recv_timeout(std::time::Duration::from_millis(200)) {
-            Ok(line) => {
-                if line.contains("FAIL") {
-                    failed = Some(line.trim().to_string());
-                }
-                emit(Event::Log(line));
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-            Err(_) => {}
-        }
-        if cancel.load(Ordering::Relaxed) {
-            let _ = child.kill();
-            bail!(E::Cancelled);
-        }
-    }
-    let status = child.wait()?;
+    let rc = step(&say);
     ensure!(
-        status.success(),
+        rc == 0,
         E::Script {
-            detail: failed.unwrap_or_else(|| format!("{name}: {status}"))
+            detail: failed.into_inner().unwrap_or_else(|| format!("exit {rc}"))
         }
     );
     Ok(())
@@ -592,7 +540,7 @@ mod tests {
 
         let kit = root.join("kit.zip");
         let mut zip = zip::ZipWriter::new(File::create(&kit).unwrap());
-        for n in ["Launcher.exe", "code/setup.py"] {
+        for n in ["Launcher.exe", "programs/wccfk.dll"] {
             zip.start_file(n, zip::write::SimpleFileOptions::default())
                 .unwrap();
             zip.write_all(b"not executed").unwrap();
@@ -669,28 +617,25 @@ mod tests {
             kit_prefix(&mut zip::ZipArchive::new(File::open(p).unwrap()).unwrap())
                 .map_err(|e| e.to_string())
         };
-        let a = ["Launcher.exe", "code/setup.py"];
-        let b = ["Launcher.exe", "scripts/setup.py", "bin/x.dll"];
+        let a = ["Launcher.exe", "programs/wccfk.dll"];
+        let b = ["Launcher.exe", "bin/x.dll"];
         assert_eq!(prefix(&a), Ok((Edition::E1011, String::new())));
         assert_eq!(prefix(&b), Ok((Edition::E1718, String::new())));
         assert_eq!(
-            prefix(&["K/Launcher.exe", "K/code/setup.py"]),
+            prefix(&["K/Launcher.exe", "K/programs/wccfk.dll"]),
             Ok((Edition::E1011, "K/".into()))
         );
         assert_eq!(
-            prefix(&[
-                "K/Launcher.exe",
-                "K/scripts/setup.py",
-                "K/overlay/inject.exe"
-            ]),
+            prefix(&["K/Launcher.exe", "K/overlay/inject.exe"]),
             Ok((Edition::E1718, "K/".into()))
         );
-        // an old 2010-11 kit (scripts/ without bin/ or overlay/), a missing Launcher.exe and a foreign zip are not kits
+        // an old kit with only scripts/, a missing Launcher.exe and a foreign zip are not kits
         for files in [
             &["Launcher.exe", "scripts/setup.py"][..],
-            &["code/setup.py"],
-            &["Launcher.exe", "xcode/setup.py"],
-            &["code/setup.py", "Launcher.exe/child"],
+            &["programs/wccfk.dll"],
+            &["Launcher.exe", "xprograms/wccfk.dll"],
+            &["programs/wccfk.dll", "Launcher.exe/child"],
+            &["K/Launcher.exe", "programs/wccfk.dll"],
             &["readme.txt"],
         ] {
             assert!(

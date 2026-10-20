@@ -338,6 +338,71 @@ pub fn find_game(path: &str, programs: &[&str], below: &str) -> Option<PathBuf> 
         .find(|p| programs.iter().all(|n| p.join(n).is_file()))
 }
 
+/// The game folder of `ed` in `path` (or below it), as setup finds it.
+pub fn find_edition_game(ed: crate::Edition, path: &str) -> Option<PathBuf> {
+    match ed {
+        crate::Edition::E1011 => e1011::find_game(path),
+        crate::Edition::E1718 => e1718::find_game(path),
+    }
+}
+
+/// Setup (or `undo`) of the game in `folder` for the kit in `kit`, both editions, as `setup.py [undo] GAME [cards]`
+/// ran it: the game found, the steps said line by line, the last line.  The exit code is the script's: 0 done,
+/// 1 failed, 2 no game files there.
+pub fn kit_setup(
+    ed: crate::Edition,
+    kit: &Path,
+    folder: &str,
+    undo: bool,
+    cards: bool,
+    say: &dyn Fn(&str),
+) -> i32 {
+    use crate::Edition::{E1011, E1718};
+    let Some(game) = find_edition_game(ed, folder) else {
+        say(&if folder.trim().is_empty() {
+            "no game folder is set up - choose it under SETUP".to_owned()
+        } else {
+            let programs = match ed {
+                E1011 => "client_Release.exe, control_Release.exe, match_Release.exe",
+                E1718 => "client_Release.exe, control_Release.exe",
+            };
+            format!("no WCCF {} game files in {folder} ({programs})", ed.name())
+        });
+        return 2;
+    };
+    let what = if undo { "undo" } else { "setup" };
+    say(&format!(
+        "Forza-WCCF {} - {what} - game: {}",
+        ed.name(),
+        game.display()
+    ));
+    let done = match (ed, undo) {
+        (E1011, true) => e1011::undo(kit, &game, say),
+        (E1011, false) => e1011::run(kit, &game, cards, say),
+        (E1718, true) => e1718::undo(kit, &game, &e1718::Spec::game()).map(|()| {
+            say(&format!(
+                "Undone: the original programs are back in {}. Your club card stays in data\\save.",
+                game.display()
+            ));
+        }),
+        (E1718, false) => e1718::run(kit, &game, &e1718::Spec::game())
+            .map(|r| r.0.iter().for_each(|(k, _)| say(&format!("  ok    {k}"))))
+            .and_then(|()| e1718::setup_catalogue(kit, &game, cards, say)),
+    };
+    match done {
+        Ok(()) => {
+            if !undo {
+                say("Setup done. Start the game with Launcher.exe.");
+            }
+            0
+        }
+        Err(e) => {
+            say(&format!("  FAIL  {e}"));
+            1
+        }
+    }
+}
+
 /// A minimal 32-bit PE with one section (VA 0x1000, file 0x200) whose import table names `dlls`, and `extra` after it.
 #[cfg(test)]
 pub(crate) fn pe(dlls: &[&str], extra: &[u8]) -> Vec<u8> {

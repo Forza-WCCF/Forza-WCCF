@@ -255,8 +255,8 @@ fn a_game_not_set_up_is_refused() {
     assert!(!run::is_on(&kit, Kind::Run));
 }
 
-/// test_setup_state.py's ensure_hook: a game whose wccfk.dll is not this kit's is set up once (setup.py; here there
-/// is no Python, so that fails and the start stops, saying so); a missing catalogue is only a note.
+/// test_setup_state.py's ensure_hook: a game whose wccfk.dll is not this kit's is set up once (launcher::setup; the
+/// stand-ins are no game it can set up, so that fails and the start stops, saying so); a missing catalogue is only a note.
 #[test]
 fn an_old_hook_is_set_up_first() {
     let top = tempfile::Builder::new().prefix("wccf-run-").tempdir().unwrap();
@@ -698,11 +698,11 @@ fn sha(path: &Path) -> String {
         .collect()
 }
 
-/// A 2017-18 runtime as setup1718.py leaves it, of stand-ins: `top\kit` (scripts\, overlay\, data\; no settings - the
+/// A 2017-18 runtime as setup leaves it, of stand-ins: `top\kit` (overlay\, data\; no settings - the
 /// game is found beside the kit), `top\game`, `top\seat1` and `top\setup-hashes.json`.
 fn scratch_kit_1718(top: &Path) -> Kit {
     let (kit, game, seat) = (top.join("kit"), top.join("game"), top.join("seat1"));
-    for d in [kit.join("scripts"), kit.join("overlay"), kit.join("data"), seat.clone()] {
+    for d in [kit.join("overlay"), kit.join("data"), seat.clone()] {
         fs::create_dir_all(d).unwrap();
     }
     guarded_copy(&game.join("standin_client.exe"));

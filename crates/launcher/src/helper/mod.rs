@@ -4,8 +4,7 @@
 //!
 //! THE CLUB CARD view (2026-10-06): data\club_view.txt is rewritten whenever the card, its backups, the other cards or
 //! the run change, once the set has held still for a second (the game's bursts of saves are never read half way).  The
-//! view itself is cards\view.py (with decode.py, the reader the website will use), still Python until step 11: the
-//! `build` the run gives [`Helper::club_view`] runs it as a child of the run's Job.  A view that cannot be written is
+//! view itself is `forza::cards::steps::view`: the `build` the run gives [`Helper::club_view`] writes it.  A view that cannot be written is
 //! said once and tried again every 5 s; it never stops the run.
 //!
 //! THE STARTING VOLUMES (2026-10-06): the projector muted and seat 1 very low ([`sound::GAME_VOLUME`]), each set once
@@ -242,19 +241,18 @@ fn nap(stop: &AtomicBool) -> bool {
 }
 
 impl Helper {
-    /// Follows the club card's files and calls `build` (view.py) when they have changed and held still; `build` gets
-    /// the stop flag so a long child can be given up.
+    /// Follows the club card's files and calls `build` (the view written) when they have changed and held still.
     pub fn club_view(
         &mut self,
         files: ViewFiles,
-        mut build: impl FnMut(&AtomicBool) -> Result<String, String> + Send + 'static,
+        mut build: impl FnMut() -> Result<String, String> + Send + 'static,
         say: Log,
     ) {
         let stop = self.stop.clone();
         let t = thread::spawn(move || {
             let mut view = ClubView::new(files, Instant::now());
             while !stop.load(Ordering::Relaxed) {
-                view.tick(Instant::now(), &mut || build(&stop), &*say);
+                view.tick(Instant::now(), &mut build, &*say);
                 if !nap(&stop) {
                     return;
                 }
@@ -346,7 +344,7 @@ mod tests {
         let mut build = || {
             builds.set(builds.get() + 1);
             if fail.get() {
-                Err("no python".to_owned())
+                Err("no catalogue".to_owned())
             } else {
                 Ok("CLUB".to_owned())
             }
