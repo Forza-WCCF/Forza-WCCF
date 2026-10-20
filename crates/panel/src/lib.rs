@@ -1488,6 +1488,11 @@ impl Render {
                 }
             }
         }
+        if std::mem::take(&mut self.st.save_logs) {
+            // the Launcher opens the save dialog (run::Ui::save_logs)
+            let _ = kit::swap_write(&f.request("savelogs.request"), "save\n");
+            log("settings: save logs asked");
+        }
         if std::mem::take(&mut self.st.send_logs) {
             let server = self.st.file.server.clone();
             if kit::swap_write(&f.request("sendlogs.request"), &format!("{server}\n")).is_ok() {

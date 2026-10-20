@@ -473,6 +473,8 @@ pub struct PanelState {
     /// RESTART NOW asked (data\restart.request); SEND LOGS asked (data\sendlogs.request).
     pub restart: bool,
     pub send_logs: bool,
+    /// SAVE LOGS asked (data\\savelogs.request): the Launcher asks where to save the ZIP.
+    pub save_logs: bool,
     // what the panel DLL hands a frame
     /// Keys pressed since the last frame while a page is open (virtual-key code, Alt held), repeats left out.
     pub vk_down: Vec<(u32, bool)>,
@@ -531,6 +533,7 @@ impl PanelState {
             file_changed: false,
             restart: false,
             send_logs: false,
+            save_logs: false,
             vk_down: Vec::new(),
             pad_down: None,
             pause_asked: false,
@@ -728,7 +731,7 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
         paused(ui, pic, lang, &key, left);
     }
     if st.close_warn {
-        close_warning(ui, area, lang);
+        close_warning(ui, area, lang, st.edition);
     }
 }
 
@@ -779,7 +782,7 @@ fn paused(ui: &Ui, pic: Rect, lang: Lang, key: &str, left: u64) {
 
 /// The close warning over everything, as `wccfpanel.c` `close_draw`: a match is on, closing now costs the card a bad
 /// ending, a second close within 8 s quits anyway.
-fn close_warning(ui: &Ui, area: Rect, lang: Lang) {
+fn close_warning(ui: &Ui, area: Rect, lang: Lang, edition: Edition) {
     let p = ui.ctx().layer_painter(egui::LayerId::new(
         egui::Order::Tooltip,
         egui::Id::new("close-warn"),
@@ -799,7 +802,12 @@ fn close_warning(ui: &Ui, area: Rect, lang: Lang) {
     let w = r.width() - 32.0;
     for (i, (key, font, col)) in [
         ("close.title", theme::display(30.0), theme::RED_TEXT),
-        ("close.body", theme::body(16.0), theme::TEXT),
+        // 2017-18 saves on the server: no card to damage
+        (
+            if edition == Edition::E1718 { "close.body_1718" } else { "close.body" },
+            theme::body(16.0),
+            theme::TEXT,
+        ),
         ("close.again", theme::bold(16.0), theme::GOLD),
     ]
     .into_iter()
@@ -1190,21 +1198,14 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
     let xc = xb + wb + GAP;
     caps_at(ui, xc, "panel.machine");
     let half = (wc - 6.0) / 2.0;
-    // CARD only: free play needs no COIN, and BACK sent nothing
-    for (n, (key, action, enabled)) in [("cab.card", Some("CARD"), true)].into_iter().enumerate() {
-        let r = Rect::from_min_size(
-            pos2(
-                xc + (n % 2) as f32 * (half + 6.0),
-                y + (n / 2) as f32 * 50.0,
-            ),
-            vec2(half, 44.0),
-        );
-        ui.add_enabled_ui(enabled, |ui| {
-            put(ui, r, key, action, Cab::Plain, Shape::Key, false)
-        });
+    // CARD only: free play needs no COIN, and BACK sent nothing; 2017-18 has no card to put in
+    if st.edition != Edition::E1718 {
+        let r = Rect::from_min_size(pos2(xc, y), vec2(half, 44.0));
+        put(ui, r, "cab.card", Some("CARD"), Cab::Plain, Shape::Key, false);
     }
     // PROJECTOR: the panel's own switch (no key), lit while the projector's picture takes the board's place
-    let r = Rect::from_min_size(pos2(xc + half + 6.0, y), vec2(half, 44.0));
+    let px = if st.edition == Edition::E1718 { xc } else { xc + half + 6.0 };
+    let r = Rect::from_min_size(pos2(px, y), vec2(half, 44.0));
     if put(
         ui,
         r,
@@ -1231,12 +1232,15 @@ fn page_bar(ui: &mut Ui, st: &mut PanelState, bar: Rect, lang: Lang) {
         pos2(r.left() + 130.0, r.center().y + 11.0),
     )));
     widgets::badge(&mut b, st.edition);
-    let pages = [
+    let mut pages = vec![
         (Page::Catalogue, "panel.add_card"),
         (Page::Keys, "panel.keys"),
         (Page::Settings, "panel.settings"),
-        (Page::ClubCard, "panel.club_card"),
     ];
+    // 2017-18 keeps its clubs on the game server: no club card page
+    if st.edition != Edition::E1718 {
+        pages.push((Page::ClubCard, "panel.club_card"));
+    }
     // the four pages and PAUSE; the right end keeps ~140 points for the ping and the window key at 1440x900
     let w = 106.0;
     let n = pages.len() as f32;
@@ -2200,9 +2204,6 @@ fn when_text(lang: Lang, (t, age): &When) -> String {
     }
 }
 
-/// The game's text choices: (english= word, text now, label).
-const TEXTS: [(&str, &str); 3] = [("on", "en"), ("it", "it"), ("off", "")];
-
 fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let accent = st.edition.accent();
     let now = ui.input(|i| i.time);
@@ -2255,13 +2256,6 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                         |(w, n)| tr!(lang, "settings.backups", t = when_text(lang, w), n = n),
                     );
                     kv(ui, &tr!(lang, "settings.backup"), &v, None);
-                    let v = match s.text {
-                        Some("en") => "English".to_owned(),
-                        Some("it") => "Italiano".to_owned(),
-                        Some(_) => tr!(lang, "launcher.original_ja"),
-                        None => "-".to_owned(),
-                    };
-                    kv(ui, &tr!(lang, "settings.game_text"), &v, None);
                     kv(
                         ui,
                         &tr!(lang, "settings.version"),
@@ -2361,38 +2355,6 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                     st.note(Tone::Refused, tr!(lang, "settings.msg_not_address", a = a));
                 }
             }
-            field(ui, &tr!(lang, "launcher.game_text"), w);
-            let shown = st.file.english.as_deref().or_else(|| {
-                let t = s.text?;
-                TEXTS.iter().find(|x| x.1 == t).map(|x| x.0)
-            });
-            let mut i = TEXTS
-                .iter()
-                .position(|x| Some(x.0) == shown)
-                .unwrap_or(usize::MAX);
-            if segmented(
-                ui,
-                &mut i,
-                &["English", "Italiano", &tr!(lang, "launcher.original_ja")],
-                w,
-            ) {
-                match s.text {
-                    None => st.say(Tone::Notice, "settings.msg_reading_text"),
-                    Some(now) => {
-                        let same = TEXTS[i].1 == now;
-                        st.file.english = (!same).then(|| TEXTS[i].0.to_owned());
-                        st.file_changed = true;
-                        st.say(
-                            Tone::Done,
-                            if same {
-                                "settings.msg_text_stays"
-                            } else {
-                                "settings.msg_text_changes"
-                            },
-                        );
-                    }
-                }
-            }
             ui.add_space(4.0);
             let armed = st.restart_armed > now;
             let label = if st.restart_sent {
@@ -2464,6 +2426,9 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                     st.logs_armed = 0.0;
                     st.send_logs = true;
                 }
+            }
+            if cabinet(ui, vec2(w, 44.0), &tr!(lang, "settings.save_logs"), Cab::Data, false).clicked() {
+                st.save_logs = true;
             }
             match s.logs.as_deref() {
                 Some(r) if r.starts_with("ok ") => {
@@ -3475,7 +3440,7 @@ mod tests {
         assert!(!add_card(&mut st, &mut placed, 10));
         assert_eq!(
             st.message.as_ref().unwrap().text,
-            "KAKÀ is already on the table"
+            "KAKÀ is on the table"
         );
         for no in 1000..1015 {
             placed.push(Placed {
@@ -3506,7 +3471,7 @@ mod tests {
         assert!(std::mem::take(&mut st.keys_changed));
         assert_eq!(
             st.message.as_ref().unwrap().text,
-            "SHOOT = X   (PRESS gets C)"
+            "SHOOT = X; PRESS = C"
         );
         // Esc and F10 (must stay free) and Alt+G: refused or cancelled, nothing changes
         st.capturing = Some(0);
@@ -3514,7 +3479,7 @@ mod tests {
         keys_input(&mut st);
         assert_eq!(
             st.message.as_ref().unwrap().text,
-            "Alt cannot be used: pick another key"
+            "Alt is not allowed"
         );
         assert_eq!(st.capturing, Some(0));
         st.vk_down = vec![(0x1B, false)];

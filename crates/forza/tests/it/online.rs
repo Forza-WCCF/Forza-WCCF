@@ -395,6 +395,31 @@ fn packs_match_the_python() {
 }
 
 #[test]
+fn pack_to_file_writes_the_logs_zip_scrubbed() {
+    let root = scratch("save_logs");
+    let (kit, seat) = (root.join("kit"), root.join("seat1"));
+    std::fs::create_dir_all(kit.join("data/logs")).unwrap();
+    std::fs::create_dir_all(&seat).unwrap();
+    std::fs::write(kit.join("version.txt"), "1.2.3\n").unwrap();
+    std::fs::write(kit.join("data/logs/run.txt"), "C:\\Users\\alice\\x ok").unwrap();
+    std::fs::write(seat.join("other.log"), "seat line").unwrap();
+    let scrub = Scrub { home: "C:\\Users\\alice".into(), user: "alice".into(), pc: "PC1".into() };
+    let dest = root.join("out.zip");
+    let n = send_logs::pack_to_file(&kit, Some(&root.join("game")), &scrub, &dest).unwrap();
+    let mut z = zip::ZipArchive::new(std::fs::File::open(&dest).unwrap()).unwrap();
+    assert_eq!(n, z.len());
+    let mut read = |name: &str| {
+        let mut t = String::new();
+        z.by_name(name).unwrap().read_to_string(&mut t).unwrap();
+        t
+    };
+    assert_eq!(read("version.txt"), "1.2.3\n");
+    assert!(!read("logs/run.txt").contains("alice"));
+    assert_eq!(read("seat1/other.log"), "seat line");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn version_matches_the_python() {
     let root = scratch("version");
     let mut n = 0;
