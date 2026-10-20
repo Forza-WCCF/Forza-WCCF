@@ -239,14 +239,14 @@ panel.msg_saved: {en: "Club saved at 15:04.", it: "Club salvato alle 15:04.", ja
 panel.msg_session_open: {en: "Match in progress.", it: "Partita in corso.", ja: "試合中です。"}
 
 # ---- formation board ----
-board.flip: {en: "Click the card: its back.", it: "Clicca la carta: il retro.", ja: "カードをクリックで裏面。"}
-board.flip_back: {en: "Click again: its face.", it: "Clicca di nuovo: il fronte.", ja: "もう一度クリックで表面。"}
+board.flip: {en: "Click: card back.", it: "Clic: retro.", ja: "クリックで裏面。"}
+board.flip_back: {en: "Click: card face.", it: "Clic: fronte.", ja: "クリックで表面。"}
 board.title: {en: "FORMATION BOARD", it: "FORMAZIONE", ja: "フォーメーション"}
 board.bench: {en: "BENCH", it: "PANCHINA", ja: "ベンチ"}
 board.zone_attack: {en: "ATTACK", it: "ATTACCO", ja: "攻撃"}
 board.zone_centre: {en: "CENTRE", it: "CENTROCAMPO", ja: "中盤"}
 board.zone_defence: {en: "DEFENCE", it: "DIFESA", ja: "守備"}
-board.hint: {en: "Drag cards onto the pitch. Drop on a card to swap. Right-click removes.", it: "Trascina le carte sul campo. Rilascia su una carta per scambiare. Clic destro: rimuovi.", ja: "カードをピッチへドラッグ。カードに重ねると入れ替え。右クリックで外す。"}
+board.hint: {en: "Drag cards to the pitch. Drop on a card to swap. Right-click: remove.", it: "Trascina sul campo. Su una carta: scambia. Clic destro: rimuovi.", ja: "ピッチへドラッグ。カードに重ねて入れ替え。右クリックで外す。"}
 board.fit_best: {en: "BEST POSITION", it: "POSIZIONE IDEALE", ja: "ベストポジション"}
 board.fit_ok: {en: "FITS", it: "ADATTO", ja: "適性あり"}
 board.fit_out: {en: "OUT OF POSITION", it: "FUORI RUOLO", ja: "ポジション外"}
@@ -255,11 +255,11 @@ board.positions: {en: "POSITIONS", it: "POSIZIONI", ja: "適性ポジション"}
 board.roles: {en: "Roles: %{roles}", it: "Ruoli: %{roles}", ja: "役割：%{roles}"}
 board.links_of: {en: "LINKS · %{name}", it: "INTESE · %{name}", ja: "%{name}の連携"}
 board.on_team: {en: "ON THE TEAM", it: "IN SQUADRA", ja: "チーム内"}
-board.not_on_team: {en: "BEST LINKS OFF THE TEAM", it: "MIGLIORI LEGAMI FUORI SQUADRA", ja: "チーム外の好相性"}
-board.no_links: {en: "No links yet.", it: "Nessun legame.", ja: "相性なし。"}
+board.not_on_team: {en: "BEST OUTSIDE LINKS", it: "MIGLIORI INTESE ESTERNE", ja: "チーム外の好相性"}
+board.no_links: {en: "No links yet.", it: "Nessuna intesa.", ja: "相性なし。"}
 board.more: {en: "+%{n} more", it: "+ altri %{n}", ja: "ほか%{n}人"}
 cat.affinity: {en: "AFFINITY", it: "AFFINITÀ", ja: "相性"}
-cat.no_partners: {en: "No listed partners.", it: "Nessuna intesa registrata.", ja: "登録された相性の選手はいません。"}
+cat.no_partners: {en: "No partners listed.", it: "Nessuna intesa.", ja: "相性の選手なし。"}
 
 # ---- catalogue ----
 cat.title: {en: "CATALOGUE", it: "CATALOGO", ja: "カタログ"}
