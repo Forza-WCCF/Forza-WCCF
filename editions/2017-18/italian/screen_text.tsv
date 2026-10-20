@@ -6802,3 +6802,84 @@ COM_MEETINGBAD_question_0000	%s e' stato $c[66CCFFFF]deludente$c nell'ultima par
 COM_MAX_MTG_question_0000	%s e' un $c[FF6633FF]giocatore chiave$c della squadra.\nNon ha problemi tattici. Cosa gli fai fare?
 GAM_OROGINAL_stadium_0069	Sports Football Park
 GAM_SALARY_states_0012	Al prossimo livello
+COM_SEC_COACH_choices_0035_00	★
+COM_SEC_COACH_choices_0035_01	★★
+COM_SEC_COACH_choices_0035_02	★★★
+INF_057_title_0000	★★★  Area Championship  ★★★
+INF_058_title_0000	★★★  Campione d'Area  ★★★
+INF_059_title_0000	★★★  Japan Winners Championship  ★★★
+INF_060_title_0000	★★★  Campione del Giappone  ★★★
+INF_061_title_0000	★★★  Accesso ottenuto  ★★★
+INF_062_title_0000	★★★  Allenamento speciale  ★★★
+INF_063_title_0000	★★★  Mercato trasferimenti aperto  ★★★
+INF_064_title_0000	★★★  Risultato Area Championship  ★★★
+INF_064_title_0001	★★★  Risultato Asia Championship  ★★★
+INF_067_title_0000	★★★  Invito a iscriversi  ★★★
+INF_068_title_0000	★★★  Fine del prestito  ★★★
+INF_070_title_0000	★★★  World Winners Championship  ★★★
+INF_071_title_0000	★★★  Campione del mondo  ★★★
+INF_072_title_0000	★★★  Asia Championship  ★★★
+INF_073_title_0000	★★★  Campione d'Asia  ★★★
+INF_074_title_0000	★★★  Miglior XI del negozio  ★★★
+INF_075_title_0000	★★★  MVP del negozio  ★★★
+INF_095_title_0000	★★★  UNIVERSAL CUP  ★★★
+INF_134_title_0000	★★★  %s  ★★★
+INF_76_title_0000	★★★  Squadra potenziata  ★★★
+INF_76_title_0001	★★★  Abilita' potenziate  ★★★
+INF_76_title_0002	★★★  Stile potenziato  ★★★
+INF_76_title_0003	★★★  Intesa potenziata  ★★★
+INF_INFO_title_0000	★★★  LICENZA ALLENATORE EMESSA  ★★★
+INF_INFO_title_0001	★★★  INSEDIAMENTO ALLENATORE  ★★★
+INF_INFO_title_0002	★★★  FINE MANDATO ALLENATORE  ★★★
+INF_INFO_title_0003	★★★  RISULTATI WORLD TROPHY  ★★★
+INF_INFO_title_0004	★★★  TITOLO CONQUISTATO  ★★★
+INF_INFO_title_0005	★★★  INIZIA L'ERA D'ORO  ★★★
+INF_INFO_title_0006	★★★  CAMPIONE IN CARICA  ★★★
+INF_INFO_title_0007	★★★  PROMOZIONE CAMPIONATO REGOLARE  ★★★
+INF_INFO_title_0008	★★★  RETROCESSIONE CAMPIONATO REGOLARE  ★★★
+INF_INFO_title_0009	★★★  QUALIFICAZIONE OTTENUTA  ★★★
+INF_INFO_title_0010	★★★  OFFERTA SPONSOR  ★★★
+INF_INFO_title_0011	★★★  SPONSOR RITIRATO  ★★★
+INF_INFO_title_0012	★★★  CONTRATTO RINNOVATO  ★★★
+INF_INFO_title_0013	★★★  OFFERTA PER ALLENATORE  ★★★
+INF_INFO_title_0014	★★★  RISTRUTTURAZIONE STADIO  ★★★
+INF_INFO_title_0015	★★★  STADIO COMPLETATO  ★★★
+INF_INFO_title_0016	★★★  BUON COMPLEANNO  ★★★
+INF_INFO_title_0017	★★★  OSSERVAZIONE TALENTI  ★★★
+INF_INFO_title_0018	★★★  CRISI FINANZIARIA  ★★★
+INF_INFO_title_0019	★★★  BONUS SPECIALE  ★★★
+INF_INFO_title_0020	★★★  INFORMAZIONI INFORTUNI  ★★★
+INF_INFO_title_0021	★★★  OSSERVAZIONE DEL COACH  ★★★
+INF_INFO_title_0022	★★★  MINI RITIRO SVOLTO  ★★★
+INF_INFO_title_0023	★★★  NOTIZIE TIFOSI  ★★★
+INF_INFO_title_0024	★★★  RAPPORTO DEL COACH  ★★★
+INF_INFO_title_0025	★★★  SERIE VITTORIE UFFICIALI  ★★★
+INF_INFO_title_0026	★★★  RISTRUTTURAZIONE SEDE  ★★★
+INF_INFO_title_0027	★★★  SEDE COMPLETATA  ★★★
+INF_INFO_title_0028	★★★  BONUS VITTORIA  ★★★
+INF_INFO_title_0029	★★★  CONGRATULAZIONI  ★★★
+INF_INFO_title_0030	★★★  LEGAME MAESTRO-ALLIEVO  ★★★
+INF_INFO_title_0031	★★★  CRESCITA ABILITA'  ★★★
+INF_INFO_title_0032	★★★  CRESCITA ABILITA' SPECIALE  ★★★
+INF_INFO_title_0033	★★★  INFORMAZIONI MALCONTENTO  ★★★
+INF_INFO_title_0034	★★★  INTESA IN CRESCITA  ★★★
+INF_INFO_title_0035	★★★  MALCONTENTO ESPLOSO  ★★★
+INF_INFO_title_0036	★★★  OCEANS CUP VINTA  ★★★
+INF_INFO_title_0037	★★★  ORDINE DELLO SPONSOR  ★★★
+INF_INFO_title_0038	★★★  CAMPIONE DEL GIAPPONE  ★★★
+INF_INFO_title_0039	★★★  CAMPIONE D'AREA  ★★★
+INF_INFO_title_0040	★★★  EVENTO PER I TIFOSI  ★★★
+INF_INFO_title_0041	★★★  CLASSIFICA WORLD TROPHY  ★★★
+INF_INFO_title_0042	★★★  CLASSIFICA PREMI IN DENARO  ★★★
+INF_INFO_title_0043	★★★  RITORNO DELL'ERA D'ORO  ★★★
+INF_INFO_title_0044	★★★  TATTICA INTERVALLO OTTENUTA  ★★★
+INF_SPO_secure_0000	Contratto di sponsorizzazione firmato.\nOttenamo risultati degni del nome dello sponsor.
+INF_SPO_secure_0001	Contratto di sponsorizzazione firmato.\nCresciamo in fretta grazie allo sponsor.
+INF_SPO_secure_0002	Contratto di sponsorizzazione firmato.\nOttenamo risultati all'altezza delle attese.
+INF_SPO_secure_0003	Contratto di sponsorizzazione firmato.\nOra il nostro club entra tra i migliori.
+INF_SPO_secure_0004	Contratto di sponsorizzazione firmato.\nLe finanze del club ne trarranno beneficio.
+INF_SPO_secure_0005	Contratto di sponsorizzazione firmato.\nSperiamo di soddisfare le attese dello sponsor.
+INF_SPO_secure_0006	Contratto di sponsorizzazione firmato.\nQuesta volta soddisfiamo le attese dello sponsor.
+INF_reward_nextmission20	★★PROSSIMA MISSIONE COMPLETATA★★
+MAN_RETIRE_contents_0000	*** Dimissioni da allenatore ***
+SYS_shop_normal_0024	JPY 100

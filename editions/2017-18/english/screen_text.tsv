@@ -168,7 +168,7 @@ COM_COOPERATION_choices_0020	Advise them
 COM_COOPERATION_choices_0021	Send them out
 COM_COOPERATION_choices_0025	Force them to talk
 COM_COOPERATION_choices_0046	Own moves
-COM_COOPERATION_choices_0047	Each other
+COM_COOPERATION_choices_0047	Partner's moves
 COM_COOPERATION_choices_0048	Whole team
 COM_COOPERATION_choices_0052	Apologize
 COM_COOPERATION_choices_0053	Talk anyway
@@ -306,7 +306,7 @@ COM_DISCONTENT_question_0000	You called in %s.\nWhat will you say?
 COM_DISCONTENT_question_0001	He wants to know your plans for the team.\nWhat vision will you show?
 COM_EVENT_answer_0001	If he fails, he could lose his confidence.\nLet him wait his turn for now.
 COM_EVENT_answer_0002	%s was raring to go,\nbut your call let him down.
-COM_EVENT_choices_0000	It's a deal
+COM_EVENT_choices_0000	Promise a place
 COM_EVENT_choices_0001	Decline
 COM_EVENT_hint_menu_0012	Advise them
 COM_EVENT_question_0000	%s asks to play next match,\npromising 1 goal. What will you do?
@@ -461,7 +461,7 @@ COM_LOUNGE_EVE_choice_0028	Watch
 COM_LOUNGE_EVE_choice_0029	Advise them
 COM_LOUNGE_EVE_choice_0030	Go have fun
 COM_LOUNGE_EVE_choice_0034	Own moves
-COM_LOUNGE_EVE_choice_0035	Each other
+COM_LOUNGE_EVE_choice_0035	Partner's moves
 COM_LOUNGE_EVE_choice_0036	Whole team
 COM_MAX_MTG_answer_0000_00	His training plan was a big hit.\nTactical drills should help the whole team.
 COM_MAX_MTG_answer_0000_01	Planning drills revisits the tactics too.\nHe admired your clever coaching.
@@ -1745,13 +1745,13 @@ INF_CLUBHOUSER_message_0017	A renovated pitch\nwill surely fire up the players.
 INF_CLUBHOUSER_message_0020	A renovated Lounge\nwill get players mixing more.
 INF_COACH_choices_0007	Offence
 INF_COACH_choices_0011	Stamina
-INF_COACH_country_0008	North America
+INF_COACH_country_0008	N. & C. America
 INF_COACH_country_0009	Africa
 INF_COACH_country_0010	Asia
 INF_CONTRACT_contents_0000	Matches left: %d
 INF_CONTRACT_contents_0001	Contract +%d matches
 INF_COOPERATION_message_0001	If something sparks them,\nwe may see even better combinations.
-INF_CRISIS_contents_0000	Your Salary:
+INF_CRISIS_contents_0000	Estimated Salary:
 INF_CRISIS_contents_0001	$%d million
 INF_CRISIS_contents_0003	%d percent DOWN↓
 INF_DEFENDING_contents_0000	%s CHAMPIONSHIP
@@ -2377,7 +2377,7 @@ MAN_DATA_contents_0008	%d yen
 MAN_DATA_contents_0011	%d matches left
 MAN_DATA_contents_0012	Expired
 MAN_DATA_contents_0014	Done
-MAN_DATA_contents_0015	None
+MAN_DATA_contents_0015	Not Yet
 MAN_DATA_contents_0017	%s / No.%d
 MAN_DATA_contents_0021	No.%d
 MAN_DATA_gtranking_0010	Previous
@@ -2664,8 +2664,8 @@ NET_TWIT_playlog_0010	"%s (Manager %s)" vs "%s (Manager %s)" %d - %d (PK: %d - %
 NET_TWIT_title_0018	-
 NET_TWIT_updown_0000	Promoted
 NET_TWIT_updown_0001	Relegated
-NET_TWIT_week_0000	Sunday
-NET_TWIT_week_0003	Water
+NET_TWIT_week_0000	Sun
+NET_TWIT_week_0003	Wed
 PRO_PRO_battlelist_0012	%s [%s]
 PRO_PRO_battlelist_0013	CPU
 PRO_PRO_battlelist_0014	Mgr:%s  Shop:%s [%s]
@@ -3289,7 +3289,7 @@ SYS_TEAM_style_0357	Fighting Man
 SYS_TEAM_style_0358	Momentum Magic
 SYS_TEAM_style_0360	Free Role
 SYS_TEAM_style_0361	Playmaking
-SYS_TEAM_style_0362	Playmaking
+SYS_TEAM_style_0362	Chance Creation
 SYS_TEAM_style_0364	Ball Keeping
 SYS_TEAM_style_0368	Long Passing
 SYS_TEAM_style_0371	Mixed Passing
@@ -3612,48 +3612,48 @@ TRA_TOP_menu_0000	Training
 TRA_TOP_message_0000	The players are out on the pitch.\nWhat will you train?
 TRA_TOP_message_0002	Hold all kinds of events.
 TRA_TOP_message_0003	Give the players a rest.\nClears fatigue, restores condition.
-CLM_MNAME_message_0000	Enter your manager name.\nIt is used in the official rankings and elsewhere.
-CLM_MNAME_caution_0003	Enter the reading of your manager name in kana.\nThe commentator uses it to say your name.
-CLM_MACCENT_message_0000	Set the stress in your manager name.\nThe commentator stresses the part you mark.
-CLM_CHOME_message_0000	Select your club's home town.\nYour stadium is built there, and the club is based in that city.
-CLM_CHOME_exp_0000	Select your club's home town.\n%s: many clubs here thrill the crowd with bold attacking play.
-CLM_CHOME_exp_0001	Select your club's home town.\n%s: many clubs here build their play with elegant passing.
-CLM_CHOME_exp_0002	Select your club's home town.\n%s: many clubs here take you on with physical strength.
-CLM_CHOME_exp_0003	Select your club's home town.\n%s: many clubs here are known for solid defending.
-CLM_CHOME_exp_0004	Select your club's home town.\n%s: many clubs here press hard.
-CLM_CHOME_exp_0005	Select your club's home town.\n%s: many clubs here play fast football.
-CLM_CHOME_exp_0006	Select your club's home town.\n%s: many clubs here value balance.
+CLM_MNAME_message_0000	Enter your manager name.
+CLM_MNAME_caution_0003	Enter the reading of your manager name in kana.
+CLM_MACCENT_message_0000	Set the stress in your manager name.
+CLM_CHOME_message_0000	Select the league to play in and your club's home town.
+CLM_CHOME_exp_0000	%s: many clubs here thrill the crowd with bold attacking play.
+CLM_CHOME_exp_0001	%s: many clubs here build their play with elegant passing.
+CLM_CHOME_exp_0002	%s: many clubs here take you on with physical strength.
+CLM_CHOME_exp_0003	%s: many clubs here are known for solid defending.
+CLM_CHOME_exp_0004	%s: many clubs here press hard.
+CLM_CHOME_exp_0005	%s: many clubs here play fast football.
+CLM_CHOME_exp_0006	%s: many clubs here value balance.
 CLM_CNAME_message_0000	Enter your club name.\nIt is used in the official rankings and elsewhere.
-CLM_CREAD_message_0000	Enter the reading of your club name in kana.\nThe commentator uses it to say the name.
-CLM_CACCENT_message_0000	Set the stress in your club name.\nThe commentator stresses the part you mark.
-CLM_CUNIFORM1_message_0000	Select your 1st kit.\nYour team normally plays in its 1st kit.
-CLM_CUNIFORM2_message_0000	Select your 2nd kit.\nYour team plays in it when the 1st kit cannot be used.
-CLM_CEMBLEM_message_0000	Select your badge.\nThe badge is your club's symbol and appears in many places.
-SYS_SYS_caution_0002	This is a new Club Card.\nYou can register a Manager License.
-SYS_SYS_caution_0006	Your contract has %d matches left.
-SYS_SYS_warning_0023	Error 5106\nThe card may be damaged.\nClub Card discharged.\n\nThe Club Card may be recoverable.\nPlease call staff.
-SYS_SYS_warning_0041	This IC card and its play log show many sessions\nthat did not end normally,\nso a penalty was applied to some play data.
-SYS_SYS_cloose_0000	New games and continues end in %d minutes
-SYS_SYS_cloose_0004	It is closing time: no continues.
+CLM_CREAD_message_0000	Enter the reading of your club name.
+CLM_CACCENT_message_0000	Enter the accent of your club name.
+CLM_CUNIFORM1_message_0000	Select your 1st kit.
+CLM_CUNIFORM2_message_0000	Select your 2nd kit.
+CLM_CEMBLEM_message_0000	Select your badge.
+SYS_SYS_caution_0002	Starting a new game.\nPress the Start button.
+SYS_SYS_caution_0006	Your contract has %d matches left.\nPress Start to manage this club.
+SYS_SYS_warning_0023	Error 5106\nThe card may be damaged.\nClub Card discharged.
+SYS_SYS_warning_0041	This club data and its play log show many sessions\nthat did not end normally,\nso a penalty was applied to some play data.
+SYS_SYS_cloose_0000	New games, continues and card purchases end in %d minutes
+SYS_SYS_cloose_0004	It is closing time: no continues or card purchases.
 SYS_SYS_cloose_0007	New Club Cards can be used for %d more minutes.
 SYS_SYS_cloose_0008	New Club Cards cannot be used now.
-SYS_ADV_normal_0012	Play matches on this arcade's schedule.
-SYS_ADV_normal_0015	You have not qualified,\nso you cannot choose nationwide play.
+SYS_ADV_normal_0012	Choose from many titles. Aim to win them all.
+SYS_ADV_normal_0015	You have not qualified,\nso you cannot choose this.
 COM_NEW_GROUND_question_0001	You just spoke with %s.\nHe looks puzzled to be back.
-COM_NEW_GROUND_choice_0001_01	Butter him up
-COM_NEW_GROUND_answer_0001_00	Your honesty\nwon him over a little.
-COM_NEW_GROUND_answer_0001_01	Sorry didn't work.\nDon't call him for nothing.
-COM_NEW_GROUND_answer_0001_02	Praise put him in a good mood.\nHe's more motivated, too.
-COM_NEW_GROUND_answer_0001_03	He saw right through you.\nMaybe you should've said sorry.
-COM_NEW_GROUND_answer_0001_04	He felt your passion!\nFired up, he's staying on to train.
-COM_NEW_GROUND_answer_0001_05	What was that?!\nYou've creeped him out.
+COM_NEW_GROUND_choice_0001_01	Extra one-on-one coaching
+COM_NEW_GROUND_answer_0001_00	His motivation is fired up.\nHe ran back to training.
+COM_NEW_GROUND_answer_0001_01	Extra training has him groaning.\nHe trudged back to training.
+COM_NEW_GROUND_answer_0001_02	Your passionate coaching moved him.\nHis trust in you has grown.
+COM_NEW_GROUND_answer_0001_03	He can't keep up with the intense coaching.\nYour words aren't getting through.
+COM_NEW_GROUND_answer_0001_04	A sudden thought led to a new discovery.\nHe looks refreshed, mind cleared.
+COM_NEW_GROUND_answer_0001_05	He doesn't see why you gave that order.\nHe looks utterly baffled.
 COM_NEW_LOUNGE_question_0003	Their partnership is excellent.\nWhat will take them the final step?
 COM_NEW_LOUNGE_question_0004	Their partnership is quite good.\nWhat will take them up a level?
-COM_NEW_LOUNGE_question_0006	They're struggling as a duo.\nWhat's your advice?
+COM_NEW_LOUNGE_question_0006	They've started to click as a duo.\nWhat's your advice?
 COM_NEW_LOUNGE_question_0007	They're struggling as a duo.\nWhat's your advice?
 MAN_DATA_contents_0013	Ready
 MAN_DATA_message_0002	Data transferred from this Club Card.\nYou can't play with this Club Card.
-MAN_DATA_message_0003	Transfer data to sign a contract.
+MAN_DATA_message_0003	Manager data can be transferred to a new contract.\nTo transfer, press Start to begin the game.
 MAN_DATA_wtdata_0001	This event:
 MAN_DATA_wtdata_0007	Points this event:
 MAN_DATA_wtdata_0016	WT Points:
@@ -3662,12 +3662,12 @@ MAN_DATA_wtdata_0018	Yesterday (Area):
 MAN_DATA_wtdata_0019	Best WT Points:
 MAN_DATA_wtdata_0020	Last week (Japan):
 MAN_DATA_wtdata_0021	Last week (Area):
-SYS_NET_error_0009	No opponent was found.\nPlaying a Friendly Match vs CPU.
-SYS_NET_error_0020	No opponent was found.\nPlaying a Challenge Match vs CPU.
-INF_OFFER_contents_0000	Division:
-GAM_WT_result_0005	Rating:
-GAM_WT_result_0007	Total Rating:
-SYS_TEAM_style_0121	Skip Midfield
+SYS_NET_error_0009	No opponent was found.\nPlaying a Friendly Match vs CPU.\n* If you win, a sponsor sends you an item.
+SYS_NET_error_0020	No opponent was found.\nPlaying a Friendly Match vs CPU.\n* If you win, a sponsor sends you an item.
+INF_OFFER_contents_0000	Club:
+GAM_WT_result_0005	Rating Bonus:
+GAM_WT_result_0007	Total Match Bonus:
+SYS_TEAM_style_0121	Thin Midfield
 SYS_TEAM_style_0122	Attack-Heavy
 SYS_TEAM_style_0123	Defence-Heavy
 SYS_TEAM_style_exp_0000	[Balanced]\nA style balanced in attack and defence.
@@ -3680,118 +3680,118 @@ SYS_TEAM_style_exp_0006	[Tackling]\nA style strong in tackling.
 SYS_TEAM_style_exp_0027	[Early Crosses]\nAttacks with early crosses from the Key Player.
 SYS_TEAM_style_exp_0090	[Man-to-Man Defence]\nThe whole team defends by marking opponents.
 SYS_TEAM_style_exp_0124	[Penalty Guardian]\nBoosts the Key Player's PK saving.
-SYS_TEAM_style_exp_0125	[Trump Card]\nAttacks with early crosses from the Key Player.
-SYS_TEAM_style_exp_0126	[Atomic Centre]\nAttacks with the Key Player bursting through the middle.
-SYS_TEAM_style_exp_0127	[Telegnosis]\nThe whole team defends against skill.
-SYS_TEAM_style_exp_0128	[Sidewinder]\nAttacks with the Key Player dribbling down the flank.
+SYS_TEAM_style_exp_0125	[Trump Card]\nThe whole team attacks with early crosses.
+SYS_TEAM_style_exp_0126	[Atomic Centre]\nAttacks with the Key Player's overlapping runs.
+SYS_TEAM_style_exp_0127	[Telegnosis]\nDefends with the Key Player marking an opponent.
+SYS_TEAM_style_exp_0128	[Sidewinder]\nThe whole team attacks looking to break through.
 SYS_TEAM_style_exp_0129	[Volcan]\nBoosts the team's organised defending.
 SYS_TEAM_style_exp_0130	[Dynamic Dynamo]\nBoosts the Key Player's stamina.
-SYS_TEAM_style_exp_0131	[Jackknife]\nAttacks with the Key Player cutting inside.
-SYS_TEAM_style_exp_0132	[Perfect Balance]\nBoosts the Key Player's overall ability.
-SYS_TEAM_style_exp_0133	[Homing Cross]\nAttacks with crosses from the Key Player.
+SYS_TEAM_style_exp_0131	[Jackknife]\nThe whole team attacks looking to break through.
+SYS_TEAM_style_exp_0132	[Perfect Balance]\nAttacks with the Key Player playing freely.
+SYS_TEAM_style_exp_0133	[Homing Cross]\nThe whole team attacks with crosses.
 SYS_TEAM_style_exp_0134	[El Nino]\nBoosts the Key Player's overall ability.
 SYS_TEAM_style_exp_0135	[Peerless]\nBoosts the Key Player's overall ability.
 SYS_TEAM_style_exp_0136	[Paranormal]\nBoosts the Key Player's overall ability.
-SYS_TEAM_style_exp_0137	[Killer Bee]\nBoosts the Key Player's hunger for goals.
-SYS_TEAM_style_exp_0138	[Rebound Strike]\nBoosts the Key Player's hunger for goals.
-SYS_TEAM_style_exp_0139	[Istinto]\nBoosts the Key Player's shooting form.
-SYS_TEAM_style_exp_0140	[Killshot]\nBoosts the Key Player's shooting form.
-SYS_TEAM_style_exp_0141	[Bambino d'Oro]\nBoosts the Key Player's shooting form.
-SYS_TEAM_style_exp_0142	[Huracan]\nAttacks with the Key Player running up and down the flank.
-SYS_TEAM_style_exp_0143	[Spin Gear]\nAttacks with the Key Player running up and down the flank.
-SYS_TEAM_style_exp_0144	[Angel's Left]\nAttacks with the Key Player dominating the flanks.
-SYS_TEAM_style_exp_0145	[Side Security]\nThe whole team guards the flanks at all costs.
-SYS_TEAM_style_exp_0146	[Wing Wizard]\nAttacks with the Key Player creating chances from the flank.
-SYS_TEAM_style_exp_0147	[Batigol]\nBoosts the Key Player's shooting.
+SYS_TEAM_style_exp_0137	[Killer Bee]\nAttacks with shots from the Key Player.
+SYS_TEAM_style_exp_0138	[Rebound Strike]\nAttacks with shots from the Key Player.
+SYS_TEAM_style_exp_0139	[Istinto]\nAttacks with shots from the Key Player.
+SYS_TEAM_style_exp_0140	[Killshot]\nAttacks with shots from the Key Player.
+SYS_TEAM_style_exp_0141	[Bambino d'Oro]\nAttacks with shots from the Key Player.
+SYS_TEAM_style_exp_0142	[Huracan]\nAttacks with the Key Player's overlapping runs.
+SYS_TEAM_style_exp_0143	[Spin Gear]\nAttacks with the Key Player's overlapping runs.
+SYS_TEAM_style_exp_0144	[Angel's Left]\nAttacks with the Key Player creating chances.
+SYS_TEAM_style_exp_0145	[Side Security]\nThe whole team defends by closing the space behind.
+SYS_TEAM_style_exp_0146	[Wing Wizard]\nAttacks with the Key Player creating chances.
+SYS_TEAM_style_exp_0147	[Batigol]\nAttacks with shots from the Key Player.
 SYS_TEAM_style_exp_0148	[Magnet Catch]\nBoosts the Key Player's shot-stopping.
-SYS_TEAM_style_exp_0149	[Rocket Pass]\nThe whole team attacks fast after winning the ball.
+SYS_TEAM_style_exp_0149	[Rocket Pass]\nThe whole team takes the shortest route to goal.
 SYS_TEAM_style_exp_0150	[Clockwork]\nThe whole team attacks with short passes.
 SYS_TEAM_style_exp_0151	[Centimetre Pass]\nThe whole team attacks with short passes.
 SYS_TEAM_style_exp_0152	[Momentum Rush]\nEveryone joins the attack.
 SYS_TEAM_style_exp_0153	[Winning Post]\nThe whole team attacks via post play up front.
-SYS_TEAM_style_exp_0154	[Papinade]\nBoosts the Key Player's first-time shots.
+SYS_TEAM_style_exp_0154	[Papinade]\nAttacks with shots from the Key Player.
 SYS_TEAM_style_exp_0155	[Image Sync]\nThe whole team attacks with one-touch passes.
 SYS_TEAM_style_exp_0156	[Direct Accel]\nThe whole team takes the shortest route to goal.
 SYS_TEAM_style_exp_0157	[Violino d'Oro]\nAttacks with the Key Player creating chances.
-SYS_TEAM_style_exp_0158	[Octopus Dribble]\nAttacks with the Key Player's elegant dribbling.
-SYS_TEAM_style_exp_0159	[Light-Speed Dribble]\nAttacks with the Key Player's elegant dribbling.
-SYS_TEAM_style_exp_0160	[Fantastic Dribble]\nAttacks with the Key Player's elegant dribbling.
+SYS_TEAM_style_exp_0158	[Octopus Dribble]\nThe whole team attacks looking to break through.
+SYS_TEAM_style_exp_0159	[Light-Speed Dribble]\nThe whole team attacks looking to break through.
+SYS_TEAM_style_exp_0160	[Fantastic Dribble]\nThe whole team attacks looking to break through.
 SYS_TEAM_style_exp_0161	[Ringhio]\nThe whole team defends by pressing in numbers.
-SYS_TEAM_style_exp_0162	[Full Contact]\nDefends with the Key Player marking an opponent all game.
-SYS_TEAM_style_exp_0163	[Zorozbone]\nAttacks with the Key Player dominating the vital area.
-SYS_TEAM_style_exp_0164	[Phantom Dribble]\nAttacks with the Key Player dribbling into the vital area.
-SYS_TEAM_style_exp_0165	[Vital Guard]\nThe whole team defends by pressing in great numbers.
-SYS_TEAM_style_exp_0166	[Forward Hunter]\nThe whole team defends by pressing in great numbers.
-SYS_TEAM_style_exp_0167	[Tanks]\nAttacks with the Key Player's powerful dribbling.
-SYS_TEAM_style_exp_0168	[Power Horse]\nBoosts the Key Player's physical ball keeping.
-SYS_TEAM_style_exp_0169	[Lionheart]\nBoosts the team's fighting spirit.
-SYS_TEAM_style_exp_0170	[Goal Imagination]\nBoosts the Key Player's creativity.
-SYS_TEAM_style_exp_0171	[Supreme Shine]\nBoosts the Key Player's creativity.
-SYS_TEAM_style_exp_0172	[Genesis]\nBoosts the Key Player's creativity.
-SYS_TEAM_style_exp_0173	[Immortal Shine]\nBoosts the Key Player's creativity.
-SYS_TEAM_style_exp_0174	[Infinite Shine]\nBoosts the Key Player's creativity.
-SYS_TEAM_style_exp_0175	[Fairy Dance]\nBoosts the Key Player's creativity.
+SYS_TEAM_style_exp_0162	[Full Contact]\nDefends with the Key Player marking an opponent.
+SYS_TEAM_style_exp_0163	[Zorozbone]\nAttacks with the Key Player creating chances.
+SYS_TEAM_style_exp_0164	[Phantom Dribble]\nThe whole team attacks looking to break through.
+SYS_TEAM_style_exp_0165	[Vital Guard]\nThe whole team defends by pressing.
+SYS_TEAM_style_exp_0166	[Forward Hunter]\nThe whole team defends by pressing.
+SYS_TEAM_style_exp_0167	[Tanks]\nThe whole team attacks looking to break through.
+SYS_TEAM_style_exp_0168	[Power Horse]\nBoosts the whole team's ball keeping.
+SYS_TEAM_style_exp_0169	[Lionheart]\nBoosts the Key Player's dedication to the team.
+SYS_TEAM_style_exp_0170	[Goal Imagination]\nAttacks with the Key Player creating chances.
+SYS_TEAM_style_exp_0171	[Supreme Shine]\nAttacks with the Key Player creating chances.
+SYS_TEAM_style_exp_0172	[Genesis]\nAttacks with the Key Player creating chances.
+SYS_TEAM_style_exp_0173	[Immortal Shine]\nAttacks with the Key Player creating chances.
+SYS_TEAM_style_exp_0174	[Infinite Shine]\nAttacks with the Key Player creating chances.
+SYS_TEAM_style_exp_0175	[Fairy Dance]\nAttacks with the Key Player creating chances.
 SYS_TEAM_style_exp_0176	[Corazon]\nBoosts the Key Player's dedication to the team.
-SYS_TEAM_style_exp_0177	[Fore Steal]\nDefends with the Key Player fore-checking and joining attacks.
+SYS_TEAM_style_exp_0177	[Fore Steal]\nDefends with the Key Player covering and joining attacks.
 SYS_TEAM_style_exp_0178	[Free Gear]\nAttacks with the Key Player playing freely.
 SYS_TEAM_style_exp_0179	[Free Mission]\nAttacks with the Key Player playing freely.
 SYS_TEAM_style_exp_0180	[Unpredictable]\nAttacks with the Key Player playing freely.
 SYS_TEAM_style_exp_0181	[Microscope]\nBoosts the Key Player's set-piece kicks.
 SYS_TEAM_style_exp_0182	[Lock on the Target]\nBoosts the Key Player's set-piece kicks.
 SYS_TEAM_style_exp_0183	[Steal Ball Run]\nThe whole team defends by pressing.
-SYS_TEAM_style_exp_0184	[Ginga]\nBoosts the Key Player's technical ball keeping.
-SYS_TEAM_style_exp_0185	[Cannon Shot]\nBoosts the Key Player's long shots.
-SYS_TEAM_style_exp_0186	[Laser Cannon]\nBoosts the Key Player's long shots.
+SYS_TEAM_style_exp_0184	[Ginga]\nBoosts the whole team's ball keeping.
+SYS_TEAM_style_exp_0185	[Cannon Shot]\nThe whole team attacks with long shots.
+SYS_TEAM_style_exp_0186	[Laser Cannon]\nThe whole team attacks with long shots.
 SYS_TEAM_style_exp_0187	[Random Running]\nThe whole team attacks with players and ball moving.
 SYS_TEAM_style_exp_0188	[Line Authority]\nThe whole team defends with line control.
 SYS_TEAM_style_exp_0189	[The Wall]\nThe whole team defends by closing the space behind.
 SYS_TEAM_style_exp_0190	[Cover Guardian]\nDefends with the Key Player covering behind the back line.
-SYS_TEAM_style_exp_0191	[Second Arrow]\nThe whole team attacks with FWs waiting to counter.
-SYS_TEAM_style_exp_0192	[Killer Pass]\nThe whole team attacks with long through balls.
+SYS_TEAM_style_exp_0191	[Second Arrow]\nThe whole team takes the shortest route to goal.
+SYS_TEAM_style_exp_0192	[Killer Pass]\nThe whole team attacks with through balls.
 SYS_TEAM_style_exp_0193	[Homing Throw]\nBoosts the Key Player's long throws.
 SYS_TEAM_style_exp_0194	[Big Arch]\nThe whole team attacks with long passes.
 SYS_TEAM_style_exp_0195	[Flick Pass]\nThe whole team attacks with long passes.
 SYS_TEAM_style_exp_0196	[Laser Beam]\nThe whole team attacks with long passes.
-SYS_TEAM_style_exp_0197	[Spider Web]\nBoosts the Key Player's wide-area covering.
-SYS_TEAM_style_exp_0198	[Wiper Defence]\nBoosts the Key Player's wide-area covering.
-SYS_TEAM_style_exp_0199	[Del Piero Zone]\nBoosts the Key Player's shooting range.
-SYS_TEAM_style_exp_0200	[Wide Blaster]\nBoosts the Key Player's shooting range.
+SYS_TEAM_style_exp_0197	[Spider Web]\nBoosts the team's covering.
+SYS_TEAM_style_exp_0198	[Wiper Defence]\nBoosts the team's covering.
+SYS_TEAM_style_exp_0199	[Del Piero Zone]\nThe whole team attacks with long shots.
+SYS_TEAM_style_exp_0200	[Wide Blaster]\nThe whole team attacks with long shots.
 SYS_TEAM_style_exp_0201	[Total Football]\nThe whole team attacks with players and ball moving.
-SYS_TEAM_style_exp_0204	[Monster Roar]\nBoosts the Key Player's shooting.
+SYS_TEAM_style_exp_0204	[Monster Roar]\nAttacks with shots from the Key Player.
 SYS_TEAM_style_exp_0205	[Clutch Goal]\nBoosts the Key Player's overall ability.
-SYS_TEAM_style_exp_0206	[Quick Trigger]\nBoosts the Key Player's shooting.
-SYS_TEAM_style_exp_0207	[Killer Instinct]\nBoosts the Key Player's hunger for goals.
-SYS_TEAM_style_exp_0208	[Silent Hunter]\nBoosts the Key Player's shooting form.
-SYS_TEAM_style_exp_0209	[Serial Hunting]\nBoosts the Key Player's shooting form.
+SYS_TEAM_style_exp_0206	[Quick Trigger]\nAttacks with shots from the Key Player.
+SYS_TEAM_style_exp_0207	[Killer Instinct]\nAttacks with shots from the Key Player.
+SYS_TEAM_style_exp_0208	[Silent Hunter]\nAttacks with shots from the Key Player.
+SYS_TEAM_style_exp_0209	[Serial Hunting]\nAttacks with shots from the Key Player.
 SYS_TEAM_style_exp_0210	[Water Break]\nAttacks with the Key Player running in behind the defence.
 SYS_TEAM_style_exp_0211	[Break Wall]\nAttacks with the Key Player running in behind the defence.
 SYS_TEAM_style_exp_0212	[Second Break]\nAttacks with the Key Player making runs from deep.
 SYS_TEAM_style_exp_0213	[Skywalker]\nThe whole team attacks with high balls.
-SYS_TEAM_style_exp_0214	[Direct Cannon]\nBoosts the Key Player's first-time shots.
-SYS_TEAM_style_exp_0215	[Total Assist]\nThe whole team attacks via wide-ranging post play.
-SYS_TEAM_style_exp_0216	[Lightning Flash]\nThe whole team attacks with long through balls.
-SYS_TEAM_style_exp_0217	[Orbital Axis]\nAttacks with the Key Player spreading the play wide.
-SYS_TEAM_style_exp_0218	[Circle Vision]\nAttacks with the Key Player spreading the play wide.
+SYS_TEAM_style_exp_0214	[Direct Cannon]\nAttacks with shots from the Key Player.
+SYS_TEAM_style_exp_0215	[Total Assist]\nThe whole team attacks via post play up front.
+SYS_TEAM_style_exp_0216	[Lightning Flash]\nThe whole team attacks with through balls.
+SYS_TEAM_style_exp_0217	[Orbital Axis]\nThe whole team attacks switching play quickly to the far side.
+SYS_TEAM_style_exp_0218	[Circle Vision]\nThe whole team attacks switching play quickly to the far side.
 SYS_TEAM_style_exp_0219	[Perfect Switch]\nThe whole team attacks with players and ball moving.
-SYS_TEAM_style_exp_0220	[Mainmast]\nThe whole team attacks with low-risk passes.
-SYS_TEAM_style_exp_0221	[Holy Arrow]\nAttacks with the Key Player's quick forward play.
-SYS_TEAM_style_exp_0222	[Wing Wave]\nAttacks with the Key Player cutting inside.
-SYS_TEAM_style_exp_0223	[Diagonal In]\nAttacks with the Key Player cutting inside.
-SYS_TEAM_style_exp_0224	[Shuttle Loop]\nAttacks with the Key Player running up and down the flank.
-SYS_TEAM_style_exp_0225	[Run Return]\nAttacks with the Key Player running up and down the flank.
+SYS_TEAM_style_exp_0220	[Mainmast]\nThe whole team attacks with short passes.
+SYS_TEAM_style_exp_0221	[Holy Arrow]\nThe whole team attacks with long passes.
+SYS_TEAM_style_exp_0222	[Wing Wave]\nThe whole team attacks looking to break through.
+SYS_TEAM_style_exp_0223	[Diagonal In]\nThe whole team attacks looking to break through.
+SYS_TEAM_style_exp_0224	[Shuttle Loop]\nAttacks with the Key Player's overlapping runs.
+SYS_TEAM_style_exp_0225	[Run Return]\nAttacks with the Key Player's overlapping runs.
 SYS_TEAM_style_exp_0226	[Chakram]\nThe whole team attacks through the Key Player.
 SYS_TEAM_style_exp_0227	[Gift Touch]\nThe whole team attacks through the Key Player.
-SYS_TEAM_style_exp_0228	[Majestic]\nAttacks with the Key Player dominating the penalty area.
-SYS_TEAM_style_exp_0229	[Impulse]\nAttacks with the Key Player dominating the penalty area.
-SYS_TEAM_style_exp_0230	[Conquest]\nAttacks with the Key Player dominating the vital area.
-SYS_TEAM_style_exp_0231	[Divine Light]\nAttacks with the Key Player dominating the whole pitch.
+SYS_TEAM_style_exp_0228	[Majestic]\nAttacks with shots from the Key Player.
+SYS_TEAM_style_exp_0229	[Impulse]\nAttacks with shots from the Key Player.
+SYS_TEAM_style_exp_0230	[Conquest]\nAttacks with the Key Player creating chances.
+SYS_TEAM_style_exp_0231	[Divine Light]\nAttacks with the Key Player as playmaker.
 SYS_TEAM_style_exp_0232	[Flag of Freedom]\nAttacks with the Key Player playing freely.
 SYS_TEAM_style_exp_0234	[Infinite Arc]\nBoosts the Key Player's set-piece kicks.
 SYS_TEAM_style_exp_0235	[Gloriole]\nBoosts the team's organised defending.
 SYS_TEAM_style_exp_0236	[Lion Guard]\nBoosts the team's organised defending.
 SYS_TEAM_style_exp_0237	[Gladiator]\nBoosts the Key Player's stamina.
 SYS_TEAM_style_exp_0238	[Total Security]\nThe whole team defends safety-first.
-SYS_TEAM_style_exp_0239	[Albert Dock]\nThe whole team guards the vital area at all costs.
+SYS_TEAM_style_exp_0239	[Albert Dock]\nThe whole team defends by closing the space behind.
 SYS_TEAM_style_exp_0240	[Spider Net]\nBoosts the Key Player's shot-stopping.
 SYS_TEAM_style_exp_0241	[Mind Wall]\nBoosts the Key Player's shot-stopping.
 SYS_TEAM_style_exp_0242	[Gauntlet]\nBoosts the Key Player's handling of crosses.
@@ -3799,117 +3799,117 @@ SYS_TEAM_style_exp_0243	[Winning Finish]\nBoosts the Key Player's overall abilit
 SYS_TEAM_style_exp_0244	[Bensan]\nBoosts the Key Player's overall ability.
 SYS_TEAM_style_exp_0245	[Mamma Mia]\nBoosts the Key Player's overall ability.
 SYS_TEAM_style_exp_0246	[Running Soul]\nBoosts the Key Player's dedication to the team.
-SYS_TEAM_style_exp_0247	[King Role]\nBoosts the Key Player's overall ability.
-SYS_TEAM_style_exp_0248	[Emperor]\nBoosts the Key Player's overall ability.
-SYS_TEAM_style_exp_0249	[Protagonista]\nBoosts the Key Player's overall ability.
+SYS_TEAM_style_exp_0247	[King Role]\nAttacks with the Key Player playing freely.
+SYS_TEAM_style_exp_0248	[Emperor]\nAttacks with the Key Player playing freely.
+SYS_TEAM_style_exp_0249	[Protagonista]\nAttacks with the Key Player playing freely.
 SYS_TEAM_style_exp_0250	[Twin Towers]\nThe whole team attacks with high balls.
-SYS_TEAM_style_exp_0251	[Resonant Instinct]\nThe whole team attacks via wide-ranging post play.
+SYS_TEAM_style_exp_0251	[Resonant Instinct]\nThe whole team attacks via post play up front.
 SYS_TEAM_style_exp_0252	[Creative Armada]\nThe whole team attacks mixing long and short passes.
-SYS_TEAM_style_exp_0253	[In-Sync Passing]\nThe whole team moves to open passing lanes in attack.
-SYS_TEAM_style_exp_0254	[Three Lions]\nAttacks with the Key Player dominating the whole pitch.
+SYS_TEAM_style_exp_0253	[In-Sync Passing]\nThe whole team attacks with short passes.
+SYS_TEAM_style_exp_0254	[Three Lions]\nAttacks with the Key Player as playmaker.
 SYS_TEAM_style_exp_0255	[Double Action]\nThe whole team attacks with combination play.
-SYS_TEAM_style_exp_0256	[Devil's Triangle]\nThe whole team defends by pressing in great numbers.
-SYS_TEAM_style_exp_0257	[Double Cutter]\nThe whole team defends against combination play.
+SYS_TEAM_style_exp_0256	[Devil's Triangle]\nThe whole team defends by pressing.
+SYS_TEAM_style_exp_0257	[Double Cutter]\nThe whole team defends by pressing.
 SYS_TEAM_style_exp_0258	[Silent Bond]\nThe whole team attacks with combination play.
 SYS_TEAM_style_exp_0259	[Blondel's Song]\nThe whole team attacks with combination play.
 SYS_TEAM_style_exp_0260	[Mystic Triangle]\nThe whole team attacks with combination play.
 SYS_TEAM_style_exp_0261	[Devil's Trio]\nThe whole team attacks with combination play.
-SYS_TEAM_style_exp_0262	[Iron Wall]\nThe whole team defends against combination play.
-SYS_TEAM_style_exp_0263	[Three Musketeers]\nThe whole team defends against combination play.
-SYS_TEAM_style_exp_0264	[Iron Chain]\nThe whole team defends against combination play.
-SYS_TEAM_style_exp_0265	[Pincer]\nThe whole team defends against combination play.
-SYS_TEAM_style_exp_0266	[Barrier Triangle]\nThe whole team defends against combination play.
-SYS_TEAM_style_exp_0267	[Double Contact]\nThe whole team defends against combination play.
-SYS_TEAM_style_exp_0268	[Selecao das Quinas]\nThe whole team attacks with combination play.
-SYS_TEAM_style_exp_0269	[Celeste y Blanco]\nThe whole team attacks mixing long and short passes.
-SYS_TEAM_style_exp_0270	[Canarinho]\nThe whole team attacks with short passes.
-SYS_TEAM_style_exp_0271	[Catenaccio]\nThe whole team defends safety-first.
-SYS_TEAM_style_exp_0272	[Champagne Football]\nThe whole team attacks with one-touch passes.
-SYS_TEAM_style_exp_0273	[German Spirit]\nBoosts the Key Player's hunger for goals.
-SYS_TEAM_style_exp_0274	[Kick and Rush]\nThe whole team attacks with long passes.
-SYS_TEAM_style_exp_0275	[Armada]\nThe whole team moves to open passing lanes in attack.
-SYS_TEAM_style_exp_0276	[Yamato Spirit]\nThe whole team moves to open passing lanes in attack.
-SYS_TEAM_style_exp_0277	[SAMURAI BLUE]\nThe whole team moves to open passing lanes in attack.
-SYS_TEAM_style_exp_0278	[Sweep Shot]\nBoosts the Key Player's shooting.
-SYS_TEAM_style_exp_0279	[Chiquita]\nBoosts the Key Player's shooting.
-SYS_TEAM_style_exp_0280	[Infinite Goal Vision]\nBoosts the Key Player's shooting form.
+SYS_TEAM_style_exp_0262	[Iron Wall]\nThe whole team defends by pressing.
+SYS_TEAM_style_exp_0263	[Three Musketeers]\nThe whole team defends by pressing.
+SYS_TEAM_style_exp_0264	[Iron Chain]\nThe whole team defends by pressing.
+SYS_TEAM_style_exp_0265	[Pincer]\nThe whole team defends by pressing.
+SYS_TEAM_style_exp_0266	[Barrier Triangle]\nThe whole team defends by pressing.
+SYS_TEAM_style_exp_0267	[Double Contact]\nThe whole team defends by pressing.
+SYS_TEAM_style_exp_0268	[Selecao das Quinas]\nKnown for dribbling attacks and cover-based defence.
+SYS_TEAM_style_exp_0269	[Celeste y Blanco]\nKnown for dribbling attacks and pressing defence.
+SYS_TEAM_style_exp_0270	[Canarinho]\nKnown for combination attacks and defence that relies on individual skill.
+SYS_TEAM_style_exp_0271	[Catenaccio]\nKnown for organised defence and attacks using the far side.
+SYS_TEAM_style_exp_0272	[Champagne Football]\nKnown for one-touch build-up and pressing defence.
+SYS_TEAM_style_exp_0273	[German Spirit]\nKnown for fierce pressing and passing with lots of movement.
+SYS_TEAM_style_exp_0274	[Kick and Rush]\nKnown for chance creation through crosses and pressing defence.
+SYS_TEAM_style_exp_0275	[Armada]\nKnown for possession-based attack and fierce pressing.
+SYS_TEAM_style_exp_0276	[Yamato Spirit]\nKnown for passing with lots of movement and pressing defence.
+SYS_TEAM_style_exp_0277	[SAMURAI BLUE]\nKnown for passing with lots of movement and pressing defence.
+SYS_TEAM_style_exp_0278	[Sweep Shot]\nAttacks with shots from the Key Player.
+SYS_TEAM_style_exp_0279	[Chiquita]\nAttacks with shots from the Key Player.
+SYS_TEAM_style_exp_0280	[Infinite Goal Vision]\nAttacks with shots from the Key Player.
 SYS_TEAM_style_exp_0281	[Vital Snatcher]\nAttacks with the Key Player making runs from deep.
-SYS_TEAM_style_exp_0282	[Beast Path]\nBoosts the Key Player's space creation.
-SYS_TEAM_style_exp_0283	[Gravitation]\nBoosts the Key Player's space creation.
-SYS_TEAM_style_exp_0284	[Bosphorus Bridge]\nThe whole team attacks with long through balls.
+SYS_TEAM_style_exp_0282	[Beast Path]\nThe whole team attacks with players and ball moving.
+SYS_TEAM_style_exp_0283	[Gravitation]\nThe whole team attacks with players and ball moving.
+SYS_TEAM_style_exp_0284	[Bosphorus Bridge]\nThe whole team attacks with through balls.
 SYS_TEAM_style_exp_0285	[Infinite Axis]\nAttacks with the Key Player creating chances.
-SYS_TEAM_style_exp_0286	[Angel Wing]\nAttacks with the Key Player creating chances from the flank.
-SYS_TEAM_style_exp_0287	[Muleta]\nAttacks with the Key Player creating chances from the flank.
-SYS_TEAM_style_exp_0288	[Wings of Creation]\nAttacks with the Key Player creating chances from the flank.
-SYS_TEAM_style_exp_0289	[Killer Cross]\nAttacks with crosses from the Key Player.
+SYS_TEAM_style_exp_0286	[Angel Wing]\nAttacks with the Key Player creating chances.
+SYS_TEAM_style_exp_0287	[Muleta]\nAttacks with the Key Player creating chances.
+SYS_TEAM_style_exp_0288	[Wings of Creation]\nAttacks with the Key Player creating chances.
+SYS_TEAM_style_exp_0289	[Killer Cross]\nThe whole team attacks with crosses.
 SYS_TEAM_style_exp_0290	[Field General]\nAttacks with the Key Player as playmaker.
-SYS_TEAM_style_exp_0291	[Absolute Vision]\nAttacks with the Key Player spreading the play wide.
+SYS_TEAM_style_exp_0291	[Absolute Vision]\nThe whole team attacks switching play quickly to the far side.
 SYS_TEAM_style_exp_0292	[Spyware]\nThe whole team attacks with one-touch passes.
-SYS_TEAM_style_exp_0293	[Eternal Beacon]\nThe whole team attacks with low-risk passes.
+SYS_TEAM_style_exp_0293	[Eternal Beacon]\nThe whole team attacks with short passes.
 SYS_TEAM_style_exp_0294	[Malolactic]\nThe whole team attacks mixing long and short passes.
 SYS_TEAM_style_exp_0295	[Borderless]\nThe whole team takes the shortest route to goal.
-SYS_TEAM_style_exp_0296	[Chilling Turn]\nAttacks with the Key Player's elegant dribbling.
-SYS_TEAM_style_exp_0297	[Blind Route]\nAttacks with the Key Player dribbling into the vital area.
-SYS_TEAM_style_exp_0298	[Petit Velo]\nAttacks with the Key Player dribbling into the vital area.
-SYS_TEAM_style_exp_0299	[Innocent World]\nAttacks with the Key Player carrying the ball forward.
-SYS_TEAM_style_exp_0300	[Rodeo Drive]\nAttacks with the Key Player cutting inside.
-SYS_TEAM_style_exp_0301	[Power Screen]\nBoosts the Key Player's physical ball keeping.
-SYS_TEAM_style_exp_0302	[Resonant Arrow]\nAttacks with the Key Player bursting through the middle.
+SYS_TEAM_style_exp_0296	[Chilling Turn]\nThe whole team attacks looking to break through.
+SYS_TEAM_style_exp_0297	[Blind Route]\nThe whole team attacks looking to break through.
+SYS_TEAM_style_exp_0298	[Petit Velo]\nThe whole team attacks looking to break through.
+SYS_TEAM_style_exp_0299	[Innocent World]\nThe whole team attacks looking to break through.
+SYS_TEAM_style_exp_0300	[Rodeo Drive]\nThe whole team attacks looking to break through.
+SYS_TEAM_style_exp_0301	[Power Screen]\nBoosts the whole team's ball keeping.
+SYS_TEAM_style_exp_0302	[Resonant Arrow]\nAttacks with the Key Player's overlapping runs.
 SYS_TEAM_style_exp_0303	[Besieged]\nThe whole team attacks through the Key Player.
-SYS_TEAM_style_exp_0304	[Pulga Atomica]\nAttacks with the Key Player dominating the penalty area.
-SYS_TEAM_style_exp_0305	[Zone Nemesis]\nAttacks with the Key Player dominating the vital area.
-SYS_TEAM_style_exp_0306	[Galactic Star]\nAttacks with the Key Player dominating the whole pitch.
-SYS_TEAM_style_exp_0307	[Campidoglio]\nAttacks with the Key Player dominating the whole pitch.
+SYS_TEAM_style_exp_0304	[Pulga Atomica]\nAttacks with shots from the Key Player.
+SYS_TEAM_style_exp_0305	[Zone Nemesis]\nAttacks with the Key Player creating chances.
+SYS_TEAM_style_exp_0306	[Galactic Star]\nAttacks with the Key Player as playmaker.
+SYS_TEAM_style_exp_0307	[Campidoglio]\nAttacks with the Key Player as playmaker.
 SYS_TEAM_style_exp_0308	[Dangerous Game]\nAttacks with the Key Player playing freely.
 SYS_TEAM_style_exp_0309	[No Huddle]\nAttacks with the Key Player playing freely.
 SYS_TEAM_style_exp_0310	[Ambitious]\nAttacks with the Key Player playing freely.
-SYS_TEAM_style_exp_0311	[El Pipe]\nAttacks with the Key Player playing freely.
-SYS_TEAM_style_exp_0312	[Archmage]\nBoosts the Key Player's creativity.
+SYS_TEAM_style_exp_0311	[El Pipe]\nThe whole team attacks with short passes.
+SYS_TEAM_style_exp_0312	[Archmage]\nAttacks with the Key Player playing freely.
 SYS_TEAM_style_exp_0313	[Firewall]\nDefends with the Key Player covering and joining attacks.
 SYS_TEAM_style_exp_0314	[Cerberus]\nThe whole team defends by slowing down attacks.
-SYS_TEAM_style_exp_0315	[Backseat Role]\nBoosts the Key Player's defensive support.
+SYS_TEAM_style_exp_0315	[Backseat Role]\nBoosts the team's organised defending.
 SYS_TEAM_style_exp_0316	[Front Mission]\nThe Key Player defends from the front.
-SYS_TEAM_style_exp_0317	[Bulletproof Wall]\nThe whole team guards the penalty area at all costs.
-SYS_TEAM_style_exp_0318	[Laughable]\nThe whole team defends against skill.
-SYS_TEAM_style_exp_0319	[Physical Monster]\nDefends with the Key Player using physical contact.
+SYS_TEAM_style_exp_0317	[Bulletproof Wall]\nThe whole team defends by closing the space behind.
+SYS_TEAM_style_exp_0318	[Laughable]\nDefends with the Key Player marking an opponent.
+SYS_TEAM_style_exp_0319	[Physical Monster]\nThe whole team defends with focus on one-on-ones.
 SYS_TEAM_style_exp_0320	[Perfect Game]\nBoosts the Key Player's cunning.
 SYS_TEAM_style_exp_0321	[Pantera]\nBoosts the Key Player's shot-stopping.
 SYS_TEAM_style_exp_0322	[Foro Romano]\nBoosts the Key Player's overall ability.
-SYS_TEAM_style_exp_0323	[Shining Sun]\nLifts the whole team's mood.
+SYS_TEAM_style_exp_0323	[Shining Sun]\nBoosts the Key Player's dedication to the team.
 SYS_TEAM_style_exp_0324	[Halo of Power]\nBoosts the Key Player's dedication to the team.
 SYS_TEAM_style_exp_0325	[Icon]\nBoosts the Key Player's dedication to the team.
 SYS_TEAM_style_exp_0326	[Chain Control]\nThe whole team defends with line control.
 SYS_TEAM_style_exp_0327	[Dream Line]\nThe whole team attacks with combination play.
-SYS_TEAM_style_exp_0328	[Double Lock]\nThe whole team guards the vital area at all costs.
-SYS_TEAM_style_exp_0329	[Tag Partner]\nDefends with the Key Player using physical contact.
-SYS_TEAM_style_exp_0330	[Spion Kop]\nBoosts the team's fighting spirit.
+SYS_TEAM_style_exp_0328	[Double Lock]\nThe whole team defends by closing the space behind.
+SYS_TEAM_style_exp_0329	[Tag Partner]\nThe whole team defends with focus on one-on-ones.
+SYS_TEAM_style_exp_0330	[Spion Kop]\nBoosts the Key Player's dedication to the team.
 SYS_TEAM_style_exp_0331	[Pioneer Knights]\nThe whole team attacks with combination play.
-SYS_TEAM_style_exp_0332	[Two-Way Bond]\nBoosts the Key Player's positioning.
+SYS_TEAM_style_exp_0332	[Two-Way Bond]\nBoosts the team's organised defending.
 SYS_TEAM_style_exp_0333	[Delta Press]\nBoosts the Key Player's stamina.
 SYS_TEAM_style_exp_0334	[Double Impact]\nAttacks with the Key Player running in behind the defence.
 SYS_TEAM_style_exp_0335	[Iron Curtain]\nThe whole team defends with line control.
-SYS_TEAM_style_exp_0336	[Control Triangle]\nThe whole team moves to open passing lanes in attack.
-SYS_TEAM_style_exp_0337	[St. Mark]\nBoosts the Key Player's shooting form.
+SYS_TEAM_style_exp_0336	[Control Triangle]\nThe whole team attacks with short passes.
+SYS_TEAM_style_exp_0337	[St. Mark]\nAttacks with shots from the Key Player.
 SYS_TEAM_style_exp_0338	[Black Swan]\nBoosts the Key Player's stamina.
 SYS_TEAM_style_exp_0339	[Black Tulip]\nAttacks with the Key Player playing freely.
-SYS_TEAM_style_exp_0340	[Celeste]\nThe whole team attacks with FWs waiting to counter.
-SYS_TEAM_style_exp_0341	[Blagula]\nBoosts the Key Player's physical ball keeping.
-SYS_TEAM_style_exp_0342	[Danish Dynamite]\nThe whole team attacks with players and ball moving.
-SYS_TEAM_style_exp_0343	[Rode Duivels]\nThe whole team attacks with combination play.
-SYS_TEAM_style_exp_0344	[Vatreni]\nThe whole team attacks with combination play.
-SYS_TEAM_style_exp_0345	[Child King]\nBoosts the Key Player's overall ability.
-SYS_TEAM_style_exp_0346	[Charreria]\nAttacks with the Key Player dominating the penalty area.
-SYS_TEAM_style_exp_0347	[Puppet Dance]\nBoosts the Key Player's creativity.
+SYS_TEAM_style_exp_0340	[Celeste]\nKnown for quick build-up to the front and defence that slows the opponent's attack.
+SYS_TEAM_style_exp_0341	[Blagula]\nKnown for long feeds from the back and defence that slows the opponent's attack.
+SYS_TEAM_style_exp_0342	[Danish Dynamite]\nKnown for dribbling attacks and compact, organised defence.
+SYS_TEAM_style_exp_0343	[Rode Duivels]\nKnown for pressing defence and quick build-up to the front.
+SYS_TEAM_style_exp_0344	[Vatreni]\nKnown for mixed long and short passing and defence focused on a quick return.
+SYS_TEAM_style_exp_0345	[Child King]\nAttacks with the Key Player playing freely.
+SYS_TEAM_style_exp_0346	[Charreria]\nAttacks with shots from the Key Player.
+SYS_TEAM_style_exp_0347	[Puppet Dance]\nAttacks with the Key Player creating chances.
 SYS_TEAM_style_exp_0348	[Trafford Yard]\nBoosts the Key Player's handling of crosses.
-SYS_TEAM_style_exp_0349	[Crossing Train]\nAttacks with the Key Player cutting inside.
-SYS_TEAM_style_exp_0350	[United Force]\nThe whole team attacks fast after winning the ball.
-SYS_TEAM_style_exp_0351	[Illusionista]\nBoosts the Key Player's creativity.
-SYS_TEAM_style_exp_0352	[Plato Principal]\nBoosts the Key Player's shooting.
+SYS_TEAM_style_exp_0349	[Crossing Train]\nThe whole team attacks looking to break through.
+SYS_TEAM_style_exp_0350	[United Force]\nThe whole team takes the shortest route to goal.
+SYS_TEAM_style_exp_0351	[Illusionista]\nAttacks with the Key Player creating chances.
+SYS_TEAM_style_exp_0352	[Plato Principal]\nAttacks with shots from the Key Player.
 SYS_TEAM_style_exp_0353	[Gold Rush]\nBoosts the Key Player's overall ability.
-SYS_TEAM_style_exp_0354	[Flying Gun]\nBoosts the Key Player's first-time shots.
+SYS_TEAM_style_exp_0354	[Flying Gun]\nAttacks with shots from the Key Player.
 SYS_TEAM_style_exp_0355	[Counter Head]\nThe whole team takes the shortest route to goal.
 SYS_TEAM_style_exp_0356	[Cuckoo Clock]\nAttacks with the Key Player creating chances.
-SYS_TEAM_style_exp_0357	[Fighting Man]\nBoosts the Key Player's hunger for goals.
+SYS_TEAM_style_exp_0357	[Fighting Man]\nAttacks with shots from the Key Player.
 SYS_TEAM_style_exp_0358	[Momentum Magic]\nThe whole team attacks through the Key Player.
 INF_SPO_secure_0007	A local citizens' group is backing us.\nLet's not let them down.
 INF_SPO_rank_0000	industry-leading 
@@ -3920,82 +3920,82 @@ SYS_ADV_right_0002	Arsenal: ? & c 2006 Arsenal Football Club Plc.Licensed by Gra
 SYS_CARD_warning_0020	Entry rules not met\n-- Entry Rules --\nTotal Points (Total Points %d or less)
 INF_059_message_0000	Thanks for taking part in the JAPAN WINNER'S CHAMPIONSHIP.\nGood luck next time, too.
 MAN_0506LICENSE_header_0001	Salary:
-INF_FRE_sponsor_0100	Sponsor: Sakatsuku 7 EURO PLUS
-INF_FRE_sponsor_0101	Sponsor: Sakatsuku 7 EURO PLUS
+INF_FRE_sponsor_0100	Sponsor: Sakatsuku
+INF_FRE_sponsor_0101	Sponsor: Sakatsuku
 COM_COOPERATION_question_0002	Their telepathic link-up play is world famous.\nHow will you raise their profile further?
 COM_COOPERATION_question_0011	%s and %s.\nWhere will you advise them to raise their link-up play?
 COM_COOPERATION_question_0012	%s and %s\nplay in perfect sync. What advice will you give them?
 COM_COOPERATION_question_0027	%s and %s\ntrust their link-up play. What should they focus on?
 COM_COOPERATION_answer_0029	Your words helped them read each other's play.
-COM_COOPERATION_answer_0159	They were in the mood for Chinese.\nYou should all have a good time tonight.
+COM_COOPERATION_answer_0159	They were in the mood for Chinese.\nOver the meal they'll happily talk about their play.
 GAM_FRIENDLY_message_0063	We managed to grab the win.
-COM_MEETING_answer_0019	There was nothing to worry about.\nHis current style is good enough.
-COM_MEETING_answer_0046	There was nothing to worry about.\nHis current style is good enough.
+COM_MEETING_answer_0019	He accepts your advice.\nMore talks may reveal a new playing style.
+COM_MEETING_answer_0046	Your words haven't reached him yet.\nWhat's missing may be trust between you.
 GAM_HALF_message_0002	Both sides are giving everything. Neck and neck.\nMind the stamina and plan for the 2nd half.
-GAM_HALF_message_0003	We've conceded the first goal.\nSet a 2nd-half plan to turn it around.
+GAM_HALF_message_0003	We end the first half behind.\nMind the stamina and plan a comeback.
 GAM_HALF_message_0008	We end the 1st half a goal behind.\nBut your tactics can still turn it around.
 GAM_HALF_message_0012	A tense 1st half.\nYour tactics will decide it.
 GAM_HALF_message_0015	End of the 1st half.
 GAM_HALF_message_0018	You trust the players: no orders.\nThe 2nd half begins now.
-GAM_HALF_order_0003	Keep the ball
-GAM_HALF_order_0010	End with a shot
-GAM_HALF_order_0012	Keep passing
-GAM_HALF_order_0014	Trust your pace
-GAM_HALF_order_0016	Check positions
-GAM_HALF_order_0020	Pass quickly
-GAM_HALF_order_0022	Win it, go long
-GAM_HALF_order_0027	Pass it forward
-GAM_HALF_order_0028	Seize chances
-GAM_HALF_order_0029	Stay focused
-GAM_HALF_order_0030	Sharpen link-ups
-GAM_HALF_order_0031	Hit fast counters
-GAM_HALF_order_0032	Overlap
-GAM_HALF_order_0034	Use the space
-GAM_HALF_order_0035	Short passes
-GAM_HALF_order_0038	Run in behind
-INF_CLUBHOUSER_message_0003	A renovated Manager's Office may\nhelp players trust and heed you.
-INF_CLUBHOUSER_message_0004	A renovated Meeting Room\nmay make players take your ratings to heart.
-INF_CLUBHOUSER_message_0006	A renovated Medical Room\nmay speed up stamina and injury recovery.
-INF_CLUBHOUSER_message_0010	Renovating the office and clubhouse\nmay help players heed your orders.
-INF_CLUBHOUSER_message_0011	Renovating the Meeting Room and clubhouse\nmay make players take your ratings to heart.
-INF_CLUBHOUSER_message_0013	Renovating the Medical Room and clubhouse\nmay speed up stamina and injury recovery.
-INF_CLUBHOUSER_message_0018	A renovated office\nwill help players trust and heed you.
-INF_CLUBHOUSER_message_0019	A renovated Meeting Room\nwill make your ratings sink in.
-INF_CLUBHOUSER_message_0021	A renovated Medical Room\nwill speed up stamina and injury recovery.
+GAM_HALF_order_0003	Link your passes
+GAM_HALF_order_0010	Finish with power
+GAM_HALF_order_0012	Play first-time passes
+GAM_HALF_order_0014	Outrun them
+GAM_HALF_order_0016	Believe in yourselves
+GAM_HALF_order_0020	Keep it simple
+GAM_HALF_order_0022	Win it, play it forward
+GAM_HALF_order_0027	Use one-twos
+GAM_HALF_order_0028	Make corners count
+GAM_HALF_order_0029	Make free kicks count
+GAM_HALF_order_0030	Use set moves
+GAM_HALF_order_0031	Break through with teamwork
+GAM_HALF_order_0032	Push forward
+GAM_HALF_order_0034	Support each other
+GAM_HALF_order_0035	Move the ball quickly
+GAM_HALF_order_0038	Use long balls
+INF_CLUBHOUSER_message_0003	A renovated Manager's Office may bring you\ncloser to your secretary and build trust.
+INF_CLUBHOUSER_message_0004	A renovated Meeting Room may make\nplayers take your coaching seriously.
+INF_CLUBHOUSER_message_0006	A renovated Medical Room may make\nplayer condition easier to manage.
+INF_CLUBHOUSER_message_0010	Renovating the office and clubhouse\nmay build trust with your secretary.
+INF_CLUBHOUSER_message_0011	Renovating the Meeting Room and clubhouse\nmay make players take your coaching seriously.
+INF_CLUBHOUSER_message_0013	Renovating the Medical Room and clubhouse\nmay make player condition easier to manage.
+INF_CLUBHOUSER_message_0018	A renovated Manager's Office will bring you\ncloser to your secretary and build trust.
+INF_CLUBHOUSER_message_0019	A renovated Meeting Room will make\nplayers take your coaching seriously.
+INF_CLUBHOUSER_message_0021	A renovated Medical Room will make\nplayer condition easier to manage.
 MAN_APPLICATION_action_0002	Play a CPU team
-MAN_APPLICATION_message_0005	Challenge a chosen opponent until 60 sec before kick-off.\nThe match is set when they challenge you back.
-MAN_APPLICATION_message_0006	Be matched with a random opponent.\nOpponent decided 20 sec before kick-off.
-MAN_APPLICATION_message_0007	Play a CPU team as strong as your club.\nOpponent decided 20 sec before kick-off.
-MAN_APPLICATION_message_0009	You have challenged this club.\nThe match is set when they challenge you back.
+MAN_APPLICATION_message_0005	Challenge a chosen opponent until 60 sec before kick-off.
+MAN_APPLICATION_message_0006	Be matched without choosing an opponent.
+MAN_APPLICATION_message_0007	Play a CPU team as strong as your club.
+MAN_APPLICATION_message_0009	This club has been challenged by you.
 MAN_APPLICATION_message_0010	You challenged %s.\nThe match is set when they challenge you back.
-MAN_APPLICATION_message_0013	No opponent set. Back to the office.\nChangeable until 60 sec before kick-off.
+MAN_APPLICATION_message_0013	Match setting cleared. Changeable until 60 sec before kick-off.
 MAN_APPLICATION_message_0014	Opponent set to a CPU team.\nChangeable until 60 sec before kick-off.
-MAN_Regist_menu_0003	Data Match Entry
-INF_COACHTRAINING_message_0000	Your last club's success earned you new drills.\nIt shapes how the team develops - choose wisely.
-INF_COACHTRAINING_message_0003	Your training for this team is now set.\nUse your past experience to build a powerhouse!
-INF_COACHTRAINING_contents_0000	Drill:
-INF_COACHTRAINING_contents_0001	Effect 1:
-INF_COACHTRAINING_contents_0002	Effect 2:
+MAN_Regist_menu_0003	Golden Championship
+INF_COACHTRAINING_message_0000	Thanks to your last club's record,\nyou can now use new half-time tactics.
+INF_COACHTRAINING_message_0003	Half-time tactics set.\nGive orders to suit the match\nand beat the strong teams.
+INF_COACHTRAINING_contents_0000	Current Selection:
+INF_COACHTRAINING_contents_0001	---
+INF_COACHTRAINING_contents_0002	---
 INF_070_message_0000	Thanks for playing in the WORLD WINNER'S CHAMPIONSHIP.\nGood luck next time.
 INF_FANEVENT_fan_0000	Event Turnout:
 INF_057_message_0000	Thanks for playing in the AREA CHAMPIONSHIP.\nGood luck next time.
 COM_TRAINING_question_0002	Meet new signing %s.\nWhat play do you want from him?
-TRA_THEME_menu_0007	Team Play
-TRA_THEME_menu_0008	Solo Play
-TRA_THEME_menu_0009	Set Pieces
-TRA_THEME_menu_0010	First-Time Shots
-TRA_THEME_menu_0012	One-Touch Pass
-TRA_THEME_menu_0014	Shuttle Runs
-TRA_THEME_menu_0020	One-Touch Play
-TRA_THEME_menu_0022	Long Counter
-TRA_THEME_menu_0027	Pass & Run
-TRA_THEME_menu_0028	CKs
-TRA_THEME_menu_0029	FKs
-TRA_THEME_menu_0030	Routines
-TRA_THEME_menu_0031	Full-Pitch 3v3
-TRA_THEME_menu_0032	Overlapping
-TRA_THEME_menu_0034	Mini-Game
-TRA_THEME_menu_0035	1-Touch Game
+TRA_THEME_menu_0007	Not Set
+TRA_THEME_menu_0008	Not Set
+TRA_THEME_menu_0009	Not Set
+TRA_THEME_menu_0010	Finish with power
+TRA_THEME_menu_0012	Play first-time passes
+TRA_THEME_menu_0014	Outrun them
+TRA_THEME_menu_0020	Keep it simple
+TRA_THEME_menu_0022	Win it, play it forward
+TRA_THEME_menu_0027	Use one-twos
+TRA_THEME_menu_0028	Make corners count
+TRA_THEME_menu_0029	Make free kicks count
+TRA_THEME_menu_0030	Use set moves
+TRA_THEME_menu_0031	Break through with teamwork
+TRA_THEME_menu_0032	Push forward
+TRA_THEME_menu_0034	Support each other
+TRA_THEME_menu_0035	Move the ball quickly
 TRA_THEME_effect_0000	Links +
 TRA_THEME_effect_0001	Links ++
 TRA_THEME_effect_0002	Links +++
@@ -4027,18 +4027,18 @@ TRA_THEME_effect_0027	Special/Set Play +++
 TRA_THEME_effect_0028	Links/Ability/Special +
 TRA_THEME_effect_0029	Links/Ability/Special ++
 TRA_THEME_effect_0030	Links/Ability/Special +++
-TRA_THEME_confirm_0000	Give them a day off?
-TRA_THEME_confirm_0001	Tell
-TRA_THEME_confirm_0002	Cancel
-PRO_PRO_title_0036	Nations Cup
+TRA_THEME_confirm_0000	Train for the next match.\nRest lets the players recover from fatigue.
+TRA_THEME_confirm_0001	Train
+TRA_THEME_confirm_0002	Rest
+PRO_PRO_title_0036	Network Match
 MAN_DATAENTRY_message_0003	Don't enter the Area Championship;\nback to Entry / Requests.
 MAN_DATAENTRY_message_0008	Don't enter the Asia Championship;\nback to Entry / Requests.
 MAN_DATAENTRY_window_0004	Regulation not met.\n\nTo enter,\nyou must register 16 players.
 COM_DIR_CAP_question_0000	He asks how you'll build the team.\nWhat team will you aim for?
-MAN_COM_menu_0001	Manager's Office
-MAN_COM_menu_0002	Meeting Room
-MAN_COM_menu_0003	Lounge
-MAN_COM_menu_0004	Medical Room
+MAN_COM_menu_0001	Build Partnership
+MAN_COM_menu_0002	Adjust Condition
+MAN_COM_menu_0003	Secretary / Items
+MAN_COM_menu_0004	Meeting
 SYS_GAME_warning_0001	This Club Card did not end normally last time.\nIts data may not be saved correctly.\nAlso, any entry\nfor a data match will be cancelled.
 SYS_GAME_warning_0002	This Club Card did not end normally last time.\nIts data may not be saved correctly.
 INF_072_message_0000	Thanks for taking part in the ASIA CHAMPIONSHIP.\nHoping for more next time.
@@ -5081,7 +5081,7 @@ COM_SEC_COACH_hint_0018	"With $c[FF6633FF]Secretary Talk / Item Use$c, you can u
 COM_SEC_COACH_hint_0019	"In $c[FF6633FF]Meetings$c, watch the speech bubbles above the players.\n Green events are $c[FF6633FF]highly effective$c; blue events are chances for $c[FF6633FF]special coaching$c."
 COM_SEC_COACH_hint_0020	"Players who $c[FF6633FF]did not play$c in a match $c[FF6633FF]fully recover stamina$c,\n and if their motivation is low, $c[FF6633FF]motivation goes up$c too."
 COM_SEC_COACH_hint_0021	"$c[FF6633FF]Special Coaching$c uses $c[FF6633FF]digital cards$c registered in the Player Album\n to $c[FF6633FF]develop$c a player."
-COM_SEC_COACH_hint_0022	"Successful $c[FF6633FF]Special Coaching$c may teach a player an $c[FF6633FF]extra ability$c.\n It can $c[FF6633FF]change his play$c in matches or add new $c[FF6633FF]aptitudes$c."
+COM_SEC_COACH_hint_0022	"Successful $c[FF6633FF]Special Coaching$c may teach a player an $c[FF6633FF]Extra Ability$c.\n It can $c[FF6633FF]change his play$c in matches or add new $c[FF6633FF]aptitudes$c."
 COM_SEC_COACH_hint_0023	"To $c[FF6633FF]swap the players$c registered to your team,\n choose $c[FF6633FF]Team Registration$c in the $c[FF6633FF]Settings Menu$c and exchange cards."
 COM_SEC_COACH_hint_0024	"The $c[FF6633FF]Overall Manager Ranking$c decides the No. 1 manager\n from points earned through match results, titles won and more."
 COM_SEC_COACH_hint_0025	"Clear the $c[FF6633FF]missions$c given by $c[FF6633FF]sponsors$c and you get\n various $c[FF6633FF]items$c depending on the sponsor's industry."
@@ -5180,7 +5180,7 @@ COM_SEC_COACH_hint_0117	"When $c[FF6633FF]Individual Training$c goes well, or in
 COM_SEC_COACH_hint_0118	"$c[FF6633FF]Sponsor items$c have various effects depending on the item,\n such as $c[FF6633FF]raising the success rate$c of talks or $c[FF6633FF]maintaining condition$c."
 COM_SEC_COACH_hint_0119	"When a player's $c[FF6633FF]discontent explodes$c, he $c[FF6633FF]gains experience less easily$c.\n If you see such a player, hear him out right away."
 COM_SEC_COACH_hint_0120	"When a player falls into a $c[FF6633FF]slump$c, he $c[FF6633FF]gains experience less easily$c.\n If you see such a player, advise him right away."
-COM_SEC_COACH_hint_0121	"The extra ability learned in $c[FF6633FF]Special Coaching$c seems to depend on\n the coaching side's $c[FF6633FF]potential$c and the learner's $c[FF6633FF]aptitude$c. Results are not always the same."
+COM_SEC_COACH_hint_0121	"The Extra Ability learned in $c[FF6633FF]Special Coaching$c seems to depend on\n the coaching side's $c[FF6633FF]potential$c and the learner's $c[FF6633FF]aptitude$c. Results are not always the same."
 COM_SEC_COACH_hint_0122	"If you do $c[FF6633FF]Special Coaching$c with a player registered many times,\n his individual abilities seem to grow $c[FF6633FF]faster than usual$c."
 COM_SEC_COACH_hint_0123	"You can make the $c[FF6633FF]default settings$c for the tactics buttons under $c[FF6633FF]Team Registration$c\n in the settings menu. Then every game starts with the same settings."
 COM_SEC_COACH_hint_0124	"Finish high in the Overall Manager Ranking at month's end\n and you can win limited $c[FF6633FF]titles$c and $c[FF6633FF]trophies and medals$c for your record!"
@@ -5280,12 +5280,12 @@ COM_SEC_COACH_hint_0217	"As $c[FF6633FF]player levels$c rise, the $c[FF6633FF]ex
 COM_SEC_COACH_hint_0218	"A $c[FF6633FF]sponsor item$c can occasionally have an effect not only on the\n player you gave it to but also on his teammates."
 COM_SEC_COACH_hint_0219	"As $c[FF6633FF]player levels$c rise, the $c[FF6633FF]experience gained falls$c.\n The further you develop, the more key $c[FF6633FF]items$c become."
 COM_SEC_COACH_hint_0220	"Players with high $c[FF6633FF]motivation$c seem to get a $c[FF6633FF]bigger experience boost$c.\n Managing the motivation of players you're developing matters too."
-COM_SEC_COACH_hint_0221	"In $c[FF6633FF]Special Coaching$c, $c[FF6633FF]coaching given in the past$c to that player also seems $c[FF6633FF]important$c.\n Why not also look at the $c[FF6633FF]extra abilities he already has$c?"
-COM_SEC_COACH_hint_0222	"In $c[FF6633FF]Special Coaching$c, with a card of $c[FF6633FF]high rarity$c, extra abilities seem to\n get $c[FF6633FF]+$c or $c[FF6633FF]++$c $c[FF6633FF]more easily$c."
-COM_SEC_COACH_hint_0223	"In $c[FF6633FF]Special Coaching$c, $c[FF6633FF]coaching given in the past$c to that player also seems $c[FF6633FF]important$c.\n Why not also look at the $c[FF6633FF]extra abilities he already has$c?"
+COM_SEC_COACH_hint_0221	"In $c[FF6633FF]Special Coaching$c, $c[FF6633FF]coaching given in the past$c to that player also seems $c[FF6633FF]important$c.\n Why not also look at the $c[FF6633FF]Extra Abilities he already has$c?"
+COM_SEC_COACH_hint_0222	"In $c[FF6633FF]Special Coaching$c, with a card of $c[FF6633FF]high rarity$c, Extra Abilities seem to\n get $c[FF6633FF]+$c or $c[FF6633FF]++$c $c[FF6633FF]more easily$c."
+COM_SEC_COACH_hint_0223	"In $c[FF6633FF]Special Coaching$c, $c[FF6633FF]coaching given in the past$c to that player also seems $c[FF6633FF]important$c.\n Why not also look at the $c[FF6633FF]Extra Abilities he already has$c?"
 COM_SEC_COACH_hint_0224	"The '$c[FF6633FF]XX registered$c' in the $c[FF6633FF]coaches' report$c I pass on\n is the position $c[FF6633FF]written on the card$c."
 COM_SEC_COACH_hint_0225	"High $c[FF6633FF]team morale$c makes training more effective.\n Win your players' $c[FF6633FF]trust$c and raise team morale!"
-COM_SEC_COACH_hint_0226	"The message at the bottom of the $c[FF6633FF]Player Album$c during $c[FF6633FF]Special Coaching$c\n hints at the $c[FF6633FF]chance$c, $c[FF6633FF]type$c and $c[FF6633FF]line$c of the extra ability."
+COM_SEC_COACH_hint_0226	"The message at the bottom of the $c[FF6633FF]Player Album$c during $c[FF6633FF]Special Coaching$c\n hints at the $c[FF6633FF]chance$c, $c[FF6633FF]type$c and $c[FF6633FF]line$c of the Extra Ability."
 COM_SEC_COACH_hint_0227	"Renovate the $c[FF6633FF]Manager's Office$c in the $c[FF6633FF]Clubhouse$c\n and the $c[FF6633FF]bond of trust$c with us secretaries grows more easily."
 COM_SEC_COACH_hint_0228	"Depending on your and the team's $c[FF6633FF]results$c, you may be able to\n $c[FF6633FF]renovate$c facilities in the $c[FF6633FF]Clubhouse$c."
 COM_SEC_COACH_hint_0229	"In $c[FF6633FF]Tour Friendlies$c, some $c[FF6633FF]evolved team styles$c are easier to get\n depending on the host region and the $c[FF6633FF]training theme$c you chose."
@@ -5313,7 +5313,7 @@ COM_SEC_COACH_hint_0250	"When $c[FF6633FF]stamina$c hits zero, a player's perfor
 COM_SEC_COACH_hint_0251	"Each player has over $c[FF6633FF]100 detailed parameters$c in all, including\n $c[FF6633FF]physical$c abilities and abilities like $c[FF6633FF]thinking and tendencies$c."
 COM_SEC_COACH_hint_0252	"When you trigger an $c[FF6633FF]evolved team style$c,\n players may make $c[FF6633FF]moves$c that a normal team style doesn't show."
 COM_SEC_COACH_hint_0253	"The effects of $c[FF6633FF]Super Sub$c, $c[FF6633FF]Giant Killer$c and the like seem to vary with the\n $c[FF6633FF]trust$c between player and manager."
-COM_SEC_COACH_hint_0254	"A player who is naturally a $c[FF6633FF]Giant Killer$c or $c[FF6633FF]Big Match Player$c and learns\n the same ability as an extra ability seems to $c[FF6633FF]trigger it more easily$c."
+COM_SEC_COACH_hint_0254	"A player who is naturally a $c[FF6633FF]Giant Killer$c or $c[FF6633FF]Big Match Player$c and learns\n the same ability as an Extra Ability seems to $c[FF6633FF]trigger it more easily$c."
 COM_SEC_COACH_hint_0255	"Take a $c[FF6633FF]Club Team Style$c or $c[FF6633FF]National Team Style$c to $c[FF6633FF]S Rank$c\n and you can earn a $c[FF6633FF]title$c named after it."
 COM_SEC_COACH_hint_0256	"It is good to master several $c[FF6633FF]team styles$c and match them to the situation.\n When things go badly, a $c[FF6633FF]bold tactical change$c may pay off."
 COM_SEC_COACH_hint_0257	"A team of 16 players of the latest card version, all from one club,\n triggers an $c[FF6633FF]Evolved Club Team Style$c, stronger than the Club Team Style."
@@ -6895,21 +6895,21 @@ TRA_THEME_message_0016	Beating this team may be extremely hard.
 TRA_THEME_message_0017	It looks like an even match.
 TRA_THEME_message_0018	With the team in its current state, you have a $c[FF6633FF]good chance to win$c.
 TRA_THEME_message_0019	Our players look set to put in a $c[FF6633FF]great performance$c.
-TRA_THEME_menu_0003	Link up passes
-TRA_THEME_menu_0016	Believe in yourself
+TRA_THEME_menu_0003	Link your passes
+TRA_THEME_menu_0016	Believe in yourselves
 TRA_THEME_menu_0038	Use long balls
 TRA_THEME_menu_0044	Use crosses
-TRA_THEME_menu_0045	Get the defensive shape right
-TRA_THEME_menu_0046	Link the ball accurately
+TRA_THEME_menu_0045	Shape up in defense
+TRA_THEME_menu_0046	Link passes accurately
 TRA_THEME_menu_0047	Improve defensive teamwork
 TRA_THEME_menu_0048	Keep the ball
-TRA_THEME_menu_0049	Break them down with passing
-TRA_THEME_menu_0050	Remember your training
+TRA_THEME_menu_0049	Break them with passing
+TRA_THEME_menu_0050	Remember training
 TRA_THEME_menu_0051	Run into space
-TRA_THEME_menu_0052	Use the pitch wide
-TRA_THEME_menu_0053	Win the key duels
+TRA_THEME_menu_0052	Use the full width
+TRA_THEME_menu_0053	Win key moments
 TRA_THEME_menu_0054	Raise possession
-TRA_THEME_menu_0055	Press hard from the front
+TRA_THEME_menu_0055	Attack hard up front
 TRA_THEME_menu_0056	Press O
 TRA_THEME_menu_0057	Press C
 TRA_THEME_menu_0058	Press D
@@ -7324,7 +7324,7 @@ MAN_COACHITEM_message_0093	Offense ★1\nDefense ★1\nTechnique ★1\nPower ★
 MAN_COACHITEM_message_0094	Offense ★1\nDefense ★1\nTechnique ★1\nPower ★1\nSpeed ★9\nStamina ★1
 MAN_COACHITEM_message_0095	Offense ★1\nDefense ★1\nTechnique ★1\nPower ★1\nSpeed ★1\nStamina ★9
 MAN_COACHITEM_message_0096	Option effect:
-MAN_COACHITEM_message_0097	Extra skill gained
+MAN_COACHITEM_message_0097	Extra Ability gained
 MAN_COACHITEM_message_0099	Golden Bond
 MAN_COACHITEM_message_1000	Select the item to use and $c[FF6633FF]press OK$c.
 MAN_COACHITEM_message_1001	$c[FF6633FF]Rub$c the card of the player to receive the item.
@@ -7858,7 +7858,7 @@ COM_SP_MEETING_answer_0009	He seems sure he has found a new style.\nDon't take y
 COM_SP_MEETING_answer_0010	Player %s looked a little surprised,\nbut seems to understand and accept your approach.
 COM_SP_MEETING_guidance_0000	Give player %s hints on a play style, modeled on a famous player.\nSelect a card and press the Enter button.
 COM_SP_MEETING_guidance_0001	Thanks to your coaching just now,\nplayer %s's dormant talent has come out!
-COM_SP_MEETING_guidance_0002	Added skill
+COM_SP_MEETING_guidance_0002	Extra Ability
 COM_SP_MEETING_guidance_0003	A very good match for him.
 COM_SP_MEETING_guidance_0004	A fairly good match for him.
 COM_SP_MEETING_guidance_0005	The match is so-so...
@@ -9849,3 +9849,686 @@ MAN_UT_data_0001	Rankings are from the previous day's tally
 COM_TIME_answer_0001	It's nearly match time.\nYour secretary was left alone and is a little sulky.
 GAM_OROGINAL_stadium_0069	Sports Football Park
 GAM_SALARY_states_0012	Until Level Up
+CLM_MANAGERNAME_caution_0000	Once set, your name $c[FF6633FF]can't be changed until your contract ends$c.\n\nIs this OK?
+CLM_MNAME_warning_0000	Once set, your name $c[FF6633FF]can't be changed until your contract ends$c.\nPlease enter it carefully.\n\nYour manager name is published with game data for rankings\nand other listings on mobile, PC and video sites.\n$c[FF6633FF]Do not enter a name that could identify you$c.\n\n$c[FF6633FF]If cheating is found,\nyour play data may be deleted.$c
+COM_DIR_LOWDUTYCYCLE_answer_0000_00	He is moved by your faith in his potential.\nTo meet your expectations, he looks set to $c[FF6633FF]grow a lot with this team$c.
+COM_DIR_LOWDUTYCYCLE_answer_0000_01	He is moved that you recognize his individuality.\nTo meet your expectations, he looks set to $c[FF6633FF]grow a lot with this team$c.
+COM_DIR_LOWDUTYCYCLE_answer_0000_02	He is moved by your mystical way of thinking.\nTo meet your expectations, he looks set to $c[FF6633FF]grow a lot with this team$c.
+COM_DIR_LOWDUTYCYCLE_question_0000	%s $c[FF6633FF]rarely got to play$c at his other team.\nHe wants to know what made you sign him.
+COM_DISCONTENT_answer_0031	You seem to understand each other a little better.\nAt this rate, an $c[FF6633FF]early return$c to the team looks possible.
+COM_DISCONTENT_answer_0033	Hearing you out let him reflect on himself.\nAt this rate, an $c[FF6633FF]early return$c to the team looks possible.
+COM_DISCONTENT_answer_0035	Your mature response helped him regain his composure.\nAt this rate, an $c[FF6633FF]early return$c to the team looks possible.
+COM_DISCONTENT_answer_0038	He seems fed up with your behavior.\nHis discontent has reached its $c[66CCFFFF]peak$c.
+COM_DISCONTENT_answer_0040	He seems fed up with your behavior.\nHis discontent has reached its $c[66CCFFFF]peak$c.
+COM_DISCONTENT_answer_0042	He seems fed up with your behavior.\nHis discontent has reached its $c[66CCFFFF]peak$c.
+COM_DISCONTENT_answer_0044	He seems to despise a Manager who will not own the tactics.\nHe is even more $c[66CCFFFF]uneasy$c about the team tactics.
+COM_DISCONTENT_answer_0046	He seems sick of such a selfish Manager.\nHe is even more $c[66CCFFFF]uneasy$c about the team tactics.
+COM_DISCONTENT_answer_0048	He is unhappy that you would not even explain yourself.\nHe is even more $c[66CCFFFF]uneasy$c about the team tactics.
+COM_DISCONTENT_answer_0050	He feels $c[66CCFFFF]uneasy$c about a Manager who cannot hold to his theory.\nYou should not drop your theory so easily.
+COM_DISCONTENT_answer_0052	A one-sided explanation left him $c[66CCFFFF]fed up$c.\nForcing only your own theory will not win understanding.
+COM_DISCONTENT_answer_0054	He seems $c[66CCFFFF]fed up$c with how you cut players loose.\nA team cannot be built from convenient players alone.
+COM_DISCONTENT_answer_0056	He seems $c[66CCFFFF]unsure$c why he is on the team.\nIt is cruel to keep a player around for no reason.
+COM_DISCONTENT_answer_0058	Anyone would be $c[66CCFFFF]shocked$c to hear about the gap in ability.\nHe seems to have lost a lot of confidence.
+COM_DISCONTENT_answer_0060	He feels brushed off and is not $c[66CCFFFF]convinced$c.\nIt is a shame to leave it a secret.
+COM_DISCONTENT_answer_0062	Encouraging him was $c[66CCFFFF]useless$c.
+COM_DISCONTENT_answer_0064	There was no need to scold him, was there?\nHe seems $c[66CCFFFF]downcast$c.
+COM_DISCONTENT_answer_0066	He clearly looks $c[66CCFFFF]distressed$c.
+COM_DISCONTENT_answer_0068	He was $c[66CCFFFF]shocked$c that you had not thought about him.\nYou should know your players' traits well.
+COM_DISCONTENT_answer_0070	He feels you did not sense his wishes and is $c[66CCFFFF]disappointed$c.\nMaybe you need to dare to leave it to him.
+COM_DISCONTENT_answer_0072	$c[66CCFFFF]Dodging$c does not work.\nYou should have given a proper answer.
+COM_DISCONTENT_answer_0074	He was $c[66CCFFFF]shocked$c that you had not thought about him.\nYou should know your players' traits well.
+COM_DISCONTENT_answer_0076	He feels you did not sense his wishes and is $c[66CCFFFF]disappointed$c.\nMaybe you need to dare to leave it to him.
+COM_DISCONTENT_answer_0078	$c[66CCFFFF]Dodging$c does not work.\nYou should have given a proper answer.
+COM_DISCONTENT_answer_0080	He did not want a $c[66CCFFFF]vague$c answer.\nYou should have given a clear reason.
+COM_DISCONTENT_answer_0082	It sounded like an $c[66CCFFFF]excuse$c to him.\nIt seems better to show it through your attitude.
+COM_DISCONTENT_answer_0084	If he cannot play, nothing has any $c[66CCFFFF]point$c.\nThe player did not want it to go that far.
+COM_DISCONTENT_answer_0086	You could not ease the player's $c[66CCFFFF]worries$c.\nYou need to fix the club finances soon.
+COM_DISCONTENT_answer_0088	He was $c[66CCFFFF]shocked$c at being treated so lightly.\nPlayers should be treated with more care.
+COM_DISCONTENT_answer_0090	He is even more $c[66CCFFFF]uneasy$c now.\nComplaining in front of players is not good.
+COM_DISCONTENT_answer_0092	You only called out to him for the sake of it.\nHe seems to have $c[66CCFFFF]not really wanted you to come$c.
+COM_DISCONTENT_answer_0094	You should have gone with him once in a while.\nHe went back $c[66CCFFFF]disappointed$c.
+COM_DISCONTENT_answer_0096	He seems $c[66CCFFFF]disappointed$c by your cold attitude.\nYou should have thought more about the players.
+COM_DISCONTENT_answer_0098	If you knew, you should have acted sooner.\nYou only stirred up the player's $c[66CCFFFF]anger$c.
+COM_DISCONTENT_answer_0100	He openly shows $c[66CCFFFF]anger$c at a Manager\nwho will not take players' opinions on board.
+COM_DISCONTENT_answer_0102	Thinking about it now is $c[66CCFFFF]too late$c.\nHe seems to have wanted you to think of it sooner.
+COM_DISCONTENT_answer_0104	He did not want a $c[66CCFFFF]vague$c answer.\nYou should have given a clear reason.
+COM_DISCONTENT_answer_0106	It sounded like an $c[66CCFFFF]excuse$c to him.\nIt seems better to show it through your attitude.
+COM_DISCONTENT_answer_0108	If he cannot play, nothing has any $c[66CCFFFF]point$c.\nThe player did not want it to go that far.
+COM_DISCONTENT_answer_0110	He is sad to learn his shirt number had no $c[66CCFFFF]meaning$c.\nDo not pick shirt numbers carelessly.
+COM_DISCONTENT_answer_0112	You seem to have hurt the player's $c[66CCFFFF]pride$c.\nOn shirt numbers, put the player's feelings first.
+COM_DISCONTENT_answer_0114	He looks $c[66CCFFFF]uneasy$c about when it will be changed.\nA top player wears the number he wants.
+COM_DISCONTENT_answer_0116	Your words fired up his $c[FF6633FF]fighting spirit$c even more.\nYou can head into the next match in a good mood.
+COM_DISCONTENT_answer_0118	Your scolding helped him regain his $c[FF6633FF]composure$c.\nYou can head into the next match with healthy tension.
+COM_DISCONTENT_answer_0120	The players seem fired up by your stylish gesture.\nYou can head into the next match with a $c[FF6633FF]great mood$c.
+COM_DISCONTENT_question_0002	%s, who $c[66CCFFFF]skipped training$c, has come to see you.\nWhat will you do?
+COM_DISCONTENT_question_0003	$c[66CCFFFF]%s$c has come in with a sulky look.\nHis built-up $c[66CCFFFF]frustration is about to burst$c. How will you calm him?
+COM_DISCONTENT_question_0004	$c[66CCFFFF]%s$c looks unhappy.\nHe has views on the $c[66CCFFFF]tactics that do not win$c. How will you answer?
+COM_DISCONTENT_question_0005	$c[66CCFFFF]%s$c looks unhappy.\nHe seems unhappy with the $c[66CCFFFF]Manager's words and actions$c. How will you answer?
+COM_DISCONTENT_question_0006	$c[66CCFFFF]%s$c looks unhappy.\nHe is pleading for $c[66CCFFFF]playing time$c. How will you answer?
+COM_DISCONTENT_question_0007	$c[66CCFFFF]%s$c looks unhappy.\nHe seems to be $c[66CCFFFF]worn out from back-to-back matches$c. How will you answer?
+COM_DISCONTENT_question_0008	$c[66CCFFFF]%s$c looks unhappy.\nHe seems to want $c[66CCFFFF]the captaincy$c. How will you answer?
+COM_DISCONTENT_question_0009	$c[66CCFFFF]%s$c looks unhappy.\nHe seems to want $c[66CCFFFF]the kicker role$c. How will you answer?
+COM_DISCONTENT_question_0010	$c[66CCFFFF]%s$c looks unhappy.\nHe is pleading to be $c[66CCFFFF]used in his best position$c. How will you answer?
+COM_DISCONTENT_question_0011	$c[66CCFFFF]%s$c looks unhappy.\nHe seems to want a transfer $c[66CCFFFF]to win titles$c. How will you answer?
+COM_DISCONTENT_question_0012	$c[66CCFFFF]%s$c looks unhappy.\nHe has come to invite you to a meal to fix the $c[66CCFFFF]lack of communication$c.
+COM_DISCONTENT_question_0013	$c[66CCFFFF]%s$c looks unhappy.\nHe complains that $c[66CCFFFF]training is too hard$c. How will you answer?
+COM_DISCONTENT_question_0014	$c[66CCFFFF]%s$c looks unhappy.\nHe is pleading for more of a $c[66CCFFFF]Key Player$c role. How will you answer?
+COM_DISCONTENT_question_0015	$c[66CCFFFF]%s$c looks unhappy.\nHe is pleading to $c[66CCFFFF]change his shirt number$c. How will you answer?
+COM_DISCONTENT_question_0016	The result of the last match seems to have lifted $c[FF6633FF]team morale$c.\nWhat will you say ahead of the next match?
+COM_EVENT_answer_0000	The player is showing real drive.\nIf he reaches this goal, his $c[FF6633FF]growth will surely speed up$c.
+COM_EVENT_result_0000	%s, whom you promised a place in the last match,\nlived up to your trust and $c[FF6633FF]grew a lot$c. Look forward to his future form!
+COM_EVENT_result_0001	%s, whom you promised a place in the last match,\nfailed to seize the chance and $c[66CCFFFF]lost confidence$c.
+COM_EVENT_result_0002	%s, whom you promised a place in the last match,\nlived up to your trust and $c[FF6633FF]grew a lot$c. Look forward to his future form!
+COM_EVENT_result_0003	%s, whom you promised a place in the last match,\nfailed to seize the chance and $c[66CCFFFF]lost confidence$c.
+COM_FINEDF_question_0000	%s was $c[FF6633FF]outstanding$c in the last match.\nTo aim even higher, what do you expect from him?
+COM_FINEFW_question_0000	%s was $c[FF6633FF]outstanding$c in the last match.\nTo aim even higher, what do you expect from him?
+COM_FINEGK_question_0000	%s was $c[FF6633FF]outstanding$c in the last match.\nTo aim even higher, what do you expect from him?
+COM_FINEMF_question_0000	%s was $c[FF6633FF]outstanding$c in the last match.\nTo aim even higher, what do you expect from him?
+COM_MAX_MTG_question_0000	%s is a $c[FF6633FF]Key Player$c for the team.\nHe has no tactical issues. What will you have him do?
+COM_MEETINGBAD_question_0000	%s was $c[66CCFFFF]underwhelming$c in the last match.\nWhat will you say to him now that he is down?
+COM_MEETINGFINE_question_0000	%s was $c[FF6633FF]outstanding$c in the last match.\nHe is in rising form. What does the team expect of him?
+COM_NEW_GROUND_answer_0030_00	He is moved by your faith in his potential.\nTo meet your expectations, he looks set to $c[FF6633FF]grow a lot with this team$c.
+COM_NEW_GROUND_answer_0030_01	He is moved that you recognize his individuality.\nTo meet your expectations, he looks set to $c[FF6633FF]grow a lot with this team$c.
+COM_NEW_GROUND_answer_0030_02	He is moved by your mystical way of thinking.\nTo meet your expectations, he looks set to $c[FF6633FF]grow a lot with this team$c.
+COM_NEW_GROUND_answer_0031_00	He got the message about your expectations!\nTo meet them, he looks set to $c[FF6633FF]grow a lot here too$c.
+COM_NEW_GROUND_question_0002	%s answered the $c[FF6633FF]scout$c.\nWhat do you expect from this possible savior?
+COM_NEW_GROUND_question_0003	%s $c[FF6633FF]rarely got to play$c at his other team.\nHe wants to know what the Manager who signed him expects.
+COM_NEW_GROUND_question_0004	%s joined from your previous team along with you.\nWhat do you expect from him, someone you $c[FF6633FF]trust$c?
+COM_NEW_GROUND_question_0005	%s joined from your previous team along with you.\nWhat do you expect from him, with whom you feel a $c[FF6633FF]special bond$c?
+COM_NEW_GROUND_question_0011	%s was $c[FF6633FF]outstanding$c last time.\nWhat do you expect from him from now on?
+COM_NEW_GROUND_question_0012	You called in %s.\nWhat training will you have him do, using the $c[FF6633FF]excellent$c facilities?
+COM_NEW_GROUND_question_0027	%s $c[66CCFFFF]could not show his best$c last time.\nWhat do you expect from him from now on?
+COM_NEW_GROUND_question_0030	%s $c[FF6633FF]rarely got to play$c at his other team.\nHe wants to know what made you sign him.
+COM_NEW_GROUND_question_0031	%s joined from your previous team along with you.\nWhat do you expect from him, with whom you feel a $c[FF6633FF]special bond$c?
+COM_NEW_LOUNGE_question_0001	You called in two players famous as a $c[FF6633FF]great duo$c.\nWhat will you have them do to make the most of them?
+COM_NEW_MEDIC_question_0000	%s has not fully recovered from injury.\nWe have $c[FF6633FF]excellent$c facilities. What will you recommend?
+COM_NEW_MEDIC_question_0001	%s has not fully recovered from injury.\nWe have $c[FF6633FF]excellent$c facilities. What will you recommend?
+COM_NEW_MEDIC_question_0004	%s is building up fatigue.\nWe have $c[FF6633FF]excellent$c facilities. What will you recommend?
+COM_NEW_MEDIC_question_0005	%s is building up fatigue.\nWe have $c[FF6633FF]excellent$c facilities. What will you recommend?
+COM_NEW_MEDIC_question_0008	%s has completely lost form.\nWe have $c[FF6633FF]excellent$c facilities. What will you recommend?
+COM_NEW_MEDIC_question_0010	You called in %s.\nWe have $c[FF6633FF]excellent$c facilities. What will you recommend?
+COM_NEW_MEDIC_question_0011	You called in %s.\nWe have $c[FF6633FF]excellent$c facilities. What will you recommend?
+COM_NEW_ONLY1_0001	$c[FF6633FF]Only one player can be called in$c, so you cannot discuss partnership.\nSign players from $c[FF6633FF]Team Entry$c.
+COM_NEW_zero_0000	$c[FF6633FF]There are no players to call in$c.\nSign players from $c[FF6633FF]Team Entry$c.
+COM_NEW_zero_0001	$c[FF6633FF]There are no players to call in$c.\nSign players from $c[FF6633FF]Team Entry$c.
+COM_NEW_zero_0002	$c[FF6633FF]There are no players to call in$c.\nSign players from $c[FF6633FF]Team Entry$c.
+COM_NEW_zero_0003	$c[FF6633FF]There are no players to call in$c.\nSign players from $c[FF6633FF]Team Entry$c.
+COM_NEW_zero_0004	$c[FF6633FF]There are no players to call in$c.\nSign players from $c[FF6633FF]Team Entry$c.
+COM_SEC_COACH_choices_0035_00	★
+COM_SEC_COACH_choices_0035_01	★★
+COM_SEC_COACH_choices_0035_02	★★★
+COM_TRAINING_question_0000	He stayed behind to build on his $c[FF6633FF]good play$c in the last match.\nWhat training should %s do?
+COM_TRAINING_question_0001	He seems to have stayed behind to fix his $c[66CCFFFF]poor play$c from the last match.\nWhat training should %s do?
+COM_TRAINING_question_0006	He seems to want to improve his $c[FF6633FF]good play$c from the last match.\nWhat training should %s do?
+COM_TRAINING_question_0007	He seems to want to correct his $c[66CCFFFF]poor play$c from the last match.\nWhat training should %s do?
+COM_TRAINING_question_0008	This time he wanted to improve his $c[FF6633FF]good play$c from the last match.\nWhat training should %s do?
+COM_TRAINING_question_0009	This time he wanted to correct his $c[66CCFFFF]poor play$c from the last match.\nWhat training should %s do?
+COM_TRAINING_question_0015	He seems to want to develop his $c[FF6633FF]strong form$c from the last match.\nWhich training should %s do?
+COM_TRAINING_question_0016	He seems to want to improve his $c[66CCFFFF]weak form$c from the last match.\nWhich training should %s do?
+COM_TRAINING_question_0017	He seems to want to sharpen his $c[FF6633FF]strong form$c from the last match.\nWhich training should %s do?
+COM_TRAINING_question_0018	He seems to want to overcome his $c[66CCFFFF]weak form$c from the last match.\nWhich training should %s do?
+GAM_CHALLENGE_message_0000	Our willingness to take on challenges has produced a star player.\nA $c[FF6633FF]breakout of ability$c beyond all limits is on the way.
+GAM_CHALLENGE_message_0001	The drive to aim higher has taken the team to the next stage.\nCreative play hints at the $c[FF6633FF]birth of a new style$c.
+GAM_CHALLENGE_message_0002	With our teamwork, we have nothing to fear.\nWe sense the $c[FF6633FF]birth of a golden duo$c that will captivate everyone.
+GAM_CHALLENGE_message_0003	Beating a strong team has the players brimming with confidence.\nSome $c[FF6633FF]players improved more than expected$c.
+GAM_CHALLENGE_message_0004	Strong will carried us through a tough challenge.\nThe players' abilities have $c[FF6633FF]definitely improved$c.
+GAM_CHALLENGE_message_0005	We managed to beat a strong team.\nSome players $c[FF6633FF]gained a lot of experience$c in this match.
+GAM_CHALLENGE_message_0006	A draw, but we gave more than our limit.\nHaving a goal helped: the $c[FF6633FF]players' abilities have improved$c.
+GAM_CHALLENGE_message_0007	A draw, but we gained even more from it.\nIt seems to have been a $c[FF6633FF]good experience$c for the team.
+GAM_CHALLENGE_message_0008	Drawing with such opponents is impressive.\nWe are tired, but we $c[FF6633FF]learned a lot$c.
+GAM_CHALLENGE_message_0009	We lost, but it was the result of a challenge.\nThis experience will surely $c[FF6633FF]make the team bigger$c.
+GAM_CHALLENGE_message_0010	A defeat that came from a challenge.\nThis challenge has surely made the team $c[FF6633FF]stronger$c.
+GAM_CHALLENGE_message_0011	Beating a strong team has the players brimming with confidence.\nThe Key Players' efforts have united the $c[FF6633FF]team's vision$c.
+GAM_CHALLENGE_message_0012	Strong will carried us through a tough challenge.\nThe players' $c[FF6633FF]active sharing of ideas$c is paying off.
+GAM_CHALLENGE_message_0013	We managed to beat a strong team.\nThe players show $c[FF6633FF]firm conviction$c after the match.
+GAM_CHALLENGE_message_0014	A draw, but we gave more than our limit.\nThe team's playing style has $c[FF6633FF]grown even further$c.
+GAM_CHALLENGE_message_0015	A draw, but we gained even more from it.\nSome things $c[FF6633FF]can only be learned$c against strong teams.
+GAM_CHALLENGE_message_0016	Drawing with such opponents is impressive.\nWe gained $c[FF6633FF]more$c than the fatigue we built up.
+GAM_CHALLENGE_message_0017	We lost, but it was the result of a challenge.\nSome players seem to have noticed a $c[FF6633FF]new playing style$c.
+GAM_CHALLENGE_message_0018	A defeat that came from a challenge.\nThis frustration will $c[FF6633FF]surely pay off$c later.
+GAM_CHALLENGE_message_0019	Beating a strong team has the players brimming with confidence.\nThe whole team has a $c[FF6633FF]sense of unity like never before$c.
+GAM_CHALLENGE_message_0020	Strong will carried us through a tough challenge.\nThe team's partnership will $c[FF6633FF]soar even higher$c.
+GAM_CHALLENGE_message_0021	We managed to beat a strong team.\nThis win may bring a $c[FF6633FF]high-level partnership$c.
+GAM_CHALLENGE_message_0022	A draw, but we gave more than our limit.\nMatch experience has also raised the $c[FF6633FF]team's partnership$c.
+GAM_CHALLENGE_message_0023	A draw, but we gained even more from it.\nThe players seem to be $c[FF6633FF]checking their partnerships$c even after the match.
+GAM_CHALLENGE_message_0024	Drawing with such opponents is impressive.\nFighting a strong team seems to have deepened their $c[FF6633FF]bond$c.
+GAM_CHALLENGE_message_0025	We lost, but it was the result of a challenge.\nEven in defeat, we often saw $c[FF6633FF]brilliant partnership$c.
+GAM_CHALLENGE_message_0026	A defeat that came from a challenge.\nThe players seem to have learned the $c[FF6633FF]importance of teamwork$c.
+GAM_FRIENDLY_message_0000	A match our club will never forget.\nA new $c[FF6633FF]star player is born$c.\n
+GAM_FRIENDLY_message_0001	%s.\nThe world will be stunned by his $c[FF6633FF]dazzling individual skill$c.
+GAM_FRIENDLY_message_0002	This win has helped the team grow a lot.\nSome $c[FF6633FF]players have grown more than ever$c.
+GAM_FRIENDLY_message_0003	%s.\nHis individual skill has become $c[FF6633FF]world class$c.
+GAM_FRIENDLY_message_0004	%s.\nHis individual skill is starting to draw $c[FF6633FF]a lot of attention$c.
+GAM_FRIENDLY_message_0005	%s.\nHis individual skill seems to be $c[FF6633FF]more stable$c now.
+GAM_FRIENDLY_message_0006	%s.\nHe doubted his technique, but has $c[FF6633FF]improved a little$c.
+GAM_FRIENDLY_message_0007	A wonderful win with plenty to take away.\nSome players seem to have had $c[FF6633FF]explosive growth$c.
+GAM_FRIENDLY_message_0008	%s.\nHis work rate was $c[FF6633FF]outstanding$c.
+GAM_FRIENDLY_message_0009	We won with good play.\nThe players seem to be $c[FF6633FF]steadily gaining strength$c.
+GAM_FRIENDLY_message_0010	%s.\nHe made $c[FF6633FF]good movements$c in particular.
+GAM_FRIENDLY_message_0011	We got the result.\nSome players seem to have $c[FF6633FF]gained more experience$c than expected.
+GAM_FRIENDLY_message_0012	%s.\nWe can have $c[FF6633FF]high hopes$c for his play.
+GAM_FRIENDLY_message_0013	A draw, but a match with plenty to see.\nThe $c[FF6633FF]players are improving$c by their own themes.
+GAM_FRIENDLY_message_0014	Neither side could land the decisive blow: a draw.\nStill, it seems to have been a $c[FF6633FF]good experience$c for the team.
+GAM_FRIENDLY_message_0015	We just about managed a draw, and the play was unremarkable.\nLet's $c[FF6633FF]prepare$c properly to win the next match.
+GAM_FRIENDLY_message_0016	%s.\nHis movement $c[FF6633FF]lacked sharpness$c in particular.
+GAM_FRIENDLY_message_0017	Unfortunately, we lost.\nBut this experience will $c[FF6633FF]pay off later$c.
+GAM_FRIENDLY_message_0018	A complete defeat.\nLet's $c[FF6633FF]shake it off$c and look to the next match.
+GAM_FRIENDLY_message_0019	A match our club will never forget.\nA new $c[FF6633FF]Key Player is born$c.
+GAM_FRIENDLY_message_0020	%s.\nThe world will be stunned by the $c[FF6633FF]team tactics$c built around him.
+GAM_FRIENDLY_message_0021	This win has helped the team grow a lot.\nSome $c[FF6633FF]players have broadened their game$c more than ever.
+GAM_FRIENDLY_message_0022	%s.\nFrom now on, he should $c[FF6633FF]lead the team$c.
+GAM_FRIENDLY_message_0023	%s.\nNow he should become $c[FF6633FF]a central player for the team$c.
+GAM_FRIENDLY_message_0024	%s.\nNow he should $c[FF6633FF]contribute to the team$c.
+GAM_FRIENDLY_message_0025	%s.\nHis playing style didn't fit at all, but he should $c[FF6633FF]improve a little$c.
+GAM_FRIENDLY_message_0026	A wonderful win with plenty to take away.\nWe felt the $c[FF6633FF]coordination$c around the Key Player in this match.
+GAM_FRIENDLY_message_0027	%s.\nHis work rate was $c[FF6633FF]outstanding$c.
+GAM_FRIENDLY_message_0028	We won with good play.\nThe players are steadily $c[FF6633FF]sharing their vision$c.
+GAM_FRIENDLY_message_0029	%s.\nHe made $c[FF6633FF]good movements$c in particular.
+GAM_FRIENDLY_message_0030	We got the result.\nThe players also seem to have $c[FF6633FF]learned each other's playing styles$c.
+GAM_FRIENDLY_message_0031	%s.\nWe can have $c[FF6633FF]high hopes$c for his play.
+GAM_FRIENDLY_message_0032	A draw, but a match with plenty to see.\nWe also glimpsed a $c[FF6633FF]change of playing style$c around the central player.
+GAM_FRIENDLY_message_0033	Neither side could land the decisive blow: a draw.\nStill, it seems to have been a $c[FF6633FF]good experience$c for the team.
+GAM_FRIENDLY_message_0034	We just about managed a draw, and the play was unremarkable.\nLet's $c[FF6633FF]prepare$c properly to win the next match.
+GAM_FRIENDLY_message_0035	%s.\nHis movement $c[FF6633FF]lacked sharpness$c in particular.
+GAM_FRIENDLY_message_0036	Unfortunately, we lost.\nBut this experience will $c[FF6633FF]pay off later$c.
+GAM_FRIENDLY_message_0037	A complete defeat.\nLet's $c[FF6633FF]shake it off$c and look to the next match.
+GAM_FRIENDLY_message_0038	A match our club will never forget.\nWe sense the $c[FF6633FF]birth of a golden duo$c that will captivate everyone.
+GAM_FRIENDLY_message_0039	%s and %s.\nThe world will be stunned by their $c[FF6633FF]golden brilliance$c.
+GAM_FRIENDLY_message_0040	This win has helped the team grow a lot.\nSome $c[FF6633FF]pairs have deepened their trust$c more than ever.
+GAM_FRIENDLY_message_0041	%s and %s.\nNow they should play $c[FF6633FF]the best partnership in the world$c.
+GAM_FRIENDLY_message_0042	%s and %s.\nNow they should show $c[FF6633FF]superb partnership$c.
+GAM_FRIENDLY_message_0043	%s and %s.\nNow they should show $c[FF6633FF]good partnership$c.
+GAM_FRIENDLY_message_0044	%s and %s.\nThe two didn't click at all, but should $c[FF6633FF]improve a little$c.
+GAM_FRIENDLY_message_0045	A match with plenty to take away.\nThe team's partnership seems $c[FF6633FF]much better than before$c.
+GAM_FRIENDLY_message_0046	%s and %s.\nTheir combination was $c[FF6633FF]outstanding$c.
+GAM_FRIENDLY_message_0047	A rich match.\nThe team's partnership also seems to be $c[FF6633FF]steadily improving$c.
+GAM_FRIENDLY_message_0048	%s and %s.\nTheir combination $c[FF6633FF]worked$c especially well.
+GAM_FRIENDLY_message_0049	We got a solid result.\nThe players also seem to have $c[FF6633FF]learned each other's movements$c.
+GAM_FRIENDLY_message_0050	%s and %s.\nWe can have $c[FF6633FF]high hopes$c for their combination.
+GAM_FRIENDLY_message_0051	No winner after 90 minutes, but a rich match.\nMatch experience has also raised the $c[FF6633FF]team's partnership$c.
+GAM_FRIENDLY_message_0052	No winner after 90 minutes,\nbut it seems to have been a $c[FF6633FF]good experience$c for the team.
+GAM_FRIENDLY_message_0053	No winner after 90 minutes, and a frustrating match.\nLet's $c[FF6633FF]prepare$c properly to win the next match.
+GAM_FRIENDLY_message_0054	%s and %s.\nTheir combination was $c[FF6633FF]unremarkable$c in particular.
+GAM_FRIENDLY_message_0055	Unfortunately, we lost.\nBut this experience will $c[FF6633FF]pay off later$c.
+GAM_FRIENDLY_message_0056	Unfortunately, we lost.\nLet's $c[FF6633FF]shake it off$c and look to the next match.
+GAM_FRIENDLY_message_0057	Impressive.\nI think this was $c[FF6633FF]the best performance$c this squad could give.
+GAM_FRIENDLY_message_0058	%s.\nHe showed $c[FF6633FF]even more potential$c: let's keep our hopes high for him.
+GAM_FRIENDLY_message_0060	%s.\nIf I had to say, $c[FF6633FF]the problem may be him$c.
+GAM_FRIENDLY_message_0062	%s.\nIf I had to say, $c[FF6633FF]the problem may be him$c.
+GAM_FRIENDLY_message_0064	%s.\nHis good form seems to be $c[FF6633FF]rubbing off on his teammates$c.
+GAM_FRIENDLY_message_0066	%s.\nHis $c[FF6633FF]poor play$c in particular is a little worrying.
+GAM_FRIENDLY_message_0068	%s.\nHis $c[FF6633FF]poor play$c in particular is a little worrying.
+GAM_FRIENDLY_message_0069	We feel the need to $c[FF6633FF]reinforce the squad$c for the next match.
+GAM_HALF_message_0016	You ordered "$c[FF6633FF]%s$c" for the second half.\nThe second half starts soon.
+INF_057_title_0000	★★★  Area Championship  ★★★
+INF_058_message_0000	You have become $c[FF0000FF]Area Championship champion$c.\nCongratulations.
+INF_058_title_0000	★★★  Area Champion  ★★★
+INF_059_title_0000	★★★  Japan Winners Championship  ★★★
+INF_060_message_0000	You have become $c[FF0000FF]Japan Winners Championship champion$c.\nCongratulations.
+INF_060_title_0000	★★★  Japan Champion  ★★★
+INF_061_message_0000	Congratulations on $c[FF0000FF]earning entry rights$c to the Area Championship!!
+INF_061_message_0001	To enter the Area Championship,\nselect $c[FF0000FF]"Area Championship"$c in Match Registration.
+INF_061_message_0002	Entry for the next Area Championship has already closed.\n$c[FF0000FF]You can enter again from next week$c.
+INF_061_message_0003	Congratulations on $c[FF0000FF]earning entry rights$c to the Asia Championship!!
+INF_061_message_0004	To enter the Asia Championship,\nselect $c[FF0000FF]"Asia Championship"$c in Match Registration.
+INF_061_message_0005	Entry for the next Asia Championship has already closed.\n$c[FF0000FF]You can enter again from next week$c.
+INF_061_title_0000	★★★  Entry Rights Won  ★★★
+INF_062_message_0001	To do the new training, select\n$c[FF0000FF]"Manager's Special Training"$c in Team Training.
+INF_062_title_0000	★★★  Manager's Special Training  ★★★
+INF_063_message_0000	Finances have improved and player signings are approved.\nYou can make up to $c[FF0000FF]2$c trades with $c[FF0000FF]"Trade Request"$c.
+INF_063_message_0001	Signing players with experience at other teams\nshould bring $c[FF0000FF]even greater success$c to our team.
+INF_063_title_0000	★★★  Trade Market Open  ★★★
+INF_064_message_0000	Area Championship entries exceeded the limit, so\nour team $c[FF0000FF]could not get a place$c.
+INF_064_message_0001	Asia Championship entries exceeded the limit, so\nour team $c[FF0000FF]could not get a place$c.
+INF_064_title_0000	★★★  Area Championship Result  ★★★
+INF_064_title_0001	★★★  Asia Championship Result  ★★★
+INF_067_message_0000	In recognition of the team's many $c[FF0000FF]achievements$c,\nyou have received an $c[FF0000FF]entry invitation$c to the Area Championship.
+INF_067_message_0001	To enter the Area Championship,\nselect $c[FF0000FF]"Area Championship"$c in Match Registration.
+INF_067_message_0002	In recognition of the team's many $c[FF0000FF]achievements$c,\nyou have received an $c[FF0000FF]entry invitation$c to the Asia Championship.
+INF_067_message_0003	To enter the Asia Championship,\nselect $c[FF0000FF]"Asia Championship"$c in Match Registration.
+INF_067_title_0000	★★★  Entry Invitation  ★★★
+INF_068_message_0001	This loan has $c[FF0000FF]helped him grow tremendously$c.\nLet's look forward to his future performances.
+INF_068_message_0002	This loan seems to have $c[FF0000FF]helped him grow$c.\nLet's look forward to his future performances.
+INF_068_message_0003	This loan $c[66CCFFFF]did not give him much experience$c.\nLet's look forward to his future performances.
+INF_068_title_0000	★★★  Loan Ended  ★★★
+INF_070_title_0000	★★★  World Winners Championship  ★★★
+INF_071_message_0000	You are the $c[FF0000FF]World Winners Championship champion$c.\nCongratulations!
+INF_071_title_0000	★★★  World Champion  ★★★
+INF_072_title_0000	★★★  Asia Championship  ★★★
+INF_073_message_0000	You are the $c[FF0000FF]Asia Championship champion$c.\nCongratulations!
+INF_073_title_0000	★★★  Asia Champion  ★★★
+INF_074_message_0000	$c[FF0000FF]%s$c was picked for this week's Best XI.\nHe looks to be in good form again this week.
+INF_074_title_0000	★★★  Store Best XI Pick  ★★★
+INF_075_message_0000	$c[FF0000FF]%s$c was picked as this week's MVP.\nHaving the MVP come from our team has lifted team morale.
+INF_075_title_0000	★★★  Store MVP Pick  ★★★
+INF_095_title_0000	★★★  UNIVERSAL CUP  ★★★
+INF_134_title_0000	★★★  %s  ★★★
+INF_76_message_0000	The Challenge Tour has raised the team's overall strength.\nSome players have even $c[FF0000FF]grown by leaps and bounds$c.
+INF_76_message_0001	%s\nseems to have $c[FF0000FF]grown by leaps and bounds$c in this challenge.
+INF_76_message_0002	%s\nThe challenging spirit has awakened his $c[FF0000FF]true style$c.
+INF_76_message_0003	%s and %s\nThe challenging spirit has forged a $c[FF0000FF]golden bond$c between them.
+INF_76_title_0000	★★★  Team Power Up  ★★★
+INF_76_title_0001	★★★  Ability Up  ★★★
+INF_76_title_0002	★★★  Style Up  ★★★
+INF_76_title_0003	★★★  Partnership Up  ★★★
+INF_ABILITY_message_0000	$c[FF0000FF]%s$c has been\nmoving very well lately.
+INF_ABSENCE_message_0000	$c[FF0000FF]%s$c has been complaining a lot lately.\nThe discontent has finally boiled over.
+INF_BIRTHDAY_message_0002	Today is $c[FF0000FF]%s$c's birthday.
+INF_CAMP_message_0000	□A $c[FF0000FF]mini camp$c is proposed to rebuild the team
+INF_CAMP_message_0001	To hold the mini camp,\nselect the $c[FF0000FF]special menu$c in Team Training.
+INF_CAPTAIN_message_0001	A new challenge begins in a new place.\nLet's aim for the $c[FF0000FF]strongest club$c with the players.
+INF_CAPTAIN_message_0002	Captain $c[FF0000FF]%s$c came to greet you.
+INF_CLUBHOUSEF_message_0000	The rebuilding work is done and the $c[FF0000FF]clubhouse is new$c
+INF_CLUBHOUSEF_message_0001	The renovation is done and the $c[FF0000FF]training ground$c is new
+INF_CLUBHOUSEF_message_0002	The renovation is done and the $c[FF0000FF]Manager's Office$c is new
+INF_CLUBHOUSEF_message_0003	The renovation is done and the $c[FF0000FF]meeting room$c is new
+INF_CLUBHOUSEF_message_0004	The renovation is done and the $c[FF0000FF]lounge$c is new
+INF_CLUBHOUSEF_message_0005	The renovation is done and the $c[FF0000FF]Medical Room$c is new
+INF_CLUBHOUSER_message_0000	Strong finances make facility renovations possible.\nThis time we will also $c[FF0000FF]rebuild the cramped clubhouse itself$c.
+INF_CLUBHOUSER_message_0008	After this match, the $c[FF0000FF]%s$c will be renovated and\nthe $c[FF0000FF]clubhouse rebuilt$c.
+INF_CLUBHOUSER_message_0014	Strong finances make facility renovations possible.\nLet's renovate to $c[FF0000FF]improve communication$c with the players.
+INF_CLUBHOUSER_message_0016	After this match, the $c[FF0000FF]%s$c will be renovated.
+INF_COACHTRAINING_contents_0003	You can set 3 half-time instructions.\nSelect the item to $c[FF0000FF]delete$c.
+INF_COACHTRAINING_contents_0007	$c[FF6633FF]Delete$c "%s"?
+INF_COACHTRAINING_message_0001	To add a new instruction to the menu,\nselect an item to $c[FF0000FF]delete$c from those set.
+INF_COACH_message_0000	□A $c[FF0000FF]leading coach famous in %s$c is coming to watch
+INF_COACH_message_0001	To be coached by this coach,\nselect the $c[FF0000FF]special menu$c in Team Training.
+INF_CONTRACT_message_0001	□Your skill was recognized and your contract is extended by $c[FF0000FF]%d matches$c
+INF_COOPERATION_message_0000	$c[FF0000FF]%s$c and $c[FF0000FF]%s$c\nhave shown great teamwork lately.
+INF_CRISIS_message_0000	Trouble! Our team, with many top players, is now\n$c[FF0000FF]in the red$c!
+INF_DEFENDING_message_0000	Our club is the\n$c[FF0000FF]defending champion$c of the %s CHAMPIONSHIP.
+INF_DEFENDING_message_0001	Based on your title defenses as defending champion,\nthe sponsor pays a $c[FF0000FF]win bonus$c.
+INF_DISSATISFACTION_message_0000	$c[FF0000FF]%s$c has seemed irritated lately,\nperhaps unhappy with $c[FF0000FF]%s$c.
+INF_ENTRY_message_0000	□Good results in the tournament earned $c[FF0000FF]%s entry$c.
+INF_ENTRY_message_0001	Winning %s earned $c[FF0000FF]%s\n%s$c entry.
+INF_ENTRY_message_0002	□Good results in the tournament earned $c[FF0000FF]%s entry$c.
+INF_ENTRY_message_0003	□Good results in the tournament earned $c[FF0000FF]International Club Championship$c entry.
+INF_ENTRY_message_0004	Winning the title earned the long-awaited $c[FF0000FF]World Trophy entry$c.
+INF_ENTRY_message_0005	□Good results in the tournament earned $c[FF0000FF]Continental Cup entry$c.
+INF_ENTRY_message_0006	□Promotion to the league earned $c[FF0000FF]Nations Cup entry$c
+INF_ENTRY_message_0007	□Good results in the tournament earned $c[FF0000FF]Oceans Cup entry$c.
+INF_FANEVENT_message_0000	Thanks to our team's continued rise,\na $c[FF0000FF]fan event$c will be held.
+INF_FRE_message_0002	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a bonus$c. It may help run the club.
+INF_FRE_message_0003	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a home theater$c. The players are delighted.
+INF_FRE_message_0004	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a soccer simulator$c. Tactical understanding will improve greatly.
+INF_FRE_message_0005	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]the latest mobile phone$c. Bonds will grow even deeper.
+INF_FRE_message_0006	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]the latest mobile phone$c. Bonds will grow even deeper.
+INF_FRE_message_0007	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a luxury car$c. The players are touched.
+INF_FRE_message_0008	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a luxury car$c. The players are touched.
+INF_FRE_message_0009	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]an oxygen room$c. The players' recovery will improve greatly.
+INF_FRE_message_0010	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]the latest mobile phone$c. Bonds will grow even deeper.
+INF_FRE_message_0011	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a huge bonus$c. It will have a big effect on running the club.
+INF_FRE_message_0012	%s$c[FF0000FF]%s$c has sent\nan offer for $c[FF0000FF]a TV commercial$c. The club's profile will rise greatly.
+INF_FRE_message_0013	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]an oxygen room$c. The players' recovery will improve greatly.
+INF_FRE_message_0014	%s$c[FF0000FF]%s$c has sent\nan offer for $c[FF0000FF]a campaign$c. Professionalism will rise greatly.
+INF_FRE_message_0015	%s$c[FF0000FF]%s$c has sent\nan offer for $c[FF0000FF]a soccer game appearance$c. Professionalism will rise greatly.
+INF_FRE_message_0016	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a plasma TV$c. The players seem pleased.
+INF_FRE_message_0017	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a plasma TV$c. The players seem pleased.
+INF_FRE_message_0018	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]the latest soccer game$c. Hopefully it helps them unwind.
+INF_FRE_message_0019	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]the latest soccer game$c. Hopefully it helps them unwind.
+INF_FRE_message_0020	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]protein$c. The players are full of energy.
+INF_FRE_message_0021	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]protein$c. The players are full of energy.
+INF_FRE_message_0022	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]supplements$c. Their physical condition is now well managed.
+INF_FRE_message_0023	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]supplements$c. Their physical condition is now well managed.
+INF_FRE_message_0024	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a sports car$c. The players are grateful.
+INF_FRE_message_0025	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a sports car$c. The players are grateful.
+INF_FRE_message_0026	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a round-the-world trip voucher$c. They can refresh and focus on training.
+INF_FRE_message_0027	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a round-the-world trip voucher$c. They can refresh and focus on training.
+INF_FRE_message_0028	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]rehab equipment$c. It will help care for the players.
+INF_FRE_message_0029	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]rehab equipment$c. It will help care for the players.
+INF_FRE_message_0030	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a bonus$c. It will help run the club.
+INF_FRE_message_0031	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a bonus$c. It will help run the club.
+INF_FRE_message_0032	%s$c[FF0000FF]%s$c has sent\nan offer for $c[FF0000FF]a special TV show$c. The club will grow more popular.
+INF_FRE_message_0033	%s$c[FF0000FF]%s$c has sent\nan offer for $c[FF0000FF]a special TV show$c. The club will grow more popular.
+INF_FRE_message_0034	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a mobile phone$c. It should help communication.
+INF_FRE_message_0035	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a mobile phone$c. It should help communication.
+INF_FRE_message_0036	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]AV equipment$c. The players should be happy.
+INF_FRE_message_0037	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]AV equipment$c. The players should be happy.
+INF_FRE_message_0038	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a popular soccer game$c. It should help simulate matches.
+INF_FRE_message_0039	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a popular soccer game$c. It should help simulate matches.
+INF_FRE_message_0040	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]energy drinks$c. They should give energy after matches and training.
+INF_FRE_message_0041	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]energy drinks$c. They should give energy after matches and training.
+INF_FRE_message_0042	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]health food$c. It should help conditioning through diet.
+INF_FRE_message_0043	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]health food$c. It should help conditioning through diet.
+INF_FRE_message_0044	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a car$c. The players will probably like it.
+INF_FRE_message_0045	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a car$c. The players will probably like it.
+INF_FRE_message_0046	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]an overseas trip voucher$c. They can refresh and focus on training.
+INF_FRE_message_0047	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]an overseas trip voucher$c. They can refresh and focus on training.
+INF_FRE_message_0048	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a taping set$c. It should help care for the players.
+INF_FRE_message_0049	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a taping set$c. It should help care for the players.
+INF_FRE_message_0050	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a bonus$c. It should help run the club.
+INF_FRE_message_0051	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a bonus$c. It should help run the club.
+INF_FRE_message_0052	%s$c[FF0000FF]%s$c has sent\nan offer for $c[FF0000FF]a sports show$c. The club should grow more popular.
+INF_FRE_message_0053	%s$c[FF0000FF]%s$c has sent\nan offer for $c[FF0000FF]a sports show$c. The club should grow more popular.
+INF_FRE_message_0054	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a fax machine$c. It should help communication.
+INF_FRE_message_0055	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a fax machine$c. It should help communication.
+INF_FRE_message_0056	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]home appliances$c. Hopefully the players will be pleased.
+INF_FRE_message_0057	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]home appliances$c. Hopefully the players will be pleased.
+INF_FRE_message_0058	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a soccer game$c. It should help simulate matches.
+INF_FRE_message_0059	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a soccer game$c. It should help simulate matches.
+INF_FRE_message_0060	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]sports drinks$c. Hopefully they help them refresh.
+INF_FRE_message_0061	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]sports drinks$c. Hopefully they help them refresh.
+INF_FRE_message_0062	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]meal vouchers$c. Hopefully a good meal lifts their spirits.
+INF_FRE_message_0063	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]meal vouchers$c. Hopefully a good meal lifts their spirits.
+INF_FRE_message_0064	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a compact car$c. Hopefully the players like it.
+INF_FRE_message_0065	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a compact car$c. Hopefully the players like it.
+INF_FRE_message_0066	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a domestic trip voucher$c. They can unwind and focus on training.
+INF_FRE_message_0067	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a domestic trip voucher$c. They can unwind and focus on training.
+INF_FRE_message_0068	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a first-aid kit$c. Hopefully it helps care for the players.
+INF_FRE_message_0069	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a first-aid kit$c. Hopefully it helps care for the players.
+INF_FRE_message_0070	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a bonus$c. Hopefully it helps run the club.
+INF_FRE_message_0071	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a bonus$c. Hopefully it helps run the club.
+INF_FRE_message_0072	%s$c[FF0000FF]%s$c has sent\nan offer for $c[FF0000FF]a local TV show$c. Hopefully the club grows more popular.
+INF_FRE_message_0073	%s$c[FF0000FF]%s$c has sent\nan offer for $c[FF0000FF]a local TV show$c. Hopefully the club grows more popular.
+INF_FRE_message_0074	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a PHS phone$c. Hopefully it helps communication.
+INF_FRE_message_0075	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]a PHS phone$c. Hopefully it helps communication.
+INF_FRE_message_0100	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]Sakatsuku$c. Hopefully it helps communication.
+INF_FRE_message_0101	%s$c[FF0000FF]%s$c has sent\n$c[FF0000FF]Sakatsuku$c. Hopefully it helps communication.
+INF_GOLDENR_message_0000	Congratulations on $c[FF0000FF]winning every title$c! A golden age has come to the team again.\nWe expect you to keep leading football as an unbeatable team.
+INF_GOLDEN_message_0000	Congratulations on $c[FF0000FF]winning every title$c! A golden age has arrived for our team.\nYou will be hailed around the world as $c[FF0000FF]Grande %s$c.
+INF_GOLDEN_message_0001	You will be hailed around the world as\n$c[FF0000FF]Grande %s$c.
+INF_INFO_title_0000	★★★  MANAGER LICENSE ISSUED  ★★★
+INF_INFO_title_0001	★★★  MANAGER APPOINTED  ★★★
+INF_INFO_title_0002	★★★  MANAGER TERM ENDED  ★★★
+INF_INFO_title_0003	★★★  WORLD TROPHY RESULTS  ★★★
+INF_INFO_title_0004	★★★  TITLE WON  ★★★
+INF_INFO_title_0005	★★★  GOLDEN AGE ARRIVES  ★★★
+INF_INFO_title_0006	★★★  DEFENDING CHAMPION  ★★★
+INF_INFO_title_0007	★★★  REGULAR LEAGUE PROMOTION  ★★★
+INF_INFO_title_0008	★★★  REGULAR LEAGUE RELEGATION  ★★★
+INF_INFO_title_0009	★★★  QUALIFICATION WON  ★★★
+INF_INFO_title_0010	★★★  SPONSOR OFFER  ★★★
+INF_INFO_title_0011	★★★  SPONSOR WITHDRAWS  ★★★
+INF_INFO_title_0012	★★★  CONTRACT RENEWED  ★★★
+INF_INFO_title_0013	★★★  MANAGER OFFER  ★★★
+INF_INFO_title_0014	★★★  STADIUM RENOVATION  ★★★
+INF_INFO_title_0015	★★★  STADIUM COMPLETED  ★★★
+INF_INFO_title_0016	★★★  HAPPY BIRTHDAY  ★★★
+INF_INFO_title_0017	★★★  SCOUTING  ★★★
+INF_INFO_title_0018	★★★  FINANCIAL CRISIS  ★★★
+INF_INFO_title_0019	★★★  SPECIAL BONUS  ★★★
+INF_INFO_title_0020	★★★  INJURY REPORT  ★★★
+INF_INFO_title_0021	★★★  COACH OBSERVATION  ★★★
+INF_INFO_title_0022	★★★  MINI CAMP HELD  ★★★
+INF_INFO_title_0023	★★★  SUPPORTER NEWS  ★★★
+INF_INFO_title_0024	★★★  COACH REPORT  ★★★
+INF_INFO_title_0025	★★★  OFFICIAL MATCH WIN STREAK  ★★★
+INF_INFO_title_0026	★★★  CLUBHOUSE RENOVATION  ★★★
+INF_INFO_title_0027	★★★  CLUBHOUSE COMPLETED  ★★★
+INF_INFO_title_0028	★★★  WIN BONUS  ★★★
+INF_INFO_title_0029	★★★  CONGRATULATIONS  ★★★
+INF_INFO_title_0030	★★★  MENTOR BOND FORMED  ★★★
+INF_INFO_title_0031	★★★  ABILITY GROWTH  ★★★
+INF_INFO_title_0032	★★★  SPECIAL ABILITY GROWTH  ★★★
+INF_INFO_title_0033	★★★  DISCONTENT NEWS  ★★★
+INF_INFO_title_0034	★★★  PARTNERSHIP UP  ★★★
+INF_INFO_title_0035	★★★  DISCONTENT ERUPTS  ★★★
+INF_INFO_title_0036	★★★  OCEANS CUP WON  ★★★
+INF_INFO_title_0037	★★★  SPONSOR ORDER  ★★★
+INF_INFO_title_0038	★★★  JAPAN CHAMPION  ★★★
+INF_INFO_title_0039	★★★  AREA CHAMPION  ★★★
+INF_INFO_title_0040	★★★  FAN EVENT HELD  ★★★
+INF_INFO_title_0041	★★★  WORLD TROPHY RANKING  ★★★
+INF_INFO_title_0042	★★★  PRIZE MONEY RANKING  ★★★
+INF_INFO_title_0043	★★★  GOLDEN AGE RETURNS  ★★★
+INF_INFO_title_0044	★★★  HALFTIME TACTIC WON  ★★★
+INF_INJURY_message_0000	A report has come in about\n$c[FF0000FF]%s$c's injury.
+INF_LEAGUE_message_0000	Congratulations on %s %s in the Regular League.\nAs a result, our team is $c[FF0000FF]promoted$c to %s.
+INF_LEAGUE_message_0001	Based on the Regular League %s %s result,\nour team is $c[66CCFFFF]relegated$c to %s.
+INF_LEAGUE_message_0002	With $c[FF0000FF]relegation$c to %s,\nwe have lost our place in %s.
+INF_LICENCE_message_0001	A new challenge begins in a new place.\nAim for the $c[FF0000FF]strongest club team$c with your players.
+INF_LICENCE_message_0002	Your newly issued\n$c[FF6633FF]National Manager License$c.\nAs a leader representing your region, you must rise higher.
+INF_LICENCE_message_0003	Your newly issued\n$c[FF6633FF]Continental Manager License$c.\nAs a leader representing your continent, your ability will be tested.
+INF_LICENCE_message_0004	Your newly issued\n$c[FF6633FF]International Manager License$c.\nAs an international leader, all eyes will be on your skill.
+INF_OFFER_message_0000	□ A club interested in your career has sent an $c[FF0000FF]offer$c
+INF_OFFER_message_0002	An offer from a Regular League %s club\nbased in $c[FF0000FF]%s$c.
+INF_PARTNER_message_0005	Wants to take on a new team with you.\nEven in a new place, they will show $c[FF6633FF]the strength gained from experience$c.
+INF_RESULT_message_0000	Congratulations on winning the\n$c[FF0000FF]World Trophy$c!
+INF_RESULT_message_0001	You have finally carved your name into history\nas the $c[FF0000FF]No. 1 Manager in your class$c!
+INF_SCOUT_message_0001	A scout reports a person who suits the team.\nTheir name is $c[FF0000FF]%s$c.
+INF_SPONSORINSTRUCTION_message_0000	You are one step from winning %s, and\nthe sponsor has ordered you to $c[FF0000FF]"win and take the title"$c.
+INF_SPONSORINSTRUCTION_message_0001	Depending on the result, your $c[FF0000FF]term may be reviewed$c.\nLet's go all out for the title.
+INF_SPONSOR_message_0001	%s "%s" of $c[FF0000FF]%s$c.\nSponsor item effect: $c[FF0000FF]%s$c
+INF_SPO_offer_0000	A $c[FF0000FF]new sponsor$c has joined\nour rising club.
+INF_SPO_offer_0001	We failed to meet the sponsor's expectations, and our club's\n$c[FF0000FF]sponsor has changed$c.
+INF_SPO_offer_0002	After our run of poor results,\nthe $c[FF0000FF]sponsor has withdrawn$c.
+INF_SPO_offer_0003	A $c[FF0000FF]fitting sponsor$c seems to have appeared\nfor our club of astonishing strength.
+INF_SPO_offer_0004	A $c[FF0000FF]fitting sponsor$c seems to have appeared\nfor our club, popular worldwide.
+INF_SPO_offer_0005	There seems to be a $c[FF0000FF]sponsor who believes in the future$c\nof our hard-fighting club.
+INF_SPO_offer_0006	We have a request to $c[FF0000FF]renew the sponsorship$c\nfor our club's steady results.
+INF_SPO_offer_0007	Even after our relegation, there seems to be a\n$c[FF0000FF]sponsor who still has faith in us$c.
+INF_SPO_offer_0008	For the new season, we have requests from\n$c[FF0000FF]3 sponsors$c.
+INF_SPO_offer_0009	For the new season, we have requests from\n$c[FF0000FF]2 sponsors$c.
+INF_SPO_offer_0010	For the new season, we have a request from\n$c[FF0000FF]1 sponsor$c.
+INF_SPO_secure_0000	We signed the sponsor contract.\nLet's produce results worthy of the sponsor's name.
+INF_SPO_secure_0001	We signed the sponsor contract.\nLet's grow fast with the sponsor's help.
+INF_SPO_secure_0002	We signed the sponsor contract.\nLet's deliver results that meet expectations.
+INF_SPO_secure_0003	We signed the sponsor contract.\nNow our club joins the top class.
+INF_SPO_secure_0004	We signed the sponsor contract.\nThis should fill the club's coffers.
+INF_SPO_secure_0005	We signed the sponsor contract.\nLet's hope we can meet the sponsor's expectations.
+INF_SPO_secure_0006	We signed the sponsor contract.\nThis time, let's live up to the sponsor's expectations.
+INF_STADIUMF_message_0001	□ The stadium has $c[FF0000FF]new turf$c
+INF_STADIUMF_message_0002	□ The stadium has $c[FF0000FF]new lighting$c
+INF_STADIUMF_message_0003	□ The stadium capacity was expanded to $c[FF0000FF]25,000$c
+INF_STADIUMF_message_0004	□ The stadium has a $c[FF0000FF]new roof$c
+INF_STADIUMF_message_0005	□ A second tier was added, raising capacity to $c[FF0000FF]50,000$c
+INF_STADIUMF_message_0006	□ A third tier was added, raising capacity to $c[FF0000FF]85,000$c
+INF_STADIUMF_message_0007	□ The stadium was $c[FF0000FF]converted into a domed stadium$c
+INF_STADIUMF_message_0009	□ The stadium has a $c[FF0000FF]new building$c
+INF_STADIUMF_message_0010	The $c[FF0000FF]building$c of "%s"\nwas rebuilt.
+INF_STADIUMF_message_0011	□ The stadium has a $c[FF0000FF]new monument$c
+INF_STADIUMF_message_0012	The $c[FF0000FF]monument$c of "%s"\nwas rebuilt.
+INF_STADIUMF_message_0013	□ The stadium was $c[FF0000FF]converted into one of the world's finest domed stadiums$c
+INF_STADIUMF_message_0014	□ An $c[FF0000FF]arch symbolizing the team's prestige$c was added to the stadium
+INF_STADIUMR_message_0000	A stadium renovation proposal has arrived.\nLet's lay $c[FF0000FF]new turf$c.
+INF_STADIUMR_message_0001	A stadium renovation proposal has arrived.\nLet's $c[FF0000FF]renovate the lighting$c.
+INF_STADIUMR_message_0002	A stadium renovation proposal has arrived.\nLet's $c[FF0000FF]add seating$c.
+INF_STADIUMR_message_0003	A stadium renovation proposal has arrived.\nLet's $c[FF0000FF]renovate the roof$c.
+INF_STADIUMR_message_0004	A stadium renovation proposal has arrived.\nLet's $c[FF0000FF]add a second tier$c.
+INF_STADIUMR_message_0005	A stadium renovation proposal has arrived.\nLet's $c[FF0000FF]add a third tier$c.
+INF_STADIUMR_message_0006	A stadium renovation proposal has arrived.\nLet's $c[FF0000FF]convert it to a dome$c.
+INF_STADIUMR_message_0015	A stadium renovation proposal has arrived.\nThe $c[FF0000FF]building will be renovated$c.
+INF_STADIUMR_message_0016	A stadium renovation proposal has arrived.\nLet's $c[FF0000FF]renovate the building$c.
+INF_STADIUMR_message_0018	A stadium renovation proposal has arrived.\nThe $c[FF0000FF]monument will be renovated$c.
+INF_STADIUMR_message_0019	A stadium renovation proposal has arrived.\nLet's $c[FF0000FF]renovate the monument$c.
+INF_STYLE_message_0000	$c[FF0000FF]%s$c lately seems\nto be looking for a new playing style.
+INF_SUPPORTER_message_0001	It seems they call you\n$c[FF0000FF]"%s %s"$c.
+INF_SUPPORTER_message_0002	It seems they call you\n$c[FF0000FF]"%s"$c.
+INF_TERML_message_0001	Your tactics shone and we claimed a fine victory!!\nYour $c[FF0000FF]strong attacking mindset$c will serve the next team too.
+INF_TERML_message_0002	Your tactics shone and we claimed a fine victory!!\nYour $c[FF0000FF]commitment to ball progression$c will serve the next team too.
+INF_TERML_message_0003	Your tactics shone and we claimed a fine victory!!\nYour $c[FF0000FF]awareness of switching between attack and defense$c will serve the next team too.
+INF_TERML_message_0004	Your tactics shone and we claimed a fine victory!!\nYour $c[FF0000FF]strong defensive mindset$c will serve the next team too.
+INF_TERML_message_0005	Your tactics shone and we claimed a fine victory!!\nYour leadership that $c[FF0000FF]stresses marking$c will serve the next team too.
+INF_TERML_message_0006	Your tactics shone and we claimed a fine victory!!\nYour $c[FF0000FF]power play$c style of fighting will serve the next team too.
+INF_TERML_message_0007	Your tactics shone and we claimed a fine victory!!\nYour $c[FF0000FF]balanced$c style of fighting will serve the next team too.
+INF_TERM_message_0001	Under your command the team has become $c[FF0000FF]strong, as if reborn$c.\nLet's win the final match with your tactics too!!
+INF_TERM_message_0002	Thanks to you, we $c[FF0000FF]improved the team well$c.\nLet's win this match too and finish in style!!
+INF_TERM_message_0003	You $c[FF0000FF]got a decent performance$c out of this team.\nLet's lead the team to victory in the final match and finish!!
+INF_TERM_message_0004	This team $c[FF0000FF]might have aimed a little higher$c.\nLet's fight for victory in the final match!!
+INF_TERM_message_0005	With this team, we $c[FF0000FF]could not get the results we wanted$c.\nLet's aim for tactics that lead to victory in the final match, for the future!!
+INF_TITLE_message_0003	$c[FF0000FF]%s$c\nThe mark of victory will be embroidered on the uniform.
+INF_TITLE_message_0004	Let's wait for good news\nabout qualifying for $c[FF0000FF]%s$c.
+INF_TITLE_message_0007	This victory also fulfilled the sponsor's order.\nThe contract was reviewed and your term was $c[FF0000FF]extended by %d matches$c.
+INF_VICTORIES_message_0000	The club's official match win streak has been extended\nto $c[FF0000FF]%d wins$c.
+INF_WEEKLYCHAMPION_message_0000	You are the $c[FF0000FF]Weekly Champion$c of the prize money ranking.\nCongratulations.
+INF_WEEKLYCHAMPION_message_0001	Your fame seems to be spreading worldwide.\nKeep $c[FF0000FF]fighting in a way worthy of the honor of No. 1 in Japan$c.
+INF_WEEKLYCHAMPION_message_0002	You are the $c[FF0000FF]Area Weekly Champion$c of the prize money ranking.\nCongratulations.
+INF_WEEKLYCHAMPION_message_0003	Your reputation seems to be rising by the day.\nKeep $c[FF0000FF]fighting in a way worthy of the honor of No. 1 in the area$c.
+INF_WTAREACHAMP_message_0000	You are the $c[FF0000FF]Area Weekly Champion$c of the World Trophy ranking.\nCongratulations.
+INF_WTAREACHAMP_message_0001	Your reputation seems to be rising by the day.\nKeep $c[FF0000FF]fighting in a way worthy of the honor of No. 1 in the area$c.
+INF_WTCHAMPIONSHIP_message_0000	Congratulations on $c[FF0000FF]winning the Oceans Cup$c!\nBeyond doubt, our club has made its mark on history once more.
+INF_WTJAPANCHAMP_message_0000	You are the $c[FF0000FF]Weekly Champion$c of the World Trophy ranking.\nCongratulations.
+INF_WTJAPANCHAMP_message_0001	Your fame seems to be spreading worldwide.\nKeep $c[FF0000FF]fighting in a way worthy of the honor of No. 1 in Japan$c.
+INF_reward_nextmission20	★★NEXT MISSION COMPLETE★★
+MAN_COM_default_0000	On the pitch, individual training raises $c[FF0000FF]individual skills$c.
+MAN_COM_default_0001	In the meeting room, player evaluations raise $c[FF0000FF]special skills$c.
+MAN_COM_default_0002	In the manager's office you can assign $c[FF0000FF]roles$c to players.
+MAN_COM_default_0003	In the lounge you talk with two players\nto raise their $c[FF0000FF]partnership$c.
+MAN_COM_default_0004	In the medical room you manage players' fitness\nand recover them from $c[FF0000FF]injuries$c and low motivation.
+MAN_COM_message_0000	Rub the card of the player to train.\nTraining sessions left: $c[FF6633FF]%d$c
+MAN_COM_message_0001	Choose Train or rub a player card to train a player.\nPress the $c[FFFF00FF]Key Player button$c to change Key Players.
+MAN_COM_message_0002	Talk to your secretary with the $c[99FF66FF]Start button$c.\nThe $c[FFFF00FF]Key Player button$c opens the item window.
+MAN_COM_message_0003	Rub $c[FF6633FF]2 player cards$c to build their partnership.\nTraining sessions left: $c[FF6633FF]%d$c
+MAN_COM_message_0005	Rub the card of the player whose condition to manage.\nTraining sessions left: $c[FF6633FF]%d$c
+MAN_DATAENTRY_window_0003	Regulation violation\n\nChange the regulation in\n$c[FF6633FF]Team Registration$c
+MAN_DATAENTRY_window_0006	\nEntry for the next AREA CHAMPIONSHIP has already closed.\n$c[FF6633FF]You can enter again from next week$c.
+MAN_DATAENTRY_window_0009	\nEntry for the next ASIA CHAMPIONSHIP has already closed.\n$c[FF6633FF]You can enter again from next week$c.
+MAN_ENTRY_message_0001	You can run the club on a small budget. The $c[FF6633FF]finances will improve$c.
+MAN_ENTRY_message_0005	Some of the world's top players are here. Win prize money to avoid $c[FF6633FF]financial trouble$c.
+MAN_ENTRY_message_0006	A true team of stars. Without prize money to build funds, $c[FF6633FF]financial trouble$c is certain.
+MAN_ENTRY_message_0007	The club's finances are critical. At this rate, the club will go $c[FF6633FF]bankrupt$c!
+MAN_FACILITIES_message_0004	On the training ground, $c[FF0000FF]team training$c improves the team's abilities.
+MAN_FACILITIES_message_0005	On the training ground, you can do $c[FF0000FF]individual training$c.
+MAN_FACILITIES_message_0006	In the meeting room, tell players their ratings to deepen their $c[FF0000FF]tactical understanding$c.
+MAN_FACILITIES_message_0007	In the Manager's Office, you can give players $c[FF0000FF]role assignments$c.\nYou can also view data, do $c[FF0000FF]team registration$c and $c[FF0000FF]request matches$c.
+MAN_FACILITIES_message_0008	In the lounge, you can call two players to strengthen their $c[FF0000FF]partnership$c.
+MAN_FACILITIES_message_0009	In the Medical Room,\nyou can call a player to manage their $c[FF0000FF]condition$c.
+MAN_RETIRE_contents_0000	*** Resign as Manager ***
+MAN_RETIRE_message_0000	To carry over your Manager abilities,\n$c[FF0000FF]you need a new Club Team Card$c.
+MAN_RETIRE_message_0002	If you resign as Manager,\n$c[FF0000FF]this Club Team Card can no longer be used$c.
+MAN_Regist_message_0003	You can register for the $c[FF0000FF]AREA CHAMPIONSHIP$c.\nRegistration closes 30 seconds before kickoff.
+MAN_Regist_message_0005	You can register for the $c[FF0000FF]ASIA CHAMPIONSHIP$c.\nRegistration closes 30 seconds before kickoff.
+MAN_TICKER_message_0000	*Match request from $c[FF6633FF]%s$c*
+MAN_TICKER_message_0001	*Match with $c[FF6633FF]%s$c confirmed*
+MAN_TICKER_message_0002	*Match request from Manager $c[FF6633FF]%s$c*
+MAN_TICKER_message_0003	*Your next opponent is $c[FF6633FF]%s$c*
+MAN_TICKER_message_0005	*Match request to $c[FF6633FF]%s$c was cancelled*
+MAN_TICKER_message_0006	*The club's finances are getting $c[FF6633FF]tight$c*
+MAN_TICKER_message_0007	*Next match: Regular League $c[FF6633FF]opener$c*
+MAN_TICKER_message_0008	*Next match: Regular League $c[FF6633FF]final round$c*
+MAN_TICKER_message_0009	*Next match: $c[FF6633FF]%s$c derby*
+MAN_TICKER_message_0010	*Next match: against Manager $c[FF6633FF]%s$c*
+MAN_TICKER_message_0011	*Your opponent is set: $c[FF6633FF]%s$c*
+MAN_TICKER_message_0012	*Next match: $c[FF6633FF]%s$c*
+MAN_TICKER_message_0013	*Next match: $c[FF6633FF]World Trophy$c  %s*
+MAN_TICKER_message_0014	*Next match: $c[FF6633FF]Regular League  Division %s$c  %s*
+MAN_TICKER_message_0015	*Next match: $c[FF6633FF]World Trophy$c  *
+MAN_TICKER_message_0016	*Next match: $c[FF6633FF]Regular League  Division %s$c  *
+MAN_TICKER_message_0017	*Next match: $c[FF6633FF]%s$c*
+MAN_TICKER_message_0018	*Trade offer from $c[FF6633FF]%s$c*
+MAN_TICKER_message_0019	*Trade with $c[FF6633FF]%s$c confirmed*
+MAN_TOP_message_0002	Do $c[FF0000FF]team training$c to raise the whole team's abilities.
+MAN_TOP_message_0003	$c[FF0000FF]Communicate$c with players to improve their various abilities.
+MAN_TOP_message_0004	View $c[FF0000FF]data$c such as the team's results so far.
+MAN_TOP_message_0005	Do $c[FF0000FF]registrations$c and $c[FF0000FF]requests$c such as team registration and match requests.\nData match registration is also done here.
+MAN_TRADE_message_0003	The $c[FF0000FF]players being released are the same$c.\nYou cannot trade.
+MAN_TRADE_message_0004	$c[FF0000FF]Select a player to release$c.\nYou cannot trade without a release player selected.
+MAN_TRADE_message_0009	Offers from other satellites will no longer be accepted.\nAll existing offers will be $c[FF0000FF]cancelled$c.
+MAN_TRADE_message_0010	$c[FF0000FF]Cancel all trade offers$c.\nTrade offers are possible until 30 seconds before kickoff.
+MAN_TRADE_message_0011	Change the release player.\nAll existing offers will be $c[FF0000FF]cancelled$c.
+MAN_TRADE_message_0012	$c[FF0000FF]Cancel all trade offers$c and change the release player.\nTrade offers are possible until 30 seconds before kickoff.
+MAN_TRADE_message_0013	Select the player to release in the trade and press the Confirm button.\nA player can be $c[FF0000FF]transferred up to 2 times$c.
+MAN_TRADE_message_0014	Your team has $c[FF0000FF]the same player$c as the opponent's release player.\nYou cannot trade.
+MAN_TRADE_window_0003	The trade is complete.\n\nDo $c[FF0000FF]team registration$c\nto be able to use\nthe traded player.
+MAN_TRADE_window_0008	Trade offer sent.\n\nWhile an offer is pending,\nyou cannot change players in team registration.\nAfter the trade is confirmed,\nyou must register the player in $c[FF0000FF]team registration$c.
+MAN_TRADE_window_0009	A player is awaiting trade registration.\n\nTo make a new trade,\nregister them in $c[FF0000FF]team registration$c\nor decline the registration.
+SYS_SYS_warning_0043	This IC card and play log contained\nmany records that did not end normally,\nso the $c[FF6633FF]loss of trade rights$c penalty was applied.
+SYS_TEAM_style_exp_0121	[Warning] Anxiety over low attack-defense awareness is $c[FF6633FF]lowering player morale$c.\n            Change to a formation with a stronger midfield.
+SYS_TEAM_style_exp_0122	[Warning] Anxiety over low defensive awareness is $c[FF6633FF]lowering player morale$c.\n            Change to a formation with more defensive awareness.
+SYS_TEAM_style_exp_0123	[Warning] Anxiety over low attacking awareness is $c[FF6633FF]lowering player morale$c.\n            Change to a formation with more attacking awareness.
+SYS_shop_normal_0024	JPY 100
+TRA_FORM_message_0000	Before training, check players' $c[FF6633FF]fatigue$c on the $c[FF6633FF]card radar at right$c.\nBe careful with $c[FF6633FF]players with low stamina$c: they have $c[FF6633FF]built up fatigue$c.
+TRA_MENU_explain_0003	Do $c[FF6633FF]team training$c.\nDepending on the length, you can do light tuning or hard training.
+TRA_MENU_explain_0005	Get direct coaching from a $c[FF6633FF]famous coach$c.\nRub a player card to assign a role.
+TRA_MENU_explain_0006	Hold a $c[FF6633FF]team dinner$c to strengthen team unity.\nRub a player card to assign a role.
+TRA_RESULT_message_0000	The rest seems to have $c[FF6633FF]refreshed$c the players.
+TRA_RESULT_message_0005	The $c[FF6633FF]world will be shaken$c by our team's attack.
+TRA_RESULT_message_0006	The $c[FF6633FF]world will be shaken$c by our team's ball control.
+TRA_RESULT_message_0007	The $c[FF6633FF]world will be shaken$c by our team's speed.
+TRA_RESULT_message_0008	The $c[FF6633FF]world will be shaken$c by our team's defense.
+TRA_RESULT_message_0009	The $c[FF6633FF]world will be shaken$c by our team's ball winning.
+TRA_RESULT_message_0010	The $c[FF6633FF]world will be shaken$c by our team's retreat football.
+TRA_RESULT_message_0011	The $c[FF6633FF]world will be shaken$c by our team's set plays.
+TRA_RESULT_message_0012	The $c[FF6633FF]world will be shaken$c by our team's power play.
+TRA_RESULT_message_0013	The $c[FF6633FF]world will be shaken$c by our team's running football.
+TRA_RESULT_message_0014	The $c[FF6633FF]world will be shaken$c by our team's fine passing.
+TRA_RESULT_message_0015	The $c[FF6633FF]world will be shaken$c by our team's big build-up play.
+TRA_RESULT_message_0016	The $c[FF6633FF]world will be shaken$c by our team's organized play.
+TRA_RESULT_message_0017	The $c[FF6633FF]world will be shaken$c by our team's blend of talents.
+TRA_RESULT_message_0018	Nothing to complain about.\nOur attack has reached $c[FF6633FF]world-best level$c.
+TRA_RESULT_message_0019	We boast one of the $c[FF6633FF]top attacks in the world$c.\nWe can expect goals against any opponent.
+TRA_RESULT_message_0024	Nothing to complain about.\nOur ball control has reached $c[FF6633FF]world-best level$c.
+TRA_RESULT_message_0025	We boast one of the $c[FF6633FF]top ball controls in the world$c.\nWe can keep the passes flowing against any opponent.
+TRA_RESULT_message_0030	Nothing to complain about.\nOur play speed has reached $c[FF6633FF]world-best level$c.
+TRA_RESULT_message_0031	We boast one of the $c[FF6633FF]top play speeds in the world$c.\nWe can run rings around any opponent.
+TRA_RESULT_message_0036	Nothing to complain about.\nOur defense has reached $c[FF6633FF]world-best level$c.
+TRA_RESULT_message_0037	We boast one of the $c[FF6633FF]top defenses in the world$c.\nNo opponent will score easily.
+TRA_RESULT_message_0042	Nothing to complain about.\nOur ball winning has reached $c[FF6633FF]world-best level$c.
+TRA_RESULT_message_0043	We boast one of the $c[FF6633FF]top ball-winning sides in the world$c.\nWe can take the ball from any opponent.
+TRA_RESULT_message_0048	Nothing to complain about.\nOur retreat football has reached $c[FF6633FF]world-best level$c.
+TRA_RESULT_message_0049	We boast one of the $c[FF6633FF]top retreat football sides in the world$c.\nWe give no opponent an opening.
+TRA_RESULT_message_0054	Nothing to complain about.\nOur set plays have reached $c[FF6633FF]world-best level$c.
+TRA_RESULT_message_0055	We boast one of the $c[FF6633FF]top set-play sides in the world$c.\nWe can expect goals against any opponent.
+TRA_RESULT_message_0060	Nothing to complain about.\nOur power play has reached $c[FF6633FF]world-best level$c.
+TRA_RESULT_message_0061	We boast one of the $c[FF6633FF]top power plays in the world$c.\nWe can overpower any opponent.
+TRA_RESULT_message_0066	Nothing to complain about.\nOur running football has reached $c[FF6633FF]world-best level$c.
+TRA_RESULT_message_0067	We boast one of the $c[FF6633FF]top running football sides in the world$c.\nNo opponent will outrun us.
+TRA_RESULT_message_0072	Nothing to complain about.\nOur fine passing has reached $c[FF6633FF]world-best level$c.
+TRA_RESULT_message_0073	We boast one of the $c[FF6633FF]top passing sides in the world$c.\nWe can slice through any opponent with style.
+TRA_RESULT_message_0078	Nothing to complain about.\nOur big build-up play has reached $c[FF6633FF]world-best level$c.
+TRA_RESULT_message_0079	We boast one of the $c[FF6633FF]top build-up plays in the world$c.\nWe can bewilder any opponent with dynamic play.
+TRA_RESULT_message_0084	The $c[FF6633FF]world will be shaken$c by this golden partnership.\n
+TRA_RESULT_message_0085	We boast one of the $c[FF6633FF]top organized plays in the world$c.\nThe flowing partnerships leave nothing to complain about.
+TRA_RESULT_message_0090	The $c[FF6633FF]world will be shaken$c by this perfect blend of talents.\n
+TRA_RESULT_message_0091	We boast one of the $c[FF6633FF]top individual plays in the world$c.\nEveryone's talents blend superbly, with nothing to complain about.
+TRA_RESULT_message_0096	That was clearly $c[FF6633FF]overwork$c.\nThe players' condition has dropped.
+TRA_RESULT_message_0097	We managed a session that doubled as $c[FF6633FF]tuning$c.\nSome players seem to be in better condition.
+TRA_RESULT_message_0098	Getting through a tougher session than usual seems to have $c[FF6633FF]deepened the players' friendship$c.
+TRA_RESULT_message_0099	We managed a session that doubled as $c[FF6633FF]tuning$c.\nThe players are in superb shape and their $c[FF6633FF]fatigue is fully gone$c.
+TRA_RESULT_message_0115	The Manager's feelings for the team reached the players.\nTraining past the limit will lead the team to $c[FF6633FF]even greater heights$c.
+TRA_RESULT_message_0119	Captain %s led a fulfilling session.\nIt seems to have had a $c[FF6633FF]greater effect$c than usual.
+TRA_RESULT_message_0120	Captain %s led a fulfilling session.\nThe players' $c[FF6633FF]special abilities$c seem to have grown a lot.
+TRA_RESULT_message_0121	Captain %s led a fulfilling session.\nThe players' $c[FF6633FF]partnership$c seems to have become smoother.
+TRA_RESULT_message_0122	Captain %s led a fulfilling session.\nThe players' $c[FF6633FF]individual abilities$c seem to stand out more.
+TRA_RESULT_message_0123	Captain %s led a fulfilling session.\nIt seems to have had a $c[FF6633FF]far greater effect$c than usual.
+TRA_RESULT_message_0124	Captain %s hasn't held the team together well.\nSome players seem to have coasted at $c[66CCFFFF]mere condition tuning$c.
+TRA_SCENE_end_0002	That ends training.\nIt was very hard, but you can expect $c[FF6633FF]better results than usual$c.
+TRA_SCENE_end_0006	That ends training.\nIt was very hard, but we got $c[FF6633FF]big results$c.
+TRA_SCENE_end_0007	That ends training.\nIt was very hard, but we got $c[FF6633FF]tremendous results$c.
+TRA_SCENE_stamina_0000	Players with $c[FF6633FF]low stamina$c face a higher injury risk.\nTo end training, press the $c[FF6633FF]Shoot button$c.
+TRA_SCENE_stamina_0001	Players with $c[FF6633FF]low stamina$c face a higher injury risk.\nTo end training, press the $c[FF6633FF]Shoot button$c.
+TRA_SCENE_stamina_0002	Players with $c[FF6633FF]low stamina$c face a higher injury risk.\nTo end training, press the $c[FF6633FF]Shoot button$c.
+TRA_SCENE_stamina_0003	Many players are nearing their $c[FF6633FF]limit$c.\nWatch their $c[FF6633FF]stamina$c and $c[FF6633FF]end training with the Shoot button$c.
+TRA_SCENE_stamina_0004	Training for $c[FF6633FF]too long$c is $c[FF6633FF]dangerous$c.\nWatch their $c[FF6633FF]stamina$c and $c[FF6633FF]end training with the Shoot button$c.
+TRA_THEME_confirm_0003	The players look $c[FF6633FF]tired$c.\nRest lets them recover from fatigue.
+TRA_THEME_explain_0007	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0008	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0009	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0010	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0011	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0012	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0013	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0014	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0015	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0016	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0017	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0018	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0019	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0020	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0021	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0022	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0023	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0024	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0025	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0026	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0027	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0028	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0029	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0030	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0031	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0032	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0033	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0034	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0035	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0036	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0037	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0038	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0039	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0040	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0041	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0042	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_explain_0043	Half-time instructions change the team parameter graph.\nYou can set up to 3. Select the one to $c[FF0000FF]delete$c.
+TRA_THEME_message_0001	Choose $c[FF6633FF]3 training themes$c to give the players.
+TRA_THEME_message_0002	Choose $c[FF6633FF]2 training themes$c to give the players.
+TRA_THEME_message_0003	Confirm the $c[FF6633FF]training themes$c to start. Watch the players' $c[FF6633FF]remaining stamina$c during training.
+TRA_TOP_message_0001	Hold $c[FF6633FF]team training$c.\nDepending on the length, you can do light conditioning or hard training.

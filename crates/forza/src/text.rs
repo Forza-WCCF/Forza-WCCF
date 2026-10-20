@@ -1862,6 +1862,42 @@ mod tests {
         );
     }
 
+    #[test]
+    fn the_italian_tables_2017_18_match_the_english() {
+        let mut c = Ctx::new_bare(Edition::E1718, Path::new("g"), Path::new("b"));
+        c.sheets = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../editions/2017-18");
+        let english: HashMap<String, String> = c
+            .sheet("screen_text.tsv", "english")
+            .unwrap()
+            .iter()
+            .map(|r| (cell(r, "key").into(), cell(r, "english").into()))
+            .collect();
+        let codes = |s: &str| {
+            let mut v: Vec<String> = CODES.find_iter(s).map(|m| m.as_str().into()).collect();
+            v.sort();
+            let f: Vec<String> = FMT.find_iter(s).map(|m| m.as_str().into()).collect();
+            (f, v)
+        };
+        let (mut bad, mut n) = (vec![], 0);
+        for r in c.sheet("screen_text.tsv", "italian").unwrap() {
+            let (k, it) = (cell(&r, "key"), cell(&r, "italiano"));
+            n += 1;
+            match english.get(k).filter(|e| !e.trim().is_empty()) {
+                None => bad.push(format!("{k}: no English row")),
+                Some(en) if en.trim() != "<empty>" && codes(en) != codes(it) => {
+                    bad.push(format!("{k}: codes {:?}, the English has {:?}", codes(it), codes(en)))
+                }
+                _ => {}
+            }
+        }
+        assert!(
+            n > 0 && bad.is_empty(),
+            "{} problem(s): {:?}",
+            bad.len(),
+            &bad[..bad.len().min(5)]
+        );
+    }
+
     impl Ctx {
         fn new_bare(ed: Edition, game: &Path, backup: &Path) -> Self {
             Self {
