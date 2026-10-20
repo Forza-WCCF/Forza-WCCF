@@ -2,8 +2,7 @@
 //! `forza_server::inbox`, and ports `test_send_logs.py`'s server-side cases: a PC that hangs up half way, the quota
 //! per address, eviction of the oldest, 4 uploads at a time. The random code is compared as `<CODE>`.
 
-mod common;
-use common::*;
+use crate::common::*;
 use forza_server::inbox::{InboxConfig, start};
 use std::time::Duration;
 

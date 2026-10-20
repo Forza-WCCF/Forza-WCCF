@@ -71,7 +71,7 @@ top-level folder, with `Launcher.exe` as a file at its top. Setup and the game's
 code from the ZIP:** only select a kit whose source and provenance you trust. An existing `data\` folder is preserved
 during kit unpacking.
 
-The wizard offers the kit step for a 2010–2011 install; headless `--kit` accepts either edition's kit.
+The wizard and headless `--kit` run the same checks for either edition.
 
 The community kit is a separate project:
 [Forza-WCCF/WCCF-Kit](https://github.com/Forza-WCCF/WCCF-Kit).

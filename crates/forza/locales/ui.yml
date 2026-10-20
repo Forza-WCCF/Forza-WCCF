@@ -115,7 +115,7 @@ installer.you_need: {en: "YOU NEED", it: "TI SERVE", ja: "必要なもの"}
 installer.need_iso: {en: "The disc image (.iso)", it: "L'immagine del disco (.iso)", ja: "ディスクイメージ（.iso）"}
 installer.need_iso_note: {en: "about 5–6 GB", it: "circa 5–6 GB", ja: "約5〜6 GB"}
 installer.need_key: {en: "Its key file", it: "Il suo file chiave", ja: "そのキーファイル"}
-installer.need_package: {en: "The 2010–11 package", it: "Il pacchetto 2010–11", ja: "2010–11 パッケージ"}
+installer.need_package: {en: "The Forza-WCCF package for your edition", it: "Il pacchetto Forza-WCCF per la tua edizione", ja: "お使いのエディション用の Forza-WCCF パッケージ"}
 installer.optional: {en: "optional", it: "facoltativo", ja: "任意"}
 installer.need_space: {en: "About 6 GB free", it: "Circa 6 GB liberi", ja: "約6 GBの空き容量"}
 installer.side_by_side: {en: "Both editions live side by side.", it: "Le due edizioni convivono.", ja: "両エディションを並べて入れられます。"}
@@ -164,7 +164,7 @@ installer.reuse: {en: "Use the game files already here", it: "Usa i file del gio
 installer.reusing: {en: "Reusing the %{edition} files already in this folder.", it: "Uso i file %{edition} già presenti in questa cartella.", ja: "このフォルダーにある %{edition} のファイルを再利用します。"}
 installer.iso_unsupported: {en: "Unsupported image size. Use the 2010–11 Rev D or the 2017–18 v2.00.00 disc image.", it: "Dimensione dell'immagine non supportata. Usa l'immagine 2010–11 Rev D o 2017–18 v2.00.00.", ja: "未対応のイメージサイズです。2010–11 Rev D または 2017–18 v2.00.00 のディスクイメージを使ってください。"}
 installer.drop_hint: {en: "You can also drag the files onto this window.", it: "Puoi anche trascinare i file su questa finestra.", ja: "ファイルをこのウィンドウにドラッグすることもできます。"}
-installer.opt_setup_na: {en: "Needs the 2010–11 package and the 2010–11 edition.", it: "Richiede il pacchetto 2010–11 e l'edizione 2010–11.", ja: "2010–11 パッケージと2010–11 エディションが必要です。"}
+installer.opt_setup_na: {en: "Needs the package for this edition.", it: "Richiede il pacchetto per questa edizione.", ja: "このエディション用のパッケージが必要です。"}
 installer.done_body_extract: {en: "The original files are extracted.", it: "I file originali sono stati estratti.", ja: "元のファイルを展開しました。"}
 installer.not_setup: {en: "Game not set up (no package)", it: "Gioco non configurato (nessun pacchetto)", ja: "ゲームは未設定（パッケージなし）"}
 installer.not_english: {en: "Game text unchanged", it: "Testo del gioco invariato", ja: "ゲームの言語は変更なし"}
@@ -184,7 +184,7 @@ installer.err_wrong_key: {en: "That key file does not unlock this disc image.", 
 installer.err_volume_size: {en: "The disc header reports an unexpected volume size.", it: "L'intestazione del disco indica una dimensione del volume inattesa.", ja: "ディスクのヘッダーのボリュームサイズが想定外です。"}
 installer.err_edition: {en: "Unknown game edition.", it: "Edizione del gioco sconosciuta.", ja: "不明なゲームのエディションです。"}
 installer.err_zip_name: {en: "That zip has an unreadable file name.", it: "Quello zip contiene un nome di file illeggibile.", ja: "このzipには読み取れないファイル名があります。"}
-installer.err_not_kit: {en: "That zip is not a Forza-WCCF package (code/setup.py or scripts/setup.py with Launcher.exe is missing).", it: "Quello zip non è un pacchetto Forza-WCCF (mancano code/setup.py o scripts/setup.py con Launcher.exe).", ja: "このzipは Forza-WCCF パッケージではありません（Launcher.exe と code/setup.py または scripts/setup.py がありません）。"}
+installer.err_not_kit: {en: "That zip is not a Forza-WCCF package (Launcher.exe with programs/ for 2010–11, or bin/ or overlay/ for 2017–18, is missing).", it: "Quello zip non è un pacchetto Forza-WCCF (manca Launcher.exe con programs/ per il 2010–11, o bin/ o overlay/ per il 2017–18).", ja: "このzipは Forza-WCCF パッケージではありません（Launcher.exe と、2010–11 なら programs/、2017–18 なら bin/ または overlay/ がありません）。"}
 installer.err_not_zip: {en: "That file is not a valid zip.", it: "Quel file non è uno zip valido.", ja: "このファイルは有効なzipではありません。"}
 installer.err_edition_mismatch: {en: "The selected edition does not match the disc image.", it: "L'edizione scelta non corrisponde all'immagine del disco.", ja: "選んだエディションがディスクイメージと一致しません。"}
 installer.err_need_game: {en: "Choose --game SBWG (2010–2011) or --game SDDY (2017–2018) when both or neither edition is installed.", it: "Scegli --game SBWG (2010–2011) o --game SDDY (2017–2018) quando sono installate entrambe le edizioni o nessuna.", ja: "両方のエディションがインストール済み、またはどちらもない場合は --game SBWG（2010–2011）か --game SDDY（2017–2018）を指定してください。"}

@@ -6826,6 +6826,7 @@ dependencies = [
  "forza",
  "getrandom 0.3.4",
  "iroh",
+ "iroh-relay",
  "tokio",
 ]
 

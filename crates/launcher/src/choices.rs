@@ -5,6 +5,7 @@
 //! Lines "name=value" with "#" starting a note, by play.py read_panel()'s rules.  A file is written whole: a temporary
 //! file, then one swap.
 
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::Path;
 use std::{fs, io};
 
@@ -118,6 +119,13 @@ pub fn host_port(s: &str, port: u16) -> Option<(String, u16)> {
     ok.then(|| (host.to_owned(), port))
 }
 
+/// [`host_port`] as a socket address: a name resolved to its first IPv4 address (it may block: call it off the UI
+/// thread).
+pub fn resolve(s: &str, port: u16) -> Option<SocketAddr> {
+    let (host, port) = host_port(s, port)?;
+    (host.as_str(), port).to_socket_addrs().ok()?.find(SocketAddr::is_ipv4)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -147,6 +155,10 @@ mod tests {
             Some(("203.0.113.10".into(), 20032))
         );
         assert_eq!(host_port("lobby.wccf.it", 20030), Some(("lobby.wccf.it".into(), 20030)));
+        let at = |s| resolve(s, 20030).map(|a| a.to_string());
+        assert_eq!(at("203.0.113.10:20032").as_deref(), Some("203.0.113.10:20032"));
+        assert_eq!(at("localhost").as_deref(), Some("127.0.0.1:20030"));
+        assert_eq!(at("a b"), None);
     }
 
     #[test]

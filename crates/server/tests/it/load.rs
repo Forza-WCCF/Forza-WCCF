@@ -2,7 +2,7 @@
 //! shops on the seat desk (WANT, then PING every second), pumps datagrams through the relay between seat pairs, reads
 //! the server's RSS and CPU from /proc and prints one JSON line.
 //!
-//! Run: `cargo test --release -p forza-server --test load -- --ignored --nocapture`
+//! Run: `cargo test --release -p forza-server --test main -- --ignored load --nocapture`
 //!
 //! Knobs (environment): `WCCF_LOAD_IDLE` idle seconds measured first (default 10), `WCCF_LOAD_SECS` load seconds
 //! (10), `WCCF_LOAD_RATE` packets per second per side (60), `WCCF_LOAD_PAIRS` seat pairs (4), `WCCF_LOAD_SHOPS`

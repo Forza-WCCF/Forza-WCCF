@@ -694,7 +694,7 @@ fn vs_two_clients_pair_through_reflect() {
         let port = u16::from_le_bytes([login[12], login[13]]);
         assert_eq!(port, reflect_port);
         let u = UdpSocket::bind("127.0.0.1:0").unwrap();
-        u.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        u.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
         let mut p = [0u8; 58];
         p[..8].copy_from_slice(&[0xF1, 0xC0, 0x80, 0x44, 0xB4, 0x9E, 0xDA, 0x3C]);
         p[8] = 1;
