@@ -88,6 +88,10 @@ pub struct Card {
     pub season: String,
     pub pos: Position,
     pub rarity: Rarity,
+    /// The code printed on the card (the catalogue's card_code: HOLE, WGK-3, ATLE-RE-4 ...); empty for 2010-11.
+    pub code: String,
+    /// A card the 2017-18 game treats as a legend: its back prints SECRET for the six stats (they grow by training).
+    pub secret: bool,
     pub stats: [u8; 6],
     /// TOTAL as the card prints it.
     pub total: u8,
@@ -95,6 +99,12 @@ pub struct Card {
 }
 
 impl Card {
+    /// The card's series: its printed code without the trailing number (WGK-3 -> WGK, MVP-1 -> MVP, KLE stays); a
+    /// code of digits only gives none.
+    pub fn series(&self) -> &str {
+        series(&self.code)
+    }
+
     pub fn short_name(&self) -> &str {
         if self.short.is_empty() {
             self.name.rsplit(' ').next().unwrap_or(&self.name)
@@ -102,6 +112,12 @@ impl Card {
             &self.short
         }
     }
+}
+
+/// [`Card::series`] of a code.
+pub fn series(code: &str) -> &str {
+    code.trim_end_matches(|c: char| c.is_ascii_digit())
+        .trim_end_matches(['-', ' '])
 }
 
 // ---- suitable positions ----
@@ -379,6 +395,26 @@ pub fn rarity_mark(p: &Painter, c: Pos2, size: f32, rarity: Rarity) {
     }
 }
 
+/// The card's printed series as a small dark chip ending at `right` (its right edge's middle), text `h` high; none
+/// for an empty code.
+pub fn code_chip(p: &Painter, right: Pos2, h: f32, code: &str, alpha: f32) {
+    if code.is_empty() {
+        return;
+    }
+    let g = p.layout_no_wrap(
+        code.to_owned(),
+        theme::display(h),
+        theme::TEXT.gamma_multiply(alpha),
+    );
+    let pad = vec2(h * 0.35, h * 0.1);
+    let r = Rect::from_min_size(
+        right - vec2(g.size().x + 2.0 * pad.x, g.size().y / 2.0 + pad.y),
+        g.size() + 2.0 * pad,
+    );
+    p.rect_filled(r, 3, Color32::from_black_alpha((180.0 * alpha) as u8));
+    p.galley(r.min + pad, g, theme::TEXT);
+}
+
 /// How a card is drawn: at rest, lifted (dragged), a ghost left in its slot, a swap target, out of position.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Look {
@@ -530,6 +566,13 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
             14.0,
             card.rarity,
         );
+        code_chip(
+            p,
+            rect.right_bottom() + vec2(-22.0, -11.0),
+            rect.width() * 0.09,
+            card.series(),
+            alpha,
+        );
     } else {
         let g = fit(
             p,
@@ -552,6 +595,13 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
             pos2(pic.right() - 6.0, pic.top() + 6.0),
             9.0,
             card.rarity,
+        );
+        code_chip(
+            p,
+            pos2(pic.right() - 13.0, pic.top() + 6.0),
+            (rect.width() * 0.13).max(8.0),
+            card.series(),
+            alpha,
         );
     }
     face_marks(p, rect, r, card, rim, alpha, look);
@@ -790,11 +840,9 @@ pub fn card_size(pitch_w: f32) -> egui::Vec2 {
 /// edge would leave the pitch (the spot itself, what the table holds, is kept).
 pub fn spot_rect(pitch: Rect, spot: Pos2) -> Rect {
     let lane = pitch.with_min_x(pitch.left() + LABEL_LANE);
+    let f = field(pitch);
     let r = Rect::from_center_size(
-        pos2(
-            lane.left() + spot.x * lane.width(),
-            pitch.top() + spot.y * pitch.height(),
-        ),
+        pos2(f.left() + spot.x * f.width(), f.top() + spot.y * f.height()),
         card_size(pitch.width()),
     );
     let inside = lane.shrink(4.0);
@@ -827,11 +875,20 @@ pub fn slot_rects(pitch: Rect, bench_top: f32, spots: &[Pos2; 11]) -> [Rect; 16]
 
 /// A sheet point on `pitch` as a spot (the inverse of [`spot_rect`]'s centre, kept on the pitch).
 fn spot_at(pitch: Rect, p: Pos2) -> Pos2 {
-    let lane = pitch.with_min_x(pitch.left() + LABEL_LANE);
+    let f = field(pitch);
     pos2(
-        ((p.x - lane.left()) / lane.width()).clamp(0.0, 1.0),
-        ((p.y - pitch.top()) / pitch.height()).clamp(0.0, 1.0),
+        ((p.x - f.left()) / f.width()).clamp(0.0, 1.0),
+        ((p.y - f.top()) / f.height()).clamp(0.0, 1.0),
     )
+}
+
+/// The board's drawn field lines, right of the zone names: touchline to touchline is the table's x -1..+1, the far
+/// goal line to the own goal line its y -1..+1 (the 2010-11 C panel's FIELD_L..FIELD_B), so a card on a line lies on
+/// it in the table too.
+fn field(pitch: Rect) -> Rect {
+    pitch
+        .with_min_x(pitch.left() + LABEL_LANE)
+        .shrink((pitch.width() * 0.025).max(3.0))
 }
 
 /// The pitch a board of this width draws, from `top_left`.
@@ -902,6 +959,32 @@ pub fn formation_board(
         &tr!(lang, "board.bench"),
         theme::TEXT_DIM,
     );
+    // a pitch card in hand moves live: the table follows it every frame, as the C panels' board_move, so the game
+    // sees the card slide and rub, not one jump on release; its spot before the lift is kept for a swap
+    let origin_id = Id::new("board-origin");
+    let origin = match dragging.filter(|&d| d < 11 && board.slots[d].is_some()) {
+        Some(from) => {
+            let o = ui.data_mut(|d| {
+                *d.get_temp_mut_or_insert_with(origin_id, || (from, board.spots[from]))
+            });
+            if let Some(pt) = pointer.map(|p| p + lift_offset(card))
+                && pitch.contains(pt)
+            {
+                let spot = spot_at(pitch, pt);
+                if spot != board.spots[from] {
+                    board.spots[from] = spot;
+                    changed = true;
+                }
+            }
+            // let go anywhere: one last change, so the board's table is rebuilt and logged
+            changed |= ui.input(|i| i.pointer.any_released());
+            Some(o.1)
+        }
+        None => {
+            ui.data_mut(|d| d.remove::<(usize, Pos2)>(origin_id));
+            None
+        }
+    };
     let rects = slot_rects(pitch, bench.top(), &board.spots);
 
     let hover_id = Id::new("board-hover");
@@ -1023,6 +1106,10 @@ pub fn formation_board(
         }
         if let Some(from) = resp.dnd_release_payload::<usize>() {
             if *from != slot {
+                if let Some(o) = origin {
+                    // the other card goes where this one was lifted from
+                    board.spots[*from] = o;
+                }
                 board.swap(*from, slot);
                 changed = true;
             } else if slot < 11
@@ -1361,11 +1448,19 @@ fn paint_pitch(p: &Painter, pitch: Rect, labels: Option<Lang>) {
             (0.34, 0.64, tr!(lang, "board.zone_centre")),
             (0.64, 1.0, tr!(lang, "board.zone_defence")),
         ];
+        // in spot units, as `zone` reads a card's line: the field's height, not the pitch's
+        let f = field(pitch);
+        let y = |t: f32| {
+            if t <= 0.0 {
+                pitch.top()
+            } else if t >= 1.0 {
+                pitch.bottom()
+            } else {
+                f.top() + t * f.height()
+            }
+        };
         for (a, b, text) in bands {
-            let r = Rect::from_x_y_ranges(
-                pitch.left()..=pitch.left() + LABEL_LANE,
-                (pitch.top() + a * pitch.height())..=(pitch.top() + b * pitch.height()),
-            );
+            let r = Rect::from_x_y_ranges(pitch.left()..=pitch.left() + LABEL_LANE, y(a)..=y(b));
             if a > 0.0 {
                 p.extend(egui::Shape::dashed_line(
                     &[pos2(pitch.left(), r.top()), pos2(pitch.right(), r.top())],
@@ -1379,7 +1474,11 @@ fn paint_pitch(p: &Painter, pitch: Rect, labels: Option<Lang>) {
     }
     // markings
     let line = Stroke::new(1.5, theme::PITCH_LINE.gamma_multiply(0.75));
-    let f = pitch.shrink((pitch.width() * 0.025).max(3.0));
+    let f = if labels.is_some() {
+        field(pitch)
+    } else {
+        pitch.shrink((pitch.width() * 0.025).max(3.0))
+    };
     p.rect_stroke(f, 2, line, StrokeKind::Middle);
     p.line_segment([f.left_center(), f.right_center()], line);
     p.circle_stroke(f.center(), f.width() * 0.14, line);
@@ -1529,6 +1628,16 @@ pub fn card_back(p: &Painter, rect: Rect, card: &Card, lang: Lang) {
         "cat.off", "cat.def", "cat.tec", "cat.pow", "cat.spd", "cat.sta",
     ];
     let row = col.height() / 8.0;
+    if card.secret {
+        // a legend's back: SECRET across the six rows, as the original prints it
+        p.text(
+            pos2(col.right(), col.top() + row * 3.0),
+            Align2::RIGHT_CENTER,
+            tr!(lang, "cat.secret"),
+            theme::display(14.0 * unit),
+            theme::TEXT_DIM,
+        );
+    }
     for (i, (k, v)) in names.iter().zip(card.stats).enumerate() {
         let y = col.top() + row * (i as f32 + 0.5);
         p.text(
@@ -1538,13 +1647,15 @@ pub fn card_back(p: &Painter, rect: Rect, card: &Card, lang: Lang) {
             theme::display(11.0 * unit),
             theme::TEXT_DIM,
         );
-        p.text(
-            pos2(col.right(), y),
-            Align2::RIGHT_CENTER,
-            v.to_string(),
-            theme::display(16.0 * unit),
-            super::widgets::stat_color(v),
-        );
+        if !card.secret {
+            p.text(
+                pos2(col.right(), y),
+                Align2::RIGHT_CENTER,
+                v.to_string(),
+                theme::display(16.0 * unit),
+                super::widgets::stat_color(v),
+            );
+        }
     }
     let y = col.top() + row * 6.0;
     p.line_segment(
@@ -1720,26 +1831,34 @@ fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, tile: Vec2, back:
                     let stats = [
                         "cat.off", "cat.def", "cat.tec", "cat.pow", "cat.spd", "cat.sta",
                     ];
-                    egui::Grid::new("big-stats")
-                        .num_columns(6)
-                        .spacing(vec2(14.0, 0.0))
-                        .show(ui, |ui| {
-                            for k in stats {
-                                ui.label(
-                                    egui::RichText::new(tr!(lang, k))
-                                        .font(theme::display(12.0))
-                                        .color(theme::TEXT_DIM),
-                                );
-                            }
-                            ui.end_row();
-                            for v in card.stats {
-                                ui.label(
-                                    egui::RichText::new(v.to_string())
-                                        .font(theme::display(18.0))
-                                        .color(super::widgets::stat_color(v)),
-                                );
-                            }
-                        });
+                    if card.secret {
+                        ui.label(
+                            egui::RichText::new(tr!(lang, "cat.secret"))
+                                .font(theme::display(18.0))
+                                .color(theme::TEXT_DIM),
+                        );
+                    } else {
+                        egui::Grid::new("big-stats")
+                            .num_columns(6)
+                            .spacing(vec2(14.0, 0.0))
+                            .show(ui, |ui| {
+                                for k in stats {
+                                    ui.label(
+                                        egui::RichText::new(tr!(lang, k))
+                                            .font(theme::display(12.0))
+                                            .color(theme::TEXT_DIM),
+                                    );
+                                }
+                                ui.end_row();
+                                for v in card.stats {
+                                    ui.label(
+                                        egui::RichText::new(v.to_string())
+                                            .font(theme::display(18.0))
+                                            .color(super::widgets::stat_color(v)),
+                                    );
+                                }
+                            });
+                    }
                     ui.label(
                         egui::RichText::new(tr!(
                             lang,
@@ -1834,6 +1953,8 @@ mod tests {
             season: String::new(),
             pos: Position::Mf,
             rarity: Rarity::Regular,
+            code: String::new(),
+            secret: false,
             stats: [0; 6],
             total: 0,
             aptitude: Aptitude::default(),
@@ -1915,13 +2036,8 @@ mod tests {
     fn cards_lie_where_they_are_dropped() {
         use crate::cards::{Placed, table_after, table_text};
         let pitch = pitch_rect(pos2(100.0, 50.0), 400.0);
-        let lane = pitch.with_min_x(pitch.left() + LABEL_LANE);
-        let at = |x: f32, y: f32| {
-            pos2(
-                lane.left() + x * lane.width(),
-                pitch.top() + y * pitch.height(),
-            )
-        };
+        let f = field(pitch);
+        let at = |x: f32, y: f32| pos2(f.left() + x * f.width(), f.top() + y * f.height());
         let pl = |slot, no, x, y| Placed { slot, no, x, y };
         let before = vec![
             pl(1, 101, 0.0, 0.9),
@@ -1956,6 +2072,81 @@ mod tests {
         b.swap(0, 15);
         let t3 = table_after(&t2, &b);
         assert_eq!((t3[0].x, t3[0].y), (crate::cards::BENCH_X, 0.68));
+    }
+
+    /// A pitch card in hand moves the table while the button is still down, back and forth (a rub), then once more on
+    /// release; the board keeps its slots throughout.
+    #[test]
+    fn a_card_in_hand_moves_the_table_before_release() {
+        use crate::cards::{Placed, table_after};
+        use egui::{Event, PointerButton};
+        let before = vec![Placed {
+            slot: 1,
+            no: 101,
+            x: 0.0,
+            y: 0.0,
+        }];
+        let mut b = crate::cards::board(&before, &[]);
+        let ctx = egui::Context::default();
+        theme::install(&ctx, theme::Edition::E1718, &theme::font_dir()).unwrap();
+        // the fonts take effect from the next frame
+        ctx.run_ui(egui::RawInput::default(), |_| {})
+            .textures_delta
+            .clear();
+        let mut pitch = Rect::NOTHING;
+        let frame = |events: Vec<Event>, b: &mut Board, pitch: &mut Rect| {
+            let raw = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(500.0, 900.0))),
+                events,
+                ..Default::default()
+            };
+            let mut changed = false;
+            ctx.run_ui(raw, |ui| {
+                *pitch = pitch_rect(ui.cursor().min, ui.available_width());
+                changed = formation_board(ui, b, &Links::default(), 3.0, crate::ui::Lang::En);
+            })
+            .textures_delta
+            .clear();
+            changed
+        };
+        frame(vec![], &mut b, &mut pitch);
+        let at = spot_rect(pitch, b.spots[0]).center();
+        let press = |pos, pressed| Event::PointerButton {
+            pos,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        frame(
+            vec![Event::PointerMoved(at), press(at, true)],
+            &mut b,
+            &mut pitch,
+        );
+        let mut xs = Vec::new();
+        for dx in [10.0, 20.0, 40.0, 60.0, 20.0, 60.0, 20.0] {
+            let changed = frame(
+                vec![Event::PointerMoved(at + vec2(dx, 0.0))],
+                &mut b,
+                &mut pitch,
+            );
+            if changed {
+                xs.push(table_after(&before, &b)[0].x);
+            }
+        }
+        assert_eq!(b.slots[0], Some(0));
+        // the held card moved right, back, right, back: four turns the game can see
+        let turns = xs
+            .windows(3)
+            .filter(|w| (w[1] - w[0]) * (w[2] - w[1]) < 0.0)
+            .count();
+        assert!(xs.len() >= 4 && turns >= 2, "{xs:?}");
+        // let go: one more change, where it was shown
+        assert!(frame(
+            vec![press(at + vec2(20.0, 0.0), false)],
+            &mut b,
+            &mut pitch
+        ));
+        assert_eq!(table_after(&before, &b)[0].x, *xs.last().unwrap());
     }
 
     /// The big card is 4x the tile when the window has room, else the most that keeps it, its map and caption inside.

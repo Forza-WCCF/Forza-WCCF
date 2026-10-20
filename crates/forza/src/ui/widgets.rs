@@ -592,6 +592,33 @@ pub fn stat_color(v: u8) -> Color32 {
 }
 
 /// A stat as an LED meter of 20 segments with its value, in the card-back order of the stats pane.
+/// The six stat bars of `card`, or for a legend one block as tall that says `secret` (SECRET): its stats are not printed.
+pub fn stat_bars(
+    ui: &mut Ui,
+    card: &super::board::Card,
+    names: &[String; 6],
+    secret: &str,
+    width: f32,
+) {
+    if card.secret {
+        let h = 6.0 * 22.0 + 5.0 * ui.spacing().item_spacing.y;
+        let (rect, _) = ui.allocate_exact_size(vec2(width, h), Sense::hover());
+        let p = ui.painter();
+        p.rect_filled(rect, 4, theme::WELL);
+        p.text(
+            rect.center(),
+            Align2::CENTER_CENTER,
+            secret,
+            theme::display(28.0),
+            theme::TEXT_DIM,
+        );
+        return;
+    }
+    for (k, v) in names.iter().zip(card.stats) {
+        stat_bar(ui, k, v, width);
+    }
+}
+
 pub fn stat_bar(ui: &mut Ui, label: &str, value: u8, width: f32) -> Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(width, 22.0), Sense::hover());
     let p = ui.painter();

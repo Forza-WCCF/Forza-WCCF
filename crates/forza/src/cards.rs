@@ -307,6 +307,8 @@ fn unknown(no: u32, y: f32) -> Card {
         season: String::new(),
         pos,
         rarity: Rarity::Regular,
+        code: String::new(),
+        secret: false,
         stats: [0; 6],
         total: 0,
         aptitude: Aptitude::default(),
@@ -424,10 +426,17 @@ pub fn table_after(before: &[Placed], board: &Board) -> Vec<Placed> {
 
 // ---- the catalogue ----
 
+/// The white ATLE-RE reprints the 2017-18 game treats as legends beside every ALL TIME LEGEND card (its own list of
+/// card numbers, read from the client).
+const LEGEND_REPRINTS: [u32; 18] = [
+    4659, 5747, 5748, 5749, 5752, 5754, 5755, 6151, 6153, 6154, 6299, 6417, 6635, 6720, 6721, 7131,
+    7132, 7133,
+];
+
 /// `catalogue.tsv` (one card per line, tab-separated, UTF-8, a header naming the columns) -> its cards, in the
 /// file's order. Columns by name: card_no, season, rarity_name, is_placeholder (1 = skipped), name_full_latin,
 /// name_short_latin, position_name, club_name, nationality_name, stat_offence .. stat_stamina, stats_total, and the
-/// record_index (the card's player_data.bin record, for [`links`]), the
+/// record_index (the card's player_data.bin record, for [`links`]), card_code (2017-18's printed code), the
 /// 16 role ratings as the first 16 numbers of hidden_params (2010-11) or hidden_4df_523 (2017-18), kept only when
 /// all are 1-10.
 pub fn load_catalogue(path: &Path) -> io::Result<Vec<Card>> {
@@ -444,6 +453,7 @@ pub fn load_catalogue(path: &Path) -> io::Result<Vec<Card>> {
     };
     let c_no = col(&["card_no"]).ok_or_else(|| io::Error::other("no card_no column"))?;
     let c_rec = col(&["record_index"]);
+    let c_code = col(&["card_code"]);
     let [
         season,
         rarity,
@@ -497,6 +507,13 @@ pub fn load_catalogue(path: &Path) -> io::Result<Vec<Card>> {
             .take(16)
             .map(|v| v.parse().unwrap_or(0))
             .collect();
+        let rarity = match get(rarity).as_str() {
+            "ALL TIME LEGEND" => Rarity::AllTime,
+            "LEGEND" => Rarity::Legend,
+            "RARE" => Rarity::Rare,
+            "SPECIAL" => Rarity::Special,
+            _ => Rarity::Regular,
+        };
         let mut aptitude = Aptitude::default();
         if ratings.len() == 16 && ratings.iter().all(|r| (1..=10).contains(r)) {
             aptitude.roles.copy_from_slice(&ratings);
@@ -515,13 +532,11 @@ pub fn load_catalogue(path: &Path) -> io::Result<Vec<Card>> {
                 "FW" => Position::Fw,
                 _ => Position::Mf,
             },
-            rarity: match get(rarity).as_str() {
-                "ALL TIME LEGEND" => Rarity::AllTime,
-                "LEGEND" => Rarity::Legend,
-                "RARE" => Rarity::Rare,
-                "SPECIAL" => Rarity::Special,
-                _ => Rarity::Regular,
-            },
+            rarity,
+            code: get(c_code),
+            // 2017-18 only (the catalogue with card codes): 2010-11's legends print their stats
+            secret: c_code.is_some()
+                && (rarity == Rarity::AllTime || LEGEND_REPRINTS.contains(&number)),
             stats: stats.map(num),
             total: num(total),
             aptitude,
@@ -753,11 +768,11 @@ mod tests {
         let path = d.path().join("catalogue.tsv");
         let head = "card_no\trecord_index\tseason\trarity_name\tis_placeholder\tname_full_latin\tname_short_latin\t\
                     position_name\tclub_name\tnationality_name\tstat_offence\tstat_defence\tstat_technique\tstat_power\t\
-                    stat_speed\tstat_stamina\tstats_total\thidden_4df_523\n";
+                    stat_speed\tstat_stamina\tstats_total\thidden_4df_523\tcard_code\n";
         let rows = format!(
-            "12\t0\t10-11\tLEGEND\t0\tAldo Bàrtoli\tBÀRTOLI\tFW\tPorto Azzurro\tItalia\t18\t5\t16\t14\t17\t12\t82\t{roles} 99 3\n\
+            "12\t0\t10-11\tLEGEND\t0\tAldo Bàrtoli\tBÀRTOLI\tFW\tPorto Azzurro\tItalia\t18\t5\t16\t14\t17\t12\t82\t{roles} 99 3\t\n\
              13\t1\t10-11\tREGULAR\t1\tNobody\tNOBODY\tMF\t\t\t1\t1\t1\t1\t1\t1\t60\t\n\
-             14\t2\t15-16\tALL TIME LEGEND\t0\tKenji Sato\tSATO\tGK\tKitakaze\t日本\t3\t15\t9\t12\t8\t10\t71\t0 0 0\n"
+             14\t2\t15-16\tALL TIME LEGEND\t0\tKenji Sato\tSATO\tGK\tKitakaze\t日本\t3\t15\t9\t12\t8\t10\t71\t0 0 0\tHOLE\n"
         );
         fs::write(&path, format!("{head}{rows}")).unwrap();
         let cat = load_catalogue(&path).unwrap();
@@ -777,6 +792,27 @@ mod tests {
             ("日本", Rarity::AllTime, Position::Gk)
         );
         assert!(!b.aptitude.known());
+        assert_eq!(
+            (a.code.as_str(), b.code.as_str(), b.series()),
+            ("", "HOLE", "HOLE")
+        );
+        // the ALL TIME LEGEND keeps its stats secret, the LEGEND does not
+        assert_eq!((a.secret, b.secret), (false, true));
+        let series = [
+            "WGK-3",
+            "MVP-1",
+            "KLE",
+            "12",
+            "ATLE-RE-4",
+            "P WOS-2",
+            "JT-A11",
+            "",
+        ]
+        .map(crate::ui::board::series);
+        assert_eq!(
+            series,
+            ["WGK", "MVP", "KLE", "", "ATLE-RE", "P WOS", "JT-A", ""]
+        );
     }
 
     /// 200,000 deals land 2.5 / 68.25 / 29.25 % (within 0.3 points), as the C panel's deal test; each tier from its

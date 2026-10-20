@@ -316,6 +316,8 @@ pub(crate) mod tests {
             season: String::new(),
             pos: Position::Mf,
             rarity: Rarity::Regular,
+            code: String::new(),
+            secret: false,
             stats: [0; 6],
             total: 0,
             aptitude: Aptitude::default(),
