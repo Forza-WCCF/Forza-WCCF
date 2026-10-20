@@ -196,8 +196,8 @@ fn closing_seat_1_ends_the_run_and_the_card_rule_holds() {
         thread::sleep(Duration::from_millis(100));
     }
     let said = ui.text();
-    assert!(said.contains("  5/6 seat 1 (the player cabinet) - window up"), "{said}");
-    assert!(said.contains("this PC is seat 1"), "{said}");
+    assert!(said.contains("  5/6 seat 1 window up"), "{said}");
+    assert!(said.contains(": seat 1"), "{said}");
     assert!(
         !said.contains("has no seat desk"),
         "the claim went to the desk's own port: {said}"
@@ -236,7 +236,7 @@ fn closing_seat_1_ends_the_run_and_the_card_rule_holds() {
         said.contains("A game window was closed - stopping the rest.") || said.contains("No game window is left"),
         "{said}"
     );
-    assert!(said.contains("The game has ended: closed by the player."), "{said}");
+    assert!(said.contains("Game closed by the player."), "{said}");
     let logged = std::fs::read_to_string(kit.logs().join("run_launcher.txt")).unwrap_or_default();
     assert!(
         logged.contains("closed by the player"),
@@ -278,9 +278,9 @@ fn an_old_hook_is_set_up_first() {
     let rc = run::command(&kit, &params("hook", Shared::new()), &["local".into()], &ui);
     let said = ui.text();
     assert_eq!(rc, run::NOT_SET_UP, "{said}");
-    assert!(said.contains("the card CATALOGUE is not built yet"), "{said}");
-    assert!(said.contains("(wccfk.dll) is missing or not this kit's"), "{said}");
-    assert!(said.contains("Setting the game up did not finish"), "{said}");
+    assert!(said.contains("Card catalogue not built"), "{said}");
+    assert!(said.contains("Updating the game's helper file (wccfk.dll)"), "{said}");
+    assert!(said.contains("Setup did not finish"), "{said}");
     assert!(!run::is_on(&kit, Kind::Run));
 }
 
@@ -468,7 +468,7 @@ fn a_seat_that_crashes_at_the_start_stops_everything() {
         said.contains("FAILED: seat 1's window did not come up - see data\\logs\\run_seat1.txt"),
         "{said}"
     );
-    assert!(said.contains("Stopping what was started ..."), "{said}");
+    assert!(said.contains("Stopping."), "{said}");
     let log = fs::read_to_string(kit.logs().join("run_seat1.txt")).unwrap();
     assert!(
         log.contains("SECOND-chance / FATAL"),
@@ -509,19 +509,19 @@ fn a_crashed_projector_keeps_seat_1_and_is_reported() {
     wait_said(
         &ui,
         &t,
-        "A game window went by itself, not closed (a crash - see data\\logs\\run_projector.txt)",
+        "A game window crashed (see data\\logs\\run_projector.txt)",
         120,
     );
     let rc = ended_clean(&kit, top.path(), &ui, t, Duration::from_secs(60));
     let said = ui.text();
     assert_eq!(rc, run::OK, "{said}");
-    assert!(said.contains("has no seat desk - seat 1 with the projector"), "{said}");
+    assert!(said.contains("has no seat desk: seat 1, projector."), "{said}");
     assert!(
-        said.contains("its logs went to the server at 127.0.0.1 by themselves: code R042"),
+        said.contains("Logs sent to the server at 127.0.0.1: code R042"),
         "{said}"
     );
     assert!(
-        said.contains("it went wrong: run_projector.txt: the game window went by itself"),
+        said.contains("Game ended with a problem: run_projector.txt: the game window went by itself"),
         "{said}"
     );
     let blob = inbox.join().unwrap();
@@ -539,15 +539,15 @@ fn restart_now_mid_start_restarts_the_cabinet() {
     let _control = TcpListener::bind(("127.0.0.1", p.control_port)).unwrap();
     let _desk = seat_desk(p.seat_port);
     let (ui, t) = run_on_thread(&kit, p, &["remote", "127.0.0.1"]);
-    wait_said(&ui, &t, "  5/6 seat 1 (the player cabinet) - window up", 120);
+    wait_said(&ui, &t, "  5/6 seat 1 window up", 120);
     fs::write(kit.data().join("restart.request"), b"RESTART NOW - a test\n").unwrap();
-    wait_said(&ui, &t, "Seat 1's cabinet is back; the projector was not touched.", 120);
+    wait_said(&ui, &t, "Seat 1 is back.", 120);
     let rc = ended_clean(&kit, top.path(), &ui, t, Duration::from_secs(60));
     let said = ui.text();
     assert_eq!(rc, run::OK, "{said}");
-    assert!(said.contains("Restarting seat 1's cabinet only"), "{said}");
+    assert!(said.contains("Restarting seat 1 only"), "{said}");
     assert_eq!(said.matches("  5/6 seat 1").count(), 2, "{said}");
-    assert!(said.contains("The game has ended: closed by the player."), "{said}");
+    assert!(said.contains("Game closed by the player."), "{said}");
     assert!(!kit.data().join("restart.request").exists(), "the request was taken");
 }
 
@@ -565,16 +565,10 @@ fn a_stand_in_that_cannot_start_stops_the_start() {
     drop(other);
     let said = ui.text();
     assert_eq!(rc, run::FAILED, "{said}");
-    assert!(
-        said.contains("FAILED: the card reader stand-in did not start"),
-        "{said}"
-    );
+    assert!(said.contains("FAILED: the card reader did not start"), "{said}");
     // the reason outlives the window: a failed start once left no trace in the log (run 5a, 2026-10-16)
     let logged = std::fs::read_to_string(kit.logs().join("run_launcher.txt")).unwrap_or_default();
-    assert!(
-        logged.contains("FAILED: the card reader stand-in did not start"),
-        "{logged}"
-    );
+    assert!(logged.contains("FAILED: the card reader did not start"), "{logged}");
 }
 
 /// A stand-in thread that panics: the supervisor says it in the run log; an essential one stops the run (nothing left,
@@ -602,12 +596,11 @@ fn an_essential_stand_in_that_panics_stops_the_run() {
     assert_eq!(rc, run::FAILED, "{said}");
     assert!(
         said.contains(
-            "the test stand-in ended by itself (its thread panicked: boom) - the game cannot go on without it: \
-             stopping the run."
+            "the test stand-in stopped (its thread panicked: boom). The game cannot continue without it - stopping."
         ),
         "{said}"
     );
-    assert!(said.contains("Stopped: the test stand-in ended by itself."), "{said}");
+    assert!(said.contains("Stopped: the test stand-in ended."), "{said}");
 }
 
 #[test]
@@ -615,10 +608,10 @@ fn a_stand_in_the_game_can_do_without_is_said_and_the_run_goes_on() {
     let (said, rc) = run_with_panicking_stand_in("panic2", false);
     assert_eq!(rc, run::OK, "{said}");
     assert!(
-        said.contains("the test stand-in ended by itself (its thread panicked: boom) - the game goes on without it."),
+        said.contains("the test stand-in stopped (its thread panicked: boom). The game continues without it."),
         "{said}"
     );
-    assert!(said.contains("The game has ended: closed by the player."), "{said}");
+    assert!(said.contains("Game closed by the player."), "{said}");
 }
 
 /// `server` mode: the control program is a stand-in (the test's own listener holds the control port), `forza-server all`
@@ -796,7 +789,7 @@ fn closing_seat_1_ends_the_2017_18_run() {
     let said = ui.text();
     assert!(said.contains("Starting WCCF 2017-18 from"), "{said}");
     assert!(
-        said.contains("Aime reader (card file data\\save\\seat1_aime.txt), AiMeDB"),
+        said.contains("cabinet (card file data\\save\\seat1_aime.txt)"),
         "{said}"
     );
     assert!(
@@ -810,7 +803,7 @@ fn closing_seat_1_ends_the_2017_18_run() {
     let rc = ended_clean(&kit, top.path(), &ui, t, Duration::from_secs(60));
     let said = ui.text();
     assert_eq!(rc, run::OK, "{said}");
-    assert!(said.contains("The game has ended: closed by the player."), "{said}");
+    assert!(said.contains("Game closed by the player."), "{said}");
     let aime = fs::read_to_string(kit.save().join("seat1_aime.txt")).unwrap();
     assert!(aime.trim().len() >= 20, "the Aime card was made: {aime}");
 }

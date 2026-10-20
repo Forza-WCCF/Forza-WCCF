@@ -876,11 +876,7 @@ fn done_body(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<
     }
     ui.add_space(-2.0);
     ui.spacing_mut().item_spacing.y = 2.0;
-    for key in [
-        "installer.done_guard",
-        "installer.done_network",
-        "installer.done_dx",
-    ] {
+    for key in ["installer.done_guard", "installer.done_dx"] {
         ui.label(
             egui::RichText::new(tr!(lang, key))
                 .size(12.0)

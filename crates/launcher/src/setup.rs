@@ -16,9 +16,7 @@ pub const RUNNING: i32 = 3;
 fn running(game: &Path, what: &str, say: &dyn Fn(&str)) -> bool {
     let on = !procs::game_processes(game).is_empty();
     if on {
-        say(&format!(
-            "  FAIL  the game is running - close its window first, then {what}"
-        ));
+        say(&format!("  FAIL  The game is running. Close its window, then {what}."));
     }
     on
 }
@@ -44,7 +42,7 @@ pub fn game_text(kit: &Kit, lang: &str, say: &dyn Fn(&str)) -> i32 {
     let ed = kit.edition();
     let recorded = choices::setting(&kit.settings_file(), "game").unwrap_or_default();
     let Some(game) = find_edition_game(ed, &recorded) else {
-        say("The game is not set up yet - set it up first: Launcher.exe, SETUP.");
+        say("Not set up yet. Open Launcher.exe, Setup and updates.");
         return 2;
     };
     if running(&game, "switch the text again", say) {

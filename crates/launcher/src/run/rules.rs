@@ -67,9 +67,8 @@ pub enum Words {
 
 /// 2017-18 has no remote seats in a shared shop (ROADMAP M2): a server or remote run is refused (what the player is
 /// told). Its online play is VS between homes: ONLINE in the Launcher, then PLAY (a plain start, [`Mode::Vs`]).
-pub const ONLINE_1718_TEXT: &str = "2017-18 has no remote seats or server mode yet. To play online, choose ONLINE in \
-                                    the Launcher's window, then PLAY: this PC plays as its own shop, VS through the \
-                                    server.";
+pub const ONLINE_1718_TEXT: &str = "2017-18 has no server or remote mode. To play online, choose ONLINE in the \
+                                    Launcher window, then PLAY.";
 
 /// 2017-18 refuses the shared-shop modes (server, remote).
 pub fn online_refused(edition: crate::Edition, mode: &Mode) -> bool {
@@ -114,7 +113,7 @@ pub fn vs_target(panel: &str, club_server: &str) -> Result<VsTarget, String> {
             port: CLUB_PORT,
             room: None,
         }),
-        None => Err("the SETTINGS panel says play online, but names no server address".into()),
+        None => Err("no server address is set in SETTINGS".into()),
     }
 }
 
@@ -159,8 +158,7 @@ pub fn parse(words: &[String]) -> Words {
                     }
                     _ => {
                         return Words::Wrong(
-                            "Seats are 1 to 8, e.g. Launcher.exe remote 192.168.1.20 seat 2 - or leave the seat out \
-                             and the server gives the next free one."
+                            "Seats are 1 to 8, e.g. Launcher.exe remote 192.168.1.20 seat 2. Leave the seat out for the next free one."
                                 .into(),
                         );
                     }
@@ -174,8 +172,7 @@ pub fn parse(words: &[String]) -> Words {
                     debug,
                 },
                 [ip] => Words::Wrong(format!(
-                    "\"{ip}\" is not a server address: a name or four numbers 0-255 with dots, then :PORT if its seat desk is \
-                     not on the usual port."
+                    "\"{ip}\" is not a server address. Use a name or an IP like 192.168.1.20, plus :PORT if the seat desk uses another port."
                 )),
                 _ => Words::Wrong(USAGE.into()),
             }
@@ -191,14 +188,12 @@ pub fn card_rule(seat_up: bool, force: bool, card_in: Option<bool>, session: Ses
         return None;
     }
     Some(if session == Session::Open {
-        "A card session is open: a match or Club Make is on, and the game saves your card in the locker room after \
-         the match. Stopping now ends this match without that save, and the card gets a bad ending (trade rights are \
-         lost at 2). If the game is stuck (\"WCCF CONTROL NOT FOUND\"), that match is lost already and stopping is \
-         the way out."
+        "A card session is open. Stopping now skips the locker-room save and gives the card a bad ending (trade \
+         rights are lost at 2). If the game is stuck (\"WCCF CONTROL NOT FOUND\"), the match is lost already: stop."
             .into()
     } else {
         format!(
-            "{} - the game may be saving it. If you can, press I in the game to take the card out first.",
+            "{}. Press I in the game to take the card out first.",
             if card_in == Some(true) {
                 "Your club card is IN the reader"
             } else {
@@ -260,16 +255,15 @@ pub fn seat_refusal(e: &SeatError, asked: Option<u8>, ip: &str) -> String {
         &e.detail
     };
     match e.fault {
-        Fault::Full => format!("the server at {ip} is full: 8 cabinets play there now"),
+        Fault::Full => format!("the server at {ip} is full (8 seats)"),
         Fault::Taken => format!(
-            "seat {} is taken on the server at {ip} - leave the seat number out to get the next free one",
+            "seat {} is taken on the server at {ip}. Leave the seat out for the next free one.",
             asked.map_or_else(|| "?".into(), |s| s.to_string())
         ),
-        Fault::NoAnswer => format!(
-            "the server's seat desk at {ip} did not answer in time ({detail}) - not started, so this PC cannot land on \
-             a seat another player is already holding. Try again, or Launcher.exe local."
-        ),
-        _ => format!("the server's seat desk at {ip} would not give a seat ({detail})"),
+        Fault::NoAnswer => {
+            format!("the seat desk at {ip} did not answer ({detail}). Try again, or use Launcher.exe local.")
+        }
+        _ => format!("the seat desk at {ip} refused a seat ({detail})"),
     }
 }
 

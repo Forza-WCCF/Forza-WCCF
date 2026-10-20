@@ -417,9 +417,7 @@ fn rename_hook_import(path: &Path, what: &str, say: &Say) -> Result<()> {
         ))
     })?;
     replace(path, &g)?;
-    say.ok(&format!(
-        "{what} loads the kit's hook by its own name (wccfk.dll)"
-    ));
+    say.ok(&format!("{what}: uses wccfk.dll"));
     Ok(())
 }
 
@@ -446,7 +444,7 @@ fn write_text(path: &Path, text: &str, what: &str, say: &Say) -> Result<()> {
         }
         if without_runtime_lines(&have) == without_runtime_lines(text.as_bytes()) {
             say.ok(&format!(
-                "{what} already in place (with the server address / seat play.py set)"
+                "{what} already in place (server address and seat set)"
             ));
             return Ok(());
         }
@@ -498,7 +496,9 @@ fn check_game(kit: &Path, game: &Path, say: &Say) -> Result<()> {
     let orig = original_client(kit, game)?;
     let h = norm_sha(&orig)?;
     if orig != game.join(CLIENT) {
-        say.ok("English is on (PLAY's GAME TEXT): the original client_Release.exe is checked in data\\english_backup");
+        say.ok(
+            "English text is on: checking the original client_Release.exe in data\\english_backup",
+        );
     }
     if h == PATCHED_CLIENT {
         return Err(Error(
@@ -563,9 +563,7 @@ fn setup_extracted(kit: &Path, game: &Path, say: &Say) -> Result<()> {
         let p = game.join(old);
         if p.is_file() {
             fs::remove_file(&p)?;
-            say.ok(&format!(
-                "removed the old {old} - the hook now loads by its own name"
-            ));
+            say.ok(&format!("removed the old {old}"));
         }
     }
     // the hook answers the server's start of logowin.exe itself, so the original stays; a kit before 2026-10-09 put a
@@ -576,13 +574,11 @@ fn setup_extracted(kit: &Path, game: &Path, say: &Say) -> Result<()> {
             fs::remove_file(&lw)?;
         }
         fs::rename(&backup, &lw)?;
-        say.ok(
-            "the original logowin.exe back in place (the hook keeps the server from starting it)",
-        );
+        say.ok("the original logowin.exe back in place");
     } else if lw.is_file() && sha(&read(&lw)?) == ORIGINAL_LOGOWIN {
-        say.ok("logowin.exe: the original (the hook keeps the server from starting it)");
+        say.ok("logowin.exe: original");
     } else {
-        say.note("logowin.exe is not the original - left alone (the hook keeps the server from starting it either way)");
+        say.note("logowin.exe is not the original - left alone");
     }
     write_text(
         &game.join("local").join("client_user_option.conf"),
@@ -662,13 +658,13 @@ fn setup_seat(kit: &Path, game: &Path, say: &Say) -> Result<()> {
         say.ok("client_Release.exe: seat 1's patched copy already in place");
     } else if have.is_some() && have == english_copy(kit, &format!("seat1{MAIN_SEPARATOR}{CLIENT}"))
     {
-        say.ok("client_Release.exe: seat 1's patched copy with the kit's English text already in place");
+        say.ok("client_Release.exe: seat 1's patched copy with English text already in place");
     } else {
         replace(&exe, &patched_client(kit, game)?)?;
         if sha(&read(&exe)?) != PATCHED_CLIENT {
             return Err(Error("seat 1's exe did not write correctly".into()));
         }
-        say.ok("client_Release.exe: seat 1's own copy, 15 changes, the tested exe byte for byte");
+        say.ok("client_Release.exe: seat 1's patched copy made");
     }
     rename_hook_import(&exe, "seat 1's client_Release.exe", say)?;
     copy_if_different(
@@ -762,13 +758,10 @@ fn tidy_old_layout(kit: &Path, say: &Say) -> Result<()> {
             }
         }
         if fs::remove_dir(&d).is_ok() {
-            say.ok(&format!(
-                "the older kit's {folder}\\ folder removed (this kit keeps those files in code\\, programs\\, art\\, \
-                 languages\\ and data\\cache\\)"
-            ));
+            say.ok(&format!("the older kit's {folder}\\ folder removed"));
         } else {
             say.note(&format!(
-                "{folder}\\ is from an older kit and still holds files that are not the kit's - left as it is"
+                "{folder}\\ is from an older kit and holds other files - left as is"
             ));
         }
     }
@@ -792,9 +785,7 @@ fn setup_cards(kit: &Path, game: &Path, force: bool, say: &Say) -> Result<()> {
         say.ok(&format!("catalogue and {have} card pictures already made"));
         return Ok(());
     }
-    say.line(
-        "  making the catalogue and the card pictures from your game files (about a minute) ...",
-    );
+    say.line("  Making the catalogue and card pictures (about a minute)...");
     if catalogue::run(Edition::E1011, game, &cache, catalogue::Output::All, say.0) != 0 {
         return Err(Error(
             "the card catalogue could not be made (see above)".into(),
@@ -946,8 +937,8 @@ pub fn undo(kit: &Path, game: &Path, say: &dyn Fn(&str)) -> Result<()> {
     s.remove("game");
     save_settings(&settings, s)?;
     say.line(
-        "Undone. The game folder is as it was before setup, apart from the files the game itself writes when it runs \
-         (busram*.bin, eeprom*.bin). Your club card stays in data\\save.",
+        "Undone. The game folder is back as before setup (busram*.bin and eeprom*.bin may remain). Your club card \
+         stays in data\\save.",
     );
     Ok(())
 }

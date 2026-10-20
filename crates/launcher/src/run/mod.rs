@@ -81,17 +81,14 @@ const STOP_DEADLINE: Duration = Duration::from_secs(10);
 /// How long a request waits for the running game's answer (a stop takes up to its deadline and more).
 const ANSWER_WAIT: Duration = Duration::from_secs(60);
 
-pub const UNGUARDED_TEXT: &str = "NOT started: Windows was told to make the programs Launcher.exe starts use only \
-    Windows' own copies of system files (\"Prefer System32 images\", passed on by the program that started \
-    Launcher.exe - a WSL terminal does this). The game would then run without the kit's hook, which keeps it from \
-    changing this PC's network settings. Start Launcher.exe from Explorer (double-click it) instead.";
+pub const UNGUARDED_TEXT: &str = "Not started: Launcher.exe was started with \"Prefer System32 images\" (a WSL terminal does this), so the game \
+    would run without its network protection. Start Launcher.exe from Explorer instead.";
 /// The panel's line in `seat1\forza_panel.log` once its Present detour has drawn a frame: the run's proof it is up.
 pub(crate) const PANEL_UP: &str = "first frame shown";
 
-const NOT_SET_UP_TEXT: &str = "Not set up yet - set up first: Launcher.exe, Setup and updates.";
-pub const NOT_GUARDED_TEXT: &str = "NOT started: the 2017-18 network guard is not in place, so the game could change \
-    this PC's network settings (it has dropped the DHCP lease before). Press Set up / repair in \
-    Launcher (Setup and updates), then start again. What is wrong:";
+const NOT_SET_UP_TEXT: &str = "Not set up yet. Open Launcher.exe, Setup and updates.";
+pub const NOT_GUARDED_TEXT: &str = "Not started: the 2017-18 network guard is not in place, and the game could change this PC's \
+    network settings. Press Set up / repair in Launcher (Setup and updates), then start again. Problem:";
 
 /// Where a run tells what it does: the window's box or the console.  `ask` gets a yes/no question (no one to ask:
 /// no); `running` hears when the game is up (true) and when the run is over (false).
@@ -333,20 +330,20 @@ pub fn command(kit: &Kit, p: &Params, words: &[String], ui: &dyn Ui) -> i32 {
                 "RESTART NOW - asked from the command line\n",
             ) {
                 Ok(()) => {
-                    ui.say("RESTART NOW: the running game restarts (its window says so).");
+                    ui.say("Restarting the running game.");
                     OK
                 }
                 Err(e) => {
-                    ui.say(&format!("RESTART NOW could not be asked: {e}"));
+                    ui.say(&format!("Could not ask for a restart: {e}"));
                     FAILED
                 }
             }
         }
         Words::Restart => play(kit, p, None, false, ui),
         Words::Pictures => {
-            ui.say("Making the card pictures (the first time takes a while)...");
+            ui.say("Making card pictures...");
             if make_pictures(kit, p, ui) {
-                ui.say("The card pictures are in place.");
+                ui.say("Card pictures ready.");
                 OK
             } else {
                 FAILED
@@ -366,7 +363,7 @@ pub fn command(kit: &Kit, p: &Params, words: &[String], ui: &dyn Ui) -> i32 {
                 play(kit, p, Some(Mode::Remote(ip, seat)), debug, ui)
             }
             _ => {
-                ui.say("Which server? Launcher.exe remote, then the server's address or name (HOST, or HOST:PORT for its seat desk's port).");
+                ui.say("Which server? Use: Launcher.exe remote HOST or HOST:PORT.");
                 NOT_SET_UP
             }
         },
@@ -396,8 +393,7 @@ fn outside(kit: &Kit, p: &Params, ui: &dyn Ui) -> i32 {
         return OK;
     }
     ui.say(&format!(
-        "Running from the game's folders, not started by this Launcher.exe: {} - close them yourself (or restart \
-         Windows).",
+        "Game programs are running that this Launcher.exe did not start: {}. Close them, or restart Windows.",
         left.iter()
             .map(|q| format!("{} {}", q.name, q.pid))
             .collect::<Vec<_>>()
@@ -425,16 +421,16 @@ fn stop_command(kit: &Kit, p: &Params, force: bool, check: bool, ui: &dyn Ui) ->
         // never a dead end: the person at the stop decides, knowing the cost
         if code == REFUSED
             && !check
-            && ui.ask("Stop anyway? Type Y and press Enter to stop now - just Enter leaves the game running: ")
+            && ui.ask("Stop anyway? Type Y and press Enter (Enter alone keeps the game running): ")
         {
-            ui.say("Stopping, as asked.");
+            ui.say("Stopping.");
             let (c, said) = request(kit, kind, "force").unwrap_or((OK, String::new()));
             for line in said.lines() {
                 ui.say(line);
             }
             code = c;
         } else if code == REFUSED && !check {
-            ui.say("(\"Launcher.exe stop force\" stops without asking.)");
+            ui.say("(\"Launcher.exe stop force\" skips this question.)");
         }
         rc = Some(rc.unwrap_or(OK).max(code));
     }
@@ -477,17 +473,13 @@ fn plain_mode(kit: &Kit, p: &Params, ui: &dyn Ui) -> Mode {
             }
             Ok(t) if reach(&t.host, t.port).is_none() => {
                 ui.say(&format!(
-                    "The SETTINGS panel says play online, but the game server at {}:{} does not answer - playing on \
-                     this PC instead.",
+                    "The game server at {}:{} does not answer - playing on this PC.",
                     t.host, t.port
                 ));
                 Mode::Local
             }
             Ok(t) => {
-                ui.say(&format!(
-                    "Online, as the SETTINGS panel chose: VS on the server at {}.",
-                    t.host
-                ));
+                ui.say(&format!("Online: VS on the server at {}.", t.host));
                 Mode::Vs(ip)
             }
         };
@@ -495,19 +487,17 @@ fn plain_mode(kit: &Kit, p: &Params, ui: &dyn Ui) -> Mode {
     let host = choices::host_port(&ip, p.seat_port).map(|(h, _)| h);
     let Some(host) = host else {
         ui.say(&format!(
-            "The SETTINGS panel says play online, but \"{ip}\" is not a server address - playing on this PC. (In the \
-             game: SETTINGS, then type the address again.)"
+            "\"{ip}\" is not a server address - playing on this PC. (Fix it under SETTINGS in the game.)"
         ));
         return Mode::Local;
     };
     if reach(&host, p.control_port).is_none() {
         ui.say(&format!(
-            "The SETTINGS panel says play online, but the server at {ip} does not answer - playing on this PC instead. \
-             (The panel keeps ONLINE for next time; THIS PC there stops this try.)"
+            "The server at {ip} does not answer - playing on this PC. (ONLINE stays set; choose THIS PC in SETTINGS to stop trying.)"
         ));
         return Mode::Local;
     }
-    ui.say("Online, as the SETTINGS panel chose (Launcher.exe local plays on this PC).");
+    ui.say("Online. (Launcher.exe local plays on this PC.)");
     Mode::Remote(ip, None)
 }
 
@@ -549,7 +539,7 @@ fn game_folder(kit: &Kit, p: &Params) -> Option<PathBuf> {
 /// `true` when they are in place.
 pub fn make_pictures(kit: &Kit, p: &Params, ui: &dyn Ui) -> bool {
     let Some(game) = game_folder(kit, p) else {
-        ui.say("  (no game is set up yet - the card pictures are made when you set up)");
+        ui.say("  No game set up yet. Card pictures are made during setup.");
         return false;
     };
     let ed = match kit.edition() {
@@ -561,16 +551,14 @@ pub fn make_pictures(kit: &Kit, p: &Params, ui: &dyn Ui) -> bool {
     if s["card_pictures"] == "hq" {
         pack = s["card_pack"].as_str().map(PathBuf::from).filter(|p| p.is_file());
         if pack.is_none() {
-            ui.say("  (the high-quality card pack is not there any more - the game's own pictures are used)");
+            ui.say("  High-quality card pack not found. Using the game's own pictures.");
         }
     }
     let say = |l: &str| ui.say(l);
     match forza::cards::pictures::ensure(&game, ed, &kit.cache().join("cards"), pack.as_deref(), &say) {
         Ok(()) => true,
         Err(e) => {
-            ui.say(&format!(
-                "  (the card pictures could not be made: {e} - the board shows stand-ins)"
-            ));
+            ui.say(&format!("  Card pictures failed: {e}. The board shows placeholders."));
             false
         }
     }
@@ -816,7 +804,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
     }
     if !kit.cache().join("catalogue.tsv").is_file() {
         // the panel's card browser only: never a reason not to start
-        ui.say("  (the card CATALOGUE is not built yet - the panel's catalogue will be empty; set up rebuilds it)");
+        ui.say("  Card catalogue not built, so the panel's card list is empty. Setup rebuilds it.");
     }
     let kind = Kind::of(&mode);
     let beside_server = matches!(mode, Mode::Remote(..)) && is_on(kit, Kind::Server);
@@ -828,7 +816,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         names.sort_unstable();
         names.dedup();
         ui.say(&format!(
-            "Already running ({}) - close the game's window first (a game that is stuck: Launcher.exe stop).",
+            "Already running ({}). Close the game window first, or run Launcher.exe stop if it is stuck.",
             if names.is_empty() {
                 "the game".into()
             } else {
@@ -840,7 +828,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
     let job = match Job::new() {
         Ok(j) => Arc::new(j),
         Err(e) => {
-            ui.say(&format!("FAILED: no Job object for the run ({e})"));
+            ui.say(&format!("FAILED: could not create the run's process group ({e})"));
             return Err(FAILED);
         }
     };
@@ -890,7 +878,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
             // an empty reason: the game is not set up (said already); the reason goes in run_launcher.txt too
             if !why.is_empty() {
                 run.say(&format!("FAILED: {why}"));
-                run.say("Stopping what was started ...");
+                run.say("Stopping.");
             }
             run.shutdown();
             let _ = fs::remove_file(run.running_file());
@@ -1021,10 +1009,7 @@ impl Run<'_> {
         if same(&self.game) && same(&self.seat) {
             return Ok(());
         }
-        self.say(
-            "The game's copy of the kit's helper (wccfk.dll) is missing or not this kit's - setting the game up for it \
-             once (as Setup does) ...",
-        );
+        self.say("Updating the game's helper file (wccfk.dll)...");
         let log = file_log(self.logs().join("run_setup.txt"));
         let say = |l: &str| {
             log(l);
@@ -1033,9 +1018,7 @@ impl Run<'_> {
         if crate::setup::game_folder(self.kit, &self.game.display().to_string(), false, &say) == 0 {
             return Ok(());
         }
-        self.say(
-            "Setting the game up did not finish (see above) - open Launcher.exe, Setup and updates, and press set up.",
-        );
+        self.say("Setup did not finish (see above). Open Launcher.exe, Setup and updates, then Set up.");
         Err(Failed(String::new()))
     }
 
@@ -1056,9 +1039,7 @@ impl Run<'_> {
                 "it" => "Italian",
                 _ => "the original Japanese",
             };
-            self.say(&format!(
-                "  the game's text into {name}, as the SETTINGS panel asked - this takes a moment ..."
-            ));
+            self.say(&format!("  Switching the game's text to {name}..."));
             // forza::text swaps each file in one step, so even a stop half way leaves every file in place
             let log = file_log(self.logs().join("run_english.txt"));
             let last = Mutex::new(String::new());
@@ -1077,10 +1058,8 @@ impl Run<'_> {
                 ),
             };
             match why {
-                Some(why) => self.say(&format!(
-                    "  the text could not be switched ({why}) - the game starts as it is"
-                )),
-                None => self.say(&format!("  done: the game's text is {name}")),
+                Some(why) => self.say(&format!("  Could not switch the text ({why}). Starting as is.")),
+                None => self.say(&format!("  Game text is now {name}.")),
             }
         }
         let left = choices::set_panel_value(&choices::read(&path), "english", None);
@@ -1228,9 +1207,7 @@ impl Run<'_> {
             fs::create_dir_all(self.logs().join("hook"))?; // its logs are open: no rotation
             let panel = choices::read(&kit.data().join("panel.txt"));
             if rules::english_change(&panel, kit.game_language()).is_some() {
-                self.say(
-                    "  (the SETTINGS panel's language change waits: the server on this PC uses the same game files)",
-                );
+                self.say("  Language change skipped: the server on this PC uses the same game files.");
             }
         } else {
             if self.edition == Edition::E1011 {
@@ -1257,18 +1234,16 @@ impl Run<'_> {
             self.edition.name(),
             self.game.display(),
             match &self.mode {
-                Mode::Server => " - the server side only".to_owned(),
-                Mode::Remote(ip, _) => format!(" - the cabinets, on the server at {ip}"),
-                Mode::Vs(_) => " - online: this PC's own shop, VS through the server".to_owned(),
+                Mode::Server => " (server only)".to_owned(),
+                Mode::Remote(ip, _) => format!(" (on the server at {ip})"),
+                Mode::Vs(_) => " (online VS)".to_owned(),
                 Mode::Local => String::new(),
             }
         ));
         if self.edition == Edition::E1718 {
             self.start_gamesvr(steps)?;
         } else if self.beside_server {
-            self.say(&format!(
-                "  1/{steps} scene service (the server's, already running on this PC)"
-            ));
+            self.say(&format!("  1/{steps} scene service (shared with the server)"));
         } else {
             let xscn = self.game.join(r"data\motion\launcherMotion\xscn");
             let log = file_log(self.logs().join("xscn_watch_log.txt"));
@@ -1290,8 +1265,8 @@ impl Run<'_> {
             self.remote = Some((ip.clone(), desk));
             if !answers(&ip, p.control_port) {
                 return Err(Failed(format!(
-                    "the server at {entry} does not answer on port {} - is it running there (Launcher.exe server), and \
-                     is that port open to this PC? (Launcher.exe local plays on this PC instead)",
+                    "the server at {entry} does not answer on port {}. Check that it is running and the port is open. \
+                     (Launcher.exe local plays on this PC.)",
                     p.control_port
                 )));
             }
@@ -1307,9 +1282,9 @@ impl Run<'_> {
             // never "WAITING FOR THE PROJECTOR" on a server: its projector is on another PC, or gone
             conf::set_conf_value(&confs[1], "WAIT_PROJECTOR", "0")?;
             self.say(&format!(
-                "  2/{steps} server: {ip} answers on port {} - this PC is seat {seat}{}",
+                "  2/{steps} server {ip}, port {}: seat {seat}{}",
                 p.control_port,
-                if here { " and shows the projector" } else { "" }
+                if here { ", projector" } else { "" }
             ));
         } else {
             let ctrl_conf = self.game.join(r"local\ctrl_user_option.conf");
@@ -1355,7 +1330,7 @@ impl Run<'_> {
                 }
             }
             self.say(&format!(
-                "  2/{steps} server: listening on port {}, {} match engines",
+                "  2/{steps} server on port {} ({} match engines)",
                 p.control_port,
                 self.job_count(p.matcher())
             ));
@@ -1368,11 +1343,11 @@ impl Run<'_> {
             let args = p.projector_args.clone().unwrap_or_else(|| vec!["0".into()]);
             let game = self.game.clone();
             self.start_game(Role::Projector, args, &game, false, Vec::new())?;
-            self.say("  3/6 projector (seat 0) - its window opens in a few seconds");
+            self.say("  3/6 projector");
         } else {
             self.say(match self.edition {
-                Edition::E1011 => "  3/6 projector: none on this PC - online, each PC runs only its own cabinet",
-                Edition::E1718 => "  3/6 projector: none on this PC - the server's first PC shows it",
+                Edition::E1011 => "  3/6 no projector here (each PC runs its own cabinet)",
+                Edition::E1718 => "  3/6 no projector here (the server's first PC shows it)",
             });
         }
         self.start_cabinet()?;
@@ -1386,9 +1361,9 @@ impl Run<'_> {
                 .launched(Role::Projector)
                 .map_or_else(|| "its process was not found".into(), |pid| self.inject(pid, &panel));
             self.say(&if why.is_empty() {
-                "       projector: amounts with commas".to_owned()
+                "       projector: money overlay on".to_owned()
             } else {
-                format!("       projector: its amounts stay without commas ({why})")
+                format!("       projector: money overlay not loaded ({why})")
             });
         }
         self.start_helper(projector);
@@ -1400,24 +1375,18 @@ impl Run<'_> {
                 if projector {
                     String::new()
                 } else {
-                    format!(" as seat {} (no projector on this PC)", self.seat_no)
+                    format!(" as seat {}", self.seat_no)
                 }
             ));
         }
-        self.say("Running. Click the cabinet's window, then play with the keyboard (it works only while a game window is in front):");
-        self.say("  Enter START (free play - no coin needed)   X decide   C shoot   arrows: tactics");
-        self.say("  I club card in / out   F1 test menu   F11 window size   - or click the buttons around the picture");
+        self.say("Running. Click the game window to use the keyboard:");
+        self.say("  Enter START (free play)   X decide   C shoot   arrows tactics");
+        self.say("  I club card in/out   F1 test menu   F11 window size   (or click the buttons around the picture)");
         self.say(match self.edition {
-            Edition::E1011 => {
-                "First time: put the card in with I, and the game makes your club. It is saved in data\\save\\seat1_club.bin."
-            }
-            Edition::E1718 => {
-                "Your Aime card is data\\save\\seat1_aime.txt; the game server stand-in keeps your club in data\\save\\gamesvr."
-            }
+            Edition::E1011 => "New club: press I to put the card in. Saved in data\\save\\seat1_club.bin.",
+            Edition::E1718 => "Aime card: data\\save\\seat1_aime.txt. Club: data\\save\\gamesvr.",
         });
-        self.say(
-            "To finish: let the card come out after a match, then close the game's window - the rest stops with it.",
-        );
+        self.say("To quit: take the card out after the match (I), then close the game window.");
         Ok(())
     }
 
@@ -1456,20 +1425,17 @@ impl Run<'_> {
             .is_some_and(|(r, c)| *r == role && c.try_wait().is_ok_and(|s| s.is_none()));
         if alive {
             self.say(&format!(
-                "     seat desk: TCP {} - each player's PC gets the next free seat ({})",
+                "     seat desk: TCP {} - next free seat per PC ({})",
                 self.p.seat_port,
                 match self.edition {
-                    Edition::E1011 => "its cabinet only, no projector",
-                    Edition::E1718 => "the first also the projector",
+                    Edition::E1011 => "cabinet only",
+                    Edition::E1718 => "first PC shows the projector",
                 }
             ));
-            self.say(&format!(
-                "     match relay: UDP {} - a match between two players goes through this machine",
-                self.p.relay_port
-            ));
+            self.say(&format!("     match relay: UDP {}", self.p.relay_port));
             if self.edition == Edition::E1011 {
                 self.say(&format!(
-                    "     log inbox: TCP {} - logs players send from SETTINGS go to data\\player_logs",
+                    "     log inbox: TCP {} (logs go to data\\player_logs)",
                     self.p.inbox_port
                 ));
             }
@@ -1480,16 +1446,14 @@ impl Run<'_> {
         }
         self.write_running();
         self.say("");
-        self.say(
-            "Server running. On each player's PC: Launcher.exe remote, then this machine's address - the one their PC",
-        );
+        self.say("Server running. On each player's PC run: Launcher.exe remote ADDRESS (this machine's address).");
         self.say(&match self.edition {
             Edition::E1011 => format!(
-                "can reach. This machine must let in TCP ports {}, {} and {}, and UDP {}. Launcher.exe stop ends it.",
+                "Open TCP ports {}, {} and {}, and UDP {}. Launcher.exe stop ends it.",
                 self.p.control_port, self.p.seat_port, self.p.inbox_port, self.p.relay_port
             ),
             Edition::E1718 => format!(
-                "can reach. This machine must let in TCP ports {} and {}, and UDP {}. Launcher.exe stop ends it.",
+                "Open TCP ports {} and {}, and UDP {}. Launcher.exe stop ends it.",
                 self.p.control_port, self.p.seat_port, self.p.relay_port
             ),
         });
@@ -1504,7 +1468,7 @@ impl Run<'_> {
         for (&(_, name, kind), &port) in network::SERVICES.iter().zip(&p.network_ports) {
             let listener = TcpListener::bind(("127.0.0.1", port)).map_err(|e| {
                 Failed(format!(
-                    "the cabinet's stand-ins did not come up: 127.0.0.1:{port} ({e}) - is the other edition's game running?"
+                    "the cabinet's network ports did not open: 127.0.0.1:{port} ({e}) - is the other edition's game running?"
                 ))
             })?;
             self.cabinet.net.push(network::spawn(
@@ -1529,22 +1493,18 @@ impl Run<'_> {
             };
             self.cabinet.reader = Some(
                 card_reader::spawn(&p.icc_pipe, Some(&slot), Some(&new), icc_log)
-                    .map_err(|e| Failed(format!("the card reader stand-in did not start ({e})")))?,
+                    .map_err(|e| Failed(format!("the card reader did not start ({e})")))?,
             );
             format!("COM3={0};COM1={0}", p.icc_pipe)
         };
         let jvs_log = file_log(self.logs().join("jvs_log.txt"));
         self.cabinet.board = Some(
             io_board::spawn(&p.jvs_pipe, p.shared.clone(), jvs_log)
-                .map_err(|e| Failed(format!("the I/O board stand-in did not start ({e})")))?,
+                .map_err(|e| Failed(format!("the I/O board did not start ({e})")))?,
         );
         self.say(match self.edition {
-            Edition::E1011 => {
-                "  4/6 cabinet stand-ins: keychip/network, card reader (card file data\\save\\seat1_club.bin), I/O board"
-            }
-            Edition::E1718 => {
-                "  4/6 cabinet stand-ins: keychip/network, Aime reader (card file data\\save\\seat1_aime.txt), AiMeDB, I/O board"
-            }
+            Edition::E1011 => "  4/6 cabinet (card file data\\save\\seat1_club.bin)",
+            Edition::E1718 => "  4/6 cabinet (card file data\\save\\seat1_aime.txt)",
         });
 
         let mut env = vec![
@@ -1582,7 +1542,7 @@ impl Run<'_> {
             || self.alive(Role::Seat),
             || procs::has_window(pid),
         )?;
-        self.say(&format!("  5/6 seat {n} (the player cabinet) - window up"));
+        self.say(&format!("  5/6 seat {n} window up"));
         self.netguard(pid, &format!("seat {n}"));
         thread::sleep(Duration::from_secs(3));
         let olog = self.seat.join("forza_panel.log");
@@ -1600,14 +1560,14 @@ impl Run<'_> {
                 },
             );
             self.say(&if up.is_ok() {
-                format!("  6/6 overlay in seat {n}'s window")
+                format!("  6/6 panels loaded")
             } else {
-                "  6/6 overlay loaded (it did not report its window yet - see seat1\\forza_panel.log)".to_owned()
+                "  6/6 panels loaded (no confirmation yet; see seat1\\forza_panel.log)".to_owned()
             });
         } else {
             // the game runs without the overlay - never a reason to take the game away
             self.say(&format!(
-                "  6/6 the overlay did not load ({why}) - the game runs without its panels; the keyboard works as usual"
+                "  6/6 panels did not load ({why}). The game runs without them; the keyboard still works."
             ));
         }
         let keys_path = env::var_os("WCCF_KEYS").map_or_else(|| self.kit.data().join("keys.txt"), PathBuf::from);
@@ -1628,11 +1588,11 @@ impl Run<'_> {
         let log = file_log(self.logs().join("aime_log.txt"));
         self.cabinet.reader = Some(
             aime::spawn(&p.aime_pipe, Some(&save.join("seat1_aime.txt")), log)
-                .map_err(|e| Failed(format!("the Aime reader stand-in did not start ({e})")))?,
+                .map_err(|e| Failed(format!("the Aime reader did not start ({e})")))?,
         );
         let listener = TcpListener::bind(("127.0.0.1", p.aimedb_port)).map_err(|e| {
             Failed(format!(
-                "the AiMeDB stand-in did not start: 127.0.0.1:{} ({e})",
+                "the Aime database did not start: 127.0.0.1:{} ({e})",
                 p.aimedb_port
             ))
         })?;
@@ -1645,7 +1605,7 @@ impl Run<'_> {
                 log,
                 matches!(self.mode, Mode::Vs(_)),
             )
-            .map_err(|e| Failed(format!("the AiMeDB stand-in did not start ({e})")))?,
+            .map_err(|e| Failed(format!("the Aime database did not start ({e})")))?,
         );
         Ok(())
     }
@@ -1656,7 +1616,7 @@ impl Run<'_> {
     /// link. A cabinet on a server uses that server's.
     fn start_gamesvr(&mut self, steps: u32) -> Result<(), Failed> {
         if matches!(self.mode, Mode::Remote(..)) {
-            self.say(&format!("  1/{steps} game server stand-in: the server's"));
+            self.say(&format!("  1/{steps} game server: the server's"));
             return Ok(());
         }
         let port = self.p.gamesvr_port;
@@ -1671,15 +1631,12 @@ impl Run<'_> {
             // a numeric IP or a hostname needs the live test.
             let found = reach(&t.host, t.port).ok_or_else(|| {
                 Failed(format!(
-                    "the game server {}:{} does not answer (check the address, that forza-server is running there, and the firewall), or play on this PC",
+                    "the game server {}:{} does not answer. Check the address, that forza-server is running there, and the firewall - or play on this PC.",
                     t.host, t.port
                 ))
             })?;
             conf::set_game_server(&ctrl_conf, &t.host, t.port, true)?;
-            self.say(&format!(
-                "  1/{steps} game server: {}:{} - clubs and VS entries there (no local stand-in)",
-                t.host, t.port
-            ));
+            self.say(&format!("  1/{steps} game server {}:{}", t.host, t.port));
             // the lobby's VS room: its ticket goes to the game server in vslink's hello (crates/server/README.md "VS
             // rooms"); single use, so the line goes now. The window's heartbeat keeps the room while the run lasts.
             let ticket = t.room.map(|(_, ticket)| ticket);
@@ -1691,11 +1648,8 @@ impl Run<'_> {
         }
         // this PC: back to the stand-in's address, VS entries off, after an online run
         conf::set_game_server(&ctrl_conf, "localhost", port, false)?;
-        let listener = TcpListener::bind(("127.0.0.1", port)).map_err(|e| {
-            Failed(format!(
-                "the game server stand-in did not start: 127.0.0.1:{port} ({e})"
-            ))
-        })?;
+        let listener = TcpListener::bind(("127.0.0.1", port))
+            .map_err(|e| Failed(format!("the game server did not start: 127.0.0.1:{port} ({e})")))?;
         let log = file_log(self.logs().join("gamesvr_log.txt"));
         // the run's game folder (also recorded as "game" by the 2017-18 setup): the stand-in pre-registers its 2D-code cards,
         // and data\settings.json "skip_tutorial": true makes it give a new Aime id a club from the game's cpu_50.dat
@@ -1703,10 +1657,10 @@ impl Run<'_> {
         let game = Some(self.game.clone());
         self.gamesvr = Some(
             gamesvr::spawn_with(listener, self.kit.save().join("gamesvr"), log, game, skip)
-                .map_err(|e| Failed(format!("the game server stand-in did not start ({e})")))?,
+                .map_err(|e| Failed(format!("the game server did not start ({e})")))?,
         );
         self.say(&format!(
-            "  1/{steps} game server stand-in on port {port} (club saves in data\\save\\gamesvr)"
+            "  1/{steps} game server on port {port} (clubs in data\\save\\gamesvr)"
         ));
         Ok(())
     }
@@ -1717,10 +1671,9 @@ impl Run<'_> {
     fn start_vslink(&mut self, gmsvr: SocketAddr, ticket: Option<String>) {
         if self.kit.settings()["vs_link"].as_bool() == Some(false) {
             self.say(if ticket.is_some() {
-                "  Direct VS link: off (vs_link in data\\settings.json) - so the game server cannot tell this PC's VS room: \
-                 the game pairs from the open pool"
+                "  VS link off (vs_link in data\\settings.json); the lobby's VS room is not used."
             } else {
-                "  Direct VS link: off (vs_link in data\\settings.json)"
+                "  VS link off (vs_link in data\\settings.json)"
             });
             return;
         }
@@ -1734,14 +1687,14 @@ impl Run<'_> {
         match vslink::spawn(cfg) {
             Ok(link) => {
                 self.say(if room {
-                    "  Direct VS link: on (relay.wccf.it), with the lobby's VS room"
+                    "  VS link on, with the lobby's VS room"
                 } else {
-                    "  Direct VS link: on (relay.wccf.it)"
+                    "  VS link on"
                 });
                 self.vslink = Some(link.handle);
             }
             Err(e) => self.say(&format!(
-                "  Direct VS link: not started ({e}); VS matches need it, the game gives a CPU team"
+                "  VS link failed ({e}). VS matches will be against a CPU team."
             )),
         }
     }
@@ -1767,8 +1720,8 @@ impl Run<'_> {
             Err(e) => match e.no_desk_seat(want) {
                 Some((s, proj)) => {
                     self.say(&format!(
-                        "  (the server at {ip} has no seat desk - seat {s}{}, as before)",
-                        if proj { " with the projector" } else { "" }
+                        "  The server at {ip} has no seat desk: seat {s}{}.",
+                        if proj { ", projector" } else { "" }
                     ));
                     Ok((s, proj))
                 }
@@ -1833,13 +1786,13 @@ impl Run<'_> {
             });
         match sent {
             Ok(code) => self.say(&format!(
-                "This run went wrong ({}) - its logs went to the server at {ip} by themselves: code {code}.",
+                "The run went wrong ({}). Logs sent to the server at {ip}: code {code}.",
                 why[0]
             )),
             Err(e) => {
                 let _ = fs::write(self.kit.data().join("report.pending"), format!("{ip}\n{note}"));
                 self.say(&format!(
-                    "This run went wrong ({}) - its logs could not reach the server ({e}); the next start sends them.",
+                    "The run went wrong ({}). Logs could not be sent to the server ({e}); they go at the next start.",
                     why[0]
                 ));
             }
@@ -1937,17 +1890,17 @@ impl Run<'_> {
             }
         };
         for (h, s) in self.cabinet.net.iter_mut().zip(network::SERVICES) {
-            look(format!("the network stand-in {}", s.1), true, Some(h));
+            look(format!("the network service {}", s.1), true, Some(h));
         }
         let reader = match self.edition {
-            Edition::E1011 => "the card reader stand-in",
-            Edition::E1718 => "the Aime reader stand-in",
+            Edition::E1011 => "the card reader",
+            Edition::E1718 => "the Aime reader",
         };
         look(reader.into(), true, self.cabinet.reader.as_mut());
-        look("the AiMeDB stand-in".into(), true, self.cabinet.aimedb.as_mut());
-        look("the game server stand-in".into(), true, self.gamesvr.as_mut());
+        look("the Aime database".into(), true, self.cabinet.aimedb.as_mut());
+        look("the game server".into(), true, self.gamesvr.as_mut());
         look("the direct VS link".into(), false, self.vslink.as_mut());
-        look("the I/O board stand-in".into(), true, self.cabinet.board.as_mut());
+        look("the I/O board".into(), true, self.cabinet.board.as_mut());
         look("the key driver".into(), false, self.cabinet.keys.as_mut());
         look("the scene service".into(), true, self.scenes.as_mut());
         for (name, essential, h) in &mut self.cabinet.extra {
@@ -1964,17 +1917,15 @@ impl Run<'_> {
         for (name, essential, why) in found {
             if essential {
                 self.say(&format!(
-                    "{name} ended by itself ({why}) - the game cannot go on without it: stopping the run."
+                    "{name} stopped ({why}). The game cannot continue without it - stopping."
                 ));
                 stop.get_or_insert(name);
             } else {
-                self.say(&format!(
-                    "{name} ended by itself ({why}) - the game goes on without it."
-                ));
+                self.say(&format!("{name} stopped ({why}). The game continues without it."));
             }
         }
         let name = stop?;
-        Some(match self.finish(false, &format!("Stopped: {name} ended by itself.")) {
+        Some(match self.finish(false, &format!("Stopped: {name} ended.")) {
             End::Over(_) | End::Again => End::Over(FAILED),
         })
     }
@@ -1997,7 +1948,7 @@ impl Run<'_> {
         }
         self.gone.push(g.role);
         if g.role == Role::Server {
-            self.say("The server ended - see data\\logs\\run_server.txt.");
+            self.say("The server ended (see data\\logs\\run_server.txt).");
             if self.mode == Mode::Server {
                 return Some(self.finish(false, "The server has ended."));
             }
@@ -2013,8 +1964,7 @@ impl Run<'_> {
         match rules::after_end(&gone, others, |n| self.read_log(n)) {
             Some(crashed) => {
                 self.say(&format!(
-                    "A game window went by itself, not closed (a crash - see data\\logs\\{}): the rest keeps running, \
-                     the projector too.",
+                    "A game window crashed (see data\\logs\\{}). The rest keeps running.",
                     crashed.join(", ")
                 ));
                 None
@@ -2031,7 +1981,7 @@ impl Run<'_> {
                 if let Some(why) = self.refusal(false) {
                     // the projector closed during a match: seat 1 plays on, watched
                     self.say(&why);
-                    self.say("NOT stopped - the game is still running.");
+                    self.say("Not stopped: the game is still running.");
                     return None;
                 }
                 Some(self.finish(true, ""))
@@ -2061,7 +2011,7 @@ impl Run<'_> {
         if self.job.active() > 0 {
             let s = self.job.stop(STOP_DEADLINE);
             if s.terminated > 0 {
-                self.say(&format!("  {} processes did not close in time - ended.", s.terminated));
+                self.say(&format!("  {} processes were force-closed.", s.terminated));
             }
         }
         self.cabinet = Cabinet::default();
@@ -2098,12 +2048,9 @@ impl Run<'_> {
         self.say(&if !words.is_empty() {
             words.to_owned()
         } else if why.is_empty() {
-            "The game has ended: closed by the player. Everything of the run has stopped.".to_owned()
+            "Game closed by the player.".to_owned()
         } else {
-            format!(
-                "The game has ended, and it went wrong: {}. Everything of the run has stopped.",
-                why.join("; ")
-            )
+            format!("Game ended with a problem: {}.", why.join("; "))
         });
         End::Over(OK)
     }
@@ -2111,7 +2058,7 @@ impl Run<'_> {
     /// RESTART NOW: the cabinet alone when a plain start would play the same way, else a stop (the card rule) and a
     /// plain start.
     fn restart(&mut self) -> Option<End> {
-        self.say("RESTART NOW asked.");
+        self.say("Restart requested.");
         let panel = choices::read(&self.kit.data().join("panel.txt"));
         let club = choices::setting(&self.kit.settings_file(), "club_server").unwrap_or_default();
         let fits = rules::cabinet_restart_fits(
@@ -2123,14 +2070,11 @@ impl Run<'_> {
         );
         if let Some(why) = self.refusal(false) {
             self.say(&why);
-            self.say("NOT restarted - the game is still running.");
+            self.say("Not restarted: the game is still running.");
             return None;
         }
         if !fits {
-            self.say(&format!(
-                "Restarting WCCF {}, as the SETTINGS panel asked.",
-                self.edition.name()
-            ));
+            self.say(&format!("Restarting WCCF {}.", self.edition.name()));
             self.shutdown();
             self.card_steps(&["keep"]);
             let _ = fs::remove_file(self.running_file());
@@ -2140,7 +2084,7 @@ impl Run<'_> {
         // the projector, the scene service, the seat lease and the helper threads are never touched, so the projector
         // stays in step with the server
         self.say(&format!(
-            "Restarting seat {}'s cabinet only - the projector keeps running.",
+            "Restarting seat {} only; the projector keeps running.",
             self.seat_no
         ));
         if let Some(i) = self.games.iter().position(|g| g.role == Role::Seat) {
@@ -2155,17 +2099,14 @@ impl Run<'_> {
         thread::sleep(Duration::from_secs(1)); // Windows frees the cabinet's ports and pipes
         if let Err(Failed(why)) = self.start_cabinet() {
             self.say(&format!("FAILED: {why}"));
-            self.say("Stopping what was started ...");
+            self.say("Stopping.");
             return Some(match self.finish(false, "Stopped.") {
                 End::Over(_) | End::Again => End::Over(FAILED),
             });
         }
         self.write_running();
         self.say("");
-        self.say(&format!(
-            "Seat {}'s cabinet is back; the projector was not touched.",
-            self.seat_no
-        ));
+        self.say(&format!("Seat {} is back.", self.seat_no));
         None
     }
 
@@ -2184,8 +2125,7 @@ impl Run<'_> {
                 put(
                     OK,
                     &format!(
-                        "check only - nothing stopped: stop would end the run's {n} processes and its stand-ins (club card: \
-                     {}, session: {})",
+                        "Check only, nothing stopped. Stop would end {n} processes (club card: {}, session: {})",
                         if self.p.shared.card_in() && self.cabinet.board.is_some() {
                             "in"
                         } else {
@@ -2216,19 +2156,19 @@ impl Run<'_> {
                             }
                         })
                         .collect();
-                    out.push("To look at, not to click. They are hidden again at the next start.".into());
+                    out.push("They are hidden again at the next start.".into());
                     put(OK, &out.join("\n"));
                 }
             }
             "stop" | "force" => {
                 if let Some(why) = self.refusal(word == "force") {
                     self.say(&why);
-                    self.say("NOT stopped - the game is still running.");
-                    put(REFUSED, &format!("{why}\nNOT stopped - the game is still running."));
+                    self.say("Not stopped: the game is still running.");
+                    put(REFUSED, &format!("{why}\nNot stopped: the game is still running."));
                     return None;
                 }
-                self.say("Stopping the game, as asked.");
-                let end = self.finish(false, "Stopped, as asked.");
+                self.say("Stopping.");
+                let end = self.finish(false, "Stopped.");
                 put(if matches!(end, End::Over(OK)) { OK } else { FAILED }, "Stopped.");
                 return Some(end);
             }

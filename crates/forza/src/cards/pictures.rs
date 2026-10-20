@@ -300,7 +300,7 @@ pub fn ensure(
         }
     }
     if !made {
-        say("  making the card pictures from your game files ...");
+        say("  Making card pictures from your game files...");
         let (n, fails) = from_game(game, edition, cards)?;
         say(&format!(
             "  {n} card pictures from the game, {} failed",
@@ -315,7 +315,7 @@ pub fn ensure(
     }
     if let Some(p) = pack {
         say(&format!(
-            "  adding the high-quality pictures from {} ...",
+            "  Adding high-quality pictures from {}...",
             p.display()
         ));
         let (n, fails) = from_pack(p, edition, cards)?;

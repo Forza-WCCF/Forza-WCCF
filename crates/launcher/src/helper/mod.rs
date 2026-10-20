@@ -204,17 +204,12 @@ impl Volumes {
                     } else {
                         format!("starts at {}%", (sound::GAME_VOLUME * 100.0).round())
                     };
-                    say(&format!(
-                        "sound: {} {what} (pid {pid}) - the Volume Mixer changes it from here",
-                        s.target.name
-                    ));
+                    say(&format!("sound: {} {what} (pid {pid})", s.target.name));
                 }
                 // the volumes never stop the run: the game plays as Windows has it
                 Err(why) if !self.said => {
                     self.said = true;
-                    say(&format!(
-                        "sound: the starting volumes could not be set ({why}) - tried again every 0.5 s"
-                    ));
+                    say(&format!("sound: could not set the starting volumes ({why}); retrying"));
                 }
                 Err(_) => {}
             }
@@ -437,10 +432,7 @@ mod tests {
         pids.lock().unwrap().1 = Some(22);
         v.tick(at(5), &say);
         v.tick(at(6), &say);
-        assert_eq!(
-            said.borrow().iter().filter(|l| l.contains("could not be set")).count(),
-            1
-        );
+        assert_eq!(said.borrow().iter().filter(|l| l.contains("could not set")).count(), 1);
         broken.store(false, Ordering::Relaxed);
         let n = calls.lock().unwrap().len();
         v.tick(at(5 + 601), &say);

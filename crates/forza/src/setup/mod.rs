@@ -392,7 +392,7 @@ pub fn kit_setup(
     match done {
         Ok(()) => {
             if !undo {
-                say("Setup done. Start the game with Launcher.exe.");
+                say("Setup done.");
             }
             0
         }

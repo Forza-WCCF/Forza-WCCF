@@ -237,7 +237,7 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
             shortcuts(&dest, edition, emit);
         }
     } else {
-        emit(Event::Log("Extraction only: no kit, English patches or shortcuts applied. These files are not a ready-to-play runtime.".into()));
+        emit(Event::Log("Extraction only: not ready to play.".into()));
     }
     Ok(())
 }
@@ -458,7 +458,7 @@ fn shortcuts(dest: &Path, edition: Edition, emit: &dyn Fn(Event)) {
     match cmd.status() {
         Ok(s) if s.success() => emit(Event::Log("Desktop shortcut created.".into())),
         _ => emit(Event::Log(
-            "Could not create the desktop shortcut (Launcher.exe in the install folder still works).".into(),
+            "Could not create the desktop shortcut. Use Launcher.exe in the install folder.".into(),
         )),
     }
 }

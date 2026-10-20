@@ -337,7 +337,7 @@ pub fn run(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
 pub fn setup_catalogue(kit: &Path, game: &Path, force: bool, say: &dyn Fn(&str)) -> Result<()> {
     let overlay = kit.join(Edition::E1718.layout().overlay);
     if overlay.join("catalogue.tsv").is_file() && !force {
-        say("  ok    the card catalogue is made (run setup with 'cards' to make it again)");
+        say("  ok    card catalogue made");
         return Ok(());
     }
     match crate::cards::catalogue::run(Edition::E1718, game, &overlay, Output::CatalogueOnly, say) {

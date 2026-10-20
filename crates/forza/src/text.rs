@@ -18,7 +18,7 @@ mod bcn;
 mod pictures;
 mod pil;
 
-const PICTURES_OFF: &str = "pictures stay Japanese: their English is switched off (with it the game did not read a club card)";
+const PICTURES_OFF: &str = "pictures stay Japanese";
 use regex::Regex;
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
@@ -1405,17 +1405,17 @@ pub fn run(
         let state = backup.join(pictures::STATE);
         if mode == Mode::Off {
             if c.load_manifest().is_empty() && !state.is_file() {
-                say("  The game's text is the original Japanese already - nothing to do.");
+                say("  Already the original Japanese.");
                 return Ok(());
             }
             let p = pictures::restore(game, &state)?;
             let n = c.turn_off()?;
             say(&format!(
-                "  ok    the original Japanese files are back ({n} files, {p} pictures)."
+                "  ok    original Japanese restored ({n} files, {p} pictures)."
             ));
             return Ok(());
         }
-        say("  building from your game files ...");
+        say("  Building from your game files...");
         let (files, notes) = c.build_all(lang)?;
         // 2010-11: the pictures stay off (with them the game did not read a club card); "on" only takes back any
         // a Python kit with WCCF_PICTURES=1 added
@@ -1435,7 +1435,7 @@ pub fn run(
                 .filter(|(r, _)| !man.contains_key(&key(r)))
                 .count();
             say(&format!(
-                "  check only - nothing changed.  \"on\" would replace {} files ({fresh} of them backed up first) and redraw {} pictures.",
+                "  Check only, nothing changed. \"on\" would replace {} files ({fresh} backed up first) and redraw {} pictures.",
                 files.len(),
                 pics.len()
             ));
@@ -1444,14 +1444,11 @@ pub fn run(
         c.turn_on(&files, lang)?;
         pictures::apply(game, &pics, &state)?;
         say(&format!(
-            "  ok    {} files and {} pictures in place, each read back.  The originals are in data\\english_backup.",
+            "  ok    {} files and {} pictures replaced. Originals are in data\\english_backup.",
             files.len(),
             pics.len()
         ));
-        say(&format!(
-            "{} is on. Start the game with Launcher.exe.",
-            lang.name()
-        ));
+        say(&format!("{} is on.", lang.name()));
         Ok(())
     })();
     match r {

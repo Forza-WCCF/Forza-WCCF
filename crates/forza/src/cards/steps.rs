@@ -120,9 +120,9 @@ pub fn run(data: &Path, args: &[&str]) -> (i32, String) {
                 &save.join("cards"),
             ) {
                 Ok((_, what)) => what,
-                Err(e) => format!(
-                    "the manager transfer could not be finished now ({e}) - both cards stay where they are"
-                ),
+                Err(e) => {
+                    format!("card transfer not finished ({e}); both cards stay where they are")
+                }
             };
             if !what.is_empty() {
                 say(&format!("  club card: {what}"));
@@ -132,7 +132,7 @@ pub fn run(data: &Path, args: &[&str]) -> (i32, String) {
                 let what = match wallet::switch(&want, &card, &save.join("cards")) {
                     Ok((_, what)) => what,
                     Err(e) => {
-                        format!("the switch could not be done ({e}) - the card in the slot stays")
+                        format!("card switch failed ({e}); the card in the slot stays")
                     }
                 };
                 say(&format!("  club card: {what}"));
@@ -144,9 +144,8 @@ pub fn run(data: &Path, args: &[&str]) -> (i32, String) {
                 .to_lowercase();
             if !fix.is_empty() {
                 if fix == "bad_endings" {
-                    let what = edit::clear_bad_endings(&card).unwrap_or_else(|e| {
-                        format!("the bad endings were not cleared ({e}) - the card stays as it was")
-                    });
+                    let what = edit::clear_bad_endings(&card)
+                        .unwrap_or_else(|e| format!("bad endings not cleared ({e})"));
                     say(&format!("  club card: {what}"));
                 }
                 drop_panel_line("card_fix", &panel);
@@ -184,9 +183,7 @@ pub fn run(data: &Path, args: &[&str]) -> (i32, String) {
         }
         ["keep", seat] => {
             if let Err(e) = formation::keep(Path::new(seat), &save) {
-                say(&format!(
-                    "  (the cards on the table were not copied to their club: {e})"
-                ));
+                say(&format!("  Table cards not copied to the club: {e}"));
             }
             (0, out)
         }
@@ -233,7 +230,7 @@ mod tests {
         .unwrap();
         let (code, out) = run(data, &["start", "SEAT"]);
         assert_eq!(code, 0);
-        assert!(out.contains("were not cleared"), "{out}");
+        assert!(out.contains("not cleared"), "{out}");
         assert_eq!(
             fs::read_to_string(data.join("panel.txt")).unwrap(),
             "play_on=this_pc\n"

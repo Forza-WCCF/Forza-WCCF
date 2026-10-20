@@ -170,7 +170,7 @@ fn setup_step(rc: i32) -> Result<(), String> {
     }
 }
 
-/// "  4/6 cabinet stand-ins ..." -> 4 of 6.
+/// "  4/6 cabinet (...)" -> 4 of 6.
 fn step(line: &str) -> Option<(u32, u32)> {
     let (n, rest) = line.trim_start().split_once('/')?;
     let m: String = rest.chars().take_while(char::is_ascii_digit).collect();
@@ -1055,9 +1055,12 @@ mod tests {
 
     #[test]
     fn play_py_steps() {
-        assert_eq!(step("  4/6 cabinet stand-ins: keychip/network"), Some((4, 6)));
+        assert_eq!(
+            step("  4/6 cabinet (card file data\\save\\seat1_club.bin)"),
+            Some((4, 6))
+        );
         assert_eq!(step("  1/2 scene service"), Some((1, 2)));
-        assert_eq!(step("  6/6 overlay in seat 1's window"), Some((6, 6)));
+        assert_eq!(step("  6/6 panels loaded"), Some((6, 6)));
         assert_eq!(step("     seat desk: TCP 20030"), None);
         assert_eq!(step("see data\\logs\\run_seat1.txt"), None);
         assert_eq!(step("  7/6 x"), None);
