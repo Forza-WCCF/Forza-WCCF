@@ -398,7 +398,7 @@ impl App {
         } else if shared().status.is_none() {
             say_tone(Tone::Done, ui_text(text::lang(), "launcher.status_ready", &[]), 0);
         }
-        let online_state = online::Online::new(&settings, &address);
+        let online_state = online::Online::new(&settings, &address, ed);
         let mut lobby = screen::lobby_for(ed);
         lobby.address = address;
         let st = LauncherState {

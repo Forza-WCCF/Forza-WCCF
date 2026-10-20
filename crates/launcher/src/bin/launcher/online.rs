@@ -99,24 +99,8 @@ pub struct Online {
     clock: Clock,
 }
 
-/// The `servers` setting; none saved yet: the address the player had before (so nothing changes for old setups).
-pub fn servers(settings: &Path, address: &str) -> Vec<String> {
-    let saved = choices::setting_json(settings, "servers").and_then(|v| {
-        v.as_array().map(|a| {
-            a.iter()
-                .filter_map(|s| s.as_str().map(str::to_owned))
-                .collect::<Vec<_>>()
-        })
-    });
-    match saved {
-        Some(s) => s,
-        None if choices::valid_address(address) => vec![address.to_owned()],
-        None => vec![],
-    }
-}
-
 impl Online {
-    pub fn new(settings: &Path, address: &str) -> Online {
+    pub fn new(settings: &Path, address: &str, edition: launcher::Edition) -> Online {
         let last = choices::setting_json(settings, "lobby_last").and_then(|v| {
             Some(Last {
                 server: v["server"].as_str()?.into(),
@@ -126,7 +110,7 @@ impl Online {
                 at: v["at"].as_u64()?,
             })
         });
-        let servers = servers(settings, address);
+        let servers = launcher::lobby::servers(settings, address, edition);
         let mut o = Online::default();
         o.book = Book::new(&servers);
         o.servers = servers;
