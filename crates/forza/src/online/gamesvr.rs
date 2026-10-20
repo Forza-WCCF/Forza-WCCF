@@ -676,7 +676,7 @@ impl Vs {
                 }
             }
             223 => vs::fill_round(body, now()),
-            237 => vs::fill_thresholds(body),
+            237 => vs::fill_game_ctrl(body),
             243 => {
                 self.matcher.enter(payload, t);
             }

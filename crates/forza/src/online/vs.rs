@@ -25,8 +25,9 @@ pub struct VsConfig {
 
 /// Entry window in seconds (answer 224 +8 and +12; the client needs >= 9).
 pub const WINDOW_SECS: u32 = 40;
-/// An entry waits this long after its 243 (the notes: about 60 s; there is no other cancel message).
-const ENTRY_TTL: Duration = Duration::from_secs(60);
+/// An entry lives this long after its 243 or its last 245: the control polls every 10 s, [`POLLS`] times (there is no
+/// other cancel message).
+const ENTRY_TTL: Duration = Duration::from_secs(10 * POLLS as u64 + 20);
 /// 243 request and 246 answer sizes.
 pub const ENTRY_LEN: usize = 280;
 pub const MATCH_LEN: usize = 248;
@@ -56,12 +57,27 @@ pub fn fill_login_loopback(body: &mut [u8], cfg: &VsConfig) {
     body[12..14].copy_from_slice(&cfg.vslink_port.to_le_bytes());
 }
 
-/// 238 payload: the relay thresholds in GAME_CTRL bytes 12, 14, 15 (payload +28 u16 ms, +30 and +31 u8 percent). A
-/// until a live capture.
-pub fn fill_thresholds(body: &mut [u8]) {
+/// How many REQ_MATCH polls a client makes, 10 s apart, before its control commits the CPU fallback (GAME_CTRL byte
+/// 19,740, client game state +0x5310; a received 0 replaces the client's default of 26 and means no polls, so no 245
+/// and no pair). The first poll comes 10 s after the entry, so the fallback lands about 10 * POLLS s in: 90 s.
+pub const POLLS: u8 = 9;
+/// 238 payload offset of [`POLLS`] (GAME_CTRL starts at payload +16).
+const POLLS_AT: usize = 16 + 19_740;
+/// 238 payload offsets of the Grand Trophy window, u16 HHMM start and end (GAME_CTRL bytes 7,622 / 7,624; control
+/// checkGrandTrophyOpen 0x4568A0). A closed window (equal values, zeros) does not stop the entry but turns the VS game
+/// into a friendly result with 243 +16 kbn 0; 0..2400 is open all day and keeps VS a Grand Trophy match.
+const GT_OPEN_AT: usize = 16 + 7_622;
+const GT_CLOSE_AT: usize = 16 + 7_624;
+
+/// 238 payload (GAME_CTRL from +16): the relay thresholds in bytes 12, 14, 15 (payload +28 u16 ms, +30 and +31 u8
+/// percent, A until a live capture), the poll count and the Grand Trophy window.
+pub fn fill_game_ctrl(body: &mut [u8]) {
     body[28..30].copy_from_slice(&200u16.to_le_bytes());
     body[30] = 20;
     body[31] = 50;
+    body[POLLS_AT] = POLLS;
+    body[GT_OPEN_AT..GT_OPEN_AT + 2].copy_from_slice(&0u16.to_le_bytes());
+    body[GT_CLOSE_AT..GT_CLOSE_AT + 2].copy_from_slice(&2400u16.to_le_bytes());
 }
 
 /// 224 body (92 bytes): round id and the entry window.
@@ -77,6 +93,8 @@ struct Entry {
     at: Instant,
     /// The 246 for this seat once paired (slot not yet echoed)
     pair: Option<[u8; MATCH_LEN]>,
+    /// 245 polls answered without a pair; at [`POLLS`] the control has committed the CPU fallback
+    polls: u8,
 }
 
 impl Entry {
@@ -90,8 +108,9 @@ impl Entry {
     fn addr(&self) -> (u32, u16) {
         (u32_at(&self.req, 8), u16_at(&self.req, 12))
     }
+    /// Past opponents' card ids, +172..+196 (+196 is the shop's country code, control 0x49EB60).
     fn history(&self) -> impl Iterator<Item = u32> + '_ {
-        (0..7)
+        (0..6)
             .map(|i| u32_at(&self.req, 172 + 4 * i))
             .filter(|c| *c != 0)
     }
@@ -175,8 +194,10 @@ fn card(c: u32) -> u32 {
     if c == u32::MAX { 0 } else { c }
 }
 
-/// Two entries may pair: both open, or both in the same lobby room. A room pair was chosen by its players, so it
-/// skips the round (the two homes' ENTRY windows are not in step) and the rematch history.
+/// Two entries may pair: both open, or both in the same lobby room. The round (+4) is not compared: each home takes
+/// its own 224 and polls for about 90 s, so two homes rarely share one 40 s round, and the control checks no round
+/// either. A room pair was chosen by its players, so it also skips the class (kbn, +16) and the rematch history. Two
+/// entries of one card id never pair: both would be Home (246 +20 == +8).
 fn compatible(a: &Entry, b: &Entry, pa: Pool, pb: Pool) -> bool {
     let room = match (pa, pb) {
         (Pool::Open, Pool::Open) => false,
@@ -184,10 +205,12 @@ fn compatible(a: &Entry, b: &Entry, pa: Pool, pb: Pool) -> bool {
         _ => return false,
     };
     let (ca, cb) = (u32_at(&a.req, 44), u32_at(&b.req, 44));
-    ca != 0
-        && cb != 0
-        && a.req[16] == b.req[16]
-        && (room || a.req[4..8] == b.req[4..8])
+    // a 246 with +12 not 0 and +122 not 1 blocks the seat's later 245s (control 0x448AD0); build sets +122 = 1 and
+    // +12 = the partner's card, so that card must be a real id (not 0, not -1)
+    ![0, u32::MAX].contains(&ca)
+        && ![0, u32::MAX].contains(&cb)
+        && ca != cb
+        && (room || a.req[16] == b.req[16])
         && is_loopback(a.addr().0) == is_loopback(b.addr().0)
         && (a.addr().0 != b.addr().0 || u32_at(&a.req, 48) != u32_at(&b.req, 48))
         && (room || !a.history().any(|c| c == cb) && !b.history().any(|c| c == ca))
@@ -299,6 +322,7 @@ impl Matcher {
             req,
             at: now,
             pair: None,
+            polls: 0,
         };
         let mut v = self.lock();
         v.retain(|x| x.key() != e.key() && now.duration_since(x.at) < ENTRY_TTL);
@@ -311,6 +335,7 @@ impl Matcher {
 
     /// A 245 (20 bytes): the 246 body (slot not echoed) for the caller, or `None` while it waits. The first poll
     /// that finds a compatible waiting entry makes the pair, once; later polls of either seat return the same one.
+    /// Each poll keeps the entry alive; the [`POLLS`]-th without a pair drops it (its seat plays the CPU now).
     pub fn poll(&self, req: &[u8], now: Instant) -> Option<[u8; MATCH_LEN]> {
         if req.len() < 16 {
             return None;
@@ -319,6 +344,7 @@ impl Matcher {
         let mut v = self.lock();
         v.retain(|x| now.duration_since(x.at) < ENTRY_TTL);
         let me = v.iter().position(|x| x.key() == key)?;
+        v[me].at = now;
         if let Some(p) = v[me].pair {
             return Some(p);
         }
@@ -328,10 +354,15 @@ impl Matcher {
             let pm = l.pool(&v[me]);
             v.iter()
                 .enumerate()
-                .find(|(i, x)| {
-                    *i != me && x.pair.is_none() && compatible(&v[me], x, pm, l.pool(x))
-                })?
-                .0
+                .find(|(i, x)| *i != me && x.pair.is_none() && compatible(&v[me], x, pm, l.pool(x)))
+                .map(|(i, _)| i)
+        };
+        let Some(other) = other else {
+            v[me].polls += 1;
+            if v[me].polls >= POLLS {
+                v.remove(me);
+            }
+            return None;
         };
         let seed = getrandom::u32().unwrap_or(0x1234_5678);
         let hc = u32_at(&v[me.min(other)].req, 44); // the older entry is Home
@@ -480,8 +511,10 @@ mod tests {
         fill_round(&mut r, 400);
         assert_eq!((u32_at(&r, 4), u32_at(&r, 8), u32_at(&r, 12)), (10, 40, 40));
         let mut c = vec![0u8; 0x5A54];
-        fill_thresholds(&mut c);
+        fill_game_ctrl(&mut c);
         assert_eq!((u16_at(&c, 28), c[30], c[31]), (200, 20, 50));
+        assert_eq!(c[19_756], POLLS);
+        assert_eq!((u16_at(&c, 7_638), u16_at(&c, 7_640)), (0, 2400));
     }
 
     #[test]
@@ -515,16 +548,16 @@ mod tests {
         let t = Instant::now();
         assert!(m.enter(&entry(1, 7, [9, 9, 9, 1], 20001, 111, 5), t));
         assert!(m.poll(&poll_req(1, 111, 5), t).is_none());
-        // same cabinet, other round, other kbn do not pair
+        // same cabinet, same card id elsewhere (both would be Home), other kbn do not pair
         m.enter(&entry(2, 7, [9, 9, 9, 1], 20002, 222, 5), t);
-        m.enter(&entry(3, 8, [9, 9, 9, 3], 20003, 333, 7), t);
+        m.enter(&entry(3, 7, [9, 9, 9, 3], 20003, 111, 7), t);
         let mut k = entry(4, 7, [9, 9, 9, 4], 20004, 444, 8);
         k[16] = 1;
         m.enter(&k, t);
         assert!(m.poll(&poll_req(1, 111, 5), t).is_none());
-        // history blocks a rematch
+        // history (+172..+196) blocks a rematch
         let mut h = entry(5, 7, [9, 9, 9, 5], 20005, 555, 9);
-        h[172..176].copy_from_slice(&111u32.to_le_bytes());
+        h[192..196].copy_from_slice(&111u32.to_le_bytes());
         m.enter(&h, t);
         assert!(m.poll(&poll_req(1, 111, 5), t).is_none());
         // cancel (port 0) removes; expiry drops
@@ -533,6 +566,38 @@ mod tests {
         assert_eq!(m.waiting(), 4);
         assert!(m.poll(&poll_req(1, 111, 5), t + ENTRY_TTL).is_none());
         assert_eq!(m.waiting(), 0);
+    }
+
+    #[test]
+    fn rounds_country_and_poll_count() {
+        let t = Instant::now();
+        // two homes in different 224 rounds pair; +196 is the country code, not a past opponent
+        let m = Matcher::default();
+        m.enter(&entry(1, 7, [9, 9, 9, 1], 20001, 111, 5), t);
+        let mut b = entry(2, 9, [9, 9, 9, 2], 20002, 222, 6);
+        b[196..200].copy_from_slice(&111u32.to_le_bytes());
+        m.enter(&b, t);
+        let p = m.poll(&poll_req(1, 111, 5), t).unwrap();
+        // a pair always says MatchingOK: +12 a real card and +122 = 1
+        assert_eq!((u32_at(&p, 12), p[122]), (222, 1));
+        // each poll keeps the entry past the TTL; the POLLS-th without a pair drops it
+        let m = Matcher::default();
+        m.enter(&entry(1, 7, [9, 9, 9, 1], 20001, 111, 5), t);
+        let step = Duration::from_secs(10);
+        for i in 1..u32::from(POLLS) {
+            assert!(m.poll(&poll_req(1, 111, 5), t + step * i).is_none());
+            assert_eq!(m.waiting(), 1, "poll {i}");
+        }
+        assert!(
+            m.poll(&poll_req(1, 111, 5), t + step * u32::from(POLLS))
+                .is_none()
+        );
+        assert_eq!(m.waiting(), 0, "the seat plays the CPU now");
+        // a card id of -1 never pairs (its 246 would block the seat)
+        let m = Matcher::default();
+        m.enter(&entry(1, 7, [9, 9, 9, 1], 20001, u32::MAX, 5), t);
+        m.enter(&entry(2, 7, [9, 9, 9, 2], 20002, 222, 6), t);
+        assert!(m.poll(&poll_req(2, 222, 6), t).is_none());
     }
 
     #[test]
@@ -660,6 +725,19 @@ mod tests {
             "the open pool pairs as M3 does"
         );
         assert_eq!(partner(&m, t, 1), Some(105));
+    }
+
+    #[test]
+    fn a_room_pair_skips_the_class() {
+        let m = Matcher::default();
+        let t = Instant::now();
+        m.room_ticket("ta1", Some(1));
+        m.room_ticket("ta2", Some(1));
+        pc(&m, t, 1, Some("ta1"), 7);
+        let mut e = pc(&m, t, 2, Some("ta2"), 7);
+        e[16] = 3;
+        assert!(m.enter(&e, t));
+        assert_eq!(partner(&m, t, 2), Some(101));
     }
 
     #[test]
