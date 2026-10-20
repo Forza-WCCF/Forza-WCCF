@@ -66,5 +66,6 @@ separate `desk` and `gmsvr` processes share no matcher, and ticketed entries the
    ticket in ASCII, NUL-padded (desk tickets are 16 hex characters). Without a ticket, the 36-byte hello as today
    (open pool). Nothing else changes: the 902 registration and the 243 the control sends are as now.
 3. The Launcher keeps `HEARTBEAT t` every 20 s while the run lasts (`Held`'s beat already does), so the room and its
-   pairing outlive the 60 s lease; leaving sends `CLOSE` (host) or `RELEASE`.
+   pairing outlive the 60 s lease; leaving, and the run's end, send `CLOSE` (seat 1) or `RELEASE` (seat 2). Only a
+   VS room's ticket goes into a 2017-18 run (SHOPS stays greyed there).
 

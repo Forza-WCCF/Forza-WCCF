@@ -62,10 +62,15 @@ fn unix() -> u64 {
 
 /// Gives a held seat back to the desk unless PLAY already spent the ticket; a host closes its VS room.
 fn let_go(h: Option<Held>) -> Option<std::thread::JoinHandle<()>> {
-    h.filter(|h| !h.played).map(|h| match &h.vs {
+    h.filter(|h| !h.played).map(give_back)
+}
+
+/// `CLOSE` (the host of a VS room) or `RELEASE`.
+fn give_back(h: Held) -> std::thread::JoinHandle<()> {
+    match &h.vs {
         Some((id, true)) => close(&h.server, id, &h.ticket),
         _ => release(&h.server, &h.ticket),
-    })
+    }
 }
 
 impl Drop for Online {
@@ -162,8 +167,13 @@ impl Online {
             st.lobby.room = None;
         }
         if self.was_running && !st.running {
-            // the run ended: the seat is free, and offered again for a short while
-            self.held = None;
+            // the run ended: the seat is free, and offered again for a short while; a VS room's run held its
+            // ticket to the end (the run claims no seat), so the room goes now and is not offered again
+            if let Some(h) = self.held.take().filter(|h| h.vs.is_some()) {
+                give_back(h);
+                self.last = None;
+                self.save_last(settings);
+            }
             st.lobby.room = None;
             if let Some(l) = &mut self.last {
                 l.at = unix();
