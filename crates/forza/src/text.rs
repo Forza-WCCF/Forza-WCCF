@@ -1884,9 +1884,11 @@ mod tests {
             n += 1;
             match english.get(k).filter(|e| !e.trim().is_empty()) {
                 None => bad.push(format!("{k}: no English row")),
-                Some(en) if en.trim() != "<empty>" && codes(en) != codes(it) => {
-                    bad.push(format!("{k}: codes {:?}, the English has {:?}", codes(it), codes(en)))
-                }
+                Some(en) if en.trim() != "<empty>" && codes(en) != codes(it) => bad.push(format!(
+                    "{k}: codes {:?}, the English has {:?}",
+                    codes(it),
+                    codes(en)
+                )),
                 _ => {}
             }
         }

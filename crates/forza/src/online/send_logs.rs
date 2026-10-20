@@ -74,7 +74,11 @@ fn files(kit: &Path, game: Option<&Path>) -> Vec<(String, PathBuf)> {
     out.push(("version.txt".into(), kit.join("version.txt")));
     if let Some(dir) = game.and_then(Path::parent) {
         for p in files_in(&dir.join("seat1")) {
-            let n = p.file_name().unwrap_or_default().to_string_lossy().into_owned();
+            let n = p
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
             if n.ends_with(".log") {
                 out.push((format!("seat1/{n}"), p));
             }
@@ -280,7 +284,12 @@ pub fn pack(
 }
 
 /// SAVE LOGS: the same ZIP as [`pack`] (no note, the usual [`TAIL`]) written to `dest`; how many files are in it.
-pub fn pack_to_file(kit: &Path, game: Option<&Path>, scrub: &Scrub, dest: &Path) -> io::Result<usize> {
+pub fn pack_to_file(
+    kit: &Path,
+    game: Option<&Path>,
+    scrub: &Scrub,
+    dest: &Path,
+) -> io::Result<usize> {
     let (blob, n) = pack(kit, game, scrub, TAIL, None)?;
     fs::write(dest, blob)?;
     Ok(n)

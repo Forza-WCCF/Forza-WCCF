@@ -403,7 +403,11 @@ fn pack_to_file_writes_the_logs_zip_scrubbed() {
     std::fs::write(kit.join("version.txt"), "1.2.3\n").unwrap();
     std::fs::write(kit.join("data/logs/run.txt"), "C:\\Users\\alice\\x ok").unwrap();
     std::fs::write(seat.join("other.log"), "seat line").unwrap();
-    let scrub = Scrub { home: "C:\\Users\\alice".into(), user: "alice".into(), pc: "PC1".into() };
+    let scrub = Scrub {
+        home: "C:\\Users\\alice".into(),
+        user: "alice".into(),
+        pc: "PC1".into(),
+    };
     let dest = root.join("out.zip");
     let n = send_logs::pack_to_file(&kit, Some(&root.join("game")), &scrub, &dest).unwrap();
     let mut z = zip::ZipArchive::new(std::fs::File::open(&dest).unwrap()).unwrap();

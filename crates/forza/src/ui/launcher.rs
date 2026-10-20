@@ -550,7 +550,11 @@ fn setup(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Actio
         )
         .clicked()
         {
-            st.game_text = if original { 2 } else { usize::from(lang == Lang::It) };
+            st.game_text = if original {
+                2
+            } else {
+                usize::from(lang == Lang::It)
+            };
         }
     });
 }

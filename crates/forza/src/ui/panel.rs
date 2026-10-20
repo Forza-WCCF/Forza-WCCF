@@ -804,7 +804,11 @@ fn close_warning(ui: &Ui, area: Rect, lang: Lang, edition: Edition) {
         ("close.title", theme::display(30.0), theme::RED_TEXT),
         // 2017-18 saves on the server: no card to damage
         (
-            if edition == Edition::E1718 { "close.body_1718" } else { "close.body" },
+            if edition == Edition::E1718 {
+                "close.body_1718"
+            } else {
+                "close.body"
+            },
             theme::body(16.0),
             theme::TEXT,
         ),
@@ -1200,10 +1204,22 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
     // CARD only: free play needs no COIN, and BACK sent nothing; 2017-18 has no card to put in
     if st.edition != Edition::E1718 {
         let r = Rect::from_min_size(pos2(xc, y), vec2(half, 44.0));
-        put(ui, r, "cab.card", Some("CARD"), Cab::Plain, Shape::Key, false);
+        put(
+            ui,
+            r,
+            "cab.card",
+            Some("CARD"),
+            Cab::Plain,
+            Shape::Key,
+            false,
+        );
     }
     // PROJECTOR: the panel's own switch (no key), lit while the projector's picture takes the board's place
-    let px = if st.edition == Edition::E1718 { xc } else { xc + half + 6.0 };
+    let px = if st.edition == Edition::E1718 {
+        xc
+    } else {
+        xc + half + 6.0
+    };
     let r = Rect::from_min_size(pos2(px, y), vec2(half, 44.0));
     if put(
         ui,
@@ -2429,7 +2445,15 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                     st.send_logs = true;
                 }
             }
-            if cabinet(ui, vec2(w, 44.0), &tr!(lang, "settings.save_logs"), Cab::Data, false).clicked() {
+            if cabinet(
+                ui,
+                vec2(w, 44.0),
+                &tr!(lang, "settings.save_logs"),
+                Cab::Data,
+                false,
+            )
+            .clicked()
+            {
                 st.save_logs = true;
             }
             match s.logs.as_deref() {
@@ -3442,10 +3466,7 @@ mod tests {
         assert_eq!(st.board.cards[0].number, 10);
         assert_eq!(st.message.as_ref().unwrap().text, "KAKÀ added (1/16)");
         assert!(!add_card(&mut st, &mut placed, 10));
-        assert_eq!(
-            st.message.as_ref().unwrap().text,
-            "KAKÀ is on the table"
-        );
+        assert_eq!(st.message.as_ref().unwrap().text, "KAKÀ is on the table");
         for no in 1000..1015 {
             placed.push(Placed {
                 slot: 0,
@@ -3473,18 +3494,12 @@ mod tests {
         keys_input(&mut st);
         assert_eq!((st.keys[2], st.keys[1], st.capturing), (0x58, 0x43, None));
         assert!(std::mem::take(&mut st.keys_changed));
-        assert_eq!(
-            st.message.as_ref().unwrap().text,
-            "SHOOT = X; PRESS = C"
-        );
+        assert_eq!(st.message.as_ref().unwrap().text, "SHOOT = X; PRESS = C");
         // Esc and F10 (must stay free) and Alt+G: refused or cancelled, nothing changes
         st.capturing = Some(0);
         st.vk_down = vec![(0x79, false), (0x47, true)];
         keys_input(&mut st);
-        assert_eq!(
-            st.message.as_ref().unwrap().text,
-            "Alt is not allowed"
-        );
+        assert_eq!(st.message.as_ref().unwrap().text, "Alt is not allowed");
         assert_eq!(st.capturing, Some(0));
         st.vk_down = vec![(0x1B, false)];
         keys_input(&mut st);
