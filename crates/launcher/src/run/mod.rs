@@ -442,6 +442,10 @@ fn stop_command(kit: &Kit, p: &Params, force: bool, check: bool, ui: &dyn Ui) ->
 
 /// Starts and supervises; a full RESTART NOW starts again with what a plain start chooses.
 fn play(kit: &Kit, p: &Params, mode: Option<Mode>, debug: bool, ui: &dyn Ui) -> i32 {
+    // an install made without pictures (the installer once skipped them): make them now
+    if !kit.cache().join("cards").join("source.txt").is_file() && game_folder(kit, p).is_some() {
+        make_pictures(kit, p, ui);
+    }
     let mut mode = mode;
     loop {
         let m = mode.take().unwrap_or_else(|| plain_mode(kit, p, ui));
