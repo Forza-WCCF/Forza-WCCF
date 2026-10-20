@@ -980,6 +980,49 @@ mod tests {
     }
 
     #[test]
+    fn an_older_kits_layout_is_tidied_and_a_second_run_changes_nothing() {
+        let t = tempfile::tempdir().unwrap();
+        let k = t.path();
+        let touch = |rel: &str| {
+            let p = k.join(rel);
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+            fs::write(p, b"x").unwrap();
+        };
+        for rel in [
+            "scripts/play.py", // the old copy of a script
+            "scripts/__pycache__/play.cpython-313.pyc",
+            "scripts/_jvs_seat1_input.txt", // written beside the scripts while the kit ran
+            "scripts/_dbg_control.txt",
+            "languages/english/screen_text.tsv",
+            "english/screen_text.tsv", // the old copy of languages\\english\\
+            "bin/winmm.dll",           // the old fake hook
+            "overlay/wccfpanel.dll",
+            "overlay/skin.tex",
+            "overlay/catalogue.tsv",
+            "overlay/cards/1.png",
+            "overlay/mine.txt",    // not the kit's: stays
+            "programs/client.exe", // the new layout: untouched
+        ] {
+            touch(rel);
+        }
+        let say = |_: &str| {};
+        tidy_old_layout(k, &Say(&say)).unwrap();
+        for gone in ["scripts", "bin", "english"] {
+            assert!(!k.join(gone).exists(), "{gone} removed");
+        }
+        assert!(k.join("data/cache/catalogue.tsv").is_file());
+        assert!(k.join("data/cache/cards/1.png").is_file());
+        assert_eq!(names(&k.join("overlay")).unwrap(), ["mine.txt"]);
+        assert!(
+            k.join("languages/english/screen_text.tsv").is_file()
+                && k.join("programs/client.exe").is_file()
+        );
+        tidy_old_layout(k, &Say(&say)).unwrap();
+        assert_eq!(names(&k.join("overlay")).unwrap(), ["mine.txt"]);
+        assert!(k.join("data/cache/cards/1.png").is_file());
+    }
+
+    #[test]
     fn names_as_setup_py_matched_them() {
         assert!(no_link("busram12.bin") && no_link("Client_Release.EXE") && no_link("x.log"));
         assert!(!no_link("busram.bin") && !no_link("cg.dll") && !no_link("logowin.exe"));

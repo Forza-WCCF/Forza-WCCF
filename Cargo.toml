@@ -71,3 +71,7 @@ debug = "line-tables-only"
 
 [profile.dev.package."*"]
 opt-level = 2            # egui, image, aes at usable speed in debug builds; our own code stays fast to compile
+
+# FreeType 2.13.3 for the pictures with writing (vendor/freetype-sys/Cargo.toml says why)
+[patch.crates-io]
+freetype-sys = { path = "vendor/freetype-sys" }

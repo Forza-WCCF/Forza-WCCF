@@ -2071,6 +2071,7 @@ dependencies = [
  "egui_extras",
  "egui_kittest",
  "encoding_rs",
+ "freetype-rs",
  "getrandom 0.3.4",
  "image",
  "junction",
@@ -2113,6 +2114,24 @@ dependencies = [
  "serde_json",
  "sha2",
  "time",
+]
+
+[[package]]
+name = "freetype-rs"
+version = "0.38.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d228d6de56c90dd7585341f341849441b3490180c62d27133e525eb726809b4"
+dependencies = [
+ "bitflags 2.13.2",
+ "freetype-sys",
+ "libc",
+]
+
+[[package]]
+name = "freetype-sys"
+version = "0.23.0"
+dependencies = [
+ "cc",
 ]
 
 [[package]]

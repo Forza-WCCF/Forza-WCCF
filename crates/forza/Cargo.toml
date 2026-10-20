@@ -9,7 +9,7 @@ description = "Forza-WCCF's shared UI: the theme, the bespoke widgets and the sc
 [features]
 # `ui` (default): the egui screens. The Linux server builds `forza` with `--no-default-features`.
 default = ["ui"]
-ui = ["dep:csv", "dep:deunicode", "dep:egui", "dep:encoding_rs", "dep:egui_extras", "dep:image", "dep:regex", "dep:rust-i18n", "dep:unicode-normalization"]
+ui = ["dep:csv", "dep:deunicode", "dep:egui", "dep:encoding_rs", "dep:egui_extras", "dep:image", "dep:freetype-rs", "dep:regex", "dep:rust-i18n", "dep:unicode-normalization"]
 
 [dependencies]
 aes.workspace = true
@@ -35,6 +35,8 @@ deunicode = { version = "1.6.2", optional = true }
 # the game text (forza::text): the printf/$ codes of a line, and the Latin spelling of player names
 regex = { version = "1.13.1", optional = true }
 unicode-normalization = { version = "0.1.25", optional = true }
+# the 2017-18 pictures with writing (forza::text::pictures): FreeType, built from source, as Pillow draws the words
+freetype-rs = { version = "0.38.0", features = ["bundled"], optional = true }
 # the catalogue reads the original records' Shift-JIS (cp932) names
 encoding_rs = { version = "0.8.42", optional = true }
 # the game server stand-in's club store (gamesvr.db); bundled: no system SQLite on the cabinet PC

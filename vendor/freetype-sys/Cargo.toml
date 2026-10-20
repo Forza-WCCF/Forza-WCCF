@@ -1,0 +1,34 @@
+# freetype-sys 0.23.0 (MIT, https://github.com/PistonDevelopers/freetype-sys) with FreeType 2.13.3 in place of its
+# bundled 2.13.2: 2.13.3 scales a TrueType font's CVT with other rounding (truetype/ttobjs.c), and Pillow 11.3, which
+# drew the 2017-18 pictures' writing, has 2.13.3; with 2.13.2 a few edge pixels differed. The root Cargo.toml patches
+# crates.io's freetype-sys with this folder. Only the modules for TrueType fonts are built (ftmodule.h, ftoption.h);
+# no PNG and no zlib. src/ is freetype-sys 0.23.0's bindings unchanged; freetype2/ is FreeType 2.13.3's include/ and
+# the src/ folders build.rs lists, unchanged (FreeType License, freetype2/docs/FTL.TXT).
+[package]
+name = "freetype-sys"
+version = "0.23.0"
+authors = ["Coeuvre <coeuvre@gmail.com>"]
+links = "freetype"
+build = "build.rs"
+description = "Low level binding for FreeType font library (FreeType 2.13.3, TrueType only)"
+license = "MIT AND FTL"
+repository = "https://github.com/PistonDevelopers/freetype-sys.git"
+edition = "2018"
+publish = false
+
+[lib]
+name = "freetype_sys"
+path = "src/lib.rs"
+
+[features]
+bundled = []
+
+[build-dependencies]
+cc = "1"
+
+# the bindings as published: their lints are not this project's
+[lints.rust]
+unpredictable_function_pointer_comparisons = "allow"
+
+[lints.clippy]
+all = { level = "allow", priority = -1 }
