@@ -16,7 +16,7 @@ COSA SERVE
   - Windows 10 o 11, a 64 bit.
   - La vostra cartella del gioco 2017-18 già decifrata (quella con client_Release.exe e control_Release.exe).
     <dove trovare il gioco: da compilare a cura del proprietario>
-  - Nient'altro: niente WSL, niente installazione di Python (Python è incluso).
+  - Nient'altro: niente WSL, niente da installare.
 
 INSTALLAZIONE (una volta)
   1. Estraete questo download in una cartella tutta sua, con un percorso semplice (ad es. C:\Games\Forza-WCCF-2017-18).
@@ -95,8 +95,6 @@ CARTELLE
   overlay\   forza_panel.dll (il pannello), inject.exe, netguard.dll (protezione di rete), skin.tex; la configurazione
              aggiunge il catalogo e le immagini delle carte
   fonts\     i caratteri del pannello e le loro licenze
-  scripts\   configurazione, creazione delle carte e strumenti per i testi inglese e italiano
   english\, italian\   i testi inglese e italiano del gioco - solo testo
   source\    il sorgente C dei programmi in bin\ e overlay\
-  python\    Python 3.13 con Pillow
   data\      creata sul vostro PC: impostazioni, salvataggi (save\gamesvr), log

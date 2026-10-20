@@ -5,8 +5,6 @@ use crate::Edition;
 
 /// Folder names inside a kit folder, per edition (see [`Edition::layout`]).
 pub struct Layout {
-    /// The Python scripts (setup.py, english.py) until step 12 drops them.
-    pub scripts: &'static str,
     /// The kit's compiled programs: the hook, the stand-ins, the card-table helper.
     pub bin: &'static str,
     /// Where the programs named in [`Layout::overlay_files`] live (the run's overlay), `bin` when none do.
@@ -28,7 +26,6 @@ impl Layout {
 }
 
 pub const LAYOUT_1011: Layout = Layout {
-    scripts: "code",
     bin: "programs",
     overlay: "programs",
     overlay_files: &[],
@@ -36,7 +33,6 @@ pub const LAYOUT_1011: Layout = Layout {
 };
 
 pub const LAYOUT_1718: Layout = Layout {
-    scripts: "scripts",
     bin: "bin",
     overlay: "overlay",
     overlay_files: &["inject.exe", "forza_panel.dll", "netguard.dll"],
@@ -48,6 +44,19 @@ impl Edition {
         match self {
             Self::E1011 => &LAYOUT_1011,
             Self::E1718 => &LAYOUT_1718,
+        }
+    }
+
+    /// The edition whose current kit layout a folder holds, `has(name)` telling whether it holds the folder `name`:
+    /// `programs\` is 2010-11's, `bin\` or `overlay\` without it 2017-18's (an older 2010-11 kit had `bin\` and
+    /// `overlay\` too, beside `scripts\`; setup tidies them away).  The Launcher and the installer decide by this.
+    pub fn of_kit(has: impl Fn(&str) -> bool) -> Option<Self> {
+        if has(LAYOUT_1011.bin) {
+            Some(Self::E1011)
+        } else if has(LAYOUT_1718.bin) || has(LAYOUT_1718.overlay) {
+            Some(Self::E1718)
+        } else {
+            None
         }
     }
 }

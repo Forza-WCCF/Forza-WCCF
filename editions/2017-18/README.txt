@@ -16,7 +16,7 @@ YOU NEED
   - Windows 10 or 11, 64-bit.
   - Your own decrypted 2017-18 game folder (the one with client_Release.exe and control_Release.exe).
     <where to get the game: owner fills in>
-  - Nothing else: no WSL, no Python install (Python is inside).
+  - Nothing else: no WSL, nothing to install.
 
 INSTALL (once)
   1. Unzip this download into a folder of its own, with a plain path (e.g. C:\Games\Forza-WCCF-2017-18).
@@ -89,8 +89,6 @@ FOLDERS
   overlay\   forza_panel.dll (the panel), inject.exe, netguard.dll (network guard), skin.tex; setup adds the catalogue
              and the card pictures
   fonts\     the panel's fonts and their licences
-  scripts\   setup, the card maker and the English/Italian text tools
   english\, italian\   the game's English and Italian text - text only
   source\    the C source of the programs in bin\ and overlay\
-  python\    Python 3.13 with Pillow
   data\      made on your PC: settings, saves (save\gamesvr), logs

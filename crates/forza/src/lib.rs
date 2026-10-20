@@ -65,6 +65,8 @@ pub mod online;
 pub mod panel_txt;
 pub mod pause;
 pub mod service;
+/// The install steps need the card catalogue (`cards`), so the `ui` feature too.
+#[cfg(feature = "ui")]
 pub mod setup;
 pub mod standins;
 #[cfg(feature = "ui")]

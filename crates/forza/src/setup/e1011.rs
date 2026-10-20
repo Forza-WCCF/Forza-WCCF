@@ -777,6 +777,7 @@ fn tidy_old_layout(kit: &Path, say: &Say) -> Result<()> {
 
 /// The catalogue and card pictures in data\cache, made from the player's game unless they are there (or `force`).
 fn setup_cards(kit: &Path, game: &Path, force: bool, say: &Say) -> Result<()> {
+    use crate::cards::catalogue;
     say.line("in the kit's data\\cache folder:");
     let cache = kit.join(Edition::E1011.layout().cache);
     make_dir(&cache)?;
@@ -787,27 +788,20 @@ fn setup_cards(kit: &Path, game: &Path, force: bool, say: &Say) -> Result<()> {
         })
         .count()
     });
-    #[cfg(feature = "ui")]
-    {
-        use crate::cards::catalogue;
-        if !force && cache.join("catalogue.tsv").is_file() && have >= catalogue::RECORDS {
-            say.ok(&format!("catalogue and {have} card pictures already made"));
-            return Ok(());
-        }
-        say.line("  making the catalogue and the card pictures from your game files (about a minute) ...");
-        if catalogue::run(Edition::E1011, game, &cache, catalogue::Output::All, say.0) != 0 {
-            return Err(Error(
-                "the card catalogue could not be made (see above)".into(),
-            ));
-        }
-        say.ok("catalogue and card pictures made");
-        Ok(())
+    if !force && cache.join("catalogue.tsv").is_file() && have >= catalogue::RECORDS {
+        say.ok(&format!("catalogue and {have} card pictures already made"));
+        return Ok(());
     }
-    #[cfg(not(feature = "ui"))]
-    {
-        let _ = (game, force, have);
-        Err(Error("the card catalogue needs forza's ui feature".into()))
+    say.line(
+        "  making the catalogue and the card pictures from your game files (about a minute) ...",
+    );
+    if catalogue::run(Edition::E1011, game, &cache, catalogue::Output::All, say.0) != 0 {
+        return Err(Error(
+            "the card catalogue could not be made (see above)".into(),
+        ));
     }
+    say.ok("catalogue and card pictures made");
+    Ok(())
 }
 
 /// The whole setup, as `setup.py [GAME] [cards]` ran it: `force_cards` makes the catalogue again.

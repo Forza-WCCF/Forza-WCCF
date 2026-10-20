@@ -16,7 +16,7 @@ Forza-WCCF 2017-18 - 0.1.0-alpha.1
   - Windows 10 または 11（64 ビット）
   - ご自身の復号済み 2017-18 ゲームフォルダー（client_Release.exe と control_Release.exe があるフォルダー）
     <ゲームの入手先: 所有者が記入>
-  - それ以外は不要です。WSL も Python のインストールも要りません（Python は同梱されています）。
+  - それ以外は不要です。WSL も、ほかのインストールも要りません。
 
 インストール（初回のみ）
   1. このダウンロードを専用のフォルダーに展開します。パスは英数字だけにしてください（例: C:\Games\Forza-WCCF-2017-18）。
@@ -88,8 +88,6 @@ Forza-WCCF 2017-18 - 0.1.0-alpha.1
   bin\       winmm.dll（フック）、FPR_Emu.exe（カードテーブル用ヘルパー）、logowin.exe（代用）、forza-server.exe
   overlay\   forza_panel.dll（パネル）、inject.exe、netguard.dll（ネットワーク保護）、skin.tex。セットアップがカタログとカード画像を追加します
   fonts\     パネルのフォントとライセンス
-  scripts\   セットアップ、カード作成、英語 / イタリア語テキストのツール
   english\, italian\   ゲームの英語・イタリア語テキスト（テキストのみ）
   source\    bin\ と overlay\ のプログラムの C ソース
-  python\    Pillow 付き Python 3.13
   data\      お客様の PC 上に作られます: 設定、セーブ（save\gamesvr）、ログ

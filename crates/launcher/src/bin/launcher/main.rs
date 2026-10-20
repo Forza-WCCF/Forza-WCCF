@@ -8,12 +8,12 @@
 //!                the run, and then Launcher.exe ends too.  Closing this window (or STOP THE GAME) asks the run to stop
 //!                by the card rule: with the club card in or a match on, it asks first.  Launcher.exe opened again
 //!                while the game runs offers STOP THE GAME, which asks the running Launcher.exe.
-//!   SETUP        the game folder: set up / repair (scripts\setup.py GAME) and undo; it is typed, picked, dropped on
-//!                the window or on Launcher.exe, and remembered by setup.py in data\settings.json.  The card pictures
+//!   SETUP        the game folder: set up / repair (launcher::setup) and undo; it is typed, picked, dropped on
+//!                the window or on Launcher.exe, and remembered by setup in data\settings.json.  The card pictures
 //!                (the game's or the high-quality pack) and, for 2017-18, skip the tutorial.
 //!   UPDATE       (update.rs, 2010-11 only): the kit's releases and test builds at UPDATE_URL.
 //! The choices go where the kit already keeps them (choices.rs): data\panel.txt, which the in-game SETTINGS panel
-//! writes too, and data\settings.json.  The scripts' output fills OUTPUT.
+//! writes too, and data\settings.json.  Setup's lines fill OUTPUT.
 //!
 //! The command line still works: "Launcher.exe GAME-FOLDER" / "Launcher.exe undo" (setup at once), and play.py's words
 //! (local, server, remote ADDRESS [seat N], debug, stop, status, show, restart): from a console they print there and a
@@ -29,11 +29,9 @@ mod update;
 
 use std::ffi::{OsStr, OsString};
 use std::fs::OpenOptions;
-use std::io::{BufRead, BufReader, Read};
 use std::os::windows::io::IntoRawHandle;
-use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{ExitCode, Stdio};
+use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::Duration;
@@ -56,7 +54,6 @@ use windows_sys::Win32::System::Console::{
     ATTACH_PARENT_PROCESS, AttachConsole, CTRL_BREAK_EVENT, CTRL_C_EVENT, CTRL_CLOSE_EVENT, GetConsoleMode,
     GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, SetConsoleCtrlHandler, SetStdHandle,
 };
-use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     IDYES, MB_ICONERROR, MB_ICONQUESTION, MB_OK, MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO, MessageBoxW,
 };
@@ -66,7 +63,13 @@ use windows_sys::core::BOOL;
 const TITLE: &str = "Forza-WCCF";
 
 enum Step {
-    Script(&'static str, Vec<OsString>),
+    /// Setup of the game folder given (empty: the recorded one), or its undo (launcher::setup)
+    Setup {
+        folder: OsString,
+        undo: bool,
+    },
+    /// The game's text: "en", "it" or "" for the original Japanese (launcher::setup::game_text)
+    Text(&'static str),
     Update(Release),
     /// The run (launcher::run) with play.py's words; its exit code is the result
     Game(Vec<OsString>),
@@ -147,7 +150,7 @@ fn log(line: &str) {
     poke();
 }
 
-// ---- the kit's scripts ------------------------------------------------------------------------------------------
+// ---- setup and the game's text ---------------------------------------------------------------------------------
 
 /// A step line moves the bar: never back.
 fn stepped(line: &str) {
@@ -158,48 +161,13 @@ fn stepped(line: &str) {
     }
 }
 
-/// python\python.exe code\<script> args without a console, its output line by line into the window; its exit
-/// code.  play.py's "N/M" step lines move the progress bar.
-fn run_script(kit: &Kit, script: &str, args: &[OsString]) -> Result<i32, String> {
-    let shown: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
-    log(&format!("> {script} {}", shown.join(" ")));
-    let mut child = kit
-        .script(script)
-        .args(args)
-        .current_dir(kit.dir())
-        .env("PYTHONUTF8", "1")
-        .env("PYTHONIOENCODING", "utf-8")
-        .env("PYTHONUNBUFFERED", "1")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .creation_flags(CREATE_NO_WINDOW)
-        .spawn()
-        .map_err(|e| format!("python\\python.exe: {e}"))?;
-    let readers: Vec<_> = [
-        child.stdout.take().map(|o| Box::new(o) as Box<dyn Read + Send>),
-        child.stderr.take().map(|e| Box::new(e) as Box<dyn Read + Send>),
-    ]
-    .into_iter()
-    .flatten()
-    .map(|pipe| {
-        thread::spawn(move || {
-            let mut pipe = BufReader::new(pipe);
-            let mut line = Vec::new();
-            while pipe.read_until(b'\n', &mut line).is_ok_and(|n| n > 0) {
-                let text = String::from_utf8_lossy(&line);
-                stepped(&text);
-                log(text.trim_end());
-                line.clear();
-            }
-        })
-    })
-    .collect();
-    let status = child.wait().map_err(|e| e.to_string())?;
-    for r in readers {
-        let _ = r.join();
+/// A setup or text step's lines into OUTPUT; Ok when it is done, else the status that says why.
+fn setup_step(rc: i32) -> Result<(), String> {
+    match rc {
+        0 => Ok(()),
+        launcher::setup::RUNNING => Err(t("launcher.msg_game_running")),
+        _ => Err(t("launcher.msg_failed")),
     }
-    Ok(status.code().unwrap_or(1))
 }
 
 /// "  4/6 cabinet stand-ins ..." -> 4 of 6.
@@ -210,16 +178,7 @@ fn step(line: &str) -> Option<(u32, u32)> {
     (n <= m && m > 0 && rest[m.to_string().len()..].starts_with(' ')).then_some((n, m))
 }
 
-/// english.py's arguments that put `lang` ("en", "it" or "" for the original Japanese) in place.
-fn language_args(lang: &str) -> Vec<OsString> {
-    match lang {
-        "it" => vec!["on".into(), "it".into()],
-        "en" => vec!["on".into()],
-        _ => vec!["off".into()],
-    }
-}
-
-/// The game's text: the screen's place (English, Italian, the original Japanese) <-> english.py's code.
+/// The game's text: the screen's place (English, Italian, the original Japanese) <-> its code ("en", "it", "").
 const GAME_TEXT: [&str; 3] = ["en", "it", ""];
 
 fn game_text_of(code: &str) -> usize {
@@ -254,10 +213,26 @@ fn start(steps: Vec<Step>) {
         let mut game = None;
         for step in steps {
             result = match &step {
-                Step::Script(script, args) => {
-                    say(format!("{script} ..."), 0);
-                    run_script(&kit, script, args)
-                        .and_then(|rc| if rc == 0 { Ok(()) } else { Err(t("launcher.msg_failed")) })
+                Step::Setup { folder, undo } => {
+                    let folder = folder.to_string_lossy();
+                    log(&format!("> {} {folder}", if *undo { "undo" } else { "setup" }));
+                    say(
+                        t(if *undo {
+                            "launcher.msg_undoing"
+                        } else {
+                            "launcher.msg_setting_up"
+                        }),
+                        0,
+                    );
+                    setup_step(launcher::setup::game_folder(&kit, &folder, *undo, &|l| {
+                        stepped(l);
+                        log(l);
+                    }))
+                }
+                Step::Text(lang) => {
+                    log(&format!("> game text {lang}"));
+                    say(t("launcher.msg_switching_text"), 0);
+                    setup_step(launcher::setup::game_text(&kit, lang, &log))
                 }
                 Step::Update(r) => update::apply(&kit, r).map(|()| updated = Some(r.tag.clone())),
                 Step::Pictures => {
@@ -584,7 +559,13 @@ impl App {
             Action::Stop => stop_game(),
             Action::SetUp => {
                 if let Some(game) = self.folder() {
-                    start(vec![Step::Script("setup.py", vec![game]), Step::Pictures]);
+                    start(vec![
+                        Step::Setup {
+                            folder: game,
+                            undo: false,
+                        },
+                        Step::Pictures,
+                    ]);
                 }
             }
             Action::Undo => {
@@ -594,12 +575,15 @@ impl App {
             }
             Action::UndoNow => {
                 if let Some(game) = self.folder() {
-                    // setup.py refuses an undo while English is on: the original files go back first
+                    // the undo refuses while English is on: the original files go back first
                     let mut steps = Vec::new();
                     if kit.english_on() {
-                        steps.push(Step::Script("english.py", vec!["off".into()]));
+                        steps.push(Step::Text(""));
                     }
-                    steps.push(Step::Script("setup.py", vec!["undo".into(), game]));
+                    steps.push(Step::Setup {
+                        folder: game,
+                        undo: true,
+                    });
                     start(steps);
                 }
             }
@@ -651,11 +635,14 @@ impl App {
             }
             Action::SetUpAfterUpdate => {
                 let lang = kit.game_language();
-                let mut steps = vec![Step::Script("setup.py", vec![self.st.folder.trim().into()])];
+                let mut steps = vec![Step::Setup {
+                    folder: self.st.folder.trim().into(),
+                    undo: false,
+                }];
                 if !lang.is_empty() {
-                    steps.push(Step::Script("english.py", language_args(lang)));
+                    steps.push(Step::Text(lang));
                 }
-                steps.push(Step::Pictures); // last: a failure here must not skip english.py
+                steps.push(Step::Pictures); // last: a failure here must not skip the game's text
                 start(steps);
             }
             Action::Lobby(a) => self.online.act(a, &mut self.st, &kit.settings_file()),
@@ -1040,8 +1027,17 @@ fn main() -> ExitCode {
     let folder = args.first().filter(|a| args.len() == 1 && Path::new(a).is_dir());
     let step = match first.as_deref() {
         None => Vec::new(),
-        Some(_) if folder.is_some() => vec![Step::Script("setup.py", args.clone()), Step::Pictures],
-        Some("undo") => vec![Step::Script("setup.py", args.clone())],
+        Some(_) if folder.is_some() => vec![
+            Step::Setup {
+                folder: args[0].clone(),
+                undo: false,
+            },
+            Step::Pictures,
+        ],
+        Some("undo") => vec![Step::Setup {
+            folder: args.get(1).cloned().unwrap_or_default(),
+            undo: true,
+        }],
         Some("restart") => {
             say(t("launcher.msg_restarting"), 0);
             vec![Step::Game(args.clone())]
@@ -1056,13 +1052,6 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn game_text_arguments() {
-        assert_eq!(language_args("en"), ["on"]);
-        assert_eq!(language_args("it"), ["on", "it"]);
-        assert_eq!(language_args(""), ["off"]);
-    }
 
     #[test]
     fn play_py_steps() {

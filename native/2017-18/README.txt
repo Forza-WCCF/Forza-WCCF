@@ -11,7 +11,7 @@ The programs land in target\kit\2017-18 at the paths below; `cargo xtask package
                        built or shipped
   overlay\inject.exe   overlay\inject.c (must be 32-bit: it hands the game 32-bit LoadLibraryA's address)
   overlay\netguard.dll netguard\netguard.c   /LD    (secondary guard: patches the game's IPHLPAPI imports)
-  source\build\wccfnet.dll   netguard\wccfnet.c   /LD   (the primary guard, not in the kit's ZIP: setup1718.py copies it into the
+  source\build\wccfnet.dll   netguard\wccfnet.c   /LD   (the primary guard, not in the kit's ZIP: setup copies it into the
                        runtime's game folder, where the game programs import it instead of IPHLPAPI.DLL; the four stubs
                        are exported undecorated, six read-only calls are forwarded to iphlpapi, all by linker pragmas)
   source\build\test_wccfnet.exe, test_netguard.exe   netguard\test_*.c: `cargo xtask check` loads each guard from a scratch

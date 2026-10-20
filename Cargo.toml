@@ -60,6 +60,12 @@ lto = "thin"            # fat LTO + one codegen unit rebuilt the installer in 51
 # a message (launcher::run check_threads); with "abort" the whole Launcher.exe vanished and the Job closed the game unsaid
 strip = true
 
+# the installer smoke run in `cargo xtask check`: release without LTO, so it links in seconds; the ZIP keeps [profile.release]
+[profile.smoke]
+inherits = "release"
+lto = false
+codegen-units = 16
+
 [profile.dev]
 debug = "line-tables-only"
 

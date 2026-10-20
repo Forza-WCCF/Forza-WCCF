@@ -10,6 +10,8 @@ use crate::{Edition, Kit, choices, run};
 const EDITIONS: [Edition; 2] = [Edition::E1011, Edition::E1718];
 /// The installer's v0.1.0 game folder, beside a kit in the root (`install.rs` `LEGACY_GAME_DIR`).
 const LEGACY_GAME_DIR: &str = "wccf-revival";
+/// The folder an older kit kept its Python in (both editions' kits had one before 2026-10-20).
+const OLD_SCRIPTS: &str = "scripts";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
@@ -79,11 +81,9 @@ pub fn rows_in(here: &Path, roots: &[PathBuf]) -> Vec<Row> {
 /// The edition this folder is for when it has no edition name: its game's table, else its layout (an older
 /// scripts-only kit is 2010-11's).
 fn edition_of_here(here: &Path) -> Option<Edition> {
-    game_edition(&game_of(here)).or_else(|| Kit::layout(here)).or_else(|| {
-        here.join(Edition::E1718.layout().scripts)
-            .is_dir()
-            .then_some(Edition::E1011)
-    })
+    game_edition(&game_of(here))
+        .or_else(|| Kit::layout(here))
+        .or_else(|| here.join(OLD_SCRIPTS).is_dir().then_some(Edition::E1011))
 }
 
 fn candidates(here: &Path, ed: Edition, roots: &[PathBuf]) -> Vec<PathBuf> {
@@ -147,7 +147,7 @@ fn classify(dir: &Path, ed: Edition) -> Option<State> {
             State::Ready
         });
     }
-    if dir.join(Edition::E1718.layout().scripts).is_dir() {
+    if dir.join(OLD_SCRIPTS).is_dir() {
         return Some(State::OldFiles);
     }
     (table == Some(ed) && game.join("client_Release.exe").is_file()).then_some(State::GameOnly)
@@ -195,12 +195,12 @@ mod tests {
         assert_eq!(state(r, ed), State::NotInstalled, "an empty folder");
         game(&d, ed);
         assert_eq!(state(r, ed), State::GameOnly);
-        dirs(&d, &["code"]);
+        dirs(&d, &["programs"]);
         assert_eq!(state(r, ed), State::NeedsSetup);
         record(&d);
         assert_eq!(state(r, ed), State::Ready);
         // Running needs the live run's lock (run.rs); the same kit is Ready until one holds it
-        fs::remove_dir_all(d.join("code")).unwrap();
+        fs::remove_dir_all(d.join("programs")).unwrap();
         dirs(&d, &["scripts"]);
         assert_eq!(
             state(r, ed),
@@ -221,7 +221,7 @@ mod tests {
         for ed in EDITIONS {
             game(&r.join(ed.folder()), ed);
         }
-        dirs(&r.join("2017-2018"), &["scripts", "bin"]);
+        dirs(&r.join("2017-2018"), &["bin"]);
         let rows = rows_in(&r.join("2017-2018"), &[]);
         assert_eq!(rows[0].state, State::GameOnly);
         assert_eq!(
@@ -260,7 +260,7 @@ mod tests {
     fn this_folder_without_an_edition_name() {
         let root = tempfile::tempdir().unwrap();
         let here = root.path().join("Downloads kit");
-        dirs(&here, &["code"]);
+        dirs(&here, &["programs"]);
         let rows = rows_in(&here, &[]);
         assert_eq!(
             (rows[0].dir.as_deref(), rows[0].state),

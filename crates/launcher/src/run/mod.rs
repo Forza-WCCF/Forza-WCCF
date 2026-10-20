@@ -28,9 +28,9 @@
 //! supervisor: one that ends by itself (a panic, an error) is said in the run log, and the run stops if the game cannot
 //! go on without it (the card reader, the I/O board, the scene service, the network stand-ins).
 //!
-//! Still Python, started as children in the job without a window: card_steps.py (the CLUB CARD panel's requests, the
-//! table and the club card view), english.py and setup.py.  The server side is `programs\forza-server.exe all`, also a
-//! child in the job.
+//! In this process too (no Python since 2026-10-20): the club card steps (`forza::cards::steps`: the CLUB CARD panel's
+//! requests, the table and the club card view), the game's text and setup (`crate::setup`).  The server side is
+//! `programs\forza-server.exe all`, a child in the job.
 
 pub mod rules;
 
@@ -620,17 +620,6 @@ fn wait_for(
     }))
 }
 
-/// A kit Python script, without an earlier run's MXHOOK_ / WCCF settings and with `env`.
-fn python_cmd(kit: &Kit, logs: &Path, env: &[(String, String)], script: &str, args: &[String]) -> Command {
-    let mut cmd = kit.script(script);
-    cmd.args(args);
-    clean_env(&mut cmd, logs, env);
-    cmd.env("PYTHONUTF8", "1")
-        .env("PYTHONIOENCODING", "utf-8")
-        .env("PYTHONUNBUFFERED", "1");
-    cmd
-}
-
 /// `cmd` in `logs`, without an earlier run's MXHOOK_ / WCCF settings and with `env`.
 fn clean_env(cmd: &mut Command, logs: &Path, env: &[(String, String)]) {
     cmd.current_dir(logs).stdin(Stdio::null());
@@ -643,15 +632,8 @@ fn clean_env(cmd: &mut Command, logs: &Path, env: &[(String, String)]) {
     cmd.envs(env.iter().map(|(k, v)| (k, v)));
 }
 
-/// `cmd` in the job, its output to `log`; its exit code and output once it ends within `limit` (or `stop` is set: it
-/// is ended then).
-fn run_in_job(
-    job: &Job,
-    mut cmd: Command,
-    log: &Path,
-    limit: Duration,
-    stop: &AtomicBool,
-) -> Result<(i32, String), String> {
+/// `cmd` in the job, its output to `log`; its exit code and output once it ends within `limit`.
+fn run_in_job(job: &Job, mut cmd: Command, log: &Path, limit: Duration) -> Result<(i32, String), String> {
     let out = File::create(log).map_err(|e| e.to_string())?;
     let err = out.try_clone().map_err(|e| e.to_string())?;
     cmd.stdout(out).stderr(err);
@@ -664,14 +646,10 @@ fn run_in_job(
                 .unwrap_or_default();
             return Ok((status.code().unwrap_or(1), text));
         }
-        if stop.load(Ordering::Relaxed) || Instant::now() >= end {
+        if Instant::now() >= end {
             let _ = child.kill();
             let _ = child.wait();
-            return Err(if stop.load(Ordering::Relaxed) {
-                "the run is ending".to_owned()
-            } else {
-                format!("it did not finish in {} s", limit.as_secs())
-            });
+            return Err(format!("it did not finish in {} s", limit.as_secs()));
         }
         thread::sleep(Duration::from_millis(100));
     }
@@ -963,35 +941,24 @@ impl Run<'_> {
         ]
     }
 
-    /// A kit Python script, without an earlier run's MXHOOK_ / WCCF settings and with this run's.
-    fn python(&self, script: &str, args: &[String]) -> Command {
-        python_cmd(self.kit, &self.logs(), &self.kit_env(), script, args)
-    }
-
     /// `cmd` in the job, its output to data\logs\<log>; its exit code and output once it ends within `limit`.
     fn run_child(&self, cmd: Command, log: &str, limit: Duration) -> Result<(i32, String), String> {
-        run_in_job(&self.job, cmd, &self.logs().join(log), limit, &AtomicBool::new(false))
+        run_in_job(&self.job, cmd, &self.logs().join(log), limit)
     }
 
-    /// The helper threads: the club card view (view.py when the card changes) and the starting volumes of the projector
+    /// The helper threads: the club card view (written again when the card changes) and the starting volumes of the projector
     /// (muted) and seat 1.  They never stop the run.
     fn start_helper(&mut self, projector: bool) {
         let say = file_log(self.logs().join("run_helper.txt"));
         let mut h = Helper::default();
-        let (kit, job, logs, env) = (Kit::at(self.kit.dir()), self.job.clone(), self.logs(), self.kit_env());
+        let (data, logs) = (self.kit.data(), self.logs());
         // 2017-18 keeps its clubs on the game server stand-in: no club card file to show
         if self.edition == Edition::E1011 {
             h.club_view(
                 ViewFiles::new(&self.kit.data()),
-                move |stop| {
-                    let cmd = python_cmd(&kit, &logs, &env, "card_steps.py", &["view".to_owned()]);
-                    let (code, out) = run_in_job(
-                        &job,
-                        cmd,
-                        &logs.join("run_club_view.txt"),
-                        Duration::from_secs(60),
-                        stop,
-                    )?;
+                move || {
+                    let (code, out) = forza::cards::steps::run(&data, &["view"]);
+                    let _ = fs::write(logs.join("run_club_view.txt"), &out);
                     let last = out
                         .lines()
                         .rev()
@@ -1026,25 +993,19 @@ impl Run<'_> {
         self.helper = Some(h);
     }
 
-    /// The card steps the CLUB CARD panel asked for (card_steps.py: a manager transfer finished, a card switch, its
+    /// The card steps the CLUB CARD panel asked for (`forza::cards::steps`: a manager transfer finished, a card switch, its
     /// bad endings cleared, the table following the club), done while the card reader is not running; never a reason
     /// not to start.
     fn card_steps(&self, what: &[&str]) {
         if self.edition == Edition::E1718 {
             return; // its club is on the game server stand-in, its card is an Aime: no club card file
         }
-        let mut args: Vec<String> = what.iter().map(|s| (*s).to_owned()).collect();
-        args.push(self.seat.display().to_string());
-        match self.run_child(
-            self.python("card_steps.py", &args),
-            "run_card_steps.txt",
-            Duration::from_secs(120),
-        ) {
-            Ok((_, out)) => out.lines().filter(|l| !l.trim().is_empty()).for_each(|l| self.say(l)),
-            Err(e) => self.say(&format!(
-                "  club card: the card steps did not run ({e}) - the card in the slot stays"
-            )),
-        }
+        let seat = self.seat.display().to_string();
+        let mut args = what.to_vec();
+        args.push(&seat);
+        let (_, out) = forza::cards::steps::run(&self.kit.data(), &args);
+        let _ = fs::write(self.logs().join("run_card_steps.txt"), &out);
+        out.lines().filter(|l| !l.trim().is_empty()).for_each(|l| self.say(l));
     }
 
     /// Kit 6 loads its hook as wccfk.dll; a game set up by an older kit, or a newer kit unzipped over this one by hand,
@@ -1059,15 +1020,13 @@ impl Run<'_> {
             "The game's copy of the kit's helper (wccfk.dll) is missing or not this kit's - setting the game up for it \
              once (as Setup does) ...",
         );
-        let cmd = self.python("setup.py", &[self.game.display().to_string()]);
-        match self.run_child(cmd, "run_setup.txt", Duration::from_secs(3600)) {
-            Ok((code, out)) => {
-                out.lines().for_each(|l| self.say(l));
-                if code == 0 {
-                    return Ok(());
-                }
-            }
-            Err(e) => self.say(&format!("setup.py: {e}")),
+        let log = file_log(self.logs().join("run_setup.txt"));
+        let say = |l: &str| {
+            log(l);
+            self.say(l);
+        };
+        if crate::setup::game_folder(self.kit, &self.game.display().to_string(), false, &say) == 0 {
+            return Ok(());
         }
         self.say(
             "Setting the game up did not finish (see above) - open Launcher.exe, Setup and updates, and press set up.",
@@ -1075,7 +1034,7 @@ impl Run<'_> {
         Err(Failed(String::new()))
     }
 
-    /// The SETTINGS panel's english=on|it|off: done now, before anything starts (english.py refuses while the game
+    /// The SETTINGS panel's english=on|it|off: done now, before anything starts (the switch refuses while the game
     /// runs), then taken out of the file - a request, not a lasting setting.
     fn apply_english_request(&self) {
         let path = self.kit.data().join("panel.txt");
@@ -1095,24 +1054,22 @@ impl Run<'_> {
             self.say(&format!(
                 "  the game's text into {name}, as the SETTINGS panel asked - this takes a moment ..."
             ));
-            let args: Vec<String> = match lang {
-                "it" => vec!["on".into(), "it".into()],
-                "en" => vec!["on".into()],
-                _ => vec!["off".into()],
+            // forza::text swaps each file in one step, so even a stop half way leaves every file in place
+            let log = file_log(self.logs().join("run_english.txt"));
+            let last = Mutex::new(String::new());
+            let say = |l: &str| {
+                log(l);
+                if !l.trim().is_empty() {
+                    *last.lock().unwrap_or_else(PoisonError::into_inner) = l.trim().to_owned();
+                }
             };
-            // english.py swaps each file in one step, so even a stop half way leaves every file in place
-            let why = match self.run_child(
-                self.python("english.py", &args),
-                "run_english.txt",
-                Duration::from_secs(600),
-            ) {
-                Ok((0, _)) => None,
-                Ok((code, out)) => Some(
-                    out.lines()
-                        .rfind(|l| !l.trim().is_empty())
-                        .map_or_else(|| format!("english.py exit {code}"), |l| l.trim().to_owned()),
+            let why = match crate::setup::game_text(self.kit, lang, &say) {
+                0 => None,
+                code => Some(
+                    Some(last.into_inner().unwrap_or_else(PoisonError::into_inner))
+                        .filter(|l| !l.is_empty())
+                        .unwrap_or_else(|| format!("exit {code}")),
                 ),
-                Err(e) => Some(format!("it did not finish: {e}")),
             };
             match why {
                 Some(why) => self.say(&format!(
