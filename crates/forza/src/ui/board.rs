@@ -151,7 +151,7 @@ const ROLE_SPOTS: [&[(f32, f32)]; 16] = [
 ];
 
 /// A card's suitable positions, as the back of the original card shows them: 16 role ratings in [`ROLES`] order, each
-/// 1..10; 0 is no data (2017-18's own cards hold zeros there).
+/// 1..10; 0 is no data (editions 36+ get flat 8s from their position flags, see [`Aptitude::from_flags`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Aptitude {
     pub roles: [u8; 16],
@@ -176,6 +176,20 @@ impl Fit {
 }
 
 impl Aptitude {
+    /// From the 12 position flags as 24 hex digits (CF SS WG OH CH DH SH WB SB CB SW GK, one byte each): every set
+    /// flag rates its role 8, flat. Left over from the flags: TM, OMF, STP, CVR stay 0.
+    pub fn from_flags(hex: &str) -> Aptitude {
+        // flag -> index in ROLES
+        const AT: [usize; 12] = [0, 3, 2, 5, 6, 7, 8, 9, 10, 11, 14, 15];
+        let mut a = Aptitude::default();
+        for (i, &role) in AT.iter().enumerate() {
+            if hex.get(i * 2..i * 2 + 2).is_some_and(|b| b != "00") {
+                a.roles[role] = 8;
+            }
+        }
+        a
+    }
+
     pub fn known(&self) -> bool {
         self.roles.iter().any(|&r| r > 0)
     }
@@ -1521,7 +1535,7 @@ pub fn aptitude_map(p: &Painter, rect: Rect, apt: &Aptitude, lang: Lang) {
 /// The card's back (the players' request, 2026-10-14), upright as the face: the number, name and line on a band; the
 /// suitable positions as the original card's back maps them, a small pitch with the heat zone and each role rated 5
 /// or more marked with its rating (the three best named); the six stats and TOTAL beside it. From the 16 role ratings
-/// (the names and spots are the project's inference: [`ROLES`]); 2017-18's own cards say "no position data".
+/// (the names and spots are the project's inference: [`ROLES`]).
 pub fn card_back(p: &Painter, rect: Rect, card: &Card, lang: Lang) {
     let card = &*real(p.ctx(), card);
     let r = (rect.width() * 0.08) as u8;
