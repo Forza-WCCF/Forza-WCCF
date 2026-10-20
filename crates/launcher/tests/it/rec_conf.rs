@@ -20,7 +20,7 @@ fn conf_edits_as_recorded() {
     let dir = tempfile::tempdir().unwrap();
     let conf = dir.path().join("client_user_option.conf");
     let mut n = 0;
-    for line in include_str!("rec/conf.jsonl").lines() {
+    for line in include_str!("../rec/conf.jsonl").lines() {
         let rec: Value = serde_json::from_str(line).unwrap();
         let _ = fs::remove_file(&conf);
         if !rec["before"].is_null() {

@@ -2,8 +2,7 @@
 //! a stranger's claim of a live seat, forgetting, 2017-18) against `forza_server::relay`, and ports `test_relay.py`'s
 //! ownership rule (the recorded `hijack` scenario) with the 30-second report's wording.
 
-mod common;
-use common::*;
+use crate::common::*;
 use forza_server::Edition;
 use forza_server::relay::{RelayConfig, start};
 use std::collections::HashMap;

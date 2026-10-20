@@ -36,7 +36,7 @@ fn sessions_as_recorded() {
     let (slot, new) = (dir.path().join("slot.bin"), dir.path().join("new.bin"));
     let mut cards = HashMap::new();
     let (mut singles, mut pairs) = (0, 0);
-    for line in include_str!("rec/card.jsonl").lines() {
+    for line in include_str!("../rec/card.jsonl").lines() {
         let rec: Value = serde_json::from_str(line).unwrap();
         let since = at(&rec["since"]);
         let (state, bad) = if let Some(name) = rec["card"].as_str() {

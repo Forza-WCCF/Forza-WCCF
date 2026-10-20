@@ -54,14 +54,6 @@ egui_kittest.workspace = true
 name = "gallery"
 required-features = ["ui"]
 
-[[test]]
-name = "snapshots"
-required-features = ["ui"]
-
-[[test]]
-name = "text"
-required-features = ["ui"]
-
 [lints]
 workspace = true
 

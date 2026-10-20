@@ -2,8 +2,7 @@
 //! every client byte sent, every answer and hang-up compared, the firewall file and log lines checked. Also ports
 //! `test_seat_desk_game.py` and `test_hold_projector.py` (the recorded `game` and `hold*` scenarios).
 
-mod common;
-use common::*;
+use crate::common::*;
 use forza_server::desk::{DeskConfig, read_hold_ip, start};
 use forza_server::{Edition, Handle};
 use std::time::{Duration, Instant};

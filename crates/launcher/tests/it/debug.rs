@@ -224,7 +224,7 @@ fn hide_starts_the_windows_hidden() {
     for hide in [true, false] {
         let top = tempfile::tempdir().unwrap();
         let mut opts = options(std::env::current_exe().unwrap(), top.path(), Role::Control);
-        opts.args = ["window_stand_in", "--exact", "--ignored", "--nocapture"]
+        opts.args = ["debug::window_stand_in", "--exact", "--ignored", "--nocapture"]
             .map(String::from)
             .to_vec();
         opts.hide = hide;
