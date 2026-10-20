@@ -793,6 +793,45 @@ fn prj_gate_install(log: fn(&str)) {
     }
 }
 
+// The card-in mode select (TUTORIAL / NORMAL, Scene_ADV_NetModeSelect). Its setup sub_77BE90 sets the scene's byte
+// +0x118 when the Aime holds no club in COACH_LIST 272 (sub_5BF060 == 0); the original then keeps the cursor on TUTORIAL
+// (sub_77C8D0) and lays "Not available" over NORMAL (sub_77D3C0), so a brand-new card must start with the tutorial, by
+// design: a server can only lift it by listing a club. Two jumps change, the byte stays: back still leads to the
+// attract screen without a club. NORMAL then makes a club the regular way (sub_77CB10: card state 3, Club Make); the
+// tutorial keeps state 4. Only relative jumps in the checked bytes, so nothing moves with the base.
+const MODE_CURSOR: usize = 0x0077_C8F4;
+/// 0x0077C8F4: cmp byte [edi+118h],0 / mov eax,[edi+104h] / mov [edi+108h],eax / jnz 0x0077C993 (skip the left/right
+/// read). The jnz (sig byte 19) becomes 6 nops.
+const MODE_CURSOR_SIG: [u8; 25] = [
+    0x80, 0xBF, 0x18, 0x01, 0x00, 0x00, 0x00, 0x8B, 0x87, 0x04, 0x01, 0x00, 0x00, 0x89, 0x87, 0x08,
+    0x01, 0x00, 0x00, 0x0F, 0x85, 0x86, 0x00, 0x00, 0x00,
+];
+const MODE_LOCK: usize = 0x0077_D555;
+/// 0x0077D555: cmp byte [ebx+118h],0 / jz show / cmp edi,1 / jnz show (the black "Not available" layer for item 1). The
+/// jz (sig byte 7) becomes jmp: the card always shows.
+const MODE_LOCK_SIG: [u8; 14] = [
+    0x80, 0xBB, 0x18, 0x01, 0x00, 0x00, 0x00, 0x74, 0x34, 0x83, 0xFF, 0x01, 0x75, 0x2F,
+];
+
+/// 2017-18 only: NORMAL selectable on the mode select for a card without a club. Called by `free_play_install`.
+fn normal_mode_unlock(log: fn(&str)) {
+    let base = exe_base();
+    let (cursor, lock) = (MODE_CURSOR - BASE_1718 + base, MODE_LOCK - BASE_1718 + base);
+    if read::<25>(cursor) != Some(MODE_CURSOR_SIG) || read::<14>(lock) != Some(MODE_LOCK_SIG) {
+        log(
+            "normal mode: not the code studied - nothing changed (a new card plays the tutorial first)",
+        );
+    } else if !patch_code(cursor + 19, &[0x90; 6]) || !patch_code(lock + 7, &[0xEB]) {
+        log("normal mode: code not writable - NORMAL may stay locked for a new card");
+    } else {
+        log(&format!(
+            "normal mode: sub_77C8D0 at {:08X} and sub_77D3C0 at {:08X} -> NORMAL selectable for a card without a club",
+            cursor + 19,
+            lock + 7
+        ));
+    }
+}
+
 /// The C's `free_play_install`: 2010-11 and 2017-18 each at their own addresses.
 pub fn free_play_install(e1718: bool, log: fn(&str)) {
     let nm = exe_name();
@@ -802,6 +841,7 @@ pub fn free_play_install(e1718: bool, log: fn(&str)) {
     }
     if e1718 {
         qr_notice_hide(log);
+        normal_mode_unlock(log);
     }
     let [check, credits, byte] = if e1718 {
         let base = exe_base();
@@ -910,6 +950,21 @@ mod tests {
         assert!(write_data(&raw mut word as usize, &0u32.to_le_bytes()));
         assert_eq!(word, 0);
         assert!(!write_data(0x10, &[1]));
+    }
+
+    #[test]
+    fn normal_mode_unlock_jumps() {
+        // the cursor's jnz is the 6 bytes patched, rel32 0x86 from 0x0077C90D = the skip at 0x0077C993
+        assert_eq!(MODE_CURSOR_SIG[19..21], [0x0F, 0x85]);
+        assert_eq!(MODE_CURSOR + 25 + 0x86, 0x0077_C993);
+        // the lock's jz becomes a jmp to the same place: the card shown, not its black layer
+        assert_eq!(MODE_LOCK_SIG[7], 0x74);
+        let mut new = MODE_LOCK_SIG;
+        new[7] = 0xEB;
+        assert_eq!((new[7], new[8]), (0xEB, MODE_LOCK_SIG[8]));
+        // both read the scene's no-club byte +0x118
+        assert_eq!(MODE_CURSOR_SIG[2..4], [0x18, 0x01]);
+        assert_eq!(MODE_LOCK_SIG[2..4], [0x18, 0x01]);
     }
 
     #[test]
