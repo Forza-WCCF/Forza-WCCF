@@ -82,6 +82,7 @@ impl Pc {
             relay_only,
             key: dir.join(format!("{name}.key")),
             log,
+            ticket: None,
         })
         .unwrap();
         let udp = UdpSocket::bind((Ipv4Addr::LOCALHOST, 20000 + u16::from(seat))).unwrap();
