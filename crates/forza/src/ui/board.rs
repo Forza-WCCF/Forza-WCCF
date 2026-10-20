@@ -88,6 +88,10 @@ pub struct Card {
     pub season: String,
     pub pos: Position,
     pub rarity: Rarity,
+    /// The code printed on the card (the catalogue's card_code: HOLE, WGK-3, ATLE-RE-4 ...); empty for 2010-11.
+    pub code: String,
+    /// A card the 2017-18 game treats as a legend: its back prints SECRET for the six stats (they grow by training).
+    pub secret: bool,
     pub stats: [u8; 6],
     /// TOTAL as the card prints it.
     pub total: u8,
@@ -95,6 +99,12 @@ pub struct Card {
 }
 
 impl Card {
+    /// The card's series: its printed code without the trailing number (WGK-3 -> WGK, MVP-1 -> MVP, KLE stays); a
+    /// code of digits only gives none.
+    pub fn series(&self) -> &str {
+        series(&self.code)
+    }
+
     pub fn short_name(&self) -> &str {
         if self.short.is_empty() {
             self.name.rsplit(' ').next().unwrap_or(&self.name)
@@ -102,6 +112,12 @@ impl Card {
             &self.short
         }
     }
+}
+
+/// [`Card::series`] of a code.
+pub fn series(code: &str) -> &str {
+    code.trim_end_matches(|c: char| c.is_ascii_digit())
+        .trim_end_matches(['-', ' '])
 }
 
 // ---- suitable positions ----
@@ -379,6 +395,26 @@ pub fn rarity_mark(p: &Painter, c: Pos2, size: f32, rarity: Rarity) {
     }
 }
 
+/// The card's printed series as a small dark chip ending at `right` (its right edge's middle), text `h` high; none
+/// for an empty code.
+pub fn code_chip(p: &Painter, right: Pos2, h: f32, code: &str, alpha: f32) {
+    if code.is_empty() {
+        return;
+    }
+    let g = p.layout_no_wrap(
+        code.to_owned(),
+        theme::display(h),
+        theme::TEXT.gamma_multiply(alpha),
+    );
+    let pad = vec2(h * 0.35, h * 0.1);
+    let r = Rect::from_min_size(
+        right - vec2(g.size().x + 2.0 * pad.x, g.size().y / 2.0 + pad.y),
+        g.size() + 2.0 * pad,
+    );
+    p.rect_filled(r, 3, Color32::from_black_alpha((180.0 * alpha) as u8));
+    p.galley(r.min + pad, g, theme::TEXT);
+}
+
 /// How a card is drawn: at rest, lifted (dragged), a ghost left in its slot, a swap target, out of position.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Look {
@@ -530,6 +566,13 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
             14.0,
             card.rarity,
         );
+        code_chip(
+            p,
+            rect.right_bottom() + vec2(-22.0, -11.0),
+            rect.width() * 0.09,
+            card.series(),
+            alpha,
+        );
     } else {
         let g = fit(
             p,
@@ -552,6 +595,13 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
             pos2(pic.right() - 6.0, pic.top() + 6.0),
             9.0,
             card.rarity,
+        );
+        code_chip(
+            p,
+            pos2(pic.right() - 13.0, pic.top() + 6.0),
+            (rect.width() * 0.13).max(8.0),
+            card.series(),
+            alpha,
         );
     }
     face_marks(p, rect, r, card, rim, alpha, look);
@@ -1578,6 +1628,16 @@ pub fn card_back(p: &Painter, rect: Rect, card: &Card, lang: Lang) {
         "cat.off", "cat.def", "cat.tec", "cat.pow", "cat.spd", "cat.sta",
     ];
     let row = col.height() / 8.0;
+    if card.secret {
+        // a legend's back: SECRET across the six rows, as the original prints it
+        p.text(
+            pos2(col.right(), col.top() + row * 3.0),
+            Align2::RIGHT_CENTER,
+            tr!(lang, "cat.secret"),
+            theme::display(14.0 * unit),
+            theme::TEXT_DIM,
+        );
+    }
     for (i, (k, v)) in names.iter().zip(card.stats).enumerate() {
         let y = col.top() + row * (i as f32 + 0.5);
         p.text(
@@ -1587,13 +1647,15 @@ pub fn card_back(p: &Painter, rect: Rect, card: &Card, lang: Lang) {
             theme::display(11.0 * unit),
             theme::TEXT_DIM,
         );
-        p.text(
-            pos2(col.right(), y),
-            Align2::RIGHT_CENTER,
-            v.to_string(),
-            theme::display(16.0 * unit),
-            super::widgets::stat_color(v),
-        );
+        if !card.secret {
+            p.text(
+                pos2(col.right(), y),
+                Align2::RIGHT_CENTER,
+                v.to_string(),
+                theme::display(16.0 * unit),
+                super::widgets::stat_color(v),
+            );
+        }
     }
     let y = col.top() + row * 6.0;
     p.line_segment(
@@ -1769,26 +1831,34 @@ fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, tile: Vec2, back:
                     let stats = [
                         "cat.off", "cat.def", "cat.tec", "cat.pow", "cat.spd", "cat.sta",
                     ];
-                    egui::Grid::new("big-stats")
-                        .num_columns(6)
-                        .spacing(vec2(14.0, 0.0))
-                        .show(ui, |ui| {
-                            for k in stats {
-                                ui.label(
-                                    egui::RichText::new(tr!(lang, k))
-                                        .font(theme::display(12.0))
-                                        .color(theme::TEXT_DIM),
-                                );
-                            }
-                            ui.end_row();
-                            for v in card.stats {
-                                ui.label(
-                                    egui::RichText::new(v.to_string())
-                                        .font(theme::display(18.0))
-                                        .color(super::widgets::stat_color(v)),
-                                );
-                            }
-                        });
+                    if card.secret {
+                        ui.label(
+                            egui::RichText::new(tr!(lang, "cat.secret"))
+                                .font(theme::display(18.0))
+                                .color(theme::TEXT_DIM),
+                        );
+                    } else {
+                        egui::Grid::new("big-stats")
+                            .num_columns(6)
+                            .spacing(vec2(14.0, 0.0))
+                            .show(ui, |ui| {
+                                for k in stats {
+                                    ui.label(
+                                        egui::RichText::new(tr!(lang, k))
+                                            .font(theme::display(12.0))
+                                            .color(theme::TEXT_DIM),
+                                    );
+                                }
+                                ui.end_row();
+                                for v in card.stats {
+                                    ui.label(
+                                        egui::RichText::new(v.to_string())
+                                            .font(theme::display(18.0))
+                                            .color(super::widgets::stat_color(v)),
+                                    );
+                                }
+                            });
+                    }
                     ui.label(
                         egui::RichText::new(tr!(
                             lang,
@@ -1883,6 +1953,8 @@ mod tests {
             season: String::new(),
             pos: Position::Mf,
             rarity: Rarity::Regular,
+            code: String::new(),
+            secret: false,
             stats: [0; 6],
             total: 0,
             aptitude: Aptitude::default(),

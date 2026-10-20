@@ -25,6 +25,13 @@ fn card(
         season: "10-11".into(),
         pos,
         rarity,
+        // a printed code on some, so the screens show the chip
+        code: match rarity {
+            Rarity::AllTime => "HOLE".into(),
+            Rarity::Rare => "WGK-2".into(),
+            _ => String::new(),
+        },
+        secret: rarity == Rarity::AllTime,
         stats,
         // TOTAL on a 60-100 scale from the six 1-20 stats
         total: (60 + stats.iter().map(|&s| s as u32).sum::<u32>() * 40 / 120) as u8,

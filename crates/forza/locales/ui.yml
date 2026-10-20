@@ -281,6 +281,7 @@ cat.club: {en: "CLUB", it: "CLUB", ja: "クラブ"}
 cat.sort: {en: "SORT", it: "ORDINA", ja: "並び順"}
 cat.name: {en: "NAME", it: "NOME", ja: "名前"}
 cat.total: {en: "TOTAL", it: "TOTALE", ja: "総合"}
+cat.secret: {en: "SECRET", it: "SECRET", ja: "SECRET"}
 cat.off: {en: "OFF", it: "ATT", ja: "攻撃"}
 cat.def: {en: "DEF", it: "DIF", ja: "守備"}
 cat.tec: {en: "TEC", it: "TEC", ja: "技術"}

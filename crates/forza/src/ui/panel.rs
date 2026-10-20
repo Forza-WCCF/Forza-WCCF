@@ -930,9 +930,8 @@ fn deal_window(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
             )));
             c.spacing_mut().item_spacing.y = 3.0;
             let w = c.available_width();
-            for (k, v) in STATS.iter().zip(card.stats) {
-                stat_bar(&mut c, &tr!(lang, *k), v, w);
-            }
+            let names = STATS.map(|k| tr!(lang, k));
+            widgets::stat_bars(&mut c, &card, &names, &tr!(lang, "cat.secret"), w);
             c.label(
                 egui::RichText::new(format!("{}  {}", tr!(lang, "cat.total"), card.total))
                     .font(theme::display(20.0))
@@ -1873,6 +1872,10 @@ fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> bool {
                     );
                     ui.horizontal(|ui| {
                         chip(ui, card.pos.code(), true, Some(card.pos.color()));
+                        // the printed code: the original's, never translated
+                        if !card.series().is_empty() {
+                            chip(ui, card.series(), false, None);
+                        }
                     });
                 });
             });
@@ -1901,9 +1904,8 @@ fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> bool {
             );
             ui.add_space(4.0);
             let w = ui.available_width();
-            for (k, v) in STATS.iter().zip(card.stats) {
-                stat_bar(ui, &tr!(lang, *k), v, w);
-            }
+            let names = STATS.map(|k| tr!(lang, k));
+            widgets::stat_bars(ui, card, &names, &tr!(lang, "cat.secret"), w);
             ui.add_space(6.0);
             cabinet(ui, vec2(w, 44.0), &tr!(lang, "cat.add"), Cab::Go, true).clicked()
         })
@@ -3346,6 +3348,8 @@ mod tests {
             } else {
                 Rarity::Regular
             },
+            code: String::new(),
+            secret: false,
             stats,
             total,
             aptitude: Aptitude::default(),
