@@ -31,6 +31,7 @@ mod net;
 mod painter;
 mod patches;
 mod pause;
+mod probe;
 mod projector;
 
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, TextureId, ViewportId, pos2, vec2};

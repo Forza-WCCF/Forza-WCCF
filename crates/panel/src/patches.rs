@@ -47,7 +47,7 @@ pub(crate) fn exe_base() -> usize {
 }
 
 /// `N` bytes at `at`, or `None` where the C's `__try` would have caught a fault.
-fn read<const N: usize>(at: usize) -> Option<[u8; N]> {
+pub(crate) fn read<const N: usize>(at: usize) -> Option<[u8; N]> {
     let mut b = [0u8; N];
     // SAFETY: ReadProcessMemory copies into our own buffer and fails instead of faulting on unreadable memory
     unsafe {
@@ -84,7 +84,7 @@ fn write_data(at: usize, bytes: &[u8]) -> bool {
 
 /// Code bytes written as the C does: VirtualProtect, copy, protection back, FlushInstructionCache. `false`: the page
 /// could not be opened, nothing written.
-fn patch_code(at: usize, bytes: &[u8]) -> bool {
+pub(crate) fn patch_code(at: usize, bytes: &[u8]) -> bool {
     let mut old = PAGE_PROTECTION_FLAGS(0);
     // SAFETY: the caller checked the original bytes at `at`; the page is made writable for the copy only
     unsafe {
@@ -443,6 +443,7 @@ pub fn limiter_start(e1718: bool, dll_dir: &Path, log: fn(&str)) {
     limiter_install(dll_dir, log);
     if e1718 && crate::is_projector() {
         prj_gate_install(log); // here because both roles call limiter_start and lib.rs is not ours to change
+        crate::probe::install(log); // WCCF_PROBE_GAMEREADY=1 only
     }
     let dir = dll_dir.to_path_buf();
     // ponytail: the watcher runs for the process's life, as the C's; the real game never unloads the panel. Only in
@@ -702,7 +703,7 @@ const FREE_SIG: [u8; 19] = [
     0x33, 0xC0, 0x39, 0x05, 0x90, 0x0F, 0xCD, 0x00, 0x75, 0x03, 0xC2, 0x04, 0x00, 0x38, 0x05, 0x9A,
     0x0F, 0xCD, 0x00,
 ];
-const BASE_1718: usize = 0x0040_0000;
+pub(crate) const BASE_1718: usize = 0x0040_0000;
 /// (check, credits-up word, free-play byte) as virtual addresses at the preferred base, per edition.
 const FREE_2010: [usize; 3] = [0x0082_BFE0, 0x00CD_0F90, 0x00CD_0F9A];
 const FREE_1718: [usize; 3] = [0x00D3_81A0, 0x0654_B178, 0x0654_B182];
