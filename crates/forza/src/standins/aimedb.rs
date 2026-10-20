@@ -6,7 +6,9 @@
 //! (access code) -> 0x06, 0x05 register -> 0x06, 0x01 FeliCa lookup -> 0x03, 0x09 log -> 0x0A, 0x0B campaign ->
 //! 0x0C, 0x0D touch -> 0x0E, 0x0F lookup2 -> 0x10, 0x11 FeliCa lookup2 -> 0x12, 0x13 log2 -> 0x14, 0x64 hello ->
 //! 0x65, 0x66 goodbye. The database (JSON, written atomically) maps access codes to Aime IDs; an unknown card gets
-//! a new ID on lookup (a stable hash of the access code), so a card always has one club owner.
+//! a new ID on lookup, [`hash_id`] of its access code, so a card always has one club owner and two homes on one game
+//! server never share one. Cards mapped before the hash (the Python counted from 1, so every PC's first card is 1)
+//! keep their ID on this PC, where their clubs are; online ([`spawn_with`] `online`) every card answers its hash.
 
 use super::{Handle, Log, accept_loop, read_some};
 use aes::Aes128;
@@ -52,10 +54,20 @@ impl Aes {
     }
 }
 
+/// A card's Aime ID from its access code: 31 bits of its SHA-256, never 0.
+/// ponytail: two cards collide with probability ~n^2/2^32 for n cards (n = 1000 gives about 1 in 4300); past that,
+/// hand out IDs from the game server instead.
+pub fn hash_id(code: &str) -> i32 {
+    let h = Sha256::digest(code.as_bytes());
+    (u32::from_be_bytes([h[0], h[1], h[2], h[3]]) & 0x7FFF_FFFF).max(1) as i32
+}
+
 /// Access code (20 hex digits as text) -> Aime ID, kept in a JSON file.
 pub struct Db {
     path: PathBuf,
     cards: Mutex<BTreeMap<String, i32>>,
+    /// Online: every card answers [`hash_id`], a mapping from before the hash only stays in the file.
+    pub online: bool,
 }
 
 impl Db {
@@ -68,6 +80,7 @@ impl Db {
         Ok(Self {
             path,
             cards: Mutex::new(cards),
+            online: false,
         })
     }
 
@@ -82,12 +95,7 @@ impl Db {
     pub fn aime_id(&self, code: &str) -> i32 {
         let mut cards = self.cards.lock().unwrap();
         if !cards.contains_key(code) {
-            // ponytail: 31-bit hash of the access code, so homes sharing a game server do not share club owners;
-            // two cards collide with probability ~n^2/2^32 for n cards (n = 1000 gives about 1 in 4300). Past
-            // that, hand out IDs from the game server instead.
-            let h = Sha256::digest(code.as_bytes());
-            let id = (u32::from_be_bytes([h[0], h[1], h[2], h[3]]) & 0x7FFF_FFFF).max(1) as i32;
-            cards.insert(code.to_string(), id);
+            cards.insert(code.to_string(), hash_id(code));
             let tmp = self.path.with_extension("json.tmp");
             let saved = (|| {
                 let mut f = std::fs::File::create(&tmp)?;
@@ -100,7 +108,11 @@ impl Db {
                 eprintln!("aimedb: cannot save {}: {e}", self.path.display());
             }
         }
-        cards[code]
+        if self.online {
+            hash_id(code)
+        } else {
+            cards[code]
+        }
     }
 }
 
@@ -184,7 +196,19 @@ fn handle(data: &[u8], db: &Db, log: &Log) -> Option<Vec<u8>> {
 /// Serves AiMeDB on `listener` (use `127.0.0.1:0` in tests) with the database at `db_path`. Every packet is logged
 /// decrypted. Stops when the returned handle is dropped.
 pub fn spawn(listener: TcpListener, db_path: PathBuf, log: Log) -> io::Result<Handle> {
-    let db = Arc::new(Db::open(db_path)?);
+    spawn_with(listener, db_path, log, false)
+}
+
+/// [`spawn`] for a run on a shared game server when `online`: every card answers its [`hash_id`].
+pub fn spawn_with(
+    listener: TcpListener,
+    db_path: PathBuf,
+    log: Log,
+    online: bool,
+) -> io::Result<Handle> {
+    let mut db = Db::open(db_path)?;
+    db.online = online;
+    let db = Arc::new(db);
     let aes = Arc::new(Aes::new(KEY));
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
@@ -301,6 +325,39 @@ mod tests {
         assert_eq!(id("one.json", a), id("two.json", a));
         assert_ne!(id("one.json", a), id("one.json", b));
         assert!(id("one.json", a) > 0);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// 31 bits, never 0, pinned, distinct for distinct codes (10,000 sequential codes, as a run of new cards).
+    #[test]
+    fn hash_id_is_31_bit_stable_and_distinct() {
+        // pinned: a changed hash would give every card a new ID and orphan its club on a shared server
+        assert_eq!(hash_id("50000000000000000001"), 1_510_114_823);
+        let ids: std::collections::BTreeSet<i32> = (0..10_000u64)
+            .map(|n| hash_id(&format!("5{n:019}")))
+            .collect();
+        assert_eq!(ids.len(), 10_000);
+        assert!(ids.iter().all(|&i| i > 0), "positive: below 2^31");
+    }
+
+    /// A store from before the hash (the Python's ID 1): this PC keeps 1, so its club still loads; online the card
+    /// answers its hash, so two homes' first cards never share a club on one server. The file keeps 1 either way.
+    #[test]
+    fn legacy_id_1_stays_here_and_online_answers_the_hash() {
+        let dir = std::env::temp_dir().join(format!("aimedb_legacy_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (path, code) = (dir.join("aimedb.json"), "50123456789012345678");
+        std::fs::write(&path, format!("{{\"{code}\": 1}}")).unwrap();
+        assert_eq!(Db::open(path.clone()).unwrap().aime_id(code), 1);
+        let mut online = Db::open(path.clone()).unwrap();
+        online.online = true;
+        assert_eq!(online.aime_id(code), hash_id(code));
+        assert_ne!(hash_id(code), 1);
+        assert_eq!(
+            Db::open(path).unwrap().aime_id(code),
+            1,
+            "the store is not rewritten"
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 }

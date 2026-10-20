@@ -50,6 +50,21 @@ pub struct Config {
     /// The endpoint's secret key, made on first use
     pub key: PathBuf,
     pub log: Log,
+    /// The lobby VS room's ticket, sent in every hello so gmsvr pairs this PC only within its room; None = the open
+    /// pool
+    pub ticket: Option<String>,
+}
+
+/// A hello (900) payload: +4 the EndpointId; with a lobby VS room's ticket, +36..+52 the ticket in ASCII, NUL-padded
+/// (`crates/server/README.md` "VS rooms"; the server side reads it as `forza::online::vs::HELLO_TICKET`).
+pub fn hello_payload(id: &[u8; 32], ticket: Option<&str>) -> Vec<u8> {
+    let mut p = vec![0u8; if ticket.is_some() { 52 } else { 36 }];
+    p[4..36].copy_from_slice(id);
+    if let Some(t) = ticket {
+        let n = t.len().min(16);
+        p[36..36 + n].copy_from_slice(&t.as_bytes()[..n]);
+    }
+    p
 }
 
 /// The public relay (webpki roots) and the reflect port gmsvr's `--vslink-port` defaults to.
@@ -68,6 +83,7 @@ impl Config {
             relay_only: false,
             key,
             log,
+            ticket: None,
         }
     }
 }
@@ -200,6 +216,7 @@ struct Shared {
     gm: Gmsvr,
     st: Mutex<State>,
     oversize: AtomicU64,
+    ticket: Option<String>,
 }
 
 impl Shared {
@@ -208,8 +225,7 @@ impl Shared {
     }
 
     async fn hello(&self) {
-        let mut p = [0u8; 36];
-        p[4..].copy_from_slice(&self.id);
+        let p = hello_payload(&self.id, self.ticket.as_deref());
         match self.gm.ask(900, &p).await {
             Ok(b) if ok(&b) => {}
             Ok(_) => (self.log)("gmsvr refused the hello (no VS there?)"),
@@ -598,6 +614,7 @@ async fn start(cfg: Config) -> io::Result<Arc<Shared>> {
         },
         st: Default::default(),
         oversize: AtomicU64::new(0),
+        ticket: cfg.ticket,
     });
     sh.hello().await;
     (sh.log)(&format!(
@@ -676,6 +693,23 @@ pub fn spawn(cfg: Config) -> io::Result<Link> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hello_with_and_without_a_room_ticket() {
+        let id = [7u8; 32];
+        let open = hello_payload(&id, None);
+        assert_eq!(
+            (open.len(), &open[..4], &open[4..]),
+            (36, &[0u8; 4][..], &id[..])
+        );
+        let room = hello_payload(&id, Some("0123456789abcdef"));
+        assert_eq!(
+            (room.len(), &room[..36], &room[36..]),
+            (52, &open[..], &b"0123456789abcdef"[..])
+        );
+        let short = hello_payload(&id, Some("ab12"));
+        assert_eq!(&short[36..], b"ab12\0\0\0\0\0\0\0\0\0\0\0\0");
+    }
 
     #[test]
     fn lookup_answers() {

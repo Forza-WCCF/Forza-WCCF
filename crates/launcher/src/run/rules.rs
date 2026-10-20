@@ -20,6 +20,9 @@ pub enum Mode {
     Server,
     /// The cabinet only, on the server at this address; a seat asked for (1-8), or the next free one.
     Remote(String, Option<u8>),
+    /// 2017-18 online: everything on this PC (its own shop), the clubs and VS on the server data\panel.txt names
+    /// (`server=`, the value held here) through [`vs_target`].
+    Vs(String),
 }
 
 impl Mode {
@@ -28,6 +31,7 @@ impl Mode {
             Self::Local => "local",
             Self::Server => "server",
             Self::Remote(..) => "remote",
+            Self::Vs(_) => "vs",
         }
     }
 }
@@ -61,12 +65,55 @@ pub enum Words {
     Wrong(String),
 }
 
-/// 2017-18 online play is not built: a server or remote run is refused (what the player is told).
-pub const ONLINE_1718_TEXT: &str = "Online play for 2017-18 is not ready yet. Play on this PC (Launcher.exe local).";
+/// 2017-18 has no remote seats in a shared shop (ROADMAP M2): a server or remote run is refused (what the player is
+/// told). Its online play is VS between homes: ONLINE in the Launcher, then PLAY (a plain start, [`Mode::Vs`]).
+pub const ONLINE_1718_TEXT: &str = "2017-18 has no remote seats or server mode yet. To play online, choose ONLINE in \
+                                    the Launcher's window, then PLAY: this PC plays as its own shop, VS through the \
+                                    server.";
 
-/// This edition has no online play yet: only 2017-18, and only for the modes that need a server.
+/// 2017-18 refuses the shared-shop modes (server, remote).
 pub fn online_refused(edition: crate::Edition, mode: &Mode) -> bool {
-    edition == crate::Edition::E1718 && *mode != Mode::Local
+    edition == crate::Edition::E1718 && matches!(mode, Mode::Server | Mode::Remote(..))
+}
+
+/// Where a 2017-18 online run plays: the game server (control's GAME_SVR_IP / GAME_SVR_PORT, with GAME_SVR_ENTRY=1)
+/// and, for a VS room the lobby held, the desk that holds its ticket.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VsTarget {
+    pub host: String,
+    pub port: u16,
+    /// The room's desk address and ticket (data\panel.txt `server=` and `ticket=`).
+    pub room: Option<(String, String)>,
+}
+
+/// data\panel.txt's `server=` and `ticket=` and data\settings.json `club_server` into a [`VsTarget`]. A held room
+/// plays on its own server's game server (port [`crate::choices::CLUB_PORT`]); else a club server overrides the
+/// panel's server. `Err`: what is wrong, for the player.
+pub fn vs_target(panel: &str, club_server: &str) -> Result<VsTarget, String> {
+    use crate::choices::{CLUB_PORT, panel_value, parse_club_server, valid_address};
+    let server = panel_value(panel, "server").filter(|s| valid_address(s));
+    let ticket = panel_value(panel, "ticket").filter(|t| !t.is_empty());
+    let club = club_server.trim();
+    if let (Some(s), Some(t)) = (&server, ticket) {
+        return Ok(VsTarget {
+            host: s.clone(),
+            port: CLUB_PORT,
+            room: Some((s.clone(), t)),
+        });
+    }
+    if !club.is_empty() {
+        let (host, port) = parse_club_server(club)
+            .ok_or_else(|| format!("club_server \"{club}\" in data\\settings.json is not HOST or HOST:PORT"))?;
+        return Ok(VsTarget { host, port, room: None });
+    }
+    match server {
+        Some(host) => Ok(VsTarget {
+            host,
+            port: CLUB_PORT,
+            room: None,
+        }),
+        None => Err("the SETTINGS panel says play online, but names no server address".into()),
+    }
 }
 
 pub const USAGE: &str = "Launcher.exe [local | server | remote [ADDRESS] [seat N]] [debug] | stop [force | check] | \
@@ -238,6 +285,7 @@ pub fn cabinet_restart_fits(mode: &Mode, has_cabinet: bool, panel: &str, languag
     match mode {
         Mode::Remote(ip, _) => online && panel_value(panel, "server").as_deref() == Some(ip.as_str()),
         Mode::Local => !online,
+        Mode::Vs(ip) => online && panel_value(panel, "server").as_deref() == Some(ip.as_str()),
         Mode::Server => false,
     }
 }
@@ -285,8 +333,41 @@ mod tests {
         assert!(online_refused(E1718, &remote));
         assert!(online_refused(E1718, &Mode::Server));
         assert!(!online_refused(E1718, &Mode::Local));
+        assert!(!online_refused(E1718, &Mode::Vs("192.168.1.20".into())));
         assert!(!online_refused(E1011, &remote));
         assert!(!online_refused(E1011, &Mode::Server));
+    }
+
+    #[test]
+    fn vs_target_room_then_club_then_panel() {
+        let t = |panel: &str, club: &str| vs_target(panel, club);
+        let room = t(
+            "play_on=online\nserver=203.0.113.7\nticket=ab12cd34\n",
+            "club.example.org:2000",
+        )
+        .unwrap();
+        assert_eq!(
+            room,
+            VsTarget {
+                host: "203.0.113.7".into(),
+                port: 20060,
+                room: Some(("203.0.113.7".into(), "ab12cd34".into())),
+            },
+            "a held room plays on its own server, whatever the club server says"
+        );
+        let club = t("play_on=online\nserver=203.0.113.7\n", " club.example.org:2000 ").unwrap();
+        assert_eq!(
+            (club.host.as_str(), club.port, club.room),
+            ("club.example.org", 2000, None)
+        );
+        let plain = t("play_on=online\nserver=203.0.113.7\nticket=\n", "").unwrap();
+        assert_eq!(
+            (plain.host.as_str(), plain.port, plain.room),
+            ("203.0.113.7", 20060, None)
+        );
+        assert!(t("play_on=online\n", "").is_err());
+        assert!(t("play_on=online\nserver=not an address\n", "").is_err());
+        assert!(t("play_on=online\nserver=203.0.113.7\n", "bad host:0").is_err());
     }
 
     fn w(s: &str) -> Vec<String> {

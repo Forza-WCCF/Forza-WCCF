@@ -303,6 +303,14 @@ fn gamesvr_new_club_survives_restart() {
         assert_eq!(word(&ok, 4), 0);
         (coach, card)
     }; // the stand-in stops here
+    // WAL: once its links have closed, the store is checkpointed into gamesvr.db and -wal is gone, so a copy of
+    // data\save after a run (update, installer, a player's backup) holds every club
+    let wal = dir.join("gamesvr.db-wal");
+    let t = std::time::Instant::now();
+    while wal.exists() && t.elapsed() < std::time::Duration::from_secs(3) {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(!wal.exists(), "a stopped store leaves no -wal");
     let l = TcpListener::bind("127.0.0.1:0").unwrap();
     let _svc = gamesvr::spawn(l.try_clone().unwrap(), dir.clone(), quiet()).unwrap();
     let mut c = connect(&l);

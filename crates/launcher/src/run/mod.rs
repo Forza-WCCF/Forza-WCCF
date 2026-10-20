@@ -464,10 +464,32 @@ fn plain_mode(kit: &Kit, p: &Params, ui: &dyn Ui) -> Mode {
     if !choices::panel_value(&panel, "play_on").is_some_and(|v| v.eq_ignore_ascii_case("online")) {
         return Mode::Local;
     }
-    if kit.edition() == Edition::E1718 {
-        return Mode::Server; // start refuses it: 2017-18 online is not built, and the panel asked for online
-    }
     let ip = choices::panel_value(&panel, "server").unwrap_or_default();
+    if kit.edition() == Edition::E1718 {
+        // VS between homes: this PC is its own shop, the clubs and the pairing on the server's game server
+        let club = choices::setting(&kit.settings_file(), "club_server").unwrap_or_default();
+        return match rules::vs_target(&panel, &club) {
+            Err(why) => {
+                ui.say(&format!("{why} - playing on this PC."));
+                Mode::Local
+            }
+            Ok(t) if reach(&t.host, t.port).is_none() => {
+                ui.say(&format!(
+                    "The SETTINGS panel says play online, but the game server at {}:{} does not answer - playing on \
+                     this PC instead.",
+                    t.host, t.port
+                ));
+                Mode::Local
+            }
+            Ok(t) => {
+                ui.say(&format!(
+                    "Online, as the SETTINGS panel chose: VS on the server at {}.",
+                    t.host
+                ));
+                Mode::Vs(ip)
+            }
+        };
+    }
     if !choices::valid_address(&ip) {
         ui.say(&format!(
             "The SETTINGS panel says play online, but \"{ip}\" is not a server address - playing on this PC. (In the \
@@ -491,6 +513,14 @@ fn answers(ip: &str, port: u16) -> bool {
     format!("{ip}:{port}")
         .parse::<SocketAddr>()
         .is_ok_and(|a| TcpStream::connect_timeout(&a, Duration::from_secs(5)).is_ok())
+}
+
+/// The first of `host`'s addresses that takes a TCP connection on `port` within 5 s (a name or an IPv4 address).
+fn reach(host: &str, port: u16) -> Option<SocketAddr> {
+    (host, port)
+        .to_socket_addrs()
+        .ok()?
+        .find(|a| TcpStream::connect_timeout(a, Duration::from_secs(5)).is_ok())
 }
 
 fn addr(ip: &str, port: u16) -> Option<SocketAddr> {
@@ -1264,6 +1294,7 @@ impl Run<'_> {
             match &self.mode {
                 Mode::Server => " - the server side only".to_owned(),
                 Mode::Remote(ip, _) => format!(" - the cabinets, on the server at {ip}"),
+                Mode::Vs(_) => " - online: this PC's own shop, VS through the server".to_owned(),
                 Mode::Local => String::new(),
             }
         ));
@@ -1312,7 +1343,7 @@ impl Run<'_> {
             ));
         } else {
             let ctrl_conf = self.game.join(r"local\ctrl_user_option.conf");
-            if self.mode == Mode::Local {
+            if matches!(self.mode, Mode::Local | Mode::Vs(_)) {
                 for c in &confs {
                     conf::set_control_ip(c, "127.0.0.1")?; // after a "remote" run: the cabinets play on this PC again
                 }
@@ -1637,50 +1668,58 @@ impl Run<'_> {
         })?;
         let log = file_log(self.logs().join("aimedb_log.txt"));
         self.cabinet.aimedb = Some(
-            aimedb::spawn(listener, save.join("aimedb.json"), log)
-                .map_err(|e| Failed(format!("the AiMeDB stand-in did not start ({e})")))?,
+            // online every card answers the hash of its access code; this PC keeps an older store's IDs (aimedb.rs)
+            aimedb::spawn_with(
+                listener,
+                save.join("aimedb.json"),
+                log,
+                matches!(self.mode, Mode::Vs(_)),
+            )
+            .map_err(|e| Failed(format!("the AiMeDB stand-in did not start ({e})")))?,
         );
         Ok(())
     }
 
-    /// Step 1 for 2017-18: no scene service; control keeps the clubs on the game server, so the stand-in runs beside
-    /// it (ctrl_user_option.conf GAME_SVR_IP=localhost).  A cabinet on a server uses that server's.
+    /// Step 1 for 2017-18: no scene service; control keeps the clubs on a game server. This PC: the stand-in beside it
+    /// (ctrl_user_option.conf GAME_SVR_IP=localhost). Online ([`Mode::Vs`]): the server's game server with
+    /// GAME_SVR_ENTRY=1 (the control's VS entries, 243-246), the lobby's VS room claimed at its desk, the direct VS
+    /// link. A cabinet on a server uses that server's.
     fn start_gamesvr(&mut self, steps: u32) -> Result<(), Failed> {
         if matches!(self.mode, Mode::Remote(..)) {
             self.say(&format!("  1/{steps} game server stand-in: the server's"));
             return Ok(());
         }
         let port = self.p.gamesvr_port;
-        let club = choices::setting(&self.kit.settings_file(), "club_server").filter(|s| !s.trim().is_empty());
         let ctrl_conf = self.game.join(r"local\ctrl_user_option.conf");
-        if let (Some(c), Mode::Local) = (&club, &self.mode) {
-            let (host, cport) = choices::parse_club_server(c).ok_or_else(|| {
-                Failed(format!(
-                    "club_server \"{c}\" in data\\settings.json is not HOST or HOST:PORT"
-                ))
-            })?;
+        if let Mode::Vs(_) = self.mode {
+            let panel_file = self.kit.data().join("panel.txt");
+            let panel = choices::read(&panel_file);
+            let club = choices::setting(&self.kit.settings_file(), "club_server").unwrap_or_default();
+            let t = rules::vs_target(&panel, &club).map_err(Failed)?;
             // Note: only "localhost" is proven as GAME_SVR_IP (a literal 127.0.0.1 means the publisher's address);
             // a numeric IP or a hostname needs the live test.
-            let found = (host.as_str(), cport)
-                .to_socket_addrs()
-                .ok()
-                .and_then(|mut a| a.find(|a| TcpStream::connect_timeout(a, Duration::from_secs(5)).is_ok()));
-            if found.is_none() {
-                return Err(Failed(format!(
-                    "the club server {host}:{cport} does not answer (check the address, that forza-server is running, and the firewall), or clear club_server in data\\settings.json to use this PC"
-                )));
-            }
-            conf::set_conf_value(&ctrl_conf, "GAME_SVR_IP", &host)?;
-            conf::set_conf_value(&ctrl_conf, "GAME_SVR_PORT", &cport.to_string())?;
+            let found = reach(&t.host, t.port).ok_or_else(|| {
+                Failed(format!(
+                    "the game server {}:{} does not answer (check the address, that forza-server is running there, and the firewall), or play on this PC",
+                    t.host, t.port
+                ))
+            })?;
+            conf::set_game_server(&ctrl_conf, &t.host, t.port, true)?;
             self.say(&format!(
-                "  1/{steps} club server: {host}:{cport} (no local game server stand-in)"
+                "  1/{steps} game server: {}:{} - clubs and VS entries there (no local stand-in)",
+                t.host, t.port
             ));
-            self.start_vslink(found);
+            // the lobby's VS room: its ticket goes to the game server in vslink's hello (crates/server/README.md "VS
+            // rooms"); single use, so the line goes now. The window's heartbeat keeps the room while the run lasts.
+            let ticket = t.room.map(|(_, ticket)| ticket);
+            if ticket.is_some() {
+                let _ = choices::write(&panel_file, &choices::set_panel_value(&panel, "ticket", None));
+            }
+            self.start_vslink(found, ticket);
             return Ok(());
         }
-        // this PC: back to the stand-in's address after a club-server run
-        conf::set_conf_value(&ctrl_conf, "GAME_SVR_IP", "localhost")?;
-        conf::set_conf_value(&ctrl_conf, "GAME_SVR_PORT", &port.to_string())?;
+        // this PC: back to the stand-in's address, VS entries off, after an online run
+        conf::set_game_server(&ctrl_conf, "localhost", port, false)?;
         let listener = TcpListener::bind(("127.0.0.1", port)).map_err(|e| {
             Failed(format!(
                 "the game server stand-in did not start: 127.0.0.1:{port} ({e})"
@@ -1701,22 +1740,33 @@ impl Run<'_> {
         Ok(())
     }
 
-    /// The direct VS link to the club server's gmsvr; data\\settings.json "vs_link": false turns it off.  A failure is said
-    /// and the game goes on: it gives a CPU team when no link is up.
-    fn start_vslink(&mut self, gmsvr: Option<std::net::SocketAddr>) {
+    /// The direct VS link to the online game server, with the lobby room's ticket if one is held;
+    /// data\\settings.json "vs_link": false turns it off.  A failure is said and the game goes on: it gives a CPU team
+    /// when no link is up.
+    fn start_vslink(&mut self, gmsvr: SocketAddr, ticket: Option<String>) {
         if self.kit.settings()["vs_link"].as_bool() == Some(false) {
-            self.say("  Direct VS link: off (vs_link in data\\settings.json)");
+            self.say(if ticket.is_some() {
+                "  Direct VS link: off (vs_link in data\\settings.json) - so the game server cannot tell this PC's VS room: \
+                 the game pairs from the open pool"
+            } else {
+                "  Direct VS link: off (vs_link in data\\settings.json)"
+            });
             return;
         }
-        let Some(gmsvr) = gmsvr else { return };
-        let cfg = vslink::Config::public(
+        let room = ticket.is_some();
+        let mut cfg = vslink::Config::public(
             gmsvr,
             self.kit.data().join("vslink.key"),
             file_log(self.logs().join("vslink_log.txt")),
         );
+        cfg.ticket = ticket;
         match vslink::spawn(cfg) {
             Ok(link) => {
-                self.say("  Direct VS link: on (relay.wccf.it)");
+                self.say(if room {
+                    "  Direct VS link: on (relay.wccf.it), with the lobby's VS room"
+                } else {
+                    "  Direct VS link: on (relay.wccf.it)"
+                });
                 self.vslink = Some(link.handle);
             }
             Err(e) => self.say(&format!(
@@ -2215,6 +2265,7 @@ impl Run<'_> {
             Mode::Remote(ip, _) => out.push(format!("playing on the server at {ip} as seat {}", self.seat_no)),
             Mode::Server => out.push(format!("this PC is the server (TCP port {})", self.p.control_port)),
             Mode::Local => out.push("playing on this PC".into()),
+            Mode::Vs(_) => out.push("playing on this PC, VS through the server".into()),
         }
         let threads = [
             ("scene service", self.scenes.is_some()),
