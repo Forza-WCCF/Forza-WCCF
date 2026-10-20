@@ -1899,7 +1899,14 @@ fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> bool {
                 .font(theme::body(12.0))
                 .color(theme::TEXT_DIM),
             );
-            let best: Vec<_> = card.aptitude.top().iter().map(|(n, _)| *n).collect();
+            // every role at the card's top rating (a card rated from its position flags has them all at 8)
+            let top = card.aptitude.roles.iter().copied().max().unwrap_or(0);
+            let best: Vec<_> = board::ROLES
+                .iter()
+                .zip(card.aptitude.roles)
+                .filter(|(_, r)| top > 0 && *r == top)
+                .map(|(n, _)| *n)
+                .collect();
             if !best.is_empty() {
                 ui.label(
                     egui::RichText::new(tr!(lang, "cat.best_role", roles = best.join(" ")))
