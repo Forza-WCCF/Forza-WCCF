@@ -36,6 +36,21 @@ pub fn set_conf_value(conf: &Path, key: &str, value: &str) -> io::Result<bool> {
     write(conf, &raw, &out)
 }
 
+/// 2017-18's control and its game server (ctrl_user_option.conf): GAME_SVR_IP, GAME_SVR_PORT and GAME_SVR_ENTRY,
+/// 1 = online, the control's VS entries (243-246) on, else 0 (control_Release.exe reads it at +932 of its options).
+pub fn game_server_text(raw: &[u8], host: &str, port: u16, entry: bool) -> io::Result<Vec<u8>> {
+    let t = conf_text_with(raw, "GAME_SVR_IP", host)?;
+    let t = conf_text_with(&t, "GAME_SVR_PORT", &port.to_string())?;
+    conf_text_with(&t, "GAME_SVR_ENTRY", if entry { "1" } else { "0" })
+}
+
+/// [`game_server_text`] on the file; true if it changed.
+pub fn set_game_server(conf: &Path, host: &str, port: u16, entry: bool) -> io::Result<bool> {
+    let raw = fs::read(conf)?;
+    let out = game_server_text(&raw, host, port, entry)?;
+    write(conf, &raw, &out)
+}
+
 /// `set_conf_value` on the file's bytes.
 pub fn conf_text_with(raw: &[u8], key: &str, value: &str) -> io::Result<Vec<u8>> {
     let nl: &[u8] = if raw.windows(2).any(|w| w == b"\r\n") {
@@ -82,7 +97,24 @@ fn write(conf: &Path, raw: &[u8], out: &[u8]) -> io::Result<bool> {
 
 #[cfg(test)]
 mod club_tests {
-    use super::conf_text_with;
+    use super::{conf_text_with, game_server_text};
+
+    /// Online 2017-18 points control at the server's game server with its VS entries on; this PC goes back to the
+    /// stand-in with them off. The rest of setup's CONF_CONTROL stays as it was.
+    #[test]
+    fn game_server_online_then_this_pc() {
+        let setup = b"FORCE_ONLINE=1\r\nGAME_SVR_IP=localhost\r\nGAME_SVR_PORT=20050\r\nWAIT_PROJECTOR=1\r\n";
+        let on = game_server_text(setup, "203.0.113.7", 20060, true).unwrap();
+        assert_eq!(
+            on,
+            b"FORCE_ONLINE=1\r\nGAME_SVR_IP=203.0.113.7\r\nGAME_SVR_PORT=20060\r\nWAIT_PROJECTOR=1\r\nGAME_SVR_ENTRY=1\r\n"
+        );
+        let off = game_server_text(&on, "localhost", 20050, false).unwrap();
+        assert_eq!(
+            off,
+            b"FORCE_ONLINE=1\r\nGAME_SVR_IP=localhost\r\nGAME_SVR_PORT=20050\r\nWAIT_PROJECTOR=1\r\nGAME_SVR_ENTRY=0\r\n"
+        );
+    }
 
     #[test]
     fn rewrite_keeps_other_lines_and_line_ends() {
