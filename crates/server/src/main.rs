@@ -3,7 +3,7 @@
 //! `relay` and `inbox` still do). Ports are flags (`--port`, and `--desk-port` ... for `all`) so both editions share
 //! one host; a flag wins over the Python's environment variables, which win over the defaults:
 //! `WCCF_BIND` (0.0.0.0), `WCCF_BROKER_PORT` (20030), `WCCF_BROKER_SILENT` (75), `WCCF_CONTROL_LOG`, `WCCF_HOLD_FILE`,
-//! `WCCF_HOLD_FW`, `WCCF_RELAY_PORT` (20040), `WCCF_RELAY_FORGET` (30), `WCCF_INBOX_PORT` (20050),
+//! `WCCF_HOLD_FW`, `WCCF_PROJECTOR_PORT` (20031), `WCCF_RELAY_PORT` (20040), `WCCF_RELAY_FORGET` (30), `WCCF_INBOX_PORT` (20050),
 //! `WCCF_INBOX_PER_HOUR` (6), `WCCF_INBOX_KEEP` (1 GB). Exit 0 = ran its time, 1 = a port could not be bound.
 //!
 //! The 2010-11 kit ships the Windows build (`cargo xtask build` puts it in `programs\forza-server.exe`; `Launcher.exe server`
@@ -193,6 +193,7 @@ fn start_desk(
     c.port = port.unwrap_or_else(|| env("WCCF_BROKER_PORT", c.port));
     c.vs = vs;
     c.silent = Duration::from_secs_f64(env("WCCF_BROKER_SILENT", 75.0));
+    c.projector_port = env("WCCF_PROJECTOR_PORT", c.projector_port);
     c.control_log = env_path("WCCF_CONTROL_LOG").or_else(|| {
         log_file.map(|f| {
             absolute(f)

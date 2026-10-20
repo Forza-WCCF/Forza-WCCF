@@ -53,6 +53,9 @@ pub struct DeskConfig {
     pub name: String,
     /// The shop's language in the lobby: `en`, `it` or `ja` (`WCCF_SHOP_LANG`); unset = not declared.
     pub lang: Option<String>,
+    /// The projector relay's TCP port, told to a 2010-11 PC that claims with the `RELAY` word (`WCCF_PROJECTOR_PORT`,
+    /// 20031, the Python `projector_relay.py`).
+    pub projector_port: u16,
     /// How long a `RESERVE` holds its seat without a `HEARTBEAT` (60 s; tests shorten it).
     pub reserve_lease: Duration,
     /// One `LOBBY` per address in this time, else `ERR slow` (2 s; tests set 0).
@@ -84,6 +87,7 @@ impl DeskConfig {
             lang: std::env::var("WCCF_SHOP_LANG")
                 .ok()
                 .filter(|l| ["en", "it", "ja"].contains(&l.as_str())),
+            projector_port: 20031,
             reserve_lease: Duration::from_secs(lobby::LEASE_SECS),
             lobby_gap: Duration::from_secs(2),
             lobby_cache: Duration::from_secs(1),
@@ -543,6 +547,7 @@ fn session(
         ),
         _ => (line, None),
     };
+    let (line, relay) = kit_words(&line);
     {
         let mut st = sh.state.lock().unwrap();
         expire(sh, &mut st, Instant::now());
@@ -643,14 +648,16 @@ fn session(
         if show {
             st.projector = Some(seat);
         }
-        out.write_all(
+        let answer = if e1011 && relay {
+            format!("SEAT {seat} PROJECTOR {}\n", sh.cfg.projector_port)
+        } else {
             Reply::Seat {
                 seat,
                 projector: show,
             }
             .line()
-            .as_bytes(),
-        )?;
+        };
+        out.write_all(answer.as_bytes())?;
         log(&format!(
             "{peer}: seat {seat}{} - taken now: {}",
             if show { " + the projector" } else { "" },
@@ -662,6 +669,27 @@ fn session(
             out.write_all(b"PONG\n")?;
         }
     }
+}
+
+/// Takes off the words the upstream kits' `seat.py` adds: `WANT [SEAT n] [RELAY] [CARD c] [TOKEN t]`, read from
+/// the end as `seat_desk.py` does. Returns the rest and whether `RELAY` was there (the PC shows the projector through
+/// the projector relay). The token is not checked (Forza-WCCF keeps its own identity) and the card is not kept (only
+/// the upstream witness read it, from `leases.json`; this desk writes no `leases.json`).
+fn kit_words(line: &str) -> (String, bool) {
+    let mut w: Vec<&str> = line.split_whitespace().collect();
+    if let [_, "TOKEN", _] = w[w.len().saturating_sub(3)..] {
+        w.truncate(w.len() - 2);
+    }
+    if let [_, "CARD", c] = w[w.len().saturating_sub(3)..]
+        && c.bytes().all(|b| b.is_ascii_digit())
+    {
+        w.truncate(w.len() - 2);
+    }
+    let relay = w.last() == Some(&"RELAY");
+    if relay {
+        w.pop();
+    }
+    (w.join(" "), relay)
 }
 
 /// Seats in use: led by a lease, held by a reservation, or in the game (2010-11).
@@ -1067,6 +1095,21 @@ mod tests {
 
     fn step(from: &str, to: &str) -> String {
         format!("state  {from} -> {to} :whatever\n")
+    }
+
+    #[test]
+    fn kit_words_come_off_as_seat_desk_py_reads_them() {
+        let k = |l: &str| kit_words(l);
+        assert_eq!(k("WANT"), ("WANT".into(), false));
+        assert_eq!(k("WANT RELAY"), ("WANT".into(), true));
+        assert_eq!(
+            k("WANT SEAT 3 RELAY CARD 12345678 TOKEN ab"),
+            ("WANT SEAT 3".into(), true)
+        );
+        assert_eq!(k("WANT CARD 12345678"), ("WANT".into(), false));
+        assert_eq!(k("WANT CARD x"), ("WANT CARD x".into(), false)); // not a card id: ERR, as the Python
+        assert_eq!(k("WANT TOKEN"), ("WANT TOKEN".into(), false));
+        assert_eq!(k(""), (String::new(), false));
     }
 
     #[test]
