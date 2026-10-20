@@ -55,6 +55,10 @@ impl Edition {
 
 #[cfg(feature = "ui")]
 rust_i18n::i18n!("locales", fallback = "en");
+// rustc does not list the macro's yml as an input, so cargo and sccache reused a build with old text (2026-10-20);
+// include_str! puts it in the dep-info. Add each new locale file here.
+#[cfg(feature = "ui")]
+const _: &str = include_str!("../locales/ui.yml");
 
 #[cfg(feature = "ui")]
 pub mod cards;
