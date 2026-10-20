@@ -17,6 +17,8 @@ use sha2::{Digest, Sha256};
 pub const HASHES: &str = "setup-hashes.json";
 /// The guard DLL the guarded programs import.
 pub const WCCFNET: &str = "wccfnet.dll";
+/// The stand-in the game loads by name for its pings (they return at once), in the game folder and seat 1.
+pub const ICMP: &str = "ICMP.DLL";
 /// The calls wccfnet.dll stubs.
 pub const BLOCKED: [&str; 4] = [
     "IpReleaseAddress",
@@ -26,7 +28,8 @@ pub const BLOCKED: [&str; 4] = [
 ];
 
 /// The files the guard checks, each with where setup-hashes.json keeps its hash: the game's two guarded programs, seat
-/// 1's own guarded client, and the two guard DLLs (seat 1's wccfnet.dll is a link to the game's).
+/// 1's own guarded client, the two guard DLLs and the ICMP.DLL stand-in (seat 1's wccfnet.dll and ICMP.DLL are links
+/// to the game's).
 pub fn files(game: &Path, seat: &Path, client: &str, control: &str) -> Vec<(PathBuf, Vec<String>)> {
     let key = |k: &[&str]| k.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
     vec![
@@ -36,6 +39,8 @@ pub fn files(game: &Path, seat: &Path, client: &str, control: &str) -> Vec<(Path
         (game.join(WCCFNET), key(&[WCCFNET])),
         (seat.join(WCCFNET), key(&[WCCFNET])),
         (game.join("netguard.dll"), key(&["netguard.dll"])),
+        (game.join(ICMP), key(&[ICMP])),
+        (seat.join(ICMP), key(&[ICMP])),
     ]
 }
 

@@ -716,6 +716,8 @@ fn scratch_kit_1718(top: &Path) -> Kit {
     built_copy("2017-18/bin", "wccfnet.dll", &game.join("wccfnet.dll"));
     built_copy("2017-18/bin", "wccfnet.dll", &seat.join("wccfnet.dll"));
     built_copy("2017-18/overlay", "netguard.dll", &game.join("netguard.dll"));
+    built_copy("2017-18/bin", "ICMP.DLL", &game.join("ICMP.DLL"));
+    built_copy("2017-18/bin", "ICMP.DLL", &seat.join("ICMP.DLL"));
     // the real inject.exe, so netguard.dll goes into seat 1's stand-in as into the game; no panel (forza_panel.dll)
     built_copy("2017-18/overlay", "inject.exe", &kit.join(r"overlay\inject.exe"));
     for dir in [&game, &seat] {
@@ -731,6 +733,7 @@ fn scratch_kit_1718(top: &Path) -> Kit {
         "standin_control.exe": {"original": "-", "guarded": sha(&game.join("standin_control.exe"))},
         "wccfnet.dll": sha(&game.join("wccfnet.dll")),
         "netguard.dll": sha(&game.join("netguard.dll")),
+        "ICMP.DLL": sha(&game.join("ICMP.DLL")),
         "seat1/standin_client.exe": sha(&seat.join("standin_client.exe")),
     });
     fs::write(top.join("setup-hashes.json"), hashes.to_string()).unwrap();
@@ -762,6 +765,10 @@ fn a_2017_18_kit_that_is_not_guarded_starts_nothing() {
     fs::write(seat.join("standin_client.exe"), b"not the guarded copy").unwrap();
     refused("a wrong hash", "is not the file Setup made");
     guarded_copy(&seat.join("standin_client.exe"));
+
+    fs::write(seat.join("ICMP.DLL"), b"pings for real").unwrap();
+    refused("a changed ICMP.DLL in seat 1", "ICMP.DLL is not the file Setup made");
+    built_copy("2017-18/bin", "ICMP.DLL", &seat.join("ICMP.DLL"));
 
     stand_in("fakegame_iphlp.exe", &game.join("standin_control.exe"));
     let mut record: serde_json::Value =
