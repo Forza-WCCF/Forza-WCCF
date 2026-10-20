@@ -97,10 +97,15 @@ pub const CLUB_PORT: u16 = 20060;
 
 /// data\\settings.json "club_server": "" = this PC; "HOST" or "HOST:PORT" (host: a name or IPv4 address).
 pub fn parse_club_server(s: &str) -> Option<(String, u16)> {
+    host_port(s, CLUB_PORT)
+}
+
+/// "HOST" or "HOST:PORT" (host: a name or IPv4 address, `port` when none is given): a lobby server, a club server.
+pub fn host_port(s: &str, port: u16) -> Option<(String, u16)> {
     let s = s.trim();
     let (host, port) = match s.rsplit_once(':') {
         Some((h, p)) => (h, p.parse::<u16>().ok().filter(|&p| p != 0)?),
-        None => (s, CLUB_PORT),
+        None => (s, port),
     };
     let ok = !host.is_empty()
         && host.len() <= 253
@@ -137,6 +142,11 @@ mod tests {
         ] {
             assert_eq!(parse_club_server(bad), None, "{bad}");
         }
+        assert_eq!(
+            host_port("203.0.113.10:20032", 20030),
+            Some(("203.0.113.10".into(), 20032))
+        );
+        assert_eq!(host_port("lobby.wccf.it", 20030), Some(("lobby.wccf.it".into(), 20030)));
     }
 
     #[test]

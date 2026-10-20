@@ -467,7 +467,7 @@ impl Online {
             }
             LobbyAction::DirectAddress(a) => {
                 let a = a.trim().to_owned();
-                if !choices::valid_address(&a) {
+                if !launcher::lobby::valid_server(&a) {
                     refuse(t("launcher.msg_bad_address"));
                 } else if !self.servers.contains(&a) {
                     self.servers.insert(0, a);

@@ -87,11 +87,13 @@ pub struct VsTarget {
 }
 
 /// data\panel.txt's `server=` and `ticket=` and data\settings.json `club_server` into a [`VsTarget`]. A held room
-/// plays on its own server's game server (port [`crate::choices::CLUB_PORT`]); else a club server overrides the
-/// panel's server. `Err`: what is wrong, for the player.
+/// plays on its own server's game server (port [`crate::choices::CLUB_PORT`]; `server=` is the lobby's entry, whose
+/// `:port` is the desk's); else a club server overrides the panel's server. `Err`: what is wrong, for the player.
 pub fn vs_target(panel: &str, club_server: &str) -> Result<VsTarget, String> {
-    use crate::choices::{CLUB_PORT, panel_value, parse_club_server, valid_address};
-    let server = panel_value(panel, "server").filter(|s| valid_address(s));
+    use crate::choices::{CLUB_PORT, host_port, panel_value, parse_club_server};
+    let server = panel_value(panel, "server")
+        .and_then(|s| host_port(&s, CLUB_PORT))
+        .map(|(h, _)| h);
     let ticket = panel_value(panel, "ticket").filter(|t| !t.is_empty());
     let club = club_server.trim();
     if let (Some(s), Some(t)) = (&server, ticket) {
@@ -382,6 +384,10 @@ mod tests {
             (plain.host.as_str(), plain.port, plain.room),
             ("203.0.113.7", 20060, None)
         );
+        // the lobby's entry for a desk on its own port (the game server's 2017-18 desk): the host, the game server on 20060
+        let ovh = t("play_on=online\nserver=203.0.113.10:20032\nticket=ab12\n", "").unwrap();
+        assert_eq!((ovh.host.as_str(), ovh.port), ("203.0.113.10", 20060));
+        assert_eq!(ovh.room.map(|r| r.1).as_deref(), Some("ab12"));
         assert!(t("play_on=online\n", "").is_err());
         assert!(t("play_on=online\nserver=not an address\n", "").is_err());
         assert!(t("play_on=online\nserver=203.0.113.7\n", "bad host:0").is_err());

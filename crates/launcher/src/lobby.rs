@@ -8,7 +8,7 @@ use forza::online::lobby::{self, Created, Lobby, Reserved, State, VsRoom};
 use forza::ui::Lang;
 use forza::ui::lobby::{LobbyView, Row, RowState};
 use std::collections::HashMap;
-use std::net::{SocketAddr, TcpStream};
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::{Arc, mpsc::Receiver};
@@ -52,17 +52,22 @@ pub enum Msg {
     Readied { id: String, result: Result<bool, String> },
 }
 
-/// `ip` or `ip:port` as a socket address (the seat desk's port by default).
+/// A `servers` entry: `host` or `host:port`, the host a name or an IPv4 address (the seat desk's port by default).
+pub fn valid_server(server: &str) -> bool {
+    crate::choices::host_port(server, SEAT_PORT).is_some()
+}
+
+/// A `servers` entry as a socket address; a name is resolved (it may block: call it on a worker).
 pub fn socket(server: &str) -> Option<SocketAddr> {
-    let s = server.trim();
-    s.parse().ok().or_else(|| format!("{s}:{SEAT_PORT}").parse().ok())
+    let (host, port) = crate::choices::host_port(server, SEAT_PORT)?;
+    (host.as_str(), port).to_socket_addrs().ok()?.find(SocketAddr::is_ipv4)
 }
 
 /// `CLOSE id ticket` on its own thread (the host leaves its VS room; best effort like [`release`]).
 pub fn close(server: &str, id: &str, ticket: &str) -> thread::JoinHandle<()> {
-    let (a, id, ticket) = (socket(server), id.to_owned(), ticket.to_owned());
+    let (server, id, ticket) = (server.to_owned(), id.to_owned(), ticket.to_owned());
     thread::spawn(move || {
-        if let Some(a) = a {
+        if let Some(a) = socket(&server) {
             let _ = lobby::close(a, &id, &ticket);
         }
     })
@@ -71,9 +76,9 @@ pub fn close(server: &str, id: &str, ticket: &str) -> thread::JoinHandle<()> {
 /// `RELEASE ticket` on its own thread (best effort: the lease lapses by itself if this fails). Join the handle
 /// when the process is about to exit.
 pub fn release(server: &str, ticket: &str) -> thread::JoinHandle<()> {
-    let (a, ticket) = (socket(server), ticket.to_owned());
+    let (server, ticket) = (server.to_owned(), ticket.to_owned());
     thread::spawn(move || {
-        if let Some(a) = a {
+        if let Some(a) = socket(&server) {
             let _ = lobby::release(a, &ticket);
         }
     })
@@ -126,11 +131,9 @@ impl Poller {
 
     /// One call to `server` on a worker; `msg` turns the address (or why there is none) into the answer's message.
     fn call(&self, server: &str, wake: Wake, msg: impl FnOnce(Result<SocketAddr, String>) -> Msg + Send + 'static) {
-        let (a, out) = (
-            socket(server).ok_or_else(|| "not an address".to_owned()),
-            self.tx.clone(),
-        );
+        let (server, out) = (server.to_owned(), self.tx.clone());
         thread::spawn(move || {
+            let a = socket(&server).ok_or_else(|| "not an address".to_owned());
             let _ = out.send(msg(a));
             wake();
         });

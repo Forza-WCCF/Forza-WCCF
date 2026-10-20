@@ -159,3 +159,16 @@ fn leave_releases_the_seat_at_once() {
         Ok(Reserved::Ticket { .. })
     ));
 }
+
+#[test]
+fn servers_take_host_port_and_names() {
+    use launcher::lobby::{socket, valid_server};
+    assert_eq!(
+        socket("203.0.113.10:20032"),
+        Some("203.0.113.10:20032".parse().unwrap())
+    );
+    assert_eq!(socket("10.0.0.5"), Some("10.0.0.5:20030".parse().unwrap()));
+    assert_eq!(socket("localhost:20032"), Some("127.0.0.1:20032".parse().unwrap()));
+    assert!(valid_server("lobby.wccf.it") && valid_server("203.0.113.10:20032"));
+    assert!(!valid_server("") && !valid_server("host:0") && !valid_server("a b"));
+}
