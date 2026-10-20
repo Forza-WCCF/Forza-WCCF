@@ -682,7 +682,9 @@ impl App {
         // 2017-18: a club server alone is enough to play online (run::rules::vs_target)
         let club_only = self.st.club_server.as_ref().is_some_and(|c| !c.trim().is_empty());
         // a seat or VS room the lobby reserved: its server and ticket; else the Direct address, as before the lobby
-        let seat = online.then(|| self.online.take_ticket()).flatten();
+        // (2017-18: a VS room's only, crates/server/README.md "VS rooms")
+        let vs_only = kit.edition() == Edition::E1718;
+        let seat = online.then(|| self.online.take_ticket(vs_only)).flatten();
         if let Some((s, _)) = &seat {
             server.clone_from(s);
         } else if online && !choices::valid_address(&server) && !club_only {

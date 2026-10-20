@@ -134,9 +134,9 @@ impl Online {
     }
 
     /// The server PLAY goes to and the ticket for it, when a seat is held; the heartbeat goes on until the run
-    /// spends the ticket.
-    pub fn take_ticket(&mut self) -> Option<(String, String)> {
-        let h = self.held.as_mut()?;
+    /// spends the ticket. `vs_only` (2017-18): only a VS room's ticket, the one the run's vslink hello carries.
+    pub fn take_ticket(&mut self, vs_only: bool) -> Option<(String, String)> {
+        let h = self.held.as_mut().filter(|h| !vs_only || h.vs.is_some())?;
         h.played = true;
         Some((h.server.clone(), h.ticket.clone()))
     }
@@ -221,6 +221,9 @@ impl Online {
         }
         if self.poller.is_some() {
             self.rows = self.book.fill(&mut st.lobby, Instant::now());
+            if st.lobby.grey[Kind::Shops as usize].is_some() {
+                st.lobby.shops.clear(); // 2017-18: nothing behind SHOPS before the hub, the tab shows its line
+            }
         }
         let go = self.room(st);
         st.rejoin = self
@@ -360,8 +363,10 @@ impl Online {
             Ok(Reserved::Ticket { ticket, seat }) => {
                 let beat = p.beat(&server, &ticket, Duration::from_secs(HEARTBEAT_EVERY), Arc::new(poke));
                 let vs = st.lobby.vs.iter().find(|r| r.id == id);
+                // 2017-18 (SHOPS greyed) reserves only VS rooms, also a rejoin before the list came
                 let (kind, n) = match vs {
                     Some(r) => (Kind::Vs, usize::from(r.max.max(2))),
+                    None if st.lobby.grey[Kind::Shops as usize].is_some() => (Kind::Vs, 2),
                     None => (Kind::Shops, 8),
                 };
                 let mut room = Room::new(&name, kind, n);

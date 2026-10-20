@@ -793,4 +793,13 @@ mod tests {
         // lapsed: the click arms again
         assert_eq!(stop_click(armed, 18.5), (18.5 + STOP_ARM, false));
     }
+
+    #[test]
+    fn shops_greyed_on_2017_18() {
+        // the Launcher reserves only VS rooms there (crates/server/README.md "VS rooms")
+        let v = lobby_for(Edition::E1718);
+        assert_eq!((v.kind, v.grey_now()), (Kind::Vs, None));
+        assert_eq!(v.grey[Kind::Shops as usize], Some(Grey::Shops1718));
+        assert!(v.joinable().is_none());
+    }
 }
