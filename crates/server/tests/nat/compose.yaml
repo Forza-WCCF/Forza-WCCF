@@ -1,0 +1,81 @@
+# The 2017-18 direct-VS NAT harness (README.md). Nothing reaches the host's LAN or the internet (below). run.sh
+# sets BIN_DIR, SHARED, NAT_A/NAT_B, DELAY_MS and LOSS per cell.
+name: forza-nat
+
+x-node: &node
+  image: forza-nat:1
+  build: .
+  init: true
+  cap_add: [NET_ADMIN]
+  sysctls:
+    net.ipv6.conf.all.disable_ipv6: 1
+  volumes:
+    - ${BIN_DIR:?run.sh sets BIN_DIR}:/opt/forza:ro
+    - .:/nat:ro
+
+services:
+  # forza-server all with VS on (desk 20030, game server 20060, reflect 20070, relay 20040) and the test iroh relay
+  server:
+    <<: *node
+    networks:
+      wan: { ipv4_address: 10.99.0.10 }
+    command:
+      - sh
+      - -c
+      - >-
+        /opt/forza/examples/nat_peer relay --https 0.0.0.0:3340 --quic 0.0.0.0:7842 &
+        WCCF_BIND=0.0.0.0 exec /opt/forza/forza-server --edition 2017-18 all 86400 /tmp/logs
+        --store /tmp/store --allow 10.99.0.0/24 --vs-public-ip 10.99.0.10 --reflect-port 20070
+
+  nat-a: &router
+    <<: *node
+    sysctls:
+      net.ipv4.ip_forward: 1
+      net.ipv6.conf.all.disable_ipv6: 1
+    environment: { NAT: "${NAT_A:-restricted}", DELAY_MS: "${DELAY_MS:-0}", LOSS: "${LOSS:-0}", LAN_CLIENT: 192.168.11.10 }
+    networks:
+      wan: { ipv4_address: 10.99.0.2 }
+      home-a: { ipv4_address: 192.168.11.2 }
+    command: [/nat/router.sh]
+
+  nat-b:
+    <<: *router
+    environment: { NAT: "${NAT_B:-restricted}", DELAY_MS: "${DELAY_MS:-0}", LOSS: "${LOSS:-0}", LAN_CLIENT: 192.168.12.10 }
+    networks:
+      wan: { ipv4_address: 10.99.0.3 }
+      home-b: { ipv4_address: 192.168.12.2 }
+
+  # the homes' PCs: default route through their router; run.sh starts nat_peer client in them
+  client-a: &client
+    <<: *node
+    volumes:
+      - ${BIN_DIR}:/opt/forza:ro
+      - ${SHARED:?run.sh sets SHARED}:/shared
+    environment: { GW: 192.168.11.2 }
+    networks:
+      home-a: { ipv4_address: 192.168.11.10 }
+    command: [sh, -c, 'ip route replace default via $$GW && exec sleep infinity']
+
+  client-b:
+    <<: *client
+    environment: { GW: 192.168.12.2 }
+    networks:
+      home-b: { ipv4_address: 192.168.12.10 }
+
+# Homes cannot be `internal`: Docker then drops bridged frames bound outside the subnet (the PC's packets to its
+# router). They get no masquerade instead; the routers drop the default route Docker gives them, and the PCs route
+# through their router, so nothing leaves the harness.
+x-home: &home
+  driver_opts:
+    com.docker.network.bridge.enable_ip_masquerade: "false"
+
+networks:
+  wan:
+    internal: true
+    ipam: { config: [{ subnet: 10.99.0.0/24 }] }
+  home-a:
+    <<: *home
+    ipam: { config: [{ subnet: 192.168.11.0/24 }] }
+  home-b:
+    <<: *home
+    ipam: { config: [{ subnet: 192.168.12.0/24 }] }

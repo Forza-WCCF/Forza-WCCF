@@ -57,6 +57,9 @@ closed, lease ended) = nobody, never the open pool. Rooms need `all` (desk and g
 a desk without the matcher (2010-11, `desk` alone, `--no-gmsvr`) holds no rooms: `CREATE`, `READY` and `CLOSE`
 answer `ERR` as unknown words, `RESERVE room-id` answers `CLOSED`.
 
+Two homes behind their own NAT, 0-150 ms apart, through the lobby, 243-246 and vslink: the Docker harness in
+`tests/nat/` (opt-in, `tests/nat/run.sh`).
+
 **What the run sends** (the Launcher side, B3):
 1. The lobby's ticket reaches the run as today, `data\panel.txt` `ticket=t` (`play()` writes it); the run reads it
    and takes the line out, as `take_seat` does. A VS room run does not claim a desk seat (`WANT … TICKET` is for
