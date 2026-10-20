@@ -98,6 +98,8 @@ pub trait Ui {
         false
     }
     fn running(&self, _up: bool) {}
+    /// SAVE LOGS asked by the panel (data\savelogs.request): ask where, write the ZIP, answer in data\savelogs.result.
+    fn save_logs(&self, _kit: &Path, _game: &Path) {}
 }
 
 /// The game's names and numbers; tests swap them for stand-ins, free ports and names of their own.
@@ -707,6 +709,7 @@ enum Event {
     Ended(u32),
     Restart,
     Request(String),
+    SaveLogs,
 }
 
 /// What a supervised run ended with.
@@ -1838,6 +1841,9 @@ impl Run<'_> {
                 if let Some(word) = take(&data.join(format!("{}.request", kind.name()))) {
                     events.push(Event::Request(word.trim().to_owned()));
                 }
+                if kind == Kind::Run && take(&data.join("savelogs.request")).is_some() {
+                    events.push(Event::SaveLogs);
+                }
                 if kind == Kind::Run
                     && let Some(address) = take(&data.join("sendlogs.request"))
                 {
@@ -1871,6 +1877,10 @@ impl Run<'_> {
                 Event::Ended(id) => self.ended(id),
                 Event::Restart => self.restart(),
                 Event::Request(word) => self.answer(&word),
+                Event::SaveLogs => {
+                    self.ui.save_logs(self.kit.dir(), &self.game);
+                    None
+                }
             };
             if let Some(end) = end {
                 self.ui.running(false);

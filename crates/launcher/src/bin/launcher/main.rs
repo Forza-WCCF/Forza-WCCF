@@ -292,9 +292,27 @@ impl run::Ui for WindowUi {
     fn ask(&self, _question: &str) -> bool {
         // no owner (any thread may ask), kept in front of the game
         message(
-            &t("launcher.msg_stop_anyway"),
+            &t(if Kit::here().edition() == Edition::E1718 {
+                "launcher.msg_stop_anyway_1718"
+            } else {
+                "launcher.msg_stop_anyway"
+            }),
             MB_YESNO | MB_ICONQUESTION | MB_TOPMOST | MB_SETFOREGROUND,
         ) == IDYES
+    }
+
+    fn save_logs(&self, kit: &Path, game: &Path) {
+        let (kit, game) = (kit.to_path_buf(), game.to_path_buf());
+        // the dialog waits for the player: not on the supervisor's thread
+        thread::spawn(move || {
+            let result = kit.join("data").join("savelogs.result");
+            let line = match save_logs(&kit, Some(&game), None) {
+                Ok(Some(path)) => format!("ok {}", path.display()),
+                Ok(None) => "cancel".to_owned(),
+                Err(e) => format!("fail {e}"),
+            };
+            let _ = choices::write(&result, &format!("{line}\n"));
+        });
     }
 
     fn running(&self, up: bool) {
@@ -305,6 +323,38 @@ impl run::Ui for WindowUi {
             say(t("launcher.msg_running"), 1000);
         }
         poke();
+    }
+}
+
+/// SAVE LOGS: the save dialog (forza-wccf-logs-<date>.zip), then the logs ZIP there; the place chosen, None when the
+/// dialog was cancelled.  Says the result in the status line.
+fn save_logs(kit: &Path, game: Option<&Path>, parent: Option<&eframe::Frame>) -> Result<Option<PathBuf>, String> {
+    let now = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+    let name = format!(
+        "forza-wccf-logs-{:04}{:02}{:02}.zip",
+        now.year(),
+        u8::from(now.month()),
+        now.day()
+    );
+    let mut dialog = rfd::FileDialog::new()
+        .set_title(t("logs.save_title"))
+        .set_file_name(name)
+        .add_filter("ZIP", &["zip"]);
+    if let Some(p) = parent {
+        dialog = dialog.set_parent(p);
+    }
+    let Some(dest) = dialog.save_file() else {
+        return Ok(None);
+    };
+    match forza::online::send_logs::pack_to_file(kit, game, &forza::online::send_logs::Scrub::from_env(), &dest) {
+        Ok(_) => {
+            say(tf("logs.saved", &[("path", &dest.display().to_string())]), 0);
+            Ok(Some(dest))
+        }
+        Err(e) => {
+            refuse(tf("logs.save_failed", &[("why", &e.to_string())]));
+            Err(e.to_string())
+        }
     }
 }
 
@@ -595,6 +645,12 @@ impl App {
                 if let Some(p) = picked {
                     self.st.folder = p.display().to_string();
                 }
+            }
+            Action::SaveLogs => {
+                let game = self.st.folder.trim();
+                let game = (!game.is_empty()).then(|| Path::new(game));
+                // ok and cancel need nothing more: the status line has the first
+                let _ = save_logs(kit.dir(), game, Some(frame));
             }
             Action::Pictures { choose } => self.pictures(&kit, frame, choose),
             Action::SkipTutorial => {

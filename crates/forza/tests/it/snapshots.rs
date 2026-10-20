@@ -525,13 +525,10 @@ fn settings_choices_and_restart() {
         );
         s.file_changed = false;
     }
-    h.get_by_label("Italiano").click();
+    // SAVE LOGS needs no server and no second click
+    h.get_by_label("SAVE LOGS").click();
     h.run_steps(1);
-    assert_eq!(st.borrow().file.english.as_deref(), Some("it"));
-    h.get_by_role_and_label(egui::accesskit::Role::RadioButton, "English")
-        .click();
-    h.run_steps(1);
-    assert_eq!(st.borrow().file.english, None); // the text it has now: no request
+    assert!(st.borrow().save_logs);
     h.get_by_label("RESTART NOW").click();
     h.run_steps(1);
     assert!(!st.borrow().restart);
@@ -539,7 +536,7 @@ fn settings_choices_and_restart() {
     h.get_by_label("RESTART NOW").click();
     h.run_steps(1);
     h.run_steps(1);
-    h.get_by_label_contains("CLICK AGAIN").click();
+    h.get_by_label_contains("CLICK TO CONFIRM").click();
     h.run_steps(1);
     assert!(st.borrow().restart);
     h.snapshot("panel_settings_changed_en");
@@ -597,7 +594,7 @@ fn club_card_switch_and_clear() {
     st.borrow_mut().club.session = "cut".into();
     h.get_by_label("CLEAR BAD ENDINGS").click();
     h.run_steps(2);
-    h.get_by_label("CLICK AGAIN TO CLEAR").click();
+    h.get_by_label("CLICK TO CONFIRM").click();
     h.run_steps(2);
     assert_eq!(st.borrow_mut().club_request.take(), Some(ClubPick::Fix));
     h.snapshot("panel_clubcard_view_en");

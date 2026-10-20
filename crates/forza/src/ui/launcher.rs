@@ -56,6 +56,8 @@ pub enum Action {
     SetUpAfterUpdate,
     /// The window's language changed (`lang`).
     Language,
+    /// SAVE LOGS: pick a place and write the logs ZIP there.
+    SaveLogs,
     /// The player chose something in the online lobby.
     Lobby(LobbyAction),
     /// "Rejoin ..." (`rejoin`): reserve the last seat again.
@@ -343,7 +345,7 @@ pub fn show(ui: &mut Ui, st: &mut LauncherState) -> Option<Action> {
                         &tr!(lang, "launcher.output_hint"),
                         &mut open,
                         accent,
-                        |ui| output(ui, st, lang),
+                        |ui| output(ui, st, lang, &mut act),
                     );
                     st.output_open = open;
                     if !st.updates {
@@ -409,23 +411,6 @@ fn play(
                     *act = Some(Action::VsLink);
                 }
             }
-            ui.horizontal(|ui| {
-                field(ui, &tr!(lang, "launcher.game_text"), label_w);
-                segmented(
-                    ui,
-                    &mut st.game_text,
-                    &["English", "Italiano", &tr!(lang, "launcher.original_ja")],
-                    w,
-                );
-            });
-            ui.horizontal(|ui| {
-                ui.add_space(label_w);
-                ui.label(
-                    egui::RichText::new(tr!(lang, "launcher.game_text_hint"))
-                        .font(theme::body(12.0))
-                        .color(theme::TEXT_DIM),
-                );
-            });
         });
         ui.add_space(4.0);
         let size = vec2(ui.available_width(), 64.0);
@@ -554,6 +539,18 @@ fn setup(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Actio
             .clicked()
         {
             *act = Some(Action::SkipTutorial);
+        }
+        // one language setting: the title bar's; this is the one exception (0 English, 1 Italian, 2 the original)
+        let mut original = st.game_text == 2;
+        if toggle_row(
+            ui,
+            &mut original,
+            &tr!(lang, "launcher.original_ja_text"),
+            &tr!(lang, "launcher.skip_tutorial_hint"),
+        )
+        .clicked()
+        {
+            st.game_text = if original { 2 } else { usize::from(lang == Lang::It) };
         }
     });
 }
@@ -704,7 +701,7 @@ fn update(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
     }
 }
 
-fn output(ui: &mut Ui, st: &mut LauncherState, lang: Lang) {
+fn output(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Action>) {
     egui::Frame::new()
         .fill(theme::WELL)
         .corner_radius(theme::RADIUS)
@@ -731,9 +728,14 @@ fn output(ui: &mut Ui, st: &mut LauncherState, lang: Lang) {
                     }
                 });
         });
-    if action(ui, &tr!(lang, "launcher.copy")).clicked() {
-        ui.ctx().copy_text(st.output.join("\r\n"));
-    }
+    ui.horizontal(|ui| {
+        if action(ui, &tr!(lang, "launcher.copy")).clicked() {
+            ui.ctx().copy_text(st.output.join("\r\n"));
+        }
+        if action(ui, &tr!(lang, "launcher.save_logs")).clicked() {
+            *act = Some(Action::SaveLogs);
+        }
+    });
 }
 
 fn confirm_modal(ui: &mut Ui, st: &mut LauncherState, c: &Confirm, lang: Lang) -> Option<Action> {
