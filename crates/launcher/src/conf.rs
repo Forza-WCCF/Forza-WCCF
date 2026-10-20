@@ -38,10 +38,43 @@ pub fn set_conf_value(conf: &Path, key: &str, value: &str) -> io::Result<bool> {
 
 /// 2017-18's control and its game server (ctrl_user_option.conf): GAME_SVR_IP, GAME_SVR_PORT and GAME_SVR_ENTRY,
 /// 1 = online, the control's VS entries (243-246) on, else 0 (control_Release.exe reads it at +932 of its options).
+/// `host` must be one the control can use: see [`game_server_host`].
 pub fn game_server_text(raw: &[u8], host: &str, port: u16, entry: bool) -> io::Result<Vec<u8>> {
+    let host = game_server_host(host)?;
+    if port == 0 {
+        return Err(io::Error::other("the game server port must be 1-65535"));
+    }
     let t = conf_text_with(raw, "GAME_SVR_IP", host)?;
     let t = conf_text_with(&t, "GAME_SVR_PORT", &port.to_string())?;
     conf_text_with(&t, "GAME_SVR_ENTRY", if entry { "1" } else { "0" })
+}
+
+/// GAME_SVR_IP as the control reads it (control 0x49EE90, 0x440C80): at most 63 bytes (more crashes it), no blanks;
+/// exactly `127.0.0.1` means "use the network's own host" (none here: never connects), so that one becomes
+/// `localhost`. A numeric address goes to `inet_addr`, which reads leading zeros as octal, accepts short forms and
+/// takes 255.255.255.255 as an error, so a numeric address must be a plain dotted IPv4 other than that one.
+fn game_server_host(host: &str) -> io::Result<&str> {
+    let bad = |why: &str| Err(io::Error::other(format!("game server address \"{host}\": {why}")));
+    if host == "127.0.0.1" {
+        return Ok("localhost");
+    }
+    if host.is_empty() || host.len() > 63 {
+        return bad("empty or longer than 63 characters");
+    }
+    if host
+        .bytes()
+        .any(|b| b.is_ascii_whitespace() || b.is_ascii_control() || b == b':')
+    {
+        return bad("blanks or a colon (IPv6 does not work)");
+    }
+    if host.bytes().all(|b| b.is_ascii_digit() || b == b'.') {
+        // Ipv4Addr refuses leading zeros and short forms
+        match host.parse::<std::net::Ipv4Addr>() {
+            Ok(ip) if !ip.is_broadcast() => {}
+            _ => return bad("not a plain dotted IPv4 address (four numbers 0-255, no leading zeros)"),
+        }
+    }
+    Ok(host)
 }
 
 /// [`game_server_text`] on the file; true if it changed.
@@ -114,6 +147,28 @@ mod club_tests {
             off,
             b"FORCE_ONLINE=1\r\nGAME_SVR_IP=localhost\r\nGAME_SVR_PORT=20050\r\nWAIT_PROJECTOR=1\r\nGAME_SVR_ENTRY=0\r\n"
         );
+    }
+
+    #[test]
+    fn game_server_address_is_one_the_control_can_use() {
+        let raw = b"GAME_SVR_IP=localhost\r\n";
+        let ip = |h: &str| game_server_text(raw, h, 20060, true).map(|t| String::from_utf8(t).unwrap());
+        assert!(ip("127.0.0.1").unwrap().starts_with("GAME_SVR_IP=localhost\r\n"));
+        for ok in ["203.0.113.10", "club.example.org", &"a".repeat(63)] {
+            assert!(ip(ok).unwrap().starts_with(&format!("GAME_SVR_IP={ok}\r\n")), "{ok}");
+        }
+        for bad in [
+            "",
+            "0203.0.113.10",
+            "203.0.113",
+            "255.255.255.255",
+            "a b",
+            "::1",
+            &"a".repeat(64),
+        ] {
+            assert!(ip(bad).is_err(), "{bad}");
+        }
+        assert!(game_server_text(raw, "localhost", 0, true).is_err());
     }
 
     #[test]

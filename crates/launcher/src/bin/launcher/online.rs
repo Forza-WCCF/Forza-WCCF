@@ -16,9 +16,11 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// The countdown from both ready to the run.
 const COUNTDOWN: Duration = Duration::from_secs(5);
-/// READY alone this long: the run starts anyway and the game gives a CPU team.
-/// ponytail: a guess; how long the 2017-18 control polls 245 before its CPU fallback is measured in M3's gate.
-const VS_WAIT: Duration = Duration::from_secs(90);
+/// READY alone this long: the run starts anyway and the game gives a CPU team. The client polls REQ_MATCH every 10 s,
+/// `vs::POLLS` times, the first 10 s after its entry, so its control commits the CPU fallback about 10 * POLLS s in; 10 s
+/// more of margin.
+/// ponytail: from the disassembly; a live capture of the poll times confirms it (M3's gate).
+const VS_WAIT: Duration = Duration::from_secs(10 * forza::online::vs::POLLS as u64 + 10);
 /// In a VS room the list is asked for this often (the desk takes one `LOBBY` per address every 2 s).
 const ROOM_EVERY: Duration = Duration::from_secs(2);
 /// The rejoin offer's time is kept fresh this often while a run is on (a Launcher killed with its game still offers).
