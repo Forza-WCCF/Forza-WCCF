@@ -8,7 +8,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
 
 fn records() -> Vec<Value> {
-    include_str!("rec/keys.jsonl")
+    include_str!("../rec/keys.jsonl")
         .lines()
         .map(|l| serde_json::from_str(l).unwrap())
         .collect()

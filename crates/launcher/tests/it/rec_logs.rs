@@ -164,7 +164,7 @@ fn rotate_case(root: &Path, rec: &Value) {
 
 #[test]
 fn logs_as_recorded() {
-    let mut lines = include_str!("rec/logs.jsonl")
+    let mut lines = include_str!("../rec/logs.jsonl")
         .lines()
         .map(|l| serde_json::from_str::<Value>(l).unwrap());
     let offset = lines.next().unwrap()["utc_offset"].as_i64().unwrap();

@@ -9,7 +9,7 @@ use serde_json::Value;
 
 #[test]
 fn find_game_as_recorded() {
-    let rec = include_str!("rec/kit.jsonl");
+    let rec = include_str!("../rec/kit.jsonl");
     let mut lines = rec.lines().map(|l| serde_json::from_str::<Value>(l).unwrap());
     let root = tempfile::tempdir().unwrap();
     let root = root.path();
