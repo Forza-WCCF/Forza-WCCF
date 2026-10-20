@@ -54,7 +54,8 @@ token the control then sends as the seat's address in MATCHING_ENTRY 243 (+8 add
 pairs an entry only within its pool: no ticket = M3's open pool (round, rematch history and the rest as before); a
 room's ticket = the other PC of that room, across rounds and history; a ticket the desk no longer holds (room
 closed, lease ended) = nobody, never the open pool. Rooms need `all` (desk and game server in one process, VS on);
-separate `desk` and `gmsvr` processes share no matcher, and ticketed entries then pair with nobody.
+a desk without the matcher (2010-11, `desk` alone, `--no-gmsvr`) holds no rooms: `CREATE`, `READY` and `CLOSE`
+answer `ERR` as unknown words, `RESERVE room-id` answers `CLOSED`.
 
 **What the run sends** (the Launcher side, B3):
 1. The lobby's ticket reaches the run as today, `data\panel.txt` `ticket=t` (`play()` writes it); the run reads it

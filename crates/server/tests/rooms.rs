@@ -16,6 +16,7 @@ fn desk(tune: impl FnOnce(&mut DeskConfig)) -> Handle {
     c.port = 0;
     c.lobby_gap = Duration::ZERO;
     c.lobby_cache = Duration::ZERO;
+    c.vs = Some(Arc::new(Matcher::default())); // rooms need the game server's matcher
     tune(&mut c);
     start(c, Arc::new(|_| {})).unwrap()
 }
@@ -311,4 +312,26 @@ fn the_desk_tells_the_matcher_who_sits_where() {
     pc(&m, 5, Some(&g1));
     assert_eq!(partner(&m, 5), None);
     assert_eq!(partner(&m, 1), None);
+}
+
+#[test]
+fn no_rooms_without_the_matcher() {
+    // 2010-11, or a 2017-18 desk without its game server: the room words are unknown words
+    for (ed, name) in [(Edition::E1011, "2010-11"), (Edition::E1718, "2017-18")] {
+        let mut c = DeskConfig::new(ed);
+        (c.bind, c.port, c.lobby_gap, c.lobby_cache) =
+            ("127.0.0.1".into(), 0, Duration::ZERO, Duration::ZERO);
+        let d = start(c, Arc::new(|_| {})).unwrap();
+        let a = d.addr();
+        for w in [
+            "CREATE vs",
+            "CREATE vs open",
+            "READY 0a1b2c3d t",
+            "CLOSE 0a1b2c3d t",
+        ] {
+            assert!(say(a, w).starts_with("ERR"), "{name} {w}");
+        }
+        assert_eq!(say(a, "RESERVE 0a1b2c3d 2"), "CLOSED");
+        assert!(lobby::fetch(a, name).unwrap().vs.is_empty());
+    }
 }

@@ -516,6 +516,7 @@ fn session(
         let held = sh.held.load(Ordering::Relaxed);
         return out.write_all(if held { b"HOLD 1\n" } else { b"HOLD 0\n" });
     }
+    let rooms = sh.cfg.vs.is_some();
     match line.split_whitespace().collect::<Vec<_>>()[..] {
         ["LOBBY", edition] => return lobby_answer(sh, ip, edition, &mut out),
         ["RESERVE" | "CREATE", ..] if sh.slow(ip, Instant::now()) => {
@@ -530,10 +531,11 @@ fn session(
         }
         ["HEARTBEAT", t] => return heartbeat(sh, t, &mut out),
         ["RELEASE", t] => return release(sh, t, &mut out),
-        ["CREATE", "vs"] => return create(sh, false, &mut out),
-        ["CREATE", "vs", "open"] => return create(sh, true, &mut out),
-        ["READY", id, t] => return ready(sh, id, t, &mut out),
-        ["CLOSE", id, t] => return close(sh, id, t, &mut out),
+        // VS rooms only beside a game server's matcher (`all`, 2017-18); else these words are unknown (ERR below)
+        ["CREATE", "vs"] if rooms => return create(sh, false, &mut out),
+        ["CREATE", "vs", "open"] if rooms => return create(sh, true, &mut out),
+        ["READY", id, t] if rooms => return ready(sh, id, t, &mut out),
+        ["CLOSE", id, t] if rooms => return close(sh, id, t, &mut out),
         _ => {}
     }
     // `WANT ... TICKET t` claims the seat `RESERVE` held
