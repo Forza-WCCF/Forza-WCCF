@@ -11,6 +11,16 @@ WHAT IT IS
   or a game controller's buttons, SETTINGS, and CLUB CARD, your club card and your other clubs.
   The kit holds none of the original files. Everything that comes from the game is made by setup from YOUR copy.
 
+NEW IN THE NEXT KIT (not released yet)
+  - No Python: setup, undo, the game's text (English, Italiano, Japanese) and the club card's steps run inside
+    Launcher.exe, so the kit has no python\ or code\ folder. The command-line card editor (edit.py) is gone; CLEAR BAD
+    ENDINGS and the card switches stay in Launcher.exe and the in-game CLUB CARD.
+  - The online lobby: choose Online in Launcher.exe and it lists the SHOPS of the servers you have typed in (name,
+    players x/8, ping, language, state, time to the next ENTRY). JOIN takes a seat; REJOIN takes the same seat back.
+    See ONLINE below.
+  - Pause: P (or the PAUSE button) holds a match for up to 20 seconds. See PAUSE.
+  - The installer's --kit step sets up this kit without Python (see the installer's README).
+
 NEW IN KIT 6
   - Your club card is safer: a file held by another program (an antivirus scan, a backup tool) can no longer leave
     a half-written card, and a damaged card no longer stops the game - you get a fresh card and the old one is kept.
@@ -158,6 +168,7 @@ PLAY
       X       decide          C   shoot          arrows   tactics
       F1      test menu       F11 window size
   or click the buttons around the picture. Keys only count while a game window is in front.
+  P       pause a match (see PAUSE below)
   Your own keys: the KEYS button (right of START) lists every cabinet button with a KEY box and a CONTROLLER box.
   Click a KEY box, press the key you want; a key another button already has swaps over. Esc, F10, F11, Alt and the
   Windows keys stay free.
@@ -170,6 +181,13 @@ PLAY
   Your club is saved in data\save\seat1_club.bin. Back it up.
   The kit's version (KIT 5.5 ...) is at the top right of the game, under the ping when you play online: give it
   when you report a problem.
+
+PAUSE
+  P, or the PAUSE button in the page bar, holds a match for up to 20 seconds with a PAUSED page over the game's last
+  frame and the game's sound muted. P or RESUME ends it sooner; the match goes on by itself after 20 seconds, and the
+  next pause waits 10 seconds. It works only in a match on this PC with no other seat linked and no projector running;
+  otherwise the panel says why (online, projector, card being saved, game clock already stopped, full-screen mode).
+  Change the key in KEYS.
 
 SETTINGS (left side, under CARD)
   NOW: the link to the server, your card's session, its bad endings, its last save and backup, the game's text.
@@ -211,6 +229,14 @@ QUIT
   A game that is stuck (no window to close, or it will not close): "Launcher.exe stop force".
 
 ONLINE (play with others on one server)
+  The lobby: in Launcher.exe pick Online. Open "Direct address" and type a server's address (HOST or HOST:PORT; the
+  lobby asks every address you have typed). SHOPS lists that server's shops: NAME, PLAYERS (x/8), PING, LANG and
+  STATE (OPEN, IN MATCH, FULL, CLOSED, NO ANSWER) with the time to the shop's next ENTRY. Filters: language, open
+  only, ping under 150 ms. Pick a row and press JOIN: you hold a seat and play from the next ENTRY (the lobby says in
+  about how long), then PLAY. LEAVE gives the seat up. If the game or Launcher closes, REJOIN (offered for 75
+  seconds) takes the same seat back. VS ROOMS is greyed for 2010-11 ("not available yet"). Keys: Up/Down row,
+  Left/Right or Tab the list, Enter join, F5 refresh, Esc leave. Gamepad: D-pad or left stick move, A = Enter,
+  B = Esc, X = refresh, LB/RB = the list.
   One PC hosts: "Launcher.exe server" starts only the server, in the background - no game window opens, and the
   window that started it closes by itself after 30 seconds while the server keeps running ("Launcher.exe stop" ends
   it). That PC must let in TCP ports 20002, 20030 and 20050 and UDP 20040; at home behind a router, forward those

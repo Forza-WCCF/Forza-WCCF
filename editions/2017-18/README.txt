@@ -5,9 +5,20 @@ Forza-WCCF 2017-18 - 0.1.0-alpha.1
 This is an alpha: it plays, it is not finished, and it needs testers. Read WHAT IS NOT IN THIS ALPHA and KNOWN ISSUES
 before you start.
 
+NEW IN THIS RELEASE (not released yet)
+  - No Python: setup, the card catalogue, the card pictures and the game's text run inside Launcher.exe. Nothing to
+    install; the download is smaller (no python\ or scripts\ folder).
+  - Online play is on. Choose Online in Launcher.exe and the LOBBY lists VS ROOMS: HOST VS makes a room with a 4-letter
+    code, QUICK MATCH takes the oldest open room (or opens one), both players press READY, a 5-second countdown starts
+    the game. The lobby works with the keyboard and a gamepad.
+  - Online, every card has its own Aime ID, so two homes never share one club.
+  - The Club server and Direct VS link rows moved under ONLINE, in the "Direct address" fold.
+  - Pause: P (or the PAUSE button) holds a match on this PC for up to 20 seconds.
+  - The installer's --kit step takes this edition's ZIP too (see the installer's README).
+
 WHAT IT IS
-  World Club Champion Football 2017-18 on one Windows PC, offline, one seat, from YOUR OWN game files. Forza-WCCF
-  stands in for the arcade's hardware and servers: the game server (your club and its saves), the network and keychip,
+  World Club Champion Football 2017-18 on one Windows PC, one seat, from YOUR OWN game files; online VS with another
+  home is optional. Forza-WCCF stands in for the arcade's hardware and servers: the game server (your club and its saves), the network and keychip,
   the Aime card reader, the I/O board. Around the game window there is a panel with the cabinet's buttons and a
   formation board for your cards. Forza-WCCF holds none of the original files: everything that comes from the game is
   made from your copy.
@@ -43,19 +54,34 @@ PLAY
   KEY PLAYER and START. The panel's FORMATION BOARD shows your cards: drag one to move it, drop it on another to swap.
   Rare 2D-code cards work: the game server lists them as registered.
   Put your card in soon after starting; take it out (I) after a match, then close the game window.
-  Online VS (with a club server set in Launcher.exe): "Direct VS link" connects you to the other player's PC. The first time,
-  Windows Firewall may ask about Launcher.exe: allow it for direct connections; if you deny it, VS still works through
-  the relay (relay.wccf.it), only with more delay. Untick the box to turn the link off.
+  P       pause a match on this PC (up to 20 seconds, then it goes on by itself; P or RESUME ends it sooner; the next
+          pause waits 10 seconds). Not online, not with another seat linked, not while the projector runs. Change the
+          key under KEYS.
+
+ONLINE (VS between two homes)
+  1. In Launcher.exe pick Online. Open "Direct address" and type the server's address (HOST or HOST:PORT); the
+     lobby asks every address you have typed. The project's server lets in only addresses on its allow list: ask
+     its operator to add yours. SHOPS stays greyed for 2017-18; VS ROOMS is the list.
+  2. HOST VS makes a room and shows its code (e.g. K7QM): tell your friend, who picks that room and presses JOIN.
+     QUICK MATCH joins the oldest open room still waiting, or opens one. LEAVE (Esc) gives the seat up.
+  3. Each player presses READY. When both are ready a 5-second countdown starts the game. If you are ready and nobody
+     comes for about 90 seconds, the game starts with a CPU team instead.
+  4. Lobby keys: Up/Down row, Left/Right or Tab the list, Enter join or READY, H HOST VS, F5 refresh, Esc leave.
+     Gamepad: D-pad or left stick move, A = Enter, B = Esc, X = refresh, Y = HOST VS, LB/RB = the list.
+  "Club server" (under Direct address) sets where your club is kept; empty means the server you chose. "Direct VS
+  link" (relay.wccf.it) connects your PC to the other player's. The first time, Windows Firewall may ask about
+  Launcher.exe: allow it for direct connections; if you deny it, VS still works through the relay, only with more
+  delay. Untick the box to turn the link off. Pick This PC to go back to your own club on this PC.
 
 WHAT IS NOT IN THIS ALPHA
   - Career mode.
-  - Online or LAN play: one PC, one seat.
-  - Installer support for 2017-18: install by unzipping, as above.
-  - Pause, and a render scale.
+  - LAN play and shops with several seats: one seat per PC. Online is VS between two homes only.
+  - A render scale.
 
 KNOWN ISSUES
   - The control program may crash after about 90 minutes idle. Close the game and start again; your club is kept.
   - Registering a team may wait about 95 seconds before it goes on.
+  - Online VS between two homes has not yet been played end to end on two PCs; treat it as a test.
   - The programs are not signed. Windows SmartScreen may say "Windows protected your PC": choose "More info", then
     "Run anyway". If Microsoft Defender flags a file, do not turn Defender off: report the file name and what
     Defender said (see BUGS).

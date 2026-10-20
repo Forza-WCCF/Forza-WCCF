@@ -3,7 +3,7 @@
 [![CI](https://github.com/Forza-WCCF/WCCF-Installer/actions/workflows/ci.yml/badge.svg)](https://github.com/Forza-WCCF/WCCF-Installer/actions/workflows/ci.yml)
 
 The Forza-WCCF Windows x64 installer decrypts and extracts **your own** supported World Club
-Champion Football RingEdge disc image. Rust + egui; no Python is needed for extraction.
+Champion Football RingEdge disc image. Rust + egui; no Python is needed, for extraction or for the kit step.
 
 **No game media, keys, game binaries, saves or runtime kit are distributed here.**
 Extraction prepares the original files; it does not make them playable.
@@ -14,7 +14,7 @@ This is an experimental installer, not a verified playable-game release.
 | Image | Game ID | Exact ISO size | Installer support |
 |---|---|---:|---|
 | 2010–2011 (Japan), Rev D / DVR-5004D | SBWG | 5,034,770,432 bytes | Extraction; optional 2010–2011 kit setup |
-| 2017–2018 v2.00.00 / DVR-5059A | SDDY | 5,921,865,728 bytes | Extraction only |
+| 2017–2018 v2.00.00 / DVR-5059A | SDDY | 5,921,865,728 bytes | Extraction; optional 2017–2018 kit setup (headless `--kit`) |
 
 The installer checks the known layout, metadata CRC and encrypted volume header.
 Full game-slot block verification is enabled by default. Each image needs its
@@ -45,7 +45,7 @@ using any external kit.
 
 ### Both editions can coexist
 
-Each edition has its own `game`, kit/Python/scripts, `data`, settings, logs and
+Each edition has its own `game`, kit, `data`, settings, logs and
 saves. Installing one never updates the other. Desktop shortcuts include the
 edition: `Forza-WCCF 2010-2011 - PLAY/STOP`. The wizard lets you choose which
 edition to reuse; use `--game SBWG` or `--game SDDY` in headless mode when both
@@ -60,19 +60,22 @@ Get-FileHash .\wccf-installer.exe -Algorithm SHA256
 Compare the hash with the matching line in `SHA256SUMS.txt`. The binaries are
 not Authenticode-signed; do not disable antivirus or bypass protection blindly.
 
-### Optional kit (2010–2011 only)
+### Optional kit
 
-A trusted, separately supplied `WCCF-2010-11-kit.zip` can run `scripts/setup.py`,
-optionally `english.py`, and create Play/Stop shortcuts. The ZIP may contain the
-kit directly or inside one top-level folder. Its bundled Windows Python and an
-NTFS destination are required. **Kit setup executes code from the ZIP:** only
-select a kit whose source and provenance you trust. An existing `data\` folder
-is preserved during kit unpacking.
+A trusted, separately supplied kit ZIP (`WCCF-2010-11-kit.zip` or the 2017–2018 ZIP) can be unpacked into the
+edition's folder, set up for your extracted game, given English if you ask, and given Play/Stop shortcuts. The kit must
+match the game's edition: the installer reads the edition from the ZIP (`programs\` for 2010–2011, `bin\` or `overlay\`
+for 2017–2018) and refuses a mismatch before writing anything. The ZIP may contain the kit directly or inside one
+top-level folder, with `Launcher.exe` as a file at its top. Setup and the game's text run inside the installer
+(`forza::setup`, `forza::text`): no Python is bundled or needed. An NTFS destination is required. **Kit programs are
+code from the ZIP:** only select a kit whose source and provenance you trust. An existing `data\` folder is preserved
+during kit unpacking.
+
+The wizard offers the kit step for a 2010–2011 install; headless `--kit` accepts either edition's kit.
 
 The community kit is a separate project:
 [Forza-WCCF/WCCF-Kit](https://github.com/Forza-WCCF/WCCF-Kit).
-No kit is fetched automatically or included in releases. SDDY setup is rejected
-before destination writes unless `--no-setup` is selected.
+No kit is fetched automatically or included in releases. `--no-setup` ignores a supplied kit.
 
 ### Runtime safety and limits
 
@@ -101,7 +104,7 @@ before destination writes unless `--no-setup` is selected.
 .\wccf-installer.exe --dest "D:\Games\Forza-WCCF" --game SBWG
 .\wccf-installer.exe --dest "D:\Games\Forza-WCCF" --game SDDY
 
-# Optional trusted 2010–2011 kit:
+# Optional trusted kit of the game's edition (2010–2011 or 2017–2018):
 .\wccf-installer.exe --iso REV_D.iso --key REV_D.key --dest "D:\Games\Forza-WCCF" --kit KIT.zip --english
 
 .\wccf-installer.exe --help

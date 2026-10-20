@@ -5,8 +5,21 @@ Forza-WCCF 2017-18 - 0.1.0-alpha.1
 Questa è una alpha: si gioca, ma non è finita e servono tester. Prima di iniziare leggete COSA NON C'È IN QUESTA ALPHA
 e PROBLEMI NOTI.
 
+NOVITÀ DI QUESTA VERSIONE (non ancora pubblicata)
+  - Niente Python: configurazione, catalogo delle carte, immagini delle carte e testi del gioco girano dentro
+    Launcher.exe. Non c'è nulla da installare; il download è più piccolo (niente cartelle python\ e scripts\).
+  - Il gioco online è attivo. Scegliete Online in Launcher.exe: la LOBBY elenca le SFIDE VS. CREA SFIDA apre una
+    stanza con un codice di 4 lettere, PARTITA RAPIDA entra nella stanza aperta più vecchia (o ne apre una), i due
+    giocatori premono PRONTO e un conto alla rovescia di 5 secondi avvia il gioco. La lobby si usa con la tastiera e
+    con un gamepad.
+  - Online ogni carta ha il proprio Aime ID, così due case non condividono mai lo stesso club.
+  - Le righe Server club e Collegamento VS diretto sono passate sotto ONLINE, nella sezione "Indirizzo diretto".
+  - Pausa: P (o il pulsante PAUSA) ferma una partita su questo PC per al massimo 20 secondi.
+  - Il passo --kit dell'installer accetta anche lo ZIP di questa edizione (vedere il README dell'installer).
+
 COS'È
-  World Club Champion Football 2017-18 su un solo PC Windows, offline, un solo posto, dai VOSTRI file di gioco.
+  World Club Champion Football 2017-18 su un solo PC Windows, un solo posto, dai VOSTRI file di gioco; il VS online con
+  un'altra casa è facoltativo.
   Forza-WCCF sostituisce l'hardware e i server della sala giochi: il server di gioco (il club e i suoi salvataggi), la
   rete e il keychip, il lettore di carte Aime, la scheda I/O. Intorno alla finestra del gioco c'è un pannello con i
   pulsanti del cabinato e una lavagna della formazione per le carte. Forza-WCCF non contiene nessun file originale:
@@ -45,21 +58,39 @@ COME SI GIOCA
   rilasciatela su un'altra per scambiarle.
   Le carte rare con codice 2D funzionano: il server di gioco le elenca come registrate.
   Inserite la carta subito dopo l'avvio; dopo una partita toglietela (I), poi chiudete la finestra del gioco.
-  VS online (con un server club impostato in Launcher.exe): il "Collegamento VS diretto" vi collega al PC dell'altro
-  giocatore. La prima volta Windows Firewall può chiedere di Launcher.exe: consentitelo per le connessioni dirette; se lo
-  negate, il VS funziona comunque tramite il relay (relay.wccf.it), con un po' più di ritardo. Togliete la spunta per
-  disattivare il collegamento.
+  P       pausa di una partita su questo PC (al massimo 20 secondi, poi riprende da sola; P o RIPRENDI la
+          termina prima; la pausa successiva è possibile dopo 10 secondi). Non online, non con un'altra postazione
+          collegata, non mentre il proiettore è acceso. Il tasto si cambia in KEYS.
+
+ONLINE (VS tra due case)
+  1. In Launcher.exe scegliete Online. Aprite "Indirizzo diretto" e scrivete l'indirizzo del server (HOST o
+     HOST:PORTA); la lobby interroga ogni indirizzo che avete scritto. Il server del progetto accetta solo gli indirizzi
+     della sua lista consentita: chiedete a chi lo gestisce di aggiungere il vostro. Le SALE GIOCHI restano
+     disattivate per il 2017-18; l'elenco è SFIDE VS.
+  2. CREA SFIDA apre una stanza e mostra il suo codice (ad es. K7QM): comunicatelo all'amico, che sceglie quella
+     stanza e preme ENTRA. PARTITA RAPIDA entra nella stanza aperta più vecchia ancora in attesa, oppure ne apre una.
+     ESCI (Esc) lascia il posto.
+  3. Ogni giocatore preme PRONTO. Quando entrambi sono pronti, un conto alla rovescia di 5 secondi avvia il gioco. Se
+     siete pronti e nessuno arriva per circa 90 secondi, il gioco parte con una squadra CPU.
+  4. Tasti della lobby: Su/Giù riga, Sinistra/Destra o Tab elenco, Invio entra o PRONTO, H CREA SFIDA, F5 aggiorna,
+     Esc esce. Gamepad: croce direzionale o stick sinistro per muoversi, A = Invio, B = Esc, X = aggiorna,
+     Y = CREA SFIDA, LB/RB = elenco.
+  "Server club" (sotto Indirizzo diretto) indica dove è salvato il vostro club; vuoto significa il server scelto.
+  "Collegamento VS diretto" (relay.wccf.it) collega il vostro PC a quello dell'altro giocatore. La prima volta Windows
+  Firewall può chiedere di Launcher.exe: consentitelo per le connessioni dirette; se lo negate, il VS funziona comunque
+  tramite il relay, con un po' più di ritardo. Togliete la spunta per disattivare il collegamento. Scegliete Questo PC
+  per tornare al vostro club su questo PC.
 
 COSA NON C'È IN QUESTA ALPHA
   - La modalità carriera.
-  - Il gioco online o in LAN: un PC, un posto.
-  - Il supporto dell'installer per il 2017-18: si installa estraendo lo ZIP, come sopra.
-  - La pausa e la scala di rendering.
+  - Il gioco in LAN e le sale con più posti: un posto per PC. Online c'è solo il VS tra due case.
+  - La scala di rendering.
 
 PROBLEMI NOTI
   - Il programma di controllo può bloccarsi dopo circa 90 minuti di inattività. Chiudete il gioco e riavviatelo; il
     club resta salvato.
   - La registrazione della squadra può attendere circa 95 secondi prima di proseguire.
+  - Il VS online tra due case non è ancora stato giocato per intero su due PC: consideratelo una prova.
   - I programmi non sono firmati. Windows SmartScreen può mostrare "Il PC è stato protetto da Windows": scegliete
     "Ulteriori informazioni", poi "Esegui comunque". Se Microsoft Defender segnala un file, non disattivate Defender:
     segnalate il nome del file e il messaggio di Defender (vedere LOG E SEGNALAZIONI).

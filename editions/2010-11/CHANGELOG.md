@@ -6,6 +6,18 @@ game is not included. Newest first; each date is the day that kit was built.
 
 ## Not released yet
 
+### Added
+- The online lobby. Online in Launcher.exe lists the SHOPS of the servers you typed under "Direct address": name,
+  players x/8, ping, language, state (open, in match, full, closed, no answer) and the time to the next ENTRY, with
+  filters for language, open only and ping. JOIN takes a seat on the server (you play from the next ENTRY), LEAVE gives it
+  up, and REJOIN takes the same seat back for 75 seconds after the game or Launcher closed. Keyboard (Up/Down,
+  Left/Right or Tab, Enter, F5, Esc) and gamepad (D-pad or left stick, A, B, X, LB/RB). VS ROOMS is greyed for this
+  edition. Texts in English, Italian and Japanese.
+- Pause. P (or the PAUSE button in the page bar; the key is in KEYS) holds a match for up to 20 seconds with a PAUSED
+  page over the game's last frame and the game's sound muted. It works only in a match on this PC with no other seat
+  linked and no projector running; otherwise the panel says why. The next pause waits 10 seconds.
+- The installer's `--kit` step sets this kit up inside the installer, without Python.
+
 ### Changed
 - No Python in the kit: setup, undo, the game's text (English, Italiano, Japanese) and the club card's steps and view
   run inside Launcher.exe, so the kit has no `python\` or `code\` folder any more. The command-line card editor

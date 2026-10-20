@@ -1,6 +1,32 @@
 Forza-WCCF 2017-18 - release notes
 ==================================
 
+Not released yet
+----------------
+Online play, the lobby and no Python. The owner sets the version and the date at release.
+
+  - No Python: setup, the card catalogue, the card pictures and the game's text run inside Launcher.exe. The kit has no
+    python\ or scripts\ folder.
+  - Online play: choose Online in Launcher.exe. The game plays against the game server you name (the "Club server" row,
+    else the lobby's server) instead of the stand-in on this PC; "This PC" goes back to the stand-in. Remote and server
+    modes stay 2010-11 only.
+  - The lobby lists VS ROOMS (SHOPS stays greyed for 2017-18). HOST VS makes a room with a 4-letter code, QUICK MATCH
+    takes the oldest open room or opens one, READY on both sides starts a 5-second countdown, and a lone READY for about
+    90 seconds starts the game with a CPU team. Keyboard (Up/Down, Left/Right or Tab, Enter, H, F5, Esc) and gamepad
+    (D-pad or left stick, A, B, X, Y, LB/RB). Texts in English, Italian and Japanese.
+  - A VS room pairs its two PCs only with each other, over the direct VS link (relay.wccf.it) when the firewall lets it
+    through, else over the relay.
+  - Online, each card gets its own Aime ID, worked out from the card's code, so two homes never share one club. On
+    "This PC" the clubs you already have keep their IDs.
+  - The Club server and Direct VS link rows moved from SETUP into ONLINE's "Direct address" fold.
+  - Pause: P or the PAUSE button holds a match for up to 20 seconds; not online, not with another seat linked, not while
+    a projector runs. The key is in KEYS.
+  - The installer's --kit step takes this edition's ZIP (it must match the game's edition).
+
+Not in this release: career mode, LAN play, shops with several seats, a render scale. Online needs a server that allows
+your address (the project's server keeps an allow list). Live VS between two PCs has not yet been played end to end.
+Writing inside the game's pictures stays Japanese in this build (the redrawing is being restored).
+
 0.1.0-alpha.1
 -------------
 First alpha: the 2017-18 game plays offline on one PC, one seat, from your own game files.

@@ -1,5 +1,12 @@
 # Changelog
 
+## Not released yet
+
+- The kit step runs inside the installer: setup and the game's text no longer need Python, and no Python is bundled.
+- `--kit` accepts a 2017–2018 kit as well as a 2010–2011 one. The kit's edition (read from the ZIP) must match the game's;
+  a mismatch is refused before anything is written. The wizard still offers the kit step for 2010–2011 only.
+- A kit ZIP must hold `Launcher.exe` as a file at its top.
+
 ## 0.1.1 — Forza-WCCF and coexisting editions
 
 - Use Forza-WCCF in the wizard, window title, shortcuts, CLI and documentation.
