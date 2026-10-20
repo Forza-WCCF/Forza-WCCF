@@ -10,6 +10,7 @@ pub mod aimedb;
 pub mod card_reader;
 #[cfg(windows)]
 pub mod io_board;
+pub mod jvs_out;
 pub mod network;
 #[cfg(windows)]
 pub mod scenes;
