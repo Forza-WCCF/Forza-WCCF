@@ -36,4 +36,6 @@
  "bgm_pl_base_a": ["Attacco", "Tecnica", "Velocità", "Resistenza", "Potenza", "Difesa", "ATTACCO", "TECNICA", "VELOCITÀ", "RESISTENZA", "POTENZA", "DIFESA"],
  "birthday_ymd": ["A", "M", "G", "A", "M"],
  "birthday_d": ["G"],
- "rotate_button": ["Ruota"]}
+ "rotate_button": ["Ruota"],
+ "caution_next": ["Avanti"],
+ "licence_caution_notes": ["*1", "Una volta scelti, questi dati non si", "possono cambiare fino a fine mandato.", "*2", "I dati registrati si usano nelle", "classifiche ufficiali e altrove."]}

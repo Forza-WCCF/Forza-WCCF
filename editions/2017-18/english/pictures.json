@@ -32,10 +32,10 @@
     {"box": [0, 20, 96, 31], "en": "Please wait"}]},
   {"id": "title_management", "where": "the section title Management", "sha256": "54C157883D7BF3C656F54956E20A562DA6EC1E25453D8E29B561FB0349BDF2CF", "files": ["data/sb_data/management/MNG_TitleLogoManagement/Title_tex_1.dds"], "style": {"core": "auto", "halo": [226, 188, 60, 190], "halo_px": 2, "blur": 3, "align": "left"}, "clear": [[0, 0, 511, 63]],
    "labels": [
-    {"box": [4, 6, 404, 58], "en": "MANAGEMENT"}]},
-  {"id": "title_team", "where": "the section title Team", "sha256": "A0543681041A01F87E772A6F621D6E60ACF19A38F779B97B3862FC10D956D8C5", "files": ["data/sb_data/management/MNG_TitleLogoManagement/Title_tex_2.dds"], "style": {"core": "auto", "halo": [226, 188, 60, 190], "halo_px": 2, "blur": 3, "align": "left"}, "clear": [[0, 0, 255, 63]],
+    {"box": [8, 6, 404, 58], "en": "MANAGEMENT"}]},
+  {"id": "title_team", "where": "the section title Team", "sha256": "A0543681041A01F87E772A6F621D6E60ACF19A38F779B97B3862FC10D956D8C5", "files": ["data/sb_data/management/MNG_TitleLogoManagement/Title_tex_2.dds"], "style": {"core": "auto", "halo": [226, 188, 60, 190], "halo_px": 2, "blur": 3, "align": "right"}, "clear": [[0, 0, 255, 63]],
    "labels": [
-    {"box": [6, 6, 180, 58], "en": "TEAM"}]},
+    {"box": [6, 6, 178, 58], "en": "TEAM"}]},
   {"id": "scm_parameta_max_a", "where": "the six big stat words round the hexagon", "sha256": "E63721B99D82529B57DB9AF156A53B8736A78608CE3AE6510AE40EE0E3139EC1", "files": ["data/sb_data/client_common/SCM_Parameter/SCM_Parameta_max.dds"], "style": {"core": "auto", "halo": [223, 198, 57, 255], "halo_px": 1, "blur": 2.5, "squeeze": 0.7, "size": 16}, "clear": [[0, 0, 127, 127]],
    "labels": [
     {"box": [63, 9, 122, 34], "en": "OFFENCE"},
@@ -114,7 +114,7 @@
   {"id": "title_manager_contract", "where": "club making title: manager contract", "sha256": "4E17A22F4391B923E39DA28A48D4ADEE0A2DDC49A6E4C46E99139C545C27EAEF", "files": ["data/sb_data/club_make/CL_TitleLogoManagerContract/Title_tex_Manager_Contract.dds"], "style": {"core": "auto", "halo": [226, 188, 60, 190], "halo_px": 2, "blur": 3, "align": "left"}, "clear": [[0, 0, 255, 63]],
    "labels": [
     {"box": [6, 6, 248, 58], "en": "MANAGER CONTRACT"}]},
-  {"id": "title_pk", "where": "the penalty shoot-out title", "sha256": "AC352737431705AD57CEAE56EAA34503DDC7B619C4F3762A5810A62A1B1D77B4", "files": ["data/sb_data/client_game/GM_TitleLogo_PK/Title_tex_PK.dds"], "style": {"core": "auto", "halo": [226, 188, 60, 190], "halo_px": 2, "blur": 3, "align": "left"}, "clear": [[0, 0, 255, 63]],
+  {"id": "title_pk", "where": "the penalty shoot-out title", "sha256": "AC352737431705AD57CEAE56EAA34503DDC7B619C4F3762A5810A62A1B1D77B4", "files": ["data/sb_data/client_game/GM_TitleLogo_PK/Title_tex_PK.dds"], "style": {"core": "auto", "halo": [226, 188, 60, 190], "halo_px": 2, "blur": 3}, "clear": [[0, 0, 255, 63]],
    "labels": [
     {"box": [4, 4, 158, 58], "en": "PENALTIES"}]},
   {"id": "waiting_ward", "where": "the lobby: tournament in progress", "sha256": "60F1583A25577FDCC112CF370B03A3D885EC9AA0EE1934E560C6B62061B49B7D", "files": ["data/sb_data/client_adv/CMPM_Waiting/CMPM_Waiting_Ward.dds"], "style": {"core": "auto", "halo": "core", "halo_alpha": 150, "halo_px": 2, "blur": 3}, "clear": [[0, 0, 127, 127]],
@@ -206,6 +206,19 @@
   {"id": "birthday_d", "where": "club making birthday: day column", "sha256": "5D1D72E967937114D635B00FA2FD761657C4C4E3E351A9CC7FD129ACD1EA9B1E", "files": ["data/sb_data/club_make/CL_Birthday/CL_B_base_02.dds"], "style": {"core": [240, 240, 240], "halo": null, "fill": "rows"},
    "labels": [
     {"box": [91, 47, 107, 63], "en": "D"}]},
+  {"id": "caution_next", "where": "name entry, STEP 1 CAUTION box: the Next caption under YES/NO", "sha256": "2A320735797B68E84F3D9F59E6CD8C2214FDAAB7F52E3B7F14D9711D38F54CC2", "files": ["data/sb_data/club_make/CL_LicenceCaution/CL_license_Caution_base.dds"], "style": {"core": "auto", "halo": null},
+   "labels": [
+    {"box": [34, 327, 63, 339], "en": "Next", "clear": [36, 326, 63, 340]}]},
+  {"id": "licence_caution_notes", "where": "name entry: the CAUTION notes *1 and *2 under the licence fields", "sha256": "E213081C4592A5BAED2E825AFDE3801AC65D9D86FB0E8AFBDB7818E4DC673A27", "files": ["data/sb_data/club_make/CL_LicenceBase/Lisence_kantoku_name_base_0.dds"], "style": {"core": "dark", "halo": null, "align": "left", "fill": "rows"}, "clear": [[60, 364, 255, 459]],
+   "labels": [
+    {"box": [64, 367, 100, 379], "en": "*1"},
+    {"box": [64, 380, 254, 391], "en": "Once set, these details can't"},
+    {"box": [64, 393, 254, 404], "en": "be changed until your contract ends."},
+    {"box": [64, 418, 100, 430], "en": "*2"},
+    {"box": [64, 432, 254, 443], "en": "Your details are used in the"},
+    {"box": [64, 445, 254, 456], "en": "official rankings and elsewhere."}]},
+  {"id": "licence_caution_notes_end", "where": "name entry: the end of CAUTION note *2, past the left picture's edge", "sha256": "951CB2B950CAD92EBE5155A1B8BAF8A87986232FD3DAD51A29C55E92AD2DE211", "files": ["data/sb_data/club_make/CL_LicenceBase/Lisence_kantoku_name_base_1.dds"], "style": {"fill": "rows"}, "clear": [[0, 430, 12, 444]],
+   "labels": []},
   {"id": "rotate_button", "where": "uniform edit: the rotate button", "sha256": "2718E96CF3EBB0EF3C4C84931F10BA09DEF0A3087A1C9DF218A7D8763AB8A122", "files": ["data/sb_data/club_make/CL_UniformEdit/0809_CL_rotate_button.dds"], "style": {"core": "auto", "halo": null},
    "labels": [
     {"box": [0, 16, 31, 30], "en": "Turn"}]}
