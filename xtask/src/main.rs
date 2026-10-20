@@ -1669,14 +1669,10 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
     for p in programs {
         let v = version_strings(&fs::read(kit.join(p))?).unwrap_or_default();
         let get = |k: &str| v.get(k).map_or("", String::as_str);
-        // Launcher.exe, forza-server.exe and forza_panel.dll are one build for both editions: they name the project
-        // (crates/launcher/version_rc.rs)
-        let shared = matches!(
-            p.rsplit('/').next(),
-            Some("Launcher.exe" | "forza-server.exe" | "forza_panel.dll")
-        ) && get("ProductName") == "Forza-WCCF";
+        // programs built once for both editions (Launcher.exe, forza-server.exe, forza_panel.dll, COMMON) name the project
         ensure!(
-            (get("ProductName") == product || shared) && !get("FileVersion").is_empty(),
+            (get("ProductName") == product || get("ProductName") == PRODUCT_COMMON)
+                && !get("FileVersion").is_empty(),
             "{p} has no version information - see xtask build"
         );
         println!(
