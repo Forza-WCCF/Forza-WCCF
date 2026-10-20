@@ -916,9 +916,16 @@ fn room_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
             Some(o) => {
                 let col = if o.ready { theme::GREEN } else { theme::AMBER };
                 ui.painter().circle_filled(c, 6.0, col);
-                let mut t = tr!(lang, "lobby.club", id = o.club);
+                // no club id yet (this PC's seat before the next LOBBY, a shop seat): nothing
+                let mut t = if o.club.is_empty() {
+                    String::new()
+                } else {
+                    tr!(lang, "lobby.club", id = o.club)
+                };
                 if o.ready {
-                    t = format!("{t}  {}", tr!(lang, "lobby.ready"));
+                    t = format!("{t}  {}", tr!(lang, "lobby.ready"))
+                        .trim_start()
+                        .to_owned();
                 }
                 (t, theme::TEXT)
             }

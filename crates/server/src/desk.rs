@@ -5,7 +5,7 @@
 //! Lines in [`forza::online`]'s words: `WANT` / `WANT SEAT n` -> `SEAT n PROJECTOR p` | `TAKEN n` | `FULL` | `ERR ...`,
 //! then `PING` -> `PONG`. `RELEASE t` -> `OK` | `GONE` drops a lobby reservation. `HOLD` -> `HOLD 1` | `HOLD 0` (2010-11 only; the box asks it).
 //!
-//! The lobby's VS rooms ([`forza::online::lobby`] has the words): `CREATE vs [open]` -> `ROOM id code t` | `FULL`,
+//! The lobby's VS rooms ([`forza::online::lobby`] has the words): `CREATE vs [open]` -> `ROOM id code t seat` | `FULL`,
 //! `RESERVE room-id [2]` -> `TICKET t 2` | `FULL` | `TAKEN` | `CLOSED`, `READY id t`, `CLOSE id t`, and `HEARTBEAT` /
 //! `RELEASE` for room tickets as for shop seats. Each live room ticket is told to the shared [`Matcher`], which pairs
 //! the two PCs holding one room's tickets with each other only (`crates/server/README.md`, "VS rooms").
@@ -777,8 +777,8 @@ fn sitter(sh: &Shared, now: Instant) -> Sitter {
     }
 }
 
-/// `CREATE vs` -> `ROOM id code t` with this PC on seat 1, or `FULL`. `CREATE vs open` sits down on seat 2 of the
-/// oldest open room still waiting (the same `ROOM` answer), else makes an open room.
+/// `CREATE vs` -> `ROOM id code t 1` (this PC on seat 1) or `FULL`. `CREATE vs open` sits down on seat 2 of the
+/// oldest open room still waiting (`ROOM id code t 2`), else makes an open room.
 fn create(sh: &Shared, open: bool, out: &mut TcpStream) -> io::Result<()> {
     let now = Instant::now();
     let mut st = sh.state.lock().unwrap();
@@ -790,6 +790,7 @@ fn create(sh: &Shared, open: bool, out: &mut TcpStream) -> io::Result<()> {
             id: r.id.clone(),
             code: r.code.clone(),
             ticket: s.ticket.clone(),
+            seat: 2,
         };
         r.seats[1] = Some(s);
         (sh.log)(&format!("VS room {}: paired from the open pool", r.code));
@@ -819,6 +820,7 @@ fn create(sh: &Shared, open: bool, out: &mut TcpStream) -> io::Result<()> {
         id: id.clone(),
         code: code.clone(),
         ticket: s.ticket.clone(),
+        seat: 1,
     };
     st.rooms.push(Room {
         id,

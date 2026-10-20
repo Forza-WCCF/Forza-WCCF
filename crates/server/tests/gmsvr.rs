@@ -252,6 +252,7 @@ fn all_pairs_a_lobby_room_on_the_game_server() {
         id,
         code,
         ticket: host,
+        seat: 1,
     }) = lobby::create(desk, false)
     else {
         panic!("no room")

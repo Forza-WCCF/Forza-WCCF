@@ -309,12 +309,14 @@ impl Online {
     fn created(&mut self, st: &mut LauncherState, settings: &Path, server: String, result: Result<Created, String>) {
         let Some(p) = &self.poller else { return };
         match result {
-            Ok(Created::Room { id, code, ticket }) => {
+            Ok(Created::Room { id, code, ticket, seat }) => {
                 let beat = p.beat(&server, &ticket, Duration::from_secs(HEARTBEAT_EVERY), Arc::new(poke));
                 let mut room = Room::new(&code, Kind::Vs, 2);
-                room.mine = Some(0);
-                room.seats[0] = Some(Occupant {
-                    club: ticket.chars().take(4).collect::<String>().to_uppercase(),
+                // seat 2 when QUICK MATCH sat down in a waiting room; the club id comes with the next LOBBY
+                let i = usize::from(seat.clamp(1, 2)) - 1;
+                room.mine = Some(i);
+                room.seats[i] = Some(Occupant {
+                    club: String::new(),
                     ready: false,
                 });
                 st.lobby.room = Some(room);
@@ -324,7 +326,7 @@ impl Online {
                     server: server.clone(),
                     id: id.clone(),
                     name: code,
-                    seat: 1,
+                    seat,
                     at: unix(),
                 });
                 self.save_last(settings);
@@ -333,7 +335,7 @@ impl Online {
                     server,
                     played: false,
                     _beat: beat,
-                    vs: Some((id, true)),
+                    vs: Some((id, seat == 1)),
                     since: Instant::now(),
                 });
             }
@@ -374,8 +376,9 @@ impl Online {
                 let i = usize::from(seat).clamp(1, n) - 1;
                 room.mine = Some(i);
                 // a shop seat is ready once reserved; a VS seat waits for READY
+                // the club id comes with the next LOBBY (the desk's, never the ticket)
                 room.seats[i] = Some(Occupant {
-                    club: ticket.chars().take(4).collect::<String>().to_uppercase(),
+                    club: String::new(),
                     ready: kind == Kind::Shops,
                 });
                 st.lobby.room = Some(room);

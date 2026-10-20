@@ -7,7 +7,7 @@
 //! - `RESERVE id [n]` -> [`Reserved`]: a shop seat or the guest seat of a VS room.
 //! - `HEARTBEAT t`, `RELEASE t` -> `OK` | `GONE`.
 //! - `CREATE vs` -> [`Created`]: a VS room with this PC on seat 1; `CREATE vs open` puts it in the open pool instead
-//!   (the desk pairs it with the oldest room waiting there, else makes one; QUICK MATCH on VS ROOMS).
+//!   (the desk seats it on seat 2 of the oldest room waiting there, else makes one; QUICK MATCH on VS ROOMS).
 //! - `READY id t` -> `OK` | `GONE`: the ticket's seat in room `id` is ready (READY).
 //! - `CLOSE id t` -> `OK` | `GONE`: the host's ticket closes room `id` (LEAVE by the host).
 
@@ -111,14 +111,16 @@ pub struct VsRoom {
     pub occupants: Vec<Occupant>,
 }
 
-/// The desk's answer to `CREATE vs`: `ROOM id code t` (this PC on seat 1, `t` a ticket like `RESERVE`'s) or `FULL`
-/// (the desk holds as many rooms as it takes).
+/// The desk's answer to `CREATE vs`: `ROOM id code t seat` (`t` a ticket like `RESERVE`'s, `seat` 1 in a new room,
+/// 2 when `open` joined a waiting one; a desk without the seat field means 1) or `FULL` (the desk holds as many rooms
+/// as it takes).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Created {
     Room {
         id: String,
         code: String,
         ticket: String,
+        seat: u8,
     },
     Full,
 }
@@ -126,7 +128,12 @@ pub enum Created {
 impl Created {
     pub fn line(&self) -> String {
         match self {
-            Created::Room { id, code, ticket } => format!("ROOM {id} {code} {ticket}\n"),
+            Created::Room {
+                id,
+                code,
+                ticket,
+                seat,
+            } => format!("ROOM {id} {code} {ticket} {seat}\n"),
             Created::Full => "FULL\n".into(),
         }
     }
@@ -137,6 +144,13 @@ impl Created {
                 id: id.into(),
                 code: code.into(),
                 ticket: t.into(),
+                seat: 1,
+            }),
+            ["ROOM", id, code, t, seat] => Some(Created::Room {
+                id: id.into(),
+                code: code.into(),
+                ticket: t.into(),
+                seat: seat.parse().ok().filter(|s| (1..=2).contains(s))?,
             }),
             ["FULL"] => Some(Created::Full),
             _ => None,
@@ -412,12 +426,14 @@ mod tests {
                 id: "r7x1".into(),
                 code: "K7QM".into(),
                 ticket: "t9".into(),
+                seat: 2,
             },
             Created::Full,
         ] {
             assert_eq!(Created::parse(&c.line()), Some(c.clone()));
         }
         assert_eq!(Created::parse("ERR slow"), None);
+        assert_eq!(Created::parse("ROOM r7x1 K7QM t9 3"), None);
     }
 
     /// The client calls against a stand-in desk that answers each word as B4's desk will.
@@ -432,6 +448,7 @@ mod tests {
                 let mut line = String::new();
                 std::io::BufRead::read_line(&mut std::io::BufReader::new(&c), &mut line).unwrap();
                 let answer = match Ask::parse(&line) {
+                    // the old desk's 3-field form: seat 1
                     Some(Ask::Create { open: false }) => "ROOM r7x1 K7QM t9\n",
                     Some(Ask::Create { open: true }) => "FULL\n",
                     Some(Ask::Ready { .. }) => "OK\n",
@@ -447,6 +464,7 @@ mod tests {
             id: "r7x1".into(),
             code: "K7QM".into(),
             ticket: "t9".into(),
+            seat: 1,
         };
         assert_eq!(create(addr, false), Ok(room));
         assert_eq!(create(addr, true), Ok(Created::Full));

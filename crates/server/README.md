@@ -35,14 +35,14 @@ The desk's words (`forza::online::lobby` has the client side; one line each way,
 
 | Ask | Answer |
 |---|---|
-| `CREATE vs` | `ROOM id code t` (this PC on seat 1) or `FULL` (200 rooms) |
-| `CREATE vs open` (QUICK MATCH) | the same `ROOM` answer on seat 2 of the oldest open room still waiting, else a new open room |
+| `CREATE vs` | `ROOM id code t 1` (this PC on seat 1) or `FULL` (200 rooms) |
+| `CREATE vs open` (QUICK MATCH) | `ROOM id code t 2` on seat 2 of the oldest open room still waiting, else a new open room (`… t 1`) |
 | `RESERVE room-id [2]` | `TICKET t 2`, `FULL` (two players), `TAKEN` (the seat asked for), `CLOSED` (no such room) |
 | `READY id t` | `OK` or `GONE` |
 | `CLOSE id t` | `OK` or `GONE`; the host's ticket closes the room and drops the guest's, a guest's leaves its seat |
 | `HEARTBEAT t`, `RELEASE t` | as for shop seats; the host's `RELEASE` closes the room |
 
-A room ticket lives 60 s past its last `HEARTBEAT` (the shop lease); the host's lease ending closes the room.
+The client reads a `ROOM id code t` without the seat (a desk before the field) as seat 1. A room ticket lives 60 s past its last `HEARTBEAT` (the shop lease); the host's lease ending closes the room.
 `RESERVE` and `CREATE` together: 20 per address per 60 s, else `ERR slow`. `LOBBY` lists each room as `{"id",
 "code","players","max":2,"kind":2,"occupants":[{"seat":1,"club":"A7K2","ready":true},…]}`: id (8 hex), code and club
 ids (4 of `ABCDEFGHJKMNPQRSTUVWXYZ23456789`) are random and drawn apart from the tickets; no address, ticket, card or

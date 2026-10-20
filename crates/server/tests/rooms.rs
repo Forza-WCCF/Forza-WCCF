@@ -31,7 +31,9 @@ fn say(addr: SocketAddr, line: &str) -> String {
 
 fn room(addr: SocketAddr, open: bool) -> (String, String, String) {
     match lobby::create(addr, open).unwrap() {
-        Created::Room { id, code, ticket } => (id, code, ticket),
+        Created::Room {
+            id, code, ticket, ..
+        } => (id, code, ticket),
         Created::Full => panic!("FULL"),
     }
 }
@@ -148,8 +150,16 @@ fn quick_match_pairs_the_oldest_open_room() {
     let d = desk(|_| {});
     let a = d.addr();
     let (plain, ..) = room(a, false);
-    let (first, code, _) = room(a, true);
-    let (second, ..) = room(a, true);
+    let seat = |open| match lobby::create(a, open).unwrap() {
+        Created::Room { id, code, seat, .. } => (id, code, seat),
+        Created::Full => panic!("FULL"),
+    };
+    let (first, code, 1) = seat(true) else {
+        panic!("a new room is seat 1")
+    };
+    let (second, _, 2) = seat(true) else {
+        panic!("joining a waiting room is seat 2")
+    };
     // the second open ask sat down in the first open room; plain rooms are never joined by QUICK MATCH
     assert_eq!(first, second);
     let l = lobby::fetch(a, "2017-18").unwrap();
