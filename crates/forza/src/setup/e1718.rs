@@ -173,17 +173,40 @@ static SEAT: [Patch; 15] = [
     },
 ];
 
-/// The projector (game\\client_Release.exe): only the two ALL.Net answers, so its corner status icon agrees with seat 1's.
-static PROJECTOR: [Patch; 2] = [ALLNET_AUTHORIZED, ALLNET_BILLING_IDLE];
+/// The projector (game\\client_Release.exe, its own copy: seat 1 has another): the two ALL.Net answers, so its corner
+/// status icon agrees with seat 1's, and its title movie counted as over.
+static PROJECTOR: [Patch; 3] = [
+    ALLNET_AUTHORIZED,
+    ALLNET_BILLING_IDLE,
+    // Stopgap: the title movie stalls in Sofdec PREP, so the projector never sent GAME_READY. sub_88A230: call
+    // sub_A0AD20 / test al,al / jz (VA 0x0088A28D); the jz goes, so it loads the match, plays movie 2 and sends
+    // GAME_READY. The stalled player is stopped by the next round's sub_A0AAD0.
+    Patch {
+        at: 0x48968d,
+        old: &[0xe8, 0x8e, 0x0a, 0x18, 0x00, 0x84, 0xc0, 0x74, 0x1a],
+        new: &[0xe8, 0x8e, 0x0a, 0x18, 0x00, 0x84, 0xc0, 0x90, 0x90],
+        what: "projector title movie counted as over (VA 0x0088A294 jz -> nop nop)",
+    },
+];
 
 /// The server (control_Release.exe): its ALL.Net library's "network up" check answers yes, so it connects to the local
-/// game server stand-in (FORCE_ONLINE=1, GAME_SVR_IP=localhost).
-static CONTROL: [Patch; 1] = [Patch {
-    at: 0xb67c0,
-    old: &[0x56, 0xe8, 0xaa, 0xf2, 0xff, 0xff],
-    new: &[0xb8, 0x01, 0x00, 0x00, 0x00, 0xc3],
-    what: "network up (FUN_004B73C0 returns 1)",
-}];
+/// game server stand-in (FORCE_ONLINE=1, GAME_SVR_IP=localhost); its GAME_READY fallback comes after 15 s, not 100 s.
+static CONTROL: [Patch; 2] = [
+    Patch {
+        at: 0xb67c0,
+        old: &[0x56, 0xe8, 0xaa, 0xf2, 0xff, 0xff],
+        new: &[0xb8, 0x01, 0x00, 0x00, 0x00, 0xc3],
+        what: "network up (FUN_004B73C0 returns 1)",
+    },
+    // Stopgap: in GAME the control waits for the projector's GAME_READY, else sends its own once the counter at
+    // +0x90 passes 100 (seconds). VA 0x00432045: cmp dword [eax+90h], 64h -> 0Fh.
+    Patch {
+        at: 0x31445,
+        old: &[0x83, 0xb8, 0x90, 0x00, 0x00, 0x00, 0x64],
+        new: &[0x83, 0xb8, 0x90, 0x00, 0x00, 0x00, 0x0f],
+        what: "GAME_READY fallback after 15 s, not 100 s (VA 0x0043204B)",
+    },
+];
 
 /// What setup checks and changes; [`Spec::game`] is the real game's, tests give their own.
 pub struct Spec {
@@ -430,9 +453,29 @@ mod tests {
         assert!(apply(&[1, 2, 3], &p).is_err());
         assert!(
             SEAT.iter()
+                .chain(&PROJECTOR)
                 .chain(&CONTROL)
                 .all(|p| p.old.len() == p.new.len())
         );
+    }
+
+    #[test]
+    fn the_two_gameready_stopgaps() {
+        // a buffer with the original bytes at both places: each changes one or two bytes, the rest stays
+        let stop = [&PROJECTOR[2], &CONTROL[1]];
+        for p in stop {
+            let mut buf = vec![0xccu8; p.at + 16];
+            buf[p.at..p.at + p.old.len()].copy_from_slice(p.old);
+            let out = apply(&buf, std::slice::from_ref(p)).unwrap();
+            let changed: Vec<usize> = (0..buf.len()).filter(|&i| buf[i] != out[i]).collect();
+            assert!(!changed.is_empty() && changed.len() <= 2, "{}", p.what);
+            buf[p.at + p.old.len() - 1] ^= 0x01; // one wrong original byte: refused
+            assert!(apply(&buf, std::slice::from_ref(p)).is_err(), "{}", p.what);
+        }
+        assert_eq!(PROJECTOR[2].new[7..], [0x90, 0x90]); // jz rel8 -> two nops
+        assert_eq!(CONTROL[1].new[6], 15); // seconds
+        // only the projector's copy loses its title movie; seat 1 keeps the original jz
+        assert!(SEAT.iter().all(|p| p.at != PROJECTOR[2].at));
     }
 
     static T_SEAT: [Patch; 1] = [Patch {
