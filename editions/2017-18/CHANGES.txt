@@ -25,7 +25,6 @@ Online play, the lobby and no Python. The owner sets the version and the date at
 
 Not in this release: career mode, LAN play, shops with several seats, a render scale. Online needs a server that allows
 your address (the project's server keeps an allow list). Live VS between two PCs has not yet been played end to end.
-Writing inside the game's pictures stays Japanese in this build (the redrawing is being restored).
 
 0.1.0-alpha.1
 -------------
