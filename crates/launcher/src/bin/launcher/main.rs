@@ -923,20 +923,6 @@ impl eframe::App for App {
     }
 }
 
-/// Direct3D 12 on Windows: wgpu's Vulkan there flashed black frames on a tester's RTX 2060 (Windows 150 %). A PC
-/// without DX12 falls back to OpenGL (`window`); WGPU_BACKEND still picks another backend (testing). The installer has
-/// the same (`crates/installer/src/main.rs`).
-fn wgpu_options() -> eframe::WgpuConfiguration {
-    let mut c = eframe::WgpuConfiguration::default();
-    if cfg!(windows)
-        && std::env::var_os("WGPU_BACKEND").is_none()
-        && let eframe::egui_wgpu::WgpuSetup::CreateNew(n) = &mut c.wgpu_setup
-    {
-        n.instance_descriptor.backends = eframe::wgpu::Backends::DX12;
-    }
-    c
-}
-
 /// What a panic said.
 fn panic_text(p: &(dyn std::any::Any + Send)) -> String {
     p.downcast_ref::<&str>()
@@ -956,19 +942,19 @@ fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
     pad_thread();
     let title = format!("Launcher - {TITLE} {}", kit.edition().name());
     let fonts = theme::font_dir();
-    // wgpu first; if it cannot open the window (no Direct3D/Vulkan), OpenGL once. FORZA_RENDERER=glow|wgpu forces one.
+    // OpenGL first, wgpu once if it cannot open the window (as the installer: wgpu flashed black on an RTX 2060 and
+    // never opened on a GeForce 920MX laptop). FORZA_RENDERER=glow|wgpu forces one.
     let forced = match std::env::var("FORZA_RENDERER").as_deref() {
         Ok("glow") => Some(eframe::Renderer::Glow),
         Ok("wgpu") => Some(eframe::Renderer::Wgpu),
         _ => None,
     };
-    let mut tries = forced.map_or(vec![eframe::Renderer::Wgpu, eframe::Renderer::Glow], |r| vec![r]);
+    let mut tries = forced.map_or(vec![eframe::Renderer::Glow, eframe::Renderer::Wgpu], |r| vec![r]);
     let mut ran = Ok(());
     while !tries.is_empty() {
         let renderer = tries.remove(0);
         let options = eframe::NativeOptions {
             renderer,
-            wgpu_options: wgpu_options(),
             viewport: egui::ViewportBuilder::default()
                 .with_title(&title)
                 .with_inner_size(screen::SIZE)

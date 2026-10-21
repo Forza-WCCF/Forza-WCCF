@@ -513,20 +513,6 @@ fn headless(args: &[String]) -> anyhow::Result<bool> {
     Ok(true)
 }
 
-/// Direct3D 12 on Windows: wgpu's Vulkan there flashed black frames on a tester's RTX 2060 (Windows 150 %). A PC
-/// without DX12 falls back to OpenGL (`main`); WGPU_BACKEND still picks another backend (testing). The Launcher has
-/// the same (`crates/launcher/src/bin/launcher/main.rs`).
-fn wgpu_options() -> eframe::WgpuConfiguration {
-    let mut c = eframe::WgpuConfiguration::default();
-    if cfg!(windows)
-        && std::env::var_os("WGPU_BACKEND").is_none()
-        && let eframe::egui_wgpu::WgpuSetup::CreateNew(n) = &mut c.wgpu_setup
-    {
-        n.instance_descriptor.backends = eframe::wgpu::Backends::DX12;
-    }
-    c
-}
-
 /// What a panic said.
 fn panic_text(p: &(dyn std::any::Any + Send)) -> String {
     p.downcast_ref::<&str>()
@@ -543,7 +529,6 @@ fn run_window(renderer: eframe::Renderer) -> eframe::Result {
             .with_inner_size(installer::SIZE)
             .with_min_inner_size([680.0, 520.0]),
         renderer,
-        wgpu_options: wgpu_options(),
         ..Default::default()
     };
     eframe::run_native(
@@ -572,11 +557,12 @@ fn main() {
             std::process::exit(1);
         }
     }
-    // wgpu first; a PC without Vulkan/DX12 support gets OpenGL. FORZA_RENDERER=glow|wgpu forces one (testing).
+    // OpenGL first, wgpu if it fails: wgpu's Vulkan flashed black on an RTX 2060, and a laptop with a GeForce 920MX
+    // never opened the window with Vulkan or DX12. FORZA_RENDERER=glow|wgpu forces one (testing).
     let tries = match std::env::var("FORZA_RENDERER").as_deref() {
         Ok("glow") => vec![eframe::Renderer::Glow],
         Ok("wgpu") => vec![eframe::Renderer::Wgpu],
-        _ => vec![eframe::Renderer::Wgpu, eframe::Renderer::Glow],
+        _ => vec![eframe::Renderer::Glow, eframe::Renderer::Wgpu],
     };
     let mut last = Ok(());
     for renderer in tries {
