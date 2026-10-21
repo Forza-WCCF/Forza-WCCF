@@ -4,7 +4,7 @@
 # PrintWindow: the game's own windows only, never the screen) into $WCCF1718_RUNTIME/evidence/NAME.
 # Buttons: START PRESS SHOOT UP DOWN LEFT RIGHT SERVICE KEEPER DATA KEYPLAYER COIN.
 HERE=$(cd "$(dirname "$0")" && pwd)
-RT=${WCCF1718_RUNTIME:-<runtime>}
+RT=${WCCF1718_RUNTIME:?set WCCF1718_RUNTIME to the 2017-18 runtime folder}
 F=$RT/kit/scripts/_jvs_seat1_input.txt
 declare -A P1=([START]=0x80 [PRESS]=0x02 [SHOOT]=0x01 [UP]=0x20 [DOWN]=0x10 [LEFT]=0x08 [RIGHT]=0x04 [SERVICE]=0x40)
 declare -A P2B0=([KEEPER]=0x02) P2B1=([DATA]=0x80 [KEYPLAYER]=0x40)
