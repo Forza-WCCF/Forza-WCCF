@@ -1,7 +1,5 @@
 # Versions and test builds
 
-Owner decisions of 2026-10-21.
-
 ## Version numbers
 
 - One [semver](https://semver.org) version for the whole repo: `[workspace.package] version` in `Cargo.toml`. The
@@ -16,13 +14,12 @@ Owner decisions of 2026-10-21.
 
 ## Alpha builds for players
 
-- 2017-18 only, as a GitHub **pre-release** on `Forza-WCCF/WCCF-Kit-1718` with the ZIP and the installer. The owner
-  tells a few players directly; the release is not announced.
-- Before publishing: someone has played the build (AGENTS.md §4), and the owner approves that release's push, tag and
-  upload (AGENTS.md §3).
+- 2017-18 only, as a GitHub **pre-release** of this repository with the ZIP and the installer.
+- Before publishing: the full `cargo xtask check` passes on the tagged commit, someone has played the build, and a
+  maintainer approves the tag and the upload.
 - Release notes in English, Italian and Japanese: this is an alpha, what changed, known bugs, and how to report one
-  (SAVE LOGS in the panel, then send the file).
-- Player feedback goes through the `community-reply` skill.
+  (SAVE LOGS in the panel, then attach the file to a GitHub issue).
+- Player feedback: GitHub issues, in English, Italian or Japanese.
 
 ## Before in-app UPDATE is switched on
 

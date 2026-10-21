@@ -1,6 +1,6 @@
 # Architecture and the move to Rust
 
-Status 2026-10-10. Decision asked by the owner: does the kit still need `play.py`, `english.py` and the rest?
+Status 2026-10-10. Question: does the kit still need `play.py`, `english.py` and the rest?
 Answer: no, not as the shipped product. A game launcher is normally one native program that owns its processes, with
 the data work done at install time. The kit grew the other way: a Rust window in front of 9,286 lines of Python
 (27 scripts) and a 35 MB embedded Python. The plan below moves the shipped kit to Rust in phases, each gated by
@@ -88,7 +88,7 @@ that record: the Python is the specification.
 3. **Stand-ins** to threads, one PR each, each with a transcript test recorded from the Python version: ringedge
    services, card reader, I/O board + key driver, scene service, then the server parts (with Linux builds).
 4. **Install steps**: `cards.py` (the `image` crate in place of Pillow), `setup.py`, `english.py`; then the card
-   decoder/editor. Gate: byte-identical outputs on the owner's game copy (catalogue, pictures, patched files). Then the
+   decoder/editor. Gate: byte-identical outputs on a reference game copy (catalogue, pictures, patched files). Then the
    kit ZIP drops `python\` (35 MB).
 
 The 2017-18 kit follows each phase through the edition switch instead of a file port.
