@@ -1,9 +1,9 @@
 //! Replays the recordings of the Python stand-ins (`tests/rec/*.jsonl`, made by the throwaway recorders of step 10
 //! piece J1 from synthetic requests) against the Rust services and compares byte for byte.
 
+use crate::records;
 use forza::online::gamesvr;
 use forza::standins::{Handle, Log, aimedb};
-use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -11,17 +11,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::Duration;
-
-fn records(name: &str) -> Vec<Value> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/rec")
-        .join(format!("{name}.jsonl"));
-    std::fs::read_to_string(path)
-        .unwrap()
-        .lines()
-        .map(|l| serde_json::from_str(l).unwrap())
-        .collect()
-}
 
 fn unhex(s: &str) -> Vec<u8> {
     (0..s.len() / 2)

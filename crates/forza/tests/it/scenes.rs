@@ -3,11 +3,11 @@
 //! the scene mappings and the log lines. Scratch names carry this process's pid; the game's names are never used.
 #![cfg(windows)]
 
+use crate::records;
 use forza::standins::scenes::{BOARD_SIZE, Names, spawn};
 use forza::standins::{Handle, Log};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
@@ -24,15 +24,6 @@ const SYNCHRONIZE: u32 = 0x0010_0000;
 
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain([0]).collect()
-}
-
-fn records() -> Vec<Value> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/rec/scenes.jsonl");
-    std::fs::read_to_string(path)
-        .unwrap()
-        .lines()
-        .map(|l| serde_json::from_str(l).unwrap())
-        .collect()
 }
 
 /// A match engine: opens (or, for adoption, creates) the mutex and board by name.
@@ -184,7 +175,7 @@ fn pairs(v: &Value) -> Vec<(usize, u32)> {
 
 #[test]
 fn replays_the_recorded_requester() {
-    let recs = records();
+    let recs = records("scenes");
     let mut i = 0;
     let mut scenarios = 0;
     while i < recs.len() {

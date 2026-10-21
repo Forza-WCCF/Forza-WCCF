@@ -32,7 +32,7 @@ fn start_with(dir: &std::path::Path, extra: &[&str]) -> (Server, TcpStream) {
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         l.local_addr().unwrap().port()
     };
-    let child = Command::new(env!("CARGO_BIN_EXE_forza-server"))
+    let child = Command::new(crate::common::server_exe())
         .args([
             "--edition",
             "2017-18",
@@ -207,7 +207,7 @@ fn all_pairs_a_lobby_room_on_the_game_server() {
     let _ = std::fs::remove_dir_all(&dir);
     let (desk, gm) = (free(false), free(false));
     let gm_port: u16 = gm.parse().unwrap();
-    let child = Command::new(env!("CARGO_BIN_EXE_forza-server"))
+    let child = Command::new(crate::common::server_exe())
         .args([
             "--edition",
             "2017-18",

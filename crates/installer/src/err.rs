@@ -211,11 +211,12 @@ mod tests {
             Script { detail: s() },
             Other { detail: s() },
         ];
-        let yml = std::fs::read_to_string(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../forza/locales/ui.yml"
-        ))
-        .unwrap();
+        // at run time first: nextest's `--workspace-remap` sets it for an archive built on another machine
+        let dir = std::env::var_os("CARGO_MANIFEST_DIR").map_or_else(
+            || env!("CARGO_MANIFEST_DIR").into(),
+            std::path::PathBuf::from,
+        );
+        let yml = std::fs::read_to_string(dir.join("../forza/locales/ui.yml")).unwrap();
         for e in &all {
             let line = yml
                 .lines()

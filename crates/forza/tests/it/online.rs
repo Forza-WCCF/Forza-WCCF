@@ -4,6 +4,7 @@
 //! Step 9.4c renamed seat 1's panel log in `send_logs.jsonl` (seat1/wccfpanel.log -> seat1/forza_panel.log, the Rust
 //! panel's); nothing else in the recording changed.
 
+use crate::records;
 use forza::online::seat::{self, Fault, Timing};
 use forza::online::send_logs::{self, Scrub, SendError};
 use serde_json::Value;
@@ -15,17 +16,6 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, sleep};
 use std::time::Duration;
-
-fn records(name: &str) -> Vec<Value> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/rec")
-        .join(format!("{name}.jsonl"));
-    std::fs::read_to_string(path)
-        .unwrap()
-        .lines()
-        .map(|l| serde_json::from_str(l).unwrap())
-        .collect()
-}
 
 fn unhex(s: &str) -> Vec<u8> {
     (0..s.len() / 2)

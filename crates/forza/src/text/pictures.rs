@@ -1002,7 +1002,7 @@ mod tests {
     use super::*;
 
     fn font_file() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR"))
+        super::super::tests::manifest_dir()
             .join("../../assets/fonts")
             .join(FONT)
     }
