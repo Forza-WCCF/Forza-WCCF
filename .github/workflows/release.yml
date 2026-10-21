@@ -13,18 +13,21 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_XWIN_VERSION: "0.23.1"
   CARGO_XWIN_SHA256: c492c6dfb7e5ac0eee586b796e0fc950ba13077e7f0bbb046f445d71790d5360
+  # keep in step with XWIN_CRT_VERSION / XWIN_SDK_VERSION in xtask/src/main.rs and ci.yml (the xwin cache key)
+  XWIN_CRT_VERSION: "14.44.17.14"
+  XWIN_SDK_VERSION: "10.0.26100"
 
 jobs:
   build:
     name: build
     runs-on: ubuntu-24.04
     timeout-minutes: 120
-    container: rust:1.99-trixie
+    container: rust:1.99.0-trixie@sha256:81015672d6939b0265f09adf96d5de125482bb1330106076956b0518e74edc90
     steps:
       - name: Tools
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends clang clang-19 clang-tools-19 lld lld-19 llvm llvm-19 ca-certificates curl
+          apt-get install -y --no-install-recommends clang clang-19 clang-tools-19 lld lld-19 llvm llvm-19 ca-certificates curl zstd
           curl -fsSL -o /tmp/cx.tgz "https://github.com/rust-cross/cargo-xwin/releases/download/v${CARGO_XWIN_VERSION}/cargo-xwin-v${CARGO_XWIN_VERSION}.x86_64-unknown-linux-musl.tar.gz"
           echo "${CARGO_XWIN_SHA256}  /tmp/cx.tgz" | sha256sum -c -
           tar -xzf /tmp/cx.tgz -C /usr/local/bin cargo-xwin
@@ -32,6 +35,12 @@ jobs:
         with:
           persist-credentials: false
       - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      # restore only: main's CI run saves this cache (a tag build can read the default branch's caches)
+      - name: xwin cache (MSVC CRT and Windows SDK)
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/cargo-xwin-xtask
+          key: xwin-${{ env.XWIN_CRT_VERSION }}-${{ env.XWIN_SDK_VERSION }}-x86_x86_64
       - name: The tag is v + the workspace version
         run: |
           V=$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version *= *"\(.*\)"/\1/p}' Cargo.toml | head -n1)
@@ -42,7 +51,9 @@ jobs:
         run: |
           cargo xtask package 2017-18 --name "Forza-WCCF-2017-18-$V"
           cargo xtask package installer
-          cd dist && ls | grep -vx SHA256SUMS.txt | xargs sha256sum > SHA256SUMS.txt
+          cd dist
+          find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -printf '%f\n' | sort | xargs sha256sum > "$RUNNER_TEMP/sums"
+          mv "$RUNNER_TEMP/sums" SHA256SUMS.txt
           cat SHA256SUMS.txt
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
