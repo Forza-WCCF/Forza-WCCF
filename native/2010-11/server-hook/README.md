@@ -8,7 +8,7 @@ instead; neither is a superset of the other.
 
 | Fix | What | Off |
 |---|---|---|
-| MSGPARSE guard | catches control's known fault in its message parser (`FUN_00412860`, a negative copy size from a seat's carried-over header count), returns the call as "no message" and drops that count | `MXHOOK_MSGGUARD=0` |
+| MSGPARSE guard | catches control's known fault in its message parser (`FUN_00412860`, a negative copy size from a seat's carried-over header count), unwinds that call with its length and offset zeroed, and drops that count | `MXHOOK_MSGGUARD=0` |
 | SLEEP fix | control's `Sleep` calls that do not block under Wine become timed waits; its file reader's idle poll waits `MXHOOK_IDLE_MS` (default 4) | `MXHOOK_SLEEPFIX=0` |
 | SPIN fix | control's DistributePic thread spinning on `timeGetTime` (a full core idle); with it, about 6 % | `MXHOOK_SPINFIX=0` |
 
