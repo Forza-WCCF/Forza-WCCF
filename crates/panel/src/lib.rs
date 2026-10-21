@@ -251,6 +251,7 @@ fn init() {
     // injected early? wait up to 60 s for the game's window
     for _ in 0..120 {
         if let Some(h) = game_window() {
+            retitle(h);
             // SAFETY: a window of this process; cross-thread subclassing within a process is allowed
             let old =
                 unsafe { SetWindowLongPtrW(h, GWLP_WNDPROC, wndproc as *const () as usize as _) };
@@ -307,6 +308,7 @@ fn hide_watch() {
         }
         std::thread::sleep(Duration::from_millis(500));
     };
+    retitle(wnd);
     let mut hider = projector::Hider::new(wnd);
     loop {
         hider.tick(shm().and_then(projector::Shm::reader), log);
@@ -1902,6 +1904,39 @@ unsafe fn device_window(dev: &IDirect3DDevice9) -> Option<HWND> {
             .ok()?
     };
     (!ip.hDeviceWindow.is_invalid()).then_some(ip.hDeviceWindow)
+}
+
+/// The game's window titled "Client - ..." / "Projector - ..." in every language (the original's title is its class name).
+/// SendMessageTimeout: the game's thread may be busy, and this one must not wait for it.
+fn retitle(h: HWND) {
+    let edition = FILES.get().map_or("", |f| f.edition.label());
+    let who = if is_projector() {
+        "Projector"
+    } else {
+        "Client"
+    };
+    let title: Vec<u16> = format!("{who} - Forza-WCCF {edition}\0")
+        .encode_utf16()
+        .collect();
+    // the game's window may not take it at once: a few tries (callers are worker threads)
+    for _ in 0..5 {
+        // SAFETY: `title` is a NUL-terminated UTF-16 string that outlives the call
+        let ok = unsafe {
+            SendMessageTimeoutW(
+                h,
+                WM_SETTEXT,
+                WPARAM(0),
+                LPARAM(title.as_ptr() as isize),
+                SMTO_ABORTIFHUNG,
+                1000,
+                None,
+            )
+        };
+        if ok.0 != 0 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(300));
+    }
 }
 
 /// The biggest visible top-level window of this process: the game's.

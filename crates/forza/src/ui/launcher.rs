@@ -6,8 +6,8 @@ use super::Lang;
 use super::lobby::{self, Grey, Kind, LobbyAction, LobbyView, Scenario as LobbyScenario};
 use super::theme::{self, Edition};
 use super::widgets::{
-    self, Cab, Tone, action, cabinet, field, fold, progress, segmented, status_line, steps,
-    title_bar, toggle_row,
+    self, Cab, Tone, action, cabinet, field, fold, progress, segmented, start_bar, status_line,
+    steps, title_bar, toggle_row,
 };
 use egui::{Color32, Ui, vec2};
 
@@ -95,8 +95,6 @@ pub struct LauncherState {
     pub lobby: LobbyView,
     /// The last seat, offered again within the desk's 75 s: "Rejoin FORZA the game server, seat 3".
     pub rejoin: Option<String>,
-    /// 0 English, 1 Italian, 2 the original Japanese.
-    pub game_text: usize,
     /// A game folder is set up.
     pub set_up: bool,
     /// A run is on in this folder (here or in another Launcher.exe): PLAY offers STOP THE GAME.
@@ -106,6 +104,8 @@ pub struct LauncherState {
     /// The job's steps done of all (a start's "N/M" lines), else its progress 0..1.
     pub steps: Option<(usize, usize)>,
     pub progress: f32,
+    /// Seconds since the last step line and since the job began (the start's bar and clock).
+    pub clock: (f32, f32),
     /// The status line: a tone and its text.
     pub status: Option<(Tone, String)>,
     pub setup_open: bool,
@@ -190,12 +190,12 @@ impl LauncherState {
             online: false,
             lobby: lobby_for(edition),
             rejoin: None,
-            game_text: 0,
             set_up: true,
             running: false,
             busy: false,
             steps: None,
             progress: 0.0,
+            clock: (0.0, 0.0),
             status: Some((Tone::Done, tr!(lang, "launcher.status_ready"))),
             setup_open: false,
             folder: r"C:\Games\Forza-WCCF\2010-2011".into(),
@@ -239,8 +239,9 @@ impl LauncherState {
                 st.running = true;
                 st.busy = true;
                 st.online = true;
-                st.steps = Some((5, 7));
-                st.status = Some((Tone::Notice, tr!(lang, "launcher.msg_starting")));
+                st.steps = Some((5, 6));
+                st.clock = (12.0, 62.0);
+                st.status = Some((Tone::Notice, tr!(lang, "launcher.stage_screen")));
                 st.output_open = true;
                 if s == Scenario::StopArmed {
                     st.stop_armed = f64::INFINITY; // never lapses: the snapshot shows 8 s
@@ -447,6 +448,7 @@ fn play(
         }
         if st.busy {
             match st.steps {
+                Some((n, 6)) => start_bar(ui, n, st.clock, ui.available_width()),
                 Some((n, m)) => steps(ui, n, m, ui.available_width()),
                 None => progress(ui, st.progress, ui.available_width()),
             };
@@ -539,22 +541,6 @@ fn setup(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Actio
             .clicked()
         {
             *act = Some(Action::SkipTutorial);
-        }
-        // one language setting: the title bar's; this is the one exception (0 English, 1 Italian, 2 the original)
-        let mut original = st.game_text == 2;
-        if toggle_row(
-            ui,
-            &mut original,
-            &tr!(lang, "launcher.original_ja_text"),
-            &tr!(lang, "launcher.skip_tutorial_hint"),
-        )
-        .clicked()
-        {
-            st.game_text = if original {
-                2
-            } else {
-                usize::from(lang == Lang::It)
-            };
         }
     });
 }
