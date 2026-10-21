@@ -1059,7 +1059,10 @@ impl Run<'_> {
             let ours = fs::read(self.kit.programs().join("wccfk.dll")).ok();
             for dir in [&self.game, &self.seat] {
                 if ours.is_none() || fs::read(dir.join("wccfk.dll")).ok() != ours {
-                    return Err(format!("{} is not this kit's hook", dir.join("wccfk.dll").display()));
+                    return Err(format!(
+                        "{} is not the Forza-WCCF hook",
+                        dir.join("wccfk.dll").display()
+                    ));
                 }
             }
             if !p.hook_imports {
@@ -2282,7 +2285,7 @@ impl Run<'_> {
             threads
                 .iter()
                 .filter(|(_, on)| *on)
-                .map(|(n, _)| format!("  kit   {n:<28} (in Launcher.exe)")),
+                .map(|(n, _)| format!("  forza {n:<28} (in Launcher.exe)")),
         );
         for q in self.job_procs() {
             let kid = self.kids.iter().find(|(_, c)| c.id() == q.pid).map(|(r, _)| *r);
@@ -2292,7 +2295,7 @@ impl Run<'_> {
                 .and_then(Path::file_name)
                 .map(|f| f.to_string_lossy().into_owned());
             out.push(match kid {
-                Some(role) => format!("  kit   {role:<28} pid {}", q.pid),
+                Some(role) => format!("  forza {role:<28} pid {}", q.pid),
                 None => format!("  game  {:<28} pid {}  ({})", q.name, q.pid, folder.unwrap_or_default()),
             });
         }

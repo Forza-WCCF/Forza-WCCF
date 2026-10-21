@@ -2352,7 +2352,7 @@ static void keys_load_locked(void)
 static int keys_save_locked(void)
 {
     char text[2048], wb[16]; int n, i, k; FILE *f;
-    n = _snprintf(text, sizeof text, "# WCCF 2010-11 kit - which key and which controller control does what. Written "
+    n = _snprintf(text, sizeof text, "# Forza-WCCF 2010-11 - which key and which controller control does what. Written "
                   "by the KEYS panel\n# in seat 1's window, read by the key driver (_keys_seat1.py). Delete this file "
                   "to get the default keys back.\n");
     for (i = 0; i < NKACT && n < (int)sizeof text - 48; i++)
@@ -2820,7 +2820,7 @@ static void set_load_locked(void)
 static int set_save_locked(void)
 {
     char text[640]; int n, k; FILE *f;
-    n = _snprintf(text, sizeof text, "# WCCF 2010-11 kit - written by the SETTINGS panel in seat 1's window, read by "
+    n = _snprintf(text, sizeof text, "# Forza-WCCF 2010-11 - written by the SETTINGS panel in seat 1's window, read by "
                   "PLAY.bat at its next\n# plain start (play.py). english= is a change asked for that start; PLAY "
                   "takes the line out once it is done.\nplay_on=%s\n", g_on_online ? "online" : "this_pc");
     if (g_server[0]) n += _snprintf(text + n, sizeof text - n, "server=%s\n", g_server);

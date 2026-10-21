@@ -1,4 +1,4 @@
-//! `setup [undo|cards] <kit folder> <game folder>`: the 2017-18 install steps (`forza::setup`), for comparing with
+//! `setup [undo|cards] <Forza-WCCF folder> <game folder>`: the 2017-18 install steps (`forza::setup`), for comparing with
 //! `scripts\setup.py`.  Run it on a copy of the game, never on the original.
 
 use forza::setup::e1718;
@@ -11,7 +11,7 @@ fn main() {
         args.remove(0);
     }
     let [kit, game] = &args[..] else {
-        eprintln!("usage: setup [undo|cards] <kit folder> <game folder>");
+        eprintln!("usage: setup [undo|cards] <Forza-WCCF folder> <game folder>");
         std::process::exit(2);
     };
     let Some(game) = e1718::find_game(game) else {

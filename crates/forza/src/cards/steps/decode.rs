@@ -81,7 +81,7 @@ pub fn read_card(path: &Path) -> Result<CardFile, String> {
     let raw = fs::read(path).map_err(|e| format!("cannot read {} ({e})", path.display()))?;
     CardFile::from_bytes(&raw).ok_or_else(|| {
         format!(
-            "{} is {} bytes; a kit card file is {CARD_BYTES} (or {RAW_BYTES} without its header)",
+            "{} is {} bytes; a Forza-WCCF card file is {CARD_BYTES} (or {RAW_BYTES} without its header)",
             path.display(),
             raw.len()
         )

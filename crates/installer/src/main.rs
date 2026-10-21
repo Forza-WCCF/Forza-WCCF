@@ -393,7 +393,7 @@ fn parse_headless(args: &[String]) -> anyhow::Result<Option<Plan>> {
             "--dest" => &mut dest,
             "--iso" => &mut plan.iso,
             "--key" => &mut plan.key,
-            "--kit" => &mut plan.kit,
+            "--package" | "--kit" => &mut plan.kit, // --kit: the old name, still accepted
             "--no-verify" => {
                 plan.verify = false;
                 continue;
@@ -432,8 +432,8 @@ fn headless(args: &[String]) -> anyhow::Result<bool> {
                     No arguments: open the Windows wizard.\n\
                     Extract: --iso GAME.iso --key MATCHING_KEY --dest DIR\n\
                     Reuse:   --dest DIR --game SBWG|SDDY\n\
-                    Editions coexist in DIR/2010-2011 and DIR/2017-2018 with separate kits/settings/saves.\n\
-                    Options: --kit KIT.zip (the trusted kit of the game's edition), --no-setup, --english, --no-verify\n\
+                    Editions coexist in DIR/2010-2011 and DIR/2017-2018 with separate files, settings and saves.\n\
+                    Options: --package FILE.zip (the trusted package of the game's edition), --no-setup, --english, --no-verify\n\
                     Info:    --help, --version\n\n\
                     Supply your own image and key. No game files or keys are included.\n\
                     Existing game folders are never replaced. Extraction does not make the game playable.",
@@ -567,7 +567,7 @@ mod tests {
         app.refresh();
         assert!(
             app.check_files().is_err(),
-            "a 2010-11 kit for a 2017-18 game"
+            "a 2010-11 package for a 2017-18 game"
         );
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -593,6 +593,10 @@ mod tests {
         assert_eq!(plan.dest, PathBuf::from("install folder"));
         assert!(!plan.setup && !plan.verify && !plan.shortcuts);
         assert!(parse(&["--dest", "reuse"]).unwrap().unwrap().iso.is_none());
+        for flag in ["--package", "--kit"] {
+            let plan = parse(&["--dest", "d", flag, "p.zip"]).unwrap().unwrap();
+            assert_eq!(plan.kit, Some(PathBuf::from("p.zip")));
+        }
         assert_eq!(
             parse(&["--dest", "reuse", "--game", "SDDY"])
                 .unwrap()

@@ -243,7 +243,7 @@ mod tests {
             "{out}"
         );
         assert!(out.ends_with(
-            "seat1_club.bin is 10 bytes; a kit card file is 4112 (or 4096 without its header)\n"
+            "seat1_club.bin is 10 bytes; a Forza-WCCF card file is 4112 (or 4096 without its header)\n"
         ));
     }
 }

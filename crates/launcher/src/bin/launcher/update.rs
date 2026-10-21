@@ -150,7 +150,7 @@ pub fn apply(kit: &Kit, r: &Release) -> Result<(), String> {
             &[("error", String::from_utf8_lossy(&out.stderr).trim())],
         ));
     }
-    // the kit ZIP holds one folder (WCCF-2010-11-kit\) with the kit in it
+    // the ZIP holds one folder (Forza-WCCF-2010-11\, or WCCF-2010-11-kit\ in older releases): whichever holds Launcher.exe
     let top = fs::read_dir(&unzipped)
         .map_err(|e| e.to_string())?
         .flatten()

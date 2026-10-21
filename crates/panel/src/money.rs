@@ -881,7 +881,7 @@ fn bytes(at: usize, len: usize) -> Option<&'static [u8]> {
 fn money_checks(log: fn(&str)) -> Option<u32> {
     const SPR_CALL: [u8; 6] = [0xFF, 0x15, 0x98, 0xE6, 0x97, 0x00];
     if bytes(ENGFMT, 12)? != b"$%d,000,000\0" {
-        log("money: off - English is not on (0x00A62914 is not the kit's \"$%d,000,000\")");
+        log("money: off - English is not on (0x00A62914 is not the original \"$%d,000,000\")");
         return Some(u32::MAX);
     }
     let mut bad = 0;

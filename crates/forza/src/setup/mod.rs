@@ -76,7 +76,7 @@ pub fn replace(path: &Path, data: &[u8]) -> Result<()> {
 pub fn copy_in(src: &Path, dst: &Path, what: &str) -> Result<()> {
     if !src.is_file() {
         return Err(Error(format!(
-            "the kit is missing {} ({what})",
+            "Forza-WCCF is missing {} ({what})",
             src.display()
         )));
     }

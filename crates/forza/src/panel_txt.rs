@@ -90,7 +90,7 @@ impl PanelFile {
     pub fn text(&self, e1718: bool) -> String {
         let starter = if e1718 { "PLAY.bat" } else { "Launcher.exe" };
         let mut s = format!(
-            "# WCCF 2010-11 kit - written by the SETTINGS panel in seat 1's window, read by {starter} at its next\n# \
+            "# Forza-WCCF 2010-11 - written by the SETTINGS panel in seat 1's window, read by {starter} at its next\n# \
              plain start (play.py). english= is a change asked for that start; PLAY takes the line out once it is \
              done.\nplay_on={}\n",
             if self.online { "online" } else { "this_pc" }
@@ -130,7 +130,7 @@ mod tests {
         );
         assert_eq!(
             f.text(false).as_bytes(),
-            b"# WCCF 2010-11 kit - written by the SETTINGS panel in seat 1's window, read by Launcher.exe at its next\n\
+            b"# Forza-WCCF 2010-11 - written by the SETTINGS panel in seat 1's window, read by Launcher.exe at its next\n\
 # plain start (play.py). english= is a change asked for that start; PLAY takes the line out once it is done.\n\
 play_on=online\nserver=1.2.3.4\nenglish=off\nhover_delay_ms=500\nauto_logs=0\n"
         );

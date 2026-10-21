@@ -229,7 +229,7 @@ fn upload(
     trim(sh); // before the answer: what the PC hears is what the folder holds
     conn.write_all(UploadReply::Ok(code.clone()).line().as_bytes())?;
     (sh.log)(&format!(
-        "{ip}: logs kept, code {code}, kit {version}, {} KB -> {name}",
+        "{ip}: logs kept, code {code}, version {version}, {} KB -> {name}",
         data.len() / 1024
     ));
     Ok(())

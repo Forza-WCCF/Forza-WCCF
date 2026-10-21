@@ -162,7 +162,7 @@ fn conf_client(seat: u8) -> String {
         ("the PLAYER CABINET (seat 1)", "MANAGEMENT_0910=0\r\n")
     };
     format!(
-        "# WCCF 2010-11 - {what} - written by the kit's setup.py.\r\n\
+        "# WCCF 2010-11 - {what} - written by Forza-WCCF setup.\r\n\
          # DHCP=0 skips the network self-test; FPR_MODE=2 = the card-table helper; FULL_SCREEN_MODE=0 = a window.\r\n\
          # SATELLITE_NO = the seat (0 projector, 1-8 player cabinets), set here because the game would otherwise\r\n\
          # read it from its command line, which breaks on folder names with spaces.\r\n\
@@ -171,13 +171,22 @@ fn conf_client(seat: u8) -> String {
     )
 }
 
-const CONF_CONTROL: &str = "# WCCF 2010-11 - the SERVER (control) - written by the kit's setup.py: everything on this PC.\r\n\
+const CONF_CONTROL: &str = "# WCCF 2010-11 - the SERVER (control) - written by Forza-WCCF setup: everything on this PC.\r\n\
     # CLIENT_MAX must stay 9 (the game's own default): fewer made the server crash.\r\n\
     # FIX_REST_ENTRY_TIME = seconds the entry window stays open each cycle (the game's own: 40). Longer, so\r\n\
     # seat 1 can still enter the first match after starting and the projector does not wait a whole\r\n\
     # 12-minute cycle on \"Now Synchronizing\".\r\n\
     DHCP=0\r\nIS_RINGEDGE=0\r\nALLNET_AUTH=0\r\nACCEPT_ALL_IP=1\r\nCLIENT_MAX=9\r\nACCEPT_IP_0=127.0.0.1\r\n\
     CONTROL_PORT=20002\r\nMATCH_PORT=20003\r\nGAME_SVR_IP=127.0.0.1\r\nFIX_REST_ENTRY_TIME=120\r\n";
+
+/// The header words earlier releases wrote; the files they made are still recognised ([`before_rename`]).
+const OLD_HEADER: &str = "written by the kit's setup.py";
+const NEW_HEADER: &str = "written by Forza-WCCF setup";
+
+/// `text` as an earlier release wrote it (same file, old header words).
+fn before_rename(text: &str) -> String {
+    text.replace(NEW_HEADER, OLD_HEADER)
+}
 
 /// Byte for byte what an earlier kit wrote: replaced without keeping a copy (any other text is a hand edit and is kept
 /// as .before-kit).  The first kit's server settings, before FIX_REST_ENTRY_TIME.
@@ -413,7 +422,7 @@ fn rename_hook_import(path: &Path, what: &str, say: &Say) -> Result<()> {
     }
     let g = rename_import(&data, SYS_DLL, HOOK_DLL).map_err(|e| {
         Error(format!(
-            "{what}: could not point it at the kit's hook ({e})"
+            "{what}: could not point it at Forza-WCCF's hook ({e})"
         ))
     })?;
     replace(path, &g)?;
@@ -448,7 +457,9 @@ fn write_text(path: &Path, text: &str, what: &str, say: &Say) -> Result<()> {
             ));
             return Ok(());
         }
-        if !EARLIER_KIT_CONFS.iter().any(|c| c.as_bytes() == have) {
+        if have != before_rename(text).as_bytes()
+            && !EARLIER_KIT_CONFS.iter().any(|c| c.as_bytes() == have)
+        {
             let name = format!(
                 "{}.before-kit",
                 path.file_name().unwrap_or_default().to_string_lossy()
@@ -509,7 +520,7 @@ fn check_game(kit: &Path, game: &Path, say: &Say) -> Result<()> {
     }
     if h != ORIGINAL_CLIENT {
         return Err(Error(format!(
-            "the game folder's client_Release.exe is not Rev D (SHA-256 {}...) - this kit is for Rev D only",
+            "the game folder's client_Release.exe is not Rev D (SHA-256 {}...) - Forza-WCCF 2010-11 is for Rev D only",
             h[..16].to_uppercase()
         )));
     }
@@ -517,7 +528,7 @@ fn check_game(kit: &Path, game: &Path, say: &Say) -> Result<()> {
     for (n, want) in ORIGINAL_OTHERS {
         if norm_sha(&game.join(n))? != want {
             say.note(&format!(
-                "{n} is not the Rev D file this kit was tested with - it may not work"
+                "{n} is not the Rev D file Forza-WCCF was tested with - it may not work"
             ));
         }
     }
@@ -536,7 +547,7 @@ fn check_game(kit: &Path, game: &Path, say: &Say) -> Result<()> {
              the game cannot draw without it",
         );
     }
-    for (p, what) in [(game, "the game folder"), (kit, "the kit folder")] {
+    for (p, what) in [(game, "the game folder"), (kit, "the Forza-WCCF folder")] {
         if !p.to_string_lossy().is_ascii() {
             say.note(&format!(
                 "{what}'s path has non-English letters - if the game fails, move it to a plain path like D:\\Games\\WCCF"
@@ -552,7 +563,7 @@ fn setup_extracted(kit: &Path, game: &Path, say: &Say) -> Result<()> {
     copy_if_different(
         &bin.join("wccfk.dll"),
         &game.join("wccfk.dll"),
-        "wccfk.dll (the kit's hook)",
+        "wccfk.dll (Forza-WCCF's hook)",
         say,
     )?;
     for n in PROGRAMS {
@@ -600,14 +611,14 @@ fn setup_seat(kit: &Path, game: &Path, say: &Say) -> Result<()> {
     say.line(&format!("in {}:", seat.display()));
     if seat.is_dir() && !seat.join(MARKER).is_file() {
         return Err(Error(format!(
-            "there is already a folder {} that this kit did not make - move it away first",
+            "there is already a folder {} that Forza-WCCF did not make - move it away first",
             seat.display()
         )));
     }
     make_dir(&seat.join("local"))?;
     fs::write(
         seat.join(MARKER),
-        "made by the WCCF 2010-11 kit's setup.py; \"setup.py undo\" removes this folder\r\n",
+        "made by Forza-WCCF setup; \"Launcher.exe undo\" removes this folder\r\n",
     )?;
     let mut made = 0;
     for n in JUNCTIONS {
@@ -670,7 +681,7 @@ fn setup_seat(kit: &Path, game: &Path, say: &Say) -> Result<()> {
     copy_if_different(
         &bin.join("wccfk.dll"),
         &seat.join("wccfk.dll"),
-        "wccfk.dll (the kit's hook)",
+        "wccfk.dll (Forza-WCCF's hook)",
         say,
     )?;
     for old in ["winmm.dll", "winmm_orig.dll"] {
@@ -752,16 +763,16 @@ fn tidy_old_layout(kit: &Path, say: &Say) -> Result<()> {
         for n in files {
             match fs::remove_file(d.join(&n)) {
                 Err(e) if e.kind() != io::ErrorKind::NotFound => say.note(&format!(
-                    "{folder}\\{n} (an older kit's) could not be removed: {e}"
+                    "{folder}\\{n} (from an older version) could not be removed: {e}"
                 )),
                 _ => {}
             }
         }
         if fs::remove_dir(&d).is_ok() {
-            say.ok(&format!("the older kit's {folder}\\ folder removed"));
+            say.ok(&format!("the older version's {folder}\\ folder removed"));
         } else {
             say.note(&format!(
-                "{folder}\\ is from an older kit and holds other files - left as is"
+                "{folder}\\ is from an older version and holds other files - left as is"
             ));
         }
     }
@@ -771,7 +782,7 @@ fn tidy_old_layout(kit: &Path, say: &Say) -> Result<()> {
 /// The catalogue and card pictures in data\cache, made from the player's game unless they are there (or `force`).
 fn setup_cards(kit: &Path, game: &Path, force: bool, say: &Say) -> Result<()> {
     use crate::cards::catalogue;
-    say.line("in the kit's data\\cache folder:");
+    say.line("in the Forza-WCCF data\\cache folder:");
     let cache = kit.join(Edition::E1011.layout().cache);
     make_dir(&cache)?;
     let have = fs::read_dir(cache.join("cards")).map_or(0, |r| {
@@ -805,7 +816,7 @@ pub fn run(kit: &Path, game: &Path, force_cards: bool, say: &dyn Fn(&str)) -> Re
     make_dir(&data.join("logs"))?;
     make_dir(&data.join("save"))?;
     merge_settings(&data.join("settings.json"), "game", &game.to_string_lossy())?;
-    say.line("in the kit's folder:");
+    say.line("in the Forza-WCCF folder:");
     tidy_old_layout(kit, say)?;
     setup_cards(kit, game, force_cards, say)
 }
@@ -831,7 +842,7 @@ pub fn undo(kit: &Path, game: &Path, say: &dyn Fn(&str)) -> Result<()> {
     if seat.is_dir() {
         if !seat.join(MARKER).is_file() {
             return Err(Error(format!(
-                "{} was not made by this kit - left alone",
+                "{} was not made by Forza-WCCF - left alone",
                 seat.display()
             )));
         }
@@ -900,7 +911,7 @@ pub fn undo(kit: &Path, game: &Path, say: &dyn Fn(&str)) -> Result<()> {
         if p.is_file() {
             if n != "winmm_orig.dll" && !read(&p)?.windows(15).any(|w| w == b"mxhook attached") {
                 say.note(&format!(
-                    "extracted\\{n} is not the kit's hook - left alone"
+                    "extracted\\{n} is not Forza-WCCF's hook - left alone"
                 ));
                 continue;
             }
@@ -922,7 +933,8 @@ pub fn undo(kit: &Path, game: &Path, say: &dyn Fn(&str)) -> Result<()> {
     ] {
         let p = game.join("local").join(n);
         if p.is_file() {
-            if read(&p)? == text.as_bytes() {
+            let have = read(&p)?;
+            if have == text.as_bytes() || have == before_rename(&text).as_bytes() {
                 fs::remove_file(&p)?;
                 say.ok(&format!("extracted\\local\\{n} removed"));
             } else {
@@ -968,6 +980,19 @@ mod tests {
         assert!(imports(&lower, SYS_DLL));
         assert!(rename_import(&pe(&["KERNEL32.dll"], b""), SYS_DLL, HOOK_DLL).is_err());
         assert!(!imports(b"not a program", HOOK_DLL));
+    }
+
+    #[test]
+    fn settings_written_with_the_old_header_words_are_still_ours() {
+        assert!(CONF_CONTROL.contains(NEW_HEADER) && conf_client(1).contains(NEW_HEADER));
+        let old = before_rename(CONF_CONTROL);
+        assert!(old.contains("the kit's setup.py") && old != CONF_CONTROL);
+        let t = tempfile::tempdir().unwrap();
+        let p = t.path().join("c.conf");
+        fs::write(&p, &old).unwrap();
+        write_text(&p, CONF_CONTROL, "x", &Say(&|_| {})).unwrap();
+        assert_eq!(fs::read_to_string(&p).unwrap(), CONF_CONTROL);
+        assert!(!t.path().join("c.conf.before-kit").exists());
     }
 
     #[test]

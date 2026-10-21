@@ -33,7 +33,7 @@ fn main() {
     );
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=version_rc.rs");
-    let what = "starts the game (server, projector and seat 1), sets up the game folder and updates the kit";
+    let what = "starts the game (server, projector and seat 1), sets up the game folder and updates Forza-WCCF";
     if let Some(res) = version_rc::make("Launcher", what) {
         println!("cargo:rustc-link-arg-bin=Launcher={}", res.display());
     }

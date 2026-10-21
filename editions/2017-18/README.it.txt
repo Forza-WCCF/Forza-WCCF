@@ -13,7 +13,7 @@ NOVITÀ DI QUESTA VERSIONE (non ancora pubblicata)
   - Online ogni carta ha il proprio Aime ID: due case non condividono mai lo stesso club.
   - Le righe Server club e Collegamento VS diretto sono passate sotto ONLINE, nella sezione "Indirizzo diretto".
   - Pausa: P (o il pulsante PAUSA) ferma una partita per al massimo 20 secondi.
-  - Il passo --kit dell'installer accetta lo ZIP di questa edizione (vedere il README dell'installer).
+  - Il passo "pacchetto" dell'installer accetta lo ZIP di questa edizione (vedere il README dell'installer).
 
 COS'È
   World Club Champion Football 2017-18 su un solo PC Windows, un solo posto, dai VOSTRI file di gioco. Il VS online con
