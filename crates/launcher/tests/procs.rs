@@ -10,6 +10,7 @@ use launcher::procs::{
     game_processes, image, listening_ports, normcase, pipes, prefers_system32, processes, same_form,
 };
 use windows_sys::Win32::Foundation::{CloseHandle, FALSE};
+use windows_sys::Win32::Storage::FileSystem::GetShortPathNameW;
 use windows_sys::Win32::System::Threading::{
     CREATE_NO_WINDOW, CREATE_UNICODE_ENVIRONMENT, CreateProcessW, DeleteProcThreadAttributeList,
     EXTENDED_STARTUPINFO_PRESENT, GetExitCodeProcess, INFINITE, InitializeProcThreadAttributeList,
@@ -79,6 +80,40 @@ fn same_form_keeps_a_missing_tail_and_folds_case() {
         same_form(&top.path().join("a").join("..").join("B")),
         format!(r"{real}\b")
     );
+}
+
+/// A folder named in 8.3 short form is put in the long form Windows reports a process's path in (2026-10-21: the CI
+/// runner's %TEMP% is C:\Users\RUNNER~1 and a program in it was reported under C:\Users\runneradmin).
+#[test]
+fn same_form_expands_short_names() {
+    let top = tempfile::tempdir().unwrap();
+    let long = top.path().join("A Long Folder Name");
+    fs::create_dir(&long).unwrap();
+    let wide: Vec<u16> = long.as_os_str().encode_wide().chain([0]).collect();
+    let mut buf = [0u16; 1024];
+    // SAFETY: wide ends in a 0; the buffer and its length go together.
+    let n = unsafe { GetShortPathNameW(wide.as_ptr(), buf.as_mut_ptr(), buf.len() as u32) } as usize;
+    assert!(n > 0 && n < buf.len(), "GetShortPathNameW of {long:?}");
+    let short = std::path::PathBuf::from(String::from_utf16(&buf[..n]).unwrap());
+    if short.file_name() == long.file_name() {
+        eprintln!("no 8.3 names on this volume ({short:?}): nothing to expand");
+        return;
+    }
+    // no part of this path has a ~ in its long name: %TEMP%, tempfile's .tmpXXXXXX and the folder above
+    let expanded = same_form(&short);
+    assert!(
+        !expanded.contains('~') && expanded.ends_with(r"\a long folder name"),
+        "{expanded}"
+    );
+    assert_eq!(expanded, same_form(&long));
+    assert_eq!(same_form(&short.join("Game.exe")), same_form(&long.join("Game.exe")));
+    // what the runner showed: a junction made from a short-named %TEMP%, its target in short form too
+    fs::create_dir(long.join("real")).unwrap();
+    fs::write(long.join("real").join("game.exe"), b"").unwrap();
+    junction::create(short.join("real"), short.join("link")).unwrap();
+    let through = same_form(&short.join("link").join("game.exe"));
+    fs::remove_dir(long.join("link")).unwrap(); // the junction only
+    assert_eq!(through, same_form(&long.join("real").join("game.exe")));
 }
 
 #[test]

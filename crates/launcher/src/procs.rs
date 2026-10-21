@@ -4,12 +4,13 @@
 //! with the Prefer-System32 check the 2010-11 run refuses to start under.
 
 use std::ffi::OsString;
-use std::os::windows::ffi::OsStringExt;
+use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 use std::{fs, mem, ptr};
 
 use windows_sys::Win32::Foundation::{CloseHandle, FALSE, HWND, INVALID_HANDLE_VALUE, LPARAM, TRUE};
 use windows_sys::Win32::NetworkManagement::IpHelper::{GetTcpTable, MIB_TCP_STATE_LISTEN, MIB_TCPROW_LH};
+use windows_sys::Win32::Storage::FileSystem::GetLongPathNameW;
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
 };
@@ -76,7 +77,8 @@ pub fn processes() -> Vec<Proc> {
 }
 
 /// The full path of a process's program, as Windows reports it (a program started through a junction: under the
-/// junction's target).
+/// junction's target), with 8.3 short names expanded: Windows keeps the form the program was started with
+/// (C:\Users\RUNNER~1 on the CI runner), and [`same_form`] expands them on the folder's side.
 pub fn image(pid: u32) -> Option<PathBuf> {
     // SAFETY: the handle is checked and closed once; the buffer and its length go together.
     unsafe {
@@ -88,7 +90,7 @@ pub fn image(pid: u32) -> Option<PathBuf> {
         let mut len = buf.len() as u32;
         let ok = QueryFullProcessImageNameW(h, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut len);
         CloseHandle(h);
-        (ok != 0).then(|| PathBuf::from(OsString::from_wide(&buf[..len as usize])))
+        (ok != 0).then(|| long_name(&PathBuf::from(OsString::from_wide(&buf[..len as usize]))))
     }
 }
 
@@ -101,14 +103,15 @@ pub fn normcase(path: &Path) -> String {
 /// (os.path.normcase(os.path.realpath(..))).  A kit started through its first-run link C:\Games\Forza-WCCF\2010-2011
 /// runs programs that Windows reports under the link's target, so a path made from the kit's folder is put in this
 /// form before it is compared with a process's (2026-10-12: "stop" found none of the kit's helpers).  The part that
-/// does not exist is kept as it is.
+/// does not exist is kept as it is.  8.3 short names (C:\Users\RUNNER~1) are expanded: canonicalize can keep them,
+/// while Windows reports a process's path in long names (2026-10-21, the CI runner's %TEMP%).
 pub fn same_form(path: &Path) -> String {
     let full = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
     let mut rest = Vec::new();
     let mut at = full.as_path();
     let resolved = loop {
         if let Ok(real) = fs::canonicalize(at) {
-            break real;
+            break long_name(&real);
         }
         match (at.parent(), at.file_name()) {
             (Some(up), Some(name)) => {
@@ -126,6 +129,18 @@ pub fn same_form(path: &Path) -> String {
         None => text.strip_prefix(r"\\?\").unwrap_or(&text).to_owned(),
     };
     normcase(Path::new(&text))
+}
+
+/// An existing path with its 8.3 short names expanded (GetLongPathNameW); the path itself if Windows would not say.
+fn long_name(path: &Path) -> PathBuf {
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain([0]).collect();
+    let mut buf = vec![0u16; 32_768];
+    // SAFETY: wide ends in a 0; the buffer and its length go together.
+    let n = unsafe { GetLongPathNameW(wide.as_ptr(), buf.as_mut_ptr(), buf.len() as u32) } as usize;
+    if n == 0 || n >= buf.len() {
+        return path.to_path_buf();
+    }
+    PathBuf::from(OsString::from_wide(&buf[..n]))
 }
 
 /// The game's programs running from this game's folders (the game folder and the seat1 and misc folders beside it).

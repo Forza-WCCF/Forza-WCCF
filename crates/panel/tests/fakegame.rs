@@ -623,14 +623,21 @@ fn window_close_and_server_link() {
     fs::write(t.join("data/save/seat1_club.bin"), open_card()).unwrap();
     let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = server.local_addr().unwrap().port();
-    let started = std::time::Instant::now();
-    // the link: accepted, held until after the player's second close (about 12 s), then dropped
+    let seat = t.join("seat1");
+    // the link: accepted, held until the panel has logged the player's second close, then dropped (a fixed time
+    // raced the close on a slow PC: the CI runner's fakegame starts and steps slower, so the drop came first, LOST)
+    let panel_log = seat.join("forza_panel.log");
     let link = std::thread::spawn(move || {
         let (conn, _) = server.accept().unwrap();
-        std::thread::sleep(std::time::Duration::from_secs(14).saturating_sub(started.elapsed()));
+        let started = std::time::Instant::now();
+        while !fs::read_to_string(&panel_log)
+            .is_ok_and(|l| l.contains("close: closed again during the card session"))
+            && started.elapsed() < std::time::Duration::from_secs(60)
+        {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
         drop(conn);
     });
-    let seat = t.join("seat1");
     let out = Command::new(seat.join("fakegame.exe"))
         .current_dir(&seat)
         .env("WCCFPANEL_FS_RECT", "-4000,-4000,1700,1000")

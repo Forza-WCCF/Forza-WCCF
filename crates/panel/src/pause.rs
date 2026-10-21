@@ -31,13 +31,38 @@ pub static HELD: AtomicBool = AtomicBool::new(false);
 /// The window was closed while held: the pause ends, then the window gets its WM_CLOSE again.
 static CLOSE_AFTER: AtomicBool = AtomicBool::new(false);
 
-/// What the pause keeps between pauses: the gap's timer, what it owes the control and the sound, and the Stop
-/// checkbox it set (a window handle).
+/// What the pause keeps between pauses: the gap's timer, what it owes the control and the sound, the Stop checkbox it
+/// set (a window handle) and the muting still at work.
 #[derive(Default)]
 struct State {
     timer: Timer,
     owed: Owed,
     stop_box: Option<isize>,
+    muting: Option<Muting>,
+}
+
+/// The game's sound sessions muted on a thread of their own while the hold runs: done before the hold, a Core Audio
+/// that is slow to answer held the game unpumped and without its PAUSED page (2026-10-21, the CI runner without a
+/// playback device: 2.8 s of a 1.5 s test pause gone before the first PAUSED frame, the sound query the only slow
+/// step). The sessions found (id, muted before) and the ones it muted, collected by [`settle`] once it is done.
+type Muting = std::thread::JoinHandle<(Vec<(String, bool)>, Vec<String>, Duration)>;
+
+fn mute() -> Option<Muting> {
+    let pid = std::process::id();
+    std::thread::Builder::new()
+        .spawn(move || {
+            use launcher::helper::sound;
+            let t0 = Instant::now();
+            let found = sound::mutes(pid).unwrap_or_default();
+            let clear: Vec<String> = found.iter().filter(|s| !s.1).map(|s| s.0.clone()).collect();
+            let set = if clear.is_empty() {
+                Vec::new()
+            } else {
+                sound::set_mute(pid, &clear, true).unwrap_or_default()
+            };
+            (found, set, t0.elapsed())
+        })
+        .ok()
 }
 
 static STATE: Mutex<Option<State>> = Mutex::new(None);
@@ -151,14 +176,6 @@ fn on_thread<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Optio
     std::thread::Builder::new().spawn(f).ok()?.join().ok()
 }
 
-/// The game's sound sessions (id, muted); `None` when none are open or they cannot be read.
-fn sessions() -> Option<Vec<(String, bool)>> {
-    let pid = std::process::id();
-    on_thread(move || launcher::helper::sound::mutes(pid))?
-        .ok()
-        .filter(|v| !v.is_empty())
-}
-
 /// These sessions muted or unmuted; the ones that were set.
 fn set_mute(ids: Vec<String>, on: bool) -> Vec<String> {
     let pid = std::process::id();
@@ -168,8 +185,27 @@ fn set_mute(ids: Vec<String>, on: bool) -> Vec<String> {
 }
 
 /// What an ended pause still owes, tried now if a try is due: Stop cleared and confirmed clear (or its control gone),
-/// the sessions it muted unmuted. On the game's thread, never inside the hold.
+/// the sessions it muted unmuted (owed once its muting is done). On the game's thread, never inside the hold.
 fn settle(st: &mut State) {
+    if st.muting.as_ref().is_some_and(Muting::is_finished)
+        && let Some(m) = st.muting.take()
+    {
+        let (found, set, took) = m.join().unwrap_or_default();
+        let take = st.owed.take_mute(&found);
+        let sound = match (found.len(), take.len()) {
+            (0, _) => "none open".to_owned(),
+            (_, 0) => "already muted - left alone".to_owned(),
+            (all, n) => format!(
+                "{} of {n} muted ({} of {all} were the player's)",
+                set.len(),
+                all - n
+            ),
+        };
+        log(&format!(
+            "pause: sound {sound} (in {} ms)",
+            took.as_millis()
+        ));
+    }
     let Some(n) = st.owed.due(Instant::now()) else {
         return;
     };
@@ -256,6 +292,9 @@ pub fn present(dev: &IDirect3DDevice9, wnd: HWND) {
     };
     let mut st = state();
     let st = st.get_or_insert_with(State::default);
+    // the pause's start, for the cap and the test switch alike: what follows before the hold (the Stop checkbox)
+    // holds the game too
+    let begun = Instant::now();
     let refused = {
         let Ok(mut r) = RENDER.lock() else { return };
         let Some(r) = r.as_mut() else { return };
@@ -275,7 +314,7 @@ pub fn present(dev: &IDirect3DDevice9, wnd: HWND) {
         };
         let refused = pause::allowed(&facts)
             .err()
-            .or_else(|| st.timer.start(Instant::now()).err().map(Refusal::TooSoon));
+            .or_else(|| st.timer.start(begun).err().map(Refusal::TooSoon));
         match refused {
             Some(Refusal::TooSoon(s)) => {
                 let text =
@@ -307,25 +346,29 @@ pub fn present(dev: &IDirect3DDevice9, wnd: HWND) {
         None if pid.is_some() => "not found - the 20 s cap alone",
         None => "no control",
     };
-    let found = sessions().unwrap_or_default();
-    let take = st.owed.take_mute(&found);
-    let sound = match (found.len(), take.len()) {
-        (0, _) => "none open".to_owned(),
-        (_, 0) => "already muted - left alone".to_owned(),
-        (all, n) => {
-            let set = set_mute(take, true).len();
-            format!(
-                "{set} of {n} muted ({} of {all} were the player's)",
-                all - n
-            )
+    // a muting still at work from the last pause (at least the 10 s gap ago) is left to finish and be collected
+    let sound = if st.muting.is_none() {
+        st.muting = mute();
+        if st.muting.is_some() {
+            "being muted"
+        } else {
+            "not muted (no thread)"
         }
+    } else {
+        "still being muted from the last pause"
     };
     log(&format!(
-        "pause: on (shop state {shop:?}; Stop {stop}; sound {sound})"
+        "pause: on (shop state {shop:?}; Stop {stop}; sound {sound}; {} ms to set up)",
+        begun.elapsed().as_millis()
     ));
     let holding = Holding;
     HELD.store(true, Relaxed);
-    let (why, frames) = hold(dev, wnd, &st.timer, test);
+    let (why, frames) = hold(
+        dev,
+        wnd,
+        &st.timer,
+        test.map(|ms| begun + Duration::from_millis(ms)),
+    );
     drop(holding);
     let held = st.timer.end(Instant::now());
     settle(st);
@@ -355,14 +398,13 @@ fn wnd_of(wnd: HWND) -> HWND {
 }
 
 /// The hold loop: messages pumped, the PAUSED page drawn, until the key or RESUME, the cap, a close, or a frame that
-/// could not be shown. Why it ended, and how many frames it drew.
+/// could not be shown (`test`: the test switch's end instead of the cap). Why it ended, and how many frames it drew.
 fn hold(
     dev: &IDirect3DDevice9,
     wnd: HWND,
     timer: &Timer,
-    test: Option<u64>,
+    test: Option<Instant>,
 ) -> (&'static str, u32) {
-    let start = Instant::now();
     let mut frames = 0;
     loop {
         let t0 = Instant::now();
@@ -393,7 +435,7 @@ fn hold(
         let now = Instant::now();
         let left = timer.left(now).unwrap_or_default();
         let over = match test {
-            Some(ms) => now.duration_since(start) >= Duration::from_millis(ms),
+            Some(end) => now >= end,
             None => left.is_zero(),
         };
         if over {
