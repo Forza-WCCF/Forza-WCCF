@@ -438,7 +438,7 @@ const LEGEND_REPRINTS: [u32; 18] = [
 /// name_short_latin, position_name, club_name, nationality_name, stat_offence .. stat_stamina, stats_total, and the
 /// record_index (the card's player_data.bin record, for [`links`]), card_code (2017-18's printed code), the
 /// 16 role ratings as the first 16 numbers of hidden_params (2010-11) or hidden_4df_523 (2017-18), kept only when
-/// all are 1-10.
+/// all are 1-10; else the 12 position flags of tail_5a4_61f (hex) rate their roles 8.
 pub fn load_catalogue(path: &Path) -> io::Result<Vec<Card>> {
     let mut r = csv::ReaderBuilder::new()
         .delimiter(b'\t')
@@ -465,6 +465,7 @@ pub fn load_catalogue(path: &Path) -> io::Result<Vec<Card>> {
         nat,
         total,
         roles,
+        tail,
     ] = [
         &["season"][..],
         &["rarity_name"],
@@ -476,6 +477,7 @@ pub fn load_catalogue(path: &Path) -> io::Result<Vec<Card>> {
         &["nationality_name"],
         &["stats_total"],
         &["hidden_params", "hidden_4df_523"],
+        &["tail_5a4_61f"],
     ]
     .map(col);
     let stats = [
@@ -517,6 +519,9 @@ pub fn load_catalogue(path: &Path) -> io::Result<Vec<Card>> {
         let mut aptitude = Aptitude::default();
         if ratings.len() == 16 && ratings.iter().all(|r| (1..=10).contains(r)) {
             aptitude.roles.copy_from_slice(&ratings);
+        } else if let Some(flags) = get(tail).get(10..34) {
+            // 2017-18 cards of editions 36+ have no ratings, only the 12 position flags (tail bytes 5..17)
+            aptitude = Aptitude::from_flags(flags);
         }
         out.push(Card {
             number,
@@ -768,15 +773,16 @@ mod tests {
         let path = d.path().join("catalogue.tsv");
         let head = "card_no\trecord_index\tseason\trarity_name\tis_placeholder\tname_full_latin\tname_short_latin\t\
                     position_name\tclub_name\tnationality_name\tstat_offence\tstat_defence\tstat_technique\tstat_power\t\
-                    stat_speed\tstat_stamina\tstats_total\thidden_4df_523\tcard_code\n";
+                    stat_speed\tstat_stamina\tstats_total\thidden_4df_523\tcard_code\ttail_5a4_61f\n";
         let rows = format!(
-            "12\t0\t10-11\tLEGEND\t0\tAldo Bàrtoli\tBÀRTOLI\tFW\tPorto Azzurro\tItalia\t18\t5\t16\t14\t17\t12\t82\t{roles} 99 3\t\n\
+            "12\t0\t10-11\tLEGEND\t0\tAldo Bàrtoli\tBÀRTOLI\tFW\tPorto Azzurro\tItalia\t18\t5\t16\t14\t17\t12\t82\t{roles} 99 3\t\t\n\
              13\t1\t10-11\tREGULAR\t1\tNobody\tNOBODY\tMF\t\t\t1\t1\t1\t1\t1\t1\t60\t\n\
-             14\t2\t15-16\tALL TIME LEGEND\t0\tKenji Sato\tSATO\tGK\tKitakaze\t日本\t3\t15\t9\t12\t8\t10\t71\t0 0 0\tHOLE\n"
+             14\t2\t15-16\tALL TIME LEGEND\t0\tKenji Sato\tSATO\tGK\tKitakaze\t日本\t3\t15\t9\t12\t8\t10\t71\t0 0 0\tHOLE\t\n\
+             15\t3\t17-18\tREGULAR\t0\tNew Card\tNEW\tMF\tX\tY\t1\t1\t1\t1\t1\t1\t60\t0 0 0\t\t0000000000010100000000000000000000000000"
         );
         fs::write(&path, format!("{head}{rows}")).unwrap();
         let cat = load_catalogue(&path).unwrap();
-        assert_eq!(cat.len(), 2);
+        assert_eq!(cat.len(), 3);
         assert_eq!((cat[0].record, cat[1].record), (Some(0), Some(2)));
         let a = &cat[0];
         assert_eq!(
@@ -786,6 +792,10 @@ mod tests {
         assert_eq!((a.stats, a.total), ([18, 5, 16, 14, 17, 12], 82));
         assert_eq!(a.aptitude.roles[..3], [1, 2, 3]);
         assert_eq!(a.aptitude.roles[15], 6);
+        // no ratings, flags CF and SS (hex bytes 5 and 6 of the tail): both roles rated 8
+        let c = &cat[2];
+        assert_eq!((c.aptitude.roles[0], c.aptitude.roles[3]), (8, 8));
+        assert_eq!(c.aptitude.roles.iter().filter(|&&r| r > 0).count(), 2);
         let b = &cat[1];
         assert_eq!(
             (b.country.as_str(), b.rarity, b.pos),

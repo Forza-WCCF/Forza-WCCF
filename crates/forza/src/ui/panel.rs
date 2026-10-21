@@ -1812,19 +1812,6 @@ fn combo(ui: &mut Ui, id: &str, value: &mut String, options: &[(String, usize)],
         });
 }
 
-fn inferred_role(card: &Card) -> &'static str {
-    let s = card.stats;
-    match card.pos {
-        Position::Gk => "cat.role_keeper",
-        Position::Df if s[4] >= 15 => "cat.role_wingback",
-        Position::Df => "cat.role_stopper",
-        Position::Mf if s[2] >= 17 => "cat.role_playmaker",
-        Position::Mf => "cat.role_box",
-        Position::Fw if s[3] >= 16 => "cat.role_target",
-        Position::Fw => "cat.role_poacher",
-    }
-}
-
 /// The card's partners by affinity, best first (from the game's own files), a tick on those already on the table.
 fn affinity_pane(ui: &mut Ui, card: &Card, links: &board::Links, on_table: &[u32], lang: Lang) {
     egui::Frame::new()
@@ -1912,16 +1899,21 @@ fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> bool {
                 .font(theme::body(12.0))
                 .color(theme::TEXT_DIM),
             );
-            ui.label(
-                egui::RichText::new(tr!(
-                    lang,
-                    "cat.inferred",
-                    role = tr!(lang, inferred_role(card))
-                ))
-                .font(theme::body(12.0))
-                .italics()
-                .color(theme::TEXT_DIM),
-            );
+            // every role at the card's top rating (a card rated from its position flags has them all at 8)
+            let top = card.aptitude.roles.iter().copied().max().unwrap_or(0);
+            let best: Vec<_> = board::ROLES
+                .iter()
+                .zip(card.aptitude.roles)
+                .filter(|(_, r)| top > 0 && *r == top)
+                .map(|(n, _)| *n)
+                .collect();
+            if !best.is_empty() {
+                ui.label(
+                    egui::RichText::new(tr!(lang, "cat.best_role", roles = best.join(" ")))
+                        .font(theme::body(12.0))
+                        .color(theme::TEXT_DIM),
+                );
+            }
             ui.add_space(4.0);
             let w = ui.available_width();
             let names = STATS.map(|k| tr!(lang, k));
