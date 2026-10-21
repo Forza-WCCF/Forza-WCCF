@@ -692,6 +692,12 @@ fn toc(f: &mut File) -> R<HashMap<String, usize>> {
         return fail("data\\wccf_data.xaf is not an xaf0 archive");
     }
     let n = u32_at(&hdr, 12) as usize;
+    // a damaged count must not size the allocation: the table has to fit in the file
+    let len = f.seek(SeekFrom::End(0))?;
+    if (n as u64).saturating_mul(ENTRY as u64) > len.saturating_sub(TOC_AT) {
+        return fail("data\\wccf_data.xaf is cut short or damaged (its entry count)");
+    }
+    f.seek(SeekFrom::Start(TOC_AT))?;
     let mut raw = vec![0u8; n * ENTRY];
     f.read_exact(&mut raw)?;
     let e = |i: usize| &raw[i * ENTRY..(i + 1) * ENTRY];
@@ -833,6 +839,9 @@ pub fn build(
 }
 
 fn hex(s: &str) -> R<Vec<u8>> {
+    if !s.len().is_multiple_of(2) {
+        return Err(super::Failed(format!("{STATE}: not hex")));
+    }
     (0..s.len() / 2)
         .map(|i| u8::from_str_radix(s.get(2 * i..2 * i + 2).unwrap_or("zz"), 16))
         .collect::<Result<_, _>>()
@@ -869,12 +878,23 @@ pub fn restore(game: &Path, state_path: &Path) -> R<usize> {
     if &magic != b"xaf0" || f.seek(SeekFrom::End(0))? < length {
         return fail("data\\wccf_data.xaf is shorter than before the pictures - left as it is");
     }
+    // everything is checked before the first byte is written; the state file stays when anything is wrong
+    let bad = || super::Failed(format!("{STATE} is damaged - left as it is"));
+    if header.len() != 0x18 {
+        return Err(bad());
+    }
+    let mut fixes = Vec::new();
     for (i, raw) in entries {
-        let i: u64 = i
-            .parse()
-            .map_err(|_| super::Failed(format!("{STATE}: entry {i}")))?;
+        let i: u64 = i.parse().map_err(|_| bad())?;
+        let e = hex(raw.as_str().unwrap_or(""))?;
+        if e.len() != ENTRY || TOC_AT + (i + 1) * ENTRY as u64 > length {
+            return Err(bad());
+        }
+        fixes.push((i, e));
+    }
+    for (i, e) in fixes {
         f.seek(SeekFrom::Start(TOC_AT + i * ENTRY as u64))?;
-        f.write_all(&hex(raw.as_str().unwrap_or(""))?)?;
+        f.write_all(&e)?;
     }
     f.seek(SeekFrom::Start(0x18))?;
     f.write_all(&header)?;
@@ -1326,6 +1346,26 @@ mod tests {
         assert!(s.build(false, "all").unwrap().is_empty());
         assert_eq!(apply(&s.game, &vec![], &s.state).unwrap(), 0);
         assert_eq!(s.archive(), s.original);
+    }
+
+    #[test]
+    fn a_damaged_way_back_writes_nothing_and_stays() {
+        let s = Scratch::new(true);
+        apply(&s.game, &s.build(false, "all").unwrap(), &s.state).unwrap();
+        let on = s.archive();
+        let good = fs::read_to_string(&s.state).unwrap();
+        let short = good.replace(&to_hex(&s.entry), &to_hex(&s.entry[..ENTRY - 1]));
+        for bad in [short, good.replace("\"header\": \"", "\"header\": \"0")] {
+            fs::write(&s.state, &bad).unwrap();
+            assert!(restore(&s.game, &s.state).is_err());
+            assert_eq!(s.archive(), on, "nothing written");
+            assert!(s.state.is_file(), "the state stays");
+        }
+        // a huge entry count is refused, not allocated
+        let mut huge = s.original.clone();
+        huge[12..16].copy_from_slice(&u32::MAX.to_le_bytes());
+        fs::write(s.game.join(XAF), &huge).unwrap();
+        assert!(toc(&mut File::open(s.game.join(XAF)).unwrap()).is_err());
     }
 
     #[test]

@@ -524,10 +524,18 @@ fn encoded(ed: Edition, jp: &str, text: &str, nl: &[u8]) -> Result<Vec<u8>, Stri
     }
     match ed {
         Edition::E1011 => {
-            if jp.matches("$c[").count() != en.matches("$c[").count()
-                || jp.matches("$c").count() != en.matches("$c").count()
+            // every $ code letter ($c $p $t ...) as often as the game's line has it; a colour's value may differ
+            let letters = |s: &str| {
+                let mut v: Vec<String> = CODES
+                    .find_iter(s)
+                    .map(|m| m.as_str()[..2].to_string())
+                    .collect();
+                v.sort();
+                v
+            };
+            if jp.matches("$c[").count() != en.matches("$c[").count() || letters(jp) != letters(&en)
             {
-                return Err("colour codes differ from the game's line".into());
+                return Err("$ codes (colour, layout) differ from the game's line".into());
             }
         }
         Edition::E1718 => {
@@ -1488,6 +1496,11 @@ mod tests {
         assert!(encoded(e, "%dポイント", "%d points", b"\n").is_ok());
         assert!(encoded(e, "%dポイント", "points", b"\n").is_err());
         assert!(encoded(e, "$c[FF0000FF]赤$c", "red", b"\n").is_err());
+        assert!(
+            encoded(Edition::E1011, "$pあ$t", "a$p", b"\n").is_err(),
+            "a layout code dropped"
+        );
+        assert!(encoded(Edition::E1011, "$pあ$t", "a$p$t", b"\n").is_ok());
         assert!(encoded(e, "あ", "<empty>", b"\n").unwrap().is_empty());
         assert!(encoded(e, "%dあ", "<empty>", b"\n").is_err());
         assert!(encoded(e, "あ", "100% sure", b"\n").is_err());

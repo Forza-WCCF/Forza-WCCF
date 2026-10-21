@@ -190,8 +190,10 @@ impl TableFile {
         }
         swap_in(&tmp, &self.table, 4, 1)?;
         self.stamp = Some(when);
+        // still pending when the formation copy fails: the two files disagree until a write succeeds
+        self.write_state(cards)?;
         self.pending = false;
-        self.write_state(cards)
+        Ok(())
     }
 
     fn write_state(&self, cards: &[Placed]) -> io::Result<()> {
@@ -688,6 +690,19 @@ mod tests {
         );
         assert_eq!(fs::read_dir(d.path()).unwrap().count(), 2);
         assert_eq!(f.read().unwrap(), cards);
+    }
+
+    /// A failed formation copy leaves the write pending, so the caller tries again.
+    #[test]
+    fn a_failed_copy_stays_pending() {
+        let d = tempfile::tempdir().unwrap();
+        let mut f = TableFile::in_dir(d.path());
+        fs::create_dir(&f.state).unwrap(); // a folder where the copy goes: the swap fails
+        assert!(f.write(&[p(1, 101, 0.5, 0.5)]).is_err());
+        assert!(f.pending);
+        fs::remove_dir(&f.state).unwrap();
+        f.write(&[p(1, 101, 0.5, 0.5)]).unwrap();
+        assert!(!f.pending);
     }
 
     /// `board_add_locked`'s places: the card's own line first, then DF MF FW GK, then the bench; the lowest free slot.

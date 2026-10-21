@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 
 use super::{
     Error, Hash, Patch, Report, Result, apply, copy_in, logowin_backup, make_dir, make_junction,
-    merge_settings, original, put, read, rename_import, sha,
+    merge_settings, original, put, read, rename_import, replace, sha,
 };
 use crate::Edition;
 #[cfg(feature = "ui")]
@@ -238,6 +238,8 @@ pub fn find_game(path: &str) -> Option<PathBuf> {
     super::find_game(path, &[PINNED[0].0, PINNED[1].0], "game")
 }
 
+const SEAT_MARK: &str = ".forza-seat";
+
 /// game\ (server + projector, guarded) and seat1\; returns what setup-hashes.json holds.
 pub fn setup_game(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
     let lay = Edition::E1718.layout();
@@ -257,7 +259,8 @@ pub fn setup_game(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
         // the projector's status icon needs the same ALL.Net answers as seat 1
         let g = apply(&g, if i == 1 { spec.control } else { spec.projector })?;
         if fs::read(game.join(exe)).ok().as_deref() != Some(&g) {
-            put(&game.join(exe), &g)?;
+            // replace, not write: a hard link at the path is swapped out, never written through
+            replace(&game.join(exe), &g)?;
         }
         report
             .0
@@ -299,7 +302,15 @@ pub fn setup_game(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
     )?;
 
     // seat 1: junctions to game\'s folders, hard links to its files, its own exe and settings
+    // a seat1\ that setup did not make holds someone else's files and saves: refuse it
+    if seat.exists() && !seat.join(SEAT_MARK).is_file() && !rt.join("setup-hashes.json").is_file() {
+        return Err(Error(format!(
+            "{} exists and was not made by setup; move it away first",
+            seat.display()
+        )));
+    }
     make_dir(&seat.join("local"))?;
+    fs::write(seat.join(SEAT_MARK), b"made by Forza-WCCF setup\n")?;
     for n in JUNCTION_DIRS {
         make_junction(&seat.join(n), &game.join(n))?;
     }
@@ -325,7 +336,7 @@ pub fn setup_game(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
     )?;
     let seat_exe = seat.join(client);
     if fs::read(&seat_exe).ok().as_deref() != Some(&want) {
-        put(&seat_exe, &want)?;
+        replace(&seat_exe, &want)?;
     }
     report
         .0
@@ -375,9 +386,22 @@ pub fn setup_catalogue(kit: &Path, game: &Path, force: bool, say: &dyn Fn(&str))
 /// The game folder as it was: the original programs and logo back, the kit's files, seat1\ and the record removed.
 pub fn undo(kit: &Path, game: &Path, spec: &Spec) -> Result<()> {
     let rt = game.parent().unwrap_or(game);
-    for (exe, _) in spec.pinned {
+    // every backup is checked before anything changes, then swapped in whole
+    let mut backups = Vec::new();
+    for (exe, pinned) in spec.pinned {
         let from = rt.join("original").join(exe);
-        fs::copy(&from, game.join(exe)).map_err(|e| Error(format!("{}: {e}", from.display())))?;
+        let data = read(&from)?;
+        if sha(&data) != pinned {
+            return Err(Error(format!(
+                "{} is not the original {exe} (SHA-256 {}, expected {pinned}); undo changed nothing",
+                from.display(),
+                sha(&data)
+            )));
+        }
+        backups.push((exe, data));
+    }
+    for (exe, data) in backups {
+        replace(&game.join(exe), &data)?;
     }
     let backup = game.join(logowin_backup());
     if backup.is_file() {
@@ -395,13 +419,16 @@ pub fn undo(kit: &Path, game: &Path, spec: &Spec) -> Result<()> {
         }
     }
     let seat = rt.join("seat1");
-    for n in JUNCTION_DIRS {
-        // a junction goes with remove_dir; remove_dir_all would walk into game\
-        if seat.join(n).symlink_metadata().is_ok() {
-            fs::remove_dir(seat.join(n))?;
+    // only a seat1\ that setup made (it has the mark, or setup's record is still here)
+    if seat.join(SEAT_MARK).is_file() || rt.join("setup-hashes.json").is_file() {
+        for n in JUNCTION_DIRS {
+            // a junction goes with remove_dir; remove_dir_all would walk into game\
+            if seat.join(n).symlink_metadata().is_ok() {
+                fs::remove_dir(seat.join(n))?;
+            }
         }
+        let _ = fs::remove_dir_all(&seat);
     }
-    let _ = fs::remove_dir_all(&seat);
     if rt.join("setup-hashes.json").is_file() {
         fs::remove_file(rt.join("setup-hashes.json"))?;
     }
@@ -669,6 +696,22 @@ mod tests {
             .filter(|(p, _)| !p.starts_with("original") && !p.ends_with("_user_option.conf"))
             .collect();
         assert_eq!(after, before);
+
+        // a damaged backup stops the undo before it changes anything
+        run(&kit, &game, &spec).unwrap();
+        let patched = fs::read(game.join("client_Release.exe")).unwrap();
+        let backup = rt.join("original/client_Release.exe");
+        fs::write(&backup, b"damaged").unwrap();
+        assert!(undo(&kit, &game, &spec).is_err());
+        assert_eq!(fs::read(game.join("client_Release.exe")).unwrap(), patched);
+        fs::write(&backup, &client).unwrap();
+        undo(&kit, &game, &spec).unwrap();
+        // a seat1 that setup did not make is neither used nor deleted
+        fs::create_dir(&seat).unwrap();
+        fs::write(seat.join("save.dat"), b"theirs").unwrap();
+        assert!(run(&kit, &game, &spec).is_err());
+        undo(&kit, &game, &spec).unwrap();
+        assert_eq!(fs::read(seat.join("save.dat")).unwrap(), b"theirs");
     }
 
     #[test]
