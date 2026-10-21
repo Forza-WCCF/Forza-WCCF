@@ -284,10 +284,12 @@ fn projector_window() {
         }
         std::thread::sleep(Duration::from_millis(500));
     };
-    // SAFETY: a window of this process; cross-thread subclassing within a process is allowed
-    let old =
-        unsafe { SetWindowLongPtrW(wnd, GWLP_WNDPROC, proj_wndproc as *const () as usize as _) };
-    OLD_PROC.store(old as isize, Relaxed);
+    // SAFETY: a window of this process; cross-thread subclassing within a process is allowed. The old procedure is
+    // published first: proj_wndproc may run the moment it is installed.
+    unsafe {
+        OLD_PROC.store(GetWindowLongPtrW(wnd, GWLP_WNDPROC) as isize, Relaxed);
+        SetWindowLongPtrW(wnd, GWLP_WNDPROC, proj_wndproc as *const () as usize as _);
+    }
     WINDOW.store(wnd.0 as isize, Relaxed);
     // SAFETY: as above; the message is handled by proj_wndproc on the window's thread
     let _ = unsafe { PostMessageW(Some(wnd), WM_FORZA_PROJ, WPARAM(0), LPARAM(0)) };
@@ -549,7 +551,8 @@ fn log_fullscreen(h: HWND, on: bool) {
 /// The projector's window procedure: its frame (once), F11 and a double-click for borderless full screen, Esc to leave;
 /// everything else is the game's.
 unsafe extern "system" fn proj_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
-    static LAST_CLICK: AtomicU32 = AtomicU32::new(0);
+    // the window's own thread only
+    thread_local! { static LAST_CLICK: Cell<(u32, i32, i32)> = const { Cell::new((0, 0, 0)) }; }
     match m {
         WM_FORZA_PROJ => {
             projector::frame(h, test_screen(), log);
@@ -561,24 +564,40 @@ unsafe extern "system" fn proj_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) 
             }
             return LRESULT(0);
         }
-        WM_KEYDOWN if wp.0 == 0x1B && fullscreen::leave(h, &PROJ_FS, test_screen()) => {
-            log_fullscreen(h, false);
-            return LRESULT(0);
+        // Esc leaves full screen and still goes on to the game
+        WM_KEYDOWN if wp.0 == 0x1B => {
+            if fullscreen::leave(h, &PROJ_FS, test_screen()) {
+                log_fullscreen(h, false);
+            }
         }
         WM_LBUTTONDBLCLK => {
+            LAST_CLICK.set((0, 0, 0));
             toggle_fullscreen(h, &PROJ_FS);
             return LRESULT(0);
         }
-        // a window class without CS_DBLCLKS: two presses within the double-click time
+        // a window class without CS_DBLCLKS: two presses within the double-click time and distance
         WM_LBUTTONDOWN => {
+            let (x, y) = (lp.0 as i16 as i32, (lp.0 >> 16) as i16 as i32);
             // SAFETY: plain queries
-            let (now, gap) = unsafe { (GetTickCount(), GetDoubleClickTime()) };
-            let last = LAST_CLICK.swap(now, Relaxed);
-            if last != 0 && now.wrapping_sub(last) <= gap {
-                LAST_CLICK.store(0, Relaxed);
+            let (now, gap, dx, dy) = unsafe {
+                (
+                    GetTickCount(),
+                    GetDoubleClickTime(),
+                    GetSystemMetrics(SM_CXDOUBLECLK) / 2,
+                    GetSystemMetrics(SM_CYDOUBLECLK) / 2,
+                )
+            };
+            let (lt, lx, ly) = LAST_CLICK.get();
+            if lt != 0
+                && now.wrapping_sub(lt) <= gap
+                && (x - lx).abs() <= dx
+                && (y - ly).abs() <= dy
+            {
+                LAST_CLICK.set((0, 0, 0));
                 toggle_fullscreen(h, &PROJ_FS);
                 return LRESULT(0);
             }
+            LAST_CLICK.set((now, x, y));
         }
         _ => {}
     }
@@ -602,6 +621,10 @@ fn unload() {
     }
     let h = WINDOW.swap(0, Relaxed);
     if h != 0 {
+        // out of full screen first: no handler is left to leave it
+        for slot in [&PANEL_FS, &PROJ_FS] {
+            fullscreen::leave(HWND(h as *mut c_void), slot, test_screen());
+        }
         // SAFETY: the procedure we replaced, back on the same window
         unsafe {
             SetWindowLongPtrW(

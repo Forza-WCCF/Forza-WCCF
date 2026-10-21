@@ -105,6 +105,7 @@ pub fn frame(h: HWND, over: Option<RECT>, log: fn(&str)) {
 pub struct View {
     sc: Option<(IDirect3DSwapChain9, u32, u32)>,
     failed: bool,
+    warned: bool,
     shown: Option<(u32, u32)>,
 }
 
@@ -167,13 +168,19 @@ impl View {
                     ..Default::default()
                 };
                 let mut sc = None;
-                if !ip.Windowed.as_bool()
-                    || dev.CreateAdditionalSwapChain(&mut pp, &mut sc).is_err()
-                {
-                    self.failed = true;
-                    log(
-                        "projector: no swap chain of its own - the picture stays at the game's size",
-                    );
+                if !ip.Windowed.as_bool() {
+                    self.failed = true; // a full-screen game: never
+                    log("projector: full-screen game - the picture stays at the game's size");
+                    return None;
+                }
+                if let Err(e) = dev.CreateAdditionalSwapChain(&mut pp, &mut sc) {
+                    // device lost and the like: tried again next frame, after the Reset too
+                    if !self.warned {
+                        self.warned = true;
+                        log(&format!(
+                            "projector: no swap chain yet ({e}) - trying again"
+                        ));
+                    }
                     return None;
                 }
                 self.sc = Some((sc?, cw, ch));
