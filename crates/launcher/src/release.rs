@@ -3,11 +3,6 @@
 
 use std::env;
 use std::fs;
-use std::os::windows::process::CommandExt;
-use std::path::Path;
-use std::process::{Command, Stdio};
-
-use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
 use crate::Kit;
 
@@ -32,29 +27,7 @@ pub fn no_target() -> bool {
     update_url().contains(".invalid/")
 }
 
-/// Windows' own program, by full path: never a curl.exe or tar.exe that lies in the kit folder.
-pub fn system32(exe: &str) -> Command {
-    let root = env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
-    let mut cmd = Command::new(Path::new(&root).join("System32").join(exe));
-    cmd.stdin(Stdio::null()).creation_flags(CREATE_NO_WINDOW);
-    cmd
-}
-
-/// curl.exe that fails on an HTTP error and gives up on a connection that stays silent for a minute.
-pub fn curl() -> Command {
-    let mut cmd = system32("curl.exe");
-    cmd.args([
-        "-sSfL",
-        "--connect-timeout",
-        "20",
-        "--speed-limit",
-        "1",
-        "--speed-time",
-        "60",
-    ])
-    .args(["-A", "wccf-kit"]);
-    cmd
-}
+pub use forza::curl::{curl, system32};
 
 impl Kit {
     /// version.txt from the kit ZIP (cargo xtask package writes it): kit-5.4, kit-5.5-test1, kit-6-test-<commit>.

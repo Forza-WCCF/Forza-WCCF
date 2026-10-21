@@ -4,10 +4,12 @@
 //! The window is `forza::ui::installer` (the approved design) over the state kept here; this file runs what it asks.
 mod disc;
 mod err;
+mod fetch;
 mod install;
+mod keytable;
 
 use eframe::egui;
-use forza::ui::installer::{self, Action, Field, InstallerState, Page, Space, Step};
+use forza::ui::installer::{self, Action, Field, InstallerState, Latest, Page, Space, Step};
 use forza::ui::theme::{self, Edition};
 use forza::ui::{Lang, text};
 use install::{Event, Plan};
@@ -29,6 +31,8 @@ struct Run {
 struct App {
     st: InstallerState,
     run: Option<Run>,
+    /// The lookup of the newest package, started once the 2017-18 edition is the target.
+    lookup: Option<Receiver<Option<String>>>,
 }
 
 fn default_dest() -> String {
@@ -75,6 +79,7 @@ impl App {
         App {
             st: InstallerState::new(Lang::detect(), default_dest()),
             run: None,
+            lookup: None,
         }
     }
 
@@ -111,7 +116,10 @@ impl App {
         let found = size.and_then(disc::by_size);
         st.detected = found.map(|d| edition_of(d.game_id));
         st.unsupported = size.is_some() && found.is_none();
-        st.setup_possible = kit.is_some() && st.target().is_some();
+        let latest = st.use_latest
+            && matches!(st.latest, Latest::Found(_))
+            && st.target() == Some(Edition::E1718);
+        st.setup_possible = (kit.is_some() || latest) && st.target().is_some();
         st.space = install::free_space(&dest).map(|free| Space {
             free,
             total: install::total_space(&dest).unwrap_or(free),
@@ -150,9 +158,9 @@ impl App {
             })?;
             disc::open(&iso, &key).map_err(|e| err::localize(&e, self.st.lang))?;
         }
-        if self.setup_enabled() {
+        if let (true, Some(kit)) = (self.setup_enabled(), self.kit()) {
             // as headless (install::run): a kit zip, of the game's edition
-            install::check_kit_zip(&self.kit().unwrap())
+            install::check_kit_zip(&kit)
                 .and_then(|kit| install::check_setup(self.st.target().map(game_id), kit))
                 .map_err(|e| err::localize(&e, self.st.lang))?;
         }
@@ -174,8 +182,12 @@ impl App {
             english: st.options[2] && setup,
             shortcuts: st.options[3] && setup,
             kit: self.kit(),
+            latest: setup && self.kit().is_none() && st.use_latest,
         };
         let mut steps = vec![];
+        if plan.latest {
+            steps.push(Step::Download);
+        }
         if !reuse && plan.verify {
             steps.push(Step::Verify);
         }
@@ -256,7 +268,13 @@ impl App {
                 dialog = dialog.add_filter(self.t("installer.iso"), &["iso"]);
                 dialog.pick_file()
             }
-            Field::Key => dialog.pick_file(),
+            Field::Key => {
+                dialog = dialog.add_filter(
+                    self.t("installer.key"),
+                    &["html", "htm", "zip", "key", "txt", "bin"],
+                );
+                dialog.pick_file()
+            }
             Field::Package => {
                 dialog = dialog.add_filter("zip", &["zip"]);
                 dialog.pick_file()
@@ -270,7 +288,33 @@ impl App {
                 Field::Key => &mut st.key,
                 Field::Package => &mut st.package,
             };
+            let p = match field {
+                Field::Folder => install::install_folder(&p),
+                _ => p,
+            };
             *slot = p.display().to_string();
+        }
+    }
+
+    /// Once the 2017-18 edition is the target: ask for the newest package off the UI thread; found and nothing chosen = use it.
+    fn look_up_latest(&mut self, ctx: &egui::Context) {
+        if self.st.page == Page::Files
+            && self.st.target() == Some(Edition::E1718)
+            && self.st.latest == Latest::Idle
+        {
+            let (tx, rx) = channel();
+            let ctx = ctx.clone();
+            std::thread::spawn(move || {
+                let _ = tx.send(fetch::latest(fetch::PREFIX_1718).ok().map(|p| p.version));
+                ctx.request_repaint();
+            });
+            (self.lookup, self.st.latest) = (Some(rx), Latest::Checking);
+        }
+        if let Some(Ok(found)) = self.lookup.as_ref().map(|rx| rx.try_recv()) {
+            self.lookup = None;
+            self.st.latest = found.map_or(Latest::Failed, Latest::Found);
+            self.st.use_latest =
+                matches!(self.st.latest, Latest::Found(_)) && self.st.package.trim().is_empty();
         }
     }
 
@@ -279,12 +323,12 @@ impl App {
         self.st.error = None;
         let step = match page {
             Page::Where if self.st.folder.trim().is_empty() => Err(self.t("installer.err_folder")),
-            Page::Files | Page::Options => self.check_files(),
+            Page::Files => self.check_files(),
             _ => Ok(()),
         };
         match step {
             Err(e) => self.st.error = Some(e),
-            Ok(()) if page == Page::Options => self.start(ctx),
+            Ok(()) if page == Page::Files => self.start(ctx),
             Ok(()) => {
                 if page == Page::Where {
                     if let Some(id) = install::installed_game_id(&self.dest()) {
@@ -294,8 +338,7 @@ impl App {
                 }
                 self.st.page = match page {
                     Page::Welcome => Page::Where,
-                    Page::Where => Page::Files,
-                    _ => Page::Options,
+                    _ => Page::Files,
                 };
             }
         }
@@ -306,8 +349,7 @@ impl App {
         self.st.page = match self.st.page {
             Page::Where => Page::Welcome,
             Page::Files => Page::Where,
-            Page::Options => Page::Files,
-            _ => Page::Options,
+            _ => Page::Files,
         };
     }
 }
@@ -332,12 +374,14 @@ impl eframe::App for App {
                 let st = &mut self.st;
                 let field = match ext.as_deref().and_then(|e| e.to_str()) {
                     Some("iso") => &mut st.iso,
-                    Some("zip") => &mut st.package,
+                    // a zip is a package, unless it is not one (a zip with the key table)
+                    Some("zip") if install::check_kit_zip(p).is_ok() => &mut st.package,
                     _ => &mut st.key,
                 };
                 *field = p.display().to_string();
             }
         }
+        self.look_up_latest(&ctx);
         self.refresh();
         let act = installer::show(ui, &mut self.st);
         match act {
@@ -370,6 +414,7 @@ fn parse_headless(args: &[String]) -> anyhow::Result<Option<Plan>> {
         key: None,
         game_id: None,
         kit: None,
+        latest: false,
         verify: true,
         setup: true,
         english: false,
@@ -415,6 +460,9 @@ fn parse_headless(args: &[String]) -> anyhow::Result<Option<Plan>> {
             .with_context(|| format!("{flag} needs a path."))?;
         *slot = Some(PathBuf::from(value));
     }
+    if plan.kit.as_deref() == Some(Path::new("latest")) {
+        (plan.kit, plan.latest) = (None, true); // a package file named "latest" is written ./latest
+    }
     plan.dest = dest.context("Headless mode requires --dest DIR; use --help.")?;
     ensure!(
         plan.iso.is_some() == plan.key.is_some(),
@@ -433,7 +481,7 @@ fn headless(args: &[String]) -> anyhow::Result<bool> {
                     Extract: --iso GAME.iso --key MATCHING_KEY --dest DIR\n\
                     Reuse:   --dest DIR --game SBWG|SDDY\n\
                     Editions coexist in DIR/2010-2011 and DIR/2017-2018 with separate files, settings and saves.\n\
-                    Options: --package FILE.zip (the trusted package of the game's edition), --no-setup, --english, --no-verify\n\
+                    Options: --package FILE.zip (the trusted package of the game's edition) or --package latest (download the newest 2017-18 package from GitHub, SHA-256 checked), --no-setup, --english, --no-verify\n\
                     Info:    --help, --version\n\n\
                     Supply your own image and key. No game files or keys are included.\n\
                     Existing game folders are never replaced. Extraction does not make the game playable.",
@@ -471,7 +519,7 @@ fn run_window(renderer: eframe::Renderer) -> eframe::Result {
             .with_title("Forza-WCCF Installer")
             .with_decorations(false)
             .with_inner_size(installer::SIZE)
-            .with_min_inner_size([560.0, 400.0]),
+            .with_min_inner_size([680.0, 520.0]),
         renderer,
         ..Default::default()
     };
@@ -597,6 +645,10 @@ mod tests {
             let plan = parse(&["--dest", "d", flag, "p.zip"]).unwrap().unwrap();
             assert_eq!(plan.kit, Some(PathBuf::from("p.zip")));
         }
+        let plan = parse(&["--dest", "d", "--package", "latest"])
+            .unwrap()
+            .unwrap();
+        assert!(plan.latest && plan.kit.is_none());
         assert_eq!(
             parse(&["--dest", "reuse", "--game", "SDDY"])
                 .unwrap()

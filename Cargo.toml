@@ -44,6 +44,7 @@ iroh = { version = "1.4.0", default-features = false, features = ["tls-ring"] }
 tokio = "1.53.2"
 bytes = "1.12.1"
 getrandom = "0.3.4"
+tl = "0.7.8"
 zip = { version = "9.0.1", default-features = false, features = ["deflate"] }
 
 [workspace.lints.rust]

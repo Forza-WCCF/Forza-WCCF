@@ -2,6 +2,7 @@
 //! Procedure: ringedge/revd-continuation/DECRYPTION.md (TrueCrypt 4.3a hidden volume at the game slot's tail,
 //! AES-256 / LRW / RIPEMD-160 / 2000 iterations, 16-byte keyfile, empty password).
 use crate::err::{InstallError as E, path};
+use crate::keytable;
 use aes::Aes256;
 use aes::cipher::{Array, BlockCipherDecrypt, KeyInit};
 use anyhow::{Result, bail, ensure};
@@ -133,6 +134,25 @@ fn key_candidates(raw: &[u8]) -> Vec<Vec<u8>> {
     out
 }
 
+/// The first key that opens the header: the key file as it is (raw or hex text), or each distinct value of the game's rows when
+/// the input is a key table (HTML, or a ZIP with one): `Keyfile` first, then the AES columns as a fallback.
+fn pick_header(raw: &[u8; 512], input: &[u8], game_id: &str) -> Result<Header> {
+    let mut cands = key_candidates(input);
+    if let Some(values) = keytable::candidates(input, game_id) {
+        ensure!(
+            !values.is_empty(),
+            E::NoKeyEntry {
+                id: game_id.to_string()
+            }
+        );
+        cands.extend(values.iter().map(|v| v.to_vec()));
+    }
+    match cands.iter().find_map(|k| read_header(raw, k)) {
+        Some(h) => h,
+        None => bail!(E::WrongKey),
+    }
+}
+
 struct Header {
     hidden_size: u64,
     lrw: Lrw,
@@ -231,13 +251,7 @@ pub fn open(iso: &Path, keyfile: &[u8]) -> Result<(Volume, Vec<u32>)> {
     let mut raw = [0u8; 512];
     f.seek(SeekFrom::Start(disc.slot_end - HIDDEN_HEADER_OFFSET))?;
     f.read_exact(&mut raw)?;
-    let Some(header) = key_candidates(keyfile)
-        .iter()
-        .find_map(|k| read_header(&raw, k))
-    else {
-        bail!(E::WrongKey);
-    };
-    let header = header?;
+    let header = pick_header(&raw, keyfile, disc.game_id)?;
     let size = header.hidden_size;
     ensure!(
         size > 0
@@ -340,6 +354,86 @@ mod tests {
             lrw.decrypt(c, 0xFFF0 + n as u64);
         }
         assert_eq!(buf, whole);
+    }
+
+    /// A made-up 512-byte header sealed with `keyfile`, the way TrueCrypt 4.3a does it (the reverse of `read_header`).
+    fn sealed_header(keyfile: &[u8]) -> [u8; 512] {
+        use aes::cipher::BlockCipherEncrypt;
+        let mut h = [0u8; 512];
+        for (i, b) in h[..64].iter_mut().enumerate() {
+            *b = (i as u8).wrapping_mul(7).wrapping_add(1); // the salt
+        }
+        h[64..68].copy_from_slice(b"TRUE");
+        h[70..72].copy_from_slice(&PROGRAM_VERSION.to_be_bytes());
+        h[92..100].copy_from_slice(&(512u64 * 100).to_be_bytes());
+        let crc = crc32fast::hash(&h[256..]);
+        h[72..76].copy_from_slice(&crc.to_be_bytes());
+        let mut dk = [0u8; 64];
+        pbkdf2::pbkdf2_hmac::<Ripemd160>(&password_from_keyfile(keyfile), &h[..64], 2000, &mut dk);
+        let lrw = Lrw::new(&dk[..16], &dk[32..]);
+        for (index, chunk) in (1u64..).zip(h[64..].as_chunks_mut::<16>().0.iter_mut()) {
+            let t = lrw.tweak(index);
+            let x = u128::from_be_bytes(*chunk) ^ t;
+            let mut block = Array::from(x.to_be_bytes());
+            lrw.aes.encrypt_block(&mut block);
+            chunk.copy_from_slice(&(u128::from_be_bytes(block.into()) ^ t).to_be_bytes());
+        }
+        h
+    }
+
+    #[test]
+    fn a_key_table_picks_the_pair_that_opens_the_header() {
+        let (good, other) = (
+            "00112233445566778899aabbccddeeff",
+            "ffeeddccbbaa99887766554433221100",
+        );
+        let iv = "0f0e0d0c0b0a09080706050403020100";
+        let raw = sealed_header(&hex_to_bytes(good));
+        let row = |g: &str, k: &str| format!("<tr><td>{g}</td><td>{k}</td><td>{iv}</td></tr>");
+        let html = format!(
+            "<table><tr><th>Game ID</th><th>AES Key</th><th>AES IV</th></tr>{}{}{}</table>",
+            row("SDDY", other),
+            row("SDDY", good),
+            row("SBWG", "11111111111111111111111111111111")
+        );
+        assert_eq!(
+            pick_header(&raw, html.as_bytes(), "SDDY")
+                .unwrap()
+                .hidden_size,
+            512 * 100
+        );
+        assert_eq!(
+            pick_header(&raw, good.as_bytes(), "SDDY")
+                .unwrap()
+                .hidden_size,
+            512 * 100
+        ); // hex text still works
+        let wrong = pick_header(&raw, html.as_bytes(), "SBWG").err().unwrap();
+        assert_eq!(wrong.downcast_ref::<E>(), Some(&E::WrongKey));
+        let none = pick_header(&raw, html.as_bytes(), "ZZZZ").err().unwrap();
+        assert_eq!(
+            none.downcast_ref::<E>(),
+            Some(&E::NoKeyEntry { id: "ZZZZ".into() })
+        );
+        assert_eq!(none.to_string(), "This key list has no entry for ZZZZ.");
+        // the real tables carry the disc's keyfile in its own column, next to AES values that do not open it
+        let html = format!(
+            "<table><tr><th>Game ID</th><th>AES Key</th><th>AES IV</th><th>Keyfile</th></tr>\
+             <tr><td>SDDY</td><td>{other}</td><td>{iv}</td><td>{good}</td></tr></table>"
+        );
+        assert_eq!(
+            pick_header(&raw, html.as_bytes(), "SDDY")
+                .unwrap()
+                .hidden_size,
+            512 * 100
+        );
+    }
+
+    fn hex_to_bytes(s: &str) -> Vec<u8> {
+        (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+            .collect()
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! The install pipeline: verify disc -> extract game -> optional kit setup (English, shortcuts).
 //! Runs on a worker thread; reports through `emit`, stops when `cancel` is set.
-use crate::disc;
 use crate::err::{InstallError as E, path as shown};
+use crate::{disc, fetch};
 use anyhow::{Result, ensure};
 use forza::Edition;
 use forza::text::{Lang, Mode};
@@ -27,6 +27,7 @@ pub struct Plan {
     pub english: bool,
     pub shortcuts: bool,
     pub kit: Option<PathBuf>, // the kit zip
+    pub latest: bool, // no kit zip given: download the newest package (2017-18 only) and use it as if chosen
 }
 
 pub enum Event {
@@ -57,6 +58,24 @@ pub fn version_paths(dest: &Path, id: &str) -> Result<(PathBuf, PathBuf)> {
     }
     let game = root.join(GAME_DIR);
     Ok((root, game))
+}
+
+/// The install folder for a folder the player picked: a Forza-WCCF install never lands loose in a drive's root or another
+/// program's folder. `D:\` gives `D:\Forza-WCCF`; a folder named Forza-WCCF, or one already holding an install, stays.
+pub fn install_folder(picked: &Path) -> PathBuf {
+    let named = picked
+        .file_name()
+        .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case("Forza-WCCF"));
+    let holds_install = disc::DISCS
+        .iter()
+        .map(|d| d.edition)
+        .chain([LEGACY_GAME_DIR])
+        .any(|d| picked.join(d).is_dir());
+    if named || holds_install {
+        picked.to_path_buf()
+    } else {
+        picked.join("Forza-WCCF")
+    }
 }
 
 pub fn game_present(dest: &Path, id: &str) -> bool {
@@ -160,7 +179,18 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
         .ok_or(E::NeedGame)?;
     let (dest, game) = version_paths(&plan.dest, id)?;
     ensure!(plan.iso.is_none() || !game.exists(), E::GameFolderExists);
-    let setup = plan.setup && plan.kit.is_some();
+    let mut kit = plan.kit.clone();
+    if plan.latest && kit.is_none() && plan.setup {
+        ensure!(id == forza::Edition::E1718.game_id(), E::NoDownload);
+        emit(Event::Stage(Step::Download));
+        let p = fetch::latest(fetch::PREFIX_1718)?;
+        emit(Event::Log(format!("Downloading {}", p.zip_name)));
+        kit = Some(fetch::download(&p, cancel, &|d, t| {
+            emit(Event::Progress(d, t))
+        })?);
+        emit(Event::Log("Package checked against its SHA-256".into()));
+    }
+    let setup = plan.setup && kit.is_some();
     ensure!(!plan.english || setup, E::EnglishNeedsSetup);
     let opened = if let Some(iso) = &plan.iso {
         let key = fs::read(plan.key.as_ref().ok_or(E::NoKey)?).map_err(|e| E::KeyRead {
@@ -177,7 +207,7 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
         None
     };
     if setup {
-        check_setup(Some(id), check_kit_zip(plan.kit.as_ref().unwrap())?)?;
+        check_setup(Some(id), check_kit_zip(kit.as_ref().unwrap())?)?;
     }
     fs::create_dir_all(&dest).map_err(|e| E::CannotCreate {
         path: shown(&dest),
@@ -211,7 +241,7 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
         extract(&mut vol, &dest, cancel, emit)?;
     }
     if setup {
-        let kit = plan.kit.as_ref().unwrap();
+        let kit = kit.as_ref().unwrap();
         let edition = edition_of(id).unwrap();
         emit(Event::Stage(Step::Setup));
         unpack_kit(kit, &dest, emit)?;
@@ -488,6 +518,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_picked_folder_gets_its_own_forza_wccf_folder() {
+        let t = std::env::temp_dir().join(format!("install-folder-test-{}", std::process::id()));
+        fs::create_dir_all(t.join("old/2017-2018")).unwrap();
+        assert_eq!(install_folder(&t), t.join("Forza-WCCF")); // a plain folder (or a drive root) gets its own
+        assert_eq!(install_folder(&t.join("forza-wccf")), t.join("forza-wccf"));
+        assert_eq!(install_folder(&t.join("old")), t.join("old")); // an existing install stays where it is
+        fs::remove_dir_all(&t).unwrap();
+    }
+
+    #[test]
     fn pictures_step_runs_ensure_and_survives_failure() {
         let dir = std::env::temp_dir().join(format!("pictures-step-test-{}", std::process::id()));
         let game = dir.join("game");
@@ -532,6 +572,7 @@ mod tests {
             english: false,
             shortcuts: true,
             kit: None,
+            latest: false,
         };
         let cancel = AtomicBool::new(false);
         run(&plan, &cancel, &|_| {}).unwrap(); // no kit, even with setup's default true

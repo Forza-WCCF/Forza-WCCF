@@ -63,6 +63,7 @@ const _: &str = include_str!("../locales/ui.yml");
 #[cfg(feature = "ui")]
 pub mod cards;
 pub mod club_view;
+pub mod curl;
 pub mod keys;
 pub mod layout;
 pub mod online;

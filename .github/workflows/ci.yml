@@ -141,7 +141,7 @@ jobs:
         run: cargo xtask check ci
       # one zstd tarball instead of ~170 loose files: faster upload and download than the artifact's own zip
       - name: pack the kit
-        run: tar --zstd -cf kit.tar.zst target/kit target/x86_64-pc-windows-msvc/release/wccf-installer.exe
+        run: tar --zstd -cf kit.tar.zst target/kit target/x86_64-pc-windows-msvc/release/Forza-WCCF-Installer.exe
       - name: kit artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -257,7 +257,7 @@ jobs:
         shell: pwsh
         run: |
           $bad = 0
-          foreach ($p in 'target\kit', 'target\x86_64-pc-windows-msvc\release\wccf-installer.exe') {
+          foreach ($p in 'target\kit', 'target\x86_64-pc-windows-msvc\release\Forza-WCCF-Installer.exe') {
             $full = (Resolve-Path $p).Path
             $out = & "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -Scan -ScanType 3 -File $full -DisableRemediation 2>&1 | Out-String
             $code = $LASTEXITCODE

@@ -25,6 +25,15 @@ pub enum InstallError {
         len: u64,
     },
     WrongKey,
+    NoKeyEntry {
+        id: String,
+    },
+    Download {
+        detail: String,
+    },
+    NoPackage,
+    NoDownload,
+    HashMismatch,
     BadVolumeSize,
     UnknownEdition,
     ZipName,
@@ -83,6 +92,11 @@ impl InstallError {
             CannotOpen { .. } => "installer.err_open",
             UnsupportedSize { .. } => "installer.err_size",
             WrongKey => "installer.err_wrong_key",
+            NoKeyEntry { .. } => "installer.err_key_entry",
+            Download { .. } => "installer.err_download",
+            NoPackage => "installer.err_no_package",
+            NoDownload => "installer.err_no_download",
+            HashMismatch => "installer.err_hash",
             BadVolumeSize => "installer.err_volume_size",
             UnknownEdition => "installer.err_edition",
             ZipName => "installer.err_zip_name",
@@ -120,9 +134,12 @@ impl InstallError {
             }
             UnsupportedSize { path, len } => vec![("path", path.clone()), ("len", len.to_string())],
             KeyRead { detail } => vec![("e", detail.clone())],
+            NoKeyEntry { id } => vec![("id", id.clone())],
             GameMissing { path } => vec![("path", path.clone())],
             KitEdition { kit, game } => vec![("kit", kit.to_string()), ("game", game.to_string())],
-            Script { detail } | Other { detail } => vec![("detail", detail.clone())],
+            Script { detail } | Other { detail } | Download { detail } => {
+                vec![("detail", detail.clone())]
+            }
             _ => vec![],
         }
     }
@@ -179,6 +196,11 @@ mod tests {
             },
             UnsupportedSize { path: s(), len: 1 },
             WrongKey,
+            NoKeyEntry { id: s() },
+            Download { detail: s() },
+            NoPackage,
+            NoDownload,
+            HashMismatch,
             BadVolumeSize,
             UnknownEdition,
             ZipName,

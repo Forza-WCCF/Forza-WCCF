@@ -13,7 +13,7 @@ use super::widgets::{
 };
 use egui::{Align2, Color32, Id, Rect, Sense, Stroke, Ui, pos2, vec2};
 
-pub const SIZE: egui::Vec2 = egui::vec2(680.0, 470.0);
+pub const SIZE: egui::Vec2 = egui::vec2(900.0, 640.0);
 
 /// What the install needs on disk, for the free-space bar and its message.
 pub const NEEDED_BYTES: u64 = 6_000_000_000;
@@ -23,17 +23,15 @@ pub enum Page {
     Welcome,
     Where,
     Files,
-    Options,
     Installing,
     Done,
 }
 
 impl Page {
-    pub const ALL: [Page; 6] = [
+    pub const ALL: [Page; 5] = [
         Page::Welcome,
         Page::Where,
         Page::Files,
-        Page::Options,
         Page::Installing,
         Page::Done,
     ];
@@ -43,9 +41,8 @@ impl Page {
             Page::Welcome => "1_welcome",
             Page::Where => "2_where",
             Page::Files => "3_files",
-            Page::Options => "4_options",
-            Page::Installing => "5_installing",
-            Page::Done => "6_done",
+            Page::Installing => "4_installing",
+            Page::Done => "5_done",
         }
     }
 
@@ -54,7 +51,6 @@ impl Page {
             Page::Welcome => tr!(lang, "installer.welcome"),
             Page::Where => tr!(lang, "installer.where"),
             Page::Files => tr!(lang, "installer.files"),
-            Page::Options => tr!(lang, "installer.options"),
             Page::Installing => tr!(lang, "installer.installing"),
             Page::Done => tr!(lang, "installer.done"),
         }
@@ -64,6 +60,7 @@ impl Page {
 /// The stages of an install, in the order they run; a run lists the ones it will do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Step {
+    Download,
     Verify,
     Extract,
     Setup,
@@ -73,6 +70,7 @@ pub enum Step {
 impl Step {
     fn key(self) -> &'static str {
         match self {
+            Step::Download => "installer.stage_download",
             Step::Verify => "installer.stage_verify",
             Step::Extract => "installer.stage_extract",
             Step::Setup => "installer.stage_setup",
@@ -93,6 +91,16 @@ pub enum Field {
     Iso,
     Key,
     Package,
+}
+
+/// What the lookup of the newest downloadable package found (2017–18 only).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Latest {
+    Idle,
+    Checking,
+    /// The version found, e.g. "0.2.0".
+    Found(String),
+    Failed,
 }
 
 /// What a click asked the program to do.
@@ -127,6 +135,9 @@ pub struct InstallerState {
     pub iso: String,
     pub key: String,
     pub package: String,
+    pub latest: Latest,
+    /// Use the newest downloaded package; a package file in `package` overrides it.
+    pub use_latest: bool,
     /// The edition the disc image is, by its size.
     pub detected: Option<Edition>,
     /// The disc image has a size no supported edition has.
@@ -136,7 +147,8 @@ pub struct InstallerState {
     /// Use the installed `edition` instead of a disc image.
     pub reuse: bool,
     pub edition: Edition,
-    /// Check the disc image, set up the game, play in English, desktop shortcuts.
+    /// Check the disc image, set up the game, play in English, desktop shortcuts. The window always checks and sets up
+    /// (when it can) and leaves the game's language to the Launcher; only the shortcuts are a choice (Where page).
     pub options: [bool; 4],
     /// Setting up needs a package and the 2010–11 edition.
     pub setup_possible: bool,
@@ -169,6 +181,8 @@ impl InstallerState {
             iso: String::new(),
             key: String::new(),
             package: String::new(),
+            latest: Latest::Idle,
+            use_latest: false,
             detected: None,
             unsupported: false,
             installed: vec![],
@@ -197,7 +211,7 @@ impl InstallerState {
             key: r"D:\Images\disc-2010-11.key".into(),
             detected: Some(Edition::E1011),
             installed: vec![Edition::E1718],
-            options: [true, true, true, false],
+            options: [true, true, false, true],
             setup_possible: true,
             space: Some(Space {
                 free: 41_200_000_000,
@@ -295,7 +309,6 @@ pub fn show(ui: &mut Ui, st: &mut InstallerState) -> Option<Action> {
                 Page::Welcome => welcome(ui, lang),
                 Page::Where => where_(ui, st, lang, &mut out),
                 Page::Files => files(ui, st, lang, &mut out),
-                Page::Options => options(ui, st, lang),
                 Page::Installing => installing(ui, st, lang),
                 Page::Done => done(ui, st, lang, &mut out),
             }
@@ -443,7 +456,7 @@ fn footer(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Act
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let (label, kind, act) = match st.page {
-                Page::Options => (tr!(lang, "installer.install"), Cab::Go, Action::Install),
+                Page::Files => (tr!(lang, "installer.install"), Cab::Go, Action::Install),
                 Page::Installing if busy => {
                     (tr!(lang, "common.cancel"), Cab::Plain, Action::Cancel)
                 }
@@ -640,12 +653,19 @@ fn where_(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Act
             Tone::Refused,
             &tr!(lang, "installer.space_low", free = gb(sp.free)),
         ),
-        Some(_) => status_line(ui, Tone::Notice, &tr!(lang, "installer.space_ok")),
+        Some(_) => status_line(ui, Tone::Done, &tr!(lang, "installer.space_ok")),
         None => status_line(ui, Tone::Notice, &tr!(lang, "installer.space_unknown")),
     };
     if st.ascii_tip {
         status_line(ui, Tone::Notice, &tr!(lang, "installer.ascii_tip"));
     }
+    ui.add_space(12.0);
+    toggle_row(
+        ui,
+        &mut st.options[3],
+        &tr!(lang, "installer.opt_shortcuts"),
+        &tr!(lang, "installer.opt_shortcuts_hint"),
+    );
 }
 
 fn files(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Action>) {
@@ -686,14 +706,66 @@ fn files(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Acti
             out,
         );
     });
-    path_row(
-        ui,
-        &tr!(lang, "installer.package"),
-        &mut st.package,
-        lang,
-        Field::Package,
-        out,
-    );
+    // 2017-18: the newest published package, or a file; 2010-11 has no published package, so only the file
+    let newest = match (&st.latest, st.target()) {
+        (Latest::Found(v), Some(Edition::E1718)) => Some(v.clone()),
+        _ => None,
+    };
+    let mut from_file = true;
+    if let Some(v) = &newest {
+        let mut pick = usize::from(!(st.use_latest && st.package.trim().is_empty()));
+        ui.horizontal(|ui| {
+            field(ui, &tr!(lang, "installer.package"), 120.0);
+            let labels = [
+                tr!(lang, "installer.pkg_newest", version = v),
+                tr!(lang, "installer.pkg_file"),
+            ];
+            let labels = [labels[0].as_str(), labels[1].as_str()];
+            let width = ui.available_width();
+            if widgets::segmented(ui, &mut pick, &labels, width) {
+                st.use_latest = pick == 0;
+                if st.use_latest {
+                    st.package.clear();
+                }
+            }
+        });
+        from_file = pick == 1;
+        if !from_file {
+            status_line(
+                ui,
+                Tone::Done,
+                &tr!(lang, "installer.pkg_newest_note", version = v),
+            );
+        }
+    }
+    if from_file {
+        path_row(
+            ui,
+            &tr!(
+                lang,
+                if newest.is_some() {
+                    "installer.pkg_file_row"
+                } else {
+                    "installer.package"
+                }
+            ),
+            &mut st.package,
+            lang,
+            Field::Package,
+            out,
+        );
+    }
+    if st.target() == Some(Edition::E1718) {
+        match st.latest {
+            Latest::Checking => {
+                status_line(ui, Tone::Notice, &tr!(lang, "installer.latest_checking"));
+            }
+            Latest::Failed => {
+                status_line(ui, Tone::Notice, &tr!(lang, "installer.latest_failed"));
+            }
+            _ => {}
+        }
+    }
     ui.horizontal(|ui| {
         field(ui, &tr!(lang, "installer.detected"), 120.0);
         if let Some(e) = st.target() {
@@ -724,42 +796,6 @@ fn files(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Acti
             .font(theme::body(12.0))
             .color(theme::TEXT_DIM),
     );
-}
-
-fn options(ui: &mut Ui, st: &mut InstallerState, lang: Lang) {
-    ui.spacing_mut().item_spacing.y = 2.0;
-    let (can, on) = (st.setup_possible, st.setup_possible && st.options[1]);
-    let setup_hint = if can {
-        tr!(lang, "installer.opt_setup_hint")
-    } else {
-        tr!(lang, "installer.opt_setup_na")
-    };
-    let rows = [
-        (
-            true,
-            "installer.opt_check",
-            tr!(lang, "installer.opt_check_hint"),
-        ),
-        (can, "installer.opt_setup", setup_hint),
-        (
-            on,
-            "installer.opt_english",
-            tr!(lang, "installer.opt_english_hint"),
-        ),
-        (
-            on,
-            "installer.opt_shortcuts",
-            tr!(lang, "installer.opt_shortcuts_hint"),
-        ),
-    ];
-    for (i, (enabled, t, h)) in rows.into_iter().enumerate() {
-        // a row that cannot apply shows off and keeps the chosen value for when it can
-        let mut v = enabled && st.options[i];
-        ui.add_enabled_ui(enabled, |ui| toggle_row(ui, &mut v, &tr!(lang, t), &h));
-        if enabled {
-            st.options[i] = v;
-        }
-    }
 }
 
 fn installing(ui: &mut Ui, st: &mut InstallerState, lang: Lang) {
@@ -844,7 +880,6 @@ fn done_body(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<
     let rows = [
         (st.did[0], "installer.did_extract", "installer.did_extract"),
         (st.did[1], "installer.did_setup", "installer.not_setup"),
-        (st.did[2], "installer.did_english", "installer.not_english"),
         (
             st.did[3],
             "installer.did_shortcuts",
