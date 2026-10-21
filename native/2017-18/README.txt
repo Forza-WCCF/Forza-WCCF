@@ -8,13 +8,15 @@ The programs land under target\ (the 2017-18 folder) at the paths below; `cargo 
   bin\logowin.exe      logowin\logowin_standin.c                                  link: /SUBSYSTEM:WINDOWS
   overlay\forza_panel.dll   the repository's crates\panel (Rust, i686-pc-windows-msvc), one build for both editions; its
                        fonts are fonts\ at the top of the folder.
-  overlay\inject.exe   overlay\inject.c (must be 32-bit: it hands the game 32-bit LoadLibraryA's address)
-  overlay\netguard.dll netguard\netguard.c   /LD    (secondary guard: patches the game's IPHLPAPI imports)
-  source\build\wccfnet.dll   netguard\wccfnet.c   /LD   (the primary guard, not in the ZIP: setup copies it into the
+  bin\wccfnet.dll      netguard\wccfnet.c   /LD   link: user32.lib   (the guard: setup copies it into the
                        runtime's game folder, where the game programs import it instead of IPHLPAPI.DLL; the four stubs
-                       are exported undecorated, six read-only calls are forwarded to iphlpapi, all by linker pragmas)
-  source\build\test_wccfnet.exe, test_netguard.exe   netguard\test_*.c: `cargo xtask check` loads each guard from a scratch
-                       folder and proves the four calls return 0 without reaching the real IP helper
+                       are exported undecorated, six read-only calls are forwarded to iphlpapi, all by linker pragmas.
+                       When the Launcher sets FORZA_PANEL, it also loads that DLL (the panel) into the game)
+  source\build\netguard.dll   netguard\netguard.c   /LD   (not in the ZIP, not used by 2017-18: the Linux server's
+                       2010-11 hook loads it)
+  source\build\test_wccfnet.exe, test_netguard.exe, test_panel.exe (+ panel_probe.dll)   netguard\test*.c, panel_probe.c:
+                       `cargo xtask check` loads each guard from a scratch folder, proves the four calls return 0 without
+                       reaching the real IP helper, and that FORZA_PANEL makes wccfnet.dll load a DLL once a window shows
 
 overlay\skin.tex is a picture (the panel's art, 1728x1080, BGRA) rendered from the project's skin page; it has no
 source here.
@@ -26,4 +28,4 @@ What each does, in short:
   FPR_Emu.exe   answers the game's card-table polls with the cards in seat1\fpr_table0.txt
   logowin.exe   the original start-up notice window, replaced by one that only records the notice
   forza_panel.dll the panel around seat 1's picture (drawn with the game's own Direct3D 9 device)
-  inject.exe    loads forza_panel.dll into seat 1's running game
+  wccfnet.dll   the guard; loads forza_panel.dll into seat 1 and the projector when the Launcher asks (FORZA_PANEL)
