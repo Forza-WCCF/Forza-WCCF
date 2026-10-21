@@ -992,7 +992,9 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
         .hold_file
         .as_deref()
         .filter(|_| e1011)
-        .and_then(read_hold_ip);
+        .and_then(read_hold_ip)
+        // nothing in this repo obeys `HOLD` and the desk no longer touches the firewall: only the test hook holds
+        .filter(|_| sh.cfg.hold_fw_test.is_some());
     if let Some(ip) = hold_ip {
         let mut hold = Hold {
             ip,
