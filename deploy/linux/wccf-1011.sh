@@ -50,6 +50,7 @@ start)
         WCCF_CONTROL_LOG="$game_log" setsid nohup $(exe_of "$name") > "$LOGS/run_$name.txt" 2>&1 < /dev/null &
         echo $! > "$RUN/$name.pid"
         sleep 1
+        # shellcheck disable=SC2015 # echo does not fail, so the || branch only runs when pid_of fails
         pid_of "$name" >/dev/null && echo "$name: pid $!" || { echo "$name did not start:"; tail -3 "$LOGS/run_$name.txt"; }
     done
     ;;
