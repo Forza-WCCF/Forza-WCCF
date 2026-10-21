@@ -203,6 +203,13 @@ const ED_1011: Ed = Ed {
             &[],
             &[],
         ),
+        cj(
+            "hook/test_dhcphook.c",
+            "source/build/test_dhcphook.exe",
+            "",
+            &[],
+            &["iphlpapi.lib"],
+        ),
         cj("crashme.c", "source/build/crashme.exe", "", &[], &[]),
     ],
 };
@@ -1010,6 +1017,7 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
         "source/build/fakegame.exe",
         "source/build/fakegame_iphlp.exe",
         "source/build/test_wholemsg.exe",
+        "source/build/test_dhcphook.exe",
         "source/build/crashme.exe",
     ]) {
         ensure!(
@@ -1039,6 +1047,15 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
         false,
     );
 
+    {
+        let mut c = Command::new(kit.join("source/build/test_dhcphook.exe"));
+        c.arg(win(&kit.join("programs/wccfk.dll")));
+        ck.run(
+            "2010-11 hook: the IpReleaseAddress and IpRenewAddress imports now point into wccfk.dll",
+            c,
+            false,
+        );
+    }
     panel_selftests(&mut ck)?;
     guard_tests(&mut ck, kit_1718)?;
     launcher_imports(&mut ck, kit_1718);
