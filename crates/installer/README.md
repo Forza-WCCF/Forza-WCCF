@@ -121,7 +121,7 @@ cargo fmt --all -- --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 cargo build --locked --release --target x86_64-pc-windows-msvc
-cargo xtask check      # from the repository root: also the license notices and the synthetic headless smoke run (smoke profile: release without LTO)
+cargo xtask check      # from the repository root: also the license notices and the synthetic headless smoke run
 cargo xtask check quick  # only the crates changed since --base (default integ-20261019) and their dependents: fmt, clippy, tests
 cargo xtask package installer
 ```

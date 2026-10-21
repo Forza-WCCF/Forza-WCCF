@@ -30,8 +30,9 @@ enum Task {
     Check {
         /// `quick`: only the crates changed since the base (and their dependents); no release build, no kit, no smoke.
         /// `ci`: the Linux-side checks of the GitHub workflow (build, fmt, clippy, scrub, licenses, no Windows program runs).
+        /// `text`: the scrub, the script-host check and the installer docs' word check; no build, runs anywhere (docs-only changes)
         /// `win`: the Windows-side checks, on a Windows PC against a built `target/kit/` (the CI artifact)
-        #[arg(value_parser = ["quick", "ci", "win"])]
+        #[arg(value_parser = ["quick", "ci", "win", "text"])]
         mode: Option<String>,
         /// What `quick` diffs against (its merge-base with HEAD, plus the working tree)
         #[arg(long, default_value = QUICK_BASE)]
@@ -364,6 +365,7 @@ fn main() -> Result<()> {
             NO_INCREMENTAL.store(true, Ordering::Relaxed);
             match mode.as_deref() {
                 Some("quick") => return quick(&root, &stage_root, &base),
+                Some("text") => return check_text(&root),
                 Some("win") => return check_win(&root, &stage_root, &kit, &kit_1718),
                 Some("ci") => {
                     return build_all(&root, &kit, &kit_1718, &Cc::new()?)
@@ -704,6 +706,8 @@ fn build<'s>(
         "launcher",
         "-p",
         "forza-server",
+        "-p",
+        INSTALLER,
         "--target",
         TARGET,
     ]);
@@ -726,11 +730,14 @@ fn build<'s>(
     );
     // one thread for both: two `cargo xwin` at once race on cargo-xwin's clang-cl symlink ("failed to remove file")
     jobs.push(s.spawn(move || {
-        let r = run_ok(launcher, "cargo build -p launcher -p forza-server")
-            .and_then(|()| run_ok(c, "cargo build -p forza-panel"))
-            .and_then(|()| fs::copy(&dll, &to).map(drop).map_err(Into::into));
+        let r = run_ok(
+            launcher,
+            "cargo build -p launcher -p forza-server -p wccf-installer",
+        )
+        .and_then(|()| run_ok(c, "cargo build -p forza-panel"))
+        .and_then(|()| fs::copy(&dll, &to).map(drop).map_err(Into::into));
         (
-            "cargo build -p launcher -p forza-server -p forza-panel".into(),
+            "cargo build -p launcher -p forza-server -p wccf-installer -p forza-panel".into(),
             r,
         )
     }));
@@ -1151,7 +1158,7 @@ fn check_ci(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Resu
             "shipped docs say kit",
             shipped_docs_no_kit(root, &[kit, kit_1718]),
         ),
-        ("installer smoke build", smoke_build(root).map(drop)),
+        ("installer build", installer_built(root).map(drop)),
     ] {
         if let Err(e) = r {
             eprintln!("{what}: {e:#}");
@@ -1165,12 +1172,26 @@ fn check_ci(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Resu
     Ok(())
 }
 
+/// `cargo xtask check text`: the checks that read only tracked text; no build, no kit, no xwin.
+fn check_text(root: &Path) -> Result<()> {
+    let mut failed = vec![];
+    scrub(root, &mut failed)?;
+    no_script_host(root, &mut failed)?;
+    let src = root.join("crates/installer");
+    if let Err(e) = no_kit_word(&[src.join("README.md"), src.join("CHANGELOG.md")]) {
+        eprintln!("installer docs say kit: {e:#}");
+        failed.push("installer docs say kit".into());
+    }
+    ensure!(failed.is_empty(), "FAILED: {}", failed.join(", "));
+    println!("text checks passed");
+    Ok(())
+}
+
 /// `cargo xtask check win`: on a Windows PC, against the kits and smoke installer that `check ci` built on Linux
-/// (target/kit/** and target/x86_64-pc-windows-msvc/smoke/, as the CI artifact holds them).
+/// (target/kit/** and target/x86_64-pc-windows-msvc/release/wccf-installer.exe, as the CI artifact holds them).
 fn check_win(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<()> {
     ensure_built(kit, kit_1718)?;
-    let exe = installer_exe(root, "smoke");
-    ensure!(exe.is_file(), "{} is missing", exe.display());
+    let exe = installer_built(root)?;
     let mut ck = Checks {
         kit: kit.to_owned(),
         tmp: stage_root.join("check-tmp"),
@@ -1532,7 +1553,7 @@ fn no_script_host(root: &Path, failed: &mut Vec<String>) -> Result<()> {
 const INSTALLER: &str = "wccf-installer";
 const LICENSES: &str = "crates/installer/THIRD-PARTY-LICENSES.json";
 
-/// `profile`: "release" (the ZIP's) or "smoke" (same code, no LTO: faster to link).
+/// `profile`: "release" (the ZIP's, built with launcher and forza-server).
 fn installer_exe(root: &Path, profile: &str) -> PathBuf {
     root.join("target")
         .join(TARGET)
@@ -1541,7 +1562,7 @@ fn installer_exe(root: &Path, profile: &str) -> PathBuf {
 }
 
 /// The installer's own checks (they were crates/installer/scripts/*.ps1): the license notices, then a synthetic headless run
-/// of the smoke-profile build.
+/// of the release build.
 fn installer_checks(root: &Path, stage_root: &Path, failed: &mut Vec<String>) {
     for (what, r) in [
         ("installer licenses", check_licenses(root)),
@@ -1601,33 +1622,21 @@ fn check_licenses(root: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Synthetic headless run of the installer (smoke profile) in a scratch folder: inert placeholder files only, no media, keys, kit or game.
-/// Needs the exe: `cargo build --profile smoke -p wccf-installer --target x86_64-pc-windows-msvc` (a Windows exe; WSL interop runs it).
+/// Synthetic headless run of the installer in a scratch folder: inert placeholder files only, no media, keys, kit or game.
+/// The exe is the release build that `build_all` makes (a Windows exe; WSL interop runs it).
 fn smoke(root: &Path, stage_root: &Path) -> Result<()> {
-    let exe = smoke_build(root)?;
+    let exe = installer_built(root)?;
     smoke_run(root, stage_root, &exe)
 }
 
-/// Builds the smoke-profile installer; returns its path.
-fn smoke_build(root: &Path) -> Result<PathBuf> {
-    let mut c = rust("build", root);
-    // the smoke profile inherits release (opt level, panic, strip, debug assertions off) minus LTO and codegen-units = 1
-    c.args([
-        "--profile",
-        "smoke",
-        "--locked",
-        "-p",
-        INSTALLER,
-        "--target",
-        TARGET,
-    ]);
-    run_ok(c, "cargo build -p wccf-installer (smoke profile)")?;
-    let exe = installer_exe(root, "smoke");
+/// The release installer that `build_all` built; returns its path.
+fn installer_built(root: &Path) -> Result<PathBuf> {
+    let exe = installer_exe(root, "release");
     ensure!(exe.is_file(), "{} is missing", exe.display());
     Ok(exe)
 }
 
-/// The headless run of a built smoke installer.
+/// The headless run of a built installer.
 fn smoke_run(root: &Path, stage_root: &Path, exe: &Path) -> Result<()> {
     let dir = stage_root.join(format!("installer-smoke-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
@@ -1732,7 +1741,6 @@ fn smoke_in(root: &Path, exe: &Path, dir: &Path) -> Result<()> {
 /// NAME defaults to `wccf-installer-v<version>-windows-x64`. Run `cargo xtask check` first (it builds the exe).
 fn package_installer(root: &Path, name: Option<String>) -> Result<()> {
     check_licenses(root)?;
-    // the check's smoke exe is a no-LTO build; the ZIP gets the release profile
     let mut c = rust("build", root);
     c.args(["--release", "--locked", "-p", INSTALLER, "--target", TARGET]);
     run_ok(c, "cargo build --release -p wccf-installer")?;
