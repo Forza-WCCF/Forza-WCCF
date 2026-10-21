@@ -668,7 +668,7 @@ mod tests {
             Ok((Edition::E1011, "K/".into()))
         );
         assert_eq!(
-            prefix(&["K/Launcher.exe", "K/overlay/inject.exe"]),
+            prefix(&["K/Launcher.exe", "K/overlay/forza_panel.dll"]),
             Ok((Edition::E1718, "K/".into()))
         );
         // an old kit with only scripts/, a missing Launcher.exe and a foreign zip are not kits

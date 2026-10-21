@@ -80,13 +80,14 @@ KNOWN ISSUES
   - Registering a team may wait about 95 seconds before it goes on.
   - Online VS between two homes has not been played end to end on two PCs yet; treat it as a test.
   - The programs are unsigned. For SmartScreen and Defender see ANTIVIRUS AND SMARTSCREEN.
-  - Antivirus programs may flag overlay\inject.exe (loads the panel into the game) and bin\winmm.dll (sits between
-    the game and Windows). Their source is in source\.
+  - Antivirus programs may flag bin\winmm.dll (sits between
+    the game and Windows). Its source is in source\.
 
 ANTIVIRUS AND SMARTSCREEN
   The programs are unsigned. Launcher.exe starts the game's programs under the Windows debugging interface and loads
-  two Forza-WCCF DLLs into them: forza_panel.dll draws the panel on the game's frame; netguard.dll and the guarded
-  copies' wccfnet.dll stub the game's network-adapter calls, so the game cannot drop this PC's network lease. Setup
+  two Forza-WCCF DLLs into them: forza_panel.dll draws the panel on the game's frame (the game loads it through
+  wccfnet.dll); the guarded copies' wccfnet.dll stubs the game's network-adapter calls, so the game cannot drop this
+  PC's network lease. Setup
   patches copies of the game's programs, never the originals (backed up in original\). Antivirus programs may treat
   this like a cheat tool. Each release's files are submitted to Microsoft as a false positive before publication.
   SmartScreen ("Windows protected your PC"): choose "More info", then "Run anyway".
@@ -106,7 +107,7 @@ LOGS AND BUGS
 
 FOLDERS
   bin\       winmm.dll (the hook), FPR_Emu.exe (card-table helper), logowin.exe (stand-in), forza-server.exe
-  overlay\   forza_panel.dll (the panel), inject.exe, netguard.dll (network guard); setup adds the catalogue
+  overlay\   forza_panel.dll (the panel); setup adds the catalogue
              and the card pictures
   fonts\     the panel's fonts and their licences
   english\, italian\   the game's English and Italian text - text only
