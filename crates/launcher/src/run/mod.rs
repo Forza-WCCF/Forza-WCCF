@@ -74,6 +74,8 @@ pub const REFUSED: i32 = 3;
 pub const UNGUARDED: i32 = 4;
 /// Refused because the network guard Setup makes is not in place (2017-18; 2010-11 says NOT_SET_UP).
 pub const NOT_GUARDED: i32 = 5;
+/// The run ended because a game window went by itself or crashed (`rules::went_wrong`): the window asks for the logs.
+pub const WENT_WRONG: i32 = 6;
 
 /// A month and a day: a backstop only.  A player's run ends when its game window is closed; a server for others
 /// stays up all month (a keeper task on that machine restarts it whenever it stops).
@@ -2145,7 +2147,7 @@ impl Run<'_> {
         } else {
             format!("Game ended with a problem: {}.", why.join("; "))
         });
-        End::Over(OK)
+        End::Over(if why.is_empty() { OK } else { WENT_WRONG })
     }
 
     /// RESTART NOW: the cabinet alone when a plain start would play the same way, else a stop (the card rule) and a
