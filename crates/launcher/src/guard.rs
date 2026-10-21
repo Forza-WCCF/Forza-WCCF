@@ -3,7 +3,7 @@
 //! of client_Release.exe and control_Release.exe that import them from the kit's `wccfnet.dll` (four stubs) instead of
 //! IPHLPAPI.DLL, and records the hashes of what it made in `<runtime>\setup-hashes.json`.  A run starts only when every
 //! recorded file is still the one setup made, and each guarded program's import table names wccfnet.dll and not
-//! IPHLPAPI.DLL.  (`netguard.dll`, injected into control and both clients by the run, is the second line.)
+//! IPHLPAPI.DLL.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -28,7 +28,7 @@ pub const BLOCKED: [&str; 4] = [
 ];
 
 /// The files the guard checks, each with where setup-hashes.json keeps its hash: the game's two guarded programs, seat
-/// 1's own guarded client, the two guard DLLs and the ICMP.DLL stand-in (seat 1's wccfnet.dll and ICMP.DLL are links
+/// 1's own guarded client, wccfnet.dll and the ICMP.DLL stand-in (seat 1's wccfnet.dll and ICMP.DLL are links
 /// to the game's).
 pub fn files(game: &Path, seat: &Path, client: &str, control: &str) -> Vec<(PathBuf, Vec<String>)> {
     let key = |k: &[&str]| k.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
@@ -38,7 +38,6 @@ pub fn files(game: &Path, seat: &Path, client: &str, control: &str) -> Vec<(Path
         (seat.join(client), key(&[&format!("seat1/{client}")])),
         (game.join(WCCFNET), key(&[WCCFNET])),
         (seat.join(WCCFNET), key(&[WCCFNET])),
-        (game.join("netguard.dll"), key(&["netguard.dll"])),
         (game.join(ICMP), key(&[ICMP])),
         (seat.join(ICMP), key(&[ICMP])),
     ]

@@ -35,7 +35,7 @@ pub const LAYOUT_1011: Layout = Layout {
 pub const LAYOUT_1718: Layout = Layout {
     bin: "bin",
     overlay: "overlay",
-    overlay_files: &["inject.exe", "forza_panel.dll", "netguard.dll"],
+    overlay_files: &["forza_panel.dll"],
     cache: "overlay",
 };
 
