@@ -8,7 +8,7 @@ it.
 
 Needs Docker with compose (`docker info`), jq, and the Linux Rust toolchain; the script builds `forza-server` and
 `vslink`'s `nat_peer` example (`cargo build --release`), mounts `target/release` into the containers and pulls
-`debian:trixie-slim` once. Results and every log go to `<build-dir>\nat-harness-<date>\run-<time>\` (`NAT_WORK=`
+`debian:trixie-slim` once. Results and every log go to `target/nat-<date>/run-<time>/` (`NAT_WORK=`
 elsewhere): `results.txt` (the table), `results.jsonl` (both homes' lines per cell), and per cell `a.log`, `b.log`
 (vslink's log), `server.log`. `NAT_NO_BUILD=1` skips the cargo builds. Exit 0 = the gate passed.
 
