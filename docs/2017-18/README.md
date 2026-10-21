@@ -1,40 +1,39 @@
-# WCCF-Kit-1718
+# The 2017–18 edition (from WCCF-Kit-1718)
 
-Runs **World Club Champion Football 2017–18 (SDDY, Ver. 2.00.00)** on one Windows PC: the publisher's server
+Runs **World Club Champion Football 2017–18 (SDDY, Ver. 2.00.00)** on one Windows PC: the original server programs
 (control + 4 match engines), the projector and a player cabinet (seat 1), built on
 [WCCF-Kit-1011](https://github.com/Forza-WCCF/WCCF-Kit-1011) (Kit 5). Holds none of the original files: setup
 works from your own decrypted copy.
 
-**Status:** boots to attract, START works, OFFLINE guest play (CPU match) is playable with the 2010–11 side
-panels around a 1440×900 picture. Online with an emulated Aime card (local reader + AiMeDB stand-ins): the client
-reads the card, gets an Aime ID and reaches the first-play TUTORIAL / NORMAL choice. Club persistence (game server)
-is in progress. See [docs/PROGRESS.md](docs/PROGRESS.md) and [docs/TASKS.md](docs/TASKS.md).
+**Status:** imported as the 2017–18 edition of Forza-WCCF ([CREDITS.md](../../CREDITS.md)). Offline play, clubs
+that survive restarts (local Aime card, AiMeDB and game server stand-ins) and direct VS between homes run in Rust.
+Plan and status: [../ROADMAP.md](../ROADMAP.md); notes: [PROGRESS.md](PROGRESS.md), [RESEARCH.md](RESEARCH.md).
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `kit/` | `scripts/` (setup, English, cards: Python until step 11), no `.bat` (a console); the run is `Launcher.exe` (`crates/launcher`, `Edition::E1718`), which `cargo xtask build` copies into the staged kit |
-| `tools/setup1718.py`, `patches1718.py` | retired Python setup (Rust: `crates/forza/src/setup/e1718.rs`); built the runtime: guarded imports, seat 1 exe patches, controller patch (every original byte checked) |
-| `tools/restart.sh` (retired), `press.sh` (`cargo xtask cap`) | WSL helpers: restart the stack, tap cabinet buttons, capture game windows |
-| `tools/netguard/` | `wccfnet.dll` / `netguard.dll` (+ sources): stub the IP-helper calls that drop the host's DHCP lease |
-| `tools/ida/` | headless IDA helpers (`ida_query.py`, `dump.py`) |
-| `docs/` | progress, tasks, research notes, game-server message table, agent workstream briefs |
-| `research/catalogue/` | work-in-progress 17–18 card catalogue maker |
+| `editions/2017-18/` | what goes into the ZIP: English and Italian tables, overlay assets, READMEs |
+| `crates/launcher` (`Edition::E1718`) | `Launcher.exe`: setup, the run, the stand-ins |
+| `crates/forza/src/setup/e1718.rs` | setup: guarded imports, seat 1 exe patches, controller patch (every original byte checked) |
+| `native/2017-18/` | `mxhook` (`winmm.dll`), `logowin`, `overlay`, `netguard/` (`wccfnet.dll`, `netguard.dll`: stub the IP-helper calls that drop the host's DHCP lease) |
+| `legacy/2017-18/` | retired Python (`setup1718.py`, `restart.sh`) and its tests |
+| `research/press.sh`, `cargo xtask cap` | WSL helpers: tap cabinet buttons, capture game windows |
+| `research/ida/` | headless IDA helpers (`ida_query.py`, `dump.py`) for your own analysis copies |
+| `research/catalogue/` | 17–18 card catalogue findings |
+| `docs/2017-18/` | progress, research notes, game-server message table |
 
 ## Quick start (from WSL)
 
-1. Copy the decrypted game folder to an NTFS runtime folder as `<runtime>/game` (default `<runtime>`).
+Read [../SAFETY.md](../SAFETY.md) first.
+
+1. Copy your decrypted game folder to an NTFS runtime folder as `<runtime>/game`.
 2. `cargo xtask build && cargo xtask stage 2017-18`, then copy `target/kit/2017-18` to `<runtime>/kit`. Set up on Windows
    with `Launcher.exe <runtime>\game` (or drop that folder on `Launcher.exe`; `Launcher.exe undo <runtime>\game` reverts).
-   Setup works in place (it writes `original\`, `seat1\` and `setup-hashes.json` beside `game\`), so point it at the step 1
-   copy, never at the decrypted original (`ringedge/1718-decryption-20261007-1944/game`) itself; the copy must still be
-   untouched (its `client_Release.exe` imports `IPHLPAPI.DLL`): the `D:\wccf-1718-*` copies are already guarded and fail
-   setup's check.
-   (`tools/restart.sh` and `setup1718.py` are retired; the setup is `crates/forza/src/setup/e1718.rs`.)
+   Setup works in place (it writes `original\`, `seat1\` and `setup-hashes.json` beside `game\`), so point it at a
+   copy, never at your decrypted original. The copy must still be untouched (its `client_Release.exe` imports
+   `IPHLPAPI.DLL`); an already guarded copy fails setup's check.
    Start on Windows: `<runtime>\kit\Launcher.exe` (double-click; from a console `Launcher.exe local`). It refuses to
    start (exit 5) unless `<runtime>\setup-hashes.json` matches the guarded programs and they import `wccfnet.dll`.
    Stop: close the game's window, or `Launcher.exe stop` (`stop force` for a stuck game).
 3. Keys: Enter START, X decide, arrows tactics, 5 coin, F11 window size.
-
-Working with an AI coding agent: start with [AGENTS.md](AGENTS.md).

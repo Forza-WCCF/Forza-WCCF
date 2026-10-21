@@ -16,7 +16,6 @@ Invisible / headless players fixed: the real Launcher.exe maps prog_data/player_
 model_data}.bin as "SDDY_<file>" (u32 size + bytes) before it raises the version byte; the kit's launcher stand-in
 made only the version mapping, so control, the match engines, the projector and the seat found no player/model
 data. With the mappings the online tutorial (manager licence → tutorial match) shows full player models.
-Evidence: `<runtime>\evidence\run14-f`.
 
 ## 2026-10-08 — online with an Aime card
 
@@ -24,8 +23,7 @@ Seat 1 is online: the online icon is green, the Aime screen reads the (emulated)
 the client asks the game server (through control) for the coach list and shows the first-play TUTORIAL / NORMAL
 choice (NORMAL "選択不可" for a new player) instead of OFFLINE guest play. New: three seat patches (ALL.Net
 authorized, billing phase IDLE, AiMeDB host → localhost), `_aime_reader.py` (COM2), `_aimedb.py` (port 22345),
-`play.py` starts both for 17–18. Evidence: `<runtime>\evidence\run13-b`, logs `aime_log.txt`,
-`aimedb_log.txt`, `gamesvr_log.txt`. Safety: routes identical, ping 4/4, HTTPS 200; no publisher host contacted
+`play.py` starts both for 17–18. Safety: routes identical, ping 4/4, HTTPS 200; no publisher host contacted
 (ALL.Net off, AiMeDB local).
 
 ## 2026-10-07 — boot to guest play, controller online (paused)
@@ -44,15 +42,8 @@ Observed on Windows 11 + WSL, game `DVR5059A_2_00_00` (SDDY, build 2018-03-15):
   46, 309, then 261 every 6 s) with all-zero answers.
 - Safety: routes identical before/after, ping 4/4, HTTPS 200; no host network/firewall changes.
 
-## Setup
+## Setup and tools
 
-1. Decrypt the disc (outside this repo) and copy the game folder to `<runtime>/game` on NTFS.
-2. `WCCF1718_GAME=<decrypted game> tools/setup1718.py` (or `tools/restart.sh`): guards client/control,
-   installs Kit 5 hook pieces and configs, builds `seat1\` (links + patched exe), `misc\` FPR_Emu.
-3. `<runtime>\kit\PLAY1718.bat`; stop with `STOP.bat force`.
-
-## Tools for continuing
-
-- IDA Pro 9.3 headless + `tools/ida/ida_query.py` (decomp/xrefs/callers/str/disasm, ~13 s per batch; use your
-  own database copy, open databases are locked). `tools/ida/dump.py` writes every function's pseudo-C.
-- radare2; client .text/.rdata file offset = VA − 0x400C00 (.data − 0x401200); client uses ASLR.
+Setup and the run are Rust now: see [README.md](README.md) for the quick start and [../SAFETY.md](../SAFETY.md) for
+the guard. Address arithmetic for quick looks with radare2: client .text/.rdata file offset = VA − 0x400C00 (.data
+− 0x401200); the client uses ASLR.
