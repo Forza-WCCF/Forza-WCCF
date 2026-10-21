@@ -54,9 +54,9 @@ For the 2010-11 server also (`cargo install cargo-xwin` once; it fetches the Win
     native/2010-11/server-hook/build.sh          # needs gcc-mingw-w64-i686
     # native/2010-11/server-hook/out/winmm.dll and the three self-tests
 
-The iroh relay is upstream's binary at the iroh version in `Cargo.lock` (1.3.0 now), built the same way:
+The iroh relay is upstream's binary at the iroh version in `Cargo.lock` (1.4.0 now), built the same way:
 
-    cargo install --locked iroh-relay@1.3.0 --features server
+    cargo install --locked iroh-relay@1.4.0 --features server
 
 Another architecture for `forza-server`: `deploy/linux/Dockerfile.forza-server`.
 
