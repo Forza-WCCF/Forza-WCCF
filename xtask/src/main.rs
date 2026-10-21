@@ -1405,7 +1405,7 @@ fn names_publisher(text: &str) -> bool {
     mask(&text.to_ascii_lowercase().replace("hasegawa", "")).contains("<P>")
 }
 
-/// Every tracked text file (not legacy/python/, not binaries): no line names the publisher except the class-C lines of
+/// Every tracked text file (not binaries): no line names the publisher except the class-C lines of
 /// xtask/scrub-allow.txt (the JVS board ID, the card reader's AES key, keychip strings, third-party tool and host names, the logowin argument
 /// name in comments, an in-game club name, and the docs quoting them), and no line matches ~/.config/forza-wccf/scrub.txt
 /// (personal data, kept out of the repository). Matches are compared by line text, not by file.
@@ -1419,12 +1419,9 @@ fn scrub(root: &Path, failed: &mut Vec<String>) -> Result<()> {
         .collect();
     let [name, kana] = publisher();
     let mut bad = vec![];
-    let own = cmd!(
-        sh,
-        "git grep -n -I -i -e {name} -e {kana} -- . :!legacy/python"
-    )
-    .ignore_status()
-    .read()?;
+    let own = cmd!(sh, "git grep -n -I -i -e {name} -e {kana} -- .")
+        .ignore_status()
+        .read()?;
     bad.extend(
         own.lines()
             .filter(|l| {
@@ -1437,7 +1434,7 @@ fn scrub(root: &Path, failed: &mut Vec<String>) -> Result<()> {
     // (nothing is allowed today; a legitimate fixture would be listed here)
     let tracked = cmd!(
         sh,
-        "git ls-files -- *.exe *.dll *.iso *.chd *.bin *.i64 *.idb *.id0 *.til *.nam *.log :!legacy/python :!vendor"
+        "git ls-files -- *.exe *.dll *.iso *.chd *.bin *.i64 *.idb *.id0 *.til *.nam *.log :!vendor"
     )
     .read()?;
     bad.extend(
@@ -1457,7 +1454,7 @@ fn scrub(root: &Path, failed: &mut Vec<String>) -> Result<()> {
             .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
             .flat_map(|l| ["-e".to_owned(), l.to_owned()])
             .collect();
-        let hits = cmd!(sh, "git grep -n -I -i -E {pats...} -- . :!legacy/python")
+        let hits = cmd!(sh, "git grep -n -I -i -E {pats...} -- .")
             .ignore_status()
             .read()?;
         bad.extend(hits.lines().map(str::to_owned));
