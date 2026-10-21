@@ -205,7 +205,33 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 60
     steps:
-      - run: git config --global core.autocrlf false
+      # Defender deleted an old winmm.dll and flagged inject.exe and logowin.exe on players' PCs: the kits are scanned
+      # here, and any detection while the tests run (behaviour monitoring included) fails the job
+      - name: Defender status
+        id: defender
+        shell: pwsh
+        run: |
+          "start=$((Get-Date).ToUniversalTime().ToString('o'))" >> $env:GITHUB_OUTPUT
+          & "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -SignatureUpdate
+          if ($LASTEXITCODE -ne 0) { "::warning::Defender signature update failed (exit $LASTEXITCODE); scanning with the installed signatures" }
+          Get-MpComputerStatus | Select-Object AMEngineVersion, AntivirusSignatureVersion, RealTimeProtectionEnabled, BehaviorMonitorEnabled, AntivirusEnabled | Format-List
+      # the EICAR test file, from two halves so this file never holds the whole string: the scan must find it
+      - name: Defender control (EICAR)
+        shell: pwsh
+        run: |
+          $d = Join-Path $env:RUNNER_TEMP 'eicar'
+          New-Item -ItemType Directory -Force $d | Out-Null
+          $f = Join-Path $d 'eicar.com'
+          $a = 'X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR'
+          $b = '-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*'
+          try { [IO.File]::WriteAllText($f, $a + $b) } catch { "real-time protection refused the write: $($_.Exception.Message)" }
+          Start-Sleep -Seconds 2
+          if (-not (Test-Path $f)) { "real-time protection removed the file: Defender is scanning"; exit 0 }
+          $out = & "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -Scan -ScanType 3 -File $f -DisableRemediation 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          Remove-Item -Force $f -ErrorAction SilentlyContinue
+          if ($code -ne 2) { $out; "::error::Defender is not scanning on this runner (EICAR scan exit $code, 2 expected)"; exit 1 }
+          "EICAR found (exit 2): Defender is scanning"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -224,6 +250,21 @@ jobs:
       - name: unpack the kit
         shell: bash
         run: tar --zstd -xf kit.tar.zst && rm kit.tar.zst
+      - name: Defender scan of the kits and the installer
+        shell: pwsh
+        run: |
+          $bad = 0
+          foreach ($p in 'target\kit', 'target\x86_64-pc-windows-msvc\release\wccf-installer.exe') {
+            $full = (Resolve-Path $p).Path
+            $out = & "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -Scan -ScanType 3 -File $full -DisableRemediation 2>&1 | Out-String
+            $code = $LASTEXITCODE
+            switch ($code) {
+              0 { "${full}: clean" }
+              2 { $out; "::error::Defender found a threat in $full"; $bad++ }
+              default { $out; "::error::Defender scan of $full failed (exit $code)"; $bad++ }
+            }
+          }
+          if ($bad) { exit 1 }
       - name: cargo-nextest
         shell: bash
         run: |
@@ -248,6 +289,36 @@ jobs:
       - name: snapshots (informational, the runner has no GPU)
         continue-on-error: true
         run: cargo-nextest nextest run --archive-file tests.tar.zst --workspace-remap '${{ github.workspace }}' --no-fail-fast -j 1 -E 'test(/^snapshots::/)'
+      # every detection since the job started, except the EICAR control
+      - name: Defender detections during the job
+        if: always() && steps.defender.outcome == 'success'
+        shell: pwsh
+        env:
+          START: ${{ steps.defender.outputs.start }}
+        run: |
+          $start = [DateTimeOffset]::Parse($env:START).UtcDateTime
+          $names = @{}
+          Get-MpThreat | ForEach-Object { $names[[int64]$_.ThreatID] = $_.ThreatName }
+          $eicar = Join-Path $env:RUNNER_TEMP 'eicar'
+          $hits = @(Get-MpThreatDetection | Where-Object {
+              $_.InitialDetectionTime.ToUniversalTime() -ge $start -and
+              -not ($_.Resources | Where-Object { $_ -like "*$eicar*" }) -and
+              $names[[int64]$_.ThreatID] -notlike '*EICAR*'
+            })
+          if (-not (Get-MpComputerStatus).RealTimeProtectionEnabled) {
+            "::notice::real-time protection is off on this runner: behaviour detection during the tests was not checked"
+          }
+          if ($hits.Count -eq 0) { "no Defender detections since $start"; exit 0 }
+          $hits | ForEach-Object {
+            [pscustomobject]@{
+              ThreatID    = $_.ThreatID
+              ThreatName  = $names[[int64]$_.ThreatID]
+              ProcessName = $_.ProcessName
+              Resources   = $_.Resources -join '; '
+            }
+          } | Format-List
+          "::error::Defender detected $($hits.Count) threat(s) during the job"
+          exit 1
       - name: snapshot differences
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
