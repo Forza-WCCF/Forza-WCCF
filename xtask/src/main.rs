@@ -60,7 +60,7 @@ enum Task {
     },
 }
 
-const QUICK_BASE: &str = "integ-20261019";
+const QUICK_BASE: &str = "main";
 /// Set by `check` (both tiers): `rust()` then builds with `CARGO_INCREMENTAL=0`, so sccache can serve the workspace crates
 /// across worktrees; builds while editing stay incremental.
 static NO_INCREMENTAL: AtomicBool = AtomicBool::new(false);
@@ -443,8 +443,8 @@ fn run_env(c: &mut Command) {
     }
 }
 
-/// `cargo xwin <sub>` for the Windows target (the MSVC CRT and SDK come from xwin's cache, licence accepted
-/// by the owner on 2026-10-12).
+/// `cargo xwin <sub>` for the Windows target (the MSVC CRT and SDK come from xwin's cache; Microsoft's license
+/// for them is accepted by setting XWIN_ACCEPT_LICENSE).
 fn rust(sub: &str, root: &Path) -> Command {
     let mut c = Command::new("cargo");
     c.args(["xwin", sub]).current_dir(root);
@@ -1895,7 +1895,7 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
     // program (source/build, which `walk` leaves out) reaches the kit.
     // Optional signing hook: with FORZA_SIGN_CMD set (e.g. `osslsigncode sign -pkcs12 k.pfx -in {f} -out {f}.s && mv {f}.s {f}`
     // or `signtool sign /f k.pfx /fd sha256 {f}`), every shipped exe/dll goes through it, `{f}` replaced by the file's path,
-    // before files.txt and the ZIP are made. Unset: no signing (owner decision pending).
+    // before files.txt and the ZIP are made. Unset: no signing.
     let (mut bins, mut dirs0) = (BTreeSet::new(), BTreeSet::new());
     walk(kit, "", &mut bins, &mut dirs0)?;
     for f in bins.iter().filter(|f| {

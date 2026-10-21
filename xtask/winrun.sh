@@ -1,7 +1,7 @@
 #!/bin/bash
 # cargo's runner for the Windows test programs under WSL (xtask's `rust()`). Most run as WSL starts them (interop).
 # The launcher's run tests do not: wslhost.exe starts programs with "Prefer System32 images", which the run refuses
-# (AGENTS.md section 5), and every program they start inherits it. They go through explorer.exe instead, as the game
+# (docs/SAFETY.md), and every program they start inherits it. They go through explorer.exe instead, as the game
 # itself is started, from the same working folder; their output and exit code come back through files.
 exe=$1
 shift
@@ -9,8 +9,10 @@ case $(basename "$exe") in
 run-*.exe) ;;
 *) exec "$exe" "$@" ;;
 esac
-mkdir -p <build-dir>/winrun  # a local NTFS folder: explorer.exe will not start a .bat from \\wsl.localhost
-out=$(mktemp -d <build-dir>/winrun/run.XXXXXX)
+# a local NTFS folder: explorer.exe will not start a .bat from \\wsl.localhost
+base=${WCCF_WINRUN_DIR:-$(wslpath "$(cmd.exe /c 'echo %TEMP%' 2>/dev/null | tr -d '\r')")/forza-wccf-winrun}
+mkdir -p "$base"
+out=$(mktemp -d "$base/run.XXXXXX")
 w() { wslpath -w "$1"; }
 printf '@echo off\r\npushd "%s"\r\n"%s" %s > "%s" 2>&1\r\necho %%ERRORLEVEL%% > "%s"\r\n' \
   "$(w "$PWD")" "$(w "$exe")" "$*" "$(w "$out")\\log.txt" "$(w "$out")\\exit.txt" > "$out/run.bat"

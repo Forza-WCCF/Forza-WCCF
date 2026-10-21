@@ -34,8 +34,6 @@ unified in the process, so this file is the record of who did what.
 | Forza-WCCF/WCCF-Kit-1718 | `a7249b9` | the 2017–18 kit |
 | Forza-WCCF/WCCF-Installer | `073d719` | the installer (`crates/installer`) |
 
-A few commits in `WCCF-Kit-1011` (the Kit 5.4 release workflow) were written with an AI coding assistant.
-
 ## Third-party software and fonts
 
 - **FreeType** 2.13.3 (`vendor/freetype-sys/freetype2`), under the FreeType License (FTL); the `freetype-sys`
@@ -45,9 +43,6 @@ A few commits in `WCCF-Kit-1011` (the Kit 5.4 release workflow) were written wit
 - **Rust crates**: each under its own license (see `Cargo.lock` for the full set); the installer's list is
   [crates/installer/THIRD-PARTY-LICENSES.json](crates/installer/THIRD-PARTY-LICENSES.json), which `cargo xtask check`
   compares with `cargo tree`.
-- **Python** 3.13 embeddable and Pillow 11.3 (`legacy/python`): PSF License (`legacy/python/LICENSE.txt`) and Pillow's
-  MIT-CMU (HPND) license. It stays in the tree while the legacy Python scripts and their tests are kept; the ZIPs do not
-  ship it.
 
 World Club Champion Football and its files belong to the publisher. Forza-WCCF holds none of the original files and is
 not affiliated with the publisher.

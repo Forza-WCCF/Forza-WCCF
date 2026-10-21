@@ -57,4 +57,4 @@ The open pool paired and went direct.
   2001/2012 over a whole match are M3's two-PC gate.
 - Windows networking (the Windows Firewall prompt, Wi-Fi, real home routers: CGNAT, hairpinning, UPnP).
 - The public relay (`relay.wccf.it`) and its TLS chain: the harness uses its own relay with certificate checks off.
-- Timings for the S0 baseline (RSS, CPU): `load.rs` and a 2-vCPU host's numbers.
+- Timings for the S0 baseline (RSS, CPU): `load.rs` and a 2-vCPU public VPS's numbers.

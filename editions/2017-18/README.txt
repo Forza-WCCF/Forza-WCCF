@@ -1,4 +1,4 @@
-Forza-WCCF 2017-18 - 0.1.0-alpha.1
+Forza-WCCF 2017-18 - 0.2.0 (alpha)
 ==================================
 (Italiano: README.it.txt - 日本語: README.ja.txt)
 
@@ -24,7 +24,7 @@ WHAT IT IS
 YOU NEED
   - Windows 10 or 11, 64-bit.
   - Your own decrypted 2017-18 game folder (the one with client_Release.exe and control_Release.exe).
-    <where to get the game: owner fills in>
+    Forza-WCCF does not include the game. You need your own copy of the original game files.
   - Nothing else (no WSL).
 
 INSTALL (once)
@@ -91,7 +91,7 @@ ANTIVIRUS AND SMARTSCREEN
   this like a cheat tool. Each release's files are submitted to Microsoft as a false positive before publication.
   SmartScreen ("Windows protected your PC"): choose "More info", then "Run anyway".
   If Defender flags a file: do not turn Defender off. Note the detection name, restore the file from Protection
-  history only if it came from the official download, and report it: <report link: owner fills in>
+  history only if it came from the official download, and report it: https://github.com/Forza-WCCF/Forza-WCCF/issues
 
 SAFETY
   Forza-WCCF never changes this PC's network settings (addresses, routes, firewall). A guard replaces the game's own

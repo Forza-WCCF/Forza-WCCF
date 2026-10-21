@@ -1,4 +1,4 @@
-Forza-WCCF 2017-18 - 0.1.0-alpha.1
+Forza-WCCF 2017-18 - 0.2.0 (alpha)
 ==================================
 (English: README.txt - 日本語: README.ja.txt)
 
@@ -25,7 +25,7 @@ COS'È
 COSA SERVE
   - Windows 10 o 11, a 64 bit.
   - La vostra cartella del gioco 2017-18 già decifrata (quella con client_Release.exe e control_Release.exe).
-    <dove trovare il gioco: da compilare a cura del proprietario>
+    Forza-WCCF non include il gioco. Serve la vostra copia dei file originali del gioco.
   - Nient'altro (niente WSL).
 
 INSTALLAZIONE (una volta)
@@ -99,8 +99,7 @@ ANTIVIRUS E SMARTSCREEN
   inviati a Microsoft come falso positivo prima della pubblicazione.
   SmartScreen ("Il PC è stato protetto da Windows"): scegliete "Ulteriori informazioni", poi "Esegui comunque".
   Se Defender segnala un file: non disattivatelo. Annotate il nome del rilevamento, ripristinate il file dalla
-  cronologia di protezione solo se proviene dal download ufficiale, e segnalatelo: <link per le segnalazioni: da
-  compilare a cura del proprietario>
+  cronologia di protezione solo se proviene dal download ufficiale, e segnalatelo: https://github.com/Forza-WCCF/Forza-WCCF/issues
 
 SICUREZZA
   Forza-WCCF non modifica mai le impostazioni di rete del PC (indirizzi, route, firewall). Una protezione sostituisce le

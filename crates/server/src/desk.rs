@@ -342,7 +342,7 @@ fn firewall(cfg: &DeskConfig, ip: &str, block: bool) -> bool {
             .and_then(|mut f| f.write_all(line.as_bytes()))
             .is_ok();
     }
-    // No host firewall change (AGENTS.md section 5): the hold is the `HOLD` answer the box polls, nothing else.
+    // No host firewall change (docs/SAFETY.md): the hold is the `HOLD` answer the box polls, nothing else.
     true
 }
 
@@ -637,7 +637,7 @@ fn session(
 
 /// Takes off the words the upstream kits' `seat.py` adds: `WANT [SEAT n] [RELAY] [CARD c] [TOKEN t]`, read from
 /// the end as `seat_desk.py` does. Returns the rest and whether `RELAY` was there (the PC shows the projector through
-/// the projector relay). The token is not checked (Forza-WCCF keeps its own identity) and the card is not kept (only
+/// the projector relay). The token is not checked (Forza-WCCF does not use it to identify a player) and the card is not kept (only
 /// the upstream witness read it, from `leases.json`; this desk writes no `leases.json`).
 fn kit_words(line: &str) -> (String, bool) {
     let mut w: Vec<&str> = line.split_whitespace().collect();
