@@ -2,7 +2,7 @@
 
 Community tools for WCCF 2010-11 (Rev D): a launcher, stand-ins for the cabinet's hardware and an on-screen panel, so
 your own copy's server, projector and player cabinet run on one Windows PC - and online play on a shared server. The
-game is not included. Newest first; each date is the day that kit was built.
+game is not included. Newest first; each date is the day that version was built.
 
 ## Not released yet
 
@@ -14,23 +14,23 @@ game is not included. Newest first; each date is the day that kit was built.
 - Pause. P (or the PAUSE button; the key is in KEYS) holds a match for up to 20 seconds. It works only in a match on
   this PC with no other seat linked and no projector running; otherwise the panel gives the reason. The next pause
   waits 10 seconds.
-- The installer's `--kit` step sets this kit up without Python.
+- The installer's package step sets Forza-WCCF up without Python.
 
 ### Changed
-- No Python in the kit: setup, undo, the game's text and the club card steps run inside Launcher.exe. There is no
+- No Python in Forza-WCCF: setup, undo, the game's text and the club card steps run inside Launcher.exe. There is no
   `python\` or `code\` folder and no command-line card editor (`edit.py`). CLEAR BAD ENDINGS and the card switches stay.
 - The formation board shows a card big after the mouse rests on it 1 s (was 3 s). SETTINGS > CARD HOVER sets it to
   0.5, 1, 2 or 3 s; `hover_delay_ms=` in `data\panel.txt` takes 0 to 5000.
-- `programs\inject.exe` loads the panel into the game again, as before Kit 5.5: 3 s after seat 1's window is up, and
+- `programs\inject.exe` loads the panel into the game again, as before 5.5: 3 s after seat 1's window is up, and
   into the projector once the cabinet is up. Loading it from the hook caused problems. Antivirus programs may flag
   inject.exe.
 - UPDATE no longer looks on GitHub. It says "No update found" until Forza-WCCF has a release site, and Launcher.exe no
-  longer checks for a newer kit.
+  longer checks for a newer version.
 - First start: Launcher.exe links its folder to C:\Games\Forza-WCCF\2010-2011 (a junction, no administrator rights)
   and restarts from there, so a path with accents or spaces still gives the game a plain path. An existing folder at
   that name is left alone. On a network or FAT drive it runs in place and warns if the path has special characters.
 - PLAY.exe is now Launcher.exe; an update or the first start removes PLAY.exe.
-- Launcher.exe is the kit's one window: PLAY ON (THIS PC, or ONLINE and a server's address), LANGUAGE (English,
+- Launcher.exe is the one window: PLAY ON (THIS PC, or ONLINE and a server's address), LANGUAGE (English,
   Italiano, Japanese) and GAME TEXT (English, Italiano, Japanese), then PLAY. Progress shows in the window, never in a
   console. Once the game is up the window closes and Launcher.exe keeps watching without one. A failed start keeps the
   window open with the reason.
@@ -41,48 +41,48 @@ game is not included. Newest first; each date is the day that kit was built.
 - RESTART NOW shows Launcher's window while it restarts, with no console.
 - From a command prompt Launcher.exe still takes local, server, remote ADDRESS, debug, stop, status and show, and
   prints there. The prompt does not wait for it; "start /wait Launcher.exe server" does.
-- The kit's helpers run with no console window. "Launcher.exe debug" still opens the key driver's window.
+- The helpers run with no console window. "Launcher.exe debug" still opens the key driver's window.
 
 ### Fixed
 - Closing the game window while the game was still starting no longer leaves the server and helpers running.
 
-## Kit 6 - 2026-10-11
+## 6 - 2026-10-11
 
 ### Changed
 - Online: no PC gets the projector any more. The first player to join used to run it as a second window; now every
-  PC runs only its own cabinet. The seat desk always answers `PROJECTOR 0` (kit 5's PCs follow that too), and
+  PC runs only its own cabinet. The seat desk always answers `PROJECTOR 0` (the PCs of version 5 follow that too), and
   `PLAY.exe server` sets the server's `WAIT_PROJECTOR=0` - with 1 it would never start a round with no projector
   connected. A projector box that joins by itself still works; it catches up at the next round. `PLAY.exe local`
   keeps its own projector.
-- A start compares the game's copy of the hook (wccfk.dll, in the game and in seat1\) with the kit's own and sets
-  the game up once if they differ - a newer kit unzipped over this one by hand no longer starts the old hook.
+- A start compares the game's copy of the hook (wccfk.dll, in the game and in seat1\) with Forza-WCCF's own and sets
+  the game up once if they differ - a newer version unzipped over this one by hand no longer starts the old hook.
 - Hosting a server: the server program now gets the players' messages only whole. Over the internet a message can
   arrive in pieces, and the publisher's code for putting pieces back together is broken - the most likely cause of the server
-  crash that cuts every player ("WCCF CONTROL NOT FOUND", Error 3000). The kit's hook (wccfk.dll) now holds the
+  crash that cuts every player ("WCCF CONTROL NOT FOUND", Error 3000). The hook (wccfk.dll) now holds the
   pieces and hands the server each message only once all of it is there; bytes that cannot be a message are skipped,
   and nobody is disconnected for them. WCCF_WHOLEMSG=0 turns it off. The crash was not reproduced on purpose, so this
   is the likely cause removed, not a proven fix; the keeper's restart stays the safety net.
-- Simpler folders. The kit's Python is in `code\` (was `scripts\`); every program, the panel included, is in
+- Simpler folders. The Python is in `code\` (was `scripts\`); every program, the panel included, is in
   `programs\` (was `bin\` and `overlay\`); the panel's picture is in `art\`; the English tables are in `languages\english\` (one folder per language); the catalogue and card pictures SETUP
-  makes from your game are in `data\cache\`. Updating from an older kit and pressing set up moves your catalogue and
-  card pictures over (no waiting for them to be made again) and removes the old kit's leftover files and folders -
-  anything of yours in those folders stays. Inside `code\`, the kit's Python is in plain folders with plain names:
+  makes from your game are in `data\cache\`. Updating from an older version and pressing set up moves your catalogue and
+  card pictures over (no waiting for them to be made again) and removes the old version's leftover files and folders -
+  anything of yours in those folders stays. Inside `code\`, the Python is in plain folders with plain names:
   `cards\`, `hardware\`, `online\`, `server\`, `helpers\` (`_keys_seat1.py` is now `hardware\keyboard.py`, and so on).
-- Updating from an older kit by unzipping it by hand (or saying no to "set up now?") is fine: the first PLAY sets
+- Updating from an older version by unzipping it by hand (or saying no to "set up now?") is fine: the first PLAY sets
   the game up for the new helper by itself, as SETUP would, instead of starting the old one Windows Defender deletes.
-- The kit's helper no longer gets deleted by antivirus. It used to sit beside the game pretending to be a Windows
+- The helper no longer gets deleted by antivirus. It used to sit beside the game pretending to be a Windows
   file (`winmm.dll`), which is how some malware sneaks in - so Windows Defender flagged and deleted it, and the game
   would not start. Now the helper has its own honest name (`wccfk.dll`) and SETUP simply points the game at it (a
   tiny, exact change it can undo). Turning English on or off keeps it. Nothing else about your game is changed.
 - Fewer things that look suspicious to antivirus: the panel no longer writes screenshots of the game to disk
   (`wccfpanel_frame.bmp`, `wccfpanel_atlas.bmp`), the scene helper no longer runs `tasklist`, and SETUP now also
   removes the two old files Windows Defender flagged (`overlay\inject.exe`, `bin\logowin.exe`) when you unzip a new
-  kit by hand.
+  version by hand.
 
 ### Added
-- ITALIANO in SETUP.exe's GAME LANGUAGE (and `english.py on it`): the game in Italian. Each line comes from this kit's
+- ITALIANO in SETUP.exe's GAME LANGUAGE (and `english.py on it`): the game in Italian. Each line comes from Forza-WCCF's
   Italian (`languages\italian\screen_text.tsv`, 4,477 lines), else the original Italian of the older European WCCF
-  (`languages\italian\original_rstring.tsv`, 2,705 lines with the same Japanese), else the kit's English - never
+  (`languages\italian\original_rstring.tsv`, 2,705 lines with the same Japanese), else Forza-WCCF's English - never
   Japanese. The game's font has no accented letters, so the Italian writes them with an apostrophe (perche',
   citta'). Player and CPU team names are the English ones; money stays in dollars. The SETTINGS panel still offers
   only ENGLISH and JAPANESE.
@@ -111,7 +111,7 @@ game is not included. Newest first; each date is the day that kit was built.
   (W, L, D), the weekdays Monday to Saturday, and 12 supporter-group words (Heroes, Stars, Samurai, Tigers, ...).
   7,200 lines are now in English; only the debug menus stay Japanese.
 - `english.py check` names the screen lines still in Japanese, so a gap shows without a survey.
-- Not in this kit yet: the six team stats around the hexagon and OK / BACK redrawn in English (and Italian). The
+- Not in this version yet: the six team stats around the hexagon and OK / BACK redrawn in English (and Italian). The
   redrawing works, but with the redrawn pictures in the game's archive the game gave every club card straight back
   instead of reading it - so it is switched off, and those pictures stay Japanese. The code is kept for a fix
   (`WCCF_PICTURES=1` turns it on to test one).
@@ -124,22 +124,22 @@ game is not included. Newest first; each date is the day that kit was built.
   new club, closing the window used to close with no warning and cost that new club a bad ending - the warning only
   watched your old card. Now it (and the SETTINGS > RESTART NOW gate) watch both cards.
 - The game no longer fails to start because a log file is open. If something is holding a file in the logs folder
-  (an antivirus, or you viewing a log), the kit sets that folder aside and starts anyway, instead of failing every
+  (an antivirus, or you viewing a log), Forza-WCCF sets that folder aside and starts anyway, instead of failing every
   time until the file is released. (`source\test_rotate_logs.py`.)
 - Online: your live match can no longer be hijacked. The match relay now treats a seat as belonging to the address
   that holds it, so a stranger sending "I am seat n" from somewhere else is ignored while you are playing. Before,
   anyone could redirect another player's match to themselves and drop them to a CPU game. (`source\test_relay.py`.)
-- Online: a brief network blip no longer loses your seat. The kit now reconnects to the server's seat desk and
+- Online: a brief network blip no longer loses your seat. Forza-WCCF now reconnects to the server's seat desk and
   re-claims the same seat; before, one missed reply ended the hold for good and the server freed your seat under
   the running game. (`source\test_seat_lease.py`.)
 - Online: two PCs can no longer land on the same seat. If the server's seat desk was slow or gave an odd answer,
-  the kit used to start on seat 1 anyway - so a second PC could take seat 1 and one of them never got into the game.
+  Forza-WCCF used to start on seat 1 anyway - so a second PC could take seat 1 and one of them never got into the game.
   Now it only plays "as before" when a server genuinely has no seat desk; otherwise it stops with a clear message
   and offers local play. (`source\test_take_seat.py`.)
 - A long game is no longer force-closed. Before, any session was killed after 12 hours even in the middle of a
   match, which costs your club card a bad ending. Now a run ends only when you close the game window.
 - Your club card can no longer be lost to a busy file. When the card cannot be saved to disk because something else
-  (an antivirus scan, a backup tool, a search indexer) is holding the file, the kit now keeps your newest card in
+  (an antivirus scan, a backup tool, a search indexer) is holding the file, Forza-WCCF now keeps your newest card in
   memory and tries again - the card on disk stays your last good one. Before, it would write the card straight over
   the file as a last resort, which could leave a half-written, unusable card.
 - A damaged or wrong-size card file no longer locks you out. The game now still opens with a new blank card (so you
@@ -147,15 +147,15 @@ game is not included. Newest first; each date is the day that kit was built.
   would simply fail to start, with nothing on screen to say why.
   (The card reader now has an automated test for both - `source\test_icc_reader.py`.)
 
-## Kit 5.5.1 - 2026-10-10
+## 5.5.1 - 2026-10-10
 
 ### Fixed
-- A plain PLAY.exe start went online no more: Kit 5.5 played on this PC (its own server and projector) even with
+- A plain PLAY.exe start went online no more: 5.5 played on this PC (its own server and projector) even with
   SETTINGS > NEXT START: ONLINE. play.py used the name PANEL for both data\panel.txt and overlay\wccfpanel.dll, so
   it read the dll as the SETTINGS file - ONLINE, the club card choice, the English change and the card fix were all
   not seen. check.ps1 now checks it.
 
-## Kit 5.5 - 2026-10-10
+## 5.5 - 2026-10-10
 
 ### Added
 - Free play: the game's own FREE PLAY is switched on in seat 1, so no coin is needed anywhere - including the
@@ -167,12 +167,12 @@ game is not included. Newest first; each date is the day that kit was built.
   Make. At the next start the new club is in the slot and the old card goes to YOUR CARDS as "CLUB - transferred"
   (the game will not play it again: no PLAY THIS CLUB for it). The CLUB CARD panel says when a contract has ended.
 - SETUP.exe is a window: the game folder (BROWSE, or drag it onto the window or onto SETUP.exe) with SET UP /
-  REPAIR and UNDO SETUP; GAME LANGUAGE, ENGLISH or JAPANESE (what ENGLISH.exe did); and UPDATE, the kit's releases
-  and test builds on GitHub. UPDATE downloads the one you pick and copies it over the kit folder - data\ (club
+  REPAIR and UNDO SETUP; GAME LANGUAGE, ENGLISH or JAPANESE (what ENGLISH.exe did); and UPDATE, the releases
+  and test builds on GitHub. UPDATE downloads the one you pick and copies it over the Forza-WCCF folder - data\ (club
   cards, keys, settings, logs) is never written, nothing is copied while the game runs - removes the files the old
-  kit had and the new one does not, then offers setup again (and the English, if it is on). The scripts' output shows
+  version had and the new one does not, then offers setup again (and the English, if it is on). The scripts' output shows
   in the window. Its words are English, or Italian or Japanese when Windows is.
-- PLAY.exe says when a newer kit is out, and SETUP.exe marks it "(newer)" and says so: a release only, never a test
+- PLAY.exe says when a newer version is out, and SETUP.exe marks it "(newer)" and says so: a release only, never a test
   build. PLAY asks GitHub while the game starts and waits at most 3 s more for the answer.
 - A player card after each match, as the cabinet's dispenser gave one (a test): when a match ends with its
   locker-room save, a window shows a card drawn from the catalogue - 2.5 % a card better than white and black
@@ -186,11 +186,11 @@ game is not included. Newest first; each date is the day that kit was built.
 - FORMATION BOARD: resting the mouse on a card on the table (the big card) also shows its name, line, total and roles.
 - SETTINGS > LOGS: SEND LOGS (click twice) sends this game's logs to the server you play on and shows a short code
   to post in Discord with what went wrong. Never the club card; the Windows user name and PC name are taken out.
-- The kit's version (`KIT 5.5`) at the top right of the game, under the ping meter when online -
-  `version.txt` in the kit (`kit-5.5`), written when the kit ZIP is made.
+- The version (`5.5`) at the top right of the game, under the ping meter when online -
+  `version.txt` in the folder, written when the ZIP is made.
 - Logs: older runs are no longer deleted. `data\logs\previous` is still the run before; the runs before it are
   zipped into `data\logs\archive` (about the last 200 MB, the oldest go first).
-- The kit ZIP holds version.txt (which kit it is) and files.txt (every file it ships), for UPDATE.
+- The ZIP holds version.txt (which version it is) and files.txt (every file it ships), for UPDATE.
 - Server: a box that only shows the projector (a stream box) can be kept out of the game until a player is in it -
   put its address in `data\hold_projector.txt`. The seat desk then holds that address off TCP 20002 with a Windows
   firewall rule and lifts it as soon as a player joins; "HOLD" tells the box whether it is held. On the shared server,
@@ -200,11 +200,11 @@ game is not included. Newest first; each date is the day that kit was built.
   an upload, 6 an hour from one address, 1 GB in all (the oldest go). A server must now let in TCP 20050 too.
 
 ### Changed
-- bin\logowin.exe is gone: The kit's stand-in for the publisher's logo window - a program without a window that waited for
-  the server to end - was what a player's Windows Defender flagged. The kit's winmm.dll now answers the server's
+- bin\logowin.exe is gone: The stand-in for the publisher's logo window - a program without a window that waited for
+  the server to end - was what a player's Windows Defender flagged. The winmm.dll now answers the server's
   start of logowin itself: the message still goes to logowin_messages.txt in the game folder, and nothing runs.
   SETUP puts the original logowin.exe back (kept as logowin_<publisher>.exe); an update removes bin\logowin.exe.
-- The panel is loaded by the game itself: the kit's winmm.dll, which the game already loads, loads wccfpanel.dll
+- The panel is loaded by the game itself: the winmm.dll, which the game already loads, loads wccfpanel.dll
   3 s after the window is up, for seat 1 and the projector. overlay\inject.exe, which wrote it into the running game
   from outside (VirtualAllocEx + CreateRemoteThread, a method antivirus programs watch for), is gone; an update
   removes it.
@@ -213,7 +213,7 @@ game is not included. Newest first; each date is the day that kit was built.
 - The COIN button is gone: play is free (above). KEYS still lists COIN, for a key or a real coin switch.
 
 ### Removed
-- ENGLISH.exe: SETUP.exe's GAME LANGUAGE does the same. SETUP.exe removes it, and the .bat files of kits before 5.4.
+- ENGLISH.exe: SETUP.exe's GAME LANGUAGE does the same. SETUP.exe removes it, and the .bat files of versions before 5.4.
 
 ### Fixed
 - The key driver could end when its input file stayed busy (an antivirus scan, for one): every key and controller
@@ -228,11 +228,11 @@ game is not included. Newest first; each date is the day that kit was built.
   minutes). The desk now reads who is in the game and never gives a seat, or the projector, that another PC is
   using; the same PC can take its seat back.
 
-## Kit 5.4 - 2026-10-09
+## 5.4 - 2026-10-09
 
 ### Added
 - CLUB CARD: CLEAR BAD ENDINGS (click twice) sets the card's bad endings back to 0 at a restart, after a backup.
-  Trade rights or money the game already took stay as they are. If it cannot be done, the kit says so and the game
+  Trade rights or money the game already took stay as they are. If it cannot be done, Forza-WCCF says so and the game
   starts anyway. `scripts\edit_club_card.py` changes any other field.
 - CATALOGUE: COUNTRY and CLUB filters (top right of the catalogue): a list of every country or club, A to Z, with
   its number of cards; typing narrows it, ANY clears it. On the card under the mouse, SAME CLUB and SAME COUNTRY
@@ -241,37 +241,33 @@ game is not included. Newest first; each date is the day that kit was built.
   (`MSGPARSE guard stepped aside: ...`, with what it found) - please share that line.
 
 ### Changed
-- The README, the GitHub page and SETUP's messages speak of your own copy of the game: the kit does not include the
+- The README, the GitHub page and SETUP's messages speak of your own copy of the game: Forza-WCCF does not include the
   game, and no longer names any download of it.
 - `PLAY`, `SETUP` and `ENGLISH` are programs (`.exe`, written in Rust: `source\launcher`) instead of `.bat` files,
-  used the same way. Updating from an earlier kit: delete the old `.bat` files.
+  used the same way. Updating from an earlier version: delete the old `.bat` files.
 - Quitting is closing the game's window. `STOP` is gone: closing seat 1's (or the projector's) window ends the game
-  and everything the kit started with it. During a match the first close only warns (the card would get a bad
+  and everything Forza-WCCF started with it. During a match the first close only warns (the card would get a bad
   ending); a second close within 8 seconds quits anyway. A hosted server (`PLAY.exe server`, no window) and a stuck
   game: `PLAY.exe stop`. A game window that goes by itself (a crash, not a close) stops nothing else while another
   game window runs: the projector keeps running (`data\logs\run_ended.txt` says so).
 
 ### Fixed
 - Closing the game's window left the game itself running without a window, and with it the server, its match
-  engines and the kit's helpers, hidden, for up to 12 hours. Now everything stops (`data\logs\run_ended.txt`). A
+  engines and the helpers, hidden, for up to 12 hours. Now everything stops (`data\logs\run_ended.txt`). A
   server started on the same PC with `PLAY.exe server` keeps running for the other players.
 
 ### For developers
-- The kit is built from this repository's source by GitHub Actions (`.github\workflows\kit.yml`): every push and pull
-  request builds every program (`source\build.ps1`), runs the checks that need no game (`source\check.ps1`) and packs
-  the kit zip (`source\package.ps1`); a `kit-*` tag drafts a release with it. Git holds the source, not the built
-  programs.
-- `source\package.ps1` reads the kit zip back and fails unless every program is in it (`PLAY.exe`, `SETUP.exe`,
-  `ENGLISH.exe`, `bin\`, `overlay\` and `python\python.exe`). A `kit-5.4` tag makes `WCCF-2010-11-kit-5.4.zip`.
-  A run's download on GitHub is that ZIP itself, no longer a ZIP around it, and CI checks the downloaded file too.
-- Test builds for players: Actions > Kit > Run workflow with a tag like `kit-5.4-test1` publishes a pre-release with
-  the ZIP (a public download).
-- A `kit-*` tag's draft release carries its notes (`.github\release-notes.md` and the kit's CHANGELOG section); it is
-  refused when CHANGELOG.md's newest heading is not that kit.
-  Without pushing a tag: Actions > Kit > Run workflow on main with the tag (`kit-5.4`) under "release" - CI makes
-  the tag on main's commit once every check has passed, and drafts the same release.
+- It is built from this repository's source by GitHub Actions: every push and pull request builds every program, runs
+  the checks that need no game and packs the ZIP; a version tag drafts a release with it. Git holds the source, not
+  the built programs.
+- The packing step reads the ZIP back and fails unless every program is in it. A run's download on GitHub is that ZIP
+  itself, no longer a ZIP around it, and CI checks the downloaded file too.
+- Test builds for players: a workflow run with a test tag publishes a pre-release with the ZIP (a public download).
+- A version tag's draft release carries its notes (the release notes file and this CHANGELOG section); it is refused
+  when the newest heading here is not that version. Without pushing a tag: run the workflow on main with the tag under
+  "release" - CI makes the tag on main's commit once every check has passed, and drafts the same release.
 
-## Kit 5.3 - 2026-10-08
+## 5.3 - 2026-10-08
 
 ### Fixed
 - Hosting a server: the crash guard added in 5.2 only caught one form of the "WCCF CONTROL NOT FOUND" (Error 3000)
@@ -281,7 +277,7 @@ game is not included. Newest first; each date is the day that kit was built.
   hosts only; players who just join need nothing. (The publisher's server can crash in other, unrelated ways too - this
   covers the common message-handling one; keep a way to restart the server if it ever stops.)
 
-## Kit 5.2 - 2026-10-08
+## 5.2 - 2026-10-08
 
 ### Fixed
 - Hosting a server (`PLAY.bat server`) survives a rare crash. The server could drop with "WCCF CONTROL NOT FOUND"
@@ -289,7 +285,7 @@ game is not included. Newest first; each date is the day that kit was built.
   message handling. A guard now catches that exact fault, drops the one bad message, and the server keeps running.
   On by default when hosting; players who only join a server never saw this and need nothing.
 
-## Kit 5.1 - 2026-10-08
+## 5.1 - 2026-10-08
 
 ### Fixed
 - The formation board could hold another club's cards after you switched clubs. Each club card now keeps its own
@@ -300,7 +296,7 @@ game is not included. Newest first; each date is the day that kit was built.
 - YOUR CARDS: with more clubs than fit, the rest could not be chosen. They are now in pages (`< PREV`, `NEXT >`, or
   the mouse wheel).
 
-## Kit 5 - 2026-10-07
+## 5 - 2026-10-07
 
 ### Added
 - Ping meter when you play online: bars and "80 ms" at the top right, above the game - green under 100 ms,
@@ -318,7 +314,7 @@ game is not included. Newest first; each date is the day that kit was built.
 - English: Team Training's "They're giving 110% out there" showed a junk number; it now reads "They're giving their
   all out there". Run `ENGLISH.bat` again after updating.
 
-## Kit 4 - 2026-10-06
+## 4 - 2026-10-06
 
 ### Added
 - Game controllers in KEYS: a USB encoder under real cabinet buttons, an arcade stick or a gamepad.
@@ -338,7 +334,7 @@ game is not included. Newest first; each date is the day that kit was built.
 - English: money in dollars with commas on seat 1 and the projector (`$3,982,700`); the result screen's stats and
   goal minutes; the projector's "League"; "Contract: 88"; the shop's name ("Local Shop").
 
-## Kit 3 - 2026-10-05
+## 3 - 2026-10-05
 
 ### Added
 - KEYS, right of START: pick your own key for every cabinet button; it works at once (saved in `data\keys.txt`).
@@ -346,11 +342,11 @@ game is not included. Newest first; each date is the day that kit was built.
 ### Fixed
 - Seat 1 closing at the start of a match: the game hit a text it could not format; now it shows the text and goes
   on.
-- No more "You are owed N Player Card(s)": a PC has no card dispenser, so the kit tells the game nothing is owed.
+- No more "You are owed N Player Card(s)": a PC has no card dispenser, so Forza-WCCF tells the game nothing is owed.
 - English: the license date reads like 2026/10/5 (it was in Japanese).
 
-## Kits 1 and 2 - 2026-10-05
-- The first kits: `SETUP.bat` and `PLAY.bat` start your own copy's server, projector and seat 1 on one PC, with the
+## Versions 1 and 2 - 2026-10-05
+- The first versions: `SETUP.bat` and `PLAY.bat` start your own copy's server, projector and seat 1 on one PC, with the
   on-screen panel - cabinet buttons, a formation board and a catalogue of all 3,909 cards. No fixed paths: unzip
   anywhere.
 - English (`ENGLISH.bat`), a 2-minute entry window and a smoother projector.

@@ -5,7 +5,7 @@ Not released yet
 ----------------
 Online play, the lobby, no Python. Version and date are set at release.
 
-  - No Python: setup, the card catalogue, the card pictures and the game's text run inside Launcher.exe. The kit has no
+  - No Python: setup, the card catalogue, the card pictures and the game's text run inside Launcher.exe. Forza-WCCF has no
     python\ or scripts\ folder.
   - Online play: choose Online in Launcher.exe. The game uses the game server you name (the "Club server" row, else the
     lobby's server) instead of the stand-in on this PC; "This PC" goes back to the stand-in. Remote and server modes
@@ -21,7 +21,7 @@ Online play, the lobby, no Python. Version and date are set at release.
   - The Club server and Direct VS link rows moved from SETUP into ONLINE's "Direct address" fold.
   - Pause: P or the PAUSE button holds a match for up to 20 seconds. Not online, not with another seat linked, not while
     a projector runs. Key: KEYS.
-  - The installer's --kit step takes this edition's ZIP (it must match the game's edition).
+  - The installer's package step takes this edition's ZIP (it must match the game's edition).
 
 Not in this release: career mode, LAN play, shops with several seats, a render scale. Online needs a server that allows
 your address (the project's server keeps an allow list). Live VS between two PCs has not been played end to end yet.

@@ -1,10 +1,10 @@
-WCCF 2010-11 (Rev D) on a PC - the kit
+Forza-WCCF 2010-11 (Rev D) on a PC
 ======================================
 
 WHAT IT IS
   Community tools for your own copy of WCCF 2010-11 (Rev D): a launcher, stand-ins for the cabinet's hardware and an
   in-game panel. The server, the projector (the shared big screen) and a player cabinet (seat 1) run on one Windows PC.
-  The game itself is not included, and the kit holds none of the original files: setup makes everything from your copy.
+  The game itself is not included, and Forza-WCCF holds none of the original files: setup makes everything from your copy.
   The panel around seat 1's picture has:
     cabinet buttons
     FORMATION BOARD   your cards on a table: drag to move, drop on a card to swap, right-click to take one off
@@ -16,10 +16,10 @@ WHAT IT IS
 
 NOT RELEASED YET
   - No Python: setup, undo, the game's text (English, Italiano, Japanese) and the club card steps run inside
-    Launcher.exe. The kit has no python\ or code\ folder, and the command-line card editor (edit.py) is gone.
+    Launcher.exe. Forza-WCCF has no python\ or code\ folder, and the command-line card editor (edit.py) is gone.
   - Online lobby: choose Online in Launcher.exe to see the shops of your servers. See ONLINE.
   - Pause: P holds a match for up to 20 seconds. See PAUSE.
-  - The installer's --kit step sets up this kit without Python (see the installer's README).
+  - The installer's package step sets up Forza-WCCF without Python (see the installer's README).
 
 YOU NEED
   - Windows 10 or 11, 64-bit, with the game on an NTFS drive (C: and D: normally are)
@@ -28,7 +28,7 @@ YOU NEED
   - DirectX 9: Microsoft's "DirectX End-User Runtime (June 2010)". Setup warns you if it is missing.
 
 SETUP (once)
-  1. Unzip the kit into its own folder. Keep the game in its own folder too, on a plain path such as D:\Games\WCCF
+  1. Unzip Forza-WCCF into its own folder. Keep the game in its own folder too, on a plain path such as D:\Games\WCCF
      (the game fails on non-English letters in folder names).
   2. Drag the game folder onto Launcher.exe. Or open Launcher.exe, "Setup and updates", pick the game folder (BROWSE or
      drag it in) and click SET UP / REPAIR.
@@ -36,7 +36,7 @@ SETUP (once)
      pictures from your files (about a minute). Run it again to check and repair.
   Launcher.exe also has LANGUAGE (English, Italiano, Japanese; default is Windows' language), GAME TEXT (see ENGLISH),
   UNDO SETUP and UPDATE, all under "Setup and updates".
-  UPDATE: there is no release site yet, so it says "No update found". To update by hand, unzip the new kit over the old
+  UPDATE: there is no release site yet, so it says "No update found". To update by hand, unzip the new version over the old
   folder, open Launcher.exe, then SET UP / REPAIR (and GAME TEXT again if you use English). Your data\ folder (clubs,
   keys, settings, logs) is never touched.
 
@@ -46,7 +46,7 @@ PLAY
   "Launcher.exe debug" opens every window and keeps full logs.
   Sound: the projector starts muted and seat 1 at 4% of the PC's volume. Change either in Windows' Volume Mixer; the
   next start resets them.
-  The game runs in rounds: an entry window, then the matches. The kit keeps the entry window open for 2 minutes.
+  The game runs in rounds: an entry window, then the matches. Forza-WCCF keeps the entry window open for 2 minutes.
   Put your card in soon after starting to play in the first round. To change it, edit FIX_REST_ENTRY_TIME (seconds) in
   local\ctrl_user_option.conf in the game folder.
   Click seat 1's window, then:
@@ -64,7 +64,7 @@ PLAY
     CONTROLLER box to clear it. An encoder that types keys goes in the KEY boxes.
     Changes work at once and are kept in data\keys.txt. RESET (or deleting that file) restores the keys above.
   Your club is saved in data\save\seat1_club.bin. Back it up.
-  The kit's version is at the top right of the game. Give it when you report a problem.
+  The version is at the top right of the game. Give it when you report a problem.
 
 PAUSE
   P or the PAUSE button holds a match for up to 20 seconds: a PAUSED page covers the last frame and the sound is
@@ -101,8 +101,8 @@ CLUB CARD (left side, under SETTINGS)
   make a new club. The old card is kept in YOUR CARDS as "transferred".
 
 QUIT
-  After a match the card comes out by itself (or press I). Then close the game window (X or Alt+F4). Everything the
-  kit started stops too: the projector, the server, its match engines and helpers. data\logs\run_ended.txt lists what
+  After a match the card comes out by itself (or press I). Then close the game window (X or Alt+F4). Everything
+  Forza-WCCF started stops too: the projector, the server, its match engines and helpers. data\logs\run_ended.txt lists what
   was stopped. Closing the projector's window does the same.
   During a match, closing seat 1 ends it without a save and gives the card a bad ending (trade rights are lost at 2).
   The first close only shows a warning; close again within 8 seconds to quit anyway. Closing the projector during a
@@ -125,7 +125,7 @@ ONLINE
   30 seconds. The PC must allow TCP ports 20002, 20030 and 20050 and UDP port 20040; behind a router, forward them.
   The host can play too: "Launcher.exe remote" with its own address (ipconfig shows it). Logs that players send are
   kept in data\player_logs.
-  When an online game ends badly (a crash, or a lost link to the server: Error 3000), the kit sends this PC's logs to
+  When an online game ends badly (a crash, or a lost link to the server: Error 3000), Forza-WCCF sends this PC's logs to
   the server, same as SEND LOGS. Your club card is never sent. After a crash, a memory snapshot goes along;
   data\dumps keeps the newest 5. If the server cannot be reached, the next start sends them.
   To turn this off, add the line auto_logs=0 to data\panel.txt.
@@ -141,13 +141,13 @@ ENGLISH, ITALIANO (optional)
   Four rare screens show money in two pieces ("$2 million$299000"): a fan event, a golden age, a financial crisis and
   the end of a contract.
   Awards saved before English was on keep their Japanese names.
-  ITALIANO works the same way. Each line is this kit's Italian, else the original Italian of the older European WCCF,
+  ITALIANO works the same way. Each line is Forza-WCCF's Italian, else the original Italian of the older European WCCF,
   else English; never Japanese. The game's font has no accented letters, so they are written with an apostrophe
   (perche', citta'). Player and CPU team names and supporters' nicknames stay in English. The in-game SETTINGS panel
   offers only ENGLISH and JAPANESE for now.
 
 WHAT SETUP CHANGES   (UNDO SETUP in Launcher.exe reverses all of it)
-  game folder   adds wccfk.dll (the kit's hook) and points the game's programs at it; adds local\client_user_option.conf
+  game folder   adds wccfk.dll (Forza-WCCF's hook) and points the game's programs at it; adds local\client_user_option.conf
                 (projector) and local\ctrl_user_option.conf (server)
   beside it     seat1\  the player cabinet: links to the game folder's files, its own copy of client_Release.exe with
                         15 changes, its own settings
@@ -173,7 +173,7 @@ GOOD TO KNOW
   - The game counts every earned player card as owed ("You are owed N Player Card(s)") because there is no dispenser.
     The panel tells the game nothing is owed.
   - Windows 11 slows the timers of minimized or covered programs, which made the projector's live matches stutter. The
-    kit switches that throttling off for the game's programs (see data\logs\run_server.txt).
+    Forza-WCCF switches that throttling off for the game's programs (see data\logs\run_server.txt).
   - The game draws 30 pictures a second and syncs them to the screen only when the main monitor runs at exactly 60 Hz.
     At other refresh rates movement can look uneven; 60 and 120 Hz are even.
 

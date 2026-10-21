@@ -3,17 +3,17 @@
 [![CI](https://github.com/Forza-WCCF/WCCF-Installer/actions/workflows/ci.yml/badge.svg)](https://github.com/Forza-WCCF/WCCF-Installer/actions/workflows/ci.yml)
 
 The Forza-WCCF Windows x64 installer decrypts and extracts **your own** supported World Club
-Champion Football RingEdge disc image. Rust + egui; no Python is needed, for extraction or for the kit step.
+Champion Football RingEdge disc image. Rust + egui; no Python is needed, for extraction or for the package step.
 
-**No game media, keys, game binaries, saves or runtime kit are distributed here.**
+**No game media, keys, game binaries, saves or runtime files are distributed here.**
 Extraction prepares the original files; it does not make them playable. Experimental installer, not a verified playable-game release.
 
 ## Supported images
 
 | Image | Game ID | Exact ISO size | Installer support |
 |---|---|---:|---|
-| 2010–2011 (Japan), Rev D / DVR-5004D | SBWG | 5,034,770,432 bytes | Extraction; optional 2010–2011 kit setup |
-| 2017–2018 v2.00.00 / DVR-5059A | SDDY | 5,921,865,728 bytes | Extraction; optional 2017–2018 kit setup (headless `--kit`) |
+| 2010–2011 (Japan), Rev D / DVR-5004D | SBWG | 5,034,770,432 bytes | Extraction; optional 2010–2011 package setup |
+| 2017–2018 v2.00.00 / DVR-5059A | SDDY | 5,921,865,728 bytes | Extraction; optional 2017–2018 package setup (headless `--package`) |
 
 The installer checks the known layout, metadata CRC and encrypted volume header.
 Full game-slot block verification is enabled by default. Each image needs its
@@ -31,7 +31,7 @@ the game slot. The system/OS-update slot is never extracted.
    if you chose the ZIP.
 3. Open `wccf-installer.exe`, choose your own ISO and matching keyfile, then an
    empty install folder. Allow about 6 GB free space and permission to write there.
-4. Leave the kit blank for extraction only. New installs use separate trees:
+4. Leave the package blank for extraction only. New installs use separate trees:
    `<install folder>\2010-2011\game` and `<install folder>\2017-2018\game`.
    The default base folder is `C:\Games\Forza-WCCF`.
 
@@ -40,11 +40,11 @@ another destination. Cancelled/failed extraction can leave a
 `game.partial` staging folder inside its edition root; a retry replaces that
 staging folder, not an existing game folder. Earlier installations are detected
 and reused in place; no existing files or saves are moved. Back up saves before
-using any external kit.
+using any external package.
 
 ### Both editions can coexist
 
-Each edition has its own `game`, kit, `data`, settings, logs and
+Each edition has its own `game`, program files, `data`, settings, logs and
 saves. Installing one never updates the other. Desktop shortcuts include the
 edition: `Forza-WCCF 2010-2011 - PLAY/STOP`. The wizard lets you choose which
 edition to reuse; use `--game SBWG` or `--game SDDY` in headless mode when both
@@ -59,22 +59,21 @@ Get-FileHash .\wccf-installer.exe -Algorithm SHA256
 Compare the hash with the matching line in `SHA256SUMS.txt`. The binaries are
 not Authenticode-signed; do not disable antivirus or bypass protection blindly.
 
-### Optional kit
+### Optional package
 
-A trusted, separately supplied kit ZIP (`Forza-WCCF-2010-11.zip` or the 2017–2018 ZIP) can be unpacked into the
-edition's folder, set up for your extracted game, given English if you ask, and given Play/Stop shortcuts. The kit must
+A trusted, separately supplied Forza-WCCF ZIP (`Forza-WCCF-2010-11.zip` or the 2017–2018 ZIP) can be unpacked into the
+edition's folder, set up for your extracted game, given English if you ask, and given Play/Stop shortcuts. The package must
 match the game's edition: the installer reads the edition from the ZIP (`programs\` for 2010–2011, `bin\` or `overlay\`
-for 2017–2018) and refuses a mismatch before writing anything. The ZIP may contain the kit directly or inside one
+for 2017–2018) and refuses a mismatch before writing anything. The ZIP may contain the files directly or inside one
 top-level folder, with `Launcher.exe` as a file at its top. Setup and the game's text run inside the installer
-(`forza::setup`, `forza::text`): no Python is bundled or needed. An NTFS destination is required. **Kit programs are
-code from the ZIP:** only select a kit whose source and provenance you trust. An existing `data\` folder is preserved
-during kit unpacking.
+(`forza::setup`, `forza::text`): no Python is bundled or needed. An NTFS destination is required. **Its programs are
+code from the ZIP:** only select a package whose source and provenance you trust. An existing `data\` folder is preserved
+during unpacking.
 
-The wizard and headless `--kit` run the same checks for either edition.
+The wizard and headless `--package` run the same checks for either edition.
 
-The community kit is a separate project:
-[Forza-WCCF/WCCF-Kit](https://github.com/Forza-WCCF/WCCF-Kit).
-No kit is fetched automatically or included in releases. `--no-setup` ignores a supplied kit.
+The packages are a separate project: [Forza-WCCF on GitHub](https://github.com/Forza-WCCF).
+No package is fetched automatically or included in releases. `--no-setup` ignores a supplied package.
 
 ### Runtime safety and limits
 
@@ -85,7 +84,7 @@ No kit is fetched automatically or included in releases. `--no-setup` ignores a 
   as secondary protection. That covers four identified IP-helper APIs, not a
   general sandbox. The installer neither provides nor validates those guards.
 - The installer itself does not launch the game or change interfaces, routes,
-  firewall rules or registry settings. External kit behavior is not verified here.
+  firewall rules or registry settings. External package behavior is not verified here.
 - The local 2017–2018 runtime reached attract/guest play, but player models did
   not render; completed matches and save/reload remain unverified. No runtime
   compatibility is promised by successful extraction.
@@ -94,22 +93,22 @@ No kit is fetched automatically or included in releases. `--no-setup` ignores a 
 ## Headless use
 
 ```powershell
-# Extract either supported image; no kit needed:
+# Extract either supported image; no package needed:
 .\wccf-installer.exe --iso "D:\Media\GAME.iso" --key "D:\Keys\GAME.key" --dest "D:\Games\Forza-WCCF"
 
 # Reuse existing extracted files without reading media or keys:
 .\wccf-installer.exe --dest "D:\Games\Forza-WCCF" --game SBWG
 .\wccf-installer.exe --dest "D:\Games\Forza-WCCF" --game SDDY
 
-# Optional trusted kit of the game's edition (2010–2011 or 2017–2018):
-.\wccf-installer.exe --iso REV_D.iso --key REV_D.key --dest "D:\Games\Forza-WCCF" --kit KIT.zip --english
+# Optional trusted package of the game's edition (2010–2011 or 2017–2018):
+.\wccf-installer.exe --iso REV_D.iso --key REV_D.key --dest "D:\Games\Forza-WCCF" --package FORZA-WCCF.zip --english
 
 .\wccf-installer.exe --help
 .\wccf-installer.exe --version
 ```
 
 Flags: `--no-verify` skips data-block CRC checks (header/metadata validation
-still runs); `--no-setup` ignores a supplied kit; `--english` requires kit
+still runs); `--no-setup` ignores a supplied package; `--english` requires package
 setup. Headless mode does not create shortcuts. Errors return a nonzero exit code.
 Because this is a Windows GUI-subsystem application, use `Start-Process -Wait -PassThru`
 when you need to wait for headless completion from PowerShell.

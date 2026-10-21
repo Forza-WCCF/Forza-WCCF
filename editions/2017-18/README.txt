@@ -13,7 +13,7 @@ NEW IN THIS RELEASE (not released yet)
   - Online, every card has its own Aime ID: two homes never share one club.
   - The Club server and Direct VS link rows moved under ONLINE, in the "Direct address" fold.
   - Pause: P (or the PAUSE button) holds a match for up to 20 seconds.
-  - The installer's --kit step takes this edition's ZIP (see the installer's README).
+  - The installer's package step takes this edition's ZIP (see the installer's README).
 
 WHAT IT IS
   World Club Champion Football 2017-18 on one Windows PC, one seat, from YOUR OWN game files. Online VS with another

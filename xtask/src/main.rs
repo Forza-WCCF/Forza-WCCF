@@ -1641,6 +1641,7 @@ fn package_installer(root: &Path, name: Option<String>) -> Result<()> {
         "LICENSE",
         "THIRD-PARTY-LICENSES.json",
     ];
+    no_kit_word(&[src.join("README.md"), src.join("CHANGELOG.md")])?;
     let exe_name = format!("{INSTALLER}.exe");
     let payload: Vec<(String, PathBuf)> = std::iter::once((exe_name.clone(), exe))
         .chain(docs.iter().map(|d| (d.to_string(), src.join(d))))
@@ -1680,6 +1681,26 @@ fn package_installer(root: &Path, name: Option<String>) -> Result<()> {
 
 /// `is_1011`: the 2010-11 kit, else the 2017-18 kit. Both hold the programs `cargo xtask build` made, and their version
 /// information is checked; both ZIPs leave out `source/build` (the 2017-18 guard tests live there; its guard `bin/wccfnet.dll` ships).
+/// Players read these files: the product is Forza-WCCF, never a "kit" (the whole word, any case).
+fn no_kit_word(files: &[PathBuf]) -> Result<()> {
+    for f in files {
+        for (n, line) in fs::read_to_string(f)?.lines().enumerate() {
+            let low = line.to_ascii_lowercase();
+            let word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
+            let hit = low.match_indices("kit").any(|(i, _)| {
+                !word(low[..i].chars().next_back()) && !word(low[i + 3..].chars().next())
+            });
+            ensure!(
+                !hit,
+                "{}:{}: the word \"kit\" in player text: {line}",
+                f.display(),
+                n + 1
+            );
+        }
+    }
+    Ok(())
+}
+
 fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
     let Ed {
         top,
@@ -1698,6 +1719,12 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
         "uncommitted changes in files the kit ships; commit them first:\n{dirty}"
     );
     stage(root, kit, map, keep)?;
+    let mut docs: Vec<PathBuf> = fs::read_dir(kit)?
+        .filter_map(|e| Some(e.ok()?.path()))
+        .filter(|p| p.extension().is_some_and(|e| e == "txt" || e == "md"))
+        .collect();
+    docs.push(kit.join("source/README.txt"));
+    no_kit_word(&docs)?;
     for p in programs {
         ensure!(
             kit.join(p).is_file(),
@@ -1956,6 +1983,31 @@ fn walk(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shipped_docs_never_say_kit() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let files: Vec<PathBuf> = MAP
+            .iter()
+            .chain(MAP_1718)
+            .filter(|(to, _)| to.ends_with(".txt") || to.ends_with(".md"))
+            .map(|(_, from)| root.join(from))
+            .chain(
+                [
+                    "crates/installer/README.md",
+                    "crates/installer/CHANGELOG.md",
+                ]
+                .map(|f| root.join(f)),
+            )
+            .collect();
+        assert!(files.len() > 8);
+        no_kit_word(&files).unwrap();
+        let bad = std::env::temp_dir().join("no-kit-word-test.txt");
+        fs::write(&bad, "fine\nthe Kit-5 zip\nskit kitchen\n").unwrap();
+        assert!(no_kit_word(&[bad.clone()]).is_err());
+        fs::write(&bad, "skit kitchen _kit_\n").unwrap();
+        no_kit_word(&[bad]).unwrap();
+    }
 
     #[test]
     fn mask_hides_the_name_in_any_case() {
