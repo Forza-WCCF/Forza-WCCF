@@ -223,8 +223,6 @@ cab.back: {en: "BACK", it: "INDIETRO", ja: "もどる"}
 cab.projector: {en: "PROJECTOR", it: "PROIETTORE", ja: "プロジェクター"}
 
 # ---- panel ----
-panel.tactics: {en: "TACTICS", it: "TATTICA", ja: "作戦"}
-panel.machine: {en: "MACHINE", it: "MACCHINA", ja: "筐体"}
 panel.f11: {en: "F11: window or full screen", it: "F11: finestra o schermo intero", ja: "F11：ウィンドウ／全画面"}
 panel.ping: {en: "%{ms} ms", it: "%{ms} ms", ja: "%{ms} ms"}
 panel.add_card: {en: "+ CARD", it: "+ CARTA", ja: "＋カード"}

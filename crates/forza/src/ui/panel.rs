@@ -24,9 +24,9 @@ pub const BOARD_W: f32 = 580.0;
 /// Space above the pitch inside the strip (no title row any more).
 const BOARD_HEAD: f32 = 0.0;
 /// The bar of page buttons along the bottom of the middle.
-const TABS_H: f32 = 60.0;
-/// The cabinet deck under the picture keeps at least this; on wide sheets the picture stops growing first.
-const DECK_MIN: f32 = 300.0;
+const TABS_H: f32 = 56.0;
+/// The deck row under the picture keeps at least this; on wide sheets the picture stops growing first.
+const DECK_MIN: f32 = 148.0;
 /// What the board's height needs per point of pitch width (pitch 1.25, bench, hint) and besides (head, margins).
 const BOARD_PER_W: f32 = 1.42;
 const BOARD_EXTRA: f32 = 120.0;
@@ -61,10 +61,11 @@ pub struct Layout {
 }
 
 /// The layout of `sheet` (at least 1440x900): the picture takes the largest 16:10 size that leaves the board its
-/// least width and the deck its least height (compact: a message line, no deck); the board then takes what the
-/// picture left, up to what its own height can use; the middle takes the rest.
+/// least width and the deck row its least height (compact: no deck); the picture sits flush at the top of the middle,
+/// the deck row straight under it. The board then takes what the picture left, up to what its own height can use;
+/// the middle takes the rest.
 pub fn layout(sheet: Rect, compact: bool) -> Layout {
-    let reserve = if compact { 60.0 } else { DECK_MIN };
+    let reserve = if compact { 0.0 } else { DECK_MIN };
     let h = ((sheet.width() - BOARD_W) / 1.6).min(sheet.height() - TABS_H - reserve);
     let board_max = (sheet.height() - BOARD_EXTRA) / BOARD_PER_W + 32.0;
     let bw = (sheet.width() - h * 1.6).clamp(BOARD_W, board_max.max(BOARD_W));
@@ -72,13 +73,10 @@ pub fn layout(sheet: Rect, compact: bool) -> Layout {
     let middle = sheet.with_max_x(board.left());
     let tabs = middle.with_min_y(middle.bottom() - TABS_H);
     let above = middle.with_max_y(tabs.top());
-    // compact: no deck, so the picture sits in the middle with the message line under it
-    let y = if compact {
-        above.top() + (above.height() - reserve) / 2.0
-    } else {
-        above.top() + h / 2.0
-    };
-    let picture = Rect::from_center_size(pos2(middle.center().x, y), vec2(h * 1.6, h));
+    let picture = Rect::from_center_size(
+        pos2(middle.center().x, above.top() + h / 2.0),
+        vec2(h * 1.6, h),
+    );
     let deck = above.with_min_y(picture.bottom());
     Layout {
         board,
@@ -712,13 +710,15 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
     // the dealt card covers the picture: clicks there are its own
     st.picture_rect = (st.page == Page::Game && st.deal.is_none()).then_some(pic);
     if st.page == Page::Game {
-        let r = Rect::from_center_size(pos2(deck.center().x, deck.top() + 27.0), vec2(520.0, 34.0));
+        // a toast over the picture's lower edge: the deck row has no room for a line
+        let r =
+            Rect::from_center_size(pos2(pic.center().x, pic.bottom() - 30.0), vec2(520.0, 34.0));
         ui.scope_builder(egui::UiBuilder::new().max_rect(r), |ui| {
             note_line(ui, &mut st.message)
         });
     }
     if !st.file.compact {
-        cabinet_deck(ui, st, deck.with_min_y(deck.top() + 54.0), lang);
+        cabinet_deck(ui, st, deck, lang);
     }
     page_bar(ui, st, tabs, lang);
     if st.page != Page::Game {
@@ -991,22 +991,26 @@ pub struct DeckItem {
     pub tactic: Option<usize>,
 }
 
-const PLATE: egui::Vec2 = vec2(300.0, 196.0);
-const GAP: f32 = 16.0;
+/// The deck row: three plates side by side (tactics, play keys, machine), 778 points wide, 144 high.
+const ROW: egui::Vec2 = vec2(778.0, 144.0);
+/// Each plate's left edge and width in the row.
+const PLATES: [(f32, f32); 3] = [(0.0, 300.0), (316.0, 328.0), (660.0, 118.0)];
 
-/// The left plate's top left corner, with the MACHINE column's below: the three groups are centred in `area`.
-fn deck_x0(area: Rect) -> f32 {
-    area.center().x - (2.0 * PLATE.x + 204.0 + 2.0 * GAP) / 2.0
+/// The three plates, the row centred in `area`.
+fn deck_plates(area: Rect) -> [Rect; 3] {
+    let o = area.center() - ROW / 2.0;
+    PLATES.map(|(x, w)| Rect::from_min_size(o + vec2(x, 0.0), vec2(w, ROW.y)))
 }
 
-/// The two plates as on the cabinet from 2006-07 to 2017-18. Left: a diamond of yellow triangles (CENTRAL up, COUNTER
-/// down, L-SIDE left, R-SIDE right) round a red PRESS square, a small green DATA square beside it. Right: big red
-/// SHOOT and big blue KEEPER side by side under the small yellow KEY PLAYER and small green START.
+/// The cabinet's buttons in one row (a departure from the cabinet on purpose, to leave the picture room). Left: a
+/// diamond of yellow triangles (CENTRAL up, COUNTER down, L-SIDE left, R-SIDE right) round a red PRESS square, a
+/// small green DATA square beside it. Middle: small yellow KEY PLAYER, big red SHOOT, big blue KEEPER, small green
+/// START in a line.
 pub fn deck_layout(area: Rect) -> Vec<DeckItem> {
-    let x0 = deck_x0(area);
-    let plate = Rect::from_min_size(pos2(x0, area.top() + 20.0), PLATE);
-    let c = plate.center();
-    let (sq, tl, g) = (52.0, 34.0, 2.0);
+    let [left, mid, _] = deck_plates(area);
+    let cy = left.center().y;
+    let c = pos2(left.left() + 132.0, cy);
+    let (sq, tl, g) = (40.0, 26.0, 2.0);
     let off = sq / 2.0 + g + tl / 2.0;
     let item = |key, action, kind, shape, centre: Pos2, size: egui::Vec2, label, tactic| DeckItem {
         key,
@@ -1019,8 +1023,12 @@ pub fn deck_layout(area: Rect) -> Vec<DeckItem> {
     };
     let (tall, wide) = (vec2(sq, tl), vec2(tl, sq));
     let tri = |d| Shape::Tri(d);
-    let right = Rect::from_min_size(pos2(x0 + PLATE.x + GAP, plate.top()), PLATE);
-    let (rc, big, small) = (right.center(), 96.0, 34.0);
+    let (big, small) = (80.0, 34.0);
+    // the line: KEY PLAYER (its label is wider than the key, so 32 each side), SHOOT, KEEPER, START
+    let key_x = mid.left() + 32.0 + small / 2.0;
+    let shoot_x = key_x + small / 2.0 + 32.0 + big / 2.0;
+    let keeper_x = shoot_x + big + 12.0;
+    let start_x = keeper_x + big / 2.0 + 12.0 + small / 2.0;
     vec![
         item(
             "cab.central",
@@ -1077,7 +1085,7 @@ pub fn deck_layout(area: Rect) -> Vec<DeckItem> {
             "DATA",
             Cab::Data,
             Shape::Square,
-            c + vec2(100.0, -62.0),
+            pos2(left.right() - 19.0, cy),
             vec2(30.0, 30.0),
             Some(Dir::Down),
             None,
@@ -1087,7 +1095,7 @@ pub fn deck_layout(area: Rect) -> Vec<DeckItem> {
             "KEYPLAYER",
             Cab::KeyPlayer,
             Shape::Round,
-            pos2(right.left() + 80.0, right.top() + 22.0),
+            pos2(key_x, cy),
             vec2(small, small),
             Some(Dir::Down),
             None,
@@ -1097,7 +1105,7 @@ pub fn deck_layout(area: Rect) -> Vec<DeckItem> {
             "START",
             Cab::Go,
             Shape::Round,
-            pos2(right.right() - 80.0, right.top() + 22.0),
+            pos2(start_x, cy),
             vec2(small, small),
             Some(Dir::Down),
             None,
@@ -1107,7 +1115,7 @@ pub fn deck_layout(area: Rect) -> Vec<DeckItem> {
             "SHOOT",
             Cab::Shoot,
             Shape::Round,
-            pos2(rc.x - big / 2.0 - 6.0, right.bottom() - 6.0 - big / 2.0),
+            pos2(shoot_x, cy),
             vec2(big, big),
             None,
             None,
@@ -1117,7 +1125,7 @@ pub fn deck_layout(area: Rect) -> Vec<DeckItem> {
             "KEEPER",
             Cab::Keeper,
             Shape::Round,
-            pos2(rc.x + big / 2.0 + 6.0, right.bottom() - 6.0 - big / 2.0),
+            pos2(keeper_x, cy),
             vec2(big, big),
             None,
             None,
@@ -1125,11 +1133,19 @@ pub fn deck_layout(area: Rect) -> Vec<DeckItem> {
     ]
 }
 
-/// The cabinet's controls under the picture, three columns centred: the tactic diamond, the play buttons, the machine.
+/// The machine plate's two stacked keys: CARD above PROJECTOR. With one key (2017-18 has no card) it sits centred.
+fn machine_keys(area: Rect, both: bool) -> (Rect, Rect) {
+    let p = deck_plates(area)[2];
+    let key = |dy: f32| Rect::from_center_size(p.center() + vec2(0.0, dy), vec2(102.0, 32.0));
+    if both {
+        (key(-21.0), key(21.0))
+    } else {
+        (key(0.0), key(0.0))
+    }
+}
+
+/// The cabinet's controls under the picture, one row: the tactic diamond, the play buttons, the machine.
 fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
-    let (wb, wc) = (PLATE.x, 204.0);
-    let x0 = deck_x0(area);
-    let top = area.top();
     // a press sends the action's key down (the panel DLL lets it up after the release); the buttons do not light
     let mut pressed = None;
     let mut put = |ui: &mut Ui,
@@ -1155,18 +1171,7 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
         }
         resp
     };
-    let caps_at = |ui: &Ui, x: f32, key: &str| {
-        ui.painter().text(
-            pos2(x, top + 8.0),
-            Align2::LEFT_CENTER,
-            tr!(lang, key),
-            theme::display(15.0),
-            theme::TEXT_DIM,
-        );
-    };
-    caps_at(ui, x0, "panel.tactics");
-    for x in [x0, x0 + PLATE.x + GAP] {
-        let plate = Rect::from_min_size(pos2(x, top + 20.0), PLATE);
+    for plate in deck_plates(area) {
         ui.painter()
             .rect_filled(plate, theme::RADIUS_BIG, theme::WELL);
         ui.painter().rect_stroke(
@@ -1195,18 +1200,13 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
             );
         }
     }
-    let y = top + 20.0;
-    let xb = x0 + wb + GAP;
-    // the machine
-    let xc = xb + wb + GAP;
-    caps_at(ui, xc, "panel.machine");
-    let half = (wc - 6.0) / 2.0;
-    // CARD only: free play needs no COIN, and BACK sent nothing; 2017-18 has no card to put in
-    if st.edition != Edition::E1718 {
-        let r = Rect::from_min_size(pos2(xc, y), vec2(half, 44.0));
+    // the machine: CARD only (free play needs no COIN, and BACK sent nothing; 2017-18 has no card to put in)
+    let both = st.edition != Edition::E1718;
+    let (card, projector) = machine_keys(area, both);
+    if both {
         put(
             ui,
-            r,
+            card,
             "cab.card",
             Some("CARD"),
             Cab::Plain,
@@ -1215,15 +1215,9 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
         );
     }
     // PROJECTOR: the panel's own switch (no key), lit while the projector's picture takes the board's place
-    let px = if st.edition == Edition::E1718 {
-        xc
-    } else {
-        xc + half + 6.0
-    };
-    let r = Rect::from_min_size(pos2(px, y), vec2(half, 44.0));
     if put(
         ui,
-        r,
+        projector,
         "cab.projector",
         None,
         Cab::Plain,
@@ -3232,11 +3226,20 @@ mod tests {
         // 1440x900 as before: the picture 860 wide, the board 580
         let l = layout(sheet_of(1440.0, 900.0), false);
         assert!((l.picture.width() - 860.0).abs() < 0.01 && l.board.width() == 580.0);
-        // a 2560x1440 client: the game's picture at 1.2x (1728x1080), the board takes the rest
+        // a 2560x1440 client: the picture is width-bound (1980x1237.5), flush top, the deck row right under it
         let l = layout(sheet_of(2560.0, 1440.0), false);
-        assert_eq!(l.picture.size(), vec2(1728.0, 1080.0));
-        assert_eq!(l.board.width(), 832.0);
-        assert_eq!(l.deck.height(), 300.0);
+        assert_eq!(l.picture.size(), vec2(1977.6, 1236.0)); // height-bound: 1440 - 56 - 148
+        assert_eq!(l.picture.top(), 0.0);
+        assert!((l.board.width() - 582.4).abs() < 0.01);
+        assert_eq!(l.deck.top(), l.picture.bottom());
+        assert!(l.deck.height() >= 148.0);
+        // the share of the window the picture takes: 1080p and 1440p maximized (client 1920x1009, 2560x1373)
+        let share = |w: f32, h: f32| {
+            let l = layout(sheet_of(w, h), false);
+            l.picture.area() * scale(w, h, 96.0).powi(2) / (w * h)
+        };
+        assert!(share(1920.0, 1080.0) > 0.54 && share(1920.0, 1009.0) > 0.52);
+        assert!(share(2560.0, 1373.0) > 0.62 && share(2560.0, 1440.0) > 0.66);
         // 4K: the sheet is 2x
         assert_eq!(scale(3840.0, 2160.0, 96.0), 2.0);
         assert_eq!(scale(2560.0, 1369.0, 96.0), 1.0);
@@ -3271,17 +3274,18 @@ mod tests {
             assert!((r.width() - area.width()).abs() < 0.01);
             assert!((r.center().y - area.center().y).abs() < 0.01);
         }
-        // never scaled up: the 800x300 copy in an 800-wide strip at 2560x1440
+        // never scaled up: a 400x150 copy in the strip at 2560x1440
         let area = layout(sheet_of(2560.0, 1440.0), false).board.shrink(16.0);
         assert_eq!(
-            projector_view(area, vec2(800.0, 300.0)).size(),
-            vec2(800.0, 300.0)
+            projector_view(area, vec2(400.0, 150.0)).size(),
+            vec2(400.0, 150.0)
         );
     }
 
     #[test]
-    fn deck_layout_is_the_cabinet() {
-        let area = Rect::from_min_size(pos2(0.0, 0.0), vec2(900.0, 240.0));
+    fn deck_layout_is_one_row() {
+        // owner request 2026-10-21: one row, KEY PLAYER left of SHOOT, departs from the cabinet's two plates
+        let area = Rect::from_min_size(pos2(0.0, 0.0), vec2(860.0, 148.0));
         let items = deck_layout(area);
         let at = |a: &str| items.iter().find(|i| i.action == a).unwrap().rect;
         assert_eq!(items.len(), 10);
@@ -3290,9 +3294,24 @@ mod tests {
         assert!(
             at("LEFT").right() <= at("PRESS").left() && at("PRESS").right() <= at("RIGHT").left()
         );
-        // the right plate: SHOOT and KEEPER big, side by side, the other two small
-        assert!(at("SHOOT").right() <= at("KEEPER").left() && at("SHOOT").width() > 80.0);
-        assert!(at("KEYPLAYER").width() < 50.0 && at("START").width() < 50.0);
+        // the line: KEY PLAYER, SHOOT, KEEPER, START; SHOOT and KEEPER big, the other two small
+        let line = ["KEYPLAYER", "SHOOT", "KEEPER", "START"].map(at);
+        assert!(line.windows(2).all(|w| w[0].right() <= w[1].left()));
+        assert!(
+            at("SHOOT").width() >= 80.0
+                && at("KEYPLAYER").width() < 50.0
+                && at("START").width() < 50.0
+        );
+        assert!(
+            at("DATA").left() >= at("RIGHT").right()
+                && at("DATA").right() <= at("KEYPLAYER").left()
+        );
+        // one row: every centre on the same line; the plates and machine keys fit the area
+        assert!(
+            items
+                .iter()
+                .all(|i| (i.rect.center().y - area.center().y).abs() < 0.01 || i.tactic.is_some())
+        );
         for (n, a) in items.iter().enumerate() {
             assert!(area.contains_rect(a.rect), "{} leaves the area", a.action);
             for b in &items[n + 1..] {
@@ -3304,6 +3323,19 @@ mod tests {
                 );
             }
         }
+        let plates = deck_plates(area);
+        assert!(plates.iter().all(|p| area.contains_rect(*p)));
+        assert!(
+            items
+                .iter()
+                .all(|i| plates.iter().any(|p| p.contains_rect(i.rect)))
+        );
+        let (card, projector) = machine_keys(area, true);
+        assert!(
+            plates[2].contains_rect(card)
+                && plates[2].contains_rect(projector)
+                && !card.intersects(projector)
+        );
     }
 
     fn card(

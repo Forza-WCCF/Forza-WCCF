@@ -48,7 +48,7 @@ Sourced list for the 2009–11 satellite [S3, S4]: card movement (not a button),
 Photo findings (cabinet from 2006–07, unchanged to 2017–18; owner decision 2026-10-16, one look for both editions). Left plate: a diamond of four yellow triangles (up CENTRAL, down COUNTER, left L-SIDE, right R-SIDE) round a red PRESS square at the centre, with a small green DATA square beside it; the labels are printed beside the triangles. Right plate: a big red SHOOT and a big blue KEEPER round button side by side, a small yellow round KEY PLAYER and a small green round START. The game's own legend reads green start, yellow KEY, red decide, blue back.
 
 Design translation **[I]**:
-- The panel draws exactly that layout (`deck_layout` in `crates/forza/src/ui/panel.rs`): shapes are round, square or triangle, and clicks count only on the shape.
+- The panel departs from the cabinet's two plates on purpose (owner request 2026-10-21: more room for the picture). `deck_layout` in `crates/forza/src/ui/panel.rs` puts everything in one row 144 points high: the tactic diamond with DATA beside it, then KEY PLAYER, SHOOT, KEEPER and START in a line, then CARD over PROJECTOR. Shapes stay round, square or triangle, and clicks count only on the shape.
 - Small buttons carry their label beside them, the big ones inside.
 - Buttons keep an idle, hover and pressed state (3 px travel). Key presses do not light them; only an active tactic order lights its triangle or square.
 - The MACHINE group (CARD, and the panel's own PROJECTOR switch: free play needs no COIN, and the BACK button sent nothing), the formation board and the bottom bar stay modern.
@@ -59,8 +59,8 @@ Design translation **[I]**:
 The game renders 1440x900 in both editions (the panel's swap chain follows the game window's client area; `fakegame` asserts it). The panel window maximizes once after the first frame, so a 2560x1440 monitor gives a client of about 2560x1369 (title bar, taskbar) and no window sizing code is needed. `forza::ui::panel::layout` is a pure function of the window rect, tested for no overlaps, 16:10 and the old size at 1440x900:
 
 - Scale: `scale(w, h)` is 1 point a pixel from 1440x900 up (a bigger window is a bigger sheet), 2 from 2880x1800, and the ratio to 1440x900 below that, so the sheet is never smaller than 1440x900.
-- The picture takes the largest 16:10 size that leaves the board 580 points and the deck 300 plus the 60-point bar. At 2560x1440 that is 1728x1080, exactly 1.2x the game, the board gets 832 and the deck stays 300 high. A maximized 2560x1369 window gives about 1614x1009 (1.12x), board 920. At 1440x900 nothing changes (860x537.5, board 580). At 1920x1080: 1102x689 or larger.
-- The board takes what the picture leaves, capped by what its own height uses (pitch 1.25 x width plus bench and hint); the picture is centred in the middle. The deck keeps `deck_layout` and is centred under the picture.
+- The picture takes the largest 16:10 size that leaves the board 580 points and the deck row 148 plus the 56-point bar, flush at the top of the middle (no bars above or below). At 2560x1440 it is 1977.6x1236 (66% of the window), at a maximized 2560x1373 1870x1169 (62%); at 1920x1080 1340x837.5 (54%), maximized 1920x1009 1288x805 (53.5%). At 1440x900 nothing changes (860x537.5, board 580); the deck row sits under the picture and the spare height stays below it.
+- The board takes what the picture leaves, capped by what its own height uses (pitch 1.25 x width plus bench and hint). The deck row is centred under the picture; the message line is a toast over the picture's lower edge.
 - Not snapped to an integer scale: 1.2x needs 1440 points of height, which a maximized window lacks; the picture is resampled smoothly instead.
 
 ### The projector in the panel (owner request 2026-10-17: no black windows)
