@@ -78,10 +78,15 @@ pub fn setting_json(path: &Path, key: &str) -> Option<Value> {
 }
 
 fn set_value(path: &Path, key: &str, value: Value) -> io::Result<()> {
-    let mut json = serde_json::from_str::<Value>(&read(path))
-        .ok()
-        .filter(Value::is_object)
-        .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
+    let text = read(path);
+    let parsed = serde_json::from_str::<Value>(&text).ok().filter(Value::is_object);
+    if parsed.is_none() && fs::metadata(path).is_ok_and(|m| m.len() > 0) {
+        // a damaged file starts over, but its keys (the game folder) stay readable in `<name>.bad`
+        let mut bad = path.as_os_str().to_owned();
+        bad.push(".bad");
+        fs::copy(path, bad)?;
+    }
+    let mut json = parsed.unwrap_or_else(|| Value::Object(serde_json::Map::new()));
     json[key] = value;
     write(path, &serde_json::to_string_pretty(&json).map_err(io::Error::other)?)
 }
@@ -212,6 +217,8 @@ mod tests {
         write(&path, "not json").unwrap();
         set_setting(&path, "language", "ja").unwrap();
         assert_eq!(setting(&path, "language").as_deref(), Some("ja"));
+        // the damaged file is kept beside the new one, not lost
+        assert_eq!(read(&dir.join("settings.json.bad")), "not json");
         fs::remove_dir_all(&dir).unwrap();
     }
 }
