@@ -11,6 +11,8 @@
   the ZIPs, the online lobby).
 - Package with the version in the name: `cargo xtask package 2017-18 --name Forza-WCCF-2017-18-0.2.0` writes
   `version.txt` = `kit-0.2.0`. Tag the commit `v0.2.0`.
+- A version change also changes the `forza` entry in `crates/installer/THIRD-PARTY-LICENSES.json`; `cargo xtask check`
+  fails until it matches.
 
 ## Alpha builds for players
 
