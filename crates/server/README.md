@@ -25,6 +25,9 @@ One program for every online service of both editions. Std threads and blocking 
 - The store is SQLite in WAL mode with `synchronous=NORMAL` (`gamesvr.db` plus `-wal` and `-shm` beside it); back it
   up with `sqlite3 gamesvr.db ".backup FILE"`, not a file copy.
 
+- The projector hold no longer touches the firewall and is not enforced (`HOLD` stays `HOLD 0`). A Windows server that ran an
+  older version: remove the leftover rule by hand with `netsh advfirewall firewall delete rule name="WCCF hold projector box"`.
+
 Code: `src/` holds the desk, relay and inbox; the game server, the matcher and the reflect service are
 `forza::online::{gamesvr, vs}`, shared with the Launcher's local stand-in. Builds: `cargo build --release -p forza-server`
 (Linux), `cargo xtask build` (Windows, `programs\forza-server.exe` in the 2010-11 kit).

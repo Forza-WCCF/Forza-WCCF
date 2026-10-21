@@ -30,7 +30,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 /// the rest is room for lobby polls behind one NAT.
 const MAX_PER_IP: usize = 16;
 
-const HOLD_RULE: &str = "WCCF hold projector box";
+/// Open connections in all (a thread each); the desk hangs up on the rest.
+const MAX_OPEN: usize = 512;
 
 #[derive(Clone, Debug)]
 pub struct DeskConfig {
@@ -326,7 +327,7 @@ fn expire(sh: &Shared, st: &mut State, now: Instant) {
     });
 }
 
-/// The firewall rule on (block `ip` on TCP 20002) or off; never two of it.
+/// The hold on (block `ip`) or off. Only `hold_fw_test` records it (tests); the host firewall is never touched.
 fn firewall(cfg: &DeskConfig, ip: &str, block: bool) -> bool {
     if let Some(file) = &cfg.hold_fw_test {
         let line = if block {
@@ -341,47 +342,8 @@ fn firewall(cfg: &DeskConfig, ip: &str, block: bool) -> bool {
             .and_then(|mut f| f.write_all(line.as_bytes()))
             .is_ok();
     }
-    netsh(ip, block)
-}
-
-#[cfg(windows)]
-fn netsh(ip: &str, block: bool) -> bool {
-    use std::os::windows::process::CommandExt;
-    use std::process::{Command, Stdio};
-    let root = std::env::var_os("SystemRoot").unwrap_or(r"C:\Windows".into());
-    let run = |args: &[&str]| {
-        // ponytail: no timeout (the Python had 30 s); a hung netsh stalls the hold, add one if it ever does
-        Command::new(Path::new(&root).join(r"System32\netsh.exe"))
-            .args(["advfirewall", "firewall"])
-            .args(args)
-            .creation_flags(0x0800_0000)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-    };
-    let name = format!("name={HOLD_RULE}");
-    if run(&["delete", "rule", &name]).is_err() {
-        return false;
-    }
-    !block
-        || run(&[
-            "add",
-            "rule",
-            &name,
-            "dir=in",
-            "action=block",
-            "protocol=TCP",
-            "localport=20002",
-            &format!("remoteip={ip}"),
-        ])
-        .is_ok_and(|s| s.success())
-}
-
-/// There is no firewall rule to set off Windows (the Python's `netsh` call failed there as well).
-#[cfg(not(windows))]
-fn netsh(_ip: &str, _block: bool) -> bool {
-    let _ = HOLD_RULE;
-    false
+    // No host firewall change (AGENTS.md section 5): the hold is the `HOLD` answer the box polls, nothing else.
+    true
 }
 
 /// The projector box's hold: held while no player is in the game and the box is not in it.
@@ -1030,7 +992,9 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
         .hold_file
         .as_deref()
         .filter(|_| e1011)
-        .and_then(read_hold_ip);
+        .and_then(read_hold_ip)
+        // nothing in this repo obeys `HOLD` and the desk no longer touches the firewall: only the test hook holds
+        .filter(|_| sh.cfg.hold_fw_test.is_some());
     if let Some(ip) = hold_ip {
         let mut hold = Hold {
             ip,
@@ -1059,6 +1023,9 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
             let ip = peer.ip().to_string();
             {
                 let mut open = sh.open.lock().unwrap();
+                if open.values().sum::<usize>() >= MAX_OPEN {
+                    continue;
+                }
                 let n = open.entry(ip.clone()).or_default();
                 if *n >= MAX_PER_IP {
                     continue; // dropped without an answer: nothing to lose to a reset

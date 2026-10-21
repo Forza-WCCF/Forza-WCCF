@@ -46,15 +46,23 @@ impl InboxConfig {
     }
 }
 
+/// Refusal threads alive at once; beyond it a busy inbox hangs up without an answer.
+const MAX_REFUSING: usize = 32;
+
 struct Shared {
     cfg: InboxConfig,
     log: Log,
     recent: Mutex<HashMap<String, Vec<Instant>>>,
     active: AtomicUsize,
+    /// Refusals being answered (bounded: each holds a thread for up to 2 s).
+    refusing: AtomicUsize,
+    /// One trim at a time: a second scan would act on a stale total.
+    trim_lock: Mutex<()>,
 }
 
 /// The oldest uploads go while the folder holds more than `keep` bytes.
 fn trim(sh: &Shared) {
+    let _one = sh.trim_lock.lock().unwrap_or_else(|e| e.into_inner());
     let Ok(dir) = std::fs::read_dir(&sh.cfg.folder) else {
         return;
     };
@@ -175,6 +183,13 @@ fn upload(
     {
         let now = Instant::now();
         let mut recent = sh.recent.lock().unwrap();
+        if recent.len() > 1024 {
+            // addresses gone quiet for an hour leave the map (it would grow for the server's lifetime)
+            recent.retain(|_, t| {
+                t.iter()
+                    .any(|t| now.duration_since(*t) < Duration::from_secs(3600))
+            });
+        }
         let times = recent.entry(ip.to_string()).or_default();
         times.retain(|t| now.duration_since(*t) < Duration::from_secs(3600));
         if times.len() >= sh.cfg.per_hour {
@@ -234,6 +249,8 @@ pub fn start(cfg: InboxConfig, log: Log) -> io::Result<Handle> {
         log,
         recent: Mutex::default(),
         active: AtomicUsize::new(0),
+        refusing: AtomicUsize::new(0),
+        trim_lock: Mutex::default(),
     });
     let stop = Arc::new(AtomicBool::new(false));
     let stopped = stop.clone();
@@ -247,11 +264,17 @@ pub fn start(cfg: InboxConfig, log: Log) -> io::Result<Handle> {
             let ip = peer.ip().to_string();
             if sh.active.fetch_add(1, Ordering::SeqCst) >= SLOTS {
                 sh.active.fetch_sub(1, Ordering::SeqCst);
+                if sh.refusing.fetch_add(1, Ordering::SeqCst) >= MAX_REFUSING {
+                    sh.refusing.fetch_sub(1, Ordering::SeqCst);
+                    continue; // flooded: dropped without an answer
+                }
                 (sh.log)(&format!("{ip}: refused - 4 uploads already coming in"));
                 // off the accept loop: hang_up waits for the PC
+                let sh = sh.clone();
                 thread::spawn(move || {
                     let _ = conn.write_all(b"NO busy - try again in a minute\n");
                     crate::hang_up(conn);
+                    sh.refusing.fetch_sub(1, Ordering::SeqCst);
                 });
                 continue;
             }
