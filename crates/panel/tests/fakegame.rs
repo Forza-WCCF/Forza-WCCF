@@ -438,11 +438,11 @@ fn board_and_buttons_with_real_data() {
             "wait:2500",
             "click:336,870", // KEYS
             "wait:600",
-            "click:335,300", // SHOOT's key
+            "click:335,278", // SHOOT's key
             "wait:300",
             "key:72", // H
             "wait:300",
-            "click:551,335", // KEEPER's controller cell
+            "click:551,313", // KEEPER's controller cell
             "wait:6000",
             "key:27",
             "wait:400",
@@ -490,12 +490,12 @@ fn board_and_buttons_with_real_data() {
         "wait:2500".into(),
         "click:466,870".into(), // SETTINGS
         "wait:1500".into(),
-        "click:321,559".into(), // COMPACT
-        "click:275,647".into(), // 2 s
+        "click:321,519".into(), // COMPACT
+        "click:275,608".into(), // 2 s
         "wait:300".into(),
-        "click:632,392".into(), // RESTART NOW
+        "click:632,302".into(), // RESTART NOW
         "wait:300".into(),
-        "click:632,392".into(), // again
+        "click:632,302".into(), // again
         "wait:4000".into(),
         "key:27".into(),
         "wait:400".into(),
