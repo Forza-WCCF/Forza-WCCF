@@ -17,10 +17,10 @@ Each guard covers the IP-helper calls listed here. It is not a general sandbox.
   the hashes of what it made in `<runtime>\setup-hashes.json`.
 - The Launcher checks those hashes and the `wccfnet.dll` import before every start, and refuses to start otherwise.
 - `cargo xtask check` proves that the built `wccfnet.dll` stubs the four calls (`test_wccfnet`).
-- `netguard.dll` is injected as a second layer. It does not reach every child process, so it never replaces
-  `wccfnet.dll`.
-- To confirm a run: the 32-bit module list shows `wccfnet.dll` and `netguard.dll` in the control program and in both
-  clients.
+- `wccfnet.dll` also loads the panel (`forza_panel.dll`) into seat 1 and the projector when the Launcher sets
+  `FORZA_PANEL`; the control program never gets it. `wccfnet.log` records "panel: loaded".
+- To confirm a run: the 32-bit module list shows `wccfnet.dll` in the control program and in both clients, and
+  `forza_panel.dll` in seat 1 and the projector.
 
 ### 2010–11
 

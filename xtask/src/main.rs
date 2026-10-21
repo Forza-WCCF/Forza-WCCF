@@ -100,7 +100,6 @@ const MAP_1718: &[(&str, &str)] = &[
     ("source/README.txt", "native/2017-18/README.txt"),
     ("source/mxhook", "native/2017-18/mxhook"),
     ("source/overlay", "native/2017-18/overlay"),
-    ("source/overlay/inject.c", "native/common/inject.c"),
     ("source/logowin", "native/2017-18/logowin"),
     ("source/fpr_emu", "native/fpr_emu"),
 ];
@@ -118,9 +117,7 @@ const KEEP_1718: &[&str] = &[
     "bin/ICMP.DLL",
     "bin/logowin.exe",
     "bin/FPR_Emu.exe",
-    "overlay/inject.exe",
     "overlay/forza_panel.dll",
-    "overlay/netguard.dll",
     "source/build",
 ];
 /// One C job: `src` is read from the edition's source folder, `out` is relative to the staged kit; no `what`, no version
@@ -237,19 +234,20 @@ const ED_1718: Ed = Ed {
             &[],
             &["/SUBSYSTEM:WINDOWS"],
         ),
+        // not in the 2017-18 kit: the Linux server's 2010-11 hook loads it (native/2010-11/server-hook)
         cj(
             "netguard/netguard.c",
-            "overlay/netguard.dll",
-            "secondary network guard: stubs the IP helper calls that drop the host's DHCP lease",
+            "source/build/netguard.dll",
+            "",
             &["/LD"],
             &[],
         ),
         cj(
             "netguard/wccfnet.c",
             "bin/wccfnet.dll",
-            "the primary network guard: the game programs import it instead of IPHLPAPI.DLL",
+            "the network guard: the game programs import it instead of IPHLPAPI.DLL; it loads the panel when FORZA_PANEL is set",
             &["/LD"],
-            &[],
+            &["user32.lib"],
         ),
         cj(
             "netguard/icmp.c",
@@ -280,6 +278,20 @@ const ED_1718: Ed = Ed {
             &[],
             &["iphlpapi.lib"],
         ),
+        cj(
+            "netguard/panel_probe.c",
+            "source/build/panel_probe.dll",
+            "",
+            &["/LD"],
+            &[],
+        ),
+        cj(
+            "netguard/test_panel.c",
+            "source/build/test_panel.exe",
+            "",
+            &[],
+            &["user32.lib"],
+        ),
     ],
 };
 /// Programs both kits ship unchanged: compiled once from `native/` into the 2010-11 kit's `source/build`, which
@@ -304,7 +316,6 @@ const COMMON: &[Cj] = &[
 /// Shipped programs that may be console programs, each started only by Launcher.exe with CREATE_NO_WINDOW and its output
 /// read through a file or a pipe: inject.exe (exit code and message read from a pipe), forza-server.exe (log file).  FPR_Emu.exe is not here: the game starts it.
 const CONSOLE_OK: &[&str] = &[
-    "overlay/inject.exe",
     "programs/inject.exe",
     "bin/forza-server.exe",
     "programs/forza-server.exe",
@@ -324,9 +335,7 @@ const PROGRAMS_1718: &[&str] = &[
     "bin/ICMP.DLL",
     "bin/logowin.exe",
     "bin/FPR_Emu.exe",
-    "overlay/inject.exe",
     "overlay/forza_panel.dll",
-    "overlay/netguard.dll",
 ];
 /// What the kit must hold after a build and a package.
 const PROGRAMS: &[&str] = &[
@@ -675,7 +684,6 @@ fn build_all(root: &Path, kit: &Path, kit_1718: &Path, cc: &Cc) -> Result<()> {
         ),
         (panel, kit_1718.join("overlay/forza_panel.dll")),
         (common("inject.exe"), kit.join("programs/inject.exe")),
-        (common("inject.exe"), kit_1718.join("overlay/inject.exe")),
         (common("FPR_Emu.exe"), kit.join("programs/FPR_Emu.exe")),
         (common("FPR_Emu.exe"), kit_1718.join("bin/FPR_Emu.exe")),
     ] {
@@ -1051,7 +1059,10 @@ fn ensure_built(kit: &Path, kit_1718: &Path) -> Result<()> {
     }
     for p in PROGRAMS_1718.iter().chain(&[
         "source/build/test_wccfnet.exe",
+        "source/build/netguard.dll",
         "source/build/test_netguard.exe",
+        "source/build/test_panel.exe",
+        "source/build/panel_probe.dll",
         "source/build/test_icmp.exe",
     ]) {
         ensure!(
@@ -1297,18 +1308,21 @@ fn panel_selftests(ck: &mut Checks) -> Result<()> {
     Ok(())
 }
 
-/// The 2017-18 network guards, never the real IP helper calls: test_wccfnet.exe loads wccfnet.dll from a scratch folder and calls
+/// The 2017-18 network guard, never the real IP helper calls: test_wccfnet.exe loads wccfnet.dll from a scratch folder and calls
 /// its four stubs (each must return 0 and log a line); test_netguard.exe imports the four IP helper calls and checks netguard.dll
-/// moved them into itself before calling anything.
+/// (not shipped: the 2010-11 Linux server loads it) moved them into itself before calling anything; test_panel.exe checks that FORZA_PANEL makes it load a probe DLL once a
+/// window shows, and that without the variable nothing loads.
 fn guard_tests(ck: &mut Checks, kit: &Path) -> Result<()> {
     let t = ck.tmp.join(format!("wccfnet-check-{}", std::process::id()));
     let _ = fs::remove_dir_all(&t);
     fs::create_dir_all(&t)?;
     for (from, to) in [
         ("bin/wccfnet.dll", "wccfnet.dll"),
-        ("overlay/netguard.dll", "netguard.dll"),
         ("source/build/test_wccfnet.exe", "test_wccfnet.exe"),
+        ("source/build/netguard.dll", "netguard.dll"),
         ("source/build/test_netguard.exe", "test_netguard.exe"),
+        ("source/build/test_panel.exe", "test_panel.exe"),
+        ("source/build/panel_probe.dll", "panel_probe.dll"),
         ("bin/ICMP.DLL", "ICMP.DLL"),
         ("source/build/test_icmp.exe", "test_icmp.exe"),
     ] {
@@ -1321,7 +1335,7 @@ fn guard_tests(ck: &mut Checks, kit: &Path) -> Result<()> {
             "wccfnet.dll",
         ),
         (
-            "netguard.dll: the four IP helper imports now point into it",
+            "netguard.dll (the Linux server's second guard): the four IP helper imports now point into it",
             "test_netguard.exe",
             "netguard.dll",
         ),
@@ -1333,6 +1347,21 @@ fn guard_tests(ck: &mut Checks, kit: &Path) -> Result<()> {
     ] {
         let mut c = Command::new(t.join(exe));
         c.arg(win(&t.join(dll))).current_dir(&t);
+        ck.run(what, c, false);
+    }
+    for (what, mode) in [
+        ("wccfnet.dll loads the panel when FORZA_PANEL is set", "on"),
+        ("wccfnet.dll loads nothing without FORZA_PANEL", "off"),
+    ] {
+        let mut c = Command::new(t.join("test_panel.exe"));
+        c.arg(win(&t.join("wccfnet.dll")))
+            .arg(win(&t.join("panel_probe.dll")))
+            .arg(mode)
+            .current_dir(&t)
+            .env_remove("FORZA_PANEL");
+        if mode == "on" {
+            c.env("FORZA_PANEL", win(&t.join("panel_probe.dll")));
+        }
         ck.run(what, c, false);
     }
     let _ = fs::remove_dir_all(&t);

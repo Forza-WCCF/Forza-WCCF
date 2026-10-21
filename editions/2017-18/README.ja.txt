@@ -82,12 +82,12 @@ Forza-WCCF 2017-18 - 0.2.0 (alpha)
   - チーム登録で約 95 秒待つことがあります。
   - 家どうしのオンライン VS は、2 台の PC でまだ最後まで遊んで確認されていません。テストとしてお試しください。
   - プログラムには署名がありません。SmartScreen と Defender については「ウイルス対策と SmartScreen」を参照してください。
-  - ウイルス対策ソフトが overlay\inject.exe（パネルをゲームに読み込みます）と bin\winmm.dll（ゲームと Windows の間に入ります）を
+  - ウイルス対策ソフトが bin\winmm.dll（ゲームと Windows の間に入ります）を
     検出することがあります。ソースは source\ にあります。
 
 ウイルス対策と SmartScreen
   プログラムには署名がありません。Launcher.exe は Windows のデバッグインターフェイスでゲームのプログラムを起動し、
-  Forza-WCCF の DLL を 2 つ読み込ませます: forza_panel.dll はゲームのフレームにパネルを描画し、netguard.dll と保護済みコピーの
+  Forza-WCCF の DLL を 2 つ読み込ませます: forza_panel.dll はゲームのフレームにパネルを描画し（ゲームが wccfnet.dll 経由で読み込みます）、保護済みコピーの
   wccfnet.dll はゲームのネットワークアダプター呼び出しを置き換えて、この PC のネットワークのリース（lease）をゲームが
   解除できないようにします。セットアップが変更するのはゲームのプログラムのコピーだけで、元のプログラムは original\ に退避し、
   変更しません。ウイルス対策ソフトはチートツールと同様に扱うことがあります。各リリースのファイルは、公開前に誤検出として
@@ -109,7 +109,7 @@ Forza-WCCF 2017-18 - 0.2.0 (alpha)
 
 フォルダー
   bin\       winmm.dll（フック）、FPR_Emu.exe（カードテーブル用ヘルパー）、logowin.exe（代用）、forza-server.exe
-  overlay\   forza_panel.dll（パネル）、inject.exe、netguard.dll（ネットワーク保護）。セットアップがカタログとカード画像を追加します
+  overlay\   forza_panel.dll（パネル）。セットアップがカタログとカード画像を追加します
   fonts\     パネルのフォントとライセンス
   english\, italian\   ゲームの英語・イタリア語テキスト（テキストのみ）
   source\    bin\ と overlay\ のプログラムの C ソース

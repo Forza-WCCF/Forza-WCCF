@@ -764,11 +764,9 @@ fn scratch_kit_1718(top: &Path) -> Kit {
     fs::write(game.join("standin_match.exe"), b"never run").unwrap();
     built_copy("2017-18/bin", "wccfnet.dll", &game.join("wccfnet.dll"));
     built_copy("2017-18/bin", "wccfnet.dll", &seat.join("wccfnet.dll"));
-    built_copy("2017-18/overlay", "netguard.dll", &game.join("netguard.dll"));
     built_copy("2017-18/bin", "ICMP.DLL", &game.join("ICMP.DLL"));
     built_copy("2017-18/bin", "ICMP.DLL", &seat.join("ICMP.DLL"));
-    // the real inject.exe, so netguard.dll goes into seat 1's stand-in as into the game; no panel (forza_panel.dll)
-    built_copy("2017-18/overlay", "inject.exe", &kit.join(r"overlay\inject.exe"));
+    // no panel (overlay\forza_panel.dll): the run says so and plays on
     for dir in [&game, &seat] {
         fs::create_dir_all(dir.join("local")).unwrap();
         fs::write(
@@ -781,7 +779,6 @@ fn scratch_kit_1718(top: &Path) -> Kit {
         "standin_client.exe": {"original": "-", "guarded": sha(&game.join("standin_client.exe"))},
         "standin_control.exe": {"original": "-", "guarded": sha(&game.join("standin_control.exe"))},
         "wccfnet.dll": sha(&game.join("wccfnet.dll")),
-        "netguard.dll": sha(&game.join("netguard.dll")),
         "ICMP.DLL": sha(&game.join("ICMP.DLL")),
         "seat1/standin_client.exe": sha(&seat.join("standin_client.exe")),
     });
@@ -849,8 +846,8 @@ fn closing_seat_1_ends_the_2017_18_run() {
         "{said}"
     );
     assert!(
-        said.contains("seat 1: netguard.dll loaded"),
-        "the guard DLL is injected: {said}"
+        said.contains("6/6 panels did not load (forza_panel.dll is missing)"),
+        "no panel in the scratch kit, and the run says so: {said}"
     );
     assert!(
         std::net::TcpStream::connect(("127.0.0.1", aimedb)).is_ok(),

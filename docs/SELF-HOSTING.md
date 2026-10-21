@@ -50,7 +50,7 @@ For the 2010-11 server also (`cargo install cargo-xwin` once; it fetches the Win
     cargo xwin build --release -p linux-host --target i686-pc-windows-msvc --bin win32-helper --bin check-crt
     # target/i686-pc-windows-msvc/release/win32-helper.exe, check-crt.exe
     cargo xtask build
-    # the network guard: target/kit/2017-18/bin/wccfnet.dll, overlay/netguard.dll, source/build/test_wccfnet.exe
+    # the network guard: target/kit/2017-18/bin/wccfnet.dll, source/build/netguard.dll, source/build/test_wccfnet.exe
     native/2010-11/server-hook/build.sh          # needs gcc-mingw-w64-i686
     # native/2010-11/server-hook/out/winmm.dll and the three self-tests
 
@@ -101,7 +101,7 @@ The tree (`crates/linux-host/README.md` describes each part), as `wccf`:
     cp deploy/linux/ctrl_user_option.conf $H/1011/runtime/local/
     cp native/2010-11/server-hook/out/winmm.dll $H/1011/runtime/
     native/2010-11/server-hook/build.sh orig && cp native/2010-11/server-hook/out/winmm_orig.dll $H/1011/runtime/
-    cp target/kit/2017-18/bin/wccfnet.dll target/kit/2017-18/overlay/netguard.dll \
+    cp target/kit/2017-18/bin/wccfnet.dll target/kit/2017-18/source/build/netguard.dll \
        target/kit/2017-18/source/build/test_wccfnet.exe $H/1011/runtime/
     cp target/i686-pc-windows-msvc/release/win32-helper.exe $H/1011/run/
     cp target/release/wccf-linux-server $H/1011/target/release/

@@ -245,7 +245,7 @@ pub fn setup_game(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
     let lay = Edition::E1718.layout();
     let rt = game.parent().unwrap_or(game);
     let seat = rt.join("seat1");
-    let (bin, overlay) = (kit.join(lay.bin), kit.join(lay.overlay));
+    let bin = kit.join(lay.bin);
     let mut report = Report::default();
     for (i, (exe, pinned)) in spec.pinned.iter().enumerate() {
         let orig = original(
@@ -266,9 +266,14 @@ pub fn setup_game(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
             .0
             .push(((*exe).into(), Hash::Pair(sha(&orig), sha(&g))));
     }
+    // older kits put netguard.dll here (and setup copied it into seat1\); nothing loads it now
+    for old in [game.join("netguard.dll"), seat.join("netguard.dll")] {
+        if old.is_file() {
+            fs::remove_file(old)?;
+        }
+    }
     for (dll, built) in [
         ("wccfnet.dll", bin.join("wccfnet.dll")),
-        ("netguard.dll", overlay.join("netguard.dll")),
         ("ICMP.DLL", bin.join("ICMP.DLL")),
     ] {
         copy_in(&built, &game.join(dll), "the network guard")?;
@@ -569,7 +574,6 @@ mod tests {
         for (d, n) in [
             ("bin", "wccfnet.dll"),
             ("bin", "ICMP.DLL"),
-            ("overlay", "netguard.dll"),
             ("bin", "winmm.dll"),
             ("bin", "logowin.exe"),
             ("bin", "FPR_Emu.exe"),
@@ -603,9 +607,11 @@ mod tests {
             winmm: top.path().join("winmm.dll"),
         };
         let before = tree(&rt);
+        // an older kit's netguard.dll: setup deletes it (undo deletes it too, so it stays out of `before`)
+        fs::write(game.join("netguard.dll"), "old kit netguard").unwrap();
 
         let report = run(&kit, &game, &spec).unwrap();
-        assert_eq!(report.0.len(), 6);
+        assert_eq!(report.0.len(), 5);
         let record = fs::read_to_string(rt.join("setup-hashes.json")).unwrap();
         let json: serde_json::Value = serde_json::from_str(&record).unwrap();
         assert_eq!(json["client_Release.exe"]["original"], sha(&client));
@@ -644,6 +650,7 @@ mod tests {
             b"kit logowin.exe"
         );
         assert_eq!(fs::read(seat.join("other.dll")).unwrap(), b"other");
+        assert!(!game.join("netguard.dll").exists() && !seat.join("netguard.dll").exists());
         assert!(
             !seat.join("notes.txt").exists(),
             "text files are not linked"

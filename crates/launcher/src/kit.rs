@@ -7,7 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Which game a kit runs.  The two kits are laid out differently: 2010-11 has `programs\`, 2017-18 has `bin\` (the
-/// hook, logowin, FPR_Emu, forza-server) and `overlay\` (inject.exe, the panel, netguard.dll, the catalogue);
+/// hook, logowin, FPR_Emu, forza-server) and `overlay\` (the panel, the catalogue; 2010-11 keeps inject.exe in programs\);
 /// [`Kit::edition`] tells them apart.
 pub use forza::Edition;
 
@@ -61,7 +61,7 @@ impl Kit {
         self.dir.join("programs")
     }
 
-    /// One of the kit's programs (inject.exe, forza_panel.dll, forza-server.exe, netguard.dll) where its edition keeps
+    /// One of the kit's programs (inject.exe, forza_panel.dll, forza-server.exe) where its edition keeps
     /// it.
     pub fn program(&self, name: &str) -> PathBuf {
         let lay = self.edition().layout();

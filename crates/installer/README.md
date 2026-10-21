@@ -78,8 +78,7 @@ No package is fetched automatically or included in releases. `--no-setup` ignore
 - Never launch the extracted original executables directly: unguarded RingEdge
   binaries have dropped host DHCP leases in local experiments.
 - Only use a compatible, hash-verified guarded runtime: game copies importing
-  `wccfnet.dll` instead of `IPHLPAPI`, with `netguard.dll` injection retained
-  as secondary protection. That covers four identified IP-helper APIs, not a
+  `wccfnet.dll` instead of `IPHLPAPI`. That covers four identified IP-helper APIs, not a
   general sandbox. The installer neither provides nor validates those guards.
 - The installer itself does not launch the game or change interfaces, routes,
   firewall rules or registry settings. External package behavior is not verified here.

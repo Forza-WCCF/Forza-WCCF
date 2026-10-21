@@ -3,8 +3,8 @@
 //!
 //! The edition comes from the kit (`Kit::edition`).  2017-18 differs in: its stand-ins (no scene service; the game
 //! server stand-in beside control; the Aime reader on COM2 and AiMeDB instead of the club card reader; the keychip
-//! says SDDY), its shared memory (`debug::maps`), its guard (`crate::guard` before anything starts, then netguard.dll
-//! injected into control, the projector and seat 1), the server's projector rule (the first PC gets it), and what it
+//! says SDDY), its shared memory (`debug::maps`), its guard (`crate::guard` before anything starts; wccfnet.dll
+//! also loads the panel into seat 1 and the projector, from `FORZA_PANEL`), the server's projector rule (the first PC gets it), and what it
 //! leaves out (the club card's steps and view, the log inbox, the automatic report, the message guard).
 //!
 //! Order, each step waiting for the one before: scene service -> server and its 4 match engines -> projector -> the
@@ -1241,8 +1241,7 @@ impl Run<'_> {
             .count()
     }
 
-    /// A DLL into the running game (the panel, forza_panel.dll, or 2017-18's netguard.dll): "" when it loaded, else
-    /// why not.
+    /// 2010-11: the panel (forza_panel.dll) into the running game: "" when it loaded, else why not.
     fn inject(&self, pid: u32, dll: &Path) -> String {
         let mut cmd = Command::new(self.kit.program("inject.exe"));
         cmd.arg(pid.to_string()).arg(dll);
@@ -1254,18 +1253,15 @@ impl Run<'_> {
         }
     }
 
-    /// 2017-18: netguard.dll (the game folder's, whose hash the guard checked) into a game program - the second line
-    /// behind wccfnet.dll; said, never a reason to stop (as play.py's inject_guard).
-    fn netguard(&self, pid: u32, what: &str) {
+    /// 2017-18: the env that makes wccfnet.dll load the panel into this game process (seat 1, projector; never control).
+    fn panel_env(&self) -> Vec<(String, String)> {
         if self.edition != Edition::E1718 {
-            return;
+            return Vec::new();
         }
-        let why = self.inject(pid, &self.game.join("netguard.dll"));
-        self.say(&if why.is_empty() {
-            format!("     {what}: netguard.dll loaded")
-        } else {
-            format!("     {what}: netguard.dll NOT loaded ({why})")
-        });
+        vec![(
+            "FORZA_PANEL".to_owned(),
+            self.kit.program("forza_panel.dll").to_string_lossy().into_owned(),
+        )]
     }
 
     fn start_all(&mut self) -> Result<(), Failed> {
@@ -1393,7 +1389,6 @@ impl Run<'_> {
                     cmd.arg(helper::console::ARG).arg(ctl.pid.to_string());
                     let _ = self.run_child(cmd, "run_console.txt", Duration::from_secs(15));
                 }
-                self.netguard(ctl.pid, "server");
                 if !self.debug {
                     procs::hide_windows(ctl.pid); // it starts hidden; a window it shows by itself is hidden here
                 }
@@ -1411,7 +1406,7 @@ impl Run<'_> {
         if projector {
             let args = p.projector_args.clone().unwrap_or_else(|| vec!["0".into()]);
             let game = self.game.clone();
-            self.start_game(Role::Projector, args, &game, false, Vec::new())?;
+            self.start_game(Role::Projector, args, &game, false, self.panel_env())?;
             self.say("  3/6 projector");
         } else {
             self.say(match self.edition {
@@ -1421,19 +1416,21 @@ impl Run<'_> {
         }
         self.start_cabinet()?;
         if projector {
-            if let Some(pid) = self.launched(Role::Projector) {
-                self.netguard(pid, "projector");
-            }
-            // the overlay in its money-only mode: the projector's amounts with commas; it plays on without it
-            let panel = self.kit.program("forza_panel.dll");
-            let why = self
-                .launched(Role::Projector)
-                .map_or_else(|| "its process was not found".into(), |pid| self.inject(pid, &panel));
-            self.say(&if why.is_empty() {
-                "       projector: money overlay on".to_owned()
+            // the overlay in its money-only mode: the projector's amounts with commas; it plays on without it.
+            // 2017-18: the game loads it itself (wccfnet.dll, from FORZA_PANEL)
+            if self.edition == Edition::E1718 {
+                self.say("       projector: money overlay loaded by the game");
             } else {
-                format!("       projector: money overlay not loaded ({why})")
-            });
+                let panel = self.kit.program("forza_panel.dll");
+                let why = self
+                    .launched(Role::Projector)
+                    .map_or_else(|| "its process was not found".into(), |pid| self.inject(pid, &panel));
+                self.say(&if why.is_empty() {
+                    "       projector: money overlay on".to_owned()
+                } else {
+                    format!("       projector: money overlay not loaded ({why})")
+                });
+            }
         }
         self.start_helper(projector);
         self.write_running();
@@ -1576,10 +1573,11 @@ impl Run<'_> {
             Edition::E1718 => "  4/6 cabinet (card file data\\save\\seat1_aime.txt)",
         });
 
-        let mut env = vec![
+        let mut env = self.panel_env();
+        env.extend([
             ("MXHOOK_RINGEDGE".to_owned(), "1".to_owned()),
             ("MXHOOK_COM".into(), format!("{coms};mxjvs={0};COM4={0}", p.jvs_pipe)),
-        ];
+        ]);
         if let Some(ip) = self.ip() {
             // a match against another player goes through the server's relay (forza_panel.dll)
             env.push(("WCCF_RELAY".into(), format!("{ip}:{}", p.relay_port)));
@@ -1612,11 +1610,20 @@ impl Run<'_> {
             || procs::has_window(pid),
         )?;
         self.say(&format!("  5/6 seat {n} window up"));
-        self.netguard(pid, &format!("seat {n}"));
-        thread::sleep(Duration::from_secs(3));
         let olog = self.seat.join("forza_panel.log");
         let skip = fs::metadata(&olog).map_or(0, |m| m.len() as usize);
-        let why = self.inject(pid, &self.kit.program("forza_panel.dll"));
+        // 2017-18: wccfnet.dll loads the panel 3 s after the window (FORZA_PANEL); 2010-11: inject.exe does
+        let panel = self.kit.program("forza_panel.dll");
+        let why = if self.edition == Edition::E1718 {
+            if panel.is_file() {
+                String::new()
+            } else {
+                "forza_panel.dll is missing".to_owned()
+            }
+        } else {
+            thread::sleep(Duration::from_secs(3));
+            self.inject(pid, &panel)
+        };
         if why.is_empty() {
             let up = wait_for(
                 "the overlay",

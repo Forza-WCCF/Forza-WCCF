@@ -1,9 +1,9 @@
 Forza-WCCF 2017-18 - release notes
 ==================================
 
-Not released yet
-----------------
-Online play, the lobby, no Python. Version and date are set at release.
+0.2.0 - 2026-10-21 (alpha)
+--------------------------
+Online play, the lobby, no Python.
 
   - No Python: setup, the card catalogue, the card pictures and the game's text run inside Launcher.exe. Forza-WCCF has no
     python\ or scripts\ folder.
@@ -22,6 +22,8 @@ Online play, the lobby, no Python. Version and date are set at release.
   - Pause: P or the PAUSE button holds a match for up to 20 seconds. Not online, not with another seat linked, not while
     a projector runs. Key: KEYS.
   - The installer's package step takes this edition's ZIP (it must match the game's edition).
+  - No overlay\inject.exe (antivirus programs flagged it) and no netguard.dll: the game loads the panel through
+    wccfnet.dll. Run Setup again after the update.
 
 Not in this release: career mode, LAN play, shops with several seats, a render scale. Online needs a server that allows
 your address (the project's server keeps an allow list). Live VS between two PCs has not been played end to end yet.

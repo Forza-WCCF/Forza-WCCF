@@ -87,13 +87,13 @@ PROBLEMI NOTI
   - La registrazione della squadra può attendere circa 95 secondi.
   - Il VS online tra due case non è ancora stato giocato per intero su due PC: consideratelo una prova.
   - I programmi non sono firmati. Per SmartScreen e Defender vedere ANTIVIRUS E SMARTSCREEN.
-  - Gli antivirus possono segnalare overlay\inject.exe (carica il pannello nel gioco) e bin\winmm.dll (sta tra il
+  - Gli antivirus possono segnalare bin\winmm.dll (sta tra il
     gioco e Windows). Il sorgente è in source\.
 
 ANTIVIRUS E SMARTSCREEN
   I programmi non sono firmati. Launcher.exe avvia i programmi del gioco con l'interfaccia di debug di Windows e vi
-  carica due DLL di Forza-WCCF: forza_panel.dll disegna il pannello sul fotogramma del gioco; netguard.dll e wccfnet.dll
-  delle copie protette sostituiscono le chiamate del gioco agli adattatori di rete, così il gioco non può far perdere a
+  carica due DLL di Forza-WCCF: forza_panel.dll disegna il pannello sul fotogramma del gioco (il gioco lo carica tramite
+  wccfnet.dll); wccfnet.dll delle copie protette sostituisce le chiamate del gioco agli adattatori di rete, così il gioco non può far perdere a
   questo PC la concessione di rete (lease). La configurazione modifica copie dei programmi del gioco, mai gli originali
   (salvati in original\). Gli antivirus possono trattarlo come uno strumento per barare. I file di ogni versione sono
   inviati a Microsoft come falso positivo prima della pubblicazione.
@@ -115,7 +115,7 @@ LOG E SEGNALAZIONI
 
 CARTELLE
   bin\       winmm.dll (l'hook), FPR_Emu.exe (aiuto per il tavolo delle carte), logowin.exe (sostituto), forza-server.exe
-  overlay\   forza_panel.dll (il pannello), inject.exe, netguard.dll (protezione di rete); la configurazione
+  overlay\   forza_panel.dll (il pannello); la configurazione
              aggiunge il catalogo e le immagini delle carte
   fonts\     i caratteri del pannello e le loro licenze
   english\, italian\   i testi inglese e italiano del gioco - solo testo
