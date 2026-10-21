@@ -12,8 +12,20 @@ use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
 
+/// The package folder at run time first: nextest's `--workspace-remap` sets it for an archive built on another machine.
+pub fn manifest_dir() -> PathBuf {
+    std::env::var_os("CARGO_MANIFEST_DIR")
+        .map_or_else(|| env!("CARGO_MANIFEST_DIR").into(), PathBuf::from)
+}
+
+/// The built `forza-server`: at run time first (cargo test and nextest set it; an archive's copy is elsewhere).
+pub fn server_exe() -> PathBuf {
+    std::env::var_os("CARGO_BIN_EXE_forza-server")
+        .map_or_else(|| env!("CARGO_BIN_EXE_forza-server").into(), PathBuf::from)
+}
+
 pub fn records(name: &str) -> Vec<Value> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    let path = manifest_dir()
         .join("tests/rec")
         .join(format!("{name}.jsonl"));
     std::fs::read_to_string(path)

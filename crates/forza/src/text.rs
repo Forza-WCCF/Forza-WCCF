@@ -1479,6 +1479,15 @@ pub fn run(
 mod tests {
     use super::*;
 
+    /// The package folder at run time first: nextest's `--workspace-remap` sets it for an archive built on another
+    /// machine (the pictures' tests use it too).
+    pub(super) fn manifest_dir() -> std::path::PathBuf {
+        std::env::var_os("CARGO_MANIFEST_DIR").map_or_else(
+            || env!("CARGO_MANIFEST_DIR").into(),
+            std::path::PathBuf::from,
+        )
+    }
+
     #[test]
     fn put_field_keeps_the_fill() {
         assert_eq!(put_field(b"ab\0\xAA\xAA\xAA", b"xyz", 6), b"xyz\0\xAA\xAA");
@@ -1825,7 +1834,7 @@ mod tests {
 
     #[test]
     fn the_italian_tables_2010_11_match_the_english() {
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../editions/2010-11");
+        let dir = manifest_dir().join("../../editions/2010-11");
         let mut c = Ctx::new_bare(Edition::E1011, Path::new("g"), Path::new("b"));
         c.sheets = dir;
         let mut english = HashMap::new(); // the kit's own English wins, as in `choices`
@@ -1880,7 +1889,7 @@ mod tests {
     #[test]
     fn the_italian_tables_2017_18_match_the_english() {
         let mut c = Ctx::new_bare(Edition::E1718, Path::new("g"), Path::new("b"));
-        c.sheets = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../editions/2017-18");
+        c.sheets = manifest_dir().join("../../editions/2017-18");
         let english: HashMap<String, String> = c
             .sheet("screen_text.tsv", "english")
             .unwrap()

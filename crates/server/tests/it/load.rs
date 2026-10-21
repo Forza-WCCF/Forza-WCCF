@@ -123,7 +123,7 @@ fn load() {
     let (desk, relay, inbox) = (free_port(), free_port(), free_port());
     let dir = std::env::temp_dir().join(format!("forza_load_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_forza-server"))
+    let mut child = Command::new(crate::common::server_exe())
         .args(["all", "100000"])
         .arg(&dir)
         .env("WCCF_BIND", "127.0.0.1")
