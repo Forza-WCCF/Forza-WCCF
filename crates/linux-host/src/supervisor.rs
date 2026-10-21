@@ -475,7 +475,9 @@ fn serve(root: &Path) -> io::Result<()> {
         let mut guard = Command::new(wine_tool(root, "wine"));
         guard
             .envs(wine_env.clone())
-            .arg(root.join("runtime/test_wccfnet.exe"));
+            .arg(root.join("runtime/test_wccfnet.exe"))
+            // the guard's path: the repository's test_wccfnet.exe needs it, older builds ignore it
+            .arg(winpath(&root.join("runtime/wccfnet.dll")));
         run_bounded(&mut guard, &logs.join("guard-test.log"), 20)?;
         let mut helper = Command::new(wine_tool(root, "wine"));
         helper
