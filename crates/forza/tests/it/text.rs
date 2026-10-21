@@ -32,6 +32,8 @@ fn every_key_in_three_languages() {
                 "deal",
                 "close",
                 "lobby",
+                "pause",
+                "logs",
             ];
             if !known.contains(&section)
                 || rest.is_empty()

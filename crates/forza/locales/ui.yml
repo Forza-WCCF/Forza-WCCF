@@ -222,7 +222,6 @@ cab.data: {en: "DATA", it: "DATI", ja: "データ"}
 cab.start: {en: "START", it: "START", ja: "スタート"}
 cab.card: {en: "CARD", it: "CARTA", ja: "カード"}
 cab.coin: {en: "COIN", it: "GETTONE", ja: "コイン"}
-cab.back: {en: "BACK", it: "INDIETRO", ja: "もどる"}
 
 # ---- panel ----
 panel.f11: {en: "F11: window or full screen", it: "F11: finestra o schermo intero", ja: "F11：ウィンドウ／全画面"}
@@ -239,7 +238,6 @@ panel.msg_session_open: {en: "Match in progress.", it: "Partita in corso.", ja: 
 # ---- formation board ----
 board.flip: {en: "Click: card back.", it: "Clic: retro.", ja: "クリックで裏面。"}
 board.flip_back: {en: "Click: card face.", it: "Clic: fronte.", ja: "クリックで表面。"}
-board.title: {en: "FORMATION BOARD", it: "FORMAZIONE", ja: "フォーメーション"}
 board.bench: {en: "BENCH", it: "PANCHINA", ja: "ベンチ"}
 board.zone_attack: {en: "ATTACK", it: "ATTACCO", ja: "攻撃"}
 board.zone_centre: {en: "CENTRE", it: "CENTROCAMPO", ja: "中盤"}
@@ -253,17 +251,17 @@ board.positions: {en: "POSITIONS", it: "POSIZIONI", ja: "適性ポジション"}
 board.roles: {en: "Roles: %{roles}", it: "Ruoli: %{roles}", ja: "役割：%{roles}"}
 board.links_of: {en: "LINKS · %{name}", it: "INTESE · %{name}", ja: "%{name}の連携"}
 board.on_team: {en: "ON THE TEAM", it: "IN SQUADRA", ja: "チーム内"}
-board.not_on_team: {en: "BEST OUTSIDE LINKS", it: "MIGLIORI INTESE ESTERNE", ja: "チーム外の好相性"}
-board.no_links: {en: "No links yet.", it: "Nessuna intesa.", ja: "相性なし。"}
+board.not_on_team: {en: "BEST OUTSIDE LINKS", it: "MIGLIORI INTESE ESTERNE", ja: "チーム外の好連携"}
+board.no_links: {en: "No links yet.", it: "Nessuna intesa.", ja: "連携なし。"}
 board.more: {en: "+%{n} more", it: "+ altri %{n}", ja: "ほか%{n}人"}
 cat.affinity: {en: "AFFINITY", it: "AFFINITÀ", ja: "相性"}
-cat.no_partners: {en: "No partners listed.", it: "Nessuna intesa.", ja: "相性の選手なし。"}
+cat.no_partners: {en: "No partners listed.", it: "Nessuna affinità.", ja: "相性の選手なし。"}
 
 # ---- catalogue ----
 cat.title: {en: "CATALOGUE", it: "CATALOGO", ja: "カタログ"}
 cat.search_hint: {en: "Search cards", it: "Cerca carte", ja: "カードを検索"}
 cat.position: {en: "POSITION", it: "RUOLO", ja: "ポジション"}
-cat.best_role: {en: "Best role: %{roles}", it: "Ruolo migliore: %{roles}", ja: "適性：%{roles}"}
+cat.best_role: {en: "Best roles: %{roles}", it: "Ruoli migliori: %{roles}", ja: "適性：%{roles}"}
 cat.rarity: {en: "RARITY", it: "RARITÀ", ja: "レア度"}
 cat.all: {en: "ALL", it: "TUTTI", ja: "すべて"}
 cat.any: {en: "ANY", it: "TUTTE", ja: "すべて"}
@@ -312,10 +310,6 @@ keys.action: {en: "ACTION", it: "AZIONE", ja: "操作"}
 keys.keyboard: {en: "KEYBOARD", it: "TASTIERA", ja: "キーボード"}
 keys.controller: {en: "CONTROLLER", it: "CONTROLLER", ja: "コントローラー"}
 keys.press_a_key: {en: "PRESS A KEY", it: "PREMI UN TASTO", ja: "キーを押して"}
-keys.up: {en: "UP", it: "SU", ja: "上"}
-keys.down: {en: "DOWN", it: "GIÙ", ja: "下"}
-keys.left: {en: "LEFT", it: "SINISTRA", ja: "左"}
-keys.right: {en: "RIGHT", it: "DESTRA", ja: "右"}
 keys.test: {en: "TEST", it: "TEST", ja: "テスト"}
 keys.service: {en: "SERVICE", it: "SERVIZIO", ja: "サービス"}
 keys.sw1: {en: "SW1", it: "SW1", ja: "SW1"}
@@ -376,9 +370,6 @@ settings.msg_this_pc: {en: "Next start: this PC", it: "Prossimo avvio: questo PC
 settings.msg_online: {en: "Online at next start: %{ip}", it: "Online al prossimo avvio: %{ip}", ja: "次回はオンライン：%{ip}"}
 settings.msg_type_address: {en: "Type the address, then Enter", it: "Scrivi l'indirizzo, poi Invio", ja: "アドレスを入力して Enter"}
 settings.msg_not_address: {en: "Not an address (like 192.168.1.20)", it: "Non è un indirizzo (es. 192.168.1.20)", ja: "アドレスが不正です（例 192.168.1.20）"}
-settings.msg_reading_text: {en: "Reading...", it: "Lettura...", ja: "読み込み中..."}
-settings.msg_text_stays: {en: "Game text unchanged", it: "Testo del gioco invariato", ja: "ゲームの言語は変わりません"}
-settings.msg_text_changes: {en: "Applies at next start (slower)", it: "Si applica al prossimo avvio (più lento)", ja: "次回起動で反映（遅くなります）"}
 settings.msg_restart_armed: {en: "Click again to restart", it: "Clicca ancora per riavviare", ja: "もう一度押すと再起動"}
 settings.msg_restart_asked: {en: "Restart already requested", it: "Riavvio già richiesto", ja: "再起動は要求済みです"}
 settings.msg_restarting: {en: "Restarting, about a minute...", it: "Riavvio, circa un minuto...", ja: "再起動中（約1分）..."}
