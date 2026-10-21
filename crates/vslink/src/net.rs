@@ -361,6 +361,24 @@ impl Shared {
     fn adopt(self: &Arc<Self>, conn: Connection) {
         let id = *conn.remote_id().as_bytes();
         (self.log)(&format!("link to {} up ({:?})", id_short(&id), conn.side()));
+        {
+            // a stranger holds a connection only so long: capped, and closed unless a seat pairs with it in time
+            let st = self.st();
+            if st.conns.len() >= MAX_LINKS && !st.conns.contains_key(&id) {
+                drop(st);
+                conn.close(1u8.into(), b"busy");
+                return;
+            }
+            if !st.seats.is_paired(&id) {
+                let (me, c) = (self.clone(), conn.clone());
+                tokio::spawn(async move {
+                    tokio::time::sleep(UNPAIRED_GRACE).await;
+                    if !me.st().seats.is_paired(&id) {
+                        c.close(2u8.into(), b"not paired");
+                    }
+                });
+            }
+        }
         let old = self.st().conns.insert(id, conn.clone());
         if let Some(o) = old {
             o.close(0u8.into(), b"replaced");
@@ -527,8 +545,6 @@ impl Shared {
             let me = self.clone();
             tokio::spawn(async move {
                 match inc.await {
-                    // ponytail: any id may connect; datagrams are gated per seat by the paired id. Refuse unknown
-                    // ids at accept if strangers start holding connections open.
                     Ok(c) => me.adopt(c),
                     Err(e) => (me.log)(&format!("incoming link: {e}")),
                 }
@@ -536,6 +552,11 @@ impl Shared {
         }
     }
 }
+
+/// Links held at once, and how long one from an id no seat pairs with may stay (the opponent can dial before our
+/// lookup shows the pairing).
+const MAX_LINKS: usize = 64;
+const UNPAIRED_GRACE: Duration = Duration::from_secs(15);
 
 fn id_short(id: &core::EndpointId) -> String {
     PublicKey::from_bytes(id).map_or_else(|_| "?".into(), |pk| pk.fmt_short().to_string())

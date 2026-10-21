@@ -82,6 +82,11 @@ impl Seats {
         self.pairs.get(&seat)
     }
 
+    /// Whether any seat is paired with `remote`.
+    pub fn is_paired(&self, remote: &EndpointId) -> bool {
+        self.pairs.values().any(|p| p.id == *remote)
+    }
+
     /// Inbound gate: a connection from `remote` may feed seat `seat` only if it is the seat's paired id.
     pub fn accepts(&self, seat: u8, remote: &EndpointId) -> bool {
         self.pairs.get(&seat).is_some_and(|p| p.id == *remote)
@@ -268,6 +273,7 @@ mod tests {
         );
         assert!(s.accepts(0, &id));
         assert!(!s.accepts(0, &[4; 32]));
+        assert!(s.is_paired(&id) && !s.is_paired(&[4; 32]));
         assert!(!s.accepts(1, &id));
         assert_eq!(s.pair(0).unwrap().id, id);
     }
