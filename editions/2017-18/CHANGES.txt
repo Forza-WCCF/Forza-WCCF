@@ -1,9 +1,9 @@
 Forza-WCCF 2017-18 - release notes
 ==================================
 
-Not released yet
-----------------
-Online play, the lobby, no Python. Version and date are set at release.
+0.2.0 - 2026-10-21 (alpha)
+--------------------------
+Online play, the lobby, no Python.
 
   - No Python: setup, the card catalogue, the card pictures and the game's text run inside Launcher.exe. Forza-WCCF has no
     python\ or scripts\ folder.
