@@ -319,12 +319,13 @@ fn a_start_and_setup_wait_their_turn() {
         held.wait();
         let ui = Said::default();
         let rc = run::command(&kit, &params("admit", Shared::new()), &["local".into()], &ui);
+        let on = run::is_on(&kit, Kind::Run);
+        let setup = launcher::setup::game_folder(&kit, "", true, &|_| {});
+        free.wait(); // before the assertions: a failed one must not leave the thread waiting
         assert_eq!(rc, run::REFUSED, "{}", ui.text());
         assert!(ui.text().contains("another Launcher window"), "{}", ui.text());
-        assert!(!run::is_on(&kit, Kind::Run));
-        let rc = launcher::setup::game_folder(&kit, "", true, &|_| {});
-        assert_eq!(rc, launcher::setup::RUNNING);
-        free.wait();
+        assert!(!on);
+        assert_eq!(setup, launcher::setup::RUNNING);
     });
     assert_ne!(
         launcher::setup::game_folder(&kit, "", true, &|_| {}),
