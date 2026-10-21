@@ -1,10 +1,12 @@
 name: Release
 
-# A tag v<workspace version> builds the installer ZIP and the 2017-18 ZIP and opens a DRAFT pre-release.
-# A maintainer publishes it after someone has played the build.
+# A tag v<workspace version> builds the installer ZIP and the 2017-18 ZIP, checks them on VirusTotal and opens a DRAFT
+# pre-release. A maintainer publishes it after someone has played the build. Run by hand (workflow_dispatch) it is a
+# dry run: build and VirusTotal, no release.
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -45,7 +47,9 @@ jobs:
         run: |
           V=$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version *= *"\(.*\)"/\1/p}' Cargo.toml | head -n1)
           [ -n "$V" ] || { echo "::error::no workspace version"; exit 1; }
-          [ "$GITHUB_REF_NAME" = "v$V" ] || { echo "::error::tag $GITHUB_REF_NAME is not v$V"; exit 1; }
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            [ "$GITHUB_REF_NAME" = "v$V" ] || { echo "::error::tag $GITHUB_REF_NAME is not v$V"; exit 1; }
+          fi
           echo "V=$V" >> "$GITHUB_ENV"
       - name: Packages
         run: |
@@ -62,9 +66,69 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
+  # Every ZIP and EXE uploaded to VirusTotal (they are public release files anyway). Microsoft's engine (what Windows
+  # Defender uses) must find nothing; three or more engines flagging a file also stop the release; fewer is a warning
+  # (small engines' false alarms are common). The results table goes to the job summary and the release notes.
+  virustotal:
+    name: virustotal
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      - name: VirusTotal
+        env:
+          VT_API_KEY: ${{ secrets.VT_API_KEY }}
+        run: |
+          set -euo pipefail
+          [ -n "$VT_API_KEY" ] || { echo "::error::the VT_API_KEY secret is missing"; exit 1; }
+          api=https://www.virustotal.com/api/v3
+          vt() { curl -fsS --retry 3 -H "x-apikey: $VT_API_KEY" "$@"; }
+          out=virustotal.md
+          printf '| File | Microsoft | Engines flagging | Report |\n|---|---|---|---|\n' > "$out"
+          fail=0
+          for f in dist/*.zip dist/*.exe; do
+            [ -e "$f" ] || continue
+            name=$(basename "$f"); sha=$(sha256sum "$f" | cut -d' ' -f1)
+            url=$api/files
+            # over 32 MB the free API wants an upload URL
+            if [ "$(stat -c%s "$f")" -gt 33554432 ]; then url=$(vt "$api/files/upload_url" | jq -r .data); fi
+            id=$(vt -F "file=@$f" "$url" | jq -r .data.id)
+            # the free API allows 4 requests a minute: one poll every 20 s, up to 15 minutes
+            a=
+            for _ in $(seq 1 45); do
+              sleep 20
+              a=$(vt "$api/analyses/$id")
+              [ "$(jq -r .data.attributes.status <<<"$a")" = completed ] && break
+            done
+            [ "$(jq -r .data.attributes.status <<<"$a")" = completed ] || { echo "::error::$name: VirusTotal did not finish"; fail=1; continue; }
+            bad=$(jq '.data.attributes.stats.malicious + .data.attributes.stats.suspicious' <<<"$a")
+            ms=$(jq -r '.data.attributes.results.Microsoft | if . == null then "not run" else .category + (if .result then " (" + .result + ")" else "" end) end' <<<"$a")
+            engines=$(jq -r '[.data.attributes.results[] | select(.category == "malicious" or .category == "suspicious") | .engine_name + ": " + (.result // "?")] | join(", ")' <<<"$a")
+            printf '| %s | %s | %s %s | [report](https://www.virustotal.com/gui/file/%s) |\n' "$name" "$ms" "$bad" "${engines:+($engines)}" "$sha" >> "$out"
+            case "$ms" in
+              malicious*|suspicious*) echo "::error::$name: Microsoft flags it: $ms"; fail=1 ;;
+            esac
+            if [ "$bad" -ge 3 ]; then echo "::error::$name: $bad engines flag it: $engines"; fail=1
+            elif [ "$bad" -gt 0 ]; then echo "::warning::$name: $bad engine(s) flag it: $engines"; fi
+          done
+          cat "$out" >> "$GITHUB_STEP_SUMMARY"
+          exit "$fail"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: virustotal
+          path: virustotal.md
+          retention-days: 30
+          if-no-files-found: ignore
+
   publish:
     name: publish
-    needs: build
+    needs: [build, virustotal]
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -74,6 +138,10 @@ jobs:
         with:
           name: dist
           path: dist
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: virustotal
+          path: vt
       - name: Draft pre-release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -81,4 +149,4 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           gh release create "$TAG" --repo "$REPO" --draft --prerelease --verify-tag \
-            --title "$TAG" --notes "Draft: play the build before publishing. SHA-256 sums: SHA256SUMS.txt." dist/*
+            --title "$TAG" --notes-file <(printf 'Draft: play the build before publishing. SHA-256 sums: SHA256SUMS.txt.\n\n### VirusTotal\n\n'; cat vt/virustotal.md) dist/*
