@@ -1,9 +1,17 @@
 # Changelog
 
-## Not released yet
+## 0.2.1
 
 - The key can be an HTML key table, or a ZIP holding one: the rows of the image's game ID are tried until one unlocks it.
 - 2017–2018: the wizard (and `--package latest`) downloads the newest package from GitHub releases and checks its SHA-256.
+- The files are named `Forza-WCCF-Installer.exe` and `Forza-WCCF-Installer-<version>-windows-x64.zip`.
+- No Options page: the disc is always checked and the game always set up; the Launcher sets the language. The Desktop
+  shortcuts choice is on the folder page.
+- A picked folder gets its own `Forza-WCCF` folder (D:\ gives D:\Forza-WCCF) unless it is one or holds an install.
+- A larger window at the normal text size, DPI-aware, with version information.
+
+## 0.2.0
+
 - The package step runs inside the installer: setup and the game's text no longer need Python, and no Python is bundled.
 - `--package` accepts a 2017–2018 package as well as a 2010–2011 one. The package's edition (read from the ZIP) must match the game's;
   a mismatch is refused before anything is written. The wizard still offers the package step for 2010–2011 only.
