@@ -2123,7 +2123,10 @@ mod tests {
 
     #[test]
     fn shipped_docs_never_say_kit() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        // at run time first: nextest's `--workspace-remap` sets it for test programs built on another machine
+        let root = std::env::var_os("CARGO_MANIFEST_DIR")
+            .map_or_else(|| env!("CARGO_MANIFEST_DIR").into(), PathBuf::from)
+            .join("..");
         let files: Vec<PathBuf> = MAP
             .iter()
             .chain(MAP_1718)
