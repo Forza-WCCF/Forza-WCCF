@@ -54,10 +54,19 @@ pub enum Msg {
     Readied { id: String, result: Result<bool, String> },
 }
 
-/// The project's lobby server for 2010-11 (its seat desk on the usual port, [`SEAT_PORT`]); a name may replace it.
-pub const PROJECT_SERVER_1011: &str = "203.0.113.10:20030";
+// The project's public server; the `servers` setting, "Direct address" and `WCCF_LOBBY` (host[:port]) override it.
+/// The project's lobby server for 2010-11 (its seat desk on the usual port, [`SEAT_PORT`]).
+pub const PROJECT_SERVER_1011: &str = "lobby.wccf.it:20030";
 /// The project's lobby server for 2017-18 (its desk beside the game server on 20060).
-pub const PROJECT_SERVER_1718: &str = "203.0.113.10:20032";
+pub const PROJECT_SERVER_1718: &str = "lobby.wccf.it:20032";
+
+/// The default server: `WCCF_LOBBY` when it is a valid `host[:port]` (the project's `default` desk port if none),
+/// else `default`.
+fn default_server(env: Option<String>, default: &str) -> String {
+    let port = crate::choices::host_port(default, SEAT_PORT).map_or(SEAT_PORT, |h| h.1);
+    env.and_then(|v| crate::choices::host_port(&v, port))
+        .map_or_else(|| default.to_owned(), |(h, p)| format!("{h}:{p}"))
+}
 
 /// The `servers` setting the lobby asks; none saved yet: the address the player had before (if any), then the
 /// project's server for `edition`.
@@ -72,17 +81,20 @@ pub fn servers(settings: &Path, address: &str, edition: Edition) -> Vec<String> 
     if let Some(s) = saved.filter(|s| !s.is_empty()) {
         return s;
     }
-    let project = match edition {
-        Edition::E1011 => PROJECT_SERVER_1011,
-        Edition::E1718 => PROJECT_SERVER_1718,
-    };
+    let project = default_server(
+        std::env::var("WCCF_LOBBY").ok(),
+        match edition {
+            Edition::E1011 => PROJECT_SERVER_1011,
+            Edition::E1718 => PROJECT_SERVER_1718,
+        },
+    );
     let mut list: Vec<String> = Some(address.trim())
         .filter(|a| valid_server(a))
         .map(str::to_owned)
         .into_iter()
         .collect();
-    if !list.iter().any(|a| a == project) {
-        list.push(project.to_owned());
+    if !list.contains(&project) {
+        list.push(project);
     }
     list
 }
@@ -403,5 +415,19 @@ impl Book {
         v.selected = pos.unwrap_or(v.selected);
         v.selected = v.selected.min(v.visible().len().saturating_sub(1));
         at
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wccf_lobby_replaces_the_default_server() {
+        let s = |v: &str| Some(v.to_owned());
+        assert_eq!(default_server(None, PROJECT_SERVER_1718), PROJECT_SERVER_1718);
+        assert_eq!(default_server(s("a b"), PROJECT_SERVER_1718), PROJECT_SERVER_1718);
+        assert_eq!(default_server(s("lobby.test"), PROJECT_SERVER_1718), "lobby.test:20032");
+        assert_eq!(default_server(s("10.0.0.5:99"), PROJECT_SERVER_1011), "10.0.0.5:99");
     }
 }

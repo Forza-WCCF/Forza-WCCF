@@ -11,6 +11,7 @@ forza = { workspace = true, default-features = false }
 bytes.workspace = true
 getrandom.workspace = true
 iroh.workspace = true
+rustls-pki-types = { version = "1", features = ["std"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "time", "sync", "macros", "io-util"] }
 
 [dev-dependencies]

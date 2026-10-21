@@ -16,9 +16,20 @@ use crate::Kit;
 /// UPDATE at a real target is this one line.
 pub const UPDATE_URL: &str = "https://updates.invalid/wccf/";
 
+/// UPDATE_URL, or the environment variable WCCF_UPDATE_URL when it is set (a self-hosted release target).
+pub fn update_url() -> String {
+    update_url_from(env::var("WCCF_UPDATE_URL").ok())
+}
+
+fn update_url_from(env: Option<String>) -> String {
+    env.map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| UPDATE_URL.to_owned())
+}
+
 /// No release target yet: UPDATE finds nothing and nobody is asked.
 pub fn no_target() -> bool {
-    UPDATE_URL.contains(".invalid/")
+    update_url().contains(".invalid/")
 }
 
 /// Windows' own program, by full path: never a curl.exe or tar.exe that lies in the kit folder.
@@ -76,6 +87,13 @@ pub fn is_newer(tag: &str, installed: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn update_url_env_overrides_the_const() {
+        assert_eq!(update_url_from(None), UPDATE_URL);
+        assert_eq!(update_url_from(Some(" ".into())), UPDATE_URL);
+        assert_eq!(update_url_from(Some("https://x.test/r/".into())), "https://x.test/r/");
+    }
 
     #[test]
     fn newer_releases_only() {
