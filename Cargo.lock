@@ -893,7 +893,7 @@ dependencies = [
 
 [[package]]
 name = "cap"
-version = "7.0.0"
+version = "0.2.0"
 dependencies = [
  "png",
  "windows",
@@ -2061,7 +2061,7 @@ dependencies = [
 
 [[package]]
 name = "forza"
-version = "7.0.0"
+version = "0.2.0"
 dependencies = [
  "aes 0.9.3",
  "csv",
@@ -2091,7 +2091,7 @@ dependencies = [
 
 [[package]]
 name = "forza-panel"
-version = "7.0.0"
+version = "0.2.0"
 dependencies = [
  "egui",
  "forza",
@@ -2104,7 +2104,7 @@ dependencies = [
 
 [[package]]
 name = "forza-server"
-version = "7.0.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "forza",
@@ -3338,7 +3338,7 @@ dependencies = [
 
 [[package]]
 name = "launcher"
-version = "7.0.0"
+version = "0.2.0"
 dependencies = [
  "csv",
  "eframe",
@@ -6820,7 +6820,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vslink"
-version = "7.0.0"
+version = "0.2.0"
 dependencies = [
  "bytes",
  "forza",
@@ -7070,7 +7070,7 @@ dependencies = [
 
 [[package]]
 name = "wccf-installer"
-version = "7.0.0"
+version = "0.2.0"
 dependencies = [
  "aes 0.9.3",
  "anyhow",
@@ -7931,7 +7931,7 @@ checksum = "32ac00cd3f8ec9c1d33fb3e7958a82df6989c42d747bd326c822b1d625283547"
 
 [[package]]
 name = "xtask"
-version = "7.0.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
