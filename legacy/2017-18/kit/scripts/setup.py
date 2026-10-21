@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# RETIRED: the source of truth for 2017-18 setup is the Rust port, crates/forza/src/setup/e1718.rs (run by Launcher.exe). This
+# file lacks ICMP.DLL and the newer patches (title movie, GAME_READY fallback); do not align or extend it.
 r"""setup.py - set up your copy of WCCF 2017-18 for Forza-WCCF (once; run it again to check and repair).
 
     python\python.exe scripts\setup.py GAME      ("undo GAME" puts the originals back)   GAME = the decrypted game folder (client_Release.exe, control_Release.exe)

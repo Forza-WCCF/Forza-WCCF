@@ -1,3 +1,5 @@
+# RETIRED: the source of truth for 2017-18 setup is the Rust port, crates/forza/src/setup/e1718.rs (run by Launcher.exe). This
+# file lacks ICMP.DLL and the newer patches (title movie, GAME_READY fallback); do not align or extend it.
 """Seat 1's client_Release.exe changes for WCCF 2017-18 (SDDY), ported from the 2010-11 kit as each proves needed.
 Each entry: (file offset, original bytes, new bytes, what). apply() checks every original byte first."""
 
