@@ -215,6 +215,7 @@ jobs:
           & "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -SignatureUpdate
           if ($LASTEXITCODE -ne 0) { "::warning::Defender signature update failed (exit $LASTEXITCODE); scanning with the installed signatures" }
           Get-MpComputerStatus | Select-Object AMEngineVersion, AntivirusSignatureVersion, RealTimeProtectionEnabled, BehaviorMonitorEnabled, AntivirusEnabled | Format-List
+          exit 0
       # the EICAR test file, from two halves so this file never holds the whole string: the scan must find it
       - name: Defender control (EICAR)
         shell: pwsh
@@ -232,6 +233,8 @@ jobs:
           Remove-Item -Force $f -ErrorAction SilentlyContinue
           if ($code -ne 2) { $out; "::error::Defender is not scanning on this runner (EICAR scan exit $code, 2 expected)"; exit 1 }
           "EICAR found (exit 2): Defender is scanning"
+          # GitHub's pwsh wrapper would end the step with MpCmdRun's last exit code (2 = found, the wanted result)
+          exit 0
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -265,6 +268,7 @@ jobs:
             }
           }
           if ($bad) { exit 1 }
+          exit 0
       - name: cargo-nextest
         shell: bash
         run: |
