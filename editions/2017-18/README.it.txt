@@ -116,7 +116,7 @@ LOG E SEGNALAZIONI
 
 CARTELLE
   bin\       winmm.dll (l'hook), FPR_Emu.exe (aiuto per il tavolo delle carte), logowin.exe (sostituto), forza-server.exe
-  overlay\   forza_panel.dll (il pannello), inject.exe, netguard.dll (protezione di rete), skin.tex; la configurazione
+  overlay\   forza_panel.dll (il pannello), inject.exe, netguard.dll (protezione di rete); la configurazione
              aggiunge il catalogo e le immagini delle carte
   fonts\     i caratteri del pannello e le loro licenze
   english\, italian\   i testi inglese e italiano del gioco - solo testo

@@ -976,7 +976,6 @@ impl Run<'_> {
             ("WCCF_GAME".into(), s(self.game.clone())),
             ("WCCF_LOGS".into(), s(self.logs())),
             ("MXHOOK_LOG_DIR".into(), s(self.logs().join("hook"))),
-            ("WCCF_SKIN".into(), s(self.kit.dir().join("art").join("skin.tex"))),
             ("WCCF_CATALOGUE".into(), s(cache.join("catalogue.tsv"))),
             ("WCCF_CARDS".into(), s(cache.join("cards"))),
         ]

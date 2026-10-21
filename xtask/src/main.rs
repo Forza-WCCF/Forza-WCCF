@@ -76,7 +76,6 @@ const PANEL_TARGET: &str = "i686-pc-windows-msvc";
 const MAP: &[(&str, &str)] = &[
     ("README.txt", "editions/2010-11/README.txt"),
     ("CHANGELOG.md", "editions/2010-11/CHANGELOG.md"),
-    ("art", "editions/2010-11/art"),
     ("fonts", "assets/fonts"), // the panel's fonts (forza-panel font_dir: a fonts\ above its DLL) and their licences
     ("languages", "editions/2010-11/languages"),
     ("source/README.txt", "native/2010-11/README.txt"),
@@ -96,7 +95,6 @@ const MAP_1718: &[(&str, &str)] = &[
     ("CHANGES.txt", "editions/2017-18/CHANGES.txt"),
     ("english", "editions/2017-18/english"),
     ("italian", "editions/2017-18/italian"), // the Italian text: key + Italian, the English behind each key
-    ("overlay/skin.tex", "editions/2017-18/overlay/skin.tex"),
     ("fonts", "assets/fonts"),
     ("source/README.txt", "native/2017-18/README.txt"),
     ("source/mxhook", "native/2017-18/mxhook"),

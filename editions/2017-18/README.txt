@@ -106,7 +106,7 @@ LOGS AND BUGS
 
 FOLDERS
   bin\       winmm.dll (the hook), FPR_Emu.exe (card-table helper), logowin.exe (stand-in), forza-server.exe
-  overlay\   forza_panel.dll (the panel), inject.exe, netguard.dll (network guard), skin.tex; setup adds the catalogue
+  overlay\   forza_panel.dll (the panel), inject.exe, netguard.dll (network guard); setup adds the catalogue
              and the card pictures
   fonts\     the panel's fonts and their licences
   english\, italian\   the game's English and Italian text - text only

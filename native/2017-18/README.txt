@@ -7,8 +7,7 @@ The programs land under target\ (the 2017-18 folder) at the paths below; `cargo 
   bin\FPR_Emu.exe      ..\fpr_emu\fpr_emu.c                                       link: user32.lib
   bin\logowin.exe      logowin\logowin_standin.c                                  link: /SUBSYSTEM:WINDOWS
   overlay\forza_panel.dll   the repository's crates\panel (Rust, i686-pc-windows-msvc), one build for both editions; its
-                       fonts are fonts\ at the top of the folder. overlay\wccfpanel.c is the C panel it replaced, no longer
-                       built or shipped
+                       fonts are fonts\ at the top of the folder.
   overlay\inject.exe   overlay\inject.c (must be 32-bit: it hands the game 32-bit LoadLibraryA's address)
   overlay\netguard.dll netguard\netguard.c   /LD    (secondary guard: patches the game's IPHLPAPI imports)
   source\build\wccfnet.dll   netguard\wccfnet.c   /LD   (the primary guard, not in the ZIP: setup copies it into the

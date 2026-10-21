@@ -109,7 +109,7 @@ Forza-WCCF 2017-18 - 0.1.0-alpha.1
 
 フォルダー
   bin\       winmm.dll（フック）、FPR_Emu.exe（カードテーブル用ヘルパー）、logowin.exe（代用）、forza-server.exe
-  overlay\   forza_panel.dll（パネル）、inject.exe、netguard.dll（ネットワーク保護）、skin.tex。セットアップがカタログとカード画像を追加します
+  overlay\   forza_panel.dll（パネル）、inject.exe、netguard.dll（ネットワーク保護）。セットアップがカタログとカード画像を追加します
   fonts\     パネルのフォントとライセンス
   english\, italian\   ゲームの英語・イタリア語テキスト（テキストのみ）
   source\    bin\ と overlay\ のプログラムの C ソース

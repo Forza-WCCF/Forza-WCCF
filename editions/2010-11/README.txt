@@ -180,7 +180,6 @@ GOOD TO KNOW
 FOLDERS
   programs\   wccfk.dll (hook), forza_panel.dll (panel), inject.exe (loads the panel into seat 1, and into the
               projector for money with commas), FPR_Emu.exe (card-table helper)
-  art\        skin.tex (the panel's picture)
   fonts\      the panel's fonts and licences (Noto Sans JP, Barlow Condensed, Hack)
   languages\  one folder per language. english\: screen_text.tsv, original_rstring.tsv, cpu_names.tsv, exe_text.tsv,
               pictures.tsv. italian\: the Italian text. Text and fingerprints only.

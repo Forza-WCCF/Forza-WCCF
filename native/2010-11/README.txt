@@ -19,8 +19,7 @@ The C source of every program Forza-WCCF ships. Each was built with Microsoft's 
   programs\FPR_Emu.exe card_table\fpr_emu.c
                        cl /nologo /O2 /MT /W3 /D_CRT_SECURE_NO_WARNINGS fpr_emu.c /Fe:FPR_Emu.exe /link user32.lib
   programs\forza_panel.dll   the repository's crates\panel (Rust, i686-pc-windows-msvc; built by cargo xtask build;
-                       its fonts are fonts\ at the top of the folder). panel\wccfpanel.c is the C panel it replaced, no
-                       longer built or shipped
+                       its fonts are fonts\ at the top of the folder).
   programs\inject.exe  panel\inject.c (must be 32-bit: it hands the game 32-bit LoadLibraryA's address)
                        cl /nologo /O2 /MT /W3 /D_CRT_SECURE_NO_WARNINGS inject.c /Fe:inject.exe
   panel\fakegame.c     not shipped: a stand-in for seat 1's game window to see the panel without the game (its
