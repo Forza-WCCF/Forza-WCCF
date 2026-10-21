@@ -17,7 +17,8 @@ Extraction prepares the original files; it does not make them playable. Experime
 
 The installer checks the known layout, metadata CRC and encrypted volume header.
 Full game-slot block verification is enabled by default. Each image needs its
-matching game keyfile: raw bytes or hex text. The SBTR system key does not unlock
+matching game keyfile: raw bytes or hex text, or a key table as an `.html` file (or a ZIP holding one) with `Game ID`,
+`AES Key` and `AES IV` columns: the rows of the image's game ID are tried in turn. The SBTR system key does not unlock
 the game slot. The system/OS-update slot is never extracted.
 
 ## Install
@@ -71,7 +72,12 @@ during unpacking.
 The wizard and headless `--package` run the same checks for either edition.
 
 The packages are in this repository: [Forza-WCCF on GitHub](https://github.com/Forza-WCCF/Forza-WCCF).
-No package is fetched automatically or included in releases. `--no-setup` ignores a supplied package.
+2017–2018 only: the wizard offers "Download the newest package (version)" when GitHub answers; it is the default while no
+package file is chosen, and a file you choose overrides it. Headless: `--package latest`. The installer takes the newest
+non-draft release of Forza-WCCF/Forza-WCCF (pre-releases included) with a `Forza-WCCF-2017-18-*.zip` and its `.sha256`
+(or `SHA256SUMS.txt`), downloads it over HTTPS with Windows' curl.exe into `%TEMP%\Forza-WCCF-Installer`, refuses a
+SHA-256 mismatch, then runs the same checks as a package you chose. 2010–2011 has no published package: no download.
+Offline or a GitHub error: the wizard says so and keeps the manual choice. `--no-setup` ignores a supplied package.
 
 ### Runtime safety and limits
 
@@ -96,6 +102,9 @@ No package is fetched automatically or included in releases. `--no-setup` ignore
 # Reuse existing extracted files without reading media or keys:
 .\wccf-installer.exe --dest "D:\Games\Forza-WCCF" --game SBWG
 .\wccf-installer.exe --dest "D:\Games\Forza-WCCF" --game SDDY
+
+# 2017–2018: download the newest package from GitHub (SHA-256 checked):
+.\wccf-installer.exe --iso SDDY.iso --key keys.html --dest "D:\Games\Forza-WCCF" --package latest
 
 # Optional trusted package of the game's edition (2010–2011 or 2017–2018):
 .\wccf-installer.exe --iso REV_D.iso --key REV_D.key --dest "D:\Games\Forza-WCCF" --package FORZA-WCCF.zip --english

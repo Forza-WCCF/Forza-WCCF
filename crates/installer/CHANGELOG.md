@@ -2,6 +2,8 @@
 
 ## Not released yet
 
+- The key can be an HTML key table, or a ZIP holding one: the rows of the image's game ID are tried until one unlocks it.
+- 2017–2018: the wizard (and `--package latest`) downloads the newest package from GitHub releases and checks its SHA-256.
 - The package step runs inside the installer: setup and the game's text no longer need Python, and no Python is bundled.
 - `--package` accepts a 2017–2018 package as well as a 2010–2011 one. The package's edition (read from the ZIP) must match the game's;
   a mismatch is refused before anything is written. The wizard still offers the package step for 2010–2011 only.

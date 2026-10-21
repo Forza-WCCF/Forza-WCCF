@@ -206,6 +206,15 @@ installer.err_folder: {en: "Choose an install folder.", it: "Scegli una cartella
 installer.err_iso: {en: "Choose the disc image (.iso) file.", it: "Scegli il file dell'immagine del disco (.iso).", ja: "ディスクイメージ（.iso）を選んでください。"}
 installer.err_key: {en: "Choose the key file.", it: "Scegli il file chiave.", ja: "キーファイルを選んでください。"}
 installer.err_key_read: {en: "Cannot read the key file: %{e}", it: "Impossibile leggere il file chiave: %{e}", ja: "キーファイルを読み込めません：%{e}"}
+installer.err_key_entry: {en: "This key list has no entry for %{id}.", it: "Questo elenco di chiavi non ha una voce per %{id}.", ja: "このキー一覧に %{id} の項目はありません。"}
+installer.err_download: {en: "Download failed: %{detail}", it: "Download non riuscito: %{detail}", ja: "ダウンロードに失敗しました：%{detail}"}
+installer.err_no_package: {en: "No downloadable package found in the releases.", it: "Nessun pacchetto scaricabile trovato nelle release.", ja: "リリースにダウンロードできるパッケージがありません。"}
+installer.err_no_download: {en: "No package is published for 2010–2011. Choose a package file, or install without one.", it: "Per il 2010–2011 non è pubblicato alcun pacchetto. Scegli un file pacchetto, o installa senza.", ja: "2010–2011 のパッケージは公開されていません。パッケージファイルを選ぶか、なしでインストールしてください。"}
+installer.err_hash: {en: "The downloaded package does not match its SHA-256. It was refused and deleted.", it: "Il pacchetto scaricato non corrisponde al suo SHA-256. È stato rifiutato ed eliminato.", ja: "ダウンロードしたパッケージの SHA-256 が一致しません。拒否して削除しました。"}
+installer.latest_get: {en: "Download the newest package (%{version})", it: "Scarica il pacchetto più recente (%{version})", ja: "最新のパッケージをダウンロード（%{version}）"}
+installer.latest_checking: {en: "Looking for the newest package…", it: "Cerco il pacchetto più recente…", ja: "最新のパッケージを確認中…"}
+installer.latest_failed: {en: "Cannot look up the newest package (offline or GitHub error). Choose a package file.", it: "Impossibile cercare il pacchetto più recente (offline o errore di GitHub). Scegli un file pacchetto.", ja: "最新のパッケージを確認できません（オフラインまたは GitHub のエラー）。パッケージファイルを選んでください。"}
+installer.stage_download: {en: "Downloading the package", it: "Download del pacchetto", ja: "パッケージをダウンロード中"}
 installer.cancelled: {en: "Installation cancelled.", it: "Installazione annullata.", ja: "インストールを中止しました。"}
 installer.stopped: {en: "The installation stopped.", it: "L'installazione si è fermata.", ja: "インストールが停止しました。"}
 

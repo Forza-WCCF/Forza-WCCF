@@ -1,7 +1,7 @@
 //! The install pipeline: verify disc -> extract game -> optional kit setup (English, shortcuts).
 //! Runs on a worker thread; reports through `emit`, stops when `cancel` is set.
-use crate::disc;
 use crate::err::{InstallError as E, path as shown};
+use crate::{disc, fetch};
 use anyhow::{Result, ensure};
 use forza::Edition;
 use forza::text::{Lang, Mode};
@@ -27,6 +27,7 @@ pub struct Plan {
     pub english: bool,
     pub shortcuts: bool,
     pub kit: Option<PathBuf>, // the kit zip
+    pub latest: bool, // no kit zip given: download the newest package (2017-18 only) and use it as if chosen
 }
 
 pub enum Event {
@@ -160,7 +161,18 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
         .ok_or(E::NeedGame)?;
     let (dest, game) = version_paths(&plan.dest, id)?;
     ensure!(plan.iso.is_none() || !game.exists(), E::GameFolderExists);
-    let setup = plan.setup && plan.kit.is_some();
+    let mut kit = plan.kit.clone();
+    if plan.latest && kit.is_none() && plan.setup {
+        ensure!(id == forza::Edition::E1718.game_id(), E::NoDownload);
+        emit(Event::Stage(Step::Download));
+        let p = fetch::latest(fetch::PREFIX_1718)?;
+        emit(Event::Log(format!("Downloading {}", p.zip_name)));
+        kit = Some(fetch::download(&p, cancel, &|d, t| {
+            emit(Event::Progress(d, t))
+        })?);
+        emit(Event::Log("Package checked against its SHA-256".into()));
+    }
+    let setup = plan.setup && kit.is_some();
     ensure!(!plan.english || setup, E::EnglishNeedsSetup);
     let opened = if let Some(iso) = &plan.iso {
         let key = fs::read(plan.key.as_ref().ok_or(E::NoKey)?).map_err(|e| E::KeyRead {
@@ -177,7 +189,7 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
         None
     };
     if setup {
-        check_setup(Some(id), check_kit_zip(plan.kit.as_ref().unwrap())?)?;
+        check_setup(Some(id), check_kit_zip(kit.as_ref().unwrap())?)?;
     }
     fs::create_dir_all(&dest).map_err(|e| E::CannotCreate {
         path: shown(&dest),
@@ -211,7 +223,7 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
         extract(&mut vol, &dest, cancel, emit)?;
     }
     if setup {
-        let kit = plan.kit.as_ref().unwrap();
+        let kit = kit.as_ref().unwrap();
         let edition = edition_of(id).unwrap();
         emit(Event::Stage(Step::Setup));
         unpack_kit(kit, &dest, emit)?;
@@ -532,6 +544,7 @@ mod tests {
             english: false,
             shortcuts: true,
             kit: None,
+            latest: false,
         };
         let cancel = AtomicBool::new(false);
         run(&plan, &cancel, &|_| {}).unwrap(); // no kit, even with setup's default true

@@ -64,6 +64,7 @@ impl Page {
 /// The stages of an install, in the order they run; a run lists the ones it will do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Step {
+    Download,
     Verify,
     Extract,
     Setup,
@@ -73,6 +74,7 @@ pub enum Step {
 impl Step {
     fn key(self) -> &'static str {
         match self {
+            Step::Download => "installer.stage_download",
             Step::Verify => "installer.stage_verify",
             Step::Extract => "installer.stage_extract",
             Step::Setup => "installer.stage_setup",
@@ -93,6 +95,16 @@ pub enum Field {
     Iso,
     Key,
     Package,
+}
+
+/// What the lookup of the newest downloadable package found (2017–18 only).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Latest {
+    Idle,
+    Checking,
+    /// The version found, e.g. "0.2.0".
+    Found(String),
+    Failed,
 }
 
 /// What a click asked the program to do.
@@ -127,6 +139,9 @@ pub struct InstallerState {
     pub iso: String,
     pub key: String,
     pub package: String,
+    pub latest: Latest,
+    /// Use the newest downloaded package; a package file in `package` overrides it.
+    pub use_latest: bool,
     /// The edition the disc image is, by its size.
     pub detected: Option<Edition>,
     /// The disc image has a size no supported edition has.
@@ -169,6 +184,8 @@ impl InstallerState {
             iso: String::new(),
             key: String::new(),
             package: String::new(),
+            latest: Latest::Idle,
+            use_latest: false,
             detected: None,
             unsupported: false,
             installed: vec![],
@@ -694,6 +711,27 @@ fn files(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Acti
         Field::Package,
         out,
     );
+    if st.target() == Some(Edition::E1718) {
+        match st.latest.clone() {
+            Latest::Idle => {}
+            Latest::Checking => {
+                status_line(ui, Tone::Notice, &tr!(lang, "installer.latest_checking"));
+            }
+            Latest::Found(v) => {
+                let on = st.use_latest && st.package.trim().is_empty();
+                let label = tr!(lang, "installer.latest_get", version = v);
+                if chip(ui, &label, on, Some(Edition::E1718.accent())).clicked() {
+                    st.use_latest = !on;
+                    if st.use_latest {
+                        st.package.clear();
+                    }
+                }
+            }
+            Latest::Failed => {
+                status_line(ui, Tone::Notice, &tr!(lang, "installer.latest_failed"));
+            }
+        }
+    }
     ui.horizontal(|ui| {
         field(ui, &tr!(lang, "installer.detected"), 120.0);
         if let Some(e) = st.target() {
