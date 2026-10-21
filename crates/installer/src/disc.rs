@@ -134,19 +134,18 @@ fn key_candidates(raw: &[u8]) -> Vec<Vec<u8>> {
     out
 }
 
-/// The first key that opens the header: the key file as it is (raw or hex text), or each distinct pair of the game's rows when
-/// the input is a key table (HTML, or a ZIP with one). A table has no IV input here: the IVs come after all keys, as a fallback.
+/// The first key that opens the header: the key file as it is (raw or hex text), or each distinct value of the game's rows when
+/// the input is a key table (HTML, or a ZIP with one): `Keyfile` first, then the AES columns as a fallback.
 fn pick_header(raw: &[u8; 512], input: &[u8], game_id: &str) -> Result<Header> {
     let mut cands = key_candidates(input);
-    if let Some(pairs) = keytable::pairs(input, game_id) {
+    if let Some(values) = keytable::candidates(input, game_id) {
         ensure!(
-            !pairs.is_empty(),
+            !values.is_empty(),
             E::NoKeyEntry {
                 id: game_id.to_string()
             }
         );
-        cands.extend(pairs.iter().map(|p| p.0.to_vec()));
-        cands.extend(pairs.iter().map(|p| p.1.to_vec())); // ponytail: the check takes one 16-byte value; unknown which column it is
+        cands.extend(values.iter().map(|v| v.to_vec()));
     }
     match cands.iter().find_map(|k| read_header(raw, k)) {
         Some(h) => h,
@@ -417,6 +416,17 @@ mod tests {
             Some(&E::NoKeyEntry { id: "ZZZZ".into() })
         );
         assert_eq!(none.to_string(), "This key list has no entry for ZZZZ.");
+        // the real tables carry the disc's keyfile in its own column, next to AES values that do not open it
+        let html = format!(
+            "<table><tr><th>Game ID</th><th>AES Key</th><th>AES IV</th><th>Keyfile</th></tr>\
+             <tr><td>SDDY</td><td>{other}</td><td>{iv}</td><td>{good}</td></tr></table>"
+        );
+        assert_eq!(
+            pick_header(&raw, html.as_bytes(), "SDDY")
+                .unwrap()
+                .hidden_size,
+            512 * 100
+        );
     }
 
     fn hex_to_bytes(s: &str) -> Vec<u8> {

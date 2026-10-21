@@ -1,15 +1,17 @@
-//! A key list as a person gets it: an HTML table with `Game ID`, `AES Key` and `AES IV` columns, or a ZIP holding one.
-//! Only the rows of the disc's game id count; tables without those columns are ignored.
+//! A key list as a person gets it: an HTML table with a `Game ID` column and `Keyfile`, `AES Key` or `AES IV` columns, or a
+//! ZIP holding one. Only the rows of the disc's game id count; tables without those columns are ignored.
 use std::io::{Cursor, Read};
 
-pub type Pair = ([u8; 16], [u8; 16]);
+/// The columns tried, in this order: the disc's keyfile is the `Keyfile` value; the AES columns are a fallback.
+const KEY_COLUMNS: [&str; 3] = ["Keyfile", "AES Key", "AES IV"];
 
-/// The (key, iv) pairs of `game_id`, duplicates removed, in table order. `None`: the input is no key table at all.
-pub fn pairs(raw: &[u8], game_id: &str) -> Option<Vec<Pair>> {
+/// The 16-byte values of `game_id`'s rows (all `Keyfile` values, then `AES Key`, then `AES IV`), duplicates removed.
+/// `None`: the input is no key table at all.
+pub fn candidates(raw: &[u8], game_id: &str) -> Option<Vec<[u8; 16]>> {
     let mut found = None;
     let mut add = |html: &str| {
-        if let Some(p) = table_pairs(html, game_id) {
-            let all: &mut Vec<Pair> = found.get_or_insert_with(Vec::new);
+        if let Some(p) = table_values(html, game_id) {
+            let all: &mut Vec<[u8; 16]> = found.get_or_insert_with(Vec::new);
             for x in p {
                 if !all.contains(&x) {
                     all.push(x);
@@ -47,13 +49,14 @@ fn hex16(s: &str) -> Option<[u8; 16]> {
     Some(out)
 }
 
-/// `None`: no table here has the three columns. `Some`: the rows of `game_id` (possibly none).
-fn table_pairs(html: &str, game_id: &str) -> Option<Vec<Pair>> {
+/// `None`: no table here has `Game ID` and a key column. `Some`: the values of `game_id`'s rows (possibly none).
+fn table_values(html: &str, game_id: &str) -> Option<Vec<[u8; 16]>> {
     let dom = tl::parse(html, tl::ParserOptions::default()).ok()?;
     let p = dom.parser();
-    let mut cols: Option<[usize; 3]> = None; // Game ID, AES Key, AES IV of the table being read
+    // Game ID's column, and each KEY_COLUMNS column of the table being read
+    let mut cols: Option<(usize, [Option<usize>; 3])> = None;
     let mut saw = false;
-    let mut out = vec![];
+    let mut by_col: [Vec<[u8; 16]>; 3] = Default::default();
     for node in dom.nodes() {
         let Some(tr) = node.as_tag().filter(|t| t.name().as_bytes() == b"tr") else {
             continue;
@@ -74,22 +77,22 @@ fn table_pairs(html: &str, game_id: &str) -> Option<Vec<Pair>> {
             .iter()
             .any(|(th, c)| *th || c.eq_ignore_ascii_case("Game ID"))
         {
-            cols = [col("Game ID"), col("AES Key"), col("AES IV")]
-                .into_iter()
-                .collect::<Option<Vec<_>>>()
-                .map(|v| [v[0], v[1], v[2]]);
+            let keys = KEY_COLUMNS.map(col);
+            cols = col("Game ID")
+                .filter(|_| keys.iter().any(Option::is_some))
+                .map(|g| (g, keys));
             saw |= cols.is_some();
             continue;
         }
-        let Some([g, k, v]) = cols else { continue };
+        let Some((g, keys)) = cols else { continue };
         let get = |i: usize| cells.get(i).map(|(_, c)| c.as_str());
-        if get(g).is_some_and(|c| c.eq_ignore_ascii_case(game_id))
-            && let (Some(key), Some(iv)) = (get(k).and_then(hex16), get(v).and_then(hex16))
-        {
-            out.push((key, iv));
+        if get(g).is_some_and(|c| c.eq_ignore_ascii_case(game_id)) {
+            for (bucket, k) in by_col.iter_mut().zip(keys) {
+                bucket.extend(k.and_then(get).and_then(hex16));
+            }
         }
     }
-    saw.then_some(out)
+    saw.then(|| by_col.concat())
 }
 
 #[cfg(test)]
@@ -100,13 +103,14 @@ mod tests {
     const K1: &str = "00112233445566778899aabbccddeeff";
     const K2: &str = "ffeeddccbbaa99887766554433221100";
     const IV: &str = "0f0e0d0c0b0a09080706050403020100";
+    const KF: &str = "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf";
 
     pub fn table(rows: &[(&str, &str, &str)]) -> String {
         let mut s = String::from(
-            "<html><body><table><tr><th>Game ID</th><th>Region</th><th>AES Key</th><th>AES IV</th></tr>",
+            "<html><body><table><tr><th>Game ID</th><th>Region</th><th>AES Key</th><th>AES IV</th><th>Keyfile</th></tr>",
         );
         for (g, k, i) in rows {
-            s += &format!("<tr><td>{g}</td><td>JPN</td><td>{k}</td><td>{i}</td></tr>");
+            s += &format!("<tr><td>{g}</td><td>JPN</td><td>{k}</td><td>{i}</td><td>{KF}</td></tr>");
         }
         s + "</table><table><tr><th>Game ID</th><th>Game Key</th><th>Game IV</th></tr>\
             <tr><td>SDDY</td><td>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</td><td>bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb</td></tr></table></body></html>"
@@ -120,18 +124,13 @@ mod tests {
             ("SDDY", K2, IV),
             ("SDDY", K1, IV),
         ]);
-        let p = pairs(html.as_bytes(), "SDDY").unwrap();
-        assert_eq!(
-            p,
-            [
-                (hex16(K1).unwrap(), hex16(IV).unwrap()),
-                (hex16(K2).unwrap(), hex16(IV).unwrap())
-            ]
-        );
-        assert_eq!(pairs(html.as_bytes(), "XXXX").unwrap(), []); // a table, but no entry
-        assert!(pairs(b"0011223344", "SDDY").is_none());
+        let c = candidates(html.as_bytes(), "SDDY").unwrap();
+        let h = |s| hex16(s).unwrap();
+        assert_eq!(c, [h(KF), h(K1), h(K2), h(IV)]); // the keyfile first
+        assert!(candidates(html.as_bytes(), "XXXX").unwrap().is_empty()); // a table, but no entry
+        assert!(candidates(b"0011223344", "SDDY").is_none());
         assert!(
-            pairs(
+            candidates(
                 b"<table><tr><th>Game ID</th><th>Game Key</th></tr></table>",
                 "SDDY"
             )
@@ -149,6 +148,6 @@ mod tests {
         z.start_file("dir/Keys.HTML", o).unwrap();
         z.write_all(table(&[("SDDY", K1, IV)]).as_bytes()).unwrap();
         let raw = z.finish().unwrap().into_inner();
-        assert_eq!(pairs(&raw, "SDDY").unwrap().len(), 1);
+        assert_eq!(candidates(&raw, "SDDY").unwrap().len(), 3);
     }
 }
