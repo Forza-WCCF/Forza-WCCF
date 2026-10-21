@@ -23,11 +23,15 @@ env:
   XWIN_SDK_VERSION: "10.0.26100"
   CARGO_XWIN_VERSION: "0.23.1"
   CARGO_XWIN_SHA256: c492c6dfb7e5ac0eee586b796e0fc950ba13077e7f0bbb046f445d71790d5360
+  # the test programs are built once on Linux (test-build) and only run on Windows (windows-tests)
+  NEXTEST_VERSION: "0.9.149"
+  NEXTEST_LINUX_SHA256: 32d1d8c0567b7a80bee2bad8bb09125c846da96bc009b2de11ec08557290c770
+  NEXTEST_WINDOWS_SHA256: bf904b85c7c5c2a29c340053a8d9d8e8027ff0d55a2bf7cef7d23032f8166438
   ACTIONLINT_VERSION: "1.7.12"
   ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
 
 jobs:
-  # Docs-only changes (root *.md, docs/**) skip build, windows-tests and deny; lint (with `check text`) always runs.
+  # Docs-only changes (root *.md, docs/**) skip build, test-build, windows-tests and deny; lint (with `check text`) always runs.
   changes:
     name: changes
     runs-on: ubuntu-24.04
@@ -147,9 +151,57 @@ jobs:
           retention-days: 3
           if-no-files-found: error
 
+  # the workspace's test programs, built beside `build` (not after it) with cargo-xwin, packed by cargo-nextest
+  test-build:
+    name: test-build
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    container: rust:1.99.0-trixie@sha256:81015672d6939b0265f09adf96d5de125482bb1330106076956b0518e74edc90
+    steps:
+      - name: Tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends clang clang-19 clang-tools-19 lld lld-19 llvm llvm-19 ca-certificates curl zstd
+          curl -fsSL -o /tmp/cx.tgz "https://github.com/rust-cross/cargo-xwin/releases/download/v${CARGO_XWIN_VERSION}/cargo-xwin-v${CARGO_XWIN_VERSION}.x86_64-unknown-linux-musl.tar.gz"
+          echo "${CARGO_XWIN_SHA256}  /tmp/cx.tgz" | sha256sum -c -
+          tar -xzf /tmp/cx.tgz -C /usr/local/bin cargo-xwin
+          curl -fsSL -o /tmp/nt.tgz "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-${NEXTEST_VERSION}/cargo-nextest-${NEXTEST_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${NEXTEST_LINUX_SHA256}  /tmp/nt.tgz" | sha256sum -c -
+          tar -xzf /tmp/nt.tgz -C /usr/local/bin cargo-nextest
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      # its own cache (rust-cache keys by job): the test profile shares nothing with build's release one
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # build saves the xwin cache on main; this job only reads it
+      - name: xwin cache (restore only)
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/cargo-xwin-xtask
+          key: xwin-${{ env.XWIN_CRT_VERSION }}-${{ env.XWIN_SDK_VERSION }}-x86_x86_64
+      # xtask's xwin settings (rust() in xtask/src/main.rs): its cache folder and both architectures, so the cache never flips
+      - name: cargo nextest archive
+        run: |
+          export XWIN_ACCEPT_LICENSE=1 XWIN_CACHE_DIR="$HOME/.cache/cargo-xwin-xtask" XWIN_ARCH=x86,x86_64
+          eval "$(cargo xwin env --target x86_64-pc-windows-msvc)"
+          cargo nextest archive --locked --workspace --target x86_64-pc-windows-msvc --archive-file tests.tar.zst
+      - name: tests artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tests
+          path: tests.tar.zst
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: error
+
   windows-tests:
     name: windows-tests
-    needs: build
+    needs: [build, test-build]
     runs-on: windows-2025
     timeout-minutes: 60
     steps:
@@ -157,16 +209,28 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # only xtask builds here (`check win`); a new key, so the old cache of the whole test build is not restored
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
+          key: xtask
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: true
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: kit
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tests
       - name: unpack the kit
         shell: bash
         run: tar --zstd -xf kit.tar.zst && rm kit.tar.zst
+      - name: cargo-nextest
+        shell: bash
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/nt.zip" "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-${NEXTEST_VERSION}/cargo-nextest-${NEXTEST_VERSION}-x86_64-pc-windows-msvc.zip"
+          echo "${NEXTEST_WINDOWS_SHA256}  $RUNNER_TEMP/nt.zip" | sha256sum -c -
+          unzip -o "$RUNNER_TEMP/nt.zip" cargo-nextest.exe -d "$RUNNER_TEMP/nextest"
+          echo "$RUNNER_TEMP/nextest" >> "$GITHUB_PATH"
       # the runner's desktop is 1024x768; the panel tests open a 1440x900 game window and a 1200x700 projector
       - name: screen 1920x1080
         shell: pwsh
@@ -176,13 +240,14 @@ jobs:
           $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
           "screen $($b.Width)x$($b.Height)"
           if ($b.Width -lt 1600 -or $b.Height -lt 1000) { throw "screen still $($b.Width)x$($b.Height)" }
-      - name: cargo test (the GPU snapshot tests run in their own step)
-        run: 'cargo test --locked --workspace --target x86_64-pc-windows-msvc --no-fail-fast -- --skip snapshots::'
+      - name: tests (the GPU snapshot tests run in their own step)
+        run: cargo-nextest nextest run --archive-file tests.tar.zst --workspace-remap '${{ github.workspace }}' --no-fail-fast -E 'not test(/^snapshots::/)'
       - name: cargo xtask check win
         run: cargo xtask check win
+      # one at a time: wgpu devices made in parallel crashed the test process (crates/forza/tests/it/snapshots.rs)
       - name: snapshots (informational, the runner has no GPU)
         continue-on-error: true
-        run: 'cargo test --locked -p forza --test it --target x86_64-pc-windows-msvc -- snapshots::'
+        run: cargo-nextest nextest run --archive-file tests.tar.zst --workspace-remap '${{ github.workspace }}' --no-fail-fast -j 1 -E 'test(/^snapshots::/)'
       - name: snapshot differences
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -212,7 +277,7 @@ jobs:
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [changes, lint, build, windows-tests, deny]
+    needs: [changes, lint, build, test-build, windows-tests, deny]
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
