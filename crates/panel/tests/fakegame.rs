@@ -83,6 +83,7 @@ fn panel_draws_in_fakegame() {
         "Present detoured",
         "frame dump 1440x900",
         "frame dump 1280x800",
+        "foreign hooks: ", // "none", or what this PC hooks into every game (NVIDIA's nvspcap.dll on the dev PC)
         "unloaded",
     ] {
         assert!(log.contains(line), "the panel's log has no '{line}'");
