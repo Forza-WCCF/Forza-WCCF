@@ -31,6 +31,7 @@ Each guard covers the IP-helper calls listed here. It is not a general sandbox.
 - Never start the 2010–11 programs from WSL interop (`/mnt/c/...exe` from a Linux shell, or `cmd.exe /c` from WSL).
   WSL gives every program it starts "Prefer System32 images", so the game loads Windows' `winmm.dll` instead of the
   hook and runs unguarded. Start the Launcher from Explorer (from WSL: `explorer.exe 'C:\path\Launcher.exe'`).
+  Builds and tests run natively on Windows; that does not change this rule for a start from a WSL shell.
 
 ### Linux server (Wine)
 
