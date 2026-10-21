@@ -888,6 +888,10 @@ static BOOL WINAPI hook_CloseHandle(HANDLE h)
     return real_CloseHandle(h);
 }
 
+/* Set when an import could not be read or patched (no name table, VirtualProtect refused): "not imported" and "could not
+ * patch" both return NULL, and the DHCP guard must tell them apart. */
+static int g_iat_unsure;
+
 /* fn != NULL: match the import by name; fn == NULL: match it by ordinal `ord`. */
 static void *patch_iat_any(HMODULE mod, const char *dll, const char *fn, WORD ord, void *newfn)
 {
@@ -910,8 +914,10 @@ static void *patch_iat_any(HMODULE mod, const char *dll, const char *fn, WORD or
         IMAGE_THUNK_DATA *oft, *ft;
         if (lstrcmpiA(dn, dll) != 0)
             continue;
-        if (!imp->OriginalFirstThunk)      /* need the name/ordinal table to match */
+        if (!imp->OriginalFirstThunk) {    /* need the name/ordinal table to match */
+            g_iat_unsure = 1;
             continue;
+        }
         oft = (IMAGE_THUNK_DATA *)(base + imp->OriginalFirstThunk);
         ft  = (IMAGE_THUNK_DATA *)(base + imp->FirstThunk);
         for (; oft->u1.AddressOfData; oft++, ft++) {
@@ -929,8 +935,10 @@ static void *patch_iat_any(HMODULE mod, const char *dll, const char *fn, WORD or
                     continue;
             }
             orig = (void *)ft->u1.Function;
-            if (!VirtualProtect(&ft->u1.Function, sizeof(void *), PAGE_READWRITE, &prot))
+            if (!VirtualProtect(&ft->u1.Function, sizeof(void *), PAGE_READWRITE, &prot)) {
+                g_iat_unsure = 1;
                 return NULL;
+            }
             ft->u1.Function = (ULONG_PTR)newfn;
             VirtualProtect(&ft->u1.Function, sizeof(void *), prot, &prot);
             return orig;
@@ -1203,17 +1211,20 @@ static void install_wholemsg(HMODULE exe)
             WM_PORT);
 }
 
-static void install_hooks(void)
+static int install_hooks(void)
 {
     HMODULE exe = GetModuleHandleW(NULL);
+    int dhcp_unsure;
 
     real_CreateFileW        = (pfn_CreateFileW)        patch_iat(exe, "kernel32.dll", "CreateFileW",        hook_CreateFileW);
     real_CreateFileA        = (pfn_CreateFileA)        patch_iat(exe, "kernel32.dll", "CreateFileA",        hook_CreateFileA);
     real_CreateFileMappingA = (pfn_CreateFileMappingA) patch_iat(exe, "kernel32.dll", "CreateFileMappingA", hook_CreateFileMappingA);
     real_OpenFileMappingA   = (pfn_OpenFileMappingA)   patch_iat(exe, "kernel32.dll", "OpenFileMappingA",   hook_OpenFileMappingA);
     real_DeviceIoControl    = (pfn_DeviceIoControl)    patch_iat(exe, "kernel32.dll", "DeviceIoControl",    hook_DeviceIoControl);
+    g_iat_unsure = 0;
     real_IpReleaseAddress   = (pfn_IpAddr) patch_iat(exe, "iphlpapi.dll", "IpReleaseAddress", hook_IpReleaseAddress);
     real_IpRenewAddress     = (pfn_IpAddr) patch_iat(exe, "iphlpapi.dll", "IpRenewAddress",   hook_IpRenewAddress);
+    dhcp_unsure = g_iat_unsure;
     real_CreateProcessA     = (pfn_CreateProcessA) patch_iat(exe, "kernel32.dll", "CreateProcessA", hook_CreateProcessA);
 
     logline("==== mxhook attached (pid %lu) ====", GetCurrentProcessId());
@@ -1246,6 +1257,12 @@ static void install_hooks(void)
             real_OpenFileMappingA != 0, real_DeviceIoControl != 0,
             real_IpReleaseAddress != 0, real_IpRenewAddress != 0, real_CreateProcessA != 0,
             g_net_on && real_gethostbyname != 0, g_net_on && real_inet_addr != 0);
+    /* fail closed: an iphlpapi import that could not be read or patched may still release the host's lease */
+    if (dhcp_unsure) {
+        logline("REFUSING TO RUN: the iphlpapi.dll imports could not be patched, so IpReleaseAddress/IpRenewAddress may reach the host");
+        return 0;
+    }
+    return 1;
 }
 
 BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
@@ -1257,7 +1274,8 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
         open_log();
         InterlockedExchange(&g_ready, 1);
         g_verbose = (GetEnvironmentVariableA("MXHOOK_VERBOSE", NULL, 0) > 0);
-        install_hooks();
+        if (!install_hooks())
+            return FALSE;   /* the loader then refuses to start the game */
     }
     return TRUE;
 }

@@ -45,8 +45,9 @@ static void patch_iat(const char *dll, const char *func, void *repl) {
         const char *name = (const char *)((BYTE *)mod + imp->Name);
         if (_stricmp(name, dll) != 0) continue;
         PIMAGE_THUNK_DATA first = (PIMAGE_THUNK_DATA)((BYTE *)mod + imp->FirstThunk);
-        PIMAGE_THUNK_DATA orig  = (PIMAGE_THUNK_DATA)((BYTE *)mod + (imp->OriginalFirstThunk
-                                     ? imp->OriginalFirstThunk : imp->FirstThunk));
+        /* no name table: FirstThunk already holds resolved addresses, not name RVAs - skip, never dereference them */
+        if (!imp->OriginalFirstThunk) { if (g_log) { fprintf(g_log, "netguard: %s has no name table, not patched\n", name); fflush(g_log); } continue; }
+        PIMAGE_THUNK_DATA orig  = (PIMAGE_THUNK_DATA)((BYTE *)mod + imp->OriginalFirstThunk);
         for (; orig->u1.AddressOfData; orig++, first++) {
             if (IMAGE_SNAP_BY_ORDINAL(orig->u1.Ordinal)) continue;
             PIMAGE_IMPORT_BY_NAME bn = (PIMAGE_IMPORT_BY_NAME)((BYTE *)mod + orig->u1.AddressOfData);
