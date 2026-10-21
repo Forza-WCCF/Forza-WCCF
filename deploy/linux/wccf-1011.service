@@ -1,0 +1,31 @@
+# /etc/systemd/system/wccf-1011.service: the 2010-11 server (docs/SELF-HOSTING.md). Paths assume FORZA_HOME=/srv/forza-wccf.
+[Unit]
+Description=Forza-WCCF 2010-11 server (Wine control + engines, seat desk, match relay, log inbox, projector relay)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=wccf
+Group=wccf
+Environment=HOME=/srv/forza-wccf
+Environment=FORZA_HOME=/srv/forza-wccf
+ExecStart=/srv/forza-wccf/wccf-1011.sh start
+ExecStop=/srv/forza-wccf/wccf-1011.sh stop
+TimeoutStartSec=420
+TimeoutStopSec=90
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/srv/forza-wccf
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+MemoryMax=3G
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,32 @@
+# /etc/systemd/system/forza-1718.service: the 2017-18 server (docs/SELF-HOSTING.md). Replace 203.0.113.10 with this
+# host's public IPv4 (the reflect address the game tells players for VS).
+[Unit]
+Description=Forza-WCCF 2017-18 server (desk + lobby TCP 20032, game server TCP 20060, VS reflect UDP 20061, relay UDP 20042)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=wccf
+Group=wccf
+# All public binds. The game server serves only loopback and the IPs/CIDRs in allow.txt (re-read when the file
+# changes); the desk (LOBBY, VS rooms) and the reflect answer anyone. The relay (UDP 20042) stays behind the firewall.
+# `all`: one process, so the desk's VS rooms and the game server share one matcher. LIFE 10 years: no 12 h exit.
+# --allow-any instead of --allow-file serves every address (the game server has no sign-in).
+Environment=WCCF_BIND=0.0.0.0
+ExecStart=/srv/forza-wccf/1718/forza-server --edition 2017-18 all --desk-port 20032 --relay-port 20042 --gmsvr-port 20060 --store /srv/forza-wccf/1718/data --game-data /srv/forza-wccf/1718/game-data --skip-tutorial --allow-file /srv/forza-wccf/1718/allow.txt --vs-public-ip 203.0.113.10 --reflect-port 20061 315360000 /srv/forza-wccf/1718/logs
+Restart=always
+RestartSec=3
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/srv/forza-wccf/1718/data /srv/forza-wccf/1718/logs
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

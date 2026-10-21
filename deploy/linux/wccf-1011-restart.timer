@@ -1,0 +1,9 @@
+# A daily restart clears Wine's slow leaks. Pick an hour when nobody plays; the time zone is the host's unless named.
+[Unit]
+Description=Daily restart of the Forza-WCCF 2010-11 server
+
+[Timer]
+OnCalendar=*-*-* 05:00:00
+
+[Install]
+WantedBy=timers.target

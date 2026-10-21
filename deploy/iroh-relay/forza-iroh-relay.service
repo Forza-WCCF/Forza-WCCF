@@ -1,0 +1,26 @@
+[Unit]
+Description=Forza-WCCF iroh relay (TCP 8443 + UDP 7842)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=irohrelay
+Group=irohrelay
+ExecStart=/usr/local/bin/iroh-relay --config-path /etc/forza/iroh-relay.toml
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

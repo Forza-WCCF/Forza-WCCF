@@ -1,0 +1,20 @@
+# /etc/forza/iroh-relay.toml: iroh-relay for Forza-WCCF 2017-18 direct VS (docs/SELF-HOSTING.md). The binary is the
+# upstream iroh-relay at the iroh version in the repository's Cargo.lock. Keys: iroh-relay's src/main.rs.
+enable_relay = true
+# plain HTTP only on loopback; TLS below
+http_bind_addr = "127.0.0.1:3340"
+enable_quic_addr_discovery = true
+enable_metrics = false
+access = "everyone"
+
+[tls]
+https_bind_addr = "[::]:8443"
+quic_bind_addr = "[::]:7842"
+# Reloading re-reads the files after the certificate's renewal hook copies them
+cert_mode = "Reloading"
+manual_cert_path = "/etc/forza/relay/fullchain.pem"
+manual_key_path = "/etc/forza/relay/privkey.pem"
+
+# per client, so one PC cannot fill the host's uplink
+[limits.client.rx]
+bytes_per_second = 262144
