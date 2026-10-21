@@ -141,6 +141,9 @@ pub struct TableFile {
     stamp: Option<SystemTime>,
     /// A write could not be swapped in: the next try writes again, and the file is not read back meanwhile.
     pub pending: bool,
+    /// The table is swapped in but the formation copy failed: only the copy is tried again (`retry_copy`).
+    pub copy_owed: bool,
+    copy_try: Option<std::time::Instant>,
 }
 
 impl TableFile {
@@ -151,6 +154,8 @@ impl TableFile {
             state: dir.join("fpr_panel_state.json"),
             stamp: None,
             pending: false,
+            copy_owed: false,
+            copy_try: None,
         }
     }
 
@@ -190,10 +195,22 @@ impl TableFile {
         }
         swap_in(&tmp, &self.table, 4, 1)?;
         self.stamp = Some(when);
-        // still pending when the formation copy fails: the two files disagree until a write succeeds
-        self.write_state(cards)?;
         self.pending = false;
+        // the copy is owed until it is written: the two files disagree meanwhile
+        self.copy_owed = true;
+        self.write_state(cards)?;
+        self.copy_owed = false;
         Ok(())
+    }
+
+    /// The formation copy still owed: written again, at most once a second.
+    pub fn retry_copy(&mut self, cards: &[Placed]) {
+        let now = std::time::Instant::now();
+        if !self.copy_owed || self.copy_try.is_some_and(|t| now.duration_since(t) < Duration::from_secs(1)) {
+            return;
+        }
+        self.copy_try = Some(now);
+        self.copy_owed = self.write_state(cards).is_err();
     }
 
     fn write_state(&self, cards: &[Placed]) -> io::Result<()> {
@@ -692,17 +709,20 @@ mod tests {
         assert_eq!(f.read().unwrap(), cards);
     }
 
-    /// A failed formation copy leaves the write pending, so the caller tries again.
+    /// A failed formation copy leaves only the copy owed: the table is swapped in (not pending, edits seen), and
+    /// `retry_copy` writes the copy alone.
     #[test]
-    fn a_failed_copy_stays_pending() {
+    fn a_failed_copy_stays_owed() {
         let d = tempfile::tempdir().unwrap();
         let mut f = TableFile::in_dir(d.path());
+        let t = [p(1, 101, 0.5, 0.5)];
         fs::create_dir(&f.state).unwrap(); // a folder where the copy goes: the swap fails
-        assert!(f.write(&[p(1, 101, 0.5, 0.5)]).is_err());
-        assert!(f.pending);
+        assert!(f.write(&t).is_err());
+        assert!(!f.pending && f.copy_owed);
+        assert!(!f.changed());
         fs::remove_dir(&f.state).unwrap();
-        f.write(&[p(1, 101, 0.5, 0.5)]).unwrap();
-        assert!(!f.pending);
+        f.retry_copy(&t);
+        assert!(!f.copy_owed && f.state.is_file());
     }
 
     /// `board_add_locked`'s places: the card's own line first, then DF MF FW GK, then the bench; the lowest free slot.

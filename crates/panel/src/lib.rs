@@ -1354,7 +1354,7 @@ impl Render {
                 line.join(" ")
             ));
         } else if !self.table.pending {
-            return;
+            return self.table.retry_copy(&self.placed);
         }
         self.table_write();
     }
