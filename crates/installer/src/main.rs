@@ -527,6 +527,14 @@ fn wgpu_options() -> eframe::WgpuConfiguration {
     c
 }
 
+/// What a panic said.
+fn panic_text(p: &(dyn std::any::Any + Send)) -> String {
+    p.downcast_ref::<&str>()
+        .map(|s| (*s).to_owned())
+        .or_else(|| p.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "panic".into())
+}
+
 fn run_window(renderer: eframe::Renderer) -> eframe::Result {
     let opts = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -572,7 +580,10 @@ fn main() {
     };
     let mut last = Ok(());
     for renderer in tries {
-        last = run_window(renderer);
+        // a renderer that panics (a driver wgpu cannot use: a laptop's GeForce 920MX never opened the window) is a
+        // failure like an error, so the next one is tried
+        last = std::panic::catch_unwind(|| run_window(renderer).map_err(|e| e.to_string()))
+            .unwrap_or_else(|p| Err(panic_text(&*p)));
         if last.is_ok() {
             return;
         }
@@ -584,7 +595,7 @@ fn main() {
             .set_description(text(
                 Lang::detect(),
                 "installer.err_window",
-                &[("detail", &e.to_string())],
+                &[("detail", &e)],
             ))
             .show();
         std::process::exit(1);

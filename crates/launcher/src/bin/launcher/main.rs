@@ -937,6 +937,14 @@ fn wgpu_options() -> eframe::WgpuConfiguration {
     c
 }
 
+/// What a panic said.
+fn panic_text(p: &(dyn std::any::Any + Send)) -> String {
+    p.downcast_ref::<&str>()
+        .map(|s| (*s).to_owned())
+        .or_else(|| p.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "panic".into())
+}
+
 /// The window, until it is closed (or gone because the game is up and then ended well).
 fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
     if kit.edition() == Edition::E1011 {
@@ -972,23 +980,39 @@ fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
             ..Default::default()
         };
         let fonts = &fonts;
-        ran = eframe::run_native(
-            &title,
-            options,
-            Box::new(move |cc| {
-                let _ = CTX.set(cc.egui_ctx.clone());
-                log(&format!("window: {renderer:?} renderer"));
-                let app = App::new(kit, folder);
-                if let Err(e) = theme::install(&cc.egui_ctx, app.st.edition, fonts) {
-                    return Err(tf(
-                        "launcher.msg_no_fonts",
-                        &[("error", &format!("{}: {e}", fonts.display()))],
-                    )
-                    .into());
+        // a renderer that panics (a driver wgpu cannot use) is tried like one that fails: the next one, or the message
+        let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            eframe::run_native(
+                &title,
+                options,
+                Box::new(move |cc| {
+                    let _ = CTX.set(cc.egui_ctx.clone());
+                    log(&format!("window: {renderer:?} renderer"));
+                    let app = App::new(kit, folder);
+                    if let Err(e) = theme::install(&cc.egui_ctx, app.st.edition, fonts) {
+                        return Err(tf(
+                            "launcher.msg_no_fonts",
+                            &[("error", &format!("{}: {e}", fonts.display()))],
+                        )
+                        .into());
+                    }
+                    Ok(Box::new(app))
+                }),
+            )
+        }));
+        ran = match run {
+            Ok(r) => r,
+            Err(p) => {
+                let why = panic_text(&*p);
+                log(&format!("window: {renderer:?} renderer crashed ({why})"));
+                if !tries.is_empty() {
+                    continue;
                 }
-                Ok(Box::new(app))
-            }),
-        );
+                Err(eframe::Error::AppCreation(
+                    tf("launcher.msg_no_window", &[("error", &why)]).into(),
+                ))
+            }
+        };
         match &ran {
             // the window never opened with this renderer: the next one, and the error in the log
             Err(e) if !matches!(e, eframe::Error::AppCreation(_)) && !tries.is_empty() => {
