@@ -5,6 +5,9 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  # weekly on main: keeps the caches alive (GitHub drops a cache after 7 days unused) and catches new problems
+  schedule:
+    - cron: '17 4 * * 1'
 
 permissions:
   contents: read
