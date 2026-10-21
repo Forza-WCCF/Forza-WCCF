@@ -364,7 +364,10 @@ impl Shared {
         {
             // a stranger holds a connection only so long: capped, and closed unless a seat pairs with it in time
             let st = self.st();
-            if st.conns.len() >= MAX_LINKS && !st.conns.contains_key(&id) {
+            if st.conns.len() >= MAX_LINKS
+                && !st.conns.contains_key(&id)
+                && !st.seats.is_paired(&id)
+            {
                 drop(st);
                 conn.close(1u8.into(), b"busy");
                 return;
