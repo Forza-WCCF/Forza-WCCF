@@ -134,8 +134,8 @@ NoSaveClub (1,502 records), NoSavePlayer [V FUN_00422210 skips cases 3-5].
   ASCII all occur (a club name typed in plain ASCII).
 
 The complete list (all 429 named fields with widths, min, max, default and offsets) is in
-`.work\research\club_card\schema.tsv` and `club_card_schema.py`. The table below covers everything the brief asked
-for. "bit" = position in the payload, MSB first. Sample values are listed s1 / s2a / s2b / s3 / s4. Dates are not
+`.work\research\club_card\schema.tsv` and `club_card_schema.py`. The table below covers every field the club card work
+needs. "bit" = position in the payload, MSB first. Sample values are listed s1 / s2a / s2b / s3 / s4. Dates are not
 printed, as this report carries none.
 
 | field (group) | bit; copy A place | bits | encoding and meaning | samples | tag |
@@ -897,7 +897,7 @@ An encoder is **not built**. The decoder's layout (`LAYOUT` in `decode_club_card
 
 ## 11. Sources
 
-**Code** (`.work\ghidra_out_1011_classes\client\`, addresses as `FUN_xxxxxxxx`; plus disassembly via
+**Code** (static analysis in Ghidra, addresses as `FUN_xxxxxxxx`; plus disassembly via
 `.work\_disasm.py`):
 - **Payload:** FUN_00422210 (parse; jump table 0x0042241c), FUN_00422440 (serialize), FUN_00422120 (size),
   FUN_00424130/FUN_00424260 (bit reader), FUN_004240d0/FUN_004241e0 (bit writer), FUN_00424190 (bytes per group),
@@ -945,7 +945,7 @@ An encoder is **not built**. The decoder's layout (`LAYOUT` in `decode_club_card
 
 **Where this disagrees with or sharpens earlier notes:**
 - `docs\NETWORK-MAP-2010-11.md` section 8:
-  - It said "the player's real club ... improper count is most likely 0 [I]; the agent guessed 1". **The card reads 1**
+  - It said "the player's real club ... improper count is most likely 0 [I]; an earlier guess was 1". **The card reads 1**
     (s2b) [V]. The cut session at s2a was counted at the restart.
   - "Salary -5,000": the amount is in the card's units of $100, so it is **-$500,000 on screen**. In practice the
     salary becomes $0 (seen twice in the replay) [V].

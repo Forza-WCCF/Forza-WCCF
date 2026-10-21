@@ -843,7 +843,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         ui.say(BUSY_TEXT);
         return Err(REFUSED);
     };
-    // before anything of the run exists: no game program may start unguarded (AGENTS.md section 5)
+    // before anything of the run exists: no game program may start unguarded (docs/SAFETY.md)
     if edition == Edition::E1718
         && let Err(why) = guard::check(&game, &seat, p.client(), p.control())
     {
@@ -1048,7 +1048,7 @@ impl Run<'_> {
         out.lines().filter(|l| !l.trim().is_empty()).for_each(|l| self.say(l));
     }
 
-    /// The 2010-11 network guard (AGENTS.md section 5), checked before any game program starts: the game and seat 1
+    /// The 2010-11 network guard (docs/SAFETY.md), checked before any game program starts: the game and seat 1
     /// hold this kit's hook (wccfk.dll) and every program loads it (`guard::hook_1011`).  Kit 6 loads its hook as
     /// wccfk.dll; a game set up by an older kit, a newer kit unzipped over this one by hand, or a program put back by
     /// hand fails that - set up once, as Setup does, then check again: still not guarded, nothing starts.

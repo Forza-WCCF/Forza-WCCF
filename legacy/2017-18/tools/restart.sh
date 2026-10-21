@@ -2,10 +2,10 @@
 # restart.sh TAG - from WSL: keep the last run's logs as $WCCF1718_RUNTIME/evidence/logs-TAG, stage the kit (cargo xtask
 # stage 2017-18; its programs, Launcher.exe among them, come from `cargo xtask build` in the same checkout), sync it to
 # the runtime and re-run setup (rewrites seat 1's exe and the controller from patches1718.py and records
-# setup-hashes.json). It never starts or stops the game: WSL interop would start it without its guard (AGENTS.md
-# section 5). Close the game's window first; start it from Windows: Launcher.exe in <runtime>\kit (double-click).
+# setup-hashes.json). It never starts or stops the game: WSL interop would start it without its guard
+# (docs/SAFETY.md). Close the game's window first; start it from Windows: Launcher.exe in <runtime>\kit (double-click).
 #   WCCF1718_GAME     decrypted game folder (needed by setup1718.py)
-#   WCCF1718_RUNTIME  runtime folder (default <runtime>)
+#   WCCF1718_RUNTIME  runtime folder (required)
 # RETIRED (2026-10-21): setup1718.py needs the Python the staged kit no longer ships. Setup is Rust now (crates/forza/src/setup/e1718.rs),
 # run by Launcher.exe. The rest of this script is kept for reference and no longer runs.
 echo "restart.sh is retired. Stage with: cargo xtask build && cargo xtask stage 2017-18, copy target/kit/2017-18 to <runtime>\\kit," >&2
@@ -13,7 +13,7 @@ echo "then on Windows run: Launcher.exe <runtime>\\game (setup in place on that 
 exit 1
 set -eo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
-RT=${WCCF1718_RUNTIME:-<runtime>}
+RT=${WCCF1718_RUNTIME:?set WCCF1718_RUNTIME to the 2017-18 runtime folder}
 E=$RT/evidence
 if [ -e "$RT/kit/data/running.json" ]; then
   echo "restart.sh: a run is on ($RT/kit/data/running.json) - close the game's window first" >&2; exit 1

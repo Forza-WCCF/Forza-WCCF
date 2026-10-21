@@ -383,13 +383,13 @@ the term is low, so the player never sees the end screen.
 | 7 | Which Club Make steps a transfer skips (step 5 = home town?) | [I] | read `SeqClubMakeMain` state handling, or T6 |
 | 8 | What FUN_00576ab0's status 0-3 draws ("Active / Expired / Transferred / Transferable"?) | [I] | T3 screenshot |
 | 9 | What the publisher's server did with a transferred manager | [A] | no server to ask; only matters for a future private server |
-| 10 | Where the player's real card stands now (term, counter) | [A] | his own decode, when he chooses (not read for this map) |
+| 10 | Where the player's real card stands now (term, counter) | [A] | their own decode, when they choose (not read for this map) |
 
 ---
 
 ## 8. Sources
 
-- **Code** (`.work\ghidra_out_1011_classes\client\`, plus `.work\_disasm.py` on `client_Release.exe`):
+- **Code** (static analysis in Ghidra, plus `.work\_disasm.py` on `client_Release.exe`):
   FUN_005dd1b0, FUN_005dd130, FUN_005dd060, FUN_005dd0b0, FUN_005edea0, FUN_004d8a80, FUN_004d74f0, FUN_004d8f90,
   FUN_004d8fb0, FUN_004d7580, FUN_004d7530, FUN_004d8b60, FUN_004d6060 (0x004d6300-0x004d64c2), FUN_004d6c40,
   FUN_004d5dc0, FUN_004d8ee0, `wccf::io::IccInterface::vfunction2`, FUN_00572c70, `ICCardLoadingSequenceNode::vfunction21`,

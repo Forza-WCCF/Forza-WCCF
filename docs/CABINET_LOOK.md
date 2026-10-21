@@ -19,7 +19,7 @@ Inspiration only: this file holds words, measurements and estimated colour value
 **Shape [S].** The satellite is a seat-and-table unit: "satellite seats: 8 (4 in the 4-satellite version) plus a main monitor", ALL.Net compatible [S3, S4]. The top of the satellite is a field-shaped surface where the player cards are placed; card placement sets the formation and cards can be moved during a match [S1]. The main cabinet (8P and 4P variants, later a MINI) uses DLP projectors for the shared main picture [S1]. The original system started as ten NAOMI 2 boards behind a server PC with nine monitors for eight players [S2]. The 2010–11 and 2017–18 editions run on the RingEdge board family [S2, L].
 
 **Card table [S/L].**
-- Surface is a flat card reader developed in-house, chosen over a deck reader [S2]. The 2017–18 client names it "Flat Reader 3 (COM%d)" and has an emulator mode [L: `ringedge/WCCF-Kit-1718/docs/TASKS.md:43`, `ringedge/1718-kit-20261007/HANDOFF.md:53`].
+- Surface is a flat card reader developed in-house, chosen over a deck reader [S2]. The 2017–18 client names it "Flat Reader 3 (COM%d)" and has an emulator mode [L: the WCCF-Kit-1718 task notes].
 - Card size 81 mm x 58 mm (the ISO ID-1 bank card is 85.60 x 53.98 mm) [S1].
 - The operation panel splits into three zones: defensive zone near your own goal, central zone, attacking zone near the opponent's goal [S3].
 - A team has 11 cards on the field and a squad of up to 16 [S1, S6].
@@ -45,16 +45,16 @@ The sources describe the screens only in outline; visual detail is **[I]** unles
 
 Sourced list for the 2009–11 satellite [S3, S4]: card movement (not a button), **five tactic buttons**, **data display**, **key player**, **shoot**, **goalkeeper**. The 2012-era list in the Japanese encyclopedia adds behaviour: shoot is manual (shots are not automatic), the goalkeeper button is held to send the keeper forward, the key-player button is held while morale is at maximum to fire a special order [S1]. The tactic cluster is four directions plus a centre button; orders are left, right, centre, counterattack and pressure, and several can be pressed together [S2, S3 describe the same set]. Lit tactic buttons narrow pass options when the side directions stay lit [S3].
 
-Photo findings (cabinet from 2006–07, unchanged to 2017–18; owner decision 2026-10-16, one look for both editions). Left plate: a diamond of four yellow triangles (up CENTRAL, down COUNTER, left L-SIDE, right R-SIDE) round a red PRESS square at the centre, with a small green DATA square beside it; the labels are printed beside the triangles. Right plate: a big red SHOOT and a big blue KEEPER round button side by side, a small yellow round KEY PLAYER and a small green round START. The game's own legend reads green start, yellow KEY, red decide, blue back.
+Photo findings (cabinet from 2006–07, unchanged to 2017–18; decided 2026-10-16: one look for both editions). Left plate: a diamond of four yellow triangles (up CENTRAL, down COUNTER, left L-SIDE, right R-SIDE) round a red PRESS square at the centre, with a small green DATA square beside it; the labels are printed beside the triangles. Right plate: a big red SHOOT and a big blue KEEPER round button side by side, a small yellow round KEY PLAYER and a small green round START. The game's own legend reads green start, yellow KEY, red decide, blue back.
 
 Design translation **[I]**:
-- The panel departs from the cabinet's two plates on purpose (owner request 2026-10-21: more room for the picture). `deck_layout` in `crates/forza/src/ui/panel.rs` puts everything in one row 144 points high: the tactic diamond with DATA beside it, then KEY PLAYER, SHOOT, KEEPER and START in a line, then CARD on its own plate (2010-11 only; 2017-18 has no machine plate). Shapes stay round, square or triangle, and clicks count only on the shape.
+- The panel departs from the cabinet's two plates on purpose (2026-10-21: more room for the picture). `deck_layout` in `crates/forza/src/ui/panel.rs` puts everything in one row 144 points high: the tactic diamond with DATA beside it, then KEY PLAYER, SHOOT, KEEPER and START in a line, then CARD on its own plate (2010-11 only; 2017-18 has no machine plate). Shapes stay round, square or triangle, and clicks count only on the shape.
 - Small buttons carry their label beside them, the big ones inside.
 - Buttons keep an idle, hover and pressed state (3 px travel). Key presses do not light them; only an active tactic order lights its triangle or square.
 - The MACHINE group (CARD only: free play needs no COIN, and the BACK button sent nothing), the formation board and the bottom bar stay modern.
 - KEYS panel: show the physical layout of the cabinet cluster next to each bound key, so the binding reads as "this key presses that cabinet button".
 
-### Window layout (owner decision 2026-10-17: model on a 2K monitor)
+### Window layout (modelled on a 2K monitor, 2026-10-17)
 
 The game renders 1440x900 in both editions (the panel's swap chain follows the game window's client area; `fakegame` asserts it). The panel window maximizes once after the first frame, so a 2560x1440 monitor gives a client of about 2560x1369 (title bar, taskbar) and no window sizing code is needed. `forza::ui::panel::layout` is a pure function of the window rect, tested for no overlaps, 16:10 and the old size at 1440x900:
 
@@ -63,7 +63,7 @@ The game renders 1440x900 in both editions (the panel's swap chain follows the g
 - The board takes what the picture leaves, capped by what its own height uses (pitch 1.25 x width plus bench and hint). The deck row is centred under the picture; the message line is a toast over the picture's lower edge.
 - Not snapped to an integer scale: 1.2x needs 1440 points of height, which a maximized window lacks; the picture is resampled smoothly instead.
 
-### The projector window (owner decision 2026-10-21: the in-panel view is gone)
+### The projector window (2026-10-21: the in-panel view is gone)
 
 The projector (the second game process, 1600x600: two 800x600 screens side by side) has its own window again, in both editions (`crates/panel/src/projector.rs`, `fullscreen.rs`):
 
@@ -97,13 +97,13 @@ Contrast check: Text white on Night ground is far above 7:1; Lit amber text on N
 
 ## 6. Typography [I]
 
-No source names fonts. The original screens use large bold sans type with heavy numerals and Japanese captions; the project already plans open fonts shipped with an OFL file (`assets/fonts/`) [L: `docs/ROADMAP.md:159`].
+No source names fonts. The original screens use large bold sans type with heavy numerals and Japanese captions; the project already plans open fonts shipped with an OFL file (`assets/fonts/`) [L: `docs/ROADMAP.md`, step 9 "Fonts"].
 
 - **Latin:** a bold, slightly condensed sans for headings and stat numbers (weights 700 and 800); a regular 400 and medium 500 for body. Candidates under OFL: Barlow / Barlow Condensed, Rajdhani, or Oswald for numerals.
 - **Japanese:** Noto Sans JP at 500 and 700, paired with the Latin face; set kana/kanji about 0.95x the Latin size so lines align.
 - **Sizes for the egui text styles:** Heading 20 px bold, Body 14 px, Button 14 px bold, Small 11 px, Monospace 13 px; stat numerals 22 px in the condensed face with tabular figures.
-- **Case:** panel names in capitals (FORMATION BOARD, CATALOGUE, KEYS, SETTINGS, CLUB CARD), matching the project's own naming [L: `docs/ROADMAP.md:597`].
-- EN, IT and JA all ship (AGENTS.md section 4): test that Italian labels (longer than English) and Japanese labels (no spaces) fit the same button widths.
+- **Case:** panel names in capitals (FORMATION BOARD, CATALOGUE, KEYS, SETTINGS, CLUB CARD), matching the project's own naming [L: `docs/ROADMAP.md`, step 9].
+- EN, IT and JA all ship ([CONTRIBUTING.md](../CONTRIBUTING.md)): test that Italian labels (longer than English) and Japanese labels (no spaces) fit the same button widths.
 
 ## 7. Motion and sound
 
@@ -159,10 +159,10 @@ Online:
 - Searched without usable detail: 4Gamer title page https://www.4gamer.net/games/114/G011427/ (version dates and prices only); an arcade hobbyist forum thread on a satellite-terminal WCCF setup (card reader model HW210, networked satellites; page blocked to fetching, seen only in search snippets): https://www.arcade-projects.com/threads/naomi-2-satellite-terminal-setup.28745
 
 Local:
-- `docs/ROADMAP.md` (step 9, lines 24, 159, 587-631)
-- `docs/2017-18/RESEARCH.md` (line 52 on-screen notices, lines 79-91)
+- `docs/ROADMAP.md` (step 9)
+- `docs/2017-18/RESEARCH.md` (on-screen notices, the online and Aime update)
 - `docs/research/FREE-PLAY-2010-11.md`, `CLUB-CARD-2010-11.md`, `CONTRACT-END-2010-11.md`
-- `../ringedge/WCCF-Kit-1718/docs/TASKS.md` (line 43), `../ringedge/1718-kit-20261007/HANDOFF.md` (line 53)
+- the WCCF-Kit-1718 task notes (the flat reader's emulator mode)
 
 ## 11. Gaps to close before freezing the theme
 

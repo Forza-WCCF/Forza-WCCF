@@ -1,10 +1,10 @@
 # WCCF 2010-11 - coins, credits and free play (read-only research)
 
 Written 2026-10-09. Nothing was run, started or changed. Sources: the original client (client_Release.exe: the projector's copy and three seat 1 copies, the same bytes at the
-addresses used here), its Ghidra decompile, `control_Release.exe`, `testmode_Release.exe`, this kit's source and one
+addresses used here), analysed in Ghidra, `control_Release.exe`, `testmode_Release.exe`, this kit's source and one
 kit hook log.
 
-Tags: **[V]** read by me (address, decompile line, file line). **[I]** inferred (from what is said). **[A]** not known.
+Tags: **[V]** read in the code or a file (address, file line). **[I]** inferred (from what is said). **[A]** not known.
 
 ---
 
@@ -37,10 +37,9 @@ Tags: **[V]** read by me (address, decompile line, file line). **[I]** inferred 
 
 - The cabinet. amCredit ("amCredit Ver.1.08 Build:Oct 18 2011", string in client, control and testmode [V]) is driven
   by teaArcade2's `JvsManager`: `initCredit` `FUN_007a3c10@0x007a3c10`, `getCreditString` `FUN_007a3830`,
-  `getCreditStatus` `FUN_007a3880`, `isCreditEnough` (check + take) `FUN_007a38e0` [V: their error texts name them,
-  all_client.c:1498673-1498785].
+  `getCreditStatus` `FUN_007a3880`, `isCreditEnough` (check + take) `FUN_007a38e0` [V: their error texts name them].
 - Coins arrive from the JVS I/O board's coin counters: `FUN_0082caa0` -> `FUN_0082c820` (per coin slot, multiplier) ->
-  `FUN_0082c4b0` (coins -> credits) [V all_client.c:1699181-1699468, 1698865-1699047]. In the kit those counters come
+  `FUN_0082c4b0` (coins -> credits) [V]. In the kit those counters come
   from `_keys_seat1.py`'s `coin1=N` line through the I/O board stand-in [V `_keys_seat1.py:314-332`].
 - The server (`control_Release.exe`) has no coin logic of its own: its only coin/credit strings are the same shared
   library texts plus the WCCF Cup option line (2.4) [V string scan]. It knows the bookkeeping message name
@@ -51,13 +50,13 @@ Tags: **[V]** read by me (address, decompile line, file line). **[I]** inferred 
 
 | Address | What | Tag |
 |---|---|---|
-| `0x00CD0F90` | 1 = amCredit started (`FUN_0082c240` sets it last) | [V all_client.c:1698834, 1698852] |
-| `0x00CD0F98` .. `0x00CD0FA7` | the 16-byte coin setting in use (copied in by `FUN_0082c240`) | [V :1698780-1698786] |
+| `0x00CD0F90` | 1 = amCredit started (`FUN_0082c240` sets it last) | [V] |
+| `0x00CD0F98` .. `0x00CD0FA7` | the 16-byte coin setting in use (copied in by `FUN_0082c240`) | [V] |
 | `0x00CD0FA8` + 2*player | credits (byte) and leftover coins (byte) per player | [V `FUN_0082bdf0`, `FUN_0082c4b0`] |
 | `0x00CD0FB8` .. | bookkeeping counters (coins per slot, totals) | [V `FUN_0082c820`, :1699247-1699253] |
-| `0x00CD123C` / `123D` / `123E` | credit cap / service-credit cap / player count | [V :1698660-1698664] |
+| `0x00CD123C` / `123D` / `123E` | credit cap / service-credit cap / player count | [V] |
 
-The 16-byte coin setting, as amCredit checks it (`FUN_0082bd00@0x0082bd00`, all_client.c:1697965) and uses it:
+The 16-byte coin setting, as amCredit checks it (`FUN_0082bd00@0x0082bd00`) and uses it:
 
 | Byte | Meaning (the publisher's usual COIN ASSIGNMENTS names) | Allowed | Evidence |
 |---|---|---|---|
@@ -72,12 +71,12 @@ The 16-byte coin setting, as amCredit checks it (`FUN_0082bd00@0x0082bd00`, all_
 ### 2.3 What the coin setting is on seat 1
 
 `FUN_004f2040@0x004f2040` (run once at start-up from `FUN_00401530` via `FUN_004f1fd0` [V callers]) builds it:
-- Only with `IS_RINGEDGE=1` (`DAT_00aeac72`) [V :394790].
+- Only with `IS_RINGEDGE=1` (`DAT_00aeac72`) [V].
 - It starts from the game's copy at `0x00BF2038` (= `FUN_007a2ed0()` + 0x28 [V 0x007a3a6c-0x007a3a73]).
 - If `FUN_00406900()` is true (`*DAT_0113751c != 0` and `+0x10 == 0`; what it means is [A]) it overwrites the copy with
-  the publisher's fixed setting **but keeps byte 2 (FREE PLAY) as stored** [V :394844-394852]: common chute, COIN 1 x5,
+  the publisher's fixed setting **but keeps byte 2 (FREE PLAY) as stored** [V]: common chute, COIN 1 x5,
   COIN 2 x1, bonus adder 5 (or a bonus table), 3 coins per credit, every play 1 credit. Then a bonus table is chosen
-  from the game's SPECIAL CREDIT mode 1-8 [V :395020-395134]. The tables match `testmode_Release.exe`'s texts exactly
+  from the game's SPECIAL CREDIT mode 1-8 [V]. The tables match `testmode_Release.exe`'s texts exactly
   ("MODE_1: 3 COINS 1 CREDIT / 5 COINS 2 CREDITS / 10 COINS 5 CREDITS" ... MODE_5 with 5 coins = 3 credits)
   [V: table {0,0,0,0,1,0,0,0,0,4} gives 3->1, 5->2, 10->5; strings at testmode file offset 0x204168].
 - Otherwise the copy is passed as it is; on seat 1 it is all zeros (3.3), which amCredit rejects, so it uses its own
@@ -106,12 +105,12 @@ With byte 2 of the setting = 1 (`0x00CD0F9A` live):
 - `getCreditString` -> amCredit `0x0082BFE0` returns NULL (`cmp byte [0x00cd0f9a], 0 / jne -> return 0`)
   [V disassembly 0x0082bfed-0x0082bff3]. The game's own free-play test `FUN_004f24e0` answers **yes** when that string is
   NULL [V 0x004f2531-0x004f2548].
-- `FUN_0082bdf0` (status) returns 2 = enough; `FUN_0082be60` (take) returns 1 and takes nothing [V :1698143, :1698196].
-- `FUN_0082c4b0` ignores coins; `FUN_0082c6a0` ignores service credits [V :1698899, :1699076]. The bookkeeping coin
-  counters in `FUN_0082c820` still count [V :1699245-1699255].
+- `FUN_0082bdf0` (status) returns 2 = enough; `FUN_0082be60` (take) returns 1 and takes nothing [V].
+- `FUN_0082c4b0` ignores coins; `FUN_0082c6a0` ignores service credits [V]. The bookkeeping coin
+  counters in `FUN_0082c820` still count [V].
 - The credit display: `FUN_004f2560` returns 1 (free) and `FUN_0047af10` draws its state-1 picture instead of the coin
-  or credit picture [V :218599-218633]; what state 1 shows on screen is [A] (probably "FREE PLAY", like the older game's
-  attract screen, CONTEXT-HANDOFF.md:776 - the other game, analogy only).
+  or credit picture [V]; what state 1 shows on screen is [A] (probably "FREE PLAY", like the older game's
+  attract screen in an older note on the other game, analogy only).
 
 ### 3.2 Where the publisher keeps it and who sets it
 
@@ -131,15 +130,15 @@ With byte 2 of the setting = 1 (`0x00CD0F9A` live):
 ### 3.3 Why the kit cannot set it with a file today [I, strong]
 
 - The settings chip is opened through Windows' device-setup calls (`SetupDiGetClassDevsA` on the publisher's SMBus driver GUID,
-  then `CreateFileA`) [V all_client.c:1706526-1706588]. The kit's hook does not provide that device [V
+  then `CreateFileA`) [V]. The kit's hook does not provide that device [V
   `source\mxhook\mxhook.c:174-182`: only mxsram, columba and the serial ports], and seat 1's hook log shows no
   `CreateFileA` of any device [V `WCCF-2010-11-kit\data\logs\hook\mxhook_45620.log`: no such line]. So `amEepromInit`
   fails [I].
 - When it fails, the backup load `FUN_007a2f00` is skipped (it runs only if the chip and SRAM both started) and the
-  game's buffer at `0x00BF2010` stays zeroed [V :1498126, :1498140-1498142]. FREE PLAY is therefore 0 on every start
+  game's buffer at `0x00BF2010` stays zeroed [V]. FREE PLAY is therefore 0 on every start
   [V given the failure].
-- (An older note says the game's settings chip "reads/writes a FILE" - CONTEXT-HANDOFF.md:15195. The `eeprom%d.bin` /
-  `busram%d.bin` files are teaArcade2's own game regions, `FUN_004f1690`, not amBackup's record 1 [V :393661, :393723].)
+- (An older note says the game's settings chip "reads/writes a FILE". The `eeprom%d.bin` /
+  `busram%d.bin` files are teaArcade2's own game regions, `FUN_004f1690`, not amBackup's record 1 [V].)
 - To use the publisher's switch from a file, the hook would have to emulate the SMBus device (GUID, four IOCTLs) and the kit
   would ship a chip image with record 1 and its CRC. That also makes the game load every other chip record (region,
   serial, network settings) for the first time - unknown side effects [I]. Not the least invasive route.
@@ -164,16 +163,16 @@ All direct callers were listed from the binary (`pe.py callers`) and match the d
 
 | Screen (node) | Button that decides | Credit check | Take | START-adds-a-coin enough? |
 |---|---|---|---|---|
-| New (blank) club card: `ICCardNewSequenceNode::vfunction21@0x005736a0` -> "Club Make" | START (button table entry 6 = player 1 byte 0 0x80 [V table `0x009FBD30`]) | free, or status kind 0 = enough, checked at the START press [V 0x005737f4-0x00573813] | kind 0 (`xor edx,edx` 0x0057381b) [V] | **Yes**: the driver's coin reaches the game 0.15 s before START [I]. Without credit START does nothing and the timer ends in "ICCardTimeOut" [V :584143] |
-| Club card check: `FUN_005740e0` (TeamCardCheck) -> "Card Arrange" / "Club Make" | START (entry 6, 0x0057424b) [V] | every frame: no credit = START ignored, ends in "ICCardTimeOut" [V :585120-585126, :585210-585216] | kind 0 after the card animation (0x005742d3) [V] | **Yes** [I] |
-| After a match, CONTINUE: `game::LockerRoomSequenceNode::vfunction21@0x005d2eb0` case 1 | START (entry 6, 0x005d316b) [V] | free, or status kind 1 = enough [V 0x005d3149-0x005d3160] | kind 1 (`mov edx, esi`, 0x005d317f) [V] | **Yes** [I]; otherwise "Game Over" when the window closes [V :697610-697612] |
+| New (blank) club card: `ICCardNewSequenceNode::vfunction21@0x005736a0` -> "Club Make" | START (button table entry 6 = player 1 byte 0 0x80 [V table `0x009FBD30`]) | free, or status kind 0 = enough, checked at the START press [V 0x005737f4-0x00573813] | kind 0 (`xor edx,edx` 0x0057381b) [V] | **Yes**: the driver's coin reaches the game 0.15 s before START [I]. Without credit START does nothing and the timer ends in "ICCardTimeOut" [V] |
+| Club card check: `FUN_005740e0` (TeamCardCheck) -> "Card Arrange" / "Club Make" | START (entry 6, 0x0057424b) [V] | every frame: no credit = START ignored, ends in "ICCardTimeOut" [V] | kind 0 after the card animation (0x005742d3) [V] | **Yes** [I] |
+| After a match, CONTINUE: `game::LockerRoomSequenceNode::vfunction21@0x005d2eb0` case 1 | START (entry 6, 0x005d316b) [V] | free, or status kind 1 = enough [V 0x005d3149-0x005d3160] | kind 1 (`mov edx, esi`, 0x005d317f) [V] | **Yes** [I]; otherwise "Game Over" when the window closes [V] |
 | Two-choice screen after a match: `FUN_006f3690` (sub-step 4 of `FUN_006f35e0`) | LEFT/RIGHT choose (entries 2/3), **PRESS or SHOOT** decide (entries 4/7) [V 0x006f369f-0x006f3755] | choice 1 needs free, or status kind 1 = enough [V 0x006f376f-0x006f3790]; without it the press does nothing | later, in the locker room case 4, kind 1 with no check (0x005d33b5) [V] - harmless: with no credit nothing is taken [V `FUN_007a38e0`] | **No** - START is not the decide button. Reached only when `+0x144 == 2`, set from the cup struct `T+0x10 == 1` (locker room case 3, :697702-697732) [V], so WCCF Cup only [I]. Workaround today: press START once (adds a coin), then PRESS |
 | Card purchase / dispenser | - | none [V CARD-DISPENSER-2010-11.md 2.2: nothing on that path looks at credits] | - | not needed |
 | Attract screen | inserting the club card starts, not START [V `AdvertiseSequenceNode::vfunction21`: the card bit held -> next node] | none | - | not needed |
 | Credit display (`FUN_0047af10`) | - | status only, for the picture | - | - |
 
 Notes:
-- `FUN_004f2410` (take) skips the take only for the cup's free play, otherwise asks amCredit [V :395240-395278]; with
+- `FUN_004f2410` (take) skips the take only for the cup's free play, otherwise asks amCredit [V]; with
   amCredit's FREE PLAY on, amCredit takes nothing [V 3.1]. Its return value is ignored by all four callers [V].
 - The 0.15 s ordering (coin before START) is a timing assumption, not a guarantee [I]; if the coin is late, that START
   press is ignored, the coin stays as a credit and the next START works [I].

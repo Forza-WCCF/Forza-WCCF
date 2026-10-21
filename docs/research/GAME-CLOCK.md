@@ -1,10 +1,9 @@
 # Game clocks, timeouts, pause and 2× (2026-10-14)
 
-Research for ROADMAP "Community requests (2026-10-14)": **Pause** and **Fast-forward 2× in menus**. Sources: the
-original programs, analysed on copies only. 2010–11: `client_Release.exe` and `control_Release.exe` IDBs in
-`<build-dir>\ida-online-1011-20261014\`, `match_Release.exe` on a copy in `<build-dir>\ida-clock-20261014\1011\`.
-2017–18: copies of `<runtime>\ida-gamesvr2\client_Release.exe.i64` and `control_Release.exe.i64` in
-`<build-dir>\ida-clock-20261014\1718\`; the 2017–18 match engine was not opened. Nothing was launched. [V] = seen
+Research for ROADMAP "Community requests": **Pause** and **Fast-forward 2× in menus**. Sources: the
+original programs, analysed on copies only. 2010–11: `client_Release.exe`, `control_Release.exe` and
+`match_Release.exe` in IDA. 2017–18: `client_Release.exe` and `control_Release.exe` in IDA; the 2017–18 match
+engine was not opened. Nothing was launched. [V] = seen
 in code, [A] = assumed. Addresses name the binary: `C10` client 2010–11, `K10` control 2010–11, `M10` match engine
 2010–11, `C17` client 2017–18, `K17` control 2017–18.
 

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """test_patch_hook_import.py - renaming the game's winmm import to the kit's hook name (the Defender fix). Built on a
 tiny synthetic PE (the original programs do not ship, so a real one cannot be in CI); the real programs are proved
-separately on the owner's PC. cargo xtask check runs it.
+separately on a PC with the game. cargo xtask check runs it.
     python source\\test_patch_hook_import.py"""
 import os
 import struct
