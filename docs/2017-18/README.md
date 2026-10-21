@@ -18,22 +18,23 @@ Plan and status: [../ROADMAP.md](../ROADMAP.md); notes: [PROGRESS.md](PROGRESS.m
 | `crates/forza/src/setup/e1718.rs` | setup: guarded imports, seat 1 exe patches, controller patch (every original byte checked) |
 | `native/2017-18/` | `mxhook` (`winmm.dll`), `logowin`, `overlay`, `netguard/` (`wccfnet.dll`: stubs the IP-helper calls that drop the host's DHCP lease and loads the panel; `netguard.dll` is built only for the Linux server) |
 | `legacy/2017-18/` | retired Python (`setup1718.py`, `restart.sh`) and its tests |
-| `tools/press.sh`, `cargo xtask cap` | WSL helpers: tap cabinet buttons, capture game windows |
+| `tools/press.sh`, `cargo xtask cap` | `press.sh` is a WSL helper that taps cabinet buttons; `cap` runs on Windows and captures game windows |
 | `tools/ida/` | headless IDA helpers (`ida_query.py`, `dump.py`) for your own analysis copies |
 | [research/catalogue-findings.md](../research/catalogue-findings.md) | 17–18 card catalogue findings |
 | `docs/2017-18/` | progress, research notes, game-server message table |
 
-## Quick start (from WSL)
+## Quick start (from a Windows shell)
 
 Read [../SAFETY.md](../SAFETY.md) first.
 
-1. Copy your decrypted game folder to an NTFS runtime folder as `<runtime>/game`.
-2. `cargo xtask build && cargo xtask stage 2017-18`, then copy `target/kit/2017-18` to `<runtime>/kit`. Set up on Windows
+1. Copy your decrypted game folder to an NTFS runtime folder as `<runtime>\game`.
+2. In a Windows shell in the repository ([CONTRIBUTING.md](../../CONTRIBUTING.md)):
+   `cargo xtask build && cargo xtask stage 2017-18`, then copy `target\kit\2017-18` to `<runtime>\kit`. Set up
    with `Launcher.exe <runtime>\game` (or drop that folder on `Launcher.exe`; `Launcher.exe undo <runtime>\game` reverts).
    Setup works in place (it writes `original\`, `seat1\` and `setup-hashes.json` beside `game\`), so point it at a
    copy, never at your decrypted original. The copy must still be untouched (its `client_Release.exe` imports
    `IPHLPAPI.DLL`); an already guarded copy fails setup's check.
-   Start on Windows: `<runtime>\kit\Launcher.exe` (double-click; from a console `Launcher.exe local`). It refuses to
+   Start: `<runtime>\kit\Launcher.exe` (double-click; from a console `Launcher.exe local`). It refuses to
    start (exit 5) unless `<runtime>\setup-hashes.json` matches the guarded programs and they import `wccfnet.dll`.
    Stop: close the game's window, or `Launcher.exe stop` (`stop force` for a stuck game).
 3. Keys: Enter START, X decide, arrows tactics, 5 coin, F11 window size.
