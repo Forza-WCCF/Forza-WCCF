@@ -8,7 +8,7 @@ use std::path::Path;
 use forza::setup::{find_edition_game, kit_setup};
 use forza::text::{self, Lang, Mode};
 
-use crate::{Kit, choices, procs};
+use crate::{Kit, choices, procs, run};
 
 /// Refused: a game program runs from the game's folders.
 pub const RUNNING: i32 = 3;
@@ -21,8 +21,26 @@ fn running(game: &Path, what: &str, say: &dyn Fn(&str)) -> bool {
     on
 }
 
+/// The kit's admission for a step from Launcher (`run::Admission`), held for the whole step: refused while a run of this
+/// kit starts or is on, in any Launcher window.
+fn admitted(kit: &Kit, what: &str, say: &dyn Fn(&str)) -> Option<run::Admission> {
+    let a = run::admit(kit).filter(|_| !run::any_on(kit));
+    if a.is_none() {
+        say(&format!("  FAIL  The game is running. Close its window, then {what}."));
+    }
+    a
+}
+
 /// Set up (`undo` false) or undo the game in `folder` (an empty one: the game data\settings.json records).
 pub fn game_folder(kit: &Kit, folder: &str, undo: bool, say: &dyn Fn(&str)) -> i32 {
+    let Some(_admitted) = admitted(kit, if undo { "undo" } else { "run setup again" }, say) else {
+        return RUNNING;
+    };
+    folder_step(kit, folder, undo, say)
+}
+
+/// [`game_folder`] inside a start, which holds the admission and is on.
+pub(crate) fn folder_step(kit: &Kit, folder: &str, undo: bool, say: &dyn Fn(&str)) -> i32 {
     let ed = kit.edition();
     let folder = if folder.trim().is_empty() {
         choices::setting(&kit.settings_file(), "game").unwrap_or_default()
@@ -39,6 +57,14 @@ pub fn game_folder(kit: &Kit, folder: &str, undo: bool, say: &dyn Fn(&str)) -> i
 
 /// The game's text into `lang`: "en" English, "it" Italian, "" the original Japanese.
 pub fn game_text(kit: &Kit, lang: &str, say: &dyn Fn(&str)) -> i32 {
+    let Some(_admitted) = admitted(kit, "switch the text again", say) else {
+        return RUNNING;
+    };
+    text_step(kit, lang, say)
+}
+
+/// [`game_text`] inside a start, which holds the admission and is on.
+pub(crate) fn text_step(kit: &Kit, lang: &str, say: &dyn Fn(&str)) -> i32 {
     let ed = kit.edition();
     let recorded = choices::setting(&kit.settings_file(), "game").unwrap_or_default();
     let Some(game) = find_edition_game(ed, &recorded) else {

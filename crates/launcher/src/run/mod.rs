@@ -37,7 +37,7 @@ pub mod rules;
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
-use std::os::windows::io::{FromRawHandle, OwnedHandle};
+use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -53,8 +53,10 @@ use forza::online::seat::{self, Lease};
 use forza::online::send_logs::{self, Scrub};
 use forza::standins::{Handle, Log, aime, aimedb, card_reader, io_board, network, scenes};
 use regex::Regex;
-use windows_sys::Win32::Foundation::{ERROR_ALREADY_EXISTS, FALSE, GetLastError};
-use windows_sys::Win32::System::Threading::{CreateMutexW, OpenMutexW, SYNCHRONIZATION_SYNCHRONIZE};
+use windows_sys::Win32::Foundation::{ERROR_ALREADY_EXISTS, FALSE, GetLastError, WAIT_ABANDONED, WAIT_OBJECT_0};
+use windows_sys::Win32::System::Threading::{
+    CreateMutexW, OpenMutexW, ReleaseMutex, SYNCHRONIZATION_SYNCHRONIZE, WaitForSingleObject,
+};
 
 use crate::card;
 use crate::debug::{self, Maps, Options};
@@ -86,6 +88,8 @@ pub const UNGUARDED_TEXT: &str = "Not started: Launcher.exe was started with \"P
 /// The panel's line in `seat1\forza_panel.log` once its Present detour has drawn a frame: the run's proof it is up.
 pub(crate) const PANEL_UP: &str = "first frame shown";
 
+const BUSY_TEXT: &str =
+    "Not started: another Launcher window is setting up or starting the game. Try again when it is done.";
 const NOT_SET_UP_TEXT: &str = "Not set up yet. Open Launcher.exe, Setup and updates.";
 pub const NOT_GUARDED_TEXT: &str = "Not started: the network guard is not in place, and the game could change this PC's \
     network settings. Press Set up / repair in Launcher (Setup and updates), then start again. Problem:";
@@ -214,13 +218,13 @@ impl Kind {
 
 /// The run's mutex name: the kit folder in the form Windows reports it (a start through the first-run link and one
 /// from the folder itself are the same kit), FNV-1a over it.
-fn lock_name(kit: &Kit, kind: Kind) -> Vec<u16> {
+fn lock_name(kit: &Kit, kind: &str) -> Vec<u16> {
     let key = procs::same_form(kit.dir())
         .encode_utf16()
         .fold(0xcbf2_9ce4_8422_2325_u64, |h, c| {
             (h ^ u64::from(c)).wrapping_mul(0x0100_0000_01b3)
         });
-    format!("Local\\wccf-kit-{}-{key:016x}", kind.name())
+    format!("Local\\wccf-kit-{kind}-{key:016x}")
         .encode_utf16()
         .chain([0])
         .collect()
@@ -228,7 +232,7 @@ fn lock_name(kit: &Kit, kind: Kind) -> Vec<u16> {
 
 /// The run's mutex, if no one holds it: held for as long as the run lasts.
 fn take_lock(kit: &Kit, kind: Kind) -> Option<OwnedHandle> {
-    let name = lock_name(kit, kind);
+    let name = lock_name(kit, kind.name());
     // SAFETY: a NUL-terminated name; the handle is checked, then owned (closed on drop).
     unsafe {
         let h = CreateMutexW(ptr::null(), FALSE, name.as_ptr());
@@ -241,9 +245,37 @@ fn take_lock(kit: &Kit, kind: Kind) -> Option<OwnedHandle> {
     }
 }
 
+/// The kit folder's admission: a start (from its checks to its first game programs), setup, undo and the text switch
+/// hold it in turn, across Launcher windows, so no setup or undo comes between a start's guard check and its game, and
+/// a run and a server never both pass their check.  Released on drop, by the thread that took it.
+pub struct Admission(OwnedHandle);
+
+impl Drop for Admission {
+    fn drop(&mut self) {
+        // SAFETY: this thread owns the mutex (`admit`); the handle is still open.
+        unsafe { ReleaseMutex(self.0.as_raw_handle()) };
+    }
+}
+
+/// The admission, unless another thread holds it (this one may: a start's own setup); never waits.
+pub fn admit(kit: &Kit) -> Option<Admission> {
+    let name = lock_name(kit, "admit");
+    // SAFETY: a NUL-terminated name; the handle is checked, then owned (closed on drop).
+    unsafe {
+        let h = CreateMutexW(ptr::null(), FALSE, name.as_ptr());
+        if h.is_null() {
+            return None;
+        }
+        let h = OwnedHandle::from_raw_handle(h);
+        let got = WaitForSingleObject(h.as_raw_handle(), 0);
+        // abandoned: a Launcher that held it ended - it is this thread's now
+        (got == WAIT_OBJECT_0 || got == WAIT_ABANDONED).then_some(Admission(h))
+    }
+}
+
 /// A run of this kind is on (in this process or another).
 pub fn is_on(kit: &Kit, kind: Kind) -> bool {
-    let name = lock_name(kit, kind);
+    let name = lock_name(kit, kind.name());
     // SAFETY: a NUL-terminated name; a handle that opens is closed at once.
     unsafe {
         let h = OpenMutexW(SYNCHRONIZATION_SYNCHRONIZE, FALSE, name.as_ptr());
@@ -806,6 +838,11 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         ui.say(NOT_SET_UP_TEXT);
         return Err(NOT_SET_UP);
     }
+    // held to the end of the start: see Admission
+    let Some(_admitted) = admit(kit) else {
+        ui.say(BUSY_TEXT);
+        return Err(REFUSED);
+    };
     // before anything of the run exists: no game program may start unguarded (AGENTS.md section 5)
     if edition == Edition::E1718
         && let Err(why) = guard::check(&game, &seat, p.client(), p.control())
@@ -1041,7 +1078,7 @@ impl Run<'_> {
             log(l);
             self.say(l);
         };
-        if crate::setup::game_folder(self.kit, &self.game.display().to_string(), false, &say) != 0 {
+        if crate::setup::folder_step(self.kit, &self.game.display().to_string(), false, &say) != 0 {
             self.say("Setup did not finish (see above). Open Launcher.exe, Setup and updates, then Set up.");
             return Err(Failed(String::new()));
         }
@@ -1078,7 +1115,7 @@ impl Run<'_> {
                     *last.lock().unwrap_or_else(PoisonError::into_inner) = l.trim().to_owned();
                 }
             };
-            let why = match crate::setup::game_text(self.kit, lang, &say) {
+            let why = match crate::setup::text_step(self.kit, lang, &say) {
                 0 => None,
                 code => Some(
                     Some(last.into_inner().unwrap_or_else(PoisonError::into_inner))

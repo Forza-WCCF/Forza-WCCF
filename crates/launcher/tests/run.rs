@@ -302,6 +302,36 @@ fn a_program_without_the_hook_starts_nothing() {
     assert!(!run::is_on(&kit, Kind::Run));
 }
 
+/// One admission per kit folder: while another thread (another Launcher window) holds it, a start and setup are refused
+/// and leave nothing on; once it is free, setup gets past it (and fails on the stand-ins, as no game).
+#[test]
+fn a_start_and_setup_wait_their_turn() {
+    let top = tempfile::Builder::new().prefix("wccf-run-").tempdir().unwrap();
+    let (kit, _) = scratch_kit(top.path());
+    let (held, free) = (std::sync::Barrier::new(2), std::sync::Barrier::new(2));
+    thread::scope(|s| {
+        s.spawn(|| {
+            let admitted = run::admit(&kit).unwrap();
+            held.wait();
+            free.wait();
+            drop(admitted);
+        });
+        held.wait();
+        let ui = Said::default();
+        let rc = run::command(&kit, &params("admit", Shared::new()), &["local".into()], &ui);
+        assert_eq!(rc, run::REFUSED, "{}", ui.text());
+        assert!(ui.text().contains("another Launcher window"), "{}", ui.text());
+        assert!(!run::is_on(&kit, Kind::Run));
+        let rc = launcher::setup::game_folder(&kit, "", true, &|_| {});
+        assert_eq!(rc, launcher::setup::RUNNING);
+        free.wait();
+    });
+    assert_ne!(
+        launcher::setup::game_folder(&kit, "", true, &|_| {}),
+        launcher::setup::RUNNING
+    );
+}
+
 #[test]
 fn nothing_running_says_so() {
     let top = tempfile::Builder::new().prefix("wccf-run-").tempdir().unwrap();
