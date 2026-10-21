@@ -362,7 +362,7 @@ pub fn release(addr: SocketAddr, ticket: &str) -> Result<bool, String> {
 mod tests {
     use super::*;
 
-    const SAMPLE: &str = r#"{"v":1,"edition":"2017-18","at":1792400000,"shops":[{"id":"k3f9q2","name":"FORZA the game server","seats":3,"max":8,"state":"open","next_entry":32,"lang":"it"},{"id":"m1","name":"MILANO CUP","seats":5,"max":8,"state":"in_match"}],"vs":[{"id":"r7x1","code":"K7QM","players":1,"max":2,"kind":2}]}"#;
+    const SAMPLE: &str = r#"{"v":1,"edition":"2017-18","at":1792400000,"shops":[{"id":"k3f9q2","name":"FORZA ROMA","seats":3,"max":8,"state":"open","next_entry":32,"lang":"it"},{"id":"m1","name":"MILANO CUP","seats":5,"max":8,"state":"in_match"}],"vs":[{"id":"r7x1","code":"K7QM","players":1,"max":2,"kind":2}]}"#;
 
     #[test]
     fn parses_and_round_trips() {
