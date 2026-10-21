@@ -757,8 +757,9 @@ pub fn steps(ui: &mut Ui, done: usize, total: usize, width: f32) -> Response {
     resp
 }
 
-/// A game start's stages in seconds (measured: club server, control, windows, seat, panels); the bar's weights.
-const START_SECS: [f32; 6] = [2.0, 47.0, 1.0, 1.0, 3.0, 27.0];
+/// A game start's stages in seconds (club server, control, windows, seat, panels); the bar's weights.
+// ponytail: estimate after the ICMP stand-in; retune from the next live run's step times
+const START_SECS: [f32; 6] = [2.0, 3.0, 1.0, 1.0, 3.0, 6.0];
 
 /// The start bar's fill after `done` step lines, `stage_secs` into the next stage: the stages weigh what they take,
 /// and inside one the fill creeps toward the next boundary, never reaching it before the line arrives.
@@ -774,7 +775,12 @@ pub fn start_fraction(done: usize, stage_secs: f32) -> f32 {
 /// A game start: the time-weighted bar and the elapsed time (`clock` = seconds in this stage, in all).
 pub fn start_bar(ui: &mut Ui, done: usize, clock: (f32, f32), width: f32) -> Response {
     let secs = clock.1 as u32;
-    bar(ui, start_fraction(done, clock.0), width, format!("{}:{:02}", secs / 60, secs % 60))
+    bar(
+        ui,
+        start_fraction(done, clock.0),
+        width,
+        format!("{}:{:02}", secs / 60, secs % 60),
+    )
 }
 
 /// A plain progress bar with a percentage, for a download or an install stage.

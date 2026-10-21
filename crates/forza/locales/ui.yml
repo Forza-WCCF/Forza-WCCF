@@ -51,9 +51,9 @@ launcher.vs_link: {en: "Direct VS link", it: "Collegamento VS diretto", ja: "ダ
 launcher.vs_link_hint: {en: "For VS matches between homes.", it: "Per le partite VS tra case.", ja: "家どうしのVS対戦用。"}
 # messages: the status line, the questions, the output; the run's own lines stay English
 launcher.msg_starting: {en: "Starting the game ...", it: "Avvio del gioco ...", ja: "ゲームを起動しています..."}
-launcher.stage_server: {en: "Game server (about 45 s) ...", it: "Server di gioco (circa 45 s) ...", ja: "ゲームサーバー（約45秒）..."}
+launcher.stage_server: {en: "Starting the server ...", it: "Avvio del server ...", ja: "サーバーを起動しています..."}
 launcher.stage_window: {en: "Opening the game window ...", it: "Apertura della finestra di gioco ...", ja: "ゲームのウィンドウを開いています..."}
-launcher.stage_screen: {en: "Loading the game screen (about 30 s) ...", it: "Caricamento della schermata di gioco (circa 30 s) ...", ja: "ゲーム画面を読み込んでいます（約30秒）..."}
+launcher.stage_screen: {en: "Loading the game screen ...", it: "Caricamento della schermata di gioco ...", ja: "ゲーム画面を読み込んでいます..."}
 launcher.msg_restarting: {en: "Restarting ...", it: "Riavvio ...", ja: "再起動しています..."}
 launcher.msg_stopping: {en: "Stopping the game ...", it: "Arresto del gioco ...", ja: "ゲームを終了しています..."}
 launcher.msg_running: {en: "Game running.", it: "Gioco in esecuzione.", ja: "ゲーム実行中。"}

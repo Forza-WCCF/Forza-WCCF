@@ -1910,11 +1910,32 @@ unsafe fn device_window(dev: &IDirect3DDevice9) -> Option<HWND> {
 /// SendMessageTimeout: the game's thread may be busy, and this one must not wait for it.
 fn retitle(h: HWND) {
     let edition = FILES.get().map_or("", |f| f.edition.label());
-    let who = if is_projector() { "Projector" } else { "Client" };
-    let title: Vec<u16> = format!("{who} - Forza-WCCF {edition}\0").encode_utf16().collect();
-    // SAFETY: `title` is a NUL-terminated UTF-16 string that outlives the call
-    unsafe {
-        SendMessageTimeoutW(h, WM_SETTEXT, WPARAM(0), LPARAM(title.as_ptr() as isize), SMTO_ABORTIFHUNG, 1000, None);
+    let who = if is_projector() {
+        "Projector"
+    } else {
+        "Client"
+    };
+    let title: Vec<u16> = format!("{who} - Forza-WCCF {edition}\0")
+        .encode_utf16()
+        .collect();
+    // the game's window may not take it at once: a few tries (callers are worker threads)
+    for _ in 0..5 {
+        // SAFETY: `title` is a NUL-terminated UTF-16 string that outlives the call
+        let ok = unsafe {
+            SendMessageTimeoutW(
+                h,
+                WM_SETTEXT,
+                WPARAM(0),
+                LPARAM(title.as_ptr() as isize),
+                SMTO_ABORTIFHUNG,
+                1000,
+                None,
+            )
+        };
+        if ok.0 != 0 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(300));
     }
 }
 

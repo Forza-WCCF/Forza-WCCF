@@ -166,7 +166,10 @@ fn stepped(line: &str) {
         if s.steps != before {
             s.stage_at = Some(Instant::now());
             // a game start (6 steps): name what the player waits for
-            if let Some(key) = (m == 6).then(|| STAGES.get(s.steps.map_or(0, |(d, _)| d as usize))).flatten() {
+            if let Some(key) = (m == 6)
+                .then(|| STAGES.get(s.steps.map_or(0, |(d, _)| d as usize)))
+                .flatten()
+            {
                 s.status = Some((Tone::Notice, t(key)));
             }
         }
@@ -240,7 +243,8 @@ fn start(steps: Vec<Step>) {
         WAS_UP.store(false, Ordering::Relaxed);
         s.busy = true;
         s.progress = 0;
-        s.steps = None;
+        // a game start shows the weighted bar and the clock from the first second
+        s.steps = steps.iter().any(|x| matches!(x, Step::Game(_))).then_some((0, 6));
         s.began = Some(Instant::now());
         s.stage_at = s.began;
     }

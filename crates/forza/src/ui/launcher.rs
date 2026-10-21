@@ -6,8 +6,8 @@ use super::Lang;
 use super::lobby::{self, Grey, Kind, LobbyAction, LobbyView, Scenario as LobbyScenario};
 use super::theme::{self, Edition};
 use super::widgets::{
-    self, Cab, Tone, action, cabinet, field, fold, progress, segmented, start_bar, status_line, steps,
-    title_bar, toggle_row,
+    self, Cab, Tone, action, cabinet, field, fold, progress, segmented, start_bar, status_line,
+    steps, title_bar, toggle_row,
 };
 use egui::{Color32, Ui, vec2};
 
