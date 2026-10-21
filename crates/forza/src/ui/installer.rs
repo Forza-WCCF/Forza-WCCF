@@ -703,33 +703,63 @@ fn files(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Acti
             out,
         );
     });
-    path_row(
-        ui,
-        &tr!(lang, "installer.package"),
-        &mut st.package,
-        lang,
-        Field::Package,
-        out,
-    );
+    // 2017-18: the newest published package, or a file; 2010-11 has no published package, so only the file
+    let newest = match (&st.latest, st.target()) {
+        (Latest::Found(v), Some(Edition::E1718)) => Some(v.clone()),
+        _ => None,
+    };
+    let mut from_file = true;
+    if let Some(v) = &newest {
+        let mut pick = usize::from(!(st.use_latest && st.package.trim().is_empty()));
+        ui.horizontal(|ui| {
+            field(ui, &tr!(lang, "installer.package"), 120.0);
+            let labels = [
+                tr!(lang, "installer.pkg_newest", version = v),
+                tr!(lang, "installer.pkg_file"),
+            ];
+            let labels = [labels[0].as_str(), labels[1].as_str()];
+            if widgets::segmented(ui, &mut pick, &labels, 360.0) {
+                st.use_latest = pick == 0;
+                if st.use_latest {
+                    st.package.clear();
+                }
+            }
+        });
+        from_file = pick == 1;
+        if !from_file {
+            status_line(
+                ui,
+                Tone::Done,
+                &tr!(lang, "installer.pkg_newest_note", version = v),
+            );
+        }
+    }
+    if from_file {
+        path_row(
+            ui,
+            &tr!(
+                lang,
+                if newest.is_some() {
+                    "installer.pkg_file_row"
+                } else {
+                    "installer.package"
+                }
+            ),
+            &mut st.package,
+            lang,
+            Field::Package,
+            out,
+        );
+    }
     if st.target() == Some(Edition::E1718) {
-        match st.latest.clone() {
-            Latest::Idle => {}
+        match st.latest {
             Latest::Checking => {
                 status_line(ui, Tone::Notice, &tr!(lang, "installer.latest_checking"));
-            }
-            Latest::Found(v) => {
-                let on = st.use_latest && st.package.trim().is_empty();
-                let label = tr!(lang, "installer.latest_get", version = v);
-                if chip(ui, &label, on, Some(Edition::E1718.accent())).clicked() {
-                    st.use_latest = !on;
-                    if st.use_latest {
-                        st.package.clear();
-                    }
-                }
             }
             Latest::Failed => {
                 status_line(ui, Tone::Notice, &tr!(lang, "installer.latest_failed"));
             }
+            _ => {}
         }
     }
     ui.horizontal(|ui| {

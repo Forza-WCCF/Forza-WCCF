@@ -211,7 +211,10 @@ installer.err_download: {en: "Download failed: %{detail}", it: "Download non riu
 installer.err_no_package: {en: "No downloadable package found in the releases.", it: "Nessun pacchetto scaricabile trovato nelle release.", ja: "リリースにダウンロードできるパッケージがありません。"}
 installer.err_no_download: {en: "No package is published for 2010–2011. Choose a package file, or install without one.", it: "Per il 2010–2011 non è pubblicato alcun pacchetto. Scegli un file pacchetto, o installa senza.", ja: "2010–2011 のパッケージは公開されていません。パッケージファイルを選ぶか、なしでインストールしてください。"}
 installer.err_hash: {en: "The downloaded package does not match its SHA-256. It was refused and deleted.", it: "Il pacchetto scaricato non corrisponde al suo SHA-256. È stato rifiutato ed eliminato.", ja: "ダウンロードしたパッケージの SHA-256 が一致しません。拒否して削除しました。"}
-installer.latest_get: {en: "Download the newest package (%{version})", it: "Scarica il pacchetto più recente (%{version})", ja: "最新のパッケージをダウンロード（%{version}）"}
+installer.pkg_newest: {en: "Newest (%{version})", it: "Più recente (%{version})", ja: "最新（%{version}）"}
+installer.pkg_file: {en: "From a file", it: "Da un file", ja: "ファイルから"}
+installer.pkg_file_row: {en: "FILE", it: "FILE", ja: "ファイル"}
+installer.pkg_newest_note: {en: "Forza-WCCF %{version} is downloaded from GitHub during the install.", it: "Forza-WCCF %{version} viene scaricato da GitHub durante l'installazione.", ja: "Forza-WCCF %{version} はインストール中に GitHub からダウンロードされます。"}
 installer.latest_checking: {en: "Looking for the newest package…", it: "Cerco il pacchetto più recente…", ja: "最新のパッケージを確認中…"}
 installer.latest_failed: {en: "Cannot look up the newest package (offline or GitHub error). Choose a package file.", it: "Impossibile cercare il pacchetto più recente (offline o errore di GitHub). Scegli un file pacchetto.", ja: "最新のパッケージを確認できません（オフラインまたは GitHub のエラー）。パッケージファイルを選んでください。"}
 installer.stage_download: {en: "Downloading the package", it: "Download del pacchetto", ja: "パッケージをダウンロード中"}
