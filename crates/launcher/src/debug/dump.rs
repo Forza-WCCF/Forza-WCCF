@@ -1,6 +1,5 @@
-//! A memory snapshot at a crash (2026-10-11, the owner: "i dont want later to hear, ohhh i looked at the logs, and there
-//! was nothing to show why the crash happened").  The report printed at a crash says WHERE (address, registers, the
-//! callers); the snapshot holds what WHY needs.  Two per crash, in data\dumps (beside data\logs, so a start's log
+//! A memory snapshot at a crash, so every crash leaves enough to find its cause.  The report printed at a crash says
+//! WHERE (address, registers, the callers); the snapshot holds what WHY needs.  Two per crash, in data\dumps (beside data\logs, so a start's log
 //! rotation never zips them): _lean = every thread's stack and the memory it points to (a cabinet ~1 MB, ~90 KB zipped:
 //! SEND LOGS and the automatic report carry it) and _full = also the program's globals (the server 3.5 MB, a cabinet
 //! 36 MB: kept on this PC).  The newest `DUMPS_KEEP` of each kind stay.  Open with Visual Studio or WinDbg (.effmach x86).

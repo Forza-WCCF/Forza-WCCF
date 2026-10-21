@@ -3211,7 +3211,7 @@ mod tests {
 
     #[test]
     fn deck_layout_is_one_row() {
-        // owner request 2026-10-21: one row, KEY PLAYER left of SHOOT, departs from the cabinet's two plates
+        // design choice: one row, KEY PLAYER left of SHOOT, unlike the cabinet's two plates (more room for the picture)
         let area = Rect::from_min_size(pos2(0.0, 0.0), vec2(860.0, 148.0));
         let items = deck_layout(area);
         let at = |a: &str| items.iter().find(|i| i.action == a).unwrap().rect;

@@ -1117,7 +1117,7 @@ static void board_draw(IDirect3DDevice9 *dev)
     else if (g_hover >= 0 && g_hover < g_ncards && GetTickCount() - g_hover_since >= (DWORD)g_hover_ms)
         board_caption(dev, draw_card(dev, g_hover, 2.4f, 1), g_cards[g_hover].no);   // resting on a card for hover_delay_ms: shown big
                                                // with who it is (350 ms was too eager, 8 s too slow, 1 s too soon -
-                                               // the owner chose 3 s, 2026-10-09)
+                                               // 3 s chosen 2026-10-09)
     LeaveCriticalSection(&g_board_cs);
 }
 

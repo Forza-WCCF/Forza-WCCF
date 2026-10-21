@@ -146,7 +146,7 @@ fn stop_click(armed: f64, now: f64) -> (f64, bool) {
     }
 }
 
-/// The states the owner reviews.
+/// The states rendered for review.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scenario {
     Ready,

@@ -12,7 +12,7 @@
  * pieces and gives the server only whole batches; the broken stitching code then never runs.
  *
  * Bytes that cannot be a batch never reach the server either: they are skipped up to the next place a batch can start.
- * Nobody is disconnected for them (the owner, 2026-10-11: no player is ever cut).
+ * Nobody is disconnected for them (a rule since 2026-10-11: no player is ever cut).
  */
 #ifndef WHOLEMSG_H
 #define WHOLEMSG_H

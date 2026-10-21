@@ -1,4 +1,4 @@
-//! Every screen rendered to PNG in English, Italian and Japanese: what the owner reviews, then the regression check
+//! Every screen rendered to PNG in English, Italian and Japanese: what a reviewer looks at, then the regression check
 //! (`UPDATE_SNAPSHOTS=1` writes new ones). Rendered with wgpu on the machine's GPU.
 
 use egui::{Ui, Vec2};

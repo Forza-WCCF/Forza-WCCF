@@ -41,8 +41,8 @@ impl Want {
     }
 
     /// Reads a line without its end the way the desk does: `WANT`, or `WANT SEAT n` with n in 1..=8 (the desk
-    /// answers `ERR` to everything else, a seat number out of range included). A trailing `TOKEN t` (the upstream
-    /// kit 7's account sign-in) is accepted and ignored: Forza-WCCF keeps its own identity (owner, 2026-10-14).
+    /// answers `ERR` to everything else, a seat number out of range included). A trailing `TOKEN t` (kit 7's account
+    /// sign-in) is accepted for compatibility and not checked yet.
     pub fn parse(line: &str) -> Option<Want> {
         let mut w: Vec<&str> = line.split_whitespace().collect();
         if let [.., "TOKEN", _] = w[..] {
