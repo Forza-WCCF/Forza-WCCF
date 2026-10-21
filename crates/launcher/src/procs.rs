@@ -77,7 +77,8 @@ pub fn processes() -> Vec<Proc> {
 }
 
 /// The full path of a process's program, as Windows reports it (a program started through a junction: under the
-/// junction's target).
+/// junction's target), with 8.3 short names expanded: Windows keeps the form the program was started with
+/// (C:\Users\RUNNER~1 on the CI runner), and [`same_form`] expands them on the folder's side.
 pub fn image(pid: u32) -> Option<PathBuf> {
     // SAFETY: the handle is checked and closed once; the buffer and its length go together.
     unsafe {
@@ -89,7 +90,7 @@ pub fn image(pid: u32) -> Option<PathBuf> {
         let mut len = buf.len() as u32;
         let ok = QueryFullProcessImageNameW(h, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut len);
         CloseHandle(h);
-        (ok != 0).then(|| PathBuf::from(OsString::from_wide(&buf[..len as usize])))
+        (ok != 0).then(|| long_name(&PathBuf::from(OsString::from_wide(&buf[..len as usize]))))
     }
 }
 
