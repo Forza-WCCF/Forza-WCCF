@@ -5,14 +5,15 @@ the panel) and say which edition and which version you play.
 
 ## Build
 
-The build host is Windows 10 or 11. `cargo xtask` builds the Rust and the 32-bit C programs with the MSVC toolchain
-and runs the Windows test programs natively. `forza-server` also builds on plain Linux
+The build host is Windows 10 or 11. `cargo xtask` builds the Rust with the MSVC toolchain and the 32-bit C programs with the
+clang-cl that ships with Visual Studio, and runs the Windows test programs natively. `forza-server` also builds on plain Linux
 (`cargo build --release -p forza-server`).
 
 1. Install [Visual Studio Build Tools 2022 or later](https://visualstudio.microsoft.com/downloads/) with the "Desktop
    development with C++" workload: the MSVC x86/x64 build tools and a Windows SDK (10.0.22000 or newer; CI uses
-   10.0.26100). `cargo xtask` finds `cl.exe`, `link.exe` and `rc.exe` itself; run it from any shell, not only a
-   Developer Prompt.
+   10.0.26100). Add the components "C++ Clang Compiler for Windows" and "MSBuild support for LLVM (clang-cl)
+   toolset". `cargo xtask` finds `clang-cl`, `lld-link`, `llvm-rc` and the `INCLUDE`/`LIB` environment itself; run it
+   from any shell, not only a Developer Prompt.
 2. Install [Git for Windows](https://gitforwindows.org) and [rustup](https://rustup.rs). `rust-toolchain.toml` pins the
    version and the two Windows targets. Then set:
 

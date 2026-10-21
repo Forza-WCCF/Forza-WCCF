@@ -131,8 +131,9 @@ Done:
   PrintWindow capture script. `cargo xtask check` fails on any tracked `*.ps1` or a mention of the Windows script host
   in xtask.
 - 4.8 Windows is the build host (owner, 2026-10-21). This supersedes 4.6 and 4.7. `cargo xtask` runs on Windows 10 or
-  11 with the MSVC toolchain: `cargo build` for the Rust and `cl.exe` + `link.exe` + `rc.exe` for the 32-bit C, with the
-  tool paths and `INCLUDE`/`LIB` taken from the installed Visual Studio. The tests and the run tests start natively, so
+  11 with the MSVC toolchain: `cargo build` for the Rust and Visual Studio's `clang-cl` + `lld-link` + `llvm-rc` for the 32-bit C, with the
+  tool paths and `INCLUDE`/`LIB` taken from the installed Visual Studio. The shipped 0.2.0 DLLs were clang-cl builds,
+  so only the build host changes. The tests and the run tests start natively, so
   `xtask/winrun.sh`, cargo-xwin, the xwin cache, `wslpath` and `WSLENV` are gone. `check` stays the full gate,
   `check quick` is unchanged, `check ci` is `check` without the GPU snapshot tests, and `check win` is deleted. CI is
   one native Windows job. The commit-message hook installs with `git config core.hooksPath xtask`. WSL stays for the
