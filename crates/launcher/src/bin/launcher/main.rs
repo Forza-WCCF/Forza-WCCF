@@ -151,6 +151,9 @@ fn refuse(status: impl Into<String>) {
 
 fn log(line: &str) {
     shared().log.push(line.to_owned());
+    // and in data\logs\launcher.txt, which SAVE LOGS takes: setup and the card pictures happen before any run, whose
+    // logs were the only ones kept (a tester's 0.2.0 ZIP held nothing but version.txt)
+    launcher::logs::append(&Kit::here().logs().join("launcher.txt"), line);
     poke();
 }
 
@@ -920,6 +923,14 @@ impl eframe::App for App {
     }
 }
 
+/// What a panic said.
+fn panic_text(p: &(dyn std::any::Any + Send)) -> String {
+    p.downcast_ref::<&str>()
+        .map(|s| (*s).to_owned())
+        .or_else(|| p.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "panic".into())
+}
+
 /// The window, until it is closed (or gone because the game is up and then ended well).
 fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
     if kit.edition() == Edition::E1011 {
@@ -931,13 +942,14 @@ fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
     pad_thread();
     let title = format!("Launcher - {TITLE} {}", kit.edition().name());
     let fonts = theme::font_dir();
-    // wgpu first; if it cannot open the window (no Direct3D/Vulkan), OpenGL once. FORZA_RENDERER=glow|wgpu forces one.
+    // OpenGL first, wgpu once if it cannot open the window (as the installer: wgpu flashed black on an RTX 2060 and
+    // never opened on a GeForce 920MX laptop). FORZA_RENDERER=glow|wgpu forces one.
     let forced = match std::env::var("FORZA_RENDERER").as_deref() {
         Ok("glow") => Some(eframe::Renderer::Glow),
         Ok("wgpu") => Some(eframe::Renderer::Wgpu),
         _ => None,
     };
-    let mut tries = forced.map_or(vec![eframe::Renderer::Wgpu, eframe::Renderer::Glow], |r| vec![r]);
+    let mut tries = forced.map_or(vec![eframe::Renderer::Glow, eframe::Renderer::Wgpu], |r| vec![r]);
     let mut ran = Ok(());
     while !tries.is_empty() {
         let renderer = tries.remove(0);
@@ -954,23 +966,39 @@ fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
             ..Default::default()
         };
         let fonts = &fonts;
-        ran = eframe::run_native(
-            &title,
-            options,
-            Box::new(move |cc| {
-                let _ = CTX.set(cc.egui_ctx.clone());
-                log(&format!("window: {renderer:?} renderer"));
-                let app = App::new(kit, folder);
-                if let Err(e) = theme::install(&cc.egui_ctx, app.st.edition, fonts) {
-                    return Err(tf(
-                        "launcher.msg_no_fonts",
-                        &[("error", &format!("{}: {e}", fonts.display()))],
-                    )
-                    .into());
+        // a renderer that panics (a driver wgpu cannot use) is tried like one that fails: the next one, or the message
+        let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            eframe::run_native(
+                &title,
+                options,
+                Box::new(move |cc| {
+                    let _ = CTX.set(cc.egui_ctx.clone());
+                    log(&format!("window: {renderer:?} renderer"));
+                    let app = App::new(kit, folder);
+                    if let Err(e) = theme::install(&cc.egui_ctx, app.st.edition, fonts) {
+                        return Err(tf(
+                            "launcher.msg_no_fonts",
+                            &[("error", &format!("{}: {e}", fonts.display()))],
+                        )
+                        .into());
+                    }
+                    Ok(Box::new(app))
+                }),
+            )
+        }));
+        ran = match run {
+            Ok(r) => r,
+            Err(p) => {
+                let why = panic_text(&*p);
+                log(&format!("window: {renderer:?} renderer crashed ({why})"));
+                if !tries.is_empty() {
+                    continue;
                 }
-                Ok(Box::new(app))
-            }),
-        );
+                Err(eframe::Error::AppCreation(
+                    tf("launcher.msg_no_window", &[("error", &why)]).into(),
+                ))
+            }
+        };
         match &ran {
             // the window never opened with this renderer: the next one, and the error in the log
             Err(e) if !matches!(e, eframe::Error::AppCreation(_)) && !tries.is_empty() => {

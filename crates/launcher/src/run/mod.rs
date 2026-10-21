@@ -940,14 +940,7 @@ impl Run<'_> {
         self.ui.say(line);
         // and in data\logs\run_launcher.txt: the window's box and a console are gone when they close, and a console
         // Launcher.exe's lines do not reach a cmd redirect (first live run, 2026-10-13: the start's lines were lost)
-        if let Ok(mut f) = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(self.logs().join("run_launcher.txt"))
-        {
-            let t = crate::logs::local(std::time::SystemTime::now());
-            let _ = writeln!(f, "{:02}:{:02}:{:02}  {line}", t.hour(), t.minute(), t.second());
-        }
+        crate::logs::append(&self.logs().join("run_launcher.txt"), line);
     }
 
     fn logs(&self) -> PathBuf {

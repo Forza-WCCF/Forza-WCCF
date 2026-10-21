@@ -4,7 +4,7 @@
 //! program holds (an antivirus, a viewer) is said and stepped around.
 
 use std::fs::{self, File};
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -19,6 +19,17 @@ pub const ARCHIVE_LIMIT: u64 = 200 * 1024 * 1024;
 pub(crate) fn local(t: SystemTime) -> OffsetDateTime {
     let utc = OffsetDateTime::from(t);
     UtcOffset::local_offset_at(utc).map_or(utc, |o| utc.to_offset(o))
+}
+
+/// One "hh:mm:ss  line" added to `file`, its folder made first. A write that fails is skipped: logs never stop a step.
+pub fn append(file: &Path, line: &str) {
+    if let Some(dir) = file.parent() {
+        let _ = fs::create_dir_all(dir);
+    }
+    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(file) {
+        let t = local(SystemTime::now());
+        let _ = writeln!(f, "{:02}:{:02}:{:02}  {line}", t.hour(), t.minute(), t.second());
+    }
 }
 
 /// Every file under `dir` in os.walk's order: a folder's files, then its folders one by one; none if it is missing.
