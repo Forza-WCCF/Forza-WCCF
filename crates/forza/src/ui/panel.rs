@@ -691,9 +691,14 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
     // the dealt card covers the picture: clicks there are its own
     st.picture_rect = (st.page == Page::Game && st.deal.is_none()).then_some(pic);
     if st.page == Page::Game {
-        // a toast over the picture's lower edge: the deck row has no room for a line
-        let r =
-            Rect::from_center_size(pos2(pic.center().x, pic.bottom() - 30.0), vec2(520.0, 34.0));
+        // a toast in the gap above the deck row when there is one, else over the picture's lower edge
+        let gap = (deck.height() - ROW.y) / 2.0;
+        let y = if !st.file.compact && gap >= 40.0 {
+            deck.top() + gap / 2.0
+        } else {
+            pic.bottom() - 30.0
+        };
+        let r = Rect::from_center_size(pos2(pic.center().x, y), vec2(520.0, 34.0));
         ui.scope_builder(egui::UiBuilder::new().max_rect(r), |ui| {
             note_line(ui, &mut st.message)
         });
@@ -977,9 +982,11 @@ const ROW: egui::Vec2 = vec2(778.0, 144.0);
 /// Each plate's left edge and width in the row.
 const PLATES: [(f32, f32); 3] = [(0.0, 300.0), (316.0, 328.0), (660.0, 118.0)];
 
-/// The three plates, the row centred in `area`.
-fn deck_plates(area: Rect) -> [Rect; 3] {
-    let o = area.center() - ROW / 2.0;
+/// The three plates, the row drawn centred in `area`: without the machine plate (`both` false, 2017-18) the row is
+/// only the first two plates wide.
+fn deck_plates(area: Rect, both: bool) -> [Rect; 3] {
+    let w = if both { ROW.x } else { PLATES[1].0 + PLATES[1].1 };
+    let o = area.center() - vec2(w, ROW.y) / 2.0;
     PLATES.map(|(x, w)| Rect::from_min_size(o + vec2(x, 0.0), vec2(w, ROW.y)))
 }
 
@@ -988,7 +995,12 @@ fn deck_plates(area: Rect) -> [Rect; 3] {
 /// small green DATA square beside it. Middle: small yellow KEY PLAYER, big red SHOOT, big blue KEEPER, small green
 /// START in a line.
 pub fn deck_layout(area: Rect) -> Vec<DeckItem> {
-    let [left, mid, _] = deck_plates(area);
+    deck_layout_for(area, true)
+}
+
+/// [`deck_layout`] for an edition with (`both`) or without the machine plate.
+fn deck_layout_for(area: Rect, both: bool) -> Vec<DeckItem> {
+    let [left, mid, _] = deck_plates(area, both);
     let cy = left.center().y;
     let c = pos2(left.left() + 132.0, cy);
     let (sq, tl, g) = (40.0, 26.0, 2.0);
@@ -1116,7 +1128,7 @@ pub fn deck_layout(area: Rect) -> Vec<DeckItem> {
 
 /// The machine plate's one key, CARD, centred (2017-18 has no card and no machine plate).
 fn card_key(area: Rect) -> Rect {
-    Rect::from_center_size(deck_plates(area)[2].center(), vec2(102.0, 32.0))
+    Rect::from_center_size(deck_plates(area, true)[2].center(), vec2(102.0, 32.0))
 }
 
 /// The cabinet's controls under the picture, one row: the tactic diamond, the play buttons, the machine.
@@ -1147,7 +1159,7 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
         resp
     };
     let both = st.edition != Edition::E1718; // 2017-18 has no card: no machine plate
-    for plate in deck_plates(area).into_iter().take(if both { 3 } else { 2 }) {
+    for plate in deck_plates(area, both).into_iter().take(if both { 3 } else { 2 }) {
         ui.painter()
             .rect_filled(plate, theme::RADIUS_BIG, theme::WELL);
         ui.painter().rect_stroke(
@@ -1157,7 +1169,7 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
             StrokeKind::Inside,
         );
     }
-    for it in deck_layout(area) {
+    for it in deck_layout_for(area, both) {
         let lit = it.tactic.is_some_and(|i| st.tactics[i]);
         put(ui, it.rect, it.key, Some(it.action), it.kind, it.shape, lit);
         if let Some(side) = it.label {
@@ -3231,7 +3243,7 @@ mod tests {
                 );
             }
         }
-        let plates = deck_plates(area);
+        let plates = deck_plates(area, true);
         assert!(plates.iter().all(|p| area.contains_rect(*p)));
         assert!(
             items
@@ -3239,6 +3251,9 @@ mod tests {
                 .all(|i| plates.iter().any(|p| p.contains_rect(i.rect)))
         );
         assert!(plates[2].contains_rect(card_key(area)));
+        // without the machine plate (2017-18) the two plates drawn are centred
+        let two = deck_plates(area, false);
+        assert!((two[0].left() - area.left() - (area.right() - two[1].right())).abs() < 0.01);
     }
 
     fn card(
