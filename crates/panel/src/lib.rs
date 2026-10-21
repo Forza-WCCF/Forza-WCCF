@@ -81,6 +81,8 @@ static RESET: AtomicUsize = AtomicUsize::new(0);
 /// What [`unload`] puts back: (function, its first five bytes, trampoline).
 static PATCHES: Mutex<Vec<(usize, [u8; 5], usize)>> = Mutex::new(Vec::new());
 static INIT_DONE: AtomicBool = AtomicBool::new(false);
+/// A frame was drawn by the last Present: until then (or after a failed one) wndproc keeps the mouse for the game.
+static DRAWN: AtomicBool = AtomicBool::new(false);
 /// A panic in a frame: the panel stops drawing, the game goes on.
 static DEAD: AtomicBool = AtomicBool::new(false);
 static RENDER: Mutex<Option<Render>> = Mutex::new(None);
@@ -242,13 +244,18 @@ fn init() {
     // injected early? wait up to 60 s for the game's window
     for _ in 0..120 {
         if let Some(h) = game_window() {
-            retitle(h);
-            // SAFETY: a window of this process; cross-thread subclassing within a process is allowed
-            let old =
-                unsafe { SetWindowLongPtrW(h, GWLP_WNDPROC, wndproc as *const () as usize as _) };
-            OLD_PROC.store(old as isize, Relaxed);
-            WINDOW.store(h.0 as isize, Relaxed);
-            log(&format!("input from window {:?}", h.0));
+            // not hooked (Present prologue unknown): no frames, so no subclass either
+            if PRESENT.load(Relaxed) != 0 {
+                // SAFETY: a window of this process; cross-thread subclassing within a process is allowed. The old
+                // procedure is published first: wndproc may run the moment it is installed.
+                unsafe {
+                    OLD_PROC.store(GetWindowLongPtrW(h, GWLP_WNDPROC) as isize, Relaxed);
+                    SetWindowLongPtrW(h, GWLP_WNDPROC, wndproc as *const () as usize as _);
+                }
+                WINDOW.store(h.0 as isize, Relaxed);
+                log(&format!("input from window {:?}", h.0));
+            }
+            retitle(h); // after the subclass: it can block, and a WM_FORZA_FS posted on the first frame must arrive
             break;
         }
         std::thread::sleep(Duration::from_millis(500));
@@ -264,13 +271,10 @@ fn hook_device() {
     match unsafe { device_functions() } {
         // SAFETY: as above
         Some((present, reset)) => unsafe {
-            if let Some(t) = detour(present, hook_present as *const () as usize) {
-                PRESENT.store(t, Relaxed);
+            if detour(present, hook_present as *const () as usize, &PRESENT).is_some() {
                 log("Present detoured");
             }
-            if let Some(t) = detour(reset, hook_reset as *const () as usize) {
-                RESET.store(t, Relaxed);
-            }
+            let _ = detour(reset, hook_reset as *const () as usize, &RESET);
         },
         None => log("no throwaway Direct3D 9 device: not hooked"),
     }
@@ -720,8 +724,8 @@ unsafe fn device_functions() -> Option<(usize, usize)> {
 
 /// The C panel's five-byte detour: `mov edi,edi; push ebp; mov ebp,esp` (the hot-patch prologue every Windows
 /// Present and Reset have) becomes a jump to `to`; the trampoline runs those bytes and jumps back. Any other
-/// prologue is left alone (no panel, the game unharmed).
-unsafe fn detour(target: usize, to: usize) -> Option<usize> {
+/// prologue is left alone (no panel, the game unharmed). The trampoline is stored in `slot` before the jump is written.
+unsafe fn detour(target: usize, to: usize, slot: &AtomicUsize) -> Option<usize> {
     const PROLOGUE: [u8; 5] = [0x8B, 0xFF, 0x55, 0x8B, 0xEC];
     // SAFETY: `target` is a function's first byte; the trampoline is our own executable page
     unsafe {
@@ -739,6 +743,7 @@ unsafe fn detour(target: usize, to: usize) -> Option<usize> {
         }
         let back = jmp(tramp + 5, target + 5);
         std::ptr::copy_nonoverlapping([bytes, back].as_flattened().as_ptr(), tramp as *mut u8, 10);
+        slot.store(tramp, Relaxed); // before the jump exists: a call in between must find the trampoline
         write_code(target, &jmp(target, to));
         PATCHES.lock().ok()?.push((target, bytes, tramp));
         Some(tramp)
@@ -773,6 +778,7 @@ unsafe extern "system" fn hook_present(
     // SAFETY: the trampoline runs the original Present with the same arguments
     let orig: PresentFn = unsafe { std::mem::transmute(PRESENT.load(Relaxed)) };
     if IN_PRESENT.get() || DEAD.load(Relaxed) {
+        DRAWN.store(false, Relaxed);
         // SAFETY: as above
         return unsafe { orig(dev, src, dst, wnd, dirty) };
     }
@@ -829,6 +835,7 @@ unsafe extern "system" fn hook_present(
         None
     });
     IN_PRESENT.set(false);
+    DRAWN.store(shown.is_some(), Relaxed);
     // SAFETY: as above: not shown on our swap chain, the game's own Present shows its frame
     shown.unwrap_or_else(|| unsafe { orig(dev, src, dst, wnd, dirty) })
 }
@@ -1998,6 +2005,25 @@ unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LR
             push(vec![Event::PointerGone]);
         }
         _ => {}
+    }
+    if !DRAWN.load(Relaxed) {
+        // nothing of ours on screen: the game gets every message as it came, and egui keeps nothing queued
+        if let Ok(mut p) = PICTURE.lock() {
+            *p = None;
+        }
+        if let Ok(mut e) = EVENTS.lock() {
+            e.clear();
+        }
+        // SAFETY: as below
+        return unsafe {
+            CallWindowProcW(
+                std::mem::transmute::<isize, WNDPROC>(OLD_PROC.load(Relaxed)),
+                h,
+                m,
+                wp,
+                lp,
+            )
+        };
     }
     let lp = match to_game(h, m, lp) {
         Some(game) => game,
