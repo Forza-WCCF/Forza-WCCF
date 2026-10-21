@@ -130,6 +130,14 @@ Done:
   license check and packaging became `cargo xtask` steps, and `cargo xtask cap <root> <outdir>` replaces the
   PrintWindow capture script. `cargo xtask check` fails on any tracked `*.ps1` or a mention of the Windows script host
   in xtask.
+- 4.8 Windows is the build host (owner, 2026-10-21). This supersedes 4.6 and 4.7. `cargo xtask` runs on Windows 10 or
+  11 with the MSVC toolchain: `cargo build` for the Rust and `cl.exe` + `link.exe` + `rc.exe` for the 32-bit C, with the
+  tool paths and `INCLUDE`/`LIB` taken from the installed Visual Studio. The tests and the run tests start natively, so
+  `xtask/winrun.sh`, cargo-xwin, the xwin cache, `wslpath` and `WSLENV` are gone. `check` stays the full gate,
+  `check quick` is unchanged, `check ci` is `check` without the GPU snapshot tests, and `check win` is deleted. CI is
+  one native Windows job. The commit-message hook installs with `git config core.hooksPath xtask`. WSL stays for the
+  reverse-engineering tools, codex and the Linux server deploy. Reasons: a Windows start inherits no "Prefer System32
+  images" (the reason for `winrun.sh`), and one host path replaces two. Benchmark: see phase 2 result.
 
 Crates over hand-written code: a job longer than a few lines goes to a widely used crate, maintained in the last year,
 with an MIT, Apache or BSD license. `windows-sys` stays for thin Win32 calls. The root `Cargo.toml` lists the versions.
@@ -403,9 +411,6 @@ forwards every export. 2017–18 moves to the 2010–11 scheme, as its `wccfnet.
 - One commit per finished piece, each building. Contributor notes: [CONTRIBUTING.md](../CONTRIBUTING.md).
 - Each move to Rust deletes the code it replaces in the same commit.
 - A common, maintained crate before hand-written code (table in step 4).
-- Raw `cargo xwin` (outside `cargo xtask`) runs with `XWIN_ACCEPT_LICENSE=1 XWIN_ARCH=x86,x86_64`, as xtask sets
-  them: without `XWIN_ARCH`, xwin re-extracts its shared cache for other architectures and parallel builds fail to
-  link.
 - Stability first: a crash, a hang or a run that leaves processes behind outranks any new feature. Every bug found in
   play gets its fix and the one check that would have caught it.
 
