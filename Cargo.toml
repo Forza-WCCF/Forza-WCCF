@@ -8,6 +8,7 @@ version = "0.2.0"
 edition = "2024"
 rust-version = "1.99"
 publish = false
+license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 # only what a crate uses is listed (ROADMAP step 4 has the full list); xtask: build, checks, the ZIP
