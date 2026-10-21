@@ -266,6 +266,12 @@ pub fn setup_game(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
             .0
             .push(((*exe).into(), Hash::Pair(sha(&orig), sha(&g))));
     }
+    // older kits put netguard.dll here (and setup copied it into seat1\); nothing loads it now
+    for old in [game.join("netguard.dll"), seat.join("netguard.dll")] {
+        if old.is_file() {
+            fs::remove_file(old)?;
+        }
+    }
     for (dll, built) in [
         ("wccfnet.dll", bin.join("wccfnet.dll")),
         ("ICMP.DLL", bin.join("ICMP.DLL")),
@@ -601,6 +607,8 @@ mod tests {
             winmm: top.path().join("winmm.dll"),
         };
         let before = tree(&rt);
+        // an older kit's netguard.dll: setup deletes it (undo deletes it too, so it stays out of `before`)
+        fs::write(game.join("netguard.dll"), "old kit netguard").unwrap();
 
         let report = run(&kit, &game, &spec).unwrap();
         assert_eq!(report.0.len(), 5);
@@ -642,6 +650,7 @@ mod tests {
             b"kit logowin.exe"
         );
         assert_eq!(fs::read(seat.join("other.dll")).unwrap(), b"other");
+        assert!(!game.join("netguard.dll").exists() && !seat.join("netguard.dll").exists());
         assert!(
             !seat.join("notes.txt").exists(),
             "text files are not linked"
