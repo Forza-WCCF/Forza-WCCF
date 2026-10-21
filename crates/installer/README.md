@@ -1,6 +1,6 @@
 # Forza-WCCF
 
-[![CI](https://github.com/Forza-WCCF/WCCF-Installer/actions/workflows/ci.yml/badge.svg)](https://github.com/Forza-WCCF/WCCF-Installer/actions/workflows/ci.yml)
+[![CI](https://github.com/Forza-WCCF/Forza-WCCF/actions/workflows/ci.yml/badge.svg)](https://github.com/Forza-WCCF/Forza-WCCF/actions/workflows/ci.yml)
 
 The Forza-WCCF Windows x64 installer decrypts and extracts **your own** supported World Club
 Champion Football RingEdge disc image. Rust + egui; no Python is needed, for extraction or for the package step.
@@ -22,9 +22,7 @@ the game slot. The system/OS-update slot is never extracted.
 
 ## Install
 
-1. Download **[wccf-installer.exe](https://github.com/Forza-WCCF/WCCF-Installer/releases/download/v0.1.1/wccf-installer.exe)**
-   from the [release](https://github.com/Forza-WCCF/WCCF-Installer/releases/tag/v0.1.1).
-   The repository is private: GitHub sign-in and repository access are required.
+1. Download the installer ZIP from the [releases page](https://github.com/Forza-WCCF/Forza-WCCF/releases).
    Keep the accompanying `LICENSE` and `THIRD-PARTY-LICENSES.json` with the EXE.
    Alternatively, download the ZIP containing the EXE and all documentation.
 2. Compare the EXE (or ZIP) with the matching line in `SHA256SUMS.txt`; unpack only
@@ -72,7 +70,7 @@ during unpacking.
 
 The wizard and headless `--package` run the same checks for either edition.
 
-The packages are a separate project: [Forza-WCCF on GitHub](https://github.com/Forza-WCCF).
+The packages are in this repository: [Forza-WCCF on GitHub](https://github.com/Forza-WCCF/Forza-WCCF).
 No package is fetched automatically or included in releases. `--no-setup` ignores a supplied package.
 
 ### Runtime safety and limits

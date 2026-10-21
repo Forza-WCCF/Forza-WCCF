@@ -6,7 +6,7 @@ rust-version.workspace = true
 publish.workspace = true
 description = "Forza-WCCF installer for user-supplied RingEdge disc images"
 license = "MIT"
-repository = "https://github.com/Forza-WCCF/WCCF-Installer"
+repository = "https://github.com/Forza-WCCF/Forza-WCCF"
 
 [dependencies]
 aes.workspace = true
