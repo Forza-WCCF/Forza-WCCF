@@ -164,6 +164,15 @@ jobs:
       - name: unpack the kit
         shell: bash
         run: tar --zstd -xf kit.tar.zst && rm kit.tar.zst
+      # the runner's desktop is 1024x768; the panel tests open a 1440x900 game window and a 1200x700 projector
+      - name: screen 1920x1080
+        shell: pwsh
+        run: |
+          Set-DisplayResolution -Width 1920 -Height 1080 -Force
+          Add-Type -AssemblyName System.Windows.Forms
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          "screen $($b.Width)x$($b.Height)"
+          if ($b.Width -lt 1600 -or $b.Height -lt 1000) { throw "screen still $($b.Width)x$($b.Height)" }
       - name: cargo test (the GPU snapshot tests run in their own step)
         run: 'cargo test --locked --workspace --target x86_64-pc-windows-msvc --no-fail-fast -- --skip snapshots::'
       - name: cargo xtask check win
