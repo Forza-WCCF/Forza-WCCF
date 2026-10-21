@@ -31,3 +31,5 @@ in the units if you pick others. Replace the placeholders (`203.0.113.10`, `rela
 | `iroh-relay.toml` | `/etc/forza/iroh-relay.toml` | HTTPS relay TCP 8443, QUIC address discovery UDP 7842, 256 KB/s per client |
 | `forza-iroh-relay.service` | `/etc/systemd/system/` | runs the relay as `irohrelay` |
 | `deploy-hook.sh` | `/etc/forza/relay-deploy-hook.sh` | certbot's renewal hook: copies the certificate where the relay reads it |
+
+The relay binary is iroh-relay 1.4.0 or newer. Releases up to 1.3.0 carry the rustls versions of RUSTSEC-2026-0346 to 0349: operators of older relays should rebuild (`cargo install --locked iroh-relay@1.4.0 --features server`) and restart.
