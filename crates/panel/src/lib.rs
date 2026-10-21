@@ -264,13 +264,10 @@ fn hook_device() {
     match unsafe { device_functions() } {
         // SAFETY: as above
         Some((present, reset)) => unsafe {
-            if let Some(t) = detour(present, hook_present as *const () as usize) {
-                PRESENT.store(t, Relaxed);
+            if detour(present, hook_present as *const () as usize, &PRESENT).is_some() {
                 log("Present detoured");
             }
-            if let Some(t) = detour(reset, hook_reset as *const () as usize) {
-                RESET.store(t, Relaxed);
-            }
+            let _ = detour(reset, hook_reset as *const () as usize, &RESET);
         },
         None => log("no throwaway Direct3D 9 device: not hooked"),
     }
@@ -720,8 +717,8 @@ unsafe fn device_functions() -> Option<(usize, usize)> {
 
 /// The C panel's five-byte detour: `mov edi,edi; push ebp; mov ebp,esp` (the hot-patch prologue every Windows
 /// Present and Reset have) becomes a jump to `to`; the trampoline runs those bytes and jumps back. Any other
-/// prologue is left alone (no panel, the game unharmed).
-unsafe fn detour(target: usize, to: usize) -> Option<usize> {
+/// prologue is left alone (no panel, the game unharmed). The trampoline is stored in `slot` before the jump is written.
+unsafe fn detour(target: usize, to: usize, slot: &AtomicUsize) -> Option<usize> {
     const PROLOGUE: [u8; 5] = [0x8B, 0xFF, 0x55, 0x8B, 0xEC];
     // SAFETY: `target` is a function's first byte; the trampoline is our own executable page
     unsafe {
@@ -739,6 +736,7 @@ unsafe fn detour(target: usize, to: usize) -> Option<usize> {
         }
         let back = jmp(tramp + 5, target + 5);
         std::ptr::copy_nonoverlapping([bytes, back].as_flattened().as_ptr(), tramp as *mut u8, 10);
+        slot.store(tramp, Relaxed); // before the jump exists: a call in between must find the trampoline
         write_code(target, &jmp(target, to));
         PATCHES.lock().ok()?.push((target, bytes, tramp));
         Some(tramp)
