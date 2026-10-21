@@ -63,7 +63,7 @@ Another architecture for `forza-server`: `deploy/linux/Dockerfile.forza-server`.
 ## 5. Base setup (root)
 
     adduser --system --group --home /srv/forza-wccf wccf
-    apt install nftables python3 sqlite3 curl
+    apt install nftables python3 sqlite3 zstd curl
     sh deploy/linux/harden.sh       # then open a NEW SSH session and run: systemctl stop nft-revert.timer
 
 `harden.sh` installs `deploy/linux/nftables.conf`. Delete its lines for the pieces you do not run first (section 9).
@@ -194,9 +194,9 @@ Keep TCP 20050 closed if you do not want them; the Launcher then keeps a failed 
 
 ## 12. Backups
 
-- 2017-18: `forza-1718-backup.timer` writes `1718/backup/gamesvr-DATE.db` every night (`sqlite3 .backup`, safe while
-  the server runs; 14 days kept). Copy that folder off the host. Restore: stop `forza-1718`, copy one backup over
-  `1718/data/gamesvr.db`, delete `gamesvr.db-wal` and `-shm`, start.
+- 2017-18: `forza-1718-backup.timer` writes `1718/backup/gamesvr-DATE.db.zst` every night (`sqlite3 .backup`, safe while the
+  server runs, then zstd; 14 days kept). Copy that folder off the host. Restore: stop `forza-1718`, unpack one backup
+  over the database (`zstd -d -f gamesvr-DATE.db.zst -o 1718/data/gamesvr.db`), delete `gamesvr.db-wal` and `-shm`, start.
 - 2010-11: `relay/data/` (logs and player uploads). The 2010-11 server keeps no player state of its own; the
   cards and saves live on the players' PCs.
 - Keep a copy of `1011/runtime/` and `evidence/runtime.sha256`; the Wine prefix can be made again.

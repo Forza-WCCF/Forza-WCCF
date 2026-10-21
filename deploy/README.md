@@ -16,7 +16,7 @@ in the units if you pick others. Replace the placeholders (`203.0.113.10`, `rela
 | `ctrl_user_option.conf` | `$FORZA_HOME/1011/runtime/local/` | control's settings for a server (`WAIT_PROJECTOR=0`, no DHCP, any address) |
 | `guard_imports.py` | run once on the runtime copy | makes the guarded `control_Release.exe` (imports `wccfnet.dll` instead of `IPHLPAPI.DLL`) |
 | `forza-1718.service` | `/etc/systemd/system/` | 2017-18 `forza-server all`: desk + lobby, game server, VS reflect |
-| `forza-1718-backup.service`, `.timer` | `/etc/systemd/system/` | nightly `sqlite3 .backup` of `gamesvr.db`, 14 days kept |
+| `forza-1718-backup.service`, `.timer` | `/etc/systemd/system/` | nightly `sqlite3 .backup` of `gamesvr.db`, zstd-compressed, 14 days kept |
 | `smoke.py` | run anywhere | the 2010-11 desk and projector relay on loopback ports: 5 checks, no game |
 | `lobby_check.py` | run from a player's PC | asks a desk for its `LOBBY`; `--room` also opens and closes a VS room (2017-18) |
 | `precheck.sh` | run as root before an update | is anyone connected or in the game, what runs, hashes of what an update replaces |
