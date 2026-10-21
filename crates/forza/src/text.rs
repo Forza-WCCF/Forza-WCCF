@@ -917,7 +917,7 @@ impl Ctx {
         let (enc, used, misfit, original_bad) = encode_lines(self.ed, &body, &keys, &ch, nl);
         if self.ed == Edition::E1011 && !misfit.is_empty() {
             return fail(format!(
-                "the kit's text has {} problem(s), e.g. {}",
+                "the game text has {} problem(s), e.g. {}",
                 misfit.len(),
                 misfit
                     .iter()
@@ -948,7 +948,7 @@ impl Ctx {
             files.push((ENUM.to_string(), new_enum));
             if !misfit.is_empty() {
                 note += &format!(
-                    "; {} of the kit's lines do not fit this game's line and gave way to the next choice ({})",
+                    "; {} of the text lines do not fit this game's line and gave way to the next choice ({})",
                     misfit.len(),
                     misfit[0]
                 );
@@ -1108,7 +1108,7 @@ impl Ctx {
                 || en.contains('%')
                 || !en.chars().all(|c| (' '..'\u{7f}').contains(&c))
             {
-                return fail(format!("the kit's team name for {file} does not fit"));
+                return fail(format!("the team name for {file} does not fit"));
             }
             let n = put_field(&d[NAME_AT..NAME_END], en.as_bytes(), NAME_END - NAME_AT);
             d[NAME_AT..NAME_END].copy_from_slice(&n);
@@ -1175,14 +1175,16 @@ impl Ctx {
                 if d.get(o..o + n).map(sha).as_deref() != Some(cell(r, "original_sha256"))
                     || d.get(o + n) != Some(&0)
                 {
-                    return fail(format!("{what} at {off} is not the text the kit expects"));
+                    return fail(format!(
+                        "{what} at {off} is not the text Forza-WCCF expects"
+                    ));
                 }
                 let mut room = n + 1;
                 while o + room < d.len() && d[o + room] == 0 {
                     room += 1;
                 }
                 if en.len() + 1 > room || !en.chars().all(|c| (' '..'\u{7f}').contains(&c)) {
-                    return fail(format!("the kit's text at {off} does not fit"));
+                    return fail(format!("the text at {off} does not fit"));
                 }
                 // over exactly the room measured: never a byte more or less
                 d[o..o + room].fill(0);
@@ -1199,7 +1201,7 @@ impl Ctx {
             .find(|p| !["client", "server"].contains(p))
         {
             return fail(format!(
-                "exe_text.tsv names a program the kit does not know: {p}"
+                "exe_text.tsv names a program Forza-WCCF does not know: {p}"
             ));
         }
         let n_client = rows

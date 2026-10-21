@@ -22,7 +22,7 @@ use std::time::Duration;
 use xshell::{Shell, cmd};
 
 #[derive(Parser)]
-#[command(about = "Build, check and package the kit")]
+#[command(about = "Build, check and package Forza-WCCF")]
 enum Task {
     /// Compile the C programs and the launchers into the staged kits (2010-11 and 2017-18)
     Build,
@@ -63,8 +63,8 @@ const QUICK_BASE: &str = "integ-20261019";
 /// across worktrees; builds while editing stay incremental.
 static NO_INCREMENTAL: AtomicBool = AtomicBool::new(false);
 
-const TOP: &str = "WCCF-2010-11-kit";
-const PRODUCT: &str = "WCCF 2010-11 kit";
+const TOP: &str = "Forza-WCCF-2010-11";
+const PRODUCT: &str = "Forza-WCCF 2010-11";
 const PRODUCT_1718: &str = "Forza-WCCF 2017-18";
 const TARGET: &str = "x86_64-pc-windows-msvc";
 /// The game is 32-bit, so is a DLL that goes into it.
@@ -176,7 +176,7 @@ const ED_1011: Ed = Ed {
         cj(
             "hook/wccfk.c",
             "programs/wccfk.dll",
-            "the kit's hook in the game: stands in for the cabinet's hardware",
+            "Forza-WCCF's hook in the game: stands in for the cabinet's hardware",
             &["/LD"],
             &[],
         ),
@@ -287,7 +287,7 @@ const COMMON: &[Cj] = &[
     cj(
         "common/inject.c",
         "source/build/inject.exe",
-        "loads the kit's panel into the running game",
+        "loads the Forza-WCCF panel into the running game",
         &[],
         &[],
     ),

@@ -90,7 +90,7 @@ pub fn check_setup(game_id: Option<&str>, kit: Edition) -> Result<()> {
     Ok(())
 }
 
-/// The kit zip may hold the files directly or inside one top folder (WCCF-2010-11-kit/...). A kit has Launcher.exe at
+/// The kit zip may hold the files directly or inside one top folder (Forza-WCCF-2010-11/..., or the older WCCF-2010-11-kit/...). A kit has Launcher.exe at
 /// its top and its edition's folders beside it ([`Edition::of_kit`]: `programs/` for 2010-11, `bin/` or `overlay/` for
 /// 2017-18).
 fn kit_prefix(zip: &mut zip::ZipArchive<File>) -> Result<(Edition, String)> {

@@ -228,7 +228,7 @@ pub fn keys_text(e1718: bool, keys: &[u32; COUNT], pads: &[u32; COUNT]) -> Strin
         "keyboard.py"
     };
     let mut s = format!(
-        "# WCCF 2010-11 kit - which key and which controller control does what. Written by the KEYS panel\n# in seat \
+        "# Forza-WCCF 2010-11 - which key and which controller control does what. Written by the KEYS panel\n# in seat \
          1's window, read by the key driver ({driver}). Delete this file to get the default keys back.\n"
     );
     for (name, vk) in NAMES.iter().zip(keys) {
@@ -263,7 +263,7 @@ mod tests {
         pads[8] = PAD_HAT;
         assert_eq!(
             keys_text(false, &keys, &pads).as_bytes(),
-            b"# WCCF 2010-11 kit - which key and which controller control does what. Written by the KEYS panel\n\
+            b"# Forza-WCCF 2010-11 - which key and which controller control does what. Written by the KEYS panel\n\
 # in seat 1's window, read by the key driver (keyboard.py). Delete this file to get the default keys back.\n\
 START=0x0D\nPRESS=0x58\nSHOOT=0x47\nKEEPER=0x42\nDATA=0x53\nKEYPLAYER=0x44\nCARD=0x49\nCOIN=0x35\nUP=0x26\n\
 DOWN=0x28\nLEFT=0x25\nRIGHT=0x27\nTEST=0x70\nSERVICE=0x71\n# SENSOR2 has no key\n# SENSOR3 has no key\nPAUSE=0x50\n\

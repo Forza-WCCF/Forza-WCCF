@@ -320,7 +320,7 @@ fn round3(v: f64) -> f64 {
 fn lay_out(seat: &Path, name: &str, squad: &Squad) -> io::Result<usize> {
     let cards = layout(squad);
     let mut text = format!(
-        "# laid out by the kit (formation.py) for {name} - read by FPR_Emu.exe (table 0)\n"
+        "# laid out by Forza-WCCF (formation.py) for {name} - read by FPR_Emu.exe (table 0)\n"
     );
     for (s, n, x, y) in &cards {
         text += &format!("{s} {n} {x:.3} {y:.3}\n");
@@ -471,7 +471,7 @@ mod tests {
             ]
         );
         let t = fs::read_to_string(seat.join(FILES[0])).unwrap();
-        assert!(t.starts_with("# laid out by the kit (formation.py) for ROSSO"));
+        assert!(t.starts_with("# laid out by Forza-WCCF (formation.py) for ROSSO"));
         assert!(
             t.ends_with("1 200 -0.600 0.550\n2 201 -0.200 0.600\n3 202 0.200 0.600\n"),
             "no positions known: DF spots first; {t}"

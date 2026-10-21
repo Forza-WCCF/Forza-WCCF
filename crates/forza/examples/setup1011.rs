@@ -1,4 +1,4 @@
-//! `setup1011 [undo] <kit folder> <game folder> [cards]`: the 2010-11 install steps (`forza::setup::e1011`), for
+//! `setup1011 [undo] <Forza-WCCF folder> <game folder> [cards]`: the 2010-11 install steps (`forza::setup::e1011`), for
 //! comparing with `code\setup.py`.  Run it on a copy of the game, never on the original.
 
 use forza::setup::e1011;
@@ -9,7 +9,7 @@ fn main() {
     let cards = args.last().is_some_and(|a| a == "cards");
     args.retain(|a| a != "undo" && a != "cards");
     let [kit, game] = &args[..] else {
-        eprintln!("usage: setup1011 [undo] <kit folder> <game folder> [cards]");
+        eprintln!("usage: setup1011 [undo] <Forza-WCCF folder> <game folder> [cards]");
         std::process::exit(2);
     };
     let Some(game) = e1011::find_game(game) else {
@@ -20,7 +20,7 @@ fn main() {
     };
     let kit = std::path::Path::new(kit);
     let mode = if undo { "undo" } else { "setup" };
-    println!("WCCF 2010-11 kit - {mode} - game: {}", game.display());
+    println!("Forza-WCCF 2010-11 - {mode} - game: {}", game.display());
     let say = |s: &str| println!("{s}");
     let done = if undo {
         e1011::undo(kit, &game, &say)

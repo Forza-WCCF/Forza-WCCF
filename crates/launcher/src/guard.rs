@@ -106,7 +106,7 @@ pub fn hook_1011(programs: &[PathBuf]) -> Result<(), String> {
         let data = fs::read(exe).map_err(|e| format!("{}: {e}", exe.display()))?;
         if forza::setup::imports(&data, b"WINMM.dll\0") {
             return Err(format!(
-                "{}: it still imports WINMM.dll, not the kit's hook",
+                "{}: it still imports WINMM.dll, not Forza-WCCF's hook",
                 exe.display()
             ));
         }

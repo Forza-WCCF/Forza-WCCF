@@ -61,7 +61,7 @@ not Authenticode-signed; do not disable antivirus or bypass protection blindly.
 
 ### Optional kit
 
-A trusted, separately supplied kit ZIP (`WCCF-2010-11-kit.zip` or the 2017–2018 ZIP) can be unpacked into the
+A trusted, separately supplied kit ZIP (`Forza-WCCF-2010-11.zip` or the 2017–2018 ZIP) can be unpacked into the
 edition's folder, set up for your extracted game, given English if you ask, and given Play/Stop shortcuts. The kit must
 match the game's edition: the installer reads the edition from the ZIP (`programs\` for 2010–2011, `bin\` or `overlay\`
 for 2017–2018) and refuses a mismatch before writing anything. The ZIP may contain the kit directly or inside one

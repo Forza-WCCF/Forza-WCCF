@@ -385,7 +385,7 @@ pub fn build(
 /// The view whole: a temporary file, then one swap (the panel never reads half of it) - view.write.
 pub fn write(lines: &[String], path: &Path) -> io::Result<()> {
     let text = format!(
-        "# WCCF 2010-11 kit - the club card as the game reads it, for the CLUB CARD panel in seat 1. Written by\n\
+        "# Forza-WCCF 2010-11 - the club card as the game reads it, for the CLUB CARD panel in seat 1. Written by\n\
          # Launcher.exe with decode.py whenever the card changes. Read-only, never edit.\n{}\n",
         lines.join("\n")
     );
