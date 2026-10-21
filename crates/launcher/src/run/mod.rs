@@ -70,7 +70,7 @@ pub const FAILED: i32 = 1;
 pub const NOT_SET_UP: i32 = 2;
 pub const REFUSED: i32 = 3;
 pub const UNGUARDED: i32 = 4;
-/// 2017-18: refused because the network guard Setup makes is not in place.
+/// Refused because the network guard Setup makes is not in place (2017-18; 2010-11 says NOT_SET_UP).
 pub const NOT_GUARDED: i32 = 5;
 
 /// A month and a day: a backstop only.  A player's run ends when its game window is closed; a server for others
@@ -87,7 +87,7 @@ pub const UNGUARDED_TEXT: &str = "Not started: Launcher.exe was started with \"P
 pub(crate) const PANEL_UP: &str = "first frame shown";
 
 const NOT_SET_UP_TEXT: &str = "Not set up yet. Open Launcher.exe, Setup and updates.";
-pub const NOT_GUARDED_TEXT: &str = "Not started: the 2017-18 network guard is not in place, and the game could change this PC's \
+pub const NOT_GUARDED_TEXT: &str = "Not started: the network guard is not in place, and the game could change this PC's \
     network settings. Press Set up / repair in Launcher (Setup and updates), then start again. Problem:";
 
 /// Where a run tells what it does: the window's box or the console.  `ask` gets a yes/no question (no one to ask:
@@ -137,6 +137,9 @@ pub struct Params {
     /// 2017-18 online modes (remote, server) run instead of being refused: the online work and its tests; players
     /// get the refusal (the alpha has no 2017-18 online).
     pub online_1718: bool,
+    /// 2010-11: every program must load the kit's hook through its renamed import (`guard::hook_1011`).  Off only in
+    /// tests whose stand-ins are no game programs.
+    pub hook_imports: bool,
 }
 
 impl Params {
@@ -161,6 +164,7 @@ impl Params {
             scenes: scenes::Names::game(),
             maps: Some(debug::maps::GAME_ID.into()),
             online_1718: false,
+            hook_imports: true,
             shared: io_board::Shared::new(),
             extra_watch: Mutex::default(),
         }
@@ -1008,12 +1012,27 @@ impl Run<'_> {
         out.lines().filter(|l| !l.trim().is_empty()).for_each(|l| self.say(l));
     }
 
-    /// Kit 6 loads its hook as wccfk.dll; a game set up by an older kit, or a newer kit unzipped over this one by hand,
-    /// has another copy (or none) - set up once, as Setup does, instead of starting the old hook or refusing.
+    /// The 2010-11 network guard (AGENTS.md section 5), checked before any game program starts: the game and seat 1
+    /// hold this kit's hook (wccfk.dll) and every program loads it (`guard::hook_1011`).  Kit 6 loads its hook as
+    /// wccfk.dll; a game set up by an older kit, a newer kit unzipped over this one by hand, or a program put back by
+    /// hand fails that - set up once, as Setup does, then check again: still not guarded, nothing starts.
     fn ensure_hook(&self) -> Result<(), Failed> {
-        let ours = fs::read(self.kit.programs().join("wccfk.dll")).ok();
-        let same = |dir: &Path| ours.is_some() && fs::read(dir.join("wccfk.dll")).ok() == ours;
-        if same(&self.game) && same(&self.seat) {
+        let p = self.p;
+        let guarded = || -> Result<(), String> {
+            let ours = fs::read(self.kit.programs().join("wccfk.dll")).ok();
+            for dir in [&self.game, &self.seat] {
+                if ours.is_none() || fs::read(dir.join("wccfk.dll")).ok() != ours {
+                    return Err(format!("{} is not this kit's hook", dir.join("wccfk.dll").display()));
+                }
+            }
+            if !p.hook_imports {
+                return Ok(());
+            }
+            let mut exes: Vec<PathBuf> = p.programs.iter().map(|n| self.game.join(n)).collect();
+            exes.push(self.seat.join(p.client()));
+            guard::hook_1011(&exes)
+        };
+        if guarded().is_ok() {
             return Ok(());
         }
         self.say("Updating the game's helper file (wccfk.dll)...");
@@ -1022,11 +1041,14 @@ impl Run<'_> {
             log(l);
             self.say(l);
         };
-        if crate::setup::game_folder(self.kit, &self.game.display().to_string(), false, &say) == 0 {
-            return Ok(());
+        if crate::setup::game_folder(self.kit, &self.game.display().to_string(), false, &say) != 0 {
+            self.say("Setup did not finish (see above). Open Launcher.exe, Setup and updates, then Set up.");
+            return Err(Failed(String::new()));
         }
-        self.say("Setup did not finish (see above). Open Launcher.exe, Setup and updates, then Set up.");
-        Err(Failed(String::new()))
+        guarded().map_err(|why| {
+            self.say(&format!("{NOT_GUARDED_TEXT} {why}"));
+            Failed(String::new())
+        })
     }
 
     /// The SETTINGS panel's english=on|it|off: done now, before anything starts (the switch refuses while the game
@@ -1217,13 +1239,14 @@ impl Run<'_> {
                 self.say("  Language change skipped: the server on this PC uses the same game files.");
             }
         } else {
-            if self.edition == Edition::E1011 {
-                self.ensure_hook()?; // 2017-18: setup.py puts its hook in place
-            }
             for line in logs::rotate(&self.logs())? {
                 self.say(&line);
             }
             self.apply_english_request();
+            if self.edition == Edition::E1011 {
+                // after the text switch, which puts programs back: 2017-18's guard is checked in `start`
+                self.ensure_hook()?;
+            }
         }
         // the card reader is not running yet in any mode; nor FPR_Emu or the overlay, which read the table
         if self.mode == Mode::Server {

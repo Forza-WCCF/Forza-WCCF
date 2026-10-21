@@ -1,9 +1,9 @@
-//! The 2017-18 network guard, checked before any of its game programs starts.  The game calls four IP-helper functions
-//! that drop this PC's DHCP lease and change its routes; setup (`scripts\setup.py`) makes copies of client_Release.exe and
-//! control_Release.exe that import them from the kit's `wccfnet.dll` (four stubs) instead of IPHLPAPI.DLL, and records
-//! the hashes of what it made in `<runtime>\setup-hashes.json`.  A run starts only when every recorded file is still
-//! the one setup made, and each guarded program's import table names wccfnet.dll and not IPHLPAPI.DLL.
-//! (`netguard.dll`, injected into control and both clients by the run, is the second line.)
+//! The network guards, checked before any game program starts (2010-11: [`hook_1011`]).  The 2017-18 game calls four
+//! IP-helper functions that drop this PC's DHCP lease and change its routes; setup (`scripts\setup.py`) makes copies
+//! of client_Release.exe and control_Release.exe that import them from the kit's `wccfnet.dll` (four stubs) instead of
+//! IPHLPAPI.DLL, and records the hashes of what it made in `<runtime>\setup-hashes.json`.  A run starts only when every
+//! recorded file is still the one setup made, and each guarded program's import table names wccfnet.dll and not
+//! IPHLPAPI.DLL.  (`netguard.dll`, injected into control and both clients by the run, is the second line.)
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -98,6 +98,25 @@ pub fn imports(exe: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+/// The 2010-11 guard: the kit's hook (wccfk.dll) blocks IpReleaseAddress and IpRenewAddress inside each game program,
+/// which loads it through its WINMM.dll import that setup renamed to wccfk.dll.  A program with the original import
+/// would load Windows' winmm.dll and run unguarded.  (That the hook is the kit's own copy, the run checks itself.)
+pub fn hook_1011(programs: &[PathBuf]) -> Result<(), String> {
+    for exe in programs {
+        let data = fs::read(exe).map_err(|e| format!("{}: {e}", exe.display()))?;
+        if forza::setup::imports(&data, b"WINMM.dll\0") {
+            return Err(format!(
+                "{}: it still imports WINMM.dll, not the kit's hook",
+                exe.display()
+            ));
+        }
+        if !forza::setup::imports(&data, b"wccfk.dll\0") {
+            return Err(format!("{}: it does not load wccfk.dll", exe.display()));
+        }
+    }
+    Ok(())
+}
+
 /// (DLL, the functions imported from it by name) for each import descriptor.
 fn import_list(exe: &[u8]) -> object::Result<Vec<(String, Vec<String>)>> {
     let pe = PeFile32::parse(exe)?;
@@ -169,6 +188,17 @@ mod tests {
         let json = serde_json::json!({"a.exe": {"guarded": sha(b"guarded copy")}, "b.dll": sha(b"the guard")});
         fs::write(&record, json.to_string()).unwrap();
         assert!(hashes(&record, &files).unwrap_err().contains("b.dll"));
+    }
+
+    #[test]
+    fn a_2010_11_program_must_load_the_hook() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("client.exe");
+        fs::write(&exe, b"MZ nothing").unwrap();
+        let why = hook_1011(&[exe]).unwrap_err();
+        assert!(why.contains("does not load wccfk.dll"), "{why}");
+        let why = hook_1011(&[dir.path().join("gone.exe")]).unwrap_err();
+        assert!(why.contains("gone.exe"), "{why}");
     }
 
     #[test]

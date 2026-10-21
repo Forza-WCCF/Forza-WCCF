@@ -125,7 +125,8 @@ fn params(tag: &str, shared: Arc<Shared>) -> Params {
         gamesvr_port: free_port(),
         scenes: Names::scratch(&format!("wccftest_{tag}_{pid}")),
         maps: None,
-        online_1718: true, // the 2017-18 run test plays remote, so the server is the test's
+        online_1718: true,   // the 2017-18 run test plays remote, so the server is the test's
+        hook_imports: false, // fakegame.exe imports no WINMM.dll; a_program_without_the_hook_starts_nothing checks it
         shared,
         extra_watch: Default::default(),
     }
@@ -281,6 +282,23 @@ fn an_old_hook_is_set_up_first() {
     assert!(said.contains("Card catalogue not built"), "{said}");
     assert!(said.contains("Updating the game's helper file (wccfk.dll)"), "{said}");
     assert!(said.contains("Setup did not finish"), "{said}");
+    assert!(!run::is_on(&kit, Kind::Run));
+}
+
+/// The 2010-11 guard: with the kit's own wccfk.dll everywhere, a program that does not load it (fakegame.exe has no
+/// WINMM.dll import to rename) is no reason to trust the hook copies: setup runs, and nothing starts.
+#[test]
+fn a_program_without_the_hook_starts_nothing() {
+    let top = tempfile::Builder::new().prefix("wccf-run-").tempdir().unwrap();
+    let (kit, _) = scratch_kit(top.path());
+    let ui = Said::default();
+    let mut p = params("hookimp", Shared::new());
+    p.hook_imports = true;
+    let rc = run::command(&kit, &p, &["local".into()], &ui);
+    let said = ui.text();
+    assert_eq!(rc, run::NOT_SET_UP, "{said}");
+    assert!(said.contains("Updating the game's helper file (wccfk.dll)"), "{said}");
+    assert!(!said.contains("1/6"), "{said}");
     assert!(!run::is_on(&kit, Kind::Run));
 }
 
@@ -755,7 +773,7 @@ fn a_2017_18_kit_that_is_not_guarded_starts_nothing() {
         let said = ui.text();
         assert_eq!(rc, run::NOT_GUARDED, "{what}: {said}");
         assert!(
-            said.contains("the 2017-18 network guard is not in place") && said.contains(part),
+            said.contains("the network guard is not in place") && said.contains(part),
             "{what}: {said}"
         );
         assert!(!run::is_on(&kit, Kind::Run));
