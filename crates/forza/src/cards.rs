@@ -206,7 +206,11 @@ impl TableFile {
     /// The formation copy still owed: written again, at most once a second.
     pub fn retry_copy(&mut self, cards: &[Placed]) {
         let now = std::time::Instant::now();
-        if !self.copy_owed || self.copy_try.is_some_and(|t| now.duration_since(t) < Duration::from_secs(1)) {
+        if !self.copy_owed
+            || self
+                .copy_try
+                .is_some_and(|t| now.duration_since(t) < Duration::from_secs(1))
+        {
             return;
         }
         self.copy_try = Some(now);

@@ -937,7 +937,9 @@ fn target_slot(
     dragged: Option<usize>,
     centre: Pos2,
 ) -> Option<usize> {
-    (0..16).rev().find(|&s| Some(s) != dragged && shown(s) && rects[s].contains(centre))
+    (0..16)
+        .rev()
+        .find(|&s| Some(s) != dragged && shown(s) && rects[s].contains(centre))
 }
 
 /// The grab of the drag in progress: the card centre less the press point, as a fraction of the card. Board drags

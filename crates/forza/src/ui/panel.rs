@@ -985,7 +985,11 @@ const PLATES: [(f32, f32); 3] = [(0.0, 300.0), (316.0, 328.0), (660.0, 118.0)];
 /// The three plates, the row drawn centred in `area`: without the machine plate (`both` false, 2017-18) the row is
 /// only the first two plates wide.
 fn deck_plates(area: Rect, both: bool) -> [Rect; 3] {
-    let w = if both { ROW.x } else { PLATES[1].0 + PLATES[1].1 };
+    let w = if both {
+        ROW.x
+    } else {
+        PLATES[1].0 + PLATES[1].1
+    };
     let o = area.center() - vec2(w, ROW.y) / 2.0;
     PLATES.map(|(x, w)| Rect::from_min_size(o + vec2(x, 0.0), vec2(w, ROW.y)))
 }
@@ -1159,7 +1163,10 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
         resp
     };
     let both = st.edition != Edition::E1718; // 2017-18 has no card: no machine plate
-    for plate in deck_plates(area, both).into_iter().take(if both { 3 } else { 2 }) {
+    for plate in deck_plates(area, both)
+        .into_iter()
+        .take(if both { 3 } else { 2 })
+    {
         ui.painter()
             .rect_filled(plate, theme::RADIUS_BIG, theme::WELL);
         ui.painter().rect_stroke(
