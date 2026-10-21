@@ -37,7 +37,7 @@ pub mod rules;
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
-use std::os::windows::io::{FromRawHandle, OwnedHandle};
+use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -53,8 +53,10 @@ use forza::online::seat::{self, Lease};
 use forza::online::send_logs::{self, Scrub};
 use forza::standins::{Handle, Log, aime, aimedb, card_reader, io_board, network, scenes};
 use regex::Regex;
-use windows_sys::Win32::Foundation::{ERROR_ALREADY_EXISTS, FALSE, GetLastError};
-use windows_sys::Win32::System::Threading::{CreateMutexW, OpenMutexW, SYNCHRONIZATION_SYNCHRONIZE};
+use windows_sys::Win32::Foundation::{ERROR_ALREADY_EXISTS, FALSE, GetLastError, WAIT_ABANDONED, WAIT_OBJECT_0};
+use windows_sys::Win32::System::Threading::{
+    CreateMutexW, OpenMutexW, ReleaseMutex, SYNCHRONIZATION_SYNCHRONIZE, WaitForSingleObject,
+};
 
 use crate::card;
 use crate::debug::{self, Maps, Options};
@@ -70,7 +72,7 @@ pub const FAILED: i32 = 1;
 pub const NOT_SET_UP: i32 = 2;
 pub const REFUSED: i32 = 3;
 pub const UNGUARDED: i32 = 4;
-/// 2017-18: refused because the network guard Setup makes is not in place.
+/// Refused because the network guard Setup makes is not in place (2017-18; 2010-11 says NOT_SET_UP).
 pub const NOT_GUARDED: i32 = 5;
 
 /// A month and a day: a backstop only.  A player's run ends when its game window is closed; a server for others
@@ -86,8 +88,10 @@ pub const UNGUARDED_TEXT: &str = "Not started: Launcher.exe was started with \"P
 /// The panel's line in `seat1\forza_panel.log` once its Present detour has drawn a frame: the run's proof it is up.
 pub(crate) const PANEL_UP: &str = "first frame shown";
 
+const BUSY_TEXT: &str =
+    "Not started: another Launcher window is setting up or starting the game. Try again when it is done.";
 const NOT_SET_UP_TEXT: &str = "Not set up yet. Open Launcher.exe, Setup and updates.";
-pub const NOT_GUARDED_TEXT: &str = "Not started: the 2017-18 network guard is not in place, and the game could change this PC's \
+pub const NOT_GUARDED_TEXT: &str = "Not started: the network guard is not in place, and the game could change this PC's \
     network settings. Press Set up / repair in Launcher (Setup and updates), then start again. Problem:";
 
 /// Where a run tells what it does: the window's box or the console.  `ask` gets a yes/no question (no one to ask:
@@ -137,6 +141,9 @@ pub struct Params {
     /// 2017-18 online modes (remote, server) run instead of being refused: the online work and its tests; players
     /// get the refusal (the alpha has no 2017-18 online).
     pub online_1718: bool,
+    /// 2010-11: every program must load the kit's hook through its renamed import (`guard::hook_1011`).  Off only in
+    /// tests whose stand-ins are no game programs.
+    pub hook_imports: bool,
 }
 
 impl Params {
@@ -161,6 +168,7 @@ impl Params {
             scenes: scenes::Names::game(),
             maps: Some(debug::maps::GAME_ID.into()),
             online_1718: false,
+            hook_imports: true,
             shared: io_board::Shared::new(),
             extra_watch: Mutex::default(),
         }
@@ -210,13 +218,13 @@ impl Kind {
 
 /// The run's mutex name: the kit folder in the form Windows reports it (a start through the first-run link and one
 /// from the folder itself are the same kit), FNV-1a over it.
-fn lock_name(kit: &Kit, kind: Kind) -> Vec<u16> {
+fn lock_name(kit: &Kit, kind: &str) -> Vec<u16> {
     let key = procs::same_form(kit.dir())
         .encode_utf16()
         .fold(0xcbf2_9ce4_8422_2325_u64, |h, c| {
             (h ^ u64::from(c)).wrapping_mul(0x0100_0000_01b3)
         });
-    format!("Local\\wccf-kit-{}-{key:016x}", kind.name())
+    format!("Local\\wccf-kit-{kind}-{key:016x}")
         .encode_utf16()
         .chain([0])
         .collect()
@@ -224,7 +232,7 @@ fn lock_name(kit: &Kit, kind: Kind) -> Vec<u16> {
 
 /// The run's mutex, if no one holds it: held for as long as the run lasts.
 fn take_lock(kit: &Kit, kind: Kind) -> Option<OwnedHandle> {
-    let name = lock_name(kit, kind);
+    let name = lock_name(kit, kind.name());
     // SAFETY: a NUL-terminated name; the handle is checked, then owned (closed on drop).
     unsafe {
         let h = CreateMutexW(ptr::null(), FALSE, name.as_ptr());
@@ -237,9 +245,37 @@ fn take_lock(kit: &Kit, kind: Kind) -> Option<OwnedHandle> {
     }
 }
 
+/// The kit folder's admission: a start (from its checks to its first game programs), setup, undo and the text switch
+/// hold it in turn, across Launcher windows, so no setup or undo comes between a start's guard check and its game, and
+/// a run and a server never both pass their check.  Released on drop, by the thread that took it.
+pub struct Admission(OwnedHandle);
+
+impl Drop for Admission {
+    fn drop(&mut self) {
+        // SAFETY: this thread owns the mutex (`admit`); the handle is still open.
+        unsafe { ReleaseMutex(self.0.as_raw_handle()) };
+    }
+}
+
+/// The admission, unless another thread holds it (this one may: a start's own setup); never waits.
+pub fn admit(kit: &Kit) -> Option<Admission> {
+    let name = lock_name(kit, "admit");
+    // SAFETY: a NUL-terminated name; the handle is checked, then owned (closed on drop).
+    unsafe {
+        let h = CreateMutexW(ptr::null(), FALSE, name.as_ptr());
+        if h.is_null() {
+            return None;
+        }
+        let h = OwnedHandle::from_raw_handle(h);
+        let got = WaitForSingleObject(h.as_raw_handle(), 0);
+        // abandoned: a Launcher that held it ended - it is this thread's now
+        (got == WAIT_OBJECT_0 || got == WAIT_ABANDONED).then_some(Admission(h))
+    }
+}
+
 /// A run of this kind is on (in this process or another).
 pub fn is_on(kit: &Kit, kind: Kind) -> bool {
-    let name = lock_name(kit, kind);
+    let name = lock_name(kit, kind.name());
     // SAFETY: a NUL-terminated name; a handle that opens is closed at once.
     unsafe {
         let h = OpenMutexW(SYNCHRONIZATION_SYNCHRONIZE, FALSE, name.as_ptr());
@@ -802,6 +838,11 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         ui.say(NOT_SET_UP_TEXT);
         return Err(NOT_SET_UP);
     }
+    // held to the end of the start: see Admission
+    let Some(_admitted) = admit(kit) else {
+        ui.say(BUSY_TEXT);
+        return Err(REFUSED);
+    };
     // before anything of the run exists: no game program may start unguarded (AGENTS.md section 5)
     if edition == Edition::E1718
         && let Err(why) = guard::check(&game, &seat, p.client(), p.control())
@@ -1008,12 +1049,27 @@ impl Run<'_> {
         out.lines().filter(|l| !l.trim().is_empty()).for_each(|l| self.say(l));
     }
 
-    /// Kit 6 loads its hook as wccfk.dll; a game set up by an older kit, or a newer kit unzipped over this one by hand,
-    /// has another copy (or none) - set up once, as Setup does, instead of starting the old hook or refusing.
+    /// The 2010-11 network guard (AGENTS.md section 5), checked before any game program starts: the game and seat 1
+    /// hold this kit's hook (wccfk.dll) and every program loads it (`guard::hook_1011`).  Kit 6 loads its hook as
+    /// wccfk.dll; a game set up by an older kit, a newer kit unzipped over this one by hand, or a program put back by
+    /// hand fails that - set up once, as Setup does, then check again: still not guarded, nothing starts.
     fn ensure_hook(&self) -> Result<(), Failed> {
-        let ours = fs::read(self.kit.programs().join("wccfk.dll")).ok();
-        let same = |dir: &Path| ours.is_some() && fs::read(dir.join("wccfk.dll")).ok() == ours;
-        if same(&self.game) && same(&self.seat) {
+        let p = self.p;
+        let guarded = || -> Result<(), String> {
+            let ours = fs::read(self.kit.programs().join("wccfk.dll")).ok();
+            for dir in [&self.game, &self.seat] {
+                if ours.is_none() || fs::read(dir.join("wccfk.dll")).ok() != ours {
+                    return Err(format!("{} is not this kit's hook", dir.join("wccfk.dll").display()));
+                }
+            }
+            if !p.hook_imports {
+                return Ok(());
+            }
+            let mut exes: Vec<PathBuf> = p.programs.iter().map(|n| self.game.join(n)).collect();
+            exes.push(self.seat.join(p.client()));
+            guard::hook_1011(&exes)
+        };
+        if guarded().is_ok() {
             return Ok(());
         }
         self.say("Updating the game's helper file (wccfk.dll)...");
@@ -1022,11 +1078,14 @@ impl Run<'_> {
             log(l);
             self.say(l);
         };
-        if crate::setup::game_folder(self.kit, &self.game.display().to_string(), false, &say) == 0 {
-            return Ok(());
+        if crate::setup::folder_step(self.kit, &self.game.display().to_string(), false, &say) != 0 {
+            self.say("Setup did not finish (see above). Open Launcher.exe, Setup and updates, then Set up.");
+            return Err(Failed(String::new()));
         }
-        self.say("Setup did not finish (see above). Open Launcher.exe, Setup and updates, then Set up.");
-        Err(Failed(String::new()))
+        guarded().map_err(|why| {
+            self.say(&format!("{NOT_GUARDED_TEXT} {why}"));
+            Failed(String::new())
+        })
     }
 
     /// The SETTINGS panel's english=on|it|off: done now, before anything starts (the switch refuses while the game
@@ -1056,7 +1115,7 @@ impl Run<'_> {
                     *last.lock().unwrap_or_else(PoisonError::into_inner) = l.trim().to_owned();
                 }
             };
-            let why = match crate::setup::game_text(self.kit, lang, &say) {
+            let why = match crate::setup::text_step(self.kit, lang, &say) {
                 0 => None,
                 code => Some(
                     Some(last.into_inner().unwrap_or_else(PoisonError::into_inner))
@@ -1217,13 +1276,14 @@ impl Run<'_> {
                 self.say("  Language change skipped: the server on this PC uses the same game files.");
             }
         } else {
-            if self.edition == Edition::E1011 {
-                self.ensure_hook()?; // 2017-18: setup.py puts its hook in place
-            }
             for line in logs::rotate(&self.logs())? {
                 self.say(&line);
             }
             self.apply_english_request();
+            if self.edition == Edition::E1011 {
+                // after the text switch, which puts programs back: 2017-18's guard is checked in `start`
+                self.ensure_hook()?;
+            }
         }
         // the card reader is not running yet in any mode; nor FPR_Emu or the overlay, which read the table
         if self.mode == Mode::Server {

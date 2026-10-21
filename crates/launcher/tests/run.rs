@@ -125,7 +125,8 @@ fn params(tag: &str, shared: Arc<Shared>) -> Params {
         gamesvr_port: free_port(),
         scenes: Names::scratch(&format!("wccftest_{tag}_{pid}")),
         maps: None,
-        online_1718: true, // the 2017-18 run test plays remote, so the server is the test's
+        online_1718: true,   // the 2017-18 run test plays remote, so the server is the test's
+        hook_imports: false, // fakegame.exe imports no WINMM.dll; a_program_without_the_hook_starts_nothing checks it
         shared,
         extra_watch: Default::default(),
     }
@@ -282,6 +283,53 @@ fn an_old_hook_is_set_up_first() {
     assert!(said.contains("Updating the game's helper file (wccfk.dll)"), "{said}");
     assert!(said.contains("Setup did not finish"), "{said}");
     assert!(!run::is_on(&kit, Kind::Run));
+}
+
+/// The 2010-11 guard: with the kit's own wccfk.dll everywhere, a program that does not load it (fakegame.exe has no
+/// WINMM.dll import to rename) is no reason to trust the hook copies: setup runs, and nothing starts.
+#[test]
+fn a_program_without_the_hook_starts_nothing() {
+    let top = tempfile::Builder::new().prefix("wccf-run-").tempdir().unwrap();
+    let (kit, _) = scratch_kit(top.path());
+    let ui = Said::default();
+    let mut p = params("hookimp", Shared::new());
+    p.hook_imports = true;
+    let rc = run::command(&kit, &p, &["local".into()], &ui);
+    let said = ui.text();
+    assert_eq!(rc, run::NOT_SET_UP, "{said}");
+    assert!(said.contains("Updating the game's helper file (wccfk.dll)"), "{said}");
+    assert!(!said.contains("1/6"), "{said}");
+    assert!(!run::is_on(&kit, Kind::Run));
+}
+
+/// One admission per kit folder: while another thread (another Launcher window) holds it, a start and setup are refused
+/// and leave nothing on; once it is free, setup gets past it (and fails on the stand-ins, as no game).
+#[test]
+fn a_start_and_setup_wait_their_turn() {
+    let top = tempfile::Builder::new().prefix("wccf-run-").tempdir().unwrap();
+    let (kit, _) = scratch_kit(top.path());
+    let (held, free) = (std::sync::Barrier::new(2), std::sync::Barrier::new(2));
+    thread::scope(|s| {
+        s.spawn(|| {
+            let admitted = run::admit(&kit).unwrap();
+            held.wait();
+            free.wait();
+            drop(admitted);
+        });
+        held.wait();
+        let ui = Said::default();
+        let rc = run::command(&kit, &params("admit", Shared::new()), &["local".into()], &ui);
+        assert_eq!(rc, run::REFUSED, "{}", ui.text());
+        assert!(ui.text().contains("another Launcher window"), "{}", ui.text());
+        assert!(!run::is_on(&kit, Kind::Run));
+        let rc = launcher::setup::game_folder(&kit, "", true, &|_| {});
+        assert_eq!(rc, launcher::setup::RUNNING);
+        free.wait();
+    });
+    assert_ne!(
+        launcher::setup::game_folder(&kit, "", true, &|_| {}),
+        launcher::setup::RUNNING
+    );
 }
 
 #[test]
@@ -755,7 +803,7 @@ fn a_2017_18_kit_that_is_not_guarded_starts_nothing() {
         let said = ui.text();
         assert_eq!(rc, run::NOT_GUARDED, "{what}: {said}");
         assert!(
-            said.contains("the 2017-18 network guard is not in place") && said.contains(part),
+            said.contains("the network guard is not in place") && said.contains(part),
             "{what}: {said}"
         );
         assert!(!run::is_on(&kit, Kind::Run));
