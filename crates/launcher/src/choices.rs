@@ -105,6 +105,20 @@ pub fn setting(path: &Path, key: &str) -> Option<String> {
 
 pub use forza::panel_txt::valid_address;
 
+/// An override's value: the environment variable first, then the setting; empty counts as unset.
+pub fn env_or(env: Option<String>, saved: Option<String>) -> Option<String> {
+    [env, saved]
+        .into_iter()
+        .flatten()
+        .map(|s| s.trim().to_owned())
+        .find(|s| !s.is_empty())
+}
+
+/// [`env_or`] with the variable `name` read now.
+pub fn env_or_var(name: &str, saved: Option<String>) -> Option<String> {
+    env_or(std::env::var(name).ok(), saved)
+}
+
 /// The 2017-18 club server's default port (`forza-server --edition 2017-18 gmsvr`).
 pub const CLUB_PORT: u16 = 20060;
 
@@ -141,6 +155,14 @@ pub fn resolve(s: &str, port: u16) -> Option<SocketAddr> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn env_beats_setting_and_empty_is_unset() {
+        let s = |v: &str| Some(v.to_owned());
+        assert_eq!(env_or(s("a"), s("b")), s("a"));
+        assert_eq!(env_or(s(" "), s("b")), s("b"));
+        assert_eq!(env_or(None, None), None);
+    }
 
     #[test]
     fn club_server_parse() {

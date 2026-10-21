@@ -14,7 +14,7 @@ use std::time::Duration;
 use std::{env, fs, thread};
 
 use launcher::Kit;
-use launcher::release::{UPDATE_URL, curl, no_target, system32};
+use launcher::release::{curl, no_target, system32, update_url};
 use serde_json::Value;
 
 use crate::text::{t, tf};
@@ -74,7 +74,7 @@ pub fn fetch() -> Result<Vec<Release>, String> {
     if no_target() {
         return Ok(Vec::new());
     }
-    let api = format!("{UPDATE_URL}releases?per_page=30");
+    let api = format!("{}releases?per_page=30", update_url());
     let out = curl()
         .args(["-H", "Accept: application/vnd.github+json", "--url", &api])
         .output()

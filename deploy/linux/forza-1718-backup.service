@@ -1,0 +1,9 @@
+[Unit]
+Description=Forza-WCCF 2017-18 game server database backup
+
+[Service]
+Type=oneshot
+User=wccf
+Group=wccf
+# sqlite3 .backup is safe while the server writes; keeps 14 days
+ExecStart=/bin/sh -c 'mkdir -p /srv/forza-wccf/1718/backup && sqlite3 /srv/forza-wccf/1718/data/gamesvr.db ".backup /srv/forza-wccf/1718/backup/gamesvr-$(date +%%F).db" && find /srv/forza-wccf/1718/backup -name "gamesvr-*.db" -mtime +14 -delete'

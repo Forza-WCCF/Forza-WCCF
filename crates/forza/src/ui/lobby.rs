@@ -293,7 +293,7 @@ impl LobbyView {
         v.shops = vec![
             row(
                 "k3f9q2",
-                "FORZA the game server",
+                "FORZA ROMA",
                 3,
                 8,
                 Some(21),
@@ -335,7 +335,7 @@ impl LobbyView {
             }
             Scenario::Full => {
                 let names = [
-                    "FORZA the game server",
+                    "FORZA ROMA",
                     "TOKYO NIGHT",
                     "MILANO CUP",
                     "OSAKA RING",

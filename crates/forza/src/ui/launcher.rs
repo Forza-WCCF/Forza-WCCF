@@ -93,7 +93,7 @@ pub struct LauncherState {
     pub online: bool,
     /// The online lobby; its Direct address is the server PLAY uses when no lobby row is chosen.
     pub lobby: LobbyView,
-    /// The last seat, offered again within the desk's 75 s: "Rejoin FORZA the game server, seat 3".
+    /// The last seat, offered again within the desk's 75 s: "Rejoin FORZA ROMA, seat 3".
     pub rejoin: Option<String>,
     /// A game folder is set up.
     pub set_up: bool,

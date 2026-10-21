@@ -28,6 +28,10 @@ One program for every online service of both editions. Std threads and blocking 
 - The projector hold no longer touches the firewall and is not enforced (`HOLD` stays `HOLD 0`). A Windows server that ran an
   older version: remove the leftover rule by hand with `netsh advfirewall firewall delete rule name="WCCF hold projector box"`.
 
+Running a server of your own (both editions, the 2010-11 Wine host, the iroh relay, firewall, backups):
+`docs/SELF-HOSTING.md`. `python/projector_relay.py` is the 2010-11 projector relay (TCP 20031), the one service not
+yet in Rust: `python3 projector_relay.py LIFE [LOG_FILE]` with `WCCF_CONTROL_LOG` set to control's log.
+
 Code: `src/` holds the desk, relay and inbox; the game server, the matcher and the reflect service are
 `forza::online::{gamesvr, vs}`, shared with the Launcher's local stand-in. Builds: `cargo build --release -p forza-server`
 (Linux), `cargo xtask build` (Windows, `programs\forza-server.exe` in the 2010-11 kit).

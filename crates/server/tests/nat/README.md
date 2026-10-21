@@ -8,7 +8,7 @@ it.
 
 Needs Docker with compose (`docker info`), jq, and the Linux Rust toolchain; the script builds `forza-server` and
 `vslink`'s `nat_peer` example (`cargo build --release`), mounts `target/release` into the containers and pulls
-`debian:trixie-slim` once. Results and every log go to `<build-dir>\nat-harness-<date>\run-<time>\` (`NAT_WORK=`
+`debian:trixie-slim` once. Results and every log go to `target/nat-<date>/run-<time>/` (`NAT_WORK=`
 elsewhere): `results.txt` (the table), `results.jsonl` (both homes' lines per cell), and per cell `a.log`, `b.log`
 (vslink's log), `server.log`. `NAT_NO_BUILD=1` skips the cargo builds. Exit 0 = the gate passed.
 
@@ -57,4 +57,4 @@ The open pool paired and went direct.
   2001/2012 over a whole match are M3's two-PC gate.
 - Windows networking (the Windows Firewall prompt, Wi-Fi, real home routers: CGNAT, hairpinning, UPnP).
 - The public relay (`relay.wccf.it`) and its TLS chain: the harness uses its own relay with certificate checks off.
-- Timings for the S0 baseline (RSS, CPU): `load.rs` and the game server's numbers.
+- Timings for the S0 baseline (RSS, CPU): `load.rs` and a 2-vCPU host's numbers.

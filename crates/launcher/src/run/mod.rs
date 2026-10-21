@@ -1753,6 +1753,18 @@ impl Run<'_> {
             file_log(self.logs().join("vslink_log.txt")),
         );
         cfg.ticket = ticket;
+        // WCCF_VS_RELAY, else settings "vs_relay" (URL); settings "vs_relay_ca" (PEM file) is the relay's only trusted root
+        let settings = self.kit.settings();
+        let saved = |k: &str| settings[k].as_str().map(str::to_owned);
+        if let Some(url) = choices::env_or_var("WCCF_VS_RELAY", saved("vs_relay")) {
+            let ca = saved("vs_relay_ca").filter(|c| !c.trim().is_empty());
+            if let Err(e) = cfg.set_relay(&url, ca.as_deref().map(Path::new)) {
+                self.say(&format!(
+                    "  VS link failed ({e}). VS matches will be against a CPU team."
+                ));
+                return;
+            }
+        }
         match vslink::spawn(cfg) {
             Ok(link) => {
                 self.say(if room {

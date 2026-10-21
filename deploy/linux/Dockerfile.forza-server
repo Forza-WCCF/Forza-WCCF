@@ -1,0 +1,12 @@
+# Builds forza-server for another Linux architecture (rusqlite bundles SQLite: needs a C compiler, which the image has).
+# From the repository root, for example for a 64-bit ARM host (needs Docker buildx and qemu binfmt for arm64):
+#   docker buildx build --platform linux/arm64 -f deploy/linux/Dockerfile.forza-server --output type=local,dest=out-arm64 .
+# The binary lands in out-arm64/forza-server. On the host itself, `cargo build --release -p forza-server` does the same.
+FROM rust:1-bookworm AS build
+WORKDIR /src
+COPY . .
+RUN cargo build --release --locked -p forza-server \
+ && cp target/release/forza-server /forza-server
+
+FROM scratch
+COPY --from=build /forza-server /forza-server

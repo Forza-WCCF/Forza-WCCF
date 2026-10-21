@@ -1,0 +1,6 @@
+[Unit]
+Description=Daily restart of the Forza-WCCF 2010-11 server
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl restart wccf-1011.service

@@ -8,9 +8,7 @@ ROOT=$(cd "$HERE/../../../.." && pwd)
 NATS=${NATS:-"cone:restricted restricted:restricted symmetric:symmetric"}
 DELAYS=${DELAYS:-"0 50 100 150"}
 export LOSS=${LOSS:-0}
-if [ -z "${NAT_WORK:-}" ]; then
-  if [ -d <build-dir> ]; then NAT_WORK=<build-dir>/nat-harness-$(date +%Y%m%d); else NAT_WORK=$ROOT/target/nat; fi
-fi
+NAT_WORK=${NAT_WORK:-$ROOT/target/nat-$(date +%Y%m%d)}
 RUN=$NAT_WORK/run-$(date +%H%M%S)
 mkdir -p "$RUN"
 export BIN_DIR=$ROOT/target/release SHARED=$RUN/shared

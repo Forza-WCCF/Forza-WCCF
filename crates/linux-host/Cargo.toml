@@ -1,0 +1,28 @@
+[package]
+name = "linux-host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "The 2010-11 server on Linux: a supervisor for Xvfb, Wine and the original control, plus its Wine-side helpers"
+
+# Linux (the supervisor); the helpers run under Wine and build for i686-pc-windows-msvc. Each is an empty stand-in
+# elsewhere, so `cargo xtask check` (Windows target) and a Linux build both pass.
+[[bin]]
+name = "wccf-linux-server"
+path = "src/main.rs"
+
+[[bin]]
+name = "win32-helper"
+path = "src/bin/win32-helper/main.rs"
+
+[[bin]]
+name = "check-crt"
+path = "src/bin/check-crt/main.rs"
+
+[[bin]]
+name = "check-network"
+path = "src/bin/check-network.rs"
+
+[lints]
+workspace = true

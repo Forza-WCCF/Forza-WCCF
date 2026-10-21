@@ -379,10 +379,10 @@ mod tests {
             (plain.host.as_str(), plain.port, plain.room),
             ("203.0.113.7", 20060, None)
         );
-        // the lobby's entry for a desk on its own port (the game server's 2017-18 desk): the host, the game server on 20060
-        let ovh = t("play_on=online\nserver=203.0.113.10:20032\nticket=ab12\n", "").unwrap();
-        assert_eq!((ovh.host.as_str(), ovh.port), ("203.0.113.10", 20060));
-        assert_eq!(ovh.room.map(|r| r.1).as_deref(), Some("ab12"));
+        // the lobby's entry for a desk on its own port (a 2017-18 desk beside a 2010-11 one): the host, the game server on 20060
+        let public = t("play_on=online\nserver=203.0.113.10:20032\nticket=ab12\n", "").unwrap();
+        assert_eq!((public.host.as_str(), public.port), ("203.0.113.10", 20060));
+        assert_eq!(public.room.map(|r| r.1).as_deref(), Some("ab12"));
         assert!(t("play_on=online\n", "").is_err());
         assert!(t("play_on=online\nserver=not an address\n", "").is_err());
         assert!(t("play_on=online\nserver=203.0.113.7\n", "bad host:0").is_err());

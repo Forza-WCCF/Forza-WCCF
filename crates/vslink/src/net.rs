@@ -14,7 +14,7 @@ use iroh::{Endpoint, EndpointAddr, PublicKey, RelayMap, RelayMode, RelayUrl, Sec
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -73,6 +73,29 @@ impl Config {
             log,
             ticket: None,
         }
+    }
+}
+
+impl Config {
+    /// Dials `url` instead of the public relay; `ca_pem` (a PEM file) is then the only trusted root. For a
+    /// self-hosted relay.
+    pub fn set_relay(&mut self, url: &str, ca_pem: Option<&Path>) -> Result<(), String> {
+        let u: RelayUrl = url
+            .trim()
+            .parse()
+            .map_err(|e| format!("relay {url}: {e}"))?;
+        self.relay = RelayMap::from(u);
+        if let Some(path) = ca_pem {
+            use rustls_pki_types::{CertificateDer, pem::PemObject};
+            let roots = CertificateDer::pem_file_iter(path)
+                .and_then(|it| it.collect::<Result<Vec<_>, _>>())
+                .map_err(|e| format!("relay CA {}: {e}", path.display()))?;
+            if roots.is_empty() {
+                return Err(format!("relay CA {}: no certificate", path.display()));
+            }
+            self.ca = Some(CaTlsConfig::custom_roots(roots));
+        }
+        Ok(())
     }
 }
 
@@ -704,6 +727,22 @@ pub fn spawn(cfg: Config) -> io::Result<Link> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn set_relay_takes_a_url_and_refuses_a_missing_ca() {
+        let mut c = Config::public("127.0.0.1:1".parse().unwrap(), "k".into(), Arc::new(|_| {}));
+        assert!(c.set_relay("not a url", None).is_err());
+        c.set_relay("https://relay.example:8443", None).unwrap();
+        assert!(
+            c.relay.urls::<Vec<_>>()[0]
+                .as_str()
+                .starts_with("https://relay.example:8443")
+        );
+        assert!(
+            c.set_relay("https://relay.example:8443", Some(Path::new("no-such.pem")))
+                .is_err()
+        );
+    }
+
     use super::*;
 
     #[test]
