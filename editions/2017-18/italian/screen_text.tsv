@@ -6195,7 +6195,7 @@ SYS_SEC_data_0002	Hobby:
 SYS_SEC_data_0003	Fiducia:
 SYS_SEC_data_0004	Mandato totale:
 SYS_SEC_data_0005	Fiducia:
-SYS_SEC_data_0006	mese %d giorno %d
+SYS_SEC_data_0006	%d/%d
 SYS_SEC_data_0007	Origine: %s  Compleanno: %s  Hobby: %s
 SYS_SEC_data_0008	CV:
 INF_LICENCE_message_0001	Inizia una nuova sfida in un nuovo posto.\nPunta al $c[FF0000FF]club piu' forte$c con i tuoi giocatori.
