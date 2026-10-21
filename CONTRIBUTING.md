@@ -5,31 +5,52 @@ the panel) and say which edition and which version you play.
 
 ## Build
 
-The build host is WSL 2 on Windows 10 or 11. Rust and the 32-bit C programs are cross-compiled for Windows, and
-`cargo xtask check` runs the Windows test programs through WSL interop. `forza-server` also builds on plain Linux
+The build host is Windows 10 or 11. `cargo xtask` builds the Rust and the 32-bit C programs with the MSVC toolchain
+and runs the Windows test programs natively. `forza-server` also builds on plain Linux
 (`cargo build --release -p forza-server`).
 
-1. Install Rust with [rustup](https://rustup.rs). `rust-toolchain.toml` pins the version and the two Windows targets.
-2. Install the C toolchain and cargo-xwin:
+1. Install [Visual Studio Build Tools 2022 or later](https://visualstudio.microsoft.com/downloads/) with the "Desktop
+   development with C++" workload: the MSVC x86/x64 build tools and a Windows SDK (10.0.22000 or newer; CI uses
+   10.0.26100). `cargo xtask` finds `cl.exe`, `link.exe` and `rc.exe` itself; run it from any shell, not only a
+   Developer Prompt.
+2. Install [Git for Windows](https://gitforwindows.org) and [rustup](https://rustup.rs). `rust-toolchain.toml` pins the
+   version and the two Windows targets. Then set:
 
    ```sh
-   sudo apt install clang lld llvm
-   cargo install cargo-xwin
+   git config --global core.autocrlf false
+   git config --global core.longpaths true
    ```
 
-   `cargo xtask` runs `cargo xwin` for the Rust and `clang-cl` + `lld-link` + `llvm-rc` for the C. On the first build,
-   xwin downloads the Microsoft CRT and Windows SDK into its cache. xtask sets `XWIN_ACCEPT_LICENSE=1`, so running it
-   means you accept Microsoft's license terms for those files.
-3. Build and check:
+3. Keep the repository on a local NTFS drive, near the drive root (`E:\wccf-mono`). Windows 11: put it on a
+   [Dev Drive](https://learn.microsoft.com/windows/dev-drive/). Windows 10 has no Dev Drive; add Defender exclusions for
+   the repository, `%USERPROFILE%\.cargo` and `%USERPROFILE%\.rustup` instead (admin PowerShell):
+
+   ```powershell
+   Add-MpPreference -ExclusionPath E:\wccf-mono, $env:USERPROFILE\.cargo, $env:USERPROFILE\.rustup
+   ```
+
+   The exclusions switch off Defender scanning for those folders, so keep the list to these three. Without them or a
+   Dev Drive, builds run noticeably slower.
+4. Install the commit-message hook once per clone:
+
+   ```sh
+   git config core.hooksPath xtask
+   ```
+
+5. Build and check:
 
    ```sh
    cargo xtask build          # the programs, staged in target/kit/<edition>/
-   cargo xtask check          # fmt, clippy, tests, the C self-tests, the publisher-name grep
+   cargo xtask check          # fmt, clippy, tests, the C self-tests, the run tests, the publisher-name grep
    cargo xtask check quick    # only the crates changed since the base branch
+   cargo xtask check ci       # what CI runs: check without the GPU snapshot tests
    cargo xtask package 2017-18 --name Forza-WCCF-2017-18-0.2.0
    ```
 
-   Outside `cargo xtask`, run raw `cargo xwin` with `XWIN_ACCEPT_LICENSE=1 XWIN_ARCH=x86,x86_64`, as xtask does.
+   One `cargo xtask check` at a time per PC: the tests use fixed local ports.
+
+WSL is optional and only for the reverse-engineering tools and the Linux server deploy (`deploy/`). Do not start the
+build or the games from a WSL shell ([docs/SAFETY.md](docs/SAFETY.md)).
 
 The design and the plan: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/ROADMAP.md](docs/ROADMAP.md). Versions and
 releases: [docs/RELEASING.md](docs/RELEASING.md).
