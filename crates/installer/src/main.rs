@@ -511,13 +511,16 @@ fn headless(args: &[String]) -> anyhow::Result<bool> {
     Ok(true)
 }
 
+/// The whole window larger than its layout (`installer::SIZE`): text and controls read at a glance on a 1080p screen.
+const ZOOM: f32 = 1.2;
+
 fn run_window(renderer: eframe::Renderer) -> eframe::Result {
     let opts = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Forza-WCCF Installer")
             .with_decorations(false)
-            .with_inner_size(installer::SIZE)
-            .with_min_inner_size([560.0, 400.0]),
+            .with_inner_size(installer::SIZE * ZOOM)
+            .with_min_inner_size(egui::vec2(560.0, 400.0) * ZOOM),
         renderer,
         ..Default::default()
     };
@@ -532,6 +535,7 @@ fn run_window(renderer: eframe::Renderer) -> eframe::Result {
                 include_bytes!("../../../assets/fonts/Hack-Regular.ttf"),
             );
             theme::install_fonts(&cc.egui_ctx, Edition::E1011, fonts);
+            cc.egui_ctx.set_zoom_factor(ZOOM);
             Ok(Box::new(App::new()))
         }),
     )

@@ -718,7 +718,8 @@ fn files(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Acti
                 tr!(lang, "installer.pkg_file"),
             ];
             let labels = [labels[0].as_str(), labels[1].as_str()];
-            if widgets::segmented(ui, &mut pick, &labels, 360.0) {
+            let width = ui.available_width();
+            if widgets::segmented(ui, &mut pick, &labels, width) {
                 st.use_latest = pick == 0;
                 if st.use_latest {
                     st.package.clear();
