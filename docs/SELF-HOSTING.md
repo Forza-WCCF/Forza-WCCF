@@ -45,11 +45,12 @@ same or newer than the build machine's; build on the server itself when unsure.
     cargo build --release -p forza-server -p linux-host
     # target/release/forza-server, target/release/wccf-linux-server
 
-For the 2010-11 server also (`cargo install cargo-xwin` once; it fetches the Windows CRT and SDK):
+For the 2010-11 server also, build the two Windows helpers on a Windows PC with the MSVC toolchain
+([CONTRIBUTING.md](../CONTRIBUTING.md)) and copy them to the server:
 
-    cargo xwin build --release -p linux-host --target i686-pc-windows-msvc --bin win32-helper --bin check-crt
-    # target/i686-pc-windows-msvc/release/win32-helper.exe, check-crt.exe
-    cargo xtask build
+    cargo build --release -p linux-host --target i686-pc-windows-msvc --bin win32-helper --bin check-crt
+    # target\i686-pc-windows-msvc\release\win32-helper.exe, check-crt.exe
+    cargo xtask build        # also on Windows
     # the network guard: target/kit/2017-18/bin/wccfnet.dll, source/build/netguard.dll, source/build/test_wccfnet.exe
     native/2010-11/server-hook/build.sh          # needs gcc-mingw-w64-i686
     # native/2010-11/server-hook/out/winmm.dll and the three self-tests
