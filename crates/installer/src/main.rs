@@ -288,6 +288,10 @@ impl App {
                 Field::Key => &mut st.key,
                 Field::Package => &mut st.package,
             };
+            let p = match field {
+                Field::Folder => install::install_folder(&p),
+                _ => p,
+            };
             *slot = p.display().to_string();
         }
     }

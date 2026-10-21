@@ -60,6 +60,24 @@ pub fn version_paths(dest: &Path, id: &str) -> Result<(PathBuf, PathBuf)> {
     Ok((root, game))
 }
 
+/// The install folder for a folder the player picked: a Forza-WCCF install never lands loose in a drive's root or another
+/// program's folder. `D:\` gives `D:\Forza-WCCF`; a folder named Forza-WCCF, or one already holding an install, stays.
+pub fn install_folder(picked: &Path) -> PathBuf {
+    let named = picked
+        .file_name()
+        .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case("Forza-WCCF"));
+    let holds_install = disc::DISCS
+        .iter()
+        .map(|d| d.edition)
+        .chain([LEGACY_GAME_DIR])
+        .any(|d| picked.join(d).is_dir());
+    if named || holds_install {
+        picked.to_path_buf()
+    } else {
+        picked.join("Forza-WCCF")
+    }
+}
+
 pub fn game_present(dest: &Path, id: &str) -> bool {
     version_paths(dest, id).is_ok_and(|(_, game)| {
         game.join("client_Release.exe").is_file() && game_id_in(&game) == Some(id)
@@ -498,6 +516,16 @@ fn shortcuts(dest: &Path, edition: Edition, emit: &dyn Fn(Event)) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_picked_folder_gets_its_own_forza_wccf_folder() {
+        let t = std::env::temp_dir().join(format!("install-folder-test-{}", std::process::id()));
+        fs::create_dir_all(t.join("old/2017-2018")).unwrap();
+        assert_eq!(install_folder(&t), t.join("Forza-WCCF")); // a plain folder (or a drive root) gets its own
+        assert_eq!(install_folder(&t.join("forza-wccf")), t.join("forza-wccf"));
+        assert_eq!(install_folder(&t.join("old")), t.join("old")); // an existing install stays where it is
+        fs::remove_dir_all(&t).unwrap();
+    }
 
     #[test]
     fn pictures_step_runs_ensure_and_survives_failure() {
