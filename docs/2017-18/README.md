@@ -15,8 +15,8 @@ is in progress. See [docs/PROGRESS.md](docs/PROGRESS.md) and [docs/TASKS.md](doc
 | Path | What |
 |---|---|
 | `kit/` | `scripts/` (setup, English, cards: Python until step 11), no `.bat` (a console); the run is `Launcher.exe` (`crates/launcher`, `Edition::E1718`), which `cargo xtask build` copies into the staged kit |
-| `tools/setup1718.py`, `patches1718.py` | build the runtime: guarded imports, seat 1 exe patches, controller patch (every original byte checked) |
-| `tools/restart.sh`, `press.sh` (`cargo xtask cap`) | WSL helpers: restart the stack, tap cabinet buttons, capture game windows |
+| `tools/setup1718.py`, `patches1718.py` | retired Python setup (Rust: `crates/forza/src/setup/e1718.rs`); built the runtime: guarded imports, seat 1 exe patches, controller patch (every original byte checked) |
+| `tools/restart.sh` (retired), `press.sh` (`cargo xtask cap`) | WSL helpers: restart the stack, tap cabinet buttons, capture game windows |
 | `tools/netguard/` | `wccfnet.dll` / `netguard.dll` (+ sources): stub the IP-helper calls that drop the host's DHCP lease |
 | `tools/ida/` | headless IDA helpers (`ida_query.py`, `dump.py`) |
 | `docs/` | progress, tasks, research notes, game-server message table, agent workstream briefs |
@@ -25,10 +25,13 @@ is in progress. See [docs/PROGRESS.md](docs/PROGRESS.md) and [docs/TASKS.md](doc
 ## Quick start (from WSL)
 
 1. Copy the decrypted game folder to an NTFS runtime folder as `<runtime>/game` (default `<runtime>`).
-2. `cargo xtask build`, then `WCCF1718_GAME=<decrypted game> legacy/2017-18/tools/restart.sh TAG` (stage, sync to
-   `<runtime>/kit`, setup; it never starts the game). The decrypted game is the untouched original whose
-   `client_Release.exe` still imports `IPHLPAPI.DLL` (here: `ringedge/1718-decryption-20261007-1944/game`); the
-   `D:\wccf-1718-*` copies are already guarded and fail setup's check.
+2. `cargo xtask build && cargo xtask stage 2017-18`, then copy `target/kit/2017-18` to `<runtime>/kit`. Set up on Windows
+   with `Launcher.exe <runtime>\game` (or drop that folder on `Launcher.exe`; `Launcher.exe undo <runtime>\game` reverts).
+   Setup works in place (it writes `original\`, `seat1\` and `setup-hashes.json` beside `game\`), so point it at the step 1
+   copy, never at the decrypted original (`ringedge/1718-decryption-20261007-1944/game`) itself; the copy must still be
+   untouched (its `client_Release.exe` imports `IPHLPAPI.DLL`): the `D:\wccf-1718-*` copies are already guarded and fail
+   setup's check.
+   (`tools/restart.sh` and `setup1718.py` are retired; the setup is `crates/forza/src/setup/e1718.rs`.)
    Start on Windows: `<runtime>\kit\Launcher.exe` (double-click; from a console `Launcher.exe local`). It refuses to
    start (exit 5) unless `<runtime>\setup-hashes.json` matches the guarded programs and they import `wccfnet.dll`.
    Stop: close the game's window, or `Launcher.exe stop` (`stop force` for a stuck game).

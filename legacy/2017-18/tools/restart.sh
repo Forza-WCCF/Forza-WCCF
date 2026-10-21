@@ -6,6 +6,11 @@
 # section 5). Close the game's window first; start it from Windows: Launcher.exe in <runtime>\kit (double-click).
 #   WCCF1718_GAME     decrypted game folder (needed by setup1718.py)
 #   WCCF1718_RUNTIME  runtime folder (default <runtime>)
+# RETIRED (2026-10-21): setup1718.py needs the Python the staged kit no longer ships. Setup is Rust now (crates/forza/src/setup/e1718.rs),
+# run by Launcher.exe. The rest of this script is kept for reference and no longer runs.
+echo "restart.sh is retired. Stage with: cargo xtask build && cargo xtask stage 2017-18, copy target/kit/2017-18 to <runtime>\\kit," >&2
+echo "then on Windows run: Launcher.exe <runtime>\\game (setup in place on that copy, never on the decrypted original; 'Launcher.exe undo <runtime>\\game' reverts), then Launcher.exe to play." >&2
+exit 1
 set -eo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 RT=${WCCF1718_RUNTIME:-<runtime>}
