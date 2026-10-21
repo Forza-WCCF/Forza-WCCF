@@ -839,7 +839,7 @@ pub fn build(
 }
 
 fn hex(s: &str) -> R<Vec<u8>> {
-    if s.len() % 2 != 0 {
+    if !s.len().is_multiple_of(2) {
         return Err(super::Failed(format!("{STATE}: not hex")));
     }
     (0..s.len() / 2)
