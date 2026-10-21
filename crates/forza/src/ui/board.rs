@@ -937,7 +937,7 @@ fn target_slot(
     dragged: Option<usize>,
     centre: Pos2,
 ) -> Option<usize> {
-    (0..16).find(|&s| Some(s) != dragged && shown(s) && rects[s].contains(centre))
+    (0..16).rev().find(|&s| Some(s) != dragged && shown(s) && rects[s].contains(centre))
 }
 
 /// The grab of the drag in progress: the card centre less the press point, as a fraction of the card. Board drags
@@ -1031,11 +1031,17 @@ pub fn formation_board(
                 }
             }
             // let go anywhere: one last change, so the board's table is rebuilt and logged
-            changed |= ui.input(|i| i.pointer.any_released());
+            if ui.input(|i| i.pointer.any_released()) {
+                changed = true;
+                ui.data_mut(|d| d.remove::<(usize, Pos2)>(origin_id));
+            }
             Some(o.1)
         }
         None => {
-            ui.data_mut(|d| d.remove::<(usize, Pos2)>(origin_id));
+            // Esc clears egui's payload without a release: the card moved live, so rebuild the table
+            changed |= ui
+                .data_mut(|d| d.remove_temp::<(usize, Pos2)>(origin_id))
+                .is_some();
             None
         }
     };
@@ -1187,7 +1193,7 @@ pub fn formation_board(
 
     // dropped on open pitch: the card lies where it was shown, from the pitch, the bench or the catalogue
     if (dragging.is_some() || incoming.is_some())
-        && pointer.is_some_and(|p| pitch.contains(p))
+        && pointer.is_some_and(|p| pitch.contains(drag_centre(p, grab, card)))
         && ui.input(|i| i.pointer.any_released())
         && let Some(pt) = pointer
     {
@@ -1306,7 +1312,7 @@ pub fn formation_board(
                 fit_badge(&lp, pos2(rect.center().x, rect.bottom() + 4.0), fit, lang);
             }
         } else {
-            // 2017-18's own cards carry no ratings: say so instead of an empty heat zone
+            // a card without ratings: say so instead of an empty heat zone
             let p = ui.painter();
             let g = p.layout_no_wrap(tr!(lang, "board.no_data"), theme::bold(13.0), theme::TEXT);
             let r = Rect::from_center_size(
@@ -1997,6 +2003,17 @@ mod tests {
         assert_eq!(
             target_slot(&rects, |_| true, Some(0), pos2(95.0, 50.0)),
             None
+        );
+    }
+
+    #[test]
+    fn the_top_drawn_of_two_overlapping_cards_is_the_target() {
+        let mut rects = [Rect::NOTHING; 16];
+        rects[3] = Rect::from_min_size(pos2(0.0, 0.0), vec2(80.0, 120.0));
+        rects[7] = Rect::from_min_size(pos2(40.0, 0.0), vec2(80.0, 120.0));
+        assert_eq!(
+            target_slot(&rects, |_| true, None, pos2(60.0, 50.0)),
+            Some(7)
         );
     }
 
