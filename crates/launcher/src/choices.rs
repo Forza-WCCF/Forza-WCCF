@@ -78,9 +78,16 @@ pub fn setting_json(path: &Path, key: &str) -> Option<Value> {
 }
 
 fn set_value(path: &Path, key: &str, value: Value) -> io::Result<()> {
-    let text = read(path);
+    // a missing file starts fresh; any other read error stops here, so a locked file is not taken for a damaged one
+    let text = match fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => String::new(),
+        // read but not text: damaged like any other unparsable file
+        Err(e) if e.kind() == io::ErrorKind::InvalidData => String::from_utf8_lossy(&fs::read(path)?).into_owned(),
+        Err(e) => return Err(e),
+    };
     let parsed = serde_json::from_str::<Value>(&text).ok().filter(Value::is_object);
-    if parsed.is_none() && fs::metadata(path).is_ok_and(|m| m.len() > 0) {
+    if parsed.is_none() && !text.is_empty() {
         // a damaged file starts over, but its keys (the game folder) stay readable in `<name>.bad`
         let mut bad = path.as_os_str().to_owned();
         bad.push(".bad");
