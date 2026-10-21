@@ -187,3 +187,16 @@ fn logs_as_recorded() {
     }
     assert_eq!((archives, rotations), (8, 6));
 }
+
+#[test]
+fn append_makes_the_folder_and_adds_timed_lines() {
+    let d = tempfile::tempdir().unwrap();
+    let f = d.path().join("logs").join("launcher.txt");
+    launcher::logs::append(&f, "one");
+    launcher::logs::append(&f, "two");
+    let text = fs::read_to_string(&f).unwrap();
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 2, "{text}");
+    assert!(lines[0].ends_with("  one") && lines[0].len() == 13, "{text}");
+    assert!(lines[1].ends_with("  two") && lines[1].as_bytes()[2] == b':', "{text}");
+}

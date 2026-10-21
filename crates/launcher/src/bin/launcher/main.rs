@@ -151,6 +151,9 @@ fn refuse(status: impl Into<String>) {
 
 fn log(line: &str) {
     shared().log.push(line.to_owned());
+    // and in data\logs\launcher.txt, which SAVE LOGS takes: setup and the card pictures happen before any run, whose
+    // logs were the only ones kept (a tester's 0.2.0 ZIP held nothing but version.txt)
+    launcher::logs::append(&Kit::here().logs().join("launcher.txt"), line);
     poke();
 }
 
@@ -920,6 +923,20 @@ impl eframe::App for App {
     }
 }
 
+/// Direct3D 12 on Windows: wgpu's Vulkan there flashed black frames on a tester's RTX 2060 (Windows 150 %). A PC
+/// without DX12 falls back to OpenGL (`window`); WGPU_BACKEND still picks another backend (testing). The installer has
+/// the same (`crates/installer/src/main.rs`).
+fn wgpu_options() -> eframe::WgpuConfiguration {
+    let mut c = eframe::WgpuConfiguration::default();
+    if cfg!(windows)
+        && std::env::var_os("WGPU_BACKEND").is_none()
+        && let eframe::egui_wgpu::WgpuSetup::CreateNew(n) = &mut c.wgpu_setup
+    {
+        n.instance_descriptor.backends = eframe::wgpu::Backends::DX12;
+    }
+    c
+}
+
 /// The window, until it is closed (or gone because the game is up and then ended well).
 fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
     if kit.edition() == Edition::E1011 {
@@ -943,6 +960,7 @@ fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
         let renderer = tries.remove(0);
         let options = eframe::NativeOptions {
             renderer,
+            wgpu_options: wgpu_options(),
             viewport: egui::ViewportBuilder::default()
                 .with_title(&title)
                 .with_inner_size(screen::SIZE)

@@ -513,6 +513,20 @@ fn headless(args: &[String]) -> anyhow::Result<bool> {
     Ok(true)
 }
 
+/// Direct3D 12 on Windows: wgpu's Vulkan there flashed black frames on a tester's RTX 2060 (Windows 150 %). A PC
+/// without DX12 falls back to OpenGL (`main`); WGPU_BACKEND still picks another backend (testing). The Launcher has
+/// the same (`crates/launcher/src/bin/launcher/main.rs`).
+fn wgpu_options() -> eframe::WgpuConfiguration {
+    let mut c = eframe::WgpuConfiguration::default();
+    if cfg!(windows)
+        && std::env::var_os("WGPU_BACKEND").is_none()
+        && let eframe::egui_wgpu::WgpuSetup::CreateNew(n) = &mut c.wgpu_setup
+    {
+        n.instance_descriptor.backends = eframe::wgpu::Backends::DX12;
+    }
+    c
+}
+
 fn run_window(renderer: eframe::Renderer) -> eframe::Result {
     let opts = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -521,6 +535,7 @@ fn run_window(renderer: eframe::Renderer) -> eframe::Result {
             .with_inner_size(installer::SIZE)
             .with_min_inner_size([680.0, 520.0]),
         renderer,
+        wgpu_options: wgpu_options(),
         ..Default::default()
     };
     eframe::run_native(
