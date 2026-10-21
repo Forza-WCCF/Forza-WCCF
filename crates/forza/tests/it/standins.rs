@@ -584,6 +584,9 @@ fn card_reader_replay() {
                         f.write_all(&req).unwrap();
                     }
                     sleep(Duration::from_millis(200));
+                    // a slow machine (a CI runner) may answer after the 200 ms: wait up to 3 s for the whole answer
+                    let want = r["resp"].as_str().unwrap();
+                    let deadline = std::time::Instant::now() + Duration::from_secs(3);
                     let mut resp = Vec::new();
                     loop {
                         let mut avail = 0u32;
@@ -598,19 +601,23 @@ fn card_reader_replay() {
                                 std::ptr::null_mut(),
                             )
                         };
-                        if ok == 0 || avail == 0 {
+                        if ok == 0 {
                             break;
+                        }
+                        if avail == 0 {
+                            if resp.len() * 2 >= want.len() || std::time::Instant::now() >= deadline
+                            {
+                                break;
+                            }
+                            sleep(Duration::from_millis(20));
+                            continue;
                         }
                         let mut buf = vec![0u8; avail as usize];
                         f.read_exact(&mut buf).unwrap();
                         resp.extend(buf);
                         sleep(Duration::from_millis(50));
                     }
-                    assert_eq!(
-                        hex(&resp),
-                        r["resp"].as_str().unwrap(),
-                        "{name}: record {i}"
-                    );
+                    assert_eq!(hex(&resp), want, "{name}: record {i}");
                 }
                 t => panic!("unknown record {t}"),
             }
