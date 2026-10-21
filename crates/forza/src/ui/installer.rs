@@ -23,17 +23,15 @@ pub enum Page {
     Welcome,
     Where,
     Files,
-    Options,
     Installing,
     Done,
 }
 
 impl Page {
-    pub const ALL: [Page; 6] = [
+    pub const ALL: [Page; 5] = [
         Page::Welcome,
         Page::Where,
         Page::Files,
-        Page::Options,
         Page::Installing,
         Page::Done,
     ];
@@ -43,9 +41,8 @@ impl Page {
             Page::Welcome => "1_welcome",
             Page::Where => "2_where",
             Page::Files => "3_files",
-            Page::Options => "4_options",
-            Page::Installing => "5_installing",
-            Page::Done => "6_done",
+            Page::Installing => "4_installing",
+            Page::Done => "5_done",
         }
     }
 
@@ -54,7 +51,6 @@ impl Page {
             Page::Welcome => tr!(lang, "installer.welcome"),
             Page::Where => tr!(lang, "installer.where"),
             Page::Files => tr!(lang, "installer.files"),
-            Page::Options => tr!(lang, "installer.options"),
             Page::Installing => tr!(lang, "installer.installing"),
             Page::Done => tr!(lang, "installer.done"),
         }
@@ -151,7 +147,8 @@ pub struct InstallerState {
     /// Use the installed `edition` instead of a disc image.
     pub reuse: bool,
     pub edition: Edition,
-    /// Check the disc image, set up the game, play in English, desktop shortcuts.
+    /// Check the disc image, set up the game, play in English, desktop shortcuts. The window always checks and sets up
+    /// (when it can) and leaves the game's language to the Launcher; only the shortcuts are a choice (Where page).
     pub options: [bool; 4],
     /// Setting up needs a package and the 2010–11 edition.
     pub setup_possible: bool,
@@ -214,7 +211,7 @@ impl InstallerState {
             key: r"D:\Images\disc-2010-11.key".into(),
             detected: Some(Edition::E1011),
             installed: vec![Edition::E1718],
-            options: [true, true, true, false],
+            options: [true, true, false, true],
             setup_possible: true,
             space: Some(Space {
                 free: 41_200_000_000,
@@ -312,7 +309,6 @@ pub fn show(ui: &mut Ui, st: &mut InstallerState) -> Option<Action> {
                 Page::Welcome => welcome(ui, lang),
                 Page::Where => where_(ui, st, lang, &mut out),
                 Page::Files => files(ui, st, lang, &mut out),
-                Page::Options => options(ui, st, lang),
                 Page::Installing => installing(ui, st, lang),
                 Page::Done => done(ui, st, lang, &mut out),
             }
@@ -460,7 +456,7 @@ fn footer(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Act
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let (label, kind, act) = match st.page {
-                Page::Options => (tr!(lang, "installer.install"), Cab::Go, Action::Install),
+                Page::Files => (tr!(lang, "installer.install"), Cab::Go, Action::Install),
                 Page::Installing if busy => {
                     (tr!(lang, "common.cancel"), Cab::Plain, Action::Cancel)
                 }
@@ -663,6 +659,13 @@ fn where_(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Act
     if st.ascii_tip {
         status_line(ui, Tone::Notice, &tr!(lang, "installer.ascii_tip"));
     }
+    ui.add_space(12.0);
+    toggle_row(
+        ui,
+        &mut st.options[3],
+        &tr!(lang, "installer.opt_shortcuts"),
+        &tr!(lang, "installer.opt_shortcuts_hint"),
+    );
 }
 
 fn files(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Action>) {
@@ -795,42 +798,6 @@ fn files(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Acti
     );
 }
 
-fn options(ui: &mut Ui, st: &mut InstallerState, lang: Lang) {
-    ui.spacing_mut().item_spacing.y = 2.0;
-    let (can, on) = (st.setup_possible, st.setup_possible && st.options[1]);
-    let setup_hint = if can {
-        tr!(lang, "installer.opt_setup_hint")
-    } else {
-        tr!(lang, "installer.opt_setup_na")
-    };
-    let rows = [
-        (
-            true,
-            "installer.opt_check",
-            tr!(lang, "installer.opt_check_hint"),
-        ),
-        (can, "installer.opt_setup", setup_hint),
-        (
-            on,
-            "installer.opt_english",
-            tr!(lang, "installer.opt_english_hint"),
-        ),
-        (
-            on,
-            "installer.opt_shortcuts",
-            tr!(lang, "installer.opt_shortcuts_hint"),
-        ),
-    ];
-    for (i, (enabled, t, h)) in rows.into_iter().enumerate() {
-        // a row that cannot apply shows off and keeps the chosen value for when it can
-        let mut v = enabled && st.options[i];
-        ui.add_enabled_ui(enabled, |ui| toggle_row(ui, &mut v, &tr!(lang, t), &h));
-        if enabled {
-            st.options[i] = v;
-        }
-    }
-}
-
 fn installing(ui: &mut Ui, st: &mut InstallerState, lang: Lang) {
     let w = ui.available_width();
     let name = match st.steps.get(st.stage) {
@@ -913,7 +880,6 @@ fn done_body(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<
     let rows = [
         (st.did[0], "installer.did_extract", "installer.did_extract"),
         (st.did[1], "installer.did_setup", "installer.not_setup"),
-        (st.did[2], "installer.did_english", "installer.not_english"),
         (
             st.did[3],
             "installer.did_shortcuts",

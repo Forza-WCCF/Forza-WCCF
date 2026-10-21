@@ -319,12 +319,12 @@ impl App {
         self.st.error = None;
         let step = match page {
             Page::Where if self.st.folder.trim().is_empty() => Err(self.t("installer.err_folder")),
-            Page::Files | Page::Options => self.check_files(),
+            Page::Files => self.check_files(),
             _ => Ok(()),
         };
         match step {
             Err(e) => self.st.error = Some(e),
-            Ok(()) if page == Page::Options => self.start(ctx),
+            Ok(()) if page == Page::Files => self.start(ctx),
             Ok(()) => {
                 if page == Page::Where {
                     if let Some(id) = install::installed_game_id(&self.dest()) {
@@ -334,8 +334,7 @@ impl App {
                 }
                 self.st.page = match page {
                     Page::Welcome => Page::Where,
-                    Page::Where => Page::Files,
-                    _ => Page::Options,
+                    _ => Page::Files,
                 };
             }
         }
@@ -346,8 +345,7 @@ impl App {
         self.st.page = match self.st.page {
             Page::Where => Page::Welcome,
             Page::Files => Page::Where,
-            Page::Options => Page::Files,
-            _ => Page::Options,
+            _ => Page::Files,
         };
     }
 }

@@ -107,7 +107,6 @@ installer.app: {en: "INSTALLER", it: "INSTALLAZIONE", ja: "インストーラー
 installer.welcome: {en: "Welcome", it: "Benvenuto", ja: "ようこそ"}
 installer.where: {en: "Where", it: "Dove", ja: "インストール先"}
 installer.files: {en: "Disc files", it: "File del disco", ja: "ディスクのファイル"}
-installer.options: {en: "Options", it: "Opzioni", ja: "オプション"}
 installer.installing: {en: "Installing", it: "Installazione", ja: "インストール中"}
 installer.done: {en: "Done", it: "Fatto", ja: "完了"}
 installer.welcome_body: {en: "Installs from your own disc image.", it: "Installa dalla tua immagine del disco.", ja: "お手持ちのディスクイメージからインストールします。"}
@@ -131,12 +130,6 @@ installer.package: {en: "PACKAGE", it: "PACCHETTO", ja: "パッケージ"}
 installer.detected: {en: "EDITION", it: "EDIZIONE", ja: "エディション"}
 installer.iso_ok: {en: "Disc image recognised: the %{edition} edition.", it: "Immagine del disco riconosciuta: edizione %{edition}.", ja: "ディスクイメージを認識しました：%{edition} エディション。"}
 installer.reuse_hint: {en: "Skips the disc image and the key file.", it: "Salta l'immagine del disco e il file chiave.", ja: "ディスクイメージとキーファイルは不要になります。"}
-installer.opt_check: {en: "Check the disc image", it: "Verifica l'immagine del disco", ja: "ディスクイメージを検証"}
-installer.opt_check_hint: {en: "About two minutes.", it: "Circa due minuti.", ja: "約2分かかります。"}
-installer.opt_setup: {en: "Set up the game", it: "Configura il gioco", ja: "ゲームを設定する"}
-installer.opt_setup_hint: {en: "Ready to play when the install ends.", it: "Pronto per giocare alla fine dell'installazione.", ja: "インストール後すぐに遊べます。"}
-installer.opt_english: {en: "Play in English", it: "Gioca in inglese", ja: "英語でプレイする"}
-installer.opt_english_hint: {en: "The game text can be changed later in the launcher.", it: "Il testo del gioco si può cambiare poi nel launcher.", ja: "ゲームの言語は後からランチャーで変更できます。"}
 installer.opt_shortcuts: {en: "Desktop shortcuts", it: "Collegamenti sul desktop", ja: "デスクトップにショートカット"}
 installer.opt_shortcuts_hint: {en: "One per edition, named after it.", it: "Uno per edizione, con il suo nome.", ja: "エディションごとに1つ作成します。"}
 installer.back: {en: "Back", it: "Indietro", ja: "戻る"}
@@ -152,7 +145,6 @@ installer.details: {en: "DETAILS", it: "DETTAGLI", ja: "詳細"}
 installer.done_body: {en: "Installed. Start Launcher.exe.", it: "Installato. Avvia Launcher.exe.", ja: "インストール完了。Launcher.exe を起動してください。"}
 installer.did_extract: {en: "Game files extracted and checked", it: "File del gioco estratti e controllati", ja: "ゲームファイルを展開・検査しました"}
 installer.did_setup: {en: "Game set up", it: "Gioco configurato", ja: "ゲームを設定しました"}
-installer.did_english: {en: "Game text in English", it: "Testo del gioco in inglese", ja: "ゲームの言語：英語"}
 installer.not_shortcuts: {en: "No desktop shortcuts (not chosen)", it: "Nessun collegamento sul desktop (non scelto)", ja: "デスクトップのショートカットなし（未選択）"}
 installer.open_folder: {en: "Open the folder", it: "Apri la cartella", ja: "フォルダーを開く"}
 installer.welcome_note: {en: "Without the package, only the original files are extracted.", it: "Senza il pacchetto vengono estratti solo i file originali.", ja: "パッケージがない場合は、元のファイルを展開するだけです。"}
@@ -164,10 +156,8 @@ installer.reuse: {en: "Use the game files already here", it: "Usa i file del gio
 installer.reusing: {en: "Reusing the %{edition} files already in this folder.", it: "Uso i file %{edition} già presenti in questa cartella.", ja: "このフォルダーにある %{edition} のファイルを再利用します。"}
 installer.iso_unsupported: {en: "Unsupported image size. Use the 2010–11 Rev D or the 2017–18 v2.00.00 disc image.", it: "Dimensione dell'immagine non supportata. Usa l'immagine 2010–11 Rev D o 2017–18 v2.00.00.", ja: "未対応のイメージサイズです。2010–11 Rev D または 2017–18 v2.00.00 のディスクイメージを使ってください。"}
 installer.drop_hint: {en: "You can also drag the files onto this window.", it: "Puoi anche trascinare i file su questa finestra.", ja: "ファイルをこのウィンドウにドラッグすることもできます。"}
-installer.opt_setup_na: {en: "Needs the package for this edition.", it: "Richiede il pacchetto per questa edizione.", ja: "このエディション用のパッケージが必要です。"}
 installer.done_body_extract: {en: "The original files are extracted.", it: "I file originali sono stati estratti.", ja: "元のファイルを展開しました。"}
 installer.not_setup: {en: "Game not set up (no package)", it: "Gioco non configurato (nessun pacchetto)", ja: "ゲームは未設定（パッケージなし）"}
-installer.not_english: {en: "Game text unchanged", it: "Testo del gioco invariato", ja: "ゲームの言語は変更なし"}
 installer.did_shortcuts: {en: "Desktop shortcuts added", it: "Collegamenti sul desktop aggiunti", ja: "デスクトップにショートカットを追加しました"}
 installer.extract_only_note: {en: "Original files only. Not playable on their own.", it: "Solo file originali. Non giocabili da soli.", ja: "元のファイルのみ。単体ではプレイできません。"}
 installer.done_guard: {en: "Always start from Launcher.exe.", it: "Avvia sempre da Launcher.exe.", ja: "必ず Launcher.exe から起動してください。"}
