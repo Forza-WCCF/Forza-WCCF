@@ -101,6 +101,7 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved) {
         if (n > 1) {
             WCHAR *dll = HeapAlloc(GetProcessHeap(), 0, n * sizeof(WCHAR));
             if (dll && GetEnvironmentVariableW(L"FORZA_PANEL", dll, n) == n - 1) {
+                SetEnvironmentVariableW(L"FORZA_PANEL", NULL);     /* this process only, as inject.exe did: not its children */
                 HANDLE t = CreateThread(NULL, 0, panel_loader, dll, 0, NULL);
                 if (t) CloseHandle(t); else HeapFree(GetProcessHeap(), 0, dll);
             } else if (dll) HeapFree(GetProcessHeap(), 0, dll);

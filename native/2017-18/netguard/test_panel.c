@@ -1,6 +1,6 @@
 /* Not shipped. test_panel.exe <wccfnet.dll> <panel_probe.dll> <on|off>: loads the guard, opens a visible window and pumps
  * messages for 6 s. "on" (the Launcher sets FORZA_PANEL to the probe) wants the probe loaded by then, "off" (no variable)
- * wants it never loaded. The guard's loader waits 3 s after the window shows. */
+ * wants it never loaded. Either way the variable is gone afterwards (children never inherit it). The guard's loader waits 3 s after the window shows. */
 #include <windows.h>
 #include <stdio.h>
 #include <string.h>
@@ -19,5 +19,6 @@ int main(int argc, char **argv) {
     loaded = GetModuleHandleA("panel_probe.dll") != NULL;
     printf("%s: panel probe %s with FORZA_PANEL %s\n", loaded == want ? "ok  " : "FAIL",
            loaded ? "loaded" : "not loaded", want ? "set" : "unset");
+    if (GetEnvironmentVariableA("FORZA_PANEL", NULL, 0)) { puts("FAIL: FORZA_PANEL still set (children would load the panel)"); return 1; }
     return loaded != want;
 }
