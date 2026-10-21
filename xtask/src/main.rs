@@ -1199,7 +1199,7 @@ fn check_text(root: &Path) -> Result<()> {
 }
 
 /// `cargo xtask check win`: on a Windows PC, against the kits and smoke installer that `check ci` built on Linux
-/// (target/kit/** and target/x86_64-pc-windows-msvc/release/wccf-installer.exe, as the CI artifact holds them).
+/// (target/kit/** and target/x86_64-pc-windows-msvc/release/Forza-WCCF-Installer.exe, as the CI artifact holds them).
 fn check_win(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<()> {
     ensure_built(kit, kit_1718)?;
     let exe = installer_built(root)?;
@@ -1579,7 +1579,8 @@ fn no_script_host(root: &Path, failed: &mut Vec<String>) -> Result<()> {
 
 // ---- the installer ----
 
-const INSTALLER: &str = "wccf-installer";
+const INSTALLER: &str = "wccf-installer"; // the package; its exe is Forza-WCCF-Installer.exe
+const INSTALLER_EXE: &str = "Forza-WCCF-Installer.exe";
 const LICENSES: &str = "crates/installer/THIRD-PARTY-LICENSES.json";
 
 /// `profile`: "release" (the ZIP's, built with launcher and forza-server).
@@ -1587,7 +1588,7 @@ fn installer_exe(root: &Path, profile: &str) -> PathBuf {
     root.join("target")
         .join(TARGET)
         .join(profile)
-        .join(format!("{INSTALLER}.exe"))
+        .join(INSTALLER_EXE)
 }
 
 /// The installer's own checks (they were crates/installer/scripts/*.ps1): the license notices, then a synthetic headless run
@@ -1767,7 +1768,7 @@ fn smoke_in(root: &Path, exe: &Path, dir: &Path) -> Result<()> {
 }
 
 /// `dist/`: the installer exe, its notices, `NAME.zip` of exactly those files, and SHA256SUMS.txt for the exe and the ZIP.
-/// NAME defaults to `wccf-installer-v<version>-windows-x64`. Run `cargo xtask check` first (it builds the exe).
+/// NAME defaults to `Forza-WCCF-Installer-<version>-windows-x64`. Run `cargo xtask check` first (it builds the exe).
 fn package_installer(root: &Path, name: Option<String>) -> Result<()> {
     check_licenses(root)?;
     let mut c = rust("build", root);
@@ -1777,7 +1778,7 @@ fn package_installer(root: &Path, name: Option<String>) -> Result<()> {
     ensure!(exe.is_file(), "{} is missing", exe.display());
     let name = name.unwrap_or_else(|| {
         format!(
-            "{INSTALLER}-v{}-windows-x64",
+            "Forza-WCCF-Installer-{}-windows-x64",
             workspace_version(root).unwrap_or_default()
         )
     });
@@ -1792,7 +1793,7 @@ fn package_installer(root: &Path, name: Option<String>) -> Result<()> {
         "THIRD-PARTY-LICENSES.json",
     ];
     no_kit_word(&[src.join("README.md"), src.join("CHANGELOG.md")])?;
-    let exe_name = format!("{INSTALLER}.exe");
+    let exe_name = INSTALLER_EXE.to_owned();
     let payload: Vec<(String, PathBuf)> = std::iter::once((exe_name.clone(), exe))
         .chain(docs.iter().map(|d| (d.to_string(), src.join(d))))
         .collect();

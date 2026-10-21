@@ -8,6 +8,11 @@ description = "Forza-WCCF installer for user-supplied RingEdge disc images"
 license.workspace = true
 repository = "https://github.com/Forza-WCCF/Forza-WCCF"
 
+# the shipped exe is Forza-WCCF-Installer.exe; the package keeps its name for `-p wccf-installer`
+[[bin]]
+name = "Forza-WCCF-Installer"
+path = "src/main.rs"
+
 [dependencies]
 aes.workspace = true
 anyhow.workspace = true

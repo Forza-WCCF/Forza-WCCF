@@ -28,7 +28,7 @@ the game slot. The system/OS-update slot is never extracted.
    Alternatively, download the ZIP containing the EXE and all documentation.
 2. Compare the EXE (or ZIP) with the matching line in `SHA256SUMS.txt`; unpack only
    if you chose the ZIP.
-3. Open `wccf-installer.exe`, choose your own ISO and matching keyfile, then an
+3. Open `Forza-WCCF-Installer.exe`, choose your own ISO and matching keyfile, then an
    empty install folder. Allow about 6 GB free space and permission to write there.
 4. Leave the package blank for extraction only. New installs use separate trees:
    `<install folder>\2010-2011\game` and `<install folder>\2017-2018\game`.
@@ -52,7 +52,7 @@ are installed. New extraction chooses the edition from the disc layout.
 Verify a download in PowerShell:
 
 ```powershell
-Get-FileHash .\wccf-installer.exe -Algorithm SHA256
+Get-FileHash .\Forza-WCCF-Installer.exe -Algorithm SHA256
 ```
 
 Compare the hash with the matching line in `SHA256SUMS.txt`. The binaries are
@@ -97,20 +97,20 @@ Offline or a GitHub error: the wizard says so and keeps the manual choice. `--no
 
 ```powershell
 # Extract either supported image; no package needed:
-.\wccf-installer.exe --iso "D:\Media\GAME.iso" --key "D:\Keys\GAME.key" --dest "D:\Games\Forza-WCCF"
+.\Forza-WCCF-Installer.exe --iso "D:\Media\GAME.iso" --key "D:\Keys\GAME.key" --dest "D:\Games\Forza-WCCF"
 
 # Reuse existing extracted files without reading media or keys:
-.\wccf-installer.exe --dest "D:\Games\Forza-WCCF" --game SBWG
-.\wccf-installer.exe --dest "D:\Games\Forza-WCCF" --game SDDY
+.\Forza-WCCF-Installer.exe --dest "D:\Games\Forza-WCCF" --game SBWG
+.\Forza-WCCF-Installer.exe --dest "D:\Games\Forza-WCCF" --game SDDY
 
 # 2017–2018: download the newest package from GitHub (SHA-256 checked):
-.\wccf-installer.exe --iso SDDY.iso --key keys.html --dest "D:\Games\Forza-WCCF" --package latest
+.\Forza-WCCF-Installer.exe --iso SDDY.iso --key keys.html --dest "D:\Games\Forza-WCCF" --package latest
 
 # Optional trusted package of the game's edition (2010–2011 or 2017–2018):
-.\wccf-installer.exe --iso REV_D.iso --key REV_D.key --dest "D:\Games\Forza-WCCF" --package FORZA-WCCF.zip --english
+.\Forza-WCCF-Installer.exe --iso REV_D.iso --key REV_D.key --dest "D:\Games\Forza-WCCF" --package FORZA-WCCF.zip --english
 
-.\wccf-installer.exe --help
-.\wccf-installer.exe --version
+.\Forza-WCCF-Installer.exe --help
+.\Forza-WCCF-Installer.exe --version
 ```
 
 Flags: `--no-verify` skips data-block CRC checks (header/metadata validation
