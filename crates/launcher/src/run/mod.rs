@@ -2049,7 +2049,10 @@ impl Run<'_> {
             .map(|r| r.log())
             .collect();
         let others = self.games.iter().any(|g| g.role != Role::Server && g.alive());
-        match rules::after_end(&gone, others, |n| self.read_log(n)) {
+        let home = matches!(self.mode, Mode::Local | Mode::Vs(_));
+        let seat_gone = g.role == Role::Seat && !self.alive(Role::Seat);
+        let left = rules::windows_left(others, home, seat_gone);
+        match rules::after_end(&gone, left, |n| self.read_log(n)) {
             Some(crashed) => {
                 self.say(&format!(
                     "A game window crashed (see data\\logs\\{}). The rest keeps running.",
@@ -2060,8 +2063,10 @@ impl Run<'_> {
             None => {
                 self.say(&format!(
                     "{} - stopping the rest.",
-                    if others {
+                    if left {
                         "A game window was closed"
+                    } else if others {
+                        "Seat 1 has ended, only the projector is left"
                     } else {
                         "No game window is left"
                     }

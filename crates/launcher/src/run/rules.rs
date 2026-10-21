@@ -216,6 +216,13 @@ pub fn after_end(gone: &[&str], others_alive: bool, read: impl Fn(&str) -> Strin
     Some(gone)
 }
 
+/// Whether another game window counts as left for [`after_end`]. At home (one PC, one seat) a seat that went by itself
+/// leaves only the projector, which nobody plays: that stops too. A projector crash still lets the seat play on, and in
+/// a shop the projector stays for the other PCs' seats.
+pub fn windows_left(others_alive: bool, home: bool, seat_gone: bool) -> bool {
+    others_alive && !(home && seat_gone)
+}
+
 /// Why a run went wrong, empty if it did not (play.py's went_wrong): a game window that went without being closed, a
 /// crash a launcher recorded, the server link lost (forza_panel.dll's server_link.txt; a drop after the player's close is
 /// written ENDED, not LOST, and is no fault).
@@ -513,6 +520,20 @@ mod tests {
             r.starts_with("A card session is open"),
             "the session counts with the card out: {r}"
         );
+    }
+
+    #[test]
+    fn at_home_a_crashed_seat_leaves_no_window_but_a_crashed_projector_does() {
+        assert!(
+            !windows_left(true, true, true),
+            "home: seat gone, only the projector left"
+        );
+        assert!(windows_left(true, true, false), "home: projector gone, seat plays on");
+        assert!(
+            windows_left(true, false, true),
+            "shop: the projector stays for other seats"
+        );
+        assert!(!windows_left(false, true, false), "nothing left");
     }
 
     /// test_ended.py
