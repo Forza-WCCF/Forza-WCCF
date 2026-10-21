@@ -13,7 +13,7 @@ use super::widgets::{
 };
 use egui::{Align2, Color32, Id, Rect, Sense, Stroke, Ui, pos2, vec2};
 
-pub const SIZE: egui::Vec2 = egui::vec2(680.0, 470.0);
+pub const SIZE: egui::Vec2 = egui::vec2(900.0, 640.0);
 
 /// What the install needs on disk, for the free-space bar and its message.
 pub const NEEDED_BYTES: u64 = 6_000_000_000;
@@ -653,7 +653,7 @@ fn where_(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Act
             Tone::Refused,
             &tr!(lang, "installer.space_low", free = gb(sp.free)),
         ),
-        Some(_) => status_line(ui, Tone::Notice, &tr!(lang, "installer.space_ok")),
+        Some(_) => status_line(ui, Tone::Done, &tr!(lang, "installer.space_ok")),
         None => status_line(ui, Tone::Notice, &tr!(lang, "installer.space_unknown")),
     };
     if st.ascii_tip {
