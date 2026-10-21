@@ -26,9 +26,11 @@ is in progress. See [docs/PROGRESS.md](docs/PROGRESS.md) and [docs/TASKS.md](doc
 
 1. Copy the decrypted game folder to an NTFS runtime folder as `<runtime>/game` (default `<runtime>`).
 2. `cargo xtask build && cargo xtask stage 2017-18`, then copy `target/kit/2017-18` to `<runtime>/kit`. Set up on Windows
-   with `Launcher.exe <game folder>` (or drop the folder on `Launcher.exe`; `Launcher.exe undo <game folder>` reverts). The
-   game folder is the untouched decrypted original whose `client_Release.exe` still imports `IPHLPAPI.DLL` (here:
-   `ringedge/1718-decryption-20261007-1944/game`); the `D:\wccf-1718-*` copies are already guarded and fail setup's check.
+   with `Launcher.exe <runtime>\game` (or drop that folder on `Launcher.exe`; `Launcher.exe undo <runtime>\game` reverts).
+   Setup works in place (it writes `original\`, `seat1\` and `setup-hashes.json` beside `game\`), so point it at the step 1
+   copy, never at the decrypted original (`ringedge/1718-decryption-20261007-1944/game`) itself; the copy must still be
+   untouched (its `client_Release.exe` imports `IPHLPAPI.DLL`): the `D:\wccf-1718-*` copies are already guarded and fail
+   setup's check.
    (`tools/restart.sh` and `setup1718.py` are retired; the setup is `crates/forza/src/setup/e1718.rs`.)
    Start on Windows: `<runtime>\kit\Launcher.exe` (double-click; from a console `Launcher.exe local`). It refuses to
    start (exit 5) unless `<runtime>\setup-hashes.json` matches the guarded programs and they import `wccfnet.dll`.

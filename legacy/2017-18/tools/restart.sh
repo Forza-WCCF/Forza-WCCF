@@ -9,7 +9,7 @@
 # RETIRED (2026-10-21): setup1718.py needs the Python the staged kit no longer ships. Setup is Rust now (crates/forza/src/setup/e1718.rs),
 # run by Launcher.exe. The rest of this script is kept for reference and no longer runs.
 echo "restart.sh is retired. Stage with: cargo xtask build && cargo xtask stage 2017-18, copy target/kit/2017-18 to <runtime>\\kit," >&2
-echo "then on Windows run: Launcher.exe <game folder> (setup; 'Launcher.exe undo <game folder>' reverts), then Launcher.exe to play." >&2
+echo "then on Windows run: Launcher.exe <runtime>\\game (setup in place on that copy, never on the decrypted original; 'Launcher.exe undo <runtime>\\game' reverts), then Launcher.exe to play." >&2
 exit 1
 set -eo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
