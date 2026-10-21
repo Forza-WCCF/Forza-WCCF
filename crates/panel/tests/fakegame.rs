@@ -357,7 +357,7 @@ fn board_and_buttons_with_real_data() {
     // SHOOT's centre from the panel's own layout at 1440x900 (one point per pixel), so the click follows the deck
     let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1440.0, 900.0));
     let deck = panel::layout(sheet, false).deck;
-    let shoot = panel::deck_layout(deck.with_min_y(deck.top() + 54.0)) // the deck under its message line, as show() has it
+    let shoot = panel::deck_layout(deck) // the deck row under the picture, as show() has it
         .into_iter()
         .find(|it| it.action == "SHOOT")
         .expect("the deck has SHOOT")

@@ -443,7 +443,9 @@ pub fn limiter_start(e1718: bool, dll_dir: &Path, log: fn(&str)) {
     limiter_install(dll_dir, log);
     if e1718 && crate::is_projector() {
         prj_gate_install(log); // here because both roles call limiter_start and lib.rs is not ours to change
-        crate::probe::install(log); // WCCF_PROBE_GAMEREADY=1 only
+    }
+    if e1718 && is_client(&exe_name()) {
+        crate::probe::install(log); // WCCF_PROBE_GAMEREADY=1 only; projector and seat
     }
     let dir = dll_dir.to_path_buf();
     // ponytail: the watcher runs for the process's life, as the C's; the real game never unloads the panel. Only in

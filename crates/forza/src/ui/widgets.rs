@@ -757,8 +757,38 @@ pub fn steps(ui: &mut Ui, done: usize, total: usize, width: f32) -> Response {
     resp
 }
 
+/// A game start's stages in seconds (club server, control, windows, seat, panels); the bar's weights.
+// ponytail: estimate after the ICMP stand-in; retune from the next live run's step times
+const START_SECS: [f32; 6] = [2.0, 3.0, 1.0, 1.0, 3.0, 6.0];
+
+/// The start bar's fill after `done` step lines, `stage_secs` into the next stage: the stages weigh what they take,
+/// and inside one the fill creeps toward the next boundary, never reaching it before the line arrives.
+pub fn start_fraction(done: usize, stage_secs: f32) -> f32 {
+    let total: f32 = START_SECS.iter().sum();
+    let before: f32 = START_SECS.iter().take(done).sum();
+    match START_SECS.get(done) {
+        Some(d) => (before + d * 0.97 * (1.0 - (-stage_secs / d).exp())) / total,
+        None => 1.0,
+    }
+}
+
+/// A game start: the time-weighted bar and the elapsed time (`clock` = seconds in this stage, in all).
+pub fn start_bar(ui: &mut Ui, done: usize, clock: (f32, f32), width: f32) -> Response {
+    let secs = clock.1 as u32;
+    bar(
+        ui,
+        start_fraction(done, clock.0),
+        width,
+        format!("{}:{:02}", secs / 60, secs % 60),
+    )
+}
+
 /// A plain progress bar with a percentage, for a download or an install stage.
 pub fn progress(ui: &mut Ui, fraction: f32, width: f32) -> Response {
+    bar(ui, fraction, width, format!("{:.0} %", fraction * 100.0))
+}
+
+fn bar(ui: &mut Ui, fraction: f32, width: f32, label: String) -> Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(width, 14.0), Sense::hover());
     let p = ui.painter();
     let bar = rect.with_max_x(rect.right() - 44.0);
@@ -778,7 +808,7 @@ pub fn progress(ui: &mut Ui, fraction: f32, width: f32) -> Response {
     p.text(
         rect.right_center(),
         Align2::RIGHT_CENTER,
-        format!("{:.0} %", fraction * 100.0),
+        label,
         theme::display(17.0),
         theme::TEXT,
     );
@@ -898,8 +928,9 @@ pub fn title_bar(ui: &mut Ui, edition: Edition, lang: &mut Lang) -> TitleAction 
         action = window_buttons(ui);
         ui.add_space(10.0);
         let mut i = Lang::ALL.iter().position(|l| l == lang).unwrap_or(0);
-        ui.allocate_ui(vec2(132.0, 30.0), |ui| {
-            if segmented(ui, &mut i, &["EN", "IT", "日本語"], 132.0) {
+        ui.allocate_ui(vec2(252.0, 30.0), |ui| {
+            // each language in its own words, whatever the UI language
+            if segmented(ui, &mut i, &["English", "Italiano", "日本語"], 252.0) {
                 *lang = Lang::ALL[i];
             }
         });
@@ -1110,6 +1141,14 @@ pub fn toggle_row(ui: &mut Ui, on: &mut bool, title: &str, hint: &str) -> Respon
 #[cfg(test)]
 mod shape_tests {
     use super::*;
+
+    #[test]
+    fn start_bar_creeps_and_never_passes_the_next_stage() {
+        assert_eq!(start_fraction(0, 0.0), 0.0);
+        let a = start_fraction(1, 1000.0);
+        assert!(a < start_fraction(2, 0.0) && a > start_fraction(1, 5.0));
+        assert_eq!(start_fraction(6, 0.0), 1.0);
+    }
 
     #[test]
     fn hit_test_follows_the_shape() {

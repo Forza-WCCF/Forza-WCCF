@@ -51,6 +51,9 @@ launcher.vs_link: {en: "Direct VS link", it: "Collegamento VS diretto", ja: "ダ
 launcher.vs_link_hint: {en: "For VS matches between homes.", it: "Per le partite VS tra case.", ja: "家どうしのVS対戦用。"}
 # messages: the status line, the questions, the output; the run's own lines stay English
 launcher.msg_starting: {en: "Starting the game ...", it: "Avvio del gioco ...", ja: "ゲームを起動しています..."}
+launcher.stage_server: {en: "Starting the server ...", it: "Avvio del server ...", ja: "サーバーを起動しています..."}
+launcher.stage_window: {en: "Opening the game window ...", it: "Apertura della finestra di gioco ...", ja: "ゲームのウィンドウを開いています..."}
+launcher.stage_screen: {en: "Loading the game screen ...", it: "Caricamento della schermata di gioco ...", ja: "ゲーム画面を読み込んでいます..."}
 launcher.msg_restarting: {en: "Restarting ...", it: "Riavvio ...", ja: "再起動しています..."}
 launcher.msg_stopping: {en: "Stopping the game ...", it: "Arresto del gioco ...", ja: "ゲームを終了しています..."}
 launcher.msg_running: {en: "Game running.", it: "Gioco in esecuzione.", ja: "ゲーム実行中。"}
@@ -222,8 +225,6 @@ cab.coin: {en: "COIN", it: "GETTONE", ja: "コイン"}
 cab.back: {en: "BACK", it: "INDIETRO", ja: "もどる"}
 
 # ---- panel ----
-panel.tactics: {en: "TACTICS", it: "TATTICA", ja: "作戦"}
-panel.machine: {en: "MACHINE", it: "MACCHINA", ja: "筐体"}
 panel.f11: {en: "F11: window or full screen", it: "F11: finestra o schermo intero", ja: "F11：ウィンドウ／全画面"}
 panel.ping: {en: "%{ms} ms", it: "%{ms} ms", ja: "%{ms} ms"}
 panel.add_card: {en: "+ CARD", it: "+ CARTA", ja: "＋カード"}
@@ -236,14 +237,14 @@ panel.msg_saved: {en: "Club saved at 15:04.", it: "Club salvato alle 15:04.", ja
 panel.msg_session_open: {en: "Match in progress.", it: "Partita in corso.", ja: "試合中です。"}
 
 # ---- formation board ----
-board.flip: {en: "Click the card: its back.", it: "Clicca la carta: il retro.", ja: "カードをクリックで裏面。"}
-board.flip_back: {en: "Click again: its face.", it: "Clicca di nuovo: il fronte.", ja: "もう一度クリックで表面。"}
+board.flip: {en: "Click: card back.", it: "Clic: retro.", ja: "クリックで裏面。"}
+board.flip_back: {en: "Click: card face.", it: "Clic: fronte.", ja: "クリックで表面。"}
 board.title: {en: "FORMATION BOARD", it: "FORMAZIONE", ja: "フォーメーション"}
 board.bench: {en: "BENCH", it: "PANCHINA", ja: "ベンチ"}
 board.zone_attack: {en: "ATTACK", it: "ATTACCO", ja: "攻撃"}
 board.zone_centre: {en: "CENTRE", it: "CENTROCAMPO", ja: "中盤"}
 board.zone_defence: {en: "DEFENCE", it: "DIFESA", ja: "守備"}
-board.hint: {en: "Drag cards onto the pitch. Drop on a card to swap. Right-click removes.", it: "Trascina le carte sul campo. Rilascia su una carta per scambiare. Clic destro: rimuovi.", ja: "カードをピッチへドラッグ。カードに重ねると入れ替え。右クリックで外す。"}
+board.hint: {en: "Drag cards to the pitch. Drop on a card to swap. Right-click: remove.", it: "Trascina sul campo. Su una carta: scambia. Clic destro: rimuovi.", ja: "ピッチへドラッグ。カードに重ねて入れ替え。右クリックで外す。"}
 board.fit_best: {en: "BEST POSITION", it: "POSIZIONE IDEALE", ja: "ベストポジション"}
 board.fit_ok: {en: "FITS", it: "ADATTO", ja: "適性あり"}
 board.fit_out: {en: "OUT OF POSITION", it: "FUORI RUOLO", ja: "ポジション外"}
@@ -252,16 +253,17 @@ board.positions: {en: "POSITIONS", it: "POSIZIONI", ja: "適性ポジション"}
 board.roles: {en: "Roles: %{roles}", it: "Ruoli: %{roles}", ja: "役割：%{roles}"}
 board.links_of: {en: "LINKS · %{name}", it: "INTESE · %{name}", ja: "%{name}の連携"}
 board.on_team: {en: "ON THE TEAM", it: "IN SQUADRA", ja: "チーム内"}
-board.not_on_team: {en: "BEST LINKS OFF THE TEAM", it: "MIGLIORI LEGAMI FUORI SQUADRA", ja: "チーム外の好相性"}
-board.no_links: {en: "No links yet.", it: "Nessun legame.", ja: "相性なし。"}
+board.not_on_team: {en: "BEST OUTSIDE LINKS", it: "MIGLIORI INTESE ESTERNE", ja: "チーム外の好相性"}
+board.no_links: {en: "No links yet.", it: "Nessuna intesa.", ja: "相性なし。"}
 board.more: {en: "+%{n} more", it: "+ altri %{n}", ja: "ほか%{n}人"}
 cat.affinity: {en: "AFFINITY", it: "AFFINITÀ", ja: "相性"}
-cat.no_partners: {en: "No listed partners.", it: "Nessuna intesa registrata.", ja: "登録された相性の選手はいません。"}
+cat.no_partners: {en: "No partners listed.", it: "Nessuna intesa.", ja: "相性の選手なし。"}
 
 # ---- catalogue ----
 cat.title: {en: "CATALOGUE", it: "CATALOGO", ja: "カタログ"}
 cat.search_hint: {en: "Search cards", it: "Cerca carte", ja: "カードを検索"}
 cat.position: {en: "POSITION", it: "RUOLO", ja: "ポジション"}
+cat.best_role: {en: "Best role: %{roles}", it: "Ruolo migliore: %{roles}", ja: "適性：%{roles}"}
 cat.rarity: {en: "RARITY", it: "RARITÀ", ja: "レア度"}
 cat.all: {en: "ALL", it: "TUTTI", ja: "すべて"}
 cat.any: {en: "ANY", it: "TUTTE", ja: "すべて"}
@@ -284,14 +286,6 @@ cat.spd: {en: "SPD", it: "VEL", ja: "スピード"}
 cat.sta: {en: "STA", it: "RES", ja: "スタミナ"}
 cat.reset: {en: "RESET", it: "AZZERA", ja: "リセット"}
 cat.results: {en: "%{n} CARDS", it: "%{n} CARTE", ja: "%{n} 枚"}
-cat.inferred: {en: "Role (inferred): %{role}", it: "Ruolo (dedotto): %{role}", ja: "役割（推定）：%{role}"}
-cat.role_keeper: {en: "goalkeeper", it: "portiere", ja: "ゴールキーパー"}
-cat.role_wingback: {en: "wing-back", it: "terzino di spinta", ja: "ウイングバック"}
-cat.role_stopper: {en: "stopper", it: "stopper", ja: "ストッパー"}
-cat.role_playmaker: {en: "playmaker", it: "regista", ja: "司令塔"}
-cat.role_box: {en: "box-to-box", it: "tuttocampista", ja: "ボックス・トゥ・ボックス"}
-cat.role_target: {en: "target man", it: "centravanti di peso", ja: "ターゲットマン"}
-cat.role_poacher: {en: "poacher", it: "rapace d'area", ja: "ポーチャー"}
 cat.add: {en: "+ ADD", it: "+ AGGIUNGI", ja: "＋追加"}
 cat.msg_added: {en: "%{name} added (%{n}/16)", it: "%{name} aggiunto (%{n}/16)", ja: "%{name} を追加しました（%{n}/16）"}
 cat.msg_on_table: {en: "%{name} is on the table", it: "%{name} è già sul tavolo", ja: "%{name} はすでにテーブルにあります"}
@@ -524,7 +518,6 @@ pause.msg_too_soon: {en: "Next pause in %{s} s.", it: "Prossima pausa tra %{s} s
 # ---- language, logs, edition-aware warnings ----
 launcher.msg_stop_anyway_1718: {en: "A match is on. Stop anyway?", it: "Partita in corso. Fermare comunque?", ja: "試合中です。終了しますか？"}
 close.body_1718: {en: "Closing now ends the match.", it: "Chiudere ora termina la partita.", ja: "今閉じると試合が終了します。"}
-launcher.original_ja_text: {en: "Original Japanese game text", it: "Testo originale giapponese", ja: "ゲームの日本語（オリジナル）"}
 launcher.save_logs: {en: "SAVE LOGS", it: "SALVA LOG", ja: "ログを保存"}
 settings.save_logs: {en: "SAVE LOGS", it: "SALVA LOG", ja: "ログを保存"}
 logs.saved: {en: "Saved: %{path}", it: "Salvato: %{path}", ja: "保存しました：%{path}"}

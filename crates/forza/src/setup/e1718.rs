@@ -4,7 +4,7 @@
 //! - `original\` the untouched client_Release.exe and control_Release.exe, kept on the first run; every later run
 //!   patches from them, so running setup again never stacks a patch (a second run changes nothing)
 //! - `game\` the server and projector: guarded programs (they import wccfnet.dll, which stubs the four IP-helper
-//!   calls, instead of IPHLPAPI.DLL), the kit's winmm.dll / logowin.exe stand-ins, the settings files
+//!   calls, instead of IPHLPAPI.DLL), the kit's winmm.dll / logowin.exe / ICMP.DLL stand-ins, the settings files
 //! - `seat1\` the player's cabinet: junctions to game's folders, hard links to its files, its own patched
 //!   client_Release.exe, the card-table helper
 //! - `setup-hashes.json` the SHA-256 of what setup made; Launcher.exe starts nothing unless every file still matches
@@ -173,17 +173,40 @@ static SEAT: [Patch; 15] = [
     },
 ];
 
-/// The projector (game\\client_Release.exe): only the two ALL.Net answers, so its corner status icon agrees with seat 1's.
-static PROJECTOR: [Patch; 2] = [ALLNET_AUTHORIZED, ALLNET_BILLING_IDLE];
+/// The projector (game\\client_Release.exe, its own copy: seat 1 has another): the two ALL.Net answers, so its corner
+/// status icon agrees with seat 1's, and its title movie counted as over.
+static PROJECTOR: [Patch; 3] = [
+    ALLNET_AUTHORIZED,
+    ALLNET_BILLING_IDLE,
+    // Stopgap: the title movie stalls in Sofdec PREP, so the projector never sent GAME_READY. sub_88A230: call
+    // sub_A0AD20 / test al,al / jz (VA 0x0088A28D); the jz goes, so it loads the match, plays movie 2 and sends
+    // GAME_READY. The stalled player is stopped by the next round's sub_A0AAD0.
+    Patch {
+        at: 0x48968d,
+        old: &[0xe8, 0x8e, 0x0a, 0x18, 0x00, 0x84, 0xc0, 0x74, 0x1a],
+        new: &[0xe8, 0x8e, 0x0a, 0x18, 0x00, 0x84, 0xc0, 0x90, 0x90],
+        what: "projector title movie counted as over (VA 0x0088A294 jz -> nop nop)",
+    },
+];
 
 /// The server (control_Release.exe): its ALL.Net library's "network up" check answers yes, so it connects to the local
-/// game server stand-in (FORCE_ONLINE=1, GAME_SVR_IP=localhost).
-static CONTROL: [Patch; 1] = [Patch {
-    at: 0xb67c0,
-    old: &[0x56, 0xe8, 0xaa, 0xf2, 0xff, 0xff],
-    new: &[0xb8, 0x01, 0x00, 0x00, 0x00, 0xc3],
-    what: "network up (FUN_004B73C0 returns 1)",
-}];
+/// game server stand-in (FORCE_ONLINE=1, GAME_SVR_IP=localhost); its GAME_READY fallback comes after 15 s, not 100 s.
+static CONTROL: [Patch; 2] = [
+    Patch {
+        at: 0xb67c0,
+        old: &[0x56, 0xe8, 0xaa, 0xf2, 0xff, 0xff],
+        new: &[0xb8, 0x01, 0x00, 0x00, 0x00, 0xc3],
+        what: "network up (FUN_004B73C0 returns 1)",
+    },
+    // Stopgap: in GAME the control waits for the projector's GAME_READY, else sends its own once the counter at
+    // +0x90 passes 100 (seconds). VA 0x00432045: cmp dword [eax+90h], 64h -> 0Fh.
+    Patch {
+        at: 0x31445,
+        old: &[0x83, 0xb8, 0x90, 0x00, 0x00, 0x00, 0x64],
+        new: &[0x83, 0xb8, 0x90, 0x00, 0x00, 0x00, 0x0f],
+        what: "GAME_READY fallback after 15 s, not 100 s (VA 0x0043204B)",
+    },
+];
 
 /// What setup checks and changes; [`Spec::game`] is the real game's, tests give their own.
 pub struct Spec {
@@ -243,6 +266,7 @@ pub fn setup_game(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
     for (dll, built) in [
         ("wccfnet.dll", bin.join("wccfnet.dll")),
         ("netguard.dll", overlay.join("netguard.dll")),
+        ("ICMP.DLL", bin.join("ICMP.DLL")),
     ] {
         copy_in(&built, &game.join(dll), "the network guard")?;
         report
@@ -359,7 +383,13 @@ pub fn undo(kit: &Path, game: &Path, spec: &Spec) -> Result<()> {
     if backup.is_file() {
         fs::rename(&backup, game.join("logowin.exe"))?;
     }
-    for f in ["winmm.dll", "winmm_orig.dll", "wccfnet.dll", "netguard.dll"] {
+    for f in [
+        "winmm.dll",
+        "winmm_orig.dll",
+        "wccfnet.dll",
+        "netguard.dll",
+        "ICMP.DLL",
+    ] {
         if game.join(f).is_file() {
             fs::remove_file(game.join(f))?;
         }
@@ -430,9 +460,29 @@ mod tests {
         assert!(apply(&[1, 2, 3], &p).is_err());
         assert!(
             SEAT.iter()
+                .chain(&PROJECTOR)
                 .chain(&CONTROL)
                 .all(|p| p.old.len() == p.new.len())
         );
+    }
+
+    #[test]
+    fn the_two_gameready_stopgaps() {
+        // a buffer with the original bytes at both places: each changes one or two bytes, the rest stays
+        let stop = [&PROJECTOR[2], &CONTROL[1]];
+        for p in stop {
+            let mut buf = vec![0xccu8; p.at + 16];
+            buf[p.at..p.at + p.old.len()].copy_from_slice(p.old);
+            let out = apply(&buf, std::slice::from_ref(p)).unwrap();
+            let changed: Vec<usize> = (0..buf.len()).filter(|&i| buf[i] != out[i]).collect();
+            assert!(!changed.is_empty() && changed.len() <= 2, "{}", p.what);
+            buf[p.at + p.old.len() - 1] ^= 0x01; // one wrong original byte: refused
+            assert!(apply(&buf, std::slice::from_ref(p)).is_err(), "{}", p.what);
+        }
+        assert_eq!(PROJECTOR[2].new[7..], [0x90, 0x90]); // jz rel8 -> two nops
+        assert_eq!(CONTROL[1].new[6], 15); // seconds
+        // only the projector's copy loses its title movie; seat 1 keeps the original jz
+        assert!(SEAT.iter().all(|p| p.at != PROJECTOR[2].at));
     }
 
     static T_SEAT: [Patch; 1] = [Patch {
@@ -491,6 +541,7 @@ mod tests {
         }
         for (d, n) in [
             ("bin", "wccfnet.dll"),
+            ("bin", "ICMP.DLL"),
             ("overlay", "netguard.dll"),
             ("bin", "winmm.dll"),
             ("bin", "logowin.exe"),
@@ -527,11 +578,16 @@ mod tests {
         let before = tree(&rt);
 
         let report = run(&kit, &game, &spec).unwrap();
-        assert_eq!(report.0.len(), 5);
+        assert_eq!(report.0.len(), 6);
         let record = fs::read_to_string(rt.join("setup-hashes.json")).unwrap();
         let json: serde_json::Value = serde_json::from_str(&record).unwrap();
         assert_eq!(json["client_Release.exe"]["original"], sha(&client));
         assert_eq!(json["wccfnet.dll"], sha(b"kit wccfnet.dll"));
+        assert_eq!(json["ICMP.DLL"], sha(b"kit ICMP.DLL"));
+        assert_eq!(
+            fs::read(rt.join("seat1/ICMP.DLL")).unwrap(),
+            b"kit ICMP.DLL"
+        );
         assert!(
             record.ends_with("}\r\n") && record.starts_with("{\r\n  \"client_Release.exe\": {\r\n")
         );
@@ -598,6 +654,7 @@ mod tests {
             !seat.exists()
                 && !rt.join("setup-hashes.json").exists()
                 && !game.join("wccfnet.dll").exists()
+                && !game.join("ICMP.DLL").exists()
         );
         assert!(
             game.join("AI").is_dir(),
