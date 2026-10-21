@@ -3,7 +3,7 @@
 //! Windows.Graphics.Capture on the window handle (`wgc`) takes the window's own composed content, Direct3D included;
 //! PrintWindow with PW_RENDERFULLCONTENT (`printwindow`, blank for the game's Direct3D 9 windows) is the fallback when
 //! WGC is unavailable. Both read one window, never the screen, so other apps never end up in a capture.
-//! Replaces research/cap.ps1. Windows only; `cargo xtask cap` builds and runs it.
+//! Replaces the old cap.ps1. Windows only; `cargo xtask cap` builds and runs it.
 
 mod wgc;
 

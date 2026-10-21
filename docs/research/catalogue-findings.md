@@ -30,7 +30,7 @@
 3. The spot checks were 2 hard-coded cards. They are now a `KNOWN` table of 13 cards (all four lines, editions
    2013-14 / 2016-17 / 2017-18) plus checks on placeholders and on the ATLE stand-in stats.
 4. The self-check mode (GAME only) is new. The script now finds `cards.py` and `ys_lzw.py` in `../../kit/scripts`
-   by itself, so it runs in place from `research/catalogue/`.
+   by itself, so it ran in place.
 
 Nothing else needed fixing. The previous output's placeholder rows (ERROR_CARD.dds, club id 0 "アタランタBC")
 already had `is_placeholder` = 1 and blank club and nationality names, so the overlay never showed them.
@@ -79,9 +79,7 @@ and "-" for stats on their backs; their records hold 16 16 16 16 16 20.
 
 ## Install
 
-Generate into the overlay folder of the runtime (about 2 minutes; the kit's Windows Python has Pillow):
-
-    <runtime>\kit\python\python.exe research\catalogue\cards1718.py <runtime>\game <runtime>\kit\overlay
+This script is retired: Launcher.exe's Setup now generates the catalogue into the overlay folder of the runtime (about 2 minutes).
 
 This writes `catalogue.tsv` and `cards\<no>.png` (8,434 PNGs of 128×128, about 120 MB) next to `wccfpanel.dll`,
 where the overlay reads them. The board thread loads the catalogue once at start, so it appears after the next

@@ -18,9 +18,9 @@ Plan and status: [../ROADMAP.md](../ROADMAP.md); notes: [PROGRESS.md](PROGRESS.m
 | `crates/forza/src/setup/e1718.rs` | setup: guarded imports, seat 1 exe patches, controller patch (every original byte checked) |
 | `native/2017-18/` | `mxhook` (`winmm.dll`), `logowin`, `overlay`, `netguard/` (`wccfnet.dll`, `netguard.dll`: stub the IP-helper calls that drop the host's DHCP lease) |
 | `legacy/2017-18/` | retired Python (`setup1718.py`, `restart.sh`) and its tests |
-| `research/press.sh`, `cargo xtask cap` | WSL helpers: tap cabinet buttons, capture game windows |
-| `research/ida/` | headless IDA helpers (`ida_query.py`, `dump.py`) for your own analysis copies |
-| `research/catalogue/` | 17–18 card catalogue findings |
+| `tools/press.sh`, `cargo xtask cap` | WSL helpers: tap cabinet buttons, capture game windows |
+| `tools/ida/` | headless IDA helpers (`ida_query.py`, `dump.py`) for your own analysis copies |
+| [research/catalogue-findings.md](../research/catalogue-findings.md) | 17–18 card catalogue findings |
 | `docs/2017-18/` | progress, research notes, game-server message table |
 
 ## Quick start (from WSL)
