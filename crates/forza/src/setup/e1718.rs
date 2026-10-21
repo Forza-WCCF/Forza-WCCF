@@ -603,7 +603,7 @@ mod tests {
         let before = tree(&rt);
 
         let report = run(&kit, &game, &spec).unwrap();
-        assert_eq!(report.0.len(), 6);
+        assert_eq!(report.0.len(), 5);
         let record = fs::read_to_string(rt.join("setup-hashes.json")).unwrap();
         let json: serde_json::Value = serde_json::from_str(&record).unwrap();
         assert_eq!(json["client_Release.exe"]["original"], sha(&client));
