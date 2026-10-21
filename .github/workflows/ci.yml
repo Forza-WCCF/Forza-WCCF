@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  # keep in step with XWIN_CRT_VERSION / XWIN_SDK_VERSION in xtask/src/main.rs (the xwin cache key)
+  XWIN_CRT_VERSION: "14.44.17.14"
+  XWIN_SDK_VERSION: "10.0.26100"
+  CARGO_XWIN_VERSION: "0.23.1"
+  CARGO_XWIN_SHA256: c492c6dfb7e5ac0eee586b796e0fc950ba13077e7f0bbb046f445d71790d5360
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: cargo fmt --check
+        run: cargo fmt --all --check
+      - name: commit messages
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          for c in $(git rev-list "$BASE..$HEAD"); do
+            git log -1 --format=%B "$c" > "$RUNNER_TEMP/msg"
+            xtask/commit-msg "$RUNNER_TEMP/msg" || { echo "::error::commit $c"; exit 1; }
+          done
+
+  build:
+    name: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    container: rust:1.99-trixie
+    steps:
+      - name: Tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends clang-19 clang-tools-19 lld lld-19 llvm llvm-19 ca-certificates curl
+          curl -fsSL -o /tmp/cx.tgz "https://github.com/rust-cross/cargo-xwin/releases/download/v${CARGO_XWIN_VERSION}/cargo-xwin-v${CARGO_XWIN_VERSION}.x86_64-unknown-linux-musl.tar.gz"
+          echo "${CARGO_XWIN_SHA256}  /tmp/cx.tgz" | sha256sum -c -
+          tar -xzf /tmp/cx.tgz -C /usr/local/bin cargo-xwin
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: xwin cache (MSVC CRT and Windows SDK)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/cargo-xwin-xtask
+          key: xwin-${{ env.XWIN_CRT_VERSION }}-${{ env.XWIN_SDK_VERSION }}-x86_x86_64
+      - name: cargo xtask check ci
+        run: cargo xtask check ci
+      - name: kit artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: kit
+          path: |
+            target/kit/**
+            target/x86_64-pc-windows-msvc/smoke/wccf-installer.exe
+          retention-days: 3
+          if-no-files-found: error
+
+  windows-tests:
+    name: windows-tests
+    needs: build
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: kit
+          path: target
+      - name: cargo test (the GPU snapshot tests run in their own step)
+        run: 'cargo test --locked --workspace --target x86_64-pc-windows-msvc -- --skip snapshots::'
+      - name: cargo xtask check win
+        run: cargo xtask check win
+      - name: snapshots (informational, the runner has no GPU)
+        continue-on-error: true
+        run: 'cargo test --locked -p forza --test it --target x86_64-pc-windows-msvc -- snapshots::'
+      - name: snapshot differences
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: snapshot-diffs
+          path: |
+            crates/forza/tests/snapshots/*.diff.png
+            crates/forza/tests/snapshots/*.new.png
+          retention-days: 3
+          if-no-files-found: ignore
+
+  deny:
+    name: deny
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check licenses bans sources

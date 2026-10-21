@@ -28,8 +28,10 @@ enum Task {
     Build,
     /// fmt, clippy, tests, the kit's C self-tests, the scrub; `check quick` = fmt, clippy and the tests of the crates changed since --base
     Check {
-        /// `quick`: only the crates changed since the base (and their dependents); no release build, no kit, no smoke
-        #[arg(value_parser = ["quick"])]
+        /// `quick`: only the crates changed since the base (and their dependents); no release build, no kit, no smoke.
+        /// `ci`: the Linux-side checks of the GitHub workflow (build, fmt, clippy, scrub, licenses, no Windows program runs).
+        /// `win`: the Windows-side checks, on a Windows PC against a built `target/kit/` (the CI artifact)
+        #[arg(value_parser = ["quick", "ci", "win"])]
         mode: Option<String>,
         /// What `quick` diffs against (its merge-base with HEAD, plus the working tree)
         #[arg(long, default_value = QUICK_BASE)]
@@ -338,9 +340,11 @@ const PROGRAMS: &[&str] = &[
 ];
 
 fn main() -> Result<()> {
+    let task = Task::parse();
     ensure!(
-        cfg!(target_os = "linux"),
-        "cargo xtask runs in WSL (Linux); the Windows programs start through WSL interop"
+        cfg!(target_os = "linux")
+            || matches!(&task, Task::Check { mode: Some(m), .. } if m == "win"),
+        "cargo xtask runs in WSL (Linux); the Windows programs start through WSL interop (only `check win` runs on Windows)"
     );
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -349,7 +353,7 @@ fn main() -> Result<()> {
     let stage_root = stage_root(&root);
     let kit = stage_root.join("kit/2010-11");
     let kit_1718 = stage_root.join("kit/2017-18");
-    match Task::parse() {
+    match task {
         Task::Build => {
             let cc = Cc::new()?;
             build_all(&root, &kit, &kit_1718, &cc)
@@ -360,8 +364,14 @@ fn main() -> Result<()> {
         // older than its own scripts (2026-10-13, the first Rust run started a deleted panel.py)
         Task::Check { mode, base } => {
             NO_INCREMENTAL.store(true, Ordering::Relaxed);
-            if mode.is_some() {
-                return quick(&root, &stage_root, &base);
+            match mode.as_deref() {
+                Some("quick") => return quick(&root, &stage_root, &base),
+                Some("win") => return check_win(&root, &stage_root, &kit, &kit_1718),
+                Some("ci") => {
+                    return build_all(&root, &kit, &kit_1718, &Cc::new()?)
+                        .and_then(|()| check_ci(&root, &stage_root, &kit, &kit_1718));
+                }
+                _ => {}
             }
             build_all(&root, &kit, &kit_1718, &Cc::new()?)
                 .and_then(|()| check(&root, &stage_root, &kit, &kit_1718))
@@ -443,9 +453,8 @@ fn rust(sub: &str, root: &Path) -> Command {
     if NO_INCREMENTAL.load(Ordering::Relaxed) {
         c.env("CARGO_INCREMENTAL", "0");
     }
-    c.env("XWIN_ACCEPT_LICENSE", "1")
-        .env("XWIN_ARCH", "x86,x86_64")
-        .env("XWIN_CACHE_DIR", xwin_root());
+    c.env("XWIN_ARCH", "x86,x86_64");
+    xwin_env(&mut c);
     // `cargo xwin test` would run the test programs under wine; WSL runs them itself (interop), and winrun.sh starts
     // the launcher's run tests through explorer.exe (interop's "Prefer System32 images" would make the run refuse)
     c.env(
@@ -453,6 +462,19 @@ fn rust(sub: &str, root: &Path) -> Command {
         root.join("xtask/winrun.sh"),
     );
     c
+}
+
+/// The MSVC CRT and Windows SDK xwin fetches: pinned, so a new release on Microsoft's manifest cannot change the build
+/// (the CI cache is keyed by these two).
+const XWIN_CRT_VERSION: &str = "14.44.17.14";
+const XWIN_SDK_VERSION: &str = "10.0.26100";
+
+/// The environment every `cargo xwin` run of xtask shares: licence accepted, xtask's cache, the pinned CRT and SDK.
+fn xwin_env(c: &mut Command) {
+    c.env("XWIN_ACCEPT_LICENSE", "1")
+        .env("XWIN_CACHE_DIR", xwin_root())
+        .env("XWIN_CRT_VERSION", XWIN_CRT_VERSION)
+        .env("XWIN_SDK_VERSION", XWIN_SDK_VERSION);
 }
 
 fn run_ok(mut c: Command, what: &str) -> Result<()> {
@@ -482,9 +504,8 @@ impl Cc {
         let cache = xwin_root().join("xwin");
         if !cache.join("sdk/lib/um/x86").is_dir() {
             let mut c = Command::new("cargo");
-            c.args(["xwin", "cache", "xwin", "--xwin-arch", "x86,x86_64"])
-                .env("XWIN_ACCEPT_LICENSE", "1")
-                .env("XWIN_CACHE_DIR", xwin_root());
+            c.args(["xwin", "cache", "xwin", "--xwin-arch", "x86,x86_64"]);
+            xwin_env(&mut c);
             run_ok(c, "cargo xwin cache (the 32-bit CRT and SDK)")?;
         }
         Ok(Cc(cache))
@@ -1009,10 +1030,8 @@ fn quick(root: &Path, stage_root: &Path, base: &str) -> Result<()> {
     Ok(())
 }
 
-fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<()> {
-    // one check at a time on this PC: the tests use fixed local ports (the relay on 20941, the seat desk on 20932-20936),
-    // and two checks at once (two worktrees) failed each other's relay checks
-    let _lock = check_lock()?;
+/// The staged kits must hold the built programs and the C test programs.
+fn ensure_built(kit: &Path, kit_1718: &Path) -> Result<()> {
     for p in PROGRAMS.iter().chain(&[
         "source/build/fakegame.exe",
         "source/build/fakegame_iphlp.exe",
@@ -1035,12 +1054,11 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
             "2017-18 {p} is missing: run `cargo xtask build` first"
         );
     }
-    stage(root, kit, MAP, KEEP)?;
-    let mut ck = Checks {
-        kit: kit.to_owned(),
-        tmp: stage_root.join("check-tmp"),
-        failed: vec![],
-    };
+    Ok(())
+}
+
+/// The checks that start Windows programs from the staged kits (WSL interop, or a Windows PC).
+fn windows_tests(ck: &mut Checks, kit: &Path, kit_1718: &Path) -> Result<()> {
     ck.run(
         "whole messages: a batch in pieces waits for its rest, bytes that are no batch are skipped",
         Command::new(kit.join("source/build/test_wholemsg.exe")),
@@ -1056,19 +1074,22 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
             false,
         );
     }
-    panel_selftests(&mut ck)?;
-    guard_tests(&mut ck, kit_1718)?;
-    launcher_imports(&mut ck, kit_1718);
+    panel_selftests(ck)?;
+    guard_tests(ck, kit_1718)
+}
 
-    // the Rust workspace, xtask included: format, lint, tests - the toolchain from rust-toolchain.toml, read in the root
-    let cargo = |what: &str, mut c: Command, failed: &mut Vec<String>| {
-        if !c.status().is_ok_and(|s| s.success()) {
-            failed.push(what.to_owned());
-        }
-    };
+/// Runs a cargo command; a failure adds `what` to `failed`.
+fn cargo_step(what: &str, mut c: Command, failed: &mut Vec<String>) {
+    if !c.status().is_ok_and(|s| s.success()) {
+        failed.push(what.to_owned());
+    }
+}
+
+/// The workspace's format and lint (the toolchain from rust-toolchain.toml, read in the root).
+fn fmt_clippy(root: &Path, failed: &mut Vec<String>) {
     let mut fmt = Command::new("cargo");
     fmt.args(["fmt", "--all", "--check"]).current_dir(root);
-    cargo("workspace: cargo fmt", fmt, &mut ck.failed);
+    cargo_step("workspace: cargo fmt", fmt, failed);
     let mut clippy = rust("clippy", root);
     clippy.args([
         "--locked",
@@ -1080,10 +1101,28 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
         "-D",
         "warnings",
     ]);
-    cargo("workspace: cargo clippy", clippy, &mut ck.failed);
+    cargo_step("workspace: cargo clippy", clippy, failed);
+}
+
+fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<()> {
+    // one check at a time on this PC: the tests use fixed local ports (the relay on 20941, the seat desk on 20932-20936),
+    // and two checks at once (two worktrees) failed each other's relay checks
+    let _lock = check_lock()?;
+    ensure_built(kit, kit_1718)?;
+    stage(root, kit, MAP, KEEP)?;
+    let mut ck = Checks {
+        kit: kit.to_owned(),
+        tmp: stage_root.join("check-tmp"),
+        failed: vec![],
+    };
+    windows_tests(&mut ck, kit, kit_1718)?;
+    launcher_imports(&mut ck, kit_1718);
+
+    // the Rust workspace, xtask included: format, lint, tests
+    fmt_clippy(root, &mut ck.failed);
     let mut test = rust("test", root);
     test.args(["--locked", "--workspace", "--target", TARGET]);
-    cargo("workspace: cargo test", test, &mut ck.failed);
+    cargo_step("workspace: cargo test", test, &mut ck.failed);
 
     scrub(root, &mut ck.failed)?;
     installer_checks(root, stage_root, &mut ck.failed);
@@ -1092,6 +1131,61 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
 
     ensure!(ck.failed.is_empty(), "FAILED: {}", ck.failed.join(", "));
     println!("all checks passed");
+    Ok(())
+}
+
+/// `cargo xtask check ci` (after the build): everything that needs no Windows program to run, for the Linux CI job.
+/// The Windows tests are `check win`, on a Windows runner against this job's kits.
+fn check_ci(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<()> {
+    ensure_built(kit, kit_1718)?;
+    stage(root, kit, MAP, KEEP)?;
+    let mut ck = Checks {
+        kit: kit.to_owned(),
+        tmp: stage_root.join("check-tmp"),
+        failed: vec![],
+    };
+    launcher_imports(&mut ck, kit_1718);
+    fmt_clippy(root, &mut ck.failed);
+    scrub(root, &mut ck.failed)?;
+    for (what, r) in [
+        ("installer licenses", check_licenses(root)),
+        (
+            "shipped docs say kit",
+            shipped_docs_no_kit(root, &[kit, kit_1718]),
+        ),
+        ("installer smoke build", smoke_build(root).map(drop)),
+    ] {
+        if let Err(e) = r {
+            eprintln!("{what}: {e:#}");
+            ck.failed.push(what.to_owned());
+        }
+    }
+    no_script_host(root, &mut ck.failed)?;
+    no_python(&[kit, kit_1718], &mut ck.failed)?;
+    ensure!(ck.failed.is_empty(), "FAILED: {}", ck.failed.join(", "));
+    println!("ci checks passed (the Windows tests are `check win`)");
+    Ok(())
+}
+
+/// `cargo xtask check win`: on a Windows PC, against the kits and smoke installer that `check ci` built on Linux
+/// (target/kit/** and target/x86_64-pc-windows-msvc/smoke/, as the CI artifact holds them).
+fn check_win(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<()> {
+    ensure_built(kit, kit_1718)?;
+    let exe = installer_exe(root, "smoke");
+    ensure!(exe.is_file(), "{} is missing", exe.display());
+    let mut ck = Checks {
+        kit: kit.to_owned(),
+        tmp: stage_root.join("check-tmp"),
+        failed: vec![],
+    };
+    fs::create_dir_all(&ck.tmp)?;
+    windows_tests(&mut ck, kit, kit_1718)?;
+    if let Err(e) = smoke_run(root, stage_root, &exe) {
+        eprintln!("installer smoke: {e:#}");
+        ck.failed.push("installer smoke".into());
+    }
+    ensure!(ck.failed.is_empty(), "FAILED: {}", ck.failed.join(", "));
+    println!("windows checks passed");
     Ok(())
 }
 
@@ -1341,6 +1435,18 @@ fn scrub(root: &Path, failed: &mut Vec<String>) -> Result<()> {
             })
             .map(str::to_owned),
     );
+    // originals and derived data never get committed: no tracked binary, disc image, IDA database or log
+    // (nothing is allowed today; a legitimate fixture would be listed here)
+    let tracked = cmd!(
+        sh,
+        "git ls-files -- *.exe *.dll *.iso *.chd *.bin *.i64 *.idb *.id0 *.til *.nam *.log :!legacy/python :!vendor"
+    )
+    .read()?;
+    bad.extend(
+        tracked
+            .lines()
+            .map(|l| format!("tracked binary or log: {l}")),
+    );
     let home = std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from);
@@ -1503,6 +1609,12 @@ fn check_licenses(root: &Path) -> Result<()> {
 /// Synthetic headless run of the installer (smoke profile) in a scratch folder: inert placeholder files only, no media, keys, kit or game.
 /// Needs the exe: `cargo build --profile smoke -p wccf-installer --target x86_64-pc-windows-msvc` (a Windows exe; WSL interop runs it).
 fn smoke(root: &Path, stage_root: &Path) -> Result<()> {
+    let exe = smoke_build(root)?;
+    smoke_run(root, stage_root, &exe)
+}
+
+/// Builds the smoke-profile installer; returns its path.
+fn smoke_build(root: &Path) -> Result<PathBuf> {
     let mut c = rust("build", root);
     // the smoke profile inherits release (opt level, panic, strip, debug assertions off) minus LTO and codegen-units = 1
     c.args([
@@ -1516,10 +1628,16 @@ fn smoke(root: &Path, stage_root: &Path) -> Result<()> {
     ]);
     run_ok(c, "cargo build -p wccf-installer (smoke profile)")?;
     let exe = installer_exe(root, "smoke");
+    ensure!(exe.is_file(), "{} is missing", exe.display());
+    Ok(exe)
+}
+
+/// The headless run of a built smoke installer.
+fn smoke_run(root: &Path, stage_root: &Path, exe: &Path) -> Result<()> {
     let dir = stage_root.join(format!("installer-smoke-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir)?;
-    let r = smoke_in(root, &exe, &dir);
+    let r = smoke_in(root, exe, &dir);
     let _ = fs::remove_dir_all(&dir);
     r?;
     println!("Headless smoke check passed; no game was launched.");
@@ -1682,6 +1800,22 @@ fn package_installer(root: &Path, name: Option<String>) -> Result<()> {
 /// `is_1011`: the 2010-11 kit, else the 2017-18 kit. Both hold the programs `cargo xtask build` made, and their version
 /// information is checked; both ZIPs leave out `source/build` (the 2017-18 guard tests live there; its guard `bin/wccfnet.dll` ships).
 /// Players read these files: the product is Forza-WCCF, never a "kit" (the whole word, any case).
+/// The staged kits' player docs and the installer's say no "kit" (what `package` checks, without the ZIP).
+fn shipped_docs_no_kit(root: &Path, kits: &[&Path]) -> Result<()> {
+    let mut docs = vec![];
+    for kit in kits {
+        docs.extend(
+            fs::read_dir(kit)?
+                .filter_map(|e| Some(e.ok()?.path()))
+                .filter(|p| p.extension().is_some_and(|e| e == "txt" || e == "md")),
+        );
+        docs.push(kit.join("source/README.txt"));
+    }
+    let src = root.join("crates/installer");
+    docs.extend([src.join("README.md"), src.join("CHANGELOG.md")]);
+    no_kit_word(&docs)
+}
+
 fn no_kit_word(files: &[PathBuf]) -> Result<()> {
     for f in files {
         for (n, line) in fs::read_to_string(f)?.lines().enumerate() {
@@ -2004,7 +2138,7 @@ mod tests {
         no_kit_word(&files).unwrap();
         let bad = std::env::temp_dir().join("no-kit-word-test.txt");
         fs::write(&bad, "fine\nthe Kit-5 zip\nskit kitchen\n").unwrap();
-        assert!(no_kit_word(&[bad.clone()]).is_err());
+        assert!(no_kit_word(std::slice::from_ref(&bad)).is_err());
         fs::write(&bad, "skit kitchen _kit_\n").unwrap();
         no_kit_word(&[bad]).unwrap();
     }
