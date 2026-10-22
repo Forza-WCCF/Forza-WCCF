@@ -6492,7 +6492,7 @@ INF_089_TOPICS_title_0000	Premio tutorial
 INF_089_TOPICS_message_0000	Come premio tutorial hai ricevuto una $c[FF0000FF]carta digitale allenamento$c.\nControlla le carte digitali che hai nell'$c[FF0000FF]Album giocatori$c.\nPuoi registrare fino a $c[FF0000FF]3$c copie della stessa carta digitale nell'Album giocatori.
 INF_094_title_0000	□Per aver vinto il campionato, un $c[FF0000FF]club famoso$c chiede un'amichevole
 INF_094_title_0001	□Per aver vinto il campionato, un $c[FF0000FF]club di grande prestigio$c chiede un'amichevole
-INF_094_mission_0000	Un tuo amico ha completato una Missione Amico nello stesso negozio!\nPer la missione completata insieme ricevi un premio di collaborazione.
+INF_094_mission_0000	Un amico ha completato una Missione Amico nello stesso negozio!\nMissione fatta insieme: ricevi un premio di collaborazione.
 INF_094_mission_0001	Premi di questa volta
 INF_133_title_0000	★★★  %s aperta!  ★★★
 INF_133_message_0000	$c[FF0000FF] %s$c e' iniziata!\nUn torneo a punti totali. Punta a un buon piazzamento
