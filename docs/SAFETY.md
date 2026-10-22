@@ -30,8 +30,9 @@ Each guard covers the IP-helper calls listed here. It is not a general sandbox.
 - To confirm a run: one `mxhook_<pid>.log` for each game process.
 - Never start the 2010–11 programs from WSL interop (`/mnt/c/...exe` from a Linux shell, or `cmd.exe /c` from WSL).
   WSL gives every program it starts "Prefer System32 images", so the game loads Windows' `winmm.dll` instead of the
-  hook and runs unguarded. Start the Launcher from Explorer (from WSL: `explorer.exe 'C:\path\Launcher.exe'`).
-  Builds and tests run natively on Windows; that does not change this rule for a start from a WSL shell.
+  hook and runs unguarded. From WSL, start the Launcher through Explorer (`explorer.exe 'C:\path\Launcher.exe'`).
+  A start from Explorer or a native Windows shell (PowerShell, cmd, Git Bash) is guarded: a check on 2026-10-22 from
+  PowerShell found "Prefer System32 images" off and the hook in both clients.
 
 ### Linux server (Wine)
 
