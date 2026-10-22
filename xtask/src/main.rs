@@ -29,10 +29,9 @@ enum Task {
     /// fmt, clippy, tests, the kit's C self-tests, the scrub; `check quick` = fmt, clippy and the tests of the crates changed since --base
     Check {
         /// `quick`: only the crates changed since the base (and their dependents); no release build, no kit, no smoke.
-        /// `ci`: the Linux-side checks of the GitHub workflow (build, fmt, clippy, scrub, licenses, no Windows program runs).
-        /// `text`: the scrub, the script-host check and the installer docs' word check; no build, runs anywhere (docs-only changes)
-        /// `win`: the Windows-side checks, on a Windows PC against a built `target/kit/` (the CI artifact)
-        #[arg(value_parser = ["quick", "ci", "win", "text"])]
+        /// `ci`: the full check minus the GPU snapshot tests (the GitHub runner has no GPU)
+        /// `text`: the scrub, the script-host check and the installer docs' word check; no build (docs-only changes)
+        #[arg(value_parser = ["quick", "ci", "text"])]
         mode: Option<String>,
         /// What `quick` diffs against (its merge-base with HEAD, plus the working tree)
         #[arg(long, default_value = QUICK_BASE)]
@@ -371,15 +370,11 @@ fn main() -> Result<()> {
             match mode.as_deref() {
                 Some("quick") => return quick(&root, &stage_root, &base),
                 Some("text") => return check_text(&root),
-                Some("win") => return check_win(&root, &stage_root, &kit, &kit_1718),
-                Some("ci") => {
-                    return build_all(&root, &kit, &kit_1718, &Cc::new(&root)?)
-                        .and_then(|()| check_ci(&root, &stage_root, &kit, &kit_1718));
-                }
                 _ => {}
             }
+            let ci = mode.as_deref() == Some("ci");
             build_all(&root, &kit, &kit_1718, &Cc::new(&root)?)
-                .and_then(|()| check(&root, &stage_root, &kit, &kit_1718))
+                .and_then(|()| check(&root, &stage_root, &kit, &kit_1718, ci))
         }
         Task::Stage { edition } => match edition.as_str() {
             "2010-11" => stage(&root, &kit, ED_1011.map, ED_1011.keep),
@@ -1058,7 +1053,8 @@ fn fmt_clippy(root: &Path, failed: &mut Vec<String>) {
     cargo_step("workspace: cargo clippy", clippy, failed);
 }
 
-fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<()> {
+/// `ci`: the GPU snapshot tests are skipped.
+fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, ci: bool) -> Result<()> {
     // one check at a time on this PC: the tests use fixed local ports (the relay on 20941, the seat desk on 20932-20936),
     // and two checks at once (two worktrees) failed each other's relay checks
     let _lock = check_lock()?;
@@ -1076,10 +1072,17 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
     fmt_clippy(root, &mut ck.failed);
     let mut test = rust("test", root);
     test.args(["--locked", "--workspace", "--target", TARGET]);
+    if ci {
+        test.args(["--", "--skip", "snapshots::"]);
+    }
     cargo_step("workspace: cargo test", test, &mut ck.failed);
 
     scrub(root, &mut ck.failed)?;
     installer_checks(root, stage_root, &mut ck.failed);
+    if let Err(e) = shipped_docs_no_kit(root, &[kit, kit_1718]) {
+        eprintln!("shipped docs say kit: {e:#}");
+        ck.failed.push("shipped docs say kit".into());
+    }
     no_script_host(root, &mut ck.failed)?;
     no_python(&[kit, kit_1718], &mut ck.failed)?;
 
@@ -1088,40 +1091,7 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<
     Ok(())
 }
 
-/// `cargo xtask check ci` (after the build): everything that needs no Windows program to run, for the Linux CI job.
-/// The Windows tests are `check win`, on a Windows runner against this job's kits.
-fn check_ci(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<()> {
-    ensure_built(kit, kit_1718)?;
-    stage(root, kit, MAP, KEEP)?;
-    let mut ck = Checks {
-        kit: kit.to_owned(),
-        tmp: stage_root.join("check-tmp"),
-        failed: vec![],
-    };
-    launcher_imports(&mut ck, kit_1718);
-    fmt_clippy(root, &mut ck.failed);
-    scrub(root, &mut ck.failed)?;
-    for (what, r) in [
-        ("installer licenses", check_licenses(root)),
-        (
-            "shipped docs say kit",
-            shipped_docs_no_kit(root, &[kit, kit_1718]),
-        ),
-        ("installer build", installer_built(root).map(drop)),
-    ] {
-        if let Err(e) = r {
-            eprintln!("{what}: {e:#}");
-            ck.failed.push(what.to_owned());
-        }
-    }
-    no_script_host(root, &mut ck.failed)?;
-    no_python(&[kit, kit_1718], &mut ck.failed)?;
-    ensure!(ck.failed.is_empty(), "FAILED: {}", ck.failed.join(", "));
-    println!("ci checks passed (the Windows tests are `check win`)");
-    Ok(())
-}
-
-/// `cargo xtask check text`: the checks that read only tracked text; no build, no kit, no xwin.
+/// `cargo xtask check text`: the checks that read only tracked text; no build, no kit.
 fn check_text(root: &Path) -> Result<()> {
     let mut failed = vec![];
     scrub(root, &mut failed)?;
@@ -1133,27 +1103,6 @@ fn check_text(root: &Path) -> Result<()> {
     }
     ensure!(failed.is_empty(), "FAILED: {}", failed.join(", "));
     println!("text checks passed");
-    Ok(())
-}
-
-/// `cargo xtask check win`: on a Windows PC, against the kits and smoke installer that `check ci` built on Linux
-/// (target/kit/** and target/x86_64-pc-windows-msvc/release/Forza-WCCF-Installer.exe, as the CI artifact holds them).
-fn check_win(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path) -> Result<()> {
-    ensure_built(kit, kit_1718)?;
-    let exe = installer_built(root)?;
-    let mut ck = Checks {
-        kit: kit.to_owned(),
-        tmp: stage_root.join("check-tmp"),
-        failed: vec![],
-    };
-    fs::create_dir_all(&ck.tmp)?;
-    windows_tests(&mut ck, kit, kit_1718)?;
-    if let Err(e) = smoke_run(root, stage_root, &exe) {
-        eprintln!("installer smoke: {e:#}");
-        ck.failed.push("installer smoke".into());
-    }
-    ensure!(ck.failed.is_empty(), "FAILED: {}", ck.failed.join(", "));
-    println!("windows checks passed");
     Ok(())
 }
 
