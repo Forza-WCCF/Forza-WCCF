@@ -1428,10 +1428,7 @@ fn scrub(root: &Path, failed: &mut Vec<String>) -> Result<()> {
             .lines()
             .map(|l| format!("tracked binary or log: {l}")),
     );
-    let home = std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(PathBuf::from);
-    if let Some(list) = home
+    if let Some(list) = std::env::home_dir()
         .map(|h| h.join(".config/forza-wccf/scrub.txt"))
         .filter(|p| p.is_file())
     {
@@ -1866,9 +1863,8 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
 
     // Defender hygiene: no shipped exe/dll is packed (a UPX section is what machine-learning scanners flag), and no test
     // program (source/build, which `walk` leaves out) reaches the kit.
-    // Optional signing hook: with FORZA_SIGN_CMD set (e.g. `osslsigncode sign -pkcs12 k.pfx -in {f} -out {f}.s && mv {f}.s {f}`
-    // or `signtool sign /f k.pfx /fd sha256 {f}`), every shipped exe/dll goes through it, `{f}` replaced by the file's path,
-    // before files.txt and the ZIP are made. Unset: no signing.
+    // Optional signing hook: with FORZA_SIGN_CMD set (a cmd line, e.g. `signtool sign /f k.pfx /fd sha256 "{f}"`), every
+    // shipped exe/dll goes through it, `{f}` replaced by the file's path, before files.txt and the ZIP are made. Unset: no signing.
     let (mut bins, mut dirs0) = (BTreeSet::new(), BTreeSet::new());
     walk(kit, "", &mut bins, &mut dirs0)?;
     for f in bins.iter().filter(|f| {
@@ -1891,8 +1887,14 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
         if let Some(cmdline) = std::env::var_os("FORZA_SIGN_CMD") {
             let path = kit.join(f).display().to_string();
             let line = cmdline.to_string_lossy().replace("{f}", &path);
+            // raw: cmd parses the line itself, Rust's argument quoting would get in its way
             ensure!(
-                Command::new("sh").arg("-c").arg(&line).status()?.success(),
+                std::os::windows::process::CommandExt::raw_arg(
+                    Command::new("cmd").arg("/C"),
+                    &line
+                )
+                .status()?
+                .success(),
                 "FORZA_SIGN_CMD failed for {f}"
             );
         }
