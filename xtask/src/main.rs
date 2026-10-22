@@ -1,9 +1,9 @@
 //! `cargo xtask build | check | package <edition> | stage <edition>`: the 2010-11 kit's build, checks and ZIP, replacing
 //! source/build.ps1, check.ps1 and package.ps1; the 2017-18 kit is staged and zipped from its committed programs.
 //!
-//! WSL is the one build host: `cargo xwin` for the Rust, `clang-cl` + `lld-link` + `llvm-rc` against the MSVC CRT and SDK
-//! that xwin caches for the 32-bit C programs; the tests run the Windows programs through WSL interop.
-//! `FORZA_STAGE_ROOT` (default `target/`) is where the kits are staged and the checks run; Windows programs get Windows paths.
+//! Windows is the build host: plain `cargo` with MSVC for the Rust, Visual Studio's `clang-cl` + `lld-link` + `llvm-rc`
+//! against the 32-bit MSVC CRT and SDK for the C programs; the tests run the programs natively.
+//! `FORZA_STAGE_ROOT` (default `target/`) is where the kits are staged and the checks run.
 //!
 //! The kit the players get is staged at `target/kit/2010-11/`, copied from the working tree by one table
 //! ([`MAP`]); the build puts its programs there, `check` tests that folder, `package` zips it. The 2017-18 kit
@@ -48,7 +48,7 @@ enum Task {
         root: PathBuf,
         outdir: PathBuf,
     },
-    /// Build and open the UI design gallery (crates/forza/examples/gallery.rs) through WSL interop
+    /// Build and open the UI design gallery (crates/forza/examples/gallery.rs)
     Gallery,
     /// The kit ZIP in dist/
     Package {
@@ -435,8 +435,8 @@ struct Cc {
 impl Cc {
     fn new(root: &Path) -> Result<Cc> {
         let sh = Shell::new()?;
-        let pf = std::env::var("ProgramFiles(x86)")
-            .unwrap_or_else(|_| r"C:\Program Files (x86)".into());
+        let pf =
+            std::env::var("ProgramFiles(x86)").unwrap_or_else(|_| r"C:\Program Files (x86)".into());
         let vswhere = format!(r"{pf}\Microsoft Visual Studio\Installer\vswhere.exe");
         // the clang that ships with Visual Studio (component "C++ Clang Compiler for Windows"), never an LLVM on PATH
         let vs = cmd!(sh, "{vswhere} -latest -products * -requires Microsoft.VisualStudio.Component.VC.Llvm.Clang -property installationPath")
@@ -479,7 +479,7 @@ impl Cc {
 }
 
 /// The design gallery built for Windows and started from the repository root, where it finds `assets/fonts/`.
-/// `FORZA_CARDS` (a folder of card pictures, Linux or Windows path) passes on to it.
+/// `FORZA_CARDS` (a folder of card pictures) passes on to it.
 fn gallery(root: &Path) -> Result<()> {
     let mut c = rust("build", root);
     c.args(["-p", "forza", "--example", "gallery", "--target", TARGET]);
@@ -496,7 +496,7 @@ fn gallery(root: &Path) -> Result<()> {
     run_ok(g, "gallery.exe")
 }
 
-/// `cap.exe` (xtask/cap, in no kit) built for Windows, then run through WSL interop with Windows paths.
+/// `cap.exe` (xtask/cap, in no kit) built, then run.
 fn cap(game_root: &Path, outdir: &Path) -> Result<()> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -809,7 +809,7 @@ fn build_c(
 /// What `check` collects: the failed checks' names.
 struct Checks {
     kit: PathBuf,
-    /// scratch folders of the checks, beside the kit (a Windows drive when the kit is on one)
+    /// scratch folders of the checks, beside the kit
     tmp: PathBuf,
     failed: Vec<String>,
 }
@@ -1006,7 +1006,7 @@ fn ensure_built(kit: &Path, kit_1718: &Path) -> Result<()> {
     Ok(())
 }
 
-/// The checks that start Windows programs from the staged kits (WSL interop, or a Windows PC).
+/// The checks that start Windows programs from the staged kits.
 fn windows_tests(ck: &mut Checks, kit: &Path, kit_1718: &Path) -> Result<()> {
     ck.run(
         "whole messages: a batch in pieces waits for its rest, bytes that are no batch are skipped",
@@ -1535,7 +1535,7 @@ fn check_licenses(root: &Path) -> Result<()> {
 }
 
 /// Synthetic headless run of the installer in a scratch folder: inert placeholder files only, no media, keys, kit or game.
-/// The exe is the release build that `build_all` makes (a Windows exe; WSL interop runs it).
+/// The exe is the release build that `build_all` makes.
 fn smoke(root: &Path, stage_root: &Path) -> Result<()> {
     let exe = installer_built(root)?;
     smoke_run(root, stage_root, &exe)
