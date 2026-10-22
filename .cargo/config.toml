@@ -5,5 +5,13 @@
 [target.'cfg(all(windows, target_env = "msvc"))']
 rustflags = ["-C", "target-feature=+crt-static", "-C", "link-arg=/Brepro", "-C", "link-arg=/ignore:4099", "-C", "link-arg=/DEBUG:NONE"]
 
+# rust-lld (the lld-link that ships with Rust), as every release up to 0.2.1 was linked: the first link.exe build of the
+# installer was flagged by Microsoft's machine-learning engine (Trojan:Win32/Wacatac.C!ml, release dry run 2026-10-22).
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld"
+
+[target.i686-pc-windows-msvc]
+linker = "rust-lld"
+
 [alias]
 xtask = "run -q -p xtask --"

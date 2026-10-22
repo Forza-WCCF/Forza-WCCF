@@ -51,7 +51,9 @@ use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Direct3D9::*;
 use windows::Win32::Graphics::Gdi::RGNDATA;
 use windows::Win32::System::Diagnostics::Debug::FlushInstructionCache;
-use windows::Win32::System::LibraryLoader::{DisableThreadLibraryCalls, GetModuleFileNameW};
+use windows::Win32::System::LibraryLoader::{
+    DisableThreadLibraryCalls, GetModuleFileNameW, GetModuleHandleW,
+};
 use windows::Win32::System::Memory::*;
 use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::System::SystemServices::{DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH};
@@ -131,6 +133,28 @@ const WM_FORZA_PROJ: u32 = WM_APP + 0x58;
 /// Milliseconds since the DLL loaded.
 fn ms() -> u32 {
     START.get_or_init(Instant::now).elapsed().as_millis() as u32
+}
+
+/// Overlay and capture hooks other programs load into games; they hook the same Present we do. Discord's capture hook
+/// blacked a seat's picture while its owner streamed the game (2026-10-22).
+const FOREIGN_HOOKS: &[&str] = &[
+    "DiscordHook.dll",         // Discord overlay and Go Live
+    "GameOverlayRenderer.dll", // Steam overlay
+    "graphics-hook32.dll",     // OBS game capture
+    "RTSSHooks.dll",           // RivaTuner Statistics Server
+    "nvspcap.dll",             // NVIDIA capture (ShadowPlay)
+    "fraps32.dll",             // Fraps
+];
+
+/// The [`FOREIGN_HOOKS`] loaded in this process, comma-separated; empty if none.
+fn foreign_hooks() -> String {
+    FOREIGN_HOOKS
+        .iter()
+        // SAFETY: a lookup by name with a valid, NUL-terminated wide string; it takes no reference on the module.
+        .filter(|n| unsafe { GetModuleHandleW(&windows::core::HSTRING::from(**n)) }.is_ok())
+        .copied()
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 thread_local! {
@@ -897,6 +921,7 @@ struct Render {
     size: (u32, u32),
     held: u32,
     frames: u32,
+    hooks: String,
     spent: Duration,
     worst: Duration,
 }
@@ -969,6 +994,7 @@ impl Render {
             size: (0, 0),
             held: 0,
             frames: 0,
+            hooks: String::new(),
             spent: Duration::ZERO,
             worst: Duration::ZERO,
         }
@@ -1027,6 +1053,17 @@ impl Render {
             }
             if self.frames.is_multiple_of(600) {
                 self.cost(false);
+            }
+            if self.frames == 1 || self.frames.is_multiple_of(600) {
+                let hooks = foreign_hooks();
+                // the first frame always says it ("none" included), later frames only a change
+                if self.frames == 1 || hooks != self.hooks {
+                    log(&format!(
+                        "foreign hooks: {}",
+                        if hooks.is_empty() { "none" } else { &hooks }
+                    ));
+                    self.hooks = hooks;
+                }
             }
             Some(
                 match sc.Present(

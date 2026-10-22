@@ -84,6 +84,8 @@ launcher.msg_not_a_kit: {en: "This ZIP is not a Forza-WCCF release.", it: "Quest
 launcher.msg_write_failed: {en: "%{path}: could not write it (%{error}) - close the game and try again.", it: "%{path}: scrittura non riuscita (%{error}) - chiudi il gioco e riprova.", ja: "%{path} に書き込めませんでした（%{error}）。ゲームを閉じて、もう一度お試しください。"}
 launcher.msg_done: {en: "Done.", it: "Fatto.", ja: "完了しました。"}
 launcher.msg_failed: {en: "Failed. See OUTPUT.", it: "Non riuscito. Vedi OUTPUT.", ja: "失敗しました。「出力」を確認してください。"}
+launcher.msg_went_wrong: {en: "The game crashed or closed by itself. Send the logs to the developers: SAVE LOGS.", it: "Il gioco si è chiuso da solo o è andato in crash. Invia i log agli sviluppatori: SALVA LOG.", ja: "ゲームがクラッシュしたか、勝手に終了しました。「ログを保存」でログを開発者に送ってください。"}
+launcher.ask_save_logs: {en: "The game crashed or closed by itself.\n\nSave the logs now? Then attach the ZIP to a new issue at github.com/Forza-WCCF/Forza-WCCF/issues so the developers can fix it.", it: "Il gioco si è chiuso da solo o è andato in crash.\n\nSalvare ora i log? Poi allega lo ZIP a una nuova segnalazione su github.com/Forza-WCCF/Forza-WCCF/issues, così gli sviluppatori possono correggerlo.", ja: "ゲームがクラッシュしたか、勝手に終了しました。\n\n今すぐログを保存しますか？保存した ZIP を github.com/Forza-WCCF/Forza-WCCF/issues の新しい issue に添付してください。開発者が修正に使います。"}
 launcher.msg_setting_up: {en: "Setting up the game folder ...", it: "Configuro la cartella del gioco ...", ja: "ゲームフォルダーを設定中..."}
 launcher.msg_undoing: {en: "Undoing setup ...", it: "Annullo la configurazione ...", ja: "設定を元に戻しています..."}
 launcher.msg_switching_text: {en: "Switching the game's text ...", it: "Cambio la lingua dei testi del gioco ...", ja: "ゲームのテキストを切り替えています..."}

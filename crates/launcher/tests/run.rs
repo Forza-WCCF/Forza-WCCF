@@ -544,7 +544,7 @@ fn a_seat_that_never_shows_its_window_is_given_up() {
 }
 
 /// The projector crashes (a server without a seat desk gives seat 1 the projector): seat 1 plays on; closing it ends
-/// the run, and the run that went wrong is reported to the server's log inbox by itself.
+/// the run with WENT_WRONG, and the run that went wrong is reported to the server's log inbox by itself.
 #[test]
 fn a_crashed_projector_keeps_seat_1_and_is_reported() {
     let top = tempfile::Builder::new().prefix("wccf-run-").tempdir().unwrap();
@@ -563,7 +563,7 @@ fn a_crashed_projector_keeps_seat_1_and_is_reported() {
     );
     let rc = ended_clean(&kit, top.path(), &ui, t, Duration::from_secs(60));
     let said = ui.text();
-    assert_eq!(rc, run::OK, "{said}");
+    assert_eq!(rc, run::WENT_WRONG, "{said}");
     assert!(said.contains("has no seat desk: seat 1, projector."), "{said}");
     assert!(
         said.contains("Logs sent to the server at 127.0.0.1: code R042"),

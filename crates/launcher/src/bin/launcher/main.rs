@@ -292,6 +292,16 @@ fn start(steps: Vec<Step>) {
                     log(&format!("> {}", words.join(" ")));
                     let rc = run::command(&kit, &Params::of(&kit), &words, &WindowUi);
                     game = Some(u8::try_from(rc).unwrap_or(1));
+                    // a crash: the logs now, while they are this run's, for the developers
+                    if rc == run::WENT_WRONG
+                        && message(
+                            &t("launcher.ask_save_logs"),
+                            MB_YESNO | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND,
+                        ) == IDYES
+                    {
+                        let folder = choices::setting(&kit.settings_file(), "game").map(PathBuf::from);
+                        let _ = save_logs(kit.dir(), folder.as_deref(), None);
+                    }
                     Ok(())
                 }
             };
@@ -307,6 +317,7 @@ fn start(steps: Vec<Step>) {
             (Ok(()), None, Some(2)) => ui_text(text::lang(), "launcher.status_not_set_up", &[]),
             (Ok(()), None, Some(4)) => t("launcher.msg_unguarded"),
             (Ok(()), None, Some(5)) => t("launcher.msg_not_guarded"),
+            (Ok(()), None, Some(rc)) if i32::from(rc) == run::WENT_WRONG => t("launcher.msg_went_wrong"),
             (Ok(()), None, Some(rc)) if rc != 0 => t("launcher.msg_start_failed"),
             (Ok(()), None, _) => t("launcher.msg_done"),
         };

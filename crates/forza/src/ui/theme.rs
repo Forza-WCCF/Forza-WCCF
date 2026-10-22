@@ -34,6 +34,8 @@ pub const RIM_HI: Color32 = Color32::from_rgb(0x46, 0x61, 0x8E);
 pub const PITCH: Color32 = Color32::from_rgb(0x1E, 0x7A, 0x3C);
 pub const PITCH_STRIPE: Color32 = Color32::from_rgb(0x22, 0x8A, 0x43);
 pub const PITCH_LINE: Color32 = Color32::from_rgb(0xE8, 0xF2, 0xE8);
+/// The dark pitch under a card's position map, as the fan database draws it.
+pub const MAP_PITCH: Color32 = Color32::from_rgb(0x1A, 0x24, 0x30);
 
 /// Active tactic orders, selection, "press now".
 pub const AMBER: Color32 = Color32::from_rgb(0xFF, 0xB4, 0x00);

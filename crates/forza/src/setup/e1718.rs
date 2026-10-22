@@ -328,9 +328,16 @@ pub fn setup_game(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
             || [".log", ".bin", ".bmp", ".tmp", ".txt"]
                 .iter()
                 .any(|e| low.ends_with(e))
-            || dst.exists()
         {
             continue;
+        }
+        // a copied install holds files here, not links to game\: an update's new wccfnet.dll would stay out of seat1\
+        // and the Launcher refuses a guard that is not the one recorded, so a file that differs is linked again
+        if dst.exists() {
+            if fs::read(&dst).ok() == fs::read(&src).ok() {
+                continue;
+            }
+            fs::remove_file(&dst)?;
         }
         fs::hard_link(&src, &dst)?;
     }
@@ -680,6 +687,17 @@ mod tests {
         let again = tree(&rt);
         run(&kit, &game, &spec).unwrap();
         assert_eq!(tree(&rt), again, "a second run changes nothing");
+
+        // a copied install (a copy turns seat1\'s hard links into files), then an update with a rebuilt guard: setup
+        // again puts it in seat1\ too, where the Launcher checks it
+        fs::remove_file(seat.join("wccfnet.dll")).unwrap();
+        fs::write(seat.join("wccfnet.dll"), "kit wccfnet.dll").unwrap();
+        fs::write(kit.join("bin/wccfnet.dll"), "kit wccfnet.dll, rebuilt").unwrap();
+        run(&kit, &game, &spec).unwrap();
+        assert_eq!(
+            fs::read(seat.join("wccfnet.dll")).unwrap(),
+            b"kit wccfnet.dll, rebuilt"
+        );
 
         undo(&kit, &game, &spec).unwrap();
         assert_eq!(fs::read(game.join("logowin.exe")).unwrap(), b"their logo");
