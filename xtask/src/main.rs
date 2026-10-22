@@ -349,11 +349,7 @@ const PROGRAMS: &[&str] = &[
 
 fn main() -> Result<()> {
     let task = Task::parse();
-    ensure!(
-        cfg!(target_os = "linux")
-            || matches!(&task, Task::Check { mode: Some(m), .. } if m == "win"),
-        "cargo xtask runs in WSL (Linux); the Windows programs start through WSL interop (only `check win` runs on Windows)"
-    );
+    ensure!(cfg!(windows), "cargo xtask runs on Windows");
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .context("no repository root")?
@@ -363,7 +359,7 @@ fn main() -> Result<()> {
     let kit_1718 = stage_root.join("kit/2017-18");
     match task {
         Task::Build => {
-            let cc = Cc::new()?;
+            let cc = Cc::new(&root)?;
             build_all(&root, &kit, &kit_1718, &cc)
         }
         Task::Cap { root, outdir } => cap(&root, &outdir),
@@ -377,12 +373,12 @@ fn main() -> Result<()> {
                 Some("text") => return check_text(&root),
                 Some("win") => return check_win(&root, &stage_root, &kit, &kit_1718),
                 Some("ci") => {
-                    return build_all(&root, &kit, &kit_1718, &Cc::new()?)
+                    return build_all(&root, &kit, &kit_1718, &Cc::new(&root)?)
                         .and_then(|()| check_ci(&root, &stage_root, &kit, &kit_1718));
                 }
                 _ => {}
             }
-            build_all(&root, &kit, &kit_1718, &Cc::new()?)
+            build_all(&root, &kit, &kit_1718, &Cc::new(&root)?)
                 .and_then(|()| check(&root, &stage_root, &kit, &kit_1718))
         }
         Task::Stage { edition } => match edition.as_str() {
@@ -393,7 +389,7 @@ fn main() -> Result<()> {
         Task::Package { edition, name } => match edition.as_str() {
             "installer" => package_installer(&root, name),
             "2010-11" | "2017-18"
-                if let Err(e) = build_all(&root, &kit, &kit_1718, &Cc::new()?) =>
+                if let Err(e) = build_all(&root, &kit, &kit_1718, &Cc::new(&root)?) =>
             {
                 Err(e)
             }
@@ -454,36 +450,14 @@ fn run_env(c: &mut Command) {
     }
 }
 
-/// `cargo xwin <sub>` for the Windows target (the MSVC CRT and SDK come from xwin's cache; Microsoft's license
-/// for them is accepted by setting XWIN_ACCEPT_LICENSE).
+/// `cargo <sub>` in the repository (MSVC's linker, the CRT and SDK Visual Studio installed).
 fn rust(sub: &str, root: &Path) -> Command {
     let mut c = Command::new("cargo");
-    c.args(["xwin", sub]).current_dir(root);
+    c.arg(sub).current_dir(root);
     if NO_INCREMENTAL.load(Ordering::Relaxed) {
         c.env("CARGO_INCREMENTAL", "0");
     }
-    c.env("XWIN_ARCH", "x86,x86_64");
-    xwin_env(&mut c);
-    // `cargo xwin test` would run the test programs under wine; WSL runs them itself (interop), and winrun.sh starts
-    // the launcher's run tests through explorer.exe (interop's "Prefer System32 images" would make the run refuse)
-    c.env(
-        "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUNNER",
-        root.join("xtask/winrun.sh"),
-    );
     c
-}
-
-/// The MSVC CRT and Windows SDK xwin fetches: pinned, so a new release on Microsoft's manifest cannot change the build
-/// (the CI cache is keyed by these two).
-const XWIN_CRT_VERSION: &str = "14.44.17.14";
-const XWIN_SDK_VERSION: &str = "10.0.26100";
-
-/// The environment every `cargo xwin` run of xtask shares: licence accepted, xtask's cache, the pinned CRT and SDK.
-fn xwin_env(c: &mut Command) {
-    c.env("XWIN_ACCEPT_LICENSE", "1")
-        .env("XWIN_CACHE_DIR", xwin_root())
-        .env("XWIN_CRT_VERSION", XWIN_CRT_VERSION)
-        .env("XWIN_SDK_VERSION", XWIN_SDK_VERSION);
 }
 
 fn run_ok(mut c: Command, what: &str) -> Result<()> {
@@ -494,30 +468,56 @@ fn run_ok(mut c: Command, what: &str) -> Result<()> {
     Ok(())
 }
 
-/// xtask's own xwin cache (`XWIN_CACHE_DIR`), apart from the default `~/.cache/cargo-xwin` that a bare `cargo xwin`
-/// uses: xwin re-downloads its cache whenever a run asks for architectures its `DONE` line lacks, deleting `dl\` and
-/// `unpack\` under every build in flight, so one bare run with the default `x86_64,aarch64` broke two full checks
-/// (2026-10-19). xtask always asks for `x86,x86_64`, so its cache never flips.
-fn xwin_root() -> PathBuf {
-    std::env::var_os("HOME").map_or_else(
-        || PathBuf::from(".xwin-cache"),
-        |h| Path::new(&h).join(".cache/cargo-xwin-xtask"),
-    )
+/// The C compiler: Visual Studio's `clang-cl`, with the `lld-link` and `llvm-rc` beside it, against the 32-bit MSVC CRT
+/// and Windows SDK; `env` is the `INCLUDE` and `LIB` that `vcvarsall x86` of the same Visual Studio sets.
+struct Cc {
+    bin: PathBuf,
+    env: Vec<(String, String)>,
 }
 
-/// The C compiler: `clang-cl` + `lld-link` + `llvm-rc` against xwin's 32-bit CRT and SDK; holds the xwin cache folder.
-struct Cc(PathBuf);
-
 impl Cc {
-    fn new() -> Result<Cc> {
-        let cache = xwin_root().join("xwin");
-        if !cache.join("sdk/lib/um/x86").is_dir() {
-            let mut c = Command::new("cargo");
-            c.args(["xwin", "cache", "xwin", "--xwin-arch", "x86,x86_64"]);
-            xwin_env(&mut c);
-            run_ok(c, "cargo xwin cache (the 32-bit CRT and SDK)")?;
-        }
-        Ok(Cc(cache))
+    fn new(root: &Path) -> Result<Cc> {
+        let sh = Shell::new()?;
+        let pf = std::env::var("ProgramFiles(x86)")
+            .unwrap_or_else(|_| r"C:\Program Files (x86)".into());
+        let vswhere = format!(r"{pf}\Microsoft Visual Studio\Installer\vswhere.exe");
+        // the clang that ships with Visual Studio (component "C++ Clang Compiler for Windows"), never an LLVM on PATH
+        let vs = cmd!(sh, "{vswhere} -latest -products * -requires Microsoft.VisualStudio.Component.VC.Llvm.Clang -property installationPath")
+            .read()
+            .context("vswhere failed")?;
+        ensure!(
+            !vs.trim().is_empty(),
+            "no Visual Studio with the C++ Clang Compiler for Windows (vswhere found none)"
+        );
+        let vs = Path::new(vs.trim());
+        let bin = vs.join(r"VC\Tools\Llvm\x64\bin");
+        ensure!(
+            bin.join("clang-cl.exe").is_file(),
+            "{} has no clang-cl.exe",
+            bin.display()
+        );
+        let bat = root.join("target/vcvars-x86.bat");
+        fs::create_dir_all(bat.parent().unwrap())?;
+        fs::write(
+            &bat,
+            format!(
+                "@call \"{}\" x86 >nul\r\n@set\r\n",
+                vs.join(r"VC\Auxiliary\Build\vcvarsall.bat").display()
+            ),
+        )?;
+        // a Developer Prompt's own INCLUDE and LIB would come first in vcvarsall's
+        let out = cmd!(sh, "cmd /c {bat}")
+            .env_remove("INCLUDE")
+            .env_remove("LIB")
+            .read()?;
+        let env: Vec<(String, String)> = out
+            .lines()
+            .filter_map(|l| l.split_once('='))
+            .filter(|(k, _)| k.eq_ignore_ascii_case("INCLUDE") || k.eq_ignore_ascii_case("LIB"))
+            .map(|(k, v)| (k.to_owned(), v.trim_end().to_owned()))
+            .collect();
+        ensure!(env.len() == 2, "vcvarsall x86 set no INCLUDE and LIB");
+        Ok(Cc { bin, env })
     }
 }
 
@@ -841,31 +841,23 @@ fn build_c(
             obj.join(format!("{name}.res")),
         );
         fs::write(&rc_path, rc)?;
-        cmd!(sh, "llvm-rc /FO {res_path} {rc_path}")
+        let llvm_rc = cc.bin.join("llvm-rc.exe");
+        cmd!(sh, "{llvm_rc} /FO {res_path} {rc_path}")
             .run()
             .with_context(|| format!("rc failed for {source}"))?;
         res.push(res_path);
     }
     let input = src.join(source);
     let fe = format!("/Fe{}", out.display());
-    {
-        let x = &cc.0;
-            // -Wno-unused-function: clang warns about the panel's two dead statics (draw_overlay, draw_text), which cl only does at /W4
-            // the 32-bit CRT and SDK from xwin; no PDB (cl wrote none either: no /DEBUG), so the same source gives the same file
-            let inc: Vec<String> = ["crt/include", "sdk/include/ucrt", "sdk/include/um", "sdk/include/shared"]
-                .iter()
-                .flat_map(|d| ["-imsvc".to_owned(), x.join(d).display().to_string()])
-                .collect();
-            let lib: Vec<String> = ["crt/lib/x86", "sdk/lib/ucrt/x86", "sdk/lib/um/x86"]
-                .iter()
-                .map(|d| format!("/libpath:{}", x.join(d).display()))
-                .collect();
-            let implib = format!("/IMPLIB:{}", obj.join(format!("{name}.lib")).display());
-            let fo = format!("/Fo{}/", obj.display());
-            cmd!(sh, "clang-cl-19 --target=i686-pc-windows-msvc -fuse-ld=lld /nologo /O2 /MT /W3 -Wno-unused-function /Brepro /D_CRT_SECURE_NO_WARNINGS {compile...} {inc...} {input} {fo} {fe} /link /Brepro {implib} {lib...} {res...} {link...}")
-                .run()
-    }
-    .with_context(|| format!("compiling {source} failed"))?;
+    // -Wno-unused-function: clang warns about the panel's two dead statics (draw_overlay, draw_text), which cl only does at /W4
+    // the 32-bit CRT and SDK from INCLUDE (clang-cl) and LIB (lld-link); no PDB (no /DEBUG), so the same source gives the same file
+    let clang = cc.bin.join("clang-cl.exe");
+    let implib = format!("/IMPLIB:{}", obj.join(format!("{name}.lib")).display());
+    let fo = format!("/Fo{}/", obj.display());
+    cmd!(sh, "{clang} --target=i686-pc-windows-msvc -fuse-ld=lld /nologo /O2 /MT /W3 -Wno-unused-function /Brepro /D_CRT_SECURE_NO_WARNINGS {compile...} {input} {fo} {fe} /link /Brepro {implib} {res...} {link...}")
+        .envs(cc.env.iter().map(|(k, v)| (k, v)))
+        .run()
+        .with_context(|| format!("compiling {source} failed"))?;
     println!("built {}", out.display());
     Ok(())
 }
