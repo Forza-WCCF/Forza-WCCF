@@ -144,11 +144,13 @@ jobs:
           ls "$VS/VC/Tools/MSVC"
           "$VS/VC/Tools/Llvm/x64/bin/clang-cl.exe" --version
           ls "/c/Program Files (x86)/Windows Kits/10/Include"
-      # a new key: the old windows-tests cache held only xtask
+      # one cache for every Windows build: main saves it (also when a check fails, so its compiling is kept); pull
+      # requests and release.yml's tag builds only restore it (the shared key drops the job name from the key)
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          key: build-test
+          shared-key: windows
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
       # the runner's desktop is 1024x768; the panel tests open a 1440x900 game window and a 1200x700 projector
       - name: screen 1920x1080
         shell: pwsh
