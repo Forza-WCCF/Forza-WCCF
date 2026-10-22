@@ -136,6 +136,10 @@ jobs:
         shell: bash
         run: |
           rustup show
+          # rust-cache keys on every installed toolchain, and the image's own stable changes from one image to the
+          # next: keep only the pinned one, so the key is the same on every runner and in release.yml
+          a=$(rustup show active-toolchain | cut -d' ' -f1)
+          rustup toolchain list | cut -d' ' -f1 | grep -vx "$a" | xargs -r -n1 rustup toolchain uninstall
           rustc -vV
           VSW="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
           REQ=Microsoft.VisualStudio.Component.VC.Llvm.Clang

@@ -28,7 +28,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: rustup show
+      # only the pinned toolchain, as in ci.yml, so the cache key matches the one main saves
+      - run: |
+          rustup show
+          a=$(rustup show active-toolchain | cut -d' ' -f1)
+          rustup toolchain list | cut -d' ' -f1 | grep -vx "$a" | xargs -r -n1 rustup toolchain uninstall
       # restore only: CI's build-test on main saves this cache (a tag build can read the default branch's caches)
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
