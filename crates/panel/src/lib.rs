@@ -1056,7 +1056,8 @@ impl Render {
             }
             if self.frames == 1 || self.frames.is_multiple_of(600) {
                 let hooks = foreign_hooks();
-                if hooks != self.hooks {
+                // the first frame always says it ("none" included), later frames only a change
+                if self.frames == 1 || hooks != self.hooks {
                     log(&format!(
                         "foreign hooks: {}",
                         if hooks.is_empty() { "none" } else { &hooks }
