@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2
+
+- The window draws with OpenGL first: Vulkan flashed black on one graphics card and never opened the window on another.
+  A renderer that fails falls back to the next one.
+
 ## 0.2.1
 
 - The key can be an HTML key table, or a ZIP holding one: the rows of the image's game ID are tried until one unlocks it.

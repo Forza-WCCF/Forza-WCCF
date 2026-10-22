@@ -1,6 +1,22 @@
 Forza-WCCF 2017-18 - release notes
 ==================================
 
+0.2.2 - 2026-10-22 (alpha)
+--------------------------
+Crash fixes for testers.
+
+  - Italian: the game no longer ends (error 0xC0000417) right after the shirt design. The secretary's birthday text
+    was too long for the game; it now reads month/day. A friend-mission notice that was also too long is shorter.
+  - When the game crashes or closes by itself, Launcher.exe says so, asks you to save the logs at once and tells you
+    where to report it.
+  - At home, a seat that crashes now stops the projector too.
+  - Launcher.exe draws its window with OpenGL first (Vulkan showed a black window or none on some graphics cards), and
+    its window's lines go to data\logs\launcher.txt, which SAVE LOGS includes.
+  - The panel's position map shows each area of the pitch as a tile, coloured by how well the player fits it, like the
+    fan database. FITS and the out-of-position mark follow the tiles.
+  - forza_panel.log lists the overlay and capture programs hooked into the game (Discord, Steam, OBS, RivaTuner,
+    NVIDIA, Fraps), which helps with black-screen reports.
+
 0.2.0 - 2026-10-21 (alpha)
 --------------------------
 Online play, the lobby, no Python.
