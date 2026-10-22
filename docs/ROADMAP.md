@@ -138,7 +138,8 @@ Done:
   `check quick` is unchanged, `check ci` is `check` without the GPU snapshot tests, and `check win` is deleted. CI is
   one native Windows job. The commit-message hook installs with `git config core.hooksPath xtask`. WSL stays for the
   reverse-engineering tools, codex and the Linux server deploy. Reasons: a Windows start inherits no "Prefer System32
-  images" (the reason for `winrun.sh`), and one host path replaces two. Benchmark: see phase 2 result.
+  images" (the reason for `winrun.sh`), and one host path replaces two. A full `cargo xtask check` took 12 min on
+  Windows 10 (NVMe, Defender exclusions) against 13-28 min in WSL.
 
 Crates over hand-written code: a job longer than a few lines goes to a widely used crate, maintained in the last year,
 with an MIT, Apache or BSD license. `windows-sys` stays for thin Win32 calls. The root `Cargo.toml` lists the versions.
