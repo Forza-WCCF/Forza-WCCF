@@ -412,44 +412,6 @@ fn stage_root(root: &Path) -> PathBuf {
     std::env::var_os("FORZA_STAGE_ROOT").map_or_else(|| root.join("target"), PathBuf::from)
 }
 
-/// A path as the Windows programs want it: `wslpath -w` (a /mnt/e path becomes E:\..., anything else \\wsl.localhost\...).
-fn win(p: &Path) -> String {
-    if let Ok(o) = Command::new("wslpath").arg("-w").arg(p).output()
-        && o.status.success()
-    {
-        return String::from_utf8_lossy(&o.stdout).trim_end().to_owned();
-    }
-    p.display().to_string()
-}
-
-/// A command argument for a Windows program: an absolute Linux path becomes a Windows path (other arguments pass as they are).
-fn win_arg(a: &str) -> String {
-    if a.starts_with('/') {
-        win(Path::new(a))
-    } else {
-        a.to_owned()
-    }
-}
-
-/// Before a Windows program starts from Linux: WSL hands the program only the variables listed in WSLENV, so list those the
-/// command sets (`/p`: a path, translated).
-fn run_env(c: &mut Command) {
-    let list: Vec<String> = c
-        .get_envs()
-        .filter_map(|(k, v)| {
-            let v = v?.to_str()?;
-            Some(format!(
-                "{}{}",
-                k.to_str()?,
-                if v.starts_with('/') { "/p" } else { "" }
-            ))
-        })
-        .collect();
-    if !list.is_empty() {
-        c.env("WSLENV", list.join(":"));
-    }
-}
-
 /// `cargo <sub>` in the repository (MSVC's linker, the CRT and SDK Visual Studio installed).
 fn rust(sub: &str, root: &Path) -> Command {
     let mut c = Command::new("cargo");
@@ -536,7 +498,6 @@ fn gallery(root: &Path) -> Result<()> {
     if let Some(cards) = std::env::var_os("FORZA_CARDS") {
         g.env("FORZA_CARDS", cards);
     }
-    run_env(&mut g);
     run_ok(g, "gallery.exe")
 }
 
@@ -550,8 +511,7 @@ fn cap(game_root: &Path, outdir: &Path) -> Result<()> {
     run_ok(b, "cargo build -p cap")?;
     let exe = root.join("target").join(TARGET).join("debug/cap.exe");
     let mut c = Command::new(exe);
-    c.arg(win(game_root)).arg(win(outdir));
-    run_env(&mut c);
+    c.arg(game_root).arg(outdir);
     run_ok(c, "cap")
 }
 
@@ -578,15 +538,6 @@ fn stage(root: &Path, kit: &Path, map: &[(&str, &str)], keep: &[&str]) -> Result
             };
             fs::create_dir_all(dst.parent().unwrap())?;
             fs::copy(&src, &dst)?;
-            // clippy and the tests build xtask for the Windows target too, where there is no mode to set
-            #[cfg(unix)]
-            if matches!(
-                dst.extension().and_then(|e| e.to_str()),
-                Some("exe" | "dll" | "pyd")
-            ) {
-                use std::os::unix::fs::PermissionsExt; // WSL starts a Windows program only from an executable file
-                fs::set_permissions(&dst, std::fs::Permissions::from_mode(0o755))?;
-            }
         }
     }
     println!("staged {}", kit.display());
@@ -875,7 +826,6 @@ struct Checks {
 impl Checks {
     /// Run a check's command to its end; print its output (only the last line if `last`); a nonzero exit fails `what`.
     fn run(&mut self, what: &str, mut c: Command, last: bool) {
-        run_env(&mut c);
         match c.output() {
             Ok(o) => {
                 self.report(what, &o, last);
@@ -1075,7 +1025,7 @@ fn windows_tests(ck: &mut Checks, kit: &Path, kit_1718: &Path) -> Result<()> {
 
     {
         let mut c = Command::new(kit.join("source/build/test_dhcphook.exe"));
-        c.arg(win(&kit.join("programs/wccfk.dll")));
+        c.arg(kit.join("programs/wccfk.dll"));
         ck.run(
             "2010-11 hook: the IpReleaseAddress and IpRenewAddress imports now point into wccfk.dll",
             c,
@@ -1230,7 +1180,6 @@ fn panel_selftests(ck: &mut Checks) -> Result<()> {
     )?;
     let mut relay = Command::new(kit.join("programs/forza-server.exe"));
     relay.args(["relay", "30"]).env("WCCF_RELAY_PORT", "20941");
-    run_env(&mut relay);
     let mut relay: Child = relay.stdout(Stdio::piped()).stderr(Stdio::null()).spawn()?;
     // waits for its "listening" line (a fixed second lost the race under load, 2026-10-13); the rest of its output is
     // drained, so its prints never block or break
@@ -1249,7 +1198,7 @@ fn panel_selftests(ck: &mut Checks) -> Result<()> {
     let _ = listening.recv_timeout(Duration::from_secs(20));
     let mut game = Command::new(t.join("fakegame.exe"));
     game.current_dir(&t)
-        .arg(win(&kit.join("programs/forza_panel.dll")))
+        .arg(kit.join("programs/forza_panel.dll"))
         .arg("wait:12000")
         .env("WCCFPANEL_ROLE", "seat1") // the cabinet's code path (the panel would take a folder named "extracted" for the projector)
         .env("WCCFPANEL_DRYKEYS", "1") // keys logged, never pressed
@@ -1259,9 +1208,8 @@ fn panel_selftests(ck: &mut Checks) -> Result<()> {
         .env("WCCFPANEL_MONEYTEST", "1")
         .env("WCCFPANEL_RELAYTEST", "1")
         .env("WCCF_RELAY_PORT", "20941");
-    run_env(&mut game);
     let run = game.status();
-    // a kill would only reach the interop shim: the relay ends by itself after its 30 s
+    let _ = relay.kill();
     let _ = relay.wait();
     let log = String::from_utf8_lossy(&fs::read(t.join("forza_panel.log")).unwrap_or_default())
         .into_owned();
@@ -1338,7 +1286,7 @@ fn guard_tests(ck: &mut Checks, kit: &Path) -> Result<()> {
         ),
     ] {
         let mut c = Command::new(t.join(exe));
-        c.arg(win(&t.join(dll))).current_dir(&t);
+        c.arg(t.join(dll)).current_dir(&t);
         ck.run(what, c, false);
     }
     for (what, mode) in [
@@ -1346,13 +1294,13 @@ fn guard_tests(ck: &mut Checks, kit: &Path) -> Result<()> {
         ("wccfnet.dll loads nothing without FORZA_PANEL", "off"),
     ] {
         let mut c = Command::new(t.join("test_panel.exe"));
-        c.arg(win(&t.join("wccfnet.dll")))
-            .arg(win(&t.join("panel_probe.dll")))
+        c.arg(t.join("wccfnet.dll"))
+            .arg(t.join("panel_probe.dll"))
             .arg(mode)
             .current_dir(&t)
             .env_remove("FORZA_PANEL");
         if mode == "on" {
-            c.env("FORZA_PANEL", win(&t.join("panel_probe.dll")));
+            c.env("FORZA_PANEL", t.join("panel_probe.dll"));
         }
         ck.run(what, c, false);
     }
@@ -1673,8 +1621,7 @@ fn smoke_run(root: &Path, stage_root: &Path, exe: &Path) -> Result<()> {
 fn smoke_in(root: &Path, exe: &Path, dir: &Path) -> Result<()> {
     // runs the installer; its exit code must be `expected`; returns stdout
     let run = |args: &[&Path], expected: i32| -> Result<String> {
-        let args: Vec<String> = args.iter().map(|a| win_arg(&a.to_string_lossy())).collect();
-        let o = Command::new(exe).args(&args).output()?;
+        let o = Command::new(exe).args(args).output()?;
         ensure!(
             o.status.code() == Some(expected),
             "Installer returned {:?}, expected {expected}: {args:?}",
