@@ -348,7 +348,11 @@ const PROGRAMS: &[&str] = &[
 
 fn main() -> Result<()> {
     let task = Task::parse();
-    ensure!(cfg!(windows), "cargo xtask runs on Windows");
+    // `check text` reads only tracked text: CI's Linux lint job runs it
+    ensure!(
+        cfg!(windows) || matches!(&task, Task::Check { mode: Some(m), .. } if m == "text"),
+        "cargo xtask runs on Windows (only `check text` runs anywhere)"
+    );
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .context("no repository root")?
@@ -1836,16 +1840,15 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
         if let Some(cmdline) = std::env::var_os("FORZA_SIGN_CMD") {
             let path = kit.join(f).display().to_string();
             let line = cmdline.to_string_lossy().replace("{f}", &path);
-            // raw: cmd parses the line itself, Rust's argument quoting would get in its way
-            ensure!(
-                std::os::windows::process::CommandExt::raw_arg(
-                    Command::new("cmd").arg("/C"),
-                    &line
-                )
-                .status()?
-                .success(),
-                "FORZA_SIGN_CMD failed for {f}"
-            );
+            let mut sign = Command::new("cmd");
+            sign.arg("/C");
+            // raw: cmd parses the line itself, Rust's argument quoting would get in its way (cfg: xtask also builds
+            // on Linux for `check text`)
+            #[cfg(windows)]
+            std::os::windows::process::CommandExt::raw_arg(&mut sign, &line);
+            #[cfg(not(windows))]
+            sign.arg(&line); // never runs: off Windows the host gate stops every task but `check text`
+            ensure!(sign.status()?.success(), "FORZA_SIGN_CMD failed for {f}");
         }
     }
 
