@@ -129,26 +129,34 @@ pub const ROLES: [&str; 16] = [
     "GK",
 ];
 
-/// Where each role plays: 0..1 across, 0 (attack) .. 1 (own goal) down. Wide roles hold both flanks (the ratings name
-/// no side). Inferred, like the names.
-const ROLE_SPOTS: [&[(f32, f32)]; 16] = [
-    &[(0.5, 0.12)],                // CF
-    &[(0.5, 0.08)],                // TM
-    &[(0.13, 0.18), (0.87, 0.18)], // WG
-    &[(0.5, 0.25)],                // SS
-    &[(0.5, 0.36)],                // OMF
-    &[(0.22, 0.36), (0.78, 0.36)], // OH
-    &[(0.5, 0.5)],                 // CMF
-    &[(0.5, 0.62)],                // DMF
-    &[(0.13, 0.48), (0.87, 0.48)], // SMF
-    &[(0.12, 0.6), (0.88, 0.6)],   // WB
-    &[(0.12, 0.74), (0.88, 0.74)], // SB
-    &[(0.37, 0.78), (0.63, 0.78)], // CB
-    &[(0.5, 0.74)],                // STP
-    &[(0.5, 0.8)],                 // CVR
-    &[(0.5, 0.86)],                // SW
-    &[(0.5, 0.94)],                // GK
+/// The position areas of the game's own table (as the fan database maps them): left, top, width, height in 0..1 of
+/// the field, attack at the top, own goal at the bottom; the roles each area rates (the best of them counts) and its
+/// line. Big areas first, so the nested ones (SS in CF, GK in CB) come later and win: [`Aptitude::at`] reads the last
+/// area holding a point. CB's area holds SW's, SH's holds WB's (the game tells them apart by the rest of the team).
+const AREAS: [([f32; 4], &[usize], Position); 13] = [
+    (
+        [0.206, 0.643, 0.588, 0.357],
+        &[11, 12, 13, 14],
+        Position::Df,
+    ), // CB STP CVR SW
+    ([0.0, 0.643, 0.206, 0.357], &[10], Position::Df), // SB
+    ([0.794, 0.643, 0.206, 0.357], &[10], Position::Df),
+    ([0.206, 0.519, 0.588, 0.124], &[7], Position::Mf), // DMF
+    ([0.206, 0.386, 0.588, 0.133], &[6], Position::Mf), // CMF
+    ([0.206, 0.262, 0.588, 0.124], &[5], Position::Mf), // OH
+    ([0.206, 0.0, 0.588, 0.262], &[0, 1], Position::Fw), // CF TM
+    ([0.0, 0.0, 0.206, 0.262], &[2], Position::Fw),     // WG
+    ([0.794, 0.0, 0.206, 0.262], &[2], Position::Fw),
+    ([0.206, 0.081, 0.588, 0.181], &[3, 4], Position::Fw), // SS OMF
+    ([0.0, 0.262, 0.206, 0.381], &[8, 9], Position::Mf),   // SMF WB
+    ([0.794, 0.262, 0.206, 0.381], &[8, 9], Position::Mf),
+    ([0.4, 0.9, 0.2, 0.1], &[15], Position::Gk), // GK
 ];
+
+/// An area's rect within `field`.
+fn area_rect(field: Rect, [x, y, w, h]: [f32; 4]) -> Rect {
+    Rect::from_min_size(field.lerp_inside(vec2(x, y)), field.size() * vec2(w, h))
+}
 
 /// A card's suitable positions, as the back of the original card shows them: 16 role ratings in [`ROLES`] order, each
 /// 1..10; 0 is no data (editions 36+ get flat 8s from their position flags, see [`Aptitude::from_flags`]).
@@ -194,19 +202,24 @@ impl Aptitude {
         self.roles.iter().any(|&r| r > 0)
     }
 
-    /// The rating at a pitch point (0..1 as in [`ROLE_SPOTS`]): the best role there, full within an eighth of the
-    /// pitch's width of the role's spot, fading to nothing at three tenths.
+    /// The best role of an area and its rating (the first named on a tie).
+    fn best(&self, roles: &[usize]) -> (&'static str, u8) {
+        let i = roles
+            .iter()
+            .copied()
+            .rev()
+            .max_by_key(|&i| self.roles[i])
+            .unwrap_or(0);
+        (ROLES[i], self.roles[i])
+    }
+
+    /// The rating at a field point (0..1 as in [`AREAS`]): the best role of the last area holding it.
     pub fn at(&self, p: Pos2) -> f32 {
-        let mut best = 0.0f32;
-        for (rating, spots) in self.roles.iter().zip(ROLE_SPOTS) {
-            for &(x, y) in spots {
-                // in pitch widths: the pitch is 1.25 times as tall as wide
-                let d = vec2(p.x - x, (p.y - y) * PITCH_ASPECT).length();
-                let t = ((0.3 - d) / 0.18).clamp(0.0, 1.0);
-                best = best.max(*rating as f32 * t * t * (3.0 - 2.0 * t));
-            }
-        }
-        best
+        AREAS
+            .iter()
+            .rev()
+            .find(|([x, y, w, h], ..)| Rect::from_min_size(pos2(*x, *y), vec2(*w, *h)).contains(p))
+            .map_or(0.0, |(_, roles, _)| self.best(roles).1 as f32)
     }
 
     /// The three best roles, best first, for the big card.
@@ -223,44 +236,67 @@ impl Aptitude {
     }
 }
 
-/// The heat ramp: nothing below 3, then dark orange, amber, pale yellow at 10. Brightness and opacity both rise, so
-/// it reads on the green pitch without telling hues apart.
-fn heat_color(v: f32) -> Color32 {
-    let t = ((v - 3.0) / 7.0).clamp(0.0, 1.0);
-    let stops = [
-        (0.0, [176.0, 64.0, 0.0, 0.0]),
-        (0.35, [224.0, 112.0, 0.0, 0.55]),
-        (0.7, [255.0, 180.0, 0.0, 0.72]),
-        (1.0, [255.0, 246.0, 208.0, 0.9]),
-    ];
-    let i = stops.iter().rposition(|s| s.0 <= t).unwrap_or(0).min(2);
-    let ((t0, a), (t1, b)) = (stops[i], stops[i + 1]);
-    let f = (t - t0) / (t1 - t0);
-    let m = |k: usize| a[k] + (b[k] - a[k]) * f;
-    Color32::from_rgba_unmultiplied(m(0) as u8, m(1) as u8, m(2) as u8, (m(3) * 255.0) as u8)
-}
-
-/// The heat zone over `pitch`: a vertex-coloured mesh sampled on a grid, the pitch dimmed under it so it stands out.
-pub fn heat_zone(pitch: Rect, apt: &Aptitude) -> egui::Shape {
-    let (nx, ny) = (28u32, 35u32);
-    let mut mesh = egui::Mesh::default();
-    for j in 0..=ny {
-        for i in 0..=nx {
-            let uv = vec2(i as f32 / nx as f32, j as f32 / ny as f32);
-            mesh.colored_vertex(pitch.lerp_inside(uv), heat_color(apt.at(uv.to_pos2())));
-        }
+/// The position map over `field`, as the fan database draws it: a dark pitch, one rounded tile per area tinted by
+/// its line's colour, solid at 8 or more, half at 5 or more, dark below; each labelled with its best role and rating
+/// in `size` points, or the rating alone, or nothing, as room allows.
+pub fn heat_zone(p: &Painter, pitch: Rect, field: Rect, apt: &Aptitude, size: f32) -> egui::Shape {
+    let mut v = vec![egui::Shape::rect_filled(
+        pitch,
+        theme::RADIUS_BIG,
+        theme::MAP_PITCH,
+    )];
+    let font = theme::bold(size);
+    for (i, (area, roles, line)) in AREAS.iter().enumerate() {
+        let r = area_rect(field, *area);
+        let (name, rating) = apt.best(roles);
+        let lc = line.color();
+        let (fill, rim, text) = match Fit::of(rating as f32) {
+            Fit::Best => (lc, Color32::WHITE, Color32::WHITE),
+            Fit::Fits => (theme::MAP_PITCH.lerp_to_gamma(lc, 0.45), lc, Color32::WHITE),
+            Fit::Out => (
+                theme::MAP_PITCH,
+                Color32::from_white_alpha(0x30),
+                Color32::from_white_alpha(0x80),
+            ),
+        };
+        v.push(egui::Shape::rect_filled(r, 3, fill));
+        v.push(egui::Shape::rect_stroke(
+            r,
+            3,
+            Stroke::new(1.0, rim),
+            StrokeKind::Inside,
+        ));
+        let label = match rating {
+            0 => vec![name.to_string()],
+            n => vec![format!("{name} {n}"), n.to_string()],
+        };
+        let Some(g) = label
+            .into_iter()
+            .map(|t| p.layout_no_wrap(t, font.clone(), text))
+            .find(|g| g.size().x <= r.width() - 4.0 && g.size().y <= r.height() - 2.0)
+        else {
+            continue;
+        };
+        // CF's label goes to its top edge: SS sits inside it (AREAS[6] is CF)
+        let at = if i == 6 {
+            pos2(r.center().x, r.top() + 2.0 + g.size().y / 2.0)
+        } else {
+            r.center()
+        } - g.size() / 2.0;
+        v.push(egui::Shape::galley_with_override_text_color(
+            at + vec2(0.0, 1.0),
+            g.clone(),
+            Color32::from_black_alpha(160),
+        ));
+        v.push(egui::Shape::galley(at, g, text));
     }
-    for j in 0..ny {
-        for i in 0..nx {
-            let a = j * (nx + 1) + i;
-            mesh.add_triangle(a, a + 1, a + nx + 2);
-            mesh.add_triangle(a, a + nx + 2, a + nx + 1);
-        }
-    }
-    egui::Shape::Vec(vec![
-        egui::Shape::rect_filled(pitch, theme::RADIUS_BIG, Color32::from_black_alpha(80)),
-        egui::Shape::mesh(mesh),
-    ])
+    v.push(egui::Shape::rect_stroke(
+        pitch,
+        theme::RADIUS_BIG,
+        Stroke::new(2.0, Color32::from_white_alpha(0x66)),
+        StrokeKind::Inside,
+    ));
+    egui::Shape::Vec(v)
 }
 
 // ---- card pictures ----
@@ -918,11 +954,6 @@ pub fn pitch_rect(top_left: Pos2, width: f32) -> Rect {
     Rect::from_min_size(top_left, vec2(width, width * PITCH_ASPECT))
 }
 
-/// A point of the sheet as a 0..1 pitch point, for [`Aptitude::at`].
-fn on_pitch(pitch: Rect, p: Pos2) -> Pos2 {
-    ((p - pitch.min) / pitch.size()).to_pos2()
-}
-
 /// Where a card in hand sits: its centre keeps the offset from the pointer that it had at the press (`grab`, as a
 /// fraction of the card), so it stays under the pointer where it was taken, and lands where it is shown.
 fn drag_centre(pointer: Pos2, grab: Vec2, card: Vec2) -> Pos2 {
@@ -1080,7 +1111,7 @@ pub fn formation_board(
                 let is_dragged = dragging == Some(slot);
                 let warn = slot < 11
                     && if c.aptitude.known() {
-                        Fit::of(c.aptitude.at(on_pitch(pitch, rect.center()))) == Fit::Out
+                        Fit::of(c.aptitude.at(board.spots[slot])) == Fit::Out
                     } else {
                         zone(board.spots[slot].y) != c.pos
                     };
@@ -1303,11 +1334,13 @@ pub fn formation_board(
         .map(|ci| board.cards[ci].aptitude);
     if let Some(apt) = held {
         if apt.known() {
-            ui.painter().set(heat_at, heat_zone(pitch, &apt));
+            let size = (pitch.width() * 0.025).clamp(9.0, 12.0);
+            let zone = heat_zone(ui.painter(), pitch, field(pitch), &apt, size);
+            ui.painter().set(heat_at, zone);
             if let Some((slot, rect)) = drop_target
                 && slot < 11
             {
-                let fit = Fit::of(apt.at(on_pitch(pitch, rect.center())));
+                let fit = Fit::of(apt.at(board.spots[slot]));
                 let lp = ui
                     .ctx()
                     .layer_painter(egui::LayerId::new(Order::Tooltip, Id::new("board-fit")));
@@ -1572,12 +1605,14 @@ fn paint_pitch(p: &Painter, pitch: Rect, labels: Option<Lang>) {
     }
 }
 
-/// The card back's position map: a small pitch with the heat zone, or "no position data".
+/// The card back's position map: a tile per position area ([`heat_zone`]), or "no position data" on a small pitch.
 pub fn aptitude_map(p: &Painter, rect: Rect, apt: &Aptitude, lang: Lang) {
-    paint_pitch(p, rect, None);
     if apt.known() {
-        p.add(heat_zone(rect, apt));
+        let field = rect.shrink((rect.width() * 0.025).max(3.0));
+        let size = (rect.width() * 0.055).clamp(8.0, 12.0);
+        p.add(heat_zone(p, rect, field, apt, size));
     } else {
+        paint_pitch(p, rect, None);
         p.rect_filled(rect, theme::RADIUS, Color32::from_black_alpha(140));
         let g = p.layout(
             tr!(lang, "board.no_data"),
@@ -1590,8 +1625,8 @@ pub fn aptitude_map(p: &Painter, rect: Rect, apt: &Aptitude, lang: Lang) {
 }
 
 /// The card's back (the players' request, 2026-10-14), upright as the face: the number, name and line on a band; the
-/// suitable positions as the original card's back maps them, a small pitch with the heat zone and each role rated 5
-/// or more marked with its rating (the three best named); the six stats and TOTAL beside it. From the 16 role ratings
+/// suitable positions as the original card's back maps them, a small pitch with a tile per position area
+/// ([`heat_zone`]); the six stats and TOTAL beside it. From the 16 role ratings
 /// (the names and spots are the project's inference: [`ROLES`]).
 pub fn card_back(p: &Painter, rect: Rect, card: &Card, lang: Lang) {
     let card = &*real(p.ctx(), card);
@@ -1656,40 +1691,6 @@ pub fn card_back(p: &Painter, rect: Rect, card: &Card, lang: Lang) {
         vec2(map_w, map_w * PITCH_ASPECT),
     );
     aptitude_map(p, map, &card.aptitude, lang);
-    if card.aptitude.known() {
-        let best: Vec<&str> = card.aptitude.top().iter().map(|(n, _)| *n).collect();
-        for ((name, rating), spots) in ROLES.iter().zip(card.aptitude.roles).zip(ROLE_SPOTS) {
-            if rating < 5 {
-                continue;
-            }
-            for &(x, y) in spots {
-                let c = map.lerp_inside(vec2(x, y));
-                let fill = if rating >= 8 {
-                    Color32::from_rgb(0xFF, 0xF6, 0xD0)
-                } else {
-                    theme::AMBER
-                };
-                p.circle_filled(c, 6.5 * unit, fill);
-                p.circle_stroke(c, 6.5 * unit, Stroke::new(1.0, theme::INK));
-                p.text(
-                    c,
-                    Align2::CENTER_CENTER,
-                    rating.to_string(),
-                    theme::bold(9.0 * unit),
-                    theme::INK,
-                );
-                if best.contains(name) {
-                    p.text(
-                        c + vec2(0.0, 8.0 * unit),
-                        Align2::CENTER_TOP,
-                        *name,
-                        theme::display(9.0 * unit),
-                        Color32::WHITE,
-                    );
-                }
-            }
-        }
-    }
     // the stats, right of the map
     let col = Rect::from_min_max(
         pos2(map.right() + 8.0 * unit, map.top()),
@@ -1991,6 +1992,20 @@ pub fn catalogue_card(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_rating_comes_from_the_area_drawn_on_top() {
+        let mut a = Aptitude::default();
+        a.roles[0] = 9; // CF
+        a.roles[3] = 4; // SS
+        a.roles[11] = 8; // CB
+        a.roles[14] = 6; // SW: CB's area, the better role counts
+        assert_eq!(a.at(pos2(0.5, 0.03)), 9.0); // CF's top strip
+        assert_eq!(a.at(pos2(0.5, 0.2)), 4.0); // SS inside CF
+        assert_eq!(a.at(pos2(0.5, 0.8)), 8.0);
+        assert_eq!(a.at(pos2(0.5, 0.95)), 0.0); // the keeper's box inside CB's
+        assert_eq!(a.at(pos2(0.1, 0.1)), 0.0); // WG
+    }
 
     #[test]
     fn a_card_dropped_on_the_next_one_targets_it() {

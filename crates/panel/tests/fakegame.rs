@@ -335,13 +335,14 @@ fn board_and_buttons_with_real_data() {
         pink > 1500,
         "card 101's picture is not on its card ({pink} pixels)"
     );
-    // the striker in hand: the heat zone (amber to pale yellow) over the pitch, little of it at rest
+    // the striker in hand: the position map's dark pitch (#1A2430) over the green one, none of it at rest
     let heat = |img: &image::RgbImage| {
         let mut n = 0;
         for y in 50..740 {
             for x in 890..1424 {
                 let [r, g, b] = img.get_pixel(x, y).0;
-                n += u32::from(r > 170 && g > 100 && r >= g && r > b.saturating_add(40));
+                n +=
+                    u32::from(r.abs_diff(0x1A) < 6 && g.abs_diff(0x24) < 6 && b.abs_diff(0x30) < 6);
             }
         }
         n
