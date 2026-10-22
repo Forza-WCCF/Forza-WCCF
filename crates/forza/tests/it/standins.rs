@@ -10,7 +10,7 @@ use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 fn unhex(s: &str) -> Vec<u8> {
     (0..s.len() / 2)
@@ -34,7 +34,9 @@ fn scratch(what: &str) -> PathBuf {
 }
 
 /// Sends `req` (in two writes at `split` when non-zero), then reads until the service is quiet for 400 ms.
-fn exchange(c: &mut TcpStream, req: &[u8], split: usize) -> Vec<u8> {
+/// Sends `req` (in two writes at `split`), then reads until the reply holds `want` bytes (the recorded length: a slow
+/// stand-in on a busy runner gets up to 10 s) and on until the stream stays quiet for its read timeout, so extra bytes show.
+fn exchange(c: &mut TcpStream, req: &[u8], split: usize, want: usize) -> Vec<u8> {
     if split > 0 {
         c.write_all(&req[..split]).unwrap();
         sleep(Duration::from_millis(150));
@@ -45,10 +47,12 @@ fn exchange(c: &mut TcpStream, req: &[u8], split: usize) -> Vec<u8> {
     sleep(Duration::from_millis(50));
     let mut out = Vec::new();
     let mut buf = vec![0u8; 65536];
+    let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         match c.read(&mut buf) {
-            Ok(0) | Err(_) => return out,
-            Ok(n) => out.extend_from_slice(&buf[..n]),
+            Ok(n) if n > 0 => out.extend_from_slice(&buf[..n]),
+            Err(_) if out.len() < want && Instant::now() < deadline => {}
+            _ => return out,
         }
     }
 }
@@ -75,6 +79,7 @@ fn gamesvr_replay() {
             &mut c,
             &unhex(r["req"].as_str().unwrap()),
             r["split"].as_u64().unwrap() as usize,
+            r["resp_len"].as_u64().unwrap() as usize,
         );
         assert_eq!(
             resp.len() as u64,
@@ -338,7 +343,8 @@ fn aimedb_replay() {
             c = connect(&l);
         }
         let req = unhex(r["req"].as_str().unwrap());
-        let resp = exchange(&mut c, &req, if req.len() > 20 { 20 } else { 0 });
+        let want = r["resp"].as_str().unwrap().len() / 2;
+        let resp = exchange(&mut c, &req, if req.len() > 20 { 20 } else { 0 }, want);
         assert_eq!(hex(&resp), r["resp"].as_str().unwrap(), "record {i}");
     }
     drop(svc);
@@ -653,10 +659,11 @@ fn network_replay() {
             (svc, conn) = (s, n);
         }
         let c = c.as_mut().unwrap();
+        let want = r["resp"].as_str().unwrap().len() / 2;
         let resp = if req.is_empty() {
-            exchange(c, b"", 0)
+            exchange(c, b"", 0, want)
         } else {
-            exchange(c, &req, r["split"].as_u64().unwrap() as usize)
+            exchange(c, &req, r["split"].as_u64().unwrap() as usize, want)
         };
         assert_eq!(hex(&resp), r["resp"].as_str().unwrap(), "record {i}");
     }
