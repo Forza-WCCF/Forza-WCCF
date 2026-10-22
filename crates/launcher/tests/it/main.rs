@@ -1,6 +1,5 @@
 //! One test binary for the crate's integration tests (one link instead of one per file). `run` and `procs` stay their
-//! own binaries: they start copies of the test program by test name (`--exact`) with Prefer-System32 on, and
-//! xtask/winrun.sh starts `run-*.exe` through explorer.exe.
+//! own binaries: they start copies of the test program by test name (`--exact`) with Prefer-System32 on.
 mod console;
 mod debug;
 mod lobby;

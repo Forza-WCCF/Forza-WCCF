@@ -1,4 +1,4 @@
-# The launcher, the stand-ins and the panel are Windows programs (built from WSL with cargo xwin): analyse them for the
-# Windows target, or every std::os::windows path reads as an error.
+# The launcher, the stand-ins and the panel are Windows programs: analyse them for the Windows target, or an editor
+# running in WSL or on Linux reads every std::os::windows path as an error.
 [cargo]
 target = "x86_64-pc-windows-msvc"

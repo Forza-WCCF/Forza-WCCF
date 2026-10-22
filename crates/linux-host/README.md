@@ -15,9 +15,9 @@ and the small Windows helpers it runs inside Wine. The seat desk, match relay an
 
 ## Build
 
-    cargo build --release -p linux-host                                   # target/release/wccf-linux-server
-    cargo xwin build --release -p linux-host --target i686-pc-windows-msvc --bin win32-helper --bin check-crt
-    cargo xwin build --release -p linux-host --target x86_64-pc-windows-msvc --bin check-network
+    cargo build --release -p linux-host                                   # on Linux: target/release/wccf-linux-server
+    cargo build --release -p linux-host --target i686-pc-windows-msvc --bin win32-helper --bin check-crt  # on Windows
+    cargo build --release -p linux-host --target x86_64-pc-windows-msvc --bin check-network               # on Windows
 
 On the wrong system each program is an empty stand-in that says where it runs, so `cargo xtask check` and a Linux
 build both pass.
