@@ -1,7 +1,7 @@
 #!/bin/bash
 # commit-msg: refuse a message that names the publisher (built from bytes, so this file does not spell it), matches a line of
 # ~/.config/forza-wccf/scrub.txt (personal data; one case-insensitive extended regex per line, # starts a comment), or
-# carries a Co-Authored-By trailer for an AI. Install: ln -sf ../../xtask/commit-msg "$(git rev-parse --git-common-dir)/hooks/commit-msg"
+# carries a Co-Authored-By trailer for an AI. Install: git config core.hooksPath xtask
 # CI runs it over every commit message of a pull request.
 msg=$(grep -v '^#' "$1")
 p=$(printf '\x73\x65\x67\x61')
