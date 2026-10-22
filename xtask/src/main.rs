@@ -687,18 +687,14 @@ fn build<'s>(
             .join("release/forza_panel.dll"),
         obj.join("forza_panel.dll"),
     );
-    // one thread for both: two `cargo xwin` at once race on cargo-xwin's clang-cl symlink ("failed to remove file")
     jobs.push(s.spawn(move || {
-        let r = run_ok(
-            launcher,
-            "cargo build -p launcher -p forza-server -p wccf-installer",
-        )
-        .and_then(|()| run_ok(c, "cargo build -p forza-panel"))
-        .and_then(|()| fs::copy(&dll, &to).map(drop).map_err(Into::into));
-        (
-            "cargo build -p launcher -p forza-server -p wccf-installer -p forza-panel".into(),
-            r,
-        )
+        let what = "cargo build -p launcher -p forza-server -p wccf-installer";
+        (what.into(), run_ok(launcher, what))
+    }));
+    jobs.push(s.spawn(move || {
+        let r = run_ok(c, "cargo build -p forza-panel")
+            .and_then(|()| fs::copy(&dll, &to).map(drop).map_err(Into::into));
+        ("cargo build -p forza-panel".into(), r)
     }));
     Ok(jobs)
 }
