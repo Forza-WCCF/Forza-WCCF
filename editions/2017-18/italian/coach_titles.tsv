@@ -26,7 +26,7 @@ requirement_0011	Club prec.: sbloccate molte Abilita' speciali
 title_0012	Generale combattivo
 requirement_0012	Club prec.: molte vittorie nazionali
 title_0013	Stratega
-requirement_0013	Ottenuta International Manager License E
+requirement_0013	Ottenuta Licenza Allenatore Internazionale E
 title_0014	Fabbrica del risveglio
 requirement_0014	Club prec.: sbloccate molte Abilita' personali
 title_0015	Salvatore
@@ -38,9 +38,9 @@ requirement_0017	Un record degno della Leggenda
 title_0018	Imperatore
 requirement_0018	Vinta l'8a WCCF CUP WINNER'S CUP
 title_0019	Grande eroe
-requirement_0019	Ottenuta International Manager License A
+requirement_0019	Ottenuta Licenza Allenatore Internazionale A
 title_0020	Generale illustre
-requirement_0020	Ottenuta International Manager License B
+requirement_0020	Ottenuta Licenza Allenatore Internazionale B
 title_0021	Generale astuto
 requirement_0021	Un record degno del Generale astuto
 title_0022	Duca
@@ -88,11 +88,11 @@ requirement_0042	Un record degno del Talento immortale
 title_0043	Capo di stato maggiore
 requirement_0043	Un record degno del Capo di stato maggiore
 title_0044	Master
-requirement_0044	Ottenuta International Manager License S
+requirement_0044	Ottenuta Licenza Allenatore Internazionale S
 title_0045	Allenatore celebre
-requirement_0045	Ottenuta International Manager License C
+requirement_0045	Ottenuta Licenza Allenatore Internazionale C
 title_0046	Saggio
-requirement_0046	Ottenuta International Manager License D
+requirement_0046	Ottenuta Licenza Allenatore Internazionale D
 title_0047	Dominatore
 requirement_0047	Club prec.: 20 titoli di torneo vinti in tutto
 title_0048	Protettore
@@ -836,17 +836,17 @@ requirement_0416	Ottimo risultato nello Special Trophy
 title_0417	Comandante radioso
 requirement_0417	Ottimo risultato nello Special Trophy
 title_0418	Barone
-requirement_0418	Ottenuta Advanced International Manager License E
+requirement_0418	Ottenuta Licenza Allenatore Internazionale Avanzata E
 title_0419	Visconte
-requirement_0419	Ottenuta Advanced International Manager License D
+requirement_0419	Ottenuta Licenza Allenatore Internazionale Avanzata D
 title_0420	Conte
-requirement_0420	Ottenuta Advanced International Manager License C
+requirement_0420	Ottenuta Licenza Allenatore Internazionale Avanzata C
 title_0421	Marchese
-requirement_0421	Ottenuta Advanced International Manager License B
+requirement_0421	Ottenuta Licenza Allenatore Internazionale Avanzata B
 title_0422	Nobile duca
-requirement_0422	Ottenuta Advanced International Manager License A
+requirement_0422	Ottenuta Licenza Allenatore Internazionale Avanzata A
 title_0423	Granduca
-requirement_0423	Ottenuta Advanced International Manager License S
+requirement_0423	Ottenuta Licenza Allenatore Internazionale Avanzata S
 title_0424	Astro nascente
 requirement_0424	Tutorial completato
 title_0425	Fondatore
@@ -1010,169 +1010,169 @@ requirement_0503	"Finalizzazione perfetta" attivato
 title_0504	Chiave completa
 requirement_0504	"Chiave completa" attivato
 title_0505	Re assoluto
-requirement_0505	Ottenuta Supreme International Manager License E
+requirement_0505	Ottenuta Licenza Allenatore Internazionale Suprema E
 title_0506	Arciduca
-requirement_0506	Ottenuta Supreme International Manager License D
+requirement_0506	Ottenuta Licenza Allenatore Internazionale Suprema D
 title_0507	Gran re
-requirement_0507	Ottenuta Supreme International Manager License C
+requirement_0507	Ottenuta Licenza Allenatore Internazionale Suprema C
 title_0508	Re dei re
-requirement_0508	Ottenuta Supreme International Manager License B
+requirement_0508	Ottenuta Licenza Allenatore Internazionale Suprema B
 title_0509	Imperatore supremo
-requirement_0509	Ottenuta Supreme International Manager License A
+requirement_0509	Ottenuta Licenza Allenatore Internazionale Suprema A
 title_0510	Kaiser
-requirement_0510	Ottenuta Supreme International Manager License S
+requirement_0510	Ottenuta Licenza Allenatore Internazionale Suprema S
 title_0511	Grande imperatore
-requirement_0511	Ottenuta Grand International Manager License E
+requirement_0511	Ottenuta Licenza Allenatore Internazionale Grand E
 title_0512	Monarca assoluto
-requirement_0512	Ottenuta Grand International Manager License D
+requirement_0512	Ottenuta Licenza Allenatore Internazionale Grand D
 title_0513	Arcangelo
-requirement_0513	Ottenuta Grand International Manager License C
+requirement_0513	Ottenuta Licenza Allenatore Internazionale Grand C
 title_0514	Divinita' suprema
-requirement_0514	Ottenuta Grand International Manager License B
+requirement_0514	Ottenuta Licenza Allenatore Internazionale Grand B
 title_0515	Altissimo
-requirement_0515	Ottenuta Grand International Manager License A
+requirement_0515	Ottenuta Licenza Allenatore Internazionale Grand A
 title_0516	Onnipotente
-requirement_0516	Ottenuta Grand International Manager License S
-title_0517	Manager piazzato Gen
-requirement_0517	Classifica manager Gen, finale: dal 4o al 50o posto
-title_0518	Manager valido Gen
-requirement_0518	Classifica manager Gen, finale: 3o posto
-title_0519	Manager eccellente Gen
-requirement_0519	Classifica manager Gen, finale: 2o posto
-title_0520	Miglior manager Gen
-requirement_0520	Classifica manager Gen, finale: 1o posto
-title_0521	Manager piazzato Feb
-requirement_0521	Classifica manager Feb, finale: dal 4o al 50o posto
-title_0522	Manager valido Feb
-requirement_0522	Classifica manager Feb, finale: 3o posto
-title_0523	Manager eccellente Feb
-requirement_0523	Classifica manager Feb, finale: 2o posto
-title_0524	Miglior manager Feb
-requirement_0524	Classifica manager Feb, finale: 1o posto
-title_0525	Manager piazzato Mar
-requirement_0525	Classifica manager Mar, finale: dal 4o al 50o posto
-title_0526	Manager valido Mar
-requirement_0526	Classifica manager Mar, finale: 3o posto
-title_0527	Manager eccellente Mar
-requirement_0527	Classifica manager Mar, finale: 2o posto
-title_0528	Miglior manager Mar
-requirement_0528	Classifica manager Mar, finale: 1o posto
-title_0529	Manager piazzato Apr
-requirement_0529	Classifica manager Apr, finale: dal 4o al 50o posto
-title_0530	Manager valido Apr
-requirement_0530	Classifica manager Apr, finale: 3o posto
-title_0531	Manager eccellente Apr
-requirement_0531	Classifica manager Apr, finale: 2o posto
-title_0532	Miglior manager Apr
-requirement_0532	Classifica manager Apr, finale: 1o posto
-title_0533	Manager piazzato Mag
-requirement_0533	Classifica manager Mag, finale: dal 4o al 50o posto
-title_0534	Manager valido Mag
-requirement_0534	Classifica manager Mag, finale: 3o posto
-title_0535	Manager eccellente Mag
-requirement_0535	Classifica manager Mag, finale: 2o posto
-title_0536	Miglior manager Mag
-requirement_0536	Classifica manager Mag, finale: 1o posto
-title_0537	Manager piazzato Giu
-requirement_0537	Classifica manager Giu, finale: dal 4o al 50o posto
-title_0538	Manager valido Giu
-requirement_0538	Classifica manager Giu, finale: 3o posto
-title_0539	Manager eccellente Giu
-requirement_0539	Classifica manager Giu, finale: 2o posto
-title_0540	Miglior manager Giu
-requirement_0540	Classifica manager Giu, finale: 1o posto
-title_0541	Manager piazzato Lug
-requirement_0541	Classifica manager Lug, finale: dal 4o al 50o posto
-title_0542	Manager valido Lug
-requirement_0542	Classifica manager Lug, finale: 3o posto
-title_0543	Manager eccellente Lug
-requirement_0543	Classifica manager Lug, finale: 2o posto
-title_0544	Miglior manager Lug
-requirement_0544	Classifica manager Lug, finale: 1o posto
-title_0545	Manager piazzato Ago
-requirement_0545	Classifica manager Ago, finale: dal 4o al 50o posto
-title_0546	Manager valido Ago
-requirement_0546	Classifica manager Ago, finale: 3o posto
-title_0547	Manager eccellente Ago
-requirement_0547	Classifica manager Ago, finale: 2o posto
-title_0548	Miglior manager Ago
-requirement_0548	Classifica manager Ago, finale: 1o posto
-title_0549	Manager piazzato Set
-requirement_0549	Classifica manager Set, finale: dal 4o al 50o posto
-title_0550	Manager valido Set
-requirement_0550	Classifica manager Set, finale: 3o posto
-title_0551	Manager eccellente Set
-requirement_0551	Classifica manager Set, finale: 2o posto
-title_0552	Miglior manager Set
-requirement_0552	Classifica manager Set, finale: 1o posto
-title_0553	Manager piazzato Ott
-requirement_0553	Classifica manager Ott, finale: dal 4o al 50o posto
-title_0554	Manager valido Ott
-requirement_0554	Classifica manager Ott, finale: 3o posto
-title_0555	Manager eccellente Ott
-requirement_0555	Classifica manager Ott, finale: 2o posto
-title_0556	Miglior manager Ott
-requirement_0556	Classifica manager Ott, finale: 1o posto
-title_0557	Manager piazzato Nov
-requirement_0557	Classifica manager Nov, finale: dal 4o al 50o posto
-title_0558	Manager valido Nov
-requirement_0558	Classifica manager Nov, finale: 3o posto
-title_0559	Manager eccellente Nov
-requirement_0559	Classifica manager Nov, finale: 2o posto
-title_0560	Miglior manager Nov
-requirement_0560	Classifica manager Nov, finale: 1o posto
-title_0561	Manager piazzato Dic
-requirement_0561	Classifica manager Dic, finale: dal 4o al 50o posto
-title_0562	Manager valido Dic
-requirement_0562	Classifica manager Dic, finale: 3o posto
-title_0563	Manager eccellente Dic
-requirement_0563	Classifica manager Dic, finale: 2o posto
-title_0564	Miglior manager Dic
-requirement_0564	Classifica manager Dic, finale: 1o posto
+requirement_0516	Ottenuta Licenza Allenatore Internazionale Grand S
+title_0517	Allenatore piazzato Gen
+requirement_0517	Classifica Allenatore Gen, finale: dal 4o al 50o posto
+title_0518	Allenatore valido Gen
+requirement_0518	Classifica Allenatore Gen, finale: 3o posto
+title_0519	Allenatore ottimo Gen
+requirement_0519	Classifica Allenatore Gen, finale: 2o posto
+title_0520	Miglior allenatore Gen
+requirement_0520	Classifica Allenatore Gen, finale: 1o posto
+title_0521	Allenatore piazzato Feb
+requirement_0521	Classifica Allenatore Feb, finale: dal 4o al 50o posto
+title_0522	Allenatore valido Feb
+requirement_0522	Classifica Allenatore Feb, finale: 3o posto
+title_0523	Allenatore ottimo Feb
+requirement_0523	Classifica Allenatore Feb, finale: 2o posto
+title_0524	Miglior allenatore Feb
+requirement_0524	Classifica Allenatore Feb, finale: 1o posto
+title_0525	Allenatore piazzato Mar
+requirement_0525	Classifica Allenatore Mar, finale: dal 4o al 50o posto
+title_0526	Allenatore valido Mar
+requirement_0526	Classifica Allenatore Mar, finale: 3o posto
+title_0527	Allenatore ottimo Mar
+requirement_0527	Classifica Allenatore Mar, finale: 2o posto
+title_0528	Miglior allenatore Mar
+requirement_0528	Classifica Allenatore Mar, finale: 1o posto
+title_0529	Allenatore piazzato Apr
+requirement_0529	Classifica Allenatore Apr, finale: dal 4o al 50o posto
+title_0530	Allenatore valido Apr
+requirement_0530	Classifica Allenatore Apr, finale: 3o posto
+title_0531	Allenatore ottimo Apr
+requirement_0531	Classifica Allenatore Apr, finale: 2o posto
+title_0532	Miglior allenatore Apr
+requirement_0532	Classifica Allenatore Apr, finale: 1o posto
+title_0533	Allenatore piazzato Mag
+requirement_0533	Classifica Allenatore Mag, finale: dal 4o al 50o posto
+title_0534	Allenatore valido Mag
+requirement_0534	Classifica Allenatore Mag, finale: 3o posto
+title_0535	Allenatore ottimo Mag
+requirement_0535	Classifica Allenatore Mag, finale: 2o posto
+title_0536	Miglior allenatore Mag
+requirement_0536	Classifica Allenatore Mag, finale: 1o posto
+title_0537	Allenatore piazzato Giu
+requirement_0537	Classifica Allenatore Giu, finale: dal 4o al 50o posto
+title_0538	Allenatore valido Giu
+requirement_0538	Classifica Allenatore Giu, finale: 3o posto
+title_0539	Allenatore ottimo Giu
+requirement_0539	Classifica Allenatore Giu, finale: 2o posto
+title_0540	Miglior allenatore Giu
+requirement_0540	Classifica Allenatore Giu, finale: 1o posto
+title_0541	Allenatore piazzato Lug
+requirement_0541	Classifica Allenatore Lug, finale: dal 4o al 50o posto
+title_0542	Allenatore valido Lug
+requirement_0542	Classifica Allenatore Lug, finale: 3o posto
+title_0543	Allenatore ottimo Lug
+requirement_0543	Classifica Allenatore Lug, finale: 2o posto
+title_0544	Miglior allenatore Lug
+requirement_0544	Classifica Allenatore Lug, finale: 1o posto
+title_0545	Allenatore piazzato Ago
+requirement_0545	Classifica Allenatore Ago, finale: dal 4o al 50o posto
+title_0546	Allenatore valido Ago
+requirement_0546	Classifica Allenatore Ago, finale: 3o posto
+title_0547	Allenatore ottimo Ago
+requirement_0547	Classifica Allenatore Ago, finale: 2o posto
+title_0548	Miglior allenatore Ago
+requirement_0548	Classifica Allenatore Ago, finale: 1o posto
+title_0549	Allenatore piazzato Set
+requirement_0549	Classifica Allenatore Set, finale: dal 4o al 50o posto
+title_0550	Allenatore valido Set
+requirement_0550	Classifica Allenatore Set, finale: 3o posto
+title_0551	Allenatore ottimo Set
+requirement_0551	Classifica Allenatore Set, finale: 2o posto
+title_0552	Miglior allenatore Set
+requirement_0552	Classifica Allenatore Set, finale: 1o posto
+title_0553	Allenatore piazzato Ott
+requirement_0553	Classifica Allenatore Ott, finale: dal 4o al 50o posto
+title_0554	Allenatore valido Ott
+requirement_0554	Classifica Allenatore Ott, finale: 3o posto
+title_0555	Allenatore ottimo Ott
+requirement_0555	Classifica Allenatore Ott, finale: 2o posto
+title_0556	Miglior allenatore Ott
+requirement_0556	Classifica Allenatore Ott, finale: 1o posto
+title_0557	Allenatore piazzato Nov
+requirement_0557	Classifica Allenatore Nov, finale: dal 4o al 50o posto
+title_0558	Allenatore valido Nov
+requirement_0558	Classifica Allenatore Nov, finale: 3o posto
+title_0559	Allenatore ottimo Nov
+requirement_0559	Classifica Allenatore Nov, finale: 2o posto
+title_0560	Miglior allenatore Nov
+requirement_0560	Classifica Allenatore Nov, finale: 1o posto
+title_0561	Allenatore piazzato Dic
+requirement_0561	Classifica Allenatore Dic, finale: dal 4o al 50o posto
+title_0562	Allenatore valido Dic
+requirement_0562	Classifica Allenatore Dic, finale: 3o posto
+title_0563	Allenatore ottimo Dic
+requirement_0563	Classifica Allenatore Dic, finale: 2o posto
+title_0564	Miglior allenatore Dic
+requirement_0564	Classifica Allenatore Dic, finale: 1o posto
 title_0565	Ben informato
 requirement_0565	Visto l'attivita' di un amico
 title_0566	Collaboratore
 requirement_0566	Piazzamento nel ranking del location test WCCF17-18
 title_0567	Mr. WCCF
-requirement_0567	2 Trofei d'Oro nella classifica generale manager
+requirement_0567	2 Trofei d'Oro nella Classifica Allenatore Generale
 title_0568	Leggenda di WCCF
-requirement_0568	3 Trofei d'Oro nella classifica generale manager
+requirement_0568	3 Trofei d'Oro nella Classifica Allenatore Generale
 title_0569	Re di WCCF
-requirement_0569	4 Trofei d'Oro nella classifica generale manager
+requirement_0569	4 Trofei d'Oro nella Classifica Allenatore Generale
 title_0570	Condottiero esperto
-requirement_0570	2 trofei nella classifica generale manager
+requirement_0570	2 trofei nella Classifica Allenatore Generale
 title_0571	Condottiero feroce
-requirement_0571	3 trofei nella classifica generale manager
+requirement_0571	3 trofei nella Classifica Allenatore Generale
 title_0572	Condottiero valoroso
-requirement_0572	4 trofei nella classifica generale manager
+requirement_0572	4 trofei nella Classifica Allenatore Generale
 title_0573	Stratega senza pari
-requirement_0573	5 trofei nella classifica generale manager
+requirement_0573	5 trofei nella Classifica Allenatore Generale
 title_0574	WCCF
-requirement_0574	1 trofeo o medaglia nella classifica generale manager
+requirement_0574	1 trofeo o medaglia nella Classifica Allenatore Generale
 title_0575	2TIMES RANKER
-requirement_0575	Totale di 2 trofei o medaglie nella classifica manager
+requirement_0575	Totale di 2 trofei o medaglie nella Classifica Allenatore
 title_0576	3TIMES RANKER
-requirement_0576	Totale di 3 trofei o medaglie nella classifica manager
+requirement_0576	Totale di 3 trofei o medaglie nella Classifica Allenatore
 title_0577	4TIMES RANKER
-requirement_0577	Totale di 4 trofei o medaglie nella classifica manager
+requirement_0577	Totale di 4 trofei o medaglie nella Classifica Allenatore
 title_0578	5TIMES RANKER
-requirement_0578	Totale di 5 trofei o medaglie nella classifica manager
+requirement_0578	Totale di 5 trofei o medaglie nella Classifica Allenatore
 title_0579	6TIMES RANKER
-requirement_0579	Totale di 6 trofei o medaglie nella classifica manager
+requirement_0579	Totale di 6 trofei o medaglie nella Classifica Allenatore
 title_0580	7TIMES RANKER
-requirement_0580	Totale di 7 trofei o medaglie nella classifica manager
+requirement_0580	Totale di 7 trofei o medaglie nella Classifica Allenatore
 title_0581	8TIMES RANKER
-requirement_0581	Totale di 8 trofei o medaglie nella classifica manager
+requirement_0581	Totale di 8 trofei o medaglie nella Classifica Allenatore
 title_0582	9TIMES RANKER
-requirement_0582	Totale di 9 trofei o medaglie nella classifica manager
+requirement_0582	Totale di 9 trofei o medaglie nella Classifica Allenatore
 title_0583	10TIMES RANKER
-requirement_0583	Totale di 10 trofei o medaglie nella classifica manager
+requirement_0583	Totale di 10 trofei o medaglie nella Classifica Allenatore
 title_0584	11TIMES RANKER
-requirement_0584	Totale di 11 trofei o medaglie nella classifica manager
+requirement_0584	Totale di 11 trofei o medaglie nella Classifica Allenatore
 title_0585	12TIMES RANKER
-requirement_0585	Totale di 12 trofei o medaglie nella classifica manager
+requirement_0585	Totale di 12 trofei o medaglie nella Classifica Allenatore
 title_0586	Custode
-requirement_0586	Posizione tonda nella classifica generale manager
+requirement_0586	Posizione tonda nella Classifica Allenatore Generale
 title_0587	Amichetto
 requirement_0587	Ottenuta ricompensa cooperativa Missione Amici
 title_0588	Amico

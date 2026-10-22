@@ -1927,10 +1927,12 @@ mod tests {
     /// Texts the 2017-18 client prints with sprintf_s into a fixed buffer: (key, buffer bytes with its NUL, widest
     /// number for each %d). A text that does not fit ends the game with 0xC0000417 (Italian "mese %d giorno %d" in the
     /// secretary's 10-byte birthday, sub_500910, 2026-10-22). The friend-mission notice goes into 128 bytes at 0x6D0EEE
-    /// (sub_6CEBE0); its Italian was 139.
+    /// (sub_6CEBE0); its Italian was 139. The other-stores note goes into 64 bytes at 0x6F5B12 (sub_6F5750). The sweep
+    /// of 2026-10-22 found no other sheet text within 48 bytes of its buffer.
     const FIXED_BUFFERS: &[(&str, usize, &str)] = &[
         ("SYS_SEC_data_0006", 10, "99"),
         ("INF_094_mission_0000", 128, ""),
+        ("INF_084_TOPICS_message_0001", 64, "-2147483648"),
     ];
 
     #[test]

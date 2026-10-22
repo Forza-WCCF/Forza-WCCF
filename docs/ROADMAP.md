@@ -6,9 +6,11 @@ to Rust. It started from `WCCF-Kit-1011` `main` (`b40b84a`, Kit 6) and took in `
 [ARCHITECTURE.md](ARCHITECTURE.md) is the reference for the move to Rust, [RELEASING.md](RELEASING.md) has the version
 rules, and [SAFETY.md](SAFETY.md) the rules for running the original programs.
 
-Status, 2026-10-21: version 0.2.0, alpha. Steps 1–11 are done in code and both ZIPs ship without Python. The online
-lobby (2010–11 shops, 2017–18 VS rooms) is built; its live checks are open. Release 1 (1.0.0) is both editions with no
-Python inside and the online lobby, after the release gates below.
+Status, 2026-10-22: version 0.2.2, alpha (a pre-release, tag `v0.2.2`). Steps 1–11 are done in code and both ZIPs ship
+without Python. The online lobby (2010–11 shops, 2017–18 VS rooms) is built; its live checks are open. Release 1
+(1.0.0) is both editions with no Python inside and the online lobby, after the release gates below. Builds run on
+Windows now (4.8). Known open bug: on some first matches the seat's picture stays black with no commentary; the match
+runs to its end. The C-to-Rust port ("Later") is on hold.
 
 ## The order at a glance
 
@@ -139,7 +141,7 @@ Done:
   one native Windows job. The commit-message hook installs with `git config core.hooksPath xtask`. WSL stays for the
   reverse-engineering tools, codex and the Linux server deploy. Reasons: a Windows start inherits no "Prefer System32
   images" (the reason for `winrun.sh`), and one host path replaces two. A full `cargo xtask check` took 12 min on
-  Windows 10 (NVMe, Defender exclusions) against 13-28 min in WSL.
+  Windows 10 (NVMe, Defender exclusions) against 13-28 min in WSL. Done: the move is merged in main.
 
 Crates over hand-written code: a job longer than a few lines goes to a widely used crate, maintained in the last year,
 with an MIT, Apache or BSD license. `windows-sys` stays for thin Win32 calls. The root `Cargo.toml` lists the versions.
@@ -394,9 +396,10 @@ patched files; card pictures pixel-identical).
 Both ZIPs ship without `python/` (`cargo xtask check` fails if one has it). `legacy/` goes once nothing in the build
 uses it; Python then stays only in `tools/`.
 
-## Later
+## Later - on hold (owner, 2026-10-22), not dropped
 
-The rest of the in-game C to Rust (`i686-pc-windows-msvc`): `netguard`/`wccfnet` and `fpr_emu` first, then the hooks
+The rest of the in-game C to Rust (`i686-pc-windows-msvc`): `netguard`/`wccfnet` and `fpr_emu` first, then the
+`test_*.c` harnesses as Rust tests, then the hooks
 (`wccfk.c`, `mxhook.c`). Both hooks block `IpReleaseAddress`/`IpRenewAddress`; in Rust that guard becomes one module
 both use, with `test_wccfnet`'s check extended to it. 2010–11's setup renames the game's WINMM import to the kit's own
 DLL, which forwards only the three timer calls the game imports; 2017–18's `mxhook` still poses as `winmm.dll` and
