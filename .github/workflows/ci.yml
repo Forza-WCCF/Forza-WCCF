@@ -29,6 +29,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       code: ${{ steps.d.outputs.code }}
+      ui: ${{ steps.d.outputs.ui }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -38,10 +39,22 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
         run: |
-          if [ -z "$BASE" ] || git diff --name-only "$BASE" HEAD | grep -qvE '^(docs/|[^/]+\.md$)'; then
+          if [ -z "$BASE" ]; then
+            echo code=true >> "$GITHUB_OUTPUT"
+            echo ui=true >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files=$(git diff --name-only "$BASE" HEAD)
+          if printf '%s\n' "$files" | grep -qvE '^(docs/|[^/]+\.md$)'; then
             echo code=true >> "$GITHUB_OUTPUT"
           else
             echo code=false >> "$GITHUB_OUTPUT"
+          fi
+          # the GPU snapshot step (informational) runs when the UI crate changed, on main, on schedule and on dispatch
+          if printf '%s\n' "$files" | grep -qE '^crates/forza-ui/'; then
+            echo ui=true >> "$GITHUB_OUTPUT"
+          else
+            echo ui=false >> "$GITHUB_OUTPUT"
           fi
 
   lint:
@@ -192,6 +205,7 @@ jobs:
           exit 0
       # one at a time: wgpu devices made in parallel crashed the test process (crates/forza-ui/tests/it/snapshots.rs)
       - name: snapshots (informational, the runner has no GPU)
+        if: github.event_name != 'pull_request' || needs.changes.outputs.ui == 'true'
         continue-on-error: true
         run: 'cargo test --locked -p forza-ui --test it --target x86_64-pc-windows-msvc -- snapshots:: --test-threads=1'
       # every detection since the job started, except the EICAR control
@@ -225,7 +239,7 @@ jobs:
           "::error::Defender detected $($hits.Count) threat(s) during the job"
           exit 1
       - name: snapshot differences
-        if: always()
+        if: always() && (github.event_name != 'pull_request' || needs.changes.outputs.ui == 'true')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: snapshot-diffs
