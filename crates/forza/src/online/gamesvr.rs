@@ -821,7 +821,7 @@ struct Vs {
 }
 
 impl Vs {
-    /// 202, 224, 238, 243, 245 and the vslink 901, 903, 905 answers (the slot echo is in `body` already).
+    /// 202, 224, 238, 239, 243, 245, 257 and the vslink 901, 903, 905 answers (the slot echo is in `body` already).
     fn fill(&self, cmd: u16, payload: &[u8], peer: IpAddr, body: &mut [u8]) {
         let t = Instant::now();
         match cmd {
@@ -853,6 +853,13 @@ impl Vs {
                     body[8..14].copy_from_slice(&tok);
                     body[16..48].copy_from_slice(&id);
                 }
+            }
+            // the data battle entry path: the control reads the ids it sent back (ctl sub_447DF0, sub_448FD0); a 0 id is
+            // its own SvrErr path
+            239 if payload.len() >= 12 => body[4..12].copy_from_slice(&payload[4..12]),
+            257 if payload.len() >= 8 => {
+                put(body, 4, u32_at(payload, 4));
+                put(body, 8, u32::from(u32_at(payload, 4) != 0));
             }
             223 => vs::fill_round(body, now()),
             237 => vs::fill_game_ctrl(body),
@@ -1343,6 +1350,52 @@ mod tests {
         spans.push((1_176, 1_212));
         spans.sort();
         assert!(spans.windows(2).all(|w| w[0].1 <= w[1].0));
+    }
+
+    #[test]
+    fn vs_echoes_the_entry_user_and_the_data_battle() {
+        let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
+        let log: Log = Arc::new(|_: &str| {});
+        let vs = Vs {
+            cfg: VsConfig {
+                public_ip: std::net::Ipv4Addr::LOCALHOST,
+                reflect_port: 1,
+                vslink_port: 2,
+            },
+            matcher: Arc::default(),
+        };
+        let ip = IpAddr::from([127, 0, 0, 1]);
+        let ask = |cmd: u16, ids: [u32; 3]| {
+            let mut p = vec![0u8; 16];
+            put(&mut p, 0, 1);
+            for (i, v) in ids.into_iter().enumerate() {
+                put(&mut p, 4 + 4 * i, v);
+            }
+            answer(cmd, &p, &store, None, &[], Some((&vs, ip)), &log)
+                .unwrap()
+                .1
+        };
+        // 239: cardId, coachId back; 257: coachId back and status 1
+        let b = ask(239, [7, 9, 0]);
+        assert_eq!((u32_at(&b, 4), u32_at(&b, 8)), (7, 9));
+        let b = ask(257, [9, 7, 0]);
+        assert_eq!((u32_at(&b, 4), u32_at(&b, 8)), (9, 1));
+        // 0 ids stay zero: the control's SvrErr
+        assert!(ask(239, [0, 0, 0])[4..].iter().all(|b| *b == 0));
+        assert!(ask(257, [0, 5, 0])[4..].iter().all(|b| *b == 0));
+        // no VS: zeros as before
+        let b = answer(
+            239,
+            &[1, 0, 0, 0, 7, 0, 0, 0, 9, 0, 0, 0],
+            &store,
+            None,
+            &[],
+            None,
+            &log,
+        )
+        .unwrap()
+        .1;
+        assert!(b[4..].iter().all(|b| *b == 0));
     }
 
     fn req(cmd: u16, ids: [u32; 3]) -> Vec<u8> {
