@@ -328,6 +328,7 @@ fn unknown(no: u32, y: f32) -> Card {
         club: String::new(),
         country: String::new(),
         season: String::new(),
+        born: String::new(),
         pos,
         rarity: Rarity::Regular,
         code: String::new(),
@@ -480,6 +481,7 @@ pub fn load_catalogue(path: &Path) -> io::Result<Vec<Card>> {
     let c_pic = col(&["image_archive_path"]);
     let [
         season,
+        born,
         rarity,
         placeholder,
         full,
@@ -492,6 +494,7 @@ pub fn load_catalogue(path: &Path) -> io::Result<Vec<Card>> {
         tail,
     ] = [
         &["season"][..],
+        &["birth_date"],
         &["rarity_name"],
         &["is_placeholder"],
         &["name_full_latin"],
@@ -555,6 +558,7 @@ pub fn load_catalogue(path: &Path) -> io::Result<Vec<Card>> {
             club: get(club),
             country: get(nat),
             season: get(season),
+            born: get(born),
             pos: match get(pos).as_str() {
                 "GK" => Position::Gk,
                 "DF" => Position::Df,

@@ -2065,6 +2065,7 @@ version = "0.3.0"
 dependencies = [
  "aes 0.9.3",
  "csv",
+ "deunicode",
  "emath",
  "encoding_rs",
  "freetype-rs",

@@ -260,7 +260,11 @@ fn word_matches(c: &Card, folded: &str, w: &str) -> bool {
 pub fn search(cards: &[Card], index: &Index, f: &Filter) -> Vec<usize> {
     let q = f.search.trim();
     let digits = !q.is_empty() && q.bytes().all(|b| b.is_ascii_digit());
-    let words: Vec<String> = q.split_whitespace().map(fold).collect();
+    // "12/13" as the season is written, "2012-13"
+    let words: Vec<String> = q
+        .split_whitespace()
+        .map(|w| fold(w).replace('/', "-"))
+        .collect();
     let mut out: Vec<usize> = index
         .order
         .iter()
@@ -622,6 +626,34 @@ pub fn add_card(st: &mut PanelState, placed: &mut Vec<Placed>, no: u32) -> bool 
         return false;
     };
     let name = card.short_name().to_owned();
+    // a team holds one card per player: another card of this one gives up its place to this card
+    let same = |p: &Placed| {
+        p.no != no
+            && st
+                .cards
+                .iter()
+                .any(|c| c.number == p.no && c.same_player(card))
+    };
+    if !placed.iter().any(|p| p.no == no)
+        && let Some(p) = placed.iter_mut().find(|p| same(p))
+    {
+        let old = st
+            .cards
+            .iter()
+            .find(|c| c.number == p.no)
+            .map_or("", |c| c.season.as_str());
+        let text = tr!(
+            lang,
+            "cat.msg_replaced",
+            name = name,
+            old = old,
+            new = card.season
+        );
+        p.no = no;
+        st.board = cards::board(placed, &st.cards);
+        st.note(Tone::Done, text);
+        return true;
+    }
     let (tone, text, added) = match cards::add(placed, no, card.pos) {
         Ok(_) => (
             Tone::Done,
@@ -3296,6 +3328,7 @@ mod tests {
             club: club.into(),
             country: country.into(),
             season: "2004-05".into(),
+            born: String::new(),
             pos,
             rarity: if no.is_multiple_of(2) {
                 Rarity::Legend
@@ -3392,6 +3425,7 @@ mod tests {
         assert_eq!(found(&c, &q("kaka mvp 0405")), [10]);
         assert_eq!(found(&c, &q("emvp")), [10]);
         assert_eq!(found(&c, &q("milano 0506")), Vec::<u32>::new());
+        assert_eq!(found(&c, &q("kaka 04/05")), [10]);
     }
 
     #[test]
@@ -3449,6 +3483,29 @@ mod tests {
         assert!(!add_card(&mut st, &mut placed, 32));
         assert_eq!(st.message.as_ref().unwrap().tone, Tone::Refused);
         assert!(!add_card(&mut st, &mut placed, 999)); // not in the catalogue: nothing happens
+    }
+
+    #[test]
+    fn add_card_replaces_the_players_other_card() {
+        let mut v = cards();
+        let mut kaka = v[0].clone(); // card 10, Ricardo Kakà 2004-05
+        (kaka.number, kaka.season, kaka.name) = (11, "2005-06".into(), "RICARDO KAKA".into());
+        v.push(kaka);
+        let mut st = PanelState::new(Edition::E1011, Lang::En, cards::board(&[], &[]), v.into());
+        let mut placed = Vec::new();
+        assert!(add_card(&mut st, &mut placed, 10));
+        let at = (placed[0].slot, placed[0].x, placed[0].y);
+        assert!(add_card(&mut st, &mut placed, 11));
+        assert_eq!(placed.len(), 1);
+        assert_eq!(
+            (placed[0].no, (placed[0].slot, placed[0].x, placed[0].y)),
+            (11, at)
+        );
+        assert_eq!(
+            st.message.as_ref().unwrap().text,
+            "KAKÀ 2004-05 replaced by 2005-06"
+        );
+        assert_eq!(st.board.cards.len(), 1);
     }
 
     #[test]
