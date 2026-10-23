@@ -28,7 +28,8 @@ the game slot. The system/OS-update slot is never extracted.
    Alternatively, download the ZIP containing the EXE and all documentation.
 2. Compare the EXE (or ZIP) with the matching line in `SHA256SUMS.txt`; unpack only
    if you chose the ZIP.
-3. Open `Forza-WCCF-Installer.exe`, choose your own ISO and matching keyfile, then an
+3. Open `Forza-WCCF-Installer-<version>-windows-x64.exe` (the examples below call
+   it `Forza-WCCF-Installer.exe`), choose your own ISO and matching keyfile, then an
    empty install folder. Allow about 6 GB free space and permission to write there.
 4. Leave the package blank for extraction only. New installs use separate trees:
    `<install folder>\2010-2011\game` and `<install folder>\2017-2018\game`.
@@ -52,7 +53,7 @@ are installed. New extraction chooses the edition from the disc layout.
 Verify a download in PowerShell:
 
 ```powershell
-Get-FileHash .\Forza-WCCF-Installer.exe -Algorithm SHA256
+Get-FileHash .\Forza-WCCF-Installer-*-windows-x64.exe -Algorithm SHA256
 ```
 
 Compare the hash with the matching line in `SHA256SUMS.txt`. The binaries are

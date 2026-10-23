@@ -1681,7 +1681,8 @@ fn package_installer(root: &Path, name: Option<String>) -> Result<()> {
         "THIRD-PARTY-LICENSES.json",
     ];
     no_kit_word(&[src.join("README.md"), src.join("CHANGELOG.md")])?;
-    let exe_name = INSTALLER_EXE.to_owned();
+    // the release asset carries the version too, like the ZIP: Forza-WCCF-Installer-<version>-windows-x64.exe
+    let exe_name = format!("{name}.exe");
     let payload: Vec<(String, PathBuf)> = std::iter::once((exe_name.clone(), exe))
         .chain(docs.iter().map(|d| (d.to_string(), src.join(d))))
         .collect();
