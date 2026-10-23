@@ -188,9 +188,16 @@ pub fn fold(s: &str) -> String {
 
 impl Index {
     pub fn new(cards: &[Card]) -> Index {
+        // "regular", "normale", "レギュラー": the rarity as the chips name it, in any language
+        let rarities =
+            Rarity::ALL.map(|r| (r, Lang::ALL.map(|l| tr!(l, rarity_key(r))).join("\n")));
         let folded: Vec<String> = cards
             .iter()
             .map(|c| {
+                let rarity = rarities
+                    .iter()
+                    .find(|(r, _)| *r == c.rarity)
+                    .map_or(String::new(), |(_, w)| w.clone());
                 let short_season = match c.season.as_bytes() {
                     [_, _, a, b, b'-', c, d] => {
                         String::from_utf8_lossy(&[*a, *b, *c, *d]).into_owned()
@@ -206,6 +213,7 @@ impl Index {
                         &c.season,
                         &short_season,
                         &c.code,
+                        &rarity,
                     ]
                     .map(|s| s.as_str())
                     .join("\n"),
@@ -626,33 +634,21 @@ pub fn add_card(st: &mut PanelState, placed: &mut Vec<Placed>, no: u32) -> bool 
         return false;
     };
     let name = card.short_name().to_owned();
-    // a team holds one card per player: another card of this one gives up its place to this card
-    let same = |p: &Placed| {
-        p.no != no
-            && st
-                .cards
-                .iter()
-                .any(|c| c.number == p.no && c.same_player(card))
-    };
-    if !placed.iter().any(|p| p.no == no)
-        && let Some(p) = placed.iter_mut().find(|p| same(p))
-    {
-        let old = st
-            .cards
+    // a team holds one card per player: refused while another card of this one is on the table
+    let other = placed.iter().filter(|p| p.no != no).find_map(|p| {
+        st.cards
             .iter()
-            .find(|c| c.number == p.no)
-            .map_or("", |c| c.season.as_str());
+            .find(|c| c.number == p.no && c.same_player(card))
+    });
+    if let Some(other) = other {
         let text = tr!(
             lang,
-            "cat.msg_replaced",
+            "cat.msg_same_player",
             name = name,
-            old = old,
-            new = card.season
+            season = other.season
         );
-        p.no = no;
-        st.board = cards::board(placed, &st.cards);
-        st.note(Tone::Done, text);
-        return true;
+        st.note(Tone::Refused, text);
+        return false;
     }
     let (tone, text, added) = match cards::add(placed, no, card.pos) {
         Ok(_) => (
@@ -3426,6 +3422,11 @@ mod tests {
         assert_eq!(found(&c, &q("emvp")), [10]);
         assert_eq!(found(&c, &q("milano 0506")), Vec::<u32>::new());
         assert_eq!(found(&c, &q("kaka 04/05")), [10]);
+        // the rarity in any language: 101 is REGULAR (odd), 10, 32 and 210 LEGEND
+        assert_eq!(found(&c, &q("regular")), [101]);
+        assert_eq!(found(&c, &q("normale")), [101]);
+        assert_eq!(found(&c, &q("kaka leggenda")), [10]);
+        assert_eq!(found(&c, &q("legend italia")), [32, 210]);
     }
 
     #[test]
@@ -3486,7 +3487,7 @@ mod tests {
     }
 
     #[test]
-    fn add_card_replaces_the_players_other_card() {
+    fn add_card_refuses_the_players_second_card() {
         let mut v = cards();
         let mut kaka = v[0].clone(); // card 10, Ricardo Kakà 2004-05
         (kaka.number, kaka.season, kaka.name) = (11, "2005-06".into(), "RICARDO KAKA".into());
@@ -3494,18 +3495,16 @@ mod tests {
         let mut st = PanelState::new(Edition::E1011, Lang::En, cards::board(&[], &[]), v.into());
         let mut placed = Vec::new();
         assert!(add_card(&mut st, &mut placed, 10));
-        let at = (placed[0].slot, placed[0].x, placed[0].y);
-        assert!(add_card(&mut st, &mut placed, 11));
-        assert_eq!(placed.len(), 1);
+        assert!(!add_card(&mut st, &mut placed, 11));
+        assert_eq!((placed.len(), placed[0].no), (1, 10));
+        let m = st.message.as_ref().unwrap();
         assert_eq!(
-            (placed[0].no, (placed[0].slot, placed[0].x, placed[0].y)),
-            (11, at)
+            (m.tone, m.text.as_str()),
+            (
+                Tone::Refused,
+                "KAKÀ: another card of this player is on the table (2004-05)"
+            )
         );
-        assert_eq!(
-            st.message.as_ref().unwrap().text,
-            "KAKÀ 2004-05 replaced by 2005-06"
-        );
-        assert_eq!(st.board.cards.len(), 1);
     }
 
     #[test]
