@@ -448,4 +448,3 @@ mod tests {
         assert_eq!(obsolete(&old, &new), ["ENGLISH.exe", "SETUP.exe", "scripts\\old.py"]);
     }
 }
-
