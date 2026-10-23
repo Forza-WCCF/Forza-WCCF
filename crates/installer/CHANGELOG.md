@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.1
+## 0.3.2
 
 - The program no longer contains folder paths of the PC that built it.
 
