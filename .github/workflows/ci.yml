@@ -152,6 +152,10 @@ jobs:
           ls "$VS/VC/Tools/MSVC"
           "$VS/VC/Tools/Llvm/x64/bin/clang-cl.exe" --version
           ls "/c/Program Files (x86)/Windows Kits/10/Include"
+      # `cargo xtask check` runs the tests with cargo-nextest when it is installed; the action checks the download's hash
+      - uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2.87.30
+        with:
+          tool: cargo-nextest@0.9.148
       # one cache for every Windows build (the shared key drops the job name from the key): main and pull requests
       # save it (also when a check fails, so the compiling is kept); a pull request starts from main's cache and
       # its later pushes from its own. release.yml's tag builds only restore it. Old entries fall out at 10 GB.
