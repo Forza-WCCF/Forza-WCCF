@@ -160,7 +160,7 @@ pub enum Scenario {
     Online,
 }
 
-/// An empty lobby for the edition: the kind with nothing behind it greyed (2017–18 shops, 2010–11 VS).
+/// An empty lobby for the edition: the kind with nothing behind it greyed (2010–11 VS); 2017–18 shops are listed, view-only.
 pub fn lobby_for(edition: Edition) -> LobbyView {
     let mut v = LobbyView::new();
     match edition {
@@ -168,7 +168,7 @@ pub fn lobby_for(edition: Edition) -> LobbyView {
             v.grey[Kind::Vs as usize] = Some(Grey::Vs1011);
         }
         Edition::E1718 => {
-            v.grey[Kind::Shops as usize] = Some(Grey::Shops1718);
+            v.shops_view_only = true;
             v.kind = Kind::Vs;
         }
     }
@@ -787,11 +787,21 @@ mod tests {
     }
 
     #[test]
-    fn shops_greyed_on_2017_18() {
-        // the Launcher reserves only VS rooms there (crates/server/README.md "VS rooms")
-        let v = lobby_for(Edition::E1718);
-        assert_eq!((v.kind, v.grey_now()), (Kind::Vs, None));
-        assert_eq!(v.grey[Kind::Shops as usize], Some(Grey::Shops1718));
+    fn shops_listed_but_not_joinable_on_2017_18() {
+        // the server shows its shops; a seat cannot start there yet (no game control), VS rooms still join
+        let mut v = lobby_for(Edition::E1718);
+        assert_eq!(
+            (v.kind, v.grey_now(), v.grey[Kind::Shops as usize]),
+            (Kind::Vs, None, None)
+        );
+        v.shops = LobbyView::sample(LobbyScenario::List).shops;
+        v.kind = Kind::Shops;
+        assert!(!v.rows().is_empty() && v.view_only_now());
         assert!(v.joinable().is_none());
+        // 2010-11 keeps joinable shops
+        let mut w = lobby_for(Edition::E1011);
+        w.shops = v.shops.clone();
+        w.kind = Kind::Shops;
+        assert!(!w.view_only_now() && w.joinable().is_some());
     }
 }

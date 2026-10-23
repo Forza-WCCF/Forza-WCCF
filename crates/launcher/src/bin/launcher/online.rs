@@ -221,9 +221,6 @@ impl Online {
         }
         if self.poller.is_some() {
             self.rows = self.book.fill(&mut st.lobby, Instant::now());
-            if st.lobby.grey[Kind::Shops as usize].is_some() {
-                st.lobby.shops.clear(); // 2017-18: nothing behind SHOPS before the hub, the tab shows its line
-            }
         }
         let go = self.room(st);
         st.rejoin = self
@@ -365,10 +362,10 @@ impl Online {
             Ok(Reserved::Ticket { ticket, seat }) => {
                 let beat = p.beat(&server, &ticket, Duration::from_secs(HEARTBEAT_EVERY), Arc::new(poke));
                 let vs = st.lobby.vs.iter().find(|r| r.id == id);
-                // 2017-18 (SHOPS greyed) reserves only VS rooms, also a rejoin before the list came
+                // 2017-18 (SHOPS view-only) reserves only VS rooms, also a rejoin before the list came
                 let (kind, n) = match vs {
                     Some(r) => (Kind::Vs, usize::from(r.max.max(2))),
-                    None if st.lobby.grey[Kind::Shops as usize].is_some() => (Kind::Vs, 2),
+                    None if st.lobby.shops_view_only => (Kind::Vs, 2),
                     None => (Kind::Shops, 8),
                 };
                 let mut room = Room::new(&name, kind, n);

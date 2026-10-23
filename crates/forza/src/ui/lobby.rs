@@ -185,6 +185,8 @@ pub struct LobbyView {
     /// The server stopped answering: the list is greyed and the Direct address fold opens.
     pub offline: bool,
     pub grey: [Option<Grey>; 2],
+    /// 2017-18: the shops are listed, but no seat can start there yet (no game control on the server).
+    pub shops_view_only: bool,
     pub address: String,
     pub direct_open: bool,
     /// Scroll the selected row into view on the next frame.
@@ -279,6 +281,7 @@ impl LobbyView {
             notice: None,
             offline: false,
             grey: [None, None],
+            shops_view_only: false,
             address: "192.168.1.20".into(),
             direct_open: false,
             scroll: true,
@@ -417,6 +420,11 @@ impl LobbyView {
         }
     }
 
+    /// The SHOPS tab shows its rows but cannot join.
+    pub fn view_only_now(&self) -> bool {
+        self.shops_view_only && self.kind == Kind::Shops
+    }
+
     pub fn grey_now(&self) -> Option<Grey> {
         self.grey[self.kind as usize]
     }
@@ -442,7 +450,7 @@ impl LobbyView {
 
     /// The selected row, when it can be joined now.
     pub fn joinable(&self) -> Option<&Row> {
-        if self.offline || self.stale() || self.grey_now().is_some() {
+        if self.offline || self.stale() || self.grey_now().is_some() || self.view_only_now() {
             return None;
         }
         let vis = self.visible();
@@ -693,7 +701,7 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
         );
     }
     // the rows
-    let dim = v.offline;
+    let dim = v.offline || v.view_only_now();
     let vis = v.visible();
     v.selected = v.selected.min(vis.len().saturating_sub(1));
     egui::ScrollArea::vertical()
@@ -862,6 +870,9 @@ fn status(v: &LobbyView, lang: Lang) -> Option<(Tone, String)> {
     }
     if let (true, Some(s)) = (v.stale(), v.updated_s) {
         return Some((Tone::Notice, tr!(lang, "lobby.stale", s = s)));
+    }
+    if v.view_only_now() {
+        return Some((Tone::Notice, tr!(lang, "lobby.grey_shops_1718")));
     }
     if v.grey_now().is_none() && v.rows().is_empty() {
         return Some((Tone::Notice, tr!(lang, "lobby.empty")));
