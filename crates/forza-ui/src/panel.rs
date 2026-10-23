@@ -171,8 +171,8 @@ impl Default for Filter {
     }
 }
 
-/// The catalogue's words for the search, worked out once: each card's name, short name, club, country and season
-/// folded ([`fold`]), the cards in name order, and the countries and clubs A to Z with their numbers of cards.
+/// The catalogue's words for the search, worked out once: each card's name, short name, club, country, season (also
+/// short: 2005-06 as 0506) and printed code (EMVP, WGK-3) folded ([`fold`]), the cards in name order, and the countries and clubs A to Z with their numbers of cards.
 #[derive(Clone, Debug, Default)]
 pub struct Index {
     folded: Vec<String>,
@@ -191,10 +191,24 @@ impl Index {
         let folded: Vec<String> = cards
             .iter()
             .map(|c| {
+                let short_season = match c.season.as_bytes() {
+                    [_, _, a, b, b'-', c, d] => {
+                        String::from_utf8_lossy(&[*a, *b, *c, *d]).into_owned()
+                    }
+                    _ => String::new(),
+                };
                 fold(
-                    &[&c.name, &c.short, &c.club, &c.country, &c.season]
-                        .map(|s| s.as_str())
-                        .join("\n"),
+                    &[
+                        &c.name,
+                        &c.short,
+                        &c.club,
+                        &c.country,
+                        &c.season,
+                        &short_season,
+                        &c.code,
+                    ]
+                    .map(|s| s.as_str())
+                    .join("\n"),
                 )
             })
             .collect();
@@ -3372,6 +3386,12 @@ mod tests {
         assert_eq!(found(&c, &q("10")), [10, 101]);
         assert_eq!(found(&c, &q("21 milano")), [210]);
         assert_eq!(found(&c, &q("2004")), Vec::<u32>::new());
+        // the printed code and the short season: "kaka mvp 0405" (a player's search for an MVP card, 2026-10-23)
+        let mut c = c;
+        c[0].code = "EMVP".into(); // Kakà
+        assert_eq!(found(&c, &q("kaka mvp 0405")), [10]);
+        assert_eq!(found(&c, &q("emvp")), [10]);
+        assert_eq!(found(&c, &q("milano 0506")), Vec::<u32>::new());
     }
 
     #[test]
