@@ -161,12 +161,16 @@ type Saved = (Vec<u8>, u16, u16, Vec<u8>);
 
 /// Copies the parts of a stored SAVE_DATA_SET tail the client reads back into a SAVE_DATA answer: the players'
 /// experience, level, confidence and form (16 records of 30 bytes, 277 +6,068 -> 276 +3,674) and the manager level
-/// (277 +3,262 -> 276 +6,094). The client sets them from the answer even when zero, so without this every card-in put
-/// the players back to level 0 (docs/research/ONLINE-2017-18.md, SAVE_DATA). An empty tail (no save since) is skipped.
+/// (277 +3,262 -> 276 +6,094), and the club's league state (277 +5,480..+5,936 -> 276 +3,100..+3,556: tail struct
+/// +4..+460, with SERVER_CLUB_RL_PRESENT_DIVISION at 277 +5,888 -> 276 +3,508, the season count, matches played,
+/// results and W/D/L; client sub_81AC50 reads it, sub_817F10 writes it). The client sets them from the answer even when
+/// zero, so without this every card-in put the players back to level 0 and a club with an all-zero league state back
+/// into league 2 (sub_83D4C0) (docs/research/ONLINE-2017-18.md, SAVE_DATA). An empty tail (no save since) is skipped.
 fn restore_tail(body: &mut [u8], tail: &[u8]) {
     if tail.len() != 8572 - TAIL {
         return;
     }
+    body[3100..3556].copy_from_slice(&tail[5480 - TAIL..5936 - TAIL]);
     body[3674..4154].copy_from_slice(&tail[6068 - TAIL..6548 - TAIL]);
     body[6094..6096].copy_from_slice(&tail[3262 - TAIL..3264 - TAIL]);
 }

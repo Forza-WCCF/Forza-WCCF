@@ -253,9 +253,16 @@ fn gamesvr_save_round_trip() {
         *b = (i % 251) as u8 + 1;
     }
     r[3262..3264].copy_from_slice(&[7, 1]);
+    // the league state: a promotion to division 1 after a season (it went back to league 2 at the next card-in)
+    for (i, b) in r[5480..5936].iter_mut().enumerate() {
+        *b = (i % 199) as u8 + 3;
+    }
+    r[5888] = 1;
     assert_eq!(word(&ask(&mut c, 277, &r), 4), 0);
     let a = save_data(&mut c, coach, card);
     assert_loads(&a, &blk);
+    assert_eq!(&a[3100..3556], &r[5480..5936], "league state");
+    assert_eq!(a[3508], 1, "division");
     assert_eq!(&a[3674..4154], &r[6068..6548], "player records");
     assert_eq!(&a[6094..6096], &[7, 1], "manager level");
     // wrong revision and unknown ids are refused
