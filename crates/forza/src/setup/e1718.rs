@@ -79,8 +79,20 @@ const ALLNET_BILLING_IDLE: Patch = Patch {
     what: "ALL.Net billing phase reads IDLE (20) in the online test",
 };
 
+/// Every movie (H.264 through Media SDK's software decoder): the wrapper (sub_DE95B0) gives the decoder 16 surfaces
+/// and AsyncDepth 0, and with AsyncDepth 0 the decoder sizes its pipeline from the PC's logical CPUs (29 surfaces
+/// on 12 threads). It keeps answering MFX_ERR_MORE_SURFACE, no frame comes out and the movie never leaves PREP.
+/// AsyncDepth 1 needs 18 and plays in 16. VA 0x00DE991B: mov word [eax+0Eh], dx (dx = 0, the zeroed parameter
+/// block) -> mov byte [eax+0Eh], 1.
+const MOVIE_ASYNC_DEPTH: Patch = Patch {
+    at: 0x9e8d1b,
+    old: &[0x66, 0x89, 0x50, 0x0e],
+    new: &[0xc6, 0x40, 0x0e, 0x01],
+    what: "movie decoder AsyncDepth 0 -> 1 (VA 0x00DE991B)",
+};
+
 /// Seat 1's client_Release.exe (the 2010-11 kit's patches as each proved needed).
-static SEAT: [Patch; 15] = [
+static SEAT: [Patch; 16] = [
     Patch {
         at: 0x1db8a0,
         old: &[0x6a, 0xff, 0x68],
@@ -171,11 +183,12 @@ static SEAT: [Patch; 15] = [
         ],
         what: "AiMeDB host aime.naominet.jp -> localhost",
     },
+    MOVIE_ASYNC_DEPTH,
 ];
 
 /// The projector (game\\client_Release.exe, its own copy: seat 1 has another): the two ALL.Net answers, so its corner
 /// status icon agrees with seat 1's, and its title movie counted as over.
-static PROJECTOR: [Patch; 3] = [
+static PROJECTOR: [Patch; 4] = [
     ALLNET_AUTHORIZED,
     ALLNET_BILLING_IDLE,
     // Stopgap: the title movie stalls in Sofdec PREP, so the projector never sent GAME_READY. sub_88A230: call
@@ -187,6 +200,7 @@ static PROJECTOR: [Patch; 3] = [
         new: &[0xe8, 0x8e, 0x0a, 0x18, 0x00, 0x84, 0xc0, 0x90, 0x90],
         what: "projector title movie counted as over (VA 0x0088A294 jz -> nop nop)",
     },
+    MOVIE_ASYNC_DEPTH,
 ];
 
 /// The server (control_Release.exe): its ALL.Net library's "network up" check answers yes, so it connects to the local
@@ -503,6 +517,19 @@ mod tests {
                 .chain(&CONTROL)
                 .all(|p| p.old.len() == p.new.len())
         );
+    }
+
+    #[test]
+    fn movies_get_asyncdepth_1_in_both_clients() {
+        let p = &MOVIE_ASYNC_DEPTH;
+        let mut buf = vec![0xccu8; p.at + 16];
+        buf[p.at..p.at + 4].copy_from_slice(p.old);
+        let out = apply(&buf, std::slice::from_ref(p)).unwrap();
+        assert_eq!(out[p.at..p.at + 4], [0xc6, 0x40, 0x0e, 0x01]); // mov byte [eax+0Eh], 1
+        buf[p.at] = 0x90; // not the original: refused
+        assert!(apply(&buf, std::slice::from_ref(p)).is_err());
+        let both = SEAT.iter().chain(&PROJECTOR).filter(|q| q.at == p.at);
+        assert_eq!(both.count(), 2); // seat 1 and the projector
     }
 
     #[test]
