@@ -15,6 +15,9 @@ In-app updates, a crash fix and catalogue fixes from player reports.
     "normale", "レギュラー").
   - A team holds one card per player: adding a second card of a player from the catalogue is refused with a message,
     and a card dropped on the board takes the place of that player's other card.
+  - The high-quality card picture pack works: in Launcher, CARD PICTURES, "Choose pack..." takes the pack ZIP
+    (forza-wccf-card-pictures-hq-*.zip). Before, Launcher refused it, and pictures unzipped by hand were removed at
+    the next setup.
   - The programs no longer contain folder paths of the PC that built them.
 
 0.3.0 - 2026-10-23 (alpha)

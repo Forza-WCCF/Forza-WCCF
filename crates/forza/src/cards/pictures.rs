@@ -221,6 +221,9 @@ const PICK: &str = "SELECT l.game_card_no, c.front FROM game_link l JOIN cards c
 /// whole cards; the board trims them as it draws) -> (written, failures). Cards the pack lacks are left as they are.
 pub fn from_pack(pack: &Path, edition: &str, out: &Path) -> io::Result<(usize, Vec<String>)> {
     let mut zip = zip::ZipArchive::new(File::open(pack)?).map_err(io::Error::other)?;
+    if zip.index_for_name("cards.db").is_none() {
+        return from_prebuilt(&mut zip, edition, out);
+    }
     let mut db = tempfile::NamedTempFile::new()?;
     io::copy(
         &mut zip.by_name("cards.db").map_err(io::Error::other)?,
@@ -258,6 +261,52 @@ pub fn from_pack(pack: &Path, edition: &str, out: &Path) -> io::Result<(usize, V
         match one() {
             Ok(()) => done += 1,
             Err(e) => fails.push(format!("card {no} ({front}): {e}")),
+        }
+    }
+    Ok((done, fails))
+}
+
+/// The pack as players get it (forza-wccf-card-pictures-hq-*.zip, no cards.db): each scan once in `pictures/`, and
+/// per edition `2017-2018/cards.tsv` / `2010-2011/cards.tsv` (`<number>\t<picture>`, one card a line) and the
+/// edition's hq_stats.tsv. The edition's cards go into `out` as `<number>.jpg`.
+fn from_prebuilt(
+    zip: &mut zip::ZipArchive<File>,
+    edition: &str,
+    out: &Path,
+) -> io::Result<(usize, Vec<String>)> {
+    let top = if edition == "1011" {
+        "2010-2011"
+    } else {
+        "2017-2018"
+    };
+    let mut list = String::new();
+    io::Read::read_to_string(
+        &mut zip.by_name(&format!("{top}/cards.tsv")).map_err(|_| {
+            bad("the ZIP is not a card pack: no cards.db and no cards.tsv for this edition")
+        })?,
+        &mut list,
+    )?;
+    fs::create_dir_all(out)?;
+    let (mut done, mut fails) = (0, Vec::new());
+    let mut copy = |from: &str, to: &str| -> io::Result<()> {
+        let mut f = zip.by_name(from).map_err(io::Error::other)?;
+        let path = out.join(to);
+        let tmp = path.with_extension("tmp");
+        io::copy(&mut f, &mut File::create(&tmp)?)?;
+        fs::rename(&tmp, &path)
+    };
+    if let Err(e) = copy(&format!("{top}/{}", super::hq::FILE), super::hq::FILE) {
+        fails.push(format!("stats: {e}"));
+    }
+    for line in list.lines() {
+        let Some((no, pic)) = line.split_once('\t').filter(|(n, p)| {
+            n.parse::<u32>().is_ok() && !p.contains(['/', '\\']) && p.ends_with(".jpg")
+        }) else {
+            continue;
+        };
+        match copy(&format!("pictures/{pic}"), &format!("{no}.jpg")) {
+            Ok(()) => done += 1,
+            Err(e) => fails.push(format!("card {no} ({pic}): {e}")),
         }
     }
     Ok((done, fails))
@@ -468,6 +517,47 @@ mod tests {
         ensure(d.path(), "1718", &out, None, &|_| {}).unwrap();
         assert!(!out.join("7049.jpg").exists() && out.join("7049.png").is_file());
         assert!(!out.join(super::super::hq::FILE).exists());
+    }
+
+    #[test]
+    fn the_prebuilt_pack_adds_this_editions_scans() {
+        let d = tempfile::tempdir().unwrap();
+        fake_game(d.path());
+        let pack = d.path().join("forza-wccf-card-pictures-hq.zip");
+        let mut z = zip::ZipWriter::new(File::create(&pack).unwrap());
+        // one scan for card 7049 (2017-18) and card 1 (2010-11), stored once
+        for (name, bytes) in [
+            ("README.txt", b"r".to_vec()),
+            ("pictures/ab.jpg", b"A".to_vec()),
+            (
+                "2017-2018/cards.tsv",
+                b"7049\tab.jpg\n7050\t../x.jpg\n".to_vec(),
+            ),
+            (
+                "2017-2018/hq_stats.tsv",
+                b"7049\tFW\t1\t1\t1\t1\t1\t1\t6\n".to_vec(),
+            ),
+            ("2010-2011/cards.tsv", b"1\tab.jpg\n".to_vec()),
+        ] {
+            z.start_file(name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            std::io::Write::write_all(&mut z, &bytes).unwrap();
+        }
+        z.finish().unwrap();
+        let out = d.path().join("cards");
+        ensure(d.path(), "1718", &out, Some(&pack), &|_| {}).unwrap();
+        assert_eq!(fs::read(out.join("7049.jpg")).unwrap(), b"A");
+        assert!(out.join(super::super::hq::FILE).is_file());
+        assert!(!out.join("1.jpg").exists() && !out.join("7050.jpg").exists()); // the other edition; a path in the list
+        // 2010-11 takes the same scan; its missing stats file is a failure, not a stop
+        let (n, fails) = from_pack(&pack, "1011", &d.path().join("x")).unwrap();
+        assert_eq!((n, fails.len()), (1, 1));
+        // a ZIP with neither cards.db nor cards.tsv is refused
+        let empty = d.path().join("empty.zip");
+        zip::ZipWriter::new(File::create(&empty).unwrap())
+            .finish()
+            .unwrap();
+        assert!(from_pack(&empty, "1718", &d.path().join("y")).is_err());
     }
 
     /// The player's own game and, if given, the pack: `FORZA_PICTURES_GAME` (the game folder), `FORZA_PICTURES_OUT`
