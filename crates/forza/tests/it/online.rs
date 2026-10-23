@@ -350,6 +350,7 @@ fn packs_match_the_python() {
             home: env("USERPROFILE"),
             user: env("USERNAME"),
             pc: env("COMPUTERNAME"),
+            folders: false, // the Python left other users' folders in
         };
         let game = r["game"].as_str().map(|g| root.join(g));
         let tail = match r["tail"].as_u64() {
@@ -397,6 +398,7 @@ fn pack_to_file_writes_the_logs_zip_scrubbed() {
         home: "C:\\Users\\alice".into(),
         user: "alice".into(),
         pc: "PC1".into(),
+        folders: true,
     };
     let dest = root.join("out.zip");
     let n = send_logs::pack_to_file(&kit, Some(&root.join("game")), &scrub, &dest).unwrap();

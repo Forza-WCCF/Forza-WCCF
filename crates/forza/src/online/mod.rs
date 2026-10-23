@@ -7,9 +7,12 @@
 //! `WANT` or `WANT SEAT n` -> `SEAT n PROJECTOR p`, `TAKEN n`, `FULL` or `ERR ...`; then `PING` -> `PONG`.
 //! Log inbox (TCP [`INBOX_PORT`]), one upload per connection: `WCCFLOGS1 SIZE VERSION\n`, SIZE bytes of ZIP, then
 //! `OK CODE\n` or `NO reason\n`.
+//! A player's problem report goes to the seat desk: `REPORT ZIP NOTE VERSION\n`, `GO`, the words and the ZIP, `OK ID`
+//! ([`report`]).
 
 pub mod gamesvr;
 pub mod lobby;
+pub mod report;
 pub mod seat;
 pub mod send_logs;
 pub mod vs;

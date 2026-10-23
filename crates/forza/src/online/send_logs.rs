@@ -3,8 +3,8 @@
 //!
 //! In the ZIP: `data\logs` (this run and the one before, not the zipped archive), the panel's logs, `panel.txt`,
 //! `keys.txt`, `running.json` and `version.txt`, each its last 2 MB at most; never the club card. What points at the
-//! person is replaced in the text: the user folder (`%USERPROFILE%`), the user name (`USER`) and the PC's name
-//! (`PC`). The newest [`DUMPS_SENT`] lean crash snapshots go whole, with the same names blanked to underscores (also
+//! person is replaced in the text: the user folder and any other `X:\Users\NAME` (`%USERPROFILE%`), the user name
+//! (`USER`) and the PC's name (`PC`). 2017-18: control's `wccfnet.log` from the game folder too. The newest [`DUMPS_SENT`] lean crash snapshots go whole, with the same names blanked to underscores (also
 //! in UTF-16) so the file keeps its layout. A note (why it was sent) goes in as `report.txt`.
 
 use super::{UploadHead, UploadReply};
@@ -51,7 +51,7 @@ fn files_in(dir: &Path) -> Vec<PathBuf> {
     v
 }
 
-/// `(name in the ZIP, path)` of what goes in. `game` is the game's executable: its folder's `seat1\forza_panel.log`.
+/// `(name in the ZIP, path)` of what goes in. `game` is the game folder: its `wccfnet.log`, and the `seat1\` beside it.
 fn files(kit: &Path, game: Option<&Path>) -> Vec<(String, PathBuf)> {
     let data = kit.join("data");
     let mut out = vec![];
@@ -72,6 +72,10 @@ fn files(kit: &Path, game: Option<&Path>) -> Vec<(String, PathBuf)> {
         out.push((format!("data/{n}"), data.join(n)));
     }
     out.push(("version.txt".into(), kit.join("version.txt")));
+    if let Some(game) = game {
+        // 2017-18: control's guard log, beside the game folder's wccfnet.dll
+        out.push(("game/wccfnet.log".into(), game.join("wccfnet.log")));
+    }
     if let Some(dir) = game.and_then(Path::parent) {
         for p in files_in(&dir.join("seat1")) {
             let n = p
@@ -108,12 +112,23 @@ fn dumps(kit: &Path) -> Vec<(String, PathBuf)> {
         .collect()
 }
 
+/// What [`pack`] puts in the ZIP, by its names there (the report dialog lists them).
+pub fn names(kit: &Path, game: Option<&Path>) -> Vec<String> {
+    dumps(kit)
+        .into_iter()
+        .chain(files(kit, game))
+        .map(|(n, _)| n)
+        .collect()
+}
+
 /// The strings that point at the person: the Windows user folder, the user name and the PC's name.
 #[derive(Clone, Debug, Default)]
 pub struct Scrub {
     pub home: String,
     pub user: String,
     pub pc: String,
+    /// Also every `X:\Users\NAME` ([`user_folders`]); off only where a test replays the Python, which left them in.
+    pub folders: bool,
 }
 
 impl Scrub {
@@ -127,6 +142,7 @@ impl Scrub {
             home,
             user: var("USERNAME"),
             pc: var("COMPUTERNAME"),
+            folders: true,
         }
     }
 
@@ -175,6 +191,9 @@ impl Scrub {
         for (needle, new, whole) in self.text_pairs() {
             data = replace(&data, &needle, whole, |_| new.to_vec());
         }
+        if self.folders {
+            data = user_folders(&data);
+        }
         data
     }
 
@@ -190,6 +209,44 @@ impl Scrub {
         }
         data
     }
+}
+
+/// Every `X:\Users\NAME` (any drive, any case, `\`, `/` or doubled separators) turned into `%USERPROFILE%`: the
+/// folders of other Windows users, or of this one under another drive letter. NAME runs to the next separator, quote or
+/// control character, so a name with spaces goes whole (one cannot start with a space).
+pub fn user_folders(data: &[u8]) -> Vec<u8> {
+    let sep = |b: u8| b == b'\\' || b == b'/';
+    let seps = |i: usize| {
+        data[i.min(data.len())..]
+            .iter()
+            .take_while(|&&b| sep(b))
+            .count()
+    };
+    let mut out = Vec::with_capacity(data.len());
+    let mut i = 0;
+    while i < data.len() {
+        if data[i].is_ascii_alphabetic() && data.get(i + 1) == Some(&b':') {
+            let a = seps(i + 2);
+            let u = i + 2 + a;
+            if a > 0 && data.len() >= u + 5 && data[u..u + 5].eq_ignore_ascii_case(b"users") {
+                let b = seps(u + 5);
+                let name = u + 5 + b;
+                let end = name
+                    + data[name..]
+                        .iter()
+                        .take_while(|&&c| !sep(c) && !b"\"'<>|:*?".contains(&c) && c >= 0x20)
+                        .count();
+                if b > 0 && end > name && data[name] != b' ' {
+                    out.extend_from_slice(b"%USERPROFILE%");
+                    i = end;
+                    continue;
+                }
+            }
+        }
+        out.push(data[i]);
+        i += 1;
+    }
+    out
 }
 
 /// `data` with every ASCII-case-insensitive, non-overlapping match of `needle` (left to right) replaced; `whole`: only
@@ -227,8 +284,20 @@ pub fn pack(
     kit: &Path,
     game: Option<&Path>,
     scrub: &Scrub,
+    tail: usize,
+    note: Option<&str>,
+) -> io::Result<(Vec<u8>, usize)> {
+    pack_within(kit, game, scrub, tail, note, LIMIT)
+}
+
+/// [`pack`], made again with shorter tails while the ZIP is over `limit` bytes (down to 64 KB a file).
+pub fn pack_within(
+    kit: &Path,
+    game: Option<&Path>,
+    scrub: &Scrub,
     mut tail: usize,
     note: Option<&str>,
+    limit: usize,
 ) -> io::Result<(Vec<u8>, usize)> {
     loop {
         let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
@@ -275,7 +344,7 @@ pub fn pack(
             n += 1;
         }
         let blob = z.finish().map_err(zip_err)?.into_inner();
-        if blob.len() > LIMIT && tail > 64 * 1024 {
+        if blob.len() > limit && tail > 64 * 1024 {
             tail /= 4;
             continue;
         }
