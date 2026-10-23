@@ -1,6 +1,22 @@
 Forza-WCCF 2017-18 - release notes
 ==================================
 
+0.3.0 - 2026-10-23 (alpha)
+--------------------------
+Movies, saved player growth and fixes from player reports.
+
+  - Movies play on PCs with many CPU threads. Before, no movie ever played there, and a cup match stayed on a black
+    screen until START was pressed. The cup now starts by itself.
+  - The keyboard keeps working after the pre-match screen closes.
+  - Your players keep their experience, level, confidence and form between plays. Before, every player went back to
+    level 0 at the next card-in. Players reset by an earlier version start again from their next save.
+  - No more "Error 3000 WCCF CONTROL NOT FOUND" after about 45 minutes of play: the server program crashed on download
+    data the stand-in sent with the wrong size.
+  - The World Players List registers every QR card 3 times (943 of the 1,000 places), the most the game allows, so
+    special coaching gets the full bonus.
+  - Launcher.exe and its shortcuts have the Forza-WCCF logo, the lobby lists the server's shops (view only), and the
+    SAVE LOGS file name includes the time.
+
 0.2.2 - 2026-10-22 (alpha)
 --------------------------
 Crash fixes for testers.

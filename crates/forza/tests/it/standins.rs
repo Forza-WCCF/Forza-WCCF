@@ -227,6 +227,17 @@ fn gamesvr_save_round_trip() {
     let ok = ask(&mut c, 277, &save_set(coach, card, 1, &blk, false));
     assert_eq!((ok.len(), word(&ok, 4), word(&ok, 8)), (76, 0, coach));
     assert_loads(&save_data(&mut c, coach, card), &blk);
+    // the players' experience records and the manager level come back at the next card-in (they reset to 0 before)
+    let mut r = save_set(coach, card, 2, &blk, false);
+    for (i, b) in r[6068..6548].iter_mut().enumerate() {
+        *b = (i % 251) as u8 + 1;
+    }
+    r[3262..3264].copy_from_slice(&[7, 1]);
+    assert_eq!(word(&ask(&mut c, 277, &r), 4), 0);
+    let a = save_data(&mut c, coach, card);
+    assert_loads(&a, &blk);
+    assert_eq!(&a[3674..4154], &r[6068..6548], "player records");
+    assert_eq!(&a[6094..6096], &[7, 1], "manager level");
     // wrong revision and unknown ids are refused
     let mut r = save_set(coach, card, 2, &blk, false);
     le(&mut r, 5940, 1);

@@ -100,7 +100,7 @@ jobs:
             git log -1 --format=%B "$c" > "$RUNNER_TEMP/msg"
             xtask/commit-msg "$RUNNER_TEMP/msg" || { echo "::error::commit $c"; exit 1; }
           done
-          # the squash merge turns the title into the commit on main
+          # the merge commit on main takes the title as its first line
           printf '%s\n' "$TITLE" > "$RUNNER_TEMP/msg"
           xtask/commit-msg "$RUNNER_TEMP/msg" || { echo "::error::pull request title"; exit 1; }
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0
+
+- The installer's release file name carries the version, and the program has the Forza-WCCF logo.
+
 ## 0.2.2
 
 - The window draws with OpenGL first: Vulkan flashed black on one graphics card and never opened the window on another.

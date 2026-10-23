@@ -95,8 +95,8 @@ In code, docs and commit messages, say "the publisher" for the game's company an
 ## Commit messages
 
 Commit messages and pull request titles follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/),
-with a scope on every commit. The commit-message hook and CI check them; a squash merge turns the pull request title
-into the commit on `main`, so the title follows the same rules.
+with a scope on every commit. The commit-message hook and CI check them. Pull requests land as merge commits, which keep
+every commit and take the pull request title as their first line, so the title follows the same rules.
 
 ```text
 type(scope)!: description
