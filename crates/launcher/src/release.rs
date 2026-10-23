@@ -79,6 +79,14 @@ pub fn is_newer(tag: &str, installed: &str) -> bool {
     }
 }
 
+/// This Launcher.exe (`own`, its build version) is not the version the folder's other files are (`files`,
+/// version.txt): a copy made while Launcher was open replaces every file but the running Launcher.exe. The numbers
+/// only (a test kit's `-label` aside); an unknown version on either side counts as no difference.
+pub fn files_differ(own: &str, files: &str) -> bool {
+    let core = |v: &str| parse(v).map(|v| (v.major, v.minor, v.patch));
+    matches!((core(own), core(files)), (Some(a), Some(b)) if a != b)
+}
+
 /// At most one startup check a day: `last` and `now` are unix seconds.  A clock set back counts as due.
 pub fn check_due(now: u64, last: Option<u64>) -> bool {
     last.is_none_or(|l| now < l || now - l >= 24 * 3600)
@@ -110,6 +118,16 @@ mod tests {
         assert!(!is_newer("v0.4.0", "kit-1208d80")); // a commit's build: unknown
         assert!(!is_newer("nonsense", "kit-0.3.0"));
         assert!(is_test("v0.4.0-rc.1") && !is_test("v0.4.0") && !is_test("nonsense"));
+    }
+
+    #[test]
+    fn launcher_and_files_differ() {
+        assert!(files_differ("0.3.2", "kit-0.3.3")); // copied 0.3.3 while the 0.3.2 Launcher was open
+        assert!(files_differ("0.3.0", "kit-0.3.2"));
+        assert!(!files_differ("0.3.2", "kit-0.3.2"));
+        assert!(!files_differ("0.3.2", "kit-0.3.2-defendertest")); // a test kit's label
+        assert!(!files_differ("0.3.2", "kit-1208d80")); // a build of a commit
+        assert!(!files_differ("0.3.2", "not known"));
     }
 
     #[test]

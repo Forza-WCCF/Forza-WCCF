@@ -43,7 +43,7 @@ use forza_ui::launcher::{self as screen, Action, Confirm, LauncherState};
 use forza_ui::theme;
 use forza_ui::widgets::Tone;
 use forza_ui::{Lang, text as ui_text};
-use launcher::release::{check_due, is_newer, parse};
+use launcher::release::{check_due, files_differ, is_newer, parse};
 use launcher::run::{self, Params};
 use launcher::{Edition, Kit, choices};
 use text::{t, tf};
@@ -986,6 +986,17 @@ fn panic_text(p: &(dyn std::any::Any + Send)) -> String {
 
 /// The window, until it is closed (or gone because the game is up and then ended well).
 fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
+    let own = env!("CARGO_PKG_VERSION");
+    log(&format!("Launcher.exe {own}, files {}", this_kit(kit)));
+    if files_differ(own, &this_kit(kit)) {
+        say(
+            tf(
+                "launcher.msg_launcher_differs",
+                &[("own", own), ("files", &version(kit))],
+            ),
+            0,
+        );
+    }
     let last = std::fs::read_to_string(check_file(kit))
         .ok()
         .and_then(|t| t.trim().parse().ok());
