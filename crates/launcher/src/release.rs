@@ -4,12 +4,13 @@
 use std::env;
 use std::fs;
 
+use semver::Version;
+
 use crate::Kit;
 
-/// Where UPDATE looks for releases, answered in the shape of GitHub's releases API (`releases?per_page=30`). A
-/// placeholder until Forza-WCCF has a release target (ROADMAP step 2): `.invalid` never resolves (RFC 2606). Pointing
-/// UPDATE at a real target is this one line.
-pub const UPDATE_URL: &str = "https://updates.invalid/wccf/";
+/// Where UPDATE looks for releases, answered in the shape of GitHub's releases API (`releases?per_page=30`).
+/// WCCF_UPDATE_URL points it elsewhere (a `.invalid/` address means no target at all).
+pub const UPDATE_URL: &str = "https://api.github.com/repos/Forza-WCCF/Forza-WCCF/";
 
 /// UPDATE_URL, or the environment variable WCCF_UPDATE_URL when it is set (a self-hosted release target).
 pub fn update_url() -> String {
@@ -22,39 +23,65 @@ fn update_url_from(env: Option<String>) -> String {
         .unwrap_or_else(|| UPDATE_URL.to_owned())
 }
 
-/// No release target yet: UPDATE finds nothing and nobody is asked.
+/// The release target is a `.invalid/` address: UPDATE finds nothing and nobody is asked.
 pub fn no_target() -> bool {
-    update_url().contains(".invalid/")
+    invalid(&update_url())
+}
+
+/// `.invalid` never resolves (RFC 2606): an UPDATE_URL there is no release target.
+pub fn invalid(url: &str) -> bool {
+    url.contains(".invalid/")
 }
 
 pub use forza::curl::{curl, system32};
 
 impl Kit {
-    /// version.txt from the kit ZIP (cargo xtask package writes it): kit-5.4, kit-5.5-test1, kit-6-test-<commit>.
+    /// version.txt from the release ZIP (cargo xtask package writes it): kit-0.3.0.
     pub fn version(&self) -> Option<String> {
         let v = fs::read_to_string(self.dir.join("version.txt")).ok()?;
         Some(v.trim().to_owned()).filter(|v| !v.is_empty())
     }
 }
 
-/// kit-5.4 -> ([5, 4], release); kit-5.5-test1 -> ([5, 5], test build); a build of a commit (kit-1208d80) -> None.
-fn parse(tag: &str) -> Option<(Vec<u32>, bool)> {
-    let rest = tag.strip_prefix("kit-")?;
-    let (number, test) = rest.split_once('-').map_or((rest, false), |(n, _)| (n, true));
-    let mut parts: Vec<u32> = number.split('.').map(str::parse).collect::<Result<_, _>>().ok()?;
-    while parts.len() > 1 && parts.last() == Some(&0) {
-        parts.pop(); // kit-5.0 is kit-5
+/// A version number: v0.3.0 or kit-0.3.0 -> 0.3.0; 8.2 -> 8.2.0; 0.4.0-rc.1 keeps its pre-release part.  Anything else
+/// (a build of a commit: kit-1208d80) -> None.
+pub fn parse(tag: &str) -> Option<Version> {
+    let rest = tag
+        .strip_prefix("kit-")
+        .or_else(|| tag.strip_prefix('v'))
+        .unwrap_or(tag);
+    let (number, tail) = rest.find(['-', '+']).map_or((rest, ""), |i| rest.split_at(i));
+    let mut parts: Vec<&str> = number.split('.').collect();
+    if parts.len() > 3
+        || parts
+            .iter()
+            .any(|p| p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit()))
+    {
+        return None;
     }
-    Some((parts, test))
+    while parts.len() < 3 {
+        parts.push("0");
+    }
+    Version::parse(&format!("{}{tail}", parts.join("."))).ok()
 }
 
-/// The release `tag` is newer than the kit that is here: a higher number, or the release of the test build that is
-/// here (kit-5.5 after kit-5.5-test1).  A test build, or a kit of unknown version, is never newer / never older.
+/// A test build: a tag with a pre-release part (v0.4.0-rc.1).  GitHub's own prerelease flag does not count.
+pub fn is_test(tag: &str) -> bool {
+    parse(tag).is_some_and(|v| !v.pre.is_empty())
+}
+
+/// The release `tag` is newer than the version that is here.  A test build, or a version of unknown shape, is never
+/// newer.
 pub fn is_newer(tag: &str, installed: &str) -> bool {
     match (parse(tag), parse(installed)) {
-        (Some((new, false)), Some((old, old_test))) => new > old || (new == old && old_test),
+        (Some(new), Some(old)) => new.pre.is_empty() && new > old,
         _ => false,
     }
+}
+
+/// At most one startup check a day: `last` and `now` are unix seconds.  A clock set back counts as due.
+pub fn check_due(now: u64, last: Option<u64>) -> bool {
+    last.is_none_or(|l| now < l || now - l >= 24 * 3600)
 }
 
 #[cfg(test)]
@@ -70,20 +97,26 @@ mod tests {
 
     #[test]
     fn newer_releases_only() {
-        assert!(is_newer("kit-5.5", "kit-5.4"));
-        assert!(is_newer("kit-6", "kit-5.10"));
-        assert!(is_newer("kit-5.10", "kit-5.9"));
-        assert!(is_newer("kit-5.5", "kit-5.5-test1"));
-        assert!(!is_newer("kit-5.4", "kit-5.4"));
-        assert!(!is_newer("kit-5.0", "kit-5"));
-        assert!(!is_newer("kit-5.3", "kit-5.4"));
-        assert!(!is_newer("kit-5.4", "kit-5.5-test1"));
-        assert!(!is_newer("kit-5.6-test1", "kit-5.4")); // a test build is never offered
-        assert!(!is_newer("kit-5.5", "kit-1208d80")); // a commit's build: unknown
-        assert!(!is_newer("v1", "kit-5.4"));
-        // CI's build of a commit since 2026-10-11 (kit.yml): kit-6-test-<commit>, a test build of 6
-        assert!(is_newer("kit-6", "kit-6-test-af17138"));
-        assert!(!is_newer("kit-5.5.1", "kit-6-test-af17138"));
-        assert!(is_newer("kit-6.1", "kit-6-test-af17138"));
+        assert!(is_newer("v0.4.0", "kit-0.3.0"));
+        assert!(is_newer("v1.0.0", "kit-0.10.0"));
+        assert!(is_newer("v0.10.0", "kit-0.9.0"));
+        assert!(is_newer("v8.3", "kit-8.2")); // two-part numbers
+        assert!(is_newer("v0.4.0", "kit-0.4.0-rc.1")); // the release after its test build
+        assert!(!is_newer("v0.3.0", "kit-0.3.0")); // equal
+        assert!(!is_newer("v0.3.0", "kit-0.3")); // 0.3 is 0.3.0
+        assert!(!is_newer("v0.2.2", "kit-0.3.0")); // older
+        assert!(!is_newer("v0.4.0", "kit-0.5.0-rc.1"));
+        assert!(!is_newer("v0.5.0-rc.1", "kit-0.3.0")); // a test build is never offered
+        assert!(!is_newer("v0.4.0", "kit-1208d80")); // a commit's build: unknown
+        assert!(!is_newer("nonsense", "kit-0.3.0"));
+        assert!(is_test("v0.4.0-rc.1") && !is_test("v0.4.0") && !is_test("nonsense"));
+    }
+
+    #[test]
+    fn startup_check_once_a_day() {
+        assert!(check_due(1_000, None));
+        assert!(!check_due(1_000 + 3_600, Some(1_000)));
+        assert!(check_due(1_000 + 86_400, Some(1_000)));
+        assert!(check_due(500, Some(1_000))); // clock set back
     }
 }

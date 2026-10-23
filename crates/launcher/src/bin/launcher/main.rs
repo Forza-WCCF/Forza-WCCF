@@ -43,7 +43,7 @@ use forza_ui::launcher::{self as screen, Action, Confirm, LauncherState};
 use forza_ui::theme;
 use forza_ui::widgets::Tone;
 use forza_ui::{Lang, text as ui_text};
-use launcher::release::is_newer;
+use launcher::release::{check_due, is_newer, parse};
 use launcher::run::{self, Params};
 use launcher::{Edition, Kit, choices};
 use text::{t, tf};
@@ -446,12 +446,33 @@ fn stop_game() {
     });
 }
 
-/// The release list, asked in the background when the window opens.
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
+
+/// data\update-check.txt: when the release list was last asked for (unix seconds).
+fn check_file(kit: &Kit) -> PathBuf {
+    kit.data().join("update-check.txt")
+}
+
+/// The release list, asked in the background: at most once a day when the window opens, and every time the UPDATE page
+/// is opened.  The edition's own releases only.
 fn ask_updates() {
+    static ASKING: AtomicBool = AtomicBool::new(false);
+    if ASKING.swap(true, Ordering::Relaxed) {
+        return;
+    }
     shared().update_note = Some((Tone::Notice, t("launcher.msg_asking")));
     thread::spawn(|| {
-        let found = update::fetch();
-        let installed = this_kit(&Kit::here());
+        let kit = Kit::here();
+        let found = update::fetch(kit.edition().name());
+        let installed = this_kit(&kit);
+        if found.is_ok() {
+            let _ = std::fs::write(check_file(&kit), unix_now().to_string());
+        }
+        ASKING.store(false, Ordering::Relaxed);
         {
             let mut s = shared();
             match found {
@@ -531,7 +552,7 @@ impl App {
             club_server: (kit.edition() == Edition::E1718)
                 .then(|| choices::setting(&settings, "club_server").unwrap_or_default()),
             vs_link: (kit.edition() == Edition::E1718).then(|| kit.settings()["vs_link"].as_bool() != Some(false)),
-            updates: kit.edition() == Edition::E1011,
+            updates: true,
             version: version(kit),
             update_open: false,
             update_status: None,
@@ -559,7 +580,7 @@ impl App {
                 tag: r.tag.clone(),
                 test: r.test,
                 date: r.date.clone(),
-                this: r.tag == installed,
+                this: parse(&r.tag).is_some() && parse(&r.tag) == parse(&installed),
                 newer: !r.test && is_newer(&r.tag, &installed),
             })
             .collect();
@@ -637,6 +658,12 @@ impl App {
             self.st.selected = Some(list.iter().position(|r| !r.test).unwrap_or(0));
             self.releases = list;
             self.list(&kit);
+        }
+        // the UPDATE page opened: the list is asked for again
+        static PAGE_SHOWN: AtomicBool = AtomicBool::new(false);
+        let shown = self.st.update_open;
+        if PAGE_SHOWN.swap(shown, Ordering::Relaxed) != shown && shown {
+            ask_updates();
         }
         if updated {
             self.st.version = version(&kit);
@@ -732,6 +759,12 @@ impl App {
             }
             Action::Update(i) => {
                 if let Some(r) = self.releases.get(i) {
+                    if r.needs_installer {
+                        // the game data changed: nothing is downloaded; the release page has the installer
+                        refuse(tf("launcher.msg_needs_installer", &[("tag", &r.tag)]));
+                        ctx.open_url(egui::OpenUrl::new_tab(&r.page));
+                        return;
+                    }
                     let key = if r.test {
                         "launcher.msg_confirm_test"
                     } else {
@@ -757,7 +790,8 @@ impl App {
                     folder: self.st.folder.trim().into(),
                     undo: false,
                 }];
-                if !lang.is_empty() {
+                // 2017-18: the game's text is rebuilt at the next start (refresh_old_text)
+                if !lang.is_empty() && kit.edition() == Edition::E1011 {
                     steps.push(Step::Text(lang));
                 }
                 steps.push(Step::Pictures); // last: a failure here must not skip the game's text
@@ -952,8 +986,11 @@ fn panic_text(p: &(dyn std::any::Any + Send)) -> String {
 
 /// The window, until it is closed (or gone because the game is up and then ended well).
 fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
-    if kit.edition() == Edition::E1011 {
-        ask_updates(); // the releases are 2010-11 kits: never offered to the 2017-18 kit
+    let last = std::fs::read_to_string(check_file(kit))
+        .ok()
+        .and_then(|t| t.trim().parse().ok());
+    if check_due(unix_now(), last) {
+        ask_updates();
     }
     if !first.is_empty() {
         start(first);
@@ -1145,11 +1182,7 @@ fn main() -> ExitCode {
     }
     let kit = Kit::here();
     let first = args.first().map(|a| a.to_string_lossy().to_ascii_lowercase());
-    // the 2017-18 kit: no updates (the releases are 2010-11 kits)
-    let e1011 = kit.edition() == Edition::E1011;
-    if e1011 {
-        update::tidy(&kit);
-    }
+    update::tidy(&kit);
     text::choose(choices::setting(&kit.settings_file(), "language").as_deref());
     // a plain start (no arguments): first run, the kit folder gets the installer's name for its edition (link.rs)
     if args.is_empty() {
