@@ -22,16 +22,17 @@ clang-cl that ships with Visual Studio, and runs the Windows test programs nativ
    git config --global core.longpaths true
    ```
 
-3. Keep the repository on a local NTFS drive, near the drive root (`E:\wccf-mono`). Windows 11: put it on a
+3. Keep the repository on a local NTFS drive, near the drive root (`E:\forza-wccf`). Windows 11: put it on a
    [Dev Drive](https://learn.microsoft.com/windows/dev-drive/). Windows 10 has no Dev Drive; add Defender exclusions for
    the repository, `%USERPROFILE%\.cargo` and `%USERPROFILE%\.rustup` instead (admin PowerShell):
 
    ```powershell
-   Add-MpPreference -ExclusionPath E:\wccf-mono, $env:USERPROFILE\.cargo, $env:USERPROFILE\.rustup
+   Add-MpPreference -ExclusionPath E:\forza-wccf, $env:USERPROFILE\.cargo, $env:USERPROFILE\.rustup
    ```
 
-   The exclusions switch off Defender scanning for those folders, so keep the list to these three. Without them or a
-   Dev Drive, builds run noticeably slower.
+   A worktree beside the repository (`E:\forza-wccf-<branch>`) is another folder: add it too, or keep the worktrees in
+   one excluded folder. The exclusions switch off Defender scanning for those folders, so keep the list short. Without
+   them or a Dev Drive, builds run noticeably slower.
 4. Install the commit-message hook once per clone:
 
    ```sh
@@ -49,6 +50,20 @@ clang-cl that ships with Visual Studio, and runs the Windows test programs nativ
    ```
 
    One `cargo xtask check` at a time per PC: the tests use fixed local ports.
+
+6. Faster builds (optional):
+
+   - `cargo xtask build --fast` and `cargo xtask check --fast` use the `fast` profile: release code without LTO,
+     incremental, and the tests share its dependencies. For local test kits only; `cargo xtask package` and CI build
+     `release`.
+   - [cargo-nextest](https://nexte.st) (`cargo install cargo-nextest --locked`): `check` runs the tests with it when
+     it is installed, one process per test on all cores. Arguments after `--` go to it, e.g.
+     `cargo xtask check ci -- --partition count:1/2`.
+   - A new worktree builds every crate from zero. Share the dependencies between worktrees with
+     [sccache](https://github.com/mozilla/sccache) (`cargo install sccache --locked`, then
+     `setx RUSTC_WRAPPER sccache`; `check` then builds non-incremental, so sccache can serve it), or with one output
+     folder (`setx CARGO_TARGET_DIR E:\cargo-target`): the kits stay in each worktree's `target\`, but two builds
+     in two worktrees then wait for each other. Add that folder to the Defender exclusions too.
 
 WSL is optional and only for the reverse-engineering tools and the Linux server deploy (`deploy/`). Do not start the
 build or the games from a WSL shell ([docs/SAFETY.md](docs/SAFETY.md)).
