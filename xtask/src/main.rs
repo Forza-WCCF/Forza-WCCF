@@ -1235,7 +1235,10 @@ fn guard_tests(ck: &mut Checks, kit: &Path) -> Result<()> {
         ),
     ] {
         let mut c = Command::new(t.join(exe));
-        c.arg(t.join(dll)).current_dir(&t);
+        // the debug trace would add its own lines to wccfnet.log
+        c.arg(t.join(dll))
+            .current_dir(&t)
+            .env_remove("WCCF_TRACE_NET");
         ck.run(what, c, false);
     }
     for (what, mode) in [
