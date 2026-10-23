@@ -3,13 +3,15 @@
 //! control's debug log), and holds the projector box out of the game until a player is in (2010-11).
 //!
 //! Lines in [`forza::online`]'s words: `WANT` / `WANT SEAT n` -> `SEAT n PROJECTOR p` | `TAKEN n` | `FULL` | `ERR ...`,
-//! then `PING` -> `PONG`. `RELEASE t` -> `OK` | `GONE` drops a lobby reservation. `HOLD` -> `HOLD 1` | `HOLD 0` (2010-11 only; the box asks it).
+//! then `PING` -> `PONG`. `RELEASE t` -> `OK` | `GONE` drops a lobby reservation. `REPORT ZIP NOTE VERSION` -> `GO`, then
+//! the words and the ZIP -> `OK id` | `NO why`: a player's problem report ([`crate::reports`]). `HOLD` -> `HOLD 1` | `HOLD 0` (2010-11 only; the box asks it).
 //!
 //! The lobby's VS rooms ([`forza::online::lobby`] has the words): `CREATE vs [open]` -> `ROOM id code t seat` | `FULL`,
 //! `RESERVE room-id [2]` -> `TICKET t 2` | `FULL` | `TAKEN` | `CLOSED`, `READY id t`, `CLOSE id t`, and `HEARTBEAT` /
 //! `RELEASE` for room tickets as for shop seats. Each live room ticket is told to the shared [`Matcher`], which pairs
 //! the two PCs holding one room's tickets with each other only (`crates/server/README.md`, "VS rooms").
 
+use crate::reports::Reports;
 use crate::{Edition, Handle, Log};
 use forza::online::lobby::{
     self, Created, Lobby, Occupant, Reserved, Shop, State as ShopState, VsRoom,
@@ -71,6 +73,8 @@ pub struct DeskConfig {
     /// `RESERVE` and `CREATE` per address in [`DeskConfig::ask_window`], else `ERR slow` (20 per 60 s).
     pub ask_limit: u32,
     pub ask_window: Duration,
+    /// Where `REPORT` keeps players' problem reports (`forza-server --reports`); None: `NO` to every report.
+    pub reports: Option<Arc<Reports>>,
 }
 
 impl DeskConfig {
@@ -96,6 +100,7 @@ impl DeskConfig {
             max_rooms: 200,
             ask_limit: 20,
             ask_window: Duration::from_secs(60),
+            reports: None,
         }
     }
 }
@@ -489,6 +494,19 @@ fn session(
             return match n.parse().ok().filter(|n| SEATS.contains(n)) {
                 Some(n) => reserve(sh, id, Some(n), &mut out),
                 None => out.write_all(b"ERR seat\n"),
+            };
+        }
+        ["REPORT", ..] => {
+            return match &sh.cfg.reports {
+                Some(r) => r.serve(
+                    sh.cfg.edition,
+                    log,
+                    &line,
+                    std::mem::take(&mut lines.buf),
+                    &out,
+                    ip,
+                ),
+                None => out.write_all(b"NO reports are not kept here\n"),
             };
         }
         ["HEARTBEAT", t] => return heartbeat(sh, t, &mut out),

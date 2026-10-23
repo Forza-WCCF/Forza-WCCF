@@ -8,4 +8,5 @@ mod inbox;
 mod load;
 mod lobby;
 mod relay;
+mod reports;
 mod rooms;

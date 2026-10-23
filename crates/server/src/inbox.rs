@@ -8,7 +8,7 @@ use forza::online::{MAX_UPLOAD, UploadHead, UploadReply};
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -62,32 +62,81 @@ struct Shared {
 
 /// The oldest uploads go while the folder holds more than `keep` bytes.
 fn trim(sh: &Shared) {
-    let _one = sh.trim_lock.lock().unwrap_or_else(|e| e.into_inner());
-    let Ok(dir) = std::fs::read_dir(&sh.cfg.folder) else {
+    trim_folder(
+        "inbox",
+        &sh.cfg.folder,
+        sh.cfg.keep,
+        &[],
+        &sh.trim_lock,
+        &sh.log,
+    );
+}
+
+/// The oldest `.zip` files (by modified time), each with its namesakes with the extensions in `with` (`txt`), go while they take
+/// more than `keep` bytes in `folder`. `one` keeps it to one trim at a time: a second scan would act on a stale total.
+/// `what` names the folder in the log.
+pub(crate) fn trim_folder(
+    what: &str,
+    folder: &Path,
+    keep: u64,
+    with: &[&str],
+    one: &Mutex<()>,
+    log: &Log,
+) {
+    let _one = one.lock().unwrap_or_else(|e| e.into_inner());
+    let Ok(dir) = std::fs::read_dir(folder) else {
         return;
     };
+    let len = |p: &Path| std::fs::metadata(p).map_or(0, |m| m.len());
     let mut files: Vec<(SystemTime, u64, PathBuf)> = dir
         .filter_map(Result::ok)
         .filter(|e| e.file_name().to_string_lossy().ends_with(".zip"))
         .filter_map(|e| {
             let m = e.metadata().ok()?;
-            Some((m.modified().ok()?, m.len(), e.path()))
+            let p = e.path();
+            let size = m.len() + with.iter().map(|x| len(&p.with_extension(x))).sum::<u64>();
+            Some((m.modified().ok()?, size, p))
         })
         .collect();
     files.sort();
     let mut total: u64 = files.iter().map(|f| f.1).sum();
     for (_, size, path) in files {
-        if total <= sh.cfg.keep {
+        if total <= keep {
             break;
         }
         if std::fs::remove_file(&path).is_ok() {
+            for x in with {
+                let _ = std::fs::remove_file(path.with_extension(x));
+            }
             total -= size;
-            (sh.log)(&format!(
-                "inbox full: removed the oldest, {}",
-                path.file_name().unwrap().to_string_lossy()
+            log(&format!(
+                "{what} full: removed the oldest, {}",
+                path.file_name().unwrap_or_default().to_string_lossy()
             ));
         }
     }
+}
+
+/// One more from `ip` in the last hour; true (and not counted) when it already had `per_hour`.
+pub(crate) fn hourly_over(
+    recent: &Mutex<HashMap<String, Vec<Instant>>>,
+    ip: &str,
+    per_hour: usize,
+) -> bool {
+    let now = Instant::now();
+    let hour = Duration::from_secs(3600);
+    let mut recent = recent.lock().unwrap_or_else(|e| e.into_inner());
+    if recent.len() > 1024 {
+        // addresses gone quiet for an hour leave the map (it would grow for the server's lifetime)
+        recent.retain(|_, t| t.iter().any(|t| now.duration_since(*t) < hour));
+    }
+    let times = recent.entry(ip.to_string()).or_default();
+    times.retain(|t| now.duration_since(*t) < hour);
+    if times.len() >= per_hour {
+        return true;
+    }
+    times.push(now);
+    false
 }
 
 /// `n` characters of [`CODE_CHARS`] (the inbox's 5-character codes, the desk's VS room codes and club ids).
@@ -105,7 +154,7 @@ pub(crate) fn code(n: usize) -> String {
 }
 
 /// A name part that is safe in a file name: `[0-9A-Za-z.-]`, anything else (each byte of it) `_`, 24 characters.
-fn clean_version(v: &str) -> String {
+pub(crate) fn clean_version(v: &str) -> String {
     v.chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
@@ -180,27 +229,12 @@ fn upload(
         );
         return Ok(());
     }
-    {
-        let now = Instant::now();
-        let mut recent = sh.recent.lock().unwrap();
-        if recent.len() > 1024 {
-            // addresses gone quiet for an hour leave the map (it would grow for the server's lifetime)
-            recent.retain(|_, t| {
-                t.iter()
-                    .any(|t| now.duration_since(*t) < Duration::from_secs(3600))
-            });
-        }
-        let times = recent.entry(ip.to_string()).or_default();
-        times.retain(|t| now.duration_since(*t) < Duration::from_secs(3600));
-        if times.len() >= sh.cfg.per_hour {
-            drop(recent);
-            no(
-                conn,
-                "too many from this address - try again in an hour".into(),
-            );
-            return Ok(());
-        }
-        times.push(now);
+    if hourly_over(&sh.recent, ip, sh.cfg.per_hour) {
+        no(
+            conn,
+            "too many from this address - try again in an hour".into(),
+        );
+        return Ok(());
     }
     let mut data = rest[..rest.len().min(size)].to_vec();
     while data.len() < size {
