@@ -1085,6 +1085,42 @@ impl Run<'_> {
         })
     }
 
+    /// `lang` ("en", "it", "" Japanese) into the game files, logged in run_english.txt: None when done, else why not.
+    fn switch_text(&self, lang: &str) -> Option<String> {
+        // forza::text swaps each file in one step, so even a stop half way leaves every file in place
+        let log = file_log(self.logs().join("run_english.txt"));
+        let last = Mutex::new(String::new());
+        let say = |l: &str| {
+            log(l);
+            if !l.trim().is_empty() {
+                *last.lock().unwrap_or_else(PoisonError::into_inner) = l.trim().to_owned();
+            }
+        };
+        match crate::setup::text_step(self.kit, lang, &say) {
+            0 => None,
+            code => Some(
+                Some(last.into_inner().unwrap_or_else(PoisonError::into_inner))
+                    .filter(|l| !l.is_empty())
+                    .unwrap_or_else(|| format!("exit {code}")),
+            ),
+        }
+    }
+
+    /// English or Italian built from an older kit's sheets (a kit copied over the old one, no text switch since):
+    /// built again from this kit's, in the same language, before anything starts.
+    fn refresh_old_text(&self) {
+        let lang = self.kit.game_language();
+        let backup = self.kit.data().join("english_backup");
+        if lang.is_empty() || !forza::text::stale(self.edition, &backup, self.kit.dir()) {
+            return;
+        }
+        self.say("  The game's text is from an older Forza-WCCF: building it again...");
+        match self.switch_text(lang) {
+            Some(why) => self.say(&format!("  Could not build the text ({why}). Starting as is.")),
+            None => self.say("  Game text is up to date."),
+        }
+    }
+
     /// The SETTINGS panel's english=on|it|off: done now, before anything starts (the switch refuses while the game
     /// runs), then taken out of the file - a request, not a lasting setting.
     fn apply_english_request(&self) {
@@ -1103,24 +1139,7 @@ impl Run<'_> {
                 _ => "the original Japanese",
             };
             self.say(&format!("  Switching the game's text to {name}..."));
-            // forza::text swaps each file in one step, so even a stop half way leaves every file in place
-            let log = file_log(self.logs().join("run_english.txt"));
-            let last = Mutex::new(String::new());
-            let say = |l: &str| {
-                log(l);
-                if !l.trim().is_empty() {
-                    *last.lock().unwrap_or_else(PoisonError::into_inner) = l.trim().to_owned();
-                }
-            };
-            let why = match crate::setup::text_step(self.kit, lang, &say) {
-                0 => None,
-                code => Some(
-                    Some(last.into_inner().unwrap_or_else(PoisonError::into_inner))
-                        .filter(|l| !l.is_empty())
-                        .unwrap_or_else(|| format!("exit {code}")),
-                ),
-            };
-            match why {
+            match self.switch_text(lang) {
                 Some(why) => self.say(&format!("  Could not switch the text ({why}). Starting as is.")),
                 None => self.say(&format!("  Game text is now {name}.")),
             }
@@ -1273,6 +1292,7 @@ impl Run<'_> {
                 self.say(&line);
             }
             self.apply_english_request();
+            self.refresh_old_text();
             if self.edition == Edition::E1011 {
                 // after the text switch, which puts programs back: 2017-18's guard is checked in `start`
                 self.ensure_hook()?;
