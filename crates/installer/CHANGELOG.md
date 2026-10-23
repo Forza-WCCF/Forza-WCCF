@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+
+- The program no longer contains folder paths of the PC that built it.
+
 ## 0.3.0
 
 - The installer's release file name carries the version, and the program has the Forza-WCCF logo.
