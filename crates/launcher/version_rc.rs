@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// The compiled .res for `bin` (a program; `name.dll` for a DLL), or None (and a build warning) without an rc.exe.
-pub fn make(bin: &str, what: &str) -> Option<PathBuf> {
+/// `icon`: an .ico for the program's own icon (Explorer, taskbar, shortcuts), relative to the crate.
+pub fn make(bin: &str, what: &str, icon: Option<&str>) -> Option<PathBuf> {
     let Some(rc) = find_rc() else {
         println!("cargo:warning=no rc.exe: {bin} has no version information");
         return None;
@@ -15,7 +16,14 @@ pub fn make(bin: &str, what: &str) -> Option<PathBuf> {
     let version = env::var("CARGO_PKG_VERSION").expect("CARGO_PKG_VERSION");
     let script = out.join(format!("{bin}.rc"));
     let res = out.join(format!("{bin}.res"));
-    fs::write(&script, version_rc(bin, what, &version)).expect("write the .rc");
+    let mut rc_text = version_rc(bin, what, &version);
+    if let Some(icon) = icon {
+        println!("cargo:rerun-if-changed={icon}");
+        let dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
+        let path = dir.join(icon).display().to_string().replace('\\', "/");
+        rc_text = format!("1 ICON \"{path}\"\n{rc_text}");
+    }
+    fs::write(&script, rc_text).expect("write the .rc");
     let ok = Command::new(&rc)
         .arg("/nologo")
         .arg("/fo")

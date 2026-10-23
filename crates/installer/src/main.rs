@@ -527,7 +527,13 @@ fn run_window(renderer: eframe::Renderer) -> eframe::Result {
             .with_title("Forza-WCCF Installer")
             .with_decorations(false)
             .with_inner_size(installer::SIZE)
-            .with_min_inner_size([680.0, 520.0]),
+            .with_min_inner_size([680.0, 520.0])
+            .with_icon(
+                eframe::icon_data::from_png_bytes(include_bytes!(
+                    "../../../assets/logo/forza-wccf-256.png"
+                ))
+                .expect("the logo is a PNG"),
+            ),
         renderer,
         ..Default::default()
     };

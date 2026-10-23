@@ -11,6 +11,7 @@ fn main() {
         && let Some(res) = version_rc::make(
             "forza_panel.dll",
             "the in-game panel: board, catalogue, keys, settings and club card in seat 1's window",
+            None,
         )
     {
         println!("cargo:rustc-cdylib-link-arg={}", res.display());

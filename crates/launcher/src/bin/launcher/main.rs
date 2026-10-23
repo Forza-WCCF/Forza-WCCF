@@ -981,7 +981,10 @@ fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
                 .with_maximize_button(false)
                 .with_decorations(false)
                 .with_drag_and_drop(true)
-                .with_icon(egui::IconData::default()), // Windows' own, not eframe's
+                .with_icon(
+                    eframe::icon_data::from_png_bytes(include_bytes!("../../../../../assets/logo/forza-wccf-256.png"))
+                        .expect("the logo is a PNG"),
+                ),
             ..Default::default()
         };
         let fonts = &fonts;
