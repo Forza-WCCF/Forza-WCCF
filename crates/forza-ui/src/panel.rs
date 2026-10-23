@@ -11,10 +11,12 @@ use super::widgets::{
     self, Cab, Dir, Face, KeyState, Shape, Tone, action, cabinet, cabinet_face, cabinet_shaped,
     caps, chip, field, key_cell, range_slider, segmented, shape_contains, stat_bar, status_line,
 };
-use crate::cards::{self, AddRefused, Placed};
-use crate::club_view::{self as forza_club, ClubView};
-use crate::panel_txt::{PanelFile, valid_address};
+use crate::board::{PositionColor, RarityRim};
+use crate::theme::Accent;
 use egui::{Align2, Color32, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
+use forza::cards::{self, AddRefused, Placed};
+use forza::club_view::{self as forza_club, ClubView};
+use forza::panel_txt::{PanelFile, valid_address};
 use std::sync::Arc;
 
 /// The game's own picture size (both editions) and the smallest sheet: a smaller window scales this sheet down.
@@ -117,7 +119,7 @@ impl Page {
 }
 
 /// The bindable actions, in the KEYS page's order (`forza::keys::NAMES`): (text key, cabinet colour).
-pub const ACTIONS: [(&str, Cab); crate::keys::COUNT] = [
+pub const ACTIONS: [(&str, Cab); forza::keys::COUNT] = [
     ("cab.start", Cab::Go),
     ("cab.press", Cab::Press),
     ("cab.shoot", Cab::Shoot),
@@ -406,8 +408,8 @@ pub struct PanelState {
     pub message: Option<Note>,
     pub catalogue: Catalogue,
     /// Each action's key (virtual-key code, 0 none) and controller control (`forza::keys`), in [`ACTIONS`] order.
-    pub keys: [u32; crate::keys::COUNT],
-    pub pads: [u32; crate::keys::COUNT],
+    pub keys: [u32; forza::keys::COUNT],
+    pub pads: [u32; forza::keys::COUNT],
     /// The action whose KEY cell waits for a key; whose CONTROLLER cell waits for a control.
     pub capturing: Option<usize>,
     pub pad_capturing: Option<usize>,
@@ -488,8 +490,8 @@ impl PanelState {
             ping_ms: 0,
             message: None,
             catalogue: Catalogue::default(),
-            keys: crate::keys::defaults(edition == Edition::E1718),
-            pads: [0; crate::keys::COUNT],
+            keys: forza::keys::defaults(edition == Edition::E1718),
+            pads: [0; forza::keys::COUNT],
             capturing: None,
             pad_capturing: None,
             changed: None,
@@ -713,7 +715,7 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
     }
     deal_window(ui, st, above, lang);
     if let Some(left) = st.paused {
-        let key = crate::keys::key_label(st.keys[crate::keys::PAUSE]);
+        let key = forza::keys::key_label(st.keys[forza::keys::PAUSE]);
         paused(ui, pic, lang, &key, left);
     }
     if st.close_warn {
@@ -1888,7 +1890,7 @@ pub fn keys_input(st: &mut PanelState) {
                     tr!(lang, "keys.msg_keeps", action = label(k), key = now),
                 );
             } else {
-                let key = crate::keys::key_label(vk);
+                let key = forza::keys::key_label(vk);
                 st.note(Tone::Notice, tr!(lang, "keys.msg_is_a_key", key = key));
             }
             continue;
@@ -1902,11 +1904,11 @@ pub fn keys_input(st: &mut PanelState) {
                 Tone::Notice,
                 tr!(lang, "keys.msg_keeps", action = label(k), key = key),
             );
-        } else if alt || !crate::keys::is_allowed(i128::from(vk)) {
+        } else if alt || !forza::keys::is_allowed(i128::from(vk)) {
             let key = if alt && vk != 0x12 {
                 "Alt".into()
             } else {
-                crate::keys::key_label(vk)
+                forza::keys::key_label(vk)
             };
             st.note(Tone::Refused, tr!(lang, "keys.msg_refused", key = key));
         } else {
@@ -1988,7 +1990,7 @@ fn key_name(lang: Lang, vk: u32) -> String {
     if vk == 0 {
         tr!(lang, "keys.none")
     } else {
-        crate::keys::key_label(vk)
+        forza::keys::key_label(vk)
     }
 }
 
@@ -1996,7 +1998,7 @@ fn pad_name(lang: Lang, code: u32) -> String {
     if code == 0 {
         tr!(lang, "keys.none")
     } else {
-        crate::keys::pad_label(code)
+        forza::keys::pad_label(code)
     }
 }
 
@@ -2036,8 +2038,8 @@ fn keys(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     ui.add_space(6.0);
     ui.horizontal(|ui| {
         if action(ui, &tr!(lang, "keys.defaults")).clicked() {
-            st.keys = crate::keys::defaults(st.edition == Edition::E1718);
-            st.pads = [0; crate::keys::COUNT];
+            st.keys = forza::keys::defaults(st.edition == Edition::E1718);
+            st.pads = [0; forza::keys::COUNT];
             (st.capturing, st.pad_capturing, st.changed, st.keys_changed) =
                 (None, None, None, true);
             st.say(Tone::Done, "keys.msg_defaults");
@@ -2080,11 +2082,11 @@ fn row(ui: &mut Ui, st: &mut PanelState, lang: Lang, i: usize, cell_w: f32) {
     let ks = state(st.keys[i] != 0, st.capturing == Some(i));
     let cs = state(st.pads[i] != 0, st.pad_capturing == Some(i));
     let (k, c) = (
-        crate::keys::key_label(st.keys[i]),
-        crate::keys::pad_label(st.pads[i]),
+        forza::keys::key_label(st.keys[i]),
+        forza::keys::pad_label(st.pads[i]),
     );
     let r1 = key_cell(ui, &k, ks, cell_w, lang);
-    if i == crate::keys::PAUSE {
+    if i == forza::keys::PAUSE {
         ui.label(""); // the panel's own key: the key driver reads no controller for it
         if r1.clicked() {
             st.pad_capturing = None;
@@ -3112,7 +3114,7 @@ pub fn widget_sheet(ui: &mut Ui, ws: &mut WidgetSheet) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::board::Aptitude;
+    use crate::board::Aptitude;
 
     fn sheet_of(w: f32, h: f32) -> Rect {
         // what a window of w x h pixels shows, in points
@@ -3465,7 +3467,7 @@ mod tests {
         keys_input(&mut st);
         assert_eq!((st.pads[3], st.pads[4]), (0, 0x103));
         assert_eq!(
-            crate::keys::keys_text(false, &st.keys, &st.pads)
+            forza::keys::keys_text(false, &st.keys, &st.pads)
                 .lines()
                 .last(),
             Some("PAD DATA=B3")

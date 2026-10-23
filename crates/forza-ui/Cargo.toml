@@ -1,0 +1,33 @@
+[package]
+name = "forza-ui"
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Forza-WCCF's shared UI: the theme, the bespoke widgets and the screens (step 9 design)"
+
+[dependencies]
+forza.workspace = true
+egui.workspace = true
+# `file` and `image`: the card pictures, read and decoded off the UI thread by egui's loaders (PNG only)
+egui_extras = { workspace = true, features = ["file", "image"] }
+rust-i18n.workspace = true
+# the catalogue's search: accents and other scripts folded to plain letters ("kaka" finds KAKÀ)
+deunicode = "1.6.2"
+time = { version = "0.3.55", features = ["local-offset"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Globalization"] }
+
+[dev-dependencies]
+eframe.workspace = true
+egui_kittest.workspace = true
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+tempfile = "3.27.0"
+
+[lints]
+workspace = true
+
+[[example]]
+name = "gallery"

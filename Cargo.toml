@@ -19,8 +19,10 @@ clap = { version = "4.6.7", features = ["derive"] }
 eframe = { version = "0.36.2", default-features = false, features = ["accesskit", "links", "wgpu", "glow", "wayland", "x11"] }
 egui = { version = "0.36.2", default-features = false }
 egui_extras = { version = "0.36.2", default-features = false }
+emath = { version = "0.36.2", default-features = false }
 egui_kittest = { version = "0.36.2", features = ["snapshot", "wgpu"] }
 forza = { path = "crates/forza" }
+forza-ui = { path = "crates/forza-ui" }
 rust-i18n = "4.2.4"
 fs-err = "3.3.2"
 junction = "2.1.0"

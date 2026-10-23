@@ -3,9 +3,9 @@
 
 use forza::online::lobby::Reserved;
 use forza::online::seat::{self, Timing};
-use forza::ui::lobby::{LobbyView, RowState};
 use forza_server::desk::{DeskConfig, start};
 use forza_server::{Edition, Handle};
+use forza_ui::lobby::{LobbyView, RowState};
 use launcher::lobby::{Book, MISSES, Msg, Poller};
 use std::sync::Arc;
 use std::time::{Duration, Instant};

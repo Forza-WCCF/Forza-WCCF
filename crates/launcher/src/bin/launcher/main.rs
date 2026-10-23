@@ -1,6 +1,6 @@
 //! Launcher.exe - the kit's one program, a window (2026-10-10; before, a console that ran play.py, and SETUP.exe beside
 //! it for the rest).  Nothing it starts shows a console: the game's two windows are all a player sees.  The window is
-//! eframe drawing forza's launcher screen (forza::ui::launcher, step 9.4): this file fills its state from the kit and
+//! eframe drawing forza's launcher screen (forza_ui::launcher, step 9.4): this file fills its state from the kit and
 //! does what the player asks for there.
 //!   PLAY         play on THIS PC or ONLINE on a server, the window's language, the game's text (English,
 //!                Italian or Japanese) - then this process runs the game (launcher::run) and holds every process of it
@@ -39,10 +39,10 @@ use std::{env, mem, ptr, thread};
 
 use eframe::egui;
 use egui::ViewportCommand;
-use forza::ui::launcher::{self as screen, Action, Confirm, LauncherState};
-use forza::ui::theme;
-use forza::ui::widgets::Tone;
-use forza::ui::{Lang, text as ui_text};
+use forza_ui::launcher::{self as screen, Action, Confirm, LauncherState};
+use forza_ui::theme;
+use forza_ui::widgets::Tone;
+use forza_ui::{Lang, text as ui_text};
 use launcher::release::is_newer;
 use launcher::run::{self, Params};
 use launcher::{Edition, Kit, choices};
@@ -873,7 +873,7 @@ fn version(kit: &Kit) -> String {
     v.strip_prefix("kit-").map(str::to_owned).unwrap_or(v)
 }
 
-/// Gamepad presses since the window last looked, as the lobby's keys (`forza::ui::lobby::pad_key`).
+/// Gamepad presses since the window last looked, as the lobby's keys (`forza_ui::lobby::pad_key`).
 static PAD_KEYS: Mutex<Vec<egui::Key>> = Mutex::new(Vec::new());
 
 /// Reads every controller (winmm, as the keys driver does) every 30 ms; a control newly pressed that the lobby knows
@@ -886,7 +886,7 @@ fn pad_thread() {
             let now = pads.poll();
             let new: Vec<egui::Key> = now
                 .difference(&was)
-                .filter_map(|c| forza::ui::lobby::pad_key(*c))
+                .filter_map(|c| forza_ui::lobby::pad_key(*c))
                 .collect();
             if !new.is_empty() {
                 PAD_KEYS.lock().unwrap_or_else(PoisonError::into_inner).extend(new);

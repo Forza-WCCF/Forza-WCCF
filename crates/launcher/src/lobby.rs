@@ -1,13 +1,13 @@
 //! The Launcher's online lobby (ROADMAP, "Online lobby view", L1): a polling thread that asks each server in the
 //! `servers` setting for its `LOBBY` every [`EVERY`], the [`Book`] that turns the answers into the rows
-//! `forza::ui::lobby` draws, and the reserve and heartbeat workers behind JOIN.  The window owns the threads' handles;
+//! `forza_ui::lobby` draws, and the reserve and heartbeat workers behind JOIN.  The window owns the threads' handles;
 //! dropping a [`Poller`] or a [`Beat`] ends its thread.
 
 use crate::Edition;
 use forza::online::SEAT_PORT;
 use forza::online::lobby::{self, Created, Lobby, Reserved, State, VsRoom};
-use forza::ui::Lang;
-use forza::ui::lobby::{LobbyView, Row, RowState};
+use forza_ui::Lang;
+use forza_ui::lobby::{LobbyView, Row, RowState};
 use std::collections::HashMap;
 use std::net::{SocketAddr, TcpStream};
 use std::path::Path;

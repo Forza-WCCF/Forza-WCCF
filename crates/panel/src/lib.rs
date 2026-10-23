@@ -1,4 +1,4 @@
-//! The in-game panel as a DLL in the 32-bit game (step 9.4): forza::ui's panel drawn over the game's own Direct3D 9 picture.
+//! The in-game panel as a DLL in the 32-bit game (step 9.4): forza_ui's panel drawn over the game's own Direct3D 9 picture.
 //!
 //! The mechanism is the C panel's (`native/2010-11/panel/wccfpanel.c`): a thread started from `DllMain` makes a
 //! throwaway device and reads the shared `IDirect3DDevice9::Present` and `Reset` functions from its table (slots 17
@@ -37,9 +37,9 @@ mod projector;
 
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, TextureId, ViewportId, pos2, vec2};
 use forza::cards::{self, Placed, TableFile};
-use forza::ui::board::Card;
-use forza::ui::panel::{self, PanelState};
-use forza::ui::theme;
+use forza_ui::board::Card;
+use forza_ui::panel::{self, PanelState};
+use forza_ui::theme;
 use std::cell::Cell;
 use std::ffi::c_void;
 use std::io::Write as _;
@@ -381,7 +381,7 @@ fn is_projector() -> bool {
 /// control port; one dated line in WCCF_LOGS\server_link.txt when it comes up ("UP 1.2.3.4") and when it drops ("LOST
 /// (it was up N s)", or ENDED after the player closed the window: no fault). The run reads it (launcher run::rules).
 fn link_watch() {
-    use forza::ui::panel::Link;
+    use forza_ui::panel::Link;
     let Some(dir) = std::env::var_os("WCCF_LOGS") else {
         return;
     };
@@ -941,7 +941,7 @@ impl Render {
                 dir.display()
             ));
         }
-        forza::ui::board::set_picture_dir(&ctx, Some(files.cards.clone()));
+        forza_ui::board::set_picture_dir(&ctx, Some(files.cards.clone()));
         let mut table = TableFile::in_dir(EXE_DIR.get().map_or(Path::new(""), PathBuf::as_path));
         let placed = table.read().unwrap_or_default();
         log(&format!(
@@ -1220,7 +1220,7 @@ impl Render {
 
     unsafe fn paint(&mut self, dev: &IDirect3DDevice9, w: u32, h: u32) -> bool {
         // 1 point a pixel from 1440x900 up (a bigger window, a bigger sheet), 2 from 4K, the monitor's scaling when
-        // Windows scales it (125% = 1.25), scaled down below 1440x900 (forza::ui::panel)
+        // Windows scales it (125% = 1.25), scaled down below 1440x900 (forza_ui::panel)
         let ppp = panel::scale(w as f32, h as f32, screen_dpi() as f32);
         SCALE.store(ppp.to_bits(), Relaxed);
         let mut raw = egui::RawInput {
@@ -1362,7 +1362,7 @@ impl Render {
             club.values().filter(|&&v| v >= 150).count(),
             club.values().filter(|&&v| v == 255).count()
         ));
-        self.st.links = forza::ui::board::Links {
+        self.st.links = forza_ui::board::Links {
             club,
             affinity: AFFINITY.get().cloned().flatten(),
         };
@@ -1431,7 +1431,7 @@ impl Render {
     /// read again each second. Always: SEND LOGS' answer, and a request no run took within 3 s (RESTART NOW) or 5 s
     /// (SEND LOGS) taken back and said.
     fn settings_in(&mut self) {
-        use forza::ui::widgets::Tone;
+        use forza_ui::widgets::Tone;
         let Some(f) = FILES.get() else { return };
         let open = self.st.page == panel::Page::Settings;
         if open && self.last_page != panel::Page::Settings {
@@ -1500,7 +1500,7 @@ impl Render {
     /// SETTINGS' changes: data\panel.txt written whole; RESTART NOW and SEND LOGS asked of the run through their
     /// request files (the run takes them within half a second), RESTART NOW refused during a card session.
     fn settings_out(&mut self) {
-        use forza::ui::widgets::Tone;
+        use forza_ui::widgets::Tone;
         let Some(f) = FILES.get() else { return };
         if std::mem::take(&mut self.st.file_changed) {
             let p = &self.st.file;
@@ -1654,8 +1654,8 @@ impl Render {
     /// CLUB CARD's choice, asked by its second click: data\panel.txt read again with card=FILE / card=new or
     /// card_fix=bad_endings added, written whole, then RESTART NOW (the run switches the cards while nothing runs).
     fn club_out(&mut self) {
-        use forza::ui::panel::ClubPick;
-        use forza::ui::widgets::Tone;
+        use forza_ui::panel::ClubPick;
+        use forza_ui::widgets::Tone;
         let Some(pick) = self.st.club_request.take() else {
             return;
         };
@@ -1760,7 +1760,7 @@ impl Render {
             Err(e) => {
                 log(&format!("keys: could not save {}: {e}", f.keys.display()));
                 self.st
-                    .say(forza::ui::widgets::Tone::Refused, "keys.msg_not_saved");
+                    .say(forza_ui::widgets::Tone::Refused, "keys.msg_not_saved");
             }
         }
     }

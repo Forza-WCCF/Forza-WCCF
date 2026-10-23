@@ -115,7 +115,7 @@ Refs: #12
   behaviour), `perf`, `test`, `build` (the build, xtask, dependencies), `ci`, `style` (formatting only), `chore`
   (anything else, such as release housekeeping) and `revert`.
 - **Scope:** required: the part of the project the commit changes. Use the crate or component name: `launcher`,
-  `installer`, `forza`, `ui` (`crates/forza/src/ui`), `setup` (`crates/forza/src/setup`), `panel`, `server`, `vslink`,
+  `installer`, `forza`, `ui` (`crates/forza-ui`), `setup` (`crates/forza/src/setup`), `panel`, `server`, `vslink`,
   `linux-host`, `wccfnet` (`native/2017-18/netguard`), `mxhook`, `hook` (`native/2010-11/hook`), `fpr-emu`, `xtask`,
   `deploy`, `deps`, `release`; for documents the file or area: `readme`, `contributing`, `roadmap`, `safety`, `docs`.
   Add the edition when it matters: `fix(setup): ...` with "2017-18" in the description, rather than a new scope.
@@ -143,7 +143,7 @@ BREAKING CHANGE: Launchers before 0.3.0 cannot read the lobby list.
 ## Languages
 
 English, Italian and Japanese are first-class, in that order. New or changed user-facing text ships in all three, with
-English as the source and the fallback. UI strings live in `crates/forza/locales/ui.yml`, one entry per key with `en`,
+English as the source and the fallback. UI strings live in `crates/forza-ui/locales/ui.yml`, one entry per key with `en`,
 `it` and `ja`. If you can write only one of the languages, say so in the pull request and someone will help with the
 others.
 

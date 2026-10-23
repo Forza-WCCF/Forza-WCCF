@@ -12,8 +12,8 @@ pub mod links;
 pub mod pictures;
 pub mod steps;
 
-use crate::ui::board::{Aptitude, Board, Card, Position, Rarity};
-use egui::{Pos2, pos2};
+use crate::board::{Aptitude, Board, Card, Position, Rarity};
+use emath::{Pos2, pos2};
 use std::fs;
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
@@ -857,7 +857,7 @@ mod tests {
             "JT-A11",
             "",
         ]
-        .map(crate::ui::board::series);
+        .map(crate::board::series);
         assert_eq!(
             series,
             ["WGK", "MVP", "KLE", "", "ATLE-RE", "P WOS", "JT-A", ""]
@@ -883,11 +883,6 @@ mod tests {
             let got = f64::from(n[k]) * 100.0 / 200_000.0;
             assert!((got - want).abs() <= 0.3, "tier {k}: {got} % (want {want})");
         }
-        let cards = crate::ui::sample::cards();
-        for r in [[0, 0, 7], [999, 0, 3], [999, 99, 5]] {
-            let i = deal(&cards, r).expect("the sample has every tier");
-            assert_eq!(deal_class(&cards[i]), deal_tier(r[0], r[1]));
-        }
-        assert_eq!(deal(&[], [0, 0, 0]), None);
+        assert_eq!(deal(&[], [0, 0, 0]), None); // each tier from its own cards: forza-ui's sample test
     }
 }

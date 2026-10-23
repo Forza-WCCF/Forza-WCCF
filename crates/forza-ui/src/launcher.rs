@@ -9,6 +9,7 @@ use super::widgets::{
     self, Cab, Tone, action, cabinet, field, fold, progress, segmented, start_bar, status_line,
     steps, title_bar, toggle_row,
 };
+use crate::theme::Accent;
 use egui::{Color32, Ui, vec2};
 
 pub const SIZE: egui::Vec2 = egui::vec2(600.0, 720.0);

@@ -19,6 +19,7 @@ path = "src/bin/launcher/main.rs"
 # the window: forza's launcher screen in eframe (wgpu; our fonts from fonts\, no default_fonts), pickers through rfd
 eframe.workspace = true
 forza.workspace = true
+forza-ui.workspace = true
 rfd.workspace = true
 vslink = { path = "../vslink" }
 regex = "1.13.1"

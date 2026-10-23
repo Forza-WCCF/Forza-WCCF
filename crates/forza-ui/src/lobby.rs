@@ -137,7 +137,7 @@ impl Room {
 /// `forza::keys` control number (`PAD_BUTTON + n` for button n, `PAD_HAT + 0..4` up right down left, `PAD_AXIS +
 /// 2 * axis + plus`). Buttons as an XInput pad reports them through winmm: 1 A, 2 B, 3 X, 4 Y, 5 LB, 6 RB.
 pub fn pad_key(code: u32) -> Option<Key> {
-    use crate::keys::{PAD_AXIS, PAD_BUTTON, PAD_HAT};
+    use forza::keys::{PAD_AXIS, PAD_BUTTON, PAD_HAT};
     Some(match code {
         c if c == PAD_HAT || c == PAD_AXIS + 2 => Key::ArrowUp,
         c if c == PAD_HAT + 1 || c == PAD_AXIS + 1 => Key::ArrowRight,
@@ -999,7 +999,7 @@ fn room_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::keys::{PAD_AXIS, PAD_BUTTON, PAD_HAT};
+    use forza::keys::{PAD_AXIS, PAD_BUTTON, PAD_HAT};
 
     #[test]
     fn pad_buttons_are_the_lobby_keys() {

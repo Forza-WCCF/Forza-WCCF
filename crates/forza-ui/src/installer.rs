@@ -11,6 +11,7 @@ use super::widgets::{
     self, Cab, TitleAction, Tone, action, cabinet, chip, field, progress, status_line, steps,
     toggle_row,
 };
+use crate::theme::Accent;
 use egui::{Align2, Color32, Id, Rect, Sense, Stroke, Ui, pos2, vec2};
 
 pub const SIZE: egui::Vec2 = egui::vec2(900.0, 640.0);

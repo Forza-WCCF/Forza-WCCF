@@ -2065,11 +2065,7 @@ version = "0.2.2"
 dependencies = [
  "aes 0.9.3",
  "csv",
- "deunicode",
- "eframe",
- "egui",
- "egui_extras",
- "egui_kittest",
+ "emath",
  "encoding_rs",
  "freetype-rs",
  "getrandom 0.3.4",
@@ -2077,7 +2073,6 @@ dependencies = [
  "junction",
  "regex",
  "rusqlite",
- "rust-i18n",
  "same-file",
  "serde",
  "serde_json",
@@ -2095,6 +2090,7 @@ version = "0.2.2"
 dependencies = [
  "egui",
  "forza",
+ "forza-ui",
  "image",
  "launcher",
  "serde_json",
@@ -2114,6 +2110,23 @@ dependencies = [
  "serde_json",
  "sha2",
  "time",
+]
+
+[[package]]
+name = "forza-ui"
+version = "0.2.2"
+dependencies = [
+ "deunicode",
+ "eframe",
+ "egui",
+ "egui_extras",
+ "egui_kittest",
+ "forza",
+ "image",
+ "rust-i18n",
+ "tempfile",
+ "time",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3345,6 +3358,7 @@ dependencies = [
  "eframe",
  "forza",
  "forza-server",
+ "forza-ui",
  "junction",
  "object",
  "regex",
@@ -7089,6 +7103,7 @@ dependencies = [
  "crc32fast",
  "eframe",
  "forza",
+ "forza-ui",
  "fs4",
  "ntfs",
  "pbkdf2",

@@ -13,7 +13,7 @@
 
 use crate::{FILES, RENDER, log, patches};
 use forza::pause::{self, Facts, Owed, Refusal, Timer};
-use forza::ui::widgets::Tone;
+use forza_ui::widgets::Tone;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering::Relaxed};
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -276,7 +276,7 @@ pub fn present(dev: &IDirect3DDevice9, wnd: HWND) {
     let test = test_ms();
     let e1718 = FILES
         .get()
-        .is_some_and(|f| f.edition == forza::ui::theme::Edition::E1718);
+        .is_some_and(|f| f.edition == forza_ui::theme::Edition::E1718);
     let (pid, stop_box) = if test.is_some() {
         (None, None)
     } else {
@@ -318,7 +318,7 @@ pub fn present(dev: &IDirect3DDevice9, wnd: HWND) {
         match refused {
             Some(Refusal::TooSoon(s)) => {
                 let text =
-                    forza::ui::text(r.st.lang, "pause.msg_too_soon", &[("s", &s.to_string())]);
+                    forza_ui::text(r.st.lang, "pause.msg_too_soon", &[("s", &s.to_string())]);
                 r.st.note(Tone::Refused, text);
             }
             Some(why) => r.st.say(Tone::Refused, why.key()),

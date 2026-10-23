@@ -58,7 +58,7 @@ enum Task {
         root: PathBuf,
         outdir: PathBuf,
     },
-    /// Build and open the UI design gallery (crates/forza/examples/gallery.rs)
+    /// Build and open the UI design gallery (crates/forza-ui/examples/gallery.rs)
     Gallery,
     /// The kit ZIP in dist/
     Package {
@@ -524,7 +524,7 @@ impl Cc {
 /// `FORZA_CARDS` (a folder of card pictures) passes on to it.
 fn gallery(root: &Path) -> Result<()> {
     let mut c = rust("build", root);
-    c.args(["-p", "forza", "--example", "gallery", "--target", TARGET]);
+    c.args(["-p", "forza-ui", "--example", "gallery", "--target", TARGET]);
     run_ok(c, "cargo build --example gallery")?;
     let exe = target_dir(root)
         .join(TARGET)

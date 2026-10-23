@@ -5,12 +5,12 @@ license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
-description = "Forza-WCCF's shared UI: the theme, the bespoke widgets and the screens (step 9 design)"
+description = "Forza-WCCF's shared code: setup, the stand-ins, online play, the cards and the game text (the screens are forza-ui)"
 
 [features]
-# `ui` (default): the egui screens. The Linux server builds `forza` with `--no-default-features`.
-default = ["ui"]
-ui = ["dep:csv", "dep:deunicode", "dep:egui", "dep:encoding_rs", "dep:egui_extras", "dep:image", "dep:freetype-rs", "dep:regex", "dep:rust-i18n", "dep:unicode-normalization"]
+# `full` (default): the cards, the game text and the install steps. The Linux server builds `forza` with `--no-default-features`.
+default = ["full"]
+full = ["dep:csv", "dep:encoding_rs", "dep:image", "dep:freetype-rs", "dep:regex", "dep:unicode-normalization"]
 
 [dependencies]
 aes.workspace = true
@@ -19,20 +19,16 @@ sha2.workspace = true
 csv = { version = "1.4.0", optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { workspace = true, features = ["preserve_order"] }   # forza::text keeps the backup manifest's key order
-egui = { workspace = true, optional = true }
-# `file` and `image`: the card pictures, read and decoded off the UI thread by egui's loaders (PNG only); image's
+# egui's geometry alone (Pos2, Rect): the card table's spots (forza::board)
+emath.workspace = true
 # `dds` and `jpeg`: the pictures made from the game (DXT1) and from the high-quality pack (forza::cards::pictures)
-egui_extras = { workspace = true, optional = true, features = ["file", "image"] }
 image = { version = "0.25.10", default-features = false, features = ["png", "dds", "jpeg"], optional = true }
-rust-i18n = { workspace = true, optional = true }
 zip.workspace = true
 getrandom = "0.3.4"
 tempfile = "3.27.0"
 # setup (2010-11): whether seat 1's hard link is already the game's file
 same-file = "1.0.6"
 time = { version = "0.3.55", features = ["local-offset"] }
-# the catalogue's search: accents and other scripts folded to plain letters ("kaka" finds KAKÀ)
-deunicode = { version = "1.6.2", optional = true }
 # the game text (forza::text): the printf/$ codes of a line, and the Latin spelling of player names
 regex = { version = "1.13.1", optional = true }
 unicode-normalization = { version = "0.1.25", optional = true }
@@ -45,27 +41,19 @@ rusqlite = { version = "0.40.2", features = ["bundled"] }
 
 [target.'cfg(windows)'.dependencies]
 junction.workspace = true
-windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Globalization", "Win32_System_IO", "Win32_System_Pipes", "Win32_Storage_FileSystem", "Win32_Security", "Win32_System_Memory", "Win32_System_Threading"] }
-
-[dev-dependencies]
-eframe.workspace = true
-egui_kittest.workspace = true
-
-[[example]]
-name = "gallery"
-required-features = ["ui"]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_IO", "Win32_System_Pipes", "Win32_Storage_FileSystem", "Win32_Security", "Win32_System_Memory", "Win32_System_Threading"] }
 
 [lints]
 workspace = true
 
 [[example]]
 name = "catalogue"
-required-features = ["ui"]
+required-features = ["full"]
 
 [[example]]
 name = "english"
-required-features = ["ui"]
+required-features = ["full"]
 
 [[example]]
 name = "card_steps"
-required-features = ["ui"]
+required-features = ["full"]
