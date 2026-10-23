@@ -234,7 +234,7 @@ CREATE TABLE IF NOT EXISTS coaches (
     name2      BLOB    NOT NULL DEFAULT x'', -- record +64, SAVE_DATA_SET +3,160
     rec122     INTEGER NOT NULL DEFAULT 0,   -- record +122, SAVE_DATA_SET +3,240
     play_count INTEGER NOT NULL DEFAULT 0,   -- record +123
-    titles     INTEGER NOT NULL DEFAULT 0,   -- record +124 (enterable-titles mask; set for skip clubs only)
+    titles     INTEGER NOT NULL DEFAULT 0,   -- record +124, SAVE_DATA_SET +3,216 (competition mask; 0 kept)
     created    INTEGER NOT NULL,
     updated    INTEGER NOT NULL,
     PRIMARY KEY (aime_id, coach_id)
@@ -402,7 +402,8 @@ impl Store {
         let tx = self.0.transaction()?;
         let n = tx.execute(
             "UPDATE coaches SET name1 = ?4, name2 = ?5, rec122 = ?6, play_count = min(255, play_count + ?7),
-             updated = ?8 WHERE aime_id = ?1 AND coach_id = ?2 AND card_id = ?3",
+             titles = CASE ?9 WHEN 0 THEN titles ELSE ?9 END, updated = ?8
+             WHERE aime_id = ?1 AND coach_id = ?2 AND card_id = ?3",
             params![
                 aime,
                 coach,
@@ -411,7 +412,11 @@ impl Store {
                 &req[3160..3216],
                 req[3240],
                 u8::from(kind == 2),
-                now()
+                now(),
+                // +3,216: the club's competition mask, which the client builds from save parameter 3512 and sends 0
+                // while its tutorial runs (sub_817F10); the club list shows "Tutorial" while record +124 has none
+                // of its bits (sub_792740). 0 keeps what is stored: a skip club's TitleHolder bit.
+                u32_at(req, 3216)
             ],
         )?;
         if n == 0 {
