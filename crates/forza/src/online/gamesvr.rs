@@ -156,23 +156,37 @@ fn live_chunk_size(idx: u32) -> u32 {
 /// SAVE_DATA_SET's server-side summary starts here; the store keeps +3,100..+8,572.
 const TAIL: usize = 3100;
 
-/// A stored club: block, version, size, tail.
+/// A stored club: block, version, size, and the whole stored 277 (empty = none since the `requests` table).
 type Saved = (Vec<u8>, u16, u16, Vec<u8>);
 
-/// Copies the parts of a stored SAVE_DATA_SET tail the client reads back into a SAVE_DATA answer: the players'
-/// experience, level, confidence and form (16 records of 30 bytes, 277 +6,068 -> 276 +3,674) and the manager level
-/// (277 +3,262 -> 276 +6,094), and the club's league state (277 +5,480..+5,936 -> 276 +3,100..+3,556: tail struct
-/// +4..+460, with SERVER_CLUB_RL_PRESENT_DIVISION at 277 +5,888 -> 276 +3,508, the season count, matches played,
-/// results and W/D/L; client sub_81AC50 reads it, sub_817F10 writes it). The client sets them from the answer even when
-/// zero, so without this every card-in put the players back to level 0 and a club with an all-zero league state back
-/// into league 2 (sub_83D4C0) (docs/research/ONLINE-2017-18.md, SAVE_DATA). An empty tail (no save since) is skipped.
-fn restore_tail(body: &mut [u8], tail: &[u8]) {
-    if tail.len() != 8572 - TAIL {
+/// Where a stored SAVE_DATA_SET (277, 8,572 bytes) feeds a SAVE_DATA answer (276): `(276 offset, 277 offset, length)`.
+/// The client sets these from the answer even when zero (sub_81AC50 applies them, sub_817F10 writes the 277), so a
+/// span left out puts that state back to its default at every card-in. 3,100..3,556 is the club's league state
+/// (SERVER_CLUB_RL_PRESENT_DIVISION at 277 +5,888 -> 276 +3,508, the season count, matches played, results, W/D/L; a
+/// zero state puts a club back into league 2, sub_83D4C0); 3,674..4,154 the 16 player records of 30 bytes (experience,
+/// level, confidence, form); 6,094 the manager level; the rest is the server-side summary the notes list
+/// (docs/research/ONLINE-2017-18.md, SAVE_DATA). Spans do not overlap and stay inside both messages.
+pub const TAIL_SPANS: [(usize, usize, usize); 9] = [
+    (3100, 5480, 456),
+    (3556, 5944, 60),
+    (3674, 6068, 480),
+    (4158, 6552, 6),
+    (4164, 6559, 1792),
+    (5956, 8358, 60),
+    (6094, 3262, 2),
+    (6136, 8532, 12),
+    (6152, 8544, 24),
+];
+
+/// Applies [`TAIL_SPANS`] from a stored 277 to a SAVE_DATA answer. No stored 277 (none since the club's last
+/// version) is skipped.
+fn restore_tail(body: &mut [u8], req: &[u8]) {
+    if req.len() != 8572 {
         return;
     }
-    body[3100..3556].copy_from_slice(&tail[5480 - TAIL..5936 - TAIL]);
-    body[3674..4154].copy_from_slice(&tail[6068 - TAIL..6548 - TAIL]);
-    body[6094..6096].copy_from_slice(&tail[3262 - TAIL..3264 - TAIL]);
+    for (to, from, len) in TAIL_SPANS {
+        body[to..to + len].copy_from_slice(&req[from..from + len]);
+    }
 }
 
 /// Fills a 6,176-byte SAVE_DATA answer (slot already at +0) with a stored block: +8 block, +3,080 version,
@@ -262,7 +276,65 @@ CREATE TABLE IF NOT EXISTS injustice (
     PRIMARY KEY (aime_id, coach_id)
 );
 CREATE TABLE IF NOT EXISTS ids (name TEXT PRIMARY KEY, last INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS requests (
+    aime_id  INTEGER NOT NULL,
+    coach_id INTEGER NOT NULL,  -- 0 for a request kept per shop
+    cmd      INTEGER NOT NULL,
+    payload  BLOB    NOT NULL,  -- the whole request, as the client sent it
+    updated  INTEGER NOT NULL,
+    PRIMARY KEY (aime_id, coach_id, cmd)
+);
 ";
+
+/// `PRAGMA user_version` of a store this code has migrated.
+const SCHEMA_VERSION: i64 = 1;
+
+/// Version 0 -> 1, in one transaction: a club saved before `requests` existed keeps only its tail in `saves`, so
+/// its 277 is rebuilt from the row (ids at +4/+8/+12, kind at +24, block at +28, tail at +3,100) and the first
+/// card-in already sends the stored levels and league state. Adds rows only: nothing is dropped or rewritten, and
+/// `INSERT OR IGNORE` leaves any request already there alone.
+fn migrate(db: &mut Connection) -> rusqlite::Result<()> {
+    if db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))? >= SCHEMA_VERSION {
+        return Ok(());
+    }
+    let tx = db.transaction()?;
+    type Row = (u32, u32, u32, u8, Vec<u8>, Vec<u8>, i64);
+    let rows: Vec<Row> = tx
+        .prepare(
+            "SELECT s.aime_id, s.coach_id, c.card_id, s.kind, s.block, s.tail, s.updated
+             FROM saves s JOIN coaches c USING (aime_id, coach_id) WHERE length(s.tail) = ?1",
+        )?
+        .query_map([(8572 - TAIL) as i64], |r| {
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+                r.get(6)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    for (aime, coach, card, kind, block, tail, updated) in rows {
+        if block.len() != BLOCK {
+            continue;
+        }
+        let mut req = vec![0u8; 8572];
+        put(&mut req, 4, aime);
+        put(&mut req, 8, coach);
+        put(&mut req, 12, card);
+        req[24] = kind;
+        req[28..28 + BLOCK].copy_from_slice(&block);
+        req[TAIL..].copy_from_slice(&tail);
+        tx.execute(
+            "INSERT OR IGNORE INTO requests VALUES (?1, ?2, 277, ?3, ?4)",
+            params![aime, coach, req, updated],
+        )?;
+    }
+    tx.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))?;
+    tx.commit()
+}
 
 /// Next id from counter `name` (1, 2, ...), inside the caller's transaction.
 fn next_id(db: &Connection, name: &str) -> rusqlite::Result<u32> {
@@ -275,7 +347,7 @@ fn next_id(db: &Connection, name: &str) -> rusqlite::Result<u32> {
 
 impl Store {
     pub fn open(path: &Path) -> rusqlite::Result<Self> {
-        let db = Connection::open(path)?;
+        let mut db = Connection::open(path)?;
         // WAL: a commit appends to gamesvr.db-wal; NORMAL syncs at checkpoints, so a power cut can lose the last
         // commits but never corrupts the store
         db.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
@@ -298,6 +370,7 @@ impl Store {
         if !has {
             db.execute_batch("ALTER TABLE saves ADD COLUMN tail BLOB NOT NULL DEFAULT x''")?;
         }
+        migrate(&mut db)?;
         Ok(Self(db))
     }
 
@@ -439,18 +512,27 @@ impl Store {
                 &req[TAIL..8572]
             ],
         )?;
+        // the whole request, which the next SAVE_DATA reads back (`saves.tail` stays written for an older server)
+        tx.execute(
+            "INSERT OR REPLACE INTO requests VALUES (?1, ?2, 277, ?3, ?4)",
+            params![aime, coach, &req[..8572], now()],
+        )?;
         tx.commit()?;
         Ok(true)
     }
 
-    /// The stored (block, version, size, tail) of a club.
+    /// The stored (block, version, size, 277) of a club.
     fn save(&self, aime: u32, coach: u32, card: u32) -> rusqlite::Result<Option<Saved>> {
         self.0
             .query_row(
-                "SELECT s.block, s.version, s.size, s.tail FROM saves s JOIN coaches c USING (aime_id, coach_id)
+                "SELECT s.block, s.version, s.size, r.payload FROM saves s JOIN coaches c USING (aime_id, coach_id)
+                 LEFT JOIN requests r ON r.aime_id = s.aime_id AND r.coach_id = s.coach_id AND r.cmd = 277
                  WHERE s.aime_id = ?1 AND s.coach_id = ?2 AND c.card_id = ?3",
                 params![aime, coach, card],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                |r| {
+                    let req: Option<Vec<u8>> = r.get(3)?;
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, req.unwrap_or_default()))
+                },
             )
             .optional()
     }
@@ -1076,6 +1158,99 @@ mod tests {
         // the four secretaries with an id (26..29) and the date and time left 0
         assert!((26..30).all(|n| body[16 + 1176 + n] == 1));
         assert!(body[8..16].iter().all(|b| *b == 0));
+    }
+
+    #[test]
+    fn tail_spans_stay_inside_and_apart() {
+        let mut s = TAIL_SPANS.to_vec();
+        s.sort();
+        assert!(
+            s.iter()
+                .all(|&(to, from, len)| to + len <= 6176 && from + len <= 8572)
+        );
+        assert!(s.windows(2).all(|w| w[0].0 + w[0].2 <= w[1].0));
+        let mut s: Vec<_> = TAIL_SPANS
+            .iter()
+            .map(|&(_, from, len)| (from, len))
+            .collect();
+        s.sort();
+        assert!(s.windows(2).all(|w| w[0].0 + w[0].1 <= w[1].0));
+    }
+
+    #[test]
+    fn an_old_store_gets_its_277_once_and_loses_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gamesvr.db");
+        let (block, tail): (Vec<u8>, Vec<u8>) = (
+            (0..BLOCK).map(|i| (i % 251) as u8 + 1).collect(),
+            (0..8572 - TAIL).map(|i| (i % 241) as u8 + 3).collect(),
+        );
+        {
+            // a store from before `requests`: user_version 0, a club with a block and a tail
+            let db = Connection::open(&path).unwrap();
+            db.execute_batch(SCHEMA).unwrap();
+            db.execute_batch("DROP TABLE requests").unwrap();
+            db.execute(
+                "INSERT INTO coaches (aime_id, coach_id, card_id, created, updated) VALUES (5, 1, 9, 1, 1)",
+                [],
+            )
+            .unwrap();
+            db.execute(
+                "INSERT INTO saves VALUES (5, 1, ?1, 12, 3072, 2, 1, ?2)",
+                params![block, tail],
+            )
+            .unwrap();
+        }
+        let log: Log = Arc::new(|_: &str| {});
+        let card_in = |store: &Mutex<Store>| {
+            answer(275, &req(275, [5, 1, 9]), store, None, &[], None, &log)
+                .unwrap()
+                .1
+        };
+        let store = Mutex::new(Store::open(&path).unwrap());
+        let a = card_in(&store);
+        assert_eq!(u32_at(&a, 4), 0);
+        for (to, from, len) in TAIL_SPANS {
+            assert_eq!(
+                a[to..to + len],
+                tail[from - TAIL..from - TAIL + len],
+                "span {to}"
+            );
+        }
+        {
+            let db = &store.lock().unwrap().0;
+            let n = |t: &str| -> i64 {
+                db.query_row(&format!("SELECT count(*) FROM {t}"), [], |r| r.get(0))
+                    .unwrap()
+            };
+            assert_eq!((n("coaches"), n("saves"), n("requests")), (1, 1, 1));
+            let kept: Vec<u8> = db
+                .query_row("SELECT tail FROM saves", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(kept, tail, "saves.tail untouched");
+            let req: Vec<u8> = db
+                .query_row("SELECT payload FROM requests", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!((req.len(), u32_at(&req, 8), req[24]), (8572, 1, 2));
+            assert_eq!(&req[28..28 + BLOCK], &block[..]);
+            // a later save replaces the rebuilt request; a second open must not bring the old one back
+            db.execute("UPDATE requests SET payload = zeroblob(8572)", [])
+                .unwrap();
+        }
+        drop(store);
+        let store = Mutex::new(Store::open(&path).unwrap());
+        let v: i64 = store
+            .lock()
+            .unwrap()
+            .0
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(v, 1);
+        let a = card_in(&store);
+        assert!(
+            a[3100..3556].iter().all(|b| *b == 0),
+            "not backfilled twice"
+        );
     }
 
     fn req(cmd: u16, ids: [u32; 3]) -> Vec<u8> {

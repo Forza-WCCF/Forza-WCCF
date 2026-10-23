@@ -790,3 +790,66 @@ fn vs_two_clients_pair_through_reflect() {
     );
     assert_eq!(poll(&mut a, 111, 5)[116..120], ra[116..120], "stable");
 }
+
+/// `save_set` with the server-side summary (+3,104..+8,572) filled with a pattern of `seed`, except the two words the
+/// store checks (the block sum at +5,236 and the revision at +5,940).
+fn save_with_tail(coach: u32, card: u32, kind: u8, blk: &[u8], seed: usize) -> Vec<u8> {
+    let mut r = save_set(coach, card, kind, blk, false);
+    for (i, b) in r.iter_mut().enumerate().skip(3104) {
+        if !(5236..5240).contains(&i) && !(5940..5944).contains(&i) {
+            *b = ((i * 7 + seed) % 251) as u8 + 1;
+        }
+    }
+    r
+}
+
+/// Card-in, play, save, card-in with the store reopened: every 276 span comes back from the last 277.
+#[test]
+fn gamesvr_tail_survives_play_and_restart() {
+    let dir = scratch("gamesvr_tail");
+    let blk = block();
+    let spans = gamesvr::TAIL_SPANS;
+    let check = |a: &[u8], r: &[u8]| {
+        assert_loads(a, &blk);
+        for (to, from, len) in spans {
+            assert_eq!(a[to..to + len], r[from..from + len], "span {to}");
+        }
+        // everything else in the summary area stays 0
+        for (i, b) in a.iter().enumerate().take(6176).skip(3096) {
+            if !spans
+                .iter()
+                .any(|&(to, _, len)| (to..to + len).contains(&i))
+            {
+                assert_eq!(*b, 0, "byte {i} outside the spans");
+            }
+        }
+    };
+    let (coach, card, p1, p2);
+    {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let _svc = gamesvr::spawn(l.try_clone().unwrap(), dir.clone(), quiet()).unwrap();
+        let mut c = connect(&l);
+        (coach, card) = new_club(&mut c);
+        p1 = save_with_tail(coach, card, 1, &blk, 1);
+        assert_eq!(word(&ask(&mut c, 277, &p1), 4), 0);
+        check(&save_data(&mut c, coach, card), &p1);
+        p2 = save_with_tail(coach, card, 2, &blk, 2);
+        assert_eq!(word(&ask(&mut c, 277, &p2), 4), 0);
+    }
+    let wal = dir.join("gamesvr.db-wal");
+    let t = Instant::now();
+    while wal.exists() && t.elapsed() < Duration::from_secs(3) {
+        sleep(Duration::from_millis(50));
+    }
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let _svc = gamesvr::spawn(l.try_clone().unwrap(), dir.clone(), quiet()).unwrap();
+    let mut c = connect(&l);
+    assert_eq!(
+        word(&coach_list(&mut c), 8 + 60),
+        card,
+        "the club is listed"
+    );
+    check(&save_data(&mut c, coach, card), &p2);
+    drop((c, _svc));
+    let _ = std::fs::remove_dir_all(dir);
+}
