@@ -822,6 +822,20 @@ pub fn formation_board(
             None
         }
     };
+    // a bench card in hand rubs inside its box: one signed scalar from the pointer's travel since the press
+    let rub = dragging
+        .filter(|&d| d >= 11 && board.slots[d].is_some())
+        .and_then(|d| {
+            let (p, o) = (pointer?, ui.input(|i| i.pointer.press_origin())?);
+            let v = p - o;
+            let t = if v.x.abs() >= v.y.abs() { v.x } else { v.y };
+            Some((d, (t / card.x).clamp(-1.0, 1.0)))
+        })
+        .filter(|_| !ui.input(|i| i.pointer.any_released()));
+    if board.rub != rub {
+        board.rub = rub;
+        changed = true;
+    }
     let rects = slot_rects(pitch, bench.top(), &board.spots);
 
     let hover_id = Id::new("board-hover");
@@ -1850,6 +1864,7 @@ mod tests {
             cards: (1..=4).map(card).collect(),
             slots: [None; 16],
             spots: [pos2(0.5, 0.5); 11],
+            rub: None,
         };
         b.slots[..3].copy_from_slice(&[Some(0), Some(1), Some(2)]);
         b.slots[11] = Some(3);
@@ -2051,6 +2066,80 @@ mod tests {
             &mut pitch
         ));
         assert_eq!(table_after(&before, &b)[0].x, *xs.last().unwrap());
+    }
+
+    /// A bench card in hand rubs inside its box: x and y move together (the game reads dx * dy) and stay in its band;
+    /// a still one lies on its spot.
+    #[test]
+    fn a_held_bench_card_moves_inside_its_box() {
+        use egui::{Event, PointerButton};
+        use forza::cards::{BENCH_X, BENCH_Y, Placed, table_after};
+        let before = vec![Placed {
+            slot: 1,
+            no: 101,
+            x: BENCH_X,
+            y: BENCH_Y[2],
+        }];
+        let mut b = forza::cards::board(&before, &[]);
+        assert_eq!(b.slots[13], Some(0));
+        let ctx = egui::Context::default();
+        theme::install(&ctx, theme::Edition::E1718, &theme::font_dir()).unwrap();
+        ctx.run_ui(egui::RawInput::default(), |_| {})
+            .textures_delta
+            .clear();
+        let mut pitch = Rect::NOTHING;
+        let frame = |events: Vec<Event>, b: &mut Board, pitch: &mut Rect| {
+            let raw = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(500.0, 900.0))),
+                events,
+                ..Default::default()
+            };
+            ctx.run_ui(raw, |ui| {
+                *pitch = pitch_rect(ui.cursor().min, ui.available_width());
+                formation_board(ui, b, &Links::default(), 3.0, crate::Lang::En);
+            })
+            .textures_delta
+            .clear();
+        };
+        frame(vec![], &mut b, &mut pitch);
+        // still: on its spot
+        assert_eq!(table_after(&before, &b)[0].y, BENCH_Y[2]);
+        let at = slot_rects(pitch, pitch.bottom() + 8.0, &b.spots)[13].center();
+        let press = |pos, pressed| Event::PointerButton {
+            pos,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        frame(
+            vec![Event::PointerMoved(at), press(at, true)],
+            &mut b,
+            &mut pitch,
+        );
+        let mut lines = Vec::new();
+        for dx in [10.0, 20.0, 5.0, 25.0, 0.0, 30.0] {
+            frame(
+                vec![Event::PointerMoved(at + vec2(dx, 0.0))],
+                &mut b,
+                &mut pitch,
+            );
+            let l = table_after(&before, &b)[0];
+            // the game's band: floor((y + 0.68) / 0.34)
+            assert_eq!(((l.y + 0.68) / 0.34).floor(), 2.0, "{l:?}");
+            assert!(l.x > 1.16);
+            lines.push((l.x, l.y));
+        }
+        let moves = lines.windows(2).filter(|w| w[0] != w[1]).count();
+        assert!(moves >= 4, "{lines:?}");
+        assert!(
+            lines
+                .windows(2)
+                .all(|w| (w[1].0 - w[0].0) * (w[1].1 - w[0].1) >= 0.0)
+        );
+        // let go: back on the spot
+        frame(vec![press(at, false)], &mut b, &mut pitch);
+        let l = table_after(&before, &b)[0];
+        assert_eq!((l.x, l.y), (BENCH_X, BENCH_Y[2]));
     }
 
     /// The big card is 4x the tile when the window has room, else the most that keeps it, its map and caption inside.
