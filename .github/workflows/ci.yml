@@ -81,11 +81,15 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
+          TITLE: ${{ github.event.pull_request.title }}
         run: |
           for c in $(git rev-list "$BASE..$HEAD"); do
             git log -1 --format=%B "$c" > "$RUNNER_TEMP/msg"
             xtask/commit-msg "$RUNNER_TEMP/msg" || { echo "::error::commit $c"; exit 1; }
           done
+          # the squash merge turns the title into the commit on main
+          printf '%s\n' "$TITLE" > "$RUNNER_TEMP/msg"
+          xtask/commit-msg "$RUNNER_TEMP/msg" || { echo "::error::pull request title"; exit 1; }
 
   # Everything builds and runs natively: the kits, the C self-tests, the workspace tests and the installer smoke run
   # (`cargo xtask check ci`); then the kits are scanned

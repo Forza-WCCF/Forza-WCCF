@@ -1,8 +1,9 @@
 #!/bin/bash
 # commit-msg: refuse a message that names the publisher (built from bytes, so this file does not spell it), matches a line of
 # ~/.config/forza-wccf/scrub.txt (personal data; one case-insensitive extended regex per line, # starts a comment), or
-# carries a Co-Authored-By trailer for an AI. Install: git config core.hooksPath xtask
-# CI runs it over every commit message of a pull request.
+# carries a Co-Authored-By trailer for an AI; and checks Conventional Commits 1.0.0 with a required scope
+# (CONTRIBUTING.md "Commit messages"). Install: git config core.hooksPath xtask
+# CI runs it over every commit message and the title of a pull request.
 msg=$(grep -v '^#' "$1")
 p=$(printf '\x73\x65\x67\x61')
 k=$(printf '\xe3\x82\xbb\xe3\x82\xac')
@@ -15,5 +16,28 @@ fi
 f="$HOME/.config/forza-wccf/scrub.txt"
 if [ -f "$f" ] && printf '%s' "$msg" | grep -qiEf <(grep -v '^#' "$f" | grep .) 2>/dev/null; then
     echo "commit-msg: the message matches a pattern in $f (personal data)" >&2; exit 1
+fi
+
+# Conventional Commits: type(scope)!: description, a blank line before a body, BREAKING CHANGE in capitals.
+# Git's own merge lines pass; fixup!/squash!/amend! only locally (autosquash them before the pull request).
+header=$(printf '%s\n' "$msg" | sed -n 1p)
+case "$header" in
+    "Merge "*) exit 0 ;;
+    "fixup! "*|"squash! "*|"amend! "*)
+        if [ -z "$CI" ]; then exit 0; fi
+        echo "commit-msg: autosquash fixup!/squash!/amend! commits before the pull request" >&2; exit 1 ;;
+esac
+types='build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test'
+if ! printf '%s\n' "$header" | grep -qE "^($types)\([a-z0-9][a-z0-9._/-]*\)!?: [^ ]"; then
+    echo "commit-msg: the first line must be 'type(scope): description' (Conventional Commits), e.g." >&2
+    echo "  fix(launcher): give the keyboard back to the game" >&2
+    echo "  types: ${types//|/, }; scope required, lowercase (CONTRIBUTING.md 'Commit messages')" >&2
+    exit 1
+fi
+if [ -n "$(printf '%s\n' "$msg" | sed -n 2p)" ]; then
+    echo "commit-msg: leave a blank line between the first line and the body" >&2; exit 1
+fi
+if printf '%s\n' "$msg" | grep -iE '^breaking[ -]change:' | grep -qvE '^BREAKING[ -]CHANGE: '; then
+    echo "commit-msg: write the footer as 'BREAKING CHANGE: ' in capitals" >&2; exit 1
 fi
 exit 0
