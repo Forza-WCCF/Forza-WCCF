@@ -2076,10 +2076,7 @@ impl Run<'_> {
         let left = rules::windows_left(others, home, seat_gone);
         match rules::after_end(&gone, left, |n| self.read_log(n)) {
             Some(crashed) => {
-                self.say(&format!(
-                    "A game window crashed (see data\\logs\\{}). The rest keeps running.",
-                    crashed.join(", ")
-                ));
+                self.say(&rules::went_by_itself(&crashed, |n| self.read_log(n)));
                 None
             }
             None => {
