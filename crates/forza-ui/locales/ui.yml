@@ -246,9 +246,6 @@ panel.msg_session_open: {en: "Match in progress.", it: "Partita in corso.", ja: 
 board.flip: {en: "Click: card back.", it: "Clic: retro.", ja: "クリックで裏面。"}
 board.flip_back: {en: "Click: card face.", it: "Clic: fronte.", ja: "クリックで表面。"}
 board.bench: {en: "BENCH", it: "PANCHINA", ja: "ベンチ"}
-board.zone_attack: {en: "ATTACK", it: "ATTACCO", ja: "攻撃"}
-board.zone_centre: {en: "CENTRE", it: "CENTROCAMPO", ja: "中盤"}
-board.zone_defence: {en: "DEFENCE", it: "DIFESA", ja: "守備"}
 board.hint: {en: "Drag cards to the pitch. Drop on a card to swap. Right-click: remove.", it: "Trascina sul campo. Su una carta: scambia. Clic destro: rimuovi.", ja: "ピッチへドラッグ。カードに重ねて入れ替え。右クリックで外す。"}
 board.fit_best: {en: "BEST POSITION", it: "POSIZIONE IDEALE", ja: "ベストポジション"}
 board.fit_ok: {en: "FITS", it: "ADATTO", ja: "適性あり"}

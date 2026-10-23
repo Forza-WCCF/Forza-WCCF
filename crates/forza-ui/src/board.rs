@@ -627,7 +627,7 @@ pub const CARD_ASPECT: f32 = 180.0 / 254.0;
 pub const CARD_SMALL: egui::Vec2 = egui::vec2(50.0, 50.0 / CARD_ASPECT);
 /// The pitch is this many times as tall as it is wide.
 pub const PITCH_ASPECT: f32 = 1.25;
-/// The strip down the pitch's left edge that holds the zone names; no card reaches into it.
+/// The strip down the bench well's left edge that holds its name.
 const LABEL_LANE: f32 = 26.0;
 /// The bench's cards against the pitch's.
 const BENCH_SCALE: f32 = 0.8;
@@ -638,16 +638,21 @@ pub fn card_size(pitch_w: f32) -> egui::Vec2 {
     vec2(w, (w / CARD_ASPECT).round())
 }
 
-/// Where a pitch card sits: centred on its spot across the pitch right of the zone names, pushed back inside when its
-/// edge would leave the pitch (the spot itself, what the table holds, is kept).
+/// Where a pitch card sits: centred on its spot, pushed back inside when its edge would leave the pitch (the spot
+/// itself, what the table holds, is kept). The keeper's card (a spot in the keeper's zone, [`zone`]) sits lower, as
+/// on the cabinet's mat: centred on the own goal line, on the mat's GK box, half below the lines.
 pub fn spot_rect(pitch: Rect, spot: Pos2) -> Rect {
-    let lane = pitch.with_min_x(pitch.left() + LABEL_LANE);
     let f = field(pitch);
+    let y = if zone(spot.y) == Position::Gk {
+        f.bottom()
+    } else {
+        f.top() + spot.y * f.height()
+    };
     let r = Rect::from_center_size(
-        pos2(f.left() + spot.x * f.width(), f.top() + spot.y * f.height()),
+        pos2(f.left() + spot.x * f.width(), y),
         card_size(pitch.width()),
     );
-    let inside = lane.shrink(4.0);
+    let inside = pitch.shrink(4.0);
     let push = |lo: f32, hi: f32, min: f32, max: f32| (min - lo).max(0.0) + (max - hi).min(0.0);
     r.translate(vec2(
         push(r.left(), r.right(), inside.left(), inside.right()),
@@ -684,13 +689,14 @@ fn spot_at(pitch: Rect, p: Pos2) -> Pos2 {
     )
 }
 
-/// The board's drawn field lines, right of the zone names: touchline to touchline is the table's x -1..+1, the far
-/// goal line to the own goal line its y -1..+1 (the 2010-11 C panel's FIELD_L..FIELD_B), so a card on a line lies on
-/// it in the table too.
+/// The board's drawn field lines: touchline to touchline is the table's x -1..+1, the far goal line to the own goal
+/// line its y -1..+1 (the 2010-11 C panel's FIELD_L..FIELD_B), so a card on a line lies on it in the table too. The
+/// mat goes on below the own goal line by half a card, where the keeper's box lies.
 fn field(pitch: Rect) -> Rect {
+    let m = (pitch.width() * 0.025).max(3.0);
     pitch
-        .with_min_x(pitch.left() + LABEL_LANE)
-        .shrink((pitch.width() * 0.025).max(3.0))
+        .shrink(m)
+        .with_max_y(pitch.bottom() - m - card_size(pitch.width()).y / 2.0)
 }
 
 /// The pitch a board of this width draws, from `top_left`.
@@ -743,7 +749,7 @@ pub fn formation_board(
     // a card dragged out of the catalogue
     let incoming = egui::DragAndDrop::payload::<Card>(ui.ctx());
     let pointer = ui.ctx().pointer_latest_pos();
-    paint_pitch(ui.painter(), pitch, Some(lang));
+    paint_pitch(ui.painter(), pitch, true);
     // the heat zone goes over the pitch and under the cards, once we know whose it is
     let heat_at = ui.painter().add(egui::Shape::Noop);
     // the link lines over it, under the cards
@@ -1282,18 +1288,22 @@ fn up_text(p: &Painter, strip: Rect, text: &str, col: Color32) {
     p.add(egui::epaint::TextShape::new(at, g, col).with_angle(-std::f32::consts::FRAC_PI_2));
 }
 
-/// The pitch, attacking upwards. With `labels`, the three zones carry their names up the left edge.
-fn paint_pitch(p: &Painter, pitch: Rect, labels: Option<Lang>) {
-    // mowing stripes
-    let n = 10;
-    let h = pitch.height() / n as f32;
-    let radius = if labels.is_some() {
+/// The pitch, attacking upwards. With `mat`, the formation board's: the cabinet's mat (dark mown bands, the zones
+/// FW, MF and DF printed faintly down the middle, the keeper's GK box on the own goal line, below the penalty box).
+fn paint_pitch(p: &Painter, pitch: Rect, mat: bool) {
+    let (grass, stripe, bands) = if mat {
+        (theme::MAT, theme::MAT_STRIPE, 8)
+    } else {
+        (theme::PITCH, theme::PITCH_STRIPE, 10)
+    };
+    let h = pitch.height() / bands as f32;
+    let radius = if mat {
         theme::RADIUS_BIG
     } else {
         theme::RADIUS
     };
-    p.rect_filled(pitch, radius, theme::PITCH);
-    for i in (0..n).step_by(2) {
+    p.rect_filled(pitch, radius, grass);
+    for i in (0..bands).step_by(2) {
         let r = Rect::from_min_size(pitch.min + vec2(0.0, h * i as f32), vec2(pitch.width(), h));
         let cr = egui::CornerRadius {
             nw: if i == 0 { radius } else { 0 },
@@ -1301,46 +1311,35 @@ fn paint_pitch(p: &Painter, pitch: Rect, labels: Option<Lang>) {
             sw: 0,
             se: 0,
         };
-        p.rect_filled(r, cr, theme::PITCH_STRIPE);
-    }
-    if let Some(lang) = labels {
-        // the three zones: a dashed edge and a name up the label lane
-        let bands = [
-            (0.0, 0.34, tr!(lang, "board.zone_attack")),
-            (0.34, 0.64, tr!(lang, "board.zone_centre")),
-            (0.64, 1.0, tr!(lang, "board.zone_defence")),
-        ];
-        // in spot units, as `zone` reads a card's line: the field's height, not the pitch's
-        let f = field(pitch);
-        let y = |t: f32| {
-            if t <= 0.0 {
-                pitch.top()
-            } else if t >= 1.0 {
-                pitch.bottom()
-            } else {
-                f.top() + t * f.height()
-            }
-        };
-        for (a, b, text) in bands {
-            let r = Rect::from_x_y_ranges(pitch.left()..=pitch.left() + LABEL_LANE, y(a)..=y(b));
-            if a > 0.0 {
-                p.extend(egui::Shape::dashed_line(
-                    &[pos2(pitch.left(), r.top()), pos2(pitch.right(), r.top())],
-                    Stroke::new(1.0, Color32::from_black_alpha(70)),
-                    6.0,
-                    6.0,
-                ));
-            }
-            up_text(p, r, &text, Color32::from_white_alpha(130));
-        }
+        p.rect_filled(r, cr, stripe);
     }
     // markings
-    let line = Stroke::new(1.5, theme::PITCH_LINE.gamma_multiply(0.75));
-    let f = if labels.is_some() {
+    let line = Stroke::new(
+        1.5,
+        if mat {
+            theme::MAT_LINE
+        } else {
+            theme::PITCH_LINE.gamma_multiply(0.75)
+        },
+    );
+    let f = if mat {
         field(pitch)
     } else {
         pitch.shrink((pitch.width() * 0.025).max(3.0))
     };
+    if mat {
+        // the zones, as the mat prints them: big, faint, on the middle line, in spot units
+        let size = pitch.width() * 0.2;
+        for (t, name) in [(0.25, "FW"), (0.45, "MF"), (0.745, "DF")] {
+            p.text(
+                pos2(f.center().x, f.top() + t * f.height()),
+                Align2::CENTER_CENTER,
+                name,
+                theme::display(size),
+                Color32::from_white_alpha(40),
+            );
+        }
+    }
     p.rect_stroke(f, 2, line, StrokeKind::Middle);
     p.line_segment([f.left_center(), f.right_center()], line);
     p.circle_stroke(f.center(), f.width() * 0.14, line);
@@ -1359,7 +1358,23 @@ fn paint_pitch(p: &Painter, pitch: Rect, labels: Option<Lang>) {
             pos2(f.center().x + gw / 2.0, y + gh),
         );
         p.rect_stroke(box_, 0, line, StrokeKind::Middle);
-        p.rect_stroke(goal, 0, line, StrokeKind::Middle);
+        // the mat has a goal box at the far end only
+        if !mat || dir > 0.0 {
+            p.rect_stroke(goal, 0, line, StrokeKind::Middle);
+        }
+    }
+    if mat {
+        // the keeper's box: on the own goal line, a card and a margin wide, half below it
+        let card = card_size(pitch.width());
+        let gk = Rect::from_center_size(f.center_bottom(), card + vec2(8.0, 8.0));
+        p.rect_filled(gk, 3, theme::MAT_BOX);
+        p.text(
+            gk.center(),
+            Align2::CENTER_CENTER,
+            "GK",
+            theme::display(pitch.width() * 0.09),
+            Color32::from_black_alpha(110),
+        );
     }
 }
 
@@ -1370,7 +1385,7 @@ pub fn aptitude_map(p: &Painter, rect: Rect, apt: &Aptitude, lang: Lang) {
         let size = (rect.width() * 0.055).clamp(8.0, 12.0);
         p.add(heat_zone(p, rect, field, apt, size));
     } else {
-        paint_pitch(p, rect, None);
+        paint_pitch(p, rect, false);
         p.rect_filled(rect, theme::RADIUS, Color32::from_black_alpha(140));
         let g = p.layout(
             tr!(lang, "board.no_data"),
@@ -2172,9 +2187,21 @@ mod tests {
         ] {
             assert!(pitch.contains_rect(spot_rect(pitch, s)), "{s:?}");
         }
-        let lane = pitch.with_min_x(LABEL_LANE);
         let mid = spot_rect(pitch, pos2(0.5, 0.5)).center();
-        assert!((mid - lane.center()).length() < 0.01);
+        assert!((mid - field(pitch).center()).length() < 0.01);
+    }
+
+    /// The keeper's card is drawn lower than any outfield row, on the own goal line, and a card let go there still
+    /// reads as the keeper (the table's y stays in the keeper's zone).
+    #[test]
+    fn the_keeper_sits_lower_and_reads_as_the_keeper() {
+        let pitch = pitch_rect(pos2(0.0, 0.0), 400.0);
+        let gk = spot_rect(pitch, pos2(0.5, 0.92));
+        let back = spot_rect(pitch, pos2(0.5, 0.87));
+        assert!(gk.center().y > back.center().y + 20.0);
+        assert!(pitch.contains_rect(gk));
+        assert_eq!(zone(spot_at(pitch, gk.center()).y), Position::Gk);
+        assert_eq!(zone(spot_at(pitch, back.center()).y), Position::Df);
     }
 
     #[test]

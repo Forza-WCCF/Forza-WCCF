@@ -238,6 +238,31 @@ fn board_interaction() {
     h.snapshot("board_back_en");
 }
 
+/// The 2017-18 formation board as the cabinet's mat: at rest, a card in hand, and with the keeper's slot empty.
+#[test]
+fn board_mat() {
+    let _gpu = gpu();
+    let st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
+    let spots = st.board.spots;
+    let at = |slot| panel::board_slot_center(panel::SIZE.x, &spots, slot);
+    let st = std::cell::RefCell::new(st);
+    let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+        panel::show(ui, &mut st.borrow_mut())
+    });
+    h.run_steps(4);
+    h.snapshot("board_mat_en");
+    h.drag_at(at(6));
+    h.run_steps(2);
+    h.hover_at(at(5));
+    h.run_steps(3);
+    h.snapshot("board_mat_drag_en");
+    h.drop_at(at(5));
+    h.hover_at(egui::pos2(1150.0, 280.0));
+    st.borrow_mut().board.slots[0] = None;
+    h.run_steps(3);
+    h.snapshot("board_mat_no_gk_en");
+}
+
 /// Links on the board (synthetic): every stage between pitch cards at rest; a click on card 8 (slot 7) brings its group
 /// forward with its partner list; the catalogue's stats pane lists the same card's affinity, ticks on the team.
 #[test]
