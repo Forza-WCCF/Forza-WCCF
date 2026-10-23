@@ -12,6 +12,7 @@ use super::widgets::{
     caps, chip, field, key_cell, range_slider, segmented, shape_contains, stat_bar, status_line,
 };
 use crate::board::{PositionColor, RarityRim};
+use crate::sizing;
 use crate::theme::Accent;
 use egui::{Align2, Color32, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 use forza::cards::{self, AddRefused, Placed};
@@ -1723,11 +1724,11 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                 ui.horizontal(|ui| {
                     caps(ui, &tr!(lang, "cat.results", n = results.len()));
                 });
-                let size = vec2(84.0, 118.0);
-                let gap = 10.0;
-                let per_row = ((ui.available_width() + gap) / (size.x + gap))
-                    .floor()
-                    .max(1.0) as usize;
+                let sizing::Grid {
+                    card: size,
+                    cols: per_row,
+                } = sizing::grid(ui.available_width(), ui.ctx().pixels_per_point());
+                let gap = sizing::GAP;
                 let mut area = egui::ScrollArea::vertical()
                     .id_salt("results")
                     .auto_shrink(false);
@@ -1845,6 +1846,8 @@ fn affinity_pane(ui: &mut Ui, card: &Card, links: &board::Links, on_table: &[u32
 
 /// The card's stats and its ADD button; `true` = ADD clicked.
 fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> bool {
+    let face = sizing::hover_face(ui.ctx().pixels_per_point());
+    let u = sizing::text_unit(face.x);
     egui::Frame::new()
         .fill(theme::WELL)
         .corner_radius(theme::RADIUS_BIG)
@@ -1853,17 +1856,17 @@ fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> bool {
             ui.set_width(ui.available_width());
             ui.spacing_mut().item_spacing.y = 4.0;
             ui.horizontal(|ui| {
-                let (r, _) = ui.allocate_exact_size(vec2(86.0, 120.0), Sense::hover());
+                let (r, _) = ui.allocate_exact_size(face, Sense::hover());
                 board::card_face(ui.painter(), r, card, board::Look::default());
                 ui.vertical(|ui| {
                     ui.label(
                         egui::RichText::new(tr!(lang, "cat.total"))
-                            .font(theme::display(14.0))
+                            .font(theme::display(14.0 * u))
                             .color(theme::TEXT_DIM),
                     );
                     ui.label(
                         egui::RichText::new(card.total.to_string())
-                            .font(theme::display(48.0))
+                            .font(theme::display(48.0 * u))
                             .color(theme::AMBER),
                     );
                     ui.horizontal(|ui| {
@@ -1877,7 +1880,7 @@ fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> bool {
             });
             ui.label(
                 egui::RichText::new(&card.name)
-                    .font(theme::display(22.0))
+                    .font(theme::display(22.0 * u))
                     .color(theme::TEXT),
             );
             ui.label(
@@ -1885,7 +1888,7 @@ fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> bool {
                     "{} · {} · {}",
                     card.club, card.country, card.season
                 ))
-                .font(theme::body(12.0))
+                .font(theme::body(12.0 * u))
                 .color(theme::TEXT_DIM),
             );
             // every role at the card's top rating (a card rated from its position flags has them all at 8)
@@ -1899,7 +1902,7 @@ fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> bool {
             if !best.is_empty() {
                 ui.label(
                     egui::RichText::new(tr!(lang, "cat.best_role", roles = best.join(" ")))
-                        .font(theme::body(12.0))
+                        .font(theme::body(12.0 * u))
                         .color(theme::TEXT_DIM),
                 );
             }

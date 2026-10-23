@@ -30,6 +30,7 @@ pub mod launcher;
 pub mod lobby;
 pub mod panel;
 pub mod sample;
+pub mod sizing;
 pub mod theme;
 pub mod widgets;
 
