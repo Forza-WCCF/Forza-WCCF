@@ -383,16 +383,24 @@ impl run::Ui for WindowUi {
     }
 }
 
-/// SAVE LOGS: the save dialog (forza-wccf-logs-<date>.zip), then the logs ZIP there; the place chosen, None when the
+/// `forza-wccf-logs-YYYYMMDD-HHMMSS.zip`: every ZIP the owner receives has its own name.
+fn logs_zip_name(t: time::OffsetDateTime) -> String {
+    format!(
+        "forza-wccf-logs-{:04}{:02}{:02}-{:02}{:02}{:02}.zip",
+        t.year(),
+        u8::from(t.month()),
+        t.day(),
+        t.hour(),
+        t.minute(),
+        t.second()
+    )
+}
+
+/// SAVE LOGS: the save dialog (forza-wccf-logs-<date>-<time>.zip), then the logs ZIP there; the place chosen, None when the
 /// dialog was cancelled.  Says the result in the status line.
 fn save_logs(kit: &Path, game: Option<&Path>, parent: Option<&eframe::Frame>) -> Result<Option<PathBuf>, String> {
     let now = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
-    let name = format!(
-        "forza-wccf-logs-{:04}{:02}{:02}.zip",
-        now.year(),
-        u8::from(now.month()),
-        now.day()
-    );
+    let name = logs_zip_name(now);
     let mut dialog = rfd::FileDialog::new()
         .set_title(t("logs.save_title"))
         .set_file_name(name)
@@ -1180,6 +1188,16 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn logs_zip_name_has_date_and_time() {
+        let t = time::Date::from_calendar_date(2026, time::Month::October, 22)
+            .unwrap()
+            .with_hms(22, 15, 30)
+            .unwrap()
+            .assume_utc();
+        assert_eq!(logs_zip_name(t), "forza-wccf-logs-20261022-221530.zip");
+    }
 
     #[test]
     fn play_py_steps() {
