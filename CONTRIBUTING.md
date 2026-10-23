@@ -77,6 +77,54 @@ In code, docs and commit messages, say "the publisher" for the game's company an
 - A common, maintained crate before hand-written code for anything beyond a few lines.
 - Stability first: a crash, a hang or a run that leaves processes behind outranks a new feature.
 
+## Commit messages
+
+Commit messages and pull request titles follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/),
+with a scope on every commit. The commit-message hook and CI check them; a squash merge turns the pull request title
+into the commit on `main`, so the title follows the same rules.
+
+```text
+type(scope)!: description
+
+Optional body: what changed and why, wrapped at 72 columns.
+
+Optional footers, for example:
+BREAKING CHANGE: what a user or another crate has to change
+Refs: #12
+```
+
+- **Header:** `type(scope): description`, one line. The type and the scope are lowercase; one space follows the
+  colon. The description is short, in the imperative ("add", "fix", not "added"), lowercase after the colon except
+  names, with no period at the end.
+- **Types:** `feat` (a new feature for players or contributors), `fix` (a bug fix), `docs`, `refactor` (no change in
+  behaviour), `perf`, `test`, `build` (the build, xtask, dependencies), `ci`, `style` (formatting only), `chore`
+  (anything else, such as release housekeeping) and `revert`.
+- **Scope:** required: the part of the project the commit changes. Use the crate or component name: `launcher`,
+  `installer`, `forza`, `ui` (`crates/forza/src/ui`), `setup` (`crates/forza/src/setup`), `panel`, `server`, `vslink`,
+  `linux-host`, `wccfnet` (`native/2017-18/netguard`), `mxhook`, `hook` (`native/2010-11/hook`), `fpr-emu`, `xtask`,
+  `deploy`, `deps`, `release`; for documents the file or area: `readme`, `contributing`, `roadmap`, `safety`, `docs`.
+  Add the edition when it matters: `fix(setup): ...` with "2017-18" in the description, rather than a new scope.
+- **Body:** after one blank line. Say why, and anything a reviewer cannot see in the diff.
+- **Footers:** after one blank line, `Token: value` or `Token #value`, with `-` for spaces in the token
+  (`Reviewed-by`, `Refs`). `BREAKING CHANGE: ...` (or `BREAKING-CHANGE`) is always in capitals.
+- **Breaking change:** a `!` before the colon and/or a `BREAKING CHANGE:` footer.
+- **Versions** ([docs/RELEASING.md](docs/RELEASING.md)): `fix` is a patch, `feat` a minor version, a breaking change a
+  major version (a minor one while the version is 0.x).
+- **Revert:** `revert(scope): description of the reverted commit`, with `Refs:` naming the commit hash.
+- Git's own `Merge ...` lines pass; `fixup!`, `squash!` and `amend!` commits are fine locally but must be squashed
+  (`git rebase -i --autosquash`) before a pull request.
+
+Examples:
+
+```text
+fix(launcher): give the keyboard back to the game after the match engine closes
+feat(wccfnet): log the game's send and recv when WCCF_TRACE_NET=1
+docs(contributing): adopt Conventional Commits with a required scope
+feat(server)!: answer the 2017-18 lobby in protocol v2
+
+BREAKING CHANGE: Launchers before 0.3.0 cannot read the lobby list.
+```
+
 ## Languages
 
 English, Italian and Japanese are first-class, in that order. New or changed user-facing text ships in all three, with
