@@ -186,10 +186,10 @@ jobs:
           }
           if ($bad) { exit 1 }
           exit 0
-      # one at a time: wgpu devices made in parallel crashed the test process (crates/forza/tests/it/snapshots.rs)
+      # one at a time: wgpu devices made in parallel crashed the test process (crates/forza-ui/tests/it/snapshots.rs)
       - name: snapshots (informational, the runner has no GPU)
         continue-on-error: true
-        run: 'cargo test --locked -p forza --test it --target x86_64-pc-windows-msvc -- snapshots:: --test-threads=1'
+        run: 'cargo test --locked -p forza-ui --test it --target x86_64-pc-windows-msvc -- snapshots:: --test-threads=1'
       # every detection since the job started, except the EICAR control
       - name: Defender detections during the job
         if: always() && steps.defender.outcome == 'success'
@@ -226,8 +226,8 @@ jobs:
         with:
           name: snapshot-diffs
           path: |
-            crates/forza/tests/snapshots/*.diff.png
-            crates/forza/tests/snapshots/*.new.png
+            crates/forza-ui/tests/snapshots/*.diff.png
+            crates/forza-ui/tests/snapshots/*.new.png
           retention-days: 3
           if-no-files-found: ignore
       - name: kit artifact (for testers)
