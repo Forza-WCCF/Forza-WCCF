@@ -63,6 +63,7 @@ launcher.msg_browse_title: {en: "Pick the game folder", it: "Scegli la cartella 
 launcher.msg_undo_confirm: {en: "Undo the setup?", it: "Annullare la configurazione?", ja: "設定を元に戻しますか？"}
 launcher.msg_no_folder: {en: "Pick the game folder first.", it: "Scegli prima la cartella del gioco.", ja: "先にゲームフォルダーを選択。"}
 launcher.msg_not_known: {en: "not known", it: "sconosciuta", ja: "不明"}
+launcher.update_available: {en: "%{tag} available", it: "%{tag} disponibile", ja: "%{tag} を入手できます"}
 launcher.msg_available: {en: "Version %{tag} is available. See UPDATE.", it: "È disponibile la versione %{tag}. Vedi AGGIORNAMENTO.", ja: "バージョン %{tag} を入手できます。「アップデート」を開いてください。"}
 launcher.msg_asking: {en: "Looking for updates ...", it: "Ricerca degli aggiornamenti ...", ja: "更新を確認しています..."}
 launcher.msg_pick: {en: "Pick a version, then UPDATE.", it: "Scegli una versione, poi AGGIORNA.", ja: "バージョンを選んで「アップデート」を押してください。"}

@@ -124,6 +124,8 @@ pub struct LauncherState {
     /// The version in this folder.
     pub version: String,
     pub update_open: bool,
+    /// The tag of a newer release found by the update check: shown until UPDATE is opened or the update is done.
+    pub update_available: Option<String>,
     pub update_status: Option<(Tone, String)>,
     pub releases: Vec<Release>,
     pub selected: Option<usize>,
@@ -207,6 +209,7 @@ impl LauncherState {
             updates: edition == Edition::E1011,
             version: "7.0.0".into(),
             update_open: false,
+            update_available: None,
             update_status: None,
             releases: vec![
                 release("v7.1.0-test.2", true, "2026-10-11", false, false),
@@ -311,6 +314,13 @@ pub fn show(ui: &mut Ui, st: &mut LauncherState) -> Option<Action> {
                 .auto_shrink(false)
                 .show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 10.0;
+                    if let Some(tag) = &st.update_available {
+                        status_line(
+                            ui,
+                            Tone::Notice,
+                            &tr!(lang, "launcher.msg_available", tag = tag.as_str()),
+                        );
+                    }
                     play(ui, st, lang, accent, &mut act);
                     let summary = if st.set_up {
                         tr!(lang, "launcher.setup_done")
@@ -327,7 +337,10 @@ pub fn show(ui: &mut Ui, st: &mut LauncherState) -> Option<Action> {
                         |ui| setup(ui, st, lang, &mut act),
                     );
                     st.setup_open = open;
-                    let version = tr!(lang, "launcher.this_version", v = st.version.as_str());
+                    let version = match &st.update_available {
+                        Some(tag) => tr!(lang, "launcher.update_available", tag = tag.as_str()),
+                        None => tr!(lang, "launcher.this_version", v = st.version.as_str()),
+                    };
                     if st.updates {
                         let mut open = st.update_open;
                         fold(

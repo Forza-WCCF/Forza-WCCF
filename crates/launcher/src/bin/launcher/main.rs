@@ -83,6 +83,7 @@ struct Shared {
     listed: bool, // `releases` is new: the list gets it
     status: Option<(Tone, String)>,
     update_note: Option<(Tone, String)>,
+    available: Option<String>, // the tag of a newer release: the notice stays until UPDATE is opened or done
     progress: u32,             // of 1000
     steps: Option<(u32, u32)>, // the run's "N/M" step lines: N of M
     began: Option<Instant>,    // the job's start
@@ -99,6 +100,7 @@ static SHARED: Mutex<Shared> = Mutex::new(Shared {
     listed: false,
     status: None,
     update_note: None,
+    available: None,
     progress: 0,
     steps: None,
     began: None,
@@ -328,6 +330,9 @@ fn start(steps: Vec<Step>) {
             s.status = Some((if failed { Tone::Refused } else { Tone::Done }, status));
             s.progress = if failed { 0 } else { 1000 };
             s.updated = updated.is_some();
+            if updated.is_some() {
+                set_available(&Kit::here(), &mut s, None);
+            }
             s.failed = failed;
             s.game = game;
             s.busy = false;
@@ -457,6 +462,30 @@ fn check_file(kit: &Kit) -> PathBuf {
     kit.data().join("update-check.txt")
 }
 
+/// The UPDATE page is open.
+static PAGE_SHOWN: AtomicBool = AtomicBool::new(false);
+
+/// The newer release's notice, kept in data\update-available.txt so a restart within the day still shows it.
+fn set_available(kit: &Kit, s: &mut Shared, tag: Option<String>) {
+    let file = kit.data().join("update-available.txt");
+    match &tag {
+        Some(tag) => {
+            let _ = std::fs::write(&file, tag);
+        }
+        None => {
+            let _ = std::fs::remove_file(&file);
+        }
+    }
+    s.available = tag;
+}
+
+/// At the start: the notice a check in the last day left, if it is still newer than this kit.
+fn saved_available(kit: &Kit) -> Option<String> {
+    let tag = std::fs::read_to_string(kit.data().join("update-available.txt")).ok()?;
+    let tag = tag.trim();
+    is_newer(tag, &this_kit(kit)).then(|| tag.to_owned())
+}
+
 /// The release list, asked in the background: at most once a day when the window opens, and every time the UPDATE page
 /// is opened.  The edition's own releases only.
 fn ask_updates() {
@@ -477,14 +506,10 @@ fn ask_updates() {
             let mut s = shared();
             match found {
                 Ok(list) if !list.is_empty() => {
-                    if let Some(r) = list.iter().find(|r| !r.test && is_newer(&r.tag, &installed)) {
-                        if !s.busy {
-                            s.status = Some((Tone::Notice, tf("launcher.msg_available", &[("tag", &r.tag)])));
-                        }
-                        s.update_note = None;
-                    } else {
-                        s.update_note = Some((Tone::Notice, t("launcher.msg_pick")));
-                    }
+                    let newer = update::newest(&list, &installed).map(|r| r.tag.clone());
+                    s.update_note = newer.is_none().then(|| (Tone::Notice, t("launcher.msg_pick")));
+                    // the page is open: the player sees the release there
+                    set_available(&kit, &mut s, newer.filter(|_| !PAGE_SHOWN.load(Ordering::Relaxed)));
                     s.releases = list;
                     s.listed = true;
                 }
@@ -555,6 +580,7 @@ impl App {
             updates: true,
             version: version(kit),
             update_open: false,
+            update_available: saved_available(kit),
             update_status: None,
             releases: Vec::new(),
             selected: None,
@@ -610,6 +636,7 @@ impl App {
             let mut s = shared();
             self.st.status.clone_from(&s.status);
             self.st.update_status.clone_from(&s.update_note);
+            self.st.update_available.clone_from(&s.available);
             self.st.progress = s.progress as f32 / 1000.0;
             self.st.steps = s.steps.map(|(n, m)| (n as usize, m as usize));
             self.st.clock = s.began.zip(s.stage_at).map_or((0.0, 0.0), |(b, a)| {
@@ -660,9 +687,9 @@ impl App {
             self.list(&kit);
         }
         // the UPDATE page opened: the list is asked for again
-        static PAGE_SHOWN: AtomicBool = AtomicBool::new(false);
         let shown = self.st.update_open;
         if PAGE_SHOWN.swap(shown, Ordering::Relaxed) != shown && shown {
+            set_available(&kit, &mut shared(), None);
             ask_updates();
         }
         if updated {
@@ -1000,6 +1027,7 @@ fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
     let last = std::fs::read_to_string(check_file(kit))
         .ok()
         .and_then(|t| t.trim().parse().ok());
+    shared().available = saved_available(kit);
     if check_due(unix_now(), last) {
         ask_updates();
     }

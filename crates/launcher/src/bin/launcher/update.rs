@@ -118,6 +118,12 @@ fn verify(file: &Path, expected: &str) -> Result<(), String> {
     }
 }
 
+/// The release to announce: the first listed that is not a test build and is newer than `installed`.
+pub fn newest<'a>(list: &'a [Release], installed: &str) -> Option<&'a Release> {
+    list.iter()
+        .find(|r| !r.test && launcher::release::is_newer(&r.tag, installed))
+}
+
 pub fn fetch(edition: &str) -> Result<Vec<Release>, String> {
     if no_target() {
         return Ok(Vec::new());
@@ -407,6 +413,20 @@ mod tests {
         assert!(verify(&file, abc).is_ok());
         assert!(verify(&file, &"0".repeat(64)).is_err());
         fs::remove_file(&file).unwrap();
+    }
+
+    #[test]
+    fn newest_is_the_first_newer_release_not_a_test_build() {
+        let list = releases(LIST, "2017-18").unwrap(); // v0.5.0, v0.4.0-rc.1, v0.3.0
+        assert_eq!(newest(&list, "kit-0.3.0").map(|r| r.tag.as_str()), Some("v0.5.0"));
+        assert!(newest(&list, "kit-0.5.0").is_none()); // up to date: no notice
+        assert!(newest(&list[1..], "kit-0.3.0").is_none()); // only a test build is newer
+        assert!(newest(&[], "kit-0.3.0").is_none());
+    }
+
+    #[test]
+    fn no_checksum_anywhere_is_none() {
+        assert_eq!(expected_hash(None, None), None); // apply() refuses: unverified
     }
 
     #[test]
