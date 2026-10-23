@@ -229,6 +229,54 @@ pub struct Ctx {
 
 type Row = HashMap<String, String>;
 
+/// In the backup: [`sheets_hash`] of the sheets the game's text was last built from.
+const SHEETS: &str = "sheets.txt";
+
+/// A SHA-256 over the kit's sheet folders (2017-18 `english/` and `italian/`, 2010-11 `languages/`): every file's
+/// path and bytes, in name order.
+pub fn sheets_hash(ed: Edition, sheets: &Path) -> String {
+    fn walk(dir: &Path, rel: &str, out: &mut Vec<(String, PathBuf)>) {
+        for e in fs::read_dir(dir).into_iter().flatten().flatten() {
+            let (p, name) = (e.path(), e.file_name().to_string_lossy().into_owned());
+            if p.is_dir() {
+                walk(&p, &format!("{rel}{name}/"), out);
+            } else {
+                out.push((format!("{rel}{name}"), p));
+            }
+        }
+    }
+    let mut files = vec![];
+    let roots: &[&str] = if ed == Edition::E1011 {
+        &["languages"]
+    } else {
+        &["english", "italian"]
+    };
+    for r in roots {
+        walk(&sheets.join(r), &format!("{r}/"), &mut files);
+    }
+    files.sort();
+    let mut h = Sha256::new();
+    for (rel, p) in files {
+        h.update(rel.as_bytes());
+        h.update([0]);
+        h.update(fs::read(p).unwrap_or_default());
+        h.update([0]);
+    }
+    h.finalize().iter().map(|b| format!("{b:02X}")).collect()
+}
+
+/// The game's text is in English or Italian, built from other sheets than the kit's: a kit copied over an older one
+/// leaves the older text in the game files (2026-10-23: 0.3.0 over a pre-0.2.2 kit kept the Italian
+/// "mese %d giorno %d", which overflows the secretary window's 10-byte box and stops seat 1). A text built before
+/// `sheets.txt` existed counts as older.
+pub fn stale(ed: Edition, backup: &Path, sheets: &Path) -> bool {
+    backup.join("language.txt").is_file()
+        && fs::read_to_string(backup.join(SHEETS))
+            .map(|s| s.trim().to_owned())
+            .ok()
+            != Some(sheets_hash(ed, sheets))
+}
+
 fn cell<'a>(r: &'a Row, k: &str) -> &'a str {
     r.get(k).map_or("", String::as_str)
 }
@@ -1335,6 +1383,10 @@ impl Ctx {
             apply_hook(rel, &tgt)?;
         }
         self.save_manifest(&man)?;
+        put(
+            &self.backup.join(SHEETS),
+            format!("{}\n", sheets_hash(self.ed, &self.sheets)).as_bytes(),
+        )?;
         Ok(put(
             &self.backup.join("language.txt"),
             format!("{}\n", lang.code()).as_bytes(),
@@ -1372,7 +1424,11 @@ impl Ctx {
                 if lost.len() > 1 { ", ..." } else { "" }
             ));
         }
-        for f in [self.manifest_path(), self.backup.join("language.txt")] {
+        for f in [
+            self.manifest_path(),
+            self.backup.join("language.txt"),
+            self.backup.join(SHEETS),
+        ] {
             if f.is_file() {
                 fs::remove_file(f)?;
             }
@@ -1620,9 +1676,31 @@ mod tests {
         fs::write(game.join(rel), &orig).unwrap();
         let mut c = Ctx::new_bare(Edition::E1718, &game, &backup);
         c.cpu = vec![("cpu_1.dat".into(), sha(&orig), "x".into())];
+        c.sheets = t.path().join("kit");
+        let sheet = c.sheets.join("italian/screen_text.tsv");
+        fs::create_dir_all(sheet.parent().unwrap()).unwrap();
+        fs::write(&sheet, "key\tit\nSYS_SEC_data_0006\tmese %d giorno %d\n").unwrap();
         let new = vec![(rel.to_string(), vec![9u8; 0x200])];
+        assert!(
+            !stale(Edition::E1718, &backup, &c.sheets),
+            "no text in place"
+        );
         c.turn_on(&new, Lang::It).unwrap();
         c.turn_on(&new, Lang::It).unwrap(); // again: builds from the backup, same result
+        assert!(
+            !stale(Edition::E1718, &backup, &c.sheets),
+            "built from these sheets"
+        );
+        fs::write(&sheet, "key\tit\nSYS_SEC_data_0006\t%d/%d\n").unwrap();
+        assert!(
+            stale(Edition::E1718, &backup, &c.sheets),
+            "a newer kit's sheets"
+        );
+        fs::remove_file(backup.join(SHEETS)).unwrap();
+        assert!(
+            stale(Edition::E1718, &backup, &c.sheets),
+            "a text from before sheets.txt"
+        );
         assert_eq!(fs::read(game.join(rel)).unwrap(), new[0].1);
         assert_eq!(
             fs::read_to_string(backup.join("language.txt")).unwrap(),

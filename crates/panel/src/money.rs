@@ -35,6 +35,9 @@ use windows::core::s;
 
 /// msvcr90's `vsprintf_s(char *, size_t, const char *, va_list)`.
 type VsprintfS = unsafe extern "C" fn(*mut u8, usize, *const u8, *const u8) -> i32;
+/// msvcr90's `_vsnprintf_s(char *, size_t, size_t count, const char *, va_list)`; count `_TRUNCATE` cuts to the box.
+type VsnprintfS = unsafe extern "C" fn(*mut u8, usize, usize, *const u8, *const u8) -> i32;
+const TRUNCATE: usize = usize::MAX;
 /// An invalid-parameter handler (expression, function, file, line, reserved).
 type InvalidParamH = unsafe extern "C" fn(*const u16, *const u16, *const u16, u32, usize);
 type SetInvalidParamH = unsafe extern "C" fn(Option<InvalidParamH>) -> Option<InvalidParamH>;
@@ -49,6 +52,7 @@ const ENGFMT: usize = 0x00A6_2914;
 /// The log the hooks write to (set by the install functions).
 static LOG: OnceLock<fn(&str)> = OnceLock::new();
 static REAL_VSPRINTF_S: AtomicUsize = AtomicUsize::new(0);
+static REAL_VSNPRINTF_S: AtomicUsize = AtomicUsize::new(0);
 static INVOKE_WATSON: AtomicUsize = AtomicUsize::new(0);
 /// The guard's wrapper is in the vsprintf_s import slot.
 static FMT_GUARD_ON: AtomicBool = AtomicBool::new(false);
@@ -428,19 +432,35 @@ extern "C" fn safe_vsprintf_s_impl(
     // SAFETY: plain call
     unsafe { SetLastError(err) };
     if was == 2 && !buf.is_null() && size > 0 {
-        // refused: the text as it is, cut to the box
         let text: &[u8] = if fmt.is_null() {
             b""
         } else {
             // SAFETY: the game's format, a C string
             unsafe { CStr::from_ptr(fmt.cast()) }.to_bytes()
         };
-        let n = text.len().min(size - 1);
         // SAFETY: the game's box, `size` bytes
-        unsafe {
-            std::ptr::copy_nonoverlapping(text.as_ptr(), buf, n);
-            *buf.add(n) = 0;
-        }
+        let boxed = unsafe { std::slice::from_raw_parts_mut(buf, size) };
+        let (n, cut) = after_refusal(boxed, text, |b| {
+            let f = REAL_VSNPRINTF_S.load(Relaxed);
+            if f == 0 {
+                return None;
+            }
+            FMT_FLAG.set(1);
+            // SAFETY: msvcr90's _vsnprintf_s (read at install), the game's box, format and arguments again (an x86
+            // va_list is a plain pointer: reading it twice is fine)
+            unsafe {
+                std::mem::transmute::<usize, VsnprintfS>(f)(
+                    b.as_mut_ptr(),
+                    b.len(),
+                    TRUNCATE,
+                    fmt,
+                    ap,
+                )
+            };
+            (FMT_FLAG.replace(0) != 2).then(|| b.iter().position(|&c| c == 0).unwrap_or(0))
+        });
+        // SAFETY: plain call
+        unsafe { SetLastError(err) };
         r = n as i32;
         let h = text.iter().fold(2_166_136_261u32, |h, &c| {
             (h ^ u32::from(c)).wrapping_mul(16_777_619)
@@ -463,12 +483,35 @@ extern "C" fn safe_vsprintf_s_impl(
                     esc.push_str(&format!("\\x{c:02x}"));
                 }
             }
-            log(&format!(
-                "badfmt: msvcr90 refused this text as a format - drawn as it is instead of stopping seat 1: \"{esc}\""
-            ));
+            log(&if cut {
+                format!(
+                    "toolong: this text came out longer than its {size}-byte box - cut to fit instead of stopping seat 1: \"{esc}\""
+                )
+            } else {
+                format!(
+                    "badfmt: msvcr90 refused this text as a format - drawn as it is instead of stopping seat 1: \"{esc}\""
+                )
+            });
         }
     }
     r
+}
+
+/// What goes in the game's box (`boxed`) after msvcr90 refused a format call: the text formatted and cut to the box
+/// when `fit` manages (msvcr90's `_vsnprintf_s` with `_TRUNCATE`, refused only by a bad format: Some(length)), else
+/// the format as it is, cut to the box. Returns the length and whether it was the formatted text.
+fn after_refusal(
+    boxed: &mut [u8],
+    fmt: &[u8],
+    fit: impl FnOnce(&mut [u8]) -> Option<usize>,
+) -> (usize, bool) {
+    if let Some(n) = fit(boxed) {
+        return (n, true);
+    }
+    let n = fmt.len().min(boxed.len() - 1);
+    boxed[..n].copy_from_slice(&fmt[..n]);
+    boxed[n] = 0;
+    (n, false)
 }
 
 /// The C's `iat_slot`: the import slot of `dll!func` in the module at `base` (by name, from the import table).
@@ -532,11 +575,13 @@ pub fn fmt_guard_install(_e1718: bool, log: fn(&str)) {
     let _ = LOG.set(log);
     // SAFETY: plain query
     let crt = unsafe { GetModuleHandleA(s!("msvcr90.dll")) }.ok();
-    let (set, real, watson) = crt.map_or((0, 0, 0), |c| {
+    let (set, real, watson, real_sprintf, cut) = crt.map_or((0, 0, 0, 0, 0), |c| {
         (
             proc(c, s!("_set_invalid_parameter_handler")),
             proc(c, s!("vsprintf_s")),
             proc(c, s!("_invoke_watson")),
+            proc(c, s!("sprintf_s")),
+            proc(c, s!("_vsnprintf_s")),
         )
     });
     // SAFETY: the program's own module
@@ -563,6 +608,7 @@ pub fn fmt_guard_install(_e1718: bool, log: fn(&str)) {
     }
     // (the C's "no TLS slot" refusal cannot happen: the flag is a thread_local)
     REAL_VSPRINTF_S.store(real, Relaxed);
+    REAL_VSNPRINTF_S.store(cut, Relaxed);
     // SAFETY: msvcr90's _set_invalid_parameter_handler
     let set = unsafe { std::mem::transmute::<usize, SetInvalidParamH>(set) };
     // SAFETY: our handler, cdecl as msvcr90 calls it
@@ -584,9 +630,34 @@ pub fn fmt_guard_install(_e1718: bool, log: fn(&str)) {
     }
     FMT_GUARD_ON.store(true, Relaxed);
     log(&format!(
-        "fmt guard: vsprintf_s (import slot {:08X}) checked - a text msvcr90 refuses is drawn as it is and logged",
-        slot as usize
+        "fmt guard: vsprintf_s (import slot {:08X}) checked - a text msvcr90 refuses is cut to its box or drawn as it is, and logged{}",
+        slot as usize,
+        if cut == 0 {
+            " (no _vsnprintf_s: drawn as it is)"
+        } else {
+            ""
+        }
     ));
+    // the game's own sprintf_s calls through the guard too (2026-10-23: the secretary window's 10-byte box with an
+    // older kit's longer Italian stopped seat 1); money_install takes the slot over when the money table fits
+    // SAFETY: the program is loaded
+    let sslot = unsafe { iat_slot(me, "msvcr90.dll", "sprintf_s") };
+    // SAFETY: the slot found in the program's import table
+    match sslot.filter(|&s| real_sprintf != 0 && unsafe { s.read() } == real_sprintf) {
+        None => {
+            log("fmt guard: sprintf_s import not found as msvcr90's - its calls are not guarded")
+        }
+        // SAFETY: the program's sprintf_s import slot, checked above
+        Some(s) => match unsafe { write_slot(s, money_sprintf_s as *const () as usize) } {
+            Ok(()) => log(&format!(
+                "fmt guard: sprintf_s (import slot {:08X}) too",
+                s as usize
+            )),
+            Err(e) => log(&format!(
+                "fmt guard: the sprintf_s import could not be opened (error {e}) - its calls are not guarded"
+            )),
+        },
+    }
 }
 
 /// The C's `money_sprintf_s`, put in the game's sprintf_s import slot: a cdecl variadic thunk handing on the return
@@ -955,9 +1026,11 @@ pub fn money_install(e1718: bool, projector: bool, log: fn(&str)) {
     let slot = unsafe { iat_slot(me, "msvcr90.dll", "sprintf_s") };
     let vs = crt.map_or(0, |c| proc(c, s!("vsprintf_s")));
     MSVCR_VSPRINTF_S.store(vs, Relaxed);
+    // msvcr90's sprintf_s, or the fmt guard's wrapper put there before (the same function: it does the money places)
+    let ours = [real, money_sprintf_s as *const () as usize];
     // SAFETY: the slot found in the program's import table
-    let Some(slot) =
-        slot.filter(|&s| s as usize == 0x0097_E698 && unsafe { s.read() } == real && vs != 0)
+    let Some(slot) = slot
+        .filter(|&s| s as usize == 0x0097_E698 && ours.contains(&unsafe { s.read() }) && vs != 0)
     else {
         log(&format!(
             "money: off - the program's sprintf_s import is not as studied (slot {:08X})",
@@ -990,6 +1063,30 @@ pub fn money_install(e1718: bool, projector: bool, log: fn(&str)) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_refused_text_is_cut_to_its_box() {
+        // the secretary window: 10 bytes, an older kit's Italian, two numbers
+        let fmt = b"mese %d giorno %d";
+        let mut b = [0xAAu8; 10];
+        let cut = |b: &mut [u8]| {
+            let s = b"mese 3 giorno 2";
+            let n = b.len() - 1; // _TRUNCATE: as much as fits, then the 0
+            b[..n].copy_from_slice(&s[..n]);
+            b[n] = 0;
+            Some(n)
+        };
+        assert_eq!(after_refusal(&mut b, fmt, cut), (9, true));
+        assert_eq!(&b, b"mese 3 gi\0");
+        // a bad %: _vsnprintf_s refuses too, so the text as it is
+        assert_eq!(after_refusal(&mut b, b"50% off", |_| None), (7, false));
+        assert_eq!(&b[..8], b"50% off\0");
+        assert_eq!(after_refusal(&mut b, fmt, |_| None), (9, false));
+        assert_eq!(&b, b"mese %d g\0");
+        let mut one = [0xAAu8; 1];
+        assert_eq!(after_refusal(&mut one, fmt, |_| None), (0, false));
+        assert_eq!(one, [0]);
+    }
 
     static LINES: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
