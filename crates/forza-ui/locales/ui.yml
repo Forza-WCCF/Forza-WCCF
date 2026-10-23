@@ -291,6 +291,7 @@ cat.results: {en: "%{n} CARDS", it: "%{n} CARTE", ja: "%{n} 枚"}
 cat.add: {en: "+ ADD", it: "+ AGGIUNGI", ja: "＋追加"}
 cat.msg_added: {en: "%{name} added (%{n}/16)", it: "%{name} aggiunto (%{n}/16)", ja: "%{name} を追加しました（%{n}/16）"}
 cat.msg_on_table: {en: "%{name} is on the table", it: "%{name} è già sul tavolo", ja: "%{name} はすでにテーブルにあります"}
+cat.msg_same_player: {en: "%{name}: another card of this player is on the table (%{season})", it: "%{name}: un'altra carta di questo giocatore è già sul tavolo (%{season})", ja: "%{name}：この選手の別のカードがすでにテーブルにあります（%{season}）"}
 cat.msg_full: {en: "Table full (16). Right-click removes a card.", it: "Tavolo pieno (16). Clic destro rimuove una carta.", ja: "テーブルが満杯（16）。右クリックで外す。"}
 cat.msg_no_place: {en: "No space. Right-click removes a card.", it: "Nessuno spazio. Clic destro rimuove una carta.", ja: "空きなし。右クリックで外す。"}
 

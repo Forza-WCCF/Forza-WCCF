@@ -171,8 +171,8 @@ impl Default for Filter {
     }
 }
 
-/// The catalogue's words for the search, worked out once: each card's name, short name, club, country and season
-/// folded ([`fold`]), the cards in name order, and the countries and clubs A to Z with their numbers of cards.
+/// The catalogue's words for the search, worked out once: each card's name, short name, club, country, season (also
+/// short: 2005-06 as 0506) and printed code (EMVP, WGK-3) folded ([`fold`]), the cards in name order, and the countries and clubs A to Z with their numbers of cards.
 #[derive(Clone, Debug, Default)]
 pub struct Index {
     folded: Vec<String>,
@@ -188,13 +188,35 @@ pub fn fold(s: &str) -> String {
 
 impl Index {
     pub fn new(cards: &[Card]) -> Index {
+        // "regular", "normale", "レギュラー": the rarity as the chips name it, in any language
+        let rarities =
+            Rarity::ALL.map(|r| (r, Lang::ALL.map(|l| tr!(l, rarity_key(r))).join("\n")));
         let folded: Vec<String> = cards
             .iter()
             .map(|c| {
+                let rarity = rarities
+                    .iter()
+                    .find(|(r, _)| *r == c.rarity)
+                    .map_or(String::new(), |(_, w)| w.clone());
+                let short_season = match c.season.as_bytes() {
+                    [_, _, a, b, b'-', c, d] => {
+                        String::from_utf8_lossy(&[*a, *b, *c, *d]).into_owned()
+                    }
+                    _ => String::new(),
+                };
                 fold(
-                    &[&c.name, &c.short, &c.club, &c.country, &c.season]
-                        .map(|s| s.as_str())
-                        .join("\n"),
+                    &[
+                        &c.name,
+                        &c.short,
+                        &c.club,
+                        &c.country,
+                        &c.season,
+                        &short_season,
+                        &c.code,
+                        &rarity,
+                    ]
+                    .map(|s| s.as_str())
+                    .join("\n"),
                 )
             })
             .collect();
@@ -246,7 +268,11 @@ fn word_matches(c: &Card, folded: &str, w: &str) -> bool {
 pub fn search(cards: &[Card], index: &Index, f: &Filter) -> Vec<usize> {
     let q = f.search.trim();
     let digits = !q.is_empty() && q.bytes().all(|b| b.is_ascii_digit());
-    let words: Vec<String> = q.split_whitespace().map(fold).collect();
+    // "12/13" as the season is written, "2012-13"
+    let words: Vec<String> = q
+        .split_whitespace()
+        .map(|w| fold(w).replace('/', "-"))
+        .collect();
     let mut out: Vec<usize> = index
         .order
         .iter()
@@ -608,6 +634,22 @@ pub fn add_card(st: &mut PanelState, placed: &mut Vec<Placed>, no: u32) -> bool 
         return false;
     };
     let name = card.short_name().to_owned();
+    // a team holds one card per player: refused while another card of this one is on the table
+    let other = placed.iter().filter(|p| p.no != no).find_map(|p| {
+        st.cards
+            .iter()
+            .find(|c| c.number == p.no && c.same_player(card))
+    });
+    if let Some(other) = other {
+        let text = tr!(
+            lang,
+            "cat.msg_same_player",
+            name = name,
+            season = other.season
+        );
+        st.note(Tone::Refused, text);
+        return false;
+    }
     let (tone, text, added) = match cards::add(placed, no, card.pos) {
         Ok(_) => (
             Tone::Done,
@@ -3282,6 +3324,7 @@ mod tests {
             club: club.into(),
             country: country.into(),
             season: "2004-05".into(),
+            born: String::new(),
             pos,
             rarity: if no.is_multiple_of(2) {
                 Rarity::Legend
@@ -3372,6 +3415,18 @@ mod tests {
         assert_eq!(found(&c, &q("10")), [10, 101]);
         assert_eq!(found(&c, &q("21 milano")), [210]);
         assert_eq!(found(&c, &q("2004")), Vec::<u32>::new());
+        // the printed code and the short season: "kaka mvp 0405" (a player's search for an MVP card, 2026-10-23)
+        let mut c = c;
+        c[0].code = "EMVP".into(); // Kakà
+        assert_eq!(found(&c, &q("kaka mvp 0405")), [10]);
+        assert_eq!(found(&c, &q("emvp")), [10]);
+        assert_eq!(found(&c, &q("milano 0506")), Vec::<u32>::new());
+        assert_eq!(found(&c, &q("kaka 04/05")), [10]);
+        // the rarity in any language: 101 is REGULAR (odd), 10, 32 and 210 LEGEND
+        assert_eq!(found(&c, &q("regular")), [101]);
+        assert_eq!(found(&c, &q("normale")), [101]);
+        assert_eq!(found(&c, &q("kaka leggenda")), [10]);
+        assert_eq!(found(&c, &q("legend italia")), [32, 210]);
     }
 
     #[test]
@@ -3429,6 +3484,27 @@ mod tests {
         assert!(!add_card(&mut st, &mut placed, 32));
         assert_eq!(st.message.as_ref().unwrap().tone, Tone::Refused);
         assert!(!add_card(&mut st, &mut placed, 999)); // not in the catalogue: nothing happens
+    }
+
+    #[test]
+    fn add_card_refuses_the_players_second_card() {
+        let mut v = cards();
+        let mut kaka = v[0].clone(); // card 10, Ricardo Kakà 2004-05
+        (kaka.number, kaka.season, kaka.name) = (11, "2005-06".into(), "RICARDO KAKA".into());
+        v.push(kaka);
+        let mut st = PanelState::new(Edition::E1011, Lang::En, cards::board(&[], &[]), v.into());
+        let mut placed = Vec::new();
+        assert!(add_card(&mut st, &mut placed, 10));
+        assert!(!add_card(&mut st, &mut placed, 11));
+        assert_eq!((placed.len(), placed[0].no), (1, 10));
+        let m = st.message.as_ref().unwrap();
+        assert_eq!(
+            (m.tone, m.text.as_str()),
+            (
+                Tone::Refused,
+                "KAKÀ: another card of this player is on the table (2004-05)"
+            )
+        );
     }
 
     #[test]

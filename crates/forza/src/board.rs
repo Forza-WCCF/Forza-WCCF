@@ -54,6 +54,8 @@ pub struct Card {
     pub club: String,
     pub country: String,
     pub season: String,
+    /// The player's birth date as the catalogue gives it (1984-09-22); empty when unknown.
+    pub born: String,
     pub pos: Position,
     pub rarity: Rarity,
     /// The code printed on the card (the catalogue's card_code: HOLE, WGK-3, ATLE-RE-4 ...); empty for 2010-11.
@@ -71,6 +73,14 @@ impl Card {
     /// code of digits only gives none.
     pub fn series(&self) -> &str {
         series(&self.code)
+    }
+
+    /// Another card of the same player: the same full name, accents and case aside (seasons spell it both ways),
+    /// and the same birth date when both cards know it.
+    pub fn same_player(&self, o: &Card) -> bool {
+        let fold = |s: &str| deunicode::deunicode(s).to_lowercase();
+        (self.born.is_empty() || o.born.is_empty() || self.born == o.born)
+            && fold(&self.name) == fold(&o.name)
     }
 
     pub fn short_name(&self) -> &str {
@@ -246,12 +256,25 @@ impl Board {
         true
     }
 
+    /// The table's other card of `card`'s player taken off (a team holds one card per player): the slot it left.
+    fn take_same_player(&mut self, card: &Card) -> Option<usize> {
+        let s = (0..16).find(|&s| {
+            self.slots[s].is_some_and(|ci| {
+                self.cards[ci].number != card.number && self.cards[ci].same_player(card)
+            })
+        })?;
+        self.slots[s] = None;
+        Some(s)
+    }
+
     /// A catalogue card dropped on `slot`: it takes the place, and the card there goes to the first free bench box
-    /// (or off the table when the bench is full). A card already on the table is left alone.
+    /// (or off the table when the bench is full). A card already on the table is left alone; another card of the same
+    /// player leaves the table.
     pub fn put(&mut self, card: &Card, slot: usize) -> bool {
         if self.holds(card.number) {
             return false;
         }
+        self.take_same_player(card);
         self.cards.push(card.clone());
         if let Some(old) = self.slots[slot].take()
             && let Some(b) = self.first_free(11..16)
@@ -263,11 +286,13 @@ impl Board {
     }
 
     /// A catalogue card dropped on open pitch lies exactly at `spot` (11 on the pitch already: the first free bench
-    /// box); nothing when the table is full or holds the card already.
+    /// box); nothing when the table is full or holds the card already. Another card of the same player leaves the
+    /// table.
     pub fn put_free(&mut self, card: &Card, spot: Pos2) -> bool {
         if self.holds(card.number) {
             return false;
         }
+        self.take_same_player(card);
         let Some(s) = self.first_free(0..16) else {
             return false;
         };

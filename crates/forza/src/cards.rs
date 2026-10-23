@@ -328,6 +328,7 @@ fn unknown(no: u32, y: f32) -> Card {
         club: String::new(),
         country: String::new(),
         season: String::new(),
+        born: String::new(),
         pos,
         rarity: Rarity::Regular,
         code: String::new(),
@@ -477,8 +478,10 @@ pub fn load_catalogue(path: &Path) -> io::Result<Vec<Card>> {
     let c_no = col(&["card_no"]).ok_or_else(|| io::Error::other("no card_no column"))?;
     let c_rec = col(&["record_index"]);
     let c_code = col(&["card_code"]);
+    let c_pic = col(&["image_archive_path"]);
     let [
         season,
+        born,
         rarity,
         placeholder,
         full,
@@ -491,6 +494,7 @@ pub fn load_catalogue(path: &Path) -> io::Result<Vec<Card>> {
         tail,
     ] = [
         &["season"][..],
+        &["birth_date"],
         &["rarity_name"],
         &["is_placeholder"],
         &["name_full_latin"],
@@ -554,6 +558,7 @@ pub fn load_catalogue(path: &Path) -> io::Result<Vec<Card>> {
             club: get(club),
             country: get(nat),
             season: get(season),
+            born: get(born),
             pos: match get(pos).as_str() {
                 "GK" => Position::Gk,
                 "DF" => Position::Df,
@@ -561,7 +566,9 @@ pub fn load_catalogue(path: &Path) -> io::Result<Vec<Card>> {
                 _ => Position::Mf,
             },
             rarity,
-            code: get(c_code),
+            code: Some(get(c_code))
+                .filter(|c| !c.is_empty())
+                .unwrap_or_else(|| mvp_mark(&get(c_pic)).into()),
             // 2017-18 only (the catalogue with card codes): 2010-11's legends print their stats
             secret: c_code.is_some()
                 && (rarity == Rarity::AllTime || LEGEND_REPRINTS.contains(&number)),
@@ -571,6 +578,16 @@ pub fn load_catalogue(path: &Path) -> io::Result<Vec<Card>> {
         });
     }
     Ok(out)
+}
+
+/// An older MVP card's mark, which the catalogue has no card code for: its picture's name carries it
+/// (`EMVP0506_RONALDINHO_f.dds` -> EMVP, `WMVP_RONALDINHO.dds` -> WMVP, `CMVP_001_NEDVED.dds` -> CMVP, `MVP_1.dds` -> MVP).
+fn mvp_mark(picture: &str) -> &str {
+    let file = picture.rsplit('/').next().unwrap_or_default();
+    file.split(['_', '.'])
+        .map(|t| t.trim_end_matches(|c: char| c.is_ascii_digit()))
+        .find(|t| ["MVP", "EMVP", "WMVP", "CMVP"].contains(t))
+        .unwrap_or_default()
 }
 
 // ---- the card deal after a match ----
@@ -627,6 +644,22 @@ mod tests {
 
     fn p(slot: i32, no: u32, x: f32, y: f32) -> Placed {
         Placed { slot, no, x, y }
+    }
+
+    #[test]
+    fn older_mvp_cards_get_their_mark_from_the_picture() {
+        for (pic, want) in [
+            ("data/player_card/EMVP0506_RONALDINHO_f.dds", "EMVP"),
+            ("data/player_card/WMVP0506_RONALDINHO_f.dds", "WMVP"),
+            ("data/player_card/WMVP_RONALDINHO.dds", "WMVP"),
+            ("data/player_card/CMVP_001_NEDVED.dds", "CMVP"),
+            ("data/player_card/MVP_1.dds", "MVP"),
+            ("data/player_card/CNS0405_192_RONALDINHO.dds", ""),
+            ("data/player_card/1718_CardImage_8993.dds", ""),
+            ("", ""),
+        ] {
+            assert_eq!(mvp_mark(pic), want, "{pic}");
+        }
     }
 
     /// What the C panel's `write_table_locked` writes for these cards: its header line, then

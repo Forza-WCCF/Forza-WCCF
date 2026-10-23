@@ -28,6 +28,8 @@ getrandom = "0.3.4"
 tempfile = "3.27.0"
 # setup (2010-11): whether seat 1's hard link is already the game's file
 same-file = "1.0.6"
+# one player's cards across seasons: names spelt with and without accents (Petr CECH / Petr ČECH)
+deunicode = "1.6.2"
 time = { version = "0.3.55", features = ["local-offset"] }
 # the game text (forza::text): the printf/$ codes of a line, and the Latin spelling of player names
 regex = { version = "1.13.1", optional = true }

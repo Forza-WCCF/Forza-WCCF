@@ -314,6 +314,7 @@ pub(crate) mod tests {
             club: String::new(),
             country: String::new(),
             season: String::new(),
+            born: String::new(),
             pos: Position::Mf,
             rarity: Rarity::Regular,
             code: String::new(),

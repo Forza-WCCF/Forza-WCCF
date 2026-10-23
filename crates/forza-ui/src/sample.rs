@@ -23,6 +23,7 @@ fn card(
         club: club.into(),
         country: country.into(),
         season: "10-11".into(),
+        born: String::new(),
         pos,
         rarity,
         // a printed code on some, so the screens show the chip

@@ -1833,6 +1833,7 @@ mod tests {
             club: String::new(),
             country: String::new(),
             season: String::new(),
+            born: String::new(),
             pos: Position::Mf,
             rarity: Rarity::Regular,
             code: String::new(),
@@ -1890,6 +1891,27 @@ mod tests {
         }
         assert!(b.put(&card(11), 2));
         assert!(!b.holds(3) && b.number(2) == Some(11));
+    }
+
+    #[test]
+    fn one_card_per_player_on_the_table() {
+        // card 2 is Thiago Silva 2013-14 on pitch slot 1; 20 and 21 are his other cards, 22 a namesake born elsewhen
+        let silva = |n: u32, born: &str, name: &str| Card {
+            name: name.into(),
+            born: born.into(),
+            ..card(n)
+        };
+        let mut b = table();
+        b.cards[1] = silva(2, "1984-09-22", "THIAGO SILVA");
+        // dropped on another place: the old card leaves the table, it does not go to the bench
+        assert!(b.put(&silva(20, "1984-09-22", "Thiago SILVA"), 5));
+        assert!(!b.holds(2) && b.number(5) == Some(20) && b.number(1).is_none());
+        // dropped on open pitch: the same
+        assert!(b.put_free(&silva(21, "1984-09-22", "THIAGO SÍLVA"), pos2(0.4, 0.4)));
+        assert!(!b.holds(20) && b.holds(21));
+        // the same name, another player
+        assert!(b.put_free(&silva(22, "1990-01-01", "THIAGO SILVA"), pos2(0.6, 0.6)));
+        assert!(b.holds(21) && b.holds(22));
     }
 
     #[test]
