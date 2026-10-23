@@ -25,7 +25,11 @@ use xshell::{Shell, cmd};
 #[command(about = "Build, check and package Forza-WCCF")]
 enum Task {
     /// Compile the C programs and the launchers into the staged kits (2010-11 and 2017-18)
-    Build,
+    Build {
+        /// The `fast` profile (release without LTO, incremental) for a local test kit; `package` always builds release
+        #[arg(long)]
+        fast: bool,
+    },
     /// fmt, clippy, tests, the kit's C self-tests, the scrub; `check quick` = fmt, clippy and the tests of the crates changed since --base
     Check {
         /// `quick`: only the crates changed since the base (and their dependents); no release build, no kit, no smoke.
@@ -36,6 +40,12 @@ enum Task {
         /// What `quick` diffs against (its merge-base with HEAD, plus the working tree)
         #[arg(long, default_value = QUICK_BASE)]
         base: String,
+        /// Build the kits and run the tests in the `fast` profile (see `build --fast`); CI and releases check without it
+        #[arg(long)]
+        fast: bool,
+        /// Passed on to the test runner, e.g. `-- --partition count:1/2` with cargo-nextest
+        #[arg(last = true)]
+        test_args: Vec<String>,
     },
     /// Copy an edition's files into target/kit/<edition>/ (copies only)
     Stage {
@@ -64,6 +74,22 @@ const QUICK_BASE: &str = "main";
 /// Set by `check` (both tiers): `rust()` then builds with `CARGO_INCREMENTAL=0`, so sccache can serve the workspace crates
 /// across worktrees; builds while editing stay incremental.
 static NO_INCREMENTAL: AtomicBool = AtomicBool::new(false);
+/// Set by `build --fast` and `check --fast`: the Rust programs (and `check`'s tests) use the `fast` profile.
+static FAST: AtomicBool = AtomicBool::new(false);
+
+/// The cargo profile of the staged programs: `fast` or `release`.
+fn profile() -> &'static str {
+    if FAST.load(Ordering::Relaxed) {
+        "fast"
+    } else {
+        "release"
+    }
+}
+
+/// Cargo's output folder: `CARGO_TARGET_DIR` (one folder shared by several worktrees), else `target/`.
+fn target_dir(root: &Path) -> PathBuf {
+    std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| root.join("target"), PathBuf::from)
+}
 
 const TOP: &str = "Forza-WCCF-2010-11";
 const PRODUCT: &str = "Forza-WCCF 2010-11";
@@ -361,7 +387,8 @@ fn main() -> Result<()> {
     let kit = stage_root.join("kit/2010-11");
     let kit_1718 = stage_root.join("kit/2017-18");
     match task {
-        Task::Build => {
+        Task::Build { fast } => {
+            FAST.store(fast, Ordering::Relaxed);
             let cc = Cc::new(&root)?;
             build_all(&root, &kit, &kit_1718, &cc)
         }
@@ -369,8 +396,19 @@ fn main() -> Result<()> {
         Task::Gallery => gallery(&root),
         // check and package build first: both used whatever programs were staged last, and a ZIP shipped a Launcher.exe
         // older than its own scripts (2026-10-13, the first Rust run started a deleted panel.py)
-        Task::Check { mode, base } => {
-            NO_INCREMENTAL.store(true, Ordering::Relaxed);
+        Task::Check {
+            mode,
+            base,
+            fast,
+            test_args,
+        } => {
+            // without a wrapper (sccache) nothing reuses the non-incremental build, and a check after `cargo test`
+            // would rebuild the workspace crates
+            NO_INCREMENTAL.store(
+                std::env::var_os("RUSTC_WRAPPER").is_some(),
+                Ordering::Relaxed,
+            );
+            FAST.store(fast, Ordering::Relaxed);
             match mode.as_deref() {
                 Some("quick") => return quick(&root, &stage_root, &base),
                 Some("text") => return check_text(&root),
@@ -378,7 +416,7 @@ fn main() -> Result<()> {
             }
             let ci = mode.as_deref() == Some("ci");
             build_all(&root, &kit, &kit_1718, &Cc::new(&root)?)
-                .and_then(|()| check(&root, &stage_root, &kit, &kit_1718, ci))
+                .and_then(|()| check(&root, &stage_root, &kit, &kit_1718, ci, &test_args))
         }
         Task::Stage { edition } => match edition.as_str() {
             "2010-11" => stage(&root, &kit, ED_1011.map, ED_1011.keep),
@@ -488,8 +526,7 @@ fn gallery(root: &Path) -> Result<()> {
     let mut c = rust("build", root);
     c.args(["-p", "forza", "--example", "gallery", "--target", TARGET]);
     run_ok(c, "cargo build --example gallery")?;
-    let exe = root
-        .join("target")
+    let exe = target_dir(root)
         .join(TARGET)
         .join("debug/examples/gallery.exe");
     let mut g = Command::new(exe);
@@ -508,7 +545,7 @@ fn cap(game_root: &Path, outdir: &Path) -> Result<()> {
     let mut b = rust("build", root);
     b.args(["--locked", "-p", "cap", "--target", TARGET]);
     run_ok(b, "cargo build -p cap")?;
-    let exe = root.join("target").join(TARGET).join("debug/cap.exe");
+    let exe = target_dir(root).join(TARGET).join("debug/cap.exe");
     let mut c = Command::new(exe);
     c.arg(game_root).arg(outdir);
     run_ok(c, "cap")
@@ -617,7 +654,7 @@ fn build_all(root: &Path, kit: &Path, kit_1718: &Path, cc: &Cc) -> Result<()> {
     );
     // the same three programs in both kits: Launcher.exe runs either edition (launcher::kit::Edition, from the layout),
     // forza_panel.dll finds its edition the same way
-    let release = root.join("target").join(TARGET).join("release");
+    let release = target_dir(root).join(TARGET).join(profile());
     let panel = kit.join("source/build/forza_panel.dll");
     let common = |f: &str| kit.join("source/build").join(f);
     for (from, to) in [
@@ -658,7 +695,8 @@ fn build<'s>(
     // the toolchain is pinned by rust-toolchain.toml, the crates by Cargo.lock, the static runtime by .cargo/config.toml
     let mut c = rust("build", root);
     c.args([
-        "--release",
+        "--profile",
+        profile(),
         "--locked",
         "-p",
         "launcher",
@@ -673,7 +711,8 @@ fn build<'s>(
     // the panel (step 9.4c: in place of the C wccfpanel.dll), 32-bit like the game; build_all copies it into both kits
     let mut c = rust("build", root);
     c.args([
-        "--release",
+        "--profile",
+        profile(),
         "--locked",
         "-p",
         "forza-panel",
@@ -681,9 +720,10 @@ fn build<'s>(
         PANEL_TARGET,
     ]);
     let (dll, to) = (
-        root.join("target")
+        target_dir(root)
             .join(PANEL_TARGET)
-            .join("release/forza_panel.dll"),
+            .join(profile())
+            .join("forza_panel.dll"),
         obj.join("forza_panel.dll"),
     );
     jobs.push(s.spawn(move || {
@@ -1058,7 +1098,14 @@ fn fmt_clippy(root: &Path, failed: &mut Vec<String>) {
 }
 
 /// `ci`: the GPU snapshot tests are skipped.
-fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, ci: bool) -> Result<()> {
+fn check(
+    root: &Path,
+    stage_root: &Path,
+    kit: &Path,
+    kit_1718: &Path,
+    ci: bool,
+    test_args: &[String],
+) -> Result<()> {
     // one check at a time on this PC: the tests use fixed local ports (the relay on 20941, the seat desk on 20932-20936),
     // and two checks at once (two worktrees) failed each other's relay checks
     let _lock = check_lock()?;
@@ -1074,12 +1121,11 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, ci: bool) 
 
     // the Rust workspace, xtask included: format, lint, tests
     fmt_clippy(root, &mut ck.failed);
-    let mut test = rust("test", root);
-    test.args(["--locked", "--workspace", "--target", TARGET]);
-    if ci {
-        test.args(["--", "--skip", "snapshots::"]);
-    }
-    cargo_step("workspace: cargo test", test, &mut ck.failed);
+    cargo_step(
+        "workspace: cargo test",
+        tests(root, ci, test_args),
+        &mut ck.failed,
+    );
 
     scrub(root, &mut ck.failed)?;
     installer_checks(root, stage_root, &mut ck.failed);
@@ -1093,6 +1139,46 @@ fn check(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, ci: bool) 
     ensure!(ck.failed.is_empty(), "FAILED: {}", ck.failed.join(", "));
     println!("all checks passed");
     Ok(())
+}
+
+/// The workspace's tests: cargo-nextest when it is installed (one process per test, all cores, `--partition` for
+/// split CI jobs), else `cargo test`. `ci` skips the GPU snapshot tests; `--fast` runs them in the kits' profile.
+/// nextest runs no doctests; the workspace has none.
+fn tests(root: &Path, ci: bool, extra: &[String]) -> Command {
+    let nextest = Command::new("cargo")
+        .args(["nextest", "--version"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success());
+    let mut test = rust(if nextest { "nextest" } else { "test" }, root);
+    if nextest {
+        test.arg("run");
+    }
+    test.args(["--locked", "--workspace", "--target", TARGET]);
+    if FAST.load(Ordering::Relaxed) {
+        test.args([
+            if nextest {
+                "--cargo-profile"
+            } else {
+                "--profile"
+            },
+            "fast",
+        ]);
+    }
+    if nextest {
+        if ci {
+            test.args(["-E", "not test(/^snapshots::/)"]);
+        }
+        test.args(extra);
+    } else {
+        test.arg("--");
+        if ci {
+            test.args(["--skip", "snapshots::"]);
+        }
+        test.args(extra);
+    }
+    test
 }
 
 /// `cargo xtask check text`: the checks that read only tracked text; no build, no kit.
@@ -1474,7 +1560,7 @@ const LICENSES: &str = "crates/installer/THIRD-PARTY-LICENSES.json";
 
 /// `profile`: "release" (the ZIP's, built with launcher and forza-server).
 fn installer_exe(root: &Path, profile: &str) -> PathBuf {
-    root.join("target")
+    target_dir(root)
         .join(TARGET)
         .join(profile)
         .join(INSTALLER_EXE)
@@ -1550,7 +1636,7 @@ fn smoke(root: &Path, stage_root: &Path) -> Result<()> {
 
 /// The release installer that `build_all` built; returns its path.
 fn installer_built(root: &Path) -> Result<PathBuf> {
-    let exe = installer_exe(root, "release");
+    let exe = installer_exe(root, profile());
     ensure!(exe.is_file(), "{} is missing", exe.display());
     Ok(exe)
 }
