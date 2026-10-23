@@ -146,6 +146,31 @@ fn sum32(b: &[u8]) -> u32 {
         .fold(0u32, |s, w| s.wrapping_add(u32::from_le_bytes(*w)))
 }
 
+/// Bytes in chunk `idx` of the control's 0x3DA38-byte download (cmd 261 -> 262, 2,032 per chunk).
+fn live_chunk_size(idx: u32) -> u32 {
+    0x3DA38u32
+        .saturating_sub(idx.saturating_mul(2032))
+        .min(2032)
+}
+
+/// SAVE_DATA_SET's server-side summary starts here; the store keeps +3,100..+8,572.
+const TAIL: usize = 3100;
+
+/// A stored club: block, version, size, tail.
+type Saved = (Vec<u8>, u16, u16, Vec<u8>);
+
+/// Copies the parts of a stored SAVE_DATA_SET tail the client reads back into a SAVE_DATA answer: the players'
+/// experience, level, confidence and form (16 records of 30 bytes, 277 +6,068 -> 276 +3,674) and the manager level
+/// (277 +3,262 -> 276 +6,094). The client sets them from the answer even when zero, so without this every card-in put
+/// the players back to level 0 (docs/research/ONLINE-2017-18.md, SAVE_DATA). An empty tail (no save since) is skipped.
+fn restore_tail(body: &mut [u8], tail: &[u8]) {
+    if tail.len() != 8572 - TAIL {
+        return;
+    }
+    body[3674..4154].copy_from_slice(&tail[6068 - TAIL..6548 - TAIL]);
+    body[6094..6096].copy_from_slice(&tail[3262 - TAIL..3264 - TAIL]);
+}
+
 /// Fills a 6,176-byte SAVE_DATA answer (slot already at +0) with a stored block: +8 block, +3,080 version,
 /// +3,082 size, +3,084 C1 = sum of the block, +3,088 C2 = sum of the whole answer with +3,088 taken as 0.
 fn fill_save_data(body: &mut [u8], block: &[u8], version: u16, size: u16) {
@@ -222,6 +247,7 @@ CREATE TABLE IF NOT EXISTS saves (
     size     INTEGER NOT NULL, -- +3,102
     kind     INTEGER NOT NULL, -- +24: 1 new club, 2 end of play, 3 new card
     updated  INTEGER NOT NULL,
+    tail     BLOB    NOT NULL DEFAULT x'', -- SAVE_DATA_SET +3,100..+8,572 (server-side summary); empty = none yet
     PRIMARY KEY (aime_id, coach_id),
     FOREIGN KEY (aime_id, coach_id) REFERENCES coaches (aime_id, coach_id)
 );
@@ -258,6 +284,15 @@ impl Store {
         )?;
         if !has {
             db.execute_batch("ALTER TABLE coaches ADD COLUMN titles INTEGER NOT NULL DEFAULT 0")?;
+        }
+        // stores made before `tail` existed
+        let has: bool = db.query_row(
+            "SELECT count(*) > 0 FROM pragma_table_info('saves') WHERE name = 'tail'",
+            [],
+            |r| r.get(0),
+        )?;
+        if !has {
+            db.execute_batch("ALTER TABLE saves ADD COLUMN tail BLOB NOT NULL DEFAULT x''")?;
         }
         Ok(Self(db))
     }
@@ -354,7 +389,7 @@ impl Store {
             params![aime, coach, card, n1, n2, SKIP_TITLES, now()],
         )?;
         tx.execute(
-            "INSERT INTO saves VALUES (?1, ?2, ?3, 12, 3072, 1, ?4)",
+            "INSERT INTO saves VALUES (?1, ?2, ?3, 12, 3072, 1, ?4, x'')",
             params![aime, coach, block, now()],
         )?;
         tx.commit()?;
@@ -383,7 +418,7 @@ impl Store {
             return Ok(false);
         }
         tx.execute(
-            "INSERT OR REPLACE INTO saves VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT OR REPLACE INTO saves VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 aime,
                 coach,
@@ -391,26 +426,22 @@ impl Store {
                 u16_at(req, 3100),
                 u16_at(req, 3102),
                 kind,
-                now()
+                now(),
+                &req[TAIL..8572]
             ],
         )?;
         tx.commit()?;
         Ok(true)
     }
 
-    /// The stored (block, version, size) of a club.
-    fn save(
-        &self,
-        aime: u32,
-        coach: u32,
-        card: u32,
-    ) -> rusqlite::Result<Option<(Vec<u8>, u16, u16)>> {
+    /// The stored (block, version, size, tail) of a club.
+    fn save(&self, aime: u32, coach: u32, card: u32) -> rusqlite::Result<Option<Saved>> {
         self.0
             .query_row(
-                "SELECT s.block, s.version, s.size FROM saves s JOIN coaches c USING (aime_id, coach_id)
+                "SELECT s.block, s.version, s.size, s.tail FROM saves s JOIN coaches c USING (aime_id, coach_id)
                  WHERE s.aime_id = ?1 AND s.coach_id = ?2 AND c.card_id = ?3",
                 params![aime, coach, card],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )
             .optional()
     }
@@ -507,8 +538,10 @@ fn club(
             put(r, 124, c.titles);
         }
         if aime != 0 {
-            // the server pre-registers every 2D-code card (registrations 1, owned 0, flag 0): there is no 2D-code
-            // reader to register them one by one (docs/research/ONLINE-2017-18.md, "2D-code cards")
+            // the server pre-registers every 2D-code card 3 times (registrations 3, owned 0, flag 0): there is no
+            // 2D-code reader to register them one by one, and 3 is the most the client's list offers (sub_4DFFB0);
+            // special coaching adds 5 per copy past the first and does not clamp, so never more than 3. The list
+            // holds 1,000 distinct cards; the card master has 943 (docs/research/ONLINE-2017-18.md, "2D-code cards")
             for (e, &no) in body[PLAYERS_LIST..]
                 .as_chunks_mut::<8>()
                 .0
@@ -516,7 +549,7 @@ fn club(
                 .zip(rare)
             {
                 put(e, 0, no);
-                e[4] = 1;
+                e[4] = 3;
             }
         }
         return Ok(());
@@ -555,13 +588,14 @@ fn club(
             put(body, 8, coach);
         }
         275 => {
-            let (block, version, size) = st
+            let (block, version, size, tail) = st
                 .save(aime, coach, card)
                 .map_err(db)?
                 .ok_or(format!("no save for aime {aime} coach {coach} card {card}"))?;
             if block.len() != BLOCK {
                 return Err(format!("stored block of {} bytes", block.len()));
             }
+            restore_tail(body, &tail);
             fill_save_data(body, &block, version, size);
         }
         285 => {
@@ -619,6 +653,13 @@ fn answer(
         // defaults; GAME_CTRL bytes 1176..1211 unlock the 36 secretaries (default 1); all zero leaves none, and the club's SECRETARY step loads a picture that is not on
         // the disc and reads a null pointer (client 0x424AB2, docs/research/ONLINE-2017-18.md)
         body[SECRETARIES].fill(1);
+    }
+    if cmd == 261 && payload.len() >= 8 {
+        // the control downloads a 0x3DA38-byte buffer in 2,032-byte chunks (request +4 = chunk) and copies answer
+        // +4 bytes of each (sub_443090); it never zeroes the buffer, so size 0 left heap garbage that it later read
+        // as clubs and crashed on (error 3000 on the seats). Full sizes copy zeros: an empty list, CPU teams. The
+        // last chunk is short: the control does not bound the copy.
+        put(&mut body, 4, live_chunk_size(u32_at(payload, 4)));
     }
     if matches!(cmd, 307 | 311) {
         // GHOST_TEAM, BEST_ELEVEN: errCode 0 would install an all-zero team; 1 = none, the client plays a CPU team
@@ -960,6 +1001,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn live_download_chunks_fill_the_buffer_exactly() {
+        assert_eq!(
+            (
+                live_chunk_size(0),
+                live_chunk_size(124),
+                live_chunk_size(125)
+            ),
+            (2032, 504, 0)
+        );
+        assert_eq!((0..125).map(live_chunk_size).sum::<u32>(), 0x3DA38);
+        let mut p = vec![0u8; 8];
+        put(&mut p, 4, 124);
+        let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
+        let log: Log = Arc::new(|_: &str| {});
+        let (cmd, body, _) = answer(261, &p, &store, None, &[], None, &log).unwrap();
+        assert_eq!((cmd, body.len(), u32_at(&body, 4)), (262, 2040, 504));
+    }
+
+    #[test]
     fn c1_c2_of_hand_built_blocks() {
         // 768 words of 1: C1 = 768; 0xFFFF_FFFF words wrap to -768
         assert_eq!(sum32(&[1, 0, 0, 0].repeat(768)), 768);
@@ -1137,9 +1197,9 @@ mod tests {
             .unwrap()
             .1;
         assert_eq!(u32_at(&body, 4), 0);
-        // World Players List entries: card, registrations 1, owned 0, flag 0
-        assert_eq!(&body[1292..1300], &[0xD7, 0x1B, 0, 0, 1, 0, 0, 0]);
-        assert_eq!(&body[1300..1308], &[0xEF, 0x03, 0, 0, 1, 0, 0, 0]);
+        // World Players List entries: card, registrations 3, owned 0, flag 0
+        assert_eq!(&body[1292..1300], &[0xD7, 0x1B, 0, 0, 3, 0, 0, 0]);
+        assert_eq!(&body[1300..1308], &[0xEF, 0x03, 0, 0, 3, 0, 0, 0]);
         assert!(body[1308..].iter().all(|b| *b == 0));
         // Aime id 0 (guest): no list
         let guest = answer(271, &req(271, [0, 0, 0]), &store, None, &rare, None, &log)
