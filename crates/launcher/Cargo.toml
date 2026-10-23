@@ -59,6 +59,8 @@ windows-sys = { version = "0.61.2", features = [
 csv = "1.4.0"
 object.workspace = true
 sha2.workspace = true
+semver.workspace = true
+self-replace.workspace = true
 
 [dev-dependencies]
 forza-server = { path = "../server" }

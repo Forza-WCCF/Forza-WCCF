@@ -80,6 +80,8 @@ launcher.msg_after_update_italian: {en: "Updated. Set up and reapply Italian?", 
 launcher.msg_close_game: {en: "Close the game first: %{name} is running.", it: "Chiudi prima il gioco: %{name} è in esecuzione.", ja: "先にゲームを閉じてください：%{name} が実行中です。"}
 launcher.msg_download_failed: {en: "The download failed: %{error}", it: "Download non riuscito: %{error}", ja: "ダウンロードに失敗しました: %{error}"}
 launcher.msg_unzip_failed: {en: "The ZIP did not unzip: %{error}", it: "Impossibile estrarre lo ZIP: %{error}", ja: "ZIP を展開できませんでした: %{error}"}
+launcher.msg_unverified: {en: "The download could not be verified. Nothing was changed.", it: "Impossibile verificare il download. Non è stato modificato nulla.", ja: "ダウンロードを検証できませんでした。何も変更されていません。"}
+launcher.msg_needs_installer: {en: "%{tag} needs the installer. Download it from the release page.", it: "%{tag} richiede l'installer. Scaricalo dalla pagina della versione.", ja: "%{tag} にはインストーラーが必要です。リリースページからダウンロードしてください。"}
 launcher.msg_not_a_kit: {en: "This ZIP is not a Forza-WCCF release.", it: "Questo ZIP non è una versione di Forza-WCCF.", ja: "この ZIP は Forza-WCCF のリリースではありません。"}
 launcher.msg_write_failed: {en: "%{path}: could not write it (%{error}) - close the game and try again.", it: "%{path}: scrittura non riuscita (%{error}) - chiudi il gioco e riprova.", ja: "%{path} に書き込めませんでした（%{error}）。ゲームを閉じて、もう一度お試しください。"}
 launcher.msg_done: {en: "Done.", it: "Fatto.", ja: "完了しました。"}
