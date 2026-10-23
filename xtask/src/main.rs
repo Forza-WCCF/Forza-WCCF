@@ -459,6 +459,38 @@ fn rust(sub: &str, root: &Path) -> Command {
     c
 }
 
+/// `cargo build` of programs a player gets, with no path of the build PC in them: the panic messages of crates.io code
+/// carry their source paths, and 0.3.0's Launcher.exe held `C:\Users\<builder>\.cargo\registry\...` 2,718 times.
+/// rustc applies the last matching `--remap-path-prefix`, so the user folder goes before the cargo home inside it.
+/// `--config` arrays are joined with .cargo/config.toml's rustflags, not put in their place.
+fn rust_shipped(root: &Path) -> Command {
+    let home = std::env::var_os("USERPROFILE").map(PathBuf::from);
+    let cargo = std::env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .or_else(|| home.as_ref().map(|h| h.join(".cargo")));
+    let flags: Vec<String> = [
+        (home, "~"),
+        (cargo, "cargo"),
+        (Some(root.to_owned()), "forza-wccf"),
+    ]
+    .into_iter()
+    .filter_map(|(from, to)| Some(format!("'--remap-path-prefix={}={to}'", from?.display())))
+    .collect();
+    let mut c = rust("build", root);
+    for t in [TARGET, PANEL_TARGET] {
+        c.arg("--config")
+            .arg(format!("target.{t}.rustflags=[{}]", flags.join(", ")));
+    }
+    c
+}
+
+/// A shipped program that still holds a user folder path (see `rust_shipped`).
+fn has_user_path(bytes: &[u8]) -> bool {
+    bytes
+        .windows(7)
+        .any(|w| w.eq_ignore_ascii_case(b":\\Users"))
+}
+
 fn run_ok(mut c: Command, what: &str) -> Result<()> {
     ensure!(
         c.status().with_context(|| what.to_owned())?.success(),
@@ -693,7 +725,7 @@ fn build<'s>(
     let obj = kit.join("source/build");
 
     // the toolchain is pinned by rust-toolchain.toml, the crates by Cargo.lock, the static runtime by .cargo/config.toml
-    let mut c = rust("build", root);
+    let mut c = rust_shipped(root);
     c.args([
         "--profile",
         profile(),
@@ -709,7 +741,7 @@ fn build<'s>(
     ]);
     let launcher = c;
     // the panel (step 9.4c: in place of the C wccfpanel.dll), 32-bit like the game; build_all copies it into both kits
-    let mut c = rust("build", root);
+    let mut c = rust_shipped(root);
     c.args([
         "--profile",
         profile(),
@@ -1745,11 +1777,16 @@ fn smoke_in(root: &Path, exe: &Path, dir: &Path) -> Result<()> {
 /// NAME defaults to `Forza-WCCF-Installer-<version>-windows-x64`. Run `cargo xtask check` first (it builds the exe).
 fn package_installer(root: &Path, name: Option<String>) -> Result<()> {
     check_licenses(root)?;
-    let mut c = rust("build", root);
+    let mut c = rust_shipped(root);
     c.args(["--release", "--locked", "-p", INSTALLER, "--target", TARGET]);
     run_ok(c, "cargo build --release -p wccf-installer")?;
     let exe = installer_exe(root, "release");
     ensure!(exe.is_file(), "{} is missing", exe.display());
+    ensure!(
+        !has_user_path(&fs::read(&exe)?),
+        "{} holds a user folder path - see rust_shipped",
+        exe.display()
+    );
     let name = name.unwrap_or_else(|| {
         format!(
             "Forza-WCCF-Installer-{}-windows-x64",
@@ -1918,6 +1955,10 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
         ensure!(
             !bytes.windows(4).any(|w| w == b"UPX!" || w == b"UPX0"),
             "{f} is UPX-packed: scanners flag packed programs"
+        );
+        ensure!(
+            !has_user_path(&bytes),
+            "{f} holds a user folder path - see rust_shipped"
         );
         // no console window may reach a player: every program is a GUI-subsystem one (a console program started by the
         // game itself gets a window of its own), except these, which the launcher starts with CREATE_NO_WINDOW
