@@ -22,6 +22,53 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// The secretaries' unlock bytes in answer 238: GAME_CTRL bytes 1176..1211, the block starting at +16 (+8 and +12
 /// are a date and time, left 0: the control may set the PC's clock from them).
 const SECRETARIES: std::ops::Range<usize> = 16 + 1176..16 + 1212;
+/// The client's own GAME_CTRL defaults (sub_4A5640): `(GAME_CTRL offset, width in bytes, value)`, little-endian; the
+/// secretaries (1,176..1,211) and the rest stay as [`SECRETARIES`] and zero. Answer 238 replaces the defaults on
+/// every seat, so zeros there changed the client's behaviour (poll count, times, limits). Payload offset = offset + 16.
+/// 12, 14, 15 are also the relay thresholds `vs::fill_game_ctrl` sets; 19,740 is the REQ_MATCH poll count, which VS
+/// lowers to 9. Offsets 1,092..1,104 are times (A: HHMM); 14,608 / 14,610 take the common branch (A).
+const GAME_CTRL_DEFAULTS: &[(usize, usize, u32)] = &[
+    (1, 1, 5),
+    (2, 2, 5),
+    (4, 4, 5_000),
+    (8, 4, 250_000),
+    (12, 2, 200),
+    (14, 1, 20),
+    (15, 1, 50),
+    (16, 1, 14),
+    (17, 1, 3),
+    (20, 4, 1_000_000),
+    (34, 1, 2),
+    (35, 1, 1),
+    (996, 1, 1),
+    (997, 1, 10),
+    (998, 1, 1),
+    (1092, 4, 1_200),
+    (1096, 4, 1_500),
+    (1100, 4, 1_800),
+    (1104, 4, 2_100),
+    (1173, 1, 9),
+    (1174, 1, 20),
+    (1216, 1, 1),
+    (1218, 2, 600),
+    (14532, 4, 61_440),
+    (14542, 1, 1),
+    (14608, 1, 5),
+    (14610, 1, 1),
+    (14611, 1, 10),
+    (19716, 1, 1),
+    (19740, 1, 26),
+];
+
+/// Answer 238's GAME_CTRL (from payload +16): the client's defaults and the unlocked secretaries. +8 and +12 (date
+/// and time) stay 0: the control may set the PC's clock from them.
+fn fill_game_ctrl(body: &mut [u8]) {
+    for &(at, width, v) in GAME_CTRL_DEFAULTS {
+        body[16 + at..16 + at + width].copy_from_slice(&v.to_le_bytes()[..width]);
+    }
+    body[SECRETARIES].fill(1);
+}
+
 const MAGIC: [u8; 8] = [0xF1, 0xC0, 0x80, 0x44, 0xB4, 0x9E, 0xDA, 0x3C];
 /// Response command and payload size (control.c response dispatcher 0x408C50 and the message table).
 const RESP: &[(u16, usize)] = &[
@@ -741,9 +788,9 @@ fn answer(
     }
     if cmd == 237 {
         // the control copies payload +16.. as GAME_CTRL (sub_4419F0) and sends it to every seat, over the client's
-        // defaults; GAME_CTRL bytes 1176..1211 unlock the 36 secretaries (default 1); all zero leaves none, and the club's SECRETARY step loads a picture that is not on
-        // the disc and reads a null pointer (client 0x424AB2, docs/research/ONLINE-2017-18.md)
-        body[SECRETARIES].fill(1);
+        // defaults; all zero leaves no secretary, and the club's SECRETARY step loads a picture that is not on the
+        // disc and reads a null pointer (client 0x424AB2, docs/research/ONLINE-2017-18.md)
+        fill_game_ctrl(&mut body);
     }
     if cmd == 261 && payload.len() >= 8 {
         // the control downloads a 0x3DA38-byte buffer in 2,032-byte chunks (request +4 = chunk) and copies answer
@@ -1251,6 +1298,51 @@ mod tests {
             a[3100..3556].iter().all(|b| *b == 0),
             "not backfilled twice"
         );
+    }
+
+    #[test]
+    fn game_ctrl_carries_the_clients_defaults() {
+        let mut body = vec![0u8; 0x5A54];
+        fill_game_ctrl(&mut body);
+        fn at(body: &[u8], off: usize, w: usize) -> u32 {
+            let mut b = [0u8; 4];
+            b[..w].copy_from_slice(&body[16 + off..16 + off + w]);
+            u32::from_le_bytes(b)
+        }
+        assert!(
+            GAME_CTRL_DEFAULTS
+                .iter()
+                .all(|&(o, w, v)| at(&body, o, w) == v)
+        );
+        assert_eq!(
+            (
+                at(&body, 4, 4),
+                at(&body, 8, 4),
+                at(&body, 19_740, 1),
+                at(&body, 1_176, 1)
+            ),
+            (5_000, 250_000, 26, 1)
+        );
+        assert!(body[8..16].iter().all(|b| *b == 0), "date and time stay 0");
+        // the Grand Trophy window stays closed (0..0) outside VS, and VS overlays the polls and the window
+        assert_eq!((at(&body, 7_622, 2), at(&body, 7_624, 2)), (0, 0));
+        vs::fill_game_ctrl(&mut body);
+        assert_eq!(
+            (
+                at(&body, 19_740, 1),
+                at(&body, 7_624, 2),
+                at(&body, 1_211, 1)
+            ),
+            (u32::from(vs::POLLS), 2400, 1)
+        );
+        // no two defaults overlap each other or the secretaries
+        let mut spans: Vec<_> = GAME_CTRL_DEFAULTS
+            .iter()
+            .map(|&(o, w, _)| (o, o + w))
+            .collect();
+        spans.push((1_176, 1_212));
+        spans.sort();
+        assert!(spans.windows(2).all(|w| w[0].1 <= w[1].0));
     }
 
     fn req(cmd: u16, ids: [u32; 3]) -> Vec<u8> {
