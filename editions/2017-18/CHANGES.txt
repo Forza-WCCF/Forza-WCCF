@@ -1,6 +1,22 @@
 Forza-WCCF 2017-18 - release notes
 ==================================
 
+0.3.1 - 2026-10-23 (alpha)
+--------------------------
+In-app updates, a crash fix and catalogue fixes from player reports.
+
+  - UPDATE in the Launcher finds new Forza-WCCF versions and installs them in place, checked against their published
+    SHA-256. The Launcher looks once a day and says when a new version is out.
+  - No more stop on the secretary screen when making a new club in Italian. A game text that is longer than its box
+    is now cut to fit instead of stopping the game.
+  - After copying a new version over an old one, the Launcher builds the game text again at the next start, so the
+    game never keeps an older version's text.
+  - The catalogue search finds MVP cards ("ronaldinho mvp"), short seasons ("0506", "12/13") and rarities ("regular",
+    "normale", "レギュラー").
+  - A team holds one card per player: adding a second card of a player from the catalogue is refused with a message,
+    and a card dropped on the board takes the place of that player's other card.
+  - The programs no longer contain folder paths of the PC that built them.
+
 0.3.0 - 2026-10-23 (alpha)
 --------------------------
 Movies, saved player growth and fixes from player reports.
