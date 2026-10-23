@@ -121,8 +121,10 @@ jobs:
         shell: pwsh
         run: |
           "start=$((Get-Date).ToUniversalTime().ToString('o'))" >> $env:GITHUB_OUTPUT
-          & "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -SignatureUpdate
-          if ($LASTEXITCODE -ne 0) { "::warning::Defender signature update failed (exit $LASTEXITCODE); scanning with the installed signatures" }
+          # the signature update (about 30 s) runs in the background while the build compiles; the step before the kit
+          # scan waits for it. The EICAR control and the tests' behaviour monitoring use the installed signatures.
+          $p = Start-Process -FilePath "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -ArgumentList '-SignatureUpdate' -NoNewWindow -PassThru -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'sigupdate.log')
+          "update_pid=$($p.Id)" >> $env:GITHUB_OUTPUT
           Get-MpComputerStatus | Select-Object AMEngineVersion, AntivirusSignatureVersion, RealTimeProtectionEnabled, BehaviorMonitorEnabled, AntivirusEnabled | Format-List
           exit 0
       # the EICAR test file, from two halves so this file never holds the whole string: the scan must find it
@@ -189,7 +191,16 @@ jobs:
         run: cargo xtask check ci
       - name: Defender scan of the kits and the installer
         shell: pwsh
+        env:
+          UPDATE_PID: ${{ steps.defender.outputs.update_pid }}
         run: |
+          # the signature update started in the first step: wait for it, then scan with the new signatures
+          if ($env:UPDATE_PID) { Wait-Process -Id ([int]$env:UPDATE_PID) -Timeout 300 -ErrorAction SilentlyContinue }
+          $log = Join-Path $env:RUNNER_TEMP 'sigupdate.log'
+          if (Test-Path $log) { Get-Content $log }
+          $age = (Get-Date) - (Get-MpComputerStatus).AntivirusSignatureLastUpdated
+          if ($age.TotalDays -gt 2) { "::warning::Defender signatures are $([int]$age.TotalDays) days old; the signature update may have failed" }
+          Get-MpComputerStatus | Select-Object AMEngineVersion, AntivirusSignatureVersion | Format-List
           $bad = 0
           foreach ($p in 'target\kit', 'target\x86_64-pc-windows-msvc\release\Forza-WCCF-Installer.exe') {
             $full = (Resolve-Path $p).Path
