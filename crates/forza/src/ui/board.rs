@@ -475,6 +475,8 @@ pub struct Look {
     pub target: bool,
     pub warn: bool,
     pub selected: bool,
+    /// Square corners (the big hover card).
+    pub square: bool,
 }
 
 /// The card face, upright at the real card's shape ([`CARD_ASPECT`]): the card's picture whole, never cut (the pack's
@@ -484,7 +486,11 @@ pub struct Look {
 pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
     let card = &*real(p.ctx(), card);
     let big = rect.width() >= 90.0;
-    let r = (rect.width() * 0.08) as u8;
+    let r = if look.square {
+        0
+    } else {
+        (rect.width() * 0.08) as u8
+    };
     let alpha = if look.ghost {
         0.3
     } else if look.held {
@@ -1839,7 +1845,7 @@ fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, tile: Vec2, back:
             egui::Frame::new()
                 .fill(theme::DEEP)
                 .stroke(Stroke::new(1.0, theme::RIM_HI))
-                .corner_radius(theme::RADIUS_BIG)
+                .corner_radius(0)
                 .inner_margin(10)
                 .shadow(Shadow {
                     offset: [0, 8],
@@ -1860,7 +1866,15 @@ fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, tile: Vec2, back:
                         ui.horizontal_top(|ui| {
                             ui.spacing_mut().item_spacing.x = 10.0;
                             let (r, _) = ui.allocate_exact_size(size, Sense::hover());
-                            card_face(ui.painter(), r, card, Look::default());
+                            card_face(
+                                ui.painter(),
+                                r,
+                                card,
+                                Look {
+                                    square: true,
+                                    ..Look::default()
+                                },
+                            );
                             ui.vertical(|ui| {
                                 ui.spacing_mut().item_spacing.y = 4.0;
                                 ui.label(
