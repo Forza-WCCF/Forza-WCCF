@@ -72,8 +72,9 @@ scan of the ZIP and of `inject.exe` finds nothing.
 `release.rs` pointed UPDATE at the `WCCF-Kit-1011` releases, so this build would have offered that repository's
 release in its place. UPDATE now reads one constant, `UPDATE_URL = "https://updates.invalid/wccf/"` (`.invalid` never
 resolves, RFC 2606), and reports "No update found" (EN/IT/JA) until a real target exists. Tests:
-`placeholder_finds_no_update`, `placeholder_asks_nobody`. Before UPDATE is switched on, see
-[RELEASING.md](RELEASING.md).
+`placeholder_finds_no_update`, `placeholder_asks_nobody`. Switched on 2026-10-23 for both editions: this repository's
+releases, one ZIP per edition, semver, SHA-256 checked, `self-replace` for Launcher.exe ([RELEASING.md](RELEASING.md),
+"In-app UPDATE").
 
 ## Step 3 — import and reorganize (history kept)
 

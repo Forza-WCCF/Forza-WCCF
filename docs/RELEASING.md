@@ -23,9 +23,17 @@
   (SAVE LOGS in the panel, then attach the file to a GitHub issue).
 - Player feedback: GitHub issues, in English, Italian or Japanese.
 
-## Before in-app UPDATE is switched on
+## In-app UPDATE
 
-UPDATE is off (`UPDATE_URL` ends in `.invalid/`, `crates/launcher/src/release.rs`). Its version check compares
-`kit-` numbers across every release of one repo and treats any `-suffix` as a test build. 2010-11 releases are at
-`kit-8.x`, so a 0.x build would never count as newer. Before UPDATE is turned on, the check needs one release list per
-edition and the `v` tags.
+The Launcher's UPDATE (both editions) reads this repository's releases from the GitHub API
+(`UPDATE_URL`, `crates/launcher/src/release.rs`; `WCCF_UPDATE_URL` points it at a self-hosted list).
+
+- A release is offered to an edition only with an asset named `Forza-WCCF-<edition>-<version>.zip`, `<version>` being
+  the tag without its `v` (`v0.4.0` -> `Forza-WCCF-2017-18-0.4.0.zip`). The installer's ZIP is never taken.
+- Versions compare as semver against `version.txt` (`kit-0.3.0`). A tag with a pre-release part (`v0.4.0-rc.1`) is a
+  test build: listed, never announced. GitHub's pre-release flag does not count, so alpha releases are offered.
+- The ZIP must match its `<zip>.sha256` asset (`cargo xtask package` writes it), else GitHub's `digest` of the asset;
+  with neither, or a mismatch, UPDATE changes nothing.
+- A release whose game files need the installer again: put `<!-- needs-installer -->` in the release notes. UPDATE then
+  copies nothing and opens the release page.
+- The Launcher checks at most once a day at start (`data\update-check.txt`) and every time the UPDATE page opens.
