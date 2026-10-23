@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/logo/forza-wccf-256.png" alt="Forza-WCCF logo" width="256"></p>
+
 # Forza-WCCF
 
 Community tools to run your own copy of World Club Champion Football on a Windows PC: the 2010–11 and 2017–18

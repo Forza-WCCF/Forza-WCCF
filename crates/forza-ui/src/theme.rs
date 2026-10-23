@@ -70,12 +70,16 @@ pub const GRID: f32 = 4.0;
 pub const RADIUS: u8 = 4;
 pub const RADIUS_BIG: u8 = 8;
 
-pub use crate::Edition;
+pub use forza::Edition;
 
 /// One design language; each edition has its own accent so a screen says which edition it belongs to.
-impl Edition {
+pub trait Accent {
+    fn accent(self) -> Color32;
+}
+
+impl Accent for Edition {
     /// 2010–11 is cooler (an ice cyan), 2017–18 warmer (the rarity gold).
-    pub fn accent(self) -> Color32 {
+    fn accent(self) -> Color32 {
         match self {
             Edition::E1011 => Color32::from_rgb(0x4F, 0xC3, 0xF7),
             Edition::E1718 => Color32::from_rgb(0xF0, 0xB8, 0x3C),

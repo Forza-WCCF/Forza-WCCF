@@ -1,6 +1,11 @@
 //! The step 9 design: [`theme`] (fonts and the one `egui::Style`), [`widgets`] and [`board`] (painted widgets), and the
 //! screens as functions over sample data: [`launcher`], [`installer`], [`panel`].
 
+rust_i18n::i18n!("locales", fallback = "en");
+// rustc does not list the macro's yml as an input, so cargo and sccache reused a build with old text (2026-10-20);
+// include_str! puts it in the dep-info. Add each new locale file here.
+const _: &str = include_str!("../locales/ui.yml");
+
 /// UI text in one language: `tr!(lang, "key")`, `tr!(lang, "key", n = 3)`. English is the source and the fallback.
 macro_rules! tr {
     ($lang:expr, $key:expr) => {

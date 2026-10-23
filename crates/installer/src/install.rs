@@ -5,7 +5,7 @@ use crate::{disc, fetch};
 use anyhow::{Result, ensure};
 use forza::Edition;
 use forza::text::{Lang, Mode};
-use forza::ui::installer::Step;
+use forza_ui::installer::Step;
 use ntfs::{Ntfs, NtfsReadSeek, structured_values::NtfsFileNamespace};
 use std::fs::{self, File};
 use std::io::{Read, Seek, Write};

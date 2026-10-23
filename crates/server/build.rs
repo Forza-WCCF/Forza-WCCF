@@ -10,6 +10,7 @@ fn main() {
         && let Some(res) = version_rc::make(
             "forza-server",
             "the online server: seat desk, match relay and log inbox",
+            None,
         )
     {
         println!("cargo:rustc-link-arg-bin=forza-server={}", res.display());

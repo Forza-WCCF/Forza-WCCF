@@ -4,9 +4,9 @@
 use egui::{Ui, Vec2};
 use egui_kittest::kittest::Queryable;
 use egui_kittest::{Harness, SnapshotResults};
-use forza::ui::Lang;
-use forza::ui::theme::{self, Edition};
-use forza::ui::{installer, launcher, lobby, panel};
+use forza_ui::Lang;
+use forza_ui::theme::{self, Edition};
+use forza_ui::{installer, launcher, lobby, panel};
 
 /// One test on the GPU at a time: wgpu devices made in parallel crashed the test process now and then (exit 116,
 /// about 1 run in 4 on 2026-10-12); one after another they never did.
@@ -244,7 +244,7 @@ fn board_interaction() {
 fn board_links() {
     let _gpu = gpu();
     let mut st = panel::PanelState::sample(Edition::E1011, Lang::En, panel::Page::Game);
-    st.links = forza::ui::sample::links();
+    st.links = forza_ui::sample::links();
     let spots = st.board.spots;
     let at = |slot| panel::board_slot_center(panel::SIZE.x, &spots, slot);
     let st = std::cell::RefCell::new(st);
@@ -311,12 +311,12 @@ fn card_pictures() {
         image::Rgba([(x * 2) as u8, 90, (y * 2) as u8, 255])
     });
     png.save(dir.path().join("6.png")).expect("a PNG written");
-    let cards = forza::ui::sample::cards();
+    let cards = forza_ui::sample::cards();
     let path = dir.path().to_owned();
     let mut first = true;
     let mut h = harness(Vec2::new(860.0, 200.0), 1.0, Edition::E1011, |ui| {
         if first {
-            forza::ui::board::set_picture_dir(ui.ctx(), Some(path.clone()));
+            forza_ui::board::set_picture_dir(ui.ctx(), Some(path.clone()));
             first = false;
         }
         ui.horizontal(|ui| {
@@ -326,7 +326,7 @@ fn card_pictures() {
                         Vec2::new(w, (w * 1.4f32).round()),
                         egui::Sense::hover(),
                     );
-                    forza::ui::board::card_face(ui.painter(), r, card, Default::default());
+                    forza_ui::board::card_face(ui.painter(), r, card, Default::default());
                 }
             }
         });
@@ -361,7 +361,7 @@ fn catalogue_search_and_add() {
     h.run_steps(4);
     assert_eq!(
         st.borrow().catalogue.results.len(),
-        forza::ui::sample::cards().len()
+        forza_ui::sample::cards().len()
     );
     h.event(egui::Event::Text("italia porto".into()));
     h.run_steps(2);
@@ -411,8 +411,8 @@ fn keys_click_then_press() {
     let st = RefCell::new(panel::PanelState::new(
         Edition::E1011,
         Lang::En,
-        forza::ui::sample::board(),
-        forza::ui::sample::cards().into(),
+        forza_ui::sample::board(),
+        forza_ui::sample::cards().into(),
     ));
     st.borrow_mut().page = panel::Page::Keys;
     let mut h = harness(panel::SIZE, 1.0, Edition::E1011, |ui| {
@@ -449,8 +449,8 @@ fn settings_choices_and_restart() {
     let st = RefCell::new(panel::PanelState::new(
         Edition::E1011,
         Lang::En,
-        forza::ui::sample::board(),
-        forza::ui::sample::cards().into(),
+        forza_ui::sample::board(),
+        forza_ui::sample::cards().into(),
     ));
     {
         let mut s = st.borrow_mut();
@@ -494,19 +494,19 @@ fn settings_choices_and_restart() {
 /// open; CLEAR BAD ENDINGS the same way (2010-11); Esc closes the page.
 #[test]
 fn club_card_switch_and_clear() {
-    use forza::ui::panel::ClubPick;
+    use forza_ui::panel::ClubPick;
     use std::cell::RefCell;
     let _gpu = gpu();
     let st = RefCell::new(panel::PanelState::new(
         Edition::E1011,
         Lang::En,
-        forza::ui::sample::board(),
-        forza::ui::sample::cards().into(),
+        forza_ui::sample::board(),
+        forza_ui::sample::cards().into(),
     ));
     {
         let mut s = st.borrow_mut();
         s.page = panel::Page::ClubCard;
-        s.club = forza::ui::sample::club_view();
+        s.club = forza_ui::sample::club_view();
     }
     let mut h = harness(panel::SIZE, 1.0, Edition::E1011, |ui| {
         panel::show(ui, &mut st.borrow_mut())
@@ -559,8 +559,8 @@ fn card_deal() {
     let st = RefCell::new(panel::PanelState::new(
         Edition::E1011,
         Lang::En,
-        forza::ui::sample::board(),
-        forza::ui::sample::cards().into(),
+        forza_ui::sample::board(),
+        forza_ui::sample::cards().into(),
     ));
     st.borrow_mut().deal = Some(panel::Deal::new(3));
     let mut h = harness(panel::SIZE, 1.0, Edition::E1011, |ui| {
@@ -623,8 +623,8 @@ fn cabinet_shapes_click() {
     let st = RefCell::new(panel::PanelState::new(
         Edition::E1011,
         Lang::En,
-        forza::ui::sample::board(),
-        forza::ui::sample::cards().into(),
+        forza_ui::sample::board(),
+        forza_ui::sample::cards().into(),
     ));
     let mut h = harness(panel::SIZE, 1.0, Edition::E1011, |ui| {
         panel::show(ui, &mut st.borrow_mut())

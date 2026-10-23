@@ -15,9 +15,9 @@
 
 use forza::keys::{COUNT, PAUSE};
 use forza::panel_txt::PanelFile;
-use forza::ui::Lang;
-use forza::ui::panel::{CardState, Link, Status, when};
-use forza::ui::theme::Edition;
+use forza_ui::Lang;
+use forza_ui::panel::{CardState, Link, Status, when};
+use forza_ui::theme::Edition;
 use std::env;
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};

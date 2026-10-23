@@ -1,7 +1,7 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 //! Forza-WCCF installer: each RingEdge edition owns <dest>\<edition>\game and its kit/save tree.
 //! The kit (the package) is optional and must match the game's edition; without it the game is only extracted. `--iso/--key/--dest` runs headless.
-//! The window is `forza::ui::installer` (the approved design) over the state kept here; this file runs what it asks.
+//! The window is `forza_ui::installer` (the approved design) over the state kept here; this file runs what it asks.
 mod disc;
 mod err;
 mod fetch;
@@ -9,9 +9,9 @@ mod install;
 mod keytable;
 
 use eframe::egui;
-use forza::ui::installer::{self, Action, Field, InstallerState, Latest, Page, Space, Step};
-use forza::ui::theme::{self, Edition};
-use forza::ui::{Lang, text};
+use forza_ui::installer::{self, Action, Field, InstallerState, Latest, Page, Space, Step};
+use forza_ui::theme::{self, Edition};
+use forza_ui::{Lang, text};
 use install::{Event, Plan};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -527,7 +527,13 @@ fn run_window(renderer: eframe::Renderer) -> eframe::Result {
             .with_title("Forza-WCCF Installer")
             .with_decorations(false)
             .with_inner_size(installer::SIZE)
-            .with_min_inner_size([680.0, 520.0]),
+            .with_min_inner_size([680.0, 520.0])
+            .with_icon(
+                eframe::icon_data::from_png_bytes(include_bytes!(
+                    "../../../assets/logo/forza-wccf-256.png"
+                ))
+                .expect("the logo is a PNG"),
+            ),
         renderer,
         ..Default::default()
     };

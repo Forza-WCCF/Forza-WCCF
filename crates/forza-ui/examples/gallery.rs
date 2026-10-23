@@ -4,9 +4,9 @@
 
 use eframe::egui;
 use egui::{Rect, Ui, vec2};
-use forza::ui::theme::{self, Edition};
-use forza::ui::widgets::{chip, segmented};
-use forza::ui::{Lang, installer, launcher, panel};
+use forza_ui::theme::{self, Edition};
+use forza_ui::widgets::{chip, segmented};
+use forza_ui::{Lang, installer, launcher, panel};
 
 /// One entry of the gallery.
 #[derive(Clone, Copy, PartialEq)]
@@ -188,7 +188,7 @@ fn main() -> eframe::Result {
             theme::install(&cc.egui_ctx, Edition::E1011, &theme::font_dir())?;
             let cards = std::env::var_os("FORZA_CARDS").map(std::path::PathBuf::from);
             let pictures = cards.as_deref().map(picture_numbers).unwrap_or_default();
-            forza::ui::board::set_picture_dir(&cc.egui_ctx, cards);
+            forza_ui::board::set_picture_dir(&cc.egui_ctx, cards);
             let item = Item::Launcher(launcher::Scenario::Ready);
             let mut g = Gallery {
                 item,

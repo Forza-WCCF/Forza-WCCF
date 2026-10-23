@@ -1,4 +1,4 @@
-//! Forza-WCCF's shared code. `ui`: the theme, the bespoke widgets and the screens of the step 9 design.
+//! Forza-WCCF's shared code; the egui screens are `forza-ui`. `board`: the player cards and the card table as data.
 //! `online`: the client side of online play (seat lease, SEND LOGS), the protocol the server shares (step 10 I1), and
 //! the 2017–18 game server and VS matcher that both the Launcher's stand-in and `forza-server` run.
 //! `standins`: the cabinet stand-ins on the player's PC: the 2017–18 Aime reader and AiMeDB, the 2010–11 card reader,
@@ -53,14 +53,8 @@ impl Edition {
     }
 }
 
-#[cfg(feature = "ui")]
-rust_i18n::i18n!("locales", fallback = "en");
-// rustc does not list the macro's yml as an input, so cargo and sccache reused a build with old text (2026-10-20);
-// include_str! puts it in the dep-info. Add each new locale file here.
-#[cfg(feature = "ui")]
-const _: &str = include_str!("../locales/ui.yml");
-
-#[cfg(feature = "ui")]
+pub mod board;
+#[cfg(feature = "full")]
 pub mod cards;
 pub mod club_view;
 pub mod curl;
@@ -70,11 +64,9 @@ pub mod online;
 pub mod panel_txt;
 pub mod pause;
 pub mod service;
-/// The install steps need the card catalogue (`cards`), so the `ui` feature too.
-#[cfg(feature = "ui")]
+/// The install steps need the card catalogue (`cards`), so the `full` feature too.
+#[cfg(feature = "full")]
 pub mod setup;
 pub mod standins;
-#[cfg(feature = "ui")]
+#[cfg(feature = "full")]
 pub mod text;
-#[cfg(feature = "ui")]
-pub mod ui;

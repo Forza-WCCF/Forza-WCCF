@@ -1,6 +1,6 @@
 //! Launcher.exe - the kit's one program, a window (2026-10-10; before, a console that ran play.py, and SETUP.exe beside
 //! it for the rest).  Nothing it starts shows a console: the game's two windows are all a player sees.  The window is
-//! eframe drawing forza's launcher screen (forza::ui::launcher, step 9.4): this file fills its state from the kit and
+//! eframe drawing forza's launcher screen (forza_ui::launcher, step 9.4): this file fills its state from the kit and
 //! does what the player asks for there.
 //!   PLAY         play on THIS PC or ONLINE on a server, the window's language, the game's text (English,
 //!                Italian or Japanese) - then this process runs the game (launcher::run) and holds every process of it
@@ -39,10 +39,10 @@ use std::{env, mem, ptr, thread};
 
 use eframe::egui;
 use egui::ViewportCommand;
-use forza::ui::launcher::{self as screen, Action, Confirm, LauncherState};
-use forza::ui::theme;
-use forza::ui::widgets::Tone;
-use forza::ui::{Lang, text as ui_text};
+use forza_ui::launcher::{self as screen, Action, Confirm, LauncherState};
+use forza_ui::theme;
+use forza_ui::widgets::Tone;
+use forza_ui::{Lang, text as ui_text};
 use launcher::release::is_newer;
 use launcher::run::{self, Params};
 use launcher::{Edition, Kit, choices};
@@ -383,16 +383,24 @@ impl run::Ui for WindowUi {
     }
 }
 
-/// SAVE LOGS: the save dialog (forza-wccf-logs-<date>.zip), then the logs ZIP there; the place chosen, None when the
+/// `forza-wccf-logs-YYYYMMDD-HHMMSS.zip`: every ZIP the owner receives has its own name.
+fn logs_zip_name(t: time::OffsetDateTime) -> String {
+    format!(
+        "forza-wccf-logs-{:04}{:02}{:02}-{:02}{:02}{:02}.zip",
+        t.year(),
+        u8::from(t.month()),
+        t.day(),
+        t.hour(),
+        t.minute(),
+        t.second()
+    )
+}
+
+/// SAVE LOGS: the save dialog (forza-wccf-logs-<date>-<time>.zip), then the logs ZIP there; the place chosen, None when the
 /// dialog was cancelled.  Says the result in the status line.
 fn save_logs(kit: &Path, game: Option<&Path>, parent: Option<&eframe::Frame>) -> Result<Option<PathBuf>, String> {
     let now = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
-    let name = format!(
-        "forza-wccf-logs-{:04}{:02}{:02}.zip",
-        now.year(),
-        u8::from(now.month()),
-        now.day()
-    );
+    let name = logs_zip_name(now);
     let mut dialog = rfd::FileDialog::new()
         .set_title(t("logs.save_title"))
         .set_file_name(name)
@@ -865,7 +873,7 @@ fn version(kit: &Kit) -> String {
     v.strip_prefix("kit-").map(str::to_owned).unwrap_or(v)
 }
 
-/// Gamepad presses since the window last looked, as the lobby's keys (`forza::ui::lobby::pad_key`).
+/// Gamepad presses since the window last looked, as the lobby's keys (`forza_ui::lobby::pad_key`).
 static PAD_KEYS: Mutex<Vec<egui::Key>> = Mutex::new(Vec::new());
 
 /// Reads every controller (winmm, as the keys driver does) every 30 ms; a control newly pressed that the lobby knows
@@ -878,7 +886,7 @@ fn pad_thread() {
             let now = pads.poll();
             let new: Vec<egui::Key> = now
                 .difference(&was)
-                .filter_map(|c| forza::ui::lobby::pad_key(*c))
+                .filter_map(|c| forza_ui::lobby::pad_key(*c))
                 .collect();
             if !new.is_empty() {
                 PAD_KEYS.lock().unwrap_or_else(PoisonError::into_inner).extend(new);
@@ -973,7 +981,10 @@ fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
                 .with_maximize_button(false)
                 .with_decorations(false)
                 .with_drag_and_drop(true)
-                .with_icon(egui::IconData::default()), // Windows' own, not eframe's
+                .with_icon(
+                    eframe::icon_data::from_png_bytes(include_bytes!("../../../../../assets/logo/forza-wccf-256.png"))
+                        .expect("the logo is a PNG"),
+                ),
             ..Default::default()
         };
         let fonts = &fonts;
@@ -1180,6 +1191,16 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn logs_zip_name_has_date_and_time() {
+        let t = time::Date::from_calendar_date(2026, time::Month::October, 22)
+            .unwrap()
+            .with_hms(22, 15, 30)
+            .unwrap()
+            .assume_utc();
+        assert_eq!(logs_zip_name(t), "forza-wccf-logs-20261022-221530.zip");
+    }
 
     #[test]
     fn play_py_steps() {

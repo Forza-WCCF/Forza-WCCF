@@ -334,7 +334,7 @@ pub fn board() -> Board {
 /// the bench), and affinity for card 8 from synthetic files in the 2010-11 layout: 7 at 5, 10 at 4, 13 and 18 (not on
 /// the team) at 5 and 4, 19 at 2, 3 at 1; no client program, so unlisted pairs have none.
 pub fn links() -> super::board::Links {
-    use crate::cards::links::{Affinity, E1011};
+    use forza::cards::links::{Affinity, E1011};
     let cards = cards();
     let mut pd = vec![0u8; 0x328 * 21];
     for n in 1..=20usize {
@@ -379,8 +379,8 @@ pub fn links() -> super::board::Links {
 
 /// A club card view as the run's helper writes it (data\club_view.txt), for an invented club: a cut last session and
 /// one bad ending, a squad of five, two other cards (one used up by a manager transfer).
-pub fn club_view() -> crate::club_view::ClubView {
-    crate::club_view::ClubView::parse(
+pub fn club_view() -> forza::club_view::ClubView {
+    forza::club_view::ClubView::parse(
         b"state|ok\nhead|CLUB\nrow|CLUB|KITAKAZE ESTE  (founded 2026-09-02)|w\n\
           row|MANAGER|H. SAKURABA  (born 1980-04-01)|w\nrow|CONTRACT|38 matches left|w\n\
           row|LEAGUE|Div 3, leg 2: 4th - W7 D2 L3, 21-14, 23 pts|w\nrow|ALL MATCHES|W81 D27 L34 - best win streak 6|w\n\
@@ -393,4 +393,19 @@ pub fn club_view() -> crate::club_view::ClubView {
           wallet|porto_azzurro.bin|PORTO AZZURRO FC|W12 D4 L9 - last played 2026-10-03\n\
           wallet|nordhavn.bin|NORDHAVN UNITED|W40 D11 L20 - last played 2026-09-21|transferred\n",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use forza::cards::{deal, deal_class, deal_tier};
+
+    /// Each deal tier from its own cards (forza::cards' deal test has the odds).
+    #[test]
+    fn deal_picks_from_the_tier() {
+        let cards = super::cards();
+        for r in [[0, 0, 7], [999, 0, 3], [999, 99, 5]] {
+            let i = deal(&cards, r).expect("the sample has every tier");
+            assert_eq!(deal_class(&cards[i]), deal_tier(r[0], r[1]));
+        }
+    }
 }

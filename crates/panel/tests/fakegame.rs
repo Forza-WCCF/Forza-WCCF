@@ -51,7 +51,7 @@ fn panel_draws_in_fakegame() {
     }
     copy_dir(Path::new("../../assets/fonts"), &t.join("fonts")); // the kit's layout: fonts/ beside the programs
 
-    // KEYS on the bar of page buttons (forza::ui::panel: the middle's bottom 60 points), at 1440x900 one point a pixel
+    // KEYS on the bar of page buttons (forza_ui::panel: the middle's bottom 60 points), at 1440x900 one point a pixel
     let out = Command::new(t.join("fakegame.exe"))
         .current_dir(&t)
         .env("WCCFPANEL_FULLSCREEN", "0") // never maximized over the player's screen
@@ -129,7 +129,7 @@ fn panel_draws_in_fakegame() {
 #[cfg(target_arch = "x86")] // forza is the 32-bit panel's own dependency
 fn board_and_buttons_with_real_data() {
     use forza::cards;
-    use forza::ui::panel;
+    use forza_ui::panel;
 
     for f in ["fakegame.exe", "forza_panel.dll"] {
         assert!(
@@ -532,7 +532,7 @@ fn board_and_buttons_with_real_data() {
         &[
             "wait:2500".into(),
             "copy:deal.bmp".into(),
-            "click:430,300".into(), // the card (forza::ui::panel's deal window at 1440x900)
+            "click:430,300".into(), // the card (forza_ui::panel's deal window at 1440x900)
             "wait:400".into(),
             "click:430,700".into(), // under it
             "wait:400".into(),

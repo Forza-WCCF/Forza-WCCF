@@ -3,11 +3,7 @@
 mod io_board;
 mod online;
 mod scenes;
-#[cfg(feature = "ui")]
-mod snapshots;
 mod standins;
-#[cfg(feature = "ui")]
-mod text;
 
 use serde_json::Value;
 use std::path::PathBuf;

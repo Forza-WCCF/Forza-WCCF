@@ -240,11 +240,11 @@ replaced, not restyled. Every feature is kept. Every user-facing string ships in
 1. Feature inventory: [UI_INVENTORY.md](UI_INVENTORY.md).
 2. Cabinet reference: [CABINET_LOOK.md](CABINET_LOOK.md), what makes the cabinet feel like itself, in words,
    measurements and colour values, with sources. Inspiration only: no logos, trademarks or original pictures.
-3. Design in egui: `crates/forza/src/ui/theme.rs` sets every `egui::Style` value; bespoke widgets painted with
+3. Design in egui: `crates/forza-ui/src/theme.rs` sets every `egui::Style` value; bespoke widgets painted with
    `Painter` and meshes (the cabinet's buttons, the pitch and player cards, card frames and rarity marks, stat bars,
    key capture); the launcher draws its own title bar. `cargo xtask gallery` shows every screen and widget state with
    sample data in EN, IT and JA, and `egui_kittest` snapshots of them are regression tests.
-4. Build: the launcher and the installer in eframe on `forza::ui::theme`; the panel is Rust too, a 32-bit `cdylib`
+4. Build: the launcher and the installer in eframe on `forza_ui::theme`; the panel is Rust too, a 32-bit `cdylib`
    (`forza_panel.dll`) drawing egui through a small Direct3D 9 painter of its own. 9.4a–9.4c done; both kits ship
    `forza_panel.dll`. After the 9.4c live gate the C panel sources, their `source\` shipping, `skin.tex` and
    `WCCF_SKIN` go.

@@ -4,7 +4,7 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use forza::ui::Lang;
+use forza_ui::Lang;
 use windows_sys::Win32::Globalization::GetUserDefaultUILanguage;
 
 static CHOSEN: AtomicUsize = AtomicUsize::new(0);
@@ -49,5 +49,5 @@ pub fn t(key: &str) -> String {
 
 /// `key` in the chosen language, each `%{name}` filled.
 pub fn tf(key: &str, args: &[(&str, &str)]) -> String {
-    forza::ui::text(lang(), key, args)
+    forza_ui::text(lang(), key, args)
 }

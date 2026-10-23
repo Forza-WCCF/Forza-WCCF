@@ -1,7 +1,7 @@
 //! Every error the installer shows a person: a typed variant with its parameters, spoken through `ui.yml`
 //! (`installer.err_*`) in the window's language. Headless mode prints the same keys in English.
 //! Low-level failures that carry only OS or library text travel as `Other` and keep that text as it is.
-use forza::ui::{Lang, text};
+use forza_ui::{Lang, text};
 use std::path::Path;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -238,7 +238,7 @@ mod tests {
             || env!("CARGO_MANIFEST_DIR").into(),
             std::path::PathBuf::from,
         );
-        let yml = std::fs::read_to_string(dir.join("../forza/locales/ui.yml")).unwrap();
+        let yml = std::fs::read_to_string(dir.join("../forza-ui/locales/ui.yml")).unwrap();
         for e in &all {
             let line = yml
                 .lines()

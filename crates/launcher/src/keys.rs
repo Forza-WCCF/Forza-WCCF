@@ -956,7 +956,8 @@ mod win {
     use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RegGetValueW};
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetCursorPos, GetForegroundWindow, GetPropW, GetWindowThreadProcessId, WindowFromPoint,
+        GetClassNameW, GetCursorPos, GetForegroundWindow, GetPropW, GetWindowThreadProcessId, IsWindow,
+        IsWindowVisible, SetForegroundWindow, WindowFromPoint,
     };
 
     pub fn key_down(vk: u32) -> bool {
@@ -979,6 +980,35 @@ mod win {
     #[derive(Default)]
     pub struct Foreground {
         cache: HashMap<isize, bool>,
+        /// The game window that was in front last, until it is given back or something else takes over.
+        last: Option<HWND>,
+    }
+
+    fn image_is(hwnd: HWND, name: &str) -> bool {
+        let mut pid = 0u32;
+        // SAFETY: `pid` is a valid out-pointer.
+        unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
+        procs::image(pid).and_then(|p| p.file_name().map(|n| n.to_string_lossy().eq_ignore_ascii_case(name)))
+            == Some(true)
+    }
+
+    fn class_of(hwnd: HWND) -> String {
+        let mut b = [0u16; 128];
+        // SAFETY: the buffer and its length go together.
+        let n = unsafe { GetClassNameW(hwnd, b.as_mut_ptr(), 128) }.max(0) as usize;
+        String::from_utf16_lossy(&b[..n])
+    }
+
+    /// Puts the game window back in front. A background process may not take the foreground, so a tap on ALT first
+    /// (the keyboard is then ours to give it away).
+    fn bring_back(hwnd: HWND) {
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{KEYEVENTF_KEYUP, VK_MENU, keybd_event};
+        // SAFETY: plain calls; `hwnd` was checked to be a window a moment ago.
+        unsafe {
+            keybd_event(VK_MENU as u8, 0, 0, 0);
+            keybd_event(VK_MENU as u8, 0, KEYEVENTF_KEYUP, 0);
+            SetForegroundWindow(hwnd);
+        }
     }
 
     impl Foreground {
@@ -1006,12 +1036,26 @@ mod win {
         pub fn game_in_front(&mut self) -> bool {
             // SAFETY: no arguments.
             let fg = unsafe { GetForegroundWindow() };
+            if !fg.is_null() && self.is_game(fg) {
+                self.last = Some(fg);
+                return !prop(fg, "WCCF_TYPING");
+            }
+            // The match engine's window (a child of the client) closed and the focus fell to nothing or the desktop:
+            // give it back to the game once. Never when the player went to another program.
+            if let Some(last) = self.last.take_if(|_| fg.is_null() || nothing_in_front(&class_of(fg)))
+                // SAFETY: plain calls with a window handle.
+                && unsafe { IsWindow(last) != 0 && IsWindowVisible(last) != 0 }
+            {
+                bring_back(last);
+                return false;
+            }
             if fg.is_null() {
                 return false;
             }
-            if self.is_game(fg) {
-                return !prop(fg, "WCCF_TYPING");
+            if self.last.is_some() && image_is(fg, "match_release.exe") {
+                return false; // the match engine is up: keep `last` for when it closes
             }
+            self.last = None;
             if !prop(fg, "WCCF_GAME_HOST") {
                 return false;
             }
@@ -1026,6 +1070,11 @@ mod win {
             }
             !prop(fg, "WCCF_TYPING")
         }
+    }
+
+    /// The focus sits on the desktop or the taskbar: nobody chose it, so the game may have it back.
+    pub fn nothing_in_front(class: &str) -> bool {
+        matches!(class, "Progman" | "WorkerW" | "Shell_TrayWnd")
     }
 
     /// X, Y, Z, R, U, V, the hat and the buttons (windows-sys has no JOY_RETURNALL).
@@ -1148,5 +1197,13 @@ mod tests {
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(keys[action_index("PRESS").unwrap()], 0x58);
         assert_eq!(keys[action_index("SHOOT").unwrap()], 0x47);
+    }
+
+    /// Only the desktop and the taskbar count as "nobody chose this": a browser or the Launcher keeps the focus.
+    #[cfg(windows)]
+    #[test]
+    fn only_the_desktop_is_given_back() {
+        assert!(win::nothing_in_front("Progman") && win::nothing_in_front("Shell_TrayWnd"));
+        assert!(!win::nothing_in_front("Chrome_WidgetWin_1") && !win::nothing_in_front(""));
     }
 }

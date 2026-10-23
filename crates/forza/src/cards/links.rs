@@ -8,7 +8,7 @@
 //! - **Link** 0-255 per pair of the club's 16 squad slots: the club card's CLUB_PLAYER_COOPERATION_INFO, 120 bytes
 //!   from payload bit 3650, pair `k` of slots i < j as [`pair`]; each slot's card is Player\[i\]'s PLAYER_CARD_NO.
 
-use crate::ui::board::Card;
+use crate::board::Card;
 use std::collections::HashMap;
 use std::path::Path;
 use std::{fs, io};
@@ -303,7 +303,7 @@ impl ClubLinks {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::ui::board::{Aptitude, Position, Rarity};
+    use crate::board::{Aptitude, Position, Rarity};
 
     pub(crate) fn card(number: u32, record: u32, name: &str) -> Card {
         Card {

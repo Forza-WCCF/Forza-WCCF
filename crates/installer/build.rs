@@ -30,7 +30,11 @@ fn main() {
         "cargo:rustc-link-arg-bin={bin}=/MANIFESTINPUT:{}",
         dpi.display()
     );
-    if let Some(res) = version_rc::make(bin, "installs Forza-WCCF from your game disc") {
+    if let Some(res) = version_rc::make(
+        bin,
+        "installs Forza-WCCF from your game disc",
+        Some("../../assets/logo/forza-wccf.ico"),
+    ) {
         println!("cargo:rustc-link-arg-bin={bin}={}", res.display());
     }
 }

@@ -5,7 +5,7 @@ license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
-description = "The in-game panel: a 32-bit DLL in the game drawing forza::ui through its own Direct3D 9 painter (step 9.4)"
+description = "The in-game panel: a 32-bit DLL in the game drawing forza-ui through its own Direct3D 9 painter (step 9.4)"
 
 [lib]
 name = "forza_panel"
@@ -15,6 +15,7 @@ crate-type = ["cdylib"]
 # crate is empty (lib.rs), so the workspace's x86_64 clippy and tests still build it.
 [target.'cfg(target_arch = "x86")'.dependencies]
 forza.workspace = true
+forza-ui.workspace = true
 egui.workspace = true
 # the kit's layout (its edition) and keys.txt's rules, as the run and the key driver read them
 launcher = { path = "../launcher" }
@@ -43,6 +44,7 @@ image = { version = "0.25.10", default-features = false, features = ["bmp", "png
 # the test's card table and board geometry
 [target.'cfg(target_arch = "x86")'.dev-dependencies]
 forza.workspace = true
+forza-ui.workspace = true
 egui.workspace = true
 
 [lints]

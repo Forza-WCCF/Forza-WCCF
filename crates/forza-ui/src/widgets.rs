@@ -3,6 +3,7 @@
 
 use super::Lang;
 use super::theme::{self, Edition};
+use crate::theme::Accent;
 use egui::epaint::{Mesh, RectShape, TessellationOptions, Tessellator};
 use egui::{
     Align2, Color32, CornerRadius, FontId, Galley, Id, Painter, Pos2, Rect, Response, Sense,
