@@ -2081,6 +2081,7 @@ dependencies = [
  "tempfile",
  "time",
  "unicode-normalization",
+ "windows",
  "windows-sys 0.61.2",
  "zip",
 ]
@@ -2093,7 +2094,6 @@ dependencies = [
  "forza",
  "forza-ui",
  "image",
- "launcher",
  "serde_json",
  "sha2",
  "windows",

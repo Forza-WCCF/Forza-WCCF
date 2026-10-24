@@ -607,7 +607,7 @@ fn club_card(cards: &[u32], link: u8) -> Vec<u8> {
     raw
 }
 
-/// A club card file whose session is open (the flag set in both copies, their checksums good): launcher::card's
+/// A club card file whose session is open (the flag set in both copies, their checksums good): forza::card's
 /// layout (a 16-byte header, copies A and B of 0x690 bytes from block 8, USER_INJUSTICE_FLAG at bit 595).
 fn open_card() -> Vec<u8> {
     let mut raw = vec![0u8; 16 + 256 * 16];

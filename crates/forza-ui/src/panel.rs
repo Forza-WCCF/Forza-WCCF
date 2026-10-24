@@ -369,7 +369,7 @@ pub enum Link {
     Up(String),
 }
 
-/// The club card's session as `launcher::card::Session` reads it.
+/// The club card's session as `forza::card::Session` reads it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CardState {
     #[default]

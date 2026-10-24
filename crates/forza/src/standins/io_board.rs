@@ -8,7 +8,7 @@
 //! (broadcast) or to the board's address; the board answers to node `00`: STATUS (1 = normal, 2 = unknown command),
 //! then for each command a REPORT (1 = normal) and its data.
 //!
-//! The switch and coin state and the game's outputs are shared with the key driver (`launcher::keys`) in memory
+//! The switch and coin state and the game's outputs are shared with the key driver (`forza::keys::driver`) in memory
 //! through [`Shared`]; the Python passed them through `_jvs_seat1_input.txt` and `_jvs_seat1_outputs.txt`.
 //! Switch bits (p1/p2 first byte): 7 START, 6 SERVICE, 5 UP, 4 DOWN, 3 LEFT, 2 RIGHT, 1 BUTTON1, 0 BUTTON2; the second
 //! byte holds buttons 3..10 from bit 7 down; `sys` bit 7 is TEST.

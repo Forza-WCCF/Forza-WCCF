@@ -2,7 +2,7 @@
 //! `keys_init_path`, `set_init`, `set_load_locked`, `send_key`). Nothing is fixed: the kit is unpacked anywhere.
 //!
 //! - The edition: `WCCF_EDITION` (2010-11 or 2017-18, for tests), else the kit's layout above the DLL
-//!   (`launcher::Kit::edition`: `scripts\` without `code\` is the 2017-18 kit).
+//!   (`forza::kit::Kit::edition`: `scripts\` without `code\` is the 2017-18 kit).
 //! - `data\`: `WCCF_DATA`, else beside the DLL's folder (`programs\..\data`, 2017-18 `overlay\..\data`).
 //! - The catalogue and the card pictures: `WCCF_CATALOGUE` / `WCCF_CARDS` (the run sets them), else 2010-11's
 //!   `data\cache\catalogue.tsv` and `data\cache\cards\`, 2017-18's beside the DLL.
@@ -51,7 +51,7 @@ impl Files {
         let edition = match env::var("WCCF_EDITION").as_deref() {
             Ok("2017-18" | "1718") => Edition::E1718,
             Ok("2010-11" | "1011") => Edition::E1011,
-            _ => launcher::Kit::at(kit).edition(),
+            _ => forza::kit::Kit::at(kit).edition(),
         };
         let data = var("WCCF_DATA").unwrap_or_else(|| kit.join("data"));
         let cache = match edition {
@@ -115,7 +115,7 @@ impl Files {
     /// endings (the card being played, a manager transfer's new card included; open only if written since this run
     /// started, running.json), its last save and backups, the game's text, the version.
     pub fn status(&self) -> Status {
-        use launcher::card::{self, Session};
+        use forza::card::{self, Session};
         let since = std::fs::metadata(self.data.join("running.json"))
             .and_then(|m| m.modified())
             .ok();
@@ -137,7 +137,7 @@ impl Files {
             })
             .filter_map(|e| e.metadata().ok()?.modified().ok())
             .collect();
-        let kit = launcher::Kit::at(self.data.parent().unwrap_or(&self.data));
+        let kit = forza::kit::Kit::at(self.data.parent().unwrap_or(&self.data));
         let version = std::fs::read_to_string(kit.dir().join("version.txt"))
             .ok()
             .map(|v| {
@@ -170,12 +170,12 @@ impl Files {
     }
 
     /// keys.txt's keys and controller controls in the KEYS page's order (`forza::keys::NAMES`), by the key driver's
-    /// rules (`launcher::keys::load_keys_with`, `load_pads`) and this edition's defaults.
+    /// rules (`forza::keys::load_keys_with`, `load_pads`) and this edition's defaults.
     pub fn load_keys(&self) -> ([u32; COUNT], [u32; COUNT]) {
-        use launcher::keys::{ACTIONS, load_keys_with, load_pads};
+        use forza::keys::{ACTIONS, load_keys_with, load_pads};
         let raw = std::fs::read(&self.keys).unwrap_or_default();
         let ui = forza::keys::defaults(self.edition == Edition::E1718);
-        // launcher::keys keeps the actions in its own order: by name both ways
+        // forza::keys keeps the actions in its own order: by name both ways
         let at = |name: &str| {
             forza::keys::NAMES
                 .iter()
@@ -337,14 +337,14 @@ impl SysWinmm {
     }
 }
 
-impl launcher::keys::PadApi for SysWinmm {
-    fn caps(&self, jid: u32) -> Option<launcher::keys::Caps> {
+impl forza::keys::PadApi for SysWinmm {
+    fn caps(&self, jid: u32) -> Option<forza::keys::Caps> {
         let mut c = JOYCAPSW::default();
         // SAFETY: winmm's own call with a structure of its size
         if unsafe { (self.caps)(jid as usize, &mut c, size_of::<JOYCAPSW>() as u32) } != 0 {
             return None;
         }
-        Some(launcher::keys::Caps {
+        Some(forza::keys::Caps {
             num_buttons: c.wNumButtons,
             num_axes: c.wNumAxes,
             flags: c.wCaps,
@@ -361,7 +361,7 @@ impl launcher::keys::PadApi for SysWinmm {
         })
     }
 
-    fn pos(&self, jid: u32) -> Option<launcher::keys::Info> {
+    fn pos(&self, jid: u32) -> Option<forza::keys::Info> {
         let mut i = JOYINFOEX {
             dwSize: size_of::<JOYINFOEX>() as u32,
             dwFlags: 0xFF | JOY_RETURNPOVCTS as u32, // JOY_RETURNALL
@@ -371,7 +371,7 @@ impl launcher::keys::PadApi for SysWinmm {
         if unsafe { (self.pos)(jid, &mut i) } != 0 {
             return None;
         }
-        Some(launcher::keys::Info {
+        Some(forza::keys::Info {
             buttons: i.dwButtons,
             pos: [i.dwXpos, i.dwYpos, i.dwZpos, i.dwRpos, i.dwUpos, i.dwVpos],
             pov: i.dwPOV,
@@ -389,11 +389,11 @@ impl launcher::keys::PadApi for SysWinmm {
 /// No controllers to be had.
 pub struct NoPads;
 
-impl launcher::keys::PadApi for NoPads {
-    fn caps(&self, _: u32) -> Option<launcher::keys::Caps> {
+impl forza::keys::PadApi for NoPads {
+    fn caps(&self, _: u32) -> Option<forza::keys::Caps> {
         None
     }
-    fn pos(&self, _: u32) -> Option<launcher::keys::Info> {
+    fn pos(&self, _: u32) -> Option<forza::keys::Info> {
         None
     }
     fn config_changed(&self) {}
@@ -420,17 +420,17 @@ impl FakePads {
         })
     }
 
-    pub fn name(&self, caps: &launcher::keys::Caps) -> String {
+    pub fn name(&self, caps: &forza::keys::Caps) -> String {
         self.line(u32::from(caps.pid))
             .map(|(_, n)| n)
             .unwrap_or_default()
     }
 }
 
-impl launcher::keys::PadApi for FakePads {
-    fn caps(&self, jid: u32) -> Option<launcher::keys::Caps> {
+impl forza::keys::PadApi for FakePads {
+    fn caps(&self, jid: u32) -> Option<forza::keys::Caps> {
         let (v, _) = self.line(jid)?;
-        Some(launcher::keys::Caps {
+        Some(forza::keys::Caps {
             num_buttons: 12,
             num_axes: v[2],
             flags: v[3],
@@ -440,9 +440,9 @@ impl launcher::keys::PadApi for FakePads {
         })
     }
 
-    fn pos(&self, jid: u32) -> Option<launcher::keys::Info> {
+    fn pos(&self, jid: u32) -> Option<forza::keys::Info> {
         let (v, _) = self.line(jid)?;
-        Some(launcher::keys::Info {
+        Some(forza::keys::Info {
             buttons: v[1],
             pos: [v[4], v[5], v[6], v[7], v[8], v[9]],
             pov: v[10],

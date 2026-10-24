@@ -15,7 +15,7 @@
 //! essential, so the supervisor says it and the game goes on.
 
 pub mod console;
-pub mod sound;
+pub use forza::sound;
 
 use std::ffi::OsString;
 use std::fs;

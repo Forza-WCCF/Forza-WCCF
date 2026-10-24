@@ -40,7 +40,7 @@ object = { version = "0.40.0", default-features = false, features = ["read_core"
 serde_json = "1.0.154"
 png = "0.18.1"
 windows-sys = "0.61.2"
-# Core Audio's COM interfaces (the start volumes), the one binding that has them: launcher::helper::sound only
+# Core Audio's COM interfaces (the start volumes), the one binding that has them: forza::sound only
 windows = { version = "0.62.2", features = ["Win32_Media_Audio", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant"] }
 # direct VS (crates/vslink, docs/IROH_VS_PLAN.md 2.4): no portmapper (it would change the router), no metrics,
 # ring for TLS (aws-lc-rs needs cmake + nasm)

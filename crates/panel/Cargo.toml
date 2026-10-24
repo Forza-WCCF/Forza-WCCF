@@ -14,11 +14,11 @@ crate-type = ["cdylib"]
 # The game is 32-bit: the DLL is built for i686-pc-windows-msvc only (`cargo xtask build`). On any other target the
 # crate is empty (lib.rs), so the workspace's x86_64 clippy and tests still build it.
 [target.'cfg(target_arch = "x86")'.dependencies]
+# also the kit's layout (its edition), keys.txt's rules and the club card, as the run and the key driver read them;
+# never the launcher crate, which brings the window toolkit and the network stack into the game
 forza.workspace = true
 forza-ui.workspace = true
 egui.workspace = true
-# the kit's layout (its edition) and keys.txt's rules, as the run and the key driver read them
-launcher = { path = "../launcher" }
 serde_json.workspace = true
 sha2.workspace = true # exe_text: the original texts' hashes
 # the frame dump (wccfpanel_frame.bmp, fakegame's `size:`/`copy:` steps)

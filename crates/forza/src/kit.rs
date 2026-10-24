@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 /// Which game a kit runs.  The two kits are laid out differently: 2010-11 has `programs\`, 2017-18 has `bin\` (the
 /// hook, logowin, FPR_Emu, forza-server) and `overlay\` (the panel, the catalogue; 2010-11 keeps inject.exe in programs\);
 /// [`Kit::edition`] tells them apart.
-pub use forza::Edition;
+pub use crate::Edition;
 
 /// The kit folder: the one this exe is in.
 pub struct Kit {
@@ -17,9 +17,17 @@ pub struct Kit {
 }
 
 impl Kit {
+    /// version.txt from the release ZIP (cargo xtask package writes it): kit-0.3.0.
+    pub fn version(&self) -> Option<String> {
+        let v = fs::read_to_string(self.dir.join("version.txt")).ok()?;
+        Some(v.trim().to_owned()).filter(|v| !v.is_empty())
+    }
+
     pub fn here() -> Self {
         let exe = env::current_exe().unwrap_or_default();
-        let dir = exe.parent().map_or_else(|| PathBuf::from("."), Path::to_path_buf);
+        let dir = exe
+            .parent()
+            .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
         Self { dir }
     }
 
@@ -103,13 +111,17 @@ impl Kit {
             .ok()
             .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
             .is_some_and(|v| {
-                v.as_object().is_some_and(|o| !o.is_empty()) || v.as_array().is_some_and(|a| !a.is_empty())
+                v.as_object().is_some_and(|o| !o.is_empty())
+                    || v.as_array().is_some_and(|a| !a.is_empty())
             })
     }
 
     /// The game text was switched: the backup holds a manifest (the file the undo of setup refuses on), valid or not.
     pub fn text_changed(&self) -> bool {
-        self.data().join("english_backup").join("manifest.json").is_file()
+        self.data()
+            .join("english_backup")
+            .join("manifest.json")
+            .is_file()
     }
 
     /// The language the game's text has in place (kit_common.game_language): "en" or "it" (its language.txt; English before
@@ -128,7 +140,11 @@ impl Kit {
 }
 
 /// The game's three programs, as find_game looks for them.
-pub const GAME_PROGRAMS: [&str; 3] = ["client_Release.exe", "control_Release.exe", "match_Release.exe"];
+pub const GAME_PROGRAMS: [&str; 3] = [
+    "client_Release.exe",
+    "control_Release.exe",
+    "match_Release.exe",
+];
 
 /// The game folder (the one with the three game programs) from a path to it or to the folder above it (its
 /// `extracted\`); spaces and quotes around the path do not count.

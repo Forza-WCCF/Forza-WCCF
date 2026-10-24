@@ -1,6 +1,12 @@
-//! The keys and controller controls of keys.txt, shared by the key driver (`launcher::keys`) and the panel's KEYS page:
+//! The keys and controller controls of keys.txt, shared by the key driver ([`driver`]) and the panel's KEYS page:
 //! which keys an action may have, the controls' numbers and words, their names on screen, the actions in the KEYS
 //! page's order with their defaults, and keys.txt as the KEYS page writes it (`wccfpanel.c` `keys_save_locked`).
+
+/// Windows only: the key driver (the Launcher's, and the panel's pads); its items are this module's.
+#[cfg(windows)]
+pub mod driver;
+#[cfg(windows)]
+pub use driver::*;
 
 /// Keys an action may have: letters, digits, the number pad, F1-F9 and F12-F24, arrows and the keys around them, Enter
 /// Space Tab Backspace Shift Ctrl Pause and the punctuation keys. Never Esc (it closes the panels), F10 (Windows' menu
@@ -14,7 +20,7 @@ pub fn is_allowed(vk: i128) -> bool {
 /// Controller controls are numbers above every key code, so keys and controls share one set: 0x100 + n = button n
 /// (1-32); 0x200 + 2 * axis + (1 for +) = a stick or axis direction (axes X Y Z R U V; up is Y-); 0x300 + n = the
 /// hat's up/right/down/left. The KEYS panel (`wccfpanel.dll`) reads controllers the same way: keep these numbers, the
-/// words and the rest rule of `launcher::keys::PadDevice` equal in both.
+/// words and the rest rule of `keys::driver::PadDevice` equal in both.
 pub const PAD_BUTTON: u32 = 0x100;
 pub const PAD_AXIS: u32 = 0x200;
 pub const PAD_HAT: u32 = 0x300;
@@ -160,7 +166,7 @@ pub fn key_label(vk: u32) -> String {
 /// How many actions keys.txt binds.
 pub const COUNT: usize = 17;
 /// PAUSE's place in [`NAMES`]: the panel's own action (the match held, `forza_panel.dll`), no cabinet input, so the key
-/// driver (`launcher::keys`) skips its line and it has no controller control.
+/// driver ([`driver`]) skips its line and it has no controller control.
 pub const PAUSE: usize = 16;
 
 /// The actions by their names in keys.txt, in the KEYS page's order (`wccfpanel.c` `g_kact`, then PAUSE): the buttons,
