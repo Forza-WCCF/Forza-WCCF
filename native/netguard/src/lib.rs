@@ -83,9 +83,16 @@ extern "system" fn DllMain(
         for (by, slot) in d.entries() {
             if let Some((name, stub)) = stubs.iter().find(|(n, _)| by == By::Name(n)) {
                 // SAFETY: an import slot of the loaded program; each stub has its import's signature
-                if unsafe { redirect(slot, *stub as usize) }.is_some() {
-                    log(&format!("blocked {}", name.to_string_lossy()));
+                if unsafe { redirect(slot, *stub as usize) }.is_none() {
+                    // fail closed: the slot still reaches the IP helper, so the load fails and the server hook
+                    // refuses to run without its second guard
+                    log(&format!(
+                        "{} could not be patched: NOT loaded",
+                        name.to_string_lossy()
+                    ));
+                    return 0;
                 }
+                log(&format!("blocked {}", name.to_string_lossy()));
             }
         }
     }

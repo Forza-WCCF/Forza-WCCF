@@ -99,7 +99,13 @@ mod panel {
         // this process only, as inject.exe did: never its children
         // SAFETY: DllMain, before this DLL starts any thread of its own
         unsafe { std::env::remove_var("FORZA_PANEL") };
-        std::thread::spawn(move || load(dll));
+        // no thread (out of resources): no panel, and the game runs on
+        if std::thread::Builder::new()
+            .spawn(move || load(dll))
+            .is_err()
+        {
+            log("panel: no thread to load it, not loaded");
+        }
     }
 
     unsafe extern "system" fn own_window(w: HWND, found: LPARAM) -> windows_sys::core::BOOL {

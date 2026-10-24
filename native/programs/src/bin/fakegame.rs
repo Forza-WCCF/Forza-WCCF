@@ -115,7 +115,7 @@ unsafe extern "system" fn sysmove_timer(h: HWND, _m: u32, id: usize, _t: u32) {
 fn atoi(s: &str) -> i32 {
     let end = s
         .char_indices()
-        .find(|&(i, c)| !(c.is_ascii_digit() || (i == 0 && c == '-')))
+        .find(|&(i, c)| !(c.is_ascii_digit() || (i == 0 && (c == '-' || c == '+'))))
         .map_or(s.len(), |(i, _)| i);
     s[..end].parse().unwrap_or(0)
 }
@@ -125,7 +125,7 @@ fn xy(s: &str) -> Option<(i32, i32)> {
     let (a, b) = s.split_once(',')?;
     let num = |t: &str| {
         t.trim_start()
-            .starts_with(|c: char| c.is_ascii_digit() || c == '-')
+            .starts_with(|c: char| c.is_ascii_digit() || c == '-' || c == '+')
             .then(|| atoi(t.trim_start()))
     };
     Some((num(a)?, num(b)?))

@@ -113,10 +113,11 @@ unsafe extern "system" fn hook_accept(ls: SOCKET, addr: *mut SOCKADDR, alen: *mu
         }
     };
     let mut list = FOLLOWED.lock().unwrap_or_else(PoisonError::into_inner);
-    if list.len() < SOCKS {
+    let mut buf = Vec::new();
+    if list.len() < SOCKS && buf.try_reserve_exact(CAP).is_ok() {
         let sock = Sock {
             who,
-            buf: Vec::with_capacity(CAP),
+            buf,
             given: 0,
             waits: 0,
             skipped: 0,
