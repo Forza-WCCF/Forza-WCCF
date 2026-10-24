@@ -70,53 +70,135 @@ fn fill_game_ctrl(body: &mut [u8]) {
 }
 
 const MAGIC: [u8; 8] = [0xF1, 0xC0, 0x80, 0x44, 0xB4, 0x9E, 0xDA, 0x3C];
-/// Response command and payload size (control.c response dispatcher 0x408C50 and the message table).
-const RESP: &[(u16, usize)] = &[
-    (202, 16),
-    (901, 8),
-    (903, 8),
-    (905, 48),
-    (224, 92),
-    (226, 260),
-    (228, 12),
-    (234, 1092),
-    (238, 0x5A54),
-    (240, 12),
-    (244, 12),
-    (246, 248),
-    (248, 12),
-    (250, 504),
-    (256, 1008),
-    (258, 12),
-    (260, 10168),
-    (262, 2040),
-    (264, 10080),
-    (266, 200),
-    (268, 33600),
-    (272, 9292),
-    (274, 1288),
-    (276, 6176),
-    (278, 76),
-    (280, 16),
-    (282, 8),
-    (284, 8),
-    (286, 704),
-    (288, 12),
-    (290, 12),
-    (292, 20),
-    (294, 8),
-    (296, 16),
-    (298, 16),
-    (300, 8),
-    (302, 8),
-    (304, 8),
-    (306, 1004),
-    (308, 3332),
-    (310, 8),
-    (312, 3352),
-    (314, 8),
-    (316, 8),
-    (318, 32),
+/// What an all-zero answer means for a [`RESP`] entry; the guard test (`zero_answers_are_safe_or_pending`) enforces it.
+#[cfg_attr(not(test), allow(dead_code))] // the texts are read by the guard test
+enum Zero {
+    /// The stand-in fills the answer: it must not be all zero.
+    Handled,
+    /// Zero is right: the text names the parser (`sub_`/`0x` address) and why. A stale entry (the answer is not
+    /// zero) fails the test.
+    Safe(&'static str),
+    /// Zero is wrong or partial and a parity unit still owes the work (the unit or decision): listed, not failed.
+    Pending(&'static str),
+}
+
+/// Response command, payload size and zero-ness (control.c response dispatcher 0x408C50 and the message table).
+const RESP: &[(u16, usize, Zero)] = &[
+    (202, 16, Zero::Handled),
+    (901, 8, Zero::Handled),
+    (903, 8, Zero::Handled),
+    (905, 48, Zero::Handled),
+    (224, 92, Zero::Handled),
+    (
+        226,
+        260,
+        Zero::Safe("ctl sub_442C40: an empty banner (A: consumer not found)"),
+    ),
+    (
+        228,
+        12,
+        Zero::Safe("ctl sub_447880: 227 has no sender (ctl sub_447550)"),
+    ),
+    (234, 1092, Zero::Pending("C6")),
+    (238, 0x5A54, Zero::Handled),
+    (240, 12, Zero::Handled),
+    (244, 12, Zero::Safe("ctl sub_409920: stored, no reader")),
+    (246, 248, Zero::Handled),
+    (
+        248,
+        12,
+        Zero::Safe("ctl sub_408C50 case only: 247 has no sender"),
+    ),
+    (250, 504, Zero::Pending("C6")),
+    (
+        256,
+        1008,
+        Zero::Safe(
+            "ctl sub_443450: 255 is sent only when 238 +13,110 differs from the local version, and 238 sends 0",
+        ),
+    ),
+    (258, 12, Zero::Handled),
+    (
+        260,
+        10168,
+        Zero::Safe("projector sub_473B40 0x473BED: buffNum 0 is an empty list"),
+    ),
+    (262, 2040, Zero::Handled),
+    (
+        264,
+        10080,
+        Zero::Safe("ctl sub_4431E0 0x44323C: kind 0 is not registered"),
+    ),
+    (266, 200, Zero::Pending("D7")),
+    (
+        268,
+        33600,
+        Zero::Safe("ctl sub_443270 0x4432C7: kind other than 6 only logs"),
+    ),
+    (272, 9292, Zero::Handled),
+    (
+        274,
+        1288,
+        Zero::Safe("client sub_77F5C0: no old records to inherit"),
+    ),
+    (276, 6176, Zero::Handled),
+    (278, 76, Zero::Handled),
+    (280, 16, Zero::Handled),
+    (
+        282,
+        8,
+        Zero::Safe("client sub_787200 state 8: unreachable while 274 is empty"),
+    ),
+    (
+        284,
+        8,
+        Zero::Safe("client sub_4BAD20: errCode only, the PIN is never read back"),
+    ),
+    (286, 704, Zero::Pending("C2")),
+    (288, 12, Zero::Handled),
+    (290, 12, Zero::Handled),
+    (292, 20, Zero::Safe("client sub_4BB630: no caller")),
+    (294, 8, Zero::Safe("client sub_4BB780: errCode only, logs")),
+    (
+        296,
+        16,
+        Zero::Safe("client sub_658910: failure screen, unreachable without a QR camera"),
+    ),
+    (
+        298,
+        16,
+        Zero::Safe("client sub_658B00: failure screen, unreachable without a QR camera"),
+    ),
+    (300, 8, Zero::Pending("C6")),
+    (
+        302,
+        8,
+        Zero::Safe("ctl sub_4491B0: errCode 0 stores the result"),
+    ),
+    (
+        304,
+        8,
+        Zero::Safe("client sub_604E10: errCode 0 deletes the dump"),
+    ),
+    (
+        306,
+        1004,
+        Zero::Safe("client sub_7FBA50: teamNum 0 is a CPU team"),
+    ),
+    (308, 3332, Zero::Handled),
+    (310, 8, Zero::Pending("C5")),
+    (312, 3352, Zero::Pending("C5")),
+    (
+        314,
+        8,
+        Zero::Safe("client sub_7DD1B0 state 3: errCode 0 prints the card locally"),
+    ),
+    (316, 8, Zero::Pending("C2")),
+    (
+        318,
+        32,
+        Zero::Safe("client sub_77C7D0: an empty mission is accepted"),
+    ),
 ];
 
 pub fn checksum(h: &[u8]) -> u8 {
@@ -781,7 +863,7 @@ fn answer(
         return Some((18, b, None));
     }
     let rcmd = cmd.wrapping_add(1);
-    let size = RESP.iter().find(|(c, _)| *c == rcmd)?.1;
+    let size = RESP.iter().find(|(c, ..)| *c == rcmd)?.1;
     let mut body = vec![0u8; size];
     if size >= 4 && payload.len() >= 4 {
         body[..4].copy_from_slice(&payload[..4]);
@@ -1396,6 +1478,119 @@ mod tests {
         .unwrap()
         .1;
         assert!(b[4..].iter().all(|b| *b == 0));
+    }
+
+    /// A request for the guard test: slot 1, ids at +4/+8/+12, the revision where the club messages carry it.
+    fn fixture(cmd: u16, ids: [u32; 3]) -> Vec<u8> {
+        let (len, rev) = match cmd {
+            271 => (20, 16),
+            275 => (32, 28),
+            277 => (8572, 5940),
+            279 => (36, 32),
+            285 => (24, 20),
+            287 | 289 => (28, 24),
+            _ => (600, 0),
+        };
+        let mut r = vec![0u8; len];
+        put(&mut r, 0, 1);
+        for (i, id) in ids.into_iter().enumerate() {
+            put(&mut r, 4 + 4 * i, id);
+        }
+        if rev != 0 {
+            put(&mut r, rev, REVISION);
+        }
+        match cmd {
+            277 => {
+                r[24] = 2;
+                r[3100..3104].copy_from_slice(&[12, 0, 0, 12]);
+            }
+            279 => r[12] = 1,
+            289 => put(&mut r, 16, 1),
+            _ => {}
+        }
+        r
+    }
+
+    /// Every [`RESP`] answer is filled, or all zero with a parser address that proves zero is safe, or pending
+    /// (listed with --nocapture).
+    #[test]
+    fn zero_answers_are_safe_or_pending() {
+        let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
+        let log: Log = Arc::new(|_: &str| {});
+        let vs = Vs {
+            cfg: VsConfig {
+                public_ip: std::net::Ipv4Addr::LOCALHOST,
+                reflect_port: 1,
+                vslink_port: 2,
+            },
+            matcher: Arc::default(),
+        };
+        let ip = IpAddr::from([127, 0, 0, 1]);
+        let ask = |cmd: u16, p: &[u8]| answer(cmd, p, &store, None, &[], Some((&vs, ip)), &log);
+        let aime = 5;
+        // a saved club, so the club messages have ids to work on
+        let (_, b, _) = ask(279, &fixture(279, [aime, 0, 0])).unwrap();
+        let (coach, card) = (u32_at(&b, 8), u32_at(&b, 12));
+        let ids = [aime, coach, card];
+        assert_eq!(u32_at(&ask(277, &fixture(277, ids)).unwrap().1, 4), 0);
+        // two paired VS entries (243 -> 245), so the vslink lookup 904 and the match answer 246 have something to say
+        let entry = |card: u32, seat: u32, port: u16| {
+            let mut e = fixture(243, [0, 0, 0]);
+            e.truncate(280);
+            put(&mut e, 8, 0x0100_007F);
+            e[12..14].copy_from_slice(&port.to_le_bytes());
+            put(&mut e, 44, card);
+            put(&mut e, 48, seat);
+            e
+        };
+        let poll = |card: u32, seat: u32| {
+            let mut p = vec![0u8; 20];
+            put(&mut p, 0, 1);
+            put(&mut p, 8, card);
+            put(&mut p, 12, seat);
+            p
+        };
+        ask(243, &entry(10, 1, 1111)).unwrap();
+        ask(243, &entry(11, 2, 2222)).unwrap();
+        assert!(
+            ask(245, &poll(10, 1)).unwrap().1[4..]
+                .iter()
+                .any(|b| *b != 0)
+        );
+        let mut lookup = vec![0u8; 8];
+        put(&mut lookup, 0, 0x0100_007F);
+        lookup[4..6].copy_from_slice(&1111u16.to_le_bytes());
+
+        let mut pending = vec![];
+        for (rcmd, _, zero) in RESP {
+            let cmd = rcmd - 1;
+            let payload = match cmd {
+                245 => poll(10, 1),
+                904 => lookup.clone(),
+                _ => fixture(cmd, ids),
+            };
+            let (_, body, refused) = ask(cmd, &payload).unwrap();
+            assert_eq!(refused, None, "{rcmd}: the fixture is refused");
+            let is_zero = body[4..].iter().all(|b| *b == 0);
+            match zero {
+                Zero::Handled => assert!(
+                    !is_zero,
+                    "{rcmd} is all zero and not marked Safe or Pending"
+                ),
+                Zero::Safe(why) => {
+                    assert!(
+                        why.contains("sub_") || why.contains("0x"),
+                        "{rcmd}: Safe names no address: {why}"
+                    );
+                    assert!(
+                        is_zero,
+                        "{rcmd} is marked Safe but the answer is not zero (stale entry)"
+                    );
+                }
+                Zero::Pending(unit) => pending.push(format!("{rcmd} ({unit})")),
+            }
+        }
+        eprintln!("pending: {}", pending.join(", "));
     }
 
     fn req(cmd: u16, ids: [u32; 3]) -> Vec<u8> {
