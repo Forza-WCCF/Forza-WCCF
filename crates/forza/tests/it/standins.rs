@@ -227,15 +227,42 @@ fn gamesvr_save_round_trip() {
     let ok = ask(&mut c, 277, &save_set(coach, card, 1, &blk, false));
     assert_eq!((ok.len(), word(&ok, 4), word(&ok, 8)), (76, 0, coach));
     assert_loads(&save_data(&mut c, coach, card), &blk);
+    // the competition mask (+3,216) becomes record +124, so the club list stops showing "Tutorial"; a save
+    // sending 0 (the client during its tutorial) keeps it
+    assert_eq!(word(&coach_list(&mut c), 8 + 124), 0, "no mask yet");
+    let mut r = save_set(coach, card, 2, &blk, false);
+    le(&mut r, 3216, 0x8000_4027);
+    assert_eq!(word(&ask(&mut c, 277, &r), 4), 0);
+    assert_eq!(
+        word(&coach_list(&mut c), 8 + 124),
+        0x8000_4027,
+        "mask stored"
+    );
+    assert_eq!(
+        word(&ask(&mut c, 277, &save_set(coach, card, 2, &blk, false)), 4),
+        0
+    );
+    assert_eq!(
+        word(&coach_list(&mut c), 8 + 124),
+        0x8000_4027,
+        "0 keeps it"
+    );
     // the players' experience records and the manager level come back at the next card-in (they reset to 0 before)
     let mut r = save_set(coach, card, 2, &blk, false);
     for (i, b) in r[6068..6548].iter_mut().enumerate() {
         *b = (i % 251) as u8 + 1;
     }
     r[3262..3264].copy_from_slice(&[7, 1]);
+    // the league state: a promotion to division 1 after a season (it went back to league 2 at the next card-in)
+    for (i, b) in r[5480..5936].iter_mut().enumerate() {
+        *b = (i % 199) as u8 + 3;
+    }
+    r[5888] = 1;
     assert_eq!(word(&ask(&mut c, 277, &r), 4), 0);
     let a = save_data(&mut c, coach, card);
     assert_loads(&a, &blk);
+    assert_eq!(&a[3100..3556], &r[5480..5936], "league state");
+    assert_eq!(a[3508], 1, "division");
     assert_eq!(&a[3674..4154], &r[6068..6548], "player records");
     assert_eq!(&a[6094..6096], &[7, 1], "manager level");
     // wrong revision and unknown ids are refused
@@ -762,4 +789,167 @@ fn vs_two_clients_pair_through_reflect() {
         (pb, pa)
     );
     assert_eq!(poll(&mut a, 111, 5)[116..120], ra[116..120], "stable");
+}
+
+/// `save_set` with the server-side summary (+3,104..+8,572) filled with a pattern of `seed`, except the two words the
+/// store checks (the block sum at +5,236 and the revision at +5,940).
+fn save_with_tail(coach: u32, card: u32, kind: u8, blk: &[u8], seed: usize) -> Vec<u8> {
+    let mut r = save_set(coach, card, kind, blk, false);
+    for (i, b) in r.iter_mut().enumerate().skip(3104) {
+        if !(5236..5240).contains(&i) && !(5940..5944).contains(&i) {
+            *b = ((i * 7 + seed) % 251) as u8 + 1;
+        }
+    }
+    r
+}
+
+/// Card-in, play, save, card-in with the store reopened: every 276 span comes back from the last 277.
+#[test]
+fn gamesvr_tail_survives_play_and_restart() {
+    let dir = scratch("gamesvr_tail");
+    let blk = block();
+    let spans = gamesvr::TAIL_SPANS;
+    let check = |a: &[u8], r: &[u8]| {
+        assert_loads(a, &blk);
+        for (to, from, len) in spans {
+            assert_eq!(a[to..to + len], r[from..from + len], "span {to}");
+        }
+        // everything else in the summary area stays 0
+        for (i, b) in a.iter().enumerate().take(6176).skip(3096) {
+            if !spans
+                .iter()
+                .any(|&(to, _, len)| (to..to + len).contains(&i))
+            {
+                assert_eq!(*b, 0, "byte {i} outside the spans");
+            }
+        }
+    };
+    let (coach, card, p1, p2);
+    {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let _svc = gamesvr::spawn(l.try_clone().unwrap(), dir.clone(), quiet()).unwrap();
+        let mut c = connect(&l);
+        (coach, card) = new_club(&mut c);
+        p1 = save_with_tail(coach, card, 1, &blk, 1);
+        assert_eq!(word(&ask(&mut c, 277, &p1), 4), 0);
+        check(&save_data(&mut c, coach, card), &p1);
+        p2 = save_with_tail(coach, card, 2, &blk, 2);
+        assert_eq!(word(&ask(&mut c, 277, &p2), 4), 0);
+    }
+    let wal = dir.join("gamesvr.db-wal");
+    let t = Instant::now();
+    while wal.exists() && t.elapsed() < Duration::from_secs(3) {
+        sleep(Duration::from_millis(50));
+    }
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let _svc = gamesvr::spawn(l.try_clone().unwrap(), dir.clone(), quiet()).unwrap();
+    let mut c = connect(&l);
+    assert_eq!(
+        word(&coach_list(&mut c), 8 + 60),
+        card,
+        "the club is listed"
+    );
+    check(&save_data(&mut c, coach, card), &p2);
+    drop((c, _svc));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Shop purchases over the wire: 315 (Flag 7, Uniform 3) is kept, and 275 / 285 carry it after a restart.
+#[test]
+fn gamesvr_purchases_survive_restart() {
+    let dir = scratch("gamesvr_shop");
+    let blk = block();
+    let buy = |c: &mut TcpStream, cat: u32, item: u32| {
+        let a = ask(
+            c,
+            315,
+            &req(24, 20, |b| {
+                le(b, 8, cat);
+                le(b, 12, item);
+            }),
+        );
+        assert_eq!(word(&a, 4), 0, "BUY_SHOP_ITEM errCode");
+    };
+    let (coach, card);
+    {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let _svc = gamesvr::spawn(l.try_clone().unwrap(), dir.clone(), quiet()).unwrap();
+        let mut c = connect(&l);
+        (coach, card) = new_club(&mut c);
+        assert_eq!(
+            word(&ask(&mut c, 277, &save_set(coach, card, 1, &blk, false)), 4),
+            0
+        );
+        buy(&mut c, 4, 7);
+        buy(&mut c, 1, 3);
+        assert_eq!(save_data(&mut c, coach, card)[5444 + 7], 1);
+    }
+    let wal = dir.join("gamesvr.db-wal");
+    let t = Instant::now();
+    while wal.exists() && t.elapsed() < Duration::from_secs(3) {
+        sleep(Duration::from_millis(50));
+    }
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let _svc = gamesvr::spawn(l.try_clone().unwrap(), dir.clone(), quiet()).unwrap();
+    let mut c = connect(&l);
+    let a = save_data(&mut c, coach, card);
+    assert_loads(&a, &blk);
+    assert_eq!(a[5444 + 7], 1, "the flag survives the restart");
+    let items = ask(
+        &mut c,
+        285,
+        &req(24, 20, |b| {
+            le(b, 8, coach);
+            le(b, 12, card);
+        }),
+    );
+    assert_eq!((items[700], items[701]), (3, 3));
+    // the sale list: 237 -> 238 has 10 entries at payload +22,912, none of category 0
+    let g = ask(
+        &mut c,
+        237,
+        &[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    );
+    assert!((0..10).all(|k| (1..=5).contains(&word(&g, 22_912 + 16 * k))));
+    drop((c, _svc));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Best Eleven over the wire: 309 is kept across a restart and 311 gets it back as 312.
+#[test]
+fn gamesvr_best_eleven_survives_restart() {
+    let dir = scratch("gamesvr_be11");
+    let mut p: Vec<u8> = (0..3368).map(|i| (i * 7 % 251) as u8 + 1).collect();
+    le(&mut p, 0, 1); // slot
+    let want = |a: &[u8]| {
+        assert_eq!(a.len(), 3352);
+        assert_eq!(word(a, 4), 0, "BEST_ELEVEN errCode");
+        assert_eq!(a[120..148], p[3194..3222]);
+        assert_eq!(a[148..152], p[3224..3228]);
+        assert_eq!(a[152..3224], p[8..3080]);
+        assert_eq!(a[3224..3352], p[3232..3360]);
+    };
+    {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let _svc = gamesvr::spawn(l.try_clone().unwrap(), dir.clone(), quiet()).unwrap();
+        let mut c = connect(&l);
+        assert_eq!(
+            word(&ask(&mut c, 311, &[1, 0, 0, 0, 0, 0, 0, 0]), 4),
+            1,
+            "none stored: CPU team"
+        );
+        assert_eq!(word(&ask(&mut c, 309, &p), 4), 0, "BEST_ELEVEN upload ack");
+        want(&ask(&mut c, 311, &[1, 0, 0, 0, 0, 0, 0, 0]));
+    }
+    let wal = dir.join("gamesvr.db-wal");
+    let t = Instant::now();
+    while wal.exists() && t.elapsed() < Duration::from_secs(3) {
+        sleep(Duration::from_millis(50));
+    }
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let _svc = gamesvr::spawn(l.try_clone().unwrap(), dir.clone(), quiet()).unwrap();
+    let mut c = connect(&l);
+    want(&ask(&mut c, 311, &[1, 0, 0, 0, 0, 0, 0, 0]));
+    drop((c, _svc));
+    let _ = std::fs::remove_dir_all(dir);
 }

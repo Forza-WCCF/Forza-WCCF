@@ -217,6 +217,8 @@ pub struct Board {
     pub slots: [Option<usize>; 16],
     /// Where each pitch slot sits, 0..1 across the card lane and 0 (attack) .. 1 (own goal) down.
     pub spots: [Pos2; 11],
+    /// A bench card in hand (slot, -1..1): the table lays it off its spot, inside its box, so the game sees it rub.
+    pub rub: Option<(usize, f32)>,
 }
 
 impl Board {

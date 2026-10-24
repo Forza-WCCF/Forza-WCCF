@@ -69,6 +69,7 @@ fn launcher_screens() {
             (NotSetUp, Edition::E1011, "setup"),
             (Update, Edition::E1011, "update"),
             (Busy, Edition::E1718, "busy"),
+            (Report, Edition::E1718, "report"),
         ] {
             let mut st = launcher::LauncherState::sample(ed, lang, s);
             snap(
@@ -236,6 +237,31 @@ fn board_interaction() {
     h.hover_at(at(2));
     h.run_steps(3);
     h.snapshot("board_back_en");
+}
+
+/// The 2017-18 formation board as the cabinet's mat: at rest, a card in hand, and with the keeper's slot empty.
+#[test]
+fn board_mat() {
+    let _gpu = gpu();
+    let st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
+    let spots = st.board.spots;
+    let at = |slot| panel::board_slot_center(panel::SIZE.x, &spots, slot);
+    let st = std::cell::RefCell::new(st);
+    let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+        panel::show(ui, &mut st.borrow_mut())
+    });
+    h.run_steps(4);
+    h.snapshot("board_mat_en");
+    h.drag_at(at(6));
+    h.run_steps(2);
+    h.hover_at(at(5));
+    h.run_steps(3);
+    h.snapshot("board_mat_drag_en");
+    h.drop_at(at(5));
+    h.hover_at(egui::pos2(1150.0, 280.0));
+    st.borrow_mut().board.slots[0] = None;
+    h.run_steps(3);
+    h.snapshot("board_mat_no_gk_en");
 }
 
 /// Links on the board (synthetic): every stage between pitch cards at rest; a click on card 8 (slot 7) brings its group
@@ -584,17 +610,112 @@ fn card_deal() {
     assert!(st.borrow().deal.is_none() && st.borrow().picture_rect.is_some());
 }
 
-/// The warning after a close refused during a card session, over the whole middle.
+/// The close dialog after a close refused during a card session, over the whole middle: KEEP PLAYING answers Enter and
+/// Esc, QUIT only its own click.
 #[test]
-fn close_warning() {
+fn close_dialog() {
     let _gpu = gpu();
-    let mut st = panel::PanelState::sample(Edition::E1011, Lang::It, panel::Page::Game);
-    st.close_warn = true;
-    let mut h = harness(panel::SIZE, 1.0, Edition::E1011, |ui| {
-        panel::show(ui, &mut st)
-    });
-    h.run_steps(4);
-    h.snapshot("panel_close_warning_it");
+    let mut all = SnapshotResults::new();
+    for lang in Lang::ALL {
+        let mut st = panel::PanelState::sample(Edition::E1011, lang, panel::Page::Game);
+        st.close_warn = true;
+        snap(
+            &mut all,
+            &format!("panel_close_dialog_{}", lang.code()),
+            panel::SIZE,
+            Edition::E1011,
+            |ui| panel::show(ui, &mut st),
+        );
+    }
+    all.unwrap();
+}
+
+#[test]
+fn close_dialog_answers() {
+    let _gpu = gpu();
+    for (key, quit) in [
+        (Some(egui::Key::Enter), false),
+        (Some(egui::Key::Escape), false),
+        (None, true),
+    ] {
+        let mut st = panel::PanelState::sample(Edition::E1011, Lang::En, panel::Page::Game);
+        st.close_warn = true;
+        let st = std::cell::RefCell::new(st);
+        let mut h = harness(panel::SIZE, 1.0, Edition::E1011, |ui| {
+            panel::show(ui, &mut st.borrow_mut())
+        });
+        h.run_steps(4);
+        // nothing is answered by itself, and a click outside the buttons answers nothing
+        assert!(!st.borrow().close_keep && !st.borrow().close_quit);
+        match key {
+            Some(k) => h.key_press(k),
+            None => h.get_by_label("QUIT NOW").click(),
+        }
+        h.run_steps(4);
+        let st = st.borrow();
+        assert_eq!((st.close_keep, st.close_quit), (!quit, quit));
+    }
+}
+
+/// The card lamp in the bottom bar in each state, and the bar in 2017-18 (no lamp).
+#[test]
+fn card_lamp() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    use panel::CardState::*;
+    for lang in Lang::ALL {
+        for (card, tag) in [(Open, "in_use"), (Closed, "safe"), (None, "none")] {
+            let mut st = panel::PanelState::sample(Edition::E1011, lang, panel::Page::Game);
+            st.status.card = card;
+            snap(
+                &mut all,
+                &format!("panel_lamp_{tag}_{}", lang.code()),
+                panel::SIZE,
+                Edition::E1011,
+                |ui| panel::show(ui, &mut st),
+            );
+        }
+    }
+    all.unwrap();
+}
+
+/// The crash screen in the board's place; RESTART THE GAME and SEND LOGS each ask once.
+#[test]
+fn crash_screen() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for (ed, lang) in [
+        (Edition::E1011, Lang::En),
+        (Edition::E1011, Lang::It),
+        (Edition::E1011, Lang::Ja),
+        (Edition::E1718, Lang::En),
+    ] {
+        let mut st = panel::PanelState::sample(ed, lang, panel::Page::Game);
+        st.crash = true;
+        st.status.card = panel::CardState::Open;
+        let name = format!(
+            "panel_crash_{}{}",
+            if ed == Edition::E1718 { "1718_" } else { "" },
+            lang.code()
+        );
+        snap(&mut all, &name, panel::SIZE, ed, |ui| {
+            panel::show(ui, &mut st)
+        });
+    }
+    all.unwrap();
+    for (label, restart) in [("RESTART THE GAME", true), ("SEND LOGS", false)] {
+        let mut st = panel::PanelState::sample(Edition::E1011, Lang::En, panel::Page::Game);
+        st.crash = true;
+        let st = std::cell::RefCell::new(st);
+        let mut h = harness(panel::SIZE, 1.0, Edition::E1011, |ui| {
+            panel::show(ui, &mut st.borrow_mut())
+        });
+        h.run_steps(4);
+        h.get_by_label(label).click();
+        h.run_steps(4);
+        let st = st.borrow();
+        assert_eq!((st.restart, st.open_report), (restart, !restart));
+    }
 }
 
 /// The PAUSED page over the game's picture (Japanese: the longest lines), and RESUME on the page bar asking for the

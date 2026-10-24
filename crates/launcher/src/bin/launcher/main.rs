@@ -43,7 +43,7 @@ use forza_ui::launcher::{self as screen, Action, Confirm, LauncherState};
 use forza_ui::theme;
 use forza_ui::widgets::Tone;
 use forza_ui::{Lang, text as ui_text};
-use launcher::release::{check_due, is_newer, parse};
+use launcher::release::{check_due, files_differ, is_newer, parse};
 use launcher::run::{self, Params};
 use launcher::{Edition, Kit, choices};
 use text::{t, tf};
@@ -83,6 +83,7 @@ struct Shared {
     listed: bool, // `releases` is new: the list gets it
     status: Option<(Tone, String)>,
     update_note: Option<(Tone, String)>,
+    available: Option<String>, // the tag of a newer release: the notice stays until UPDATE is opened or done
     progress: u32,             // of 1000
     steps: Option<(u32, u32)>, // the run's "N/M" step lines: N of M
     began: Option<Instant>,    // the job's start
@@ -92,6 +93,8 @@ struct Shared {
     updated: bool,             // an update has just finished: offer setup
     failed: bool,              // the last job failed: OUTPUT opens, so its output shows
     game: Option<u8>,          // a Game step has just ended with this exit code
+    report_open: Option<bool>, // open the report dialog: Some(after a crash)
+    report_done: Option<Result<String, String>>, // the report's number, or why it did not go (the player's words)
 }
 
 static SHARED: Mutex<Shared> = Mutex::new(Shared {
@@ -99,6 +102,7 @@ static SHARED: Mutex<Shared> = Mutex::new(Shared {
     listed: false,
     status: None,
     update_note: None,
+    available: None,
     progress: 0,
     steps: None,
     began: None,
@@ -108,6 +112,8 @@ static SHARED: Mutex<Shared> = Mutex::new(Shared {
     updated: false,
     failed: false,
     game: None,
+    report_open: None,
+    report_done: None,
 });
 
 /// The game is up in this process (its run is supervised here): the window is minimized, closing it asks the run to stop.
@@ -292,15 +298,9 @@ fn start(steps: Vec<Step>) {
                     log(&format!("> {}", words.join(" ")));
                     let rc = run::command(&kit, &Params::of(&kit), &words, &WindowUi);
                     game = Some(u8::try_from(rc).unwrap_or(1));
-                    // a crash: the logs now, while they are this run's, for the developers
-                    if rc == run::WENT_WRONG
-                        && message(
-                            &t("launcher.ask_save_logs"),
-                            MB_YESNO | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND,
-                        ) == IDYES
-                    {
-                        let folder = choices::setting(&kit.settings_file(), "game").map(PathBuf::from);
-                        let _ = save_logs(kit.dir(), folder.as_deref(), None);
+                    // a crash: the report dialog, while the logs are this run's
+                    if rc == run::WENT_WRONG {
+                        shared().report_open = Some(true);
                     }
                     Ok(())
                 }
@@ -328,6 +328,9 @@ fn start(steps: Vec<Step>) {
             s.status = Some((if failed { Tone::Refused } else { Tone::Done }, status));
             s.progress = if failed { 0 } else { 1000 };
             s.updated = updated.is_some();
+            if updated.is_some() {
+                set_available(&Kit::here(), &mut s, None);
+            }
             s.failed = failed;
             s.game = game;
             s.busy = false;
@@ -370,6 +373,11 @@ impl run::Ui for WindowUi {
             };
             let _ = choices::write(&result, &format!("{line}\n"));
         });
+    }
+
+    fn report(&self) {
+        shared().report_open = Some(false);
+        poke();
     }
 
     fn running(&self, up: bool) {
@@ -423,6 +431,49 @@ fn save_logs(kit: &Path, game: Option<&Path>, parent: Option<&eframe::Frame>) ->
     }
 }
 
+/// A network tool's error as the player reads it (`launcher::report::plain`); the tool's own words go to the log.
+fn plain_error(raw: &str) -> String {
+    launcher::logs::append(&Kit::here().logs().join("launcher.txt"), &format!("  error: {raw}"));
+    t(launcher::report::plain(raw))
+}
+
+/// The game folder setup recorded (its logs and seat 1's go in a report).
+fn game_folder(kit: &Kit) -> Option<PathBuf> {
+    let f = choices::setting(&kit.settings_file(), "game")?;
+    launcher::kit::find_game(&f).or_else(|| Some(PathBuf::from(f)))
+}
+
+/// SEND in the report dialog: the report kept in data\reports, then sent, on a thread; the outcome comes back in
+/// `report_done`.
+fn send_report(words: String, crashed: bool) {
+    thread::spawn(move || {
+        let kit = Kit::here();
+        let why = if crashed {
+            "after a run that went wrong"
+        } else {
+            "opened by the player"
+        };
+        let done = match launcher::report::keep(&kit, game_folder(&kit).as_deref(), &words, why) {
+            Err(e) => {
+                log(&format!("report: not kept ({e})"));
+                Err(t(launcher::report::Failure::Pack.key()))
+            }
+            Ok(zip) => match launcher::report::send(&kit, &zip) {
+                Ok(id) => {
+                    log(&format!("report: sent, number {id}"));
+                    Ok(id)
+                }
+                Err((f, raw)) => {
+                    log(&format!("report: not sent ({raw}); kept as {}", zip.display()));
+                    Err(tf("report.kept", &[("why", &t(f.key()))]))
+                }
+            },
+        };
+        shared().report_done = Some(done);
+        poke();
+    });
+}
+
 /// A Windows message box with no owner; its answer.
 fn message(text: &str, style: u32) -> i32 {
     let (text, title) = (wide(text), wide(TITLE));
@@ -457,6 +508,30 @@ fn check_file(kit: &Kit) -> PathBuf {
     kit.data().join("update-check.txt")
 }
 
+/// The UPDATE page is open.
+static PAGE_SHOWN: AtomicBool = AtomicBool::new(false);
+
+/// The newer release's notice, kept in data\update-available.txt so a restart within the day still shows it.
+fn set_available(kit: &Kit, s: &mut Shared, tag: Option<String>) {
+    let file = kit.data().join("update-available.txt");
+    match &tag {
+        Some(tag) => {
+            let _ = std::fs::write(&file, tag);
+        }
+        None => {
+            let _ = std::fs::remove_file(&file);
+        }
+    }
+    s.available = tag;
+}
+
+/// At the start: the notice a check in the last day left, if it is still newer than this kit.
+fn saved_available(kit: &Kit) -> Option<String> {
+    let tag = std::fs::read_to_string(kit.data().join("update-available.txt")).ok()?;
+    let tag = tag.trim();
+    is_newer(tag, &this_kit(kit)).then(|| tag.to_owned())
+}
+
 /// The release list, asked in the background: at most once a day when the window opens, and every time the UPDATE page
 /// is opened.  The edition's own releases only.
 fn ask_updates() {
@@ -477,19 +552,20 @@ fn ask_updates() {
             let mut s = shared();
             match found {
                 Ok(list) if !list.is_empty() => {
-                    if let Some(r) = list.iter().find(|r| !r.test && is_newer(&r.tag, &installed)) {
-                        if !s.busy {
-                            s.status = Some((Tone::Notice, tf("launcher.msg_available", &[("tag", &r.tag)])));
-                        }
-                        s.update_note = None;
-                    } else {
-                        s.update_note = Some((Tone::Notice, t("launcher.msg_pick")));
-                    }
+                    let newer = update::newest(&list, &installed).map(|r| r.tag.clone());
+                    s.update_note = newer.is_none().then(|| (Tone::Notice, t("launcher.msg_pick")));
+                    // the page is open: the player sees the release there
+                    set_available(&kit, &mut s, newer.filter(|_| !PAGE_SHOWN.load(Ordering::Relaxed)));
                     s.releases = list;
                     s.listed = true;
                 }
                 Ok(_) => s.update_note = Some((Tone::Done, t("launcher.msg_none_listed"))),
-                Err(e) => s.update_note = Some((Tone::Refused, tf("launcher.msg_no_answer", &[("error", &e)]))),
+                Err(e) => {
+                    s.update_note = Some((
+                        Tone::Refused,
+                        tf("launcher.msg_no_answer", &[("error", &plain_error(&e))]),
+                    ))
+                }
             }
         }
         poke();
@@ -555,12 +631,14 @@ impl App {
             updates: true,
             version: version(kit),
             update_open: false,
+            update_available: saved_available(kit),
             update_status: None,
             releases: Vec::new(),
             selected: None,
             output_open: false,
             output: Vec::new(),
             confirm: None,
+            report: None,
             stop_armed: 0.0,
         };
         App {
@@ -606,10 +684,11 @@ impl App {
     /// What the workers said since the last look; the window minimized for the game, back when its run ended badly,
     /// closed when it ended well.  Runs also while the window is minimized.
     fn look(&mut self, ctx: &egui::Context) {
-        let (log, list, updated, failed, game) = {
+        let (log, list, updated, failed, game, report_open, report_done) = {
             let mut s = shared();
             self.st.status.clone_from(&s.status);
             self.st.update_status.clone_from(&s.update_note);
+            self.st.update_available.clone_from(&s.available);
             self.st.progress = s.progress as f32 / 1000.0;
             self.st.steps = s.steps.map(|(n, m)| (n as usize, m as usize));
             self.st.clock = s.began.zip(s.stage_at).map_or((0.0, 0.0), |(b, a)| {
@@ -622,6 +701,8 @@ impl App {
                 mem::take(&mut s.updated),
                 mem::take(&mut s.failed),
                 s.game.take(),
+                s.report_open.take(),
+                s.report_done.take(),
             )
         };
         self.st.running = RUNNING.load(Ordering::Relaxed);
@@ -654,15 +735,33 @@ impl App {
         if failed {
             self.st.output_open = true;
         }
+        if let Some(crashed) = report_open {
+            if minimized {
+                // asked from the game's panel, or after a crash: in front of the game
+                ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
+                ctx.send_viewport_cmd(ViewportCommand::Focus);
+            }
+            self.open_report(&kit, crashed);
+        }
+        if let (Some(done), Some(f)) = (report_done, self.st.report.as_mut()) {
+            f.sending = false;
+            f.result = Some(match done {
+                Ok(id) => {
+                    f.sent = true;
+                    (Tone::Done, tf("report.sent", &[("id", &id)]))
+                }
+                Err(why) => (Tone::Refused, why),
+            });
+        }
         if let Some(list) = list {
             self.st.selected = Some(list.iter().position(|r| !r.test).unwrap_or(0));
             self.releases = list;
             self.list(&kit);
         }
         // the UPDATE page opened: the list is asked for again
-        static PAGE_SHOWN: AtomicBool = AtomicBool::new(false);
         let shown = self.st.update_open;
         if PAGE_SHOWN.swap(shown, Ordering::Relaxed) != shown && shown {
+            set_available(&kit, &mut shared(), None);
             ask_updates();
         }
         if updated {
@@ -688,6 +787,18 @@ impl App {
                 say(t("launcher.msg_busy"), shared().progress);
             }
         }
+    }
+
+    /// The report dialog, unless one is open already (its words stay).
+    fn open_report(&mut self, kit: &Kit, crashed: bool) {
+        if self.st.report.is_some() {
+            return;
+        }
+        self.st.report = Some(screen::ReportForm {
+            crashed,
+            contents: launcher::report::contents(kit, game_folder(kit).as_deref()),
+            ..Default::default()
+        });
     }
 
     /// What the player asked for in the screen.
@@ -799,6 +910,16 @@ impl App {
             }
             Action::Lobby(a) => self.online.act(a, &mut self.st, &kit.settings_file()),
             Action::Rejoin => self.online.rejoin(),
+            Action::Report => self.open_report(&kit, false),
+            Action::SendReport => {
+                if let Some(f) = &mut self.st.report
+                    && !f.sending
+                {
+                    f.sending = true;
+                    f.result = None;
+                    send_report(f.words.clone(), f.crashed);
+                }
+            }
             Action::Language => {
                 let lang = self.st.lang;
                 text::set(lang);
@@ -986,9 +1107,21 @@ fn panic_text(p: &(dyn std::any::Any + Send)) -> String {
 
 /// The window, until it is closed (or gone because the game is up and then ended well).
 fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
+    let own = env!("CARGO_PKG_VERSION");
+    log(&format!("Launcher.exe {own}, files {}", this_kit(kit)));
+    if files_differ(own, &this_kit(kit)) {
+        say(
+            tf(
+                "launcher.msg_launcher_differs",
+                &[("own", own), ("files", &version(kit))],
+            ),
+            0,
+        );
+    }
     let last = std::fs::read_to_string(check_file(kit))
         .ok()
         .and_then(|t| t.trim().parse().ok());
+    shared().available = saved_available(kit);
     if check_due(unix_now(), last) {
         ask_updates();
     }

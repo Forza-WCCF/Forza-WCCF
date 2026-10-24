@@ -327,6 +327,7 @@ pub fn board() -> Board {
             pos2(0.33, 0.18),
             pos2(0.67, 0.18),
         ],
+        rub: None,
     }
 }
 

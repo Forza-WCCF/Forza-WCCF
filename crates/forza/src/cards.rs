@@ -6,7 +6,7 @@
 //! for byte as it writes them.
 
 pub mod catalogue;
-mod codes;
+pub mod codes;
 pub mod hq;
 pub mod links;
 pub mod pictures;
@@ -392,6 +392,7 @@ pub fn board(cards: &[Placed], catalogue: &[Card]) -> Board {
             .collect(),
         slots,
         spots,
+        rub: None,
     }
 }
 
@@ -416,7 +417,14 @@ pub fn table_after(before: &[Placed], board: &Board) -> Vec<Placed> {
                 } else {
                     (x, y)
                 }
-            } else if old.on_bench() && bench_band(old.y) == s - 11 {
+            } else if let Some((_, t)) = board.rub.filter(|r| r.0 == s) {
+                // the game measures motion as dx * dy, so x and y move together; y stays under half a band, so the
+                // card keeps its band whether read by nearest or by floor
+                (BENCH_X + 0.05 + 0.05 * t, BENCH_Y[s - 11] + 0.09 + 0.07 * t)
+            } else if old.on_bench()
+                && bench_band(old.y) == s - 11
+                && (old.x - BENCH_X).abs() < 0.0006
+            {
                 (old.x, old.y)
             } else {
                 (BENCH_X, BENCH_Y[s - 11])

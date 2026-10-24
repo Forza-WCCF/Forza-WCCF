@@ -15,6 +15,7 @@ pub mod lobby;
 pub mod logs;
 pub mod procs;
 pub mod release;
+pub mod report;
 pub mod run;
 pub mod setup;
 

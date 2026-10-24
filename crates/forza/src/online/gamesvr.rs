@@ -22,54 +22,257 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// The secretaries' unlock bytes in answer 238: GAME_CTRL bytes 1176..1211, the block starting at +16 (+8 and +12
 /// are a date and time, left 0: the control may set the PC's clock from them).
 const SECRETARIES: std::ops::Range<usize> = 16 + 1176..16 + 1212;
+/// The client's own GAME_CTRL defaults (sub_4A5640): `(GAME_CTRL offset, width in bytes, value)`, little-endian; the
+/// secretaries (1,176..1,211) and the rest stay as [`SECRETARIES`] and zero. Answer 238 replaces the defaults on
+/// every seat, so zeros there changed the client's behaviour (poll count, times, limits). Payload offset = offset + 16.
+/// 12, 14, 15 are also the relay thresholds `vs::fill_game_ctrl` sets; 19,740 is the REQ_MATCH poll count, which VS
+/// lowers to 9. Offsets 1,092..1,104 are times (A: HHMM); 14,608 / 14,610 take the common branch (A).
+const GAME_CTRL_DEFAULTS: &[(usize, usize, u32)] = &[
+    (1, 1, 5),
+    (2, 2, 5),
+    (4, 4, 5_000),
+    (8, 4, 250_000),
+    (12, 2, 200),
+    (14, 1, 20),
+    (15, 1, 50),
+    (16, 1, 14),
+    (17, 1, 3),
+    (20, 4, 1_000_000),
+    (34, 1, 2),
+    (35, 1, 1),
+    (996, 1, 1),
+    (997, 1, 10),
+    (998, 1, 1),
+    (1092, 4, 1_200),
+    (1096, 4, 1_500),
+    (1100, 4, 1_800),
+    (1104, 4, 2_100),
+    (1173, 1, 9),
+    (1174, 1, 20),
+    (1216, 1, 1),
+    (1218, 2, 600),
+    (14532, 4, 61_440),
+    (14542, 1, 1),
+    (14608, 1, 5),
+    (14610, 1, 1),
+    (14611, 1, 10),
+    (19716, 1, 1),
+    (19740, 1, 26),
+];
+
+/// The shop's sale list: GAME_CTRL +22,896 (payload +22,912), 10 entries of `{u32 category, u32 item, u32 start,
+/// u32 end}` (client sub_834520). Categories: 1 Uniform, 2 SE, 3 BGM, 4 Flag, 5 Trainingwear; 0 is never valid. The
+/// client offers an entry only when the item's master row also has its for-sale flag set, so rows outside the
+/// flagged ones are skipped on the client. These ten are rows of the 2017–18 data tables that look like shop goods
+/// (Uniform = the "shop_1718_*" rows of ShopUni, BGM 1..3 = Bgm1..3, Flag 1..3 and Trainingwear 1..2 = the first
+/// coloured rows); the flags themselves are not read. SE (2) stays out: its 286 +93 mapping is unverified
+/// ([`APPLY_SE`]). Owner decision: a data-driven rotation is a follow-up.
+const SHOP_SALE: [(u32, u32); 10] = [
+    (1, 1),
+    (1, 2),
+    (3, 1),
+    (3, 2),
+    (3, 3),
+    (4, 1),
+    (4, 2),
+    (4, 3),
+    (5, 1),
+    (5, 2),
+];
+/// GAME_CTRL +22,896 as a 238 payload offset.
+const SHOP_SALE_AT: usize = 16 + 22_896;
+/// Sale period of every entry, YYYYMMDD.
+const SHOP_FROM: u32 = 20_000_101;
+const SHOP_TO: u32 = 20_991_231;
+/// Whether a bought SE (category 2) is written to 286 +93. Unverified (the reader maps the value through another
+/// table than the shop's), so off; [`SHOP_SALE`] has no SE entry either.
+const APPLY_SE: bool = false;
+
+/// Answer 238's GAME_CTRL (from payload +16): the client's defaults and the unlocked secretaries. +8 and +12 (date
+/// and time) stay 0: the control may set the PC's clock from them.
+fn fill_game_ctrl(body: &mut [u8]) {
+    for &(at, width, v) in GAME_CTRL_DEFAULTS {
+        body[16 + at..16 + at + width].copy_from_slice(&v.to_le_bytes()[..width]);
+    }
+    body[SECRETARIES].fill(1);
+    for (k, (cat, item)) in SHOP_SALE.into_iter().enumerate() {
+        for (i, v) in [cat, item, SHOP_FROM, SHOP_TO].into_iter().enumerate() {
+            put(body, SHOP_SALE_AT + 16 * k + 4 * i, v);
+        }
+    }
+}
+
+/// What the stored purchases (category, item, oldest first) set in a 286 ITEM_LIST answer: Uniform -> +700 and +701
+/// (CLUB_SHOP_UNIFORM), BGM -> +42 (the goal jingle), SE -> +93 when [`APPLY_SE`]. The last purchase of a category
+/// wins; nothing on the client ever sets these, so a purchase takes precedence over the block's value.
+fn apply_to_item_list(body: &mut [u8], bought: &[(u32, u32)]) {
+    for &(cat, item) in bought {
+        let Ok(v) = u8::try_from(item) else { continue };
+        match cat {
+            1 => (body[700], body[701]) = (v, v),
+            2 if APPLY_SE => body[93] = v,
+            3 => body[42] = v,
+            _ => {}
+        }
+    }
+}
+
+/// The 276 possess flags the purchases set (one byte per item, 1): Flag -> +5,444 + item (512), Trainingwear ->
+/// +5,188 + item (256). Applied after the stored 277's spans on every 276, since the 277 of the session that made
+/// the purchase still carries 0.
+fn apply_to_save_data(body: &mut [u8], bought: &[(u32, u32)]) {
+    for &(cat, item) in bought {
+        let at = match (cat, item) {
+            (4, 0..512) => 5444 + item,
+            (5, 0..256) => 5188 + item,
+            _ => continue,
+        };
+        body[at as usize] = 1;
+    }
+}
+
 const MAGIC: [u8; 8] = [0xF1, 0xC0, 0x80, 0x44, 0xB4, 0x9E, 0xDA, 0x3C];
-/// Response command and payload size (control.c response dispatcher 0x408C50 and the message table).
-const RESP: &[(u16, usize)] = &[
-    (202, 16),
-    (901, 8),
-    (903, 8),
-    (905, 48),
-    (224, 92),
-    (226, 260),
-    (228, 12),
-    (234, 1092),
-    (238, 0x5A54),
-    (240, 12),
-    (244, 12),
-    (246, 248),
-    (248, 12),
-    (250, 504),
-    (256, 1008),
-    (258, 12),
-    (260, 10168),
-    (262, 2040),
-    (264, 10080),
-    (266, 200),
-    (268, 33600),
-    (272, 9292),
-    (274, 1288),
-    (276, 6176),
-    (278, 76),
-    (280, 16),
-    (282, 8),
-    (284, 8),
-    (286, 704),
-    (288, 12),
-    (290, 12),
-    (292, 20),
-    (294, 8),
-    (296, 16),
-    (298, 16),
-    (300, 8),
-    (302, 8),
-    (304, 8),
-    (306, 1004),
-    (308, 3332),
-    (310, 8),
-    (312, 3352),
-    (314, 8),
-    (316, 8),
-    (318, 32),
+/// What an all-zero answer means for a [`RESP`] entry; the guard test (`zero_answers_are_safe_or_pending`) enforces it.
+#[cfg_attr(not(test), allow(dead_code))] // the texts are read by the guard test
+enum Zero {
+    /// The stand-in fills the answer: it must not be all zero.
+    Handled,
+    /// Zero is right: the text names the parser (`sub_`/`0x` address) and why. A stale entry (the answer is not
+    /// zero) fails the test.
+    Safe(&'static str),
+    /// Zero is wrong or partial and a parity unit still owes the work (the unit or decision): listed, not failed.
+    Pending(&'static str),
+}
+
+/// Response command, payload size and zero-ness (control.c response dispatcher 0x408C50 and the message table).
+const RESP: &[(u16, usize, Zero)] = &[
+    (202, 16, Zero::Handled),
+    (901, 8, Zero::Handled),
+    (903, 8, Zero::Handled),
+    (905, 48, Zero::Handled),
+    (224, 92, Zero::Handled),
+    (
+        226,
+        260,
+        Zero::Safe("ctl sub_442C40: an empty banner (A: consumer not found)"),
+    ),
+    (
+        228,
+        12,
+        Zero::Safe("ctl sub_447880: 227 has no sender (ctl sub_447550)"),
+    ),
+    (234, 1092, Zero::Pending("C6")),
+    (238, 0x5A54, Zero::Handled),
+    (240, 12, Zero::Handled),
+    (244, 12, Zero::Safe("ctl sub_409920: stored, no reader")),
+    (246, 248, Zero::Handled),
+    (
+        248,
+        12,
+        Zero::Safe("ctl sub_408C50 case only: 247 has no sender"),
+    ),
+    (250, 504, Zero::Pending("C6")),
+    (
+        256,
+        1008,
+        Zero::Safe(
+            "ctl sub_443450: 255 is sent only when 238 +13,110 differs from the local version, and 238 sends 0",
+        ),
+    ),
+    (258, 12, Zero::Handled),
+    (
+        260,
+        10168,
+        Zero::Safe("projector sub_473B40 0x473BED: buffNum 0 is an empty list"),
+    ),
+    (262, 2040, Zero::Handled),
+    (
+        264,
+        10080,
+        Zero::Safe("ctl sub_4431E0 0x44323C: kind 0 is not registered"),
+    ),
+    (266, 200, Zero::Pending("D7")),
+    (
+        268,
+        33600,
+        Zero::Safe("ctl sub_443270 0x4432C7: kind other than 6 only logs"),
+    ),
+    (272, 9292, Zero::Handled),
+    (
+        274,
+        1288,
+        Zero::Safe("client sub_77F5C0: no old records to inherit"),
+    ),
+    (276, 6176, Zero::Handled),
+    (278, 76, Zero::Handled),
+    (280, 16, Zero::Handled),
+    (
+        282,
+        8,
+        Zero::Safe("client sub_787200 state 8: unreachable while 274 is empty"),
+    ),
+    (
+        284,
+        8,
+        Zero::Safe("client sub_4BAD20: errCode only, the PIN is never read back"),
+    ),
+    (286, 704, Zero::Handled),
+    (288, 12, Zero::Handled),
+    (290, 12, Zero::Handled),
+    (292, 20, Zero::Safe("client sub_4BB630: no caller")),
+    (294, 8, Zero::Safe("client sub_4BB780: errCode only, logs")),
+    (
+        296,
+        16,
+        Zero::Safe("client sub_658910: failure screen, unreachable without a QR camera"),
+    ),
+    (
+        298,
+        16,
+        Zero::Safe("client sub_658B00: failure screen, unreachable without a QR camera"),
+    ),
+    (300, 8, Zero::Pending("C6")),
+    (
+        302,
+        8,
+        Zero::Safe("ctl sub_4491B0: errCode 0 stores the result"),
+    ),
+    (
+        304,
+        8,
+        Zero::Safe("client sub_604E10: errCode 0 deletes the dump"),
+    ),
+    (
+        306,
+        1004,
+        Zero::Safe("client sub_7FBA50: teamNum 0 is a CPU team"),
+    ),
+    (308, 3332, Zero::Handled),
+    (
+        310,
+        8,
+        Zero::Safe(
+            "ctl sub_45D840: errCode 0 stops the upload; the stand-in keeps the 309 for 312",
+        ),
+    ),
+    (312, 3352, Zero::Handled),
+    (
+        314,
+        8,
+        Zero::Safe("client sub_7DD1B0 state 3: errCode 0 prints the card locally"),
+    ),
+    (
+        316,
+        8,
+        Zero::Safe(
+            "client sub_788550 state 3: errCode 0 consumes the credit and clears the queue; the stand-in keeps the purchase",
+        ),
+    ),
+    (
+        318,
+        32,
+        Zero::Safe("client sub_77C7D0: an empty mission is accepted"),
+    ),
 ];
 
 pub fn checksum(h: &[u8]) -> u8 {
@@ -156,19 +359,57 @@ fn live_chunk_size(idx: u32) -> u32 {
 /// SAVE_DATA_SET's server-side summary starts here; the store keeps +3,100..+8,572.
 const TAIL: usize = 3100;
 
-/// A stored club: block, version, size, tail.
+/// A stored club: block, version, size, and the whole stored 277 (empty = none since the `requests` table).
 type Saved = (Vec<u8>, u16, u16, Vec<u8>);
 
-/// Copies the parts of a stored SAVE_DATA_SET tail the client reads back into a SAVE_DATA answer: the players'
-/// experience, level, confidence and form (16 records of 30 bytes, 277 +6,068 -> 276 +3,674) and the manager level
-/// (277 +3,262 -> 276 +6,094). The client sets them from the answer even when zero, so without this every card-in put
-/// the players back to level 0 (docs/research/ONLINE-2017-18.md, SAVE_DATA). An empty tail (no save since) is skipped.
-fn restore_tail(body: &mut [u8], tail: &[u8]) {
-    if tail.len() != 8572 - TAIL {
+/// Where a stored SAVE_DATA_SET (277, 8,572 bytes) feeds a SAVE_DATA answer (276): `(276 offset, 277 offset, length)`.
+/// The client sets these from the answer even when zero (sub_81AC50 applies them, sub_817F10 writes the 277), so a
+/// span left out puts that state back to its default at every card-in. 3,100..3,556 is the club's league state
+/// (SERVER_CLUB_RL_PRESENT_DIVISION at 277 +5,888 -> 276 +3,508, the season count, matches played, results, W/D/L; a
+/// zero state puts a club back into league 2, sub_83D4C0); 3,674..4,154 the 16 player records of 30 bytes (experience,
+/// level, confidence, form); 6,094 the manager level; the rest is the server-side summary the notes list
+/// (docs/research/ONLINE-2017-18.md, SAVE_DATA). Spans do not overlap and stay inside both messages.
+pub const TAIL_SPANS: [(usize, usize, usize); 9] = [
+    (3100, 5480, 456),
+    (3556, 5944, 60),
+    (3674, 6068, 480),
+    (4158, 6552, 6),
+    (4164, 6559, 1792),
+    (5956, 8358, 60),
+    (6094, 3262, 2),
+    (6136, 8532, 12),
+    (6152, 8544, 24),
+];
+
+/// Applies [`TAIL_SPANS`] from a stored 277 to a SAVE_DATA answer. No stored 277 (none since the club's last
+/// version) is skipped.
+fn restore_tail(body: &mut [u8], req: &[u8]) {
+    if req.len() != 8572 {
         return;
     }
-    body[3674..4154].copy_from_slice(&tail[6068 - TAIL..6548 - TAIL]);
-    body[6094..6096].copy_from_slice(&tail[3262 - TAIL..3264 - TAIL]);
+    for (to, from, len) in TAIL_SPANS {
+        body[to..to + len].copy_from_slice(&req[from..from + len]);
+    }
+}
+
+/// The 309 upload re-packed as a 312 (3,352 bytes, errCode left to the caller): the shop name (28 bytes, 309 +3,194)
+/// at +120, the region at +148 (309 +3,224; -1 when ALL.Net sent 0x80000000 = none), the 3,072-byte save block
+/// (309 +8) at +152, and the 128 bytes of CPU attributes (309 +3,232) at +3,224. +8 and +64 (names the client does
+/// not read) stay 0. `req` is a whole 3,368-byte 309.
+fn best_eleven_answer(body: &mut [u8], req: &[u8]) {
+    body[120..148].copy_from_slice(&req[3194..3222]);
+    let region = u32_at(req, 3224);
+    put(
+        body,
+        148,
+        if region == 0x8000_0000 {
+            u32::MAX
+        } else {
+            region
+        },
+    );
+    body[152..152 + BLOCK].copy_from_slice(&req[8..8 + BLOCK]);
+    body[3224..3352].copy_from_slice(&req[3232..3360]);
 }
 
 /// Fills a 6,176-byte SAVE_DATA answer (slot already at +0) with a stored block: +8 block, +3,080 version,
@@ -234,7 +475,7 @@ CREATE TABLE IF NOT EXISTS coaches (
     name2      BLOB    NOT NULL DEFAULT x'', -- record +64, SAVE_DATA_SET +3,160
     rec122     INTEGER NOT NULL DEFAULT 0,   -- record +122, SAVE_DATA_SET +3,240
     play_count INTEGER NOT NULL DEFAULT 0,   -- record +123
-    titles     INTEGER NOT NULL DEFAULT 0,   -- record +124 (enterable-titles mask; set for skip clubs only)
+    titles     INTEGER NOT NULL DEFAULT 0,   -- record +124, SAVE_DATA_SET +3,216 (competition mask; 0 kept)
     created    INTEGER NOT NULL,
     updated    INTEGER NOT NULL,
     PRIMARY KEY (aime_id, coach_id)
@@ -258,7 +499,81 @@ CREATE TABLE IF NOT EXISTS injustice (
     PRIMARY KEY (aime_id, coach_id)
 );
 CREATE TABLE IF NOT EXISTS ids (name TEXT PRIMARY KEY, last INTEGER NOT NULL);
+-- every accepted BUY_SHOP_ITEM 315, whole; per Aime id (the request carries no club), kept for good
+CREATE TABLE IF NOT EXISTS purchases (
+    aime_id INTEGER NOT NULL,
+    at      INTEGER NOT NULL,
+    payload BLOB    NOT NULL
+);
+CREATE TABLE IF NOT EXISTS requests (
+    aime_id  INTEGER NOT NULL,
+    coach_id INTEGER NOT NULL,  -- 0 for a request kept per shop
+    cmd      INTEGER NOT NULL,
+    payload  BLOB    NOT NULL,  -- the whole request, as the client sent it
+    updated  INTEGER NOT NULL,
+    PRIMARY KEY (aime_id, coach_id, cmd)
+);
 ";
+
+/// `PRAGMA user_version` of a store this code has migrated.
+const SCHEMA_VERSION: i64 = 2;
+
+/// The 0 -> 1 backfill of [`migrate`]: a club saved before `requests` existed keeps only its tail in `saves`, so its
+/// 277 is rebuilt from the row (ids at +4/+8/+12, kind at +24, block at +28, tail at +3,100) and the first card-in
+/// already sends the stored levels and league state. Adds rows only; `INSERT OR IGNORE` leaves any request already
+/// there alone.
+fn backfill(tx: &rusqlite::Transaction) -> rusqlite::Result<()> {
+    type Row = (u32, u32, u32, u8, Vec<u8>, Vec<u8>, i64);
+    let rows: Vec<Row> = tx
+        .prepare(
+            "SELECT s.aime_id, s.coach_id, c.card_id, s.kind, s.block, s.tail, s.updated
+             FROM saves s JOIN coaches c USING (aime_id, coach_id) WHERE length(s.tail) = ?1",
+        )?
+        .query_map([(8572 - TAIL) as i64], |r| {
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+                r.get(6)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    for (aime, coach, card, kind, block, tail, updated) in rows {
+        if block.len() != BLOCK {
+            continue;
+        }
+        let mut req = vec![0u8; 8572];
+        put(&mut req, 4, aime);
+        put(&mut req, 8, coach);
+        put(&mut req, 12, card);
+        req[24] = kind;
+        req[28..28 + BLOCK].copy_from_slice(&block);
+        req[TAIL..].copy_from_slice(&tail);
+        tx.execute(
+            "INSERT OR IGNORE INTO requests VALUES (?1, ?2, 277, ?3, ?4)",
+            params![aime, coach, req, updated],
+        )?;
+    }
+    Ok(())
+}
+
+/// `PRAGMA user_version` 0 -> 1 runs [`backfill`]; 1 -> 2 only adds `purchases` (`CREATE TABLE IF NOT EXISTS` in
+/// [`SCHEMA`], every open). One transaction; nothing is dropped or rewritten.
+fn migrate(db: &mut Connection) -> rusqlite::Result<()> {
+    let version = db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))?;
+    if version >= SCHEMA_VERSION {
+        return Ok(());
+    }
+    let tx = db.transaction()?;
+    if version < 1 {
+        backfill(&tx)?;
+    }
+    tx.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))?;
+    tx.commit()
+}
 
 /// Next id from counter `name` (1, 2, ...), inside the caller's transaction.
 fn next_id(db: &Connection, name: &str) -> rusqlite::Result<u32> {
@@ -271,7 +586,7 @@ fn next_id(db: &Connection, name: &str) -> rusqlite::Result<u32> {
 
 impl Store {
     pub fn open(path: &Path) -> rusqlite::Result<Self> {
-        let db = Connection::open(path)?;
+        let mut db = Connection::open(path)?;
         // WAL: a commit appends to gamesvr.db-wal; NORMAL syncs at checkpoints, so a power cut can lose the last
         // commits but never corrupts the store
         db.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
@@ -294,6 +609,7 @@ impl Store {
         if !has {
             db.execute_batch("ALTER TABLE saves ADD COLUMN tail BLOB NOT NULL DEFAULT x''")?;
         }
+        migrate(&mut db)?;
         Ok(Self(db))
     }
 
@@ -402,7 +718,8 @@ impl Store {
         let tx = self.0.transaction()?;
         let n = tx.execute(
             "UPDATE coaches SET name1 = ?4, name2 = ?5, rec122 = ?6, play_count = min(255, play_count + ?7),
-             updated = ?8 WHERE aime_id = ?1 AND coach_id = ?2 AND card_id = ?3",
+             titles = CASE ?9 WHEN 0 THEN titles ELSE ?9 END, updated = ?8
+             WHERE aime_id = ?1 AND coach_id = ?2 AND card_id = ?3",
             params![
                 aime,
                 coach,
@@ -411,7 +728,11 @@ impl Store {
                 &req[3160..3216],
                 req[3240],
                 u8::from(kind == 2),
-                now()
+                now(),
+                // +3,216: the club's competition mask, which the client builds from save parameter 3512 and sends 0
+                // while its tutorial runs (sub_817F10); the club list shows "Tutorial" while record +124 has none
+                // of its bits (sub_792740). 0 keeps what is stored: a skip club's TitleHolder bit.
+                u32_at(req, 3216)
             ],
         )?;
         if n == 0 {
@@ -430,20 +751,71 @@ impl Store {
                 &req[TAIL..8572]
             ],
         )?;
+        // the whole request, which the next SAVE_DATA reads back (`saves.tail` stays written for an older server)
+        tx.execute(
+            "INSERT OR REPLACE INTO requests VALUES (?1, ?2, 277, ?3, ?4)",
+            params![aime, coach, &req[..8572], now()],
+        )?;
         tx.commit()?;
         Ok(true)
     }
 
-    /// The stored (block, version, size, tail) of a club.
+    /// The stored (block, version, size, 277) of a club.
     fn save(&self, aime: u32, coach: u32, card: u32) -> rusqlite::Result<Option<Saved>> {
         self.0
             .query_row(
-                "SELECT s.block, s.version, s.size, s.tail FROM saves s JOIN coaches c USING (aime_id, coach_id)
+                "SELECT s.block, s.version, s.size, r.payload FROM saves s JOIN coaches c USING (aime_id, coach_id)
+                 LEFT JOIN requests r ON r.aime_id = s.aime_id AND r.coach_id = s.coach_id AND r.cmd = 277
                  WHERE s.aime_id = ?1 AND s.coach_id = ?2 AND c.card_id = ?3",
                 params![aime, coach, card],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                |r| {
+                    let req: Option<Vec<u8>> = r.get(3)?;
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, req.unwrap_or_default()))
+                },
             )
             .optional()
+    }
+
+    /// Keeps the latest whole 309 under (0, shop id).
+    fn keep_best_eleven(&self, shop: u32, req: &[u8]) -> rusqlite::Result<()> {
+        self.0.execute(
+            "INSERT OR REPLACE INTO requests VALUES (0, ?1, 309, ?2, ?3)",
+            params![shop, req, now()],
+        )?;
+        Ok(())
+    }
+
+    /// The newest stored 309 of any shop. This stand-in serves one shop, so "the same shop's last 309" (owner
+    /// decision D3, default) is the newest one; on a server with several shops a rule per area replaces this.
+    fn last_best_eleven(&self) -> rusqlite::Result<Option<Vec<u8>>> {
+        self.0
+            .query_row(
+                "SELECT payload FROM requests WHERE cmd = 309 AND aime_id = 0 ORDER BY updated DESC, coach_id DESC LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .optional()
+    }
+
+    /// Keeps a BUY_SHOP_ITEM request whole; Ok only once the insert has committed.
+    fn buy(&self, aime: u32, req: &[u8]) -> rusqlite::Result<()> {
+        self.0.execute(
+            "INSERT INTO purchases (aime_id, at, payload) VALUES (?1, ?2, ?3)",
+            params![aime, now(), req],
+        )?;
+        Ok(())
+    }
+
+    /// The (category, item) of every purchase of `aime` (request +8 and +12), oldest first.
+    fn bought(&self, aime: u32) -> rusqlite::Result<Vec<(u32, u32)>> {
+        let mut q = self
+            .0
+            .prepare("SELECT payload FROM purchases WHERE aime_id = ?1 ORDER BY rowid")?;
+        let rows = q.query_map([aime], |r| r.get::<_, Vec<u8>>(0))?;
+        Ok(rows
+            .filter_map(|p| p.ok().filter(|p| p.len() >= 16))
+            .map(|p| (u32_at(&p, 8), u32_at(&p, 12)))
+            .collect())
     }
 
     /// Moves a club from `old` to a new cardId; None when (aime, coach, old) is no club.
@@ -485,21 +857,28 @@ fn club(
 ) -> Result<(), String> {
     // request size and the revision's offset (docs/research/ONLINE-2017-18.md, "M1")
     let (need, rev_at) = match cmd {
-        271 => (20, 16),
-        275 => (32, 28),
-        277 => (8572, 5940),
-        279 => (36, 32),
-        287 | 289 => (28, 24),
-        285 => (24, 20),
+        271 => (20, Some(16)),
+        275 => (32, Some(28)),
+        277 => (8572, Some(5940)),
+        279 => (36, Some(32)),
+        287 | 289 => (28, Some(24)),
+        285 => (24, Some(20)),
+        // BUY_SHOP_ITEM: ids, category and item; the replay records are 20 bytes, so no revision check
+        315 => (16, None),
+        // BEST_ELEVEN upload (the control's, no revision) and download (areaId at +4, not read)
+        309 => (3368, None),
+        311 => (0, None),
         _ => return Ok(()),
     };
     if req.len() < need {
         return Err(format!("{} bytes, want {need}", req.len()));
     }
-    if u32_at(req, rev_at) != REVISION {
-        return Err(format!("revision {}, want {REVISION}", u32_at(req, rev_at)));
+    if let Some(at) = rev_at.filter(|&at| u32_at(req, at) != REVISION) {
+        return Err(format!("revision {}, want {REVISION}", u32_at(req, at)));
     }
-    let (aime, coach, card) = (u32_at(req, 4), u32_at(req, 8), u32_at(req, 12));
+    // 311 may be as short as 8 bytes: a missing id reads as 0
+    let id = |at: usize| req.get(at..at + 4).map_or(0, |_| u32_at(req, at));
+    let (aime, coach, card) = (id(4), id(8), id(12));
     let db = |e: rusqlite::Error| format!("store: {e}");
     let mut st = store.lock().unwrap_or_else(PoisonError::into_inner);
     if cmd == 271 {
@@ -554,6 +933,22 @@ fn club(
         }
         return Ok(());
     }
+    match cmd {
+        // +4 is the shop id here, not an Aime id
+        309 => {
+            st.keep_best_eleven(aime, req).map_err(db)?;
+            return Ok(());
+        }
+        // errCode 0 with the newest 309 re-packed; none stored keeps the errCode 1 set by `answer` (CPU team)
+        311 => {
+            if let Some(p) = st.last_best_eleven().map_err(db)? {
+                put(body, 4, 0);
+                best_eleven_answer(body, &p);
+            }
+            return Ok(());
+        }
+        _ => {}
+    }
     if aime == 0 {
         return Err("Aime id 0".into());
     }
@@ -596,6 +991,7 @@ fn club(
                 return Err(format!("stored block of {} bytes", block.len()));
             }
             restore_tail(body, &tail);
+            apply_to_save_data(body, &st.bought(aime).map_err(db)?);
             fill_save_data(body, &block, version, size);
         }
         285 => {
@@ -605,6 +1001,13 @@ fn club(
                 body[700] = get_bits(&block, 24249, 8) as u8;
                 body[701] = get_bits(&block, 24257, 8) as u8;
             }
+            // the purchases of this Aime id, whichever club asks
+            apply_to_item_list(body, &st.bought(aime).map_err(db)?);
+        }
+        315 => {
+            // BUY_SHOP_ITEM: +8 category, +12 item; kept whole, errCode 0 only once committed (a store error is
+            // errCode 1 and the client keeps the item queued and resends it)
+            st.buy(aime, req).map_err(db)?;
         }
         287 => {
             let new = st
@@ -643,16 +1046,16 @@ fn answer(
         return Some((18, b, None));
     }
     let rcmd = cmd.wrapping_add(1);
-    let size = RESP.iter().find(|(c, _)| *c == rcmd)?.1;
+    let size = RESP.iter().find(|(c, ..)| *c == rcmd)?.1;
     let mut body = vec![0u8; size];
     if size >= 4 && payload.len() >= 4 {
         body[..4].copy_from_slice(&payload[..4]);
     }
     if cmd == 237 {
         // the control copies payload +16.. as GAME_CTRL (sub_4419F0) and sends it to every seat, over the client's
-        // defaults; GAME_CTRL bytes 1176..1211 unlock the 36 secretaries (default 1); all zero leaves none, and the club's SECRETARY step loads a picture that is not on
-        // the disc and reads a null pointer (client 0x424AB2, docs/research/ONLINE-2017-18.md)
-        body[SECRETARIES].fill(1);
+        // defaults; all zero leaves no secretary, and the club's SECRETARY step loads a picture that is not on the
+        // disc and reads a null pointer (client 0x424AB2, docs/research/ONLINE-2017-18.md)
+        fill_game_ctrl(&mut body);
     }
     if cmd == 261 && payload.len() >= 8 {
         // the control downloads a 0x3DA38-byte buffer in 2,032-byte chunks (request +4 = chunk) and copies answer
@@ -683,7 +1086,7 @@ struct Vs {
 }
 
 impl Vs {
-    /// 202, 224, 238, 243, 245 and the vslink 901, 903, 905 answers (the slot echo is in `body` already).
+    /// 202, 224, 238, 239, 243, 245, 257 and the vslink 901, 903, 905 answers (the slot echo is in `body` already).
     fn fill(&self, cmd: u16, payload: &[u8], peer: IpAddr, body: &mut [u8]) {
         let t = Instant::now();
         match cmd {
@@ -715,6 +1118,13 @@ impl Vs {
                     body[8..14].copy_from_slice(&tok);
                     body[16..48].copy_from_slice(&id);
                 }
+            }
+            // the data battle entry path: the control reads the ids it sent back (ctl sub_447DF0, sub_448FD0); a 0 id is
+            // its own SvrErr path
+            239 if payload.len() >= 12 => body[4..12].copy_from_slice(&payload[4..12]),
+            257 if payload.len() >= 8 => {
+                put(body, 4, u32_at(payload, 4));
+                put(body, 8, u32::from(u32_at(payload, 4) != 0));
             }
             223 => vs::fill_round(body, now()),
             237 => vs::fill_game_ctrl(body),
@@ -1069,6 +1479,307 @@ mod tests {
         assert!(body[8..16].iter().all(|b| *b == 0));
     }
 
+    #[test]
+    fn tail_spans_stay_inside_and_apart() {
+        let mut s = TAIL_SPANS.to_vec();
+        s.sort();
+        assert!(
+            s.iter()
+                .all(|&(to, from, len)| to + len <= 6176 && from + len <= 8572)
+        );
+        assert!(s.windows(2).all(|w| w[0].0 + w[0].2 <= w[1].0));
+        let mut s: Vec<_> = TAIL_SPANS
+            .iter()
+            .map(|&(_, from, len)| (from, len))
+            .collect();
+        s.sort();
+        assert!(s.windows(2).all(|w| w[0].0 + w[0].1 <= w[1].0));
+    }
+
+    #[test]
+    fn an_old_store_gets_its_277_once_and_loses_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gamesvr.db");
+        let (block, tail): (Vec<u8>, Vec<u8>) = (
+            (0..BLOCK).map(|i| (i % 251) as u8 + 1).collect(),
+            (0..8572 - TAIL).map(|i| (i % 241) as u8 + 3).collect(),
+        );
+        {
+            // a store from before `requests`: user_version 0, a club with a block and a tail
+            let db = Connection::open(&path).unwrap();
+            db.execute_batch(SCHEMA).unwrap();
+            db.execute_batch("DROP TABLE requests").unwrap();
+            db.execute(
+                "INSERT INTO coaches (aime_id, coach_id, card_id, created, updated) VALUES (5, 1, 9, 1, 1)",
+                [],
+            )
+            .unwrap();
+            db.execute(
+                "INSERT INTO saves VALUES (5, 1, ?1, 12, 3072, 2, 1, ?2)",
+                params![block, tail],
+            )
+            .unwrap();
+        }
+        let log: Log = Arc::new(|_: &str| {});
+        let card_in = |store: &Mutex<Store>| {
+            answer(275, &req(275, [5, 1, 9]), store, None, &[], None, &log)
+                .unwrap()
+                .1
+        };
+        let store = Mutex::new(Store::open(&path).unwrap());
+        let a = card_in(&store);
+        assert_eq!(u32_at(&a, 4), 0);
+        for (to, from, len) in TAIL_SPANS {
+            assert_eq!(
+                a[to..to + len],
+                tail[from - TAIL..from - TAIL + len],
+                "span {to}"
+            );
+        }
+        {
+            let db = &store.lock().unwrap().0;
+            let n = |t: &str| -> i64 {
+                db.query_row(&format!("SELECT count(*) FROM {t}"), [], |r| r.get(0))
+                    .unwrap()
+            };
+            assert_eq!((n("coaches"), n("saves"), n("requests")), (1, 1, 1));
+            let kept: Vec<u8> = db
+                .query_row("SELECT tail FROM saves", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(kept, tail, "saves.tail untouched");
+            let req: Vec<u8> = db
+                .query_row("SELECT payload FROM requests", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!((req.len(), u32_at(&req, 8), req[24]), (8572, 1, 2));
+            assert_eq!(&req[28..28 + BLOCK], &block[..]);
+            // a later save replaces the rebuilt request; a second open must not bring the old one back
+            db.execute("UPDATE requests SET payload = zeroblob(8572)", [])
+                .unwrap();
+        }
+        drop(store);
+        let store = Mutex::new(Store::open(&path).unwrap());
+        let v: i64 = store
+            .lock()
+            .unwrap()
+            .0
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(v, 2);
+        let a = card_in(&store);
+        assert!(
+            a[3100..3556].iter().all(|b| *b == 0),
+            "not backfilled twice"
+        );
+    }
+
+    #[test]
+    fn game_ctrl_carries_the_clients_defaults() {
+        let mut body = vec![0u8; 0x5A54];
+        fill_game_ctrl(&mut body);
+        fn at(body: &[u8], off: usize, w: usize) -> u32 {
+            let mut b = [0u8; 4];
+            b[..w].copy_from_slice(&body[16 + off..16 + off + w]);
+            u32::from_le_bytes(b)
+        }
+        assert!(
+            GAME_CTRL_DEFAULTS
+                .iter()
+                .all(|&(o, w, v)| at(&body, o, w) == v)
+        );
+        assert_eq!(
+            (
+                at(&body, 4, 4),
+                at(&body, 8, 4),
+                at(&body, 19_740, 1),
+                at(&body, 1_176, 1)
+            ),
+            (5_000, 250_000, 26, 1)
+        );
+        assert!(body[8..16].iter().all(|b| *b == 0), "date and time stay 0");
+        // the Grand Trophy window stays closed (0..0) outside VS, and VS overlays the polls and the window
+        assert_eq!((at(&body, 7_622, 2), at(&body, 7_624, 2)), (0, 0));
+        vs::fill_game_ctrl(&mut body);
+        assert_eq!(
+            (
+                at(&body, 19_740, 1),
+                at(&body, 7_624, 2),
+                at(&body, 1_211, 1)
+            ),
+            (u32::from(vs::POLLS), 2400, 1)
+        );
+        // no two defaults overlap each other or the secretaries
+        let mut spans: Vec<_> = GAME_CTRL_DEFAULTS
+            .iter()
+            .map(|&(o, w, _)| (o, o + w))
+            .collect();
+        spans.push((1_176, 1_212));
+        spans.sort();
+        assert!(spans.windows(2).all(|w| w[0].1 <= w[1].0));
+    }
+
+    #[test]
+    fn vs_echoes_the_entry_user_and_the_data_battle() {
+        let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
+        let log: Log = Arc::new(|_: &str| {});
+        let vs = Vs {
+            cfg: VsConfig {
+                public_ip: std::net::Ipv4Addr::LOCALHOST,
+                reflect_port: 1,
+                vslink_port: 2,
+            },
+            matcher: Arc::default(),
+        };
+        let ip = IpAddr::from([127, 0, 0, 1]);
+        let ask = |cmd: u16, ids: [u32; 3]| {
+            let mut p = vec![0u8; 16];
+            put(&mut p, 0, 1);
+            for (i, v) in ids.into_iter().enumerate() {
+                put(&mut p, 4 + 4 * i, v);
+            }
+            answer(cmd, &p, &store, None, &[], Some((&vs, ip)), &log)
+                .unwrap()
+                .1
+        };
+        // 239: cardId, coachId back; 257: coachId back and status 1
+        let b = ask(239, [7, 9, 0]);
+        assert_eq!((u32_at(&b, 4), u32_at(&b, 8)), (7, 9));
+        let b = ask(257, [9, 7, 0]);
+        assert_eq!((u32_at(&b, 4), u32_at(&b, 8)), (9, 1));
+        // 0 ids stay zero: the control's SvrErr
+        assert!(ask(239, [0, 0, 0])[4..].iter().all(|b| *b == 0));
+        assert!(ask(257, [0, 5, 0])[4..].iter().all(|b| *b == 0));
+        // no VS: zeros as before
+        let b = answer(
+            239,
+            &[1, 0, 0, 0, 7, 0, 0, 0, 9, 0, 0, 0],
+            &store,
+            None,
+            &[],
+            None,
+            &log,
+        )
+        .unwrap()
+        .1;
+        assert!(b[4..].iter().all(|b| *b == 0));
+    }
+
+    /// A request for the guard test: slot 1, ids at +4/+8/+12, the revision where the club messages carry it.
+    fn fixture(cmd: u16, ids: [u32; 3]) -> Vec<u8> {
+        let (len, rev) = match cmd {
+            271 => (20, 16),
+            275 => (32, 28),
+            277 => (8572, 5940),
+            279 => (36, 32),
+            285 => (24, 20),
+            287 | 289 => (28, 24),
+            309 => (3368, 0),
+            _ => (600, 0),
+        };
+        let mut r = vec![0u8; len];
+        put(&mut r, 0, 1);
+        for (i, id) in ids.into_iter().enumerate() {
+            put(&mut r, 4 + 4 * i, id);
+        }
+        if rev != 0 {
+            put(&mut r, rev, REVISION);
+        }
+        match cmd {
+            277 => {
+                r[24] = 2;
+                r[3100..3104].copy_from_slice(&[12, 0, 0, 12]);
+            }
+            279 => r[12] = 1,
+            309 => r[8..3080].fill(0x5A),
+            289 => put(&mut r, 16, 1),
+            _ => {}
+        }
+        r
+    }
+
+    /// Every [`RESP`] answer is filled, or all zero with a parser address that proves zero is safe, or pending
+    /// (listed with --nocapture).
+    #[test]
+    fn zero_answers_are_safe_or_pending() {
+        let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
+        let log: Log = Arc::new(|_: &str| {});
+        let vs = Vs {
+            cfg: VsConfig {
+                public_ip: std::net::Ipv4Addr::LOCALHOST,
+                reflect_port: 1,
+                vslink_port: 2,
+            },
+            matcher: Arc::default(),
+        };
+        let ip = IpAddr::from([127, 0, 0, 1]);
+        let ask = |cmd: u16, p: &[u8]| answer(cmd, p, &store, None, &[], Some((&vs, ip)), &log);
+        let aime = 5;
+        // a saved club, so the club messages have ids to work on
+        let (_, b, _) = ask(279, &fixture(279, [aime, 0, 0])).unwrap();
+        let (coach, card) = (u32_at(&b, 8), u32_at(&b, 12));
+        let ids = [aime, coach, card];
+        assert_eq!(u32_at(&ask(277, &fixture(277, ids)).unwrap().1, 4), 0);
+        // a purchase (category = the coach id, item = the card id: Uniform 1), so 286 has something to say
+        assert_eq!(u32_at(&ask(315, &fixture(315, ids)).unwrap().1, 4), 0);
+        // two paired VS entries (243 -> 245), so the vslink lookup 904 and the match answer 246 have something to say
+        let entry = |card: u32, seat: u32, port: u16| {
+            let mut e = fixture(243, [0, 0, 0]);
+            e.truncate(280);
+            put(&mut e, 8, 0x0100_007F);
+            e[12..14].copy_from_slice(&port.to_le_bytes());
+            put(&mut e, 44, card);
+            put(&mut e, 48, seat);
+            e
+        };
+        let poll = |card: u32, seat: u32| {
+            let mut p = vec![0u8; 20];
+            put(&mut p, 0, 1);
+            put(&mut p, 8, card);
+            put(&mut p, 12, seat);
+            p
+        };
+        ask(243, &entry(10, 1, 1111)).unwrap();
+        ask(243, &entry(11, 2, 2222)).unwrap();
+        assert!(
+            ask(245, &poll(10, 1)).unwrap().1[4..]
+                .iter()
+                .any(|b| *b != 0)
+        );
+        let mut lookup = vec![0u8; 8];
+        put(&mut lookup, 0, 0x0100_007F);
+        lookup[4..6].copy_from_slice(&1111u16.to_le_bytes());
+
+        let mut pending = vec![];
+        for (rcmd, _, zero) in RESP {
+            let cmd = rcmd - 1;
+            let payload = match cmd {
+                245 => poll(10, 1),
+                904 => lookup.clone(),
+                _ => fixture(cmd, ids),
+            };
+            let (_, body, refused) = ask(cmd, &payload).unwrap();
+            assert_eq!(refused, None, "{rcmd}: the fixture is refused");
+            let is_zero = body[4..].iter().all(|b| *b == 0);
+            match zero {
+                Zero::Handled => assert!(
+                    !is_zero,
+                    "{rcmd} is all zero and not marked Safe or Pending"
+                ),
+                Zero::Safe(why) => {
+                    assert!(
+                        why.contains("sub_") || why.contains("0x"),
+                        "{rcmd}: Safe names no address: {why}"
+                    );
+                    assert!(
+                        is_zero,
+                        "{rcmd} is marked Safe but the answer is not zero (stale entry)"
+                    );
+                }
+                Zero::Pending(unit) => pending.push(format!("{rcmd} ({unit})")),
+            }
+        }
+        eprintln!("pending: {}", pending.join(", "));
+    }
+
     fn req(cmd: u16, ids: [u32; 3]) -> Vec<u8> {
         let (len, rev) = match cmd {
             271 => (20, 16),
@@ -1211,6 +1922,139 @@ mod tests {
             let (_, b, why) = answer(cmd, &[0; 32], &store, None, &rare, None, &log).unwrap();
             assert!(why.is_none() && u32_at(&b, 4) == 0, "cmd {cmd}");
         }
+    }
+
+    /// Asks `store` through [`answer`] with no VS and no skip club.
+    fn ask_store(store: &Mutex<Store>, cmd: u16, p: &[u8]) -> (Vec<u8>, Option<String>) {
+        let log: Log = Arc::new(|_: &str| {});
+        let (_, body, why) = answer(cmd, p, store, None, &[], None, &log).unwrap();
+        (body, why)
+    }
+
+    #[test]
+    fn the_sale_list_has_ten_valid_entries() {
+        let (body, _) = ask_store(
+            &Mutex::new(Store::open(Path::new(":memory:")).unwrap()),
+            237,
+            &[0; 20],
+        );
+        let entries: Vec<_> = (0..10)
+            .map(|k| {
+                let e = SHOP_SALE_AT + 16 * k;
+                [0, 4, 8, 12].map(|i| u32_at(&body, e + i))
+            })
+            .collect();
+        assert!(
+            entries.iter().all(|e| (1..=5).contains(&e[0])),
+            "no category 0"
+        );
+        assert!(entries.iter().all(|e| e[2] == SHOP_FROM && e[3] == SHOP_TO));
+        assert!(entries.iter().all(|e| e[0] != 2), "no SE");
+        let mut kinds: Vec<_> = entries.iter().map(|e| e[0]).collect();
+        kinds.dedup();
+        assert_eq!(kinds, [1, 3, 4, 5]);
+        assert_eq!(SHOP_SALE_AT + 160, 23_072);
+    }
+
+    #[test]
+    fn purchases_are_stored_and_applied_to_286_and_276() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gamesvr.db");
+        let buy = |store: &Mutex<Store>, cat: u32, item: u32| {
+            let mut r = req(315, [5, cat, item]);
+            put(&mut r, 16, 99);
+            ask_store(store, 315, &r)
+        };
+        let (club, card);
+        {
+            let store = Mutex::new(Store::open(&path).unwrap());
+            let b = ask_store(&store, 279, &fixture(279, [5, 0, 0])).0;
+            (club, card) = (u32_at(&b, 8), u32_at(&b, 12));
+            assert_eq!(
+                u32_at(&ask_store(&store, 277, &fixture(277, [5, club, card])).0, 4),
+                0
+            );
+            for (cat, item) in [(4, 7), (5, 3), (1, 3), (3, 9)] {
+                let (b, why) = buy(&store, cat, item);
+                assert!(why.is_none() && u32_at(&b, 4) == 0, "{cat}/{item}");
+            }
+        }
+        // reopened: still bought, and applied for another club of the same Aime id too
+        let store = Mutex::new(Store::open(&path).unwrap());
+        let a = ask_store(&store, 275, &req(275, [5, club, card])).0;
+        assert_eq!((a[5444 + 7], a[5188 + 3], a[5444 + 3]), (1, 1, 0));
+        // the stored 277 echoed a 0 for the bit: still 1 after another save
+        assert_eq!(
+            u32_at(&ask_store(&store, 277, &fixture(277, [5, club, card])).0, 4),
+            0
+        );
+        let a = ask_store(&store, 275, &req(275, [5, club, card])).0;
+        assert_eq!((a[5444 + 7], a[5188 + 3]), (1, 1));
+        assert_eq!(
+            u32_at(&a, 3088),
+            {
+                let mut z = a.clone();
+                put(&mut z, 3088, 0);
+                sum32(&z)
+            },
+            "C2 covers the flags"
+        );
+        let i = ask_store(&store, 285, &req(285, [5, club, card])).0;
+        assert_eq!((i[700], i[701], i[42], i[93]), (3, 3, 9, 0));
+        // another Aime id has nothing
+        let i = ask_store(&store, 285, &req(285, [6, club, card])).0;
+        assert_eq!((i[700], i[42]), (0, 0));
+        // a later uniform replaces the earlier one
+        buy(&store, 1, 4);
+        assert_eq!(ask_store(&store, 285, &req(285, [5, club, card])).0[700], 4);
+        // a store error is errCode 1
+        store
+            .lock()
+            .unwrap()
+            .0
+            .execute_batch("DROP TABLE purchases")
+            .unwrap();
+        let (b, why) = buy(&store, 4, 1);
+        assert!(why.is_some() && u32_at(&b, 4) == 1);
+    }
+
+    /// A 311 request: slot 1 and an area id of 0.
+    const SLOT: [u8; 8] = [1, 0, 0, 0, 0, 0, 0, 0];
+
+    /// A synthetic 309: every byte a function of its offset, shop id 7.
+    fn upload_309(seed: usize) -> Vec<u8> {
+        let mut p: Vec<u8> = (0..3368)
+            .map(|i| ((i * 13 + seed) % 251) as u8 + 1)
+            .collect();
+        put(&mut p, 4, 7);
+        p
+    }
+
+    #[test]
+    fn best_eleven_309_comes_back_as_312() {
+        let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
+        // nothing stored: errCode 1, the CPU team
+        let (b, why) = ask_store(&store, 311, &SLOT);
+        assert_eq!((b.len(), u32_at(&b, 4), why), (3352, 1, None));
+        let (b, why) = ask_store(&store, 309, &upload_309(1));
+        assert_eq!((b.len(), u32_at(&b, 4), why), (8, 0, None));
+        let p = upload_309(2);
+        assert_eq!(u32_at(&ask_store(&store, 309, &p).0, 4), 0);
+        let (b, why) = ask_store(&store, 311, &SLOT);
+        assert_eq!((b.len(), u32_at(&b, 4), why), (3352, 0, None));
+        assert_eq!(b[8..120], [0; 112], "names the client does not read");
+        assert_eq!(b[120..148], p[3194..3222]);
+        assert_eq!(b[148..152], p[3224..3228]);
+        assert_eq!(b[152..3224], p[8..3080]);
+        assert_eq!(b[3224..3352], p[3232..3360]);
+        // ALL.Net's "none" is -1; a short 309 is refused (errCode 1) and keeps the last good one
+        let mut q = upload_309(3);
+        put(&mut q, 3224, 0x8000_0000);
+        ask_store(&store, 309, &q);
+        assert_eq!(u32_at(&ask_store(&store, 311, &SLOT).0, 148), u32::MAX);
+        let (b, why) = ask_store(&store, 309, &q[..100]);
+        assert!(why.is_some() && u32_at(&b, 4) == 1);
+        assert_eq!(ask_store(&store, 311, &SLOT).0[152], q[8]);
     }
 
     #[test]

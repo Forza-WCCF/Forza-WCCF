@@ -91,11 +91,11 @@ fn panel_draws_in_fakegame() {
 
     let game = image::open(t.join("game.bmp")).unwrap().to_rgb8();
     assert_eq!(game.dimensions(), (1440, 900));
-    // the formation board's pitch (theme::PITCH, PITCH_STRIPE) fills much of the right 580 pixels
+    // the formation board's mat (theme::MAT, MAT_STRIPE) fills much of the right 580 pixels
     let pitch = count(
         &game,
         (860, 0, 1440, 900),
-        &[[0x1E, 0x7A, 0x3C], [0x22, 0x8A, 0x43]],
+        &[[0x33, 0x4B, 0x25], [0x41, 0x5E, 0x30]],
     );
     assert!(
         pitch > 580 * 900 / 4,
@@ -595,8 +595,8 @@ fn open_card() -> Vec<u8> {
 }
 
 /// The window's own behaviour, in a scratch kit: maximized at the start onto a pretend screen (WCCFPANEL_FS_RECT, off
-/// every monitor), F11 into borderless full screen on it and back, Esc out of it; during a card session the first close only warns and a second
-/// within 8 s closes; the server link (the panel's own test link to a port of the test's, WCCFPANEL_LINKTEST) written
+/// every monitor), F11 into borderless full screen on it and back, Esc out of it; during a card session the first close opens the dialog, a second is ignored and QUIT
+/// closes; the server link (the panel's own test link to a port of the test's, WCCFPANEL_LINKTEST) written
 /// UP to WCCF_LOGS\server_link.txt and, dropped after the player's close, ENDED - not LOST.
 #[test]
 fn window_close_and_server_link() {
@@ -633,7 +633,7 @@ fn window_close_and_server_link() {
         let (conn, _) = server.accept().unwrap();
         let started = std::time::Instant::now();
         while !fs::read_to_string(&panel_log)
-            .is_ok_and(|l| l.contains("close: closed again during the card session"))
+            .is_ok_and(|l| l.contains("close: quit chosen in the dialog"))
             && started.elapsed() < std::time::Duration::from_secs(60)
         {
             std::thread::sleep(std::time::Duration::from_millis(100));
@@ -647,6 +647,8 @@ fn window_close_and_server_link() {
         .env("WCCFPANEL_CONTROL_PORT", port.to_string())
         .env("WCCFPANEL_LINKTEST", format!("127.0.0.1:{port}"))
         .env("WCCFPANEL_DRYKEYS", "1")
+        // the dialog's QUIT is answered 2 s after it opened (nobody clicks in this test)
+        .env("WCCFPANEL_CLOSETEST", "quit")
         .env_remove("WCCF_KIT_LANG")
         .args([
             "../programs/forza_panel.dll",
@@ -675,8 +677,9 @@ fn window_close_and_server_link() {
     for line in [
         "maximized: client now ",
         "fullscreen: client now 1700x1000",
-        "close: a card session is open - warned, not closed",
-        "close: closed again during the card session - the game ends",
+        "close: a card session is open - dialog opened, not closed",
+        "close: the dialog is open - ignored",
+        "close: quit chosen in the dialog - the game ends",
     ] {
         assert!(log.contains(line), "the panel's log has no '{line}'");
     }

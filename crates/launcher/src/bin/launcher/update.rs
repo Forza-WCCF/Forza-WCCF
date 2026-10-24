@@ -20,7 +20,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::text::{t, tf};
-use crate::{log, say};
+use crate::{log, plain_error, say};
 
 /// Launchers of earlier kits that this one replaced: removed unless the kit lists them.  SETUP.exe went into the
 /// one window in 2026-10-10; that window was PLAY.exe until it became Launcher.exe.
@@ -118,6 +118,12 @@ fn verify(file: &Path, expected: &str) -> Result<(), String> {
     }
 }
 
+/// The release to announce: the first listed that is not a test build and is newer than `installed`.
+pub fn newest<'a>(list: &'a [Release], installed: &str) -> Option<&'a Release> {
+    list.iter()
+        .find(|r| !r.test && launcher::release::is_newer(&r.tag, installed))
+}
+
 pub fn fetch(edition: &str) -> Result<Vec<Release>, String> {
     if no_target() {
         return Ok(Vec::new());
@@ -173,7 +179,12 @@ pub fn apply(kit: &Kit, r: &Release) -> Result<(), String> {
         .args(["--url", &r.zip_url])
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| tf("launcher.msg_download_failed", &[("error", &e.to_string())]))?;
+        .map_err(|e| {
+            tf(
+                "launcher.msg_download_failed",
+                &[("error", &plain_error(&e.to_string()))],
+            )
+        })?;
     while child.try_wait().map_err(|e| e.to_string())?.is_none() {
         let got = fs::metadata(&zip).map_or(0, |m| m.len());
         let mb = |b: u64| b as f64 / 1_048_576.0;
@@ -190,10 +201,8 @@ pub fn apply(kit: &Kit, r: &Release) -> Result<(), String> {
     }
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
     if !out.status.success() {
-        return Err(tf(
-            "launcher.msg_download_failed",
-            &[("error", String::from_utf8_lossy(&out.stderr).trim())],
-        ));
+        let why = plain_error(String::from_utf8_lossy(&out.stderr).trim());
+        return Err(tf("launcher.msg_download_failed", &[("error", &why)]));
     }
 
     if let Err(e) = verify(&zip, &expected) {
@@ -210,12 +219,13 @@ pub fn apply(kit: &Kit, r: &Release) -> Result<(), String> {
         .arg("-C")
         .arg(&unzipped)
         .output()
-        .map_err(|e| tf("launcher.msg_unzip_failed", &[("error", &e.to_string())]))?;
+        .map_err(|e| {
+            log(&format!("  tar: {e}"));
+            t("launcher.msg_unzip_failed")
+        })?;
     if !out.status.success() {
-        return Err(tf(
-            "launcher.msg_unzip_failed",
-            &[("error", String::from_utf8_lossy(&out.stderr).trim())],
-        ));
+        log(&format!("  tar: {}", String::from_utf8_lossy(&out.stderr).trim()));
+        return Err(t("launcher.msg_unzip_failed"));
     }
     // the ZIP holds one folder (Forza-WCCF-2010-11\, or WCCF-2010-11-kit\ in older releases): whichever holds Launcher.exe
     let top = fs::read_dir(&unzipped)
@@ -407,6 +417,20 @@ mod tests {
         assert!(verify(&file, abc).is_ok());
         assert!(verify(&file, &"0".repeat(64)).is_err());
         fs::remove_file(&file).unwrap();
+    }
+
+    #[test]
+    fn newest_is_the_first_newer_release_not_a_test_build() {
+        let list = releases(LIST, "2017-18").unwrap(); // v0.5.0, v0.4.0-rc.1, v0.3.0
+        assert_eq!(newest(&list, "kit-0.3.0").map(|r| r.tag.as_str()), Some("v0.5.0"));
+        assert!(newest(&list, "kit-0.5.0").is_none()); // up to date: no notice
+        assert!(newest(&list[1..], "kit-0.3.0").is_none()); // only a test build is newer
+        assert!(newest(&[], "kit-0.3.0").is_none());
+    }
+
+    #[test]
+    fn no_checksum_anywhere_is_none() {
+        assert_eq!(expected_hash(None, None), None); // apply() refuses: unverified
     }
 
     #[test]

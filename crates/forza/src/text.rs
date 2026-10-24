@@ -5,7 +5,8 @@
 //!
 //! 2010-11 (Rev D): `string_list.bin/.hf`, `player_data.bin` (short and card names), `cpu_team/cpu_N.dat`, and text
 //! inside `client_Release.exe` (projector and seat 1's copy) and `control_Release.exe`. 2017-18 (2.00.00):
-//! `string_list.bin/.hf` and the clients' `StringListTableRecord.bin`, `player_data.bin`, `cpu_team/cpu_N.dat`.
+//! `string_list.bin/.hf` and the clients' `StringListTableRecord.bin`, `player_data.bin`, `cpu_team/cpu_N.dat` and
+//! `guest_team/cpu_N.dat`. Team names: `cpu_names.tsv`, its `italiano` column in front of the English.
 //!
 //! The manifest (`<backup>/manifest.json`, `{rel: {original, english}}`, indent 1) and `language.txt` are the files
 //! the Python scripts write and read, so a game switched by one can be switched back by the other. The pictures with
@@ -223,8 +224,8 @@ pub struct Ctx {
     game: PathBuf,
     backup: PathBuf,
     sheets: PathBuf,
-    /// cpu_names.tsv: (file, original sha, english)
-    cpu: Vec<(String, String, String)>,
+    /// cpu_names.tsv: (file under the game folder, original sha, english, italiano or "")
+    cpu: Vec<(String, String, String, String)>,
 }
 
 type Row = HashMap<String, String>;
@@ -296,9 +297,10 @@ impl Ctx {
             .iter()
             .map(|r| {
                 (
-                    cell(r, "file").into(),
+                    team_file(cell(r, "file")),
                     cell(r, "original_sha256").into(),
                     cell(r, "english").into(),
+                    cell(r, "italiano").into(),
                 )
             })
             .collect();
@@ -363,11 +365,27 @@ impl Ctx {
         if let Some((_, h)) = self.spec.originals.iter().find(|(r, _)| *r == rel) {
             return Some((*h).into());
         }
-        let f = rel.strip_prefix(TEAMS)?.strip_prefix('/')?;
         self.cpu
             .iter()
-            .find(|(n, ..)| n == f)
-            .map(|(_, h, _)| h.clone())
+            .find(|(n, ..)| n == rel)
+            .map(|(_, h, ..)| h.clone())
+    }
+}
+
+/// A team name the CPU team file's name field takes: printable ASCII, no printf `%`, room for the end byte.
+fn team_name_fits(n: &str) -> bool {
+    !n.is_empty()
+        && n.len() < NAME_END - NAME_AT
+        && !n.contains('%')
+        && n.chars().all(|c| (' '..'\u{7f}').contains(&c))
+}
+
+/// cpu_names.tsv's file: `cpu_N.dat` in `prog_data/cpu_team`, or `../<folder>/cpu_N.dat` beside it (2017-18
+/// `guest_team`).
+fn team_file(f: &str) -> String {
+    match f.strip_prefix("../") {
+        Some(rest) => format!("prog_data/{rest}"),
+        None => format!("{TEAMS}/{f}"),
     }
 }
 
@@ -615,7 +633,8 @@ type Choices = BTreeMap<String, Vec<(String, &'static str)>>;
 impl Ctx {
     /// Each Japanese line's choices, best first. 2010-11: one English line per key (the kit's, else the original's
     /// second column, else the original European English), Italian in front of it. 2017-18: the kit's Italian, the
-    /// kit's English, then the original's as the next choices.
+    /// original's Italian column of the place names (`MAKE_city`, `MAKE_area`), the kit's English, then the
+    /// original's as the next choices.
     fn choices(&self, body: &[u8], keys: &Keys, lang: Lang) -> R<Choices> {
         let mut ch = Choices::new();
         let mut kit = HashSet::new();
@@ -667,6 +686,23 @@ impl Ctx {
         if e1718 {
             if lang == Lang::It {
                 italian(&mut ch, "screen_text.tsv", "kit Italian")?;
+                // the original's own Italian column for the place names (Barcellona, Monaco di Baviera), before the
+                // English; the kit's Italian stays first
+                for (k, (_, nums)) in &sorted_keys {
+                    let s3 = nums.get(2).map_or(&[][..], |&n| at(body, n));
+                    if ["MAKE_city", "MAKE_area"].iter().any(|f| k.starts_with(f))
+                        && !s3.is_empty()
+                        && !has_high(s3)
+                        && has_high(at(body, nums[0]))
+                    {
+                        let e = ch.entry((*k).clone()).or_default();
+                        let i = usize::from(e.first().is_some_and(|c| c.1 == "kit Italian"));
+                        e.insert(
+                            i,
+                            (String::from_utf8_lossy(s3).into_owned(), "original Italian"),
+                        );
+                    }
+                }
             }
             from_original(&mut ch);
         } else {
@@ -1098,7 +1134,7 @@ fn utf16(f: &[u8]) -> String {
 }
 
 impl Ctx {
-    fn build_names(&self) -> R<Built> {
+    fn build_names(&self, lang: Lang) -> R<Built> {
         let s = &self.spec;
         let mut pd = self.original_file(PLAYERS)?;
         if Some(sha(&pd)) != self.original_hash(PLAYERS) || pd.len() % s.rec != 0 {
@@ -1145,22 +1181,24 @@ impl Ctx {
         let n_players = pd.len() / s.rec;
         let mut files = vec![(PLAYERS.to_string(), pd)];
         let mut skipped = vec![];
-        for (file, h, en) in &self.cpu {
-            let rel = format!("{TEAMS}/{file}");
-            let mut d = self.original_file(&rel)?;
+        for (rel, h, en, it) in &self.cpu {
+            let file = rel.rsplit('/').next().unwrap_or(rel);
+            let en = if lang == Lang::It && !it.is_empty() {
+                it
+            } else {
+                en
+            };
+            let mut d = self.original_file(rel)?;
             if sha(&d) != *h {
-                skipped.push(file.clone());
+                skipped.push(file.to_string());
                 continue;
             }
-            if en.chars().count() > NAME_END - NAME_AT - 1
-                || en.contains('%')
-                || !en.chars().all(|c| (' '..'\u{7f}').contains(&c))
-            {
+            if !team_name_fits(en) {
                 return fail(format!("the team name for {file} does not fit"));
             }
             let n = put_field(&d[NAME_AT..NAME_END], en.as_bytes(), NAME_END - NAME_AT);
             d[NAME_AT..NAME_END].copy_from_slice(&n);
-            files.push((rel, d));
+            files.push((rel.clone(), d));
         }
         let mut note = format!("{n_players} players, {} CPU teams", files.len() - 1);
         if !skipped.is_empty() {
@@ -1277,7 +1315,7 @@ impl Ctx {
             notes.push(n);
         };
         add(self.build_strings(lang)?);
-        add(self.build_names()?);
+        add(self.build_names(lang)?);
         if self.ed == Edition::E1718 {
             add(self.build_titles(lang)?);
         }
@@ -1675,7 +1713,7 @@ mod tests {
         fs::create_dir_all(game.join("prog_data/cpu_team")).unwrap();
         fs::write(game.join(rel), &orig).unwrap();
         let mut c = Ctx::new_bare(Edition::E1718, &game, &backup);
-        c.cpu = vec![("cpu_1.dat".into(), sha(&orig), "x".into())];
+        c.cpu = vec![(rel.into(), sha(&orig), "x".into(), String::new())];
         c.sheets = t.path().join("kit");
         let sheet = c.sheets.join("italian/screen_text.tsv");
         fs::create_dir_all(sheet.parent().unwrap()).unwrap();
@@ -1731,7 +1769,12 @@ mod tests {
         )
         .unwrap();
         let mut c = Ctx::new_bare(Edition::E1718, &game, &t.path().join("backup"));
-        c.cpu = vec![("cpu_1.dat".into(), sha(b"the original"), "x".into())];
+        c.cpu = vec![(
+            "prog_data/cpu_team/cpu_1.dat".into(),
+            sha(b"the original"),
+            "x".into(),
+            String::new(),
+        )];
         assert!(
             c.turn_on(
                 &[("prog_data/cpu_team/cpu_1.dat".into(), vec![1])],
@@ -1908,6 +1951,30 @@ mod tests {
             (enc["CLM_X_0000"].as_slice(), misfit.len()),
             (&b"$c[FF6633FF]%d$c points"[..], 1)
         );
+    }
+
+    /// Every CPU and guest team file of the original game has its row, with an English and (if any) an Italian
+    /// name that fit; a new or emptied row fails here.
+    #[test]
+    fn every_team_has_english_and_italian_names() {
+        for (ed, dir, files) in [
+            (Edition::E1011, "2010-11", 252),
+            (Edition::E1718, "2017-18", 599 + 11),
+        ] {
+            let sheets = manifest_dir().join("../../editions").join(dir);
+            let c = Ctx::new(ed, Path::new("g"), Path::new("b"), &sheets).unwrap();
+            let mut seen = HashSet::new();
+            for (rel, h, en, it) in &c.cpu {
+                assert!(seen.insert(rel), "{dir} {rel}: twice");
+                assert_eq!(h.len(), 64, "{dir} {rel}: no original hash");
+                assert!(team_name_fits(en), "{dir} {rel}: English {en:?}");
+                assert!(
+                    it.is_empty() || team_name_fits(it),
+                    "{dir} {rel}: Italian {it:?}"
+                );
+            }
+            assert_eq!(seen.len(), files, "{dir}: one row per team file");
+        }
     }
 
     #[test]

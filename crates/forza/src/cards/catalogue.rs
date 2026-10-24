@@ -10,7 +10,9 @@
 //! VA 0x015B5B48), the club and nationality names in the exe (VA 0x0154C428) and `prog_data/player_data/VerName.txt`
 //! (edition labels); its rows run newest season first.
 
-use super::codes::{CLUB, CLUBS_1718, EDITION, NATIONALITY, NATIONS_1718, name_for};
+use super::codes::{
+    CLUB, CLUBS_1718, EDITION, NAME_TABLES_1718, NATIONALITY, NATIONS_1718, name_for,
+};
 use super::pictures::lzw;
 use crate::Edition;
 use image::{
@@ -543,7 +545,6 @@ const REC_1718: usize = 0x620;
 const RECORDS_1718: usize = 8434;
 const CARD_TABLE_VA_1718: u32 = 0x015B_5B48;
 const CARD_TABLE_N_1718: usize = 0x2CC1;
-const NAMES_VA_1718: u32 = 0x0154_C428;
 /// VerName.txt line 13 (0-based): "not players" (referees, coaches, GUESTPLAY stand-ins, the navigator).
 const PLACEHOLDER_EDITION: u8 = 13;
 /// The publisher's own joke cards: 3509's picture is a hand-scrawled "dummy", 9951 a staff Maradona parody.
@@ -785,7 +786,7 @@ struct Card1718 {
 /// The 286 Japanese club (0-189) and nationality (0-95) names the exe points to.
 fn exe_names(d: &[u8]) -> io::Result<Vec<String>> {
     let n = CLUBS_1718.len() + NATIONS_1718.len();
-    let off = va_to_offset(d, NAMES_VA_1718)?;
+    let off = va_to_offset(d, NAME_TABLES_1718[0])?;
     if d.len() < off + 4 * n {
         return Err(bad("name table runs past the file"));
     }
@@ -1008,11 +1009,11 @@ fn build_rows_1718(files: &GameFiles, checks: &mut Checks) -> io::Result<Built> 
         let club = CLUBS_1718
             .get(usize::from(f.club_id))
             .copied()
-            .unwrap_or(("", ""));
+            .unwrap_or(("", "", ""));
         let nat = NATIONS_1718
             .get(usize::from(f.nat))
             .copied()
-            .unwrap_or(("", ""));
+            .unwrap_or(("", "", ""));
         let (club_name, nat_name) = if placeholder {
             ("", "")
         } else {

@@ -8,6 +8,8 @@ use crate::card::Session;
 
 /// debug::run's line when it ends a game because its window was closed.
 pub const WINDOW_CLOSED: &str = "its window was closed";
+/// debug::run's line when a game's main process ends by itself with exit code 0 (no window closing, no crash).
+pub const CLEAN_EXIT: &str = "process exited, exit code 0x00000000";
 /// debug::run's words at a crash.
 pub const CRASH_SIGNS: [&str; 2] = ["SECOND-chance / FATAL", "STOP: invalid parameter"];
 
@@ -181,6 +183,12 @@ pub fn parse(words: &[String]) -> Words {
     }
 }
 
+/// A restart.request from the panel's crash screen (its line `force=crashed`): the control is gone, so the match and
+/// the card session are lost already and the card rule must not keep the dead game running.
+pub fn restart_forced(request: &str) -> bool {
+    request.lines().any(|l| l.trim() == "force=crashed")
+}
+
 /// The card rule (play.py's stop_guard): while seat 1 runs, nothing that would end it goes on while the club card is in
 /// the reader or a card session is open - unless forced.  The refusal's words, or None to go on.
 pub fn card_rule(seat_up: bool, force: bool, card_in: Option<bool>, session: Session) -> Option<String> {
@@ -216,6 +224,31 @@ pub fn after_end(gone: &[&str], others_alive: bool, read: impl Fn(&str) -> Strin
     Some(gone)
 }
 
+/// What the run says when `gone` (logs of windows that ended by themselves, from [`after_end`]) did not stop it: a
+/// program that quit with exit code 0 ended, only the others crashed.
+pub fn went_by_itself(gone: &[String], read: impl Fn(&str) -> String) -> String {
+    let (ended, crashed): (Vec<&str>, Vec<&str>) = gone
+        .iter()
+        .map(String::as_str)
+        .partition(|log| read(log).contains(CLEAN_EXIT));
+    let list = |logs: &[&str]| logs.join(", ");
+    match (ended.is_empty(), crashed.is_empty()) {
+        (false, true) => format!(
+            "A game window ended (see data\\logs\\{}). The rest keeps running.",
+            list(&ended)
+        ),
+        (false, false) => format!(
+            "A game window ended (see data\\logs\\{}) and one crashed (see data\\logs\\{}). The rest keeps running.",
+            list(&ended),
+            list(&crashed)
+        ),
+        _ => format!(
+            "A game window crashed (see data\\logs\\{}). The rest keeps running.",
+            list(&crashed)
+        ),
+    }
+}
+
 /// Whether another game window counts as left for [`after_end`]. At home (one PC, one seat) a seat that went by itself
 /// leaves only the projector, which nobody plays: that stops too. A projector crash still lets the seat play on, and in
 /// a shop the projector stays for the other PCs' seats.
@@ -229,7 +262,10 @@ pub fn windows_left(others_alive: bool, home: bool, seat_gone: bool) -> bool {
 pub fn went_wrong(launcher_logs: &[&str], read: impl Fn(&str) -> String) -> Vec<String> {
     let mut why: Vec<String> = launcher_logs
         .iter()
-        .filter(|n| !read(n).contains(WINDOW_CLOSED))
+        .filter(|n| {
+            let log = read(n);
+            !log.contains(WINDOW_CLOSED) && !log.contains(CLEAN_EXIT)
+        })
         .map(|n| format!("{n}: the game window went by itself, not closed"))
         .collect();
     let mut logs: Vec<&str> = launcher_logs.iter().copied().chain(["run_server.txt"]).collect();
@@ -568,6 +604,18 @@ mod tests {
         );
     }
 
+    #[test]
+    fn exit_code_0_is_an_end_not_a_crash() {
+        let proj = "run_projector.txt";
+        let clean = "  t+ 9.0s process exited, exit code 0x00000000\n";
+        let bad = "  t+ 9.0s process exited, exit code 0xC0000005\n";
+        let gone = [proj.to_owned()];
+        assert!(went_by_itself(&gone, logs(&[(proj, clean)])).starts_with("A game window ended"));
+        assert!(went_by_itself(&gone, logs(&[(proj, bad)])).starts_with("A game window crashed"));
+        assert!(went_wrong(&[proj], logs(&[(proj, clean)])).is_empty());
+        assert!(!went_wrong(&[proj], logs(&[(proj, bad)])).is_empty());
+    }
+
     /// test_ended.py: the automatic report's reasons
     #[test]
     fn what_went_wrong() {
@@ -608,6 +656,10 @@ mod tests {
             dbg.contains(WINDOW_CLOSED),
             "debug::run no longer prints {WINDOW_CLOSED:?}"
         );
+        assert!(
+            dbg.contains("process exited, {how}") && dbg.contains("exit code 0x{:08X}"),
+            "debug::run no longer prints {CLEAN_EXIT:?}"
+        );
         for s in CRASH_SIGNS {
             assert!(dbg.contains(s), "debug::run no longer prints {s:?}");
         }
@@ -644,6 +696,15 @@ mod tests {
         assert!(seat_refusal(&e(Fault::Taken, "TAKEN 2"), Some(2), "20.0.0.1").starts_with("seat 2 is taken"));
         assert_eq!(e(Fault::NoBroker, "refused").no_desk_seat(None), Some((1, true)));
         assert_eq!(e(Fault::Full, "").no_desk_seat(None), None);
+    }
+
+    #[test]
+    fn only_the_crash_screen_forces_a_restart() {
+        assert!(restart_forced(
+            "RESTART NOW - asked by the CRASH panel in seat 1 (pid 7)\nforce=crashed\n"
+        ));
+        assert!(!restart_forced("RESTART NOW - asked by the panel in seat 1 (pid 7)\n"));
+        assert!(!restart_forced("force=crashedx"));
     }
 
     #[test]

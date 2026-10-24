@@ -63,6 +63,7 @@ launcher.msg_browse_title: {en: "Pick the game folder", it: "Scegli la cartella 
 launcher.msg_undo_confirm: {en: "Undo the setup?", it: "Annullare la configurazione?", ja: "設定を元に戻しますか？"}
 launcher.msg_no_folder: {en: "Pick the game folder first.", it: "Scegli prima la cartella del gioco.", ja: "先にゲームフォルダーを選択。"}
 launcher.msg_not_known: {en: "not known", it: "sconosciuta", ja: "不明"}
+launcher.update_available: {en: "%{tag} available", it: "%{tag} disponibile", ja: "%{tag} を入手できます"}
 launcher.msg_available: {en: "Version %{tag} is available. See UPDATE.", it: "È disponibile la versione %{tag}. Vedi AGGIORNAMENTO.", ja: "バージョン %{tag} を入手できます。「アップデート」を開いてください。"}
 launcher.msg_asking: {en: "Looking for updates ...", it: "Ricerca degli aggiornamenti ...", ja: "更新を確認しています..."}
 launcher.msg_pick: {en: "Pick a version, then UPDATE.", it: "Scegli una versione, poi AGGIORNA.", ja: "バージョンを選んで「アップデート」を押してください。"}
@@ -79,15 +80,31 @@ launcher.msg_after_update_english: {en: "Updated. Set up and reapply English?", 
 launcher.msg_after_update_italian: {en: "Updated. Set up and reapply Italian?", it: "Aggiornato. Configurare e riapplicare l'italiano?", ja: "更新しました。設定してイタリア語化をやり直しますか？"}
 launcher.msg_close_game: {en: "Close the game first: %{name} is running.", it: "Chiudi prima il gioco: %{name} è in esecuzione.", ja: "先にゲームを閉じてください：%{name} が実行中です。"}
 launcher.msg_download_failed: {en: "The download failed: %{error}", it: "Download non riuscito: %{error}", ja: "ダウンロードに失敗しました: %{error}"}
-launcher.msg_unzip_failed: {en: "The ZIP did not unzip: %{error}", it: "Impossibile estrarre lo ZIP: %{error}", ja: "ZIP を展開できませんでした: %{error}"}
+launcher.msg_unzip_failed: {en: "The ZIP did not unzip.", it: "Impossibile estrarre lo ZIP.", ja: "ZIP を展開できませんでした。"}
 launcher.msg_unverified: {en: "The download could not be verified. Nothing was changed.", it: "Impossibile verificare il download. Non è stato modificato nulla.", ja: "ダウンロードを検証できませんでした。何も変更されていません。"}
+launcher.msg_launcher_differs: {en: "Launcher.exe is version %{own}, the other files %{files}. Install %{files} again with UPDATE.", it: "Launcher.exe è la versione %{own}, gli altri file la %{files}. Installa di nuovo la %{files} con AGGIORNA.", ja: "Launcher.exe はバージョン %{own}、ほかのファイルは %{files} です。「アップデート」で %{files} をもう一度インストールしてください。"}
 launcher.msg_needs_installer: {en: "%{tag} needs the installer. Download it from the release page.", it: "%{tag} richiede l'installer. Scaricalo dalla pagina della versione.", ja: "%{tag} にはインストーラーが必要です。リリースページからダウンロードしてください。"}
 launcher.msg_not_a_kit: {en: "This ZIP is not a Forza-WCCF release.", it: "Questo ZIP non è una versione di Forza-WCCF.", ja: "この ZIP は Forza-WCCF のリリースではありません。"}
 launcher.msg_write_failed: {en: "%{path}: could not write it (%{error}) - close the game and try again.", it: "%{path}: scrittura non riuscita (%{error}) - chiudi il gioco e riprova.", ja: "%{path} に書き込めませんでした（%{error}）。ゲームを閉じて、もう一度お試しください。"}
 launcher.msg_done: {en: "Done.", it: "Fatto.", ja: "完了しました。"}
 launcher.msg_failed: {en: "Failed. See OUTPUT.", it: "Non riuscito. Vedi OUTPUT.", ja: "失敗しました。「出力」を確認してください。"}
-launcher.msg_went_wrong: {en: "The game crashed or closed by itself. Send the logs to the developers: SAVE LOGS.", it: "Il gioco si è chiuso da solo o è andato in crash. Invia i log agli sviluppatori: SALVA LOG.", ja: "ゲームがクラッシュしたか、勝手に終了しました。「ログを保存」でログを開発者に送ってください。"}
-launcher.ask_save_logs: {en: "The game crashed or closed by itself.\n\nSave the logs now? Then attach the ZIP to a new issue at github.com/Forza-WCCF/Forza-WCCF/issues so the developers can fix it.", it: "Il gioco si è chiuso da solo o è andato in crash.\n\nSalvare ora i log? Poi allega lo ZIP a una nuova segnalazione su github.com/Forza-WCCF/Forza-WCCF/issues, così gli sviluppatori possono correggerlo.", ja: "ゲームがクラッシュしたか、勝手に終了しました。\n\n今すぐログを保存しますか？保存した ZIP を github.com/Forza-WCCF/Forza-WCCF/issues の新しい issue に添付してください。開発者が修正に使います。"}
+launcher.msg_went_wrong: {en: "The game crashed or closed by itself.", it: "Il gioco si è chiuso da solo o è andato in crash.", ja: "ゲームがクラッシュしたか、勝手に終了しました。"}
+launcher.report_problem: {en: "Report a problem", it: "Segnala un problema", ja: "問題を報告"}
+report.title_crashed: {en: "The game crashed or closed by itself", it: "Il gioco si è chiuso da solo o è andato in crash", ja: "ゲームがクラッシュしたか、勝手に終了しました"}
+report.what_happened: {en: "What happened?", it: "Cosa è successo?", ja: "何が起きましたか？"}
+report.what_is_sent: {en: "Sent with it", it: "Inviati insieme", ja: "一緒に送信"}
+report.scrubbed: {en: "User and PC names are removed.", it: "I nomi dell'utente e del PC vengono rimossi.", ja: "ユーザー名と PC 名は削除されます。"}
+report.send: {en: "SEND", it: "INVIA", ja: "送信"}
+report.sending: {en: "Sending…", it: "Invio in corso…", ja: "送信中…"}
+report.sent: {en: "Sent. Report number: %{id}", it: "Inviata. Numero della segnalazione: %{id}", ja: "送信しました。報告番号：%{id}"}
+report.kept: {en: "%{why} The report is kept and goes with the next one.", it: "%{why} La segnalazione è salvata e partirà con la prossima.", ja: "%{why} 報告は保存され、次の報告と一緒に送信されます。"}
+report.busy: {en: "The server is busy. Try again in a minute.", it: "Il server è occupato. Riprova tra un minuto.", ja: "サーバーが混み合っています。1 分後にもう一度お試しください。"}
+report.too_many: {en: "Too many reports from this connection. Try again in an hour.", it: "Troppe segnalazioni da questa connessione. Riprova tra un'ora.", ja: "この接続からの報告が多すぎます。1 時間後にもう一度お試しください。"}
+report.refused: {en: "The server did not take the report.", it: "Il server non ha accettato la segnalazione.", ja: "サーバーが報告を受け付けませんでした。"}
+report.pack_failed: {en: "The logs could not be packed.", it: "Impossibile preparare i log.", ja: "ログをまとめられませんでした。"}
+net.offline: {en: "No internet connection.", it: "Nessuna connessione a Internet.", ja: "インターネットに接続されていません。"}
+net.no_answer: {en: "The server did not answer.", it: "Il server non ha risposto.", ja: "サーバーが応答しませんでした。"}
+net.failed: {en: "The connection failed.", it: "Connessione non riuscita.", ja: "接続に失敗しました。"}
 launcher.msg_setting_up: {en: "Setting up the game folder ...", it: "Configuro la cartella del gioco ...", ja: "ゲームフォルダーを設定中..."}
 launcher.msg_undoing: {en: "Undoing setup ...", it: "Annullo la configurazione ...", ja: "設定を元に戻しています..."}
 launcher.msg_switching_text: {en: "Switching the game's text ...", it: "Cambio la lingua dei testi del gioco ...", ja: "ゲームのテキストを切り替えています..."}
@@ -245,9 +262,6 @@ panel.msg_session_open: {en: "Match in progress.", it: "Partita in corso.", ja: 
 board.flip: {en: "Click: card back.", it: "Clic: retro.", ja: "クリックで裏面。"}
 board.flip_back: {en: "Click: card face.", it: "Clic: fronte.", ja: "クリックで表面。"}
 board.bench: {en: "BENCH", it: "PANCHINA", ja: "ベンチ"}
-board.zone_attack: {en: "ATTACK", it: "ATTACCO", ja: "攻撃"}
-board.zone_centre: {en: "CENTRE", it: "CENTROCAMPO", ja: "中盤"}
-board.zone_defence: {en: "DEFENCE", it: "DIFESA", ja: "守備"}
 board.hint: {en: "Drag cards to the pitch. Drop on a card to swap. Right-click: remove.", it: "Trascina sul campo. Su una carta: scambia. Clic destro: rimuovi.", ja: "ピッチへドラッグ。カードに重ねて入れ替え。右クリックで外す。"}
 board.fit_best: {en: "BEST POSITION", it: "POSIZIONE IDEALE", ja: "ベストポジション"}
 board.fit_ok: {en: "FITS", it: "ADATTO", ja: "適性あり"}
@@ -448,7 +462,6 @@ deal.foot: {en: "Click to flip. Click elsewhere to close.", it: "Clicca per gira
 # ---- closing the window during a card session ----
 close.title: {en: "MATCH IN PROGRESS", it: "PARTITA IN CORSO", ja: "試合中"}
 close.body: {en: "Closing now damages your card.", it: "Chiudere ora danneggia la carta.", ja: "今閉じるとカードが傷つきます。"}
-close.again: {en: "Close again within 8 s to quit.", it: "Chiudi di nuovo entro 8 s per uscire.", ja: "8 秒以内にもう一度閉じると終了します。"}
 
 # ---- online lobby ----
 lobby.title: {en: "LOBBY", it: "LOBBY", ja: "ロビー"}
@@ -521,3 +534,13 @@ settings.save_logs: {en: "SAVE LOGS", it: "SALVA LOG", ja: "ログを保存"}
 logs.saved: {en: "Saved: %{path}", it: "Salvato: %{path}", ja: "保存しました：%{path}"}
 logs.save_failed: {en: "Could not save: %{why}", it: "Salvataggio non riuscito: %{why}", ja: "保存できません：%{why}"}
 logs.save_title: {en: "Save logs", it: "Salva log", ja: "ログを保存"}
+close.keep: {en: "KEEP PLAYING", it: "CONTINUA A GIOCARE", ja: "プレイを続ける"}
+close.quit: {en: "QUIT NOW", it: "ESCI ORA", ja: "今すぐ終了"}
+panel.lamp_in_use: {en: "IN USE", it: "IN USO", ja: "使用中"}
+panel.lamp_safe: {en: "SAFE TO CLOSE", it: "PUOI CHIUDERE", ja: "閉じてOK"}
+panel.lamp_none: {en: "NO CARD", it: "NESSUNA CARTA", ja: "カードなし"}
+panel.crash_title: {en: "THE GAME STOPPED", it: "IL GIOCO SI È FERMATO", ja: "ゲームが停止しました"}
+panel.crash_lost: {en: "The game lost its control program.", it: "Il gioco ha perso il programma di controllo.", ja: "ゲームがコントロールプログラムを失いました。"}
+panel.crash_1718: {en: "Your club is kept on the server.", it: "Il tuo club è salvato sul server.", ja: "クラブはサーバーに保存されています。"}
+panel.crash_restart: {en: "RESTART THE GAME", it: "RIAVVIA IL GIOCO", ja: "ゲームを再起動"}
+panel.crash_report_asked: {en: "Report asked. See the Launcher.", it: "Segnalazione richiesta. Vedi il Launcher.", ja: "報告を要求しました。ランチャーをご覧ください。"}

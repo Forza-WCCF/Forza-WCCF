@@ -12,7 +12,7 @@
 use clap::Args;
 use clap::{Parser, Subcommand, ValueEnum};
 use forza::online::{gamesvr, vs};
-use forza_server::{Edition, Handle, Log, desk, file_log, inbox, init_clock, relay};
+use forza_server::{Edition, Handle, Log, desk, file_log, inbox, init_clock, relay, reports};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -46,6 +46,9 @@ enum Service {
         /// TCP port (else `WCCF_BROKER_PORT`, else 20030)
         #[arg(long)]
         port: Option<u16>,
+        /// Where players' problem reports (`REPORT`) are kept; default `reports` beside the log file's folder
+        #[arg(long)]
+        reports: Option<PathBuf>,
         life: Option<f64>,
         log_file: Option<PathBuf>,
     },
@@ -89,6 +92,10 @@ enum Service {
     All {
         #[arg(long)]
         desk_port: Option<u16>,
+        /// Where players' problem reports (`REPORT`) are kept; default `<store>/reports` (2017-18), else `reports`
+        /// beside LOGS_DIR
+        #[arg(long)]
+        reports: Option<PathBuf>,
         #[arg(long)]
         relay_port: Option<u16>,
         /// 2010-11 only
@@ -186,10 +193,15 @@ fn start_desk(
     port: Option<u16>,
     log_file: Option<&Path>,
     vs: Option<Arc<vs::Matcher>>,
+    report_dir: PathBuf,
     log: Log,
 ) -> std::io::Result<Handle> {
     let mut c = desk::DeskConfig::new(ed);
     c.bind = bind();
+    log(&format!("problem reports kept in {}", report_dir.display()));
+    c.reports = Some(Arc::new(reports::Reports::new(reports::ReportConfig::new(
+        report_dir,
+    ))));
     c.port = port.unwrap_or_else(|| env("WCCF_BROKER_PORT", c.port));
     c.vs = vs;
     c.silent = Duration::from_secs_f64(env("WCCF_BROKER_SILENT", 75.0));
@@ -359,6 +371,7 @@ fn main() {
     let (life, services): (f64, Vec<std::io::Result<Handle>>) = match &cli.service {
         Service::Desk {
             port,
+            reports,
             life,
             log_file,
         } => (
@@ -368,6 +381,9 @@ fn main() {
                 *port,
                 log_file.as_deref(),
                 None,
+                reports
+                    .clone()
+                    .unwrap_or_else(|| data_dir(log_file.as_deref()).join("reports")),
                 file_log(log_file.clone()),
             )],
         ),
@@ -412,6 +428,7 @@ fn main() {
         }
         Service::All {
             desk_port,
+            reports,
             relay_port,
             inbox_port,
             gmsvr_port,
@@ -429,12 +446,20 @@ fn main() {
             let gmsvr = ed == Edition::E1718 && !no_gmsvr;
             // one matcher: the game server pairs the 243 entries, the desk's LOBBY lists them as VS rooms
             let matcher = (gmsvr && g.vs().is_some()).then(Arc::<vs::Matcher>::default);
+            let reports = reports.clone().unwrap_or_else(|| {
+                if ed == Edition::E1718 {
+                    g.store.join("reports")
+                } else {
+                    data_dir(desk_log.as_deref()).join("reports")
+                }
+            });
             let mut services = vec![
                 start_desk(
                     ed,
                     *desk_port,
                     desk_log.as_deref(),
                     matcher.clone(),
+                    reports,
                     file_log(desk_log.clone()),
                 ),
                 start_relay(ed, *relay_port, file_log(relay_log)),

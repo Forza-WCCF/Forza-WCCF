@@ -6,6 +6,7 @@
 pub mod desk;
 pub mod inbox;
 pub mod relay;
+pub mod reports;
 
 pub use forza::service::Log;
 use std::io::{self, Read, Write};

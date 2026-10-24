@@ -37,3 +37,6 @@ The Launcher's UPDATE (both editions) reads this repository's releases from the 
 - A release whose game files need the installer again: put `<!-- needs-installer -->` in the release notes. UPDATE then
   copies nothing and opens the release page.
 - The Launcher checks at most once a day at start (`data\update-check.txt`) and every time the UPDATE page opens.
+- A newer release that is not a test build shows a notice: a line at the top of the main page and the tag on the UPDATE
+  entry. It stays (`data\update-available.txt`, kept across restarts while the release is still newer) until the
+  player opens UPDATE or updates. Nothing installs by itself.

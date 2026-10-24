@@ -68,6 +68,17 @@ fn default_server(env: Option<String>, default: &str) -> String {
         .map_or_else(|| default.to_owned(), |(h, p)| format!("{h}:{p}"))
 }
 
+/// The project's server for `edition`, or `WCCF_LOBBY`'s.
+pub fn project_server(edition: Edition) -> String {
+    default_server(
+        std::env::var("WCCF_LOBBY").ok(),
+        match edition {
+            Edition::E1011 => PROJECT_SERVER_1011,
+            Edition::E1718 => PROJECT_SERVER_1718,
+        },
+    )
+}
+
 /// The `servers` setting the lobby asks; none saved yet: the address the player had before (if any), then the
 /// project's server for `edition`.
 pub fn servers(settings: &Path, address: &str, edition: Edition) -> Vec<String> {
@@ -81,13 +92,7 @@ pub fn servers(settings: &Path, address: &str, edition: Edition) -> Vec<String> 
     if let Some(s) = saved.filter(|s| !s.is_empty()) {
         return s;
     }
-    let project = default_server(
-        std::env::var("WCCF_LOBBY").ok(),
-        match edition {
-            Edition::E1011 => PROJECT_SERVER_1011,
-            Edition::E1718 => PROJECT_SERVER_1718,
-        },
-    );
+    let project = project_server(edition);
     let mut list: Vec<String> = Some(address.trim())
         .filter(|a| valid_server(a))
         .map(str::to_owned)

@@ -120,8 +120,14 @@ static PROJ_FS: fullscreen::Slot = Mutex::new(None);
 static SHOWN: AtomicBool = AtomicBool::new(false);
 /// The player closed the window: the server link's drop that follows is the end (ENDED), not a loss.
 static CLOSING: AtomicBool = AtomicBool::new(false);
-/// A close refused during a card session, until this time (ms since START): a second close then quits.
-static CLOSE_UNTIL: AtomicU32 = AtomicU32::new(0);
+/// A close refused during a card session: the close dialog is open. Close requests are ignored while it is.
+static CLOSE_ASK: AtomicBool = AtomicBool::new(false);
+/// QUIT was clicked in the dialog: the next close request (the panel's own, posted) goes through.
+static CLOSE_OK: AtomicBool = AtomicBool::new(false);
+/// When the dialog opened (ms since START), for the tests' automatic answer.
+static CLOSE_SINCE: AtomicU32 = AtomicU32::new(0);
+/// The control link dropped without the player closing the window (link_watch's LOST): the crash screen shows.
+static LINK_LOST: AtomicBool = AtomicBool::new(false);
 static START: OnceLock<Instant> = OnceLock::new();
 /// The window's maximized state for WCCFPANEL_FS_RECT (tests: a pretend screen), and the size it had before.
 static TEST_MAX: Mutex<Option<RECT>> = Mutex::new(None);
@@ -406,6 +412,7 @@ fn link_watch() {
                 "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
                 t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond
             );
+            LINK_LOST.store(now.is_none() && !CLOSING.load(Relaxed), Relaxed);
             let line = match (&now, up_at) {
                 (Some(peer), _) => format!("{stamp} UP {peer}\n"),
                 (None, at) => format!(
@@ -432,12 +439,16 @@ fn link_watch() {
 }
 
 /// WM_CLOSE (`wccfpanel.c` `close_allowed`): during a card session (the club card or a manager transfer's new card,
-/// open since this run started) the first close only warns, for 8 s; a second close within them quits anyway.
+/// open since this run started) a close only opens the close dialog; the window closes when QUIT is clicked in it
+/// (`CLOSE_OK`). Further closes while the dialog is open do nothing. No card session: the window closes.
 fn close_allowed() -> bool {
-    let until = CLOSE_UNTIL.load(Relaxed);
-    if until != 0 && ms() < until {
-        log("close: closed again during the card session - the game ends");
+    if CLOSE_OK.swap(false, Relaxed) {
+        log("close: quit chosen in the dialog - the game ends");
         return true;
+    }
+    if CLOSE_ASK.load(Relaxed) {
+        log("close: the dialog is open - ignored");
+        return false;
     }
     let open = FILES.get().is_some_and(|f| {
         use launcher::card;
@@ -450,8 +461,9 @@ fn close_allowed() -> bool {
         log("close: the window closes - the game ends");
         return true;
     }
-    CLOSE_UNTIL.store(ms() + 8000, Relaxed);
-    log("close: a card session is open - warned, not closed");
+    CLOSE_SINCE.store(ms(), Relaxed);
+    CLOSE_ASK.store(true, Relaxed);
+    log("close: a card session is open - dialog opened, not closed");
     false
 }
 
@@ -901,6 +913,8 @@ struct Render {
     status_at: Option<Instant>,
     restart_at: Option<Instant>,
     logs_at: Option<Instant>,
+    /// The crash screen's report request, when it was written.
+    report_at: Option<Instant>,
     logs_stamp: Option<std::time::SystemTime>,
     /// The deal: when the club card was last looked at, and its session then.
     deal_at: Instant,
@@ -976,6 +990,7 @@ impl Render {
             status_at: None,
             restart_at: None,
             logs_at: None,
+            report_at: None,
             // an answer from an earlier run is not shown
             logs_stamp: stamp(&files.request("sendlogs.result")),
             links_at: None,
@@ -1264,10 +1279,16 @@ impl Render {
                 self.st.ping_ms = u32::try_from(ms).unwrap_or(u32::MAX);
             }
         }
-        let until = CLOSE_UNTIL.load(Relaxed);
-        self.st.close_warn = until != 0 && ms() < until;
+        self.st.close_warn = CLOSE_ASK.load(Relaxed);
+        self.st.crash = LINK_LOST.load(Relaxed);
         if self.st.close_warn {
             self.ctx.request_repaint();
+            // tests: WCCFPANEL_CLOSETEST=quit answers QUIT two seconds after the dialog opened
+            if std::env::var("WCCFPANEL_CLOSETEST").is_ok_and(|v| v == "quit")
+                && ms().wrapping_sub(CLOSE_SINCE.load(Relaxed)) > 2000
+            {
+                self.st.close_quit = true;
+            }
         }
         let dealt = self.st.deal.as_ref().map(|d| d.back);
         let st = &mut self.st;
@@ -1281,6 +1302,7 @@ impl Render {
             }),
             _ => {}
         }
+        self.close_out();
         WANTS_KEYS.store(self.ctx.egui_wants_keyboard_input(), Relaxed);
         pause::KEY.store(self.st.keys[forza::keys::PAUSE], Relaxed);
         if std::mem::take(&mut self.st.pause_asked) {
@@ -1402,10 +1424,26 @@ impl Render {
         }
     }
 
+    /// The close dialog's answer: KEEP PLAYING shuts it; QUIT lets the next close through and posts it.
+    fn close_out(&mut self) {
+        if std::mem::take(&mut self.st.close_keep) {
+            CLOSE_ASK.store(false, Relaxed);
+            log("close: kept playing");
+        }
+        if std::mem::take(&mut self.st.close_quit) {
+            CLOSE_ASK.store(false, Relaxed);
+            CLOSE_OK.store(true, Relaxed);
+            let h = HWND(WINDOW.load(Relaxed) as *mut c_void);
+            // SAFETY: a message to a window of this process, handled by our window procedure on its thread
+            let _ = unsafe { PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0)) };
+        }
+    }
+
     /// A page opened or closed: while one is open, the key driver leaves the keys alone (the window's WCCF_TYPING, as
     /// the C panel sets it), and the window procedure keeps them from the game.
     fn page_open(&mut self) {
-        let open = self.st.page != panel::Page::Game;
+        // the close dialog and the crash screen hold the keys too
+        let open = self.st.page != panel::Page::Game || self.st.close_warn || self.st.crash;
         if PAGE_OPEN.swap(open, Relaxed) == open {
             return;
         }
@@ -1424,7 +1462,16 @@ impl Render {
                 }
             }
         }
-        log(&format!("page {}", self.st.page.tag()));
+        log(&format!(
+            "page {}{}{}",
+            self.st.page.tag(),
+            if self.st.close_warn {
+                " (close dialog)"
+            } else {
+                ""
+            },
+            if self.st.crash { " (crash screen)" } else { "" }
+        ));
     }
 
     /// SETTINGS: opened, data\panel.txt read again (the run may have done a request since) and NOW read; while open, NOW
@@ -1439,10 +1486,10 @@ impl Render {
             self.st.address = self.st.file.server.clone();
             self.status_at = None;
         }
-        if open
-            && self
-                .status_at
-                .is_none_or(|t| t.elapsed() >= Duration::from_secs(1))
+        // NOW each second while SETTINGS is open, every 2 s otherwise (the card lamp, the crash screen)
+        if self
+            .status_at
+            .is_none_or(|t| t.elapsed() >= Duration::from_secs(if open { 1 } else { 2 }))
         {
             let logs = self.st.status.logs.take();
             let before = format!(
@@ -1484,6 +1531,7 @@ impl Render {
         for (what, at, secs) in [
             ("restart.request", &mut self.restart_at, 3),
             ("sendlogs.request", &mut self.logs_at, 5),
+            ("report.request", &mut self.report_at, 5),
         ] {
             if at.is_some_and(|t| t.elapsed() >= Duration::from_secs(secs)) {
                 *at = None;
@@ -1492,6 +1540,7 @@ impl Render {
                     self.st.say(Tone::Refused, "settings.msg_no_helper");
                     self.st.restart_sent &= what != "restart.request";
                     self.st.logs_sent &= what != "sendlogs.request";
+                    self.st.report_sent &= what != "report.request";
                 }
             }
         }
@@ -1521,11 +1570,18 @@ impl Render {
             }
         }
         if std::mem::take(&mut self.st.restart) {
-            if f.status().card == panel::CardState::Open {
+            if self.st.crash {
+                // the game is dead: its card session cannot be in a match any more, so the card rule does not apply
+                if self.ask_restart(f, "CRASH", true) {
+                    log("crash: restart requested");
+                } else {
+                    self.st.say(Tone::Refused, "settings.msg_restart_failed");
+                }
+            } else if f.status().card == panel::CardState::Open {
                 log("settings: restart refused - a card session is open");
                 self.st.say(Tone::Refused, "panel.msg_session_open");
             } else {
-                if self.ask_restart(f, "SETTINGS") {
+                if self.ask_restart(f, "SETTINGS", false) {
                     log("settings: restart requested");
                     self.st.say(Tone::Done, "settings.msg_restarting");
                 } else {
@@ -1537,6 +1593,13 @@ impl Render {
             // the Launcher opens the save dialog (run::Ui::save_logs)
             let _ = kit::swap_write(&f.request("savelogs.request"), "save\n");
             log("settings: save logs asked");
+        }
+        if std::mem::take(&mut self.st.open_report) {
+            if self.ask_open_report(f) {
+                log("crash: report dialog asked (OPEN_REPORT)");
+            } else {
+                self.st.say(Tone::Refused, "settings.msg_logs_failed");
+            }
         }
         if std::mem::take(&mut self.st.send_logs) {
             let server = self.st.file.server.clone();
@@ -1553,15 +1616,35 @@ impl Render {
     }
 
     /// data\restart.request for the run (`page` names who asked); taken back after 3 s when no run took it.
-    fn ask_restart(&mut self, f: &kit::Files, page: &str) -> bool {
+    /// `force`: the crash screen's request, a second line "force=crashed" that says the game is dead already.
+    fn ask_restart(&mut self, f: &kit::Files, page: &str, force: bool) -> bool {
         let text = format!(
-            "RESTART NOW - asked by the {page} panel in seat 1 (pid {})\n",
-            std::process::id()
+            "RESTART NOW - asked by the {page} panel in seat 1 (pid {})\n{}",
+            std::process::id(),
+            if force { "force=crashed\n" } else { "" }
         );
         let ok = kit::swap_write(&f.request("restart.request"), &text).is_ok();
         if ok {
             self.restart_at = Some(Instant::now());
             self.st.restart_sent = true;
+        }
+        ok
+    }
+
+    /// The crash screen's SEND LOGS: data\report.request, for the Launcher to open its report dialog (the player says what
+    /// happened, the Launcher sends the logs). The one place that names the request, so it is easy to align. The file:
+    /// line 1 `OPEN_REPORT`, then `reason=control_lost`, `server=ADDRESS` (the server the logs go to, as sendlogs.request
+    /// holds it) and `pid=` of this game process. Nothing else is sent from here; no logs leave the panel.
+    fn ask_open_report(&mut self, f: &kit::Files) -> bool {
+        let text = format!(
+            "OPEN_REPORT\nreason=control_lost\nserver={}\npid={}\n",
+            self.st.file.server,
+            std::process::id()
+        );
+        let ok = kit::swap_write(&f.request("report.request"), &text).is_ok();
+        if ok {
+            self.report_at = Some(Instant::now());
+            self.st.report_sent = true;
         }
         ok
     }
@@ -1677,7 +1760,7 @@ impl Render {
             return;
         }
         self.st.file = file;
-        if !self.ask_restart(f, "CLUB CARD") {
+        if !self.ask_restart(f, "CLUB CARD", false) {
             self.st.say(Tone::Refused, "club.msg_restart_failed");
         } else if pick == ClubPick::Fix {
             log("club: clear bad endings requested");

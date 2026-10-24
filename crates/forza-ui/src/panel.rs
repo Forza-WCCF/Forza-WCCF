@@ -12,6 +12,7 @@ use super::widgets::{
     caps, chip, field, key_cell, range_slider, segmented, shape_contains, stat_bar, status_line,
 };
 use crate::board::{PositionColor, RarityRim};
+use crate::sizing;
 use crate::theme::Accent;
 use egui::{Align2, Color32, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 use forza::cards::{self, AddRefused, Placed};
@@ -25,6 +26,8 @@ pub const SIZE: egui::Vec2 = egui::vec2(1440.0, 900.0);
 pub const BOARD_W: f32 = 580.0;
 /// Space above the pitch inside the strip (no title row any more).
 const BOARD_HEAD: f32 = 0.0;
+/// The least size, in points, of a hint or a bar label (the theme's Small is 12; hints on a TV-sized seat need more).
+const HINT: f32 = 13.0;
 /// The bar of page buttons along the bottom of the middle.
 const TABS_H: f32 = 56.0;
 /// The deck row under the picture keeps at least this; on wide sheets the picture stops growing first.
@@ -464,6 +467,15 @@ pub struct PanelState {
     pub club_request: Option<ClubPick>,
     /// The window's close was refused during a card session: the warning shows (the panel DLL sets it while it holds).
     pub close_warn: bool,
+    /// The close dialog's answers this frame: QUIT clicked (the panel DLL lets the window close), KEEP PLAYING / Esc /
+    /// Enter (the dialog goes).
+    pub close_quit: bool,
+    pub close_keep: bool,
+    /// The game stopped under the panel (the control program is gone): the crash screen takes the board's place.
+    pub crash: bool,
+    /// SEND LOGS on the crash screen asked: the Launcher opens its report dialog (`ask_open_report` in the panel DLL).
+    pub open_report: bool,
+    pub report_sent: bool,
     /// A card dealt after a match: shown over the game for [`DEAL_SECS`], or until a click closes it.
     pub deal: Option<Deal>,
     /// The game's own frame as a texture of the panel DLL's painter; `None` draws the stand-in picture.
@@ -533,6 +545,11 @@ impl PanelState {
             club_armed: None,
             club_request: None,
             close_warn: false,
+            close_quit: false,
+            close_keep: false,
+            crash: false,
+            open_report: false,
+            report_sent: false,
             deal: None,
             picture: None,
             picture_rect: None,
@@ -566,7 +583,7 @@ impl PanelState {
         let msg = match page {
             Page::Catalogue => (Tone::Done, tr!(lang, "panel.msg_added")),
             Page::ClubCard => (Tone::Refused, tr!(lang, "panel.msg_session_open")),
-            _ => (Tone::Notice, tr!(lang, "panel.msg_saved")),
+            _ => (Tone::Done, tr!(lang, "panel.msg_saved")),
         };
         PanelState {
             page,
@@ -690,7 +707,11 @@ pub fn show(ui: &mut Ui, st: &mut PanelState) {
         .show_separator_line(false)
         .frame(egui::Frame::new())
         .show(ui, |ui| {
-            board_strip(ui, st, lang);
+            if st.crash {
+                crash_screen(ui, st, lang);
+            } else {
+                board_strip(ui, st, lang);
+            }
         });
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(theme::WELL))
@@ -733,7 +754,7 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
     );
     game_picture(ui, pic, st.picture);
     // the dealt card covers the picture: clicks there are its own
-    st.picture_rect = (st.page == Page::Game && st.deal.is_none()).then_some(pic);
+    st.picture_rect = (st.page == Page::Game && st.deal.is_none() && !st.close_warn).then_some(pic);
     if st.page == Page::Game {
         // a toast in the gap above the deck row when there is one, else over the picture's lower edge
         let gap = (deck.height() - ROW.y) / 2.0;
@@ -761,7 +782,7 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
         paused(ui, pic, lang, &key, left);
     }
     if st.close_warn {
-        close_warning(ui, area, lang, st.edition);
+        close_dialog(ui, st, lang);
     }
 }
 
@@ -810,50 +831,67 @@ fn paused(ui: &Ui, pic: Rect, lang: Lang, key: &str, left: u64) {
     }
 }
 
-/// The close warning over everything, as `wccfpanel.c` `close_draw`: a match is on, closing now costs the card a bad
-/// ending, a second close within 8 s quits anyway.
-fn close_warning(ui: &Ui, area: Rect, lang: Lang, edition: Edition) {
-    let p = ui.ctx().layer_painter(egui::LayerId::new(
-        egui::Order::Tooltip,
-        egui::Id::new("close-warn"),
-    ));
-    let r = Rect::from_center_size(area.center(), vec2(area.width() - 60.0, 150.0));
-    p.rect_filled(
-        r,
-        theme::RADIUS_BIG,
-        Color32::from_rgba_unmultiplied(24, 14, 14, 245),
-    );
-    p.rect_stroke(
-        r,
-        theme::RADIUS_BIG,
-        Stroke::new(3.0, theme::RED_TEXT),
-        StrokeKind::Inside,
-    );
-    let w = r.width() - 32.0;
-    for (i, (key, font, col)) in [
-        ("close.title", theme::display(30.0), theme::RED_TEXT),
-        // 2017-18 saves on the server: no card to damage
-        (
-            if edition == Edition::E1718 {
-                "close.body_1718"
-            } else {
-                "close.body"
-            },
-            theme::body(16.0),
-            theme::TEXT,
-        ),
-        ("close.again", theme::bold(16.0), theme::GOLD),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let g = widgets::fit(&p, &tr!(lang, key), font, col, w);
-        let y = r.top() + 30.0 + 42.0 * i as f32;
-        p.galley(
-            pos2(r.center().x - g.size().x / 2.0, y - g.size().y / 2.0),
-            g,
-            col,
-        );
+/// The close dialog over everything: a match is on, closing now costs the card a bad ending. KEEP PLAYING is the
+/// default (focused; Enter and Esc take it), QUIT needs its own click. The panel DLL ignores further close requests
+/// while the dialog is open.
+fn close_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
+    let edition = st.edition;
+    let modal = egui::Modal::new(egui::Id::new("close-dialog"))
+        .backdrop_color(Color32::from_black_alpha(170))
+        .frame(
+            egui::Frame::new()
+                .fill(Color32::from_rgb(24, 14, 14))
+                .stroke(Stroke::new(3.0, theme::RED_TEXT))
+                .corner_radius(theme::RADIUS_BIG)
+                .inner_margin(24),
+        )
+        .show(ui.ctx(), |ui| {
+            ui.set_width(440.0);
+            ui.vertical_centered(|ui| {
+                ui.spacing_mut().item_spacing.y = 12.0;
+                ui.label(
+                    egui::RichText::new(tr!(lang, "close.title"))
+                        .font(theme::display(32.0))
+                        .color(theme::RED_TEXT),
+                );
+                // 2017-18 saves on the server: no card to damage
+                let body = if edition == Edition::E1718 {
+                    "close.body_1718"
+                } else {
+                    "close.body"
+                };
+                ui.label(
+                    egui::RichText::new(tr!(lang, body))
+                        .font(theme::body(17.0))
+                        .color(theme::TEXT),
+                );
+                ui.add_space(8.0);
+                let keep = widgets::cabinet(
+                    ui,
+                    vec2(440.0, 56.0),
+                    &tr!(lang, "close.keep"),
+                    Cab::Go,
+                    true,
+                );
+                // the default: focused whenever the dialog is up
+                keep.request_focus();
+                let quit = widgets::cabinet(
+                    ui,
+                    vec2(440.0, 44.0),
+                    &tr!(lang, "close.quit"),
+                    Cab::Stop,
+                    false,
+                );
+                (keep, quit)
+            })
+            .inner
+        });
+    let (keep, quit) = modal.inner;
+    let key = ui.input(|i| i.key_pressed(egui::Key::Enter) || i.key_pressed(egui::Key::Escape));
+    if quit.clicked() {
+        st.close_quit = true;
+    } else if keep.clicked() || key {
+        st.close_keep = true;
     }
 }
 
@@ -963,7 +1001,7 @@ fn deal_window(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
             p.galley(pos2(r.center().x - g.size().x / 2.0, y), g, theme::TEXT);
             y += 28.0;
             let line = format!("{} · {} · {}", card.club, card.country, card.season);
-            let g = widgets::fit(&p, &line, theme::body(12.0), theme::TEXT_DIM, size.x - 24.0);
+            let g = widgets::fit(&p, &line, theme::body(HINT), theme::TEXT_DIM, size.x - 24.0);
             p.galley(pos2(r.center().x - g.size().x / 2.0, y), g, theme::TEXT_DIM);
             y += 24.0;
             let mut c = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(
@@ -981,7 +1019,7 @@ fn deal_window(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
             );
             let g = p.layout(
                 tr!(lang, "deal.foot"),
-                theme::body(12.0),
+                theme::body(HINT),
                 theme::TEXT_DIM,
                 size.x - 32.0,
             );
@@ -1274,7 +1312,7 @@ fn page_bar(ui: &mut Ui, st: &mut PanelState, bar: Rect, lang: Lang) {
         pages.push((Page::ClubCard, "panel.club_card"));
     }
     // the four pages and PAUSE; the right end keeps ~140 points for the ping and the window key at 1440x900
-    let w = 106.0;
+    let w = 92.0;
     let n = pages.len() as f32;
     for (i, (pg, key)) in pages.into_iter().enumerate() {
         let t = Rect::from_min_size(
@@ -1311,16 +1349,23 @@ fn page_bar(ui: &mut Ui, st: &mut PanelState, bar: Rect, lang: Lang) {
     if resp.clicked() {
         st.pause_asked = true;
     }
-    // the right end: ping (online only) over the window key
+    // the right end, two rows: the card lamp (2010-11) and the ping (online only), then the window key
     let right = Rect::from_min_max(
         pos2(r.left() + 132.0 + (n + 1.0) * (w + 6.0) + 8.0, r.top()),
         r.max,
     );
+    let row =
+        |i: f32| Rect::from_min_size(right.min + vec2(0.0, i * 24.0), vec2(right.width(), 22.0));
     let p = ui.painter();
+    let mut x = right.left();
+    if st.edition != Edition::E1718 {
+        x += card_lamp(p, row(0.0), st.status.card, lang) + 10.0;
+    }
     if st.online {
+        let r0 = row(0.0);
         ping(
             p,
-            Rect::from_min_size(right.min, vec2(right.width(), 18.0)),
+            Rect::from_min_max(pos2(x, r0.top()), r0.max),
             st.ping_ms,
             lang,
         );
@@ -1328,15 +1373,47 @@ fn page_bar(ui: &mut Ui, st: &mut PanelState, bar: Rect, lang: Lang) {
     let g = widgets::fit(
         p,
         &tr!(lang, "panel.f11"),
-        theme::body(11.0),
-        theme::TEXT_FAINT,
+        theme::body(HINT),
+        theme::TEXT_DIM,
         right.width(),
     );
     p.galley(
-        pos2(right.left(), right.bottom() - g.size().y),
+        pos2(right.left(), row(1.0).center().y - g.size().y / 2.0),
         g,
-        theme::TEXT_FAINT,
+        theme::TEXT_DIM,
     );
+}
+
+/// The card lamp: IN USE (amber), SAFE TO CLOSE (green), NO CARD (grey); a mark and a word, never colour alone.
+/// Closing is only unsafe while the session is open (the same rule as the close dialog). Returns the width it took.
+fn card_lamp(p: &egui::Painter, r: Rect, card: CardState, lang: Lang) -> f32 {
+    let (tone, key, col) = match card {
+        CardState::Open => (Some(Tone::Notice), "panel.lamp_in_use", theme::AMBER),
+        CardState::Closed | CardState::Cut => (Some(Tone::Done), "panel.lamp_safe", theme::GREEN),
+        _ => (None, "panel.lamp_none", theme::TEXT_DIM),
+    };
+    let g = p.layout_no_wrap(tr!(lang, key), theme::display(16.0), col);
+    let w = g.size().x + 44.0;
+    let pill = Rect::from_min_size(r.min, vec2(w, r.height()));
+    p.rect_filled(pill, 11, col.gamma_multiply(0.16));
+    p.rect_stroke(pill, 11, Stroke::new(1.0, col), StrokeKind::Inside);
+    let c = pos2(pill.left() + 14.0, pill.center().y);
+    match tone {
+        Some(t) => widgets::tone_icon(p, c, t),
+        None => {
+            p.circle_stroke(c, 8.0, Stroke::new(2.0, col));
+            p.line_segment(
+                [c - vec2(4.0, 0.0), c + vec2(4.0, 0.0)],
+                Stroke::new(2.0, col),
+            );
+        }
+    }
+    p.galley(
+        pos2(pill.left() + 28.0, pill.center().y - g.size().y / 2.0),
+        g,
+        col,
+    );
+    w
 }
 
 fn strip_ground(ui: &Ui) {
@@ -1400,9 +1477,98 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     b.add_space(4.0);
     b.label(
         egui::RichText::new(tr!(lang, "board.hint"))
-            .font(theme::body(12.0))
-            .color(theme::TEXT_FAINT),
+            .font(theme::body(HINT))
+            .color(theme::TEXT_DIM),
     );
+}
+
+/// The crash screen, in the board's place: the game lost its control program (or stopped), the card's state, and the two
+/// ways on. RESTART THE GAME asks the Launcher (`restart`), SEND LOGS asks it to open its report dialog (`open_report`).
+fn crash_screen(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
+    strip_ground(ui);
+    let r = ui.max_rect().shrink2(vec2(24.0, 0.0));
+    let w = r.width().min(440.0);
+    let col = Rect::from_center_size(
+        pos2(r.center().x, r.center().y - 30.0),
+        vec2(w, r.height().min(520.0)),
+    );
+    let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(col));
+    let ui = &mut ui;
+    ui.spacing_mut().item_spacing.y = 14.0;
+    let (ic, _) = ui.allocate_exact_size(vec2(w, 36.0), Sense::hover());
+    ui.painter().text(
+        ic.center(),
+        Align2::CENTER_CENTER,
+        tr!(lang, "panel.crash_title"),
+        theme::display(38.0),
+        theme::RED_TEXT,
+    );
+    ui.label(
+        egui::RichText::new(tr!(lang, "panel.crash_lost"))
+            .font(theme::body(17.0))
+            .color(theme::TEXT),
+    );
+    ui.add_space(4.0);
+    let s = st.status.clone();
+    egui::Grid::new("crash-now")
+        .num_columns(2)
+        .spacing(vec2(16.0, 8.0))
+        .min_col_width(150.0)
+        .show(ui, |ui| {
+            if st.edition == Edition::E1718 {
+                // the club lives on the server: nothing to say about a card
+                ui.label(
+                    egui::RichText::new(tr!(lang, "panel.crash_1718"))
+                        .font(theme::bold(15.0))
+                        .color(theme::GREEN),
+                );
+                ui.end_row();
+                return;
+            }
+            let (k, c) = card_text(s.card);
+            kv(ui, &tr!(lang, "settings.session"), &tr!(lang, k), Some(c));
+            let v = s
+                .saved
+                .as_ref()
+                .map_or_else(|| tr!(lang, "settings.never"), |w| when_text(lang, w));
+            let c = s.saved.is_some().then_some(theme::GREEN);
+            kv(ui, &tr!(lang, "settings.last_saved"), &v, c);
+            if let Some(n) = s.bad {
+                let v = match n {
+                    0 => "0".to_owned(),
+                    1 => tr!(lang, "settings.bad_one"),
+                    n => tr!(lang, "settings.bad_many", n = n),
+                };
+                kv(ui, &tr!(lang, "settings.bad_endings"), &v, None);
+            }
+        });
+    ui.add_space(8.0);
+    let restart = if st.restart_sent {
+        tr!(lang, "settings.restarting")
+    } else {
+        tr!(lang, "panel.crash_restart")
+    };
+    if cabinet(ui, vec2(w, 56.0), &restart, Cab::Go, true).clicked() && !st.restart_sent {
+        st.restart = true;
+    }
+    if cabinet(
+        ui,
+        vec2(w, 56.0),
+        &tr!(lang, "settings.send_logs"),
+        Cab::Plain,
+        false,
+    )
+    .clicked()
+    {
+        st.open_report = true;
+    }
+    if st.report_sent {
+        ui.label(
+            egui::RichText::new(tr!(lang, "panel.crash_report_asked"))
+                .font(theme::body(HINT))
+                .color(theme::TEXT_DIM),
+        );
+    }
 }
 
 // ---- the game picture ----
@@ -1723,11 +1889,11 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                 ui.horizontal(|ui| {
                     caps(ui, &tr!(lang, "cat.results", n = results.len()));
                 });
-                let size = vec2(84.0, 118.0);
-                let gap = 10.0;
-                let per_row = ((ui.available_width() + gap) / (size.x + gap))
-                    .floor()
-                    .max(1.0) as usize;
+                let sizing::Grid {
+                    card: size,
+                    cols: per_row,
+                } = sizing::grid(ui.available_width(), ui.ctx().pixels_per_point());
+                let gap = sizing::GAP;
                 let mut area = egui::ScrollArea::vertical()
                     .id_salt("results")
                     .auto_shrink(false);
@@ -1820,8 +1986,8 @@ fn affinity_pane(ui: &mut Ui, card: &Card, links: &board::Links, on_table: &[u32
             if partners.is_empty() {
                 ui.label(
                     egui::RichText::new(tr!(lang, "cat.no_partners"))
-                        .font(theme::body(12.0))
-                        .color(theme::TEXT_FAINT),
+                        .font(theme::body(HINT))
+                        .color(theme::TEXT_DIM),
                 );
             }
             egui::ScrollArea::vertical()
@@ -1845,6 +2011,8 @@ fn affinity_pane(ui: &mut Ui, card: &Card, links: &board::Links, on_table: &[u32
 
 /// The card's stats and its ADD button; `true` = ADD clicked.
 fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> bool {
+    let face = sizing::hover_face(ui.ctx().pixels_per_point());
+    let u = sizing::text_unit(face.x);
     egui::Frame::new()
         .fill(theme::WELL)
         .corner_radius(theme::RADIUS_BIG)
@@ -1853,17 +2021,17 @@ fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> bool {
             ui.set_width(ui.available_width());
             ui.spacing_mut().item_spacing.y = 4.0;
             ui.horizontal(|ui| {
-                let (r, _) = ui.allocate_exact_size(vec2(86.0, 120.0), Sense::hover());
+                let (r, _) = ui.allocate_exact_size(face, Sense::hover());
                 board::card_face(ui.painter(), r, card, board::Look::default());
                 ui.vertical(|ui| {
                     ui.label(
                         egui::RichText::new(tr!(lang, "cat.total"))
-                            .font(theme::display(14.0))
+                            .font(theme::display(14.0 * u))
                             .color(theme::TEXT_DIM),
                     );
                     ui.label(
                         egui::RichText::new(card.total.to_string())
-                            .font(theme::display(48.0))
+                            .font(theme::display(48.0 * u))
                             .color(theme::AMBER),
                     );
                     ui.horizontal(|ui| {
@@ -1877,7 +2045,7 @@ fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> bool {
             });
             ui.label(
                 egui::RichText::new(&card.name)
-                    .font(theme::display(22.0))
+                    .font(theme::display(22.0 * u))
                     .color(theme::TEXT),
             );
             ui.label(
@@ -1885,7 +2053,7 @@ fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> bool {
                     "{} · {} · {}",
                     card.club, card.country, card.season
                 ))
-                .font(theme::body(12.0))
+                .font(theme::body(HINT * u))
                 .color(theme::TEXT_DIM),
             );
             // every role at the card's top rating (a card rated from its position flags has them all at 8)
@@ -1899,7 +2067,7 @@ fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> bool {
             if !best.is_empty() {
                 ui.label(
                     egui::RichText::new(tr!(lang, "cat.best_role", roles = best.join(" ")))
-                        .font(theme::body(12.0))
+                        .font(theme::body(HINT * u))
                         .color(theme::TEXT_DIM),
                 );
             }
@@ -2169,6 +2337,18 @@ fn row(ui: &mut Ui, st: &mut PanelState, lang: Lang, i: usize, cell_w: f32) {
 
 // ---- SETTINGS ----
 
+/// The text key and colour of the club card's session.
+fn card_text(card: CardState) -> (&'static str, Color32) {
+    match card {
+        CardState::Open => ("settings.card_open", theme::AMBER),
+        CardState::Closed => ("settings.card_closed", theme::GREEN),
+        CardState::Cut => ("settings.card_cut", theme::AMBER),
+        CardState::New => ("settings.card_new", theme::TEXT_FAINT),
+        CardState::Unreadable => ("settings.card_unreadable", theme::RED_TEXT),
+        CardState::None => ("settings.card_none", theme::TEXT_FAINT),
+    }
+}
+
 fn kv(ui: &mut Ui, k: &str, v: &str, dot: Option<Color32>) {
     ui.label(
         egui::RichText::new(k)
@@ -2229,14 +2409,7 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                         Link::Unknown => (tr!(lang, "settings.unknown"), theme::TEXT_FAINT),
                     };
                     kv(ui, &tr!(lang, "settings.server"), &v, Some(c));
-                    let (k, c) = match s.card {
-                        CardState::Open => ("settings.card_open", theme::AMBER),
-                        CardState::Closed => ("settings.card_closed", theme::GREEN),
-                        CardState::Cut => ("settings.card_cut", theme::AMBER),
-                        CardState::New => ("settings.card_new", theme::TEXT_FAINT),
-                        CardState::Unreadable => ("settings.card_unreadable", theme::RED_TEXT),
-                        CardState::None => ("settings.card_none", theme::TEXT_FAINT),
-                    };
+                    let (k, c) = card_text(s.card);
                     kv(ui, &tr!(lang, "settings.session"), &tr!(lang, k), Some(c));
                     let (v, c) = match s.bad {
                         None => ("-".to_owned(), None),
@@ -2397,7 +2570,7 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             };
             ui.label(
                 egui::RichText::new(tr!(lang, hint))
-                    .font(theme::body(12.0))
+                    .font(theme::body(HINT))
                     .color(c),
             );
         });
@@ -2665,7 +2838,7 @@ fn club_card(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                         }
                         ui.label(
                             egui::RichText::new(tr!(lang, "club.clear_hint"))
-                                .font(theme::body(12.0))
+                                .font(theme::body(HINT))
                                 .color(theme::TEXT_DIM),
                         );
                     }
@@ -2700,7 +2873,7 @@ fn club_card(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                                     }
                                     ui.label(
                                         egui::RichText::new(tr!(lang, "club.backups_hint"))
-                                            .font(theme::body(12.0))
+                                            .font(theme::body(HINT))
                                             .color(theme::TEXT_DIM),
                                     );
                                 }
@@ -2812,7 +2985,7 @@ fn club_card(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                                     });
                                 ui.label(
                                     egui::RichText::new(tr!(lang, "club.injured"))
-                                        .font(theme::body(12.0))
+                                        .font(theme::body(HINT))
                                         .color(theme::TEXT_DIM),
                                 );
                                 ui.add_space(6.0);
@@ -2858,7 +3031,7 @@ fn club_card(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                                         "club.switch_hint"
                                     }
                                 ))
-                                .font(theme::body(12.0))
+                                .font(theme::body(HINT))
                                 .color(if open {
                                     theme::RED_TEXT
                                 } else {
@@ -2914,7 +3087,7 @@ fn club_row(ui: &mut Ui, name: &str, sub: &str, transferred: bool, lit: bool, la
     let tw = w - bw - 30.0;
     let g = widgets::fit(p, name, theme::display(20.0), theme::TEXT, tw);
     p.galley(pos2(r.left() + 14.0, r.top() + 6.0), g, theme::TEXT);
-    let g = widgets::fit(p, sub, theme::body(12.0), theme::TEXT_DIM, tw);
+    let g = widgets::fit(p, sub, theme::body(HINT), theme::TEXT_DIM, tw);
     p.galley(pos2(r.left() + 14.0, r.top() + 31.0), g, theme::TEXT_DIM);
     let b = Rect::from_min_size(pos2(r.right() - bw - 8.0, r.top() + 8.0), vec2(bw, 38.0));
     if transferred {
@@ -3084,7 +3257,7 @@ pub fn widget_sheet(ui: &mut Ui, ws: &mut WidgetSheet) {
                     ui.set_width(520.0);
                     status_line(ui, Tone::Done, &tr!(lang, "panel.msg_added"));
                     status_line(ui, Tone::Refused, &tr!(lang, "panel.msg_session_open"));
-                    status_line(ui, Tone::Notice, &tr!(lang, "panel.msg_saved"));
+                    status_line(ui, Tone::Done, &tr!(lang, "panel.msg_saved"));
                     segmented(
                         ui,
                         &mut ws.seg,

@@ -29,6 +29,7 @@ impl Item {
             (Item::Launcher(Update), "update"),
             (Item::Launcher(Busy), "busy"),
             (Item::Launcher(Online), "online"),
+            (Item::Launcher(Report), "report"),
         ];
         for p in installer::Page::ALL {
             v.push((Item::Installer(p), p.tag()));

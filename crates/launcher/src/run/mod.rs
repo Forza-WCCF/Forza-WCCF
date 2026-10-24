@@ -106,6 +106,8 @@ pub trait Ui {
     fn running(&self, _up: bool) {}
     /// SAVE LOGS asked by the panel (data\savelogs.request): ask where, write the ZIP, answer in data\savelogs.result.
     fn save_logs(&self, _kit: &Path, _game: &Path) {}
+    /// REPORT A PROBLEM asked by the panel (data\report.request): the window opens its report dialog.
+    fn report(&self) {}
 }
 
 /// The game's names and numbers; tests swap them for stand-ins, free ports and names of their own.
@@ -749,9 +751,11 @@ impl Game {
 enum Event {
     /// A game program's debugger thread ended (by its id): its window was closed, it crashed, or the run stopped it.
     Ended(u32),
-    Restart,
+    /// RESTART NOW from the panel; true when its crash screen asked it (`force=crashed`: the control is gone).
+    Restart(bool),
     Request(String),
     SaveLogs,
+    Report,
 }
 
 /// What a supervised run ended with.
@@ -1935,14 +1939,19 @@ impl Run<'_> {
             loop {
                 thread::sleep(Duration::from_millis(500));
                 let mut events = Vec::new();
-                if kind == Kind::Run && take(&data.join("restart.request")).is_some() {
-                    events.push(Event::Restart);
+                if kind == Kind::Run
+                    && let Some(text) = take(&data.join("restart.request"))
+                {
+                    events.push(Event::Restart(rules::restart_forced(&text)));
                 }
                 if let Some(word) = take(&data.join(format!("{}.request", kind.name()))) {
                     events.push(Event::Request(word.trim().to_owned()));
                 }
                 if kind == Kind::Run && take(&data.join("savelogs.request")).is_some() {
                     events.push(Event::SaveLogs);
+                }
+                if kind == Kind::Run && take(&data.join("report.request")).is_some() {
+                    events.push(Event::Report);
                 }
                 if kind == Kind::Run
                     && let Some(address) = take(&data.join("sendlogs.request"))
@@ -1975,10 +1984,14 @@ impl Run<'_> {
             };
             let end = match ev {
                 Event::Ended(id) => self.ended(id),
-                Event::Restart => self.restart(),
+                Event::Restart(force) => self.restart(force),
                 Event::Request(word) => self.answer(&word),
                 Event::SaveLogs => {
                     self.ui.save_logs(self.kit.dir(), &self.game);
+                    None
+                }
+                Event::Report => {
+                    self.ui.report();
                     None
                 }
             };
@@ -2076,10 +2089,7 @@ impl Run<'_> {
         let left = rules::windows_left(others, home, seat_gone);
         match rules::after_end(&gone, left, |n| self.read_log(n)) {
             Some(crashed) => {
-                self.say(&format!(
-                    "A game window crashed (see data\\logs\\{}). The rest keeps running.",
-                    crashed.join(", ")
-                ));
+                self.say(&rules::went_by_itself(&crashed, |n| self.read_log(n)));
                 None
             }
             None => {
@@ -2172,7 +2182,7 @@ impl Run<'_> {
 
     /// RESTART NOW: the cabinet alone when a plain start would play the same way, else a stop (the card rule) and a
     /// plain start.
-    fn restart(&mut self) -> Option<End> {
+    fn restart(&mut self, force: bool) -> Option<End> {
         self.say("Restart requested.");
         let panel = choices::read(&self.kit.data().join("panel.txt"));
         let club = choices::setting(&self.kit.settings_file(), "club_server").unwrap_or_default();
@@ -2183,7 +2193,7 @@ impl Run<'_> {
             self.kit.game_language(),
             (&club, self.vs_target.as_ref()),
         );
-        if let Some(why) = self.refusal(false) {
+        if let Some(why) = self.refusal(force) {
             self.say(&why);
             self.say("Not restarted: the game is still running.");
             return None;
