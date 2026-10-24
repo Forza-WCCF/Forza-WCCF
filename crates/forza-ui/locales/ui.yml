@@ -345,7 +345,7 @@ settings.backup: {en: "Latest backup", it: "Ultimo backup", ja: "最新のバッ
 settings.version: {en: "Version", it: "Versione", ja: "バージョン"}
 settings.next: {en: "NEXT START", it: "PROSSIMO AVVIO", ja: "次回の起動"}
 settings.restart: {en: "RESTART NOW", it: "RIAVVIA ORA", ja: "今すぐ再起動"}
-settings.restart_again: {en: "CLICK TO CONFIRM (%{s} s)", it: "CLICCA PER CONFERMARE (%{s} s)", ja: "もう一度押す（%{s} 秒）"}
+settings.restart_again: {en: "CLICK AGAIN (%{s} s)", it: "CLICCA ANCORA (%{s} s)", ja: "もう一度押す（%{s} 秒）"}
 settings.view: {en: "VIEW", it: "VISTA", ja: "表示"}
 settings.layout: {en: "LAYOUT", it: "DISPOSIZIONE", ja: "レイアウト"}
 settings.cabinet: {en: "CABINET", it: "CABINATO", ja: "筐体"}
@@ -362,7 +362,7 @@ settings.h_ago: {en: "%{t} (%{n} h ago)", it: "%{t} (%{n} h fa)", ja: "%{t}（%{
 settings.link_local: {en: "This PC · connected", it: "Questo PC · collegato", ja: "このPC・接続中"}
 settings.link_online: {en: "Online %{ip} · connected", it: "Online %{ip} · collegato", ja: "オンライン %{ip}・接続中"}
 settings.link_down: {en: "Not connected to the server", it: "Non collegato al server", ja: "サーバーに接続していません"}
-settings.unknown: {en: "Cannot tell", it: "Non rilevabile", ja: "不明"}
+settings.unknown: {en: "Unknown", it: "Sconosciuto", ja: "不明"}
 settings.card_open: {en: "In use, do not close", it: "In uso, non chiudere", ja: "使用中・閉じないでください"}
 settings.card_closed: {en: "Closed, safe to close", it: "Chiusa, puoi chiudere", ja: "終了済み・閉じて大丈夫"}
 settings.card_cut: {en: "Last session cut short", it: "Ultima sessione interrotta", ja: "前回は途中終了"}
@@ -375,11 +375,11 @@ settings.never: {en: "Never", it: "Mai", ja: "なし"}
 settings.no_backup: {en: "None yet", it: "Ancora nessuno", ja: "まだありません"}
 settings.backups: {en: "%{t} (%{n} kept)", it: "%{t} (%{n} conservati)", ja: "%{t}（%{n} 件保存）"}
 settings.address_hint: {en: "Server address", it: "Indirizzo del server", ja: "サーバーアドレス"}
-settings.restart_hint: {en: "Applies the NEXT START settings.", it: "Applica le impostazioni di PROSSIMO AVVIO.", ja: "次回起動の設定を反映します。"}
+settings.restart_hint: {en: "Restarts with the NEXT START choices.", it: "Riavvia con le scelte di PROSSIMO AVVIO.", ja: "「次回の起動」の設定で再起動します。"}
 settings.restart_refused: {en: "Not during a match.", it: "Non durante una partita.", ja: "試合中は使えません。"}
 settings.restarting: {en: "RESTARTING …", it: "RIAVVIO IN CORSO …", ja: "再起動中…"}
 settings.sending: {en: "SENDING …", it: "INVIO IN CORSO …", ja: "送信中…"}
-settings.send_again: {en: "CLICK TO CONFIRM", it: "CLICCA PER CONFERMARE", ja: "もう一度押す"}
+settings.send_again: {en: "CLICK AGAIN", it: "CLICCA ANCORA", ja: "もう一度押す"}
 settings.not_sent: {en: "Not sent: %{why}", it: "Non inviati: %{why}", ja: "送信できませんでした：%{why}"}
 settings.msg_compact: {en: "COMPACT: bigger game", it: "COMPATTO: gioco più grande", ja: "コンパクト：ゲームを拡大"}
 settings.msg_cabinet: {en: "CABINET: buttons shown", it: "CABINATO: pulsanti visibili", ja: "筐体：ボタン表示"}
@@ -387,17 +387,17 @@ settings.msg_hover: {en: "Card preview after %{s} s", it: "Anteprima carta dopo 
 settings.msg_this_pc: {en: "Next start: this PC", it: "Prossimo avvio: questo PC", ja: "次回の起動：このPC"}
 settings.msg_online: {en: "Online at next start: %{ip}", it: "Online al prossimo avvio: %{ip}", ja: "次回はオンライン：%{ip}"}
 settings.msg_type_address: {en: "Type the address, then Enter", it: "Scrivi l'indirizzo, poi Invio", ja: "アドレスを入力して Enter"}
-settings.msg_not_address: {en: "Not an address (like 192.168.1.20)", it: "Non è un indirizzo (es. 192.168.1.20)", ja: "アドレスが不正です（例 192.168.1.20）"}
+settings.msg_not_address: {en: "Invalid address. Example: 192.168.1.20", it: "Indirizzo non valido. Esempio: 192.168.1.20", ja: "アドレスが正しくありません。例：192.168.1.20"}
 settings.msg_restart_armed: {en: "Click again to restart", it: "Clicca ancora per riavviare", ja: "もう一度押すと再起動"}
-settings.msg_restart_asked: {en: "Restart already requested", it: "Riavvio già richiesto", ja: "再起動は要求済みです"}
+settings.msg_restart_asked: {en: "Already restarting", it: "Riavvio già in corso", ja: "すでに再起動中です"}
 settings.msg_restarting: {en: "Restarting, about a minute...", it: "Riavvio, circa un minuto...", ja: "再起動中（約1分）..."}
 settings.msg_restart_failed: {en: "Restart failed. Close the game and start it again.", it: "Riavvio non riuscito. Chiudi il gioco e riavvialo.", ja: "再起動に失敗。ゲームを閉じて起動し直してください。"}
 settings.msg_no_helper: {en: "Restart failed. Close the game and start it again.", it: "Riavvio non riuscito. Chiudi il gioco e riavvialo.", ja: "再起動に失敗。ゲームを閉じて起動し直してください。"}
-settings.msg_logs_failed: {en: "Failed. Try again", it: "Non riuscito. Riprova", ja: "失敗しました。もう一度お試しください"}
+settings.msg_logs_failed: {en: "Could not send. Try again.", it: "Invio non riuscito. Riprova.", ja: "送信できませんでした。もう一度お試しください。"}
 settings.msg_sending: {en: "Sending logs ...", it: "Invio dei log ...", ja: "ログを送信中..."}
 settings.msg_logs_need_server: {en: "Enter a server address first", it: "Inserisci prima un indirizzo server", ja: "先にサーバーのアドレスを入力"}
 settings.msg_logs_armed: {en: "Click again to send", it: "Clicca ancora per inviare", ja: "もう一度押すと送信"}
-settings.msg_not_saved: {en: "Could not save data\\panel.txt: try again", it: "Impossibile salvare data\\panel.txt: riprova", ja: "data\\panel.txt を保存できませんでした。もう一度お試しください"}
+settings.msg_not_saved: {en: "Could not save the settings. Try again.", it: "Impossibile salvare le impostazioni. Riprova.", ja: "設定を保存できませんでした。もう一度お試しください。"}
 
 # ---- club card ----
 club.label: {en: "CLUB CARD", it: "TESSERA CLUB", ja: "クラブカード"}
@@ -405,15 +405,15 @@ club.manager: {en: "Manager: %{name}", it: "Allenatore: %{name}", ja: "監督：
 club.your_cards: {en: "YOUR CARDS", it: "LE TUE TESSERE", ja: "あなたのカード"}
 club.clear_bad: {en: "CLEAR BAD ENDINGS", it: "AZZERA CHIUSURE ANOMALE", ja: "異常終了をクリア"}
 club.new_card: {en: "NEW CLUB CARD", it: "NUOVA TESSERA CLUB", ja: "新しいクラブカード"}
-club.new_again: {en: "CLICK TO CONFIRM", it: "CLICCA PER CONFERMARE", ja: "もう一度押す"}
+club.new_again: {en: "CLICK AGAIN", it: "CLICCA ANCORA", ja: "もう一度押す"}
 club.play: {en: "PLAY THIS CLUB", it: "GIOCA QUESTO CLUB", ja: "このクラブでプレイ"}
-club.click_again: {en: "CLICK AGAIN", it: "CLICCA DI NUOVO", ja: "もう一度押す"}
+club.click_again: {en: "CLICK AGAIN", it: "CLICCA ANCORA", ja: "もう一度押す"}
 club.transferred: {en: "TRANSFERRED", it: "TRASFERITA", ja: "移籍済み"}
-club.clear_again: {en: "CLICK TO CONFIRM", it: "CLICCA PER CONFERMARE", ja: "もう一度押す"}
+club.clear_again: {en: "CLICK AGAIN", it: "CLICCA ANCORA", ja: "もう一度押す"}
 club.clear_hint: {en: "Resets to 0 at restart.", it: "Torna a 0 al riavvio.", ja: "再起動で 0 に戻ります。"}
 club.intro: {en: "Your club card, saved with each game save.", it: "La tua carta club, salvata a ogni salvataggio.", ja: "クラブカード（セーブごとに更新）。"}
 club.noview: {en: "Waiting for the club card. Start the game from Launcher.exe.", it: "In attesa della tessera club. Avvia il gioco da Launcher.exe.", ja: "クラブカードの読み込み待ち。ゲームは Launcher.exe から起動してください。"}
-club.none_1718: {en: "2017–18 keeps the clubs on the game server: there is no club card file to show.", it: "Il 2017–18 tiene i club sul server di gioco: non c'è un file della tessera da mostrare.", ja: "2017–18はクラブをゲームサーバーに保存します。表示するクラブカードのファイルはありません。"}
+club.none_1718: {en: "Your club is saved on the game server. There is no card file to show.", it: "Il tuo club è salvato sul server di gioco. Non c'è nessun file della tessera da mostrare.", ja: "クラブはゲームサーバーに保存されます。表示できるカードファイルはありません。"}
 club.backups: {en: "BACKUPS", it: "BACKUP", ja: "バックアップ"}
 club.backups_hint: {en: "Stored in data\\save\\backup.", it: "Si trovano in data\\save\\backup.", ja: "data\\save\\backup に保存されています。"}
 club.squad: {en: "SQUAD", it: "ROSA", ja: "スカッド"}
@@ -428,7 +428,7 @@ club.injured: {en: "A name in red: injured.", it: "Nome in rosso: infortunato.",
 club.no_others: {en: "No other cards yet.", it: "Nessun'altra carta.", ja: "他のカードはありません。"}
 club.session_refused: {en: "Not during a match.", it: "Non durante una partita.", ja: "試合中は使えません。"}
 club.switch_hint: {en: "Switching restarts the game. No card is deleted.", it: "Il cambio riavvia il gioco. Nessuna carta viene eliminata.", ja: "切り替えると再起動します。カードは消えません。"}
-club.msg_asked: {en: "Restart already requested.", it: "Riavvio già richiesto.", ja: "再起動は要求済みです。"}
+club.msg_asked: {en: "Already restarting.", it: "Riavvio già in corso.", ja: "すでに再起動中です。"}
 club.msg_blank: {en: "Blank card. Press CARD to make a club.", it: "Carta vuota. Premi CARD per creare un club.", ja: "白紙のカード。CARD でクラブを作成。"}
 club.msg_arm_fix: {en: "Click again: reset and restart.", it: "Clicca ancora: azzera e riavvia.", ja: "もう一度押すとリセットして再起動。"}
 club.msg_arm_new: {en: "Click again: save this club, start a new card.", it: "Clicca ancora: salva questo club, nuova carta.", ja: "もう一度押すとこのクラブを保存し新規カード。"}
@@ -513,7 +513,7 @@ pause.title: {en: "PAUSED", it: "IN PAUSA", ja: "一時停止中"}
 pause.body: {en: "Press %{key} to resume.", it: "Premi %{key} per riprendere.", ja: "%{key} で再開。"}
 pause.left: {en: "Resumes in %{s} s.", it: "Riprende tra %{s} s.", ja: "%{s} 秒後に再開。"}
 pause.msg_resumed_cap: {en: "Pause limit (20 s). Resumed.", it: "Limite di pausa (20 s). Ripreso.", ja: "ポーズ上限（20 秒）。再開しました。"}
-pause.msg_not_match: {en: "Pause works in a match only.", it: "La pausa funziona solo in partita.", ja: "ポーズは試合中のみ。"}
+pause.msg_not_match: {en: "Pause is for matches only.", it: "La pausa è solo per le partite.", ja: "ポーズは試合中のみ使えます。"}
 pause.msg_online: {en: "No pause online.", it: "Niente pausa online.", ja: "オンラインではポーズ不可。"}
 pause.msg_seats: {en: "No pause with linked seats.", it: "Niente pausa con posti collegati.", ja: "席連結中はポーズ不可。"}
 pause.msg_projector: {en: "No pause with the projector.", it: "Niente pausa con il proiettore.", ja: "プロジェクター使用中はポーズ不可。"}
@@ -537,7 +537,7 @@ panel.lamp_in_use: {en: "IN USE", it: "IN USO", ja: "使用中"}
 panel.lamp_safe: {en: "SAFE TO CLOSE", it: "PUOI CHIUDERE", ja: "閉じてOK"}
 panel.lamp_none: {en: "NO CARD", it: "NESSUNA CARTA", ja: "カードなし"}
 panel.crash_title: {en: "THE GAME STOPPED", it: "IL GIOCO SI È FERMATO", ja: "ゲームが停止しました"}
-panel.crash_lost: {en: "The game lost its control program.", it: "Il gioco ha perso il programma di controllo.", ja: "ゲームがコントロールプログラムを失いました。"}
+panel.crash_lost: {en: "Part of the game stopped working.", it: "Una parte del gioco ha smesso di funzionare.", ja: "ゲームの一部が動作を停止しました。"}
 panel.crash_1718: {en: "Your club is kept on the server.", it: "Il tuo club è salvato sul server.", ja: "クラブはサーバーに保存されています。"}
 panel.crash_restart: {en: "RESTART THE GAME", it: "RIAVVIA IL GIOCO", ja: "ゲームを再起動"}
-panel.crash_report_asked: {en: "Report asked. See the Launcher.", it: "Segnalazione richiesta. Vedi il Launcher.", ja: "報告を要求しました。ランチャーをご覧ください。"}
+panel.crash_report_asked: {en: "Open the Launcher to send a report.", it: "Apri il Launcher per inviare la segnalazione.", ja: "Launcher から報告を送信してください。"}
