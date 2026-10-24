@@ -1,0 +1,93 @@
+[package]
+name = "forza-programs"
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "The small 32-bit programs beside the game (FPR_Emu.exe, inject.exe, logowin.exe) and the test programs of the hook and the guards"
+
+# 32-bit like the game: `cargo xtask build` builds them for i686-pc-windows-msvc with `--features programs`. Without
+# the feature (the workspace's x86_64 clippy and tests) no program is built.
+[features]
+programs = []
+
+[target.'cfg(target_arch = "x86")'.dependencies]
+forza-native = { path = "../common" }
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Environment",
+    "Win32_System_IO",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+] }
+# fakegame: the game's Direct3D 9 device, as the panel draws on it
+windows = { workspace = true, features = [
+    "Win32_Graphics_Direct3D9",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+    "Win32_Storage_FileSystem",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+# shipped 2010-11: loads the panel into the running game
+[[bin]]
+name = "inject"
+required-features = ["programs"]
+
+# shipped (FPR_Emu.exe): the card table's stand-in
+[[bin]]
+name = "fpr_emu"
+required-features = ["programs"]
+
+# shipped 2017-18: the start-up notice, only recorded
+[[bin]]
+name = "logowin"
+required-features = ["programs"]
+
+# tests: a write to address 0
+[[bin]]
+name = "crashme"
+required-features = ["programs"]
+
+# tests: a Direct3D 9 window in the game's place
+[[bin]]
+name = "fakegame"
+required-features = ["programs"]
+
+# tests: fakegame with an IP helper import
+[[bin]]
+name = "fakegame_iphlp"
+required-features = ["programs"]
+
+[[bin]]
+name = "test_dhcphook"
+required-features = ["programs"]
+
+[[bin]]
+name = "test_netguard"
+required-features = ["programs"]
+
+[[bin]]
+name = "test_wccfnet"
+required-features = ["programs"]
+
+[[bin]]
+name = "test_icmp"
+required-features = ["programs"]
+
+[[bin]]
+name = "test_panel"
+required-features = ["programs"]
+
+[lints]
+workspace = true

@@ -1,0 +1,18 @@
+[package]
+name = "forza-icmp"
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "The 2017-18 stand-in ICMP.DLL: the game's pings of the cabinet network return at once"
+
+[lib]
+name = "icmp"
+crate-type = ["cdylib"]
+
+[target.'cfg(target_arch = "x86")'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation"] }
+
+[lints]
+workspace = true
