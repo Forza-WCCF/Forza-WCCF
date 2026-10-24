@@ -1441,6 +1441,16 @@ pub fn latch_kept(
     latched.filter(|_| !crash && focused)
 }
 
+/// The page bar's button `i` (0 CATALOGUE, 1 KEYS, 2 SETTINGS, 3 CLUB CARD) on the bar `bar` (also for tests that
+/// click it).
+pub fn page_button(bar: Rect, i: usize) -> Rect {
+    let r = bar.shrink2(vec2(12.0, 8.0));
+    Rect::from_min_size(
+        pos2(r.left() + 132.0 + i as f32 * 98.0, r.top()),
+        vec2(92.0, r.height()),
+    )
+}
+
 /// The bottom bar: the edition, the four page buttons (lit while their page is open), the ping and the window key.
 fn page_bar(ui: &mut Ui, st: &mut PanelState, bar: Rect, lang: Lang) {
     let r = bar.shrink2(vec2(12.0, 8.0));
@@ -1464,10 +1474,7 @@ fn page_bar(ui: &mut Ui, st: &mut PanelState, bar: Rect, lang: Lang) {
     let w = 92.0;
     let n = pages.len() as f32;
     for (i, (pg, key)) in pages.into_iter().enumerate() {
-        let t = Rect::from_min_size(
-            pos2(r.left() + 132.0 + i as f32 * (w + 6.0), r.top()),
-            vec2(w, r.height()),
-        );
+        let t = page_button(bar, i);
         let open = st.page == pg;
         let resp = ui.put(t, |ui: &mut Ui| {
             cabinet(ui, t.size(), &tr!(lang, key), Cab::Tactic, open)
