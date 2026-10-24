@@ -5,7 +5,16 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-  # weekly on main: keeps the caches alive (GitHub drops a cache after 7 days unused) and catches new problems
+    inputs:
+      release:
+        description: Build the release profile (what players get) instead of the ci profile (no LTO)
+        type: boolean
+        default: false
+      fingerprints:
+        description: Log why cargo rebuilds each crate (CARGO_LOG fingerprint=info) in the check step
+        type: boolean
+        default: false
+  # weekly on main: the release profile (pull requests and pushes check the ci profile), and new problems
   schedule:
     - cron: '17 4 * * 1'
 
@@ -68,6 +77,10 @@ jobs:
           persist-credentials: false
       - name: Rust toolchain (rust-toolchain.toml)
         run: rustup show active-toolchain || rustup toolchain install
+      # see build-test's cache stamp
+      - name: cache stamp (main)
+        if: github.ref == 'refs/heads/main'
+        run: mkdir -p ci-stamp/.cargo && echo "# run $GITHUB_RUN_ID" > ci-stamp/.cargo/config.toml
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -113,6 +126,10 @@ jobs:
     # windows-latest, windows-2025 and windows-2025-vs2026 all serve the VS 2026 image today; pin the explicit label
     runs-on: windows-2025-vs2026
     timeout-minutes: 90
+    env:
+      # the cargo profile of the kits and the tests (Cargo.toml [profile.ci]); not a CARGO_ variable, so the cache key
+      # stays the same for every run
+      PROFILE: ${{ (github.event_name == 'schedule' || inputs.release) && 'release' || 'ci' }}
     steps:
       # Defender deleted an old winmm.dll and flagged inject.exe and logowin.exe on players' PCs: the kits are scanned
       # here, and any detection while the tests run (behaviour monitoring included) fails the job
@@ -171,12 +188,21 @@ jobs:
       - uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2.87.30
         with:
           tool: cargo-nextest@0.9.148
-      # one cache for every Windows build (the shared key drops the job name from the key): main and pull requests
-      # save it (also when a check fails, so the compiling is kept); a pull request starts from main's cache and
-      # its later pushes from its own. release.yml's tag builds only restore it. Old entries fall out at 10 GB.
+      # rust-cache saves nothing over an exact key match, and its key changed only with Cargo.lock or a manifest: the
+      # first save under a key stayed for good (PR #25's log: "full match: true", then "Cache up-to-date."). This
+      # config file is never read by cargo (it is not in a parent folder of the build), but rust-cache hashes every
+      # .cargo/config.toml into the key, so each main run's key is its own and main saves a fresh cache each time
+      - name: cache stamp (main)
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        run: mkdir -p ci-stamp/.cargo && echo "# run $GITHUB_RUN_ID" > ci-stamp/.cargo/config.toml
+      # one cache for every Windows build (the shared key drops the job name from the key), written only by main (also
+      # when a check fails, so the compiling is kept): pull requests and release.yml's tag builds restore main's
+      # newest by the key's prefix. Old entries fall out at 10 GB.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: windows
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: true
       # the runner's desktop is 1024x768; the panel tests open a 1440x900 game window and a 1200x700 projector
       - name: screen 1920x1080
@@ -188,7 +214,9 @@ jobs:
           "screen $($b.Width)x$($b.Height)"
           if ($b.Width -lt 1600 -or $b.Height -lt 1000) { throw "screen still $($b.Width)x$($b.Height)" }
       - name: cargo xtask check ci (the GPU snapshot tests run in their own step)
-        run: cargo xtask check ci
+        env:
+          CARGO_LOG: ${{ inputs.fingerprints && 'cargo::compiler::fingerprint=info' || '' }}
+        run: cargo xtask check ci ${{ env.PROFILE == 'release' && '--release' || '' }}
       - name: Defender scan of the kits and the installer
         shell: pwsh
         env:
@@ -202,7 +230,7 @@ jobs:
           if ($age.TotalDays -gt 2) { "::warning::Defender signatures are $([int]$age.TotalDays) days old; the signature update may have failed" }
           Get-MpComputerStatus | Select-Object AMEngineVersion, AntivirusSignatureVersion | Format-List
           $bad = 0
-          foreach ($p in 'target\kit', 'target\x86_64-pc-windows-msvc\release\Forza-WCCF-Installer.exe') {
+          foreach ($p in 'target\kit', "target\x86_64-pc-windows-msvc\$env:PROFILE\Forza-WCCF-Installer.exe") {
             $full = (Resolve-Path $p).Path
             $out = & "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -Scan -ScanType 3 -File $full -DisableRemediation 2>&1 | Out-String
             $code = $LASTEXITCODE
@@ -265,7 +293,7 @@ jobs:
           name: kit
           path: |
             target/kit/**
-            target/x86_64-pc-windows-msvc/release/Forza-WCCF-Installer.exe
+            target/x86_64-pc-windows-msvc/${{ env.PROFILE }}/Forza-WCCF-Installer.exe
           retention-days: 3
           if-no-files-found: ignore
 
