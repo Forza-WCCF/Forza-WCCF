@@ -1,5 +1,5 @@
 //! logowin.exe (2026-10-09): control_Release starts the original logowin.exe for its logo and error screens
-//! (FUN_00453bd0: CreateProcessA("logowin.exe", "logowin.exe error=..." or "... warning=.. sega=.. allnet=.. mainid=..
+//! (FUN_00453bd0: CreateProcessA("logowin.exe", "logowin.exe error=..." or "... warning=.. allnet=.. mainid=..
 //! keychipid=..")), a white, always-on-top window over the whole screen. It only ever asks whether it still runs
 //! (GetExitCodeProcess == STILL_ACTIVE, FUN_00453f70) and, to end it, posts WM_CLOSE to the window "logowin" or calls
 //! TerminateProcess (FUN_00453ef0). So no program is started: the message goes to logowin_messages.txt in the current
