@@ -462,7 +462,6 @@ deal.foot: {en: "Click to flip. Click elsewhere to close.", it: "Clicca per gira
 # ---- closing the window during a card session ----
 close.title: {en: "MATCH IN PROGRESS", it: "PARTITA IN CORSO", ja: "試合中"}
 close.body: {en: "Closing now damages your card.", it: "Chiudere ora danneggia la carta.", ja: "今閉じるとカードが傷つきます。"}
-close.again: {en: "Close again within 8 s to quit.", it: "Chiudi di nuovo entro 8 s per uscire.", ja: "8 秒以内にもう一度閉じると終了します。"}
 
 # ---- online lobby ----
 lobby.title: {en: "LOBBY", it: "LOBBY", ja: "ロビー"}
@@ -535,3 +534,5 @@ settings.save_logs: {en: "SAVE LOGS", it: "SALVA LOG", ja: "ログを保存"}
 logs.saved: {en: "Saved: %{path}", it: "Salvato: %{path}", ja: "保存しました：%{path}"}
 logs.save_failed: {en: "Could not save: %{why}", it: "Salvataggio non riuscito: %{why}", ja: "保存できません：%{why}"}
 logs.save_title: {en: "Save logs", it: "Salva log", ja: "ログを保存"}
+close.keep: {en: "KEEP PLAYING", it: "CONTINUA A GIOCARE", ja: "プレイを続ける"}
+close.quit: {en: "QUIT NOW", it: "ESCI ORA", ja: "今すぐ終了"}

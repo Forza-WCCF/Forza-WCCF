@@ -465,6 +465,15 @@ pub struct PanelState {
     pub club_request: Option<ClubPick>,
     /// The window's close was refused during a card session: the warning shows (the panel DLL sets it while it holds).
     pub close_warn: bool,
+    /// The close dialog's answers this frame: QUIT clicked (the panel DLL lets the window close), KEEP PLAYING / Esc /
+    /// Enter (the dialog goes).
+    pub close_quit: bool,
+    pub close_keep: bool,
+    /// The game stopped under the panel (the control program is gone): the crash screen takes the board's place.
+    pub crash: bool,
+    /// SEND LOGS on the crash screen asked: the Launcher opens its report dialog (`ask_open_report` in the panel DLL).
+    pub open_report: bool,
+    pub report_sent: bool,
     /// A card dealt after a match: shown over the game for [`DEAL_SECS`], or until a click closes it.
     pub deal: Option<Deal>,
     /// The game's own frame as a texture of the panel DLL's painter; `None` draws the stand-in picture.
@@ -534,6 +543,11 @@ impl PanelState {
             club_armed: None,
             club_request: None,
             close_warn: false,
+            close_quit: false,
+            close_keep: false,
+            crash: false,
+            open_report: false,
+            report_sent: false,
             deal: None,
             picture: None,
             picture_rect: None,
@@ -734,7 +748,7 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
     );
     game_picture(ui, pic, st.picture);
     // the dealt card covers the picture: clicks there are its own
-    st.picture_rect = (st.page == Page::Game && st.deal.is_none()).then_some(pic);
+    st.picture_rect = (st.page == Page::Game && st.deal.is_none() && !st.close_warn).then_some(pic);
     if st.page == Page::Game {
         // a toast in the gap above the deck row when there is one, else over the picture's lower edge
         let gap = (deck.height() - ROW.y) / 2.0;
@@ -762,7 +776,7 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
         paused(ui, pic, lang, &key, left);
     }
     if st.close_warn {
-        close_warning(ui, area, lang, st.edition);
+        close_dialog(ui, st, lang);
     }
 }
 
@@ -811,50 +825,67 @@ fn paused(ui: &Ui, pic: Rect, lang: Lang, key: &str, left: u64) {
     }
 }
 
-/// The close warning over everything, as `wccfpanel.c` `close_draw`: a match is on, closing now costs the card a bad
-/// ending, a second close within 8 s quits anyway.
-fn close_warning(ui: &Ui, area: Rect, lang: Lang, edition: Edition) {
-    let p = ui.ctx().layer_painter(egui::LayerId::new(
-        egui::Order::Tooltip,
-        egui::Id::new("close-warn"),
-    ));
-    let r = Rect::from_center_size(area.center(), vec2(area.width() - 60.0, 150.0));
-    p.rect_filled(
-        r,
-        theme::RADIUS_BIG,
-        Color32::from_rgba_unmultiplied(24, 14, 14, 245),
-    );
-    p.rect_stroke(
-        r,
-        theme::RADIUS_BIG,
-        Stroke::new(3.0, theme::RED_TEXT),
-        StrokeKind::Inside,
-    );
-    let w = r.width() - 32.0;
-    for (i, (key, font, col)) in [
-        ("close.title", theme::display(30.0), theme::RED_TEXT),
-        // 2017-18 saves on the server: no card to damage
-        (
-            if edition == Edition::E1718 {
-                "close.body_1718"
-            } else {
-                "close.body"
-            },
-            theme::body(16.0),
-            theme::TEXT,
-        ),
-        ("close.again", theme::bold(16.0), theme::GOLD),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let g = widgets::fit(&p, &tr!(lang, key), font, col, w);
-        let y = r.top() + 30.0 + 42.0 * i as f32;
-        p.galley(
-            pos2(r.center().x - g.size().x / 2.0, y - g.size().y / 2.0),
-            g,
-            col,
-        );
+/// The close dialog over everything: a match is on, closing now costs the card a bad ending. KEEP PLAYING is the
+/// default (focused; Enter and Esc take it), QUIT needs its own click. The panel DLL ignores further close requests
+/// while the dialog is open.
+fn close_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
+    let edition = st.edition;
+    let modal = egui::Modal::new(egui::Id::new("close-dialog"))
+        .backdrop_color(Color32::from_black_alpha(170))
+        .frame(
+            egui::Frame::new()
+                .fill(Color32::from_rgb(24, 14, 14))
+                .stroke(Stroke::new(3.0, theme::RED_TEXT))
+                .corner_radius(theme::RADIUS_BIG)
+                .inner_margin(24),
+        )
+        .show(ui.ctx(), |ui| {
+            ui.set_width(440.0);
+            ui.vertical_centered(|ui| {
+                ui.spacing_mut().item_spacing.y = 12.0;
+                ui.label(
+                    egui::RichText::new(tr!(lang, "close.title"))
+                        .font(theme::display(32.0))
+                        .color(theme::RED_TEXT),
+                );
+                // 2017-18 saves on the server: no card to damage
+                let body = if edition == Edition::E1718 {
+                    "close.body_1718"
+                } else {
+                    "close.body"
+                };
+                ui.label(
+                    egui::RichText::new(tr!(lang, body))
+                        .font(theme::body(17.0))
+                        .color(theme::TEXT),
+                );
+                ui.add_space(8.0);
+                let keep = widgets::cabinet(
+                    ui,
+                    vec2(440.0, 56.0),
+                    &tr!(lang, "close.keep"),
+                    Cab::Go,
+                    true,
+                );
+                // the default: focused whenever the dialog is up
+                keep.request_focus();
+                let quit = widgets::cabinet(
+                    ui,
+                    vec2(440.0, 44.0),
+                    &tr!(lang, "close.quit"),
+                    Cab::Stop,
+                    false,
+                );
+                (keep, quit)
+            })
+            .inner
+        });
+    let (keep, quit) = modal.inner;
+    let key = ui.input(|i| i.key_pressed(egui::Key::Enter) || i.key_pressed(egui::Key::Escape));
+    if quit.clicked() {
+        st.close_quit = true;
+    } else if keep.clicked() || key {
+        st.close_keep = true;
     }
 }
 
@@ -1338,6 +1369,38 @@ fn page_bar(ui: &mut Ui, st: &mut PanelState, bar: Rect, lang: Lang) {
         g,
         theme::TEXT_FAINT,
     );
+}
+
+/// The card lamp: IN USE (amber), SAFE TO CLOSE (green), NO CARD (grey); a mark and a word, never colour alone.
+/// Closing is only unsafe while the session is open (the same rule as the close dialog). Returns the width it took.
+fn card_lamp(p: &egui::Painter, r: Rect, card: CardState, lang: Lang) -> f32 {
+    let (tone, key, col) = match card {
+        CardState::Open => (Some(Tone::Notice), "panel.lamp_in_use", theme::AMBER),
+        CardState::Closed | CardState::Cut => (Some(Tone::Done), "panel.lamp_safe", theme::GREEN),
+        _ => (None, "panel.lamp_none", theme::TEXT_DIM),
+    };
+    let g = p.layout_no_wrap(tr!(lang, key), theme::display(16.0), col);
+    let w = g.size().x + 44.0;
+    let pill = Rect::from_min_size(r.min, vec2(w, r.height()));
+    p.rect_filled(pill, 11, col.gamma_multiply(0.16));
+    p.rect_stroke(pill, 11, Stroke::new(1.0, col), StrokeKind::Inside);
+    let c = pos2(pill.left() + 14.0, pill.center().y);
+    match tone {
+        Some(t) => widgets::tone_icon(p, c, t),
+        None => {
+            p.circle_stroke(c, 8.0, Stroke::new(2.0, col));
+            p.line_segment(
+                [c - vec2(4.0, 0.0), c + vec2(4.0, 0.0)],
+                Stroke::new(2.0, col),
+            );
+        }
+    }
+    p.galley(
+        pos2(pill.left() + 28.0, pill.center().y - g.size().y / 2.0),
+        g,
+        col,
+    );
+    w
 }
 
 fn strip_ground(ui: &Ui) {

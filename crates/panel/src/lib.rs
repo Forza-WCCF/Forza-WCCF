@@ -120,8 +120,14 @@ static PROJ_FS: fullscreen::Slot = Mutex::new(None);
 static SHOWN: AtomicBool = AtomicBool::new(false);
 /// The player closed the window: the server link's drop that follows is the end (ENDED), not a loss.
 static CLOSING: AtomicBool = AtomicBool::new(false);
-/// A close refused during a card session, until this time (ms since START): a second close then quits.
-static CLOSE_UNTIL: AtomicU32 = AtomicU32::new(0);
+/// A close refused during a card session: the close dialog is open. Close requests are ignored while it is.
+static CLOSE_ASK: AtomicBool = AtomicBool::new(false);
+/// QUIT was clicked in the dialog: the next close request (the panel's own, posted) goes through.
+static CLOSE_OK: AtomicBool = AtomicBool::new(false);
+/// When the dialog opened (ms since START), for the tests' automatic answer.
+static CLOSE_SINCE: AtomicU32 = AtomicU32::new(0);
+/// The control link dropped without the player closing the window (link_watch's LOST): the crash screen shows.
+static LINK_LOST: AtomicBool = AtomicBool::new(false);
 static START: OnceLock<Instant> = OnceLock::new();
 /// The window's maximized state for WCCFPANEL_FS_RECT (tests: a pretend screen), and the size it had before.
 static TEST_MAX: Mutex<Option<RECT>> = Mutex::new(None);
@@ -432,12 +438,16 @@ fn link_watch() {
 }
 
 /// WM_CLOSE (`wccfpanel.c` `close_allowed`): during a card session (the club card or a manager transfer's new card,
-/// open since this run started) the first close only warns, for 8 s; a second close within them quits anyway.
+/// open since this run started) a close only opens the close dialog; the window closes when QUIT is clicked in it
+/// (`CLOSE_OK`). Further closes while the dialog is open do nothing. No card session: the window closes.
 fn close_allowed() -> bool {
-    let until = CLOSE_UNTIL.load(Relaxed);
-    if until != 0 && ms() < until {
-        log("close: closed again during the card session - the game ends");
+    if CLOSE_OK.swap(false, Relaxed) {
+        log("close: quit chosen in the dialog - the game ends");
         return true;
+    }
+    if CLOSE_ASK.load(Relaxed) {
+        log("close: the dialog is open - ignored");
+        return false;
     }
     let open = FILES.get().is_some_and(|f| {
         use launcher::card;
@@ -450,8 +460,9 @@ fn close_allowed() -> bool {
         log("close: the window closes - the game ends");
         return true;
     }
-    CLOSE_UNTIL.store(ms() + 8000, Relaxed);
-    log("close: a card session is open - warned, not closed");
+    CLOSE_SINCE.store(ms(), Relaxed);
+    CLOSE_ASK.store(true, Relaxed);
+    log("close: a card session is open - dialog opened, not closed");
     false
 }
 
@@ -1264,10 +1275,16 @@ impl Render {
                 self.st.ping_ms = u32::try_from(ms).unwrap_or(u32::MAX);
             }
         }
-        let until = CLOSE_UNTIL.load(Relaxed);
-        self.st.close_warn = until != 0 && ms() < until;
+        self.st.close_warn = CLOSE_ASK.load(Relaxed);
+        self.st.crash = LINK_LOST.load(Relaxed);
         if self.st.close_warn {
             self.ctx.request_repaint();
+            // tests: WCCFPANEL_CLOSETEST=quit answers QUIT two seconds after the dialog opened
+            if std::env::var("WCCFPANEL_CLOSETEST").is_ok_and(|v| v == "quit")
+                && ms().wrapping_sub(CLOSE_SINCE.load(Relaxed)) > 2000
+            {
+                self.st.close_quit = true;
+            }
         }
         let dealt = self.st.deal.as_ref().map(|d| d.back);
         let st = &mut self.st;
@@ -1281,6 +1298,7 @@ impl Render {
             }),
             _ => {}
         }
+        self.close_out();
         WANTS_KEYS.store(self.ctx.egui_wants_keyboard_input(), Relaxed);
         pause::KEY.store(self.st.keys[forza::keys::PAUSE], Relaxed);
         if std::mem::take(&mut self.st.pause_asked) {
@@ -1402,10 +1420,26 @@ impl Render {
         }
     }
 
+    /// The close dialog's answer: KEEP PLAYING shuts it; QUIT lets the next close through and posts it.
+    fn close_out(&mut self) {
+        if std::mem::take(&mut self.st.close_keep) {
+            CLOSE_ASK.store(false, Relaxed);
+            log("close: kept playing");
+        }
+        if std::mem::take(&mut self.st.close_quit) {
+            CLOSE_ASK.store(false, Relaxed);
+            CLOSE_OK.store(true, Relaxed);
+            let h = HWND(WINDOW.load(Relaxed) as *mut c_void);
+            // SAFETY: a message to a window of this process, handled by our window procedure on its thread
+            let _ = unsafe { PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0)) };
+        }
+    }
+
     /// A page opened or closed: while one is open, the key driver leaves the keys alone (the window's WCCF_TYPING, as
     /// the C panel sets it), and the window procedure keeps them from the game.
     fn page_open(&mut self) {
-        let open = self.st.page != panel::Page::Game;
+        // the close dialog and the crash screen hold the keys too
+        let open = self.st.page != panel::Page::Game || self.st.close_warn || self.st.crash;
         if PAGE_OPEN.swap(open, Relaxed) == open {
             return;
         }
@@ -1424,7 +1458,16 @@ impl Render {
                 }
             }
         }
-        log(&format!("page {}", self.st.page.tag()));
+        log(&format!(
+            "page {}{}{}",
+            self.st.page.tag(),
+            if self.st.close_warn {
+                " (close dialog)"
+            } else {
+                ""
+            },
+            if self.st.crash { " (crash screen)" } else { "" }
+        ));
     }
 
     /// SETTINGS: opened, data\panel.txt read again (the run may have done a request since) and NOW read; while open, NOW
