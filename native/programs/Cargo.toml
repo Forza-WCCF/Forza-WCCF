@@ -89,5 +89,18 @@ required-features = ["programs"]
 name = "test_panel"
 required-features = ["programs"]
 
+# tests of the 2010-11 server hook (forza-hook e1011-server), run under Wine
+[[bin]]
+name = "msgguard_test"
+required-features = ["programs"]
+
+[[bin]]
+name = "sleepfix_test"
+required-features = ["programs"]
+
+[[bin]]
+name = "spinfix_test"
+required-features = ["programs"]
+
 [lints]
 workspace = true

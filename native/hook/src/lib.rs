@@ -1,4 +1,4 @@
-//! The hook in the game's programs, the PC stand-in for the cabinet's hardware: one source, two DLLs (Cargo.toml's
+//! The hook in the game's programs, the PC stand-in for the cabinet's hardware: one source, three DLLs (Cargo.toml's
 //! features). Loaded only by the game's programs, never injected; it patches the import table of the program that
 //! loaded it, nothing else. What it does:
 //!  - logs every device open, file mapping and DeviceIoControl and passes each on ([`devices`]); with
@@ -7,18 +7,30 @@
 //!  - blocks the DHCP release and renew on the host's network card, which dropped the player's LAN, and presents this
 //!    PC to the game with one address in the cabinet's network ([`net`]);
 //!  - 2010-11: answers the server's start of logowin.exe itself ([`logowin`]) and gives the server the players'
-//!    messages only whole ([`whole`]).
+//!    messages only whole ([`whole`]);
+//!  - the 2010-11 server under Wine: loads netguard.dll and fixes three faults of control ([`server`]).
 //!
-//! The portable parts (the batch rules, the fake BIOS area, MXHOOK_COM, the logowin test) build and test on any host;
-//! the rest is for the game's 32-bit Windows.
+//! The portable parts (the batch rules, the fake BIOS area, MXHOOK_COM, the logowin test, the server fixes' rules) build
+//! and test on any host; the rest is for the game's 32-bit Windows.
 #![cfg_attr(not(target_arch = "x86"), allow(dead_code))]
 
-#[cfg(all(target_arch = "x86", not(any(feature = "e1011", feature = "e1718"))))]
-compile_error!("forza-hook is built with --features e1011 (wccfk.dll) or e1718 (winmm.dll)");
-#[cfg(all(feature = "e1011", feature = "e1718"))]
-compile_error!("forza-hook: e1011 and e1718 are two DLLs, one at a time");
+#[cfg(all(
+    target_arch = "x86",
+    not(any(feature = "e1011", feature = "e1718", feature = "e1011-server"))
+))]
+compile_error!(
+    "forza-hook is built with --features e1011 (wccfk.dll), e1718 (winmm.dll) or e1011-server (the server's winmm.dll)"
+);
+#[cfg(any(
+    all(feature = "e1011", feature = "e1718"),
+    all(feature = "e1011", feature = "e1011-server"),
+    all(feature = "e1718", feature = "e1011-server")
+))]
+compile_error!("forza-hook: e1011, e1718 and e1011-server are three DLLs, one at a time");
 
 mod dmi;
+#[cfg_attr(not(feature = "e1011-server"), allow(dead_code))]
+mod fixes;
 #[cfg_attr(not(feature = "e1011"), allow(dead_code))]
 mod logowin;
 mod ports;
@@ -35,6 +47,8 @@ mod net;
 mod patch;
 #[cfg(target_arch = "x86")]
 mod serial;
+#[cfg(all(target_arch = "x86", feature = "e1011-server"))]
+mod server;
 #[cfg(all(target_arch = "x86", feature = "e1011"))]
 mod whole;
 
@@ -67,6 +81,8 @@ extern "system" fn DllMain(
 fn install() -> bool {
     use log::log;
     use std::sync::atomic::Ordering::Relaxed;
+    #[cfg(feature = "e1011-server")]
+    server::load_netguard();
     let dev = devices::install();
     let (release, renew, dhcp_unsure) = net::install_dhcp();
     #[cfg(feature = "e1011")]
@@ -74,6 +90,8 @@ fn install() -> bool {
 
     // setup (crates/forza/src/setup/e1011.rs) finds the hook by these words in the file
     log!("==== mxhook attached (pid {}) ====", std::process::id());
+    #[cfg(feature = "e1011-server")]
+    server::install();
     let ringedge = std::env::var("MXHOOK_RINGEDGE").is_ok_and(|v| v == "1");
     devices::RINGEDGE.store(ringedge, Relaxed);
     serial::install();
