@@ -29,7 +29,7 @@ const BOARD_HEAD: f32 = 0.0;
 /// The least size, in points, of a hint or a bar label (the theme's Small is 12; hints on a TV-sized seat need more).
 const HINT: f32 = 13.0;
 /// The bar of page buttons along the bottom of the middle.
-const TABS_H: f32 = 64.0;
+const TABS_H: f32 = 56.0;
 /// The deck row under the picture keeps at least this; on wide sheets the picture stops growing first.
 const DECK_MIN: f32 = 148.0;
 /// What the board's height needs per point of pitch width (pitch 1.25, bench, hint) and besides (head, margins).
@@ -1355,7 +1355,7 @@ fn page_bar(ui: &mut Ui, st: &mut PanelState, bar: Rect, lang: Lang) {
         r.max,
     );
     let row =
-        |i: f32| Rect::from_min_size(right.min + vec2(0.0, i * 26.0), vec2(right.width(), 22.0));
+        |i: f32| Rect::from_min_size(right.min + vec2(0.0, i * 24.0), vec2(right.width(), 22.0));
     let p = ui.painter();
     let mut x = right.left();
     if st.edition != Edition::E1718 {
