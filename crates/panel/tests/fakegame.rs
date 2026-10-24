@@ -91,11 +91,11 @@ fn panel_draws_in_fakegame() {
 
     let game = image::open(t.join("game.bmp")).unwrap().to_rgb8();
     assert_eq!(game.dimensions(), (1440, 900));
-    // the formation board's pitch (theme::PITCH, PITCH_STRIPE) fills much of the right 580 pixels
+    // the formation board's mat (theme::MAT, MAT_STRIPE) fills much of the right 580 pixels
     let pitch = count(
         &game,
         (860, 0, 1440, 900),
-        &[[0x1E, 0x7A, 0x3C], [0x22, 0x8A, 0x43]],
+        &[[0x33, 0x4B, 0x25], [0x41, 0x5E, 0x30]],
     );
     assert!(
         pitch > 580 * 900 / 4,
