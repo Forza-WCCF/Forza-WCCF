@@ -431,6 +431,12 @@ fn save_logs(kit: &Path, game: Option<&Path>, parent: Option<&eframe::Frame>) ->
     }
 }
 
+/// A network tool's error as the player reads it (`launcher::report::plain`); the tool's own words go to the log.
+fn plain_error(raw: &str) -> String {
+    launcher::logs::append(&Kit::here().logs().join("launcher.txt"), &format!("  error: {raw}"));
+    t(launcher::report::plain(raw))
+}
+
 /// The game folder setup recorded (its logs and seat 1's go in a report).
 fn game_folder(kit: &Kit) -> Option<PathBuf> {
     let f = choices::setting(&kit.settings_file(), "game")?;
@@ -554,7 +560,12 @@ fn ask_updates() {
                     s.listed = true;
                 }
                 Ok(_) => s.update_note = Some((Tone::Done, t("launcher.msg_none_listed"))),
-                Err(e) => s.update_note = Some((Tone::Refused, tf("launcher.msg_no_answer", &[("error", &e)]))),
+                Err(e) => {
+                    s.update_note = Some((
+                        Tone::Refused,
+                        tf("launcher.msg_no_answer", &[("error", &plain_error(&e))]),
+                    ))
+                }
             }
         }
         poke();

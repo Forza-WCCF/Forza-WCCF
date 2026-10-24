@@ -20,7 +20,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::text::{t, tf};
-use crate::{log, say};
+use crate::{log, plain_error, say};
 
 /// Launchers of earlier kits that this one replaced: removed unless the kit lists them.  SETUP.exe went into the
 /// one window in 2026-10-10; that window was PLAY.exe until it became Launcher.exe.
@@ -179,7 +179,12 @@ pub fn apply(kit: &Kit, r: &Release) -> Result<(), String> {
         .args(["--url", &r.zip_url])
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| tf("launcher.msg_download_failed", &[("error", &e.to_string())]))?;
+        .map_err(|e| {
+            tf(
+                "launcher.msg_download_failed",
+                &[("error", &plain_error(&e.to_string()))],
+            )
+        })?;
     while child.try_wait().map_err(|e| e.to_string())?.is_none() {
         let got = fs::metadata(&zip).map_or(0, |m| m.len());
         let mb = |b: u64| b as f64 / 1_048_576.0;
@@ -196,10 +201,8 @@ pub fn apply(kit: &Kit, r: &Release) -> Result<(), String> {
     }
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
     if !out.status.success() {
-        return Err(tf(
-            "launcher.msg_download_failed",
-            &[("error", String::from_utf8_lossy(&out.stderr).trim())],
-        ));
+        let why = plain_error(String::from_utf8_lossy(&out.stderr).trim());
+        return Err(tf("launcher.msg_download_failed", &[("error", &why)]));
     }
 
     if let Err(e) = verify(&zip, &expected) {
@@ -216,12 +219,13 @@ pub fn apply(kit: &Kit, r: &Release) -> Result<(), String> {
         .arg("-C")
         .arg(&unzipped)
         .output()
-        .map_err(|e| tf("launcher.msg_unzip_failed", &[("error", &e.to_string())]))?;
+        .map_err(|e| {
+            log(&format!("  tar: {e}"));
+            t("launcher.msg_unzip_failed")
+        })?;
     if !out.status.success() {
-        return Err(tf(
-            "launcher.msg_unzip_failed",
-            &[("error", String::from_utf8_lossy(&out.stderr).trim())],
-        ));
+        log(&format!("  tar: {}", String::from_utf8_lossy(&out.stderr).trim()));
+        return Err(t("launcher.msg_unzip_failed"));
     }
     // the ZIP holds one folder (Forza-WCCF-2010-11\, or WCCF-2010-11-kit\ in older releases): whichever holds Launcher.exe
     let top = fs::read_dir(&unzipped)

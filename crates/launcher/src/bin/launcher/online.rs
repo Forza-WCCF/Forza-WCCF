@@ -2,7 +2,7 @@
 //! while the lease waits for the run, the last seat offered again within 75 s, and the VS rooms: HOST VS, READY, the
 //! 5 s countdown that starts the run, the CPU fallback (`launcher::lobby` has the workers).
 
-use super::{poke, refuse, t, tf};
+use super::{plain_error, poke, refuse, t, tf};
 use forza::online::lobby::{Created, HEARTBEAT_EVERY, Reserved};
 use forza_ui::launcher::LauncherState;
 use forza_ui::lobby::{Kind, LobbyAction, Notice, Occupant, Room};
@@ -213,7 +213,7 @@ impl Online {
                         Ok(false) => {}
                         Err(e) => {
                             self.clock.ready = false;
-                            refuse(tf("launcher.msg_no_answer", &[("error", &e)]));
+                            refuse(plain_error(&e));
                         }
                     }
                 }
@@ -337,7 +337,7 @@ impl Online {
                 });
             }
             Ok(Created::Full) => refuse(t("launcher.msg_rooms_full")),
-            Err(e) => refuse(tf("launcher.msg_no_answer", &[("error", &e)])),
+            Err(e) => refuse(plain_error(&e)),
         }
     }
 
@@ -403,7 +403,7 @@ impl Online {
                 self.book.reselect = true;
                 p.refresh();
             }
-            Err(e) => refuse(tf("launcher.msg_no_answer", &[("error", &e)])),
+            Err(e) => refuse(plain_error(&e)),
         }
     }
 
