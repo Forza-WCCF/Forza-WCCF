@@ -751,7 +751,8 @@ impl Game {
 enum Event {
     /// A game program's debugger thread ended (by its id): its window was closed, it crashed, or the run stopped it.
     Ended(u32),
-    Restart,
+    /// RESTART NOW from the panel; true when its crash screen asked it (`force=crashed`: the control is gone).
+    Restart(bool),
     Request(String),
     SaveLogs,
     Report,
@@ -1938,8 +1939,10 @@ impl Run<'_> {
             loop {
                 thread::sleep(Duration::from_millis(500));
                 let mut events = Vec::new();
-                if kind == Kind::Run && take(&data.join("restart.request")).is_some() {
-                    events.push(Event::Restart);
+                if kind == Kind::Run
+                    && let Some(text) = take(&data.join("restart.request"))
+                {
+                    events.push(Event::Restart(rules::restart_forced(&text)));
                 }
                 if let Some(word) = take(&data.join(format!("{}.request", kind.name()))) {
                     events.push(Event::Request(word.trim().to_owned()));
@@ -1981,7 +1984,7 @@ impl Run<'_> {
             };
             let end = match ev {
                 Event::Ended(id) => self.ended(id),
-                Event::Restart => self.restart(),
+                Event::Restart(force) => self.restart(force),
                 Event::Request(word) => self.answer(&word),
                 Event::SaveLogs => {
                     self.ui.save_logs(self.kit.dir(), &self.game);
@@ -2179,7 +2182,7 @@ impl Run<'_> {
 
     /// RESTART NOW: the cabinet alone when a plain start would play the same way, else a stop (the card rule) and a
     /// plain start.
-    fn restart(&mut self) -> Option<End> {
+    fn restart(&mut self, force: bool) -> Option<End> {
         self.say("Restart requested.");
         let panel = choices::read(&self.kit.data().join("panel.txt"));
         let club = choices::setting(&self.kit.settings_file(), "club_server").unwrap_or_default();
@@ -2190,7 +2193,7 @@ impl Run<'_> {
             self.kit.game_language(),
             (&club, self.vs_target.as_ref()),
         );
-        if let Some(why) = self.refusal(false) {
+        if let Some(why) = self.refusal(force) {
             self.say(&why);
             self.say("Not restarted: the game is still running.");
             return None;

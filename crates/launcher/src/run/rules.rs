@@ -183,6 +183,12 @@ pub fn parse(words: &[String]) -> Words {
     }
 }
 
+/// A restart.request from the panel's crash screen (its line `force=crashed`): the control is gone, so the match and
+/// the card session are lost already and the card rule must not keep the dead game running.
+pub fn restart_forced(request: &str) -> bool {
+    request.lines().any(|l| l.trim() == "force=crashed")
+}
+
 /// The card rule (play.py's stop_guard): while seat 1 runs, nothing that would end it goes on while the club card is in
 /// the reader or a card session is open - unless forced.  The refusal's words, or None to go on.
 pub fn card_rule(seat_up: bool, force: bool, card_in: Option<bool>, session: Session) -> Option<String> {
@@ -690,6 +696,15 @@ mod tests {
         assert!(seat_refusal(&e(Fault::Taken, "TAKEN 2"), Some(2), "20.0.0.1").starts_with("seat 2 is taken"));
         assert_eq!(e(Fault::NoBroker, "refused").no_desk_seat(None), Some((1, true)));
         assert_eq!(e(Fault::Full, "").no_desk_seat(None), None);
+    }
+
+    #[test]
+    fn only_the_crash_screen_forces_a_restart() {
+        assert!(restart_forced(
+            "RESTART NOW - asked by the CRASH panel in seat 1 (pid 7)\nforce=crashed\n"
+        ));
+        assert!(!restart_forced("RESTART NOW - asked by the panel in seat 1 (pid 7)\n"));
+        assert!(!restart_forced("force=crashedx"));
     }
 
     #[test]
