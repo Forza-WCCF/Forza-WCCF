@@ -1591,7 +1591,14 @@ fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, tile: Vec2, back:
     let card = &*real(ui.ctx(), card);
     let screen = ui.ctx().content_rect();
     let room = vec2(board_left - 32.0 - screen.left(), screen.height() - 32.0);
-    let size = tile * big_scale(tile, room);
+    // no bigger than the card picture's own pixels; the caption shrinks a little with it, never under 9/10
+    let fit = big_scale(tile, room);
+    let k = fit.min(crate::sizing::big_scale(
+        tile.x,
+        ui.ctx().pixels_per_point(),
+    ));
+    let t = (k / fit).clamp(0.9, 1.0);
+    let size = tile * k;
     // the map under its 22 px heading, as tall as the card
     let map = vec2((size.y - 22.0) / PITCH_ASPECT, size.y - 22.0);
     // turned over: the back, as wide as the face and the map unless that is too tall
@@ -1646,7 +1653,7 @@ fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, tile: Vec2, back:
                                 ui.spacing_mut().item_spacing.y = 4.0;
                                 ui.label(
                                     egui::RichText::new(tr!(lang, "board.positions"))
-                                        .font(theme::display(14.0))
+                                        .font(theme::display(14.0 * t))
                                         .color(theme::TEXT_DIM),
                                 );
                                 let (m, _) = ui.allocate_exact_size(map, Sense::hover());
@@ -1656,7 +1663,7 @@ fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, tile: Vec2, back:
                     }
                     ui.label(
                         egui::RichText::new(&card.name)
-                            .font(theme::display(20.0))
+                            .font(theme::display(20.0 * t))
                             .color(theme::TEXT),
                     );
                     ui.label(
@@ -1664,7 +1671,7 @@ fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, tile: Vec2, back:
                             "{} · {} · {}",
                             card.club, card.country, card.season
                         ))
-                        .font(theme::body(12.0))
+                        .font(theme::body(12.0 * t))
                         .color(theme::TEXT_DIM),
                     );
                     let top = card.aptitude.top();
@@ -1676,7 +1683,7 @@ fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, tile: Vec2, back:
                             .join(" · ");
                         ui.label(
                             egui::RichText::new(tr!(lang, "board.roles", roles = roles))
-                                .font(theme::body(12.0))
+                                .font(theme::body(12.0 * t))
                                 .italics()
                                 .color(theme::TEXT_DIM),
                         );
@@ -1687,7 +1694,7 @@ fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, tile: Vec2, back:
                     if card.secret {
                         ui.label(
                             egui::RichText::new(tr!(lang, "cat.secret"))
-                                .font(theme::display(18.0))
+                                .font(theme::display(18.0 * t))
                                 .color(theme::TEXT_DIM),
                         );
                     } else {
@@ -1698,7 +1705,7 @@ fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, tile: Vec2, back:
                                 for k in stats {
                                     ui.label(
                                         egui::RichText::new(tr!(lang, k))
-                                            .font(theme::display(12.0))
+                                            .font(theme::display(12.0 * t))
                                             .color(theme::TEXT_DIM),
                                     );
                                 }
@@ -1706,7 +1713,7 @@ fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, tile: Vec2, back:
                                 for v in card.stats {
                                     ui.label(
                                         egui::RichText::new(v.to_string())
-                                            .font(theme::display(18.0))
+                                            .font(theme::display(18.0 * t))
                                             .color(super::widgets::stat_color(v)),
                                     );
                                 }
@@ -1721,7 +1728,7 @@ fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, tile: Vec2, back:
                                 "board.flip"
                             }
                         ))
-                        .font(theme::body(11.0))
+                        .font(theme::body(11.0 * t))
                         .color(theme::TEXT_FAINT),
                     );
                 });
