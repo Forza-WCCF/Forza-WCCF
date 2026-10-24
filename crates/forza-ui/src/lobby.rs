@@ -162,6 +162,10 @@ pub enum LobbyAction {
     Refresh,
     Ready,
     Leave,
+    /// No opponent: wait for one again instead of the CPU team.
+    KeepWaiting,
+    /// No opponent: start the CPU match now.
+    CpuNow,
     /// The typed address, on Enter in the Direct address field.
     DirectAddress(String),
 }
@@ -1035,6 +1039,19 @@ fn room_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
     }
     let gap = 8.0;
     let size = vec2((w - gap) / 2.0, 40.0);
+    if room.cpu && room.countdown.is_some() {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = gap;
+            let wait = tr!(lang, "lobby.keep_waiting");
+            if cabinet(ui, size, &wait, Cab::Plain, false).clicked() {
+                *act = Some(LobbyAction::KeepWaiting);
+            }
+            if cabinet(ui, size, &tr!(lang, "lobby.cpu_now"), Cab::Go, false).clicked() {
+                *act = Some(LobbyAction::CpuNow);
+            }
+        });
+        ui.add_space(8.0);
+    }
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = gap;
         let can = !room.ready_here() && room.countdown.is_none();

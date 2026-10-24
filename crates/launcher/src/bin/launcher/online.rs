@@ -16,6 +16,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// The countdown from both ready to the run.
 const COUNTDOWN: Duration = Duration::from_secs(5);
+/// The countdown from no opponent to the CPU match: time for KEEP WAITING or PLAY CPU NOW.
+const CPU_COUNTDOWN: Duration = Duration::from_secs(10);
 /// READY alone this long: the run starts anyway and the game gives a CPU team. The client polls REQ_MATCH every 10 s,
 /// `vs::POLLS` times, the first 10 s after its entry, so its control commits the CPU fallback about 10 * POLLS s in; 10 s
 /// more of margin.
@@ -50,6 +52,46 @@ struct Clock {
     go: Option<Instant>,
     cpu: bool,
     asked: Option<Instant>,
+}
+
+impl Clock {
+    /// One look at the room (`alone`: a seat still empty): READY alone for [`VS_WAIT`] turns to the CPU team and its
+    /// countdown, every seat ready to the start's; true when the countdown ran out (the run starts).
+    fn tick(&mut self, now: Instant, alone: bool, all_ready: bool) -> bool {
+        self.alone = if self.ready && alone {
+            self.alone.or(Some(now))
+        } else {
+            None
+        };
+        if self.alone.is_some_and(|t| now >= t + VS_WAIT) {
+            self.cpu = true;
+        }
+        if all_ready || self.cpu {
+            let wait = if all_ready { COUNTDOWN } else { CPU_COUNTDOWN };
+            self.go.get_or_insert(now + wait);
+        } else {
+            self.go = None; // the opponent left during the countdown
+        }
+        self.go.is_some_and(|t| now >= t)
+    }
+
+    /// The seconds the countdown has left.
+    fn left(&self, now: Instant) -> Option<u32> {
+        self.go
+            .map(|t| t.saturating_duration_since(now).as_secs_f32().ceil() as u32)
+    }
+
+    /// KEEP WAITING: no CPU team; the wait for an opponent starts again.
+    fn keep_waiting(&mut self, now: Instant) {
+        (self.cpu, self.go, self.alone) = (false, None, Some(now));
+    }
+
+    /// PLAY CPU NOW: the CPU countdown ends at the next look.
+    fn cpu_now(&mut self, now: Instant) {
+        if self.cpu {
+            self.go = Some(now);
+        }
+    }
 }
 
 /// The last seat, in data\settings.json "lobby_last".
@@ -284,23 +326,13 @@ impl Online {
         room.seats = seats;
         let c = &mut self.clock;
         let alone = room.seats.iter().any(Option::is_none);
-        c.alone = if c.ready && alone { c.alone.or(Some(now)) } else { None };
-        if c.alone.is_some_and(|t| now >= t + VS_WAIT) {
-            c.cpu = true;
-        }
-        if room.all_ready() || c.cpu {
-            c.go.get_or_insert(now + COUNTDOWN);
-        } else {
-            c.go = None; // the opponent left during the countdown
-        }
+        let go = c.tick(now, alone, room.all_ready());
         room.cpu = c.cpu;
-        room.countdown =
-            c.go.map(|t| t.saturating_duration_since(now).as_secs_f32().ceil() as u32);
-        if c.go.is_some_and(|t| now >= t) {
+        room.countdown = c.left(now);
+        if go {
             *c = Clock::default();
-            return true;
         }
-        false
+        go
     }
 
     fn created(&mut self, st: &mut LauncherState, settings: &Path, server: String, result: Result<Created, String>) {
@@ -441,6 +473,8 @@ impl Online {
                     p.ready(&h.server, id, &h.ticket, Arc::new(poke));
                 }
             }
+            LobbyAction::KeepWaiting => self.clock.keep_waiting(Instant::now()),
+            LobbyAction::CpuNow => self.clock.cpu_now(Instant::now()),
             LobbyAction::Refresh => self.poller.iter().for_each(Poller::refresh),
             LobbyAction::Leave => {
                 if st.lobby.room.is_some() {
@@ -471,5 +505,42 @@ impl Online {
         if let (Some(p), Some(l)) = (&self.poller, &self.last) {
             p.reserve(&l.server, &l.id, &l.name, Some(l.seat), Arc::new(poke));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// No opponent in time: the CPU countdown; KEEP WAITING starts the wait again, the countdown running out or PLAY
+    /// CPU NOW starts the run.
+    #[test]
+    fn the_cpu_countdown_waits_on_or_starts() {
+        let t0 = Instant::now();
+        let ready = || Clock {
+            ready: true,
+            ..Clock::default()
+        };
+        let mut c = ready();
+        assert!(!c.tick(t0, true, false));
+        let t1 = t0 + VS_WAIT;
+        assert!(!c.tick(t1, true, false));
+        assert!(c.cpu);
+        assert_eq!(c.left(t1), Some(CPU_COUNTDOWN.as_secs() as u32));
+        c.keep_waiting(t1);
+        assert!(!c.tick(t1 + CPU_COUNTDOWN, true, false), "kept waiting");
+        assert!(!c.cpu && c.left(t1).is_none());
+        // alone the whole wait again: the countdown again, and its end starts the run
+        let t2 = t1 + VS_WAIT;
+        assert!(!c.tick(t2, true, false) && c.cpu);
+        assert!(!c.tick(t2 + CPU_COUNTDOWN / 2, true, false));
+        assert!(c.tick(t2 + CPU_COUNTDOWN, true, false));
+
+        let mut c = ready();
+        c.cpu_now(t0); // no CPU team yet: nothing
+        assert!(!c.tick(t0, true, false));
+        assert!(!c.tick(t1, true, false));
+        c.cpu_now(t1);
+        assert!(c.tick(t1, true, false));
     }
 }

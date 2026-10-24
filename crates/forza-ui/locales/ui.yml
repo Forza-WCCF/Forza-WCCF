@@ -518,6 +518,8 @@ lobby.wait_opponent: {en: "Waiting for an opponent…", it: "In attesa di un avv
 lobby.both_ready_in: {en: "Both ready: starting in %{s} s", it: "Entrambi pronti: si parte tra %{s} s", ja: "両者準備OK：%{s} 秒後に開始します"}
 lobby.starting_in: {en: "Starting in %{s} s", it: "Si parte tra %{s} s", ja: "%{s} 秒後に開始します"}
 lobby.cpu: {en: "No opponent: CPU team.", it: "Nessun avversario: squadra CPU.", ja: "対戦相手なし：CPUチーム。"}
+lobby.keep_waiting: {en: "KEEP WAITING", it: "ASPETTA ANCORA", ja: "待ち続ける"}
+lobby.cpu_now: {en: "PLAY CPU NOW", it: "GIOCA CON LA CPU", ja: "今すぐCPU戦"}
 lobby.stale_room: {en: "Updated %{s} s ago.", it: "Aggiornato %{s} s fa.", ja: "%{s} 秒前の情報です。"}
 
 # ---- pause (the panel holds the match, at most 20 s) ----
