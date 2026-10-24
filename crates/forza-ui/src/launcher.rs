@@ -63,6 +63,25 @@ pub enum Action {
     Lobby(LobbyAction),
     /// "Rejoin ..." (`rejoin`): reserve the last seat again.
     Rejoin,
+    /// REPORT A PROBLEM: open the report dialog (`report`).
+    Report,
+    /// SEND in the report dialog: its words and the logs to the server.
+    SendReport,
+}
+
+/// The report dialog: the player's words, what goes with them, and how the sending went.
+#[derive(Clone, Debug, Default)]
+pub struct ReportForm {
+    /// Opened after a crash: the title says so.
+    pub crashed: bool,
+    pub words: String,
+    /// What is sent, by the names in the ZIP.
+    pub contents: Vec<String>,
+    pub sending: bool,
+    /// The outcome line: the report number, or why it did not go.
+    pub result: Option<(Tone, String)>,
+    /// The server took it: only CLOSE is left.
+    pub sent: bool,
 }
 
 /// A question in a modal: a title, an optional body, the button that says yes and what yes does.
@@ -133,6 +152,8 @@ pub struct LauncherState {
     pub output: Vec<String>,
     /// A question shown in a modal.
     pub confirm: Option<Confirm>,
+    /// The report dialog, when open.
+    pub report: Option<ReportForm>,
     /// STOP THE GAME is armed until this time (egui seconds); a second click before it stops the game.
     pub stop_armed: f64,
 }
@@ -161,6 +182,8 @@ pub enum Scenario {
     Busy,
     /// ONLINE chosen: the lobby with sample rows.
     Online,
+    /// The report dialog after a crash, words typed.
+    Report,
 }
 
 /// An empty lobby for the edition: the kind with nothing behind it greyed (2010–11 VS); 2017–18 shops are listed, view-only.
@@ -229,6 +252,7 @@ impl LauncherState {
             .map(String::from)
             .into(),
             confirm: None,
+            report: None,
             stop_armed: 0.0,
         };
         if edition == Edition::E1718 {
@@ -264,7 +288,7 @@ impl LauncherState {
                     tr!(
                         lang,
                         "launcher.msg_no_answer",
-                        error = "curl: (6) Could not resolve host"
+                        error = tr!(lang, "net.offline").as_str()
                     ),
                 ));
             }
@@ -274,6 +298,25 @@ impl LauncherState {
                 v.grey = st.lobby.grey;
                 v.kind = st.lobby.kind;
                 st.lobby = v;
+            }
+            Scenario::Report => {
+                st.status = Some((Tone::Refused, tr!(lang, "launcher.msg_went_wrong")));
+                st.report = Some(ReportForm {
+                    crashed: true,
+                    words: "Seat 1 froze after the second match.".into(),
+                    contents: [
+                        "report.txt",
+                        "logs/launcher.txt",
+                        "logs/run_seat1.txt",
+                        "logs/hook/mxhook_4120.log",
+                        "seat1/forza_panel.log",
+                        "data/panel.txt",
+                        "version.txt",
+                    ]
+                    .map(String::from)
+                    .into(),
+                    ..ReportForm::default()
+                });
             }
             Scenario::Busy => {
                 st.busy = true;
@@ -363,19 +406,32 @@ pub fn show(ui: &mut Ui, st: &mut LauncherState) -> Option<Action> {
                         |ui| output(ui, st, lang, &mut act),
                     );
                     st.output_open = open;
-                    if !st.updates {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-                            ui.label(
-                                egui::RichText::new(version)
-                                    .font(theme::body(12.0))
-                                    .color(theme::TEXT_FAINT),
+                    ui.horizontal(|ui| {
+                        if action(ui, &tr!(lang, "launcher.report_problem")).clicked() {
+                            act = Some(Action::Report);
+                        }
+                        if !st.updates {
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.label(
+                                        egui::RichText::new(version)
+                                            .font(theme::body(12.0))
+                                            .color(theme::TEXT_FAINT),
+                                    );
+                                },
                             );
-                        });
-                    }
+                        }
+                    });
                 });
         });
     if let Some(c) = st.confirm.clone()
         && let Some(a) = confirm_modal(ui, st, &c, lang)
+    {
+        act = Some(a);
+    }
+    if st.report.is_some()
+        && let Some(a) = report_modal(ui, st, lang)
     {
         act = Some(a);
     }
@@ -428,6 +484,13 @@ fn play(
             }
         });
         ui.add_space(4.0);
+        footer(ui, st, lang, act);
+    });
+}
+
+/// PLAY / STOP THE GAME, the start's bar and the status line.
+fn footer(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Action>) {
+    {
         let size = vec2(ui.available_width(), 64.0);
         let now = ui.input(|i| i.time);
         let armed = st.running && st.stop_armed > now;
@@ -472,7 +535,7 @@ fn play(
         } else if let Some((tone, text)) = &st.status {
             status_line(ui, *tone, text);
         }
-    });
+    }
 }
 
 fn setup(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Action>) {
@@ -783,6 +846,118 @@ fn confirm_modal(ui: &mut Ui, st: &mut LauncherState, c: &Confirm, lang: Lang) -
         });
     if act.is_some() || modal.should_close() {
         st.confirm = None;
+    }
+    act
+}
+
+/// The report dialog: "What happened?", what is sent, SEND and CANCEL; once sent, the report number and CLOSE.
+fn report_modal(ui: &mut Ui, st: &mut LauncherState, lang: Lang) -> Option<Action> {
+    let mut act = None;
+    let mut close = false;
+    let f = st.report.as_mut()?;
+    let modal = egui::Modal::new(egui::Id::new("launcher-report"))
+        .backdrop_color(Color32::from_black_alpha(150))
+        .frame(
+            egui::Frame::new()
+                .fill(theme::DEEP)
+                .stroke(egui::Stroke::new(1.0, theme::RIM))
+                .corner_radius(theme::RADIUS_BIG)
+                .inner_margin(20),
+        )
+        .show(ui.ctx(), |ui| {
+            ui.set_width(460.0);
+            let title = if f.crashed {
+                tr!(lang, "report.title_crashed")
+            } else {
+                tr!(lang, "launcher.report_problem")
+            };
+            ui.label(
+                egui::RichText::new(title)
+                    .font(theme::display(24.0))
+                    .color(theme::TEXT),
+            );
+            ui.add_space(4.0);
+            field(ui, &tr!(lang, "report.what_happened"), 460.0);
+            ui.add_enabled(
+                !f.sending && !f.sent,
+                egui::TextEdit::multiline(&mut f.words)
+                    .char_limit(2000)
+                    .desired_rows(5)
+                    .desired_width(f32::INFINITY)
+                    .font(theme::body(14.0))
+                    .margin(vec2(10.0, 7.0)),
+            );
+            ui.add_space(4.0);
+            field(ui, &tr!(lang, "report.what_is_sent"), 460.0);
+            egui::Frame::new()
+                .fill(theme::WELL)
+                .corner_radius(theme::RADIUS)
+                .inner_margin(8)
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    egui::ScrollArea::vertical()
+                        .max_height(96.0)
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| {
+                            for c in &f.contents {
+                                ui.label(
+                                    egui::RichText::new(c)
+                                        .font(theme::mono(12.0))
+                                        .color(theme::TEXT_DIM),
+                                );
+                            }
+                        });
+                });
+            ui.label(
+                egui::RichText::new(tr!(lang, "report.scrubbed"))
+                    .font(theme::body(12.0))
+                    .color(theme::TEXT_FAINT),
+            );
+            if let Some((tone, text)) = &f.result {
+                status_line(ui, *tone, text);
+            } else if f.sending {
+                status_line(ui, Tone::Notice, &tr!(lang, "report.sending"));
+            }
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                let w = (ui.available_width() - 8.0) / 2.0;
+                if f.sent {
+                    if cabinet(
+                        ui,
+                        vec2(w, 48.0),
+                        &tr!(lang, "common.close"),
+                        Cab::Plain,
+                        false,
+                    )
+                    .clicked()
+                    {
+                        close = true;
+                    }
+                    return;
+                }
+                let send = ui.add_enabled_ui(!f.sending, |ui| {
+                    cabinet(ui, vec2(w, 48.0), &tr!(lang, "report.send"), Cab::Go, true)
+                });
+                if send.inner.clicked() {
+                    act = Some(Action::SendReport);
+                }
+                let cancel = ui.add_enabled_ui(!f.sending, |ui| {
+                    cabinet(
+                        ui,
+                        vec2(w, 48.0),
+                        &tr!(lang, "common.cancel"),
+                        Cab::Plain,
+                        false,
+                    )
+                });
+                if cancel.inner.clicked() {
+                    close = true;
+                }
+            });
+        });
+    // a report on its way keeps the dialog: its number is still to come
+    if close || (modal.should_close() && !f.sending) {
+        st.report = None;
     }
     act
 }

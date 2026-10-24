@@ -88,8 +88,23 @@ launcher.msg_not_a_kit: {en: "This ZIP is not a Forza-WCCF release.", it: "Quest
 launcher.msg_write_failed: {en: "%{path}: could not write it (%{error}) - close the game and try again.", it: "%{path}: scrittura non riuscita (%{error}) - chiudi il gioco e riprova.", ja: "%{path} に書き込めませんでした（%{error}）。ゲームを閉じて、もう一度お試しください。"}
 launcher.msg_done: {en: "Done.", it: "Fatto.", ja: "完了しました。"}
 launcher.msg_failed: {en: "Failed. See OUTPUT.", it: "Non riuscito. Vedi OUTPUT.", ja: "失敗しました。「出力」を確認してください。"}
-launcher.msg_went_wrong: {en: "The game crashed or closed by itself. Send the logs to the developers: SAVE LOGS.", it: "Il gioco si è chiuso da solo o è andato in crash. Invia i log agli sviluppatori: SALVA LOG.", ja: "ゲームがクラッシュしたか、勝手に終了しました。「ログを保存」でログを開発者に送ってください。"}
-launcher.ask_save_logs: {en: "The game crashed or closed by itself.\n\nSave the logs now? Then attach the ZIP to a new issue at github.com/Forza-WCCF/Forza-WCCF/issues so the developers can fix it.", it: "Il gioco si è chiuso da solo o è andato in crash.\n\nSalvare ora i log? Poi allega lo ZIP a una nuova segnalazione su github.com/Forza-WCCF/Forza-WCCF/issues, così gli sviluppatori possono correggerlo.", ja: "ゲームがクラッシュしたか、勝手に終了しました。\n\n今すぐログを保存しますか？保存した ZIP を github.com/Forza-WCCF/Forza-WCCF/issues の新しい issue に添付してください。開発者が修正に使います。"}
+launcher.msg_went_wrong: {en: "The game crashed or closed by itself.", it: "Il gioco si è chiuso da solo o è andato in crash.", ja: "ゲームがクラッシュしたか、勝手に終了しました。"}
+launcher.report_problem: {en: "Report a problem", it: "Segnala un problema", ja: "問題を報告"}
+report.title_crashed: {en: "The game crashed or closed by itself", it: "Il gioco si è chiuso da solo o è andato in crash", ja: "ゲームがクラッシュしたか、勝手に終了しました"}
+report.what_happened: {en: "What happened?", it: "Cosa è successo?", ja: "何が起きましたか？"}
+report.what_is_sent: {en: "Sent with it", it: "Inviati insieme", ja: "一緒に送信"}
+report.scrubbed: {en: "User and PC names are removed.", it: "I nomi dell'utente e del PC vengono rimossi.", ja: "ユーザー名と PC 名は削除されます。"}
+report.send: {en: "SEND", it: "INVIA", ja: "送信"}
+report.sending: {en: "Sending…", it: "Invio in corso…", ja: "送信中…"}
+report.sent: {en: "Sent. Report number: %{id}", it: "Inviata. Numero della segnalazione: %{id}", ja: "送信しました。報告番号：%{id}"}
+report.kept: {en: "%{why} The report is kept and goes with the next one.", it: "%{why} La segnalazione è salvata e partirà con la prossima.", ja: "%{why} 報告は保存され、次の報告と一緒に送信されます。"}
+report.busy: {en: "The server is busy. Try again in a minute.", it: "Il server è occupato. Riprova tra un minuto.", ja: "サーバーが混み合っています。1 分後にもう一度お試しください。"}
+report.too_many: {en: "Too many reports from this connection. Try again in an hour.", it: "Troppe segnalazioni da questa connessione. Riprova tra un'ora.", ja: "この接続からの報告が多すぎます。1 時間後にもう一度お試しください。"}
+report.refused: {en: "The server did not take the report.", it: "Il server non ha accettato la segnalazione.", ja: "サーバーが報告を受け付けませんでした。"}
+report.pack_failed: {en: "The logs could not be packed.", it: "Impossibile preparare i log.", ja: "ログをまとめられませんでした。"}
+net.offline: {en: "No internet connection.", it: "Nessuna connessione a Internet.", ja: "インターネットに接続されていません。"}
+net.no_answer: {en: "The server did not answer.", it: "Il server non ha risposto.", ja: "サーバーが応答しませんでした。"}
+net.failed: {en: "The connection failed.", it: "Connessione non riuscita.", ja: "接続に失敗しました。"}
 launcher.msg_setting_up: {en: "Setting up the game folder ...", it: "Configuro la cartella del gioco ...", ja: "ゲームフォルダーを設定中..."}
 launcher.msg_undoing: {en: "Undoing setup ...", it: "Annullo la configurazione ...", ja: "設定を元に戻しています..."}
 launcher.msg_switching_text: {en: "Switching the game's text ...", it: "Cambio la lingua dei testi del gioco ...", ja: "ゲームのテキストを切り替えています..."}
