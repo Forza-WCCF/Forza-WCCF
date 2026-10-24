@@ -33,7 +33,8 @@ enum Task {
     /// fmt, clippy, tests, the kit's C self-tests, the scrub; `check quick` = fmt, clippy and the tests of the crates changed since --base
     Check {
         /// `quick`: only the crates changed since the base (and their dependents); no release build, no kit, no smoke.
-        /// `ci`: the full check minus the GPU snapshot tests (the GitHub runner has no GPU)
+        /// `ci`: the full check minus the GPU snapshot tests (the GitHub runner has no GPU), in the `ci` profile (no LTO;
+        /// `--release` for release)
         /// `text`: the scrub, the script-host check and the installer docs' word check; no build (docs-only changes)
         #[arg(value_parser = ["quick", "ci", "text"])]
         mode: Option<String>,
@@ -43,6 +44,9 @@ enum Task {
         /// Build the kits and run the tests in the `fast` profile (see `build --fast`); CI and releases check without it
         #[arg(long)]
         fast: bool,
+        /// `ci` only: the release profile, what players get (otherwise `ci` builds the `ci` profile: no LTO)
+        #[arg(long)]
+        release: bool,
         /// Passed on to the test runner, e.g. `-- --partition count:1/2` with cargo-nextest
         #[arg(last = true)]
         test_args: Vec<String>,
@@ -74,16 +78,12 @@ const QUICK_BASE: &str = "main";
 /// Set by `check` (both tiers): `rust()` then builds with `CARGO_INCREMENTAL=0`, so sccache can serve the workspace crates
 /// across worktrees; builds while editing stay incremental.
 static NO_INCREMENTAL: AtomicBool = AtomicBool::new(false);
-/// Set by `build --fast` and `check --fast`: the Rust programs (and `check`'s tests) use the `fast` profile.
-static FAST: AtomicBool = AtomicBool::new(false);
+/// The cargo profile of the staged programs and `check`'s tests: `fast` (`build --fast`, `check --fast`), `ci`
+/// (`check ci`) or, unset, `release`.
+static PROFILE: std::sync::OnceLock<&str> = std::sync::OnceLock::new();
 
-/// The cargo profile of the staged programs: `fast` or `release`.
 fn profile() -> &'static str {
-    if FAST.load(Ordering::Relaxed) {
-        "fast"
-    } else {
-        "release"
-    }
+    PROFILE.get().copied().unwrap_or("release")
 }
 
 /// Cargo's output folder: `CARGO_TARGET_DIR` (one folder shared by several worktrees), else `target/`.
@@ -388,7 +388,9 @@ fn main() -> Result<()> {
     let kit_1718 = stage_root.join("kit/2017-18");
     match task {
         Task::Build { fast } => {
-            FAST.store(fast, Ordering::Relaxed);
+            if fast {
+                let _ = PROFILE.set("fast");
+            }
             let cc = Cc::new(&root)?;
             build_all(&root, &kit, &kit_1718, &cc)
         }
@@ -400,6 +402,7 @@ fn main() -> Result<()> {
             mode,
             base,
             fast,
+            release,
             test_args,
         } => {
             // without a wrapper (sccache) nothing reuses the non-incremental build, and a check after `cargo test`
@@ -408,13 +411,17 @@ fn main() -> Result<()> {
                 std::env::var_os("RUSTC_WRAPPER").is_some(),
                 Ordering::Relaxed,
             );
-            FAST.store(fast, Ordering::Relaxed);
+            let ci = mode.as_deref() == Some("ci");
+            match (fast, ci && !release) {
+                (true, _) => drop(PROFILE.set("fast")),
+                (false, true) => drop(PROFILE.set("ci")),
+                (false, false) => {}
+            }
             match mode.as_deref() {
                 Some("quick") => return quick(&root, &stage_root, &base),
                 Some("text") => return check_text(&root),
                 _ => {}
             }
-            let ci = mode.as_deref() == Some("ci");
             build_all(&root, &kit, &kit_1718, &Cc::new(&root)?)
                 .and_then(|()| check(&root, &stage_root, &kit, &kit_1718, ci, &test_args))
         }
@@ -1272,14 +1279,15 @@ fn tests(root: &Path, ci: bool, extra: &[String], target: &str, scope: &[&str]) 
         test.arg("run");
     }
     test.args(["--locked", "--target", target]).args(scope);
-    if FAST.load(Ordering::Relaxed) {
+    // the kits' profile, so the tests reuse their dependencies; release tests in the usual test profile
+    if profile() != "release" {
         test.args([
             if nextest {
                 "--cargo-profile"
             } else {
                 "--profile"
             },
-            "fast",
+            profile(),
         ]);
     }
     if nextest {

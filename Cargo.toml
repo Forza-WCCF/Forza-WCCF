@@ -81,6 +81,13 @@ inherits = "release"
 lto = false
 incremental = true
 
+# `cargo xtask check ci` (CI's pull requests and pushes to main): release code without LTO, not incremental, and the
+# tests in the same profile, so each dependency compiles once. The weekly run (`check ci --release`) and
+# `cargo xtask package` build release, what players get.
+[profile.ci]
+inherits = "release"
+lto = false
+
 # FreeType 2.13.3 for the pictures with writing (vendor/freetype-sys/Cargo.toml says why)
 [patch.crates-io]
 freetype-sys = { path = "vendor/freetype-sys" }

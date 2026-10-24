@@ -45,7 +45,7 @@ clang-cl that ships with Visual Studio, and runs the Windows test programs nativ
    cargo xtask build          # the programs, staged in target/kit/<edition>/
    cargo xtask check          # fmt, clippy, tests, the C self-tests, the run tests, the publisher-name grep
    cargo xtask check quick    # only the crates changed since the base branch
-   cargo xtask check ci       # what CI runs: check without the GPU snapshot tests
+   cargo xtask check ci       # what CI runs: check without the GPU snapshot tests, ci profile (--release: release)
    cargo xtask package 2017-18 --name Forza-WCCF-2017-18-0.2.0
    ```
 
@@ -54,8 +54,9 @@ clang-cl that ships with Visual Studio, and runs the Windows test programs nativ
 6. Faster builds (optional):
 
    - `cargo xtask build --fast` and `cargo xtask check --fast` use the `fast` profile: release code without LTO,
-     incremental, and the tests share its dependencies. For local test kits only; `cargo xtask package` and CI build
-     `release`.
+     incremental, and the tests share its dependencies. For local test kits only. CI's `check ci` builds the `ci`
+     profile (the same without incremental, so its cache holds no incremental data); the weekly run and
+     `cargo xtask package` build `release`.
    - [cargo-nextest](https://nexte.st) (`cargo install cargo-nextest --locked`): `check` runs the tests with it when
      it is installed, one process per test on all cores. Arguments after `--` go to it, e.g.
      `cargo xtask check ci -- --partition count:1/2`.
