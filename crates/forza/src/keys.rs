@@ -185,12 +185,13 @@ pub const NAMES: [&str; COUNT] = [
     "PAUSE",
 ];
 
-/// The default keys in [`NAMES`] order. SW1 and SW2 (SENSOR2/3) have none in 2010-11: on the original's club-card
-/// recovery screen SW1 overwrites the card with its backup; the 2017-18 kit gives them 8 and 9. PAUSE is P.
+/// The default keys in [`NAMES`] order. TEST has none (one stray key opens the operator menu); SW1 and SW2 (SENSOR2/3)
+/// have none in 2010-11: on the original's club-card recovery screen SW1 overwrites the card with its backup; the 2017-18
+/// kit gives them 8 and 9. PAUSE is P.
 pub fn defaults(e1718: bool) -> [u32; COUNT] {
     let sw = if e1718 { [0x38, 0x39] } else { [0, 0] };
     [
-        0x0D, 0x58, 0x43, 0x42, 0x53, 0x44, 0x49, 0x35, 0x26, 0x28, 0x25, 0x27, 0x70, 0x71, sw[0],
+        0x0D, 0x58, 0x43, 0x42, 0x53, 0x44, 0x49, 0x35, 0x26, 0x28, 0x25, 0x27, 0, 0x71, sw[0],
         sw[1], 0x50,
     ]
 }
@@ -266,7 +267,7 @@ mod tests {
             b"# Forza-WCCF 2010-11 - which key and which controller control does what. Written by the KEYS panel\n\
 # in seat 1's window, read by the key driver (keyboard.py). Delete this file to get the default keys back.\n\
 START=0x0D\nPRESS=0x58\nSHOOT=0x47\nKEEPER=0x42\nDATA=0x53\nKEYPLAYER=0x44\nCARD=0x49\nCOIN=0x35\nUP=0x26\n\
-DOWN=0x28\nLEFT=0x25\nRIGHT=0x27\nTEST=0x70\nSERVICE=0x71\n# SENSOR2 has no key\n# SENSOR3 has no key\nPAUSE=0x50\n\
+DOWN=0x28\nLEFT=0x25\nRIGHT=0x27\n# TEST has no key\nSERVICE=0x71\n# SENSOR2 has no key\n# SENSOR3 has no key\nPAUSE=0x50\n\
 # controllers (any game controller): B1-B32 its buttons, X- X+ Y- Y+ the stick (left right up down),\n\
 # Z R U V its other axes (+ or -), HAT UP / RIGHT / DOWN / LEFT its d-pad\n\
 PAD SHOOT=B3\nPAD UP=HAT UP\n"
@@ -276,6 +277,16 @@ PAD SHOOT=B3\nPAD UP=HAT UP\n"
             keys_text(true, &defaults(true), &[0; COUNT])
                 .contains("\nSENSOR2=0x38\nSENSOR3=0x39\n")
         );
+    }
+
+    /// New settings leave the operator's TEST unbound; SERVICE keeps its key (existing keys.txt files are read as saved).
+    #[test]
+    fn test_has_no_default_key() {
+        let test = NAMES.iter().position(|n| *n == "TEST").unwrap();
+        for e1718 in [false, true] {
+            assert_eq!(defaults(e1718)[test], 0);
+            assert_eq!(defaults(e1718)[test + 1], 0x71);
+        }
     }
 
     #[test]

@@ -142,6 +142,9 @@ pub const ACTIONS: [(&str, Cab); forza::keys::COUNT] = [
     ("keys.pause", Cab::Plain),
 ];
 
+/// The operator's switches (TEST, SERVICE, SW1, SW2): the KEYS page folds them under "Advanced".
+const OPERATOR: std::ops::Range<usize> = 12..16;
+
 /// What the catalogue lists: the search line, the filters and the sort (`wccfpanel.c` `run_search_locked`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Filter {
@@ -444,6 +447,8 @@ pub struct PanelState {
     pub pad_capturing: Option<usize>,
     /// The action changed last (its cells lit).
     pub changed: Option<usize>,
+    /// The KEYS page's "Advanced" group is open.
+    pub keys_advanced: bool,
     /// The controllers found (KEYS).
     pub pad_names: Vec<String>,
     // settings
@@ -533,6 +538,7 @@ impl PanelState {
             capturing: None,
             pad_capturing: None,
             changed: None,
+            keys_advanced: false,
             pad_names: Vec::new(),
             file: PanelFile::default(),
             address: String::new(),
@@ -2295,20 +2301,50 @@ fn keys(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     }
     ui.add_space(4.0);
     let cell_w = 200.0;
-    egui::Grid::new("keys")
-        .num_columns(4)
-        .spacing(vec2(16.0, 3.0))
-        .striped(false)
+    // an open Advanced group scrolls instead of pushing RESET KEYS off the page
+    let room = (ui.available_height() - 56.0).max(120.0);
+    egui::ScrollArea::vertical()
+        .max_height(room)
+        .auto_shrink([false, true])
         .show(ui, |ui| {
-            caps(ui, &tr!(lang, "keys.action"));
-            ui.label("");
-            caps(ui, &tr!(lang, "keys.keyboard"));
-            caps(ui, &tr!(lang, "keys.controller"));
-            ui.end_row();
-            for i in 0..ACTIONS.len() {
-                row(ui, st, lang, i, cell_w);
-                ui.end_row();
-            }
+            egui::Grid::new("keys")
+                .num_columns(4)
+                .spacing(vec2(16.0, 3.0))
+                .striped(false)
+                .show(ui, |ui| {
+                    caps(ui, &tr!(lang, "keys.action"));
+                    ui.label("");
+                    caps(ui, &tr!(lang, "keys.keyboard"));
+                    caps(ui, &tr!(lang, "keys.controller"));
+                    ui.end_row();
+                    for i in (0..ACTIONS.len()).filter(|i| !OPERATOR.contains(i)) {
+                        row(ui, st, lang, i, cell_w);
+                        ui.end_row();
+                    }
+                });
+            ui.add_space(6.0);
+            // the operator's switches: TEST, SERVICE, SW1, SW2
+            let mut open = st.keys_advanced;
+            widgets::fold(
+                ui,
+                &tr!(lang, "keys.advanced"),
+                "",
+                &mut open,
+                theme::AMBER,
+                |ui| {
+                    egui::Grid::new("keys-advanced")
+                        .num_columns(4)
+                        .spacing(vec2(16.0, 3.0))
+                        .striped(false)
+                        .show(ui, |ui| {
+                            for i in OPERATOR {
+                                row(ui, st, lang, i, cell_w);
+                                ui.end_row();
+                            }
+                        });
+                },
+            );
+            st.keys_advanced = open;
         });
     ui.add_space(6.0);
     ui.horizontal(|ui| {
@@ -3742,6 +3778,14 @@ mod tests {
                 Tone::Refused,
                 "KAKÀ: another card of this player is on the table (2004-05)"
             )
+        );
+    }
+
+    #[test]
+    fn the_advanced_group_is_the_operators_switches() {
+        assert_eq!(
+            forza::keys::NAMES[OPERATOR],
+            ["TEST", "SERVICE", "SENSOR2", "SENSOR3"]
         );
     }
 

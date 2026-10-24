@@ -55,7 +55,7 @@ Forza-WCCF 2017-18（アルファ版）
       X       PRESS（決定）        C   SHOOT        B   KEEPER
       S       DATA                 D   KEY PLAYER
       矢印    戦術: 上 CENTRAL、下 COUNTER、左 L-SIDE、右 R-SIDE
-      I       Aime カードの出し入れ   5   コイン   F1  テストメニュー
+      I       Aime カードの出し入れ   5   コイン
       P       一時停止
   パネルのボタンでも同じ操作ができます: 三角形（CENTRAL、COUNTER、L-SIDE、R-SIDE）、PRESS、DATA、SHOOT、KEEPER、
   KEY PLAYER、START。キーとコントローラーのボタンは「キー設定」で変更できます。

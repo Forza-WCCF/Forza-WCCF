@@ -332,6 +332,7 @@ keys.action: {en: "ACTION", it: "AZIONE", ja: "操作"}
 keys.keyboard: {en: "KEYBOARD", it: "TASTIERA", ja: "キーボード"}
 keys.controller: {en: "CONTROLLER", it: "CONTROLLER", ja: "コントローラー"}
 keys.press_a_key: {en: "PRESS A KEY", it: "PREMI UN TASTO", ja: "キーを押して"}
+keys.advanced: {en: "Advanced", it: "Avanzate", ja: "詳細"}
 keys.test: {en: "TEST", it: "TEST", ja: "テスト"}
 keys.service: {en: "SERVICE", it: "SERVIZIO", ja: "サービス"}
 keys.sw1: {en: "SW1", it: "SW1", ja: "SW1"}

@@ -30,8 +30,15 @@ fn idx(name: &str) -> usize {
     ACTIONS.iter().position(|a| a.name == name).unwrap()
 }
 
+/// The defaults the recordings were made with: keyboard.py binds TEST to F1.
+fn recorded_defaults() -> [u32; 16] {
+    let mut keys = default_keys();
+    keys[idx("TEST")] = 0x70;
+    keys
+}
+
 fn bindings(b: &Value) -> Bindings {
-    let (mut keys, mut pads) = (default_keys(), [0u32; 16]);
+    let (mut keys, mut pads) = (recorded_defaults(), [0u32; 16]);
     for (n, v) in b["keys"].as_object().unwrap() {
         keys[idx(n)] = v.as_u64().unwrap() as u32;
     }
@@ -65,7 +72,13 @@ fn tables() {
     for (i, a) in r["actions"].as_array().unwrap().iter().enumerate() {
         let act = &ACTIONS[i];
         assert_eq!(a[0], act.name);
-        assert_eq!(a[1].as_u64().unwrap() as u32, act.vk, "{}", act.name);
+        // keyboard.py binds TEST to F1; Forza-WCCF leaves it unbound by default (the replays use `recorded_defaults`)
+        let want_vk = if act.name == "TEST" {
+            0
+        } else {
+            a[1].as_u64().unwrap() as u32
+        };
+        assert_eq!(want_vk, act.vk, "{}", act.name);
         let bits = act.bits.map(|(l, b, bit)| {
             let line = match l {
                 Line::Sys => "sys",
@@ -129,7 +142,7 @@ fn keys_txt_as_recorded() {
     assert!(loads.len() > 400);
     for (i, r) in loads.iter().enumerate() {
         let raw = unhex(r["file"].as_str().unwrap());
-        let (keys, notes) = load_keys(&raw);
+        let (keys, notes) = load_keys_with(&raw, recorded_defaults());
         let want: Vec<u32> = r["keys"]
             .as_array()
             .unwrap()

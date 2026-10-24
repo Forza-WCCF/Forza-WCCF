@@ -470,6 +470,12 @@ fn keys_click_then_press() {
         assert_eq!((s.keys[2], s.keys[1], s.keys_changed), (0x58, 0x43, true));
     }
     h.snapshot("panel_keys_swapped_en");
+    // the operator's switches are folded away until ADVANCED opens
+    assert!(h.query_by_label("TEST").is_none());
+    h.get_by_label("Advanced").click();
+    h.run_steps(3);
+    assert!(st.borrow().keys_advanced);
+    h.snapshot("panel_keys_advanced_en");
 }
 
 /// SETTINGS as a player uses it: COMPACT and a 2 s hover change at once and mark data\panel.txt for writing; RESTART
