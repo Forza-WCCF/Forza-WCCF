@@ -494,6 +494,8 @@ pub struct PanelState {
     pub pressed: Option<&'static str>,
     /// The cabinet button whose key is down (lit until the key goes up).
     pub held: Option<&'static str>,
+    /// The card taken off the board last and when (the frame's time): UNDO puts it back for [`UNDO_SECS`].
+    pub undo: Option<(board::Removed, f64)>,
     /// KEY PLAYER or KEEPER latched down by a right-click ([`latch_click`]): its key stays down until the next click.
     pub latched: Option<&'static str>,
     /// A catalogue card to put on the table (its number): [`add_card`].
@@ -565,6 +567,7 @@ impl PanelState {
             pressed: None,
             held: None,
             latched: None,
+            undo: None,
             add: None,
             keys_changed: false,
             file_changed: false,
@@ -1620,13 +1623,38 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     b.spacing_mut().item_spacing.y = 4.0;
     st.board_changed |=
         board::formation_board(&mut b, &mut st.board, &st.links, st.hover_delay, lang);
+    let now = b.input(|i| i.time);
+    if let Some(r) = board::take_removed(&b) {
+        st.undo = Some((r, now));
+    }
     b.add_space(4.0);
-    b.label(
-        egui::RichText::new(tr!(lang, "board.hint"))
-            .font(theme::body(HINT))
-            .color(theme::TEXT_DIM),
-    );
+    // a card just taken off: its name and UNDO for a few seconds, in the hint's place
+    st.undo = st.undo.take().filter(|(_, at)| now - at < UNDO_SECS);
+    let Some((r, at)) = st.undo.clone() else {
+        b.label(
+            egui::RichText::new(tr!(lang, "board.hint"))
+                .font(theme::body(HINT))
+                .color(theme::TEXT_DIM),
+        );
+        return;
+    };
+    b.ctx()
+        .request_repaint_after(std::time::Duration::from_secs_f64(UNDO_SECS - (now - at)));
+    b.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new(tr!(lang, "board.removed", name = r.card.short_name()))
+                .font(theme::body(HINT))
+                .color(theme::TEXT),
+        );
+        if widgets::action(ui, &tr!(lang, "board.undo")).clicked() {
+            st.board_changed |= board::undo(&mut st.board, &r);
+            st.undo = None;
+        }
+    });
 }
+
+/// How long UNDO stays offered after a card is taken off the board.
+const UNDO_SECS: f64 = 5.0;
 
 /// The crash screen, in the board's place: the game lost its control program (or stopped), the card's state, and the two
 /// ways on. RESTART THE GAME asks the Launcher (`restart`), SEND LOGS asks it to open its report dialog (`open_report`).
