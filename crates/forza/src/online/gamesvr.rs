@@ -60,6 +60,34 @@ const GAME_CTRL_DEFAULTS: &[(usize, usize, u32)] = &[
     (19740, 1, 26),
 ];
 
+/// The shop's sale list: GAME_CTRL +22,896 (payload +22,912), 10 entries of `{u32 category, u32 item, u32 start,
+/// u32 end}` (client sub_834520). Categories: 1 Uniform, 2 SE, 3 BGM, 4 Flag, 5 Trainingwear; 0 is never valid. The
+/// client offers an entry only when the item's master row also has its for-sale flag set, so rows outside the
+/// flagged ones are skipped on the client. These ten are rows of the 2017–18 data tables that look like shop goods
+/// (Uniform = the "shop_1718_*" rows of ShopUni, BGM 1..3 = Bgm1..3, Flag 1..3 and Trainingwear 1..2 = the first
+/// coloured rows); the flags themselves are not read. SE (2) stays out: its 286 +93 mapping is unverified
+/// ([`APPLY_SE`]). Owner decision: a data-driven rotation is a follow-up.
+const SHOP_SALE: [(u32, u32); 10] = [
+    (1, 1),
+    (1, 2),
+    (3, 1),
+    (3, 2),
+    (3, 3),
+    (4, 1),
+    (4, 2),
+    (4, 3),
+    (5, 1),
+    (5, 2),
+];
+/// GAME_CTRL +22,896 as a 238 payload offset.
+const SHOP_SALE_AT: usize = 16 + 22_896;
+/// Sale period of every entry, YYYYMMDD.
+const SHOP_FROM: u32 = 20_000_101;
+const SHOP_TO: u32 = 20_991_231;
+/// Whether a bought SE (category 2) is written to 286 +93. Unverified (the reader maps the value through another
+/// table than the shop's), so off; [`SHOP_SALE`] has no SE entry either.
+const APPLY_SE: bool = false;
+
 /// Answer 238's GAME_CTRL (from payload +16): the client's defaults and the unlocked secretaries. +8 and +12 (date
 /// and time) stay 0: the control may set the PC's clock from them.
 fn fill_game_ctrl(body: &mut [u8]) {
@@ -67,6 +95,40 @@ fn fill_game_ctrl(body: &mut [u8]) {
         body[16 + at..16 + at + width].copy_from_slice(&v.to_le_bytes()[..width]);
     }
     body[SECRETARIES].fill(1);
+    for (k, (cat, item)) in SHOP_SALE.into_iter().enumerate() {
+        for (i, v) in [cat, item, SHOP_FROM, SHOP_TO].into_iter().enumerate() {
+            put(body, SHOP_SALE_AT + 16 * k + 4 * i, v);
+        }
+    }
+}
+
+/// What the stored purchases (category, item, oldest first) set in a 286 ITEM_LIST answer: Uniform -> +700 and +701
+/// (CLUB_SHOP_UNIFORM), BGM -> +42 (the goal jingle), SE -> +93 when [`APPLY_SE`]. The last purchase of a category
+/// wins; nothing on the client ever sets these, so a purchase takes precedence over the block's value.
+fn apply_to_item_list(body: &mut [u8], bought: &[(u32, u32)]) {
+    for &(cat, item) in bought {
+        let Ok(v) = u8::try_from(item) else { continue };
+        match cat {
+            1 => (body[700], body[701]) = (v, v),
+            2 if APPLY_SE => body[93] = v,
+            3 => body[42] = v,
+            _ => {}
+        }
+    }
+}
+
+/// The 276 possess flags the purchases set (one byte per item, 1): Flag -> +5,444 + item (512), Trainingwear ->
+/// +5,188 + item (256). Applied after the stored 277's spans on every 276, since the 277 of the session that made
+/// the purchase still carries 0.
+fn apply_to_save_data(body: &mut [u8], bought: &[(u32, u32)]) {
+    for &(cat, item) in bought {
+        let at = match (cat, item) {
+            (4, 0..512) => 5444 + item,
+            (5, 0..256) => 5188 + item,
+            _ => continue,
+        };
+        body[at as usize] = 1;
+    }
 }
 
 const MAGIC: [u8; 8] = [0xF1, 0xC0, 0x80, 0x44, 0xB4, 0x9E, 0xDA, 0x3C];
@@ -154,7 +216,7 @@ const RESP: &[(u16, usize, Zero)] = &[
         8,
         Zero::Safe("client sub_4BAD20: errCode only, the PIN is never read back"),
     ),
-    (286, 704, Zero::Pending("C2")),
+    (286, 704, Zero::Handled),
     (288, 12, Zero::Handled),
     (290, 12, Zero::Handled),
     (292, 20, Zero::Safe("client sub_4BB630: no caller")),
@@ -193,7 +255,13 @@ const RESP: &[(u16, usize, Zero)] = &[
         8,
         Zero::Safe("client sub_7DD1B0 state 3: errCode 0 prints the card locally"),
     ),
-    (316, 8, Zero::Pending("C2")),
+    (
+        316,
+        8,
+        Zero::Safe(
+            "client sub_788550 state 3: errCode 0 consumes the credit and clears the queue; the stand-in keeps the purchase",
+        ),
+    ),
     (
         318,
         32,
@@ -405,6 +473,12 @@ CREATE TABLE IF NOT EXISTS injustice (
     PRIMARY KEY (aime_id, coach_id)
 );
 CREATE TABLE IF NOT EXISTS ids (name TEXT PRIMARY KEY, last INTEGER NOT NULL);
+-- every accepted BUY_SHOP_ITEM 315, whole; per Aime id (the request carries no club), kept for good
+CREATE TABLE IF NOT EXISTS purchases (
+    aime_id INTEGER NOT NULL,
+    at      INTEGER NOT NULL,
+    payload BLOB    NOT NULL
+);
 CREATE TABLE IF NOT EXISTS requests (
     aime_id  INTEGER NOT NULL,
     coach_id INTEGER NOT NULL,  -- 0 for a request kept per shop
@@ -416,17 +490,13 @@ CREATE TABLE IF NOT EXISTS requests (
 ";
 
 /// `PRAGMA user_version` of a store this code has migrated.
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
-/// Version 0 -> 1, in one transaction: a club saved before `requests` existed keeps only its tail in `saves`, so
-/// its 277 is rebuilt from the row (ids at +4/+8/+12, kind at +24, block at +28, tail at +3,100) and the first
-/// card-in already sends the stored levels and league state. Adds rows only: nothing is dropped or rewritten, and
-/// `INSERT OR IGNORE` leaves any request already there alone.
-fn migrate(db: &mut Connection) -> rusqlite::Result<()> {
-    if db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))? >= SCHEMA_VERSION {
-        return Ok(());
-    }
-    let tx = db.transaction()?;
+/// The 0 -> 1 backfill of [`migrate`]: a club saved before `requests` existed keeps only its tail in `saves`, so its
+/// 277 is rebuilt from the row (ids at +4/+8/+12, kind at +24, block at +28, tail at +3,100) and the first card-in
+/// already sends the stored levels and league state. Adds rows only; `INSERT OR IGNORE` leaves any request already
+/// there alone.
+fn backfill(tx: &rusqlite::Transaction) -> rusqlite::Result<()> {
     type Row = (u32, u32, u32, u8, Vec<u8>, Vec<u8>, i64);
     let rows: Vec<Row> = tx
         .prepare(
@@ -460,6 +530,20 @@ fn migrate(db: &mut Connection) -> rusqlite::Result<()> {
             "INSERT OR IGNORE INTO requests VALUES (?1, ?2, 277, ?3, ?4)",
             params![aime, coach, req, updated],
         )?;
+    }
+    Ok(())
+}
+
+/// `PRAGMA user_version` 0 -> 1 runs [`backfill`]; 1 -> 2 only adds `purchases` (`CREATE TABLE IF NOT EXISTS` in
+/// [`SCHEMA`], every open). One transaction; nothing is dropped or rewritten.
+fn migrate(db: &mut Connection) -> rusqlite::Result<()> {
+    let version = db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))?;
+    if version >= SCHEMA_VERSION {
+        return Ok(());
+    }
+    let tx = db.transaction()?;
+    if version < 1 {
+        backfill(&tx)?;
     }
     tx.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))?;
     tx.commit()
@@ -666,6 +750,27 @@ impl Store {
             .optional()
     }
 
+    /// Keeps a BUY_SHOP_ITEM request whole; Ok only once the insert has committed.
+    fn buy(&self, aime: u32, req: &[u8]) -> rusqlite::Result<()> {
+        self.0.execute(
+            "INSERT INTO purchases (aime_id, at, payload) VALUES (?1, ?2, ?3)",
+            params![aime, now(), req],
+        )?;
+        Ok(())
+    }
+
+    /// The (category, item) of every purchase of `aime` (request +8 and +12), oldest first.
+    fn bought(&self, aime: u32) -> rusqlite::Result<Vec<(u32, u32)>> {
+        let mut q = self
+            .0
+            .prepare("SELECT payload FROM purchases WHERE aime_id = ?1 ORDER BY rowid")?;
+        let rows = q.query_map([aime], |r| r.get::<_, Vec<u8>>(0))?;
+        Ok(rows
+            .filter_map(|p| p.ok().filter(|p| p.len() >= 16))
+            .map(|p| (u32_at(&p, 8), u32_at(&p, 12)))
+            .collect())
+    }
+
     /// Moves a club from `old` to a new cardId; None when (aime, coach, old) is no club.
     fn new_card(&mut self, aime: u32, coach: u32, old: u32) -> rusqlite::Result<Option<u32>> {
         let tx = self.0.transaction()?;
@@ -705,19 +810,21 @@ fn club(
 ) -> Result<(), String> {
     // request size and the revision's offset (docs/research/ONLINE-2017-18.md, "M1")
     let (need, rev_at) = match cmd {
-        271 => (20, 16),
-        275 => (32, 28),
-        277 => (8572, 5940),
-        279 => (36, 32),
-        287 | 289 => (28, 24),
-        285 => (24, 20),
+        271 => (20, Some(16)),
+        275 => (32, Some(28)),
+        277 => (8572, Some(5940)),
+        279 => (36, Some(32)),
+        287 | 289 => (28, Some(24)),
+        285 => (24, Some(20)),
+        // BUY_SHOP_ITEM: ids, category and item; the replay records are 20 bytes, so no revision check
+        315 => (16, None),
         _ => return Ok(()),
     };
     if req.len() < need {
         return Err(format!("{} bytes, want {need}", req.len()));
     }
-    if u32_at(req, rev_at) != REVISION {
-        return Err(format!("revision {}, want {REVISION}", u32_at(req, rev_at)));
+    if let Some(at) = rev_at.filter(|&at| u32_at(req, at) != REVISION) {
+        return Err(format!("revision {}, want {REVISION}", u32_at(req, at)));
     }
     let (aime, coach, card) = (u32_at(req, 4), u32_at(req, 8), u32_at(req, 12));
     let db = |e: rusqlite::Error| format!("store: {e}");
@@ -816,6 +923,7 @@ fn club(
                 return Err(format!("stored block of {} bytes", block.len()));
             }
             restore_tail(body, &tail);
+            apply_to_save_data(body, &st.bought(aime).map_err(db)?);
             fill_save_data(body, &block, version, size);
         }
         285 => {
@@ -825,6 +933,13 @@ fn club(
                 body[700] = get_bits(&block, 24249, 8) as u8;
                 body[701] = get_bits(&block, 24257, 8) as u8;
             }
+            // the purchases of this Aime id, whichever club asks
+            apply_to_item_list(body, &st.bought(aime).map_err(db)?);
+        }
+        315 => {
+            // BUY_SHOP_ITEM: +8 category, +12 item; kept whole, errCode 0 only once committed (a store error is
+            // errCode 1 and the client keeps the item queued and resends it)
+            st.buy(aime, req).map_err(db)?;
         }
         287 => {
             let new = st
@@ -1381,7 +1496,7 @@ mod tests {
             .0
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 1);
+        assert_eq!(v, 2);
         let a = card_in(&store);
         assert!(
             a[3100..3556].iter().all(|b| *b == 0),
@@ -1533,6 +1648,8 @@ mod tests {
         let (coach, card) = (u32_at(&b, 8), u32_at(&b, 12));
         let ids = [aime, coach, card];
         assert_eq!(u32_at(&ask(277, &fixture(277, ids)).unwrap().1, 4), 0);
+        // a purchase (category = the coach id, item = the card id: Uniform 1), so 286 has something to say
+        assert_eq!(u32_at(&ask(315, &fixture(315, ids)).unwrap().1, 4), 0);
         // two paired VS entries (243 -> 245), so the vslink lookup 904 and the match answer 246 have something to say
         let entry = |card: u32, seat: u32, port: u16| {
             let mut e = fixture(243, [0, 0, 0]);
@@ -1735,6 +1852,100 @@ mod tests {
             let (_, b, why) = answer(cmd, &[0; 32], &store, None, &rare, None, &log).unwrap();
             assert!(why.is_none() && u32_at(&b, 4) == 0, "cmd {cmd}");
         }
+    }
+
+    /// Asks `store` through [`answer`] with no VS and no skip club.
+    fn ask_store(store: &Mutex<Store>, cmd: u16, p: &[u8]) -> (Vec<u8>, Option<String>) {
+        let log: Log = Arc::new(|_: &str| {});
+        let (_, body, why) = answer(cmd, p, store, None, &[], None, &log).unwrap();
+        (body, why)
+    }
+
+    #[test]
+    fn the_sale_list_has_ten_valid_entries() {
+        let (body, _) = ask_store(
+            &Mutex::new(Store::open(Path::new(":memory:")).unwrap()),
+            237,
+            &[0; 20],
+        );
+        let entries: Vec<_> = (0..10)
+            .map(|k| {
+                let e = SHOP_SALE_AT + 16 * k;
+                [0, 4, 8, 12].map(|i| u32_at(&body, e + i))
+            })
+            .collect();
+        assert!(
+            entries.iter().all(|e| (1..=5).contains(&e[0])),
+            "no category 0"
+        );
+        assert!(entries.iter().all(|e| e[2] == SHOP_FROM && e[3] == SHOP_TO));
+        assert!(entries.iter().all(|e| e[0] != 2), "no SE");
+        let mut kinds: Vec<_> = entries.iter().map(|e| e[0]).collect();
+        kinds.dedup();
+        assert_eq!(kinds, [1, 3, 4, 5]);
+        assert_eq!(SHOP_SALE_AT + 160, 23_072);
+    }
+
+    #[test]
+    fn purchases_are_stored_and_applied_to_286_and_276() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gamesvr.db");
+        let buy = |store: &Mutex<Store>, cat: u32, item: u32| {
+            let mut r = req(315, [5, cat, item]);
+            put(&mut r, 16, 99);
+            ask_store(store, 315, &r)
+        };
+        let (club, card);
+        {
+            let store = Mutex::new(Store::open(&path).unwrap());
+            let b = ask_store(&store, 279, &fixture(279, [5, 0, 0])).0;
+            (club, card) = (u32_at(&b, 8), u32_at(&b, 12));
+            assert_eq!(
+                u32_at(&ask_store(&store, 277, &fixture(277, [5, club, card])).0, 4),
+                0
+            );
+            for (cat, item) in [(4, 7), (5, 3), (1, 3), (3, 9)] {
+                let (b, why) = buy(&store, cat, item);
+                assert!(why.is_none() && u32_at(&b, 4) == 0, "{cat}/{item}");
+            }
+        }
+        // reopened: still bought, and applied for another club of the same Aime id too
+        let store = Mutex::new(Store::open(&path).unwrap());
+        let a = ask_store(&store, 275, &req(275, [5, club, card])).0;
+        assert_eq!((a[5444 + 7], a[5188 + 3], a[5444 + 3]), (1, 1, 0));
+        // the stored 277 echoed a 0 for the bit: still 1 after another save
+        assert_eq!(
+            u32_at(&ask_store(&store, 277, &fixture(277, [5, club, card])).0, 4),
+            0
+        );
+        let a = ask_store(&store, 275, &req(275, [5, club, card])).0;
+        assert_eq!((a[5444 + 7], a[5188 + 3]), (1, 1));
+        assert_eq!(
+            u32_at(&a, 3088),
+            {
+                let mut z = a.clone();
+                put(&mut z, 3088, 0);
+                sum32(&z)
+            },
+            "C2 covers the flags"
+        );
+        let i = ask_store(&store, 285, &req(285, [5, club, card])).0;
+        assert_eq!((i[700], i[701], i[42], i[93]), (3, 3, 9, 0));
+        // another Aime id has nothing
+        let i = ask_store(&store, 285, &req(285, [6, club, card])).0;
+        assert_eq!((i[700], i[42]), (0, 0));
+        // a later uniform replaces the earlier one
+        buy(&store, 1, 4);
+        assert_eq!(ask_store(&store, 285, &req(285, [5, club, card])).0[700], 4);
+        // a store error is errCode 1
+        store
+            .lock()
+            .unwrap()
+            .0
+            .execute_batch("DROP TABLE purchases")
+            .unwrap();
+        let (b, why) = buy(&store, 4, 1);
+        assert!(why.is_some() && u32_at(&b, 4) == 1);
     }
 
     #[test]

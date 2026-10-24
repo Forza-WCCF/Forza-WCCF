@@ -853,3 +853,64 @@ fn gamesvr_tail_survives_play_and_restart() {
     drop((c, _svc));
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// Shop purchases over the wire: 315 (Flag 7, Uniform 3) is kept, and 275 / 285 carry it after a restart.
+#[test]
+fn gamesvr_purchases_survive_restart() {
+    let dir = scratch("gamesvr_shop");
+    let blk = block();
+    let buy = |c: &mut TcpStream, cat: u32, item: u32| {
+        let a = ask(
+            c,
+            315,
+            &req(24, 20, |b| {
+                le(b, 8, cat);
+                le(b, 12, item);
+            }),
+        );
+        assert_eq!(word(&a, 4), 0, "BUY_SHOP_ITEM errCode");
+    };
+    let (coach, card);
+    {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let _svc = gamesvr::spawn(l.try_clone().unwrap(), dir.clone(), quiet()).unwrap();
+        let mut c = connect(&l);
+        (coach, card) = new_club(&mut c);
+        assert_eq!(
+            word(&ask(&mut c, 277, &save_set(coach, card, 1, &blk, false)), 4),
+            0
+        );
+        buy(&mut c, 4, 7);
+        buy(&mut c, 1, 3);
+        assert_eq!(save_data(&mut c, coach, card)[5444 + 7], 1);
+    }
+    let wal = dir.join("gamesvr.db-wal");
+    let t = Instant::now();
+    while wal.exists() && t.elapsed() < Duration::from_secs(3) {
+        sleep(Duration::from_millis(50));
+    }
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let _svc = gamesvr::spawn(l.try_clone().unwrap(), dir.clone(), quiet()).unwrap();
+    let mut c = connect(&l);
+    let a = save_data(&mut c, coach, card);
+    assert_loads(&a, &blk);
+    assert_eq!(a[5444 + 7], 1, "the flag survives the restart");
+    let items = ask(
+        &mut c,
+        285,
+        &req(24, 20, |b| {
+            le(b, 8, coach);
+            le(b, 12, card);
+        }),
+    );
+    assert_eq!((items[700], items[701]), (3, 3));
+    // the sale list: 237 -> 238 has 10 entries at payload +22,912, none of category 0
+    let g = ask(
+        &mut c,
+        237,
+        &[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    );
+    assert!((0..10).all(|k| (1..=5).contains(&word(&g, 22_912 + 16 * k))));
+    drop((c, _svc));
+    let _ = std::fs::remove_dir_all(dir);
+}
