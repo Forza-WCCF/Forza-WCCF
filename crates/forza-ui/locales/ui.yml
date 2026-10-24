@@ -164,6 +164,10 @@ installer.done_body: {en: "Installed. Start Launcher.exe.", it: "Installato. Avv
 installer.did_extract: {en: "Game files extracted and checked", it: "File del gioco estratti e controllati", ja: "ゲームファイルを展開・検査しました"}
 installer.did_setup: {en: "Game set up", it: "Gioco configurato", ja: "ゲームを設定しました"}
 installer.not_shortcuts: {en: "No desktop shortcuts", it: "Nessun collegamento sul desktop", ja: "デスクトップのショートカットなし"}
+installer.no_package: {en: "Without the package the game will not start. Continue?", it: "Senza il pacchetto il gioco non si avvia. Continuare?", ja: "パッケージがないとゲームは起動しません。続けますか？"}
+installer.continue: {en: "CONTINUE", it: "CONTINUA", ja: "続ける"}
+installer.smartscreen: {en: "Windows may warn about an unknown app: More info, then Run anyway.", it: "Windows può avvisare di un'app sconosciuta: Ulteriori informazioni, poi Esegui comunque.", ja: "Windows が不明なアプリと警告することがあります。「詳細情報」→「実行」を選んでください。"}
+installer.start_launcher: {en: "START LAUNCHER", it: "AVVIA LAUNCHER", ja: "ランチャーを起動"}
 installer.open_folder: {en: "Open the folder", it: "Apri la cartella", ja: "フォルダーを開く"}
 installer.welcome_note: {en: "Without the package, only the original files are extracted.", it: "Senza il pacchetto vengono estratti solo i file originali.", ja: "パッケージがない場合は、元のファイルを展開するだけです。"}
 installer.installed_here: {en: "← already installed", it: "← già installata", ja: "← インストール済み"}

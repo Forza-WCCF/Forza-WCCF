@@ -318,7 +318,8 @@ impl App {
         }
     }
 
-    fn next(&mut self, ctx: &egui::Context) {
+    /// `confirmed`: the person already answered the "no package" question with CONTINUE.
+    fn next(&mut self, ctx: &egui::Context, confirmed: bool) {
         let page = self.st.page;
         self.st.error = None;
         let step = match page {
@@ -328,6 +329,9 @@ impl App {
         };
         match step {
             Err(e) => self.st.error = Some(e),
+            Ok(()) if page == Page::Files && !confirmed && !self.st.setup_possible => {
+                self.st.confirm = true;
+            }
             Ok(()) if page == Page::Files => self.start(ctx),
             Ok(()) => {
                 if page == Page::Where {
@@ -363,6 +367,12 @@ fn open_folder(p: &Path) {
     let _ = std::process::Command::new(opener).arg(p).spawn();
 }
 
+fn start_launcher(dir: &Path) {
+    let _ = std::process::Command::new(dir.join("Launcher.exe"))
+        .current_dir(dir)
+        .spawn();
+}
+
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
@@ -394,7 +404,12 @@ impl eframe::App for App {
                 }
             }
             Some(Action::Back) => self.back(),
-            Some(Action::Next | Action::Install) => self.next(&ctx),
+            Some(Action::Next | Action::Install) => self.next(&ctx, false),
+            Some(Action::InstallAnyway) => self.next(&ctx, true),
+            Some(Action::StartLauncher) => {
+                start_launcher(Path::new(&self.st.done_path));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
             Some(Action::Browse(f)) => self.browse(f),
             Some(Action::OpenFolder) => open_folder(Path::new(&self.st.done_path)),
             None => {}
@@ -620,7 +635,7 @@ mod tests {
         let mut app = App::new();
         app.st.folder = dir.display().to_string();
         app.st.page = Page::Where;
-        app.next(&egui::Context::default()); // the installed 2017-18 game, reused
+        app.next(&egui::Context::default(), false); // the installed 2017-18 game, reused
         assert_eq!(
             (app.st.page, app.st.target()),
             (Page::Files, Some(Edition::E1718))
@@ -635,6 +650,12 @@ mod tests {
             app.check_files().is_err(),
             "a 2010-11 package for a 2017-18 game"
         );
+        // INSTALL with no package asks first; nothing starts until CONTINUE
+        app.st.package.clear();
+        app.refresh();
+        assert!(!app.st.setup_possible);
+        app.next(&egui::Context::default(), false);
+        assert!((app.st.confirm, app.st.page, app.run.is_none()) == (true, Page::Files, true));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

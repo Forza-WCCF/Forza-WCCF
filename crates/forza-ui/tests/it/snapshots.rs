@@ -140,6 +140,12 @@ fn installer_pages() {
                 installer::show(ui, &mut st);
             });
         }
+        let mut st = installer::InstallerState::sample(lang, installer::Page::Files);
+        st.confirm = true;
+        let name = format!("installer_confirm_{}", lang.code());
+        snap(&mut all, &name, installer::SIZE, Edition::E1011, |ui| {
+            installer::show(ui, &mut st);
+        });
     }
     all.unwrap();
 }
