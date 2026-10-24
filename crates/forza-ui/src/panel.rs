@@ -583,7 +583,7 @@ impl PanelState {
         let msg = match page {
             Page::Catalogue => (Tone::Done, tr!(lang, "panel.msg_added")),
             Page::ClubCard => (Tone::Refused, tr!(lang, "panel.msg_session_open")),
-            _ => (Tone::Notice, tr!(lang, "panel.msg_saved")),
+            _ => (Tone::Done, tr!(lang, "panel.msg_saved")),
         };
         PanelState {
             page,
@@ -1019,7 +1019,7 @@ fn deal_window(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
             );
             let g = p.layout(
                 tr!(lang, "deal.foot"),
-                theme::body(12.0),
+                theme::body(HINT),
                 theme::TEXT_DIM,
                 size.x - 32.0,
             );
@@ -1477,8 +1477,8 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     b.add_space(4.0);
     b.label(
         egui::RichText::new(tr!(lang, "board.hint"))
-            .font(theme::body(12.0))
-            .color(theme::TEXT_FAINT),
+            .font(theme::body(HINT))
+            .color(theme::TEXT_DIM),
     );
 }
 
@@ -1986,8 +1986,8 @@ fn affinity_pane(ui: &mut Ui, card: &Card, links: &board::Links, on_table: &[u32
             if partners.is_empty() {
                 ui.label(
                     egui::RichText::new(tr!(lang, "cat.no_partners"))
-                        .font(theme::body(12.0))
-                        .color(theme::TEXT_FAINT),
+                        .font(theme::body(HINT))
+                        .color(theme::TEXT_DIM),
                 );
             }
             egui::ScrollArea::vertical()
@@ -2053,7 +2053,7 @@ fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> bool {
                     "{} · {} · {}",
                     card.club, card.country, card.season
                 ))
-                .font(theme::body(12.0 * u))
+                .font(theme::body(HINT * u))
                 .color(theme::TEXT_DIM),
             );
             // every role at the card's top rating (a card rated from its position flags has them all at 8)
@@ -2067,7 +2067,7 @@ fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> bool {
             if !best.is_empty() {
                 ui.label(
                     egui::RichText::new(tr!(lang, "cat.best_role", roles = best.join(" ")))
-                        .font(theme::body(12.0 * u))
+                        .font(theme::body(HINT * u))
                         .color(theme::TEXT_DIM),
                 );
             }
@@ -2570,7 +2570,7 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             };
             ui.label(
                 egui::RichText::new(tr!(lang, hint))
-                    .font(theme::body(12.0))
+                    .font(theme::body(HINT))
                     .color(c),
             );
         });
@@ -2838,7 +2838,7 @@ fn club_card(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                         }
                         ui.label(
                             egui::RichText::new(tr!(lang, "club.clear_hint"))
-                                .font(theme::body(12.0))
+                                .font(theme::body(HINT))
                                 .color(theme::TEXT_DIM),
                         );
                     }
@@ -2873,7 +2873,7 @@ fn club_card(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                                     }
                                     ui.label(
                                         egui::RichText::new(tr!(lang, "club.backups_hint"))
-                                            .font(theme::body(12.0))
+                                            .font(theme::body(HINT))
                                             .color(theme::TEXT_DIM),
                                     );
                                 }
@@ -2985,7 +2985,7 @@ fn club_card(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                                     });
                                 ui.label(
                                     egui::RichText::new(tr!(lang, "club.injured"))
-                                        .font(theme::body(12.0))
+                                        .font(theme::body(HINT))
                                         .color(theme::TEXT_DIM),
                                 );
                                 ui.add_space(6.0);
@@ -3031,7 +3031,7 @@ fn club_card(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                                         "club.switch_hint"
                                     }
                                 ))
-                                .font(theme::body(12.0))
+                                .font(theme::body(HINT))
                                 .color(if open {
                                     theme::RED_TEXT
                                 } else {
@@ -3257,7 +3257,7 @@ pub fn widget_sheet(ui: &mut Ui, ws: &mut WidgetSheet) {
                     ui.set_width(520.0);
                     status_line(ui, Tone::Done, &tr!(lang, "panel.msg_added"));
                     status_line(ui, Tone::Refused, &tr!(lang, "panel.msg_session_open"));
-                    status_line(ui, Tone::Notice, &tr!(lang, "panel.msg_saved"));
+                    status_line(ui, Tone::Done, &tr!(lang, "panel.msg_saved"));
                     segmented(
                         ui,
                         &mut ws.seg,
