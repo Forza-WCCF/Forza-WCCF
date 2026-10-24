@@ -92,9 +92,9 @@ pub(crate) const PANEL_UP: &str = "first frame shown";
 
 const BUSY_TEXT: &str =
     "Not started: another Launcher window is setting up or starting the game. Try again when it is done.";
-const NOT_SET_UP_TEXT: &str = "Not set up yet. Open Launcher.exe, Setup and updates.";
+const NOT_SET_UP_TEXT: &str = "Not set up yet. Open Launcher.exe and press SET UP.";
 pub const NOT_GUARDED_TEXT: &str = "Not started: the network guard is not in place, and the game could change this PC's \
-    network settings. Press Set up / repair in Launcher (Setup and updates), then start again. Problem:";
+    network settings. Press SET UP in Launcher.exe, then start again. Problem:";
 
 /// Where a run tells what it does: the window's box or the console.  `ask` gets a yes/no question (no one to ask:
 /// no); `running` hears when the game is up (true) and when the run is over (false).
@@ -1080,7 +1080,7 @@ impl Run<'_> {
             self.say(l);
         };
         if crate::setup::folder_step(self.kit, &self.game.display().to_string(), false, &say) != 0 {
-            self.say("Setup did not finish (see above). Open Launcher.exe, Setup and updates, then Set up.");
+            self.say("Setup did not finish (see above). Open Launcher.exe and press SET UP.");
             return Err(Failed(String::new()));
         }
         guarded().map_err(|why| {

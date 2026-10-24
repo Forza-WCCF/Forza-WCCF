@@ -13,12 +13,12 @@ launcher.online: {en: "Online", it: "Online", ja: "オンライン"}
 launcher.rejoin: {en: "Rejoin %{name}, seat %{seat}", it: "Rientra in %{name}, posto %{seat}", ja: "%{name} の席 %{seat} に戻る"}
 launcher.play: {en: "PLAY", it: "GIOCA", ja: "プレイ"}
 launcher.stop: {en: "STOP THE GAME", it: "FERMA IL GIOCO", ja: "ゲームを終了"}
-launcher.stop_again: {en: "CLICK TO CONFIRM (%{s} s)", it: "CLICCA PER CONFERMARE (%{s} s)", ja: "もう一度押す（%{s} 秒）"}
-launcher.msg_stop_armed: {en: "The game confirms first during a match.", it: "Durante una partita il gioco chiede conferma.", ja: "試合中はゲームが先に確認します。"}
+launcher.stop_again: {en: "CLICK AGAIN (%{s} s)", it: "CLICCA ANCORA (%{s} s)", ja: "もう一度押す（%{s} 秒）"}
+launcher.msg_stop_armed: {en: "The game will ask first.", it: "Il gioco chiederà conferma.", ja: "ゲーム側で確認が出ます。"}
 launcher.status_ready: {en: "Ready.", it: "Pronto.", ja: "準備完了。"}
-launcher.status_not_set_up: {en: "Pick the game folder, then SET UP.", it: "Scegli la cartella del gioco, poi CONFIGURA.", ja: "ゲームフォルダーを選び「設定する」を押す。"}
+launcher.status_not_set_up: {en: "Pick the game folder, then SET UP.", it: "Scegli la cartella del gioco, poi CONFIGURA.", ja: "ゲームフォルダーを選び、「設定する」を押してください。"}
 launcher.setup: {en: "SETUP", it: "CONFIGURAZIONE", ja: "セットアップ"}
-launcher.setup_done: {en: "Set up", it: "Configurato", ja: "設定済み"}
+launcher.setup_done: {en: "Ready", it: "Pronto", ja: "準備完了"}
 launcher.setup_needed: {en: "Needs a game folder", it: "Serve una cartella del gioco", ja: "ゲームフォルダーが必要です"}
 launcher.folder_hint: {en: "Type, browse or drop the game folder.", it: "Scrivi, sfoglia o trascina la cartella del gioco.", ja: "ゲームフォルダーを入力・参照・ドロップ。"}
 launcher.browse: {en: "Browse…", it: "Sfoglia…", ja: "参照…"}
@@ -26,29 +26,29 @@ launcher.set_up: {en: "SET UP", it: "CONFIGURA", ja: "設定する"}
 launcher.undo: {en: "UNDO SETUP", it: "ANNULLA CONFIGURAZIONE", ja: "設定を元に戻す"}
 launcher.update: {en: "UPDATE", it: "AGGIORNAMENTO", ja: "アップデート"}
 launcher.this_version: {en: "This version: %{v}", it: "Questa versione: %{v}", ja: "このバージョン：%{v}"}
-launcher.col_tag: {en: "RELEASE", it: "VERSIONE", ja: "リリース"}
-launcher.col_kind: {en: "KIND", it: "TIPO", ja: "種類"}
+launcher.col_tag: {en: "VERSION", it: "VERSIONE", ja: "バージョン"}
+launcher.col_kind: {en: "TYPE", it: "TIPO", ja: "種類"}
 launcher.col_date: {en: "DATE", it: "DATA", ja: "日付"}
 launcher.col_mark: {en: "", it: "", ja: ""}
-launcher.kind_stable: {en: "Release", it: "Stabile", ja: "正式版"}
+launcher.kind_stable: {en: "Stable", it: "Stabile", ja: "正式版"}
 launcher.kind_test: {en: "Test build", it: "Versione di prova", ja: "テスト版"}
 launcher.mark_this: {en: "THIS VERSION", it: "QUESTA VERSIONE", ja: "使用中"}
 launcher.mark_newer: {en: "NEWER", it: "PIÙ RECENTE", ja: "新しい版"}
 launcher.update_button: {en: "UPDATE", it: "AGGIORNA", ja: "アップデート"}
 launcher.whats_new: {en: "What's new", it: "Novità", ja: "更新内容"}
-launcher.output: {en: "OUTPUT", it: "OUTPUT", ja: "出力"}
+launcher.output: {en: "DETAILS", it: "DETTAGLI", ja: "詳細"}
 launcher.output_hint: {en: "", it: "", ja: ""}
 launcher.copy: {en: "Copy", it: "Copia", ja: "コピー"}
 launcher.card_pictures: {en: "CARD PICTURES", it: "IMMAGINI CARTE", ja: "カード画像"}
 launcher.from_game: {en: "From the game", it: "Dal gioco", ja: "ゲームから"}
-launcher.hq_pack: {en: "High-quality pack", it: "Pacchetto alta qualità", ja: "高画質パック"}
+launcher.hq_pack: {en: "High-quality pack", it: "Pacchetto HQ", ja: "高画質パック"}
 launcher.choose_pack: {en: "Choose pack…", it: "Scegli pacchetto…", ja: "パックを選択…"}
 launcher.skip_tutorial: {en: "Skip the tutorial", it: "Salta il tutorial", ja: "チュートリアルを省略"}
 launcher.skip_tutorial_hint: {en: "Applied at the next start.", it: "Si applica al prossimo avvio.", ja: "次回の起動時に反映されます。"}
 launcher.club_server: {en: "Club server", it: "Server club", ja: "クラブサーバー"}
-launcher.club_server_hint: {en: "empty: the chosen server", it: "vuoto: il server scelto", ja: "空欄: 選んだサーバー"}
+launcher.club_server_hint: {en: "Empty: the server you play on", it: "Vuoto: il server a cui giochi", ja: "空欄：プレイ中のサーバー"}
 launcher.vs_link: {en: "Direct VS link", it: "Collegamento VS diretto", ja: "ダイレクトVSリンク"}
-launcher.vs_link_hint: {en: "For VS matches between homes.", it: "Per le partite VS tra case.", ja: "家どうしのVS対戦用。"}
+launcher.vs_link_hint: {en: "Connects VS matches directly between PCs.", it: "Collega le sfide VS direttamente tra i PC.", ja: "VS対戦をPC同士で直接つなぎます。"}
 # messages: the status line, the questions, the output; the run's own lines stay English
 launcher.msg_starting: {en: "Starting the game ...", it: "Avvio del gioco ...", ja: "ゲームを起動しています..."}
 launcher.stage_server: {en: "Starting the server ...", it: "Avvio del server ...", ja: "サーバーを起動しています..."}
@@ -57,12 +57,12 @@ launcher.stage_screen: {en: "Loading the game screen ...", it: "Caricamento dell
 launcher.msg_restarting: {en: "Restarting ...", it: "Riavvio ...", ja: "再起動しています..."}
 launcher.msg_stopping: {en: "Stopping the game ...", it: "Arresto del gioco ...", ja: "ゲームを終了しています..."}
 launcher.msg_running: {en: "Game running.", it: "Gioco in esecuzione.", ja: "ゲーム実行中。"}
-launcher.msg_bad_address: {en: "Not an address (like 192.168.1.20).", it: "Non è un indirizzo (es. 192.168.1.20).", ja: "アドレスが不正です（例 192.168.1.20）。"}
-launcher.msg_start_failed: {en: "Start failed. See OUTPUT.", it: "Avvio non riuscito. Vedi OUTPUT.", ja: "起動に失敗。「出力」を確認。"}
+launcher.msg_bad_address: {en: "Invalid address. Example: 192.168.1.20.", it: "Indirizzo non valido. Esempio: 192.168.1.20.", ja: "アドレスが正しくありません。例：192.168.1.20"}
+launcher.msg_start_failed: {en: "Could not start. See DETAILS.", it: "Avvio non riuscito. Vedi DETTAGLI.", ja: "起動できませんでした。「詳細」を確認してください。"}
 launcher.msg_browse_title: {en: "Pick the game folder", it: "Scegli la cartella del gioco", ja: "ゲームフォルダーを選択"}
 launcher.msg_undo_confirm: {en: "Undo the setup?", it: "Annullare la configurazione?", ja: "設定を元に戻しますか？"}
 launcher.msg_no_folder: {en: "Pick the game folder first.", it: "Scegli prima la cartella del gioco.", ja: "先にゲームフォルダーを選択。"}
-launcher.msg_not_known: {en: "not known", it: "sconosciuta", ja: "不明"}
+launcher.msg_not_known: {en: "unknown", it: "sconosciuta", ja: "不明"}
 launcher.update_available: {en: "%{tag} available", it: "%{tag} disponibile", ja: "%{tag} を入手できます"}
 launcher.msg_available: {en: "Version %{tag} is available. See UPDATE.", it: "È disponibile la versione %{tag}. Vedi AGGIORNAMENTO.", ja: "バージョン %{tag} を入手できます。「アップデート」を開いてください。"}
 launcher.msg_asking: {en: "Looking for updates ...", it: "Ricerca degli aggiornamenti ...", ja: "更新を確認しています..."}
@@ -75,24 +75,21 @@ launcher.msg_downloading: {en: "Downloading %{tag} ...", it: "Download di %{tag}
 launcher.msg_unzipping: {en: "Unzipping ...", it: "Estrazione ...", ja: "展開しています..."}
 launcher.msg_copying: {en: "Copying %{tag} ...", it: "Copia di %{tag} ...", ja: "%{tag} をコピーしています..."}
 launcher.msg_updated: {en: "Updated to %{tag}.", it: "Aggiornato a %{tag}.", ja: "%{tag} に更新しました。"}
-launcher.msg_after_update: {en: "Updated. Set up now?", it: "Aggiornato. Configurare ora?", ja: "更新しました。設定しますか？"}
-launcher.msg_after_update_english: {en: "Updated. Set up and reapply English?", it: "Aggiornato. Configurare e riapplicare l'inglese?", ja: "更新しました。設定して英語化をやり直しますか？"}
-launcher.msg_after_update_italian: {en: "Updated. Set up and reapply Italian?", it: "Aggiornato. Configurare e riapplicare l'italiano?", ja: "更新しました。設定してイタリア語化をやり直しますか？"}
 launcher.msg_close_game: {en: "Close the game first: %{name} is running.", it: "Chiudi prima il gioco: %{name} è in esecuzione.", ja: "先にゲームを閉じてください：%{name} が実行中です。"}
 launcher.msg_download_failed: {en: "The download failed: %{error}", it: "Download non riuscito: %{error}", ja: "ダウンロードに失敗しました: %{error}"}
-launcher.msg_unzip_failed: {en: "The ZIP did not unzip.", it: "Impossibile estrarre lo ZIP.", ja: "ZIP を展開できませんでした。"}
+launcher.msg_unzip_failed: {en: "Could not unzip the download.", it: "Impossibile estrarre il download.", ja: "ダウンロードしたファイルを展開できませんでした。"}
 launcher.msg_unverified: {en: "The download could not be verified. Nothing was changed.", it: "Impossibile verificare il download. Non è stato modificato nulla.", ja: "ダウンロードを検証できませんでした。何も変更されていません。"}
-launcher.msg_launcher_differs: {en: "Launcher.exe is version %{own}, the other files %{files}. Install %{files} again with UPDATE.", it: "Launcher.exe è la versione %{own}, gli altri file la %{files}. Installa di nuovo la %{files} con AGGIORNA.", ja: "Launcher.exe はバージョン %{own}、ほかのファイルは %{files} です。「アップデート」で %{files} をもう一度インストールしてください。"}
+launcher.msg_launcher_differs: {en: "Launcher.exe is version %{own} but the other files are %{files}. Reinstall %{files} with UPDATE.", it: "Launcher.exe è la versione %{own}, gli altri file la %{files}. Reinstalla la %{files} da AGGIORNAMENTO.", ja: "Launcher.exe はバージョン %{own}、ほかのファイルは %{files} です。「アップデート」で %{files} をインストールし直してください。"}
 launcher.msg_needs_installer: {en: "%{tag} needs the installer. Download it from the release page.", it: "%{tag} richiede l'installer. Scaricalo dalla pagina della versione.", ja: "%{tag} にはインストーラーが必要です。リリースページからダウンロードしてください。"}
 launcher.msg_not_a_kit: {en: "This ZIP is not a Forza-WCCF release.", it: "Questo ZIP non è una versione di Forza-WCCF.", ja: "この ZIP は Forza-WCCF のリリースではありません。"}
-launcher.msg_write_failed: {en: "%{path}: could not write it (%{error}) - close the game and try again.", it: "%{path}: scrittura non riuscita (%{error}) - chiudi il gioco e riprova.", ja: "%{path} に書き込めませんでした（%{error}）。ゲームを閉じて、もう一度お試しください。"}
+launcher.msg_write_failed: {en: "Cannot write %{path} (%{error}). Close the game and try again.", it: "Impossibile scrivere %{path} (%{error}). Chiudi il gioco e riprova.", ja: "%{path} に書き込めませんでした（%{error}）。ゲームを閉じて、もう一度お試しください。"}
 launcher.msg_done: {en: "Done.", it: "Fatto.", ja: "完了しました。"}
-launcher.msg_failed: {en: "Failed. See OUTPUT.", it: "Non riuscito. Vedi OUTPUT.", ja: "失敗しました。「出力」を確認してください。"}
-launcher.msg_went_wrong: {en: "The game crashed or closed by itself.", it: "Il gioco si è chiuso da solo o è andato in crash.", ja: "ゲームがクラッシュしたか、勝手に終了しました。"}
+launcher.msg_failed: {en: "Failed. See DETAILS.", it: "Non riuscito. Vedi DETTAGLI.", ja: "失敗しました。「出力」を確認してください。"}
+launcher.msg_went_wrong: {en: "The game stopped unexpectedly.", it: "Il gioco si è chiuso in modo imprevisto.", ja: "ゲームが予期せず終了しました。"}
 launcher.report_problem: {en: "Report a problem", it: "Segnala un problema", ja: "問題を報告"}
-report.title_crashed: {en: "The game crashed or closed by itself", it: "Il gioco si è chiuso da solo o è andato in crash", ja: "ゲームがクラッシュしたか、勝手に終了しました"}
+report.title_crashed: {en: "The game stopped unexpectedly", it: "Il gioco si è chiuso in modo imprevisto", ja: "ゲームが予期せず終了しました"}
 report.what_happened: {en: "What happened?", it: "Cosa è successo?", ja: "何が起きましたか？"}
-report.what_is_sent: {en: "Sent with it", it: "Inviati insieme", ja: "一緒に送信"}
+report.what_is_sent: {en: "Included", it: "Inclusi", ja: "送信内容"}
 report.scrubbed: {en: "User and PC names are removed.", it: "I nomi dell'utente e del PC vengono rimossi.", ja: "ユーザー名と PC 名は削除されます。"}
 report.send: {en: "SEND", it: "INVIA", ja: "送信"}
 report.sending: {en: "Sending…", it: "Invio in corso…", ja: "送信中…"}
@@ -101,26 +98,26 @@ report.kept: {en: "%{why} The report is kept and goes with the next one.", it: "
 report.busy: {en: "The server is busy. Try again in a minute.", it: "Il server è occupato. Riprova tra un minuto.", ja: "サーバーが混み合っています。1 分後にもう一度お試しください。"}
 report.too_many: {en: "Too many reports from this connection. Try again in an hour.", it: "Troppe segnalazioni da questa connessione. Riprova tra un'ora.", ja: "この接続からの報告が多すぎます。1 時間後にもう一度お試しください。"}
 report.refused: {en: "The server did not take the report.", it: "Il server non ha accettato la segnalazione.", ja: "サーバーが報告を受け付けませんでした。"}
-report.pack_failed: {en: "The logs could not be packed.", it: "Impossibile preparare i log.", ja: "ログをまとめられませんでした。"}
+report.pack_failed: {en: "The logs could not be packed.", it: "Impossibile preparare i log.", ja: "ログを準備できませんでした。"}
 net.offline: {en: "No internet connection.", it: "Nessuna connessione a Internet.", ja: "インターネットに接続されていません。"}
 net.no_answer: {en: "The server did not answer.", it: "Il server non ha risposto.", ja: "サーバーが応答しませんでした。"}
 net.failed: {en: "The connection failed.", it: "Connessione non riuscita.", ja: "接続に失敗しました。"}
 launcher.msg_setting_up: {en: "Setting up the game folder ...", it: "Configuro la cartella del gioco ...", ja: "ゲームフォルダーを設定中..."}
 launcher.msg_undoing: {en: "Undoing setup ...", it: "Annullo la configurazione ...", ja: "設定を元に戻しています..."}
-launcher.msg_switching_text: {en: "Switching the game's text ...", it: "Cambio la lingua dei testi del gioco ...", ja: "ゲームのテキストを切り替えています..."}
+launcher.msg_switching_text: {en: "Applying the game language ...", it: "Applico la lingua del gioco ...", ja: "ゲームの言語を適用しています..."}
 launcher.msg_game_running: {en: "The game is running. Close it and try again.", it: "Il gioco è in esecuzione. Chiudilo e riprova.", ja: "ゲームが起動中です。閉じてからもう一度お試しください。"}
-launcher.msg_busy: {en: "Busy.", it: "Occupato.", ja: "処理中です。"}
+launcher.msg_busy: {en: "Please wait until this finishes.", it: "Attendi la fine dell'operazione.", ja: "処理が終わるまでお待ちください。"}
 launcher.msg_unguarded: {en: "Not started. Open Launcher.exe from Explorer.", it: "Non avviato. Apri Launcher.exe da Esplora file.", ja: "起動しませんでした。エクスプローラーから Launcher.exe を開いてください。"}
 launcher.msg_not_guarded: {en: "Not started. Press SET UP first.", it: "Non avviato. Premi prima CONFIGURA.", ja: "起動しませんでした。先に「設定する」を押してください。"}
-launcher.msg_rooms_full: {en: "The server has no room left for a VS room. Try again in a minute.", it: "Il server non ha più posto per una sfida VS. Riprova tra un minuto.", ja: "サーバーに対戦ルームの空きがありません。1分後にもう一度お試しください。"}
-launcher.msg_bad_club: {en: "Use HOST or HOST:PORT, or leave empty.", it: "Usa HOST o HOST:PORTA, oppure lascia vuoto.", ja: "HOST または HOST:PORT、空欄も可。"}
+launcher.msg_rooms_full: {en: "No VS room free. Try again in a minute.", it: "Nessuna sfida VS libera. Riprova tra un minuto.", ja: "サーバーに対戦ルームの空きがありません。1分後にもう一度お試しください。"}
+launcher.msg_bad_club: {en: "Invalid address. Use HOST or HOST:PORT.", it: "Indirizzo non valido. Usa HOST o HOST:PORTA.", ja: "アドレスが正しくありません。HOST または HOST:PORT で入力してください。"}
 launcher.msg_stop_anyway: {en: "A match is on. Stopping can damage your card. Stop anyway?", it: "Partita in corso. Fermare può danneggiare la carta. Fermare comunque?", ja: "試合中です。終了するとカードが傷つく恐れがあります。終了しますか？"}
 launcher.msg_link_taken: {en: "This folder path may not work. If the game does not start, move it to C:\\Games.", it: "Questo percorso potrebbe non funzionare. Se il gioco non parte, spostalo in C:\\Games.", ja: "このフォルダーのパスでは動かない場合があります。起動しないときは C:\\Games へ移動してください。"}
 launcher.msg_link_no_junction: {en: "This folder path may not work. If the game does not start, move it to C:\\Games.", it: "Questo percorso potrebbe non funzionare. Se il gioco non parte, spostalo in C:\\Games.", ja: "このフォルダーのパスでは動かない場合があります。起動しないときは C:\\Games へ移動してください。"}
 launcher.msg_link_failed: {en: "This folder path may not work. If the game does not start, move it to C:\\Games.", it: "Questo percorso potrebbe non funzionare. Se il gioco non parte, spostalo in C:\\Games.", ja: "このフォルダーのパスでは動かない場合があります。起動しないときは C:\\Games へ移動してください。"}
 launcher.msg_pack_title: {en: "Pick the high-quality card pack (forza-wccf-card-pictures-hq-*.zip)", it: "Scegli il pacchetto di immagini carte in alta qualità (forza-wccf-card-pictures-hq-*.zip)", ja: "高画質カード画像パックを選んでください（forza-wccf-card-pictures-hq-*.zip）"}
 launcher.msg_making_pictures: {en: "Making card pictures ...", it: "Creo le immagini delle carte ...", ja: "カード画像を作成中..."}
-launcher.msg_no_fonts: {en: "Missing files. Reinstall Forza-WCCF.", it: "File mancanti. Reinstalla Forza-WCCF.", ja: "ファイルが不足しています。Forza-WCCF を再インストールしてください。"}
+launcher.msg_no_fonts: {en: "Files are missing. Check your antivirus, then reinstall Forza-WCCF.", it: "File mancanti. Controlla l'antivirus, poi reinstalla Forza-WCCF.", ja: "ファイルが見つかりません。ウイルス対策ソフトを確認し、Forza-WCCF を再インストールしてください。"}
 launcher.msg_no_window: {en: "Launcher cannot open its window: %{error}", it: "Launcher non riesce ad aprire la finestra: %{error}", ja: "Launcher のウィンドウを開けません: %{error}"}
 
 # ---- installer ----
@@ -497,7 +494,7 @@ lobby.club: {en: "Club #%{id}", it: "Club #%{id}", ja: "クラブ #%{id}"}
 lobby.waiting: {en: "waiting…", it: "in attesa…", ja: "待機中…"}
 lobby.starting: {en: "Both ready: starting", it: "Entrambi pronti: si parte", ja: "両者準備OK：開始します"}
 lobby.empty: {en: "No rooms yet. Host one or type an address.", it: "Nessuna stanza. Creane una o scrivi un indirizzo.", ja: "ルームなし。作成するかアドレスを入力。"}
-lobby.offline: {en: "Server not answering.", it: "Il server non risponde.", ja: "サーバーが応答しません。"}
+lobby.offline: {en: "Server not answering. Try again later.", it: "Il server non risponde. Riprova più tardi.", ja: "サーバーが応答しません。後でもう一度お試しください。"}
 lobby.taken: {en: "That seat was just taken.", it: "Quel posto è appena stato preso.", ja: "その席はたった今埋まりました。"}
 lobby.room_closed: {en: "The host closed the room.", it: "L'host ha chiuso la stanza.", ja: "ホストがルームを閉じました。"}
 lobby.stale: {en: "Updated %{s} s ago.", it: "Aggiornato %{s} s fa.", ja: "%{s} 秒前に更新。"}
