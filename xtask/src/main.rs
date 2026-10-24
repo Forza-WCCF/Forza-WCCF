@@ -1,8 +1,8 @@
 //! `cargo xtask build | check | package <edition> | stage <edition>`: the 2010-11 kit's build, checks and ZIP, replacing
 //! source/build.ps1, check.ps1 and package.ps1; the 2017-18 kit is staged and zipped from its committed programs.
 //!
-//! Windows is the build host: plain `cargo` with MSVC for the Rust, Visual Studio's `clang-cl` + `lld-link` + `llvm-rc`
-//! against the 32-bit MSVC CRT and SDK for the C programs; the tests run the programs natively.
+//! Windows is the build host: plain `cargo` with MSVC for every program, the 32-bit ones (the game's DLLs and the programs
+//! beside it, `native/`) for i686; the tests run the programs natively.
 //! `FORZA_STAGE_ROOT` (default `target/`) is where the kits are staged and the checks run.
 //!
 //! The kit the players get is staged at `target/kit/2010-11/`, copied from the working tree by one table
@@ -24,13 +24,13 @@ use xshell::{Shell, cmd};
 #[derive(Parser)]
 #[command(about = "Build, check and package Forza-WCCF")]
 enum Task {
-    /// Compile the C programs and the launchers into the staged kits (2010-11 and 2017-18)
+    /// Build every program (the 32-bit ones beside the game and the launchers) into the staged kits (2010-11 and 2017-18)
     Build {
         /// The `fast` profile (release without LTO, incremental) for a local test kit; `package` always builds release
         #[arg(long)]
         fast: bool,
     },
-    /// fmt, clippy, tests, the kit's C self-tests, the scrub; `check quick` = fmt, clippy and the tests of the crates changed since --base
+    /// fmt, clippy, tests, the kit's self-test programs, the scrub; `check quick` = fmt, clippy and the tests of the crates changed since --base
     Check {
         /// `quick`: only the crates changed since the base (and their dependents); no release build, no kit, no smoke.
         /// `ci`: the full check minus the GPU snapshot tests (the GitHub runner has no GPU), in the `ci` profile (no LTO;
@@ -105,11 +105,10 @@ const MAP: &[(&str, &str)] = &[
     ("fonts", "assets/fonts"), // the panel's fonts (forza-panel font_dir: a fonts\ above its DLL) and their licences
     ("languages", "editions/2010-11/languages"),
     ("source/README.txt", "native/2010-11/README.txt"),
-    ("source/hook", "native/2010-11/hook"),
-    ("source/panel", "native/2010-11/panel"),
-    ("source/panel/inject.c", "native/common/inject.c"),
-    ("source/crashme.c", "native/2010-11/crashme.c"),
-    ("source/card_table/fpr_emu.c", "native/fpr_emu/fpr_emu.c"),
+    // the sources of the kit's 32-bit programs (wccfk.dll, inject.exe, FPR_Emu.exe)
+    ("source/native/common", "native/common"),
+    ("source/native/hook", "native/hook"),
+    ("source/native/programs", "native/programs"),
     ("source/launcher", "crates/launcher"),
 ];
 /// The staged 2017-18 kit <- the repository, same rules as [`MAP`]; later rows overlay earlier ones and a row may be one
@@ -123,10 +122,12 @@ const MAP_1718: &[(&str, &str)] = &[
     ("italian", "editions/2017-18/italian"), // the Italian text: key + Italian, the English behind each key
     ("fonts", "assets/fonts"),
     ("source/README.txt", "native/2017-18/README.txt"),
-    ("source/mxhook", "native/2017-18/mxhook"),
-    ("source/overlay", "native/2017-18/overlay"),
-    ("source/logowin", "native/2017-18/logowin"),
-    ("source/fpr_emu", "native/fpr_emu"),
+    // the sources of the kit's 32-bit programs (winmm.dll, wccfnet.dll, ICMP.DLL, logowin.exe, FPR_Emu.exe)
+    ("source/native/common", "native/common"),
+    ("source/native/hook", "native/hook"),
+    ("source/native/wccfnet", "native/wccfnet"),
+    ("source/native/icmp", "native/icmp"),
+    ("source/native/programs", "native/programs"),
 ];
 /// Product name in the version information of programs both kits share.
 const PRODUCT_COMMON: &str = "Forza-WCCF";
@@ -145,197 +146,77 @@ const KEEP_1718: &[&str] = &[
     "overlay/forza_panel.dll",
     "source/build",
 ];
-/// One C job: `src` is read from the edition's source folder, `out` is relative to the staged kit; no `what`, no version
-/// resource. `link` and `compile` are extra clang-cl arguments.
-struct Cj {
-    src: &'static str,
-    out: &'static str,
-    what: &'static str,
-    compile: &'static [&'static str],
-    link: &'static [&'static str],
-}
-
-const fn cj(
-    src: &'static str,
-    out: &'static str,
-    what: &'static str,
-    compile: &'static [&'static str],
-    link: &'static [&'static str],
-) -> Cj {
-    Cj {
-        src,
-        out,
-        what,
-        compile,
-        link,
-    }
-}
-
 /// What differs between the two kits: the staging table, the programs `build` keeps, the ZIP's top folder and product
-/// name, where the C sources are read from (relative to the kit, else the repository) and which C programs are built.
+/// name, and the folders `build` makes in the staged kit.
 struct Ed {
     map: &'static [(&'static str, &'static str)],
     keep: &'static [&'static str],
     top: &'static str,
     product: &'static str,
-    /// the 2010-11 kit builds from its own staged `source/`, the 2017-18 kit from the repository's `native/2017-18`
-    src: &'static str,
-    in_kit: bool,
-    /// folders `build` makes in the staged kit
     dirs: &'static [&'static str],
-    jobs: &'static [Cj],
 }
 
-const NO_CONSOLE: &[&str] = &["user32.lib", "/SUBSYSTEM:WINDOWS", "/ENTRY:mainCRTStartup"]; // the game starts it: no console window
 const ED_1011: Ed = Ed {
     map: MAP,
     keep: KEEP,
     top: TOP,
     product: PRODUCT,
-    src: "source",
-    in_kit: true,
     dirs: &["programs", "source/build"],
-    jobs: &[
-        cj(
-            "hook/wccfk.c",
-            "programs/wccfk.dll",
-            "Forza-WCCF's hook in the game: stands in for the cabinet's hardware",
-            &["/LD"],
-            &[],
-        ),
-        // tests only, not shipped
-        cj(
-            "panel/fakegame.c",
-            "source/build/fakegame.exe",
-            "",
-            &[],
-            &["d3d9.lib", "user32.lib"],
-        ),
-        // fakegame with an IP-helper import: the 2017-18 guard's tests rename it to wccfnet.dll as setup does
-        cj(
-            "panel/fakegame_iphlp.c",
-            "source/build/fakegame_iphlp.exe",
-            "",
-            &[],
-            &["d3d9.lib", "user32.lib", "iphlpapi.lib"],
-        ),
-        cj(
-            "hook/test_wholemsg.c",
-            "source/build/test_wholemsg.exe",
-            "",
-            &[],
-            &[],
-        ),
-        cj(
-            "hook/test_dhcphook.c",
-            "source/build/test_dhcphook.exe",
-            "",
-            &[],
-            &["iphlpapi.lib"],
-        ),
-        cj("crashme.c", "source/build/crashme.exe", "", &[], &[]),
-    ],
 };
 const ED_1718: Ed = Ed {
     map: MAP_1718,
     keep: KEEP_1718,
     top: TOP_1718,
     product: PRODUCT_1718,
-    src: "native/2017-18",
-    in_kit: false,
     dirs: &["bin", "overlay", "source/build"],
-    jobs: &[
-        cj(
-            "mxhook/mxhook.c",
-            "bin/winmm.dll",
-            "stands in for the cabinet's hardware, loaded by the game in place of winmm.dll",
-            &["/LD"],
-            &[],
-        ),
-        cj(
-            "logowin/logowin_standin.c",
-            "bin/logowin.exe",
-            "the start-up notice window, replaced by one that only records the notice",
-            &[],
-            &["/SUBSYSTEM:WINDOWS"],
-        ),
-        // not in the 2017-18 kit: the Linux server's 2010-11 hook loads it (native/2010-11/server-hook)
-        cj(
-            "netguard/netguard.c",
-            "source/build/netguard.dll",
-            "",
-            &["/LD"],
-            &[],
-        ),
-        cj(
-            "netguard/wccfnet.c",
-            "bin/wccfnet.dll",
-            "the network guard: the game programs import it instead of IPHLPAPI.DLL; it loads the panel when FORZA_PANEL is set",
-            &["/LD"],
-            &["user32.lib"],
-        ),
-        cj(
-            "netguard/icmp.c",
-            "bin/ICMP.DLL",
-            "stand-in ICMP.DLL: the game's pings return at once instead of timing out",
-            &["/LD"],
-            &[],
-        ),
-        // tests only, not shipped
-        cj(
-            "netguard/test_icmp.c",
-            "source/build/test_icmp.exe",
-            "",
-            &[],
-            &[],
-        ),
-        cj(
-            "netguard/test_wccfnet.c",
-            "source/build/test_wccfnet.exe",
-            "",
-            &[],
-            &[],
-        ),
-        cj(
-            "netguard/test_netguard.c",
-            "source/build/test_netguard.exe",
-            "",
-            &[],
-            &["iphlpapi.lib"],
-        ),
-        cj(
-            "netguard/panel_probe.c",
-            "source/build/panel_probe.dll",
-            "",
-            &["/LD"],
-            &[],
-        ),
-        cj(
-            "netguard/test_panel.c",
-            "source/build/test_panel.exe",
-            "",
-            &[],
-            &["user32.lib"],
-        ),
-    ],
 };
-/// Programs both kits ship unchanged: compiled once from `native/` into the 2010-11 kit's `source/build`, which
-/// `build_all` copies into both kits.
-const COMMON: &[Cj] = &[
-    cj(
-        "common/inject.c",
-        "source/build/inject.exe",
-        "loads the Forza-WCCF panel into the running game",
-        &[],
-        &[],
+
+/// The 32-bit programs (`native/`, built for [`PANEL_TARGET`]): cargo's file -> where a kit has it (`true` the 2010-11
+/// kit, `false` the 2017-18 kit). The hook, forza_hook.dll, is built once per edition ([`HOOKS`]).
+const NATIVE: &[(&str, bool, &str)] = &[
+    ("inject.exe", true, "programs/inject.exe"),
+    ("fpr_emu.exe", true, "programs/FPR_Emu.exe"),
+    ("fpr_emu.exe", false, "bin/FPR_Emu.exe"),
+    ("logowin.exe", false, "bin/logowin.exe"),
+    ("wccfnet.dll", false, "bin/wccfnet.dll"),
+    ("icmp.dll", false, "bin/ICMP.DLL"),
+    // not in the 2017-18 kit: the Linux server's 2010-11 hook loads it (native/2010-11/server-hook)
+    ("netguard.dll", false, "source/build/netguard.dll"),
+    // tests only, not shipped; fakegame_iphlp: the 2017-18 guard's tests rename its IP-helper import as setup does
+    ("fakegame.exe", true, "source/build/fakegame.exe"),
+    (
+        "fakegame_iphlp.exe",
+        true,
+        "source/build/fakegame_iphlp.exe",
     ),
-    cj(
-        "fpr_emu/fpr_emu.c",
-        "source/build/FPR_Emu.exe",
-        "the card table's stand-in",
-        &[],
-        NO_CONSOLE,
-    ),
+    ("test_dhcphook.exe", true, "source/build/test_dhcphook.exe"),
+    ("crashme.exe", true, "source/build/crashme.exe"),
+    ("test_icmp.exe", false, "source/build/test_icmp.exe"),
+    ("test_wccfnet.exe", false, "source/build/test_wccfnet.exe"),
+    ("test_netguard.exe", false, "source/build/test_netguard.exe"),
+    ("test_panel.exe", false, "source/build/test_panel.exe"),
+    // test_panel's stand-in for the panel: a DLL that does nothing when it loads
+    ("icmp.dll", false, "source/build/panel_probe.dll"),
+];
+/// forza_hook.dll per edition: (its feature, `true` the 2010-11 kit, where the kit has it).
+const HOOKS: [(&str, bool, &str); 2] = [
+    ("forza-hook/e1011", true, "programs/wccfk.dll"),
+    ("forza-hook/e1718", false, "bin/winmm.dll"),
+];
+/// The 32-bit crates besides the panel, as `build`, clippy and the tests take them (the hook gets its feature apart).
+const NATIVE_CRATES: &[&str] = &[
+    "-p",
+    "forza-native",
+    "-p",
+    "forza-wccfnet",
+    "-p",
+    "forza-netguard",
+    "-p",
+    "forza-icmp",
+    "-p",
+    "forza-programs",
+    "--features",
+    "forza-programs/programs",
 ];
 
 /// Shipped programs that may be console programs, each started only by Launcher.exe with CREATE_NO_WINDOW and its output
@@ -391,8 +272,7 @@ fn main() -> Result<()> {
             if fast {
                 let _ = PROFILE.set("fast");
             }
-            let cc = Cc::new(&root)?;
-            build_all(&root, &kit, &kit_1718, &cc)
+            build_all(&root, &kit, &kit_1718)
         }
         Task::Cap { root, outdir } => cap(&root, &outdir),
         Task::Gallery => gallery(&root),
@@ -422,7 +302,7 @@ fn main() -> Result<()> {
                 Some("text") => return check_text(&root),
                 _ => {}
             }
-            build_all(&root, &kit, &kit_1718, &Cc::new(&root)?)
+            build_all(&root, &kit, &kit_1718)
                 .and_then(|()| check(&root, &stage_root, &kit, &kit_1718, ci, &test_args))
         }
         Task::Stage { edition } => match edition.as_str() {
@@ -432,11 +312,7 @@ fn main() -> Result<()> {
         },
         Task::Package { edition, name } => match edition.as_str() {
             "installer" => package_installer(&root, name),
-            "2010-11" | "2017-18"
-                if let Err(e) = build_all(&root, &kit, &kit_1718, &Cc::new(&root)?) =>
-            {
-                Err(e)
-            }
+            "2010-11" | "2017-18" if let Err(e) = build_all(&root, &kit, &kit_1718) => Err(e),
             "2010-11" => package(&root, &kit, &name.unwrap_or_else(|| TOP.into()), true),
             "2017-18" => package(
                 &root,
@@ -504,59 +380,6 @@ fn run_ok(mut c: Command, what: &str) -> Result<()> {
         "{what} failed"
     );
     Ok(())
-}
-
-/// The C compiler: Visual Studio's `clang-cl`, with the `lld-link` and `llvm-rc` beside it, against the 32-bit MSVC CRT
-/// and Windows SDK; `env` is the `INCLUDE` and `LIB` that `vcvarsall x86` of the same Visual Studio sets.
-struct Cc {
-    bin: PathBuf,
-    env: Vec<(String, String)>,
-}
-
-impl Cc {
-    fn new(root: &Path) -> Result<Cc> {
-        let sh = Shell::new()?;
-        let pf =
-            std::env::var("ProgramFiles(x86)").unwrap_or_else(|_| r"C:\Program Files (x86)".into());
-        let vswhere = format!(r"{pf}\Microsoft Visual Studio\Installer\vswhere.exe");
-        // the clang that ships with Visual Studio (component "C++ Clang Compiler for Windows"), never an LLVM on PATH
-        let vs = cmd!(sh, "{vswhere} -latest -products * -requires Microsoft.VisualStudio.Component.VC.Llvm.Clang -property installationPath")
-            .read()
-            .context("vswhere failed")?;
-        ensure!(
-            !vs.trim().is_empty(),
-            "no Visual Studio with the C++ Clang Compiler for Windows (vswhere found none)"
-        );
-        let vs = Path::new(vs.trim());
-        let bin = vs.join(r"VC\Tools\Llvm\x64\bin");
-        ensure!(
-            bin.join("clang-cl.exe").is_file(),
-            "{} has no clang-cl.exe",
-            bin.display()
-        );
-        let bat = root.join("target/vcvars-x86.bat");
-        fs::create_dir_all(bat.parent().unwrap())?;
-        fs::write(
-            &bat,
-            format!(
-                "@call \"{}\" x86 >nul\r\n@set\r\n",
-                vs.join(r"VC\Auxiliary\Build\vcvarsall.bat").display()
-            ),
-        )?;
-        // a Developer Prompt's own INCLUDE and LIB would come first in vcvarsall's
-        let out = cmd!(sh, "cmd /c {bat}")
-            .env_remove("INCLUDE")
-            .env_remove("LIB")
-            .read()?;
-        let env: Vec<(String, String)> = out
-            .lines()
-            .filter_map(|l| l.split_once('='))
-            .filter(|(k, _)| k.eq_ignore_ascii_case("INCLUDE") || k.eq_ignore_ascii_case("LIB"))
-            .map(|(k, v)| (k.to_owned(), v.trim_end().to_owned()))
-            .collect();
-        ensure!(env.len() == 2, "vcvarsall x86 set no INCLUDE and LIB");
-        Ok(Cc { bin, env })
-    }
 }
 
 /// The design gallery built for Windows and started from the repository root, where it finds `assets/fonts/`.
@@ -657,34 +480,28 @@ fn workspace_version(root: &Path) -> Result<String> {
 
 // ---- build ----
 
-/// Compile jobs running at once: every C program of both editions and the launcher, joined by `build_all`.
+/// Build jobs running at once: the 64-bit programs and the 32-bit ones, joined by `build_all`.
 type Jobs<'s> = Vec<std::thread::ScopedJoinHandle<'s, (String, Result<()>)>>;
 
-/// Stage both kits, build everything at once (about 20 processes, no two writing the same file: each output stem is
-/// unique in its edition's `source/build`), then report every failure.
-fn build_all(root: &Path, kit: &Path, kit_1718: &Path, cc: &Cc) -> Result<()> {
+/// Stage both kits, build the 64-bit and the 32-bit programs at once, then report every failure.
+fn build_all(root: &Path, kit: &Path, kit_1718: &Path) -> Result<()> {
+    for (k, ed) in [(kit, &ED_1011), (kit_1718, &ED_1718)] {
+        stage(root, k, ed.map, ed.keep)?;
+        for d in ed.dirs {
+            fs::create_dir_all(k.join(d))?;
+        }
+    }
+    // programs\ is kept between builds: the C panel it held up to step 9.4c must not ship beside forza_panel.dll
+    let _ = fs::remove_file(kit.join("programs/wccfpanel.dll"));
     let mut failed = vec![];
-    let res = std::thread::scope(|s| {
-        let mut jobs = build(s, root, kit, cc)?;
-        jobs.extend(build_c_jobs(s, root, kit_1718, cc, &ED_1718)?);
-        jobs.extend(spawn_c(
-            s,
-            root,
-            kit,
-            cc,
-            PRODUCT_COMMON,
-            &root.join("native"),
-            COMMON,
-        )?);
-        for j in jobs {
+    std::thread::scope(|s| {
+        for j in build(s, root, kit, kit_1718) {
             let (what, r) = j.join().expect("build thread");
             if let Err(e) = r {
                 failed.push(format!("{what}: {e:#}"));
             }
         }
-        Ok::<_, anyhow::Error>(())
     });
-    res?;
     ensure!(
         failed.is_empty(),
         "{} build step(s) failed:\n{}",
@@ -694,8 +511,10 @@ fn build_all(root: &Path, kit: &Path, kit_1718: &Path, cc: &Cc) -> Result<()> {
     // the same three programs in both kits: Launcher.exe runs either edition (launcher::kit::Edition, from the layout),
     // forza_panel.dll finds its edition the same way
     let release = target_dir(root).join(TARGET).join(profile());
-    let panel = kit.join("source/build/forza_panel.dll");
-    let common = |f: &str| kit.join("source/build").join(f);
+    let panel = target_dir(root)
+        .join(PANEL_TARGET)
+        .join(profile())
+        .join("forza_panel.dll");
     for (from, to) in [
         (release.join("Launcher.exe"), kit.join("Launcher.exe")),
         (
@@ -703,17 +522,15 @@ fn build_all(root: &Path, kit: &Path, kit_1718: &Path, cc: &Cc) -> Result<()> {
             kit.join("programs/forza-server.exe"),
         ),
         (panel.clone(), kit.join("programs/forza_panel.dll")),
+        // beside fakegame.exe: the panel's tests and self-tests load it from there
+        (panel.clone(), kit.join("source/build/forza_panel.dll")),
         (release.join("Launcher.exe"), kit_1718.join("Launcher.exe")),
         (
             release.join("forza-server.exe"),
             kit_1718.join("bin/forza-server.exe"),
         ),
         (panel, kit_1718.join("overlay/forza_panel.dll")),
-        (common("inject.exe"), kit.join("programs/inject.exe")),
-        (common("FPR_Emu.exe"), kit.join("programs/FPR_Emu.exe")),
-        (common("FPR_Emu.exe"), kit_1718.join("bin/FPR_Emu.exe")),
     ] {
-        fs::create_dir_all(to.parent().unwrap())?;
         fs::copy(from, &to)?;
         println!("built {}", to.display());
     }
@@ -722,15 +539,10 @@ fn build_all(root: &Path, kit: &Path, kit_1718: &Path, cc: &Cc) -> Result<()> {
 
 fn build<'s>(
     s: &'s std::thread::Scope<'s, '_>,
-    root: &Path,
+    root: &'s Path,
     kit: &Path,
-    cc: &'s Cc,
-) -> Result<Jobs<'s>> {
-    let mut jobs = build_c_jobs(s, root, kit, cc, &ED_1011)?;
-    // programs\ is kept between builds: the C panel it held up to step 9.4c must not ship beside forza_panel.dll
-    let _ = fs::remove_file(kit.join("programs/wccfpanel.dll"));
-    let obj = kit.join("source/build");
-
+    kit_1718: &Path,
+) -> Jobs<'s> {
     // the toolchain is pinned by rust-toolchain.toml, the crates by Cargo.lock, the static runtime by .cargo/config.toml
     let mut c = rust_shipped(root);
     c.args([
@@ -747,144 +559,54 @@ fn build<'s>(
         TARGET,
     ]);
     let launcher = c;
-    // the panel (step 9.4c: in place of the C wccfpanel.dll), 32-bit like the game; build_all copies it into both kits
-    let mut c = rust_shipped(root);
-    c.args([
-        "--profile",
-        profile(),
-        "--locked",
+    // 32-bit like the game: the panel (build_all copies it into both kits), the hook once per edition, the guards and
+    // the programs beside the game, one build after the other (the hook's two builds share its output file)
+    let native = |extra: &[&str]| {
+        let mut c = rust_shipped(root);
+        c.args(["--profile", profile(), "--locked", "--target", PANEL_TARGET])
+            .args(extra);
+        c
+    };
+    let mut first = native(&[
         "-p",
         "forza-panel",
-        "--target",
-        PANEL_TARGET,
+        "-p",
+        "forza-hook",
+        "--features",
+        HOOKS[0].0,
     ]);
-    let (dll, to) = (
-        target_dir(root)
-            .join(PANEL_TARGET)
-            .join(profile())
-            .join("forza_panel.dll"),
-        obj.join("forza_panel.dll"),
-    );
-    jobs.push(s.spawn(move || {
-        let what = "cargo build -p launcher -p forza-server -p wccf-installer";
-        (what.into(), run_ok(launcher, what))
-    }));
-    jobs.push(s.spawn(move || {
-        let r = run_ok(c, "cargo build -p forza-panel")
-            .and_then(|()| fs::copy(&dll, &to).map(drop).map_err(Into::into));
-        ("cargo build -p forza-panel".into(), r)
-    }));
-    Ok(jobs)
-}
-
-/// Stages the edition's kit, makes its folders and spawns one thread per C job.
-fn build_c_jobs<'s>(
-    s: &'s std::thread::Scope<'s, '_>,
-    root: &Path,
-    kit: &Path,
-    cc: &'s Cc,
-    ed: &Ed,
-) -> Result<Jobs<'s>> {
-    stage(root, kit, ed.map, ed.keep)?;
-    for d in ed.dirs {
-        fs::create_dir_all(kit.join(d))?;
-    }
-    let src = if ed.in_kit {
-        kit.join(ed.src)
-    } else {
-        root.join(ed.src)
+    first.args(NATIVE_CRATES);
+    let out = target_dir(root).join(PANEL_TARGET).join(profile());
+    let (kit, kit_1718) = (kit.to_owned(), kit_1718.to_owned());
+    let to = move |in_1011: bool, rel: &str| (if in_1011 { &kit } else { &kit_1718 }).join(rel);
+    let natives = move || -> Result<()> {
+        run_ok(first, "cargo build (32-bit)")?;
+        for (from, in_1011, rel) in NATIVE {
+            fs::copy(out.join(from), to(*in_1011, rel))?;
+        }
+        for (i, (feature, in_1011, rel)) in HOOKS.iter().enumerate() {
+            if i > 0 {
+                run_ok(
+                    native(&["-p", "forza-hook", "--features", feature]),
+                    "cargo build -p forza-hook",
+                )?;
+            }
+            fs::copy(out.join("forza_hook.dll"), to(*in_1011, rel))?;
+        }
+        Ok(())
     };
-    spawn_c(s, root, kit, cc, ed.product, &src, ed.jobs)
-}
-
-fn spawn_c<'s>(
-    s: &'s std::thread::Scope<'s, '_>,
-    root: &Path,
-    kit: &Path,
-    cc: &'s Cc,
-    product: &'static str,
-    src: &Path,
-    jobs: &'static [Cj],
-) -> Result<Jobs<'s>> {
-    let (version, obj) = (workspace_version(root)?, kit.join("source/build"));
-    Ok(jobs
-        .iter()
-        .map(|j| {
-            let (version, src, obj, out) = (
-                version.clone(),
-                src.to_owned(),
-                obj.clone(),
-                kit.join(j.out),
-            );
-            s.spawn(move || {
-                let r = Shell::new().map_err(Into::into).and_then(|sh| {
-                    build_c(
-                        &sh, cc, product, &version, &src, &obj, j.src, &out, j.what, j.compile,
-                        j.link,
-                    )
-                });
-                (j.src.to_owned(), r)
-            })
-        })
-        .collect())
-}
-
-/// The runtime linked in (/MT), so no Visual C++ runtime is needed on the player's PC; /Brepro: the same source, the same file.
-/// `what` becomes the program's version information (what a file's Properties show); no `what`, no resource.
-/// Kit 5.5's winmm.dll, nameless and unsigned, was quarantined as a trojan when it was unzipped (2026-10-10): `package` refuses
-/// a kit whose programs lack it.
-#[allow(clippy::too_many_arguments)]
-fn build_c(
-    sh: &Shell,
-    cc: &Cc,
-    product: &str,
-    version: &str,
-    src: &Path,
-    obj: &Path,
-    source: &str,
-    out: &Path,
-    what: &str,
-    compile: &[&str],
-    link: &[&str],
-) -> Result<()> {
-    let file = out.file_name().unwrap().to_string_lossy().into_owned();
-    let name = out.file_stem().unwrap().to_string_lossy().into_owned();
-    let mut parts: Vec<&str> = version.split('.').collect();
-    parts.resize(4, "0");
-    let comma = parts.join(",");
-    let kind = if file.ends_with(".dll") { "0x2" } else { "0x1" };
-    let mut res = vec![];
-    if !what.is_empty() {
-        let rc = format!(
-            "1 VERSIONINFO\r\nFILEVERSION {comma}\r\nPRODUCTVERSION {comma}\r\nFILEOS 0x40004\r\nFILETYPE {kind}\r\nBEGIN\r\nBLOCK \"StringFileInfo\"\r\nBEGIN\r\nBLOCK \"040904b0\"\r\nBEGIN\r\n\
-             VALUE \"CompanyName\", \"Forza-WCCF community\"\r\nVALUE \"FileDescription\", \"{product} - {file}: {what}\"\r\nVALUE \"FileVersion\", \"{version}\"\r\nVALUE \"InternalName\", \"{name}\"\r\n\
-             VALUE \"LegalCopyright\", \"Community-made tools for your own copy of the game; the game is not included\"\r\nVALUE \"OriginalFilename\", \"{file}\"\r\nVALUE \"ProductName\", \"{product}\"\r\n\
-             VALUE \"ProductVersion\", \"{version}\"\r\nEND\r\nEND\r\nBLOCK \"VarFileInfo\"\r\nBEGIN\r\nVALUE \"Translation\", 0x409, 1200\r\nEND\r\nEND\r\n"
-        );
-        let (rc_path, res_path) = (
-            obj.join(format!("{name}.rc")),
-            obj.join(format!("{name}.res")),
-        );
-        fs::write(&rc_path, rc)?;
-        let llvm_rc = cc.bin.join("llvm-rc.exe");
-        cmd!(sh, "{llvm_rc} /FO {res_path} {rc_path}")
-            .run()
-            .with_context(|| format!("rc failed for {source}"))?;
-        res.push(res_path);
-    }
-    let input = src.join(source);
-    let fe = format!("/Fe{}", out.display());
-    // -Wno-unused-function: clang warns about the panel's two dead statics (draw_overlay, draw_text), which cl only does at /W4
-    // the 32-bit CRT and SDK from INCLUDE (clang-cl) and LIB (lld-link); no PDB (no /DEBUG), so the same source gives the same file
-    let clang = cc.bin.join("clang-cl.exe");
-    let implib = format!("/IMPLIB:{}", obj.join(format!("{name}.lib")).display());
-    let fo = format!("/Fo{}/", obj.display());
-    cmd!(sh, "{clang} --target=i686-pc-windows-msvc -fuse-ld=lld /nologo /O2 /MT /W3 -Wno-unused-function /Brepro /D_CRT_SECURE_NO_WARNINGS {compile...} {input} {fo} {fe} /link /Brepro {implib} {res...} {link...}")
-        .envs(cc.env.iter().map(|(k, v)| (k, v)))
-        .run()
-        .with_context(|| format!("compiling {source} failed"))?;
-    println!("built {}", out.display());
-    Ok(())
+    vec![
+        s.spawn(move || {
+            let what = "cargo build -p launcher -p forza-server -p wccf-installer";
+            (what.into(), run_ok(launcher, what))
+        }),
+        s.spawn(move || {
+            (
+                "the 32-bit programs (native/, forza-panel)".into(),
+                natives(),
+            )
+        }),
+    ]
 }
 
 // ---- check ----
@@ -1095,7 +817,7 @@ fn quick(root: &Path, stage_root: &Path, base: &str) -> Result<()> {
                 .collect()
         }
     };
-    // the launcher's and the panel's tests start the C stand-ins and the panel DLL that `cargo xtask build` puts in the kit
+    // the launcher's and the panel's tests start the stand-ins and the panel DLL that `cargo xtask build` puts in the kit
     let needs_kit = pkgs
         .as_ref()
         .is_none_or(|p| p.contains("launcher") || p.contains("forza-panel"));
@@ -1127,12 +849,11 @@ fn quick(root: &Path, stage_root: &Path, base: &str) -> Result<()> {
     Ok(())
 }
 
-/// The staged kits must hold the built programs and the C test programs.
+/// The staged kits must hold the built programs and the test programs.
 fn ensure_built(kit: &Path, kit_1718: &Path) -> Result<()> {
     for p in PROGRAMS.iter().chain(&[
         "source/build/fakegame.exe",
         "source/build/fakegame_iphlp.exe",
-        "source/build/test_wholemsg.exe",
         "source/build/test_dhcphook.exe",
         "source/build/crashme.exe",
     ]) {
@@ -1159,12 +880,6 @@ fn ensure_built(kit: &Path, kit_1718: &Path) -> Result<()> {
 
 /// The checks that start Windows programs from the staged kits.
 fn windows_tests(ck: &mut Checks, kit: &Path, kit_1718: &Path) -> Result<()> {
-    ck.run(
-        "whole messages: a batch in pieces waits for its rest, bytes that are no batch are skipped",
-        Command::new(kit.join("source/build/test_wholemsg.exe")),
-        false,
-    );
-
     {
         let mut c = Command::new(kit.join("source/build/test_dhcphook.exe"));
         c.arg(kit.join("programs/wccfk.dll"));
@@ -1201,10 +916,25 @@ fn fmt_clippy(root: &Path, failed: &mut Vec<String>) {
         "warnings",
     ]);
     cargo_step("workspace: cargo clippy", clippy, failed);
-    let mut clippy = rust("clippy", root);
-    clippy.args(["--locked", "--all-targets", "--target", PANEL_TARGET]);
-    clippy.args(["-p", "forza-panel", "--", "-D", "warnings"]);
-    cargo_step("forza-panel (32-bit): cargo clippy", clippy, failed);
+    // the 32-bit crates, which are empty on x86_64: as `build` builds them, the hook once per edition
+    for (i, (feature, _, _)) in HOOKS.iter().enumerate() {
+        let mut clippy = rust("clippy", root);
+        clippy.args([
+            "--locked",
+            "--all-targets",
+            "--target",
+            PANEL_TARGET,
+            "-p",
+            "forza-hook",
+            "--features",
+            feature,
+        ]);
+        if i == 0 {
+            clippy.args(["-p", "forza-panel"]).args(NATIVE_CRATES);
+        }
+        clippy.args(["--", "-D", "warnings"]);
+        cargo_step(&format!("32-bit: cargo clippy ({feature})"), clippy, failed);
+    }
 }
 
 /// `ci`: the GPU snapshot tests are skipped.
@@ -1231,17 +961,26 @@ fn check(
 
     // the Rust workspace, xtask included: format, lint, tests
     fmt_clippy(root, &mut ck.failed);
+    // the 64-bit workspace, then the 32-bit crates (the panel; FPR_Emu's table file and frame; the hook's tests run on
+    // x86_64 too)
+    let native: Vec<&str> = [
+        "-p",
+        "forza-panel",
+        "-p",
+        "forza-hook",
+        "--features",
+        HOOKS[0].0,
+    ]
+    .into_iter()
+    .chain(NATIVE_CRATES.iter().copied())
+    .collect();
     for (what, target, scope) in [
         (
             "workspace: cargo test",
             TARGET,
             ["--workspace", "--exclude", "forza-panel"].as_slice(),
         ),
-        (
-            "forza-panel (32-bit): cargo test",
-            PANEL_TARGET,
-            ["-p", "forza-panel"].as_slice(),
-        ),
+        ("32-bit: cargo test", PANEL_TARGET, native.as_slice()),
     ] {
         cargo_step(
             what,
@@ -2008,7 +1747,7 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
     for p in programs {
         let v = version_strings(&fs::read(kit.join(p))?).unwrap_or_default();
         let get = |k: &str| v.get(k).map_or("", String::as_str);
-        // programs built once for both editions (Launcher.exe, forza-server.exe, forza_panel.dll, COMMON) name the project
+        // the programs name the project (Forza-WCCF); an edition's own name is what the C programs carried up to 0.3.2
         ensure!(
             (get("ProductName") == product || get("ProductName") == PRODUCT_COMMON)
                 && !get("FileVersion").is_empty(),

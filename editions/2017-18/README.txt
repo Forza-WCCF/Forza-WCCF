@@ -108,5 +108,5 @@ FOLDERS
   overlay\   the panel; SET UP adds the catalogue and the card pictures
   fonts\     the panel's fonts and their licences
   english\, italian\   the game's English and Italian text
-  source\    the source of the programs in bin\ and overlay\
+  source\    the source of the programs in bin\ and overlay\ (Rust)
   data\      made on your PC: settings, saves (save\gamesvr), logs

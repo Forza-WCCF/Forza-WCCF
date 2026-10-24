@@ -117,7 +117,7 @@ jobs:
           printf '%s\n' "$TITLE" > "$RUNNER_TEMP/msg"
           xtask/commit-msg "$RUNNER_TEMP/msg" || { echo "::error::pull request title"; exit 1; }
 
-  # Everything builds and runs natively: the kits, the C self-tests, the workspace tests and the installer smoke run
+  # Everything builds and runs natively: the kits, the guard and hook test programs, the workspace tests and the installer smoke run
   # (`cargo xtask check ci`); then the kits are scanned
   build-test:
     name: build-test
@@ -178,11 +178,10 @@ jobs:
           rustup toolchain list | cut -d' ' -f1 | grep -vx "$a" | xargs -r -n1 rustup toolchain uninstall
           rustc -vV
           VSW="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
-          REQ=Microsoft.VisualStudio.Component.VC.Llvm.Clang
+          REQ=Microsoft.VisualStudio.Component.VC.Tools.x86.x64
           "$VSW" -latest -products '*' -requires "$REQ" -property installationVersion
           VS=$(cygpath -u "$("$VSW" -latest -products '*' -requires "$REQ" -property installationPath)")
           ls "$VS/VC/Tools/MSVC"
-          "$VS/VC/Tools/Llvm/x64/bin/clang-cl.exe" --version
           ls "/c/Program Files (x86)/Windows Kits/10/Include"
       # `cargo xtask check` runs the tests with cargo-nextest when it is installed; the action checks the download's hash
       - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31

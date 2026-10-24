@@ -118,5 +118,5 @@ Forza-WCCF 2017-18（アルファ版）
   overlay\   パネル。「設定する」でカタログとカード画像が追加されます
   fonts\     パネルのフォントとライセンス
   english\, italian\   ゲームの英語・イタリア語テキスト
-  source\    bin\ と overlay\ のプログラムのソース
+  source\    bin\ と overlay\ のプログラムのソース（Rust）
   data\      お使いの PC で作られます: 設定、セーブ（save\gamesvr）、ログ
