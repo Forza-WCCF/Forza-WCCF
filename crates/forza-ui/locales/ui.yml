@@ -536,3 +536,6 @@ logs.save_failed: {en: "Could not save: %{why}", it: "Salvataggio non riuscito: 
 logs.save_title: {en: "Save logs", it: "Salva log", ja: "ログを保存"}
 close.keep: {en: "KEEP PLAYING", it: "CONTINUA A GIOCARE", ja: "プレイを続ける"}
 close.quit: {en: "QUIT NOW", it: "ESCI ORA", ja: "今すぐ終了"}
+panel.lamp_in_use: {en: "IN USE", it: "IN USO", ja: "使用中"}
+panel.lamp_safe: {en: "SAFE TO CLOSE", it: "PUOI CHIUDERE", ja: "閉じてOK"}
+panel.lamp_none: {en: "NO CARD", it: "NESSUNA CARTA", ja: "カードなし"}

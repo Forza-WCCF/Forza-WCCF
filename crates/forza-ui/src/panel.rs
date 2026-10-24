@@ -26,8 +26,10 @@ pub const SIZE: egui::Vec2 = egui::vec2(1440.0, 900.0);
 pub const BOARD_W: f32 = 580.0;
 /// Space above the pitch inside the strip (no title row any more).
 const BOARD_HEAD: f32 = 0.0;
+/// The least size, in points, of a hint or a bar label (the theme's Small is 12; hints on a TV-sized seat need more).
+const HINT: f32 = 13.0;
 /// The bar of page buttons along the bottom of the middle.
-const TABS_H: f32 = 56.0;
+const TABS_H: f32 = 64.0;
 /// The deck row under the picture keeps at least this; on wide sheets the picture stops growing first.
 const DECK_MIN: f32 = 148.0;
 /// What the board's height needs per point of pitch width (pitch 1.25, bench, hint) and besides (head, margins).
@@ -995,7 +997,7 @@ fn deal_window(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
             p.galley(pos2(r.center().x - g.size().x / 2.0, y), g, theme::TEXT);
             y += 28.0;
             let line = format!("{} · {} · {}", card.club, card.country, card.season);
-            let g = widgets::fit(&p, &line, theme::body(12.0), theme::TEXT_DIM, size.x - 24.0);
+            let g = widgets::fit(&p, &line, theme::body(HINT), theme::TEXT_DIM, size.x - 24.0);
             p.galley(pos2(r.center().x - g.size().x / 2.0, y), g, theme::TEXT_DIM);
             y += 24.0;
             let mut c = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(
@@ -1306,7 +1308,7 @@ fn page_bar(ui: &mut Ui, st: &mut PanelState, bar: Rect, lang: Lang) {
         pages.push((Page::ClubCard, "panel.club_card"));
     }
     // the four pages and PAUSE; the right end keeps ~140 points for the ping and the window key at 1440x900
-    let w = 106.0;
+    let w = 92.0;
     let n = pages.len() as f32;
     for (i, (pg, key)) in pages.into_iter().enumerate() {
         let t = Rect::from_min_size(
@@ -1343,16 +1345,23 @@ fn page_bar(ui: &mut Ui, st: &mut PanelState, bar: Rect, lang: Lang) {
     if resp.clicked() {
         st.pause_asked = true;
     }
-    // the right end: ping (online only) over the window key
+    // the right end, two rows: the card lamp (2010-11) and the ping (online only), then the window key
     let right = Rect::from_min_max(
         pos2(r.left() + 132.0 + (n + 1.0) * (w + 6.0) + 8.0, r.top()),
         r.max,
     );
+    let row =
+        |i: f32| Rect::from_min_size(right.min + vec2(0.0, i * 26.0), vec2(right.width(), 22.0));
     let p = ui.painter();
+    let mut x = right.left();
+    if st.edition != Edition::E1718 {
+        x += card_lamp(p, row(0.0), st.status.card, lang) + 10.0;
+    }
     if st.online {
+        let r0 = row(0.0);
         ping(
             p,
-            Rect::from_min_size(right.min, vec2(right.width(), 18.0)),
+            Rect::from_min_max(pos2(x, r0.top()), r0.max),
             st.ping_ms,
             lang,
         );
@@ -1360,14 +1369,14 @@ fn page_bar(ui: &mut Ui, st: &mut PanelState, bar: Rect, lang: Lang) {
     let g = widgets::fit(
         p,
         &tr!(lang, "panel.f11"),
-        theme::body(11.0),
-        theme::TEXT_FAINT,
+        theme::body(HINT),
+        theme::TEXT_DIM,
         right.width(),
     );
     p.galley(
-        pos2(right.left(), right.bottom() - g.size().y),
+        pos2(right.left(), row(1.0).center().y - g.size().y / 2.0),
         g,
-        theme::TEXT_FAINT,
+        theme::TEXT_DIM,
     );
 }
 
@@ -1467,6 +1476,95 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             .font(theme::body(12.0))
             .color(theme::TEXT_FAINT),
     );
+}
+
+/// The crash screen, in the board's place: the game lost its control program (or stopped), the card's state, and the two
+/// ways on. RESTART THE GAME asks the Launcher (`restart`), SEND LOGS asks it to open its report dialog (`open_report`).
+fn crash_screen(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
+    strip_ground(ui);
+    let r = ui.max_rect().shrink2(vec2(24.0, 0.0));
+    let w = r.width().min(440.0);
+    let col = Rect::from_center_size(
+        pos2(r.center().x, r.center().y - 30.0),
+        vec2(w, r.height().min(520.0)),
+    );
+    let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(col));
+    let ui = &mut ui;
+    ui.spacing_mut().item_spacing.y = 14.0;
+    let (ic, _) = ui.allocate_exact_size(vec2(w, 36.0), Sense::hover());
+    ui.painter().text(
+        ic.center(),
+        Align2::CENTER_CENTER,
+        tr!(lang, "panel.crash_title"),
+        theme::display(38.0),
+        theme::RED_TEXT,
+    );
+    ui.label(
+        egui::RichText::new(tr!(lang, "panel.crash_lost"))
+            .font(theme::body(17.0))
+            .color(theme::TEXT),
+    );
+    ui.add_space(4.0);
+    let s = st.status.clone();
+    egui::Grid::new("crash-now")
+        .num_columns(2)
+        .spacing(vec2(16.0, 8.0))
+        .min_col_width(150.0)
+        .show(ui, |ui| {
+            if st.edition == Edition::E1718 {
+                // the club lives on the server: nothing to say about a card
+                ui.label(
+                    egui::RichText::new(tr!(lang, "panel.crash_1718"))
+                        .font(theme::bold(15.0))
+                        .color(theme::GREEN),
+                );
+                ui.end_row();
+                return;
+            }
+            let (k, c) = card_text(s.card);
+            kv(ui, &tr!(lang, "settings.session"), &tr!(lang, k), Some(c));
+            let v = s
+                .saved
+                .as_ref()
+                .map_or_else(|| tr!(lang, "settings.never"), |w| when_text(lang, w));
+            let c = s.saved.is_some().then_some(theme::GREEN);
+            kv(ui, &tr!(lang, "settings.last_saved"), &v, c);
+            if let Some(n) = s.bad {
+                let v = match n {
+                    0 => "0".to_owned(),
+                    1 => tr!(lang, "settings.bad_one"),
+                    n => tr!(lang, "settings.bad_many", n = n),
+                };
+                kv(ui, &tr!(lang, "settings.bad_endings"), &v, None);
+            }
+        });
+    ui.add_space(8.0);
+    let restart = if st.restart_sent {
+        tr!(lang, "settings.restarting")
+    } else {
+        tr!(lang, "panel.crash_restart")
+    };
+    if cabinet(ui, vec2(w, 56.0), &restart, Cab::Go, true).clicked() && !st.restart_sent {
+        st.restart = true;
+    }
+    if cabinet(
+        ui,
+        vec2(w, 56.0),
+        &tr!(lang, "settings.send_logs"),
+        Cab::Plain,
+        false,
+    )
+    .clicked()
+    {
+        st.open_report = true;
+    }
+    if st.report_sent {
+        ui.label(
+            egui::RichText::new(tr!(lang, "panel.crash_report_asked"))
+                .font(theme::body(HINT))
+                .color(theme::TEXT_DIM),
+        );
+    }
 }
 
 // ---- the game picture ----
@@ -2235,6 +2333,18 @@ fn row(ui: &mut Ui, st: &mut PanelState, lang: Lang, i: usize, cell_w: f32) {
 
 // ---- SETTINGS ----
 
+/// The text key and colour of the club card's session.
+fn card_text(card: CardState) -> (&'static str, Color32) {
+    match card {
+        CardState::Open => ("settings.card_open", theme::AMBER),
+        CardState::Closed => ("settings.card_closed", theme::GREEN),
+        CardState::Cut => ("settings.card_cut", theme::AMBER),
+        CardState::New => ("settings.card_new", theme::TEXT_FAINT),
+        CardState::Unreadable => ("settings.card_unreadable", theme::RED_TEXT),
+        CardState::None => ("settings.card_none", theme::TEXT_FAINT),
+    }
+}
+
 fn kv(ui: &mut Ui, k: &str, v: &str, dot: Option<Color32>) {
     ui.label(
         egui::RichText::new(k)
@@ -2980,7 +3090,7 @@ fn club_row(ui: &mut Ui, name: &str, sub: &str, transferred: bool, lit: bool, la
     let tw = w - bw - 30.0;
     let g = widgets::fit(p, name, theme::display(20.0), theme::TEXT, tw);
     p.galley(pos2(r.left() + 14.0, r.top() + 6.0), g, theme::TEXT);
-    let g = widgets::fit(p, sub, theme::body(12.0), theme::TEXT_DIM, tw);
+    let g = widgets::fit(p, sub, theme::body(HINT), theme::TEXT_DIM, tw);
     p.galley(pos2(r.left() + 14.0, r.top() + 31.0), g, theme::TEXT_DIM);
     let b = Rect::from_min_size(pos2(r.right() - bw - 8.0, r.top() + 8.0), vec2(bw, 38.0));
     if transferred {

@@ -1482,10 +1482,10 @@ impl Render {
             self.st.address = self.st.file.server.clone();
             self.status_at = None;
         }
-        if open
-            && self
-                .status_at
-                .is_none_or(|t| t.elapsed() >= Duration::from_secs(1))
+        // NOW each second while SETTINGS is open, every 2 s otherwise (the card lamp, the crash screen)
+        if self
+            .status_at
+            .is_none_or(|t| t.elapsed() >= Duration::from_secs(if open { 1 } else { 2 }))
         {
             let logs = self.st.status.logs.take();
             let before = format!(
