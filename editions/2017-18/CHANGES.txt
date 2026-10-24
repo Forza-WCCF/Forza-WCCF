@@ -1,6 +1,27 @@
 Forza-WCCF 2017-18 - release notes
 ==================================
 
+0.3.3 - 2026-10-24 (alpha)
+--------------------------
+Club progress kept between plays, the shop, Best Eleven, problem reports.
+
+  - Your club keeps its league, division and season between plays, and your players keep their levels. Before, a
+    promoted club was back in league 2 at the next card-in.
+  - The shop opens. Items you buy are kept and applied to your club.
+  - Best Eleven is kept between plays.
+  - Report a problem, in Launcher: say what happened, and the logs go to the project with your user and PC names
+    removed. You get a report number. Without a connection the report is kept.
+  - PLAY / STOP THE GAME and the status line are at the bottom of the Launcher window. Network errors are in plain
+    words.
+  - Launcher shows when a new version is out, on its main page and on UPDATE, until you open UPDATE.
+  - A game window that closes normally no longer shows as crashed.
+  - Panel: the formation board looks like the cabinet's mat (FW, MF, DF, the keeper on the goal line).
+  - Panel: quitting during a match asks first. KEEP PLAYING is the default.
+  - Panel: when the game loses its server, a screen offers RESTART THE GAME and SEND LOGS.
+  - Panel: a bench card held on the table moves when you rub it.
+  - Catalogue cards and the large card on hover are sized for your screen.
+  - English and Italian names for the CPU and guest teams, the clubs and the nationalities.
+
 0.3.2 - 2026-10-23 (alpha)
 --------------------------
 In-app updates, a crash fix and catalogue fixes from player reports.
