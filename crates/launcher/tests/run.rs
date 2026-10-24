@@ -140,7 +140,6 @@ fn params(tag: &str, shared: Arc<Shared>) -> Params {
         gamesvr_port: free_port(),
         scenes: Names::scratch(&format!("wccftest_{tag}_{pid}")),
         maps: None,
-        online_1718: true,   // the 2017-18 run test plays remote, so the server is the test's
         hook_imports: false, // fakegame.exe imports no WINMM.dll; a_program_without_the_hook_starts_nothing checks it
         shared,
         extra_watch: Default::default(),
@@ -881,6 +880,17 @@ fn closing_seat_1_ends_the_2017_18_run() {
     let p = params("close1718", Shared::new());
     let _control = TcpListener::bind(("127.0.0.1", p.control_port)).unwrap(); // "the server answers"
     let _desk = seat_desk(p.seat_port);
+    // a seat in a shared shop only with data\settings.json "shop_1718": true
+    let ui = Said::default();
+    let rc = run::command(&kit, &p, &["remote".into(), "127.0.0.1".into()], &ui);
+    assert_eq!(rc, run::REFUSED, "{}", ui.text());
+    assert!(
+        ui.text().contains("2017-18 has no server or remote mode"),
+        "{}",
+        ui.text()
+    );
+    assert!(!kit.logs().exists(), "refused before anything of the run exists");
+    fs::write(kit.settings_file(), r#"{"shop_1718": true}"#).unwrap();
     let aimedb = p.aimedb_port;
     let (ui, t) = run_on_thread(&kit, p, &["remote", "127.0.0.1"]);
     wait_said(&ui, &t, "  6/6 ", 120);

@@ -145,9 +145,6 @@ pub struct Params {
     /// Extra stand-in threads for the supervisor to watch (name, essential, handle); a cabinet takes them when it
     /// starts.  Tests put a thread that panics here; the game has none.
     pub extra_watch: Mutex<Vec<(String, bool, Handle)>>,
-    /// 2017-18 online modes (remote, server) run instead of being refused: the online work and its tests; players
-    /// get the refusal (the alpha has no 2017-18 online).
-    pub online_1718: bool,
     /// 2010-11: every program must load the kit's hook through its renamed import (`guard::hook_1011`).  Off only in
     /// tests whose stand-ins are no game programs.
     pub hook_imports: bool,
@@ -174,7 +171,6 @@ impl Params {
             gamesvr_port: 20050, // ctrl_user_option.conf GAME_SVR_PORT
             scenes: scenes::Names::game(),
             maps: Some(debug::maps::GAME_ID.into()),
-            online_1718: false,
             hook_imports: true,
             shared: io_board::Shared::new(),
             extra_watch: Mutex::default(),
@@ -864,7 +860,8 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
     };
     let seat = seat_dir(&game);
     let edition = kit.edition();
-    if rules::online_refused(edition, &mode) && !p.online_1718 {
+    let shop = kit.settings()[rules::SHOP_1718].as_bool() == Some(true);
+    if rules::online_refused(edition, &mode, shop) {
         ui.say(rules::ONLINE_1718_TEXT);
         return Err(REFUSED);
     }
@@ -1731,14 +1728,10 @@ impl Run<'_> {
         })?;
         let log = file_log(self.logs().join("aimedb_log.txt"));
         self.cabinet.aimedb = Some(
-            // online every card answers the hash of its access code; this PC keeps an older store's IDs (aimedb.rs)
-            aimedb::spawn_with(
-                listener,
-                save.join("aimedb.json"),
-                log,
-                matches!(self.mode, Mode::Vs(_)),
-            )
-            .map_err(|e| Failed(format!("the Aime database did not start ({e})")))?,
+            // on a shared game server every card answers the hash of its access code; this PC alone keeps an older
+            // store's IDs (aimedb.rs)
+            aimedb::spawn_with(listener, save.join("aimedb.json"), log, rules::aime_hashed(&self.mode))
+                .map_err(|e| Failed(format!("the Aime database did not start ({e})")))?,
         );
         Ok(())
     }

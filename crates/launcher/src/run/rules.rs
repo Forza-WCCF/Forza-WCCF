@@ -74,9 +74,20 @@ pub enum Words {
 pub const ONLINE_1718_TEXT: &str = "2017-18 has no server or remote mode. To play online, choose ONLINE in the \
                                     Launcher window, then PLAY.";
 
-/// 2017-18 refuses the shared-shop modes (server, remote).
-pub fn online_refused(edition: crate::Edition, mode: &Mode) -> bool {
-    edition == crate::Edition::E1718 && matches!(mode, Mode::Server | Mode::Remote(..))
+/// data\settings.json's switch for the 2017-18 shared shop on a LAN (ROADMAP M2 step 1): `"shop_1718": true` lets
+/// `server` (the host's control, desk and relay) and `remote HOST` (a seat on that host) run.
+pub const SHOP_1718: &str = "shop_1718";
+
+/// 2017-18 refuses the shared-shop modes (server, remote) unless `shop` ([`SHOP_1718`]) is on.
+pub fn online_refused(edition: crate::Edition, mode: &Mode, shop: bool) -> bool {
+    edition == crate::Edition::E1718 && !shop && matches!(mode, Mode::Server | Mode::Remote(..))
+}
+
+/// AiMeDB answers every card the hash of its access code whenever the clubs are on a game server other PCs share:
+/// VS, and a seat in a shared shop (two homes' first cards would both be Aime ID 1, one club). Only this PC alone
+/// keeps an older store's IDs.
+pub fn aime_hashed(mode: &Mode) -> bool {
+    !matches!(mode, Mode::Local)
 }
 
 /// Where a 2017-18 online run plays: the game server (control's GAME_SVR_IP / GAME_SVR_PORT, with GAME_SVR_ENTRY=1)
@@ -390,15 +401,25 @@ mod tests {
     }
 
     #[test]
-    fn online_1718_is_refused() {
+    fn online_1718_is_refused_unless_the_shop_is_on() {
         use crate::Edition::{E1011, E1718};
         let remote = Mode::Remote("192.168.1.20".into(), None);
-        assert!(online_refused(E1718, &remote));
-        assert!(online_refused(E1718, &Mode::Server));
-        assert!(!online_refused(E1718, &Mode::Local));
-        assert!(!online_refused(E1718, &Mode::Vs("192.168.1.20".into())));
-        assert!(!online_refused(E1011, &remote));
-        assert!(!online_refused(E1011, &Mode::Server));
+        for shop in [false, true] {
+            assert_eq!(online_refused(E1718, &remote, shop), !shop);
+            assert_eq!(online_refused(E1718, &Mode::Server, shop), !shop);
+            assert!(!online_refused(E1718, &Mode::Local, shop));
+            assert!(!online_refused(E1718, &Mode::Vs("192.168.1.20".into()), shop));
+            assert!(!online_refused(E1011, &remote, shop));
+            assert!(!online_refused(E1011, &Mode::Server, shop));
+        }
+    }
+
+    #[test]
+    fn aime_ids_are_hashed_on_any_shared_game_server() {
+        assert!(!aime_hashed(&Mode::Local));
+        assert!(aime_hashed(&Mode::Vs("192.168.1.20".into())));
+        assert!(aime_hashed(&Mode::Remote("192.168.1.20".into(), None)));
+        assert!(aime_hashed(&Mode::Remote("127.0.0.1".into(), Some(1))));
     }
 
     #[test]
