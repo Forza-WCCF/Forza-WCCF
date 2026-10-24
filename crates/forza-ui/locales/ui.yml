@@ -123,7 +123,7 @@ launcher.msg_no_window: {en: "Launcher cannot open its window: %{error}", it: "L
 # ---- installer ----
 installer.app: {en: "INSTALLER", it: "INSTALLAZIONE", ja: "インストーラー"}
 installer.welcome: {en: "Welcome", it: "Benvenuto", ja: "ようこそ"}
-installer.where: {en: "Where", it: "Dove", ja: "インストール先"}
+installer.where: {en: "Location", it: "Posizione", ja: "インストール先"}
 installer.files: {en: "Disc files", it: "File del disco", ja: "ディスクのファイル"}
 installer.installing: {en: "Installing", it: "Installazione", ja: "インストール中"}
 installer.done: {en: "Done", it: "Fatto", ja: "完了"}
@@ -131,11 +131,11 @@ installer.welcome_body: {en: "Installs from your own disc image.", it: "Installa
 installer.you_need: {en: "YOU NEED", it: "TI SERVE", ja: "必要なもの"}
 installer.need_iso: {en: "The disc image (.iso)", it: "L'immagine del disco (.iso)", ja: "ディスクイメージ（.iso）"}
 installer.need_iso_note: {en: "about 5–6 GB", it: "circa 5–6 GB", ja: "約5〜6 GB"}
-installer.need_key: {en: "Its key file", it: "Il suo file chiave", ja: "そのキーファイル"}
+installer.need_key: {en: "The disc's key file", it: "Il file chiave del disco", ja: "ディスクのキーファイル"}
 installer.need_package: {en: "Forza-WCCF package", it: "Pacchetto Forza-WCCF", ja: "Forza-WCCF パッケージ"}
-installer.optional: {en: "optional", it: "facoltativo", ja: "任意"}
+installer.optional: {en: "needed to play", it: "serve per giocare", ja: "プレイに必要"}
 installer.need_space: {en: "About 6 GB free", it: "Circa 6 GB liberi", ja: "約6 GBの空き容量"}
-installer.side_by_side: {en: "Both editions live side by side.", it: "Le due edizioni convivono.", ja: "両エディションを並べて入れられます。"}
+installer.side_by_side: {en: "2010-11 and 2017-18 can be installed together.", it: "Puoi installare 2010-11 e 2017-18 insieme.", ja: "2010-11 と 2017-18 は両方インストールできます。"}
 installer.folder: {en: "FOLDER", it: "CARTELLA", ja: "フォルダー"}
 installer.free: {en: "FREE SPACE", it: "SPAZIO LIBERO", ja: "空き容量"}
 installer.free_of: {en: "%{free} GB free on %{drive}", it: "%{free} GB liberi su %{drive}", ja: "%{drive} の空き %{free} GB"}
@@ -163,7 +163,7 @@ installer.details: {en: "DETAILS", it: "DETTAGLI", ja: "詳細"}
 installer.done_body: {en: "Installed. Start Launcher.exe.", it: "Installato. Avvia Launcher.exe.", ja: "インストール完了。Launcher.exe を起動してください。"}
 installer.did_extract: {en: "Game files extracted and checked", it: "File del gioco estratti e controllati", ja: "ゲームファイルを展開・検査しました"}
 installer.did_setup: {en: "Game set up", it: "Gioco configurato", ja: "ゲームを設定しました"}
-installer.not_shortcuts: {en: "No desktop shortcuts (not chosen)", it: "Nessun collegamento sul desktop (non scelto)", ja: "デスクトップのショートカットなし（未選択）"}
+installer.not_shortcuts: {en: "No desktop shortcuts", it: "Nessun collegamento sul desktop", ja: "デスクトップのショートカットなし"}
 installer.open_folder: {en: "Open the folder", it: "Apri la cartella", ja: "フォルダーを開く"}
 installer.welcome_note: {en: "Without the package, only the original files are extracted.", it: "Senza il pacchetto vengono estratti solo i file originali.", ja: "パッケージがない場合は、元のファイルを展開するだけです。"}
 installer.installed_here: {en: "← already installed", it: "← già installata", ja: "← インストール済み"}
@@ -171,7 +171,7 @@ installer.space_low: {en: "Only %{free} GB free: the install needs about 6 GB.",
 installer.space_unknown: {en: "The install needs about 6 GB.", it: "Servono circa 6 GB.", ja: "約6 GBの空き容量が必要です。"}
 installer.ascii_tip: {en: "Use a plain folder name like C:\\Games.", it: "Usa un nome cartella semplice come C:\\Games.", ja: "C:\\Games のような英数字のフォルダー名を使用。"}
 installer.reuse: {en: "Use the game files already here", it: "Usa i file del gioco già presenti", ja: "ここにあるゲームファイルを使う"}
-installer.reusing: {en: "Reusing the %{edition} files already in this folder.", it: "Uso i file %{edition} già presenti in questa cartella.", ja: "このフォルダーにある %{edition} のファイルを再利用します。"}
+installer.reusing: {en: "Using the %{edition} files already in this folder.", it: "Uso i file %{edition} già presenti in questa cartella.", ja: "このフォルダーにある %{edition} のファイルを再利用します。"}
 installer.iso_unsupported: {en: "Unsupported image size. Use the 2010–11 Rev D or the 2017–18 v2.00.00 disc image.", it: "Dimensione dell'immagine non supportata. Usa l'immagine 2010–11 Rev D o 2017–18 v2.00.00.", ja: "未対応のイメージサイズです。2010–11 Rev D または 2017–18 v2.00.00 のディスクイメージを使ってください。"}
 installer.drop_hint: {en: "You can also drag the files onto this window.", it: "Puoi anche trascinare i file su questa finestra.", ja: "ファイルをこのウィンドウにドラッグすることもできます。"}
 installer.done_body_extract: {en: "The original files are extracted.", it: "I file originali sono stati estratti.", ja: "元のファイルを展開しました。"}
@@ -180,32 +180,32 @@ installer.did_shortcuts: {en: "Desktop shortcuts added", it: "Collegamenti sul d
 installer.extract_only_note: {en: "Original files only. Not playable on their own.", it: "Solo file originali. Non giocabili da soli.", ja: "元のファイルのみ。単体ではプレイできません。"}
 installer.done_guard: {en: "Always start from Launcher.exe.", it: "Avvia sempre da Launcher.exe.", ja: "必ず Launcher.exe から起動してください。"}
 installer.done_dx: {en: "If the game does not start, install DirectX 9 (June 2010 runtime).", it: "Se il gioco non si avvia, installa DirectX 9 (runtime di giugno 2010).", ja: "起動しない場合は DirectX 9（2010年6月版ランタイム）を入れてください。"}
-installer.err_truecrypt_new: {en: "The disc image needs a newer TrueCrypt than this installer supports.", it: "L'immagine del disco richiede una versione di TrueCrypt più recente di quella supportata da questo installer.", ja: "このディスクイメージには、このインストーラーが対応していない新しいバージョンの TrueCrypt が必要です。"}
-installer.err_disc_table: {en: "The disc's own checksum table is damaged, or this is not the %{name} image.", it: "La tabella dei checksum del disco è danneggiata, oppure questa non è l'immagine %{name}.", ja: "ディスクのチェックサム表が壊れているか、これは %{name} のイメージではありません。"}
-installer.err_table_mismatch: {en: "The disc image and its checksum table do not match.", it: "L'immagine del disco e la sua tabella dei checksum non corrispondono.", ja: "ディスクイメージとそのチェックサム表が一致しません。"}
+installer.err_truecrypt_new: {en: "This disc image uses a newer encryption format than the installer supports. Download the latest installer.", it: "Questa immagine del disco usa una cifratura più recente di quelle supportate dall'installer. Scarica l'installer più recente.", ja: "このディスクイメージは、インストーラーが対応していない新しい暗号形式です。最新のインストーラーをダウンロードしてください。"}
+installer.err_disc_table: {en: "The disc image is damaged, or it is not the %{name} disc. Copy or download it again.", it: "L'immagine del disco è danneggiata, oppure non è il disco %{name}. Copiala o scaricala di nuovo.", ja: "ディスクイメージが壊れているか、%{name} のディスクではありません。もう一度コピーまたはダウンロードしてください。"}
+installer.err_table_mismatch: {en: "The disc image is damaged. Copy or download it again.", it: "L'immagine del disco è danneggiata. Copiala o scaricala di nuovo.", ja: "ディスクイメージが壊れています。もう一度コピーまたはダウンロードしてください。"}
 installer.err_short_read: {en: "The disc image ends too early. Is the ISO complete?", it: "L'immagine del disco finisce troppo presto. L'ISO è completo?", ja: "ディスクイメージが途中で終わっています。ISOは完全ですか？"}
 installer.err_block: {en: "Block %{block} of the disc image is corrupt. Download or copy it again.", it: "Il blocco %{block} dell'immagine del disco è danneggiato. Scaricala o copiala di nuovo.", ja: "ディスクイメージのブロック %{block} が壊れています。もう一度ダウンロードまたはコピーしてください。"}
 installer.err_open: {en: "Cannot open %{path}: %{detail}", it: "Impossibile aprire %{path}: %{detail}", ja: "%{path} を開けません：%{detail}"}
 installer.err_size: {en: "%{path} is %{len} bytes. Supported images are 2010–2011 Rev D (5,034,770,432 bytes) and 2017–2018 DVR-5059A (5,921,865,728 bytes).", it: "%{path} è di %{len} byte. Le immagini supportate sono 2010–2011 Rev D (5.034.770.432 byte) e 2017–2018 DVR-5059A (5.921.865.728 byte).", ja: "%{path} のサイズは %{len} バイトです。対応しているのは 2010–2011 Rev D（5,034,770,432 バイト）と 2017–2018 DVR-5059A（5,921,865,728 バイト）です。"}
 installer.err_wrong_key: {en: "That key file does not unlock this disc image.", it: "Questo file chiave non sblocca l'immagine del disco.", ja: "このキーファイルではディスクイメージを開けません。"}
-installer.err_volume_size: {en: "The disc header reports an unexpected volume size.", it: "L'intestazione del disco indica una dimensione del volume inattesa.", ja: "ディスクのヘッダーのボリュームサイズが想定外です。"}
-installer.err_edition: {en: "Unknown game edition.", it: "Edizione del gioco sconosciuta.", ja: "不明なゲームのエディションです。"}
-installer.err_zip_name: {en: "That zip has an unreadable file name.", it: "Quello zip contiene un nome di file illeggibile.", ja: "このzipには読み取れないファイル名があります。"}
-installer.err_not_kit: {en: "That zip is not a Forza-WCCF package (Launcher.exe with programs/ for 2010–11, or bin/ or overlay/ for 2017–18, is missing).", it: "Quello zip non è un pacchetto Forza-WCCF (manca Launcher.exe con programs/ per il 2010–11, o bin/ o overlay/ per il 2017–18).", ja: "このzipは Forza-WCCF パッケージではありません（Launcher.exe と、2010–11 なら programs/、2017–18 なら bin/ または overlay/ がありません）。"}
+installer.err_volume_size: {en: "Cannot read the disc image. Check the key file and the image.", it: "Impossibile leggere l'immagine del disco. Controlla il file chiave e l'immagine.", ja: "ディスクイメージを読み込めません。キーファイルとイメージを確認してください。"}
+installer.err_edition: {en: "This disc is not a supported edition.", it: "Questo disco non è un'edizione supportata.", ja: "対応していないエディションのディスクです。"}
+installer.err_zip_name: {en: "The package has a file name that cannot be read. Download it again.", it: "Il pacchetto contiene un nome di file illeggibile. Scaricalo di nuovo.", ja: "パッケージに読み取れないファイル名があります。もう一度ダウンロードしてください。"}
+installer.err_not_kit: {en: "That file is not a Forza-WCCF package for this edition. Download the package again.", it: "Quel file non è un pacchetto Forza-WCCF per questa edizione. Scarica di nuovo il pacchetto.", ja: "このファイルは、このエディション用の Forza-WCCF パッケージではありません。パッケージをもう一度ダウンロードしてください。"}
 installer.err_not_zip: {en: "That file is not a valid zip.", it: "Quel file non è uno zip valido.", ja: "このファイルは有効なzipではありません。"}
 installer.err_edition_mismatch: {en: "The selected edition does not match the disc image.", it: "L'edizione scelta non corrisponde all'immagine del disco.", ja: "選んだエディションがディスクイメージと一致しません。"}
 installer.err_need_game: {en: "Choose --game SBWG (2010–2011) or --game SDDY (2017–2018) when both or neither edition is installed.", it: "Scegli --game SBWG (2010–2011) o --game SDDY (2017–2018) quando sono installate entrambe le edizioni o nessuna.", ja: "両方のエディションがインストール済み、またはどちらもない場合は --game SBWG（2010–2011）か --game SDDY（2017–2018）を指定してください。"}
 installer.err_game_exists: {en: "The game folder already exists. Existing files are never replaced; choose a new install folder.", it: "La cartella del gioco esiste già. I file esistenti non vengono mai sostituiti: scegli una nuova cartella di installazione.", ja: "ゲームのフォルダーが既にあります。既存のファイルは上書きされません。別のインストール先を選んでください。"}
-installer.err_english_setup: {en: "English needs the package and the game setup; leave it off for extraction only.", it: "L'inglese richiede il pacchetto e la configurazione del gioco; lascialo disattivato per la sola estrazione.", ja: "英語化にはパッケージとゲームの設定が必要です。展開のみの場合はオフにしてください。"}
+installer.err_english_setup: {en: "The English option needs the package.", it: "L'opzione inglese richiede il pacchetto.", ja: "英語オプションにはパッケージが必要です。"}
 installer.err_no_key: {en: "No key file was given.", it: "Non è stato indicato nessun file chiave.", ja: "キーファイルが指定されていません。"}
 installer.err_game_missing: {en: "The game files are not in %{path}.", it: "I file del gioco non sono in %{path}.", ja: "ゲームファイルが %{path} にありません。"}
 installer.err_create: {en: "Cannot create %{path}: %{detail}", it: "Impossibile creare %{path}: %{detail}", ja: "%{path} を作成できません：%{detail}"}
 installer.err_write: {en: "Cannot write %{path}: %{detail}", it: "Impossibile scrivere %{path}: %{detail}", ja: "%{path} に書き込めません：%{detail}"}
 installer.err_space: {en: "Not enough free space on that drive: allow about 6 GB.", it: "Spazio libero insufficiente su quel disco: servono circa 6 GB.", ja: "そのドライブの空き容量が足りません（約6 GB必要）。"}
 installer.err_drive_ntfs: {en: "This drive cannot hold the game: it must be formatted as NTFS (normal for C: and D:). Pick a folder on another drive.", it: "Questo disco non può contenere il gioco: deve essere formattato NTFS (normale per C: e D:). Scegli una cartella su un altro disco.", ja: "このドライブにはゲームを入れられません。NTFS形式である必要があります（C: と D: は通常NTFSです）。別のドライブのフォルダーを選んでください。"}
-installer.err_volume_ntfs: {en: "The decrypted disc volume is not NTFS. Is it the wrong key file?", it: "Il volume decifrato del disco non è NTFS. Il file chiave è quello giusto?", ja: "復号したディスクのボリュームがNTFSではありません。キーファイルが違いませんか？"}
-installer.err_extract_incomplete: {en: "Extraction finished but client_Release.exe is missing.", it: "L'estrazione è terminata ma manca client_Release.exe.", ja: "展開は終わりましたが client_Release.exe がありません。"}
-installer.err_kit_unsafe: {en: "The package contains an unsafe file path.", it: "Il pacchetto contiene un percorso di file non sicuro.", ja: "パッケージに安全でないファイルパスが含まれています。"}
+installer.err_volume_ntfs: {en: "Cannot read the disc image. Is it the wrong key file?", it: "Impossibile leggere l'immagine del disco. Il file chiave è quello giusto?", ja: "ディスクイメージを読み込めません。キーファイルが違いませんか？"}
+installer.err_extract_incomplete: {en: "The extract is incomplete: client_Release.exe is missing. Your antivirus may have removed it.", it: "L'estrazione è incompleta: manca client_Release.exe. L'antivirus potrebbe averlo rimosso.", ja: "展開が不完全です。client_Release.exe がありません。ウイルス対策ソフトが削除した可能性があります。"}
+installer.err_kit_unsafe: {en: "The package is damaged or unsafe. Download it again.", it: "Il pacchetto è danneggiato o non sicuro. Scaricalo di nuovo.", ja: "パッケージが壊れているか、安全ではありません。もう一度ダウンロードしてください。"}
 installer.err_kit_edition: {en: "This package is for %{kit}, but the game is %{game}. Choose the %{game} package, or leave the package empty to extract only.", it: "Questo pacchetto è per %{kit}, ma il gioco è %{game}. Scegli il pacchetto %{game}, oppure lascia vuoto il pacchetto per la sola estrazione.", ja: "このパッケージは %{kit} 用ですが、ゲームは %{game} です。%{game} のパッケージを選ぶか、パッケージを空にして展開のみ行ってください。"}
 installer.err_script: {en: "The game setup failed: %{detail}", it: "La configurazione del gioco non è riuscita: %{detail}", ja: "ゲームの設定に失敗しました：%{detail}"}
 installer.err_other: {en: "%{detail}", it: "%{detail}", ja: "%{detail}"}
@@ -214,17 +214,17 @@ installer.err_folder: {en: "Choose an install folder.", it: "Scegli una cartella
 installer.err_iso: {en: "Choose the disc image (.iso) file.", it: "Scegli il file dell'immagine del disco (.iso).", ja: "ディスクイメージ（.iso）を選んでください。"}
 installer.err_key: {en: "Choose the key file.", it: "Scegli il file chiave.", ja: "キーファイルを選んでください。"}
 installer.err_key_read: {en: "Cannot read the key file: %{e}", it: "Impossibile leggere il file chiave: %{e}", ja: "キーファイルを読み込めません：%{e}"}
-installer.err_key_entry: {en: "This key list has no entry for %{id}.", it: "Questo elenco di chiavi non ha una voce per %{id}.", ja: "このキー一覧に %{id} の項目はありません。"}
+installer.err_key_entry: {en: "This key file has no key for %{id}.", it: "Questo file chiave non contiene la chiave per %{id}.", ja: "このキーファイルに %{id} のキーはありません。"}
 installer.err_download: {en: "Download failed: %{detail}", it: "Download non riuscito: %{detail}", ja: "ダウンロードに失敗しました：%{detail}"}
-installer.err_no_package: {en: "No downloadable package found in the releases.", it: "Nessun pacchetto scaricabile trovato nelle release.", ja: "リリースにダウンロードできるパッケージがありません。"}
+installer.err_no_package: {en: "No package to download yet. Choose a package file.", it: "Nessun pacchetto da scaricare per ora. Scegli un file pacchetto.", ja: "ダウンロードできるパッケージがまだありません。パッケージファイルを選んでください。"}
 installer.err_no_download: {en: "No package is published for 2010–2011. Choose a package file, or install without one.", it: "Per il 2010–2011 non è pubblicato alcun pacchetto. Scegli un file pacchetto, o installa senza.", ja: "2010–2011 のパッケージは公開されていません。パッケージファイルを選ぶか、なしでインストールしてください。"}
-installer.err_hash: {en: "The downloaded package does not match its SHA-256. It was refused and deleted.", it: "Il pacchetto scaricato non corrisponde al suo SHA-256. È stato rifiutato ed eliminato.", ja: "ダウンロードしたパッケージの SHA-256 が一致しません。拒否して削除しました。"}
+installer.err_hash: {en: "The download is corrupt, so it was deleted. Try again.", it: "Il download è danneggiato ed è stato eliminato. Riprova.", ja: "ダウンロードしたファイルが壊れていたため削除しました。もう一度お試しください。"}
 installer.pkg_newest: {en: "Newest (%{version})", it: "Più recente (%{version})", ja: "最新（%{version}）"}
 installer.pkg_file: {en: "From a file", it: "Da un file", ja: "ファイルから"}
 installer.pkg_file_row: {en: "FILE", it: "FILE", ja: "ファイル"}
-installer.pkg_newest_note: {en: "Forza-WCCF %{version} is downloaded from GitHub during the install.", it: "Forza-WCCF %{version} viene scaricato da GitHub durante l'installazione.", ja: "Forza-WCCF %{version} はインストール中に GitHub からダウンロードされます。"}
+installer.pkg_newest_note: {en: "Downloads Forza-WCCF %{version} during the install.", it: "Scarica Forza-WCCF %{version} durante l'installazione.", ja: "インストール中に Forza-WCCF %{version} をダウンロードします。"}
 installer.latest_checking: {en: "Looking for the newest package…", it: "Cerco il pacchetto più recente…", ja: "最新のパッケージを確認中…"}
-installer.latest_failed: {en: "Cannot look up the newest package (offline or GitHub error). Choose a package file.", it: "Impossibile cercare il pacchetto più recente (offline o errore di GitHub). Scegli un file pacchetto.", ja: "最新のパッケージを確認できません（オフラインまたは GitHub のエラー）。パッケージファイルを選んでください。"}
+installer.latest_failed: {en: "Cannot check for the newest package. Check your connection, or choose a package file.", it: "Impossibile cercare il pacchetto più recente. Controlla la connessione, oppure scegli un file pacchetto.", ja: "最新のパッケージを確認できません。接続を確認するか、パッケージファイルを選んでください。"}
 installer.stage_download: {en: "Downloading the package", it: "Download del pacchetto", ja: "パッケージをダウンロード中"}
 installer.cancelled: {en: "Installation cancelled.", it: "Installazione annullata.", ja: "インストールを中止しました。"}
 installer.stopped: {en: "The installation stopped.", it: "L'installazione si è fermata.", ja: "インストールが停止しました。"}
