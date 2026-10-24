@@ -247,6 +247,7 @@ cab.data: {en: "DATA", it: "DATI", ja: "データ"}
 cab.start: {en: "START", it: "START", ja: "スタート"}
 cab.card: {en: "CARD", it: "CARTA", ja: "カード"}
 cab.coin: {en: "COIN", it: "GETTONE", ja: "コイン"}
+cab.held: {en: "HELD", it: "TENUTO", ja: "ホールド"}
 
 # ---- panel ----
 panel.f11: {en: "F11: window or full screen", it: "F11: finestra o schermo intero", ja: "F11：ウィンドウ／全画面"}

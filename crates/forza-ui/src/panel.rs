@@ -494,6 +494,8 @@ pub struct PanelState {
     pub pressed: Option<&'static str>,
     /// The cabinet button whose key is down (lit until the key goes up).
     pub held: Option<&'static str>,
+    /// KEY PLAYER or KEEPER latched down by a right-click ([`latch_click`]): its key stays down until the next click.
+    pub latched: Option<&'static str>,
     /// A catalogue card to put on the table (its number): [`add_card`].
     pub add: Option<u32>,
     /// The bindings changed: keys.txt is written.
@@ -562,6 +564,7 @@ impl PanelState {
             board_changed: false,
             pressed: None,
             held: None,
+            latched: None,
             add: None,
             keys_changed: false,
             file_changed: false,
@@ -1256,8 +1259,11 @@ fn paint_keycap(p: &egui::Painter, r: Rect, text: &str) {
 
 /// The cabinet's controls under the picture, one row: the tactic diamond, the play buttons, the machine.
 fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
-    // a press sends the action's key down (the panel DLL lets it up after the release); the buttons do not light
+    // a press sends the action's key down (the panel DLL lets it up after the release); the buttons do not light.
+    // A right-click on KEY PLAYER or KEEPER latches it down until the next click on it ([`latch_click`]).
     let mut pressed = None;
+    let held = st.latched;
+    let mut latch = st.latched;
     let mut put = |ui: &mut Ui,
                    r: Rect,
                    key: &str,
@@ -1268,16 +1274,28 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
         let resp = ui.put(r, |ui: &mut Ui| {
             cabinet_shaped(ui, r.size(), &tr!(lang, key), kind, shape, lit)
         });
-        if action.is_some()
-            && ui.is_enabled()
-            && ui.input(|i| {
-                i.pointer.button_pressed(egui::PointerButton::Primary)
+        let hit = |b| {
+            ui.input(|i| {
+                i.pointer.button_pressed(b)
                     && i.pointer
                         .interact_pos()
                         .is_some_and(|p| shape_contains(shape, r, p))
             })
+        };
+        if let Some(a) = action
+            && ui.is_enabled()
         {
-            pressed = action;
+            let (left, right) = (
+                hit(egui::PointerButton::Primary),
+                hit(egui::PointerButton::Secondary),
+            );
+            if left || right {
+                let next = latch_click(latch, a, right);
+                if left && next == latch {
+                    pressed = action;
+                }
+                latch = next;
+            }
         }
         resp
     };
@@ -1296,8 +1314,24 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
         );
     }
     for it in deck_layout_for(area, both) {
-        let lit = it.tactic.is_some_and(|i| st.tactics[i]);
+        let on = held == Some(it.action);
+        let lit = on || it.tactic.is_some_and(|i| st.tactics[i]);
         put(ui, it.rect, it.key, Some(it.action), it.kind, it.shape, lit);
+        if on {
+            let p = ui.painter();
+            p.circle_stroke(
+                it.rect.center(),
+                it.rect.width() / 2.0 + 5.0,
+                Stroke::new(2.5, theme::GOLD),
+            );
+            p.text(
+                it.rect.center_top() - vec2(0.0, 7.0),
+                Align2::CENTER_BOTTOM,
+                tr!(lang, "cab.held"),
+                theme::display(13.0),
+                theme::GOLD,
+            );
+        }
         let cap = deck_keycap(st, it.action);
         let p = ui.painter();
         if let Some(side) = it.label {
@@ -1371,6 +1405,37 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
         }
     }
     st.pressed = st.pressed.or(pressed);
+    st.latched = latch;
+}
+
+/// The buttons a right-click holds down until the next click on them: one mouse cannot hold KEY PLAYER (or KEEPER)
+/// and rub a card at once.
+pub const LATCHING: [&str; 2] = ["KEYPLAYER", "KEEPER"];
+
+/// The latch after a click on the cabinet button `action` (`right`: the right button): a right-click on a
+/// [`LATCHING`] button holds it, the next click on the held one lets it go, other clicks leave it as it is.
+pub fn latch_click(
+    latched: Option<&'static str>,
+    action: &'static str,
+    right: bool,
+) -> Option<&'static str> {
+    if latched == Some(action) {
+        None
+    } else if right && LATCHING.contains(&action) {
+        Some(action)
+    } else {
+        latched
+    }
+}
+
+/// The latch kept for the next frame: let go when the game stopped (the crash screen) or the window lost the focus
+/// (`focused` false), so no button stays down.
+pub fn latch_kept(
+    latched: Option<&'static str>,
+    crash: bool,
+    focused: bool,
+) -> Option<&'static str> {
+    latched.filter(|_| !crash && focused)
 }
 
 /// The bottom bar: the edition, the four page buttons (lit while their page is open), the ping and the window key.
@@ -3498,6 +3563,24 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// A right-click latches KEY PLAYER or KEEPER, the next click on it lets it go; other buttons press as before;
+    /// a stop or a focus loss lets it go.
+    #[test]
+    fn the_latch_holds_until_the_next_click() {
+        assert_eq!(latch_click(None, "KEYPLAYER", true), Some("KEYPLAYER"));
+        assert_eq!(latch_click(None, "KEEPER", true), Some("KEEPER"));
+        assert_eq!(latch_click(None, "SHOOT", true), None);
+        assert_eq!(latch_click(None, "KEYPLAYER", false), None); // an ordinary press
+        let on = Some("KEYPLAYER");
+        assert_eq!(latch_click(on, "SHOOT", false), on); // SHOOT while it is held
+        assert_eq!(latch_click(on, "KEYPLAYER", false), None);
+        assert_eq!(latch_click(on, "KEYPLAYER", true), None);
+        assert_eq!(latch_click(on, "KEEPER", true), Some("KEEPER"));
+        assert_eq!(latch_kept(on, false, true), on);
+        assert_eq!(latch_kept(on, true, true), None);
+        assert_eq!(latch_kept(on, false, false), None);
     }
 
     #[test]
