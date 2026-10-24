@@ -17,6 +17,9 @@ target\ (the 2017-18 folder) at the paths below; `cargo xtask package 2017-18` z
   native\common        what they share: a loaded program's import table, the parent process
   source\build\netguard.dll   native\netguard (not in the ZIP, not used by 2017-18: the Linux server's 2010-11 hook
                        loads it)
+  source\build\server-hook\winmm.dll   native\hook (forza-hook --features e1011-server; not in the ZIP, not used by
+                       2017-18): the Linux server's 2010-11 hook under Wine, with its self-tests msgguard_test.exe,
+                       sleepfix_test.exe, spinfix_test.exe (native\programs\src\bin)
   source\build\test_wccfnet.exe, test_netguard.exe, test_icmp.exe, test_panel.exe   native\programs\src\bin\test_*.rs:
                        `cargo xtask check` loads each guard from a scratch folder, proves the four calls return 0 without
                        reaching the real IP helper, and that FORZA_PANEL makes wccfnet.dll load a DLL once a window shows

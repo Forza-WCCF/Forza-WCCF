@@ -1,4 +1,4 @@
-//! netguard.dll: the 2010-11 server hook under Wine (native/2010-11/server-hook, C) loads it as its second guard. The
+//! netguard.dll: the 2010-11 server hook under Wine (forza-hook e1011-server, native/hook/src/server.rs) loads it as its second guard. The
 //! four IP helper calls that release the host's DHCP lease or write its routes (imported by control_Release.exe) are
 //! pointed at stubs that touch nothing, in the import table of the program that loads it. Not in either kit.
 #![cfg(target_arch = "x86")]

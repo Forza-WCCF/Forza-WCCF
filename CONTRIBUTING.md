@@ -116,7 +116,7 @@ Refs: #12
   (anything else, such as release housekeeping) and `revert`.
 - **Scope:** required: the part of the project the commit changes. Use the crate or component name: `launcher`,
   `installer`, `forza`, `ui` (`crates/forza-ui`), `setup` (`crates/forza/src/setup`), `panel`, `server`, `vslink`,
-  `linux-host`, `wccfnet` (`native/wccfnet`), `mxhook` (the 2010-11 server hook, `native/2010-11/server-hook`), `hook` (`native/hook`),
+  `linux-host`, `wccfnet` (`native/wccfnet`), `mxhook` (the 2010-11 server hook, `native/hook/src/server.rs`), `hook` (`native/hook`),
   `native` (`native/common`, `native/programs`, `native/icmp`, `native/netguard`), `fpr-emu`, `xtask`,
   `deploy`, `deps`, `release`; for documents the file or area: `readme`, `contributing`, `roadmap`, `safety`, `docs`.
   Add the edition when it matters: `fix(setup): ...` with "2017-18" in the description, rather than a new scope.
