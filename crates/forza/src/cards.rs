@@ -6,7 +6,7 @@
 //! for byte as it writes them.
 
 pub mod catalogue;
-mod codes;
+pub mod codes;
 pub mod hq;
 pub mod links;
 pub mod pictures;

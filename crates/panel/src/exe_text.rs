@@ -8,6 +8,10 @@
 //! only when the bytes there hash to the original and the rest of its room is zeros; the whole room is written, our
 //! text then zeros. Runs from the panel's start (seat 1 and the projector), before the game builds its menus: a text
 //! the game copied before that keeps its Japanese until the game builds it again.
+//!
+//! The club and nationality names (`forza::cards::codes`, one table for the card catalogue and the game) are too
+//! long for their slots, so the game's two pointer tables to them are pointed at our names instead: an entry is
+//! changed only when it still points at the original name.
 
 use launcher::Kit;
 use sha2::{Digest, Sha256};
@@ -139,9 +143,52 @@ pub fn install(e1718: bool, data: &Path, log: fn(&str)) {
         done += 1;
     }
     log(&format!(
-        "exe text: {done} of {} replaced ({lang})",
-        rows.len()
+        "exe text: {done} of {} replaced ({lang}); {} club and nationality names",
+        rows.len(),
+        names(base, size, lang == "it")
     ));
+}
+
+/// Point the club and nationality name tables at our names; how many entries changed.
+fn names(base: usize, size: usize, italian: bool) -> usize {
+    use forza::cards::codes::{NAME_TABLES_1718, game_names_1718};
+    let names = game_names_1718(italian);
+    let image = base..base + size;
+    let mut done = 0;
+    for va in NAME_TABLES_1718 {
+        let table = base + (va as usize - 0x40_0000);
+        if base == 0 || table + 4 * names.len() > image.end {
+            continue;
+        }
+        for (i, n) in names.iter().enumerate() {
+            let Some((jp, shown)) = n else { continue };
+            let slot = table + 4 * i;
+            // SAFETY: inside the program's image (checked above), which stays mapped; .data is readable
+            let p = unsafe { *(slot as *const usize) };
+            if !image.contains(&p) || p + jp.len() >= image.end {
+                continue;
+            }
+            // SAFETY: inside the image (checked above)
+            let now = unsafe { std::slice::from_raw_parts(p as *const u8, jp.len() + 1) };
+            if now[..jp.len()] != jp[..] || now[jp.len()] != 0 {
+                continue;
+            }
+            // ours for as long as the game runs; ASCII without an end byte (forza's test)
+            let ours: &'static [u8] =
+                Box::leak(format!("{shown}\0").into_bytes().into_boxed_slice());
+            let mut old = PAGE_PROTECTION_FLAGS(0);
+            // SAFETY: the slot held the original's pointer (checked); writable for the store only
+            unsafe {
+                if VirtualProtect(slot as *const c_void, 4, PAGE_READWRITE, &mut old).is_err() {
+                    continue;
+                }
+                *(slot as *mut usize) = ours.as_ptr() as usize;
+                let _ = VirtualProtect(slot as *const c_void, 4, old, &mut old);
+            }
+            done += 1;
+        }
+    }
+    done
 }
 
 #[cfg(test)]
