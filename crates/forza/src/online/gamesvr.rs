@@ -248,8 +248,14 @@ const RESP: &[(u16, usize, Zero)] = &[
         Zero::Safe("client sub_7FBA50: teamNum 0 is a CPU team"),
     ),
     (308, 3332, Zero::Handled),
-    (310, 8, Zero::Pending("C5")),
-    (312, 3352, Zero::Pending("C5")),
+    (
+        310,
+        8,
+        Zero::Safe(
+            "ctl sub_45D840: errCode 0 stops the upload; the stand-in keeps the 309 for 312",
+        ),
+    ),
+    (312, 3352, Zero::Handled),
     (
         314,
         8,
@@ -384,6 +390,26 @@ fn restore_tail(body: &mut [u8], req: &[u8]) {
     for (to, from, len) in TAIL_SPANS {
         body[to..to + len].copy_from_slice(&req[from..from + len]);
     }
+}
+
+/// The 309 upload re-packed as a 312 (3,352 bytes, errCode left to the caller): the shop name (28 bytes, 309 +3,194)
+/// at +120, the region at +148 (309 +3,224; -1 when ALL.Net sent 0x80000000 = none), the 3,072-byte save block
+/// (309 +8) at +152, and the 128 bytes of CPU attributes (309 +3,232) at +3,224. +8 and +64 (names the client does
+/// not read) stay 0. `req` is a whole 3,368-byte 309.
+fn best_eleven_answer(body: &mut [u8], req: &[u8]) {
+    body[120..148].copy_from_slice(&req[3194..3222]);
+    let region = u32_at(req, 3224);
+    put(
+        body,
+        148,
+        if region == 0x8000_0000 {
+            u32::MAX
+        } else {
+            region
+        },
+    );
+    body[152..152 + BLOCK].copy_from_slice(&req[8..8 + BLOCK]);
+    body[3224..3352].copy_from_slice(&req[3232..3360]);
 }
 
 /// Fills a 6,176-byte SAVE_DATA answer (slot already at +0) with a stored block: +8 block, +3,080 version,
@@ -750,6 +776,27 @@ impl Store {
             .optional()
     }
 
+    /// Keeps the latest whole 309 under (0, shop id).
+    fn keep_best_eleven(&self, shop: u32, req: &[u8]) -> rusqlite::Result<()> {
+        self.0.execute(
+            "INSERT OR REPLACE INTO requests VALUES (0, ?1, 309, ?2, ?3)",
+            params![shop, req, now()],
+        )?;
+        Ok(())
+    }
+
+    /// The newest stored 309 of any shop. This stand-in serves one shop, so "the same shop's last 309" (owner
+    /// decision D3, default) is the newest one; on a server with several shops a rule per area replaces this.
+    fn last_best_eleven(&self) -> rusqlite::Result<Option<Vec<u8>>> {
+        self.0
+            .query_row(
+                "SELECT payload FROM requests WHERE cmd = 309 AND aime_id = 0 ORDER BY updated DESC, coach_id DESC LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .optional()
+    }
+
     /// Keeps a BUY_SHOP_ITEM request whole; Ok only once the insert has committed.
     fn buy(&self, aime: u32, req: &[u8]) -> rusqlite::Result<()> {
         self.0.execute(
@@ -818,6 +865,9 @@ fn club(
         285 => (24, Some(20)),
         // BUY_SHOP_ITEM: ids, category and item; the replay records are 20 bytes, so no revision check
         315 => (16, None),
+        // BEST_ELEVEN upload (the control's, no revision) and download (areaId at +4, not read)
+        309 => (3368, None),
+        311 => (0, None),
         _ => return Ok(()),
     };
     if req.len() < need {
@@ -826,7 +876,9 @@ fn club(
     if let Some(at) = rev_at.filter(|&at| u32_at(req, at) != REVISION) {
         return Err(format!("revision {}, want {REVISION}", u32_at(req, at)));
     }
-    let (aime, coach, card) = (u32_at(req, 4), u32_at(req, 8), u32_at(req, 12));
+    // 311 may be as short as 8 bytes: a missing id reads as 0
+    let id = |at: usize| req.get(at..at + 4).map_or(0, |_| u32_at(req, at));
+    let (aime, coach, card) = (id(4), id(8), id(12));
     let db = |e: rusqlite::Error| format!("store: {e}");
     let mut st = store.lock().unwrap_or_else(PoisonError::into_inner);
     if cmd == 271 {
@@ -880,6 +932,22 @@ fn club(
             }
         }
         return Ok(());
+    }
+    match cmd {
+        // +4 is the shop id here, not an Aime id
+        309 => {
+            st.keep_best_eleven(aime, req).map_err(db)?;
+            return Ok(());
+        }
+        // errCode 0 with the newest 309 re-packed; none stored keeps the errCode 1 set by `answer` (CPU team)
+        311 => {
+            if let Some(p) = st.last_best_eleven().map_err(db)? {
+                put(body, 4, 0);
+                best_eleven_answer(body, &p);
+            }
+            return Ok(());
+        }
+        _ => {}
     }
     if aime == 0 {
         return Err("Aime id 0".into());
@@ -1604,6 +1672,7 @@ mod tests {
             279 => (36, 32),
             285 => (24, 20),
             287 | 289 => (28, 24),
+            309 => (3368, 0),
             _ => (600, 0),
         };
         let mut r = vec![0u8; len];
@@ -1620,6 +1689,7 @@ mod tests {
                 r[3100..3104].copy_from_slice(&[12, 0, 0, 12]);
             }
             279 => r[12] = 1,
+            309 => r[8..3080].fill(0x5A),
             289 => put(&mut r, 16, 1),
             _ => {}
         }
@@ -1946,6 +2016,45 @@ mod tests {
             .unwrap();
         let (b, why) = buy(&store, 4, 1);
         assert!(why.is_some() && u32_at(&b, 4) == 1);
+    }
+
+    /// A 311 request: slot 1 and an area id of 0.
+    const SLOT: [u8; 8] = [1, 0, 0, 0, 0, 0, 0, 0];
+
+    /// A synthetic 309: every byte a function of its offset, shop id 7.
+    fn upload_309(seed: usize) -> Vec<u8> {
+        let mut p: Vec<u8> = (0..3368)
+            .map(|i| ((i * 13 + seed) % 251) as u8 + 1)
+            .collect();
+        put(&mut p, 4, 7);
+        p
+    }
+
+    #[test]
+    fn best_eleven_309_comes_back_as_312() {
+        let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
+        // nothing stored: errCode 1, the CPU team
+        let (b, why) = ask_store(&store, 311, &SLOT);
+        assert_eq!((b.len(), u32_at(&b, 4), why), (3352, 1, None));
+        let (b, why) = ask_store(&store, 309, &upload_309(1));
+        assert_eq!((b.len(), u32_at(&b, 4), why), (8, 0, None));
+        let p = upload_309(2);
+        assert_eq!(u32_at(&ask_store(&store, 309, &p).0, 4), 0);
+        let (b, why) = ask_store(&store, 311, &SLOT);
+        assert_eq!((b.len(), u32_at(&b, 4), why), (3352, 0, None));
+        assert_eq!(b[8..120], [0; 112], "names the client does not read");
+        assert_eq!(b[120..148], p[3194..3222]);
+        assert_eq!(b[148..152], p[3224..3228]);
+        assert_eq!(b[152..3224], p[8..3080]);
+        assert_eq!(b[3224..3352], p[3232..3360]);
+        // ALL.Net's "none" is -1; a short 309 is refused (errCode 1) and keeps the last good one
+        let mut q = upload_309(3);
+        put(&mut q, 3224, 0x8000_0000);
+        ask_store(&store, 309, &q);
+        assert_eq!(u32_at(&ask_store(&store, 311, &SLOT).0, 148), u32::MAX);
+        let (b, why) = ask_store(&store, 309, &q[..100]);
+        assert!(why.is_some() && u32_at(&b, 4) == 1);
+        assert_eq!(ask_store(&store, 311, &SLOT).0[152], q[8]);
     }
 
     #[test]

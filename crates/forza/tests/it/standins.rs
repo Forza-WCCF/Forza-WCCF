@@ -914,3 +914,42 @@ fn gamesvr_purchases_survive_restart() {
     drop((c, _svc));
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// Best Eleven over the wire: 309 is kept across a restart and 311 gets it back as 312.
+#[test]
+fn gamesvr_best_eleven_survives_restart() {
+    let dir = scratch("gamesvr_be11");
+    let mut p: Vec<u8> = (0..3368).map(|i| (i * 7 % 251) as u8 + 1).collect();
+    le(&mut p, 0, 1); // slot
+    let want = |a: &[u8]| {
+        assert_eq!(a.len(), 3352);
+        assert_eq!(word(a, 4), 0, "BEST_ELEVEN errCode");
+        assert_eq!(a[120..148], p[3194..3222]);
+        assert_eq!(a[148..152], p[3224..3228]);
+        assert_eq!(a[152..3224], p[8..3080]);
+        assert_eq!(a[3224..3352], p[3232..3360]);
+    };
+    {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let _svc = gamesvr::spawn(l.try_clone().unwrap(), dir.clone(), quiet()).unwrap();
+        let mut c = connect(&l);
+        assert_eq!(
+            word(&ask(&mut c, 311, &[1, 0, 0, 0, 0, 0, 0, 0]), 4),
+            1,
+            "none stored: CPU team"
+        );
+        assert_eq!(word(&ask(&mut c, 309, &p), 4), 0, "BEST_ELEVEN upload ack");
+        want(&ask(&mut c, 311, &[1, 0, 0, 0, 0, 0, 0, 0]));
+    }
+    let wal = dir.join("gamesvr.db-wal");
+    let t = Instant::now();
+    while wal.exists() && t.elapsed() < Duration::from_secs(3) {
+        sleep(Duration::from_millis(50));
+    }
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let _svc = gamesvr::spawn(l.try_clone().unwrap(), dir.clone(), quiet()).unwrap();
+    let mut c = connect(&l);
+    want(&ask(&mut c, 311, &[1, 0, 0, 0, 0, 0, 0, 0]));
+    drop((c, _svc));
+    let _ = std::fs::remove_dir_all(dir);
+}
