@@ -539,3 +539,8 @@ close.quit: {en: "QUIT NOW", it: "ESCI ORA", ja: "今すぐ終了"}
 panel.lamp_in_use: {en: "IN USE", it: "IN USO", ja: "使用中"}
 panel.lamp_safe: {en: "SAFE TO CLOSE", it: "PUOI CHIUDERE", ja: "閉じてOK"}
 panel.lamp_none: {en: "NO CARD", it: "NESSUNA CARTA", ja: "カードなし"}
+panel.crash_title: {en: "THE GAME STOPPED", it: "IL GIOCO SI È FERMATO", ja: "ゲームが停止しました"}
+panel.crash_lost: {en: "The game lost its control program.", it: "Il gioco ha perso il programma di controllo.", ja: "ゲームがコントロールプログラムを失いました。"}
+panel.crash_1718: {en: "Your club is kept on the server.", it: "Il tuo club è salvato sul server.", ja: "クラブはサーバーに保存されています。"}
+panel.crash_restart: {en: "RESTART THE GAME", it: "RIAVVIA IL GIOCO", ja: "ゲームを再起動"}
+panel.crash_report_asked: {en: "Report asked. See the Launcher.", it: "Segnalazione richiesta. Vedi il Launcher.", ja: "報告を要求しました。ランチャーをご覧ください。"}

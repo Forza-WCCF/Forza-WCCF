@@ -707,7 +707,11 @@ pub fn show(ui: &mut Ui, st: &mut PanelState) {
         .show_separator_line(false)
         .frame(egui::Frame::new())
         .show(ui, |ui| {
-            board_strip(ui, st, lang);
+            if st.crash {
+                crash_screen(ui, st, lang);
+            } else {
+                board_strip(ui, st, lang);
+            }
         });
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(theme::WELL))
@@ -2405,14 +2409,7 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                         Link::Unknown => (tr!(lang, "settings.unknown"), theme::TEXT_FAINT),
                     };
                     kv(ui, &tr!(lang, "settings.server"), &v, Some(c));
-                    let (k, c) = match s.card {
-                        CardState::Open => ("settings.card_open", theme::AMBER),
-                        CardState::Closed => ("settings.card_closed", theme::GREEN),
-                        CardState::Cut => ("settings.card_cut", theme::AMBER),
-                        CardState::New => ("settings.card_new", theme::TEXT_FAINT),
-                        CardState::Unreadable => ("settings.card_unreadable", theme::RED_TEXT),
-                        CardState::None => ("settings.card_none", theme::TEXT_FAINT),
-                    };
+                    let (k, c) = card_text(s.card);
                     kv(ui, &tr!(lang, "settings.session"), &tr!(lang, k), Some(c));
                     let (v, c) = match s.bad {
                         None => ("-".to_owned(), None),
