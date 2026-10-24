@@ -193,6 +193,13 @@ player plays on, TCP 20050: your server, not the project's. They land in `/srv/f
 `WCCF_INBOX_PER_HOUR` (6) uploads an hour per address, `WCCF_INBOX_KEEP` (1 GB) in total, the oldest go first.
 Keep TCP 20050 closed if you do not want them; the Launcher then keeps a failed report and tries again at the next start.
 
+REPORT A PROBLEM in the Launcher (also opened after a crash and from the panel) goes to the project's lobby server
+(`WCCF_LOBBY` changes it), on the seat desk's port: TCP 20030 or 20032. The desk keeps it in `--reports DIR`
+(`<store>/reports` for 2017-18) as `DATE_TIME_ID.zip` with a `.txt` holding the player's words; ID is the number the
+player sees. Limits: 4 MB, 2,000 characters, 5 an hour per address, 1 GB in total, the oldest go first. In the ZIP
+and the words, the Windows user folder (any `X:\Users\NAME`), the user name and the PC's name are replaced before
+anything leaves the PC. A report that cannot be sent stays in the player's `data\reports\` and goes with the next.
+
 ## 12. Backups
 
 - 2017-18: `forza-1718-backup.timer` writes `1718/backup/gamesvr-DATE.db.zst` every night (`sqlite3 .backup`, safe while the

@@ -25,6 +25,13 @@ One program for every online service of both editions. Std threads and blocking 
 - The store is SQLite in WAL mode with `synchronous=NORMAL` (`gamesvr.db` plus `-wal` and `-shm` beside it); back it
   up with `sqlite3 gamesvr.db ".backup FILE"`, not a file copy.
 
+- Players' problem reports (the Launcher's REPORT A PROBLEM) come in on the desk's own port, both editions:
+  `REPORT ZIP NOTE VERSION` -> `GO` or `NO why`; then NOTE bytes of UTF-8 (the player's words) and ZIP bytes ->
+  `OK ID` or `NO why`. Limits: 4 MB a ZIP, 2,000 characters, 5 reports an hour per address, 4 at a time, 30 s per read
+  and 3 min in all, 1 GB kept (the oldest report goes first). Kept as `DATE_TIME_ID.zip` and `.txt` (the words, the
+  edition and the version) in `--reports DIR` (`desk`, `all`); default `<store>/reports` for `all --edition 2017-18`,
+  else `reports` beside the log folder. The log has one line a report: its id, edition, size and address. The ZIP is
+  never opened on the server.
 - The projector hold no longer touches the firewall and is not enforced (`HOLD` stays `HOLD 0`). A Windows server that ran an
   older version: remove the leftover rule by hand with `netsh advfirewall firewall delete rule name="WCCF hold projector box"`.
 
