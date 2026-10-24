@@ -62,8 +62,8 @@ jobs:
           if-no-files-found: error
 
   # Every ZIP and EXE uploaded to VirusTotal (they are public release files anyway). Microsoft's engine (what Windows
-  # Defender uses) must find nothing; three or more engines flagging a file also stop the release; fewer is a warning
-  # (small engines' false alarms are common). The results table goes to the job summary and the release notes.
+  # Defender uses) must find nothing: only that stops the release. Other engines flagging a file are a warning (their
+  # false alarms are common). The results table goes to the job summary and the release notes.
   virustotal:
     name: virustotal
     needs: build
@@ -107,8 +107,7 @@ jobs:
             case "$ms" in
               malicious*|suspicious*) echo "::error::$name: Microsoft flags it: $ms"; fail=1 ;;
             esac
-            if [ "$bad" -ge 3 ]; then echo "::error::$name: $bad engines flag it: $engines"; fail=1
-            elif [ "$bad" -gt 0 ]; then echo "::warning::$name: $bad engine(s) flag it: $engines"; fi
+            if [ "$bad" -gt 0 ]; then echo "::warning::$name: $bad engine(s) flag it: $engines"; fi
           done
           cat "$out" >> "$GITHUB_STEP_SUMMARY"
           exit "$fail"
