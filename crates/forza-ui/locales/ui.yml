@@ -500,6 +500,11 @@ lobby.waiting: {en: "waiting…", it: "in attesa…", ja: "待機中…"}
 lobby.starting: {en: "Both ready: starting", it: "Entrambi pronti: si parte", ja: "両者準備OK：開始します"}
 lobby.empty: {en: "No rooms yet. Host one or type an address.", it: "Nessuna stanza. Creane una o scrivi un indirizzo.", ja: "ルームなし。作成するかアドレスを入力。"}
 lobby.offline: {en: "Server not answering. Try again later.", it: "Il server non risponde. Riprova più tardi.", ja: "サーバーが応答しません。後でもう一度お試しください。"}
+lobby.retry: {en: "RETRY", it: "RIPROVA", ja: "再試行"}
+lobby.why_offline: {en: "Server offline", it: "Server offline", ja: "サーバーに接続できません"}
+lobby.why_stale: {en: "List out of date", it: "Elenco non aggiornato", ja: "一覧が古い情報です"}
+lobby.why_unavailable: {en: "Not available yet", it: "Non ancora disponibile", ja: "まだ利用できません"}
+lobby.why_pick: {en: "Pick a room", it: "Scegli una stanza", ja: "ルームを選んでください"}
 lobby.taken: {en: "That seat was just taken.", it: "Quel posto è appena stato preso.", ja: "その席はたった今埋まりました。"}
 lobby.room_closed: {en: "The host closed the room.", it: "L'host ha chiuso la stanza.", ja: "ホストがルームを閉じました。"}
 lobby.stale: {en: "Updated %{s} s ago.", it: "Aggiornato %{s} s fa.", ja: "%{s} 秒前に更新。"}
