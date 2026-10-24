@@ -346,6 +346,29 @@ pub fn show(ui: &mut Ui, st: &mut LauncherState) -> Option<Action> {
         act = Some(Action::Language);
     }
     let lang = st.lang;
+    // PLAY / STOP THE GAME and the status line stay in view on a short screen; the rest scrolls above them
+    egui::Panel::bottom("launcher-footer")
+        .frame(
+            egui::Frame::new()
+                .fill(theme::NIGHT)
+                .inner_margin(egui::Margin {
+                    left: 16,
+                    right: 16,
+                    top: 10,
+                    bottom: 14,
+                }),
+        )
+        .show_separator_line(false)
+        .show(ui, |ui| {
+            let r = ui.max_rect();
+            ui.painter().hline(
+                r.x_range(),
+                r.top() - 10.0,
+                egui::Stroke::new(1.0, theme::RIM),
+            );
+            ui.spacing_mut().item_spacing.y = 8.0;
+            footer(ui, st, lang, &mut act);
+        });
     egui::CentralPanel::default()
         .frame(
             egui::Frame::new()
@@ -483,12 +506,10 @@ fn play(
                 }
             }
         });
-        ui.add_space(4.0);
-        footer(ui, st, lang, act);
     });
 }
 
-/// PLAY / STOP THE GAME, the start's bar and the status line.
+/// PLAY / STOP THE GAME, the start's bar and the status line: the window's footer.
 fn footer(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Action>) {
     {
         let size = vec2(ui.available_width(), 64.0);
