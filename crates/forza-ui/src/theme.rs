@@ -134,7 +134,10 @@ const HACK: &str = "Hack-Regular.ttf";
 
 /// One file read stays in memory for the program's life, shared by every weight that uses it (Noto Sans JP is ~9.6 MB).
 fn read_static(dir: &Path, name: &str) -> std::io::Result<&'static [u8]> {
-    Ok(Vec::leak(std::fs::read(dir.join(name))?))
+    // the error names the file, for the Launcher's missing-files message
+    let bytes = std::fs::read(dir.join(name))
+        .map_err(|e| std::io::Error::new(e.kind(), format!("{name}: {e}")))?;
+    Ok(Vec::leak(bytes))
 }
 
 /// Our three families, registered explicitly (eframe's `default_fonts` stays off).

@@ -117,7 +117,7 @@ launcher.msg_link_no_junction: {en: "This folder path may not work. If the game 
 launcher.msg_link_failed: {en: "This folder path may not work. If the game does not start, move it to C:\\Games.", it: "Questo percorso potrebbe non funzionare. Se il gioco non parte, spostalo in C:\\Games.", ja: "このフォルダーのパスでは動かない場合があります。起動しないときは C:\\Games へ移動してください。"}
 launcher.msg_pack_title: {en: "Pick the high-quality card pack (forza-wccf-card-pictures-hq-*.zip)", it: "Scegli il pacchetto di immagini carte in alta qualità (forza-wccf-card-pictures-hq-*.zip)", ja: "高画質カード画像パックを選んでください（forza-wccf-card-pictures-hq-*.zip）"}
 launcher.msg_making_pictures: {en: "Making card pictures ...", it: "Creo le immagini delle carte ...", ja: "カード画像を作成中..."}
-launcher.msg_no_fonts: {en: "Files are missing. Check your antivirus, then reinstall Forza-WCCF.", it: "File mancanti. Controlla l'antivirus, poi reinstalla Forza-WCCF.", ja: "ファイルが見つかりません。ウイルス対策ソフトを確認し、Forza-WCCF を再インストールしてください。"}
+launcher.msg_no_fonts: {en: "Missing file: %{error}. Check your antivirus, then reinstall Forza-WCCF.", it: "File mancante: %{error}. Controlla l'antivirus, poi reinstalla Forza-WCCF.", ja: "ファイルがありません：%{error}。ウイルス対策ソフトを確認し、Forza-WCCF を再インストールしてください。"}
 launcher.msg_no_window: {en: "Launcher cannot open its window: %{error}", it: "Launcher non riesce ad aprire la finestra: %{error}", ja: "Launcher のウィンドウを開けません: %{error}"}
 
 # ---- installer ----

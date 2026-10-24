@@ -1170,11 +1170,7 @@ fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
                     log(&format!("window: {renderer:?} renderer"));
                     let app = App::new(kit, folder);
                     if let Err(e) = theme::install(&cc.egui_ctx, app.st.edition, fonts) {
-                        return Err(tf(
-                            "launcher.msg_no_fonts",
-                            &[("error", &format!("{}: {e}", fonts.display()))],
-                        )
-                        .into());
+                        return Err(tf("launcher.msg_no_fonts", &[("error", &e.to_string())]).into());
                     }
                     Ok(Box::new(app))
                 }),
