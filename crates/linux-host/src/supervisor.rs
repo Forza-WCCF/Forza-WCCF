@@ -307,7 +307,15 @@ impl Edition {
                     Ok(20002) => {
                         Err("CONTROL_PORT=20002 is the 2010-11 shop's port: use another".into())
                     }
-                    Ok(p) if p > 0 => Ok(p),
+                    Ok(p) if p > 0 => {
+                        // the control's other ports in the same conf must differ from its listening port
+                        for other in ["MATCH_PORT", "GAME_SVR_PORT"] {
+                            if conf_values(conf, other).iter().any(|o| o.parse() == Ok(p)) {
+                                return Err(format!("CONTROL_PORT={p} is also {other}"));
+                            }
+                        }
+                        Ok(p)
+                    }
                     _ => Err(format!("CONTROL_PORT={v} is not a port")),
                 },
                 [] => {
@@ -345,10 +353,14 @@ fn listen_inodes(tcp: &str, port: u16) -> Vec<u64> {
 /// Whether one of `pids` (the prefix's processes, wineserver included: Wine keeps sockets there) holds a socket
 /// listening on `port`: ready must be this shop's control, not another shop's.
 fn owns_listener(pids: &[u32], port: u16) -> bool {
-    let inodes = listen_inodes(
-        &fs::read_to_string("/proc/net/tcp").unwrap_or_default(),
-        port,
-    );
+    // IPv4 and IPv6 sockets (Wine's may be either)
+    let mut inodes = Vec::new();
+    for file in ["/proc/net/tcp", "/proc/net/tcp6"] {
+        inodes.extend(listen_inodes(
+            &fs::read_to_string(file).unwrap_or_default(),
+            port,
+        ));
+    }
     pids.iter().any(|pid| {
         fs::read_dir(format!("/proc/{pid}/fd"))
             .into_iter()
@@ -386,7 +398,15 @@ fn hook_logs(dir: &Path, line: &str, need: usize) -> io::Result<HookLogs> {
         if !(name.starts_with("mxhook_") && name.ends_with(".log")) {
             continue;
         }
-        let text = String::from_utf8_lossy(&fs::read(&path)?).into_owned();
+        // a transient read error must not stop a healthy shop: the log counts as not OK, and the next check retries
+        let bytes = match fs::read(&path) {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!("hook log {} unreadable: {e}", path.display());
+                continue;
+            }
+        };
+        let text = String::from_utf8_lossy(&bytes).into_owned();
         if text.contains("REFUSED") || text.contains("REFUSING") {
             return Ok(HookLogs::Refused(name));
         }
@@ -488,7 +508,7 @@ fn prefix_processes(root: &Path) -> Vec<u32> {
         })
         .collect()
 }
-fn match_count(root: &Path) -> usize {
+fn engine_pids(root: &Path) -> Vec<u32> {
     prefix_processes(root)
         .into_iter()
         .filter(|pid| {
@@ -496,8 +516,13 @@ fn match_count(root: &Path) -> usize {
                 .unwrap_or_default()
                 .starts_with(b"match_Release")
         })
-        .count()
+        .collect()
 }
+fn match_count(root: &Path) -> usize {
+    engine_pids(root).len()
+}
+/// Guarded processes a 2017-18 shop must have logged: control and its four match engines.
+const GUARDED: usize = 5;
 fn record_engine_health(root: &Path, engines: usize) -> io::Result<()> {
     if engines != 4 && root.join("run/ready").exists() {
         fs::remove_file(root.join("run/ready"))?;
@@ -699,7 +724,8 @@ fn serve(root: &Path, edition: Edition) -> io::Result<()> {
                 wine_tool(root, "wineserver").display().to_string(),
             ),
         ];
-        env.envs(wine_env.clone()).args(["-u"]);
+        // every Wine process runs with its working directory in the tree, or verify_prefix refuses cleanup at stop
+        env.envs(wine_env.clone()).args(["-u"]).current_dir(root);
         run_bounded(&mut env, &logs.join("wineboot.log"), 45)?;
         if edition == Edition::E1718 {
             // no helper catches a crash: winedbg prints its backtrace into game.log, with no dialog on the display
@@ -716,6 +742,7 @@ fn serve(root: &Path, edition: Edition) -> io::Result<()> {
                 "0",
                 "/f",
             ]);
+            reg.current_dir(root);
             run_bounded(&mut reg, &logs.join("wine-reg.log"), 20)?;
         }
         let mut guard = Command::new(wine_tool(root, "wine"));
@@ -723,7 +750,8 @@ fn serve(root: &Path, edition: Edition) -> io::Result<()> {
             .envs(wine_env.clone())
             .arg(root.join("runtime/test_wccfnet.exe"))
             // the guard's path: the repository's test_wccfnet.exe needs it, older builds ignore it
-            .arg(winpath(&root.join("runtime/wccfnet.dll")));
+            .arg(winpath(&root.join("runtime/wccfnet.dll")))
+            .current_dir(root.join("runtime"));
         run_bounded(&mut guard, &logs.join("guard-test.log"), 20)?;
         let mut helper = Command::new(wine_tool(root, "wine"));
         match edition {
@@ -760,6 +788,7 @@ fn serve(root: &Path, edition: Edition) -> io::Result<()> {
         .current_dir(root.join("runtime"));
         children.push(spawn_log(&mut helper, &logs.join("game.log"))?);
         let deadline = Instant::now() + Duration::from_secs(180);
+        let mut foreign = false;
         loop {
             if children
                 .iter_mut()
@@ -774,25 +803,30 @@ fn serve(root: &Path, edition: Edition) -> io::Result<()> {
                     Duration::from_millis(200),
                 )
                 .is_ok()
-                && (edition == Edition::E1011
-                    || owns_listener(&prefix_processes(root), control_port))
             {
-                break;
+                if edition == Edition::E1011 || owns_listener(&prefix_processes(root), control_port)
+                {
+                    break;
+                }
+                foreign = true;
             }
             if Instant::now() >= deadline
                 || STOP.load(Ordering::Relaxed)
                 || root.join("run/stop").exists()
             {
-                return Err(io::Error::other(
-                    "controller/four match engines not ready within 180s or stop requested",
-                ));
+                return Err(io::Error::other(if foreign {
+                    format!(
+                        "port {control_port} listened on, but not by this prefix (another shop's control?)"
+                    )
+                } else {
+                    "controller/four match engines not ready within 180s or stop requested".into()
+                }));
             }
             thread::sleep(Duration::from_millis(500));
         }
         // the guard, per process: control and four engines each log the edition, none refused
         if let Some(line) = edition.hook_line() {
-            // control + the engines alive now; a process that has not logged yet is waited for
-            let n = wait_hook_logs(&logs, line, || match_count(root).max(4) + 1, 30)?;
+            let n = wait_hook_logs(&logs, line, || GUARDED, 30)?;
             println!("guard: {n} hook logs say \"{line}\", none refused");
         }
         let projector_seen = Arc::new(AtomicBool::new(false));
@@ -831,7 +865,14 @@ fn serve(root: &Path, edition: Edition) -> io::Result<()> {
             }
             record_engine_health(root, match_count(root))?;
             if let Some(line) = edition.hook_line().filter(|_| waited.is_multiple_of(10)) {
-                guard_step(&logs, line, match_count(root) + 1, &mut short)?;
+                guard_step(&logs, line, GUARDED, &mut short)?;
+                // surplus engines (a leftover of an earlier run) are reported, not counted against the guard
+                let pids = engine_pids(root);
+                if pids.len() > 4 {
+                    let msg = format!("{} match engines (expected 4), pids {pids:?}\n", pids.len());
+                    eprintln!("DEGRADED: {msg}");
+                    fs::write(root.join("run/degraded"), msg)?;
+                }
             }
             if !external && !projector_seen.load(Ordering::Relaxed) && waited.is_multiple_of(60) {
                 eprintln!(
@@ -1087,6 +1128,18 @@ mod tests {
             e.control_port("CONTROL_PORT=20012\nCONTROL_PORT=20013\n")
                 .is_err()
         );
+        assert!(
+            e.control_port("CONTROL_PORT=20012\nMATCH_PORT=20012\n")
+                .is_err()
+        );
+        assert!(
+            e.control_port("CONTROL_PORT=20060\nGAME_SVR_PORT=20060\n")
+                .is_err()
+        );
+        assert_eq!(
+            e.control_port("CONTROL_PORT=20012\nMATCH_PORT=20013\nGAME_SVR_PORT=20060\n"),
+            Ok(20012)
+        );
         assert!(game_server_is_local(conf));
         // a literal 127.0.0.1 makes the control use the network's own host: the publisher's server
         assert!(!game_server_is_local("GAME_SVR_IP=127.0.0.1\n"));
@@ -1121,6 +1174,10 @@ mod tests {
         assert_eq!(hook_logs(&dir, line, 5).unwrap(), HookLogs::Short(4));
         fs::write(dir.join("mxhook_5.log"), &good).unwrap();
         assert_eq!(hook_logs(&dir, line, 5).unwrap(), HookLogs::Ok(5));
+        // an unreadable entry (a directory with a log's name) is skipped, not fatal, and not counted
+        fs::create_dir(dir.join("mxhook_9.log")).unwrap();
+        assert_eq!(hook_logs(&dir, line, 5).unwrap(), HookLogs::Ok(5));
+        fs::remove_dir(dir.join("mxhook_9.log")).unwrap();
         assert_eq!(wait_hook_logs(&dir, line, || 5, 0).unwrap(), 5);
         let refused = format!("{good}REFUSED: secondary netguard.dll did not load\n");
         fs::write(dir.join("mxhook_6.log"), refused).unwrap();
@@ -1177,10 +1234,19 @@ mod tests {
             "established, not listening"
         );
         assert!(listen_inodes(tcp, 20002).is_empty());
-        // this test process holds a real listener; another pid does not
+        let tcp6 = "  sl  local_address rem_address st\n\
+            0: 00000000000000000000000001000000:4E32 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000 1000 0 5151 1 0\n";
+        assert_eq!(listen_inodes(tcp6, 20018), [5151]);
+        // this test process holds real listeners (IPv4 and IPv6); another pid does not
         let l = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = l.local_addr().unwrap().port();
         assert!(owns_listener(&[std::process::id()], port));
+        if let Ok(l6) = TcpListener::bind("[::1]:0") {
+            assert!(owns_listener(
+                &[std::process::id()],
+                l6.local_addr().unwrap().port()
+            ));
+        }
         assert!(!owns_listener(&[], port));
         assert!(!owns_listener(&[1], port));
     }

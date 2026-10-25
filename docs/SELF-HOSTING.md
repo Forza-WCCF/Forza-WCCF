@@ -120,6 +120,8 @@ differ: both editions use the same shared-memory names, so they never share a pr
 `runtime/local/ctrl_user_option.conf` needs `GAME_SVR_IP=localhost` once (the supervisor refuses anything else,
 `127.0.0.1` too: the control reads that as the network's own host), the `GAME_SVR_PORT` of the shop's `forza-server`,
 and a `CONTROL_PORT` that is not 20002, the 2010-11 shop's port.
+The player setup writes `CONTROL_PORT=20002`, so the deploy step sets these values in the shop's own copy of the
+conf; the port must also differ from `MATCH_PORT` and `GAME_SVR_PORT`.
 The seat desk and match relay are `forza-server`'s (the built-in ones speak the 2010-11 protocol). Start runs
 `sddy_maps.exe` (the `SDDY_*` shared memory the Launcher makes), then control, and declares the shop up when control's
 port listens (in this prefix), four `match_Release` run and a `mxhook_<pid>.log` per live process (five) in `logs/<start time>/` say
