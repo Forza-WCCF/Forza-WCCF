@@ -35,6 +35,16 @@ const MAX_PER_IP: usize = 16;
 /// Open connections in all (a thread each); the desk hangs up on the rest.
 const MAX_OPEN: usize = 512;
 
+/// Whether the per-address limits ([`MAX_PER_IP`], `lobby_gap`, `ask_limit`) apply to `ip`. Not to loopback on a
+/// desk behind a 2017-18 shop tunnel ([`DeskConfig::tunnel`]): there every guest arrives as 127.0.0.1, and the
+/// tunnel holds each guest to a few streams itself (`vslink::shop`), so one address is many players.
+fn per_address(tunnel: bool, ip: &str) -> bool {
+    !(tunnel
+        && ip
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|a| a.is_loopback()))
+}
+
 #[derive(Clone, Debug)]
 pub struct DeskConfig {
     pub edition: Edition,
@@ -75,6 +85,8 @@ pub struct DeskConfig {
     pub ask_window: Duration,
     /// Where `REPORT` keeps players' problem reports (`forza-server --reports`); None: `NO` to every report.
     pub reports: Option<Arc<Reports>>,
+    /// Behind a 2017-18 shop tunnel (`WCCF_DESK_TUNNEL=1`, set by the Launcher's shop host): loopback is many guests.
+    pub tunnel: bool,
 }
 
 impl DeskConfig {
@@ -88,6 +100,7 @@ impl DeskConfig {
             hold_file: None,
             hold_fw_test: None,
             hold_every: Duration::from_secs(1),
+            tunnel: std::env::var("WCCF_DESK_TUNNEL").is_ok_and(|v| v == "1"),
             name: std::env::var("WCCF_SHOP_NAME").unwrap_or_else(|_| "Forza-WCCF".into()),
             lang: std::env::var("WCCF_SHOP_LANG")
                 .ok()
@@ -292,6 +305,9 @@ impl Shared {
 
     /// One more `RESERVE` or `CREATE` from `ip`; true when that is over the limit.
     fn slow(&self, ip: &str, now: Instant) -> bool {
+        if !per_address(self.cfg.tunnel, ip) {
+            return false;
+        }
         let w = self.cfg.ask_window;
         let mut asks = self.asks.lock().unwrap();
         asks.retain(|_, (t, _)| now.duration_since(*t) < w);
@@ -700,9 +716,10 @@ fn lobby_answer(sh: &Shared, ip: &str, edition: &str, out: &mut TcpStream) -> io
     {
         let mut seen = sh.lobby_seen.lock().unwrap();
         seen.retain(|_, t| now.duration_since(*t) < sh.cfg.lobby_gap.max(Duration::from_secs(60)));
-        if seen
-            .insert(ip.to_string(), now)
-            .is_some_and(|t| now.duration_since(t) < sh.cfg.lobby_gap)
+        if per_address(sh.cfg.tunnel, ip)
+            && seen
+                .insert(ip.to_string(), now)
+                .is_some_and(|t| now.duration_since(t) < sh.cfg.lobby_gap)
         {
             return out.write_all(b"ERR slow\n");
         }
@@ -1045,7 +1062,7 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
                     continue;
                 }
                 let n = open.entry(ip.clone()).or_default();
-                if *n >= MAX_PER_IP {
+                if *n >= MAX_PER_IP && per_address(sh.cfg.tunnel, &ip) {
                     continue; // dropped without an answer: nothing to lose to a reset
                 }
                 *n += 1;
@@ -1075,6 +1092,20 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    /// Behind a shop tunnel the guests all come from loopback: the per-address limits leave them to the tunnel's
+    /// own caps. Any other desk limits loopback as any address.
+    #[test]
+    fn per_address_limits_skip_loopback_behind_a_tunnel() {
+        assert!(!per_address(true, "127.0.0.1") && !per_address(true, "127.4.5.6"));
+        assert!(!per_address(true, "::1"));
+        assert!(per_address(true, "192.168.1.20") && per_address(true, "203.0.113.9"));
+        assert!(
+            per_address(true, "not an address"),
+            "anything odd stays limited"
+        );
+        assert!(per_address(false, "127.0.0.1") && per_address(false, "192.168.1.20"));
+    }
 
     fn tmp(what: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("forza_deskunit_{what}_{}", std::process::id()));
