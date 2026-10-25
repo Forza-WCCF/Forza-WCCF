@@ -11,8 +11,8 @@ use std::time::Instant;
 
 /// Seats in a shop room: the host on 1, guests on 2-8.
 const SEATS: std::ops::RangeInclusive<u8> = 1..=8;
-/// A room's code: this many of the desk's code letters (31^6, about 900 million, against `JOIN`'s rate limit).
-pub const CODE_LEN: usize = 6;
+/// A room's code: this many of the desk's code letters (31^8, about 2^39.6, against `JOIN`'s budgets).
+pub const CODE_LEN: usize = 8;
 
 /// An iroh EndpointId as written: 64 hex digits that are an ed25519 public key (iroh's `PublicKey::from_bytes`), in
 /// its canonical form and not one of the small-order points no secret key makes.
@@ -78,6 +78,16 @@ impl ShopRooms {
     /// Whether `id` is a shop room's (its `RESERVE` answers `CLOSED`: a room is joined by code).
     pub fn has_id(&self, id: &str) -> bool {
         self.rooms.iter().any(|r| r.id == id)
+    }
+
+    /// Whether the tunnel `host` holds a live room (one room per host).
+    pub fn has_host(&self, host: &str) -> bool {
+        self.rooms.iter().any(|r| {
+            r.seats[0]
+                .id
+                .as_deref()
+                .is_some_and(|h| h.eq_ignore_ascii_case(host))
+        })
     }
 
     /// Rooms open now that `by` made.
@@ -246,7 +256,7 @@ mod tests {
         let host = key(1);
         r.create(
             "r1".into(),
-            "K7QMZD".into(),
+            "K7QMZDRX".into(),
             &host,
             "10.0.0.1",
             public,
@@ -276,7 +286,7 @@ mod tests {
         let (mut r, now, _) = room(false);
         let end = now + Duration::from_secs(60);
         for n in 2..=8u8 {
-            let code = if n % 2 == 0 { "K7QMZD" } else { "k7qmzd" };
+            let code = if n % 2 == 0 { "K7QMZDRX" } else { "k7qmzdrx" };
             assert_eq!(
                 r.join(code, None, format!("t{n}"), end),
                 Reserved::Ticket {
@@ -285,18 +295,19 @@ mod tests {
                 }
             );
         }
-        assert_eq!(r.join("K7QMZD", None, "t9".into(), end), Reserved::Full);
+        assert_eq!(r.join("K7QMZDRX", None, "t9".into(), end), Reserved::Full);
         assert_eq!(
-            r.join("K7QMZD", Some(1), "x".into(), end),
+            r.join("K7QMZDRX", Some(1), "x".into(), end),
             Reserved::Taken,
             "the host's seat"
         );
         assert_eq!(
-            r.join("K7QMZE", None, "x".into(), end),
+            r.join("K7QMZDRY", None, "x".into(), end),
             Reserved::Closed,
             "no such code"
         );
         assert!(r.has_id("r1") && !r.has_id("r2"));
+        assert!(r.has_host(&key(1).to_uppercase()) && !r.has_host(&key(2)));
         assert_eq!(r.count_by("10.0.0.1"), 1);
         assert_eq!(r.count_by("10.0.0.2"), 0);
     }
@@ -306,7 +317,7 @@ mod tests {
     fn the_room_swaps_tunnel_ids() {
         let (mut r, now, host) = room(false);
         let guest = key(2);
-        r.join("K7QMZD", None, "tg".into(), now + Duration::from_secs(60));
+        r.join("K7QMZDRX", None, "tg".into(), now + Duration::from_secs(60));
         assert_eq!(
             r.peers("th", None),
             Some(Peers::Guests(vec![])),
@@ -330,19 +341,19 @@ mod tests {
     #[test]
     fn leases_and_leaving() {
         let (mut r, now, _) = room(false);
-        r.join("K7QMZD", None, "tg".into(), now + Duration::from_secs(10));
+        r.join("K7QMZDRX", None, "tg".into(), now + Duration::from_secs(10));
         assert!(r.heartbeat("tg", now + Duration::from_secs(120)));
         assert!(r.expire(now + Duration::from_secs(30)).is_empty());
         assert_eq!(r.rooms[0].seats.len(), 2, "the guest's lease was extended");
         assert_eq!(
             r.expire(now + Duration::from_secs(61)),
-            vec!["K7QMZD".to_string()],
+            vec!["K7QMZDRX".to_string()],
             "the host's lease ended"
         );
         assert!(r.is_empty());
 
         let (mut r, now, _) = room(false);
-        r.join("K7QMZD", None, "tg".into(), now + Duration::from_secs(60));
+        r.join("K7QMZDRX", None, "tg".into(), now + Duration::from_secs(60));
         assert_eq!(r.leave(None, "tg"), Some(None), "a guest leaves its seat");
         assert_eq!(
             r.leave(Some("other"), "th"),
@@ -351,7 +362,7 @@ mod tests {
         );
         assert_eq!(
             r.leave(Some("r1"), "th"),
-            Some(Some("K7QMZD".into())),
+            Some(Some("K7QMZDRX".into())),
             "the host closes the room"
         );
         assert_eq!(r.leave(None, "th"), None);
@@ -364,7 +375,7 @@ mod tests {
         let (r, _, _) = room(false);
         assert!(r.listed().is_empty(), "private by default");
         let (mut r, now, host) = room(true);
-        r.join("K7QMZD", None, "tg".into(), now + Duration::from_secs(60));
+        r.join("K7QMZDRX", None, "tg".into(), now + Duration::from_secs(60));
         r.peers("tg", Some(&key(2)));
         let json = serde_json::to_string(&r.listed()).unwrap();
         for secret in [
@@ -372,7 +383,7 @@ mod tests {
             key(2).as_str(),
             "\"th\"",
             "\"tg\"",
-            "K7QMZD",
+            "K7QMZDRX",
             "10.0.0.1",
         ] {
             assert!(!json.contains(secret), "{secret} in {json}");

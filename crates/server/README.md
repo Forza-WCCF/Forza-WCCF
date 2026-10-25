@@ -74,18 +74,25 @@ answer `ERR` as unknown words, `RESERVE room-id` answers `CLOSED`.
 ## Shop rooms (2017-18)
 
 A player's PC that hosts a shop (the Launcher's `server`, reached through its shop tunnel, `vslink::shop`) can open a
-room in a lobby. No matcher needed (`desk` alone or `all --no-gmsvr` hold them too); they share `max_rooms` with VS
-rooms, and one address holds at most `rooms_per_address` (2) of each kind.
+room in a public lobby. No matcher needed; they share `max_rooms` with VS rooms. One address holds at most 2 shop
+rooms (`WCCF_SHOP_ROOMS_PER_ADDRESS`) and 8 VS rooms (`WCCF_ROOMS_PER_ADDRESS`; players behind one NAT share an
+address), and one tunnel id one live room (`ERR host`). A shop's own desk behind its tunnel (`WCCF_DESK_TUNNEL=1`,
+the Launcher's 2017-18 server; loopback there is many guests, so it has no per-address limits) refuses every room
+word with `ERR rooms are on the lobby` and only seats its own PCs.
 
 | Ask | Answer |
 |---|---|
-| `CREATE shop ID [public]` (ID = the shop tunnel's iroh EndpointId: 64 hex, a real ed25519 key) | `ROOM id code t 1` (the host on seat 1, a 6-letter code), `FULL`, `ERR id` |
+| `CREATE shop ID [public]` (ID = the shop tunnel's iroh EndpointId: 64 hex, a real ed25519 key) | `ROOM id code t 1` (the host on seat 1, an 8-letter code), `FULL`, `ERR id`, `ERR host` |
 | `JOIN CODE [n]` | `TICKET t n` (lowest free of 2-8, or n), `FULL`, `TAKEN`, `CLOSED` (no such code) |
 | `SHOP t [ID]` | a guest's ticket (telling its own tunnel id): `HOST id`; the host's: `GUESTS id ...` (guests that told theirs); else `GONE` |
 | `HEARTBEAT t`, `RELEASE t`, `CLOSE id t` | as for VS rooms: the host's `RELEASE`/`CLOSE` or lease end closes the room |
 
-Rooms are private: the code, which the host passes on, is the only way in (`JOIN` counts in the `RESERVE`/`CREATE`
-rate limit; `RESERVE` of a room's id answers `CLOSED`). `LOBBY` lists only `public` rooms, as a `shops` row named
+Rooms are private: the code, which the host passes on, is the only way in (`RESERVE` of a room's id answers
+`CLOSED`). `JOIN` counts in the per-address `RESERVE`/`CREATE` limit, and wrong codes from all addresses share one
+budget (30 per 60 s; past it every `JOIN` answers `ERR slow` for the rest of the window).
+The key check on `CREATE shop` is about form only (a canonical ed25519 point not of small order): it proves nothing
+about who holds the key, so anyone can open a room naming any id. What protects a host's tunnel is its admit list
+(`vslink::shop::ShopConfig::admit` fed from `SHOP`'s `GUESTS`), which lets in only guests who joined its room. `LOBBY` lists only `public` rooms, as a `shops` row named
 "Shop room" with x/8 and never the code, a tunnel id, a ticket or an address.
 
 Two homes behind their own NAT, 0-150 ms apart, through the lobby, 243-246 and vslink: the Docker harness in

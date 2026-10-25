@@ -80,9 +80,15 @@ pub struct DeskConfig {
     pub vs: Option<Arc<Matcher>>,
     /// VS rooms the desk holds at most; `CREATE vs` answers `FULL` beyond (200 keep `LOBBY` far below 64 KiB).
     pub max_rooms: usize,
-    /// VS rooms, and shop rooms, one address may hold open at once (each kind; 2); the next `CREATE` answers
-    /// `FULL`, so a few addresses cannot take all of [`DeskConfig::max_rooms`].
-    pub rooms_per_address: usize,
+    /// VS rooms one address may hold open at once (`WCCF_ROOMS_PER_ADDRESS`, 8: players behind one NAT share an
+    /// address); the next `CREATE vs` answers `FULL`, so a few addresses cannot take all of [`DeskConfig::max_rooms`].
+    pub vs_rooms_per_address: usize,
+    /// Shop rooms one address may hold open at once (`WCCF_SHOP_ROOMS_PER_ADDRESS`, 2).
+    pub shop_rooms_per_address: usize,
+    /// Wrong `JOIN` codes the whole desk takes in [`DeskConfig::join_fail_window`] (30 per 60 s); past that every
+    /// `JOIN` answers `ERR slow` until the window ends, so codes cannot be guessed from many addresses either.
+    pub join_fail_limit: u32,
+    pub join_fail_window: Duration,
     /// `RESERVE` and `CREATE` per address in [`DeskConfig::ask_window`], else `ERR slow` (20 per 60 s).
     pub ask_limit: u32,
     pub ask_window: Duration,
@@ -90,6 +96,15 @@ pub struct DeskConfig {
     pub reports: Option<Arc<Reports>>,
     /// Behind a 2017-18 shop tunnel (`WCCF_DESK_TUNNEL=1`, set by the Launcher's shop host): loopback is many guests.
     pub tunnel: bool,
+}
+
+/// A positive count from the environment variable `name`, else `default`.
+fn env_count(name: &str, default: usize) -> usize {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.trim().parse().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(default)
 }
 
 impl DeskConfig {
@@ -115,7 +130,10 @@ impl DeskConfig {
             vs: None,
             max_rooms: 200,
             ask_limit: 20,
-            rooms_per_address: 2,
+            vs_rooms_per_address: env_count("WCCF_ROOMS_PER_ADDRESS", 8),
+            shop_rooms_per_address: env_count("WCCF_SHOP_ROOMS_PER_ADDRESS", 2),
+            join_fail_limit: 30,
+            join_fail_window: Duration::from_secs(60),
             ask_window: Duration::from_secs(60),
             reports: None,
         }
@@ -267,7 +285,7 @@ struct Room {
     open: bool,
     /// The matcher's name for this room.
     key: u64,
-    /// The creator's address, for [`DeskConfig::rooms_per_address`].
+    /// The creator's address, for [`DeskConfig::vs_rooms_per_address`].
     by: String,
     seats: [Option<Sitter>; 2],
 }
@@ -301,6 +319,8 @@ struct Shared {
     open: Mutex<HashMap<String, usize>>,
     /// `RESERVE` + `CREATE` per address: window start, count.
     asks: Mutex<HashMap<String, (Instant, u32)>>,
+    /// Wrong `JOIN` codes, desk-wide: window start, count.
+    join_fails: Mutex<(Instant, u32)>,
 }
 
 impl Shared {
@@ -510,8 +530,13 @@ fn session(
         let held = sh.held.load(Ordering::Relaxed);
         return out.write_all(if held { b"HOLD 1\n" } else { b"HOLD 0\n" });
     }
-    let rooms = sh.cfg.vs.is_some();
+    let rooms = sh.cfg.vs.is_some() && !sh.cfg.tunnel;
     match line.split_whitespace().collect::<Vec<_>>()[..] {
+        // a shop's own desk behind its tunnel (loopback is many guests, so no per-address limits there) seats its
+        // own PCs only: rooms live on the public lobby
+        ["CREATE" | "JOIN" | "SHOP" | "READY" | "CLOSE", ..] if sh.cfg.tunnel => {
+            return out.write_all(b"ERR rooms are on the lobby\n");
+        }
         ["LOBBY", edition] => return lobby_answer(sh, ip, edition, &mut out),
         ["RESERVE" | "CREATE" | "JOIN", ..] if sh.slow(ip, Instant::now()) => {
             return out.write_all(b"ERR slow\n");
@@ -852,14 +877,14 @@ fn create(sh: &Shared, ip: &str, open: bool, out: &mut TcpStream) -> io::Result<
     }
     let mine = st.rooms.iter().filter(|r| r.by == ip).count();
     if st.rooms.len() + st.shops.len() >= sh.cfg.max_rooms
-        || (mine >= sh.cfg.rooms_per_address && per_address(sh.cfg.tunnel, ip))
+        || (mine >= sh.cfg.vs_rooms_per_address && per_address(sh.cfg.tunnel, ip))
     {
         drop(st);
         return out.write_all(Created::Full.line().as_bytes());
     }
     let id = loop {
         let id = random_hex(4);
-        if id != sh.shop_id && st.rooms.iter().all(|r| r.id != id) {
+        if id != sh.shop_id && st.rooms.iter().all(|r| r.id != id) && !st.shops.has_id(&id) {
             break id;
         }
     };
@@ -896,7 +921,8 @@ fn create(sh: &Shared, ip: &str, open: bool, out: &mut TcpStream) -> io::Result<
 }
 
 /// `CREATE shop ID [public]` -> `ROOM id code t 1` (the host PC on seat 1), `FULL` (the desk's rooms, or this
-/// address's [`DeskConfig::rooms_per_address`]), or `ERR id` (not a tunnel id).
+/// address's [`DeskConfig::shop_rooms_per_address`]), `ERR id` (not a tunnel id) or `ERR host` (that tunnel id
+/// holds a live room already: one room per host).
 fn create_shop(
     sh: &Shared,
     ip: &str,
@@ -911,10 +937,15 @@ fn create_shop(
     let mut st = sh.state.lock().unwrap();
     expire(sh, &mut st, now);
     if st.rooms.len() + st.shops.len() >= sh.cfg.max_rooms
-        || (st.shops.count_by(ip) >= sh.cfg.rooms_per_address && per_address(sh.cfg.tunnel, ip))
+        || (st.shops.count_by(ip) >= sh.cfg.shop_rooms_per_address
+            && per_address(sh.cfg.tunnel, ip))
     {
         drop(st);
         return out.write_all(Created::Full.line().as_bytes());
+    }
+    if st.shops.has_host(host) {
+        drop(st);
+        return out.write_all(b"ERR host\n");
     }
     let (id, code) = loop {
         let (id, code) = (random_hex(4), crate::inbox::code(crate::shoproom::CODE_LEN));
@@ -952,9 +983,29 @@ fn join_shop(sh: &Shared, code: &str, seat: Option<u8>, out: &mut TcpStream) -> 
     let now = Instant::now();
     let mut st = sh.state.lock().unwrap();
     expire(sh, &mut st, now);
+    // the desk-wide budget of wrong codes: past it, every JOIN waits for the window to end
+    let mut fails = sh.join_fails.lock().unwrap();
+    if now.duration_since(fails.0) >= sh.cfg.join_fail_window {
+        *fails = (now, 0);
+    }
+    if fails.1 >= sh.cfg.join_fail_limit {
+        drop((fails, st));
+        return out.write_all(b"ERR slow\n");
+    }
     let reply = st
         .shops
         .join(code, seat, random_hex(8), now + sh.cfg.reserve_lease);
+    if reply == Reserved::Closed {
+        fails.1 += 1;
+        if fails.1 == sh.cfg.join_fail_limit {
+            (sh.log)(&format!(
+                "shop rooms: {} wrong codes in {} s, JOIN slowed for the rest of it",
+                fails.1,
+                sh.cfg.join_fail_window.as_secs()
+            ));
+        }
+    }
+    drop(fails);
     drop(st);
     out.write_all(reply.line().as_bytes())
 }
@@ -1134,6 +1185,7 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
         lobby_cached: Mutex::default(),
         open: Mutex::default(),
         asks: Mutex::default(),
+        join_fails: Mutex::new((Instant::now(), 0)),
     });
     log(&format!(
         "seat broker listening on TCP {}: seats 1-8, {}",
