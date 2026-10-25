@@ -528,7 +528,14 @@ fn footer(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Act
                 Page::Done => (tr!(lang, "common.close"), Cab::Go, Action::Close),
                 _ => (tr!(lang, "installer.next"), Cab::Go, Action::Next),
             };
-            if cabinet(ui, vec2(150.0, 44.0), &label, kind, kind == Cab::Go).clicked() {
+            // the newest package is still being looked up: INSTALL would run without it
+            let wait = st.page == Page::Files && st.latest == Latest::Checking;
+            let go = ui
+                .add_enabled_ui(!wait, |ui| {
+                    cabinet(ui, vec2(150.0, 44.0), &label, kind, kind == Cab::Go)
+                })
+                .inner;
+            if go.clicked() {
                 out.get_or_insert(act);
             }
         });

@@ -322,6 +322,9 @@ impl App {
     fn next(&mut self, ctx: &egui::Context, confirmed: bool) {
         let page = self.st.page;
         self.st.error = None;
+        if page == Page::Files && self.st.latest == Latest::Checking {
+            return; // the footer greys INSTALL meanwhile; this is for the Enter key and the like
+        }
         let step = match page {
             Page::Where if self.st.folder.trim().is_empty() => Err(self.t("installer.err_folder")),
             Page::Files => self.check_files(),
@@ -367,10 +370,11 @@ fn open_folder(p: &Path) {
     let _ = std::process::Command::new(opener).arg(p).spawn();
 }
 
-fn start_launcher(dir: &Path) {
-    let _ = std::process::Command::new(dir.join("Launcher.exe"))
+fn start_launcher(dir: &Path) -> std::io::Result<()> {
+    std::process::Command::new(dir.join("Launcher.exe"))
         .current_dir(dir)
-        .spawn();
+        .spawn()
+        .map(drop)
 }
 
 impl eframe::App for App {
@@ -407,8 +411,20 @@ impl eframe::App for App {
             Some(Action::Next | Action::Install) => self.next(&ctx, false),
             Some(Action::InstallAnyway) => self.next(&ctx, true),
             Some(Action::StartLauncher) => {
-                start_launcher(Path::new(&self.st.done_path));
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                let dir = Path::new(&self.st.done_path);
+                match start_launcher(dir) {
+                    Ok(()) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+                    Err(e) => {
+                        self.st.error = Some(text(
+                            self.st.lang,
+                            "installer.err_launcher",
+                            &[
+                                ("path", &dir.join("Launcher.exe").display().to_string()),
+                                ("detail", &e.to_string()),
+                            ],
+                        ));
+                    }
+                }
             }
             Some(Action::Browse(f)) => self.browse(f),
             Some(Action::OpenFolder) => open_folder(Path::new(&self.st.done_path)),
