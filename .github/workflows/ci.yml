@@ -215,7 +215,7 @@ jobs:
           if ($b.Width -lt 1600 -or $b.Height -lt 1000) { throw "screen still $($b.Width)x$($b.Height)" }
       - name: cargo xtask check ci (the GPU snapshot tests run in their own step)
         env:
-          CARGO_LOG: ${{ inputs.fingerprints && 'cargo::compiler::fingerprint=info' || '' }}
+          CARGO_LOG: ${{ inputs.fingerprints && 'cargo::core::compiler::fingerprint=info' || '' }}
         run: cargo xtask check ci ${{ env.PROFILE == 'release' && '--release' || '' }}
       - name: Defender scan of the kits and the installer
         shell: pwsh
