@@ -120,6 +120,8 @@ static PROJ_FS: fullscreen::Slot = Mutex::new(None);
 static SHOWN: AtomicBool = AtomicBool::new(false);
 /// The player closed the window: the server link's drop that follows is the end (ENDED), not a loss.
 static CLOSING: AtomicBool = AtomicBool::new(false);
+/// The key a latched KEY PLAYER or KEEPER holds down (0: none); the window procedure lets it up on a focus loss.
+static LATCH_VK: AtomicU32 = AtomicU32::new(0);
 /// A close refused during a card session: the close dialog is open. Close requests are ignored while it is.
 static CLOSE_ASK: AtomicBool = AtomicBool::new(false);
 /// QUIT was clicked in the dialog: the next close request (the panel's own, posted) goes through.
@@ -658,6 +660,7 @@ unsafe extern "system" fn proj_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) 
 /// FreeLibrary: everything back as it was, on the thread that unloads us. The real game never unloads the panel;
 /// fakegame does it between frames, so no Present or window message is running in our code.
 fn unload() {
+    latch_up(); // one SendInput under the loader lock: user32 is loaded already, and a key left down is worse
     if !INIT_DONE.load(Relaxed) {
         log("unloaded before init finished: the init thread would run in freed code"); // ponytail: no wait under the loader lock
     }
@@ -867,6 +870,7 @@ unsafe extern "system" fn hook_present(
     })
     .unwrap_or_else(|_| {
         DEAD.store(true, Relaxed);
+        latch_up(); // no frame is left to let it go
         log("a frame panicked: the panel stops drawing");
         None
     });
@@ -901,6 +905,8 @@ struct Render {
     placed: Vec<Placed>,
     /// A cabinet button's key that is down, since when; the mouse still held on it.
     key: Option<(u32, Instant)>,
+    /// The key the latch holds down (0: none): `LATCH_VK` as this thread last set it.
+    latch: u32,
     mouse_down: bool,
     /// The page shown last frame (KEYS opening reads keys.txt again and looks for controllers).
     last_page: panel::Page,
@@ -982,6 +988,7 @@ impl Render {
             table,
             placed,
             key: None,
+            latch: 0,
             mouse_down: false,
             last_page: panel::Page::Game,
             pads: None,
@@ -1867,6 +1874,7 @@ impl Render {
     /// The cabinet buttons' keys: down on a press, up once the mouse is released and the key has been down 140 ms
     /// (the C panel's rule: a press shorter than the game's input poll would be missed).
     fn keys(&mut self) {
+        self.latch();
         if let Some(action) = self.st.pressed.take() {
             if let Some((vk, _)) = self.key.take() {
                 kit::send_key(vk, true, log);
@@ -1892,6 +1900,44 @@ impl Render {
             self.key = None;
             self.st.held = None;
         }
+    }
+
+    /// The latched button's key: down while `st.latched` names it, up when the latch goes (a click, the crash
+    /// screen, or the window's focus loss, which lets the key up itself: [`latch_up`]).
+    fn latch(&mut self) {
+        let dropped = self.latch != 0 && LATCH_VK.load(Relaxed) == 0;
+        if dropped {
+            self.latch = 0;
+            log("latch: let go (focus lost)");
+        }
+        self.st.latched = panel::latch_kept(self.st.latched, self.st.crash, !dropped);
+        let want = self.st.latched.map_or(0, |a| {
+            forza::keys::NAMES
+                .iter()
+                .position(|n| *n == a)
+                .map_or(0, |i| self.st.keys[i])
+        });
+        if want == self.latch {
+            return;
+        }
+        if self.latch != 0 {
+            log(&format!("latch off -> key 0x{:02X} up", self.latch));
+            latch_up();
+        }
+        if want != 0 {
+            log(&format!(
+                "latch {} -> key 0x{want:02X} down",
+                self.st.latched.unwrap_or_default()
+            ));
+            // stored first; a focus loss between the store and the key-down (latch_up on the window's thread) has
+            // already sent its key-up, so the key goes up again here
+            LATCH_VK.store(want, Relaxed);
+            kit::send_key(want, false, log);
+            if LATCH_VK.load(Relaxed) != want {
+                kit::send_key(want, true, log);
+            }
+        }
+        self.latch = want;
     }
 
     /// `wccfpanel_frame.bmp` beside the program, every 10 frames once a window size has held for 10.
@@ -2074,7 +2120,19 @@ fn game_window() -> Option<HWND> {
     (best.0 != 0).then_some(HWND(best.0 as *mut c_void))
 }
 
+/// The latched key up now, once (the render thread or the window procedure, whichever comes first).
+fn latch_up() {
+    let vk = LATCH_VK.swap(0, Relaxed);
+    if vk != 0 {
+        kit::send_key(vk, true, log);
+    }
+}
+
 unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    // the focus gone (or the window), also while paused: a latched button lets go, so its key cannot stay down
+    if m == WM_KILLFOCUS || m == WM_DESTROY || (m == WM_ACTIVATEAPP && wp.0 == 0) {
+        latch_up();
+    }
     if let Some(r) = pause::message(m, wp, lp) {
         return r;
     }
@@ -2084,7 +2142,10 @@ unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LR
             return LRESULT(0);
         }
         WM_CLOSE if !close_allowed() => return LRESULT(0), // a match is on: warned once
-        WM_CLOSE => CLOSING.store(true, Relaxed), // the window goes: link_watch calls the drop ENDED
+        WM_CLOSE => {
+            CLOSING.store(true, Relaxed); // the window goes: link_watch calls the drop ENDED
+            latch_up();
+        }
         // F11: borderless full screen <-> the window as it was (maximized at the start), once frames are shown; the
         // game never sees it
         WM_KEYDOWN | WM_KEYUP if wp.0 == 0x7A => {

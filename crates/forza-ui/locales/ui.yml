@@ -247,6 +247,7 @@ cab.data: {en: "DATA", it: "DATI", ja: "データ"}
 cab.start: {en: "START", it: "START", ja: "スタート"}
 cab.card: {en: "CARD", it: "CARTA", ja: "カード"}
 cab.coin: {en: "COIN", it: "GETTONE", ja: "コイン"}
+cab.held: {en: "HELD", it: "TENUTO", ja: "ホールド"}
 
 # ---- panel ----
 panel.f11: {en: "F11: window or full screen", it: "F11: finestra o schermo intero", ja: "F11：ウィンドウ／全画面"}
@@ -264,7 +265,9 @@ panel.msg_session_open: {en: "Match in progress.", it: "Partita in corso.", ja: 
 board.flip: {en: "Click: card back.", it: "Clic: retro.", ja: "クリックで裏面。"}
 board.flip_back: {en: "Click: card face.", it: "Clic: fronte.", ja: "クリックで表面。"}
 board.bench: {en: "BENCH", it: "PANCHINA", ja: "ベンチ"}
-board.hint: {en: "Drag cards to the pitch. Drop on a card to swap. Right-click: remove.", it: "Trascina sul campo. Su una carta: scambia. Clic destro: rimuovi.", ja: "ピッチへドラッグ。カードに重ねて入れ替え。右クリックで外す。"}
+board.hint: {en: "Drag cards to the pitch. Drop on a card to swap. Right-click or drag off: remove.", it: "Trascina sul campo. Su una carta: scambia. Clic destro o trascina fuori: rimuovi.", ja: "ピッチへドラッグ。カードに重ねて入れ替え。右クリックか外へドラッグで外す。"}
+board.removed: {en: "Removed %{name}", it: "Rimosso %{name}", ja: "%{name}を外しました"}
+board.undo: {en: "UNDO", it: "ANNULLA", ja: "元に戻す"}
 board.fit_best: {en: "BEST POSITION", it: "POSIZIONE IDEALE", ja: "ベストポジション"}
 board.fit_ok: {en: "FITS", it: "ADATTO", ja: "適性あり"}
 board.fit_out: {en: "OUT OF POSITION", it: "FUORI RUOLO", ja: "ポジション外"}
@@ -515,6 +518,8 @@ lobby.wait_opponent: {en: "Waiting for an opponent…", it: "In attesa di un avv
 lobby.both_ready_in: {en: "Both ready: starting in %{s} s", it: "Entrambi pronti: si parte tra %{s} s", ja: "両者準備OK：%{s} 秒後に開始します"}
 lobby.starting_in: {en: "Starting in %{s} s", it: "Si parte tra %{s} s", ja: "%{s} 秒後に開始します"}
 lobby.cpu: {en: "No opponent: CPU team.", it: "Nessun avversario: squadra CPU.", ja: "対戦相手なし：CPUチーム。"}
+lobby.keep_waiting: {en: "KEEP WAITING", it: "ASPETTA ANCORA", ja: "待ち続ける"}
+lobby.cpu_now: {en: "PLAY CPU NOW", it: "GIOCA CON LA CPU", ja: "今すぐCPU戦"}
 lobby.stale_room: {en: "Updated %{s} s ago.", it: "Aggiornato %{s} s fa.", ja: "%{s} 秒前の情報です。"}
 
 # ---- pause (the panel holds the match, at most 20 s) ----

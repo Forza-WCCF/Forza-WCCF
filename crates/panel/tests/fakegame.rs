@@ -358,13 +358,26 @@ fn board_and_buttons_with_real_data() {
     let _ = fs::remove_file(seat.join("forza_panel.log"));
     // SHOOT's centre from the panel's own layout at 1440x900 (one point per pixel), so the click follows the deck
     let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1440.0, 900.0));
-    let deck = panel::layout(sheet, false).deck;
+    let lay = panel::layout(sheet, false);
+    let deck = lay.deck;
+    // a page bar button's centre (0 CATALOGUE, 1 KEYS, 2 SETTINGS), from the panel's own layout
+    let bar = |i: usize| {
+        let c = panel::page_button(lay.tabs, i).center();
+        format!("click:{},{}", c.x as i32, c.y as i32)
+    };
     let shoot = panel::deck_layout(deck) // the deck row under the picture, as show() has it
         .into_iter()
         .find(|it| it.action == "SHOOT")
         .expect("the deck has SHOOT")
         .rect
         .center();
+    let key = panel::deck_layout(deck)
+        .into_iter()
+        .find(|it| it.action == "KEYPLAYER")
+        .expect("the deck has KEY PLAYER")
+        .rect
+        .center();
+    let (kx, ky) = (key.x as i32, key.y as i32);
     let said = run(&[
         "wait:2500".into(),
         format!("rclick:{}", at(1)),
@@ -372,6 +385,11 @@ fn board_and_buttons_with_real_data() {
         format!("click:{},{}", shoot.x as i32, shoot.y as i32), // SHOOT, in the cabinet deck under the picture
         "wait:400".into(),
         "click:430,268".into(), // the middle of the picture (0..860 x 0..537.5)
+        "wait:300".into(),
+        // KEY PLAYER latched by a right-click: its key stays down past the 140 ms a press holds, until a click
+        format!("rclick:{kx},{ky}"),
+        "wait:600".into(),
+        format!("click:{kx},{ky}"),
         "wait:300".into(),
     ]);
     let log = fs::read_to_string(seat.join("forza_panel.log")).unwrap_or_default();
@@ -385,9 +403,18 @@ fn board_and_buttons_with_real_data() {
         "key 0x47 down (dry run - not pressed)",
         "key 0x47 up (dry run - not pressed)",
         "click at 430,268 -> the game at 720,448",
+        "latch KEYPLAYER -> key 0x44 down",
+        "latch off -> key 0x44 up",
     ] {
         assert!(log.contains(line), "the panel's log has no '{line}'");
     }
+    // held between the two clicks: up once, by the second click, never pressed as an ordinary button
+    let latched = &log[log.find("latch KEYPLAYER").unwrap()..log.find("latch off").unwrap()];
+    assert!(!latched.contains("key 0x44 up"), "{latched}");
+    assert!(
+        !log.contains("button KEYPLAYER"),
+        "the click that let go also pressed"
+    );
     // the game saw the picture's click, moved into its 1440x900 client area, and nothing else
     assert_eq!(
         said.lines()
@@ -401,7 +428,7 @@ fn board_and_buttons_with_real_data() {
     let _ = fs::remove_file(seat.join("forza_panel.log"));
     run(&[
         "wait:2500".into(),
-        "click:206,870".into(),
+        bar(0),
         "wait:400".into(),
         "type:backa".into(),
         "wait:400".into(),
@@ -438,7 +465,7 @@ fn board_and_buttons_with_real_data() {
         .arg("../programs/forza_panel.dll")
         .args([
             "wait:2500",
-            "click:336,870", // KEYS
+            bar(1).as_str(), // KEYS
             "wait:600",
             "click:335,278", // SHOOT's key
             "wait:300",
@@ -490,7 +517,7 @@ fn board_and_buttons_with_real_data() {
     let _ = fs::remove_file(seat.join("forza_panel.log"));
     run(&[
         "wait:2500".into(),
-        "click:466,870".into(), // SETTINGS
+        bar(2),
         "wait:1500".into(),
         "click:321,519".into(), // COMPACT
         "click:275,608".into(), // 2 s

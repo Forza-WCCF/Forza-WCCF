@@ -494,6 +494,10 @@ pub struct PanelState {
     pub pressed: Option<&'static str>,
     /// The cabinet button whose key is down (lit until the key goes up).
     pub held: Option<&'static str>,
+    /// The card taken off the board last and when (the frame's time): UNDO puts it back for [`UNDO_SECS`].
+    pub undo: Option<(board::Removed, f64)>,
+    /// KEY PLAYER or KEEPER latched down by a right-click ([`latch_click`]): its key stays down until the next click.
+    pub latched: Option<&'static str>,
     /// A catalogue card to put on the table (its number): [`add_card`].
     pub add: Option<u32>,
     /// The bindings changed: keys.txt is written.
@@ -562,6 +566,8 @@ impl PanelState {
             board_changed: false,
             pressed: None,
             held: None,
+            latched: None,
+            undo: None,
             add: None,
             keys_changed: false,
             file_changed: false,
@@ -776,6 +782,8 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
     }
     if !st.file.compact {
         cabinet_deck(ui, st, deck, lang);
+    } else {
+        st.latched = None; // no deck: no button left to let it go
     }
     page_bar(ui, st, tabs, lang);
     if st.page != Page::Game {
@@ -1256,8 +1264,11 @@ fn paint_keycap(p: &egui::Painter, r: Rect, text: &str) {
 
 /// The cabinet's controls under the picture, one row: the tactic diamond, the play buttons, the machine.
 fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
-    // a press sends the action's key down (the panel DLL lets it up after the release); the buttons do not light
+    // a press sends the action's key down (the panel DLL lets it up after the release); the buttons do not light.
+    // A right-click on KEY PLAYER or KEEPER latches it down until the next click on it ([`latch_click`]).
     let mut pressed = None;
+    let held = st.latched;
+    let mut latch = st.latched;
     let mut put = |ui: &mut Ui,
                    r: Rect,
                    key: &str,
@@ -1268,16 +1279,28 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
         let resp = ui.put(r, |ui: &mut Ui| {
             cabinet_shaped(ui, r.size(), &tr!(lang, key), kind, shape, lit)
         });
-        if action.is_some()
-            && ui.is_enabled()
-            && ui.input(|i| {
-                i.pointer.button_pressed(egui::PointerButton::Primary)
+        let hit = |b| {
+            ui.input(|i| {
+                i.pointer.button_pressed(b)
                     && i.pointer
                         .interact_pos()
                         .is_some_and(|p| shape_contains(shape, r, p))
             })
+        };
+        if let Some(a) = action
+            && ui.is_enabled()
         {
-            pressed = action;
+            let (left, right) = (
+                hit(egui::PointerButton::Primary),
+                hit(egui::PointerButton::Secondary),
+            );
+            if left || right {
+                let next = latch_click(latch, a, right);
+                if left && next == latch {
+                    pressed = action;
+                }
+                latch = next;
+            }
         }
         resp
     };
@@ -1296,8 +1319,24 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
         );
     }
     for it in deck_layout_for(area, both) {
-        let lit = it.tactic.is_some_and(|i| st.tactics[i]);
+        let on = held == Some(it.action);
+        let lit = on || it.tactic.is_some_and(|i| st.tactics[i]);
         put(ui, it.rect, it.key, Some(it.action), it.kind, it.shape, lit);
+        if on {
+            let p = ui.painter();
+            p.circle_stroke(
+                it.rect.center(),
+                it.rect.width() / 2.0 + 5.0,
+                Stroke::new(2.5, theme::GOLD),
+            );
+            p.text(
+                it.rect.center_top() - vec2(0.0, 7.0),
+                Align2::CENTER_BOTTOM,
+                tr!(lang, "cab.held"),
+                theme::display(13.0),
+                theme::GOLD,
+            );
+        }
         let cap = deck_keycap(st, it.action);
         let p = ui.painter();
         if let Some(side) = it.label {
@@ -1371,6 +1410,47 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
         }
     }
     st.pressed = st.pressed.or(pressed);
+    st.latched = latch;
+}
+
+/// The buttons a right-click holds down until the next click on them: one mouse cannot hold KEY PLAYER (or KEEPER)
+/// and rub a card at once.
+pub const LATCHING: [&str; 2] = ["KEYPLAYER", "KEEPER"];
+
+/// The latch after a click on the cabinet button `action` (`right`: the right button): a right-click on a
+/// [`LATCHING`] button holds it, the next click on the held one lets it go, other clicks leave it as it is.
+pub fn latch_click(
+    latched: Option<&'static str>,
+    action: &'static str,
+    right: bool,
+) -> Option<&'static str> {
+    if latched == Some(action) {
+        None
+    } else if right && LATCHING.contains(&action) {
+        Some(action)
+    } else {
+        latched
+    }
+}
+
+/// The latch kept for the next frame: let go when the game stopped (the crash screen) or the window lost the focus
+/// (`focused` false), so no button stays down.
+pub fn latch_kept(
+    latched: Option<&'static str>,
+    crash: bool,
+    focused: bool,
+) -> Option<&'static str> {
+    latched.filter(|_| !crash && focused)
+}
+
+/// The page bar's button `i` (0 CATALOGUE, 1 KEYS, 2 SETTINGS, 3 CLUB CARD) on the bar `bar` (also for tests that
+/// click it).
+pub fn page_button(bar: Rect, i: usize) -> Rect {
+    let r = bar.shrink2(vec2(12.0, 8.0));
+    Rect::from_min_size(
+        pos2(r.left() + 132.0 + i as f32 * 98.0, r.top()),
+        vec2(92.0, r.height()),
+    )
 }
 
 /// The bottom bar: the edition, the four page buttons (lit while their page is open), the ping and the window key.
@@ -1396,10 +1476,7 @@ fn page_bar(ui: &mut Ui, st: &mut PanelState, bar: Rect, lang: Lang) {
     let w = 92.0;
     let n = pages.len() as f32;
     for (i, (pg, key)) in pages.into_iter().enumerate() {
-        let t = Rect::from_min_size(
-            pos2(r.left() + 132.0 + i as f32 * (w + 6.0), r.top()),
-            vec2(w, r.height()),
-        );
+        let t = page_button(bar, i);
         let open = st.page == pg;
         let resp = ui.put(t, |ui: &mut Ui| {
             cabinet(ui, t.size(), &tr!(lang, key), Cab::Tactic, open)
@@ -1555,13 +1632,38 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     b.spacing_mut().item_spacing.y = 4.0;
     st.board_changed |=
         board::formation_board(&mut b, &mut st.board, &st.links, st.hover_delay, lang);
+    let now = b.input(|i| i.time);
+    if let Some(r) = board::take_removed(&b) {
+        st.undo = Some((r, now));
+    }
     b.add_space(4.0);
-    b.label(
-        egui::RichText::new(tr!(lang, "board.hint"))
-            .font(theme::body(HINT))
-            .color(theme::TEXT_DIM),
-    );
+    // a card just taken off: its name and UNDO for a few seconds, in the hint's place
+    st.undo = st.undo.take().filter(|(_, at)| now - at < UNDO_SECS);
+    let Some((r, at)) = st.undo.clone() else {
+        b.label(
+            egui::RichText::new(tr!(lang, "board.hint"))
+                .font(theme::body(HINT))
+                .color(theme::TEXT_DIM),
+        );
+        return;
+    };
+    b.ctx()
+        .request_repaint_after(std::time::Duration::from_secs_f64(UNDO_SECS - (now - at)));
+    b.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new(tr!(lang, "board.removed", name = r.card.short_name()))
+                .font(theme::body(HINT))
+                .color(theme::TEXT),
+        );
+        if widgets::action(ui, &tr!(lang, "board.undo")).clicked() {
+            st.board_changed |= board::undo(&mut st.board, &r);
+            st.undo = None;
+        }
+    });
 }
+
+/// How long UNDO stays offered after a card is taken off the board.
+const UNDO_SECS: f64 = 5.0;
 
 /// The crash screen, in the board's place: the game lost its control program (or stopped), the card's state, and the two
 /// ways on. RESTART THE GAME asks the Launcher (`restart`), SEND LOGS asks it to open its report dialog (`open_report`).
@@ -3498,6 +3600,24 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// A right-click latches KEY PLAYER or KEEPER, the next click on it lets it go; other buttons press as before;
+    /// a stop or a focus loss lets it go.
+    #[test]
+    fn the_latch_holds_until_the_next_click() {
+        assert_eq!(latch_click(None, "KEYPLAYER", true), Some("KEYPLAYER"));
+        assert_eq!(latch_click(None, "KEEPER", true), Some("KEEPER"));
+        assert_eq!(latch_click(None, "SHOOT", true), None);
+        assert_eq!(latch_click(None, "KEYPLAYER", false), None); // an ordinary press
+        let on = Some("KEYPLAYER");
+        assert_eq!(latch_click(on, "SHOOT", false), on); // SHOOT while it is held
+        assert_eq!(latch_click(on, "KEYPLAYER", false), None);
+        assert_eq!(latch_click(on, "KEYPLAYER", true), None);
+        assert_eq!(latch_click(on, "KEEPER", true), Some("KEEPER"));
+        assert_eq!(latch_kept(on, false, true), on);
+        assert_eq!(latch_kept(on, true, true), None);
+        assert_eq!(latch_kept(on, false, false), None);
     }
 
     #[test]

@@ -757,9 +757,43 @@ fn grab_id() -> Id {
     Id::new("board-grab")
 }
 
+/// A card taken off the board (right-click, or dragged off it and let go): what UNDO puts back.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Removed {
+    pub card: Card,
+    /// Its slot (0-10 the pitch, 11-15 the bench) and, on the pitch, its spot before the lift.
+    pub slot: usize,
+    pub spot: Pos2,
+}
+
+fn removed_id() -> Id {
+    Id::new("board-removed")
+}
+
+/// The card [`formation_board`] took off this frame, if any.
+pub fn take_removed(ui: &Ui) -> Option<Removed> {
+    ui.data_mut(|d| {
+        let r = d.get_temp::<Removed>(removed_id());
+        d.remove::<Removed>(removed_id());
+        r
+    })
+}
+
+/// UNDO: the card back where it was, a pitch card on its spot, a bench card in its box (the next free one when that
+/// was taken since). False when the table holds it again or has no room.
+pub fn undo(board: &mut Board, r: &Removed) -> bool {
+    if r.slot < 11 {
+        return board.put_free(&r.card, r.spot);
+    }
+    (r.slot..16)
+        .chain(11..r.slot)
+        .find(|&s| board.slots[s].is_none())
+        .is_some_and(|s| board.put(&r.card, s))
+}
+
 /// Draws the board and handles it: a card dropped on open pitch lies exactly there (the cabinet's table has no fixed
-/// spots), a card dropped onto another swaps with it (the target is lit while dragging), right-click
-/// takes a card off, a resting mouse shows the card big after `hover_delay` seconds. While a card is dragged or shown
+/// spots), a card dropped onto another swaps with it (the target is lit while dragging), right-click or a drag off
+/// the board takes a card off ([`take_removed`]), a resting mouse shows the card big after `hover_delay` seconds. While a card is dragged or shown
 /// big, the pitch shows its suitable positions as a heat zone, and the drop target says how well it fits there.
 /// With `links`, lines join every two linked pitch cards by the club's link stage; a selected card (clicked, or in
 /// hand) brings its group forward - its lines bright, the others and the cards outside its group dimmed - and a list
@@ -871,6 +905,15 @@ pub fn formation_board(
         changed = true;
     }
     let rects = slot_rects(pitch, bench.top(), &board.spots);
+    // the card in hand a card's width or more off the board: let go there, it is taken off (a bench rub stays
+    // within a card's width of its box)
+    let off = pointer.is_some_and(|p| {
+        !pitch
+            .union(bench)
+            .expand(card.x)
+            .contains(drag_centre(p, grab, card))
+    });
+    let mut removed: Option<(usize, Pos2)> = None;
 
     let hover_id = Id::new("board-hover");
     let flip_id = Id::new("board-flip");
@@ -959,13 +1002,13 @@ pub fn formation_board(
                         Look {
                             lifted: true,
                             held: true,
+                            ghost: off,
                             ..Look::default()
                         },
                     );
                 }
                 if resp.secondary_clicked() {
-                    board.slots[slot] = None;
-                    changed = true;
+                    removed = Some((slot, board.spots.get(slot).copied().unwrap_or_default()));
                 }
             }
             None => {
@@ -998,6 +1041,17 @@ pub fn formation_board(
         }
     }
 
+    // dragged off the board and let go: taken off, as by a right-click (a pitch card's spot from before the lift)
+    if let Some(from) = dragging.filter(|&d| board.slots[d].is_some())
+        && off
+        && ui.input(|i| i.pointer.any_released())
+        && egui::DragAndDrop::take_payload::<usize>(ui.ctx()).is_some()
+    {
+        let spot = origin
+            .or(board.spots.get(from).copied())
+            .unwrap_or_default();
+        removed = Some((from, spot));
+    }
     // a release: onto the target card (swap, or put the catalogue card there), else on open pitch
     if ui.input(|i| i.pointer.any_released()) {
         if let (Some(from), Some(t)) = (dragging, target)
@@ -1149,6 +1203,13 @@ pub fn formation_board(
             p.rect_filled(r, 12, Color32::from_black_alpha(190));
             p.galley(r.center() - g.size() / 2.0, g, theme::TEXT);
         }
+    }
+    if let Some((slot, spot)) = removed
+        && let Some(ci) = board.slots[slot].take()
+    {
+        let card = board.cards[ci].clone();
+        ui.data_mut(|d| d.insert_temp(removed_id(), Removed { card, slot, spot }));
+        changed = true;
     }
     changed
 }
@@ -2122,6 +2183,170 @@ mod tests {
             &mut pitch
         ));
         assert_eq!(table_after(&before, &b)[0].x, *xs.last().unwrap());
+    }
+
+    /// UNDO puts a card taken off back where it lay: a pitch card on its spot, a bench card in its box, after the
+    /// table was rebuilt as the panel DLL rebuilds it.
+    #[test]
+    fn undo_puts_a_removed_card_back_in_its_place() {
+        use forza::cards::{BENCH_X, BENCH_Y, Placed, board as rebuild, table_after};
+        let before = vec![
+            Placed {
+                slot: 1,
+                no: 101,
+                x: -0.4,
+                y: 0.2,
+            },
+            Placed {
+                slot: 2,
+                no: 102,
+                x: BENCH_X,
+                y: BENCH_Y[3],
+            },
+            Placed {
+                slot: 3,
+                no: 103,
+                x: 0.4,
+                y: 0.6,
+            },
+        ];
+        let cat: Vec<Card> = [101, 102, 103].map(card).into();
+        let b0 = rebuild(&before, &cat);
+        for slot in (0..16).filter(|&s| b0.slots[s].is_some()) {
+            let mut b = b0.clone();
+            let ci = b.slots[slot].take().unwrap();
+            let r = Removed {
+                card: b.cards[ci].clone(),
+                slot,
+                spot: b.spots.get(slot).copied().unwrap_or_default(),
+            };
+            let gone = table_after(&before, &b);
+            assert_eq!(gone.len(), 2);
+            let mut b = rebuild(&gone, &cat);
+            assert!(undo(&mut b, &r));
+            assert!(!undo(&mut b, &r), "on the table already");
+            let back = table_after(&gone, &b);
+            let was = before.iter().find(|p| p.no == r.card.number).unwrap();
+            let now = back.iter().find(|p| p.no == r.card.number).unwrap();
+            assert_eq!((now.x, now.y), (was.x, was.y), "slot {slot}");
+            assert_eq!(rebuild(&back, &cat).slots.iter().flatten().count(), 3);
+        }
+    }
+
+    /// A card dragged off the board and let go leaves the table, and says which card and where it was.
+    #[test]
+    fn a_card_dragged_off_the_board_is_taken_off() {
+        use egui::{Event, PointerButton};
+        use forza::cards::Placed;
+        let before = vec![Placed {
+            slot: 1,
+            no: 101,
+            x: 0.0,
+            y: 0.0,
+        }];
+        let mut b = forza::cards::board(&before, &[]);
+        let ctx = egui::Context::default();
+        theme::install(&ctx, theme::Edition::E1718, &theme::font_dir()).unwrap();
+        ctx.run_ui(egui::RawInput::default(), |_| {})
+            .textures_delta
+            .clear();
+        let mut pitch = Rect::NOTHING;
+        let mut removed = None;
+        let mut frame = |events: Vec<Event>, b: &mut Board, pitch: &mut Rect| {
+            let raw = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(500.0, 1400.0))),
+                events,
+                ..Default::default()
+            };
+            ctx.run_ui(raw, |ui| {
+                *pitch = pitch_rect(ui.cursor().min, ui.available_width());
+                formation_board(ui, b, &Links::default(), 3.0, crate::Lang::En);
+                removed = removed.take().or(take_removed(ui));
+            })
+            .textures_delta
+            .clear();
+        };
+        frame(vec![], &mut b, &mut pitch);
+        let spot = b.spots[0];
+        let at = spot_rect(pitch, spot).center();
+        let press = |pos, pressed| Event::PointerButton {
+            pos,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        frame(
+            vec![Event::PointerMoved(at), press(at, true)],
+            &mut b,
+            &mut pitch,
+        );
+        // out through the bottom of the pitch, past the bench, and let go there
+        let out = pos2(at.x, 1300.0);
+        for p in [at + vec2(0.0, 30.0), at + vec2(0.0, 200.0), out] {
+            frame(vec![Event::PointerMoved(p)], &mut b, &mut pitch);
+        }
+        assert_eq!(b.slots[0], Some(0), "still on the table while held");
+        frame(vec![press(out, false)], &mut b, &mut pitch);
+        assert_eq!(b.slots.iter().flatten().count(), 0);
+        let r = removed.expect("the removal is reported");
+        assert_eq!((r.card.number, r.slot, r.spot), (101, 0, spot));
+    }
+
+    /// A full rub of the leftmost bench card from its outer edge, let go at its far end, keeps the card on the table.
+    #[test]
+    fn a_rubbed_bench_card_is_not_taken_off() {
+        use egui::{Event, PointerButton};
+        use forza::cards::{BENCH_X, BENCH_Y, Placed};
+        let before = vec![Placed {
+            slot: 1,
+            no: 101,
+            x: BENCH_X,
+            y: BENCH_Y[0],
+        }];
+        let mut b = forza::cards::board(&before, &[]);
+        assert_eq!(b.slots[11], Some(0));
+        let ctx = egui::Context::default();
+        theme::install(&ctx, theme::Edition::E1718, &theme::font_dir()).unwrap();
+        ctx.run_ui(egui::RawInput::default(), |_| {})
+            .textures_delta
+            .clear();
+        let mut pitch = Rect::NOTHING;
+        let frame = |events: Vec<Event>, b: &mut Board, pitch: &mut Rect| {
+            let raw = egui::RawInput {
+                // the board 16 points in from the window's left, as in the panel's strip
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(532.0, 900.0))),
+                events,
+                ..Default::default()
+            };
+            ctx.run_ui(raw, |ui| {
+                let r = ui.max_rect().shrink(16.0);
+                let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(r));
+                *pitch = pitch_rect(ui.cursor().min, ui.available_width());
+                formation_board(&mut ui, b, &Links::default(), 3.0, crate::Lang::En);
+            })
+            .textures_delta
+            .clear();
+        };
+        frame(vec![], &mut b, &mut pitch);
+        // grabbed at its outer (left) edge, then rubbed a little over a card's width further out
+        let at =
+            slot_rects(pitch, pitch.bottom() + 8.0, &b.spots)[11].left_center() + vec2(2.0, 0.0);
+        let press = |pos, pressed| Event::PointerButton {
+            pos,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        frame(
+            vec![Event::PointerMoved(at), press(at, true)],
+            &mut b,
+            &mut pitch,
+        );
+        // a rub overshoots a little past a card's width
+        let far = at - vec2(card_size(pitch.width()).x * 1.2, 0.0);
+        frame(vec![Event::PointerMoved(far)], &mut b, &mut pitch);
+        frame(vec![press(far, false)], &mut b, &mut pitch);
+        assert_eq!(b.slots[11], Some(0));
     }
 
     /// A bench card in hand rubs inside its box: x and y move together (the game reads dx * dy) and stay in its band;
