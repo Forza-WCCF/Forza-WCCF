@@ -108,7 +108,7 @@ fn need(conf: &Path, raw: &[u8], key: &str) -> io::Result<()> {
         return Ok(());
     }
     Err(io::Error::other(format!(
-        "{} has no {key} line - set up again (Launcher.exe, Setup and updates)",
+        "{} has no {key} line - press SET UP in Launcher.exe",
         conf.display()
     )))
 }

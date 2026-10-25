@@ -84,7 +84,7 @@ launcher.msg_needs_installer: {en: "%{tag} needs the installer. Download it from
 launcher.msg_not_a_kit: {en: "This ZIP is not a Forza-WCCF release.", it: "Questo ZIP non è una versione di Forza-WCCF.", ja: "この ZIP は Forza-WCCF のリリースではありません。"}
 launcher.msg_write_failed: {en: "Cannot write %{path} (%{error}). Close the game and try again.", it: "Impossibile scrivere %{path} (%{error}). Chiudi il gioco e riprova.", ja: "%{path} に書き込めませんでした（%{error}）。ゲームを閉じて、もう一度お試しください。"}
 launcher.msg_done: {en: "Done.", it: "Fatto.", ja: "完了しました。"}
-launcher.msg_failed: {en: "Failed. See DETAILS.", it: "Non riuscito. Vedi DETTAGLI.", ja: "失敗しました。「出力」を確認してください。"}
+launcher.msg_failed: {en: "Failed. See DETAILS.", it: "Non riuscito. Vedi DETTAGLI.", ja: "失敗しました。「詳細」を確認してください。"}
 launcher.msg_went_wrong: {en: "The game stopped unexpectedly.", it: "Il gioco si è chiuso in modo imprevisto.", ja: "ゲームが予期せず終了しました。"}
 launcher.report_problem: {en: "Report a problem", it: "Segnala un problema", ja: "問題を報告"}
 report.title_crashed: {en: "The game stopped unexpectedly", it: "Il gioco si è chiuso in modo imprevisto", ja: "ゲームが予期せず終了しました"}

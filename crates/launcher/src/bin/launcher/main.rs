@@ -242,12 +242,12 @@ fn this_kit(kit: &Kit) -> String {
     kit.version().unwrap_or_else(|| t("launcher.msg_not_known"))
 }
 
-/// The steps one by one in a worker; the first that fails ends the job.
-fn start(steps: Vec<Step>) {
+/// The steps one by one in a worker; the first that fails ends the job.  False when another job is on: nothing started.
+fn start(steps: Vec<Step>) -> bool {
     {
         let mut s = shared();
         if s.busy {
-            return;
+            return false;
         }
         WAS_UP.store(false, Ordering::Relaxed);
         s.busy = true;
@@ -337,6 +337,7 @@ fn start(steps: Vec<Step>) {
         }
         poke();
     });
+    true
 }
 
 /// The run's lines go to OUTPUT (its "N/M" steps move the bar); its question - stop anyway, after the card rule
@@ -769,7 +770,11 @@ impl App {
             self.list(&kit); // the "this version" mark moves
             // the new files need the setup again, and the game text follows the Launcher language: no question
             if !self.st.folder.trim().is_empty() {
-                self.set_up_after_update(&kit);
+                if self.set_up_after_update(&kit) {
+                    self.st.busy = true; // the close check below must see the job just started
+                } else {
+                    shared().updated = true; // another job holds the worker: ask again at the next look
+                }
             }
         }
         // closing Launcher while the game runs is a quit: asked of the run, by the card rule; and never a kit left
@@ -912,7 +917,7 @@ impl App {
     }
 
     /// After an update: the setup again, the game text in the Launcher language, the card pictures.
-    fn set_up_after_update(&self, kit: &Kit) {
+    fn set_up_after_update(&self, kit: &Kit) -> bool {
         let lang = game_text(kit);
         let mut steps = vec![Step::Setup {
             folder: self.st.folder.trim().into(),
@@ -923,7 +928,7 @@ impl App {
             steps.push(Step::Text(lang));
         }
         steps.push(Step::Pictures); // last: a failure here must not skip the game's text
-        start(steps);
+        start(steps)
     }
 
     /// PLAY: the choices into data\panel.txt, then the run.
@@ -1007,7 +1012,9 @@ impl App {
             done = done.and_then(|()| choices::set_setting(&file, "card_pack", p));
         }
         match done {
-            Ok(()) => start(vec![Step::Pictures]),
+            Ok(()) => {
+                start(vec![Step::Pictures]);
+            }
             Err(e) => refuse(write_failed(&file, &e)),
         }
     }
@@ -1337,10 +1344,18 @@ fn main() -> ExitCode {
             },
             Step::Pictures,
         ],
-        Some("undo") => vec![Step::Setup {
-            folder: args.get(1).cloned().unwrap_or_default(),
-            undo: true,
-        }],
+        // the undo refuses while the game text is changed: the original files go back first (as UNDO SETUP)
+        Some("undo") => {
+            let mut steps = Vec::new();
+            if kit.english_on() {
+                steps.push(Step::Text(""));
+            }
+            steps.push(Step::Setup {
+                folder: args.get(1).cloned().unwrap_or_default(),
+                undo: true,
+            });
+            steps
+        }
         Some("restart") => {
             say(t("launcher.msg_restarting"), 0);
             vec![Step::Game(args.clone())]
@@ -1392,6 +1407,13 @@ mod tests {
             );
         }
         text::set(Lang::En);
+    }
+
+    #[test]
+    fn a_job_is_not_started_over_a_busy_one() {
+        shared().busy = true;
+        assert!(!start(vec![Step::Pictures]), "a busy worker takes no second job");
+        shared().busy = false;
     }
 
     #[test]
