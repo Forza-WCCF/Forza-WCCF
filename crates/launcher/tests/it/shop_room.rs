@@ -203,14 +203,12 @@ fn a_lost_room_lets_nobody_in() {
     ));
     let admit = room.admit();
     assert_eq!(admit(&guest), Verdict::In, "the room's guest comes in");
-    assert_eq!(room.guests(), 1, "a plain stop waits for it");
     thread::sleep(Duration::from_secs(3)); // no heartbeat within the lease: the desk forgets the room
     // a stranger at the door makes the room ask; the answer, GONE, empties the list
     let stranger = shop::own_id(&dir.path().join("stranger.key")).unwrap();
     assert_eq!(admit(&stranger), Verdict::NotInRoom);
     assert_eq!(admit(&guest), Verdict::NotInRoom, "a room the desk lost admits nobody");
     assert!(room.lost().load(Ordering::Relaxed));
-    assert_eq!(room.guests(), 0);
     wait_for(&lines, "no longer holds it");
 }
 

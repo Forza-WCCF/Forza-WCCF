@@ -400,7 +400,7 @@ fn host_shop(kit: &Kit) -> Result<i32, String> {
         let Ok(r) = run::start(&kit, &p, run::Mode::Server, false, &ServerUi) else {
             return; // what went wrong is in OUTPUT
         };
-        let _ = tx.send(r.shop_code());
+        let _ = tx.send((r.shop_code(), r.shop_guests()));
         let _ = r.supervise();
     });
     let stop = |server: thread::JoinHandle<()>| {
@@ -408,22 +408,33 @@ fn host_shop(kit: &Kit) -> Result<i32, String> {
         let _ = server.join();
     };
     match rx.recv() {
-        Ok(Ok(room)) => {
+        Ok((Ok(room), guests)) => {
             shared().host_room = Some(room);
             poke();
             let mode = run::Mode::Remote("127.0.0.1".into(), None);
             let rc = run::play(kit, &Params::of(kit), Some(mode), false, &WindowUi);
-            // a plain stop: the shop stays while its guests may be in a match (run::rules::shop_rule), until STOP THE
-            // GAME and "stop anyway"
-            if let Some((run::REFUSED, why)) = run::request(kit, run::Kind::Server, "stop") {
+            // a plain stop: the shop stays while guests are connected (run::rules::shop_rule), until they have all left
+            // (asked again then) or STOP THE GAME and "stop anyway"
+            if let Some((code, why)) = run::request(kit, run::Kind::Server, "stop")
+                && code != run::OK
+            {
                 log(&why);
-                RUNNING.store(true, Ordering::Relaxed); // STOP THE GAME stays offered: it closes the shop
                 say(t("launcher.msg_shop_stays"), 0);
+            }
+            let connected = || guests.as_ref().map_or(0, |g| g.load(Ordering::Relaxed));
+            while !server.is_finished() {
+                // STOP THE GAME stays offered while the server is on, whatever its answer was
+                RUNNING.store(run::is_on(kit, run::Kind::Server), Ordering::Relaxed);
+                poke();
+                thread::sleep(Duration::from_secs(3));
+                if connected() == 0 && run::is_on(kit, run::Kind::Server) {
+                    let _ = run::request(kit, run::Kind::Server, "stop");
+                }
             }
             let _ = server.join();
             Ok(rc)
         }
-        Ok(Err(why)) => {
+        Ok((Err(why), _)) => {
             stop(server);
             Err(tf("launcher.msg_no_shop_room", &[("error", &why)]))
         }

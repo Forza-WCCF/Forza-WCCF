@@ -331,8 +331,9 @@ pub fn join_code(a: SocketAddr, code: &str, own: &str) -> Result<CodeJoin, Strin
 pub const DESK_HOST_STALE: Duration = Duration::from_secs(15);
 /// How often the host asks the desk for its room's guests without a guest waiting (a guest at the door asks at once).
 const GUESTS_EVERY: Duration = Duration::from_secs(10);
-/// How long a guest at the door waits for the desk's answer before it is told to come back.
-const ADMIT_WAIT: Duration = Duration::from_secs(8);
+/// How long a guest at the door waits for the desk's answer (up to 9 s of time-outs on a slow desk, after the
+/// one-second ask gap) before it is told to come back.
+const ADMIT_WAIT: Duration = Duration::from_secs(12);
 /// At most one guest-list ask per this time, however many knock.
 const ASK_GAP: Duration = Duration::from_secs(1);
 
@@ -406,14 +407,6 @@ impl HostRoom {
     /// Set once the desk no longer holds the room (its lease lapsed, the desk restarted): nobody new gets in.
     pub fn lost(&self) -> Arc<AtomicBool> {
         self.lost.clone()
-    }
-
-    /// The guests the desk named last (0 once the room is lost): a plain stop waits for them (`run::rules::shop_rule`).
-    pub fn guests(&self) -> usize {
-        if self.lost.load(Ordering::Relaxed) {
-            return 0;
-        }
-        self.state.0.lock().unwrap_or_else(PoisonError::into_inner).guests.len()
     }
 
     /// The worker: `HEARTBEAT` every 20 s, the guest list (`SHOP t` with the host's ticket) every [`GUESTS_EVERY`] and

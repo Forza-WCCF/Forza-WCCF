@@ -230,11 +230,11 @@ pub fn parse(words: &[String]) -> Words {
 /// asked (refused by the card rule, or no answer: a "Stop anyway?" box nobody answered). `run_answer`: None when no
 /// cabinet run was on. The seat's match needs the server.
 pub fn stop_server_too(run_answer: Option<i32>, run_still_on: bool) -> bool {
-    run_answer.is_none_or(|a| a == super::OK) || !run_still_on
+    run_answer.map_or(!run_still_on, |a| a == super::OK) || !run_still_on
 }
 
-/// A server holding a live shop room: a plain stop (or restart) waits while this PC's seat still runs beside it or the
-/// room has guests (their match is on this server); `force` goes on. The refusal's words, or None.
+/// A shop server: a plain stop (or restart) waits while this PC's seat still runs beside it or guests are connected
+/// through its tunnel (their match is on this server); `force` goes on. The refusal's words, or None.
 pub fn shop_rule(force: bool, seat_on: bool, guests: usize) -> Option<String> {
     if force || (!seat_on && guests == 0) {
         return None;
@@ -243,7 +243,7 @@ pub fn shop_rule(force: bool, seat_on: bool, guests: usize) -> Option<String> {
         "This PC's seat still plays on this shop. Stop it first (or stop force).".into()
     } else {
         format!(
-            "The shop room has {guests} guest{} who may be in a match here. Stop force ends it for them.",
+            "{guests} guest{} connected to this shop may be in a match here. Stop force ends it for them.",
             if guests == 1 { "" } else { "s" }
         )
     })
@@ -458,13 +458,15 @@ mod tests {
         assert!(stop_server_too(Some(FAILED), false));
         assert!(stop_server_too(Some(OK), true), "stopped: its lock goes a moment later");
         assert!(stop_server_too(None, false));
+        // no answer at all while it is on (started meanwhile, or its request file could not be written)
+        assert!(!stop_server_too(None, true));
     }
 
     #[test]
     fn a_live_shop_room_holds_a_plain_stop() {
         assert!(shop_rule(false, true, 0).is_some_and(|w| w.contains("seat")));
         assert!(shop_rule(false, false, 2).is_some_and(|w| w.contains("2 guests")));
-        assert!(shop_rule(false, false, 1).is_some_and(|w| w.contains("1 guest ")));
+        assert!(shop_rule(false, false, 1).is_some_and(|w| w.starts_with("1 guest ")));
         assert_eq!(shop_rule(false, false, 0), None);
         assert_eq!(shop_rule(true, true, 3), None);
     }

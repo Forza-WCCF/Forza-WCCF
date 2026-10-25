@@ -40,7 +40,7 @@ use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
@@ -869,6 +869,8 @@ pub struct Run<'a> {
     remote: Option<(String, u16)>,
     /// 2017-18 server: its shop room in the lobby (the code guests type), or why it has none.
     shop_room: Option<Result<crate::lobby::HostRoom, String>>,
+    /// 2017-18 server: the guests its shop tunnel has connected now.
+    shop_guests: Option<Arc<AtomicUsize>>,
     _lock: OwnedHandle,
 }
 
@@ -965,6 +967,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         lease: None,
         remote: None,
         shop_room: None,
+        shop_guests: None,
         _lock: lock,
     };
     // requests left by a run that ended are never carried out
@@ -1978,6 +1981,7 @@ impl Run<'_> {
             }
             self.say("     (the id is also in data\\shop_id.txt; no port needs to be open on this PC)");
             self.shop_room = room;
+            self.shop_guests = Some(link.guests());
         } else if link.ports != ports {
             self.say(&format!(
                 "       shop tunnel up on ports {} / {} / {} (this PC holds the usual ones; data\\logs\\shop_tunnel.txt)",
@@ -2007,6 +2011,11 @@ impl Run<'_> {
             Some(Err(why)) => Err(why.clone()),
             None => Err("no shop tunnel".into()),
         }
+    }
+
+    /// 2017-18 server: its shop tunnel's live guest count (HOST SHOP closes an empty shop on its own).
+    pub fn shop_guests(&self) -> Option<Arc<AtomicUsize>> {
+        self.shop_guests.clone()
     }
 
     /// Online: this PC's seat from the server's seat desk, held while the run lasts; None asked = the next free seat.
@@ -2258,10 +2267,12 @@ impl Run<'_> {
 
     /// The card rule now: the refusal's words, or None to go on.
     fn refusal(&self, force: bool) -> Option<String> {
+        // a server has no seat of its own, so the card rule never holds it: a shop server's matches are its tunnel's
+        // guests' (still connected even when the lobby lost the room) and this PC's seat beside it
         if self.mode == Mode::Server
-            && let Some(Ok(room)) = &self.shop_room
+            && let Some(g) = &self.shop_guests
         {
-            return rules::shop_rule(force, is_on(self.kit, Kind::Run), room.guests());
+            return rules::shop_rule(force, is_on(self.kit, Kind::Run), g.load(Ordering::Relaxed));
         }
         let (slot, new) = self.card_files();
         let (session, _) = card::club_session(&slot, &new, self.run_started());
