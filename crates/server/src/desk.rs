@@ -85,10 +85,17 @@ pub struct DeskConfig {
     pub vs_rooms_per_address: usize,
     /// Shop rooms one address may hold open at once (`WCCF_SHOP_ROOMS_PER_ADDRESS`, 2).
     pub shop_rooms_per_address: usize,
-    /// Wrong `JOIN` codes the whole desk takes in [`DeskConfig::join_fail_window`] (30 per 60 s); past that every
-    /// `JOIN` answers `ERR slow` until the window ends, so codes cannot be guessed from many addresses either.
+    /// Wrong `JOIN` codes one address may send in [`DeskConfig::join_fail_address_window`] (10 per 10 min); past
+    /// that its `JOIN`s answer `ERR slow` until the window ends. The main brake on guessing codes.
+    pub join_fail_per_address: u32,
+    pub join_fail_address_window: Duration,
+    /// Wrong `JOIN` codes the whole desk takes in [`DeskConfig::join_fail_window`] (2,000 per 60 s): only a high
+    /// ceiling (logged when it trips), so one stranger cannot lock every player out.
     pub join_fail_limit: u32,
     pub join_fail_window: Duration,
+    /// A room's host that has not sent a `HEARTBEAT` for this long (15 s) may be replaced by a new `CREATE shop`
+    /// with the same tunnel id (a host that crashed and came back within the lease).
+    pub host_stale: Duration,
     /// `RESERVE` and `CREATE` per address in [`DeskConfig::ask_window`], else `ERR slow` (20 per 60 s).
     pub ask_limit: u32,
     pub ask_window: Duration,
@@ -132,8 +139,11 @@ impl DeskConfig {
             ask_limit: 20,
             vs_rooms_per_address: env_count("WCCF_ROOMS_PER_ADDRESS", 8),
             shop_rooms_per_address: env_count("WCCF_SHOP_ROOMS_PER_ADDRESS", 2),
-            join_fail_limit: 30,
+            join_fail_per_address: 10,
+            join_fail_address_window: Duration::from_secs(600),
+            join_fail_limit: 2000,
             join_fail_window: Duration::from_secs(60),
+            host_stale: Duration::from_secs(15),
             ask_window: Duration::from_secs(60),
             reports: None,
         }
@@ -321,6 +331,8 @@ struct Shared {
     asks: Mutex<HashMap<String, (Instant, u32)>>,
     /// Wrong `JOIN` codes, desk-wide: window start, count.
     join_fails: Mutex<(Instant, u32)>,
+    /// Wrong `JOIN` codes per address: window start, count.
+    join_fails_by: Mutex<HashMap<String, (Instant, u32)>>,
 }
 
 impl Shared {
@@ -573,10 +585,10 @@ fn session(
         ["CREATE", "shop", host, "public"] if !e1011 => {
             return create_shop(sh, ip, host, true, &mut out);
         }
-        ["JOIN", code] if !e1011 => return join_shop(sh, code, None, &mut out),
+        ["JOIN", code] if !e1011 => return join_shop(sh, ip, code, None, &mut out),
         ["JOIN", code, n] if !e1011 => {
             return match n.parse().ok().filter(|n| SEATS.contains(n)) {
-                Some(n) => join_shop(sh, code, Some(n), &mut out),
+                Some(n) => join_shop(sh, ip, code, Some(n), &mut out),
                 None => out.write_all(b"ERR seat\n"),
             };
         }
@@ -943,9 +955,19 @@ fn create_shop(
         drop(st);
         return out.write_all(Created::Full.line().as_bytes());
     }
-    if st.shops.has_host(host) {
-        drop(st);
-        return out.write_all(b"ERR host\n");
+    // one live room per host; a host silent for host_stale (crashed, back within the lease) replaces its own
+    let quiet_since = (now + sh.cfg.reserve_lease)
+        .checked_sub(sh.cfg.host_stale)
+        .unwrap_or(now);
+    match st.shops.replace_stale(host, quiet_since) {
+        crate::shoproom::Prior::Alive => {
+            drop(st);
+            return out.write_all(b"ERR host\n");
+        }
+        crate::shoproom::Prior::Replaced(old) => {
+            (sh.log)(&format!("shop room {old}: replaced by its host's new room"));
+        }
+        crate::shoproom::Prior::None => {}
     }
     let (id, code) = loop {
         let (id, code) = (random_hex(4), crate::inbox::code(crate::shoproom::CODE_LEN));
@@ -979,33 +1001,43 @@ fn create_shop(
 }
 
 /// `JOIN CODE [n]` -> `TICKET t n`, `FULL`, `TAKEN` or `CLOSED`: a guest seat in a shop room, by its code only.
-fn join_shop(sh: &Shared, code: &str, seat: Option<u8>, out: &mut TcpStream) -> io::Result<()> {
+fn join_shop(
+    sh: &Shared,
+    ip: &str,
+    code: &str,
+    seat: Option<u8>,
+    out: &mut TcpStream,
+) -> io::Result<()> {
     let now = Instant::now();
     let mut st = sh.state.lock().unwrap();
     expire(sh, &mut st, now);
-    // the desk-wide budget of wrong codes: past it, every JOIN waits for the window to end
-    let mut fails = sh.join_fails.lock().unwrap();
-    if now.duration_since(fails.0) >= sh.cfg.join_fail_window {
-        *fails = (now, 0);
+    // wrong codes: this address's own budget, and a high desk-wide ceiling
+    let mut by = sh.join_fails_by.lock().unwrap();
+    by.retain(|_, (t, _)| now.duration_since(*t) < sh.cfg.join_fail_address_window);
+    let mine = by.entry(ip.to_owned()).or_insert((now, 0));
+    let mut all = sh.join_fails.lock().unwrap();
+    if now.duration_since(all.0) >= sh.cfg.join_fail_window {
+        *all = (now, 0);
     }
-    if fails.1 >= sh.cfg.join_fail_limit {
-        drop((fails, st));
+    if mine.1 >= sh.cfg.join_fail_per_address || all.1 >= sh.cfg.join_fail_limit {
+        drop((all, by, st));
         return out.write_all(b"ERR slow\n");
     }
     let reply = st
         .shops
         .join(code, seat, random_hex(8), now + sh.cfg.reserve_lease);
     if reply == Reserved::Closed {
-        fails.1 += 1;
-        if fails.1 == sh.cfg.join_fail_limit {
+        mine.1 += 1;
+        all.1 += 1;
+        if all.1 == sh.cfg.join_fail_limit {
             (sh.log)(&format!(
-                "shop rooms: {} wrong codes in {} s, JOIN slowed for the rest of it",
-                fails.1,
+                "shop rooms: {} wrong codes from all addresses in {} s, JOIN slowed for the rest of it",
+                all.1,
                 sh.cfg.join_fail_window.as_secs()
             ));
         }
     }
-    drop(fails);
+    drop((all, by));
     drop(st);
     out.write_all(reply.line().as_bytes())
 }
@@ -1186,6 +1218,7 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
         open: Mutex::default(),
         asks: Mutex::default(),
         join_fails: Mutex::new((Instant::now(), 0)),
+        join_fails_by: Mutex::default(),
     });
     log(&format!(
         "seat broker listening on TCP {}: seats 1-8, {}",

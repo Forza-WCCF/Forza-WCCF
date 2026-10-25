@@ -487,12 +487,13 @@ fn rooms_per_address_and_per_host_are_capped() {
     room(a, false);
 }
 
-/// Wrong codes from anywhere share one budget: past it every JOIN waits for the window, the right code included.
+/// Wrong codes are braked per address (that address waits, the right code included); a desk-wide ceiling exists
+/// too, far above it.
 #[test]
-fn wrong_codes_slow_every_join() {
+fn wrong_codes_slow_the_address_that_sends_them() {
     let d = desk(|c| {
-        c.join_fail_limit = 3;
-        c.join_fail_window = Duration::from_millis(800);
+        c.join_fail_per_address = 3;
+        c.join_fail_address_window = Duration::from_millis(800);
     });
     let a = d.addr();
     let (_, code, _) = shop_room(a, &tunnel_id(1), false);
@@ -508,6 +509,54 @@ fn wrong_codes_slow_every_join() {
         lobby::join_shop(a, &code, None).unwrap(),
         Reserved::Ticket { seat: 2, .. }
     ));
+}
+
+#[test]
+fn the_desk_wide_ceiling_still_trips() {
+    let d = desk(|c| {
+        (c.join_fail_per_address, c.join_fail_limit) = (100, 2);
+        c.join_fail_window = Duration::from_millis(800);
+    });
+    let a = d.addr();
+    let (_, code, _) = shop_room(a, &tunnel_id(1), false);
+    for _ in 0..2 {
+        assert_eq!(
+            lobby::join_shop(a, "AAAAAAAA", None).unwrap(),
+            Reserved::Closed
+        );
+    }
+    assert_eq!(say(a, &format!("JOIN {code}")), "ERR slow");
+    let defaults = DeskConfig::new(Edition::E1718);
+    assert!(
+        defaults.join_fail_limit >= 100 * defaults.join_fail_per_address,
+        "a high ceiling by default"
+    );
+}
+
+/// A host that crashed and came back within the lease opens a new room once its old one has had no heartbeat for
+/// a while; a live room is never taken over.
+#[test]
+fn a_host_replaces_its_own_stale_room() {
+    let d = desk(|c| c.host_stale = Duration::from_millis(300));
+    let a = d.addr();
+    let (_, _, old_t) = shop_room(a, &tunnel_id(1), false);
+    assert_eq!(
+        say(a, &format!("CREATE shop {}", tunnel_id(1))),
+        "ERR host",
+        "alive: kept"
+    );
+    std::thread::sleep(Duration::from_millis(400));
+    let (_, _, new_t) = shop_room(a, &tunnel_id(1), false);
+    assert!(
+        !lobby::heartbeat(a, &old_t).unwrap(),
+        "the stale room is gone"
+    );
+    assert!(lobby::heartbeat(a, &new_t).unwrap());
+    assert_eq!(
+        say(a, &format!("CREATE shop {}", tunnel_id(1))),
+        "ERR host",
+        "just beat: alive"
+    );
 }
 
 /// A shop's own desk behind its tunnel seats its PCs and nothing else: the room words are refused there.

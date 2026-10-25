@@ -56,6 +56,15 @@ struct Room {
     seats: Vec<Sitter>,
 }
 
+/// What a host's earlier room is to its new `CREATE shop` ([`ShopRooms::replace_stale`]).
+#[derive(Debug, PartialEq, Eq)]
+pub enum Prior {
+    None,
+    /// Gone quiet, so taken out: its code.
+    Replaced(String),
+    Alive,
+}
+
 #[derive(Default)]
 pub struct ShopRooms {
     rooms: Vec<Room>,
@@ -88,6 +97,23 @@ impl ShopRooms {
                 .as_deref()
                 .is_some_and(|h| h.eq_ignore_ascii_case(host))
         })
+    }
+
+    /// Before a `CREATE shop` by `host`: no room of its yet; its room whose lease runs to no later than `quiet` (no
+    /// `HEARTBEAT` for a while: the host crashed and came back) taken out; else the host's room is alive.
+    pub fn replace_stale(&mut self, host: &str, quiet: Instant) -> Prior {
+        let Some(i) = self.rooms.iter().position(|r| {
+            r.seats[0]
+                .id
+                .as_deref()
+                .is_some_and(|h| h.eq_ignore_ascii_case(host))
+        }) else {
+            return Prior::None;
+        };
+        if self.rooms[i].seats[0].end > quiet {
+            return Prior::Alive;
+        }
+        Prior::Replaced(self.rooms.remove(i).code)
     }
 
     /// Rooms open now that `by` made.
