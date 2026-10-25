@@ -529,7 +529,9 @@ fn footer(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Act
                 _ => (tr!(lang, "installer.next"), Cab::Go, Action::Next),
             };
             // the newest package is still being looked up: INSTALL would run without it
-            let wait = st.page == Page::Files && st.latest == Latest::Checking;
+            let wait = st.page == Page::Files
+                && st.latest == Latest::Checking
+                && st.target() == Some(Edition::E1718);
             let go = ui
                 .add_enabled_ui(!wait, |ui| {
                     cabinet(ui, vec2(150.0, 44.0), &label, kind, kind == Cab::Go)

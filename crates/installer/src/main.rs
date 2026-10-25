@@ -310,7 +310,14 @@ impl App {
             });
             (self.lookup, self.st.latest) = (Some(rx), Latest::Checking);
         }
-        if let Some(Ok(found)) = self.lookup.as_ref().map(|rx| rx.try_recv()) {
+        use std::sync::mpsc::TryRecvError::Empty;
+        // a lookup thread that ended without an answer counts as a failed lookup
+        let answer = match self.lookup.as_ref().map(|rx| rx.try_recv()) {
+            Some(Ok(found)) => Some(found),
+            Some(Err(Empty)) | None => None,
+            Some(Err(_)) => Some(None),
+        };
+        if let Some(found) = answer {
             self.lookup = None;
             self.st.latest = found.map_or(Latest::Failed, Latest::Found);
             self.st.use_latest =
@@ -322,7 +329,10 @@ impl App {
     fn next(&mut self, ctx: &egui::Context, confirmed: bool) {
         let page = self.st.page;
         self.st.error = None;
-        if page == Page::Files && self.st.latest == Latest::Checking {
+        if page == Page::Files
+            && self.st.latest == Latest::Checking
+            && self.st.target() == Some(Edition::E1718)
+        {
             return; // the footer greys INSTALL meanwhile; this is for the Enter key and the like
         }
         let step = match page {
