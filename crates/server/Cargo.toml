@@ -16,6 +16,8 @@ clap.workspace = true
 forza = { workspace = true, default-features = false }
 ipnet = "2.12"
 getrandom = "0.3.4"
+# a shop room's tunnel id must be a real ed25519 public key, as iroh takes it (shoproom.rs)
+ed25519-dalek = { version = "3.0.0", default-features = false }
 regex = "1.13.1"
 time = { version = "0.3.55", features = ["local-offset"] }
 

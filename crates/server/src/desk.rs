@@ -80,6 +80,9 @@ pub struct DeskConfig {
     pub vs: Option<Arc<Matcher>>,
     /// VS rooms the desk holds at most; `CREATE vs` answers `FULL` beyond (200 keep `LOBBY` far below 64 KiB).
     pub max_rooms: usize,
+    /// VS rooms, and shop rooms, one address may hold open at once (each kind; 2); the next `CREATE` answers
+    /// `FULL`, so a few addresses cannot take all of [`DeskConfig::max_rooms`].
+    pub rooms_per_address: usize,
     /// `RESERVE` and `CREATE` per address in [`DeskConfig::ask_window`], else `ERR slow` (20 per 60 s).
     pub ask_limit: u32,
     pub ask_window: Duration,
@@ -112,6 +115,7 @@ impl DeskConfig {
             vs: None,
             max_rooms: 200,
             ask_limit: 20,
+            rooms_per_address: 2,
             ask_window: Duration::from_secs(60),
             reports: None,
         }
@@ -263,6 +267,8 @@ struct Room {
     open: bool,
     /// The matcher's name for this room.
     key: u64,
+    /// The creator's address, for [`DeskConfig::rooms_per_address`].
+    by: String,
     seats: [Option<Sitter>; 2],
 }
 
@@ -507,7 +513,7 @@ fn session(
     let rooms = sh.cfg.vs.is_some();
     match line.split_whitespace().collect::<Vec<_>>()[..] {
         ["LOBBY", edition] => return lobby_answer(sh, ip, edition, &mut out),
-        ["RESERVE" | "CREATE", ..] if sh.slow(ip, Instant::now()) => {
+        ["RESERVE" | "CREATE" | "JOIN", ..] if sh.slow(ip, Instant::now()) => {
             return out.write_all(b"ERR slow\n");
         }
         ["RESERVE", id] => return reserve(sh, id, None, &mut out),
@@ -533,12 +539,22 @@ fn session(
         ["HEARTBEAT", t] => return heartbeat(sh, t, &mut out),
         ["RELEASE", t] => return release(sh, t, &mut out),
         // VS rooms only beside a game server's matcher (`all`, 2017-18); else these words are unknown (ERR below)
-        ["CREATE", "vs"] if rooms => return create(sh, false, &mut out),
-        ["CREATE", "vs", "open"] if rooms => return create(sh, true, &mut out),
+        ["CREATE", "vs"] if rooms => return create(sh, ip, false, &mut out),
+        ["CREATE", "vs", "open"] if rooms => return create(sh, ip, true, &mut out),
         ["READY", id, t] if rooms => return ready(sh, id, t, &mut out),
         ["CLOSE", id, t] if rooms || !e1011 => return close(sh, id, t, &mut out),
         // 2017-18 shop rooms: no matcher needed, the shop's own desk seats its PCs
-        ["CREATE", "shop", host] if !e1011 => return create_shop(sh, host, &mut out),
+        ["CREATE", "shop", host] if !e1011 => return create_shop(sh, ip, host, false, &mut out),
+        ["CREATE", "shop", host, "public"] if !e1011 => {
+            return create_shop(sh, ip, host, true, &mut out);
+        }
+        ["JOIN", code] if !e1011 => return join_shop(sh, code, None, &mut out),
+        ["JOIN", code, n] if !e1011 => {
+            return match n.parse().ok().filter(|n| SEATS.contains(n)) {
+                Some(n) => join_shop(sh, code, Some(n), &mut out),
+                None => out.write_all(b"ERR seat\n"),
+            };
+        }
         ["SHOP", t] if !e1011 => return shop_peers(sh, t, None, &mut out),
         ["SHOP", t, own] if !e1011 => return shop_peers(sh, t, Some(own), &mut out),
         _ => {}
@@ -766,7 +782,6 @@ fn lobby_answer(sh: &Shared, ip: &str, edition: &str, out: &mut TcpStream) -> io
         },
         next_entry,
         lang: sh.cfg.lang.clone(),
-        code: None,
     };
     let answer = Lobby {
         v: lobby::VERSION,
@@ -817,7 +832,7 @@ fn sitter(sh: &Shared, now: Instant) -> Sitter {
 
 /// `CREATE vs` -> `ROOM id code t 1` (this PC on seat 1) or `FULL`. `CREATE vs open` sits down on seat 2 of the
 /// oldest open room still waiting (`ROOM id code t 2`), else makes an open room.
-fn create(sh: &Shared, open: bool, out: &mut TcpStream) -> io::Result<()> {
+fn create(sh: &Shared, ip: &str, open: bool, out: &mut TcpStream) -> io::Result<()> {
     let now = Instant::now();
     let mut st = sh.state.lock().unwrap();
     expire(sh, &mut st, now);
@@ -835,7 +850,10 @@ fn create(sh: &Shared, open: bool, out: &mut TcpStream) -> io::Result<()> {
         drop(st);
         return out.write_all(reply.line().as_bytes());
     }
-    if st.rooms.len() + st.shops.len() >= sh.cfg.max_rooms {
+    let mine = st.rooms.iter().filter(|r| r.by == ip).count();
+    if st.rooms.len() + st.shops.len() >= sh.cfg.max_rooms
+        || (mine >= sh.cfg.rooms_per_address && per_address(sh.cfg.tunnel, ip))
+    {
         drop(st);
         return out.write_all(Created::Full.line().as_bytes());
     }
@@ -865,6 +883,7 @@ fn create(sh: &Shared, open: bool, out: &mut TcpStream) -> io::Result<()> {
         code: code.clone(),
         open,
         key,
+        by: ip.to_owned(),
         seats: [Some(s), None],
     });
     (sh.log)(&format!(
@@ -876,20 +895,29 @@ fn create(sh: &Shared, open: bool, out: &mut TcpStream) -> io::Result<()> {
     out.write_all(reply.line().as_bytes())
 }
 
-/// `CREATE shop ID` -> `ROOM id code t 1` (the host PC on seat 1), `FULL`, or `ERR id` (not a tunnel id).
-fn create_shop(sh: &Shared, host: &str, out: &mut TcpStream) -> io::Result<()> {
+/// `CREATE shop ID [public]` -> `ROOM id code t 1` (the host PC on seat 1), `FULL` (the desk's rooms, or this
+/// address's [`DeskConfig::rooms_per_address`]), or `ERR id` (not a tunnel id).
+fn create_shop(
+    sh: &Shared,
+    ip: &str,
+    host: &str,
+    public: bool,
+    out: &mut TcpStream,
+) -> io::Result<()> {
     if !crate::shoproom::valid_id(host) {
         return out.write_all(b"ERR id\n");
     }
     let now = Instant::now();
     let mut st = sh.state.lock().unwrap();
     expire(sh, &mut st, now);
-    if st.rooms.len() + st.shops.len() >= sh.cfg.max_rooms {
+    if st.rooms.len() + st.shops.len() >= sh.cfg.max_rooms
+        || (st.shops.count_by(ip) >= sh.cfg.rooms_per_address && per_address(sh.cfg.tunnel, ip))
+    {
         drop(st);
         return out.write_all(Created::Full.line().as_bytes());
     }
     let (id, code) = loop {
-        let (id, code) = (random_hex(4), crate::inbox::code(4));
+        let (id, code) = (random_hex(4), crate::inbox::code(crate::shoproom::CODE_LEN));
         let vs = st.rooms.iter().any(|r| r.id == id || r.code == code);
         if id != sh.shop_id && !vs && !st.shops.holds(&id, &code) {
             break (id, code);
@@ -902,12 +930,31 @@ fn create_shop(sh: &Shared, host: &str, out: &mut TcpStream) -> io::Result<()> {
         ticket: ticket.clone(),
         seat: 1,
     };
-    st.shops
-        .create(id, code.clone(), host, ticket, now + sh.cfg.reserve_lease);
+    st.shops.create(
+        id,
+        code.clone(),
+        host,
+        ip,
+        public,
+        ticket,
+        now + sh.cfg.reserve_lease,
+    );
     (sh.log)(&format!(
         "shop room {code}: made - {} shop rooms",
         st.shops.len()
     ));
+    drop(st);
+    out.write_all(reply.line().as_bytes())
+}
+
+/// `JOIN CODE [n]` -> `TICKET t n`, `FULL`, `TAKEN` or `CLOSED`: a guest seat in a shop room, by its code only.
+fn join_shop(sh: &Shared, code: &str, seat: Option<u8>, out: &mut TcpStream) -> io::Result<()> {
+    let now = Instant::now();
+    let mut st = sh.state.lock().unwrap();
+    expire(sh, &mut st, now);
+    let reply = st
+        .shops
+        .join(code, seat, random_hex(8), now + sh.cfg.reserve_lease);
     drop(st);
     out.write_all(reply.line().as_bytes())
 }
@@ -981,9 +1028,9 @@ fn reserve(sh: &Shared, id: &str, seat: Option<u8>, out: &mut TcpStream) -> io::
     let mut st = sh.state.lock().unwrap();
     let now = Instant::now();
     expire(sh, &mut st, now);
-    let lease = now + sh.cfg.reserve_lease;
-    let reply = if let Some(r) = st.shops.reserve(id, seat, random_hex(8), lease) {
-        r
+    let reply = if st.shops.has_id(id) {
+        // a shop room is joined by its code (JOIN), never by the id a public row shows
+        Reserved::Closed
     } else if let Some(r) = st.rooms.iter_mut().find(|r| r.id == id) {
         // a VS room: the guest's seat 2 only
         match (seat, &r.seats[1]) {

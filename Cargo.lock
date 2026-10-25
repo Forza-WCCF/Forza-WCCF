@@ -2143,6 +2143,7 @@ name = "forza-server"
 version = "0.4.1"
 dependencies = [
  "clap",
+ "ed25519-dalek",
  "forza",
  "getrandom 0.3.4",
  "ipnet",

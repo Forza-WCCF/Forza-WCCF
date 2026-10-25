@@ -148,7 +148,7 @@ fn a_guest_leaves_and_the_room_stays() {
 
 #[test]
 fn quick_match_pairs_the_oldest_open_room() {
-    let d = desk(|_| {});
+    let d = desk(|c| c.rooms_per_address = 8); // many rooms from this one test address
     let a = d.addr();
     let (plain, ..) = room(a, false);
     let seat = |open| match lobby::create(a, open).unwrap() {
@@ -338,17 +338,14 @@ fn no_rooms_without_the_matcher() {
     }
 }
 
-/// 2017-18 shop rooms: `CREATE shop ID` lists a room as a shop row (code, x/8, nothing else); a guest's ticket gets the
-/// host's tunnel id and tells its own, the host's ticket gets the guests'; leaving and the host's `CLOSE` as for VS
-/// rooms. No matcher needed: a Launcher's shop desk (`--no-gmsvr`) holds them too.
-#[test]
-fn shop_rooms_swap_tunnel_ids_and_list_nothing_else() {
-    use forza::online::lobby::Peers;
-    let d = desk(|c| c.vs = None);
-    let a = d.addr();
-    let (host_id, guest_id) = ("a1".repeat(32), "b2".repeat(32));
-    assert_eq!(say(a, "CREATE shop 1.2.3.4"), "ERR id");
-    let (id, code, host_t) = match lobby::create_shop(a, &host_id).unwrap() {
+/// A real tunnel id: the public key of a fixed secret.
+fn tunnel_id(seed: u8) -> String {
+    let k = ed25519_dalek::SigningKey::from_bytes(&[seed; 32]).verifying_key();
+    k.to_bytes().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn shop_room(a: SocketAddr, host: &str, public: bool) -> (String, String, String) {
+    match lobby::create_shop(a, host, public).unwrap() {
         Created::Room {
             id,
             code,
@@ -356,20 +353,27 @@ fn shop_rooms_swap_tunnel_ids_and_list_nothing_else() {
             seat: 1,
         } => (id, code, ticket),
         r => panic!("{r:?}"),
-    };
-    let row = |a| {
-        lobby::fetch(a, "2017-18")
-            .unwrap()
-            .shops
-            .into_iter()
-            .find(|s| s.id == id)
-    };
-    let r = row(a).expect("the room is a shop row");
+    }
+}
+
+/// 2017-18 shop rooms: joined by code alone; a guest's ticket gets the host's tunnel id and tells its own, the host's
+/// ticket gets the guests'; leaving and the host's `CLOSE` as for VS rooms. No matcher needed: a Launcher's shop desk
+/// (`--no-gmsvr`) holds them too.
+#[test]
+fn shop_rooms_join_by_code_and_swap_tunnel_ids() {
+    use forza::online::lobby::Peers;
+    let d = desk(|c| c.vs = None);
+    let a = d.addr();
+    let (host_id, guest_id) = (tunnel_id(1), tunnel_id(2));
+    assert_eq!(say(a, "CREATE shop 1.2.3.4"), "ERR id");
     assert_eq!(
-        (r.code.as_deref(), r.seats, r.max),
-        (Some(code.as_str()), 1, 8)
+        say(a, &format!("CREATE shop {}", "ff".repeat(32))),
+        "ERR id",
+        "hex, but no public key"
     );
-    let guest_t = match lobby::reserve(a, &id).unwrap() {
+    let (id, code, host_t) = shop_room(a, &host_id, false);
+    assert_eq!(code.len(), 6);
+    let guest_t = match lobby::join_shop(a, &code.to_lowercase(), None).unwrap() {
         Reserved::Ticket { ticket, seat: 2 } => ticket,
         r => panic!("{r:?}"),
     };
@@ -390,21 +394,85 @@ fn shop_rooms_swap_tunnel_ids_and_list_nothing_else() {
         None,
         "GONE"
     );
-    assert_eq!(row(a).unwrap().seats, 2);
-    // privacy: the whole LOBBY line holds neither tunnel id nor ticket
-    let line = say(a, "LOBBY 2017-18");
-    for secret in [&host_id, &guest_id, &host_t, &guest_t] {
-        assert!(!line.contains(secret.as_str()), "{secret} in {line}");
-    }
     assert!(lobby::heartbeat(a, &guest_t).unwrap());
     assert!(lobby::release(a, &guest_t).unwrap(), "the guest leaves");
-    assert_eq!(row(a).unwrap().seats, 1);
+    assert_eq!(
+        lobby::shop_peers(a, &host_t, None).unwrap(),
+        Some(Peers::Guests(vec![]))
+    );
     assert!(
         lobby::close(a, &id, &host_t).unwrap(),
         "the host closes the room"
     );
-    assert!(row(a).is_none());
     assert!(!lobby::heartbeat(a, &host_t).unwrap());
+    assert_eq!(lobby::join_shop(a, &code, None).unwrap(), Reserved::Closed);
+}
+
+/// A stranger with only what `LOBBY` says gets no ticket and no tunnel id: a private room is not listed, a public one
+/// is listed without its code, and `RESERVE` of its id gives nothing.
+#[test]
+fn a_stranger_with_the_lobby_cannot_join_a_shop_room() {
+    let d = desk(|c| c.vs = None);
+    let a = d.addr();
+    let host_id = tunnel_id(1);
+    let (private_id, private_code, private_t) = shop_room(a, &host_id, false);
+    let (public_id, public_code, public_t) = shop_room(a, &host_id, true);
+    let line = say(a, "LOBBY 2017-18");
+    let l = Lobby::parse(&line).unwrap();
+    assert!(
+        !l.shops.iter().any(|s| s.id == private_id),
+        "private: not listed"
+    );
+    let row = l
+        .shops
+        .iter()
+        .find(|s| s.id == public_id)
+        .expect("public: listed");
+    assert_eq!((row.seats, row.max), (1, 8));
+    for secret in [&host_id, &private_code, &public_code, &private_t, &public_t] {
+        assert!(!line.contains(secret.as_str()), "{secret} in {line}");
+    }
+    // everything the stranger can try with what it read (the desk's own shop row is the plain shop, seats by RESERVE)
+    for s in l.shops.iter().filter(|s| s.name == "Shop room") {
+        assert_eq!(
+            lobby::reserve(a, &s.id).unwrap(),
+            Reserved::Closed,
+            "RESERVE {}",
+            s.id
+        );
+        assert_eq!(
+            lobby::join_shop(a, &s.id, None).unwrap(),
+            Reserved::Closed,
+            "JOIN {}",
+            s.id
+        );
+        assert_eq!(lobby::shop_peers(a, &s.id, None).unwrap(), None);
+    }
+}
+
+/// One address holds at most 2 shop rooms and 2 VS rooms at once; closing one makes room again.
+#[test]
+fn rooms_per_address_are_capped() {
+    let d = desk(|_| {});
+    let a = d.addr();
+    let host_id = tunnel_id(1);
+    let (id, _, t) = shop_room(a, &host_id, false);
+    shop_room(a, &host_id, false);
+    assert_eq!(
+        lobby::create_shop(a, &host_id, false).unwrap(),
+        Created::Full
+    );
+    assert!(lobby::close(a, &id, &t).unwrap());
+    shop_room(a, &host_id, false);
+    let (vs, _, vt) = room(a, false);
+    room(a, false);
+    assert_eq!(
+        lobby::create(a, false).unwrap(),
+        Created::Full,
+        "VS rooms have their own 2"
+    );
+    assert!(lobby::close(a, &vs, &vt).unwrap());
+    room(a, false);
 }
 
 /// A 2010-11 desk knows no shop rooms.
@@ -414,5 +482,6 @@ fn no_shop_rooms_on_2010_11() {
         c.edition = Edition::E1011;
         c.vs = None;
     });
-    assert!(say(d.addr(), &format!("CREATE shop {}", "a1".repeat(32))).starts_with("ERR"));
+    assert!(say(d.addr(), &format!("CREATE shop {}", tunnel_id(1))).starts_with("ERR"));
+    assert!(say(d.addr(), "JOIN K7QMZD").starts_with("ERR"));
 }

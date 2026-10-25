@@ -10,8 +10,9 @@
 //!   (the desk seats it on seat 2 of the oldest room waiting there, else makes one; QUICK MATCH on VS ROOMS).
 //! - `READY id t` -> `OK` | `GONE`: the ticket's seat in room `id` is ready (READY).
 //! - `CLOSE id t` -> `OK` | `GONE`: the host's ticket closes room `id` (LEAVE by the host).
-//! - `CREATE shop ID` (2017-18) -> [`Created`]: a shop room hosted by the PC whose shop tunnel is ID (an iroh
-//!   EndpointId, 64 hex digits), with the host on seat 1; guests `RESERVE` seats 2-8.
+//! - `CREATE shop ID [public]` (2017-18) -> [`Created`]: a shop room hosted by the PC whose shop tunnel is ID (an
+//!   iroh EndpointId, 64 hex digits), the host on seat 1. Private unless `public` (then listed, without its code).
+//! - `JOIN CODE [n]` -> [`Reserved`]: a guest seat (2-8) in the shop room with that code; the code is the only way in.
 //! - `SHOP t [ID]` -> [`Peers`] | `GONE`: a guest's ticket (telling its own tunnel id) gets the host's id, the host's
 //!   ticket the ids of the guests that asked. Ids go only to tickets of the same room, never into `LOBBY`.
 
@@ -87,9 +88,6 @@ pub struct Shop {
     /// `en`, `it` or `ja`, declared by the operator.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lang: Option<String>,
-    /// A 2017-18 shop room (`CREATE shop`): the four-letter code players read out.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub code: Option<String>,
 }
 
 /// An iroh EndpointId as written: 64 hex digits.
@@ -207,7 +205,8 @@ pub enum Ask {
     Heartbeat { ticket: String },
     Release { ticket: String },
     Create { open: bool },
-    CreateShop { host: String },
+    CreateShop { host: String, public: bool },
+    JoinShop { code: String, seat: Option<u8> },
     Shop { ticket: String, own: Option<String> },
     Ready { id: String, ticket: String },
     Close { id: String, ticket: String },
@@ -223,7 +222,16 @@ impl Ask {
             Ask::Release { ticket } => format!("RELEASE {ticket}\n"),
             Ask::Create { open: false } => "CREATE vs\n".into(),
             Ask::Create { open: true } => "CREATE vs open\n".into(),
-            Ask::CreateShop { host } => format!("CREATE shop {host}\n"),
+            Ask::CreateShop {
+                host,
+                public: false,
+            } => format!("CREATE shop {host}\n"),
+            Ask::CreateShop { host, public: true } => format!("CREATE shop {host} public\n"),
+            Ask::JoinShop { code, seat: None } => format!("JOIN {code}\n"),
+            Ask::JoinShop {
+                code,
+                seat: Some(n),
+            } => format!("JOIN {code} {n}\n"),
             Ask::Shop { ticket, own: None } => format!("SHOP {ticket}\n"),
             Ask::Shop {
                 ticket,
@@ -250,7 +258,22 @@ impl Ask {
             ["RELEASE", t] => Ask::Release { ticket: s(t) },
             ["CREATE", "vs"] => Ask::Create { open: false },
             ["CREATE", "vs", "open"] => Ask::Create { open: true },
-            ["CREATE", "shop", id] if valid_endpoint_id(id) => Ask::CreateShop { host: s(id) },
+            ["CREATE", "shop", id] if valid_endpoint_id(id) => Ask::CreateShop {
+                host: s(id),
+                public: false,
+            },
+            ["CREATE", "shop", id, "public"] if valid_endpoint_id(id) => Ask::CreateShop {
+                host: s(id),
+                public: true,
+            },
+            ["JOIN", c] => Ask::JoinShop {
+                code: s(c),
+                seat: None,
+            },
+            ["JOIN", c, n] => Ask::JoinShop {
+                code: s(c),
+                seat: Some(n.parse().ok()?),
+            },
             ["SHOP", t] => Ask::Shop {
                 ticket: s(t),
                 own: None,
@@ -352,10 +375,31 @@ pub fn create(addr: SocketAddr, open: bool) -> Result<Created, String> {
     Created::parse(&a).ok_or(a)
 }
 
-/// `CREATE shop ID` (2017-18): a shop room for the PC whose shop tunnel is `host`, this PC on seat 1.
-pub fn create_shop(addr: SocketAddr, host: &str) -> Result<Created, String> {
-    let a = ask(addr, &Ask::CreateShop { host: host.into() }.line())?;
+/// `CREATE shop ID [public]` (2017-18): a shop room for the PC whose shop tunnel is `host`, this PC on seat 1;
+/// `public` lists it in `LOBBY` (never its code).
+pub fn create_shop(addr: SocketAddr, host: &str, public: bool) -> Result<Created, String> {
+    let a = ask(
+        addr,
+        &Ask::CreateShop {
+            host: host.into(),
+            public,
+        }
+        .line(),
+    )?;
     Created::parse(&a).ok_or(a)
+}
+
+/// `JOIN CODE [n]`: a guest seat in the shop room with that code.
+pub fn join_shop(addr: SocketAddr, code: &str, seat: Option<u8>) -> Result<Reserved, String> {
+    let a = ask(
+        addr,
+        &Ask::JoinShop {
+            code: code.into(),
+            seat,
+        }
+        .line(),
+    )?;
+    Reserved::parse(&a).ok_or(a)
 }
 
 /// `SHOP t [ID]`: the room's other tunnel ids for this ticket; `Ok(None)` when the desk says `GONE`.
@@ -469,13 +513,27 @@ mod tests {
         assert_eq!(Lobby::parse(&l.line()).unwrap(), l);
     }
 
-    /// The shop-room words: only a well-formed tunnel id is a word; a shop row's code is optional on the wire, so
-    /// an answer from a desk without rooms still reads.
+    /// The shop-room words: only a well-formed tunnel id is a word.
     #[test]
     fn shop_room_words_round_trip() {
         let id = "ab".repeat(32);
         for ask in [
-            Ask::CreateShop { host: id.clone() },
+            Ask::CreateShop {
+                host: id.clone(),
+                public: false,
+            },
+            Ask::CreateShop {
+                host: id.clone(),
+                public: true,
+            },
+            Ask::JoinShop {
+                code: "K7QMZD".into(),
+                seat: None,
+            },
+            Ask::JoinShop {
+                code: "K7QMZD".into(),
+                seat: Some(3),
+            },
             Ask::Shop {
                 ticket: "0123456789abcdef".into(),
                 own: None,
@@ -489,10 +547,6 @@ mod tests {
         }
         assert_eq!(Ask::parse("CREATE shop 1.2.3.4"), None);
         assert_eq!(Ask::parse(&format!("SHOP t {}", &id[..60])), None);
-        let row = r#"{"id":"a1b2c3d4","name":"Forza-WCCF","seats":1,"max":8,"state":"open"}"#;
-        let shop: Shop = serde_json::from_str(row).unwrap();
-        assert_eq!(shop.code, None);
-        assert!(!serde_json::to_string(&shop).unwrap().contains("code"));
     }
 
     #[test]

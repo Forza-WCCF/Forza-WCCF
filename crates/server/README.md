@@ -73,18 +73,20 @@ answer `ERR` as unknown words, `RESERVE room-id` answers `CLOSED`.
 
 ## Shop rooms (2017-18)
 
-A player's PC that hosts a shop (the Launcher's `server`, reached through its shop tunnel, `vslink::shop`) can put it
-in a lobby. No matcher needed (`desk` alone or `all --no-gmsvr` hold them too); they share `max_rooms` with VS rooms.
+A player's PC that hosts a shop (the Launcher's `server`, reached through its shop tunnel, `vslink::shop`) can open a
+room in a lobby. No matcher needed (`desk` alone or `all --no-gmsvr` hold them too); they share `max_rooms` with VS
+rooms, and one address holds at most `rooms_per_address` (2) of each kind.
 
 | Ask | Answer |
 |---|---|
-| `CREATE shop ID` (ID = the shop tunnel's iroh EndpointId, 64 hex) | `ROOM id code t 1` (the host on seat 1), `FULL`, `ERR id` |
-| `RESERVE room-id [n]` | `TICKET t n` (lowest free of 2-8, or n), `FULL`, `TAKEN` |
+| `CREATE shop ID [public]` (ID = the shop tunnel's iroh EndpointId: 64 hex, a real ed25519 key) | `ROOM id code t 1` (the host on seat 1, a 6-letter code), `FULL`, `ERR id` |
+| `JOIN CODE [n]` | `TICKET t n` (lowest free of 2-8, or n), `FULL`, `TAKEN`, `CLOSED` (no such code) |
 | `SHOP t [ID]` | a guest's ticket (telling its own tunnel id): `HOST id`; the host's: `GUESTS id ...` (guests that told theirs); else `GONE` |
 | `HEARTBEAT t`, `RELEASE t`, `CLOSE id t` | as for VS rooms: the host's `RELEASE`/`CLOSE` or lease end closes the room |
 
-`LOBBY` lists each room as a `shops` row `{"id","name","seats","max":8,"state","code"}` (`name` = the code): no tunnel
-id, ticket or address. Each tunnel end learns the other's id only through `SHOP` with a ticket of that room.
+Rooms are private: the code, which the host passes on, is the only way in (`JOIN` counts in the `RESERVE`/`CREATE`
+rate limit; `RESERVE` of a room's id answers `CLOSED`). `LOBBY` lists only `public` rooms, as a `shops` row named
+"Shop room" with x/8 and never the code, a tunnel id, a ticket or an address.
 
 Two homes behind their own NAT, 0-150 ms apart, through the lobby, 243-246 and vslink: the Docker harness in
 `tests/nat/` (opt-in, `tests/nat/run.sh`).
