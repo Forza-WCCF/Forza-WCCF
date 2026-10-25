@@ -413,7 +413,14 @@ fn host_shop(kit: &Kit) -> Result<i32, String> {
             poke();
             let mode = run::Mode::Remote("127.0.0.1".into(), None);
             let rc = run::play(kit, &Params::of(kit), Some(mode), false, &WindowUi);
-            stop(server);
+            // a plain stop: the shop stays while its guests may be in a match (run::rules::shop_rule), until STOP THE
+            // GAME and "stop anyway"
+            if let Some((run::REFUSED, why)) = run::request(kit, run::Kind::Server, "stop") {
+                log(&why);
+                RUNNING.store(true, Ordering::Relaxed); // STOP THE GAME stays offered: it closes the shop
+                say(t("launcher.msg_shop_stays"), 0);
+            }
+            let _ = server.join();
             Ok(rc)
         }
         Ok(Err(why)) => {

@@ -226,10 +226,27 @@ pub fn parse(words: &[String]) -> Words {
     }
 }
 
-/// `stop`: the server run on this PC is stopped only when the cabinet run beside it was not refused by the card rule
-/// (the run's answer, None when none is on). A refused seat keeps its match, and the match needs the server.
-pub fn stop_server_too(run_answer: Option<i32>) -> bool {
-    run_answer != Some(super::REFUSED)
+/// `stop`: the server run on this PC is asked too unless the cabinet run beside it is still on after its own stop was
+/// asked (refused by the card rule, or no answer: a "Stop anyway?" box nobody answered). `run_answer`: None when no
+/// cabinet run was on. The seat's match needs the server.
+pub fn stop_server_too(run_answer: Option<i32>, run_still_on: bool) -> bool {
+    run_answer.is_none_or(|a| a == super::OK) || !run_still_on
+}
+
+/// A server holding a live shop room: a plain stop (or restart) waits while this PC's seat still runs beside it or the
+/// room has guests (their match is on this server); `force` goes on. The refusal's words, or None.
+pub fn shop_rule(force: bool, seat_on: bool, guests: usize) -> Option<String> {
+    if force || (!seat_on && guests == 0) {
+        return None;
+    }
+    Some(if seat_on {
+        "This PC's seat still plays on this shop. Stop it first (or stop force).".into()
+    } else {
+        format!(
+            "The shop room has {guests} guest{} who may be in a match here. Stop force ends it for them.",
+            if guests == 1 { "" } else { "s" }
+        )
+    })
 }
 
 /// A restart.request from the panel's crash screen (its line `force=crashed`): the control is gone, so the match and
@@ -433,11 +450,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_refused_seat_keeps_the_server_beside_it() {
-        assert!(!stop_server_too(Some(super::super::REFUSED)));
-        assert!(stop_server_too(Some(super::super::OK)));
-        assert!(stop_server_too(Some(super::super::FAILED)));
-        assert!(stop_server_too(None));
+    fn a_seat_still_on_keeps_the_server_beside_it() {
+        use super::super::{FAILED, OK, REFUSED};
+        // refused, or no answer (a question nobody answered): the seat is on, so is the server
+        assert!(!stop_server_too(Some(REFUSED), true));
+        assert!(!stop_server_too(Some(FAILED), true));
+        assert!(stop_server_too(Some(FAILED), false));
+        assert!(stop_server_too(Some(OK), true), "stopped: its lock goes a moment later");
+        assert!(stop_server_too(None, false));
+    }
+
+    #[test]
+    fn a_live_shop_room_holds_a_plain_stop() {
+        assert!(shop_rule(false, true, 0).is_some_and(|w| w.contains("seat")));
+        assert!(shop_rule(false, false, 2).is_some_and(|w| w.contains("2 guests")));
+        assert!(shop_rule(false, false, 1).is_some_and(|w| w.contains("1 guest ")));
+        assert_eq!(shop_rule(false, false, 0), None);
+        assert_eq!(shop_rule(true, true, 3), None);
     }
 
     #[test]

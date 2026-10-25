@@ -456,9 +456,16 @@ fn stop_command(kit: &Kit, p: &Params, force: bool, check: bool, ui: &dyn Ui) ->
     let mut rc = None;
     let mut run_answer = None;
     for kind in [Kind::Run, Kind::Server] {
-        if kind == Kind::Server && !rules::stop_server_too(run_answer) && is_on(kit, Kind::Server) {
-            ui.say("The server keeps running with this PC's seat (it holds that seat's match).");
-            continue;
+        if kind == Kind::Server && is_on(kit, Kind::Server) {
+            // a seat that stopped lets go of its lock a moment after its answer
+            let end = Instant::now() + Duration::from_secs(5);
+            while run_answer == Some(OK) && is_on(kit, Kind::Run) && Instant::now() < end {
+                thread::sleep(Duration::from_millis(100));
+            }
+            if !rules::stop_server_too(run_answer, is_on(kit, Kind::Run)) {
+                ui.say("The server keeps running with this PC's seat (it holds that seat's match).");
+                continue;
+            }
         }
         let Some((mut code, said)) = request(kit, kind, word) else {
             continue;
@@ -2251,6 +2258,11 @@ impl Run<'_> {
 
     /// The card rule now: the refusal's words, or None to go on.
     fn refusal(&self, force: bool) -> Option<String> {
+        if self.mode == Mode::Server
+            && let Some(Ok(room)) = &self.shop_room
+        {
+            return rules::shop_rule(force, is_on(self.kit, Kind::Run), room.guests());
+        }
         let (slot, new) = self.card_files();
         let (session, _) = card::club_session(&slot, &new, self.run_started());
         let card_in = self.cabinet.board.is_some() && self.p.shared.card_in();

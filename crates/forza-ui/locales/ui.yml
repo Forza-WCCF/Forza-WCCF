@@ -111,6 +111,7 @@ launcher.msg_unguarded: {en: "Not started. Open Launcher.exe from Explorer.", it
 launcher.msg_not_guarded: {en: "Not started. Press SET UP first.", it: "Non avviato. Premi prima CONFIGURA.", ja: "起動しませんでした。先に「設定する」を押してください。"}
 launcher.msg_rooms_full: {en: "No VS room free. Try again in a minute.", it: "Nessuna sfida VS libera. Riprova tra un minuto.", ja: "サーバーに対戦ルームの空きがありません。1分後にもう一度お試しください。"}
 launcher.msg_no_shop_room: {en: "No shop room: %{error}", it: "Nessuna stanza per la sala: %{error}", ja: "店舗のルームを作れません：%{error}"}
+launcher.msg_shop_stays: {en: "The shop stays open for its guests. STOP THE GAME closes it.", it: "La sala resta aperta per gli ospiti. FERMA IL GIOCO la chiude.", ja: "ゲストのため店舗は開いたままです。「ゲームを終了」で閉じます。"}
 launcher.msg_bad_club: {en: "Invalid address. Use HOST or HOST:PORT.", it: "Indirizzo non valido. Usa HOST o HOST:PORTA.", ja: "アドレスが正しくありません。HOST または HOST:PORT で入力してください。"}
 launcher.msg_stop_anyway: {en: "A match is on. Stopping can damage your card. Stop anyway?", it: "Partita in corso. Fermare può danneggiare la carta. Fermare comunque?", ja: "試合中です。終了するとカードが傷つく恐れがあります。終了しますか？"}
 launcher.msg_link_taken: {en: "This folder path may not work. If the game does not start, move it to C:\\Games.", it: "Questo percorso potrebbe non funzionare. Se il gioco non parte, spostalo in C:\\Games.", ja: "このフォルダーのパスでは動かない場合があります。起動しないときは C:\\Games へ移動してください。"}
