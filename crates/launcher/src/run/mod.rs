@@ -1864,7 +1864,7 @@ impl Run<'_> {
                 self.lease = Some(lease);
                 Ok(got)
             }
-            Err(e) => match e.no_desk_seat(want) {
+            Err(e) => match rules::desk_fallback(self.edition, &e, want) {
                 Some((s, proj)) => {
                     self.say(&format!(
                         "  The server at {ip} has no seat desk: seat {s}{}.",

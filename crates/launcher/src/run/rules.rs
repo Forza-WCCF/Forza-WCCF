@@ -99,7 +99,13 @@ pub fn aime_hashed(mode: &Mode, own_store: bool) -> bool {
 /// `ip` is this PC: a loopback address, or one a socket here can bind (one of this PC's own addresses).
 pub fn is_this_pc(ip: &str) -> bool {
     ip.parse::<std::net::IpAddr>()
-        .is_ok_and(|a| a.is_loopback() || std::net::UdpSocket::bind((a, 0)).is_ok())
+        .is_ok_and(|a| !a.is_unspecified() && (a.is_loopback() || std::net::UdpSocket::bind((a, 0)).is_ok()))
+}
+
+/// The seat to play with when the server's seat desk cannot be reached: only 2010-11 servers may run without one
+/// ([`SeatError::no_desk_seat`]); a 2017-18 shop always has its desk, so there it is a stop, never seat 1.
+pub fn desk_fallback(edition: crate::Edition, e: &SeatError, asked: Option<u8>) -> Option<(u8, bool)> {
+    e.no_desk_seat(asked).filter(|_| edition == crate::Edition::E1011)
 }
 
 /// Where a 2017-18 online run plays: the game server (control's GAME_SVR_IP / GAME_SVR_PORT, with GAME_SVR_ENTRY=1)
@@ -335,6 +341,10 @@ pub fn seat_refusal(e: &SeatError, asked: Option<u8>, ip: &str) -> String {
         Fault::NoAnswer => {
             format!("the seat desk at {ip} did not answer ({detail}). Try again, or use Launcher.exe local.")
         }
+        Fault::NoBroker => format!(
+            "the seat desk at {ip} cannot be reached ({detail}). A 2017-18 shop's desk is open to the network only with \
+             \"shop_lan\": true on the shop's PC."
+        ),
         _ => format!("the seat desk at {ip} refused a seat ({detail})"),
     }
 }
@@ -449,6 +459,10 @@ mod tests {
         // TEST-NET-1 and a broadcast: never an address of this PC
         assert!(!is_this_pc("192.0.2.1") && !is_this_pc("255.255.255.255"));
         assert!(!is_this_pc("not an address") && !is_this_pc(""));
+        assert!(
+            !is_this_pc("0.0.0.0") && !is_this_pc("::"),
+            "bindable, but no address to join"
+        );
         let own = std::net::UdpSocket::bind("0.0.0.0:0")
             .and_then(|s| s.connect("192.0.2.1:9").map(|()| s))
             .and_then(|s| s.local_addr());
@@ -770,6 +784,13 @@ mod tests {
         assert!(m.contains("did not answer") && m.contains("local"), "{m}");
         assert!(seat_refusal(&e(Fault::Taken, "TAKEN 2"), Some(2), "20.0.0.1").starts_with("seat 2 is taken"));
         assert_eq!(e(Fault::NoBroker, "refused").no_desk_seat(None), Some((1, true)));
+        // 2017-18: an unreachable desk stops the start; only 2010-11 plays seat 1 without one
+        use crate::Edition::{E1011, E1718};
+        let gone = e(Fault::NoBroker, "refused");
+        assert_eq!(desk_fallback(E1011, &gone, None), Some((1, true)));
+        assert_eq!(desk_fallback(E1718, &gone, None), None);
+        assert_eq!(desk_fallback(E1718, &gone, Some(2)), None);
+        assert!(seat_refusal(&gone, None, "10.0.0.5").contains("shop_lan"));
         assert_eq!(e(Fault::Full, "").no_desk_seat(None), None);
     }
 
