@@ -183,24 +183,45 @@ fn save(img: &DynamicImage, path: &Path) -> io::Result<()> {
     fs::rename(&tmp, path)
 }
 
-/// The album card of a decoded `<face>_F.dds` or `<face>_B.dds`: its top 256x357.
-fn album_front(tex: &DynamicImage) -> DynamicImage {
-    tex.crop_imm(0, 0, ALBUM.0.min(tex.width()), ALBUM.1.min(tex.height()))
+/// The album card of a decoded `<face>_F.dds` or `<face>_B.dds`: its top 256x357. Any other texture size is not
+/// the album's, and a crop of it would outrank the right picture on the board: `None`.
+fn album_card(tex: &DynamicImage) -> Option<DynamicImage> {
+    ((tex.width(), tex.height()) == (ALBUM.0, 512)).then(|| tex.crop_imm(0, 0, ALBUM.0, ALBUM.1))
 }
 
 /// Written beside, then swapped in, like [`save`].
 fn save_jpg(img: &DynamicImage, path: &Path) -> io::Result<()> {
     let tmp = path.with_extension("jpg.tmp");
     let rgb = img.to_rgb8();
-    JpegEncoder::new_with_quality(io::BufWriter::new(File::create(&tmp)?), ALBUM_QUALITY)
-        .write_image(
-            rgb.as_raw(),
-            rgb.width(),
-            rgb.height(),
-            ExtendedColorType::Rgb8,
-        )
-        .map_err(io::Error::other)?;
-    fs::rename(&tmp, path)
+    let done = File::create(&tmp)
+        .and_then(|f| {
+            JpegEncoder::new_with_quality(io::BufWriter::new(f), ALBUM_QUALITY)
+                .write_image(
+                    rgb.as_raw(),
+                    rgb.width(),
+                    rgb.height(),
+                    ExtendedColorType::Rgb8,
+                )
+                .map_err(io::Error::other)
+        })
+        .and_then(|()| fs::rename(&tmp, path));
+    if done.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    done
+}
+
+/// What [`from_game`] made.
+#[derive(Debug, Default)]
+pub struct Made {
+    /// Faces written (`<number>.png`).
+    pub faces: usize,
+    /// Album fronts written (`<number>_f.jpg`); their backs come with them.
+    pub fronts: usize,
+    /// Album pictures that could not be read or written (a texture of another size is skipped, not counted).
+    pub art_fails: usize,
+    /// Every problem, for the setup output.
+    pub fails: Vec<String>,
 }
 
 /// The archive file `e` as a decoded DXT1 picture.
@@ -220,15 +241,16 @@ fn load(xaf: &mut File, file_len: u64, e: &Entry) -> io::Result<DynamicImage> {
 }
 
 /// Every card's face from the game in `game` (the folder with `prog_data` and `data`) into `out` as
-/// `<number>.png`, 88x128, and where the game has the album art, its front and back as `<number>_f.jpg` and
-/// `<number>_b.jpg`, 256x357 -> (written, failures). One bad picture never stops the rest.
-pub fn from_game(game: &Path, edition: &str, out: &Path) -> io::Result<(usize, Vec<String>)> {
+/// `<number>.png`, 88x128; in 2017-18 also, where the game has the album art (`<face>_F.dds` and `_B.dds`, 256x512
+/// textures), the card's front and back as `<number>_f.jpg` and `<number>_b.jpg`, 256x357. One bad picture never
+/// stops the rest.
+pub fn from_game(game: &Path, edition: &str, out: &Path) -> io::Result<Made> {
     let players = fs::read(game.join("prog_data/player_data/player_data.bin"))?;
     let mut xaf = File::open(game.join("data/wccf_data.xaf"))?;
     let file_len = xaf.metadata()?.len();
-    let toc = player_cards(&mut xaf)?;
+    let toc = player_cards(&mut xaf)?; // names in lower case: `_F` and `_f` are one
     fs::create_dir_all(out)?;
-    let (mut done, mut fails) = (0, Vec::new());
+    let mut made = Made::default();
     for (no, name) in cards(&players, edition)? {
         let mut one = || -> io::Result<()> {
             let e = toc.get(&name).ok_or_else(|| bad("not in the archive"))?;
@@ -237,23 +259,36 @@ pub fn from_game(game: &Path, edition: &str, out: &Path) -> io::Result<(usize, V
             save(&img.crop_imm(0, 0, w, h), &out.join(format!("{no}.png")))
         };
         match one() {
-            Ok(()) => done += 1,
-            Err(e) => fails.push(format!("card {no} ({name}): {e}")),
+            Ok(()) => made.faces += 1,
+            Err(e) => made.fails.push(format!("card {no} ({name}): {e}")),
         }
         // older cards have no album art: they keep the face (and the pack's scan, if chosen)
-        for side in ["f", "b"] {
+        for side in ["f", "b"].into_iter().filter(|_| edition == "1718") {
             let art = name.replace(".dds", &format!("_{side}.dds"));
-            if let Some(e) = toc.get(&art) {
-                let one = load(&mut xaf, file_len, e).and_then(|t| {
-                    save_jpg(&album_front(&t), &out.join(format!("{no}_{side}.jpg")))
-                });
-                if let Err(e) = one {
-                    fails.push(format!("card {no} ({art}): {e}"));
+            let Some(e) = toc.get(&art) else { continue };
+            match load(&mut xaf, file_len, e) {
+                Err(e) => {
+                    made.art_fails += 1;
+                    made.fails.push(format!("card {no} ({art}): {e}"));
                 }
+                Ok(t) => match album_card(&t) {
+                    None => made.fails.push(format!(
+                        "card {no} ({art}): {}x{}, not the album's 256x512",
+                        t.width(),
+                        t.height()
+                    )),
+                    Some(card) => match save_jpg(&card, &out.join(format!("{no}_{side}.jpg"))) {
+                        Ok(()) => made.fronts += usize::from(side == "f"),
+                        Err(e) => {
+                            made.art_fails += 1;
+                            made.fails.push(format!("card {no} ({art}): {e}"));
+                        }
+                    },
+                },
             }
         }
     }
-    Ok((done, fails))
+    Ok(made)
 }
 
 /// The pack's card per game card number: the name+stats link first, then a regular printing, then the oldest
@@ -370,6 +405,27 @@ fn wanted(pack: Option<&Path>) -> String {
     }
 }
 
+/// Deletes the `.jpg` files in `dir` named `<number>` (the pack's scans) or, with `art`, `<number>_f` / `<number>_b`.
+fn remove_jpgs(dir: &Path, art: bool) -> io::Result<()> {
+    for f in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let p = f.path();
+        let stem = p.file_stem().map(|s| s.to_string_lossy().into_owned());
+        let number = stem.as_deref().and_then(|s| {
+            if art {
+                s.strip_suffix("_f").or_else(|| s.strip_suffix("_b"))
+            } else {
+                Some(s)
+            }
+        });
+        if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("jpg"))
+            && number.is_some_and(|n| n.parse::<u32>().is_ok())
+        {
+            fs::remove_file(p)?;
+        }
+    }
+    Ok(())
+}
+
 /// `cards` as the setting asks (`pack`: the high-quality pack, else the game's own), made only when the folder was
 /// made otherwise or not at all. `edition` is "1011" or "1718"; `say` hears what is done.
 pub fn ensure(
@@ -388,28 +444,26 @@ pub fn ensure(
     let made = fs::read_to_string(&marker).is_ok_and(|m| m.starts_with(&format!("{VERSION} ")));
     let _ = fs::remove_file(&marker); // half made stays "not made"
     let _ = fs::remove_file(cards.join(super::hq::FILE));
-    for f in fs::read_dir(cards).into_iter().flatten().flatten() {
-        // the pack's scans are `<number>.jpg`; the album fronts and backs (`<number>_f.jpg`, `_b.jpg`) are the game's and stay
-        let p = f.path();
-        if p.extension().is_some_and(|e| e == "jpg")
-            && p.file_stem()
-                .is_some_and(|s| s.to_string_lossy().parse::<u32>().is_ok())
-        {
-            fs::remove_file(p)?;
-        }
-    }
+    remove_jpgs(cards, false)?; // the pack's scans; the album art (`_f`, `_b`) is the game's and stays
     if !made {
+        remove_jpgs(cards, true)?; // a full rebuild: no stale art may outrank the new pictures
         say("  Making card pictures from your game files...");
-        let (n, fails) = from_game(game, edition, cards)?;
+        let m = from_game(game, edition, cards)?;
         say(&format!(
-            "  {n} card pictures from the game, {} failed",
-            fails.len()
+            "  {} card pictures from the game, {} album fronts, {} failed",
+            m.faces,
+            m.fronts,
+            m.fails.len()
         ));
-        for f in fails.iter().take(5) {
+        for f in m.fails.iter().take(5) {
             say(&format!("    {f}"));
         }
-        if n == 0 {
+        if m.faces == 0 {
             return Err(bad("no card picture could be made from the game"));
+        }
+        // more than 1 in 20 album pictures lost (disk full, a scanner holding files): no marker, the next start retries
+        if m.art_fails * 20 > m.fronts * 2 + m.art_fails {
+            return Err(bad(format!("{} album pictures failed", m.art_fails)));
         }
     }
     if let Some(p) = pack {
@@ -575,12 +629,44 @@ mod tests {
     }
 
     #[test]
-    fn the_album_crop_keeps_the_card_and_never_grows_a_small_picture() {
-        let tex = DynamicImage::new_rgb8(256, 512);
-        let c = album_front(&tex);
+    fn only_a_256x512_texture_is_an_album_card() {
+        let c = album_card(&DynamicImage::new_rgb8(256, 512)).unwrap();
         assert_eq!((c.width(), c.height()), ALBUM);
-        let c = album_front(&DynamicImage::new_rgb8(128, 128));
-        assert_eq!((c.width(), c.height()), (128, 128));
+        assert!(album_card(&DynamicImage::new_rgb8(128, 128)).is_none());
+        assert!(album_card(&DynamicImage::new_rgb8(256, 256)).is_none());
+    }
+
+    #[test]
+    fn the_2010_11_folder_gets_no_album_art() {
+        let d = tempfile::tempdir().unwrap();
+        fake_game(d.path());
+        // the same archive, the 2010-11 record (0x328 bytes: number at +0, picture name at +0x2DA)
+        let mut rec = vec![0u8; 0x328];
+        rec[..2].copy_from_slice(&7049u16.to_le_bytes());
+        rec[0x2DA..0x2DA + 7].copy_from_slice(b"Pic_One");
+        fs::write(d.path().join("prog_data/player_data/player_data.bin"), rec).unwrap();
+        let out = d.path().join("cards");
+        let m = from_game(d.path(), "1011", &out).unwrap();
+        assert_eq!((m.faces, m.fronts, m.art_fails), (1, 0, 0));
+        assert!(out.join("7049.png").is_file());
+        assert!(!out.join("7049_f.jpg").exists() && !out.join("7049_b.jpg").exists());
+    }
+
+    #[test]
+    fn lost_album_pictures_leave_no_marker_and_no_temp_file_and_a_rebuild_drops_stale_art() {
+        let d = tempfile::tempdir().unwrap();
+        fake_game(d.path());
+        let out = d.path().join("cards");
+        fs::create_dir_all(out.join("7049_f.jpg")).unwrap(); // the swap cannot replace a folder
+        assert!(ensure(d.path(), "1718", &out, None, &|_| {}).is_err());
+        assert!(!out.join(MARKER).exists());
+        assert!(!out.join("7049_f.jpg.tmp").exists() && !out.join("7049_b.jpg.tmp").exists());
+        // the next start retries; stale art of a card the game no longer has goes with the rebuild
+        fs::remove_dir(out.join("7049_f.jpg")).unwrap();
+        fs::write(out.join("1_f.JPG"), b"stale").unwrap();
+        ensure(d.path(), "1718", &out, None, &|_| {}).unwrap();
+        assert!(out.join("7049_f.jpg").is_file() && !out.join("1_f.JPG").exists());
+        assert!(out.join(MARKER).is_file());
     }
 
     #[test]
@@ -677,14 +763,18 @@ mod tests {
         let out = var("FORZA_PICTURES_OUT").unwrap();
         let t = std::time::Instant::now();
         let ed = std::env::var("FORZA_PICTURES_EDITION").unwrap();
-        let (n, fails) = from_game(&var("FORZA_PICTURES_GAME").unwrap(), &ed, &out).unwrap();
+        let m = from_game(&var("FORZA_PICTURES_GAME").unwrap(), &ed, &out).unwrap();
         println!(
-            "game: {n} pictures, {} failed {:?}, {:?}",
-            fails.len(),
-            &fails[..fails.len().min(5)],
+            "game: {} pictures, {} album fronts, {} failed {:?}, {:?}",
+            m.faces,
+            m.fronts,
+            m.fails.len(),
+            &m.fails[..m.fails.len().min(5)],
             t.elapsed()
         );
-        assert!(n > 3000 && fails.len() < 50);
+        assert!(m.faces > 3000 && m.fails.len() < 50);
+        // the album art is in the 2017-18 archive; none was found if this fails
+        assert!(ed != "1718" || m.fronts > 2000, "{} album fronts", m.fronts);
         if let Some(pack) = var("FORZA_PICTURES_PACK") {
             let (n, fails) = from_pack(&pack, &ed, &out).unwrap();
             println!(
