@@ -83,11 +83,17 @@ pub fn online_refused(edition: crate::Edition, mode: &Mode, shop: bool) -> bool 
     edition == crate::Edition::E1718 && !shop && matches!(mode, Mode::Server | Mode::Remote(..))
 }
 
-/// AiMeDB answers every card the hash of its access code whenever the clubs are on a game server other PCs share:
-/// VS, and a seat in a shared shop (two homes' first cards would both be Aime ID 1, one club). Only this PC alone
-/// keeps an older store's IDs.
-pub fn aime_hashed(mode: &Mode) -> bool {
-    !matches!(mode, Mode::Local)
+/// AiMeDB answers every card the hash of its access code when the clubs are on another PC's game server: VS, and a
+/// seat that joins a shop elsewhere (each PC's AiMeDB numbers its own cards, so two homes' first cards would both be
+/// Aime ID 1, one club). This PC alone, and the shop host's own seat (`beside_server`: its game server is this PC's
+/// store, where an older card's club lives under its old ID), keep the IDs the store has; new cards get the hash
+/// there too.
+pub fn aime_hashed(mode: &Mode, beside_server: bool) -> bool {
+    match mode {
+        Mode::Local => false,
+        Mode::Remote(..) => !beside_server,
+        Mode::Vs(_) | Mode::Server => true,
+    }
 }
 
 /// Where a 2017-18 online run plays: the game server (control's GAME_SVR_IP / GAME_SVR_PORT, with GAME_SVR_ENTRY=1)
@@ -415,11 +421,18 @@ mod tests {
     }
 
     #[test]
-    fn aime_ids_are_hashed_on_any_shared_game_server() {
-        assert!(!aime_hashed(&Mode::Local));
-        assert!(aime_hashed(&Mode::Vs("192.168.1.20".into())));
-        assert!(aime_hashed(&Mode::Remote("192.168.1.20".into(), None)));
-        assert!(aime_hashed(&Mode::Remote("127.0.0.1".into(), Some(1))));
+    fn aime_ids_are_hashed_on_another_pcs_game_server() {
+        let remote = Mode::Remote("192.168.1.20".into(), None);
+        assert!(!aime_hashed(&Mode::Local, false));
+        assert!(aime_hashed(&Mode::Vs("192.168.1.20".into()), false));
+        assert!(
+            aime_hashed(&remote, false),
+            "a guest: its own AiMeDB's IDs mean nothing on the host's store"
+        );
+        assert!(
+            !aime_hashed(&Mode::Remote("127.0.0.1".into(), None), true),
+            "the host's own seat keeps its store's IDs, so its old club still loads"
+        );
     }
 
     #[test]

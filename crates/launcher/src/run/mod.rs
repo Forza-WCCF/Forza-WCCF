@@ -1728,10 +1728,15 @@ impl Run<'_> {
         })?;
         let log = file_log(self.logs().join("aimedb_log.txt"));
         self.cabinet.aimedb = Some(
-            // on a shared game server every card answers the hash of its access code; this PC alone keeps an older
-            // store's IDs (aimedb.rs)
-            aimedb::spawn_with(listener, save.join("aimedb.json"), log, rules::aime_hashed(&self.mode))
-                .map_err(|e| Failed(format!("the Aime database did not start ({e})")))?,
+            // on another PC's game server every card answers the hash of its access code; this PC alone and the shop
+            // host's own seat keep their store's IDs (aimedb.rs)
+            aimedb::spawn_with(
+                listener,
+                save.join("aimedb.json"),
+                log,
+                rules::aime_hashed(&self.mode, self.beside_server),
+            )
+            .map_err(|e| Failed(format!("the Aime database did not start ({e})")))?,
         );
         Ok(())
     }
