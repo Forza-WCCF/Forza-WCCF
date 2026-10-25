@@ -31,6 +31,7 @@ use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::{mpsc, watch};
+use tokio::task::JoinSet;
 use tokio::time::{Instant, interval, sleep, sleep_until, timeout};
 
 pub const SHOP_ALPN: &[u8] = b"forza-wccf/shop/1";
@@ -140,54 +141,68 @@ pub fn id_text(id: &EndpointId) -> String {
     id.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// A datagram across: `[flow u16 LE][payload]`.
-pub fn encode_flow(flow: u16, payload: &[u8]) -> Vec<u8> {
-    let mut v = Vec::with_capacity(payload.len() + 2);
+/// A datagram across: `[flow u32 LE][payload]`. Flow numbers are never reused within a run, so a late datagram of a
+/// flow that is gone finds no socket instead of the wrong one.
+pub fn encode_flow(flow: u32, payload: &[u8]) -> Vec<u8> {
+    let mut v = Vec::with_capacity(payload.len() + 4);
     v.extend_from_slice(&flow.to_le_bytes());
     v.extend_from_slice(payload);
     v
 }
 
-pub fn decode_flow(d: &[u8]) -> Option<(u16, &[u8])> {
-    let (f, rest) = d.split_first_chunk::<2>()?;
-    Some((u16::from_le_bytes(*f), rest))
+pub fn decode_flow(d: &[u8]) -> Option<(u32, &[u8])> {
+    let (f, rest) = d.split_first_chunk::<4>()?;
+    Some((u32::from_le_bytes(*f), rest))
 }
 
-/// The join side's flows: each local socket that sends to the relay port gets a number; when all [`MAX_FLOWS`] are
-/// taken, the least recently used one is given to the newcomer.
+/// The join side's flows: each local socket that sends to the relay port gets the next number; past [`MAX_FLOWS`]
+/// the least recently used one is forgotten (its number is never handed out again).
 #[derive(Default)]
 pub struct Flows {
-    /// index = flow; (local socket, last use)
-    slots: Vec<(SocketAddr, u64)>,
+    by_addr: HashMap<SocketAddr, (u32, u64)>,
+    by_flow: HashMap<u32, SocketAddr>,
+    next: u32,
     tick: u64,
 }
 
 impl Flows {
-    pub fn flow_of(&mut self, src: SocketAddr) -> u16 {
+    pub fn flow_of(&mut self, src: SocketAddr) -> u32 {
         self.tick += 1;
-        let i = match self.slots.iter().position(|(a, _)| *a == src) {
-            Some(i) => i,
-            None if self.slots.len() < MAX_FLOWS => {
-                self.slots.push((src, 0));
-                self.slots.len() - 1
-            }
-            None => {
-                let (i, _) = self
-                    .slots
-                    .iter()
-                    .enumerate()
-                    .min_by_key(|(_, (_, t))| *t)
-                    .expect("MAX_FLOWS > 0");
-                self.slots[i].0 = src;
-                i
-            }
-        };
-        self.slots[i].1 = self.tick;
-        i as u16
+        if let Some(e) = self.by_addr.get_mut(&src) {
+            e.1 = self.tick;
+            return e.0;
+        }
+        if self.by_addr.len() >= MAX_FLOWS
+            && let Some((&old, &(f, _))) = self.by_addr.iter().min_by_key(|(_, (_, t))| *t)
+        {
+            self.by_addr.remove(&old);
+            self.by_flow.remove(&f);
+        }
+        let f = self.next;
+        self.next = self.next.wrapping_add(1);
+        self.by_addr.insert(src, (f, self.tick));
+        self.by_flow.insert(f, src);
+        f
     }
 
-    pub fn addr_of(&self, flow: u16) -> Option<SocketAddr> {
-        self.slots.get(usize::from(flow)).map(|(a, _)| *a)
+    pub fn addr_of(&self, flow: u32) -> Option<SocketAddr> {
+        self.by_flow.get(&flow).copied()
+    }
+}
+
+/// Counts what is open while it lives (a flow's socket, a stream): one up at `new`, one down at drop.
+struct Live(Arc<AtomicUsize>);
+
+impl Live {
+    fn new(n: &Arc<AtomicUsize>) -> Self {
+        n.fetch_add(1, Ordering::Relaxed);
+        Live(n.clone())
+    }
+}
+
+impl Drop for Live {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
     }
 }
 
@@ -196,6 +211,18 @@ pub struct ShopLink {
     pub handle: Handle,
     /// This endpoint's id (the host's is what guests type)
     pub id: EndpointId,
+    flows: Arc<AtomicUsize>,
+    streams: Arc<AtomicUsize>,
+}
+
+impl ShopLink {
+    /// The host's guest flows (a socket each) and the streams open now: both 0 once every guest has left.
+    pub fn open(&self) -> (usize, usize) {
+        (
+            self.flows.load(Ordering::Relaxed),
+            self.streams.load(Ordering::Relaxed),
+        )
+    }
 }
 
 struct Sh {
@@ -206,6 +233,8 @@ struct Sh {
     delay: Duration,
     guests: AtomicUsize,
     oversize: AtomicU64,
+    flows: Arc<AtomicUsize>,
+    streams: Arc<AtomicUsize>,
 }
 
 fn loopback(port: u16) -> SocketAddr {
@@ -251,16 +280,32 @@ fn udp_line(sock: Arc<UdpSocket>, delay: Duration) -> mpsc::Sender<(Instant, Vec
 }
 
 /// Copies `r` to `w`, holding each chunk the test delay and at most [`STREAM_BUF`] bytes; then shuts `w` down.
-/// Returns the bytes copied.
+/// Returns the bytes copied. Nothing is spawned: dropping the future ends both halves.
 async fn pipe<R, W>(mut r: R, mut w: W, delay: Duration, what: String, log: Log) -> u64
 where
-    R: AsyncRead + Unpin + Send + 'static,
-    W: AsyncWrite + Unpin + Send + 'static,
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
 {
-    let held = Arc::new(AtomicUsize::new(0));
+    let held = AtomicUsize::new(0);
     let (tx, mut rx) = mpsc::unbounded_channel::<(Instant, Vec<u8>)>();
-    let h = held.clone();
-    let writer = tokio::spawn(async move {
+    // true: over the limit
+    let reader = async {
+        let tx = tx;
+        let mut buf = vec![0u8; 16 * 1024];
+        loop {
+            let n = match r.read(&mut buf).await {
+                Ok(0) | Err(_) => return false,
+                Ok(n) => n,
+            };
+            if held.fetch_add(n, Ordering::Relaxed) + n > STREAM_BUF {
+                return true;
+            }
+            if tx.send((Instant::now(), buf[..n].to_vec())).is_err() {
+                return false;
+            }
+        }
+    };
+    let writer = async {
         let mut n = 0u64;
         while let Some((at, chunk)) = rx.recv().await {
             sleep_until(at + delay).await;
@@ -268,43 +313,39 @@ where
                 return n;
             }
             n += chunk.len() as u64;
-            h.fetch_sub(chunk.len(), Ordering::Relaxed);
+            held.fetch_sub(chunk.len(), Ordering::Relaxed);
         }
         let _ = w.shutdown().await;
         n
-    });
-    let mut buf = vec![0u8; 16 * 1024];
+    };
+    tokio::pin!(reader, writer);
+    let mut reading = true;
     loop {
-        let n = match r.read(&mut buf).await {
-            Ok(0) | Err(_) => break,
-            Ok(n) => n,
-        };
-        if held.fetch_add(n, Ordering::Relaxed) + n > STREAM_BUF {
-            log(&format!(
-                "{what}: more than {} MiB waiting to cross, closed",
-                STREAM_BUF >> 20
-            ));
-            writer.abort();
-            return 0;
-        }
-        if tx.send((Instant::now(), buf[..n].to_vec())).is_err() {
-            break;
+        tokio::select! {
+            over = &mut reader, if reading => {
+                if over {
+                    log(&format!("{what}: more than {} MiB waiting to cross, closed", STREAM_BUF >> 20));
+                    return 0;
+                }
+                reading = false; // the sender is gone: the writer drains, then shuts down
+            }
+            n = &mut writer => return n,
         }
     }
-    drop(tx);
-    writer.await.unwrap_or(0)
 }
 
 /// Both directions between a local TCP connection and a QUIC stream; logs the totals when both are done.
 async fn splice<QR, QW>(tcp: TcpStream, qr: QR, qw: QW, sh: Arc<Sh>, what: String)
 where
-    QR: AsyncRead + Unpin + Send + 'static,
-    QW: AsyncWrite + Unpin + Send + 'static,
+    QR: AsyncRead + Unpin,
+    QW: AsyncWrite + Unpin,
 {
+    let _live = Live::new(&sh.streams);
     let (tr, tw) = tcp.into_split();
-    let up = tokio::spawn(pipe(tr, qw, sh.delay, what.clone(), sh.log.clone()));
-    let down = tokio::spawn(pipe(qr, tw, sh.delay, what.clone(), sh.log.clone()));
-    let (up, down) = (up.await.unwrap_or(0), down.await.unwrap_or(0));
+    let (up, down) = tokio::join!(
+        pipe(tr, qw, sh.delay, what.clone(), sh.log.clone()),
+        pipe(qr, tw, sh.delay, what.clone(), sh.log.clone())
+    );
     (sh.log)(&format!("{what} closed ({up} bytes out, {down} in)"));
 }
 
@@ -350,11 +391,14 @@ impl Sh {
         (self.log)(&format!("guest {who} left: {why}"));
     }
 
+    /// The guest's streams; aborted with the guest, which aborts every stream task (the set drops).
     async fn guest_streams(self: Arc<Self>, conn: Connection, who: String) {
+        let mut tasks = JoinSet::new();
         while let Ok((qw, mut qr)) = conn.accept_bi().await {
+            while tasks.try_join_next().is_some() {}
             let me = self.clone();
             let who = who.clone();
-            tokio::spawn(async move {
+            tasks.spawn(async move {
                 let mut k = [0u8; 1];
                 if timeout(LINK_WAIT, qr.read_exact(&mut k)).await.is_err() {
                     return;
@@ -379,18 +423,27 @@ impl Sh {
         }
     }
 
-    /// The guest's flows: one socket each on this loopback, talking to the relay port.
+    /// The guest's flows: one socket each on this loopback, talking to the relay port. Aborted with the guest, which
+    /// ends every flow (the set drops); past [`MAX_FLOWS`] the least recently used flow is closed.
     async fn guest_datagrams(self: Arc<Self>, conn: Connection, who: String) {
+        type Line = mpsc::Sender<(Instant, Vec<u8>, SocketAddr)>;
         let out = datagram_line(&self, conn.clone());
-        let mut flows: HashMap<u16, mpsc::Sender<(Instant, Vec<u8>, SocketAddr)>> = HashMap::new();
+        let mut tasks = JoinSet::new();
+        let mut flows: HashMap<u32, (Line, tokio::task::AbortHandle, u64)> = HashMap::new();
         let relay = loopback(self.ports.relay);
+        let mut tick = 0u64;
         while let Ok(d) = conn.read_datagram().await {
             let Some((flow, payload)) = decode_flow(&d) else {
                 continue;
             };
+            tick += 1;
             if !flows.contains_key(&flow) {
-                if flows.len() >= MAX_FLOWS {
-                    continue;
+                while tasks.try_join_next().is_some() {}
+                if flows.len() >= MAX_FLOWS
+                    && let Some(&old) = flows.iter().min_by_key(|(_, (_, _, t))| *t).map(|(f, _)| f)
+                    && let Some((_, task, _)) = flows.remove(&old)
+                {
+                    task.abort();
                 }
                 let Ok(s) = UdpSocket::bind(loopback(0)).await else {
                     continue;
@@ -402,8 +455,9 @@ impl Sh {
                         relay.port()
                     ));
                 }
-                let (sock, tx) = (s.clone(), out.clone());
-                tokio::spawn(async move {
+                let (sock, tx, live) = (s.clone(), out.clone(), Live::new(&self.flows));
+                let task = tasks.spawn(async move {
+                    let _live = live;
                     let mut buf = vec![0u8; 65536];
                     loop {
                         match sock.recv_from(&mut buf).await {
@@ -419,9 +473,12 @@ impl Sh {
                         }
                     }
                 });
-                flows.insert(flow, udp_line(s, self.delay));
+                flows.insert(flow, (udp_line(s, self.delay), task, tick));
             }
-            let _ = flows[&flow].try_send((Instant::now(), payload.to_vec(), relay));
+            if let Some((line, _, used)) = flows.get_mut(&flow) {
+                *used = tick;
+                let _ = line.try_send((Instant::now(), payload.to_vec(), relay));
+            }
         }
     }
 }
@@ -587,6 +644,8 @@ async fn start(cfg: ShopConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
         delay: cfg.delay,
         guests: AtomicUsize::new(0),
         oversize: AtomicU64::new(0),
+        flows: Arc::default(),
+        streams: Arc::default(),
     });
     let only = if cfg.relay_only { ", relay only" } else { "" };
     if !sh.delay.is_zero() {
@@ -661,7 +720,11 @@ pub fn spawn(cfg: ShopConfig) -> io::Result<ShopLink> {
                     return;
                 }
             };
-            let _ = tx.send(Ok(*sh.ep.id().as_bytes()));
+            let _ = tx.send(Ok((
+                *sh.ep.id().as_bytes(),
+                sh.flows.clone(),
+                sh.streams.clone(),
+            )));
             rt.block_on(async {
                 match join {
                     None => {
@@ -682,12 +745,14 @@ pub fn spawn(cfg: ShopConfig) -> io::Result<ShopLink> {
             });
             rt.shutdown_timeout(Duration::from_secs(1));
         })?;
-    let id = rx
+    let (id, flows, streams) = rx
         .recv()
         .map_err(|_| io::Error::other("the shop tunnel's thread ended at start"))??;
     Ok(ShopLink {
         handle: Handle::new(stop, thread),
         id,
+        flows,
+        streams,
     })
 }
 
@@ -711,15 +776,17 @@ mod tests {
 
     #[test]
     fn flow_framing() {
-        let d = encode_flow(0x0102, b"ab");
-        assert_eq!(d, [2, 1, b'a', b'b']);
-        assert_eq!(decode_flow(&d), Some((0x0102, &b"ab"[..])));
-        assert_eq!(decode_flow(&[7, 0]), Some((7, &[][..])));
-        assert_eq!(decode_flow(&[7]), None);
+        let d = encode_flow(0x0403_0201, b"ab");
+        assert_eq!(d, [1, 2, 3, 4, b'a', b'b']);
+        assert_eq!(decode_flow(&d), Some((0x0403_0201, &b"ab"[..])));
+        assert_eq!(decode_flow(&[7, 0, 0, 0]), Some((7, &[][..])));
+        assert_eq!(decode_flow(&[7, 0, 0]), None);
     }
 
+    /// A socket keeps its number; past MAX_FLOWS the least recently used is forgotten, and no number comes back, so a
+    /// late answer for a forgotten flow reaches no socket rather than the newcomer.
     #[test]
-    fn flows_are_stable_and_reuse_the_oldest_when_full() {
+    fn flow_numbers_are_stable_and_never_reused() {
         let a = |p: u16| SocketAddr::from((Ipv4Addr::LOCALHOST, p));
         let mut f = Flows::default();
         assert_eq!(f.flow_of(a(1000)), 0);
@@ -731,9 +798,16 @@ mod tests {
             f.flow_of(a(1000 + p));
         }
         f.flow_of(a(1000)); // 0 used last; 1 is now the oldest
-        assert_eq!(f.flow_of(a(5000)), 1);
-        assert_eq!(f.addr_of(1), Some(a(5000)));
+        let n = f.flow_of(a(5000));
+        assert_eq!(n, MAX_FLOWS as u32, "a new number, not the forgotten 1");
+        assert_eq!(f.addr_of(1), None, "flow 1's late answers go nowhere");
+        assert_eq!(f.addr_of(n), Some(a(5000)));
         assert_eq!(f.addr_of(0), Some(a(1000)));
+        assert_eq!(
+            f.flow_of(a(1001)),
+            n + 1,
+            "the forgotten socket comes back as a new flow"
+        );
     }
 
     #[test]

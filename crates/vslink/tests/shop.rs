@@ -98,14 +98,53 @@ fn host_services() -> HostServices {
 }
 
 struct Pair {
-    _host: shop::ShopLink,
-    _join: shop::ShopLink,
+    host: shop::ShopLink,
+    join: Option<shop::ShopLink>,
     services: HostServices,
     join_ports: Ports,
     host_log: Lines,
     join_log: Lines,
+    relay: iroh::RelayMap,
+    relay_only: bool,
+    dir: std::path::PathBuf,
     _relay: iroh_relay::server::Server,
     _rt: tokio::runtime::Runtime,
+}
+
+impl Pair {
+    fn config(&self, role: Role, ports: Ports, key: &str, log: Log, delay: Duration) -> ShopConfig {
+        ShopConfig {
+            role,
+            ports,
+            relay: self.relay.clone(),
+            ca: Some(CaTlsConfig::insecure_skip_verify()),
+            relay_only: self.relay_only,
+            key: self.dir.join(key),
+            log,
+            delay,
+        }
+    }
+
+    /// A new join side (the old one, if any, stopped first) on fresh local ports.
+    fn join(&mut self, tag: &str, knob_ms: u64) {
+        drop(self.join.take());
+        self.join_ports = Ports {
+            control: free_tcp(),
+            desk: free_tcp(),
+            relay: free_udp(),
+        };
+        let (log, lines) = logger(tag);
+        let cfg = self.config(
+            Role::Join(self.host.id),
+            self.join_ports,
+            &format!("{tag}.key"),
+            log,
+            Duration::from_millis(knob_ms / 2),
+        );
+        self.join = Some(shop::spawn(cfg).unwrap());
+        assert!(logged(&lines, "link to the shop up"));
+        self.join_log = lines;
+    }
 }
 
 /// A host and a join side through a fresh test relay; the join side has the test delay `knob_ms` / 2 each way.
@@ -116,49 +155,36 @@ fn pair(name: &str, knob_ms: u64, relay_only: bool) -> Pair {
     let (relay, _url, server) = rt.block_on(iroh::test_utils::run_relay_server()).unwrap();
     let services = host_services();
     let (host_log, host_lines) = logger(&format!("{name} host"));
-    let mk = |role, ports, key: &str, log, delay| ShopConfig {
-        role,
-        ports,
+    let host = shop::spawn(ShopConfig {
+        role: Role::Host,
+        ports: services.ports,
         relay: relay.clone(),
         ca: Some(CaTlsConfig::insecure_skip_verify()),
         relay_only,
-        key: dir.join(key),
-        log,
-        delay,
-    };
-    let host = shop::spawn(mk(
-        Role::Host,
-        services.ports,
-        "host.key",
-        host_log,
-        Duration::ZERO,
-    ))
+        key: dir.join("host.key"),
+        log: host_log,
+        delay: Duration::ZERO,
+    })
     .unwrap();
-    let join_ports = Ports {
-        control: free_tcp(),
-        desk: free_tcp(),
-        relay: free_udp(),
-    };
-    let (join_log, join_lines) = logger(&format!("{name} join"));
-    let join = shop::spawn(mk(
-        Role::Join(host.id),
-        join_ports,
-        "join.key",
-        join_log,
-        Duration::from_millis(knob_ms / 2),
-    ))
-    .unwrap();
-    assert!(logged(&join_lines, "link to the shop up"));
-    Pair {
-        _host: host,
-        _join: join,
+    let mut p = Pair {
+        host,
+        join: None,
         services,
-        join_ports,
+        join_ports: Ports {
+            control: 0,
+            desk: 0,
+            relay: 0,
+        },
         host_log: host_lines,
-        join_log: join_lines,
+        join_log: Lines::default(),
+        relay,
+        relay_only,
+        dir,
         _relay: server,
         _rt: rt,
-    }
+    };
+    p.join(&format!("{name} join"), knob_ms);
+    p
 }
 
 fn at(port: u16) -> SocketAddr {
@@ -235,6 +261,23 @@ fn control_and_datagrams_at_0_50_100_150_ms() {
         if knob > 0 {
             assert!(logged(&p.join_log, &format!("test delay: {} ms", knob / 2)));
         }
+        // a burst is held once, not once per datagram: the delay is a line, not a queue that waits per item
+        let s = UdpSocket::bind("127.0.0.1:0").unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let t = Instant::now();
+        for i in 0..100u8 {
+            s.send_to(&[b'z', i], at(p.join_ports.relay)).unwrap();
+        }
+        let mut b = [0u8; 8];
+        for _ in 0..100 {
+            s.recv_from(&mut b)
+                .expect("every datagram of the burst back");
+        }
+        let burst = t.elapsed();
+        assert!(
+            burst < d + Duration::from_millis(1500),
+            "knob {knob}: 100 datagrams took {burst:?}"
+        );
         assert!(logged(&p.host_log, "control connection to port"));
     }
 }
@@ -324,4 +367,36 @@ fn a_join_without_a_host_fails_at_start() {
     let e = r.err().expect("no host: an error");
     assert!(e.to_string().contains("did not answer"), "{e}");
     assert!(t.elapsed() < Duration::from_secs(40));
+}
+
+/// Guests come and go: once one has left, the host holds none of its flow sockets or streams.
+#[test]
+fn a_guest_that_leaves_leaves_nothing_open() {
+    let mut p = pair("leave", 0, false);
+    let wait_open = |p: &Pair, want: (usize, usize)| {
+        let t = Instant::now();
+        while p.host.open() != want {
+            assert!(
+                t.elapsed() < Duration::from_secs(10),
+                "open {:?}, want {want:?}",
+                p.host.open()
+            );
+            thread::sleep(Duration::from_millis(50));
+        }
+    };
+    for round in 0..3 {
+        if round > 0 {
+            p.join(&format!("leave join {round}"), 0);
+        }
+        p.services.relay_sources.lock().unwrap().clear();
+        datagram_rtt(&p);
+        let mut c = TcpStream::connect(at(p.join_ports.control)).unwrap();
+        c.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        c.write_all(b"x").unwrap();
+        c.read_exact(&mut [0u8; 1]).unwrap();
+        wait_open(&p, (2, 1));
+        drop(p.join.take());
+        wait_open(&p, (0, 0));
+        drop(c);
+    }
 }
