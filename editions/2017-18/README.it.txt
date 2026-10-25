@@ -51,7 +51,7 @@ TASTI
       X       PRESS (conferma)     C   SHOOT        B   KEEPER
       S       DATA                 D   KEY PLAYER
       frecce  tattiche: Su CENTRAL, Giù COUNTER, Sinistra L-SIDE, Destra R-SIDE
-      I       carta Aime dentro / fuori   5   moneta   F1  menu di test
+      I       carta Aime dentro / fuori   5   moneta
       P       pausa
   I pulsanti del pannello fanno lo stesso: i triangoli (CENTRAL, COUNTER, L-SIDE, R-SIDE), PRESS, DATA, SHOOT,
   KEEPER, KEY PLAYER e START. Tasti e pulsanti del controller si cambiano in TASTI.

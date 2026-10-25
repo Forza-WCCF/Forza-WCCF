@@ -117,7 +117,7 @@ launcher.msg_link_no_junction: {en: "This folder path may not work. If the game 
 launcher.msg_link_failed: {en: "This folder path may not work. If the game does not start, move it to C:\\Games.", it: "Questo percorso potrebbe non funzionare. Se il gioco non parte, spostalo in C:\\Games.", ja: "このフォルダーのパスでは動かない場合があります。起動しないときは C:\\Games へ移動してください。"}
 launcher.msg_pack_title: {en: "Pick the high-quality card pack (forza-wccf-card-pictures-hq-*.zip)", it: "Scegli il pacchetto di immagini carte in alta qualità (forza-wccf-card-pictures-hq-*.zip)", ja: "高画質カード画像パックを選んでください（forza-wccf-card-pictures-hq-*.zip）"}
 launcher.msg_making_pictures: {en: "Making card pictures ...", it: "Creo le immagini delle carte ...", ja: "カード画像を作成中..."}
-launcher.msg_no_fonts: {en: "Files are missing. Check your antivirus, then reinstall Forza-WCCF.", it: "File mancanti. Controlla l'antivirus, poi reinstalla Forza-WCCF.", ja: "ファイルが見つかりません。ウイルス対策ソフトを確認し、Forza-WCCF を再インストールしてください。"}
+launcher.msg_no_fonts: {en: "Missing file: %{error}. Check your antivirus, then reinstall Forza-WCCF.", it: "File mancante: %{error}. Controlla l'antivirus, poi reinstalla Forza-WCCF.", ja: "ファイルがありません：%{error}。ウイルス対策ソフトを確認し、Forza-WCCF を再インストールしてください。"}
 launcher.msg_no_window: {en: "Launcher cannot open its window: %{error}", it: "Launcher non riesce ad aprire la finestra: %{error}", ja: "Launcher のウィンドウを開けません: %{error}"}
 
 # ---- installer ----
@@ -164,6 +164,10 @@ installer.done_body: {en: "Installed. Start Launcher.exe.", it: "Installato. Avv
 installer.did_extract: {en: "Game files extracted and checked", it: "File del gioco estratti e controllati", ja: "ゲームファイルを展開・検査しました"}
 installer.did_setup: {en: "Game set up", it: "Gioco configurato", ja: "ゲームを設定しました"}
 installer.not_shortcuts: {en: "No desktop shortcuts", it: "Nessun collegamento sul desktop", ja: "デスクトップのショートカットなし"}
+installer.no_package: {en: "Without the package the game will not start. Continue?", it: "Senza il pacchetto il gioco non si avvia. Continuare?", ja: "パッケージがないとゲームは起動しません。続けますか？"}
+installer.continue: {en: "CONTINUE", it: "CONTINUA", ja: "続ける"}
+installer.smartscreen: {en: "Windows may warn about an unknown app: More info, then Run anyway.", it: "Windows può avvisare di un'app sconosciuta: Ulteriori informazioni, poi Esegui comunque.", ja: "Windows が不明なアプリと警告することがあります。「詳細情報」→「実行」を選んでください。"}
+installer.start_launcher: {en: "START LAUNCHER", it: "AVVIA LAUNCHER", ja: "ランチャーを起動"}
 installer.open_folder: {en: "Open the folder", it: "Apri la cartella", ja: "フォルダーを開く"}
 installer.welcome_note: {en: "Without the package, only the original files are extracted.", it: "Senza il pacchetto vengono estratti solo i file originali.", ja: "パッケージがない場合は、元のファイルを展開するだけです。"}
 installer.installed_here: {en: "← already installed", it: "← già installata", ja: "← インストール済み"}
@@ -210,6 +214,7 @@ installer.err_kit_edition: {en: "This package is for %{kit}, but the game is %{g
 installer.err_script: {en: "The game setup failed: %{detail}", it: "La configurazione del gioco non è riuscita: %{detail}", ja: "ゲームの設定に失敗しました：%{detail}"}
 installer.err_other: {en: "%{detail}", it: "%{detail}", ja: "%{detail}"}
 installer.err_window: {en: "The installer cannot open its window.\n\n%{detail}", it: "L'installer non riesce ad aprire la sua finestra.\n\n%{detail}", ja: "インストーラーのウィンドウを開けません。\n\n%{detail}"}
+installer.err_launcher: {en: "Cannot start %{path}: %{detail}", it: "Impossibile avviare %{path}: %{detail}", ja: "%{path} を起動できません：%{detail}"}
 installer.err_folder: {en: "Choose an install folder.", it: "Scegli una cartella di installazione.", ja: "インストール先フォルダーを選んでください。"}
 installer.err_iso: {en: "Choose the disc image (.iso) file.", it: "Scegli il file dell'immagine del disco (.iso).", ja: "ディスクイメージ（.iso）を選んでください。"}
 installer.err_key: {en: "Choose the key file.", it: "Scegli il file chiave.", ja: "キーファイルを選んでください。"}
@@ -328,6 +333,7 @@ keys.action: {en: "ACTION", it: "AZIONE", ja: "操作"}
 keys.keyboard: {en: "KEYBOARD", it: "TASTIERA", ja: "キーボード"}
 keys.controller: {en: "CONTROLLER", it: "CONTROLLER", ja: "コントローラー"}
 keys.press_a_key: {en: "PRESS A KEY", it: "PREMI UN TASTO", ja: "キーを押して"}
+keys.advanced: {en: "Advanced", it: "Avanzate", ja: "詳細"}
 keys.test: {en: "TEST", it: "TEST", ja: "テスト"}
 keys.service: {en: "SERVICE", it: "SERVIZIO", ja: "サービス"}
 keys.sw1: {en: "SW1", it: "SW1", ja: "SW1"}
@@ -495,6 +501,11 @@ lobby.waiting: {en: "waiting…", it: "in attesa…", ja: "待機中…"}
 lobby.starting: {en: "Both ready: starting", it: "Entrambi pronti: si parte", ja: "両者準備OK：開始します"}
 lobby.empty: {en: "No rooms yet. Host one or type an address.", it: "Nessuna stanza. Creane una o scrivi un indirizzo.", ja: "ルームなし。作成するかアドレスを入力。"}
 lobby.offline: {en: "Server not answering. Try again later.", it: "Il server non risponde. Riprova più tardi.", ja: "サーバーが応答しません。後でもう一度お試しください。"}
+lobby.retry: {en: "RETRY", it: "RIPROVA", ja: "再試行"}
+lobby.why_offline: {en: "Server offline", it: "Server offline", ja: "サーバーに接続できません"}
+lobby.why_stale: {en: "List out of date", it: "Elenco non aggiornato", ja: "一覧が古い情報です"}
+lobby.why_unavailable: {en: "Not available yet", it: "Non ancora disponibile", ja: "まだ利用できません"}
+lobby.why_pick: {en: "Pick a room", it: "Scegli una stanza", ja: "ルームを選んでください"}
 lobby.taken: {en: "That seat was just taken.", it: "Quel posto è appena stato preso.", ja: "その席はたった今埋まりました。"}
 lobby.room_closed: {en: "The host closed the room.", it: "L'host ha chiuso la stanza.", ja: "ホストがルームを閉じました。"}
 lobby.stale: {en: "Updated %{s} s ago.", it: "Aggiornato %{s} s fa.", ja: "%{s} 秒前に更新。"}

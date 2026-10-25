@@ -63,7 +63,7 @@ pub const ACTIONS: [Action; 16] = [
     a("RIGHT", 0x27, Some((Line::P1, 0, 0x04)), "tactics: R-SIDE (right)"),
     a("CARD", 0x49, None, "club card in / out of the slot"),
     a("COIN", 0x35, None, "one coin"),
-    a("TEST", 0x70, Some((Line::Sys, 0, 0x80)), "TEST (operator menu)"),
+    a("TEST", 0, Some((Line::Sys, 0, 0x80)), "TEST (operator menu)"),
     a("SERVICE", 0x71, Some((Line::P1, 0, 0x40)), "SERVICE"),
     a(
         "SENSOR2",

@@ -48,7 +48,7 @@ KEYS
       X       PRESS (decide)       C   SHOOT        B   KEEPER
       S       DATA                 D   KEY PLAYER
       arrows  tactics: Up CENTRAL, Down COUNTER, Left L-SIDE, Right R-SIDE
-      I       Aime card in / out   5   coin         F1  test menu
+      I       Aime card in / out   5   coin
       P       pause a match
   The panel's buttons do the same: the triangles (CENTRAL, COUNTER, L-SIDE, R-SIDE), PRESS, DATA, SHOOT, KEEPER,
   KEY PLAYER and START. Change keys and controller buttons under KEYS.

@@ -142,6 +142,9 @@ pub const ACTIONS: [(&str, Cab); forza::keys::COUNT] = [
     ("keys.pause", Cab::Plain),
 ];
 
+/// The operator's switches (TEST, SERVICE, SW1, SW2): the KEYS page folds them under "Advanced".
+const OPERATOR: std::ops::Range<usize> = 12..16;
+
 /// What the catalogue lists: the search line, the filters and the sort (`wccfpanel.c` `run_search_locked`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Filter {
@@ -444,6 +447,8 @@ pub struct PanelState {
     pub pad_capturing: Option<usize>,
     /// The action changed last (its cells lit).
     pub changed: Option<usize>,
+    /// The KEYS page's "Advanced" group is open.
+    pub keys_advanced: bool,
     /// The controllers found (KEYS).
     pub pad_names: Vec<String>,
     // settings
@@ -533,6 +538,7 @@ impl PanelState {
             capturing: None,
             pad_capturing: None,
             changed: None,
+            keys_advanced: false,
             pad_names: Vec::new(),
             file: PanelFile::default(),
             address: String::new(),
@@ -1217,6 +1223,37 @@ fn card_key(area: Rect) -> Rect {
     Rect::from_center_size(deck_plates(area, true)[2].center(), vec2(102.0, 32.0))
 }
 
+const KEYCAP_H: f32 = 13.0;
+
+/// The key bound to a deck button as its keycap text ("X", "Enter"), else its controller control ("Button 3"); empty
+/// when neither is bound.
+fn deck_keycap(st: &PanelState, action: &str) -> String {
+    let Some(i) = forza::keys::NAMES.iter().position(|n| *n == action) else {
+        return String::new();
+    };
+    match (st.keys[i], st.pads[i]) {
+        (0, 0) => String::new(),
+        (0, pad) => forza::keys::pad_label(pad),
+        (key, _) => forza::keys::key_label(key),
+    }
+}
+
+/// A keycap's width for `text`, at most `max` (the text shrinks to fit); 0 when there is no text.
+fn keycap_width(p: &egui::Painter, text: &str, max: f32) -> f32 {
+    if text.is_empty() {
+        return 0.0;
+    }
+    let g = widgets::fit(p, text, theme::body(10.0), theme::TEXT_DIM, max - 8.0);
+    (g.size().x + 8.0).max(KEYCAP_H)
+}
+
+fn paint_keycap(p: &egui::Painter, r: Rect, text: &str) {
+    p.rect_filled(r, 3, theme::DEEP);
+    p.rect_stroke(r, 3, Stroke::new(1.0, theme::RIM), StrokeKind::Inside);
+    let g = widgets::fit(p, text, theme::body(10.0), theme::TEXT_DIM, r.width() - 8.0);
+    p.galley(r.center() - g.size() / 2.0, g, theme::TEXT_DIM);
+}
+
 /// The cabinet's controls under the picture, one row: the tactic diamond, the play buttons, the machine.
 fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
     // a press sends the action's key down (the panel DLL lets it up after the release); the buttons do not light
@@ -1261,20 +1298,54 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
     for it in deck_layout_for(area, both) {
         let lit = it.tactic.is_some_and(|i| st.tactics[i]);
         put(ui, it.rect, it.key, Some(it.action), it.kind, it.shape, lit);
+        let cap = deck_keycap(st, it.action);
+        let p = ui.painter();
         if let Some(side) = it.label {
-            let (anchor, at) = match side {
-                Dir::Up => (Align2::CENTER_BOTTOM, it.rect.center_top() - vec2(0.0, 4.0)),
-                Dir::Down => (Align2::CENTER_TOP, it.rect.center_bottom() + vec2(0.0, 4.0)),
-                Dir::Left => (Align2::RIGHT_CENTER, it.rect.left_center() - vec2(4.0, 0.0)),
-                Dir::Right => (Align2::LEFT_CENTER, it.rect.right_center() + vec2(4.0, 0.0)),
+            // the name, and the keycap after it, on one line beside the button
+            let name = p.layout_no_wrap(tr!(lang, it.key), theme::display(14.0), theme::TEXT_DIM);
+            let room = match side {
+                Dir::Left => it.rect.left() - deck_plates(area, both)[0].left() - 8.0,
+                _ => 110.0,
             };
-            ui.painter().text(
-                at,
-                anchor,
-                tr!(lang, it.key),
-                theme::display(14.0),
-                theme::TEXT_DIM,
-            );
+            let cap_w = keycap_width(p, &cap, room - name.size().x - 4.0);
+            let w = name.size().x + if cap_w > 0.0 { 4.0 + cap_w } else { 0.0 };
+            let h = name.size().y;
+            let (left, cy) = match side {
+                Dir::Up => (it.rect.center().x - w / 2.0, it.rect.top() - 4.0 - h / 2.0),
+                Dir::Down => (
+                    it.rect.center().x - w / 2.0,
+                    it.rect.bottom() + 4.0 + h / 2.0,
+                ),
+                Dir::Left => (it.rect.left() - 4.0 - w, it.rect.center().y),
+                Dir::Right => (it.rect.right() + 4.0, it.rect.center().y),
+            };
+            // never past the plate's edge (DATA sits close to it)
+            let plate = deck_plates(area, both)
+                .into_iter()
+                .find(|r| r.contains(it.rect.center()))
+                .unwrap_or(area);
+            let left = left.min(plate.right() - 4.0 - w);
+            p.galley(pos2(left, cy - h / 2.0), name.clone(), theme::TEXT_DIM);
+            if cap_w > 0.0 {
+                let r = Rect::from_min_size(
+                    pos2(left + name.size().x + 4.0, cy - KEYCAP_H / 2.0),
+                    vec2(cap_w, KEYCAP_H),
+                );
+                paint_keycap(p, r, &cap);
+            }
+        } else {
+            // the big buttons carry their name: the keycap sits inside, at the bottom
+            let cap_w = keycap_width(p, &cap, it.rect.width() - 10.0);
+            if cap_w > 0.0 {
+                let r = Rect::from_center_size(
+                    pos2(
+                        it.rect.center().x,
+                        it.rect.bottom() - 2.0 - KEYCAP_H / 2.0 - 2.0,
+                    ),
+                    vec2(cap_w, KEYCAP_H),
+                );
+                paint_keycap(p, r, &cap);
+            }
         }
     }
     // the machine: CARD only (free play needs no COIN, and BACK sent nothing; 2017-18 has no card to put in)
@@ -1288,6 +1359,16 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
             Shape::Key,
             false,
         );
+        let cap = deck_keycap(st, "CARD");
+        let p = ui.painter();
+        let w = keycap_width(p, &cap, 100.0);
+        if w > 0.0 {
+            let r = Rect::from_center_size(
+                card_key(area).center_bottom() + vec2(0.0, 4.0 + KEYCAP_H / 2.0),
+                vec2(w, KEYCAP_H),
+            );
+            paint_keycap(p, r, &cap);
+        }
     }
     st.pressed = st.pressed.or(pressed);
 }
@@ -2230,20 +2311,50 @@ fn keys(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     }
     ui.add_space(4.0);
     let cell_w = 200.0;
-    egui::Grid::new("keys")
-        .num_columns(4)
-        .spacing(vec2(16.0, 3.0))
-        .striped(false)
+    // an open Advanced group scrolls instead of pushing RESET KEYS off the page
+    let room = (ui.available_height() - 56.0).max(120.0);
+    egui::ScrollArea::vertical()
+        .max_height(room)
+        .auto_shrink([false, true])
         .show(ui, |ui| {
-            caps(ui, &tr!(lang, "keys.action"));
-            ui.label("");
-            caps(ui, &tr!(lang, "keys.keyboard"));
-            caps(ui, &tr!(lang, "keys.controller"));
-            ui.end_row();
-            for i in 0..ACTIONS.len() {
-                row(ui, st, lang, i, cell_w);
-                ui.end_row();
-            }
+            egui::Grid::new("keys")
+                .num_columns(4)
+                .spacing(vec2(16.0, 3.0))
+                .striped(false)
+                .show(ui, |ui| {
+                    caps(ui, &tr!(lang, "keys.action"));
+                    ui.label("");
+                    caps(ui, &tr!(lang, "keys.keyboard"));
+                    caps(ui, &tr!(lang, "keys.controller"));
+                    ui.end_row();
+                    for i in (0..ACTIONS.len()).filter(|i| !OPERATOR.contains(i)) {
+                        row(ui, st, lang, i, cell_w);
+                        ui.end_row();
+                    }
+                });
+            ui.add_space(6.0);
+            // the operator's switches: TEST, SERVICE, SW1, SW2
+            let mut open = st.keys_advanced;
+            widgets::fold(
+                ui,
+                &tr!(lang, "keys.advanced"),
+                "",
+                &mut open,
+                theme::AMBER,
+                |ui| {
+                    egui::Grid::new("keys-advanced")
+                        .num_columns(4)
+                        .spacing(vec2(16.0, 3.0))
+                        .striped(false)
+                        .show(ui, |ui| {
+                            for i in OPERATOR {
+                                row(ui, st, lang, i, cell_w);
+                                ui.end_row();
+                            }
+                        });
+                },
+            );
+            st.keys_advanced = open;
         });
     ui.add_space(6.0);
     ui.horizontal(|ui| {
@@ -3678,6 +3789,33 @@ mod tests {
                 "KAKÀ: another card of this player is on the table (2004-05)"
             )
         );
+    }
+
+    #[test]
+    fn the_advanced_group_is_the_operators_switches() {
+        assert_eq!(
+            forza::keys::NAMES[OPERATOR],
+            ["TEST", "SERVICE", "SENSOR2", "SENSOR3"]
+        );
+    }
+
+    #[test]
+    fn deck_keycap_names_the_key_and_the_control() {
+        let mut st = PanelState::new(
+            Edition::E1011,
+            Lang::En,
+            cards::board(&[], &[]),
+            cards().into(),
+        );
+        assert_eq!(deck_keycap(&st, "SHOOT"), "C");
+        assert_eq!(deck_keycap(&st, "UP"), "Up");
+        st.pads[2] = forza::keys::PAD_BUTTON + 3; // SHOOT: controller button 3
+        assert_eq!(deck_keycap(&st, "SHOOT"), "C"); // the key first
+        st.keys[2] = 0;
+        assert_eq!(deck_keycap(&st, "SHOOT"), "Button 3");
+        st.pads[2] = 0;
+        assert_eq!(deck_keycap(&st, "SHOOT"), "");
+        assert_eq!(deck_keycap(&st, "NOPE"), "");
     }
 
     #[test]

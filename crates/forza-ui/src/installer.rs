@@ -117,6 +117,10 @@ pub enum Action {
     Drag,
     Browse(Field),
     OpenFolder,
+    /// START LAUNCHER on the Done page: run the edition's Launcher.exe, then close the installer.
+    StartLauncher,
+    /// CONTINUE in the "no package" question.
+    InstallAnyway,
 }
 
 /// Disk space of the install folder's drive.
@@ -139,6 +143,8 @@ pub struct InstallerState {
     pub latest: Latest,
     /// Use the newest downloaded package; a package file in `package` overrides it.
     pub use_latest: bool,
+    /// The "no package" question is open: INSTALL was pressed with no package chosen.
+    pub confirm: bool,
     /// The edition the disc image is, by its size.
     pub detected: Option<Edition>,
     /// The disc image has a size no supported edition has.
@@ -183,7 +189,8 @@ impl InstallerState {
             key: String::new(),
             package: String::new(),
             latest: Latest::Idle,
-            use_latest: false,
+            use_latest: true,
+            confirm: false,
             detected: None,
             unsupported: false,
             installed: vec![],
@@ -319,7 +326,63 @@ pub fn show(ui: &mut Ui, st: &mut InstallerState) -> Option<Action> {
                 status_line(ui, Tone::Refused, e);
             }
         });
+    if st.confirm {
+        confirm_modal(ui, st, lang, &mut out);
+    }
     out
+}
+
+/// INSTALL without a package: the game would not start, so ask once. CONTINUE installs the files only.
+fn confirm_modal(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Action>) {
+    let mut go = false;
+    let modal = egui::Modal::new(Id::new("installer-confirm"))
+        .backdrop_color(Color32::from_black_alpha(150))
+        .frame(
+            egui::Frame::new()
+                .fill(theme::DEEP)
+                .stroke(Stroke::new(1.0, theme::RIM))
+                .corner_radius(theme::RADIUS_BIG)
+                .inner_margin(20),
+        )
+        .show(ui.ctx(), |ui| {
+            ui.set_width(400.0);
+            ui.label(
+                egui::RichText::new(tr!(lang, "installer.no_package"))
+                    .font(theme::display(26.0))
+                    .color(theme::TEXT),
+            );
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if cabinet(
+                    ui,
+                    vec2(196.0, 48.0),
+                    &tr!(lang, "installer.continue"),
+                    Cab::Go,
+                    true,
+                )
+                .clicked()
+                {
+                    go = true;
+                }
+                if cabinet(
+                    ui,
+                    vec2(196.0, 48.0),
+                    &tr!(lang, "installer.back"),
+                    Cab::Plain,
+                    false,
+                )
+                .clicked()
+                {
+                    st.confirm = false;
+                }
+            });
+        });
+    if go {
+        out.get_or_insert(Action::InstallAnyway);
+    }
+    if go || modal.should_close() {
+        st.confirm = false;
+    }
 }
 
 /// Grabbing this area moves the window (the program starts the drag).
@@ -465,7 +528,16 @@ fn footer(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Act
                 Page::Done => (tr!(lang, "common.close"), Cab::Go, Action::Close),
                 _ => (tr!(lang, "installer.next"), Cab::Go, Action::Next),
             };
-            if cabinet(ui, vec2(150.0, 44.0), &label, kind, kind == Cab::Go).clicked() {
+            // the newest package is still being looked up: INSTALL would run without it
+            let wait = st.page == Page::Files
+                && st.latest == Latest::Checking
+                && st.target() == Some(Edition::E1718);
+            let go = ui
+                .add_enabled_ui(!wait, |ui| {
+                    cabinet(ui, vec2(150.0, 44.0), &label, kind, kind == Cab::Go)
+                })
+                .inner;
+            if go.clicked() {
                 out.get_or_insert(act);
             }
         });
@@ -522,11 +594,13 @@ fn welcome(ui: &mut Ui, lang: Lang) {
         );
     });
     ui.add_space(2.0);
-    ui.label(
-        egui::RichText::new(tr!(lang, "installer.welcome_note"))
-            .font(theme::body(12.0))
-            .color(theme::TEXT_DIM),
-    );
+    for key in ["installer.welcome_note", "installer.smartscreen"] {
+        ui.label(
+            egui::RichText::new(tr!(lang, key))
+                .font(theme::body(12.0))
+                .color(theme::TEXT_DIM),
+        );
+    }
 }
 
 /// A label, a text box and a Browse button.
@@ -921,7 +995,21 @@ fn done_body(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<
     }
     ui.spacing_mut().item_spacing.y = 8.0;
     ui.add_space(4.0);
-    if action(ui, &tr!(lang, "installer.open_folder")).clicked() {
-        out.get_or_insert(Action::OpenFolder);
-    }
+    ui.horizontal(|ui| {
+        if st.did[1]
+            && cabinet(
+                ui,
+                vec2(196.0, 44.0),
+                &tr!(lang, "installer.start_launcher"),
+                Cab::Go,
+                true,
+            )
+            .clicked()
+        {
+            out.get_or_insert(Action::StartLauncher);
+        }
+        if action(ui, &tr!(lang, "installer.open_folder")).clicked() {
+            out.get_or_insert(Action::OpenFolder);
+        }
+    });
 }

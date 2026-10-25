@@ -47,7 +47,7 @@ KEYS
       I       club card in / out (a new card makes your club: manager licence, club name)
       Enter   START (free play: no coin needed)
       X       decide          C   shoot          arrows   tactics
-      F1      test menu       F11 window or full screen
+      F11     window or full screen
       P       pause a match
   The buttons around the picture do the same.
   KEYS lists every cabinet button with a KEYBOARD and a CONTROLLER column.

@@ -458,6 +458,30 @@ impl LobbyView {
         r.joinable().then_some(r)
     }
 
+    /// Why JOIN is greyed, in a few words; `None` when it can join.
+    pub fn why_not_join(&self, lang: Lang) -> Option<String> {
+        if self.joinable().is_some() {
+            return None;
+        }
+        Some(if self.offline {
+            tr!(lang, "lobby.why_offline")
+        } else if self.stale() {
+            tr!(lang, "lobby.why_stale")
+        } else if self.grey_now().is_some() || self.view_only_now() {
+            tr!(lang, "lobby.why_unavailable")
+        } else {
+            let vis = self.visible();
+            match vis.get(self.selected).map(|&i| &self.rows()[i].state) {
+                None => tr!(lang, "lobby.why_pick"),
+                Some(RowState::Full) => tr!(lang, "lobby.full"),
+                Some(RowState::Closed) => tr!(lang, "lobby.closed"),
+                Some(RowState::NoAnswer) => tr!(lang, "lobby.no_answer"),
+                Some(RowState::NeedsVersion(x)) => tr!(lang, "lobby.needs_version", v = x),
+                Some(RowState::Open | RowState::InMatch) => return None,
+            }
+        })
+    }
+
     fn set_kind(&mut self, k: Kind) {
         if self.kind != k {
             self.kind = k;
@@ -634,14 +658,31 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
     // the kind tabs, the age of the answer, refresh
     ui.horizontal(|ui| {
         let mut k = v.kind as usize;
+        // offline, the counts are old news: the names only
+        let count = |n: usize| {
+            if v.offline {
+                String::new()
+            } else {
+                format!(" {n}")
+            }
+        };
         let labels = [
-            format!("{} {}", tr!(lang, "lobby.shops"), v.shops.len()),
-            format!("{} {}", tr!(lang, "lobby.vs"), v.vs.len()),
+            format!("{}{}", tr!(lang, "lobby.shops"), count(v.shops.len())),
+            format!("{}{}", tr!(lang, "lobby.vs"), count(v.vs.len())),
         ];
         if segmented(ui, &mut k, &[&labels[0], &labels[1]], w * 0.52) {
             v.set_kind(if k == 0 { Kind::Shops } else { Kind::Vs });
         }
-        if action(ui, &tr!(lang, "lobby.refresh")).clicked() {
+        let retry = v.offline
+            && cabinet(
+                ui,
+                vec2(110.0, 30.0),
+                &tr!(lang, "lobby.retry"),
+                Cab::Go,
+                true,
+            )
+            .clicked();
+        if retry || (!v.offline && action(ui, &tr!(lang, "lobby.refresh")).clicked()) {
             *act = Some(LobbyAction::Refresh);
         }
         if let Some(s) = v.updated_s {
@@ -765,15 +806,16 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
                     theme::bold(14.0)
                 };
                 cell(ui, rect, cols[0], &r.name, font, ink);
-                cell(
-                    ui,
-                    rect,
-                    cols[1],
-                    &format!("{}/{}", r.players, r.max),
-                    theme::bold(14.0),
-                    ink,
-                );
-                let ping = r.ping_ms.map_or("-".into(), |p| format!("{p} ms"));
+                let seats = if v.offline {
+                    "-".into()
+                } else {
+                    format!("{}/{}", r.players, r.max)
+                };
+                cell(ui, rect, cols[1], &seats, theme::bold(14.0), ink);
+                let ping = r
+                    .ping_ms
+                    .filter(|_| !v.offline)
+                    .map_or("-".into(), |p| format!("{p} ms"));
                 cell(
                     ui,
                     rect,
@@ -825,7 +867,7 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
     let live = v.grey_now().is_none() && !v.offline;
     let gap = 8.0;
     let bw = (w - 2.0 * gap) / 3.0;
-    ui.horizontal(|ui| {
+    ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = gap;
         let size = vec2(bw, 40.0);
         let on = |ui: &mut Ui, ok: bool, label: String, kind: Cab| {
@@ -836,7 +878,19 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
         if on(ui, live, tr!(lang, "lobby.quick"), Cab::Plain) {
             *act = Some(LobbyAction::QuickMatch);
         }
-        if on(ui, can_join, tr!(lang, "lobby.join"), Cab::Go) {
+        let join = ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 2.0;
+            let clicked = on(ui, can_join, tr!(lang, "lobby.join"), Cab::Go);
+            if let Some(why) = v.why_not_join(lang) {
+                ui.label(
+                    egui::RichText::new(why)
+                        .font(theme::body(12.0))
+                        .color(theme::TEXT_DIM),
+                );
+            }
+            clicked
+        });
+        if join.inner {
             *act = v.joinable().map(|r| LobbyAction::Join(r.id.clone()));
         }
         if on(ui, live, tr!(lang, "lobby.host"), Cab::Plain) {
@@ -1032,5 +1086,25 @@ mod tests {
         ] {
             assert_eq!(pad_key(code), None, "{code:#x}");
         }
+    }
+
+    /// JOIN's grey says why, in a few words, in the order `joinable` checks: offline, old list, the row.
+    #[test]
+    fn join_says_why_it_is_grey() {
+        let why = |v: &LobbyView| v.why_not_join(Lang::En);
+        let mut v = LobbyView::sample(Scenario::List);
+        assert_eq!((v.joinable().is_some(), why(&v)), (true, None));
+        v.selected = 1; // TOKYO NIGHT, full
+        assert_eq!(why(&v).as_deref(), Some("FULL"));
+        v.updated_s = Some(STALE_S + 1);
+        assert_eq!(why(&v).as_deref(), Some("List out of date"));
+        v.offline = true;
+        assert_eq!(why(&v).as_deref(), Some("Server offline"));
+        assert_eq!(
+            LobbyView::sample(Scenario::Offline)
+                .why_not_join(Lang::En)
+                .as_deref(),
+            Some("Server offline")
+        );
     }
 }
