@@ -71,6 +71,21 @@ closed, lease ended) = nobody, never the open pool. Rooms need `all` (desk and g
 a desk without the matcher (2010-11, `desk` alone, `--no-gmsvr`) holds no rooms: `CREATE`, `READY` and `CLOSE`
 answer `ERR` as unknown words, `RESERVE room-id` answers `CLOSED`.
 
+## Shop rooms (2017-18)
+
+A player's PC that hosts a shop (the Launcher's `server`, reached through its shop tunnel, `vslink::shop`) can put it
+in a lobby. No matcher needed (`desk` alone or `all --no-gmsvr` hold them too); they share `max_rooms` with VS rooms.
+
+| Ask | Answer |
+|---|---|
+| `CREATE shop ID` (ID = the shop tunnel's iroh EndpointId, 64 hex) | `ROOM id code t 1` (the host on seat 1), `FULL`, `ERR id` |
+| `RESERVE room-id [n]` | `TICKET t n` (lowest free of 2-8, or n), `FULL`, `TAKEN` |
+| `SHOP t [ID]` | a guest's ticket (telling its own tunnel id): `HOST id`; the host's: `GUESTS id ...` (guests that told theirs); else `GONE` |
+| `HEARTBEAT t`, `RELEASE t`, `CLOSE id t` | as for VS rooms: the host's `RELEASE`/`CLOSE` or lease end closes the room |
+
+`LOBBY` lists each room as a `shops` row `{"id","name","seats","max":8,"state","code"}` (`name` = the code): no tunnel
+id, ticket or address. Each tunnel end learns the other's id only through `SHOP` with a ticket of that room.
+
 Two homes behind their own NAT, 0-150 ms apart, through the lobby, 243-246 and vslink: the Docker harness in
 `tests/nat/` (opt-in, `tests/nat/run.sh`).
 

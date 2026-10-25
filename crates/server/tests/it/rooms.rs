@@ -323,15 +323,96 @@ fn no_rooms_without_the_matcher() {
             ("127.0.0.1".into(), 0, Duration::ZERO, Duration::ZERO);
         let d = start(c, Arc::new(|_| {})).unwrap();
         let a = d.addr();
-        for w in [
-            "CREATE vs",
-            "CREATE vs open",
-            "READY 0a1b2c3d t",
-            "CLOSE 0a1b2c3d t",
-        ] {
+        for w in ["CREATE vs", "CREATE vs open", "READY 0a1b2c3d t"] {
             assert!(say(a, w).starts_with("ERR"), "{name} {w}");
+        }
+        // 2017-18 knows CLOSE for its shop rooms, which need no matcher
+        let close = say(a, "CLOSE 0a1b2c3d t");
+        if ed == Edition::E1718 {
+            assert_eq!(close, "GONE");
+        } else {
+            assert!(close.starts_with("ERR"), "{close}");
         }
         assert_eq!(say(a, "RESERVE 0a1b2c3d 2"), "CLOSED");
         assert!(lobby::fetch(a, name).unwrap().vs.is_empty());
     }
+}
+
+/// 2017-18 shop rooms: `CREATE shop ID` lists a room as a shop row (code, x/8, nothing else); a guest's ticket gets the
+/// host's tunnel id and tells its own, the host's ticket gets the guests'; leaving and the host's `CLOSE` as for VS
+/// rooms. No matcher needed: a Launcher's shop desk (`--no-gmsvr`) holds them too.
+#[test]
+fn shop_rooms_swap_tunnel_ids_and_list_nothing_else() {
+    use forza::online::lobby::Peers;
+    let d = desk(|c| c.vs = None);
+    let a = d.addr();
+    let (host_id, guest_id) = ("a1".repeat(32), "b2".repeat(32));
+    assert_eq!(say(a, "CREATE shop 1.2.3.4"), "ERR id");
+    let (id, code, host_t) = match lobby::create_shop(a, &host_id).unwrap() {
+        Created::Room {
+            id,
+            code,
+            ticket,
+            seat: 1,
+        } => (id, code, ticket),
+        r => panic!("{r:?}"),
+    };
+    let row = |a| {
+        lobby::fetch(a, "2017-18")
+            .unwrap()
+            .shops
+            .into_iter()
+            .find(|s| s.id == id)
+    };
+    let r = row(a).expect("the room is a shop row");
+    assert_eq!(
+        (r.code.as_deref(), r.seats, r.max),
+        (Some(code.as_str()), 1, 8)
+    );
+    let guest_t = match lobby::reserve(a, &id).unwrap() {
+        Reserved::Ticket { ticket, seat: 2 } => ticket,
+        r => panic!("{r:?}"),
+    };
+    assert_eq!(
+        lobby::shop_peers(a, &host_t, None).unwrap(),
+        Some(Peers::Guests(vec![]))
+    );
+    assert_eq!(
+        lobby::shop_peers(a, &guest_t, Some(&guest_id)).unwrap(),
+        Some(Peers::Host(host_id.clone()))
+    );
+    assert_eq!(
+        lobby::shop_peers(a, &host_t, None).unwrap(),
+        Some(Peers::Guests(vec![guest_id.clone()]))
+    );
+    assert_eq!(
+        lobby::shop_peers(a, "0000000000000000", None).unwrap(),
+        None,
+        "GONE"
+    );
+    assert_eq!(row(a).unwrap().seats, 2);
+    // privacy: the whole LOBBY line holds neither tunnel id nor ticket
+    let line = say(a, "LOBBY 2017-18");
+    for secret in [&host_id, &guest_id, &host_t, &guest_t] {
+        assert!(!line.contains(secret.as_str()), "{secret} in {line}");
+    }
+    assert!(lobby::heartbeat(a, &guest_t).unwrap());
+    assert!(lobby::release(a, &guest_t).unwrap(), "the guest leaves");
+    assert_eq!(row(a).unwrap().seats, 1);
+    assert!(
+        lobby::close(a, &id, &host_t).unwrap(),
+        "the host closes the room"
+    );
+    assert!(row(a).is_none());
+    assert!(!lobby::heartbeat(a, &host_t).unwrap());
+}
+
+/// A 2010-11 desk knows no shop rooms.
+#[test]
+fn no_shop_rooms_on_2010_11() {
+    let d = desk(|c| {
+        c.edition = Edition::E1011;
+        c.vs = None;
+    });
+    assert!(say(d.addr(), &format!("CREATE shop {}", "a1".repeat(32))).starts_with("ERR"));
 }
