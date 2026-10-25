@@ -498,16 +498,18 @@ fn only_the_rooms_guests_come_in() {
     }));
     p.host = shop::spawn(cfg).unwrap();
     p.host_log = host_lines;
-    // a stranger: the link comes up, then the host closes it
+    // a stranger: the link comes up, then the host closes it, and the stranger stops dialling and says why
     p.join("admit stranger", 0);
     let t = Instant::now();
-    while !logged(&p.host_log, "refused: not in the shop's room") {
+    while !logged(&p.join_log, "the shop refused this PC: not in its room") {
         assert!(
             t.elapsed() < Duration::from_secs(10),
-            "the stranger was let in"
+            "the stranger was let in, or not told"
         );
         thread::sleep(Duration::from_millis(50));
     }
+    assert!(logged(&p.host_log, "refused: not in the shop's room"));
+    assert!(!logged(&p.join_log, "dialling again"));
     // the room's guest: its id on the list before it dials
     drop(p.join.take());
     let key = iroh::SecretKey::generate();

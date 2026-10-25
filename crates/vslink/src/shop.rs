@@ -41,6 +41,8 @@ pub const SHOP_ALPN: &[u8] = b"forza-wccf/shop/1";
 /// The first byte of a stream: what the host dials for it.
 pub const KIND_CONTROL: u8 = 1;
 pub const KIND_DESK: u8 = 2;
+/// The host's close code for a guest its room does not name: the join side stops dialling and says so.
+pub const CLOSE_NOT_IN_ROOM: u8 = 4;
 /// Bytes the streams may hold on this side together (per guest on the host) before the one that overflows is closed.
 pub const STREAM_BUF: usize = 4 << 20;
 /// Streams a guest may hold open at once (the control, the projector-less seat's reconnects, the desk).
@@ -446,23 +448,23 @@ impl Sh {
 
     async fn serve_guest(self: Arc<Self>, conn: Connection) {
         let who = conn.remote_id().fmt_short().to_string();
-        if self.guests.fetch_add(1, Ordering::Relaxed) >= MAX_GUESTS {
-            self.guests.fetch_sub(1, Ordering::Relaxed);
-            (self.log)(&format!("guest {who} refused: {MAX_GUESTS} guests already"));
-            conn.close(1u8.into(), b"full");
-            return;
-        }
+        // the room first, so a stranger never holds one of the guests' places while it is checked
         if let Some(admit) = self.admit.clone() {
             let id = *conn.remote_id().as_bytes();
             let ok = tokio::task::spawn_blocking(move || admit(&id))
                 .await
                 .unwrap_or(false);
             if !ok {
-                self.guests.fetch_sub(1, Ordering::Relaxed);
                 (self.log)(&format!("guest {who} refused: not in the shop's room"));
-                conn.close(4u8.into(), b"not in the room");
+                conn.close(CLOSE_NOT_IN_ROOM.into(), b"not in the room");
                 return;
             }
+        }
+        if self.guests.fetch_add(1, Ordering::Relaxed) >= MAX_GUESTS {
+            self.guests.fetch_sub(1, Ordering::Relaxed);
+            (self.log)(&format!("guest {who} refused: {MAX_GUESTS} guests already"));
+            conn.close(1u8.into(), b"full");
+            return;
         }
         (self.log)(&format!("guest {who} joined"));
         tokio::spawn(watch_path(self.log.clone(), conn.clone()));
@@ -641,6 +643,15 @@ impl Join {
             let why = conn.closed().await;
             inbound.abort();
             self.link.send_replace(None);
+            if let iroh::endpoint::ConnectionError::ApplicationClosed(c) = &why
+                && c.error_code == CLOSE_NOT_IN_ROOM.into()
+            {
+                // dialling again would be refused again: the game finds no shop and says so
+                (self.sh.log)(
+                    "the shop refused this PC: not in its room (join with the room code, in ONLINE)",
+                );
+                return;
+            }
             (self.sh.log)(&format!("link to the shop down: {why}; dialling again"));
             conn = loop {
                 match self.dial().await {
