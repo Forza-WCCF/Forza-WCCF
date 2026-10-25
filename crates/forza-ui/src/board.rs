@@ -2258,7 +2258,7 @@ mod tests {
         assert_eq!((r.card.number, r.slot, r.spot), (101, 0, spot));
     }
 
-    /// A full rub of the leftmost bench card, let go at its far end, keeps the card on the table.
+    /// A full rub of the leftmost bench card from its outer edge, let go at its far end, keeps the card on the table.
     #[test]
     fn a_rubbed_bench_card_is_not_taken_off() {
         use egui::{Event, PointerButton};
@@ -2294,7 +2294,9 @@ mod tests {
             .clear();
         };
         frame(vec![], &mut b, &mut pitch);
-        let at = slot_rects(pitch, pitch.bottom() + 8.0, &b.spots)[11].center();
+        // grabbed at its outer (left) edge, then rubbed a little over a card's width further out
+        let at =
+            slot_rects(pitch, pitch.bottom() + 8.0, &b.spots)[11].left_center() + vec2(2.0, 0.0);
         let press = |pos, pressed| Event::PointerButton {
             pos,
             button: PointerButton::Primary,
@@ -2306,7 +2308,8 @@ mod tests {
             &mut b,
             &mut pitch,
         );
-        let far = at - vec2(card_size(pitch.width()).x, 0.0);
+        // a rub overshoots a little past a card's width
+        let far = at - vec2(card_size(pitch.width()).x * 1.2, 0.0);
         frame(vec![Event::PointerMoved(far)], &mut b, &mut pitch);
         frame(vec![press(far, false)], &mut b, &mut pitch);
         assert_eq!(b.slots[11], Some(0));
