@@ -934,6 +934,21 @@ fn check_lock() -> Result<std::fs::File> {
     Ok(lock)
 }
 
+/// A package's directory relative to the repository root, written the way git prints paths (`/`, no `\\?\` prefix). Cargo
+/// prints `\` on Windows, git `/` everywhere: compared raw they matched no file, so `check quick` ran fmt only.
+fn package_dir(root: &str, manifest: &str) -> Result<String> {
+    let norm = |p: &str| p.replace('\\', "/").trim_start_matches("//?/").to_owned();
+    let (root, manifest) = (norm(root), norm(manifest));
+    let dir = manifest.rsplit_once('/').map_or("", |(d, _)| d);
+    // Windows paths ignore case; the next character must end a folder name (not E:/r vs E:/rr)
+    dir.get(..root.len())
+        .filter(|head| head.eq_ignore_ascii_case(&root))
+        .map(|_| &dir[root.len()..])
+        .filter(|rest| rest.is_empty() || rest.starts_with('/'))
+        .map(|rest| rest.trim_matches('/').to_owned())
+        .with_context(|| format!("package {manifest} is outside the repository {root}"))
+}
+
 /// Workspace packages whose files differ from the base's merge-base with HEAD (committed, staged, unstaged or untracked),
 /// plus every package that depends on one by path. A change to xtask, Cargo.lock, a Cargo.toml or the toolchain means all.
 fn changed_packages(root: &Path, base: &str) -> Result<Option<BTreeSet<String>>> {
@@ -943,7 +958,8 @@ fn changed_packages(root: &Path, base: &str) -> Result<Option<BTreeSet<String>>>
         Ok(String::from_utf8(o.stdout)?)
     };
     let mb = git(&["merge-base", base, "HEAD"])?.trim().to_owned();
-    let mut files = git(&["diff", "--name-only", &mb])?;
+    // no renames: the old path of a moved file is a change in its old package too
+    let mut files = git(&["diff", "--name-only", "--no-renames", &mb])?;
     files += &git(&["ls-files", "--others", "--exclude-standard"])?;
     let meta = Command::new("cargo")
         .args(["metadata", "--format-version", "1", "--no-deps", "--locked"])
@@ -955,12 +971,9 @@ fn changed_packages(root: &Path, base: &str) -> Result<Option<BTreeSet<String>>>
     // (name, dir relative to the root, names of path dependencies)
     let info: Vec<(String, String, Vec<String>)> = pkgs
         .iter()
-        .map(|p| {
-            let dir = Path::new(p["manifest_path"].as_str().unwrap_or_default())
-                .parent()
-                .and_then(|d| d.strip_prefix(root).ok())
-                .map(|d| d.display().to_string())
-                .unwrap_or_default();
+        .map(|p| -> Result<_> {
+            let manifest = p["manifest_path"].as_str().unwrap_or_default();
+            let dir = package_dir(&root.display().to_string(), manifest)?;
             let deps = p["dependencies"]
                 .as_array()
                 .into_iter()
@@ -968,9 +981,9 @@ fn changed_packages(root: &Path, base: &str) -> Result<Option<BTreeSet<String>>>
                 .filter(|d| !d["path"].is_null())
                 .filter_map(|d| d["name"].as_str().map(str::to_owned))
                 .collect();
-            (p["name"].as_str().unwrap_or_default().to_owned(), dir, deps)
+            Ok((p["name"].as_str().unwrap_or_default().to_owned(), dir, deps))
         })
-        .collect();
+        .collect::<Result<_>>()?;
     let mut hit = BTreeSet::new();
     for f in files.lines() {
         let xtask = f == "xtask" || f.starts_with("xtask/");
@@ -1000,6 +1013,33 @@ fn changed_packages(root: &Path, base: &str) -> Result<Option<BTreeSet<String>>>
         }
         hit.extend(more);
     }
+}
+
+/// The cargo arguments of a scope (`--workspace` or `-p` pairs) split by target: forza-panel is a 32-bit crate, empty on
+/// the 64-bit target, so its lints and tests (the fakegame stages too) run for [`PANEL_TARGET`] or not at all.
+fn target_scopes(scope: &[String]) -> Vec<(&'static str, Vec<String>)> {
+    let all = scope.first().is_some_and(|a| a == "--workspace");
+    let has_panel = all || scope.iter().any(|a| a == "forza-panel");
+    let rest: Vec<String> = if all {
+        ["--workspace", "--exclude", "forza-panel"]
+            .map(Into::into)
+            .into()
+    } else {
+        scope
+            .chunks(2)
+            .filter(|c| c[1] != "forza-panel")
+            .flatten()
+            .cloned()
+            .collect()
+    };
+    let panel = ["-p", "forza-panel"].map(String::from).to_vec();
+    [
+        (TARGET, rest),
+        (PANEL_TARGET, if has_panel { panel } else { vec![] }),
+    ]
+    .into_iter()
+    .filter(|(_, s)| !s.is_empty())
+    .collect()
 }
 
 /// `cargo xtask check quick`: fmt, clippy and tests for the packages changed since `base`; no release build, kit or smoke.
@@ -1041,13 +1081,18 @@ fn quick(root: &Path, stage_root: &Path, base: &str) -> Result<()> {
     if scope.is_empty() {
         return Ok(());
     }
-    let mut clippy = rust("clippy", root);
-    clippy.args(["--locked", "--all-targets", "--target", TARGET]);
-    clippy.args(&scope).args(["--", "-D", "warnings"]);
-    run_ok(clippy, "cargo clippy")?;
-    let mut test = rust("test", root);
-    test.args(["--locked", "--target", TARGET]).args(&scope);
-    run_ok(test, "cargo test")?;
+    let runs = target_scopes(&scope);
+    for (target, scope) in &runs {
+        let mut clippy = rust("clippy", root);
+        clippy.args(["--locked", "--all-targets", "--target", target]);
+        clippy.args(scope).args(["--", "-D", "warnings"]);
+        run_ok(clippy, "cargo clippy")?;
+    }
+    for (target, scope) in &runs {
+        let mut test = rust("test", root);
+        test.args(["--locked", "--target", target]).args(scope);
+        run_ok(test, "cargo test")?;
+    }
     println!("quick check passed (no release build, no installer smoke, no kit tests)");
     Ok(())
 }
@@ -1116,17 +1161,20 @@ fn fmt_clippy(root: &Path, failed: &mut Vec<String>) {
     fmt.args(["fmt", "--all", "--check"]).current_dir(root);
     cargo_step("workspace: cargo fmt", fmt, failed);
     let mut clippy = rust("clippy", root);
+    clippy.args(["--locked", "--all-targets", "--target", TARGET]);
     clippy.args([
-        "--locked",
         "--workspace",
-        "--all-targets",
-        "--target",
-        TARGET,
+        "--exclude",
+        "forza-panel",
         "--",
         "-D",
         "warnings",
     ]);
     cargo_step("workspace: cargo clippy", clippy, failed);
+    let mut clippy = rust("clippy", root);
+    clippy.args(["--locked", "--all-targets", "--target", PANEL_TARGET]);
+    clippy.args(["-p", "forza-panel", "--", "-D", "warnings"]);
+    cargo_step("forza-panel (32-bit): cargo clippy", clippy, failed);
 }
 
 /// `ci`: the GPU snapshot tests are skipped.
@@ -1153,11 +1201,24 @@ fn check(
 
     // the Rust workspace, xtask included: format, lint, tests
     fmt_clippy(root, &mut ck.failed);
-    cargo_step(
-        "workspace: cargo test",
-        tests(root, ci, test_args),
-        &mut ck.failed,
-    );
+    for (what, target, scope) in [
+        (
+            "workspace: cargo test",
+            TARGET,
+            ["--workspace", "--exclude", "forza-panel"].as_slice(),
+        ),
+        (
+            "forza-panel (32-bit): cargo test",
+            PANEL_TARGET,
+            ["-p", "forza-panel"].as_slice(),
+        ),
+    ] {
+        cargo_step(
+            what,
+            tests(root, ci, test_args, target, scope),
+            &mut ck.failed,
+        );
+    }
 
     scrub(root, &mut ck.failed)?;
     installer_checks(root, stage_root, &mut ck.failed);
@@ -1176,7 +1237,7 @@ fn check(
 /// The workspace's tests: cargo-nextest when it is installed (one process per test, all cores, `--partition` for
 /// split CI jobs), else `cargo test`. `ci` skips the GPU snapshot tests; `--fast` runs them in the kits' profile.
 /// nextest runs no doctests; the workspace has none.
-fn tests(root: &Path, ci: bool, extra: &[String]) -> Command {
+fn tests(root: &Path, ci: bool, extra: &[String], target: &str, scope: &[&str]) -> Command {
     let nextest = Command::new("cargo")
         .args(["nextest", "--version"])
         .stdout(Stdio::null())
@@ -1187,7 +1248,7 @@ fn tests(root: &Path, ci: bool, extra: &[String]) -> Command {
     if nextest {
         test.arg("run");
     }
-    test.args(["--locked", "--workspace", "--target", TARGET]);
+    test.args(["--locked", "--target", target]).args(scope);
     if FAST.load(Ordering::Relaxed) {
         test.args([
             if nextest {
@@ -2170,6 +2231,48 @@ fn walk(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_32_bit_panel_is_linted_and_tested_for_its_own_target() {
+        let v = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let all = target_scopes(&v(&["--workspace"]));
+        assert_eq!(
+            all[0],
+            (TARGET, v(&["--workspace", "--exclude", "forza-panel"]))
+        );
+        assert_eq!(all[1], (PANEL_TARGET, v(&["-p", "forza-panel"])));
+        let some = target_scopes(&v(&["-p", "forza", "-p", "forza-panel"]));
+        assert_eq!(some[0], (TARGET, v(&["-p", "forza"])));
+        assert_eq!(some[1], (PANEL_TARGET, v(&["-p", "forza-panel"])));
+        assert_eq!(
+            target_scopes(&v(&["-p", "forza"])),
+            [(TARGET, v(&["-p", "forza"]))]
+        );
+        assert_eq!(
+            target_scopes(&v(&["-p", "forza-panel"])),
+            [(PANEL_TARGET, v(&["-p", "forza-panel"]))]
+        );
+    }
+
+    #[test]
+    fn package_dirs_match_git_paths_from_windows_and_git_style_roots() {
+        let manifest = r"E:\forza-wccf\crates\launcher\Cargo.toml";
+        for (root, manifest) in [
+            (r"E:\forza-wccf", manifest),
+            (r"E:\forza-wccf", "E:/forza-wccf/crates/launcher/Cargo.toml"),
+            ("E:/forza-wccf", manifest),
+            (r"e:\Forza-WCCF", manifest),
+            (r"\\?\E:\forza-wccf", manifest),
+        ] {
+            assert_eq!(package_dir(root, manifest).unwrap(), "crates/launcher");
+        }
+        // git prints `crates/launcher/src/main.rs`; the old code compared it with `crates\launcher/`
+        let dir = package_dir(r"E:\r", r"E:\r\crates\launcher\Cargo.toml").unwrap();
+        assert!("crates/launcher/src/main.rs".starts_with(&format!("{dir}/")));
+        assert_eq!(package_dir(r"E:\r", r"E:\r\Cargo.toml").unwrap(), "");
+        assert!(package_dir(r"E:\r", r"D:\x\Cargo.toml").is_err());
+        assert!(package_dir(r"E:\r", r"E:\rr\Cargo.toml").is_err());
+    }
 
     #[test]
     fn shipped_docs_never_say_kit() {
