@@ -92,6 +92,7 @@ pub(crate) const PANEL_UP: &str = "first frame shown";
 
 const BUSY_TEXT: &str =
     "Not started: another Launcher window is setting up or starting the game. Try again when it is done.";
+const PICTURES_BUSY_TEXT: &str = "  FAIL  The game is running or starting. Close its window, then try again.";
 const NOT_SET_UP_TEXT: &str = "Not set up yet. Open Launcher.exe and press SET UP.";
 pub const NOT_GUARDED_TEXT: &str = "Not started: the network guard is not in place, and the game could change this PC's \
     network settings. Press SET UP in Launcher.exe, then start again. Problem:";
@@ -605,6 +606,16 @@ fn pack_of(kit: &Kit) -> Option<PathBuf> {
 /// data\\settings.json "card_pictures": "hq" the high-quality pack at "card_pack" over them. The run only reads them.
 /// `true` when they are in place.
 pub fn make_pictures(kit: &Kit, p: &Params, ui: &dyn Ui) -> bool {
+    // like SET UP (setup.rs `admitted`): never under a run, or beside a start or another setup, in any Launcher window
+    let Some(_admitted) = admit(kit).filter(|_| !any_on(kit)) else {
+        ui.say(PICTURES_BUSY_TEXT);
+        return false;
+    };
+    pictures_held(kit, p, ui)
+}
+
+/// [`make_pictures`] inside a start, which holds the admission and is on.
+fn pictures_held(kit: &Kit, p: &Params, ui: &dyn Ui) -> bool {
     let Some(game) = game_folder(kit, p) else {
         ui.say("  No game set up yet. Card pictures are made during setup.");
         return false;
@@ -1319,12 +1330,13 @@ impl Run<'_> {
                 self.ensure_hook()?;
             }
         }
-        // here, with the start admitted, unrefused, guarded and the folder repaired: nothing else writes the pictures
-        // and no refusal wastes the wait; a failure never stops the start
-        if pictures_due(kit, p) {
+        // here the start is admitted (nothing else writes the pictures), unrefused, guarded and the folder repaired; a
+        // server that does not answer is only found at step 2, after this wait. Not beside a server on this PC: its
+        // game reads the folder. A failure never stops the start.
+        if !self.beside_server && pictures_due(kit, p) {
             self.ui.updating_pictures();
             self.say("Updating card pictures...");
-            if !make_pictures(kit, p, self.ui) {
+            if !pictures_held(kit, p, self.ui) {
                 self.say("  Playing with the card pictures that exist.");
             }
         }
