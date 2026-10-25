@@ -155,6 +155,12 @@ pub fn id_text(id: &EndpointId) -> String {
     id.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// The id an endpoint with the key at `key` has (the key made on first use, as [`spawn`] does): a host registers it
+/// in its shop room before it listens, a guest tells it before it dials.
+pub fn own_id(key: &Path) -> io::Result<EndpointId> {
+    Ok(*load_key(key)?.public().as_bytes())
+}
+
 /// A datagram across: `[flow u32 LE][payload]`. Flow numbers are never reused within a run, so a late datagram of a
 /// flow that is gone finds no socket instead of the wrong one.
 pub fn encode_flow(flow: u32, payload: &[u8]) -> Vec<u8> {
