@@ -660,7 +660,7 @@ unsafe extern "system" fn proj_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) 
 /// FreeLibrary: everything back as it was, on the thread that unloads us. The real game never unloads the panel;
 /// fakegame does it between frames, so no Present or window message is running in our code.
 fn unload() {
-    latch_up();
+    latch_up(); // one SendInput under the loader lock: user32 is loaded already, and a key left down is worse
     if !INIT_DONE.load(Relaxed) {
         log("unloaded before init finished: the init thread would run in freed code"); // ponytail: no wait under the loader lock
     }
@@ -1929,9 +1929,13 @@ impl Render {
                 "latch {} -> key 0x{want:02X} down",
                 self.st.latched.unwrap_or_default()
             ));
-            // stored first: a focus loss in between lets it up
+            // stored first; a focus loss between the store and the key-down (latch_up on the window's thread) has
+            // already sent its key-up, so the key goes up again here
             LATCH_VK.store(want, Relaxed);
             kit::send_key(want, false, log);
+            if LATCH_VK.load(Relaxed) != want {
+                kit::send_key(want, true, log);
+            }
         }
         self.latch = want;
     }
