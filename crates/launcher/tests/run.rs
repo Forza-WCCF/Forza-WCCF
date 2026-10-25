@@ -99,6 +99,21 @@ fn scratch_kit(top: &Path) -> (Kit, PathBuf) {
     (Kit::at(kit), seat)
 }
 
+/// A card folder from an older version, with one picture in it: a start that makes the pictures wipes it.
+fn old_pictures(kit: &Kit) -> PathBuf {
+    let cards = kit.cache().join("cards");
+    fs::create_dir_all(&cards).unwrap();
+    fs::write(cards.join("source.txt"), "1 game").unwrap();
+    fs::write(cards.join("7_f.jpg"), b"old").unwrap();
+    cards
+}
+
+/// The pictures are made late in a start, after every refusal: a refused or stopped start leaves them as they were.
+fn assert_pictures_untouched(cards: &Path, ui: &Said) {
+    assert!(cards.join("7_f.jpg").is_file(), "{}", ui.text());
+    assert!(!ui.text().contains("card pictures"), "{}", ui.text());
+}
+
 fn params(tag: &str, shared: Arc<Shared>) -> Params {
     let pid = std::process::id();
     Params {
@@ -273,6 +288,7 @@ fn a_game_not_set_up_is_refused() {
 fn an_old_hook_is_set_up_first() {
     let top = tempfile::Builder::new().prefix("wccf-run-").tempdir().unwrap();
     let (kit, seat) = scratch_kit(top.path());
+    let cards = old_pictures(&kit);
     fs::write(seat.join("wccfk.dll"), b"an older kit's hook").unwrap();
     fs::remove_file(kit.cache().join("catalogue.tsv")).unwrap();
     let ui = Said::default();
@@ -283,6 +299,7 @@ fn an_old_hook_is_set_up_first() {
     assert!(said.contains("Updating the game's helper file (wccfk.dll)"), "{said}");
     assert!(said.contains("Setup did not finish"), "{said}");
     assert!(!run::is_on(&kit, Kind::Run));
+    assert_pictures_untouched(&cards, &ui); // the repair comes first, and failed
 }
 
 /// The 2010-11 guard: with the kit's own wccfk.dll everywhere, a program that does not load it (fakegame.exe has no
@@ -308,6 +325,7 @@ fn a_program_without_the_hook_starts_nothing() {
 fn a_start_and_setup_wait_their_turn() {
     let top = tempfile::Builder::new().prefix("wccf-run-").tempdir().unwrap();
     let (kit, _) = scratch_kit(top.path());
+    let cards = old_pictures(&kit);
     let (held, free) = (std::sync::Barrier::new(2), std::sync::Barrier::new(2));
     thread::scope(|s| {
         s.spawn(|| {
@@ -324,6 +342,7 @@ fn a_start_and_setup_wait_their_turn() {
         free.wait(); // before the assertions: a failed one must not leave the thread waiting
         assert_eq!(rc, run::REFUSED, "{}", ui.text());
         assert!(ui.text().contains("another Launcher window"), "{}", ui.text());
+        assert_pictures_untouched(&cards, &ui);
         assert!(!on);
         assert_eq!(setup, launcher::setup::RUNNING);
     });

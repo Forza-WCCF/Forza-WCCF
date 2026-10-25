@@ -104,6 +104,8 @@ pub trait Ui {
         false
     }
     fn running(&self, _up: bool) {}
+    /// The start is about to make the card pictures (a while): the window's status line.
+    fn updating_pictures(&self) {}
     /// SAVE LOGS asked by the panel (data\savelogs.request): ask where, write the ZIP, answer in data\savelogs.result.
     fn save_logs(&self, _kit: &Path, _game: &Path) {}
     /// REPORT A PROBLEM asked by the panel (data\report.request): the window opens its report dialog.
@@ -484,11 +486,6 @@ fn stop_command(kit: &Kit, p: &Params, force: bool, check: bool, ui: &dyn Ui) ->
 
 /// Starts and supervises; a full RESTART NOW starts again with what a plain start chooses.
 fn play(kit: &Kit, p: &Params, mode: Option<Mode>, debug: bool, ui: &dyn Ui) -> i32 {
-    // an install made without pictures, or by an older version (an update whose setup did not run): make them now;
-    // a failure is said and the game starts with what exists
-    if pictures_due(kit, p) {
-        make_pictures(kit, p, ui);
-    }
     let mut mode = mode;
     loop {
         let m = mode.take().unwrap_or_else(|| plain_mode(kit, p, ui));
@@ -580,13 +577,27 @@ fn game_folder(kit: &Kit, p: &Params) -> Option<PathBuf> {
     find_game_named(&set, p.programs.clone())
 }
 
-/// Whether PLAY has to make the card pictures first: a game is set up and the folder is missing or from an older version.
-pub fn pictures_due(kit: &Kit, p: &Params) -> bool {
-    due(&kit.cache().join("cards"), game_folder(kit, p).is_some())
+/// Whether a start has to make the card pictures first (an install made without them, or by an older version: an
+/// update whose setup did not run): a game is set up and the folder is not as `ensure` wants it, unless it already
+/// failed for this version (SET UP and `Launcher.exe pictures` try again).
+fn pictures_due(kit: &Kit, p: &Params) -> bool {
+    due(
+        &kit.cache().join("cards"),
+        game_folder(kit, p).is_some(),
+        pack_of(kit).as_deref(),
+    )
 }
 
-fn due(cards: &Path, game: bool) -> bool {
-    game && !forza::cards::pictures::is_current(cards)
+fn due(cards: &Path, game: bool, pack: Option<&Path>) -> bool {
+    game && !forza::cards::pictures::is_wanted(cards, pack)
+}
+
+/// The high-quality pack the settings choose, when it is there.
+fn pack_of(kit: &Kit) -> Option<PathBuf> {
+    let s = kit.settings();
+    (s["card_pictures"] == "hq")
+        .then(|| s["card_pack"].as_str().map(PathBuf::from).filter(|p| p.is_file()))
+        .flatten()
 }
 
 /// The board's card pictures, made at setup (and again when Launcher's choice changes) by
@@ -602,13 +613,9 @@ pub fn make_pictures(kit: &Kit, p: &Params, ui: &dyn Ui) -> bool {
         Edition::E1011 => "1011",
         Edition::E1718 => "1718",
     };
-    let s = kit.settings();
-    let mut pack = None;
-    if s["card_pictures"] == "hq" {
-        pack = s["card_pack"].as_str().map(PathBuf::from).filter(|p| p.is_file());
-        if pack.is_none() {
-            ui.say("  High-quality card pack not found. Using the game's own pictures.");
-        }
+    let pack = pack_of(kit);
+    if pack.is_none() && kit.settings()["card_pictures"] == "hq" {
+        ui.say("  High-quality card pack not found. Using the game's own pictures.");
     }
     let say = |l: &str| ui.say(l);
     match forza::cards::pictures::ensure(&game, ed, &kit.cache().join("cards"), pack.as_deref(), &say) {
@@ -1310,6 +1317,15 @@ impl Run<'_> {
             if self.edition == Edition::E1011 {
                 // after the text switch, which puts programs back: 2017-18's guard is checked in `start`
                 self.ensure_hook()?;
+            }
+        }
+        // here, with the start admitted, unrefused, guarded and the folder repaired: nothing else writes the pictures
+        // and no refusal wastes the wait; a failure never stops the start
+        if pictures_due(kit, p) {
+            self.ui.updating_pictures();
+            self.say("Updating card pictures...");
+            if !make_pictures(kit, p, self.ui) {
+                self.say("  Playing with the card pictures that exist.");
             }
         }
         // the card reader is not running yet in any mode; nor FPR_Emu or the overlay, which read the table
@@ -2388,23 +2404,34 @@ impl Drop for Run<'_> {
 mod tests {
     use super::due;
     use std::fs;
+    use std::path::Path;
 
     #[test]
-    fn pictures_are_made_at_play_when_missing_or_from_an_older_version() {
+    fn pictures_are_made_at_play_when_missing_older_or_changed_but_not_after_a_failure() {
+        let v = forza::cards::pictures::VERSION;
         let d = tempfile::tempdir().unwrap();
         let cards = d.path().join("cards");
-        assert!(due(&cards, true), "no folder: made, as before");
-        assert!(!due(&cards, false), "no game set up: nothing to make them from");
+        assert!(due(&cards, true, None), "no folder: made, as before");
+        assert!(!due(&cards, false, None), "no game set up: nothing to make them from");
         fs::create_dir_all(&cards).unwrap();
-        for old in ["game", "1 game", "1 hq 5 P"] {
-            fs::write(cards.join("source.txt"), old).unwrap();
-            assert!(due(&cards, true), "{old:?}: an older marker is made again");
-            assert!(!due(&cards, false), "{old:?}: still no game");
+        for old in [
+            "game".to_owned(),
+            "1 game".into(),
+            "1 hq 5 P".into(),
+            format!("{} game", v - 1),
+        ] {
+            fs::write(cards.join("source.txt"), &old).unwrap();
+            assert!(due(&cards, true, None), "{old:?}: an older marker is made again");
+            assert!(!due(&cards, false, None), "{old:?}: still no game");
         }
-        let v = forza::cards::pictures::VERSION;
-        for now in [format!("{v} game"), format!("{v} hq 5 P")] {
-            fs::write(cards.join("source.txt"), &now).unwrap();
-            assert!(!due(&cards, true), "{now:?}: current, nothing to do");
-        }
+        fs::write(cards.join("source.txt"), format!("{v} game")).unwrap();
+        assert!(!due(&cards, true, None), "current: nothing to do");
+        assert!(
+            due(&cards, true, Some(Path::new("pack.zip"))),
+            "a pack chosen since: made again"
+        );
+        // a failed try is not repeated at every PLAY, with or without a pack
+        fs::write(cards.join("source.txt"), format!("{v} failed")).unwrap();
+        assert!(!due(&cards, true, None) && !due(&cards, true, Some(Path::new("pack.zip"))));
     }
 }

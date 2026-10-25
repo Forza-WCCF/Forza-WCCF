@@ -345,6 +345,10 @@ fn start(steps: Vec<Step>) -> bool {
 struct WindowUi;
 
 impl run::Ui for WindowUi {
+    fn updating_pictures(&self) {
+        say(t("launcher.msg_updating_pictures"), 0);
+    }
+
     fn say(&self, line: &str) {
         stepped(line);
         log(line);
@@ -976,16 +980,7 @@ impl App {
             refuse(write_failed(&path, &e));
             return;
         }
-        // run::play makes them first (an update whose setup did not run); this is the wait's status line
-        let due = run::pictures_due(kit, &Params::of(kit));
-        say(
-            t(if due {
-                "launcher.msg_updating_pictures"
-            } else {
-                "launcher.msg_starting"
-            }),
-            0,
-        );
+        say(t("launcher.msg_starting"), 0);
         start(vec![Step::Game(Vec::new())]);
     }
 
