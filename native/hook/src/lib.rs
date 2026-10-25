@@ -66,7 +66,7 @@ extern "system" fn DllMain(
         unsafe { DisableThreadLibraryCalls(inst) };
         log::open();
         devices::VERBOSE.store(
-            std::env::var_os("MXHOOK_VERBOSE").is_some(),
+            log::env_set(windows_sys::w!("MXHOOK_VERBOSE")),
             std::sync::atomic::Ordering::Relaxed,
         );
         if !install() {
@@ -76,7 +76,8 @@ extern "system" fn DllMain(
     1
 }
 
-/// The hooks, in the order the log names them. False (2010-11 only): the DHCP calls may still reach the host.
+/// The hooks, in the order the log names them. False (2010-11 and its server): the DHCP calls may
+/// still reach the host.
 #[cfg(target_arch = "x86")]
 fn install() -> bool {
     use log::log;
@@ -119,8 +120,9 @@ fn install() -> bool {
         b(host),
         b(inet)
     );
-    // fail closed (2010-11): an iphlpapi import that could not be read or patched may still release the host's lease
-    if cfg!(feature = "e1011") && dhcp_unsure {
+    // fail closed (2010-11 and its server: netguard skips an IPHLPAPI import without a name table): an iphlpapi
+    // import that could not be read or patched may still release the host's lease
+    if cfg!(any(feature = "e1011", feature = "e1011-server")) && dhcp_unsure {
         log!(
             "REFUSING TO RUN: the iphlpapi.dll imports could not be patched, so IpReleaseAddress/IpRenewAddress may reach the host"
         );

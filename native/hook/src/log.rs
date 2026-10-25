@@ -13,18 +13,35 @@ use windows_sys::Win32::Storage::FileSystem::{
     CREATE_ALWAYS, CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE,
     FlushFileBuffers, WriteFile,
 };
+use windows_sys::Win32::System::Environment::GetEnvironmentVariableW;
 
 static FILE: AtomicUsize = AtomicUsize::new(0);
 static LOCK: Mutex<()> = Mutex::new(());
 
+/// Opens the log on the stack only, as the C did: DllMain must not abort on a failed allocation.
 pub fn open() {
-    let Some(dir) = std::env::var_os("MXHOOK_LOG_DIR").filter(|d| !d.is_empty()) else {
-        return;
-    };
-    let path = std::path::Path::new(&dir).join(format!("mxhook_{}.log", std::process::id()));
-    let wide: Vec<u16> = std::os::windows::ffi::OsStrExt::encode_wide(path.as_os_str())
-        .chain([0])
-        .collect();
+    const DIR: usize = 400;
+    let mut wide = [0u16; DIR + 32];
+    // SAFETY: a NUL-terminated name and a buffer of DIR characters
+    let n = unsafe {
+        GetEnvironmentVariableW(
+            windows_sys::w!("MXHOOK_LOG_DIR"),
+            wide.as_mut_ptr(),
+            DIR as u32,
+        )
+    } as usize;
+    if n == 0 || n >= DIR {
+        return; // unset, empty or too long: no log
+    }
+    let mut name = [0u8; 31];
+    let mut c = Cursor::new(&mut name[..]);
+    let _ = write!(c, "\\mxhook_{}.log", std::process::id()); // at most 26 bytes
+    let len = c.position() as usize;
+    let name = &name[..len];
+    for (w, &b) in wide[n..].iter_mut().zip(name) {
+        *w = u16::from(b);
+    }
+    wide[n + name.len()] = 0;
     // SAFETY: a NUL-terminated path; the handle lives as long as the process
     let h = unsafe {
         CreateFileW(
@@ -40,6 +57,12 @@ pub fn open() {
     if h != INVALID_HANDLE_VALUE {
         FILE.store(h as usize, Relaxed);
     }
+}
+
+/// Is the environment variable `name` set (and not empty)? No allocation (DllMain).
+pub fn env_set(name: *const u16) -> bool {
+    // SAFETY: a NUL-terminated name; a zero-size query writes nothing
+    unsafe { GetEnvironmentVariableW(name, std::ptr::null_mut(), 0) > 0 }
 }
 
 /// Writes one line; the caller's last-error survives it.

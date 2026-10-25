@@ -116,7 +116,10 @@ The tree (`crates/linux-host/README.md` describes each part), as `wccf`:
 of `/usr/lib/i386-linux-gnu/wine/i386-windows/winmm.dll` from one as its second argument). The server hook's
 self-tests run under Wine in a folder with `winmm.dll`, `winmm_orig.dll`, `netguard.dll` and the three tests, with
 `WINEDLLOVERRIDES="winmm,winmm_orig,netguard=n"`; each prints PASS: `wine msgguard_test.exe`,
-`MXHOOK_SLEEPFIX=1 wine sleepfix_test.exe`, `MXHOOK_SPINFIX=1 wine spinfix_test.exe`. The supervisor refuses to start when a file in
+`MXHOOK_SLEEPFIX=1 wine sleepfix_test.exe`, `MXHOOK_SPINFIX=1 wine spinfix_test.exe`. The hook refuses to run when it
+cannot read the program's IPHLPAPI import: `wine test_dhcphook.exe winmm.dll` (the kit's `source/build/`) passes, and on
+a copy with that import's name table (OriginalFirstThunk) zeroed it fails `wccfk.dll loads` and the hook's log says
+`REFUSING TO RUN`. The supervisor refuses to start when a file in
 `evidence/runtime.sha256` changed; write the file again after each deliberate change.
 
 Before the first start, check the services alone (no game, loopback ports):
