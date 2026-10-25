@@ -102,6 +102,12 @@ pub fn aime_hashed(mode: &Mode, own_store: bool) -> bool {
     }
 }
 
+/// The seat joined at `ip` plays on this PC's store ([`aime_hashed`]): `ip` is this PC, and not through the shop
+/// tunnel, whose local end is 127.0.0.1 although the shop's game server is the host's.
+pub fn own_store(ip: &str, tunnelled: bool) -> bool {
+    !tunnelled && is_this_pc(ip)
+}
+
 /// `ip` is this PC: a loopback address, or one a socket here can bind (one of this PC's own addresses).
 pub fn is_this_pc(ip: &str) -> bool {
     ip.parse::<std::net::IpAddr>()
@@ -490,6 +496,12 @@ mod tests {
         }
         let guest = Mode::Remote("192.0.2.1".into(), None);
         assert!(aime_hashed(&guest, is_this_pc("192.0.2.1")));
+        // a guest through the tunnel joins 127.0.0.1, and is still a guest
+        assert!(own_store("127.0.0.1", false) && !own_store("127.0.0.1", true));
+        assert!(aime_hashed(
+            &Mode::Remote("127.0.0.1".into(), None),
+            own_store("127.0.0.1", true)
+        ));
     }
 
     #[test]

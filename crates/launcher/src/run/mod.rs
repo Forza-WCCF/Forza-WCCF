@@ -1394,7 +1394,8 @@ impl Run<'_> {
                     .ok_or_else(|| Failed(format!("\"{entry}\" is not a server this PC can find")))?,
             };
             self.remote = Some((ip.clone(), desk));
-            self.own_store = rules::is_this_pc(&ip);
+            // through the tunnel the shop is at 127.0.0.1 too, but its game server is the host's
+            self.own_store = rules::own_store(&ip, shop.is_some());
             if !answers(&ip, p.control_port) {
                 return Err(Failed(format!(
                     "the server at {entry} does not answer on port {}. Check that it is running and the port is open. \
@@ -1533,6 +1534,12 @@ impl Run<'_> {
             ("WCCF_RELAY_PORT".to_owned(), self.p.relay_port.to_string()),
             ("WCCF_INBOX_PORT".to_owned(), self.p.inbox_port.to_string()),
         ]);
+        // 2017-18: guests come through the shop tunnel, so the desk and relay listen on loopback only (no firewall
+        // prompt, nothing open on the LAN) unless data\settings.json "shop_lan": true asks for the plain-address path
+        let lan = self.edition == Edition::E1011 || self.kit.settings()["shop_lan"].as_bool() == Some(true);
+        if !lan {
+            env.push(("WCCF_BIND".to_owned(), "127.0.0.1".to_owned()));
+        }
         let mut cmd = Command::new(self.kit.program("forza-server.exe"));
         cmd.args(["--edition", self.edition.name(), "all"]);
         if self.edition == Edition::E1718 {
@@ -1593,6 +1600,9 @@ impl Run<'_> {
                 "Open TCP ports {}, {} and {}, and UDP {}. Launcher.exe stop ends it.",
                 self.p.control_port, self.p.seat_port, self.p.inbox_port, self.p.relay_port
             ),
+            Edition::E1718 if !lan => "Seat desk and relay on this PC only (\"shop_lan\": true in data\\settings.json \
+                                         opens them to the network). Launcher.exe stop ends it."
+                .to_owned(),
             Edition::E1718 => format!(
                 "Open TCP ports {} and {}, and UDP {}. Launcher.exe stop ends it.",
                 self.p.control_port, self.p.seat_port, self.p.relay_port
