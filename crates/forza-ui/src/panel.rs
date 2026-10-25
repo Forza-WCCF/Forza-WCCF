@@ -1359,6 +1359,16 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
             Shape::Key,
             false,
         );
+        let cap = deck_keycap(st, "CARD");
+        let p = ui.painter();
+        let w = keycap_width(p, &cap, 100.0);
+        if w > 0.0 {
+            let r = Rect::from_center_size(
+                card_key(area).center_bottom() + vec2(0.0, 4.0 + KEYCAP_H / 2.0),
+                vec2(w, KEYCAP_H),
+            );
+            paint_keycap(p, r, &cap);
+        }
     }
     st.pressed = st.pressed.or(pressed);
 }
