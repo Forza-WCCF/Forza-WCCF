@@ -128,7 +128,7 @@ pub fn set_picture_dir(ctx: &egui::Context, dir: Option<std::path::PathBuf>) {
 }
 
 /// The card face in a picture of `size`, whole (never cut): a square picture is the game's 128x128 one, its face
-/// the left 88 columns; any other is the face itself (the pack's scans). Returns its uv part and its aspect.
+/// the left 88 columns; any other is the face itself (the pack's scans, the album's 256x357). Returns its uv part and its aspect.
 fn face_uv(size: Vec2) -> (Rect, f32) {
     let fw = if size.x == size.y { 88.0 / 128.0 } else { 1.0 };
     (
@@ -148,15 +148,23 @@ fn picture_dir(ctx: &egui::Context) -> Option<std::path::PathBuf> {
         .flatten()
 }
 
-/// The card's picture file `<number>.<ext>` in the folder as a ready texture; `None` while it loads or when there is
+/// The card's picture files in the order the board takes them: the game's album art, the pack's scan, the game's face.
+fn picture_names(number: u32) -> [String; 3] {
+    [
+        format!("{number}_f.jpg"),
+        format!("{number}.jpg"),
+        format!("{number}.png"),
+    ]
+}
+
+/// The picture file `file` in the folder as a ready texture; `None` while it loads or when there is
 /// no such file (a miss is remembered: the folder is made once, at setup).
 fn load_picture(
     ctx: &egui::Context,
     dir: &std::path::Path,
-    number: u32,
-    ext: &str,
+    file: &str,
 ) -> Option<(egui::TextureId, Vec2)> {
-    let file = dir.join(format!("{number}.{ext}"));
+    let file = dir.join(file);
     // `file:///C:\...` on Windows, `file:///home/...` elsewhere: what egui_extras' file loader parses
     let uri = format!(
         "file:///{}",
@@ -298,8 +306,8 @@ pub struct Look {
     pub square: bool,
 }
 
-/// The card face, upright at the real card's shape ([`CARD_ASPECT`]): the card's picture whole, never cut (the pack's
-/// scan `<number>.jpg`, else the game's face `<number>.png`, letterboxed on a dark ground when its shape differs),
+/// The card face, upright at the real card's shape ([`CARD_ASPECT`]): the card's picture whole, never cut (the game's
+/// album art `<number>_f.jpg`, else the pack's scan `<number>.jpg`, else the game's face `<number>.png`, letterboxed on a dark ground when its shape differs),
 /// from the folder [`set_picture_dir`] names; else a drawn face: the position band with TOTAL, a stand-in, the name on
 /// its foot, and on large ones the club and the season.
 pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
@@ -338,8 +346,9 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
     let rim = card.rarity.rim();
     // a picture is the whole card face (its own band, photo, name and numbers): shown whole
     if let Some(dir) = picture_dir(p.ctx())
-        && let Some((id, size)) = load_picture(p.ctx(), &dir, card.number, "jpg")
-            .or_else(|| load_picture(p.ctx(), &dir, card.number, "png"))
+        && let Some((id, size)) = picture_names(card.number)
+            .iter()
+            .find_map(|f| load_picture(p.ctx(), &dir, f))
     {
         let (uv, aspect) = face_uv(size);
         p.rect_filled(rect, r, theme::DEEP.gamma_multiply(alpha));
@@ -1848,6 +1857,12 @@ mod tests {
             (uv.min, uv.max, a),
             (pos2(0.0, 0.0), pos2(1.0, 1.0), CARD_ASPECT)
         );
+        // the album's 256x357 front: all of it too, about 1 % wider than the tile (thin bars above and below, no stretch)
+        let (uv, a) = face_uv(vec2(256.0, 357.0));
+        assert_eq!((uv.min, uv.max), (pos2(0.0, 0.0), pos2(1.0, 1.0)));
+        assert!((a / CARD_ASPECT - 1.0).abs() < 0.02, "{a}");
+        // the album art first, then the pack's scan, then the game's face
+        assert_eq!(picture_names(7049), ["7049_f.jpg", "7049.jpg", "7049.png"]);
         let tile = card_size(400.0);
         assert!((tile.x / tile.y - CARD_ASPECT).abs() < 0.01, "{tile:?}");
         // the game's narrower face in a card tile: full height, bars at the sides, nothing cut
