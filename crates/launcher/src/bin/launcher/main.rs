@@ -1008,6 +1008,10 @@ impl App {
             }
             Action::Lobby(LobbyAction::HostShop) => {
                 if !self.st.busy && !self.st.running {
+                    // the room goes on the club server the box names now (the run reads the setting)
+                    if let Some(club) = &self.st.club_server {
+                        let _ = choices::set_setting(&kit.settings_file(), "club_server", club.trim());
+                    }
                     self.st.lobby.hosting = true;
                     self.st.lobby.notice = None;
                     start(vec![Step::Host]);
