@@ -877,8 +877,14 @@ pub fn formation_board(
         changed = true;
     }
     let rects = slot_rects(pitch, bench.top(), &board.spots);
-    // the pointer off the board (pitch and bench, with the strip's margin): a card let go there is taken off
-    let off = pointer.is_some_and(|p| !pitch.union(bench).expand(16.0).contains(p));
+    // the card in hand a card's width or more off the board: let go there, it is taken off (a bench rub stays
+    // within a card's width of its box)
+    let off = pointer.is_some_and(|p| {
+        !pitch
+            .union(bench)
+            .expand(card.x)
+            .contains(drag_centre(p, grab, card))
+    });
     let mut removed: Option<(usize, Pos2)> = None;
 
     let hover_id = Id::new("board-hover");
@@ -2250,6 +2256,60 @@ mod tests {
         assert_eq!(b.slots.iter().flatten().count(), 0);
         let r = removed.expect("the removal is reported");
         assert_eq!((r.card.number, r.slot, r.spot), (101, 0, spot));
+    }
+
+    /// A full rub of the leftmost bench card, let go at its far end, keeps the card on the table.
+    #[test]
+    fn a_rubbed_bench_card_is_not_taken_off() {
+        use egui::{Event, PointerButton};
+        use forza::cards::{BENCH_X, BENCH_Y, Placed};
+        let before = vec![Placed {
+            slot: 1,
+            no: 101,
+            x: BENCH_X,
+            y: BENCH_Y[0],
+        }];
+        let mut b = forza::cards::board(&before, &[]);
+        assert_eq!(b.slots[11], Some(0));
+        let ctx = egui::Context::default();
+        theme::install(&ctx, theme::Edition::E1718, &theme::font_dir()).unwrap();
+        ctx.run_ui(egui::RawInput::default(), |_| {})
+            .textures_delta
+            .clear();
+        let mut pitch = Rect::NOTHING;
+        let frame = |events: Vec<Event>, b: &mut Board, pitch: &mut Rect| {
+            let raw = egui::RawInput {
+                // the board 16 points in from the window's left, as in the panel's strip
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(532.0, 900.0))),
+                events,
+                ..Default::default()
+            };
+            ctx.run_ui(raw, |ui| {
+                let r = ui.max_rect().shrink(16.0);
+                let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(r));
+                *pitch = pitch_rect(ui.cursor().min, ui.available_width());
+                formation_board(&mut ui, b, &Links::default(), 3.0, crate::Lang::En);
+            })
+            .textures_delta
+            .clear();
+        };
+        frame(vec![], &mut b, &mut pitch);
+        let at = slot_rects(pitch, pitch.bottom() + 8.0, &b.spots)[11].center();
+        let press = |pos, pressed| Event::PointerButton {
+            pos,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        frame(
+            vec![Event::PointerMoved(at), press(at, true)],
+            &mut b,
+            &mut pitch,
+        );
+        let far = at - vec2(card_size(pitch.width()).x, 0.0);
+        frame(vec![Event::PointerMoved(far)], &mut b, &mut pitch);
+        frame(vec![press(far, false)], &mut b, &mut pitch);
+        assert_eq!(b.slots[11], Some(0));
     }
 
     /// A bench card in hand rubs inside its box: x and y move together (the game reads dx * dy) and stay in its band;
