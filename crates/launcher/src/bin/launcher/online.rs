@@ -482,7 +482,11 @@ impl Online {
         result: Result<CodeJoin, String>,
     ) -> Option<String> {
         if st.lobby.joining.as_deref() != Some(code) {
-            return None; // given up meanwhile (ONLINE left)
+            // given up meanwhile (ONLINE left, another code): the seat goes back now
+            if let Ok(CodeJoin::In { ticket, .. }) = result {
+                release(&server, &ticket);
+            }
+            return None;
         }
         let p = self.poller.as_ref()?;
         let notice = match result {
@@ -500,6 +504,7 @@ impl Online {
                     since: Instant::now(),
                 });
                 st.lobby.notice = None;
+                st.lobby.joining = None;
                 return Some(host);
             }
             Ok(CodeJoin::NoRoom) => Notice::NoRoom,
@@ -526,12 +531,13 @@ impl Online {
             return;
         }
         let Some(p) = &self.poller else { return };
+        let server = launcher::lobby::shop_lobby(st.club_server.as_deref().unwrap_or_default());
+        st.lobby.desk.clone_from(&server); // a "no room" names it: the host's room may be on another club server
         // a code of another length is no room's: not worth one of the desk's wrong-code tries
         if !st.lobby.shop_rooms || code.len() != forza::online::lobby::SHOP_CODE_LEN {
             st.lobby.notice = Some(Notice::NoRoom);
             return;
         }
-        let server = launcher::lobby::shop_lobby(st.club_server.as_deref().unwrap_or_default());
         let key = launcher::Kit::here().data().join(launcher::lobby::SHOP_JOIN_KEY);
         match vslink::shop::own_id(&key) {
             Ok(own) => {

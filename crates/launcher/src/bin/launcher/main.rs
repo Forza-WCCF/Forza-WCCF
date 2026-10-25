@@ -100,7 +100,8 @@ struct Shared {
     game: Option<u8>,          // a Game step has just ended with this exit code
     report_open: Option<bool>, // open the report dialog: Some(after a crash)
     report_done: Option<Result<String, String>>, // the report's number, or why it did not go (the player's words)
-    host_code: Option<String>, // HOST SHOP: the shop room's code, once the lobby gave it
+    // HOST SHOP: the shop room's code, its lobby server and the flag set when that lobby loses it
+    host_room: Option<(String, String, Arc<AtomicBool>)>,
 }
 
 static SHARED: Mutex<Shared> = Mutex::new(Shared {
@@ -120,7 +121,7 @@ static SHARED: Mutex<Shared> = Mutex::new(Shared {
     game: None,
     report_open: None,
     report_done: None,
-    host_code: None,
+    host_room: None,
 });
 
 /// The game is up in this process (its run is supervised here): the window is minimized, closing it asks the run to stop.
@@ -294,7 +295,7 @@ fn start(steps: Vec<Step>) -> bool {
             .iter()
             .any(|x| matches!(x, Step::Game(_) | Step::Host))
             .then_some((0, 6));
-        s.host_code = None;
+        s.host_room = None;
         s.began = Some(Instant::now());
         s.stage_at = s.began;
     }
@@ -407,8 +408,8 @@ fn host_shop(kit: &Kit) -> Result<i32, String> {
         let _ = server.join();
     };
     match rx.recv() {
-        Ok(Ok(code)) => {
-            shared().host_code = Some(code);
+        Ok(Ok(room)) => {
+            shared().host_room = Some(room);
             poke();
             let mode = run::Mode::Remote("127.0.0.1".into(), None);
             let rc = run::play(kit, &Params::of(kit), Some(mode), false, &WindowUi);
@@ -426,12 +427,17 @@ fn host_shop(kit: &Kit) -> Result<i32, String> {
     }
 }
 
-/// The HOST SHOP server's lines: into OUTPUT, never the bar or the window's game state (the seat's run has those).
+/// The HOST SHOP server's lines: into OUTPUT and the status line (its start, a wait for the lobby), never the bar or
+/// the window's game state (the seat's run has those).
 struct ServerUi;
 
 impl run::Ui for ServerUi {
     fn say(&self, line: &str) {
         log(line);
+        if !line.trim().is_empty() {
+            shared().status = Some((Tone::Notice, line.trim().to_owned()));
+            poke();
+        }
     }
 }
 
@@ -809,8 +815,18 @@ impl App {
         self.st.running = RUNNING.load(Ordering::Relaxed);
         self.st.output.extend(log);
         let kit = Kit::here();
-        // HOST SHOP: its code once the lobby gave it; the job over, the shop is
-        self.st.lobby.host_code.clone_from(&shared().host_code);
+        // HOST SHOP: its code once the lobby gave it, gone with the room if the lobby loses it; the job over, the shop is
+        let room = shared().host_room.clone();
+        let v = &mut self.st.lobby;
+        v.host_code = None;
+        if let Some((code, desk, lost)) = room {
+            v.desk = desk;
+            if lost.load(Ordering::Relaxed) {
+                v.notice = Some(forza_ui::lobby::Notice::RoomLost);
+            } else {
+                v.host_code = Some(code);
+            }
+        }
         if !self.st.busy {
             self.st.lobby.hosting = false;
         }
@@ -1008,16 +1024,26 @@ impl App {
             }
             Action::Lobby(LobbyAction::HostShop) => {
                 if !self.st.busy && !self.st.running {
-                    // the room goes on the club server the box names now (the run reads the setting)
+                    // the room goes on the club server the box names now (the run reads the setting), checked as PLAY does
                     if let Some(club) = &self.st.club_server {
-                        let _ = choices::set_setting(&kit.settings_file(), "club_server", club.trim());
+                        let club = club.trim();
+                        if !club.is_empty() && choices::parse_club_server(club).is_none() {
+                            refuse(t("launcher.msg_bad_club"));
+                            return;
+                        }
+                        let file = kit.settings_file();
+                        if let Err(e) = choices::set_setting(&file, "club_server", club) {
+                            refuse(write_failed(&file, &e));
+                            return;
+                        }
                     }
                     self.st.lobby.hosting = true;
                     self.st.lobby.notice = None;
                     start(vec![Step::Host]);
                 }
             }
-            // LEAVE while hosting: the seat and the server stop (the room with them)
+            // LEAVE while hosting: the seat stops by the card rule; the server (and the room) after it, never under its
+            // match (run::rules::stop_server_too, and host_shop's stop once the seat's run has ended)
             Action::Lobby(LobbyAction::Leave) if self.st.lobby.hosting => stop_game(),
             Action::Lobby(a) => self.online.act(a, &mut self.st, &kit.settings_file()),
             Action::Rejoin => self.online.rejoin(),

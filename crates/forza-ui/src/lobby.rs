@@ -81,6 +81,8 @@ pub enum Notice {
     RoomFull,
     /// The shop's host left before this PC got in.
     ShopClosed,
+    /// HOST SHOP: the lobby no longer holds this PC's room.
+    RoomLost,
 }
 
 /// A player in a room, by random club id only.
@@ -216,6 +218,8 @@ pub struct LobbyView {
     /// HOST SHOP is on: this PC's shop, with its room code once the lobby gave one.
     pub hosting: bool,
     pub host_code: Option<String>,
+    /// The lobby server shop rooms are on (`host:port`): the host's room's, or the one a code was asked of.
+    pub desk: String,
 }
 
 /// Sample states for the snapshots and the gallery.
@@ -241,10 +245,12 @@ pub enum Scenario {
     ShopJoining,
     /// A shop code no room has.
     ShopNoRoom,
+    /// HOST SHOP after the lobby lost the room: no code, the line that says so.
+    ShopLost,
 }
 
 impl Scenario {
-    pub const ALL: [Scenario; 13] = [
+    pub const ALL: [Scenario; 14] = [
         Scenario::List,
         Scenario::Empty,
         Scenario::Full,
@@ -258,6 +264,7 @@ impl Scenario {
         Scenario::ShopHost,
         Scenario::ShopJoining,
         Scenario::ShopNoRoom,
+        Scenario::ShopLost,
     ];
 
     pub fn tag(self) -> &'static str {
@@ -275,6 +282,7 @@ impl Scenario {
             Scenario::ShopHost => "shop_host",
             Scenario::ShopJoining => "shop_joining",
             Scenario::ShopNoRoom => "shop_no_room",
+            Scenario::ShopLost => "shop_lost",
         }
     }
 }
@@ -328,6 +336,7 @@ impl LobbyView {
             joining: None,
             hosting: false,
             host_code: None,
+            desk: String::new(),
         }
     }
 
@@ -452,16 +461,21 @@ impl LobbyView {
                 v.grey[0] = Some(Grey::Shops1718);
                 v.shops.clear();
             }
-            Scenario::ShopHost | Scenario::ShopJoining | Scenario::ShopNoRoom => {
+            Scenario::ShopHost
+            | Scenario::ShopJoining
+            | Scenario::ShopNoRoom
+            | Scenario::ShopLost => {
                 // 2017-18 with the shared shop on: one public room listed, the rest by code
                 (v.codes, v.shop_rooms, v.shops_view_only) = (true, true, true);
                 v.shops = vec![row("p1", "Shop room", 2, 8, Some(24), None, Open, None)];
                 v.code = "K7QM2XPD".into();
+                v.desk = "lobby.wccf.it:20032".into();
                 match s {
                     Scenario::ShopHost => {
                         (v.hosting, v.host_code) = (true, Some("K7QM2XPD".into()))
                     }
                     Scenario::ShopJoining => v.joining = Some("K7QM2XPD".into()),
+                    Scenario::ShopLost => (v.hosting, v.notice) = (true, Some(Notice::RoomLost)),
                     _ => v.notice = Some(Notice::NoRoom),
                 }
             }
@@ -1030,10 +1044,18 @@ fn host_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
                 theme::TEXT_FAINT
             }),
     );
+    if !v.desk.is_empty() {
+        ui.label(
+            egui::RichText::new(tr!(lang, "lobby.room_desk", desk = desk_host(&v.desk)))
+                .font(theme::body(13.0))
+                .color(theme::TEXT_DIM),
+        );
+    }
     ui.add_space(8.0);
-    let (tone, text) = match v.host_code {
-        Some(_) => (Tone::Done, tr!(lang, "lobby.shop_howto")),
-        None => (Tone::Notice, tr!(lang, "lobby.opening")),
+    let (tone, text) = match (&v.host_code, v.notice) {
+        (_, Some(Notice::RoomLost)) => (Tone::Refused, tr!(lang, "lobby.room_lost")),
+        (Some(_), _) => (Tone::Done, tr!(lang, "lobby.shop_howto")),
+        (None, _) => (Tone::Notice, tr!(lang, "lobby.opening")),
     };
     status_line(ui, tone, &text);
     ui.add_space(8.0);
@@ -1052,6 +1074,11 @@ fn host_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
             *act = Some(LobbyAction::Leave);
         }
     });
+}
+
+/// A lobby server as players name it: its host, without the port.
+fn desk_host(desk: &str) -> &str {
+    desk.rsplit_once(':').map_or(desk, |(h, _)| h)
 }
 
 fn hint(ui: &mut Ui, text: &str) {
@@ -1078,7 +1105,13 @@ fn status(v: &LobbyView, lang: Lang) -> Option<(Tone, String)> {
     let key = match v.notice {
         Some(Notice::Taken) => Some("lobby.taken"),
         Some(Notice::RoomClosed) => Some("lobby.room_closed"),
-        Some(Notice::NoRoom) => Some("lobby.no_room"),
+        Some(Notice::NoRoom) => {
+            return Some((
+                Tone::Notice,
+                tr!(lang, "lobby.no_room", desk = desk_host(&v.desk)),
+            ));
+        }
+        Some(Notice::RoomLost) => Some("lobby.room_lost"),
         Some(Notice::RoomFull) => Some("lobby.room_full"),
         Some(Notice::ShopClosed) => Some("lobby.shop_closed"),
         None => None,

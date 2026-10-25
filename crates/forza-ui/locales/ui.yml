@@ -547,7 +547,9 @@ lobby.room_code: {en: "Room code", it: "Codice stanza", ja: "ルームコード"
 lobby.opening: {en: "Opening the shop…", it: "Apertura della sala…", ja: "店舗を開いています…"}
 lobby.shop_howto: {en: "Both players: card in during the same ENTRY, then Arrange Fixture → Set opponent.", it: "Entrambi: inserite la carta nella stessa ENTRY, poi Arrange Fixture → Set opponent.", ja: "二人とも同じエントリー中にカードを入れ、Arrange Fixture → Set opponent を選びます。"}
 lobby.joining: {en: "Joining %{code}…", it: "Ingresso in %{code}…", ja: "%{code} に参加しています…"}
-lobby.no_room: {en: "No room has that code.", it: "Nessuna stanza ha quel codice.", ja: "そのコードのルームはありません。"}
+lobby.no_room: {en: "No room has that code on %{desk}.", it: "Nessuna stanza ha quel codice su %{desk}.", ja: "%{desk} にそのコードのルームはありません。"}
+lobby.room_desk: {en: "Room on %{desk}", it: "Stanza su %{desk}", ja: "ルームの場所：%{desk}"}
+lobby.room_lost: {en: "The lobby lost this room: nobody new can join.", it: "La lobby ha perso questa stanza: nessun altro può entrare.", ja: "ロビーがこのルームを失いました。新しい参加はできません。"}
 lobby.room_full: {en: "That room is full.", it: "Quella stanza è piena.", ja: "そのルームは満員です。"}
 lobby.shop_closed: {en: "The host has left: the shop is closed.", it: "L'host è uscito: la sala è chiusa.", ja: "ホストが退出しました：店舗は閉じています。"}
 lobby.wait_opponent: {en: "Waiting for an opponent…", it: "In attesa di un avversario…", ja: "対戦相手を待っています…"}

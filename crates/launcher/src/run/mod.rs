@@ -454,7 +454,12 @@ fn stop_command(kit: &Kit, p: &Params, force: bool, check: bool, ui: &dyn Ui) ->
         "stop"
     };
     let mut rc = None;
+    let mut run_answer = None;
     for kind in [Kind::Run, Kind::Server] {
+        if kind == Kind::Server && !rules::stop_server_too(run_answer) && is_on(kit, Kind::Server) {
+            ui.say("The server keeps running with this PC's seat (it holds that seat's match).");
+            continue;
+        }
         let Some((mut code, said)) = request(kit, kind, word) else {
             continue;
         };
@@ -474,6 +479,9 @@ fn stop_command(kit: &Kit, p: &Params, force: bool, check: bool, ui: &dyn Ui) ->
             code = c;
         } else if code == REFUSED && !check {
             ui.say("(\"Launcher.exe stop force\" skips this question.)");
+        }
+        if kind == Kind::Run {
+            run_answer = Some(code);
         }
         rc = Some(rc.unwrap_or(OK).max(code));
     }
@@ -1980,13 +1988,15 @@ impl Run<'_> {
     fn open_shop_room(&self, key: &Path, log: Log) -> Result<crate::lobby::HostRoom, String> {
         let id = vslink::shop::own_id(key).map_err(|e| format!("{}: {e}", key.display()))?;
         let club = choices::setting(&self.kit.settings_file(), "club_server").unwrap_or_default();
-        crate::lobby::HostRoom::open(&crate::lobby::shop_lobby(&club), &vslink::shop::id_text(&id), log)
+        let desk = crate::lobby::shop_lobby(&club);
+        crate::lobby::HostRoom::open(&desk, &vslink::shop::id_text(&id), log, &|l| self.say(l))
     }
 
-    /// A 2017-18 server's shop room code, or why it has none (the window's HOST SHOP shows one or the other).
-    pub fn shop_code(&self) -> Result<String, String> {
+    /// A 2017-18 server's shop room: its code, the lobby server holding it and the flag set when that lobby loses it;
+    /// or why it has none (the window's HOST SHOP shows one or the other).
+    pub fn shop_code(&self) -> Result<(String, String, Arc<AtomicBool>), String> {
         match &self.shop_room {
-            Some(Ok(r)) => Ok(r.code.clone()),
+            Some(Ok(r)) => Ok((r.code.clone(), r.server.clone(), r.lost())),
             Some(Err(why)) => Err(why.clone()),
             None => Err("no shop tunnel".into()),
         }

@@ -226,6 +226,12 @@ pub fn parse(words: &[String]) -> Words {
     }
 }
 
+/// `stop`: the server run on this PC is stopped only when the cabinet run beside it was not refused by the card rule
+/// (the run's answer, None when none is on). A refused seat keeps its match, and the match needs the server.
+pub fn stop_server_too(run_answer: Option<i32>) -> bool {
+    run_answer != Some(super::REFUSED)
+}
+
 /// A restart.request from the panel's crash screen (its line `force=crashed`): the control is gone, so the match and
 /// the card session are lost already and the card rule must not keep the dead game running.
 pub fn restart_forced(request: &str) -> bool {
@@ -425,6 +431,14 @@ pub fn compat_layer(existing: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_refused_seat_keeps_the_server_beside_it() {
+        assert!(!stop_server_too(Some(super::super::REFUSED)));
+        assert!(stop_server_too(Some(super::super::OK)));
+        assert!(stop_server_too(Some(super::super::FAILED)));
+        assert!(stop_server_too(None));
+    }
 
     #[test]
     fn game_programs_are_dpi_aware() {

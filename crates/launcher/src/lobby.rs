@@ -261,7 +261,13 @@ fn beat(server: &str, ticket: &str, every: Duration, gone: impl FnOnce() + Send 
     let stop = Arc::new(AtomicBool::new(false));
     let (flag, server, ticket) = (stop.clone(), server.to_owned(), ticket.to_owned());
     thread::spawn(move || {
-        let Some(a) = socket(&server) else { return };
+        let Some(a) = socket(&server) else {
+            // no desk to keep the seat with: as good as gone (the lease lapses)
+            if !flag.load(Ordering::Relaxed) {
+                gone();
+            }
+            return;
+        };
         loop {
             let end = Instant::now() + every;
             while Instant::now() < end {
@@ -319,10 +325,31 @@ pub fn join_code(a: SocketAddr, code: &str, own: &str) -> Result<CodeJoin, Strin
     }
 }
 
-/// How long a host retries `CREATE shop` while the desk still holds its room from before.
-const HOST_RETRY: Duration = Duration::from_secs(25);
+/// The desk replaces a host's room from before (a crash) once it has had no `HEARTBEAT` this long (`DeskConfig::host_stale`,
+/// 15 s by default); a host that gets `ERR host` waits this much more than that, then asks once more. A desk set to a
+/// longer stale time answers `ERR host` again, and the host says so.
+pub const DESK_HOST_STALE: Duration = Duration::from_secs(15);
+/// How often the host asks the desk for its room's guests without a guest waiting (a guest at the door asks at once).
+const GUESTS_EVERY: Duration = Duration::from_secs(10);
+/// How long a guest at the door waits for the desk's answer before it is refused.
+const ADMIT_WAIT: Duration = Duration::from_secs(8);
 
-/// A shop room this PC hosts (2017-18, `CREATE shop`): its code, kept with a heartbeat, closed when dropped.
+/// What a host room's worker and its tunnel's admit rule share.
+#[derive(Default)]
+struct RoomState {
+    /// The guests the desk named last.
+    guests: Vec<String>,
+    /// Answers from the desk so far; a guest at the door waits for one asked after it came.
+    asked: u64,
+    /// A guest is waiting: ask now.
+    want: bool,
+    /// An ask is on the wire (its answer may predate the guest's own `SHOP`).
+    busy: bool,
+    stop: bool,
+}
+
+/// A shop room this PC hosts (2017-18, `CREATE shop`): its code; a worker keeps it with heartbeats and keeps its
+/// guest list; closed when dropped.
 pub struct HostRoom {
     pub code: String,
     /// The lobby server that holds it.
@@ -330,61 +357,162 @@ pub struct HostRoom {
     addr: SocketAddr,
     id: String,
     ticket: String,
-    /// The guests the desk named last, for when it does not answer.
-    guests: Arc<Mutex<Vec<String>>>,
-    beat: Beat,
+    state: Arc<(Mutex<RoomState>, std::sync::Condvar)>,
+    lost: Arc<AtomicBool>,
 }
 
 impl HostRoom {
-    /// A private room on `server` ([`shop_lobby`]) for the shop tunnel `shop_id`; else why not (`FULL`, `ERR slow`, no
-    /// answer).
-    pub fn open(server: &str, shop_id: &str, log: Log) -> Result<HostRoom, String> {
+    /// A private room on `server` ([`shop_lobby`]) for the shop tunnel `shop_id`; else why not (`FULL`, `ERR slow`,
+    /// `ERR host`, no answer). `note` hears about a wait (this id's room from before still on the desk).
+    pub fn open(server: &str, shop_id: &str, log: Log, note: &dyn Fn(&str)) -> Result<HostRoom, String> {
         let addr = socket(server).ok_or_else(|| format!("{server} is not an address"))?;
-        // `ERR host`: this id's room from before (a crash) is still live; the desk replaces it once it has had no
-        // heartbeat for 15 s, well inside this wait
         let mut made = lobby::create_shop(addr, shop_id, false);
-        let end = Instant::now() + HOST_RETRY;
-        while made.as_ref().is_err_and(|e| e == "ERR host") && Instant::now() < end {
-            thread::sleep(Duration::from_secs(3));
+        if made.as_ref().is_err_and(|e| e == "ERR host") {
+            // one more CREATE only: each counts in the desk's per-address limit
+            let wait = DESK_HOST_STALE + Duration::from_secs(2);
+            note(&format!(
+                "     shop room: this shop's room from before is still on {server}; asking again in {} s",
+                wait.as_secs()
+            ));
+            thread::sleep(wait);
             made = lobby::create_shop(addr, shop_id, false);
         }
         match made {
             Ok(Created::Room { id, code, ticket, .. }) => {
-                let c = code.clone();
-                let beat = beat(
-                    server,
-                    &ticket,
-                    Duration::from_secs(lobby::HEARTBEAT_EVERY),
-                    move || {
-                        log(&format!("shop room {c}: the lobby no longer holds it"));
-                    },
-                );
-                Ok(HostRoom {
+                let room = HostRoom {
                     code,
                     server: server.to_owned(),
                     addr,
                     id,
                     ticket,
-                    guests: Arc::default(),
-                    beat,
-                })
+                    state: Arc::default(),
+                    lost: Arc::default(),
+                };
+                room.work(log);
+                Ok(room)
             }
             Ok(Created::Full) => Err(format!("{server}: full")),
+            Err(e) if e == "ERR host" => Err(format!(
+                "{server}: this shop's room from before is still there; try again in a minute"
+            )),
             Err(e) => Err(format!("{server}: {e}")),
         }
     }
 
-    /// The tunnel's admit rule: a guest that told the desk its id in this room (`SHOP t` with the host's ticket);
-    /// when the desk does not answer, the guests it named last.
+    /// Set once the desk no longer holds the room (its lease lapsed, the desk restarted): nobody new gets in.
+    pub fn lost(&self) -> Arc<AtomicBool> {
+        self.lost.clone()
+    }
+
+    /// The worker: `HEARTBEAT` every 20 s, the guest list (`SHOP t` with the host's ticket) every [`GUESTS_EVERY`] and
+    /// whenever a guest waits at the door. `GONE` to either: the room is lost, the list emptied. An I/O error keeps the
+    /// last list (the desk may be back at the next ask) and is logged once per run of errors.
+    fn work(&self, log: Log) {
+        let (addr, ticket, code) = (self.addr, self.ticket.clone(), self.code.clone());
+        let (state, lost) = (self.state.clone(), self.lost.clone());
+        thread::spawn(move || {
+            let (lock, cv) = &*state;
+            let every = Duration::from_secs(lobby::HEARTBEAT_EVERY);
+            let (mut beat_at, mut list_at) = (Instant::now() + every, Instant::now());
+            let mut failing = false;
+            loop {
+                let mut st = lock.lock().unwrap_or_else(PoisonError::into_inner);
+                loop {
+                    let now = Instant::now();
+                    if st.stop {
+                        return;
+                    }
+                    if st.want || now >= beat_at || now >= list_at {
+                        break;
+                    }
+                    let until = beat_at.min(list_at) - now;
+                    st = cv.wait_timeout(st, until).unwrap_or_else(PoisonError::into_inner).0;
+                }
+                st.busy = true;
+                st.want = false;
+                drop(st);
+                let mut gone = false;
+                let mut err = None;
+                if Instant::now() >= beat_at {
+                    beat_at = Instant::now() + every;
+                    match lobby::heartbeat(addr, &ticket) {
+                        Ok(false) => gone = true,
+                        Ok(true) => {}
+                        Err(e) => err = Some(e),
+                    }
+                }
+                let guests = if gone {
+                    None
+                } else {
+                    list_at = Instant::now() + GUESTS_EVERY;
+                    match lobby::shop_peers(addr, &ticket, None) {
+                        Ok(Some(Peers::Guests(g))) => Some(g),
+                        Ok(None) => {
+                            gone = true;
+                            None
+                        }
+                        Ok(Some(other)) => {
+                            err = Some(format!("not a host answer: {}", other.line().trim()));
+                            None
+                        }
+                        Err(e) => {
+                            err = Some(e);
+                            None
+                        }
+                    }
+                };
+                match (&err, failing) {
+                    (Some(e), false) => log(&format!(
+                        "shop room {code}: the lobby did not answer ({e}); trying again"
+                    )),
+                    (None, true) => log(&format!("shop room {code}: the lobby answers again")),
+                    _ => {}
+                }
+                failing = err.is_some();
+                let mut st = lock.lock().unwrap_or_else(PoisonError::into_inner);
+                if gone {
+                    st.guests.clear();
+                    lost.store(true, Ordering::Relaxed);
+                    log(&format!(
+                        "shop room {code}: the lobby no longer holds it; nobody new gets in"
+                    ));
+                } else if let Some(g) = guests {
+                    st.guests = g;
+                }
+                st.asked += 1;
+                st.busy = false;
+                cv.notify_all();
+                if gone {
+                    st.stop = true;
+                    return;
+                }
+            }
+        });
+    }
+
+    /// The tunnel's admit rule: a guest the desk named in this room. One not on the last list waits (at most
+    /// [`ADMIT_WAIT`]) for an answer the worker asked after it came, so its own `SHOP` is in it; a lost room, a desk
+    /// that does not answer in time: refused.
     pub fn admit(&self) -> vslink::shop::Admit {
-        let (addr, ticket, known) = (self.addr, self.ticket.clone(), self.guests.clone());
+        let (state, lost) = (self.state.clone(), self.lost.clone());
         Arc::new(move |id: &[u8; 32]| {
             let id = vslink::shop::id_text(id);
-            let mut known = known.lock().unwrap_or_else(PoisonError::into_inner);
-            if let Ok(Some(Peers::Guests(g))) = lobby::shop_peers(addr, &ticket, None) {
-                *known = g;
+            let (lock, cv) = &*state;
+            let mut st = lock.lock().unwrap_or_else(PoisonError::into_inner);
+            if lost.load(Ordering::Relaxed) {
+                return false;
             }
-            known.contains(&id)
+            if st.guests.contains(&id) {
+                return true;
+            }
+            // an answer already on the wire may predate this guest's SHOP: wait for the one after it
+            let target = st.asked + if st.busy { 2 } else { 1 };
+            st.want = true;
+            cv.notify_all();
+            let (st, _) = cv
+                .wait_timeout_while(st, ADMIT_WAIT, |s| s.asked < target && !s.stop)
+                .unwrap_or_else(PoisonError::into_inner);
+            !lost.load(Ordering::Relaxed) && st.guests.contains(&id)
         })
     }
 }
@@ -392,7 +520,9 @@ impl HostRoom {
 impl Drop for HostRoom {
     /// The room goes at once (the guests' tickets with it); best effort, the lease lapses by itself.
     fn drop(&mut self) {
-        self.beat.0.store(true, Ordering::Relaxed); // no beat after the close
+        let (lock, cv) = &*self.state;
+        lock.lock().unwrap_or_else(PoisonError::into_inner).stop = true; // no beat after the close
+        cv.notify_all();
         let _ = lobby::close(self.addr, &self.id, &self.ticket);
     }
 }

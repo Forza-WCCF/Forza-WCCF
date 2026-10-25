@@ -99,7 +99,7 @@ fn host_shop_then_a_guest_joins_by_code_through_the_tunnel() {
     };
     let host_id = shop::own_id(&dir.path().join("host.key")).unwrap();
     let (log, host_log) = logger("host");
-    let room = HostRoom::open(&server, &shop::id_text(&host_id), log.clone()).unwrap();
+    let room = HostRoom::open(&server, &shop::id_text(&host_id), log.clone(), &|_| {}).unwrap();
     // the desk's code length is the one the Launcher's box takes
     assert_eq!(room.code.len(), forza::online::lobby::SHOP_CODE_LEN);
     assert!(room.code.chars().all(|c| c.is_ascii_alphanumeric()));
@@ -109,7 +109,7 @@ fn host_shop_then_a_guest_joins_by_code_through_the_tunnel() {
     assert_eq!(host.id, host_id, "the id registered is the id guests dial");
 
     // a stranger with the host id alone: let in by no room
-    let (log, _) = logger("stranger");
+    let (log, stranger_log) = logger("stranger");
     let stranger_ports = Ports {
         control: free_tcp(),
         desk: free_tcp(),
@@ -118,6 +118,7 @@ fn host_shop_then_a_guest_joins_by_code_through_the_tunnel() {
     let stranger = shop::spawn(cfg(Role::Join(host_id), stranger_ports, "stranger.key", log)).unwrap();
     wait_for(&host_log, "refused: not in the shop's room");
     drop(stranger);
+    wait_for(&stranger_log, "the shop refused this PC: not in its room");
 
     // the guest: the code typed, its id told, the host id dialled; the control answers through the tunnel
     let own = shop::own_id(&dir.path().join("guest.key")).unwrap();
@@ -162,19 +163,50 @@ fn host_shop_then_a_guest_joins_by_code_through_the_tunnel() {
     drop((guest, host));
 }
 
-/// A host back from a crash, its old room still on the desk: `ERR host` until the old room is stale, then a new
-/// room (the desk's 15 s made 1 s here).
+/// A host back from a crash, its old room still on the desk: `ERR host`, a wait past the desk's stale time (said),
+/// then a new room. Slow: the wait is the real one.
 #[test]
 fn a_host_back_from_a_crash_gets_a_new_room() {
-    let mut c = DeskConfig::new(Edition::E1718);
-    c.bind = "127.0.0.1".into();
-    c.port = 0;
-    c.host_stale = Duration::from_secs(1);
-    let d = start(c, Arc::new(|_| {})).unwrap();
+    let d = desk();
     let dir = tempfile::tempdir().unwrap();
     let id = shop::id_text(&shop::own_id(&dir.path().join("host.key")).unwrap());
     let (log, _) = logger("crashed host");
-    let old = HostRoom::open(&d.addr().to_string(), &id, log.clone()).unwrap();
-    let new = HostRoom::open(&d.addr().to_string(), &id, log).unwrap();
+    let old = HostRoom::open(&d.addr().to_string(), &id, log.clone(), &|_| {}).unwrap();
+    let said = Mutex::new(vec![]);
+    let note = |l: &str| said.lock().unwrap().push(l.to_owned());
+    let new = HostRoom::open(&d.addr().to_string(), &id, log, &note).unwrap();
     assert_ne!(old.code, new.code);
+    assert!(
+        said.lock().unwrap().iter().any(|l| l.contains("asking again")),
+        "the wait is said"
+    );
+}
+
+/// The desk loses the room (its lease lapsed): the room says so and lets nobody in, not even a guest it named.
+#[test]
+fn a_lost_room_lets_nobody_in() {
+    let mut c = DeskConfig::new(Edition::E1718);
+    c.bind = "127.0.0.1".into();
+    c.port = 0;
+    c.reserve_lease = Duration::from_secs(1);
+    let d = start(c, Arc::new(|_| {})).unwrap();
+    let addr = d.addr();
+    let dir = tempfile::tempdir().unwrap();
+    let id = shop::id_text(&shop::own_id(&dir.path().join("host.key")).unwrap());
+    let (log, lines) = logger("lost host");
+    let room = HostRoom::open(&addr.to_string(), &id, log, &|_| {}).unwrap();
+    let guest = shop::own_id(&dir.path().join("guest.key")).unwrap();
+    assert!(matches!(
+        join_code(addr, &room.code, &shop::id_text(&guest)).unwrap(),
+        CodeJoin::In { .. }
+    ));
+    let admit = room.admit();
+    assert!(admit(&guest), "the room's guest comes in");
+    thread::sleep(Duration::from_millis(1500)); // no heartbeat within the lease: the desk forgets the room
+    // a stranger at the door makes the room ask; the answer, GONE, empties the list
+    let stranger = shop::own_id(&dir.path().join("stranger.key")).unwrap();
+    assert!(!admit(&stranger));
+    assert!(!admit(&guest), "a room the desk lost admits nobody");
+    assert!(room.lost().load(std::sync::atomic::Ordering::Relaxed));
+    wait_for(&lines, "no longer holds it");
 }
