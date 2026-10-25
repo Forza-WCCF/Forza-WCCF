@@ -107,6 +107,11 @@ impl Kit {
             })
     }
 
+    /// The game text was switched: the backup holds a manifest (the file the undo of setup refuses on), valid or not.
+    pub fn text_changed(&self) -> bool {
+        self.data().join("english_backup").join("manifest.json").is_file()
+    }
+
     /// The language the game's text has in place (kit_common.game_language): "en" or "it" (its language.txt; English before
     /// that file existed), "" for the original Japanese.
     pub fn game_language(&self) -> &'static str {
@@ -185,5 +190,20 @@ mod tests {
         let other = tempfile::tempdir().unwrap();
         fs::create_dir(other.path().join("programs")).unwrap();
         assert_eq!(Kit::layout(other.path()), Some(Edition::E1011));
+    }
+
+    #[test]
+    fn text_changed_follows_the_manifest_file_even_when_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let kit = Kit::at(dir.path());
+        assert!(!kit.text_changed());
+        let backup = dir.path().join("data").join("english_backup");
+        fs::create_dir_all(&backup).unwrap();
+        fs::write(backup.join("manifest.json"), "").unwrap();
+        assert!(
+            kit.text_changed(),
+            "the undo of setup refuses on the file, valid or not"
+        );
+        assert!(!kit.english_on());
     }
 }

@@ -836,7 +836,7 @@ fn holds_link(dir: &Path) -> io::Result<bool> {
 pub fn undo(kit: &Path, game: &Path, say: &dyn Fn(&str)) -> Result<()> {
     let say = &Say(say);
     if english_backup(kit).join("manifest.json").is_file() {
-        return Err(Error("English is on - choose GAME TEXT: JAPANESE in Launcher.exe first, so the original files go back before the undo".into()));
+        return Err(Error("The game text is not the original. Press UNDO SETUP in Launcher.exe: it puts the original text back first".into()));
     }
     let seat = rt(game).join("seat1");
     if seat.is_dir() {

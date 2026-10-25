@@ -53,8 +53,6 @@ pub enum Action {
     UpdateNow(usize),
     /// "What's new" of the release at this place in the list.
     WhatsNew(usize),
-    /// After an update: set the game folder up again, confirmed.
-    SetUpAfterUpdate,
     /// The window's language changed (`lang`).
     Language,
     /// SAVE LOGS: pick a place and write the logs ZIP there.

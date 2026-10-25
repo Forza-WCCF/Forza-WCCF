@@ -68,7 +68,7 @@ pub(crate) fn text_step(kit: &Kit, lang: &str, say: &dyn Fn(&str)) -> i32 {
     let ed = kit.edition();
     let recorded = choices::setting(&kit.settings_file(), "game").unwrap_or_default();
     let Some(game) = find_edition_game(ed, &recorded) else {
-        say("Not set up yet. Open Launcher.exe, Setup and updates.");
+        say("Not set up yet. Open Launcher.exe and press SET UP.");
         return 2;
     };
     if running(&game, "switch the text again", say) {

@@ -415,7 +415,7 @@ mod tests {
             none.downcast_ref::<E>(),
             Some(&E::NoKeyEntry { id: "ZZZZ".into() })
         );
-        assert_eq!(none.to_string(), "This key list has no entry for ZZZZ.");
+        assert_eq!(none.to_string(), "This key file has no key for ZZZZ.");
         // the real tables carry the disc's keyfile in its own column, next to AES values that do not open it
         let html = format!(
             "<table><tr><th>Game ID</th><th>AES Key</th><th>AES IV</th><th>Keyfile</th></tr>\

@@ -1242,7 +1242,7 @@ impl Ctx {
             let mut d = self.original_file(rel)?;
             if Some(sha(&d)) != self.original_hash(rel) {
                 return fail(format!(
-                    "{what} is not the expected file - set up again first (Launcher.exe, Setup and updates)"
+                    "{what} is not the expected file - press SET UP in Launcher.exe first"
                 ));
             }
             let size = d.len();
