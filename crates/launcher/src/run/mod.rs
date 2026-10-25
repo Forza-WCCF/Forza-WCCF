@@ -824,6 +824,8 @@ pub struct Run<'a> {
     seat_no: u8,
     debug: bool,
     beside_server: bool,
+    /// Remote: the server is this PC's own (its address is one of this PC's), so its game server is this PC's store.
+    own_store: bool,
     job: Arc<Job>,
     tx: Sender<Event>,
     rx: Receiver<Event>,
@@ -923,6 +925,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         seat_no: 1,
         debug,
         beside_server,
+        own_store: false,
         job,
         tx,
         rx,
@@ -1382,6 +1385,7 @@ impl Run<'_> {
                 .map(|a| (a.ip().to_string(), a.port()))
                 .ok_or_else(|| Failed(format!("\"{entry}\" is not a server this PC can find")))?;
             self.remote = Some((ip.clone(), desk));
+            self.own_store = rules::is_this_pc(&ip);
             if !answers(&ip, p.control_port) {
                 return Err(Failed(format!(
                     "the server at {entry} does not answer on port {}. Check that it is running and the port is open. \
@@ -1728,13 +1732,13 @@ impl Run<'_> {
         })?;
         let log = file_log(self.logs().join("aimedb_log.txt"));
         self.cabinet.aimedb = Some(
-            // on another PC's game server every card answers the hash of its access code; this PC alone and the shop
-            // host's own seat keep their store's IDs (aimedb.rs)
+            // on another PC's game server every card answers the hash of its access code; this PC alone and a seat on
+            // this PC's own server keep their store's IDs (aimedb.rs)
             aimedb::spawn_with(
                 listener,
                 save.join("aimedb.json"),
                 log,
-                rules::aime_hashed(&self.mode, self.beside_server),
+                rules::aime_hashed(&self.mode, self.own_store),
             )
             .map_err(|e| Failed(format!("the Aime database did not start ({e})")))?,
         );

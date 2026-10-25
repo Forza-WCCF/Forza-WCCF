@@ -85,15 +85,21 @@ pub fn online_refused(edition: crate::Edition, mode: &Mode, shop: bool) -> bool 
 
 /// AiMeDB answers every card the hash of its access code when the clubs are on another PC's game server: VS, and a
 /// seat that joins a shop elsewhere (each PC's AiMeDB numbers its own cards, so two homes' first cards would both be
-/// Aime ID 1, one club). This PC alone, and the shop host's own seat (`beside_server`: its game server is this PC's
-/// store, where an older card's club lives under its old ID), keep the IDs the store has; new cards get the hash
-/// there too.
-pub fn aime_hashed(mode: &Mode, beside_server: bool) -> bool {
+/// Aime ID 1, one club). This PC alone, and a seat on this PC's own server (`own_store`, [`is_this_pc`] of the address
+/// joined: its game server is this PC's store, where an older card's club lives under its old ID), keep the IDs the
+/// store has; new cards get the hash there too.
+pub fn aime_hashed(mode: &Mode, own_store: bool) -> bool {
     match mode {
         Mode::Local => false,
-        Mode::Remote(..) => !beside_server,
+        Mode::Remote(..) => !own_store,
         Mode::Vs(_) | Mode::Server => true,
     }
+}
+
+/// `ip` is this PC: a loopback address, or one a socket here can bind (one of this PC's own addresses).
+pub fn is_this_pc(ip: &str) -> bool {
+    ip.parse::<std::net::IpAddr>()
+        .is_ok_and(|a| a.is_loopback() || std::net::UdpSocket::bind((a, 0)).is_ok())
 }
 
 /// Where a 2017-18 online run plays: the game server (control's GAME_SVR_IP / GAME_SVR_PORT, with GAME_SVR_ENTRY=1)
@@ -433,6 +439,26 @@ mod tests {
             !aime_hashed(&Mode::Remote("127.0.0.1".into(), None), true),
             "the host's own seat keeps its store's IDs, so its old club still loads"
         );
+    }
+
+    /// The host seat is told by the address joined, not by a server running here: a PC with its own server that joins
+    /// another shop is a guest there.
+    #[test]
+    fn this_pc_is_loopback_or_an_own_address() {
+        assert!(is_this_pc("127.0.0.1") && is_this_pc("127.0.0.2"));
+        // TEST-NET-1 and a broadcast: never an address of this PC
+        assert!(!is_this_pc("192.0.2.1") && !is_this_pc("255.255.255.255"));
+        assert!(!is_this_pc("not an address") && !is_this_pc(""));
+        let own = std::net::UdpSocket::bind("0.0.0.0:0")
+            .and_then(|s| s.connect("192.0.2.1:9").map(|()| s))
+            .and_then(|s| s.local_addr());
+        if let Ok(a) = own
+            && !a.ip().is_unspecified()
+        {
+            assert!(is_this_pc(&a.ip().to_string()), "the PC's own address {a}");
+        }
+        let guest = Mode::Remote("192.0.2.1".into(), None);
+        assert!(aime_hashed(&guest, is_this_pc("192.0.2.1")));
     }
 
     #[test]

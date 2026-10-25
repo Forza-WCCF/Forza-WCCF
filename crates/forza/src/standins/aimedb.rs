@@ -57,6 +57,9 @@ impl Aes {
 /// A card's Aime ID from its access code: 31 bits of its SHA-256, never 0.
 /// ponytail: two cards collide with probability ~n^2/2^32 for n cards (n = 1000 gives about 1 in 4300); past that,
 /// hand out IDs from the game server instead.
+/// shortcut: hashed IDs share the integer space with the stores' older IDs (counted from 1), unchecked; a hash
+/// below 1,000 is about 1 in 2 million per card. Upgrade with the game-server IDs above, or when shops pass a few
+/// hundred cards. The range cannot move: VS clubs on the shared server already live under these IDs.
 pub fn hash_id(code: &str) -> i32 {
     let h = Sha256::digest(code.as_bytes());
     (u32::from_be_bytes([h[0], h[1], h[2], h[3]]) & 0x7FFF_FFFF).max(1) as i32
