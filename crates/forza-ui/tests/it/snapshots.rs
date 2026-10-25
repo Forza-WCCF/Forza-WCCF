@@ -962,7 +962,7 @@ fn launcher_host_shop() {
             launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Online);
         st.running = true;
         let v = &mut st.lobby;
-        (v.shop_rooms, v.hosting, v.host_code) = (true, true, Some("K7QM2X".into()));
+        (v.shop_rooms, v.hosting, v.host_code) = (true, true, Some("K7QM2XPD".into()));
         v.kind = lobby::Kind::Shops;
         snap(
             &mut all,
@@ -1076,14 +1076,14 @@ fn lobby_shop_rooms() {
     h.key_press(egui::Key::H);
     h.run_steps(2);
     assert_eq!(got.take(), Some(HostShop));
-    v.borrow_mut().code = " k7qm2x".into();
+    v.borrow_mut().code = " k7qm2xpd".into();
     h.run_steps(2);
     // the row's JOIN is greyed (a listed room joins by its code too): only the code's answers
     for n in h.get_all_by_label("JOIN") {
         n.click();
     }
     h.run_steps(2);
-    assert_eq!(got.take(), Some(JoinCode("K7QM2X".into())));
+    assert_eq!(got.take(), Some(JoinCode("K7QM2XPD".into())));
     v.borrow_mut().hosting = true;
     h.run_steps(2);
     for key in [egui::Key::H, egui::Key::Enter] {

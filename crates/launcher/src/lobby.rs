@@ -319,6 +319,9 @@ pub fn join_code(a: SocketAddr, code: &str, own: &str) -> Result<CodeJoin, Strin
     }
 }
 
+/// How long a host retries `CREATE shop` while the desk still holds its room from before.
+const HOST_RETRY: Duration = Duration::from_secs(25);
+
 /// A shop room this PC hosts (2017-18, `CREATE shop`): its code, kept with a heartbeat, closed when dropped.
 pub struct HostRoom {
     pub code: String,
@@ -337,7 +340,15 @@ impl HostRoom {
     /// answer).
     pub fn open(server: &str, shop_id: &str, log: Log) -> Result<HostRoom, String> {
         let addr = socket(server).ok_or_else(|| format!("{server} is not an address"))?;
-        match lobby::create_shop(addr, shop_id, false) {
+        // `ERR host`: this id's room from before (a crash) is still live; the desk replaces it once it has had no
+        // heartbeat for 15 s, well inside this wait
+        let mut made = lobby::create_shop(addr, shop_id, false);
+        let end = Instant::now() + HOST_RETRY;
+        while made.as_ref().is_err_and(|e| e == "ERR host") && Instant::now() < end {
+            thread::sleep(Duration::from_secs(3));
+            made = lobby::create_shop(addr, shop_id, false);
+        }
+        match made {
             Ok(Created::Room { id, code, ticket, .. }) => {
                 let c = code.clone();
                 let beat = beat(

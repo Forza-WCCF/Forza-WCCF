@@ -456,10 +456,12 @@ impl LobbyView {
                 // 2017-18 with the shared shop on: one public room listed, the rest by code
                 (v.codes, v.shop_rooms, v.shops_view_only) = (true, true, true);
                 v.shops = vec![row("p1", "Shop room", 2, 8, Some(24), None, Open, None)];
-                v.code = "K7QM2X".into();
+                v.code = "K7QM2XPD".into();
                 match s {
-                    Scenario::ShopHost => (v.hosting, v.host_code) = (true, Some("K7QM2X".into())),
-                    Scenario::ShopJoining => v.joining = Some("K7QM2X".into()),
+                    Scenario::ShopHost => {
+                        (v.hosting, v.host_code) = (true, Some("K7QM2XPD".into()))
+                    }
+                    Scenario::ShopJoining => v.joining = Some("K7QM2XPD".into()),
                     _ => v.notice = Some(Notice::NoRoom),
                 }
             }
@@ -997,7 +999,7 @@ fn code_row(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAc
             let r = ui.add(
                 egui::TextEdit::singleline(&mut v.code)
                     .font(theme::mono(17.0))
-                    .char_limit(8)
+                    .char_limit(forza::online::lobby::SHOP_CODE_LEN)
                     .desired_width(110.0)
                     .margin(vec2(10.0, 6.0)),
             );
@@ -1020,7 +1022,7 @@ fn host_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
     let w = ui.available_width();
     caps(ui, &tr!(lang, "lobby.room_code"));
     ui.label(
-        egui::RichText::new(v.host_code.as_deref().unwrap_or("------"))
+        egui::RichText::new(v.host_code.as_deref().unwrap_or("--------"))
             .font(theme::mono(34.0))
             .color(if v.host_code.is_some() {
                 theme::TEXT

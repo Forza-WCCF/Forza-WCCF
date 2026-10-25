@@ -28,6 +28,8 @@ pub const MAX_ANSWER: usize = 64 * 1024;
 /// A reserved seat is held this long without a `HEARTBEAT`; clients send one every [`HEARTBEAT_EVERY`] seconds.
 pub const LEASE_SECS: u64 = 60;
 pub const HEARTBEAT_EVERY: u64 = 20;
+/// A shop room's code: this many letters and digits (the desk makes them, the Launcher's box takes them).
+pub const SHOP_CODE_LEN: usize = 8;
 
 /// The desk's answer to `RESERVE id` (or `RESERVE id n`): `TICKET t n`, `FULL`, `TAKEN` (the seat asked for is
 /// busy) or `CLOSED` (not this desk's shop).

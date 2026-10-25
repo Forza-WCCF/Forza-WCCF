@@ -100,7 +100,9 @@ fn host_shop_then_a_guest_joins_by_code_through_the_tunnel() {
     let host_id = shop::own_id(&dir.path().join("host.key")).unwrap();
     let (log, host_log) = logger("host");
     let room = HostRoom::open(&server, &shop::id_text(&host_id), log.clone()).unwrap();
-    assert!(!room.code.is_empty() && room.code.chars().all(|c| c.is_ascii_alphanumeric()));
+    // the desk's code length is the one the Launcher's box takes
+    assert_eq!(room.code.len(), forza::online::lobby::SHOP_CODE_LEN);
+    assert!(room.code.chars().all(|c| c.is_ascii_alphanumeric()));
     let mut c = cfg(Role::Host, host_ports, "host.key", log);
     c.admit = Some(room.admit());
     let host = shop::spawn(c).unwrap();
@@ -158,4 +160,21 @@ fn host_shop_then_a_guest_joins_by_code_through_the_tunnel() {
         "the guest's ticket went with the room"
     );
     drop((guest, host));
+}
+
+/// A host back from a crash, its old room still on the desk: `ERR host` until the old room is stale, then a new
+/// room (the desk's 15 s made 1 s here).
+#[test]
+fn a_host_back_from_a_crash_gets_a_new_room() {
+    let mut c = DeskConfig::new(Edition::E1718);
+    c.bind = "127.0.0.1".into();
+    c.port = 0;
+    c.host_stale = Duration::from_secs(1);
+    let d = start(c, Arc::new(|_| {})).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let id = shop::id_text(&shop::own_id(&dir.path().join("host.key")).unwrap());
+    let (log, _) = logger("crashed host");
+    let old = HostRoom::open(&d.addr().to_string(), &id, log.clone()).unwrap();
+    let new = HostRoom::open(&d.addr().to_string(), &id, log).unwrap();
+    assert_ne!(old.code, new.code);
 }

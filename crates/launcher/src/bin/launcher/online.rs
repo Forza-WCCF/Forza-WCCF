@@ -526,7 +526,8 @@ impl Online {
             return;
         }
         let Some(p) = &self.poller else { return };
-        if !st.lobby.shop_rooms {
+        // a code of another length is no room's: not worth one of the desk's wrong-code tries
+        if !st.lobby.shop_rooms || code.len() != forza::online::lobby::SHOP_CODE_LEN {
             st.lobby.notice = Some(Notice::NoRoom);
             return;
         }
