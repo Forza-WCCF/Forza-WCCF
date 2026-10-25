@@ -493,8 +493,17 @@ fn only_the_rooms_guests_come_in() {
         log,
         Duration::ZERO,
     );
+    // the room's list does not come for the guest's first try: it is told to come back, and dials again
+    let unsure = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let first = unsure.clone();
     cfg.admit = Some(Arc::new(move |id: &[u8; 32]| {
-        list.lock().unwrap().contains(id)
+        if !list.lock().unwrap().contains(id) {
+            shop::Verdict::NotInRoom
+        } else if first.swap(false, std::sync::atomic::Ordering::Relaxed) {
+            shop::Verdict::NoAnswer
+        } else {
+            shop::Verdict::In
+        }
     }));
     p.host = shop::spawn(cfg).unwrap();
     p.host_log = host_lines;
@@ -516,6 +525,19 @@ fn only_the_rooms_guests_come_in() {
     std::fs::write(p.dir.join("admit guest.key"), key.to_bytes()).unwrap();
     allowed.lock().unwrap().push(*key.public().as_bytes());
     p.join("admit guest", 0);
+    let t = Instant::now();
+    while !logged(&p.host_log, "joined") {
+        assert!(
+            t.elapsed() < Duration::from_secs(15),
+            "the guest did not come back"
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+    assert!(logged(
+        &p.host_log,
+        "did not come in time, told to come back"
+    ));
+    assert!(logged(&p.join_log, "dialling again"));
+    assert!(!unsure.load(std::sync::atomic::Ordering::Relaxed));
     control_rtt(&p);
-    assert!(logged(&p.host_log, "joined"));
 }

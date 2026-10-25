@@ -10,10 +10,11 @@ use iroh::tls::CaTlsConfig;
 use launcher::lobby::{CodeJoin, HostRoom, join_code};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use vslink::shop::{self, Ports, Role, ShopConfig};
+use vslink::shop::{self, Ports, Role, ShopConfig, Verdict};
 
 fn desk() -> Handle {
     let mut c = DeskConfig::new(Edition::E1718);
@@ -188,7 +189,7 @@ fn a_lost_room_lets_nobody_in() {
     let mut c = DeskConfig::new(Edition::E1718);
     c.bind = "127.0.0.1".into();
     c.port = 0;
-    c.reserve_lease = Duration::from_secs(1);
+    c.reserve_lease = Duration::from_millis(2500);
     let d = start(c, Arc::new(|_| {})).unwrap();
     let addr = d.addr();
     let dir = tempfile::tempdir().unwrap();
@@ -201,12 +202,34 @@ fn a_lost_room_lets_nobody_in() {
         CodeJoin::In { .. }
     ));
     let admit = room.admit();
-    assert!(admit(&guest), "the room's guest comes in");
-    thread::sleep(Duration::from_millis(1500)); // no heartbeat within the lease: the desk forgets the room
+    assert_eq!(admit(&guest), Verdict::In, "the room's guest comes in");
+    assert_eq!(room.guests(), 1, "a plain stop waits for it");
+    thread::sleep(Duration::from_secs(3)); // no heartbeat within the lease: the desk forgets the room
     // a stranger at the door makes the room ask; the answer, GONE, empties the list
     let stranger = shop::own_id(&dir.path().join("stranger.key")).unwrap();
-    assert!(!admit(&stranger));
-    assert!(!admit(&guest), "a room the desk lost admits nobody");
-    assert!(room.lost().load(std::sync::atomic::Ordering::Relaxed));
+    assert_eq!(admit(&stranger), Verdict::NotInRoom);
+    assert_eq!(admit(&guest), Verdict::NotInRoom, "a room the desk lost admits nobody");
+    assert!(room.lost().load(Ordering::Relaxed));
+    assert_eq!(room.guests(), 0);
     wait_for(&lines, "no longer holds it");
+}
+
+/// A room closed by its host (dropped) admits nobody, and is not "lost": its own CLOSE is no news.
+#[test]
+fn a_closed_room_admits_nobody_and_is_not_lost() {
+    let d = desk();
+    let addr = d.addr();
+    let dir = tempfile::tempdir().unwrap();
+    let id = shop::id_text(&shop::own_id(&dir.path().join("host.key")).unwrap());
+    let (log, lines) = logger("closing host");
+    let room = HostRoom::open(&addr.to_string(), &id, log, &|_| {}).unwrap();
+    let guest = shop::own_id(&dir.path().join("guest.key")).unwrap();
+    join_code(addr, &room.code, &shop::id_text(&guest)).unwrap();
+    let (admit, lost) = (room.admit(), room.lost());
+    assert_eq!(admit(&guest), Verdict::In);
+    drop(room);
+    assert_eq!(admit(&guest), Verdict::NotInRoom, "not even a guest it named");
+    thread::sleep(Duration::from_millis(300));
+    assert!(!lost.load(Ordering::Relaxed));
+    assert!(!lines.lock().unwrap().iter().any(|l| l.contains("no longer holds it")));
 }

@@ -331,8 +331,10 @@ pub fn join_code(a: SocketAddr, code: &str, own: &str) -> Result<CodeJoin, Strin
 pub const DESK_HOST_STALE: Duration = Duration::from_secs(15);
 /// How often the host asks the desk for its room's guests without a guest waiting (a guest at the door asks at once).
 const GUESTS_EVERY: Duration = Duration::from_secs(10);
-/// How long a guest at the door waits for the desk's answer before it is refused.
+/// How long a guest at the door waits for the desk's answer before it is told to come back.
 const ADMIT_WAIT: Duration = Duration::from_secs(8);
+/// At most one guest-list ask per this time, however many knock.
+const ASK_GAP: Duration = Duration::from_secs(1);
 
 /// What a host room's worker and its tunnel's admit rule share.
 #[derive(Default)]
@@ -345,6 +347,8 @@ struct RoomState {
     want: bool,
     /// An ask is on the wire (its answer may predate the guest's own `SHOP`).
     busy: bool,
+    /// The last ask's answer was the desk's list (not an I/O error).
+    fresh: bool,
     stop: bool,
 }
 
@@ -404,6 +408,14 @@ impl HostRoom {
         self.lost.clone()
     }
 
+    /// The guests the desk named last (0 once the room is lost): a plain stop waits for them (`run::rules::shop_rule`).
+    pub fn guests(&self) -> usize {
+        if self.lost.load(Ordering::Relaxed) {
+            return 0;
+        }
+        self.state.0.lock().unwrap_or_else(PoisonError::into_inner).guests.len()
+    }
+
     /// The worker: `HEARTBEAT` every 20 s, the guest list (`SHOP t` with the host's ticket) every [`GUESTS_EVERY`] and
     /// whenever a guest waits at the door. `GONE` to either: the room is lost, the list emptied. An I/O error keeps the
     /// last list (the desk may be back at the next ask) and is logged once per run of errors.
@@ -414,6 +426,7 @@ impl HostRoom {
             let (lock, cv) = &*state;
             let every = Duration::from_secs(lobby::HEARTBEAT_EVERY);
             let (mut beat_at, mut list_at) = (Instant::now() + every, Instant::now());
+            let mut asked_at: Option<Instant> = None;
             let mut failing = false;
             loop {
                 let mut st = lock.lock().unwrap_or_else(PoisonError::into_inner);
@@ -422,10 +435,13 @@ impl HostRoom {
                     if st.stop {
                         return;
                     }
-                    if st.want || now >= beat_at || now >= list_at {
+                    // a knock asks at once, but never sooner than ASK_GAP after the last ask
+                    let soonest = asked_at.map_or(now, |t| t + ASK_GAP);
+                    let list_due = if st.want { soonest } else { list_at.max(soonest) };
+                    if now >= beat_at || now >= list_due {
                         break;
                     }
-                    let until = beat_at.min(list_at) - now;
+                    let until = beat_at.min(list_due) - now;
                     st = cv.wait_timeout(st, until).unwrap_or_else(PoisonError::into_inner).0;
                 }
                 st.busy = true;
@@ -445,6 +461,7 @@ impl HostRoom {
                     None
                 } else {
                     list_at = Instant::now() + GUESTS_EVERY;
+                    asked_at = Some(Instant::now());
                     match lobby::shop_peers(addr, &ticket, None) {
                         Ok(Some(Peers::Guests(g))) => Some(g),
                         Ok(None) => {
@@ -470,6 +487,10 @@ impl HostRoom {
                 }
                 failing = err.is_some();
                 let mut st = lock.lock().unwrap_or_else(PoisonError::into_inner);
+                if st.stop {
+                    return; // dropped meanwhile: its own CLOSE may be the GONE, nothing is lost
+                }
+                st.fresh = guests.is_some();
                 if gone {
                     st.guests.clear();
                     lost.store(true, Ordering::Relaxed);
@@ -491,19 +512,20 @@ impl HostRoom {
     }
 
     /// The tunnel's admit rule: a guest the desk named in this room. One not on the last list waits (at most
-    /// [`ADMIT_WAIT`]) for an answer the worker asked after it came, so its own `SHOP` is in it; a lost room, a desk
-    /// that does not answer in time: refused.
+    /// [`ADMIT_WAIT`]) for an answer the worker asked after it came, so its own `SHOP` is in it. Not named by a fresh
+    /// list, a lost or closed room: not in the room. No fresh answer in time: no answer (the guest comes back).
     pub fn admit(&self) -> vslink::shop::Admit {
+        use vslink::shop::Verdict;
         let (state, lost) = (self.state.clone(), self.lost.clone());
         Arc::new(move |id: &[u8; 32]| {
             let id = vslink::shop::id_text(id);
             let (lock, cv) = &*state;
             let mut st = lock.lock().unwrap_or_else(PoisonError::into_inner);
-            if lost.load(Ordering::Relaxed) {
-                return false;
+            if st.stop || lost.load(Ordering::Relaxed) {
+                return Verdict::NotInRoom;
             }
             if st.guests.contains(&id) {
-                return true;
+                return Verdict::In;
             }
             // an answer already on the wire may predate this guest's SHOP: wait for the one after it
             let target = st.asked + if st.busy { 2 } else { 1 };
@@ -512,7 +534,15 @@ impl HostRoom {
             let (st, _) = cv
                 .wait_timeout_while(st, ADMIT_WAIT, |s| s.asked < target && !s.stop)
                 .unwrap_or_else(PoisonError::into_inner);
-            !lost.load(Ordering::Relaxed) && st.guests.contains(&id)
+            if st.stop || lost.load(Ordering::Relaxed) {
+                Verdict::NotInRoom
+            } else if st.guests.contains(&id) {
+                Verdict::In
+            } else if st.asked < target || !st.fresh {
+                Verdict::NoAnswer
+            } else {
+                Verdict::NotInRoom
+            }
         })
     }
 }
