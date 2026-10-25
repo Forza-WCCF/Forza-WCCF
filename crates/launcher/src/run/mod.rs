@@ -1466,7 +1466,7 @@ impl Run<'_> {
         }
         self.say("Running. Click the game window to use the keyboard:");
         self.say("  Enter START (free play)   X decide   C shoot   arrows tactics");
-        self.say("  I club card in/out   F1 test menu   F11 window size   (or click the buttons around the picture)");
+        self.say("  I club card in/out   F11 window size   (or click the buttons around the picture)");
         self.say(match self.edition {
             Edition::E1011 => "New club: press I to put the card in. Saved in data\\save\\seat1_club.bin.",
             Edition::E1718 => "Aime card: data\\save\\seat1_aime.txt. Club: data\\save\\gamesvr.",
