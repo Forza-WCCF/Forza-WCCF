@@ -782,6 +782,8 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
     }
     if !st.file.compact {
         cabinet_deck(ui, st, deck, lang);
+    } else {
+        st.latched = None; // no deck: no button left to let it go
     }
     page_bar(ui, st, tabs, lang);
     if st.page != Page::Game {

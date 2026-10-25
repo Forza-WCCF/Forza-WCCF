@@ -660,6 +660,7 @@ unsafe extern "system" fn proj_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) 
 /// FreeLibrary: everything back as it was, on the thread that unloads us. The real game never unloads the panel;
 /// fakegame does it between frames, so no Present or window message is running in our code.
 fn unload() {
+    latch_up();
     if !INIT_DONE.load(Relaxed) {
         log("unloaded before init finished: the init thread would run in freed code"); // ponytail: no wait under the loader lock
     }
@@ -869,6 +870,7 @@ unsafe extern "system" fn hook_present(
     })
     .unwrap_or_else(|_| {
         DEAD.store(true, Relaxed);
+        latch_up(); // no frame is left to let it go
         log("a frame panicked: the panel stops drawing");
         None
     });
@@ -1927,8 +1929,9 @@ impl Render {
                 "latch {} -> key 0x{want:02X} down",
                 self.st.latched.unwrap_or_default()
             ));
-            kit::send_key(want, false, log);
+            // stored first: a focus loss in between lets it up
             LATCH_VK.store(want, Relaxed);
+            kit::send_key(want, false, log);
         }
         self.latch = want;
     }
