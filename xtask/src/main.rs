@@ -934,16 +934,22 @@ fn check_lock() -> Result<std::fs::File> {
     Ok(lock)
 }
 
-/// A package's directory relative to the repository root, written the way git prints paths (`/`, no `\\?\` prefix). Cargo
-/// prints `\` on Windows, git `/` everywhere: compared raw they matched no file, so `check quick` ran fmt only.
+/// A package's directory relative to the repository root, written the way git prints paths (`/`, no `\\?\` prefix) and
+/// in lower case (Windows ignores case; `changed_packages` lower-cases the files too). Cargo prints `\` on Windows, git
+/// `/` everywhere: compared raw they matched no file, so `check quick` ran fmt only.
 fn package_dir(root: &str, manifest: &str) -> Result<String> {
-    let norm = |p: &str| p.replace('\\', "/").trim_start_matches("//?/").to_owned();
+    let norm = |p: &str| {
+        let p = p.replace('\\', "/").to_lowercase();
+        let p = match p.strip_prefix("//?/unc/") {
+            Some(unc) => format!("//{unc}"),
+            None => p.trim_start_matches("//?/").to_owned(),
+        };
+        p.trim_end_matches('/').to_owned()
+    };
     let (root, manifest) = (norm(root), norm(manifest));
     let dir = manifest.rsplit_once('/').map_or("", |(d, _)| d);
-    // Windows paths ignore case; the next character must end a folder name (not E:/r vs E:/rr)
-    dir.get(..root.len())
-        .filter(|head| head.eq_ignore_ascii_case(&root))
-        .map(|_| &dir[root.len()..])
+    // the next character must end a folder name (not e:/r vs e:/rr)
+    dir.strip_prefix(&root)
         .filter(|rest| rest.is_empty() || rest.starts_with('/'))
         .map(|rest| rest.trim_matches('/').to_owned())
         .with_context(|| format!("package {manifest} is outside the repository {root}"))
@@ -969,7 +975,7 @@ fn changed_packages(root: &Path, base: &str) -> Result<Option<BTreeSet<String>>>
     let meta: serde_json::Value = serde_json::from_slice(&meta.stdout)?;
     let pkgs = meta["packages"].as_array().context("no packages")?;
     // (name, dir relative to the root, names of path dependencies)
-    let info: Vec<(String, String, Vec<String>)> = pkgs
+    let mut info: Vec<(String, String, Vec<String>)> = pkgs
         .iter()
         .map(|p| -> Result<_> {
             let manifest = p["manifest_path"].as_str().unwrap_or_default();
@@ -984,10 +990,27 @@ fn changed_packages(root: &Path, base: &str) -> Result<Option<BTreeSet<String>>>
             Ok((p["name"].as_str().unwrap_or_default().to_owned(), dir, deps))
         })
         .collect::<Result<_>>()?;
+    // files that other crates embed with `include_str!`: (the file's package, the package whose tests read it)
+    const EMBEDDED_BY: &[(&str, &str)] = &[("forza-panel", "launcher")];
+    for (_, _, deps) in info
+        .iter_mut()
+        .filter(|(n, _, _)| EMBEDDED_BY.iter().any(|(_, u)| u == n))
+    {
+        deps.extend(EMBEDDED_BY.iter().map(|(p, _)| (*p).to_owned()));
+    }
     let mut hit = BTreeSet::new();
     for f in files.lines() {
+        let f = f.to_lowercase(); // git prints the index's spelling, cargo the folder's
         let xtask = f == "xtask" || f.starts_with("xtask/");
-        if xtask || f == "Cargo.lock" || f == "rust-toolchain.toml" || f.starts_with(".cargo/") {
+        // assets/ and editions/ are read by several crates' tests and embedded by the installer and Launcher
+        // shortcut: whole workspace for them; a map from folder to consumers would be finer, add it if quick gets slow
+        if xtask
+            || f == "cargo.lock"
+            || f == "rust-toolchain.toml"
+            || f.starts_with(".cargo/")
+            || f.starts_with("assets/")
+            || f.starts_with("editions/")
+        {
             return Ok(None);
         }
         // the owning package: the longest package dir that prefixes the file
@@ -997,7 +1020,7 @@ fn changed_packages(root: &Path, base: &str) -> Result<Option<BTreeSet<String>>>
             .max_by_key(|(_, d, _)| d.len())
         {
             hit.insert(n.clone());
-        } else if f == "Cargo.toml" {
+        } else if f == "cargo.toml" {
             return Ok(None);
         }
     }
@@ -2266,6 +2289,21 @@ mod tests {
         ] {
             assert_eq!(package_dir(root, manifest).unwrap(), "crates/launcher");
         }
+        // a drive-root checkout, a verbatim UNC manifest under a plain UNC root, a folder spelled in another case than git's
+        assert_eq!(
+            package_dir(r"E:\", r"E:\crates\launcher\Cargo.toml").unwrap(),
+            "crates/launcher"
+        );
+        assert_eq!(
+            package_dir(
+                r"\\srv\share\repo",
+                r"\\?\UNC\srv\share\repo\crates\launcher\Cargo.toml"
+            )
+            .unwrap(),
+            "crates/launcher"
+        );
+        let dir = package_dir(r"E:\r", r"E:\r\crates\Forza\Cargo.toml").unwrap();
+        assert!("crates/forza/src/lib.rs".starts_with(&format!("{dir}/")));
         // git prints `crates/launcher/src/main.rs`; the old code compared it with `crates\launcher/`
         let dir = package_dir(r"E:\r", r"E:\r\crates\launcher\Cargo.toml").unwrap();
         assert!("crates/launcher/src/main.rs".starts_with(&format!("{dir}/")));
