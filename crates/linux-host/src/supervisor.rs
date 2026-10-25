@@ -301,24 +301,66 @@ impl Edition {
     fn control_port(self, conf: &str) -> Result<u16, String> {
         match self {
             Self::E1011 => Ok(20002),
-            Self::E1718 => match conf_value(conf, "CONTROL_PORT") {
-                None => Ok(20002),
-                Some(v) => v
-                    .parse()
-                    .map_err(|_| format!("CONTROL_PORT={v} is not a port")),
+            // required, and not 20002: the 2010-11 shop on this host holds that port, and ready must be this control's
+            Self::E1718 => match conf_values(conf, "CONTROL_PORT").as_slice() {
+                [v] => match v.parse::<u16>() {
+                    Ok(20002) => {
+                        Err("CONTROL_PORT=20002 is the 2010-11 shop's port: use another".into())
+                    }
+                    Ok(p) if p > 0 => Ok(p),
+                    _ => Err(format!("CONTROL_PORT={v} is not a port")),
+                },
+                [] => {
+                    Err("runtime/local/ctrl_user_option.conf needs CONTROL_PORT (not 20002)".into())
+                }
+                _ => Err("CONTROL_PORT is set more than once".into()),
             },
         }
     }
 }
-/// The first `KEY=value` line of `ctrl_user_option.conf` (CRLF or LF).
-fn conf_value(conf: &str, key: &str) -> Option<String> {
+/// Every `KEY=value` line of `ctrl_user_option.conf` (CRLF or LF), in order.
+fn conf_values(conf: &str, key: &str) -> Vec<String> {
     conf.lines()
-        .find_map(|l| l.trim().strip_prefix(key)?.strip_prefix('='))
+        .filter_map(|l| l.trim().strip_prefix(key)?.strip_prefix('='))
         .map(|v| v.trim().to_string())
+        .collect()
 }
-/// A 2017-18 control must only reach this host's own game server, never the publisher's.
+/// A 2017-18 control must only reach this host's own game server, never the publisher's: GAME_SVR_IP is set once, to
+/// `localhost`. A literal `127.0.0.1` would make the control use the network's own host (the publisher's server;
+/// `crates/launcher/src/conf.rs` `game_server_host`), and the control's reader of duplicates is unknown.
 fn game_server_is_local(conf: &str) -> bool {
-    conf_value(conf, "GAME_SVR_IP").is_some_and(|v| v == "localhost" || v.starts_with("127."))
+    conf_values(conf, "GAME_SVR_IP") == ["localhost"]
+}
+/// Inodes of the IPv4 sockets listening on `port`, from `/proc/net/tcp`.
+fn listen_inodes(tcp: &str, port: u16) -> Vec<u64> {
+    tcp.lines()
+        .skip(1)
+        .filter_map(|l| {
+            let f: Vec<_> = l.split_whitespace().collect();
+            let local_port = u16::from_str_radix(f.get(1)?.rsplit(':').next()?, 16).ok()?;
+            (f.get(3) == Some(&"0A") && local_port == port).then(|| f.get(9)?.parse().ok())?
+        })
+        .collect()
+}
+/// Whether one of `pids` (the prefix's processes, wineserver included: Wine keeps sockets there) holds a socket
+/// listening on `port`: ready must be this shop's control, not another shop's.
+fn owns_listener(pids: &[u32], port: u16) -> bool {
+    let inodes = listen_inodes(
+        &fs::read_to_string("/proc/net/tcp").unwrap_or_default(),
+        port,
+    );
+    pids.iter().any(|pid| {
+        fs::read_dir(format!("/proc/{pid}/fd"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .any(|fd| {
+                fs::read_link(fd.path()).is_ok_and(|l| {
+                    let l = l.to_string_lossy();
+                    inodes.iter().any(|i| l == format!("socket:[{i}]"))
+                })
+            })
+    })
 }
 /// What the hook logs of a start show.
 #[derive(Debug, PartialEq, Eq)]
@@ -357,9 +399,15 @@ fn hook_logs(dir: &Path, line: &str, need: usize) -> io::Result<HookLogs> {
     })
 }
 /// Waits up to `seconds` for [`hook_logs`] to pass; a refusal fails at once.
-fn wait_hook_logs(dir: &Path, line: &str, need: usize, seconds: u64) -> io::Result<usize> {
+fn wait_hook_logs(
+    dir: &Path,
+    line: &str,
+    need: impl Fn() -> usize,
+    seconds: u64,
+) -> io::Result<usize> {
     let end = Instant::now() + Duration::from_secs(seconds);
     loop {
+        let need = need();
         match hook_logs(dir, line, need)? {
             HookLogs::Ok(n) => return Ok(n),
             HookLogs::Refused(name) => {
@@ -377,6 +425,29 @@ fn wait_hook_logs(dir: &Path, line: &str, need: usize, seconds: u64) -> io::Resu
         }
     }
 }
+/// The periodic guard check: a refusal fails at once; too few logs for the live processes fail on the third check in a
+/// row (a process just started has not logged yet).
+/// shortcut: hook logs are named by Windows pids, which /proc does not show, so processes are matched by count (a live
+/// process without a log shows as a missing log); upgrade by reading the pid line when a Wine pid map exists.
+fn guard_step(dir: &Path, line: &str, need: usize, short: &mut u32) -> io::Result<()> {
+    match hook_logs(dir, line, need)? {
+        HookLogs::Ok(_) => *short = 0,
+        HookLogs::Refused(name) => {
+            return Err(io::Error::other(format!(
+                "{name} says the process was refused by the guard"
+            )));
+        }
+        HookLogs::Short(n) => {
+            *short += 1;
+            if *short >= 3 {
+                return Err(io::Error::other(format!(
+                    "{need} guarded processes run but only {n} hook logs say \"{line}\""
+                )));
+            }
+        }
+    }
+    Ok(())
+}
 /// The server tree (`runtime/`, `wineprefix/`, `run/`, `logs/`, `evidence/`): `WCCF_ROOT`, else three folders above the
 /// binary (`ROOT/target/release/wccf-linux-server`).
 fn root() -> io::Result<PathBuf> {
@@ -389,6 +460,15 @@ fn root() -> io::Result<PathBuf> {
         .and_then(Path::parent)
         .map(Path::to_path_buf)
         .ok_or_else(|| io::Error::other("binary must be in ROOT/target/release"))
+}
+/// `sddy_maps.exe` under Wine. Its working directory is in the tree, as `verify_prefix` requires of every prefix process.
+fn sddy_command(root: &Path, wine_env: &[(&str, String)]) -> Command {
+    let mut maps = Command::new(wine_tool(root, "wine"));
+    maps.envs(wine_env.iter().map(|(k, v)| (k, v)))
+        .arg(root.join("run/sddy_maps.exe"))
+        .arg(winpath(&root.join("runtime")))
+        .current_dir(root.join("runtime"));
+    maps
 }
 fn winpath(path: &Path) -> String {
     format!("Z:{}", path.to_string_lossy().replace('/', "\\"))
@@ -654,10 +734,7 @@ fn serve(root: &Path, edition: Edition) -> io::Result<()> {
             Edition::E1718 => {
                 // control waits 60 s for the SDDY_* shared memory the Launcher makes; sddy_maps.exe makes it
                 // in this prefix and holds it until the prefix stops
-                let mut maps = Command::new(wine_tool(root, "wine"));
-                maps.envs(wine_env.clone())
-                    .arg(root.join("run/sddy_maps.exe"))
-                    .arg(winpath(&root.join("runtime")));
+                let mut maps = sddy_command(root, &wine_env);
                 let maps_log = logs.join("sddy-maps.log");
                 children.push(spawn_log(&mut maps, &maps_log)?);
                 let end = Instant::now() + Duration::from_secs(60);
@@ -697,6 +774,8 @@ fn serve(root: &Path, edition: Edition) -> io::Result<()> {
                     Duration::from_millis(200),
                 )
                 .is_ok()
+                && (edition == Edition::E1011
+                    || owns_listener(&prefix_processes(root), control_port))
             {
                 break;
             }
@@ -712,7 +791,8 @@ fn serve(root: &Path, edition: Edition) -> io::Result<()> {
         }
         // the guard, per process: control and four engines each log the edition, none refused
         if let Some(line) = edition.hook_line() {
-            let n = wait_hook_logs(&logs, line, 5, 30)?;
+            // control + the engines alive now; a process that has not logged yet is waited for
+            let n = wait_hook_logs(&logs, line, || match_count(root).max(4) + 1, 30)?;
             println!("guard: {n} hook logs say \"{line}\", none refused");
         }
         let projector_seen = Arc::new(AtomicBool::new(false));
@@ -741,6 +821,7 @@ fn serve(root: &Path, edition: Edition) -> io::Result<()> {
             );
         }
         let mut waited: u64 = 0;
+        let mut short = 0;
         while !root.join("run/stop").exists() && !STOP.load(Ordering::Relaxed) {
             if children
                 .iter_mut()
@@ -749,6 +830,9 @@ fn serve(root: &Path, edition: Edition) -> io::Result<()> {
                 return Err(io::Error::other("server process exited"));
             }
             record_engine_health(root, match_count(root))?;
+            if let Some(line) = edition.hook_line().filter(|_| waited.is_multiple_of(10)) {
+                guard_step(&logs, line, match_count(root) + 1, &mut short)?;
+            }
             if !external && !projector_seen.load(Ordering::Relaxed) && waited.is_multiple_of(60) {
                 eprintln!(
                     "WAITING for a projector ({}): start the projector client now; it needs \
@@ -994,10 +1078,26 @@ mod tests {
         let conf =
             "DHCP=0\r\nCONTROL_PORT=20012\r\nGAME_SVR_IP=localhost\r\nGAME_SVR_PORT=20060\r\n";
         assert_eq!(e.control_port(conf), Ok(20012));
-        assert_eq!(e.control_port("DHCP=0\n"), Ok(20002));
+        // required, never the 2010-11 shop's port, set once
+        assert!(e.control_port("DHCP=0\n").is_err());
+        assert!(e.control_port("CONTROL_PORT=20002\n").is_err());
+        assert!(e.control_port("CONTROL_PORT=0\n").is_err());
         assert!(e.control_port("CONTROL_PORT=x\n").is_err());
+        assert!(
+            e.control_port("CONTROL_PORT=20012\nCONTROL_PORT=20013\n")
+                .is_err()
+        );
         assert!(game_server_is_local(conf));
-        assert!(game_server_is_local("GAME_SVR_IP=127.0.0.1"));
+        // a literal 127.0.0.1 makes the control use the network's own host: the publisher's server
+        assert!(!game_server_is_local("GAME_SVR_IP=127.0.0.1\n"));
+        assert!(!game_server_is_local("GAME_SVR_IP=127.evil.example\n"));
+        assert!(!game_server_is_local("GAME_SVR_IP=127.0.0.2\n"));
+        assert!(!game_server_is_local(
+            "GAME_SVR_IP=localhost\nGAME_SVR_IP=203.0.113.7\n"
+        ));
+        assert!(!game_server_is_local(
+            "GAME_SVR_IP=203.0.113.7\nGAME_SVR_IP=localhost\n"
+        ));
         assert!(!game_server_is_local("GAME_SVR_IP=203.0.113.7\n"));
         assert!(
             !game_server_is_local("DHCP=0\n"),
@@ -1021,14 +1121,14 @@ mod tests {
         assert_eq!(hook_logs(&dir, line, 5).unwrap(), HookLogs::Short(4));
         fs::write(dir.join("mxhook_5.log"), &good).unwrap();
         assert_eq!(hook_logs(&dir, line, 5).unwrap(), HookLogs::Ok(5));
-        assert_eq!(wait_hook_logs(&dir, line, 5, 0).unwrap(), 5);
+        assert_eq!(wait_hook_logs(&dir, line, || 5, 0).unwrap(), 5);
         let refused = format!("{good}REFUSED: secondary netguard.dll did not load\n");
         fs::write(dir.join("mxhook_6.log"), refused).unwrap();
         assert_eq!(
             hook_logs(&dir, line, 5).unwrap(),
             HookLogs::Refused("mxhook_6.log".into())
         );
-        assert!(wait_hook_logs(&dir, line, 5, 0).is_err());
+        assert!(wait_hook_logs(&dir, line, || 5, 0).is_err());
         fs::write(
             dir.join("mxhook_6.log"),
             "REFUSING TO RUN: the IP helper imports could not be patched\n",
@@ -1039,5 +1139,64 @@ mod tests {
             HookLogs::Refused(_)
         ));
         fs::remove_dir_all(dir).unwrap();
+    }
+    /// The periodic check: a refusal is fatal at once, a missing log only on the third check in a row.
+    #[test]
+    fn guard_step_streak() {
+        let dir = std::env::temp_dir().join(format!("wccf-guardstep-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let line = Edition::E1718.hook_line().unwrap();
+        for pid in 1..=5 {
+            fs::write(dir.join(format!("mxhook_{pid}.log")), line).unwrap();
+        }
+        let mut short = 0;
+        guard_step(&dir, line, 5, &mut short).unwrap();
+        // a sixth process is alive but has no log
+        assert!(guard_step(&dir, line, 6, &mut short).is_ok());
+        assert!(guard_step(&dir, line, 6, &mut short).is_ok());
+        assert!(guard_step(&dir, line, 6, &mut short).is_err());
+        short = 2;
+        guard_step(&dir, line, 5, &mut short).unwrap();
+        assert_eq!(short, 0, "a good check resets the streak");
+        fs::write(
+            dir.join("mxhook_6.log"),
+            "REFUSED: secondary netguard.dll did not load",
+        )
+        .unwrap();
+        assert!(guard_step(&dir, line, 5, &mut short).is_err());
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn listener_ownership() {
+        let tcp = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n\
+            0: 0100007F:4E32 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 4242 1 0 100 0 0 10 0\n\
+            1: 0100007F:4E33 0100007F:9999 01 00000000:00000000 00:00000000 00000000  1000        0 777 1 0 100 0 0 10 0\n";
+        assert_eq!(listen_inodes(tcp, 20018), [4242]);
+        assert!(
+            listen_inodes(tcp, 20019).is_empty(),
+            "established, not listening"
+        );
+        assert!(listen_inodes(tcp, 20002).is_empty());
+        // this test process holds a real listener; another pid does not
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        assert!(owns_listener(&[std::process::id()], port));
+        assert!(!owns_listener(&[], port));
+        assert!(!owns_listener(&[1], port));
+    }
+    /// verify_prefix refuses cleanup of a prefix process whose cwd is outside the tree, which would leak Xvfb and the
+    /// wineserver at stop: every Wine process the supervisor starts runs inside the tree.
+    #[test]
+    fn sddy_runs_inside_the_tree() {
+        let root = Path::new("/srv/x/1718-shop");
+        let cmd = sddy_command(
+            root,
+            &[("WINEPREFIX", "/srv/x/1718-shop/wineprefix".into())],
+        );
+        assert_eq!(cmd.get_current_dir(), Some(root.join("runtime").as_path()));
+        assert!(
+            cmd.get_envs()
+                .any(|(k, v)| k == "WINEPREFIX" && v.is_some())
+        );
     }
 }

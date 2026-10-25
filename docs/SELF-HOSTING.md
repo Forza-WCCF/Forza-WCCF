@@ -117,12 +117,13 @@ differ: both editions use the same shared-memory names, so they never share a pr
         run/sddy_maps.exe > evidence/runtime.sha256)
     WCCF_ROOT=$S $S/target/release/wccf-linux-server start --edition 2017-18
 
-`runtime/local/ctrl_user_option.conf` needs `GAME_SVR_IP=localhost` (the supervisor refuses anything else), the
-`GAME_SVR_PORT` of the shop's `forza-server`, and a `CONTROL_PORT` other than a 2010-11 shop's 20002 on the same host.
+`runtime/local/ctrl_user_option.conf` needs `GAME_SVR_IP=localhost` once (the supervisor refuses anything else,
+`127.0.0.1` too: the control reads that as the network's own host), the `GAME_SVR_PORT` of the shop's `forza-server`,
+and a `CONTROL_PORT` that is not 20002, the 2010-11 shop's port.
 The seat desk and match relay are `forza-server`'s (the built-in ones speak the 2010-11 protocol). Start runs
 `sddy_maps.exe` (the `SDDY_*` shared memory the Launcher makes), then control, and declares the shop up when control's
-port listens, four `match_Release` run and five `mxhook_<pid>.log` files in `logs/<start time>/` say
-`edition: 2017-18 server` with none saying `REFUSED`. `status` and `stop` take the same `WCCF_ROOT`.
+port listens (in this prefix), four `match_Release` run and a `mxhook_<pid>.log` per live process (five) in `logs/<start time>/` say
+`edition: 2017-18 server` with none saying `REFUSED`; the supervisor checks this again every 10 s and stops the shop on a refusal. `status` and `stop` take the same `WCCF_ROOT`.
 
 ## 7. The 2010-11 server
 

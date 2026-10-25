@@ -59,10 +59,11 @@ shop and a 2010-11 shop can run on one host. Differences from 2010-11:
 
 - `run/sddy_maps.exe` replaces `win32-helper.exe`; control runs as `wine control_Release.exe` in `runtime/`, and Wine's
   own crash backtrace lands in `game.log` (the supervisor turns the crash dialog off in the prefix).
-- `runtime/local/ctrl_user_option.conf` must have `GAME_SVR_IP=localhost`; `CONTROL_PORT` is the port to wait for.
+- `runtime/local/ctrl_user_option.conf` must have `GAME_SVR_IP=localhost` once (not `127.0.0.1`) and a `CONTROL_PORT`
+  other than 20002; ready needs that port listening in this prefix.
 - The seat desk and relay are always external (`forza-server`).
-- Ready also needs five `mxhook_<pid>.log` files saying `edition: 2017-18 server`, none `REFUSED` or `REFUSING`.
-  2010-11 has no such gate.
+- Ready also needs a `mxhook_<pid>.log` saying `edition: 2017-18 server` per live control and engine, none `REFUSED` or
+  `REFUSING`; rechecked every 10 s. 2010-11 has no such gate.
 - `server1718_test.exe` (the hook's Wine self-test) is run by hand, not at start.
 
 ## Wine paths
