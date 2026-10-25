@@ -4,13 +4,16 @@
 //! - Join side: listens on its own loopback where the Launcher and the game look for a shop (TCP: the control and
 //!   desk ports; UDP: the relay port). Each TCP connection becomes a QUIC bi-stream whose first byte is its kind
 //!   ([`KIND_CONTROL`], [`KIND_DESK`]). Each local UDP socket that sends to the relay port is a flow: its datagrams
-//!   cross as `[flow u16 LE][datagram]`, and the answers go back to that socket from the relay port.
+//!   cross as `[flow u32 LE][datagram]`, and the answers go back to that socket from the relay port.
 //! - Host side: dials only its own loopback: the kind's port for a stream; for datagrams, the relay port, from one
 //!   socket per (guest, flow), so the relay tells the guest's game socket and ping socket apart.
 //!
 //! The panel relay already routes every in-shop match packet through the relay port (`crates/panel/src/net.rs`), so
-//! the seats' peer link needs nothing more. Each direction of a stream is buffered on this side up to
-//! [`STREAM_BUF`], so a slow path never blocks the game's own `send`; past that the stream is closed and logged.
+//! the seats' peer link needs nothing more. The streams are buffered on this side (all of a guest's on the host, all
+//! of the join side's) up to [`STREAM_BUF`] together, so a slow path never blocks the game's own `send`; past that the
+//! stream that overflows is closed and logged. A host takes [`MAX_STREAMS`] streams per guest, and closes a guest
+//! that opens nothing usable within [`GUEST_GRACE`].
+//! Join side ports: the shop's own where free, else any free one ([`ShopLink::ports`] says which).
 //! The test-only delay ([`ShopConfig::delay`], the Launcher's `VSLINK_DELAY_MS` / 2) holds everything this side
 //! sends and receives that much longer.
 
@@ -38,8 +41,12 @@ pub const SHOP_ALPN: &[u8] = b"forza-wccf/shop/1";
 /// The first byte of a stream: what the host dials for it.
 pub const KIND_CONTROL: u8 = 1;
 pub const KIND_DESK: u8 = 2;
-/// Bytes one direction of a stream may hold on this side before it is closed.
+/// Bytes the streams may hold on this side together (per guest on the host) before the one that overflows is closed.
 pub const STREAM_BUF: usize = 4 << 20;
+/// Streams a guest may hold open at once (the control, the projector-less seat's reconnects, the desk).
+pub const MAX_STREAMS: usize = 4;
+/// A guest that opens no stream of a known kind and sends no datagram in this time is closed.
+pub const GUEST_GRACE: Duration = Duration::from_secs(15);
 /// Guests a host serves at once (8 seats), and flows per guest (a game socket and a ping socket each; restarts add).
 const MAX_GUESTS: usize = 8;
 const MAX_FLOWS: usize = 32;
@@ -206,11 +213,13 @@ impl Drop for Live {
     }
 }
 
-/// A running shop tunnel. Dropping `handle` stops it within 100 ms.
+/// A running shop tunnel. Dropping `handle` stops it: up to about 3 s (the endpoint's close, then the runtime's).
 pub struct ShopLink {
     pub handle: Handle,
     /// This endpoint's id (the host's is what guests type)
     pub id: EndpointId,
+    /// Join: the loopback ports it listens on (the shop's own unless taken). Host: the ports it dials.
+    pub ports: Ports,
     flows: Arc<AtomicUsize>,
     streams: Arc<AtomicUsize>,
 }
@@ -281,12 +290,22 @@ fn udp_line(sock: Arc<UdpSocket>, delay: Duration) -> mpsc::Sender<(Instant, Vec
 
 /// Copies `r` to `w`, holding each chunk the test delay and at most [`STREAM_BUF`] bytes; then shuts `w` down.
 /// Returns the bytes copied. Nothing is spawned: dropping the future ends both halves.
-async fn pipe<R, W>(mut r: R, mut w: W, delay: Duration, what: String, log: Log) -> u64
+async fn pipe<R, W>(
+    mut r: R,
+    mut w: W,
+    delay: Duration,
+    budget: Arc<AtomicUsize>,
+    what: String,
+    log: Log,
+) -> u64
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
-    let held = AtomicUsize::new(0);
+    let held = Held {
+        budget,
+        mine: AtomicUsize::new(0),
+    };
     let (tx, mut rx) = mpsc::unbounded_channel::<(Instant, Vec<u8>)>();
     // true: over the limit
     let reader = async {
@@ -297,7 +316,7 @@ where
                 Ok(0) | Err(_) => return false,
                 Ok(n) => n,
             };
-            if held.fetch_add(n, Ordering::Relaxed) + n > STREAM_BUF {
+            if held.add(n) > STREAM_BUF {
                 return true;
             }
             if tx.send((Instant::now(), buf[..n].to_vec())).is_err() {
@@ -313,7 +332,7 @@ where
                 return n;
             }
             n += chunk.len() as u64;
-            held.fetch_sub(chunk.len(), Ordering::Relaxed);
+            held.sub(chunk.len());
         }
         let _ = w.shutdown().await;
         n
@@ -334,17 +353,56 @@ where
     }
 }
 
+/// Bytes a pipe holds, counted in the shared budget too; what is still held when the pipe ends leaves the budget.
+struct Held {
+    budget: Arc<AtomicUsize>,
+    mine: AtomicUsize,
+}
+
+impl Held {
+    /// The budget's total after `n` more.
+    fn add(&self, n: usize) -> usize {
+        self.mine.fetch_add(n, Ordering::Relaxed);
+        self.budget.fetch_add(n, Ordering::Relaxed) + n
+    }
+
+    fn sub(&self, n: usize) {
+        self.mine.fetch_sub(n, Ordering::Relaxed);
+        self.budget.fetch_sub(n, Ordering::Relaxed);
+    }
+}
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        self.budget
+            .fetch_sub(*self.mine.get_mut(), Ordering::Relaxed);
+    }
+}
+
 /// Both directions between a local TCP connection and a QUIC stream; logs the totals when both are done.
-async fn splice<QR, QW>(tcp: TcpStream, qr: QR, qw: QW, sh: Arc<Sh>, what: String)
-where
+async fn splice<QR, QW>(
+    tcp: TcpStream,
+    qr: QR,
+    qw: QW,
+    sh: Arc<Sh>,
+    budget: Arc<AtomicUsize>,
+    what: String,
+) where
     QR: AsyncRead + Unpin,
     QW: AsyncWrite + Unpin,
 {
     let _live = Live::new(&sh.streams);
     let (tr, tw) = tcp.into_split();
     let (up, down) = tokio::join!(
-        pipe(tr, qw, sh.delay, what.clone(), sh.log.clone()),
-        pipe(qr, tw, sh.delay, what.clone(), sh.log.clone())
+        pipe(
+            tr,
+            qw,
+            sh.delay,
+            budget.clone(),
+            what.clone(),
+            sh.log.clone()
+        ),
+        pipe(qr, tw, sh.delay, budget, what.clone(), sh.log.clone())
     );
     (sh.log)(&format!("{what} closed ({up} bytes out, {down} in)"));
 }
@@ -382,22 +440,49 @@ impl Sh {
         }
         (self.log)(&format!("guest {who} joined"));
         tokio::spawn(watch_path(self.log.clone(), conn.clone()));
-        let streams = tokio::spawn(self.clone().guest_streams(conn.clone(), who.clone()));
-        let dgrams = tokio::spawn(self.clone().guest_datagrams(conn.clone(), who.clone()));
+        let used = Arc::new(AtomicBool::new(false));
+        let streams = tokio::spawn(self.clone().guest_streams(
+            conn.clone(),
+            who.clone(),
+            used.clone(),
+        ));
+        let dgrams = tokio::spawn(self.clone().guest_datagrams(
+            conn.clone(),
+            who.clone(),
+            used.clone(),
+        ));
+        let (c, log, w) = (conn.clone(), self.log.clone(), who.clone());
+        let grace = tokio::spawn(async move {
+            sleep(GUEST_GRACE).await;
+            if !used.load(Ordering::Relaxed) {
+                log(&format!(
+                    "guest {w}: nothing usable in {} s, closed",
+                    GUEST_GRACE.as_secs()
+                ));
+                c.close(3u8.into(), b"idle");
+            }
+        });
         let why = conn.closed().await;
         streams.abort();
         dgrams.abort();
+        grace.abort();
         self.guests.fetch_sub(1, Ordering::Relaxed);
         (self.log)(&format!("guest {who} left: {why}"));
     }
 
     /// The guest's streams; aborted with the guest, which aborts every stream task (the set drops).
-    async fn guest_streams(self: Arc<Self>, conn: Connection, who: String) {
+    async fn guest_streams(self: Arc<Self>, conn: Connection, who: String, used: Arc<AtomicBool>) {
         let mut tasks = JoinSet::new();
+        let budget = Arc::new(AtomicUsize::new(0));
         while let Ok((qw, mut qr)) = conn.accept_bi().await {
             while tasks.try_join_next().is_some() {}
-            let me = self.clone();
-            let who = who.clone();
+            if tasks.len() >= MAX_STREAMS {
+                (self.log)(&format!(
+                    "guest {who}: more than {MAX_STREAMS} streams, one refused"
+                ));
+                continue; // dropped: the guest sees the stream reset
+            }
+            let (me, who, used, budget) = (self.clone(), who.clone(), used.clone(), budget.clone());
             tasks.spawn(async move {
                 let mut k = [0u8; 1];
                 if timeout(LINK_WAIT, qr.read_exact(&mut k)).await.is_err() {
@@ -410,12 +495,13 @@ impl Sh {
                     ));
                     return;
                 };
+                used.store(true, Ordering::Relaxed);
                 let what = format!("guest {who}: {} connection", kind_name(k[0]));
                 match TcpStream::connect(loopback(port)).await {
                     Ok(tcp) => {
                         let _ = tcp.set_nodelay(true);
                         (me.log)(&format!("{what} to port {port}"));
-                        splice(tcp, qr, qw, me.clone(), what).await;
+                        splice(tcp, qr, qw, me.clone(), budget, what).await;
                     }
                     Err(e) => (me.log)(&format!("{what}: port {port}: {e}")),
                 }
@@ -425,7 +511,12 @@ impl Sh {
 
     /// The guest's flows: one socket each on this loopback, talking to the relay port. Aborted with the guest, which
     /// ends every flow (the set drops); past [`MAX_FLOWS`] the least recently used flow is closed.
-    async fn guest_datagrams(self: Arc<Self>, conn: Connection, who: String) {
+    async fn guest_datagrams(
+        self: Arc<Self>,
+        conn: Connection,
+        who: String,
+        used: Arc<AtomicBool>,
+    ) {
         type Line = mpsc::Sender<(Instant, Vec<u8>, SocketAddr)>;
         let out = datagram_line(&self, conn.clone());
         let mut tasks = JoinSet::new();
@@ -436,9 +527,15 @@ impl Sh {
             let Some((flow, payload)) = decode_flow(&d) else {
                 continue;
             };
+            used.store(true, Ordering::Relaxed);
             tick += 1;
             if !flows.contains_key(&flow) {
-                while tasks.try_join_next().is_some() {}
+                // a flow whose socket failed is forgotten (its task returned its number)
+                while let Some(done) = tasks.try_join_next() {
+                    if let Ok(f) = done {
+                        flows.remove(&f);
+                    }
+                }
                 if flows.len() >= MAX_FLOWS
                     && let Some(&old) = flows.iter().min_by_key(|(_, (_, _, t))| *t).map(|(f, _)| f)
                     && let Some((_, task, _)) = flows.remove(&old)
@@ -464,12 +561,12 @@ impl Sh {
                             Ok((n, src)) if src == relay => {
                                 let d = Bytes::from(encode_flow(flow, &buf[..n]));
                                 if tx.try_send((Instant::now(), d)).is_err() && tx.is_closed() {
-                                    return;
+                                    return flow;
                                 }
                             }
                             Ok(_) => {}
                             Err(e) if e.kind() == io::ErrorKind::ConnectionReset => {}
-                            Err(_) => return,
+                            Err(_) => return flow,
                         }
                     }
                 });
@@ -487,6 +584,8 @@ impl Sh {
 
 struct Join {
     sh: Arc<Sh>,
+    /// What all the join side's streams hold ([`STREAM_BUF`])
+    budget: Arc<AtomicUsize>,
     host: EndpointAddr,
     link: watch::Sender<Option<Connection>>,
     udp: Arc<UdpSocket>,
@@ -597,7 +696,7 @@ impl Join {
                 match conn.open_bi().await {
                     Ok((mut qw, qr)) => {
                         if qw.write_all(&[kind]).await.is_ok() {
-                            splice(tcp, qr, qw, me.sh.clone(), what).await;
+                            splice(tcp, qr, qw, me.sh.clone(), me.budget.clone(), what).await;
                         }
                     }
                     Err(e) => (me.sh.log)(&format!("{what}: {e}")),
@@ -607,8 +706,8 @@ impl Join {
     }
 }
 
-/// The join side as [`start`] leaves it: the first link up, the control and desk listeners bound.
-type Joined = (Arc<Join>, Connection, [TcpListener; 2]);
+/// The join side as [`start`] leaves it: the first link up, the control and desk listeners bound, the ports bound.
+type Joined = (Arc<Join>, Connection, [TcpListener; 2], Ports);
 
 async fn start(cfg: ShopConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
     let relay = cfg
@@ -663,15 +762,26 @@ async fn start(cfg: ShopConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
         ));
         return Ok((sh, None));
     };
-    // the local side first: a port in use fails the start before anything dials
-    let p = cfg.ports;
-    let control = TcpListener::bind(loopback(p.control)).await?;
-    let desk = TcpListener::bind(loopback(p.desk)).await?;
-    let udp = Arc::new(UdpSocket::bind(loopback(p.relay)).await?);
+    // the local side first, before anything dials: the shop's own ports, else any free one (this PC runs a server of
+    // its own); the Launcher points the game at what was bound
+    let want = cfg.ports;
+    let control = bind_tcp(want.control).await?;
+    let desk = bind_tcp(want.desk).await?;
+    let udp = match UdpSocket::bind(loopback(want.relay)).await {
+        Ok(u) => u,
+        Err(_) => UdpSocket::bind(loopback(0)).await?,
+    };
+    let p = Ports {
+        control: control.local_addr()?.port(),
+        desk: desk.local_addr()?.port(),
+        relay: udp.local_addr()?.port(),
+    };
+    let udp = Arc::new(udp);
     let pk = PublicKey::from_bytes(&host).map_err(io::Error::other)?;
     let join = Arc::new(Join {
         host: EndpointAddr::new(pk).with_relay_url(sh.relay.clone()),
         sh: sh.clone(),
+        budget: Arc::default(),
         link: watch::channel(None).0,
         udp,
         flows: Mutex::default(),
@@ -689,7 +799,15 @@ async fn start(cfg: ShopConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
         io::Error::other(format!("the shop {} did not answer: {e}", id_short(&host)))
     })?;
     (sh.log)("link to the shop up");
-    Ok((sh, Some((join, first, [control, desk]))))
+    Ok((sh, Some((join, first, [control, desk], p))))
+}
+
+/// A TCP listener on the loopback `port`, else on any free loopback port.
+async fn bind_tcp(port: u16) -> io::Result<TcpListener> {
+    match TcpListener::bind(loopback(port)).await {
+        Ok(l) => Ok(l),
+        Err(_) => TcpListener::bind(loopback(0)).await,
+    }
 }
 
 /// Starts the tunnel on its own thread. Host: returns once the endpoint is bound. Join: once its local ports are
@@ -720,17 +838,19 @@ pub fn spawn(cfg: ShopConfig) -> io::Result<ShopLink> {
                     return;
                 }
             };
+            let ports = join.as_ref().map_or(sh.ports, |j| j.3);
             let _ = tx.send(Ok((
                 *sh.ep.id().as_bytes(),
                 sh.flows.clone(),
                 sh.streams.clone(),
+                ports,
             )));
             rt.block_on(async {
                 match join {
                     None => {
                         tokio::spawn(sh.clone().host());
                     }
-                    Some((j, first, [control, desk])) => {
+                    Some((j, first, [control, desk], _)) => {
                         tokio::spawn(j.clone().keep(first));
                         tokio::spawn(j.clone().to_host());
                         tokio::spawn(j.clone().accept(control, KIND_CONTROL));
@@ -745,12 +865,13 @@ pub fn spawn(cfg: ShopConfig) -> io::Result<ShopLink> {
             });
             rt.shutdown_timeout(Duration::from_secs(1));
         })?;
-    let (id, flows, streams) = rx
+    let (id, flows, streams, ports) = rx
         .recv()
         .map_err(|_| io::Error::other("the shop tunnel's thread ended at start"))??;
     Ok(ShopLink {
         handle: Handle::new(stop, thread),
         id,
+        ports,
         flows,
         streams,
     })

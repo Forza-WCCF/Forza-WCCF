@@ -141,7 +141,12 @@ impl Pair {
             log,
             Duration::from_millis(knob_ms / 2),
         );
-        self.join = Some(shop::spawn(cfg).unwrap());
+        let link = shop::spawn(cfg).unwrap();
+        assert_eq!(
+            link.ports, self.join_ports,
+            "free ports: the ones asked for"
+        );
+        self.join = Some(link);
         assert!(logged(&lines, "link to the shop up"));
         self.join_log = lines;
     }
@@ -399,4 +404,73 @@ fn a_guest_that_leaves_leaves_nothing_open() {
         wait_open(&p, (0, 0));
         drop(c);
     }
+}
+
+/// A guest holds at most 4 streams; the 5th is refused while the others keep working.
+#[test]
+fn streams_past_the_cap_are_refused() {
+    let p = pair("cap", 0, false);
+    let open = |i: u8| {
+        let mut c = TcpStream::connect(at(p.join_ports.control)).unwrap();
+        c.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        c.write_all(&[i]).unwrap();
+        let mut b = [0u8; 1];
+        let ok = c.read_exact(&mut b).is_ok() && b[0] == i;
+        (c, ok)
+    };
+    let held: Vec<_> = (0..4).map(open).collect();
+    assert!(held.iter().all(|(_, ok)| *ok), "4 streams work");
+    let (_fifth, ok) = open(5);
+    assert!(!ok, "the 5th gets no echo");
+    assert!(logged(&p.host_log, "more than 4 streams, one refused"));
+    drop(held);
+}
+
+/// A guest that opens nothing usable is closed after the grace period.
+#[test]
+fn an_idle_guest_is_closed() {
+    let p = pair("idle", 0, false);
+    let t = Instant::now();
+    while !logged(&p.host_log, "nothing usable in 15 s, closed") {
+        assert!(
+            t.elapsed() < Duration::from_secs(25),
+            "the idle guest was never closed"
+        );
+        thread::sleep(Duration::from_millis(200));
+    }
+}
+
+/// The shop's ports taken on the joining PC (it runs a server of its own): the join side takes free ones and says
+/// which, and the tunnel works on them.
+#[test]
+fn taken_ports_move_the_join_side() {
+    let mut p = pair("moved", 0, false);
+    drop(p.join.take());
+    let busy_tcp = TcpListener::bind("127.0.0.1:0").unwrap();
+    let busy_udp = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let want = Ports {
+        control: busy_tcp.local_addr().unwrap().port(),
+        desk: free_tcp(),
+        relay: busy_udp.local_addr().unwrap().port(),
+    };
+    let (log, lines) = logger("moved join 2");
+    let cfg = p.config(
+        Role::Join(p.host.id),
+        want,
+        "moved2.key",
+        log,
+        Duration::ZERO,
+    );
+    let link = shop::spawn(cfg).unwrap();
+    assert_ne!(link.ports.control, want.control);
+    assert_ne!(link.ports.relay, want.relay);
+    assert_eq!(link.ports.desk, want.desk);
+    assert!(logged(
+        &lines,
+        &format!("local ports TCP {} and", link.ports.control)
+    ));
+    p.join_ports = link.ports;
+    p.join = Some(link);
+    control_rtt(&p);
+    datagram_rtt(&p);
 }
