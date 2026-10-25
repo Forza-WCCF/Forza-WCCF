@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 pub const FACE: (u32, u32) = (88, 128);
 /// The folder's note of what made it; another answer from [`wanted`] makes it again.
 const MARKER: &str = "source.txt";
-const VERSION: u32 = 2; // 2: the album fronts and backs (`<number>_f.jpg`, `<number>_b.jpg`)
+pub const VERSION: u32 = 2; // 2: the album fronts and backs (`<number>_f.jpg`, `<number>_b.jpg`)
 /// The album card in the top of its 256x512 texture (the rows under it are edge smear).
 pub const ALBUM: (u32, u32) = (256, 357);
 /// The album front's JPEG quality: about 40 % of the PNG's size, no visible loss at card size.
@@ -443,6 +443,12 @@ fn remove_jpgs(dir: &Path, art: bool) -> io::Result<()> {
     Ok(())
 }
 
+/// Whether `cards` was made by this version of the pictures code (any pictures choice): false for a folder made by an
+/// older version or not at all, which [`ensure`] makes again.
+pub fn is_current(cards: &Path) -> bool {
+    fs::read_to_string(cards.join(MARKER)).is_ok_and(|m| m.starts_with(&format!("{VERSION} ")))
+}
+
 /// `cards` as the setting asks (`pack`: the high-quality pack, else the game's own), made only when the folder was
 /// made otherwise or not at all. `edition` is "1011" or "1718"; `say` hears what is done.
 pub fn ensure(
@@ -458,7 +464,7 @@ pub fn ensure(
         return Ok(());
     }
     // the game's pictures stay while this version made them; the pack's go, and come back if wanted
-    let made = fs::read_to_string(&marker).is_ok_and(|m| m.starts_with(&format!("{VERSION} ")));
+    let made = is_current(cards);
     let _ = fs::remove_file(&marker); // half made stays "not made"
     let _ = fs::remove_file(cards.join(super::hq::FILE));
     remove_jpgs(cards, false)?; // the pack's scans; the album art (`_f`, `_b`) is the game's and stays
@@ -667,6 +673,27 @@ mod tests {
         assert_eq!((m.faces, m.fronts, m.art_fails), (1, 0, 0));
         assert!(out.join("7049.png").is_file());
         assert!(!out.join("7049_f.jpg").exists() && !out.join("7049_b.jpg").exists());
+    }
+
+    #[test]
+    fn an_older_marker_is_not_current_and_ensure_makes_it_again_in_either_edition() {
+        let d = tempfile::tempdir().unwrap();
+        fake_game(d.path());
+        let out = d.path().join("cards");
+        assert!(!is_current(&out));
+        for ed in ["1718", "1011"] {
+            if ed == "1011" {
+                let mut rec = vec![0u8; 0x328];
+                rec[..2].copy_from_slice(&7049u16.to_le_bytes());
+                rec[0x2DA..0x2DA + 7].copy_from_slice(b"Pic_One");
+                fs::write(d.path().join("prog_data/player_data/player_data.bin"), rec).unwrap();
+            }
+            fs::create_dir_all(&out).unwrap();
+            fs::write(out.join(MARKER), "1 game").unwrap();
+            assert!(!is_current(&out), "{ed}");
+            ensure(d.path(), ed, &out, None, &|_| {}).unwrap();
+            assert!(is_current(&out) && out.join("7049.png").is_file(), "{ed}");
+        }
     }
 
     #[test]

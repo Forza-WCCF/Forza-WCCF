@@ -484,8 +484,9 @@ fn stop_command(kit: &Kit, p: &Params, force: bool, check: bool, ui: &dyn Ui) ->
 
 /// Starts and supervises; a full RESTART NOW starts again with what a plain start chooses.
 fn play(kit: &Kit, p: &Params, mode: Option<Mode>, debug: bool, ui: &dyn Ui) -> i32 {
-    // an install made without pictures (the installer once skipped them): make them now
-    if !kit.cache().join("cards").join("source.txt").is_file() && game_folder(kit, p).is_some() {
+    // an install made without pictures, or by an older version (an update whose setup did not run): make them now;
+    // a failure is said and the game starts with what exists
+    if pictures_due(kit, p) {
         make_pictures(kit, p, ui);
     }
     let mut mode = mode;
@@ -577,6 +578,15 @@ fn game_folder(kit: &Kit, p: &Params) -> Option<PathBuf> {
         Edition::E1011 => None,
     })?;
     find_game_named(&set, p.programs.clone())
+}
+
+/// Whether PLAY has to make the card pictures first: a game is set up and the folder is missing or from an older version.
+pub fn pictures_due(kit: &Kit, p: &Params) -> bool {
+    due(&kit.cache().join("cards"), game_folder(kit, p).is_some())
+}
+
+fn due(cards: &Path, game: bool) -> bool {
+    game && !forza::cards::pictures::is_current(cards)
 }
 
 /// The board's card pictures, made at setup (and again when Launcher's choice changes) by
@@ -2371,5 +2381,30 @@ impl Run<'_> {
 impl Drop for Run<'_> {
     fn drop(&mut self) {
         self.shutdown();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::due;
+    use std::fs;
+
+    #[test]
+    fn pictures_are_made_at_play_when_missing_or_from_an_older_version() {
+        let d = tempfile::tempdir().unwrap();
+        let cards = d.path().join("cards");
+        assert!(due(&cards, true), "no folder: made, as before");
+        assert!(!due(&cards, false), "no game set up: nothing to make them from");
+        fs::create_dir_all(&cards).unwrap();
+        for old in ["game", "1 game", "1 hq 5 P"] {
+            fs::write(cards.join("source.txt"), old).unwrap();
+            assert!(due(&cards, true), "{old:?}: an older marker is made again");
+            assert!(!due(&cards, false), "{old:?}: still no game");
+        }
+        let v = forza::cards::pictures::VERSION;
+        for now in [format!("{v} game"), format!("{v} hq 5 P")] {
+            fs::write(cards.join("source.txt"), &now).unwrap();
+            assert!(!due(&cards, true), "{now:?}: current, nothing to do");
+        }
     }
 }

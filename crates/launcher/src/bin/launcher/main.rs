@@ -976,7 +976,16 @@ impl App {
             refuse(write_failed(&path, &e));
             return;
         }
-        say(t("launcher.msg_starting"), 0);
+        // run::play makes them first (an update whose setup did not run); this is the wait's status line
+        let due = run::pictures_due(kit, &Params::of(kit));
+        say(
+            t(if due {
+                "launcher.msg_updating_pictures"
+            } else {
+                "launcher.msg_starting"
+            }),
+            0,
+        );
         start(vec![Step::Game(Vec::new())]);
     }
 
