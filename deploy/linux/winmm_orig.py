@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""winmm_orig.dll for the 2010-11 server: Wine's own 32-bit winmm.dll, renamed so Wine loads it as a plain DLL.
+"""winmm_orig.dll for a server under Wine: Wine's own 32-bit winmm.dll, renamed so Wine loads it as a plain DLL.
 
 Wine marks its own DLLs "Wine builtin DLL" and would look for a builtin named winmm_orig; the server hook (winmm.dll,
-forza-hook e1011-server) forwards every winmm export to winmm_orig.dll, so the copy must load as an ordinary DLL.
+forza-hook e1011-server or e1718-server) forwards every winmm export to winmm_orig.dll, so the copy must load as an ordinary DLL.
 
     python3 deploy/linux/winmm_orig.py OUT [WINE_WINMM]
 

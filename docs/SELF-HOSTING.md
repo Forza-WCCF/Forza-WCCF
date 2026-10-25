@@ -53,6 +53,7 @@ For the 2010-11 server also, build the two Windows helpers on a Windows PC with 
     cargo xtask build        # also on Windows
     # the network guard: target/kit/2017-18/bin/wccfnet.dll, source/build/netguard.dll, source/build/test_wccfnet.exe
     # the server hook: target/kit/2017-18/source/build/server-hook/winmm.dll and its three self-tests
+    # the 2017-18 shop's hook (not in use yet): target/kit/2017-18/source/build/server-hook-1718/winmm.dll, server1718_test.exe
 
 The iroh relay is upstream's binary at the iroh version in `Cargo.lock` (1.4.0 now), built the same way:
 
@@ -84,6 +85,20 @@ Another architecture for `forza-server`: `deploy/linux/Dockerfile.forza-server`.
   replace `--allow-file …` with `--allow-any` in the unit.
 - Check from a player's PC: `python3 deploy/linux/lobby_check.py game.example.org:20032 2017-18 --room`.
 - The VS options, the room words and the pairing rules: `crates/server/README.md`.
+
+### The 2017-18 shop's hook (not in use yet)
+
+A 2017-18 shop runs the original control under Wine like 2010-11 (no supervisor yet). Its `winmm.dll` (`native/hook`,
+feature `e1718-server`) forwards every winmm call to `winmm_orig.dll` (`winmm_orig.py`, section 7), ends the process unless
+`netguard.dll` loads, blocks the DHCP release and renew (the guarded control imports them from `wccfnet.dll`), and
+shows the control one network address (`MXHOOK_NET_IP`, default 127.0.0.1). None of the 2010-11 fixes apply. Its log,
+`mxhook_<pid>.log` in `MXHOOK_LOG_DIR` (a Wine path, for example `Z:\srv\...`), says `edition: 2017-18 server`.
+
+Self-test: in a folder with `winmm.dll`, `winmm_orig.dll`, `netguard.dll`, `wccfnet.dll` (the kit's `bin/`) and
+`server1718_test.exe`, run `MXHOOK_LOG_DIR='Z:\path\to\logs' WINEDLLOVERRIDES="winmm,winmm_orig,netguard=n" wine
+server1718_test.exe`; the last line is `2017-18 server hook test: all passed`. The test imports the DHCP calls from
+IPHLPAPI; for the guarded control's case, run it again on a copy with that import renamed as setup does
+(`iphlpapi.dll\0` to `wccfnet.dll\0\0`).
 
 ## 7. The 2010-11 server
 
