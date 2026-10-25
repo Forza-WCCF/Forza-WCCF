@@ -12,7 +12,7 @@ use image::codecs::jpeg::JpegEncoder;
 use image::{DynamicImage, ExtendedColorType, ImageEncoder, ImageFormat};
 use std::collections::HashMap;
 use std::fs::{self, File};
-use std::io::{self, Read, Seek, SeekFrom};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 /// The face: the left 88 columns of the game's 128x128 picture (what the original overlay showed).
@@ -195,20 +195,30 @@ fn save_jpg(img: &DynamicImage, path: &Path) -> io::Result<()> {
     let rgb = img.to_rgb8();
     let done = File::create(&tmp)
         .and_then(|f| {
-            JpegEncoder::new_with_quality(io::BufWriter::new(f), ALBUM_QUALITY)
+            let mut w = io::BufWriter::new(f);
+            JpegEncoder::new_with_quality(&mut w, ALBUM_QUALITY)
                 .write_image(
                     rgb.as_raw(),
                     rgb.width(),
                     rgb.height(),
                     ExtendedColorType::Rgb8,
                 )
-                .map_err(io::Error::other)
+                .map_err(io::Error::other)?;
+            w.flush() // a failed tail write is an error, not a short file renamed into place
         })
         .and_then(|()| fs::rename(&tmp, path));
     if done.is_err() {
         let _ = fs::remove_file(&tmp);
     }
     done
+}
+
+fn fail_count<'a>(made: &'a mut Made, side: &str) -> &'a mut usize {
+    if side == "f" {
+        &mut made.art_fails
+    } else {
+        &mut made.back_fails
+    }
 }
 
 /// What [`from_game`] made.
@@ -218,8 +228,10 @@ pub struct Made {
     pub faces: usize,
     /// Album fronts written (`<number>_f.jpg`); their backs come with them.
     pub fronts: usize,
-    /// Album pictures that could not be read or written (a texture of another size is skipped, not counted).
+    /// Album fronts that could not be read or written (a texture of another size is skipped, not counted).
     pub art_fails: usize,
+    /// The same for backs: reported, but not what [`ensure`] retries on (no view reads them yet).
+    pub back_fails: usize,
     /// Every problem, for the setup output.
     pub fails: Vec<String>,
 }
@@ -268,7 +280,7 @@ pub fn from_game(game: &Path, edition: &str, out: &Path) -> io::Result<Made> {
             let Some(e) = toc.get(&art) else { continue };
             match load(&mut xaf, file_len, e) {
                 Err(e) => {
-                    made.art_fails += 1;
+                    *fail_count(&mut made, side) += 1;
                     made.fails.push(format!("card {no} ({art}): {e}"));
                 }
                 Ok(t) => match album_card(&t) {
@@ -280,7 +292,7 @@ pub fn from_game(game: &Path, edition: &str, out: &Path) -> io::Result<Made> {
                     Some(card) => match save_jpg(&card, &out.join(format!("{no}_{side}.jpg"))) {
                         Ok(()) => made.fronts += usize::from(side == "f"),
                         Err(e) => {
-                            made.art_fails += 1;
+                            *fail_count(&mut made, side) += 1;
                             made.fails.push(format!("card {no} ({art}): {e}"));
                         }
                     },
@@ -411,10 +423,15 @@ fn remove_jpgs(dir: &Path, art: bool) -> io::Result<()> {
         let p = f.path();
         let stem = p.file_stem().map(|s| s.to_string_lossy().into_owned());
         let number = stem.as_deref().and_then(|s| {
-            if art {
-                s.strip_suffix("_f").or_else(|| s.strip_suffix("_b"))
-            } else {
+            let tail = s.len().saturating_sub(2);
+            if !art {
                 Some(s)
+            } else if s.is_char_boundary(tail)
+                && matches!(&s[tail..].to_ascii_lowercase()[..], "_f" | "_b")
+            {
+                Some(&s[..tail])
+            } else {
+                None
             }
         });
         if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("jpg"))
@@ -461,9 +478,9 @@ pub fn ensure(
         if m.faces == 0 {
             return Err(bad("no card picture could be made from the game"));
         }
-        // more than 1 in 20 album pictures lost (disk full, a scanner holding files): no marker, the next start retries
-        if m.art_fails * 20 > m.fronts * 2 + m.art_fails {
-            return Err(bad(format!("{} album pictures failed", m.art_fails)));
+        // more than 1 in 20 album fronts lost (disk full, a scanner holding files): no marker, the next start retries
+        if m.art_fails * 20 > m.fronts + m.art_fails {
+            return Err(bad(format!("{} album fronts failed", m.art_fails)));
         }
     }
     if let Some(p) = pack {
@@ -657,16 +674,31 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         fake_game(d.path());
         let out = d.path().join("cards");
-        fs::create_dir_all(out.join("7049_f.jpg")).unwrap(); // the swap cannot replace a folder
+        fs::create_dir_all(out.join("7049_f.jpg.tmp")).unwrap(); // the temp file cannot be made
         assert!(ensure(d.path(), "1718", &out, None, &|_| {}).is_err());
         assert!(!out.join(MARKER).exists());
-        assert!(!out.join("7049_f.jpg.tmp").exists() && !out.join("7049_b.jpg.tmp").exists());
+        assert!(!out.join("7049_b.jpg.tmp").exists());
         // the next start retries; stale art of a card the game no longer has goes with the rebuild
-        fs::remove_dir(out.join("7049_f.jpg")).unwrap();
+        fs::remove_dir(out.join("7049_f.jpg.tmp")).unwrap();
         fs::write(out.join("1_f.JPG"), b"stale").unwrap();
+        fs::write(out.join("2_B.JPG"), b"stale").unwrap();
         ensure(d.path(), "1718", &out, None, &|_| {}).unwrap();
-        assert!(out.join("7049_f.jpg").is_file() && !out.join("1_f.JPG").exists());
+        assert!(out.join("7049_f.jpg").is_file());
+        assert!(!out.join("1_f.JPG").exists() && !out.join("2_B.JPG").exists());
         assert!(out.join(MARKER).is_file());
+    }
+
+    #[test]
+    fn a_lost_back_is_reported_but_never_stops_the_setup() {
+        let d = tempfile::tempdir().unwrap();
+        fake_game(d.path());
+        let out = d.path().join("cards");
+        fs::create_dir_all(out.join("7049_b.jpg.tmp")).unwrap();
+        ensure(d.path(), "1718", &out, None, &|_| {}).unwrap();
+        assert!(out.join(MARKER).is_file() && out.join("7049_f.jpg").is_file());
+        fs::remove_file(out.join(MARKER)).unwrap();
+        let m = from_game(d.path(), "1718", &out).unwrap();
+        assert_eq!((m.fronts, m.art_fails, m.back_fails), (1, 0, 1));
     }
 
     #[test]
