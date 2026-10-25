@@ -253,9 +253,15 @@ pub struct ShopLink {
     pub ports: Ports,
     flows: Arc<AtomicUsize>,
     streams: Arc<AtomicUsize>,
+    guests: Arc<AtomicUsize>,
 }
 
 impl ShopLink {
+    /// Host: the guests connected now (admitted, link up), live: a shop server with guests holds their matches.
+    pub fn guests(&self) -> Arc<AtomicUsize> {
+        self.guests.clone()
+    }
+
     /// The host's guest flows (a socket each) and the streams open now: both 0 once every guest has left.
     pub fn open(&self) -> (usize, usize) {
         (
@@ -271,7 +277,7 @@ struct Sh {
     relay: RelayUrl,
     ports: Ports,
     delay: Duration,
-    guests: AtomicUsize,
+    guests: Arc<AtomicUsize>,
     /// Guests being checked against the room now ([`MAX_ADMITTING`]).
     admitting: AtomicUsize,
     oversize: AtomicU64,
@@ -815,7 +821,7 @@ async fn start(cfg: ShopConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
         relay,
         ports: cfg.ports,
         delay: cfg.delay,
-        guests: AtomicUsize::new(0),
+        guests: Arc::default(),
         admitting: AtomicUsize::new(0),
         oversize: AtomicU64::new(0),
         flows: Arc::default(),
@@ -919,6 +925,7 @@ pub fn spawn(cfg: ShopConfig) -> io::Result<ShopLink> {
                 *sh.ep.id().as_bytes(),
                 sh.flows.clone(),
                 sh.streams.clone(),
+                sh.guests.clone(),
                 ports,
             )));
             rt.block_on(async {
@@ -941,7 +948,7 @@ pub fn spawn(cfg: ShopConfig) -> io::Result<ShopLink> {
             });
             rt.shutdown_timeout(Duration::from_secs(1));
         })?;
-    let (id, flows, streams, ports) = rx
+    let (id, flows, streams, guests, ports) = rx
         .recv()
         .map_err(|_| io::Error::other("the shop tunnel's thread ended at start"))??;
     Ok(ShopLink {
@@ -950,6 +957,7 @@ pub fn spawn(cfg: ShopConfig) -> io::Result<ShopLink> {
         ports,
         flows,
         streams,
+        guests,
     })
 }
 

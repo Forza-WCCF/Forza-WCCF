@@ -9,6 +9,7 @@ use iroh::tls::CaTlsConfig;
 use std::collections::BTreeSet;
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -403,8 +404,21 @@ fn a_guest_that_leaves_leaves_nothing_open() {
         c.write_all(b"x").unwrap();
         c.read_exact(&mut [0u8; 1]).unwrap();
         wait_open(&p, (2, 1));
+        assert_eq!(
+            p.host.guests().load(Ordering::Relaxed),
+            1,
+            "one guest connected"
+        );
         drop(p.join.take());
         wait_open(&p, (0, 0));
+        let t = Instant::now();
+        while p.host.guests().load(Ordering::Relaxed) != 0 {
+            assert!(
+                t.elapsed() < Duration::from_secs(10),
+                "the guest still counted"
+            );
+            thread::sleep(Duration::from_millis(50));
+        }
         drop(c);
     }
 }
