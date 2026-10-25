@@ -193,6 +193,7 @@ pub fn lobby_for(edition: Edition) -> LobbyView {
         }
         Edition::E1718 => {
             v.shops_view_only = true;
+            v.codes = true;
             v.kind = Kind::Vs;
         }
     }
@@ -295,6 +296,7 @@ impl LauncherState {
                 let mut v = LobbyView::sample(LobbyScenario::List);
                 v.grey = st.lobby.grey;
                 v.kind = st.lobby.kind;
+                v.codes = st.lobby.codes;
                 st.lobby = v;
             }
             Scenario::Report => {
@@ -469,7 +471,8 @@ fn play(
     widgets::section(ui, &tr!(lang, "launcher.play_section"), accent, |ui| {
         let label_w = 150.0;
         let w = ui.available_width() - label_w;
-        ui.add_enabled_ui(!st.running && !st.busy, |ui| {
+        let free = !st.running && !st.busy;
+        ui.add_enabled_ui(free, |ui| {
             ui.horizontal(|ui| {
                 field(ui, &tr!(lang, "launcher.where"), label_w);
                 let mut i = st.online as usize;
@@ -485,7 +488,10 @@ fn play(
                     st.online = i == 1;
                 }
             });
-            if st.online {
+        });
+        // HOST SHOP's code and LEAVE stay live while the shop and this PC's seat run
+        if st.online {
+            ui.add_enabled_ui(free || st.lobby.hosting, |ui| {
                 if let Some(text) = st.rejoin.clone()
                     && action(ui, &text).clicked()
                 {
@@ -502,8 +508,8 @@ fn play(
                 } else if vs_link {
                     *act = Some(Action::VsLink);
                 }
-            }
-        });
+            });
+        }
     });
 }
 

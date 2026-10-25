@@ -9,4 +9,5 @@ mod rec_debug;
 mod rec_keys;
 mod rec_kit;
 mod rec_logs;
+mod shop_room;
 mod sound;

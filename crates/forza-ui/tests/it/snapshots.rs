@@ -952,6 +952,31 @@ fn cabinet_shapes_click() {
     }
 }
 
+/// HOST SHOP while the shop and this PC's seat run: the room code, COPY and LEAVE stay live, the rest is greyed.
+#[test]
+fn launcher_host_shop() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for lang in Lang::ALL {
+        let mut st =
+            launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Online);
+        st.running = true;
+        let v = &mut st.lobby;
+        (v.shop_rooms, v.hosting, v.host_code) = (true, true, Some("K7QM2X".into()));
+        v.kind = lobby::Kind::Shops;
+        snap(
+            &mut all,
+            &format!("launcher_host_shop_{}", lang.code()),
+            Vec2::new(launcher::SIZE.x, 1000.0),
+            Edition::E1718,
+            |ui| {
+                launcher::show(ui, &mut st);
+            },
+        );
+    }
+    all.unwrap();
+}
+
 /// The online lobby on sample data: every scenario in the three languages, at 1 and 2 pixels per point.
 #[test]
 fn lobby_screens() {
@@ -1024,6 +1049,48 @@ fn lobby_keys() {
     h.key_press(egui::Key::Enter);
     h.run_steps(2);
     assert_eq!(got.take(), None, "READY twice");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert_eq!(got.take(), Some(Leave));
+}
+
+/// 2017-18 with the shared shop on: HOST SHOP (and H) on the SHOPS tab, the code typed and JOINed in capitals; while
+/// hosting only Esc (LEAVE) answers.
+#[test]
+fn lobby_shop_rooms() {
+    use lobby::LobbyAction::*;
+    let _gpu = gpu();
+    let mut start = lobby::LobbyView::sample(lobby::Scenario::ShopNoRoom);
+    (start.notice, start.code) = (None, String::new());
+    let v = std::cell::RefCell::new(start);
+    let got = std::cell::RefCell::new(None);
+    let mut h = harness(lobby::SIZE, 1.0, Edition::E1718, |ui| {
+        if let Some(a) = lobby::show(ui, &mut v.borrow_mut(), Lang::En) {
+            *got.borrow_mut() = Some(a);
+        }
+    });
+    h.run_steps(4);
+    h.get_by_label("HOST SHOP").click();
+    h.run_steps(2);
+    assert_eq!(got.take(), Some(HostShop));
+    h.key_press(egui::Key::H);
+    h.run_steps(2);
+    assert_eq!(got.take(), Some(HostShop));
+    v.borrow_mut().code = " k7qm2x".into();
+    h.run_steps(2);
+    // the row's JOIN is greyed (a listed room joins by its code too): only the code's answers
+    for n in h.get_all_by_label("JOIN") {
+        n.click();
+    }
+    h.run_steps(2);
+    assert_eq!(got.take(), Some(JoinCode("K7QM2X".into())));
+    v.borrow_mut().hosting = true;
+    h.run_steps(2);
+    for key in [egui::Key::H, egui::Key::Enter] {
+        h.key_press(key);
+        h.run_steps(2);
+        assert_eq!(got.take(), None, "{key:?} while hosting");
+    }
     h.key_press(egui::Key::Escape);
     h.run_steps(2);
     assert_eq!(got.take(), Some(Leave));

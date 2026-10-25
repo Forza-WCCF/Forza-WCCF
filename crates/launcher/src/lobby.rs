@@ -5,7 +5,8 @@
 
 use crate::Edition;
 use forza::online::SEAT_PORT;
-use forza::online::lobby::{self, Created, Lobby, Reserved, State, VsRoom};
+use forza::online::lobby::{self, Created, Lobby, Peers, Reserved, State, VsRoom};
+use forza::service::Log;
 use forza_ui::Lang;
 use forza_ui::lobby::{LobbyView, Row, RowState};
 use std::collections::HashMap;
@@ -13,7 +14,7 @@ use std::net::{SocketAddr, TcpStream};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
-use std::sync::{Arc, mpsc::Receiver};
+use std::sync::{Arc, Mutex, PoisonError, mpsc::Receiver};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -52,6 +53,12 @@ pub enum Msg {
     },
     /// The desk's answer to READY: false when the room or the seat is gone.
     Readied { id: String, result: Result<bool, String> },
+    /// A typed shop code's outcome ([`join_code`]).
+    Coded {
+        server: String,
+        code: String,
+        result: Result<CodeJoin, String>,
+    },
 }
 
 // The project's public server; the `servers` setting, "Direct address" and `WCCF_LOBBY` (host[:port]) override it.
@@ -59,6 +66,15 @@ pub enum Msg {
 pub const PROJECT_SERVER_1011: &str = "lobby.wccf.it:20030";
 /// The project's lobby server for 2017-18 (its desk beside the game server on 20060).
 pub const PROJECT_SERVER_1718: &str = "lobby.wccf.it:20032";
+
+/// Where 2017-18 shop rooms are made and joined: the desk beside the club server's game server (the project server's
+/// desk port on that host), or the project's server ([`project_server`]) when no club server is set. Never this PC's
+/// own shop desk: the host and its guests must meet on the same public desk.
+pub fn shop_lobby(club_server: &str) -> String {
+    let project = project_server(Edition::E1718);
+    let port = crate::choices::host_port(&project, SEAT_PORT).map_or(SEAT_PORT, |h| h.1);
+    crate::choices::parse_club_server(club_server).map_or(project, |(h, _)| format!("{h}:{port}"))
+}
 
 /// The default server: `WCCF_LOBBY` when it is a valid `host[:port]` (the project's `default` desk port if none),
 /// else `default`.
@@ -221,29 +237,152 @@ impl Poller {
 
     /// Keeps a reserved seat: `HEARTBEAT ticket` every `every` (`lobby::HEARTBEAT_EVERY`) until the [`Beat`] drops.
     pub fn beat(&self, server: &str, ticket: &str, every: Duration, wake: Wake) -> Beat {
-        let stop = Arc::new(AtomicBool::new(false));
-        let (flag, server, ticket, out) = (stop.clone(), server.to_owned(), ticket.to_owned(), self.tx.clone());
-        thread::spawn(move || {
-            let Some(a) = socket(&server) else { return };
-            loop {
-                let end = Instant::now() + every;
-                while Instant::now() < end {
-                    if flag.load(Ordering::Relaxed) {
-                        return;
-                    }
-                    thread::sleep(Duration::from_millis(20).min(end - Instant::now()));
-                }
-                // an I/O error is not "gone": the next beat tries again inside the 60 s lease
-                if lobby::heartbeat(a, &ticket) == Ok(false) {
-                    if !flag.load(Ordering::Relaxed) {
-                        let _ = out.send(Msg::Gone { ticket });
-                        wake();
-                    }
+        let (out, t) = (self.tx.clone(), ticket.to_owned());
+        beat(server, ticket, every, move || {
+            let _ = out.send(Msg::Gone { ticket: t });
+            wake();
+        })
+    }
+
+    /// A shop room's code (2017-18), typed: `JOIN`, then `SHOP t own` ([`join_code`]) on a worker; the answer comes
+    /// back as [`Msg::Coded`].
+    pub fn join_code(&self, server: &str, code: &str, own: &str, wake: Wake) {
+        let (server2, code, own) = (server.to_owned(), code.to_owned(), own.to_owned());
+        self.call(server, wake, move |a| Msg::Coded {
+            result: a.and_then(|a| join_code(a, &code, &own)),
+            server: server2,
+            code,
+        });
+    }
+}
+
+/// `HEARTBEAT ticket` every `every` until the [`Beat`] drops; `gone` runs once when the desk no longer holds it.
+fn beat(server: &str, ticket: &str, every: Duration, gone: impl FnOnce() + Send + 'static) -> Beat {
+    let stop = Arc::new(AtomicBool::new(false));
+    let (flag, server, ticket) = (stop.clone(), server.to_owned(), ticket.to_owned());
+    thread::spawn(move || {
+        let Some(a) = socket(&server) else { return };
+        loop {
+            let end = Instant::now() + every;
+            while Instant::now() < end {
+                if flag.load(Ordering::Relaxed) {
                     return;
                 }
+                thread::sleep(Duration::from_millis(20).min(end - Instant::now()));
             }
-        });
-        Beat(stop)
+            // an I/O error is not "gone": the next beat tries again inside the 60 s lease
+            if lobby::heartbeat(a, &ticket) == Ok(false) {
+                if !flag.load(Ordering::Relaxed) {
+                    gone();
+                }
+                return;
+            }
+        }
+    });
+    Beat(stop)
+}
+
+/// The key whose id a guest tells its shop room (`SHOP t own`) and dials the host with (data\shop_join.key).
+pub const SHOP_JOIN_KEY: &str = "shop_join.key";
+
+/// A typed shop code's outcome (2017-18).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CodeJoin {
+    /// A guest seat: the ticket to keep alive while the run lasts, and the host's tunnel id to dial.
+    In { ticket: String, host: String },
+    /// No room has that code.
+    NoRoom,
+    /// The room has no free seat.
+    Full,
+    /// The room closed between `JOIN` and `SHOP`.
+    Gone,
+}
+
+/// A guest's way into a shop room: `JOIN CODE`, then `SHOP t own` (`own` = this PC's join key id, which the host's
+/// tunnel then admits; it must be told before the dial).
+pub fn join_code(a: SocketAddr, code: &str, own: &str) -> Result<CodeJoin, String> {
+    let ticket = match lobby::join_shop(a, code, None)? {
+        Reserved::Ticket { ticket, .. } => ticket,
+        Reserved::Closed => return Ok(CodeJoin::NoRoom),
+        Reserved::Full | Reserved::Taken => return Ok(CodeJoin::Full),
+    };
+    match lobby::shop_peers(a, &ticket, Some(own)) {
+        Ok(Some(Peers::Host(host))) => Ok(CodeJoin::In { ticket, host }),
+        Ok(None) => Ok(CodeJoin::Gone),
+        other => {
+            let _ = lobby::release(a, &ticket);
+            Err(match other {
+                Err(e) => e,
+                _ => "not a guest answer".into(),
+            })
+        }
+    }
+}
+
+/// A shop room this PC hosts (2017-18, `CREATE shop`): its code, kept with a heartbeat, closed when dropped.
+pub struct HostRoom {
+    pub code: String,
+    /// The lobby server that holds it.
+    pub server: String,
+    addr: SocketAddr,
+    id: String,
+    ticket: String,
+    /// The guests the desk named last, for when it does not answer.
+    guests: Arc<Mutex<Vec<String>>>,
+    beat: Beat,
+}
+
+impl HostRoom {
+    /// A private room on `server` ([`shop_lobby`]) for the shop tunnel `shop_id`; else why not (`FULL`, `ERR slow`, no
+    /// answer).
+    pub fn open(server: &str, shop_id: &str, log: Log) -> Result<HostRoom, String> {
+        let addr = socket(server).ok_or_else(|| format!("{server} is not an address"))?;
+        match lobby::create_shop(addr, shop_id, false) {
+            Ok(Created::Room { id, code, ticket, .. }) => {
+                let c = code.clone();
+                let beat = beat(
+                    server,
+                    &ticket,
+                    Duration::from_secs(lobby::HEARTBEAT_EVERY),
+                    move || {
+                        log(&format!("shop room {c}: the lobby no longer holds it"));
+                    },
+                );
+                Ok(HostRoom {
+                    code,
+                    server: server.to_owned(),
+                    addr,
+                    id,
+                    ticket,
+                    guests: Arc::default(),
+                    beat,
+                })
+            }
+            Ok(Created::Full) => Err(format!("{server}: full")),
+            Err(e) => Err(format!("{server}: {e}")),
+        }
+    }
+
+    /// The tunnel's admit rule: a guest that told the desk its id in this room (`SHOP t` with the host's ticket);
+    /// when the desk does not answer, the guests it named last.
+    pub fn admit(&self) -> vslink::shop::Admit {
+        let (addr, ticket, known) = (self.addr, self.ticket.clone(), self.guests.clone());
+        Arc::new(move |id: &[u8; 32]| {
+            let id = vslink::shop::id_text(id);
+            let mut known = known.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Ok(Some(Peers::Guests(g))) = lobby::shop_peers(addr, &ticket, None) {
+                *known = g;
+            }
+            known.contains(&id)
+        })
+    }
+}
+
+impl Drop for HostRoom {
+    /// The room goes at once (the guests' tickets with it); best effort, the lease lapses by itself.
+    fn drop(&mut self) {
+        self.beat.0.store(true, Ordering::Relaxed); // no beat after the close
+        let _ = lobby::close(self.addr, &self.id, &self.ticket);
     }
 }
 
@@ -426,6 +565,17 @@ impl Book {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shop_rooms_meet_on_the_club_servers_desk() {
+        if std::env::var_os("WCCF_LOBBY").is_some() {
+            return;
+        }
+        assert_eq!(shop_lobby(""), PROJECT_SERVER_1718);
+        assert_eq!(shop_lobby("  "), PROJECT_SERVER_1718);
+        assert_eq!(shop_lobby("club.example"), "club.example:20032");
+        assert_eq!(shop_lobby("203.0.113.10:20060"), "203.0.113.10:20032");
+    }
 
     #[test]
     fn wccf_lobby_replaces_the_default_server() {
