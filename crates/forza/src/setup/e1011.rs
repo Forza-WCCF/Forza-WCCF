@@ -11,7 +11,7 @@
 //! - in the kit `data\settings.json` "game", `data\logs`, `data\save`, the catalogue in `data\cache`, and an older kit's
 //!   folders tidied (`tidy_old_layout`)
 //!
-//! The caller checks that no game program runs from the game's folders first (`launcher::procs::game_processes`).
+//! The caller checks that no game program runs from the game's folders first (`forza::procs::game_processes`).
 //! Messages go to `say`, word for word as setup.py printed them.  The settings files keep setup.py's name in their
 //! header: undo and an earlier kit's files are recognised by those exact bytes.
 

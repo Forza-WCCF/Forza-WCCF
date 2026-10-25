@@ -7,11 +7,12 @@
 //! process has opened its sound, so a caller retries until `apply` finds one.
 
 use windows::Win32::Media::Audio::{
-    DEVICE_STATE_ACTIVE, IAudioSessionControl2, IAudioSessionManager2, IMMDeviceEnumerator, ISimpleAudioVolume,
-    MMDeviceEnumerator, eRender,
+    DEVICE_STATE_ACTIVE, IAudioSessionControl2, IAudioSessionManager2, IMMDeviceEnumerator,
+    ISimpleAudioVolume, MMDeviceEnumerator, eRender,
 };
 use windows::Win32::System::Com::{
-    CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize,
+    CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree,
+    CoUninitialize,
 };
 use windows::core::{Interface, Result};
 
@@ -55,7 +56,10 @@ fn each_session(mut f: impl FnMut(u32, &IAudioSessionControl2, &ISimpleAudioVolu
                 continue;
             };
             for j in 0..sessions.GetCount().unwrap_or(0) {
-                let Ok(ctl) = sessions.GetSession(j).and_then(|c| c.cast::<IAudioSessionControl2>()) else {
+                let Ok(ctl) = sessions
+                    .GetSession(j)
+                    .and_then(|c| c.cast::<IAudioSessionControl2>())
+                else {
                     continue;
                 };
                 if let (Ok(pid), Ok(vol)) = (ctl.GetProcessId(), ctl.cast::<ISimpleAudioVolume>()) {
@@ -78,7 +82,9 @@ pub fn apply(pid: u32, volume: Option<f32>, mute: Option<bool>) -> Result<usize>
         // SAFETY: `vol` is a live ISimpleAudioVolume; a null event context is allowed.
         let set = unsafe {
             volume
-                .map_or(Ok(()), |v| vol.SetMasterVolume(v.clamp(0.0, 1.0), std::ptr::null()))
+                .map_or(Ok(()), |v| {
+                    vol.SetMasterVolume(v.clamp(0.0, 1.0), std::ptr::null())
+                })
                 .and_then(|()| mute.map_or(Ok(()), |m| vol.SetMute(m, std::ptr::null())))
         };
         done += usize::from(set.is_ok());

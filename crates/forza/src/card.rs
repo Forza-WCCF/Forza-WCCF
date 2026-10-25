@@ -66,7 +66,9 @@ impl Session {
 }
 
 fn bits(buf: &[u8], start: usize, width: usize) -> u32 {
-    (start..start + width).fold(0, |v, i| (v << 1) | u32::from((buf[i >> 3] >> (7 - (i & 7))) & 1))
+    (start..start + width).fold(0, |v, i| {
+        (v << 1) | u32::from((buf[i >> 3] >> (7 - (i & 7))) & 1)
+    })
 }
 
 fn word(b: &[u8], i: usize) -> u32 {
@@ -84,10 +86,15 @@ pub fn session_of(raw: &[u8], written_since: Option<bool>) -> (Session, Option<u
     }
     let copies = COPIES.map(|start| {
         let copy = &raw[start..start + 0x690];
-        let total = (0..PAYLOAD).step_by(4).fold(0u32, |t, i| t.wrapping_add(word(copy, i)));
+        let total = (0..PAYLOAD)
+            .step_by(4)
+            .fold(0u32, |t, i| t.wrapping_add(word(copy, i)));
         (copy, total, word(copy, PAYLOAD))
     });
-    if copies.iter().any(|&(_, total, stored)| total == 0 && stored == 0) {
+    if copies
+        .iter()
+        .any(|&(_, total, stored)| total == 0 && stored == 0)
+    {
         return (Session::Unreadable, None); // the game refuses a card with an empty copy (error 0xA)
     }
     for (copy, total, stored) in copies {

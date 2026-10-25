@@ -51,7 +51,7 @@ fn mute() -> Option<Muting> {
     let pid = std::process::id();
     std::thread::Builder::new()
         .spawn(move || {
-            use launcher::helper::sound;
+            use forza::sound;
             let t0 = Instant::now();
             let found = sound::mutes(pid).unwrap_or_default();
             let clear: Vec<String> = found.iter().filter(|s| !s.1).map(|s| s.0.clone()).collect();
@@ -110,14 +110,14 @@ fn control() -> (Option<u32>, Option<HWND>) {
     else {
         return (None, None);
     };
-    let Some(pid) = launcher::procs::game_processes(&dir)
+    let Some(pid) = forza::procs::game_processes(&dir)
         .into_iter()
         .find(|p| p.name.eq_ignore_ascii_case("control_Release.exe"))
         .map(|p| p.pid)
     else {
         return (None, None);
     };
-    let stop = launcher::procs::windows(pid)
+    let stop = forza::procs::windows(pid)
         .into_iter()
         .filter(|w| w.class == "#32770")
         .find_map(|w| {
@@ -159,8 +159,8 @@ const BM_SETCHECK: u32 = 0x00F1;
 fn card_age() -> Option<Duration> {
     let save = FILES.get()?.data.join("save");
     [
-        save.join(launcher::card::SLOT),
-        save.join(launcher::card::NEW),
+        save.join(forza::card::SLOT),
+        save.join(forza::card::NEW),
         save.join("gamesvr").join("gamesvr.db"),
         save.join("gamesvr").join("gamesvr.db-wal"),
     ]
@@ -179,7 +179,7 @@ fn on_thread<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Optio
 /// These sessions muted or unmuted; the ones that were set.
 fn set_mute(ids: Vec<String>, on: bool) -> Vec<String> {
     let pid = std::process::id();
-    on_thread(move || launcher::helper::sound::set_mute(pid, &ids, on))
+    on_thread(move || forza::sound::set_mute(pid, &ids, on))
         .and_then(Result::ok)
         .unwrap_or_default()
 }

@@ -8,20 +8,25 @@ use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 use std::{fs, mem, ptr};
 
-use windows_sys::Win32::Foundation::{CloseHandle, FALSE, HWND, INVALID_HANDLE_VALUE, LPARAM, TRUE};
-use windows_sys::Win32::NetworkManagement::IpHelper::{GetTcpTable, MIB_TCP_STATE_LISTEN, MIB_TCPROW_LH};
+use windows_sys::Win32::Foundation::{
+    CloseHandle, FALSE, HWND, INVALID_HANDLE_VALUE, LPARAM, TRUE,
+};
+use windows_sys::Win32::NetworkManagement::IpHelper::{
+    GetTcpTable, MIB_TCP_STATE_LISTEN, MIB_TCPROW_LH,
+};
 use windows_sys::Win32::Storage::FileSystem::GetLongPathNameW;
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
 };
 use windows_sys::Win32::System::SystemServices::PROCESS_MITIGATION_IMAGE_LOAD_POLICY;
 use windows_sys::Win32::System::Threading::{
-    GetCurrentProcess, GetProcessMitigationPolicy, OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
-    PROCESS_TERMINATE, ProcessImageLoadPolicy, QueryFullProcessImageNameW, TerminateProcess,
+    GetCurrentProcess, GetProcessMitigationPolicy, OpenProcess, PROCESS_NAME_WIN32,
+    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE, ProcessImageLoadPolicy,
+    QueryFullProcessImageNameW, TerminateProcess,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetClassNameW, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible, SW_HIDE, SW_SHOWNOACTIVATE,
-    ShowWindowAsync,
+    EnumWindows, GetClassNameW, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible, SW_HIDE,
+    SW_SHOWNOACTIVATE, ShowWindowAsync,
 };
 use windows_sys::core::BOOL;
 
@@ -59,7 +64,11 @@ pub fn processes() -> Vec<Proc> {
         e.dwSize = size_of::<PROCESSENTRY32W>() as u32;
         let mut ok = Process32FirstW(snap, &mut e);
         while ok != 0 {
-            let len = e.szExeFile.iter().position(|&c| c == 0).unwrap_or(e.szExeFile.len());
+            let len = e
+                .szExeFile
+                .iter()
+                .position(|&c| c == 0)
+                .unwrap_or(e.szExeFile.len());
             out.push(Proc {
                 pid: e.th32ProcessID,
                 parent: e.th32ParentProcessID,
@@ -149,7 +158,10 @@ pub fn game_processes(game: &Path) -> Vec<Proc> {
     let root = same_form(game.parent().unwrap_or(&game)) + "\\";
     processes()
         .into_iter()
-        .filter(|p| GAME_EXES.contains(&p.name.to_lowercase().as_str()) && normcase(&p.path).starts_with(&root))
+        .filter(|p| {
+            GAME_EXES.contains(&p.name.to_lowercase().as_str())
+                && normcase(&p.path).starts_with(&root)
+        })
         .collect()
 }
 
@@ -213,7 +225,10 @@ pub fn windows(pid: u32) -> Vec<Window> {
         }
         TRUE
     }
-    let mut find = Find { pid, found: Vec::new() };
+    let mut find = Find {
+        pid,
+        found: Vec::new(),
+    };
     // SAFETY: `find` outlives the call; `each` only touches it through lp.
     unsafe { EnumWindows(Some(each), (&raw mut find) as LPARAM) };
     find.found

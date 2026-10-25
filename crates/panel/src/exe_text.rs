@@ -1,7 +1,7 @@
 //! The 2017-18 program text in English or Italian: texts compiled into client_Release.exe (menu labels, headers,
 //! dialogs the game draws with its font) replaced in the game's memory, never in the file (the Launcher checks the
 //! guarded programs' hashes). The sheet is the kit's `english\exe_text.tsv` or `italian\exe_text.tsv`, picked by the
-//! language english.py put in place (`launcher::Kit::game_language`; the original Japanese: nothing replaced).
+//! language english.py put in place (`forza::kit::Kit::game_language`; the original Japanese: nothing replaced).
 //!
 //! Each row: the text's offset from the program's base (rva), the original bytes' length and SHA-256, the room (bytes
 //! the text may take, NUL included: the original's own slot up to its 4-byte padding) and our text. A row is written
@@ -13,7 +13,7 @@
 //! long for their slots, so the game's two pointer tables to them are pointed at our names instead: an entry is
 //! changed only when it still points at the original name.
 
-use launcher::Kit;
+use forza::kit::Kit;
 use sha2::{Digest, Sha256};
 use std::ffi::c_void;
 use std::path::Path;

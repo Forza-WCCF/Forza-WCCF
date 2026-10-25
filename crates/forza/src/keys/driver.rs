@@ -2,7 +2,7 @@
 //!
 //! Keys count only while a game window (`client_Release.exe`) is the one in front, so typing anywhere else sends
 //! nothing. The held inputs become the cabinet's switch bytes, which the driver sets on the [`Shared`] state the I/O
-//! board stand-in (`forza::standins::io_board`) reads; the Python passed them through `_jvs_seat1_input.txt`.
+//! board stand-in (`crate::standins::io_board`) reads; the Python passed them through `_jvs_seat1_input.txt`.
 //!
 //! Which key does what comes from `keys.txt` (written by the KEYS panel in seat 1's window; missing = the defaults in
 //! [`ACTIONS`]), read again whenever it changes. Each action can also have one control on a game controller, from
@@ -12,8 +12,8 @@
 //!
 //! The logic below is pure and replayed against `keyboard.py` (`tests/rec/keys.jsonl`); only [`spawn`] touches Windows.
 
-use forza::standins::io_board::{CARD_BIT, Shared};
-use forza::standins::{Handle, Log};
+use crate::standins::io_board::{CARD_BIT, Shared};
+use crate::standins::{Handle, Log};
 use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -38,8 +38,18 @@ pub struct Action {
     pub what: &'static str,
 }
 
-const fn a(name: &'static str, vk: u32, bits: Option<(Line, usize, u8)>, what: &'static str) -> Action {
-    Action { name, vk, bits, what }
+const fn a(
+    name: &'static str,
+    vk: u32,
+    bits: Option<(Line, usize, u8)>,
+    what: &'static str,
+) -> Action {
+    Action {
+        name,
+        vk,
+        bits,
+        what,
+    }
 }
 
 /// 2010-11 wiring (game button table DAT_009fbd30): the cabinet's extra buttons are on the 2ND JVS player; p1 byte 1
@@ -49,21 +59,56 @@ pub const ACTIONS: [Action; 16] = [
     a("START", 0x0D, Some((Line::P1, 0, 0x80)), "START"),
     a("PRESS", 0x58, Some((Line::P1, 0, 0x02)), "PRESS (decide)"),
     a("SHOOT", 0x43, Some((Line::P1, 0, 0x01)), "SHOOT"),
-    a("KEEPER", 0x42, Some((Line::P2, 0, 0x02)), "KEEPER (game button 8)"),
-    a("DATA", 0x53, Some((Line::P2, 1, 0x80)), "DATA (game button 5)"),
+    a(
+        "KEEPER",
+        0x42,
+        Some((Line::P2, 0, 0x02)),
+        "KEEPER (game button 8)",
+    ),
+    a(
+        "DATA",
+        0x53,
+        Some((Line::P2, 1, 0x80)),
+        "DATA (game button 5)",
+    ),
     a(
         "KEYPLAYER",
         0x44,
         Some((Line::P2, 1, 0x40)),
         "KEY PLAYER - a guess (game button 9)",
     ),
-    a("UP", 0x26, Some((Line::P1, 0, 0x20)), "tactics: CENTRAL (up)"),
-    a("DOWN", 0x28, Some((Line::P1, 0, 0x10)), "tactics: COUNTER (down)"),
-    a("LEFT", 0x25, Some((Line::P1, 0, 0x08)), "tactics: L-SIDE (left)"),
-    a("RIGHT", 0x27, Some((Line::P1, 0, 0x04)), "tactics: R-SIDE (right)"),
+    a(
+        "UP",
+        0x26,
+        Some((Line::P1, 0, 0x20)),
+        "tactics: CENTRAL (up)",
+    ),
+    a(
+        "DOWN",
+        0x28,
+        Some((Line::P1, 0, 0x10)),
+        "tactics: COUNTER (down)",
+    ),
+    a(
+        "LEFT",
+        0x25,
+        Some((Line::P1, 0, 0x08)),
+        "tactics: L-SIDE (left)",
+    ),
+    a(
+        "RIGHT",
+        0x27,
+        Some((Line::P1, 0, 0x04)),
+        "tactics: R-SIDE (right)",
+    ),
     a("CARD", 0x49, None, "club card in / out of the slot"),
     a("COIN", 0x35, None, "one coin"),
-    a("TEST", 0, Some((Line::Sys, 0, 0x80)), "TEST (operator menu)"),
+    a(
+        "TEST",
+        0,
+        Some((Line::Sys, 0, 0x80)),
+        "TEST (operator menu)",
+    ),
     a("SERVICE", 0x71, Some((Line::P1, 0, 0x40)), "SERVICE"),
     a(
         "SENSOR2",
@@ -86,7 +131,7 @@ const CARD: usize = 10;
 const COIN: usize = 11;
 const START: usize = 0;
 
-pub use forza::keys::{PAD_AXIS, PAD_BUTTON, PAD_HAT, is_allowed, key_label, pad_code, pad_label, pad_token};
+use super::{PAD_AXIS, PAD_BUTTON, PAD_HAT, is_allowed, key_label, pad_code, pad_label};
 #[cfg(windows)]
 pub use win::{Winmm, pad_name};
 
@@ -145,7 +190,9 @@ fn py_repr(s: &str) -> String {
                 out.push('\\');
                 out.push(c);
             }
-            c if (c as u32) < 0x20 || c as u32 == 0x7F => out.push_str(&format!("\\x{:02x}", c as u32)),
+            c if (c as u32) < 0x20 || c as u32 == 0x7F => {
+                out.push_str(&format!("\\x{:02x}", c as u32))
+            }
             c => out.push(c),
         }
     }
@@ -302,7 +349,10 @@ pub fn load_pads(raw: &[u8]) -> ([u32; 16], Vec<String>) {
         let none = val.is_empty() || val == "-";
         let code = if none { 0 } else { pad_code(val) };
         if !none && code == 0 {
-            notes.push(format!("PAD {act}: not a controller control: {}", py_repr(val)));
+            notes.push(format!(
+                "PAD {act}: not a controller control: {}",
+                py_repr(val)
+            ));
             continue;
         }
         given[idx] = code;
@@ -389,7 +439,9 @@ impl Bindings {
     /// The actions held by these inputs (key codes and controller controls), one bit per action.
     pub fn held_actions(&self, down: &BTreeSet<u32>) -> u16 {
         (0..16).fold(0, |m, i| {
-            let held = [self.keys[i], self.pads[i]].iter().any(|x| *x != 0 && down.contains(x));
+            let held = [self.keys[i], self.pads[i]]
+                .iter()
+                .any(|x| *x != 0 && down.contains(x));
             m | (u16::from(held) << i)
         })
     }
@@ -484,7 +536,8 @@ pub fn should_eject(
         return (false, None);
     }
     let since = waiting_since.unwrap_or(now);
-    let ok = card && card_in_since.is_some_and(|t| now - t >= EJECT_GRACE) && now - since >= EJECT_HOLD;
+    let ok =
+        card && card_in_since.is_some_and(|t| now - t >= EJECT_GRACE) && now - since >= EJECT_HOLD;
     (ok, Some(since))
 }
 
@@ -532,12 +585,19 @@ impl Driver {
         if now >= self.next_out_check {
             self.next_out_check = now + 0.1;
             let outs = self.shared.outputs();
-            let (eject, waiting) =
-                should_eject(now, self.card, self.card_in_since, outs.as_deref(), self.waiting_since);
+            let (eject, waiting) = should_eject(
+                now,
+                self.card,
+                self.card_in_since,
+                outs.as_deref(),
+                self.waiting_since,
+            );
             self.waiting_since = waiting;
             if eject {
                 (self.card, self.card_in_since, self.waiting_since) = (false, None, None);
-                events.push("the game ejected the card - taken out (press I to put it back in)".into());
+                events.push(
+                    "the game ejected the card - taken out (press I to put it back in)".into(),
+                );
             }
         }
         let acts = self.bindings.held_actions(down);
@@ -626,7 +686,11 @@ pub fn pad_reading(caps: &Caps, info: &Info) -> (u32, [Option<f64>; 6], u32) {
         let (lo, hi) = caps.lim[i];
         (has[i] && hi > lo).then(|| pad_axis_value(info.pos[i], lo, hi))
     });
-    let pov = if caps.flags & HAS_POV != 0 { info.pov } else { 0xFFFF };
+    let pov = if caps.flags & HAS_POV != 0 {
+        info.pov
+    } else {
+        0xFFFF
+    };
     (info.buttons, axes, pov)
 }
 
@@ -668,7 +732,11 @@ impl PadDevice {
             let Some(v) = v else { continue };
             for (plus, side) in [(0u32, -1i8), (1, 1)] {
                 let code = PAD_AXIS + 2 * axis as u32 + plus;
-                let limit = if self.act.contains(&code) { PAD_OFF } else { PAD_ON };
+                let limit = if self.act.contains(&code) {
+                    PAD_OFF
+                } else {
+                    PAD_ON
+                };
                 if side != self.rest[axis] && v * f64::from(side) > limit {
                     now.insert(code);
                 }
@@ -798,8 +866,12 @@ impl PadsInner {
             if known.contains(&jid) {
                 continue;
             }
-            let Some(caps) = self.api.caps(jid) else { continue };
-            let Some(info) = self.api.pos(jid) else { continue };
+            let Some(caps) = self.api.caps(jid) else {
+                continue;
+            };
+            let Some(info) = self.api.pos(jid) else {
+                continue;
+            };
             let (b, axes, pov) = pad_reading(&caps, &info);
             let (dev, name) = (PadDevice::new(b, &axes, pov), (self.name)(&caps));
             let buttons = caps.num_buttons;
@@ -825,7 +897,12 @@ fn file_stamp(path: &std::path::Path) -> Option<(SystemTime, u64)> {
 /// keyboard and controllers every 10 ms while a game window is in front, and sets the switches on `shared`. Dropping the
 /// handle stops it and lets go of every button.
 #[cfg(windows)]
-pub fn spawn(shared: Arc<Shared>, keys_path: std::path::PathBuf, start_coin: bool, log: Log) -> Handle {
+pub fn spawn(
+    shared: Arc<Shared>,
+    keys_path: std::path::PathBuf,
+    start_coin: bool,
+    log: Log,
+) -> Handle {
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
     let thread = thread::spawn(move || {
@@ -845,7 +922,9 @@ pub fn spawn(shared: Arc<Shared>, keys_path: std::path::PathBuf, start_coin: boo
         let (bindings, notes) = load(&keys_path);
         let mut driver = Driver::new(bindings, shared.clone(), since(t0));
         let (mut kstamp, mut next_keys_check) = (file_stamp(&keys_path), 0.0);
-        log("WCCF 2010-11 seat 1 - keyboard and controller (both count only while a game window is in front)");
+        log(
+            "WCCF 2010-11 seat 1 - keyboard and controller (both count only while a game window is in front)",
+        );
         for (i, act) in ACTIONS.iter().enumerate() {
             let b = &driver.bindings;
             let pad = if b.pads[i] != 0 {
@@ -853,7 +932,12 @@ pub fn spawn(shared: Arc<Shared>, keys_path: std::path::PathBuf, start_coin: boo
             } else {
                 String::new()
             };
-            log(&format!("  {:<9} {:<12} {}", key_label(b.keys[i]), pad, act.what));
+            log(&format!(
+                "  {:<9} {:<12} {}",
+                key_label(b.keys[i]),
+                pad,
+                act.what
+            ));
         }
         log(&format!(
             "keys from {}{}",
@@ -867,13 +951,18 @@ pub fn spawn(shared: Arc<Shared>, keys_path: std::path::PathBuf, start_coin: boo
         for n in &notes {
             log(&format!("  keys.txt: {n}"));
         }
-        log(&format!("now: card {}.", if shared.card_in() { "IN" } else { "OUT" }));
+        log(&format!(
+            "now: card {}.",
+            if shared.card_in() { "IN" } else { "OUT" }
+        ));
         log(if start_coin {
             "FREE PLAY: every Enter (START) puts a coin in for you first - no need for 5."
         } else {
             "FREE PLAY is the game's own: Enter (START) puts in no coin (5 is still a coin)."
         });
-        log("CARD: when the game ejects the card it comes out by itself - press I to put it back in.");
+        log(
+            "CARD: when the game ejects the card it comes out by itself - press I to put it back in.",
+        );
         let mut pads: Option<Pads> = None;
         let mut os = win::Foreground::default();
         while !flag.load(Ordering::Relaxed) {
@@ -910,7 +999,11 @@ pub fn spawn(shared: Arc<Shared>, keys_path: std::path::PathBuf, start_coin: boo
             }
             if driver.bindings.has_pads() && pads.is_none() {
                 log("controllers: looking for them (keys.txt gives one a job)");
-                pads = Some(Pads::spawn(Box::new(win::Winmm), log.clone(), Box::new(win::pad_name)));
+                pads = Some(Pads::spawn(
+                    Box::new(win::Winmm),
+                    log.clone(),
+                    Box::new(win::pad_name),
+                ));
             }
             let front = os.game_in_front();
             let mut down: BTreeSet<u32> = if front {
@@ -952,12 +1045,16 @@ mod win {
     use crate::procs;
     use std::collections::HashMap;
     use windows_sys::Win32::Foundation::{HWND, POINT};
-    use windows_sys::Win32::Media::Multimedia::{JOY_RETURNPOVCTS, JOYCAPSW, JOYINFOEX, joyGetDevCapsW, joyGetPosEx};
-    use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RegGetValueW};
+    use windows_sys::Win32::Media::Multimedia::{
+        JOY_RETURNPOVCTS, JOYCAPSW, JOYINFOEX, joyGetDevCapsW, joyGetPosEx,
+    };
+    use windows_sys::Win32::System::Registry::{
+        HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RegGetValueW,
+    };
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetClassNameW, GetCursorPos, GetForegroundWindow, GetPropW, GetWindowThreadProcessId, IsWindow,
-        IsWindowVisible, SetForegroundWindow, WindowFromPoint,
+        GetClassNameW, GetCursorPos, GetForegroundWindow, GetPropW, GetWindowThreadProcessId,
+        IsWindow, IsWindowVisible, SetForegroundWindow, WindowFromPoint,
     };
 
     pub fn key_down(vk: u32) -> bool {
@@ -988,8 +1085,10 @@ mod win {
         let mut pid = 0u32;
         // SAFETY: `pid` is a valid out-pointer.
         unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
-        procs::image(pid).and_then(|p| p.file_name().map(|n| n.to_string_lossy().eq_ignore_ascii_case(name)))
-            == Some(true)
+        procs::image(pid).and_then(|p| {
+            p.file_name()
+                .map(|n| n.to_string_lossy().eq_ignore_ascii_case(name))
+        }) == Some(true)
     }
 
     fn class_of(hwnd: HWND) -> String {
@@ -1002,7 +1101,9 @@ mod win {
     /// Puts the game window back in front. A background process may not take the foreground, so a tap on ALT first
     /// (the keyboard is then ours to give it away).
     fn bring_back(hwnd: HWND) {
-        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{KEYEVENTF_KEYUP, VK_MENU, keybd_event};
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+            KEYEVENTF_KEYUP, VK_MENU, keybd_event,
+        };
         // SAFETY: plain calls; `hwnd` was checked to be a window a moment ago.
         unsafe {
             keybd_event(VK_MENU as u8, 0, 0, 0);

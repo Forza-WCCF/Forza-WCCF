@@ -24,3 +24,4 @@ __pycache__/
 *.nam
 *.til
 evidence/
+/ci-stamp/

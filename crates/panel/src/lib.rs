@@ -453,7 +453,7 @@ fn close_allowed() -> bool {
         return false;
     }
     let open = FILES.get().is_some_and(|f| {
-        use launcher::card;
+        use forza::card;
         let since = stamp(&f.data.join("running.json"));
         let save = f.data.join("save");
         card::club_session(&save.join(card::SLOT), &save.join(card::NEW), since).0
@@ -911,7 +911,7 @@ struct Render {
     /// The page shown last frame (KEYS opening reads keys.txt again and looks for controllers).
     last_page: panel::Page,
     /// The controllers, while KEYS is open, and the controls held at the last look.
-    pads: Option<launcher::keys::Pads>,
+    pads: Option<forza::keys::Pads>,
     pads_held: std::collections::BTreeSet<u32>,
     /// When the controllers were last looked for.
     pads_scan: Instant,
@@ -924,7 +924,7 @@ struct Render {
     logs_stamp: Option<std::time::SystemTime>,
     /// The deal: when the club card was last looked at, and its session then.
     deal_at: Instant,
-    deal_last: Option<launcher::card::Session>,
+    deal_last: Option<forza::card::Session>,
     /// Links: when the club card was last looked at, and its time then.
     links_at: Option<Instant>,
     links_stamp: Option<Option<std::time::SystemTime>>,
@@ -1371,7 +1371,7 @@ impl Render {
         }
         self.links_at = Some(Instant::now());
         let Some(f) = FILES.get() else { return };
-        let card = f.data.join("save").join(launcher::card::SLOT);
+        let card = f.data.join("save").join(forza::card::SLOT);
         let st = stamp(&card);
         if self.links_stamp == Some(st) {
             return;
@@ -1660,7 +1660,7 @@ impl Render {
     /// (the locker-room save) = a match finished. `WCCFPANEL_DEALTEST=1` deals one at the first frame (the tests).
     /// Only shown: nothing is written.
     fn deal_in(&mut self) {
-        use launcher::card::{self, Session};
+        use forza::card::{self, Session};
         let test = self.frames == 0 && std::env::var("WCCFPANEL_DEALTEST").is_ok_and(|v| v == "1");
         if !test && self.deal_at.elapsed() < Duration::from_secs(1) {
             return;
@@ -1824,14 +1824,11 @@ impl Render {
             // the first control pressed: a button, else the hat, else a stick or axis (wccfpanel.c pad_tick)
             let first = new
                 .iter()
-                .find(|&&c| c < launcher::keys::PAD_AXIS)
-                .or_else(|| new.iter().find(|&&c| c >= launcher::keys::PAD_HAT))
+                .find(|&&c| c < forza::keys::PAD_AXIS)
+                .or_else(|| new.iter().find(|&&c| c >= forza::keys::PAD_HAT))
                 .or(new.first());
             if let Some(&c) = first {
-                log(&format!(
-                    "keys: controller {}",
-                    launcher::keys::pad_label(c)
-                ));
+                log(&format!("keys: controller {}", forza::keys::pad_label(c)));
                 self.st.pad_down = Some(c);
             }
             self.pads_held = held;
@@ -2004,28 +2001,26 @@ fn stamp(p: &Path) -> Option<std::time::SystemTime> {
 
 /// The controllers through winmm (from the system folder: seat 1's own winmm.dll is the hook), or the test's
 /// (`WCCFPANEL_FAKEPAD`).
-fn pads() -> launcher::keys::Pads {
+fn pads() -> forza::keys::Pads {
     // ponytail: winmm looked up again at each KEYS opening; cheap (the module stays loaded)
     let say: forza::standins::Log = Arc::new(|m: &str| log(&format!("pads: {m}")));
     match std::env::var_os("WCCFPANEL_FAKEPAD").filter(|v| !v.is_empty()) {
         Some(file) => {
             log("pads: FAKE controllers (a test)");
             let names = kit::FakePads(file.clone().into());
-            launcher::keys::Pads::new(
+            forza::keys::Pads::new(
                 Box::new(kit::FakePads(file.into())),
                 say,
                 Box::new(move |c| names.name(c)),
             )
         }
         None => match kit::SysWinmm::load() {
-            Some(w) => {
-                launcher::keys::Pads::new(Box::new(w), say, Box::new(launcher::keys::pad_name))
-            }
+            Some(w) => forza::keys::Pads::new(Box::new(w), say, Box::new(forza::keys::pad_name)),
             None => {
                 log(
                     "pads: no joystick calls in the system's winmm.dll - controllers cannot be read here",
                 );
-                launcher::keys::Pads::new(Box::new(kit::NoPads), say, Box::new(|_| String::new()))
+                forza::keys::Pads::new(Box::new(kit::NoPads), say, Box::new(|_| String::new()))
             }
         },
     }

@@ -2,11 +2,8 @@
 //! Test builds (pre-releases) are never "newer": only a release is offered that way.
 
 use std::env;
-use std::fs;
 
 use semver::Version;
-
-use crate::Kit;
 
 /// Where UPDATE looks for releases, answered in the shape of GitHub's releases API (`releases?per_page=30`).
 /// WCCF_UPDATE_URL points it elsewhere (a `.invalid/` address means no target at all).
@@ -34,14 +31,6 @@ pub fn invalid(url: &str) -> bool {
 }
 
 pub use forza::curl::{curl, system32};
-
-impl Kit {
-    /// version.txt from the release ZIP (cargo xtask package writes it): kit-0.3.0.
-    pub fn version(&self) -> Option<String> {
-        let v = fs::read_to_string(self.dir.join("version.txt")).ok()?;
-        Some(v.trim().to_owned()).filter(|v| !v.is_empty())
-    }
-}
 
 /// A version number: v0.3.0 or kit-0.3.0 -> 0.3.0; 8.2 -> 8.2.0; 0.4.0-rc.1 keeps its pre-release part.  Anything else
 /// (a build of a commit: kit-1208d80) -> None.
