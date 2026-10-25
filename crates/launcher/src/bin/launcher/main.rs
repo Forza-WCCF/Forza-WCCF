@@ -327,7 +327,7 @@ fn start(steps: Vec<Step>) -> bool {
             let mut s = shared();
             s.status = Some((if failed { Tone::Refused } else { Tone::Done }, status));
             s.progress = if failed { 0 } else { 1000 };
-            s.updated = updated.is_some();
+            s.updated |= updated.is_some(); // sticky: look() clears it, a job that ends first must not lose it
             if updated.is_some() {
                 set_available(&Kit::here(), &mut s, None);
             }
@@ -769,12 +769,8 @@ impl App {
             self.st.version = version(&kit);
             self.list(&kit); // the "this version" mark moves
             // the new files need the setup again, and the game text follows the Launcher language: no question
-            if !self.st.folder.trim().is_empty() {
-                if self.set_up_after_update(&kit) {
-                    self.st.busy = true; // the close check below must see the job just started
-                } else {
-                    shared().updated = true; // another job holds the worker: ask again at the next look
-                }
+            if !self.st.folder.trim().is_empty() && !self.set_up_after_update(&kit) {
+                shared().updated = true; // another job holds the worker: try again at the next look
             }
         }
         // closing Launcher while the game runs is a quit: asked of the run, by the card rule; and never a kit left
@@ -783,7 +779,8 @@ impl App {
             if UP.load(Ordering::Relaxed) {
                 ctx.send_viewport_cmd(ViewportCommand::CancelClose);
                 stop_game();
-            } else if self.st.busy {
+            } else if shared().busy {
+                // the live flag: a job started in this look() is not in the sampled copy
                 ctx.send_viewport_cmd(ViewportCommand::CancelClose);
                 say(t("launcher.msg_busy"), shared().progress);
             }
@@ -828,7 +825,7 @@ impl App {
                 if let Some(game) = self.folder() {
                     // the undo refuses while English is on: the original files go back first
                     let mut steps = Vec::new();
-                    if kit.english_on() {
+                    if kit.text_changed() {
                         steps.push(Step::Text(""));
                     }
                     steps.push(Step::Setup {
@@ -1347,7 +1344,7 @@ fn main() -> ExitCode {
         // the undo refuses while the game text is changed: the original files go back first (as UNDO SETUP)
         Some("undo") => {
             let mut steps = Vec::new();
-            if kit.english_on() {
+            if kit.text_changed() {
                 steps.push(Step::Text(""));
             }
             steps.push(Step::Setup {
