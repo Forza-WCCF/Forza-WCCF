@@ -157,13 +157,33 @@ fn picture_names(number: u32) -> [String; 3] {
     ]
 }
 
-/// The picture file `file` in the folder as a ready texture; `None` while it loads or when there is
-/// no such file (a miss is remembered: the folder is made once, at setup).
-fn load_picture(
+/// A picture file in the folder: a ready texture, still loading, or not there.
+enum Pic {
+    Ready(egui::TextureId, Vec2),
+    Pending,
+    Missing,
+}
+
+/// The card's picture: the first of [`picture_names`] that exists, once it is loaded. A file still loading ends
+/// the search (no flash of a lesser picture, no texture loaded for nothing); `None` draws the stand-in.
+fn card_picture_texture(
     ctx: &egui::Context,
     dir: &std::path::Path,
-    file: &str,
+    number: u32,
 ) -> Option<(egui::TextureId, Vec2)> {
+    for f in picture_names(number) {
+        match load_picture(ctx, dir, &f) {
+            Pic::Ready(id, size) => return Some((id, size)),
+            Pic::Pending => return None,
+            Pic::Missing => {}
+        }
+    }
+    None
+}
+
+/// The picture file `file` in the folder as a ready texture (a miss is remembered: the folder is made once, at
+/// setup).
+fn load_picture(ctx: &egui::Context, dir: &std::path::Path, file: &str) -> Pic {
     let file = dir.join(file);
     // `file:///C:\...` on Windows, `file:///home/...` elsewhere: what egui_extras' file loader parses
     let uri = format!(
@@ -172,7 +192,7 @@ fn load_picture(
     );
     let miss = Id::new(("card-picture-miss", &uri));
     if ctx.data(|d| d.get_temp::<bool>(miss)).is_some() {
-        return None;
+        return Pic::Missing;
     }
     let loaded = ctx.try_load_texture(
         &uri,
@@ -183,8 +203,9 @@ fn load_picture(
         ctx.data_mut(|d| d.insert_temp(miss, true));
     }
     match loaded {
-        Ok(egui::load::TexturePoll::Ready { texture }) => Some((texture.id, texture.size)),
-        _ => None,
+        Ok(egui::load::TexturePoll::Ready { texture }) => Pic::Ready(texture.id, texture.size),
+        Ok(egui::load::TexturePoll::Pending { .. }) => Pic::Pending,
+        Err(_) => Pic::Missing,
     }
 }
 
@@ -346,9 +367,7 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
     let rim = card.rarity.rim();
     // a picture is the whole card face (its own band, photo, name and numbers): shown whole
     if let Some(dir) = picture_dir(p.ctx())
-        && let Some((id, size)) = picture_names(card.number)
-            .iter()
-            .find_map(|f| load_picture(p.ctx(), &dir, f))
+        && let Some((id, size)) = card_picture_texture(p.ctx(), &dir, card.number)
     {
         let (uv, aspect) = face_uv(size);
         p.rect_filled(rect, r, theme::DEEP.gamma_multiply(alpha));
