@@ -8,8 +8,8 @@
 //! arrives on the same socket and is handed to the game as if straight from that player. Everything else (127.x, the
 //! server's TCP, other ports) passes untouched. 2017-18 also routes 127.x (another seat of the shop may have reached
 //! the control from the host's own loopback, so the control names 127.0.0.1 as its address), except to its own seat
-//! and to ports 20004-20006 (the client's `CLIENT_PORT1..3`, use unknown). Every 5 s each socket that played tells the
-//! relay "I am seat n".
+//! and to ports 20003-20006 (the client's `MATCH_PORT` and `CLIENT_PORT1..3` defaults, whose loopback use is not known).
+//! Every 5 s each socket that played tells the relay "I am seat n".
 //!
 //! The ping meter asks the relay for an echo every 2 s on a socket of its own; [`ping_ms`] is the last answer.
 //!
@@ -159,7 +159,7 @@ fn parse_relay(v: &str) -> Result<([u8; 4], u16), Bad> {
 
 /// `relay_peer`: the seat of the cabinet a packet to `a` is for, if it is one (port 20001-20008, not 0.0.0.0 or
 /// broadcast, not 127.x except 127.0.0.2 in the test). `loopback` (2017-18: this cabinet's seat): 127.x is another seat
-/// too, unless it is this seat's own port or 20004-20006 (`CLIENT_PORT1..3`).
+/// too, unless it is this seat's own port or 20003-20006 (`MATCH_PORT`, `CLIENT_PORT1..3`).
 fn peer_seat(a: &SockaddrIn, test: bool, loopback: Option<usize>) -> Option<usize> {
     if a.family != AF_INET {
         return None;
@@ -170,8 +170,10 @@ fn peer_seat(a: &SockaddrIn, test: bool, loopback: Option<usize>) -> Option<usiz
         return None;
     }
     let seat = usize::from(port) - 20000;
-    // shortcut: seats 4-6 at 127.x stay direct until CLIENT_PORT1..3's use is known (M2 plan R2)
-    let shop = loopback.is_some_and(|own| seat != own && !(4..=6).contains(&seat));
+    // shortcut: seats 3-6 at 127.x stay direct, so the client's own MATCH_PORT (20003, MATCH_IP 127.0.0.1) and
+    // CLIENT_PORT1..3 (20004-20006) traffic can never go to the relay; a shop past 2 seats needs their use known
+    // (M2 plan R2) or other seat numbers
+    let shop = loopback.is_some_and(|own| seat != own && !(3..=6).contains(&seat));
     if (ip >> 24) == 127 && !shop && !(test && ip == 0x7F00_0002) {
         return None;
     }
@@ -899,15 +901,15 @@ mod tests {
     }
 
     /// 2017-18 in a shared shop (seat 2 here): another seat at 127.x goes to the relay, its own seat and the
-    /// CLIENT_PORT1..3 ports stay direct; other addresses as before.
+    /// MATCH_PORT and CLIENT_PORT1..3 ports stay direct; other addresses as before.
     #[test]
     fn loopback_peers_in_the_1718_shop() {
         let mine = Some(2);
         assert_eq!(peer_seat(&sa([127, 0, 0, 1], 20001), false, mine), Some(1));
-        assert_eq!(peer_seat(&sa([127, 0, 0, 1], 20003), false, mine), Some(3));
         assert_eq!(peer_seat(&sa([127, 1, 2, 3], 20008), false, mine), Some(8));
+        assert_eq!(peer_seat(&sa([127, 0, 0, 1], 20007), false, mine), Some(7));
         assert_eq!(peer_seat(&sa([127, 0, 0, 1], 20002), false, mine), None);
-        for port in [20004, 20005, 20006] {
+        for port in [20003, 20004, 20005, 20006] {
             assert_eq!(peer_seat(&sa([127, 0, 0, 1], port), false, mine), None);
             assert_eq!(
                 peer_seat(&sa([192, 168, 56, 1], port), false, mine),
