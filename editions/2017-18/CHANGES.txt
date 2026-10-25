@@ -1,6 +1,21 @@
 Forza-WCCF 2017-18 - release notes
 ==================================
 
+0.4.0 - 2026-10-25 (alpha)
+--------------------------
+Album card art, key latch and drag-off in the panel, a choice before a CPU match, installer and keys fixes.
+
+  - Card pictures come from the 2017-18 game's own album art for 2,875 cards (12-13 to 17-18), sharper than the HQ pack.
+    They are made from your own files, and made again at PLAY after an update.
+  - Plainer text in English, Italian and Japanese, and no question after UPDATE.
+  - Panel: right-click KEY PLAYER or KEEPER to hold the key. Drag a card off the board to remove it, with UNDO.
+  - Before a CPU match you choose KEEP WAITING or PLAY CPU NOW.
+  - Panel: keycaps on the deck buttons. KEYS (operator keys) are under Advanced; TEST is unbound by default.
+  - Offline lobby: numbers blanked, RETRY, and a reason when JOIN is grey.
+  - The missing-files message names the file.
+  - A bench card held on the table moves when you rub it from its outer edge.
+  - Installer: the package is marked as needed, the newest is the default, START LAUNCHER at the end, a SmartScreen hint.
+
 0.3.3 - 2026-10-24 (alpha)
 --------------------------
 Club progress kept between plays, the shop, Best Eleven, problem reports.

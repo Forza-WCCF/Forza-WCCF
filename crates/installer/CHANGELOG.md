@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0
+
+- The package is marked as needed, and the newest package is the default.
+- INSTALL with no package asks first; CONTINUE installs anyway.
+- START LAUNCHER at the end of the install.
+- The installer waits for the newest-package lookup (2017–2018) and reports a lookup that ends without an answer.
+- A SmartScreen hint, and plainer text in English, Italian and Japanese.
+
 ## 0.3.2
 
 - The program no longer contains folder paths of the PC that built it.
