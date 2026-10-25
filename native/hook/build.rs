@@ -30,6 +30,10 @@ fn main() {
             "CARGO_FEATURE_E1011_SERVER",
             "the 2010-11 server's hook under Wine, loaded by control in place of winmm.dll",
         ),
+        (
+            "CARGO_FEATURE_E1718_SERVER",
+            "the 2017-18 server's hook under Wine, loaded by control in place of winmm.dll",
+        ),
     ]
     .into_iter()
     .find_map(|(f, what)| std::env::var_os(f).map(|_| what))

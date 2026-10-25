@@ -102,5 +102,10 @@ required-features = ["programs"]
 name = "spinfix_test"
 required-features = ["programs"]
 
+# test of the 2017-18 server hook (forza-hook e1718-server), run under Wine
+[[bin]]
+name = "server1718_test"
+required-features = ["programs"]
+
 [lints]
 workspace = true

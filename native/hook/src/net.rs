@@ -40,19 +40,45 @@ unsafe extern "system" fn hook_ip_renew_address(_info: *mut c_void) -> u32 {
 /// patched, which may still reach the host's lease.
 pub fn install_dhcp() -> (bool, bool, bool) {
     UNSURE.store(false, Relaxed);
-    let rel = patch(
-        &REAL_IP_RELEASE,
-        "iphlpapi.dll",
-        By::Name(c"IpReleaseAddress"),
-        hook_ip_release_address,
-    );
-    let ren = patch(
-        &REAL_IP_RENEW,
-        "iphlpapi.dll",
-        By::Name(c"IpRenewAddress"),
-        hook_ip_renew_address,
-    );
+    let rel = DHCP_DLLS.iter().any(|dll| {
+        patch(
+            &REAL_IP_RELEASE,
+            dll,
+            By::Name(c"IpReleaseAddress"),
+            hook_ip_release_address,
+        )
+    });
+    let ren = DHCP_DLLS.iter().any(|dll| {
+        patch(
+            &REAL_IP_RENEW,
+            dll,
+            By::Name(c"IpRenewAddress"),
+            hook_ip_renew_address,
+        )
+    });
     (rel, ren, UNSURE.load(Relaxed))
+}
+
+/// Where the program imports the DHCP calls from. The 2017-18 server's guarded control imports them from wccfnet.dll
+/// (setup renames its IPHLPAPI.DLL import), so its hook blocks them there too, ahead of wccfnet's own stubs.
+const DHCP_DLLS: &[&str] = if cfg!(feature = "e1718-server") {
+    &["iphlpapi.dll", "wccfnet.dll"]
+} else {
+    &["iphlpapi.dll"]
+};
+
+/// The original secondary guard, in every process including children; the pinned control imports wccfnet.dll as the
+/// primary one. Without it the process ends.
+#[cfg(any(feature = "e1011-server", feature = "e1718-server"))]
+pub fn load_netguard() {
+    use windows_sys::Win32::System::LibraryLoader::LoadLibraryA;
+    use windows_sys::Win32::System::Threading::ExitProcess;
+    // SAFETY: a NUL-terminated name
+    if unsafe { LoadLibraryA(c"netguard.dll".as_ptr().cast()) }.is_null() {
+        log!("REFUSED: secondary netguard.dll did not load");
+        // SAFETY: ends this process: it must not run without the second guard
+        unsafe { ExitProcess(126) };
+    }
 }
 
 // ---- the network address ----

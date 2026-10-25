@@ -224,7 +224,13 @@ const ED_1718: Ed = Ed {
     keep: KEEP_1718,
     top: TOP_1718,
     product: PRODUCT_1718,
-    dirs: &["bin", "overlay", "source/build", "source/build/server-hook"],
+    dirs: &[
+        "bin",
+        "overlay",
+        "source/build",
+        "source/build/server-hook",
+        "source/build/server-hook-1718",
+    ],
 };
 
 /// The 32-bit programs (`native/`, built for [`PANEL_TARGET`]): cargo's file -> where a kit has it (`true` the 2010-11
@@ -236,7 +242,7 @@ const NATIVE: &[(&str, bool, &str)] = &[
     ("logowin.exe", false, "bin/logowin.exe"),
     ("wccfnet.dll", false, "bin/wccfnet.dll"),
     ("icmp.dll", false, "bin/ICMP.DLL"),
-    // not in the 2017-18 kit: the Linux server's 2010-11 hook loads it (forza-hook e1011-server, [`HOOKS`])
+    // not in the 2017-18 kit: the Linux servers' hooks load it (forza-hook e1011-server and e1718-server, [`HOOKS`])
     ("netguard.dll", false, "source/build/netguard.dll"),
     // the server hook's self-tests, run under Wine beside it (native/hook/src/server.rs); a folder of their own, so
     // no test program here loads the server's winmm.dll
@@ -255,6 +261,12 @@ const NATIVE: &[(&str, bool, &str)] = &[
         false,
         "source/build/server-hook/spinfix_test.exe",
     ),
+    // the 2017-18 server hook's self-test, beside it
+    (
+        "server1718_test.exe",
+        false,
+        "source/build/server-hook-1718/server1718_test.exe",
+    ),
     // tests only, not shipped; fakegame_iphlp: the 2017-18 guard's tests rename its IP-helper import as setup does
     ("fakegame.exe", true, "source/build/fakegame.exe"),
     (
@@ -271,15 +283,20 @@ const NATIVE: &[(&str, bool, &str)] = &[
     // test_panel's stand-in for the panel: a DLL that does nothing when it loads
     ("icmp.dll", false, "source/build/panel_probe.dll"),
 ];
-/// forza_hook.dll per edition: (its feature, `true` the 2010-11 kit, where the kit has it). The Linux server's 2010-11
-/// hook is in neither ZIP: the 2017-18 kit's source/build, which is not zipped, holds it beside netguard.dll.
-const HOOKS: [(&str, bool, &str); 3] = [
+/// forza_hook.dll per edition: (its feature, `true` the 2010-11 kit, where the kit has it). The Linux server's hooks
+/// are in neither ZIP: the 2017-18 kit's source/build, which is not zipped, holds them beside netguard.dll.
+const HOOKS: [(&str, bool, &str); 4] = [
     ("forza-hook/e1011", true, "programs/wccfk.dll"),
     ("forza-hook/e1718", false, "bin/winmm.dll"),
     (
         "forza-hook/e1011-server",
         false,
         "source/build/server-hook/winmm.dll",
+    ),
+    (
+        "forza-hook/e1718-server",
+        false,
+        "source/build/server-hook-1718/winmm.dll",
     ),
 ];
 /// The 32-bit crates besides the panel, as `build`, clippy and the tests take them (the hook gets its feature apart).
