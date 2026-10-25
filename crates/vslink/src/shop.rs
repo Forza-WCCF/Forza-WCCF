@@ -85,6 +85,10 @@ pub enum Role {
     Join(EndpointId),
 }
 
+/// Host: whether a guest's EndpointId may come in (a shop room's `GUESTS`, `forza::online::lobby::shop_peers`). It
+/// may block (it runs off the network threads); None lets in anyone who knows the host's id.
+pub type Admit = Arc<dyn Fn(&EndpointId) -> bool + Send + Sync>;
+
 /// What [`spawn`] needs.
 pub struct ShopConfig {
     pub role: Role,
@@ -100,6 +104,8 @@ pub struct ShopConfig {
     pub log: Log,
     /// Test only: held this long more in each direction on this side (`VSLINK_DELAY_MS` / 2); zero in play.
     pub delay: Duration,
+    /// Host: who may come in ([`Admit`]).
+    pub admit: Option<Admit>,
 }
 
 impl ShopConfig {
@@ -115,6 +121,7 @@ impl ShopConfig {
             key,
             log,
             delay: Duration::ZERO,
+            admit: None,
         }
     }
 
@@ -244,6 +251,7 @@ struct Sh {
     oversize: AtomicU64,
     flows: Arc<AtomicUsize>,
     streams: Arc<AtomicUsize>,
+    admit: Option<Admit>,
 }
 
 fn loopback(port: u16) -> SocketAddr {
@@ -437,6 +445,18 @@ impl Sh {
             (self.log)(&format!("guest {who} refused: {MAX_GUESTS} guests already"));
             conn.close(1u8.into(), b"full");
             return;
+        }
+        if let Some(admit) = self.admit.clone() {
+            let id = *conn.remote_id().as_bytes();
+            let ok = tokio::task::spawn_blocking(move || admit(&id))
+                .await
+                .unwrap_or(false);
+            if !ok {
+                self.guests.fetch_sub(1, Ordering::Relaxed);
+                (self.log)(&format!("guest {who} refused: not in the shop's room"));
+                conn.close(4u8.into(), b"not in the room");
+                return;
+            }
         }
         (self.log)(&format!("guest {who} joined"));
         tokio::spawn(watch_path(self.log.clone(), conn.clone()));
@@ -745,6 +765,7 @@ async fn start(cfg: ShopConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
         oversize: AtomicU64::new(0),
         flows: Arc::default(),
         streams: Arc::default(),
+        admit: cfg.admit,
     });
     let only = if cfg.relay_only { ", relay only" } else { "" };
     if !sh.delay.is_zero() {

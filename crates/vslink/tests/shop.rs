@@ -122,6 +122,7 @@ impl Pair {
             key: self.dir.join(key),
             log,
             delay,
+            admit: None,
         }
     }
 
@@ -169,6 +170,7 @@ fn pair(name: &str, knob_ms: u64, relay_only: bool) -> Pair {
         key: dir.join("host.key"),
         log: host_log,
         delay: Duration::ZERO,
+        admit: None,
     })
     .unwrap();
     let mut p = Pair {
@@ -368,6 +370,7 @@ fn a_join_without_a_host_fails_at_start() {
         key: dir.join("join.key"),
         log,
         delay: Duration::ZERO,
+        admit: None,
     });
     let e = r.err().expect("no host: an error");
     assert!(e.to_string().contains("did not answer"), "{e}");
@@ -473,4 +476,44 @@ fn taken_ports_move_the_join_side() {
     p.join = Some(link);
     control_rtt(&p);
     datagram_rtt(&p);
+}
+
+/// A host with a room list lets in only the guests on it: the one the room knows plays, a stranger is closed.
+#[test]
+fn only_the_rooms_guests_come_in() {
+    let mut p = pair("admit", 0, false);
+    drop(p.join.take());
+    let allowed: Arc<Mutex<Vec<[u8; 32]>>> = Arc::default();
+    let list = allowed.clone();
+    let (log, host_lines) = logger("admit host 2");
+    let mut cfg = p.config(
+        Role::Host,
+        p.services.ports,
+        "admit-host2.key",
+        log,
+        Duration::ZERO,
+    );
+    cfg.admit = Some(Arc::new(move |id: &[u8; 32]| {
+        list.lock().unwrap().contains(id)
+    }));
+    p.host = shop::spawn(cfg).unwrap();
+    p.host_log = host_lines;
+    // a stranger: the link comes up, then the host closes it
+    p.join("admit stranger", 0);
+    let t = Instant::now();
+    while !logged(&p.host_log, "refused: not in the shop's room") {
+        assert!(
+            t.elapsed() < Duration::from_secs(10),
+            "the stranger was let in"
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+    // the room's guest: its id on the list before it dials
+    drop(p.join.take());
+    let key = iroh::SecretKey::generate();
+    std::fs::write(p.dir.join("admit guest.key"), key.to_bytes()).unwrap();
+    allowed.lock().unwrap().push(*key.public().as_bytes());
+    p.join("admit guest", 0);
+    control_rtt(&p);
+    assert!(logged(&p.host_log, "joined"));
 }
