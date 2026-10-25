@@ -66,6 +66,10 @@ impl Clock {
         if self.alone.is_some_and(|t| now >= t + VS_WAIT) {
             self.cpu = true;
         }
+        if !alone && self.cpu {
+            // an opponent came during the CPU countdown: no CPU team
+            (self.cpu, self.go) = (false, None);
+        }
         if all_ready || self.cpu {
             let wait = if all_ready { COUNTDOWN } else { CPU_COUNTDOWN };
             self.go.get_or_insert(now + wait);
@@ -542,5 +546,14 @@ mod tests {
         assert!(!c.tick(t1, true, false));
         c.cpu_now(t1);
         assert!(c.tick(t1, true, false));
+
+        // an opponent sits down during the CPU countdown: no CPU team, the countdown waits for both ready
+        let mut c = ready();
+        c.tick(t0, true, false);
+        assert!(!c.tick(t1, true, false) && c.cpu);
+        assert!(!c.tick(t1 + CPU_COUNTDOWN, false, false), "no CPU start");
+        assert!(!c.cpu && c.left(t1).is_none());
+        assert!(!c.tick(t1 + CPU_COUNTDOWN, false, true));
+        assert_eq!(c.left(t1 + CPU_COUNTDOWN), Some(COUNTDOWN.as_secs() as u32));
     }
 }
