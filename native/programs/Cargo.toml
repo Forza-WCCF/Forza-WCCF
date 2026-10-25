@@ -107,5 +107,10 @@ required-features = ["programs"]
 name = "server1718_test"
 required-features = ["programs"]
 
+# the Linux 2017-18 shop's stand-in for the Launcher's shared memory (crates/linux-host), run under Wine
+[[bin]]
+name = "sddy_maps"
+required-features = ["programs"]
+
 [lints]
 workspace = true
