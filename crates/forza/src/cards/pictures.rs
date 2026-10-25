@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 pub const FACE: (u32, u32) = (88, 128);
 /// The folder's note of what made it; another answer from [`wanted`] makes it again.
 const MARKER: &str = "source.txt";
-const VERSION: u32 = 2; // 2: the album fronts and backs (`<number>_f.jpg`, `<number>_b.jpg`)
+pub const VERSION: u32 = 2; // 2: the album fronts and backs (`<number>_f.jpg`, `<number>_b.jpg`)
 /// The album card in the top of its 256x512 texture (the rows under it are edge smear).
 pub const ALBUM: (u32, u32) = (256, 357);
 /// The album front's JPEG quality: about 40 % of the PNG's size, no visible loss at card size.
@@ -443,8 +443,28 @@ fn remove_jpgs(dir: &Path, art: bool) -> io::Result<()> {
     Ok(())
 }
 
+/// The note a failed [`ensure`] leaves: [`is_wanted`] takes it as done, so PLAY does not rebuild at every start;
+/// SET UP and the pictures command ([`ensure`]) do try again.
+fn failed() -> String {
+    format!("{VERSION} failed")
+}
+
+/// What the folder's note says (empty when there is none).
+fn note(cards: &Path) -> String {
+    fs::read_to_string(cards.join(MARKER)).map_or_else(|_| String::new(), |m| m.trim().to_owned())
+}
+
+/// Whether `cards` is as the setting asks (`pack` as in [`ensure`]) or this version already failed to make it: false
+/// means [`ensure`] has work. PLAY asks this; [`ensure`] itself retries a failure.
+pub fn is_wanted(cards: &Path, pack: Option<&Path>) -> bool {
+    let n = note(cards);
+    n == wanted(pack) || n == failed()
+}
+
 /// `cards` as the setting asks (`pack`: the high-quality pack, else the game's own), made only when the folder was
-/// made otherwise or not at all. `edition` is "1011" or "1718"; `say` hears what is done.
+/// made otherwise or not at all. `edition` is "1011" or "1718"; `say` hears what is done. A failure leaves the note
+/// "<version> failed" (the folder may be half made: shortcut: no build-and-swap in a temp folder, when a failed
+/// rebuild must keep the old pictures).
 pub fn ensure(
     game: &Path,
     edition: &str,
@@ -452,13 +472,29 @@ pub fn ensure(
     pack: Option<&Path>,
     say: &dyn Fn(&str),
 ) -> io::Result<()> {
-    let marker: PathBuf = cards.join(MARKER);
-    let want = wanted(pack);
-    if fs::read_to_string(&marker).is_ok_and(|m| m.trim() == want) {
+    if note(cards) == wanted(pack) {
         return Ok(());
     }
-    // the game's pictures stay while this version made them; the pack's go, and come back if wanted
-    let made = fs::read_to_string(&marker).is_ok_and(|m| m.starts_with(&format!("{VERSION} ")));
+    // the game's pictures stay while this version made them (not a failed try); the pack's go, and come back if wanted
+    let made = note(cards).starts_with(&format!("{VERSION} ")) && note(cards) != failed();
+    let r = build(game, edition, cards, pack, made, say);
+    if r.is_err() {
+        let _ = fs::create_dir_all(cards);
+        let _ = fs::write(cards.join(MARKER), failed());
+    }
+    r
+}
+
+fn build(
+    game: &Path,
+    edition: &str,
+    cards: &Path,
+    pack: Option<&Path>,
+    made: bool,
+    say: &dyn Fn(&str),
+) -> io::Result<()> {
+    let marker: PathBuf = cards.join(MARKER);
+    let want = wanted(pack);
     let _ = fs::remove_file(&marker); // half made stays "not made"
     let _ = fs::remove_file(cards.join(super::hq::FILE));
     remove_jpgs(cards, false)?; // the pack's scans; the album art (`_f`, `_b`) is the game's and stays
@@ -670,15 +706,45 @@ mod tests {
     }
 
     #[test]
-    fn lost_album_pictures_leave_no_marker_and_no_temp_file_and_a_rebuild_drops_stale_art() {
+    fn an_older_marker_is_not_current_and_ensure_makes_it_again_in_either_edition() {
+        let d = tempfile::tempdir().unwrap();
+        fake_game(d.path());
+        let out = d.path().join("cards");
+        assert!(!is_wanted(&out, None));
+        for ed in ["1718", "1011"] {
+            if ed == "1011" {
+                let mut rec = vec![0u8; 0x328];
+                rec[..2].copy_from_slice(&7049u16.to_le_bytes());
+                rec[0x2DA..0x2DA + 7].copy_from_slice(b"Pic_One");
+                fs::write(d.path().join("prog_data/player_data/player_data.bin"), rec).unwrap();
+            }
+            fs::create_dir_all(&out).unwrap();
+            fs::write(out.join(MARKER), "1 game").unwrap();
+            assert!(!is_wanted(&out, None), "{ed}");
+            ensure(d.path(), ed, &out, None, &|_| {}).unwrap();
+            assert!(
+                is_wanted(&out, None) && out.join("7049.png").is_file(),
+                "{ed}"
+            );
+            assert!(
+                !is_wanted(&out, Some(Path::new("pack.zip"))),
+                "{ed}: a pack not made yet"
+            );
+        }
+    }
+
+    #[test]
+    fn lost_album_pictures_leave_a_failed_note_and_no_temp_file_and_a_rebuild_drops_stale_art() {
         let d = tempfile::tempdir().unwrap();
         fake_game(d.path());
         let out = d.path().join("cards");
         fs::create_dir_all(out.join("7049_f.jpg.tmp")).unwrap(); // the temp file cannot be made
         assert!(ensure(d.path(), "1718", &out, None, &|_| {}).is_err());
-        assert!(!out.join(MARKER).exists());
+        // the failure is noted: PLAY leaves it be, SET UP below tries again from scratch
+        assert_eq!(fs::read_to_string(out.join(MARKER)).unwrap(), failed());
+        assert!(is_wanted(&out, None) && is_wanted(&out, Some(Path::new("p.zip"))));
         assert!(!out.join("7049_b.jpg.tmp").exists());
-        // the next start retries; stale art of a card the game no longer has goes with the rebuild
+        // SET UP retries; stale art of a card the game no longer has goes with the rebuild
         fs::remove_dir(out.join("7049_f.jpg.tmp")).unwrap();
         fs::write(out.join("1_f.JPG"), b"stale").unwrap();
         fs::write(out.join("2_B.JPG"), b"stale").unwrap();

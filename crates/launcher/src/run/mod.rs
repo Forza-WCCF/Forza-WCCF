@@ -92,6 +92,7 @@ pub(crate) const PANEL_UP: &str = "first frame shown";
 
 const BUSY_TEXT: &str =
     "Not started: another Launcher window is setting up or starting the game. Try again when it is done.";
+const PICTURES_BUSY_TEXT: &str = "  FAIL  The game is running or starting. Close its window, then try again.";
 const NOT_SET_UP_TEXT: &str = "Not set up yet. Open Launcher.exe and press SET UP.";
 pub const NOT_GUARDED_TEXT: &str = "Not started: the network guard is not in place, and the game could change this PC's \
     network settings. Press SET UP in Launcher.exe, then start again. Problem:";
@@ -104,6 +105,8 @@ pub trait Ui {
         false
     }
     fn running(&self, _up: bool) {}
+    /// The start is about to make the card pictures (a while): the window's status line.
+    fn updating_pictures(&self) {}
     /// SAVE LOGS asked by the panel (data\savelogs.request): ask where, write the ZIP, answer in data\savelogs.result.
     fn save_logs(&self, _kit: &Path, _game: &Path) {}
     /// REPORT A PROBLEM asked by the panel (data\report.request): the window opens its report dialog.
@@ -484,10 +487,6 @@ fn stop_command(kit: &Kit, p: &Params, force: bool, check: bool, ui: &dyn Ui) ->
 
 /// Starts and supervises; a full RESTART NOW starts again with what a plain start chooses.
 fn play(kit: &Kit, p: &Params, mode: Option<Mode>, debug: bool, ui: &dyn Ui) -> i32 {
-    // an install made without pictures (the installer once skipped them): make them now
-    if !kit.cache().join("cards").join("source.txt").is_file() && game_folder(kit, p).is_some() {
-        make_pictures(kit, p, ui);
-    }
     let mut mode = mode;
     loop {
         let m = mode.take().unwrap_or_else(|| plain_mode(kit, p, ui));
@@ -579,11 +578,44 @@ fn game_folder(kit: &Kit, p: &Params) -> Option<PathBuf> {
     find_game_named(&set, p.programs.clone())
 }
 
+/// Whether a start has to make the card pictures first (an install made without them, or by an older version: an
+/// update whose setup did not run): a game is set up and the folder is not as `ensure` wants it, unless it already
+/// failed for this version (SET UP and `Launcher.exe pictures` try again).
+fn pictures_due(kit: &Kit, p: &Params) -> bool {
+    due(
+        &kit.cache().join("cards"),
+        game_folder(kit, p).is_some(),
+        pack_of(kit).as_deref(),
+    )
+}
+
+fn due(cards: &Path, game: bool, pack: Option<&Path>) -> bool {
+    game && !forza::cards::pictures::is_wanted(cards, pack)
+}
+
+/// The high-quality pack the settings choose, when it is there.
+fn pack_of(kit: &Kit) -> Option<PathBuf> {
+    let s = kit.settings();
+    (s["card_pictures"] == "hq")
+        .then(|| s["card_pack"].as_str().map(PathBuf::from).filter(|p| p.is_file()))
+        .flatten()
+}
+
 /// The board's card pictures, made at setup (and again when Launcher's choice changes) by
 /// `forza::cards::pictures::ensure` into the folder the panel reads: the player's game's own, and with
 /// data\\settings.json "card_pictures": "hq" the high-quality pack at "card_pack" over them. The run only reads them.
 /// `true` when they are in place.
 pub fn make_pictures(kit: &Kit, p: &Params, ui: &dyn Ui) -> bool {
+    // like SET UP (setup.rs `admitted`): never under a run, or beside a start or another setup, in any Launcher window
+    let Some(_admitted) = admit(kit).filter(|_| !any_on(kit)) else {
+        ui.say(PICTURES_BUSY_TEXT);
+        return false;
+    };
+    pictures_held(kit, p, ui)
+}
+
+/// [`make_pictures`] inside a start, which holds the admission and is on.
+fn pictures_held(kit: &Kit, p: &Params, ui: &dyn Ui) -> bool {
     let Some(game) = game_folder(kit, p) else {
         ui.say("  No game set up yet. Card pictures are made during setup.");
         return false;
@@ -592,13 +624,9 @@ pub fn make_pictures(kit: &Kit, p: &Params, ui: &dyn Ui) -> bool {
         Edition::E1011 => "1011",
         Edition::E1718 => "1718",
     };
-    let s = kit.settings();
-    let mut pack = None;
-    if s["card_pictures"] == "hq" {
-        pack = s["card_pack"].as_str().map(PathBuf::from).filter(|p| p.is_file());
-        if pack.is_none() {
-            ui.say("  High-quality card pack not found. Using the game's own pictures.");
-        }
+    let pack = pack_of(kit);
+    if pack.is_none() && kit.settings()["card_pictures"] == "hq" {
+        ui.say("  High-quality card pack not found. Using the game's own pictures.");
     }
     let say = |l: &str| ui.say(l);
     match forza::cards::pictures::ensure(&game, ed, &kit.cache().join("cards"), pack.as_deref(), &say) {
@@ -1300,6 +1328,16 @@ impl Run<'_> {
             if self.edition == Edition::E1011 {
                 // after the text switch, which puts programs back: 2017-18's guard is checked in `start`
                 self.ensure_hook()?;
+            }
+        }
+        // here the start is admitted (nothing else writes the pictures), unrefused, guarded and the folder repaired; a
+        // server that does not answer is only found at step 2, after this wait. Not beside a server on this PC: its
+        // game reads the folder. A failure never stops the start.
+        if !self.beside_server && pictures_due(kit, p) {
+            self.ui.updating_pictures();
+            self.say("Updating card pictures...");
+            if !pictures_held(kit, p, self.ui) {
+                self.say("  Playing with the card pictures that exist.");
             }
         }
         // the card reader is not running yet in any mode; nor FPR_Emu or the overlay, which read the table
@@ -2371,5 +2409,41 @@ impl Run<'_> {
 impl Drop for Run<'_> {
     fn drop(&mut self) {
         self.shutdown();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::due;
+    use std::fs;
+    use std::path::Path;
+
+    #[test]
+    fn pictures_are_made_at_play_when_missing_older_or_changed_but_not_after_a_failure() {
+        let v = forza::cards::pictures::VERSION;
+        let d = tempfile::tempdir().unwrap();
+        let cards = d.path().join("cards");
+        assert!(due(&cards, true, None), "no folder: made, as before");
+        assert!(!due(&cards, false, None), "no game set up: nothing to make them from");
+        fs::create_dir_all(&cards).unwrap();
+        for old in [
+            "game".to_owned(),
+            "1 game".into(),
+            "1 hq 5 P".into(),
+            format!("{} game", v - 1),
+        ] {
+            fs::write(cards.join("source.txt"), &old).unwrap();
+            assert!(due(&cards, true, None), "{old:?}: an older marker is made again");
+            assert!(!due(&cards, false, None), "{old:?}: still no game");
+        }
+        fs::write(cards.join("source.txt"), format!("{v} game")).unwrap();
+        assert!(!due(&cards, true, None), "current: nothing to do");
+        assert!(
+            due(&cards, true, Some(Path::new("pack.zip"))),
+            "a pack chosen since: made again"
+        );
+        // a failed try is not repeated at every PLAY, with or without a pack
+        fs::write(cards.join("source.txt"), format!("{v} failed")).unwrap();
+        assert!(!due(&cards, true, None) && !due(&cards, true, Some(Path::new("pack.zip"))));
     }
 }

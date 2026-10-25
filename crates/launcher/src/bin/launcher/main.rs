@@ -345,6 +345,10 @@ fn start(steps: Vec<Step>) -> bool {
 struct WindowUi;
 
 impl run::Ui for WindowUi {
+    fn updating_pictures(&self) {
+        say(t("launcher.msg_updating_pictures"), 0);
+    }
+
     fn say(&self, line: &str) {
         stepped(line);
         log(line);
