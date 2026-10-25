@@ -2,10 +2,14 @@
 //! (each card's 128x128 DXT1 picture in `data/wccf_data.xaf`; the card face is its left 88 columns, the rest edge
 //! smear) or, as an option, from the high-quality pack (a ZIP of card scans with `cards.db` linking them to both
 //! games' card numbers). The game's pictures (`<number>.png`) are always there, so a card the pack lacks keeps its
-//! own; the pack's (`<number>.jpg`) come beside them and the board takes them first.
+//! own; the pack's (`<number>.jpg`) come beside them and the board takes them first. Newer cards also have the
+//! game's own album art (`<face>_F.dds`, the whole card, 256x357 in a 256x512 texture): it comes out as
+//! `<number>_f.jpg` and the board takes it before the pack's scan, then the face (`board::picture_names`); its back
+//! (`<face>_B.dds`, same size) comes out as `<number>_b.jpg` for the card views that show it.
 //! Both editions keep the same archive format, and each `player_data.bin` record names its card number and picture.
 
-use image::{DynamicImage, ImageFormat};
+use image::codecs::jpeg::JpegEncoder;
+use image::{DynamicImage, ExtendedColorType, ImageEncoder, ImageFormat};
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{self, Read, Seek, SeekFrom};
@@ -15,7 +19,11 @@ use std::path::{Path, PathBuf};
 pub const FACE: (u32, u32) = (88, 128);
 /// The folder's note of what made it; another answer from [`wanted`] makes it again.
 const MARKER: &str = "source.txt";
-const VERSION: u32 = 1;
+const VERSION: u32 = 2; // 2: the album fronts and backs (`<number>_f.jpg`, `<number>_b.jpg`)
+/// The album card in the top of its 256x512 texture (the rows under it are edge smear).
+pub const ALBUM: (u32, u32) = (256, 357);
+/// The album front's JPEG quality: about 40 % of the PNG's size, no visible loss at card size.
+const ALBUM_QUALITY: u8 = 90;
 
 fn bad(what: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, what.into())
@@ -175,8 +183,45 @@ fn save(img: &DynamicImage, path: &Path) -> io::Result<()> {
     fs::rename(&tmp, path)
 }
 
+/// The album card of a decoded `<face>_F.dds` or `<face>_B.dds`: its top 256x357.
+fn album_front(tex: &DynamicImage) -> DynamicImage {
+    tex.crop_imm(0, 0, ALBUM.0.min(tex.width()), ALBUM.1.min(tex.height()))
+}
+
+/// Written beside, then swapped in, like [`save`].
+fn save_jpg(img: &DynamicImage, path: &Path) -> io::Result<()> {
+    let tmp = path.with_extension("jpg.tmp");
+    let rgb = img.to_rgb8();
+    JpegEncoder::new_with_quality(io::BufWriter::new(File::create(&tmp)?), ALBUM_QUALITY)
+        .write_image(
+            rgb.as_raw(),
+            rgb.width(),
+            rgb.height(),
+            ExtendedColorType::Rgb8,
+        )
+        .map_err(io::Error::other)?;
+    fs::rename(&tmp, path)
+}
+
+/// The archive file `e` as a decoded DXT1 picture.
+fn load(xaf: &mut File, file_len: u64, e: &Entry) -> io::Result<DynamicImage> {
+    if e.stored as u64 > file_len || e.size > 1 << 26 {
+        return Err(bad("size beyond the archive"));
+    }
+    let mut raw = vec![0u8; e.stored];
+    xaf.seek(SeekFrom::Start(e.offset))?;
+    xaf.read_exact(&mut raw)?;
+    let dds = if e.stored < e.size {
+        lzw(&raw, e.size)?
+    } else {
+        raw
+    };
+    image::load_from_memory_with_format(&dds, ImageFormat::Dds).map_err(io::Error::other)
+}
+
 /// Every card's face from the game in `game` (the folder with `prog_data` and `data`) into `out` as
-/// `<number>.png`, 88x128 -> (written, failures). One bad picture never stops the rest.
+/// `<number>.png`, 88x128, and where the game has the album art, its front and back as `<number>_f.jpg` and
+/// `<number>_b.jpg`, 256x357 -> (written, failures). One bad picture never stops the rest.
 pub fn from_game(game: &Path, edition: &str, out: &Path) -> io::Result<(usize, Vec<String>)> {
     let players = fs::read(game.join("prog_data/player_data/player_data.bin"))?;
     let mut xaf = File::open(game.join("data/wccf_data.xaf"))?;
@@ -187,25 +232,25 @@ pub fn from_game(game: &Path, edition: &str, out: &Path) -> io::Result<(usize, V
     for (no, name) in cards(&players, edition)? {
         let mut one = || -> io::Result<()> {
             let e = toc.get(&name).ok_or_else(|| bad("not in the archive"))?;
-            if e.stored as u64 > file_len || e.size > 1 << 26 {
-                return Err(bad("size beyond the archive"));
-            }
-            let mut raw = vec![0u8; e.stored];
-            xaf.seek(SeekFrom::Start(e.offset))?;
-            xaf.read_exact(&mut raw)?;
-            let dds = if e.stored < e.size {
-                lzw(&raw, e.size)?
-            } else {
-                raw
-            };
-            let img = image::load_from_memory_with_format(&dds, ImageFormat::Dds)
-                .map_err(io::Error::other)?;
+            let img = load(&mut xaf, file_len, e)?;
             let (w, h) = (FACE.0.min(img.width()), FACE.1.min(img.height()));
             save(&img.crop_imm(0, 0, w, h), &out.join(format!("{no}.png")))
         };
         match one() {
             Ok(()) => done += 1,
             Err(e) => fails.push(format!("card {no} ({name}): {e}")),
+        }
+        // older cards have no album art: they keep the face (and the pack's scan, if chosen)
+        for side in ["f", "b"] {
+            let art = name.replace(".dds", &format!("_{side}.dds"));
+            if let Some(e) = toc.get(&art) {
+                let one = load(&mut xaf, file_len, e).and_then(|t| {
+                    save_jpg(&album_front(&t), &out.join(format!("{no}_{side}.jpg")))
+                });
+                if let Err(e) = one {
+                    fails.push(format!("card {no} ({art}): {e}"));
+                }
+            }
         }
     }
     Ok((done, fails))
@@ -344,8 +389,13 @@ pub fn ensure(
     let _ = fs::remove_file(&marker); // half made stays "not made"
     let _ = fs::remove_file(cards.join(super::hq::FILE));
     for f in fs::read_dir(cards).into_iter().flatten().flatten() {
-        if f.path().extension().is_some_and(|e| e == "jpg") {
-            fs::remove_file(f.path())?;
+        // the pack's scans are `<number>.jpg`; the album fronts and backs (`<number>_f.jpg`, `_b.jpg`) are the game's and stay
+        let p = f.path();
+        if p.extension().is_some_and(|e| e == "jpg")
+            && p.file_stem()
+                .is_some_and(|s| s.to_string_lossy().parse::<u32>().is_ok())
+        {
+            fs::remove_file(p)?;
         }
     }
     if !made {
@@ -407,7 +457,33 @@ mod tests {
         assert_eq!(lzw(&s, 7).unwrap(), b"ABABABA");
     }
 
-    /// A made-up 2017-18 game folder: one record, one stored 128x128 DXT1 picture (left half red, right half blue).
+    /// A DXT1 DDS of `w`x`h` whose 4x4 block (bx, by) is the solid RGB565 colour `colour(bx, by)`.
+    fn dxt1(w: u32, h: u32, colour: impl Fn(u32, u32) -> u16) -> Vec<u8> {
+        let mut dds = b"DDS ".to_vec();
+        let mut hdr = [0u32; 31];
+        (hdr[0], hdr[1], hdr[2], hdr[3], hdr[4]) = (124, 0x1007, h, w, w * h / 2);
+        (hdr[18], hdr[19]) = (32, 4); // pixel format: size, DDPF_FOURCC
+        for v in hdr {
+            dds.extend(v.to_le_bytes());
+        }
+        dds[84..88].copy_from_slice(b"DXT1");
+        for by in 0..h / 4 {
+            for bx in 0..w / 4 {
+                let c = colour(bx, by);
+                dds.extend(c.to_le_bytes());
+                dds.extend(c.to_le_bytes());
+                dds.extend([0u8; 4]);
+            }
+        }
+        dds
+    }
+
+    const RED: u16 = 0xF800;
+    const GREEN: u16 = 0x07E0;
+    const BLUE: u16 = 0x001F;
+
+    /// A made-up 2017-18 game folder: one record, its stored 128x128 DXT1 picture (left half red, right half blue)
+    /// and its 256x512 album front (green down to row 359, red under it: the edge smear the crop must drop).
     fn fake_game(dir: &Path) {
         let mut rec = vec![0u8; 0x620];
         rec[0x288..0x28A].copy_from_slice(&7049u16.to_le_bytes());
@@ -415,26 +491,13 @@ mod tests {
         fs::create_dir_all(dir.join("prog_data/player_data")).unwrap();
         fs::write(dir.join("prog_data/player_data/player_data.bin"), rec).unwrap();
 
-        let mut dds = b"DDS ".to_vec();
-        let mut h = [0u32; 31];
-        (h[0], h[1], h[2], h[3], h[4]) = (124, 0x1007, 128, 128, 128 * 128 / 2);
-        (h[18], h[19]) = (32, 4); // pixel format: size, DDPF_FOURCC
-        for v in h {
-            dds.extend(v.to_le_bytes());
-        }
-        dds[84..88].copy_from_slice(b"DXT1");
-        for _y in 0..32 {
-            for x in 0..32 {
-                let c: u16 = if x < 16 { 0xF800 } else { 0x001F };
-                dds.extend(c.to_le_bytes());
-                dds.extend(c.to_le_bytes());
-                dds.extend([0u8; 4]);
-            }
-        }
+        let dds = dxt1(128, 128, |x, _| if x < 16 { RED } else { BLUE });
+        let front = dxt1(256, 512, |_, y| if y < 90 { GREEN } else { RED });
+        let back = dxt1(256, 512, |_, y| if y < 90 { BLUE } else { RED });
         let mut xaf = vec![0u8; 0x100];
         xaf[..4].copy_from_slice(b"xaf0");
         xaf[8..12].copy_from_slice(&0x100u32.to_le_bytes()); // sector
-        xaf[12..16].copy_from_slice(&3u32.to_le_bytes());
+        xaf[12..16].copy_from_slice(&5u32.to_le_bytes());
         let mut entry = |name: &str, file: bool, parent: i32, size: usize, sector: u32| {
             let mut e = vec![0u8; 0xB0];
             e[..name.len()].copy_from_slice(name.as_bytes());
@@ -445,11 +508,19 @@ mod tests {
             e[0xA0..0xA4].copy_from_slice(&sector.to_le_bytes());
             xaf.extend(e);
         };
+        let front_at = 5 + dds.len().div_ceil(0x100) as u32;
+        let back_at = front_at + front.len().div_ceil(0x100) as u32;
         entry("data", false, -1, 0, 0);
         entry("player_card", false, 0, 0, 0);
-        entry("PIC_ONE.dds", true, 1, dds.len(), 4);
-        xaf.resize(0x400, 0);
+        entry("PIC_ONE.dds", true, 1, dds.len(), 5);
+        entry("PIC_ONE_F.dds", true, 1, front.len(), front_at);
+        entry("PIC_ONE_B.dds", true, 1, back.len(), back_at);
+        xaf.resize(0x500, 0);
         xaf.extend(&dds);
+        xaf.resize(front_at as usize * 0x100, 0);
+        xaf.extend(&front);
+        xaf.resize(back_at as usize * 0x100, 0);
+        xaf.extend(&back);
         fs::create_dir_all(dir.join("data")).unwrap();
         fs::write(dir.join("data/wccf_data.xaf"), xaf).unwrap();
     }
@@ -468,6 +539,18 @@ mod tests {
         assert_eq!(img.dimensions(), FACE);
         assert_eq!(img.get_pixel(10, 10).0, [255, 0, 0]);
         assert_eq!(img.get_pixel(80, 10).0, [0, 0, 255]);
+        // the album back, cropped the same way
+        let back = image::open(out.join("7049_b.jpg")).unwrap().to_rgb8();
+        assert_eq!(back.dimensions(), ALBUM);
+        let [r, g, b] = back.get_pixel(250, 356).0;
+        assert!(r < 24 && g < 24 && b > 230, "{r} {g} {b}");
+        // the album front beside it: the card's top 256x357 (no smear rows), green, as a JPEG
+        let front = image::open(out.join("7049_f.jpg")).unwrap().to_rgb8();
+        assert_eq!(front.dimensions(), ALBUM);
+        for (x, y) in [(10, 10), (128, 200), (250, 356)] {
+            let [r, g, b] = front.get_pixel(x, y).0;
+            assert!(r < 24 && g > 230 && b < 24, "({x},{y}): {r} {g} {b}");
+        }
         // made once: the second call finds the folder as wanted
         said.borrow_mut().clear();
         ensure(d.path(), "1718", &out, None, &|l| {
@@ -475,6 +558,29 @@ mod tests {
         })
         .unwrap();
         assert!(said.borrow().is_empty());
+    }
+
+    #[test]
+    fn a_folder_made_by_the_last_version_is_made_again_with_the_album_art() {
+        let d = tempfile::tempdir().unwrap();
+        fake_game(d.path());
+        let out = d.path().join("cards");
+        fs::create_dir_all(&out).unwrap();
+        fs::write(out.join(MARKER), "1 game").unwrap(); // version 1: faces only
+        fs::write(out.join("7049.png"), b"old").unwrap();
+        ensure(d.path(), "1718", &out, None, &|_| {}).unwrap();
+        assert!(out.join("7049_f.jpg").is_file());
+        assert_eq!(image::open(out.join("7049.png")).unwrap().width(), FACE.0);
+        assert_eq!(fs::read_to_string(out.join(MARKER)).unwrap(), wanted(None));
+    }
+
+    #[test]
+    fn the_album_crop_keeps_the_card_and_never_grows_a_small_picture() {
+        let tex = DynamicImage::new_rgb8(256, 512);
+        let c = album_front(&tex);
+        assert_eq!((c.width(), c.height()), ALBUM);
+        let c = album_front(&DynamicImage::new_rgb8(128, 128));
+        assert_eq!((c.width(), c.height()), (128, 128));
     }
 
     #[test]
@@ -512,10 +618,12 @@ mod tests {
         ensure(d.path(), "1718", &out, Some(&pack), &|_| {}).unwrap();
         assert_eq!(fs::read(out.join("7049.jpg")).unwrap(), b"A");
         assert!(out.join("7049.png").is_file() && !out.join("1.jpg").exists());
+        assert!(out.join("7049_f.jpg").is_file()); // beside the pack's scan: the board takes it first
         assert!(out.join(super::super::hq::FILE).is_file());
         // back to the game's own: the scans go, the game's pictures stay
         ensure(d.path(), "1718", &out, None, &|_| {}).unwrap();
         assert!(!out.join("7049.jpg").exists() && out.join("7049.png").is_file());
+        assert!(out.join("7049_f.jpg").is_file() && out.join("7049_b.jpg").is_file()); // the game's own stay
         assert!(!out.join(super::super::hq::FILE).exists());
     }
 
