@@ -1,4 +1,4 @@
-//! `wccf-linux-server start|stop|status|serve`: the 2010-11 server's supervisor (Linux only; README.md).
+//! `wccf-linux-server start|stop|status|serve [--edition 2010-11|2017-18]`: the shops' supervisor (Linux only; README.md).
 #[cfg(target_os = "linux")]
 mod supervisor;
 

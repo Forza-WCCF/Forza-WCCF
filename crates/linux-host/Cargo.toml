@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
-description = "The 2010-11 server on Linux: a supervisor for Xvfb, Wine and the original control, plus its Wine-side helpers"
+description = "The 2010-11 and 2017-18 shops on Linux: a supervisor for Xvfb, Wine and the original control, plus its Wine-side helpers"
 
 # Linux (the supervisor); the helpers run under Wine and build for i686-pc-windows-msvc. Each is an empty stand-in
 # elsewhere, so `cargo xtask check` (Windows target) and a Linux build both pass.

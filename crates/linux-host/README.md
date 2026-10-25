@@ -1,6 +1,6 @@
 # linux-host
 
-The 2010-11 server on Linux. The original control and its four match engines are 32-bit Windows programs; they run
+The 2010-11 and 2017-18 shops on Linux. The original control and its four match engines are 32-bit Windows programs; they run
 under Wine on a virtual X display (Xvfb). This crate holds the Linux supervisor that starts, watches and stops them,
 and the small Windows helpers it runs inside Wine. The seat desk, match relay and log inbox are `forza-server`
 (`crates/server`); the projector relay is `crates/server/python/projector_relay.py`. Setup from scratch:
@@ -9,6 +9,7 @@ and the small Windows helpers it runs inside Wine. The seat desk, match relay an
 | Program | Runs on | What |
 |---|---|---|
 | `wccf-linux-server` | Linux | `start`, `stop`, `status`, `serve` (the supervisor itself, which `start` detaches) |
+| `sddy_maps.exe` | Wine, 32-bit | 2017-18 only (`native/programs`): makes and holds the `SDDY_*` shared memory the Launcher normally makes |
 | `win32-helper.exe` | Wine, 32-bit | serves the motion tables and scene files control expects from the cabinet's shared memory, starts control under its debugger and logs a crash |
 | `check-crt.exe` | Wine, 32-bit | checks Wine's `msvcr90.dll` rejects the 14-character `Match[Control]` label the way Windows does (the helper shortens it) |
 | `check-network.exe` | Windows | from a player's PC: control's TCP 20002, two seat leases on 20030 and the UDP 20040 relay in both directions |
@@ -45,10 +46,24 @@ The supervisor reads everything from one folder, `ROOT`: `WCCF_ROOT`, else three
 | Variable | Effect |
 |---|---|
 | `WCCF_ROOT` | the server tree |
+| `--edition 2010-11\|2017-18` | after `start` or `serve`; 2010-11 when absent |
 | `WCCF_EXTERNAL_DESK=1` | leave TCP 20030 and UDP 20040 to `forza-server desk` and `relay` (the supported setup) |
 
 Without `WCCF_EXTERNAL_DESK=1` the supervisor runs its own minimal seat broker and relay; it predates
 `forza-server` and knows no lobby, projector relay or log inbox.
+
+## The 2017-18 shop
+
+`start --edition 2017-18` uses a tree of its own (`WCCF_ROOT`) with its own `wineprefix/` and Xvfb display `:96`; the
+shop and a 2010-11 shop can run on one host. Differences from 2010-11:
+
+- `run/sddy_maps.exe` replaces `win32-helper.exe`; control runs as `wine control_Release.exe` in `runtime/`, and Wine's
+  own crash backtrace lands in `game.log` (the supervisor turns the crash dialog off in the prefix).
+- `runtime/local/ctrl_user_option.conf` must have `GAME_SVR_IP=localhost`; `CONTROL_PORT` is the port to wait for.
+- The seat desk and relay are always external (`forza-server`).
+- Ready also needs five `mxhook_<pid>.log` files saying `edition: 2017-18 server`, none `REFUSED` or `REFUSING`.
+  2010-11 has no such gate.
+- `server1718_test.exe` (the hook's Wine self-test) is run by hand, not at start.
 
 ## Wine paths
 
@@ -58,5 +73,5 @@ under `/run/user/`, `/tmp/.wine-<uid>/` or `/tmp/wine-XXXXXX/`. Another distribu
 
 ## Tests
 
-`cargo test -p linux-host` (Linux): seat allocation, collisions and release, malformed relay packets, forwarding and
+`cargo test -p linux-host` (Linux): edition selection and config (2010-11 values unchanged), the hook-log check, seat allocation, collisions and release, malformed relay packets, forwarding and
 expiry, and the `ready`/`degraded` files.
