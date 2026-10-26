@@ -509,7 +509,10 @@ pub fn message(m: u32, wp: WPARAM, lp: LPARAM) -> Option<LRESULT> {
         | WM_RBUTTONUP | WM_RBUTTONDBLCLK | WM_MBUTTONDOWN | WM_MBUTTONUP | WM_MBUTTONDBLCLK
         | WM_MOUSEWHEEL => {
             // egui's (RESUME, the pages); F11 refused: no resize inside the hold
-            if !(matches!(m, WM_KEYDOWN | WM_KEYUP) && wp.0 == 0x7A) {
+            // popped out, the game window's mouse is not the board's
+            let game_mouse =
+                crate::POPPED.load(Relaxed) && (WM_MOUSEFIRST..=WM_MOUSELAST).contains(&m);
+            if !(matches!(m, WM_KEYDOWN | WM_KEYUP) && wp.0 == 0x7A) && !game_mouse {
                 crate::input(m, wp, lp);
             }
             Some(LRESULT(0))

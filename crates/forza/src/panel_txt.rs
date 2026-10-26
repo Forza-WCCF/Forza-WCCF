@@ -33,6 +33,10 @@ pub struct PanelFile {
     pub hover_ms: u32,
     /// auto_logs=0: no automatic crash report.
     pub auto_logs_off: bool,
+    /// board=window: the formation board, the deck and the pages in a window of their own (the pop-out board).
+    pub board_window: bool,
+    /// board_rect=x,y,w,h,max: where that window was last (its restored place in screen pixels, and maximized).
+    pub board_rect: Option<[i32; 5]>,
 }
 
 impl Default for PanelFile {
@@ -46,6 +50,8 @@ impl Default for PanelFile {
             compact: false,
             hover_ms: 500,
             auto_logs_off: false,
+            board_window: false,
+            board_rect: None,
         }
     }
 }
@@ -79,6 +85,16 @@ impl PanelFile {
                         .unwrap_or(500) as u32;
                 }
                 "auto_logs" => f.auto_logs_off = val == "0",
+                "board" => f.board_window = is("window"),
+                "board_rect" => {
+                    let n: Vec<i32> = val
+                        .split(',')
+                        .filter_map(|v| v.trim().parse().ok())
+                        .collect();
+                    f.board_rect = <[i32; 5]>::try_from(n)
+                        .ok()
+                        .filter(|r| r[2] > 0 && r[3] > 0);
+                }
                 _ => {}
             }
         }
@@ -114,6 +130,12 @@ impl PanelFile {
         if self.auto_logs_off {
             s += "auto_logs=0\n";
         }
+        if self.board_window {
+            s += "board=window\n";
+        }
+        if let Some([x, y, w, h, max]) = self.board_rect {
+            s += &format!("board_rect={x},{y},{w},{h},{max}\n");
+        }
         s
     }
 }
@@ -140,12 +162,14 @@ play_on=online\nserver=1.2.3.4\nenglish=off\nhover_delay_ms=500\nauto_logs=0\n"
             compact: true,
             english: Some("it".into()),
             hover_ms: 2000,
+            board_window: true,
+            board_rect: Some([-1600, 20, 900, 1400, 0]),
             ..PanelFile::default()
         };
         assert_eq!(PanelFile::parse(all.text(true).as_bytes()), all);
         assert!(all.text(true).contains("read by PLAY.bat at its next\n"));
         assert!(
-            all.text(false).ends_with("play_on=this_pc\nenglish=it\ncard=new\ncard_fix=bad_endings\nlayout=compact\nhover_delay_ms=2000\n")
+            all.text(false).ends_with("play_on=this_pc\nenglish=it\ncard=new\ncard_fix=bad_endings\nlayout=compact\nhover_delay_ms=2000\nboard=window\nboard_rect=-1600,20,900,1400,0\n")
         );
         for (line, ms) in [
             ("", 500),
@@ -155,6 +179,14 @@ play_on=online\nserver=1.2.3.4\nenglish=off\nhover_delay_ms=500\nauto_logs=0\n"
             ("hover_delay_ms=abc", 500),
         ] {
             assert_eq!(PanelFile::parse(line.as_bytes()).hover_ms, ms, "{line}");
+        }
+        // a board window place that is not five numbers, or has no size, is dropped
+        for bad in [
+            "board_rect=1,2,3",
+            "board_rect=1,2,0,4,0",
+            "board_rect=a,b,c,d,e",
+        ] {
+            assert_eq!(PanelFile::parse(bad.as_bytes()).board_rect, None, "{bad}");
         }
     }
 }

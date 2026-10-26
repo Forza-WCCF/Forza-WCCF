@@ -280,6 +280,9 @@ board.on_team: {en: "ON THE TEAM", it: "IN SQUADRA", ja: "チーム内"}
 board.not_on_team: {en: "BEST OUTSIDE LINKS", it: "MIGLIORI INTESE ESTERNE", ja: "チーム外の好連携"}
 board.no_links: {en: "No links yet.", it: "Nessuna intesa.", ja: "連携なし。"}
 board.more: {en: "+%{n} more", it: "+ altri %{n}", ja: "ほか%{n}人"}
+board.pop_out: {en: "OWN WINDOW", it: "FINESTRA A PARTE", ja: "別ウィンドウ"}
+board.dock: {en: "BACK TO THE GAME", it: "TORNA AL GIOCO", ja: "ゲーム画面に戻す"}
+board.window_title: {en: "Formation board", it: "Formazione", ja: "フォーメーション"}
 cat.affinity: {en: "AFFINITY", it: "AFFINITÀ", ja: "相性"}
 cat.no_partners: {en: "No partners listed.", it: "Nessuna affinità.", ja: "相性の選手なし。"}
 
@@ -393,6 +396,11 @@ settings.send_again: {en: "CLICK AGAIN", it: "CLICCA ANCORA", ja: "もう一度�
 settings.not_sent: {en: "Not sent: %{why}", it: "Non inviati: %{why}", ja: "送信できませんでした：%{why}"}
 settings.msg_compact: {en: "COMPACT: bigger game", it: "COMPATTO: gioco più grande", ja: "コンパクト：ゲームを拡大"}
 settings.msg_cabinet: {en: "CABINET: buttons shown", it: "CABINATO: pulsanti visibili", ja: "筐体：ボタン表示"}
+settings.board: {en: "FORMATION BOARD", it: "FORMAZIONE", ja: "フォーメーション"}
+settings.board_here: {en: "WITH THE GAME", it: "CON IL GIOCO", ja: "ゲームと同じ画面"}
+settings.board_window: {en: "OWN WINDOW", it: "FINESTRA A PARTE", ja: "別ウィンドウ"}
+settings.msg_board_window: {en: "Formation board in its own window: move it to another screen", it: "Formazione in una finestra a parte: spostala su un altro schermo", ja: "フォーメーションを別ウィンドウに表示：別の画面へ移動できます"}
+settings.msg_board_docked: {en: "Formation board back with the game", it: "Formazione di nuovo con il gioco", ja: "フォーメーションをゲーム画面に戻しました"}
 settings.msg_hover: {en: "Card preview after %{s} s", it: "Anteprima carta dopo %{s} s", ja: "%{s} 秒でカードをプレビュー"}
 settings.msg_this_pc: {en: "Next start: this PC", it: "Prossimo avvio: questo PC", ja: "次回の起動：このPC"}
 settings.msg_online: {en: "Online at next start: %{ip}", it: "Online al prossimo avvio: %{ip}", ja: "次回はオンライン：%{ip}"}

@@ -41,7 +41,21 @@ const BOARD_EXTRA: f32 = 120.0;
 /// ratio to 1440x900 below that. A monitor Windows scales (120 dpi = 125%) sets it instead, so text is as big as in
 /// other programs and drawn at the screen's own pixels, but never so much that the sheet drops under 1440x900 points.
 pub fn scale(w: f32, h: f32, dpi: f32) -> f32 {
-    let fit = (w / SIZE.x).min(h / SIZE.y);
+    scale_for(SIZE, w, h, dpi)
+}
+
+/// The board window's least sheet (the pop-out board, [`PanelState::desk`]): wide, the board beside the deck and the
+/// pages; tall, the board over the deck and the page bar, the pages as wide as the game sheet's.
+pub const DESK_WIDE: egui::Vec2 = egui::vec2(1400.0, 900.0);
+pub const DESK_TALL: egui::Vec2 = egui::vec2(860.0, 1104.0);
+
+/// The board window's points per pixel: as [`scale`], from the least sheet of its shape.
+pub fn desk_scale(w: f32, h: f32, dpi: f32) -> f32 {
+    scale_for(if w >= h { DESK_WIDE } else { DESK_TALL }, w, h, dpi)
+}
+
+fn scale_for(least: egui::Vec2, w: f32, h: f32, dpi: f32) -> f32 {
+    let fit = (w / least.x).min(h / least.y);
     let monitor = dpi / 96.0;
     if fit < 1.0 {
         fit
@@ -63,6 +77,8 @@ pub struct Layout {
     pub picture: Rect,
     pub deck: Rect,
     pub tabs: Rect,
+    /// Where the pages open: over the picture and the deck (the board window held tall: over the board too).
+    pub pages: Rect,
 }
 
 /// The layout of `sheet` (at least 1440x900): the picture takes the largest 16:10 size that leaves the board its
@@ -89,6 +105,41 @@ pub fn layout(sheet: Rect, compact: bool) -> Layout {
         picture,
         deck,
         tabs,
+        pages: above,
+    }
+}
+
+/// The board window's layout (the pop-out board): no picture. Wide: the board on the right, as wide as its height can
+/// use, the deck centred in the rest over the page bar. Tall: the board across the top, the deck row and the page bar
+/// under it; pages open over everything above the bar.
+pub fn desk_layout(sheet: Rect) -> Layout {
+    if sheet.width() >= sheet.height() {
+        let board_max = (sheet.height() - BOARD_EXTRA) / BOARD_PER_W + 32.0;
+        let bw = board_max.min(sheet.width() - ROW.x - 42.0).max(BOARD_W);
+        let board = Rect::from_min_max(pos2(sheet.right() - bw, sheet.top()), sheet.max);
+        let middle = sheet.with_max_x(board.left());
+        let tabs = middle.with_min_y(middle.bottom() - TABS_H);
+        let above = middle.with_max_y(tabs.top());
+        return Layout {
+            board,
+            middle,
+            picture: Rect::from_min_size(above.min, vec2(above.width(), 0.0)),
+            deck: above,
+            tabs,
+            pages: above,
+        };
+    }
+    let tabs = sheet.with_min_y(sheet.bottom() - TABS_H);
+    let deck = sheet
+        .with_max_y(tabs.top())
+        .with_min_y(tabs.top() - DECK_MIN);
+    Layout {
+        board: sheet.with_max_y(deck.top()),
+        middle: sheet.with_min_y(deck.top()),
+        picture: Rect::from_min_size(deck.min, vec2(deck.width(), 0.0)),
+        deck,
+        tabs,
+        pages: sheet.with_max_y(tabs.top()),
     }
 }
 
@@ -519,6 +570,8 @@ pub struct PanelState {
     pub pause_asked: bool,
     /// Paused: the seconds left before the match goes on by itself; the PAUSED page shows.
     pub paused: Option<u64>,
+    /// Drawn in the board's own window (the pop-out board, `file.board_window`): no game picture, [`desk_layout`].
+    pub desk: bool,
 }
 
 impl PanelState {
@@ -578,6 +631,7 @@ impl PanelState {
             pad_down: None,
             pause_asked: false,
             paused: None,
+            desk: false,
         }
     }
 
@@ -712,19 +766,32 @@ pub fn board_slot_center(width: f32, spots: &[Pos2; 11], slot: usize) -> Pos2 {
 
 pub fn show(ui: &mut Ui, st: &mut PanelState) {
     let lang = st.lang;
-    let lay = layout(ui.max_rect(), st.file.compact);
-    egui::Panel::right("panel-board")
-        .exact_size(lay.board.width())
-        .resizable(false)
-        .show_separator_line(false)
-        .frame(egui::Frame::new())
-        .show(ui, |ui| {
-            if st.crash {
-                crash_screen(ui, st, lang);
-            } else {
-                board_strip(ui, st, lang);
-            }
-        });
+    let sheet = ui.max_rect();
+    let tall = st.desk && sheet.height() > sheet.width();
+    let lay = if st.desk {
+        desk_layout(sheet)
+    } else {
+        layout(sheet, st.file.compact)
+    };
+    // the board window held tall: a page covers the board, which is not drawn under it
+    if !(tall && st.page != Page::Game && !st.crash) {
+        let panel = if tall {
+            egui::Panel::top("panel-board").exact_size(lay.board.height())
+        } else {
+            egui::Panel::right("panel-board").exact_size(lay.board.width())
+        };
+        panel
+            .resizable(false)
+            .show_separator_line(false)
+            .frame(egui::Frame::new())
+            .show(ui, |ui| {
+                if st.crash {
+                    crash_screen(ui, st, lang);
+                } else {
+                    board_strip(ui, st, lang);
+                }
+            });
+    }
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(theme::WELL))
         .show(ui, |ui| middle(ui, st, lang, &lay));
@@ -738,9 +805,9 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
         picture: pic,
         deck,
         tabs,
+        pages: above,
         ..
     } = *lay;
-    let above = area.with_max_y(tabs.top());
     let p = ui.painter();
     widgets::gradient(
         p,
@@ -764,9 +831,12 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
         ],
         Stroke::new(1.0, theme::RIM),
     );
-    game_picture(ui, pic, st.picture);
+    if !st.desk {
+        game_picture(ui, pic, st.picture);
+    }
     // the dealt card covers the picture: clicks there are its own
-    st.picture_rect = (st.page == Page::Game && st.deal.is_none() && !st.close_warn).then_some(pic);
+    st.picture_rect =
+        (!st.desk && st.page == Page::Game && st.deal.is_none() && !st.close_warn).then_some(pic);
     if st.page == Page::Game {
         // a toast in the gap above the deck row when there is one, else over the picture's lower edge
         let gap = (deck.height() - ROW.y) / 2.0;
@@ -793,7 +863,7 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
     deal_window(ui, st, above, lang);
     if let Some(left) = st.paused {
         let key = forza::keys::key_label(st.keys[forza::keys::PAUSE]);
-        paused(ui, pic, lang, &key, left);
+        paused(ui, if st.desk { above } else { pic }, lang, &key, left);
     }
     if st.close_warn {
         close_dialog(ui, st, lang);
@@ -1631,6 +1701,11 @@ fn ping(p: &egui::Painter, r: Rect, ms: u32, lang: Lang) {
 fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     strip_ground(ui);
     let r = ui.max_rect().shrink(16.0);
+    // as wide as the strip, or as its height can use (the board window held tall), centred
+    let w = r
+        .width()
+        .min((ui.max_rect().height() - BOARD_EXTRA) / BOARD_PER_W);
+    let r = Rect::from_min_size(pos2(r.center().x - w / 2.0, r.top()), vec2(w, r.height()));
     let pitch = board::pitch_rect(r.min + vec2(0.0, BOARD_HEAD), r.width());
     let mut b = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(pitch.min, r.max)));
     b.spacing_mut().item_spacing.y = 4.0;
@@ -1641,6 +1716,41 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         st.undo = Some((r, now));
     }
     b.add_space(4.0);
+    // at the hint's right: the board in its own window, or back with the game
+    let row = Rect::from_min_max(b.cursor().min, b.max_rect().max);
+    let label = egui::RichText::new(tr!(
+        lang,
+        if st.file.board_window {
+            "board.dock"
+        } else {
+            "board.pop_out"
+        }
+    ))
+    .font(theme::bold(12.0));
+    let text_w = b
+        .painter()
+        .layout_no_wrap(label.text().to_owned(), theme::bold(12.0), theme::TEXT)
+        .size()
+        .x;
+    let pad = b.spacing().button_padding.x * 2.0 + 2.0;
+    let btn = Rect::from_min_size(
+        pos2(row.right() - text_w - pad, row.top()),
+        vec2(text_w + pad, 22.0),
+    );
+    let button = egui::Button::new(label).wrap_mode(egui::TextWrapMode::Extend);
+    if b.put(btn, button).clicked() {
+        st.file.board_window = !st.file.board_window;
+        st.file_changed = true;
+        st.say(
+            Tone::Done,
+            if st.file.board_window {
+                "settings.msg_board_window"
+            } else {
+                "settings.msg_board_docked"
+            },
+        );
+    }
+    let mut b = b.new_child(egui::UiBuilder::new().max_rect(row.with_max_x(btn.left() - 8.0)));
     // a card just taken off: its name and UNDO for a few seconds, in the hint's place
     st.undo = st.undo.take().filter(|(_, at)| now - at < UNDO_SECS);
     if let Some((r, at)) = st.undo.clone() {
@@ -1665,7 +1775,7 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         );
     }
     // the hovered card's pane and the partner list: in this column only, under the hint or over the pitch
-    let hint_bottom = b.min_rect().bottom();
+    let hint_bottom = b.min_rect().bottom().max(btn.bottom());
     board::info_panes(
         &b,
         &st.board,
@@ -2688,6 +2798,28 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                     },
                 );
             }
+            field(ui, &tr!(lang, "settings.board"), w);
+            let mut i = st.file.board_window as usize;
+            if segmented(
+                ui,
+                &mut i,
+                &[
+                    &tr!(lang, "settings.board_here"),
+                    &tr!(lang, "settings.board_window"),
+                ],
+                w,
+            ) {
+                st.file.board_window = i == 1;
+                st.file_changed = true;
+                st.say(
+                    Tone::Done,
+                    if i == 1 {
+                        "settings.msg_board_window"
+                    } else {
+                        "settings.msg_board_docked"
+                    },
+                );
+            }
             field(ui, &tr!(lang, "settings.hover"), w);
             const HOVER: [u32; 4] = [500, 1000, 2000, 3000];
             let mut i = HOVER
@@ -3614,6 +3746,49 @@ mod tests {
                     "{at}"
                 );
             }
+        }
+    }
+
+    /// The board window (the pop-out board), wide and tall: every part inside, none over another, the deck's row and
+    /// the pages have their room, and the board's pitch is at least as big as on the game's 1440x900 sheet.
+    #[test]
+    fn desk_layout_fits_every_window() {
+        let apart = |a: Rect, b: Rect| !a.intersect(b).is_positive();
+        for (w, h) in [
+            (1400.0, 900.0),
+            (1920.0, 1080.0),
+            (2560.0, 1440.0),
+            (3840.0, 2160.0),
+            (1000.0, 700.0),
+            (860.0, 1104.0),
+            (900.0, 1400.0),
+            (1080.0, 1920.0),
+            (1200.0, 1600.0),
+        ] {
+            let ppp = desk_scale(w, h, 96.0);
+            let sheet = Rect::from_min_size(Pos2::ZERO, vec2(w, h) / ppp);
+            let least = if w >= h { DESK_WIDE } else { DESK_TALL };
+            let l = desk_layout(sheet);
+            let at = format!("{w}x{h}: {sheet:?} {l:?}");
+            assert!(
+                sheet.width() >= least.x - 0.01 && sheet.height() >= least.y - 0.01,
+                "{at}"
+            );
+            for r in [l.board, l.deck, l.tabs, l.pages] {
+                assert!(sheet.expand(0.01).contains_rect(r), "{at}");
+            }
+            assert!(
+                apart(l.board, l.deck) && apart(l.board, l.tabs) && apart(l.deck, l.tabs),
+                "{at}"
+            );
+            assert!(l.deck.width() >= ROW.x && l.deck.height() >= ROW.y, "{at}");
+            assert!(
+                l.pages.width() >= 800.0 && l.pages.height() >= 700.0,
+                "{at}"
+            );
+            let pitch_w =
+                (l.board.width() - 32.0).min((l.board.height() - BOARD_EXTRA) / BOARD_PER_W);
+            assert!(pitch_w >= BOARD_W - 32.0, "{at}");
         }
     }
 

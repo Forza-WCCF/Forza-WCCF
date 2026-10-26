@@ -133,8 +133,22 @@ static LINK_LOST: AtomicBool = AtomicBool::new(false);
 static START: OnceLock<Instant> = OnceLock::new();
 /// The window's maximized state for WCCFPANEL_FS_RECT (tests: a pretend screen), and the size it had before.
 static TEST_MAX: Mutex<Option<RECT>> = Mutex::new(None);
+/// The pop-out board's window (0: none): the formation board, the deck and the pages in a window of their own
+/// ([`board_window`]), the game's window then shows only its picture.
+static BOARD: AtomicIsize = AtomicIsize::new(0);
+/// The board window's thread runs (from its start until its window is gone).
+static BOARD_UP: AtomicBool = AtomicBool::new(false);
+/// The board window's X (or Alt+F4) was clicked: the render thread docks the board back and saves board= off.
+static BOARD_CLOSED: AtomicBool = AtomicBool::new(false);
+/// The board window's place after a move or resize (restored rect, maximized), for panel.txt's board_rect=.
+static BOARD_PLACE: Mutex<Option<[i32; 5]>> = Mutex::new(None);
+static BOARD_FS: fullscreen::Slot = Mutex::new(None);
+/// The panel draws in the board window this frame: the game's window is its picture only, and the game's.
+static POPPED: AtomicBool = AtomicBool::new(false);
 /// Our own window message: maximized (wParam 1) or the game's size (0), done on the window's thread.
 const WM_FORZA_FS: u32 = WM_APP + 0x57;
+/// To the board window from the render thread, once it let go of the window's swap chain: the window goes.
+const WM_FORZA_DOCK: u32 = WM_APP + 0x59;
 /// The projector's window made resizable, done on the window's thread.
 const WM_FORZA_PROJ: u32 = WM_APP + 0x58;
 
@@ -331,6 +345,185 @@ fn projector_window() {
     // SAFETY: as above; the message is handled by proj_wndproc on the window's thread
     let _ = unsafe { PostMessageW(Some(wnd), WM_FORZA_PROJ, WPARAM(0), LPARAM(0)) };
     retitle(wnd); // "Projector - Forza-WCCF <edition>"; this is a worker thread
+}
+
+/// The pop-out board's window, on this thread until it goes: its own class, resizable, at its saved place (restored
+/// rect and maximized, `board_rect=`; Windows moves a place left on a monitor that is gone back on screen), shown
+/// without taking the focus from the game. Its messages run here; the render thread draws into it.
+fn board_window(place: Option<[i32; 5]>, title: &str) {
+    let title: Vec<u16> = title.encode_utf16().collect();
+    // SAFETY: a window class and a window of our own, made and run on this thread; `title` outlives the call
+    let made = unsafe {
+        let inst: HINSTANCE = GetModuleHandleW(None).unwrap_or_default().into();
+        let class = w!("ForzaWCCFBoard");
+        let wc = WNDCLASSEXW {
+            cbSize: size_of::<WNDCLASSEXW>() as u32,
+            lpfnWndProc: Some(board_wndproc),
+            hInstance: inst,
+            hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
+            lpszClassName: class,
+            ..Default::default()
+        };
+        RegisterClassExW(&wc); // docked and out again: the class is there already, which is fine
+        CreateWindowExW(
+            WINDOW_EX_STYLE(0),
+            class,
+            windows::core::PCWSTR(title.as_ptr()),
+            WS_OVERLAPPEDWINDOW,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            1000,
+            900,
+            None,
+            None,
+            Some(inst),
+            None,
+        )
+    };
+    let h = match made {
+        Ok(h) => h,
+        Err(e) => {
+            log(&format!(
+                "board window: not made ({e}) - the board stays in the game's window"
+            ));
+            BOARD_UP.store(false, Relaxed);
+            BOARD_CLOSED.store(true, Relaxed);
+            return;
+        }
+    };
+    // SAFETY: our own window, on its thread
+    unsafe {
+        match place {
+            Some([x, y, w, hh, max]) => {
+                let wp = WINDOWPLACEMENT {
+                    length: size_of::<WINDOWPLACEMENT>() as u32,
+                    showCmd: if max != 0 {
+                        SW_SHOWMAXIMIZED.0 as u32
+                    } else {
+                        SW_SHOWNOACTIVATE.0 as u32
+                    },
+                    rcNormalPosition: RECT {
+                        left: x,
+                        top: y,
+                        right: x + w,
+                        bottom: y + hh,
+                    },
+                    ..Default::default()
+                };
+                let _ = SetWindowPlacement(h, &wp);
+            }
+            None => {
+                let _ = ShowWindow(h, SW_SHOWNOACTIVATE);
+            }
+        }
+    }
+    BOARD.store(h.0 as isize, Relaxed);
+    log(&format!("board window: up at {place:?}"));
+    let mut m = MSG::default();
+    // SAFETY: this thread's own message loop
+    unsafe {
+        while GetMessageW(&mut m, None, 0, 0).0 > 0 {
+            let _ = TranslateMessage(&m);
+            DispatchMessageW(&m);
+        }
+    }
+    let _ = BOARD.compare_exchange(h.0 as isize, 0, Relaxed, Relaxed);
+    BOARD_UP.store(false, Relaxed);
+    log("board window: gone");
+}
+
+/// The board window's place now (its restored rect, maximized), for panel.txt; not while it is full screen.
+fn board_place(h: HWND) {
+    if fullscreen::is_on(&BOARD_FS) {
+        return;
+    }
+    let mut wp = WINDOWPLACEMENT {
+        length: size_of::<WINDOWPLACEMENT>() as u32,
+        ..Default::default()
+    };
+    // SAFETY: plain queries on our own window
+    unsafe {
+        if GetWindowPlacement(h, &mut wp).is_ok() {
+            let r = wp.rcNormalPosition;
+            let max = i32::from(IsZoomed(h).as_bool());
+            if let Ok(mut p) = BOARD_PLACE.lock() {
+                *p = Some([r.left, r.top, r.right - r.left, r.bottom - r.top, max]);
+            }
+        }
+    }
+}
+
+/// The board window's procedure: mouse and keys to egui (the game's keys reach the game anyway: the key driver reads
+/// them while any window of the game is in front), the pause key, F11 full screen; its X or Alt+F4 docks the board
+/// back, never closing the game; the Launcher's plain close is the game window's to answer.
+unsafe extern "system" fn board_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    thread_local! { static MOVING: Cell<bool> = const { Cell::new(false) }; }
+    if m == WM_KILLFOCUS || (m == WM_ACTIVATEAPP && wp.0 == 0) {
+        latch_up();
+    }
+    match m {
+        WM_FORZA_DOCK => {
+            // SAFETY: our own window, on its thread
+            let _ = unsafe { DestroyWindow(h) };
+            return LRESULT(0);
+        }
+        WM_DESTROY => {
+            latch_up();
+            // SAFETY: this thread's own loop ends
+            unsafe { PostQuitMessage(0) };
+            return LRESULT(0);
+        }
+        // the Launcher's ordered stop closes every window: the game's ends the run, this one waits for it
+        WM_CLOSE => return LRESULT(0),
+        WM_SYSCOMMAND if (wp.0 as u32 & 0xFFF0) == SC_CLOSE => {
+            BOARD_CLOSED.store(true, Relaxed);
+            return LRESULT(0);
+        }
+        // Alt shows the deck's keycaps: no menu on its release
+        WM_SYSCOMMAND if (wp.0 as u32 & 0xFFF0) == SC_KEYMENU => return LRESULT(0),
+        WM_ENTERSIZEMOVE => MOVING.set(true),
+        WM_EXITSIZEMOVE => {
+            MOVING.set(false);
+            board_place(h);
+        }
+        WM_SIZE
+            if !MOVING.get() && (wp.0 as u32 == SIZE_MAXIMIZED || wp.0 as u32 == SIZE_RESTORED) =>
+        {
+            board_place(h)
+        }
+        WM_ERASEBKGND => return LRESULT(1),
+        WM_KEYDOWN | WM_KEYUP if wp.0 == 0x7A => {
+            if m == WM_KEYDOWN && lp.0 & (1 << 30) == 0 {
+                toggle_fullscreen(h, &BOARD_FS);
+            }
+            return LRESULT(0);
+        }
+        WM_KEYDOWN if wp.0 == 0x1B && fullscreen::leave(h, &BOARD_FS, None) => {
+            log_fullscreen(h, false);
+        }
+        WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN => {
+            // SAFETY: capture for our own window, from its own thread
+            unsafe {
+                SetCapture(h);
+            }
+        }
+        WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP if wp.0 & 0x13 == 0 => {
+            // SAFETY: as above
+            let _ = unsafe { ReleaseCapture() };
+        }
+        0x0215 if lp.0 != 0 && lp.0 != h.0 as isize => push(vec![Event::PointerGone]),
+        _ => {}
+    }
+    if matches!(m, WM_KEYDOWN | WM_KEYUP)
+        && let Some(r) = pause::message(m, wp, lp)
+    {
+        return r;
+    }
+    if !DEAD.load(Relaxed) && POPPED.load(Relaxed) && input(m, wp, lp) && m != WM_SYSKEYDOWN {
+        return LRESULT(0);
+    }
+    // SAFETY: the default procedure for our own window
+    unsafe { DefWindowProcW(h, m, wp, lp) }
 }
 
 fn affinity(e1718: bool, catalogue: &[Card]) -> Option<Arc<cards::links::Affinity>> {
@@ -664,6 +857,21 @@ fn unload() {
     if !INIT_DONE.load(Relaxed) {
         log("unloaded before init finished: the init thread would run in freed code"); // ponytail: no wait under the loader lock
     }
+    let b = BOARD.swap(0, Relaxed);
+    if b != 0 {
+        // shortcut: the board window's thread is told to go, not waited for (no wait under the loader lock); the game
+        // never unloads the panel and fakegame's unload test runs without the pop-out board
+        // SAFETY: a message to a window of this process
+        let _ = unsafe {
+            PostMessageW(
+                Some(HWND(b as *mut c_void)),
+                WM_FORZA_DOCK,
+                WPARAM(0),
+                LPARAM(0),
+            )
+        };
+        log("unloaded with the board window open: told to close");
+    }
     let h = WINDOW.swap(0, Relaxed);
     if h != 0 {
         // out of full screen first: no handler is left to leave it
@@ -935,6 +1143,11 @@ struct Render {
     start: Instant,
     sc: Option<(IDirect3DSwapChain9, u32, u32, HWND)>,
     sc_failed: bool,
+    /// The board window's swap chain (the pop-out board), and whether its failure was logged.
+    board_sc: Option<(IDirect3DSwapChain9, u32, u32, HWND)>,
+    board_warned: bool,
+    /// The window that carries WCCF_TYPING while a page is open (the game's, or the board's when popped out).
+    typing: isize,
     game: Option<(IDirect3DTexture9, IDirect3DSurface9, u32, u32)>,
     max_tex: usize,
     dump: bool,
@@ -1010,6 +1223,9 @@ impl Render {
             start: Instant::now(),
             sc: None,
             sc_failed: false,
+            board_sc: None,
+            board_warned: false,
+            typing: 0,
             game: None,
             max_tex: 2048,
             dump: std::env::var_os("FORZA_PANEL_DUMP").is_some_and(|v| v == "1"),
@@ -1025,6 +1241,7 @@ impl Render {
     /// DEFAULT-pool objects go before a reset; the next frame makes them again.
     fn release_default(&mut self) {
         self.sc = None;
+        self.board_sc = None;
         self.sc_failed = false;
         self.game = None;
         self.painter.reset();
@@ -1053,7 +1270,17 @@ impl Render {
             let sb = dev.CreateStateBlock(D3DSBT_ALL).ok()?;
             let mut vp = D3DVIEWPORT9::default();
             let _ = dev.GetViewport(&mut vp);
-            let drawn = self.compose(dev, &sc, w, h);
+            let board = self.board_window();
+            POPPED.store(board.is_some(), Relaxed);
+            self.st.desk = board.is_some();
+            let drawn = match board {
+                // popped out: the panel in its own window, the game's window its picture only
+                Some(bw) => {
+                    self.board_frame(dev, bw);
+                    self.picture_only(dev, &sc, w, h)
+                }
+                None => self.compose(dev, &sc, w, h, true),
+            };
             let _ = dev.SetViewport(&vp);
             let _ = sb.Apply();
             drawn?;
@@ -1099,6 +1326,163 @@ impl Render {
                     Err(e) => e.code(),
                 },
             )
+        }
+    }
+
+    /// The pop-out board as panel.txt asks: its window started on a thread of its own, or docked back (the window's X,
+    /// or the setting turned off); its place kept for panel.txt. `Some`: the board window is up, the panel draws there.
+    fn board_window(&mut self) -> Option<HWND> {
+        use forza_ui::widgets::Tone;
+        if BOARD_CLOSED.swap(false, Relaxed) && self.st.file.board_window {
+            log("board window: closed - the board docks back into the game's window");
+            self.st.file.board_window = false;
+            self.st.file_changed = true;
+            self.st.say(Tone::Done, "settings.msg_board_docked");
+        }
+        if let Some(place) = BOARD_PLACE.lock().ok().and_then(|mut p| p.take())
+            && self.st.file.board_rect != Some(place)
+        {
+            self.st.file.board_rect = Some(place);
+            self.st.file_changed = true;
+        }
+        let h = BOARD.load(Relaxed);
+        if !self.st.file.board_window {
+            if h != 0 {
+                self.board_sc = None; // the swap chain lets go of the window before it goes
+                BOARD.store(0, Relaxed);
+                // SAFETY: a message to a window of this process, handled by board_wndproc on its thread
+                let _ = unsafe {
+                    PostMessageW(
+                        Some(HWND(h as *mut c_void)),
+                        WM_FORZA_DOCK,
+                        WPARAM(0),
+                        LPARAM(0),
+                    )
+                };
+                log("board window: docked back");
+            }
+            return None;
+        }
+        if h == 0 {
+            // one thread at a time: a window docked a moment ago may still be going
+            if !BOARD_UP.swap(true, Relaxed) {
+                let place = self.st.file.board_rect;
+                let title = format!(
+                    "{} - Forza-WCCF {}\0",
+                    forza_ui::text(self.st.lang, "board.window_title", &[]),
+                    self.st.edition.label()
+                );
+                std::thread::spawn(move || board_window(place, &title));
+            }
+            return None;
+        }
+        Some(HWND(h as *mut c_void))
+    }
+
+    /// The board window's swap chain at its client size. It shows without waiting for the screen (the game's own
+    /// Present waits), so the second window never halves the game's frame rate.
+    unsafe fn board_swap_chain(
+        &mut self,
+        dev: &IDirect3DDevice9,
+        wnd: HWND,
+        w: u32,
+        h: u32,
+    ) -> Option<IDirect3DSwapChain9> {
+        if let Some((sc, sw, sh, swnd)) = &self.board_sc
+            && (*sw, *sh, *swnd) == (w, h, wnd)
+        {
+            return Some(sc.clone());
+        }
+        self.board_sc = None;
+        let mut pp = D3DPRESENT_PARAMETERS {
+            BackBufferWidth: w,
+            BackBufferHeight: h,
+            BackBufferFormat: D3DFMT_X8R8G8B8,
+            BackBufferCount: 1,
+            SwapEffect: D3DSWAPEFFECT_DISCARD,
+            hDeviceWindow: wnd,
+            Windowed: TRUE,
+            PresentationInterval: D3DPRESENT_INTERVAL_IMMEDIATE as u32,
+            ..Default::default()
+        };
+        let mut sc = None;
+        // SAFETY: a device call with parameters we own, on the game's render thread
+        if let Err(e) = unsafe { dev.CreateAdditionalSwapChain(&mut pp, &mut sc) } {
+            if !std::mem::replace(&mut self.board_warned, true) {
+                log(&format!(
+                    "board window: no swap chain yet ({e}) - trying again"
+                ));
+            }
+            return None;
+        }
+        let sc = sc?;
+        log(&format!("board window: swap chain {w}x{h}"));
+        self.board_sc = Some((sc.clone(), w, h, wnd));
+        Some(sc)
+    }
+
+    /// The panel in the board window, at its client size on its own swap chain. A minimized or tiny board window is
+    /// skipped; a cabinet key still down is let go then (no frame is left to let it go).
+    unsafe fn board_frame(&mut self, dev: &IDirect3DDevice9, wnd: HWND) {
+        let mut cr = RECT::default();
+        // SAFETY: plain window queries, then device calls on the game's render thread
+        unsafe {
+            if IsIconic(wnd).as_bool()
+                || GetClientRect(wnd, &mut cr).is_err()
+                || cr.right < 64
+                || cr.bottom < 64
+            {
+                if let Some((vk, _)) = self.key.take() {
+                    kit::send_key(vk, true, log);
+                    self.st.held = None;
+                }
+                return;
+            }
+            let (w, h) = (cr.right as u32, cr.bottom as u32);
+            let Some(sc) = self.board_swap_chain(dev, wnd, w, h) else {
+                return;
+            };
+            if self.compose(dev, &sc, w, h, false).is_some()
+                && let Err(e) = sc.Present(
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    HWND::default(),
+                    std::ptr::null(),
+                    0,
+                )
+                && !std::mem::replace(&mut self.board_warned, true)
+            {
+                log(&format!("board window: present failed ({e})"));
+            }
+        }
+    }
+
+    /// Popped out, the game's window: its frame letterboxed on black (the projector's rule); the clicks on that place
+    /// go to the game.
+    unsafe fn picture_only(
+        &mut self,
+        dev: &IDirect3DDevice9,
+        sc: &IDirect3DSwapChain9,
+        w: u32,
+        h: u32,
+    ) -> Option<()> {
+        // SAFETY: device calls with objects of this device and out-parameters we own
+        unsafe {
+            let bb = dev.GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO).ok()?;
+            let mut d = D3DSURFACE_DESC::default();
+            bb.GetDesc(&mut d).ok()?;
+            let scbb = sc.GetBackBuffer(0, D3DBACKBUFFER_TYPE_MONO).ok()?;
+            dev.ColorFill(&scbb, std::ptr::null(), 0xFF00_0000).ok()?;
+            let dst = projector::letterbox(w, h, d.Width, d.Height);
+            dev.StretchRect(&bb, std::ptr::null(), &scbb, &dst, D3DTEXF_LINEAR)
+                .ok()?;
+            if let Ok(mut p) = PICTURE.lock() {
+                *p = Some(egui::Rect::from_min_max(
+                    pos2(dst.left as f32, dst.top as f32),
+                    pos2(dst.right as f32, dst.bottom as f32),
+                ));
+            }
+            Some(())
         }
     }
 
@@ -1168,13 +1552,15 @@ impl Render {
         }
     }
 
-    /// The game's frame copied, the panel drawn into our back buffer; the render target and depth buffer put back.
+    /// The game's frame copied (`copy`: the panel shows it), the panel drawn into our back buffer; the render target and
+    /// depth buffer put back.
     unsafe fn compose(
         &mut self,
         dev: &IDirect3DDevice9,
         sc: &IDirect3DSwapChain9,
         w: u32,
         h: u32,
+        copy: bool,
     ) -> Option<()> {
         // SAFETY: device calls with objects of this device and out-parameters we own
         unsafe {
@@ -1184,10 +1570,11 @@ impl Render {
             let old_ds = dev.GetDepthStencilSurface().ok();
             let mut d = D3DSURFACE_DESC::default();
             bb.GetDesc(&mut d).ok()?;
-            if self
-                .game
-                .as_ref()
-                .is_none_or(|g| (g.2, g.3) != (d.Width, d.Height))
+            if copy
+                && self
+                    .game
+                    .as_ref()
+                    .is_none_or(|g| (g.2, g.3) != (d.Width, d.Height))
             {
                 self.game = None;
                 let mut t = None;
@@ -1207,15 +1594,17 @@ impl Render {
                 self.painter.set_user(GAME, t.clone());
                 self.game = Some((t, s, d.Width, d.Height));
             }
-            let (_, game, _, _) = self.game.as_ref()?;
-            dev.StretchRect(
-                &bb,
-                std::ptr::null(),
-                game,
-                std::ptr::null(),
-                D3DTEXF_LINEAR,
-            )
-            .ok()?;
+            if copy {
+                let (_, game, _, _) = self.game.as_ref()?;
+                dev.StretchRect(
+                    &bb,
+                    std::ptr::null(),
+                    game,
+                    std::ptr::null(),
+                    D3DTEXF_LINEAR,
+                )
+                .ok()?;
+            }
             dev.SetRenderTarget(0, &scbb).ok()?; // the viewport follows: the whole back buffer
             let _ = dev.SetDepthStencilSurface(None); // the game's depth buffer may be smaller than ours
             let _ = dev.Clear(
@@ -1231,7 +1620,7 @@ impl Render {
                 let _ = dev.EndScene();
                 ok
             };
-            if painted && self.dump {
+            if painted && copy && self.dump {
                 self.dump(dev, &scbb, w, h);
             }
             let _ = dev.SetRenderTarget(0, &old_rt);
@@ -1243,7 +1632,11 @@ impl Render {
     unsafe fn paint(&mut self, dev: &IDirect3DDevice9, w: u32, h: u32) -> bool {
         // 1 point a pixel from 1440x900 up (a bigger window, a bigger sheet), 2 from 4K, the monitor's scaling when
         // Windows scales it (125% = 1.25), scaled down below 1440x900 (forza_ui::panel)
-        let ppp = panel::scale(w as f32, h as f32, screen_dpi() as f32);
+        let ppp = if self.st.desk {
+            panel::desk_scale(w as f32, h as f32, screen_dpi() as f32)
+        } else {
+            panel::scale(w as f32, h as f32, screen_dpi() as f32)
+        };
         SCALE.store(ppp.to_bits(), Relaxed);
         let mut raw = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
@@ -1325,7 +1718,10 @@ impl Render {
             pause::ASK.store(true, Relaxed);
         }
         self.page_open();
-        if let Ok(mut p) = PICTURE.lock() {
+        // popped out, the picture is the game window's letterbox ([`Render::picture_only`])
+        if !self.st.desk
+            && let Ok(mut p) = PICTURE.lock()
+        {
             *p = self
                 .st
                 .picture_rect
@@ -1460,23 +1856,32 @@ impl Render {
     fn page_open(&mut self) {
         // the close dialog and the crash screen hold the keys too
         let open = self.st.page != panel::Page::Game || self.st.close_warn || self.st.crash;
-        if PAGE_OPEN.swap(open, Relaxed) == open {
-            return;
-        }
-        let h = HWND(WINDOW.load(Relaxed) as *mut c_void);
-        if !h.is_invalid() {
-            // SAFETY: a window of this process and a constant name
+        // the window the page is in: the board's own when popped out (the game's keeps its keys), else the game's
+        let want = if !open {
+            0
+        } else if self.st.desk {
+            BOARD.load(Relaxed)
+        } else {
+            WINDOW.load(Relaxed)
+        };
+        if want != self.typing {
+            // SAFETY: windows of this process and a constant name
             unsafe {
-                if open {
+                if self.typing != 0 {
+                    let _ = RemovePropW(HWND(self.typing as *mut c_void), w!("WCCF_TYPING"));
+                }
+                if want != 0 {
                     let _ = SetPropW(
-                        h,
+                        HWND(want as *mut c_void),
                         w!("WCCF_TYPING"),
                         Some(HANDLE(std::ptr::without_provenance_mut(1))),
                     );
-                } else {
-                    let _ = RemovePropW(h, w!("WCCF_TYPING"));
                 }
             }
+            self.typing = want;
+        }
+        if PAGE_OPEN.swap(open, Relaxed) == open {
+            return;
         }
         log(&format!(
             "page {}{}{}",
@@ -1571,13 +1976,15 @@ impl Render {
             let p = &self.st.file;
             match f.save_panel(p) {
                 Ok(()) => log(&format!(
-                    "settings: saved play_on={} server={} english={} layout={} hover={} auto_logs={}",
+                    "settings: saved play_on={} server={} english={} layout={} hover={} auto_logs={} board={} board_rect={:?}",
                     if p.online { "online" } else { "this_pc" },
                     if p.server.is_empty() { "-" } else { &p.server },
                     p.english.as_deref().unwrap_or("-"),
                     if p.compact { "compact" } else { "cabinet" },
                     p.hover_ms,
                     if p.auto_logs_off { "off" } else { "on" },
+                    if p.board_window { "window" } else { "game" },
+                    p.board_rect,
                 )),
                 Err(e) => {
                     log(&format!("settings: could not save panel.txt: {e}"));
@@ -2210,6 +2617,25 @@ unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LR
             )
         };
     }
+    if POPPED.load(Relaxed) {
+        // the board in its own window: this one is the game's picture; the mouse on it is the game's, on the black
+        // bars nobody's; keys are the game's (egui reads the board window's)
+        let lp = match to_game(h, m, lp) {
+            Some(game) => game,
+            None if (WM_MOUSEFIRST..=WM_MOUSELAST).contains(&m) => return LRESULT(0),
+            None => lp,
+        };
+        // SAFETY: as below
+        return unsafe {
+            CallWindowProcW(
+                std::mem::transmute::<isize, WNDPROC>(OLD_PROC.load(Relaxed)),
+                h,
+                m,
+                wp,
+                lp,
+            )
+        };
+    }
     let lp = match to_game(h, m, lp) {
         Some(game) => game,
         None if input(m, wp, lp) => return LRESULT(0), // egui's: the game does not see it
@@ -2272,10 +2698,12 @@ fn to_game(h: HWND, m: u32, lp: LPARAM) -> Option<LPARAM> {
             p.x as i32, p.y as i32
         ));
     }
-    // egui follows the pointer, but the press is the game's
-    push(vec![Event::PointerMoved(
-        pos2(p.x, p.y) / f32::from_bits(SCALE.load(Relaxed)),
-    )]);
+    // egui follows the pointer, but the press is the game's (popped out, egui's pointer is the board window's)
+    if !POPPED.load(Relaxed) {
+        push(vec![Event::PointerMoved(
+            pos2(p.x, p.y) / f32::from_bits(SCALE.load(Relaxed)),
+        )]);
+    }
     Some(LPARAM(((gy as u16 as isize) << 16) | gx as u16 as isize))
 }
 

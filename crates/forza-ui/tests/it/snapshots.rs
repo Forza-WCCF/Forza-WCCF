@@ -274,6 +274,43 @@ fn hover_pane() {
     all.unwrap();
 }
 
+/// The pop-out board's own window: wide (the board beside the deck), tall (the board over the deck and the page bar),
+/// and tall with a page open over the board.
+#[test]
+fn desk_window() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for (size, ed, lang, page, name) in [
+        (
+            Vec2::new(1600.0, 1000.0),
+            Edition::E1011,
+            Lang::En,
+            panel::Page::Game,
+            "panel_desk_wide_en",
+        ),
+        (
+            Vec2::new(1000.0, 1500.0),
+            Edition::E1718,
+            Lang::Ja,
+            panel::Page::Game,
+            "panel_desk_tall_ja",
+        ),
+        (
+            Vec2::new(1000.0, 1500.0),
+            Edition::E1011,
+            Lang::It,
+            panel::Page::Catalogue,
+            "panel_desk_tall_catalogue_it",
+        ),
+    ] {
+        let mut st = panel::PanelState::sample(ed, lang, page);
+        st.desk = true;
+        st.file.board_window = true;
+        snap(&mut all, name, size, ed, |ui| panel::show(ui, &mut st));
+    }
+    all.unwrap();
+}
+
 /// The 2017-18 formation board as the cabinet's mat: at rest, a card in hand, and with the keeper's slot empty.
 #[test]
 fn board_mat() {
