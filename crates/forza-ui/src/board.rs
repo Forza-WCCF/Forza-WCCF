@@ -666,8 +666,6 @@ pub const CARD_ASPECT: f32 = 180.0 / 254.0;
 pub const CARD_SMALL: egui::Vec2 = egui::vec2(50.0, 50.0 / CARD_ASPECT);
 /// The pitch is this many times as tall as it is wide.
 pub const PITCH_ASPECT: f32 = 1.25;
-/// The strip down the bench well's left edge that holds its name.
-const LABEL_LANE: f32 = 26.0;
 /// The bench's cards against the pitch's.
 const BENCH_SCALE: f32 = 0.8;
 
@@ -699,24 +697,27 @@ pub fn spot_rect(pitch: Rect, spot: Pos2) -> Rect {
     ))
 }
 
-/// Where every slot's card sits: the 11 pitch slots at their spots (empty ones too, unused), the 5 bench slots in a row from `bench_top`
-/// (the board puts the bench 12 points under the pitch).
+/// Where every slot's card sits: the 11 pitch slots at their spots (empty ones too, unused), the 5 bench slots on the
+/// artwork's numbered boxes, the bench from `bench_top` (the board puts it 12 points under the pitch).
 pub fn slot_rects(pitch: Rect, bench_top: f32, spots: &[Pos2; 11]) -> [Rect; 16] {
     let mut rects = [Rect::NOTHING; 16];
     for (i, s) in spots.iter().enumerate() {
         rects[i] = spot_rect(pitch, *s);
     }
     let small = card_size(pitch.width()) * BENCH_SCALE;
-    let row = Rect::from_min_size(
-        pos2(pitch.left() + LABEL_LANE, bench_top),
-        vec2(pitch.width() - LABEL_LANE, small.y + 12.0),
-    );
-    let gap = (row.width() - 5.0 * small.x) / 6.0;
+    let bench = bench_rect(pitch, bench_top);
     for b in 0..5 {
-        rects[11 + b] =
-            Rect::from_min_size(row.min + vec2(gap + b as f32 * (small.x + gap), 6.0), small);
+        rects[11 + b] = Rect::from_center_size(art::slot(bench, b).center(), small);
     }
     rects
+}
+
+/// The bench strip under a pitch, from `bench_top`: the artwork's, as wide as the pitch.
+pub fn bench_rect(pitch: Rect, bench_top: f32) -> Rect {
+    Rect::from_min_size(
+        pos2(pitch.left(), bench_top),
+        vec2(pitch.width(), art::bench_h(pitch.width())),
+    )
 }
 
 /// A sheet point on `pitch` as a spot (the inverse of [`spot_rect`]'s centre, kept on the pitch).
@@ -778,6 +779,27 @@ mod art {
         Color32::from_rgb(0x74, 0x7C, 0x2F),
     ];
     pub const CHALK: Color32 = Color32::from_rgb(0xB1, 0xAB, 0x67);
+    /// The bench strip under the pitch: from its cream top line to the picture's foot; the line's foot.
+    pub const BENCH: [f32; 2] = [3812.0, 4419.0];
+    pub const BENCH_LINE: f32 = 3830.0;
+    /// The five numbered boxes (left, right), their top and foot, their cream rim; the numbers' capital height.
+    pub const SLOTS: [[f32; 2]; 5] = [
+        [268.0, 646.0],
+        [784.0, 1160.0],
+        [1298.0, 1676.0],
+        [1816.0, 2194.0],
+        [2337.0, 2715.0],
+    ];
+    pub const SLOT_Y: [f32; 2] = [3870.0, 4389.0];
+    pub const SLOT_RIM: f32 = 10.0;
+    pub const DIGIT: f32 = 256.0;
+    /// The SUB label (left, top, right, bottom) and the badge's box.
+    pub const SUB: [f32; 4] = [40.0, 3940.0, 131.0, 4318.0];
+    pub const BADGE: [f32; 4] = [2748.0, 4036.0, 2944.0, 4214.0];
+    pub const SOIL: Color32 = Color32::from_rgb(0x6C, 0x57, 0x20);
+    pub const CREAM: Color32 = Color32::from_rgb(0xE2, 0xD4, 0xAD);
+    pub const SLOT_FILL: Color32 = Color32::from_rgb(0xB9, 0xB1, 0x73);
+    pub const DIGITS: Color32 = Color32::from_rgb(0xE2, 0xD5, 0xA9);
     pub const GK_BOX: Color32 = Color32::from_rgb(0xB7, 0xAE, 0x6F);
     pub const GK_TEXT: Color32 = Color32::from_rgb(0x65, 0x78, 0x3C);
 
@@ -789,6 +811,22 @@ mod art {
     /// A rectangle of the picture (left, top, right, bottom) on the pitch.
     pub fn rect(pitch: Rect, [l, t, r, b]: [f32; 4]) -> Rect {
         Rect::from_min_max(at(pitch, l, t), at(pitch, r, b))
+    }
+
+    /// A point of the picture's bench strip on a bench drawn in `bench` (its top at [`BENCH`]'s).
+    pub fn bench_at(bench: Rect, x: f32, y: f32) -> Pos2 {
+        bench.min + egui::vec2(x, y - BENCH[0]) * (bench.width() / W)
+    }
+
+    /// The bench strip's height for a pitch `width` wide.
+    pub fn bench_h(width: f32) -> f32 {
+        (BENCH[1] - BENCH[0]) * width / W
+    }
+
+    /// A slot's box on the bench.
+    pub fn slot(bench: Rect, i: usize) -> Rect {
+        let [l, r] = SLOTS[i];
+        Rect::from_min_max(bench_at(bench, l, SLOT_Y[0]), bench_at(bench, r, SLOT_Y[1]))
     }
 
     /// A length of the picture on the pitch.
@@ -914,16 +952,8 @@ pub fn formation_board(
     let mut changed = false;
     // the bench under the pitch: a well with its name running up the left like the zones
     ui.add_space(8.0);
-    let small = card * BENCH_SCALE;
-    let (bench, _) = ui.allocate_exact_size(vec2(width, small.y + 12.0), Sense::hover());
-    ui.painter()
-        .rect_filled(bench, theme::RADIUS_BIG, theme::WELL);
-    up_text(
-        ui.painter(),
-        bench.with_max_x(bench.left() + LABEL_LANE),
-        &tr!(lang, "board.bench"),
-        theme::TEXT_DIM,
-    );
+    let (bench, _) = ui.allocate_exact_size(vec2(width, art::bench_h(width)), Sense::hover());
+    mat_bench(ui, bench);
     // a pitch card in hand moves live: the table follows it every frame, as the C panels' board_move, so the game
     // sees the card slide and rub, not one jump on release; its spot before the lift is kept for a swap
     let origin_id = Id::new("board-origin");
@@ -1092,33 +1122,16 @@ pub fn formation_board(
                     removed = Some((slot, board.spots.get(slot).copied().unwrap_or_default()));
                 }
             }
-            None => {
-                let col = if hovered_by_drag {
-                    theme::AMBER
-                } else {
-                    Color32::from_white_alpha(70)
-                };
-                let pts = [
-                    rect.left_top(),
-                    rect.right_top(),
-                    rect.right_bottom(),
-                    rect.left_bottom(),
-                    rect.left_top(),
-                ];
-                p.extend(egui::Shape::dashed_line(
-                    &pts,
-                    Stroke::new(1.0, col),
-                    4.0,
-                    3.0,
-                ));
-                p.text(
-                    rect.center(),
-                    Align2::CENTER_CENTER,
-                    "+",
-                    theme::display(22.0),
-                    col,
+            // an empty bench box: the artwork's numbered box shows; lit while a card is held over it
+            None if hovered_by_drag => {
+                p.rect_stroke(
+                    art::slot(bench, slot - 11),
+                    0,
+                    Stroke::new(3.0, theme::AMBER),
+                    StrokeKind::Inside,
                 );
             }
+            None => {}
         }
     }
 
@@ -1432,32 +1445,6 @@ pub fn fit_badge(p: &Painter, top_center: Pos2, fit: Fit, lang: Lang) {
     p.galley(r.center() - g.size() / 2.0, g, ink);
 }
 
-/// Text running up a narrow strip, centred in it and fitted to its height. Japanese stands upright, one character
-/// under the other, as vertical Japanese is written.
-fn up_text(p: &Painter, strip: Rect, text: &str, col: Color32) {
-    if !text.chars().any(|c| c.is_ascii_alphabetic()) {
-        let size = (strip.width() - 8.0).min(16.0);
-        let n = text.chars().count() as f32;
-        let top = strip.center().y - n * size / 2.0;
-        for (i, c) in text.chars().enumerate() {
-            p.text(
-                pos2(strip.center().x, top + (i as f32 + 0.5) * size),
-                Align2::CENTER_CENTER,
-                c,
-                theme::bold(size - 2.0),
-                col,
-            );
-        }
-        return;
-    }
-    let g = fit(p, text, theme::display(14.0), col, strip.height() - 12.0);
-    let at = pos2(
-        strip.center().x - g.size().y / 2.0,
-        strip.center().y + g.size().x / 2.0,
-    );
-    p.add(egui::epaint::TextShape::new(at, g, col).with_angle(-std::f32::consts::FRAC_PI_2));
-}
-
 /// The pitch, attacking upwards. With `mat`, the formation board's: the owner's artwork of the cabinet's mat
 /// ([`mat_pitch`]); without, the card back's small plain pitch.
 fn paint_pitch(p: &Painter, pitch: Rect, mat: bool) {
@@ -1568,6 +1555,43 @@ fn mat_pitch(p: &Painter, pitch: Rect) {
         theme::display(size),
         art::GK_TEXT,
     );
+}
+
+/// The formation board's bench: the artwork's strip (a cream line, the soil, SUB, the five numbered boxes and the
+/// Forza-WCCF badge), drawn as the owner's file has it, untranslated.
+fn mat_bench(ui: &Ui, bench: Rect) {
+    let p = ui.painter();
+    let at = |x, y| art::bench_at(bench, x, y);
+    let len = |v| art::len(bench, v);
+    p.rect_filled(bench, 0, art::SOIL);
+    p.rect_filled(
+        Rect::from_min_max(bench.min, at(art::W, art::BENCH_LINE)),
+        0,
+        art::CREAM,
+    );
+    let [l, t, r, b] = art::SUB;
+    let sub = Rect::from_min_max(at(l, t), at(r, b));
+    p.rect_filled(sub, 0, art::CREAM);
+    let g = p.layout_no_wrap("SUB".into(), theme::display(len(78.0)), art::SOIL);
+    let pos = sub.center() + vec2(-g.size().y / 2.0, g.size().x / 2.0);
+    p.add(egui::epaint::TextShape::new(pos, g, art::SOIL).with_angle(-std::f32::consts::FRAC_PI_2));
+    for i in 0..5 {
+        let r = art::slot(bench, i);
+        p.rect_filled(r, 0, art::CREAM);
+        p.rect_filled(r.shrink(len(art::SLOT_RIM)), 0, art::SLOT_FILL);
+        p.text(
+            r.center(),
+            Align2::CENTER_CENTER,
+            (i + 1).to_string(),
+            theme::display(len(art::DIGIT) / 0.7),
+            art::DIGITS,
+        );
+    }
+    let [l, t, r, b] = art::BADGE;
+    egui::Image::new(egui::include_image!(
+        "../../../assets/logo/forza-wccf-badge-128.png"
+    ))
+    .paint_at(ui, Rect::from_min_max(at(l, t), at(r, b)));
 }
 
 /// The card back's position map: a tile per position area ([`heat_zone`]), or "no position data" on a small pitch.

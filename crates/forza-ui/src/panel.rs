@@ -32,9 +32,10 @@ const HINT: f32 = 13.0;
 const TABS_H: f32 = 56.0;
 /// The deck row under the picture keeps at least this; on wide sheets the picture stops growing first.
 const DECK_MIN: f32 = 148.0;
-/// What the board's height needs per point of pitch width (pitch 1.25, bench, hint) and besides (head, margins).
-const BOARD_PER_W: f32 = 1.42;
-const BOARD_EXTRA: f32 = 120.0;
+/// What the board's height needs per point of pitch width (pitch 1.25, the artwork's bench 0.205) and besides (margins 32,
+/// gaps 12, a hint of two lines 36).
+const BOARD_PER_W: f32 = 1.455;
+const BOARD_EXTRA: f32 = 80.0;
 
 /// Points per pixel for a window of `w` x `h` pixels on a monitor of `dpi` (96 = 100%): 1 from 1440x900 up (a bigger
 /// window gets a bigger sheet, so the game's picture can grow past its own size), 2 from 2880x1800 (4K), the window's
