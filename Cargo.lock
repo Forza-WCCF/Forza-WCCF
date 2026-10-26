@@ -2088,7 +2088,7 @@ dependencies = [
 
 [[package]]
 name = "forza-hook"
-version = "0.3.2"
+version = "0.4.1"
 dependencies = [
  "forza-native",
  "windows-sys 0.61.2",
@@ -2096,21 +2096,21 @@ dependencies = [
 
 [[package]]
 name = "forza-icmp"
-version = "0.3.2"
+version = "0.4.1"
 dependencies = [
  "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "forza-native"
-version = "0.3.2"
+version = "0.4.1"
 dependencies = [
  "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "forza-netguard"
-version = "0.3.2"
+version = "0.4.1"
 dependencies = [
  "forza-native",
  "windows-sys 0.61.2",
@@ -2131,7 +2131,7 @@ dependencies = [
 
 [[package]]
 name = "forza-programs"
-version = "0.3.2"
+version = "0.4.1"
 dependencies = [
  "forza-native",
  "windows",
@@ -2171,7 +2171,7 @@ dependencies = [
 
 [[package]]
 name = "forza-wccfnet"
-version = "0.3.2"
+version = "0.4.1"
 dependencies = [
  "forza-native",
  "windows-sys 0.61.2",
