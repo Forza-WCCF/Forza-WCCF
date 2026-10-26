@@ -145,6 +145,8 @@ static BOARD_PLACE: Mutex<Option<[i32; 5]>> = Mutex::new(None);
 static BOARD_FS: fullscreen::Slot = Mutex::new(None);
 /// The panel draws in the board window this frame: the game's window is its picture only, and the game's.
 static POPPED: AtomicBool = AtomicBool::new(false);
+/// The board window is in Windows' move/size loop: its swap chain is kept until the size settles.
+static BOARD_SIZING: AtomicBool = AtomicBool::new(false);
 /// Our own window message: maximized (wParam 1) or the game's size (0), done on the window's thread.
 const WM_FORZA_FS: u32 = WM_APP + 0x57;
 /// To the board window from the render thread, once it let go of the window's swap chain: the window goes.
@@ -477,13 +479,22 @@ unsafe extern "system" fn board_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM)
         WM_CLOSE => return LRESULT(0),
         WM_SYSCOMMAND if (wp.0 as u32 & 0xFFF0) == SC_CLOSE => {
             BOARD_CLOSED.store(true, Relaxed);
+            // a stopped panel draws nothing here any more and serves no request: the window goes now
+            if DEAD.load(Relaxed) {
+                // SAFETY: our own window, on its thread
+                let _ = unsafe { DestroyWindow(h) };
+            }
             return LRESULT(0);
         }
         // Alt shows the deck's keycaps: no menu on its release
         WM_SYSCOMMAND if (wp.0 as u32 & 0xFFF0) == SC_KEYMENU => return LRESULT(0),
-        WM_ENTERSIZEMOVE => MOVING.set(true),
+        WM_ENTERSIZEMOVE => {
+            MOVING.set(true);
+            BOARD_SIZING.store(true, Relaxed);
+        }
         WM_EXITSIZEMOVE => {
             MOVING.set(false);
+            BOARD_SIZING.store(false, Relaxed);
             board_place(h);
         }
         WM_SIZE
@@ -857,21 +868,6 @@ fn unload() {
     if !INIT_DONE.load(Relaxed) {
         log("unloaded before init finished: the init thread would run in freed code"); // ponytail: no wait under the loader lock
     }
-    let b = BOARD.swap(0, Relaxed);
-    if b != 0 {
-        // shortcut: the board window's thread is told to go, not waited for (no wait under the loader lock); the game
-        // never unloads the panel and fakegame's unload test runs without the pop-out board
-        // SAFETY: a message to a window of this process
-        let _ = unsafe {
-            PostMessageW(
-                Some(HWND(b as *mut c_void)),
-                WM_FORZA_DOCK,
-                WPARAM(0),
-                LPARAM(0),
-            )
-        };
-        log("unloaded with the board window open: told to close");
-    }
     let h = WINDOW.swap(0, Relaxed);
     if h != 0 {
         // out of full screen first: no handler is left to leave it
@@ -902,6 +898,22 @@ fn unload() {
         && let Some(r) = r.take()
     {
         r.cost(true);
+    }
+    // after the render state (and the board window's swap chain with it) is gone
+    let b = BOARD.swap(0, Relaxed);
+    if b != 0 {
+        // shortcut: the board window's thread is told to go, not waited for (no wait under the loader lock); the game
+        // never unloads the panel and fakegame's unload test runs without the pop-out board
+        // SAFETY: a message to a window of this process
+        let _ = unsafe {
+            PostMessageW(
+                Some(HWND(b as *mut c_void)),
+                WM_FORZA_DOCK,
+                WPARAM(0),
+                LPARAM(0),
+            )
+        };
+        log("unloaded with the board window open: told to close");
     }
     log("unloaded");
 }
@@ -1250,6 +1262,8 @@ impl Render {
     /// One frame on our swap chain; `None` = not shown, the game's own Present runs.
     unsafe fn frame(&mut self, dev: &IDirect3DDevice9, wnd: HWND) -> Option<HRESULT> {
         let t0 = Instant::now();
+        // the board window's close, dock and start first: served even while the game's window is not drawn
+        let board = self.board_window();
         // SAFETY: device calls with out-parameters we own
         unsafe {
             let target = if wnd.is_invalid() {
@@ -1258,11 +1272,8 @@ impl Render {
                 wnd
             };
             let mut cr = RECT::default();
-            if IsIconic(target).as_bool()
-                || GetClientRect(target, &mut cr).is_err()
-                || cr.right < 64
-                || cr.bottom < 64
-            {
+            if !drawable(target) || GetClientRect(target, &mut cr).is_err() {
+                POPPED.store(false, Relaxed);
                 return None;
             }
             let (w, h) = (cr.right as u32, cr.bottom as u32);
@@ -1270,16 +1281,16 @@ impl Render {
             let sb = dev.CreateStateBlock(D3DSBT_ALL).ok()?;
             let mut vp = D3DVIEWPORT9::default();
             let _ = dev.GetViewport(&mut vp);
-            let board = self.board_window();
-            POPPED.store(board.is_some(), Relaxed);
+            // popped out: the panel in its own window, the game's window its picture only; a board window that could not
+            // be drawn (minimized, tiny, no swap chain) gives the panel back to the game's window for the frame
             self.st.desk = board.is_some();
-            let drawn = match board {
-                // popped out: the panel in its own window, the game's window its picture only
-                Some(bw) => {
-                    self.board_frame(dev, bw);
-                    self.picture_only(dev, &sc, w, h)
-                }
-                None => self.compose(dev, &sc, w, h, true),
+            let popped = board.is_some_and(|bw| self.board_frame(dev, bw));
+            POPPED.store(popped, Relaxed);
+            self.st.desk = popped;
+            let drawn = if popped {
+                self.picture_only(dev, &sc, w, h)
+            } else {
+                self.compose(dev, &sc, w, h, true)
             };
             let _ = dev.SetViewport(&vp);
             let _ = sb.Apply();
@@ -1379,19 +1390,21 @@ impl Render {
         Some(HWND(h as *mut c_void))
     }
 
-    /// The board window's swap chain at its client size. It shows without waiting for the screen (the game's own
-    /// Present waits), so the second window never halves the game's frame rate.
+    /// The board window's swap chain at its client size, and that size. It shows without waiting for the screen (the
+    /// game's own Present waits), so the second window never halves the game's frame rate. While the window is being
+    /// resized the chain it has is kept (Present stretches it to the window), made again once the size settles.
     unsafe fn board_swap_chain(
         &mut self,
         dev: &IDirect3DDevice9,
         wnd: HWND,
         w: u32,
         h: u32,
-    ) -> Option<IDirect3DSwapChain9> {
+    ) -> Option<(IDirect3DSwapChain9, u32, u32)> {
         if let Some((sc, sw, sh, swnd)) = &self.board_sc
-            && (*sw, *sh, *swnd) == (w, h, wnd)
+            && *swnd == wnd
+            && ((*sw, *sh) == (w, h) || BOARD_SIZING.load(Relaxed))
         {
-            return Some(sc.clone());
+            return Some((sc.clone(), *sw, *sh));
         }
         self.board_sc = None;
         let mut pp = D3DPRESENT_PARAMETERS {
@@ -1418,42 +1431,37 @@ impl Render {
         let sc = sc?;
         log(&format!("board window: swap chain {w}x{h}"));
         self.board_sc = Some((sc.clone(), w, h, wnd));
-        Some(sc)
+        Some((sc, w, h))
     }
 
-    /// The panel in the board window, at its client size on its own swap chain. A minimized or tiny board window is
-    /// skipped; a cabinet key still down is let go then (no frame is left to let it go).
-    unsafe fn board_frame(&mut self, dev: &IDirect3DDevice9, wnd: HWND) {
+    /// The panel in the board window, at its client size on its own swap chain; `false` when nothing was drawn there
+    /// (minimized, tiny, no swap chain yet): the caller draws the panel in the game's window instead.
+    unsafe fn board_frame(&mut self, dev: &IDirect3DDevice9, wnd: HWND) -> bool {
         let mut cr = RECT::default();
         // SAFETY: plain window queries, then device calls on the game's render thread
         unsafe {
-            if IsIconic(wnd).as_bool()
-                || GetClientRect(wnd, &mut cr).is_err()
-                || cr.right < 64
-                || cr.bottom < 64
-            {
-                if let Some((vk, _)) = self.key.take() {
-                    kit::send_key(vk, true, log);
-                    self.st.held = None;
-                }
-                return;
+            if !drawable(wnd) || GetClientRect(wnd, &mut cr).is_err() {
+                return false;
             }
-            let (w, h) = (cr.right as u32, cr.bottom as u32);
-            let Some(sc) = self.board_swap_chain(dev, wnd, w, h) else {
-                return;
+            let Some((sc, w, h)) =
+                self.board_swap_chain(dev, wnd, cr.right as u32, cr.bottom as u32)
+            else {
+                return false;
             };
-            if self.compose(dev, &sc, w, h, false).is_some()
-                && let Err(e) = sc.Present(
-                    std::ptr::null(),
-                    std::ptr::null(),
-                    HWND::default(),
-                    std::ptr::null(),
-                    0,
-                )
-                && !std::mem::replace(&mut self.board_warned, true)
+            if self.compose(dev, &sc, w, h, false).is_none() {
+                return false;
+            }
+            if let Err(e) = sc.Present(
+                std::ptr::null(),
+                std::ptr::null(),
+                HWND::default(),
+                std::ptr::null(),
+                0,
+            ) && !std::mem::replace(&mut self.board_warned, true)
             {
                 log(&format!("board window: present failed ({e})"));
             }
+            true
         }
     }
 
@@ -2411,6 +2419,19 @@ impl Render {
     }
 }
 
+/// A window the panel can draw in: not minimized, its client at least 64x64.
+fn drawable(h: HWND) -> bool {
+    let mut cr = RECT::default();
+    // SAFETY: plain window queries
+    let (iconic, ok) = unsafe { (IsIconic(h).as_bool(), GetClientRect(h, &mut cr).is_ok()) };
+    big_enough(iconic, ok.then_some((cr.right, cr.bottom)))
+}
+
+/// [`drawable`]'s rule: not minimized, and a client of at least 64x64.
+fn big_enough(iconic: bool, client: Option<(i32, i32)>) -> bool {
+    !iconic && client.is_some_and(|(w, h)| w >= 64 && h >= 64)
+}
+
 fn stamp(p: &Path) -> Option<std::time::SystemTime> {
     std::fs::metadata(p).and_then(|m| m.modified()).ok()
 }
@@ -2830,4 +2851,20 @@ fn vk_key(vk: u32) -> Option<Key> {
         _ => return None,
     };
     Key::from_name(name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::big_enough;
+
+    /// The board window (and the game's) is drawn in only when shown and at least 64x64; otherwise the panel falls
+    /// back to the game's window for the frame.
+    #[test]
+    fn a_minimized_or_tiny_window_is_not_drawn() {
+        assert!(big_enough(false, Some((800, 600))));
+        assert!(big_enough(false, Some((64, 64))));
+        assert!(!big_enough(true, Some((800, 600))));
+        assert!(!big_enough(false, Some((63, 600))));
+        assert!(!big_enough(false, None));
+    }
 }

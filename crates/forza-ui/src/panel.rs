@@ -48,7 +48,9 @@ pub fn scale(w: f32, h: f32, dpi: f32) -> f32 {
 /// The board window's least sheet (the pop-out board, [`PanelState::desk`]): wide, the board beside the deck and the
 /// pages; tall, the board over the deck and the page bar, the pages as wide as the game sheet's.
 pub const DESK_WIDE: egui::Vec2 = egui::vec2(1400.0, 900.0);
-pub const DESK_TALL: egui::Vec2 = egui::vec2(860.0, 1104.0);
+pub const DESK_TALL: egui::Vec2 = egui::vec2(860.0, 1192.0);
+/// The board window held tall: its deck row, with room above the plates for a toast (the gap the game sheet's deck has).
+const DESK_DECK: f32 = ROW.y + 92.0;
 
 /// The board window's points per pixel: as [`scale`], from the least sheet of its shape.
 pub fn desk_scale(w: f32, h: f32, dpi: f32) -> f32 {
@@ -133,7 +135,7 @@ pub fn desk_layout(sheet: Rect) -> Layout {
     let tabs = sheet.with_min_y(sheet.bottom() - TABS_H);
     let deck = sheet
         .with_max_y(tabs.top())
-        .with_min_y(tabs.top() - DECK_MIN);
+        .with_min_y(tabs.top() - DESK_DECK);
     Layout {
         board: sheet.with_max_y(deck.top()),
         middle: sheet.with_min_y(deck.top()),
@@ -842,20 +844,23 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
     // the dealt card covers the picture: clicks there are its own
     st.picture_rect =
         (!st.desk && st.page == Page::Game && st.deal.is_none() && !st.close_warn).then_some(pic);
+    // the board window always shows the deck: COMPACT is the game window's choice
+    let compact = st.file.compact && !st.desk;
     if st.page == Page::Game {
-        // a toast in the gap above the deck row when there is one, else over the picture's lower edge
+        // a toast in the gap above the deck row when there is one (the board window always has it), else over the
+        // picture's lower edge
         let gap = (deck.height() - ROW.y) / 2.0;
-        let y = if !st.file.compact && gap >= 40.0 {
+        let y = if !compact && gap >= 40.0 {
             deck.top() + gap / 2.0
         } else {
             pic.bottom() - 30.0
         };
-        let r = Rect::from_center_size(pos2(pic.center().x, y), vec2(520.0, 34.0));
+        let r = Rect::from_center_size(pos2(deck.center().x, y), vec2(520.0, 34.0));
         ui.scope_builder(egui::UiBuilder::new().max_rect(r), |ui| {
             note_line(ui, &mut st.message)
         });
     }
-    if !st.file.compact {
+    if !compact {
         cabinet_deck(ui, st, deck, lang);
     } else {
         st.latched = None; // no deck: no button left to let it go
