@@ -172,7 +172,7 @@ fn card_picture_texture(
     number: u32,
 ) -> Option<(egui::TextureId, Vec2)> {
     for f in picture_names(number) {
-        match load_picture(ctx, dir, &f) {
+        match load_picture(ctx, dir, &f, egui::TextureOptions::LINEAR) {
             Pic::Ready(id, size) => return Some((id, size)),
             Pic::Pending => return None,
             Pic::Missing => {}
@@ -183,7 +183,12 @@ fn card_picture_texture(
 
 /// The picture file `file` in the folder as a ready texture (a miss is remembered: the folder is made once, at
 /// setup).
-fn load_picture(ctx: &egui::Context, dir: &std::path::Path, file: &str) -> Pic {
+fn load_picture(
+    ctx: &egui::Context,
+    dir: &std::path::Path,
+    file: &str,
+    options: egui::TextureOptions,
+) -> Pic {
     let file = dir.join(file);
     // `file:///C:\...` on Windows, `file:///home/...` elsewhere: what egui_extras' file loader parses
     let uri = format!(
@@ -194,11 +199,7 @@ fn load_picture(ctx: &egui::Context, dir: &std::path::Path, file: &str) -> Pic {
     if ctx.data(|d| d.get_temp::<bool>(miss)).is_some() {
         return Pic::Missing;
     }
-    let loaded = ctx.try_load_texture(
-        &uri,
-        egui::TextureOptions::LINEAR,
-        egui::SizeHint::default(),
-    );
+    let loaded = ctx.try_load_texture(&uri, options, egui::SizeHint::default());
     if loaded.is_err() {
         ctx.data_mut(|d| d.insert_temp(miss, true));
     }
@@ -206,6 +207,67 @@ fn load_picture(ctx: &egui::Context, dir: &std::path::Path, file: &str) -> Pic {
         Ok(egui::load::TexturePoll::Ready { texture }) => Pic::Ready(texture.id, texture.size),
         Ok(egui::load::TexturePoll::Pending { .. }) => Pic::Pending,
         Err(_) => Pic::Missing,
+    }
+}
+
+/// A card's picture for the 1:1 views, at its own pixels: the front (the album's `<number>_f.jpg`, else the pack's scan
+/// `<number>.jpg`) or the back (the album's `<number>_b.jpg`). `nearest`: a texture filtered by nearest pixel, for
+/// whole multiples past 1x. `None` while it loads or when there is no file: the drawn face or back stands in.
+pub fn card_picture_px(
+    ctx: &egui::Context,
+    number: u32,
+    back: bool,
+    nearest: bool,
+) -> Option<(egui::TextureId, Vec2)> {
+    let dir = picture_dir(ctx)?;
+    let options = if nearest {
+        egui::TextureOptions::NEAREST
+    } else {
+        egui::TextureOptions::LINEAR
+    };
+    let names = if back {
+        vec![format!("{number}_b.jpg")]
+    } else {
+        vec![format!("{number}_f.jpg"), format!("{number}.jpg")]
+    };
+    for f in names {
+        match load_picture(ctx, &dir, &f, options) {
+            Pic::Ready(id, size) => return Some((id, size)),
+            Pic::Pending => return None,
+            Pic::Missing => {}
+        }
+    }
+    None
+}
+
+/// A card side in a 1:1 slot `rect` (its top left on a whole pixel): its picture, letterboxed when its shape differs
+/// from the slot's, or the drawn face or back.
+pub fn card_side(p: &Painter, rect: Rect, card: &Card, back: bool, nearest: bool, lang: Lang) {
+    match card_picture_px(p.ctx(), card.number, back, nearest) {
+        Some((id, size)) => {
+            p.rect_filled(rect, 0, theme::DEEP);
+            // a plain mesh, not an image shape: the tessellator's feathering would move its edges off the pixel grid
+            let at = letterbox(rect, size.x / size.y);
+            let at = Rect::from_min_size(
+                rect.min
+                    + ((at.min - rect.min) * p.pixels_per_point()).round() / p.pixels_per_point(),
+                at.size(),
+            );
+            let mut mesh = egui::Mesh::with_texture(id);
+            let uv = Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0));
+            mesh.add_rect_with_uv(at, uv, Color32::WHITE);
+            p.add(egui::Shape::mesh(mesh));
+        }
+        None if back => card_back(p, rect, card, lang),
+        None => card_face(
+            p,
+            rect,
+            card,
+            Look {
+                square: true,
+                ..Look::default()
+            },
+        ),
     }
 }
 
@@ -1255,7 +1317,6 @@ pub fn formation_board(
                 let ask = PaneAsk {
                     card: board.cards[ci].clone(),
                     at: rect,
-                    tile: card,
                     back,
                 };
                 ui.data_mut(|d| d.insert_temp(pane_id(), ask));
@@ -1792,22 +1853,12 @@ pub fn card_back(p: &Painter, rect: Rect, card: &Card, lang: Lang) {
 const BIG_FRAME: f32 = 22.0;
 const BIG_CAPTION: f32 = 150.0;
 
-/// How much the large tier enlarges a `tile`: 4x, or the most that keeps the face, the position map beside it and the
-/// caption inside `room`; never under 1x.
-fn big_scale(tile: Vec2, room: Vec2) -> f32 {
-    // the face k * tile, 10 apart the map (k * tile.y - 22) / PITCH_ASPECT wide, the frame round them
-    let by_w = (room.x - BIG_FRAME - 10.0 + 22.0 / PITCH_ASPECT) / (tile.x + tile.y / PITCH_ASPECT);
-    let by_h = (room.y - BIG_FRAME - BIG_CAPTION) / tile.y;
-    by_w.min(by_h).clamp(1.0, 4.0)
-}
-
 /// What the board asks [`info_panes`] to show this frame: the card shown big, where it lies, the pitch card's size and
 /// whether it is turned over.
 #[derive(Clone)]
 struct PaneAsk {
     card: Card,
     at: Rect,
-    tile: Vec2,
     back: bool,
 }
 
@@ -1864,10 +1915,12 @@ pub fn pane_place(
     (r, Tier::Strip)
 }
 
-/// The large tier's face for a pitch card `tile` in a pane `width` wide: the card picture at its own pixels
-/// ([`crate::sizing::big_scale`]), less when the face and its map would not fit the width.
-fn large_face(tile: Vec2, width: f32, ppp: f32) -> Vec2 {
-    tile * big_scale(tile, vec2(width, f32::INFINITY)).min(crate::sizing::big_scale(tile.x, ppp))
+/// The large tier's face in a pane `width` wide: the album art's 256x357 at one device pixel each
+/// ([`crate::sizing::ALBUM`]), when the face and a position map at least 120 points wide fit the width; else none
+/// (the strip).
+fn large_face(width: f32, ppp: f32) -> Option<Vec2> {
+    let face = crate::sizing::ALBUM / ppp;
+    (face.x + 10.0 + 120.0 + BIG_FRAME <= width).then_some(face)
 }
 
 /// The board's panes, drawn once the hint under the bench is laid out (its foot at `hint_bottom`; the column ends at
@@ -1891,17 +1944,20 @@ pub fn info_panes(
     });
     let ppp = ui.ctx().pixels_per_point();
     if let Some(a) = ask {
-        let large = large_face(a.tile, pitch.width(), ppp);
+        let large = large_face(pitch.width(), ppp);
         let strip = crate::sizing::hover_face(ppp);
         let (pane, tier) = pane_place(
             pitch,
             hint_bottom,
             foot,
-            BIG_FRAME + large.y + BIG_CAPTION,
+            large.map_or(f32::INFINITY, |f| BIG_FRAME + f.y + BIG_CAPTION),
             BIG_FRAME + strip.y,
             a.at.center().y,
         );
-        let face = if tier == Tier::Large { large } else { strip };
+        let face = match (tier, large) {
+            (Tier::Large, Some(f)) => f,
+            _ => strip,
+        };
         info_pane(ui, &a.card, pane, tier, face, a.back, lang);
     } else if let Some((sel, at)) = partners {
         // as tall as it was last frame (about 220 points the first time)
@@ -1920,8 +1976,10 @@ fn info_pane(ui: &Ui, card: &Card, pane: Rect, tier: Tier, face: Vec2, back: boo
     let card = &*real(ui.ctx(), card);
     let large = tier == Tier::Large;
     let t = if large { 1.0 } else { 0.9 };
-    // the map under its 22 pt heading, as tall as the card
-    let map = vec2((face.y - 22.0) / PITCH_ASPECT, face.y - 22.0);
+    // the map under its 22 pt heading, as tall as the card (narrower when the pane is)
+    let map_w = ((face.y - 22.0) / PITCH_ASPECT).min(pane.width() - BIG_FRAME - 10.0 - face.x);
+    let map = vec2(map_w, map_w * PITCH_ASPECT);
+    let ppp = ui.ctx().pixels_per_point();
     egui::Area::new(Id::new("board-big"))
         .order(Order::Tooltip)
         .fixed_pos(pane.min)
@@ -1945,7 +2003,12 @@ fn info_pane(ui: &Ui, card: &Card, pane: Rect, tier: Tier, face: Vec2, back: boo
                     ui.horizontal_top(|ui| {
                         ui.spacing_mut().item_spacing.x = 10.0;
                         let (r, _) = ui.allocate_exact_size(face, Sense::hover());
-                        if back {
+                        if large {
+                            // the album art at its own pixels: its top left on a whole device pixel
+                            use egui::emath::GuiRounding as _;
+                            let r = Rect::from_min_size(r.min.round_to_pixels(ppp), face);
+                            card_side(ui.painter(), r, card, back, false, lang);
+                        } else if back {
                             card_back(ui.painter(), r, card, lang);
                         } else {
                             card_face(
@@ -2653,24 +2716,6 @@ mod tests {
         frame(vec![press(at, false)], &mut b, &mut pitch);
         let l = table_after(&before, &b)[0];
         assert_eq!((l.x, l.y), (BENCH_X, BENCH_Y[2]));
-    }
-
-    /// The big card is 4x the tile when the window has room, else the most that keeps it, its map and caption inside.
-    #[test]
-    fn the_big_card_is_four_times_the_tile_when_it_fits() {
-        let tile = card_size(400.0);
-        assert_eq!(big_scale(tile, vec2(1200.0, 1400.0)), 4.0);
-        let room = vec2(400.0, 600.0);
-        let k = big_scale(tile, room);
-        assert!(k > 1.0 && k < 4.0, "{k}");
-        let face = tile * k;
-        let need_w = face.x + 10.0 + (face.y - 22.0) / PITCH_ASPECT + BIG_FRAME;
-        let need_h = face.y + BIG_FRAME + BIG_CAPTION;
-        assert!(
-            need_w <= room.x + 0.01 && need_h <= room.y + 0.01,
-            "{need_w} {need_h}"
-        );
-        assert_eq!(big_scale(tile, vec2(10.0, 10.0)), 1.0);
     }
 
     /// A card's tile stays on the pitch at any spot, and lies centred on its spot away from the edges.

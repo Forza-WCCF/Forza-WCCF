@@ -311,6 +311,61 @@ fn desk_window() {
     all.unwrap();
 }
 
+/// The catalogue's card view: front and back side by side at their own pixels on the 1440x900 sheet (x1), one side at
+/// x1 with the FRONT | BACK toggle on a 900x563 window (0.625 px a point), the pair at x2 at 175 %. The pictures are
+/// made-up 256x357 patterns of single-pixel lines (blurred or moiré if ever scaled by a fraction), never card art.
+#[test]
+fn card_view() {
+    let _gpu = gpu();
+    let dir = tempfile::tempdir().expect("a temp folder");
+    let cards = forza_ui::sample::cards();
+    let ci = 2;
+    let no = cards[ci].number;
+    for (side, tint) in [("f", [200u8, 60, 40]), ("b", [40, 90, 200])] {
+        let img = image::RgbaImage::from_fn(256, 357, |x, y| {
+            let line = (x + y) % 2 == 0 || x % 32 == 0 || y % 32 == 0;
+            let [r, g, b] = tint;
+            if line {
+                image::Rgba([r, g, b, 255])
+            } else {
+                image::Rgba([235, 235, 225, 255])
+            }
+        });
+        img.save_with_format(
+            dir.path().join(format!("{no}_{side}.jpg")),
+            image::ImageFormat::Png,
+        )
+        .expect("a picture written");
+    }
+    let mut all = SnapshotResults::new();
+    for (ppp, lang, name) in [
+        (1.0, Lang::En, "panel_card_view_en"),
+        (0.625, Lang::Ja, "panel_card_view_single_ja"),
+        (1.75, Lang::En, "panel_card_view_175_x2_en"),
+    ] {
+        let mut st = panel::PanelState::sample(Edition::E1011, lang, panel::Page::Catalogue);
+        st.catalogue.filter = Default::default();
+        st.catalogue.view = Some(ci);
+        let path = dir.path().to_owned();
+        let mut first = true;
+        let mut h = harness(panel::SIZE, ppp, Edition::E1011, |ui| {
+            if first {
+                forza_ui::board::set_picture_dir(ui.ctx(), Some(path.clone()));
+                first = false;
+            }
+            panel::show(ui, &mut st)
+        });
+        // the files load on a thread: step until they show
+        for _ in 0..40 {
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        h.snapshot(name);
+        all.extend_harness(&mut h);
+    }
+    all.unwrap();
+}
+
 /// The 2017-18 formation board as the cabinet's mat: at rest, a card in hand, and with the keeper's slot empty.
 #[test]
 fn board_mat() {

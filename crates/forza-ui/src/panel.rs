@@ -374,6 +374,10 @@ pub struct Catalogue {
     pub focus: Option<usize>,
     /// The cards the filter lets through, in its order ([`search`]), worked out again when it changes.
     pub results: Vec<usize>,
+    /// The card view (a full page, front and back at their own pixels): the card shown (an index into the catalogue),
+    /// and its back chosen when only one side fits.
+    pub view: Option<usize>,
+    pub view_back: bool,
     searched: Option<Filter>,
     index: Option<Index>,
 }
@@ -1929,8 +1933,13 @@ fn page(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         && st.pad_capturing.is_none()
         && ui.input(|i| i.key_pressed(egui::Key::Escape))
     {
-        st.page = Page::Game;
-        return;
+        // the card view goes back to the catalogue's list, not out of the catalogue
+        if st.page == Page::Catalogue && st.catalogue.view.take().is_some() {
+            ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+        } else {
+            st.page = Page::Game;
+            return;
+        }
     }
     let r = ui.max_rect().shrink(12.0);
     ui.painter()
@@ -2046,10 +2055,14 @@ fn note_line(ui: &mut Ui, message: &mut Option<Note>) {
 }
 
 fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
+    if st.catalogue.view.is_some() {
+        return card_view(ui, st, lang);
+    }
     let cards = st.cards.clone();
     let c = &mut st.catalogue;
     let fresh = c.refresh(&cards);
     let mut add = None;
+    let mut open = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab));
     ui.spacing_mut().item_spacing = vec2(6.0, 8.0);
     // Enter puts the first card listed on the table; typed letters always go to the search line
     if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
@@ -2246,15 +2259,186 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                 });
             }
             strip.cell(|ui| {
-                if let Some(card) = shown
-                    && stats_pane(ui, card, lang)
-                {
-                    add = Some(card.number);
+                if let Some(card) = shown {
+                    let (added, opened) = stats_pane(ui, card, lang);
+                    if added {
+                        add = Some(card.number);
+                    }
+                    open |= opened;
                 }
                 note_line(ui, message);
             });
+            // Tab or a click on the stats pane's face: the card view of the card shown
+            if open && let Some(card) = shown {
+                c.view = cards.iter().position(|k| k.number == card.number);
+            }
         });
     st.add = st.add.or(add);
+}
+
+/// The card view's caption row under the pictures, with its gap: the name, the club line and the roles beside TOTAL,
+/// the position and ADD.
+const CAPTION_ROW: f32 = 100.0;
+
+/// The card view, in the catalogue's place under its heading: the card's front and back side by side, each at a whole
+/// multiple of its own pixels ([`sizing::exact`]: x1, or x2 with nearest filtering when the page has room), never
+/// scaled by a fraction or scrolled; one side with a FRONT | BACK toggle when the pair does not fit. Under them the
+/// name, club line and roles, TOTAL, the position and ADD. Keys: Tab or Esc back to the list, arrows the previous and
+/// next result, F turns the single side over, Enter adds.
+fn card_view(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
+    use egui::emath::GuiRounding as _;
+    let cards = st.cards.clone();
+    let c = &mut st.catalogue;
+    let Some(card) = c.view.and_then(|i| cards.get(i)) else {
+        c.view = None;
+        return;
+    };
+    let at = c.results.iter().position(|&i| Some(i) == c.view);
+    let key = |k| ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, k));
+    let (close, prev, next, flip, add) = (
+        key(egui::Key::Tab),
+        key(egui::Key::ArrowLeft),
+        key(egui::Key::ArrowRight),
+        key(egui::Key::F),
+        key(egui::Key::Enter),
+    );
+    let ppp = ui.ctx().pixels_per_point();
+    let body = ui.available_rect_before_wrap();
+    // the pair at x2 or x1, else one side at x1, else (a window under about 330 pixels tall) one side at half; the head
+    // row and its gap above the pictures, the caption row and its gap under them
+    let room = vec2(body.width(), body.height() - 48.0 - CAPTION_ROW);
+    let (n, k) = match sizing::exact(sizing::ALBUM, 2, room, ppp) {
+        Some(k) => (2, k),
+        None => (1, sizing::exact(sizing::ALBUM, 1, room, ppp).unwrap_or(0.5)),
+    };
+    let size = sizing::ALBUM * k / ppp;
+    // the head row: back to the list, the side toggle (one side only), the place in the results
+    let head = Rect::from_min_size(body.min, vec2(body.width(), 32.0));
+    let mut back_to_list = close;
+    let mut go: i32 = i32::from(next) - i32::from(prev);
+    let mut flip = flip && n == 1;
+    ui.scope_builder(egui::UiBuilder::new().max_rect(head), |ui| {
+        ui.horizontal_centered(|ui| {
+            back_to_list |= action(ui, &tr!(lang, "cat.view_list")).clicked();
+        });
+    });
+    if n == 1 {
+        let mut r = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(Rect::from_center_size(head.center(), vec2(240.0, 32.0))),
+        );
+        let mut i = usize::from(c.view_back);
+        if segmented(
+            &mut r,
+            &mut i,
+            &[&tr!(lang, "cat.front"), &tr!(lang, "cat.back")],
+            240.0,
+        ) {
+            flip = (i == 1) != c.view_back;
+        }
+    }
+    if let Some(at) = at {
+        ui.scope_builder(egui::UiBuilder::new().max_rect(head), |ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                go += i32::from(action(ui, "›").clicked());
+                ui.label(
+                    egui::RichText::new(format!("{} / {}", at + 1, c.results.len()))
+                        .font(theme::display(18.0))
+                        .color(theme::TEXT_DIM),
+                );
+                go -= i32::from(action(ui, "‹").clicked());
+            });
+        });
+    }
+    if flip {
+        c.view_back = !c.view_back;
+    }
+    // the pictures, centred, their top left on a whole pixel
+    let w = n as f32 * size.x + (n as f32 - 1.0) * sizing::PAIR_GAP;
+    let left = body.center().x - w / 2.0;
+    let sides: &[bool] = if n == 2 {
+        &[false, true]
+    } else if c.view_back {
+        &[true]
+    } else {
+        &[false]
+    };
+    for (j, &back) in sides.iter().enumerate() {
+        let min = pos2(
+            left + j as f32 * (size.x + sizing::PAIR_GAP),
+            body.top() + 48.0,
+        );
+        let r = Rect::from_min_size(min.round_to_pixels(ppp), size);
+        board::card_side(ui.painter(), r, card, back, k >= 2.0, lang);
+    }
+    // the caption row under them
+    let cap = Rect::from_min_max(
+        pos2(body.left(), body.top() + 48.0 + size.y + 16.0),
+        body.max,
+    )
+    .intersect(Rect::from_center_size(
+        pos2(body.center().x, body.center().y),
+        vec2(w.max(560.0).min(body.width()), f32::INFINITY),
+    ));
+    let mut added = add;
+    ui.scope_builder(egui::UiBuilder::new().max_rect(cap), |ui| {
+        ui.horizontal_top(|ui| {
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = 2.0;
+                ui.set_max_width(cap.width() - 330.0);
+                ui.label(
+                    egui::RichText::new(&card.name)
+                        .font(theme::display(26.0))
+                        .color(theme::TEXT),
+                );
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} · {} · {}",
+                        card.club, card.country, card.season
+                    ))
+                    .font(theme::body(HINT))
+                    .color(theme::TEXT_DIM),
+                );
+                let top = card.aptitude.top();
+                if !top.is_empty() {
+                    let roles = top
+                        .iter()
+                        .map(|(n, r)| format!("{n} {r}"))
+                        .collect::<Vec<_>>()
+                        .join(" · ");
+                    ui.label(
+                        egui::RichText::new(tr!(lang, "board.roles", roles = roles))
+                            .font(theme::body(HINT))
+                            .color(theme::TEXT_DIM),
+                    );
+                }
+            });
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                added |=
+                    cabinet(ui, vec2(200.0, 44.0), &tr!(lang, "cat.add"), Cab::Go, true).clicked();
+                ui.vertical(|ui| {
+                    ui.label(
+                        egui::RichText::new(card.total.to_string())
+                            .font(theme::display(44.0))
+                            .color(theme::AMBER),
+                    );
+                    chip(ui, card.pos.code(), true, Some(card.pos.color()));
+                });
+            });
+        });
+    });
+    if added {
+        st.add = Some(card.number);
+    }
+    let c = &mut st.catalogue;
+    if back_to_list {
+        c.view = None;
+    } else if go != 0
+        && let Some(at) = at
+    {
+        let to = (at as i32 + go).clamp(0, c.results.len() as i32 - 1) as usize;
+        c.view = c.results.get(to).copied();
+    }
 }
 
 fn combo(ui: &mut Ui, id: &str, value: &mut String, options: &[(String, usize)], lang: Lang) {
@@ -2319,7 +2503,8 @@ fn affinity_pane(ui: &mut Ui, card: &Card, links: &board::Links, on_table: &[u32
 }
 
 /// The card's stats and its ADD button; `true` = ADD clicked.
-fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> bool {
+/// The focused card's stats, ADD under them; returns (ADD clicked, the face clicked: the card view asked for).
+fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> (bool, bool) {
     let face = sizing::hover_face(ui.ctx().pixels_per_point());
     let u = sizing::text_unit(face.x);
     egui::Frame::new()
@@ -2329,8 +2514,12 @@ fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> bool {
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.spacing_mut().item_spacing.y = 4.0;
+            let mut open = false;
             ui.horizontal(|ui| {
-                let (r, _) = ui.allocate_exact_size(face, Sense::hover());
+                let (r, resp) = ui.allocate_exact_size(face, Sense::click());
+                open = resp
+                    .on_hover_cursor(egui::CursorIcon::PointingHand)
+                    .clicked();
                 board::card_face(ui.painter(), r, card, board::Look::default());
                 ui.vertical(|ui| {
                     ui.label(
@@ -2385,7 +2574,8 @@ fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> bool {
             let names = STATS.map(|k| tr!(lang, k));
             widgets::stat_bars(ui, card, &names, &tr!(lang, "cat.secret"), w);
             ui.add_space(6.0);
-            cabinet(ui, vec2(w, 44.0), &tr!(lang, "cat.add"), Cab::Go, true).clicked()
+            let add = cabinet(ui, vec2(w, 44.0), &tr!(lang, "cat.add"), Cab::Go, true).clicked();
+            (add, open)
         })
         .inner
 }

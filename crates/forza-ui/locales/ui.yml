@@ -313,6 +313,9 @@ cat.sta: {en: "STA", it: "RES", ja: "スタミナ"}
 cat.reset: {en: "RESET", it: "AZZERA", ja: "リセット"}
 cat.results: {en: "%{n} CARDS", it: "%{n} CARTE", ja: "%{n} 枚"}
 cat.add: {en: "+ ADD", it: "+ AGGIUNGI", ja: "＋追加"}
+cat.view_list: {en: "‹ LIST", it: "‹ ELENCO", ja: "‹ 一覧"}
+cat.front: {en: "FRONT", it: "FRONTE", ja: "表面"}
+cat.back: {en: "BACK", it: "RETRO", ja: "裏面"}
 cat.msg_added: {en: "%{name} added (%{n}/16)", it: "%{name} aggiunto (%{n}/16)", ja: "%{name} を追加しました（%{n}/16）"}
 cat.msg_on_table: {en: "%{name} is on the table", it: "%{name} è già sul tavolo", ja: "%{name} はすでにテーブルにあります"}
 cat.msg_same_player: {en: "%{name}: another card of this player is on the table (%{season})", it: "%{name}: un'altra carta di questo giocatore è già sul tavolo (%{season})", ja: "%{name}：この選手の別のカードがすでにテーブルにあります（%{season}）"}
