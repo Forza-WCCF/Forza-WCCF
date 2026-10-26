@@ -1,4 +1,4 @@
-//! launcher::run end to end, without the game: a scratch kit in %TEMP% whose game folder holds the C stand-in
+//! launcher::run end to end, without the game: a scratch kit in %TEMP% whose game folder holds the stand-in
 //! `fakegame.exe` (from `cargo xtask build`) under names of its own, the run given those names, free ports, scratch
 //! scene names and pipes with this test's process id.  Nothing of the game runs; no game port, pipe or name is used.
 //! Port of test_watch_late.py and test_setup_state.py's start decisions, plus the card rule and the Prefer-System32

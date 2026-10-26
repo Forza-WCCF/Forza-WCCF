@@ -5,15 +5,14 @@ the panel) and say which edition and which version you play.
 
 ## Build
 
-The build host is Windows 10 or 11. `cargo xtask` builds the Rust with the MSVC toolchain and the 32-bit C programs with the
-clang-cl that ships with Visual Studio, and runs the Windows test programs natively. `forza-server` also builds on plain Linux
-(`cargo build --release -p forza-server`).
+The build host is Windows 10 or 11. `cargo xtask` builds every program with Rust's MSVC toolchain (the 32-bit ones in and
+beside the game, `native/`, for `i686-pc-windows-msvc`) and runs the Windows test programs natively. `forza-server` also
+builds on plain Linux (`cargo build --release -p forza-server`).
 
 1. Install [Visual Studio Build Tools 2022 or later](https://visualstudio.microsoft.com/downloads/) with the "Desktop
    development with C++" workload: the MSVC x86/x64 build tools and a Windows SDK (10.0.22000 or newer; CI uses
-   10.0.26100). Add the components "C++ Clang Compiler for Windows" and "MSBuild support for LLVM (clang-cl)
-   toolset". `cargo xtask` finds `clang-cl`, `lld-link`, `llvm-rc` and the `INCLUDE`/`LIB` environment itself; run it
-   from any shell, not only a Developer Prompt.
+   10.0.26100): Rust links against its C runtime and the SDK, and the SDK's `rc.exe` gives each program its version
+   information. Run `cargo xtask` from any shell, not only a Developer Prompt.
 2. Install [Git for Windows](https://gitforwindows.org) and [rustup](https://rustup.rs). `rust-toolchain.toml` pins the
    version and the two Windows targets. Then set:
 
@@ -43,7 +42,7 @@ clang-cl that ships with Visual Studio, and runs the Windows test programs nativ
 
    ```sh
    cargo xtask build          # the programs, staged in target/kit/<edition>/
-   cargo xtask check          # fmt, clippy, tests, the C self-tests, the run tests, the publisher-name grep
+   cargo xtask check          # fmt, clippy, tests, the guard and hook test programs, the run tests, the publisher-name grep
    cargo xtask check quick    # only the crates changed since the base branch
    cargo xtask check ci       # what CI runs: check without the GPU snapshot tests, ci profile (--release: release)
    cargo xtask package 2017-18 --name Forza-WCCF-2017-18-0.2.0
@@ -117,7 +116,8 @@ Refs: #12
   (anything else, such as release housekeeping) and `revert`.
 - **Scope:** required: the part of the project the commit changes. Use the crate or component name: `launcher`,
   `installer`, `forza`, `ui` (`crates/forza-ui`), `setup` (`crates/forza/src/setup`), `panel`, `server`, `vslink`,
-  `linux-host`, `wccfnet` (`native/2017-18/netguard`), `mxhook`, `hook` (`native/2010-11/hook`), `fpr-emu`, `xtask`,
+  `linux-host`, `wccfnet` (`native/wccfnet`), `mxhook` (the 2010-11 server hook, `native/hook/src/server.rs`), `hook` (`native/hook`),
+  `native` (`native/common`, `native/programs`, `native/icmp`, `native/netguard`), `fpr-emu`, `xtask`,
   `deploy`, `deps`, `release`; for documents the file or area: `readme`, `contributing`, `roadmap`, `safety`, `docs`.
   Add the edition when it matters: `fix(setup): ...` with "2017-18" in the description, rather than a new scope.
 - **Body:** after one blank line. Say why, and anything a reviewer cannot see in the diff.

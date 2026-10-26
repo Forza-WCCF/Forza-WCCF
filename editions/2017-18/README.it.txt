@@ -115,5 +115,5 @@ CARTELLE
   overlay\   il pannello; CONFIGURA aggiunge il catalogo e le immagini delle carte
   fonts\     i caratteri del pannello e le loro licenze
   english\, italian\   i testi inglese e italiano del gioco
-  source\    il sorgente dei programmi in bin\ e overlay\
+  source\    il sorgente dei programmi in bin\ e overlay\ (Rust)
   data\      creata sul vostro PC: impostazioni, salvataggi (save\gamesvr), log

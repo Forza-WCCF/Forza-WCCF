@@ -1,5 +1,5 @@
-# The C runtime linked in, like the kit's C programs (/MT): no Visual C++ runtime needed on the player's PC.
-# /Brepro, as the C programs: no link timestamp, so the same source gives the same exe.
+# The C runtime linked in (/MT): no Visual C++ runtime needed on the player's PC.
+# /Brepro: no link timestamp, so the same source gives the same exe.
 # /DEBUG:NONE: no PDB; a linker that hashes the PDB, with its absolute paths, into the /Brepro timestamp gives two files for two folders (lld-link did).
 # /ignore:4099: the linker warns for every object of the CRT libraries whose PDB is not shipped.
 [target.'cfg(all(windows, target_env = "msvc"))']

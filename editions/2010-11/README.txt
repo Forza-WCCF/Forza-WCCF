@@ -182,7 +182,7 @@ FOLDERS
               and the projector), forza-server.exe (the server), FPR_Emu.exe (card-table helper)
   fonts\      the panel's fonts and licences (Noto Sans JP, Barlow Condensed, Hack)
   languages\  english\ and italian\: the game's English and Italian text (text and fingerprints only)
-  source\     the source of every program in programs\ (C) and of Launcher.exe (Rust, source\launcher); how they were
+  source\     source of every program in programs\ (Rust, source\native) and of Launcher.exe (source\launcher); how they were
               built: source\README.txt
   data\       made on your PC: settings (panel.txt), club card (save\, with backup\ and your other clubs in cards\),
               keys (keys.txt), logs, and cache\ (catalogue and card pictures; rebuilt if deleted)

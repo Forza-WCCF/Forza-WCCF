@@ -1,20 +1,26 @@
-The C source of every program Forza-WCCF 2017-18 ships. `cargo xtask build` compiles each with Microsoft's C compiler for 32-bit
-x86 (Visual Studio Build Tools; xtask loads "vcvarsall.bat x86"): cl /O2 /MT /W3 /Brepro /D_CRT_SECURE_NO_WARNINGS,
-the runtime linked in (/MT) so no Visual C++ runtime is needed, and a VERSIONINFO resource (product "Forza-WCCF 2017-18").
-The programs land under target\ (the 2017-18 folder) at the paths below; `cargo xtask package 2017-18` zips that folder.
+The source of every program Forza-WCCF 2017-18 ships. Every program is Rust: `cargo xtask build` builds each from the
+Forza-WCCF repository (this ZIP carries only the programs' crates), the game's 32-bit ones for i686-pc-windows-msvc,
+the C runtime linked in (no Visual C++ runtime needed), each with its version information. The programs land under
+target\ (the 2017-18 folder) at the paths below; `cargo xtask package 2017-18` zips that folder.
 
-  bin\winmm.dll        mxhook\mxhook.c (+ winmm_fwd.h: forwards all 192 winmm functions to winmm_orig.dll)   /LD
-  bin\FPR_Emu.exe      ..\fpr_emu\fpr_emu.c                                       link: user32.lib
-  bin\logowin.exe      logowin\logowin_standin.c                                  link: /SUBSYSTEM:WINDOWS
-  overlay\forza_panel.dll   the repository's crates\panel (Rust, i686-pc-windows-msvc), one build for both editions; its
-                       fonts are fonts\ at the top of the folder.
-  bin\wccfnet.dll      netguard\wccfnet.c   /LD   link: user32.lib   (the guard: setup copies it into the
-                       runtime's game folder, where the game programs import it instead of IPHLPAPI.DLL; the four stubs
-                       are exported undecorated, six read-only calls are forwarded to iphlpapi, all by linker pragmas.
-                       When the Launcher sets FORZA_PANEL, it also loads that DLL (the panel) into the game)
-  source\build\netguard.dll   netguard\netguard.c   /LD   (not in the ZIP, not used by 2017-18: the Linux server's
-                       2010-11 hook loads it)
-  source\build\test_wccfnet.exe, test_netguard.exe, test_panel.exe (+ panel_probe.dll)   netguard\test*.c, panel_probe.c:
+  bin\winmm.dll        native\hook (forza-hook --features e1718); its build.rs forwards all 192 winmm functions to
+                       winmm_orig.dll (winmm_exports.txt)
+  bin\wccfnet.dll      native\wccfnet (the guard: setup copies it into the runtime's game folder, where the game programs
+                       import it instead of IPHLPAPI.DLL; the four stubs are its own exports, six read-only calls are
+                       forwarded to iphlpapi by its build.rs. When the Launcher sets FORZA_PANEL, it also loads that
+                       DLL (the panel) into the game)
+  bin\ICMP.DLL         native\icmp (the game's pings of the arcade network return at once instead of timing out)
+  bin\FPR_Emu.exe      native\programs\src\bin\fpr_emu.rs (forza-programs, --features programs)
+  bin\logowin.exe      native\programs\src\bin\logowin.rs
+  overlay\forza_panel.dll   the repository's crates\panel, one build for both editions; its fonts are fonts\ at the top
+                       of the folder.
+  native\common        what they share: a loaded program's import table, the parent process
+  source\build\netguard.dll   native\netguard (not in the ZIP, not used by 2017-18: the Linux server's 2010-11 hook
+                       loads it)
+  source\build\server-hook\winmm.dll   native\hook (forza-hook --features e1011-server; not in the ZIP, not used by
+                       2017-18): the Linux server's 2010-11 hook under Wine, with its self-tests msgguard_test.exe,
+                       sleepfix_test.exe, spinfix_test.exe (native\programs\src\bin)
+  source\build\test_wccfnet.exe, test_netguard.exe, test_icmp.exe, test_panel.exe   native\programs\src\bin\test_*.rs:
                        `cargo xtask check` loads each guard from a scratch folder, proves the four calls return 0 without
                        reaching the real IP helper, and that FORZA_PANEL makes wccfnet.dll load a DLL once a window shows
 
@@ -29,3 +35,4 @@ What each does, in short:
   logowin.exe   the original start-up notice window, replaced by one that only records the notice
   forza_panel.dll the panel around seat 1's picture (drawn with the game's own Direct3D 9 device)
   wccfnet.dll   the guard; loads forza_panel.dll into seat 1 and the projector when the Launcher asks (FORZA_PANEL)
+  ICMP.DLL      answers the game's pings at once: no reply, as when the arcade network is not there

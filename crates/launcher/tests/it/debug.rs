@@ -1,4 +1,4 @@
-//! launcher::debug with the C stand-ins `cargo xtask build` makes (target/kit/2010-11/source/build), copied under names
+//! launcher::debug with the stand-ins `cargo xtask build` makes (target/kit/2010-11/source/build), copied under names
 //! of their own into a scratch folder: nothing of the game runs, no game name or shared-memory name is used.
 //! Port of legacy/2010-11/tests/test_crash_dump.py, plus a closed window, hidden windows and the shared memory.
 

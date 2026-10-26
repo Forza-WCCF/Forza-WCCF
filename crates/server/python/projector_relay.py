@@ -8,7 +8,7 @@ here instead of to control when the seat desk offers it (online\seat.py's RELAY 
     python code\server\projector_relay.py LIFE_SECONDS [LOG_FILE]        (play.py server starts it; TCP port 20031)
 
 What goes on the wire is the game's own: batches of u32 record count, u32 total size (with these 8 bytes), then each
-record's 16-byte name (NUL-padded), u32 body size and body - little-endian, the same as source\hook\wholemsg.h.  What
+record's 16-byte name (NUL-padded), u32 body size and body - little-endian, the same as native\hook\src\wholemsg.rs.  What
 the game expects of a projector was read from control and the client (static only, 2026-10-17; the research notes
 projector-fanout-20261017\re\FINDINGS.md and traffic\TRAFFIC.md, outside the repo):
 - A projector's INIT is answered HERE, at once, with INIT REPLY "OK\0" (control's answer has no session number, so one

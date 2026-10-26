@@ -16,7 +16,7 @@ Plan and status: [../ROADMAP.md](../ROADMAP.md); notes: [PROGRESS.md](PROGRESS.m
 | `editions/2017-18/` | what goes into the ZIP: English and Italian tables, overlay assets, READMEs |
 | `crates/launcher` (`Edition::E1718`) | `Launcher.exe`: setup, the run, the stand-ins |
 | `crates/forza/src/setup/e1718.rs` | setup: guarded imports, seat 1 exe patches, controller patch (every original byte checked) |
-| `native/2017-18/` | `mxhook` (`winmm.dll`), `logowin`, `overlay`, `netguard/` (`wccfnet.dll`: stubs the IP-helper calls that drop the host's DHCP lease and loads the panel; `netguard.dll` is built only for the Linux server) |
+| `native/` | `hook` (`winmm.dll`, `--features e1718`), `wccfnet` (`wccfnet.dll`: stubs the IP-helper calls that drop the host's DHCP lease and loads the panel), `icmp` (`ICMP.DLL`), `programs` (`logowin.exe`, `FPR_Emu.exe`, the test programs), `netguard` (built only for the Linux server) |
 | `legacy/2017-18/` | retired Python (`setup1718.py`, `restart.sh`) and its tests |
 | `tools/press.sh`, `cargo xtask cap` | `press.sh` is a WSL helper that taps cabinet buttons; `cap` runs on Windows and captures game windows |
 | `tools/ida/` | headless IDA helpers (`ida_query.py`, `dump.py`) for your own analysis copies |

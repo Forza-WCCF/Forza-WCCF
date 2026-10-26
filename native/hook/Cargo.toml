@@ -1,0 +1,46 @@
+[package]
+name = "forza-hook"
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "The hook in the game's programs: stands in for the cabinet's hardware, blocks the DHCP release, presents the cabinet's network address"
+
+[lib]
+name = "forza_hook"
+crate-type = ["cdylib", "rlib"]
+
+# One source, three DLLs (`cargo xtask build` builds each, 32-bit like the game):
+[features]
+# programs\wccfk.dll: the 2010-11 game's WINMM import renamed to it; forwards the three timer calls to Windows' winmm,
+# answers control's start of logowin.exe itself and gives control the players' messages only whole
+e1011 = []
+# bin\winmm.dll: the 2017-18 game loads it in place of winmm.dll; forwards every winmm call to winmm_orig.dll
+e1718 = []
+# the Linux server's winmm.dll for the 2010-11 control and match engines under Wine: e1718's forwarding, plus netguard.dll
+# and the three server fixes (src/server.rs)
+e1011-server = []
+
+[target.'cfg(target_arch = "x86")'.dependencies]
+forza-native = { path = "../common" }
+windows-sys = { workspace = true, features = [
+    "Win32_Devices_Communication",
+    "Win32_Foundation",
+    "Win32_Networking_WinSock",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Environment",
+    "Win32_System_IO",
+    "Win32_System_Kernel",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Performance",
+    "Win32_System_Pipes",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+] }
+
+[lints]
+workspace = true

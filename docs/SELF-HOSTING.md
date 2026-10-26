@@ -9,7 +9,7 @@ paths assume `FORZA_HOME=/srv/forza-wccf` and a service user `wccf`.
 
 | Piece | For | Program | Ports |
 |---|---|---|---|
-| 2010-11 shop server | 2010-11 online play | the original control and four match engines under Wine, started by `wccf-linux-server` (`crates/linux-host`) with the server hook `winmm.dll` (`native/2010-11/server-hook`) | TCP 20002 |
+| 2010-11 shop server | 2010-11 online play | the original control and four match engines under Wine, started by `wccf-linux-server` (`crates/linux-host`) with the server hook `winmm.dll` (`native/hook`, feature `e1011-server`) | TCP 20002 |
 | 2010-11 seat desk, match relay, log inbox | seats, the lobby, in-shop matches, player logs | `forza-server --edition 2010-11 all` (`crates/server`) | TCP 20030, UDP 20040, TCP 20050 |
 | 2010-11 projector relay | the projector (big screen) on every player's PC | `projector_relay.py` (`crates/server/python`), the one service still in Python | TCP 20031 |
 | 2017-18 server | the lobby, VS rooms, clubs and saves (SQLite), VS pairing | `forza-server --edition 2017-18 all` | TCP 20032, TCP 20060, UDP 20061 |
@@ -52,8 +52,7 @@ For the 2010-11 server also, build the two Windows helpers on a Windows PC with 
     # target\i686-pc-windows-msvc\release\win32-helper.exe, check-crt.exe
     cargo xtask build        # also on Windows
     # the network guard: target/kit/2017-18/bin/wccfnet.dll, source/build/netguard.dll, source/build/test_wccfnet.exe
-    native/2010-11/server-hook/build.sh          # needs gcc-mingw-w64-i686
-    # native/2010-11/server-hook/out/winmm.dll and the three self-tests
+    # the server hook: target/kit/2017-18/source/build/server-hook/winmm.dll and its three self-tests
 
 The iroh relay is upstream's binary at the iroh version in `Cargo.lock` (1.4.0 now), built the same way:
 
@@ -100,8 +99,8 @@ The tree (`crates/linux-host/README.md` describes each part), as `wccf`:
     cp -a GAME_FOLDER/. $H/1011/runtime/                       # your 2010-11 game folder
     python3 deploy/linux/guard_imports.py $H/1011/runtime          # control now imports wccfnet.dll
     cp deploy/linux/ctrl_user_option.conf $H/1011/runtime/local/
-    cp native/2010-11/server-hook/out/winmm.dll $H/1011/runtime/
-    native/2010-11/server-hook/build.sh orig && cp native/2010-11/server-hook/out/winmm_orig.dll $H/1011/runtime/
+    cp target/kit/2017-18/source/build/server-hook/winmm.dll $H/1011/runtime/
+    python3 deploy/linux/winmm_orig.py $H/1011/runtime/winmm_orig.dll     # Wine's 32-bit winmm.dll, renamed
     cp target/kit/2017-18/bin/wccfnet.dll target/kit/2017-18/source/build/netguard.dll \
        target/kit/2017-18/source/build/test_wccfnet.exe $H/1011/runtime/
     cp target/i686-pc-windows-msvc/release/win32-helper.exe $H/1011/run/
@@ -113,8 +112,14 @@ The tree (`crates/linux-host/README.md` describes each part), as `wccf`:
     cp target/release/forza-server crates/server/python/projector_relay.py $H/relay/
     cp deploy/linux/wccf-1011.sh $H/
 
-`orig` copies Wine's own 32-bit `winmm.dll`, so run that step on a host with `wine32` installed (or copy
-`/usr/lib/i386-linux-gnu/wine/i386-windows/winmm.dll` from one). The supervisor refuses to start when a file in
+`winmm_orig.py` reads Wine's own 32-bit `winmm.dll`, so run it on a host with `wine32` installed (or give it a copy
+of `/usr/lib/i386-linux-gnu/wine/i386-windows/winmm.dll` from one as its second argument). The server hook's
+self-tests run under Wine in a folder with `winmm.dll`, `winmm_orig.dll`, `netguard.dll` and the three tests, with
+`WINEDLLOVERRIDES="winmm,winmm_orig,netguard=n"`; each prints PASS: `wine msgguard_test.exe`,
+`MXHOOK_SLEEPFIX=1 wine sleepfix_test.exe`, `MXHOOK_SPINFIX=1 wine spinfix_test.exe`. The hook refuses to run when it
+cannot read the program's IPHLPAPI import: `wine test_dhcphook.exe winmm.dll` (the kit's `source/build/`) passes, and on
+a copy with that import's name table (OriginalFirstThunk) zeroed it fails `wccfk.dll loads` and the hook's log says
+`REFUSING TO RUN`. The supervisor refuses to start when a file in
 `evidence/runtime.sha256` changed; write the file again after each deliberate change.
 
 Before the first start, check the services alone (no game, loopback ports):

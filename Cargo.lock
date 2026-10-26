@@ -2087,6 +2087,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "forza-hook"
+version = "0.4.1"
+dependencies = [
+ "forza-native",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "forza-icmp"
+version = "0.4.1"
+dependencies = [
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "forza-native"
+version = "0.4.1"
+dependencies = [
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "forza-netguard"
+version = "0.4.1"
+dependencies = [
+ "forza-native",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "forza-panel"
 version = "0.4.1"
 dependencies = [
@@ -2097,6 +2127,15 @@ dependencies = [
  "serde_json",
  "sha2",
  "windows",
+]
+
+[[package]]
+name = "forza-programs"
+version = "0.4.1"
+dependencies = [
+ "forza-native",
+ "windows",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2127,6 +2166,14 @@ dependencies = [
  "rust-i18n",
  "tempfile",
  "time",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "forza-wccfnet"
+version = "0.4.1"
+dependencies = [
+ "forza-native",
  "windows-sys 0.61.2",
 ]
 

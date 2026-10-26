@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// The compiled .res for `bin` (a program; `name.dll` for a DLL), or None (and a build warning) without an rc.exe.
+/// The compiled .res for `bin` (a program; `name.dll` or `NAME.DLL` for a DLL), or None (and a build warning) without an rc.exe.
 /// `icon`: an .ico for the program's own icon (Explorer, taskbar, shortcuts), relative to the crate.
 pub fn make(bin: &str, what: &str, icon: Option<&str>) -> Option<PathBuf> {
     let Some(rc) = find_rc() else {
@@ -54,7 +54,8 @@ fn find_rc() -> Option<PathBuf> {
 
 /// The version resource of one program: 5.5.0 -> FILEVERSION 5,5,0,0.
 fn version_rc(bin: &str, what: &str, version: &str) -> String {
-    let (bin, file, kind) = match bin.strip_suffix(".dll") {
+    let dll = [".dll", ".DLL"].iter().find_map(|s| bin.strip_suffix(s));
+    let (bin, file, kind) = match dll {
         Some(stem) => (stem, bin.to_owned(), "0x2"),
         None => (bin, format!("{bin}.exe"), "0x1"),
     };
