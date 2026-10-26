@@ -639,13 +639,24 @@ pub fn affinity_dots(p: &Painter, left_center: Pos2, level: u8) {
 
 // ---- the formation board ----
 
-/// The zone a pitch point is in: attack at the top, the centre, defence near the own goal, the keeper's box.
-fn zone(y: f32) -> Position {
-    match y {
-        y if y < 0.34 => Position::Fw,
-        y if y < 0.64 => Position::Mf,
-        y if y < 0.88 => Position::Df,
-        _ => Position::Gk,
+/// The game's two lines, as a spot's height (0 the far goal line, 1 the own): the FW band ends 25 m past halfway, the
+/// MF band 15 m inside the own half, on the 105 m pitch. From the game's own area table (2017-18 `AI/AI_DATA/area.adb`,
+/// area 10 at 0x194: z 25..67 m, area 11 at 0x1BC: z -15..25 m; 2010-11's line function FUN_004db340 asks the same
+/// areas, read from a running seat), FW asked first and the edges inclusive.
+const LINE_FW: f32 = (52.5 - 25.0) / 105.0;
+const LINE_MF: f32 = (52.5 + 15.0) / 105.0;
+
+/// The line a spot plays in, by the game's own rule (2017-18 client 0x5D2B40, 2010-11 FUN_004db340): the keeper's box
+/// first (table y > 0.8 and -0.2 < x < 0.2), then the FW band, the MF band, else DF ([`LINE_FW`], [`LINE_MF`]).
+fn zone(spot: Pos2) -> Position {
+    if spot.y > 0.9 && (spot.x - 0.5).abs() < 0.1 {
+        Position::Gk
+    } else if spot.y <= LINE_FW {
+        Position::Fw
+    } else if spot.y <= LINE_MF {
+        Position::Mf
+    } else {
+        Position::Df
     }
 }
 
@@ -671,7 +682,7 @@ pub fn card_size(pitch_w: f32) -> egui::Vec2 {
 /// on the cabinet's mat: on the mat's GK box, half below the own goal line.
 pub fn spot_rect(pitch: Rect, spot: Pos2) -> Rect {
     let f = field(pitch);
-    let y = if zone(spot.y) == Position::Gk {
+    let y = if zone(spot) == Position::Gk {
         art::rect(pitch, art::GK).center().y
     } else {
         f.top() + spot.y * f.height()
@@ -1018,7 +1029,7 @@ pub fn formation_board(
                     && if c.aptitude.known() {
                         Fit::of(c.aptitude.at(board.spots[slot])) == Fit::Out
                     } else {
-                        zone(board.spots[slot].y) != c.pos
+                        zone(board.spots[slot]) != c.pos
                     };
                 card_face(
                     p,
@@ -2663,8 +2674,24 @@ mod tests {
         let back = spot_rect(pitch, pos2(0.5, 0.87));
         assert!(gk.center().y > back.center().y + 20.0);
         assert!(pitch.contains_rect(gk));
-        assert_eq!(zone(spot_at(pitch, gk.center()).y), Position::Gk);
-        assert_eq!(zone(spot_at(pitch, back.center()).y), Position::Df);
+        assert_eq!(zone(spot_at(pitch, gk.center())), Position::Gk);
+        assert_eq!(zone(spot_at(pitch, back.center())), Position::Df);
+    }
+
+    /// The game's lines (area.adb's areas 10 and 11, FUN_004db340's keeper box), in table coordinates: x -1..1,
+    /// y -1 (far goal line) ..1 (own); edges inclusive, FW first.
+    #[test]
+    fn the_lines_are_the_games() {
+        let at = |x: f32, y: f32| zone(pos2((x + 1.0) / 2.0, (y + 1.0) / 2.0));
+        // FW down to 25 m past halfway (y = -25/52.5), MF down to 15 m inside the own half (y = 15/52.5)
+        assert_eq!(at(0.0, -25.0 / 52.5 - 0.001), Position::Fw);
+        assert_eq!(at(0.0, -25.0 / 52.5 + 0.01), Position::Mf);
+        assert_eq!(at(0.9, 15.0 / 52.5 - 0.001), Position::Mf);
+        assert_eq!(at(0.0, 15.0 / 52.5 + 0.01), Position::Df);
+        // the keeper's box: y past 0.8, x inside +-0.2; beside it, DF
+        assert_eq!(at(0.1, 0.85), Position::Gk);
+        assert_eq!(at(0.3, 0.85), Position::Df);
+        assert_eq!(at(0.0, 0.79), Position::Df);
     }
 
     #[test]
