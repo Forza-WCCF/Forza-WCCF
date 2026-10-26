@@ -668,11 +668,11 @@ pub fn card_size(pitch_w: f32) -> egui::Vec2 {
 
 /// Where a pitch card sits: centred on its spot, pushed back inside when its edge would leave the pitch (the spot
 /// itself, what the table holds, is kept). The keeper's card (a spot in the keeper's zone, [`zone`]) sits lower, as
-/// on the cabinet's mat: centred on the own goal line, on the mat's GK box, half below the lines.
+/// on the cabinet's mat: on the mat's GK box, half below the own goal line.
 pub fn spot_rect(pitch: Rect, spot: Pos2) -> Rect {
     let f = field(pitch);
     let y = if zone(spot.y) == Position::Gk {
-        f.bottom()
+        art::rect(pitch, art::GK).center().y
     } else {
         f.top() + spot.y * f.height()
     };
@@ -717,14 +717,84 @@ fn spot_at(pitch: Rect, p: Pos2) -> Pos2 {
     )
 }
 
-/// The board's drawn field lines: touchline to touchline is the table's x -1..+1, the far goal line to the own goal
-/// line its y -1..+1 (the 2010-11 C panel's FIELD_L..FIELD_B), so a card on a line lies on it in the table too. The
-/// mat goes on below the own goal line by half a card, where the keeper's box lies.
+/// The board's drawn field lines, the pitch artwork's ([`art`]): touchline to touchline is the table's x -1..+1, the
+/// far goal line to the own goal line its y -1..+1 (the 2010-11 C panel's FIELD_L..FIELD_B), so a card on a line lies
+/// on it in the table too. The mat goes on below the own goal line, where the keeper's box lies.
 fn field(pitch: Rect) -> Rect {
-    let m = (pitch.width() * 0.025).max(3.0);
-    pitch
-        .shrink(m)
-        .with_max_y(pitch.bottom() - m - card_size(pitch.width()).y / 2.0)
+    art::rect(pitch, art::FIELD)
+}
+
+/// The owner's pitch artwork (`campo wccf`, a 2964x4419 picture of the cabinet's mat), traced into shapes so it is
+/// sharp at any size: its pitch part, from 20 px under the top, 2964x3705 px ([`PITCH_ASPECT`] tall). Positions are
+/// that picture's pixels (line centres), colours sampled from it.
+mod art {
+    use egui::{Color32, Pos2, Rect, pos2};
+
+    /// The picture's width, and where the board's pitch starts in it.
+    pub const W: f32 = 2964.0;
+    pub const TOP: f32 = 20.0;
+    /// Touchlines and goal lines: left, far goal line, right, own goal line.
+    pub const FIELD: [f32; 4] = [359.5, 64.5, 2606.0, 3361.5];
+    pub const LINE: f32 = 21.0;
+    /// Mown stripes across the field, the first (at the left touchline) light.
+    pub const STRIPES: usize = 17;
+    /// The midfield band, mown a yellower green.
+    pub const MF_BAND: [f32; 2] = [945.0, 2171.0];
+    /// The penalty box and the goal area: left and right edge, depth from the goal line; the penalty spot's distance.
+    pub const BOX: [f32; 3] = [878.5, 2086.0, 495.0];
+    pub const GOAL_AREA: [f32; 3] = [1208.5, 1756.5, 165.0];
+    pub const SPOT: f32 = 330.0;
+    pub const CIRCLE: f32 = 266.25;
+    pub const CORNER: f32 = 103.0;
+    pub const CENTRE_SPOT: f32 = 20.0;
+    /// The keeper's box, half under the own goal line: left, top, right, bottom.
+    pub const GK: [f32; 4] = [1311.0, 3232.0, 1656.0, 3716.0];
+    /// The zone names' centre heights and their capital letters' height.
+    pub const LABELS: [(&str, f32, Color32); 3] = [
+        ("FW", 396.0, Color32::from_rgb(0x8F, 0x97, 0x27)),
+        ("MF", 1121.0, Color32::from_rgb(0x5E, 0x6B, 0x32)),
+        ("DF", 2372.0, Color32::from_rgb(0x93, 0x99, 0x29)),
+    ];
+    pub const CAPS: f32 = 112.0;
+    pub const GRASS: Color32 = Color32::from_rgb(0x76, 0x7E, 0x31);
+    /// Stripes (light, dark) outside the midfield band and in it.
+    pub const MOWN: [Color32; 2] = [
+        Color32::from_rgb(0x79, 0x7C, 0x30),
+        Color32::from_rgb(0x68, 0x72, 0x33),
+    ];
+    pub const MOWN_MF: [Color32; 2] = [
+        Color32::from_rgb(0x85, 0x88, 0x29),
+        Color32::from_rgb(0x74, 0x7C, 0x2F),
+    ];
+    pub const CHALK: Color32 = Color32::from_rgb(0xB1, 0xAB, 0x67);
+    pub const GK_BOX: Color32 = Color32::from_rgb(0xB7, 0xAE, 0x6F);
+    pub const GK_TEXT: Color32 = Color32::from_rgb(0x65, 0x78, 0x3C);
+
+    /// A point of the picture on a pitch drawn in `pitch`.
+    pub fn at(pitch: Rect, x: f32, y: f32) -> Pos2 {
+        pitch.min + egui::vec2(x, y - TOP) * (pitch.width() / W)
+    }
+
+    /// A rectangle of the picture (left, top, right, bottom) on the pitch.
+    pub fn rect(pitch: Rect, [l, t, r, b]: [f32; 4]) -> Rect {
+        Rect::from_min_max(at(pitch, l, t), at(pitch, r, b))
+    }
+
+    /// A length of the picture on the pitch.
+    pub fn len(pitch: Rect, v: f32) -> f32 {
+        v * pitch.width() / W
+    }
+
+    /// An arc round `c` of radius `r` from angle `a0` to `a1` (radians, y down), as a polyline.
+    pub fn arc(c: Pos2, r: f32, a0: f32, a1: f32) -> Vec<Pos2> {
+        let n = 24;
+        (0..=n)
+            .map(|i| {
+                let a = a0 + (a1 - a0) * i as f32 / n as f32;
+                pos2(c.x + r * a.cos(), c.y + r * a.sin())
+            })
+            .collect()
+    }
 }
 
 /// The pitch a board of this width draws, from `top_left`.
@@ -1377,58 +1447,27 @@ fn up_text(p: &Painter, strip: Rect, text: &str, col: Color32) {
     p.add(egui::epaint::TextShape::new(at, g, col).with_angle(-std::f32::consts::FRAC_PI_2));
 }
 
-/// The pitch, attacking upwards. With `mat`, the formation board's: the cabinet's mat (dark mown bands, the zones
-/// FW, MF and DF printed faintly down the middle, the keeper's GK box on the own goal line, below the penalty box).
+/// The pitch, attacking upwards. With `mat`, the formation board's: the owner's artwork of the cabinet's mat
+/// ([`mat_pitch`]); without, the card back's small plain pitch.
 fn paint_pitch(p: &Painter, pitch: Rect, mat: bool) {
-    let (grass, stripe, bands) = if mat {
-        (theme::MAT, theme::MAT_STRIPE, 8)
-    } else {
-        (theme::PITCH, theme::PITCH_STRIPE, 10)
-    };
+    if mat {
+        return mat_pitch(p, pitch);
+    }
+    let bands = 10;
     let h = pitch.height() / bands as f32;
-    let radius = if mat {
-        theme::RADIUS_BIG
-    } else {
-        theme::RADIUS
-    };
-    p.rect_filled(pitch, radius, grass);
+    p.rect_filled(pitch, theme::RADIUS, theme::PITCH);
     for i in (0..bands).step_by(2) {
         let r = Rect::from_min_size(pitch.min + vec2(0.0, h * i as f32), vec2(pitch.width(), h));
         let cr = egui::CornerRadius {
-            nw: if i == 0 { radius } else { 0 },
-            ne: if i == 0 { radius } else { 0 },
+            nw: if i == 0 { theme::RADIUS } else { 0 },
+            ne: if i == 0 { theme::RADIUS } else { 0 },
             sw: 0,
             se: 0,
         };
-        p.rect_filled(r, cr, stripe);
+        p.rect_filled(r, cr, theme::PITCH_STRIPE);
     }
-    // markings
-    let line = Stroke::new(
-        1.5,
-        if mat {
-            theme::MAT_LINE
-        } else {
-            theme::PITCH_LINE.gamma_multiply(0.75)
-        },
-    );
-    let f = if mat {
-        field(pitch)
-    } else {
-        pitch.shrink((pitch.width() * 0.025).max(3.0))
-    };
-    if mat {
-        // the zones, as the mat prints them: big, faint, on the middle line, in spot units
-        let size = pitch.width() * 0.2;
-        for (t, name) in [(0.25, "FW"), (0.45, "MF"), (0.745, "DF")] {
-            p.text(
-                pos2(f.center().x, f.top() + t * f.height()),
-                Align2::CENTER_CENTER,
-                name,
-                theme::display(size),
-                Color32::from_white_alpha(40),
-            );
-        }
-    }
+    let line = Stroke::new(1.5, theme::PITCH_LINE.gamma_multiply(0.75));
+    let f = pitch.shrink((pitch.width() * 0.025).max(3.0));
     p.rect_stroke(f, 2, line, StrokeKind::Middle);
     p.line_segment([f.left_center(), f.right_center()], line);
     p.circle_stroke(f.center(), f.width() * 0.14, line);
@@ -1447,24 +1486,77 @@ fn paint_pitch(p: &Painter, pitch: Rect, mat: bool) {
             pos2(f.center().x + gw / 2.0, y + gh),
         );
         p.rect_stroke(box_, 0, line, StrokeKind::Middle);
-        // the mat has a goal box at the far end only
-        if !mat || dir > 0.0 {
-            p.rect_stroke(goal, 0, line, StrokeKind::Middle);
-        }
+        p.rect_stroke(goal, 0, line, StrokeKind::Middle);
     }
-    if mat {
-        // the keeper's box: on the own goal line, a card and a margin wide, half below it
-        let card = card_size(pitch.width());
-        let gk = Rect::from_center_size(f.center_bottom(), card + vec2(8.0, 8.0));
-        p.rect_filled(gk, 3, theme::MAT_BOX);
+}
+
+/// The formation board's pitch: the owner's artwork ([`art`]), mown stripes, the yellower midfield band, the zone names
+/// FW, MF and DF down the middle, the markings in chalk and the keeper's GK box half under the own goal line.
+fn mat_pitch(p: &Painter, pitch: Rect) {
+    use std::f32::consts::{FRAC_PI_2, PI};
+    p.rect_filled(pitch, theme::RADIUS_BIG, art::GRASS);
+    let f = field(pitch);
+    let sw = f.width() / art::STRIPES as f32;
+    let band = art::rect(pitch, [0.0, art::MF_BAND[0], art::W, art::MF_BAND[1]]);
+    for i in 0..art::STRIPES {
+        let x = f.left() + sw * i as f32;
+        let r = Rect::from_x_y_ranges(x..=x + sw, f.y_range());
+        p.rect_filled(r, 0, art::MOWN[i % 2]);
+        p.rect_filled(r.intersect(band), 0, art::MOWN_MF[i % 2]);
+    }
+    let size = art::len(pitch, art::CAPS) / 0.7; // the display font's capitals are about 0.7 of its size
+    for (name, y, col) in art::LABELS {
         p.text(
-            gk.center(),
+            art::at(pitch, art::W / 2.0 + 5.0, y),
             Align2::CENTER_CENTER,
-            "GK",
-            theme::display(pitch.width() * 0.09),
-            Color32::from_black_alpha(110),
+            name,
+            theme::display(size),
+            col,
         );
     }
+    let line = Stroke::new(art::len(pitch, art::LINE).max(1.0), art::CHALK);
+    p.rect_stroke(f, 0, line, StrokeKind::Middle);
+    p.line_segment([f.left_center(), f.right_center()], line);
+    p.circle_stroke(f.center(), art::len(pitch, art::CIRCLE), line);
+    p.circle_filled(f.center(), art::len(pitch, art::CENTRE_SPOT), art::CHALK);
+    let corner = art::len(pitch, art::CORNER);
+    for (c, a) in [
+        (f.left_top(), 0.0),
+        (f.right_top(), FRAC_PI_2),
+        (f.right_bottom(), PI),
+        (f.left_bottom(), -FRAC_PI_2),
+    ] {
+        p.add(egui::Shape::line(
+            art::arc(c, corner, a, a + FRAC_PI_2),
+            line,
+        ));
+    }
+    let [bl, br, bd] = art::BOX;
+    let [gl, gr, gd] = art::GOAL_AREA;
+    // the penalty arc: the part of the circle round the spot outside the box
+    let half = ((bd - art::SPOT) / art::CIRCLE).acos();
+    for (goal, dir) in [(art::FIELD[1], 1.0), (art::FIELD[3], -1.0)] {
+        let rect = |l, r, d: f32| {
+            Rect::from_two_pos(art::at(pitch, l, goal), art::at(pitch, r, goal + d * dir))
+        };
+        p.rect_stroke(rect(bl, br, bd), 0, line, StrokeKind::Middle);
+        p.rect_stroke(rect(gl, gr, gd), 0, line, StrokeKind::Middle);
+        let spot = art::at(pitch, art::W / 2.0, goal + art::SPOT * dir);
+        let mid = if dir > 0.0 { FRAC_PI_2 } else { -FRAC_PI_2 };
+        p.add(egui::Shape::line(
+            art::arc(spot, art::len(pitch, art::CIRCLE), mid - half, mid + half),
+            line,
+        ));
+    }
+    let gk = art::rect(pitch, art::GK);
+    p.rect_filled(gk, 0, art::GK_BOX);
+    p.text(
+        gk.center(),
+        Align2::CENTER_CENTER,
+        "GK",
+        theme::display(size),
+        art::GK_TEXT,
+    );
 }
 
 /// The card back's position map: a tile per position area ([`heat_zone`]), or "no position data" on a small pitch.
