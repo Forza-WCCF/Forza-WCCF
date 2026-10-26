@@ -234,6 +234,36 @@ fn game_text(kit: &Kit) -> &'static str {
     game_text_for(text::lang(), over.as_deref())
 }
 
+/// Set in the environment of the Launcher.exe an update started: it sets up again before anything else.
+const AFTER_UPDATE: &str = "WCCF_LAUNCHER_AFTER_UPDATE";
+
+/// After an update: the setup again, the game text in the Launcher language, the card pictures.
+fn after_update_steps(kit: &Kit, folder: &str) -> Vec<Step> {
+    steps_after_update(kit.edition(), folder, game_text(kit))
+}
+
+fn steps_after_update(edition: Edition, folder: &str, lang: &'static str) -> Vec<Step> {
+    let mut steps = vec![Step::Setup {
+        folder: folder.into(),
+        undo: false,
+    }];
+    // 2017-18: the game's text is rebuilt at the next start (refresh_old_text)
+    if !lang.is_empty() && edition == Edition::E1011 {
+        steps.push(Step::Text(lang));
+    }
+    steps.push(Step::Pictures); // last: a failure here must not skip the game's text
+    steps
+}
+
+/// Starts the Launcher.exe the update put in place; false when it did not start.
+fn restart_after_update(kit: &Kit) -> bool {
+    std::process::Command::new(kit.dir().join(Kit::exe_name()))
+        .current_dir(kit.dir())
+        .env(AFTER_UPDATE, "1")
+        .spawn()
+        .is_ok()
+}
+
 fn panel_file(kit: &Kit) -> PathBuf {
     kit.data().join("panel.txt")
 }
@@ -770,6 +800,12 @@ impl App {
             ask_updates();
         }
         if updated {
+            // this process still runs the old Launcher.exe's code (the setup, the text and the card pictures of the new
+            // release would be made by it): the new one starts and does the setup itself (AFTER_UPDATE in main)
+            if restart_after_update(&kit) {
+                ctx.send_viewport_cmd(ViewportCommand::Close);
+                return;
+            }
             self.st.version = version(&kit);
             self.list(&kit); // the "this version" mark moves
             // the new files need the setup again, and the game text follows the Launcher language: no question
@@ -917,19 +953,9 @@ impl App {
         }
     }
 
-    /// After an update: the setup again, the game text in the Launcher language, the card pictures.
+    /// After an update, when the new Launcher.exe could not be started: the same steps in this process.
     fn set_up_after_update(&self, kit: &Kit) -> bool {
-        let lang = game_text(kit);
-        let mut steps = vec![Step::Setup {
-            folder: self.st.folder.trim().into(),
-            undo: false,
-        }];
-        // 2017-18: the game's text is rebuilt at the next start (refresh_old_text)
-        if !lang.is_empty() && kit.edition() == Edition::E1011 {
-            steps.push(Step::Text(lang));
-        }
-        steps.push(Step::Pictures); // last: a failure here must not skip the game's text
-        start(steps)
+        start(after_update_steps(kit, self.st.folder.trim()))
     }
 
     /// PLAY: the choices into data\panel.txt, then the run.
@@ -1333,6 +1359,14 @@ fn main() -> ExitCode {
     // dropped on Launcher.exe (or given): a game folder to set up
     let folder = args.first().filter(|a| args.len() == 1 && Path::new(a).is_dir());
     let step = match first.as_deref() {
+        None if env::var_os(AFTER_UPDATE).is_some() => {
+            let folder = choices::setting(&kit.settings_file(), "game").unwrap_or_default();
+            if folder.trim().is_empty() {
+                Vec::new()
+            } else {
+                after_update_steps(&kit, folder.trim())
+            }
+        }
         None => Vec::new(),
         Some(_) if folder.is_some() => vec![
             Step::Setup {
@@ -1411,6 +1445,19 @@ mod tests {
         shared().busy = true;
         assert!(!start(vec![Step::Pictures]), "a busy worker takes no second job");
         shared().busy = false;
+    }
+
+    #[test]
+    fn after_an_update_the_setup_runs_first_and_the_pictures_last() {
+        let steps = steps_after_update(Edition::E1011, "D:\\game", "it");
+        assert!(matches!(
+            steps.as_slice(),
+            [Step::Setup { undo: false, .. }, Step::Text("it"), Step::Pictures]
+        ));
+        // 2017-18 builds the text at the start; the original Japanese needs none
+        let steps = steps_after_update(Edition::E1718, "D:\\game", "it");
+        assert!(matches!(steps.as_slice(), [Step::Setup { .. }, Step::Pictures]));
+        assert_eq!(steps_after_update(Edition::E1011, "D:\\game", "").len(), 2);
     }
 
     #[test]
