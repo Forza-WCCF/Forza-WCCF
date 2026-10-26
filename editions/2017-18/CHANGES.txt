@@ -1,6 +1,17 @@
 Forza-WCCF 2017-18 - release notes
 ==================================
 
+0.4.1 - 2026-10-26 (alpha)
+--------------------------
+Closing the projector window keeps the game going; panel hotkeys show on Alt.
+
+  - Closing the projector window no longer stops the game. The seat keeps playing.
+  - Panel: the buttons around the game picture show their hotkeys only while Alt is held.
+  - After UPDATE the Launcher restarts as the new version, so setup, game text and card pictures are made by the new code.
+    This takes effect from the update after 0.4.1: updating to 0.4.1 is done by the 0.4.0 Launcher, so close and reopen
+    the Launcher once after updating.
+  - Updated libraries: iroh 1.4.1, tokio 1.54.1 and other crates.
+
 0.4.0 - 2026-10-25 (alpha)
 --------------------------
 Album card art, key latch and drag-off in the panel, a choice before a CPU match, installer and keys fixes.
