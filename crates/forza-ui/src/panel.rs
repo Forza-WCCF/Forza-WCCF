@@ -46,9 +46,9 @@ pub fn scale(w: f32, h: f32, dpi: f32) -> f32 {
 }
 
 /// The board window (the pop-out board, [`PanelState::desk`]) held wide: at least this tall, the board a full-height
-/// column, beside it a middle as wide as the deck's row needs ([`DESK_MIDDLE`]).
+/// column, beside it a middle as wide as the game sheet's at 1440x900 (the deck's row and the whole page bar fit it).
 pub const DESK_WIDE_H: f32 = 900.0;
-const DESK_MIDDLE: f32 = ROW.x + 42.0;
+const DESK_MIDDLE: f32 = SIZE.x - BOARD_W;
 /// The board window held tall: its least sheet (the pages as wide as the game sheet's), and its deck row with room
 /// above the plates for a toast (the gap the game sheet's deck has).
 pub const DESK_TALL: egui::Vec2 = egui::vec2(860.0, 1192.0);
@@ -65,14 +65,14 @@ fn desk_wide(sheet: egui::Vec2) -> bool {
     sheet.y >= DESK_WIDE_H - 0.01 && sheet.x + 0.01 >= desk_column(sheet.y) + DESK_MIDDLE
 }
 
-/// The board window's points per pixel: as [`scale`], from the larger of what its two layouts allow, so the wide one
-/// (the board full height) is taken whenever the window has the width for it.
+/// The board window's points per pixel: as [`scale`], for the wide layout (the board full height) unless that would
+/// draw everything more than a fifth smaller than the tall one (a square or portrait window: the tall layout).
 pub fn desk_scale(w: f32, h: f32, dpi: f32) -> f32 {
     // wide: w/p >= desk_column(h/p) + DESK_MIDDLE, solved for p; and h/p >= DESK_WIDE_H
     let wide = (h / DESK_WIDE_H)
         .min((w - h / BOARD_PER_W) / (32.0 + DESK_MIDDLE - BOARD_EXTRA / BOARD_PER_W));
     let tall = (w / DESK_TALL.x).min(h / DESK_TALL.y);
-    scale_from(wide.max(tall), dpi)
+    scale_from(if wide >= 0.8 * tall { wide } else { tall }, dpi)
 }
 
 /// Points per pixel for a window that fits its least sheet `fit` times, on a monitor of `dpi`.
@@ -3983,6 +3983,8 @@ mod tests {
             (2560.0, 1440.0, true),
             (3840.0, 2160.0, true),
             (1000.0, 700.0, true),
+            (1024.0, 768.0, true),
+            (1280.0, 1024.0, true),
             (1000.0, 900.0, false),
             (860.0, 1104.0, false),
             (900.0, 1400.0, false),

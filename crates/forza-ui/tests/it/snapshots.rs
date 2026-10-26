@@ -380,6 +380,22 @@ fn card_view() {
     all.unwrap();
 }
 
+/// The pop-out board's window at 1024x768 (4:3): the wide layout, the board full height, drawn at the scale the panel
+/// DLL picks for it.
+#[test]
+fn desk_window_4_3() {
+    let _gpu = gpu();
+    let ppp = panel::desk_scale(1024.0, 768.0, 96.0);
+    let mut st = panel::PanelState::sample(Edition::E1011, Lang::En, panel::Page::Game);
+    st.desk = true;
+    st.file.board_window = true;
+    let mut h = harness(Vec2::new(1024.0, 768.0) / ppp, ppp, Edition::E1011, |ui| {
+        panel::show(ui, &mut st)
+    });
+    h.run_steps(8);
+    h.snapshot("panel_desk_1024x768_en");
+}
+
 /// The 2017-18 formation board as the cabinet's mat: at rest, a card in hand, and with the keeper's slot empty.
 #[test]
 fn board_mat() {

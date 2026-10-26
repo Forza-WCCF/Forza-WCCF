@@ -415,6 +415,19 @@ fn board_window(place: Option<[i32; 5]>, title: &str) {
                 let _ = SetWindowPlacement(h, &wp);
             }
             None => {
+                // 1600x900, or less to stay inside the monitor's work area, centred on it
+                let wa = projector::work_area(h, None);
+                let (ww, wh) = (wa.right - wa.left, wa.bottom - wa.top);
+                let (w, hh) = (1600.min(ww), 900.min(wh));
+                let _ = SetWindowPos(
+                    h,
+                    None,
+                    wa.left + (ww - w) / 2,
+                    wa.top + (wh - hh) / 2,
+                    w,
+                    hh,
+                    SWP_NOZORDER | SWP_NOACTIVATE,
+                );
                 let _ = ShowWindow(h, SW_SHOWNOACTIVATE);
             }
         }
