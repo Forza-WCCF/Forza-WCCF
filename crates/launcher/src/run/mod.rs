@@ -757,7 +757,7 @@ impl Role {
     fn log(self) -> &'static str {
         match self {
             Self::Server => "run_server.txt",
-            Self::Projector => "run_projector.txt",
+            Self::Projector => rules::PROJECTOR_LOG,
             Self::Seat => "run_seat1.txt", // every seat: the cabinet is the seat1 folder
         }
     }
