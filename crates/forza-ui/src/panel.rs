@@ -42,23 +42,41 @@ const BOARD_EXTRA: f32 = 80.0;
 /// ratio to 1440x900 below that. A monitor Windows scales (120 dpi = 125%) sets it instead, so text is as big as in
 /// other programs and drawn at the screen's own pixels, but never so much that the sheet drops under 1440x900 points.
 pub fn scale(w: f32, h: f32, dpi: f32) -> f32 {
-    scale_for(SIZE, w, h, dpi)
+    scale_from((w / SIZE.x).min(h / SIZE.y), dpi)
 }
 
-/// The board window's least sheet (the pop-out board, [`PanelState::desk`]): wide, the board beside the deck and the
-/// pages; tall, the board over the deck and the page bar, the pages as wide as the game sheet's.
-pub const DESK_WIDE: egui::Vec2 = egui::vec2(1400.0, 900.0);
+/// The board window (the pop-out board, [`PanelState::desk`]) held wide: at least this tall, the board a full-height
+/// column, beside it a middle as wide as the deck's row needs ([`DESK_MIDDLE`]).
+pub const DESK_WIDE_H: f32 = 900.0;
+const DESK_MIDDLE: f32 = ROW.x + 42.0;
+/// The board window held tall: its least sheet (the pages as wide as the game sheet's), and its deck row with room
+/// above the plates for a toast (the gap the game sheet's deck has).
 pub const DESK_TALL: egui::Vec2 = egui::vec2(860.0, 1192.0);
-/// The board window held tall: its deck row, with room above the plates for a toast (the gap the game sheet's deck has).
 const DESK_DECK: f32 = ROW.y + 92.0;
 
-/// The board window's points per pixel: as [`scale`], from the least sheet of its shape.
-pub fn desk_scale(w: f32, h: f32, dpi: f32) -> f32 {
-    scale_for(if w >= h { DESK_WIDE } else { DESK_TALL }, w, h, dpi)
+/// The board window's full-height board column on a sheet `h` tall: the pitch and the bench sized by the height.
+fn desk_column(h: f32) -> f32 {
+    (h - BOARD_EXTRA) / BOARD_PER_W + 32.0
 }
 
-fn scale_for(least: egui::Vec2, w: f32, h: f32, dpi: f32) -> f32 {
-    let fit = (w / least.x).min(h / least.y);
+/// Whether a board-window sheet is laid out wide ([`desk_layout`]): tall enough, and the full-height board leaves the
+/// middle its room.
+fn desk_wide(sheet: egui::Vec2) -> bool {
+    sheet.y >= DESK_WIDE_H - 0.01 && sheet.x + 0.01 >= desk_column(sheet.y) + DESK_MIDDLE
+}
+
+/// The board window's points per pixel: as [`scale`], from the larger of what its two layouts allow, so the wide one
+/// (the board full height) is taken whenever the window has the width for it.
+pub fn desk_scale(w: f32, h: f32, dpi: f32) -> f32 {
+    // wide: w/p >= desk_column(h/p) + DESK_MIDDLE, solved for p; and h/p >= DESK_WIDE_H
+    let wide = (h / DESK_WIDE_H)
+        .min((w - h / BOARD_PER_W) / (32.0 + DESK_MIDDLE - BOARD_EXTRA / BOARD_PER_W));
+    let tall = (w / DESK_TALL.x).min(h / DESK_TALL.y);
+    scale_from(wide.max(tall), dpi)
+}
+
+/// Points per pixel for a window that fits its least sheet `fit` times, on a monitor of `dpi`.
+fn scale_from(fit: f32, dpi: f32) -> f32 {
     let monitor = dpi / 96.0;
     if fit < 1.0 {
         fit
@@ -112,13 +130,13 @@ pub fn layout(sheet: Rect, compact: bool) -> Layout {
     }
 }
 
-/// The board window's layout (the pop-out board): no picture. Wide: the board on the right, as wide as its height can
-/// use, the deck centred in the rest over the page bar. Tall: the board across the top, the deck row and the page bar
-/// under it; pages open over everything above the bar.
+/// The board window's layout (the pop-out board): no picture. Wide (whenever the window has the width, [`desk_wide`]):
+/// the board a full-height column on the right, pitch and bench sized by the height, the deck centred in the rest over
+/// the page bar. Tall: the board across the top as wide as the window (or as its height allows), the deck row and the
+/// page bar under it; pages open over everything above the bar.
 pub fn desk_layout(sheet: Rect) -> Layout {
-    if sheet.width() >= sheet.height() {
-        let board_max = (sheet.height() - BOARD_EXTRA) / BOARD_PER_W + 32.0;
-        let bw = board_max.min(sheet.width() - ROW.x - 42.0).max(BOARD_W);
+    if desk_wide(sheet.size()) {
+        let bw = desk_column(sheet.height());
         let board = Rect::from_min_max(pos2(sheet.right() - bw, sheet.top()), sheet.max);
         let middle = sheet.with_max_x(board.left());
         let tabs = middle.with_min_y(middle.bottom() - TABS_H);
@@ -774,7 +792,7 @@ pub fn board_slot_center(width: f32, spots: &[Pos2; 11], slot: usize) -> Pos2 {
 pub fn show(ui: &mut Ui, st: &mut PanelState) {
     let lang = st.lang;
     let sheet = ui.max_rect();
-    let tall = st.desk && sheet.height() > sheet.width();
+    let tall = st.desk && !desk_wide(sheet.size());
     let lay = if st.desk {
         desk_layout(sheet)
     } else {
@@ -3958,26 +3976,24 @@ mod tests {
     #[test]
     fn desk_layout_fits_every_window() {
         let apart = |a: Rect, b: Rect| !a.intersect(b).is_positive();
-        for (w, h) in [
-            (1400.0, 900.0),
-            (1920.0, 1080.0),
-            (2560.0, 1440.0),
-            (3840.0, 2160.0),
-            (1000.0, 700.0),
-            (860.0, 1104.0),
-            (900.0, 1400.0),
-            (1080.0, 1920.0),
-            (1200.0, 1600.0),
+        for (w, h, wide) in [
+            (1400.0, 900.0, true),
+            (1600.0, 900.0, true),
+            (1920.0, 1080.0, true),
+            (2560.0, 1440.0, true),
+            (3840.0, 2160.0, true),
+            (1000.0, 700.0, true),
+            (1000.0, 900.0, false),
+            (860.0, 1104.0, false),
+            (900.0, 1400.0, false),
+            (1080.0, 1920.0, false),
+            (1200.0, 1600.0, false),
         ] {
             let ppp = desk_scale(w, h, 96.0);
             let sheet = Rect::from_min_size(Pos2::ZERO, vec2(w, h) / ppp);
-            let least = if w >= h { DESK_WIDE } else { DESK_TALL };
             let l = desk_layout(sheet);
             let at = format!("{w}x{h}: {sheet:?} {l:?}");
-            assert!(
-                sheet.width() >= least.x - 0.01 && sheet.height() >= least.y - 0.01,
-                "{at}"
-            );
+            assert_eq!(desk_wide(sheet.size()), wide, "{at}");
             for r in [l.board, l.deck, l.tabs, l.pages] {
                 assert!(sheet.expand(0.01).contains_rect(r), "{at}");
             }
@@ -3993,6 +4009,20 @@ mod tests {
             let pitch_w =
                 (l.board.width() - 32.0).min((l.board.height() - BOARD_EXTRA) / BOARD_PER_W);
             assert!(pitch_w >= BOARD_W - 32.0, "{at}");
+            if wide {
+                // the board full height: pitch, bench and hint fill the column top to bottom
+                assert_eq!(l.board.height(), sheet.height(), "{at}");
+                let used = pitch_w * BOARD_PER_W + BOARD_EXTRA;
+                assert!((used - sheet.height()).abs() < 0.5, "{at}: {used}");
+            } else {
+                // tall: the board as wide as the window (less its margins), or as its height allows
+                let by_w = l.board.width() - 32.0;
+                assert!(
+                    pitch_w == by_w
+                        || pitch_w * BOARD_PER_W + BOARD_EXTRA <= l.board.height() + 0.5,
+                    "{at}"
+                );
+            }
         }
     }
 

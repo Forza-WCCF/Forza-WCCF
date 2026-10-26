@@ -374,7 +374,7 @@ fn board_window(place: Option<[i32; 5]>, title: &str) {
             WS_OVERLAPPEDWINDOW,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            1000,
+            1600, // wide: the board full height beside the deck (panel::desk_layout)
             900,
             None,
             None,

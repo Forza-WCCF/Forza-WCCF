@@ -302,6 +302,20 @@ fn desk_window() {
             panel::Page::Catalogue,
             "panel_desk_tall_catalogue_it",
         ),
+        (
+            Vec2::new(1920.0, 1080.0),
+            Edition::E1011,
+            Lang::En,
+            panel::Page::Game,
+            "panel_desk_1920x1080_en",
+        ),
+        (
+            Vec2::new(1080.0, 1920.0),
+            Edition::E1718,
+            Lang::En,
+            panel::Page::Game,
+            "panel_desk_1080x1920_en",
+        ),
     ] {
         let mut st = panel::PanelState::sample(ed, lang, page);
         st.desk = true;
