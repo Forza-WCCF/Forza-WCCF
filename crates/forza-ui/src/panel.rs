@@ -2435,6 +2435,14 @@ fn card_view(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     if added {
         st.add = Some(card.number);
     }
+    // what ADD did (added, already on the table, refused): a toast over the pictures' lower edge, as the game page has
+    let note = Rect::from_center_size(
+        pos2(body.center().x, body.top() + 48.0 + size.y - 30.0),
+        vec2(w.clamp(400.0, 520.0), 34.0),
+    );
+    ui.scope_builder(egui::UiBuilder::new().max_rect(note), |ui| {
+        note_line(ui, &mut st.message)
+    });
     let c = &mut st.catalogue;
     if back_to_list {
         c.view = None;

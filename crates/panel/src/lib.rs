@@ -419,6 +419,7 @@ fn board_window(place: Option<[i32; 5]>, title: &str) {
             }
         }
     }
+    BOARD_SIZING.store(false, Relaxed);
     BOARD.store(h.0 as isize, Relaxed);
     log(&format!("board window: up at {place:?}"));
     let mut m = MSG::default();
@@ -471,6 +472,7 @@ unsafe extern "system" fn board_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM)
         }
         WM_DESTROY => {
             latch_up();
+            BOARD_SIZING.store(false, Relaxed); // a window closed in its move loop never sees WM_EXITSIZEMOVE
             // SAFETY: this thread's own loop ends
             unsafe { PostQuitMessage(0) };
             return LRESULT(0);
@@ -1273,7 +1275,19 @@ impl Render {
             };
             let mut cr = RECT::default();
             if !drawable(target) || GetClientRect(target, &mut cr).is_err() {
-                POPPED.store(false, Relaxed);
+                // the game's window minimized: the board window still draws (the game's own Present shows its frame)
+                let mut popped = false;
+                if let Some(bw) = board
+                    && let Ok(sb) = dev.CreateStateBlock(D3DSBT_ALL)
+                {
+                    let mut vp = D3DVIEWPORT9::default();
+                    let _ = dev.GetViewport(&mut vp);
+                    self.st.desk = true;
+                    popped = self.board_frame(dev, bw);
+                    let _ = dev.SetViewport(&vp);
+                    let _ = sb.Apply();
+                }
+                POPPED.store(popped, Relaxed);
                 return None;
             }
             let (w, h) = (cr.right as u32, cr.bottom as u32);
@@ -1357,6 +1371,10 @@ impl Render {
             self.st.file_changed = true;
         }
         let h = BOARD.load(Relaxed);
+        // saved now: the frame may not paint (a minimized game window), and the player may quit before it does
+        if self.st.file_changed {
+            self.settings_out();
+        }
         if !self.st.file.board_window {
             if h != 0 {
                 self.board_sc = None; // the swap chain lets go of the window before it goes

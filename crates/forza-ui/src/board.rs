@@ -243,7 +243,15 @@ pub fn card_picture_px(
 /// A card side in a 1:1 slot `rect` (its top left on a whole pixel): its picture, letterboxed when its shape differs
 /// from the slot's, or the drawn face or back.
 pub fn card_side(p: &Painter, rect: Rect, card: &Card, back: bool, nearest: bool, lang: Lang) {
-    match card_picture_px(p.ctx(), card.number, back, nearest) {
+    // nearest filtering only for the album art's own 256x357: an older, smaller picture filling the slot stays smooth
+    let got = card_picture_px(p.ctx(), card.number, back, nearest).and_then(|(id, size)| {
+        if nearest && size != crate::sizing::ALBUM {
+            card_picture_px(p.ctx(), card.number, back, false)
+        } else {
+            Some((id, size))
+        }
+    });
+    match got {
         Some((id, size)) => {
             p.rect_filled(rect, 0, theme::DEEP);
             // a plain mesh, not an image shape: the tessellator's feathering would move its edges off the pixel grid
