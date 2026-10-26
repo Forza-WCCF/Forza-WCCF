@@ -245,6 +245,35 @@ fn board_interaction() {
     h.snapshot("board_back_en");
 }
 
+/// The hover pane stays in the board's column: docked under the hint at 1920x1080 (a strip) and 2560x1440 (large), over
+/// the pitch's far half at 1440x900 (the card in the top half: the pane at the pitch's foot).
+#[test]
+fn hover_pane() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for (size, slot, name) in [
+        (Vec2::new(1920.0, 1080.0), 2, "panel_hover_1080_en"),
+        (Vec2::new(2560.0, 1440.0), 2, "panel_hover_1440p_en"),
+        (panel::SIZE, 9, "panel_hover_1440x900_top_en"),
+    ] {
+        let mut st = panel::PanelState::sample(Edition::E1011, Lang::En, panel::Page::Game);
+        let col = panel::layout(egui::Rect::from_min_size(egui::Pos2::ZERO, size), false)
+            .board
+            .shrink(16.0);
+        let pitch = forza_ui::board::pitch_rect(col.min, col.width());
+        let at = forza_ui::board::slot_rects(pitch, pitch.bottom() + 12.0, &st.board.spots)[slot]
+            .center();
+        st.hover_delay = 0.0;
+        let mut h = harness(size, 1.0, Edition::E1011, |ui| panel::show(ui, &mut st));
+        h.run_steps(4);
+        h.hover_at(at);
+        h.run_steps(4);
+        h.snapshot(name);
+        all.extend_harness(&mut h);
+    }
+    all.unwrap();
+}
+
 /// The 2017-18 formation board as the cabinet's mat: at rest, a card in hand, and with the keeper's slot empty.
 #[test]
 fn board_mat() {

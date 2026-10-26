@@ -1643,27 +1643,38 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     b.add_space(4.0);
     // a card just taken off: its name and UNDO for a few seconds, in the hint's place
     st.undo = st.undo.take().filter(|(_, at)| now - at < UNDO_SECS);
-    let Some((r, at)) = st.undo.clone() else {
+    if let Some((r, at)) = st.undo.clone() {
+        b.ctx()
+            .request_repaint_after(std::time::Duration::from_secs_f64(UNDO_SECS - (now - at)));
+        b.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(tr!(lang, "board.removed", name = r.card.short_name()))
+                    .font(theme::body(HINT))
+                    .color(theme::TEXT),
+            );
+            if widgets::action(ui, &tr!(lang, "board.undo")).clicked() {
+                st.board_changed |= board::undo(&mut st.board, &r);
+                st.undo = None;
+            }
+        });
+    } else {
         b.label(
             egui::RichText::new(tr!(lang, "board.hint"))
                 .font(theme::body(HINT))
                 .color(theme::TEXT_DIM),
         );
-        return;
-    };
-    b.ctx()
-        .request_repaint_after(std::time::Duration::from_secs_f64(UNDO_SECS - (now - at)));
-    b.horizontal(|ui| {
-        ui.label(
-            egui::RichText::new(tr!(lang, "board.removed", name = r.card.short_name()))
-                .font(theme::body(HINT))
-                .color(theme::TEXT),
-        );
-        if widgets::action(ui, &tr!(lang, "board.undo")).clicked() {
-            st.board_changed |= board::undo(&mut st.board, &r);
-            st.undo = None;
-        }
-    });
+    }
+    // the hovered card's pane and the partner list: in this column only, under the hint or over the pitch
+    let hint_bottom = b.min_rect().bottom();
+    board::info_panes(
+        &b,
+        &st.board,
+        &st.links,
+        pitch,
+        hint_bottom,
+        r.bottom(),
+        lang,
+    );
 }
 
 /// How long UNDO stays offered after a card is taken off the board.
@@ -3602,6 +3613,67 @@ mod tests {
                     compact || BOARD_PER_W * bw + BOARD_EXTRA <= l.board.height() + 1.0,
                     "{at}"
                 );
+            }
+        }
+    }
+
+    /// The hover pane lies in the board's column at every window: docked under the hint where the column has the room
+    /// (1920x1080: a strip; 2560x1440: large), else a strip over the pitch's half away from the hovered card; never on
+    /// the game's picture or the deck.
+    #[test]
+    fn the_hover_pane_stays_in_the_board_column() {
+        for (w, h) in [
+            (1280.0, 800.0),
+            (1440.0, 900.0),
+            (1600.0, 900.0),
+            (1920.0, 1009.0),
+            (1920.0, 1080.0),
+            (2560.0, 1373.0),
+            (2560.0, 1440.0),
+            (3440.0, 1440.0),
+        ] {
+            for compact in [false, true] {
+                let l = layout(sheet_of(w, h), compact);
+                let col = l.board.shrink(16.0);
+                let pitch = board::pitch_rect(col.min, col.width());
+                let tile = board::card_size(pitch.width());
+                // the bench (8 + its well) and a line of hint (4 + 17), as board_strip lays them out
+                let hint_bottom = pitch.bottom() + 8.0 + tile.y * 0.8 + 12.0 + 4.0 + 4.0 + 17.0;
+                for card_y in [
+                    pitch.top() + 40.0,
+                    pitch.bottom() - 40.0,
+                    hint_bottom - 30.0,
+                ] {
+                    let (pane, tier) =
+                        board::pane_place(pitch, hint_bottom, col.bottom(), 425.0, 149.0, card_y);
+                    let at =
+                        format!("{w}x{h} compact {compact} card at {card_y}: {pane:?} {tier:?}");
+                    assert!(l.board.contains_rect(pane), "{at}");
+                    assert!(
+                        !pane.intersects(l.picture) && !pane.intersects(l.deck),
+                        "{at}"
+                    );
+                    // floating: on the other half of the pitch
+                    if pane.top() < hint_bottom {
+                        assert!(
+                            pane.top() >= pitch.top() && pane.bottom() <= pitch.bottom(),
+                            "{at}"
+                        );
+                        assert!(
+                            (pane.center().y < pitch.center().y) != (card_y < pitch.center().y),
+                            "{at}"
+                        );
+                    }
+                }
+                let docked = |card_y| {
+                    board::pane_place(pitch, hint_bottom, col.bottom(), 425.0, 149.0, card_y)
+                };
+                match (w as u32, h as u32, compact) {
+                    (1440, 900, _) => assert!(docked(pitch.top()).0.top() < hint_bottom),
+                    (1920, 1080, false) => assert_eq!(docked(pitch.top()).1, board::Tier::Strip),
+                    (2560, 1440, false) => assert_eq!(docked(pitch.top()).1, board::Tier::Large),
+                    _ => {}
+                }
             }
         }
     }

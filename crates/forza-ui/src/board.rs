@@ -1126,18 +1126,14 @@ pub fn formation_board(
     }
     back.append(&mut front);
     ui.painter().set(lines_at, egui::Shape::Vec(back));
-    // the list while the card is in hand or the mouse is on the board: elsewhere it would cover the pages
+    // the list while the card is in hand or the mouse is on the board, drawn by [`info_panes`] in the board's column
     if let Some(s) = selected
         && (dragging.is_some() || pointer.is_some_and(|p| pitch.union(bench).contains(p)))
     {
-        partner_list(
-            ui,
-            board,
-            links,
-            s,
-            pos2(ui.max_rect().left() - 16.0, bench.bottom()),
-            lang,
-        );
+        let at = (0..16)
+            .find(|&i| board.number(i) == Some(s))
+            .map_or(pitch, |i| rects[i]);
+        ui.data_mut(|d| d.insert_temp(partners_id(), (s, at)));
     }
 
     // the big card after a resting mouse
@@ -1162,8 +1158,13 @@ pub fn formation_board(
                 *f == Some(slot)
             });
             if left <= 0.0 || back {
-                let left = ui.max_rect().left();
-                big_card(ui, &board.cards[ci], rect, left, card, back, lang);
+                let ask = PaneAsk {
+                    card: board.cards[ci].clone(),
+                    at: rect,
+                    tile: card,
+                    back,
+                };
+                ui.data_mut(|d| d.insert_temp(pane_id(), ask));
                 shown_big = Some(ci);
             } else {
                 ui.ctx()
@@ -1241,9 +1242,9 @@ pub fn partner_row(ui: &mut Ui, name: &str, link: Option<Stage>, affinity: Optio
     }
 }
 
-/// The selected card's partners beside the board, its bottom right at `anchor`: team-mates it is linked with (a line)
-/// or has the best affinity with, then the best partners not on the team (at most six).
-fn partner_list(ui: &Ui, board: &Board, links: &Links, sel: u32, anchor: Pos2, lang: Lang) {
+/// The selected card's partners in the board's column, the top left at `at`: team-mates it is linked with (a line) or
+/// has the best affinity with, then the best partners not on the team (at most six).
+fn partner_list(ui: &Ui, board: &Board, links: &Links, sel: u32, at: Pos2, lang: Lang) {
     let on: Vec<&Card> = board
         .slots
         .iter()
@@ -1269,8 +1270,7 @@ fn partner_list(ui: &Ui, board: &Board, links: &Links, sel: u32, anchor: Pos2, l
     let w = 230.0;
     egui::Area::new(Id::new("board-partners"))
         .order(Order::Foreground)
-        .pivot(Align2::RIGHT_BOTTOM)
-        .fixed_pos(anchor)
+        .fixed_pos(at)
         .interactable(false)
         .show(ui.ctx(), |ui| {
             egui::Frame::new()
@@ -1660,12 +1660,13 @@ pub fn card_back(p: &Painter, rect: Rect, card: &Card, lang: Lang) {
     );
 }
 
-/// Room around the big card's face: the frame's margins, and its caption under it (name, facts, roles, stats).
+/// Room around the info pane's face: the frame's margins, and the large tier's caption under it (name, facts, roles,
+/// stats).
 const BIG_FRAME: f32 = 22.0;
 const BIG_CAPTION: f32 = 150.0;
 
-/// How much the big card enlarges a `tile`: 4x, or the most that keeps the face, the position map beside it and the
-/// caption inside `room` (the space left of the board, the window's height); never under 1x.
+/// How much the large tier enlarges a `tile`: 4x, or the most that keeps the face, the position map beside it and the
+/// caption inside `room`; never under 1x.
 fn big_scale(tile: Vec2, room: Vec2) -> f32 {
     // the face k * tile, 10 apart the map (k * tile.y - 22) / PITCH_ASPECT wide, the frame round them
     let by_w = (room.x - BIG_FRAME - 10.0 + 22.0 / PITCH_ASPECT) / (tile.x + tile.y / PITCH_ASPECT);
@@ -1673,36 +1674,130 @@ fn big_scale(tile: Vec2, room: Vec2) -> f32 {
     by_w.min(by_h).clamp(1.0, 4.0)
 }
 
-/// The big card beside the board, kept inside the window, with its caption: the whole card face at 4x the board's
-/// `tile` (less when the window is too small, [`big_scale`]), the card back's suitable positions beside it, and its
-/// line of facts.
-fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, tile: Vec2, back: bool, lang: Lang) {
+/// What the board asks [`info_panes`] to show this frame: the card shown big, where it lies, the pitch card's size and
+/// whether it is turned over.
+#[derive(Clone)]
+struct PaneAsk {
+    card: Card,
+    at: Rect,
+    tile: Vec2,
+    back: bool,
+}
+
+fn pane_id() -> Id {
+    Id::new("board-pane-ask")
+}
+
+/// The selected card's partner list asked for: its number and where it lies.
+fn partners_id() -> Id {
+    Id::new("board-partners-ask")
+}
+
+/// The info pane's two sizes: large (the face at its picture's own pixels, the position map beside it, the caption
+/// under them) or a strip (a smaller face, the caption beside it).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tier {
+    Large,
+    Strip,
+}
+
+/// Where an info pane goes in the board's column, `pitch` wide: docked under the hint (its foot at `hint_bottom`) when
+/// the column has the room before `foot`, large (`large_h` tall) if it can, else a strip (`strip_h`); when not even a
+/// strip fits there, a strip over the half of the pitch away from the card it is about (its centre at `card_y`; a bench
+/// card counts as low). It never leaves the column, so it never covers the game's picture or the deck.
+pub fn pane_place(
+    pitch: Rect,
+    hint_bottom: f32,
+    foot: f32,
+    large_h: f32,
+    strip_h: f32,
+    card_y: f32,
+) -> (Rect, Tier) {
+    let free = foot - hint_bottom - 8.0;
+    let docked = |h| {
+        Rect::from_min_size(
+            pos2(pitch.left(), hint_bottom + 8.0),
+            vec2(pitch.width(), h),
+        )
+    };
+    if free >= large_h {
+        return (docked(large_h), Tier::Large);
+    }
+    if free >= strip_h {
+        return (docked(strip_h), Tier::Strip);
+    }
+    let r = if card_y > pitch.center().y {
+        Rect::from_min_size(pitch.left_top(), vec2(pitch.width(), strip_h))
+    } else {
+        Rect::from_min_max(
+            pos2(pitch.left(), pitch.bottom() - strip_h),
+            pitch.right_bottom(),
+        )
+    };
+    (r, Tier::Strip)
+}
+
+/// The large tier's face for a pitch card `tile` in a pane `width` wide: the card picture at its own pixels
+/// ([`crate::sizing::big_scale`]), less when the face and its map would not fit the width.
+fn large_face(tile: Vec2, width: f32, ppp: f32) -> Vec2 {
+    tile * big_scale(tile, vec2(width, f32::INFINITY)).min(crate::sizing::big_scale(tile.x, ppp))
+}
+
+/// The board's panes, drawn once the hint under the bench is laid out (its foot at `hint_bottom`; the column ends at
+/// `foot`): the card the mouse rests on (after the hover delay, or turned over), else the selected card's partners.
+/// Both stay inside the board's column ([`pane_place`]).
+pub fn info_panes(
+    ui: &Ui,
+    board: &Board,
+    links: &Links,
+    pitch: Rect,
+    hint_bottom: f32,
+    foot: f32,
+    lang: Lang,
+) {
+    let (ask, partners) = ui.data_mut(|d| {
+        let ask = d.get_temp::<PaneAsk>(pane_id());
+        let partners = d.get_temp::<(u32, Rect)>(partners_id());
+        d.remove::<PaneAsk>(pane_id());
+        d.remove::<(u32, Rect)>(partners_id());
+        (ask, partners)
+    });
+    let ppp = ui.ctx().pixels_per_point();
+    if let Some(a) = ask {
+        let large = large_face(a.tile, pitch.width(), ppp);
+        let strip = crate::sizing::hover_face(ppp);
+        let (pane, tier) = pane_place(
+            pitch,
+            hint_bottom,
+            foot,
+            BIG_FRAME + large.y + BIG_CAPTION,
+            BIG_FRAME + strip.y,
+            a.at.center().y,
+        );
+        let face = if tier == Tier::Large { large } else { strip };
+        info_pane(ui, &a.card, pane, tier, face, a.back, lang);
+    } else if let Some((sel, at)) = partners {
+        // as tall as it was last frame (about 220 points the first time)
+        let h = ui
+            .ctx()
+            .memory(|m| m.area_rect(Id::new("board-partners")))
+            .map_or(220.0, |r| r.height());
+        let (r, _) = pane_place(pitch, hint_bottom, foot, f32::INFINITY, h, at.center().y);
+        partner_list(ui, board, links, sel, r.min, lang);
+    }
+}
+
+/// The info pane in `pane`: the card's face (its back when turned over) `face` big; large, the position map beside it
+/// and the caption under them; a strip, the caption beside the face.
+fn info_pane(ui: &Ui, card: &Card, pane: Rect, tier: Tier, face: Vec2, back: bool, lang: Lang) {
     let card = &*real(ui.ctx(), card);
-    let screen = ui.ctx().content_rect();
-    let room = vec2(board_left - 32.0 - screen.left(), screen.height() - 32.0);
-    // no bigger than the card picture's own pixels; the caption shrinks a little with it, never under 9/10
-    let fit = big_scale(tile, room);
-    let k = fit.min(crate::sizing::big_scale(
-        tile.x,
-        ui.ctx().pixels_per_point(),
-    ));
-    let t = (k / fit).clamp(0.9, 1.0);
-    let size = tile * k;
-    // the map under its 22 px heading, as tall as the card
-    let map = vec2((size.y - 22.0) / PITCH_ASPECT, size.y - 22.0);
-    // turned over: the back, as wide as the face and the map unless that is too tall
-    let back_w = (size.x + 10.0 + map.x).min((room.y - BIG_FRAME - BIG_CAPTION) * CARD_ASPECT);
-    let body_h = if back { back_w / CARD_ASPECT } else { size.y };
-    let pos = pos2(
-        board_left - 16.0,
-        (near.center().y - size.y / 2.0)
-            .min(screen.bottom() - 16.0 - BIG_FRAME - BIG_CAPTION - body_h)
-            .max(screen.top() + 16.0),
-    );
+    let large = tier == Tier::Large;
+    let t = if large { 1.0 } else { 0.9 };
+    // the map under its 22 pt heading, as tall as the card
+    let map = vec2((face.y - 22.0) / PITCH_ASPECT, face.y - 22.0);
     egui::Area::new(Id::new("board-big"))
         .order(Order::Tooltip)
-        .pivot(Align2::RIGHT_TOP)
-        .fixed_pos(pos)
+        .fixed_pos(pane.min)
         .interactable(false)
         .show(ui.ctx(), |ui| {
             egui::Frame::new()
@@ -1717,18 +1812,15 @@ fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, tile: Vec2, back:
                     color: Color32::from_black_alpha(160),
                 })
                 .show(ui, |ui| {
-                    let wide = size.x + 10.0 + map.x;
-                    ui.set_max_width(wide);
-                    if back {
-                        // turned over: the back, as wide as the face and the map
-                        let w = back_w;
-                        let (r, _) =
-                            ui.allocate_exact_size(vec2(w, w / CARD_ASPECT), Sense::hover());
-                        card_back(ui.painter(), r, card, lang);
-                    } else {
-                        ui.horizontal_top(|ui| {
-                            ui.spacing_mut().item_spacing.x = 10.0;
-                            let (r, _) = ui.allocate_exact_size(size, Sense::hover());
+                    let inner = pane.size() - Vec2::splat(BIG_FRAME);
+                    ui.set_min_size(inner);
+                    ui.set_max_width(inner.x);
+                    ui.horizontal_top(|ui| {
+                        ui.spacing_mut().item_spacing.x = 10.0;
+                        let (r, _) = ui.allocate_exact_size(face, Sense::hover());
+                        if back {
+                            card_back(ui.painter(), r, card, lang);
+                        } else {
                             card_face(
                                 ui.painter(),
                                 r,
@@ -1738,90 +1830,103 @@ fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, tile: Vec2, back:
                                     ..Look::default()
                                 },
                             );
-                            ui.vertical(|ui| {
+                        }
+                        ui.vertical(|ui| {
+                            if large {
                                 ui.spacing_mut().item_spacing.y = 4.0;
                                 ui.label(
                                     egui::RichText::new(tr!(lang, "board.positions"))
-                                        .font(theme::display(14.0 * t))
+                                        .font(theme::display(14.0))
                                         .color(theme::TEXT_DIM),
                                 );
                                 let (m, _) = ui.allocate_exact_size(map, Sense::hover());
                                 aptitude_map(ui.painter(), m, &card.aptitude, lang);
-                            });
-                        });
-                    }
-                    ui.label(
-                        egui::RichText::new(&card.name)
-                            .font(theme::display(20.0 * t))
-                            .color(theme::TEXT),
-                    );
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "{} · {} · {}",
-                            card.club, card.country, card.season
-                        ))
-                        .font(theme::body(12.0 * t))
-                        .color(theme::TEXT_DIM),
-                    );
-                    let top = card.aptitude.top();
-                    if !top.is_empty() {
-                        let roles = top
-                            .iter()
-                            .map(|(n, r)| format!("{n} {r}"))
-                            .collect::<Vec<_>>()
-                            .join(" · ");
-                        ui.label(
-                            egui::RichText::new(tr!(lang, "board.roles", roles = roles))
-                                .font(theme::body(12.0 * t))
-                                .italics()
-                                .color(theme::TEXT_DIM),
-                        );
-                    }
-                    let stats = [
-                        "cat.off", "cat.def", "cat.tec", "cat.pow", "cat.spd", "cat.sta",
-                    ];
-                    if card.secret {
-                        ui.label(
-                            egui::RichText::new(tr!(lang, "cat.secret"))
-                                .font(theme::display(18.0 * t))
-                                .color(theme::TEXT_DIM),
-                        );
-                    } else {
-                        egui::Grid::new("big-stats")
-                            .num_columns(6)
-                            .spacing(vec2(14.0, 0.0))
-                            .show(ui, |ui| {
-                                for k in stats {
-                                    ui.label(
-                                        egui::RichText::new(tr!(lang, k))
-                                            .font(theme::display(12.0 * t))
-                                            .color(theme::TEXT_DIM),
-                                    );
-                                }
-                                ui.end_row();
-                                for v in card.stats {
-                                    ui.label(
-                                        egui::RichText::new(v.to_string())
-                                            .font(theme::display(18.0 * t))
-                                            .color(super::widgets::stat_color(v)),
-                                    );
-                                }
-                            });
-                    }
-                    ui.label(
-                        egui::RichText::new(tr!(
-                            lang,
-                            if back {
-                                "board.flip_back"
                             } else {
-                                "board.flip"
+                                ui.spacing_mut().item_spacing.y = 2.0;
+                                caption(ui, card, back, t, lang);
                             }
-                        ))
-                        .font(theme::body(11.0 * t))
-                        .color(theme::TEXT_FAINT),
-                    );
+                        });
+                    });
+                    if large {
+                        caption(ui, card, back, t, lang);
+                    }
                 });
         });
+}
+
+/// The info pane's words: the name, club · country · season, the best roles, the stats (or SECRET) and the flip hint;
+/// `t` scales the text.
+fn caption(ui: &mut Ui, card: &Card, back: bool, t: f32, lang: Lang) {
+    ui.label(
+        egui::RichText::new(&card.name)
+            .font(theme::display(20.0 * t))
+            .color(theme::TEXT),
+    );
+    ui.label(
+        egui::RichText::new(format!(
+            "{} · {} · {}",
+            card.club, card.country, card.season
+        ))
+        .font(theme::body(12.0 * t))
+        .color(theme::TEXT_DIM),
+    );
+    let top = card.aptitude.top();
+    if !top.is_empty() {
+        let roles = top
+            .iter()
+            .map(|(n, r)| format!("{n} {r}"))
+            .collect::<Vec<_>>()
+            .join(" · ");
+        ui.label(
+            egui::RichText::new(tr!(lang, "board.roles", roles = roles))
+                .font(theme::body(12.0 * t))
+                .italics()
+                .color(theme::TEXT_DIM),
+        );
+    }
+    let stats = [
+        "cat.off", "cat.def", "cat.tec", "cat.pow", "cat.spd", "cat.sta",
+    ];
+    if card.secret {
+        ui.label(
+            egui::RichText::new(tr!(lang, "cat.secret"))
+                .font(theme::display(18.0 * t))
+                .color(theme::TEXT_DIM),
+        );
+    } else {
+        egui::Grid::new("big-stats")
+            .num_columns(6)
+            .spacing(vec2(14.0, 0.0))
+            .show(ui, |ui| {
+                for k in stats {
+                    ui.label(
+                        egui::RichText::new(tr!(lang, k))
+                            .font(theme::display(12.0 * t))
+                            .color(theme::TEXT_DIM),
+                    );
+                }
+                ui.end_row();
+                for v in card.stats {
+                    ui.label(
+                        egui::RichText::new(v.to_string())
+                            .font(theme::display(18.0 * t))
+                            .color(super::widgets::stat_color(v)),
+                    );
+                }
+            });
+    }
+    ui.label(
+        egui::RichText::new(tr!(
+            lang,
+            if back {
+                "board.flip_back"
+            } else {
+                "board.flip"
+            }
+        ))
+        .font(theme::body(11.0 * t))
+        .color(theme::TEXT_FAINT),
+    );
 }
 
 /// A card in the catalogue's results: lifts a little under the mouse; `on_table` dims it with a tick.
