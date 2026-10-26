@@ -12,6 +12,8 @@ pub const WINDOW_CLOSED: &str = "its window was closed";
 pub const CLEAN_EXIT: &str = "process exited, exit code 0x00000000";
 /// debug::run's words at a crash.
 pub const CRASH_SIGNS: [&str; 2] = ["SECOND-chance / FATAL", "STOP: invalid parameter"];
+/// The projector's launcher log: closing the projector leaves the seats playing.
+pub const PROJECTOR_LOG: &str = "run_projector.txt";
 
 /// What a run is for.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -212,13 +214,17 @@ pub fn card_rule(seat_up: bool, force: bool, card_in: Option<bool>, session: Ses
 }
 
 /// When a game window's launcher has ended (play.py's crashed_logs): `gone` = the logs of the window launchers that
-/// have ended, `others_alive` = another game window still runs.  None: stop the rest (a window was closed, or none is
-/// left).  Some(logs): they went by themselves (crashes) - nothing stops, the projector keeps running.
+/// have ended, `others_alive` = another game window still runs.  None: stop the rest (a seat window was closed, or none
+/// is left).  Some(logs): they went by themselves (crashes) or the projector was closed - nothing stops, the other
+/// windows keep running.
 pub fn after_end(gone: &[&str], others_alive: bool, read: impl Fn(&str) -> String) -> Option<Vec<String>> {
     let mut gone: Vec<String> = gone.iter().map(|s| (*s).to_owned()).collect();
     gone.sort();
     gone.dedup();
-    if gone.iter().any(|log| read(log).contains(WINDOW_CLOSED)) || !others_alive {
+    let seat_closed = gone
+        .iter()
+        .any(|log| log != PROJECTOR_LOG && read(log).contains(WINDOW_CLOSED));
+    if seat_closed || !others_alive {
         return None;
     }
     Some(gone)
@@ -227,10 +233,10 @@ pub fn after_end(gone: &[&str], others_alive: bool, read: impl Fn(&str) -> Strin
 /// What the run says when `gone` (logs of windows that ended by themselves, from [`after_end`]) did not stop it: a
 /// program that quit with exit code 0 ended, only the others crashed.
 pub fn went_by_itself(gone: &[String], read: impl Fn(&str) -> String) -> String {
-    let (ended, crashed): (Vec<&str>, Vec<&str>) = gone
-        .iter()
-        .map(String::as_str)
-        .partition(|log| read(log).contains(CLEAN_EXIT));
+    let (ended, crashed): (Vec<&str>, Vec<&str>) = gone.iter().map(String::as_str).partition(|log| {
+        let log = read(log);
+        log.contains(CLEAN_EXIT) || log.contains(WINDOW_CLOSED)
+    });
     let list = |logs: &[&str]| logs.join(", ");
     match (ended.is_empty(), crashed.is_empty()) {
         (false, true) => format!(
@@ -591,6 +597,15 @@ mod tests {
             after_end(&[proj], true, logs(&[])),
             Some(vec![proj.to_owned()]),
             "projector crashed: seat 1 plays on"
+        );
+        assert_eq!(
+            after_end(&[proj], true, logs(&[(proj, CLOSED)])),
+            Some(vec![proj.to_owned()]),
+            "projector closed: seat 1 plays on"
+        );
+        assert_eq!(
+            went_by_itself(&[proj.to_owned()], logs(&[(proj, CLOSED)])),
+            "A game window ended (see data\\logs\\run_projector.txt). The rest keeps running."
         );
         assert_eq!(
             after_end(&[seat, proj], false, logs(&[])),
