@@ -1234,11 +1234,14 @@ fn card_key(area: Rect) -> Rect {
 const KEYCAP_H: f32 = 13.0;
 
 /// The key bound to a deck button as its keycap text ("X", "Enter"), else its controller control ("Button 3"); empty
-/// when neither is bound.
-fn deck_keycap(st: &PanelState, action: &str) -> String {
+/// when neither is bound, or while `alt` is not held (the keycaps show only under Alt).
+fn deck_keycap(st: &PanelState, action: &str, alt: bool) -> String {
     let Some(i) = forza::keys::NAMES.iter().position(|n| *n == action) else {
         return String::new();
     };
+    if !alt {
+        return String::new();
+    }
     match (st.keys[i], st.pads[i]) {
         (0, 0) => String::new(),
         (0, pad) => forza::keys::pad_label(pad),
@@ -1269,6 +1272,7 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
     let mut pressed = None;
     let held = st.latched;
     let mut latch = st.latched;
+    let alt = ui.input(|i| i.modifiers.alt); // the keycaps show only while Alt is held
     let mut put = |ui: &mut Ui,
                    r: Rect,
                    key: &str,
@@ -1337,7 +1341,7 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
                 theme::GOLD,
             );
         }
-        let cap = deck_keycap(st, it.action);
+        let cap = deck_keycap(st, it.action, alt);
         let p = ui.painter();
         if let Some(side) = it.label {
             // the name, and the keycap after it, on one line beside the button
@@ -1398,7 +1402,7 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
             Shape::Key,
             false,
         );
-        let cap = deck_keycap(st, "CARD");
+        let cap = deck_keycap(st, "CARD", alt);
         let p = ui.painter();
         let w = keycap_width(p, &cap, 100.0);
         if w > 0.0 {
@@ -3927,15 +3931,16 @@ mod tests {
             cards::board(&[], &[]),
             cards().into(),
         );
-        assert_eq!(deck_keycap(&st, "SHOOT"), "C");
-        assert_eq!(deck_keycap(&st, "UP"), "Up");
+        assert_eq!(deck_keycap(&st, "SHOOT", true), "C");
+        assert_eq!(deck_keycap(&st, "SHOOT", false), ""); // hidden unless Alt is held
+        assert_eq!(deck_keycap(&st, "UP", true), "Up");
         st.pads[2] = forza::keys::PAD_BUTTON + 3; // SHOOT: controller button 3
-        assert_eq!(deck_keycap(&st, "SHOOT"), "C"); // the key first
+        assert_eq!(deck_keycap(&st, "SHOOT", true), "C"); // the key first
         st.keys[2] = 0;
-        assert_eq!(deck_keycap(&st, "SHOOT"), "Button 3");
+        assert_eq!(deck_keycap(&st, "SHOOT", true), "Button 3");
         st.pads[2] = 0;
-        assert_eq!(deck_keycap(&st, "SHOOT"), "");
-        assert_eq!(deck_keycap(&st, "NOPE"), "");
+        assert_eq!(deck_keycap(&st, "SHOOT", true), "");
+        assert_eq!(deck_keycap(&st, "NOPE", true), "");
     }
 
     #[test]

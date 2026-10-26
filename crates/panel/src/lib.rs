@@ -59,8 +59,8 @@ use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::System::SystemServices::{DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH};
 use windows::Win32::System::Threading::{GetCurrentProcess, GetCurrentProcessId};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetCapture, GetDoubleClickTime, GetKeyState, ReleaseCapture, SetCapture, VK_CONTROL, VK_MENU,
-    VK_SHIFT,
+    GetAsyncKeyState, GetCapture, GetDoubleClickTime, GetKeyState, ReleaseCapture, SetCapture,
+    VK_CONTROL, VK_MENU, VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{BOOL, HRESULT, Interface, w};
@@ -1259,6 +1259,15 @@ impl Render {
                 .unwrap_or_default(),
             ..Default::default()
         };
+        // Alt shows the deck's keycaps and has no event of its own: polled here, as the render thread is not the
+        // window's (GetKeyState would be stale); first, so the events after it keep their own modifiers
+        raw.events.insert(
+            0,
+            Event::ModifiersChanged(modifiers_with(|vk| {
+                // SAFETY: a plain key state query
+                (unsafe { GetAsyncKeyState(i32::from(vk)) }) < 0
+            })),
+        );
         raw.viewports
             .entry(ViewportId::ROOT)
             .or_default()
@@ -2272,7 +2281,10 @@ fn to_game(h: HWND, m: u32, lp: LPARAM) -> Option<LPARAM> {
 
 fn modifiers() -> Modifiers {
     // SAFETY: plain key state queries
-    let down = |vk: u16| unsafe { GetKeyState(i32::from(vk)) } < 0;
+    modifiers_with(|vk| unsafe { GetKeyState(i32::from(vk)) } < 0)
+}
+
+fn modifiers_with(down: impl Fn(u16) -> bool) -> Modifiers {
     let ctrl = down(VK_CONTROL.0);
     Modifiers {
         alt: down(VK_MENU.0),
