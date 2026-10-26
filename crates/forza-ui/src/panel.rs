@@ -2798,6 +2798,19 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                     },
                 );
             }
+            field(ui, &tr!(lang, "settings.hover"), w);
+            const HOVER: [u32; 4] = [500, 1000, 2000, 3000];
+            let mut i = HOVER
+                .iter()
+                .position(|&m| m == st.file.hover_ms)
+                .unwrap_or(usize::MAX);
+            if segmented(ui, &mut i, &["0.5 s", "1 s", "2 s", "3 s"], w) {
+                st.file.hover_ms = HOVER[i];
+                st.hover_delay = HOVER[i] as f32 / 1000.0;
+                st.file_changed = true;
+                let t = format!("{}", st.hover_delay);
+                st.note(Tone::Done, tr!(lang, "settings.msg_hover", s = t));
+            }
             field(ui, &tr!(lang, "settings.board"), w);
             let mut i = st.file.board_window as usize;
             if segmented(
@@ -2819,19 +2832,6 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                         "settings.msg_board_docked"
                     },
                 );
-            }
-            field(ui, &tr!(lang, "settings.hover"), w);
-            const HOVER: [u32; 4] = [500, 1000, 2000, 3000];
-            let mut i = HOVER
-                .iter()
-                .position(|&m| m == st.file.hover_ms)
-                .unwrap_or(usize::MAX);
-            if segmented(ui, &mut i, &["0.5 s", "1 s", "2 s", "3 s"], w) {
-                st.file.hover_ms = HOVER[i];
-                st.hover_delay = HOVER[i] as f32 / 1000.0;
-                st.file_changed = true;
-                let t = format!("{}", st.hover_delay);
-                st.note(Tone::Done, tr!(lang, "settings.msg_hover", s = t));
             }
         });
         widgets::section(right, &tr!(lang, "settings.next"), accent, |ui| {
