@@ -24,13 +24,20 @@ use xshell::{Shell, cmd};
 #[derive(Parser)]
 #[command(about = "Build, check and package Forza-WCCF")]
 enum Task {
-    /// Build every program (the 32-bit ones beside the game and the launchers) into the staged kits (2010-11 and 2017-18)
+    /// Build every program (the 32-bit ones beside the game and the launchers) into the staged kits (2010-11 and 2017-18);
+    /// the `fast` profile (release without LTO) unless CI is set or `--release`
     Build {
-        /// The `fast` profile (release without LTO, incremental) for a local test kit; `package` always builds release
-        #[arg(long)]
+        /// The `fast` profile even under CI (it is the default without CI); `package` always builds release
+        #[arg(long, conflicts_with = "release")]
         fast: bool,
+        /// The release profile (thin LTO), what `package` builds
+        #[arg(long)]
+        release: bool,
     },
     /// fmt, clippy, tests, the kit's self-test programs, the scrub; `check quick` = fmt, clippy and the tests of the crates changed since --base
+    /// (in the `fast` profile unless CI is set or `--release`; it rebuilds the staged kit first when it is older than the sources)
+    ///
+    /// sccache is used when it is installed and RUSTC_WRAPPER is unset (not under CI; FORZA_NO_SCCACHE=1 turns it off)
     Check {
         /// `quick`: only the crates changed since the base (and their dependents); no release build, no kit, no smoke.
         /// `ci`: the full check minus the GPU snapshot tests (the GitHub runner has no GPU), in the `ci` profile (no LTO;
@@ -41,10 +48,10 @@ enum Task {
         /// What `quick` diffs against (its merge-base with HEAD, plus the working tree)
         #[arg(long, default_value = QUICK_BASE)]
         base: String,
-        /// Build the kits and run the tests in the `fast` profile (see `build --fast`); CI and releases check without it
-        #[arg(long)]
+        /// Build the kits and run the tests in the `fast` profile (the default for `quick` without CI); the full check and `ci` use release and `ci`
+        #[arg(long, conflicts_with = "release")]
         fast: bool,
-        /// `ci` only: the release profile, what players get (otherwise `ci` builds the `ci` profile: no LTO)
+        /// `ci`: the release profile, what players get (otherwise `ci` builds the `ci` profile: no LTO); `quick`: not `fast`
         #[arg(long)]
         release: bool,
         /// Passed on to the test runner, e.g. `-- --partition count:1/2` with cargo-nextest
@@ -75,15 +82,64 @@ enum Task {
 }
 
 const QUICK_BASE: &str = "main";
-/// Set by `check` (both tiers): `rust()` then builds with `CARGO_INCREMENTAL=0`, so sccache can serve the workspace crates
-/// across worktrees; builds while editing stay incremental.
+/// Set with a wrapper (sccache): `rust()` then builds with `CARGO_INCREMENTAL=0`, so sccache can serve the workspace
+/// crates across worktrees.
 static NO_INCREMENTAL: AtomicBool = AtomicBool::new(false);
-/// The cargo profile of the staged programs and `check`'s tests: `fast` (`build --fast`, `check --fast`), `ci`
-/// (`check ci`) or, unset, `release`.
+/// The sccache that `use_sccache` found, which `rust()` passes to cargo as RUSTC_WRAPPER.
+static WRAPPER: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+/// The cargo profile of the staged programs and `check`'s tests: see [`pick_profile`]; unset, `release`.
 static PROFILE: std::sync::OnceLock<&str> = std::sync::OnceLock::new();
 
 fn profile() -> &'static str {
     PROFILE.get().copied().unwrap_or("release")
+}
+
+/// The profile of `build` (`mode` "build") and `check <mode>`: `--fast` is `fast`; `ci` is `ci` (`--release`: release);
+/// `build` and `check quick` are `fast` without CI and `--release`; the rest (`package`, the full check) is release.
+fn pick_profile(mode: Option<&str>, fast: bool, release: bool, in_ci: bool) -> &'static str {
+    match mode {
+        _ if fast => "fast",
+        Some("ci") if !release => "ci",
+        Some("build" | "quick") if !release && !in_ci => "fast",
+        _ => "release",
+    }
+}
+
+/// The build runs under CI (GitHub sets `CI`).
+fn in_ci() -> bool {
+    std::env::var_os("CI").is_some()
+}
+
+/// Sets `NO_INCREMENTAL` when cargo will run with a wrapper: RUSTC_WRAPPER from the environment (empty = off), else
+/// sccache from PATH or the cargo home's `bin`, unless CI is set or `FORZA_NO_SCCACHE=1` (Windows processes started from
+/// WSL do not see the user's `setx` variables, so the variable alone left most local builds without it).
+fn use_sccache() {
+    let wrapper = match std::env::var_os("RUSTC_WRAPPER") {
+        Some(w) => !w.is_empty(),
+        None if in_ci()
+            || std::env::var_os("FORZA_NO_SCCACHE").is_some_and(|v| v != "0" && !v.is_empty()) =>
+        {
+            false
+        }
+        None => {
+            let cargo_bin = std::env::var_os("CARGO_HOME")
+                .map(PathBuf::from)
+                .or_else(|| {
+                    std::env::var_os("USERPROFILE").map(|h| PathBuf::from(h).join(".cargo"))
+                })
+                .map(|h| h.join("bin"));
+            let path = std::env::var_os("PATH").unwrap_or_default();
+            let found = std::env::split_paths(&path)
+                .chain(cargo_bin)
+                .map(|d| d.join("sccache.exe"))
+                .find(|p| p.is_file());
+            if let Some(p) = &found {
+                println!("sccache: {} (FORZA_NO_SCCACHE=1 turns it off)", p.display());
+            }
+            found.is_some_and(|p| WRAPPER.set(p).is_ok())
+        }
+    };
+    NO_INCREMENTAL.store(wrapper, Ordering::Relaxed);
 }
 
 /// Cargo's output folder: `CARGO_TARGET_DIR` (one folder shared by several worktrees), else `target/`.
@@ -287,14 +343,17 @@ fn main() -> Result<()> {
         .parent()
         .context("no repository root")?
         .to_path_buf();
+    // `check text` and `stage` run no compiler
+    let text = matches!(&task, Task::Check { mode: Some(m), .. } if m == "text");
+    if !text && !matches!(task, Task::Stage { .. }) {
+        use_sccache();
+    }
     let stage_root = stage_root(&root);
     let kit = stage_root.join("kit/2010-11");
     let kit_1718 = stage_root.join("kit/2017-18");
     match task {
-        Task::Build { fast } => {
-            if fast {
-                let _ = PROFILE.set("fast");
-            }
+        Task::Build { fast, release } => {
+            let _ = PROFILE.set(pick_profile(Some("build"), fast, release, in_ci()));
             build_all(&root, &kit, &kit_1718)
         }
         Task::Cap { root, outdir } => cap(&root, &outdir),
@@ -308,20 +367,10 @@ fn main() -> Result<()> {
             release,
             test_args,
         } => {
-            // without a wrapper (sccache) nothing reuses the non-incremental build, and a check after `cargo test`
-            // would rebuild the workspace crates
-            NO_INCREMENTAL.store(
-                std::env::var_os("RUSTC_WRAPPER").is_some(),
-                Ordering::Relaxed,
-            );
             let ci = mode.as_deref() == Some("ci");
-            match (fast, ci && !release) {
-                (true, _) => drop(PROFILE.set("fast")),
-                (false, true) => drop(PROFILE.set("ci")),
-                (false, false) => {}
-            }
+            let _ = PROFILE.set(pick_profile(mode.as_deref(), fast, release, in_ci()));
             match mode.as_deref() {
-                Some("quick") => return quick(&root, &stage_root, &base),
+                Some("quick") => return quick(&root, &kit, &kit_1718, &base),
                 Some("text") => return check_text(&root),
                 _ => {}
             }
@@ -359,6 +408,9 @@ fn stage_root(root: &Path) -> PathBuf {
 fn rust(sub: &str, root: &Path) -> Command {
     let mut c = Command::new("cargo");
     c.arg(sub).current_dir(root);
+    if let Some(w) = WRAPPER.get() {
+        c.env("RUSTC_WRAPPER", w);
+    }
     if NO_INCREMENTAL.load(Ordering::Relaxed) {
         c.env("CARGO_INCREMENTAL", "0");
     }
@@ -508,6 +560,7 @@ type Jobs<'s> = Vec<std::thread::ScopedJoinHandle<'s, (String, Result<()>)>>;
 
 /// Stage both kits, build the 64-bit and the 32-bit programs at once, then report every failure.
 fn build_all(root: &Path, kit: &Path, kit_1718: &Path) -> Result<()> {
+    let started = std::time::SystemTime::now();
     for (k, ed) in [(kit, &ED_1011), (kit_1718, &ED_1718)] {
         stage(root, k, ed.map, ed.keep)?;
         for d in ed.dirs {
@@ -557,7 +610,47 @@ fn build_all(root: &Path, kit: &Path, kit_1718: &Path) -> Result<()> {
         fs::copy(from, &to)?;
         println!("built {}", to.display());
     }
+    // dated at the start: a source saved during the build is newer than the stamp, so the next `quick` rebuilds
+    let stamp = fs::File::create(built_stamp(kit))?;
+    stamp.set_modified(started)?;
     Ok(())
+}
+
+/// Written by [`build_all`] beside the kits; [`kit_stale`] compares the sources with it.
+fn built_stamp(kit: &Path) -> PathBuf {
+    kit.with_file_name("built.stamp")
+}
+
+/// The staged kit is missing, or a source it is built from changed after the last `build_all` started (a branch switch
+/// counts: git writes the files). shortcut: a deleted file is not seen, `cargo xtask build` by hand then.
+fn kit_stale(root: &Path, kit: &Path) -> Result<bool> {
+    let Ok(built) = fs::metadata(built_stamp(kit)).and_then(|m| m.modified()) else {
+        return Ok(true);
+    };
+    let sh = Shell::new()?;
+    sh.change_dir(root);
+    let dirs = [
+        "assets",
+        "crates",
+        "editions",
+        "legacy",
+        "native",
+        "vendor",
+        ".cargo",
+        "Cargo.toml",
+        "Cargo.lock",
+        "rust-toolchain.toml",
+    ];
+    let files = cmd!(
+        sh,
+        "git ls-files -z --cached --others --exclude-standard -- {dirs...}"
+    )
+    .read()?;
+    Ok(files.split('\0').filter(|f| !f.is_empty()).any(|f| {
+        fs::metadata(root.join(f))
+            .and_then(|m| m.modified())
+            .is_ok_and(|m| m > built)
+    }))
 }
 
 fn build<'s>(
@@ -818,7 +911,7 @@ fn target_scopes(scope: &[String]) -> Vec<(&'static str, Vec<String>)> {
 }
 
 /// `cargo xtask check quick`: fmt, clippy and tests for the packages changed since `base`; no release build, kit or smoke.
-fn quick(root: &Path, stage_root: &Path, base: &str) -> Result<()> {
+fn quick(root: &Path, kit: &Path, kit_1718: &Path, base: &str) -> Result<()> {
     let _lock = check_lock()?;
     let pkgs = changed_packages(root, base)?;
     let scope: Vec<String> = match &pkgs {
@@ -844,17 +937,15 @@ fn quick(root: &Path, stage_root: &Path, base: &str) -> Result<()> {
     let needs_kit = pkgs
         .as_ref()
         .is_none_or(|p| p.contains("launcher") || p.contains("forza-panel"));
-    let stand_in = stage_root.join("kit/2010-11/source/build/fakegame.exe");
-    ensure!(
-        !needs_kit || stand_in.is_file(),
-        "{} is missing: the launcher and panel tests need the stand-ins; run `cargo xtask build` once",
-        stand_in.display()
-    );
     let mut fmt = Command::new("cargo");
     fmt.args(["fmt", "--all", "--check"]).current_dir(root);
     run_ok(fmt, "cargo fmt")?;
     if scope.is_empty() {
         return Ok(());
+    }
+    if needs_kit && kit_stale(root, kit)? {
+        println!("quick: the staged kit is missing or older than the sources: cargo xtask build");
+        build_all(root, kit, kit_1718)?;
     }
     let runs = target_scopes(&scope);
     for (target, scope) in &runs {
@@ -866,6 +957,10 @@ fn quick(root: &Path, stage_root: &Path, base: &str) -> Result<()> {
     for (target, scope) in &runs {
         let mut test = rust("test", root);
         test.args(["--locked", "--target", target]).args(scope);
+        // the kit's profile, so the tests reuse its dependencies (the usual test profile for `--release`)
+        if profile() != "release" {
+            test.args(["--profile", profile()]);
+        }
         run_ok(test, "cargo test")?;
     }
     println!("quick check passed (no release build, no installer smoke, no kit tests)");
@@ -2024,6 +2119,22 @@ fn walk(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn profiles_are_fast_locally_and_release_for_the_gate() {
+        let p = |mode, fast, release, ci| pick_profile(Some(mode), fast, release, ci);
+        assert_eq!(p("build", false, false, false), "fast");
+        assert_eq!(p("quick", false, false, false), "fast");
+        assert_eq!(p("build", false, true, false), "release");
+        assert_eq!(p("quick", false, true, false), "release");
+        assert_eq!(p("build", false, false, true), "release");
+        assert_eq!(p("quick", false, false, true), "release");
+        assert_eq!(p("build", true, false, true), "fast");
+        assert_eq!(p("ci", false, false, false), "ci");
+        assert_eq!(p("ci", false, true, false), "release");
+        assert_eq!(pick_profile(None, false, false, false), "release");
+        assert_eq!(pick_profile(None, true, false, false), "fast");
+    }
 
     #[test]
     fn the_32_bit_panel_is_linted_and_tested_for_its_own_target() {
