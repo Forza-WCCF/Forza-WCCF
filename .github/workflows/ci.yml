@@ -80,7 +80,7 @@ jobs:
       # see build-test's cache stamp
       - name: cache stamp (main)
         if: github.ref == 'refs/heads/main'
-        run: mkdir -p ci-stamp/.cargo && echo "# run $GITHUB_RUN_ID" > ci-stamp/.cargo/config.toml
+        run: mkdir -p ci-stamp/.cargo && echo "# week $(date -u +%G-W%V)" > ci-stamp/.cargo/config.toml
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -190,18 +190,21 @@ jobs:
       # rust-cache saves nothing over an exact key match, and its key changed only with Cargo.lock or a manifest: the
       # first save under a key stayed for good (PR #25's log: "full match: true", then "Cache up-to-date."). This
       # config file is never read by cargo (it is not in a parent folder of the build), but rust-cache hashes every
-      # .cargo/config.toml into the key, so each main run's key is its own and main saves a fresh cache each time
+      # .cargo/config.toml into the key. It holds the ISO week, not the run: a per-run key made every main run save
+      # 5 GB (7-8 min); now main saves once a week and on a Cargo.lock, manifest or toolchain change, and restores
+      # with an exact hit in between
       - name: cache stamp (main)
         if: github.ref == 'refs/heads/main'
         shell: bash
-        run: mkdir -p ci-stamp/.cargo && echo "# run $GITHUB_RUN_ID" > ci-stamp/.cargo/config.toml
+        run: mkdir -p ci-stamp/.cargo && echo "# week $(date -u +%G-W%V)" > ci-stamp/.cargo/config.toml
       # one cache for every Windows build (the shared key drops the job name from the key), written only by main (also
       # when a check fails, so the compiling is kept): pull requests and release.yml's tag builds restore main's
       # newest by the key's prefix. Old entries fall out at 10 GB.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: windows
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          # only the ci profile: a weekly release-profile run would hold the week's key with trees no other run uses
+          save-if: ${{ github.ref == 'refs/heads/main' && env.PROFILE == 'ci' }}
           cache-on-failure: true
       # the runner's desktop is 1024x768; the panel tests open a 1440x900 game window and a 1200x700 projector
       - name: screen 1920x1080
