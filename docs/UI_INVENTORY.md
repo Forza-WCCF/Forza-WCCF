@@ -1,5 +1,8 @@
 # UI inventory (step 9.1)
 
+Status 2026-10-27: a historical design input. Step 9 is done: the screens are in `crates/forza-ui`, the panel is
+`crates/panel`, and the C panels surveyed below were removed (#28). The "today" notes describe 2026-10-12.
+
 What each screen of Forza-WCCF does and needs, for step 9's new design. It names no current visuals on purpose: the
 design starts from this list, `docs/CABINET_LOOK.md` and the constraints at the end. Surveyed 2026-10-12 from
 `crates/launcher`, `crates/installer`, `native/2010-11/panel/wccfpanel.c` and `native/2017-18/overlay/wccfpanel.c`.

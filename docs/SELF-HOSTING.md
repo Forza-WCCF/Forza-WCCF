@@ -55,9 +55,9 @@ For the 2010-11 server also, build the two Windows helpers on a Windows PC with 
     # the server hook: target/kit/2017-18/source/build/server-hook/winmm.dll and its three self-tests
     # the 2017-18 shop: target/kit/2017-18/source/build/server-hook-1718/winmm.dll, server1718_test.exe, sddy_maps.exe
 
-The iroh relay is upstream's binary at the iroh version in `Cargo.lock` (1.4.0 now), built the same way:
+The iroh relay is upstream's binary at the iroh version in `Cargo.lock` (1.4.1 now), built the same way:
 
-    cargo install --locked iroh-relay@1.4.0 --features server
+    cargo install --locked iroh-relay@1.4.1 --features server
 
 Another architecture for `forza-server`: `deploy/linux/Dockerfile.forza-server`.
 

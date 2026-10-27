@@ -48,11 +48,9 @@ Each guard covers the IP-helper calls listed here. It is not a general sandbox.
 
 ## What stays out of the repository
 
-- Original files and anything derived from them: game binaries, patched executables, disc images, IDA or Ghidra
-  databases, decompiled code, extracted card pictures and catalogues.
-- Logs, saves, club cards and screenshots of a game.
-- Patches keep the original bytes and check them before writing. Work on a runtime copy, never on your decrypted
-  original.
+Original files, anything derived from them, logs, saves and game screenshots never go into the repository; the full
+list is in [CONTRIBUTING.md](../CONTRIBUTING.md#what-never-goes-into-the-repository). Work on a runtime copy, never on
+your decrypted original.
 
 ## Screenshots and captures
 
