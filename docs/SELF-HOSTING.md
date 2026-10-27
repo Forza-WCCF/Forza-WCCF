@@ -53,7 +53,7 @@ For the 2010-11 server also, build the two Windows helpers on a Windows PC with 
     cargo xtask build        # also on Windows
     # the network guard: target/kit/2017-18/bin/wccfnet.dll, source/build/netguard.dll, source/build/test_wccfnet.exe
     # the server hook: target/kit/2017-18/source/build/server-hook/winmm.dll and its three self-tests
-    # the 2017-18 shop's hook (not in use yet): target/kit/2017-18/source/build/server-hook-1718/winmm.dll, server1718_test.exe
+    # the 2017-18 shop: target/kit/2017-18/source/build/server-hook-1718/winmm.dll, server1718_test.exe, sddy_maps.exe
 
 The iroh relay is upstream's binary at the iroh version in `Cargo.lock` (1.4.0 now), built the same way:
 
@@ -86,9 +86,10 @@ Another architecture for `forza-server`: `deploy/linux/Dockerfile.forza-server`.
 - Check from a player's PC: `python3 deploy/linux/lobby_check.py game.example.org:20032 2017-18 --room`.
 - The VS options, the room words and the pairing rules: `crates/server/README.md`.
 
-### The 2017-18 shop's hook (not in use yet)
+### The 2017-18 shop
 
-A 2017-18 shop runs the original control under Wine like 2010-11 (no supervisor yet). Its `winmm.dll` (`native/hook`,
+A 2017-18 shop runs the original control and its four match engines under Wine like 2010-11, started by
+`wccf-linux-server start --edition 2017-18` (section 7 builds it). Its `winmm.dll` (`native/hook`,
 feature `e1718-server`) forwards every winmm call to `winmm_orig.dll` (`winmm_orig.py`, section 7), ends the process unless
 `netguard.dll` loads, blocks the DHCP release and renew (the guarded control imports them from `wccfnet.dll`), and
 shows the control one network address (`MXHOOK_NET_IP`, default 127.0.0.1). None of the 2010-11 fixes apply. Its log,
@@ -99,6 +100,32 @@ Self-test: in a folder with `winmm.dll`, `winmm_orig.dll`, `netguard.dll`, `wccf
 server1718_test.exe`; the last line is `2017-18 server hook test: all passed`. The test imports the DHCP calls from
 IPHLPAPI; for the guarded control's case, run it again on a copy with that import renamed as setup does
 (`iphlpapi.dll\0` to `wccfnet.dll\0\0`).
+
+The shop has a tree of its own (the layout of section 7, with `1718-shop` for `1011`), so its Wine prefix and display
+differ: both editions use the same shared-memory names, so they never share a prefix. As `wccf`:
+
+    S=/srv/forza-wccf/1718-shop
+    mkdir -p $S/{runtime,run,logs,evidence,target/release,tools}
+    cp -a GAME_FOLDER/. $S/runtime/             # your set up and guarded 2017-18 game folder (control imports wccfnet.dll)
+    cp target/kit/2017-18/source/build/server-hook-1718/winmm.dll target/kit/2017-18/bin/wccfnet.dll \
+       target/kit/2017-18/source/build/netguard.dll target/kit/2017-18/source/build/test_wccfnet.exe $S/runtime/
+    python3 deploy/linux/winmm_orig.py $S/runtime/winmm_orig.dll
+    cp target/kit/2017-18/source/build/server-hook-1718/sddy_maps.exe $S/run/
+    cp target/release/wccf-linux-server $S/target/release/ && ln -s /usr $S/tools/usr
+    WINEARCH=win32 WINEPREFIX=$S/wineprefix xvfb-run wineboot -i
+    (cd $S && sha256sum runtime/{control_Release.exe,match_Release.exe,wccfnet.dll,netguard.dll,winmm.dll,winmm_orig.dll} \
+        run/sddy_maps.exe > evidence/runtime.sha256)
+    WCCF_ROOT=$S $S/target/release/wccf-linux-server start --edition 2017-18
+
+`runtime/local/ctrl_user_option.conf` needs `GAME_SVR_IP=localhost` once (the supervisor refuses anything else,
+`127.0.0.1` too: the control reads that as the network's own host), the `GAME_SVR_PORT` of the shop's `forza-server`,
+and a `CONTROL_PORT` that is not 20002, the 2010-11 shop's port.
+The player setup writes `CONTROL_PORT=20002`, so the deploy step sets these values in the shop's own copy of the
+conf; the port must also differ from `MATCH_PORT` and `GAME_SVR_PORT`.
+The seat desk and match relay are `forza-server`'s (the built-in ones speak the 2010-11 protocol). Start runs
+`sddy_maps.exe` (the `SDDY_*` shared memory the Launcher makes), then control, and declares the shop up when control's
+port listens (in this prefix), four `match_Release` run and a `mxhook_<pid>.log` per live process (five) in `logs/<start time>/` say
+`edition: 2017-18 server` with none saying `REFUSED`; the supervisor checks this again every 10 s and stops the shop on a refusal. `status` and `stop` take the same `WCCF_ROOT`.
 
 ## 7. The 2010-11 server
 

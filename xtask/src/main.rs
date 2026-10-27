@@ -267,6 +267,12 @@ const NATIVE: &[(&str, bool, &str)] = &[
         false,
         "source/build/server-hook-1718/server1718_test.exe",
     ),
+    // the 2017-18 Linux shop's stand-in for the Launcher's shared memory (crates/linux-host), beside its hook
+    (
+        "sddy_maps.exe",
+        false,
+        "source/build/server-hook-1718/sddy_maps.exe",
+    ),
     // tests only, not shipped; fakegame_iphlp: the 2017-18 guard's tests rename its IP-helper import as setup does
     ("fakegame.exe", true, "source/build/fakegame.exe"),
     (
