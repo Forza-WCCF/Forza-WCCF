@@ -8,10 +8,15 @@ fn every_key_in_three_languages() {
     let yml = std::fs::read_to_string("locales/ui.yml").unwrap();
     let table: HashMap<&str, &str> = yml.lines().filter_map(|l| l.split_once(": {")).collect();
     let mut missing = vec![];
-    // the screens, and Launcher.exe's messages (forza_ui::text)
-    let files = ["src", "../launcher/src/bin/launcher", "../installer/src"]
-        .iter()
-        .flat_map(|d| std::fs::read_dir(d).unwrap());
+    // the screens, and Launcher.exe's messages (forza_ui::text, also from the run)
+    let files = [
+        "src",
+        "../launcher/src/bin/launcher",
+        "../launcher/src/run",
+        "../installer/src",
+    ]
+    .iter()
+    .flat_map(|d| std::fs::read_dir(d).unwrap());
     for e in files {
         let src = std::fs::read_to_string(e.unwrap().path()).unwrap();
         for piece in src.split('"').skip(1).step_by(2) {

@@ -4,7 +4,8 @@
 //!
 //! Lines in [`forza::online`]'s words: `WANT` / `WANT SEAT n` -> `SEAT n PROJECTOR p` | `TAKEN n` | `FULL` | `ERR ...`,
 //! then `PING` -> `PONG`. `RELEASE t` -> `OK` | `GONE` drops a lobby reservation. `REPORT ZIP NOTE VERSION` -> `GO`, then
-//! the words and the ZIP -> `OK id` | `NO why`: a player's problem report ([`crate::reports`]). `HOLD` -> `HOLD 1` | `HOLD 0` (2010-11 only; the box asks it).
+//! the words and the ZIP -> `OK id` | `NO why`: a player's problem report ([`crate::reports`]). `CLUB PUT|GET|DONE ...`:
+//! a 2017-18 shop guest's club to the host's store and back ([`forza::online::club`]). `HOLD` -> `HOLD 1` | `HOLD 0` (2010-11 only; the box asks it).
 //!
 //! The lobby's VS rooms ([`forza::online::lobby`] has the words): `CREATE vs [open]` -> `ROOM id code t seat` | `FULL`,
 //! `RESERVE room-id [2]` -> `TICKET t 2` | `FULL` | `TAKEN` | `CLOSED`, `READY id t`, `CLOSE id t`, and `HEARTBEAT` /
@@ -103,6 +104,9 @@ pub struct DeskConfig {
     pub reports: Option<Arc<Reports>>,
     /// Behind a 2017-18 shop tunnel (`WCCF_DESK_TUNNEL=1`, set by the Launcher's shop host): loopback is many guests.
     pub tunnel: bool,
+    /// The shop host's club store (`WCCF_CLUB_DB`, its `gamesvr.db`): guests bring their clubs there with `CLUB`
+    /// ([`forza::online::club`]). None: `CLUB` answers `NO`.
+    pub club_db: Option<PathBuf>,
 }
 
 /// A positive count from the environment variable `name`, else `default`.
@@ -126,6 +130,7 @@ impl DeskConfig {
             hold_fw_test: None,
             hold_every: Duration::from_secs(1),
             tunnel: std::env::var("WCCF_DESK_TUNNEL").is_ok_and(|v| v == "1"),
+            club_db: std::env::var_os("WCCF_CLUB_DB").map(PathBuf::from),
             name: std::env::var("WCCF_SHOP_NAME").unwrap_or_else(|_| "Forza-WCCF".into()),
             lang: std::env::var("WCCF_SHOP_LANG")
                 .ok()
@@ -594,6 +599,24 @@ fn session(
         }
         ["SHOP", t] if !e1011 => return shop_peers(sh, t, None, &mut out),
         ["SHOP", t, own] if !e1011 => return shop_peers(sh, t, Some(own), &mut out),
+        // a shop guest's own club, to the host's store and back (forza::online::club checks every record)
+        ["CLUB", ..] if !e1011 => {
+            let Some(db) = &sh.cfg.club_db else {
+                return out.write_all(b"NO no club store here\n");
+            };
+            let held = |s: u8| sh.state.lock().unwrap().leases.contains_key(&s);
+            let said = forza::online::club::serve(
+                db,
+                &line,
+                std::mem::take(&mut lines.buf),
+                &mut out,
+                &held,
+            )?;
+            if !said.is_empty() {
+                log(&format!("{peer}: {said}"));
+            }
+            return Ok(());
+        }
         _ => {}
     }
     // `WANT ... TICKET t` claims the seat `RESERVE` held

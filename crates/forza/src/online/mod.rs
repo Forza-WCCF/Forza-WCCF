@@ -9,7 +9,9 @@
 //! `OK CODE\n` or `NO reason\n`.
 //! A player's problem report goes to the seat desk: `REPORT ZIP NOTE VERSION\n`, `GO`, the words and the ZIP, `OK ID`
 //! ([`report`]).
+//! A 2017-18 shop guest's club goes to the host's desk and back with `CLUB PUT`, `CLUB GET` and `CLUB DONE` ([`club`]).
 
+pub mod club;
 pub mod gamesvr;
 pub mod lan;
 pub mod lobby;

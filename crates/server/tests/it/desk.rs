@@ -154,3 +154,40 @@ fn stopping_the_desk_closes_its_port() {
     desk.stop();
     assert!(std::net::TcpStream::connect(addr).is_err());
 }
+
+/// A shop guest's club through the real desk: refused for a seat nobody holds, in, out and dropped once it holds one.
+#[test]
+fn a_club_needs_a_held_seat() {
+    use forza::online::club::{self, Club};
+    use std::io::{Read, Write};
+    let root = scratch("desk_club");
+    let mut c = DeskConfig::new(Edition::E1718);
+    c.bind = "127.0.0.1".into();
+    c.port = 0;
+    c.club_db = Some(root.join("gamesvr.db"));
+    let (log, _) = capture();
+    let desk = start(c, log).unwrap();
+    let (code, mine) = (
+        "50123456789012345678",
+        Club {
+            aime: 1,
+            ..Default::default()
+        },
+    );
+    let err = club::send(desk.addr(), 2, 50, code, &mine).unwrap_err();
+    assert!(err.contains("seat 2 is not taken"), "{err}");
+    let mut seat = std::net::TcpStream::connect(desk.addr()).unwrap();
+    seat.write_all(b"WANT SEAT 2\n").unwrap();
+    let mut b = [0u8; 64];
+    let n = seat.read(&mut b).unwrap();
+    assert!(b[..n].starts_with(b"SEAT 2"));
+    club::send(desk.addr(), 2, 50, code, &mine).unwrap();
+    let (_, there) = club::fetch(desk.addr(), 50, code, "").unwrap().unwrap();
+    assert_eq!(there.aime, 50);
+    assert!(
+        club::fetch(desk.addr(), 50, "50123456789012345679", "").is_err(),
+        "another card's token"
+    );
+    club::release(desk.addr(), 50, code).unwrap();
+    assert!(club::fetch(desk.addr(), 50, code, "").is_err(), "dropped");
+}

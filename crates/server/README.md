@@ -32,6 +32,10 @@ One program for every online service of both editions. Std threads and blocking 
   edition and the version) in `--reports DIR` (`desk`, `all`); default `<store>/reports` for `all --edition 2017-18`,
   else `reports` beside the log folder. The log has one line a report: its id, edition, size and address. The ZIP is
   never opened on the server.
+- A 2017-18 shop guest's own club (`forza::online::club`): `CLUB PUT seat aime token size` + the club's JSON ->
+  `OK size` + the id map, `CLUB GET aime token stamp` -> `SAME` or `OK size stamp` + the club, `CLUB DONE aime token`
+  -> `OK 0`; `NO why` for any refusal. Only with `WCCF_CLUB_DB` (the shop host's `gamesvr.db`, set by the Launcher);
+  a PUT needs a seat held on this desk, at most 2 MiB.
 - The projector hold no longer touches the firewall and is not enforced (`HOLD` stays `HOLD 0`). A Windows server that ran an
   older version: remove the leftover rule by hand with `netsh advfirewall firewall delete rule name="WCCF hold projector box"`.
 
