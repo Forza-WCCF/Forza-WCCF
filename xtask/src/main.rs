@@ -736,7 +736,11 @@ fn build<'s>(
     };
     vec![
         s.spawn(move || {
-            let what = "cargo build -p launcher -p forza-server -p wccf-installer";
+            let what = if with_tests {
+                "cargo build --workspace --all-targets"
+            } else {
+                "cargo build -p launcher -p forza-server -p wccf-installer"
+            };
             (what.into(), run_ok(launcher, what))
         }),
         s.spawn(move || {
