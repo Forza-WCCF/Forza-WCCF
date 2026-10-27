@@ -671,14 +671,7 @@ fn close_allowed() -> bool {
         log("close: the dialog is open - ignored");
         return false;
     }
-    let open = FILES.get().is_some_and(|f| {
-        use forza::card;
-        let since = stamp(&f.data.join("running.json"));
-        let save = f.data.join("save");
-        card::club_session(&save.join(card::SLOT), &save.join(card::NEW), since).0
-            == card::Session::Open
-    });
-    if !open {
+    if !card_open() {
         log("close: the window closes - the game ends");
         return true;
     }
@@ -686,6 +679,61 @@ fn close_allowed() -> bool {
     CLOSE_ASK.store(true, Relaxed);
     log("close: a card session is open - dialog opened, not closed");
     false
+}
+
+/// A card session open (the club card or a manager transfer's new card, since this run started): from the card's read
+/// at a match's start to its locker-room save.
+fn card_open() -> bool {
+    FILES.get().is_some_and(|f| {
+        use forza::card;
+        let since = stamp(&f.data.join("running.json"));
+        let save = f.data.join("save");
+        card::club_session(&save.join(card::SLOT), &save.join(card::NEW), since).0
+            == card::Session::Open
+    })
+}
+
+/// A match runs (IMPORT LINEUP is refused then, the owner's rule): the seat's shop state MATCHING, GAME or
+/// GAME_RESULT_WAIT (4-6, the pause's reading), or a card session open (2010-11's club card; covers a run where the
+/// shop state cannot be read).
+fn in_match() -> bool {
+    let e1718 = FILES
+        .get()
+        .is_some_and(|f| f.edition == theme::Edition::E1718);
+    matches!(pause::shop_state(e1718), Some(4..=6)) || card_open()
+}
+
+/// The clipboard's text, at most 64K characters; `None`: no text there, or another program holds the clipboard (tried
+/// twice). `WCCFPANEL_IMPORTTEST=FILE` reads that file instead (fakegame: the player's clipboard is left alone).
+fn clipboard_text() -> Option<String> {
+    use windows::Win32::Foundation::HGLOBAL;
+    use windows::Win32::System::DataExchange::{CloseClipboard, GetClipboardData, OpenClipboard};
+    use windows::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
+    if let Some(p) = std::env::var_os("WCCFPANEL_IMPORTTEST") {
+        return std::fs::read_to_string(p).ok();
+    }
+    const CF_UNICODETEXT: u32 = 13;
+    // SAFETY: the handle is the clipboard's own, read only while the clipboard is open and the memory locked
+    unsafe {
+        if OpenClipboard(None).is_err() {
+            std::thread::sleep(Duration::from_millis(30));
+            OpenClipboard(None).ok()?;
+        }
+        let text = GetClipboardData(CF_UNICODETEXT).ok().and_then(|h| {
+            let g = HGLOBAL(h.0);
+            let p = GlobalLock(g).cast::<u16>();
+            if p.is_null() {
+                return None;
+            }
+            let all = std::slice::from_raw_parts(p, (GlobalSize(g) / 2).min(65536));
+            let n = all.iter().position(|&c| c == 0).unwrap_or(all.len());
+            let t = String::from_utf16_lossy(&all[..n]);
+            let _ = GlobalUnlock(g);
+            Some(t)
+        });
+        let _ = CloseClipboard();
+        text
+    }
 }
 
 /// The screen's dpi as this process sees it: the real one when the game runs DPI-aware (the Launcher starts it with
@@ -1767,6 +1815,7 @@ impl Render {
                 .map(|r| egui::Rect::from_min_max(r.min * ppp, r.max * ppp));
         }
         self.add();
+        self.import();
         self.keys_out();
         self.settings_out();
         self.club_out();
@@ -2321,6 +2370,60 @@ impl Render {
         } else {
             log(&format!("catalogue: card {no} not added"));
         }
+    }
+
+    /// IMPORT LINEUP: the clipboard's text on the table ([`Render::import_text`]); its UNDO: the table before it.
+    fn import(&mut self) {
+        if std::mem::take(&mut self.st.import_undone)
+            && let Some(old) = panel::undo_import(&mut self.st, in_match())
+        {
+            log(&format!("import: undone - {} card(s)", old.len()));
+            self.placed = old;
+            self.table_write();
+        }
+        if std::mem::take(&mut self.st.import) {
+            match clipboard_text() {
+                Some(text) => self.import_text(&text),
+                None => {
+                    log(
+                        "import: the clipboard could not be read (held by another program, or no text)",
+                    );
+                    self.st
+                        .say(forza_ui::widgets::Tone::Refused, "cat.msg_clipboard");
+                }
+            }
+        }
+    }
+
+    /// Lineup text (the clipboard's; a share link's once fetched) as the whole table, the table before it written
+    /// beside it (fpr_table0.before-import.txt) and kept for UNDO.
+    fn import_text(&mut self, text: &str) {
+        let now = self.ctx.input(|i| i.time);
+        let Some(new) = panel::import_lineup(&mut self.st, &self.placed, text, in_match(), now)
+        else {
+            let why = self.st.message.as_ref().map_or("", |m| m.text.as_str());
+            log(&format!("import: refused - {}", why.replace('\n', " / ")));
+            return;
+        };
+        let keep = self
+            .table
+            .table
+            .with_file_name("fpr_table0.before-import.txt");
+        if let Err(e) = std::fs::write(&keep, cards::table_text(&self.placed)) {
+            log(&format!("import: {} not written ({e})", keep.display()));
+        }
+        self.placed = new;
+        let line: Vec<String> = self
+            .placed
+            .iter()
+            .map(|c| format!("{}@{:.3},{:.3}", c.no, c.x, c.y))
+            .collect();
+        log(&format!(
+            "import: {} card(s): {}",
+            line.len(),
+            line.join(" ")
+        ));
+        self.table_write();
     }
 
     /// The cabinet buttons' keys: down on a press, up once the mouse is released and the key has been down 140 ms

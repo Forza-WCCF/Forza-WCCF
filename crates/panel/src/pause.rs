@@ -87,7 +87,7 @@ const BASE: usize = 0x0040_0000;
 /// The seat's copy of the shop state (`GAME-CLOCK.md`: the object at C10 `*(0x113700C)`, C17 `*(0x6D9EB08)`, its
 /// dword +12; 0-7 = boot, ENTRY, CR_DATA_WAIT, MATCHING_WAIT, MATCHING, GAME, GAME_RESULT_WAIT, GAME_RESULT). `None`
 /// when this is not the client, the object is not there yet or the value is no state.
-fn shop_state(e1718: bool) -> Option<u32> {
+pub(crate) fn shop_state(e1718: bool) -> Option<u32> {
     if !patches::is_client(&patches::exe_name()) {
         return None;
     }

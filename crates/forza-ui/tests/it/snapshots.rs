@@ -522,6 +522,29 @@ fn card_pictures() {
     h.snapshot("card_pictures");
 }
 
+/// IMPORT LINEUP done: the catalogue's message names the lineup, the site's key player and the cards skipped; the board
+/// strip offers UNDO in its hint's place.
+#[test]
+fn catalogue_imported() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    let mut st = panel::PanelState::sample(Edition::E1011, Lang::En, panel::Page::Catalogue);
+    st.catalogue.filter = panel::Filter::default();
+    let text = "# WCCF DB lineup\ngame 1011\nname Sunday XI\n\
+                P 1 50 92 K\nP 2 15 70\nP 3 38 74\nP 4 62 74\nP 5 85 70\nP 6 30 50\nP 7 50 55\n\
+                P 8 70 50\nP 9 25 25\nP 10 50 20\nP 11 75 25\nS 12\nS 13\n\
+                S \"13/GES 3 \" # GULLIT · 13 GES 3\nS 999\n";
+    assert!(panel::import_lineup(&mut st, &[], text, false, 0.0).is_some());
+    snap(
+        &mut all,
+        "panel_catalogue_imported_en",
+        panel::SIZE,
+        Edition::E1011,
+        |ui| panel::show(ui, &mut st),
+    );
+    all.unwrap();
+}
+
 /// CATALOGUE as a player uses it: the page opens with the search line taking the keys, typed words narrow the list,
 /// Enter asks for the first card listed, and the table takes it with a message; Esc closes the page.
 #[test]

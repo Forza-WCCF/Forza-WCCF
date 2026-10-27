@@ -321,6 +321,22 @@ cat.msg_on_table: {en: "%{name} is on the table", it: "%{name} è già sul tavol
 cat.msg_same_player: {en: "%{name}: another card of this player is on the table (%{season})", it: "%{name}: un'altra carta di questo giocatore è già sul tavolo (%{season})", ja: "%{name}：この選手の別のカードがすでにテーブルにあります（%{season}）"}
 cat.msg_full: {en: "Table full (16). Right-click removes a card.", it: "Tavolo pieno (16). Clic destro rimuove una carta.", ja: "テーブルが満杯（16）。右クリックで外す。"}
 cat.msg_no_place: {en: "No space. Right-click removes a card.", it: "Nessuno spazio. Clic destro rimuove una carta.", ja: "空きなし。右クリックで外す。"}
+cat.import: {en: "IMPORT LINEUP", it: "IMPORTA FORMAZIONE", ja: "編成を読み込む"}
+cat.lineup: {en: "Lineup", it: "Formazione", ja: "編成"}
+cat.msg_imported: {en: "%{name}: %{n} cards on the table.", it: "%{name}: %{n} carte sul tavolo.", ja: "%{name}：%{n}枚をテーブルに置きました。"}
+cat.msg_import_kp: {en: "Key player on the site: %{name}. Set it in the game.", it: "Giocatore chiave sul sito: %{name}. Sceglilo nel gioco.", ja: "サイトのキープレイヤー：%{name}。ゲーム内で設定してください。"}
+cat.msg_import_skipped: {en: "Skipped: %{list}", it: "Saltate: %{list}", ja: "読み込めないカード：%{list}"}
+cat.msg_import_edition: {en: "This lineup is for %{game}.", it: "Questa formazione è per %{game}.", ja: "この編成は%{game}用です。"}
+cat.msg_import_empty: {en: "No lineup on the clipboard. Copy one on db.wccf.it first.", it: "Nessuna formazione negli appunti. Copiala prima su db.wccf.it.", ja: "クリップボードに編成がありません。先にdb.wccf.itでコピーしてください。"}
+cat.msg_clipboard: {en: "Could not read the clipboard. Copy the lineup again and retry.", it: "Impossibile leggere gli appunti. Copia di nuovo la formazione e riprova.", ja: "クリップボードを読めません。編成をもう一度コピーして再試行してください。"}
+cat.msg_import_none: {en: "None of these cards is in this game.", it: "Nessuna di queste carte è in questo gioco.", ja: "この編成のカードはこのゲームにありません。"}
+cat.msg_import_match: {en: "Not during a match. Import between matches.", it: "Non durante una partita. Importa tra una partita e l'altra.", ja: "試合中は読み込めません。試合の合間に読み込んでください。"}
+cat.skip_no_number: {en: "no number in this game", it: "senza numero in questo gioco", ja: "このゲームに番号なし"}
+cat.skip_bad_line: {en: "unreadable line", it: "riga illeggibile", ja: "読めない行"}
+cat.skip_duplicate: {en: "same player twice", it: "giocatore doppio", ja: "同じ選手"}
+cat.skip_not_in_catalogue: {en: "not in the catalogue", it: "non nel catalogo", ja: "カタログにない"}
+cat.skip_no_room: {en: "no room", it: "nessuno spazio", ja: "空きなし"}
+board.imported: {en: "Lineup imported", it: "Formazione importata", ja: "編成を読み込みました"}
 
 # ---- keys ----
 keys.hint: {en: "Click a cell, then press a key or button.", it: "Clicca una cella, poi premi un tasto o un pulsante.", ja: "マスをクリックし、キーまたはボタンを押す。"}
