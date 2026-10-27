@@ -354,7 +354,7 @@ fn main() -> Result<()> {
     match task {
         Task::Build { fast, release } => {
             let _ = PROFILE.set(pick_profile(Some("build"), fast, release, in_ci()));
-            build_all(&root, &kit, &kit_1718, false)
+            build_all(&root, &kit, &kit_1718)
         }
         Task::Cap { root, outdir } => cap(&root, &outdir),
         Task::Gallery => gallery(&root),
@@ -374,8 +374,7 @@ fn main() -> Result<()> {
                 Some("text") => return check_text(&root),
                 _ => {}
             }
-            // not in release: its tests use the test profile, which shares nothing with the kits
-            build_all(&root, &kit, &kit_1718, profile() != "release")
+            build_all(&root, &kit, &kit_1718)
                 .and_then(|()| check(&root, &stage_root, &kit, &kit_1718, ci, &test_args))
         }
         Task::Stage { edition } => match edition.as_str() {
@@ -385,9 +384,7 @@ fn main() -> Result<()> {
         },
         Task::Package { edition, name } => match edition.as_str() {
             "installer" => package_installer(&root, name),
-            "2010-11" | "2017-18" if let Err(e) = build_all(&root, &kit, &kit_1718, false) => {
-                Err(e)
-            }
+            "2010-11" | "2017-18" if let Err(e) = build_all(&root, &kit, &kit_1718) => Err(e),
             "2010-11" => package(&root, &kit, &name.unwrap_or_else(|| TOP.into()), true),
             "2017-18" => package(
                 &root,
@@ -574,9 +571,8 @@ fn workspace_version(root: &Path) -> Result<String> {
 /// Build jobs running at once: the 64-bit programs and the 32-bit ones, joined by `build_all`.
 type Jobs<'s> = Vec<std::thread::ScopedJoinHandle<'s, (String, Result<()>)>>;
 
-/// Stage both kits, build the 64-bit and the 32-bit programs at once, then report every failure. `with_tests` builds
-/// the tests in the same cargo runs (see `build`).
-fn build_all(root: &Path, kit: &Path, kit_1718: &Path, with_tests: bool) -> Result<()> {
+/// Stage both kits, build the 64-bit and the 32-bit programs at once, then report every failure.
+fn build_all(root: &Path, kit: &Path, kit_1718: &Path) -> Result<()> {
     let started = std::time::SystemTime::now();
     for (k, ed) in [(kit, &ED_1011), (kit_1718, &ED_1718)] {
         stage(root, k, ed.map, ed.keep)?;
@@ -588,7 +584,7 @@ fn build_all(root: &Path, kit: &Path, kit_1718: &Path, with_tests: bool) -> Resu
     let _ = fs::remove_file(kit.join("programs/wccfpanel.dll"));
     let mut failed = vec![];
     std::thread::scope(|s| {
-        for j in build(s, root, kit, kit_1718, with_tests) {
+        for j in build(s, root, kit, kit_1718) {
             let (what, r) = j.join().expect("build thread");
             if let Err(e) = r {
                 failed.push(format!("{what}: {e:#}"));
@@ -681,19 +677,22 @@ fn build<'s>(
     root: &'s Path,
     kit: &Path,
     kit_1718: &Path,
-    with_tests: bool,
 ) -> Jobs<'s> {
     // the toolchain is pinned by rust-toolchain.toml, the crates by Cargo.lock, the static runtime by .cargo/config.toml
     let mut c = rust_shipped(root);
-    c.args(["--profile", profile(), "--locked", "--target", TARGET]);
-    // `check` builds the tests in the same run as the programs: the dependencies' features differ between a run for
-    // three packages and one for the workspace with its tests, so two runs compile most of them twice (3 min on CI).
-    // The kit then holds programs with the tests' features (they only add): it is no player's build.
-    if with_tests {
-        c.args(["--workspace", "--exclude", "forza-panel", "--all-targets"]);
-    } else {
-        c.args(["-p", "launcher", "-p", "forza-server", "-p", INSTALLER]);
-    }
+    c.args([
+        "--profile",
+        profile(),
+        "--locked",
+        "-p",
+        "launcher",
+        "-p",
+        "forza-server",
+        "-p",
+        INSTALLER,
+        "--target",
+        TARGET,
+    ]);
     let launcher = c;
     // 32-bit like the game: the panel (build_all copies it into both kits), the hook once per edition, the guards and
     // the programs beside the game, one build after the other (the hook's builds share its output file)
@@ -712,9 +711,6 @@ fn build<'s>(
         HOOKS[0].0,
     ]);
     first.args(NATIVE_CRATES);
-    if with_tests {
-        first.arg("--all-targets");
-    }
     let out = target_dir(root).join(PANEL_TARGET).join(profile());
     let (kit, kit_1718) = (kit.to_owned(), kit_1718.to_owned());
     let to = move |in_1011: bool, rel: &str| (if in_1011 { &kit } else { &kit_1718 }).join(rel);
@@ -736,11 +732,7 @@ fn build<'s>(
     };
     vec![
         s.spawn(move || {
-            let what = if with_tests {
-                "cargo build --workspace --all-targets"
-            } else {
-                "cargo build -p launcher -p forza-server -p wccf-installer"
-            };
+            let what = "cargo build -p launcher -p forza-server -p wccf-installer";
             (what.into(), run_ok(launcher, what))
         }),
         s.spawn(move || {
@@ -972,7 +964,7 @@ fn quick(root: &Path, kit: &Path, kit_1718: &Path, base: &str) -> Result<()> {
     }
     if needs_kit && kit_stale(root, kit)? {
         println!("quick: the staged kit is missing or older than the sources: rebuilding it");
-        build_all(root, kit, kit_1718, false)?;
+        build_all(root, kit, kit_1718)?;
     }
     let runs = target_scopes(&scope);
     for (target, scope) in &runs {
