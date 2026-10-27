@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The 2010-11 server: the supervisor (Xvfb + Wine control + 4 match engines), then `forza-server all` (seat desk
-# TCP 20030, match relay UDP 20040, log inbox TCP 20050) and the projector relay (TCP 20031).
+# TCP 20030, match relay UDP 20040) and the projector relay (TCP 20031).
 #   start  - supervisor first, then the two services (they read control's log, which the supervisor names)
 #   stop   - the services, then the supervisor
 #   status - supervisor status, the services' pids, the listening ports
