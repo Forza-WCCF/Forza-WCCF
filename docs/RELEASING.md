@@ -17,11 +17,19 @@
 ## Alpha builds for players
 
 - 2017-18 only, as a GitHub **pre-release** of this repository with the ZIP and the installer.
-- Before publishing: the full `cargo xtask check` passes on the tagged commit, someone has played the build, and a
-  maintainer approves the tag and the upload.
+- Before publishing: the [stability gate](#stability-gate) passes on the tagged commit, someone has played the build,
+  and a maintainer approves the tag and the upload.
 - Release notes in English, Italian and Japanese: this is an alpha, what changed, known bugs, and how to report one
   (SAVE LOGS in the panel, then attach the file to a GitHub issue).
 - Player feedback: GitHub issues, in English, Italian or Japanese.
+
+## Stability gate
+
+Before a ZIP goes to a player: the full `cargo xtask check` on the commit that is packaged, then a soak run through
+the guard ([SAFETY.md](SAFETY.md)): at least three matches back to back, RESTART NOW once, a card in and out, online
+and offline, and a quit, with no crash snapshot, no hang, nothing left running and the routes unchanged. The logs are
+read for warnings, not only for the pass lines. Crash snapshots and problem reports stay on, so a crash in a player's
+hands is seen.
 
 ## In-app UPDATE
 
