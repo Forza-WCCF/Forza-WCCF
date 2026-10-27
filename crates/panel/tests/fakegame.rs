@@ -463,6 +463,50 @@ fn board_and_buttons_with_real_data() {
         format!("{header}1 101 0.000 0.900\n{l103}\n2 102 -0.600 0.550\n")
     );
 
+    // 3b. IMPORT LINEUP (WCCFPANEL_IMPORTTEST: the lineup from a file, the clipboard left alone): the table replaced by
+    // the lineup's cards, the table before it written beside it
+    let _ = fs::remove_file(seat.join("forza_panel.log"));
+    let before = fs::read_to_string(&table).unwrap();
+    let lineup = t.join("lineup.txt");
+    fs::write(
+        &lineup,
+        "# WCCF DB lineup\ngame 1011\nname Test\nP 101 50 92 K\nP 103 50 20\nS 104\nS 999\n",
+    )
+    .unwrap();
+    run_with(
+        &[("WCCFPANEL_IMPORTTEST", lineup.to_str().unwrap())],
+        &[
+            READY.into(),
+            "wait:300".into(),
+            bar(0),
+            "wait:400".into(),
+            "click:760,99".into(), // IMPORT LINEUP, at the search line's right end
+            "wait:400".into(),
+            "key:27".into(),
+            "wait:400".into(),
+        ],
+    );
+    let log = fs::read_to_string(seat.join("forza_panel.log")).unwrap_or_default();
+    println!("forza_panel.log:\n{log}");
+    assert!(
+        log.contains("import: 3 card(s): 101@0.000,0.840 103@0.000,-0.600 104@"),
+        "the panel's log has no import"
+    );
+    let after = fs::read_to_string(&table).unwrap();
+    assert!(
+        after.starts_with(&format!(
+            "{header}1 101 0.000 0.840\n2 103 0.000 -0.600\n3 104 "
+        )),
+        "{after}"
+    );
+    assert_eq!(after.lines().count(), 4, "{after}");
+    assert_eq!(
+        fs::read_to_string(seat.join("fpr_table0.before-import.txt")).unwrap(),
+        before
+    );
+    // the next steps start from the table they expect
+    fs::write(&table, &before).unwrap();
+
     // 4. KEYS from the bar: SHOOT's key cell clicked, then H; KEEPER's controller cell clicked, then a (fake)
     // controller's button 3 pressed after the controller was found at rest; keys.txt written as the C panel writes it
     let _ = fs::remove_file(seat.join("forza_panel.log"));

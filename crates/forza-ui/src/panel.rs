@@ -15,6 +15,7 @@ use crate::board::{PositionColor, RarityRim};
 use crate::sizing;
 use crate::theme::Accent;
 use egui::{Align2, Color32, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
+use forza::cards::lineup::{self, LineupError, Skip, Skipped};
 use forza::cards::{self, AddRefused, Placed};
 use forza::club_view::{self as forza_club, ClubView};
 use forza::panel_txt::{PanelFile, valid_address};
@@ -421,6 +422,7 @@ pub struct Note {
     pub tone: Tone,
     pub text: String,
     shown: Option<f64>,
+    secs: f64,
 }
 
 const NOTE_SECS: f64 = 4.0;
@@ -431,6 +433,15 @@ impl Note {
             tone,
             text,
             shown: None,
+            secs: NOTE_SECS,
+        }
+    }
+
+    /// A message with more to read (an import's skipped cards): shown for [`IMPORT_UNDO_SECS`].
+    pub fn long(tone: Tone, text: String) -> Note {
+        Note {
+            secs: IMPORT_UNDO_SECS,
+            ..Note::new(tone, text)
         }
     }
 }
@@ -576,6 +587,12 @@ pub struct PanelState {
     pub latched: Option<&'static str>,
     /// A catalogue card to put on the table (its number): [`add_card`].
     pub add: Option<u32>,
+    /// IMPORT LINEUP clicked: the panel DLL reads the clipboard and calls [`import_lineup`].
+    pub import: bool,
+    /// The table before the last import and when (the frame's time): UNDO in the board strip for [`IMPORT_UNDO_SECS`].
+    pub import_undo: Option<(Vec<Placed>, f64)>,
+    /// That UNDO clicked: the panel DLL calls [`undo_import`].
+    pub import_undone: bool,
     /// The bindings changed: keys.txt is written.
     pub keys_changed: bool,
     /// The choices changed: data\panel.txt is written.
@@ -647,6 +664,9 @@ impl PanelState {
             latched: None,
             undo: None,
             add: None,
+            import: false,
+            import_undo: None,
+            import_undone: false,
             keys_changed: false,
             file_changed: false,
             restart: false,
@@ -777,6 +797,119 @@ pub fn add_card(st: &mut PanelState, placed: &mut Vec<Placed>, no: u32) -> bool 
     }
     st.note(tone, text);
     added
+}
+
+/// How long an import's UNDO and its message stay.
+pub const IMPORT_UNDO_SECS: f64 = 10.0;
+
+/// The lineup `text` (the site's export: the clipboard's, later a share link's) as the whole table in place of
+/// `placed`. Refused during a match (the owner's rule) and for another edition's lineup. The message names what came
+/// in, the site's key player (the table has none: the player sets it in the game) and the cards skipped, and why.
+/// `Some(new table)`: the caller writes it; the old one waits in `import_undo` for [`undo_import`].
+pub fn import_lineup(
+    st: &mut PanelState,
+    placed: &[Placed],
+    text: &str,
+    in_match: bool,
+    now: f64,
+) -> Option<Vec<Placed>> {
+    let lang = st.lang;
+    if in_match {
+        st.say(Tone::Refused, "cat.msg_import_match");
+        return None;
+    }
+    let l = match lineup::parse(text, st.edition) {
+        Ok(l) => l,
+        Err(LineupError::WrongEdition(g)) => {
+            // the site writes 0203, 0506, 1011, 1718
+            let game = match g.as_bytes() {
+                [_, _, _, _] if g.bytes().all(|b| b.is_ascii_digit()) => {
+                    format!("20{}-{}", &g[..2], &g[2..])
+                }
+                _ => g,
+            };
+            st.note(
+                Tone::Refused,
+                tr!(lang, "cat.msg_import_edition", game = game),
+            );
+            return None;
+        }
+        Err(LineupError::Empty) => {
+            st.say(Tone::Refused, "cat.msg_import_empty");
+            return None;
+        }
+    };
+    let imp = match lineup::table(&l, &st.cards) {
+        Ok(imp) => imp,
+        Err(_) => {
+            // nothing placed: every entry the text named is missing from this game's catalogue
+            let mut skipped = l.skipped.clone();
+            skipped.extend(l.pitch.iter().chain(&l.bench).map(|e| Skipped {
+                label: e.label.clone(),
+                why: Skip::NotInCatalogue,
+            }));
+            let text = format!(
+                "{}\n{}",
+                tr!(lang, "cat.msg_import_none"),
+                skip_list(&skipped, lang)
+            );
+            st.message = Some(Note::long(Tone::Refused, text));
+            return None;
+        }
+    };
+    let name = imp.name.clone().unwrap_or_else(|| tr!(lang, "cat.lineup"));
+    let mut text = tr!(lang, "cat.msg_imported", name = name, n = imp.placed.len());
+    if let Some(kp) = imp.kp.and_then(|k| st.cards.iter().find(|c| c.number == k)) {
+        text += "\n";
+        text += &tr!(lang, "cat.msg_import_kp", name = kp.short_name());
+    }
+    if !imp.skipped.is_empty() {
+        text += "\n";
+        text += &tr!(
+            lang,
+            "cat.msg_import_skipped",
+            list = skip_list(&imp.skipped, lang)
+        );
+    }
+    let tone = if imp.skipped.is_empty() {
+        Tone::Done
+    } else {
+        Tone::Notice
+    };
+    st.message = Some(Note::long(tone, text));
+    st.board = cards::board(&imp.placed, &st.cards);
+    st.import_undo = Some((placed.to_vec(), now));
+    st.undo = None; // UNDO now means the import
+    Some(imp.placed)
+}
+
+/// The table before the last import, back on the board; `Some`: the caller writes it.
+pub fn undo_import(st: &mut PanelState) -> Option<Vec<Placed>> {
+    let (old, _) = st.import_undo.take()?;
+    st.board = cards::board(&old, &st.cards);
+    Some(old)
+}
+
+/// "NAME (why), ...", the first 8, then "+N more".
+fn skip_list(skipped: &[Skipped], lang: Lang) -> String {
+    let mut list: Vec<String> = skipped
+        .iter()
+        .take(8)
+        .map(|s| {
+            let why = match s.why {
+                Skip::NoGameNumber => "cat.skip_no_number",
+                Skip::BadLine => "cat.skip_bad_line",
+                Skip::Duplicate => "cat.skip_duplicate",
+                Skip::NotInCatalogue => "cat.skip_not_in_catalogue",
+                Skip::NoRoom => "cat.skip_no_room",
+            };
+            format!("{} ({})", s.label, tr!(lang, why))
+        })
+        .collect();
+    if skipped.len() > 8 {
+        list.push(tr!(lang, "board.more", n = skipped.len() - 8));
+    }
+    list.join(", ")
 }
 
 /// The centre of a formation slot (0-10 the pitch, 11-15 the bench) on a sheet `width` points wide whose board has
@@ -1742,6 +1875,7 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let now = b.input(|i| i.time);
     if let Some(r) = board::take_removed(&b) {
         st.undo = Some((r, now));
+        st.import_undo = None; // UNDO now means this card
     }
     b.add_space(4.0);
     // at the hint's right: the board in its own window, or back with the game
@@ -1779,6 +1913,9 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         );
     }
     let mut b = b.new_child(egui::UiBuilder::new().max_rect(row.with_max_x(btn.left() - 8.0)));
+    if import_undo_line(&mut b, st, lang, now) {
+        return;
+    }
     // a card just taken off: its name and UNDO for a few seconds, in the hint's place
     st.undo = st.undo.take().filter(|(_, at)| now - at < UNDO_SECS);
     if let Some((r, at)) = st.undo.clone() {
@@ -1813,6 +1950,32 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         r.bottom(),
         lang,
     );
+}
+
+/// A lineup just imported: a line and its UNDO for [`IMPORT_UNDO_SECS`], in the hint's place; `false`: none.
+fn import_undo_line(ui: &mut Ui, st: &mut PanelState, lang: Lang, now: f64) -> bool {
+    st.import_undo = st
+        .import_undo
+        .take()
+        .filter(|(_, at)| now - at < IMPORT_UNDO_SECS);
+    let Some(at) = st.import_undo.as_ref().map(|u| u.1) else {
+        return false;
+    };
+    ui.ctx()
+        .request_repaint_after(std::time::Duration::from_secs_f64(
+            IMPORT_UNDO_SECS - (now - at),
+        ));
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new(tr!(lang, "board.imported"))
+                .font(theme::body(HINT))
+                .color(theme::TEXT),
+        );
+        if widgets::action(ui, &tr!(lang, "board.undo")).clicked() {
+            st.import_undone = true;
+        }
+    });
+    true
 }
 
 /// How long UNDO stays offered after a card is taken off the board.
@@ -2068,10 +2231,10 @@ fn note_line(ui: &mut Ui, message: &mut Option<Note>) {
     let now = ui.input(|i| i.time);
     let Some(n) = message else { return };
     let at = *n.shown.get_or_insert(now);
-    if now - at < NOTE_SECS {
+    if now - at < n.secs {
         status_line(ui, n.tone, &n.text);
         ui.ctx()
-            .request_repaint_after(std::time::Duration::from_secs_f64(NOTE_SECS - (now - at)));
+            .request_repaint_after(std::time::Duration::from_secs_f64(n.secs - (now - at)));
     } else {
         *message = None;
     }
@@ -2091,16 +2254,33 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
         add = c.results.first().map(|&i| cards[i].number);
     }
-    let search = ui.add(
-        egui::TextEdit::singleline(&mut c.filter.search)
-            .id_salt("cat-search")
-            .hint_text(tr!(lang, "cat.search_hint"))
-            .font(theme::body(16.0))
-            .desired_width(f32::INFINITY)
-            .margin(vec2(12.0, 8.0)),
-    );
+    let mut import = false;
+    // the search line, IMPORT LINEUP at its right end
+    let row = vec2(ui.available_width(), 36.0);
+    let search = ui
+        .allocate_ui_with_layout(
+            row,
+            egui::Layout::right_to_left(egui::Align::Center),
+            |ui| {
+                import = action(ui, &tr!(lang, "cat.import")).clicked();
+                ui.add(
+                    egui::TextEdit::singleline(&mut c.filter.search)
+                        .id_salt("cat-search")
+                        .hint_text(tr!(lang, "cat.search_hint"))
+                        .font(theme::body(16.0))
+                        .desired_width(f32::INFINITY)
+                        .margin(vec2(12.0, 8.0)),
+                )
+            },
+        )
+        .inner;
     if !search.has_focus() && !egui::Popup::is_any_open(ui.ctx()) {
         search.request_focus();
+    }
+    // an import's report runs to a few lines: across the page under the search line, not in the stats pane
+    let long = st.message.as_ref().is_some_and(|n| n.secs > NOTE_SECS);
+    if long {
+        note_line(ui, &mut st.message);
     }
     let f = &mut c.filter;
     let label_w = 110.0;
@@ -2289,7 +2469,9 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                     }
                     open |= opened;
                 }
-                note_line(ui, message);
+                if !long {
+                    note_line(ui, message);
+                }
             });
             // Tab or a click on the stats pane's face: the card view of the card shown
             if open && let Some(card) = shown {
@@ -2297,6 +2479,7 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             }
         });
     st.add = st.add.or(add);
+    st.import |= import;
 }
 
 /// The card view's caption row under the pictures, with its gap: the name, the club line and the roles beside TOTAL,
@@ -4375,6 +4558,87 @@ mod tests {
         assert!(!add_card(&mut st, &mut placed, 32));
         assert_eq!(st.message.as_ref().unwrap().tone, Tone::Refused);
         assert!(!add_card(&mut st, &mut placed, 999)); // not in the catalogue: nothing happens
+    }
+
+    fn importer() -> (PanelState, Vec<Placed>) {
+        let st = PanelState::new(
+            Edition::E1011,
+            Lang::En,
+            cards::board(&[], &[]),
+            cards().into(),
+        );
+        let old = vec![Placed {
+            slot: 1,
+            no: 10,
+            x: 0.0,
+            y: 0.9,
+        }];
+        (st, old)
+    }
+
+    #[test]
+    fn import_is_refused_in_a_match_for_another_edition_and_when_empty() {
+        let (mut st, old) = importer();
+        let text = "game 1011\nP 1 50 90\n";
+        for (lineup, in_match, said) in [
+            (text, true, "Not during a match. Import between matches."),
+            (
+                "game 1718\nP 1 50 90\n",
+                false,
+                "This lineup is for 2017-18.",
+            ),
+            (
+                "",
+                false,
+                "No lineup on the clipboard. Copy one on db.wccf.it first.",
+            ),
+        ] {
+            assert_eq!(import_lineup(&mut st, &old, lineup, in_match, 0.0), None);
+            let m = st.message.as_ref().unwrap();
+            assert_eq!((m.tone, m.text.as_str()), (Tone::Refused, said));
+            assert!(st.import_undo.is_none());
+        }
+        // nothing this game has: refused, the misses listed
+        assert_eq!(import_lineup(&mut st, &old, "998 999", false, 0.0), None);
+        assert_eq!(
+            st.message.as_ref().unwrap().text,
+            "None of these cards is in this game.\n998 (not in the catalogue), 999 (not in the catalogue)"
+        );
+    }
+
+    #[test]
+    fn import_replaces_the_table_and_undo_puts_it_back() {
+        let (mut st, old) = importer();
+        let text = "# WCCF DB lineup\ngame 1011\nname Test XI\nP 101 50 90 K\nP 210 50 30\nS 32\n\
+                    S \"13/GES 3 \" # OLD · 13 GES 3\nS 999\n";
+        let new = import_lineup(&mut st, &old, text, false, 5.0).unwrap();
+        assert_eq!(
+            new.iter().map(|p| (p.slot, p.no)).collect::<Vec<_>>(),
+            [(1, 101), (2, 210), (3, 32)]
+        );
+        assert_eq!((new[0].x, new[0].y), (0.0, 0.8));
+        assert!(new[2].on_bench());
+        assert_eq!(st.board.cards[0].number, 101);
+        let kp = st
+            .cards
+            .iter()
+            .find(|c| c.number == 101)
+            .unwrap()
+            .short_name()
+            .to_owned();
+        let m = st.message.as_ref().unwrap();
+        assert_eq!(m.tone, Tone::Notice);
+        assert_eq!(
+            m.text,
+            format!(
+                "Test XI: 3 cards on the table.\nKey player on the site: {kp}. Set it in the game.\n\
+                 Skipped: OLD · 13 GES 3 (no number in this game), 999 (not in the catalogue)"
+            )
+        );
+        assert_eq!(st.import_undo, Some((old.clone(), 5.0)));
+        assert_eq!(undo_import(&mut st), Some(old));
+        assert_eq!(st.board.cards[0].number, 10);
+        assert_eq!(undo_import(&mut st), None);
     }
 
     #[test]
