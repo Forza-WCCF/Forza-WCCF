@@ -319,14 +319,25 @@ fn run(name: &str, seats: (u8, u8), relay_only: bool) {
     } else {
         "path direct"
     };
+    // keep pinging, as the game does in a match: only the dialling side opens the direct path (iroh), the accepting
+    // side follows from path events, and once on CI it stayed on the relay for over 15 s on the quiet link. Datagrams
+    // lost during the move are not checked.
     let t = Instant::now();
+    let mut i = 1000u32;
     while !(a.logged(want) && b.logged(want)) {
         assert!(
             t.elapsed() < Duration::from_secs(15),
             "no '{want}' in both logs"
         );
+        a.udp.send_to(&pkt(4, &i.to_le_bytes()), a.opp).unwrap();
+        if b.expect(4, Duration::from_millis(500)).is_some() {
+            b.udp.send_to(&pkt(5, &i.to_le_bytes()), b.opp).unwrap();
+            a.expect(5, Duration::from_millis(500));
+        }
+        i += 1;
         std::thread::sleep(Duration::from_millis(100));
     }
+    let path = t.elapsed();
     if relay_only {
         assert!(!a.logged("path direct") && !b.logged("path direct"));
     }
@@ -336,7 +347,7 @@ fn run(name: &str, seats: (u8, u8), relay_only: bool) {
         "nothing left over"
     );
     eprintln!(
-        "{name}: link up after {link_up:?}, 1,000 pings in {pings:?}, total {:?}",
+        "{name}: link up after {link_up:?}, 1,000 pings in {pings:?}, '{want}' after {path:?}, total {:?}",
         started.elapsed()
     );
     drop((a, b));
