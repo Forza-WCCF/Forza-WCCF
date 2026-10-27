@@ -429,8 +429,8 @@ fn rust_shipped(root: &Path) -> Command {
     c
 }
 
-/// The `--config` arguments of `rust_shipped`. The tests pass them too: other target rustflags give every crate another
-/// hash, and the test build would compile the whole workspace a second time after the kits.
+/// The `--config` arguments of `rust_shipped`. The tests in the kits' profile pass them too: other target rustflags give
+/// every crate another hash, and the test build would compile the whole workspace a second time after the kits.
 fn remap_config(root: &Path) -> Vec<String> {
     let home = std::env::var_os("USERPROFILE").map(PathBuf::from);
     let cargo = std::env::var_os("CARGO_HOME")
@@ -976,9 +976,9 @@ fn quick(root: &Path, kit: &Path, kit_1718: &Path, base: &str) -> Result<()> {
     for (target, scope) in &runs {
         let mut test = rust("test", root);
         test.args(["--locked", "--target", target]).args(scope);
-        // the kit's profile, so the tests reuse its dependencies (the usual test profile for `--release`)
+        // the kit's profile and rustflags, so the tests reuse its crates (the usual test profile for `--release`)
         if profile() != "release" {
-            test.args(["--profile", profile()]);
+            test.args(remap_config(root)).args(["--profile", profile()]);
         }
         run_ok(test, "cargo test")?;
     }
@@ -1154,10 +1154,10 @@ fn tests(root: &Path, ci: bool, extra: &[String], target: &str, scope: &[&str]) 
     if nextest {
         test.arg("run");
     }
-    test.args(remap_config(root));
     test.args(["--locked", "--target", target]).args(scope);
-    // the kits' profile, so the tests reuse their dependencies; release tests in the usual test profile
+    // the kits' profile and rustflags, so the tests reuse their crates; release tests in the usual test profile
     if profile() != "release" {
+        test.args(remap_config(root));
         test.args([
             if nextest {
                 "--cargo-profile"
@@ -2159,6 +2159,7 @@ mod tests {
     #[test]
     fn the_tests_build_with_the_kits_rustflags() {
         // other rustflags give every crate another hash: the test build would compile the workspace a second time
+        let _ = PROFILE.set("ci"); // the release tests build in the test profile, which shares nothing with the kits
         let root = Path::new("C:/repo");
         let args = |c: &Command| c.get_args().map(|a| a.to_owned()).collect::<Vec<_>>();
         let config = |c: Command| {
