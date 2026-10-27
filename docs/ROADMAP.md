@@ -39,8 +39,8 @@ internet. Release 1 (1.0.0) waits on the live gates below.
   catalogue page, with UNDO (#54).
 - **2017–18 shop on Linux:** the server hook `e1718-server` (#56); `wccf-linux-server --edition 2017-18` and
   `sddy_maps.exe` (#57). Built and unit-tested; no Wine run yet. Setup: [SELF-HOSTING.md](SELF-HOSTING.md).
-- **M2 step 1, 2017–18 LAN shop** (#58): `"shop_1718": true` in `data\settings.json` switches on the server and
-  remote-seat modes; not yet played live.
+- **M2 step 1, 2017–18 LAN shop** (#58): the server and remote-seat modes are on by default;
+  `"shop_1718": false` in `data\settings.json` turns them off. Not yet played live.
 - **Build speed:** a `fast` profile and sccache by default for local builds, a stale kit rebuilt before
   `check quick` (#49); one workspace build for `check` (#53); a faster CI (#36, #51, #55).
 - **Text:** 2017–18 game text in Italian; English and Italian team, club and nationality names in both editions;

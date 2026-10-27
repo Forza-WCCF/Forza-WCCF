@@ -880,7 +880,8 @@ fn closing_seat_1_ends_the_2017_18_run() {
     let p = params("close1718", Shared::new());
     let _control = TcpListener::bind(("127.0.0.1", p.control_port)).unwrap(); // "the server answers"
     let _desk = seat_desk(p.seat_port);
-    // a seat in a shared shop only with data\settings.json "shop_1718": true
+    // no seat in a shared shop with data\settings.json "shop_1718": false; on when the key is missing
+    fs::write(kit.settings_file(), r#"{"shop_1718": false}"#).unwrap();
     let ui = Said::default();
     let rc = run::command(&kit, &p, &["remote".into(), "127.0.0.1".into()], &ui);
     assert_eq!(rc, run::REFUSED, "{}", ui.text());
@@ -890,7 +891,7 @@ fn closing_seat_1_ends_the_2017_18_run() {
         ui.text()
     );
     assert!(!kit.logs().exists(), "refused before anything of the run exists");
-    fs::write(kit.settings_file(), r#"{"shop_1718": true}"#).unwrap();
+    fs::write(kit.settings_file(), "{}").unwrap();
     let aimedb = p.aimedb_port;
     let (ui, t) = run_on_thread(&kit, p, &["remote", "127.0.0.1"]);
     wait_said(&ui, &t, "  6/6 ", 120);

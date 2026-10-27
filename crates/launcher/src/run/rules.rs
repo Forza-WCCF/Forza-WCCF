@@ -82,9 +82,14 @@ pub enum Words {
 pub const ONLINE_1718_TEXT: &str = "2017-18 has no server or remote mode. To play online, choose ONLINE in the \
                                     Launcher window, then PLAY.";
 
-/// data\settings.json's switch for the 2017-18 shared shop on a LAN (ROADMAP M2 step 1): `"shop_1718": true` lets
+/// data\settings.json's switch for the 2017-18 shared shop (ROADMAP M2): on unless `"shop_1718": false`; on lets
 /// `server` (the host's control, desk and relay) and `remote HOST` (a seat on that host) run.
 pub const SHOP_1718: &str = "shop_1718";
+
+/// The 2017-18 shared shop is on unless data\settings.json says `"shop_1718": false` ([`SHOP_1718`]).
+pub fn shop_1718_on(settings: &serde_json::Value) -> bool {
+    settings[SHOP_1718].as_bool() != Some(false)
+}
 
 /// 2017-18 refuses the shared-shop modes (server, remote) unless `shop` ([`SHOP_1718`]) is on.
 pub fn online_refused(edition: crate::Edition, mode: &Mode, shop: bool) -> bool {
@@ -460,6 +465,14 @@ pub fn compat_layer(existing: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_2017_18_shop_is_on_unless_settings_say_false() {
+        assert!(shop_1718_on(&serde_json::json!({})), "missing: on");
+        assert!(shop_1718_on(&serde_json::Value::Null), "no settings file: on");
+        assert!(shop_1718_on(&serde_json::json!({"shop_1718": true})));
+        assert!(!shop_1718_on(&serde_json::json!({"shop_1718": false})), "opt-out");
+    }
 
     #[test]
     fn a_seat_still_on_keeps_the_server_beside_it() {

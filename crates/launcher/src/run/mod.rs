@@ -887,7 +887,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
     };
     let seat = seat_dir(&game);
     let edition = kit.edition();
-    let shop = kit.settings()[rules::SHOP_1718].as_bool() == Some(true);
+    let shop = rules::shop_1718_on(&kit.settings());
     if rules::online_refused(edition, &mode, shop) {
         ui.say(rules::ONLINE_1718_TEXT);
         return Err(REFUSED);

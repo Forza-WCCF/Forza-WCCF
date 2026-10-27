@@ -11,7 +11,7 @@
 //!   SETUP        the game folder: set up / repair (launcher::setup) and undo; it is typed, picked, dropped on
 //!                the window or on Launcher.exe, and remembered by setup in data\settings.json.  The card pictures
 //!                (the game's or the high-quality pack) and, for 2017-18, skip the tutorial.
-//!   HOST SHOP    (2017-18, "shop_1718": true) this PC's shop for players elsewhere: the server, its tunnel and its room
+//!   HOST SHOP    (2017-18, unless "shop_1718": false) this PC's shop for players elsewhere: the server, its tunnel and its room
 //!                in the lobby (the code shown here), then this PC's own seat; the shop closes once that seat's run has ended and every guest has left.
 //!   UPDATE       (update.rs, 2010-11 only): the kit's releases and test builds at UPDATE_URL.
 //! The choices go where the kit already keeps them (choices.rs): data\panel.txt, which the in-game SETTINGS panel
@@ -749,7 +749,7 @@ impl App {
         let online_state = online::Online::new(&settings, &address, ed);
         let mut lobby = screen::lobby_for(ed);
         lobby.address = address;
-        lobby.shop_rooms = ed == Edition::E1718 && kit.settings()[run::rules::SHOP_1718].as_bool() == Some(true);
+        lobby.shop_rooms = ed == Edition::E1718 && run::rules::shop_1718_on(&kit.settings());
         let st = LauncherState {
             edition: ed,
             lang: text::lang(),
