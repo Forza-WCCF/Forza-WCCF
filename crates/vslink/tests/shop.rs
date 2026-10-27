@@ -9,6 +9,7 @@ use iroh::tls::CaTlsConfig;
 use std::collections::BTreeSet;
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -403,8 +404,21 @@ fn a_guest_that_leaves_leaves_nothing_open() {
         c.write_all(b"x").unwrap();
         c.read_exact(&mut [0u8; 1]).unwrap();
         wait_open(&p, (2, 1));
+        assert_eq!(
+            p.host.guests().load(Ordering::Relaxed),
+            1,
+            "one guest connected"
+        );
         drop(p.join.take());
         wait_open(&p, (0, 0));
+        let t = Instant::now();
+        while p.host.guests().load(Ordering::Relaxed) != 0 {
+            assert!(
+                t.elapsed() < Duration::from_secs(10),
+                "the guest still counted"
+            );
+            thread::sleep(Duration::from_millis(50));
+        }
         drop(c);
     }
 }
@@ -493,27 +507,51 @@ fn only_the_rooms_guests_come_in() {
         log,
         Duration::ZERO,
     );
+    // the room's list does not come for the guest's first try: it is told to come back, and dials again
+    let unsure = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let first = unsure.clone();
     cfg.admit = Some(Arc::new(move |id: &[u8; 32]| {
-        list.lock().unwrap().contains(id)
+        if !list.lock().unwrap().contains(id) {
+            shop::Verdict::NotInRoom
+        } else if first.swap(false, std::sync::atomic::Ordering::Relaxed) {
+            shop::Verdict::NoAnswer
+        } else {
+            shop::Verdict::In
+        }
     }));
     p.host = shop::spawn(cfg).unwrap();
     p.host_log = host_lines;
-    // a stranger: the link comes up, then the host closes it
+    // a stranger: the link comes up, then the host closes it, and the stranger stops dialling and says why
     p.join("admit stranger", 0);
     let t = Instant::now();
-    while !logged(&p.host_log, "refused: not in the shop's room") {
+    while !logged(&p.join_log, "the shop refused this PC: not in its room") {
         assert!(
             t.elapsed() < Duration::from_secs(10),
-            "the stranger was let in"
+            "the stranger was let in, or not told"
         );
         thread::sleep(Duration::from_millis(50));
     }
+    assert!(logged(&p.host_log, "refused: not in the shop's room"));
+    assert!(!logged(&p.join_log, "dialling again"));
     // the room's guest: its id on the list before it dials
     drop(p.join.take());
     let key = iroh::SecretKey::generate();
     std::fs::write(p.dir.join("admit guest.key"), key.to_bytes()).unwrap();
     allowed.lock().unwrap().push(*key.public().as_bytes());
     p.join("admit guest", 0);
+    let t = Instant::now();
+    while !logged(&p.host_log, "joined") {
+        assert!(
+            t.elapsed() < Duration::from_secs(15),
+            "the guest did not come back"
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+    assert!(logged(
+        &p.host_log,
+        "did not come in time, told to come back"
+    ));
+    assert!(logged(&p.join_log, "dialling again"));
+    assert!(!unsure.load(std::sync::atomic::Ordering::Relaxed));
     control_rtt(&p);
-    assert!(logged(&p.host_log, "joined"));
 }

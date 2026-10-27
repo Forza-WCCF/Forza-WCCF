@@ -1,12 +1,14 @@
 //! The window's side of the online lobby: the polling thread while ONLINE is shown, JOIN and its ticket, the heartbeat
 //! while the lease waits for the run, the last seat offered again within 75 s, and the VS rooms: HOST VS, READY, the
-//! 5 s countdown that starts the run, the CPU fallback (`launcher::lobby` has the workers).
+//! 5 s countdown that starts the run, the CPU fallback; 2017-18 shop rooms joined by their code (HOST SHOP itself is
+//! `main.rs`'s job) (`launcher::lobby` has the workers).
 
 use super::{plain_error, poke, refuse, t, tf};
 use forza::online::lobby::{Created, HEARTBEAT_EVERY, Reserved};
 use forza_ui::launcher::LauncherState;
-use forza_ui::lobby::{Kind, LobbyAction, Notice, Occupant, Room};
+use forza_ui::lobby::{Kind, LobbyAction, Notice, Occupant, Room, RowState};
 use launcher::choices;
+use launcher::lobby::CodeJoin;
 use launcher::lobby::{Beat, Book, Msg, Poller, REJOIN_SECS, Wake, close, quick_shop, release};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -41,7 +43,17 @@ struct Held {
     _beat: Beat,
     /// A VS room: its id, and whether this PC made it (LEAVE then closes it).
     vs: Option<(String, bool)>,
+    /// A shop room's guest seat (2017-18, by code): released when its run ends.
+    shop: bool,
     since: Instant,
+}
+
+/// What [`Online::look`] asks the window to start.
+pub enum Go {
+    /// PLAY, as the button does (a VS room's countdown ran out).
+    Play,
+    /// `remote ID`: a shop room's host, reached through its tunnel.
+    Remote(String),
 }
 
 /// The VS room's clock: READY pressed here, alone since, the start.
@@ -184,7 +196,7 @@ impl Online {
 
     /// Once per frame: the thread alive only while ONLINE is shown, its answers into the rows, the Rejoin offer, the
     /// VS room's countdown. True when the countdown ran out: start the run now.
-    pub fn look(&mut self, st: &mut LauncherState, edition: &'static str, settings: &Path) -> bool {
+    pub fn look(&mut self, st: &mut LauncherState, edition: &'static str, settings: &Path) -> Option<Go> {
         let wake: Wake = Arc::new(poke);
         if st.online && !st.running {
             if self.poller.is_none() {
@@ -201,6 +213,16 @@ impl Online {
         if !st.online {
             let_go(self.held.take());
             st.lobby.room = None;
+            st.lobby.joining = None;
+        }
+        // a shop guest's run is over (or never came up): its seat goes back
+        if !st.running
+            && !st.busy
+            && self.held.as_ref().is_some_and(|h| h.shop && h.played)
+            && let Some(h) = self.held.take()
+        {
+            give_back(h);
+            st.lobby.joining = None;
         }
         if self.was_running && !st.running {
             // the run ended: the seat is free, and offered again for a short while; a VS room's run held its
@@ -247,6 +269,11 @@ impl Online {
                     }
                 }
                 Msg::Created { server, result } => self.created(st, settings, server, result),
+                Msg::Coded { server, code, result } => {
+                    if let Some(host) = self.coded(st, server, &code, result) {
+                        return Some(Go::Remote(host));
+                    }
+                }
                 Msg::Readied { id, result } => {
                     let here = self
                         .held
@@ -268,7 +295,7 @@ impl Online {
         if self.poller.is_some() {
             self.rows = self.book.fill(&mut st.lobby, Instant::now());
         }
-        let go = self.room(st);
+        let go = self.room(st).then_some(Go::Play);
         st.rejoin = self
             .last
             .iter()
@@ -369,6 +396,7 @@ impl Online {
                     played: false,
                     _beat: beat,
                     vs: Some((id, seat == 1)),
+                    shop: false,
                     since: Instant::now(),
                 });
             }
@@ -431,6 +459,7 @@ impl Online {
                     played: false,
                     _beat: beat,
                     vs: (kind == Kind::Vs).then_some((id, false)),
+                    shop: false,
                     since: Instant::now(),
                 });
             }
@@ -440,6 +469,83 @@ impl Online {
                 p.refresh();
             }
             Err(e) => refuse(plain_error(&e)),
+        }
+    }
+
+    /// A typed shop code's answer: in, the seat is held (its heartbeat runs until the run ends) and the run goes to the
+    /// host's id; else why not.
+    fn coded(
+        &mut self,
+        st: &mut LauncherState,
+        server: String,
+        code: &str,
+        result: Result<CodeJoin, String>,
+    ) -> Option<String> {
+        if st.lobby.joining.as_deref() != Some(code) {
+            // given up meanwhile (ONLINE left, another code): the seat goes back now
+            if let Ok(CodeJoin::In { ticket, .. }) = result {
+                release(&server, &ticket);
+            }
+            return None;
+        }
+        let p = self.poller.as_ref()?;
+        let notice = match result {
+            Ok(CodeJoin::In { ticket, host }) => {
+                let beat = p.beat(&server, &ticket, Duration::from_secs(HEARTBEAT_EVERY), Arc::new(poke));
+                let_go(self.held.take());
+                self.held = Some(Held {
+                    ticket,
+                    server,
+                    // the run starts now: a GONE from here on is the run's to tell
+                    played: true,
+                    _beat: beat,
+                    vs: None,
+                    shop: true,
+                    since: Instant::now(),
+                });
+                st.lobby.notice = None;
+                st.lobby.joining = None;
+                return Some(host);
+            }
+            Ok(CodeJoin::NoRoom) => Notice::NoRoom,
+            Ok(CodeJoin::Full) => Notice::RoomFull,
+            Ok(CodeJoin::Gone) => Notice::ShopClosed,
+            Err(e) => {
+                st.lobby.joining = None;
+                refuse(plain_error(&e));
+                return None;
+            }
+        };
+        st.lobby.joining = None;
+        st.lobby.notice = Some(notice);
+        None
+    }
+
+    /// A code typed: an open VS room's as the list shows it, else (with the shared shop on) a shop room's, asked of
+    /// the club server's desk, where hosts make them.
+    fn join_code(&mut self, st: &mut LauncherState, code: &str) {
+        let vs = st.lobby.vs.iter().find(|r| r.name == code && r.state == RowState::Open);
+        if let Some(id) = vs.map(|r| r.id.clone()) {
+            st.lobby.notice = None;
+            self.join(st, &id, None);
+            return;
+        }
+        let Some(p) = &self.poller else { return };
+        let server = launcher::lobby::shop_lobby(st.club_server.as_deref().unwrap_or_default());
+        st.lobby.desk.clone_from(&server); // a "no room" names it: the host's room may be on another club server
+        // a code of another length is no room's: not worth one of the desk's wrong-code tries
+        if !st.lobby.shop_rooms || code.len() != forza::online::lobby::SHOP_CODE_LEN {
+            st.lobby.notice = Some(Notice::NoRoom);
+            return;
+        }
+        let key = launcher::Kit::here().data().join(launcher::lobby::SHOP_JOIN_KEY);
+        match vslink::shop::own_id(&key) {
+            Ok(own) => {
+                st.lobby.joining = Some(code.to_owned());
+                st.lobby.notice = None;
+                p.join_code(&server, code, &vslink::shop::id_text(&own), Arc::new(poke));
+            }
+            Err(e) => refuse(plain_error(&format!("{}: {e}", key.display()))),
         }
     }
 
@@ -490,6 +596,9 @@ impl Online {
                     st.lobby.room = None;
                 }
             }
+            LobbyAction::JoinCode(code) => self.join_code(st, &code),
+            // HOST SHOP is a job of the window's (main.rs)
+            LobbyAction::HostShop => {}
             LobbyAction::DirectAddress(a) => {
                 let a = a.trim().to_owned();
                 if !launcher::lobby::valid_server(&a) {

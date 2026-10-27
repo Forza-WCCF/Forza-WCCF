@@ -11,6 +11,8 @@
 //!   SETUP        the game folder: set up / repair (launcher::setup) and undo; it is typed, picked, dropped on
 //!                the window or on Launcher.exe, and remembered by setup in data\settings.json.  The card pictures
 //!                (the game's or the high-quality pack) and, for 2017-18, skip the tutorial.
+//!   HOST SHOP    (2017-18, "shop_1718": true) this PC's shop for players elsewhere: the server, its tunnel and its room
+//!                in the lobby (the code shown here), then this PC's own seat; the shop closes once that seat's run has ended and every guest has left.
 //!   UPDATE       (update.rs, 2010-11 only): the kit's releases and test builds at UPDATE_URL.
 //! The choices go where the kit already keeps them (choices.rs): data\panel.txt, which the in-game SETTINGS panel
 //! writes too, and data\settings.json.  Setup's lines fill OUTPUT.
@@ -40,6 +42,7 @@ use std::{env, mem, ptr, thread};
 use eframe::egui;
 use egui::ViewportCommand;
 use forza_ui::launcher::{self as screen, Action, Confirm, LauncherState};
+use forza_ui::lobby::LobbyAction;
 use forza_ui::theme;
 use forza_ui::widgets::Tone;
 use forza_ui::{Lang, text as ui_text};
@@ -75,6 +78,9 @@ enum Step {
     Game(Vec<OsString>),
     /// The card pictures (launcher::run::make_pictures), after setup and when the pictures choice changes
     Pictures,
+    /// HOST SHOP (2017-18): the server with its shop room, then this PC's seat on it; the server ends after the seat, once
+    /// no guest is connected
+    Host,
 }
 
 /// What the worker threads tell the window; each change wakes it (`poke`).
@@ -95,6 +101,8 @@ struct Shared {
     game: Option<u8>,          // a Game step has just ended with this exit code
     report_open: Option<bool>, // open the report dialog: Some(after a crash)
     report_done: Option<Result<String, String>>, // the report's number, or why it did not go (the player's words)
+    // HOST SHOP: the shop room's code, its lobby server and the flag set when that lobby loses it
+    host_room: Option<(String, String, Arc<AtomicBool>)>,
 }
 
 static SHARED: Mutex<Shared> = Mutex::new(Shared {
@@ -114,6 +122,7 @@ static SHARED: Mutex<Shared> = Mutex::new(Shared {
     game: None,
     report_open: None,
     report_done: None,
+    host_room: None,
 });
 
 /// The game is up in this process (its run is supervised here): the window is minimized, closing it asks the run to stop.
@@ -283,7 +292,11 @@ fn start(steps: Vec<Step>) -> bool {
         s.busy = true;
         s.progress = 0;
         // a game start shows the weighted bar and the clock from the first second
-        s.steps = steps.iter().any(|x| matches!(x, Step::Game(_))).then_some((0, 6));
+        s.steps = steps
+            .iter()
+            .any(|x| matches!(x, Step::Game(_) | Step::Host))
+            .then_some((0, 6));
+        s.host_room = None;
         s.began = Some(Instant::now());
         s.stage_at = s.began;
     }
@@ -334,6 +347,12 @@ fn start(steps: Vec<Step>) -> bool {
                     }
                     Ok(())
                 }
+                Step::Host => host_shop(&kit).map(|rc| {
+                    game = Some(u8::try_from(rc).unwrap_or(1));
+                    if rc == run::WENT_WRONG {
+                        shared().report_open = Some(true);
+                    }
+                }),
             };
             if result.is_err() {
                 break;
@@ -368,6 +387,78 @@ fn start(steps: Vec<Step>) -> bool {
         poke();
     });
     true
+}
+
+/// HOST SHOP: the server on a thread of its own until its shop room is made (or not), then this PC's seat on it as a
+/// `remote 127.0.0.1` run would (first, so it gets the projector); when that run ends, the server is asked to stop, which
+/// it does once no guest is connected; that closes the room. The seat's exit code, or why there is no room.
+fn host_shop(kit: &Kit) -> Result<i32, String> {
+    log("> server, then remote 127.0.0.1 (HOST SHOP)");
+    let (tx, rx) = std::sync::mpsc::channel();
+    let server = thread::spawn(move || {
+        let kit = Kit::here();
+        let p = Params::of(&kit);
+        let Ok(r) = run::start(&kit, &p, run::Mode::Server, false, &ServerUi) else {
+            return; // what went wrong is in OUTPUT
+        };
+        let _ = tx.send((r.shop_code(), r.shop_guests()));
+        let _ = r.supervise();
+    });
+    let stop = |server: thread::JoinHandle<()>| {
+        let _ = run::request(kit, run::Kind::Server, "force");
+        let _ = server.join();
+    };
+    match rx.recv() {
+        Ok((Ok(room), guests)) => {
+            shared().host_room = Some(room);
+            poke();
+            let mode = run::Mode::Remote("127.0.0.1".into(), None);
+            let rc = run::play(kit, &Params::of(kit), Some(mode), false, &WindowUi);
+            // a plain stop: the shop stays while guests are connected (run::rules::shop_rule), until they have all left
+            // (asked again then) or STOP THE GAME and "stop anyway"
+            if let Some((code, why)) = run::request(kit, run::Kind::Server, "stop")
+                && code != run::OK
+            {
+                log(&why);
+                say(t("launcher.msg_shop_stays"), 0);
+            }
+            let connected = || guests.as_ref().map_or(0, |g| g.load(Ordering::Relaxed));
+            while !server.is_finished() {
+                // STOP THE GAME stays offered while the server is on, whatever its answer was
+                RUNNING.store(run::is_on(kit, run::Kind::Server), Ordering::Relaxed);
+                poke();
+                thread::sleep(Duration::from_secs(3));
+                // not while a seat runs here: its stop would share data\server.request/answer with this one
+                if connected() == 0 && run::is_on(kit, run::Kind::Server) && !run::is_on(kit, run::Kind::Run) {
+                    let _ = run::request(kit, run::Kind::Server, "stop");
+                }
+            }
+            let _ = server.join();
+            Ok(rc)
+        }
+        Ok((Err(why), _)) => {
+            stop(server);
+            Err(tf("launcher.msg_no_shop_room", &[("error", &why)]))
+        }
+        Err(_) => {
+            let _ = server.join();
+            Ok(run::FAILED)
+        }
+    }
+}
+
+/// The HOST SHOP server's lines: into OUTPUT and the status line (its start, a wait for the lobby), never the bar or
+/// the window's game state (the seat's run has those).
+struct ServerUi;
+
+impl run::Ui for ServerUi {
+    fn say(&self, line: &str) {
+        log(line);
+        if !line.trim().is_empty() {
+            shared().status = Some((Tone::Notice, line.trim().to_owned()));
+            poke();
+        }
+    }
 }
 
 /// The run's lines go to OUTPUT (its "N/M" steps move the bar); its question - stop anyway, after the card rule
@@ -642,6 +733,7 @@ impl App {
         let online_state = online::Online::new(&settings, &address, ed);
         let mut lobby = screen::lobby_for(ed);
         lobby.address = address;
+        lobby.shop_rooms = ed == Edition::E1718 && kit.settings()[run::rules::SHOP_1718].as_bool() == Some(true);
         let st = LauncherState {
             edition: ed,
             lang: text::lang(),
@@ -743,14 +835,31 @@ impl App {
         self.st.running = RUNNING.load(Ordering::Relaxed);
         self.st.output.extend(log);
         let kit = Kit::here();
-        // the VS room's countdown ran out: the run starts as PLAY would
-        if self
+        // HOST SHOP: its code once the lobby gave it, gone with the room if the lobby loses it; the job over, the shop is
+        let room = shared().host_room.clone();
+        let v = &mut self.st.lobby;
+        v.host_code = None;
+        if let Some((code, desk, lost)) = room {
+            v.desk = desk;
+            if lost.load(Ordering::Relaxed) {
+                v.notice = Some(forza_ui::lobby::Notice::RoomLost);
+            } else {
+                v.host_code = Some(code);
+            }
+        }
+        if !self.st.busy {
+            self.st.lobby.hosting = false;
+        }
+        // the VS room's countdown ran out, or a shop code got this PC a seat: the run starts
+        let go = self
             .online
-            .look(&mut self.st, kit.edition().name(), &kit.settings_file())
-            && !self.st.busy
-            && !self.st.running
-        {
-            self.play(&kit);
+            .look(&mut self.st, kit.edition().name(), &kit.settings_file());
+        if !self.st.busy && !self.st.running {
+            match go {
+                Some(online::Go::Play) => self.play(&kit, Vec::new()),
+                Some(online::Go::Remote(host)) => self.play(&kit, vec!["remote".into(), host.into()]),
+                None => {}
+            }
         }
         // the run this process held has ended well: Launcher.exe ends with it
         if game == Some(0) && WAS_UP.load(Ordering::Relaxed) {
@@ -843,7 +952,7 @@ impl App {
     fn act(&mut self, a: Action, ctx: &egui::Context, frame: &eframe::Frame) {
         let kit = Kit::here();
         match a {
-            Action::Play => self.play(&kit),
+            Action::Play => self.play(&kit, Vec::new()),
             Action::Stop => stop_game(),
             Action::SetUp => {
                 if let Some(game) = self.folder() {
@@ -933,6 +1042,29 @@ impl App {
                     ctx.open_url(egui::OpenUrl::new_tab(&r.page));
                 }
             }
+            Action::Lobby(LobbyAction::HostShop) => {
+                if !self.st.busy && !self.st.running {
+                    // the room goes on the club server the box names now (the run reads the setting), checked as PLAY does
+                    if let Some(club) = &self.st.club_server {
+                        let club = club.trim();
+                        if !club.is_empty() && choices::parse_club_server(club).is_none() {
+                            refuse(t("launcher.msg_bad_club"));
+                            return;
+                        }
+                        let file = kit.settings_file();
+                        if let Err(e) = choices::set_setting(&file, "club_server", club) {
+                            refuse(write_failed(&file, &e));
+                            return;
+                        }
+                    }
+                    self.st.lobby.hosting = true;
+                    self.st.lobby.notice = None;
+                    start(vec![Step::Host]);
+                }
+            }
+            // LEAVE while hosting: the seat stops by the card rule; the server (and the room) after it, never under its
+            // match (run::rules::stop_server_too, and host_shop's stop once the seat's run has ended)
+            Action::Lobby(LobbyAction::Leave) if self.st.lobby.hosting => stop_game(),
             Action::Lobby(a) => self.online.act(a, &mut self.st, &kit.settings_file()),
             Action::Rejoin => self.online.rejoin(),
             Action::Report => self.open_report(&kit, false),
@@ -958,8 +1090,9 @@ impl App {
         start(after_update_steps(kit, self.st.folder.trim()))
     }
 
-    /// PLAY: the choices into data\panel.txt, then the run.
-    fn play(&mut self, kit: &Kit) {
+    /// PLAY: the choices into data\panel.txt, then the run (`words` empty: what the choices say; else play.py's words,
+    /// a shop room's `remote ID`).
+    fn play(&mut self, kit: &Kit, words: Vec<OsString>) {
         let online = self.st.online;
         let mut server = self.st.lobby.address.trim().to_owned();
         // 2017-18: a club server alone is enough to play online (run::rules::vs_target)
@@ -970,7 +1103,7 @@ impl App {
         let seat = online.then(|| self.online.take_ticket(vs_only)).flatten();
         if let Some((s, _)) = &seat {
             server.clone_from(s);
-        } else if online && !launcher::lobby::valid_server(&server) && !club_only {
+        } else if online && words.is_empty() && !launcher::lobby::valid_server(&server) && !club_only {
             refuse(t("launcher.msg_bad_address"));
             return;
         }
@@ -1007,7 +1140,7 @@ impl App {
             return;
         }
         say(t("launcher.msg_starting"), 0);
-        start(vec![Step::Game(Vec::new())]);
+        start(vec![Step::Game(words)]);
     }
 
     /// The board's card pictures: the game's own, or the high-quality pack (data\\settings.json "card_pictures" and

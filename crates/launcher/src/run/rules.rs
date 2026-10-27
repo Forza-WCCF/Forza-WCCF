@@ -226,6 +226,29 @@ pub fn parse(words: &[String]) -> Words {
     }
 }
 
+/// `stop`: the server run on this PC is asked too unless the cabinet run beside it is still on after its own stop was
+/// asked (refused by the card rule, or no answer: a "Stop anyway?" box nobody answered). `run_answer`: None when no
+/// cabinet run was on when asked (or one started since). The seat's match needs the server.
+pub fn stop_server_too(run_answer: Option<i32>, run_still_on: bool) -> bool {
+    run_answer.map_or(!run_still_on, |a| a == super::OK) || !run_still_on
+}
+
+/// A shop server: a plain stop (or restart) waits while this PC's seat still runs beside it or guests are connected
+/// through its tunnel (their match is on this server); `force` goes on. The refusal's words, or None.
+pub fn shop_rule(force: bool, seat_on: bool, guests: usize) -> Option<String> {
+    if force || (!seat_on && guests == 0) {
+        return None;
+    }
+    Some(if seat_on {
+        "This PC's seat still plays on this shop. Stop it first (or stop force).".into()
+    } else {
+        format!(
+            "{guests} guest{} connected to this shop may be in a match here. Stop force ends it for them.",
+            if guests == 1 { "" } else { "s" }
+        )
+    })
+}
+
 /// A restart.request from the panel's crash screen (its line `force=crashed`): the control is gone, so the match and
 /// the card session are lost already and the card rule must not keep the dead game running.
 pub fn restart_forced(request: &str) -> bool {
@@ -425,6 +448,28 @@ pub fn compat_layer(existing: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_seat_still_on_keeps_the_server_beside_it() {
+        use super::super::{FAILED, OK, REFUSED};
+        // refused, or no answer (a question nobody answered): the seat is on, so is the server
+        assert!(!stop_server_too(Some(REFUSED), true));
+        assert!(!stop_server_too(Some(FAILED), true));
+        assert!(stop_server_too(Some(FAILED), false));
+        assert!(stop_server_too(Some(OK), true), "stopped: its lock goes a moment later");
+        assert!(stop_server_too(None, false));
+        // no answer at all while it is on (started meanwhile, or its request file could not be written)
+        assert!(!stop_server_too(None, true));
+    }
+
+    #[test]
+    fn a_live_shop_room_holds_a_plain_stop() {
+        assert!(shop_rule(false, true, 0).is_some_and(|w| w.contains("seat")));
+        assert!(shop_rule(false, false, 2).is_some_and(|w| w.contains("2 guests")));
+        assert!(shop_rule(false, false, 1).is_some_and(|w| w.starts_with("1 guest ")));
+        assert_eq!(shop_rule(false, false, 0), None);
+        assert_eq!(shop_rule(true, true, 3), None);
+    }
 
     #[test]
     fn game_programs_are_dpi_aware() {

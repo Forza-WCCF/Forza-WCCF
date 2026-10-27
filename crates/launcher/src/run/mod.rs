@@ -40,7 +40,7 @@ use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
@@ -392,7 +392,9 @@ pub fn command(kit: &Kit, p: &Params, words: &[String], ui: &dyn Ui) -> i32 {
         }
         Words::Plain { debug } => play(kit, p, None, debug, ui),
         Words::Start { mode, debug } => {
+            // a shop's tunnel id is not a server address: the lobby would ask it
             if let Mode::Remote(ip, _) = &mode
+                && vslink::shop::parse_id(ip).is_none()
                 && choices::setting(&kit.settings_file(), "server").as_deref() != Some(ip)
             {
                 let _ = choices::set_setting(&kit.settings_file(), "server", ip); // "remote" alone uses it again
@@ -452,7 +454,20 @@ fn stop_command(kit: &Kit, p: &Params, force: bool, check: bool, ui: &dyn Ui) ->
         "stop"
     };
     let mut rc = None;
+    let mut run_answer = None;
     for kind in [Kind::Run, Kind::Server] {
+        if kind == Kind::Server && is_on(kit, Kind::Server) {
+            // a seat that stopped lets go of its lock a moment after its answer
+            let end = Instant::now() + Duration::from_secs(5);
+            while run_answer == Some(OK) && is_on(kit, Kind::Run) && Instant::now() < end {
+                thread::sleep(Duration::from_millis(100));
+            }
+            if !rules::stop_server_too(run_answer, is_on(kit, Kind::Run)) {
+                ui.say("The server keeps running with this PC's seat (it holds that seat's match).");
+                rc = Some(rc.unwrap_or(REFUSED)); // something runs: not "Nothing running."
+                continue;
+            }
+        }
         let Some((mut code, said)) = request(kit, kind, word) else {
             continue;
         };
@@ -473,6 +488,9 @@ fn stop_command(kit: &Kit, p: &Params, force: bool, check: bool, ui: &dyn Ui) ->
         } else if code == REFUSED && !check {
             ui.say("(\"Launcher.exe stop force\" skips this question.)");
         }
+        if kind == Kind::Run {
+            run_answer = Some(code);
+        }
         rc = Some(rc.unwrap_or(OK).max(code));
     }
     rc.unwrap_or_else(|| {
@@ -482,7 +500,7 @@ fn stop_command(kit: &Kit, p: &Params, force: bool, check: bool, ui: &dyn Ui) ->
 }
 
 /// Starts and supervises; a full RESTART NOW starts again with what a plain start chooses.
-fn play(kit: &Kit, p: &Params, mode: Option<Mode>, debug: bool, ui: &dyn Ui) -> i32 {
+pub fn play(kit: &Kit, p: &Params, mode: Option<Mode>, debug: bool, ui: &dyn Ui) -> i32 {
     let mut mode = mode;
     loop {
         let m = mode.take().unwrap_or_else(|| plain_mode(kit, p, ui));
@@ -850,6 +868,10 @@ pub struct Run<'a> {
     /// Remote: the server as the game takes it (its IPv4 address) and its seat desk's port (`host:port` written:
     /// that port), found at step 2 from [`Mode::Remote`]'s entry.
     remote: Option<(String, u16)>,
+    /// 2017-18 server: its shop room in the lobby (the code guests type), or why it has none.
+    shop_room: Option<Result<crate::lobby::HostRoom, String>>,
+    /// 2017-18 server: the guests its shop tunnel has connected now.
+    shop_guests: Option<Arc<AtomicUsize>>,
     _lock: OwnedHandle,
 }
 
@@ -945,6 +967,8 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         vs_target: None,
         lease: None,
         remote: None,
+        shop_room: None,
+        shop_guests: None,
         _lock: lock,
     };
     // requests left by a run that ended are never carried out
@@ -1606,6 +1630,7 @@ impl Run<'_> {
             // guests reach this shop through iroh: no inbound port; the plain address stays the LAN fallback
             if let Err(Failed(why)) = self.start_shop_tunnel(vslink::shop::Role::Host) {
                 self.say(&format!("     shop tunnel: off ({why})"));
+                self.shop_room = Some(Err(format!("shop tunnel: off ({why})")));
                 self.say(if lan {
                     "     Players on this network can still use this PC's address."
                 } else {
@@ -1924,6 +1949,11 @@ impl Run<'_> {
             let ca = saved("vs_relay_ca").filter(|c| !c.trim().is_empty());
             cfg.set_relay(&url, ca.as_deref().map(Path::new)).map_err(Failed)?;
         }
+        // a host's room first: its code is the only way in, and the tunnel admits only the guests the room names
+        let room = host.then(|| self.open_shop_room(&cfg.key, cfg.log.clone()));
+        if let Some(Ok(r)) = &room {
+            cfg.admit = Some(r.admit());
+        }
         let knob = rules::delay_knob(env::var("VSLINK_DELAY_MS").ok().as_deref());
         cfg.delay = knob / 2;
         if !knob.is_zero() {
@@ -1940,10 +1970,19 @@ impl Run<'_> {
         if host {
             let id = vslink::shop::id_text(&link.id);
             let _ = choices::write(&self.kit.data().join("shop_id.txt"), &format!("{id}\n"));
-            self.say(&format!(
-                "     shop tunnel: on. Players elsewhere run: Launcher.exe remote {id}"
-            ));
-            self.say("     (also in data\\shop_id.txt; no port needs to be open on this PC)");
+            match &room {
+                Some(Ok(r)) => self.say(&format!(
+                    "     shop room: {} on {} - players elsewhere type this code in ONLINE (or run Launcher.exe remote {id})",
+                    r.code, r.server
+                )),
+                Some(Err(why)) => self.say(&format!(
+                    "     shop room: none ({why}). Players elsewhere run: Launcher.exe remote {id}"
+                )),
+                None => {}
+            }
+            self.say("     (the id is also in data\\shop_id.txt; no port needs to be open on this PC)");
+            self.shop_room = room;
+            self.shop_guests = Some(link.guests());
         } else if link.ports != ports {
             self.say(&format!(
                 "       shop tunnel up on ports {} / {} / {} (this PC holds the usual ones; data\\logs\\shop_tunnel.txt)",
@@ -1954,6 +1993,30 @@ impl Run<'_> {
         }
         self.vslink = Some(link.handle);
         Ok(link.ports)
+    }
+
+    /// The lobby room for the host's tunnel (`key` its endpoint key), on the club server's desk ([`crate::lobby::shop_lobby`]),
+    /// where the window's guests type its code.
+    fn open_shop_room(&self, key: &Path, log: Log) -> Result<crate::lobby::HostRoom, String> {
+        let id = vslink::shop::own_id(key).map_err(|e| format!("{}: {e}", key.display()))?;
+        let club = choices::setting(&self.kit.settings_file(), "club_server").unwrap_or_default();
+        let desk = crate::lobby::shop_lobby(&club);
+        crate::lobby::HostRoom::open(&desk, &vslink::shop::id_text(&id), log, &|l| self.say(l))
+    }
+
+    /// A 2017-18 server's shop room: its code, the lobby server holding it and the flag set when that lobby loses it;
+    /// or why it has none (the window's HOST SHOP shows one or the other).
+    pub fn shop_code(&self) -> Result<(String, String, Arc<AtomicBool>), String> {
+        match &self.shop_room {
+            Some(Ok(r)) => Ok((r.code.clone(), r.server.clone(), r.lost())),
+            Some(Err(why)) => Err(why.clone()),
+            None => Err("no shop tunnel".into()),
+        }
+    }
+
+    /// 2017-18 server: its shop tunnel's live guest count (HOST SHOP closes an empty shop on its own).
+    pub fn shop_guests(&self) -> Option<Arc<AtomicUsize>> {
+        self.shop_guests.clone()
     }
 
     /// Online: this PC's seat from the server's seat desk, held while the run lasts; None asked = the next free seat.
@@ -2205,6 +2268,13 @@ impl Run<'_> {
 
     /// The card rule now: the refusal's words, or None to go on.
     fn refusal(&self, force: bool) -> Option<String> {
+        // a server has no seat of its own, so the card rule never holds it: a shop server's matches are its tunnel's
+        // guests' (still connected even when the lobby lost the room) and this PC's seat beside it
+        if self.mode == Mode::Server
+            && let Some(g) = &self.shop_guests
+        {
+            return rules::shop_rule(force, is_on(self.kit, Kind::Run), g.load(Ordering::Relaxed));
+        }
         let (slot, new) = self.card_files();
         let (session, _) = card::club_session(&slot, &new, self.run_started());
         let card_in = self.cabinet.board.is_some() && self.p.shared.card_in();

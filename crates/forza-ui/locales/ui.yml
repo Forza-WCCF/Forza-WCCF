@@ -110,6 +110,8 @@ launcher.msg_busy: {en: "Please wait until this finishes.", it: "Attendi la fine
 launcher.msg_unguarded: {en: "Not started. Open Launcher.exe from Explorer.", it: "Non avviato. Apri Launcher.exe da Esplora file.", ja: "起動しませんでした。エクスプローラーから Launcher.exe を開いてください。"}
 launcher.msg_not_guarded: {en: "Not started. Press SET UP first.", it: "Non avviato. Premi prima CONFIGURA.", ja: "起動しませんでした。先に「設定する」を押してください。"}
 launcher.msg_rooms_full: {en: "No VS room free. Try again in a minute.", it: "Nessuna sfida VS libera. Riprova tra un minuto.", ja: "サーバーに対戦ルームの空きがありません。1分後にもう一度お試しください。"}
+launcher.msg_no_shop_room: {en: "No shop room: %{error}", it: "Nessuna stanza per la sala: %{error}", ja: "店舗のルームを作れません：%{error}"}
+launcher.msg_shop_stays: {en: "The shop stays open while guests play. It closes when they leave, or now with STOP THE GAME.", it: "La sala resta aperta finché ci sono ospiti. Si chiude quando escono, o subito con FERMA IL GIOCO.", ja: "ゲストがいる間、店舗は開いたままです。全員が抜けると閉じます。「ゲームを終了」ですぐに閉じます。"}
 launcher.msg_bad_club: {en: "Invalid address. Use HOST or HOST:PORT.", it: "Indirizzo non valido. Usa HOST o HOST:PORTA.", ja: "アドレスが正しくありません。HOST または HOST:PORT で入力してください。"}
 launcher.msg_stop_anyway: {en: "A match is on. Stopping can damage your card. Stop anyway?", it: "Partita in corso. Fermare può danneggiare la carta. Fermare comunque?", ja: "試合中です。終了するとカードが傷つく恐れがあります。終了しますか？"}
 launcher.msg_link_taken: {en: "This folder path may not work. If the game does not start, move it to C:\\Games.", it: "Questo percorso potrebbe non funzionare. Se il gioco non parte, spostalo in C:\\Games.", ja: "このフォルダーのパスでは動かない場合があります。起動しないときは C:\\Games へ移動してください。"}
@@ -541,6 +543,16 @@ lobby.room_closed: {en: "The host closed the room.", it: "L'host ha chiuso la st
 lobby.stale: {en: "Updated %{s} s ago.", it: "Aggiornato %{s} s fa.", ja: "%{s} 秒前に更新。"}
 lobby.grey_shops_1718: {en: "SHOPS for 2017-18 are not available yet.", it: "Le SALE GIOCHI per 2017-18 non sono ancora disponibili.", ja: "2017-18 の店舗はまだ利用できません。"}
 lobby.grey_vs_1011: {en: "VS ROOMS for 2010-11 are not available yet.", it: "Le SFIDE VS per 2010-11 non sono ancora disponibili.", ja: "2010-11 の対戦ルームはまだ利用できません。"}
+lobby.host_shop: {en: "HOST SHOP", it: "APRI SALA", ja: "店舗を開く"}
+lobby.room_code: {en: "Room code", it: "Codice stanza", ja: "ルームコード"}
+lobby.opening: {en: "Opening the shop…", it: "Apertura della sala…", ja: "店舗を開いています…"}
+lobby.shop_howto: {en: "Both players: card in during the same ENTRY, then Arrange Fixture → Set opponent.", it: "Entrambi: inserite la carta nella stessa ENTRY, poi Arrange Fixture → Set opponent.", ja: "二人とも同じエントリー中にカードを入れ、Arrange Fixture → Set opponent を選びます。"}
+lobby.joining: {en: "Joining %{code}…", it: "Ingresso in %{code}…", ja: "%{code} に参加しています…"}
+lobby.no_room: {en: "No room has that code on %{desk}.", it: "Nessuna stanza ha quel codice su %{desk}.", ja: "%{desk} にそのコードのルームはありません。"}
+lobby.room_desk: {en: "Room on %{desk}", it: "Stanza su %{desk}", ja: "ルームの場所：%{desk}"}
+lobby.room_lost: {en: "The lobby lost this room: nobody new can join.", it: "La lobby ha perso questa stanza: nessun altro può entrare.", ja: "ロビーがこのルームを失いました。新しい参加はできません。"}
+lobby.room_full: {en: "That room is full.", it: "Quella stanza è piena.", ja: "そのルームは満員です。"}
+lobby.shop_closed: {en: "The host has left: the shop is closed.", it: "L'host è uscito: la sala è chiusa.", ja: "ホストが退出しました：店舗は閉じています。"}
 lobby.wait_opponent: {en: "Waiting for an opponent…", it: "In attesa di un avversario…", ja: "対戦相手を待っています…"}
 lobby.both_ready_in: {en: "Both ready: starting in %{s} s", it: "Entrambi pronti: si parte tra %{s} s", ja: "両者準備OK：%{s} 秒後に開始します"}
 lobby.starting_in: {en: "Starting in %{s} s", it: "Si parte tra %{s} s", ja: "%{s} 秒後に開始します"}

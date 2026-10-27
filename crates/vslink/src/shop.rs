@@ -41,6 +41,11 @@ pub const SHOP_ALPN: &[u8] = b"forza-wccf/shop/1";
 /// The first byte of a stream: what the host dials for it.
 pub const KIND_CONTROL: u8 = 1;
 pub const KIND_DESK: u8 = 2;
+/// The host's close code for a guest its room does not name: the join side stops dialling and says so.
+pub const CLOSE_NOT_IN_ROOM: u8 = 4;
+/// The host's close code for a guest it could not check now (its room's list did not come, too many at the door): the
+/// join side dials again.
+pub const CLOSE_NO_ANSWER: u8 = 5;
 /// Bytes the streams may hold on this side together (per guest on the host) before the one that overflows is closed.
 pub const STREAM_BUF: usize = 4 << 20;
 /// Streams a guest may hold open at once (the control, the projector-less seat's reconnects, the desk).
@@ -49,6 +54,8 @@ pub const MAX_STREAMS: usize = 4;
 pub const GUEST_GRACE: Duration = Duration::from_secs(15);
 /// Guests a host serves at once (8 seats), and flows per guest (a game socket and a ping socket each; restarts add).
 const MAX_GUESTS: usize = 8;
+/// Guests checked against the room at once; more at the door are told to come back without a check.
+pub const MAX_ADMITTING: usize = MAX_GUESTS * 2;
 const MAX_FLOWS: usize = 32;
 /// Datagrams queued per direction before new ones are dropped.
 const DGRAM_QUEUE: usize = 1024;
@@ -86,8 +93,19 @@ pub enum Role {
 }
 
 /// Host: whether a guest's EndpointId may come in (a shop room's `GUESTS`, `forza::online::lobby::shop_peers`). It
-/// may block (it runs off the network threads); None lets in anyone who knows the host's id.
-pub type Admit = Arc<dyn Fn(&EndpointId) -> bool + Send + Sync>;
+/// may block (it runs off the network threads, at most [`MAX_ADMITTING`] at once); None lets in anyone who knows the
+/// host's id.
+pub type Admit = Arc<dyn Fn(&EndpointId) -> Verdict + Send + Sync>;
+
+/// What an [`Admit`] rule says of a guest.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Verdict {
+    In,
+    /// Definitely not in the room (or the room is gone): closed with [`CLOSE_NOT_IN_ROOM`], the guest stops dialling.
+    NotInRoom,
+    /// No answer to go by in time: closed with [`CLOSE_NO_ANSWER`], the guest dials again.
+    NoAnswer,
+}
 
 /// What [`spawn`] needs.
 pub struct ShopConfig {
@@ -153,6 +171,12 @@ pub fn parse_id(s: &str) -> Option<EndpointId> {
 /// The id as [`parse_id`] reads it.
 pub fn id_text(id: &EndpointId) -> String {
     id.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// The id an endpoint with the key at `key` has (the key made on first use, as [`spawn`] does): a host registers it
+/// in its shop room before it listens, a guest tells it before it dials.
+pub fn own_id(key: &Path) -> io::Result<EndpointId> {
+    Ok(*load_key(key)?.public().as_bytes())
 }
 
 /// A datagram across: `[flow u32 LE][payload]`. Flow numbers are never reused within a run, so a late datagram of a
@@ -229,9 +253,15 @@ pub struct ShopLink {
     pub ports: Ports,
     flows: Arc<AtomicUsize>,
     streams: Arc<AtomicUsize>,
+    guests: Arc<AtomicUsize>,
 }
 
 impl ShopLink {
+    /// Host: the guests connected now (admitted, link up), live: a shop server with guests holds their matches.
+    pub fn guests(&self) -> Arc<AtomicUsize> {
+        self.guests.clone()
+    }
+
     /// The host's guest flows (a socket each) and the streams open now: both 0 once every guest has left.
     pub fn open(&self) -> (usize, usize) {
         (
@@ -247,7 +277,9 @@ struct Sh {
     relay: RelayUrl,
     ports: Ports,
     delay: Duration,
-    guests: AtomicUsize,
+    guests: Arc<AtomicUsize>,
+    /// Guests being checked against the room now ([`MAX_ADMITTING`]).
+    admitting: AtomicUsize,
     oversize: AtomicU64,
     flows: Arc<AtomicUsize>,
     streams: Arc<AtomicUsize>,
@@ -440,23 +472,42 @@ impl Sh {
 
     async fn serve_guest(self: Arc<Self>, conn: Connection) {
         let who = conn.remote_id().fmt_short().to_string();
+        // the room first, so a stranger never holds one of the guests' places while it is checked
+        if let Some(admit) = self.admit.clone() {
+            if self.admitting.fetch_add(1, Ordering::Relaxed) >= MAX_ADMITTING {
+                self.admitting.fetch_sub(1, Ordering::Relaxed);
+                (self.log)(&format!(
+                    "guest {who}: {MAX_ADMITTING} at the door already, told to come back"
+                ));
+                conn.close(CLOSE_NO_ANSWER.into(), b"busy");
+                return;
+            }
+            let id = *conn.remote_id().as_bytes();
+            let v = tokio::task::spawn_blocking(move || admit(&id))
+                .await
+                .unwrap_or(Verdict::NoAnswer);
+            self.admitting.fetch_sub(1, Ordering::Relaxed);
+            match v {
+                Verdict::In => {}
+                Verdict::NotInRoom => {
+                    (self.log)(&format!("guest {who} refused: not in the shop's room"));
+                    conn.close(CLOSE_NOT_IN_ROOM.into(), b"not in the room");
+                    return;
+                }
+                Verdict::NoAnswer => {
+                    (self.log)(&format!(
+                        "guest {who}: the room's list did not come in time, told to come back"
+                    ));
+                    conn.close(CLOSE_NO_ANSWER.into(), b"no answer");
+                    return;
+                }
+            }
+        }
         if self.guests.fetch_add(1, Ordering::Relaxed) >= MAX_GUESTS {
             self.guests.fetch_sub(1, Ordering::Relaxed);
             (self.log)(&format!("guest {who} refused: {MAX_GUESTS} guests already"));
             conn.close(1u8.into(), b"full");
             return;
-        }
-        if let Some(admit) = self.admit.clone() {
-            let id = *conn.remote_id().as_bytes();
-            let ok = tokio::task::spawn_blocking(move || admit(&id))
-                .await
-                .unwrap_or(false);
-            if !ok {
-                self.guests.fetch_sub(1, Ordering::Relaxed);
-                (self.log)(&format!("guest {who} refused: not in the shop's room"));
-                conn.close(4u8.into(), b"not in the room");
-                return;
-            }
         }
         (self.log)(&format!("guest {who} joined"));
         tokio::spawn(watch_path(self.log.clone(), conn.clone()));
@@ -635,6 +686,15 @@ impl Join {
             let why = conn.closed().await;
             inbound.abort();
             self.link.send_replace(None);
+            if let iroh::endpoint::ConnectionError::ApplicationClosed(c) = &why
+                && c.error_code == CLOSE_NOT_IN_ROOM.into()
+            {
+                // dialling again would be refused again: the game finds no shop and says so
+                (self.sh.log)(
+                    "the shop refused this PC: not in its room (join with the room code, in ONLINE)",
+                );
+                return;
+            }
             (self.sh.log)(&format!("link to the shop down: {why}; dialling again"));
             conn = loop {
                 match self.dial().await {
@@ -761,7 +821,8 @@ async fn start(cfg: ShopConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
         relay,
         ports: cfg.ports,
         delay: cfg.delay,
-        guests: AtomicUsize::new(0),
+        guests: Arc::default(),
+        admitting: AtomicUsize::new(0),
         oversize: AtomicU64::new(0),
         flows: Arc::default(),
         streams: Arc::default(),
@@ -864,6 +925,7 @@ pub fn spawn(cfg: ShopConfig) -> io::Result<ShopLink> {
                 *sh.ep.id().as_bytes(),
                 sh.flows.clone(),
                 sh.streams.clone(),
+                sh.guests.clone(),
                 ports,
             )));
             rt.block_on(async {
@@ -886,7 +948,7 @@ pub fn spawn(cfg: ShopConfig) -> io::Result<ShopLink> {
             });
             rt.shutdown_timeout(Duration::from_secs(1));
         })?;
-    let (id, flows, streams, ports) = rx
+    let (id, flows, streams, guests, ports) = rx
         .recv()
         .map_err(|_| io::Error::other("the shop tunnel's thread ended at start"))??;
     Ok(ShopLink {
@@ -895,6 +957,7 @@ pub fn spawn(cfg: ShopConfig) -> io::Result<ShopLink> {
         ports,
         flows,
         streams,
+        guests,
     })
 }
 
