@@ -496,7 +496,7 @@ fn board_and_buttons_with_real_data() {
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
-    std::thread::sleep(std::time::Duration::from_millis(600));
+    std::thread::sleep(std::time::Duration::from_millis(1500)); // the cell click comes 300 ms after H; a slow runner needs room
     fs::write(&pad, at_rest.replacen("0 0 2", "0 4 2", 1)).unwrap(); // button 3 down
     let out = game.wait_with_output().unwrap();
     assert!(out.status.success(), "fakegame ended with {}", out.status);

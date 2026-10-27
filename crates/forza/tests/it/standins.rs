@@ -494,7 +494,10 @@ fn listing(root: &std::path::Path) -> Vec<(String, u64, String)> {
             if p.is_dir() {
                 walk(&p, root, out);
             } else {
-                let data = std::fs::read(&p).unwrap();
+                // a file renamed or removed since read_dir (a temp file persisted, a backup rotated) is skipped
+                let Ok(data) = std::fs::read(&p) else {
+                    continue;
+                };
                 let rel = p
                     .strip_prefix(root)
                     .unwrap()
@@ -601,6 +604,7 @@ fn card_reader_replay() {
                     while listing(&dir) != want && std::time::Instant::now() < by {
                         sleep(Duration::from_millis(10));
                     }
+                    sleep(Duration::from_millis(50)); // and it stays so: a late write still shows
                     assert_eq!(listing(&dir), want, "{name}: files after record {i}");
                 }
                 "io" => {
