@@ -10,7 +10,7 @@ paths assume `FORZA_HOME=/srv/forza-wccf` and a service user `wccf`.
 | Piece | For | Program | Ports |
 |---|---|---|---|
 | 2010-11 shop server | 2010-11 online play | the original control and four match engines under Wine, started by `wccf-linux-server` (`crates/linux-host`) with the server hook `winmm.dll` (`native/hook`, feature `e1011-server`) | TCP 20002 |
-| 2010-11 seat desk, match relay, log inbox | seats, the lobby, in-shop matches, player logs | `forza-server --edition 2010-11 all` (`crates/server`) | TCP 20030, UDP 20040, TCP 20050 |
+| 2010-11 seat desk, match relay | seats, the lobby, in-shop matches | `forza-server --edition 2010-11 all` (`crates/server`) | TCP 20030, UDP 20040 |
 | 2010-11 projector relay | the projector (big screen) on every player's PC | `projector_relay.py` (`crates/server/python`), the one service still in Python | TCP 20031 |
 | 2017-18 server | the lobby, VS rooms, clubs and saves (SQLite), VS pairing | `forza-server --edition 2017-18 all` | TCP 20032, TCP 20060, UDP 20061 |
 | iroh relay | 2017-18 direct VS when two PCs cannot reach each other | upstream `iroh-relay` | TCP 8443, UDP 7842 |
@@ -174,8 +174,8 @@ Then (root):
     systemctl daemon-reload && systemctl enable --now wccf-1011 wccf-1011-restart.timer
     sudo -u wccf FORZA_HOME=/srv/forza-wccf /srv/forza-wccf/wccf-1011.sh status
 
-Start takes about 30 s. `status` shows the supervisor ready, 4 of 4 match engines and ports 20002, 20030, 20031,
-20040 and 20050 listening. Each Wine process writes `mxhook_<pid>.log` in `1011/logs/<start time>/`; control's must
+Start takes about 30 s. `status` shows the supervisor ready, 4 of 4 match engines and ports 20002, 20030, 20031
+and 20040 listening. Each Wine process writes `mxhook_<pid>.log` in `1011/logs/<start time>/`; control's must
 say `MSGPARSE guard: on`, `SLEEP fix: on`, `SPIN fix: on`. `deploy/linux/cpu.sh` prints the CPU of control and the
 engines. From a player's PC: `python3 deploy/linux/lobby_check.py game.example.org 2010-11`, and on Windows
 `check-network.exe game.example.org` (`crates/linux-host`) tests TCP 20002, two seat leases and both relay directions.
@@ -205,7 +205,6 @@ becomes the only root the Launcher trusts for the relay.
 | 20030 | TCP | 2010-11 seat desk and lobby | players |
 | 20031 | TCP | 2010-11 projector relay | players |
 | 20040 | UDP | 2010-11 match relay | players |
-| 20050 | TCP | 2010-11 log inbox | players (SEND LOGS, crash reports) |
 | 20032 | TCP | 2017-18 desk and lobby | players |
 | 20060 | TCP | 2017-18 game server | players in `allow.txt` |
 | 20061 | UDP | 2017-18 VS reflect | players |
@@ -234,18 +233,11 @@ the desk port defaults to 20030 (2010-11) or 20032 (2017-18). For 2017-18 the ga
 
 ## 11. Player logs
 
-SEND LOGS (the SETTINGS panel) and the 2010-11 automatic reports after a run that went wrong go to the server the
-player plays on, TCP 20050: your server, not the project's. They land in `/srv/forza-wccf/relay/data/player_logs/` as
-`DATE_TIME_CODE_ADDRESS_VERSION.zip`; CODE is the 5-character code the player sees. Limits: 8 MB an upload,
-`WCCF_INBOX_PER_HOUR` (6) uploads an hour per address, `WCCF_INBOX_KEEP` (1 GB) in total, the oldest go first.
-Keep TCP 20050 closed if you do not want them; the Launcher then keeps a failed report and tries again at the next start.
-
-REPORT A PROBLEM in the Launcher (also opened after a crash and from the panel) goes to the project's lobby server
-(`WCCF_LOBBY` changes it), on the seat desk's port: TCP 20030 or 20032. The desk keeps it in `--reports DIR`
-(`<store>/reports` for 2017-18) as `DATE_TIME_ID.zip` with a `.txt` holding the player's words; ID is the number the
-player sees. Limits: 4 MB, 2,000 characters, 5 an hour per address, 1 GB in total, the oldest go first. In the ZIP
-and the words, the Windows user folder (any `X:\Users\NAME`), the user name and the PC's name are replaced before
-anything leaves the PC. A report that cannot be sent stays in the player's `data\reports\` and goes with the next.
+Servers collect no logs. SAVE LOGS (the panel's SETTINGS, the crash screen, the Launcher's REPORT A PROBLEM and its
+log view) writes `forza-wccf-logs-DATE-TIME.zip` to the player's Downloads folder and shows the path; the player sends
+the file to whoever helps them (Discord, a GitHub issue). In the ZIP, the Windows user folder (any `X:\Users\NAME`),
+the user name and the PC's name are replaced. Older Launchers that still try to upload get `NO` from the desk
+(`REPORT`) or a closed port (TCP 20050, which `forza-server` no longer opens).
 
 ## 12. Backups
 

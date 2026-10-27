@@ -1,12 +1,10 @@
-//! The Forza-WCCF online server (step 10, piece I2): the seat desk, the match relay and the log inbox, ported from
-//! `server/seat_desk.py`, `relay.py` and `log_inbox.py` (and the 2017-18 `_seat_broker.py`, `_relay.py`). Std threads
+//! The Forza-WCCF online server (step 10, piece I2): the seat desk and the match relay, ported from
+//! `server/seat_desk.py` and `relay.py` (and the 2017-18 `_seat_broker.py`, `_relay.py`). Std threads
 //! and blocking I/O; builds for Windows and Linux. Ports, timers and paths are parameters of each service's config
 //! (the binary fills them from the Python's environment variables); tests bind `127.0.0.1:0`.
 
 pub mod desk;
-pub mod inbox;
 pub mod relay;
-pub mod reports;
 pub mod shoproom;
 
 pub use forza::service::Log;

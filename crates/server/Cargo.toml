@@ -5,7 +5,7 @@ license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
-description = "The Forza-WCCF online server: seat desk, match relay and log inbox (Windows and Linux)"
+description = "The Forza-WCCF online server: seat desk, match relay and game server (Windows and Linux)"
 
 [[bin]]
 name = "forza-server"

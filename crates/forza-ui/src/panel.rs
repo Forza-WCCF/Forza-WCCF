@@ -483,7 +483,7 @@ pub struct Status {
     /// The game's text now: "en", "it", "" (the original Japanese); `None` until read.
     pub text: Option<&'static str>,
     pub version: String,
-    /// SEND LOGS' answer from the run: "sending", "ok CODE", "fail WHY".
+    /// SAVE LOGS' answer from the run: "ok PATH", "fail WHY".
     pub logs: Option<String>,
 }
 
@@ -545,10 +545,10 @@ pub struct PanelState {
     pub address: String,
     /// What SETTINGS shows under NOW, read about once a second while it is open.
     pub status: Status,
-    /// RESTART NOW / SEND LOGS armed by a first click until this time (egui's clock); asked for (waiting for the run).
+    /// RESTART NOW armed by a first click until this time (egui's clock); RESTART NOW / SAVE LOGS asked for (waiting
+    /// for the run).
     pub restart_armed: f64,
     pub restart_sent: bool,
-    pub logs_armed: f64,
     pub logs_sent: bool,
     // club card
     /// data\club_view.txt as last read.
@@ -565,7 +565,7 @@ pub struct PanelState {
     pub close_keep: bool,
     /// The game stopped under the panel (the control program is gone): the crash screen takes the board's place.
     pub crash: bool,
-    /// SEND LOGS on the crash screen asked: the Launcher opens its report dialog (`ask_open_report` in the panel DLL).
+    /// SAVE LOGS on the crash screen asked: the Launcher opens its report dialog (`ask_open_report` in the panel DLL).
     pub open_report: bool,
     pub report_sent: bool,
     /// A card dealt after a match: shown over the game for [`DEAL_SECS`], or until a click closes it.
@@ -597,10 +597,9 @@ pub struct PanelState {
     pub keys_changed: bool,
     /// The choices changed: data\panel.txt is written.
     pub file_changed: bool,
-    /// RESTART NOW asked (data\restart.request); SEND LOGS asked (data\sendlogs.request).
+    /// RESTART NOW asked (data\restart.request).
     pub restart: bool,
-    pub send_logs: bool,
-    /// SAVE LOGS asked (data\\savelogs.request): the Launcher asks where to save the ZIP.
+    /// SAVE LOGS asked (data\savelogs.request): the run saves the ZIP in the Downloads folder.
     pub save_logs: bool,
     // what the panel DLL hands a frame
     /// Keys pressed since the last frame while a page is open (virtual-key code, Alt held), repeats left out.
@@ -644,7 +643,6 @@ impl PanelState {
             status: Status::default(),
             restart_armed: 0.0,
             restart_sent: false,
-            logs_armed: 0.0,
             logs_sent: false,
             club: ClubView::default(),
             club_armed: None,
@@ -670,7 +668,6 @@ impl PanelState {
             keys_changed: false,
             file_changed: false,
             restart: false,
-            send_logs: false,
             save_logs: false,
             vk_down: Vec::new(),
             pad_down: None,
@@ -735,7 +732,9 @@ impl PanelState {
                 backup: Some((("14:58".into(), 720), 3)),
                 text: Some("en"),
                 version: "7.0.0".into(),
-                logs: Some("ok 7K4-QD2".into()),
+                logs: Some(
+                    r"ok C:\Users\Mario\Downloads\forza-wccf-logs-20261027-150412.zip".into(),
+                ),
             },
             restart_armed: if page == Page::Settings {
                 f64::INFINITY
@@ -1988,7 +1987,7 @@ fn import_undo_line(ui: &mut Ui, st: &mut PanelState, lang: Lang, now: f64) -> b
 const UNDO_SECS: f64 = 5.0;
 
 /// The crash screen, in the board's place: the game lost its control program (or stopped), the card's state, and the two
-/// ways on. RESTART THE GAME asks the Launcher (`restart`), SEND LOGS asks it to open its report dialog (`open_report`).
+/// ways on. RESTART THE GAME asks the Launcher (`restart`), SAVE LOGS asks it to open its report dialog (`open_report`).
 fn crash_screen(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     strip_ground(ui);
     let r = ui.max_rect().shrink2(vec2(24.0, 0.0));
@@ -2059,7 +2058,7 @@ fn crash_screen(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     if cabinet(
         ui,
         vec2(w, 56.0),
-        &tr!(lang, "settings.send_logs"),
+        &tr!(lang, "settings.save_logs"),
         Cab::Plain,
         false,
     )
@@ -3347,67 +3346,34 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         });
         widgets::section(right, &tr!(lang, "settings.logs"), accent, |ui| {
             let w = ui.available_width();
-            let armed = st.logs_armed > now;
-            let busy = st.logs_sent || s.logs.as_deref() == Some("sending");
-            let label = if busy {
-                tr!(lang, "settings.sending")
-            } else if armed {
-                tr!(lang, "settings.send_again")
-            } else {
-                tr!(lang, "settings.send_logs")
-            };
-            if cabinet(ui, vec2(w, 44.0), &label, Cab::Data, armed || busy).clicked() {
-                if busy {
-                    st.say(Tone::Notice, "settings.msg_sending");
-                } else if !valid_address(&st.file.server) {
-                    st.say(Tone::Refused, "settings.msg_logs_need_server");
-                } else if !armed {
-                    st.logs_armed = now + 8.0;
-                    let ip = st.file.server.clone();
-                    st.note(Tone::Notice, tr!(lang, "settings.msg_logs_armed", ip = ip));
-                } else {
-                    st.logs_armed = 0.0;
-                    st.send_logs = true;
-                }
-            }
+            let busy = st.logs_sent;
             if cabinet(
                 ui,
                 vec2(w, 44.0),
                 &tr!(lang, "settings.save_logs"),
                 Cab::Data,
-                false,
+                busy,
             )
             .clicked()
+                && !busy
             {
                 st.save_logs = true;
             }
             match s.logs.as_deref() {
                 Some(r) if r.starts_with("ok ") => {
-                    status_line(ui, Tone::Done, &tr!(lang, "settings.sent", code = &r[3..]));
+                    status_line(ui, Tone::Done, &tr!(lang, "logs.saved", path = &r[3..]));
                 }
                 Some(r) if r.starts_with("fail ") => {
                     status_line(
                         ui,
                         Tone::Refused,
-                        &tr!(lang, "settings.not_sent", why = &r[5..]),
+                        &tr!(lang, "logs.save_failed", why = &r[5..]),
                     );
                 }
                 _ if busy => {
-                    status_line(ui, Tone::Notice, &tr!(lang, "settings.msg_sending"));
+                    status_line(ui, Tone::Notice, &tr!(lang, "settings.msg_saving"));
                 }
                 _ => {}
-            }
-            let mut auto = !st.file.auto_logs_off;
-            if widgets::toggle_row(
-                ui,
-                &mut auto,
-                &tr!(lang, "settings.auto_reports"),
-                &tr!(lang, "settings.auto_reports_hint"),
-            )
-            .clicked()
-            {
-                st.file.auto_logs_off = !auto;
-                st.file_changed = true;
             }
         });
     });
@@ -4052,8 +4018,8 @@ pub fn widget_sheet(ui: &mut Ui, ws: &mut WidgetSheet) {
                     widgets::toggle_row(
                         ui,
                         &mut ws.toggles[0],
-                        &tr!(lang, "settings.auto_reports"),
-                        &tr!(lang, "settings.auto_reports_hint"),
+                        &tr!(lang, "launcher.skip_tutorial"),
+                        &tr!(lang, "launcher.skip_tutorial_hint"),
                     );
                     widgets::toggle_row(
                         ui,

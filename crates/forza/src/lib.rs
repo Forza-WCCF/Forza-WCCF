@@ -1,5 +1,5 @@
 //! Forza-WCCF's shared code; the egui screens are `forza-ui`. `board`: the player cards and the card table as data.
-//! `online`: the client side of online play (seat lease, SEND LOGS), the protocol the server shares (step 10 I1), and
+//! `online`: the client side of online play (seat lease, SAVE LOGS), the protocol the server shares (step 10 I1), and
 //! the 2017–18 game server and VS matcher that both the Launcher's stand-in and `forza-server` run.
 //! `standins`: the cabinet stand-ins on the player's PC: the 2017–18 Aime reader and AiMeDB, the 2010–11 card reader,
 //! network, I/O board and scenes (step 10). `service`: the log sink, handle and accept loop every service shares.

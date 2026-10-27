@@ -3,8 +3,8 @@
 //! control's debug log), and holds the projector box out of the game until a player is in (2010-11).
 //!
 //! Lines in [`forza::online`]'s words: `WANT` / `WANT SEAT n` -> `SEAT n PROJECTOR p` | `TAKEN n` | `FULL` | `ERR ...`,
-//! then `PING` -> `PONG`. `RELEASE t` -> `OK` | `GONE` drops a lobby reservation. `REPORT ZIP NOTE VERSION` -> `GO`, then
-//! the words and the ZIP -> `OK id` | `NO why`: a player's problem report ([`crate::reports`]). `CLUB PUT|GET|DONE ...`:
+//! then `PING` -> `PONG`. `RELEASE t` -> `OK` | `GONE` drops a lobby reservation. `REPORT ...` (older Launchers' problem
+//! reports) -> `NO ...`: logs are not collected, players save them and send them themselves. `CLUB PUT|GET|DONE ...`:
 //! a 2017-18 shop guest's club to the host's store and back ([`forza::online::club`]). `HOLD` -> `HOLD 1` | `HOLD 0` (2010-11 only; the box asks it).
 //!
 //! The lobby's VS rooms ([`forza::online::lobby`] has the words): `CREATE vs [open]` -> `ROOM id code t seat` | `FULL`,
@@ -12,7 +12,6 @@
 //! `RELEASE` for room tickets as for shop seats. Each live room ticket is told to the shared [`Matcher`], which pairs
 //! the two PCs holding one room's tickets with each other only (`crates/server/README.md`, "VS rooms").
 
-use crate::reports::Reports;
 use crate::{Edition, Handle, Log};
 use forza::online::lobby::{
     self, Created, Lobby, Occupant, Reserved, Shop, State as ShopState, VsRoom,
@@ -100,8 +99,6 @@ pub struct DeskConfig {
     /// `RESERVE` and `CREATE` per address in [`DeskConfig::ask_window`], else `ERR slow` (20 per 60 s).
     pub ask_limit: u32,
     pub ask_window: Duration,
-    /// Where `REPORT` keeps players' problem reports (`forza-server --reports`); None: `NO` to every report.
-    pub reports: Option<Arc<Reports>>,
     /// Behind a 2017-18 shop tunnel (`WCCF_DESK_TUNNEL=1`, set by the Launcher's shop host): loopback is many guests.
     pub tunnel: bool,
     /// The shop host's club store (`WCCF_CLUB_DB`, its `gamesvr.db`): guests bring their clubs there with `CLUB`
@@ -150,7 +147,6 @@ impl DeskConfig {
             join_fail_window: Duration::from_secs(60),
             host_stale: Duration::from_secs(15),
             ask_window: Duration::from_secs(60),
-            reports: None,
         }
     }
 }
@@ -370,6 +366,23 @@ impl Shared {
     }
 }
 
+/// No 0/O, 1/I/L: read out loud or typed from a screen.
+const CODE_CHARS: &[u8] = b"ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+
+/// `n` characters of [`CODE_CHARS`] (VS room codes and club ids).
+pub(crate) fn code(n: usize) -> String {
+    let mut out = String::new();
+    while out.len() < n {
+        let mut b = [0u8; 1];
+        getrandom::fill(&mut b).expect("the OS random source");
+        // 248 = 8 * 31: no modulo bias
+        if b[0] < 248 {
+            out.push(CODE_CHARS[usize::from(b[0]) % CODE_CHARS.len()] as char);
+        }
+    }
+    out
+}
+
 fn random_hex(n: usize) -> String {
     let mut b = vec![0u8; n];
     getrandom::fill(&mut b).expect("the OS has randomness");
@@ -565,18 +578,10 @@ fn session(
                 None => out.write_all(b"ERR seat\n"),
             };
         }
+        // older Launchers send problem reports here: refused at once, nothing read or kept
         ["REPORT", ..] => {
-            return match &sh.cfg.reports {
-                Some(r) => r.serve(
-                    sh.cfg.edition,
-                    log,
-                    &line,
-                    std::mem::take(&mut lines.buf),
-                    &out,
-                    ip,
-                ),
-                None => out.write_all(b"NO reports are not kept here\n"),
-            };
+            return out
+                .write_all(b"NO logs are not collected - save them and send the file yourself\n");
         }
         ["HEARTBEAT", t] => return heartbeat(sh, t, &mut out),
         ["RELEASE", t] => return release(sh, t, &mut out),
@@ -885,7 +890,7 @@ fn vs_room(r: &Room) -> VsRoom {
 fn sitter(sh: &Shared, now: Instant) -> Sitter {
     Sitter {
         ticket: random_hex(8),
-        club: crate::inbox::code(4),
+        club: code(4),
         ready: false,
         end: now + sh.cfg.reserve_lease,
     }
@@ -925,7 +930,7 @@ fn create(sh: &Shared, ip: &str, open: bool, out: &mut TcpStream) -> io::Result<
         }
     };
     let code = loop {
-        let c = crate::inbox::code(4);
+        let c = code(4);
         if st.rooms.iter().all(|r| r.code != c) {
             break c;
         }
@@ -994,7 +999,7 @@ fn create_shop(
         crate::shoproom::Prior::None => {}
     }
     let (id, code) = loop {
-        let (id, code) = (random_hex(4), crate::inbox::code(crate::shoproom::CODE_LEN));
+        let (id, code) = (random_hex(4), code(crate::shoproom::CODE_LEN));
         let vs = st.rooms.iter().any(|r| r.id == id || r.code == code);
         if id != sh.shop_id && !vs && !st.shops.holds(&id, &code) {
             break (id, code);

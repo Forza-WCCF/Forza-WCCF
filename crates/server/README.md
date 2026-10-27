@@ -8,10 +8,9 @@ One program for every online service of both editions. Std threads and blocking 
 |---|---|---|
 | `desk [LIFE] [LOG_FILE]` | seat desk, `LOBBY` | TCP `--port`, `WCCF_BROKER_PORT`, 20030 |
 | `relay [LIFE] [LOG_FILE]` | in-shop match relay | UDP `--port`, `WCCF_RELAY_PORT`, 20040 |
-| `inbox LIFE [LOG_FILE] [FOLDER]` | log inbox (2010-11) | TCP `--port`, `WCCF_INBOX_PORT`, 20050 |
 | `gmsvr` | 2017-18 game server, VS matcher (runs until stopped) | TCP `--port`, 20060 |
 | `reflect [LIFE] [LOG_FILE]` | 2017-18 VS reflect alone | UDP `--port`, 20070 |
-| `all [LIFE] [LOGS_DIR]` | desk + relay + (2010-11) inbox or (2017-18) gmsvr | `--desk-port`, `--relay-port`, `--inbox-port`, `--gmsvr-port` |
+| `all [LIFE] [LOGS_DIR]` | desk + relay + (2017-18) gmsvr | `--desk-port`, `--relay-port`, `--gmsvr-port` |
 
 - `LIFE` is in seconds (default 12 h); exit 0 = ran its time, 1 = a port could not be bound.
 - `gmsvr` and `reflect` need `--edition 2017-18`. The game server binds `WCCF_BIND`, else 127.0.0.1, and serves only
@@ -25,13 +24,8 @@ One program for every online service of both editions. Std threads and blocking 
 - The store is SQLite in WAL mode with `synchronous=NORMAL` (`gamesvr.db` plus `-wal` and `-shm` beside it); back it
   up with `sqlite3 gamesvr.db ".backup FILE"`, not a file copy.
 
-- Players' problem reports (the Launcher's REPORT A PROBLEM) come in on the desk's own port, both editions:
-  `REPORT ZIP NOTE VERSION` -> `GO` or `NO why`; then NOTE bytes of UTF-8 (the player's words) and ZIP bytes ->
-  `OK ID` or `NO why`. Limits: 4 MB a ZIP, 2,000 characters, 5 reports an hour per address, 4 at a time, 30 s per read
-  and 3 min in all, 1 GB kept (the oldest report goes first). Kept as `DATE_TIME_ID.zip` and `.txt` (the words, the
-  edition and the version) in `--reports DIR` (`desk`, `all`); default `<store>/reports` for `all --edition 2017-18`,
-  else `reports` beside the log folder. The log has one line a report: its id, edition, size and address. The ZIP is
-  never opened on the server.
+- No logs are collected: `REPORT` (older Launchers' problem reports) gets `NO` at once, and nothing listens on the old
+  log inbox port (TCP 20050). Players save their logs (`forza::online::save_logs`) and send the ZIP themselves.
 - A 2017-18 shop guest's own club (`forza::online::club`): `CLUB PUT seat aime token size` + the club's JSON ->
   `OK size` + the id map, `CLUB GET aime token stamp` -> `SAME` or `OK size stamp` + the club, `CLUB DONE aime token`
   -> `OK 0`; `NO why` for any refusal. Only with `WCCF_CLUB_DB` (the shop host's `gamesvr.db`, set by the Launcher);
@@ -43,7 +37,7 @@ Running a server of your own (both editions, the 2010-11 Wine host, the iroh rel
 `docs/SELF-HOSTING.md`. `python/projector_relay.py` is the 2010-11 projector relay (TCP 20031), the one service not
 yet in Rust: `python3 projector_relay.py LIFE [LOG_FILE]` with `WCCF_CONTROL_LOG` set to control's log.
 
-Code: `src/` holds the desk, relay and inbox; the game server, the matcher and the reflect service are
+Code: `src/` holds the desk and relay; the game server, the matcher and the reflect service are
 `forza::online::{gamesvr, vs}`, shared with the Launcher's local stand-in. Builds: `cargo build --release -p forza-server`
 (Linux), `cargo xtask build` (Windows, `programs\forza-server.exe` in the 2010-11 kit).
 

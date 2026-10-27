@@ -6,6 +6,11 @@ game is not included. Newest first; each date is the day that version was built.
 
 ## Not released yet
 
+### Changed
+- SAVE LOGS replaces SEND LOGS and the automatic crash reports: the panel, the crash screen and Report a problem save
+  `forza-wccf-logs-DATE-TIME.zip` in the Downloads folder and show where; the player sends it. Servers collect no logs
+  and no longer open TCP 20050.
+
 ### Added
 - Online lobby. Online in Launcher.exe lists the shops of the servers you typed under "Direct address": name, players
   x/8, ping, language, state and time to the next ENTRY, with filters for language, open only and ping. JOIN takes a

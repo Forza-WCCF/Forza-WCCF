@@ -2,7 +2,7 @@
 
 The 2010-11 and 2017-18 shops on Linux. The original control and its four match engines are 32-bit Windows programs; they run
 under Wine on a virtual X display (Xvfb). This crate holds the Linux supervisor that starts, watches and stops them,
-and the small Windows helpers it runs inside Wine. The seat desk, match relay and log inbox are `forza-server`
+and the small Windows helpers it runs inside Wine. The seat desk and match relay are `forza-server`
 (`crates/server`); the projector relay is `crates/server/python/projector_relay.py`. Setup from scratch:
 `docs/SELF-HOSTING.md`.
 
@@ -50,7 +50,7 @@ The supervisor reads everything from one folder, `ROOT`: `WCCF_ROOT`, else three
 | `WCCF_EXTERNAL_DESK=1` | leave TCP 20030 and UDP 20040 to `forza-server desk` and `relay` (the supported setup) |
 
 Without `WCCF_EXTERNAL_DESK=1` the supervisor runs its own minimal seat broker and relay; it predates
-`forza-server` and knows no lobby, projector relay or log inbox.
+`forza-server` and knows no lobby or projector relay.
 
 ## The 2017-18 shop
 

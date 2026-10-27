@@ -9,7 +9,7 @@ fn main() {
     if std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "windows")
         && let Some(res) = version_rc::make(
             "forza-server",
-            "the online server: seat desk, match relay and log inbox",
+            "the online server: seat desk, match relay and game server",
             None,
         )
     {

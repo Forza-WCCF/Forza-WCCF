@@ -1,6 +1,6 @@
 # /etc/systemd/system/wccf-1011.service: the 2010-11 server (docs/SELF-HOSTING.md). Paths assume FORZA_HOME=/srv/forza-wccf.
 [Unit]
-Description=Forza-WCCF 2010-11 server (Wine control + engines, seat desk, match relay, log inbox, projector relay)
+Description=Forza-WCCF 2010-11 server (Wine control + engines, seat desk, match relay, projector relay)
 After=network-online.target
 Wants=network-online.target
 

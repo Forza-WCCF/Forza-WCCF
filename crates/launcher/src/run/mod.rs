@@ -5,7 +5,7 @@
 //! server stand-in beside control; the Aime reader on COM2 and AiMeDB instead of the club card reader; the keychip
 //! says SDDY), its shared memory (`debug::maps`), its guard (`crate::guard` before anything starts; wccfnet.dll
 //! also loads the panel into seat 1 and the projector, from `FORZA_PANEL`), the server's projector rule (the first PC gets it), and what it
-//! leaves out (the club card's steps and view, the log inbox, the automatic report, the message guard).
+//! leaves out (the club card's steps and view, the message guard).
 //!
 //! Order, each step waiting for the one before: scene service -> server and its 4 match engines -> projector -> the
 //! cabinet's stand-ins (keychip and network, card reader, I/O board) -> seat 1 -> its overlay -> the key driver -> the
@@ -48,8 +48,8 @@ use std::time::{Duration, Instant, SystemTime};
 use std::{env, ptr};
 
 use crate::helper::{self, Helper, Target, ViewFiles};
+use forza::online::save_logs::{self, Scrub};
 use forza::online::seat::{self, Lease};
-use forza::online::send_logs::{self, Scrub};
 use forza::online::{club, gamesvr};
 use forza::standins::{Handle, Log, aime, aimedb, card_reader, io_board, network, scenes};
 use regex::Regex;
@@ -107,8 +107,6 @@ pub trait Ui {
     fn running(&self, _up: bool) {}
     /// The start is about to make the card pictures (a while): the window's status line.
     fn updating_pictures(&self) {}
-    /// SAVE LOGS asked by the panel (data\savelogs.request): ask where, write the ZIP, answer in data\savelogs.result.
-    fn save_logs(&self, _kit: &Path, _game: &Path) {}
     /// REPORT A PROBLEM asked by the panel (data\report.request): the window opens its report dialog.
     fn report(&self) {}
     /// The language of the few run lines a player must read (the shop club's).
@@ -132,7 +130,8 @@ pub struct Params {
     pub control_port: u16,
     pub relay_port: u16,
     pub seat_port: u16,
-    pub inbox_port: u16,
+    /// Where SAVE LOGS writes its ZIP (the Downloads folder).
+    pub logs_dir: PathBuf,
     /// The network stand-ins' ports, in `network::SERVICES` order (0: any free one).
     pub network_ports: [u16; 6],
     pub icc_pipe: String,
@@ -166,7 +165,7 @@ impl Params {
             control_port: 20002,
             relay_port: 20040,
             seat_port: forza::online::SEAT_PORT,
-            inbox_port: forza::online::INBOX_PORT,
+            logs_dir: save_logs::downloads(),
             network_ports: network::SERVICES.map(|s| s.0),
             icc_pipe: r"\\.\pipe\wccf_icc_seat1".into(),
             jvs_pipe: r"\\.\pipe\wccf_jvs_seat1".into(),
@@ -801,6 +800,8 @@ enum Event {
     Restart(bool),
     Request(String),
     SaveLogs,
+    /// A line for the window from a helper thread (SAVE LOGS' result).
+    Said(String),
     Report,
 }
 
@@ -982,7 +983,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
     for f in [
         request_file(kit, kind),
         answer_file(kit, kind),
-        kit.data().join("sendlogs.request"),
+        kit.data().join("savelogs.request"),
     ] {
         let _ = fs::remove_file(f);
     }
@@ -1441,9 +1442,6 @@ impl Run<'_> {
                     p.control_port
                 )));
             }
-            if self.edition == Edition::E1011 {
-                self.send_pending_report(); // 2017-18's server has no log inbox
-            }
             let (seat, here) = self.take_seat(&ip, want)?;
             (self.seat_no, projector) = (seat, here);
             for c in &confs {
@@ -1573,7 +1571,7 @@ impl Run<'_> {
         Ok(())
     }
 
-    /// "server": `forza-server all` (the seat desk, the match relay and the log inbox in one Job child, each with its
+    /// "server": `forza-server all` (the seat desk and the match relay in one Job child, each with its
     /// own log in data\logs), then the run waits for a stop.
     fn start_server_side(&mut self) -> Result<(), Failed> {
         let logs = self.logs();
@@ -1581,7 +1579,6 @@ impl Run<'_> {
         env.extend([
             ("WCCF_BROKER_PORT".to_owned(), self.p.seat_port.to_string()),
             ("WCCF_RELAY_PORT".to_owned(), self.p.relay_port.to_string()),
-            ("WCCF_INBOX_PORT".to_owned(), self.p.inbox_port.to_string()),
         ]);
         // 2017-18: guests come through the shop tunnel, so the desk and relay listen on loopback only (no firewall
         // prompt, nothing open on the LAN) unless data\settings.json "shop_lan": true asks for the plain-address path
@@ -1653,15 +1650,9 @@ impl Run<'_> {
                     }
                 ));
             }
-            if self.edition == Edition::E1011 {
-                self.say(&format!(
-                    "     log inbox: TCP {} (logs go to data\\player_logs)",
-                    self.p.inbox_port
-                ));
-            }
         } else {
             self.say(&format!(
-                "     the {role} did not start or ended (data\\logs\\{out}, seat_broker.txt, match_relay.txt, log_inbox.txt)"
+                "     the {role} did not start or ended (data\\logs\\{out}, seat_broker.txt, match_relay.txt)"
             ));
         }
         if self.edition == Edition::E1718 && !lan_only {
@@ -1689,8 +1680,8 @@ impl Run<'_> {
         });
         self.say(&match self.edition {
             Edition::E1011 => format!(
-                "Open TCP ports {}, {} and {}, and UDP {}. Launcher.exe stop ends it.",
-                self.p.control_port, self.p.seat_port, self.p.inbox_port, self.p.relay_port
+                "Open TCP ports {} and {}, and UDP {}. Launcher.exe stop ends it.",
+                self.p.control_port, self.p.seat_port, self.p.relay_port
             ),
             Edition::E1718 if !lan => "Seat desk and relay on this PC only (\"shop_lan\": true in data\\settings.json \
                                          opens them to the network). Launcher.exe stop ends it."
@@ -2170,86 +2161,22 @@ impl Run<'_> {
             .unwrap_or_default()
     }
 
-    /// A report the last run could not send (data\report.pending): tried again in the background while the start
-    /// goes on; removed only once the server took it.
-    fn send_pending_report(&self) {
-        let pending = self.kit.data().join("report.pending");
-        let Ok(text) = fs::read_to_string(&pending) else { return };
-        let Some(at) = text.lines().next().and_then(|s| addr(s.trim(), self.p.inbox_port)) else {
-            return;
-        };
-        let (kit, game) = (self.kit.dir().to_path_buf(), self.game.clone());
-        let out = self.logs().join("run_report.txt");
+    /// SAVE LOGS (the SETTINGS panel, data\savelogs.request): the ZIP written to [`Params::logs_dir`] on a thread;
+    /// data\savelogs.result tells the panel "ok PATH" or "fail WHY", and the line comes back as [`Event::Said`].
+    fn save_logs(&self) {
+        let (dir, kit, game) = (self.p.logs_dir.clone(), self.kit.dir().to_path_buf(), self.game.clone());
+        let tx = self.tx.clone();
         thread::spawn(move || {
-            let r = send_logs::upload(at, &kit, Some(&game), &Scrub::from_env(), Some(&pending));
-            let _ = fs::write(out, format!("{r:?}\n"));
+            let line = match save_logs::save(&dir, &kit, Some(&game), &Scrub::from_env(), None) {
+                Ok(path) => format!("ok {}", path.display()),
+                Err(e) => format!("fail {e}"),
+            };
+            let _ = choices::write(&kit.join("data").join("savelogs.result"), &format!("{line}\n"));
+            let _ = tx.send(Event::Said(match line.strip_prefix("ok ") {
+                Some(path) => format!("Logs saved: {path}"),
+                None => format!("Logs not saved: {}", &line[5..]),
+            }));
         });
-    }
-
-    /// Online, after a run that went wrong: this PC's logs to the server's log inbox by themselves (what SEND LOGS
-    /// sends, never the club card), or data\report.pending for the next start; panel.txt auto_logs=0 turns it off.
-    fn report_bad_run(&self, why: &[String]) {
-        let Some(ip) = self.ip() else { return };
-        if self.edition == Edition::E1718 {
-            return; // its server has no log inbox
-        }
-        let panel = choices::read(&self.kit.data().join("panel.txt"));
-        if why.is_empty() || choices::panel_value(&panel, "auto_logs").as_deref() == Some("0") {
-            return;
-        }
-        let note = format!(
-            "sent by itself at the end of an online run that went wrong:\n{}\n",
-            why.join("\n")
-        );
-        let sent = addr(ip, self.p.inbox_port)
-            .ok_or_else(|| "no address".to_owned())
-            .and_then(|at| {
-                let (blob, _) = send_logs::pack(
-                    self.kit.dir(),
-                    Some(&self.game),
-                    &Scrub::from_env(),
-                    send_logs::TAIL,
-                    Some(&note),
-                )
-                .map_err(|e| e.to_string())?;
-                send_logs::send(at, &blob, &send_logs::version(self.kit.dir()), Duration::from_secs(60))
-                    .map_err(|e| e.to_string())
-            });
-        match sent {
-            Ok(code) => self.say(&format!(
-                "The run went wrong ({}). Logs sent to the server at {ip}: code {code}.",
-                why[0]
-            )),
-            Err(e) => {
-                let _ = fs::write(self.kit.data().join("report.pending"), format!("{ip}\n{note}"));
-                self.say(&format!(
-                    "The run went wrong ({}). Logs could not be sent to the server ({e}); they go at the next start.",
-                    why[0]
-                ));
-            }
-        }
-    }
-
-    /// SEND LOGS (the SETTINGS panel): data\sendlogs.request holds the server's address; the logs are packed and sent
-    /// on a thread, and data\sendlogs.result tells the panel "sending", then "ok CODE" or "fail WHY".
-    fn send_logs(kit: &Path, inbox_port: u16, address: &str) {
-        let result = kit.join("data").join("sendlogs.result");
-        let put = move |text: &str| {
-            let _ = choices::write(&result, &format!("{text}\n"));
-        };
-        let address = address.trim().to_owned();
-        let Some(at) = addr(&address, inbox_port).filter(|_| choices::valid_address(&address)) else {
-            put("fail no server address - type it under PLAY ON first");
-            return;
-        };
-        put("sending");
-        let kit = kit.to_path_buf();
-        thread::spawn(
-            move || match send_logs::upload(at, &kit, None, &Scrub::from_env(), None) {
-                Ok((code, _, _)) => put(&format!("ok {code}")),
-                Err(e) => put(&format!("fail {e}")),
-            },
-        );
     }
 
     // ---- the supervisor ----
@@ -2257,7 +2184,6 @@ impl Run<'_> {
     /// Requests from outside (other Launcher.exe processes, the panel's files) as events, every half second.
     fn poll_requests(&self) {
         let (tx, kit, kind) = (self.tx.clone(), self.kit.dir().to_path_buf(), Kind::of(&self.mode));
-        let inbox = self.p.inbox_port;
         let data = kit.join("data");
         thread::spawn(move || {
             loop {
@@ -2276,11 +2202,6 @@ impl Run<'_> {
                 }
                 if kind == Kind::Run && take(&data.join("report.request")).is_some() {
                     events.push(Event::Report);
-                }
-                if kind == Kind::Run
-                    && let Some(address) = take(&data.join("sendlogs.request"))
-                {
-                    Self::send_logs(&kit, inbox, &address);
                 }
                 if events.into_iter().any(|e| tx.send(e).is_err()) {
                     return; // the run is over
@@ -2311,7 +2232,11 @@ impl Run<'_> {
                 Event::Restart(force) => self.restart(force),
                 Event::Request(word) => self.answer(&word),
                 Event::SaveLogs => {
-                    self.ui.save_logs(self.kit.dir(), &self.game);
+                    self.save_logs();
+                    None
+                }
+                Event::Said(line) => {
+                    self.say(&line);
                     None
                 }
                 Event::Report => {
@@ -2498,7 +2423,6 @@ impl Run<'_> {
         self.card_steps(&["keep"]); // the cards on the table kept with their club: data\save holds the latest
         self.job.stop(STOP_DEADLINE);
         let _ = fs::remove_file(self.running_file());
-        self.report_bad_run(&why);
         if left > 0 {
             self.say(&format!("Still running: {left} processes of the run."));
             return End::Over(FAILED);

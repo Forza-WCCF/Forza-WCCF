@@ -3,10 +3,8 @@
 mod common;
 mod desk;
 mod gmsvr;
-mod inbox;
 #[cfg(target_os = "linux")]
 mod load;
 mod lobby;
 mod relay;
-mod reports;
 mod rooms;

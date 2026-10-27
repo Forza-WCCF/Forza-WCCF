@@ -120,7 +120,7 @@ fn load() {
         (1..=4).contains(&pairs),
         "seats 1-8 give at most 4 pairs per relay"
     );
-    let (desk, relay, inbox) = (free_port(), free_port(), free_port());
+    let (desk, relay) = (free_port(), free_port());
     let dir = std::env::temp_dir().join(format!("forza_load_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let mut child = Command::new(crate::common::server_exe())
@@ -129,7 +129,6 @@ fn load() {
         .env("WCCF_BIND", "127.0.0.1")
         .env("WCCF_BROKER_PORT", desk.to_string())
         .env("WCCF_RELAY_PORT", relay.to_string())
-        .env("WCCF_INBOX_PORT", inbox.to_string())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()

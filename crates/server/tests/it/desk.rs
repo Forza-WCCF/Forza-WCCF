@@ -155,6 +155,24 @@ fn stopping_the_desk_closes_its_port() {
     assert!(std::net::TcpStream::connect(addr).is_err());
 }
 
+/// An older Launcher's problem report: refused at once (a clean `NO`, no hang), nothing kept.
+#[test]
+fn reports_and_log_uploads_are_refused() {
+    use std::io::{Read, Write};
+    for ed in [Edition::E1011, Edition::E1718] {
+        let mut c = DeskConfig::new(ed);
+        c.bind = "127.0.0.1".into();
+        c.port = 0;
+        let desk = start(c, capture().0).unwrap();
+        let mut s = std::net::TcpStream::connect(desk.addr()).unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        s.write_all(b"REPORT 100 5 0.4.1\n").unwrap();
+        let mut got = String::new();
+        s.read_to_string(&mut got).unwrap();
+        assert!(got.starts_with("NO ") && got.ends_with('\n'), "{got:?}");
+    }
+}
+
 /// A shop guest's club through the real desk: refused for a seat nobody holds, in, out and dropped once it holds one.
 #[test]
 fn a_club_needs_a_held_seat() {

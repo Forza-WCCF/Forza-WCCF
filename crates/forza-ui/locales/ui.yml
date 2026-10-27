@@ -89,16 +89,10 @@ launcher.msg_went_wrong: {en: "The game stopped unexpectedly.", it: "Il gioco si
 launcher.report_problem: {en: "Report a problem", it: "Segnala un problema", ja: "問題を報告"}
 report.title_crashed: {en: "The game stopped unexpectedly", it: "Il gioco si è chiuso in modo imprevisto", ja: "ゲームが予期せず終了しました"}
 report.what_happened: {en: "What happened?", it: "Cosa è successo?", ja: "何が起きましたか？"}
-report.what_is_sent: {en: "Included", it: "Inclusi", ja: "送信内容"}
+report.what_is_sent: {en: "Included", it: "Inclusi", ja: "含まれるもの"}
 report.scrubbed: {en: "User and PC names are removed.", it: "I nomi dell'utente e del PC vengono rimossi.", ja: "ユーザー名と PC 名は削除されます。"}
-report.send: {en: "SEND", it: "INVIA", ja: "送信"}
-report.sending: {en: "Sending…", it: "Invio in corso…", ja: "送信中…"}
-report.sent: {en: "Sent. Report number: %{id}", it: "Inviata. Numero della segnalazione: %{id}", ja: "送信しました。報告番号：%{id}"}
-report.kept: {en: "%{why} The report is kept and goes with the next one.", it: "%{why} La segnalazione è salvata e partirà con la prossima.", ja: "%{why} 報告は保存され、次の報告と一緒に送信されます。"}
-report.busy: {en: "The server is busy. Try again in a minute.", it: "Il server è occupato. Riprova tra un minuto.", ja: "サーバーが混み合っています。1 分後にもう一度お試しください。"}
-report.too_many: {en: "Too many reports from this connection. Try again in an hour.", it: "Troppe segnalazioni da questa connessione. Riprova tra un'ora.", ja: "この接続からの報告が多すぎます。1 時間後にもう一度お試しください。"}
-report.refused: {en: "The server did not take the report.", it: "Il server non ha accettato la segnalazione.", ja: "サーバーが報告を受け付けませんでした。"}
-report.pack_failed: {en: "The logs could not be packed.", it: "Impossibile preparare i log.", ja: "ログを準備できませんでした。"}
+report.open_issue: {en: "Open a GitHub issue (attach the ZIP)", it: "Apri una segnalazione su GitHub (allega lo ZIP)", ja: "GitHub で Issue を作成（ZIP を添付）"}
+report.open_discord: {en: "Ask on Discord (attach the ZIP)", it: "Chiedi su Discord (allega lo ZIP)", ja: "Discord で質問（ZIP を添付）"}
 net.offline: {en: "No internet connection.", it: "Nessuna connessione a Internet.", ja: "インターネットに接続されていません。"}
 net.no_answer: {en: "The server did not answer.", it: "Il server non ha risposto.", ja: "サーバーが応答しませんでした。"}
 net.failed: {en: "The connection failed.", it: "Connessione non riuscita.", ja: "接続に失敗しました。"}
@@ -388,10 +382,6 @@ settings.cabinet: {en: "CABINET", it: "CABINATO", ja: "筐体"}
 settings.compact: {en: "COMPACT", it: "COMPATTA", ja: "コンパクト"}
 settings.hover: {en: "CARD HOVER DELAY", it: "RITARDO ANTEPRIMA CARTA", ja: "カード拡大までの時間"}
 settings.logs: {en: "LOGS", it: "LOG", ja: "ログ"}
-settings.send_logs: {en: "SEND LOGS", it: "INVIA I LOG", ja: "ログを送信"}
-settings.sent: {en: "Sent. Your code: %{code}", it: "Inviati. Il tuo codice: %{code}", ja: "送信しました。コード：%{code}"}
-settings.auto_reports: {en: "Automatic crash reports", it: "Segnalazioni automatiche dei crash", ja: "クラッシュの自動報告"}
-settings.auto_reports_hint: {en: "Sends logs after a crash.", it: "Invia i log dopo un arresto anomalo.", ja: "クラッシュ後にログを送信します。"}
 settings.just_now: {en: "%{t} (just now)", it: "%{t} (proprio ora)", ja: "%{t}（たった今）"}
 settings.min_ago: {en: "%{t} (%{n} min ago)", it: "%{t} (%{n} min fa)", ja: "%{t}（%{n} 分前）"}
 settings.h_ago: {en: "%{t} (%{n} h ago)", it: "%{t} (%{n} h fa)", ja: "%{t}（%{n} 時間前）"}
@@ -414,9 +404,6 @@ settings.address_hint: {en: "Server address", it: "Indirizzo del server", ja: "�
 settings.restart_hint: {en: "Restarts with the NEXT START choices.", it: "Riavvia con le scelte di PROSSIMO AVVIO.", ja: "「次回の起動」の設定で再起動します。"}
 settings.restart_refused: {en: "Not during a match.", it: "Non durante una partita.", ja: "試合中は使えません。"}
 settings.restarting: {en: "RESTARTING …", it: "RIAVVIO IN CORSO …", ja: "再起動中…"}
-settings.sending: {en: "SENDING …", it: "INVIO IN CORSO …", ja: "送信中…"}
-settings.send_again: {en: "CLICK AGAIN", it: "CLICCA ANCORA", ja: "もう一度押す"}
-settings.not_sent: {en: "Not sent: %{why}", it: "Non inviati: %{why}", ja: "送信できませんでした：%{why}"}
 settings.msg_compact: {en: "COMPACT: bigger game", it: "COMPATTO: gioco più grande", ja: "コンパクト：ゲームを拡大"}
 settings.msg_cabinet: {en: "CABINET: buttons shown", it: "CABINATO: pulsanti visibili", ja: "筐体：ボタン表示"}
 settings.board: {en: "FORMATION BOARD", it: "FORMAZIONE", ja: "フォーメーション"}
@@ -434,10 +421,8 @@ settings.msg_restart_asked: {en: "Already restarting", it: "Riavvio già in cors
 settings.msg_restarting: {en: "Restarting, about a minute...", it: "Riavvio, circa un minuto...", ja: "再起動中（約1分）..."}
 settings.msg_restart_failed: {en: "Restart failed. Close the game and start it again.", it: "Riavvio non riuscito. Chiudi il gioco e riavvialo.", ja: "再起動に失敗。ゲームを閉じて起動し直してください。"}
 settings.msg_no_helper: {en: "Restart failed. Close the game and start it again.", it: "Riavvio non riuscito. Chiudi il gioco e riavvialo.", ja: "再起動に失敗。ゲームを閉じて起動し直してください。"}
-settings.msg_logs_failed: {en: "Could not send. Try again.", it: "Invio non riuscito. Riprova.", ja: "送信できませんでした。もう一度お試しください。"}
-settings.msg_sending: {en: "Sending logs ...", it: "Invio dei log ...", ja: "ログを送信中..."}
-settings.msg_logs_need_server: {en: "Enter a server address first", it: "Inserisci prima un indirizzo server", ja: "先にサーバーのアドレスを入力"}
-settings.msg_logs_armed: {en: "Click again to send", it: "Clicca ancora per inviare", ja: "もう一度押すと送信"}
+settings.msg_logs_failed: {en: "Could not reach the Launcher. Try again.", it: "Impossibile contattare il Launcher. Riprova.", ja: "Launcher に接続できませんでした。もう一度お試しください。"}
+settings.msg_saving: {en: "Saving logs ...", it: "Salvataggio dei log ...", ja: "ログを保存中..."}
 settings.msg_not_saved: {en: "Could not save the settings. Try again.", it: "Impossibile salvare le impostazioni. Riprova.", ja: "設定を保存できませんでした。もう一度お試しください。"}
 
 # ---- club card ----
@@ -592,11 +577,10 @@ pause.msg_too_soon: {en: "Next pause in %{s} s.", it: "Prossima pausa tra %{s} s
 # ---- language, logs, edition-aware warnings ----
 launcher.msg_stop_anyway_1718: {en: "A match is on. Stop anyway?", it: "Partita in corso. Fermare comunque?", ja: "試合中です。終了しますか？"}
 close.body_1718: {en: "Closing now ends the match.", it: "Chiudere ora termina la partita.", ja: "今閉じると試合が終了します。"}
-launcher.save_logs: {en: "SAVE LOGS", it: "SALVA LOG", ja: "ログを保存"}
-settings.save_logs: {en: "SAVE LOGS", it: "SALVA LOG", ja: "ログを保存"}
-logs.saved: {en: "Saved: %{path}", it: "Salvato: %{path}", ja: "保存しました：%{path}"}
+launcher.save_logs: {en: "SAVE LOGS", it: "SALVA I LOG", ja: "ログを保存"}
+settings.save_logs: {en: "SAVE LOGS", it: "SALVA I LOG", ja: "ログを保存"}
+logs.saved: {en: "Logs saved: %{path}. Send this file to whoever helps you.", it: "Log salvati: %{path}. Invia questo file a chi ti aiuta.", ja: "ログを保存しました：%{path}。このファイルをサポートしてくれる人に送ってください。"}
 logs.save_failed: {en: "Could not save: %{why}", it: "Salvataggio non riuscito: %{why}", ja: "保存できません：%{why}"}
-logs.save_title: {en: "Save logs", it: "Salva log", ja: "ログを保存"}
 close.keep: {en: "KEEP PLAYING", it: "CONTINUA A GIOCARE", ja: "プレイを続ける"}
 close.quit: {en: "QUIT NOW", it: "ESCI ORA", ja: "今すぐ終了"}
 panel.lamp_in_use: {en: "IN USE", it: "IN USO", ja: "使用中"}
@@ -606,4 +590,4 @@ panel.crash_title: {en: "THE GAME STOPPED", it: "IL GIOCO SI È FERMATO", ja: "�
 panel.crash_lost: {en: "Part of the game stopped working.", it: "Una parte del gioco ha smesso di funzionare.", ja: "ゲームの一部が動作を停止しました。"}
 panel.crash_1718: {en: "Your club is kept on the server.", it: "Il tuo club è salvato sul server.", ja: "クラブはサーバーに保存されています。"}
 panel.crash_restart: {en: "RESTART THE GAME", it: "RIAVVIA IL GIOCO", ja: "ゲームを再起動"}
-panel.crash_report_asked: {en: "Open the Launcher to send a report.", it: "Apri il Launcher per inviare la segnalazione.", ja: "Launcher から報告を送信してください。"}
+panel.crash_report_asked: {en: "Open the Launcher to save the logs.", it: "Apri il Launcher per salvare i log.", ja: "Launcher を開いてログを保存してください。"}
