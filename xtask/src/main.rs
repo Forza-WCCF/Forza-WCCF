@@ -424,6 +424,14 @@ fn rust(sub: &str, root: &Path) -> Command {
 /// rustc applies the last matching `--remap-path-prefix`, so the user folder goes before the cargo home inside it.
 /// `--config` arrays are joined with .cargo/config.toml's rustflags, not put in their place.
 fn rust_shipped(root: &Path) -> Command {
+    let mut c = rust("build", root);
+    c.args(remap_config(root));
+    c
+}
+
+/// The `--config` arguments of `rust_shipped`. The tests pass them too: other target rustflags give every crate another
+/// hash, and the test build would compile the whole workspace a second time after the kits.
+fn remap_config(root: &Path) -> Vec<String> {
     let home = std::env::var_os("USERPROFILE").map(PathBuf::from);
     let cargo = std::env::var_os("CARGO_HOME")
         .map(PathBuf::from)
@@ -436,12 +444,15 @@ fn rust_shipped(root: &Path) -> Command {
     .into_iter()
     .filter_map(|(from, to)| Some(format!("'--remap-path-prefix={}={to}'", from?.display())))
     .collect();
-    let mut c = rust("build", root);
-    for t in [TARGET, PANEL_TARGET] {
-        c.arg("--config")
-            .arg(format!("target.{t}.rustflags=[{}]", flags.join(", ")));
-    }
-    c
+    [TARGET, PANEL_TARGET]
+        .into_iter()
+        .flat_map(|t| {
+            [
+                "--config".to_owned(),
+                format!("target.{t}.rustflags=[{}]", flags.join(", ")),
+            ]
+        })
+        .collect()
 }
 
 /// A shipped program that still holds a user folder path (see `rust_shipped`).
@@ -1143,6 +1154,7 @@ fn tests(root: &Path, ci: bool, extra: &[String], target: &str, scope: &[&str]) 
     if nextest {
         test.arg("run");
     }
+    test.args(remap_config(root));
     test.args(["--locked", "--target", target]).args(scope);
     // the kits' profile, so the tests reuse their dependencies; release tests in the usual test profile
     if profile() != "release" {
@@ -2142,6 +2154,25 @@ mod tests {
         assert_eq!(p("ci", false, true, false), "release");
         assert_eq!(pick_profile(None, false, false, false), "release");
         assert_eq!(pick_profile(None, true, false, false), "fast");
+    }
+
+    #[test]
+    fn the_tests_build_with_the_kits_rustflags() {
+        // other rustflags give every crate another hash: the test build would compile the workspace a second time
+        let root = Path::new("C:/repo");
+        let args = |c: &Command| c.get_args().map(|a| a.to_owned()).collect::<Vec<_>>();
+        let config = |c: Command| {
+            let a = args(&c);
+            a.iter()
+                .zip(a.iter().skip(1))
+                .filter(|(f, _)| *f == "--config")
+                .map(|(_, v)| v.clone())
+                .collect::<Vec<_>>()
+        };
+        let want = config(rust_shipped(root));
+        assert_eq!(want.len(), 2);
+        assert_eq!(config(tests(root, true, &[], TARGET, &[])), want);
+        assert_eq!(config(tests(root, true, &[], PANEL_TARGET, &[])), want);
     }
 
     #[test]
