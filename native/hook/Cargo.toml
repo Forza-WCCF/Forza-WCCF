@@ -11,7 +11,7 @@ description = "The hook in the game's programs: stands in for the cabinet's hard
 name = "forza_hook"
 crate-type = ["cdylib", "rlib"]
 
-# One source, three DLLs (`cargo xtask build` builds each, 32-bit like the game):
+# One source, four DLLs (`cargo xtask build` builds each, 32-bit like the game):
 [features]
 # programs\wccfk.dll: the 2010-11 game's WINMM import renamed to it; forwards the three timer calls to Windows' winmm,
 # answers control's start of logowin.exe itself and gives control the players' messages only whole
@@ -21,6 +21,9 @@ e1718 = []
 # the Linux server's winmm.dll for the 2010-11 control and match engines under Wine: e1718's forwarding, plus netguard.dll
 # and the three server fixes (src/server.rs)
 e1011-server = []
+# the Linux server's winmm.dll for the 2017-18 control and match engines under Wine: e1718's forwarding, plus
+# netguard.dll and the DHCP block on the guarded control's wccfnet.dll imports; none of the 2010-11 fixes
+e1718-server = []
 
 [target.'cfg(target_arch = "x86")'.dependencies]
 forza-native = { path = "../common" }

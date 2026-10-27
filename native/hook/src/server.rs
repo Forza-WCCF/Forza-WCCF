@@ -1,6 +1,6 @@
 //! The 2010-11 server's hook: the `winmm.dll` of the original control and its match engines on a Linux server under Wine
-//! (`crates/linux-host`). Beside what every hook does it loads `netguard.dll` as the second guard, and fixes three of
-//! control's faults:
+//! (`crates/linux-host`). Beside what every hook does and the server's `netguard.dll` ([`crate::net::load_netguard`]), it
+//! fixes three of control's faults:
 //!
 //! | Fix | What | Off |
 //! |---|---|---|
@@ -25,29 +25,16 @@ use windows_sys::Win32::Foundation::{CloseHandle, EXCEPTION_ACCESS_VIOLATION, Ge
 use windows_sys::Win32::System::Diagnostics::Debug::{
     AddVectoredExceptionHandler, EXCEPTION_POINTERS,
 };
-use windows_sys::Win32::System::LibraryLoader::LoadLibraryA;
 use windows_sys::Win32::System::Memory::{
     MEM_COMMIT, MEMORY_BASIC_INFORMATION, PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY,
     PAGE_READWRITE, PAGE_WRITECOPY, VirtualQuery,
 };
 use windows_sys::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
 use windows_sys::Win32::System::Threading::{
-    CreateEventA, ExitProcess, GetCurrentThreadId, GetCurrentThreadStackLimits, Sleep,
-    WaitForSingleObject,
+    CreateEventA, GetCurrentThreadId, GetCurrentThreadStackLimits, Sleep, WaitForSingleObject,
 };
 
 const CONTROL: &str = "control_Release.exe";
-
-/// The original secondary guard, in every process including children; the pinned control imports wccfnet.dll as the
-/// primary one. Without it the process ends.
-pub fn load_netguard() {
-    // SAFETY: a NUL-terminated name
-    if unsafe { LoadLibraryA(c"netguard.dll".as_ptr().cast()) }.is_null() {
-        log!("REFUSED: secondary netguard.dll did not load");
-        // SAFETY: ends this process: it must not run without the second guard
-        unsafe { ExitProcess(126) };
-    }
-}
 
 /// The three fixes, in the order the log names them.
 pub fn install() {
