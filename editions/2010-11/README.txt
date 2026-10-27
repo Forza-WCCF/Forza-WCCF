@@ -78,9 +78,9 @@ SETTINGS
                 unchanged, only your cabinet restarts.
   VIEW          LAYOUT: CABINET (buttons around the game) or COMPACT (larger game, no buttons: use your keys or
                 controller). CARD HOVER DELAY. Both take effect at once.
-  LOGS          SEND LOGS (click, then CLICK AGAIN) sends this game's logs to the server you play on. Your club card is
-                never sent, and your Windows user name and PC name are removed. You get a code: post it in Discord
-                with what went wrong. SAVE LOGS saves them to a file. Automatic crash reports: see ONLINE.
+  LOGS          SAVE LOGS saves this game's logs as forza-wccf-logs-DATE-TIME.zip in your Downloads folder and shows
+                where. Your club card is never in it, and your Windows user name and PC name are removed. Send the
+                file yourself (Discord, a GitHub issue) with what went wrong. Nothing is uploaded.
 
 CLUB CARD
   Shows your club card: club, manager, contract, league, prize money, card health (session, bad endings, saved
@@ -123,13 +123,9 @@ ONLINE
   Launcher.exe remote 192.168.1.20), or Online under NEXT START in SETTINGS. "Launcher.exe local" has its own
   projector.
   Hosting: "Launcher.exe server" starts only the server, in the background; the window that started it closes after
-  30 seconds. The PC must allow TCP ports 20002, 20030 and 20050 and UDP port 20040; behind a router, forward them.
-  The host can play too: "Launcher.exe remote" with its own address (ipconfig shows it). Logs that players send are
-  kept in data\player_logs.
-  When an online game ends badly (a crash, or a lost link to the server: Error 3000), Forza-WCCF sends this PC's logs
-  to the server, as SEND LOGS does. Your club card is never sent. After a crash a memory snapshot goes along;
-  data\dumps keeps the newest 5. If the server cannot be reached, the next start sends them. To turn this off, untick
-  Automatic crash reports under LOGS in SETTINGS.
+  30 seconds. The PC must allow TCP ports 20002 and 20030 and UDP port 20040; behind a router, forward them.
+  The host can play too: "Launcher.exe remote" with its own address (ipconfig shows it).
+  After a crash a memory snapshot is kept in data\dumps (the newest 5); SAVE LOGS puts the newest ones in the ZIP.
 
 GAME TEXT
   The language at the top right of Launcher.exe picks the game's text: English, Italiano, or the original Japanese

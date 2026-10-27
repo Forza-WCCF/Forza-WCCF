@@ -23,12 +23,12 @@ internet. Release 1 (1.0.0) waits on the live gates below.
 - **Releases:** 0.3.3 (2026-10-24), 0.4.0 and 0.4.1 (2026-10-26).
 - **UPDATE:** this repository's releases, one ZIP per edition, SHA-256 checked, `self-replace` for Launcher.exe, a
   notice until UPDATE is opened; the new Launcher.exe starts after an update (#47).
-- **Online:** one `forza-server` (desk, relay, inbox, 2017–18 game server, matcher, reflect); the lobby (2010–11 shops,
+- **Online:** one `forza-server` (desk, relay, 2017–18 game server, matcher, reflect); the lobby (2010–11 shops,
   2017–18 VS rooms, Rejoin, gamepad); direct VS over `vslink`.
 - **2017–18 stand-in parity** (#25): whole saves round-trip, GAME_CTRL defaults, the shop and purchases, Best
   Eleven, VS echoes, and a guard test that every answer is handled or proven safe with its parser address.
-- **Problem reports** (#25): the Launcher and the panel's crash screen send logs plus the player's words to the
-  project's server (`REPORT` on the desk port).
+- **Problem reports:** SAVE LOGS (the Launcher, the panel's SETTINGS and crash screen) writes the logs ZIP, with
+  the player's words, to the Downloads folder for the player to send; servers collect no logs (owner, 2026-10-27).
 - **Panel:** cabinet formation mat, links on the board (2010–11), pause P1, quit dialog, card lamp, crash screen,
   catalogue sized to the card pictures; the 2017–18 album card art for the card pictures (#32); hotkey labels while
   Alt is held (#39); a pop-out formation board with pitch artwork and the hover pane in the board column (#48).
@@ -63,7 +63,7 @@ internet. Release 1 (1.0.0) waits on the live gates below.
    two PCs on two NATs play a whole match from a room code. Then the release gates: full check, guarded live runs from
    one test build (a `--kit` install of each edition, first-run link, pause, a fresh install from each ZIP, the soak in
    [RELEASING.md](RELEASING.md#stability-gate)), a play test, fixes, full check on the packaged commit.
-7. **2010–11 reports:** the 2010–11 desk on the project's server gets a `--reports` folder (restarts that server).
+7. **Logs collected nowhere:** done (owner, 2026-10-27); ovh1 gets the server without the desk's `REPORT` store.
 8. **Stand-in leftovers (2017–18):** 234 team ranking (the control's "NO ENTRY" defaults), 250 today's play count,
    300 QR deletions that stick, 266 usage ratios; the shop's sale list from the game data (rotation, for-sale flags),
    SE purchases (286 +93 unverified); rankings, GT/UC points and prizes once their formula is traced.

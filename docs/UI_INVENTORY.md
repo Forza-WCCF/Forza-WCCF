@@ -41,7 +41,7 @@ Purpose: start and stop the game, set it up, update Forza-WCCF. One window; it s
 - Busy state: closing is refused while a job runs, with a message.
 - Command line (no window shown): `local`, `server`, `remote ADDRESS`, `debug`, `stop`, `status`, `show`, `restart`,
   a folder path (setup), `undo`.
-- Needs: a SEND LOGS action belongs here too (today only in the panel, 2010–11).
+- SAVE LOGS and REPORT A PROBLEM write the logs ZIP to the Downloads folder and show its path.
 
 ## Installer
 
@@ -92,8 +92,7 @@ over the picture one at a time, and while a page is open its keys do not reach t
     card session; says if no helper took it).
   - View: layout CABINET (strips with buttons) or COMPACT (no cabinet buttons); card hover delay (2010–11: 0.5, 1, 2,
     3 s).
-  - Logs (2010–11): SEND LOGS (click twice; needs a server address; shows sending / sent with a code / failed and
-    why); automatic crash reports on or off.
+  - Logs: SAVE LOGS (the ZIP goes to the Downloads folder; shows the path or why it failed).
 - **Club card**: the player's saved club, read-only: session open / closed / did not end normally / new / unreadable /
   none yet. YOUR CARDS: other saved clubs; pick one (or a new card) for the next start, then RESTART NOW; not during a
   session. 2010–11 also: CLEAR BAD ENDINGS (click twice). Esc closes.

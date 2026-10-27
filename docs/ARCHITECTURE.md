@@ -8,7 +8,7 @@ Everything shipped is Rust, in one Cargo workspace. Windows builds the kits with
 
 | Path | What |
 |---|---|
-| `crates/launcher` | `Launcher.exe`: PLAY, SETUP, UPDATE, the online lobby, problem reports; the run supervisor (`run`), the guard check before every start (`guard.rs`), the Job object, the debugger, the key driver |
+| `crates/launcher` | `Launcher.exe`: PLAY, SETUP, UPDATE, the online lobby, SAVE LOGS and problem reports (a ZIP in Downloads); the run supervisor (`run`), the guard check before every start (`guard.rs`), the Job object, the debugger, the key driver |
 | `crates/forza` | shared code: setup per edition (`setup/e1011.rs`, `e1718.rs`), the cabinet stand-ins (`standins`), online play and the 2017–18 game server (`online`), the cards and the card table, game text |
 | `crates/forza-ui` | every screen in egui: theme and fonts, widgets, the Launcher, installer, panel and lobby screens; snapshot tests; UI text in `locales/ui.yml` |
 | `crates/panel` | `forza_panel.dll`, 32-bit, inside the game: draws `forza-ui`'s panel over the game's Direct3D 9 picture; the projector window |
@@ -49,7 +49,7 @@ Everything shipped is Rust, in one Cargo workspace. Windows builds the kits with
 
 ## Online
 
-- `forza-server` serves the seat desk and lobby, the in-shop match relay, the log inbox (2010–11) and, for 2017–18,
+- `forza-server` serves the seat desk and lobby, the in-shop match relay and, for 2017–18,
   the game server, VS matcher and reflect. The project runs it at `lobby.wccf.it`; anyone can host their own.
 - A shared shop is a host running the original control and engines: a player's PC, or Linux under Wine through
   `wccf-linux-server` with the hook's server features (`e1011-server`, `e1718-server`) and `netguard.dll`.
