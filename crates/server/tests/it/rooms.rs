@@ -408,10 +408,11 @@ fn shop_rooms_join_by_code_and_swap_tunnel_ids() {
     assert_eq!(lobby::join_shop(a, &code, None).unwrap(), Reserved::Closed);
 }
 
-/// A stranger with only what `LOBBY` says gets no ticket and no tunnel id: a private room is not listed, a public one
-/// is listed without its code, and `RESERVE` of its id gives nothing.
+/// What `LOBBY` says lets a stranger into a public room and nowhere else: a private room is not listed and its id
+/// joins nothing; a public one is listed (marked a room) without its code, and `JOIN` of its id seats a guest; the
+/// code still works for both; `RESERVE` of a room id gives nothing.
 #[test]
-fn a_stranger_with_the_lobby_cannot_join_a_shop_room() {
+fn listed_rooms_join_by_id_private_ones_by_code_only() {
     let d = desk(|c| c.vs = None);
     let a = d.addr();
     let host_id = tunnel_id(1);
@@ -429,7 +430,12 @@ fn a_stranger_with_the_lobby_cannot_join_a_shop_room() {
         .iter()
         .find(|s| s.id == public_id)
         .expect("public: listed");
-    assert_eq!((row.seats, row.max), (1, 8));
+    assert_eq!((row.seats, row.max, row.room), (1, 8, true));
+    assert_eq!(
+        l.shops.iter().filter(|s| s.room).count(),
+        1,
+        "the desk's own shop is no room"
+    );
     for secret in [
         &host_id,
         &other_host,
@@ -440,21 +446,27 @@ fn a_stranger_with_the_lobby_cannot_join_a_shop_room() {
     ] {
         assert!(!line.contains(secret.as_str()), "{secret} in {line}");
     }
-    // everything the stranger can try with what it read (the desk's own shop row is the plain shop, seats by RESERVE)
-    for s in l.shops.iter().filter(|s| s.name == "Shop room") {
-        assert_eq!(
-            lobby::reserve(a, &s.id).unwrap(),
-            Reserved::Closed,
-            "RESERVE {}",
-            s.id
-        );
-        assert_eq!(
-            lobby::join_shop(a, &s.id, None).unwrap(),
-            Reserved::Closed,
-            "JOIN {}",
-            s.id
-        );
-        assert_eq!(lobby::shop_peers(a, &s.id, None).unwrap(), None);
+    assert_eq!(lobby::reserve(a, &public_id).unwrap(), Reserved::Closed);
+    assert_eq!(
+        lobby::join_shop(a, &private_id, None).unwrap(),
+        Reserved::Closed,
+        "a private room's id"
+    );
+    assert!(matches!(
+        lobby::join_shop(a, &public_id, None).unwrap(),
+        Reserved::Ticket { seat: 2, .. }
+    ));
+    assert!(matches!(
+        lobby::join_shop(a, &public_code, None).unwrap(),
+        Reserved::Ticket { seat: 3, .. }
+    ));
+    assert!(matches!(
+        lobby::join_shop(a, &private_code, None).unwrap(),
+        Reserved::Ticket { seat: 2, .. }
+    ));
+    let line = say(a, "LOBBY 2017-18");
+    for secret in [&private_code, &public_code] {
+        assert!(!line.contains(secret.as_str()), "{secret} in {line}");
     }
 }
 

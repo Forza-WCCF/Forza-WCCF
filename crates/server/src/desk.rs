@@ -819,6 +819,7 @@ fn lobby_answer(sh: &Shared, ip: &str, edition: &str, out: &mut TcpStream) -> io
         },
         next_entry,
         lang: sh.cfg.lang.clone(),
+        room: false,
     };
     let answer = Lobby {
         v: lobby::VERSION,
@@ -1000,7 +1001,8 @@ fn create_shop(
     out.write_all(reply.line().as_bytes())
 }
 
-/// `JOIN CODE [n]` -> `TICKET t n`, `FULL`, `TAKEN` or `CLOSED`: a guest seat in a shop room, by its code only.
+/// `JOIN CODE|ID [n]` -> `TICKET t n`, `FULL`, `TAKEN` or `CLOSED`: a guest seat in a shop room, by its code or a
+/// listed room's id; a private room's id counts as a wrong code.
 fn join_shop(
     sh: &Shared,
     ip: &str,
@@ -1112,7 +1114,7 @@ fn reserve(sh: &Shared, id: &str, seat: Option<u8>, out: &mut TcpStream) -> io::
     let now = Instant::now();
     expire(sh, &mut st, now);
     let reply = if st.shops.has_id(id) {
-        // a shop room is joined by its code (JOIN), never by the id a public row shows
+        // a shop room is joined with JOIN (its code, or a public row's id), never RESERVE
         Reserved::Closed
     } else if let Some(r) = st.rooms.iter_mut().find(|r| r.id == id) {
         // a VS room: the guest's seat 2 only

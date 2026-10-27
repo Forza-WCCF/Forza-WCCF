@@ -12,7 +12,9 @@
 //! - `CLOSE id t` -> `OK` | `GONE`: the host's ticket closes room `id` (LEAVE by the host).
 //! - `CREATE shop ID [public]` (2017-18) -> [`Created`]: a shop room hosted by the PC whose shop tunnel is ID (an
 //!   iroh EndpointId, 64 hex digits), the host on seat 1. Private unless `public` (then listed, without its code).
-//! - `JOIN CODE [n]` -> [`Reserved`]: a guest seat (2-8) in the shop room with that code; the code is the only way in.
+//! - `JOIN CODE [n]` -> [`Reserved`]: a guest seat (2-8) in the shop room with that code. `JOIN ID [n]` with the id of
+//!   a listed (`public`) room seats a guest too; a private room's id answers `CLOSED`, so its code is the only way in.
+//!   Desks before this list rooms without [`Shop::room`]; the Launcher joins only rows that have it.
 //! - `SHOP t [ID]` -> [`Peers`] | `GONE`: a guest's ticket (telling its own tunnel id) gets the host's id, the host's
 //!   ticket the ids of the guests that asked. Ids go only to tickets of the same room, never into `LOBBY`.
 
@@ -90,6 +92,9 @@ pub struct Shop {
     /// `en`, `it` or `ja`, declared by the operator.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lang: Option<String>,
+    /// A listed shop room (2017-18), joined by `JOIN id`; false for a desk's own shop.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub room: bool,
 }
 
 /// An iroh EndpointId as written: 64 hex digits.
@@ -391,7 +396,7 @@ pub fn create_shop(addr: SocketAddr, host: &str, public: bool) -> Result<Created
     Created::parse(&a).ok_or(a)
 }
 
-/// `JOIN CODE [n]`: a guest seat in the shop room with that code.
+/// `JOIN CODE [n]`: a guest seat in the shop room with that code, or in the listed room with that id.
 pub fn join_shop(addr: SocketAddr, code: &str, seat: Option<u8>) -> Result<Reserved, String> {
     let a = ask(
         addr,
