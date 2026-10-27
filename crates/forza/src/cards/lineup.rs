@@ -60,7 +60,7 @@ pub struct Lineup {
     pub name: Option<String>,
     /// At most 11, in file order.
     pub pitch: Vec<Entry>,
-    /// At most 5, in bench order (the subs, then starters past the 11th).
+    /// At most 5, in bench order (subs and starters past the 11th, in file order).
     pub bench: Vec<Entry>,
     /// The card number of the starter marked `K`, as given; the table has no key player.
     pub kp: Option<u32>,
@@ -167,7 +167,6 @@ pub fn parse(text: &str, edition: Edition) -> Result<Lineup, LineupError> {
     let keyed = |t: &[Tok]| matches!(t[0].text(), "P" | "S" | "game" | "name");
     let keyed_text = lines.iter().any(|(_, t, _)| keyed(t));
     let mut l = Lineup::default();
-    let mut overflow = Vec::new(); // starters past the 11th
     let mut seen = Vec::new();
     // (kind, ref, x y, K, comment)
     let mut entries = Vec::new();
@@ -176,7 +175,9 @@ pub fn parse(text: &str, edition: Edition) -> Result<Lineup, LineupError> {
             entries.extend(t.iter().map(|r| ('P', r, None, false, c)));
         } else if t[0].text() == "name" {
             let n = raw.strip_prefix("name").unwrap_or("").trim();
-            l.name = Some(n.to_string()).filter(|n| !n.is_empty());
+            if !n.is_empty() {
+                l.name = Some(n.to_string());
+            }
         } else if t[0].text() == "game" {
         } else if matches!(t[0].text(), "P" | "S") && t.len() > 1 {
             let xy = |i: usize| {
@@ -196,9 +197,8 @@ pub fn parse(text: &str, edition: Edition) -> Result<Lineup, LineupError> {
             });
         }
     }
-    // A bare list: the first 11 start, the rest sit on the bench.
-    for (i, (kind, r, at, kp, c)) in entries.into_iter().enumerate() {
-        let kind = if !keyed_text && i >= PITCH { 'S' } else { kind };
+    // As the site's `addTo`: a starter past the 11th takes the next free bench box, so a bare list needs no split.
+    for (kind, r, at, kp, c) in entries {
         let label = if c.is_empty() {
             r.text().to_string()
         } else {
@@ -240,14 +240,8 @@ pub fn parse(text: &str, edition: Edition) -> Result<Lineup, LineupError> {
             }
         } else if l.pitch.len() < PITCH {
             l.pitch.push(e);
-        } else {
-            overflow.push(e);
-        }
-    }
-    for mut e in overflow {
-        e.at = None;
-        if l.bench.len() < BENCH {
-            l.bench.push(e);
+        } else if l.bench.len() < BENCH {
+            l.bench.push(Entry { at: None, ..e });
         } else {
             l.skipped.push(Skipped {
                 label: e.label,
@@ -291,13 +285,20 @@ pub fn table(l: &Lineup, catalogue: &[Card]) -> Result<Import, LineupError> {
             .find(|s| !placed.iter().any(|p| p.slot == *s))
             .unwrap_or(1);
         if bench {
+            let Some(&y) = BENCH_Y.get(benched) else {
+                skipped.push(skip(Skip::NoRoom));
+                continue;
+            };
             placed.push(Placed {
                 slot,
                 no: e.no,
                 x: BENCH_X,
-                y: BENCH_Y[benched],
+                y,
             });
             benched += 1;
+        } else if placed.iter().filter(|p| !p.on_bench()).count() >= PITCH {
+            skipped.push(skip(Skip::NoRoom));
+            continue;
         } else if let Some((x, y)) = e.at {
             placed.push(Placed {
                 slot,
@@ -485,6 +486,19 @@ mod tests {
     }
 
     #[test]
+    fn a_skipped_ref_in_a_bare_list_leaves_its_pitch_place_to_the_next() {
+        let l = parse("1 13/A01 2 3 4 5 6 7 8 9 10 11 12", Edition::E1718).unwrap();
+        assert_eq!((l.pitch.len(), l.bench.len()), (11, 1));
+        assert_eq!(l.bench[0].no, 12);
+    }
+
+    #[test]
+    fn name_lines_keep_the_last_non_empty_name() {
+        let l = parse("name A\nname\nP 1 1 1\n", Edition::E1718).unwrap();
+        assert_eq!(l.name.as_deref(), Some("A"));
+    }
+
+    #[test]
     fn twelve_starters_and_six_subs() {
         let mut t = String::from("game 1718\n");
         for n in 1..=12 {
@@ -494,18 +508,18 @@ mod tests {
             t += &format!("S {n}\n");
         }
         let l = parse(&t, Edition::E1718).unwrap();
-        // the 12th starter finds no free box: the 5 subs came first
+        // as the site: the 12th starter takes the first free bench box, the subs after it
         assert_eq!(l.pitch.len(), 11);
         assert_eq!(
             l.bench.iter().map(|e| e.no).collect::<Vec<_>>(),
-            [21, 22, 23, 24, 25]
+            [12, 21, 22, 23, 24]
         );
-        assert_eq!(why(&l), [("26", Skip::NoRoom), ("12", Skip::NoRoom)]);
+        assert_eq!(why(&l), [("25", Skip::NoRoom), ("26", Skip::NoRoom)]);
         // with 3 subs, the 12th starter takes the next free box
         let l = parse("P 1 1 1\nP 2 1 1\nP 3 1 1\nP 4 1 1\nP 5 1 1\nP 6 1 1\nP 7 1 1\nP 8 1 1\nP 9 1 1\nP 10 1 1\nP 11 1 1\nP 12 1 1\nS 21\nS 22\nS 23\n", Edition::E1718).unwrap();
         assert_eq!(
             l.bench.iter().map(|e| e.no).collect::<Vec<_>>(),
-            [21, 22, 23, 12]
+            [12, 21, 22, 23]
         );
         assert!(l.skipped.is_empty());
     }
