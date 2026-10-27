@@ -238,12 +238,14 @@ pub fn apply(kit: &Kit, r: &Release) -> Result<(), String> {
     running_check(kit)?; // the game may have started during the download
     log(&tf("launcher.msg_copying", &[("tag", &r.tag)]));
     say(tf("launcher.msg_copying", &[("tag", &r.tag)]), 950);
-    let mut old = manifest(&dir.join("files.txt")).unwrap_or_default();
+    let mut old = manifest(&kit.app().join("files.txt")).unwrap_or_default();
     old.extend(LEGACY.iter().map(|&f| f.to_owned()));
-    let new = manifest(&top.join("files.txt"));
+    // a 2017-18 kit from 0.5 on lists its files in app\, an older one at its top
+    let new = manifest(&launcher::kit::app_dir(&top).join("files.txt"));
     // an older kit brings neither: the newer kit's must not stay behind and speak for it
     for f in ["files.txt", "version.txt"] {
         let _ = fs::remove_file(dir.join(f));
+        let _ = fs::remove_file(kit.app().join(f));
     }
     copy_over(&top, dir, true)?;
     // without the new kit's list nothing is known to be gone: nothing is removed
@@ -293,7 +295,8 @@ fn copy_over(from: &Path, to: &Path, top: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// files.txt: every file a kit ships, one path under the kit folder per line (source\package.ps1 writes it).
+/// files.txt: every file a kit ships, one path under the kit folder per line (`cargo xtask package` writes it; 2017-18
+/// keeps it in app\, its paths still from the top).
 fn manifest(path: &Path) -> Option<Vec<String>> {
     let text = fs::read_to_string(path).ok()?;
     let lines = text.trim_start_matches('\u{feff}').lines();
@@ -321,6 +324,24 @@ fn obsolete<'a>(old: &'a [String], new: &[String]) -> Vec<&'a str> {
         .collect()
 }
 
+/// At the start: a 2017-18 install from before app\ that a new kit reached (an update, or a ZIP unpacked over it)
+/// moves into app\ ([`forza::migrate`]), never while the game or a kit tool runs from it.  What to tell the player
+/// when it could not.
+pub fn move_into_app(kit: &Kit) -> Option<String> {
+    if !kit.dir().join(launcher::kit::APP).is_dir() || !forza::migrate::pending(kit.dir()) {
+        return None;
+    }
+    let done = running_check(kit).and_then(|()| forza::migrate::run(kit.dir()).map_err(|e| e.to_string()));
+    match done {
+        Ok(0) => None,
+        Ok(n) => {
+            log(&format!("moved {n} old files and folders into app\\"));
+            None
+        }
+        Err(e) => Some(tf("launcher.msg_move_failed", &[("error", &e)])),
+    }
+}
+
 /// At the start: the Launcher.exe.old an earlier update left, and the launchers an earlier kit had that this one replaced (a kit
 /// unzipped by hand over an older one).
 pub fn tidy(kit: &Kit) {
@@ -328,7 +349,7 @@ pub fn tidy(kit: &Kit) {
         me.push(".old");
         let _ = fs::remove_file(me);
     }
-    if let Some(shipped) = manifest(&kit.dir().join("files.txt")) {
+    if let Some(shipped) = manifest(&kit.app().join("files.txt")) {
         let legacy: Vec<String> = LEGACY.iter().map(|&f| f.to_owned()).collect();
         for f in obsolete(&legacy, &shipped) {
             let _ = fs::remove_file(kit.dir().join(f));

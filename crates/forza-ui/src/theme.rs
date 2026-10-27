@@ -110,10 +110,14 @@ pub fn mono(size: f32) -> FontId {
 /// The font files, from a `fonts/` folder beside the program, else the repository's `assets/fonts/` found from the
 /// working folder up (the gallery and the tests run from inside the repository).
 pub fn font_dir() -> PathBuf {
-    let beside = std::env::current_exe()
+    // beside the program, or in app\ beside it (a 2017-18 install's Launcher.exe)
+    let exe_dir = std::env::current_exe()
         .ok()
-        .and_then(|e| e.parent().map(|d| d.join("fonts")));
-    if let Some(d) = beside.filter(|d| d.join(NOTO).is_file()) {
+        .and_then(|e| e.parent().map(PathBuf::from));
+    let mut beside = exe_dir
+        .iter()
+        .flat_map(|d| [d.join("fonts"), d.join("app").join("fonts")]);
+    if let Some(d) = beside.find(|d| d.join(NOTO).is_file()) {
         return d;
     }
     let cwd = std::env::current_dir().unwrap_or_default();

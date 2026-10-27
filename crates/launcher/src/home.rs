@@ -231,6 +231,14 @@ mod tests {
         );
         assert_eq!(rows[1].state, State::NeedsSetup);
         assert_eq!(rows[1].dir, Some(r.join("2017-2018")));
+        // the same install with its programs in app\ (an install from 0.5 on, or one an update moved)
+        fs::remove_dir_all(r.join("2017-2018").join("bin")).unwrap();
+        dirs(&r.join("2017-2018"), &["app/bin"]);
+        let rows = rows_in(&r.join("2017-2018"), &[]);
+        assert_eq!(
+            (rows[1].dir.as_deref(), rows[1].state),
+            (Some(r.join("2017-2018").as_path()), State::NeedsSetup)
+        );
     }
 
     #[test]

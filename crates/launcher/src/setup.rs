@@ -83,7 +83,7 @@ pub(crate) fn text_step(kit: &Kit, lang: &str, say: &dyn Fn(&str)) -> i32 {
         ed,
         &game,
         &kit.data().join("english_backup"),
-        kit.dir(),
+        &kit.sheets(),
         mode,
         lang,
         say,

@@ -103,7 +103,7 @@ pub fn install(e1718: bool, data: &Path, log: fn(&str)) {
         "it" => ("it", "italian"),
         _ => return log("exe text: the original Japanese - nothing replaced"),
     };
-    let path = kit.dir().join(folder).join("exe_text.tsv");
+    let path = kit.sheets().join(folder).join("exe_text.tsv");
     let rows = match std::fs::read_to_string(&path)
         .map_err(|e| e.to_string())
         .and_then(|t| parse(&t))
