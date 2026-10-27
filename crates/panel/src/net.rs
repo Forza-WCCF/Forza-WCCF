@@ -7,8 +7,9 @@
 //! public address, port 20001-20008) goes to the server's relay labelled with both seats, and what the relay passes on
 //! arrives on the same socket and is handed to the game as if straight from that player. Everything else (127.x, the
 //! server's TCP, other ports) passes untouched. 2017-18 also routes 127.x (another seat of the shop may have reached
-//! the control from the host's own loopback, so the control names 127.0.0.1 as its address), except to its own seat
-//! and to ports 20003-20006 (the client's `MATCH_PORT` and `CLIENT_PORT1..3` defaults, whose loopback use is not known).
+//! the control from the host's own loopback, so the control names 127.0.0.1 as its address), except to its own seat;
+//! ports 20003-20006 (also the client's `MATCH_PORT` and `CLIENT_PORT1..3` defaults, whose loopback use is not known)
+//! only from the game's peer socket, the one bound to 20000 + its seat.
 //! Every 5 s each socket that played tells the relay "I am seat n".
 //!
 //! The ping meter asks the relay for an echo every 2 s on a socket of its own; [`ping_ms`] is the last answer.
@@ -54,6 +55,7 @@ const fn slot_rvas(e1718: bool) -> (usize, usize) {
 unsafe extern "system" {
     fn WSAGetLastError() -> i32;
     fn WSASetLastError(e: i32);
+    fn getsockname(s: usize, name: *mut c_void, namelen: *mut i32) -> i32;
     fn WSAIoctl(
         s: usize,
         code: u32,
@@ -159,8 +161,14 @@ fn parse_relay(v: &str) -> Result<([u8; 4], u16), Bad> {
 
 /// `relay_peer`: the seat of the cabinet a packet to `a` is for, if it is one (port 20001-20008, not 0.0.0.0 or
 /// broadcast, not 127.x except 127.0.0.2 in the test). `loopback` (2017-18: this cabinet's seat): 127.x is another seat
-/// too, unless it is this seat's own port or 20003-20006 (`MATCH_PORT`, `CLIENT_PORT1..3`).
-fn peer_seat(a: &SockaddrIn, test: bool, loopback: Option<usize>) -> Option<usize> {
+/// too, unless it is this seat's own port; 20003-20006 (also the client's `MATCH_PORT` and `CLIENT_PORT1..3` defaults)
+/// only when `from_game_port`, the sending socket being the game's peer socket (bound to 20000 + this seat).
+fn peer_seat(
+    a: &SockaddrIn,
+    test: bool,
+    loopback: Option<usize>,
+    from_game_port: bool,
+) -> Option<usize> {
     if a.family != AF_INET {
         return None;
     }
@@ -170,10 +178,10 @@ fn peer_seat(a: &SockaddrIn, test: bool, loopback: Option<usize>) -> Option<usiz
         return None;
     }
     let seat = usize::from(port) - 20000;
-    // shortcut: seats 3-6 at 127.x stay direct, so the client's own MATCH_PORT (20003, MATCH_IP 127.0.0.1) and
-    // CLIENT_PORT1..3 (20004-20006) traffic can never go to the relay; a shop past 2 seats needs their use known
-    // (M2 plan R2) or other seat numbers
-    let shop = loopback.is_some_and(|own| seat != own && !(3..=6).contains(&seat));
+    // seats 3-6 share their ports with MATCH_PORT and CLIENT_PORT1..3, whose loopback use is not known: only the game's
+    // peer socket sends to them through the relay, so a shop's second match (seats 3 and 4) plays too (live 2026-10-27)
+    let shop =
+        loopback.is_some_and(|own| seat != own && (!(3..=6).contains(&seat) || from_game_port));
     if (ip >> 24) == 127 && !shop && !(test && ip == 0x7F00_0002) {
         return None;
     }
@@ -184,7 +192,7 @@ fn peer_seat(a: &SockaddrIn, test: bool, loopback: Option<usize>) -> Option<usiz
 ///
 /// # Safety
 /// `to` is null or points at `tolen` readable bytes.
-unsafe fn relay_peer(to: *const c_void, tolen: i32) -> Option<(usize, SockaddrIn)> {
+unsafe fn relay_peer(s: usize, to: *const c_void, tolen: i32) -> Option<(usize, SockaddrIn)> {
     if to.is_null() || tolen < SA_LEN as i32 {
         return None;
     }
@@ -193,7 +201,23 @@ unsafe fn relay_peer(to: *const c_void, tolen: i32) -> Option<(usize, SockaddrIn
     let loopback = RELAY_LOOPBACK
         .load(Relaxed)
         .then(|| MY_SEAT.load(Relaxed) as usize);
-    peer_seat(&a, RELAY_TEST.load(Relaxed), loopback).map(|s| (s, a))
+    // asked only for 127.x:20003-20006 (a second match's packets), so other packets cost no extra call
+    let port = u16::from_be(a.port);
+    let from_game_port = loopback.is_some_and(|own| {
+        a.addr[0] == 127
+            && (20003..=20006).contains(&port)
+            && bound_port(s) == Some(20000 + own as u16)
+    });
+    peer_seat(&a, RELAY_TEST.load(Relaxed), loopback, from_game_port).map(|s| (s, a))
+}
+
+/// The local port socket `s` is bound to, if it is an IPv4 one.
+fn bound_port(s: usize) -> Option<u16> {
+    let mut a = SockaddrIn::NONE;
+    let mut len = SA_LEN as i32;
+    // SAFETY: `a` is ours and `len` its size; a bad socket only makes the call fail.
+    let r = unsafe { getsockname(s, (&raw mut a).cast(), &raw mut len) };
+    (r == 0 && a.family == AF_INET).then(|| u16::from_be(a.port))
 }
 
 /// The "I am seat n" packet (`relay_hello`).
@@ -274,7 +298,7 @@ unsafe extern "system" fn relay_sendto(
 ) -> i32 {
     let peer = if RELAY_ON.load(Acquire) && (0..=4096).contains(&len) {
         // SAFETY: `to` and `tolen` are the caller's.
-        unsafe { relay_peer(to, tolen) }
+        unsafe { relay_peer(s, to, tolen) }
     } else {
         None
     };
@@ -286,7 +310,8 @@ unsafe extern "system" fn relay_sendto(
         &mut PEER.lock().unwrap_or_else(|e| e.into_inner())[seat],
         addr,
     );
-    if was != addr {
+    // the game leaves sin_zero unset in one of its send paths (client 0x4CDB40): only the address and port count
+    if (was.family, was.addr, was.port) != (addr.family, addr.addr, addr.port) {
         // the opponent's address as the game took it from the control (ENEMY_INFO)
         say(&format!(
             "relay: seat {seat}'s cabinet is at {}:{} for the game",
@@ -876,28 +901,49 @@ mod tests {
     #[test]
     fn peer_rules() {
         assert_eq!(
-            peer_seat(&sa([203, 0, 113, 5], 20001), false, None),
+            peer_seat(&sa([203, 0, 113, 5], 20001), false, None, false),
             Some(1)
         );
         assert_eq!(
-            peer_seat(&sa([203, 0, 113, 5], 20008), false, None),
+            peer_seat(&sa([203, 0, 113, 5], 20008), false, None, false),
             Some(8)
         );
-        assert_eq!(peer_seat(&sa([203, 0, 113, 5], 20000), false, None), None);
-        assert_eq!(peer_seat(&sa([203, 0, 113, 5], 20009), false, None), None);
-        assert_eq!(peer_seat(&sa([0, 0, 0, 0], 20002), false, None), None);
         assert_eq!(
-            peer_seat(&sa([255, 255, 255, 255], 20002), false, None),
+            peer_seat(&sa([203, 0, 113, 5], 20000), false, None, false),
             None
         );
-        assert_eq!(peer_seat(&sa([127, 0, 0, 1], 20002), false, None), None);
-        assert_eq!(peer_seat(&sa([127, 0, 0, 2], 20002), false, None), None);
-        assert_eq!(peer_seat(&sa([127, 0, 0, 2], 20002), true, None), Some(2));
-        assert_eq!(peer_seat(&sa([127, 0, 0, 1], 20002), true, None), None);
+        assert_eq!(
+            peer_seat(&sa([203, 0, 113, 5], 20009), false, None, false),
+            None
+        );
+        assert_eq!(
+            peer_seat(&sa([0, 0, 0, 0], 20002), false, None, false),
+            None
+        );
+        assert_eq!(
+            peer_seat(&sa([255, 255, 255, 255], 20002), false, None, false),
+            None
+        );
+        assert_eq!(
+            peer_seat(&sa([127, 0, 0, 1], 20002), false, None, false),
+            None
+        );
+        assert_eq!(
+            peer_seat(&sa([127, 0, 0, 2], 20002), false, None, false),
+            None
+        );
+        assert_eq!(
+            peer_seat(&sa([127, 0, 0, 2], 20002), true, None, false),
+            Some(2)
+        );
+        assert_eq!(
+            peer_seat(&sa([127, 0, 0, 1], 20002), true, None, false),
+            None
+        );
         let mut v6 = sa([1, 2, 3, 4], 20002);
         v6.family = 23;
-        assert_eq!(peer_seat(&v6, false, None), None);
-        assert_eq!(peer_seat(&v6, false, Some(1)), None);
+        assert_eq!(peer_seat(&v6, false, None, false), None);
+        assert_eq!(peer_seat(&v6, false, Some(1), false), None);
     }
 
     /// 2017-18 in a shared shop (seat 2 here): another seat at 127.x goes to the relay, its own seat and the
@@ -905,25 +951,79 @@ mod tests {
     #[test]
     fn loopback_peers_in_the_1718_shop() {
         let mine = Some(2);
-        assert_eq!(peer_seat(&sa([127, 0, 0, 1], 20001), false, mine), Some(1));
-        assert_eq!(peer_seat(&sa([127, 1, 2, 3], 20008), false, mine), Some(8));
-        assert_eq!(peer_seat(&sa([127, 0, 0, 1], 20007), false, mine), Some(7));
-        assert_eq!(peer_seat(&sa([127, 0, 0, 1], 20002), false, mine), None);
+        assert_eq!(
+            peer_seat(&sa([127, 0, 0, 1], 20001), false, mine, false),
+            Some(1)
+        );
+        assert_eq!(
+            peer_seat(&sa([127, 1, 2, 3], 20008), false, mine, false),
+            Some(8)
+        );
+        assert_eq!(
+            peer_seat(&sa([127, 0, 0, 1], 20007), false, mine, false),
+            Some(7)
+        );
+        assert_eq!(
+            peer_seat(&sa([127, 0, 0, 1], 20002), false, mine, false),
+            None
+        );
         for port in [20003, 20004, 20005, 20006] {
-            assert_eq!(peer_seat(&sa([127, 0, 0, 1], port), false, mine), None);
             assert_eq!(
-                peer_seat(&sa([192, 168, 56, 1], port), false, mine),
+                peer_seat(&sa([127, 0, 0, 1], port), false, mine, false),
+                None
+            );
+            assert_eq!(
+                peer_seat(&sa([192, 168, 56, 1], port), false, mine, false),
                 Some(usize::from(port) - 20000)
             );
         }
-        assert_eq!(peer_seat(&sa([127, 0, 0, 1], 20000), false, mine), None);
-        assert_eq!(peer_seat(&sa([127, 0, 0, 1], 20009), false, mine), None);
         assert_eq!(
-            peer_seat(&sa([192, 168, 56, 1], 20001), false, mine),
+            peer_seat(&sa([127, 0, 0, 1], 20000), false, mine, false),
+            None
+        );
+        assert_eq!(
+            peer_seat(&sa([127, 0, 0, 1], 20009), false, mine, false),
+            None
+        );
+        assert_eq!(
+            peer_seat(&sa([192, 168, 56, 1], 20001), false, mine, false),
             Some(1)
         );
-        assert_eq!(peer_seat(&sa([10, 0, 2, 2], 20001), false, mine), Some(1));
-        assert_eq!(peer_seat(&sa([0, 0, 0, 0], 20001), false, mine), None);
+        assert_eq!(
+            peer_seat(&sa([10, 0, 2, 2], 20001), false, mine, false),
+            Some(1)
+        );
+        assert_eq!(
+            peer_seat(&sa([0, 0, 0, 0], 20001), false, mine, false),
+            None
+        );
+    }
+
+    /// A hosted shop's two matches (live 2026-10-27): seats 1-2 and 3-4, every opponent at 127.0.0.1 through the
+    /// tunnel. Each seat's packets from the game's peer socket reach its opponent through the relay; seats 3-6 from
+    /// another socket (MATCH_PORT, CLIENT_PORT1..3) stay direct.
+    #[test]
+    fn a_second_match_in_the_shop_goes_through_the_relay() {
+        for (me, opponent) in [(1, 2), (2, 1), (3, 4), (4, 3)] {
+            let to = sa([127, 0, 0, 1], 20000 + opponent as u16);
+            assert_eq!(
+                peer_seat(&to, false, Some(me), true),
+                Some(opponent),
+                "seat {me}"
+            );
+        }
+        assert_eq!(
+            peer_seat(&sa([127, 0, 0, 1], 20003), false, Some(1), false),
+            None
+        );
+        assert_eq!(
+            peer_seat(&sa([127, 0, 0, 1], 20003), false, Some(3), true),
+            None
+        );
+        assert_eq!(
+            peer_seat(&sa([127, 0, 0, 1], 20004), false, None, true),
+            None
+        );
     }
 
     #[test]
