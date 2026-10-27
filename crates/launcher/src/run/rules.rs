@@ -22,6 +22,9 @@ pub enum Mode {
     Local,
     /// The server side only, for other players' PCs.
     Server,
+    /// 2017-18 `server lan`: the server side for PCs on this network only: desk and relay open to it, LAN searches
+    /// answered (`forza::online::lan`), no shop tunnel or lobby room (no internet needed).
+    LanServer,
     /// The cabinet only, on the server at this address; a seat asked for (1-8), or the next free one.
     Remote(String, Option<u8>),
     /// 2017-18 online: everything on this PC (its own shop), the clubs and VS on the server data\panel.txt names
@@ -30,10 +33,15 @@ pub enum Mode {
 }
 
 impl Mode {
+    /// `server` or `server lan`.
+    pub fn is_server(&self) -> bool {
+        matches!(self, Self::Server | Self::LanServer)
+    }
+
     pub fn word(&self) -> &'static str {
         match self {
             Self::Local => "local",
-            Self::Server => "server",
+            Self::Server | Self::LanServer => "server",
             Self::Remote(..) => "remote",
             Self::Vs(_) => "vs",
         }
@@ -80,7 +88,7 @@ pub const SHOP_1718: &str = "shop_1718";
 
 /// 2017-18 refuses the shared-shop modes (server, remote) unless `shop` ([`SHOP_1718`]) is on.
 pub fn online_refused(edition: crate::Edition, mode: &Mode, shop: bool) -> bool {
-    edition == crate::Edition::E1718 && !shop && matches!(mode, Mode::Server | Mode::Remote(..))
+    edition == crate::Edition::E1718 && !shop && (mode.is_server() || matches!(mode, Mode::Remote(..)))
 }
 
 /// `VSLINK_DELAY_MS` (tests only): milliseconds added to the shop tunnel's round trip, 0-2000; anything else is none.
@@ -98,7 +106,7 @@ pub fn aime_hashed(mode: &Mode, own_store: bool) -> bool {
     match mode {
         Mode::Local => false,
         Mode::Remote(..) => !own_store,
-        Mode::Vs(_) | Mode::Server => true,
+        Mode::Vs(_) | Mode::Server | Mode::LanServer => true,
     }
 }
 
@@ -162,7 +170,7 @@ pub fn vs_target(panel: &str, club_server: &str) -> Result<VsTarget, String> {
     }
 }
 
-pub const USAGE: &str = "Launcher.exe [local | server | remote [ADDRESS] [seat N]] [debug] | stop [force | check] | \
+pub const USAGE: &str = "Launcher.exe [local | server [lan] | remote [ADDRESS] [seat N]] [debug] | stop [force | check] | \
                          status | show | restart | pictures";
 
 /// play.py main()'s reading of its words.
@@ -191,6 +199,10 @@ pub fn parse(words: &[String]) -> Words {
         },
         ["server"] => Words::Start {
             mode: Mode::Server,
+            debug,
+        },
+        ["server", "lan"] => Words::Start {
+            mode: Mode::LanServer,
             debug,
         },
         ["remote", more @ ..] => {
@@ -417,7 +429,7 @@ pub fn cabinet_restart_fits(
                     })
                 })
         }
-        Mode::Server => false,
+        Mode::Server | Mode::LanServer => false,
     }
 }
 
@@ -486,6 +498,7 @@ mod tests {
         for shop in [false, true] {
             assert_eq!(online_refused(E1718, &remote, shop), !shop);
             assert_eq!(online_refused(E1718, &Mode::Server, shop), !shop);
+            assert_eq!(online_refused(E1718, &Mode::LanServer, shop), !shop);
             assert!(!online_refused(E1718, &Mode::Local, shop));
             assert!(!online_refused(E1718, &Mode::Vs("192.168.1.20".into()), shop));
             assert!(!online_refused(E1011, &remote, shop));
@@ -618,6 +631,16 @@ mod tests {
                 debug: true
             }
         );
+        assert_eq!(
+            parse(&w("server LAN")),
+            Words::Start {
+                mode: Mode::LanServer,
+                debug: false
+            }
+        );
+        assert!(matches!(parse(&w("server lan lan")), Words::Wrong(_)));
+        assert!(Mode::LanServer.is_server() && !Mode::Remote("1.2.3.4".into(), None).is_server());
+        assert!(aime_hashed(&Mode::LanServer, false));
         assert_eq!(
             parse(&w("remote 1.2.3.4 seat 3")),
             Words::Start {
