@@ -138,6 +138,8 @@ struct Game {
     /// the buttons held by the steps (MK_LBUTTON)
     buttons: usize,
     said: bool,
+    /// an `until:` step in progress: the file (in the current folder), the text it waits for, the give-up time
+    until: Option<(PathBuf, String, Instant)>,
 }
 
 impl Game {
@@ -147,6 +149,14 @@ impl Game {
         let mk_l = MK_LBUTTON;
         if let Some(ms) = s.strip_prefix("wait:") {
             return atoi(ms).max(0) as u64;
+        }
+        // `until:MS:FILE:TEXT`: the next step runs once FILE has TEXT in it (frames go on meanwhile), or after MS
+        if let Some((ms, rest)) = s.strip_prefix("until:").and_then(|r| r.split_once(':'))
+            && let Some((file, text)) = rest.split_once(':')
+        {
+            let limit = Instant::now() + Duration::from_millis(atoi(ms).max(0) as u64);
+            self.until = Some((PathBuf::from(file), text.to_string(), limit));
+            return 0;
         }
         if let Some((a, b)) = s.strip_prefix("click:").and_then(xy) {
             post(w, WM_MOUSEMOVE, 0, xy_lparam(a, b));
@@ -306,7 +316,7 @@ pub fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         println!(
-            "fakegame.exe PANEL.dll [wait:MS click:X,Y move:X,Y down:X,Y up:X,Y rclick:X,Y close type:TEXT key:VK size:W,H copy:NAME unload sysmove:MS ...]"
+            "fakegame.exe PANEL.dll [wait:MS until:MS:FILE:TEXT click:X,Y move:X,Y down:X,Y up:X,Y rclick:X,Y close type:TEXT key:VK size:W,H copy:NAME unload sysmove:MS ...]"
         );
         return ExitCode::from(2);
     }
@@ -369,9 +379,16 @@ pub fn main() -> ExitCode {
         dir,
         buttons: 0,
         said: false,
+        until: None,
     };
     let mut next = 2;
-    let mut due = Instant::now() + Duration::from_millis(2500); // the panel's init: its Present detour, the window, the files
+    // the panel's init: its Present detour, the window, the files (a script that starts with `until:` waits for it itself)
+    let start = if args.get(2).is_some_and(|a| a.starts_with("until:")) {
+        0
+    } else {
+        2500
+    };
+    let mut due = Instant::now() + Duration::from_millis(start);
     loop {
         // SAFETY: this thread's message queue
         unsafe {
@@ -384,7 +401,19 @@ pub fn main() -> ExitCode {
                 DispatchMessageA(&m);
             }
         }
-        if Instant::now() >= due {
+        if let Some((file, text, limit)) = &game.until
+            && Instant::now() >= due
+        {
+            if std::fs::read_to_string(file).is_ok_and(|l| l.contains(text.as_str())) {
+                game.until = None;
+            } else if Instant::now() >= *limit {
+                println!("until: no '{text}' in {} in time", file.display());
+                game.until = None;
+            } else {
+                due = Instant::now() + Duration::from_millis(20);
+            }
+        }
+        if game.until.is_none() && Instant::now() >= due {
             let Some(step) = args.get(next) else { break };
             next += 1;
             due = Instant::now() + Duration::from_millis(game.step(step));

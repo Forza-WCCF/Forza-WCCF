@@ -33,9 +33,8 @@ fn scratch(what: &str) -> PathBuf {
     d
 }
 
-/// Sends `req` (in two writes at `split` when non-zero), then reads until the service is quiet for 400 ms.
 /// Sends `req` (in two writes at `split`), then reads until the reply holds `want` bytes (the recorded length: a slow
-/// stand-in on a busy runner gets up to 10 s) and on until the stream stays quiet for its read timeout, so extra bytes show.
+/// stand-in on a busy runner gets up to 10 s) and on until the stream stays quiet for 60 ms, so extra bytes show.
 fn exchange(c: &mut TcpStream, req: &[u8], split: usize, want: usize) -> Vec<u8> {
     if split > 0 {
         c.write_all(&req[..split]).unwrap();
@@ -44,7 +43,8 @@ fn exchange(c: &mut TcpStream, req: &[u8], split: usize, want: usize) -> Vec<u8>
     } else {
         c.write_all(req).unwrap();
     }
-    sleep(Duration::from_millis(50));
+    // the quiet window is the read timeout: 60 ms (not 350-400) keeps ~270 exchanges of the replays under a few seconds
+    c.set_read_timeout(Some(Duration::from_millis(60))).unwrap();
     let mut out = Vec::new();
     let mut buf = vec![0u8; 65536];
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -494,7 +494,10 @@ fn listing(root: &std::path::Path) -> Vec<(String, u64, String)> {
             if p.is_dir() {
                 walk(&p, root, out);
             } else {
-                let data = std::fs::read(&p).unwrap();
+                // a file renamed or removed since read_dir (a temp file persisted, a backup rotated) is skipped
+                let Ok(data) = std::fs::read(&p) else {
+                    continue;
+                };
                 let rel = p
                     .strip_prefix(root)
                     .unwrap()
@@ -584,7 +587,6 @@ fn card_reader_replay() {
                 )
                 .unwrap(),
                 "files" => {
-                    sleep(Duration::from_millis(300));
                     let want: Vec<(String, u64, String)> = r["list"]
                         .as_array()
                         .unwrap()
@@ -597,6 +599,12 @@ fn card_reader_replay() {
                             )
                         })
                         .collect();
+                    // the folder settles a moment after the last answer: poll it up to 3 s instead of a fixed 300 ms
+                    let by = std::time::Instant::now() + Duration::from_secs(3);
+                    while listing(&dir) != want && std::time::Instant::now() < by {
+                        sleep(Duration::from_millis(10));
+                    }
+                    sleep(Duration::from_millis(50)); // and it stays so: a late write still shows
                     assert_eq!(listing(&dir), want, "{name}: files after record {i}");
                 }
                 "io" => {
@@ -616,11 +624,11 @@ fn card_reader_replay() {
                     } else {
                         f.write_all(&req).unwrap();
                     }
-                    sleep(Duration::from_millis(200));
-                    // a slow machine (a CI runner) may answer after the 200 ms: wait up to 3 s for the whole answer
+                    // the answer is read as it comes (up to 3 s on a slow machine), then the pipe must stay quiet for 50 ms so extra bytes show
                     let want = r["resp"].as_str().unwrap();
                     let deadline = std::time::Instant::now() + Duration::from_secs(3);
                     let mut resp = Vec::new();
+                    let mut quiet_from = std::time::Instant::now();
                     loop {
                         let mut avail = 0u32;
                         // SAFETY: the handle is the open pipe client; only the bytes-available out-pointer is given.
@@ -638,17 +646,19 @@ fn card_reader_replay() {
                             break;
                         }
                         if avail == 0 {
-                            if resp.len() * 2 >= want.len() || std::time::Instant::now() >= deadline
+                            let whole = resp.len() * 2 >= want.len();
+                            if (whole && quiet_from.elapsed() >= Duration::from_millis(50))
+                                || std::time::Instant::now() >= deadline
                             {
                                 break;
                             }
-                            sleep(Duration::from_millis(20));
+                            sleep(Duration::from_millis(2));
                             continue;
                         }
                         let mut buf = vec![0u8; avail as usize];
                         f.read_exact(&mut buf).unwrap();
                         resp.extend(buf);
-                        sleep(Duration::from_millis(50));
+                        quiet_from = std::time::Instant::now();
                     }
                     assert_eq!(hex(&resp), want, "{name}: record {i}");
                 }

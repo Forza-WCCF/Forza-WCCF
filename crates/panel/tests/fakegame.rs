@@ -8,6 +8,9 @@ use std::path::Path;
 use std::process::Command;
 use std::{env, fs};
 
+/// The first step of a script: the panel is up (its Present detoured, the window subclassed, the first frames dumped).
+#[cfg(target_arch = "x86")]
+const READY: &str = "until:20000:forza_panel.log:frame dump ";
 const BUILD: &str = "../../target/kit/2010-11/source/build";
 
 fn copy_dir(from: &Path, to: &Path) {
@@ -265,7 +268,8 @@ fn board_and_buttons_with_real_data() {
     let mid = panel::board_slot_center(1440.0, &spots, 11)
         .lerp(panel::board_slot_center(1440.0, &spots, 2), 0.5);
     let said = run(&[
-        "wait:3000".into(),
+        READY.into(),
+        "wait:300".into(),
         "copy:start.bmp".into(),
         format!("down:{}", at(11)),
         format!("move:{},{}", mid.x as i32, mid.y as i32),
@@ -379,7 +383,8 @@ fn board_and_buttons_with_real_data() {
         .center();
     let (kx, ky) = (key.x as i32, key.y as i32);
     let said = run(&[
-        "wait:2500".into(),
+        READY.into(),
+        "wait:300".into(),
         format!("rclick:{}", at(1)),
         "wait:300".into(),
         format!("click:{},{}", shoot.x as i32, shoot.y as i32), // SHOOT, in the cabinet deck under the picture
@@ -427,7 +432,8 @@ fn board_and_buttons_with_real_data() {
     // panel puts it (the free DF spot, the lowest free slot); Esc closes the page
     let _ = fs::remove_file(seat.join("forza_panel.log"));
     run(&[
-        "wait:2500".into(),
+        READY.into(),
+        "wait:300".into(),
         bar(0),
         "wait:400".into(),
         "type:backa".into(),
@@ -464,7 +470,8 @@ fn board_and_buttons_with_real_data() {
         .env_remove("WCCF_KIT_LANG")
         .arg("../programs/forza_panel.dll")
         .args([
-            "wait:2500",
+            "until:20000:forza_panel.log:first frame shown", // this run has no frame dump
+            "wait:300",
             bar(1).as_str(), // KEYS
             "wait:600",
             "click:335,278", // SHOOT's key
@@ -472,22 +479,24 @@ fn board_and_buttons_with_real_data() {
             "key:72", // H
             "wait:300",
             "click:551,313", // KEEPER's controller cell
-            "wait:6000",
+            "until:20000:forza_panel.log:keys: controller Button 3", // the pad's button 3 is pressed below, once the pad was found at rest
+            "wait:300",
             "key:27",
             "wait:400",
         ])
         .stdout(std::process::Stdio::piped())
         .spawn()
         .unwrap();
-    // the button goes down once H has been taken and the controller cell clicked (300 ms later)
-    for _ in 0..200 {
+    // the button goes down once H has been saved, the pad found at rest and the controller cell clicked (300 ms
+    // after H)
+    for _ in 0..400 {
         let log = fs::read_to_string(seat.join("forza_panel.log")).unwrap_or_default();
-        if log.contains("keys: key 0x48") {
+        if log.contains("keys: saved") && log.contains("controller found: Test Pad") {
             break;
         }
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        std::thread::sleep(std::time::Duration::from_millis(50));
     }
-    std::thread::sleep(std::time::Duration::from_millis(2000));
+    std::thread::sleep(std::time::Duration::from_millis(1500)); // the cell click comes 300 ms after H; a slow runner needs room
     fs::write(&pad, at_rest.replacen("0 0 2", "0 4 2", 1)).unwrap(); // button 3 down
     let out = game.wait_with_output().unwrap();
     assert!(out.status.success(), "fakegame ended with {}", out.status);
@@ -516,7 +525,8 @@ fn board_and_buttons_with_real_data() {
     // NOW clicked twice writes data\restart.request, which no run takes here: after 3 s it is taken back and said
     let _ = fs::remove_file(seat.join("forza_panel.log"));
     run(&[
-        "wait:2500".into(),
+        READY.into(),
+        "wait:300".into(),
         bar(2),
         "wait:1500".into(),
         "click:321,519".into(), // COMPACT
@@ -525,7 +535,8 @@ fn board_and_buttons_with_real_data() {
         "click:632,302".into(), // RESTART NOW
         "wait:300".into(),
         "click:632,302".into(), // again
-        "wait:4000".into(),
+        // the panel takes the request back after 3 s
+        "until:20000:forza_panel.log:not picked up - removed".into(),
         "key:27".into(),
         "wait:400".into(),
     ]);
@@ -557,7 +568,8 @@ fn board_and_buttons_with_real_data() {
     let said = run_with(
         &[("WCCFPANEL_DEALTEST", "1")],
         &[
-            "wait:2500".into(),
+            READY.into(),
+            "wait:300".into(),
             "copy:deal.bmp".into(),
             "click:430,300".into(), // the card (forza_ui::panel's deal window at 1440x900)
             "wait:400".into(),
