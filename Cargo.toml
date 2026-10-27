@@ -73,7 +73,8 @@ debug = "line-tables-only"
 opt-level = 2            # egui, image, aes at usable speed in debug builds; our own code stays fast to compile
 debug = false            # no debug info for the crates.io code: less to generate and link; our own keeps its line tables
 
-# `cargo xtask build --fast` / `check --fast`: local test kits, never a player's build (package always uses release).
+# `cargo xtask build` / `check quick` (without CI or `--release`) and `--fast`: local test kits, never a player's build
+# (package always uses release).
 # Release code without LTO, incremental: a change in forza recompiles and relinks without the thin-LTO pass.
 # `check --fast` runs the tests in this profile too, so the dependencies compile once for the kits and the tests.
 [profile.fast]
