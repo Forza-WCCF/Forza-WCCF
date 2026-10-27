@@ -157,6 +157,8 @@ pub struct Online {
     last: Option<Last>,
     was_running: bool,
     clock: Clock,
+    /// The shop room being joined is a listed row's (its id), not a typed code.
+    joining_listed: bool,
 }
 
 impl Online {
@@ -507,6 +509,8 @@ impl Online {
                 st.lobby.joining = None;
                 return Some(host);
             }
+            // a listed row's room left the desk since the list came
+            Ok(CodeJoin::NoRoom) if self.joining_listed => Notice::ShopClosed,
             Ok(CodeJoin::NoRoom) => Notice::NoRoom,
             Ok(CodeJoin::Full) => Notice::RoomFull,
             Ok(CodeJoin::Gone) => Notice::ShopClosed,
@@ -530,7 +534,9 @@ impl Online {
             self.join(st, &id, None);
             return;
         }
-        let Some(p) = &self.poller else { return };
+        if self.poller.is_none() {
+            return;
+        }
         let server = launcher::lobby::shop_lobby(st.club_server.as_deref().unwrap_or_default());
         st.lobby.desk.clone_from(&server); // a "no room" names it: the host's room may be on another club server
         // a code of another length is no room's: not worth one of the desk's wrong-code tries
@@ -538,21 +544,35 @@ impl Online {
             st.lobby.notice = Some(Notice::NoRoom);
             return;
         }
-        let key = launcher::Kit::here().data().join(launcher::lobby::SHOP_JOIN_KEY);
-        match vslink::shop::own_id(&key) {
+        self.shop_join(st, &server, code, false);
+    }
+
+    /// `JOIN` of a shop room on `server` by its code, or by a listed row's id (`listed`).
+    fn shop_join(&mut self, st: &mut LauncherState, server: &str, key: &str, listed: bool) {
+        let Some(p) = &self.poller else { return };
+        let file = launcher::Kit::here().data().join(launcher::lobby::SHOP_JOIN_KEY);
+        match vslink::shop::own_id(&file) {
             Ok(own) => {
-                st.lobby.joining = Some(code.to_owned());
+                self.joining_listed = listed;
+                st.lobby.joining = Some(key.to_owned());
                 st.lobby.notice = None;
-                p.join_code(&server, code, &vslink::shop::id_text(&own), Arc::new(poke));
+                p.join_code(server, key, &vslink::shop::id_text(&own), Arc::new(poke));
             }
-            Err(e) => refuse(plain_error(&format!("{}: {e}", key.display()))),
+            Err(e) => refuse(plain_error(&format!("{}: {e}", file.display()))),
         }
     }
 
-    fn join(&self, st: &LauncherState, id: &str, seat: Option<u8>) {
+    fn join(&mut self, st: &mut LauncherState, id: &str, seat: Option<u8>) {
         let (Some(p), Some(server)) = (&self.poller, self.rows.get(id)) else {
             return;
         };
+        // a listed shop room (2017-18): JOIN its id, as a typed code would be
+        if st.lobby.shop_rooms && st.lobby.shops.iter().any(|r| r.room && r.id == id) {
+            let server = server.clone();
+            st.lobby.desk.clone_from(&server);
+            self.shop_join(st, &server, id, true);
+            return;
+        }
         let name = st
             .lobby
             .shops
@@ -597,8 +617,8 @@ impl Online {
                 }
             }
             LobbyAction::JoinCode(code) => self.join_code(st, &code),
-            // HOST SHOP and the LAN fold are jobs of the window's (main.rs)
-            LobbyAction::HostShop | LobbyAction::HostLan | LobbyAction::JoinLan(_) => {}
+            // HOST SHOP, its list switch and the LAN fold are jobs of the window's (main.rs)
+            LobbyAction::HostShop | LobbyAction::ListShop(_) | LobbyAction::HostLan | LobbyAction::JoinLan(_) => {}
             LobbyAction::DirectAddress(a) => {
                 let a = a.trim().to_owned();
                 if !launcher::lobby::valid_server(&a) {

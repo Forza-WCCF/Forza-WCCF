@@ -244,8 +244,8 @@ impl Poller {
         })
     }
 
-    /// A shop room's code (2017-18), typed: `JOIN`, then `SHOP t own` ([`join_code`]) on a worker; the answer comes
-    /// back as [`Msg::Coded`].
+    /// A shop room's code (2017-18), typed, or a listed room's id: `JOIN`, then `SHOP t own` ([`join_code`]) on a
+    /// worker; the answer comes back as [`Msg::Coded`].
     pub fn join_code(&self, server: &str, code: &str, own: &str, wake: Wake) {
         let (server2, code, own) = (server.to_owned(), code.to_owned(), own.to_owned());
         self.call(server, wake, move |a| Msg::Coded {
@@ -367,11 +367,12 @@ pub struct HostRoom {
 }
 
 impl HostRoom {
-    /// A private room on `server` ([`shop_lobby`]) for the shop tunnel `shop_id`; else why not (`FULL`, `ERR slow`,
-    /// `ERR host`, no answer). `note` hears about a wait (this id's room from before still on the desk).
-    pub fn open(server: &str, shop_id: &str, log: Log, note: &dyn Fn(&str)) -> Result<HostRoom, String> {
+    /// A room on `server` ([`shop_lobby`]) for the shop tunnel `shop_id`, private unless `public` (listed in SHOPS,
+    /// never with its code); else why not (`FULL`, `ERR slow`, `ERR host`, no answer). `note` hears about a wait (this
+    /// id's room from before still on the desk).
+    pub fn open(server: &str, shop_id: &str, public: bool, log: Log, note: &dyn Fn(&str)) -> Result<HostRoom, String> {
         let addr = socket(server).ok_or_else(|| format!("{server} is not an address"))?;
-        let mut made = lobby::create_shop(addr, shop_id, false);
+        let mut made = lobby::create_shop(addr, shop_id, public);
         if made.as_ref().is_err_and(|e| e == "ERR host") {
             // one more CREATE only: each counts in the desk's per-address limit
             let wait = DESK_HOST_STALE + Duration::from_secs(2);
@@ -380,7 +381,7 @@ impl HostRoom {
                 wait.as_secs()
             ));
             thread::sleep(wait);
-            made = lobby::create_shop(addr, shop_id, false);
+            made = lobby::create_shop(addr, shop_id, public);
         }
         match made {
             Ok(Created::Room { id, code, ticket, .. }) => {
@@ -681,6 +682,7 @@ impl Book {
                         State::Closed => RowState::Closed,
                     }),
                     next_entry: sh.next_entry,
+                    room: sh.room,
                 });
             }
             for r in &l.vs {
@@ -698,6 +700,7 @@ impl Book {
                         RowState::Full
                     }),
                     next_entry: None,
+                    room: false,
                 });
             }
         }

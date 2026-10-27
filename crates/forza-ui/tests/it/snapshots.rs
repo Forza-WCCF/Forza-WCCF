@@ -1057,8 +1057,8 @@ fn lobby_keys() {
     assert_eq!(got.take(), Some(Leave));
 }
 
-/// 2017-18 with the shared shop on: HOST SHOP (and H) on the SHOPS tab, the code typed and JOINed in capitals; while
-/// hosting only Esc (LEAVE) answers.
+/// 2017-18 with the shared shop on: HOST SHOP (and H) and its list switch on the SHOPS tab, the code typed and JOINed in
+/// capitals, the listed room joined from its row; while hosting only Esc (LEAVE) answers.
 #[test]
 fn lobby_shop_rooms() {
     use lobby::LobbyAction::*;
@@ -1079,14 +1079,20 @@ fn lobby_shop_rooms() {
     h.key_press(egui::Key::H);
     h.run_steps(2);
     assert_eq!(got.take(), Some(HostShop));
+    h.get_by_label("List my shop").click();
+    h.run_steps(2);
+    assert_eq!(got.take(), Some(ListShop(true)));
     v.borrow_mut().code = " k7qm2xpd".into();
     h.run_steps(2);
-    // the row's JOIN is greyed (a listed room joins by its code too): only the code's answers
-    for n in h.get_all_by_label("JOIN") {
-        n.click();
-    }
+    // the code box's JOIN, then the listed room row's
+    let joins: Vec<_> = h.get_all_by_label("JOIN").collect();
+    assert_eq!(joins.len(), 2);
+    joins[0].click();
     h.run_steps(2);
     assert_eq!(got.take(), Some(JoinCode("K7QM2XPD".into())));
+    h.get_all_by_label("JOIN").nth(1).unwrap().click();
+    h.run_steps(2);
+    assert_eq!(got.take(), Some(Join("p1".into())));
     v.borrow_mut().hosting = true;
     h.run_steps(2);
     for key in [egui::Key::H, egui::Key::Enter] {

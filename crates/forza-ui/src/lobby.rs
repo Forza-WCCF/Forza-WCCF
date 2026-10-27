@@ -50,6 +50,8 @@ pub struct Row {
     pub state: RowState,
     /// Seconds to the next ENTRY.
     pub next_entry: Option<u32>,
+    /// A shop room a host listed (2017-18): joined from its row even where SHOPS are view-only.
+    pub room: bool,
 }
 
 impl Row {
@@ -180,6 +182,8 @@ pub enum LobbyAction {
     HostShop,
     /// A room code, typed: a shop room's (6 letters) or a listed VS room's (4).
     JoinCode(String),
+    /// 2017-18: the "List my shop" switch, set to this (HOST SHOP lists the room in SHOPS).
+    ListShop(bool),
     /// 2017-18: open this PC's shop to PCs on its network (no internet).
     HostLan,
     /// 2017-18: join the shop at this address on the network (found, or typed).
@@ -230,6 +234,8 @@ pub struct LobbyView {
     /// HOST SHOP is on: this PC's shop, with its room code once the lobby gave one.
     pub hosting: bool,
     pub host_code: Option<String>,
+    /// 2017-18: HOST SHOP lists the room in others' SHOPS (the "List my shop" switch, data\settings.json `list_shop`).
+    pub list_shop: bool,
     /// The lobby server shop rooms are on (`host:port`): the host's room's, or the one a code was asked of.
     pub desk: String,
     /// 2017-18 with the shared shop on: the LAN fold, the shops found on this network and the address typed there.
@@ -337,6 +343,7 @@ fn row(
         lang,
         state,
         next_entry: next,
+        room: false,
     }
 }
 
@@ -366,6 +373,7 @@ impl LobbyView {
             joining: None,
             hosting: false,
             host_code: None,
+            list_shop: false,
             desk: String::new(),
             lan_open: false,
             lan: vec![],
@@ -501,7 +509,9 @@ impl LobbyView {
             | Scenario::ShopLost => {
                 // 2017-18 with the shared shop on: one public room listed, the rest by code
                 (v.codes, v.shop_rooms, v.shops_view_only) = (true, true, true);
-                v.shops = vec![row("p1", "Shop room", 2, 8, Some(24), None, Open, None)];
+                let mut room = row("p1", "Shop room", 2, 8, Some(24), None, Open, None);
+                room.room = true;
+                v.shops = vec![room];
                 v.code = "K7QM2XPD".into();
                 v.desk = "lobby.wccf.it:20032".into();
                 match s {
@@ -550,6 +560,16 @@ impl LobbyView {
         self.shops_view_only && self.kind == Kind::Shops
     }
 
+    /// Row `r` is shown but cannot be joined: a view-only SHOPS row, unless it is a listed shop room.
+    pub fn view_only(&self, r: &Row) -> bool {
+        self.view_only_now() && !(self.shop_rooms && r.room)
+    }
+
+    /// The selected row, whatever its state.
+    fn selected_row(&self) -> Option<&Row> {
+        Some(&self.rows()[*self.visible().get(self.selected)?])
+    }
+
     pub fn grey_now(&self) -> Option<Grey> {
         self.grey[self.kind as usize]
     }
@@ -575,12 +595,11 @@ impl LobbyView {
 
     /// The selected row, when it can be joined now.
     pub fn joinable(&self) -> Option<&Row> {
-        if self.offline || self.stale() || self.grey_now().is_some() || self.view_only_now() {
+        if self.offline || self.stale() || self.grey_now().is_some() {
             return None;
         }
-        let vis = self.visible();
-        let r = &self.rows()[*vis.get(self.selected)?];
-        r.joinable().then_some(r)
+        let r = self.selected_row()?;
+        (r.joinable() && !self.view_only(r)).then_some(r)
     }
 
     /// Why JOIN is greyed, in a few words; `None` when it can join.
@@ -592,11 +611,12 @@ impl LobbyView {
             tr!(lang, "lobby.why_offline")
         } else if self.stale() {
             tr!(lang, "lobby.why_stale")
-        } else if self.grey_now().is_some() || self.view_only_now() {
+        } else if self.grey_now().is_some()
+            || self.selected_row().is_some_and(|r| self.view_only(r))
+        {
             tr!(lang, "lobby.why_unavailable")
         } else {
-            let vis = self.visible();
-            match vis.get(self.selected).map(|&i| &self.rows()[i].state) {
+            match self.selected_row().map(|r| &r.state) {
                 None => tr!(lang, "lobby.why_pick"),
                 Some(RowState::Full) => tr!(lang, "lobby.full"),
                 Some(RowState::Closed) => tr!(lang, "lobby.closed"),
@@ -954,7 +974,7 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
         );
     }
     // the rows
-    let dim = v.offline || v.view_only_now();
+    let offline = v.offline;
     let vis = v.visible();
     v.selected = v.selected.min(vis.len().saturating_sub(1));
     egui::ScrollArea::vertical()
@@ -981,6 +1001,7 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
                 let r = &v.rows()[i].clone();
                 let (rect, resp) = ui.allocate_exact_size(vec2(rw, ROW_H), Sense::click());
                 let sel = n == v.selected;
+                let dim = offline || v.view_only(r);
                 let off = dim || !r.joinable();
                 resp.widget_info(|| {
                     egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, sel, &r.name)
@@ -1151,6 +1172,11 @@ fn code_row(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAc
             {
                 *act = Some(LobbyAction::JoinCode(v.code.trim().to_ascii_uppercase()));
             }
+            if v.shop_rooms && chip(ui, &tr!(lang, "lobby.list_shop"), v.list_shop, None).clicked()
+            {
+                v.list_shop = !v.list_shop;
+                *act = Some(LobbyAction::ListShop(v.list_shop));
+            }
         });
     });
 }
@@ -1269,7 +1295,7 @@ fn status(v: &LobbyView, lang: Lang) -> Option<(Tone, String)> {
     if let (true, Some(s)) = (v.stale(), v.updated_s) {
         return Some((Tone::Notice, tr!(lang, "lobby.stale", s = s)));
     }
-    // with shop rooms on, the listed (public) rooms are joined by code too: the box says it
+    // with shop rooms on, listed rooms join from their row and the rest by code: the box says it
     if v.view_only_now() && !v.shop_rooms {
         return Some((Tone::Notice, tr!(lang, "lobby.grey_shops_1718")));
     }
@@ -1444,6 +1470,21 @@ mod tests {
         ] {
             assert_eq!(pad_key(code), None, "{code:#x}");
         }
+    }
+
+    /// 2017-18 SHOPS are view-only, but a listed shop room joins from its row while shop rooms are on.
+    #[test]
+    fn listed_shop_rooms_join_from_their_row() {
+        let mut v = LobbyView::sample(Scenario::ShopNoRoom);
+        assert_eq!(v.joinable().map(|r| r.id.as_str()), Some("p1"));
+        v.shops[0].room = false; // a desk's own shop, or a desk too old to mark rooms
+        assert_eq!(
+            (v.joinable().is_some(), v.why_not_join(Lang::En).as_deref()),
+            (false, Some("Not available yet"))
+        );
+        v.shops[0].room = true;
+        v.shop_rooms = false;
+        assert!(v.joinable().is_none());
     }
 
     /// JOIN's grey says why, in a few words, in the order `joinable` checks: offline, old list, the row.

@@ -100,7 +100,7 @@ fn host_shop_then_a_guest_joins_by_code_through_the_tunnel() {
     };
     let host_id = shop::own_id(&dir.path().join("host.key")).unwrap();
     let (log, host_log) = logger("host");
-    let room = HostRoom::open(&server, &shop::id_text(&host_id), log.clone(), &|_| {}).unwrap();
+    let room = HostRoom::open(&server, &shop::id_text(&host_id), false, log.clone(), &|_| {}).unwrap();
     // the desk's code length is the one the Launcher's box takes
     assert_eq!(room.code.len(), forza::online::lobby::SHOP_CODE_LEN);
     assert!(room.code.chars().all(|c| c.is_ascii_alphanumeric()));
@@ -172,10 +172,10 @@ fn a_host_back_from_a_crash_gets_a_new_room() {
     let dir = tempfile::tempdir().unwrap();
     let id = shop::id_text(&shop::own_id(&dir.path().join("host.key")).unwrap());
     let (log, _) = logger("crashed host");
-    let old = HostRoom::open(&d.addr().to_string(), &id, log.clone(), &|_| {}).unwrap();
+    let old = HostRoom::open(&d.addr().to_string(), &id, false, log.clone(), &|_| {}).unwrap();
     let said = Mutex::new(vec![]);
     let note = |l: &str| said.lock().unwrap().push(l.to_owned());
-    let new = HostRoom::open(&d.addr().to_string(), &id, log, &note).unwrap();
+    let new = HostRoom::open(&d.addr().to_string(), &id, false, log, &note).unwrap();
     assert_ne!(old.code, new.code);
     assert!(
         said.lock().unwrap().iter().any(|l| l.contains("asking again")),
@@ -195,7 +195,7 @@ fn a_lost_room_lets_nobody_in() {
     let dir = tempfile::tempdir().unwrap();
     let id = shop::id_text(&shop::own_id(&dir.path().join("host.key")).unwrap());
     let (log, lines) = logger("lost host");
-    let room = HostRoom::open(&addr.to_string(), &id, log, &|_| {}).unwrap();
+    let room = HostRoom::open(&addr.to_string(), &id, false, log, &|_| {}).unwrap();
     let guest = shop::own_id(&dir.path().join("guest.key")).unwrap();
     assert!(matches!(
         join_code(addr, &room.code, &shop::id_text(&guest)).unwrap(),
@@ -220,7 +220,7 @@ fn a_closed_room_admits_nobody_and_is_not_lost() {
     let dir = tempfile::tempdir().unwrap();
     let id = shop::id_text(&shop::own_id(&dir.path().join("host.key")).unwrap());
     let (log, lines) = logger("closing host");
-    let room = HostRoom::open(&addr.to_string(), &id, log, &|_| {}).unwrap();
+    let room = HostRoom::open(&addr.to_string(), &id, false, log, &|_| {}).unwrap();
     let guest = shop::own_id(&dir.path().join("guest.key")).unwrap();
     join_code(addr, &room.code, &shop::id_text(&guest)).unwrap();
     let (admit, lost) = (room.admit(), room.lost());
@@ -230,4 +230,23 @@ fn a_closed_room_admits_nobody_and_is_not_lost() {
     thread::sleep(Duration::from_millis(300));
     assert!(!lost.load(Ordering::Relaxed));
     assert!(!lines.lock().unwrap().iter().any(|l| l.contains("no longer holds it")));
+}
+
+/// "List my shop" on: the room is a row in `LOBBY`, and a guest who picks that row (its id, no code) gets in.
+#[test]
+fn a_listed_room_is_joined_from_its_row() {
+    let d = desk();
+    let addr = d.addr();
+    let dir = tempfile::tempdir().unwrap();
+    let id = shop::id_text(&shop::own_id(&dir.path().join("host.key")).unwrap());
+    let (log, _) = logger("listed host");
+    let room = HostRoom::open(&addr.to_string(), &id, true, log, &|_| {}).unwrap();
+    let lobby = forza::online::lobby::fetch(addr, "2017-18").unwrap();
+    let row = lobby.shops.iter().find(|s| s.room).expect("listed");
+    let guest = shop::own_id(&dir.path().join("guest.key")).unwrap();
+    assert!(matches!(
+        join_code(addr, &row.id, &shop::id_text(&guest)).unwrap(),
+        CodeJoin::In { .. }
+    ));
+    assert_eq!(room.admit()(&guest), Verdict::In);
 }

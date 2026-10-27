@@ -750,6 +750,7 @@ impl App {
         let mut lobby = screen::lobby_for(ed);
         lobby.address = address;
         lobby.shop_rooms = ed == Edition::E1718 && run::rules::shop_1718_on(&kit.settings());
+        lobby.list_shop = kit.settings()["list_shop"].as_bool() == Some(true);
         let st = LauncherState {
             edition: ed,
             lang: text::lang(),
@@ -1079,6 +1080,13 @@ impl App {
                     self.st.lobby.hosting = true;
                     self.st.lobby.notice = None;
                     start(vec![Step::Host(false)]);
+                }
+            }
+            Action::Lobby(LobbyAction::ListShop(on)) => {
+                // data\settings.json "list_shop" (default off), which run::open_shop_room reads
+                let file = kit.settings_file();
+                if let Err(e) = choices::set_setting_bool(&file, "list_shop", on) {
+                    refuse(write_failed(&file, &e));
                 }
             }
             Action::Lobby(LobbyAction::HostLan) => {
