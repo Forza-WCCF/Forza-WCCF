@@ -2375,18 +2375,23 @@ impl Render {
     /// IMPORT LINEUP: the clipboard's text on the table ([`Render::import_text`]); its UNDO: the table before it.
     fn import(&mut self) {
         if std::mem::take(&mut self.st.import_undone)
-            && let Some(old) = panel::undo_import(&mut self.st)
+            && let Some(old) = panel::undo_import(&mut self.st, in_match())
         {
             log(&format!("import: undone - {} card(s)", old.len()));
             self.placed = old;
             self.table_write();
         }
         if std::mem::take(&mut self.st.import) {
-            let text = clipboard_text();
-            if text.is_none() {
-                log("import: no text on the clipboard");
+            match clipboard_text() {
+                Some(text) => self.import_text(&text),
+                None => {
+                    log(
+                        "import: the clipboard could not be read (held by another program, or no text)",
+                    );
+                    self.st
+                        .say(forza_ui::widgets::Tone::Refused, "cat.msg_clipboard");
+                }
             }
-            self.import_text(&text.unwrap_or_default());
         }
     }
 

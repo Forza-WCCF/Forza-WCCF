@@ -883,8 +883,14 @@ pub fn import_lineup(
     Some(imp.placed)
 }
 
-/// The table before the last import, back on the board; `Some`: the caller writes it.
-pub fn undo_import(st: &mut PanelState) -> Option<Vec<Placed>> {
+/// The table before the last import, back on the board; `Some`: the caller writes it. Refused during a match, as the
+/// import is (the UNDO line stays while its time lasts).
+pub fn undo_import(st: &mut PanelState, in_match: bool) -> Option<Vec<Placed>> {
+    st.import_undo.as_ref()?;
+    if in_match {
+        st.say(Tone::Refused, "cat.msg_import_match");
+        return None;
+    }
     let (old, _) = st.import_undo.take()?;
     st.board = cards::board(&old, &st.cards);
     Some(old)
@@ -4636,9 +4642,12 @@ mod tests {
             )
         );
         assert_eq!(st.import_undo, Some((old.clone(), 5.0)));
-        assert_eq!(undo_import(&mut st), Some(old));
+        // a match began meanwhile: UNDO refused too
+        assert_eq!(undo_import(&mut st, true), None);
+        assert!(st.import_undo.is_some());
+        assert_eq!(undo_import(&mut st, false), Some(old));
         assert_eq!(st.board.cards[0].number, 10);
-        assert_eq!(undo_import(&mut st), None);
+        assert_eq!(undo_import(&mut st, false), None);
     }
 
     #[test]
