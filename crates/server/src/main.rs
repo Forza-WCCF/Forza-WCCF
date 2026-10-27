@@ -107,6 +107,9 @@ enum Service {
         /// 2017-18: no game server (the Launcher's server mode runs its own stand-in on the PC)
         #[arg(long)]
         no_gmsvr: bool,
+        /// 2017-18: answer LAN shop searches (UDP 20035, `forza::online::lan`) with this shop name
+        #[arg(long)]
+        lan: Option<String>,
         #[command(flatten)]
         g: GmsvrOpts,
         life: Option<f64>,
@@ -433,6 +436,7 @@ fn main() {
             inbox_port,
             gmsvr_port,
             no_gmsvr,
+            lan,
             g,
             life,
             logs_dir,
@@ -472,6 +476,28 @@ fn main() {
                     None,
                     file_log(inbox_log.clone()),
                 ));
+            }
+            if let Some(name) = lan {
+                need_1718(ed, "--lan");
+                let desk =
+                    desk_port.unwrap_or_else(|| env("WCCF_BROKER_PORT", forza::online::SEAT_PORT));
+                let log = file_log(desk_log.clone());
+                forza_svcs.push(
+                    forza::online::lan::serve(
+                        &bind(),
+                        forza::online::lan::PORT,
+                        forza::online::lan::E1718,
+                        desk,
+                        name,
+                        log.clone(),
+                    )
+                    .inspect_err(|e| {
+                        log(&format!(
+                            "cannot answer LAN searches on UDP {} ({e})",
+                            forza::online::lan::PORT
+                        ))
+                    }),
+                );
             }
             if gmsvr {
                 match start_gmsvr(g, *gmsvr_port, matcher, file_log(file("gmsvr.txt"))) {
