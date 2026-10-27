@@ -1,103 +1,99 @@
-# Architecture and the move to Rust
+# How Forza-WCCF fits together
 
-Status 2026-10-10. Question: does the kit still need `play.py`, `english.py` and the rest?
-Answer: no, not as the shipped product. A game launcher is normally one native program that owns its processes, with
-the data work done at install time. The kit grew the other way: a Rust window in front of 9,286 lines of Python
-(27 scripts) and a 35 MB embedded Python. The plan below moves the shipped kit to Rust in phases, each gated by
-checks that compare the new code against the Python it replaces. Python stays for research tools outside the kit.
+Everything shipped is Rust, in one Cargo workspace. Windows builds the kits with `cargo xtask`; `forza-server` and
+`wccf-linux-server` also build on Linux. Build steps: [CONTRIBUTING.md](../CONTRIBUTING.md); plan:
+[ROADMAP.md](ROADMAP.md); guard rules: [SAFETY.md](SAFETY.md).
 
-## What runs today
+## Layout
 
-```
-PLAY.exe (Rust window)
- └─ play.py (orchestration, 1,071 lines) ── writes data\running.json, then exits
-     ├─ _xscn_watch.py            scene service (shared memory)
-     ├─ _debug_launch.py control  Python as a debugger ── control_Release.exe ── 4 × match_Release.exe
-     ├─ _debug_launch.py client   Python as a debugger ── client_Release.exe (projector)
-     ├─ _ringedge_services.py     keychip / master / installer (TCP 40100-40107)
-     ├─ _icc_reader.py            card reader (pipe wccf_icc_seat1)
-     ├─ _jvs_board.py             I/O board (pipe wccf_jvs_seat1) ◄─ file ◄─ _keys_seat1.py (key driver)
-     ├─ _debug_launch.py client   ── client_Release.exe (seat 1) ── winmm.dll (C hook) ── wccfpanel.dll (C panel)
-     └─ _kit_helper.py            RESTART NOW, SEND LOGS, club view, start volumes (polls files the panel writes)
-PLAY.exe stays without a window as the watcher: reads running.json, waits on the launchers' pids, runs play.py ended
-```
+| Path | What |
+|---|---|
+| `crates/launcher` | `Launcher.exe`: PLAY, SETUP, UPDATE, the online lobby, problem reports; the run supervisor (`run`), the guard check before every start (`guard.rs`), the Job object, the debugger, the key driver |
+| `crates/forza` | shared code: setup per edition (`setup/e1011.rs`, `e1718.rs`), the cabinet stand-ins (`standins`), online play and the 2017–18 game server (`online`), the cards and the card table, game text |
+| `crates/forza-ui` | every screen in egui: theme and fonts, widgets, the Launcher, installer, panel and lobby screens; snapshot tests; UI text in `locales/ui.yml` |
+| `crates/panel` | `forza_panel.dll`, 32-bit, inside the game: draws `forza-ui`'s panel over the game's Direct3D 9 picture; the projector window |
+| `crates/installer` | the installer: extracts the player's own disc image, optionally sets up the 2010–11 package |
+| `crates/server` | `forza-server`: every online service of both editions ([README](../crates/server/README.md)) |
+| `crates/linux-host` | `wccf-linux-server`: runs a shop (the original control and four match engines) under Wine on Linux ([README](../crates/linux-host/README.md)) |
+| `crates/vslink` | the 2017–18 direct VS link over iroh |
+| `native/hook` | `forza-hook`, the hook in the game's programs; one source, four DLLs by feature |
+| `native/wccfnet`, `native/netguard` | the network guards (2017–18 players; Linux servers under Wine) |
+| `native/icmp`, `native/programs`, `native/common` | the 2017–18 stand-in `ICMP.DLL`; the 32-bit programs beside the game (`FPR_Emu.exe`, `inject.exe`, `logowin.exe`, `sddy_maps.exe`) and the hook and guard test programs; their shared code |
+| `xtask` | `cargo xtask build`, `check`, `package`, `cap` (window capture) |
+| `editions/` | what goes into each ZIP besides the programs: READMEs, language tables, overlay assets |
+| `deploy/` | Linux server templates ([SELF-HOSTING.md](SELF-HOSTING.md)) |
+| `legacy/` | the retired Python and its tests, kept until nothing in the build uses them |
+| `docs/2017-18/`, `docs/research/` | protocol and game research notes |
 
-| Kind | Files | Lines | Where it should live |
-|---|---|---|---|
-| Orchestration (`play.py`, `_debug_launch.py`) | 2 | 1,991 | PLAY.exe (phase 1, 2) |
-| Runtime stand-ins and helpers (`_icc_reader`, `_jvs_board`, `_keys_seat1`, `_ringedge_services`, `_xscn_watch`, `_kit_helper`, `_seat_*`, `_relay`, `_log_inbox`, `_no_quickedit`) | 11 | 3,099 | threads of PLAY.exe's run (phase 3); server parts also built for Linux |
-| Install tools (`setup.py`, `english.py`, `cards.py`) | 3 | 1,233 | PLAY.exe's Setup (phase 4) |
-| Data libraries (card schema, decoder, boards, wallet, view, LZW, sound) | 9 | 2,402 | a `kit` library crate, beside what uses them |
-| Player tools (`edit_club_card.py`, `send_logs.py`) | 2 | 561 | PLAY.exe subcommands |
+## A run on a player's PC
 
-Eight scripts are byte-identical in the 2017-18 kit (`_jvs_board`, `_no_quickedit`, `_xscn_watch`, `_relay`,
-`club_card_schema`, `codes_inferred`, `ys_lzw`, `sound_defaults`); `_xscn_watch.py` is also vendored by the Linux
-server. Today every shared fix is ported by copying files.
+1. The installer extracts the game from the player's disc image; the Launcher's SETUP prepares the game folder
+   (`forza::setup`): guarded copies, byte patches that check every original byte, game text, the catalogue and card
+   pictures. Each edition keeps its own folder, settings, logs and saves.
+2. PLAY: the Launcher checks the guard (2017–18: `setup-hashes.json` and the `wccfnet.dll` import; 2010–11: the
+   `wccfk.dll` import), then starts the stand-ins as threads of its own process and the original programs: control,
+   four match engines, the projector and seat 1. It keeps every child by its handle in one Job object and stops them
+   all when the run ends.
+3. In the game's processes:
+   - **2017–18:** the programs import `wccfnet.dll` instead of `IPHLPAPI.DLL`; it stubs the four calls that change
+     the host's network and loads the panel into seat 1 and the projector. `bin\winmm.dll` (hook, `e1718`) stands in
+     for the cabinet's hardware; `ICMP.DLL` answers the cabinet-network pings at once.
+   - **2010–11:** each program's `WINMM.dll` import points at `wccfk.dll` (hook, `e1011`), which blocks the DHCP
+     release and renew, stands in for the hardware and fixes the server's message handling; `inject.exe` loads the
+     panel.
+4. The stand-ins (`forza::standins`) replace the cabinet and the publisher's network: the card reader and I/O board
+   over named pipes, the 2017–18 Aime reader and AiMeDB, the network services and scenes. The 2017–18 game server
+   (`forza::online::gamesvr`) runs locally for offline play.
+5. The panel (`crates/panel`) detours the game's Direct3D 9 `Present`, draws the cabinet buttons, the formation
+   board, catalogue, keys and settings around the game picture, and writes the card table the game reads.
 
-## What makes it hard to change
+## Online
 
-Each item is a source of bugs found in this repo's history, and each goes away with the move rather than by patching.
+- `forza-server` serves the seat desk and lobby, the in-shop match relay, the log inbox (2010–11) and, for 2017–18,
+  the game server, VS matcher and reflect. The project runs it at `lobby.wccf.it`; anyone can host their own.
+- A shared shop is a host running the original control and engines: a player's PC, or Linux under Wine through
+  `wccf-linux-server` with the hook's server features (`e1011-server`, `e1718-server`) and `netguard.dll`.
+- 2017–18 direct VS: `vslink` pairs two PCs through the game server and carries the game's datagrams over one iroh
+  QUIC connection, direct when possible, through the relay (`relay.wccf.it`) otherwise.
 
-- **Process ownership is rebuilt from text.** `play.py` exits after the start; who owns what is reconstructed from
-  `running.json` pids, process scans and log lines (`"launched client_Release.exe pid N"`, `"its window was closed"`,
-  `"maximized"` in the panel's log). The watcher race fixed on 2026-10-10 came from this.
-- **Sleeps as synchronisation.** Fixed `time.sleep(1.5)`, `sleep(2)`, polling loops with timeouts in every start
-  and stop path.
-- **Python as a debugger.** Every debug event freezes all of the game's threads until Python answers; the code has
-  its own timing report for this (`_debug_launch.py`, events over 50 ms).
-- **The same fact in two or three languages.** English on/off, `panel.txt` parsing, settings: C (panel), Python and
-  Rust each read them their own way.
-- **Near-duplicate functions.** `set_control_ip`, `set_satellite_no` and `set_conf_value` are one function three
-  times; the Rust side had pause/countdown code for a console nobody sees any more.
-- **Change history in comments.** 110 dated lines in the scripts ("2026-10-06: ...") explain past bugs inline. That
-  history belongs in git; comments should say what the code does now.
-- **Edition copies.** 2010-11 and 2017-18 share code by copying files and porting commits by hand.
-- **Big files.** `wccfpanel.c` 6,069 lines, `play.py` 1,071, `_keys_seat1.py` 990.
+## xtask
 
-## Target
-
-```
-PLAY.exe (Rust, one process)
- ├─ window: play options, setup, update                              (done 2026-10-10)
- ├─ run supervisor: starts in order, keeps every child by its handle, knows the state in memory, answers
- │   the panel's restart request itself                                (done 2026-10-10, phase 1)
- ├─ debug launcher: the debug loop, shared memory, crash reports, MSGPARSE guard
- ├─ stand-ins as threads: keychip/master/installer, card reader, I/O board, scene service, key driver
- └─ setup / English / catalogue as install steps
-winmm.dll, wccfpanel.dll, FPR_Emu.exe stay C: 32-bit code inside the game's process, already small and tested
-```
-
-Server-side parts (seat desk, match relay, log inbox, scene service) live in the same crate and build for Linux too,
-replacing the vendored Python copies. An edition switch (2010-11 / 2017-18) replaces file copies between the repos.
-
-## Phases and their gates
-
-Every phase deletes the Python it replaces in the same PR, and keeps `check.ps1` green. Before a Python component is
-removed, its behaviour is recorded (inputs → outputs, or a protocol transcript) and the Rust code is checked against
-that record: the Python is the specification.
-
-1. **Supervisor** (`play.py` → `launcher::run`) - done 2026-10-10 (branch `run-in-rust`; guarded live run passed:
-   start, close seat 1, everything stopped). PLAY.exe starts the run itself and keeps it: no `running.json` for
-   ownership, no watcher process, no log scraping; the Python stand-ins and `_debug_launch.py` stay child processes.
-   `_kit_helper.py`'s RESTART NOW moves into the supervisor (PLAY is alive for the whole run). Gate: the ported
-   unit tests (`test_ended`, card fix, log archive), `test_watch_late.py`, a run of stand-in programs, and one
-   guarded live run on the Windows runtime (start, play screen, close seat 1, everything gone, routes unchanged).
-2. **Debug launcher** (`_debug_launch.py` → Rust). Gate: stand-in programs that fault on purpose (access violation,
-   invalid parameter, the MSGPARSE read) produce the same reports and recoveries; the live projector match timing is
-   no worse.
-3. **Stand-ins** to threads, one PR each, each with a transcript test recorded from the Python version: ringedge
-   services, card reader, I/O board + key driver, scene service, then the server parts (with Linux builds).
-4. **Install steps**: `cards.py` (the `image` crate in place of Pillow), `setup.py`, `english.py`; then the card
-   decoder/editor. Gate: byte-identical outputs on a reference game copy (catalogue, pictures, patched files). Then the
-   kit ZIP drops `python\` (35 MB).
-
-The 2017-18 kit follows each phase through the edition switch instead of a file port.
+`cargo xtask build` builds every program (the 32-bit ones for `i686-pc-windows-msvc`) and stages each kit in
+`target/kit/<edition>/`. `check` runs fmt, clippy, the tests, the guard and hook test programs, the run tests and the
+publisher-name grep (`check quick`: changed crates only; `check ci`: what CI runs). `package <edition>` writes the ZIP
+and its `.sha256`.
 
 ## Rules for the code
 
-- Rust: `cargo fmt`, `clippy -D warnings`, `unsafe` only around Win32 calls with a `SAFETY:` line.
+- `cargo fmt`, `clippy -D warnings`; `unsafe` only around Win32 calls, with a `SAFETY:` line.
 - Comments say what the code does and why; dates and bug stories go in commit messages.
 - One fact, one place: a file format or rule is read by one module that everything else calls.
-- Ownership by handle: a process the kit starts is waited on and stopped through its handle (or its Job object),
+- Ownership by handle: a process the Launcher starts is waited on and stopped through its handle or its Job object,
   never found again by name or pid.
 - No fixed sleeps for synchronisation: wait on the thing (a port, a pipe, a window, a handle) with a deadline.
+- Strings the code must match in original files are bytes in one named constant.
+- A widely used crate, maintained in the last year, MIT/Apache/BSD, before hand-written code longer than a few lines.
+  `windows-sys` stays for thin Win32 calls; the root `Cargo.toml` lists the versions. The choices so far:
+
+| Job | Crate |
+|---|---|
+| UI text in EN/IT/JA, English fallback | `rust-i18n` |
+| Language tables (TSV) | `csv` |
+| Original game text encodings | `encoding_rs` |
+| Binary formats (club card, `.xaf`) | `binrw` |
+| PE files: import renames, byte patches | `object` |
+| Fingerprints, UPDATE hashes | `sha2` |
+| Player data, server records | `rusqlite`, `rusqlite_migration` |
+| Files written whole | `tempfile` |
+| Card reader and I/O board pipes | `interprocess` |
+| Aime reader on a COM port | `serialport` |
+| Game controllers | `gilrs` |
+| Registry | `winreg` |
+| Crash dumps | `minidump-writer` |
+| UPDATE download and self-replace | `ureq`, `zip`, `self-replace` |
+| First-run junction | `junction` |
+| Catalogue table, card pictures | `egui_extras` |
+| Version info in the exes | `winresource` |
+| Protocol transcripts in tests | `insta` |
+| File errors with the path | `fs-err` |
+| Build commands in xtask | `xshell` |

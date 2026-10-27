@@ -11,7 +11,7 @@ publish = false
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
-# only what a crate uses is listed (ROADMAP step 4 has the full list); xtask: build, checks, the ZIP
+# only what a crate uses is listed (docs/ARCHITECTURE.md has the crate per job); xtask: build, checks, the ZIP
 anyhow = "1.0.104"
 aes = "0.9.3"
 clap = { version = "4.6.7", features = ["derive"] }
