@@ -19,7 +19,8 @@
 
 use crate::core::EndpointId;
 use crate::net::{
-    id_short, load_key, public_relays, relay_addr, relay_from, relay_names, watch_path,
+    FALLBACK_AFTER, dial_relays, fallback_for, home_or_fall_back, id_short, load_key,
+    public_relays, relay_addr, relay_from, relay_names, watch_path,
 };
 use bytes::Bytes;
 use forza::service::{Handle, Log};
@@ -113,7 +114,7 @@ pub enum Verdict {
 pub struct ShopConfig {
     pub role: Role,
     pub ports: Ports,
-    /// The relays; the host is dialled through all of them (`net::relay_addr`)
+    /// The relays the endpoint homes on; the host is dialled through these and their fallback (`net::dial_relays`)
     pub relay: RelayMap,
     /// Trust for the relay's TLS certificate; None = the embedded web PKI roots
     pub ca: Option<CaTlsConfig>,
@@ -129,7 +130,7 @@ pub struct ShopConfig {
 }
 
 impl ShopConfig {
-    /// What the Launcher runs: `net::public_relays`, direct paths allowed, no delay.
+    /// What the Launcher runs: `net::public_relays` (n0's as the fallback), direct paths allowed, no delay.
     pub fn public(role: Role, ports: Ports, key: PathBuf, log: Log) -> Self {
         ShopConfig {
             role,
@@ -144,7 +145,8 @@ impl ShopConfig {
         }
     }
 
-    /// Dials only `url` instead of `net::public_relays`; `ca_pem` (a PEM file) is then its only trusted root.
+    /// Uses only `url` instead of `net::public_relays`, with no fallback; `ca_pem` (a PEM file) is then its only
+    /// trusted root.
     pub fn set_relay(&mut self, url: &str, ca_pem: Option<&Path>) -> Result<(), String> {
         let (relay, ca) = relay_from(url, ca_pem)?;
         self.relay = relay;
@@ -794,7 +796,7 @@ async fn start(cfg: ShopConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
     if cfg.relay.is_empty() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "no relay URL"));
     }
-    let relay = cfg.relay.clone();
+    let relay = dial_relays(&cfg.relay);
     let transport = QuicTransportConfig::builder()
         .keep_alive_interval(KEEP_ALIVE)
         .max_idle_timeout(Some(IdleTimeout::try_from(IDLE).expect("60 s fits")))
@@ -827,7 +829,18 @@ async fn start(cfg: ShopConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
         streams: Arc::default(),
         admit: cfg.admit,
     });
-    let only = if cfg.relay_only { ", relay only" } else { "" };
+    let fallback = fallback_for(&cfg.relay);
+    let only = format!(
+        "{}{}",
+        if fallback.is_empty() {
+            ""
+        } else {
+            ", public relays if it does not answer"
+        },
+        if cfg.relay_only { ", relay only" } else { "" }
+    );
+    let (ep, log) = (sh.ep.clone(), sh.log.clone());
+    tokio::spawn(async move { home_or_fall_back(&ep, &fallback, FALLBACK_AFTER, &log).await });
     if !sh.delay.is_zero() {
         (sh.log)(&format!(
             "test delay: {} ms more each way on this side (VSLINK_DELAY_MS)",
@@ -838,7 +851,7 @@ async fn start(cfg: ShopConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
         (sh.log)(&format!(
             "shop host {} (relay {}{only}): guests run Launcher.exe remote {}",
             sh.ep.id().fmt_short(),
-            relay_names(&sh.relay),
+            relay_names(&cfg.relay),
             id_text(sh.ep.id().as_bytes())
         ));
         return Ok((sh, None));
@@ -871,7 +884,7 @@ async fn start(cfg: ShopConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
         "shop join {} to {} (relay {}{only}), local ports TCP {} and {}, UDP {}",
         sh.ep.id().fmt_short(),
         id_short(&host),
-        relay_names(&sh.relay),
+        relay_names(&cfg.relay),
         p.control,
         p.desk,
         p.relay
