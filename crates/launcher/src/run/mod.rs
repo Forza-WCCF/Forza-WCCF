@@ -464,6 +464,7 @@ fn stop_command(kit: &Kit, p: &Params, force: bool, check: bool, ui: &dyn Ui) ->
             }
             if !rules::stop_server_too(run_answer, is_on(kit, Kind::Run)) {
                 ui.say("The server keeps running with this PC's seat (it holds that seat's match).");
+                rc = Some(rc.unwrap_or(REFUSED)); // something runs: not "Nothing running."
                 continue;
             }
         }

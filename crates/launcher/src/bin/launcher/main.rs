@@ -12,7 +12,7 @@
 //!                the window or on Launcher.exe, and remembered by setup in data\settings.json.  The card pictures
 //!                (the game's or the high-quality pack) and, for 2017-18, skip the tutorial.
 //!   HOST SHOP    (2017-18, "shop_1718": true) this PC's shop for players elsewhere: the server, its tunnel and its room
-//!                in the lobby (the code shown here), then this PC's own seat; the shop closes with that seat's run.
+//!                in the lobby (the code shown here), then this PC's own seat; the shop closes once that seat's run has ended and every guest has left.
 //!   UPDATE       (update.rs, 2010-11 only): the kit's releases and test builds at UPDATE_URL.
 //! The choices go where the kit already keeps them (choices.rs): data\panel.txt, which the in-game SETTINGS panel
 //! writes too, and data\settings.json.  Setup's lines fill OUTPUT.
@@ -78,7 +78,8 @@ enum Step {
     Game(Vec<OsString>),
     /// The card pictures (launcher::run::make_pictures), after setup and when the pictures choice changes
     Pictures,
-    /// HOST SHOP (2017-18): the server with its shop room, then this PC's seat on it; the server ends with the seat
+    /// HOST SHOP (2017-18): the server with its shop room, then this PC's seat on it; the server ends after the seat, once
+    /// no guest is connected
     Host,
 }
 
@@ -389,8 +390,8 @@ fn start(steps: Vec<Step>) -> bool {
 }
 
 /// HOST SHOP: the server on a thread of its own until its shop room is made (or not), then this PC's seat on it as a
-/// `remote 127.0.0.1` run would (first, so it gets the projector); when that run ends, the server is stopped, which
-/// closes the room. The seat's exit code, or why there is no room.
+/// `remote 127.0.0.1` run would (first, so it gets the projector); when that run ends, the server is asked to stop, which
+/// it does once no guest is connected; that closes the room. The seat's exit code, or why there is no room.
 fn host_shop(kit: &Kit) -> Result<i32, String> {
     log("> server, then remote 127.0.0.1 (HOST SHOP)");
     let (tx, rx) = std::sync::mpsc::channel();
@@ -427,7 +428,8 @@ fn host_shop(kit: &Kit) -> Result<i32, String> {
                 RUNNING.store(run::is_on(kit, run::Kind::Server), Ordering::Relaxed);
                 poke();
                 thread::sleep(Duration::from_secs(3));
-                if connected() == 0 && run::is_on(kit, run::Kind::Server) {
+                // not while a seat runs here: its stop would share data\server.request/answer with this one
+                if connected() == 0 && run::is_on(kit, run::Kind::Server) && !run::is_on(kit, run::Kind::Run) {
                     let _ = run::request(kit, run::Kind::Server, "stop");
                 }
             }

@@ -228,7 +228,7 @@ pub fn parse(words: &[String]) -> Words {
 
 /// `stop`: the server run on this PC is asked too unless the cabinet run beside it is still on after its own stop was
 /// asked (refused by the card rule, or no answer: a "Stop anyway?" box nobody answered). `run_answer`: None when no
-/// cabinet run was on. The seat's match needs the server.
+/// cabinet run was on when asked (or one started since). The seat's match needs the server.
 pub fn stop_server_too(run_answer: Option<i32>, run_still_on: bool) -> bool {
     run_answer.map_or(!run_still_on, |a| a == super::OK) || !run_still_on
 }
