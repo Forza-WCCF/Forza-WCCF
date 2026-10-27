@@ -1198,7 +1198,7 @@ struct Render {
     pads_held: std::collections::BTreeSet<u32>,
     /// When the controllers were last looked for.
     pads_scan: Instant,
-    /// SETTINGS: when NOW was read; when RESTART NOW and SEND LOGS were asked; SEND LOGS' answer file as last read.
+    /// SETTINGS: when NOW was read; when RESTART NOW and SAVE LOGS were asked; SAVE LOGS' answer file as last read.
     status_at: Option<Instant>,
     restart_at: Option<Instant>,
     logs_at: Option<Instant>,
@@ -1287,7 +1287,7 @@ impl Render {
             logs_at: None,
             report_at: None,
             // an answer from an earlier run is not shown
-            logs_stamp: stamp(&files.request("sendlogs.result")),
+            logs_stamp: stamp(&files.request("savelogs.result")),
             links_at: None,
             links_stamp: None,
             club_at: None,
@@ -1984,8 +1984,8 @@ impl Render {
     }
 
     /// SETTINGS: opened, data\panel.txt read again (the run may have done a request since) and NOW read; while open, NOW
-    /// read again each second. Always: SEND LOGS' answer, and a request no run took within 3 s (RESTART NOW) or 5 s
-    /// (SEND LOGS) taken back and said.
+    /// read again each second. Always: SAVE LOGS' answer, and a request no run took within 3 s (RESTART NOW) or 5 s
+    /// (SAVE LOGS, the report dialog) taken back and said.
     fn settings_in(&mut self) {
         use forza_ui::widgets::Tone;
         let Some(f) = FILES.get() else { return };
@@ -2024,14 +2024,15 @@ impl Render {
             }
             self.status_at = Some(Instant::now());
         }
-        let result = f.request("sendlogs.result");
+        let result = f.request("savelogs.result");
         let st = stamp(&result);
         if st.is_some()
             && st != self.logs_stamp
             && let Ok(t) = std::fs::read_to_string(&result)
         {
-            let line: String = t.lines().next().unwrap_or("").chars().take(95).collect();
-            log(&format!("settings: send logs - {line}"));
+            // a path can be long: 300 characters
+            let line: String = t.lines().next().unwrap_or("").chars().take(300).collect();
+            log(&format!("settings: save logs - {line}"));
             self.logs_stamp = st;
             self.logs_at = None;
             self.st.logs_sent = false;
@@ -2039,7 +2040,7 @@ impl Render {
         }
         for (what, at, secs) in [
             ("restart.request", &mut self.restart_at, 3),
-            ("sendlogs.request", &mut self.logs_at, 5),
+            ("savelogs.request", &mut self.logs_at, 5),
             ("report.request", &mut self.report_at, 5),
         ] {
             if at.is_some_and(|t| t.elapsed() >= Duration::from_secs(secs)) {
@@ -2048,14 +2049,14 @@ impl Render {
                     log(&format!("settings: {what} not picked up - removed"));
                     self.st.say(Tone::Refused, "settings.msg_no_helper");
                     self.st.restart_sent &= what != "restart.request";
-                    self.st.logs_sent &= what != "sendlogs.request";
+                    self.st.logs_sent &= what != "savelogs.request";
                     self.st.report_sent &= what != "report.request";
                 }
             }
         }
     }
 
-    /// SETTINGS' changes: data\panel.txt written whole; RESTART NOW and SEND LOGS asked of the run through their
+    /// SETTINGS' changes: data\panel.txt written whole; RESTART NOW and SAVE LOGS asked of the run through their
     /// request files (the run takes them within half a second), RESTART NOW refused during a card session.
     fn settings_out(&mut self) {
         use forza_ui::widgets::Tone;
@@ -2101,25 +2102,19 @@ impl Render {
             }
         }
         if std::mem::take(&mut self.st.save_logs) {
-            // the Launcher opens the save dialog (run::Ui::save_logs)
-            let _ = kit::swap_write(&f.request("savelogs.request"), "save\n");
-            log("settings: save logs asked");
-        }
-        if std::mem::take(&mut self.st.open_report) {
-            if self.ask_open_report(f) {
-                log("crash: report dialog asked (OPEN_REPORT)");
+            // the run writes the ZIP to the Downloads folder and answers in savelogs.result
+            if kit::swap_write(&f.request("savelogs.request"), "save\n").is_ok() {
+                log("settings: save logs asked");
+                self.logs_at = Some(Instant::now());
+                self.st.logs_sent = true;
+                self.st.status.logs = None;
             } else {
                 self.st.say(Tone::Refused, "settings.msg_logs_failed");
             }
         }
-        if std::mem::take(&mut self.st.send_logs) {
-            let server = self.st.file.server.clone();
-            if kit::swap_write(&f.request("sendlogs.request"), &format!("{server}\n")).is_ok() {
-                log(&format!("settings: send logs asked (to {server})"));
-                self.logs_at = Some(Instant::now());
-                self.st.logs_sent = true;
-                self.st.status.logs = None;
-                self.st.say(Tone::Notice, "settings.msg_sending");
+        if std::mem::take(&mut self.st.open_report) {
+            if self.ask_open_report(f) {
+                log("crash: report dialog asked (OPEN_REPORT)");
             } else {
                 self.st.say(Tone::Refused, "settings.msg_logs_failed");
             }
@@ -2142,10 +2137,9 @@ impl Render {
         ok
     }
 
-    /// The crash screen's SEND LOGS: data\report.request, for the Launcher to open its report dialog (the player says what
-    /// happened, the Launcher sends the logs). The one place that names the request, so it is easy to align. The file:
-    /// line 1 `OPEN_REPORT`, then `reason=control_lost`, `server=ADDRESS` (the server the logs go to, as sendlogs.request
-    /// holds it) and `pid=` of this game process. Nothing else is sent from here; no logs leave the panel.
+    /// The crash screen's SAVE LOGS: data\report.request, for the Launcher to open its report dialog (the player says what
+    /// happened, the Launcher saves the logs on this PC). The one place that names the request, so it is easy to align. The file:
+    /// line 1 `OPEN_REPORT`, then `reason=control_lost`, `server=ADDRESS` (the server played on, for the log) and `pid=` of this game process. No logs leave the panel.
     fn ask_open_report(&mut self, f: &kit::Files) -> bool {
         let text = format!(
             "OPEN_REPORT\nreason=control_lost\nserver={}\npid={}\n",

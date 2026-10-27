@@ -865,7 +865,7 @@ fn card_lamp() {
     all.unwrap();
 }
 
-/// The crash screen in the board's place; RESTART THE GAME and SEND LOGS each ask once.
+/// The crash screen in the board's place; RESTART THE GAME and SAVE LOGS each ask once.
 #[test]
 fn crash_screen() {
     let _gpu = gpu();
@@ -889,7 +889,7 @@ fn crash_screen() {
         });
     }
     all.unwrap();
-    for (label, restart) in [("RESTART THE GAME", true), ("SEND LOGS", false)] {
+    for (label, restart) in [("RESTART THE GAME", true), ("SAVE LOGS", false)] {
         let mut st = panel::PanelState::sample(Edition::E1011, Lang::En, panel::Page::Game);
         st.crash = true;
         let st = std::cell::RefCell::new(st);

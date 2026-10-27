@@ -1,53 +1,11 @@
-//! REPORT A PROBLEM: the player's words and this kit's logs to the project's server ([`forza::online::report`] has the
-//! wire and the ZIP). Each report is first kept in `data\reports\` (`DATE-TIME.zip` and the words in `.txt`); a sent
-//! one is removed, one that could not go waits there and goes with the next report. Also the plain words for network
-//! failures: players never see a tool's own error text, the log keeps it.
+//! REPORT A PROBLEM: the player's words and this kit's logs saved in one ZIP on this PC
+//! ([`forza::online::save_logs`] packs it), for the player to send to whoever helps them. Also the plain words for
+//! network failures: players never see a tool's own error text, the log keeps it.
 
-use crate::{Edition, Kit, lobby};
-use forza::online::SEAT_PORT;
-use forza::online::report;
-use forza::online::send_logs::{self, Scrub, SendError};
-use std::fs;
+use crate::Kit;
+use forza::online::save_logs::{self, Scrub};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
-
-/// Reports that waited in `data\reports\` and go after a new one, at most.
-const BACKLOG: usize = 2;
-
-/// Why a report did not go, as the player reads it: each a `ui.yml` key ([`Failure::key`]).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Failure {
-    Offline,
-    NoAnswer,
-    Busy,
-    TooMany,
-    Refused,
-    /// The logs could not be packed or kept (a full disk).
-    Pack,
-}
-
-impl Failure {
-    pub fn key(self) -> &'static str {
-        match self {
-            Failure::Offline => "net.offline",
-            Failure::NoAnswer => "net.no_answer",
-            Failure::Busy => "report.busy",
-            Failure::TooMany => "report.too_many",
-            Failure::Refused => "report.refused",
-            Failure::Pack => "report.pack_failed",
-        }
-    }
-
-    fn of(e: &SendError) -> Failure {
-        match e {
-            SendError::NoAnswer(_) | SendError::Garbled => Failure::NoAnswer,
-            SendError::Refused(why) if why.starts_with("busy") => Failure::Busy,
-            SendError::Refused(why) if why.starts_with("too many") => Failure::TooMany,
-            SendError::Refused(_) => Failure::Refused,
-        }
-    }
-}
 
 /// A network tool's error text (curl's, a socket's, the lobby workers') as a `ui.yml` key: `net.offline` when no name
 /// could be looked up, `net.no_answer` when nothing answered or the line broke, else `net.failed`.
@@ -86,86 +44,90 @@ pub fn plain(raw: &str) -> &'static str {
     }
 }
 
-/// The server reports go to: the edition's project server (`WCCF_LOBBY` overrides it, as for the lobby).
-pub fn server(edition: Edition) -> String {
-    lobby::project_server(edition)
-}
-
 /// What a report holds, by the names in its ZIP; `game` is the game folder (its logs and seat 1's).
 pub fn contents(kit: &Kit, game: Option<&Path>) -> Vec<String> {
     let mut v = vec!["report.txt".to_owned()];
-    v.extend(send_logs::names(kit.dir(), game));
+    v.extend(save_logs::names(kit.dir(), game));
     v
 }
 
-fn folder(kit: &Kit) -> PathBuf {
-    kit.data().join("reports")
-}
-
-/// Packs a report and keeps it in `data\reports\`: the ZIP's path.
-pub fn keep(kit: &Kit, game: Option<&Path>, words: &str, why: &str) -> io::Result<PathBuf> {
+/// Saves a report in `dir`: `report.txt` holds a summary (edition, versions, why) and the player's words; the ZIP's
+/// path.
+pub fn save(kit: &Kit, game: Option<&Path>, words: &str, why: &str, dir: &Path) -> io::Result<PathBuf> {
     let scrub = Scrub::from_env();
-    let now = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
-    let stamp = format!(
-        "{:04}{:02}{:02}-{:02}{:02}{:02}",
-        now.year(),
-        u8::from(now.month()),
-        now.day(),
-        now.hour(),
-        now.minute(),
-        now.second()
-    );
     let summary = format!(
-        "edition: {}\nversion: {}\nlauncher: {}\nmade: {stamp}\nwhy: {why}\n",
+        "edition: {}\nversion: {}\nlauncher: {}\nwhy: {why}\n\n{}\n",
         kit.edition().name(),
-        send_logs::version(kit.dir()),
+        save_logs::version(kit.dir()),
         env!("CARGO_PKG_VERSION"),
+        save_logs::note(words, &scrub),
     );
-    let zip = report::pack(kit.dir(), game, &scrub, &summary)?;
-    let dir = folder(kit);
-    fs::create_dir_all(&dir)?;
-    let path = dir.join(format!("{stamp}.zip"));
-    fs::write(path.with_extension("txt"), report::note(words, &scrub))?;
-    fs::write(&path, zip)?;
-    Ok(path)
+    save_logs::save(dir, kit.dir(), game, &scrub, Some(&summary))
 }
 
-/// Sends the kept report at `zip` (its words beside it); removed once the server took it.
-fn send_kept(at: std::net::SocketAddr, kit: &Kit, zip: &Path) -> Result<String, SendError> {
-    let io_err = |e: io::Error| SendError::NoAnswer(e.kind());
-    let blob = fs::read(zip).map_err(io_err)?;
-    let words = fs::read_to_string(zip.with_extension("txt")).unwrap_or_default();
-    let id = report::send(
-        at,
-        &blob,
-        &words,
-        &send_logs::version(kit.dir()),
-        Duration::from_secs(60),
-    )?;
-    let _ = fs::remove_file(zip);
-    let _ = fs::remove_file(zip.with_extension("txt"));
-    Ok(id)
+/// GitHub's new-issue page; [`issue_url`] fills it in.
+pub const NEW_ISSUE: &str = "https://github.com/Forza-WCCF/Forza-WCCF/issues/new";
+
+/// A new-issue link with the title and body filled in: the versions, Windows', why, and the last error lines of the
+/// Launcher's logs, scrubbed like the ZIP; the player attaches the ZIP by hand.
+pub fn issue_url(kit: &Kit, why: &str) -> String {
+    let scrub = Scrub::from_env();
+    let mut errors = Vec::new();
+    for log in ["launcher.txt", "run_launcher.txt"] {
+        let text = std::fs::read(kit.logs().join(log)).unwrap_or_default();
+        let text = String::from_utf8_lossy(&scrub.scrub(text)).into_owned();
+        errors.extend(
+            text.lines()
+                .filter(|l| {
+                    let l = l.to_ascii_lowercase();
+                    l.contains("error") || l.contains("fail")
+                })
+                .map(|l| l.trim().chars().take(160).collect::<String>()),
+        );
+    }
+    let errors = errors[errors.len().saturating_sub(5)..].join("\n");
+    let version = save_logs::version(kit.dir());
+    let body = format!(
+        "Version: {version} (Launcher {}), {}\nWindows: {}\nWhy: {why}\n\nLast errors:\n```\n{errors}\n```\n\nWhat happened:\n\n\n(Attach the forza-wccf-logs ZIP here.)\n",
+        env!("CARGO_PKG_VERSION"),
+        kit.edition().name(),
+        windows_version(),
+    );
+    format!(
+        "{NEW_ISSUE}?title={}&body={}",
+        encode(&format!("Problem: {} {version}", kit.edition().name())),
+        encode(&body)
+    )
 }
 
-/// The report kept at `zip` to the edition's server, then up to [`BACKLOG`] older ones that waited. The id the server
-/// gave; on a failure the report stays kept, and the error's own text comes with the player's words for the log.
-pub fn send(kit: &Kit, zip: &Path) -> Result<String, (Failure, String)> {
-    let server = server(kit.edition());
-    let Some(at) = crate::choices::resolve(&server, SEAT_PORT) else {
-        return Err((Failure::Offline, format!("{server}: no address")));
-    };
-    let id = send_kept(at, kit, zip).map_err(|e| (Failure::of(&e), format!("{server}: {e}")))?;
-    let mut older: Vec<PathBuf> = fs::read_dir(folder(kit))
-        .map(|d| d.flatten().map(|e| e.path()).collect())
-        .unwrap_or_default();
-    older.retain(|p| p.extension().is_some_and(|x| x == "zip"));
-    older.sort();
-    for p in older.into_iter().take(BACKLOG) {
-        if send_kept(at, kit, &p).is_err() {
-            break;
+/// `cmd /c ver`'s "Microsoft Windows [Version 10.0.26100.1]"; "?" when it gives nothing.
+fn windows_version() -> String {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        if let Ok(o) = std::process::Command::new("cmd")
+            .args(["/c", "ver"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+        {
+            let v = String::from_utf8_lossy(&o.stdout).trim().to_owned();
+            if !v.is_empty() {
+                return v;
+            }
         }
     }
-    Ok(id)
+    "?".into()
+}
+
+/// Percent-encoding for a URL's query: everything but `A-Z a-z 0-9 - . _ ~`.
+fn encode(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => (b as char).to_string(),
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -196,38 +158,35 @@ mod tests {
     }
 
     #[test]
-    fn server_refusals_have_their_own_words() {
-        let f = |why: &str| Failure::of(&SendError::Refused(why.into()));
-        assert_eq!(f("busy - try again in a minute"), Failure::Busy);
-        assert_eq!(f("too many from this address - try again in an hour"), Failure::TooMany);
-        assert_eq!(f("not a ZIP"), Failure::Refused);
-        assert_eq!(
-            Failure::of(&SendError::NoAnswer(io::ErrorKind::ConnectionRefused)),
-            Failure::NoAnswer
-        );
+    fn the_issue_link_is_encoded_and_carries_the_last_errors() {
+        assert_eq!(encode("a b&c=é\n"), "a%20b%26c%3D%C3%A9%0A");
+        let dir = tempfile::tempdir().unwrap();
+        let kit = Kit::at(dir.path());
+        std::fs::create_dir_all(kit.logs()).unwrap();
+        std::fs::write(kit.logs().join("launcher.txt"), "ok\nerror: one\nfine\n").unwrap();
+        let url = issue_url(&kit, "after a crash");
+        assert!(url.starts_with(&format!("{NEW_ISSUE}?title=Problem%3A%20")), "{url}");
+        assert!(url.contains("error%3A%20one") && !url.contains("fine"), "{url}");
+        assert!(!url.contains(' ') && !url.contains('\n'), "{url}");
     }
 
     #[test]
-    fn a_report_is_kept_then_sent_and_removed() {
+    fn a_report_is_saved_with_the_words() {
         let dir = tempfile::tempdir().unwrap();
         let kit = Kit::at(dir.path());
-        fs::create_dir_all(kit.logs()).unwrap();
-        fs::write(kit.logs().join("run_seat1.txt"), "crash in C:\\Users\\Someone\\x\n").unwrap();
-        let zip = keep(&kit, None, "  it froze  ", "opened by the player").unwrap();
-        assert_eq!(fs::read_to_string(zip.with_extension("txt")).unwrap(), "it froze");
+        std::fs::create_dir_all(kit.logs()).unwrap();
+        std::fs::write(kit.logs().join("run_seat1.txt"), "crash\n").unwrap();
         assert!(contents(&kit, None).contains(&"logs/run_seat1.txt".to_owned()));
-        let mut c = forza_server::desk::DeskConfig::new(Edition::E1011);
-        c.bind = "127.0.0.1".into();
-        c.port = 0;
-        let store = dir.path().join("server");
-        c.reports = Some(std::sync::Arc::new(forza_server::reports::Reports::new(
-            forza_server::reports::ReportConfig::new(store.clone()),
-        )));
-        let desk = forza_server::desk::start(c, std::sync::Arc::new(|_: &str| {})).unwrap();
-        let id = send_kept(desk.addr(), &kit, &zip).unwrap();
-        assert_eq!(id.len(), 6);
-        assert!(!zip.exists() && !zip.with_extension("txt").exists());
-        let kept: Vec<_> = fs::read_dir(&store).unwrap().flatten().collect();
-        assert_eq!(kept.len(), 2);
+        let out = dir.path().join("out");
+        let zip = save(&kit, None, "  it froze  ", "opened by the player", &out).unwrap();
+        assert_eq!(zip.parent(), Some(out.as_path()));
+        let mut z = zip::ZipArchive::new(std::fs::File::open(&zip).unwrap()).unwrap();
+        let mut t = String::new();
+        std::io::Read::read_to_string(&mut z.by_name("report.txt").unwrap(), &mut t).unwrap();
+        assert!(
+            t.contains("why: opened by the player") && t.ends_with("\n\nit froze\n"),
+            "{t}"
+        );
+        assert!(z.by_name("logs/run_seat1.txt").is_ok());
     }
 }

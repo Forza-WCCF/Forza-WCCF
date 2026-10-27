@@ -1,17 +1,18 @@
 //! Replays the recordings of `online/seat.py` and `online/send_logs.py` (`tests/rec/seat.jsonl`, `send_logs.jsonl`,
-//! made against the real seat desk and log inbox by `rec_i1_online.py`) against `forza::online`: a scripted server
-//! plays the recorded replies and checks the client's bytes; packs are compared by entry names, sizes and hashes.
+//! made against the real seat desk by `rec_i1_online.py`) against `forza::online`: a scripted server plays the
+//! recorded replies and checks the client's bytes; packs are compared by entry names, sizes and hashes (the
+//! recording's uploads are not replayed: logs are only saved now).
 //! Step 9.4c renamed seat 1's panel log in `send_logs.jsonl` (seat1/wccfpanel.log -> seat1/forza_panel.log, the Rust
 //! panel's); nothing else in the recording changed.
 
 use crate::records;
+use forza::online::save_logs::{self, Scrub};
 use forza::online::seat::{self, Fault, Timing};
-use forza::online::send_logs::{self, Scrub, SendError};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, sleep};
@@ -354,10 +355,10 @@ fn packs_match_the_python() {
         };
         let game = r["game"].as_str().map(|g| root.join(g));
         let tail = match r["tail"].as_u64() {
-            Some(0) | None => send_logs::TAIL,
+            Some(0) | None => save_logs::TAIL,
             Some(t) => t as usize,
         };
-        let (blob, n) = send_logs::pack(
+        let (blob, n) = save_logs::pack(
             &root.join("kit"),
             game.as_deref(),
             &scrub,
@@ -386,7 +387,7 @@ fn packs_match_the_python() {
 }
 
 #[test]
-fn pack_to_file_writes_the_logs_zip_scrubbed() {
+fn save_writes_the_logs_zip_scrubbed_into_the_folder() {
     let root = scratch("save_logs");
     let (kit, seat) = (root.join("kit"), root.join("seat1"));
     std::fs::create_dir_all(kit.join("data/logs")).unwrap();
@@ -400,10 +401,22 @@ fn pack_to_file_writes_the_logs_zip_scrubbed() {
         pc: "PC1".into(),
         folders: true,
     };
-    let dest = root.join("out.zip");
-    let n = send_logs::pack_to_file(&kit, Some(&root.join("game")), &scrub, &dest).unwrap();
+    let dir = root.join("Downloads");
+    let dest = save_logs::save(
+        &dir,
+        &kit,
+        Some(&root.join("game")),
+        &scrub,
+        Some("alice: it froze"),
+    )
+    .unwrap();
+    assert_eq!(dest.parent(), Some(dir.as_path()));
+    let name = dest.file_name().unwrap().to_string_lossy().into_owned();
+    assert!(
+        name.starts_with("forza-wccf-logs-") && name.ends_with(".zip"),
+        "{name}"
+    );
     let mut z = zip::ZipArchive::new(std::fs::File::open(&dest).unwrap()).unwrap();
-    assert_eq!(n, z.len());
     let mut read = |name: &str| {
         let mut t = String::new();
         z.by_name(name).unwrap().read_to_string(&mut t).unwrap();
@@ -412,6 +425,7 @@ fn pack_to_file_writes_the_logs_zip_scrubbed() {
     assert_eq!(read("version.txt"), "1.2.3\n");
     assert!(!read("logs/run.txt").contains("alice"));
     assert_eq!(read("seat1/other.log"), "seat line");
+    assert_eq!(read("report.txt"), "USER: it froze");
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -425,106 +439,12 @@ fn version_matches_the_python() {
             std::fs::write(root.join("version.txt"), unhex(h)).unwrap();
         }
         assert_eq!(
-            send_logs::version(&root),
+            save_logs::version(&root),
             r["result"].as_str().unwrap(),
             "{r}"
         );
         n += 1;
     }
     assert_eq!(n, 8);
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[test]
-fn sends_match_the_recorded_inbox() {
-    let mut n = 0;
-    for r in records("send_logs").iter().filter(|r| r["t"] == "send") {
-        let name = r["name"].as_str().unwrap();
-        let conns = script_of(r);
-        let inbox = if conns.is_empty() {
-            None
-        } else {
-            Some(Scripted::new(conns))
-        };
-        let addr = inbox.as_ref().map_or_else(closed_port, |i| i.addr);
-        for (blob, result) in r["blobs"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .zip(r["results"].as_array().unwrap())
-        {
-            let got = send_logs::send(
-                addr,
-                &unhex(blob.as_str().unwrap()),
-                r["ver"].as_str().unwrap(),
-                Duration::from_secs(10),
-            );
-            let what = result[1].as_str().unwrap();
-            match (&got, result[0].as_bool().unwrap()) {
-                (Ok(code), true) => assert_eq!(code, what, "{name}"),
-                (Err(SendError::Refused(why)), false) => assert_eq!(why, what, "{name}"),
-                (Err(SendError::NoAnswer(_)), false) => {
-                    assert!(what.contains("did not answer"), "{name}: {what}")
-                }
-                _ => panic!("{name}: {got:?}, recorded {result}"),
-            }
-        }
-        if let Some(i) = inbox {
-            let problems = i.finish();
-            assert!(problems.is_empty(), "{name}: {problems:?}");
-        }
-        n += 1;
-    }
-    assert_eq!(n, 5);
-}
-
-#[test]
-fn an_answer_it_cannot_read_is_garbled() {
-    for reply in [&b"WAT\n"[..], b"OK k7q2m\n", b"OK AB\n", b""] {
-        let blob = b"PK\x03\x04".to_vec();
-        let head = format!("WCCFLOGS1 {} 5.5\n", blob.len()).into_bytes();
-        let mut script = vec![("c".to_string(), [head, blob.clone()].concat())];
-        if !reply.is_empty() {
-            script.push(("s".into(), reply.to_vec()));
-        }
-        let srv = Scripted::new(vec![script]);
-        let got = send_logs::send(srv.addr, &blob, "5.5", Duration::from_secs(5));
-        assert_eq!(got, Err(SendError::Garbled), "{reply:?}");
-        assert!(srv.finish().is_empty());
-    }
-}
-
-#[test]
-fn upload_sends_the_report_once() {
-    let root = scratch("upload");
-    std::fs::create_dir_all(root.join("kit/data/logs")).unwrap();
-    std::fs::write(root.join("kit/data/logs/run_a.txt"), "hello\n").unwrap();
-    std::fs::write(root.join("kit/version.txt"), "kit-9.1\n").unwrap();
-    let report = root.join("report.txt");
-    std::fs::write(&report, "the server\nwhy it was sent\n").unwrap();
-    let (blob, n) = send_logs::pack(
-        &root.join("kit"),
-        None,
-        &Scrub::default(),
-        send_logs::TAIL,
-        Some("why it was sent\n"),
-    )
-    .unwrap();
-    let head = format!("WCCFLOGS1 {} 9.1\n", blob.len()).into_bytes();
-    let srv = Scripted::new(vec![vec![
-        ("c".into(), [head, blob.clone()].concat()),
-        ("s".into(), b"OK ABC12\n".to_vec()),
-    ]]);
-    let got = send_logs::upload(
-        srv.addr,
-        &root.join("kit"),
-        None,
-        &Scrub::default(),
-        Some(&report),
-    )
-    .unwrap();
-    assert_eq!(got, ("ABC12".to_string(), n, blob.len()));
-    assert!(!Path::new(&report).exists());
-    assert!(srv.finish().is_empty());
     let _ = std::fs::remove_dir_all(root);
 }

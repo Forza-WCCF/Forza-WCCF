@@ -1,10 +1,9 @@
-//! `forza-server`: every online service in one program: `desk | relay | inbox | gmsvr | reflect | all` (the Python
-//! `server/seat_desk.py`, `relay.py`, `log_inbox.py` it replaced each took `LIFE_SECONDS [LOG_FILE]`, as `desk`,
-//! `relay` and `inbox` still do). Ports are flags (`--port`, and `--desk-port` ... for `all`) so both editions share
+//! `forza-server`: every online service in one program: `desk | relay | gmsvr | reflect | all` (the Python
+//! `server/seat_desk.py` and `relay.py` it replaced each took `LIFE_SECONDS [LOG_FILE]`, as `desk` and `relay` still
+//! do). Ports are flags (`--port`, and `--desk-port` ... for `all`) so both editions share
 //! one host; a flag wins over the Python's environment variables, which win over the defaults:
 //! `WCCF_BIND` (0.0.0.0), `WCCF_BROKER_PORT` (20030), `WCCF_BROKER_SILENT` (75), `WCCF_CONTROL_LOG`, `WCCF_HOLD_FILE`,
-//! `WCCF_HOLD_FW`, `WCCF_PROJECTOR_PORT` (20031), `WCCF_RELAY_PORT` (20040), `WCCF_RELAY_FORGET` (30), `WCCF_INBOX_PORT` (20050),
-//! `WCCF_INBOX_PER_HOUR` (6), `WCCF_INBOX_KEEP` (1 GB). Exit 0 = ran its time, 1 = a port could not be bound.
+//! `WCCF_HOLD_FW`, `WCCF_PROJECTOR_PORT` (20031), `WCCF_RELAY_PORT` (20040), `WCCF_RELAY_FORGET` (30). Exit 0 = ran its time, 1 = a port could not be bound.
 //!
 //! The 2010-11 kit ships the Windows build (`cargo xtask build` puts it in `programs\forza-server.exe`; `Launcher.exe server`
 //! starts `forza-server all`). A Linux build is manual: `cargo build --release -p forza-server`.
@@ -12,7 +11,7 @@
 use clap::Args;
 use clap::{Parser, Subcommand, ValueEnum};
 use forza::online::{gamesvr, vs};
-use forza_server::{Edition, Handle, Log, desk, file_log, inbox, init_clock, relay, reports};
+use forza_server::{Edition, Handle, Log, desk, file_log, init_clock, relay};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -20,7 +19,7 @@ use std::time::Duration;
 #[derive(Parser)]
 #[command(
     version,
-    about = "The Forza-WCCF online server: seat desk, match relay, log inbox, game server, reflect"
+    about = "The Forza-WCCF online server: seat desk, match relay, game server, reflect"
 )]
 struct Cli {
     /// Whose clients: the seat desk and the relay differ a little (2017-18: the first PC shows the projector, no
@@ -46,9 +45,6 @@ enum Service {
         /// TCP port (else `WCCF_BROKER_PORT`, else 20030)
         #[arg(long)]
         port: Option<u16>,
-        /// Where players' problem reports (`REPORT`) are kept; default `reports` beside the log file's folder
-        #[arg(long)]
-        reports: Option<PathBuf>,
         life: Option<f64>,
         log_file: Option<PathBuf>,
     },
@@ -59,15 +55,6 @@ enum Service {
         port: Option<u16>,
         life: Option<f64>,
         log_file: Option<PathBuf>,
-    },
-    /// The log inbox (TCP 20050); FOLDER defaults to `player_logs` beside the log file's folder
-    Inbox {
-        /// TCP port (else `WCCF_INBOX_PORT`, else 20050)
-        #[arg(long)]
-        port: Option<u16>,
-        life: f64,
-        log_file: Option<PathBuf>,
-        folder: Option<PathBuf>,
     },
     /// The 2017-18 game server (TCP, SQLite clubs and saves; needs `--edition 2017-18`). Binds `WCCF_BIND`, else
     /// 127.0.0.1 (not 0.0.0.0: it has no authentication). Refuses every client but loopback and the allowlist
@@ -86,21 +73,13 @@ enum Service {
         life: Option<f64>,
         log_file: Option<PathBuf>,
     },
-    /// The shop's services together: the desk, the relay and (2010-11) the log inbox or (2017-18) the game server
-    /// sharing its VS matcher with the desk's lobby. LOGS_DIR gets seat_broker.txt, match_relay.txt, log_inbox.txt,
-    /// gmsvr.txt
+    /// The shop's services together: the desk, the relay and (2017-18) the game server sharing its VS matcher with the
+    /// desk's lobby. LOGS_DIR gets seat_broker.txt, match_relay.txt, gmsvr.txt
     All {
         #[arg(long)]
         desk_port: Option<u16>,
-        /// Where players' problem reports (`REPORT`) are kept; default `<store>/reports` (2017-18), else `reports`
-        /// beside LOGS_DIR
-        #[arg(long)]
-        reports: Option<PathBuf>,
         #[arg(long)]
         relay_port: Option<u16>,
-        /// 2010-11 only
-        #[arg(long)]
-        inbox_port: Option<u16>,
         /// 2017-18 only
         #[arg(long, default_value_t = 20060)]
         gmsvr_port: u16,
@@ -196,15 +175,10 @@ fn start_desk(
     port: Option<u16>,
     log_file: Option<&Path>,
     vs: Option<Arc<vs::Matcher>>,
-    report_dir: PathBuf,
     log: Log,
 ) -> std::io::Result<Handle> {
     let mut c = desk::DeskConfig::new(ed);
     c.bind = bind();
-    log(&format!("problem reports kept in {}", report_dir.display()));
-    c.reports = Some(Arc::new(reports::Reports::new(reports::ReportConfig::new(
-        report_dir,
-    ))));
     c.port = port.unwrap_or_else(|| env("WCCF_BROKER_PORT", c.port));
     c.vs = vs;
     c.silent = Duration::from_secs_f64(env("WCCF_BROKER_SILENT", 75.0));
@@ -238,33 +212,6 @@ fn start_relay(ed: Edition, port: Option<u16>, log: Log) -> std::io::Result<Hand
     relay::start(c, log.clone()).inspect_err(|e| {
         log(&format!(
             "cannot listen on UDP {port} ({e}) - is a relay already running?"
-        ));
-    })
-}
-
-fn start_inbox(
-    port: Option<u16>,
-    log_file: Option<&Path>,
-    folder: Option<&Path>,
-    log: Log,
-) -> std::io::Result<Handle> {
-    let folder = folder.map(Path::to_path_buf).unwrap_or_else(|| {
-        let base = if log_file.is_some() {
-            data_dir(log_file)
-        } else {
-            std::env::current_dir().unwrap_or_default()
-        };
-        base.join("player_logs")
-    });
-    let mut c = inbox::InboxConfig::new(folder);
-    c.bind = bind();
-    c.port = port.unwrap_or_else(|| env("WCCF_INBOX_PORT", c.port));
-    c.per_hour = env("WCCF_INBOX_PER_HOUR", c.per_hour);
-    c.keep = env("WCCF_INBOX_KEEP", c.keep);
-    let port = c.port;
-    inbox::start(c, log.clone()).inspect_err(|e| {
-        log(&format!(
-            "cannot listen on TCP {port} ({e}) - is a log inbox already running?"
         ));
     })
 }
@@ -374,7 +321,6 @@ fn main() {
     let (life, services): (f64, Vec<std::io::Result<Handle>>) = match &cli.service {
         Service::Desk {
             port,
-            reports,
             life,
             log_file,
         } => (
@@ -384,9 +330,6 @@ fn main() {
                 *port,
                 log_file.as_deref(),
                 None,
-                reports
-                    .clone()
-                    .unwrap_or_else(|| data_dir(log_file.as_deref()).join("reports")),
                 file_log(log_file.clone()),
             )],
         ),
@@ -397,20 +340,6 @@ fn main() {
         } => (
             life.unwrap_or(day),
             vec![start_relay(ed, *port, file_log(log_file.clone()))],
-        ),
-        Service::Inbox {
-            port,
-            life,
-            log_file,
-            folder,
-        } => (
-            *life,
-            vec![start_inbox(
-                *port,
-                log_file.as_deref(),
-                folder.as_deref(),
-                file_log(log_file.clone()),
-            )],
         ),
         Service::Gmsvr { port, g } => {
             need_1718(ed, "gmsvr");
@@ -431,9 +360,7 @@ fn main() {
         }
         Service::All {
             desk_port,
-            reports,
             relay_port,
-            inbox_port,
             gmsvr_port,
             no_gmsvr,
             lan,
@@ -442,41 +369,20 @@ fn main() {
             logs_dir,
         } => {
             let file = |n: &str| logs_dir.as_ref().map(|d| d.join(n));
-            let (desk_log, relay_log, inbox_log) = (
-                file("seat_broker.txt"),
-                file("match_relay.txt"),
-                file("log_inbox.txt"),
-            );
+            let (desk_log, relay_log) = (file("seat_broker.txt"), file("match_relay.txt"));
             let gmsvr = ed == Edition::E1718 && !no_gmsvr;
             // one matcher: the game server pairs the 243 entries, the desk's LOBBY lists them as VS rooms
             let matcher = (gmsvr && g.vs().is_some()).then(Arc::<vs::Matcher>::default);
-            let reports = reports.clone().unwrap_or_else(|| {
-                if ed == Edition::E1718 {
-                    g.store.join("reports")
-                } else {
-                    data_dir(desk_log.as_deref()).join("reports")
-                }
-            });
-            let mut services = vec![
+            let services = vec![
                 start_desk(
                     ed,
                     *desk_port,
                     desk_log.as_deref(),
                     matcher.clone(),
-                    reports,
                     file_log(desk_log.clone()),
                 ),
                 start_relay(ed, *relay_port, file_log(relay_log)),
             ];
-            // 2017-18 has no log inbox: its 20050 is the Launcher's game server stand-in on each PC
-            if ed == Edition::E1011 {
-                services.push(start_inbox(
-                    *inbox_port,
-                    inbox_log.as_deref(),
-                    None,
-                    file_log(inbox_log.clone()),
-                ));
-            }
             if let Some(name) = lan {
                 need_1718(ed, "--lan");
                 let desk =

@@ -131,7 +131,7 @@ fn params(tag: &str, shared: Arc<Shared>) -> Params {
         control_port: free_port(),
         relay_port: free_port(),
         seat_port: free_port(),
-        inbox_port: free_port(),
+        logs_dir: env::temp_dir().join(format!("wccftest_logs_{tag}_{pid}")),
         network_ports: [0; 6],
         icc_pipe: format!(r"\\.\pipe\wccftest_icc_{tag}_{pid}"),
         jvs_pipe: format!(r"\\.\pipe\wccftest_jvs_{tag}_{pid}"),
@@ -527,23 +527,6 @@ fn hang_stand_in() {
     thread::sleep(Duration::from_secs(600));
 }
 
-/// A server's log inbox that takes one upload and answers code R042; what it got.
-fn log_inbox(port: u16) -> thread::JoinHandle<Vec<u8>> {
-    let l = TcpListener::bind(("127.0.0.1", port)).unwrap();
-    thread::spawn(move || {
-        let (conn, _) = l.accept().unwrap();
-        let mut out = conn.try_clone().unwrap();
-        let mut r = BufReader::new(conn);
-        let mut head = String::new();
-        r.read_line(&mut head).unwrap();
-        let size: usize = head.split_whitespace().nth(1).unwrap().parse().unwrap();
-        let mut blob = vec![0; size];
-        std::io::Read::read_exact(&mut r, &mut blob).unwrap();
-        out.write_all(b"OK R042\n").unwrap();
-        blob
-    })
-}
-
 /// Seat 1 crashes as it starts: the start fails, says why, and stops everything it started.
 #[test]
 fn a_seat_that_crashes_at_the_start_stops_everything() {
@@ -588,7 +571,7 @@ fn a_seat_that_never_shows_its_window_is_given_up() {
 }
 
 /// The projector crashes (a server without a seat desk gives seat 1 the projector): seat 1 plays on; closing it ends
-/// the run with WENT_WRONG, and the run that went wrong is reported to the server's log inbox by itself.
+/// the run with WENT_WRONG, and nothing is uploaded anywhere.
 #[test]
 fn a_crashed_projector_keeps_seat_1_and_is_reported() {
     let top = tempfile::Builder::new().prefix("wccf-run-").tempdir().unwrap();
@@ -597,7 +580,6 @@ fn a_crashed_projector_keeps_seat_1_and_is_reported() {
     stand_in("crashme.exe", &game.join("standin_client.exe"));
     let p = params("proj", Shared::new());
     let _control = TcpListener::bind(("127.0.0.1", p.control_port)).unwrap(); // no seat desk: seat 1 + projector
-    let inbox = log_inbox(p.inbox_port);
     let (ui, t) = run_on_thread(&kit, p, &["remote", "127.0.0.1"]);
     wait_said(
         &ui,
@@ -609,16 +591,35 @@ fn a_crashed_projector_keeps_seat_1_and_is_reported() {
     let said = ui.text();
     assert_eq!(rc, run::WENT_WRONG, "{said}");
     assert!(said.contains("has no seat desk: seat 1, projector."), "{said}");
-    assert!(
-        said.contains("Logs sent to the server at 127.0.0.1: code R042"),
-        "{said}"
-    );
+    assert!(!said.contains("Logs sent"), "{said}");
     assert!(
         said.contains("Game ended with a problem: run_projector.txt: the game window went by itself"),
         "{said}"
     );
-    let blob = inbox.join().unwrap();
-    assert_eq!(&blob[..2], b"PK", "a ZIP reached the inbox");
+}
+
+/// SAVE LOGS from the panel: data\savelogs.request taken by the run, the ZIP written to `logs_dir`, and
+/// data\savelogs.result answers "ok PATH" for the panel.
+#[test]
+fn save_logs_request_answers_the_saved_path() {
+    let top = tempfile::Builder::new().prefix("wccf-run-").tempdir().unwrap();
+    let (kit, _seat) = scratch_kit(top.path());
+    let mut p = params("savelogs", Shared::new());
+    p.logs_dir = top.path().join("Downloads");
+    let dir = p.logs_dir.clone();
+    let _control = TcpListener::bind(("127.0.0.1", p.control_port)).unwrap();
+    let _desk = seat_desk(p.seat_port);
+    let (ui, t) = run_on_thread(&kit, p, &["remote", "127.0.0.1"]);
+    wait_said(&ui, &t, "  5/6 seat 1 window up", 120);
+    fs::write(kit.data().join("savelogs.request"), b"save\n").unwrap();
+    wait_said(&ui, &t, "Logs saved: ", 30);
+    let answer = fs::read_to_string(kit.data().join("savelogs.result")).unwrap();
+    let path = Path::new(answer.trim().strip_prefix("ok ").expect(&answer));
+    assert_eq!(path.parent(), Some(dir.as_path()), "{answer}");
+    assert_eq!(&fs::read(path).unwrap()[..2], b"PK", "{answer}");
+    assert!(!kit.data().join("savelogs.request").exists(), "the request was taken");
+    let rc = ended_clean(&kit, top.path(), &ui, t, Duration::from_secs(60));
+    assert_eq!(rc, run::OK, "{}", ui.text());
 }
 
 /// RESTART NOW written while the start is still on (the overlay's wait): taken once the run is up, seat 1's cabinet
@@ -708,7 +709,7 @@ fn a_stand_in_the_game_can_do_without_is_said_and_the_run_goes_on() {
 }
 
 /// `server` mode: the control program is a stand-in (the test's own listener holds the control port), `forza-server all`
-/// from the kit build is the seat desk, relay and inbox; it answers a WANT on the test's port, and stop ends the run
+/// from the kit build is the seat desk and relay; it answers a WANT on the test's port, and stop ends the run
 /// with nothing left.
 #[test]
 fn server_mode_runs_forza_server_and_stop_ends_it() {

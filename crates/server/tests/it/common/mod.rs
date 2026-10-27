@@ -62,7 +62,7 @@ pub fn capture() -> (Log, Arc<Mutex<Vec<String>>>) {
     )
 }
 
-/// The inbox's answer with its random code replaced.
+/// An `OK CODE` answer with its random code replaced.
 pub fn norm_ok(got: &[u8]) -> Vec<u8> {
     let alphabet = b"ABCDEFGHJKMNPQRSTUVWXYZ23456789";
     if got.len() == 9

@@ -563,11 +563,14 @@ pub fn status_line(ui: &mut Ui, tone: Tone, text: &str) -> Response {
         })
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(
-                egui::RichText::new(text)
-                    .color(theme::TEXT)
-                    .font(theme::body(14.0)),
-            );
+            // left-aligned even in a justified column: a long path must not spread the words across the line
+            ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                ui.label(
+                    egui::RichText::new(text)
+                        .color(theme::TEXT)
+                        .font(theme::body(14.0)),
+                );
+            });
         })
         .response;
     let p = ui.painter();

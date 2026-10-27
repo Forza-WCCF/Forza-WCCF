@@ -100,7 +100,7 @@ struct Shared {
     failed: bool,              // the last job failed: OUTPUT opens, so its output shows
     game: Option<u8>,          // a Game step has just ended with this exit code
     report_open: Option<bool>, // open the report dialog: Some(after a crash)
-    report_done: Option<Result<String, String>>, // the report's number, or why it did not go (the player's words)
+    report_done: Option<Result<(String, String), String>>, // where the report was saved and its issue link, or why not
     // HOST SHOP: the shop room's code, its lobby server and the flag set when that lobby loses it
     host_room: Option<(String, String, Arc<AtomicBool>)>,
     // the LAN fold: the shops the last search found (forza::online::lan)
@@ -506,20 +506,6 @@ impl run::Ui for WindowUi {
         ) == IDYES
     }
 
-    fn save_logs(&self, kit: &Path, game: &Path) {
-        let (kit, game) = (kit.to_path_buf(), game.to_path_buf());
-        // the dialog waits for the player: not on the supervisor's thread
-        thread::spawn(move || {
-            let result = kit.join("data").join("savelogs.result");
-            let line = match save_logs(&kit, Some(&game), None) {
-                Ok(Some(path)) => format!("ok {}", path.display()),
-                Ok(None) => "cancel".to_owned(),
-                Err(e) => format!("fail {e}"),
-            };
-            let _ = choices::write(&result, &format!("{line}\n"));
-        });
-    }
-
     fn report(&self) {
         shared().report_open = Some(false);
         poke();
@@ -536,44 +522,24 @@ impl run::Ui for WindowUi {
     }
 }
 
-/// `forza-wccf-logs-YYYYMMDD-HHMMSS.zip`: every ZIP the owner receives has its own name.
-fn logs_zip_name(t: time::OffsetDateTime) -> String {
-    format!(
-        "forza-wccf-logs-{:04}{:02}{:02}-{:02}{:02}{:02}.zip",
-        t.year(),
-        u8::from(t.month()),
-        t.day(),
-        t.hour(),
-        t.minute(),
-        t.second()
-    )
+/// SAVE LOGS: the logs ZIP in the Downloads folder, said in the status line and shown selected in Explorer.
+fn save_logs(kit: &Path, game: Option<&Path>) {
+    let dir = forza::online::save_logs::downloads();
+    match forza::online::save_logs::save(&dir, kit, game, &forza::online::save_logs::Scrub::from_env(), None) {
+        Ok(dest) => {
+            say(tf("logs.saved", &[("path", &dest.display().to_string())]), 0);
+            show_in_explorer(&dest);
+        }
+        Err(e) => refuse(tf("logs.save_failed", &[("why", &e.to_string())])),
+    }
 }
 
-/// SAVE LOGS: the save dialog (forza-wccf-logs-<date>-<time>.zip), then the logs ZIP there; the place chosen, None when the
-/// dialog was cancelled.  Says the result in the status line.
-fn save_logs(kit: &Path, game: Option<&Path>, parent: Option<&eframe::Frame>) -> Result<Option<PathBuf>, String> {
-    let now = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
-    let name = logs_zip_name(now);
-    let mut dialog = rfd::FileDialog::new()
-        .set_title(t("logs.save_title"))
-        .set_file_name(name)
-        .add_filter("ZIP", &["zip"]);
-    if let Some(p) = parent {
-        dialog = dialog.set_parent(p);
-    }
-    let Some(dest) = dialog.save_file() else {
-        return Ok(None);
-    };
-    match forza::online::send_logs::pack_to_file(kit, game, &forza::online::send_logs::Scrub::from_env(), &dest) {
-        Ok(_) => {
-            say(tf("logs.saved", &[("path", &dest.display().to_string())]), 0);
-            Ok(Some(dest))
-        }
-        Err(e) => {
-            refuse(tf("logs.save_failed", &[("why", &e.to_string())]));
-            Err(e.to_string())
-        }
-    }
+/// Explorer opened on the file's folder with the file selected.
+fn show_in_explorer(file: &Path) {
+    use std::os::windows::process::CommandExt;
+    let _ = std::process::Command::new("explorer")
+        .raw_arg(format!("/select,\"{}\"", file.display()))
+        .spawn();
 }
 
 /// A network tool's error as the player reads it (`launcher::report::plain`); the tool's own words go to the log.
@@ -588,8 +554,8 @@ fn game_folder(kit: &Kit) -> Option<PathBuf> {
     launcher::kit::find_game(&f).or_else(|| Some(PathBuf::from(f)))
 }
 
-/// SEND in the report dialog: the report kept in data\reports, then sent, on a thread; the outcome comes back in
-/// `report_done`.
+/// SAVE LOGS in the report dialog: the words and the logs saved in the Downloads folder, on a thread; the outcome comes
+/// back in `report_done`.
 fn send_report(words: String, crashed: bool) {
     thread::spawn(move || {
         let kit = Kit::here();
@@ -598,21 +564,17 @@ fn send_report(words: String, crashed: bool) {
         } else {
             "opened by the player"
         };
-        let done = match launcher::report::keep(&kit, game_folder(&kit).as_deref(), &words, why) {
-            Err(e) => {
-                log(&format!("report: not kept ({e})"));
-                Err(t(launcher::report::Failure::Pack.key()))
+        let dir = forza::online::save_logs::downloads();
+        let done = match launcher::report::save(&kit, game_folder(&kit).as_deref(), &words, why, &dir) {
+            Ok(zip) => {
+                log(&format!("report: saved as {}", zip.display()));
+                show_in_explorer(&zip);
+                Ok((zip.display().to_string(), launcher::report::issue_url(&kit, why)))
             }
-            Ok(zip) => match launcher::report::send(&kit, &zip) {
-                Ok(id) => {
-                    log(&format!("report: sent, number {id}"));
-                    Ok(id)
-                }
-                Err((f, raw)) => {
-                    log(&format!("report: not sent ({raw}); kept as {}", zip.display()));
-                    Err(tf("report.kept", &[("why", &t(f.key()))]))
-                }
-            },
+            Err(e) => {
+                log(&format!("report: not saved ({e})"));
+                Err(tf("logs.save_failed", &[("why", &e.to_string())]))
+            }
         };
         shared().report_done = Some(done);
         poke();
@@ -918,9 +880,10 @@ impl App {
         if let (Some(done), Some(f)) = (report_done, self.st.report.as_mut()) {
             f.sending = false;
             f.result = Some(match done {
-                Ok(id) => {
+                Ok((path, url)) => {
                     f.sent = true;
-                    (Tone::Done, tf("report.sent", &[("id", &id)]))
+                    f.issue_url = Some(url);
+                    (Tone::Done, tf("logs.saved", &[("path", &path)]))
                 }
                 Err(why) => (Tone::Refused, why),
             });
@@ -1024,8 +987,7 @@ impl App {
             Action::SaveLogs => {
                 let game = self.st.folder.trim();
                 let game = (!game.is_empty()).then(|| Path::new(game));
-                // ok and cancel need nothing more: the status line has the first
-                let _ = save_logs(kit.dir(), game, Some(frame));
+                save_logs(kit.dir(), game);
             }
             Action::Pictures { choose } => self.pictures(&kit, frame, choose),
             Action::SkipTutorial => {
@@ -1623,16 +1585,6 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn logs_zip_name_has_date_and_time() {
-        let t = time::Date::from_calendar_date(2026, time::Month::October, 22)
-            .unwrap()
-            .with_hms(22, 15, 30)
-            .unwrap()
-            .assume_utc();
-        assert_eq!(logs_zip_name(t), "forza-wccf-logs-20261022-221530.zip");
-    }
 
     #[test]
     fn play_py_steps() {

@@ -55,7 +55,7 @@ pub enum Action {
     WhatsNew(usize),
     /// The window's language changed (`lang`).
     Language,
-    /// SAVE LOGS: pick a place and write the logs ZIP there.
+    /// SAVE LOGS: the logs ZIP into the Downloads folder.
     SaveLogs,
     /// The player chose something in the online lobby.
     Lobby(LobbyAction),
@@ -63,24 +63,29 @@ pub enum Action {
     Rejoin,
     /// REPORT A PROBLEM: open the report dialog (`report`).
     Report,
-    /// SEND in the report dialog: its words and the logs to the server.
+    /// SAVE LOGS in the report dialog: its words and the logs in one ZIP on this PC.
     SendReport,
 }
 
-/// The report dialog: the player's words, what goes with them, and how the sending went.
+/// The report dialog: the player's words, what goes with them, and where the ZIP was saved.
 #[derive(Clone, Debug, Default)]
 pub struct ReportForm {
     /// Opened after a crash: the title says so.
     pub crashed: bool,
     pub words: String,
-    /// What is sent, by the names in the ZIP.
+    /// What is in the ZIP, by its names there.
     pub contents: Vec<String>,
     pub sending: bool,
-    /// The outcome line: the report number, or why it did not go.
+    /// The outcome line: where the ZIP is, or why it was not saved.
     pub result: Option<(Tone, String)>,
-    /// The server took it: only CLOSE is left.
+    /// Saved: only CLOSE is left.
     pub sent: bool,
+    /// Once saved: GitHub's new-issue page filled in (`launcher::report::issue_url`).
+    pub issue_url: Option<String>,
 }
+
+/// The project's Discord invite; empty: the report dialog shows no Discord line.
+pub const DISCORD_INVITE: &str = "";
 
 /// A question in a modal: a title, an optional body, the button that says yes and what yes does.
 #[derive(Clone, Debug)]
@@ -875,7 +880,7 @@ fn confirm_modal(ui: &mut Ui, st: &mut LauncherState, c: &Confirm, lang: Lang) -
     act
 }
 
-/// The report dialog: "What happened?", what is sent, SEND and CANCEL; once sent, the report number and CLOSE.
+/// The report dialog: "What happened?", what is in the ZIP, SAVE LOGS and CANCEL; once saved, where it is and CLOSE.
 fn report_modal(ui: &mut Ui, st: &mut LauncherState, lang: Lang) -> Option<Action> {
     let mut act = None;
     let mut close = false;
@@ -940,8 +945,14 @@ fn report_modal(ui: &mut Ui, st: &mut LauncherState, lang: Lang) -> Option<Actio
             );
             if let Some((tone, text)) = &f.result {
                 status_line(ui, *tone, text);
+                if let Some(url) = &f.issue_url {
+                    ui.hyperlink_to(tr!(lang, "report.open_issue"), url);
+                }
+                if f.sent && !DISCORD_INVITE.is_empty() {
+                    ui.hyperlink_to(tr!(lang, "report.open_discord"), DISCORD_INVITE);
+                }
             } else if f.sending {
-                status_line(ui, Tone::Notice, &tr!(lang, "report.sending"));
+                status_line(ui, Tone::Notice, &tr!(lang, "settings.msg_saving"));
             }
             ui.add_space(8.0);
             ui.horizontal(|ui| {
@@ -961,7 +972,13 @@ fn report_modal(ui: &mut Ui, st: &mut LauncherState, lang: Lang) -> Option<Actio
                     return;
                 }
                 let send = ui.add_enabled_ui(!f.sending, |ui| {
-                    cabinet(ui, vec2(w, 48.0), &tr!(lang, "report.send"), Cab::Go, true)
+                    cabinet(
+                        ui,
+                        vec2(w, 48.0),
+                        &tr!(lang, "launcher.save_logs"),
+                        Cab::Go,
+                        true,
+                    )
                 });
                 if send.inner.clicked() {
                     act = Some(Action::SendReport);
@@ -980,7 +997,7 @@ fn report_modal(ui: &mut Ui, st: &mut LauncherState, lang: Lang) -> Option<Actio
                 }
             });
         });
-    // a report on its way keeps the dialog: its number is still to come
+    // a report being saved keeps the dialog: where it went is still to come
     if close || (modal.should_close() && !f.sending) {
         st.report = None;
     }

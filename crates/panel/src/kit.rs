@@ -105,8 +105,8 @@ impl Files {
         )
     }
 
-    /// RESTART NOW's and SEND LOGS' requests to the run (`data\restart.request`, `data\sendlogs.request`) and SEND
-    /// LOGS' answer (`data\sendlogs.result`).
+    /// RESTART NOW's and SAVE LOGS' requests to the run (`data\restart.request`, `data\savelogs.request`) and SAVE
+    /// LOGS' answer (`data\savelogs.result`).
     pub fn request(&self, what: &str) -> PathBuf {
         self.data.join(what)
     }

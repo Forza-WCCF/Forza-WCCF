@@ -1,5 +1,5 @@
 //! What the in-game panels ask for and cannot do from inside the game (panel.py, sound.py and console.py's place; the
-//! rest of panel.py, RESTART NOW and SEND LOGS, is the run's own).  The run holds a [`Helper`] while the game is up;
+//! rest of panel.py, RESTART NOW and SAVE LOGS, is the run's own).  The run holds a [`Helper`] while the game is up;
 //! dropping it stops its threads.
 //!
 //! THE CLUB CARD view (2026-10-06): data\club_view.txt is rewritten whenever the card, its backups, the other cards or

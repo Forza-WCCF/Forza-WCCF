@@ -1,33 +1,24 @@
-//! The client side of online play (step 10, piece I1; ports `online/seat.py` and `online/send_logs.py`) and the wire
-//! protocol the server's seat desk and log inbox (piece I2) share with it. No Windows-only code: the Linux server
+//! The client side of online play (step 10, piece I1; ports `online/seat.py`) and the wire protocol the server's seat
+//! desk (piece I2) shares with it; [`save_logs`] packs this PC's logs into a ZIP the player sends themselves. No Windows-only code: the Linux server
 //! builds this module too. [`gamesvr`] and [`vs`]: the 2017-18 game server and its VS matcher and reflect service,
 //! run by the Launcher's local stand-in and by `forza-server gmsvr`.
 //!
 //! Seat desk (TCP [`SEAT_PORT`]), ASCII lines:
 //! `WANT` or `WANT SEAT n` -> `SEAT n PROJECTOR p`, `TAKEN n`, `FULL` or `ERR ...`; then `PING` -> `PONG`.
-//! Log inbox (TCP [`INBOX_PORT`]), one upload per connection: `WCCFLOGS1 SIZE VERSION\n`, SIZE bytes of ZIP, then
-//! `OK CODE\n` or `NO reason\n`.
-//! A player's problem report goes to the seat desk: `REPORT ZIP NOTE VERSION\n`, `GO`, the words and the ZIP, `OK ID`
-//! ([`report`]).
 //! A 2017-18 shop guest's club goes to the host's desk and back with `CLUB PUT`, `CLUB GET` and `CLUB DONE` ([`club`]).
 
 pub mod club;
 pub mod gamesvr;
 pub mod lan;
 pub mod lobby;
-pub mod report;
+pub mod save_logs;
 pub mod seat;
-pub mod send_logs;
 pub mod vs;
 
 /// The seat desk's port on the server (the Python's `WCCF_BROKER_PORT` default).
 pub const SEAT_PORT: u16 = 20030;
-/// The log inbox's port on the server (`WCCF_INBOX_PORT` default).
-pub const INBOX_PORT: u16 = 20050;
 /// Seats a server gives out: 1 to 8 (seat 0 is the projector, never handed to a PC).
 pub const SEATS: std::ops::RangeInclusive<u8> = 1..=8;
-/// The inbox takes uploads up to this size.
-pub const MAX_UPLOAD: usize = 8 * 1024 * 1024;
 
 /// What a PC asks the seat desk for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -115,66 +106,6 @@ impl Reply {
     }
 }
 
-/// The first line of an upload: `WCCFLOGS1 SIZE VERSION`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UploadHead {
-    pub size: usize,
-    pub version: String,
-}
-
-impl UploadHead {
-    pub fn line(&self) -> String {
-        format!("WCCFLOGS1 {} {}\n", self.size, self.version)
-    }
-
-    /// Three words, the first `WCCFLOGS1`, the size digits (the inbox then checks 0 < size <= [`MAX_UPLOAD`]).
-    pub fn parse(line: &str) -> Option<UploadHead> {
-        match line.split_whitespace().collect::<Vec<_>>()[..] {
-            ["WCCFLOGS1", size, version] if size.bytes().all(|b| b.is_ascii_digit()) => {
-                Some(UploadHead {
-                    size: size.parse().ok()?,
-                    version: version.into(),
-                })
-            }
-            _ => None,
-        }
-    }
-}
-
-/// The inbox's answer to an upload.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum UploadReply {
-    /// `OK CODE`: three to twelve of A-Z and 0-9.
-    Ok(String),
-    /// `NO reason`.
-    No(String),
-}
-
-impl UploadReply {
-    pub fn line(&self) -> String {
-        match self {
-            UploadReply::Ok(code) => format!("OK {code}\n"),
-            UploadReply::No(why) => format!("NO {why}\n"),
-        }
-    }
-
-    /// `None` for anything the client does not understand (including an `OK` with a malformed code).
-    pub fn parse(line: &str) -> Option<UploadReply> {
-        match line.trim().split_once(' ')? {
-            ("OK", code)
-                if (3..=12).contains(&code.len())
-                    && code
-                        .bytes()
-                        .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit()) =>
-            {
-                Some(UploadReply::Ok(code.into()))
-            }
-            ("NO", why) => Some(UploadReply::No(why.into())),
-            _ => None,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,35 +154,5 @@ mod tests {
             Reply::parse("SEAT x PROJECTOR 0"),
             Reply::Err("SEAT x PROJECTOR 0".into())
         );
-    }
-
-    #[test]
-    fn upload_lines() {
-        let h = UploadHead {
-            size: 109,
-            version: "5.5".into(),
-        };
-        assert_eq!(h.line(), "WCCFLOGS1 109 5.5\n");
-        assert_eq!(UploadHead::parse("WCCFLOGS1 109 5.5"), Some(h));
-        for bad in [
-            "WCCFLOGS1 x 5.5",
-            "WCCFLOGS1 5",
-            "HELLO 5 5.5",
-            "WCCFLOGS1 5 5.5 x",
-            "WCCFLOGS1 -5 5.5",
-        ] {
-            assert_eq!(UploadHead::parse(bad), None, "{bad}");
-        }
-        assert_eq!(
-            UploadReply::parse("OK K7Q2M"),
-            Some(UploadReply::Ok("K7Q2M".into()))
-        );
-        assert_eq!(
-            UploadReply::parse("NO not a ZIP"),
-            Some(UploadReply::No("not a ZIP".into()))
-        );
-        for bad in ["OK k7q2m", "OK AB", "OK ABCDEFGHIJKLM", "OK", "WAT", ""] {
-            assert_eq!(UploadReply::parse(bad), None, "{bad}");
-        }
     }
 }

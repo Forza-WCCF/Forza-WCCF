@@ -1,25 +1,21 @@
-//! SEND LOGS (port of `online/send_logs.py`): this kit's logs in one ZIP, sent to a server's log inbox, so the
-//! people who run the server can see what went wrong on this PC.
+//! SAVE LOGS (once `online/send_logs.py`): this kit's logs in one ZIP on the player's PC, for the player to send to
+//! whoever helps them. Nothing is uploaded.
 //!
 //! In the ZIP: `data\logs` (this run and the one before, not the zipped archive), the panel's logs, `panel.txt`,
 //! `keys.txt`, `running.json` and `version.txt`, each its last 2 MB at most; never the club card. What points at the
 //! person is replaced in the text: the user folder and any other `X:\Users\NAME` (`%USERPROFILE%`), the user name
 //! (`USER`) and the PC's name (`PC`). 2017-18: control's `wccfnet.log` from the game folder too. The newest [`DUMPS_SENT`] lean crash snapshots go whole, with the same names blanked to underscores (also
-//! in UTF-16) so the file keeps its layout. A note (why it was sent) goes in as `report.txt`.
+//! in UTF-16) so the file keeps its layout. A note (the player's words, why it was made) goes in as `report.txt`.
 
-use super::{UploadHead, UploadReply};
-use std::fmt;
 use std::fs;
 use std::io::{self, Cursor, Read, Seek, SeekFrom, Write};
-use std::net::{Shutdown, SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
 /// Per file, the last bytes kept.
 pub const TAIL: usize = 2 * 1024 * 1024;
-/// The inbox takes 8 MB: a bigger ZIP is made again with shorter tails.
+/// A bigger ZIP is made again with shorter tails (it stays small enough to attach to a chat message).
 pub const LIMIT: usize = 7 * 1024 * 1024;
 /// A cabinet's lean snapshot is about 1 MB, 90 KB zipped.
 pub const DUMPS_SENT: usize = 3;
@@ -352,107 +348,119 @@ pub fn pack_within(
     }
 }
 
-/// SAVE LOGS: the same ZIP as [`pack`] (no note, the usual [`TAIL`]) written to `dest`; how many files are in it.
-pub fn pack_to_file(
-    kit: &Path,
-    game: Option<&Path>,
-    scrub: &Scrub,
-    dest: &Path,
-) -> io::Result<usize> {
-    let (blob, n) = pack(kit, game, scrub, TAIL, None)?;
-    fs::write(dest, blob)?;
-    Ok(n)
-}
-
-/// Why an upload did not go through.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum SendError {
-    /// Nothing answered, or the connection broke (the I/O error's kind).
-    NoAnswer(io::ErrorKind),
-    /// The inbox said `NO reason`.
-    Refused(String),
-    /// An answer that is neither `OK code` nor `NO reason`.
-    Garbled,
-}
-
-impl fmt::Display for SendError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SendError::NoAnswer(k) => write!(f, "the server's log inbox did not answer ({k:?})"),
-            SendError::Refused(why) => f.write_str(why),
-            SendError::Garbled => f.write_str("an answer it did not understand"),
-        }
-    }
-}
-
-/// Sends `blob` to the inbox at `addr` (port [`super::INBOX_PORT`]); the code the inbox gave, to tell the people who run the
-/// server. `timeout` bounds each read and write (60 s in the Python); connecting takes up to 15 s.
-pub fn send(
-    addr: SocketAddr,
-    blob: &[u8],
-    ver: &str,
-    timeout: Duration,
-) -> Result<String, SendError> {
-    let io_err = |e: io::Error| SendError::NoAnswer(e.kind());
-    let mut s = TcpStream::connect_timeout(&addr, Duration::from_secs(15)).map_err(io_err)?;
-    s.set_read_timeout(Some(timeout)).map_err(io_err)?;
-    s.set_write_timeout(Some(timeout)).map_err(io_err)?;
-    let ascii: String = ver
+/// The player's words for `report.txt`: scrubbed like the logs, at most [`MAX_NOTE_CHARS`].
+pub fn note(text: &str, scrub: &Scrub) -> String {
+    let clean = scrub.scrub(text.trim().as_bytes().to_vec());
+    String::from_utf8_lossy(&clean)
         .chars()
-        .map(|c| if c.is_ascii() { c } else { '?' })
-        .collect();
-    s.write_all(
-        UploadHead {
-            size: blob.len(),
-            version: ascii,
-        }
-        .line()
-        .as_bytes(),
-    )
-    .map_err(io_err)?;
-    s.write_all(blob).map_err(io_err)?;
-    s.shutdown(Shutdown::Write).map_err(io_err)?;
-    let mut answer = Vec::new();
-    let mut buf = [0u8; 200];
-    while !answer.contains(&b'\n') && answer.len() < 200 {
-        match s.read(&mut buf) {
-            Ok(0) => break,
-            Ok(n) => answer.extend_from_slice(&buf[..n]),
-            Err(e) => return Err(io_err(e)),
-        }
-    }
-    match UploadReply::parse(&String::from_utf8_lossy(&answer)) {
-        Some(UploadReply::Ok(code)) => Ok(code),
-        Some(UploadReply::No(why)) => Err(SendError::Refused(why)),
-        None => Err(SendError::Garbled),
-    }
+        .take(MAX_NOTE_CHARS)
+        .collect()
 }
 
-/// What `send_logs.py ADDRESS` does: packs and sends. `(code, files, bytes)`; `report`, the file play writes after a run
-/// that went wrong (a first line, then the note), is read as the note and removed once sent (never sent twice).
-pub fn upload(
-    addr: SocketAddr,
+/// The player's words: at most this many characters.
+pub const MAX_NOTE_CHARS: usize = 2000;
+
+/// `forza-wccf-logs-YYYYMMDD-HHMMSS.zip`: each saved ZIP has its own name.
+pub fn zip_name(t: time::OffsetDateTime) -> String {
+    format!(
+        "forza-wccf-logs-{:04}{:02}{:02}-{:02}{:02}{:02}.zip",
+        t.year(),
+        u8::from(t.month()),
+        t.day(),
+        t.hour(),
+        t.minute(),
+        t.second()
+    )
+}
+
+/// Where SAVE LOGS puts the ZIP: the user's Downloads folder (Windows' known folder; else `%USERPROFILE%\Downloads`).
+pub fn downloads() -> PathBuf {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Com::CoTaskMemFree;
+        use windows_sys::Win32::UI::Shell::{FOLDERID_Downloads, SHGetKnownFolderPath};
+        let mut p = std::ptr::null_mut();
+        // SAFETY: a known folder id and an out pointer; the string is the system's and freed once copied
+        unsafe {
+            if SHGetKnownFolderPath(&FOLDERID_Downloads, 0, std::ptr::null_mut(), &mut p) == 0
+                && !p.is_null()
+            {
+                let len = (0..).take_while(|&i| *p.add(i) != 0).count();
+                let s = String::from_utf16_lossy(std::slice::from_raw_parts(p, len));
+                CoTaskMemFree(p.cast());
+                return PathBuf::from(s);
+            }
+            CoTaskMemFree(p.cast());
+        }
+    }
+    let home = std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .unwrap_or_default();
+    PathBuf::from(home).join("Downloads")
+}
+
+/// SAVE LOGS: the ZIP ([`pack`], `note` as `report.txt`) written to `dir` as [`zip_name`] of now; its path.
+pub fn save(
+    dir: &Path,
     kit: &Path,
     game: Option<&Path>,
     scrub: &Scrub,
-    report: Option<&Path>,
-) -> Result<(String, usize, usize), SendError> {
-    let note = match report {
-        Some(p) => {
-            let text = fs::read_to_string(p).map_err(|e| SendError::NoAnswer(e.kind()))?;
-            Some(
-                text.split_once('\n')
-                    .map_or("", |(_, rest)| rest)
-                    .to_string(),
-            )
-        }
-        None => None,
-    };
-    let (blob, n) =
-        pack(kit, game, scrub, TAIL, note.as_deref()).map_err(|e| SendError::NoAnswer(e.kind()))?;
-    let code = send(addr, &blob, &version(kit), Duration::from_secs(60))?;
-    if let Some(p) = report {
-        let _ = fs::remove_file(p);
+    note: Option<&str>,
+) -> io::Result<PathBuf> {
+    let (blob, _) = pack(kit, game, scrub, TAIL, note)?;
+    fs::create_dir_all(dir)?;
+    let now = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+    let path = dir.join(zip_name(now));
+    fs::write(&path, blob)?;
+    Ok(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn user_folders_become_userprofile_on_any_drive_and_case() {
+        let s = |t: &str| String::from_utf8(user_folders(t.as_bytes())).unwrap();
+        assert_eq!(
+            s(r"C:\Users\Mario\AppData\x.log"),
+            r"%USERPROFILE%\AppData\x.log"
+        );
+        assert_eq!(s(r"d:\USERS\Ann Lee\Desktop"), r"%USERPROFILE%\Desktop");
+        assert_eq!(
+            s("e:/users/bob/x and E:\\\\Users\\\\bob\\\\y"),
+            "%USERPROFILE%/x and %USERPROFILE%\\\\y"
+        );
+        assert_eq!(s("\"C:\\Users\\zed\" ok"), "\"%USERPROFILE%\" ok");
+        assert_eq!(
+            s(r"C:\Users\ then C:\Program Files\x"),
+            r"C:\Users\ then C:\Program Files\x"
+        );
+        assert_eq!(s("no path here: Users"), "no path here: Users");
     }
-    Ok((code, n, blob.len()))
+
+    #[test]
+    fn note_is_scrubbed_and_capped() {
+        let scrub = Scrub {
+            home: r"C:\Users\Mario".into(),
+            user: "Mario".into(),
+            pc: "DESKTOP-ABC".into(),
+            folders: true,
+        };
+        let n = note(
+            r" Mario here, on DESKTOP-ABC: crash in D:\Users\Mario\Games ",
+            &scrub,
+        );
+        assert_eq!(n, r"USER here, on PC: crash in %USERPROFILE%\Games");
+        assert_eq!(
+            note(&"é".repeat(3000), &scrub).chars().count(),
+            MAX_NOTE_CHARS
+        );
+    }
+
+    #[test]
+    fn zip_name_has_the_date_and_time() {
+        let t = time::OffsetDateTime::from_unix_timestamp(1_793_091_903).unwrap();
+        assert_eq!(zip_name(t), "forza-wccf-logs-20261027-090503.zip");
+    }
 }
