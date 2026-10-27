@@ -18,12 +18,14 @@
 //! sends and receives that much longer.
 
 use crate::core::EndpointId;
-use crate::net::{RELAY_URL, id_short, load_key, relay_from, watch_path};
+use crate::net::{
+    id_short, load_key, public_relays, relay_addr, relay_from, relay_names, watch_path,
+};
 use bytes::Bytes;
 use forza::service::{Handle, Log};
 use iroh::endpoint::{Connection, IdleTimeout, QuicTransportConfig, presets};
 use iroh::tls::CaTlsConfig;
-use iroh::{Endpoint, EndpointAddr, PublicKey, RelayMap, RelayMode, RelayUrl};
+use iroh::{Endpoint, EndpointAddr, PublicKey, RelayMap, RelayMode};
 use std::collections::HashMap;
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -111,7 +113,7 @@ pub enum Verdict {
 pub struct ShopConfig {
     pub role: Role,
     pub ports: Ports,
-    /// The relay (the first URL is the one dialled and the one the host is reached through)
+    /// The relays; the host is dialled through all of them (`net::relay_addr`)
     pub relay: RelayMap,
     /// Trust for the relay's TLS certificate; None = the embedded web PKI roots
     pub ca: Option<CaTlsConfig>,
@@ -127,13 +129,12 @@ pub struct ShopConfig {
 }
 
 impl ShopConfig {
-    /// What the Launcher runs: the public relay, direct paths allowed, no delay.
+    /// What the Launcher runs: `net::public_relays`, direct paths allowed, no delay.
     pub fn public(role: Role, ports: Ports, key: PathBuf, log: Log) -> Self {
-        let url: RelayUrl = RELAY_URL.parse().expect("RELAY_URL is a URL");
         ShopConfig {
             role,
             ports,
-            relay: RelayMap::from(url),
+            relay: public_relays(),
             ca: None,
             relay_only: false,
             key,
@@ -143,7 +144,7 @@ impl ShopConfig {
         }
     }
 
-    /// Dials `url` instead of the public relay; `ca_pem` (a PEM file) is then its only trusted root.
+    /// Dials only `url` instead of `net::public_relays`; `ca_pem` (a PEM file) is then its only trusted root.
     pub fn set_relay(&mut self, url: &str, ca_pem: Option<&Path>) -> Result<(), String> {
         let (relay, ca) = relay_from(url, ca_pem)?;
         self.relay = relay;
@@ -274,7 +275,7 @@ impl ShopLink {
 struct Sh {
     log: Log,
     ep: Endpoint,
-    relay: RelayUrl,
+    relay: RelayMap,
     ports: Ports,
     delay: Duration,
     guests: Arc<AtomicUsize>,
@@ -790,12 +791,10 @@ impl Join {
 type Joined = (Arc<Join>, Connection, [TcpListener; 2], Ports);
 
 async fn start(cfg: ShopConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
-    let relay = cfg
-        .relay
-        .urls::<Vec<_>>()
-        .into_iter()
-        .next()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no relay URL"))?;
+    if cfg.relay.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "no relay URL"));
+    }
+    let relay = cfg.relay.clone();
     let transport = QuicTransportConfig::builder()
         .keep_alive_interval(KEEP_ALIVE)
         .max_idle_timeout(Some(IdleTimeout::try_from(IDLE).expect("60 s fits")))
@@ -839,7 +838,7 @@ async fn start(cfg: ShopConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
         (sh.log)(&format!(
             "shop host {} (relay {}{only}): guests run Launcher.exe remote {}",
             sh.ep.id().fmt_short(),
-            sh.relay,
+            relay_names(&sh.relay),
             id_text(sh.ep.id().as_bytes())
         ));
         return Ok((sh, None));
@@ -861,7 +860,7 @@ async fn start(cfg: ShopConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
     let udp = Arc::new(udp);
     let pk = PublicKey::from_bytes(&host).map_err(io::Error::other)?;
     let join = Arc::new(Join {
-        host: EndpointAddr::new(pk).with_relay_url(sh.relay.clone()),
+        host: relay_addr(pk, &sh.relay),
         sh: sh.clone(),
         budget: Arc::default(),
         link: watch::channel(None).0,
@@ -872,7 +871,7 @@ async fn start(cfg: ShopConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
         "shop join {} to {} (relay {}{only}), local ports TCP {} and {}, UDP {}",
         sh.ep.id().fmt_short(),
         id_short(&host),
-        sh.relay,
+        relay_names(&sh.relay),
         p.control,
         p.desk,
         p.relay

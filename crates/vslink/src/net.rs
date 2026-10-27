@@ -10,7 +10,9 @@ use forza::online::vs::{Reflect, hello_payload, reflect};
 use forza::service::{Handle, Log};
 use iroh::endpoint::{Connection, IdleTimeout, QuicTransportConfig, presets};
 use iroh::tls::CaTlsConfig;
-use iroh::{Endpoint, EndpointAddr, PublicKey, RelayMap, RelayMode, RelayUrl, SecretKey};
+use iroh::{
+    Endpoint, EndpointAddr, PublicKey, RelayMap, RelayMode, RelayUrl, SecretKey, TransportAddr,
+};
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
@@ -41,7 +43,7 @@ pub struct Config {
     pub gmsvr: SocketAddr,
     /// The reflect socket, `127.0.0.1:R` (port 0 picks one: tests)
     pub reflect: SocketAddrV4,
-    /// The relay (the first URL is the one dialled)
+    /// The relays; peers are dialled through all of them ([`relay_addr`])
     pub relay: RelayMap,
     /// Trust for the relay's TLS certificate; None = the embedded web PKI roots
     pub ca: Option<CaTlsConfig>,
@@ -55,18 +57,50 @@ pub struct Config {
     pub ticket: Option<String>,
 }
 
-/// The public relay (webpki roots) and the reflect port gmsvr's `--vslink-port` defaults to.
+/// The project's relay (webpki roots) and the reflect port gmsvr's `--vslink-port` defaults to.
 pub const RELAY_URL: &str = "https://relay.wccf.it:8443";
 pub const REFLECT_PORT: u16 = 20090;
 
+/// The relay list the Launcher uses: the project's relay plus n0's public relays as the backup. iroh homes on the
+/// one with the lowest latency (sticky: it moves only for one a third faster) and a `RelayMap` keeps no order, so
+/// "ours first" cannot be expressed; peers are dialled through all of them instead ([`relay_addr`]).
+pub fn public_relays() -> RelayMap {
+    let map = iroh::defaults::prod::default_relay_map();
+    map.extend(&RelayMap::from(
+        RELAY_URL.parse::<RelayUrl>().expect("RELAY_URL is a URL"),
+    ));
+    map
+}
+
+/// A peer reachable through every relay in `relays`: it homes on any one of them, and iroh sends the first QUIC
+/// packets down every known path.
+pub(crate) fn relay_addr(pk: PublicKey, relays: &RelayMap) -> EndpointAddr {
+    EndpointAddr::from_parts(
+        pk,
+        relays
+            .urls::<Vec<RelayUrl>>()
+            .into_iter()
+            .map(TransportAddr::Relay),
+    )
+}
+
+/// The relays for a log line.
+pub(crate) fn relay_names(relays: &RelayMap) -> String {
+    let urls: Vec<String> = relays
+        .urls::<Vec<RelayUrl>>()
+        .iter()
+        .map(|u| u.to_string())
+        .collect();
+    urls.join(" ")
+}
+
 impl Config {
-    /// What the Launcher runs: the public relay, direct paths allowed, reflect on `127.0.0.1:20090`.
+    /// What the Launcher runs: [`public_relays`], direct paths allowed, reflect on `127.0.0.1:20090`.
     pub fn public(gmsvr: SocketAddr, key: PathBuf, log: Log) -> Self {
-        let url: RelayUrl = RELAY_URL.parse().expect("RELAY_URL is a URL");
         Config {
             gmsvr,
             reflect: SocketAddrV4::new(Ipv4Addr::LOCALHOST, REFLECT_PORT),
-            relay: RelayMap::from(url),
+            relay: public_relays(),
             ca: None,
             relay_only: false,
             key,
@@ -77,7 +111,7 @@ impl Config {
 }
 
 impl Config {
-    /// Dials `url` instead of the public relay; `ca_pem` (a PEM file) is then the only trusted root. For a
+    /// Dials only `url` instead of [`public_relays`]; `ca_pem` (a PEM file) is then the only trusted root. For a
     /// self-hosted relay.
     pub fn set_relay(&mut self, url: &str, ca_pem: Option<&Path>) -> Result<(), String> {
         let (relay, ca) = relay_from(url, ca_pem)?;
@@ -234,7 +268,7 @@ struct Shared {
     log: Log,
     ep: Endpoint,
     id: core::EndpointId,
-    relay: RelayUrl,
+    relay: RelayMap,
     reflect: Arc<UdpSocket>,
     gm: Gmsvr,
     st: Mutex<State>,
@@ -491,8 +525,7 @@ pub(crate) async fn watch_path(log: Log, conn: Connection) {
 
 impl Shared {
     async fn dial(self: Arc<Self>, id: core::EndpointId) {
-        let addr = PublicKey::from_bytes(&id)
-            .map(|pk| EndpointAddr::new(pk).with_relay_url(self.relay.clone()));
+        let addr = PublicKey::from_bytes(&id).map(|pk| relay_addr(pk, &self.relay));
         match addr {
             Ok(a) => match self.ep.connect(a, ALPN).await {
                 Ok(c) => self.adopt(c),
@@ -626,12 +659,10 @@ pub(crate) fn load_key(path: &Path) -> io::Result<SecretKey> {
 }
 
 async fn start(cfg: Config) -> io::Result<Arc<Shared>> {
-    let relay = cfg
-        .relay
-        .urls::<Vec<_>>()
-        .into_iter()
-        .next()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no relay URL"))?;
+    if cfg.relay.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "no relay URL"));
+    }
+    let relay = cfg.relay.clone();
     let transport = QuicTransportConfig::builder()
         .keep_alive_interval(KEEP_ALIVE)
         .max_idle_timeout(Some(IdleTimeout::try_from(IDLE).expect("60 s fits")))
@@ -671,7 +702,7 @@ async fn start(cfg: Config) -> io::Result<Arc<Shared>> {
         "vslink {} on {} (relay {}{})",
         sh.ep.id().fmt_short(),
         sh.reflect.local_addr()?,
-        sh.relay,
+        relay_names(&sh.relay),
         if cfg.relay_only { ", relay only" } else { "" }
     ));
     Ok(sh)
@@ -759,6 +790,21 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn public_relays_are_ours_plus_n0_and_peers_are_dialled_through_all() {
+        let map = public_relays();
+        let ours: RelayUrl = RELAY_URL.parse().unwrap();
+        assert!(map.contains(&ours));
+        for url in iroh::defaults::prod::default_relay_map().urls::<Vec<RelayUrl>>() {
+            assert!(map.contains(&url), "{url}");
+        }
+        assert_eq!(map.len(), 5);
+        let c = Config::public("127.0.0.1:1".parse().unwrap(), "k".into(), Arc::new(|_| {}));
+        assert_eq!(c.relay, map);
+        let pk = SecretKey::generate().public();
+        assert_eq!(relay_addr(pk, &map).relay_urls().count(), 5);
+    }
 
     #[test]
     fn hello_with_and_without_a_room_ticket() {
