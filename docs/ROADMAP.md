@@ -52,11 +52,11 @@ internet. Release 1 (1.0.0) waits on the live gates below.
    Best Eleven; the mat and a bench rub; the quit dialog and the crash screen; Italian team names; the pop-out board
    and IMPORT LINEUP.
 2. **2017–18 shared shop, online friendlies (M2):** play the LAN shop (#58) live; then the iroh shop tunnel and lobby
-   shop rooms (#59) and HOST / JOIN by code in the Launcher (#60), both open; the first Wine run of the Linux shop,
+   shop rooms (#59) and HOST / JOIN by code in the Launcher (#60), both merged; the first Wine run of the Linux shop,
    both editions (#57 changed the 2010–11 path too).
 3. **LAN play with auto-discovery:** seats on the same network find the shop without a typed address.
-4. **iroh relay backup:** the project's relay (`relay.wccf.it`) first, public iroh relays as the fallback when it
-   does not answer. Running a relay: [SELF-HOSTING.md](SELF-HOSTING.md#8-the-iroh-relay-2017-18-vs).
+4. **iroh relay backup (#64):** relay.wccf.it, public relays only when it is unreachable (done on merge).
+   Running a relay: [SELF-HOSTING.md](SELF-HOSTING.md#8-the-iroh-relay-2017-18-vs).
 5. **Squad import, step 4:** share links for a lineup; COPY LINEUP in the panel (the exporter is in #52).
 6. **Release 1 gates.** B7 live gates: a guarded join from the list that plays from the next ENTRY (one near a round's
    end); a kill-and-rejoin on the same seat; M3 under the Docker NAT harness at 0/50/100/150 ms with a 20-match soak;

@@ -10,7 +10,9 @@ use forza::online::vs::{Reflect, hello_payload, reflect};
 use forza::service::{Handle, Log};
 use iroh::endpoint::{Connection, IdleTimeout, QuicTransportConfig, presets};
 use iroh::tls::CaTlsConfig;
-use iroh::{Endpoint, EndpointAddr, PublicKey, RelayMap, RelayMode, RelayUrl, SecretKey};
+use iroh::{
+    Endpoint, EndpointAddr, PublicKey, RelayMap, RelayMode, RelayUrl, SecretKey, TransportAddr,
+};
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
@@ -41,7 +43,7 @@ pub struct Config {
     pub gmsvr: SocketAddr,
     /// The reflect socket, `127.0.0.1:R` (port 0 picks one: tests)
     pub reflect: SocketAddrV4,
-    /// The relay (the first URL is the one dialled)
+    /// The relays the endpoint homes on; peers are dialled through these and their fallback ([`dial_relays`])
     pub relay: RelayMap,
     /// Trust for the relay's TLS certificate; None = the embedded web PKI roots
     pub ca: Option<CaTlsConfig>,
@@ -55,18 +57,96 @@ pub struct Config {
     pub ticket: Option<String>,
 }
 
-/// The public relay (webpki roots) and the reflect port gmsvr's `--vslink-port` defaults to.
+/// The project's relay (webpki roots) and the reflect port gmsvr's `--vslink-port` defaults to.
 pub const RELAY_URL: &str = "https://relay.wccf.it:8443";
 pub const REFLECT_PORT: u16 = 20090;
 
+/// The relay the Launcher homes on: the project's relay alone. n0's public relays (rate-limited, meant for
+/// development) are added only when it does not answer at startup ([`home_or_fall_back`]).
+pub fn public_relays() -> RelayMap {
+    RelayMap::from(RELAY_URL.parse::<RelayUrl>().expect("RELAY_URL is a URL"))
+}
+
+/// How long an endpoint may go without a home relay before it falls back: iroh's net report gives up after 5 s,
+/// then the relay handshake follows.
+pub(crate) const FALLBACK_AFTER: Duration = Duration::from_secs(10);
+
+/// The fallback for `relay`: n0's public relays for [`public_relays`], none for an override (`set_relay`).
+pub(crate) fn fallback_for(relay: &RelayMap) -> RelayMap {
+    if *relay == public_relays() {
+        iroh::defaults::prod::default_relay_map()
+    } else {
+        RelayMap::empty()
+    }
+}
+
+/// The relays peers are dialled through: `relay` and its fallback, because a peer may have homed on either.
+pub(crate) fn dial_relays(relay: &RelayMap) -> RelayMap {
+    let all = RelayMap::empty();
+    all.extend(relay);
+    all.extend(&fallback_for(relay));
+    all
+}
+
+/// Waits up to `wait` for a home relay; without one, adds `fallback` to the endpoint's relays, so iroh homes on one
+/// of those. Logs which relays are in use; returns whether it fell back.
+// shortcut: startup only; losing relay.wccf.it later in a session does not switch (`Endpoint::home_relay_status` is
+// the hook), upgrade when a mid-match relay outage is seen.
+pub(crate) async fn home_or_fall_back(
+    ep: &Endpoint,
+    fallback: &RelayMap,
+    wait: Duration,
+    log: &Log,
+) -> bool {
+    if timeout(wait, ep.online()).await.is_ok() {
+        log("relay connected");
+        return false;
+    }
+    if fallback.is_empty() {
+        log(&format!("no relay answered in {} s", wait.as_secs()));
+        return false;
+    }
+    for c in fallback.relays::<Vec<_>>() {
+        ep.insert_relay(c.url.clone(), c).await;
+    }
+    log(&format!(
+        "no relay answered in {} s: using the public relays {}",
+        wait.as_secs(),
+        relay_names(fallback)
+    ));
+    true
+}
+
+/// A peer reachable through every relay in `relays`: it homes on any one of them, and iroh sends the first QUIC
+/// packets down every known path.
+pub(crate) fn relay_addr(pk: PublicKey, relays: &RelayMap) -> EndpointAddr {
+    EndpointAddr::from_parts(
+        pk,
+        relays
+            .urls::<Vec<RelayUrl>>()
+            .into_iter()
+            .map(TransportAddr::Relay),
+    )
+}
+
+/// The relays for a log line.
+pub(crate) fn relay_names(relays: &RelayMap) -> String {
+    let urls: Vec<String> = relays
+        .urls::<Vec<RelayUrl>>()
+        .iter()
+        .map(|u| u.to_string())
+        .collect();
+    urls.join(" ")
+}
+
 impl Config {
-    /// What the Launcher runs: the public relay, direct paths allowed, reflect on `127.0.0.1:20090`.
+    /// What the Launcher runs: [`public_relays`] (n0's as the fallback), direct paths allowed, reflect on
+    /// `127.0.0.1:20090`.
     pub fn public(gmsvr: SocketAddr, key: PathBuf, log: Log) -> Self {
-        let url: RelayUrl = RELAY_URL.parse().expect("RELAY_URL is a URL");
         Config {
             gmsvr,
             reflect: SocketAddrV4::new(Ipv4Addr::LOCALHOST, REFLECT_PORT),
-            relay: RelayMap::from(url),
+            relay: public_relays(),
             ca: None,
             relay_only: false,
             key,
@@ -77,8 +157,8 @@ impl Config {
 }
 
 impl Config {
-    /// Dials `url` instead of the public relay; `ca_pem` (a PEM file) is then the only trusted root. For a
-    /// self-hosted relay.
+    /// Uses only `url` instead of [`public_relays`], with no fallback; `ca_pem` (a PEM file) is then the only trusted
+    /// root. For a self-hosted relay.
     pub fn set_relay(&mut self, url: &str, ca_pem: Option<&Path>) -> Result<(), String> {
         let (relay, ca) = relay_from(url, ca_pem)?;
         self.relay = relay;
@@ -234,7 +314,7 @@ struct Shared {
     log: Log,
     ep: Endpoint,
     id: core::EndpointId,
-    relay: RelayUrl,
+    relay: RelayMap,
     reflect: Arc<UdpSocket>,
     gm: Gmsvr,
     st: Mutex<State>,
@@ -491,8 +571,7 @@ pub(crate) async fn watch_path(log: Log, conn: Connection) {
 
 impl Shared {
     async fn dial(self: Arc<Self>, id: core::EndpointId) {
-        let addr = PublicKey::from_bytes(&id)
-            .map(|pk| EndpointAddr::new(pk).with_relay_url(self.relay.clone()));
+        let addr = PublicKey::from_bytes(&id).map(|pk| relay_addr(pk, &self.relay));
         match addr {
             Ok(a) => match self.ep.connect(a, ALPN).await {
                 Ok(c) => self.adopt(c),
@@ -626,12 +705,10 @@ pub(crate) fn load_key(path: &Path) -> io::Result<SecretKey> {
 }
 
 async fn start(cfg: Config) -> io::Result<Arc<Shared>> {
-    let relay = cfg
-        .relay
-        .urls::<Vec<_>>()
-        .into_iter()
-        .next()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no relay URL"))?;
+    if cfg.relay.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "no relay URL"));
+    }
+    let relay = dial_relays(&cfg.relay);
     let transport = QuicTransportConfig::builder()
         .keep_alive_interval(KEEP_ALIVE)
         .max_idle_timeout(Some(IdleTimeout::try_from(IDLE).expect("60 s fits")))
@@ -667,13 +744,21 @@ async fn start(cfg: Config) -> io::Result<Arc<Shared>> {
         ticket: cfg.ticket,
     });
     sh.hello().await;
+    let fallback = fallback_for(&cfg.relay);
     (sh.log)(&format!(
-        "vslink {} on {} (relay {}{})",
+        "vslink {} on {} (relay {}{}{})",
         sh.ep.id().fmt_short(),
         sh.reflect.local_addr()?,
-        sh.relay,
+        relay_names(&cfg.relay),
+        if fallback.is_empty() {
+            ""
+        } else {
+            ", public relays if it does not answer"
+        },
         if cfg.relay_only { ", relay only" } else { "" }
     ));
+    let (ep, log) = (sh.ep.clone(), sh.log.clone());
+    tokio::spawn(async move { home_or_fall_back(&ep, &fallback, FALLBACK_AFTER, &log).await });
     Ok(sh)
 }
 
@@ -759,6 +844,52 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn public_relays_are_ours_with_n0_as_fallback_and_peers_are_dialled_through_both() {
+        let ours = public_relays();
+        assert_eq!(
+            ours.urls::<Vec<RelayUrl>>(),
+            [RELAY_URL.parse::<RelayUrl>().unwrap()]
+        );
+        let n0 = iroh::defaults::prod::default_relay_map();
+        assert_eq!(fallback_for(&ours), n0);
+        let mut c = Config::public("127.0.0.1:1".parse().unwrap(), "k".into(), Arc::new(|_| {}));
+        assert_eq!(c.relay, ours);
+        let dial = dial_relays(&ours);
+        assert_eq!(dial.len(), 1 + n0.len());
+        let pk = SecretKey::generate().public();
+        assert_eq!(relay_addr(pk, &dial).relay_urls().count(), dial.len());
+        // an override has no fallback
+        c.set_relay("https://relay.example:8443", None).unwrap();
+        assert!(fallback_for(&c.relay).is_empty());
+        assert_eq!(dial_relays(&c.relay), c.relay);
+    }
+
+    #[tokio::test]
+    async fn an_unreachable_relay_falls_back() {
+        let dead = RelayMap::from("http://127.0.0.1:1".parse::<RelayUrl>().unwrap());
+        let ep = Endpoint::builder(presets::Minimal)
+            .relay_mode(RelayMode::Custom(dead))
+            .clear_address_lookup()
+            .bind()
+            .await
+            .unwrap();
+        let lines = Arc::new(Mutex::new(Vec::<String>::new()));
+        let l = lines.clone();
+        let log: Log = Arc::new(move |s| l.lock().unwrap().push(s.to_owned()));
+        let wait = Duration::from_millis(500);
+        // no internet in CI: an unreachable stand-in for n0's relays, so only the decision is tested
+        let n0 = RelayMap::from("http://127.0.0.1:2".parse::<RelayUrl>().unwrap());
+        assert!(!home_or_fall_back(&ep, &RelayMap::empty(), wait, &log).await);
+        assert!(home_or_fall_back(&ep, &n0, wait, &log).await);
+        ep.close().await;
+        let lines = lines.lock().unwrap();
+        assert!(
+            lines[1].contains("using the public relays http://127.0.0.1:2"),
+            "{lines:?}"
+        );
+    }
 
     #[test]
     fn hello_with_and_without_a_room_ticket() {
