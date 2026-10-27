@@ -986,7 +986,10 @@ fn lobby_screens() {
         for s in lobby::Scenario::ALL {
             for lang in Lang::ALL {
                 let mut v = lobby::LobbyView::sample(s);
-                let mut h = harness(lobby::SIZE, ppp, Edition::E1718, |ui| {
+                // the LAN fold opens under the list: in the Launcher it is scrolled to
+                let lan = matches!(s, lobby::Scenario::LanList | lobby::Scenario::LanNone);
+                let size = lobby::SIZE + egui::vec2(0.0, if lan { 280.0 } else { 0.0 });
+                let mut h = harness(size, ppp, Edition::E1718, |ui| {
                     lobby::show(ui, &mut v, lang);
                 });
                 h.run_steps(8);
@@ -1094,4 +1097,38 @@ fn lobby_shop_rooms() {
     h.key_press(egui::Key::Escape);
     h.run_steps(2);
     assert_eq!(got.take(), Some(Leave));
+}
+
+/// The LAN fold: HOST LAN SHOP, a found shop's JOIN and a typed address's JOIN each give their action; hosting hides it.
+#[test]
+fn lobby_lan() {
+    use lobby::LobbyAction::*;
+    let _gpu = gpu();
+    let v = std::cell::RefCell::new(lobby::LobbyView::sample(lobby::Scenario::LanList));
+    let got = std::cell::RefCell::new(None);
+    let size = lobby::SIZE + egui::vec2(0.0, 280.0);
+    let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+        if let Some(a) = lobby::show(ui, &mut v.borrow_mut(), Lang::En) {
+            *got.borrow_mut() = Some(a);
+        }
+    });
+    h.run_steps(4);
+    h.get_by_label("HOST LAN SHOP").click();
+    h.run_steps(2);
+    assert_eq!(got.take(), Some(HostLan));
+    // the JOINs: the code row's and the list's (both greyed), the two found shops', the typed address's
+    let joins: Vec<_> = h.get_all_by_label("JOIN").collect();
+    assert_eq!(joins.len(), 5);
+    joins[2].click();
+    h.run_steps(2);
+    assert_eq!(got.take(), Some(JoinLan("192.168.1.20".into())));
+    v.borrow_mut().lan_address = " 10.0.0.7:20031 ".into();
+    h.run_steps(2);
+    let last = h.get_all_by_label("JOIN").last().unwrap();
+    last.click();
+    h.run_steps(2);
+    assert_eq!(got.take(), Some(JoinLan("10.0.0.7:20031".into())));
+    v.borrow_mut().hosting = true;
+    h.run_steps(2);
+    assert!(h.query_by_label("HOST LAN SHOP").is_none());
 }

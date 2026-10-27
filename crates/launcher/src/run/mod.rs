@@ -208,7 +208,7 @@ pub enum Kind {
 
 impl Kind {
     fn of(mode: &Mode) -> Self {
-        if *mode == Mode::Server { Self::Server } else { Self::Run }
+        if mode.is_server() { Self::Server } else { Self::Run }
     }
 
     fn name(self) -> &'static str {
@@ -1369,12 +1369,12 @@ impl Run<'_> {
             }
         }
         // the card reader is not running yet in any mode; nor FPR_Emu or the overlay, which read the table
-        if self.mode == Mode::Server {
+        if self.mode.is_server() {
             self.card_steps(&["start"]);
         } else {
             self.card_steps(&["start", "board"]);
         }
-        let steps = if self.mode == Mode::Server { 2 } else { 6 };
+        let steps = if self.mode.is_server() { 2 } else { 6 };
         let confs = [
             self.game.join(r"local\client_user_option.conf"),
             self.seat.join(r"local\client_user_option.conf"),
@@ -1384,7 +1384,7 @@ impl Run<'_> {
             self.edition.name(),
             self.game.display(),
             match &self.mode {
-                Mode::Server => " (server only)".to_owned(),
+                Mode::Server | Mode::LanServer => " (server only)".to_owned(),
                 Mode::Remote(ip, _) => format!(" (on the server at {ip})"),
                 Mode::Vs(_) => " (online VS)".to_owned(),
                 Mode::Local => String::new(),
@@ -1505,7 +1505,7 @@ impl Run<'_> {
                 self.job_count(p.matcher())
             ));
         }
-        if self.mode == Mode::Server {
+        if self.mode.is_server() {
             return self.start_server_side();
         }
 
@@ -1574,11 +1574,13 @@ impl Run<'_> {
         ]);
         // 2017-18: guests come through the shop tunnel, so the desk and relay listen on loopback only (no firewall
         // prompt, nothing open on the LAN) unless data\settings.json "shop_lan": true asks for the plain-address path
-        let lan = self.edition == Edition::E1011 || self.kit.settings()["shop_lan"].as_bool() == Some(true);
+        // `server lan` (2017-18): this network only - no tunnel, no lobby room, LAN searches answered
+        let lan_only = self.edition == Edition::E1718 && self.mode == Mode::LanServer;
+        let lan = lan_only || self.edition == Edition::E1011 || self.kit.settings()["shop_lan"].as_bool() == Some(true);
         if !lan {
             env.push(("WCCF_BIND".to_owned(), "127.0.0.1".to_owned()));
         }
-        if self.edition == Edition::E1718 {
+        if self.edition == Edition::E1718 && !lan_only {
             // every tunnel guest reaches the desk as 127.0.0.1: no per-address limits there
             env.push(("WCCF_DESK_TUNNEL".to_owned(), "1".to_owned()));
         }
@@ -1587,6 +1589,11 @@ impl Run<'_> {
         if self.edition == Edition::E1718 {
             // this PC's game server is the run's own stand-in (start_gamesvr)
             cmd.arg("--no-gmsvr");
+        }
+        if lan_only {
+            // the name guests see in their list: this PC's
+            cmd.arg("--lan")
+                .arg(env::var("COMPUTERNAME").unwrap_or_else(|_| "Forza-WCCF".into()));
         }
         cmd.arg((LIFE.as_secs() + 60).to_string()).arg(&logs);
         clean_env(&mut cmd, &logs, &env);
@@ -1615,6 +1622,21 @@ impl Run<'_> {
                 }
             ));
             self.say(&format!("     match relay: UDP {}", self.p.relay_port));
+            if lan_only {
+                let ips: Vec<String> = forza::online::lan::addresses()
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect();
+                self.say(&format!(
+                    "     LAN shop: found by searches on UDP {}; this PC's address: {}",
+                    forza::online::lan::PORT,
+                    if ips.is_empty() {
+                        "none found".into()
+                    } else {
+                        ips.join(", ")
+                    }
+                ));
+            }
             if self.edition == Edition::E1011 {
                 self.say(&format!(
                     "     log inbox: TCP {} (logs go to data\\player_logs)",
@@ -1626,7 +1648,7 @@ impl Run<'_> {
                 "     the {role} did not start or ended (data\\logs\\{out}, seat_broker.txt, match_relay.txt, log_inbox.txt)"
             ));
         }
-        if self.edition == Edition::E1718 {
+        if self.edition == Edition::E1718 && !lan_only {
             // guests reach this shop through iroh: no inbound port; the plain address stays the LAN fallback
             if let Err(Failed(why)) = self.start_shop_tunnel(vslink::shop::Role::Host) {
                 self.say(&format!("     shop tunnel: off ({why})"));
@@ -1640,7 +1662,10 @@ impl Run<'_> {
         }
         self.write_running();
         self.say("");
-        self.say(if self.edition == Edition::E1718 && !lan {
+        self.say(if lan_only {
+            "Server running. On each player's PC on this network: JOIN LAN in the Launcher, or Launcher.exe remote \
+             ADDRESS; this PC's own seat: Launcher.exe remote 127.0.0.1."
+        } else if self.edition == Edition::E1718 && !lan {
             "Server running. On each player's PC run: Launcher.exe remote SHOP-ID (the id above); this PC's own seat: \
              Launcher.exe remote 127.0.0.1."
         } else {
@@ -2270,7 +2295,7 @@ impl Run<'_> {
     fn refusal(&self, force: bool) -> Option<String> {
         // a server has no seat of its own, so the card rule never holds it: a shop server's matches are its tunnel's
         // guests' (still connected even when the lobby lost the room) and this PC's seat beside it
-        if self.mode == Mode::Server
+        if self.mode.is_server()
             && let Some(g) = &self.shop_guests
         {
             return rules::shop_rule(force, is_on(self.kit, Kind::Run), g.load(Ordering::Relaxed));
@@ -2292,7 +2317,7 @@ impl Run<'_> {
         self.gone.push(g.role);
         if g.role == Role::Server {
             self.say("The server ended (see data\\logs\\run_server.txt).");
-            if self.mode == Mode::Server {
+            if self.mode.is_server() {
                 return Some(self.finish(false, "The server has ended."));
             }
             return None;
@@ -2527,7 +2552,9 @@ impl Run<'_> {
         let mut out = Vec::new();
         match &self.mode {
             Mode::Remote(ip, _) => out.push(format!("playing on the server at {ip} as seat {}", self.seat_no)),
-            Mode::Server => out.push(format!("this PC is the server (TCP port {})", self.p.control_port)),
+            Mode::Server | Mode::LanServer => {
+                out.push(format!("this PC is the server (TCP port {})", self.p.control_port))
+            }
             Mode::Local => out.push("playing on this PC".into()),
             Mode::Vs(_) => out.push("playing on this PC, VS through the server".into()),
         }
