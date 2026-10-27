@@ -9,7 +9,7 @@
 
 use super::vs::{self, Matcher, VsConfig};
 use crate::service::{Handle, Log, accept_loop, read_some};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use std::collections::HashMap;
 use std::io::{self, IoSlice, Write};
 use std::net::{IpAddr, TcpListener, TcpStream};
@@ -295,7 +295,7 @@ pub fn header(cmd: u16, seq: u16, status: u32, size: usize, conn: u32) -> [u8; 4
     h
 }
 
-fn u32_at(b: &[u8], at: usize) -> u32 {
+pub(super) fn u32_at(b: &[u8], at: usize) -> u32 {
     u32::from_le_bytes(b[at..at + 4].try_into().unwrap())
 }
 
@@ -303,11 +303,11 @@ fn u16_at(b: &[u8], at: usize) -> u16 {
     u16::from_le_bytes([b[at], b[at + 1]])
 }
 
-fn put(b: &mut [u8], at: usize, v: u32) {
+pub(super) fn put(b: &mut [u8], at: usize, v: u32) {
     b[at..at + 4].copy_from_slice(&v.to_le_bytes());
 }
 
-fn now() -> i64 {
+pub(super) fn now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64)
@@ -316,7 +316,7 @@ fn now() -> i64 {
 /// The revision the control writes into every request.
 const REVISION: u32 = 47565;
 /// The club's save block: SAVE_DATA_SET +28, SAVE_DATA +8.
-const BLOCK: usize = 3072;
+pub(super) const BLOCK: usize = 3072;
 /// Raw request files kept in `save_dir` as evidence; older ones are deleted.
 const KEEP_FILES: usize = 200;
 /// The card master `prog_data\player_data\player_data.bin`: records of 0x620 bytes, +648 u16 the card number, +0x5DD
@@ -357,7 +357,7 @@ fn live_chunk_size(idx: u32) -> u32 {
 }
 
 /// SAVE_DATA_SET's server-side summary starts here; the store keeps +3,100..+8,572.
-const TAIL: usize = 3100;
+pub(super) const TAIL: usize = 3100;
 
 /// A stored club: block, version, size, and the whole stored 277 (empty = none since the `requests` table).
 type Saved = (Vec<u8>, u16, u16, Vec<u8>);
@@ -434,7 +434,7 @@ const SKIP_CLUB: &[u8] =
     b"\x82\x65\x82\x6E\x82\x71\x82\x79\x82\x60\x81\x40\x82\x76\x82\x62\x82\x62\x82\x65";
 
 /// Writes `value` into the low `width` bits at `bit` of a bit-packed block (bit 0 = most significant bit of byte 0).
-fn put_bits(block: &mut [u8], bit: usize, width: usize, value: u32) {
+pub(super) fn put_bits(block: &mut [u8], bit: usize, width: usize, value: u32) {
     for i in 0..width {
         let (byte, mask) = ((bit + i) / 8, 0x80 >> ((bit + i) % 8));
         if value >> (width - 1 - i) & 1 == 1 {
@@ -446,7 +446,7 @@ fn put_bits(block: &mut [u8], bit: usize, width: usize, value: u32) {
 }
 
 /// The `width`-bit field at `bit` of a save block, most significant bit first (put_bits' reverse).
-fn get_bits(block: &[u8], bit: usize, width: usize) -> u32 {
+pub(super) fn get_bits(block: &[u8], bit: usize, width: usize) -> u32 {
     (0..width).fold(0, |v, i| {
         v << 1 | u32::from(block[(bit + i) / 8] >> (7 - (bit + i) % 8) & 1)
     })
@@ -464,7 +464,7 @@ struct Club {
 }
 
 /// The clubs and their saves, `<save_dir>/gamesvr.db`. Ids are allocated from counters and never 0.
-pub struct Store(Connection);
+pub struct Store(pub(super) Connection);
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS coaches (
@@ -504,6 +504,13 @@ CREATE TABLE IF NOT EXISTS purchases (
     aime_id INTEGER NOT NULL,
     at      INTEGER NOT NULL,
     payload BLOB    NOT NULL
+);
+-- a shop guest's club imported for the session (online::club): its Aime id, the token that owns it, its seat
+CREATE TABLE IF NOT EXISTS guests (
+    aime_id INTEGER PRIMARY KEY,
+    token   TEXT    NOT NULL,
+    seat    INTEGER NOT NULL,
+    since   INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS requests (
     aime_id  INTEGER NOT NULL,
@@ -576,7 +583,7 @@ fn migrate(db: &mut Connection) -> rusqlite::Result<()> {
 }
 
 /// Next id from counter `name` (1, 2, ...), inside the caller's transaction.
-fn next_id(db: &Connection, name: &str) -> rusqlite::Result<u32> {
+pub(super) fn next_id(db: &Connection, name: &str) -> rusqlite::Result<u32> {
     db.query_row(
         "INSERT INTO ids VALUES (?1, 1) ON CONFLICT (name) DO UPDATE SET last = last + 1 RETURNING last",
         [name],
@@ -590,6 +597,9 @@ impl Store {
         // WAL: a commit appends to gamesvr.db-wal; NORMAL syncs at checkpoints, so a power cut can lose the last
         // commits but never corrupts the store
         db.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
+        // the shop host's desk writes guests' clubs from another process: take the write lock at BEGIN, so a
+        // read-then-write transaction waits for the other (busy timeout) instead of failing on a stale snapshot
+        db.set_transaction_behavior(TransactionBehavior::Immediate);
         db.execute_batch(SCHEMA)?;
         // stores made before `titles` existed
         let has: bool = db.query_row(
@@ -1026,6 +1036,15 @@ fn club(
         _ => unreachable!("listed above"),
     }
     Ok(())
+}
+
+/// Tests elsewhere in `online` (club): one request answered from `store` with no VS and no skip club; the answer
+/// and the store's refusal.
+#[cfg(test)]
+pub(super) fn ask_for_test(store: &Mutex<Store>, cmd: u16, p: &[u8]) -> (Vec<u8>, Option<String>) {
+    let log: Log = Arc::new(|_: &str| {});
+    let (_, body, why) = answer(cmd, p, store, None, &[], None, &log).unwrap();
+    (body, why)
 }
 
 /// The response to one request: (command, payload, the store's refusal if any), or `None` for a command the table

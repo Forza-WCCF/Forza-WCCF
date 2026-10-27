@@ -95,6 +95,17 @@ impl Db {
         self.len() == 0
     }
 
+    /// The card's Aime id in this PC's own store (its mapping from before the hash, else the hash), read only: a
+    /// shop guest's home club is found and written back under it (online::club).
+    pub fn home_id(&self, code: &str) -> i32 {
+        self.cards
+            .lock()
+            .unwrap()
+            .get(code)
+            .copied()
+            .unwrap_or_else(|| hash_id(code))
+    }
+
     pub fn aime_id(&self, code: &str) -> i32 {
         let mut cards = self.cards.lock().unwrap();
         if !cards.contains_key(code) {
