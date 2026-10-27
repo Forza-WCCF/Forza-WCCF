@@ -545,6 +545,7 @@ lobby.grey_shops_1718: {en: "SHOPS for 2017-18 are not available yet.", it: "Le 
 lobby.grey_vs_1011: {en: "VS ROOMS for 2010-11 are not available yet.", it: "Le SFIDE VS per 2010-11 non sono ancora disponibili.", ja: "2010-11 の対戦ルームはまだ利用できません。"}
 lobby.host_shop: {en: "HOST SHOP", it: "APRI SALA", ja: "店舗を開く"}
 lobby.room_code: {en: "Room code", it: "Codice stanza", ja: "ルームコード"}
+lobby.list_shop: {en: "List my shop", it: "Elenca la mia sala", ja: "店舗を一覧に表示"}
 lobby.opening: {en: "Opening the shop…", it: "Apertura della sala…", ja: "店舗を開いています…"}
 lobby.shop_howto: {en: "Both players: card in during the same ENTRY, then Arrange Fixture → Set opponent.", it: "Entrambi: inserite la carta nella stessa ENTRY, poi Arrange Fixture → Set opponent.", ja: "二人とも同じエントリー中にカードを入れ、Arrange Fixture → Set opponent を選びます。"}
 lobby.joining: {en: "Joining %{code}…", it: "Ingresso in %{code}…", ja: "%{code} に参加しています…"}

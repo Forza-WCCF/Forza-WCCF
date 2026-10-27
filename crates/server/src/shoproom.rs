@@ -2,8 +2,9 @@
 //! where ID is its shop tunnel's iroh EndpointId. A room is private: guests join with its code alone (`JOIN CODE
 //! [n]`, seats 2-8), which the host passes on; `RESERVE` of a room's id gives nothing. A guest's ticket then gets the
 //! host's id through `SHOP t own-id`, the host's ticket the ids of the guests that asked, so each tunnel end learns
-//! the other's id from the room alone. `LOBBY` lists only `public` rooms, as a shop row with x/8 and never the code,
-//! so nothing in it lets a stranger join. Sans-IO: the desk passes the clock, the random ids and tickets in.
+//! the other's id from the room alone. `LOBBY` lists only `public` rooms, as a shop row with x/8 and never the code;
+//! `JOIN` of a public row's id seats a guest too (the host chose to list it), a private room's id joins nothing.
+//! Sans-IO: the desk passes the clock, the random ids and tickets in.
 
 pub use forza::online::lobby::Peers;
 use forza::online::lobby::{Reserved, Shop, State as ShopState};
@@ -79,9 +80,13 @@ impl ShopRooms {
         self.rooms.is_empty()
     }
 
-    /// Whether `id` or `code` is a room's already (the desk draws again).
+    /// Whether `id` or `code` is a room's id or code already (the desk draws again): `JOIN` takes either.
     pub fn holds(&self, id: &str, code: &str) -> bool {
-        self.rooms.iter().any(|r| r.id == id || r.code == code)
+        self.rooms.iter().any(|r| {
+            [&r.id, &r.code]
+                .iter()
+                .any(|k| k.eq_ignore_ascii_case(id) || k.eq_ignore_ascii_case(code))
+        })
     }
 
     /// Whether `id` is a shop room's (its `RESERVE` answers `CLOSED`: a room is joined by code).
@@ -147,14 +152,12 @@ impl ShopRooms {
         });
     }
 
-    /// `JOIN CODE [n]`: the lowest free guest seat (or n) of the room with that code (any case), `FULL`, `TAKEN`, or
-    /// `CLOSED` (no such code).
+    /// `JOIN CODE|ID [n]`: the lowest free guest seat (or n) of the room with that code, or of the public room with
+    /// that id (any case), `FULL`, `TAKEN`, or `CLOSED` (no such code or public id).
     pub fn join(&mut self, code: &str, seat: Option<u8>, ticket: String, end: Instant) -> Reserved {
-        let Some(r) = self
-            .rooms
-            .iter_mut()
-            .find(|r| r.code.eq_ignore_ascii_case(code))
-        else {
+        let Some(r) = self.rooms.iter_mut().find(|r| {
+            r.code.eq_ignore_ascii_case(code) || (r.public && r.id.eq_ignore_ascii_case(code))
+        }) else {
             return Reserved::Closed;
         };
         let busy = |n: u8| r.seats.iter().any(|s| s.seat == n);
@@ -240,7 +243,7 @@ impl ShopRooms {
         closed
     }
 
-    /// The public rooms as lobby rows: id (which joins nothing), seats taken of 8. Never the code.
+    /// The public rooms as lobby rows: id (which `JOIN` takes), seats taken of 8. Never the code.
     pub fn listed(&self) -> Vec<Shop> {
         self.rooms
             .iter()
@@ -259,6 +262,7 @@ impl ShopRooms {
                     },
                     next_entry: None,
                     lang: None,
+                    room: true,
                 }
             })
             .collect()
@@ -394,12 +398,14 @@ mod tests {
         assert_eq!(r.leave(None, "th"), None);
     }
 
-    /// Private rooms are not listed; a public one shows x/8 and an id that joins nothing, never the code, a tunnel id
-    /// or a ticket.
+    /// Private rooms are not listed and their id joins nothing; a public one shows x/8 and its id, never the code, a
+    /// tunnel id or a ticket.
     #[test]
-    fn lobby_rows_let_nobody_join() {
-        let (r, _, _) = room(false);
+    fn lobby_rows_show_no_secret() {
+        let (mut r, now, _) = room(false);
         assert!(r.listed().is_empty(), "private by default");
+        let end = now + Duration::from_secs(60);
+        assert_eq!(r.join("r1", None, "tx".into(), end), Reserved::Closed);
         let (mut r, now, host) = room(true);
         r.join("K7QMZDRX", None, "tg".into(), now + Duration::from_secs(60));
         r.peers("tg", Some(&key(2)));
