@@ -64,8 +64,9 @@ builds on plain Linux (`cargo build --release -p forza-server`).
    - A new worktree builds every crate from zero. Share the dependencies between worktrees with
      [sccache](https://github.com/mozilla/sccache) (`cargo install sccache --locked`; `cargo xtask` finds it on `PATH`
      or in `%USERPROFILE%\.cargo\bin` and sets `RUSTC_WRAPPER` itself, even from WSL, where `setx` variables are not
-     seen; not under `CI`, and `FORZA_NO_SCCACHE=1` turns it off; it then builds non-incremental, so sccache can serve
-     it), or with one output
+     seen; not under `CI`, and `FORZA_NO_SCCACHE=1` turns it off). It caches the dependencies; the `fast` profile
+     keeps the workspace crates incremental, the other profiles build them non-incremental so sccache can serve them.
+     Or share the dependencies with one output
      folder (`setx CARGO_TARGET_DIR E:\cargo-target`): the kits stay in each worktree's `target\`, but two builds
      in two worktrees then wait for each other. Add that folder to the Defender exclusions too.
 

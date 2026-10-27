@@ -105,12 +105,12 @@ fn pick_profile(mode: Option<&str>, fast: bool, release: bool, in_ci: bool) -> &
     }
 }
 
-/// The build runs under CI (GitHub sets `CI`).
+/// The build runs under CI (GitHub sets `CI=true`); an empty or `0` value is not CI.
 fn in_ci() -> bool {
-    std::env::var_os("CI").is_some()
+    std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "0")
 }
 
-/// Sets `NO_INCREMENTAL` when cargo will run with a wrapper: RUSTC_WRAPPER from the environment (empty = off), else
+/// Sets `NO_INCREMENTAL` when cargo will run with a wrapper (except in the `fast` profile, see `rust`): RUSTC_WRAPPER from the environment (empty = off), else
 /// sccache from PATH or the cargo home's `bin`, unless CI is set or `FORZA_NO_SCCACHE=1` (Windows processes started from
 /// WSL do not see the user's `setx` variables, so the variable alone left most local builds without it).
 fn use_sccache() {
@@ -411,7 +411,9 @@ fn rust(sub: &str, root: &Path) -> Command {
     if let Some(w) = WRAPPER.get() {
         c.env("RUSTC_WRAPPER", w);
     }
-    if NO_INCREMENTAL.load(Ordering::Relaxed) {
+    // the `fast` profile stays incremental: sccache serves the dependencies either way (cargo never compiles those
+    // incrementally), and an incremental rebuild of the changed workspace crate beats a whole one (measured)
+    if NO_INCREMENTAL.load(Ordering::Relaxed) && profile() != "fast" {
         c.env("CARGO_INCREMENTAL", "0");
     }
     c
@@ -624,9 +626,15 @@ fn built_stamp(kit: &Path) -> PathBuf {
 /// The staged kit is missing, or a source it is built from changed after the last `build_all` started (a branch switch
 /// counts: git writes the files). shortcut: a deleted file is not seen, `cargo xtask build` by hand then.
 fn kit_stale(root: &Path, kit: &Path) -> Result<bool> {
+    // the stamp sits outside the edition folders: a kit folder deleted by hand leaves it behind
     let Ok(built) = fs::metadata(built_stamp(kit)).and_then(|m| m.modified()) else {
         return Ok(true);
     };
+    if !kit.join("source/build/fakegame.exe").is_file()
+        || !kit.join("programs/forza_panel.dll").is_file()
+    {
+        return Ok(true);
+    }
     let sh = Shell::new()?;
     sh.change_dir(root);
     let dirs = [
@@ -944,7 +952,7 @@ fn quick(root: &Path, kit: &Path, kit_1718: &Path, base: &str) -> Result<()> {
         return Ok(());
     }
     if needs_kit && kit_stale(root, kit)? {
-        println!("quick: the staged kit is missing or older than the sources: cargo xtask build");
+        println!("quick: the staged kit is missing or older than the sources: rebuilding it");
         build_all(root, kit, kit_1718)?;
     }
     let runs = target_scopes(&scope);
