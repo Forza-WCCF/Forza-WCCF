@@ -6,6 +6,8 @@ Not released yet
   - SAVE LOGS replaces SEND LOGS everywhere: the panel, the crash screen and Report a problem save
     forza-wccf-logs-DATE-TIME.zip in your Downloads folder and show where. Send the file yourself (Discord, a GitHub
     issue); after a report, a link opens a GitHub issue with the versions filled in. Servers collect no logs.
+  - A tidier install folder: only Launcher.exe, the READMEs, CHANGES.txt, game\ and data\ stay at the top;
+    everything else is in app\. After the update, Launcher.exe moves an older install's folders there when it starts.
 
 0.4.1 - 2026-10-26 (alpha)
 --------------------------

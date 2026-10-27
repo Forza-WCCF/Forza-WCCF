@@ -36,7 +36,7 @@ Everything shipped is Rust, in one Cargo workspace. Windows builds the kits with
    all when the run ends.
 3. In the game's processes:
    - **2017–18:** the programs import `wccfnet.dll` instead of `IPHLPAPI.DLL`; it stubs the four calls that change
-     the host's network and loads the panel into seat 1 and the projector. `bin\winmm.dll` (hook, `e1718`) stands in
+     the host's network and loads the panel into seat 1 and the projector. `app\bin\winmm.dll` (hook, `e1718`) stands in
      for the cabinet's hardware; `ICMP.DLL` answers the cabinet-network pings at once.
    - **2010–11:** each program's `WINMM.dll` import points at `wccfk.dll` (hook, `e1011`), which blocks the DHCP
      release and renew, stands in for the hardware and fixes the server's message handling; `inject.exe` loads the
