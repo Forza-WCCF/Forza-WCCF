@@ -57,10 +57,11 @@ fn exchange(c: &mut TcpStream, req: &[u8], split: usize, want: usize) -> Vec<u8>
     }
 }
 
+/// `ask` waits on this read timeout: 400 ms timed out (Windows os error 10060) while a busy runner served a stand-in
+/// opening or committing its SQLite store, so it matches the 10 s that `exchange` gives a slow stand-in.
 fn connect(l: &TcpListener) -> TcpStream {
     let c = TcpStream::connect(l.local_addr().unwrap()).unwrap();
-    c.set_read_timeout(Some(Duration::from_millis(400)))
-        .unwrap();
+    c.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
     c
 }
 
