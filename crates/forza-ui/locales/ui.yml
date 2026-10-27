@@ -553,6 +553,13 @@ lobby.room_desk: {en: "Room on %{desk}", it: "Stanza su %{desk}", ja: "ルーム
 lobby.room_lost: {en: "The lobby lost this room: nobody new can join.", it: "La lobby ha perso questa stanza: nessun altro può entrare.", ja: "ロビーがこのルームを失いました。新しい参加はできません。"}
 lobby.room_full: {en: "That room is full.", it: "Quella stanza è piena.", ja: "そのルームは満員です。"}
 lobby.shop_closed: {en: "The host has left: the shop is closed.", it: "L'host è uscito: la sala è chiusa.", ja: "ホストが退出しました：店舗は閉じています。"}
+lobby.lan: {en: "LAN", it: "Rete locale (LAN)", ja: "LAN（同じネットワーク）"}
+lobby.lan_found: {en: "%{n} found", it: "%{n} trovate", ja: "%{n} 件"}
+lobby.host_lan: {en: "HOST LAN SHOP", it: "APRI SALA LAN", ja: "LAN で店舗を開く"}
+lobby.lan_type: {en: "Host address", it: "Indirizzo host", ja: "ホストのアドレス"}
+lobby.lan_none: {en: "No shop found on this network. Not listed? Type the host's address, or allow Forza-WCCF in Windows Firewall on the host PC.", it: "Nessuna sala trovata in questa rete. Non c'è? Scrivi l'indirizzo dell'host, o consenti Forza-WCCF in Windows Firewall sul PC dell'host.", ja: "このネットワークに店舗が見つかりません。表示されないときは、ホストのアドレスを入力するか、ホストの PC の Windows ファイアウォールで Forza-WCCF を許可してください。"}
+lobby.lan_address: {en: "This PC's address", it: "Indirizzo di questo PC", ja: "この PC のアドレス"}
+lobby.lan_host_hint: {en: "Players on this network: LAN, then JOIN this PC, or type this address.", it: "Chi è su questa rete: LAN, poi ENTRA su questo PC, o scrive questo indirizzo.", ja: "同じネットワークのプレイヤー：LAN からこの PC に参加するか、このアドレスを入力します。"}
 lobby.wait_opponent: {en: "Waiting for an opponent…", it: "In attesa di un avversario…", ja: "対戦相手を待っています…"}
 lobby.both_ready_in: {en: "Both ready: starting in %{s} s", it: "Entrambi pronti: si parte tra %{s} s", ja: "両者準備OK：%{s} 秒後に開始します"}
 lobby.starting_in: {en: "Starting in %{s} s", it: "Si parte tra %{s} s", ja: "%{s} 秒後に開始します"}

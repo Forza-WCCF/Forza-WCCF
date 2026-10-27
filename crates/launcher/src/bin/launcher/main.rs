@@ -79,8 +79,8 @@ enum Step {
     /// The card pictures (launcher::run::make_pictures), after setup and when the pictures choice changes
     Pictures,
     /// HOST SHOP (2017-18): the server with its shop room, then this PC's seat on it; the server ends after the seat, once
-    /// no guest is connected
-    Host,
+    /// no guest is connected. `true`: HOST LAN SHOP, the server for this network only (`server lan`), no room
+    Host(bool),
 }
 
 /// What the worker threads tell the window; each change wakes it (`poke`).
@@ -103,6 +103,8 @@ struct Shared {
     report_done: Option<Result<String, String>>, // the report's number, or why it did not go (the player's words)
     // HOST SHOP: the shop room's code, its lobby server and the flag set when that lobby loses it
     host_room: Option<(String, String, Arc<AtomicBool>)>,
+    // the LAN fold: the shops the last search found (forza::online::lan)
+    lan_found: Option<Vec<forza::online::lan::Found>>,
 }
 
 static SHARED: Mutex<Shared> = Mutex::new(Shared {
@@ -123,6 +125,7 @@ static SHARED: Mutex<Shared> = Mutex::new(Shared {
     report_open: None,
     report_done: None,
     host_room: None,
+    lan_found: None,
 });
 
 /// The game is up in this process (its run is supervised here): the window is minimized, closing it asks the run to stop.
@@ -294,7 +297,7 @@ fn start(steps: Vec<Step>) -> bool {
         // a game start shows the weighted bar and the clock from the first second
         s.steps = steps
             .iter()
-            .any(|x| matches!(x, Step::Game(_) | Step::Host))
+            .any(|x| matches!(x, Step::Game(_) | Step::Host(_)))
             .then_some((0, 6));
         s.host_room = None;
         s.began = Some(Instant::now());
@@ -347,7 +350,7 @@ fn start(steps: Vec<Step>) -> bool {
                     }
                     Ok(())
                 }
-                Step::Host => host_shop(&kit).map(|rc| {
+                Step::Host(lan) => host_shop(&kit, *lan).map(|rc| {
                     game = Some(u8::try_from(rc).unwrap_or(1));
                     if rc == run::WENT_WRONG {
                         shared().report_open = Some(true);
@@ -392,16 +395,22 @@ fn start(steps: Vec<Step>) -> bool {
 /// HOST SHOP: the server on a thread of its own until its shop room is made (or not), then this PC's seat on it as a
 /// `remote 127.0.0.1` run would (first, so it gets the projector); when that run ends, the server is asked to stop, which
 /// it does once no guest is connected; that closes the room. The seat's exit code, or why there is no room.
-fn host_shop(kit: &Kit) -> Result<i32, String> {
-    log("> server, then remote 127.0.0.1 (HOST SHOP)");
+/// `lan`: HOST LAN SHOP, `server lan` (no tunnel, no room, found by LAN searches).
+fn host_shop(kit: &Kit, lan: bool) -> Result<i32, String> {
+    log(if lan {
+        "> server lan, then remote 127.0.0.1 (HOST LAN SHOP)"
+    } else {
+        "> server, then remote 127.0.0.1 (HOST SHOP)"
+    });
     let (tx, rx) = std::sync::mpsc::channel();
     let server = thread::spawn(move || {
         let kit = Kit::here();
         let p = Params::of(&kit);
-        let Ok(r) = run::start(&kit, &p, run::Mode::Server, false, &ServerUi) else {
+        let mode = if lan { run::Mode::LanServer } else { run::Mode::Server };
+        let Ok(r) = run::start(&kit, &p, mode, false, &ServerUi) else {
             return; // what went wrong is in OUTPUT
         };
-        let _ = tx.send((r.shop_code(), r.shop_guests()));
+        let _ = tx.send((if lan { Ok(None) } else { r.shop_code().map(Some) }, r.shop_guests()));
         let _ = r.supervise();
     });
     let stop = |server: thread::JoinHandle<()>| {
@@ -410,7 +419,9 @@ fn host_shop(kit: &Kit) -> Result<i32, String> {
     };
     match rx.recv() {
         Ok((Ok(room), guests)) => {
-            shared().host_room = Some(room);
+            // shortcut: a LAN shop counts no guests (they come by plain address, not the tunnel), so it closes once
+            // this PC's seat has ended; count the desk's seats if LAN guests are cut off in practice
+            shared().host_room = room;
             poke();
             let mode = run::Mode::Remote("127.0.0.1".into(), None);
             let rc = run::play(kit, &Params::of(kit), Some(mode), false, &WindowUi);
@@ -705,7 +716,12 @@ struct App {
     st: LauncherState,
     releases: Vec<Release>,
     online: online::Online,
+    /// When the LAN fold's last search started.
+    lan_at: Option<Instant>,
 }
+
+/// The LAN fold searches this often while it is open.
+const LAN_EVERY: Duration = Duration::from_secs(4);
 
 impl App {
     /// The state as the kit has it now; `folder` given (dropped on Launcher.exe) opens SETUP.
@@ -772,6 +788,7 @@ impl App {
             st,
             releases: Vec::new(),
             online: online_state,
+            lan_at: None,
         }
     }
 
@@ -849,7 +866,9 @@ impl App {
         }
         if !self.st.busy {
             self.st.lobby.hosting = false;
+            self.st.lobby.host_lan = None;
         }
+        self.find_lan();
         // the VS room's countdown ran out, or a shop code got this PC a seat: the run starts
         let go = self
             .online
@@ -1059,7 +1078,26 @@ impl App {
                     }
                     self.st.lobby.hosting = true;
                     self.st.lobby.notice = None;
-                    start(vec![Step::Host]);
+                    start(vec![Step::Host(false)]);
+                }
+            }
+            Action::Lobby(LobbyAction::HostLan) => {
+                if !self.st.busy && !self.st.running {
+                    let ips = forza::online::lan::addresses()
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect();
+                    self.st.lobby.host_lan = Some(ips);
+                    self.st.lobby.hosting = true;
+                    self.st.lobby.notice = None;
+                    start(vec![Step::Host(true)]);
+                }
+            }
+            Action::Lobby(LobbyAction::JoinLan(address)) if !self.st.busy && !self.st.running => {
+                if launcher::lobby::valid_server(&address) {
+                    self.play(&kit, vec!["remote".into(), address.into()]);
+                } else {
+                    refuse(t("launcher.msg_bad_address"));
                 }
             }
             // LEAVE while hosting: the seat stops by the card rule; the server (and the room) after it, never under its
@@ -1088,6 +1126,37 @@ impl App {
     /// After an update, when the new Launcher.exe could not be started: the same steps in this process.
     fn set_up_after_update(&self, kit: &Kit) -> bool {
         start(after_update_steps(kit, self.st.folder.trim()))
+    }
+
+    /// The LAN fold, open in ONLINE: a search every few seconds on a thread of its own, its answers into the list.
+    fn find_lan(&mut self) {
+        if let Some(found) = shared().lan_found.take() {
+            self.st.lobby.lan = found
+                .into_iter()
+                .map(|f| forza_ui::lobby::LanShop {
+                    address: if f.desk_port == forza::online::SEAT_PORT {
+                        f.ip.to_string()
+                    } else {
+                        format!("{}:{}", f.ip, f.desk_port)
+                    },
+                    name: f.name,
+                })
+                .collect();
+        }
+        let v = &self.st.lobby;
+        if !(self.st.online && v.lan_open && !v.hosting) || self.lan_at.is_some_and(|t| t.elapsed() < LAN_EVERY) {
+            return;
+        }
+        self.lan_at = Some(Instant::now());
+        thread::spawn(|| {
+            let lan = forza::online::lan::find(
+                forza::online::lan::PORT,
+                forza::online::lan::E1718,
+                Duration::from_secs(1),
+            );
+            shared().lan_found = Some(lan.unwrap_or_default());
+            poke();
+        });
     }
 
     /// PLAY: the choices into data\panel.txt, then the run (`words` empty: what the choices say; else play.py's words,

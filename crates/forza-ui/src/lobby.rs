@@ -180,6 +180,18 @@ pub enum LobbyAction {
     HostShop,
     /// A room code, typed: a shop room's (6 letters) or a listed VS room's (4).
     JoinCode(String),
+    /// 2017-18: open this PC's shop to PCs on its network (no internet).
+    HostLan,
+    /// 2017-18: join the shop at this address on the network (found, or typed).
+    JoinLan(String),
+}
+
+/// A shop found on this PC's network.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LanShop {
+    pub name: String,
+    /// `IP`, or `IP:PORT` when its seat desk is not on the usual port.
+    pub address: String,
 }
 
 /// Everything the view draws.
@@ -220,6 +232,12 @@ pub struct LobbyView {
     pub host_code: Option<String>,
     /// The lobby server shop rooms are on (`host:port`): the host's room's, or the one a code was asked of.
     pub desk: String,
+    /// 2017-18 with the shared shop on: the LAN fold, the shops found on this network and the address typed there.
+    pub lan_open: bool,
+    pub lan: Vec<LanShop>,
+    pub lan_address: String,
+    /// HOST LAN SHOP is on: this PC's addresses on its network (shown instead of a room code).
+    pub host_lan: Option<Vec<String>>,
 }
 
 /// Sample states for the snapshots and the gallery.
@@ -247,10 +265,16 @@ pub enum Scenario {
     ShopNoRoom,
     /// HOST SHOP after the lobby lost the room: no code, the line that says so.
     ShopLost,
+    /// The LAN fold open with two shops found.
+    LanList,
+    /// The LAN fold open, nothing found: the hint.
+    LanNone,
+    /// HOST LAN SHOP: this PC's addresses.
+    LanHost,
 }
 
 impl Scenario {
-    pub const ALL: [Scenario; 14] = [
+    pub const ALL: [Scenario; 17] = [
         Scenario::List,
         Scenario::Empty,
         Scenario::Full,
@@ -265,6 +289,9 @@ impl Scenario {
         Scenario::ShopJoining,
         Scenario::ShopNoRoom,
         Scenario::ShopLost,
+        Scenario::LanList,
+        Scenario::LanNone,
+        Scenario::LanHost,
     ];
 
     pub fn tag(self) -> &'static str {
@@ -283,6 +310,9 @@ impl Scenario {
             Scenario::ShopJoining => "shop_joining",
             Scenario::ShopNoRoom => "shop_no_room",
             Scenario::ShopLost => "shop_lost",
+            Scenario::LanList => "lan_list",
+            Scenario::LanNone => "lan_none",
+            Scenario::LanHost => "lan_host",
         }
     }
 }
@@ -337,6 +367,10 @@ impl LobbyView {
             hosting: false,
             host_code: None,
             desk: String::new(),
+            lan_open: false,
+            lan: vec![],
+            lan_address: String::new(),
+            host_lan: None,
         }
     }
 
@@ -477,6 +511,27 @@ impl LobbyView {
                     Scenario::ShopJoining => v.joining = Some("K7QM2XPD".into()),
                     Scenario::ShopLost => (v.hosting, v.notice) = (true, Some(Notice::RoomLost)),
                     _ => v.notice = Some(Notice::NoRoom),
+                }
+            }
+            Scenario::LanList | Scenario::LanNone | Scenario::LanHost => {
+                // no internet: the lobby does not answer, the LAN fold does the work
+                (v.codes, v.shop_rooms, v.shops_view_only) = (true, true, true);
+                (v.offline, v.updated_s) = (true, None);
+                v.shops.clear();
+                v.lan_open = true;
+                if s == Scenario::LanList {
+                    let shop = |name: &str, address: &str| LanShop {
+                        name: name.into(),
+                        address: address.into(),
+                    };
+                    v.lan = vec![
+                        shop("SALOTTO-PC", "192.168.1.20"),
+                        shop("MARCO-LAPTOP", "192.168.1.34"),
+                    ];
+                }
+                if s == Scenario::LanHost {
+                    v.hosting = true;
+                    v.host_lan = Some(vec!["192.168.1.20".into()]);
                 }
             }
         }
@@ -682,7 +737,76 @@ pub fn show_with(
             },
         );
     });
+    // a host's own LAN addresses are in the view above
+    if v.shop_rooms && !v.hosting {
+        ui.add_space(8.0);
+        let summary = tr!(lang, "lobby.lan_found", n = v.lan.len());
+        let mut open = v.lan_open;
+        fold(
+            ui,
+            &tr!(lang, "lobby.lan"),
+            &summary,
+            &mut open,
+            theme::BLUE,
+            |ui| {
+                lan_view(ui, v, lang, &mut act);
+            },
+        );
+        v.lan_open = open;
+    }
     act
+}
+
+/// The LAN fold (2017-18, no internet needed): HOST LAN SHOP, the shops found on this network, an address typed.
+fn lan_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAction>) {
+    if action(ui, &tr!(lang, "lobby.host_lan")).clicked() {
+        *act = Some(LobbyAction::HostLan);
+    }
+    ui.add_space(6.0);
+    for s in &v.lan {
+        ui.horizontal(|ui| {
+            if action(ui, &tr!(lang, "lobby.join")).clicked() {
+                *act = Some(LobbyAction::JoinLan(s.address.clone()));
+            }
+            ui.label(
+                egui::RichText::new(&s.name)
+                    .font(theme::body(15.0))
+                    .color(theme::TEXT),
+            );
+            ui.label(
+                egui::RichText::new(&s.address)
+                    .font(theme::mono(14.0))
+                    .color(theme::TEXT_DIM),
+            );
+        });
+    }
+    if v.lan.is_empty() {
+        ui.add(egui::Label::new(
+            egui::RichText::new(tr!(lang, "lobby.lan_none"))
+                .font(theme::body(13.0))
+                .color(theme::TEXT_DIM),
+        ));
+    }
+    ui.add_space(6.0);
+    ui.horizontal(|ui| {
+        field(ui, &tr!(lang, "lobby.lan_type"), 130.0);
+        let r = ui.add(
+            egui::TextEdit::singleline(&mut v.lan_address)
+                .font(theme::mono(15.0))
+                .desired_width(180.0)
+                .margin(vec2(10.0, 6.0)),
+        );
+        let enter = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+        let typed = !v.lan_address.trim().is_empty();
+        if ui
+            .add_enabled_ui(typed, |ui| action(ui, &tr!(lang, "lobby.join")))
+            .inner
+            .clicked()
+            || enter && typed
+        {
+            *act = Some(LobbyAction::JoinLan(v.lan_address.trim().to_owned()));
+        }
+    });
 }
 
 fn state_text(lang: Lang, r: &Row) -> String {
@@ -1034,17 +1158,39 @@ fn code_row(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAc
 /// HOST SHOP: the room code to pass on, its copy button, LEAVE (the shop closes).
 fn host_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAction>) {
     let w = ui.available_width();
-    caps(ui, &tr!(lang, "lobby.room_code"));
+    let lan = v.host_lan.is_some();
+    caps(
+        ui,
+        &tr!(
+            lang,
+            if lan {
+                "lobby.lan_address"
+            } else {
+                "lobby.room_code"
+            }
+        ),
+    );
+    // LAN: this PC's addresses; else the room's code
+    let shown = match &v.host_lan {
+        Some(a) => (!a.is_empty()).then(|| a.join("\n")),
+        None => v.host_code.clone(),
+    };
     ui.label(
-        egui::RichText::new(v.host_code.as_deref().unwrap_or("--------"))
+        egui::RichText::new(shown.as_deref().unwrap_or("--------"))
             .font(theme::mono(34.0))
-            .color(if v.host_code.is_some() {
+            .color(if shown.is_some() {
                 theme::TEXT
             } else {
                 theme::TEXT_FAINT
             }),
     );
-    if !v.desk.is_empty() {
+    if lan {
+        ui.label(
+            egui::RichText::new(tr!(lang, "lobby.lan_host_hint"))
+                .font(theme::body(13.0))
+                .color(theme::TEXT_DIM),
+        );
+    } else if !v.desk.is_empty() {
         ui.label(
             egui::RichText::new(tr!(lang, "lobby.room_desk", desk = desk_host(&v.desk)))
                 .font(theme::body(13.0))
@@ -1053,6 +1199,7 @@ fn host_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
     }
     ui.add_space(8.0);
     let (tone, text) = match (&v.host_code, v.notice) {
+        _ if lan => (Tone::Done, tr!(lang, "lobby.shop_howto")),
         (_, Some(Notice::RoomLost)) => (Tone::Refused, tr!(lang, "lobby.room_lost")),
         (Some(_), _) => (Tone::Done, tr!(lang, "lobby.shop_howto")),
         (None, _) => (Tone::Notice, tr!(lang, "lobby.opening")),
@@ -1063,7 +1210,7 @@ fn host_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
     let size = vec2((w - gap) / 2.0, 40.0);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = gap;
-        let code = v.host_code.clone();
+        let code = shown.and_then(|s| s.lines().next().map(str::to_owned));
         let copy = ui.add_enabled_ui(code.is_some(), |ui| {
             cabinet(ui, size, &tr!(lang, "launcher.copy"), Cab::Plain, false)
         });
