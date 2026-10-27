@@ -32,16 +32,51 @@ const HINT: f32 = 13.0;
 const TABS_H: f32 = 56.0;
 /// The deck row under the picture keeps at least this; on wide sheets the picture stops growing first.
 const DECK_MIN: f32 = 148.0;
-/// What the board's height needs per point of pitch width (pitch 1.25, bench, hint) and besides (head, margins).
-const BOARD_PER_W: f32 = 1.42;
-const BOARD_EXTRA: f32 = 120.0;
+/// What the board's height needs per point of pitch width (pitch 1.25, the artwork's bench 0.205) and besides (margins 32,
+/// gaps 12, a hint of two lines 36).
+const BOARD_PER_W: f32 = 1.455;
+const BOARD_EXTRA: f32 = 80.0;
 
 /// Points per pixel for a window of `w` x `h` pixels on a monitor of `dpi` (96 = 100%): 1 from 1440x900 up (a bigger
 /// window gets a bigger sheet, so the game's picture can grow past its own size), 2 from 2880x1800 (4K), the window's
 /// ratio to 1440x900 below that. A monitor Windows scales (120 dpi = 125%) sets it instead, so text is as big as in
 /// other programs and drawn at the screen's own pixels, but never so much that the sheet drops under 1440x900 points.
 pub fn scale(w: f32, h: f32, dpi: f32) -> f32 {
-    let fit = (w / SIZE.x).min(h / SIZE.y);
+    scale_from((w / SIZE.x).min(h / SIZE.y), dpi)
+}
+
+/// The board window (the pop-out board, [`PanelState::desk`]) held wide: at least this tall, the board a full-height
+/// column, beside it a middle as wide as the game sheet's at 1440x900 (the deck's row and the whole page bar fit it).
+pub const DESK_WIDE_H: f32 = 900.0;
+const DESK_MIDDLE: f32 = SIZE.x - BOARD_W;
+/// The board window held tall: its least sheet (the pages as wide as the game sheet's), and its deck row with room
+/// above the plates for a toast (the gap the game sheet's deck has).
+pub const DESK_TALL: egui::Vec2 = egui::vec2(860.0, 1192.0);
+const DESK_DECK: f32 = ROW.y + 92.0;
+
+/// The board window's full-height board column on a sheet `h` tall: the pitch and the bench sized by the height.
+fn desk_column(h: f32) -> f32 {
+    (h - BOARD_EXTRA) / BOARD_PER_W + 32.0
+}
+
+/// Whether a board-window sheet is laid out wide ([`desk_layout`]): tall enough, and the full-height board leaves the
+/// middle its room.
+fn desk_wide(sheet: egui::Vec2) -> bool {
+    sheet.y >= DESK_WIDE_H - 0.01 && sheet.x + 0.01 >= desk_column(sheet.y) + DESK_MIDDLE
+}
+
+/// The board window's points per pixel: as [`scale`], for the wide layout (the board full height) unless that would
+/// draw everything more than a fifth smaller than the tall one (a square or portrait window: the tall layout).
+pub fn desk_scale(w: f32, h: f32, dpi: f32) -> f32 {
+    // wide: w/p >= desk_column(h/p) + DESK_MIDDLE, solved for p; and h/p >= DESK_WIDE_H
+    let wide = (h / DESK_WIDE_H)
+        .min((w - h / BOARD_PER_W) / (32.0 + DESK_MIDDLE - BOARD_EXTRA / BOARD_PER_W));
+    let tall = (w / DESK_TALL.x).min(h / DESK_TALL.y);
+    scale_from(if wide >= 0.8 * tall { wide } else { tall }, dpi)
+}
+
+/// Points per pixel for a window that fits its least sheet `fit` times, on a monitor of `dpi`.
+fn scale_from(fit: f32, dpi: f32) -> f32 {
     let monitor = dpi / 96.0;
     if fit < 1.0 {
         fit
@@ -63,6 +98,8 @@ pub struct Layout {
     pub picture: Rect,
     pub deck: Rect,
     pub tabs: Rect,
+    /// Where the pages open: over the picture and the deck (the board window held tall: over the board too).
+    pub pages: Rect,
 }
 
 /// The layout of `sheet` (at least 1440x900): the picture takes the largest 16:10 size that leaves the board its
@@ -89,6 +126,41 @@ pub fn layout(sheet: Rect, compact: bool) -> Layout {
         picture,
         deck,
         tabs,
+        pages: above,
+    }
+}
+
+/// The board window's layout (the pop-out board): no picture. Wide (whenever the window has the width, [`desk_wide`]):
+/// the board a full-height column on the right, pitch and bench sized by the height, the deck centred in the rest over
+/// the page bar. Tall: the board across the top as wide as the window (or as its height allows), the deck row and the
+/// page bar under it; pages open over everything above the bar.
+pub fn desk_layout(sheet: Rect) -> Layout {
+    if desk_wide(sheet.size()) {
+        let bw = desk_column(sheet.height());
+        let board = Rect::from_min_max(pos2(sheet.right() - bw, sheet.top()), sheet.max);
+        let middle = sheet.with_max_x(board.left());
+        let tabs = middle.with_min_y(middle.bottom() - TABS_H);
+        let above = middle.with_max_y(tabs.top());
+        return Layout {
+            board,
+            middle,
+            picture: Rect::from_min_size(above.min, vec2(above.width(), 0.0)),
+            deck: above,
+            tabs,
+            pages: above,
+        };
+    }
+    let tabs = sheet.with_min_y(sheet.bottom() - TABS_H);
+    let deck = sheet
+        .with_max_y(tabs.top())
+        .with_min_y(tabs.top() - DESK_DECK);
+    Layout {
+        board: sheet.with_max_y(deck.top()),
+        middle: sheet.with_min_y(deck.top()),
+        picture: Rect::from_min_size(deck.min, vec2(deck.width(), 0.0)),
+        deck,
+        tabs,
+        pages: sheet.with_max_y(tabs.top()),
     }
 }
 
@@ -322,6 +394,10 @@ pub struct Catalogue {
     pub focus: Option<usize>,
     /// The cards the filter lets through, in its order ([`search`]), worked out again when it changes.
     pub results: Vec<usize>,
+    /// The card view (a full page, front and back at their own pixels): the card shown (an index into the catalogue),
+    /// and its back chosen when only one side fits.
+    pub view: Option<usize>,
+    pub view_back: bool,
     searched: Option<Filter>,
     index: Option<Index>,
 }
@@ -519,6 +595,8 @@ pub struct PanelState {
     pub pause_asked: bool,
     /// Paused: the seconds left before the match goes on by itself; the PAUSED page shows.
     pub paused: Option<u64>,
+    /// Drawn in the board's own window (the pop-out board, `file.board_window`): no game picture, [`desk_layout`].
+    pub desk: bool,
 }
 
 impl PanelState {
@@ -578,6 +656,7 @@ impl PanelState {
             pad_down: None,
             pause_asked: false,
             paused: None,
+            desk: false,
         }
     }
 
@@ -712,19 +791,32 @@ pub fn board_slot_center(width: f32, spots: &[Pos2; 11], slot: usize) -> Pos2 {
 
 pub fn show(ui: &mut Ui, st: &mut PanelState) {
     let lang = st.lang;
-    let lay = layout(ui.max_rect(), st.file.compact);
-    egui::Panel::right("panel-board")
-        .exact_size(lay.board.width())
-        .resizable(false)
-        .show_separator_line(false)
-        .frame(egui::Frame::new())
-        .show(ui, |ui| {
-            if st.crash {
-                crash_screen(ui, st, lang);
-            } else {
-                board_strip(ui, st, lang);
-            }
-        });
+    let sheet = ui.max_rect();
+    let tall = st.desk && !desk_wide(sheet.size());
+    let lay = if st.desk {
+        desk_layout(sheet)
+    } else {
+        layout(sheet, st.file.compact)
+    };
+    // the board window held tall: a page covers the board, which is not drawn under it
+    if !(tall && st.page != Page::Game && !st.crash) {
+        let panel = if tall {
+            egui::Panel::top("panel-board").exact_size(lay.board.height())
+        } else {
+            egui::Panel::right("panel-board").exact_size(lay.board.width())
+        };
+        panel
+            .resizable(false)
+            .show_separator_line(false)
+            .frame(egui::Frame::new())
+            .show(ui, |ui| {
+                if st.crash {
+                    crash_screen(ui, st, lang);
+                } else {
+                    board_strip(ui, st, lang);
+                }
+            });
+    }
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(theme::WELL))
         .show(ui, |ui| middle(ui, st, lang, &lay));
@@ -738,9 +830,9 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
         picture: pic,
         deck,
         tabs,
+        pages: above,
         ..
     } = *lay;
-    let above = area.with_max_y(tabs.top());
     let p = ui.painter();
     widgets::gradient(
         p,
@@ -764,23 +856,29 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
         ],
         Stroke::new(1.0, theme::RIM),
     );
-    game_picture(ui, pic, st.picture);
+    if !st.desk {
+        game_picture(ui, pic, st.picture);
+    }
     // the dealt card covers the picture: clicks there are its own
-    st.picture_rect = (st.page == Page::Game && st.deal.is_none() && !st.close_warn).then_some(pic);
+    st.picture_rect =
+        (!st.desk && st.page == Page::Game && st.deal.is_none() && !st.close_warn).then_some(pic);
+    // the board window always shows the deck: COMPACT is the game window's choice
+    let compact = st.file.compact && !st.desk;
     if st.page == Page::Game {
-        // a toast in the gap above the deck row when there is one, else over the picture's lower edge
+        // a toast in the gap above the deck row when there is one (the board window always has it), else over the
+        // picture's lower edge
         let gap = (deck.height() - ROW.y) / 2.0;
-        let y = if !st.file.compact && gap >= 40.0 {
+        let y = if !compact && gap >= 40.0 {
             deck.top() + gap / 2.0
         } else {
             pic.bottom() - 30.0
         };
-        let r = Rect::from_center_size(pos2(pic.center().x, y), vec2(520.0, 34.0));
+        let r = Rect::from_center_size(pos2(deck.center().x, y), vec2(520.0, 34.0));
         ui.scope_builder(egui::UiBuilder::new().max_rect(r), |ui| {
             note_line(ui, &mut st.message)
         });
     }
-    if !st.file.compact {
+    if !compact {
         cabinet_deck(ui, st, deck, lang);
     } else {
         st.latched = None; // no deck: no button left to let it go
@@ -793,7 +891,7 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
     deal_window(ui, st, above, lang);
     if let Some(left) = st.paused {
         let key = forza::keys::key_label(st.keys[forza::keys::PAUSE]);
-        paused(ui, pic, lang, &key, left);
+        paused(ui, if st.desk { above } else { pic }, lang, &key, left);
     }
     if st.close_warn {
         close_dialog(ui, st, lang);
@@ -1631,6 +1729,11 @@ fn ping(p: &egui::Painter, r: Rect, ms: u32, lang: Lang) {
 fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     strip_ground(ui);
     let r = ui.max_rect().shrink(16.0);
+    // as wide as the strip, or as its height can use (the board window held tall), centred
+    let w = r
+        .width()
+        .min((ui.max_rect().height() - BOARD_EXTRA) / BOARD_PER_W);
+    let r = Rect::from_min_size(pos2(r.center().x - w / 2.0, r.top()), vec2(w, r.height()));
     let pitch = board::pitch_rect(r.min + vec2(0.0, BOARD_HEAD), r.width());
     let mut b = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(pitch.min, r.max)));
     b.spacing_mut().item_spacing.y = 4.0;
@@ -1641,29 +1744,75 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         st.undo = Some((r, now));
     }
     b.add_space(4.0);
+    // at the hint's right: the board in its own window, or back with the game
+    let row = Rect::from_min_max(b.cursor().min, b.max_rect().max);
+    let label = egui::RichText::new(tr!(
+        lang,
+        if st.file.board_window {
+            "board.dock"
+        } else {
+            "board.pop_out"
+        }
+    ))
+    .font(theme::bold(12.0));
+    let text_w = b
+        .painter()
+        .layout_no_wrap(label.text().to_owned(), theme::bold(12.0), theme::TEXT)
+        .size()
+        .x;
+    let pad = b.spacing().button_padding.x * 2.0 + 2.0;
+    let btn = Rect::from_min_size(
+        pos2(row.right() - text_w - pad, row.top()),
+        vec2(text_w + pad, 22.0),
+    );
+    let button = egui::Button::new(label).wrap_mode(egui::TextWrapMode::Extend);
+    if b.put(btn, button).clicked() {
+        st.file.board_window = !st.file.board_window;
+        st.file_changed = true;
+        st.say(
+            Tone::Done,
+            if st.file.board_window {
+                "settings.msg_board_window"
+            } else {
+                "settings.msg_board_docked"
+            },
+        );
+    }
+    let mut b = b.new_child(egui::UiBuilder::new().max_rect(row.with_max_x(btn.left() - 8.0)));
     // a card just taken off: its name and UNDO for a few seconds, in the hint's place
     st.undo = st.undo.take().filter(|(_, at)| now - at < UNDO_SECS);
-    let Some((r, at)) = st.undo.clone() else {
+    if let Some((r, at)) = st.undo.clone() {
+        b.ctx()
+            .request_repaint_after(std::time::Duration::from_secs_f64(UNDO_SECS - (now - at)));
+        b.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(tr!(lang, "board.removed", name = r.card.short_name()))
+                    .font(theme::body(HINT))
+                    .color(theme::TEXT),
+            );
+            if widgets::action(ui, &tr!(lang, "board.undo")).clicked() {
+                st.board_changed |= board::undo(&mut st.board, &r);
+                st.undo = None;
+            }
+        });
+    } else {
         b.label(
             egui::RichText::new(tr!(lang, "board.hint"))
                 .font(theme::body(HINT))
                 .color(theme::TEXT_DIM),
         );
-        return;
-    };
-    b.ctx()
-        .request_repaint_after(std::time::Duration::from_secs_f64(UNDO_SECS - (now - at)));
-    b.horizontal(|ui| {
-        ui.label(
-            egui::RichText::new(tr!(lang, "board.removed", name = r.card.short_name()))
-                .font(theme::body(HINT))
-                .color(theme::TEXT),
-        );
-        if widgets::action(ui, &tr!(lang, "board.undo")).clicked() {
-            st.board_changed |= board::undo(&mut st.board, &r);
-            st.undo = None;
-        }
-    });
+    }
+    // the hovered card's pane and the partner list: in this column only, under the hint or over the pitch
+    let hint_bottom = b.min_rect().bottom().max(btn.bottom());
+    board::info_panes(
+        &b,
+        &st.board,
+        &st.links,
+        pitch,
+        hint_bottom,
+        r.bottom(),
+        lang,
+    );
 }
 
 /// How long UNDO stays offered after a card is taken off the board.
@@ -1807,8 +1956,13 @@ fn page(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         && st.pad_capturing.is_none()
         && ui.input(|i| i.key_pressed(egui::Key::Escape))
     {
-        st.page = Page::Game;
-        return;
+        // the card view goes back to the catalogue's list, not out of the catalogue
+        if st.page == Page::Catalogue && st.catalogue.view.take().is_some() {
+            ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+        } else {
+            st.page = Page::Game;
+            return;
+        }
     }
     let r = ui.max_rect().shrink(12.0);
     ui.painter()
@@ -1924,10 +2078,14 @@ fn note_line(ui: &mut Ui, message: &mut Option<Note>) {
 }
 
 fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
+    if st.catalogue.view.is_some() {
+        return card_view(ui, st, lang);
+    }
     let cards = st.cards.clone();
     let c = &mut st.catalogue;
     let fresh = c.refresh(&cards);
     let mut add = None;
+    let mut open = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab));
     ui.spacing_mut().item_spacing = vec2(6.0, 8.0);
     // Enter puts the first card listed on the table; typed letters always go to the search line
     if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
@@ -2124,15 +2282,194 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                 });
             }
             strip.cell(|ui| {
-                if let Some(card) = shown
-                    && stats_pane(ui, card, lang)
-                {
-                    add = Some(card.number);
+                if let Some(card) = shown {
+                    let (added, opened) = stats_pane(ui, card, lang);
+                    if added {
+                        add = Some(card.number);
+                    }
+                    open |= opened;
                 }
                 note_line(ui, message);
             });
+            // Tab or a click on the stats pane's face: the card view of the card shown
+            if open && let Some(card) = shown {
+                c.view = cards.iter().position(|k| k.number == card.number);
+            }
         });
     st.add = st.add.or(add);
+}
+
+/// The card view's caption row under the pictures, with its gap: the name, the club line and the roles beside TOTAL,
+/// the position and ADD.
+const CAPTION_ROW: f32 = 100.0;
+
+/// The card view, in the catalogue's place under its heading: the card's front and back side by side, each at a whole
+/// multiple of its own pixels ([`sizing::exact`]: x1, or x2 with nearest filtering when the page has room), never
+/// scaled by a fraction or scrolled; one side with a FRONT | BACK toggle when the pair does not fit. Under them the
+/// name, club line and roles, TOTAL, the position and ADD. Keys: Tab or Esc back to the list, arrows the previous and
+/// next result, F turns the single side over, Enter adds.
+fn card_view(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
+    use egui::emath::GuiRounding as _;
+    let cards = st.cards.clone();
+    let c = &mut st.catalogue;
+    let Some(card) = c.view.and_then(|i| cards.get(i)) else {
+        c.view = None;
+        return;
+    };
+    let at = c.results.iter().position(|&i| Some(i) == c.view);
+    let key = |k| ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, k));
+    let (close, prev, next, flip, add) = (
+        key(egui::Key::Tab),
+        key(egui::Key::ArrowLeft),
+        key(egui::Key::ArrowRight),
+        key(egui::Key::F),
+        key(egui::Key::Enter),
+    );
+    let ppp = ui.ctx().pixels_per_point();
+    let body = ui.available_rect_before_wrap();
+    // the pair at x2 or x1, else one side at x1, else (a window under about 330 pixels tall) one side at half; the head
+    // row and its gap above the pictures, the caption row and its gap under them
+    let room = vec2(body.width(), body.height() - 48.0 - CAPTION_ROW);
+    let (n, k) = match sizing::exact(sizing::ALBUM, 2, room, ppp) {
+        Some(k) => (2, k),
+        None => (1, sizing::exact(sizing::ALBUM, 1, room, ppp).unwrap_or(0.5)),
+    };
+    let size = sizing::ALBUM * k / ppp;
+    // the head row: back to the list, the side toggle (one side only), the place in the results
+    let head = Rect::from_min_size(body.min, vec2(body.width(), 32.0));
+    let mut back_to_list = close;
+    let mut go: i32 = i32::from(next) - i32::from(prev);
+    let mut flip = flip && n == 1;
+    ui.scope_builder(egui::UiBuilder::new().max_rect(head), |ui| {
+        ui.horizontal_centered(|ui| {
+            back_to_list |= action(ui, &tr!(lang, "cat.view_list")).clicked();
+        });
+    });
+    if n == 1 {
+        let mut r = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(Rect::from_center_size(head.center(), vec2(240.0, 32.0))),
+        );
+        let mut i = usize::from(c.view_back);
+        if segmented(
+            &mut r,
+            &mut i,
+            &[&tr!(lang, "cat.front"), &tr!(lang, "cat.back")],
+            240.0,
+        ) {
+            flip = (i == 1) != c.view_back;
+        }
+    }
+    if let Some(at) = at {
+        ui.scope_builder(egui::UiBuilder::new().max_rect(head), |ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                go += i32::from(action(ui, "›").clicked());
+                ui.label(
+                    egui::RichText::new(format!("{} / {}", at + 1, c.results.len()))
+                        .font(theme::display(18.0))
+                        .color(theme::TEXT_DIM),
+                );
+                go -= i32::from(action(ui, "‹").clicked());
+            });
+        });
+    }
+    if flip {
+        c.view_back = !c.view_back;
+    }
+    // the pictures, centred, their top left on a whole pixel
+    let w = n as f32 * size.x + (n as f32 - 1.0) * sizing::PAIR_GAP;
+    let left = body.center().x - w / 2.0;
+    let sides: &[bool] = if n == 2 {
+        &[false, true]
+    } else if c.view_back {
+        &[true]
+    } else {
+        &[false]
+    };
+    for (j, &back) in sides.iter().enumerate() {
+        let min = pos2(
+            left + j as f32 * (size.x + sizing::PAIR_GAP),
+            body.top() + 48.0,
+        );
+        let r = Rect::from_min_size(min.round_to_pixels(ppp), size);
+        board::card_side(ui.painter(), r, card, back, k >= 2.0, lang);
+    }
+    // the caption row under them
+    let cap = Rect::from_min_max(
+        pos2(body.left(), body.top() + 48.0 + size.y + 16.0),
+        body.max,
+    )
+    .intersect(Rect::from_center_size(
+        pos2(body.center().x, body.center().y),
+        vec2(w.max(560.0).min(body.width()), f32::INFINITY),
+    ));
+    let mut added = add;
+    ui.scope_builder(egui::UiBuilder::new().max_rect(cap), |ui| {
+        ui.horizontal_top(|ui| {
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = 2.0;
+                ui.set_max_width(cap.width() - 330.0);
+                ui.label(
+                    egui::RichText::new(&card.name)
+                        .font(theme::display(26.0))
+                        .color(theme::TEXT),
+                );
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} · {} · {}",
+                        card.club, card.country, card.season
+                    ))
+                    .font(theme::body(HINT))
+                    .color(theme::TEXT_DIM),
+                );
+                let top = card.aptitude.top();
+                if !top.is_empty() {
+                    let roles = top
+                        .iter()
+                        .map(|(n, r)| format!("{n} {r}"))
+                        .collect::<Vec<_>>()
+                        .join(" · ");
+                    ui.label(
+                        egui::RichText::new(tr!(lang, "board.roles", roles = roles))
+                            .font(theme::body(HINT))
+                            .color(theme::TEXT_DIM),
+                    );
+                }
+            });
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                added |=
+                    cabinet(ui, vec2(200.0, 44.0), &tr!(lang, "cat.add"), Cab::Go, true).clicked();
+                ui.vertical(|ui| {
+                    ui.label(
+                        egui::RichText::new(card.total.to_string())
+                            .font(theme::display(44.0))
+                            .color(theme::AMBER),
+                    );
+                    chip(ui, card.pos.code(), true, Some(card.pos.color()));
+                });
+            });
+        });
+    });
+    if added {
+        st.add = Some(card.number);
+    }
+    // what ADD did (added, already on the table, refused): a toast over the pictures' lower edge, as the game page has
+    let note = Rect::from_center_size(
+        pos2(body.center().x, body.top() + 48.0 + size.y - 30.0),
+        vec2(w.clamp(400.0, 520.0), 34.0),
+    );
+    ui.scope_builder(egui::UiBuilder::new().max_rect(note), |ui| {
+        note_line(ui, &mut st.message)
+    });
+    let c = &mut st.catalogue;
+    if back_to_list {
+        c.view = None;
+    } else if go != 0
+        && let Some(at) = at
+    {
+        let to = (at as i32 + go).clamp(0, c.results.len() as i32 - 1) as usize;
+        c.view = c.results.get(to).copied();
+    }
 }
 
 fn combo(ui: &mut Ui, id: &str, value: &mut String, options: &[(String, usize)], lang: Lang) {
@@ -2197,7 +2534,8 @@ fn affinity_pane(ui: &mut Ui, card: &Card, links: &board::Links, on_table: &[u32
 }
 
 /// The card's stats and its ADD button; `true` = ADD clicked.
-fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> bool {
+/// The focused card's stats, ADD under them; returns (ADD clicked, the face clicked: the card view asked for).
+fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> (bool, bool) {
     let face = sizing::hover_face(ui.ctx().pixels_per_point());
     let u = sizing::text_unit(face.x);
     egui::Frame::new()
@@ -2207,8 +2545,12 @@ fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> bool {
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.spacing_mut().item_spacing.y = 4.0;
+            let mut open = false;
             ui.horizontal(|ui| {
-                let (r, _) = ui.allocate_exact_size(face, Sense::hover());
+                let (r, resp) = ui.allocate_exact_size(face, Sense::click());
+                open = resp
+                    .on_hover_cursor(egui::CursorIcon::PointingHand)
+                    .clicked();
                 board::card_face(ui.painter(), r, card, board::Look::default());
                 ui.vertical(|ui| {
                     ui.label(
@@ -2263,7 +2605,8 @@ fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> bool {
             let names = STATS.map(|k| tr!(lang, k));
             widgets::stat_bars(ui, card, &names, &tr!(lang, "cat.secret"), w);
             ui.add_space(6.0);
-            cabinet(ui, vec2(w, 44.0), &tr!(lang, "cat.add"), Cab::Go, true).clicked()
+            let add = cabinet(ui, vec2(w, 44.0), &tr!(lang, "cat.add"), Cab::Go, true).clicked();
+            (add, open)
         })
         .inner
 }
@@ -2689,6 +3032,28 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                 st.file_changed = true;
                 let t = format!("{}", st.hover_delay);
                 st.note(Tone::Done, tr!(lang, "settings.msg_hover", s = t));
+            }
+            field(ui, &tr!(lang, "settings.board"), w);
+            let mut i = st.file.board_window as usize;
+            if segmented(
+                ui,
+                &mut i,
+                &[
+                    &tr!(lang, "settings.board_here"),
+                    &tr!(lang, "settings.board_window"),
+                ],
+                w,
+            ) {
+                st.file.board_window = i == 1;
+                st.file_changed = true;
+                st.say(
+                    Tone::Done,
+                    if i == 1 {
+                        "settings.msg_board_window"
+                    } else {
+                        "settings.msg_board_docked"
+                    },
+                );
             }
         });
         widgets::section(right, &tr!(lang, "settings.next"), accent, |ui| {
@@ -3602,6 +3967,124 @@ mod tests {
                     compact || BOARD_PER_W * bw + BOARD_EXTRA <= l.board.height() + 1.0,
                     "{at}"
                 );
+            }
+        }
+    }
+
+    /// The board window (the pop-out board), wide and tall: every part inside, none over another, the deck's row and
+    /// the pages have their room, and the board's pitch is at least as big as on the game's 1440x900 sheet.
+    #[test]
+    fn desk_layout_fits_every_window() {
+        let apart = |a: Rect, b: Rect| !a.intersect(b).is_positive();
+        for (w, h, wide) in [
+            (1400.0, 900.0, true),
+            (1600.0, 900.0, true),
+            (1920.0, 1080.0, true),
+            (2560.0, 1440.0, true),
+            (3840.0, 2160.0, true),
+            (1000.0, 700.0, true),
+            (1024.0, 768.0, true),
+            (1280.0, 1024.0, true),
+            (1000.0, 900.0, false),
+            (860.0, 1104.0, false),
+            (900.0, 1400.0, false),
+            (1080.0, 1920.0, false),
+            (1200.0, 1600.0, false),
+        ] {
+            let ppp = desk_scale(w, h, 96.0);
+            let sheet = Rect::from_min_size(Pos2::ZERO, vec2(w, h) / ppp);
+            let l = desk_layout(sheet);
+            let at = format!("{w}x{h}: {sheet:?} {l:?}");
+            assert_eq!(desk_wide(sheet.size()), wide, "{at}");
+            for r in [l.board, l.deck, l.tabs, l.pages] {
+                assert!(sheet.expand(0.01).contains_rect(r), "{at}");
+            }
+            assert!(
+                apart(l.board, l.deck) && apart(l.board, l.tabs) && apart(l.deck, l.tabs),
+                "{at}"
+            );
+            assert!(l.deck.width() >= ROW.x && l.deck.height() >= ROW.y, "{at}");
+            assert!(
+                l.pages.width() >= 800.0 && l.pages.height() >= 700.0,
+                "{at}"
+            );
+            let pitch_w =
+                (l.board.width() - 32.0).min((l.board.height() - BOARD_EXTRA) / BOARD_PER_W);
+            assert!(pitch_w >= BOARD_W - 32.0, "{at}");
+            if wide {
+                // the board full height: pitch, bench and hint fill the column top to bottom
+                assert_eq!(l.board.height(), sheet.height(), "{at}");
+                let used = pitch_w * BOARD_PER_W + BOARD_EXTRA;
+                assert!((used - sheet.height()).abs() < 0.5, "{at}: {used}");
+            } else {
+                // tall: the board as wide as the window (less its margins), or as its height allows
+                let by_w = l.board.width() - 32.0;
+                assert!(
+                    pitch_w == by_w
+                        || pitch_w * BOARD_PER_W + BOARD_EXTRA <= l.board.height() + 0.5,
+                    "{at}"
+                );
+            }
+        }
+    }
+
+    /// The hover pane lies in the board's column at every window: docked under the hint where the column has the room
+    /// (1920x1080: a strip; 2560x1440: large), else a strip over the pitch's half away from the hovered card; never on
+    /// the game's picture or the deck.
+    #[test]
+    fn the_hover_pane_stays_in_the_board_column() {
+        for (w, h) in [
+            (1280.0, 800.0),
+            (1440.0, 900.0),
+            (1600.0, 900.0),
+            (1920.0, 1009.0),
+            (1920.0, 1080.0),
+            (2560.0, 1373.0),
+            (2560.0, 1440.0),
+            (3440.0, 1440.0),
+        ] {
+            for compact in [false, true] {
+                let l = layout(sheet_of(w, h), compact);
+                let col = l.board.shrink(16.0);
+                let pitch = board::pitch_rect(col.min, col.width());
+                let tile = board::card_size(pitch.width());
+                // the bench (8 + its well) and a line of hint (4 + 17), as board_strip lays them out
+                let hint_bottom = pitch.bottom() + 8.0 + tile.y * 0.8 + 12.0 + 4.0 + 4.0 + 17.0;
+                for card_y in [
+                    pitch.top() + 40.0,
+                    pitch.bottom() - 40.0,
+                    hint_bottom - 30.0,
+                ] {
+                    let (pane, tier) =
+                        board::pane_place(pitch, hint_bottom, col.bottom(), 425.0, 149.0, card_y);
+                    let at =
+                        format!("{w}x{h} compact {compact} card at {card_y}: {pane:?} {tier:?}");
+                    assert!(l.board.contains_rect(pane), "{at}");
+                    assert!(
+                        !pane.intersects(l.picture) && !pane.intersects(l.deck),
+                        "{at}"
+                    );
+                    // floating: on the other half of the pitch
+                    if pane.top() < hint_bottom {
+                        assert!(
+                            pane.top() >= pitch.top() && pane.bottom() <= pitch.bottom(),
+                            "{at}"
+                        );
+                        assert!(
+                            (pane.center().y < pitch.center().y) != (card_y < pitch.center().y),
+                            "{at}"
+                        );
+                    }
+                }
+                let docked = |card_y| {
+                    board::pane_place(pitch, hint_bottom, col.bottom(), 425.0, 149.0, card_y)
+                };
+                match (w as u32, h as u32, compact) {
+                    (1440, 900, _) => assert!(docked(pitch.top()).0.top() < hint_bottom),
+                    (1920, 1080, false) => assert_eq!(docked(pitch.top()).1, board::Tier::Strip),
+                    (2560, 1440, false) => assert_eq!(docked(pitch.top()).1, board::Tier::Large),
+                    _ => {}
+                }
             }
         }
     }

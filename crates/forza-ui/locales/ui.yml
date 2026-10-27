@@ -265,7 +265,6 @@ panel.msg_session_open: {en: "Match in progress.", it: "Partita in corso.", ja: 
 # ---- formation board ----
 board.flip: {en: "Click: card back.", it: "Clic: retro.", ja: "クリックで裏面。"}
 board.flip_back: {en: "Click: card face.", it: "Clic: fronte.", ja: "クリックで表面。"}
-board.bench: {en: "BENCH", it: "PANCHINA", ja: "ベンチ"}
 board.hint: {en: "Drag cards to the pitch. Drop on a card to swap. Right-click or drag off: remove.", it: "Trascina sul campo. Su una carta: scambia. Clic destro o trascina fuori: rimuovi.", ja: "ピッチへドラッグ。カードに重ねて入れ替え。右クリックか外へドラッグで外す。"}
 board.removed: {en: "Removed %{name}", it: "Rimosso %{name}", ja: "%{name}を外しました"}
 board.undo: {en: "UNDO", it: "ANNULLA", ja: "元に戻す"}
@@ -280,6 +279,9 @@ board.on_team: {en: "ON THE TEAM", it: "IN SQUADRA", ja: "チーム内"}
 board.not_on_team: {en: "BEST OUTSIDE LINKS", it: "MIGLIORI INTESE ESTERNE", ja: "チーム外の好連携"}
 board.no_links: {en: "No links yet.", it: "Nessuna intesa.", ja: "連携なし。"}
 board.more: {en: "+%{n} more", it: "+ altri %{n}", ja: "ほか%{n}人"}
+board.pop_out: {en: "POP OUT FORMATION BOARD", it: "FORMAZIONE IN POP-OUT", ja: "フォーメーションボードをポップアウト"}
+board.dock: {en: "DOCK FORMATION BOARD", it: "RIPORTA LA FORMAZIONE", ja: "フォーメーションボードを戻す"}
+board.window_title: {en: "Formation board", it: "Formazione", ja: "フォーメーション"}
 cat.affinity: {en: "AFFINITY", it: "AFFINITÀ", ja: "相性"}
 cat.no_partners: {en: "No partners listed.", it: "Nessuna affinità.", ja: "相性の選手なし。"}
 
@@ -311,6 +313,9 @@ cat.sta: {en: "STA", it: "RES", ja: "スタミナ"}
 cat.reset: {en: "RESET", it: "AZZERA", ja: "リセット"}
 cat.results: {en: "%{n} CARDS", it: "%{n} CARTE", ja: "%{n} 枚"}
 cat.add: {en: "+ ADD", it: "+ AGGIUNGI", ja: "＋追加"}
+cat.view_list: {en: "‹ LIST", it: "‹ ELENCO", ja: "‹ 一覧"}
+cat.front: {en: "FRONT", it: "FRONTE", ja: "表面"}
+cat.back: {en: "BACK", it: "RETRO", ja: "裏面"}
 cat.msg_added: {en: "%{name} added (%{n}/16)", it: "%{name} aggiunto (%{n}/16)", ja: "%{name} を追加しました（%{n}/16）"}
 cat.msg_on_table: {en: "%{name} is on the table", it: "%{name} è già sul tavolo", ja: "%{name} はすでにテーブルにあります"}
 cat.msg_same_player: {en: "%{name}: another card of this player is on the table (%{season})", it: "%{name}: un'altra carta di questo giocatore è già sul tavolo (%{season})", ja: "%{name}：この選手の別のカードがすでにテーブルにあります（%{season}）"}
@@ -393,6 +398,11 @@ settings.send_again: {en: "CLICK AGAIN", it: "CLICCA ANCORA", ja: "もう一度�
 settings.not_sent: {en: "Not sent: %{why}", it: "Non inviati: %{why}", ja: "送信できませんでした：%{why}"}
 settings.msg_compact: {en: "COMPACT: bigger game", it: "COMPATTO: gioco più grande", ja: "コンパクト：ゲームを拡大"}
 settings.msg_cabinet: {en: "CABINET: buttons shown", it: "CABINATO: pulsanti visibili", ja: "筐体：ボタン表示"}
+settings.board: {en: "FORMATION BOARD", it: "FORMAZIONE", ja: "フォーメーション"}
+settings.board_here: {en: "WITH THE GAME", it: "CON IL GIOCO", ja: "ゲームと同じ画面"}
+settings.board_window: {en: "Pop out the formation board", it: "Formazione in pop-out", ja: "フォーメーションボードをポップアウト"}
+settings.msg_board_window: {en: "Formation board in its own window: move it to another screen", it: "Formazione in una finestra a parte: spostala su un altro schermo", ja: "フォーメーションを別ウィンドウに表示：別の画面へ移動できます"}
+settings.msg_board_docked: {en: "Formation board back with the game", it: "Formazione di nuovo con il gioco", ja: "フォーメーションをゲーム画面に戻しました"}
 settings.msg_hover: {en: "Card preview after %{s} s", it: "Anteprima carta dopo %{s} s", ja: "%{s} 秒でカードをプレビュー"}
 settings.msg_this_pc: {en: "Next start: this PC", it: "Prossimo avvio: questo PC", ja: "次回の起動：このPC"}
 settings.msg_online: {en: "Online at next start: %{ip}", it: "Online al prossimo avvio: %{ip}", ja: "次回はオンライン：%{ip}"}

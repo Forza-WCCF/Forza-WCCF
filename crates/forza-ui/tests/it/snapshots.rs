@@ -245,6 +245,157 @@ fn board_interaction() {
     h.snapshot("board_back_en");
 }
 
+/// The hover pane stays in the board's column: docked under the hint at 1920x1080 (a strip) and 2560x1440 (large), over
+/// the pitch's far half at 1440x900 (the card in the top half: the pane at the pitch's foot).
+#[test]
+fn hover_pane() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for (size, slot, name) in [
+        (Vec2::new(1920.0, 1080.0), 2, "panel_hover_1080_en"),
+        (Vec2::new(2560.0, 1440.0), 2, "panel_hover_1440p_en"),
+        (panel::SIZE, 9, "panel_hover_1440x900_top_en"),
+    ] {
+        let mut st = panel::PanelState::sample(Edition::E1011, Lang::En, panel::Page::Game);
+        let col = panel::layout(egui::Rect::from_min_size(egui::Pos2::ZERO, size), false)
+            .board
+            .shrink(16.0);
+        let pitch = forza_ui::board::pitch_rect(col.min, col.width());
+        let at = forza_ui::board::slot_rects(pitch, pitch.bottom() + 12.0, &st.board.spots)[slot]
+            .center();
+        st.hover_delay = 0.0;
+        let mut h = harness(size, 1.0, Edition::E1011, |ui| panel::show(ui, &mut st));
+        h.run_steps(4);
+        h.hover_at(at);
+        h.run_steps(4);
+        h.snapshot(name);
+        all.extend_harness(&mut h);
+    }
+    all.unwrap();
+}
+
+/// The pop-out board's own window: wide (the board beside the deck), tall (the board over the deck and the page bar),
+/// and tall with a page open over the board.
+#[test]
+fn desk_window() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for (size, ed, lang, page, name) in [
+        (
+            Vec2::new(1600.0, 1000.0),
+            Edition::E1011,
+            Lang::En,
+            panel::Page::Game,
+            "panel_desk_wide_en",
+        ),
+        (
+            Vec2::new(1000.0, 1500.0),
+            Edition::E1718,
+            Lang::Ja,
+            panel::Page::Game,
+            "panel_desk_tall_ja",
+        ),
+        (
+            Vec2::new(1000.0, 1500.0),
+            Edition::E1011,
+            Lang::It,
+            panel::Page::Catalogue,
+            "panel_desk_tall_catalogue_it",
+        ),
+        (
+            Vec2::new(1920.0, 1080.0),
+            Edition::E1011,
+            Lang::En,
+            panel::Page::Game,
+            "panel_desk_1920x1080_en",
+        ),
+        (
+            Vec2::new(1080.0, 1920.0),
+            Edition::E1718,
+            Lang::En,
+            panel::Page::Game,
+            "panel_desk_1080x1920_en",
+        ),
+    ] {
+        let mut st = panel::PanelState::sample(ed, lang, page);
+        st.desk = true;
+        st.file.board_window = true;
+        snap(&mut all, name, size, ed, |ui| panel::show(ui, &mut st));
+    }
+    all.unwrap();
+}
+
+/// The catalogue's card view: front and back side by side at their own pixels on the 1440x900 sheet (x1), one side at
+/// x1 with the FRONT | BACK toggle on a 900x563 window (0.625 px a point), the pair at x2 at 175 %. The pictures are
+/// made-up 256x357 patterns of single-pixel lines (blurred or moiré if ever scaled by a fraction), never card art.
+#[test]
+fn card_view() {
+    let _gpu = gpu();
+    let dir = tempfile::tempdir().expect("a temp folder");
+    let cards = forza_ui::sample::cards();
+    let ci = 2;
+    let no = cards[ci].number;
+    for (side, tint) in [("f", [200u8, 60, 40]), ("b", [40, 90, 200])] {
+        let img = image::RgbaImage::from_fn(256, 357, |x, y| {
+            let line = (x + y) % 2 == 0 || x % 32 == 0 || y % 32 == 0;
+            let [r, g, b] = tint;
+            if line {
+                image::Rgba([r, g, b, 255])
+            } else {
+                image::Rgba([235, 235, 225, 255])
+            }
+        });
+        img.save_with_format(
+            dir.path().join(format!("{no}_{side}.jpg")),
+            image::ImageFormat::Png,
+        )
+        .expect("a picture written");
+    }
+    let mut all = SnapshotResults::new();
+    for (ppp, lang, name) in [
+        (1.0, Lang::En, "panel_card_view_en"),
+        (0.625, Lang::Ja, "panel_card_view_single_ja"),
+        (1.75, Lang::En, "panel_card_view_175_x2_en"),
+    ] {
+        let mut st = panel::PanelState::sample(Edition::E1011, lang, panel::Page::Catalogue);
+        st.catalogue.filter = Default::default();
+        st.catalogue.view = Some(ci);
+        let path = dir.path().to_owned();
+        let mut first = true;
+        let mut h = harness(panel::SIZE, ppp, Edition::E1011, |ui| {
+            if first {
+                forza_ui::board::set_picture_dir(ui.ctx(), Some(path.clone()));
+                first = false;
+            }
+            panel::show(ui, &mut st)
+        });
+        // the files load on a thread: step until they show
+        for _ in 0..40 {
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        h.snapshot(name);
+        all.extend_harness(&mut h);
+    }
+    all.unwrap();
+}
+
+/// The pop-out board's window at 1024x768 (4:3): the wide layout, the board full height, drawn at the scale the panel
+/// DLL picks for it.
+#[test]
+fn desk_window_4_3() {
+    let _gpu = gpu();
+    let ppp = panel::desk_scale(1024.0, 768.0, 96.0);
+    let mut st = panel::PanelState::sample(Edition::E1011, Lang::En, panel::Page::Game);
+    st.desk = true;
+    st.file.board_window = true;
+    let mut h = harness(Vec2::new(1024.0, 768.0) / ppp, ppp, Edition::E1011, |ui| {
+        panel::show(ui, &mut st)
+    });
+    h.run_steps(8);
+    h.snapshot("panel_desk_1024x768_en");
+}
+
 /// The 2017-18 formation board as the cabinet's mat: at rest, a card in hand, and with the keeper's slot empty.
 #[test]
 fn board_mat() {

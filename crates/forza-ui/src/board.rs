@@ -172,7 +172,7 @@ fn card_picture_texture(
     number: u32,
 ) -> Option<(egui::TextureId, Vec2)> {
     for f in picture_names(number) {
-        match load_picture(ctx, dir, &f) {
+        match load_picture(ctx, dir, &f, egui::TextureOptions::LINEAR) {
             Pic::Ready(id, size) => return Some((id, size)),
             Pic::Pending => return None,
             Pic::Missing => {}
@@ -183,7 +183,12 @@ fn card_picture_texture(
 
 /// The picture file `file` in the folder as a ready texture (a miss is remembered: the folder is made once, at
 /// setup).
-fn load_picture(ctx: &egui::Context, dir: &std::path::Path, file: &str) -> Pic {
+fn load_picture(
+    ctx: &egui::Context,
+    dir: &std::path::Path,
+    file: &str,
+    options: egui::TextureOptions,
+) -> Pic {
     let file = dir.join(file);
     // `file:///C:\...` on Windows, `file:///home/...` elsewhere: what egui_extras' file loader parses
     let uri = format!(
@@ -194,11 +199,7 @@ fn load_picture(ctx: &egui::Context, dir: &std::path::Path, file: &str) -> Pic {
     if ctx.data(|d| d.get_temp::<bool>(miss)).is_some() {
         return Pic::Missing;
     }
-    let loaded = ctx.try_load_texture(
-        &uri,
-        egui::TextureOptions::LINEAR,
-        egui::SizeHint::default(),
-    );
+    let loaded = ctx.try_load_texture(&uri, options, egui::SizeHint::default());
     if loaded.is_err() {
         ctx.data_mut(|d| d.insert_temp(miss, true));
     }
@@ -206,6 +207,75 @@ fn load_picture(ctx: &egui::Context, dir: &std::path::Path, file: &str) -> Pic {
         Ok(egui::load::TexturePoll::Ready { texture }) => Pic::Ready(texture.id, texture.size),
         Ok(egui::load::TexturePoll::Pending { .. }) => Pic::Pending,
         Err(_) => Pic::Missing,
+    }
+}
+
+/// A card's picture for the 1:1 views, at its own pixels: the front (the album's `<number>_f.jpg`, else the pack's scan
+/// `<number>.jpg`) or the back (the album's `<number>_b.jpg`). `nearest`: a texture filtered by nearest pixel, for
+/// whole multiples past 1x. `None` while it loads or when there is no file: the drawn face or back stands in.
+pub fn card_picture_px(
+    ctx: &egui::Context,
+    number: u32,
+    back: bool,
+    nearest: bool,
+) -> Option<(egui::TextureId, Vec2)> {
+    let dir = picture_dir(ctx)?;
+    let options = if nearest {
+        egui::TextureOptions::NEAREST
+    } else {
+        egui::TextureOptions::LINEAR
+    };
+    let names = if back {
+        vec![format!("{number}_b.jpg")]
+    } else {
+        vec![format!("{number}_f.jpg"), format!("{number}.jpg")]
+    };
+    for f in names {
+        match load_picture(ctx, &dir, &f, options) {
+            Pic::Ready(id, size) => return Some((id, size)),
+            Pic::Pending => return None,
+            Pic::Missing => {}
+        }
+    }
+    None
+}
+
+/// A card side in a 1:1 slot `rect` (its top left on a whole pixel): its picture, letterboxed when its shape differs
+/// from the slot's, or the drawn face or back.
+pub fn card_side(p: &Painter, rect: Rect, card: &Card, back: bool, nearest: bool, lang: Lang) {
+    // nearest filtering only for the album art's own 256x357: an older, smaller picture filling the slot stays smooth
+    let got = card_picture_px(p.ctx(), card.number, back, nearest).and_then(|(id, size)| {
+        if nearest && size != crate::sizing::ALBUM {
+            card_picture_px(p.ctx(), card.number, back, false)
+        } else {
+            Some((id, size))
+        }
+    });
+    match got {
+        Some((id, size)) => {
+            p.rect_filled(rect, 0, theme::DEEP);
+            // a plain mesh, not an image shape: the tessellator's feathering would move its edges off the pixel grid
+            let at = letterbox(rect, size.x / size.y);
+            let at = Rect::from_min_size(
+                rect.min
+                    + ((at.min - rect.min) * p.pixels_per_point()).round() / p.pixels_per_point(),
+                at.size(),
+            );
+            let mut mesh = egui::Mesh::with_texture(id);
+            let uv = Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0));
+            mesh.add_rect_with_uv(at, uv, Color32::WHITE);
+            p.add(egui::Shape::mesh(mesh));
+        }
+        None if back => card_back(p, rect, card, lang),
+        None => card_face(
+            p,
+            rect,
+            card,
+            Look {
+                square: true,
+                ..Look::default()
+            },
+        ),
     }
 }
 
@@ -639,13 +709,24 @@ pub fn affinity_dots(p: &Painter, left_center: Pos2, level: u8) {
 
 // ---- the formation board ----
 
-/// The zone a pitch point is in: attack at the top, the centre, defence near the own goal, the keeper's box.
-fn zone(y: f32) -> Position {
-    match y {
-        y if y < 0.34 => Position::Fw,
-        y if y < 0.64 => Position::Mf,
-        y if y < 0.88 => Position::Df,
-        _ => Position::Gk,
+/// The game's two lines, as a spot's height (0 the far goal line, 1 the own): the FW band ends 25 m past halfway, the
+/// MF band 15 m inside the own half, on the 105 m pitch. From the game's own area table (2017-18 `AI/AI_DATA/area.adb`,
+/// area 10 at 0x194: z 25..67 m, area 11 at 0x1BC: z -15..25 m; 2010-11's line function FUN_004db340 asks the same
+/// areas, read from a running seat), FW asked first and the edges inclusive.
+const LINE_FW: f32 = (52.5 - 25.0) / 105.0;
+const LINE_MF: f32 = (52.5 + 15.0) / 105.0;
+
+/// The line a spot plays in, by the game's own rule (2017-18 client 0x5D2B40, 2010-11 FUN_004db340): the keeper's box
+/// first (table y > 0.8 and -0.2 < x < 0.2), then the FW band, the MF band, else DF ([`LINE_FW`], [`LINE_MF`]).
+fn zone(spot: Pos2) -> Position {
+    if spot.y > 0.9 && (spot.x - 0.5).abs() < 0.1 {
+        Position::Gk
+    } else if spot.y <= LINE_FW {
+        Position::Fw
+    } else if spot.y <= LINE_MF {
+        Position::Mf
+    } else {
+        Position::Df
     }
 }
 
@@ -655,8 +736,6 @@ pub const CARD_ASPECT: f32 = 180.0 / 254.0;
 pub const CARD_SMALL: egui::Vec2 = egui::vec2(50.0, 50.0 / CARD_ASPECT);
 /// The pitch is this many times as tall as it is wide.
 pub const PITCH_ASPECT: f32 = 1.25;
-/// The strip down the bench well's left edge that holds its name.
-const LABEL_LANE: f32 = 26.0;
 /// The bench's cards against the pitch's.
 const BENCH_SCALE: f32 = 0.8;
 
@@ -668,11 +747,11 @@ pub fn card_size(pitch_w: f32) -> egui::Vec2 {
 
 /// Where a pitch card sits: centred on its spot, pushed back inside when its edge would leave the pitch (the spot
 /// itself, what the table holds, is kept). The keeper's card (a spot in the keeper's zone, [`zone`]) sits lower, as
-/// on the cabinet's mat: centred on the own goal line, on the mat's GK box, half below the lines.
+/// on the cabinet's mat: on the mat's GK box, half below the own goal line.
 pub fn spot_rect(pitch: Rect, spot: Pos2) -> Rect {
     let f = field(pitch);
-    let y = if zone(spot.y) == Position::Gk {
-        f.bottom()
+    let y = if zone(spot) == Position::Gk {
+        art::rect(pitch, art::GK).center().y
     } else {
         f.top() + spot.y * f.height()
     };
@@ -688,24 +767,27 @@ pub fn spot_rect(pitch: Rect, spot: Pos2) -> Rect {
     ))
 }
 
-/// Where every slot's card sits: the 11 pitch slots at their spots (empty ones too, unused), the 5 bench slots in a row from `bench_top`
-/// (the board puts the bench 12 points under the pitch).
+/// Where every slot's card sits: the 11 pitch slots at their spots (empty ones too, unused), the 5 bench slots on the
+/// artwork's numbered boxes, the bench from `bench_top` (the board puts it 12 points under the pitch).
 pub fn slot_rects(pitch: Rect, bench_top: f32, spots: &[Pos2; 11]) -> [Rect; 16] {
     let mut rects = [Rect::NOTHING; 16];
     for (i, s) in spots.iter().enumerate() {
         rects[i] = spot_rect(pitch, *s);
     }
     let small = card_size(pitch.width()) * BENCH_SCALE;
-    let row = Rect::from_min_size(
-        pos2(pitch.left() + LABEL_LANE, bench_top),
-        vec2(pitch.width() - LABEL_LANE, small.y + 12.0),
-    );
-    let gap = (row.width() - 5.0 * small.x) / 6.0;
+    let bench = bench_rect(pitch, bench_top);
     for b in 0..5 {
-        rects[11 + b] =
-            Rect::from_min_size(row.min + vec2(gap + b as f32 * (small.x + gap), 6.0), small);
+        rects[11 + b] = Rect::from_center_size(art::slot(bench, b).center(), small);
     }
     rects
+}
+
+/// The bench strip under a pitch, from `bench_top`: the artwork's, as wide as the pitch.
+pub fn bench_rect(pitch: Rect, bench_top: f32) -> Rect {
+    Rect::from_min_size(
+        pos2(pitch.left(), bench_top),
+        vec2(pitch.width(), art::bench_h(pitch.width())),
+    )
 }
 
 /// A sheet point on `pitch` as a spot (the inverse of [`spot_rect`]'s centre, kept on the pitch).
@@ -717,14 +799,121 @@ fn spot_at(pitch: Rect, p: Pos2) -> Pos2 {
     )
 }
 
-/// The board's drawn field lines: touchline to touchline is the table's x -1..+1, the far goal line to the own goal
-/// line its y -1..+1 (the 2010-11 C panel's FIELD_L..FIELD_B), so a card on a line lies on it in the table too. The
-/// mat goes on below the own goal line by half a card, where the keeper's box lies.
+/// The board's drawn field lines, the pitch artwork's ([`art`]): touchline to touchline is the table's x -1..+1, the
+/// far goal line to the own goal line its y -1..+1 (the 2010-11 C panel's FIELD_L..FIELD_B), so a card on a line lies
+/// on it in the table too. The mat goes on below the own goal line, where the keeper's box lies.
 fn field(pitch: Rect) -> Rect {
-    let m = (pitch.width() * 0.025).max(3.0);
-    pitch
-        .shrink(m)
-        .with_max_y(pitch.bottom() - m - card_size(pitch.width()).y / 2.0)
+    art::rect(pitch, art::FIELD)
+}
+
+/// The owner's pitch artwork (`campo wccf`, a 2964x4419 picture of the cabinet's mat), traced into shapes so it is
+/// sharp at any size: its pitch part, from 20 px under the top, 2964x3705 px ([`PITCH_ASPECT`] tall). Positions are
+/// that picture's pixels (line centres), colours sampled from it.
+mod art {
+    use egui::{Color32, Pos2, Rect, pos2};
+
+    /// The picture's width, and where the board's pitch starts in it.
+    pub const W: f32 = 2964.0;
+    pub const TOP: f32 = 20.0;
+    /// Touchlines and goal lines: left, far goal line, right, own goal line.
+    pub const FIELD: [f32; 4] = [359.5, 64.5, 2606.0, 3361.5];
+    pub const LINE: f32 = 21.0;
+    /// Mown stripes across the field, the first (at the left touchline) light.
+    pub const STRIPES: usize = 17;
+    /// The midfield band, mown a yellower green.
+    pub const MF_BAND: [f32; 2] = [945.0, 2171.0];
+    /// The penalty box and the goal area: left and right edge, depth from the goal line; the penalty spot's distance.
+    pub const BOX: [f32; 3] = [878.5, 2086.0, 495.0];
+    pub const GOAL_AREA: [f32; 3] = [1208.5, 1756.5, 165.0];
+    pub const SPOT: f32 = 330.0;
+    pub const CIRCLE: f32 = 266.25;
+    pub const CORNER: f32 = 103.0;
+    pub const CENTRE_SPOT: f32 = 20.0;
+    /// The keeper's box, half under the own goal line: left, top, right, bottom.
+    pub const GK: [f32; 4] = [1311.0, 3232.0, 1656.0, 3716.0];
+    /// The zone names' centre heights and their capital letters' height.
+    pub const LABELS: [(&str, f32, Color32); 3] = [
+        ("FW", 396.0, Color32::from_rgb(0x8F, 0x97, 0x27)),
+        ("MF", 1121.0, Color32::from_rgb(0x5E, 0x6B, 0x32)),
+        ("DF", 2372.0, Color32::from_rgb(0x93, 0x99, 0x29)),
+    ];
+    pub const CAPS: f32 = 112.0;
+    pub const GRASS: Color32 = Color32::from_rgb(0x76, 0x7E, 0x31);
+    /// Stripes (light, dark) outside the midfield band and in it.
+    pub const MOWN: [Color32; 2] = [
+        Color32::from_rgb(0x79, 0x7C, 0x30),
+        Color32::from_rgb(0x68, 0x72, 0x33),
+    ];
+    pub const MOWN_MF: [Color32; 2] = [
+        Color32::from_rgb(0x85, 0x88, 0x29),
+        Color32::from_rgb(0x74, 0x7C, 0x2F),
+    ];
+    pub const CHALK: Color32 = Color32::from_rgb(0xB1, 0xAB, 0x67);
+    /// The bench strip under the pitch: from its cream top line to the picture's foot; the line's foot.
+    pub const BENCH: [f32; 2] = [3812.0, 4419.0];
+    pub const BENCH_LINE: f32 = 3830.0;
+    /// The five numbered boxes (left, right), their top and foot, their cream rim; the numbers' capital height.
+    pub const SLOTS: [[f32; 2]; 5] = [
+        [268.0, 646.0],
+        [784.0, 1160.0],
+        [1298.0, 1676.0],
+        [1816.0, 2194.0],
+        [2337.0, 2715.0],
+    ];
+    pub const SLOT_Y: [f32; 2] = [3870.0, 4389.0];
+    pub const SLOT_RIM: f32 = 10.0;
+    pub const DIGIT: f32 = 256.0;
+    /// The SUB label (left, top, right, bottom) and the badge's box.
+    pub const SUB: [f32; 4] = [40.0, 3940.0, 131.0, 4318.0];
+    pub const BADGE: [f32; 4] = [2748.0, 4036.0, 2944.0, 4214.0];
+    pub const SOIL: Color32 = Color32::from_rgb(0x6C, 0x57, 0x20);
+    pub const CREAM: Color32 = Color32::from_rgb(0xE2, 0xD4, 0xAD);
+    pub const SLOT_FILL: Color32 = Color32::from_rgb(0xB9, 0xB1, 0x73);
+    pub const DIGITS: Color32 = Color32::from_rgb(0xE2, 0xD5, 0xA9);
+    pub const GK_BOX: Color32 = Color32::from_rgb(0xB7, 0xAE, 0x6F);
+    pub const GK_TEXT: Color32 = Color32::from_rgb(0x65, 0x78, 0x3C);
+
+    /// A point of the picture on a pitch drawn in `pitch`.
+    pub fn at(pitch: Rect, x: f32, y: f32) -> Pos2 {
+        pitch.min + egui::vec2(x, y - TOP) * (pitch.width() / W)
+    }
+
+    /// A rectangle of the picture (left, top, right, bottom) on the pitch.
+    pub fn rect(pitch: Rect, [l, t, r, b]: [f32; 4]) -> Rect {
+        Rect::from_min_max(at(pitch, l, t), at(pitch, r, b))
+    }
+
+    /// A point of the picture's bench strip on a bench drawn in `bench` (its top at [`BENCH`]'s).
+    pub fn bench_at(bench: Rect, x: f32, y: f32) -> Pos2 {
+        bench.min + egui::vec2(x, y - BENCH[0]) * (bench.width() / W)
+    }
+
+    /// The bench strip's height for a pitch `width` wide.
+    pub fn bench_h(width: f32) -> f32 {
+        (BENCH[1] - BENCH[0]) * width / W
+    }
+
+    /// A slot's box on the bench.
+    pub fn slot(bench: Rect, i: usize) -> Rect {
+        let [l, r] = SLOTS[i];
+        Rect::from_min_max(bench_at(bench, l, SLOT_Y[0]), bench_at(bench, r, SLOT_Y[1]))
+    }
+
+    /// A length of the picture on the pitch.
+    pub fn len(pitch: Rect, v: f32) -> f32 {
+        v * pitch.width() / W
+    }
+
+    /// An arc round `c` of radius `r` from angle `a0` to `a1` (radians, y down), as a polyline.
+    pub fn arc(c: Pos2, r: f32, a0: f32, a1: f32) -> Vec<Pos2> {
+        let n = 24;
+        (0..=n)
+            .map(|i| {
+                let a = a0 + (a1 - a0) * i as f32 / n as f32;
+                pos2(c.x + r * a.cos(), c.y + r * a.sin())
+            })
+            .collect()
+    }
 }
 
 /// The pitch a board of this width draws, from `top_left`.
@@ -833,16 +1022,8 @@ pub fn formation_board(
     let mut changed = false;
     // the bench under the pitch: a well with its name running up the left like the zones
     ui.add_space(8.0);
-    let small = card * BENCH_SCALE;
-    let (bench, _) = ui.allocate_exact_size(vec2(width, small.y + 12.0), Sense::hover());
-    ui.painter()
-        .rect_filled(bench, theme::RADIUS_BIG, theme::WELL);
-    up_text(
-        ui.painter(),
-        bench.with_max_x(bench.left() + LABEL_LANE),
-        &tr!(lang, "board.bench"),
-        theme::TEXT_DIM,
-    );
+    let (bench, _) = ui.allocate_exact_size(vec2(width, art::bench_h(width)), Sense::hover());
+    mat_bench(ui, bench);
     // a pitch card in hand moves live: the table follows it every frame, as the C panels' board_move, so the game
     // sees the card slide and rub, not one jump on release; its spot before the lift is kept for a swap
     let origin_id = Id::new("board-origin");
@@ -948,7 +1129,7 @@ pub fn formation_board(
                     && if c.aptitude.known() {
                         Fit::of(c.aptitude.at(board.spots[slot])) == Fit::Out
                     } else {
-                        zone(board.spots[slot].y) != c.pos
+                        zone(board.spots[slot]) != c.pos
                     };
                 card_face(
                     p,
@@ -1011,33 +1192,16 @@ pub fn formation_board(
                     removed = Some((slot, board.spots.get(slot).copied().unwrap_or_default()));
                 }
             }
-            None => {
-                let col = if hovered_by_drag {
-                    theme::AMBER
-                } else {
-                    Color32::from_white_alpha(70)
-                };
-                let pts = [
-                    rect.left_top(),
-                    rect.right_top(),
-                    rect.right_bottom(),
-                    rect.left_bottom(),
-                    rect.left_top(),
-                ];
-                p.extend(egui::Shape::dashed_line(
-                    &pts,
-                    Stroke::new(1.0, col),
-                    4.0,
-                    3.0,
-                ));
-                p.text(
-                    rect.center(),
-                    Align2::CENTER_CENTER,
-                    "+",
-                    theme::display(22.0),
-                    col,
+            // an empty bench box: the artwork's numbered box shows; lit while a card is held over it
+            None if hovered_by_drag => {
+                p.rect_stroke(
+                    art::slot(bench, slot - 11),
+                    0,
+                    Stroke::new(3.0, theme::AMBER),
+                    StrokeKind::Inside,
                 );
             }
+            None => {}
         }
     }
 
@@ -1126,18 +1290,14 @@ pub fn formation_board(
     }
     back.append(&mut front);
     ui.painter().set(lines_at, egui::Shape::Vec(back));
-    // the list while the card is in hand or the mouse is on the board: elsewhere it would cover the pages
+    // the list while the card is in hand or the mouse is on the board, drawn by [`info_panes`] in the board's column
     if let Some(s) = selected
         && (dragging.is_some() || pointer.is_some_and(|p| pitch.union(bench).contains(p)))
     {
-        partner_list(
-            ui,
-            board,
-            links,
-            s,
-            pos2(ui.max_rect().left() - 16.0, bench.bottom()),
-            lang,
-        );
+        let at = (0..16)
+            .find(|&i| board.number(i) == Some(s))
+            .map_or(pitch, |i| rects[i]);
+        ui.data_mut(|d| d.insert_temp(partners_id(), (s, at)));
     }
 
     // the big card after a resting mouse
@@ -1162,8 +1322,12 @@ pub fn formation_board(
                 *f == Some(slot)
             });
             if left <= 0.0 || back {
-                let left = ui.max_rect().left();
-                big_card(ui, &board.cards[ci], rect, left, card, back, lang);
+                let ask = PaneAsk {
+                    card: board.cards[ci].clone(),
+                    at: rect,
+                    back,
+                };
+                ui.data_mut(|d| d.insert_temp(pane_id(), ask));
                 shown_big = Some(ci);
             } else {
                 ui.ctx()
@@ -1241,9 +1405,9 @@ pub fn partner_row(ui: &mut Ui, name: &str, link: Option<Stage>, affinity: Optio
     }
 }
 
-/// The selected card's partners beside the board, its bottom right at `anchor`: team-mates it is linked with (a line)
-/// or has the best affinity with, then the best partners not on the team (at most six).
-fn partner_list(ui: &Ui, board: &Board, links: &Links, sel: u32, anchor: Pos2, lang: Lang) {
+/// The selected card's partners in the board's column, the top left at `at`: team-mates it is linked with (a line) or
+/// has the best affinity with, then the best partners not on the team (at most six).
+fn partner_list(ui: &Ui, board: &Board, links: &Links, sel: u32, at: Pos2, lang: Lang) {
     let on: Vec<&Card> = board
         .slots
         .iter()
@@ -1269,8 +1433,7 @@ fn partner_list(ui: &Ui, board: &Board, links: &Links, sel: u32, anchor: Pos2, l
     let w = 230.0;
     egui::Area::new(Id::new("board-partners"))
         .order(Order::Foreground)
-        .pivot(Align2::RIGHT_BOTTOM)
-        .fixed_pos(anchor)
+        .fixed_pos(at)
         .interactable(false)
         .show(ui.ctx(), |ui| {
             egui::Frame::new()
@@ -1351,84 +1514,27 @@ pub fn fit_badge(p: &Painter, top_center: Pos2, fit: Fit, lang: Lang) {
     p.galley(r.center() - g.size() / 2.0, g, ink);
 }
 
-/// Text running up a narrow strip, centred in it and fitted to its height. Japanese stands upright, one character
-/// under the other, as vertical Japanese is written.
-fn up_text(p: &Painter, strip: Rect, text: &str, col: Color32) {
-    if !text.chars().any(|c| c.is_ascii_alphabetic()) {
-        let size = (strip.width() - 8.0).min(16.0);
-        let n = text.chars().count() as f32;
-        let top = strip.center().y - n * size / 2.0;
-        for (i, c) in text.chars().enumerate() {
-            p.text(
-                pos2(strip.center().x, top + (i as f32 + 0.5) * size),
-                Align2::CENTER_CENTER,
-                c,
-                theme::bold(size - 2.0),
-                col,
-            );
-        }
-        return;
-    }
-    let g = fit(p, text, theme::display(14.0), col, strip.height() - 12.0);
-    let at = pos2(
-        strip.center().x - g.size().y / 2.0,
-        strip.center().y + g.size().x / 2.0,
-    );
-    p.add(egui::epaint::TextShape::new(at, g, col).with_angle(-std::f32::consts::FRAC_PI_2));
-}
-
-/// The pitch, attacking upwards. With `mat`, the formation board's: the cabinet's mat (dark mown bands, the zones
-/// FW, MF and DF printed faintly down the middle, the keeper's GK box on the own goal line, below the penalty box).
+/// The pitch, attacking upwards. With `mat`, the formation board's: the owner's artwork of the cabinet's mat
+/// ([`mat_pitch`]); without, the card back's small plain pitch.
 fn paint_pitch(p: &Painter, pitch: Rect, mat: bool) {
-    let (grass, stripe, bands) = if mat {
-        (theme::MAT, theme::MAT_STRIPE, 8)
-    } else {
-        (theme::PITCH, theme::PITCH_STRIPE, 10)
-    };
+    if mat {
+        return mat_pitch(p, pitch);
+    }
+    let bands = 10;
     let h = pitch.height() / bands as f32;
-    let radius = if mat {
-        theme::RADIUS_BIG
-    } else {
-        theme::RADIUS
-    };
-    p.rect_filled(pitch, radius, grass);
+    p.rect_filled(pitch, theme::RADIUS, theme::PITCH);
     for i in (0..bands).step_by(2) {
         let r = Rect::from_min_size(pitch.min + vec2(0.0, h * i as f32), vec2(pitch.width(), h));
         let cr = egui::CornerRadius {
-            nw: if i == 0 { radius } else { 0 },
-            ne: if i == 0 { radius } else { 0 },
+            nw: if i == 0 { theme::RADIUS } else { 0 },
+            ne: if i == 0 { theme::RADIUS } else { 0 },
             sw: 0,
             se: 0,
         };
-        p.rect_filled(r, cr, stripe);
+        p.rect_filled(r, cr, theme::PITCH_STRIPE);
     }
-    // markings
-    let line = Stroke::new(
-        1.5,
-        if mat {
-            theme::MAT_LINE
-        } else {
-            theme::PITCH_LINE.gamma_multiply(0.75)
-        },
-    );
-    let f = if mat {
-        field(pitch)
-    } else {
-        pitch.shrink((pitch.width() * 0.025).max(3.0))
-    };
-    if mat {
-        // the zones, as the mat prints them: big, faint, on the middle line, in spot units
-        let size = pitch.width() * 0.2;
-        for (t, name) in [(0.25, "FW"), (0.45, "MF"), (0.745, "DF")] {
-            p.text(
-                pos2(f.center().x, f.top() + t * f.height()),
-                Align2::CENTER_CENTER,
-                name,
-                theme::display(size),
-                Color32::from_white_alpha(40),
-            );
-        }
-    }
+    let line = Stroke::new(1.5, theme::PITCH_LINE.gamma_multiply(0.75));
+    let f = pitch.shrink((pitch.width() * 0.025).max(3.0));
     p.rect_stroke(f, 2, line, StrokeKind::Middle);
     p.line_segment([f.left_center(), f.right_center()], line);
     p.circle_stroke(f.center(), f.width() * 0.14, line);
@@ -1447,24 +1553,114 @@ fn paint_pitch(p: &Painter, pitch: Rect, mat: bool) {
             pos2(f.center().x + gw / 2.0, y + gh),
         );
         p.rect_stroke(box_, 0, line, StrokeKind::Middle);
-        // the mat has a goal box at the far end only
-        if !mat || dir > 0.0 {
-            p.rect_stroke(goal, 0, line, StrokeKind::Middle);
-        }
+        p.rect_stroke(goal, 0, line, StrokeKind::Middle);
     }
-    if mat {
-        // the keeper's box: on the own goal line, a card and a margin wide, half below it
-        let card = card_size(pitch.width());
-        let gk = Rect::from_center_size(f.center_bottom(), card + vec2(8.0, 8.0));
-        p.rect_filled(gk, 3, theme::MAT_BOX);
+}
+
+/// The formation board's pitch: the owner's artwork ([`art`]), mown stripes, the yellower midfield band, the zone names
+/// FW, MF and DF down the middle, the markings in chalk and the keeper's GK box half under the own goal line.
+fn mat_pitch(p: &Painter, pitch: Rect) {
+    use std::f32::consts::{FRAC_PI_2, PI};
+    p.rect_filled(pitch, theme::RADIUS_BIG, art::GRASS);
+    let f = field(pitch);
+    let sw = f.width() / art::STRIPES as f32;
+    let band = art::rect(pitch, [0.0, art::MF_BAND[0], art::W, art::MF_BAND[1]]);
+    for i in 0..art::STRIPES {
+        let x = f.left() + sw * i as f32;
+        let r = Rect::from_x_y_ranges(x..=x + sw, f.y_range());
+        p.rect_filled(r, 0, art::MOWN[i % 2]);
+        p.rect_filled(r.intersect(band), 0, art::MOWN_MF[i % 2]);
+    }
+    let size = art::len(pitch, art::CAPS) / 0.7; // the display font's capitals are about 0.7 of its size
+    for (name, y, col) in art::LABELS {
         p.text(
-            gk.center(),
+            art::at(pitch, art::W / 2.0 + 5.0, y),
             Align2::CENTER_CENTER,
-            "GK",
-            theme::display(pitch.width() * 0.09),
-            Color32::from_black_alpha(110),
+            name,
+            theme::display(size),
+            col,
         );
     }
+    let line = Stroke::new(art::len(pitch, art::LINE).max(1.0), art::CHALK);
+    p.rect_stroke(f, 0, line, StrokeKind::Middle);
+    p.line_segment([f.left_center(), f.right_center()], line);
+    p.circle_stroke(f.center(), art::len(pitch, art::CIRCLE), line);
+    p.circle_filled(f.center(), art::len(pitch, art::CENTRE_SPOT), art::CHALK);
+    let corner = art::len(pitch, art::CORNER);
+    for (c, a) in [
+        (f.left_top(), 0.0),
+        (f.right_top(), FRAC_PI_2),
+        (f.right_bottom(), PI),
+        (f.left_bottom(), -FRAC_PI_2),
+    ] {
+        p.add(egui::Shape::line(
+            art::arc(c, corner, a, a + FRAC_PI_2),
+            line,
+        ));
+    }
+    let [bl, br, bd] = art::BOX;
+    let [gl, gr, gd] = art::GOAL_AREA;
+    // the penalty arc: the part of the circle round the spot outside the box
+    let half = ((bd - art::SPOT) / art::CIRCLE).acos();
+    for (goal, dir) in [(art::FIELD[1], 1.0), (art::FIELD[3], -1.0)] {
+        let rect = |l, r, d: f32| {
+            Rect::from_two_pos(art::at(pitch, l, goal), art::at(pitch, r, goal + d * dir))
+        };
+        p.rect_stroke(rect(bl, br, bd), 0, line, StrokeKind::Middle);
+        p.rect_stroke(rect(gl, gr, gd), 0, line, StrokeKind::Middle);
+        let spot = art::at(pitch, art::W / 2.0, goal + art::SPOT * dir);
+        let mid = if dir > 0.0 { FRAC_PI_2 } else { -FRAC_PI_2 };
+        p.add(egui::Shape::line(
+            art::arc(spot, art::len(pitch, art::CIRCLE), mid - half, mid + half),
+            line,
+        ));
+    }
+    let gk = art::rect(pitch, art::GK);
+    p.rect_filled(gk, 0, art::GK_BOX);
+    p.text(
+        gk.center(),
+        Align2::CENTER_CENTER,
+        "GK",
+        theme::display(size),
+        art::GK_TEXT,
+    );
+}
+
+/// The formation board's bench: the artwork's strip (a cream line, the soil, SUB, the five numbered boxes and the
+/// Forza-WCCF badge), drawn as the owner's file has it, untranslated.
+fn mat_bench(ui: &Ui, bench: Rect) {
+    let p = ui.painter();
+    let at = |x, y| art::bench_at(bench, x, y);
+    let len = |v| art::len(bench, v);
+    p.rect_filled(bench, 0, art::SOIL);
+    p.rect_filled(
+        Rect::from_min_max(bench.min, at(art::W, art::BENCH_LINE)),
+        0,
+        art::CREAM,
+    );
+    let [l, t, r, b] = art::SUB;
+    let sub = Rect::from_min_max(at(l, t), at(r, b));
+    p.rect_filled(sub, 0, art::CREAM);
+    let g = p.layout_no_wrap("SUB".into(), theme::display(len(78.0)), art::SOIL);
+    let pos = sub.center() + vec2(-g.size().y / 2.0, g.size().x / 2.0);
+    p.add(egui::epaint::TextShape::new(pos, g, art::SOIL).with_angle(-std::f32::consts::FRAC_PI_2));
+    for i in 0..5 {
+        let r = art::slot(bench, i);
+        p.rect_filled(r, 0, art::CREAM);
+        p.rect_filled(r.shrink(len(art::SLOT_RIM)), 0, art::SLOT_FILL);
+        p.text(
+            r.center(),
+            Align2::CENTER_CENTER,
+            (i + 1).to_string(),
+            theme::display(len(art::DIGIT) / 0.7),
+            art::DIGITS,
+        );
+    }
+    let [l, t, r, b] = art::BADGE;
+    egui::Image::new(egui::include_image!(
+        "../../../assets/logo/forza-wccf-badge-128.png"
+    ))
+    .paint_at(ui, Rect::from_min_max(at(l, t), at(r, b)));
 }
 
 /// The card back's position map: a tile per position area ([`heat_zone`]), or "no position data" on a small pitch.
@@ -1660,49 +1856,141 @@ pub fn card_back(p: &Painter, rect: Rect, card: &Card, lang: Lang) {
     );
 }
 
-/// Room around the big card's face: the frame's margins, and its caption under it (name, facts, roles, stats).
+/// Room around the info pane's face: the frame's margins, and the large tier's caption under it (name, facts, roles,
+/// stats).
 const BIG_FRAME: f32 = 22.0;
 const BIG_CAPTION: f32 = 150.0;
 
-/// How much the big card enlarges a `tile`: 4x, or the most that keeps the face, the position map beside it and the
-/// caption inside `room` (the space left of the board, the window's height); never under 1x.
-fn big_scale(tile: Vec2, room: Vec2) -> f32 {
-    // the face k * tile, 10 apart the map (k * tile.y - 22) / PITCH_ASPECT wide, the frame round them
-    let by_w = (room.x - BIG_FRAME - 10.0 + 22.0 / PITCH_ASPECT) / (tile.x + tile.y / PITCH_ASPECT);
-    let by_h = (room.y - BIG_FRAME - BIG_CAPTION) / tile.y;
-    by_w.min(by_h).clamp(1.0, 4.0)
+/// What the board asks [`info_panes`] to show this frame: the card shown big, where it lies, the pitch card's size and
+/// whether it is turned over.
+#[derive(Clone)]
+struct PaneAsk {
+    card: Card,
+    at: Rect,
+    back: bool,
 }
 
-/// The big card beside the board, kept inside the window, with its caption: the whole card face at 4x the board's
-/// `tile` (less when the window is too small, [`big_scale`]), the card back's suitable positions beside it, and its
-/// line of facts.
-fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, tile: Vec2, back: bool, lang: Lang) {
+fn pane_id() -> Id {
+    Id::new("board-pane-ask")
+}
+
+/// The selected card's partner list asked for: its number and where it lies.
+fn partners_id() -> Id {
+    Id::new("board-partners-ask")
+}
+
+/// The info pane's two sizes: large (the face at its picture's own pixels, the position map beside it, the caption
+/// under them) or a strip (a smaller face, the caption beside it).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tier {
+    Large,
+    Strip,
+}
+
+/// Where an info pane goes in the board's column, `pitch` wide: docked under the hint (its foot at `hint_bottom`) when
+/// the column has the room before `foot`, large (`large_h` tall) if it can, else a strip (`strip_h`); when not even a
+/// strip fits there, a strip over the half of the pitch away from the card it is about (its centre at `card_y`; a bench
+/// card counts as low). It never leaves the column, so it never covers the game's picture or the deck.
+pub fn pane_place(
+    pitch: Rect,
+    hint_bottom: f32,
+    foot: f32,
+    large_h: f32,
+    strip_h: f32,
+    card_y: f32,
+) -> (Rect, Tier) {
+    let free = foot - hint_bottom - 8.0;
+    let docked = |h| {
+        Rect::from_min_size(
+            pos2(pitch.left(), hint_bottom + 8.0),
+            vec2(pitch.width(), h),
+        )
+    };
+    if free >= large_h {
+        return (docked(large_h), Tier::Large);
+    }
+    if free >= strip_h {
+        return (docked(strip_h), Tier::Strip);
+    }
+    let r = if card_y > pitch.center().y {
+        Rect::from_min_size(pitch.left_top(), vec2(pitch.width(), strip_h))
+    } else {
+        Rect::from_min_max(
+            pos2(pitch.left(), pitch.bottom() - strip_h),
+            pitch.right_bottom(),
+        )
+    };
+    (r, Tier::Strip)
+}
+
+/// The large tier's face in a pane `width` wide: the album art's 256x357 at one device pixel each
+/// ([`crate::sizing::ALBUM`]), when the face and a position map at least 120 points wide fit the width; else none
+/// (the strip).
+fn large_face(width: f32, ppp: f32) -> Option<Vec2> {
+    let face = crate::sizing::ALBUM / ppp;
+    (face.x + 10.0 + 120.0 + BIG_FRAME <= width).then_some(face)
+}
+
+/// The board's panes, drawn once the hint under the bench is laid out (its foot at `hint_bottom`; the column ends at
+/// `foot`): the card the mouse rests on (after the hover delay, or turned over), else the selected card's partners.
+/// Both stay inside the board's column ([`pane_place`]).
+pub fn info_panes(
+    ui: &Ui,
+    board: &Board,
+    links: &Links,
+    pitch: Rect,
+    hint_bottom: f32,
+    foot: f32,
+    lang: Lang,
+) {
+    let (ask, partners) = ui.data_mut(|d| {
+        let ask = d.get_temp::<PaneAsk>(pane_id());
+        let partners = d.get_temp::<(u32, Rect)>(partners_id());
+        d.remove::<PaneAsk>(pane_id());
+        d.remove::<(u32, Rect)>(partners_id());
+        (ask, partners)
+    });
+    let ppp = ui.ctx().pixels_per_point();
+    if let Some(a) = ask {
+        let large = large_face(pitch.width(), ppp);
+        let strip = crate::sizing::hover_face(ppp);
+        let (pane, tier) = pane_place(
+            pitch,
+            hint_bottom,
+            foot,
+            large.map_or(f32::INFINITY, |f| BIG_FRAME + f.y + BIG_CAPTION),
+            BIG_FRAME + strip.y,
+            a.at.center().y,
+        );
+        let face = match (tier, large) {
+            (Tier::Large, Some(f)) => f,
+            _ => strip,
+        };
+        info_pane(ui, &a.card, pane, tier, face, a.back, lang);
+    } else if let Some((sel, at)) = partners {
+        // as tall as it was last frame (about 220 points the first time)
+        let h = ui
+            .ctx()
+            .memory(|m| m.area_rect(Id::new("board-partners")))
+            .map_or(220.0, |r| r.height());
+        let (r, _) = pane_place(pitch, hint_bottom, foot, f32::INFINITY, h, at.center().y);
+        partner_list(ui, board, links, sel, r.min, lang);
+    }
+}
+
+/// The info pane in `pane`: the card's face (its back when turned over) `face` big; large, the position map beside it
+/// and the caption under them; a strip, the caption beside the face.
+fn info_pane(ui: &Ui, card: &Card, pane: Rect, tier: Tier, face: Vec2, back: bool, lang: Lang) {
     let card = &*real(ui.ctx(), card);
-    let screen = ui.ctx().content_rect();
-    let room = vec2(board_left - 32.0 - screen.left(), screen.height() - 32.0);
-    // no bigger than the card picture's own pixels; the caption shrinks a little with it, never under 9/10
-    let fit = big_scale(tile, room);
-    let k = fit.min(crate::sizing::big_scale(
-        tile.x,
-        ui.ctx().pixels_per_point(),
-    ));
-    let t = (k / fit).clamp(0.9, 1.0);
-    let size = tile * k;
-    // the map under its 22 px heading, as tall as the card
-    let map = vec2((size.y - 22.0) / PITCH_ASPECT, size.y - 22.0);
-    // turned over: the back, as wide as the face and the map unless that is too tall
-    let back_w = (size.x + 10.0 + map.x).min((room.y - BIG_FRAME - BIG_CAPTION) * CARD_ASPECT);
-    let body_h = if back { back_w / CARD_ASPECT } else { size.y };
-    let pos = pos2(
-        board_left - 16.0,
-        (near.center().y - size.y / 2.0)
-            .min(screen.bottom() - 16.0 - BIG_FRAME - BIG_CAPTION - body_h)
-            .max(screen.top() + 16.0),
-    );
+    let large = tier == Tier::Large;
+    let t = if large { 1.0 } else { 0.9 };
+    // the map under its 22 pt heading, as tall as the card (narrower when the pane is)
+    let map_w = ((face.y - 22.0) / PITCH_ASPECT).min(pane.width() - BIG_FRAME - 10.0 - face.x);
+    let map = vec2(map_w, map_w * PITCH_ASPECT);
+    let ppp = ui.ctx().pixels_per_point();
     egui::Area::new(Id::new("board-big"))
         .order(Order::Tooltip)
-        .pivot(Align2::RIGHT_TOP)
-        .fixed_pos(pos)
+        .fixed_pos(pane.min)
         .interactable(false)
         .show(ui.ctx(), |ui| {
             egui::Frame::new()
@@ -1717,18 +2005,20 @@ fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, tile: Vec2, back:
                     color: Color32::from_black_alpha(160),
                 })
                 .show(ui, |ui| {
-                    let wide = size.x + 10.0 + map.x;
-                    ui.set_max_width(wide);
-                    if back {
-                        // turned over: the back, as wide as the face and the map
-                        let w = back_w;
-                        let (r, _) =
-                            ui.allocate_exact_size(vec2(w, w / CARD_ASPECT), Sense::hover());
-                        card_back(ui.painter(), r, card, lang);
-                    } else {
-                        ui.horizontal_top(|ui| {
-                            ui.spacing_mut().item_spacing.x = 10.0;
-                            let (r, _) = ui.allocate_exact_size(size, Sense::hover());
+                    let inner = pane.size() - Vec2::splat(BIG_FRAME);
+                    ui.set_min_size(inner);
+                    ui.set_max_width(inner.x);
+                    ui.horizontal_top(|ui| {
+                        ui.spacing_mut().item_spacing.x = 10.0;
+                        let (r, _) = ui.allocate_exact_size(face, Sense::hover());
+                        if large {
+                            // the album art at its own pixels: its top left on a whole device pixel
+                            use egui::emath::GuiRounding as _;
+                            let r = Rect::from_min_size(r.min.round_to_pixels(ppp), face);
+                            card_side(ui.painter(), r, card, back, false, lang);
+                        } else if back {
+                            card_back(ui.painter(), r, card, lang);
+                        } else {
                             card_face(
                                 ui.painter(),
                                 r,
@@ -1738,90 +2028,103 @@ fn big_card(ui: &Ui, card: &Card, near: Rect, board_left: f32, tile: Vec2, back:
                                     ..Look::default()
                                 },
                             );
-                            ui.vertical(|ui| {
+                        }
+                        ui.vertical(|ui| {
+                            if large {
                                 ui.spacing_mut().item_spacing.y = 4.0;
                                 ui.label(
                                     egui::RichText::new(tr!(lang, "board.positions"))
-                                        .font(theme::display(14.0 * t))
+                                        .font(theme::display(14.0))
                                         .color(theme::TEXT_DIM),
                                 );
                                 let (m, _) = ui.allocate_exact_size(map, Sense::hover());
                                 aptitude_map(ui.painter(), m, &card.aptitude, lang);
-                            });
-                        });
-                    }
-                    ui.label(
-                        egui::RichText::new(&card.name)
-                            .font(theme::display(20.0 * t))
-                            .color(theme::TEXT),
-                    );
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "{} · {} · {}",
-                            card.club, card.country, card.season
-                        ))
-                        .font(theme::body(12.0 * t))
-                        .color(theme::TEXT_DIM),
-                    );
-                    let top = card.aptitude.top();
-                    if !top.is_empty() {
-                        let roles = top
-                            .iter()
-                            .map(|(n, r)| format!("{n} {r}"))
-                            .collect::<Vec<_>>()
-                            .join(" · ");
-                        ui.label(
-                            egui::RichText::new(tr!(lang, "board.roles", roles = roles))
-                                .font(theme::body(12.0 * t))
-                                .italics()
-                                .color(theme::TEXT_DIM),
-                        );
-                    }
-                    let stats = [
-                        "cat.off", "cat.def", "cat.tec", "cat.pow", "cat.spd", "cat.sta",
-                    ];
-                    if card.secret {
-                        ui.label(
-                            egui::RichText::new(tr!(lang, "cat.secret"))
-                                .font(theme::display(18.0 * t))
-                                .color(theme::TEXT_DIM),
-                        );
-                    } else {
-                        egui::Grid::new("big-stats")
-                            .num_columns(6)
-                            .spacing(vec2(14.0, 0.0))
-                            .show(ui, |ui| {
-                                for k in stats {
-                                    ui.label(
-                                        egui::RichText::new(tr!(lang, k))
-                                            .font(theme::display(12.0 * t))
-                                            .color(theme::TEXT_DIM),
-                                    );
-                                }
-                                ui.end_row();
-                                for v in card.stats {
-                                    ui.label(
-                                        egui::RichText::new(v.to_string())
-                                            .font(theme::display(18.0 * t))
-                                            .color(super::widgets::stat_color(v)),
-                                    );
-                                }
-                            });
-                    }
-                    ui.label(
-                        egui::RichText::new(tr!(
-                            lang,
-                            if back {
-                                "board.flip_back"
                             } else {
-                                "board.flip"
+                                ui.spacing_mut().item_spacing.y = 2.0;
+                                caption(ui, card, back, t, lang);
                             }
-                        ))
-                        .font(theme::body(11.0 * t))
-                        .color(theme::TEXT_FAINT),
-                    );
+                        });
+                    });
+                    if large {
+                        caption(ui, card, back, t, lang);
+                    }
                 });
         });
+}
+
+/// The info pane's words: the name, club · country · season, the best roles, the stats (or SECRET) and the flip hint;
+/// `t` scales the text.
+fn caption(ui: &mut Ui, card: &Card, back: bool, t: f32, lang: Lang) {
+    ui.label(
+        egui::RichText::new(&card.name)
+            .font(theme::display(20.0 * t))
+            .color(theme::TEXT),
+    );
+    ui.label(
+        egui::RichText::new(format!(
+            "{} · {} · {}",
+            card.club, card.country, card.season
+        ))
+        .font(theme::body(12.0 * t))
+        .color(theme::TEXT_DIM),
+    );
+    let top = card.aptitude.top();
+    if !top.is_empty() {
+        let roles = top
+            .iter()
+            .map(|(n, r)| format!("{n} {r}"))
+            .collect::<Vec<_>>()
+            .join(" · ");
+        ui.label(
+            egui::RichText::new(tr!(lang, "board.roles", roles = roles))
+                .font(theme::body(12.0 * t))
+                .italics()
+                .color(theme::TEXT_DIM),
+        );
+    }
+    let stats = [
+        "cat.off", "cat.def", "cat.tec", "cat.pow", "cat.spd", "cat.sta",
+    ];
+    if card.secret {
+        ui.label(
+            egui::RichText::new(tr!(lang, "cat.secret"))
+                .font(theme::display(18.0 * t))
+                .color(theme::TEXT_DIM),
+        );
+    } else {
+        egui::Grid::new("big-stats")
+            .num_columns(6)
+            .spacing(vec2(14.0, 0.0))
+            .show(ui, |ui| {
+                for k in stats {
+                    ui.label(
+                        egui::RichText::new(tr!(lang, k))
+                            .font(theme::display(12.0 * t))
+                            .color(theme::TEXT_DIM),
+                    );
+                }
+                ui.end_row();
+                for v in card.stats {
+                    ui.label(
+                        egui::RichText::new(v.to_string())
+                            .font(theme::display(18.0 * t))
+                            .color(super::widgets::stat_color(v)),
+                    );
+                }
+            });
+    }
+    ui.label(
+        egui::RichText::new(tr!(
+            lang,
+            if back {
+                "board.flip_back"
+            } else {
+                "board.flip"
+            }
+        ))
+        .font(theme::body(11.0 * t))
+        .color(theme::TEXT_FAINT),
+    );
 }
 
 /// A card in the catalogue's results: lifts a little under the mouse; `on_table` dims it with a tick.
@@ -2423,24 +2726,6 @@ mod tests {
         assert_eq!((l.x, l.y), (BENCH_X, BENCH_Y[2]));
     }
 
-    /// The big card is 4x the tile when the window has room, else the most that keeps it, its map and caption inside.
-    #[test]
-    fn the_big_card_is_four_times_the_tile_when_it_fits() {
-        let tile = card_size(400.0);
-        assert_eq!(big_scale(tile, vec2(1200.0, 1400.0)), 4.0);
-        let room = vec2(400.0, 600.0);
-        let k = big_scale(tile, room);
-        assert!(k > 1.0 && k < 4.0, "{k}");
-        let face = tile * k;
-        let need_w = face.x + 10.0 + (face.y - 22.0) / PITCH_ASPECT + BIG_FRAME;
-        let need_h = face.y + BIG_FRAME + BIG_CAPTION;
-        assert!(
-            need_w <= room.x + 0.01 && need_h <= room.y + 0.01,
-            "{need_w} {need_h}"
-        );
-        assert_eq!(big_scale(tile, vec2(10.0, 10.0)), 1.0);
-    }
-
     /// A card's tile stays on the pitch at any spot, and lies centred on its spot away from the edges.
     #[test]
     fn a_card_never_leaves_the_pitch() {
@@ -2466,8 +2751,24 @@ mod tests {
         let back = spot_rect(pitch, pos2(0.5, 0.87));
         assert!(gk.center().y > back.center().y + 20.0);
         assert!(pitch.contains_rect(gk));
-        assert_eq!(zone(spot_at(pitch, gk.center()).y), Position::Gk);
-        assert_eq!(zone(spot_at(pitch, back.center()).y), Position::Df);
+        assert_eq!(zone(spot_at(pitch, gk.center())), Position::Gk);
+        assert_eq!(zone(spot_at(pitch, back.center())), Position::Df);
+    }
+
+    /// The game's lines (area.adb's areas 10 and 11, FUN_004db340's keeper box), in table coordinates: x -1..1,
+    /// y -1 (far goal line) ..1 (own); edges inclusive, FW first.
+    #[test]
+    fn the_lines_are_the_games() {
+        let at = |x: f32, y: f32| zone(pos2((x + 1.0) / 2.0, (y + 1.0) / 2.0));
+        // FW down to 25 m past halfway (y = -25/52.5), MF down to 15 m inside the own half (y = 15/52.5)
+        assert_eq!(at(0.0, -25.0 / 52.5 - 0.001), Position::Fw);
+        assert_eq!(at(0.0, -25.0 / 52.5 + 0.01), Position::Mf);
+        assert_eq!(at(0.9, 15.0 / 52.5 - 0.001), Position::Mf);
+        assert_eq!(at(0.0, 15.0 / 52.5 + 0.01), Position::Df);
+        // the keeper's box: y past 0.8, x inside +-0.2; beside it, DF
+        assert_eq!(at(0.1, 0.85), Position::Gk);
+        assert_eq!(at(0.3, 0.85), Position::Df);
+        assert_eq!(at(0.0, 0.79), Position::Df);
     }
 
     #[test]

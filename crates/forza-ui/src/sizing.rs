@@ -47,10 +47,21 @@ pub fn hover_face(ppp: f32) -> Vec2 {
     NATIVE / (k * ppp)
 }
 
-/// The most the board's big hover card enlarges a pitch card `tile_w` points wide: its scan at native pixels, between
-/// 1.5x and 4x the tile (the board's `big_scale` takes the smaller of this and what the window leaves).
-pub fn big_scale(tile_w: f32, ppp: f32) -> f32 {
-    (NATIVE.x / ppp / tile_w).clamp(1.5, 4.0)
+/// The album art's front and back (`<number>_f.jpg`, `<number>_b.jpg`), in physical pixels: the slot the card view and
+/// the large hover pane draw a card in, whatever picture it has.
+pub const ALBUM: Vec2 = vec2(256.0, 357.0);
+/// The card view's gap between its two pictures, in points.
+pub const PAIR_GAP: f32 = 16.0;
+
+/// The card view's scale: `n` pictures of `pic_px` pixels side by side ([`PAIR_GAP`] apart) drawn at a whole multiple
+/// of their own pixels, 2 when that fits `room` (points, at `ppp` pixels a point), else 1; `None` when even 1 does not.
+/// A picture is then `pic_px * k / ppp` points: never a fraction of its pixels, so never soft.
+pub fn exact(pic_px: Vec2, n: usize, room: Vec2, ppp: f32) -> Option<f32> {
+    let n = n as f32;
+    [2.0, 1.0].into_iter().find(|k| {
+        n * pic_px.x * k + (n - 1.0) * PAIR_GAP * ppp <= room.x * ppp + 0.01
+            && pic_px.y * k <= room.y * ppp + 0.01
+    })
 }
 
 /// How much the hover card's text grows with its face: 1 at the base size (a 90 point face), within 0.9..1.3.
@@ -94,6 +105,32 @@ mod tests {
         }
     }
 
+    /// The card view's scale is a whole multiple of the pictures' pixels, the largest of 1 and 2 that fits: the pair at
+    /// x1 on the 1440x900 sheet, one face at x1 on a 900x563 window (0.625 px a point), the pair at x2 at 175 %.
+    #[test]
+    fn the_card_view_draws_whole_pixels() {
+        // the catalogue page's body on the 1440x900 sheet (about 804x730 points), less the head row and the caption
+        let room = vec2(804.0, 730.0 - 48.0 - 100.0);
+        for ppp in [0.625, 0.889, 1.0, 1.25, 1.5, 1.75, 2.0] {
+            for n in [1, 2] {
+                if let Some(k) = exact(ALBUM, n, room, ppp) {
+                    assert!(k == 1.0 || k == 2.0, "{ppp} {n}: {k}");
+                    let size = ALBUM * k / ppp;
+                    assert_eq!(size * ppp / k, ALBUM, "{ppp} {n}");
+                    let w = n as f32 * size.x + (n as f32 - 1.0) * PAIR_GAP;
+                    assert!(
+                        w <= room.x + 0.01 && size.y <= room.y + 0.01,
+                        "{ppp} {n}: {size:?}"
+                    );
+                }
+            }
+        }
+        assert_eq!(exact(ALBUM, 2, room, 1.0), Some(1.0));
+        assert_eq!(exact(ALBUM, 2, room, 0.625), None);
+        assert_eq!(exact(ALBUM, 1, room, 0.625), Some(1.0));
+        assert_eq!(exact(ALBUM, 2, room, 1.75), Some(2.0));
+    }
+
     #[test]
     fn the_hover_face_is_never_upscaled() {
         for ppp in [1.0, 1.25, 1.5, 2.0] {
@@ -101,8 +138,6 @@ mod tests {
             assert!(f.x * ppp <= NATIVE.x + 0.01, "{ppp}: {f:?}");
             assert!(f.x > 50.0 && f.x < 150.0, "{ppp}: {f:?}");
         }
-        // a 58 point pitch card at 4K (2 points a pixel): the big card is the scan at native size, 90 points
-        assert!((58.0 * big_scale(58.0, 2.0) * 2.0 - 180.0).abs() < 30.0);
         assert_eq!(hover_face(1.0).x, 90.0);
         assert_eq!(hover_face(2.0).x, 90.0);
     }

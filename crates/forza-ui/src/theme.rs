@@ -32,13 +32,8 @@ pub const RIM: Color32 = Color32::from_rgb(0x2B, 0x3E, 0x5E);
 pub const RIM_HI: Color32 = Color32::from_rgb(0x46, 0x61, 0x8E);
 
 pub const PITCH: Color32 = Color32::from_rgb(0x1E, 0x7A, 0x3C);
-pub const PITCH_STRIPE: Color32 = Color32::from_rgb(0x22, 0x8A, 0x43);
 pub const PITCH_LINE: Color32 = Color32::from_rgb(0xE8, 0xF2, 0xE8);
-/// The formation board's mat, as the cabinet prints it: dark olive, mown bands, grey lines, a light-grey keeper box.
-pub const MAT: Color32 = Color32::from_rgb(0x33, 0x4B, 0x25);
-pub const MAT_STRIPE: Color32 = Color32::from_rgb(0x41, 0x5E, 0x30);
-pub const MAT_LINE: Color32 = Color32::from_rgb(0xC9, 0xCF, 0xC6);
-pub const MAT_BOX: Color32 = Color32::from_rgb(0xB8, 0xBD, 0xB6);
+pub const PITCH_STRIPE: Color32 = Color32::from_rgb(0x22, 0x8A, 0x43);
 /// The dark pitch under a card's position map, as the fan database draws it.
 pub const MAP_PITCH: Color32 = Color32::from_rgb(0x1A, 0x24, 0x30);
 
