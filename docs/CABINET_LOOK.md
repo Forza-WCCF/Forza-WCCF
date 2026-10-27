@@ -97,12 +97,12 @@ Contrast check: Text white on Night ground is far above 7:1; Lit amber text on N
 
 ## 6. Typography [I]
 
-No source names fonts. The original screens use large bold sans type with heavy numerals and Japanese captions; the project already plans open fonts shipped with an OFL file (`assets/fonts/`) [L: `docs/ROADMAP.md`, step 9 "Fonts"].
+No source names fonts. The original screens use large bold sans type with heavy numerals and Japanese captions; the project ships open fonts with their OFL files in `assets/fonts/` (Barlow Condensed, Noto Sans JP) [L].
 
 - **Latin:** a bold, slightly condensed sans for headings and stat numbers (weights 700 and 800); a regular 400 and medium 500 for body. Candidates under OFL: Barlow / Barlow Condensed, Rajdhani, or Oswald for numerals.
 - **Japanese:** Noto Sans JP at 500 and 700, paired with the Latin face; set kana/kanji about 0.95x the Latin size so lines align.
 - **Sizes for the egui text styles:** Heading 20 px bold, Body 14 px, Button 14 px bold, Small 11 px, Monospace 13 px; stat numerals 22 px in the condensed face with tabular figures.
-- **Case:** panel names in capitals (FORMATION BOARD, CATALOGUE, KEYS, SETTINGS, CLUB CARD), matching the project's own naming [L: `docs/ROADMAP.md`, step 9].
+- **Case:** panel names in capitals (FORMATION BOARD, CATALOGUE, KEYS, SETTINGS, CLUB CARD), matching the project's own naming [L].
 - EN, IT and JA all ship ([CONTRIBUTING.md](../CONTRIBUTING.md)): test that Italian labels (longer than English) and Japanese labels (no spaces) fit the same button widths.
 
 ## 7. Motion and sound
@@ -159,7 +159,6 @@ Online:
 - Searched without usable detail: 4Gamer title page https://www.4gamer.net/games/114/G011427/ (version dates and prices only); an arcade hobbyist forum thread on a satellite-terminal WCCF setup (card reader model HW210, networked satellites; page blocked to fetching, seen only in search snippets): https://www.arcade-projects.com/threads/naomi-2-satellite-terminal-setup.28745
 
 Local:
-- `docs/ROADMAP.md` (step 9)
 - `docs/2017-18/RESEARCH.md` (on-screen notices, the online and Aime update)
 - `docs/research/FREE-PLAY-2010-11.md`, `CLUB-CARD-2010-11.md`, `CONTRACT-END-2010-11.md`
 - the WCCF-Kit-1718 task notes (the flat reader's emulator mode)
