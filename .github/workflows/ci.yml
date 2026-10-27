@@ -59,7 +59,7 @@ jobs:
           else
             echo code=false >> "$GITHUB_OUTPUT"
           fi
-          # the GPU snapshot step (informational) runs when the UI crate changed, on main, on schedule and on dispatch
+          # the snapshots job (informational) runs when the UI crate changed, on main, on schedule and on dispatch
           if printf '%s\n' "$files" | grep -qE '^crates/forza-ui/'; then
             echo ui=true >> "$GITHUB_OUTPUT"
           else
@@ -212,7 +212,7 @@ jobs:
           $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
           "screen $($b.Width)x$($b.Height)"
           if ($b.Width -lt 1600 -or $b.Height -lt 1000) { throw "screen still $($b.Width)x$($b.Height)" }
-      - name: cargo xtask check ci (the GPU snapshot tests run in their own step)
+      - name: cargo xtask check ci (the GPU snapshot tests run in the snapshots job)
         env:
           CARGO_LOG: ${{ inputs.fingerprints && 'cargo::core::compiler::fingerprint=info' || '' }}
         run: cargo xtask check ci ${{ env.PROFILE == 'release' && '--release' || '' }}
@@ -241,11 +241,6 @@ jobs:
           }
           if ($bad) { exit 1 }
           exit 0
-      # one at a time: wgpu devices made in parallel crashed the test process (crates/forza-ui/tests/it/snapshots.rs)
-      - name: snapshots (informational, the runner has no GPU)
-        if: github.event_name != 'pull_request' || needs.changes.outputs.ui == 'true'
-        continue-on-error: true
-        run: 'cargo test --locked -p forza-ui --test it --target x86_64-pc-windows-msvc -- snapshots:: --test-threads=1'
       # every detection since the job started, except the EICAR control
       - name: Defender detections during the job
         if: always() && steps.defender.outcome == 'success'
@@ -276,16 +271,6 @@ jobs:
           } | Format-List
           "::error::Defender detected $($hits.Count) threat(s) during the job"
           exit 1
-      - name: snapshot differences
-        if: always() && (github.event_name != 'pull_request' || needs.changes.outputs.ui == 'true')
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: snapshot-diffs
-          path: |
-            crates/forza-ui/tests/snapshots/*.diff.png
-            crates/forza-ui/tests/snapshots/*.new.png
-          retention-days: 3
-          if-no-files-found: ignore
       - name: kit artifact (for testers)
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -293,6 +278,65 @@ jobs:
           path: |
             target/kit/**
             target/x86_64-pc-windows-msvc/${{ env.PROFILE }}/Forza-WCCF-Installer.exe
+          retention-days: 3
+          if-no-files-found: ignore
+      # Trim what the saved cache does not need (rust-cache's own post step saves right after the last step). The release
+      # profile (3.8 GB: the weekly build and the installer package make it, no pull request reuses it) goes, and the
+      # debug trees keep only the clippy metadata: their built rlibs and the rmeta of the same units belong to the
+      # snapshots job, which has its own cache.
+      - name: trim the cache (main)
+        if: always() && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        shell: bash
+        run: |
+          if [ "$PROFILE" = ci ]; then rm -rf target/release target/*/release; fi
+          for d in target/x86_64-pc-windows-msvc/debug/deps target/i686-pc-windows-msvc/debug/deps; do
+            for f in "$d"/*.rlib; do
+              if [ -e "$f" ]; then rm -f "$f" "${f%.rlib}.rmeta"; fi
+            done
+          done
+          du -m -d 2 target | sort -rn | head -12 || true
+
+  # The GPU snapshot tests (informational: the runner has no GPU, they never fail the run). Parallel to build-test, not in
+  # ci-ok's needs. It builds `-p forza-ui` alone: other feature sets than the workspace build's, so build-test's cache
+  # reuses none of it (a trial in the ci profile compiled 123 crates in 4.7 min). It keeps its own, small cache (the
+  # debug tree of forza-ui's tests), saved by main only, instead of restoring the 4.7 GB one for nothing.
+  snapshots:
+    name: snapshots (informational)
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.ui == 'true'
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # as in build-test: only the pinned toolchain in the cache key. No cache stamp: the dependencies change with
+      # Cargo.lock, so main saves a new entry then and not on every push (one entry less to push out build-test's)
+      - name: toolchain
+        shell: bash
+        run: |
+          rustup show
+          a=$(rustup show active-toolchain | cut -d' ' -f1)
+          rustup toolchain list | cut -d' ' -f1 | grep -vx "$a" | xargs -r -n1 rustup toolchain uninstall
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: windows-snapshots
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # one at a time: wgpu devices made in parallel crashed the test process (crates/forza-ui/tests/it/snapshots.rs)
+      - name: snapshots
+        continue-on-error: true
+        run: 'cargo test --locked -p forza-ui --test it --target x86_64-pc-windows-msvc -- snapshots:: --test-threads=1'
+      - name: snapshot differences
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: snapshot-diffs
+          path: |
+            crates/forza-ui/tests/snapshots/*.diff.png
+            crates/forza-ui/tests/snapshots/*.new.png
           retention-days: 3
           if-no-files-found: ignore
 
