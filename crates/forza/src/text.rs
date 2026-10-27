@@ -2035,12 +2035,15 @@ mod tests {
     fn the_italian_tables_2017_18_match_the_english() {
         let mut c = Ctx::new_bare(Edition::E1718, Path::new("g"), Path::new("b"));
         c.sheets = manifest_dir().join("../../editions/2017-18");
-        let english: HashMap<String, String> = c
-            .sheet("screen_text.tsv", "english")
-            .unwrap()
-            .iter()
-            .map(|r| (cell(r, "key").into(), cell(r, "english").into()))
-            .collect();
+        // the kit's English, else the original European English (the line the game shows without the kit's)
+        let mut english: HashMap<String, String> = HashMap::new();
+        for name in ["original_rstring.tsv", "screen_text.tsv"] {
+            for r in c.sheet(name, "english").unwrap() {
+                if !cell(&r, "english").trim().is_empty() {
+                    english.insert(cell(&r, "key").into(), cell(&r, "english").into());
+                }
+            }
+        }
         let codes = |s: &str| {
             let mut v: Vec<String> = CODES.find_iter(s).map(|m| m.as_str().into()).collect();
             v.sort();
