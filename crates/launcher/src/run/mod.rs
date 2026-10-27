@@ -2519,13 +2519,16 @@ impl Run<'_> {
         self.say("Restart requested.");
         let panel = choices::read(&self.kit.data().join("panel.txt"));
         let club = choices::setting(&self.kit.settings_file(), "club_server").unwrap_or_default();
-        let fits = rules::cabinet_restart_fits(
-            &self.mode,
-            self.alive(Role::Seat),
-            &panel,
-            self.kit.game_language(),
-            (&club, self.vs_target.as_ref()),
-        );
+        // a seat cannot reconnect to a server this run started that has since died: start everything again
+        let server_died = self.gone.contains(&Role::Server);
+        let fits = !server_died
+            && rules::cabinet_restart_fits(
+                &self.mode,
+                self.alive(Role::Seat),
+                &panel,
+                self.kit.game_language(),
+                (&club, self.vs_target.as_ref()),
+            );
         if let Some(why) = self.refusal(force) {
             self.say(&why);
             self.say("Not restarted: the game is still running.");
