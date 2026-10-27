@@ -11,6 +11,7 @@
 //! ([`report`]).
 
 pub mod gamesvr;
+pub mod lan;
 pub mod lobby;
 pub mod report;
 pub mod seat;
