@@ -8,7 +8,7 @@
 //! `pause`: the rules of the in-game panel's capped pause (where it is allowed, the cap and the gap).
 //! `club_view`: data\club_view.txt, the CLUB CARD page's view of the club card (the run's helper writes it).
 //! `text`: the game text in English or Italian (`english.py` of both editions).
-//! `layout`: the folder names of each edition's kit.
+//! `layout`: the folder names of each edition's kit. `migrate`: a 2017-18 install from before app\ moved into it.
 //! `setup`: the install steps (step 11): the guarded, patched copies of the game and the seat folder.
 //! `cards`: the player's catalogue and the game's card table, read at runtime from the player's folders (step 9.4b).
 
@@ -62,6 +62,7 @@ pub mod curl;
 pub mod keys;
 pub mod kit;
 pub mod layout;
+pub mod migrate;
 pub mod online;
 pub mod panel_txt;
 pub mod pause;

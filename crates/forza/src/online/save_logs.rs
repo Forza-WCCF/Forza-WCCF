@@ -22,7 +22,7 @@ pub const DUMPS_SENT: usize = 3;
 
 /// This kit's version.txt ("kit-5.5", written by `cargo xtask package`) without "kit-": "5.5"; none: "dev".
 pub fn version(kit: &Path) -> String {
-    let Ok(text) = fs::read(kit.join("version.txt")) else {
+    let Ok(text) = fs::read(crate::kit::app_dir(kit).join("version.txt")) else {
         return "dev".into();
     };
     let text = String::from_utf8_lossy(&text);
@@ -67,13 +67,16 @@ fn files(kit: &Path, game: Option<&Path>) -> Vec<(String, PathBuf)> {
     for n in ["panel.txt", "keys.txt", "running.json"] {
         out.push((format!("data/{n}"), data.join(n)));
     }
-    out.push(("version.txt".into(), kit.join("version.txt")));
+    out.push((
+        "version.txt".into(),
+        crate::kit::app_dir(kit).join("version.txt"),
+    ));
     if let Some(game) = game {
         // 2017-18: control's guard log, beside the game folder's wccfnet.dll
         out.push(("game/wccfnet.log".into(), game.join("wccfnet.log")));
     }
-    if let Some(dir) = game.and_then(Path::parent) {
-        for p in files_in(&dir.join("seat1")) {
+    if let Some(game) = game {
+        for p in files_in(&crate::kit::seat_dir(game)) {
             let n = p
                 .file_name()
                 .unwrap_or_default()
