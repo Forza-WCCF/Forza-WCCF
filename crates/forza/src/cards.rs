@@ -8,6 +8,7 @@
 pub mod catalogue;
 pub mod codes;
 pub mod hq;
+pub mod lineup;
 pub mod links;
 pub mod pictures;
 pub mod steps;
