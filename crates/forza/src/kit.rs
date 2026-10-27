@@ -11,6 +11,16 @@ use std::path::{Path, PathBuf};
 /// [`Kit::edition`] tells them apart.
 pub use crate::Edition;
 
+/// 2017-18's folder for everything but Launcher.exe, the READMEs, game\ and data\ (see [`crate::migrate`]).
+pub const APP: &str = "app";
+
+/// `top\app` when it is there, else `top` itself: 2010-11 kits, 2017-18 installs from before app\ and the
+/// developers' runtimes keep everything at the top.
+pub fn app_dir(top: &Path) -> PathBuf {
+    let app = top.join(APP);
+    if app.is_dir() { app } else { top.to_path_buf() }
+}
+
 /// The kit folder: the one this exe is in.
 pub struct Kit {
     pub(crate) dir: PathBuf,
@@ -19,7 +29,7 @@ pub struct Kit {
 impl Kit {
     /// version.txt from the release ZIP (cargo xtask package writes it): kit-0.3.0.
     pub fn version(&self) -> Option<String> {
-        let v = fs::read_to_string(self.dir.join("version.txt")).ok()?;
+        let v = fs::read_to_string(self.app().join("version.txt")).ok()?;
         Some(v.trim().to_owned()).filter(|v| !v.is_empty())
     }
 
@@ -39,10 +49,11 @@ impl Kit {
             .unwrap_or_else(|| "Launcher.exe".into())
     }
 
-    /// The edition whose current kit layout `dir` holds ([`Edition::of_kit`]).  An older kit with only `scripts\` has
-    /// neither.
+    /// The edition whose current kit layout `dir` holds ([`Edition::of_kit`]), in `dir\app` or at the top.  An older
+    /// kit with only `scripts\` has neither.
     pub fn layout(dir: &Path) -> Option<Edition> {
-        Edition::of_kit(|name| dir.join(name).is_dir())
+        let app = app_dir(dir);
+        Edition::of_kit(|name| app.join(name).is_dir())
     }
 
     /// The folder holds a kit of either edition.
@@ -59,6 +70,22 @@ impl Kit {
         &self.dir
     }
 
+    /// Where the kit's own files are ([`app_dir`]): 2017-18's `app\`, else the kit folder.
+    pub fn app(&self) -> PathBuf {
+        app_dir(&self.dir)
+    }
+
+    /// The folder [`crate::text`] reads the game text's sheets from: 2010-11 the kit folder (it has `languages\`),
+    /// 2017-18 the folder with `english\` and `italian\` (`app\languages`, or the top in an older install).
+    pub fn sheets(&self) -> PathBuf {
+        let app = self.app();
+        match self.edition() {
+            Edition::E1011 => self.dir.clone(),
+            Edition::E1718 if app.join("languages").is_dir() => app.join("languages"),
+            Edition::E1718 => app,
+        }
+    }
+
     /// The kit's edition, from its layout; 2010-11 when it holds neither.
     pub fn edition(&self) -> Edition {
         Self::layout(&self.dir).unwrap_or(Edition::E1011)
@@ -73,7 +100,7 @@ impl Kit {
     /// it.
     pub fn program(&self, name: &str) -> PathBuf {
         let lay = self.edition().layout();
-        self.dir.join(lay.program_dir(name)).join(name)
+        self.app().join(lay.program_dir(name)).join(name)
     }
 
     pub fn data(&self) -> PathBuf {
@@ -82,7 +109,7 @@ impl Kit {
 
     /// Made by setup from the player's game: catalogue.tsv, cards\ (2017-18: in overlay\).
     pub fn cache(&self) -> PathBuf {
-        self.dir.join(self.edition().layout().cache)
+        self.app().join(self.edition().layout().cache)
     }
 
     pub fn logs(&self) -> PathBuf {
@@ -164,9 +191,15 @@ pub fn find_game_named<S: AsRef<str>>(path: &str, programs: [S; 3]) -> Option<Pa
         .find(|p| programs.iter().all(|n| p.join(n.as_ref()).is_file()))
 }
 
-/// The cabinet's folder beside the game folder.
+/// The folder setup keeps seat1\, original\ and setup-hashes.json in: the runtime above the game folder, its `app\`
+/// when it has one ([`app_dir`]).
+pub fn runtime_dir(game: &Path) -> PathBuf {
+    app_dir(game.parent().unwrap_or(game))
+}
+
+/// The cabinet's folder in the runtime ([`runtime_dir`]).
 pub fn seat_dir(game: &Path) -> PathBuf {
-    game.parent().unwrap_or(game).join("seat1")
+    runtime_dir(game).join("seat1")
 }
 
 /// The FPR_Emu helper's folder beside the game folder.
@@ -206,6 +239,48 @@ mod tests {
         let other = tempfile::tempdir().unwrap();
         fs::create_dir(other.path().join("programs")).unwrap();
         assert_eq!(Kit::layout(other.path()), Some(Edition::E1011));
+    }
+
+    /// An install from before app\ (bin\ at the top) and one after it (app\bin\) are both 2017-18; programs,
+    /// version, sheets, cache and seat follow app\ when it is there; data\ stays at the top.
+    #[test]
+    fn both_2017_18_layouts_are_found() {
+        let old = tempfile::tempdir().unwrap();
+        fs::create_dir_all(old.path().join("bin")).unwrap();
+        fs::create_dir_all(old.path().join("english")).unwrap();
+        fs::write(old.path().join("version.txt"), "kit-0.4.1\r\n").unwrap();
+        let k = Kit::at(old.path());
+        assert_eq!(Kit::layout(old.path()), Some(Edition::E1718));
+        assert_eq!(
+            k.program("wccfnet.dll"),
+            old.path().join("bin").join("wccfnet.dll")
+        );
+        assert_eq!(k.version().as_deref(), Some("kit-0.4.1"));
+        assert_eq!(k.sheets(), old.path());
+        assert_eq!(seat_dir(&old.path().join("game")), old.path().join("seat1"));
+
+        let new = tempfile::tempdir().unwrap();
+        let app = new.path().join(APP);
+        fs::create_dir_all(app.join("bin")).unwrap();
+        fs::create_dir_all(app.join("languages").join("english")).unwrap();
+        fs::write(app.join("version.txt"), "kit-0.5.0\r\n").unwrap();
+        let k = Kit::at(new.path());
+        assert_eq!(Kit::layout(new.path()), Some(Edition::E1718));
+        assert!(k.is_kit());
+        assert_eq!(
+            k.program("wccfnet.dll"),
+            app.join("bin").join("wccfnet.dll")
+        );
+        assert_eq!(
+            k.program("forza_panel.dll"),
+            app.join("overlay").join("forza_panel.dll")
+        );
+        assert_eq!(k.cache(), app.join("overlay"));
+        assert_eq!(k.version().as_deref(), Some("kit-0.5.0"));
+        assert_eq!(k.sheets(), app.join("languages"));
+        assert_eq!(k.data(), new.path().join("data"));
+        assert_eq!(seat_dir(&new.path().join("game")), app.join("seat1"));
+        assert_eq!(runtime_dir(&new.path().join("game")), app);
     }
 
     #[test]

@@ -14,7 +14,8 @@ Each guard covers the IP-helper calls listed here. It is not a general sandbox.
 - Setup (`Launcher.exe <game folder>`, `crates/forza/src/setup/e1718.rs`) makes guarded copies of
   `client_Release.exe` and `control_Release.exe` that import `wccfnet.dll` instead of `IPHLPAPI.DLL` for the four
   identified calls. It works from untouched originals, refuses originals that differ from its pinned hashes, and records
-  the hashes of what it made in `<runtime>\setup-hashes.json`.
+  the hashes of what it made in `<runtime>\setup-hashes.json` (an install keeps its runtime files in `app\`:
+  `app\setup-hashes.json`, `app\seat1\`, `app\original\`; `forza::kit::runtime_dir`).
 - The Launcher checks those hashes and the `wccfnet.dll` import before every start, and refuses to start otherwise.
 - `cargo xtask check` proves that the built `wccfnet.dll` stubs the four calls (`test_wccfnet`).
 - `wccfnet.dll` also loads the panel (`forza_panel.dll`) into seat 1 and the projector when the Launcher sets

@@ -3,7 +3,8 @@
 //!
 //! - The edition: `WCCF_EDITION` (2010-11 or 2017-18, for tests), else the kit's layout above the DLL
 //!   (`forza::kit::Kit::edition`: `scripts\` without `code\` is the 2017-18 kit).
-//! - `data\`: `WCCF_DATA`, else beside the DLL's folder (`programs\..\data`, 2017-18 `overlay\..\data`).
+//! - `data\`: `WCCF_DATA`, else beside the DLL's folder (`programs\..\data`, 2017-18 `overlay\..\data`, in an install
+//!   `app\overlay\..\..\data`).
 //! - The catalogue and the card pictures: `WCCF_CATALOGUE` / `WCCF_CARDS` (the run sets them), else 2010-11's
 //!   `data\cache\catalogue.tsv` and `data\cache\cards\`, 2017-18's beside the DLL.
 //! - The keys: `WCCF_KEYS`, else `data\keys.txt` when `data\` is there, else beside the DLL.
@@ -48,6 +49,17 @@ fn var(name: &str) -> Option<PathBuf> {
 impl Files {
     pub fn find(dll_dir: &Path) -> Files {
         let kit = dll_dir.parent().unwrap_or(dll_dir);
+        // 2017-18 installs: app\overlay\forza_panel.dll, data\ beside app\
+        let kit = match kit.parent() {
+            Some(top)
+                if kit
+                    .file_name()
+                    .is_some_and(|n| n.eq_ignore_ascii_case(forza::kit::APP)) =>
+            {
+                top
+            }
+            _ => kit,
+        };
         let edition = match env::var("WCCF_EDITION").as_deref() {
             Ok("2017-18" | "1718") => Edition::E1718,
             Ok("2010-11" | "1011") => Edition::E1011,
@@ -138,7 +150,7 @@ impl Files {
             .filter_map(|e| e.metadata().ok()?.modified().ok())
             .collect();
         let kit = forza::kit::Kit::at(self.data.parent().unwrap_or(&self.data));
-        let version = std::fs::read_to_string(kit.dir().join("version.txt"))
+        let version = std::fs::read_to_string(kit.app().join("version.txt"))
             .ok()
             .map(|v| {
                 v.lines()

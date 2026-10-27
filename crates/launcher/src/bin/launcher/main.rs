@@ -1527,8 +1527,13 @@ fn main() -> ExitCode {
     }
     let kit = Kit::here();
     let first = args.first().map(|a| a.to_string_lossy().to_ascii_lowercase());
-    update::tidy(&kit);
     text::choose(choices::setting(&kit.settings_file(), "language").as_deref());
+    // before anything reads the kit's files: an older install's top folders into app\
+    if let Some(msg) = update::move_into_app(&kit) {
+        log(&msg);
+        say(msg, 0);
+    }
+    update::tidy(&kit);
     // a plain start (no arguments): first run, the kit folder gets the installer's name for its edition (link.rs)
     if args.is_empty() {
         match link::first_run(kit.dir(), kit.edition()) {

@@ -733,12 +733,17 @@ fn read_entry(f: &mut File, e: &[u8]) -> R<Vec<u8>> {
 /// The redrawn pictures in the recipes' order: (entry number, path, new entry data).
 pub type Pics = Vec<(usize, String, Vec<u8>)>;
 
-/// The font file: the kit's `fonts\`, or the repository's `assets/fonts` beside `editions/<ed>`.
+/// The font file: the kit's `fonts\` (beside an install's `app\languages`), or the repository's `assets/fonts` beside
+/// `editions/<ed>`.
 fn font_path(sheets: &Path) -> Option<PathBuf> {
-    [sheets.join("fonts"), sheets.join("../../assets/fonts")]
-        .into_iter()
-        .map(|d| d.join(FONT))
-        .find(|p| p.is_file())
+    [
+        sheets.join("fonts"),
+        sheets.join("../fonts"),
+        sheets.join("../../assets/fonts"),
+    ]
+    .into_iter()
+    .map(|d| d.join(FONT))
+    .find(|p| p.is_file())
 }
 
 /// Every chosen picture whose original matches its recipe, redrawn, and the notes. Reads the original entries (from

@@ -83,6 +83,7 @@ launcher.msg_launcher_differs: {en: "Launcher.exe is version %{own} but the othe
 launcher.msg_needs_installer: {en: "%{tag} needs the installer. Download it from the release page.", it: "%{tag} richiede l'installer. Scaricalo dalla pagina della versione.", ja: "%{tag} にはインストーラーが必要です。リリースページからダウンロードしてください。"}
 launcher.msg_not_a_kit: {en: "This ZIP is not a Forza-WCCF release.", it: "Questo ZIP non è una versione di Forza-WCCF.", ja: "この ZIP は Forza-WCCF のリリースではありません。"}
 launcher.msg_write_failed: {en: "Cannot write %{path} (%{error}). Close the game and try again.", it: "Impossibile scrivere %{path} (%{error}). Chiudi il gioco e riprova.", ja: "%{path} に書き込めませんでした（%{error}）。ゲームを閉じて、もう一度お試しください。"}
+launcher.msg_move_failed: {en: "Could not move the old files into the app folder (%{error}). Close the game and start Launcher.exe again.", it: "Impossibile spostare i vecchi file nella cartella app (%{error}). Chiudi il gioco e riavvia Launcher.exe.", ja: "古いファイルを app フォルダーに移動できませんでした（%{error}）。ゲームを閉じて、Launcher.exe をもう一度起動してください。"}
 launcher.msg_done: {en: "Done.", it: "Fatto.", ja: "完了しました。"}
 launcher.msg_failed: {en: "Failed. See DETAILS.", it: "Non riuscito. Vedi DETTAGLI.", ja: "失敗しました。「詳細」を確認してください。"}
 launcher.msg_went_wrong: {en: "The game stopped unexpectedly.", it: "Il gioco si è chiuso in modo imprevisto.", ja: "ゲームが予期せず終了しました。"}

@@ -799,8 +799,24 @@ fn sha(path: &Path) -> String {
 /// A 2017-18 runtime as setup leaves it, of stand-ins: `top\kit` (overlay\, data\; no settings - the
 /// game is found beside the kit), `top\game`, `top\seat1` and `top\setup-hashes.json`.
 fn scratch_kit_1718(top: &Path) -> Kit {
-    let (kit, game, seat) = (top.join("kit"), top.join("game"), top.join("seat1"));
-    for d in [kit.join("overlay"), kit.join("data"), seat.clone()] {
+    scratch_1718(top, false)
+}
+
+/// [`scratch_kit_1718`] as an install lays it out (`install`): Launcher's folder `top` with data\ and game\, the
+/// rest in `top\app` (app\overlay\, app\seat1\, app\setup-hashes.json).
+fn scratch_1718(top: &Path, install: bool) -> Kit {
+    let (kit, rt) = if install {
+        (top.to_path_buf(), top.join("app"))
+    } else {
+        (top.join("kit"), top.to_path_buf())
+    };
+    let (game, seat) = (top.join("game"), rt.join("seat1"));
+    let overlay = if install {
+        rt.join("overlay")
+    } else {
+        kit.join("overlay")
+    };
+    for d in [overlay, kit.join("data"), seat.clone()] {
         fs::create_dir_all(d).unwrap();
     }
     guarded_copy(&game.join("standin_client.exe"));
@@ -827,9 +843,10 @@ fn scratch_kit_1718(top: &Path) -> Kit {
         "ICMP.DLL": sha(&game.join("ICMP.DLL")),
         "seat1/standin_client.exe": sha(&seat.join("standin_client.exe")),
     });
-    fs::write(top.join("setup-hashes.json"), hashes.to_string()).unwrap();
+    fs::write(rt.join("setup-hashes.json"), hashes.to_string()).unwrap();
     let kit = Kit::at(kit);
     assert_eq!(kit.edition(), launcher::Edition::E1718);
+    assert_eq!(launcher::kit::seat_dir(&game), seat);
     kit
 }
 
@@ -837,9 +854,31 @@ fn scratch_kit_1718(top: &Path) -> Kit {
 /// before anything of the run exists - no lock, no logs, nothing running.
 #[test]
 fn a_2017_18_kit_that_is_not_guarded_starts_nothing() {
+    not_guarded_starts_nothing(false);
+}
+
+/// The same refusals in an install's layout: the record is `app\setup-hashes.json`, seat 1 is `app\seat1`, and the
+/// guard DLLs stay beside the programs in `game\` and `app\seat1\`.
+#[test]
+fn a_2017_18_install_that_is_not_guarded_starts_nothing() {
+    not_guarded_starts_nothing(true);
+}
+
+fn not_guarded_starts_nothing(install: bool) {
     let top = tempfile::Builder::new().prefix("wccf-1718-").tempdir().unwrap();
-    let kit = scratch_kit_1718(top.path());
-    let (game, seat) = (top.path().join("game"), top.path().join("seat1"));
+    let kit = scratch_1718(top.path(), install);
+    let rt = if install {
+        top.path().join("app")
+    } else {
+        top.path().to_path_buf()
+    };
+    let (game, seat) = (top.path().join("game"), rt.join("seat1"));
+    let record = rt.join("setup-hashes.json");
+    assert_eq!(
+        launcher::guard::check(&game, &seat, "standin_client.exe", "standin_control.exe"),
+        Ok(()),
+        "the record and the guard DLLs where setup put them"
+    );
     let refused = |what: &str, part: &str| {
         let ui = Said::default();
         let rc = run::command(&kit, &params("unguarded", Shared::new()), &["local".into()], &ui);
@@ -862,13 +901,12 @@ fn a_2017_18_kit_that_is_not_guarded_starts_nothing() {
     built_copy("2017-18/bin", "ICMP.DLL", &seat.join("ICMP.DLL"));
 
     stand_in("fakegame_iphlp.exe", &game.join("standin_control.exe"));
-    let mut record: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(top.path().join("setup-hashes.json")).unwrap()).unwrap();
-    record["standin_control.exe"]["guarded"] = sha(&game.join("standin_control.exe")).into();
-    fs::write(top.path().join("setup-hashes.json"), record.to_string()).unwrap();
+    let mut json: serde_json::Value = serde_json::from_str(&fs::read_to_string(&record).unwrap()).unwrap();
+    json["standin_control.exe"]["guarded"] = sha(&game.join("standin_control.exe")).into();
+    fs::write(&record, json.to_string()).unwrap();
     refused("an unguarded control recorded as guarded", "still imports IPHLPAPI.DLL");
 
-    fs::remove_file(top.path().join("setup-hashes.json")).unwrap();
+    fs::remove_file(&record).unwrap();
     refused("no record", "setup-hashes.json cannot be read");
 }
 

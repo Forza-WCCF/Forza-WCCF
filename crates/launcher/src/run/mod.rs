@@ -584,11 +584,12 @@ fn addr(ip: &str, port: u16) -> Option<SocketAddr> {
 
 // ---- the start ----------------------------------------------------------------------------------------------------
 
-/// The game folder setup recorded, found by the run's program names; 2017-18 without a record: `game\` beside the kit
-/// (the 2017-18 setup's runtime: `kit\`, `game\`, `seat1\`).
+/// The game folder setup recorded, found by the run's program names; 2017-18 without a record: `game\` in the kit
+/// folder (an install), else beside it (the developers' runtime: `kit\`, `game\`, `seat1\`).
 fn game_folder(kit: &Kit, p: &Params) -> Option<PathBuf> {
     let set = kit.settings().get("game").and_then(|g| g.as_str().map(str::to_owned));
     let set = set.or_else(|| match kit.edition() {
+        Edition::E1718 if kit.dir().join("game").is_dir() => Some(kit.dir().join("game").display().to_string()),
         Edition::E1718 => Some(kit.dir().parent()?.join("game").display().to_string()),
         Edition::E1011 => None,
     })?;
@@ -1179,7 +1180,7 @@ impl Run<'_> {
     fn refresh_old_text(&self) {
         let lang = self.kit.game_language();
         let backup = self.kit.data().join("english_backup");
-        if lang.is_empty() || !forza::text::stale(self.edition, &backup, self.kit.dir()) {
+        if lang.is_empty() || !forza::text::stale(self.edition, &backup, &self.kit.sheets()) {
             return;
         }
         self.say("  The game's text is from an older Forza-WCCF: building it again...");

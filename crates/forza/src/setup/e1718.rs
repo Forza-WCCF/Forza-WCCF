@@ -1,5 +1,6 @@
 //! 2017-18 setup (`setup.py`): set up your copy of the decrypted game for Forza-WCCF, once; run it again to check and
-//! repair.  Works in place on the game folder; the runtime is the folder that holds it:
+//! repair.  Works in place on the game folder; the runtime is the folder that holds it (its `app\` in an install,
+//! [`crate::kit::runtime_dir`]):
 //!
 //! - `original\` the untouched client_Release.exe and control_Release.exe, kept on the first run; every later run
 //!   patches from them, so running setup again never stacks a patch (a second run changes nothing)
@@ -257,9 +258,9 @@ const SEAT_MARK: &str = ".forza-seat";
 /// game\ (server + projector, guarded) and seat1\; returns what setup-hashes.json holds.
 pub fn setup_game(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
     let lay = Edition::E1718.layout();
-    let rt = game.parent().unwrap_or(game);
+    let rt = &crate::kit::runtime_dir(game);
     let seat = rt.join("seat1");
-    let bin = kit.join(lay.bin);
+    let bin = crate::kit::app_dir(kit).join(lay.bin);
     let mut report = Report::default();
     for (i, (exe, pinned)) in spec.pinned.iter().enumerate() {
         let orig = original(
@@ -396,7 +397,7 @@ pub fn run(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
 /// progress lines. The card pictures are the Launcher's (`forza::cards::pictures`).
 #[cfg(feature = "full")]
 pub fn setup_catalogue(kit: &Path, game: &Path, force: bool, say: &dyn Fn(&str)) -> Result<()> {
-    let overlay = kit.join(Edition::E1718.layout().overlay);
+    let overlay = crate::kit::app_dir(kit).join(Edition::E1718.layout().overlay);
     if overlay.join("catalogue.tsv").is_file() && !force {
         say("  ok    card catalogue made");
         return Ok(());
@@ -411,7 +412,7 @@ pub fn setup_catalogue(kit: &Path, game: &Path, force: bool, say: &dyn Fn(&str))
 
 /// The game folder as it was: the original programs and logo back, the kit's files, seat1\ and the record removed.
 pub fn undo(kit: &Path, game: &Path, spec: &Spec) -> Result<()> {
-    let rt = game.parent().unwrap_or(game);
+    let rt = &crate::kit::runtime_dir(game);
     // every backup is checked before anything changes, then swapped in whole
     let mut backups = Vec::new();
     for (exe, pinned) in spec.pinned {

@@ -1,7 +1,8 @@
 //! The network guards, checked before any game program starts (2010-11: [`hook_1011`]).  The 2017-18 game calls four
 //! IP-helper functions that drop this PC's DHCP lease and change its routes; setup (`scripts\setup.py`) makes copies
 //! of client_Release.exe and control_Release.exe that import them from the kit's `wccfnet.dll` (four stubs) instead of
-//! IPHLPAPI.DLL, and records the hashes of what it made in `<runtime>\setup-hashes.json`.  A run starts only when every
+//! IPHLPAPI.DLL, and records the hashes of what it made in `<runtime>\setup-hashes.json` (an install's runtime is its
+//! `app\`, [`forza::kit::runtime_dir`]).  A run starts only when every
 //! recorded file is still the one setup made, and each guarded program's import table names wccfnet.dll and not
 //! IPHLPAPI.DLL.
 
@@ -13,7 +14,7 @@ use object::pe::ImageNtHeaders32;
 use object::read::pe::{Import, PeFile32};
 use sha2::{Digest, Sha256};
 
-/// Setup's record, in the runtime folder (the one above the game folder).
+/// Setup's record, in the runtime folder ([`forza::kit::runtime_dir`]: above the game folder, its `app\` in an install).
 pub const HASHES: &str = "setup-hashes.json";
 /// The guard DLL the guarded programs import.
 pub const WCCFNET: &str = "wccfnet.dll";
@@ -46,8 +47,10 @@ pub fn files(game: &Path, seat: &Path, client: &str, control: &str) -> Vec<(Path
 /// The whole check for a game folder and its seat 1 (`client`, `control`: the programs' names - the game's, or a test's
 /// stand-ins): Ok, or what is wrong.
 pub fn check(game: &Path, seat: &Path, client: &str, control: &str) -> Result<(), String> {
-    let runtime = game.parent().unwrap_or(game);
-    hashes(&runtime.join(HASHES), &files(game, seat, client, control))?;
+    hashes(
+        &forza::kit::runtime_dir(game).join(HASHES),
+        &files(game, seat, client, control),
+    )?;
     for exe in [game.join(client), game.join(control), seat.join(client)] {
         let data = fs::read(&exe).map_err(|e| format!("{}: {e}", exe.display()))?;
         imports(&data).map_err(|why| format!("{}: {why}", exe.display()))?;

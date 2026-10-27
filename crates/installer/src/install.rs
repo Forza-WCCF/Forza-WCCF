@@ -110,8 +110,8 @@ pub fn check_setup(game_id: Option<&str>, kit: Edition) -> Result<()> {
 }
 
 /// The kit zip may hold the files directly or inside one top folder (Forza-WCCF-2010-11/..., or the older WCCF-2010-11-kit/...). A kit has Launcher.exe at
-/// its top and its edition's folders beside it ([`Edition::of_kit`]: `programs/` for 2010-11, `bin/` or `overlay/` for
-/// 2017-18).
+/// its top and its edition's folders beside it or in `app/` ([`Edition::of_kit`]: `programs/` for 2010-11, `bin/` or
+/// `overlay/` for 2017-18).
 fn kit_prefix(zip: &mut zip::ZipArchive<File>) -> Result<(Edition, String)> {
     let names = zip
         .file_names()
@@ -128,7 +128,9 @@ fn kit_prefix(zip: &mut zip::ZipArchive<File>) -> Result<(Edition, String)> {
         if !(prefix.is_empty() || prefix.ends_with('/')) {
             continue;
         }
-        if let Some(edition) = Edition::of_kit(|d| has(&format!("{prefix}{d}"))) {
+        if let Some(edition) =
+            Edition::of_kit(|d| has(&format!("{prefix}{d}")) || has(&format!("{prefix}app/{d}")))
+        {
             return Ok((edition, prefix.to_string()));
         }
     }
@@ -245,6 +247,8 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
         let edition = edition_of(id).unwrap();
         emit(Event::Stage(Step::Setup));
         unpack_kit(kit, &dest, emit)?;
+        // a 2017-18 install from before app\ under the new kit: its old top folders go into app\
+        forza::migrate::run(&dest)?;
         check(cancel)?;
         let folder = game.to_string_lossy();
         kit_step(emit, |say| {
@@ -257,7 +261,8 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
                 match forza::setup::find_edition_game(edition, &folder) {
                     Some(g) => {
                         let backup = dest.join("data").join("english_backup");
-                        forza::text::run(edition, &g, &backup, &dest, Mode::On, Lang::En, say)
+                        let sheets = forza::kit::Kit::at(&dest).sheets();
+                        forza::text::run(edition, &g, &backup, &sheets, Mode::On, Lang::En, say)
                     }
                     None => 2,
                 }
@@ -480,7 +485,9 @@ fn pictures(dest: &Path, edition: Edition, folder: &str, emit: &dyn Fn(Event)) {
     } else {
         "1718"
     };
-    let cards = dest.join(edition.layout().cache).join("cards");
+    let cards = forza::kit::app_dir(dest)
+        .join(edition.layout().cache)
+        .join("cards");
     if let Err(e) = forza::cards::pictures::ensure(&game, ed, &cards, None, &say) {
         say(&format!(
             "Card pictures failed: {e}. The board shows placeholders."
@@ -711,6 +718,11 @@ mod tests {
         assert_eq!(
             prefix(&["K/Launcher.exe", "K/overlay/forza_panel.dll"]),
             Ok((Edition::E1718, "K/".into()))
+        );
+        assert_eq!(
+            prefix(&["K/Launcher.exe", "K/app/bin/wccfnet.dll"]),
+            Ok((Edition::E1718, "K/".into())),
+            "the 2017-18 kit with its programs in app/"
         );
         // an old kit with only scripts/, a missing Launcher.exe and a foreign zip are not kits
         for files in [
