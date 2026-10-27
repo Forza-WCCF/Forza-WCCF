@@ -1987,12 +1987,19 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
     let mut dirs = BTreeSet::new();
     walk(kit, "", &mut shipped, &mut dirs)?;
     shipped.insert("files.txt".to_owned());
-    let mut files = String::from("\u{feff}");
-    for f in &shipped {
-        files.push_str(&f.replace('/', "\\"));
-        files.push_str("\r\n");
+    // the staged kit is flat; the 2017-18 ZIP puts all but the player's files in app\ (zip_path_1718)
+    let zipped = |f: &str| {
+        if is_1011 {
+            f.to_owned()
+        } else {
+            zip_path_1718(f)
+        }
+    };
+    fs::write(kit.join("files.txt"), files_txt(&shipped, zipped))?;
+    if !is_1011 {
+        dirs = dirs.iter().map(|d| zipped(d)).collect();
+        dirs.extend(["app".to_owned(), "app/languages".to_owned()]);
     }
-    fs::write(kit.join("files.txt"), files)?;
 
     // '/' in the entry names; a directory entry for every folder, as the kit was always shipped
     let dist = root.join("dist");
@@ -2006,7 +2013,7 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
         zip.add_directory(format!("{top}/{d}/"), opts)?;
     }
     for f in &shipped {
-        zip.start_file(format!("{top}/{f}"), opts)?;
+        zip.start_file(format!("{top}/{}", zipped(f)), opts)?;
         std::io::copy(&mut fs::File::open(kit.join(f))?, &mut zip)?;
     }
     zip.finish()?;
@@ -2023,7 +2030,7 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
         .copied()
         .chain((!version.is_empty()).then_some("version.txt"));
     let missing: Vec<_> = need
-        .filter(|n| !entries.contains(&format!("{top}/{n}")))
+        .filter(|n| !entries.contains(&format!("{top}/{}", zipped(n))))
         .collect();
     ensure!(missing.is_empty(), "the ZIP lacks: {}", missing.join(", "));
     println!("the ZIP has every program: {}", programs.join(", "));
@@ -2133,6 +2140,35 @@ fn version_strings(file: &[u8]) -> Result<HashMap<String, String>> {
 }
 
 /// Files and folders of the kit, as '/' paths under it, without the build's leftovers (source/build).
+/// Launcher.exe and what the player reads stay at the top of a 2017-18 install; [`zip_path_1718`] puts the rest in app\.
+const TOP_1718_FILES: &[&str] = &[
+    "Launcher.exe",
+    "README.txt",
+    "README.it.txt",
+    "README.ja.txt",
+    "CHANGES.txt",
+];
+
+/// Where a file or folder of the staged 2017-18 kit goes in its ZIP: [`TOP_1718_FILES`] at the top, english\ and
+/// italian\ in app\languages\, the rest in app\ (forza::migrate::MOVES moves an older install the same way).
+fn zip_path_1718(rel: &str) -> String {
+    match rel.split('/').next() {
+        _ if TOP_1718_FILES.contains(&rel) => rel.to_owned(),
+        Some("english" | "italian") => format!("app/languages/{rel}"),
+        _ => format!("app/{rel}"),
+    }
+}
+
+/// files.txt: a BOM, then every shipped file's path in the ZIP (below its top folder), with backslashes, CRLF.
+fn files_txt(shipped: &BTreeSet<String>, zipped: impl Fn(&str) -> String) -> String {
+    let mut files = String::from("\u{feff}");
+    for f in shipped {
+        files.push_str(&zipped(f).replace('/', "\\"));
+        files.push_str("\r\n");
+    }
+    files
+}
+
 fn walk(
     dir: &Path,
     rel: &str,
@@ -2162,6 +2198,50 @@ fn walk(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The 2017-18 ZIP's files.txt: Launcher.exe and the READMEs at the top, everything else in app\.
+    #[test]
+    fn the_2017_18_zip_keeps_only_player_files_at_the_top() {
+        let shipped: BTreeSet<String> = [
+            "Launcher.exe",
+            "README.txt",
+            "README.it.txt",
+            "README.ja.txt",
+            "CHANGES.txt",
+            "bin/wccfnet.dll",
+            "overlay/forza_panel.dll",
+            "fonts/Hack-Regular.ttf",
+            "english/screen_text.tsv",
+            "italian/exe_text.tsv",
+            "source/README.txt",
+            "files.txt",
+            "version.txt",
+        ]
+        .map(String::from)
+        .into();
+        let text = files_txt(&shipped, zip_path_1718);
+        let lines: BTreeSet<&str> = text.trim_start_matches('\u{feff}').lines().collect();
+        let want: BTreeSet<&str> = [
+            "Launcher.exe",
+            "README.txt",
+            "README.it.txt",
+            "README.ja.txt",
+            "CHANGES.txt",
+            r"app\bin\wccfnet.dll",
+            r"app\overlay\forza_panel.dll",
+            r"app\fonts\Hack-Regular.ttf",
+            r"app\languages\english\screen_text.tsv",
+            r"app\languages\italian\exe_text.tsv",
+            r"app\source\README.txt",
+            r"app\files.txt",
+            r"app\version.txt",
+        ]
+        .into();
+        assert_eq!(lines, want);
+        assert!(text.starts_with('\u{feff}') && text.ends_with("\r\n"));
+        assert_eq!(zip_path_1718("english"), "app/languages/english");
+        assert_eq!(zip_path_1718("bin"), "app/bin");
+    }
 
     #[test]
     fn profiles_are_fast_locally_and_release_for_the_gate() {
