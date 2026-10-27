@@ -83,6 +83,12 @@ pub fn online_refused(edition: crate::Edition, mode: &Mode, shop: bool) -> bool 
     edition == crate::Edition::E1718 && !shop && matches!(mode, Mode::Server | Mode::Remote(..))
 }
 
+/// `VSLINK_DELAY_MS` (tests only): milliseconds added to the shop tunnel's round trip, 0-2000; anything else is none.
+pub fn delay_knob(v: Option<&str>) -> std::time::Duration {
+    let ms = v.and_then(|s| s.trim().parse::<u64>().ok()).filter(|ms| *ms <= 2000);
+    std::time::Duration::from_millis(ms.unwrap_or(0))
+}
+
 /// AiMeDB answers every card the hash of its access code when the clubs are on another PC's game server: VS, and a
 /// seat that joins a shop elsewhere (each PC's AiMeDB numbers its own cards, so two homes' first cards would both be
 /// Aime ID 1, one club). This PC alone, and a seat on this PC's own server (`own_store`, [`is_this_pc`] of the address
@@ -94,6 +100,12 @@ pub fn aime_hashed(mode: &Mode, own_store: bool) -> bool {
         Mode::Remote(..) => !own_store,
         Mode::Vs(_) | Mode::Server => true,
     }
+}
+
+/// The seat joined at `ip` plays on this PC's store ([`aime_hashed`]): `ip` is this PC, and not through the shop
+/// tunnel, whose local end is 127.0.0.1 although the shop's game server is the host's.
+pub fn own_store(ip: &str, tunnelled: bool) -> bool {
+    !tunnelled && is_this_pc(ip)
 }
 
 /// `ip` is this PC: a loopback address, or one a socket here can bind (one of this PC's own addresses).
@@ -437,6 +449,17 @@ mod tests {
     }
 
     #[test]
+    fn the_delay_knob_takes_0_to_2000_ms() {
+        use std::time::Duration;
+        assert_eq!(delay_knob(None), Duration::ZERO);
+        assert_eq!(delay_knob(Some("150")), Duration::from_millis(150));
+        assert_eq!(delay_knob(Some(" 50 ")), Duration::from_millis(50));
+        for bad in ["", "-5", "abc", "2001", "1.5"] {
+            assert_eq!(delay_knob(Some(bad)), Duration::ZERO, "{bad}");
+        }
+    }
+
+    #[test]
     fn aime_ids_are_hashed_on_another_pcs_game_server() {
         let remote = Mode::Remote("192.168.1.20".into(), None);
         assert!(!aime_hashed(&Mode::Local, false));
@@ -473,6 +496,12 @@ mod tests {
         }
         let guest = Mode::Remote("192.0.2.1".into(), None);
         assert!(aime_hashed(&guest, is_this_pc("192.0.2.1")));
+        // a guest through the tunnel joins 127.0.0.1, and is still a guest
+        assert!(own_store("127.0.0.1", false) && !own_store("127.0.0.1", true));
+        assert!(aime_hashed(
+            &Mode::Remote("127.0.0.1".into(), None),
+            own_store("127.0.0.1", true)
+        ));
     }
 
     #[test]

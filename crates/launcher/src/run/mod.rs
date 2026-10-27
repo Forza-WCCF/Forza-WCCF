@@ -826,6 +826,8 @@ pub struct Run<'a> {
     beside_server: bool,
     /// Remote: the server is this PC's own (its address is one of this PC's), so its game server is this PC's store.
     own_store: bool,
+    /// Remote through the shop tunnel: the loopback ports it listens on (the shop's own unless this PC holds them).
+    tunnel_ports: Option<vslink::shop::Ports>,
     job: Arc<Job>,
     tx: Sender<Event>,
     rx: Receiver<Event>,
@@ -839,7 +841,8 @@ pub struct Run<'a> {
     scenes: Option<Handle>,
     /// 2017-18: the game server stand-in (control keeps the clubs there).
     gamesvr: Option<Handle>,
-    /// 2017-18 with a club server: the direct VS link (crates/vslink), beside the game.
+    /// 2017-18 with a club server: the direct VS link (crates/vslink), beside the game. A shop's host or a seat that
+    /// joins it by its id: the shop tunnel (vslink::shop).
     vslink: Option<Handle>,
     /// 2017-18 online: where this run's VS plays (RESTART NOW keeps the cabinet only for the same target).
     vs_target: Option<rules::VsTarget>,
@@ -926,6 +929,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         debug,
         beside_server,
         own_store: false,
+        tunnel_ports: None,
         job,
         tx,
         rx,
@@ -1380,13 +1384,26 @@ impl Run<'_> {
 
         let mut projector = true;
         if let Mode::Remote(entry, want) = self.mode.clone() {
-            // the entry as written: a name or an IPv4 address, ":port" the seat desk's (the lobby's entry)
-            let (ip, desk) = choices::resolve(&entry, p.seat_port)
-                .map(|a| (a.ip().to_string(), a.port()))
-                .ok_or_else(|| Failed(format!("\"{entry}\" is not a server this PC can find")))?;
+            // the entry as written: a 2017-18 shop's id (its tunnel serves this PC's loopback), or a name or an IPv4
+            // address, ":port" the seat desk's (the lobby's entry)
+            let shop = vslink::shop::parse_id(&entry).filter(|_| self.edition == Edition::E1718);
+            let (ip, desk) = match shop {
+                Some(id) => {
+                    let ports = self.start_shop_tunnel(vslink::shop::Role::Join(id))?;
+                    self.tunnel_ports = Some(ports);
+                    ("127.0.0.1".to_owned(), ports.desk)
+                }
+                None => choices::resolve(&entry, p.seat_port)
+                    .map(|a| (a.ip().to_string(), a.port()))
+                    .ok_or_else(|| Failed(format!("\"{entry}\" is not a server this PC can find")))?,
+            };
+            // through the tunnel the shop is at 127.0.0.1 too, but its game server is the host's
+            self.own_store = rules::own_store(&ip, shop.is_some());
+            // this PC's own server by its LAN address: loopback, where a 2017-18 shop's desk and relay listen
+            let ip = if self.own_store { "127.0.0.1".to_owned() } else { ip };
             self.remote = Some((ip.clone(), desk));
-            self.own_store = rules::is_this_pc(&ip);
-            if !answers(&ip, p.control_port) {
+            let control_port = self.tunnel_ports.map_or(p.control_port, |t| t.control);
+            if !answers(&ip, control_port) {
                 return Err(Failed(format!(
                     "the server at {entry} does not answer on port {}. Check that it is running and the port is open. \
                      (Launcher.exe local plays on this PC.)",
@@ -1400,6 +1417,10 @@ impl Run<'_> {
             (self.seat_no, projector) = (seat, here);
             for c in &confs {
                 conf::set_control_ip(c, &ip)?;
+                if self.edition == Edition::E1718 {
+                    // the tunnel's control port when this PC holds 20002 itself
+                    conf::set_conf_value(c, "CONTROL_PORT", &control_port.to_string())?;
+                }
             }
             conf::set_satellite_no(&confs[1], u32::from(seat))?; // the cabinet's seat
             // never "WAITING FOR THE PROJECTOR" on a server: its projector is on another PC, or gone
@@ -1414,6 +1435,9 @@ impl Run<'_> {
             if matches!(self.mode, Mode::Local | Mode::Vs(_)) {
                 for c in &confs {
                     conf::set_control_ip(c, "127.0.0.1")?; // after a "remote" run: the cabinets play on this PC again
+                    if self.edition == Edition::E1718 {
+                        conf::set_conf_value(c, "CONTROL_PORT", &p.control_port.to_string())?;
+                    }
                 }
                 conf::set_satellite_no(&confs[1], 1)?;
                 conf::set_conf_value(&confs[1], "WAIT_PROJECTOR", "1")?; // the game's own way, its projector here
@@ -1524,6 +1548,16 @@ impl Run<'_> {
             ("WCCF_RELAY_PORT".to_owned(), self.p.relay_port.to_string()),
             ("WCCF_INBOX_PORT".to_owned(), self.p.inbox_port.to_string()),
         ]);
+        // 2017-18: guests come through the shop tunnel, so the desk and relay listen on loopback only (no firewall
+        // prompt, nothing open on the LAN) unless data\settings.json "shop_lan": true asks for the plain-address path
+        let lan = self.edition == Edition::E1011 || self.kit.settings()["shop_lan"].as_bool() == Some(true);
+        if !lan {
+            env.push(("WCCF_BIND".to_owned(), "127.0.0.1".to_owned()));
+        }
+        if self.edition == Edition::E1718 {
+            // every tunnel guest reaches the desk as 127.0.0.1: no per-address limits there
+            env.push(("WCCF_DESK_TUNNEL".to_owned(), "1".to_owned()));
+        }
         let mut cmd = Command::new(self.kit.program("forza-server.exe"));
         cmd.args(["--edition", self.edition.name(), "all"]);
         if self.edition == Edition::E1718 {
@@ -1568,14 +1602,33 @@ impl Run<'_> {
                 "     the {role} did not start or ended (data\\logs\\{out}, seat_broker.txt, match_relay.txt, log_inbox.txt)"
             ));
         }
+        if self.edition == Edition::E1718 {
+            // guests reach this shop through iroh: no inbound port; the plain address stays the LAN fallback
+            if let Err(Failed(why)) = self.start_shop_tunnel(vslink::shop::Role::Host) {
+                self.say(&format!("     shop tunnel: off ({why})"));
+                self.say(if lan {
+                    "     Players on this network can still use this PC's address."
+                } else {
+                    "     Players on this network can use this PC's address only with \"shop_lan\": true in data\\settings.json."
+                });
+            }
+        }
         self.write_running();
         self.say("");
-        self.say("Server running. On each player's PC run: Launcher.exe remote ADDRESS (this machine's address).");
+        self.say(if self.edition == Edition::E1718 && !lan {
+            "Server running. On each player's PC run: Launcher.exe remote SHOP-ID (the id above); this PC's own seat: \
+             Launcher.exe remote 127.0.0.1."
+        } else {
+            "Server running. On each player's PC run: Launcher.exe remote ADDRESS (this machine's address)."
+        });
         self.say(&match self.edition {
             Edition::E1011 => format!(
                 "Open TCP ports {}, {} and {}, and UDP {}. Launcher.exe stop ends it.",
                 self.p.control_port, self.p.seat_port, self.p.inbox_port, self.p.relay_port
             ),
+            Edition::E1718 if !lan => "Seat desk and relay on this PC only (\"shop_lan\": true in data\\settings.json \
+                                         opens them to the network). Launcher.exe stop ends it."
+                .to_owned(),
             Edition::E1718 => format!(
                 "Open TCP ports {} and {}, and UDP {}. Launcher.exe stop ends it.",
                 self.p.control_port, self.p.seat_port, self.p.relay_port
@@ -1638,7 +1691,8 @@ impl Run<'_> {
         ]);
         if let Some(ip) = self.ip() {
             // a match against another player goes through the server's relay (forza_panel.dll)
-            env.push(("WCCF_RELAY".into(), format!("{ip}:{}", p.relay_port)));
+            let relay = self.tunnel_ports.map_or(p.relay_port, |t| t.relay);
+            env.push(("WCCF_RELAY".into(), format!("{ip}:{relay}")));
             env.push(("WCCF_SEAT".into(), self.seat_no.to_string()));
         }
         if self.debug {
@@ -1844,6 +1898,62 @@ impl Run<'_> {
                 "  VS link failed ({e}). VS matches will be against a CPU team."
             )),
         }
+    }
+
+    /// 2017-18 shop over iroh (vslink::shop). Host: beside `forza-server all`, its id said and kept in
+    /// data\shop_id.txt. Join: this PC's loopback control, desk and relay ports lead to that host. The relay as for VS
+    /// (WCCF_VS_RELAY, settings "vs_relay" and "vs_relay_ca"); `VSLINK_DELAY_MS` (tests only) adds that much to the
+    /// round trip.
+    fn start_shop_tunnel(&mut self, role: vslink::shop::Role) -> Result<vslink::shop::Ports, Failed> {
+        let p = self.p;
+        let ports = vslink::shop::Ports {
+            control: p.control_port,
+            desk: p.seat_port,
+            relay: p.relay_port,
+        };
+        let host = role == vslink::shop::Role::Host;
+        let key = self
+            .kit
+            .data()
+            .join(if host { "shop_host.key" } else { "shop_join.key" });
+        let log = file_log(self.logs().join("shop_tunnel.txt"));
+        let mut cfg = vslink::shop::ShopConfig::public(role, ports, key, log);
+        let settings = self.kit.settings();
+        let saved = |k: &str| settings[k].as_str().map(str::to_owned);
+        if let Some(url) = choices::env_or_var("WCCF_VS_RELAY", saved("vs_relay")) {
+            let ca = saved("vs_relay_ca").filter(|c| !c.trim().is_empty());
+            cfg.set_relay(&url, ca.as_deref().map(Path::new)).map_err(Failed)?;
+        }
+        let knob = rules::delay_knob(env::var("VSLINK_DELAY_MS").ok().as_deref());
+        cfg.delay = knob / 2;
+        if !knob.is_zero() {
+            self.say(&format!(
+                "     test delay: {} ms added to the shop tunnel's round trip (VSLINK_DELAY_MS)",
+                knob.as_millis()
+            ));
+        }
+        let link = vslink::shop::spawn(cfg).map_err(|e| {
+            Failed(format!(
+                "the shop tunnel did not start ({e}) - see data\\logs\\shop_tunnel.txt"
+            ))
+        })?;
+        if host {
+            let id = vslink::shop::id_text(&link.id);
+            let _ = choices::write(&self.kit.data().join("shop_id.txt"), &format!("{id}\n"));
+            self.say(&format!(
+                "     shop tunnel: on. Players elsewhere run: Launcher.exe remote {id}"
+            ));
+            self.say("     (also in data\\shop_id.txt; no port needs to be open on this PC)");
+        } else if link.ports != ports {
+            self.say(&format!(
+                "       shop tunnel up on ports {} / {} / {} (this PC holds the usual ones; data\\logs\\shop_tunnel.txt)",
+                link.ports.control, link.ports.desk, link.ports.relay
+            ));
+        } else {
+            self.say("       shop tunnel up (data\\logs\\shop_tunnel.txt)");
+        }
+        self.vslink = Some(link.handle);
+        Ok(link.ports)
     }
 
     /// Online: this PC's seat from the server's seat desk, held while the run lasts; None asked = the next free seat.

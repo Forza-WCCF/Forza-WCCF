@@ -80,23 +80,35 @@ impl Config {
     /// Dials `url` instead of the public relay; `ca_pem` (a PEM file) is then the only trusted root. For a
     /// self-hosted relay.
     pub fn set_relay(&mut self, url: &str, ca_pem: Option<&Path>) -> Result<(), String> {
-        let u: RelayUrl = url
-            .trim()
-            .parse()
-            .map_err(|e| format!("relay {url}: {e}"))?;
-        self.relay = RelayMap::from(u);
-        if let Some(path) = ca_pem {
-            use rustls_pki_types::{CertificateDer, pem::PemObject};
-            let roots = CertificateDer::pem_file_iter(path)
-                .and_then(|it| it.collect::<Result<Vec<_>, _>>())
-                .map_err(|e| format!("relay CA {}: {e}", path.display()))?;
-            if roots.is_empty() {
-                return Err(format!("relay CA {}: no certificate", path.display()));
-            }
-            self.ca = Some(CaTlsConfig::custom_roots(roots));
+        let (relay, ca) = relay_from(url, ca_pem)?;
+        self.relay = relay;
+        if ca.is_some() {
+            self.ca = ca;
         }
         Ok(())
     }
+}
+
+/// A relay URL and, with `ca_pem` (a PEM file), its only trusted roots.
+pub(crate) fn relay_from(
+    url: &str,
+    ca_pem: Option<&Path>,
+) -> Result<(RelayMap, Option<CaTlsConfig>), String> {
+    let u: RelayUrl = url
+        .trim()
+        .parse()
+        .map_err(|e| format!("relay {url}: {e}"))?;
+    let Some(path) = ca_pem else {
+        return Ok((RelayMap::from(u), None));
+    };
+    use rustls_pki_types::{CertificateDer, pem::PemObject};
+    let roots = CertificateDer::pem_file_iter(path)
+        .and_then(|it| it.collect::<Result<Vec<_>, _>>())
+        .map_err(|e| format!("relay CA {}: {e}", path.display()))?;
+    if roots.is_empty() {
+        return Err(format!("relay CA {}: no certificate", path.display()));
+    }
+    Ok((RelayMap::from(u), Some(CaTlsConfig::custom_roots(roots))))
 }
 
 /// A running vslink. Dropping `handle` stops it within 100 ms.
@@ -409,7 +421,7 @@ impl Shared {
         if let Some(o) = old {
             o.close(0u8.into(), b"replaced");
         }
-        tokio::spawn(self.clone().watch_path(conn.clone()));
+        tokio::spawn(watch_path(self.log.clone(), conn.clone()));
         tokio::spawn(self.clone().pump_conn(conn));
     }
 
@@ -447,35 +459,37 @@ impl Shared {
             st.conns.remove(&remote);
         }
     }
+}
 
-    /// Logs the selected path when it changes (direct or relay) and its RTT every 30 s.
-    async fn watch_path(self: Arc<Self>, conn: Connection) {
-        let short = conn.remote_id().fmt_short();
-        let mut last = None;
-        let mut tick = interval(Duration::from_secs(1));
-        for n in 0u64.. {
-            tokio::select! {
-                _ = tick.tick() => {}
-                _ = conn.closed() => return,
-            }
-            let sel = conn
-                .paths()
-                .iter()
-                .find(|p| p.is_selected())
-                .map(|p| (p.is_relay(), p.rtt()));
-            if let Some((relay, rtt)) = sel
-                && (last != Some(relay) || n % 30 == 0)
-            {
-                let kind = if relay { "relay" } else { "direct" };
-                (self.log)(&format!(
-                    "link to {short}: path {kind}, rtt {:.1} ms",
-                    rtt.as_secs_f64() * 1e3
-                ));
-                last = Some(relay);
-            }
+/// Logs the selected path when it changes (direct or relay) and its RTT every 30 s.
+pub(crate) async fn watch_path(log: Log, conn: Connection) {
+    let short = conn.remote_id().fmt_short();
+    let mut last = None;
+    let mut tick = interval(Duration::from_secs(1));
+    for n in 0u64.. {
+        tokio::select! {
+            _ = tick.tick() => {}
+            _ = conn.closed() => return,
+        }
+        let sel = conn
+            .paths()
+            .iter()
+            .find(|p| p.is_selected())
+            .map(|p| (p.is_relay(), p.rtt()));
+        if let Some((relay, rtt)) = sel
+            && (last != Some(relay) || n % 30 == 0)
+        {
+            let kind = if relay { "relay" } else { "direct" };
+            (log)(&format!(
+                "link to {short}: path {kind}, rtt {:.1} ms",
+                rtt.as_secs_f64() * 1e3
+            ));
+            last = Some(relay);
         }
     }
+}
 
+impl Shared {
     async fn dial(self: Arc<Self>, id: core::EndpointId) {
         let addr = PublicKey::from_bytes(&id)
             .map(|pk| EndpointAddr::new(pk).with_relay_url(self.relay.clone()));
@@ -584,26 +598,27 @@ impl Shared {
 const MAX_LINKS: usize = 64;
 const UNPAIRED_GRACE: Duration = Duration::from_secs(15);
 
-fn id_short(id: &core::EndpointId) -> String {
+pub(crate) fn id_short(id: &core::EndpointId) -> String {
     PublicKey::from_bytes(id).map_or_else(|_| "?".into(), |pk| pk.fmt_short().to_string())
 }
 
-fn load_key(cfg: &Config) -> io::Result<SecretKey> {
-    match std::fs::read(&cfg.key) {
+/// The endpoint's secret key from `path`, made and saved there on first use.
+pub(crate) fn load_key(path: &Path) -> io::Result<SecretKey> {
+    match std::fs::read(path) {
         Ok(b) => <[u8; 32]>::try_from(b)
             .map(|b| SecretKey::from_bytes(&b))
             .map_err(|_| {
                 io::Error::new(
                     io::ErrorKind::InvalidData,
-                    format!("{}: not 32 bytes", cfg.key.display()),
+                    format!("{}: not 32 bytes", path.display()),
                 )
             }),
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
             let k = SecretKey::generate();
-            if let Some(dir) = cfg.key.parent() {
+            if let Some(dir) = path.parent() {
                 std::fs::create_dir_all(dir)?;
             }
-            std::fs::write(&cfg.key, k.to_bytes())?;
+            std::fs::write(path, k.to_bytes())?;
             Ok(k)
         }
         Err(e) => Err(e),
@@ -623,7 +638,7 @@ async fn start(cfg: Config) -> io::Result<Arc<Shared>> {
         .datagram_send_buffer_size(SEND_BUF)
         .build();
     let mut b = Endpoint::builder(presets::Minimal)
-        .secret_key(load_key(&cfg)?)
+        .secret_key(load_key(&cfg.key)?)
         .relay_mode(RelayMode::Custom(cfg.relay.clone()))
         .clear_address_lookup()
         .alpns(vec![ALPN.to_vec()])
