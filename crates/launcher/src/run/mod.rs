@@ -48,9 +48,9 @@ use std::time::{Duration, Instant, SystemTime};
 use std::{env, ptr};
 
 use crate::helper::{self, Helper, Target, ViewFiles};
-use forza::online::gamesvr;
 use forza::online::seat::{self, Lease};
 use forza::online::send_logs::{self, Scrub};
+use forza::online::{club, gamesvr};
 use forza::standins::{Handle, Log, aime, aimedb, card_reader, io_board, network, scenes};
 use regex::Regex;
 use windows_sys::Win32::Foundation::{ERROR_ALREADY_EXISTS, FALSE, GetLastError, WAIT_ABANDONED, WAIT_OBJECT_0};
@@ -111,6 +111,10 @@ pub trait Ui {
     fn save_logs(&self, _kit: &Path, _game: &Path) {}
     /// REPORT A PROBLEM asked by the panel (data\report.request): the window opens its report dialog.
     fn report(&self) {}
+    /// The language of the few run lines a player must read (the shop club's).
+    fn lang(&self) -> forza_ui::Lang {
+        forza_ui::Lang::En
+    }
 }
 
 /// The game's names and numbers; tests swap them for stand-ins, free ports and names of their own.
@@ -865,6 +869,8 @@ pub struct Run<'a> {
     /// 2017-18 online: where this run's VS plays (RESTART NOW keeps the cabinet only for the same target).
     vs_target: Option<rules::VsTarget>,
     lease: Option<Lease>,
+    /// 2017-18 shop guest: its home club, out in the shop until this is dropped (online::club).
+    club: Option<club::Trip>,
     /// Remote: the server as the game takes it (its IPv4 address) and its seat desk's port (`host:port` written:
     /// that port), found at step 2 from [`Mode::Remote`]'s entry.
     remote: Option<(String, u16)>,
@@ -966,6 +972,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         vslink: None,
         vs_target: None,
         lease: None,
+        club: None,
         remote: None,
         shop_room: None,
         shop_guests: None,
@@ -1447,6 +1454,10 @@ impl Run<'_> {
                 }
             }
             conf::set_satellite_no(&confs[1], u32::from(seat))?; // the cabinet's seat
+            if self.edition == Edition::E1718 && !self.own_store {
+                self.club = None; // a trip of an earlier start comes home first
+                self.bring_club(&ip, desk, seat, &entry);
+            }
             // never "WAITING FOR THE PROJECTOR" on a server: its projector is on another PC, or gone
             conf::set_conf_value(&confs[1], "WAIT_PROJECTOR", "0")?;
             self.say(&format!(
@@ -1583,6 +1594,11 @@ impl Run<'_> {
         if self.edition == Edition::E1718 && !lan_only {
             // every tunnel guest reaches the desk as 127.0.0.1: no per-address limits there
             env.push(("WCCF_DESK_TUNNEL".to_owned(), "1".to_owned()));
+        }
+        if self.edition == Edition::E1718 {
+            // guests bring their own clubs into this PC's store (online::club), on the tunnel and on the LAN
+            let db = self.kit.save().join("gamesvr").join("gamesvr.db");
+            env.push(("WCCF_CLUB_DB".to_owned(), db.display().to_string()));
         }
         let mut cmd = Command::new(self.kit.program("forza-server.exe"));
         cmd.args(["--edition", self.edition.name(), "all"]);
@@ -1854,6 +1870,9 @@ impl Run<'_> {
     /// GAME_SVR_ENTRY=1 (the control's VS entries, 243-246), the lobby's VS room claimed at its desk, the direct VS
     /// link. A cabinet on a server uses that server's.
     fn start_gamesvr(&mut self, steps: u32) -> Result<(), Failed> {
+        if !matches!(self.mode, Mode::Remote(..)) {
+            self.club_leftover(&self.kit.save().join("gamesvr"));
+        }
         if matches!(self.mode, Mode::Remote(..)) {
             self.say(&format!("  1/{steps} game server: the server's"));
             return Ok(());
@@ -1894,6 +1913,16 @@ impl Run<'_> {
         // and data\settings.json "skip_tutorial": true makes it give a new Aime id a club from the game's cpu_50.dat
         let skip = self.kit.settings()["skip_tutorial"].as_bool().unwrap_or(false);
         let game = Some(self.game.clone());
+        // guests' clubs a crashed shop left here (online::club): their players keep their home copies
+        let store = self.kit.save().join("gamesvr");
+        fs::create_dir_all(&store)?;
+        match gamesvr::Store::open(&store.join("gamesvr.db")).and_then(|mut s| s.purge_guests()) {
+            Ok(0) => {}
+            Ok(n) => self.say(&format!(
+                "  {n} guest clubs left by an earlier shop dropped (their players keep their own)"
+            )),
+            Err(e) => self.say(&format!("  guest clubs left by an earlier shop not checked ({e})")),
+        }
         self.gamesvr = Some(
             gamesvr::spawn_with(listener, self.kit.save().join("gamesvr"), log, game, skip)
                 .map_err(|e| Failed(format!("the game server did not start ({e})")))?,
@@ -1902,6 +1931,62 @@ impl Run<'_> {
             "  1/{steps} game server on port {port} (clubs in data\\save\\gamesvr)"
         ));
         Ok(())
+    }
+
+    /// A club still marked out in a shop (the last trip ended before it came home): the home copy stays, the shop's
+    /// last copy goes to backups, and the player is told once.
+    fn club_leftover(&self, dir: &Path) {
+        match club::leftover(dir) {
+            Ok(Some(kept)) => {
+                let path = kept.display().to_string();
+                self.say(&format!(
+                    "  {}",
+                    forza_ui::text(self.ui.lang(), "launcher.club_kept", &[("path", &path)])
+                ));
+            }
+            Ok(None) => {}
+            Err(e) => self.say(&format!("  club marker not read ({e})")),
+        }
+    }
+
+    /// 2017-18 shop guest: the home club comes along to the shop (online::club), under the card's home Aime id (an
+    /// older card's integer id) here and its hash there. Any failure keeps it home and the run goes on.
+    fn bring_club(&mut self, ip: &str, desk: u16, seat: u8, shop: &str) {
+        let save = self.kit.save();
+        let dir = save.join("gamesvr");
+        self.club_leftover(&dir);
+        let code = fs::read_to_string(save.join("seat1_aime.txt"))
+            .ok()
+            .map(|s| s.trim().to_owned())
+            .filter(|s| s.len() == 20 && s.bytes().all(|b| b.is_ascii_digit()));
+        let home = code
+            .as_ref()
+            .map(|c| aimedb::Db::open(save.join("aimedb.json")).map(|db| db.home_id(c)));
+        let (Some(code), Some(Ok(home)), Some(desk)) = (code, home, addr(ip, desk)) else {
+            self.say("  club: no card yet on this PC, so none to bring");
+            return;
+        };
+        let guest = club::Guest {
+            desk,
+            seat,
+            shop_aime: aimedb::hash_id(&code) as u32,
+            code,
+            home_aime: home as u32,
+            dir,
+            shop: shop.to_owned(),
+            poll: club::POLL,
+        };
+        let lang = self.ui.lang();
+        match guest.bring(file_log(self.logs().join("club_trip.txt"))) {
+            Ok(trip) => {
+                self.club = Some(trip);
+                self.say(&format!("  {}", forza_ui::text(lang, "launcher.club_in", &[])));
+            }
+            Err(why) => self.say(&format!(
+                "  {} ({why})",
+                forza_ui::text(lang, "launcher.club_not_in", &[])
+            )),
+        }
     }
 
     /// The direct VS link to the online game server, with the lobby room's ticket if one is held;
@@ -2387,6 +2472,8 @@ impl Run<'_> {
         self.cabinet = Cabinet::default();
         self.scenes = None;
         self.gamesvr = None;
+        // the club's last copy home, while the game is closed and the shop tunnel still up
+        self.club = None;
         self.vslink = None;
         self.lease = None;
     }

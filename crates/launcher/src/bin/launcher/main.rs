@@ -463,6 +463,10 @@ fn host_shop(kit: &Kit, lan: bool) -> Result<i32, String> {
 struct ServerUi;
 
 impl run::Ui for ServerUi {
+    fn lang(&self) -> Lang {
+        text::lang()
+    }
+
     fn say(&self, line: &str) {
         log(line);
         if !line.trim().is_empty() {
@@ -477,6 +481,10 @@ impl run::Ui for ServerUi {
 struct WindowUi;
 
 impl run::Ui for WindowUi {
+    fn lang(&self) -> Lang {
+        text::lang()
+    }
+
     fn updating_pictures(&self) {
         say(t("launcher.msg_updating_pictures"), 0);
     }
@@ -1497,6 +1505,10 @@ unsafe extern "system" fn on_ctrl(event: u32) -> BOOL {
 struct ConsoleUi;
 
 impl run::Ui for ConsoleUi {
+    fn lang(&self) -> Lang {
+        text::lang()
+    }
+
     fn say(&self, line: &str) {
         println!("{line}");
     }
