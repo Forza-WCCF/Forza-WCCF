@@ -37,7 +37,9 @@ use std::time::{Duration, Instant};
 pub const MAX_BYTES: usize = 2 << 20;
 /// How often the guest asks for its club while the run lasts.
 pub const POLL: Duration = Duration::from_secs(10);
-/// Backups of the home club kept in `backups` (oldest go first).
+/// Guest clubs a host holds at once (one per seat): a guest cannot fill the host's store.
+const MAX_GUESTS: usize = 8;
+/// Backups of each kind kept in `backups` (oldest go first).
 const KEEP_BACKUPS: usize = 30;
 /// A stored request the copy carries: SAVE_DATA_SET 277, whole.
 const SAVE_SET: u16 = 277;
@@ -464,7 +466,16 @@ impl Store {
             None if has_rows(&tx, aime).map_err(db_err)? => {
                 return Err("this shop already keeps a club for this card".into());
             }
-            None => {}
+            None => {
+                let n: u32 = tx
+                    .query_row("SELECT count(*) FROM guests", [], |r| r.get(0))
+                    .map_err(db_err)?;
+                if n as usize >= MAX_GUESTS {
+                    return Err(format!(
+                        "this shop holds {MAX_GUESTS} guests' clubs already"
+                    ));
+                }
+            }
         }
         delete(&tx, aime).map_err(db_err)?;
         let mut link = Link::default();
@@ -492,8 +503,12 @@ impl Store {
 
     /// Host: the imported club of `aime`, for the guest holding `token`.
     pub fn guest_club(&self, aime: u32, token: &str) -> Result<Club, String> {
-        owned(&self.0, aime, token)?;
-        export(&self.0, aime).map_err(db_err)
+        // one snapshot: a save the stand-in commits meanwhile is in the copy whole or not at all
+        let tx =
+            rusqlite::Transaction::new_unchecked(&self.0, rusqlite::TransactionBehavior::Deferred)
+                .map_err(db_err)?;
+        owned(&tx, aime, token)?;
+        export(&tx, aime).map_err(db_err)
     }
 
     /// Host: drops the imported club of `aime` once its guest has it home.
@@ -821,7 +836,7 @@ fn time_name() -> String {
     )
 }
 
-/// Writes `bytes` to `dir\backups\<what>-<time>.json` and keeps the newest [`KEEP_BACKUPS`] there.
+/// Writes `bytes` to `dir\backups\<what>-<time>.json` and keeps the newest [`KEEP_BACKUPS`] of that kind there.
 fn backup(dir: &Path, what: &str, bytes: &[u8]) -> io::Result<PathBuf> {
     let b = dir.join("backups");
     std::fs::create_dir_all(&b)?;
@@ -835,7 +850,10 @@ fn backup(dir: &Path, what: &str, bytes: &[u8]) -> io::Result<PathBuf> {
     write_atomic(&path, bytes)?;
     let mut all: Vec<_> = std::fs::read_dir(&b)?
         .flatten()
-        .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
+        .filter(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            name.ends_with(".json") && name.strip_prefix(what).is_some_and(|r| r.starts_with('-'))
+        })
         .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
         .collect();
     all.sort();
@@ -856,7 +874,9 @@ pub fn leftover(dir: &Path) -> io::Result<Option<PathBuf>> {
     let last = last_file(dir);
     let kept = match std::fs::read(&last) {
         Ok(b) => backup(dir, "club-shop", &b)?,
-        Err(_) => dir.to_path_buf(),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => dir.to_path_buf(),
+        // unreadable now: keep the marker and the copy for the next start
+        Err(e) => return Err(e),
     };
     let _ = std::fs::remove_file(&last);
     std::fs::remove_file(&out)?;
@@ -985,11 +1005,12 @@ impl Guest {
                 "club copy-back: cannot keep the pulled copy ({e})"
             ));
         }
-        out.host_stamp = stamp;
+        // the stamp moves only once this copy is home or set aside, so a failed write is tried again next poll
         match store.write_home(&host, &mut out.link, self.home_aime, &out.home_stamp) {
             Ok(Some(home)) => {
                 out.home_stamp = home;
-                out.back_stamp = out.host_stamp.clone();
+                out.host_stamp = stamp.clone();
+                out.back_stamp = stamp;
                 out.back = now();
                 if let Err(e) = self.mark(out) {
                     log(&format!("club copy-back: marker not updated ({e})"));
@@ -998,6 +1019,7 @@ impl Guest {
                 true
             }
             Ok(None) => {
+                out.host_stamp = stamp;
                 let _ = self.mark(out);
                 match backup(&self.dir, "club-shop", &pulled) {
                     Ok(p) => log(&format!(
@@ -1390,8 +1412,18 @@ mod tests {
             assert!(host.import_guest(&c, 200, 2, &a).is_err(), "{what}");
         }
         assert!(host.guest_club(200, &a).is_err(), "nothing imported");
+        // one club per seat at most: a guest cannot fill the host's store
+        for aime in 101..108 {
+            host.import_guest(&club(1, &[(1, 1)]), aime, 2, &a).unwrap();
+        }
+        assert!(
+            host.import_guest(&club(1, &[(1, 1)]), 108, 2, &a)
+                .unwrap_err()
+                .contains("8 guests")
+        );
+        host.import_guest(&club(1, &[(1, 1)]), 107, 2, &a).unwrap();
         // the purge at the host's next start drops guests only
-        assert_eq!(host.purge_guests().unwrap(), 1);
+        assert_eq!(host.purge_guests().unwrap(), 8);
         assert!(!has_rows(&host.0, 100).unwrap());
         assert_eq!(host.club(9).unwrap(), own);
     }
