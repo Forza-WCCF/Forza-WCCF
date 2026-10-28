@@ -580,6 +580,11 @@ impl LobbyView {
         self.updated_s.is_some_and(|s| s > STALE_S)
     }
 
+    /// A row listed on its tab: 2017-18 lists only shop rooms (no desk runs a 2017-18 shop of its own to join).
+    fn listed(&self, r: &Row) -> bool {
+        !self.view_only_now() || r.room
+    }
+
     /// The rows the filters let through, as indexes into [`rows`](Self::rows).
     pub fn visible(&self) -> Vec<usize> {
         let want = [None, Some(Lang::En), Some(Lang::It), Some(Lang::Ja)][self.lang_filter.min(3)];
@@ -587,7 +592,8 @@ impl LobbyView {
             .iter()
             .enumerate()
             .filter(|(_, r)| {
-                want.is_none_or(|l| r.lang == Some(l))
+                self.listed(r)
+                    && want.is_none_or(|l| r.lang == Some(l))
                     && (!self.open_only || r.state == RowState::Open)
                     && (!self.ping_ok || r.ping_ms.is_some_and(|p| p < PING_MAX_MS))
             })
@@ -613,8 +619,6 @@ impl LobbyView {
             tr!(lang, "lobby.why_offline")
         } else if self.stale() {
             tr!(lang, "lobby.why_stale")
-        } else if self.selected_row().is_some_and(|r| self.view_only(r)) {
-            tr!(lang, "lobby.why_no_room")
         } else {
             match self.selected_row().map(|r| &r.state) {
                 None => tr!(lang, "lobby.why_pick"),
@@ -899,7 +903,16 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
             }
         };
         let labels = [
-            format!("{}{}", tr!(lang, "lobby.shops"), count(v.shops.len())),
+            format!(
+                "{}{}",
+                tr!(lang, "lobby.shops"),
+                count(
+                    v.shops
+                        .iter()
+                        .filter(|r| !v.shops_view_only || r.room)
+                        .count()
+                )
+            ),
             format!("{}{}", tr!(lang, "lobby.vs"), count(v.vs.len())),
         ];
         if segmented(ui, &mut k, &[&labels[0], &labels[1]], w * 0.52) {
@@ -1499,11 +1512,9 @@ mod tests {
     fn listed_shop_rooms_join_from_their_row() {
         let mut v = LobbyView::sample(Scenario::ShopNoRoom);
         assert_eq!(v.joinable().map(|r| r.id.as_str()), Some("p1"));
-        v.shops[0].room = false; // a desk's own shop, or a desk too old to mark rooms
-        assert_eq!(
-            (v.joinable().is_some(), v.why_not_join(Lang::En).as_deref()),
-            (false, Some("Pick a shop with a room"))
-        );
+        v.shops[0].room = false; // a desk's own shop, or a desk too old to mark rooms: not listed
+        assert!(v.visible().is_empty() && v.joinable().is_none());
+        assert_eq!(v.why_not_join(Lang::En).as_deref(), Some("Pick a room"));
         v.shops[0].room = true;
         v.shop_rooms = false;
         assert!(v.joinable().is_none());

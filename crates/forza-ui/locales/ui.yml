@@ -526,7 +526,6 @@ lobby.offline: {en: "Server not answering. Try again later.", it: "Il server non
 lobby.retry: {en: "RETRY", it: "RIPROVA", ja: "再試行"}
 lobby.why_offline: {en: "Server offline", it: "Server offline", ja: "サーバーに接続できません"}
 lobby.why_stale: {en: "List out of date", it: "Elenco non aggiornato", ja: "一覧が古い情報です"}
-lobby.why_no_room: {en: "Pick a shop with a room", it: "Scegli una sala con una stanza", ja: "ルームのある店舗を選んでください"}
 lobby.why_pick: {en: "Pick a room", it: "Scegli una stanza", ja: "ルームを選んでください"}
 lobby.taken: {en: "That seat was just taken.", it: "Quel posto è appena stato preso.", ja: "その席はたった今埋まりました。"}
 lobby.room_closed: {en: "The host closed the room.", it: "L'host ha chiuso la stanza.", ja: "ホストがルームを閉じました。"}
