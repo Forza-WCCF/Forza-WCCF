@@ -19,17 +19,31 @@ use forza::standins::scenes::Names;
 use launcher::Kit;
 use launcher::run::{self, Kind, Params, Ui};
 
-/// What the run said, and whether the game is up.
+/// What the run said (as shown, and the English its logs get), and whether the game is up; `lang` None: English.
 #[derive(Default)]
 struct Said {
     lines: Mutex<Vec<String>>,
+    logged: Mutex<Vec<String>>,
     up: AtomicBool,
+    lang: Option<forza_ui::Lang>,
+}
+
+/// A `Ui` that drops every line.
+fn quiet() -> run::Lines<'static> {
+    run::Lines(forza_ui::Lang::En, &|_, _| {})
 }
 
 impl Ui for Said {
     fn say(&self, line: &str) {
-        println!("{line}");
-        self.lines.lock().unwrap().push(line.to_owned());
+        self.say_logged(line, line);
+    }
+    fn say_logged(&self, shown: &str, en: &str) {
+        println!("{shown}");
+        self.lines.lock().unwrap().push(shown.to_owned());
+        self.logged.lock().unwrap().push(en.to_owned());
+    }
+    fn lang(&self) -> forza_ui::Lang {
+        self.lang.unwrap_or(forza_ui::Lang::En)
     }
     fn running(&self, up: bool) {
         self.up.store(up, Ordering::Relaxed);
@@ -285,6 +299,15 @@ fn a_game_not_set_up_is_refused() {
     assert_eq!(rc, run::NOT_SET_UP, "{}", ui.text());
     assert!(ui.text().contains("Not set up yet"), "{}", ui.text());
     assert!(!run::is_on(&kit, Kind::Run));
+    // in Italian: the window's line is Italian, the log's English
+    let it = Said {
+        lang: Some(forza_ui::Lang::It),
+        ..Said::default()
+    };
+    run::command(&kit, &params("unset", Shared::new()), &["local".into()], &it);
+    assert!(!it.text().contains("Not set up yet"), "{}", it.text());
+    assert!(it.text().contains("CONFIGURA"), "{}", it.text());
+    assert!(it.logged.lock().unwrap().iter().any(|l| l.contains("Not set up yet")));
 }
 
 /// test_setup_state.py's ensure_hook: a game whose wccfk.dll is not this kit's is set up once (launcher::setup; the
@@ -343,7 +366,7 @@ fn a_start_and_setup_wait_their_turn() {
         let ui = Said::default();
         let rc = run::command(&kit, &params("admit", Shared::new()), &["local".into()], &ui);
         let on = run::is_on(&kit, Kind::Run);
-        let setup = launcher::setup::game_folder(&kit, "", true, &|_| {});
+        let setup = launcher::setup::game_folder(&kit, "", true, &quiet());
         free.wait(); // before the assertions: a failed one must not leave the thread waiting
         assert_eq!(rc, run::REFUSED, "{}", ui.text());
         assert!(ui.text().contains("another Launcher window"), "{}", ui.text());
@@ -352,7 +375,7 @@ fn a_start_and_setup_wait_their_turn() {
         assert_eq!(setup, launcher::setup::RUNNING);
     });
     assert_ne!(
-        launcher::setup::game_folder(&kit, "", true, &|_| {}),
+        launcher::setup::game_folder(&kit, "", true, &quiet()),
         launcher::setup::RUNNING
     );
 }

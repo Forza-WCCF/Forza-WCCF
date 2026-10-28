@@ -1,6 +1,6 @@
 //! Launcher.exe's words, from forza's `locales/ui.yml` (the window's own source too): English, Italian or Japanese -
-//! the one picked in the window (data\settings.json "language"), else Windows' display language.  The kit's scripts
-//! (their output in the window) stay in English.
+//! the one picked in the window (data\settings.json "language"), else Windows' display language.  The run's and
+//! setup's lines (`run::Text`) follow it in the window; the log files keep them in English.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 

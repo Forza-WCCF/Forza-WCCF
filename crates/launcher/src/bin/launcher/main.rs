@@ -168,10 +168,15 @@ fn refuse(status: impl Into<String>) {
 }
 
 fn log(line: &str) {
-    shared().log.push(line.to_owned());
-    // and in data\logs\launcher.txt, which SAVE LOGS takes: setup and the card pictures happen before any run, whose
-    // logs were the only ones kept (a tester's 0.2.0 ZIP held nothing but version.txt)
-    launcher::logs::append(&Kit::here().logs().join("launcher.txt"), line);
+    log_pair(line, line);
+}
+
+/// A line into DETAILS as shown, and in English into data\logs\launcher.txt, which SAVE LOGS takes (support reads it):
+/// setup and the card pictures happen before any run, whose logs were the only ones kept (a tester's 0.2.0 ZIP held
+/// nothing but version.txt).
+fn log_pair(shown: &str, en: &str) {
+    shared().log.push(shown.to_owned());
+    launcher::logs::append(&Kit::here().logs().join("launcher.txt"), en);
     poke();
 }
 
@@ -322,15 +327,12 @@ fn start(steps: Vec<Step>) -> bool {
                         }),
                         0,
                     );
-                    setup_step(launcher::setup::game_folder(&kit, &folder, *undo, &|l| {
-                        stepped(l);
-                        log(l);
-                    }))
+                    setup_step(launcher::setup::game_folder(&kit, &folder, *undo, &WindowUi))
                 }
                 Step::Text(lang) => {
                     log(&format!("> game text {lang}"));
                     say(t("launcher.msg_switching_text"), 0);
-                    setup_step(launcher::setup::game_text(&kit, lang, &log))
+                    setup_step(launcher::setup::game_text(&kit, lang, &WindowUi))
                 }
                 Step::Update(r) => update::apply(&kit, r).map(|()| updated = Some(r.tag.clone())),
                 Step::Pictures => {
@@ -468,9 +470,13 @@ impl run::Ui for ServerUi {
     }
 
     fn say(&self, line: &str) {
-        log(line);
-        if !line.trim().is_empty() {
-            shared().status = Some((Tone::Notice, line.trim().to_owned()));
+        self.say_logged(line, line);
+    }
+
+    fn say_logged(&self, shown: &str, en: &str) {
+        log_pair(shown, en);
+        if !shown.trim().is_empty() {
+            shared().status = Some((Tone::Notice, shown.trim().to_owned()));
             poke();
         }
     }
@@ -490,8 +496,12 @@ impl run::Ui for WindowUi {
     }
 
     fn say(&self, line: &str) {
-        stepped(line);
-        log(line);
+        self.say_logged(line, line);
+    }
+
+    fn say_logged(&self, shown: &str, en: &str) {
+        stepped(shown);
+        log_pair(shown, en);
     }
 
     fn ask(&self, _question: &str) -> bool {
@@ -1507,15 +1517,6 @@ fn console(kit: &Kit, args: &[OsString]) -> ExitCode {
     println!();
     let words: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
     let rc = run::command(kit, &Params::of(kit), &words, &ConsoleUi);
-    // the run's own lines are English: its refusals also in the chosen language
-    let said = match rc {
-        run::UNGUARDED => Some(t("launcher.msg_unguarded")),
-        run::NOT_GUARDED => Some(t("launcher.msg_not_guarded")),
-        _ => None,
-    };
-    if let Some(line) = said.filter(|_| text::lang() != Lang::En) {
-        println!("{line}");
-    }
     ExitCode::from(u8::try_from(rc).unwrap_or(1))
 }
 

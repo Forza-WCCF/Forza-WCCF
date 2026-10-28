@@ -174,7 +174,7 @@ fn a_host_back_from_a_crash_gets_a_new_room() {
     let (log, _) = logger("crashed host");
     let old = HostRoom::open(&d.addr().to_string(), &id, false, log.clone(), &|_| {}).unwrap();
     let said = Mutex::new(vec![]);
-    let note = |l: &str| said.lock().unwrap().push(l.to_owned());
+    let note = |l: &launcher::run::Text| said.lock().unwrap().push(l.en());
     let new = HostRoom::open(&d.addr().to_string(), &id, false, log, &note).unwrap();
     assert_ne!(old.code, new.code);
     assert!(
