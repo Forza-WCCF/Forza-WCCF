@@ -1,13 +1,33 @@
 Forza-WCCF 2017-18 - release notes
 ==================================
 
-Not released yet
-----------------
+0.5.0 - 2026-10-28 (alpha)
+--------------------------
+Online shop: play friendlies in one shared shop over the internet or a LAN. Not played before release.
+
+  - Online shop (on by default): HOST SHOP makes a private room and shows its code; friends type the code in Room code
+    to take a seat in your shop. Up to 8 seats and 4 matches at once; only 2 matches at once have been played so far.
+  - List my shop: a switch under HOST SHOP puts your shop in other players' SHOPS list, where JOIN (or a double click)
+    takes a seat. Off by default, so shops stay private.
+  - LAN shop: HOST LAN SHOP in the LAN fold hosts on your network without internet; the list finds shops on the same
+    network, or type the host's address.
+  - A guest brings their own club into the shop: their cards and coach come with them.
+  - Turn the shared shop off with "shop_1718": false in data\settings.json.
+  - A short network stall no longer hands an online match to the CPU; a stall of about 4 s or more still does.
+  - The game server no longer crashes when a player's message arrives in pieces over a slow connection (a crash after
+    hours of play that cut every seat). Messages that cannot be read are skipped; nobody is disconnected.
+  - If the game server stops, RESTART THE GAME restarts everything, not only your seat.
+  - Panel: IMPORT LINEUP on the CATALOGUE page reads a lineup from the clipboard, asks before it replaces your table,
+    and offers UNDO for 10 s.
+  - Panel: a pop-out formation board with pitch artwork; the hovered card's details stay in the board column.
   - SAVE LOGS replaces SEND LOGS everywhere: the panel, the crash screen and Report a problem save
     forza-wccf-logs-DATE-TIME.zip in your Downloads folder and show where. Send the file to whoever asked for
     it; after a report, a link opens a GitHub issue with the versions filled in. Servers collect no logs.
-  - The game server no longer crashes when a player's message arrives in pieces over a slow connection (a crash after
-    hours of play that cut every seat). Messages that cannot be read are skipped; nobody is disconnected.
+  - Lobby: clearer filters (Show: open shops or rooms only, ping under 150 ms; Language: All, EN, IT, JA).
+  - The Launcher's setup, game text and card picture lines now show in Italian and Japanese; missing Italian game text
+    filled in.
+  - The match relay of the hosting player writes desync notes to match_relay.txt, to find why some online matches drop
+    to the CPU.
 
 0.4.1 - 2026-10-26 (alpha)
 --------------------------
