@@ -5,12 +5,13 @@
 use super::Lang;
 use super::theme;
 use super::widgets::{
-    Cab, Tone, action, cabinet, caps, chip, field, fit, fold, section, segmented, status_line,
+    Cab, Tone, action, cabinet, caps, check_chip, field, fit, fold, section, segmented,
+    status_line, toggle_row,
 };
 use egui::{Key, Modifiers, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 
 /// A window this view fits.
-pub const SIZE: egui::Vec2 = egui::vec2(600.0, 625.0);
+pub const SIZE: egui::Vec2 = egui::vec2(600.0, 700.0);
 /// Rows are this tall at 1x.
 pub const ROW_H: f32 = 32.0;
 /// An answer older than this many seconds is stale: JOIN waits for the next one.
@@ -255,7 +256,7 @@ pub enum Scenario {
     Offline,
     RoomWait,
     Greyed,
-    /// The VS ROOMS list.
+    /// The VS ROOMS list, open rooms only.
     VsList,
     /// HOST VS just made a room: its code, this PC alone and not ready yet.
     Host,
@@ -498,7 +499,8 @@ impl LobbyView {
                 }
                 v.room = Some(r);
             }
-            Scenario::VsList => v.kind = Kind::Vs,
+            // a filter on, so the snapshots show its checked state
+            Scenario::VsList => (v.kind, v.open_only) = (Kind::Vs, true),
             Scenario::Greyed => {
                 v.grey[0] = Some(Grey::Shops1718);
                 v.shops.clear();
@@ -518,7 +520,9 @@ impl LobbyView {
                     Scenario::ShopHost => {
                         (v.hosting, v.host_code) = (true, Some("K7QM2XPD".into()))
                     }
-                    Scenario::ShopJoining => v.joining = Some("K7QM2XPD".into()),
+                    Scenario::ShopJoining => {
+                        (v.joining, v.list_shop) = (Some("K7QM2XPD".into()), true)
+                    }
                     Scenario::ShopLost => (v.hosting, v.notice) = (true, Some(Notice::RoomLost)),
                     _ => v.notice = Some(Notice::NoRoom),
                 }
@@ -930,19 +934,31 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
         }
     });
     ui.add_space(6.0);
-    // filters
+    // filters: check boxes under "Show:", the language as one choice of four
     ui.horizontal(|ui| {
-        let all = tr!(lang, "lobby.all_langs");
-        if segmented(ui, &mut v.lang_filter, &[&all, "EN", "IT", "JA"], w * 0.44) {
-            v.selected = 0;
-        }
-        if chip(ui, &tr!(lang, "lobby.open_only"), v.open_only, None).clicked() {
+        field(ui, &tr!(lang, "lobby.show"), 100.0);
+        let open = if v.kind == Kind::Shops {
+            "lobby.open_shops"
+        } else {
+            "lobby.open_rooms"
+        };
+        if check_chip(ui, &tr!(lang, open), v.open_only, false).clicked() {
             v.open_only = !v.open_only;
             v.selected = 0;
         }
-        if chip(ui, &tr!(lang, "lobby.ping_lt"), v.ping_ok, None).clicked() {
+        if check_chip(ui, &tr!(lang, "lobby.ping_under"), v.ping_ok, false).clicked() {
             v.ping_ok = !v.ping_ok;
             v.selected = 0;
+        }
+    });
+    ui.horizontal(|ui| {
+        field(ui, &tr!(lang, "lobby.language"), 100.0);
+        let all = tr!(lang, "lobby.all_langs");
+        for (i, l) in [all.as_str(), "EN", "IT", "JA"].into_iter().enumerate() {
+            if check_chip(ui, l, v.lang_filter == i, true).clicked() && v.lang_filter != i {
+                v.lang_filter = i;
+                v.selected = 0;
+            }
         }
     });
     ui.add_space(8.0);
@@ -1148,6 +1164,25 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
             *act = Some(LobbyAction::HostVs);
         }
     });
+    // HOST SHOP's one setting, right under it
+    if v.host_shop_now() {
+        ui.add_space(4.0);
+        let hint = tr!(
+            lang,
+            if v.list_shop {
+                "lobby.list_shop_on"
+            } else {
+                "lobby.list_shop_off"
+            }
+        );
+        let title = tr!(lang, "lobby.list_shop");
+        let r = ui.add_enabled_ui(v.joining.is_none(), |ui| {
+            toggle_row(ui, &mut v.list_shop, &title, &hint)
+        });
+        if r.inner.clicked() {
+            *act = Some(LobbyAction::ListShop(v.list_shop));
+        }
+    }
 }
 
 /// "Room code" [______] JOIN: Enter in the box or the button joins the code typed.
@@ -1171,11 +1206,6 @@ fn code_row(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAc
                 || enter && typed
             {
                 *act = Some(LobbyAction::JoinCode(v.code.trim().to_ascii_uppercase()));
-            }
-            if v.shop_rooms && chip(ui, &tr!(lang, "lobby.list_shop"), v.list_shop, None).clicked()
-            {
-                v.list_shop = !v.list_shop;
-                *act = Some(LobbyAction::ListShop(v.list_shop));
             }
         });
     });
@@ -1485,6 +1515,38 @@ mod tests {
         v.shops[0].room = true;
         v.shop_rooms = false;
         assert!(v.joinable().is_none());
+    }
+
+    /// Each filter on its own lets through the rows it did before, and off again shows them all.
+    #[test]
+    fn filters_pick_the_rows() {
+        let mut v = LobbyView::sample(Scenario::List);
+        let names = |v: &LobbyView| -> Vec<String> {
+            v.visible()
+                .iter()
+                .map(|&i| v.rows()[i].name.clone())
+                .collect()
+        };
+        assert_eq!(names(&v), ["FORZA ROMA", "TOKYO NIGHT", "MILANO CUP"]);
+        v.open_only = true;
+        assert_eq!(names(&v), ["FORZA ROMA"]);
+        v.open_only = false;
+        v.ping_ok = true;
+        assert_eq!(names(&v), ["FORZA ROMA", "MILANO CUP"]);
+        v.ping_ok = false;
+        for (f, want) in [
+            (1, vec![]),
+            (2, vec!["FORZA ROMA", "MILANO CUP"]),
+            (3, vec!["TOKYO NIGHT"]),
+        ] {
+            v.lang_filter = f;
+            assert_eq!(names(&v), want, "language {f}");
+        }
+        v.lang_filter = 0;
+        assert_eq!(names(&v).len(), 3);
+        v.kind = Kind::Vs;
+        v.open_only = true;
+        assert_eq!(names(&v), ["K7QM", "TQ4D"]);
     }
 
     /// JOIN's grey says why, in a few words, in the order `joinable` checks: offline, old list, the row.

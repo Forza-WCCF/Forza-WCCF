@@ -494,6 +494,58 @@ pub fn chip(ui: &mut Ui, text: &str, on: bool, color: Option<Color32>) -> Respon
     resp
 }
 
+/// A list filter: an outlined pill with a check box (`radio`: a round mark, one of several) that fills blue with a
+/// tick when on, so it never reads as a tab or a button.
+pub fn check_chip(ui: &mut Ui, text: &str, on: bool, radio: bool) -> Response {
+    let font = theme::bold(13.0);
+    let g = ui
+        .painter()
+        .layout_no_wrap(text.to_owned(), font, theme::TEXT);
+    let size = vec2(g.size().x + 40.0, 26.0);
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    let kind = if radio {
+        WidgetType::RadioButton
+    } else {
+        WidgetType::Checkbox
+    };
+    resp.widget_info(|| WidgetInfo::selected(kind, true, on, text));
+    let p = ui.painter();
+    let hot = resp.hovered() || resp.has_focus();
+    let (fill, rim, ink) = if on {
+        (theme::BLUE.gamma_multiply(0.25), theme::BLUE, theme::TEXT)
+    } else if hot {
+        (theme::RAISED_HI, theme::RIM_HI, theme::TEXT)
+    } else {
+        (theme::WELL, theme::RIM, theme::TEXT_DIM)
+    };
+    p.rect_filled(rect, 13, fill);
+    p.rect_stroke(rect, 13, Stroke::new(1.0, rim), StrokeKind::Inside);
+    let c = pos2(rect.left() + 16.0, rect.center().y);
+    let mark = Rect::from_center_size(c, vec2(14.0, 14.0));
+    let r = if radio { 7 } else { 3 };
+    if on {
+        p.rect_filled(mark, r, theme::BLUE);
+        if radio {
+            p.circle_filled(c, 3.0, Color32::WHITE);
+        } else {
+            let tick = [
+                c + vec2(-4.0, 0.0),
+                c + vec2(-1.0, 3.0),
+                c + vec2(4.0, -3.5),
+            ];
+            p.line(tick.to_vec(), Stroke::new(2.0, Color32::WHITE));
+        }
+    } else {
+        p.rect_stroke(mark, r, Stroke::new(1.5, theme::RIM_HI), StrokeKind::Inside);
+    }
+    p.galley(
+        pos2(rect.left() + 30.0, rect.center().y - g.size().y / 2.0),
+        g,
+        ink,
+    );
+    resp
+}
+
 /// The edition badge: which edition a screen belongs to.
 pub fn badge(ui: &mut Ui, edition: Edition) -> Response {
     let a = edition.accent();

@@ -512,8 +512,6 @@ lobby.state: {en: "STATE", it: "STATO", ja: "状態"}
 lobby.refresh: {en: "Refresh", it: "Aggiorna", ja: "更新"}
 lobby.updated: {en: "updated %{s} s ago", it: "aggiornato %{s} s fa", ja: "%{s} 秒前に更新"}
 lobby.all_langs: {en: "All", it: "Tutte", ja: "すべて"}
-lobby.open_only: {en: "Open only", it: "Solo aperte", ja: "受付中のみ"}
-lobby.ping_lt: {en: "< 150 ms", it: "< 150 ms", ja: "150 ms 未満"}
 lobby.no_answer: {en: "NO ANSWER", it: "NESSUNA RISPOSTA", ja: "応答なし"}
 lobby.needs_version: {en: "needs version %{v}", it: "serve la versione %{v}", ja: "バージョン %{v} が必要"}
 lobby.club: {en: "Club #%{id}", it: "Club #%{id}", ja: "クラブ #%{id}"}
@@ -533,7 +531,6 @@ lobby.grey_shops_1718: {en: "SHOPS for 2017-18 are not available yet.", it: "Le 
 lobby.grey_vs_1011: {en: "VS ROOMS for 2010-11 are not available yet.", it: "Le SFIDE VS per 2010-11 non sono ancora disponibili.", ja: "2010-11 の対戦ルームはまだ利用できません。"}
 lobby.host_shop: {en: "HOST SHOP", it: "APRI SALA", ja: "店舗を開く"}
 lobby.room_code: {en: "Room code", it: "Codice stanza", ja: "ルームコード"}
-lobby.list_shop: {en: "List my shop", it: "Elenca la mia sala", ja: "店舗を一覧に表示"}
 lobby.opening: {en: "Opening the shop…", it: "Apertura della sala…", ja: "店舗を開いています…"}
 lobby.shop_howto: {en: "Both players: card in during the same ENTRY, then Arrange Fixture → Set opponent.", it: "Entrambi: inserite la carta nella stessa ENTRY, poi Arrange Fixture → Set opponent.", ja: "二人とも同じエントリー中にカードを入れ、Arrange Fixture → Set opponent を選びます。"}
 lobby.joining: {en: "Joining %{code}…", it: "Ingresso in %{code}…", ja: "%{code} に参加しています…"}
@@ -556,6 +553,15 @@ lobby.cpu: {en: "No opponent: CPU team.", it: "Nessun avversario: squadra CPU.",
 lobby.keep_waiting: {en: "KEEP WAITING", it: "ASPETTA ANCORA", ja: "待ち続ける"}
 lobby.cpu_now: {en: "PLAY CPU NOW", it: "GIOCA CON LA CPU", ja: "今すぐCPU戦"}
 lobby.stale_room: {en: "Updated %{s} s ago.", it: "Aggiornato %{s} s fa.", ja: "%{s} 秒前の情報です。"}
+# lobby controls: the list filters and HOST SHOP's "List my shop" switch
+lobby.show: {en: "Show:", it: "Mostra:", ja: "表示:"}
+lobby.open_shops: {en: "Open shops only", it: "Solo sale aperte", ja: "受付中の店舗のみ"}
+lobby.open_rooms: {en: "Open rooms only", it: "Solo sfide aperte", ja: "受付中のルームのみ"}
+lobby.ping_under: {en: "Ping under 150 ms", it: "Ping sotto i 150 ms", ja: "Ping 150 ms 未満"}
+lobby.language: {en: "Language:", it: "Lingua:", ja: "言語:"}
+lobby.list_shop: {en: "List my shop when I host", it: "Elenca la mia sala quando la apro", ja: "店舗を開くとき一覧に表示"}
+lobby.list_shop_on: {en: "Others can find and join your shop from the list.", it: "Gli altri trovano la tua sala nell'elenco e possono entrare.", ja: "ほかのプレイヤーが一覧から店舗を見つけて参加できます。"}
+lobby.list_shop_off: {en: "Only players with the code can join.", it: "Entra solo chi ha il codice.", ja: "コードを知っているプレイヤーだけが参加できます。"}
 
 # ---- pause (the panel holds the match, at most 20 s) ----
 pause.button: {en: "PAUSE", it: "PAUSA", ja: "一時停止"}
