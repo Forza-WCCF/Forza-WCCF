@@ -9,7 +9,8 @@
 //! The save data goes whole under `save/`: `data\save`'s own files (the club card) up to [`SAVE_MAX`] each, never the
 //! card's access code (`seat1_aime.txt`) or a `*.tmp`; `aimedb.json` with each access code turned into a short hash, so
 //! the Aime ids stay readable; and the 2017-18 game server's store as a consistent copy (`VACUUM INTO`, as the Launcher
-//! may have it open), its shop guests' tokens cut short. When the ZIP is too big the log tails get shorter, down to
+//! may have it open), its shop guests' tokens cut short. The access codes are also replaced in the logs (the Aime
+//! stand-ins log them). When the ZIP is too big the log tails get shorter, down to
 //! 64 KB; only if that is still too big the saves are left out and the tails start again from full. `report.txt` says
 //! what of the save data was left out. `pc.txt`: Windows, CPU, RAM, GPUs and display (scrubbed like the logs).
 //! A hosting PC's shop logs (`seat_broker.txt`, `match_relay.txt`) are in `data\logs` already.
@@ -119,8 +120,8 @@ fn dumps(kit: &Path) -> Vec<(String, PathBuf)> {
         .collect()
 }
 
-/// The save data: `data\save`'s own files (not the access code, not `*.tmp`) and the game server's store, each up to
-/// [`SAVE_MAX`]. The store's WAL is not here: [`snapshot`] folds it in.
+/// The save data: `data\save`'s own files (not the access code, not `*.tmp`) and the game server's store. The store's
+/// WAL is not here: [`snapshot`] folds it in.
 fn saves(kit: &Path) -> Vec<(String, PathBuf)> {
     let save = kit.join("data").join("save");
     let mut out: Vec<(String, PathBuf)> = files_in(&save)
@@ -135,8 +136,12 @@ fn saves(kit: &Path) -> Vec<(String, PathBuf)> {
         "save/gamesvr/gamesvr.db".into(),
         save.join("gamesvr").join("gamesvr.db"),
     ));
-    out.retain(|(_, p)| fs::metadata(p).is_ok_and(|m| m.is_file() && m.len() <= SAVE_MAX));
+    out.retain(|(_, p)| p.is_file());
     out
+}
+
+fn small(p: &Path) -> bool {
+    fs::metadata(p).is_ok_and(|m| m.len() <= SAVE_MAX)
 }
 
 /// [`saves`] as they go in the ZIP, and a line for each one left out.
@@ -144,6 +149,7 @@ fn save_data(kit: &Path) -> (Vec<(String, Vec<u8>)>, Vec<String>) {
     let (mut out, mut notes) = (vec![], vec![]);
     for (arc, path) in saves(kit) {
         let data = match arc.as_str() {
+            _ if !small(&path) => Err(format!("bigger than {} MB", SAVE_MAX >> 20)),
             "save/gamesvr/gamesvr.db" => snapshot(&path),
             "save/aimedb.json" => fs::read(&path)
                 .map_err(|e| e.to_string())
@@ -157,6 +163,33 @@ fn save_data(kit: &Path) -> (Vec<(String, Vec<u8>)>, Vec<String>) {
         }
     }
     (out, notes)
+}
+
+/// The access codes this PC knows (`seat1_aime.txt`, `aimedb.json`'s keys), each as the Aime stand-ins log it: the 20
+/// digits and the reader's spaced hex (`50 12 34 ...`).
+fn access_codes(kit: &Path) -> Vec<String> {
+    let save = kit.join("data").join("save");
+    let mut codes: Vec<String> = fs::read_to_string(save.join("seat1_aime.txt"))
+        .map(|c| vec![c.trim().to_owned()])
+        .unwrap_or_default();
+    if let Ok(d) = fs::read(save.join("aimedb.json")) {
+        let map: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_slice(&d).unwrap_or_default();
+        codes.extend(map.into_iter().map(|(c, _)| c));
+    }
+    codes.retain(|c| c.len() >= 8);
+    let spaced: Vec<String> = codes
+        .iter()
+        .filter(|c| c.len() % 2 == 0 && c.is_ascii())
+        .map(|c| {
+            (0..c.len() / 2)
+                .map(|i| &c[i * 2..i * 2 + 2])
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect();
+    codes.extend(spaced);
+    codes
 }
 
 /// A consistent copy of the game server's store (the Launcher's stand-in may hold it open in WAL mode, so a file copy
@@ -185,15 +218,15 @@ fn snapshot(db: &Path) -> Result<Vec<u8>, String> {
     fs::read(&out).map_err(|e| e.to_string())
 }
 
-/// `aimedb.json` (access code -> Aime id) with each code replaced by `sha256:` and 12 hex digits of its SHA-256: the
-/// ids stay readable, the codes (which would let anyone play as that card) do not leave the PC.
+/// `aimedb.json` (access code -> Aime id) with each code replaced by `sha256:` and its SHA-256: the ids stay readable,
+/// the codes (which would let anyone play as that card) do not leave the PC.
 fn masked_aimedb(data: &[u8]) -> Option<Vec<u8>> {
     let map: serde_json::Map<String, serde_json::Value> = serde_json::from_slice(data).ok()?;
     let masked: serde_json::Map<String, serde_json::Value> = map
         .into_iter()
         .map(|(code, id)| {
             let h = Sha256::digest(code.as_bytes());
-            let hex: String = h[..6].iter().map(|b| format!("{b:02x}")).collect();
+            let hex: String = h.iter().map(|b| format!("{b:02x}")).collect();
             (format!("sha256:{hex}"), id)
         })
         .collect();
@@ -206,7 +239,7 @@ pub fn names(kit: &Path, game: Option<&Path>) -> Vec<String> {
         .chain(
             dumps(kit)
                 .into_iter()
-                .chain(saves(kit))
+                .chain(saves(kit).into_iter().filter(|(_, p)| small(p)))
                 .chain(files(kit, game))
                 .map(|(n, _)| n),
         )
@@ -502,6 +535,7 @@ pub fn pack_within(
 ) -> io::Result<(Vec<u8>, usize)> {
     let pc = scrub.scrub(pc_text().into_bytes());
     let (saves, save_notes) = save_data(kit);
+    let codes = access_codes(kit);
     let (mut tail, mut with_saves) = (full, true);
     loop {
         let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
@@ -511,7 +545,7 @@ pub fn pack_within(
         if !with_saves && !saves.is_empty() {
             notes.push("save data left out: the ZIP was too big with it".into());
         }
-        let mut report = note.map(|t| scrub.scrub(t.as_bytes().to_vec()));
+        let mut report = note.map(|t| t.as_bytes().to_vec());
         if !notes.is_empty() {
             let r = report.get_or_insert_with(Vec::new);
             if !r.is_empty() {
@@ -521,7 +555,7 @@ pub fn pack_within(
         }
         if let Some(report) = report {
             z.start_file("report.txt", opts).map_err(zip_err)?;
-            z.write_all(&report)?;
+            z.write_all(&scrub.scrub(report))?;
             n += 1;
         }
         z.start_file("pc.txt", opts).map_err(zip_err)?;
@@ -535,7 +569,11 @@ pub fn pack_within(
         for (arc, path) in dumps(kit) {
             if let Ok(data) = fs::read(&path) {
                 z.start_file(arc, opts).map_err(zip_err)?;
-                z.write_all(&scrub.blank(data))?;
+                let mut data = scrub.blank(data);
+                for code in &codes {
+                    data = replace(&data, code.as_bytes(), false, |m| vec![b'_'; m.len()]);
+                }
+                z.write_all(&data)?;
                 n += 1;
             }
         }
@@ -564,12 +602,16 @@ pub fn pack_within(
                 data = head;
             }
             z.start_file(arc, opts).map_err(zip_err)?;
-            z.write_all(&scrub.scrub(data))?;
+            let mut data = scrub.scrub(data);
+            for code in &codes {
+                data = replace(&data, code.as_bytes(), false, |_| b"ACCESS-CODE".to_vec());
+            }
+            z.write_all(&data)?;
             n += 1;
         }
         let blob = z.finish().map_err(zip_err)?.into_inner();
         if blob.len() > limit && tail > 64 * 1024 {
-            tail /= 4;
+            tail = (tail / 4).max(64 * 1024);
             continue;
         }
         if blob.len() > limit && with_saves && !saves.is_empty() {
@@ -709,6 +751,13 @@ mod tests {
         fs::write(save.join("seat1_aime.txt"), code).unwrap();
         fs::write(save.join("aimedb.json.tmp"), code).unwrap();
         fs::write(save.join("aimedb.json"), format!("{{\"{code}\": 7}}")).unwrap();
+        let logs = d.path().join("data").join("logs");
+        fs::create_dir_all(&logs).unwrap();
+        fs::write(
+            logs.join("aime_log.txt"),
+            format!("card access code {code} on the reader\n[00 00 00 00 00 00 50 12 34 56 78 90 12 34 56 78]\n"),
+        )
+        .unwrap();
         // the stand-in holds the store open in WAL mode: the rows sit in gamesvr.db-wal, not yet in gamesvr.db
         let live = Connection::open(save.join("gamesvr").join("gamesvr.db")).unwrap();
         live.execute_batch(
@@ -740,9 +789,15 @@ mod tests {
         }
         let (blob, _) = pack(d.path(), None, &scrub, TAIL, None).unwrap();
         let mut z = zip::ZipArchive::new(Cursor::new(blob)).unwrap();
+        let report = String::from_utf8(read(&mut z, "report.txt")).unwrap();
+        assert_eq!(
+            report,
+            "[SAVE LOGS] save/big.bin left out: bigger than 3 MB\n"
+        );
+        let log = String::from_utf8(read(&mut z, "logs/aime_log.txt")).unwrap();
         assert!(
-            z.by_name("report.txt").is_err(),
-            "nothing left out, nothing to say"
+            !log.contains("0123456789") && !log.contains("34 56 78 90"),
+            "{log}"
         );
         assert_eq!(read(&mut z, "save/seat1_club.bin"), card);
         let aimedb = String::from_utf8(read(&mut z, "save/aimedb.json")).unwrap();
@@ -806,7 +861,7 @@ mod tests {
         let mut z = zip::ZipArchive::new(Cursor::new(blob)).unwrap();
         assert_eq!(read(&mut z, "save/seat1_club.bin").len(), 4112);
         assert!((128 * 1024..140 * 1024).contains(&log_len(&mut z)));
-        // saves too big even with 32 KB tails: they go, and the tails start again from full
+        // saves too big even with 64 KB tails: they go, and the tails start again from full
         fs::write(save.join("big.bin"), noise(400 * 1024, 3)).unwrap();
         let (blob, _) = pack_within(
             d.path(),
