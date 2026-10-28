@@ -731,6 +731,7 @@ impl App {
         lobby.address = address;
         lobby.shop_rooms = ed == Edition::E1718 && run::rules::shop_1718_on(&kit.settings());
         lobby.list_shop = kit.settings()["list_shop"].as_bool() == Some(true);
+        lobby.shop_name = choices::setting(&settings, "shop_name").unwrap_or_default();
         let st = LauncherState {
             edition: ed,
             lang: text::lang(),
@@ -1061,6 +1062,14 @@ impl App {
                             return;
                         }
                     }
+                    // the listed room's name as typed, as the desk carries it (run::open_shop_room reads it)
+                    let name = forza::online::lobby::shop_name(&self.st.lobby.shop_name);
+                    let file = kit.settings_file();
+                    if let Err(e) = choices::set_setting(&file, "shop_name", &name) {
+                        refuse(write_failed(&file, &e));
+                        return;
+                    }
+                    self.st.lobby.shop_name = name;
                     self.st.lobby.hosting = true;
                     self.st.lobby.notice = None;
                     start(vec![Step::Host(false)]);

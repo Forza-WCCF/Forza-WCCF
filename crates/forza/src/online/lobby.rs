@@ -12,6 +12,8 @@
 //! - `CLOSE id t` -> `OK` | `GONE`: the host's ticket closes room `id` (LEAVE by the host).
 //! - `CREATE shop ID [public]` (2017-18) -> [`Created`]: a shop room hosted by the PC whose shop tunnel is ID (an
 //!   iroh EndpointId, 64 hex digits), the host on seat 1. Private unless `public` (then listed, without its code).
+//!   `CREATE shop ID public|private NAME...` names it too (the rest of the line, [`shop_name`]); desks before this
+//!   answer `ERR`, and the Launcher asks again without the name.
 //! - `JOIN CODE [n]` -> [`Reserved`]: a guest seat (2-8) in the shop room with that code. `JOIN ID [n]` with the id of
 //!   a listed (`public`) room seats a guest too; a private room's id answers `CLOSED`, so its code is the only way in.
 //!   Desks before this list rooms without [`Shop::room`]; the Launcher joins only rows that have it.
@@ -32,6 +34,22 @@ pub const LEASE_SECS: u64 = 60;
 pub const HEARTBEAT_EVERY: u64 = 20;
 /// A shop room's code: this many letters and digits (the desk makes them, the Launcher's box takes them).
 pub const SHOP_CODE_LEN: usize = 8;
+/// A shop room's name: at most this many characters, as the desk lists its own shop's.
+pub const SHOP_NAME_LEN: usize = 24;
+/// A listed shop room's name when its host gave none.
+pub const SHOP_ROOM_NAME: &str = "Arcade room";
+
+/// A shop room's name as the words carry it: no control characters, single spaces, at most [`SHOP_NAME_LEN`]
+/// characters; empty when nothing is left.
+pub fn shop_name(s: &str) -> String {
+    let words = s.split_whitespace().collect::<Vec<_>>().join(" ");
+    let name: String = words
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(SHOP_NAME_LEN)
+        .collect();
+    name.trim_end().to_owned()
+}
 
 /// The desk's answer to `RESERVE id` (or `RESERVE id n`): `TICKET t n`, `FULL`, `TAKEN` (the seat asked for is
 /// busy) or `CLOSED` (not this desk's shop).
@@ -207,16 +225,44 @@ impl Created {
 /// A request line the Launcher sends (the server side parses these).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ask {
-    Lobby { edition: String },
-    Reserve { id: String, seat: Option<u8> },
-    Heartbeat { ticket: String },
-    Release { ticket: String },
-    Create { open: bool },
-    CreateShop { host: String, public: bool },
-    JoinShop { code: String, seat: Option<u8> },
-    Shop { ticket: String, own: Option<String> },
-    Ready { id: String, ticket: String },
-    Close { id: String, ticket: String },
+    Lobby {
+        edition: String,
+    },
+    Reserve {
+        id: String,
+        seat: Option<u8>,
+    },
+    Heartbeat {
+        ticket: String,
+    },
+    Release {
+        ticket: String,
+    },
+    Create {
+        open: bool,
+    },
+    /// `name` empty: the desk's own ([`SHOP_ROOM_NAME`]); else already [`shop_name`].
+    CreateShop {
+        host: String,
+        public: bool,
+        name: String,
+    },
+    JoinShop {
+        code: String,
+        seat: Option<u8>,
+    },
+    Shop {
+        ticket: String,
+        own: Option<String>,
+    },
+    Ready {
+        id: String,
+        ticket: String,
+    },
+    Close {
+        id: String,
+        ticket: String,
+    },
 }
 
 impl Ask {
@@ -229,11 +275,18 @@ impl Ask {
             Ask::Release { ticket } => format!("RELEASE {ticket}\n"),
             Ask::Create { open: false } => "CREATE vs\n".into(),
             Ask::Create { open: true } => "CREATE vs open\n".into(),
+            Ask::CreateShop { host, public, name } if !name.is_empty() => {
+                let vis = if *public { "public" } else { "private" };
+                format!("CREATE shop {host} {vis} {name}\n")
+            }
             Ask::CreateShop {
                 host,
                 public: false,
+                ..
             } => format!("CREATE shop {host}\n"),
-            Ask::CreateShop { host, public: true } => format!("CREATE shop {host} public\n"),
+            Ask::CreateShop {
+                host, public: true, ..
+            } => format!("CREATE shop {host} public\n"),
             Ask::JoinShop { code, seat: None } => format!("JOIN {code}\n"),
             Ask::JoinShop {
                 code,
@@ -268,11 +321,26 @@ impl Ask {
             ["CREATE", "shop", id] if valid_endpoint_id(id) => Ask::CreateShop {
                 host: s(id),
                 public: false,
+                name: String::new(),
             },
             ["CREATE", "shop", id, "public"] if valid_endpoint_id(id) => Ask::CreateShop {
                 host: s(id),
                 public: true,
+                name: String::new(),
             },
+            [
+                "CREATE",
+                "shop",
+                id,
+                vis @ ("public" | "private"),
+                ref name @ ..,
+            ] if valid_endpoint_id(id) && !shop_name(&name.join(" ")).is_empty() => {
+                Ask::CreateShop {
+                    host: s(id),
+                    public: vis == "public",
+                    name: shop_name(&name.join(" ")),
+                }
+            }
             ["JOIN", c] => Ask::JoinShop {
                 code: s(c),
                 seat: None,
@@ -383,13 +451,19 @@ pub fn create(addr: SocketAddr, open: bool) -> Result<Created, String> {
 }
 
 /// `CREATE shop ID [public]` (2017-18): a shop room for the PC whose shop tunnel is `host`, this PC on seat 1;
-/// `public` lists it in `LOBBY` (never its code).
-pub fn create_shop(addr: SocketAddr, host: &str, public: bool) -> Result<Created, String> {
+/// `public` lists it in `LOBBY` (never its code) under `name` ([`shop_name`] applied; empty: the desk's own).
+pub fn create_shop(
+    addr: SocketAddr,
+    host: &str,
+    public: bool,
+    name: &str,
+) -> Result<Created, String> {
     let a = ask(
         addr,
         &Ask::CreateShop {
             host: host.into(),
             public,
+            name: shop_name(name),
         }
         .line(),
     )?;
@@ -528,10 +602,22 @@ mod tests {
             Ask::CreateShop {
                 host: id.clone(),
                 public: false,
+                name: String::new(),
             },
             Ask::CreateShop {
                 host: id.clone(),
                 public: true,
+                name: String::new(),
+            },
+            Ask::CreateShop {
+                host: id.clone(),
+                public: false,
+                name: "Sala Roma".into(),
+            },
+            Ask::CreateShop {
+                host: id.clone(),
+                public: true,
+                name: "ゲームセンター 1".into(),
             },
             Ask::JoinShop {
                 code: "K7QMZD".into(),
@@ -554,6 +640,17 @@ mod tests {
         }
         assert_eq!(Ask::parse("CREATE shop 1.2.3.4"), None);
         assert_eq!(Ask::parse(&format!("SHOP t {}", &id[..60])), None);
+        assert_eq!(Ask::parse(&format!("CREATE shop {id} hidden Roma")), None);
+    }
+
+    /// A room's name loses control characters and extra spaces, and stops at 24 characters.
+    #[test]
+    fn shop_names_fit_the_line() {
+        assert_eq!(shop_name("  Sala\t Roma \n"), "Sala Roma");
+        assert_eq!(shop_name("a\u{7}b"), "ab");
+        assert_eq!(shop_name(" \r\n "), "");
+        assert_eq!(shop_name(&"ゲ".repeat(30)).chars().count(), SHOP_NAME_LEN);
+        assert_eq!(shop_name(&format!("{} x", "a".repeat(23))), "a".repeat(23));
     }
 
     #[test]
