@@ -19,6 +19,12 @@ pub const STALE_S: u32 = 15;
 /// The "ping < 150 ms" filter.
 pub const PING_MAX_MS: u32 = 150;
 const LIST_H: f32 = ROW_H * 6.0;
+/// [`LobbyView::list_fit`]'s shortest list: three rows.
+pub const LIST_MIN_H: f32 = ROW_H * 3.0;
+/// What the list view and the folds took under the list last frame (screen y of the list's bottom, then the height
+/// below it), for [`LobbyView::list_fit`].
+const LIST_BOTTOM: &str = "lobby_list_bottom";
+const BELOW_LIST: &str = "lobby_below_list";
 
 /// The two kinds of lobby, one list each.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -238,6 +244,9 @@ pub struct LobbyView {
     /// 2017-18: the name others see on this PC's listed room (data\settings.json `shop_name`, saved at HOST SHOP);
     /// empty: the desk's [`SHOP_ROOM_NAME`](forza::online::lobby::SHOP_ROOM_NAME).
     pub shop_name: String,
+    /// The list takes the height left in the caller's `ui` (at least [`LIST_MIN_H`]) instead of [`LIST_H`]: for a
+    /// lobby in a fixed-height tab with no scroll of its own around it.
+    pub list_fit: bool,
     /// The lobby server shop rooms are on (`host:port`): the host's room's, or the one a code was asked of.
     pub desk: String,
     /// 2017-18 with the shared shop on: the LAN fold, the shops found on this network and the address typed there.
@@ -377,6 +386,7 @@ impl LobbyView {
             host_code: None,
             list_shop: false,
             shop_name: String::new(),
+            list_fit: false,
             desk: String::new(),
             lan_open: false,
             lan: vec![],
@@ -783,6 +793,17 @@ pub fn show_with(
         );
         v.lan_open = open;
     }
+    // list_fit: the height under the list this frame sizes the list next frame (once more when it changed)
+    let list_bottom: Option<f32> = ui.data(|d| d.get_temp(egui::Id::new(LIST_BOTTOM)));
+    if let Some(top) = list_bottom.filter(|_| v.list_fit && !v.hosting && v.room.is_none()) {
+        let below = ui.cursor().top() - top;
+        let id = egui::Id::new(BELOW_LIST);
+        let old: Option<f32> = ui.data(|d| d.get_temp(id));
+        if old.is_none_or(|o| (o - below).abs() > 0.5) {
+            ui.data_mut(|d| d.insert_temp(id, below));
+            ui.ctx().request_repaint();
+        }
+    }
     act
 }
 
@@ -1015,10 +1036,16 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
     let offline = v.offline;
     let vis = v.visible();
     v.selected = v.selected.min(vis.len().saturating_sub(1));
+    let list_h = if v.list_fit {
+        let below: f32 = ui.data(|d| d.get_temp(egui::Id::new(BELOW_LIST)).unwrap_or(0.0));
+        (ui.available_height() - below).max(LIST_MIN_H)
+    } else {
+        LIST_H
+    };
     egui::ScrollArea::vertical()
         .id_salt("lobby_rows")
-        .min_scrolled_height(LIST_H)
-        .max_height(LIST_H)
+        .min_scrolled_height(list_h)
+        .max_height(list_h)
         .auto_shrink([false, false])
         .show(ui, |ui| {
             if let Some(Grey::Vs1011) = v.grey_now() {
@@ -1126,6 +1153,8 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
                 );
             }
         });
+    let bottom = ui.cursor().top();
+    ui.data_mut(|d| d.insert_temp(egui::Id::new(LIST_BOTTOM), bottom));
     ui.add_space(8.0);
     if v.codes {
         code_row(ui, v, lang, act);

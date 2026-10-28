@@ -1222,3 +1222,19 @@ fn lobby_lan() {
     h.run_steps(2);
     assert!(h.query_by_label("HOST LAN ARCADE").is_none());
 }
+
+/// `list_fit`: in a short tab the list gives up rows so the actions and the Direct address fold stay in view, and
+/// never drops under three rows.
+#[test]
+fn lobby_list_fits_a_short_tab() {
+    let _gpu = gpu();
+    let mut v = lobby::LobbyView::sample(lobby::Scenario::List);
+    v.list_fit = true;
+    let mut h = harness(Vec2::new(lobby::SIZE.x, 470.0), 1.0, Edition::E1011, |ui| {
+        lobby::show(ui, &mut v, Lang::En);
+    });
+    h.run_steps(6);
+    let bottom = h.get_by_label_contains("Direct address").rect().bottom();
+    assert!(bottom <= 470.0, "the Direct address fold ends at {bottom}");
+    assert!(h.get_by_label("HOST VS").rect().top() > h.get_by_label("MILANO CUP").rect().bottom());
+}
