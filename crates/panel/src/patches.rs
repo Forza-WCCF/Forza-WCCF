@@ -896,9 +896,118 @@ pub fn free_play_tick(log: fn(&str)) {
     }
 }
 
+// ---------------------------------------------------------------- VS stall tolerance (2017-18)
+// An online VS checks the opponent's (frame, engine RNG value) samples against its own last 90 (sub_4B41E0 ->
+// sub_4B4690). A peer sample inside our window but missing from our history counts down the session's +0x2564 from 30;
+// at 0 the opponent is lost (sub_4B1F90, flag 0x200000) and the CPU takes over. A matched or ahead-of-us sample loads 30
+// again. The count moves only when peer packets arrive: during a link stall the frame blocks instead (sub_4C4640's
+// Sleep(1) loop, up to TIMEOUT_P2P 7 x 500 turns, then its own TIMEOUT(ON) drop), and the late packets after it can use
+// up 30 at once. 90 (the window's own length) lets a whole window of samples go unchecked. A value mismatch (flag
+// 0x2000) still drops at once. The four `mov dword [reg+2564h], 1Eh` are the counter's only writes besides its `dec`.
+
+/// The `mov dword [ebp|esi+2564h], 1Eh` sites: the session reset, the "ahead" and "matched" reloads, the history reset.
+const STALL_SITES: [(usize, u8); 4] = [
+    (0x004B_2A5C, 0x85),
+    (0x004B_445B, 0x85),
+    (0x004B_446A, 0x85),
+    (0x004B_475A, 0x86),
+];
+/// The client studied (SHA-256 8b55456f... before setup): its PE header's TimeDateStamp and SizeOfImage.
+const CLIENT_STAMP: (u32, u32) = (0x5AAA_3F0A, 0x06C8_E000);
+/// Peer samples that may go unmatched in a row (the original 30).
+pub(crate) const STALL_SAMPLES: u32 = 90;
+
+/// Is `code` the original `mov dword [<modrm>+2564h], 30`?
+fn stall_site_ok(code: &[u8; 10], modrm: u8) -> bool {
+    *code == [0xC7, modrm, 0x64, 0x25, 0x00, 0x00, 0x1E, 0x00, 0x00, 0x00]
+}
+
+/// The program's TimeDateStamp and SizeOfImage from its PE header at `base`.
+fn pe_stamp(base: usize) -> Option<(u32, u32)> {
+    let pe = base + read_u32(base + 0x3C)? as usize;
+    Some((read_u32(pe + 8)?, read_u32(pe + 0x50)?))
+}
+
+/// The image at `base`: every site checked first, then the four counts set to [`STALL_SAMPLES`]. One log line.
+fn stall_install_at(base: usize, log: fn(&str)) -> bool {
+    let at = |va: usize| va - BASE_1718 + base;
+    if pe_stamp(base) != Some(CLIENT_STAMP) {
+        log(
+            "vs stall: not the client studied (PE stamp) - nothing changed (30 missing peer frames drop a VS)",
+        );
+        return false;
+    }
+    if let Some((va, _)) = STALL_SITES
+        .iter()
+        .find(|&&(va, m)| !read::<10>(at(va)).is_some_and(|c| stall_site_ok(&c, m)))
+    {
+        log(&format!(
+            "vs stall: {va:08X} is not the code studied - nothing changed (30 missing peer frames drop a VS)"
+        ));
+        return false;
+    }
+    let n = STALL_SITES
+        .iter()
+        .filter(|&&(va, _)| patch_code(at(va) + 6, &STALL_SAMPLES.to_le_bytes()))
+        .count();
+    if n < STALL_SITES.len() {
+        log(&format!(
+            "vs stall: code not writable - {n} of 4 sites set to {STALL_SAMPLES}"
+        ));
+        return false;
+    }
+    log(&format!(
+        "vs stall: sub_4B41E0's missing-peer-frame limit 30 -> {STALL_SAMPLES} at 4 sites - a short network stall no longer drops a VS"
+    ));
+    true
+}
+
+/// 2017-18 client only: a VS tolerates a short network stall. Called from the panel's start.
+pub fn stall_tolerance_install(e1718: bool, log: fn(&str)) {
+    let nm = exe_name();
+    if e1718 && is_client(&nm) {
+        stall_install_at(exe_base(), log);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stall_patch_checks_then_writes() {
+        // a fake image: the PE header and the four sites at their offsets from the preferred base
+        let mut img = vec![0u8; 0x0B_5000];
+        img[0x3C..0x40].copy_from_slice(&0x100u32.to_le_bytes());
+        img[0x108..0x10C].copy_from_slice(&CLIENT_STAMP.0.to_le_bytes());
+        img[0x150..0x154].copy_from_slice(&CLIENT_STAMP.1.to_le_bytes());
+        let orig = |m| [0xC7, m, 0x64, 0x25, 0x00, 0x00, 0x1E, 0x00, 0x00, 0x00];
+        for (va, m) in STALL_SITES {
+            img[va - BASE_1718..][..10].copy_from_slice(&orig(m));
+        }
+        let base = img.as_mut_ptr() as usize;
+        let site = |img: &[u8], i: usize| img[STALL_SITES[i].0 - BASE_1718..][..10].to_vec();
+        // one site off: nothing written anywhere
+        img[STALL_SITES[3].0 - BASE_1718 + 1] = 0x85;
+        assert!(!stall_install_at(base, |_| {}));
+        assert_eq!(site(&img, 0), orig(0x85));
+        img[STALL_SITES[3].0 - BASE_1718 + 1] = 0x86;
+        // another build: nothing written
+        img[0x108] ^= 1;
+        assert!(!stall_install_at(base, |_| {}));
+        assert_eq!(site(&img, 1), orig(0x85));
+        img[0x108] ^= 1;
+        // the client studied: all four take 90, the rest of each instruction stays
+        assert!(stall_install_at(base, |_| {}));
+        for (i, (_, m)) in STALL_SITES.into_iter().enumerate() {
+            let mut want = orig(m);
+            want[6] = 90;
+            assert_eq!(site(&img, i), want, "site {i}");
+        }
+        // a second run finds 90, not 30: refused, unchanged
+        assert!(!stall_install_at(base, |_| {}));
+        assert_eq!(site(&img, 2)[6], 90);
+    }
 
     #[test]
     fn owed_signature_per_edition() {
