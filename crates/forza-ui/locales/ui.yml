@@ -92,7 +92,6 @@ report.what_happened: {en: "What happened?", it: "Cosa è successo?", ja: "何�
 report.what_is_sent: {en: "Included", it: "Inclusi", ja: "含まれるもの"}
 report.scrubbed: {en: "User and PC names are removed.", it: "I nomi dell'utente e del PC vengono rimossi.", ja: "ユーザー名と PC 名は削除されます。"}
 report.open_issue: {en: "Open a GitHub issue (attach the ZIP)", it: "Apri una segnalazione su GitHub (allega lo ZIP)", ja: "GitHub で Issue を作成（ZIP を添付）"}
-report.open_discord: {en: "Ask on Discord (attach the ZIP)", it: "Chiedi su Discord (allega lo ZIP)", ja: "Discord で質問（ZIP を添付）"}
 net.offline: {en: "No internet connection.", it: "Nessuna connessione a Internet.", ja: "インターネットに接続されていません。"}
 net.no_answer: {en: "The server did not answer.", it: "Il server non ha risposto.", ja: "サーバーが応答しませんでした。"}
 net.failed: {en: "The connection failed.", it: "Connessione non riuscita.", ja: "接続に失敗しました。"}
@@ -590,7 +589,7 @@ launcher.msg_stop_anyway_1718: {en: "A match is on. Stop anyway?", it: "Partita 
 close.body_1718: {en: "Closing now ends the match.", it: "Chiudere ora termina la partita.", ja: "今閉じると試合が終了します。"}
 launcher.save_logs: {en: "SAVE LOGS", it: "SALVA I LOG", ja: "ログを保存"}
 settings.save_logs: {en: "SAVE LOGS", it: "SALVA I LOG", ja: "ログを保存"}
-logs.saved: {en: "Logs saved: %{path}. Send this file to whoever helps you.", it: "Log salvati: %{path}. Invia questo file a chi ti aiuta.", ja: "ログを保存しました：%{path}。このファイルをサポートしてくれる人に送ってください。"}
+logs.saved: {en: "Logs saved: %{path}. Send this file to whoever asked for it.", it: "Log salvati: %{path}. Invia questo file a chi te l'ha chiesto.", ja: "ログを保存しました：%{path}。このファイルを頼んだ人に送ってください。"}
 logs.save_failed: {en: "Could not save: %{why}", it: "Salvataggio non riuscito: %{why}", ja: "保存できません：%{why}"}
 close.keep: {en: "KEEP PLAYING", it: "CONTINUA A GIOCARE", ja: "プレイを続ける"}
 close.quit: {en: "QUIT NOW", it: "ESCI ORA", ja: "今すぐ終了"}

@@ -237,7 +237,7 @@ the desk port defaults to 20030 (2010-11) or 20032 (2017-18). For 2017-18 the ga
 
 Servers collect no logs. SAVE LOGS (the panel's SETTINGS, the crash screen, the Launcher's REPORT A PROBLEM and its
 log view) writes `forza-wccf-logs-DATE-TIME.zip` to the player's Downloads folder and shows the path; the player sends
-the file to whoever helps them (Discord, a GitHub issue). In the ZIP, the Windows user folder (any `X:\Users\NAME`),
+the file to whoever asked for it. In the ZIP, the Windows user folder (any `X:\Users\NAME`),
 the user name and the PC's name are replaced. Older Launchers that still try to upload get `NO` from the desk
 (`REPORT`) or a closed port (TCP 20050, which `forza-server` no longer opens).
 

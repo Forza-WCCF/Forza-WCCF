@@ -84,9 +84,6 @@ pub struct ReportForm {
     pub issue_url: Option<String>,
 }
 
-/// The project's Discord invite; empty: the report dialog shows no Discord line.
-pub const DISCORD_INVITE: &str = "";
-
 /// A question in a modal: a title, an optional body, the button that says yes and what yes does.
 #[derive(Clone, Debug)]
 pub struct Confirm {
@@ -947,9 +944,6 @@ fn report_modal(ui: &mut Ui, st: &mut LauncherState, lang: Lang) -> Option<Actio
                 status_line(ui, *tone, text);
                 if let Some(url) = &f.issue_url {
                     ui.hyperlink_to(tr!(lang, "report.open_issue"), url);
-                }
-                if f.sent && !DISCORD_INVITE.is_empty() {
-                    ui.hyperlink_to(tr!(lang, "report.open_discord"), DISCORD_INVITE);
                 }
             } else if f.sending {
                 status_line(ui, Tone::Notice, &tr!(lang, "settings.msg_saving"));

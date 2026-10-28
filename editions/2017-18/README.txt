@@ -100,9 +100,8 @@ SAFETY
 LOGS AND BUGS
   Logs are in data\logs; the previous run's are in data\logs\previous. To report a bug, send the logs and say what
   you did and what you saw: Report a problem in Launcher.exe or SAVE LOGS in the panel's SETTINGS. Both save
-  forza-wccf-logs-DATE-TIME.zip in your Downloads folder and show where; send that file yourself (Discord, a GitHub
-  issue). Nothing is uploaded. For a Defender or SmartScreen warning, add the file name and the
-  warning's text.
+  forza-wccf-logs-DATE-TIME.zip in your Downloads folder and show where; send that file to whoever asked for
+  it. Nothing is uploaded. For a Defender or SmartScreen warning, add the file name and the warning's text.
 
 FOLDERS
   bin\       Forza-WCCF's programs: the game server (forza-server.exe), the stand-ins, the card-table helper
