@@ -61,10 +61,11 @@ TASTI
   La pausa (P o PAUSA) ferma una partita per al massimo 20 secondi; P o RIPRENDI la fa ripartire prima. Tra una pausa
   e l'altra passano 10 secondi. Online non c'è pausa.
 
-ONLINE (VS tra due case)
+ONLINE
   1. In GIOCA scegliete Online. Aprite Indirizzo diretto e scrivete l'indirizzo del server (HOST o HOST:PORTA). Il
      server del progetto accetta solo gli indirizzi della sua lista: chiedete a chi lo gestisce di aggiungere il
-     vostro. Le SALE GIOCHI restano grigie per il 2017-18: usate SFIDE VS.
+     vostro. In SALE GIOCHI, APRI SALA apre una sala e ne mostra il codice; gli amici lo scrivono in Codice stanza,
+     oppure scelgono una stanza dell'elenco e premono ENTRA.
   2. CREA SFIDA apre una stanza e ne mostra il codice (ad es. K7QM). L'amico sceglie quella stanza e preme ENTRA.
      PARTITA RAPIDA entra nella stanza aperta da più tempo, o ne apre una. ESCI (Esc) lascia il posto.
   3. Tutti e due premono PRONTO; il gioco parte dopo un conto alla rovescia di 5 secondi. Se nessuno entra entro circa
@@ -82,13 +83,12 @@ ONLINE (VS tra due case)
 
 NON C'È IN QUESTA ALPHA
   - La modalità carriera.
-  - Il gioco in LAN e le sale con più posti: un posto per PC. Online c'è solo il VS tra due case.
   - La scala di rendering.
 
 PROBLEMI NOTI
   - Il programma di controllo può chiudersi dopo circa 90 minuti di inattività. Riavviate il gioco; il club resta.
   - La registrazione di una squadra può restare ferma circa 95 secondi prima di andare avanti.
-  - Il VS online non è ancora stato giocato per intero su due PC: consideratelo una prova.
+  - Una partita online può passare a un avversario CPU dopo circa 2 minuti, soprattutto tra PC AMD e Intel.
 
 ANTIVIRUS E SMARTSCREEN
   I programmi non sono firmati e Forza-WCCF modifica copie dei programmi del gioco (mai gli originali, che restano in
