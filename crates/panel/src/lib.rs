@@ -265,6 +265,7 @@ fn init() {
     net::ping_install(log); // on a server: the ping meter
     patches::dispenser_install(e1718, log); // no player card owed to a dispenser that is not there
     patches::free_play_install(e1718, log); // the original FREE PLAY: no coin needed anywhere
+    patches::stall_tolerance_install(e1718, log); // a short network stall no longer drops a VS
     if std::env::var_os("WCCF_LOGS").is_some() {
         // ponytail: runs for the process's life (the game never unloads the panel; only a run sets WCCF_LOGS, never
         // the unload test)
