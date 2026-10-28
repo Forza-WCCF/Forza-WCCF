@@ -982,7 +982,7 @@ pub fn undo(board: &mut Board, r: &Removed) -> bool {
 
 /// Draws the board and handles it: a card dropped on open pitch lies exactly there (the cabinet's table has no fixed
 /// spots), a card dropped onto another swaps with it (the target is lit while dragging), right-click or a drag off
-/// the board takes a card off ([`take_removed`]), a resting mouse shows the card big after `hover_delay` seconds. While a card is dragged or shown
+/// the board takes a card off ([`take_removed`]), a resting mouse shows the card big after `hover_delay` seconds (None: never). While a card is dragged or shown
 /// big, the pitch shows its suitable positions as a heat zone, and the drop target says how well it fits there.
 /// With `links`, lines join every two linked pitch cards by the club's link stage; a selected card (clicked, or in
 /// hand) brings its group forward - its lines bright, the others and the cards outside its group dimmed - and a list
@@ -1335,7 +1335,11 @@ pub fn formation_board(
                     .request_repaint_after(std::time::Duration::from_secs_f64(left));
             }
         }
-        None => ui.data_mut(|d| d.remove::<(usize, f64)>(hover_id)),
+        // off the cards: a clicked card's big back ends too, so OFF never shows it again on a mere re-hover
+        None => ui.data_mut(|d| {
+            d.remove::<(usize, f64)>(hover_id);
+            d.remove::<Option<usize>>(flip_id);
+        }),
     }
 
     // the heat zone of the card in hand (or shown big), and the drop target's fit

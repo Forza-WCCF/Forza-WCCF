@@ -1993,6 +1993,7 @@ impl Render {
         let open = self.st.page == panel::Page::Settings;
         if open && self.last_page != panel::Page::Settings {
             self.st.file = f.panel_file();
+            self.st.hover_delay = self.st.file.hover_ms.map(|ms| ms as f32 / 1000.0);
             self.st.address = self.st.file.server.clone();
             self.status_at = None;
         }

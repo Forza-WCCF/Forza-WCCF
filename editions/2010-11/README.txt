@@ -77,7 +77,7 @@ SETTINGS
   RESTART NOW   click, then CLICK AGAIN: restarts the game with these choices. Not during a match. If the server is
                 unchanged, only your cabinet restarts.
   VIEW          LAYOUT: CABINET (buttons around the game) or COMPACT (larger game, no buttons: use your keys or
-                controller). CARD HOVER DELAY. Both take effect at once.
+                controller). CARD HOVER DELAY (OFF: no big card on a resting mouse). Both take effect at once.
   LOGS          SAVE LOGS saves this game's logs as forza-wccf-logs-DATE-TIME.zip in your Downloads folder and shows
                 where. Your club card is never in it, and your Windows user name and PC name are removed. Send the
                 file to whoever asked for it, with what went wrong. Nothing is uploaded.
