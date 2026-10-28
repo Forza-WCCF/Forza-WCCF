@@ -32,6 +32,6 @@ fn main() {
         game.as_ref(),
         out.as_ref(),
         output,
-        &|s| println!("{s}"),
+        &|lead, l| println!("{lead}{l:?}"),
     ));
 }

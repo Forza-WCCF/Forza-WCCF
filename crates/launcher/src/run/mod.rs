@@ -151,6 +151,14 @@ pub fn tell(ui: &dyn Ui, lead: &str, text: &Text) {
     );
 }
 
+/// A line of forza's setup, game text or card pictures ([`forza::Line`]) to `ui` after `lead`, as [`tell`] does.
+pub fn tell_line(ui: &dyn Ui, lead: &str, line: &forza::Line) {
+    ui.say_logged(
+        &format!("{lead}{}", forza_ui::line(ui.lang(), line)),
+        &format!("{lead}{}", forza_ui::line(forza_ui::Lang::En, line)),
+    );
+}
+
 /// A `Ui` over a closure that gets each line as shown and in English (setup's lines into a log file and the run's box).
 pub struct Lines<'a>(pub forza_ui::Lang, pub &'a dyn Fn(&str, &str));
 
@@ -718,7 +726,7 @@ fn pictures_held(kit: &Kit, p: &Params, ui: &dyn Ui) -> bool {
     if pack.is_none() && kit.settings()["card_pictures"] == "hq" {
         tell(ui, "  ", &Text::key("launcher.run_no_hq_pack"));
     }
-    let say = |l: &str| ui.say(l);
+    let say = |lead: &str, l: &forza::Line| tell_line(ui, lead, l);
     match forza::cards::pictures::ensure(&game, ed, &kit.cache().join("cards"), pack.as_deref(), &say) {
         Ok(()) => true,
         Err(e) => {

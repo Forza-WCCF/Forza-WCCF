@@ -14,7 +14,7 @@ use super::codes::{
     CLUB, CLUBS_1718, EDITION, NAME_TABLES_1718, NATIONALITY, NATIONS_1718, name_for,
 };
 use super::pictures::lzw;
-use crate::Edition;
+use crate::{Edition, Line};
 use image::{
     ExtendedColorType, ImageEncoder,
     codecs::png::{CompressionType, FilterType, PngEncoder},
@@ -99,7 +99,7 @@ pub struct GameFiles {
 }
 
 /// 2010-11 also takes the sbwg download's `extracted` folder; 2017-18 wants the folder with the exe in it.
-pub fn game_files(edition: Edition, game: &Path, say: &dyn Fn(&str)) -> Option<GameFiles> {
+pub fn game_files(edition: Edition, game: &Path, say: crate::Say) -> Option<GameFiles> {
     let at = |root: &Path| GameFiles {
         exe: root.join("client_Release.exe"),
         players: root.join("prog_data/player_data/player_data.bin"),
@@ -128,7 +128,7 @@ pub fn game_files(edition: Edition, game: &Path, say: &dyn Fn(&str)) -> Option<G
     let f = at(game);
     for p in &need(&f) {
         if !p.is_file() {
-            say(&format!("missing: {}", p.display()));
+            say("", &Line::key("setup.cat_missing").arg("file", p.display()));
         }
     }
     None
@@ -1349,7 +1349,7 @@ fn write_pictures(
     ents: &[Entry],
     xaf: &Path,
     dir: &Path,
-    say: &dyn Fn(&str),
+    say: crate::Say,
 ) -> io::Result<(usize, Vec<String>)> {
     let (mut done, mut fails, mut cache) = (0, Vec::new(), HashMap::<&str, Vec<u8>>::new());
     let mut f = File::open(xaf)?;
@@ -1392,7 +1392,12 @@ fn write_pictures(
             Err(e) => fails.push(format!("card {} ({}): {e}", r.card_no, r.image_path)),
         }
         if (n + 1) % 500 == 0 {
-            say(&format!("  pictures {} / {}", n + 1, rows.len()));
+            say(
+                "  ",
+                &Line::key("setup.cat_progress")
+                    .arg("done", n + 1)
+                    .arg("count", rows.len()),
+            );
         }
     }
     Ok((done, fails))
@@ -1412,19 +1417,19 @@ pub enum Output {
 /// Makes `out/catalogue.tsv` and `out/cards/<number>.png` (as `output` says) from the game in `game`. Returns the old
 /// script's exit code: 0 written and every check passed, 1 a check failed (nothing written if it was a catalogue
 /// check), 2 a game file is missing or `out` cannot be written. `say` hears the progress lines.
-pub fn run(edition: Edition, game: &Path, out: &Path, output: Output, say: &dyn Fn(&str)) -> i32 {
+pub fn run(edition: Edition, game: &Path, out: &Path, output: Output, say: crate::Say) -> i32 {
     let Some(files) = game_files(edition, game, say) else {
-        say(&format!(
-            "GAME must be the {} game folder, the one that holds client_Release.exe",
-            edition.name()
-        ));
+        say(
+            "",
+            &Line::key("setup.cat_wrong_folder").arg("edition", edition.name()),
+        );
         return 2;
     };
     let cards_dir = out.join("cards");
-    say(&format!(
-        "game files: {}",
-        files.exe.parent().unwrap().display()
-    ));
+    say(
+        "",
+        &Line::key("setup.cat_game_files").arg("folder", files.exe.parent().unwrap().display()),
+    );
     let mut checks = Vec::new();
     let (rows, toc, ents) = match match edition {
         Edition::E1011 => build_rows_1011(&files, &mut checks),
@@ -1432,7 +1437,10 @@ pub fn run(edition: Edition, game: &Path, out: &Path, output: Output, say: &dyn 
     } {
         Ok(x) => x,
         Err(e) => {
-            say(&format!("FAIL  reading the game's files: {e}"));
+            say(
+                "FAIL  ",
+                &Line::key("setup.cat_read_failed").arg("error", e),
+            );
             return 1;
         }
     };
@@ -1442,19 +1450,18 @@ pub fn run(edition: Edition, game: &Path, out: &Path, output: Output, say: &dyn 
         } else {
             format!("  - {detail}")
         };
-        say(&format!(
-            "  {}  {name}{d}",
-            if *ok { "PASS" } else { "FAIL" }
-        ));
+        // the checks' names stay English: support compares them with the original files
+        say(
+            if *ok { "  PASS  " } else { "  FAIL  " },
+            &Line::raw(format!("{name}{d}")),
+        );
     }
     if !checks.iter().all(|c| c.1) {
-        say(&format!(
-            "not written: this copy does not match WCCF {}'s player data",
-            match edition {
-                Edition::E1011 => "2010-11 Rev D",
-                Edition::E1718 => "2017-18",
-            }
-        ));
+        let edition = match edition {
+            Edition::E1011 => "2010-11 Rev D",
+            Edition::E1718 => "2017-18",
+        };
+        say("", &Line::key("setup.cat_no_match").arg("edition", edition));
         return 1;
     }
     if output == Output::CheckOnly {
@@ -1462,18 +1469,28 @@ pub fn run(edition: Edition, game: &Path, out: &Path, output: Output, say: &dyn 
     }
     if output == Output::All {
         if fs::symlink_metadata(&cards_dir).is_ok_and(|m| m.file_type().is_symlink()) {
-            say(&format!(
-                "refused: {} is a link to another folder - writing would change that folder",
-                cards_dir.display()
-            ));
+            say(
+                "",
+                &Line::key("setup.cat_link").arg("folder", cards_dir.display()),
+            );
             return 2;
         }
         if let Err(e) = fs::create_dir_all(&cards_dir) {
-            say(&format!("cannot make {}: {e}", cards_dir.display()));
+            say(
+                "",
+                &Line::key("setup.cat_cannot_make")
+                    .arg("folder", cards_dir.display())
+                    .arg("error", e),
+            );
             return 2;
         }
     } else if let Err(e) = fs::create_dir_all(out) {
-        say(&format!("cannot make {}: {e}", out.display()));
+        say(
+            "",
+            &Line::key("setup.cat_cannot_make")
+                .arg("folder", out.display())
+                .arg("error", e),
+        );
         return 2;
     }
     if let Err(e) = write_catalogue(
@@ -1484,29 +1501,41 @@ pub fn run(edition: Edition, game: &Path, out: &Path, output: Output, say: &dyn 
         &rows,
         &out.join("catalogue.tsv"),
     ) {
-        say(&format!("cannot write catalogue.tsv: {e}"));
+        say("", &Line::key("setup.cat_cannot_write").arg("error", e));
         return 2;
     }
     let real = rows.iter().filter(|r| !r.placeholder).count();
-    say(&format!(
-        "catalogue.tsv: {} cards ({real} real, {} placeholders)",
-        rows.len(),
-        rows.len() - real
-    ));
+    say(
+        "",
+        &Line::key("setup.cat_written")
+            .arg("count", rows.len())
+            .arg("real", real)
+            .arg("placeholders", rows.len() - real),
+    );
     if output == Output::CatalogueOnly {
         return 0;
     }
     match write_pictures(&rows, &toc, &ents, &files.xaf, &cards_dir, say) {
         Ok((done, fails)) => {
-            say(&format!("pictures: {done} of {} written", rows.len()));
+            say(
+                "",
+                &Line::key("setup.cat_pictures")
+                    .arg("done", done)
+                    .arg("count", rows.len()),
+            );
             fails
                 .iter()
                 .take(20)
-                .for_each(|m| say(&format!("  FAIL  {m}")));
+                .for_each(|m| say("  FAIL  ", &Line::raw(m)));
             i32::from(!fails.is_empty())
         }
         Err(e) => {
-            say(&format!("cannot read {}: {e}", files.xaf.display()));
+            say(
+                "",
+                &Line::key("setup.cat_cannot_read")
+                    .arg("file", files.xaf.display())
+                    .arg("error", e),
+            );
             2
         }
     }

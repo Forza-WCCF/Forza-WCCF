@@ -13,7 +13,7 @@
 //! writing (`data/wccf_data.xaf`, [`pictures`]): 2017-18 redraws them on `on` as its script did; 2010-11 keeps them
 //! off as its script did, and both editions take back pictures a Python kit added. `selftest` is not ported.
 
-use crate::Edition;
+use crate::{Edition, Line};
 
 mod bcn;
 mod coach_title;
@@ -73,6 +73,14 @@ impl Lang {
             Self::En => "English",
             Self::It => "Italian",
         }
+    }
+
+    /// The language's name in the player's words (`text.lang_en`, `text.lang_it`).
+    pub fn line(self) -> Line {
+        Line::key(match self {
+            Self::En => "text.lang_en",
+            Self::It => "text.lang_it",
+        })
     }
 }
 
@@ -1496,35 +1504,39 @@ pub fn run(
     sheets: &Path,
     mode: Mode,
     lang: Lang,
-    say: &dyn Fn(&str),
+    say: crate::Say,
 ) -> i32 {
     let m = match mode {
-        Mode::On => "on",
-        Mode::Off => "off",
-        Mode::Check => "check",
+        Mode::On => "text.title_on",
+        Mode::Off => "text.title_off",
+        Mode::Check => "text.title_check",
     };
-    say(&format!(
-        "Forza-WCCF {} - {} {m} - game: {}",
-        ed.name(),
-        lang.name(),
-        game.display()
-    ));
+    say(
+        "",
+        &Line::key(m)
+            .arg("edition", ed.name())
+            .part("lang", lang.line())
+            .arg("game", game.display()),
+    );
     let r = (|| -> R<()> {
         let c = Ctx::new(ed, game, backup, sheets)?;
         let state = backup.join(pictures::STATE);
         if mode == Mode::Off {
             if c.load_manifest().is_empty() && !state.is_file() {
-                say("  Already the original Japanese.");
+                say("  ", &Line::key("text.already_original"));
                 return Ok(());
             }
             let p = pictures::restore(game, &state)?;
             let n = c.turn_off()?;
-            say(&format!(
-                "  ok    original Japanese restored ({n} files, {p} pictures)."
-            ));
+            say(
+                "  ok    ",
+                &Line::key("text.restored")
+                    .arg("files", n)
+                    .arg("pictures", p),
+            );
             return Ok(());
         }
-        say("  Building from your game files...");
+        say("  ", &Line::key("text.building"));
         let (files, notes) = c.build_all(lang)?;
         // 2010-11: the pictures stay off (with them the game did not read a club card); "on" only takes back any
         // a Python kit with WCCF_PICTURES=1 added
@@ -1535,7 +1547,7 @@ pub fn run(
             (vec![], vec![PICTURES_OFF.into()])
         };
         for n in notes.lines().chain(pnotes.iter().map(String::as_str)) {
-            say(&format!("  ok    {n}"));
+            say("  ok    ", &Line::raw(n));
         }
         if mode == Mode::Check {
             let man = c.load_manifest();
@@ -1543,27 +1555,30 @@ pub fn run(
                 .iter()
                 .filter(|(r, _)| !man.contains_key(&key(r)))
                 .count();
-            say(&format!(
-                "  Check only, nothing changed. \"on\" would replace {} files ({fresh} backed up first) and redraw {} pictures.",
-                files.len(),
-                pics.len()
-            ));
+            say(
+                "  ",
+                &Line::key("text.check_only")
+                    .arg("files", files.len())
+                    .arg("fresh", fresh)
+                    .arg("pictures", pics.len()),
+            );
             return Ok(());
         }
         c.turn_on(&files, lang)?;
         pictures::apply(game, &pics, &state)?;
-        say(&format!(
-            "  ok    {} files and {} pictures replaced. Originals are in data\\english_backup.",
-            files.len(),
-            pics.len()
-        ));
-        say(&format!("{} is on.", lang.name()));
+        say(
+            "  ok    ",
+            &Line::key("text.replaced")
+                .arg("files", files.len())
+                .arg("pictures", pics.len()),
+        );
+        say("", &Line::key("text.on").part("lang", lang.line()));
         Ok(())
     })();
     match r {
         Ok(()) => 0,
         Err(e) => {
-            say(&format!("  FAIL  {e}"));
+            say("  FAIL  ", &Line::raw(e));
             1
         }
     }

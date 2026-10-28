@@ -450,9 +450,11 @@ fn unpack_kit(zip_path: &Path, dest: &Path, emit: &dyn Fn(Event)) -> Result<()> 
 
 /// One of the kit's steps (setup, the game's text) in this process, its lines into the log; a failure is its FAIL
 /// line.  It cannot be cancelled half way: the cancel is looked at between steps.
-fn kit_step(emit: &dyn Fn(Event), step: impl FnOnce(&dyn Fn(&str)) -> i32) -> Result<()> {
+fn kit_step(emit: &dyn Fn(Event), step: impl FnOnce(forza::Say) -> i32) -> Result<()> {
     let failed = std::cell::RefCell::new(None);
-    let say = |line: &str| {
+    // the installer's log is English (support reads it)
+    let say = |lead: &str, l: &forza::Line| {
+        let line = &format!("{lead}{}", forza_ui::line(forza_ui::Lang::En, l));
         if line.contains("FAIL") {
             *failed.borrow_mut() = Some(line.trim().to_owned());
         }
@@ -481,7 +483,10 @@ fn pictures(dest: &Path, edition: Edition, folder: &str, emit: &dyn Fn(Event)) {
         "1718"
     };
     let cards = dest.join(edition.layout().cache).join("cards");
-    if let Err(e) = forza::cards::pictures::ensure(&game, ed, &cards, None, &say) {
+    let lines = |lead: &str, l: &forza::Line| {
+        say(&format!("{lead}{}", forza_ui::line(forza_ui::Lang::En, l)))
+    };
+    if let Err(e) = forza::cards::pictures::ensure(&game, ed, &cards, None, &lines) {
         say(&format!(
             "Card pictures failed: {e}. The board shows placeholders."
         ));

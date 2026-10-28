@@ -8,6 +8,7 @@
 //! (`<face>_B.dds`, same size) comes out as `<number>_b.jpg` for the card views that show it.
 //! Both editions keep the same archive format, and each `player_data.bin` record names its card number and picture.
 
+use crate::Line;
 use image::codecs::jpeg::JpegEncoder;
 use image::{DynamicImage, ExtendedColorType, ImageEncoder, ImageFormat};
 use std::collections::HashMap;
@@ -470,7 +471,7 @@ pub fn ensure(
     edition: &str,
     cards: &Path,
     pack: Option<&Path>,
-    say: &dyn Fn(&str),
+    say: crate::Say,
 ) -> io::Result<()> {
     if note(cards) == wanted(pack) {
         return Ok(());
@@ -491,7 +492,7 @@ fn build(
     cards: &Path,
     pack: Option<&Path>,
     made: bool,
-    say: &dyn Fn(&str),
+    say: crate::Say,
 ) -> io::Result<()> {
     let marker: PathBuf = cards.join(MARKER);
     let want = wanted(pack);
@@ -500,16 +501,17 @@ fn build(
     remove_jpgs(cards, false)?; // the pack's scans; the album art (`_f`, `_b`) is the game's and stays
     if !made {
         remove_jpgs(cards, true)?; // a full rebuild: no stale art may outrank the new pictures
-        say("  Making card pictures from your game files...");
+        say("  ", &Line::key("setup.pic_making"));
         let m = from_game(game, edition, cards)?;
-        say(&format!(
-            "  {} card pictures from the game, {} album fronts, {} failed",
-            m.faces,
-            m.fronts,
-            m.fails.len()
-        ));
+        say(
+            "  ",
+            &Line::key("setup.pic_made")
+                .arg("faces", m.faces)
+                .arg("fronts", m.fronts)
+                .arg("failed", m.fails.len()),
+        );
         for f in m.fails.iter().take(5) {
-            say(&format!("    {f}"));
+            say("    ", &Line::raw(f));
         }
         if m.faces == 0 {
             return Err(bad("no card picture could be made from the game"));
@@ -520,17 +522,19 @@ fn build(
         }
     }
     if let Some(p) = pack {
-        say(&format!(
-            "  Adding high-quality pictures from {}...",
-            p.display()
-        ));
+        say(
+            "  ",
+            &Line::key("setup.pic_adding_hq").arg("pack", p.display()),
+        );
         let (n, fails) = from_pack(p, edition, cards)?;
-        say(&format!(
-            "  {n} high-quality card pictures, {} failed",
-            fails.len()
-        ));
+        say(
+            "  ",
+            &Line::key("setup.pic_hq_made")
+                .arg("count", n)
+                .arg("failed", fails.len()),
+        );
         for f in fails.iter().take(5) {
-            say(&format!("    {f}"));
+            say("    ", &Line::raw(f));
         }
     }
     fs::write(&marker, want)
@@ -638,8 +642,8 @@ mod tests {
         fake_game(d.path());
         let out = d.path().join("cards");
         let said = std::cell::RefCell::new(Vec::new());
-        ensure(d.path(), "1718", &out, None, &|l| {
-            said.borrow_mut().push(l.to_owned())
+        ensure(d.path(), "1718", &out, None, &|_, l| {
+            said.borrow_mut().push(l.clone())
         })
         .unwrap();
         let img = image::open(out.join("7049.png")).unwrap().to_rgb8();
@@ -660,8 +664,8 @@ mod tests {
         }
         // made once: the second call finds the folder as wanted
         said.borrow_mut().clear();
-        ensure(d.path(), "1718", &out, None, &|l| {
-            said.borrow_mut().push(l.to_owned())
+        ensure(d.path(), "1718", &out, None, &|_, l| {
+            said.borrow_mut().push(l.clone())
         })
         .unwrap();
         assert!(said.borrow().is_empty());
@@ -675,7 +679,7 @@ mod tests {
         fs::create_dir_all(&out).unwrap();
         fs::write(out.join(MARKER), "1 game").unwrap(); // version 1: faces only
         fs::write(out.join("7049.png"), b"old").unwrap();
-        ensure(d.path(), "1718", &out, None, &|_| {}).unwrap();
+        ensure(d.path(), "1718", &out, None, &|_, _| {}).unwrap();
         assert!(out.join("7049_f.jpg").is_file());
         assert_eq!(image::open(out.join("7049.png")).unwrap().width(), FACE.0);
         assert_eq!(fs::read_to_string(out.join(MARKER)).unwrap(), wanted(None));
@@ -721,7 +725,7 @@ mod tests {
             fs::create_dir_all(&out).unwrap();
             fs::write(out.join(MARKER), "1 game").unwrap();
             assert!(!is_wanted(&out, None), "{ed}");
-            ensure(d.path(), ed, &out, None, &|_| {}).unwrap();
+            ensure(d.path(), ed, &out, None, &|_, _| {}).unwrap();
             assert!(
                 is_wanted(&out, None) && out.join("7049.png").is_file(),
                 "{ed}"
@@ -739,7 +743,7 @@ mod tests {
         fake_game(d.path());
         let out = d.path().join("cards");
         fs::create_dir_all(out.join("7049_f.jpg.tmp")).unwrap(); // the temp file cannot be made
-        assert!(ensure(d.path(), "1718", &out, None, &|_| {}).is_err());
+        assert!(ensure(d.path(), "1718", &out, None, &|_, _| {}).is_err());
         // the failure is noted: PLAY leaves it be, SET UP below tries again from scratch
         assert_eq!(fs::read_to_string(out.join(MARKER)).unwrap(), failed());
         assert!(is_wanted(&out, None) && is_wanted(&out, Some(Path::new("p.zip"))));
@@ -748,7 +752,7 @@ mod tests {
         fs::remove_dir(out.join("7049_f.jpg.tmp")).unwrap();
         fs::write(out.join("1_f.JPG"), b"stale").unwrap();
         fs::write(out.join("2_B.JPG"), b"stale").unwrap();
-        ensure(d.path(), "1718", &out, None, &|_| {}).unwrap();
+        ensure(d.path(), "1718", &out, None, &|_, _| {}).unwrap();
         assert!(out.join("7049_f.jpg").is_file());
         assert!(!out.join("1_f.JPG").exists() && !out.join("2_B.JPG").exists());
         assert!(out.join(MARKER).is_file());
@@ -760,7 +764,7 @@ mod tests {
         fake_game(d.path());
         let out = d.path().join("cards");
         fs::create_dir_all(out.join("7049_b.jpg.tmp")).unwrap();
-        ensure(d.path(), "1718", &out, None, &|_| {}).unwrap();
+        ensure(d.path(), "1718", &out, None, &|_, _| {}).unwrap();
         assert!(out.join(MARKER).is_file() && out.join("7049_f.jpg").is_file());
         fs::remove_file(out.join(MARKER)).unwrap();
         let m = from_game(d.path(), "1718", &out).unwrap();
@@ -799,13 +803,13 @@ mod tests {
         }
         z.finish().unwrap();
         let out = d.path().join("cards");
-        ensure(d.path(), "1718", &out, Some(&pack), &|_| {}).unwrap();
+        ensure(d.path(), "1718", &out, Some(&pack), &|_, _| {}).unwrap();
         assert_eq!(fs::read(out.join("7049.jpg")).unwrap(), b"A");
         assert!(out.join("7049.png").is_file() && !out.join("1.jpg").exists());
         assert!(out.join("7049_f.jpg").is_file()); // beside the pack's scan: the board takes it first
         assert!(out.join(super::super::hq::FILE).is_file());
         // back to the game's own: the scans go, the game's pictures stay
-        ensure(d.path(), "1718", &out, None, &|_| {}).unwrap();
+        ensure(d.path(), "1718", &out, None, &|_, _| {}).unwrap();
         assert!(!out.join("7049.jpg").exists() && out.join("7049.png").is_file());
         assert!(out.join("7049_f.jpg").is_file() && out.join("7049_b.jpg").is_file()); // the game's own stay
         assert!(!out.join(super::super::hq::FILE).exists());
@@ -837,7 +841,7 @@ mod tests {
         }
         z.finish().unwrap();
         let out = d.path().join("cards");
-        ensure(d.path(), "1718", &out, Some(&pack), &|_| {}).unwrap();
+        ensure(d.path(), "1718", &out, Some(&pack), &|_, _| {}).unwrap();
         assert_eq!(fs::read(out.join("7049.jpg")).unwrap(), b"A");
         assert!(out.join(super::super::hq::FILE).is_file());
         assert!(!out.join("1.jpg").exists() && !out.join("7050.jpg").exists()); // the other edition; a path in the list

@@ -30,6 +30,6 @@ fn main() {
         sheets.as_ref(),
         mode,
         lang,
-        &|s| println!("{s}"),
+        &|lead, l| println!("{lead}{l:?}"),
     ));
 }

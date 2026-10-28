@@ -24,6 +24,21 @@ pub fn text(lang: Lang, key: &str, args: &[(&str, &str)]) -> String {
     rust_i18n::replace_patterns(&s, &names, &values)
 }
 
+/// A line from forza's setup, game text or card pictures (`forza::Line`) in `lang`, its argument lines in `lang` too.
+pub fn line(lang: Lang, line: &forza::Line) -> String {
+    match line {
+        forza::Line::Raw(s) => s.clone(),
+        forza::Line::Key(key, args) => {
+            let args: Vec<(&str, String)> = args
+                .iter()
+                .map(|(n, l)| (*n, self::line(lang, l)))
+                .collect();
+            let args: Vec<(&str, &str)> = args.iter().map(|(n, v)| (*n, v.as_str())).collect();
+            text(lang, key, &args)
+        }
+    }
+}
+
 pub mod board;
 pub mod installer;
 pub mod launcher;

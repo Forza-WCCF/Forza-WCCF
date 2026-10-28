@@ -23,7 +23,7 @@ use super::{
     Error, Patch, Result, apply, imports, junction_target, load_settings, logowin_backup, make_dir,
     merge_settings, read, rename_import, replace, save_settings, sha,
 };
-use crate::Edition;
+use crate::{Edition, Line};
 
 const CLIENT: &str = "client_Release.exe";
 const PROGRAMS: [&str; 3] = [CLIENT, "control_Release.exe", "match_Release.exe"];
@@ -326,17 +326,17 @@ fn without_runtime_lines(text: &[u8]) -> Vec<u8> {
 }
 
 /// What setup and undo tell the player, line by line.
-struct Say<'a>(&'a dyn Fn(&str));
+struct Say<'a>(crate::Say<'a>);
 
 impl Say<'_> {
-    fn ok(&self, msg: &str) {
-        (self.0)(&format!("  ok    {msg}"));
+    fn ok(&self, line: Line) {
+        (self.0)("  ok    ", &line);
     }
-    fn note(&self, msg: &str) {
-        (self.0)(&format!("  NOTE  {msg}"));
+    fn note(&self, line: Line) {
+        (self.0)("  NOTE  ", &line);
     }
-    fn line(&self, msg: &str) {
-        (self.0)(msg);
+    fn line(&self, line: Line) {
+        (self.0)("", &line);
     }
 }
 
@@ -415,46 +415,45 @@ fn patched_client(kit: &Path, game: &Path) -> Result<Vec<u8>> {
 }
 
 /// Points the program at the kit's hook by its own name; a program already renamed is left alone.
-fn rename_hook_import(path: &Path, what: &str, say: &Say) -> Result<()> {
+fn rename_hook_import(path: &Path, what: &Line, say: &Say) -> Result<()> {
     let data = read(path)?;
     if imports(&data, HOOK_DLL) {
         return Ok(());
     }
     let g = rename_import(&data, SYS_DLL, HOOK_DLL).map_err(|e| {
         Error(format!(
-            "{what}: could not point it at Forza-WCCF's hook ({e})"
+            "{}: could not point it at Forza-WCCF's hook ({e})",
+            path.display()
         ))
     })?;
     replace(path, &g)?;
-    say.ok(&format!("{what}: uses wccfk.dll"));
+    say.ok(Line::key("setup.uses_hook").part("what", what.clone()));
     Ok(())
 }
 
-fn copy_if_different(src: &Path, dst: &Path, what: &str, say: &Say) -> Result<()> {
+fn copy_if_different(src: &Path, dst: &Path, what: &Line, say: &Say) -> Result<()> {
     let data = read(src)?;
     if dst.is_file() && sha(&read(dst)?) == sha(&data) {
-        say.ok(&format!("{what} already in place"));
+        say.ok(Line::key("setup.in_place").part("what", what.clone()));
         return Ok(());
     }
     replace(dst, &data)?;
     if read(dst)? != data {
-        return Err(Error(format!("{what}: the copy does not match")));
+        return Err(Error(format!("{}: the copy does not match", dst.display())));
     }
-    say.ok(&format!("{what} put in place"));
+    say.ok(Line::key("setup.put_in_place").part("what", what.clone()));
     Ok(())
 }
 
-fn write_text(path: &Path, text: &str, what: &str, say: &Say) -> Result<()> {
+fn write_text(path: &Path, text: &str, what: &Line, say: &Say) -> Result<()> {
     let have = path.is_file().then(|| read(path)).transpose()?;
     if let Some(have) = have {
         if have == text.as_bytes() {
-            say.ok(&format!("{what} already in place"));
+            say.ok(Line::key("setup.in_place").part("what", what.clone()));
             return Ok(());
         }
         if without_runtime_lines(&have) == without_runtime_lines(text.as_bytes()) {
-            say.ok(&format!(
-                "{what} already in place (server address and seat set)"
-            ));
+            say.ok(Line::key("setup.in_place_set").part("what", what.clone()));
             return Ok(());
         }
         if have != before_rename(text).as_bytes()
@@ -466,11 +465,15 @@ fn write_text(path: &Path, text: &str, what: &str, say: &Say) -> Result<()> {
             );
             fs::copy(path, path.with_file_name(&name))
                 .map_err(|e| Error(format!("{}: {e}", path.display())))?;
-            say.note(&format!("{what}: the old one is kept as {name}"));
+            say.note(
+                Line::key("setup.old_kept")
+                    .part("what", what.clone())
+                    .arg("name", &name),
+            );
         }
     }
     replace(path, text.as_bytes())?;
-    say.ok(&format!("{what} written"));
+    say.ok(Line::key("setup.written").part("what", what.clone()));
     Ok(())
 }
 
@@ -507,9 +510,7 @@ fn check_game(kit: &Path, game: &Path, say: &Say) -> Result<()> {
     let orig = original_client(kit, game)?;
     let h = norm_sha(&orig)?;
     if orig != game.join(CLIENT) {
-        say.ok(
-            "English text is on: checking the original client_Release.exe in data\\english_backup",
-        );
+        say.ok(Line::key("setup.check_english_backup"));
     }
     if h == PATCHED_CLIENT {
         return Err(Error(
@@ -524,12 +525,10 @@ fn check_game(kit: &Path, game: &Path, say: &Say) -> Result<()> {
             h[..16].to_uppercase()
         )));
     }
-    say.ok("client_Release.exe is the original Rev D");
+    say.ok(Line::key("setup.client_rev_d"));
     for (n, want) in ORIGINAL_OTHERS {
         if norm_sha(&game.join(n))? != want {
-            say.note(&format!(
-                "{n} is not the Rev D file Forza-WCCF was tested with - it may not work"
-            ));
+            say.note(Line::key("setup.not_rev_d").arg("file", n));
         }
     }
     let wow = std::env::var_os("SystemRoot")
@@ -542,16 +541,14 @@ fn check_game(kit: &Path, game: &Path, say: &Say) -> Result<()> {
         )));
     }
     if !wow.join("d3dx9_40.dll").is_file() {
-        say.note(
-            "DirectX 9 is missing (no d3dx9_40.dll): install Microsoft's \"DirectX End-User Runtime\" (June 2010) - \
-             the game cannot draw without it",
-        );
+        say.note(Line::key("setup.no_directx"));
     }
-    for (p, what) in [(game, "the game folder"), (kit, "the Forza-WCCF folder")] {
+    for (p, what) in [
+        (game, "setup.game_path_letters"),
+        (kit, "setup.kit_path_letters"),
+    ] {
         if !p.to_string_lossy().is_ascii() {
-            say.note(&format!(
-                "{what}'s path has non-English letters - if the game fails, move it to a plain path like D:\\Games\\WCCF"
-            ));
+            say.note(Line::key(what));
         }
     }
     Ok(())
@@ -559,22 +556,22 @@ fn check_game(kit: &Path, game: &Path, say: &Say) -> Result<()> {
 
 fn setup_extracted(kit: &Path, game: &Path, say: &Say) -> Result<()> {
     let bin = kit.join(Edition::E1011.layout().bin);
-    say.line(&format!("in {}:", game.display()));
+    say.line(Line::key("setup.in_folder").arg("folder", game.display()));
     copy_if_different(
         &bin.join("wccfk.dll"),
         &game.join("wccfk.dll"),
-        "wccfk.dll (Forza-WCCF's hook)",
+        &Line::key("setup.what_hook"),
         say,
     )?;
     for n in PROGRAMS {
-        rename_hook_import(&game.join(n), n, say)?;
+        rename_hook_import(&game.join(n), &Line::raw(n), say)?;
     }
     // a kit before this one put a fake winmm.dll (a Windows name) here
     for old in ["winmm.dll", "winmm_orig.dll"] {
         let p = game.join(old);
         if p.is_file() {
             fs::remove_file(&p)?;
-            say.ok(&format!("removed the old {old}"));
+            say.ok(Line::key("setup.removed_old").arg("file", old));
         }
     }
     // the hook answers the server's start of logowin.exe itself, so the original stays; a kit before 2026-10-09 put a
@@ -585,22 +582,22 @@ fn setup_extracted(kit: &Path, game: &Path, say: &Say) -> Result<()> {
             fs::remove_file(&lw)?;
         }
         fs::rename(&backup, &lw)?;
-        say.ok("the original logowin.exe back in place");
+        say.ok(Line::key("setup.logowin_back"));
     } else if lw.is_file() && sha(&read(&lw)?) == ORIGINAL_LOGOWIN {
-        say.ok("logowin.exe: original");
+        say.ok(Line::key("setup.logowin_original"));
     } else {
-        say.note("logowin.exe is not the original - left alone");
+        say.note(Line::key("setup.logowin_not_original"));
     }
     write_text(
         &game.join("local").join("client_user_option.conf"),
         &conf_client(0),
-        "projector settings",
+        &Line::key("setup.what_projector"),
         say,
     )?;
     write_text(
         &game.join("local").join("ctrl_user_option.conf"),
         CONF_CONTROL,
-        "server settings",
+        &Line::key("setup.what_server"),
         say,
     )
 }
@@ -608,7 +605,7 @@ fn setup_extracted(kit: &Path, game: &Path, say: &Say) -> Result<()> {
 fn setup_seat(kit: &Path, game: &Path, say: &Say) -> Result<()> {
     let bin = kit.join(Edition::E1011.layout().bin);
     let seat = rt(game).join("seat1");
-    say.line(&format!("in {}:", seat.display()));
+    say.line(Line::key("setup.in_folder").arg("folder", seat.display()));
     if seat.is_dir() && !seat.join(MARKER).is_file() {
         return Err(Error(format!(
             "there is already a folder {} that Forza-WCCF did not make - move it away first",
@@ -638,10 +635,9 @@ fn setup_seat(kit: &Path, game: &Path, say: &Say) -> Result<()> {
         junction(&link, &target)?;
         made += 1;
     }
-    say.ok(&format!(
-        "{} folder links to extracted\\ ({made} new)",
-        JUNCTIONS.len()
-    ));
+    say.ok(Line::key("setup.folder_links")
+        .arg("count", JUNCTIONS.len())
+        .arg("new", made));
     let (mut linked, mut new) = (0, 0);
     for n in names(game)? {
         let (src, dst) = (game.join(&n), seat.join(&n));
@@ -662,26 +658,28 @@ fn setup_seat(kit: &Path, game: &Path, say: &Say) -> Result<()> {
         })?;
         new += 1;
     }
-    say.ok(&format!("{linked} file links to extracted\\ ({new} new)"));
+    say.ok(Line::key("setup.file_links")
+        .arg("count", linked)
+        .arg("new", new));
     let exe = seat.join(CLIENT);
     let have = exe.is_file().then(|| norm_sha(&exe)).transpose()?;
     if have.as_deref() == Some(PATCHED_CLIENT) {
-        say.ok("client_Release.exe: seat 1's patched copy already in place");
+        say.ok(Line::key("setup.seat_client_in_place"));
     } else if have.is_some() && have == english_copy(kit, &format!("seat1{MAIN_SEPARATOR}{CLIENT}"))
     {
-        say.ok("client_Release.exe: seat 1's patched copy with English text already in place");
+        say.ok(Line::key("setup.seat_client_english"));
     } else {
         replace(&exe, &patched_client(kit, game)?)?;
         if sha(&read(&exe)?) != PATCHED_CLIENT {
             return Err(Error("seat 1's exe did not write correctly".into()));
         }
-        say.ok("client_Release.exe: seat 1's patched copy made");
+        say.ok(Line::key("setup.seat_client_made"));
     }
-    rename_hook_import(&exe, "seat 1's client_Release.exe", say)?;
+    rename_hook_import(&exe, &Line::key("setup.what_seat_client"), say)?;
     copy_if_different(
         &bin.join("wccfk.dll"),
         &seat.join("wccfk.dll"),
-        "wccfk.dll (Forza-WCCF's hook)",
+        &Line::key("setup.what_hook"),
         say,
     )?;
     for old in ["winmm.dll", "winmm_orig.dll"] {
@@ -692,24 +690,24 @@ fn setup_seat(kit: &Path, game: &Path, say: &Say) -> Result<()> {
     write_text(
         &seat.join("local").join("client_user_option.conf"),
         &conf_client(1),
-        "seat 1 settings",
+        &Line::key("setup.what_seat"),
         say,
     )?;
     let table = Path::new("local").join("SBWG_Table.dat");
     copy_if_different(
         &game.join(&table),
         &seat.join(&table),
-        "local\\SBWG_Table.dat",
+        &Line::raw("local\\SBWG_Table.dat"),
         say,
     )?;
     let misc = rt(game).join("misc");
-    say.line(&format!("in {}:", misc.display()));
+    say.line(Line::key("setup.in_folder").arg("folder", misc.display()));
     let helper = misc.join("FlatPanelReader_Emulator").join("exe");
     make_dir(&helper)?;
     copy_if_different(
         &bin.join("FPR_Emu.exe"),
         &helper.join("FPR_Emu.exe"),
-        "FPR_Emu.exe",
+        &Line::raw("FPR_Emu.exe"),
         say,
     )
 }
@@ -734,14 +732,16 @@ fn tidy_old_layout(kit: &Path, say: &Say) -> Result<()> {
             } else {
                 fs::create_dir_all(&cache)?;
                 fs::rename(&src, &dst)?;
-                say.ok(&format!("{name} moved from overlay\\ to data\\cache\\"));
+                say.ok(Line::key("setup.moved_to_cache").arg("name", name));
                 Ok(())
             }
         };
         if let Err(e) = moved() {
-            say.note(&format!(
-                "overlay\\{name} could not be moved ({e}) - it is made again in data\\cache\\"
-            ));
+            say.note(
+                Line::key("setup.not_moved")
+                    .arg("name", name)
+                    .arg("error", e),
+            );
         }
     }
     for (folder, now, files) in OLD_LAYOUT {
@@ -762,18 +762,18 @@ fn tidy_old_layout(kit: &Path, say: &Say) -> Result<()> {
         let _ = fs::remove_dir_all(d.join("__pycache__"));
         for n in files {
             match fs::remove_file(d.join(&n)) {
-                Err(e) if e.kind() != io::ErrorKind::NotFound => say.note(&format!(
-                    "{folder}\\{n} (from an older version) could not be removed: {e}"
-                )),
+                Err(e) if e.kind() != io::ErrorKind::NotFound => say.note(
+                    Line::key("setup.old_file_stays")
+                        .arg("file", format!("{folder}\\{n}"))
+                        .arg("error", e),
+                ),
                 _ => {}
             }
         }
         if fs::remove_dir(&d).is_ok() {
-            say.ok(&format!("the older version's {folder}\\ folder removed"));
+            say.ok(Line::key("setup.old_folder_removed").arg("folder", folder));
         } else {
-            say.note(&format!(
-                "{folder}\\ is from an older version and holds other files - left as is"
-            ));
+            say.note(Line::key("setup.old_folder_kept").arg("folder", folder));
         }
     }
     Ok(())
@@ -782,7 +782,7 @@ fn tidy_old_layout(kit: &Path, say: &Say) -> Result<()> {
 /// The catalogue and card pictures in data\cache, made from the player's game unless they are there (or `force`).
 fn setup_cards(kit: &Path, game: &Path, force: bool, say: &Say) -> Result<()> {
     use crate::cards::catalogue;
-    say.line("in the Forza-WCCF data\\cache folder:");
+    say.line(Line::key("setup.in_cache"));
     let cache = kit.join(Edition::E1011.layout().cache);
     make_dir(&cache)?;
     let have = fs::read_dir(cache.join("cards")).map_or(0, |r| {
@@ -793,21 +793,21 @@ fn setup_cards(kit: &Path, game: &Path, force: bool, say: &Say) -> Result<()> {
         .count()
     });
     if !force && cache.join("catalogue.tsv").is_file() && have >= catalogue::RECORDS {
-        say.ok(&format!("catalogue and {have} card pictures already made"));
+        say.ok(Line::key("setup.cards_there").arg("count", have));
         return Ok(());
     }
-    say.line("  Making the catalogue and card pictures (about a minute)...");
+    (say.0)("  ", &Line::key("setup.making_cards"));
     if catalogue::run(Edition::E1011, game, &cache, catalogue::Output::All, say.0) != 0 {
         return Err(Error(
             "the card catalogue could not be made (see above)".into(),
         ));
     }
-    say.ok("catalogue and card pictures made");
+    say.ok(Line::key("setup.cards_made"));
     Ok(())
 }
 
 /// The whole setup, as `setup.py [GAME] [cards]` ran it: `force_cards` makes the catalogue again.
-pub fn run(kit: &Path, game: &Path, force_cards: bool, say: &dyn Fn(&str)) -> Result<()> {
+pub fn run(kit: &Path, game: &Path, force_cards: bool, say: crate::Say) -> Result<()> {
     let say = &Say(say);
     check_game(kit, game, say)?;
     setup_extracted(kit, game, say)?;
@@ -816,7 +816,7 @@ pub fn run(kit: &Path, game: &Path, force_cards: bool, say: &dyn Fn(&str)) -> Re
     make_dir(&data.join("logs"))?;
     make_dir(&data.join("save"))?;
     merge_settings(&data.join("settings.json"), "game", &game.to_string_lossy())?;
-    say.line("in the Forza-WCCF folder:");
+    say.line(Line::key("setup.in_kit"));
     tidy_old_layout(kit, say)?;
     setup_cards(kit, game, force_cards, say)
 }
@@ -833,7 +833,7 @@ fn holds_link(dir: &Path) -> io::Result<bool> {
 }
 
 /// The game folder put back as it was before setup, apart from the files the game itself writes when it runs.
-pub fn undo(kit: &Path, game: &Path, say: &dyn Fn(&str)) -> Result<()> {
+pub fn undo(kit: &Path, game: &Path, say: crate::Say) -> Result<()> {
     let say = &Say(say);
     if english_backup(kit).join("manifest.json").is_file() {
         return Err(Error("The game text is not the original. Press UNDO SETUP in Launcher.exe: it puts the original text back first".into()));
@@ -854,7 +854,7 @@ pub fn undo(kit: &Path, game: &Path, say: &dyn Fn(&str)) -> Result<()> {
             }
         }
         if keep.is_dir() {
-            say.ok("seat 1's formation and cabinet settings copied to data\\save\\seat1_backup");
+            say.ok(Line::key("setup.seat_backup"));
         }
         for n in names(&seat)? {
             if junction_target(&seat.join(&n)).is_some() {
@@ -876,7 +876,7 @@ pub fn undo(kit: &Path, game: &Path, say: &dyn Fn(&str)) -> Result<()> {
             }
         }
         fs::remove_dir(&seat)?;
-        say.ok("seat1\\ removed (extracted\\'s files untouched)");
+        say.ok(Line::key("setup.seat_removed"));
     }
     let misc = rt(game).join("misc");
     let exe_dir = misc.join("FlatPanelReader_Emulator").join("exe");
@@ -891,7 +891,7 @@ pub fn undo(kit: &Path, game: &Path, say: &dyn Fn(&str)) -> Result<()> {
                 fs::remove_dir(d)?;
             }
         }
-        say.ok("misc\\FlatPanelReader_Emulator removed");
+        say.ok(Line::key("setup.fpr_removed"));
     }
     for n in PROGRAMS {
         let p = game.join(n);
@@ -900,9 +900,7 @@ pub fn undo(kit: &Path, game: &Path, say: &dyn Fn(&str)) -> Result<()> {
             if imports(&data, HOOK_DLL) {
                 // a pure swap: this restores the exact original bytes
                 replace(&p, &rename_import(&data, HOOK_DLL, SYS_DLL)?)?;
-                say.ok(&format!(
-                    "extracted\\{n}: the original WINMM import restored"
-                ));
+                say.ok(Line::key("setup.import_restored").arg("file", format!("extracted\\{n}")));
             }
         }
     }
@@ -910,13 +908,11 @@ pub fn undo(kit: &Path, game: &Path, say: &dyn Fn(&str)) -> Result<()> {
         let p = game.join(n);
         if p.is_file() {
             if n != "winmm_orig.dll" && !read(&p)?.windows(15).any(|w| w == b"mxhook attached") {
-                say.note(&format!(
-                    "extracted\\{n} is not Forza-WCCF's hook - left alone"
-                ));
+                say.note(Line::key("setup.not_our_hook").arg("file", format!("extracted\\{n}")));
                 continue;
             }
             fs::remove_file(&p)?;
-            say.ok(&format!("extracted\\{n} removed"));
+            say.ok(Line::key("setup.removed").arg("file", format!("extracted\\{n}")));
         }
     }
     let (lw, backup) = (game.join("logowin.exe"), game.join(logowin_backup()));
@@ -925,7 +921,7 @@ pub fn undo(kit: &Path, game: &Path, say: &dyn Fn(&str)) -> Result<()> {
             fs::remove_file(&lw)?;
         }
         fs::rename(&backup, &lw)?;
-        say.ok("the original logowin.exe back in place");
+        say.ok(Line::key("setup.logowin_back"));
     }
     for (n, text) in [
         ("client_user_option.conf", conf_client(0)),
@@ -936,11 +932,11 @@ pub fn undo(kit: &Path, game: &Path, say: &dyn Fn(&str)) -> Result<()> {
             let have = read(&p)?;
             if have == text.as_bytes() || have == before_rename(&text).as_bytes() {
                 fs::remove_file(&p)?;
-                say.ok(&format!("extracted\\local\\{n} removed"));
+                say.ok(Line::key("setup.removed").arg("file", format!("extracted\\local\\{n}")));
             } else {
-                say.note(&format!(
-                    "extracted\\local\\{n} was changed after setup - left alone"
-                ));
+                say.note(
+                    Line::key("setup.changed_left").arg("file", format!("extracted\\local\\{n}")),
+                );
             }
         }
     }
@@ -948,10 +944,7 @@ pub fn undo(kit: &Path, game: &Path, say: &dyn Fn(&str)) -> Result<()> {
     let mut s = load_settings(&settings);
     s.remove("game");
     save_settings(&settings, s)?;
-    say.line(
-        "Undone. The game folder is back as before setup (busram*.bin and eeprom*.bin may remain). Your club card \
-         stays in data\\save.",
-    );
+    say.line(Line::key("setup.undone_1011"));
     Ok(())
 }
 
@@ -990,7 +983,7 @@ mod tests {
         let t = tempfile::tempdir().unwrap();
         let p = t.path().join("c.conf");
         fs::write(&p, &old).unwrap();
-        write_text(&p, CONF_CONTROL, "x", &Say(&|_| {})).unwrap();
+        write_text(&p, CONF_CONTROL, &Line::raw("x"), &Say(&|_, _| {})).unwrap();
         assert_eq!(fs::read_to_string(&p).unwrap(), CONF_CONTROL);
         assert!(!t.path().join("c.conf.before-kit").exists());
     }
@@ -1021,7 +1014,7 @@ mod tests {
         ] {
             touch(rel);
         }
-        let say = |_: &str| {};
+        let say = |_: &str, _: &Line| {};
         tidy_old_layout(k, &Say(&say)).unwrap();
         for gone in ["scripts", "bin", "english"] {
             assert!(!k.join(gone).exists(), "{gone} removed");
