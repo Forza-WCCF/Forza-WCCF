@@ -308,6 +308,12 @@ impl LauncherState {
                 v.grey = st.lobby.grey;
                 v.kind = st.lobby.kind;
                 v.codes = st.lobby.codes;
+                v.shops_view_only = st.lobby.shops_view_only;
+                if v.shops_view_only {
+                    // 2017-18 lists only shop rooms
+                    v.shop_rooms = true;
+                    v.shops.iter_mut().for_each(|r| r.room = true);
+                }
                 st.lobby = v;
             }
             Scenario::Report => {
@@ -399,7 +405,8 @@ pub fn show(ui: &mut Ui, st: &mut LauncherState) -> Option<Action> {
                     &tr!(lang, "launcher.msg_available", tag = tag.as_str()),
                 );
             }
-            // each tab gets the rest of the height; only DETAILS has no outer scroll (its log box scrolls)
+            // each tab gets the rest of the height; only DETAILS has no outer scroll (its log box scrolls). ONLINE's lobby
+            // list shrinks to fit first (`list_fit`), so its outer bar shows only when that list is at its minimum.
             if st.tab == Tab::Details {
                 output(ui, st, lang, &mut act);
                 return;
@@ -483,6 +490,8 @@ fn play(ui: &mut Ui, st: &mut LauncherState, lang: Lang, accent: Color32) {
 /// The ONLINE tab: the lobby. Looking changes nothing; joining or hosting there makes PLAY play online.
 fn online(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Action>) {
     let free = !st.running && !st.busy;
+    // the list takes the height the tab leaves, so the tab itself scrolls only when the list is at its minimum
+    st.lobby.list_fit = true;
     // HOST SHOP's code and LEAVE stay live while the shop and this PC's seat run
     ui.add_enabled_ui(free || st.lobby.hosting, |ui| {
         if let Some(text) = st.rejoin.clone()
