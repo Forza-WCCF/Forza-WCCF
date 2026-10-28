@@ -4,8 +4,8 @@ Forza-WCCF 2017-18 - release notes
 Not released yet
 ----------------
   - SAVE LOGS replaces SEND LOGS everywhere: the panel, the crash screen and Report a problem save
-    forza-wccf-logs-DATE-TIME.zip in your Downloads folder and show where. Send the file yourself (Discord, a GitHub
-    issue); after a report, a link opens a GitHub issue with the versions filled in. Servers collect no logs.
+    forza-wccf-logs-DATE-TIME.zip in your Downloads folder and show where. Send the file to whoever asked for
+    it; after a report, a link opens a GitHub issue with the versions filled in. Servers collect no logs.
   - The game server no longer crashes when a player's message arrives in pieces over a slow connection (a crash after
     hours of play that cut every seat). Messages that cannot be read are skipped; nobody is disconnected.
 

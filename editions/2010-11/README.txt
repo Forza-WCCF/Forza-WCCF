@@ -80,7 +80,7 @@ SETTINGS
                 controller). CARD HOVER DELAY. Both take effect at once.
   LOGS          SAVE LOGS saves this game's logs as forza-wccf-logs-DATE-TIME.zip in your Downloads folder and shows
                 where. Your club card is never in it, and your Windows user name and PC name are removed. Send the
-                file yourself (Discord, a GitHub issue) with what went wrong. Nothing is uploaded.
+                file to whoever asked for it, with what went wrong. Nothing is uploaded.
 
 CLUB CARD
   Shows your club card: club, manager, contract, league, prize money, card health (session, bad endings, saved
