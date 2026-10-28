@@ -3,8 +3,10 @@
 //! `R seat` (I am seat n), `D to from payload` (a game packet), `P token` (a ping, answered `Q token`); the relay
 //! sends `F from ip(4) payload`. A seat not heard from for `forget` is forgotten. A live seat belongs to the address
 //! that holds it (2010-11, A6): a claim from another address is rejected until the owner is quiet for `forget`.
-//! 2017-18's relay has no such rule.
+//! 2017-18's relay has no such rule. In 2017-18 the relay also runs the desync watch (`desync.rs`) on what passes: it
+//! only reads and logs.
 
+use crate::desync::Watch;
 use crate::{Edition, Handle, Log};
 use std::collections::BTreeMap;
 use std::io;
@@ -77,10 +79,14 @@ fn run(cfg: RelayConfig, log: Log, sock: UdpSocket, stop: Arc<AtomicBool>) {
     };
     let (mut counts, mut drops) = (BTreeMap::<(u8, u8), u32>::new(), BTreeMap::<u8, u32>::new());
     let mut next_report = Instant::now() + r.cfg.report;
+    let mut watch = (r.cfg.edition == Edition::E1718).then(Watch::default);
     // no per-datagram allocation: receive and build the outgoing packet in these two stack buffers
     let (mut buf, mut out) = ([0u8; 4200], [0u8; 4208]);
     while !stop.load(Ordering::Relaxed) {
         let now = Instant::now();
+        if let Some(w) = watch.as_mut() {
+            w.tick(now, &*r.log);
+        }
         if now >= next_report {
             if !(counts.is_empty() && drops.is_empty() && r.rejects.is_empty()) {
                 let passed = counts
@@ -174,6 +180,10 @@ fn run(cfg: RelayConfig, log: Log, sock: UdpSocket, stop: Arc<AtomicBool>) {
                 match sock.send_to(&out[..n + 3], target) {
                     Ok(_) => *counts.entry((from, to)).or_default() += 1,
                     Err(_) => *drops.entry(to).or_default() += 1,
+                }
+                // after the send, so the watch never delays a packet
+                if let Some(w) = watch.as_mut() {
+                    w.packet(from, to, &data[7..], now, &*r.log);
                 }
             }
             _ => {}

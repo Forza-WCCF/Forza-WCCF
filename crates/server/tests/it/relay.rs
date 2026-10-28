@@ -176,3 +176,66 @@ fn two_matches_in_one_shop_stay_apart() {
         );
     }
 }
+
+/// A 2017-18 frame-sync datagram (layout in `desync.rs`) carrying frames `f-5..=f` with values from `value`.
+fn sync_packet(f: u16, value: impl Fn(u16) -> u32) -> Vec<u8> {
+    let mut p = vec![0u8; 520];
+    p[..8].copy_from_slice(&[0xF1, 0xC0, 0x80, 0x44, 0xB4, 0x9E, 0xDA, 0x3C]);
+    p[8] = 10;
+    p[16..20].copy_from_slice(&520u32.to_le_bytes());
+    p[54] = 6;
+    let newest = i32::from(f) + 100;
+    p[56..60].copy_from_slice(&newest.to_le_bytes());
+    for k in 0..6 {
+        let r = &mut p[64 + k * 76..64 + (k + 1) * 76];
+        let g = f + k as u16 - 5;
+        r[..4].copy_from_slice(&(newest - 5 + k as i32).to_le_bytes());
+        r[8] = 5;
+        r[9] = 64;
+        r[12..14].copy_from_slice(&g.to_be_bytes());
+        r[14..18].copy_from_slice(&value(g).to_be_bytes());
+    }
+    p
+}
+
+#[test]
+fn the_desync_watch_logs_the_first_differing_frame_and_passes_every_packet() {
+    let (log, lines) = capture();
+    let relay = start(config(Edition::E1718, 30.0), log).unwrap();
+    let seats: Vec<_> = (0..2).map(|_| udp_client()).collect();
+    for (i, s) in seats.iter().enumerate() {
+        send(
+            s,
+            &[b"WRL1R".as_slice(), &[i as u8 + 1]].concat(),
+            relay.addr(),
+        );
+    }
+    let mut buf = [0u8; 600];
+    for f in (10..60u16).step_by(4) {
+        for (s, peer) in [(1u8, 2u8), (2, 1)] {
+            // seat 2's engine draws a different number from frame 40 on
+            let p = sync_packet(f, |g| {
+                u32::from(g) ^ if s == 2 && g >= 40 { 0x100 } else { 0 }
+            });
+            let d = [b"WRL1D".as_slice(), &[peer, s], &p].concat();
+            send(&seats[usize::from(s) - 1], &d, relay.addr());
+            let sock = &seats[usize::from(peer) - 1];
+            sock.set_read_timeout(Some(LATE)).unwrap();
+            let n = sock.recv(&mut buf).unwrap();
+            assert_eq!(
+                &buf[10..n],
+                &p[..],
+                "frame {f} seat {s}: the packet passes unchanged"
+            );
+        }
+    }
+    let text = wait_for(&lines, |t| t.contains("differs"));
+    assert!(text.contains("desync watch: seats 1-2\n"), "{text}");
+    assert!(
+        text.contains(
+            "desync watch: seats 1-2 frame 40 differs: seat 2 0x00000128, seat 1 0x00000028"
+        ),
+        "{text}"
+    );
+    assert_eq!(text.matches("differs").count(), 1, "{text}");
+}

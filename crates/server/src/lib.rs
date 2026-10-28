@@ -4,6 +4,7 @@
 //! (the binary fills them from the Python's environment variables); tests bind `127.0.0.1:0`.
 
 pub mod desk;
+pub mod desync;
 pub mod relay;
 pub mod shoproom;
 
