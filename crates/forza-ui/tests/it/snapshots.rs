@@ -263,7 +263,7 @@ fn hover_pane() {
         let pitch = forza_ui::board::pitch_rect(col.min, col.width());
         let at = forza_ui::board::slot_rects(pitch, pitch.bottom() + 12.0, &st.board.spots)[slot]
             .center();
-        st.hover_delay = 0.0;
+        st.hover_delay = Some(0.0);
         let mut h = harness(size, 1.0, Edition::E1011, |ui| panel::show(ui, &mut st));
         h.run_steps(4);
         h.hover_at(at);
@@ -680,7 +680,10 @@ fn settings_choices_and_restart() {
     {
         let mut s = st.borrow_mut();
         assert!(
-            s.file.compact && s.file_changed && s.file.hover_ms == 2000 && s.hover_delay == 2.0
+            s.file.compact
+                && s.file_changed
+                && s.file.hover_ms == Some(2000)
+                && s.hover_delay == Some(2.0)
         );
         s.file_changed = false;
     }

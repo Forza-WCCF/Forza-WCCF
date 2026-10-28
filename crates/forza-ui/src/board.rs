@@ -991,7 +991,7 @@ pub fn formation_board(
     ui: &mut Ui,
     board: &mut Board,
     links: &Links,
-    hover_delay: f32,
+    hover_delay: Option<f32>,
     lang: Lang,
 ) -> bool {
     let width = ui.available_width();
@@ -1312,7 +1312,8 @@ pub fn formation_board(
                 }
                 e.1
             });
-            let left = hover_delay as f64 - (now - since);
+            // None: CARD HOVER DELAY off, never shown big by resting
+            let left = hover_delay.map(|d| d as f64 - (now - since));
             // turned over until the mouse rests on another card
             let back = ui.data_mut(|d| {
                 let f = d.get_temp_mut_or_default::<Option<usize>>(flip_id);
@@ -1321,7 +1322,7 @@ pub fn formation_board(
                 }
                 *f == Some(slot)
             });
-            if left <= 0.0 || back {
+            if left.is_some_and(|l| l <= 0.0) || back {
                 let ask = PaneAsk {
                     card: board.cards[ci].clone(),
                     at: rect,
@@ -1329,7 +1330,7 @@ pub fn formation_board(
                 };
                 ui.data_mut(|d| d.insert_temp(pane_id(), ask));
                 shown_big = Some(ci);
-            } else {
+            } else if let Some(left) = left {
                 ui.ctx()
                     .request_repaint_after(std::time::Duration::from_secs_f64(left));
             }
@@ -2442,7 +2443,7 @@ mod tests {
             let mut changed = false;
             ctx.run_ui(raw, |ui| {
                 *pitch = pitch_rect(ui.cursor().min, ui.available_width());
-                changed = formation_board(ui, b, &Links::default(), 3.0, crate::Lang::En);
+                changed = formation_board(ui, b, &Links::default(), Some(3.0), crate::Lang::En);
             })
             .textures_delta
             .clear();
@@ -2563,7 +2564,7 @@ mod tests {
             };
             ctx.run_ui(raw, |ui| {
                 *pitch = pitch_rect(ui.cursor().min, ui.available_width());
-                formation_board(ui, b, &Links::default(), 3.0, crate::Lang::En);
+                formation_board(ui, b, &Links::default(), Some(3.0), crate::Lang::En);
                 removed = removed.take().or(take_removed(ui));
             })
             .textures_delta
@@ -2625,7 +2626,7 @@ mod tests {
                 let r = ui.max_rect().shrink(16.0);
                 let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(r));
                 *pitch = pitch_rect(ui.cursor().min, ui.available_width());
-                formation_board(&mut ui, b, &Links::default(), 3.0, crate::Lang::En);
+                formation_board(&mut ui, b, &Links::default(), Some(3.0), crate::Lang::En);
             })
             .textures_delta
             .clear();
@@ -2680,7 +2681,7 @@ mod tests {
             };
             ctx.run_ui(raw, |ui| {
                 *pitch = pitch_rect(ui.cursor().min, ui.available_width());
-                formation_board(ui, b, &Links::default(), 3.0, crate::Lang::En);
+                formation_board(ui, b, &Links::default(), Some(3.0), crate::Lang::En);
             })
             .textures_delta
             .clear();

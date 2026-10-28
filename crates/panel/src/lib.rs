@@ -1262,14 +1262,14 @@ impl Render {
         let cards = CATALOGUE.get().cloned().unwrap_or_else(|| Arc::new([]));
         let mut st = PanelState::new(files.edition, lang, cards::board(&placed, &cards), cards);
         st.file = files.panel_file();
-        st.hover_delay = st.file.hover_ms as f32 / 1000.0;
+        st.hover_delay = st.file.hover_ms.map(|ms| ms as f32 / 1000.0);
         st.address = st.file.server.clone();
         (st.keys, st.pads) = files.load_keys();
         st.picture = Some(GAME);
         log(&format!(
-            "language {}, hover delay {} s",
+            "language {}, hover delay {}",
             lang.code(),
-            st.hover_delay
+            st.hover_delay.map_or("off".into(), |s| format!("{s} s"))
         ));
         Render {
             ctx,
@@ -2071,7 +2071,7 @@ impl Render {
                     if p.server.is_empty() { "-" } else { &p.server },
                     p.english.as_deref().unwrap_or("-"),
                     if p.compact { "compact" } else { "cabinet" },
-                    p.hover_ms,
+                    p.hover_ms.map_or("off".into(), |ms| ms.to_string()),
                     if p.auto_logs_off { "off" } else { "on" },
                     if p.board_window { "window" } else { "game" },
                     p.board_rect,

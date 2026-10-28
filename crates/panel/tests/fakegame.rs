@@ -605,7 +605,7 @@ fn board_and_buttons_with_real_data() {
     }
     let want = forza::panel_txt::PanelFile {
         compact: true,
-        hover_ms: 2000,
+        hover_ms: Some(2000),
         ..Default::default()
     };
     assert_eq!(

@@ -517,7 +517,8 @@ pub struct PanelState {
     pub links: board::Links,
     /// The player's catalogue (the CATALOGUE page's cards).
     pub cards: Arc<[Card]>,
-    pub hover_delay: f32,
+    /// Seconds before a resting mouse shows the card big; None: never (CARD HOVER DELAY off).
+    pub hover_delay: Option<f32>,
     /// CENTRAL, COUNTER, L-SIDE, R-SIDE, PRESS: lit when the order is on.
     pub tactics: [bool; 5],
     pub online: bool,
@@ -629,7 +630,7 @@ impl PanelState {
             board,
             links: board::Links::default(),
             cards,
-            hover_delay: 0.5,
+            hover_delay: Some(0.5),
             tactics: [false; 5],
             online: false,
             ping_ms: 0,
@@ -3312,17 +3313,23 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                 );
             }
             field(ui, &tr!(lang, "settings.hover"), w);
-            const HOVER: [u32; 4] = [500, 1000, 2000, 3000];
+            const HOVER: [Option<u32>; 5] = [Some(500), Some(1000), Some(2000), Some(3000), None];
             let mut i = HOVER
                 .iter()
                 .position(|&m| m == st.file.hover_ms)
                 .unwrap_or(usize::MAX);
-            if segmented(ui, &mut i, &["0.5 s", "1 s", "2 s", "3 s"], w) {
+            let off = tr!(lang, "settings.hover_off");
+            if segmented(ui, &mut i, &["0.5 s", "1 s", "2 s", "3 s", &off], w) {
                 st.file.hover_ms = HOVER[i];
-                st.hover_delay = HOVER[i] as f32 / 1000.0;
+                st.hover_delay = HOVER[i].map(|ms| ms as f32 / 1000.0);
                 st.file_changed = true;
-                let t = format!("{}", st.hover_delay);
-                st.note(Tone::Done, tr!(lang, "settings.msg_hover", s = t));
+                match st.hover_delay {
+                    Some(s) => {
+                        let t = format!("{s}");
+                        st.note(Tone::Done, tr!(lang, "settings.msg_hover", s = t));
+                    }
+                    None => st.say(Tone::Done, "settings.msg_hover_off"),
+                }
             }
             field(ui, &tr!(lang, "settings.board"), w);
             let mut i = st.file.board_window as usize;
