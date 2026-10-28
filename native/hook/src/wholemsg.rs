@@ -12,6 +12,12 @@
 //!
 //! Bytes that cannot be a batch never reach the server either: they are skipped up to the next place a batch can start.
 //! Nobody is disconnected for them (a rule since 2026-10-11: no player is ever cut).
+//!
+//! 2017-18's control (2026-10-28) has the same batch (its sender, sub_4130F0/sub_413170: total = 8 + each record's 20 +
+//! body) and the same stitching code (sub_413F30, recv 0x80000). One bug in it explains the crash at control+0x14838: when
+//! a read ends inside a batch's total (bytes 4 to 8), sub_414490 stores the stitched total in the record count
+//! (+0x38 at 0x414691, not +0x3C); control then reads the following bytes as records, takes a garbage body size, and a
+//! negative one moves its read offset far outside its buffer. Whole batches never reach that code.
 
 /// The server's own receive buffer (FUN_00412140: recv(..., 0x80000, 0)).
 pub const MAX_BATCH: usize = 0x80000;
@@ -71,6 +77,22 @@ pub fn check(p: &[u8]) -> Batch {
         Batch::Partial
     }
 }
+
+/// 2017-18 control's bytes where [`crate::whole`] expects them (offsets in the program, ASLR moves its base): the push of
+/// sub_413F30's recv(s, buf, 0x80000, 0) at 0x413FB7, and sub_414490's store of a stitched total in the count at 0x41468A.
+#[cfg_attr(feature = "e1011", allow(dead_code))]
+pub const CONTROL_1718: [(usize, &[u8]); 2] = [
+    (
+        0x13FB7,
+        &[
+            0x57, 0x68, 0x00, 0x00, 0x08, 0x00, 0x8D, 0x4C, 0x24, 0x30, 0x51, 0x50,
+        ],
+    ),
+    (
+        0x1468A,
+        &[0x8B, 0x47, 0x38, 0x8B, 0x4C, 0x24, 0x18, 0x89, 0x0C, 0xB0],
+    ),
+];
 
 /// The bytes in front of `p`'s first possible batch (skipped one at a time), and the size of the whole batches after
 /// them that fit in `room` together (0: none yet).
@@ -207,6 +229,29 @@ mod tests {
         let mut b = three();
         b[10] = 0x07;
         assert_eq!(check(&b), Batch::Bad, "a control character in an id");
+    }
+
+    #[test]
+    fn the_2017_18_crash_cases() {
+        let a = three();
+        // the read that ends inside the total, where control's own stitching loses its count
+        for k in 5..8 {
+            assert_eq!(whole(&a[..k], MAX_BATCH), (0, 0), "split at {k}: held");
+            assert_eq!(whole(&a, MAX_BATCH), (0, a.len()), "then given whole");
+        }
+        let mut neg = three();
+        put(&mut neg, 8 + 16, 0xCE27_7B47); // the offset in the crash, as a body size: negative
+        assert_eq!(check(&neg), Batch::Bad, "a negative body size");
+        let mut tail = neg.clone();
+        tail.extend_from_slice(&a);
+        assert_eq!(
+            whole(&tail, MAX_BATCH),
+            (neg.len(), a.len()),
+            "the bad batch skipped, the next one given"
+        );
+        let mut many = three();
+        put(&mut many, 0, a.len() as u32); // a total read as the count
+        assert_eq!(check(&many), Batch::Bad, "a count that cannot fit");
     }
 
     #[test]

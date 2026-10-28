@@ -1,4 +1,4 @@
-//! Whole messages for the server (2026-10-11): control_Release only, the players' connections only (the ones it accepts
+//! Whole messages for the server (2026-10-11; 2017-18's control since 2026-10-28): control_Release only, the players' connections only (the ones it accepts
 //! on port 20002). recv gives the server whole batches and nothing else ([`crate::wholemsg`] says why: a batch in pieces
 //! crashed the server, cutting every player). A batch whose rest has not come yet: "nothing more right now"
 //! (WSAEWOULDBLOCK); the server's own FUN_004123e0 simply waits on that, and as the hook has read everything that was
@@ -54,6 +54,19 @@ pub fn install() {
             "whole messages: OFF (WCCF_WHOLEMSG=0) - the server reads the players' batches as originally written"
         );
         return;
+    }
+    // 2017-18: only the control whose stitching code this was checked against
+    #[cfg(not(feature = "e1011"))]
+    for (off, want) in crate::wholemsg::CONTROL_1718 {
+        // SAFETY: inside control's loaded image (both sites lie in its code)
+        let got = unsafe { std::slice::from_raw_parts(crate::patch::exe().add(off), want.len()) };
+        if got != want {
+            log!(
+                "whole messages: NOT installed - control's bytes at 0x{:X} differ from 2017-18's ({got:02X?}), another build",
+                0x40_0000 + off
+            );
+            return;
+        }
     }
     // ws2_32 ordinals: 3 closesocket, 1 accept, 16 recv, in this order, so a recv is followed only once the other two
     // are in place (a hook that cannot follow a connection reads it as before)
@@ -146,9 +159,16 @@ unsafe extern "system" fn hook_recv(s: SOCKET, buf: *mut u8, len: i32, flags: i3
         let (skip, n) = whole(&w.buf, len as usize);
         if skip > 0 {
             w.skipped += skip as u64;
+            let head = |i: usize| {
+                w.buf
+                    .get(i..i + 4)
+                    .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            };
             log!(
-                "whole messages: {}: {skip} byte(s) that cannot be a message skipped - the player stays connected",
-                w.who
+                "whole messages: {}: {skip} byte(s) that cannot be a message skipped (they began count {:?} total {:?}) - the player stays connected",
+                w.who,
+                head(0),
+                head(4)
             );
             w.buf.drain(..skip);
         }

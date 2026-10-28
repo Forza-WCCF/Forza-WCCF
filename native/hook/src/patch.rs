@@ -85,7 +85,6 @@ pub fn k32<F: Copy>(real: &Real<F>, name: &CStr, hook: F) -> bool {
 }
 
 /// The program's file name (`control_Release.exe`), compared without case.
-#[cfg(any(feature = "e1011", feature = "e1011-server"))]
 pub fn exe_is(name: &str) -> bool {
     std::env::current_exe()
         .ok()

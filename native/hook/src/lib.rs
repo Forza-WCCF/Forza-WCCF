@@ -6,8 +6,8 @@
 //!  - serves the serial ports MXHOOK_COM names from the card reader's and the I/O board's named pipes ([`serial`]);
 //!  - blocks the DHCP release and renew on the host's network card, which dropped the player's LAN, and presents this
 //!    PC to the game with one address in the cabinet's network ([`net`]);
-//!  - 2010-11: answers the server's start of logowin.exe itself ([`logowin`]) and gives the server the players'
-//!    messages only whole ([`whole`]);
+//!  - 2010-11: answers the server's start of logowin.exe itself ([`logowin`]);
+//!  - control (2010-11 on Windows, 2017-18 on Windows and Wine): gives it the players' messages only whole ([`whole`]);
 //!  - a server under Wine (both editions): loads netguard.dll as the second guard ([`net::load_netguard`]); 2010-11
 //!    also fixes three faults of control ([`server`]).
 //!
@@ -57,7 +57,7 @@ mod fixes;
 #[cfg_attr(not(feature = "e1011"), allow(dead_code))]
 mod logowin;
 mod ports;
-#[cfg_attr(not(feature = "e1011"), allow(dead_code))]
+#[cfg_attr(feature = "e1011-server", allow(dead_code))]
 mod wholemsg;
 
 #[cfg(target_arch = "x86")]
@@ -72,7 +72,10 @@ mod patch;
 mod serial;
 #[cfg(all(target_arch = "x86", feature = "e1011-server"))]
 mod server;
-#[cfg(all(target_arch = "x86", feature = "e1011"))]
+#[cfg(all(
+    target_arch = "x86",
+    any(feature = "e1011", feature = "e1718", feature = "e1718-server")
+))]
 mod whole;
 
 #[cfg(target_arch = "x86")]
@@ -128,7 +131,7 @@ fn install() -> bool {
         if ringedge { "ON - mxsram" } else { "off" }
     );
     let (host, inet) = net::install_address();
-    #[cfg(feature = "e1011")]
+    #[cfg(any(feature = "e1011", feature = "e1718", feature = "e1718-server"))]
     whole::install();
 
     let b = u8::from;
