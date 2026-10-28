@@ -395,10 +395,10 @@ pub fn run(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
 /// `overlay\catalogue.tsv`, for the board, made from the game unless it is there and `force` is off. `say` hears the
 /// progress lines. The card pictures are the Launcher's (`forza::cards::pictures`).
 #[cfg(feature = "full")]
-pub fn setup_catalogue(kit: &Path, game: &Path, force: bool, say: &dyn Fn(&str)) -> Result<()> {
+pub fn setup_catalogue(kit: &Path, game: &Path, force: bool, say: crate::Say) -> Result<()> {
     let overlay = kit.join(Edition::E1718.layout().overlay);
     if overlay.join("catalogue.tsv").is_file() && !force {
-        say("  ok    card catalogue made");
+        say("  ok    ", &crate::Line::key("setup.catalogue_made"));
         return Ok(());
     }
     match crate::cards::catalogue::run(Edition::E1718, game, &overlay, Output::CatalogueOnly, say) {

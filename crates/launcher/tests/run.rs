@@ -310,6 +310,29 @@ fn a_game_not_set_up_is_refused() {
     assert!(it.logged.lock().unwrap().iter().any(|l| l.contains("Not set up yet")));
 }
 
+/// forza's own setup lines (forza::Line): the window shows them in the player's language, the log in English.
+#[test]
+fn a_setup_line_is_shown_translated_and_logged_in_english() {
+    let top = tempfile::Builder::new().prefix("wccf-run-").tempdir().unwrap();
+    let (kit, _) = scratch_kit(top.path());
+    let it = Said {
+        lang: Some(forza_ui::Lang::It),
+        ..Said::default()
+    };
+    let nowhere = top.path().join("no game here");
+    let rc = launcher::setup::game_folder(&kit, &nowhere.to_string_lossy(), false, &it);
+    assert_eq!(rc, 2, "{}", it.text());
+    assert!(it.text().contains("nessun file di gioco"), "{}", it.text());
+    assert!(!it.text().contains("no WCCF"), "{}", it.text());
+    assert!(
+        it.logged
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|l| l.contains("no WCCF 2010-11 game files in"))
+    );
+}
+
 /// test_setup_state.py's ensure_hook: a game whose wccfk.dll is not this kit's is set up once (launcher::setup; the
 /// stand-ins are no game it can set up, so that fails and the start stops, saying so); a missing catalogue is only a note.
 #[test]

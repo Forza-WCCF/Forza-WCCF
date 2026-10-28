@@ -21,7 +21,7 @@ fn main() {
     let kit = std::path::Path::new(kit);
     let mode = if undo { "undo" } else { "setup" };
     println!("Forza-WCCF 2010-11 - {mode} - game: {}", game.display());
-    let say = |s: &str| println!("{s}");
+    let say = |lead: &str, l: &forza::Line| println!("{lead}{l:?}");
     let done = if undo {
         e1011::undo(kit, &game, &say)
     } else {

@@ -2,14 +2,14 @@
 //! 2026-10-20, setup.py and english.py run by the kit's Python).  Each is refused while a game program runs from the
 //! game's folders, as the scripts refused; the lines go to the `Ui` one by one.  The exit codes are the scripts': 0 done,
 //! 1 failed, 2 no game (not set up), and [`RUNNING`].  Their own lines are `run::Text`: the player's language in the window,
-//! English in the logs.
+//! English in the logs, and so are forza's (`forza::Line`, [`tell_line`]).
 
 use std::path::Path;
 
 use forza::setup::{find_edition_game, kit_setup};
 use forza::text::{self, Lang, Mode};
 
-use crate::run::{Text, Ui, tell};
+use crate::run::{Text, Ui, tell, tell_line};
 use crate::{Kit, choices, procs, run};
 
 /// Refused: a game program runs from the game's folders.
@@ -63,7 +63,7 @@ pub(crate) fn folder_step(kit: &Kit, folder: &str, undo: bool, ui: &dyn Ui) -> i
     {
         return RUNNING;
     }
-    kit_setup(ed, kit.dir(), &folder, undo, false, &|l| ui.say(l))
+    kit_setup(ed, kit.dir(), &folder, undo, false, &|lead, l| tell_line(ui, lead, l))
 }
 
 /// The game's text into `lang`: "en" English, "it" Italian, "" the original Japanese.
@@ -97,6 +97,6 @@ pub(crate) fn text_step(kit: &Kit, lang: &str, ui: &dyn Ui) -> i32 {
         kit.dir(),
         mode,
         lang,
-        &|l| ui.say(l),
+        &|lead, l| tell_line(ui, lead, l),
     )
 }

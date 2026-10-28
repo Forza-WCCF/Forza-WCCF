@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
+use crate::Line;
+
 pub mod e1011;
 pub mod e1718;
 
@@ -355,49 +357,63 @@ pub fn kit_setup(
     folder: &str,
     undo: bool,
     cards: bool,
-    say: &dyn Fn(&str),
+    say: crate::Say,
 ) -> i32 {
     use crate::Edition::{E1011, E1718};
     let Some(game) = find_edition_game(ed, folder) else {
-        say(&if folder.trim().is_empty() {
-            "no game folder is set up - choose it under SETUP".to_owned()
-        } else {
-            let programs = match ed {
-                E1011 => "client_Release.exe, control_Release.exe, match_Release.exe",
-                E1718 => "client_Release.exe, control_Release.exe",
-            };
-            format!("no WCCF {} game files in {folder} ({programs})", ed.name())
-        });
+        say(
+            "",
+            &if folder.trim().is_empty() {
+                Line::key("setup.no_folder")
+            } else {
+                let programs = match ed {
+                    E1011 => "client_Release.exe, control_Release.exe, match_Release.exe",
+                    E1718 => "client_Release.exe, control_Release.exe",
+                };
+                Line::key("setup.no_game_files")
+                    .arg("edition", ed.name())
+                    .arg("folder", folder)
+                    .arg("programs", programs)
+            },
+        );
         return 2;
     };
-    let what = if undo { "undo" } else { "setup" };
-    say(&format!(
-        "Forza-WCCF {} - {what} - game: {}",
-        ed.name(),
-        game.display()
-    ));
+    let what = if undo {
+        "setup.undo_title"
+    } else {
+        "setup.setup_title"
+    };
+    say(
+        "",
+        &Line::key(what)
+            .arg("edition", ed.name())
+            .arg("game", game.display()),
+    );
     let done = match (ed, undo) {
         (E1011, true) => e1011::undo(kit, &game, say),
         (E1011, false) => e1011::run(kit, &game, cards, say),
         (E1718, true) => e1718::undo(kit, &game, &e1718::Spec::game()).map(|()| {
-            say(&format!(
-                "Undone: the original programs are back in {}. Your club card stays in data\\save.",
-                game.display()
-            ));
+            say(
+                "",
+                &Line::key("setup.undone_1718").arg("game", game.display()),
+            );
         }),
         (E1718, false) => e1718::run(kit, &game, &e1718::Spec::game())
-            .map(|r| r.0.iter().for_each(|(k, _)| say(&format!("  ok    {k}"))))
+            .map(|r| {
+                r.0.iter()
+                    .for_each(|(k, _)| say("  ok    ", &Line::Raw(k.to_string())))
+            })
             .and_then(|()| e1718::setup_catalogue(kit, &game, cards, say)),
     };
     match done {
         Ok(()) => {
             if !undo {
-                say("Setup done.");
+                say("", &Line::key("setup.done"));
             }
             0
         }
         Err(e) => {
-            say(&format!("  FAIL  {e}"));
+            say("  FAIL  ", &Line::Raw(e.to_string()));
             1
         }
     }

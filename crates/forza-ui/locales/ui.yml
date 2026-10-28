@@ -780,3 +780,84 @@ launcher.run_room_waiting: {en: "shop room: this shop's room from before is stil
 launcher.run_running_undo: {en: "The game is running. Close its window, then undo.", it: "Il gioco è in esecuzione. Chiudi la sua finestra, poi annulla.", ja: "ゲームが実行中です。ウィンドウを閉じてから元に戻してください。"}
 launcher.run_running_setup: {en: "The game is running. Close its window, then run setup again.", it: "Il gioco è in esecuzione. Chiudi la sua finestra, poi esegui di nuovo la configurazione.", ja: "ゲームが起動中です。ウィンドウを閉じてから、もう一度セットアップを実行してください。"}
 launcher.run_running_text: {en: "The game is running. Close its window, then switch the text again.", it: "Il gioco è in esecuzione. Chiudi la sua finestra, poi cambia di nuovo il testo.", ja: "ゲームが起動中です。ウィンドウを閉じてから、もう一度ゲームのテキストを切り替えてください。"}
+
+# ---- setup progress: forza's setup, game text and card picture lines (forza::Line; the logs keep the English) ----
+setup.no_folder: {en: "no game folder is set up - choose it under SETUP", it: "nessuna cartella di gioco impostata - sceglila in CONFIGURAZIONE", ja: "ゲームフォルダーが設定されていません。セットアップで選んでください"}
+setup.no_game_files: {en: "no WCCF %{edition} game files in %{folder} (%{programs})", it: "nessun file di gioco WCCF %{edition} in %{folder} (%{programs})", ja: "%{folder} に WCCF %{edition} のゲームファイルがありません(%{programs})"}
+setup.setup_title: {en: "Forza-WCCF %{edition} - setup - game: %{game}", it: "Forza-WCCF %{edition} - configurazione - gioco: %{game}", ja: "Forza-WCCF %{edition} - セットアップ - ゲーム: %{game}"}
+setup.undo_title: {en: "Forza-WCCF %{edition} - undo - game: %{game}", it: "Forza-WCCF %{edition} - annulla - gioco: %{game}", ja: "Forza-WCCF %{edition} - セットアップの取り消し - ゲーム: %{game}"}
+setup.undone_1718: {en: "Undone: the original programs are back in %{game}. Your club card stays in data\\save.", it: "Annullato: i programmi originali sono di nuovo in %{game}. La tua tessera club resta in data\\save.", ja: "取り消しました: 元のプログラムが %{game} に戻りました。クラブカードは data\\save に残ります。"}
+setup.done: {en: "Setup done.", it: "Configurazione completata.", ja: "セットアップが完了しました。"}
+setup.catalogue_made: {en: "card catalogue made", it: "catalogo delle carte creato", ja: "カードカタログを作成しました"}
+setup.uses_hook: {en: "%{what}: uses wccfk.dll", it: "%{what}: usa wccfk.dll", ja: "%{what}: wccfk.dll を使用"}
+setup.in_place: {en: "%{what} already in place", it: "%{what}: già presente", ja: "%{what}は設定済み"}
+setup.put_in_place: {en: "%{what} put in place", it: "%{what}: installato", ja: "%{what}を配置しました"}
+setup.in_place_set: {en: "%{what} already in place (server address and seat set)", it: "%{what}: già presente (indirizzo del server e posto impostati)", ja: "%{what}は設定済み(サーバーアドレスと席を設定済み)"}
+setup.old_kept: {en: "%{what}: the old one is kept as %{name}", it: "%{what}: quello vecchio è salvato come %{name}", ja: "%{what}: 古いものは %{name} として残しました"}
+setup.written: {en: "%{what} written", it: "%{what}: scritto", ja: "%{what}を書き込みました"}
+setup.check_english_backup: {en: "English text is on: checking the original client_Release.exe in data\\english_backup", it: "Testo in inglese attivo: controllo del client_Release.exe originale in data\\english_backup", ja: "英語テキストがオンです: data\\english_backup の元の client_Release.exe を確認しています"}
+setup.client_rev_d: {en: "client_Release.exe is the original Rev D", it: "client_Release.exe è l'originale Rev D", ja: "client_Release.exe はオリジナルの Rev D です"}
+setup.not_rev_d: {en: "%{file} is not the Rev D file Forza-WCCF was tested with - it may not work", it: "%{file} non è il file Rev D con cui è stato provato Forza-WCCF: potrebbe non funzionare", ja: "%{file} は Forza-WCCF で動作確認した Rev D のファイルではありません。動作しない可能性があります"}
+setup.no_directx: {en: "DirectX 9 is missing (no d3dx9_40.dll): install Microsoft's \"DirectX End-User Runtime\" (June 2010) - the game cannot draw without it", it: "DirectX 9 manca (d3dx9_40.dll non trovato): installa \"DirectX End-User Runtime\" di Microsoft (giugno 2010): senza, il gioco non può disegnare", ja: "DirectX 9 がありません(d3dx9_40.dll がありません)。Microsoft の「DirectX End-User Runtime」(2010年6月)をインストールしてください。これがないとゲームは描画できません"}
+setup.game_path_letters: {en: "the game folder's path has non-English letters - if the game fails, move it to a plain path like D:\\Games\\WCCF", it: "il percorso della cartella di gioco contiene lettere non inglesi - se il gioco non parte, spostala in un percorso semplice come D:\\Games\\WCCF", ja: "ゲームフォルダーのパスに英数字以外の文字があります。ゲームが動かない場合は D:\\Games\\WCCF のような単純なパスに移動してください"}
+setup.kit_path_letters: {en: "the Forza-WCCF folder's path has non-English letters - if the game fails, move it to a plain path like D:\\Games\\WCCF", it: "il percorso della cartella di Forza-WCCF contiene lettere non inglesi - se il gioco non parte, spostala in un percorso semplice come D:\\Games\\WCCF", ja: "Forza-WCCF フォルダーのパスに英数字以外の文字があります。ゲームが動かない場合は D:\\Games\\WCCF のような単純なパスに移動してください"}
+setup.in_folder: {en: "in %{folder}:", it: "in %{folder}:", ja: "%{folder} 内:"}
+setup.what_hook: {en: "wccfk.dll (Forza-WCCF's hook)", it: "wccfk.dll (hook di Forza-WCCF)", ja: "wccfk.dll(Forza-WCCF のフック)"}
+setup.removed_old: {en: "removed the old %{file}", it: "rimosso il vecchio %{file}", ja: "古い %{file} を削除しました"}
+setup.logowin_back: {en: "the original logowin.exe back in place", it: "logowin.exe originale rimesso al suo posto", ja: "オリジナルの logowin.exe を元に戻しました"}
+setup.logowin_original: {en: "logowin.exe: original", it: "logowin.exe: originale", ja: "logowin.exe: オリジナル"}
+setup.logowin_not_original: {en: "logowin.exe is not the original - left alone", it: "logowin.exe non è l'originale - lasciato così", ja: "logowin.exe はオリジナルではないため、そのままにしました"}
+setup.what_projector: {en: "projector settings", it: "impostazioni del proiettore", ja: "プロジェクターの設定"}
+setup.what_server: {en: "server settings", it: "impostazioni del server", ja: "サーバーの設定"}
+setup.folder_links: {en: "%{count} folder links to extracted\\ (%{new} new)", it: "%{count} collegamenti alle cartelle in extracted\\ (%{new} nuovi)", ja: "extracted\\ へのフォルダーリンク %{count} 件(新規 %{new} 件)"}
+setup.file_links: {en: "%{count} file links to extracted\\ (%{new} new)", it: "%{count} collegamenti ai file in extracted\\ (%{new} nuovi)", ja: "extracted\\ へのファイルリンク %{count} 件(新規 %{new} 件)"}
+setup.seat_client_in_place: {en: "client_Release.exe: seat 1's patched copy already in place", it: "client_Release.exe: copia modificata del posto 1 già presente", ja: "client_Release.exe: 席 1 のパッチ適用済みコピーは配置済みです"}
+setup.seat_client_english: {en: "client_Release.exe: seat 1's patched copy with English text already in place", it: "client_Release.exe: copia modificata del posto 1 con testo in inglese già presente", ja: "client_Release.exe: 英語テキスト入りの席 1 のパッチ適用済みコピーは配置済みです"}
+setup.seat_client_made: {en: "client_Release.exe: seat 1's patched copy made", it: "client_Release.exe: copia modificata del posto 1 creata", ja: "client_Release.exe: 席 1 のパッチ適用済みコピーを作成しました"}
+setup.what_seat_client: {en: "seat 1's client_Release.exe", it: "client_Release.exe del posto 1", ja: "席 1 の client_Release.exe"}
+setup.what_seat: {en: "seat 1 settings", it: "impostazioni del posto 1", ja: "席 1 の設定"}
+setup.moved_to_cache: {en: "%{name} moved from overlay\\ to data\\cache\\", it: "%{name} spostato da overlay\\ a data\\cache\\", ja: "%{name} を overlay\\ から data\\cache\\ に移動しました"}
+setup.not_moved: {en: "overlay\\%{name} could not be moved (%{error}) - it is made again in data\\cache\\", it: "overlay\\%{name} non può essere spostato (%{error}) - viene creato di nuovo in data\\cache\\", ja: "overlay\\%{name} を移動できませんでした(%{error})。data\\cache\\ に作り直します"}
+setup.old_file_stays: {en: "%{file} (from an older version) could not be removed: %{error}", it: "%{file} (di una versione precedente) non è stato rimosso: %{error}", ja: "%{file}(古いバージョンのもの)を削除できませんでした: %{error}"}
+setup.old_folder_removed: {en: "the older version's %{folder}\\ folder removed", it: "cartella %{folder}\\ della versione precedente rimossa", ja: "旧バージョンの %{folder}\\ フォルダーを削除しました"}
+setup.old_folder_kept: {en: "%{folder}\\ is from an older version and holds other files - left as is", it: "%{folder}\\ è di una versione precedente e contiene altri file: lasciata com'è", ja: "%{folder}\\ は古いバージョンのもので、他のファイルがあるため、そのままにしました"}
+setup.in_cache: {en: "in the Forza-WCCF data\\cache folder:", it: "nella cartella data\\cache di Forza-WCCF:", ja: "Forza-WCCF の data\\cache フォルダー内:"}
+setup.cards_there: {en: "catalogue and %{count} card pictures already made", it: "catalogo e %{count} immagini delle carte già creati", ja: "カタログとカード画像 %{count} 枚は作成済みです"}
+setup.making_cards: {en: "Making the catalogue and card pictures (about a minute)...", it: "Creazione del catalogo e delle immagini delle carte (circa un minuto)...", ja: "カードカタログとカード画像を作成しています(約1分)..."}
+setup.cards_made: {en: "catalogue and card pictures made", it: "catalogo e immagini delle carte creati", ja: "カタログとカード画像を作成しました"}
+setup.in_kit: {en: "in the Forza-WCCF folder:", it: "nella cartella di Forza-WCCF:", ja: "Forza-WCCF のフォルダー内:"}
+setup.seat_backup: {en: "seat 1's formation and cabinet settings copied to data\\save\\seat1_backup", it: "formazione e impostazioni del cabinato del posto 1 copiate in data\\save\\seat1_backup", ja: "席 1 のフォーメーションと筐体の設定を data\\save\\seat1_backup にコピーしました"}
+setup.seat_removed: {en: "seat1\\ removed (extracted\\'s files untouched)", it: "seat1\\ rimosso (i file di extracted\\ non sono stati toccati)", ja: "seat1\\ を削除しました(extracted\\ のファイルはそのままです)"}
+setup.fpr_removed: {en: "misc\\FlatPanelReader_Emulator removed", it: "misc\\FlatPanelReader_Emulator rimosso", ja: "misc\\FlatPanelReader_Emulator を削除しました"}
+setup.import_restored: {en: "%{file}: the original WINMM import restored", it: "%{file}: import WINMM originale ripristinato", ja: "%{file}: 元の WINMM import を復元しました"}
+setup.not_our_hook: {en: "%{file} is not Forza-WCCF's hook - left alone", it: "%{file} non è l'hook di Forza-WCCF: lasciato com'è", ja: "%{file} は Forza-WCCF のフックではないため、そのままにしました"}
+setup.removed: {en: "%{file} removed", it: "%{file} rimosso", ja: "%{file} を削除しました"}
+setup.changed_left: {en: "%{file} was changed after setup - left alone", it: "%{file} è stato modificato dopo la configurazione: lasciato com'è", ja: "%{file} はセットアップ後に変更されているため、そのままにしました"}
+setup.undone_1011: {en: "Undone. The game folder is back as before setup (busram*.bin and eeprom*.bin may remain). Your club card stays in data\\save.", it: "Annullato. La cartella del gioco è come prima della configurazione (busram*.bin e eeprom*.bin possono restare). La tua tessera club resta in data\\save.", ja: "取り消しました。ゲームフォルダーはセットアップ前の状態に戻りました(busram*.bin と eeprom*.bin は残る場合があります)。クラブカードは data\\save に残ります。"}
+setup.cat_missing: {en: "missing: %{file}", it: "mancante: %{file}", ja: "見つかりません: %{file}"}
+setup.cat_wrong_folder: {en: "GAME must be the %{edition} game folder, the one that holds client_Release.exe", it: "GAME deve essere la cartella del gioco %{edition}, quella che contiene client_Release.exe", ja: "GAME には、client_Release.exe がある %{edition} のゲームフォルダーを指定してください"}
+setup.cat_game_files: {en: "game files: %{folder}", it: "file del gioco: %{folder}", ja: "ゲームファイル: %{folder}"}
+setup.cat_read_failed: {en: "reading the game's files: %{error}", it: "lettura dei file del gioco: %{error}", ja: "ゲームのファイルを読み込み中: %{error}"}
+setup.cat_no_match: {en: "not written: this copy does not match WCCF %{edition}'s player data", it: "non scritto: questa copia non corrisponde ai dati dei giocatori di WCCF %{edition}", ja: "書き込みませんでした: このコピーは WCCF %{edition} の選手データと一致しません"}
+setup.cat_link: {en: "refused: %{folder} is a link to another folder - writing would change that folder", it: "rifiutato: %{folder} è un collegamento a un'altra cartella - scrivere modificherebbe quella cartella", ja: "拒否しました: %{folder} は別のフォルダーへのリンクです。書き込むとそのフォルダーが変わってしまいます"}
+setup.cat_cannot_make: {en: "cannot make %{folder}: %{error}", it: "impossibile creare %{folder}: %{error}", ja: "%{folder} を作成できません: %{error}"}
+setup.cat_cannot_write: {en: "cannot write catalogue.tsv: %{error}", it: "impossibile scrivere catalogue.tsv: %{error}", ja: "catalogue.tsv を書き込めません: %{error}"}
+setup.cat_written: {en: "catalogue.tsv: %{count} cards (%{real} real, %{placeholders} placeholders)", it: "catalogue.tsv: %{count} carte (%{real} reali, %{placeholders} segnaposto)", ja: "catalogue.tsv: カード %{count} 枚(実カード %{real} 枚、仮カード %{placeholders} 枚)"}
+setup.cat_pictures: {en: "pictures: %{done} of %{count} written", it: "immagini: %{done} di %{count} scritte", ja: "画像: %{count} 枚中 %{done} 枚を書き込みました"}
+setup.cat_cannot_read: {en: "cannot read %{file}: %{error}", it: "impossibile leggere %{file}: %{error}", ja: "%{file} を読み込めません: %{error}"}
+setup.cat_progress: {en: "pictures %{done} / %{count}", it: "immagini %{done} / %{count}", ja: "画像 %{done} / %{count}"}
+setup.pic_making: {en: "Making card pictures from your game files...", it: "Creazione delle immagini delle carte dai file del tuo gioco...", ja: "ゲームのファイルからカード画像を作成しています..."}
+setup.pic_made: {en: "%{faces} card pictures from the game, %{fronts} album fronts, %{failed} failed", it: "%{faces} immagini delle carte dal gioco, %{fronts} copertine dell'album, %{failed} non riuscite", ja: "ゲームのカード画像 %{faces} 枚、アルバムの表紙 %{fronts} 枚、失敗 %{failed} 枚"}
+setup.pic_adding_hq: {en: "Adding high-quality pictures from %{pack}...", it: "Aggiunta delle immagini in alta qualità da %{pack}...", ja: "%{pack} から高画質画像を追加しています..."}
+setup.pic_hq_made: {en: "%{count} high-quality card pictures, %{failed} failed", it: "%{count} immagini carte in alta qualità, %{failed} non riuscite", ja: "高画質カード画像 %{count} 枚、失敗 %{failed} 枚"}
+text.title_on: {en: "Forza-WCCF %{edition} - %{lang} on - game: %{game}", it: "Forza-WCCF %{edition} - %{lang} attivato - gioco: %{game}", ja: "Forza-WCCF %{edition} - %{lang}オン - ゲーム: %{game}"}
+text.title_off: {en: "Forza-WCCF %{edition} - %{lang} off - game: %{game}", it: "Forza-WCCF %{edition} - %{lang} disattivato - gioco: %{game}", ja: "Forza-WCCF %{edition} - %{lang}オフ - ゲーム: %{game}"}
+text.title_check: {en: "Forza-WCCF %{edition} - %{lang} check - game: %{game}", it: "Forza-WCCF %{edition} - controllo %{lang} - gioco: %{game}", ja: "Forza-WCCF %{edition} - %{lang}の確認 - ゲーム: %{game}"}
+text.lang_en: {en: "English", it: "inglese", ja: "英語"}
+text.lang_it: {en: "Italian", it: "italiano", ja: "イタリア語"}
+text.already_original: {en: "Already the original Japanese.", it: "È già il giapponese originale.", ja: "すでにオリジナルの日本語です。"}
+text.restored: {en: "original Japanese restored (%{files} files, %{pictures} pictures).", it: "giapponese originale ripristinato (%{files} file, %{pictures} immagini).", ja: "オリジナルの日本語に戻しました(ファイル %{files} 個、画像 %{pictures} 枚)。"}
+text.building: {en: "Building from your game files...", it: "Creazione dai file del tuo gioco...", ja: "ゲームのファイルから作成しています..."}
+text.check_only: {en: "Check only, nothing changed. \"on\" would replace %{files} files (%{fresh} backed up first) and redraw %{pictures} pictures.", it: "Solo controllo, nulla è cambiato. \"on\" sostituirebbe %{files} file (%{fresh} prima salvati in backup) e ridisegnerebbe %{pictures} immagini.", ja: "確認のみで、変更はありません。\"on\" にすると、ファイル %{files} 個を置き換え(うち %{fresh} 個は先にバックアップ)、画像 %{pictures} 枚を描き直します。"}
+text.replaced: {en: "%{files} files and %{pictures} pictures replaced. Originals are in data\\english_backup.", it: "%{files} file e %{pictures} immagini sostituiti. Gli originali sono in data\\english_backup.", ja: "ファイル %{files} 個と画像 %{pictures} 枚を置き換えました。元のファイルは data\\english_backup にあります。"}
+text.on: {en: "%{lang} is on.", it: "Testo in %{lang} attivo.", ja: "%{lang}がオンです。"}

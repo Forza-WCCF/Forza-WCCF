@@ -8,13 +8,17 @@ fn every_key_in_three_languages() {
     let yml = std::fs::read_to_string("locales/ui.yml").unwrap();
     let table: HashMap<&str, &str> = yml.lines().filter_map(|l| l.split_once(": {")).collect();
     let mut missing = vec![];
-    // the screens, and Launcher.exe's messages (forza_ui::text, also from the run)
+    // the screens, Launcher.exe's messages (forza_ui::text, also from the run) and forza's setup, game text and card
+    // picture lines (forza::Line, worded by forza_ui::line)
     let files = [
         "src",
         "../launcher/src",
         "../launcher/src/bin/launcher",
         "../launcher/src/run",
         "../installer/src",
+        "../forza/src",
+        "../forza/src/setup",
+        "../forza/src/cards",
     ]
     .iter()
     .flat_map(|d| std::fs::read_dir(d).unwrap())
@@ -42,10 +46,12 @@ fn every_key_in_three_languages() {
                 "lobby",
                 "pause",
                 "logs",
+                "setup",
+                "text",
             ];
             if !known.contains(&section)
                 || rest.is_empty()
-                || ["txt", "exe", "json", "example", "test"].contains(&rest) // file and host names: "panel.txt", "lobby.test"
+                || ["txt", "exe", "json", "py", "example", "test"].contains(&rest) // file and host names: "panel.txt", "lobby.test"
                 || !rest
                     .chars()
                     .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')

@@ -53,6 +53,48 @@ impl Edition {
     }
 }
 
+/// A line setup, the game text and the card pictures tell the player: a `locales/ui.yml` key of forza-ui and its
+/// `%{name}` arguments, which may be lines too.  forza does not word it (forza-ui needs forza): the caller shows it in
+/// the player's language and logs the English (`forza_ui::line`).  `Raw`: words the same in every language (a path, an
+/// error from Windows or the original files).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Line {
+    Raw(String),
+    Key(&'static str, Vec<(&'static str, Line)>),
+}
+
+impl Line {
+    pub fn key(key: &'static str) -> Self {
+        Self::Key(key, Vec::new())
+    }
+
+    pub fn raw(words: impl std::fmt::Display) -> Self {
+        Self::Raw(words.to_string())
+    }
+
+    /// `%{name}` filled with `value` as it is.
+    #[must_use]
+    pub fn arg(self, name: &'static str, value: impl std::fmt::Display) -> Self {
+        self.part(name, Self::Raw(value.to_string()))
+    }
+
+    /// `%{name}` filled with another line.
+    #[must_use]
+    pub fn part(self, name: &'static str, value: Line) -> Self {
+        match self {
+            Self::Key(k, mut args) => {
+                args.push((name, value));
+                Self::Key(k, args)
+            }
+            raw => raw,
+        }
+    }
+}
+
+/// Where a step's lines go: a lead the same in every language ("  ok    ", "  NOTE  ", "  FAIL  ", an indent), then
+/// the line.
+pub type Say<'a> = &'a dyn Fn(&str, &Line);
+
 pub mod board;
 pub mod card;
 #[cfg(feature = "full")]

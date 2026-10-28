@@ -33,7 +33,9 @@ fn main() {
                     println!("  ok    {k}");
                 }
             })
-            .and_then(|()| e1718::setup_catalogue(kit, &game, cards, &|l| println!("{l}")))
+            .and_then(|()| {
+                e1718::setup_catalogue(kit, &game, cards, &|lead, l| println!("{lead}{l:?}"))
+            })
     };
     if let Err(e) = done {
         println!("  FAIL  {e}");
