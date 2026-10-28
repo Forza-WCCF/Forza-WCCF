@@ -1116,6 +1116,34 @@ fn lobby_keys() {
     assert_eq!(got.take(), Some(Leave));
 }
 
+/// The filters by their labels: each check box toggles its filter and the language marks pick one of four.
+#[test]
+fn lobby_filters() {
+    let _gpu = gpu();
+    let v = std::cell::RefCell::new(lobby::LobbyView::sample(lobby::Scenario::List));
+    let mut h = harness(lobby::SIZE, 1.0, Edition::E1718, |ui| {
+        lobby::show(ui, &mut v.borrow_mut(), Lang::En);
+    });
+    h.run_steps(4);
+    let shown = |v: &lobby::LobbyView| v.visible().len();
+    assert_eq!(shown(&v.borrow()), 3);
+    h.get_by_label("Open shops only").click();
+    h.run_steps(2);
+    assert!(v.borrow().open_only);
+    assert_eq!(shown(&v.borrow()), 1);
+    h.get_by_label("Open shops only").click();
+    h.get_by_label("Ping under 150 ms").click();
+    h.run_steps(2);
+    assert!(!v.borrow().open_only && v.borrow().ping_ok);
+    assert_eq!(shown(&v.borrow()), 2);
+    h.get_by_label("IT").click();
+    h.run_steps(2);
+    assert_eq!(v.borrow().lang_filter, 2);
+    h.get_by_label("All").click();
+    h.run_steps(2);
+    assert_eq!(v.borrow().lang_filter, 0);
+}
+
 /// 2017-18 with the shared shop on: HOST SHOP (and H) and its list switch on the SHOPS tab, the code typed and JOINed in
 /// capitals, the listed room joined from its row; while hosting only Esc (LEAVE) answers.
 #[test]
@@ -1138,9 +1166,10 @@ fn lobby_shop_rooms() {
     h.key_press(egui::Key::H);
     h.run_steps(2);
     assert_eq!(got.take(), Some(HostShop));
-    h.get_by_label("List my shop").click();
+    h.get_by_label("List my shop when I host").click();
     h.run_steps(2);
     assert_eq!(got.take(), Some(ListShop(true)));
+    assert!(v.borrow().list_shop);
     v.borrow_mut().code = " k7qm2xpd".into();
     h.run_steps(2);
     // the code box's JOIN, then the listed room row's
