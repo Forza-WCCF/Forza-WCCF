@@ -19,6 +19,8 @@ launcher.msg_stop_armed: {en: "The game will ask first.", it: "Il gioco chieder�
 launcher.status_ready: {en: "Ready.", it: "Pronto.", ja: "準備完了。"}
 launcher.status_not_set_up: {en: "Pick the game folder, then SET UP.", it: "Scegli la cartella del gioco, poi CONFIGURA.", ja: "ゲームフォルダーを選び、「設定する」を押してください。"}
 launcher.setup: {en: "SETUP", it: "CONFIGURAZIONE", ja: "セットアップ"}
+launcher.setup_done: {en: "Ready", it: "Pronto", ja: "準備完了"}
+launcher.setup_needed: {en: "Needs a game folder", it: "Serve una cartella del gioco", ja: "ゲームフォルダーが必要です"}
 launcher.folder_hint: {en: "Type, browse or drop the game folder.", it: "Scrivi, sfoglia o trascina la cartella del gioco.", ja: "ゲームフォルダーを入力・参照・ドロップ。"}
 launcher.browse: {en: "Browse…", it: "Sfoglia…", ja: "参照…"}
 launcher.set_up: {en: "SET UP", it: "CONFIGURA", ja: "設定する"}
@@ -28,6 +30,7 @@ launcher.this_version: {en: "This version: %{v}", it: "Questa versione: %{v}", j
 launcher.kind_stable: {en: "Stable", it: "Stabile", ja: "正式版"}
 launcher.kind_test: {en: "Test build", it: "Versione di prova", ja: "テスト版"}
 launcher.mark_this: {en: "(this version)", it: "(questa versione)", ja: "（使用中）"}
+launcher.mark_newer: {en: "(newer)", it: "(più recente)", ja: "（新しい版）"}
 launcher.update_button: {en: "UPDATE", it: "AGGIORNA", ja: "アップデート"}
 launcher.whats_new: {en: "What's new", it: "Novità", ja: "更新内容"}
 launcher.output: {en: "DETAILS", it: "DETTAGLI", ja: "詳細"}

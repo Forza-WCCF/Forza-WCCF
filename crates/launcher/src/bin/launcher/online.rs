@@ -5,7 +5,7 @@
 
 use super::{plain_error, poke, refuse, t, tf};
 use forza::online::lobby::{Created, HEARTBEAT_EVERY, Reserved};
-use forza_ui::launcher::LauncherState;
+use forza_ui::launcher::{LauncherState, Tab};
 use forza_ui::lobby::{Kind, LobbyAction, Notice, Occupant, Room, RowState};
 use launcher::choices;
 use launcher::lobby::CodeJoin;
@@ -200,7 +200,8 @@ impl Online {
     /// VS room's countdown. True when the countdown ran out: start the run now.
     pub fn look(&mut self, st: &mut LauncherState, edition: &'static str, settings: &Path) -> Option<Go> {
         let wake: Wake = Arc::new(poke);
-        if st.online && !st.running {
+        // the list while it shows; a seat or room this PC holds while PLAY plays online
+        if (st.online || st.tab == Tab::Online) && !st.running {
             if self.poller.is_none() {
                 self.poller = Some(Poller::start(
                     self.servers.clone(),

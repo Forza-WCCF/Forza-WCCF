@@ -389,6 +389,16 @@ pub fn show(ui: &mut Ui, st: &mut LauncherState) -> Option<Action> {
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 10.0;
             tab_row(ui, st, lang);
+            // UPDATE says it in its own words
+            if st.tab != Tab::Update
+                && let Some(tag) = &st.update_available
+            {
+                status_line(
+                    ui,
+                    Tone::Notice,
+                    &tr!(lang, "launcher.msg_available", tag = tag.as_str()),
+                );
+            }
             // each tab gets the rest of the height; only DETAILS has no outer scroll (its log box scrolls)
             if st.tab == Tab::Details {
                 output(ui, st, lang, &mut act);
@@ -435,15 +445,8 @@ fn tab_row(ui: &mut Ui, st: &mut LauncherState, lang: Lang) {
     st.tab = tabs[i].0;
 }
 
-/// The PLAY tab: a newer version, where to play (Online opens the ONLINE tab) and, without UPDATE, this version.
+/// The PLAY tab: where to play (Online opens the ONLINE tab) and, without UPDATE, this version.
 fn play(ui: &mut Ui, st: &mut LauncherState, lang: Lang, accent: Color32) {
-    if let Some(tag) = &st.update_available {
-        status_line(
-            ui,
-            Tone::Notice,
-            &tr!(lang, "launcher.msg_available", tag = tag.as_str()),
-        );
-    }
     widgets::section(ui, &tr!(lang, "launcher.play_section"), accent, |ui| {
         let label_w = 150.0;
         let w = ui.available_width() - label_w;
@@ -477,12 +480,9 @@ fn play(ui: &mut Ui, st: &mut LauncherState, lang: Lang, accent: Color32) {
     }
 }
 
-/// The ONLINE tab: the lobby. Opening it while nothing runs makes PLAY play online.
+/// The ONLINE tab: the lobby. Looking changes nothing; joining or hosting there makes PLAY play online.
 fn online(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Action>) {
     let free = !st.running && !st.busy;
-    if free {
-        st.online = true;
-    }
     // HOST SHOP's code and LEAVE stay live while the shop and this PC's seat run
     ui.add_enabled_ui(free || st.lobby.hosting, |ui| {
         if let Some(text) = st.rejoin.clone()
@@ -497,6 +497,9 @@ fn online(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
             vs_link = club_rows(ui, club_server, link, lang);
         });
         if let Some(a) = chose {
+            if !matches!(a, LobbyAction::Refresh | LobbyAction::ListShop(_)) {
+                st.online = true;
+            }
             *act = Some(Action::Lobby(a));
         } else if vs_link {
             *act = Some(Action::VsLink);
@@ -555,6 +558,11 @@ fn footer(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
 }
 
 fn setup(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Action>) {
+    if st.set_up {
+        status_line(ui, Tone::Done, &tr!(lang, "launcher.setup_done"));
+    } else {
+        status_line(ui, Tone::Notice, &tr!(lang, "launcher.setup_needed"));
+    }
     ui.add_enabled_ui(!st.busy, |ui| {
         ui.label(
             egui::RichText::new(tr!(lang, "launcher.folder_hint"))
@@ -686,6 +694,8 @@ fn release_text(r: &Release, lang: Lang) -> String {
     let mut s = format!("{} · {} · {}", r.tag, tr!(lang, kind), r.date);
     if r.this {
         s = format!("{s} {}", tr!(lang, "launcher.mark_this"));
+    } else if r.newer {
+        s = format!("{s} {}", tr!(lang, "launcher.mark_newer"));
     }
     s
 }
@@ -985,5 +995,22 @@ mod tests {
         w.shops = v.shops.clone();
         w.kind = Kind::Shops;
         assert!(!w.view_only_now() && w.joinable().is_some());
+    }
+
+    #[test]
+    fn looking_at_online_keeps_the_play_mode() {
+        let mut st = LauncherState::sample(Edition::E1011, Lang::En, Scenario::Ready);
+        st.tab = Tab::Online;
+        let ctx = egui::Context::default();
+        theme::install(&ctx, Edition::E1011, &theme::font_dir()).unwrap();
+        // the fonts take effect from the second frame
+        for _ in 0..2 {
+            ctx.run_ui(egui::RawInput::default(), |ui| {
+                show(ui, &mut st);
+            })
+            .textures_delta
+            .clear();
+        }
+        assert!(!st.online && st.tab == Tab::Online);
     }
 }

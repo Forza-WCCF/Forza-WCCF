@@ -1136,7 +1136,7 @@ impl App {
                 .collect();
         }
         let v = &self.st.lobby;
-        if !(self.st.online && v.lan_open && !v.hosting) || self.lan_at.is_some_and(|t| t.elapsed() < LAN_EVERY) {
+        if !(self.st.tab == Tab::Online && v.lan_open && !v.hosting) || self.lan_at.is_some_and(|t| t.elapsed() < LAN_EVERY) {
             return;
         }
         self.lan_at = Some(Instant::now());
@@ -1283,7 +1283,7 @@ impl eframe::App for App {
     /// The gamepad's keys, only while the window has the focus and the lobby shows.
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
         let keys = mem::take(&mut *PAD_KEYS.lock().unwrap_or_else(PoisonError::into_inner));
-        if !raw.focused || !self.st.online {
+        if !raw.focused || self.st.tab != Tab::Online {
             return;
         }
         for key in keys {
