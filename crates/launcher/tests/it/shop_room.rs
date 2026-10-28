@@ -288,3 +288,41 @@ fn an_old_desk_gets_the_room_without_its_name() {
         ]
     );
 }
+
+/// An old desk that also still holds the host's room from before (ERR host on the plain CREATE): the retry after
+/// the wait stays without the name. Waits DESK_HOST_STALE + 2 s, a const with no test knob.
+#[test]
+fn an_old_desk_with_a_stale_room_never_gets_the_name_again() {
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = l.local_addr().unwrap();
+    let asked: Lines = Arc::default();
+    let seen = asked.clone();
+    thread::spawn(move || {
+        for mut c in l.incoming().flatten() {
+            let mut b = [0u8; 256];
+            let n = c.read(&mut b).unwrap_or(0);
+            let line = String::from_utf8_lossy(&b[..n]).trim().to_owned();
+            let named = line.split_whitespace().count() > 4;
+            let mut seen = seen.lock().unwrap();
+            seen.push(line);
+            let answer: &[u8] = if named {
+                b"ERR say WANT or WANT SEAT n\n"
+            } else if seen.len() == 2 {
+                b"ERR host\n"
+            } else {
+                b"ROOM r1 K7QMZDRX t1 1\n"
+            };
+            let _ = c.write_all(answer);
+        }
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let id = shop::id_text(&shop::own_id(&dir.path().join("host.key")).unwrap());
+    let (log, _) = logger("old desk stale host");
+    let room = HostRoom::open(&addr.to_string(), &id, true, "Sala Roma", log, &|_| {}).unwrap();
+    assert_eq!(room.code, "K7QMZDRX");
+    let asked = asked.lock().unwrap();
+    assert_eq!(
+        asked[1..3],
+        [format!("CREATE shop {id} public"), format!("CREATE shop {id} public")]
+    );
+}
