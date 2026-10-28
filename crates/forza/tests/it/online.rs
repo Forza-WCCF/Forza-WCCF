@@ -378,8 +378,13 @@ fn packs_match_the_python() {
                 )
             })
             .collect();
-        assert_eq!(entries(&blob), want, "{name}");
-        assert_eq!(n as u64, r["n"].as_u64().unwrap(), "{name}");
+        // pc.txt and the save data came after the Python
+        let mut got = entries(&blob);
+        let added = got.len();
+        got.retain(|(e, _, _)| e != "pc.txt" && !e.starts_with("save/"));
+        let added = added - got.len();
+        assert_eq!(got, want, "{name}");
+        assert_eq!((n - added) as u64, r["n"].as_u64().unwrap(), "{name}");
         let _ = std::fs::remove_dir_all(root);
         packs += 1;
     }

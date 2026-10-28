@@ -2,10 +2,14 @@
 //! whoever helps them. Nothing is uploaded.
 //!
 //! In the ZIP: `data\logs` (this run and the one before, not the zipped archive), the panel's logs, `panel.txt`,
-//! `keys.txt`, `running.json` and `version.txt`, each its last 2 MB at most; never the club card. What points at the
+//! `keys.txt`, `running.json` and `version.txt`, each its last 2 MB at most. What points at the
 //! person is replaced in the text: the user folder and any other `X:\Users\NAME` (`%USERPROFILE%`), the user name
 //! (`USER`) and the PC's name (`PC`). 2017-18: control's `wccfnet.log` from the game folder too. The newest [`DUMPS_SENT`] lean crash snapshots go whole, with the same names blanked to underscores (also
 //! in UTF-16) so the file keeps its layout. A note (the player's words, why it was made) goes in as `report.txt`.
+//! The save data goes whole and untouched under `save/`: `data\save`'s own files (the club card, the Aime ids) and the
+//! 2017-18 game server's store (`gamesvr\gamesvr.db` and its WAL), each up to [`SAVE_MAX`]; they are the first thing
+//! left out when the ZIP is still too big. `pc.txt`: Windows, CPU, RAM, GPUs and display (scrubbed like the logs).
+//! A hosting PC's shop logs (`seat_broker.txt`, `match_relay.txt`) are in `data\logs` already.
 
 use std::fs;
 use std::io::{self, Cursor, Read, Seek, SeekFrom, Write};
@@ -19,6 +23,8 @@ pub const TAIL: usize = 2 * 1024 * 1024;
 pub const LIMIT: usize = 7 * 1024 * 1024;
 /// A cabinet's lean snapshot is about 1 MB, 90 KB zipped.
 pub const DUMPS_SENT: usize = 3;
+/// A save file bigger than this is left out (it is never cut).
+pub const SAVE_MAX: u64 = 3 * 1024 * 1024;
 
 /// This kit's version.txt ("kit-5.5", written by `cargo xtask package`) without "kit-": "5.5"; none: "dev".
 pub fn version(kit: &Path) -> String {
@@ -108,13 +114,143 @@ fn dumps(kit: &Path) -> Vec<(String, PathBuf)> {
         .collect()
 }
 
+/// The save data that goes whole: `data\save`'s own files and the game server's store, each up to [`SAVE_MAX`].
+fn saves(kit: &Path) -> Vec<(String, PathBuf)> {
+    let save = kit.join("data").join("save");
+    let store = save.join("gamesvr");
+    let mut out: Vec<(String, PathBuf)> = files_in(&save)
+        .into_iter()
+        .map(|p| {
+            let n = p.file_name().unwrap_or_default().to_string_lossy();
+            (format!("save/{n}"), p)
+        })
+        .collect();
+    for n in ["gamesvr.db", "gamesvr.db-wal"] {
+        out.push((format!("save/gamesvr/{n}"), store.join(n)));
+    }
+    out.retain(|(_, p)| fs::metadata(p).is_ok_and(|m| m.is_file() && m.len() <= SAVE_MAX));
+    out
+}
+
 /// What [`pack`] puts in the ZIP, by its names there (the report dialog lists them).
 pub fn names(kit: &Path, game: Option<&Path>) -> Vec<String> {
-    dumps(kit)
-        .into_iter()
-        .chain(files(kit, game))
-        .map(|(n, _)| n)
+    std::iter::once("pc.txt".to_owned())
+        .chain(
+            dumps(kit)
+                .into_iter()
+                .chain(saves(kit))
+                .chain(files(kit, game))
+                .map(|(n, _)| n),
+        )
         .collect()
+}
+
+/// `pc.txt`: Windows, the CPU (vendor matters: AMD and Intel can drift apart in a match), RAM, GPUs and the main
+/// display; "unknown" where a query fails.
+pub fn pc_text() -> String {
+    let logical = std::thread::available_parallelism().map_or(0, std::num::NonZero::get);
+    let mut t = format!("logical processors: {logical}\n");
+    #[cfg(windows)]
+    {
+        let unknown = |v: Option<String>| v.unwrap_or_else(|| "unknown".into());
+        let nt = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion";
+        let cpu = r"HARDWARE\DESCRIPTION\System\CentralProcessor\0";
+        t += &format!(
+            "windows: {} {}, build {}.{}\ncpu: {}\ncpu vendor: {}\ncpu id: {}\nram: {}\ndisplay: {}\n",
+            unknown(reg(nt, "ProductName")),
+            unknown(reg(nt, "DisplayVersion")),
+            unknown(reg(nt, "CurrentBuild")),
+            unknown(reg(nt, "UBR")),
+            unknown(reg(cpu, "ProcessorNameString")),
+            unknown(reg(cpu, "VendorIdentifier")),
+            unknown(reg(cpu, "Identifier")),
+            unknown(ram_mb().map(|m| format!("{m} MB"))),
+            unknown(display()),
+        );
+        let mut gpus = 0;
+        for i in 0..16 {
+            let key = format!(
+                r"SYSTEM\CurrentControlSet\Control\Class\{{4d36e968-e325-11ce-bfc1-08002be10318}}\{i:04}"
+            );
+            if let Some(name) = reg(&key, "DriverDesc") {
+                t += &format!(
+                    "gpu: {name}, driver {}\n",
+                    unknown(reg(&key, "DriverVersion"))
+                );
+                gpus += 1;
+            }
+        }
+        if gpus == 0 {
+            t += "gpu: unknown\n";
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        t += "windows: unknown\n";
+    }
+    t
+}
+
+/// A string or DWORD value under HKEY_LOCAL_MACHINE.
+#[cfg(windows)]
+fn reg(key: &str, value: &str) -> Option<String> {
+    use windows_sys::Win32::System::Registry::{
+        HKEY_LOCAL_MACHINE, REG_DWORD, RRF_RT_REG_DWORD, RRF_RT_REG_SZ, RegGetValueW,
+    };
+    let w = |s: &str| s.encode_utf16().chain([0]).collect::<Vec<u16>>();
+    let (key, value) = (w(key), w(value));
+    let mut buf = [0u16; 512];
+    let mut len = size_of_val(&buf) as u32;
+    let mut kind = 0;
+    // SAFETY: the strings are NUL-terminated and outlive the call; `buf` and `len` describe the output buffer.
+    let rc = unsafe {
+        RegGetValueW(
+            HKEY_LOCAL_MACHINE,
+            key.as_ptr(),
+            value.as_ptr(),
+            RRF_RT_REG_SZ | RRF_RT_REG_DWORD,
+            &mut kind,
+            buf.as_mut_ptr().cast(),
+            &mut len,
+        )
+    };
+    if rc != 0 {
+        return None;
+    }
+    if kind == REG_DWORD {
+        return Some((u32::from(buf[0]) | u32::from(buf[1]) << 16).to_string());
+    }
+    let end = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+    Some(String::from_utf16_lossy(&buf[..end]).trim().to_owned()).filter(|s| !s.is_empty())
+}
+
+#[cfg(windows)]
+fn ram_mb() -> Option<u64> {
+    use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+    // SAFETY: a zeroed MEMORYSTATUSEX with its length set, as the call asks
+    let mut m: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };
+    m.dwLength = size_of::<MEMORYSTATUSEX>() as u32;
+    // SAFETY: `m` is a valid, sized MEMORYSTATUSEX
+    (unsafe { GlobalMemoryStatusEx(&mut m) } != 0).then_some(m.ullTotalPhys / (1024 * 1024))
+}
+
+#[cfg(windows)]
+fn display() -> Option<String> {
+    use windows_sys::Win32::Graphics::Gdi::{
+        DEVMODEW, ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW,
+    };
+    // SAFETY: a zeroed DEVMODEW with its size set, as the call asks
+    let mut m: DEVMODEW = unsafe { std::mem::zeroed() };
+    m.dmSize = size_of::<DEVMODEW>() as u16;
+    // SAFETY: a null device name means the main display; `m` is a valid, sized DEVMODEW
+    (unsafe { EnumDisplaySettingsW(std::ptr::null(), ENUM_CURRENT_SETTINGS, &mut m) } != 0).then(
+        || {
+            format!(
+                "{}x{} at {} Hz",
+                m.dmPelsWidth, m.dmPelsHeight, m.dmDisplayFrequency
+            )
+        },
+    )
 }
 
 /// The strings that point at the person: the Windows user folder, the user name and the PC's name.
@@ -286,7 +422,8 @@ pub fn pack(
     pack_within(kit, game, scrub, tail, note, LIMIT)
 }
 
-/// [`pack`], made again with shorter tails while the ZIP is over `limit` bytes (down to 64 KB a file).
+/// [`pack`], made again with shorter tails while the ZIP is over `limit` bytes (down to 64 KB a file), then without the
+/// save data.
 pub fn pack_within(
     kit: &Path,
     game: Option<&Path>,
@@ -295,6 +432,8 @@ pub fn pack_within(
     note: Option<&str>,
     limit: usize,
 ) -> io::Result<(Vec<u8>, usize)> {
+    let pc = scrub.scrub(pc_text().into_bytes());
+    let mut with_saves = true;
     loop {
         let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
         let mut z = ZipWriter::new(Cursor::new(Vec::new()));
@@ -303,6 +442,17 @@ pub fn pack_within(
             z.start_file("report.txt", opts).map_err(zip_err)?;
             z.write_all(&scrub.scrub(note.as_bytes().to_vec()))?;
             n += 1;
+        }
+        z.start_file("pc.txt", opts).map_err(zip_err)?;
+        z.write_all(&pc)?;
+        n += 1;
+        for (arc, path) in saves(kit).into_iter().filter(|_| with_saves) {
+            // whole and as they are: a cut or rewritten save is no use
+            if let Ok(data) = fs::read(&path) {
+                z.start_file(arc, opts).map_err(zip_err)?;
+                z.write_all(&data)?;
+                n += 1;
+            }
         }
         for (arc, path) in dumps(kit) {
             if let Ok(data) = fs::read(&path) {
@@ -342,6 +492,10 @@ pub fn pack_within(
         let blob = z.finish().map_err(zip_err)?.into_inner();
         if blob.len() > limit && tail > 64 * 1024 {
             tail /= 4;
+            continue;
+        }
+        if blob.len() > limit && with_saves {
+            with_saves = false;
             continue;
         }
         return Ok((blob, n));
@@ -456,6 +610,45 @@ mod tests {
             note(&"é".repeat(3000), &scrub).chars().count(),
             MAX_NOTE_CHARS
         );
+    }
+
+    #[test]
+    fn saves_go_whole_and_pc_txt_is_in() {
+        let d = tempfile::tempdir().unwrap();
+        let save = d.path().join("data").join("save");
+        fs::create_dir_all(save.join("gamesvr")).unwrap();
+        // the user name inside a save stays: saves are not rewritten
+        let card: Vec<u8> = (0..=255u8).chain(*b"Mario").collect();
+        fs::write(save.join("seat1_club.bin"), &card).unwrap();
+        fs::write(save.join("gamesvr").join("gamesvr.db"), b"SQLite\0db").unwrap();
+        fs::write(save.join("big.bin"), vec![0u8; SAVE_MAX as usize + 1]).unwrap();
+        let scrub = Scrub {
+            user: "Mario".into(),
+            ..Scrub::default()
+        };
+        let names = names(d.path(), None);
+        for n in ["pc.txt", "save/seat1_club.bin", "save/gamesvr/gamesvr.db"] {
+            assert!(names.iter().any(|x| x == n), "{n} in {names:?}");
+        }
+        assert!(!names.iter().any(|x| x == "save/big.bin"));
+        let (blob, _) = pack(d.path(), None, &scrub, TAIL, None).unwrap();
+        let mut z = zip::ZipArchive::new(Cursor::new(blob)).unwrap();
+        let mut read = |n: &str| {
+            let mut v = vec![];
+            z.by_name(n).unwrap().read_to_end(&mut v).unwrap();
+            v
+        };
+        assert_eq!(read("save/seat1_club.bin"), card);
+        assert_eq!(read("save/gamesvr/gamesvr.db"), b"SQLite\0db");
+        assert!(
+            String::from_utf8(read("pc.txt"))
+                .unwrap()
+                .contains("logical processors: ")
+        );
+        // over the limit even at the shortest tails: the saves go, never cut
+        let (blob, _) = pack_within(d.path(), None, &scrub, TAIL, None, 1).unwrap();
+        let z = zip::ZipArchive::new(Cursor::new(blob)).unwrap();
+        assert!(z.file_names().all(|n| !n.unwrap().starts_with("save/")));
     }
 
     #[test]
