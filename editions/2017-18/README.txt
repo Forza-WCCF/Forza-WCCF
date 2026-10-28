@@ -60,7 +60,8 @@ KEYS
 ONLINE
   1. Pick Online under PLAY. Open Direct address and type the server's address (HOST or HOST:PORT). The project's
      server only admits addresses on its allow list: ask its operator to add yours. In ARCADES, HOST ARCADE opens
-     an arcade and shows its code; friends type it in Room code, or JOIN a listed arcade room.
+     an arcade and shows its code; friends type it in Room code, or JOIN a listed arcade room. Arcade name, under
+     HOST ARCADE, is the name others see in the list.
   2. HOST VS makes a room and shows its code (e.g. K7QM). Your friend picks that room and presses JOIN.
      QUICK MATCH joins the oldest open room, or opens one. LEAVE (Esc) gives up the seat.
   3. Both players press READY; the game starts after a 5-second countdown. If nobody joins within about 90 seconds,

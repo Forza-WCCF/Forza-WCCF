@@ -564,6 +564,7 @@ lobby.ping_under: {en: "Ping under 150 ms", it: "Ping sotto i 150 ms", ja: "Ping
 lobby.language: {en: "Language:", it: "Lingua:", ja: "言語:"}
 lobby.list_shop: {en: "List my arcade when I host", it: "Elenca la mia sala quando la apro", ja: "ゲームセンターを開くとき一覧に表示"}
 lobby.list_shop_on: {en: "Others can find and join your arcade from the list.", it: "Gli altri trovano la tua sala nell'elenco e possono entrare.", ja: "ほかのプレイヤーが一覧からゲームセンターを見つけて参加できます。"}
+lobby.shop_name: {en: "Arcade name", it: "Nome della sala", ja: "ゲームセンター名"}
 lobby.list_shop_off: {en: "Only players with the code can join.", it: "Entra solo chi ha il codice.", ja: "コードを知っているプレイヤーだけが参加できます。"}
 
 # ---- pause (the panel holds the match, at most 20 s) ----

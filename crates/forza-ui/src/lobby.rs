@@ -235,6 +235,9 @@ pub struct LobbyView {
     pub host_code: Option<String>,
     /// 2017-18: HOST SHOP lists the room in others' SHOPS (the "List my shop" switch, data\settings.json `list_shop`).
     pub list_shop: bool,
+    /// 2017-18: the name others see on this PC's listed room (data\settings.json `shop_name`, saved at HOST SHOP);
+    /// empty: the desk's [`SHOP_ROOM_NAME`](forza::online::lobby::SHOP_ROOM_NAME).
+    pub shop_name: String,
     /// The lobby server shop rooms are on (`host:port`): the host's room's, or the one a code was asked of.
     pub desk: String,
     /// 2017-18 with the shared shop on: the LAN fold, the shops found on this network and the address typed there.
@@ -373,6 +376,7 @@ impl LobbyView {
             hosting: false,
             host_code: None,
             list_shop: false,
+            shop_name: String::new(),
             desk: String::new(),
             lan_open: false,
             lan: vec![],
@@ -509,7 +513,8 @@ impl LobbyView {
             | Scenario::ShopLost => {
                 // 2017-18 with the shared shop on: one public room listed, the rest by code
                 (v.codes, v.shop_rooms, v.shops_view_only) = (true, true, true);
-                let mut room = row("p1", "Shop room", 2, 8, Some(24), None, Open, None);
+                let name = forza::online::lobby::SHOP_ROOM_NAME;
+                let mut room = row("p1", name, 2, 8, Some(24), None, Open, None);
                 room.room = true;
                 v.shops = vec![room];
                 v.code = "K7QM2XPD".into();
@@ -1198,6 +1203,19 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
         if r.inner.clicked() {
             *act = Some(LobbyAction::ListShop(v.list_shop));
         }
+        // the listed room's name, saved at the next HOST SHOP
+        ui.add_enabled_ui(v.joining.is_none(), |ui| {
+            ui.horizontal(|ui| {
+                field(ui, &tr!(lang, "lobby.shop_name"), 130.0);
+                ui.add(
+                    egui::TextEdit::singleline(&mut v.shop_name)
+                        .hint_text(forza::online::lobby::SHOP_ROOM_NAME)
+                        .char_limit(forza::online::lobby::SHOP_NAME_LEN)
+                        .desired_width(240.0)
+                        .margin(vec2(10.0, 6.0)),
+                );
+            });
+        });
     }
 }
 

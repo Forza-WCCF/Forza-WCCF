@@ -932,7 +932,11 @@ fn closing_seat_1_ends_the_2017_18_run() {
     let ui = Said::default();
     let rc = run::command(&kit, &p, &["remote".into(), "127.0.0.1".into()], &ui);
     assert_eq!(rc, run::REFUSED, "{}", ui.text());
-    assert!(ui.text().contains("The shared arcade is off on this PC"), "{}", ui.text());
+    assert!(
+        ui.text().contains("The shared arcade is off on this PC"),
+        "{}",
+        ui.text()
+    );
     assert!(!kit.logs().exists(), "refused before anything of the run exists");
     fs::write(kit.settings_file(), "{}").unwrap();
     let aimedb = p.aimedb_port;
