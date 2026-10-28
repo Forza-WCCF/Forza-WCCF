@@ -176,3 +176,32 @@ fn two_matches_in_one_shop_stay_apart() {
         );
     }
 }
+
+#[test]
+fn the_test_stall_drops_game_packets_for_its_time() {
+    let file = std::env::temp_dir().join(format!("relay_stall_{}.txt", std::process::id()));
+    let mut c = config(Edition::E1718, 30.0);
+    c.stall_file = Some(file.clone());
+    let relay = start(c, capture().0).unwrap();
+    let (a, b) = (udp_client(), udp_client());
+    send(&a, b"WRL1R\x01", relay.addr());
+    send(&b, b"WRL1R\x02", relay.addr());
+    b.set_read_timeout(Some(Duration::from_millis(500)))
+        .unwrap();
+    let mut buf = [0u8; 64];
+    let mut passes = |round: u8| {
+        send(
+            &a,
+            &[b"WRL1D\x02\x01".as_slice(), &[round]].concat(),
+            relay.addr(),
+        );
+        b.recv(&mut buf).is_ok_and(|n| buf[n - 1] == round)
+    };
+    assert!(passes(0));
+    std::fs::write(&file, "1500").unwrap();
+    std::thread::sleep(Duration::from_millis(150)); // the relay looks every 100 ms, when a packet comes
+    assert!(!passes(1) && !passes(2), "a game packet passed the stall");
+    assert!(!file.exists(), "the stall file is read once");
+    std::thread::sleep(Duration::from_millis(1500));
+    assert!(passes(3));
+}

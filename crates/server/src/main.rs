@@ -208,6 +208,7 @@ fn start_relay(ed: Edition, port: Option<u16>, log: Log) -> std::io::Result<Hand
     c.bind = bind();
     c.port = port.unwrap_or_else(|| env("WCCF_RELAY_PORT", c.port));
     c.forget = Duration::from_secs_f64(env("WCCF_RELAY_FORGET", 30.0));
+    c.stall_file = env_path("FORZA_RELAY_STALL_FILE"); // tests only (the Launcher passes no WCCF* variable on)
     let port = c.port;
     relay::start(c, log.clone()).inspect_err(|e| {
         log(&format!(

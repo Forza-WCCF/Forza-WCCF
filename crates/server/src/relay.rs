@@ -4,11 +4,16 @@
 //! sends `F from ip(4) payload`. A seat not heard from for `forget` is forgotten. A live seat belongs to the address
 //! that holds it (2010-11, A6): a claim from another address is rejected until the owner is quiet for `forget`.
 //! 2017-18's relay has no such rule.
+//!
+//! Test switch (never on by default): with `FORZA_RELAY_STALL_FILE` set, a number of milliseconds written to that file
+//! makes the relay drop every game packet (`D`) for that long, once; the file is removed when read. A one-PC stand-in
+//! for a network stall in the middle of a match (`E:\wccf-builds\stall-tolerance-20261028\LIVE.md`).
 
 use crate::{Edition, Handle, Log};
 use std::collections::BTreeMap;
 use std::io;
 use std::net::{SocketAddr, UdpSocket};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -27,6 +32,8 @@ pub struct RelayConfig {
     pub forget: Duration,
     /// How often it logs what passed and forgets quiet seats (the Python: 30 s).
     pub report: Duration,
+    /// `FORZA_RELAY_STALL_FILE` (tests only): milliseconds written there drop all game packets that long.
+    pub stall_file: Option<PathBuf>,
 }
 
 impl RelayConfig {
@@ -37,6 +44,7 @@ impl RelayConfig {
             port: 20040,
             forget: Duration::from_secs(30),
             report: Duration::from_secs(30),
+            stall_file: None,
         }
     }
 }
@@ -77,6 +85,7 @@ fn run(cfg: RelayConfig, log: Log, sock: UdpSocket, stop: Arc<AtomicBool>) {
     };
     let (mut counts, mut drops) = (BTreeMap::<(u8, u8), u32>::new(), BTreeMap::<u8, u32>::new());
     let mut next_report = Instant::now() + r.cfg.report;
+    let (mut stall_until, mut stall_look) = (Instant::now(), Instant::now());
     // no per-datagram allocation: receive and build the outgoing packet in these two stack buffers
     let (mut buf, mut out) = ([0u8; 4200], [0u8; 4208]);
     while !stop.load(Ordering::Relaxed) {
@@ -141,6 +150,15 @@ fn run(cfg: RelayConfig, log: Log, sock: UdpSocket, stop: Arc<AtomicBool>) {
             continue;
         };
         let (data, now) = (&buf[..n], Instant::now());
+        if let Some(f) = r.cfg.stall_file.as_ref().filter(|_| now >= stall_look) {
+            stall_look = now + Duration::from_millis(100);
+            if let Some(ms) = take_stall(f) {
+                stall_until = now + Duration::from_millis(ms);
+                (r.log)(&format!(
+                    "test stall: dropping every game packet for {ms} ms"
+                ));
+            }
+        }
         if n < 6 || &data[..4] != MAGIC {
             continue;
         }
@@ -159,6 +177,9 @@ fn run(cfg: RelayConfig, log: Log, sock: UdpSocket, stop: Arc<AtomicBool>) {
             }
             b'D' if n >= 7 && (1..=8).contains(&data[5]) && (1..=8).contains(&data[6]) => {
                 let (to, from) = (data[5], data[6]);
+                if now < stall_until {
+                    continue; // the test stall
+                }
                 if !r.claim(from, addr, now) {
                     continue; // not this seat's owner: drop the packet
                 }
@@ -180,6 +201,13 @@ fn run(cfg: RelayConfig, log: Log, sock: UdpSocket, stop: Arc<AtomicBool>) {
         }
     }
     (r.log)("match relay: its time is up - stopping");
+}
+
+/// The test stall's milliseconds from `f`, which is removed; `None` while there is no file or no number in it yet.
+fn take_stall(f: &Path) -> Option<u64> {
+    let ms = std::fs::read_to_string(f).ok()?.trim().parse().ok()?;
+    let _ = std::fs::remove_file(f);
+    Some(ms)
 }
 
 /// Starts the relay. Err(io error) when the port cannot be bound.
