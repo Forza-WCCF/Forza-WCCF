@@ -139,8 +139,9 @@ pub struct Options {
     pub dumps: PathBuf,
     /// The Ghidra index folder (`<it>\<client|control|match>\_index.csv`); None: addresses unnamed.
     pub index: Option<PathBuf>,
-    /// The message-reassembly guard for control (WCCF_MSGGUARD, on unless "0").
-    pub msgguard: bool,
+    /// The 2010-11 message-reassembly guard for control (WCCF_MSGGUARD, on unless "0"); None: 2017-18, whose control
+    /// the hook guards in-process (whole messages).
+    pub msgguard: Option<bool>,
     /// Added to the program's environment (the run's WCCF_ and MXHOOK_ settings).
     pub env: Vec<(String, String)>,
     /// Set by the run to end the program now (a quit or a cabinet restart), as the timeout does.
@@ -701,18 +702,31 @@ pub fn run(opts: &Options, job: &Job, out: &mut dyn Write) -> io::Result<i32> {
                 if pr.name.eq_ignore_ascii_case(CONTROL) {
                     let ret = (pr.base as u32).wrapping_add(MSGPARSE_RET_OFF);
                     let mapped = pr.rd(u64::from(ret), 1).is_some();
-                    say!(
-                        out,
-                        "  MSGPARSE guard: {} (any fault while FUN_00412860 is on the stack -> drop the message; \
-                         caller return 0x{ret:08X}; off with WCCF_MSGGUARD=0)",
-                        if !mapped {
-                            format!("NOT armed - control+0x{MSGPARSE_RET_OFF:X} is not mapped (different build?)")
-                        } else if opts.msgguard {
-                            "ON".to_owned()
-                        } else {
-                            "off (WCCF_MSGGUARD=0)".to_owned()
+                    match opts.msgguard {
+                        None => {
+                            say!(
+                                out,
+                                "  MSGPARSE guard: not used (2017-18: the hook gives control the players' messages only \
+                             whole, see \"whole messages\" in its mxhook log; off with WCCF_WHOLEMSG=0)"
+                            );
                         }
-                    );
+                        Some(on) => {
+                            say!(
+                                out,
+                                "  MSGPARSE guard: {} (any fault while FUN_00412860 is on the stack -> drop the message; \
+                             caller return 0x{ret:08X}; off with WCCF_MSGGUARD=0)",
+                                if !mapped {
+                                    format!(
+                                        "NOT armed - control+0x{MSGPARSE_RET_OFF:X} is not mapped (different build?)"
+                                    )
+                                } else if on {
+                                    "ON".to_owned()
+                                } else {
+                                    "off (WCCF_MSGGUARD=0)".to_owned()
+                                }
+                            );
+                        }
+                    }
                 }
             } else {
                 say!(
@@ -811,7 +825,7 @@ pub fn run(opts: &Options, job: &Job, out: &mut dyn Write) -> io::Result<i32> {
                         status = DBG_EXCEPTION_NOT_HANDLED;
                     } else if ec == EXCEPTION_ACCESS_VIOLATION
                         && first
-                        && pr.try_recover_412860(tid, opts.msgguard).is_some()
+                        && pr.try_recover_412860(tid, opts.msgguard == Some(true)).is_some()
                     {
                         // the known control message-reassembly fault: recovered (bad message dropped), control lives on
                         guarded += 1;

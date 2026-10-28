@@ -92,7 +92,9 @@ A 2017-18 shop runs the original control and its four match engines under Wine l
 `wccf-linux-server start --edition 2017-18` (section 7 builds it). Its `winmm.dll` (`native/hook`,
 feature `e1718-server`) forwards every winmm call to `winmm_orig.dll` (`winmm_orig.py`, section 7), ends the process unless
 `netguard.dll` loads, blocks the DHCP release and renew (the guarded control imports them from `wccfnet.dll`), and
-shows the control one network address (`MXHOOK_NET_IP`, default 127.0.0.1). None of the 2010-11 fixes apply. Its log,
+shows the control one network address (`MXHOOK_NET_IP`, default 127.0.0.1). None of the 2010-11 fixes apply; it gives
+control the players' messages only whole (`whole messages: ON`, off with `WCCF_WHOLEMSG=0`), which keeps control's
+own broken reassembly from running (the crash at control+0x14838). Its log,
 `mxhook_<pid>.log` in `MXHOOK_LOG_DIR` (a Wine path, for example `Z:\srv\...`), says `edition: 2017-18 server`.
 
 Self-test: in a folder with `winmm.dll`, `winmm_orig.dll`, `netguard.dll`, `wccfnet.dll` (the kit's `bin/`) and

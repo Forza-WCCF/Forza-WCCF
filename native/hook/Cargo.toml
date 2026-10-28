@@ -16,13 +16,14 @@ crate-type = ["cdylib", "rlib"]
 # programs\wccfk.dll: the 2010-11 game's WINMM import renamed to it; forwards the three timer calls to Windows' winmm,
 # answers control's start of logowin.exe itself and gives control the players' messages only whole
 e1011 = []
-# bin\winmm.dll: the 2017-18 game loads it in place of winmm.dll; forwards every winmm call to winmm_orig.dll
+# bin\winmm.dll: the 2017-18 game loads it in place of winmm.dll; forwards every winmm call to winmm_orig.dll and gives
+# control the players' messages only whole (src/whole.rs)
 e1718 = []
 # the Linux server's winmm.dll for the 2010-11 control and match engines under Wine: e1718's forwarding, plus netguard.dll
 # and the three server fixes (src/server.rs)
 e1011-server = []
 # the Linux server's winmm.dll for the 2017-18 control and match engines under Wine: e1718's forwarding, plus
-# netguard.dll and the DHCP block on the guarded control's wccfnet.dll imports; none of the 2010-11 fixes
+# netguard.dll, the DHCP block on the guarded control's wccfnet.dll imports and whole messages; none of the 2010-11 fixes
 e1718-server = []
 
 [target.'cfg(target_arch = "x86")'.dependencies]
