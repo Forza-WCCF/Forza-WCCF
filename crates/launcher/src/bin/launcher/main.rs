@@ -1062,10 +1062,13 @@ impl App {
                             return;
                         }
                     }
-                    // the listed room's name as typed, as the desk carries it (run::open_shop_room reads it)
+                    // the host dialog's switch (default off) and the listed room's name as typed, as the desk carries it
+                    // (run::open_shop_room reads both)
                     let name = forza::online::lobby::shop_name(&self.st.lobby.shop_name);
                     let file = kit.settings_file();
-                    if let Err(e) = choices::set_setting(&file, "shop_name", &name) {
+                    if let Err(e) = choices::set_setting_bool(&file, "list_shop", self.st.lobby.list_shop)
+                        .and_then(|()| choices::set_setting(&file, "shop_name", &name))
+                    {
                         refuse(write_failed(&file, &e));
                         return;
                     }
@@ -1073,13 +1076,6 @@ impl App {
                     self.st.lobby.hosting = true;
                     self.st.lobby.notice = None;
                     start(vec![Step::Host(false)]);
-                }
-            }
-            Action::Lobby(LobbyAction::ListShop(on)) => {
-                // data\settings.json "list_shop" (default off), which run::open_shop_room reads
-                let file = kit.settings_file();
-                if let Err(e) = choices::set_setting_bool(&file, "list_shop", on) {
-                    refuse(write_failed(&file, &e));
                 }
             }
             Action::Lobby(LobbyAction::HostLan) => {

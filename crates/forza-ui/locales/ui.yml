@@ -529,6 +529,7 @@ lobby.stale: {en: "Updated %{s} s ago.", it: "Aggiornato %{s} s fa.", ja: "%{s} 
 lobby.shop_rooms_off: {en: "Arcade rooms are off on this PC.", it: "Le stanze delle sale sono disattivate su questo PC.", ja: "このPCではゲームセンターのルームがオフになっています。"}
 lobby.grey_vs_1011: {en: "VS ROOMS are not available for 2010-11.", it: "Le SFIDE VS non sono disponibili per 2010-11.", ja: "2010-11 では対戦ルームは利用できません。"}
 lobby.host_shop: {en: "HOST ARCADE", it: "APRI SALA", ja: "ゲームセンターを開く"}
+lobby.host_title: {en: "Host an arcade", it: "Apri la tua sala", ja: "自分のゲームセンターを開く"}
 lobby.room_code: {en: "Room code", it: "Codice stanza", ja: "ルームコード"}
 lobby.opening: {en: "Opening the arcade…", it: "Apertura della sala…", ja: "ゲームセンターを開いています…"}
 lobby.shop_howto: {en: "Both players: card in during the same ENTRY, then Arrange Fixture → Set opponent.", it: "Entrambi: inserite la carta nella stessa ENTRY, poi Arrange Fixture → Set opponent.", ja: "二人とも同じエントリー中にカードを入れ、Arrange Fixture → Set opponent を選びます。"}

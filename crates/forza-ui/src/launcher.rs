@@ -12,7 +12,7 @@ use super::widgets::{
 use crate::theme::Accent;
 use egui::{Color32, Ui, vec2};
 
-pub const SIZE: egui::Vec2 = egui::vec2(600.0, 720.0);
+pub const SIZE: egui::Vec2 = egui::vec2(600.0, 820.0);
 
 /// A release in the update list.
 #[derive(Clone, Debug)]
@@ -405,20 +405,20 @@ pub fn show(ui: &mut Ui, st: &mut LauncherState) -> Option<Action> {
                     &tr!(lang, "launcher.msg_available", tag = tag.as_str()),
                 );
             }
-            // each tab gets the rest of the height; only DETAILS has no outer scroll (its log box scrolls). ONLINE's lobby
-            // list shrinks to fit first (`list_fit`), so its outer bar shows only when that list is at its minimum.
-            if st.tab == Tab::Details {
-                output(ui, st, lang, &mut act);
-                return;
+            // each tab gets the rest of the height; DETAILS (its log box scrolls) and ONLINE (its lobby list shrinks to fit,
+            // `list_fit`) have no outer scroll
+            match st.tab {
+                Tab::Details => return output(ui, st, lang, &mut act),
+                Tab::Online => return online(ui, st, lang, &mut act),
+                _ => {}
             }
             egui::ScrollArea::vertical()
                 .auto_shrink(false)
                 .show(ui, |ui| match st.tab {
                     Tab::Play => play(ui, st, lang, accent),
-                    Tab::Online => online(ui, st, lang, &mut act),
                     Tab::Setup => setup(ui, st, lang, &mut act),
                     Tab::Update => update(ui, st, lang, &mut act),
-                    Tab::Details => {}
+                    Tab::Details | Tab::Online => {}
                 });
         });
     if let Some(c) = st.confirm.clone()
@@ -490,7 +490,7 @@ fn play(ui: &mut Ui, st: &mut LauncherState, lang: Lang, accent: Color32) {
 /// The ONLINE tab: the lobby. Looking changes nothing; joining or hosting there makes PLAY play online.
 fn online(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Action>) {
     let free = !st.running && !st.busy;
-    // the list takes the height the tab leaves, so the tab itself scrolls only when the list is at its minimum
+    // the list takes the height the tab leaves: the tab has no scroll of its own
     st.lobby.list_fit = true;
     // HOST SHOP's code and LEAVE stay live while the shop and this PC's seat run
     ui.add_enabled_ui(free || st.lobby.hosting, |ui| {
@@ -508,10 +508,7 @@ fn online(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
             vs_link = club_rows(ui, club_server, link, lang);
         });
         if let Some(a) = chose {
-            if !matches!(
-                a,
-                LobbyAction::Refresh | LobbyAction::ListShop(_) | LobbyAction::DirectAddress(_)
-            ) {
+            if !matches!(a, LobbyAction::Refresh | LobbyAction::DirectAddress(_)) {
                 st.online = true;
             }
             *act = Some(Action::Lobby(a));

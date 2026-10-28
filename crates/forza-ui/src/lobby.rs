@@ -183,12 +183,11 @@ pub enum LobbyAction {
     CpuNow,
     /// The typed address, on Enter in the Direct address field.
     DirectAddress(String),
-    /// 2017-18: open this PC's shop to others (a shop room with a code).
+    /// 2017-18: open this PC's shop to others (a shop room with a code), HOST in the host dialog: the caller saves
+    /// [`LobbyView::list_shop`] and [`LobbyView::shop_name`] first.
     HostShop,
     /// A room code, typed: a shop room's (6 letters) or a listed VS room's (4).
     JoinCode(String),
-    /// 2017-18: the "List my shop" switch, set to this (HOST SHOP lists the room in SHOPS).
-    ListShop(bool),
     /// 2017-18: open this PC's shop to PCs on its network (no internet).
     HostLan,
     /// 2017-18: join the shop at this address on the network (found, or typed).
@@ -239,11 +238,14 @@ pub struct LobbyView {
     /// HOST SHOP is on: this PC's shop, with its room code once the lobby gave one.
     pub hosting: bool,
     pub host_code: Option<String>,
-    /// 2017-18: HOST SHOP lists the room in others' SHOPS (the "List my shop" switch, data\settings.json `list_shop`).
+    /// 2017-18: HOST SHOP lists the room in others' SHOPS (the "List my shop" switch, data\settings.json `list_shop`,
+    /// saved at HOST SHOP).
     pub list_shop: bool,
     /// 2017-18: the name others see on this PC's listed room (data\settings.json `shop_name`, saved at HOST SHOP);
     /// empty: the desk's [`SHOP_ROOM_NAME`](forza::online::lobby::SHOP_ROOM_NAME).
     pub shop_name: String,
+    /// The host dialog is open (HOST SHOP clicked): `list_shop` and `shop_name` as they were, put back on CANCEL.
+    pub host_ask: Option<(bool, String)>,
     /// The list takes the height left in the caller's `ui` (at least [`LIST_MIN_H`]) instead of [`LIST_H`]: for a
     /// lobby in a fixed-height tab with no scroll of its own around it.
     pub list_fit: bool,
@@ -386,6 +388,7 @@ impl LobbyView {
             host_code: None,
             list_shop: false,
             shop_name: String::new(),
+            host_ask: None,
             list_fit: false,
             desk: String::new(),
             lan_open: false,
@@ -651,6 +654,11 @@ impl LobbyView {
         self.shop_rooms && self.kind == Kind::Shops
     }
 
+    /// HOST SHOP: open the host dialog.
+    fn ask_host(&mut self) {
+        self.host_ask = Some((self.list_shop, self.shop_name.clone()));
+    }
+
     fn set_kind(&mut self, k: Kind) {
         if self.kind != k {
             self.kind = k;
@@ -673,6 +681,10 @@ pub fn clock(s: u32) -> String {
 
 /// The keys: Up/Down the row, Left/Right or Tab the kind, Enter join (ready in a room), F5 refresh, Esc leave.
 fn keys(ui: &Ui, v: &mut LobbyView) -> Option<LobbyAction> {
+    // the host dialog has the keys (Esc closes it)
+    if v.host_ask.is_some() {
+        return None;
+    }
     let pressed = |k: Key, m: Modifiers| ui.input_mut(|i| i.consume_key(m, k));
     let none = Modifiers::NONE;
     if pressed(Key::Escape, none) {
@@ -690,7 +702,8 @@ fn keys(ui: &Ui, v: &mut LobbyView) -> Option<LobbyAction> {
     }
     if pressed(Key::H, none) && !v.offline {
         if v.host_shop_now() {
-            return Some(LobbyAction::HostShop);
+            v.ask_host();
+            return None;
         }
         if v.grey[Kind::Vs as usize].is_none() {
             return Some(LobbyAction::HostVs);
@@ -752,51 +765,69 @@ pub fn show_with(
         }
     });
     ui.add_space(8.0);
-    let summary = v.address.clone();
-    let direct = tr!(lang, "lobby.direct");
-    // the server and club settings stay as they are while this PC hosts
-    ui.add_enabled_ui(!v.hosting, |ui| {
-        fold(
-            ui,
-            &direct,
-            &summary,
-            &mut v.direct_open,
-            theme::BLUE,
-            |ui| {
-                let r = ui.add(
-                    egui::TextEdit::singleline(&mut v.address)
-                        .font(theme::mono(15.0))
-                        .desired_width(ui.available_width())
-                        .margin(vec2(10.0, 7.0)),
-                );
-                if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
-                    act = Some(LobbyAction::DirectAddress(v.address.clone()));
-                }
-                more(ui);
-            },
-        );
-    });
-    // a host's own LAN addresses are in the view above
-    if v.shop_rooms && !v.hosting {
-        ui.add_space(8.0);
-        let summary = tr!(lang, "lobby.lan_found", n = v.lan.len());
-        let mut open = v.lan_open;
-        fold(
-            ui,
-            &tr!(lang, "lobby.lan"),
-            &summary,
-            &mut open,
-            theme::BLUE,
-            |ui| {
-                lan_view(ui, v, lang, &mut act);
-            },
-        );
-        v.lan_open = open;
+    // the folds under the list: in a fitted lobby they scroll on their own once the list is at its minimum
+    let fit = v.list_fit;
+    let folds = |ui: &mut Ui| {
+        let summary = v.address.clone();
+        let direct = tr!(lang, "lobby.direct");
+        // the server and club settings stay as they are while this PC hosts
+        ui.add_enabled_ui(!v.hosting, |ui| {
+            fold(
+                ui,
+                &direct,
+                &summary,
+                &mut v.direct_open,
+                theme::BLUE,
+                |ui| {
+                    let r = ui.add(
+                        egui::TextEdit::singleline(&mut v.address)
+                            .font(theme::mono(15.0))
+                            .desired_width(ui.available_width())
+                            .margin(vec2(10.0, 7.0)),
+                    );
+                    if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+                        act = Some(LobbyAction::DirectAddress(v.address.clone()));
+                    }
+                    more(ui);
+                },
+            );
+        });
+        // a host's own LAN addresses are in the view above
+        if v.shop_rooms && !v.hosting {
+            ui.add_space(8.0);
+            let summary = tr!(lang, "lobby.lan_found", n = v.lan.len());
+            let mut open = v.lan_open;
+            fold(
+                ui,
+                &tr!(lang, "lobby.lan"),
+                &summary,
+                &mut open,
+                theme::BLUE,
+                |ui| {
+                    lan_view(ui, v, lang, &mut act);
+                },
+            );
+            v.lan_open = open;
+        }
+    };
+    let mut hidden = 0.0;
+    if fit {
+        let out = egui::ScrollArea::vertical()
+            .id_salt("lobby_folds")
+            .auto_shrink([false, true])
+            .show(ui, folds);
+        hidden = (out.content_size.y - out.inner_rect.height()).max(0.0);
+    } else {
+        folds(ui);
     }
-    // list_fit: the height under the list this frame sizes the list next frame (once more when it changed)
+    if v.host_ask.is_some() {
+        host_dialog(ui, v, lang, &mut act);
+    }
+    // list_fit: the height under the list this frame, scrolled-away folds included, sizes the list next frame (once more
+    // when it changed)
     let list_bottom: Option<f32> = ui.data(|d| d.get_temp(egui::Id::new(LIST_BOTTOM)));
     if let Some(top) = list_bottom.filter(|_| v.list_fit && !v.hosting && v.room.is_none()) {
-        let below = ui.cursor().top() - top;
+        let below = ui.cursor().top() - top + hidden;
         let id = egui::Id::new(BELOW_LIST);
         let old: Option<f32> = ui.data(|d| d.get_temp(id));
         if old.is_none_or(|o| (o - below).abs() > 0.5) {
@@ -1208,43 +1239,69 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
                 tr!(lang, "lobby.host_shop"),
                 Cab::Plain,
             ) {
-                *act = Some(LobbyAction::HostShop);
+                v.ask_host();
             }
         } else if on(ui, live, tr!(lang, "lobby.host"), Cab::Plain) {
             *act = Some(LobbyAction::HostVs);
         }
     });
-    // HOST SHOP's one setting, right under it
-    if v.host_shop_now() {
-        ui.add_space(4.0);
-        let hint = tr!(
-            lang,
-            if v.list_shop {
-                "lobby.list_shop_on"
-            } else {
-                "lobby.list_shop_off"
-            }
-        );
-        let title = tr!(lang, "lobby.list_shop");
-        let r = ui.add_enabled_ui(v.joining.is_none(), |ui| {
-            toggle_row(ui, &mut v.list_shop, &title, &hint)
-        });
-        if r.inner.clicked() {
-            *act = Some(LobbyAction::ListShop(v.list_shop));
-        }
-        // the listed room's name, saved at the next HOST SHOP
-        ui.add_enabled_ui(v.joining.is_none(), |ui| {
+}
+
+/// The host dialog (HOST SHOP): "List my shop", the shop's name, HOST and CANCEL; CANCEL, Esc or a click outside put
+/// both back as they were.
+fn host_dialog(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAction>) {
+    let (mut host, mut cancel) = (false, false);
+    let modal = egui::Modal::new(egui::Id::new("lobby-host"))
+        .backdrop_color(egui::Color32::from_black_alpha(150))
+        .frame(
+            egui::Frame::new()
+                .fill(theme::DEEP)
+                .stroke(Stroke::new(1.0, theme::RIM))
+                .corner_radius(theme::RADIUS_BIG)
+                .inner_margin(20),
+        )
+        .show(ui.ctx(), |ui| {
+            ui.set_width(440.0);
+            ui.label(
+                egui::RichText::new(tr!(lang, "lobby.host_title"))
+                    .font(theme::display(26.0))
+                    .color(theme::TEXT),
+            );
+            ui.add_space(4.0);
+            let hint = tr!(
+                lang,
+                if v.list_shop {
+                    "lobby.list_shop_on"
+                } else {
+                    "lobby.list_shop_off"
+                }
+            );
+            toggle_row(ui, &mut v.list_shop, &tr!(lang, "lobby.list_shop"), &hint);
             ui.horizontal(|ui| {
                 field(ui, &tr!(lang, "lobby.shop_name"), 130.0);
                 ui.add(
                     egui::TextEdit::singleline(&mut v.shop_name)
                         .hint_text(forza::online::lobby::SHOP_ROOM_NAME)
                         .char_limit(forza::online::lobby::SHOP_NAME_LEN)
-                        .desired_width(240.0)
+                        .desired_width(ui.available_width())
                         .margin(vec2(10.0, 6.0)),
                 );
             });
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                let size = vec2(216.0, 48.0);
+                host = cabinet(ui, size, &tr!(lang, "lobby.host_shop"), Cab::Go, true).clicked();
+                cancel =
+                    cabinet(ui, size, &tr!(lang, "common.cancel"), Cab::Plain, false).clicked();
+            });
         });
+    if host {
+        v.host_ask = None;
+        *act = Some(LobbyAction::HostShop);
+    } else if (cancel || modal.should_close())
+        && let Some((list, name)) = v.host_ask.take()
+    {
+        (v.list_shop, v.shop_name) = (list, name);
     }
 }
 
