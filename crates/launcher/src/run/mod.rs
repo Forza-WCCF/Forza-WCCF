@@ -1275,8 +1275,8 @@ impl Run<'_> {
             dbg_file: self.logs().join(format!("_dbg_{prog}{tag}.txt")),
             dumps: self.kit.data().join("dumps"),
             index: index.is_dir().then_some(index),
-            // control+0x1226A is 2010-11's control: never 2017-18's
-            msgguard: self.edition == Edition::E1011 && env::var("WCCF_MSGGUARD").map_or(true, |v| v != "0"),
+            // control+0x1226A is 2010-11's control: 2017-18's is guarded by its hook (whole messages)
+            msgguard: (self.edition == Edition::E1011).then(|| env::var("WCCF_MSGGUARD").map_or(true, |v| v != "0")),
             env: self.kit_env().into_iter().chain(env).chain([game_dpi()]).collect(),
             stop: Some(stop.clone()),
         };

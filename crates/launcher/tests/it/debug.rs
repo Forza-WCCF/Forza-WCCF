@@ -42,7 +42,7 @@ fn options(exe: PathBuf, top: &Path, role: Role) -> Options {
         dbg_file: top.join("data/logs/_dbg_client.txt"),
         dumps: top.join("data/dumps"),
         index: None,
-        msgguard: true,
+        msgguard: Some(true),
         env: Vec::new(),
         stop: None,
     }
