@@ -2366,7 +2366,8 @@ impl Render {
         }
     }
 
-    /// IMPORT LINEUP: the clipboard's text on the table ([`Render::import_text`]); its UNDO: the table before it.
+    /// IMPORT LINEUP: the clipboard's text checked, then on the table once the dialog's CONFIRM comes
+    /// ([`Render::import_text`]); its UNDO: the table before it.
     fn import(&mut self) {
         if std::mem::take(&mut self.st.import_undone)
             && let Some(old) = panel::undo_import(&mut self.st, in_match())
@@ -2377,7 +2378,12 @@ impl Render {
         }
         if std::mem::take(&mut self.st.import) {
             match clipboard_text() {
-                Some(text) => self.import_text(&text),
+                Some(text) => {
+                    if !panel::ask_import(&mut self.st, &text, in_match()) {
+                        let why = self.st.message.as_ref().map_or("", |m| m.text.as_str());
+                        log(&format!("import: refused - {}", why.replace('\n', " / ")));
+                    }
+                }
                 None => {
                     log(
                         "import: the clipboard could not be read (held by another program, or no text)",
@@ -2386,6 +2392,11 @@ impl Render {
                         .say(forza_ui::widgets::Tone::Refused, "cat.msg_clipboard");
                 }
             }
+        }
+        if std::mem::take(&mut self.st.import_go)
+            && let Some(ask) = self.st.import_ask.take()
+        {
+            self.import_text(&ask.text);
         }
     }
 

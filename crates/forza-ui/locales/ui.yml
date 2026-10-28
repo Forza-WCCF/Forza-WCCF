@@ -330,6 +330,11 @@ cat.msg_import_empty: {en: "No lineup on the clipboard. Copy one on db.wccf.it f
 cat.msg_clipboard: {en: "Could not read the clipboard. Copy the lineup again and retry.", it: "Impossibile leggere gli appunti. Copia di nuovo la formazione e riprova.", ja: "クリップボードを読めません。編成をもう一度コピーして再試行してください。"}
 cat.msg_import_none: {en: "None of these cards is in this game.", it: "Nessuna di queste carte è in questo gioco.", ja: "この編成のカードはこのゲームにありません。"}
 cat.msg_import_match: {en: "Not during a match. Import between matches.", it: "Non durante una partita. Importa tra una partita e l'altra.", ja: "試合中は読み込めません。試合の合間に読み込んでください。"}
+cat.ask_title: {en: "IMPORT LINEUP?", it: "IMPORTARE LA FORMAZIONE?", ja: "編成を読み込みますか？"}
+cat.ask_body: {en: "Replace your table with %{n} cards from the clipboard?", it: "Sostituire il tavolo con %{n} carte dagli appunti?", ja: "テーブルをクリップボードの%{n}枚に置き換えますか？"}
+cat.ask_skipped: {en: "%{n} cards skipped (not usable in this game).", it: "%{n} carte saltate (non usabili in questo gioco).", ja: "%{n}枚はこのゲームで使えないため読み込みません。"}
+cat.ask_confirm: {en: "CONFIRM", it: "CONFERMA", ja: "確定"}
+cat.ask_cancel: {en: "CANCEL", it: "ANNULLA", ja: "キャンセル"}
 cat.skip_no_number: {en: "no number in this game", it: "senza numero in questo gioco", ja: "このゲームに番号なし"}
 cat.skip_bad_line: {en: "unreadable line", it: "riga illeggibile", ja: "読めない行"}
 cat.skip_duplicate: {en: "same player twice", it: "giocatore doppio", ja: "同じ選手"}
