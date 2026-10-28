@@ -41,7 +41,7 @@ use std::{env, mem, ptr, thread};
 
 use eframe::egui;
 use egui::ViewportCommand;
-use forza_ui::launcher::{self as screen, Action, Confirm, LauncherState};
+use forza_ui::launcher::{self as screen, Action, Confirm, LauncherState, Tab};
 use forza_ui::lobby::LobbyAction;
 use forza_ui::theme;
 use forza_ui::widgets::Tone;
@@ -744,7 +744,13 @@ impl App {
             clock: (0.0, 0.0),
             progress: 0.0,
             status: None,
-            setup_open: !set_up || folder.is_some(),
+            tab: if !set_up || folder.is_some() {
+                Tab::Setup
+            } else if online {
+                Tab::Online
+            } else {
+                Tab::Play
+            },
             folder: game,
             pictures_hq: choices::setting(&settings, "card_pictures").as_deref() == Some("hq"),
             skip_tutorial: (kit.edition() == Edition::E1718)
@@ -754,12 +760,10 @@ impl App {
             vs_link: (kit.edition() == Edition::E1718).then(|| kit.settings()["vs_link"].as_bool() != Some(false)),
             updates: true,
             version: version(kit),
-            update_open: false,
             update_available: saved_available(kit),
             update_status: None,
             releases: Vec::new(),
             selected: None,
-            output_open: false,
             output: Vec::new(),
             confirm: None,
             report: None,
@@ -799,7 +803,7 @@ impl App {
     fn folder(&mut self) -> Option<OsString> {
         let f = self.st.folder.trim();
         if f.is_empty() {
-            self.st.setup_open = true;
+            self.st.tab = Tab::Setup;
             refuse(t("launcher.msg_no_folder"));
             return None;
         }
@@ -877,7 +881,7 @@ impl App {
             MINIMIZED.store(false, Ordering::Relaxed);
         }
         if failed {
-            self.st.output_open = true;
+            self.st.tab = Tab::Details;
         }
         if let Some(crashed) = report_open {
             if minimized {
@@ -903,8 +907,8 @@ impl App {
             self.releases = list;
             self.list(&kit);
         }
-        // the UPDATE page opened: the list is asked for again
-        let shown = self.st.update_open;
+        // the UPDATE tab opened: the list is asked for again
+        let shown = self.st.tab == Tab::Update;
         if PAGE_SHOWN.swap(shown, Ordering::Relaxed) != shown && shown {
             set_available(&kit, &mut shared(), None);
             ask_updates();
@@ -1306,7 +1310,7 @@ impl eframe::App for App {
         let dropped = ui.input(|i| i.raw.dropped_files.first().map(|f| f.path().to_path_buf()));
         if let Some(p) = dropped.filter(|_| !self.st.busy) {
             self.st.folder = p.display().to_string();
-            self.st.setup_open = true;
+            self.st.tab = Tab::Setup;
         }
         if let Some(a) = screen::show(ui, &mut self.st) {
             let ctx = ui.ctx().clone();

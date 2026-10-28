@@ -10,6 +10,7 @@ launcher.play_section: {en: "PLAY", it: "GIOCA", ja: "プレイ"}
 launcher.where: {en: "WHERE TO PLAY", it: "DOVE GIOCARE", ja: "プレイ場所"}
 launcher.this_pc: {en: "This PC", it: "Questo PC", ja: "このPC"}
 launcher.online: {en: "Online", it: "Online", ja: "オンライン"}
+launcher.tab_online: {en: "ONLINE", it: "ONLINE", ja: "オンライン"}
 launcher.rejoin: {en: "Rejoin %{name}, seat %{seat}", it: "Rientra in %{name}, posto %{seat}", ja: "%{name} の席 %{seat} に戻る"}
 launcher.play: {en: "PLAY", it: "GIOCA", ja: "プレイ"}
 launcher.stop: {en: "STOP THE GAME", it: "FERMA IL GIOCO", ja: "ゲームを終了"}
@@ -18,26 +19,18 @@ launcher.msg_stop_armed: {en: "The game will ask first.", it: "Il gioco chieder�
 launcher.status_ready: {en: "Ready.", it: "Pronto.", ja: "準備完了。"}
 launcher.status_not_set_up: {en: "Pick the game folder, then SET UP.", it: "Scegli la cartella del gioco, poi CONFIGURA.", ja: "ゲームフォルダーを選び、「設定する」を押してください。"}
 launcher.setup: {en: "SETUP", it: "CONFIGURAZIONE", ja: "セットアップ"}
-launcher.setup_done: {en: "Ready", it: "Pronto", ja: "準備完了"}
-launcher.setup_needed: {en: "Needs a game folder", it: "Serve una cartella del gioco", ja: "ゲームフォルダーが必要です"}
 launcher.folder_hint: {en: "Type, browse or drop the game folder.", it: "Scrivi, sfoglia o trascina la cartella del gioco.", ja: "ゲームフォルダーを入力・参照・ドロップ。"}
 launcher.browse: {en: "Browse…", it: "Sfoglia…", ja: "参照…"}
 launcher.set_up: {en: "SET UP", it: "CONFIGURA", ja: "設定する"}
 launcher.undo: {en: "UNDO SETUP", it: "ANNULLA CONFIGURAZIONE", ja: "設定を元に戻す"}
 launcher.update: {en: "UPDATE", it: "AGGIORNAMENTO", ja: "アップデート"}
 launcher.this_version: {en: "This version: %{v}", it: "Questa versione: %{v}", ja: "このバージョン：%{v}"}
-launcher.col_tag: {en: "VERSION", it: "VERSIONE", ja: "バージョン"}
-launcher.col_kind: {en: "TYPE", it: "TIPO", ja: "種類"}
-launcher.col_date: {en: "DATE", it: "DATA", ja: "日付"}
-launcher.col_mark: {en: "", it: "", ja: ""}
 launcher.kind_stable: {en: "Stable", it: "Stabile", ja: "正式版"}
 launcher.kind_test: {en: "Test build", it: "Versione di prova", ja: "テスト版"}
-launcher.mark_this: {en: "THIS VERSION", it: "QUESTA VERSIONE", ja: "使用中"}
-launcher.mark_newer: {en: "NEWER", it: "PIÙ RECENTE", ja: "新しい版"}
+launcher.mark_this: {en: "(this version)", it: "(questa versione)", ja: "（使用中）"}
 launcher.update_button: {en: "UPDATE", it: "AGGIORNA", ja: "アップデート"}
 launcher.whats_new: {en: "What's new", it: "Novità", ja: "更新内容"}
 launcher.output: {en: "DETAILS", it: "DETTAGLI", ja: "詳細"}
-launcher.output_hint: {en: "", it: "", ja: ""}
 launcher.copy: {en: "Copy", it: "Copia", ja: "コピー"}
 launcher.card_pictures: {en: "CARD PICTURES", it: "IMMAGINI CARTE", ja: "カード画像"}
 launcher.from_game: {en: "From the game", it: "Dal gioco", ja: "ゲームから"}

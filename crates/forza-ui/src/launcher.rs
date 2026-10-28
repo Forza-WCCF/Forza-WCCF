@@ -1,4 +1,4 @@
-//! The launcher: one frameless 600 px window to play, set up, update and read the output. [`show`] draws a
+//! The launcher: one frameless 600 px window in tabs to play, play online, set up, update and read the output. [`show`] draws a
 //! [`LauncherState`] and returns what the player asked for; Launcher.exe (crates/launcher) does it and fills the state
 //! from the real kit, the gallery and the snapshots draw [`LauncherState::sample`].
 
@@ -6,7 +6,7 @@ use super::Lang;
 use super::lobby::{self, Grey, Kind, LobbyAction, LobbyView, Scenario as LobbyScenario};
 use super::theme::{self, Edition};
 use super::widgets::{
-    self, Cab, Tone, action, cabinet, field, fold, progress, segmented, start_bar, status_line,
+    self, Cab, Tone, action, cabinet, field, progress, segmented, start_bar, status_line,
     steps, title_bar, toggle_row,
 };
 use crate::theme::Accent;
@@ -24,6 +24,17 @@ pub struct Release {
     /// The version in this folder.
     pub this: bool,
     pub newer: bool,
+}
+
+/// The launcher's tabs, left to right; PLAY / STOP THE GAME and the status line sit under all of them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tab {
+    Play,
+    Online,
+    Setup,
+    /// Only when the edition has updates (`updates`).
+    Update,
+    Details,
 }
 
 /// What the player asked for this frame. Launcher.exe does it; the gallery ignores it.
@@ -128,7 +139,8 @@ pub struct LauncherState {
     pub clock: (f32, f32),
     /// The status line: a tone and its text.
     pub status: Option<(Tone, String)>,
-    pub setup_open: bool,
+    /// The tab shown.
+    pub tab: Tab,
     pub folder: String,
     /// The card pictures: the high-quality pack, else the game's own.
     pub pictures_hq: bool,
@@ -142,13 +154,11 @@ pub struct LauncherState {
     pub updates: bool,
     /// The version in this folder.
     pub version: String,
-    pub update_open: bool,
-    /// The tag of a newer release found by the update check: shown until UPDATE is opened or the update is done.
+    /// The tag of a newer release found by the update check: shown until the UPDATE tab is opened or the update is done.
     pub update_available: Option<String>,
     pub update_status: Option<(Tone, String)>,
     pub releases: Vec<Release>,
     pub selected: Option<usize>,
-    pub output_open: bool,
     pub output: Vec<String>,
     /// A question shown in a modal.
     pub confirm: Option<Confirm>,
@@ -224,7 +234,7 @@ impl LauncherState {
             progress: 0.0,
             clock: (0.0, 0.0),
             status: Some((Tone::Done, tr!(lang, "launcher.status_ready"))),
-            setup_open: false,
+            tab: Tab::Play,
             folder: r"C:\Games\Forza-WCCF\2010-2011".into(),
             pictures_hq: false,
             skip_tutorial: None,
@@ -232,7 +242,6 @@ impl LauncherState {
             vs_link: None,
             updates: edition == Edition::E1011,
             version: "7.0.0".into(),
-            update_open: false,
             update_available: None,
             update_status: None,
             releases: vec![
@@ -242,7 +251,6 @@ impl LauncherState {
                 release("v6.4.2", false, "2026-08-30", false, false),
             ],
             selected: Some(1),
-            output_open: false,
             output: [
                 "[15:02:11] start: seat 1, this PC",
                 "[15:02:11] card table: 16 slots ready",
@@ -271,19 +279,19 @@ impl LauncherState {
                 st.steps = Some((5, 6));
                 st.clock = (12.0, 62.0);
                 st.status = Some((Tone::Notice, tr!(lang, "launcher.stage_screen")));
-                st.output_open = true;
+                st.tab = Tab::Details;
                 if s == Scenario::StopArmed {
                     st.stop_armed = f64::INFINITY; // never lapses: the snapshot shows 8 s
                 }
             }
             Scenario::NotSetUp => {
                 st.set_up = false;
-                st.setup_open = true;
+                st.tab = Tab::Setup;
                 st.folder = r"D:\Arcade\disc-image".into();
                 st.status = Some((Tone::Notice, tr!(lang, "launcher.status_not_set_up")));
             }
             Scenario::Update => {
-                st.update_open = true;
+                st.tab = Tab::Update;
                 st.update_status = Some((
                     Tone::Refused,
                     tr!(
@@ -295,6 +303,7 @@ impl LauncherState {
             }
             Scenario::Online => {
                 st.online = true;
+                st.tab = Tab::Online;
                 let mut v = LobbyView::sample(LobbyScenario::List);
                 v.grey = st.lobby.grey;
                 v.kind = st.lobby.kind;
@@ -322,7 +331,7 @@ impl LauncherState {
             }
             Scenario::Busy => {
                 st.busy = true;
-                st.setup_open = true;
+                st.tab = Tab::Setup;
                 st.pictures_hq = true;
                 st.progress = 0.42;
                 st.status = Some((Tone::Notice, tr!(lang, "launcher.msg_making_pictures")));
@@ -378,76 +387,21 @@ pub fn show(ui: &mut Ui, st: &mut LauncherState) -> Option<Action> {
                 .inner_margin(egui::Margin::symmetric(16, 14)),
         )
         .show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 10.0;
+            tab_row(ui, st, lang);
+            // each tab gets the rest of the height; only DETAILS has no outer scroll (its log box scrolls)
+            if st.tab == Tab::Details {
+                output(ui, st, lang, &mut act);
+                return;
+            }
             egui::ScrollArea::vertical()
                 .auto_shrink(false)
-                .show(ui, |ui| {
-                    ui.spacing_mut().item_spacing.y = 10.0;
-                    if let Some(tag) = &st.update_available {
-                        status_line(
-                            ui,
-                            Tone::Notice,
-                            &tr!(lang, "launcher.msg_available", tag = tag.as_str()),
-                        );
-                    }
-                    play(ui, st, lang, accent, &mut act);
-                    let summary = if st.set_up {
-                        tr!(lang, "launcher.setup_done")
-                    } else {
-                        tr!(lang, "launcher.setup_needed")
-                    };
-                    let mut open = st.setup_open;
-                    fold(
-                        ui,
-                        &tr!(lang, "launcher.setup"),
-                        &summary,
-                        &mut open,
-                        accent,
-                        |ui| setup(ui, st, lang, &mut act),
-                    );
-                    st.setup_open = open;
-                    let version = match &st.update_available {
-                        Some(tag) => tr!(lang, "launcher.update_available", tag = tag.as_str()),
-                        None => tr!(lang, "launcher.this_version", v = st.version.as_str()),
-                    };
-                    if st.updates {
-                        let mut open = st.update_open;
-                        fold(
-                            ui,
-                            &tr!(lang, "launcher.update"),
-                            &version,
-                            &mut open,
-                            accent,
-                            |ui| update(ui, st, lang, &mut act),
-                        );
-                        st.update_open = open;
-                    }
-                    let mut open = st.output_open;
-                    fold(
-                        ui,
-                        &tr!(lang, "launcher.output"),
-                        &tr!(lang, "launcher.output_hint"),
-                        &mut open,
-                        accent,
-                        |ui| output(ui, st, lang, &mut act),
-                    );
-                    st.output_open = open;
-                    ui.horizontal(|ui| {
-                        if action(ui, &tr!(lang, "launcher.report_problem")).clicked() {
-                            act = Some(Action::Report);
-                        }
-                        if !st.updates {
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    ui.label(
-                                        egui::RichText::new(version)
-                                            .font(theme::body(12.0))
-                                            .color(theme::TEXT_FAINT),
-                                    );
-                                },
-                            );
-                        }
-                    });
+                .show(ui, |ui| match st.tab {
+                    Tab::Play => play(ui, st, lang, accent),
+                    Tab::Online => online(ui, st, lang, &mut act),
+                    Tab::Setup => setup(ui, st, lang, &mut act),
+                    Tab::Update => update(ui, st, lang, &mut act),
+                    Tab::Details => {}
                 });
         });
     if let Some(c) = st.confirm.clone()
@@ -463,18 +417,37 @@ pub fn show(ui: &mut Ui, st: &mut LauncherState) -> Option<Action> {
     act
 }
 
-fn play(
-    ui: &mut Ui,
-    st: &mut LauncherState,
-    lang: Lang,
-    accent: Color32,
-    act: &mut Option<Action>,
-) {
+/// The tab row, in the segmented controls' look; a tab the edition lacks falls back to PLAY.
+fn tab_row(ui: &mut Ui, st: &mut LauncherState, lang: Lang) {
+    let mut tabs = vec![
+        (Tab::Play, tr!(lang, "launcher.play_section")),
+        (Tab::Online, tr!(lang, "launcher.tab_online")),
+        (Tab::Setup, tr!(lang, "launcher.setup")),
+    ];
+    if st.updates {
+        tabs.push((Tab::Update, tr!(lang, "launcher.update")));
+    }
+    tabs.push((Tab::Details, tr!(lang, "launcher.output")));
+    let labels: Vec<&str> = tabs.iter().map(|(_, l)| l.as_str()).collect();
+    let mut i = tabs.iter().position(|(t, _)| *t == st.tab).unwrap_or(0);
+    let w = ui.available_width();
+    segmented(ui, &mut i, &labels, w);
+    st.tab = tabs[i].0;
+}
+
+/// The PLAY tab: a newer version, where to play (Online opens the ONLINE tab) and, without UPDATE, this version.
+fn play(ui: &mut Ui, st: &mut LauncherState, lang: Lang, accent: Color32) {
+    if let Some(tag) = &st.update_available {
+        status_line(
+            ui,
+            Tone::Notice,
+            &tr!(lang, "launcher.msg_available", tag = tag.as_str()),
+        );
+    }
     widgets::section(ui, &tr!(lang, "launcher.play_section"), accent, |ui| {
         let label_w = 150.0;
         let w = ui.available_width() - label_w;
-        let free = !st.running && !st.busy;
-        ui.add_enabled_ui(free, |ui| {
+        ui.add_enabled_ui(!st.running && !st.busy, |ui| {
             ui.horizontal(|ui| {
                 field(ui, &tr!(lang, "launcher.where"), label_w);
                 let mut i = st.online as usize;
@@ -488,29 +461,45 @@ fn play(
                     w,
                 ) {
                     st.online = i == 1;
+                    if st.online {
+                        st.tab = Tab::Online;
+                    }
                 }
             });
         });
-        // HOST SHOP's code and LEAVE stay live while the shop and this PC's seat run
-        if st.online {
-            ui.add_enabled_ui(free || st.lobby.hosting, |ui| {
-                if let Some(text) = st.rejoin.clone()
-                    && action(ui, &text).clicked()
-                {
-                    *act = Some(Action::Rejoin);
-                }
-                let mut vs_link = false;
-                let (club_server, link) = (&mut st.club_server, &mut st.vs_link);
-                // the 2017-18 club server rows live with online play, under the Direct address
-                let chose = lobby::show_with(ui, &mut st.lobby, lang, |ui| {
-                    vs_link = club_rows(ui, club_server, link, lang);
-                });
-                if let Some(a) = chose {
-                    *act = Some(Action::Lobby(a));
-                } else if vs_link {
-                    *act = Some(Action::VsLink);
-                }
-            });
+    });
+    if !st.updates {
+        ui.label(
+            egui::RichText::new(tr!(lang, "launcher.this_version", v = st.version.as_str()))
+                .font(theme::body(12.0))
+                .color(theme::TEXT_FAINT),
+        );
+    }
+}
+
+/// The ONLINE tab: the lobby. Opening it while nothing runs makes PLAY play online.
+fn online(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Action>) {
+    let free = !st.running && !st.busy;
+    if free {
+        st.online = true;
+    }
+    // HOST SHOP's code and LEAVE stay live while the shop and this PC's seat run
+    ui.add_enabled_ui(free || st.lobby.hosting, |ui| {
+        if let Some(text) = st.rejoin.clone()
+            && action(ui, &text).clicked()
+        {
+            *act = Some(Action::Rejoin);
+        }
+        let mut vs_link = false;
+        let (club_server, link) = (&mut st.club_server, &mut st.vs_link);
+        // the 2017-18 club server rows live with online play, under the Direct address
+        let chose = lobby::show_with(ui, &mut st.lobby, lang, |ui| {
+            vs_link = club_rows(ui, club_server, link, lang);
+        });
+        if let Some(a) = chose {
+            *act = Some(Action::Lobby(a));
+        } else if vs_link {
+            *act = Some(Action::VsLink);
         }
     });
 }
@@ -687,93 +676,56 @@ fn text_w(ui: &Ui, text: &str) -> f32 {
         .x
 }
 
-fn update(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Action>) {
-    use egui_extras::{Column, TableBuilder};
-    let mut clicked = None;
-    TableBuilder::new(ui)
-        .id_salt("releases")
-        .striped(true)
-        .sense(egui::Sense::click())
-        .max_scroll_height(140.0)
-        .column(Column::exact(150.0))
-        .column(Column::exact(110.0))
-        .column(Column::exact(100.0))
-        .column(Column::remainder())
-        .header(22.0, |mut h| {
-            for k in [
-                "launcher.col_tag",
-                "launcher.col_kind",
-                "launcher.col_date",
-                "launcher.col_mark",
-            ] {
-                h.col(|ui| {
-                    ui.label(
-                        egui::RichText::new(tr!(lang, k))
-                            .font(theme::display(14.0))
-                            .color(theme::TEXT_FAINT),
-                    );
-                });
-            }
-        })
-        .body(|mut body| {
-            for (i, r) in st.releases.iter().enumerate() {
-                body.row(26.0, |mut row| {
-                    row.set_selected(st.selected == Some(i));
-                    row.col(|ui| {
-                        ui.label(
-                            egui::RichText::new(&r.tag)
-                                .font(theme::mono(13.0))
-                                .color(theme::TEXT),
-                        );
-                    });
-                    let kind = if r.test {
-                        "launcher.kind_test"
-                    } else {
-                        "launcher.kind_stable"
-                    };
-                    row.col(|ui| {
-                        ui.label(
-                            egui::RichText::new(tr!(lang, kind))
-                                .font(theme::body(13.0))
-                                .color(theme::TEXT_DIM),
-                        );
-                    });
-                    row.col(|ui| {
-                        ui.label(
-                            egui::RichText::new(&r.date)
-                                .font(theme::body(13.0))
-                                .color(theme::TEXT_DIM),
-                        );
-                    });
-                    row.col(|ui| {
-                        if r.this {
-                            widgets::chip(
-                                ui,
-                                &tr!(lang, "launcher.mark_this"),
-                                true,
-                                Some(theme::BLUE),
-                            );
-                        } else if r.newer {
-                            widgets::chip(ui, &tr!(lang, "launcher.mark_newer"), true, None);
-                        }
-                    });
-                    if row.response().clicked() {
-                        clicked = Some(i);
-                    }
-                });
-            }
-        });
-    if clicked.is_some() && !st.busy {
-        st.selected = clicked;
+/// One release in the UPDATE list: "v0.5.0 · Stable · 2026-10-28", this folder's marked.
+fn release_text(r: &Release, lang: Lang) -> String {
+    let kind = if r.test {
+        "launcher.kind_test"
+    } else {
+        "launcher.kind_stable"
+    };
+    let mut s = format!("{} · {} · {}", r.tag, tr!(lang, kind), r.date);
+    if r.this {
+        s = format!("{s} {}", tr!(lang, "launcher.mark_this"));
     }
-    ui.add_space(4.0);
+    s
+}
+
+/// The UPDATE tab: this version or the newest, the releases in a list box with UPDATE beside it, "What's new".
+fn update(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Action>) {
+    let version = match &st.update_available {
+        Some(tag) => tr!(lang, "launcher.update_available", tag = tag.as_str()),
+        None => tr!(lang, "launcher.this_version", v = st.version.as_str()),
+    };
+    ui.label(
+        egui::RichText::new(version)
+            .font(theme::body(14.0))
+            .color(theme::TEXT_DIM),
+    );
     let chosen = st.selected.filter(|&i| i < st.releases.len());
     ui.horizontal(|ui| {
-        let can = chosen.is_some() && !st.busy;
-        let up = ui.add_enabled_ui(can, |ui| {
+        let bw = 160.0;
+        // the list box as tall as UPDATE beside it
+        ui.spacing_mut().interact_size.y = 44.0;
+        ui.add_enabled_ui(!st.busy, |ui| {
+            let shown = chosen.map_or_else(String::new, |i| release_text(&st.releases[i], lang));
+            egui::ComboBox::from_id_salt("releases")
+                .selected_text(egui::RichText::new(shown).font(theme::body(14.0)))
+                .width(ui.available_width() - bw - 8.0)
+                .height(400.0)
+                .show_ui(ui, |ui| {
+                    for (i, r) in st.releases.iter().enumerate() {
+                        ui.selectable_value(
+                            &mut st.selected,
+                            Some(i),
+                            egui::RichText::new(release_text(r, lang)).font(theme::body(14.0)),
+                        );
+                    }
+                });
+        });
+        let up = ui.add_enabled_ui(chosen.is_some() && !st.busy, |ui| {
             cabinet(
                 ui,
-                vec2(200.0, 44.0),
+                vec2(bw, 44.0),
                 &tr!(lang, "launcher.update_button"),
                 Cab::Go,
                 true,
@@ -782,20 +734,22 @@ fn update(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
         if let (true, Some(i)) = (up.inner.clicked(), chosen) {
             *act = Some(Action::Update(i));
         }
-        ui.add_space(4.0);
-        let notes = ui.add_enabled_ui(chosen.is_some(), |ui| {
-            action(ui, &tr!(lang, "launcher.whats_new"))
-        });
-        if let (true, Some(i)) = (notes.inner.clicked(), chosen) {
-            *act = Some(Action::WhatsNew(i));
-        }
     });
+    let notes = ui.add_enabled_ui(chosen.is_some(), |ui| {
+        action(ui, &tr!(lang, "launcher.whats_new"))
+    });
+    if let (true, Some(i)) = (notes.inner.clicked(), chosen) {
+        *act = Some(Action::WhatsNew(i));
+    }
     if let Some((tone, text)) = &st.update_status {
         status_line(ui, *tone, text);
     }
 }
 
+/// The DETAILS tab: the output filling the tab above COPY, SAVE LOGS and REPORT A PROBLEM.
 fn output(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Action>) {
+    // the buttons' row and the box's margins stay below the log
+    let h = (ui.available_height() - 64.0).max(80.0);
     egui::Frame::new()
         .fill(theme::WELL)
         .corner_radius(theme::RADIUS)
@@ -806,8 +760,8 @@ fn output(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
             let row = ui.fonts_mut(|f| f.row_height(&font));
             // setup's output runs to thousands of lines: only the rows in view are laid out
             egui::ScrollArea::both()
-                .max_height(160.0)
-                .auto_shrink([false, true])
+                .max_height(h)
+                .auto_shrink(false)
                 .stick_to_bottom(true)
                 .show_rows(ui, row, st.output.len(), |ui, range| {
                     for l in &st.output[range] {
@@ -828,6 +782,9 @@ fn output(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
         }
         if action(ui, &tr!(lang, "launcher.save_logs")).clicked() {
             *act = Some(Action::SaveLogs);
+        }
+        if action(ui, &tr!(lang, "launcher.report_problem")).clicked() {
+            *act = Some(Action::Report);
         }
     });
 }

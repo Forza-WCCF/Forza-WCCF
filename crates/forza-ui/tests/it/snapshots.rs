@@ -86,7 +86,7 @@ fn launcher_screens() {
     all.unwrap();
 }
 
-/// ONLINE chosen: the lobby inside the launcher (taller than the window, which scrolls).
+/// The ONLINE tab: the lobby inside the launcher.
 #[test]
 fn launcher_online() {
     let _gpu = gpu();
@@ -96,7 +96,7 @@ fn launcher_online() {
     snap(
         &mut all,
         "launcher_online_en",
-        Vec2::new(launcher::SIZE.x, 1000.0),
+        launcher::SIZE,
         Edition::E1011,
         |ui| {
             launcher::show(ui, &mut st);
@@ -105,8 +105,7 @@ fn launcher_online() {
     all.unwrap();
 }
 
-/// ONLINE on 2017-18 with the Direct address fold open: the club server and the VS link switch live there now (SETUP
-/// no longer runs past the window).
+/// The ONLINE tab on 2017-18 with the Direct address fold open: the club server and the VS link switch live there.
 #[test]
 fn launcher_online_1718() {
     let _gpu = gpu();
@@ -118,7 +117,7 @@ fn launcher_online_1718() {
         snap(
             &mut all,
             &format!("launcher_online_1718_{}", lang.code()),
-            Vec2::new(launcher::SIZE.x, 1100.0),
+            launcher::SIZE,
             Edition::E1718,
             |ui| {
                 launcher::show(ui, &mut st);
@@ -1026,7 +1025,7 @@ fn launcher_host_shop() {
         snap(
             &mut all,
             &format!("launcher_host_shop_{}", lang.code()),
-            Vec2::new(launcher::SIZE.x, 1000.0),
+            launcher::SIZE,
             Edition::E1718,
             |ui| {
                 launcher::show(ui, &mut st);
