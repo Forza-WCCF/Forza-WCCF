@@ -1136,7 +1136,9 @@ impl App {
                 .collect();
         }
         let v = &self.st.lobby;
-        if !(self.st.tab == Tab::Online && v.lan_open && !v.hosting) || self.lan_at.is_some_and(|t| t.elapsed() < LAN_EVERY) {
+        if !(self.st.tab == Tab::Online && v.lan_open && !v.hosting)
+            || self.lan_at.is_some_and(|t| t.elapsed() < LAN_EVERY)
+        {
             return;
         }
         self.lan_at = Some(Instant::now());

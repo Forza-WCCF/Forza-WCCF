@@ -488,6 +488,8 @@ fn online(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
         if let Some(text) = st.rejoin.clone()
             && action(ui, &text).clicked()
         {
+            // the seat it reserves is held only while PLAY plays online (online.rs `look`)
+            st.online = true;
             *act = Some(Action::Rejoin);
         }
         let mut vs_link = false;
@@ -497,7 +499,10 @@ fn online(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
             vs_link = club_rows(ui, club_server, link, lang);
         });
         if let Some(a) = chose {
-            if !matches!(a, LobbyAction::Refresh | LobbyAction::ListShop(_)) {
+            if !matches!(
+                a,
+                LobbyAction::Refresh | LobbyAction::ListShop(_) | LobbyAction::DirectAddress(_)
+            ) {
                 st.online = true;
             }
             *act = Some(Action::Lobby(a));
