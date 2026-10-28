@@ -863,10 +863,15 @@ fn state_color(s: &RowState) -> egui::Color32 {
     }
 }
 
-/// The columns of a row of width `w`: x offsets and widths of NAME, PLAYERS, PING, LANG, STATE.
+/// The room language filter and LANG column are hidden: few players yet, and no way to set a room's language.
+const SHOW_LANG: bool = false;
+
+/// The columns of a row of width `w`: x offsets and widths of NAME, PLAYERS, PING, LANG, STATE (LANG empty while
+/// hidden, its width given to NAME).
 fn columns(w: f32) -> [(f32, f32); 5] {
     let pad = 10.0;
-    let (name, players, ping, lang) = (w * 0.34, w * 0.14, w * 0.14, w * 0.10);
+    let lang = if SHOW_LANG { w * 0.10 } else { 0.0 };
+    let (name, players, ping) = (w * 0.44 - lang, w * 0.14, w * 0.14);
     let x1 = pad + name;
     let x2 = x1 + players;
     let x3 = x2 + ping;
@@ -943,7 +948,7 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
         }
     });
     ui.add_space(6.0);
-    // filters: check boxes under "Show:", the language as one choice of four
+    // filters: check boxes under "Show:", the language as one choice of four (hidden, see SHOW_LANG)
     ui.horizontal(|ui| {
         field(ui, &tr!(lang, "lobby.show"), 100.0);
         let open = if v.kind == Kind::Shops {
@@ -960,16 +965,18 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
             v.selected = 0;
         }
     });
-    ui.horizontal(|ui| {
-        field(ui, &tr!(lang, "lobby.language"), 100.0);
-        let all = tr!(lang, "lobby.all_langs");
-        for (i, l) in [all.as_str(), "EN", "IT", "JA"].into_iter().enumerate() {
-            if check_chip(ui, l, v.lang_filter == i, true).clicked() && v.lang_filter != i {
-                v.lang_filter = i;
-                v.selected = 0;
+    if SHOW_LANG {
+        ui.horizontal(|ui| {
+            field(ui, &tr!(lang, "lobby.language"), 100.0);
+            let all = tr!(lang, "lobby.all_langs");
+            for (i, l) in [all.as_str(), "EN", "IT", "JA"].into_iter().enumerate() {
+                if check_chip(ui, l, v.lang_filter == i, true).clicked() && v.lang_filter != i {
+                    v.lang_filter = i;
+                    v.selected = 0;
+                }
             }
-        }
-    });
+        });
+    }
     ui.add_space(8.0);
     // column heads
     let (head, _) = ui.allocate_exact_size(vec2(w, 20.0), Sense::hover());
@@ -988,6 +995,7 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
     ]
     .into_iter()
     .enumerate()
+    .filter(|&(i, _)| SHOW_LANG || i != 3)
     {
         cell(
             ui,
@@ -1082,7 +1090,10 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
                         theme::TEXT_DIM
                     },
                 );
-                let l = r.lang.map_or(String::new(), |l| l.code().to_uppercase());
+                let l = r
+                    .lang
+                    .filter(|_| SHOW_LANG)
+                    .map_or(String::new(), |l| l.code().to_uppercase());
                 cell(
                     ui,
                     rect,

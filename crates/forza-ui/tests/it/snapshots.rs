@@ -1136,12 +1136,8 @@ fn lobby_filters() {
     h.run_steps(2);
     assert!(!v.borrow().open_only && v.borrow().ping_ok);
     assert_eq!(shown(&v.borrow()), 2);
-    h.get_by_label("IT").click();
-    h.run_steps(2);
-    assert_eq!(v.borrow().lang_filter, 2);
-    h.get_by_label("All").click();
-    h.run_steps(2);
-    assert_eq!(v.borrow().lang_filter, 0);
+    // the room language filter is hidden for now
+    assert!(h.query_by_label("IT").is_none() && h.query_by_label("All").is_none());
 }
 
 /// 2017-18 with the shared shop on: HOST SHOP (and H) and its list switch on the SHOPS tab, the code typed and JOINed in
