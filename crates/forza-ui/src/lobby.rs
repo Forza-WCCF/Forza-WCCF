@@ -65,8 +65,6 @@ impl Row {
 /// Why a kind has no list in this edition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Grey {
-    /// 2017-18 shops wait for the LAN server.
-    Shops1718,
     /// 2010-11 VS waits for live World Trophy matching.
     Vs1011,
 }
@@ -218,7 +216,7 @@ pub struct LobbyView {
     /// The server stopped answering: the list is greyed and the Direct address fold opens.
     pub offline: bool,
     pub grey: [Option<Grey>; 2],
-    /// 2017-18: the shops are listed, but no seat can start there yet (no game control on the server).
+    /// 2017-18: the shops are listed; only shop rooms join (see [`shop_rooms`](Self::shop_rooms)).
     pub shops_view_only: bool,
     pub address: String,
     pub direct_open: bool,
@@ -502,8 +500,8 @@ impl LobbyView {
             // a filter on, so the snapshots show its checked state
             Scenario::VsList => (v.kind, v.open_only) = (Kind::Vs, true),
             Scenario::Greyed => {
-                v.grey[0] = Some(Grey::Shops1718);
-                v.shops.clear();
+                (v.grey[Kind::Vs as usize], v.kind) = (Some(Grey::Vs1011), Kind::Vs);
+                v.vs.clear();
             }
             Scenario::ShopHost
             | Scenario::ShopJoining
@@ -606,19 +604,17 @@ impl LobbyView {
         (r.joinable() && !self.view_only(r)).then_some(r)
     }
 
-    /// Why JOIN is greyed, in a few words; `None` when it can join.
+    /// Why JOIN is greyed, in a few words; `None` when it can join or the greyed list already says why.
     pub fn why_not_join(&self, lang: Lang) -> Option<String> {
-        if self.joinable().is_some() {
+        if self.joinable().is_some() || self.grey_now().is_some() {
             return None;
         }
         Some(if self.offline {
             tr!(lang, "lobby.why_offline")
         } else if self.stale() {
             tr!(lang, "lobby.why_stale")
-        } else if self.grey_now().is_some()
-            || self.selected_row().is_some_and(|r| self.view_only(r))
-        {
-            tr!(lang, "lobby.why_unavailable")
+        } else if self.selected_row().is_some_and(|r| self.view_only(r)) {
+            tr!(lang, "lobby.why_no_room")
         } else {
             match self.selected_row().map(|r| &r.state) {
                 None => tr!(lang, "lobby.why_pick"),
@@ -999,12 +995,8 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
         .max_height(LIST_H)
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            if let Some(g) = v.grey_now() {
-                let key = match g {
-                    Grey::Shops1718 => "lobby.grey_shops_1718",
-                    Grey::Vs1011 => "lobby.grey_vs_1011",
-                };
-                hint(ui, &tr!(lang, key));
+            if let Some(Grey::Vs1011) = v.grey_now() {
+                hint(ui, &tr!(lang, "lobby.grey_vs_1011"));
                 return;
             }
             if vis.is_empty() {
@@ -1327,7 +1319,7 @@ fn status(v: &LobbyView, lang: Lang) -> Option<(Tone, String)> {
     }
     // with shop rooms on, listed rooms join from their row and the rest by code: the box says it
     if v.view_only_now() && !v.shop_rooms {
-        return Some((Tone::Notice, tr!(lang, "lobby.grey_shops_1718")));
+        return Some((Tone::Notice, tr!(lang, "lobby.shop_rooms_off")));
     }
     if v.grey_now().is_none() && v.rows().is_empty() {
         return Some((Tone::Notice, tr!(lang, "lobby.empty")));
@@ -1510,7 +1502,7 @@ mod tests {
         v.shops[0].room = false; // a desk's own shop, or a desk too old to mark rooms
         assert_eq!(
             (v.joinable().is_some(), v.why_not_join(Lang::En).as_deref()),
-            (false, Some("Not available yet"))
+            (false, Some("Pick a shop with a room"))
         );
         v.shops[0].room = true;
         v.shop_rooms = false;

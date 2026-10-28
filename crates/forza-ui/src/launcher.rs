@@ -1013,7 +1013,7 @@ mod tests {
 
     #[test]
     fn shops_listed_but_not_joinable_on_2017_18() {
-        // the server shows its shops; a seat cannot start there yet (no game control), VS rooms still join
+        // the server shows its shops; with shop rooms off none joins, VS rooms still do
         let mut v = lobby_for(Edition::E1718);
         assert_eq!(
             (v.kind, v.grey_now(), v.grey[Kind::Shops as usize]),
