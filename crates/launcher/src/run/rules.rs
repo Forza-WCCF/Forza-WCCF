@@ -4,6 +4,7 @@
 
 use forza::online::seat::{Fault, SeatError};
 
+use super::Text;
 use crate::card::Session;
 
 /// debug::run's line when it ends a game because its window was closed.
@@ -77,10 +78,9 @@ pub enum Words {
     Wrong(String),
 }
 
-/// 2017-18 has no remote seats in a shared shop (ROADMAP M2): a server or remote run is refused (what the player is
-/// told). Its online play is VS between homes: ONLINE in the Launcher, then PLAY (a plain start, [`Mode::Vs`]).
-pub const ONLINE_1718_TEXT: &str = "2017-18 has no server or remote mode. To play online, choose ONLINE in the \
-                                    Launcher window, then PLAY.";
+// 2017-18 has no remote seats in a shared shop (ROADMAP M2): a server or remote run is refused (what the player is
+// told: `launcher.run_online_1718`). Its online play is VS between homes: ONLINE in the Launcher, then PLAY (a plain
+// start, `Mode::Vs`).
 
 /// data\settings.json's switch for the 2017-18 shared shop (ROADMAP M2): on unless `"shop_1718": false`; on lets
 /// `server` (the host's control, desk and relay) and `remote HOST` (a seat on that host) run.
@@ -146,7 +146,7 @@ pub struct VsTarget {
 /// data\panel.txt's `server=` and `ticket=` and data\settings.json `club_server` into a [`VsTarget`]. A held room
 /// plays on its own server's game server (port [`crate::choices::CLUB_PORT`]; `server=` is the lobby's entry, whose
 /// `:port` is the desk's); else a club server overrides the panel's server. `Err`: what is wrong, for the player.
-pub fn vs_target(panel: &str, club_server: &str) -> Result<VsTarget, String> {
+pub fn vs_target(panel: &str, club_server: &str) -> Result<VsTarget, Text> {
     use crate::choices::{CLUB_PORT, host_port, panel_value, parse_club_server};
     let server = panel_value(panel, "server")
         .and_then(|s| host_port(&s, CLUB_PORT))
@@ -161,8 +161,8 @@ pub fn vs_target(panel: &str, club_server: &str) -> Result<VsTarget, String> {
         });
     }
     if !club.is_empty() {
-        let (host, port) = parse_club_server(club)
-            .ok_or_else(|| format!("club_server \"{club}\" in data\\settings.json is not HOST or HOST:PORT"))?;
+        let (host, port) =
+            parse_club_server(club).ok_or_else(|| Text::key("launcher.run_bad_club_server").arg("club", club))?;
         return Ok(VsTarget { host, port, room: None });
     }
     match server {
@@ -171,7 +171,7 @@ pub fn vs_target(panel: &str, club_server: &str) -> Result<VsTarget, String> {
             port: CLUB_PORT,
             room: None,
         }),
-        None => Err("no server address is set in SETTINGS".into()),
+        None => Err(Text::key("launcher.run_no_server_set")),
     }
 }
 
@@ -252,17 +252,16 @@ pub fn stop_server_too(run_answer: Option<i32>, run_still_on: bool) -> bool {
 
 /// A shop server: a plain stop (or restart) waits while this PC's seat still runs beside it or guests are connected
 /// through its tunnel (their match is on this server); `force` goes on. The refusal's words, or None.
-pub fn shop_rule(force: bool, seat_on: bool, guests: usize) -> Option<String> {
+pub fn shop_rule(force: bool, seat_on: bool, guests: usize) -> Option<Text> {
     if force || (!seat_on && guests == 0) {
         return None;
     }
     Some(if seat_on {
-        "This PC's seat still plays on this shop. Stop it first (or stop force).".into()
+        Text::key("launcher.run_shop_seat_on")
+    } else if guests == 1 {
+        Text::key("launcher.run_shop_guest")
     } else {
-        format!(
-            "{guests} guest{} connected to this shop may be in a match here. Stop force ends it for them.",
-            if guests == 1 { "" } else { "s" }
-        )
+        Text::key("launcher.run_shop_guests").arg("n", guests)
     })
 }
 
@@ -274,24 +273,17 @@ pub fn restart_forced(request: &str) -> bool {
 
 /// The card rule (play.py's stop_guard): while seat 1 runs, nothing that would end it goes on while the club card is in
 /// the reader or a card session is open - unless forced.  The refusal's words, or None to go on.
-pub fn card_rule(seat_up: bool, force: bool, card_in: Option<bool>, session: Session) -> Option<String> {
+pub fn card_rule(seat_up: bool, force: bool, card_in: Option<bool>, session: Session) -> Option<Text> {
     if !seat_up || force || (card_in == Some(false) && session != Session::Open) {
         return None;
     }
-    Some(if session == Session::Open {
-        "A card session is open. Stopping now skips the locker-room save and gives the card a bad ending (trade \
-         rights are lost at 2). If the game is stuck (\"WCCF CONTROL NOT FOUND\"), the match is lost already: stop."
-            .into()
+    Some(Text::key(if session == Session::Open {
+        "launcher.run_card_session"
+    } else if card_in == Some(true) {
+        "launcher.run_card_in"
     } else {
-        format!(
-            "{}. Press I in the game to take the card out first.",
-            if card_in == Some(true) {
-                "Your club card is IN the reader"
-            } else {
-                "Cannot tell whether your club card is in"
-            }
-        )
-    })
+        "launcher.run_card_unknown"
+    }))
 }
 
 /// When a game window's launcher has ended (play.py's crashed_logs): `gone` = the logs of the window launchers that
@@ -313,26 +305,18 @@ pub fn after_end(gone: &[&str], others_alive: bool, read: impl Fn(&str) -> Strin
 
 /// What the run says when `gone` (logs of windows that ended by themselves, from [`after_end`]) did not stop it: a
 /// program that quit with exit code 0 ended, only the others crashed.
-pub fn went_by_itself(gone: &[String], read: impl Fn(&str) -> String) -> String {
+pub fn went_by_itself(gone: &[String], read: impl Fn(&str) -> String) -> Text {
     let (ended, crashed): (Vec<&str>, Vec<&str>) = gone.iter().map(String::as_str).partition(|log| {
         let log = read(log);
         log.contains(CLEAN_EXIT) || log.contains(WINDOW_CLOSED)
     });
     let list = |logs: &[&str]| logs.join(", ");
     match (ended.is_empty(), crashed.is_empty()) {
-        (false, true) => format!(
-            "A game window ended (see data\\logs\\{}). The rest keeps running.",
-            list(&ended)
-        ),
-        (false, false) => format!(
-            "A game window ended (see data\\logs\\{}) and one crashed (see data\\logs\\{}). The rest keeps running.",
-            list(&ended),
-            list(&crashed)
-        ),
-        _ => format!(
-            "A game window crashed (see data\\logs\\{}). The rest keeps running.",
-            list(&crashed)
-        ),
+        (false, true) => Text::key("launcher.run_window_ended").arg("logs", list(&ended)),
+        (false, false) => Text::key("launcher.run_window_ended_crashed")
+            .arg("logs", list(&ended))
+            .arg("crashed", list(&crashed)),
+        _ => Text::key("launcher.run_window_crashed").arg("logs", list(&crashed)),
     }
 }
 
@@ -378,27 +362,23 @@ pub fn went_wrong(launcher_logs: &[&str], read: impl Fn(&str) -> String) -> Vec<
 
 /// Why no seat was taken on the server at `ip` (play.py's _seat_decision messages): every fault but "no broker" stops
 /// the start, so two PCs never land on one seat (A4).
-pub fn seat_refusal(e: &SeatError, asked: Option<u8>, ip: &str) -> String {
+pub fn seat_refusal(e: &SeatError, asked: Option<u8>, ip: &str) -> Text {
     let detail = if e.detail.is_empty() {
         e.fault.as_str()
     } else {
         &e.detail
     };
-    match e.fault {
-        Fault::Full => format!("the server at {ip} is full (8 seats)"),
-        Fault::Taken => format!(
-            "seat {} is taken on the server at {ip}. Leave the seat out for the next free one.",
-            asked.map_or_else(|| "?".into(), |s| s.to_string())
-        ),
-        Fault::NoAnswer => {
-            format!("the seat desk at {ip} did not answer ({detail}). Try again, or use Launcher.exe local.")
+    let key = match e.fault {
+        Fault::Full => "launcher.run_seat_full",
+        Fault::Taken => {
+            let seat = asked.map_or_else(|| "?".into(), |s| s.to_string());
+            return Text::key("launcher.run_seat_taken").arg("seat", seat).arg("ip", ip);
         }
-        Fault::NoBroker => format!(
-            "the seat desk at {ip} cannot be reached ({detail}). A 2017-18 shop's desk is open to the network only with \
-             \"shop_lan\": true on the shop's PC."
-        ),
-        _ => format!("the seat desk at {ip} refused a seat ({detail})"),
-    }
+        Fault::NoAnswer => "launcher.run_desk_no_answer",
+        Fault::NoBroker => "launcher.run_desk_unreachable",
+        _ => "launcher.run_desk_refused",
+    };
+    Text::key(key).arg("ip", ip).arg("detail", detail)
 }
 
 /// RESTART NOW needs only the cabinet (play.py's cabinet_restart_fits) when a plain start would play the same way -
@@ -489,9 +469,9 @@ mod tests {
 
     #[test]
     fn a_live_shop_room_holds_a_plain_stop() {
-        assert!(shop_rule(false, true, 0).is_some_and(|w| w.contains("seat")));
-        assert!(shop_rule(false, false, 2).is_some_and(|w| w.contains("2 guests")));
-        assert!(shop_rule(false, false, 1).is_some_and(|w| w.starts_with("1 guest ")));
+        assert!(shop_rule(false, true, 0).is_some_and(|w| w.en().contains("seat")));
+        assert!(shop_rule(false, false, 2).is_some_and(|w| w.en().contains("2 guests")));
+        assert!(shop_rule(false, false, 1).is_some_and(|w| w.en().starts_with("1 guest ")));
         assert_eq!(shop_rule(false, false, 0), None);
         assert_eq!(shop_rule(true, true, 3), None);
     }
@@ -737,11 +717,11 @@ mod tests {
             None,
             "an old cut is no open session"
         );
-        let r = card_rule(true, false, Some(true), Session::Closed).unwrap();
+        let r = card_rule(true, false, Some(true), Session::Closed).unwrap().en();
         assert!(r.starts_with("Your club card is IN the reader"), "{r}");
-        let r = card_rule(true, false, None, Session::Closed).unwrap();
+        let r = card_rule(true, false, None, Session::Closed).unwrap().en();
         assert!(r.starts_with("Cannot tell"), "{r}");
-        let r = card_rule(true, false, Some(false), Session::Open).unwrap();
+        let r = card_rule(true, false, Some(false), Session::Open).unwrap().en();
         assert!(
             r.starts_with("A card session is open"),
             "the session counts with the card out: {r}"
@@ -788,7 +768,7 @@ mod tests {
             "projector closed: seat 1 plays on"
         );
         assert_eq!(
-            went_by_itself(&[proj.to_owned()], logs(&[(proj, CLOSED)])),
+            went_by_itself(&[proj.to_owned()], logs(&[(proj, CLOSED)])).en(),
             "A game window ended (see data\\logs\\run_projector.txt). The rest keeps running."
         );
         assert_eq!(
@@ -809,8 +789,16 @@ mod tests {
         let clean = "  t+ 9.0s process exited, exit code 0x00000000\n";
         let bad = "  t+ 9.0s process exited, exit code 0xC0000005\n";
         let gone = [proj.to_owned()];
-        assert!(went_by_itself(&gone, logs(&[(proj, clean)])).starts_with("A game window ended"));
-        assert!(went_by_itself(&gone, logs(&[(proj, bad)])).starts_with("A game window crashed"));
+        assert!(
+            went_by_itself(&gone, logs(&[(proj, clean)]))
+                .en()
+                .starts_with("A game window ended")
+        );
+        assert!(
+            went_by_itself(&gone, logs(&[(proj, bad)]))
+                .en()
+                .starts_with("A game window crashed")
+        );
         assert!(went_wrong(&[proj], logs(&[(proj, clean)])).is_empty());
         assert!(!went_wrong(&[proj], logs(&[(proj, bad)])).is_empty());
     }
@@ -889,10 +877,18 @@ mod tests {
             fault,
             detail: detail.into(),
         };
-        assert!(seat_refusal(&e(Fault::Full, "FULL"), None, "20.0.0.1").contains("full"));
-        let m = seat_refusal(&e(Fault::NoAnswer, "slow"), None, "20.0.0.1");
+        assert!(
+            seat_refusal(&e(Fault::Full, "FULL"), None, "20.0.0.1")
+                .en()
+                .contains("full")
+        );
+        let m = seat_refusal(&e(Fault::NoAnswer, "slow"), None, "20.0.0.1").en();
         assert!(m.contains("did not answer") && m.contains("local"), "{m}");
-        assert!(seat_refusal(&e(Fault::Taken, "TAKEN 2"), Some(2), "20.0.0.1").starts_with("seat 2 is taken"));
+        assert!(
+            seat_refusal(&e(Fault::Taken, "TAKEN 2"), Some(2), "20.0.0.1")
+                .en()
+                .starts_with("seat 2 is taken")
+        );
         assert_eq!(e(Fault::NoBroker, "refused").no_desk_seat(None), Some((1, true)));
         // 2017-18: an unreachable desk stops the start; only 2010-11 plays seat 1 without one
         use crate::Edition::{E1011, E1718};
@@ -900,7 +896,7 @@ mod tests {
         assert_eq!(desk_fallback(E1011, &gone, None), Some((1, true)));
         assert_eq!(desk_fallback(E1718, &gone, None), None);
         assert_eq!(desk_fallback(E1718, &gone, Some(2)), None);
-        assert!(seat_refusal(&gone, None, "10.0.0.5").contains("shop_lan"));
+        assert!(seat_refusal(&gone, None, "10.0.0.5").en().contains("shop_lan"));
         assert_eq!(e(Fault::Full, "").no_desk_seat(None), None);
     }
 

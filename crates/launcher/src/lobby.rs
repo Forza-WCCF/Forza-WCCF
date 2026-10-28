@@ -370,16 +370,23 @@ impl HostRoom {
     /// A room on `server` ([`shop_lobby`]) for the shop tunnel `shop_id`, private unless `public` (listed in SHOPS,
     /// never with its code); else why not (`FULL`, `ERR slow`, `ERR host`, no answer). `note` hears about a wait (this
     /// id's room from before still on the desk).
-    pub fn open(server: &str, shop_id: &str, public: bool, log: Log, note: &dyn Fn(&str)) -> Result<HostRoom, String> {
+    pub fn open(
+        server: &str,
+        shop_id: &str,
+        public: bool,
+        log: Log,
+        note: &dyn Fn(&crate::run::Text),
+    ) -> Result<HostRoom, String> {
         let addr = socket(server).ok_or_else(|| format!("{server} is not an address"))?;
         let mut made = lobby::create_shop(addr, shop_id, public);
         if made.as_ref().is_err_and(|e| e == "ERR host") {
             // one more CREATE only: each counts in the desk's per-address limit
             let wait = DESK_HOST_STALE + Duration::from_secs(2);
-            note(&format!(
-                "     shop room: this shop's room from before is still on {server}; asking again in {} s",
-                wait.as_secs()
-            ));
+            note(
+                &crate::run::Text::key("launcher.run_room_waiting")
+                    .arg("server", server)
+                    .arg("s", wait.as_secs()),
+            );
             thread::sleep(wait);
             made = lobby::create_shop(addr, shop_id, public);
         }
