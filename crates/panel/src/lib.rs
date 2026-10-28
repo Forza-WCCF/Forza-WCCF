@@ -265,6 +265,7 @@ fn init() {
     net::ping_install(log); // on a server: the ping meter
     patches::dispenser_install(e1718, log); // no player card owed to a dispenser that is not there
     patches::free_play_install(e1718, log); // the original FREE PLAY: no coin needed anywhere
+    patches::stall_tolerance_install(e1718, log); // a short network stall no longer drops a VS
     if std::env::var_os("WCCF_LOGS").is_some() {
         // ponytail: runs for the process's life (the game never unloads the panel; only a run sets WCCF_LOGS, never
         // the unload test)
@@ -2366,7 +2367,8 @@ impl Render {
         }
     }
 
-    /// IMPORT LINEUP: the clipboard's text on the table ([`Render::import_text`]); its UNDO: the table before it.
+    /// IMPORT LINEUP: the clipboard's text checked, then on the table once the dialog's CONFIRM comes
+    /// ([`Render::import_text`]); its UNDO: the table before it.
     fn import(&mut self) {
         if std::mem::take(&mut self.st.import_undone)
             && let Some(old) = panel::undo_import(&mut self.st, in_match())
@@ -2377,7 +2379,12 @@ impl Render {
         }
         if std::mem::take(&mut self.st.import) {
             match clipboard_text() {
-                Some(text) => self.import_text(&text),
+                Some(text) => {
+                    if !panel::ask_import(&mut self.st, &text, in_match()) {
+                        let why = self.st.message.as_ref().map_or("", |m| m.text.as_str());
+                        log(&format!("import: refused - {}", why.replace('\n', " / ")));
+                    }
+                }
                 None => {
                     log(
                         "import: the clipboard could not be read (held by another program, or no text)",
@@ -2386,6 +2393,11 @@ impl Render {
                         .say(forza_ui::widgets::Tone::Refused, "cat.msg_clipboard");
                 }
             }
+        }
+        if std::mem::take(&mut self.st.import_go)
+            && let Some(ask) = self.st.import_ask.take()
+        {
+            self.import_text(&ask.text);
         }
     }
 
