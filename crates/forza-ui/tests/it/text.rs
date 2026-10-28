@@ -95,5 +95,8 @@ fn placeholders_match_english() {
             }
         }
     }
-    assert!(wrong.is_empty(), "placeholders differ from the English: {wrong:?}");
+    assert!(
+        wrong.is_empty(),
+        "placeholders differ from the English: {wrong:?}"
+    );
 }

@@ -161,8 +161,8 @@ pub fn vs_target(panel: &str, club_server: &str) -> Result<VsTarget, Text> {
         });
     }
     if !club.is_empty() {
-        let (host, port) = parse_club_server(club)
-            .ok_or_else(|| Text::key("launcher.run_bad_club_server").arg("club", club))?;
+        let (host, port) =
+            parse_club_server(club).ok_or_else(|| Text::key("launcher.run_bad_club_server").arg("club", club))?;
         return Ok(VsTarget { host, port, room: None });
     }
     match server {
@@ -789,8 +789,16 @@ mod tests {
         let clean = "  t+ 9.0s process exited, exit code 0x00000000\n";
         let bad = "  t+ 9.0s process exited, exit code 0xC0000005\n";
         let gone = [proj.to_owned()];
-        assert!(went_by_itself(&gone, logs(&[(proj, clean)])).en().starts_with("A game window ended"));
-        assert!(went_by_itself(&gone, logs(&[(proj, bad)])).en().starts_with("A game window crashed"));
+        assert!(
+            went_by_itself(&gone, logs(&[(proj, clean)]))
+                .en()
+                .starts_with("A game window ended")
+        );
+        assert!(
+            went_by_itself(&gone, logs(&[(proj, bad)]))
+                .en()
+                .starts_with("A game window crashed")
+        );
         assert!(went_wrong(&[proj], logs(&[(proj, clean)])).is_empty());
         assert!(!went_wrong(&[proj], logs(&[(proj, bad)])).is_empty());
     }
@@ -869,7 +877,11 @@ mod tests {
             fault,
             detail: detail.into(),
         };
-        assert!(seat_refusal(&e(Fault::Full, "FULL"), None, "20.0.0.1").en().contains("full"));
+        assert!(
+            seat_refusal(&e(Fault::Full, "FULL"), None, "20.0.0.1")
+                .en()
+                .contains("full")
+        );
         let m = seat_refusal(&e(Fault::NoAnswer, "slow"), None, "20.0.0.1").en();
         assert!(m.contains("did not answer") && m.contains("local"), "{m}");
         assert!(

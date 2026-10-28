@@ -145,7 +145,10 @@ impl From<String> for Text {
 /// `text` to `ui` after `lead` (an indent, a step "1/6" the window's bar reads): shown in the player's language, the
 /// English for the logs.
 pub fn tell(ui: &dyn Ui, lead: &str, text: &Text) {
-    ui.say_logged(&format!("{lead}{}", text.get(ui.lang())), &format!("{lead}{}", text.en()));
+    ui.say_logged(
+        &format!("{lead}{}", text.get(ui.lang())),
+        &format!("{lead}{}", text.en()),
+    );
 }
 
 /// A `Ui` over a closure that gets each line as shown and in English (setup's lines into a log file and the run's box).
@@ -1313,7 +1316,10 @@ impl Run<'_> {
                 "it" => "launcher.run_lang_it",
                 _ => "launcher.run_lang_ja",
             });
-            self.tell("  ", &Text::key("launcher.run_text_switching").part("name", name.clone()));
+            self.tell(
+                "  ",
+                &Text::key("launcher.run_text_switching").part("name", name.clone()),
+            );
             match self.switch_text(lang) {
                 Some(why) => self.tell("  ", &Text::key("launcher.run_text_not_switched").arg("why", why)),
                 None => self.tell("  ", &Text::key("launcher.run_text_now").part("name", name)),
@@ -1820,13 +1826,8 @@ impl Run<'_> {
         let p = self.p;
         let net_log = file_log(self.logs().join("ringedge_log.txt"));
         for (&(_, name, kind), &port) in network::SERVICES.iter().zip(&p.network_ports) {
-            let listener = TcpListener::bind(("127.0.0.1", port)).map_err(|e| {
-                Failed(
-                    Text::key("launcher.run_net_ports")
-                        .arg("port", port)
-                        .arg("error", e),
-                )
-            })?;
+            let listener = TcpListener::bind(("127.0.0.1", port))
+                .map_err(|e| Failed(Text::key("launcher.run_net_ports").arg("port", port).arg("error", e)))?;
             self.cabinet.net.push(network::spawn(
                 listener,
                 kind,
@@ -2190,10 +2191,13 @@ impl Run<'_> {
         let knob = rules::delay_knob(env::var("VSLINK_DELAY_MS").ok().as_deref());
         cfg.delay = knob / 2;
         if !knob.is_zero() {
-            self.tell("     ", &Text::key("launcher.run_test_delay").arg("ms", knob.as_millis()));
+            self.tell(
+                "     ",
+                &Text::key("launcher.run_test_delay").arg("ms", knob.as_millis()),
+            );
         }
-        let link = vslink::shop::spawn(cfg)
-            .map_err(|e| Failed(Text::key("launcher.run_tunnel_failed").arg("error", e)))?;
+        let link =
+            vslink::shop::spawn(cfg).map_err(|e| Failed(Text::key("launcher.run_tunnel_failed").arg("error", e)))?;
         if host {
             let id = vslink::shop::id_text(&link.id);
             let _ = choices::write(&self.kit.data().join("shop_id.txt"), &format!("{id}\n"));
@@ -2236,7 +2240,9 @@ impl Run<'_> {
         let club = choices::setting(&self.kit.settings_file(), "club_server").unwrap_or_default();
         let desk = crate::lobby::shop_lobby(&club);
         let public = self.kit.settings()["list_shop"].as_bool() == Some(true);
-        crate::lobby::HostRoom::open(&desk, &vslink::shop::id_text(&id), public, log, &|t| self.tell("     ", t))
+        crate::lobby::HostRoom::open(&desk, &vslink::shop::id_text(&id), public, log, &|t| {
+            self.tell("     ", t)
+        })
     }
 
     /// A 2017-18 server's shop room: its code, the lobby server holding it and the flag set when that lobby loses it;
@@ -2404,7 +2410,11 @@ impl Run<'_> {
             Edition::E1718 => "launcher.run_part_aime",
         };
         look(Text::key(reader), true, self.cabinet.reader.as_mut());
-        look(Text::key("launcher.run_part_aimedb"), true, self.cabinet.aimedb.as_mut());
+        look(
+            Text::key("launcher.run_part_aimedb"),
+            true,
+            self.cabinet.aimedb.as_mut(),
+        );
         look(Text::key("launcher.run_part_gamesvr"), true, self.gamesvr.as_mut());
         look(Text::key("launcher.run_part_vslink"), false, self.vslink.as_mut());
         look(Text::key("launcher.run_part_board"), true, self.cabinet.board.as_mut());
@@ -2433,9 +2443,11 @@ impl Run<'_> {
             }
         }
         let name = stop?;
-        Some(match self.finish(false, Some(Text::key("launcher.run_stopped_part").part("name", name))) {
-            End::Over(_) | End::Again => End::Over(FAILED),
-        })
+        Some(
+            match self.finish(false, Some(Text::key("launcher.run_stopped_part").part("name", name))) {
+                End::Over(_) | End::Again => End::Over(FAILED),
+            },
+        )
     }
 
     /// The card rule now: the refusal's words, or None to go on.
@@ -2598,7 +2610,10 @@ impl Run<'_> {
             return None;
         }
         if !fits {
-            self.tell("", &Text::key("launcher.run_restarting").arg("edition", self.edition.name()));
+            self.tell(
+                "",
+                &Text::key("launcher.run_restarting").arg("edition", self.edition.name()),
+            );
             self.shutdown();
             self.card_steps(&["keep"]);
             let _ = fs::remove_file(self.running_file());
@@ -2694,7 +2709,10 @@ impl Run<'_> {
                 self.tell("", &Text::key("launcher.run_stopping"));
                 let stopped = Text::key("launcher.run_stopped");
                 let end = self.finish(false, Some(stopped.clone()));
-                put(if matches!(end, End::Over(OK)) { OK } else { FAILED }, &stopped.get(lang));
+                put(
+                    if matches!(end, End::Over(OK)) { OK } else { FAILED },
+                    &stopped.get(lang),
+                );
                 return Some(end);
             }
             _ => put(FAILED, &format!("unknown request \"{word}\"")),
