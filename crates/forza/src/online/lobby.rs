@@ -42,7 +42,14 @@ pub const SHOP_ROOM_NAME: &str = "Arcade room";
 /// A shop room's name as the words carry it: no control characters, single spaces, at most [`SHOP_NAME_LEN`]
 /// characters; empty when nothing is left.
 pub fn shop_name(s: &str) -> String {
-    let words = s.split_whitespace().collect::<Vec<_>>().join(" ");
+    // invisible and bidi format characters could show a listed name reversed or blank
+    let seen: String = s
+        .chars()
+        .filter(|c| {
+            !matches!(c, '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}')
+        })
+        .collect();
+    let words = seen.split_whitespace().collect::<Vec<_>>().join(" ");
     let name: String = words
         .chars()
         .filter(|c| !c.is_control())
@@ -648,6 +655,10 @@ mod tests {
     fn shop_names_fit_the_line() {
         assert_eq!(shop_name("  Sala\t Roma \n"), "Sala Roma");
         assert_eq!(shop_name("a\u{7}b"), "ab");
+        assert_eq!(
+            shop_name("\u{202E}amoR \u{200B} alaS\u{2066}\u{FEFF}"),
+            "amoR alaS"
+        );
         assert_eq!(shop_name(" \r\n "), "");
         assert_eq!(shop_name(&"ゲ".repeat(30)).chars().count(), SHOP_NAME_LEN);
         assert_eq!(shop_name(&format!("{} x", "a".repeat(23))), "a".repeat(23));
