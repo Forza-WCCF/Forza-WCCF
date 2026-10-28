@@ -587,8 +587,12 @@ pub struct PanelState {
     pub latched: Option<&'static str>,
     /// A catalogue card to put on the table (its number): [`add_card`].
     pub add: Option<u32>,
-    /// IMPORT LINEUP clicked: the panel DLL reads the clipboard and calls [`import_lineup`].
+    /// IMPORT LINEUP clicked: the panel DLL reads the clipboard and calls [`ask_import`].
     pub import: bool,
+    /// A lineup read and checked, waiting for the import dialog's CONFIRM or CANCEL.
+    pub import_ask: Option<ImportAsk>,
+    /// CONFIRM clicked: the panel DLL takes `import_ask` and calls [`import_lineup`].
+    pub import_go: bool,
     /// The table before the last import and when (the frame's time): UNDO in the board strip for [`IMPORT_UNDO_SECS`].
     pub import_undo: Option<(Vec<Placed>, f64)>,
     /// That UNDO clicked: the panel DLL calls [`undo_import`].
@@ -663,6 +667,8 @@ impl PanelState {
             undo: None,
             add: None,
             import: false,
+            import_ask: None,
+            import_go: false,
             import_undo: None,
             import_undone: false,
             keys_changed: false,
@@ -801,6 +807,29 @@ pub fn add_card(st: &mut PanelState, placed: &mut Vec<Placed>, no: u32) -> bool 
 /// How long an import's UNDO and its message stay.
 pub const IMPORT_UNDO_SECS: f64 = 10.0;
 
+/// A lineup waiting for the import dialog: its text and what it would put on the table.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ImportAsk {
+    pub text: String,
+    /// The cards that would be placed and those skipped.
+    pub cards: usize,
+    pub skipped: usize,
+}
+
+/// The lineup `text` checked as [`import_lineup`] checks it; a good one waits in `import_ask` for the import dialog's
+/// CONFIRM. `false`: refused, the message says why.
+pub fn ask_import(st: &mut PanelState, text: &str, in_match: bool) -> bool {
+    let Some(imp) = checked_lineup(st, text, in_match) else {
+        return false;
+    };
+    st.import_ask = Some(ImportAsk {
+        text: text.to_owned(),
+        cards: imp.placed.len(),
+        skipped: imp.skipped.len(),
+    });
+    true
+}
+
 /// The lineup `text` (the site's export: the clipboard's, later a share link's) as the whole table in place of
 /// `placed`. Refused during a match (the owner's rule) and for another edition's lineup. The message names what came
 /// in, the site's key player (the table has none: the player sets it in the game) and the cards skipped, and why.
@@ -812,6 +841,37 @@ pub fn import_lineup(
     in_match: bool,
     now: f64,
 ) -> Option<Vec<Placed>> {
+    let lang = st.lang;
+    let imp = checked_lineup(st, text, in_match)?;
+    let name = imp.name.clone().unwrap_or_else(|| tr!(lang, "cat.lineup"));
+    let mut text = tr!(lang, "cat.msg_imported", name = name, n = imp.placed.len());
+    if let Some(kp) = imp.kp.and_then(|k| st.cards.iter().find(|c| c.number == k)) {
+        text += "\n";
+        text += &tr!(lang, "cat.msg_import_kp", name = kp.short_name());
+    }
+    if !imp.skipped.is_empty() {
+        text += "\n";
+        text += &tr!(
+            lang,
+            "cat.msg_import_skipped",
+            list = skip_list(&imp.skipped, lang)
+        );
+    }
+    let tone = if imp.skipped.is_empty() {
+        Tone::Done
+    } else {
+        Tone::Notice
+    };
+    st.message = Some(Note::long(tone, text));
+    st.board = cards::board(&imp.placed, &st.cards);
+    st.import_undo = Some((placed.to_vec(), now));
+    st.undo = None; // UNDO now means the import
+    Some(imp.placed)
+}
+
+/// The lineup `text` on this game's catalogue, or `None` with the message saying why: refused in a match, for another
+/// edition, empty, or nothing this game has.
+fn checked_lineup(st: &mut PanelState, text: &str, in_match: bool) -> Option<lineup::Import> {
     let lang = st.lang;
     if in_match {
         st.say(Tone::Refused, "cat.msg_import_match");
@@ -838,8 +898,8 @@ pub fn import_lineup(
             return None;
         }
     };
-    let imp = match lineup::table(&l, &st.cards) {
-        Ok(imp) => imp,
+    match lineup::table(&l, &st.cards) {
+        Ok(imp) => Some(imp),
         Err(_) => {
             // nothing placed: every entry the text named is missing from this game's catalogue
             let mut skipped = l.skipped.clone();
@@ -853,33 +913,9 @@ pub fn import_lineup(
                 skip_list(&skipped, lang)
             );
             st.message = Some(Note::long(Tone::Refused, text));
-            return None;
+            None
         }
-    };
-    let name = imp.name.clone().unwrap_or_else(|| tr!(lang, "cat.lineup"));
-    let mut text = tr!(lang, "cat.msg_imported", name = name, n = imp.placed.len());
-    if let Some(kp) = imp.kp.and_then(|k| st.cards.iter().find(|c| c.number == k)) {
-        text += "\n";
-        text += &tr!(lang, "cat.msg_import_kp", name = kp.short_name());
     }
-    if !imp.skipped.is_empty() {
-        text += "\n";
-        text += &tr!(
-            lang,
-            "cat.msg_import_skipped",
-            list = skip_list(&imp.skipped, lang)
-        );
-    }
-    let tone = if imp.skipped.is_empty() {
-        Tone::Done
-    } else {
-        Tone::Notice
-    };
-    st.message = Some(Note::long(tone, text));
-    st.board = cards::board(&imp.placed, &st.cards);
-    st.import_undo = Some((placed.to_vec(), now));
-    st.undo = None; // UNDO now means the import
-    Some(imp.placed)
 }
 
 /// The table before the last import, back on the board; `Some`: the caller writes it. Refused during a match, as the
@@ -1022,6 +1058,10 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
         st.latched = None; // no deck: no button left to let it go
     }
     page_bar(ui, st, tabs, lang);
+    // before the page: Enter and Esc answer the dialog, not the catalogue's search line or the page's close
+    if st.import_ask.is_some() {
+        import_dialog(ui, st, lang);
+    }
     if st.page != Page::Game {
         let mut pg = ui.new_child(egui::UiBuilder::new().max_rect(above));
         page(&mut pg, st, lang);
@@ -1142,6 +1182,69 @@ fn close_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         st.close_quit = true;
     } else if keep.clicked() || key {
         st.close_keep = true;
+    }
+}
+
+/// IMPORT LINEUP's question before the table is replaced: how many cards come in and how many are skipped. CONFIRM
+/// (or Enter, the cabinet's START) asks the panel DLL to import; CANCEL (or Esc) leaves the table as it is.
+fn import_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
+    let Some(ask) = st.import_ask.clone() else {
+        return;
+    };
+    let modal = egui::Modal::new(egui::Id::new("import-dialog"))
+        .backdrop_color(Color32::from_black_alpha(170))
+        .frame(
+            egui::Frame::new()
+                .fill(Color32::from_rgba_unmultiplied(10, 16, 28, 240))
+                .stroke(Stroke::new(3.0, theme::GOLD))
+                .corner_radius(theme::RADIUS_BIG)
+                .inner_margin(24),
+        )
+        .show(ui.ctx(), |ui| {
+            ui.set_width(440.0);
+            ui.vertical_centered(|ui| {
+                ui.spacing_mut().item_spacing.y = 12.0;
+                ui.label(
+                    egui::RichText::new(tr!(lang, "cat.ask_title"))
+                        .font(theme::display(32.0))
+                        .color(theme::GOLD),
+                );
+                let mut body = tr!(lang, "cat.ask_body", n = ask.cards);
+                if ask.skipped > 0 {
+                    body += "\n";
+                    body += &tr!(lang, "cat.ask_skipped", n = ask.skipped);
+                }
+                ui.label(
+                    egui::RichText::new(body)
+                        .font(theme::body(17.0))
+                        .color(theme::TEXT),
+                );
+                ui.add_space(8.0);
+                let go = widgets::cabinet(
+                    ui,
+                    vec2(440.0, 56.0),
+                    &tr!(lang, "cat.ask_confirm"),
+                    Cab::Go,
+                    true,
+                );
+                let cancel = widgets::cabinet(
+                    ui,
+                    vec2(440.0, 44.0),
+                    &tr!(lang, "cat.ask_cancel"),
+                    Cab::Plain,
+                    false,
+                );
+                (go, cancel)
+            })
+            .inner
+        });
+    let (go, cancel) = modal.inner;
+    let enter = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+    let esc = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+    if cancel.clicked() || esc {
+        st.import_ask = None;
+    } else if go.clicked() || enter {
+        st.import_go = true;
     }
 }
 
@@ -4614,6 +4717,29 @@ mod tests {
         assert_eq!(undo_import(&mut st, false), Some(old));
         assert_eq!(st.board.cards[0].number, 10);
         assert_eq!(undo_import(&mut st, false), None);
+    }
+
+    #[test]
+    fn import_asks_first_cancel_keeps_the_table_confirm_imports_and_undo_restores() {
+        let (mut st, old) = importer();
+        let text = "game 1011\nP 101 50 90\nP 210 50 30\nS 999\n";
+        // refused in a match: no question
+        assert!(!ask_import(&mut st, text, true));
+        assert!(st.import_ask.is_none());
+        assert!(ask_import(&mut st, text, false));
+        let ask = st.import_ask.clone().unwrap();
+        assert_eq!((ask.cards, ask.skipped), (2, 1));
+        // asking changes nothing; CANCEL drops the question
+        assert!(st.import_undo.is_none() && st.board.cards.is_empty());
+        st.import_ask = None;
+        assert!(st.import_undo.is_none() && st.board.cards.is_empty());
+        // CONFIRM: the panel DLL imports the asked text; UNDO puts the old table back
+        assert!(ask_import(&mut st, text, false));
+        let ask = st.import_ask.take().unwrap();
+        let new = import_lineup(&mut st, &old, &ask.text, false, 1.0).unwrap();
+        assert_eq!(new.iter().map(|p| p.no).collect::<Vec<_>>(), [101, 210]);
+        assert_eq!(undo_import(&mut st, false), Some(old));
+        assert_eq!(st.board.cards[0].number, 10);
     }
 
     #[test]

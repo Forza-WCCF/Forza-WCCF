@@ -816,6 +816,65 @@ fn close_dialog() {
     all.unwrap();
 }
 
+/// IMPORT LINEUP's question over the catalogue: the cards that come in and those skipped, CONFIRM and CANCEL.
+fn import_asked(lang: Lang) -> panel::PanelState {
+    let mut st = panel::PanelState::sample(Edition::E1011, lang, panel::Page::Catalogue);
+    st.catalogue.filter = panel::Filter::default();
+    let text = "game 1011\nP 1 50 92\nP 2 15 70\nP 3 38 74\nS 999\n";
+    assert!(panel::ask_import(&mut st, text, false));
+    st
+}
+
+#[test]
+fn import_dialog() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for lang in Lang::ALL {
+        let mut st = import_asked(lang);
+        snap(
+            &mut all,
+            &format!("panel_import_dialog_{}", lang.code()),
+            panel::SIZE,
+            Edition::E1011,
+            |ui| panel::show(ui, &mut st),
+        );
+    }
+    all.unwrap();
+}
+
+/// CONFIRM and Enter ask for the import; CANCEL and Esc drop the question and stay on the catalogue.
+#[test]
+fn import_dialog_answers() {
+    let _gpu = gpu();
+    for (key, label, go) in [
+        (Some(egui::Key::Enter), "", true),
+        (None, "CONFIRM", true),
+        (Some(egui::Key::Escape), "", false),
+        (None, "CANCEL", false),
+    ] {
+        let st = std::cell::RefCell::new(import_asked(Lang::En));
+        let mut h = harness(panel::SIZE, 1.0, Edition::E1011, |ui| {
+            panel::show(ui, &mut st.borrow_mut())
+        });
+        h.run_steps(4);
+        assert!(!st.borrow().import_go && st.borrow().import_ask.is_some());
+        match key {
+            Some(k) => h.key_press(k),
+            None => h.get_by_label(label).click(),
+        }
+        h.run_steps(4);
+        let s = st.borrow();
+        assert_eq!(
+            (s.import_go, s.import_ask.is_some()),
+            (go, go),
+            "{key:?} {label}"
+        );
+        // the dialog's keys are its own: no card added, the page still open
+        assert!(s.add.is_none() && s.page == panel::Page::Catalogue);
+        assert!(s.import_undo.is_none());
+    }
+}
+
 #[test]
 fn close_dialog_answers() {
     let _gpu = gpu();

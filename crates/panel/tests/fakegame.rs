@@ -463,8 +463,8 @@ fn board_and_buttons_with_real_data() {
         format!("{header}1 101 0.000 0.900\n{l103}\n2 102 -0.600 0.550\n")
     );
 
-    // 3b. IMPORT LINEUP (WCCFPANEL_IMPORTTEST: the lineup from a file, the clipboard left alone): the table replaced by
-    // the lineup's cards, the table before it written beside it
+    // 3b. IMPORT LINEUP (WCCFPANEL_IMPORTTEST: the lineup from a file, the clipboard left alone), confirmed: the table
+    // replaced by the lineup's cards, the table before it written beside it
     let _ = fs::remove_file(seat.join("forza_panel.log"));
     let before = fs::read_to_string(&table).unwrap();
     let lineup = t.join("lineup.txt");
@@ -481,6 +481,8 @@ fn board_and_buttons_with_real_data() {
             bar(0),
             "wait:400".into(),
             "click:760,99".into(), // IMPORT LINEUP, at the search line's right end
+            "wait:400".into(),
+            "key:13".into(), // the dialog's CONFIRM (Enter, the cabinet's START)
             "wait:400".into(),
             "key:27".into(),
             "wait:400".into(),
