@@ -618,8 +618,8 @@ impl Online {
                 }
             }
             LobbyAction::JoinCode(code) => self.join_code(st, &code),
-            // HOST SHOP and the LAN fold are jobs of the window's (main.rs)
-            LobbyAction::HostShop | LobbyAction::HostLan | LobbyAction::JoinLan(_) => {}
+            // HOST SHOP and the LAN fold are jobs of the window's (main.rs); CONNECT arrives as Action::Play
+            LobbyAction::HostShop | LobbyAction::HostLan | LobbyAction::JoinLan(_) | LobbyAction::Connect => {}
             LobbyAction::DirectAddress(a) => {
                 let a = a.trim().to_owned();
                 if !launcher::lobby::valid_server(&a) {

@@ -7,7 +7,7 @@ use super::lobby::{self, Grey, Kind, LobbyAction, LobbyView, Scenario as LobbySc
 use super::theme::{self, Edition};
 use super::widgets::{
     self, Cab, Tone, action, cabinet, field, progress, segmented, start_bar, status_line, steps,
-    title_bar, toggle_row,
+    text_w, title_bar, toggle_row,
 };
 use crate::theme::Accent;
 use egui::{Color32, Ui, vec2};
@@ -26,7 +26,7 @@ pub struct Release {
     pub newer: bool,
 }
 
-/// The launcher's tabs, left to right; PLAY / STOP THE GAME and the status line sit under all of them.
+/// The launcher's tabs, left to right; PLAY / STOP THE GAME (ONLINE: only STOP) and the status line sit under them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tab {
     Play,
@@ -122,7 +122,7 @@ pub struct LauncherState {
     pub edition: Edition,
     pub lang: Lang,
     pub online: bool,
-    /// The online lobby; its Direct address is the server PLAY uses when no lobby row is chosen.
+    /// The online lobby; its Direct address is the server CONNECT uses.
     pub lobby: LobbyView,
     /// The last seat, offered again within the desk's 75 s: "Rejoin FORZA ROMA, seat 3".
     pub rejoin: Option<String>,
@@ -487,7 +487,7 @@ fn play(ui: &mut Ui, st: &mut LauncherState, lang: Lang, accent: Color32) {
     }
 }
 
-/// The ONLINE tab: the lobby. Looking changes nothing; joining or hosting there makes PLAY play online.
+/// The ONLINE tab: the lobby. Looking changes nothing; joining, hosting or CONNECT there plays online.
 fn online(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Action>) {
     let free = !st.running && !st.busy;
     // the list takes the height the tab leaves: the tab has no scroll of its own
@@ -497,7 +497,7 @@ fn online(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
         if let Some(text) = st.rejoin.clone()
             && action(ui, &text).clicked()
         {
-            // the seat it reserves is held only while PLAY plays online (online.rs `look`)
+            // the seat it reserves is held only while the mode is online (online.rs `look`)
             st.online = true;
             *act = Some(Action::Rejoin);
         }
@@ -511,23 +511,29 @@ fn online(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
             if !matches!(a, LobbyAction::Refresh | LobbyAction::DirectAddress(_)) {
                 st.online = true;
             }
-            *act = Some(Action::Lobby(a));
+            // CONNECT starts online play at the Direct address, as PLAY did before ONLINE lost it
+            *act = Some(if a == LobbyAction::Connect {
+                Action::Play
+            } else {
+                Action::Lobby(a)
+            });
         } else if vs_link {
             *act = Some(Action::VsLink);
         }
     });
 }
 
-/// PLAY / STOP THE GAME, the start's bar and the status line: the window's footer.
+/// PLAY / STOP THE GAME, the start's bar and the status line: the window's footer. ONLINE has no PLAY (its lobby
+/// buttons and CONNECT start the game), only STOP THE GAME while a game runs.
 fn footer(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Action>) {
-    {
+    let now = ui.input(|i| i.time);
+    let armed = st.running && st.stop_armed > now;
+    if armed && st.stop_armed.is_finite() {
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(250));
+    }
+    if st.running || st.tab != Tab::Online {
         let size = vec2(ui.available_width(), 64.0);
-        let now = ui.input(|i| i.time);
-        let armed = st.running && st.stop_armed > now;
-        if armed && st.stop_armed.is_finite() {
-            ui.ctx()
-                .request_repaint_after(std::time::Duration::from_millis(250));
-        }
         let (label, kind) = if armed {
             let left = (st.stop_armed - now).ceil().min(STOP_ARM) as u32;
             (tr!(lang, "launcher.stop_again", s = left), Cab::Stop)
@@ -549,22 +555,25 @@ fn footer(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
                 if stop {
                     *act = Some(Action::Stop);
                 }
+            } else if st.online {
+                // online play starts from the lobby: PLAY shows it instead of playing a hidden address
+                st.tab = Tab::Online;
             } else {
                 *act = Some(Action::Play);
             }
         }
-        if st.busy {
-            match st.steps {
-                Some((n, 6)) => start_bar(ui, n, st.clock, ui.available_width()),
-                Some((n, m)) => steps(ui, n, m, ui.available_width()),
-                None => progress(ui, st.progress, ui.available_width()),
-            };
-        }
-        if armed {
-            status_line(ui, Tone::Notice, &tr!(lang, "launcher.msg_stop_armed"));
-        } else if let Some((tone, text)) = &st.status {
-            status_line(ui, *tone, text);
-        }
+    }
+    if st.busy {
+        match st.steps {
+            Some((n, 6)) => start_bar(ui, n, st.clock, ui.available_width()),
+            Some((n, m)) => steps(ui, n, m, ui.available_width()),
+            None => progress(ui, st.progress, ui.available_width()),
+        };
+    }
+    if armed {
+        status_line(ui, Tone::Notice, &tr!(lang, "launcher.msg_stop_armed"));
+    } else if let Some((tone, text)) = &st.status {
+        status_line(ui, *tone, text);
     }
 }
 
@@ -685,14 +694,6 @@ fn club_rows(
         )
         .clicked()
     })
-}
-
-/// The width of a secondary action's label.
-fn text_w(ui: &Ui, text: &str) -> f32 {
-    ui.painter()
-        .layout_no_wrap(text.to_owned(), theme::bold(14.0), theme::TEXT)
-        .size()
-        .x
 }
 
 /// One release in the UPDATE list: "v0.5.0 · Stable · 2026-10-28", this folder's marked.

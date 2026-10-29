@@ -6,7 +6,7 @@ use super::Lang;
 use super::theme;
 use super::widgets::{
     Cab, Tone, action, cabinet, caps, check_chip, field, fit, fold, section, segmented,
-    status_line, toggle_row,
+    status_line, text_w, toggle_row,
 };
 use egui::{Key, Modifiers, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 
@@ -183,6 +183,8 @@ pub enum LobbyAction {
     CpuNow,
     /// The typed address, on Enter in the Direct address field.
     DirectAddress(String),
+    /// CONNECT in the Direct address fold: play online at the Direct address (or the club server), as PLAY did.
+    Connect,
     /// 2017-18: open this PC's shop to others (a shop room with a code), HOST in the host dialog: the caller saves
     /// [`LobbyView::list_shop`] and [`LobbyView::shop_name`] first.
     HostShop,
@@ -628,9 +630,21 @@ impl LobbyView {
         (r.joinable() && !self.view_only(r)).then_some(r)
     }
 
+    /// JOIN: the room code typed, else the selected row when it can be joined now.
+    pub fn join_action(&self) -> Option<LobbyAction> {
+        let code = self.code.trim();
+        if self.codes && !code.is_empty() {
+            return self
+                .joining
+                .is_none()
+                .then(|| LobbyAction::JoinCode(code.to_ascii_uppercase()));
+        }
+        self.joinable().map(|r| LobbyAction::Join(r.id.clone()))
+    }
+
     /// Why JOIN is greyed, in a few words; `None` when it can join or the greyed list already says why.
     pub fn why_not_join(&self, lang: Lang) -> Option<String> {
-        if self.joinable().is_some() || self.grey_now().is_some() {
+        if self.join_action().is_some() || self.grey_now().is_some() {
             return None;
         }
         Some(if self.offline {
@@ -732,7 +746,7 @@ fn keys(ui: &Ui, v: &mut LobbyView) -> Option<LobbyAction> {
         });
     }
     if pressed(Key::Enter, none) {
-        return v.joinable().map(|r| LobbyAction::Join(r.id.clone()));
+        return v.join_action();
     }
     None
 }
@@ -779,15 +793,23 @@ pub fn show_with(
                 &mut v.direct_open,
                 theme::BLUE,
                 |ui| {
-                    let r = ui.add(
-                        egui::TextEdit::singleline(&mut v.address)
-                            .font(theme::mono(15.0))
-                            .desired_width(ui.available_width())
-                            .margin(vec2(10.0, 7.0)),
-                    );
-                    if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
-                        act = Some(LobbyAction::DirectAddress(v.address.clone()));
-                    }
+                    // the address and CONNECT on one row
+                    ui.horizontal(|ui| {
+                        let connect = tr!(lang, "lobby.connect");
+                        let bw = text_w(ui, &connect) + 40.0;
+                        let r = ui.add(
+                            egui::TextEdit::singleline(&mut v.address)
+                                .font(theme::mono(15.0))
+                                .desired_width(ui.available_width() - bw)
+                                .margin(vec2(10.0, 7.0)),
+                        );
+                        if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+                            act = Some(LobbyAction::DirectAddress(v.address.clone()));
+                        }
+                        if action(ui, &connect).clicked() {
+                            act = Some(LobbyAction::Connect);
+                        }
+                    });
                     more(ui);
                 },
             );
@@ -1197,7 +1219,7 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
         ui.add_space(8.0);
     }
     // the three actions
-    let can_join = v.joinable().is_some();
+    let can_join = v.join_action().is_some();
     let live = v.grey_now().is_none() && !v.offline;
     let gap = 8.0;
     let bw = (w - 2.0 * gap) / 3.0;
@@ -1230,7 +1252,7 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
             clicked
         });
         if join.inner {
-            *act = v.joinable().map(|r| LobbyAction::Join(r.id.clone()));
+            *act = v.join_action();
         }
         if v.host_shop_now() {
             if on(
@@ -1305,7 +1327,7 @@ fn host_dialog(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<Lobb
     }
 }
 
-/// "Room code" [______] JOIN: Enter in the box or the button joins the code typed.
+/// "Room code" [______]: Enter in the box joins the code typed; so does the action row's JOIN while it is typed.
 fn code_row(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAction>) {
     ui.add_enabled_ui(v.joining.is_none(), |ui| {
         ui.horizontal(|ui| {
@@ -1317,15 +1339,8 @@ fn code_row(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAc
                     .desired_width(110.0)
                     .margin(vec2(10.0, 6.0)),
             );
-            let enter = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-            let typed = !v.code.trim().is_empty();
-            if ui
-                .add_enabled_ui(typed, |ui| action(ui, &tr!(lang, "lobby.join")))
-                .inner
-                .clicked()
-                || enter && typed
-            {
-                *act = Some(LobbyAction::JoinCode(v.code.trim().to_ascii_uppercase()));
+            if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+                *act = v.join_action();
             }
         });
     });
@@ -1629,6 +1644,9 @@ mod tests {
         assert_eq!(v.joinable().map(|r| r.id.as_str()), Some("p1"));
         v.shops[0].room = false; // a desk's own shop, or a desk too old to mark rooms: not listed
         assert!(v.visible().is_empty() && v.joinable().is_none());
+        // a code typed joins by code: JOIN is live
+        assert_eq!(v.why_not_join(Lang::En), None);
+        v.code.clear();
         assert_eq!(v.why_not_join(Lang::En).as_deref(), Some("Pick a room"));
         v.shops[0].room = true;
         v.shop_rooms = false;

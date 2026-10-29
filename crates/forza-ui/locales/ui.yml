@@ -496,6 +496,7 @@ lobby.in_match: {en: "IN MATCH", it: "IN PARTITA", ja: "試合中"}
 lobby.full: {en: "FULL", it: "PIENA", ja: "満席"}
 lobby.closed: {en: "CLOSED", it: "CHIUSA", ja: "終了"}
 lobby.join: {en: "JOIN", it: "ENTRA", ja: "参加"}
+lobby.connect: {en: "CONNECT", it: "CONNETTI", ja: "接続"}
 lobby.quick: {en: "QUICK MATCH", it: "PARTITA RAPIDA", ja: "クイックマッチ"}
 lobby.host: {en: "HOST VS", it: "CREA SFIDA", ja: "ルームを作る"}
 lobby.ready: {en: "READY", it: "PRONTO", ja: "準備OK"}

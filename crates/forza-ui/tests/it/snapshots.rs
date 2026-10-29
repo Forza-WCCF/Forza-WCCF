@@ -106,6 +106,48 @@ fn launcher_online() {
 }
 
 /// 2017-18 HOST ARCADE's dialog: "List my arcade", the arcade's name, HOST ARCADE and CANCEL over the ONLINE tab.
+/// ONLINE has no PLAY: its JOIN joins the code typed, CONNECT in the Direct address fold plays online; PLAY on the
+/// PLAY tab with Online chosen shows ONLINE instead of playing.
+#[test]
+fn launcher_online_starts_from_the_lobby() {
+    let _gpu = gpu();
+    let mut start =
+        launcher::LauncherState::sample(Edition::E1718, Lang::En, launcher::Scenario::Online);
+    (start.lobby.code, start.lobby.direct_open) = ("k7qm2x".into(), true);
+    let st = std::cell::RefCell::new(start);
+    let got = std::cell::RefCell::new(None);
+    let mut h = harness(launcher::SIZE, 1.0, Edition::E1718, |ui| {
+        if let Some(a) = launcher::show(ui, &mut st.borrow_mut()) {
+            *got.borrow_mut() = Some(a);
+        }
+    });
+    h.run_steps(4);
+    // only the tab is called PLAY
+    assert_eq!(h.query_all_by_label("PLAY").count(), 1, "no PLAY on ONLINE");
+    h.get_by_label("JOIN").click();
+    h.run_steps(2);
+    assert_eq!(
+        got.take(),
+        Some(launcher::Action::Lobby(lobby::LobbyAction::JoinCode(
+            "K7QM2X".into()
+        )))
+    );
+    h.get_by_label("CONNECT").click();
+    h.run_steps(2);
+    assert_eq!(got.take(), Some(launcher::Action::Play));
+    assert!(st.borrow().online);
+    st.borrow_mut().tab = launcher::Tab::Play;
+    h.run_steps(2);
+    // the footer's PLAY: the lowest
+    h.get_all_by_label("PLAY")
+        .max_by(|a, b| a.rect().bottom().total_cmp(&b.rect().bottom()))
+        .unwrap()
+        .click();
+    h.run_steps(2);
+    assert_eq!(got.take(), None);
+    assert_eq!(st.borrow().tab, launcher::Tab::Online);
+}
+
 #[test]
 fn launcher_host_dialog() {
     let _gpu = gpu();
@@ -1206,13 +1248,14 @@ fn lobby_shop_rooms() {
     assert!(v.borrow().host_ask.is_none() && v.borrow().list_shop);
     v.borrow_mut().code = " k7qm2xpd".into();
     h.run_steps(2);
-    // the code box's JOIN, then the listed room row's
-    let joins: Vec<_> = h.get_all_by_label("JOIN").collect();
-    assert_eq!(joins.len(), 2);
-    joins[0].click();
+    // one JOIN: the code typed, then (box emptied) the listed room row
+    assert_eq!(h.get_all_by_label("JOIN").count(), 1);
+    h.get_by_label("JOIN").click();
     h.run_steps(2);
     assert_eq!(got.take(), Some(JoinCode("K7QM2XPD".into())));
-    h.get_all_by_label("JOIN").nth(1).unwrap().click();
+    v.borrow_mut().code.clear();
+    h.run_steps(2);
+    h.get_by_label("JOIN").click();
     h.run_steps(2);
     assert_eq!(got.take(), Some(Join("p1".into())));
     v.borrow_mut().hosting = true;
@@ -1244,10 +1287,10 @@ fn lobby_lan() {
     h.get_by_label("HOST LAN ARCADE").click();
     h.run_steps(2);
     assert_eq!(got.take(), Some(HostLan));
-    // the JOINs: the code row's and the list's (both greyed), the two found shops', the typed address's
+    // the JOINs: the list's, the two found shops', the typed address's
     let joins: Vec<_> = h.get_all_by_label("JOIN").collect();
-    assert_eq!(joins.len(), 5);
-    joins[2].click();
+    assert_eq!(joins.len(), 4);
+    joins[1].click();
     h.run_steps(2);
     assert_eq!(got.take(), Some(JoinLan("192.168.1.20".into())));
     v.borrow_mut().lan_address = " 10.0.0.7:20031 ".into();
