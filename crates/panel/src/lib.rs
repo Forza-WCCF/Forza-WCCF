@@ -694,14 +694,31 @@ fn card_open() -> bool {
     })
 }
 
-/// A match runs (IMPORT LINEUP is refused then, the owner's rule): the seat's shop state MATCHING, GAME or
-/// GAME_RESULT_WAIT (4-6, the pause's reading), or a card session open (2010-11's club card; covers a run where the
-/// shop state cannot be read).
+/// This seat plays a match (IMPORT LINEUP is refused then, the owner's rule); the decision and its inputs are logged.
 fn in_match() -> bool {
     let e1718 = FILES
         .get()
         .is_some_and(|f| f.edition == theme::Edition::E1718);
-    matches!(pause::shop_state(e1718), Some(4..=6)) || card_open()
+    let seat = if e1718 { pause::seat_state() } else { None };
+    let shop = pause::shop_state(e1718);
+    let card = card_open();
+    let refuse = match_now(e1718, seat, shop, card);
+    log(&format!(
+        "import: match check - seat state {seat:?}, shop state {shop:?}, card session {card} -> {}",
+        if refuse { "in a match" } else { "free" }
+    ));
+    refuse
+}
+
+/// 2017-18: the seat's own sequence state is the match one (the shop state is the whole shop's: another seat's
+/// match sets it too); the shop state MATCHING-GAME_RESULT_WAIT (4-6) only when the seat state cannot be read.
+/// 2010-11: that shop state. Either: a card session open (2010-11's club card).
+fn match_now(e1718: bool, seat: Option<u32>, shop: Option<u32>, card: bool) -> bool {
+    let playing = match seat {
+        Some(s) if e1718 => s == pause::SEAT_MATCH,
+        _ => matches!(shop, Some(4..=6)),
+    };
+    playing || card
 }
 
 /// The clipboard's text, at most 64K characters; `None`: no text there, or another program holds the clipboard (tried
@@ -2995,7 +3012,25 @@ fn vk_key(vk: u32) -> Option<Key> {
 
 #[cfg(test)]
 mod tests {
-    use super::big_enough;
+    use super::{big_enough, match_now};
+
+    /// IMPORT LINEUP: 2017-18 asks the seat's own state (another seat's match puts the shared shop in GAME); the shop
+    /// state only when that cannot be read; 2010-11 keeps the shop state; a card session always counts.
+    #[test]
+    fn import_is_refused_only_in_this_seats_match() {
+        assert!(
+            !match_now(true, Some(3), Some(5), false),
+            "another seat plays"
+        );
+        assert!(match_now(true, Some(19), Some(5), false));
+        assert!(match_now(true, Some(19), Some(1), false));
+        assert!(match_now(true, None, Some(5), false));
+        assert!(!match_now(true, None, Some(1), false));
+        assert!(match_now(false, None, Some(4), false));
+        assert!(!match_now(false, None, Some(7), false));
+        assert!(match_now(false, None, None, true));
+        assert!(match_now(true, Some(3), Some(1), true));
+    }
 
     /// The board window (and the game's) is drawn in only when shown and at least 64x64; otherwise the panel falls
     /// back to the game's window for the frame.

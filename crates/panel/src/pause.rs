@@ -101,6 +101,23 @@ pub(crate) fn shop_state(e1718: bool) -> Option<u32> {
     patches::read_u32(obj as usize + 12).filter(|&s| s <= 7)
 }
 
+const SEAT_1718: usize = 0x06D9_EBCC;
+
+/// 2017-18: the seat's own sequence state (`GAME-CLOCK.md` §3: `*(0x6D9EBCC)`, its dword +0), written by each
+/// sequence's start; [`SEAT_MATCH`] runs on this seat only. `None` when this is not the 2017-18 client or the object
+/// is not there yet.
+pub(crate) fn seat_state() -> Option<u32> {
+    if !patches::is_client(&patches::exe_name()) {
+        return None;
+    }
+    let obj = patches::read_u32(SEAT_1718 - BASE + patches::exe_base()).filter(|&o| o != 0)?;
+    patches::read_u32(obj as usize).filter(|&s| s < 64)
+}
+
+/// 2017-18 seat state 19: set by the match sequence's start (C17 sub_61AB80; its update sends `REQ_MATCH` and
+/// `GO TO GAME`) and kept through the match (sub_87FF60 sets none) until the next sequence writes its own.
+pub(crate) const SEAT_MATCH: u32 = 19;
+
 /// The kit's control on this PC (`control_Release.exe` from this game's folders): its process and its Stop checkbox
 /// (ID 1035 on its `#32770` main dialog, hidden by the run); either may be missing.
 fn control() -> (Option<u32>, Option<HWND>) {
