@@ -1277,7 +1277,7 @@ pub fn formation_board(
                         Color32::from_black_alpha(140),
                     );
                 }
-                if pure && (resp.is_pointer_button_down_on() || is_dragged) {
+                if pure && (resp.is_pointer_button_down_on() || is_dragged || resp.clicked()) {
                     ui.data_mut(|d| d.insert_temp(touched_id(), c.clone()));
                 }
                 if resp.hovered() && dragging.is_none() && !pure {
@@ -2902,6 +2902,11 @@ mod tests {
         assert_eq!(frame(vec![press(true)], 2.1, &mut b).1, (Some(101), false));
         assert!(!frame(vec![press(false)], 2.2, &mut b).1.1);
         assert_eq!(frame(vec![], 4.0, &mut b).1, (None, false));
+        // a tap pressed and let go in one frame: touched too
+        assert_eq!(
+            frame(vec![press(true), press(false)], 5.0, &mut b).1,
+            (Some(101), false)
+        );
     }
 
     /// A card dragged off the board and let go leaves the table, and says which card and where it was.
