@@ -745,6 +745,15 @@ impl PanelState {
         self.message = Some(Note::new(tone, text));
     }
 
+    /// The game window's frame popped out or not ([`PanelState::popped`]); a dock or a pop-out forgets the card touched
+    /// last, so its details don't come back.
+    pub fn set_popped(&mut self, popped: bool) {
+        if self.popped != popped {
+            self.touched = None;
+        }
+        self.popped = popped;
+    }
+
     /// A message by its text key, in the panel's language.
     pub fn say(&mut self, tone: Tone, key: &str) {
         self.note(tone, tr!(self.lang, key));
@@ -4705,6 +4714,11 @@ mod tests {
         assert!(st.touched.is_some(), "kept for a while");
         both(&mut st, 0.2 + TOUCH_SECS + 0.1, vec![]);
         assert!(st.touched.is_none(), "gone after TOUCH_SECS");
+        // a dock forgets the card touched last
+        both(&mut st, 10.0, vec![press(true)]);
+        assert!(st.touched.is_some());
+        st.set_popped(false);
+        assert!(st.touched.is_none(), "docked: forgotten");
     }
 
     #[test]
