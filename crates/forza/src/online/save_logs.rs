@@ -147,16 +147,25 @@ fn small(p: &Path) -> bool {
 /// [`saves`] as they go in the ZIP, and a line for each one left out.
 fn save_data(kit: &Path) -> (Vec<(String, Vec<u8>)>, Vec<String>) {
     let (mut out, mut notes) = (vec![], vec![]);
+    let too_big = format!("bigger than {} MB", SAVE_MAX >> 20);
     for (arc, path) in saves(kit) {
         let data = match arc.as_str() {
-            _ if !small(&path) => Err(format!("bigger than {} MB", SAVE_MAX >> 20)),
+            _ if !small(&path) => Err(too_big.clone()),
             "save/gamesvr/gamesvr.db" => snapshot(&path),
             "save/aimedb.json" => fs::read(&path)
                 .map_err(|e| e.to_string())
                 .and_then(|d| masked_aimedb(&d).ok_or_else(|| "not a JSON object".into())),
             // whole and as they are: a cut or rewritten save is no use
             _ => fs::read(&path).map_err(|e| e.to_string()),
-        };
+        }
+        // the store's snapshot folds in its WAL, so it can outgrow the file on disk
+        .and_then(|d| {
+            if d.len() as u64 <= SAVE_MAX {
+                Ok(d)
+            } else {
+                Err(too_big.clone())
+            }
+        });
         match data {
             Ok(d) => out.push((arc, d)),
             Err(e) => notes.push(format!("{arc} left out: {e}")),
@@ -832,6 +841,32 @@ mod tests {
         let (blob, _) = pack(d.path(), None, &scrub, TAIL, None).unwrap();
         let mut z = zip::ZipArchive::new(Cursor::new(blob)).unwrap();
         assert!(z.by_name("save/gamesvr/gamesvr.db").is_ok());
+    }
+
+    #[test]
+    fn a_store_whose_snapshot_outgrows_the_limit_is_left_out_with_a_note() {
+        let d = tempfile::tempdir().unwrap();
+        let save = d.path().join("data").join("save");
+        fs::create_dir_all(save.join("gamesvr")).unwrap();
+        fs::write(save.join("seat1_club.bin"), b"club").unwrap();
+        // the rows sit in a big uncheckpointed WAL: gamesvr.db itself stays small
+        let live = Connection::open(save.join("gamesvr").join("gamesvr.db")).unwrap();
+        live.execute_batch(
+            "PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0; CREATE TABLE t (b BLOB);",
+        )
+        .unwrap();
+        live.execute("INSERT INTO t VALUES (?1)", [noise(SAVE_MAX as usize + 1024, 5)])
+            .unwrap();
+        assert!(small(&save.join("gamesvr").join("gamesvr.db")));
+        let (blob, _) = pack(d.path(), None, &Scrub::default(), TAIL, None).unwrap();
+        let mut z = zip::ZipArchive::new(Cursor::new(blob)).unwrap();
+        assert!(z.by_name("save/gamesvr/gamesvr.db").is_err());
+        assert_eq!(read(&mut z, "save/seat1_club.bin"), b"club");
+        assert_eq!(
+            String::from_utf8(read(&mut z, "report.txt")).unwrap(),
+            "[SAVE LOGS] save/gamesvr/gamesvr.db left out: bigger than 3 MB\n"
+        );
+        drop(live);
     }
 
     /// Bytes that do not compress (xorshift).
