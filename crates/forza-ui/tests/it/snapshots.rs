@@ -378,6 +378,21 @@ fn desk_window() {
             panel::Page::Game,
             "panel_desk_1080x1920_en",
         ),
+        // the owner's mockup's portrait size, and a wide window
+        (
+            Vec2::new(960.0, 1232.0),
+            Edition::E1718,
+            Lang::En,
+            panel::Page::Game,
+            "panel_desk_960x1232_en",
+        ),
+        (
+            Vec2::new(2560.0, 1440.0),
+            Edition::E1718,
+            Lang::En,
+            panel::Page::Game,
+            "panel_desk_2560x1440_en",
+        ),
     ] {
         let mut st = panel::PanelState::sample(ed, lang, page);
         st.desk = true;
@@ -442,7 +457,7 @@ fn card_view() {
     all.unwrap();
 }
 
-/// The pop-out board's window at 1024x768 (4:3): the wide layout, the board full height, drawn at the scale the panel
+/// The pop-out board's window at 1024x768 (4:3): the tall layout (the board with its bench column is too wide beside the deck there), drawn at the scale the panel
 /// DLL picks for it.
 #[test]
 fn desk_window_4_3() {

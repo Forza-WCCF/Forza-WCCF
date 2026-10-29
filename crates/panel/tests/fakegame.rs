@@ -131,7 +131,7 @@ fn panel_draws_in_fakegame() {
 
 /// The panel with real data in a scratch kit: a synthetic catalogue (the real column layout, made-up cards) and
 /// made-up pictures, keys.txt, panel.txt and settings.json, the card table in the game's folder. Checked: a card's
-/// picture on its card, the heat zone while a card is dragged, a drag from the bench to the pitch and a right-click
+/// picture on its card, the heat zone while a card is dragged, a drag from the bench to the pitch and a drag off
 /// written to fpr_table0.txt as the C panel writes it, a cabinet button pressing its key from keys.txt (dry run), and
 /// a click on the game's picture reaching the game, moved into its client area, while clicks on the panel do not.
 #[test]
@@ -364,7 +364,7 @@ fn board_and_buttons_with_real_data() {
         "no heat zone while dragging: {rest} at rest, {held} held"
     );
 
-    // 2. a right-click takes card 102 off; SHOOT (keys.txt: G) presses its key; a click on the picture is the game's
+    // 2. card 102 dragged off the board (onto the deck's left margin) is taken off; SHOOT (keys.txt: G) presses its key; a click on the picture is the game's
     let _ = fs::remove_file(seat.join("forza_panel.log"));
     // SHOOT's centre from the panel's own layout at 1440x900 (one point per pixel), so the click follows the deck
     let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1440.0, 900.0));
@@ -391,7 +391,11 @@ fn board_and_buttons_with_real_data() {
     let said = run(&[
         READY.into(),
         "wait:300".into(),
-        format!("rclick:{}", at(1)),
+        format!("down:{}", at(1)),
+        "move:600,600".into(),
+        "move:20,700".into(),
+        "wait:300".into(),
+        "up:20,700".into(),
         "wait:300".into(),
         format!("click:{},{}", shoot.x as i32, shoot.y as i32), // SHOOT, in the cabinet deck under the picture
         "wait:400".into(),

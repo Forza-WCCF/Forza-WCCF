@@ -37,6 +37,10 @@ const DECK_MIN: f32 = 148.0;
 /// gaps 12, a hint of two lines 36).
 const BOARD_PER_W: f32 = 1.455;
 const BOARD_EXTRA: f32 = 80.0;
+/// The same for the pop-out board (the bench a column beside the pitch, [`board::COLUMN_ASPECT`]): margins 32, a gap 4
+/// and one row for POP IN and UNDO 24 (no hint).
+const DESK_PER_W: f32 = board::COLUMN_ASPECT;
+const DESK_EXTRA: f32 = 60.0;
 
 /// Points per pixel for a window of `w` x `h` pixels on a monitor of `dpi` (96 = 100%): 1 from 1440x900 up (a bigger
 /// window gets a bigger sheet, so the game's picture can grow past its own size), 2 from 2880x1800 (4K), the window's
@@ -57,7 +61,7 @@ const DESK_DECK: f32 = ROW.y + 92.0;
 
 /// The board window's full-height board column on a sheet `h` tall: the pitch and the bench sized by the height.
 fn desk_column(h: f32) -> f32 {
-    (h - BOARD_EXTRA) / BOARD_PER_W + 32.0
+    (h - DESK_EXTRA) / DESK_PER_W + 32.0
 }
 
 /// Whether a board-window sheet is laid out wide ([`desk_layout`]): tall enough, and the full-height board leaves the
@@ -71,7 +75,7 @@ fn desk_wide(sheet: egui::Vec2) -> bool {
 pub fn desk_scale(w: f32, h: f32, dpi: f32) -> f32 {
     // wide: w/p >= desk_column(h/p) + DESK_MIDDLE, solved for p; and h/p >= DESK_WIDE_H
     let wide = (h / DESK_WIDE_H)
-        .min((w - h / BOARD_PER_W) / (32.0 + DESK_MIDDLE - BOARD_EXTRA / BOARD_PER_W));
+        .min((w - h / DESK_PER_W) / (32.0 + DESK_MIDDLE - DESK_EXTRA / DESK_PER_W));
     let tall = (w / DESK_TALL.x).min(h / DESK_TALL.y);
     scale_from(if wide >= 0.8 * tall { wide } else { tall }, dpi)
 }
@@ -1971,16 +1975,30 @@ fn ping(p: &egui::Painter, r: Rect, ms: u32, lang: Lang) {
 fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     strip_ground(ui);
     let r = ui.max_rect().shrink(16.0);
+    // the pop-out board: the bench a column beside the pitch, no hint
+    let (per_w, extra) = if st.desk {
+        (DESK_PER_W, DESK_EXTRA)
+    } else {
+        (BOARD_PER_W, BOARD_EXTRA)
+    };
     // as wide as the strip, or as its height can use (the board window held tall), centred
-    let w = r
-        .width()
-        .min((ui.max_rect().height() - BOARD_EXTRA) / BOARD_PER_W);
+    let w = r.width().min((ui.max_rect().height() - extra) / per_w);
     let r = Rect::from_min_size(pos2(r.center().x - w / 2.0, r.top()), vec2(w, r.height()));
-    let pitch = board::pitch_rect(r.min + vec2(0.0, BOARD_HEAD), r.width());
+    let pitch = if st.desk {
+        Rect::from_min_size(r.min, vec2(w, w * board::COLUMN_ASPECT))
+    } else {
+        board::pitch_rect(r.min + vec2(0.0, BOARD_HEAD), r.width())
+    };
     let mut b = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(pitch.min, r.max)));
     b.spacing_mut().item_spacing.y = 4.0;
-    st.board_changed |=
-        board::formation_board(&mut b, &mut st.board, &st.links, st.hover_delay, lang);
+    st.board_changed |= board::formation_board(
+        &mut b,
+        &mut st.board,
+        &st.links,
+        st.hover_delay,
+        lang,
+        st.desk,
+    );
     let now = b.input(|i| i.time);
     if let Some(r) = board::take_removed(&b) {
         st.undo = Some((r, now));
@@ -2041,7 +2059,7 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                 st.undo = None;
             }
         });
-    } else {
+    } else if !st.desk {
         b.label(
             egui::RichText::new(tr!(lang, "board.hint"))
                 .font(theme::body(HINT))
@@ -4248,8 +4266,8 @@ mod tests {
             (2560.0, 1440.0, true),
             (3840.0, 2160.0, true),
             (1000.0, 700.0, true),
-            (1024.0, 768.0, true),
-            (1280.0, 1024.0, true),
+            (1024.0, 768.0, false),
+            (1280.0, 1024.0, false),
             (1000.0, 900.0, false),
             (860.0, 1104.0, false),
             (900.0, 1400.0, false),
@@ -4274,19 +4292,18 @@ mod tests {
                 "{at}"
             );
             let pitch_w =
-                (l.board.width() - 32.0).min((l.board.height() - BOARD_EXTRA) / BOARD_PER_W);
+                (l.board.width() - 32.0).min((l.board.height() - DESK_EXTRA) / DESK_PER_W);
             assert!(pitch_w >= BOARD_W - 32.0, "{at}");
             if wide {
-                // the board full height: pitch, bench and hint fill the column top to bottom
+                // the board full height: pitch and bench column, and the POP IN row fill the column top to bottom
                 assert_eq!(l.board.height(), sheet.height(), "{at}");
-                let used = pitch_w * BOARD_PER_W + BOARD_EXTRA;
+                let used = pitch_w * DESK_PER_W + DESK_EXTRA;
                 assert!((used - sheet.height()).abs() < 0.5, "{at}: {used}");
             } else {
                 // tall: the board as wide as the window (less its margins), or as its height allows
                 let by_w = l.board.width() - 32.0;
                 assert!(
-                    pitch_w == by_w
-                        || pitch_w * BOARD_PER_W + BOARD_EXTRA <= l.board.height() + 0.5,
+                    pitch_w == by_w || pitch_w * DESK_PER_W + DESK_EXTRA <= l.board.height() + 0.5,
                     "{at}"
                 );
             }
