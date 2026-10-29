@@ -142,7 +142,10 @@ jobs:
           # scan waits for it. The EICAR control and the tests' behaviour monitoring use the installed signatures.
           $p = Start-Process -FilePath "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -ArgumentList '-SignatureUpdate' -NoNewWindow -PassThru -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'sigupdate.log')
           "update_pid=$($p.Id)" >> $env:GITHUB_OUTPUT
-          Get-MpComputerStatus | Select-Object AMEngineVersion, AntivirusSignatureVersion, RealTimeProtectionEnabled, BehaviorMonitorEnabled, AntivirusEnabled | Format-List
+          # informational only (the EICAR control proves Defender works); runners sometimes fail it with "Provider load failure"
+          try {
+            Get-MpComputerStatus | Select-Object AMEngineVersion, AntivirusSignatureVersion, RealTimeProtectionEnabled, BehaviorMonitorEnabled, AntivirusEnabled | Format-List
+          } catch { "::warning::Get-MpComputerStatus failed: $_" }
           exit 0
       # the EICAR test file, from two halves so this file never holds the whole string: the scan must find it
       - name: Defender control (EICAR)
