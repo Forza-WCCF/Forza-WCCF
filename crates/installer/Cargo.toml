@@ -1,6 +1,6 @@
 [package]
 name = "wccf-installer"
-version.workspace = true
+version.workspace = true # the release number: it shows it to players (docs/RELEASING.md)
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
