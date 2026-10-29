@@ -738,6 +738,9 @@ pub const CARD_SMALL: egui::Vec2 = egui::vec2(50.0, 50.0 / CARD_ASPECT);
 pub const PITCH_ASPECT: f32 = 1.25;
 /// The bench's cards against the pitch's.
 const BENCH_SCALE: f32 = 0.8;
+/// The pop-out board (pitch and bench column, [`Mat::column`]) is this many times as tall as it is wide.
+pub const COLUMN_ASPECT: f32 =
+    art::W * PITCH_ASPECT / (art::SHOWN[1] - art::SHOWN[0] + art::COLUMN_W);
 
 /// A pitch card for a pitch this wide: the card's shape ([`CARD_ASPECT`]), about a seventh of the width.
 pub fn card_size(pitch_w: f32) -> egui::Vec2 {
@@ -749,6 +752,11 @@ pub fn card_size(pitch_w: f32) -> egui::Vec2 {
 /// itself, what the table holds, is kept). The keeper's card (a spot in the keeper's zone, [`zone`]) sits lower, as
 /// on the cabinet's mat: on the mat's GK box, half below the own goal line.
 pub fn spot_rect(pitch: Rect, spot: Pos2) -> Rect {
+    spot_in(pitch, pitch.shrink(4.0), spot)
+}
+
+/// [`spot_rect`], the card kept inside `inside`.
+fn spot_in(pitch: Rect, inside: Rect, spot: Pos2) -> Rect {
     let f = field(pitch);
     let y = if zone(spot) == Position::Gk {
         art::rect(pitch, art::GK).center().y
@@ -759,7 +767,6 @@ pub fn spot_rect(pitch: Rect, spot: Pos2) -> Rect {
         pos2(f.left() + spot.x * f.width(), y),
         card_size(pitch.width()),
     );
-    let inside = pitch.shrink(4.0);
     let push = |lo: f32, hi: f32, min: f32, max: f32| (min - lo).max(0.0) + (max - hi).min(0.0);
     r.translate(vec2(
         push(r.left(), r.right(), inside.left(), inside.right()),
@@ -770,16 +777,71 @@ pub fn spot_rect(pitch: Rect, spot: Pos2) -> Rect {
 /// Where every slot's card sits: the 11 pitch slots at their spots (empty ones too, unused), the 5 bench slots on the
 /// artwork's numbered boxes, the bench from `bench_top` (the board puts it 12 points under the pitch).
 pub fn slot_rects(pitch: Rect, bench_top: f32, spots: &[Pos2; 11]) -> [Rect; 16] {
-    let mut rects = [Rect::NOTHING; 16];
-    for (i, s) in spots.iter().enumerate() {
-        rects[i] = spot_rect(pitch, *s);
+    Mat::row(pitch, bench_top).slot_rects(spots)
+}
+
+/// Where the board's parts lie: `pitch` the pitch artwork's rect (cards and spots go by it), `shown` the part of it
+/// drawn, `bench` the bench, a strip under the pitch ([`Mat::row`]) or a column at its right ([`Mat::column`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Mat {
+    pub pitch: Rect,
+    pub shown: Rect,
+    pub bench: Rect,
+    pub column: bool,
+}
+
+impl Mat {
+    /// The in-game board: the whole pitch, the bench strip under it from `bench_top`.
+    pub fn row(pitch: Rect, bench_top: f32) -> Mat {
+        let bench = bench_rect(pitch, bench_top);
+        Mat {
+            pitch,
+            shown: pitch,
+            bench,
+            column: false,
+        }
     }
-    let small = card_size(pitch.width()) * BENCH_SCALE;
-    let bench = bench_rect(pitch, bench_top);
-    for b in 0..5 {
-        rects[11 + b] = Rect::from_center_size(art::slot(bench, b).center(), small);
+
+    /// The pop-out board, `width` wide from `top_left` ([`COLUMN_ASPECT`] tall): the pitch from a touchline margin to
+    /// the other, the bench column flush at its right, as tall as the pitch. The artwork's side margins run under the
+    /// column and off the left edge, undrawn.
+    pub fn column(top_left: Pos2, width: f32) -> Mat {
+        let s = width / (art::SHOWN[1] - art::SHOWN[0] + art::COLUMN_W);
+        let pitch = pitch_rect(top_left - vec2(art::SHOWN[0] * s, 0.0), art::W * s);
+        let shown = Rect::from_min_size(
+            top_left,
+            vec2((art::SHOWN[1] - art::SHOWN[0]) * s, pitch.height()),
+        );
+        let bench = Rect::from_min_max(shown.right_top(), pos2(top_left.x + width, shown.bottom()));
+        Mat {
+            pitch,
+            shown,
+            bench,
+            column: true,
+        }
     }
-    rects
+
+    /// The bench's numbered box `i` (0-4).
+    pub fn bench_box(&self, i: usize) -> Rect {
+        if self.column {
+            art::column_slot(self.bench, i)
+        } else {
+            art::slot(self.bench, i)
+        }
+    }
+
+    /// Where every slot's card sits ([`slot_rects`]); pitch cards stay on the pitch as shown.
+    pub fn slot_rects(&self, spots: &[Pos2; 11]) -> [Rect; 16] {
+        let mut rects = [Rect::NOTHING; 16];
+        for (i, s) in spots.iter().enumerate() {
+            rects[i] = spot_in(self.pitch, self.shown.shrink(4.0), *s);
+        }
+        let small = card_size(self.pitch.width()) * BENCH_SCALE;
+        for b in 0..5 {
+            rects[11 + b] = Rect::from_center_size(self.bench_box(b).center(), small);
+        }
+        rects
+    }
 }
 
 /// The bench strip under a pitch, from `bench_top`: the artwork's, as wide as the pitch.
@@ -866,6 +928,15 @@ mod art {
     /// The SUB label (left, top, right, bottom) and the badge's box.
     pub const SUB: [f32; 4] = [40.0, 3940.0, 131.0, 4318.0];
     pub const BADGE: [f32; 4] = [2748.0, 4036.0, 2944.0, 4214.0];
+    /// The pop-out board: the pitch as shown (left, right: the touchlines and a margin), and the bench column at its
+    /// right, its own x from its left edge and y from its top (the pitch's): its width, the cream line down its left edge, the
+    /// crest's and the SUB label's boxes (left, top, right, bottom), the first box's top and the step between boxes.
+    pub const SHOWN: [f32; 2] = [269.5, 2696.0];
+    pub const COLUMN_W: f32 = 459.0;
+    pub const COLUMN_LINE: f32 = 21.0;
+    pub const CREST: [f32; 4] = [55.0, 60.0, 425.0, 430.0];
+    pub const COLUMN_SUB: [f32; 4] = [51.0, 470.0, 429.0, 560.0];
+    pub const COLUMN_SLOT: [f32; 2] = [590.0, 546.0];
     pub const SOIL: Color32 = Color32::from_rgb(0x6C, 0x57, 0x20);
     pub const CREAM: Color32 = Color32::from_rgb(0xE2, 0xD4, 0xAD);
     pub const SLOT_FILL: Color32 = Color32::from_rgb(0xB9, 0xB1, 0x73);
@@ -897,6 +968,19 @@ mod art {
     pub fn slot(bench: Rect, i: usize) -> Rect {
         let [l, r] = SLOTS[i];
         Rect::from_min_max(bench_at(bench, l, SLOT_Y[0]), bench_at(bench, r, SLOT_Y[1]))
+    }
+
+    /// A point of the pop-out board's bench column drawn in `bench` (from its left top corner).
+    pub fn column_at(bench: Rect, x: f32, y: f32) -> Pos2 {
+        bench.min + egui::vec2(x, y) * (bench.width() / COLUMN_W)
+    }
+
+    /// A slot's box on the bench column: the strip's box size, stacked.
+    pub fn column_slot(bench: Rect, i: usize) -> Rect {
+        let l = COLUMN_SUB[0];
+        let t = COLUMN_SLOT[0] + COLUMN_SLOT[1] * i as f32;
+        let (w, h) = (SLOTS[0][1] - SLOTS[0][0], SLOT_Y[1] - SLOT_Y[0]);
+        Rect::from_min_max(column_at(bench, l, t), column_at(bench, l + w, t + h))
     }
 
     /// A length of the picture on the pitch.
@@ -946,7 +1030,7 @@ fn grab_id() -> Id {
     Id::new("board-grab")
 }
 
-/// A card taken off the board (right-click, or dragged off it and let go): what UNDO puts back.
+/// A card taken off the board (dragged off it and let go): what UNDO puts back.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Removed {
     pub card: Card,
@@ -981,26 +1065,38 @@ pub fn undo(board: &mut Board, r: &Removed) -> bool {
 }
 
 /// Draws the board and handles it: a card dropped on open pitch lies exactly there (the cabinet's table has no fixed
-/// spots), a card dropped onto another swaps with it (the target is lit while dragging), right-click or a drag off
-/// the board takes a card off ([`take_removed`]), a resting mouse shows the card big after `hover_delay` seconds (None: never). While a card is dragged or shown
+/// spots), a card dropped onto another swaps with it (the target is lit while dragging), a drag off the board takes
+/// a card off ([`take_removed`]; no right-click: a long press on a touch screen is one), a resting mouse shows the card big after `hover_delay` seconds (None: never). While a card is dragged or shown
 /// big, the pitch shows its suitable positions as a heat zone, and the drop target says how well it fits there.
 /// With `links`, lines join every two linked pitch cards by the club's link stage; a selected card (clicked, or in
 /// hand) brings its group forward - its lines bright, the others and the cards outside its group dimmed - and a list
-/// beside the board names its partners, on the team and not. Returns true when it changed.
+/// beside the board names its partners, on the team and not. With `column` (the pop-out board) the bench is a column
+/// at the pitch's right ([`Mat::column`]), else a strip under it. Returns true when it changed.
 pub fn formation_board(
     ui: &mut Ui,
     board: &mut Board,
     links: &Links,
     hover_delay: Option<f32>,
     lang: Lang,
+    column: bool,
 ) -> bool {
     let width = ui.available_width();
-    let (pitch, _) = ui.allocate_exact_size(vec2(width, width * PITCH_ASPECT), Sense::hover());
+    let mat = if column {
+        let (r, _) = ui.allocate_exact_size(vec2(width, width * COLUMN_ASPECT), Sense::hover());
+        Mat::column(r.min, width)
+    } else {
+        let (pitch, _) = ui.allocate_exact_size(vec2(width, width * PITCH_ASPECT), Sense::hover());
+        // the bench under the pitch: a well with its name running up the left like the zones
+        ui.add_space(8.0);
+        let (bench, _) = ui.allocate_exact_size(vec2(width, art::bench_h(width)), Sense::hover());
+        Mat::row(pitch, bench.top())
+    };
+    let (pitch, shown, bench) = (mat.pitch, mat.shown, mat.bench);
     let dragging = egui::DragAndDrop::payload::<usize>(ui.ctx()).map(|a| *a);
     // a card dragged out of the catalogue
     let incoming = egui::DragAndDrop::payload::<Card>(ui.ctx());
     let pointer = ui.ctx().pointer_latest_pos();
-    paint_pitch(ui.painter(), pitch, true);
+    paint_pitch(&ui.painter().with_clip_rect(shown), pitch, true);
     // the heat zone goes over the pitch and under the cards, once we know whose it is
     let heat_at = ui.painter().add(egui::Shape::Noop);
     // the link lines over it, under the cards
@@ -1020,10 +1116,11 @@ pub fn formation_board(
         .filter(|_| has_links);
 
     let mut changed = false;
-    // the bench under the pitch: a well with its name running up the left like the zones
-    ui.add_space(8.0);
-    let (bench, _) = ui.allocate_exact_size(vec2(width, art::bench_h(width)), Sense::hover());
-    mat_bench(ui, bench);
+    if column {
+        mat_column(ui, bench);
+    } else {
+        mat_bench(ui, bench);
+    }
     // a pitch card in hand moves live: the table follows it every frame, as the C panels' board_move, so the game
     // sees the card slide and rub, not one jump on release; its spot before the lift is kept for a swap
     let origin_id = Id::new("board-origin");
@@ -1033,7 +1130,7 @@ pub fn formation_board(
             && ui.data(|d| d.get_temp::<Vec2>(grab_id())).is_none()
             && let Some(press) = ui.input(|i| i.pointer.press_origin())
         {
-            let rest = slot_rects(pitch, bench.top(), &board.spots)[from];
+            let rest = mat.slot_rects(&board.spots)[from];
             ui.data_mut(|d| d.insert_temp(grab_id(), (rest.center() - press) / rest.size()));
         }
     } else {
@@ -1048,7 +1145,7 @@ pub fn formation_board(
                 *d.get_temp_mut_or_insert_with(origin_id, || (from, board.spots[from]))
             });
             if let Some(pt) = pointer.map(|p| drag_centre(p, grab, card))
-                && pitch.contains(pt)
+                && shown.contains(pt)
             {
                 let spot = spot_at(pitch, pt);
                 if spot != board.spots[from] {
@@ -1085,11 +1182,11 @@ pub fn formation_board(
         board.rub = rub;
         changed = true;
     }
-    let rects = slot_rects(pitch, bench.top(), &board.spots);
+    let rects = mat.slot_rects(&board.spots);
     // the card in hand a card's width or more off the board: let go there, it is taken off (a bench rub stays
     // within a card's width of its box)
     let off = pointer.is_some_and(|p| {
-        !pitch
+        !shown
             .union(bench)
             .expand(card.x)
             .contains(drag_centre(p, grab, card))
@@ -1188,14 +1285,11 @@ pub fn formation_board(
                         },
                     );
                 }
-                if resp.secondary_clicked() {
-                    removed = Some((slot, board.spots.get(slot).copied().unwrap_or_default()));
-                }
             }
             // an empty bench box: the artwork's numbered box shows; lit while a card is held over it
             None if hovered_by_drag => {
                 p.rect_stroke(
-                    art::slot(bench, slot - 11),
+                    mat.bench_box(slot - 11),
                     0,
                     Stroke::new(3.0, theme::AMBER),
                     StrokeKind::Inside,
@@ -1205,7 +1299,7 @@ pub fn formation_board(
         }
     }
 
-    // dragged off the board and let go: taken off, as by a right-click (a pitch card's spot from before the lift)
+    // dragged off the board and let go: taken off (a pitch card's spot from before the lift)
     if let Some(from) = dragging.filter(|&d| board.slots[d].is_some())
         && off
         && ui.input(|i| i.pointer.any_released())
@@ -1236,7 +1330,7 @@ pub fn formation_board(
 
     // dropped on open pitch: the card lies where it was shown, from the pitch, the bench or the catalogue
     if (dragging.is_some() || incoming.is_some())
-        && pointer.is_some_and(|p| pitch.contains(drag_centre(p, grab, card)))
+        && pointer.is_some_and(|p| shown.contains(drag_centre(p, grab, card)))
         && ui.input(|i| i.pointer.any_released())
         && let Some(pt) = pointer
     {
@@ -1292,11 +1386,11 @@ pub fn formation_board(
     ui.painter().set(lines_at, egui::Shape::Vec(back));
     // the list while the card is in hand or the mouse is on the board, drawn by [`info_panes`] in the board's column
     if let Some(s) = selected
-        && (dragging.is_some() || pointer.is_some_and(|p| pitch.union(bench).contains(p)))
+        && (dragging.is_some() || pointer.is_some_and(|p| shown.union(bench).contains(p)))
     {
         let at = (0..16)
             .find(|&i| board.number(i) == Some(s))
-            .map_or(pitch, |i| rects[i]);
+            .map_or(shown, |i| rects[i]);
         ui.data_mut(|d| d.insert_temp(partners_id(), (s, at)));
     }
 
@@ -1366,7 +1460,7 @@ pub fn formation_board(
             let p = ui.painter();
             let g = p.layout_no_wrap(tr!(lang, "board.no_data"), theme::bold(13.0), theme::TEXT);
             let r = Rect::from_center_size(
-                pos2(pitch.center().x, pitch.top() + 22.0),
+                pos2(shown.center().x, shown.top() + 22.0),
                 g.size() + vec2(20.0, 8.0),
             );
             p.rect_filled(r, 12, Color32::from_black_alpha(190));
@@ -1650,22 +1744,58 @@ fn mat_bench(ui: &Ui, bench: Rect) {
     let pos = sub.center() + vec2(-g.size().y / 2.0, g.size().x / 2.0);
     p.add(egui::epaint::TextShape::new(pos, g, art::SOIL).with_angle(-std::f32::consts::FRAC_PI_2));
     for i in 0..5 {
-        let r = art::slot(bench, i);
-        p.rect_filled(r, 0, art::CREAM);
-        p.rect_filled(r.shrink(len(art::SLOT_RIM)), 0, art::SLOT_FILL);
-        p.text(
-            r.center(),
-            Align2::CENTER_CENTER,
-            (i + 1).to_string(),
-            theme::display(len(art::DIGIT) / 0.7),
-            art::DIGITS,
-        );
+        mat_box(p, art::slot(bench, i), i, len(1.0));
     }
     let [l, t, r, b] = art::BADGE;
     egui::Image::new(egui::include_image!(
         "../../../assets/logo/forza-wccf-badge-128.png"
     ))
     .paint_at(ui, Rect::from_min_max(at(l, t), at(r, b)));
+}
+
+/// A bench box `r`, numbered `i + 1`, `px` points a picture pixel.
+fn mat_box(p: &Painter, r: Rect, i: usize, px: f32) {
+    p.rect_filled(r, 0, art::CREAM);
+    p.rect_filled(r.shrink(art::SLOT_RIM * px), 0, art::SLOT_FILL);
+    p.text(
+        r.center(),
+        Align2::CENTER_CENTER,
+        (i + 1).to_string(),
+        theme::display(art::DIGIT * px / 0.7),
+        art::DIGITS,
+    );
+}
+
+/// The pop-out board's bench column: the soil, a cream line down its left edge, the Forza-WCCF crest, SUB and the
+/// five numbered boxes stacked, in the bench strip's colours and box size.
+fn mat_column(ui: &Ui, bench: Rect) {
+    let p = ui.painter();
+    let px = bench.width() / art::COLUMN_W;
+    let at = |[l, t, r, b]: [f32; 4]| {
+        Rect::from_min_max(art::column_at(bench, l, t), art::column_at(bench, r, b))
+    };
+    p.rect_filled(bench, 0, art::SOIL);
+    p.rect_filled(
+        bench.with_max_x(bench.left() + art::COLUMN_LINE * px),
+        0,
+        art::CREAM,
+    );
+    let sub = at(art::COLUMN_SUB);
+    p.rect_filled(sub, 0, art::CREAM);
+    p.text(
+        sub.center(),
+        Align2::CENTER_CENTER,
+        "SUB",
+        theme::display(78.0 * px),
+        art::SOIL,
+    );
+    for i in 0..5 {
+        mat_box(p, art::column_slot(bench, i), i, px);
+    }
+    egui::Image::new(egui::include_image!(
+        "../../../assets/logo/forza-wccf-256.png"
+    ))
+    .paint_at(ui, at(art::CREST));
 }
 
 /// The card back's position map: a tile per position area ([`heat_zone`]), or "no position data" on a small pitch.
@@ -2447,7 +2577,8 @@ mod tests {
             let mut changed = false;
             ctx.run_ui(raw, |ui| {
                 *pitch = pitch_rect(ui.cursor().min, ui.available_width());
-                changed = formation_board(ui, b, &Links::default(), Some(3.0), crate::Lang::En);
+                changed =
+                    formation_board(ui, b, &Links::default(), Some(3.0), crate::Lang::En, false);
             })
             .textures_delta
             .clear();
@@ -2541,6 +2672,102 @@ mod tests {
         }
     }
 
+    /// The pop-out board: the pitch and the bench column side by side with no gap, the boxes in the column, every pitch
+    /// card on the pitch as shown; a pitch card dragged onto a bench box goes there, and back onto open pitch.
+    #[test]
+    fn the_column_board_benches_and_fields_a_card() {
+        use egui::{Event, PointerButton};
+        use forza::cards::Placed;
+        let m = Mat::column(pos2(10.0, 20.0), 600.0);
+        assert_eq!(m.shown.right(), m.bench.left());
+        assert_eq!(
+            (m.shown.top(), m.shown.bottom()),
+            (m.bench.top(), m.bench.bottom())
+        );
+        assert!((m.shown.union(m.bench).height() - 600.0 * COLUMN_ASPECT).abs() < 0.01);
+        assert!((m.bench.right() - 610.0).abs() < 0.01);
+        for i in 0..5 {
+            assert!(m.bench.contains_rect(m.bench_box(i)), "box {i}");
+        }
+        let corners = [
+            pos2(0.0, 0.0),
+            pos2(1.0, 0.0),
+            pos2(0.0, 1.0),
+            pos2(1.0, 1.0),
+        ];
+        let rects = m.slot_rects(&[
+            corners[0],
+            corners[1],
+            corners[2],
+            corners[3],
+            pos2(0.5, 0.5),
+            pos2(0.5, 0.95),
+            pos2(0.5, 0.5),
+            pos2(0.5, 0.5),
+            pos2(0.5, 0.5),
+            pos2(0.5, 0.5),
+            pos2(0.5, 0.5),
+        ]);
+        for (i, r) in rects.iter().enumerate() {
+            let within = if i < 11 { m.shown } else { m.bench };
+            assert!(within.contains_rect(*r), "slot {i}: {r:?}");
+        }
+
+        let mut b = forza::cards::board(
+            &[Placed {
+                slot: 1,
+                no: 101,
+                x: 0.0,
+                y: 0.0,
+            }],
+            &[],
+        );
+        let ctx = egui::Context::default();
+        theme::install(&ctx, theme::Edition::E1718, &theme::font_dir()).unwrap();
+        ctx.run_ui(egui::RawInput::default(), |_| {})
+            .textures_delta
+            .clear();
+        let mut mat = None;
+        let mut frame = |events: Vec<Event>, b: &mut Board| {
+            let raw = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(620.0, 900.0))),
+                events,
+                ..Default::default()
+            };
+            ctx.run_ui(raw, |ui| {
+                mat = Some(Mat::column(ui.cursor().min, ui.available_width()));
+                formation_board(ui, b, &Links::default(), Some(3.0), crate::Lang::En, true);
+            })
+            .textures_delta
+            .clear();
+            mat.unwrap()
+        };
+        let m = frame(vec![], &mut b);
+        let mut drag = |from: Pos2, to: Pos2, b: &mut Board| {
+            let press = |pos, pressed| Event::PointerButton {
+                pos,
+                button: PointerButton::Primary,
+                pressed,
+                modifiers: Default::default(),
+            };
+            frame(vec![Event::PointerMoved(from), press(from, true)], b);
+            for p in [from.lerp(to, 0.1), from.lerp(to, 0.5), to] {
+                frame(vec![Event::PointerMoved(p)], b);
+            }
+            frame(vec![press(to, false)], b);
+            frame(vec![], b);
+        };
+        let rects = m.slot_rects(&b.spots);
+        drag(rects[0].center(), m.bench_box(2).center(), &mut b);
+        assert_eq!(b.slots[13], Some(0), "benched in box 3: {:?}", b.slots);
+        let to = m.shown.center();
+        drag(m.slot_rects(&b.spots)[13].center(), to, &mut b);
+        let on = (0..11).find(|&s| b.slots[s] == Some(0));
+        assert!(on.is_some(), "back on the pitch: {:?}", b.slots);
+        let d = m.slot_rects(&b.spots)[on.unwrap()].center() - to;
+        assert!(d.length() < 2.0, "where dropped: {d:?}");
+    }
+
     /// A card dragged off the board and let go leaves the table, and says which card and where it was.
     #[test]
     fn a_card_dragged_off_the_board_is_taken_off() {
@@ -2568,7 +2795,7 @@ mod tests {
             };
             ctx.run_ui(raw, |ui| {
                 *pitch = pitch_rect(ui.cursor().min, ui.available_width());
-                formation_board(ui, b, &Links::default(), Some(3.0), crate::Lang::En);
+                formation_board(ui, b, &Links::default(), Some(3.0), crate::Lang::En, false);
                 removed = removed.take().or(take_removed(ui));
             })
             .textures_delta
@@ -2583,6 +2810,18 @@ mod tests {
             pressed,
             modifiers: Default::default(),
         };
+        // a right-click takes nothing off (a touch screen's long press is one)
+        for pressed in [true, false] {
+            let right = Event::PointerButton {
+                pos: at,
+                button: PointerButton::Secondary,
+                pressed,
+                modifiers: Default::default(),
+            };
+            frame(vec![Event::PointerMoved(at), right], &mut b, &mut pitch);
+        }
+        frame(vec![], &mut b, &mut pitch);
+        assert_eq!(b.slots[0], Some(0), "a right-click took the card off");
         frame(
             vec![Event::PointerMoved(at), press(at, true)],
             &mut b,
@@ -2630,7 +2869,14 @@ mod tests {
                 let r = ui.max_rect().shrink(16.0);
                 let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(r));
                 *pitch = pitch_rect(ui.cursor().min, ui.available_width());
-                formation_board(&mut ui, b, &Links::default(), Some(3.0), crate::Lang::En);
+                formation_board(
+                    &mut ui,
+                    b,
+                    &Links::default(),
+                    Some(3.0),
+                    crate::Lang::En,
+                    false,
+                );
             })
             .textures_delta
             .clear();
@@ -2685,7 +2931,7 @@ mod tests {
             };
             ctx.run_ui(raw, |ui| {
                 *pitch = pitch_rect(ui.cursor().min, ui.available_width());
-                formation_board(ui, b, &Links::default(), Some(3.0), crate::Lang::En);
+                formation_board(ui, b, &Links::default(), Some(3.0), crate::Lang::En, false);
             })
             .textures_delta
             .clear();
