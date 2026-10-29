@@ -379,7 +379,8 @@ impl HostRoom {
         note: &dyn Fn(&crate::run::Text),
     ) -> Result<HostRoom, String> {
         let addr = socket(server).ok_or_else(|| format!("{server} is not an address"))?;
-        let mut name = name;
+        // the name only shows in SHOPS: a private room sends none (an old desk's ERR costs a CREATE)
+        let mut name = if public { name } else { "" };
         let mut made = lobby::create_shop(addr, shop_id, public, name);
         // a desk from before names answers ERR to the named word: once more, with its own name, and keep it so
         if !lobby::shop_name(name).is_empty()
