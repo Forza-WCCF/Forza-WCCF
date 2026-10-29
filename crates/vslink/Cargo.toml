@@ -5,7 +5,7 @@ license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
-description = "Forza-WCCF's direct VS link for the 2017-18 edition: loopback tokens over an iroh connection (docs/IROH_VS_PLAN.md)"
+description = "Forza-WCCF's direct VS link for the 2017-18 edition: loopback tokens over an iroh connection (docs/ARCHITECTURE.md)"
 
 [dependencies]
 forza = { workspace = true, default-features = false }

@@ -1,4 +1,4 @@
-//! Two vslinks on one host (docs/IROH_VS_PLAN.md step 3): an in-process gmsvr and iroh test relay, two fake
+//! Two vslinks on one host (docs/ARCHITECTURE.md "Online"): an in-process gmsvr and iroh test relay, two fake
 //! client + control pairs on different seats. Probe, 243, 245 polls, 246, then the peer traffic the game sends:
 //! hello/ack, a 3.2 KB team block in 16-byte chunks, relay-mode packets through the reflect address and 1,000 pings.
 //! Every datagram a fake client receives must come from its reflect address or the opponent's token.

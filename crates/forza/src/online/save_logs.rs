@@ -10,7 +10,7 @@
 //! card's access code (`seat1_aime.txt`) or a `*.tmp`; `aimedb.json` with each access code turned into a short hash, so
 //! the Aime ids stay readable; and the 2017-18 game server's store as a consistent copy (`VACUUM INTO`, as the Launcher
 //! may have it open), its shop guests' tokens cut short. The access codes are also replaced in the logs (the Aime
-//! stand-ins log them). When the ZIP is too big the log tails get shorter, down to
+//! stand-ins log them) and blanked in the dumps (also as UTF-16 and packed BCD). When the ZIP is too big the log tails get shorter, down to
 //! 64 KB; only if that is still too big the saves are left out and the tails start again from full. `report.txt` says
 //! what of the save data was left out. `pc.txt`: Windows, CPU, RAM, GPUs and display (scrubbed like the logs).
 //! A hosting PC's shop logs (`seat_broker.txt`, `match_relay.txt`) are in `data\logs` already.
@@ -147,16 +147,25 @@ fn small(p: &Path) -> bool {
 /// [`saves`] as they go in the ZIP, and a line for each one left out.
 fn save_data(kit: &Path) -> (Vec<(String, Vec<u8>)>, Vec<String>) {
     let (mut out, mut notes) = (vec![], vec![]);
+    let too_big = format!("bigger than {} MB", SAVE_MAX >> 20);
     for (arc, path) in saves(kit) {
         let data = match arc.as_str() {
-            _ if !small(&path) => Err(format!("bigger than {} MB", SAVE_MAX >> 20)),
+            _ if !small(&path) => Err(too_big.clone()),
             "save/gamesvr/gamesvr.db" => snapshot(&path),
             "save/aimedb.json" => fs::read(&path)
                 .map_err(|e| e.to_string())
                 .and_then(|d| masked_aimedb(&d).ok_or_else(|| "not a JSON object".into())),
             // whole and as they are: a cut or rewritten save is no use
             _ => fs::read(&path).map_err(|e| e.to_string()),
-        };
+        }
+        // the store's snapshot folds in its WAL, so it can outgrow the file on disk
+        .and_then(|d| {
+            if d.len() as u64 <= SAVE_MAX {
+                Ok(d)
+            } else {
+                Err(too_big.clone())
+            }
+        });
         match data {
             Ok(d) => out.push((arc, d)),
             Err(e) => notes.push(format!("{arc} left out: {e}")),
@@ -536,14 +545,36 @@ pub fn pack_within(
     let pc = scrub.scrub(pc_text().into_bytes());
     let (saves, save_notes) = save_data(kit);
     let codes = access_codes(kit);
+    // a crash dump also holds the codes as the stand-ins keep them: UTF-16 text and the 10 packed BCD bytes
+    let dump_codes: Vec<Vec<u8>> = codes
+        .iter()
+        .flat_map(|c| {
+            let mut v = vec![
+                c.as_bytes().to_vec(),
+                c.encode_utf16().flat_map(u16::to_le_bytes).collect(),
+            ];
+            if c.len() == 20 && c.is_ascii() {
+                v.extend(
+                    (0..10)
+                        .map(|i| u8::from_str_radix(&c[i * 2..i * 2 + 2], 16).ok())
+                        .collect::<Option<Vec<u8>>>(),
+                );
+            }
+            v
+        })
+        .collect();
     let (mut tail, mut with_saves) = (full, true);
     loop {
         let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
         let mut z = ZipWriter::new(Cursor::new(Vec::new()));
         let mut n = 0;
         let mut notes = save_notes.clone();
-        if !with_saves && !saves.is_empty() {
-            notes.push("save data left out: the ZIP was too big with it".into());
+        if !with_saves {
+            notes.extend(
+                saves
+                    .iter()
+                    .map(|(arc, _)| format!("{arc} left out: the ZIP was too big with it")),
+            );
         }
         let mut report = note.map(|t| t.as_bytes().to_vec());
         if !notes.is_empty() {
@@ -570,8 +601,8 @@ pub fn pack_within(
             if let Ok(data) = fs::read(&path) {
                 z.start_file(arc, opts).map_err(zip_err)?;
                 let mut data = scrub.blank(data);
-                for code in &codes {
-                    data = replace(&data, code.as_bytes(), false, |m| vec![b'_'; m.len()]);
+                for code in &dump_codes {
+                    data = replace(&data, code, false, |m| vec![b'_'; m.len()]);
                 }
                 z.write_all(&data)?;
                 n += 1;
@@ -834,6 +865,67 @@ mod tests {
         assert!(z.by_name("save/gamesvr/gamesvr.db").is_ok());
     }
 
+    #[test]
+    fn a_store_whose_snapshot_outgrows_the_limit_is_left_out_with_a_note() {
+        let d = tempfile::tempdir().unwrap();
+        let save = d.path().join("data").join("save");
+        fs::create_dir_all(save.join("gamesvr")).unwrap();
+        fs::write(save.join("seat1_club.bin"), b"club").unwrap();
+        // the rows sit in a big uncheckpointed WAL: gamesvr.db itself stays small
+        let live = Connection::open(save.join("gamesvr").join("gamesvr.db")).unwrap();
+        live.execute_batch(
+            "PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0; CREATE TABLE t (b BLOB);",
+        )
+        .unwrap();
+        live.execute(
+            "INSERT INTO t VALUES (?1)",
+            [noise(SAVE_MAX as usize + 1024, 5)],
+        )
+        .unwrap();
+        assert!(small(&save.join("gamesvr").join("gamesvr.db")));
+        let (blob, _) = pack(d.path(), None, &Scrub::default(), TAIL, None).unwrap();
+        let mut z = zip::ZipArchive::new(Cursor::new(blob)).unwrap();
+        assert!(z.by_name("save/gamesvr/gamesvr.db").is_err());
+        assert_eq!(read(&mut z, "save/seat1_club.bin"), b"club");
+        assert_eq!(
+            String::from_utf8(read(&mut z, "report.txt")).unwrap(),
+            "[SAVE LOGS] save/gamesvr/gamesvr.db left out: bigger than 3 MB\n"
+        );
+        drop(live);
+    }
+
+    #[test]
+    fn dumps_lose_the_access_code_in_every_form_and_keep_their_length() {
+        let d = tempfile::tempdir().unwrap();
+        let (save, dumps) = (d.path().join("data/save"), d.path().join("data/dumps"));
+        fs::create_dir_all(&save).unwrap();
+        fs::create_dir_all(&dumps).unwrap();
+        let code = "50123456789012345678";
+        fs::write(save.join("seat1_aime.txt"), code).unwrap();
+        let bcd = [0x50, 0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56, 0x78];
+        let utf16: Vec<u8> = code.encode_utf16().flat_map(u16::to_le_bytes).collect();
+        let forms: [&[u8]; 4] = [
+            code.as_bytes(),
+            b"50 12 34 56 78 90 12 34 56 78",
+            &bcd,
+            &utf16,
+        ];
+        let mut dump = b"MDMP".to_vec();
+        for f in forms {
+            dump.extend_from_slice(f);
+            dump.extend_from_slice(&[0xEE; 8]);
+        }
+        fs::write(dumps.join("x_lean.dmp"), &dump).unwrap();
+        let (blob, _) = pack(d.path(), None, &Scrub::default(), TAIL, None).unwrap();
+        let mut z = zip::ZipArchive::new(Cursor::new(blob)).unwrap();
+        let out = read(&mut z, "dumps/x_lean.dmp");
+        assert_eq!(out.len(), dump.len());
+        assert!(out.starts_with(b"MDMP"));
+        for f in forms {
+            assert!(!out.windows(f.len()).any(|w| w == f), "{f:02x?} left in");
+        }
+    }
+
     /// Bytes that do not compress (xorshift).
     fn noise(len: usize, mut x: u64) -> Vec<u8> {
         (0..len)
@@ -878,7 +970,10 @@ mod tests {
         assert!((128 * 1024..140 * 1024).contains(&log_len(&mut z)));
         let report = String::from_utf8(read(&mut z, "report.txt")).unwrap();
         assert!(
-            report.starts_with("hi\n\n[SAVE LOGS] save data left out"),
+            report.starts_with(
+                "hi\n\n[SAVE LOGS] save/big.bin left out: the ZIP was too big with it\n\
+                 [SAVE LOGS] save/seat1_club.bin left out: the ZIP was too big with it\n"
+            ),
             "{report}"
         );
     }
