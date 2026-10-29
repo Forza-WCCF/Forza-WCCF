@@ -2640,7 +2640,7 @@ fn retitle(h: HWND) {
     } else {
         "Client"
     };
-    let title: Vec<u16> = format!("{who} - Forza-WCCF {edition}\0")
+    let title: Vec<u16> = format!("{}\0", game_title(who, edition))
         .encode_utf16()
         .collect();
     // the game's window may not take it at once: a few tries (callers are worker threads)
@@ -2662,6 +2662,12 @@ fn retitle(h: HWND) {
         }
         std::thread::sleep(Duration::from_millis(300));
     }
+}
+
+/// The title for the game's own windows, ASCII only: they are ANSI windows (CreateWindowExA), and Windows converts a
+/// WM_SETTEXT to the system code page, which turned the en dash of "2017–18" into a cut-off "2017–1".
+fn game_title(who: &str, edition: &str) -> String {
+    format!("{who} - Forza-WCCF {}", edition.replace('–', "-"))
 }
 
 /// The biggest visible top-level window of this process: the game's.
@@ -2996,7 +3002,19 @@ fn vk_key(vk: u32) -> Option<Key> {
 
 #[cfg(test)]
 mod tests {
-    use super::big_enough;
+    use super::{big_enough, game_title};
+
+    /// The game's windows are ANSI: the whole edition survives as ASCII.
+    #[test]
+    fn the_game_title_is_ascii_and_whole() {
+        let t = game_title("Client", forza::Edition::E1718.label());
+        assert_eq!(t, "Client - Forza-WCCF 2017-18");
+        assert!(t.is_ascii());
+        assert_eq!(
+            game_title("Projector", "2010–11"),
+            "Projector - Forza-WCCF 2010-11"
+        );
+    }
 
     /// The board window (and the game's) is drawn in only when shown and at least 64x64; otherwise the panel falls
     /// back to the game's window for the frame.
