@@ -177,13 +177,8 @@ const MAP_1718: &[(&str, &str)] = &[
     ("english", "editions/2017-18/english"),
     ("italian", "editions/2017-18/italian"), // the Italian text: key + Italian, the English behind each key
     ("fonts", "assets/fonts"),
-    ("source/README.txt", "native/2017-18/README.txt"),
-    // the sources of the kit's 32-bit programs (winmm.dll, wccfnet.dll, ICMP.DLL, logowin.exe, FPR_Emu.exe)
-    ("source/native/common", "native/common"),
-    ("source/native/hook", "native/hook"),
-    ("source/native/wccfnet", "native/wccfnet"),
-    ("source/native/icmp", "native/icmp"),
-    ("source/native/programs", "native/programs"),
+    // no source\ (2026-10-29): its plain-text process-injection code got the ZIP flagged; `package` writes SOURCE.txt,
+    // the repository at the exact commit, instead
 ];
 /// Product name in the version information of programs both kits share.
 const PRODUCT_COMMON: &str = "Forza-WCCF";
@@ -1846,8 +1841,8 @@ fn shipped_docs_no_kit(root: &Path, kits: &[&Path]) -> Result<()> {
                 .filter_map(|e| Some(e.ok()?.path()))
                 .filter(|p| p.extension().is_some_and(|e| e == "txt" || e == "md")),
         );
-        docs.push(kit.join("source/README.txt"));
     }
+    docs.push(kits[0].join("source/README.txt")); // 2010-11 only: the 2017-18 ZIP has SOURCE.txt instead
     let src = root.join("crates/installer");
     docs.extend([src.join("README.md"), src.join("CHANGELOG.md")]);
     no_kit_word(&docs)
@@ -1872,6 +1867,18 @@ fn no_kit_word(files: &[PathBuf]) -> Result<()> {
     Ok(())
 }
 
+/// The 2017-18 ZIP's SOURCE.txt: where the source of its programs is, at the commit it was built from.
+fn source_txt(version: &str, commit: &str) -> String {
+    format!(
+        "Forza-WCCF 2017-18 {version}\r\n\r\n\
+         The source of every program in this folder (Launcher.exe, bin\\, overlay\\):\r\n\
+         https://github.com/Forza-WCCF/Forza-WCCF/tree/{commit}\r\n\
+         Release tag v{version}, commit {commit}. Licence: MIT or Apache-2.0, your choice.\r\n\r\n\
+         Il sorgente di ogni programma in questa cartella: il link qui sopra (licenza MIT o Apache-2.0).\r\n\
+         このフォルダーのすべてのプログラムのソース：上のリンク（MIT または Apache-2.0 ライセンス）。\r\n"
+    )
+}
+
 fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
     let Ed {
         top,
@@ -1894,7 +1901,9 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
         .filter_map(|e| Some(e.ok()?.path()))
         .filter(|p| p.extension().is_some_and(|e| e == "txt" || e == "md"))
         .collect();
-    docs.push(kit.join("source/README.txt"));
+    if is_1011 {
+        docs.push(kit.join("source/README.txt"));
+    }
     no_kit_word(&docs)?;
     for p in programs {
         ensure!(
@@ -1983,9 +1992,16 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
     if !version.is_empty() {
         fs::write(kit.join("version.txt"), format!("kit-{version}\r\n"))?;
     }
+    if !is_1011 {
+        let commit = cmd!(sh, "git rev-parse HEAD").read()?;
+        fs::write(kit.join("SOURCE.txt"), source_txt(version, commit.trim()))?;
+    }
     let mut shipped = BTreeSet::new();
     let mut dirs = BTreeSet::new();
     walk(kit, "", &mut shipped, &mut dirs)?;
+    if !shipped.iter().any(|f| f.starts_with("source/")) {
+        dirs.remove("source"); // only the unshipped source/build is left in it
+    }
     shipped.insert("files.txt".to_owned());
     let mut files = String::from("\u{feff}");
     for f in &shipped {
