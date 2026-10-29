@@ -1,6 +1,29 @@
 Forza-WCCF 2017-18 - release notes
 ==================================
 
+0.5.1 - 2026-10-29 (alpha)
+--------------------------
+Arcades lobby, Launcher tabs, a three-window pop-out board and SAVE LOGS fixes. Not played before release.
+
+  - Fixed: after the 0.5.0 update the Launcher said "Could not build the text" at start and the game kept its old
+    text. If a rebuild ever fails, the message now says the game starts with its previous text.
+  - Online lobby for arcades: SHOPS is now ARCADES, ONLINE opens on the arcades list, HOST ARCADE can name the arcade
+    and the room language is no longer shown. A private room sends no name.
+  - Launcher: tabs (PLAY, ONLINE, SETUP, UPDATE, DETAILS), a taller window that also fits short screens, a HOST
+    ARCADE dialog, a version list under UPDATE. ONLINE starts play from the lobby only: no PLAY button there, one
+    JOIN, and CONNECT beside the Direct address.
+  - Panel: POP OUT opens three windows: the game, the formation board alone and the projector. A SETTINGS switch,
+    "Buttons on the board window", is off by default. A Catalogue card cannot be dragged onto the popped-out board:
+    use +CARD / ADD.
+  - Pop-out board: the bench is a column beside the pitch; right-click no longer removes a card (drag it off).
+  - Panel: CARD HOVER DELAY has an OFF choice, so a resting mouse shows no big card.
+  - IMPORT LINEUP is refused only while this seat plays a match, not when other seats in the arcade play.
+  - Game window titles show the full name ("Client - Forza-WCCF 2017-18").
+  - SAVE LOGS also saves the save data (access codes hidden) and pc.txt with the PC's specs; the 3 MB limit applies
+    to the ZIP, saves left out are named in report.txt, and access codes are hidden in crash dumps too.
+  - Known issue: online matches between AMD and Intel PCs may drop to a CPU opponent after about 2-3 minutes; a fix
+    is planned.
+
 0.5.0 - 2026-10-28 (alpha)
 --------------------------
 Online shop: play friendlies in one shared shop over the internet or a LAN. Not played before release.
