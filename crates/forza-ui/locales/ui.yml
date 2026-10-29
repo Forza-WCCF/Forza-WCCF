@@ -412,6 +412,8 @@ settings.board_here: {en: "WITH THE GAME", it: "CON IL GIOCO", ja: "ゲームと
 settings.board_window: {en: "Pop out the formation board", it: "Formazione in pop-out", ja: "フォーメーションボードをポップアウト"}
 settings.msg_board_window: {en: "Formation board in its own window: move it to another screen", it: "Formazione in una finestra a parte: spostala su un altro schermo", ja: "フォーメーションを別ウィンドウに表示：別の画面へ移動できます"}
 settings.msg_board_docked: {en: "Formation board back with the game", it: "Formazione di nuovo con il gioco", ja: "フォーメーションをゲーム画面に戻しました"}
+settings.board_buttons: {en: "Buttons on the board window", it: "Pulsanti nella finestra della formazione", ja: "ボードのウィンドウにもボタン"}
+settings.board_buttons_hint: {en: "The cabinet buttons beside the popped-out board too", it: "I pulsanti del cabinato anche accanto alla formazione in pop-out", ja: "ポップアウトしたボードの横にも筐体のボタンを表示"}
 settings.msg_hover: {en: "Card preview after %{s} s", it: "Anteprima carta dopo %{s} s", ja: "%{s} 秒でカードをプレビュー"}
 settings.msg_hover_off: {en: "Card preview off", it: "Anteprima carta disattivata", ja: "カードのプレビューなし"}
 settings.msg_this_pc: {en: "Next start: this PC", it: "Prossimo avvio: questo PC", ja: "次回の起動：このPC"}

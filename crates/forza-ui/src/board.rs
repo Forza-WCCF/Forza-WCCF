@@ -774,6 +774,12 @@ fn spot_in(pitch: Rect, inside: Rect, spot: Pos2) -> Rect {
     ))
 }
 
+/// The in-game board's height `width` wide ([`Mat::row`]): the pitch, its gap of 12 (8 and an item spacing of 4 twice),
+/// the bench strip.
+pub fn row_height(width: f32) -> f32 {
+    width * PITCH_ASPECT + 12.0 + art::bench_h(width)
+}
+
 /// Where every slot's card sits: the 11 pitch slots at their spots (empty ones too, unused), the 5 bench slots on the
 /// artwork's numbered boxes, the bench from `bench_top` (the board puts it 12 points under the pitch).
 pub fn slot_rects(pitch: Rect, bench_top: f32, spots: &[Pos2; 11]) -> [Rect; 16] {
@@ -1043,6 +1049,19 @@ fn removed_id() -> Id {
     Id::new("board-removed")
 }
 
+fn touched_id() -> Id {
+    Id::new("board-touched")
+}
+
+/// The card pressed or in hand on a `pure` [`formation_board`] this frame, if any.
+pub fn take_touched(ui: &Ui) -> Option<Card> {
+    ui.data_mut(|d| {
+        let c = d.get_temp::<Card>(touched_id());
+        d.remove::<Card>(touched_id());
+        c
+    })
+}
+
 /// The card [`formation_board`] took off this frame, if any.
 pub fn take_removed(ui: &Ui) -> Option<Removed> {
     ui.data_mut(|d| {
@@ -1070,8 +1089,9 @@ pub fn undo(board: &mut Board, r: &Removed) -> bool {
 /// big, the pitch shows its suitable positions as a heat zone, and the drop target says how well it fits there.
 /// With `links`, lines join every two linked pitch cards by the club's link stage; a selected card (clicked, or in
 /// hand) brings its group forward - its lines bright, the others and the cards outside its group dimmed - and a list
-/// beside the board names its partners, on the team and not. With `column` (the pop-out board) the bench is a column
-/// at the pitch's right ([`Mat::column`]), else a strip under it. Returns true when it changed.
+/// beside the board names its partners, on the team and not. With `column` the bench is a column at the pitch's right
+/// ([`Mat::column`]), else a strip under it. `pure` (the pop-out board): moves only, no big card, no selection and no
+/// lines; the card pressed or in hand is kept for [`take_touched`]. Returns true when it changed.
 pub fn formation_board(
     ui: &mut Ui,
     board: &mut Board,
@@ -1079,7 +1099,14 @@ pub fn formation_board(
     hover_delay: Option<f32>,
     lang: Lang,
     column: bool,
+    pure: bool,
 ) -> bool {
+    let none = Links::default();
+    let (links, hover_delay) = if pure {
+        (&none, None)
+    } else {
+        (links, hover_delay)
+    };
     let width = ui.available_width();
     let mat = if column {
         let (r, _) = ui.allocate_exact_size(vec2(width, width * COLUMN_ASPECT), Sense::hover());
@@ -1250,11 +1277,14 @@ pub fn formation_board(
                         Color32::from_black_alpha(140),
                     );
                 }
-                if resp.hovered() && dragging.is_none() {
+                if pure && (resp.is_pointer_button_down_on() || is_dragged) {
+                    ui.data_mut(|d| d.insert_temp(touched_id(), c.clone()));
+                }
+                if resp.hovered() && dragging.is_none() && !pure {
                     hovered_card = Some((slot, ci, rect));
                 }
                 // a click turns the big card over (and back) and selects it (and lets it go)
-                if resp.clicked() {
+                if resp.clicked() && !pure {
                     let no = c.number;
                     ui.data_mut(|d| {
                         let f = d.get_temp_mut_or_default::<Option<usize>>(flip_id);
@@ -2101,7 +2131,7 @@ pub fn info_panes(
             (Tier::Large, Some(f)) => f,
             _ => strip,
         };
-        info_pane(ui, &a.card, pane, tier, face, a.back, lang);
+        info_pane(ui, &a.card, pane, tier, face, a.back, true, lang);
     } else if let Some((sel, at)) = partners {
         // as tall as it was last frame (about 220 points the first time)
         let h = ui
@@ -2113,9 +2143,39 @@ pub fn info_panes(
     }
 }
 
+/// A card's info pane at the top of `area` (the game window's column, the board popped out): large when it fits, else
+/// the strip; no flip hint (nothing to click there).
+pub fn card_view(ui: &Ui, card: &Card, area: Rect, lang: Lang) {
+    let ppp = ui.ctx().pixels_per_point();
+    let strip = crate::sizing::hover_face(ppp);
+    let (pane, tier, face) = match large_face(area.width(), ppp) {
+        Some(f) if BIG_FRAME + f.y + BIG_CAPTION <= area.height() => (
+            Rect::from_min_size(area.min, vec2(area.width(), BIG_FRAME + f.y + BIG_CAPTION)),
+            Tier::Large,
+            f,
+        ),
+        _ => (
+            Rect::from_min_size(area.min, vec2(area.width(), BIG_FRAME + strip.y)),
+            Tier::Strip,
+            strip,
+        ),
+    };
+    info_pane(ui, card, pane, tier, face, false, false, lang);
+}
+
 /// The info pane in `pane`: the card's face (its back when turned over) `face` big; large, the position map beside it
-/// and the caption under them; a strip, the caption beside the face.
-fn info_pane(ui: &Ui, card: &Card, pane: Rect, tier: Tier, face: Vec2, back: bool, lang: Lang) {
+/// and the caption under them; a strip, the caption beside the face. `flip`: the caption ends with the flip hint.
+#[allow(clippy::too_many_arguments)]
+fn info_pane(
+    ui: &Ui,
+    card: &Card,
+    pane: Rect,
+    tier: Tier,
+    face: Vec2,
+    back: bool,
+    flip: bool,
+    lang: Lang,
+) {
     let card = &*real(ui.ctx(), card);
     let large = tier == Tier::Large;
     let t = if large { 1.0 } else { 0.9 };
@@ -2176,20 +2236,20 @@ fn info_pane(ui: &Ui, card: &Card, pane: Rect, tier: Tier, face: Vec2, back: boo
                                 aptitude_map(ui.painter(), m, &card.aptitude, lang);
                             } else {
                                 ui.spacing_mut().item_spacing.y = 2.0;
-                                caption(ui, card, back, t, lang);
+                                caption(ui, card, back, flip, t, lang);
                             }
                         });
                     });
                     if large {
-                        caption(ui, card, back, t, lang);
+                        caption(ui, card, back, flip, t, lang);
                     }
                 });
         });
 }
 
-/// The info pane's words: the name, club · country · season, the best roles, the stats (or SECRET) and the flip hint;
-/// `t` scales the text.
-fn caption(ui: &mut Ui, card: &Card, back: bool, t: f32, lang: Lang) {
+/// The info pane's words: the name, club · country · season, the best roles, the stats (or SECRET) and (`flip`) the flip
+/// hint; `t` scales the text.
+fn caption(ui: &mut Ui, card: &Card, back: bool, flip: bool, t: f32, lang: Lang) {
     ui.label(
         egui::RichText::new(&card.name)
             .font(theme::display(20.0 * t))
@@ -2247,6 +2307,9 @@ fn caption(ui: &mut Ui, card: &Card, back: bool, t: f32, lang: Lang) {
                     );
                 }
             });
+    }
+    if !flip {
+        return;
     }
     ui.label(
         egui::RichText::new(tr!(
@@ -2577,8 +2640,15 @@ mod tests {
             let mut changed = false;
             ctx.run_ui(raw, |ui| {
                 *pitch = pitch_rect(ui.cursor().min, ui.available_width());
-                changed =
-                    formation_board(ui, b, &Links::default(), Some(3.0), crate::Lang::En, false);
+                changed = formation_board(
+                    ui,
+                    b,
+                    &Links::default(),
+                    Some(3.0),
+                    crate::Lang::En,
+                    false,
+                    false,
+                );
             })
             .textures_delta
             .clear();
@@ -2736,7 +2806,15 @@ mod tests {
             };
             ctx.run_ui(raw, |ui| {
                 mat = Some(Mat::column(ui.cursor().min, ui.available_width()));
-                formation_board(ui, b, &Links::default(), Some(3.0), crate::Lang::En, true);
+                formation_board(
+                    ui,
+                    b,
+                    &Links::default(),
+                    Some(3.0),
+                    crate::Lang::En,
+                    true,
+                    false,
+                );
             })
             .textures_delta
             .clear();
@@ -2768,6 +2846,64 @@ mod tests {
         assert!(d.length() < 2.0, "where dropped: {d:?}");
     }
 
+    /// The pop-out board (`pure`): a press reports the card touched, a resting mouse or a click never shows it big nor
+    /// selects it.
+    #[test]
+    fn a_pure_board_reports_the_touch_and_shows_nothing() {
+        use egui::{Event, PointerButton};
+        use forza::cards::Placed;
+        let mut b = forza::cards::board(
+            &[Placed {
+                slot: 1,
+                no: 101,
+                x: 0.0,
+                y: 0.0,
+            }],
+            &[],
+        );
+        let ctx = egui::Context::default();
+        theme::install(&ctx, theme::Edition::E1718, &theme::font_dir()).unwrap();
+        let links = Links {
+            club: [((101, 102), 200)].into_iter().collect(),
+            affinity: None,
+        };
+        let mut mat = None;
+        let mut seen = (None, false);
+        let mut frame = |events: Vec<Event>, t: f64, b: &mut Board| {
+            let raw = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(620.0, 900.0))),
+                time: Some(t),
+                events,
+                ..Default::default()
+            };
+            ctx.run_ui(raw, |ui| {
+                mat = Some(Mat::column(ui.cursor().min, ui.available_width()));
+                formation_board(ui, b, &links, Some(0.5), crate::Lang::En, true, true);
+                let big = ui.data(|d| d.get_temp::<PaneAsk>(pane_id()).is_some());
+                let sel = ui.data(|d| d.get_temp::<Option<u32>>(Id::new("board-select")).flatten());
+                seen = (take_touched(ui).map(|c| c.number), big || sel.is_some());
+            })
+            .textures_delta
+            .clear();
+            (mat.unwrap(), seen)
+        };
+        let (m, _) = frame(vec![], 0.0, &mut b);
+        let at = m.slot_rects(&b.spots)[0].center();
+        let press = |pressed| Event::PointerButton {
+            pos: at,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        // resting on the card past the hover delay: nothing shown, nothing touched
+        frame(vec![Event::PointerMoved(at)], 0.1, &mut b);
+        assert_eq!(frame(vec![], 2.0, &mut b).1, (None, false));
+        // pressed: touched; released (a click): no selection, no big card
+        assert_eq!(frame(vec![press(true)], 2.1, &mut b).1, (Some(101), false));
+        assert!(!frame(vec![press(false)], 2.2, &mut b).1.1);
+        assert_eq!(frame(vec![], 4.0, &mut b).1, (None, false));
+    }
+
     /// A card dragged off the board and let go leaves the table, and says which card and where it was.
     #[test]
     fn a_card_dragged_off_the_board_is_taken_off() {
@@ -2795,7 +2931,15 @@ mod tests {
             };
             ctx.run_ui(raw, |ui| {
                 *pitch = pitch_rect(ui.cursor().min, ui.available_width());
-                formation_board(ui, b, &Links::default(), Some(3.0), crate::Lang::En, false);
+                formation_board(
+                    ui,
+                    b,
+                    &Links::default(),
+                    Some(3.0),
+                    crate::Lang::En,
+                    false,
+                    false,
+                );
                 removed = removed.take().or(take_removed(ui));
             })
             .textures_delta
@@ -2876,6 +3020,7 @@ mod tests {
                     Some(3.0),
                     crate::Lang::En,
                     false,
+                    false,
                 );
             })
             .textures_delta
@@ -2931,7 +3076,15 @@ mod tests {
             };
             ctx.run_ui(raw, |ui| {
                 *pitch = pitch_rect(ui.cursor().min, ui.available_width());
-                formation_board(ui, b, &Links::default(), Some(3.0), crate::Lang::En, false);
+                formation_board(
+                    ui,
+                    b,
+                    &Links::default(),
+                    Some(3.0),
+                    crate::Lang::En,
+                    false,
+                    false,
+                );
             })
             .textures_delta
             .clear();

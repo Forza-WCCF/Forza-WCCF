@@ -202,11 +202,12 @@ pub fn shape_contains(shape: Shape, r: Rect, p: Pos2) -> bool {
 /// `lit`, and a label in the condensed display face fitted to the width. Hold it: the response's
 /// `is_pointer_button_down_on()` is the key's down state.
 pub fn cabinet(ui: &mut Ui, size: egui::Vec2, label: &str, kind: Cab, lit: bool) -> Response {
-    cabinet_shaped(ui, size, label, kind, Shape::Key, lit)
+    cabinet_shaped(ui, size, label, kind, Shape::Key, lit, true)
 }
 
-/// `cabinet` in any shape. Only a key or a shape at least 50 px across prints its label inside; the caller prints
-/// the others' beside them. `label` is the accessible name either way.
+/// `cabinet` in any shape. Only a key or a shape at least 50 px across prints its label inside, unless `inside` is
+/// false (the caller prints it beside); the caller prints the others' beside them. `label` is the accessible name
+/// either way.
 pub fn cabinet_shaped(
     ui: &mut Ui,
     size: egui::Vec2,
@@ -214,6 +215,7 @@ pub fn cabinet_shaped(
     kind: Cab,
     shape: Shape,
     lit: bool,
+    inside: bool,
 ) -> Response {
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let enabled = ui.is_enabled();
@@ -233,7 +235,7 @@ pub fn cabinet_shaped(
         cabinet_shape_face(
             ui.painter(),
             rect,
-            label,
+            if inside { label } else { "" },
             kind,
             shape,
             Face {
