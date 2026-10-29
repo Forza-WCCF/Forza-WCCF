@@ -1121,10 +1121,20 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
     }
     let hooks: Vec<_> = hooks(e1011).map(|(f, _, _)| f).collect();
     let runs = target_scopes(&scope, hooks[0]);
-    for (target, scope) in &runs {
+    // clippy and the test build take the whole workspace of each target, as `check` does: a smaller `-p` set unifies
+    // other features and rebuilt dependencies main's cache holds (a launcher-only CI run built its tests in 6 min, the
+    // whole workspace's took 4); the changed crates' tests alone run
+    let wide = target_scopes(&["--workspace".to_owned()], hooks[0]);
+    let wide = |t: &str| -> Vec<String> {
+        wide.iter()
+            .find(|(w, _)| *w == t)
+            .map(|(_, s)| s.clone())
+            .unwrap_or_default()
+    };
+    for (target, _) in &runs {
         let mut clippy = rust("clippy", root);
         clippy.args(["--locked", "--all-targets", "--target", target]);
-        clippy.args(scope).args(["--", "-D", "warnings"]);
+        clippy.args(wide(target)).args(["--", "-D", "warnings"]);
         run_ok(clippy, "cargo clippy")?;
     }
     // the hook's other features, as `check` lints them
@@ -1145,8 +1155,20 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
         }
     }
     for (target, scope) in &runs {
-        let scope: Vec<&str> = scope.iter().map(String::as_str).collect();
-        run_ok(tests(root, in_ci(), &[], target, &scope), "cargo test")?;
+        let only = pkgs.as_ref().map(|_| {
+            scope
+                .windows(2)
+                .filter(|w| w[0] == "-p")
+                .map(|w| format!("package({})", w[1]))
+                .collect::<Vec<_>>()
+                .join(" | ")
+        });
+        let wide = wide(target);
+        let wide: Vec<&str> = wide.iter().map(String::as_str).collect();
+        run_ok(
+            tests(root, in_ci(), &[], target, &wide, only.as_deref()),
+            "cargo test",
+        )?;
     }
     let mut ck = Checks {
         kit: kit.to_owned(),
@@ -1302,7 +1324,7 @@ fn check(
     ] {
         cargo_step(
             what,
-            tests(root, ci, test_args, target, scope),
+            tests(root, ci, test_args, target, scope, None),
             &mut ck.failed,
         );
     }
@@ -1324,7 +1346,15 @@ fn check(
 /// The workspace's tests: cargo-nextest when it is installed (one process per test, all cores, `--partition` for
 /// split CI jobs), else `cargo test`. `ci` skips the GPU snapshot tests; `--fast` runs them in the kits' profile.
 /// nextest runs no doctests; the workspace has none.
-fn tests(root: &Path, ci: bool, extra: &[String], target: &str, scope: &[&str]) -> Command {
+/// `only`: a nextest filterset of the tests to run (all of `scope` without nextest).
+fn tests(
+    root: &Path,
+    ci: bool,
+    extra: &[String],
+    target: &str,
+    scope: &[&str],
+    only: Option<&str>,
+) -> Command {
     let nextest = Command::new("cargo")
         .args(["nextest", "--version"])
         .stdout(Stdio::null())
@@ -1349,8 +1379,14 @@ fn tests(root: &Path, ci: bool, extra: &[String], target: &str, scope: &[&str]) 
         ]);
     }
     if nextest {
-        if ci {
-            test.args(["-E", "not test(/^snapshots::/)"]);
+        // one expression: nextest runs the union of several -E
+        let expr: Vec<String> = only
+            .map(|o| format!("({o})"))
+            .into_iter()
+            .chain(ci.then(|| "not test(/^snapshots::/)".to_owned()))
+            .collect();
+        if !expr.is_empty() {
+            test.args(["-E", &expr.join(" & ")]);
         }
         test.args(extra);
     } else {
@@ -2355,8 +2391,11 @@ mod tests {
         };
         let want = config(rust_shipped(root));
         assert_eq!(want.len(), 2);
-        assert_eq!(config(tests(root, true, &[], TARGET, &[])), want);
-        assert_eq!(config(tests(root, true, &[], PANEL_TARGET, &[])), want);
+        assert_eq!(config(tests(root, true, &[], TARGET, &[], None)), want);
+        assert_eq!(
+            config(tests(root, true, &[], PANEL_TARGET, &[], None)),
+            want
+        );
     }
 
     #[test]
