@@ -6,7 +6,9 @@
 //! folder (the game's), as the stand-in logowin.exe writes it, and the server gets a handle to its own process with
 //! query rights only: "still running", as the stand-in was until the server ended, and a TerminateProcess on it fails
 //! harmlessly. A windowless stand-in exe that waited on its parent was what antivirus programs flagged. Any other
-//! CreateProcessA (match_Release, FPR_Emu) passes.
+//! CreateProcessA (match_Release, FPR_Emu) passes. 2017-18 (2026-10-29): its control_Release starts logowin.exe the
+//! same way ("%s error=%s", "%s warning=%s ..." with "logowin.exe"), so bin\winmm.dll answers it too and the kit no
+//! longer ships a stand-in logowin.exe.
 
 /// Does this CreateProcessA start logowin.exe? The program's name after its last backslash (of the application name,
 /// else of the command line).
@@ -20,10 +22,10 @@ pub fn is_logowin(app: Option<&[u8]>, cmd: Option<&[u8]>) -> bool {
         && matches!(base.get(11), None | Some(b' ' | b'"'))
 }
 
-#[cfg(all(target_arch = "x86", feature = "e1011"))]
+#[cfg(all(target_arch = "x86", any(feature = "e1011", feature = "e1718")))]
 pub use hook::install;
 
-#[cfg(all(target_arch = "x86", feature = "e1011"))]
+#[cfg(all(target_arch = "x86", any(feature = "e1011", feature = "e1718")))]
 mod hook {
     use crate::log::log;
     use crate::patch::{Real, k32};
@@ -136,6 +138,11 @@ mod tests {
             Some(b"logowin.exe error=SYS_NET_error_0014")
         ));
         assert!(is_logowin(None, Some(b"LOGOWIN.EXE warning=1")));
+        // 2017-18 control_Release: application "logowin.exe", command line "%s warning=%s ..." (fields shortened)
+        assert!(is_logowin(
+            Some(b"logowin.exe"),
+            Some(b"logowin.exe warning=1 allnet=0 mainid=0 keychipid=0")
+        ));
         assert!(is_logowin(Some(br"C:\game\logowin.exe"), None));
         assert!(!is_logowin(Some(b"match_Release.exe"), None));
         assert!(!is_logowin(None, Some(br"FPR_Emu.exe 0 32")));

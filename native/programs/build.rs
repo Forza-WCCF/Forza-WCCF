@@ -19,11 +19,6 @@ fn main() {
             "loads the Forza-WCCF panel into the running game",
         ),
         ("fpr_emu", "FPR_Emu", "the card table's stand-in"),
-        (
-            "logowin",
-            "logowin",
-            "the start-up notice window, replaced by one that only records the notice",
-        ),
     ] {
         if let Some(res) = version_rc::make(exe, what, None) {
             println!("cargo:rustc-link-arg-bin={bin}={}", res.display());
