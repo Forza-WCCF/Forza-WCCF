@@ -1378,6 +1378,7 @@ impl Render {
                     let _ = sb.Apply();
                 }
                 POPPED.store(popped, Relaxed);
+                self.st.set_popped(popped);
                 return None;
             }
             let (w, h) = (cr.right as u32, cr.bottom as u32);
