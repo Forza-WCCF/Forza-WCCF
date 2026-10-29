@@ -1134,6 +1134,14 @@ pub fn action(ui: &mut Ui, text: &str) -> Response {
     )
 }
 
+/// The width of a secondary action's label.
+pub fn text_w(ui: &Ui, text: &str) -> f32 {
+    ui.painter()
+        .layout_no_wrap(text.to_owned(), theme::bold(14.0), theme::TEXT)
+        .size()
+        .x
+}
+
 /// A field label of a fixed width in front of a control, so the controls of a section line up.
 pub fn field(ui: &mut Ui, label: &str, width: f32) {
     let (r, _) = ui.allocate_exact_size(vec2(width, 30.0), Sense::hover());

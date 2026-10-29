@@ -10,6 +10,7 @@ launcher.play_section: {en: "PLAY", it: "GIOCA", ja: "プレイ"}
 launcher.where: {en: "WHERE TO PLAY", it: "DOVE GIOCARE", ja: "プレイ場所"}
 launcher.this_pc: {en: "This PC", it: "Questo PC", ja: "このPC"}
 launcher.online: {en: "Online", it: "Online", ja: "オンライン"}
+launcher.tab_online: {en: "ONLINE", it: "ONLINE", ja: "オンライン"}
 launcher.rejoin: {en: "Rejoin %{name}, seat %{seat}", it: "Rientra in %{name}, posto %{seat}", ja: "%{name} の席 %{seat} に戻る"}
 launcher.play: {en: "PLAY", it: "GIOCA", ja: "プレイ"}
 launcher.stop: {en: "STOP THE GAME", it: "FERMA IL GIOCO", ja: "ゲームを終了"}
@@ -26,18 +27,13 @@ launcher.set_up: {en: "SET UP", it: "CONFIGURA", ja: "設定する"}
 launcher.undo: {en: "UNDO SETUP", it: "ANNULLA CONFIGURAZIONE", ja: "設定を元に戻す"}
 launcher.update: {en: "UPDATE", it: "AGGIORNAMENTO", ja: "アップデート"}
 launcher.this_version: {en: "This version: %{v}", it: "Questa versione: %{v}", ja: "このバージョン：%{v}"}
-launcher.col_tag: {en: "VERSION", it: "VERSIONE", ja: "バージョン"}
-launcher.col_kind: {en: "TYPE", it: "TIPO", ja: "種類"}
-launcher.col_date: {en: "DATE", it: "DATA", ja: "日付"}
-launcher.col_mark: {en: "", it: "", ja: ""}
 launcher.kind_stable: {en: "Stable", it: "Stabile", ja: "正式版"}
 launcher.kind_test: {en: "Test build", it: "Versione di prova", ja: "テスト版"}
-launcher.mark_this: {en: "THIS VERSION", it: "QUESTA VERSIONE", ja: "使用中"}
-launcher.mark_newer: {en: "NEWER", it: "PIÙ RECENTE", ja: "新しい版"}
+launcher.mark_this: {en: "(this version)", it: "(questa versione)", ja: "（使用中）"}
+launcher.mark_newer: {en: "(newer)", it: "(più recente)", ja: "（新しい版）"}
 launcher.update_button: {en: "UPDATE", it: "AGGIORNA", ja: "アップデート"}
 launcher.whats_new: {en: "What's new", it: "Novità", ja: "更新内容"}
 launcher.output: {en: "DETAILS", it: "DETTAGLI", ja: "詳細"}
-launcher.output_hint: {en: "", it: "", ja: ""}
 launcher.copy: {en: "Copy", it: "Copia", ja: "コピー"}
 launcher.card_pictures: {en: "CARD PICTURES", it: "IMMAGINI CARTE", ja: "カード画像"}
 launcher.from_game: {en: "From the game", it: "Dal gioco", ja: "ゲームから"}
@@ -500,6 +496,7 @@ lobby.in_match: {en: "IN MATCH", it: "IN PARTITA", ja: "試合中"}
 lobby.full: {en: "FULL", it: "PIENA", ja: "満席"}
 lobby.closed: {en: "CLOSED", it: "CHIUSA", ja: "終了"}
 lobby.join: {en: "JOIN", it: "ENTRA", ja: "参加"}
+lobby.connect: {en: "CONNECT", it: "CONNETTI", ja: "接続"}
 lobby.quick: {en: "QUICK MATCH", it: "PARTITA RAPIDA", ja: "クイックマッチ"}
 lobby.host: {en: "HOST VS", it: "CREA SFIDA", ja: "ルームを作る"}
 lobby.ready: {en: "READY", it: "PRONTO", ja: "準備OK"}
@@ -533,6 +530,7 @@ lobby.stale: {en: "Updated %{s} s ago.", it: "Aggiornato %{s} s fa.", ja: "%{s} 
 lobby.shop_rooms_off: {en: "Arcade rooms are off on this PC.", it: "Le stanze delle sale sono disattivate su questo PC.", ja: "このPCではゲームセンターのルームがオフになっています。"}
 lobby.grey_vs_1011: {en: "VS ROOMS are not available for 2010-11.", it: "Le SFIDE VS non sono disponibili per 2010-11.", ja: "2010-11 では対戦ルームは利用できません。"}
 lobby.host_shop: {en: "HOST ARCADE", it: "APRI SALA", ja: "ゲームセンターを開く"}
+lobby.host_title: {en: "Host an arcade", it: "Apri la tua sala", ja: "自分のゲームセンターを開く"}
 lobby.room_code: {en: "Room code", it: "Codice stanza", ja: "ルームコード"}
 lobby.opening: {en: "Opening the arcade…", it: "Apertura della sala…", ja: "ゲームセンターを開いています…"}
 lobby.shop_howto: {en: "Both players: card in during the same ENTRY, then Arrange Fixture → Set opponent.", it: "Entrambi: inserite la carta nella stessa ENTRY, poi Arrange Fixture → Set opponent.", ja: "二人とも同じエントリー中にカードを入れ、Arrange Fixture → Set opponent を選びます。"}

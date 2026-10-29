@@ -86,44 +86,106 @@ fn launcher_screens() {
     all.unwrap();
 }
 
-/// ONLINE chosen: the lobby inside the launcher (taller than the window, which scrolls).
+/// The ONLINE tab: the lobby inside the launcher, the Direct address fold closed, then open.
 #[test]
 fn launcher_online() {
     let _gpu = gpu();
     let mut all = SnapshotResults::new();
-    let mut st =
-        launcher::LauncherState::sample(Edition::E1011, Lang::En, launcher::Scenario::Online);
-    snap(
-        &mut all,
-        "launcher_online_en",
-        Vec2::new(launcher::SIZE.x, 1000.0),
-        Edition::E1011,
-        |ui| {
+    for (open, name) in [
+        (false, "launcher_online_en"),
+        (true, "launcher_online_direct_en"),
+    ] {
+        let mut st =
+            launcher::LauncherState::sample(Edition::E1011, Lang::En, launcher::Scenario::Online);
+        st.lobby.direct_open = open;
+        snap(&mut all, name, launcher::SIZE, Edition::E1011, |ui| {
             launcher::show(ui, &mut st);
-        },
-    );
+        });
+    }
     all.unwrap();
 }
 
-/// ONLINE on 2017-18 with the Direct address fold open: the club server and the VS link switch live there now (SETUP
-/// no longer runs past the window).
+/// 2017-18 HOST ARCADE's dialog: "List my arcade", the arcade's name, HOST ARCADE and CANCEL over the ONLINE tab.
+/// ONLINE has no PLAY: its JOIN joins the code typed, CONNECT in the Direct address fold plays online; PLAY on the
+/// PLAY tab with Online chosen shows ONLINE instead of playing.
 #[test]
-fn launcher_online_1718() {
+fn launcher_online_starts_from_the_lobby() {
+    let _gpu = gpu();
+    let mut start =
+        launcher::LauncherState::sample(Edition::E1718, Lang::En, launcher::Scenario::Online);
+    (start.lobby.code, start.lobby.direct_open) = ("k7qm2x".into(), true);
+    let st = std::cell::RefCell::new(start);
+    let got = std::cell::RefCell::new(None);
+    let mut h = harness(launcher::SIZE, 1.0, Edition::E1718, |ui| {
+        if let Some(a) = launcher::show(ui, &mut st.borrow_mut()) {
+            *got.borrow_mut() = Some(a);
+        }
+    });
+    h.run_steps(4);
+    // only the tab is called PLAY
+    assert_eq!(h.query_all_by_label("PLAY").count(), 1, "no PLAY on ONLINE");
+    h.get_by_label("JOIN").click();
+    h.run_steps(2);
+    assert_eq!(
+        got.take(),
+        Some(launcher::Action::Lobby(lobby::LobbyAction::JoinCode(
+            "K7QM2X".into()
+        )))
+    );
+    h.get_by_label("CONNECT").click();
+    h.run_steps(2);
+    assert_eq!(got.take(), Some(launcher::Action::Play));
+    assert!(st.borrow().online);
+    st.borrow_mut().tab = launcher::Tab::Play;
+    h.run_steps(2);
+    // the footer's PLAY: the lowest
+    h.get_all_by_label("PLAY")
+        .max_by(|a, b| a.rect().bottom().total_cmp(&b.rect().bottom()))
+        .unwrap()
+        .click();
+    h.run_steps(2);
+    assert_eq!(got.take(), None);
+    assert_eq!(st.borrow().tab, launcher::Tab::Online);
+}
+
+#[test]
+fn launcher_host_dialog() {
     let _gpu = gpu();
     let mut all = SnapshotResults::new();
     for lang in Lang::ALL {
         let mut st =
             launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Online);
-        st.lobby.direct_open = true;
+        let v = &mut st.lobby;
+        (v.shop_rooms, v.kind, v.list_shop) = (true, lobby::Kind::Shops, true);
+        v.host_ask = Some((false, String::new()));
         snap(
             &mut all,
-            &format!("launcher_online_1718_{}", lang.code()),
-            Vec2::new(launcher::SIZE.x, 1100.0),
+            &format!("launcher_host_dialog_{}", lang.code()),
+            launcher::SIZE,
             Edition::E1718,
             |ui| {
                 launcher::show(ui, &mut st);
             },
         );
+    }
+    all.unwrap();
+}
+
+/// The ONLINE tab on 2017-18 with the Direct address fold open (the club server and the VS link switch live there),
+/// then closed.
+#[test]
+fn launcher_online_1718() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    let closed = [(Lang::En, false, "launcher_online_1718_closed_en".to_owned())];
+    let open = Lang::ALL.map(|l| (l, true, format!("launcher_online_1718_{}", l.code())));
+    for (lang, direct, name) in open.into_iter().chain(closed) {
+        let mut st =
+            launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Online);
+        st.lobby.direct_open = direct;
+        snap(&mut all, &name, launcher::SIZE, Edition::E1718, |ui| {
+            launcher::show(ui, &mut st);
+        });
     }
     all.unwrap();
 }
@@ -1026,7 +1088,7 @@ fn launcher_host_shop() {
         snap(
             &mut all,
             &format!("launcher_host_shop_{}", lang.code()),
-            Vec2::new(launcher::SIZE.x, 1000.0),
+            launcher::SIZE,
             Edition::E1718,
             |ui| {
                 launcher::show(ui, &mut st);
@@ -1140,8 +1202,9 @@ fn lobby_filters() {
     assert!(h.query_by_label("IT").is_none() && h.query_by_label("All").is_none());
 }
 
-/// 2017-18 with the shared shop on: HOST SHOP (and H) and its list switch on the SHOPS tab, the code typed and JOINed in
-/// capitals, the listed room joined from its row; while hosting only Esc (LEAVE) answers.
+/// 2017-18 with the shared shop on: HOST SHOP (and H) opens the host dialog (its HOST gives HostShop with the switch as
+/// set, CANCEL and Esc put it back), the code typed and JOINed in capitals, the listed room joined from its row; while
+/// hosting only Esc (LEAVE) answers.
 #[test]
 fn lobby_shop_rooms() {
     use lobby::LobbyAction::*;
@@ -1158,23 +1221,42 @@ fn lobby_shop_rooms() {
     h.run_steps(4);
     h.get_by_label("HOST ARCADE").click();
     h.run_steps(2);
-    assert_eq!(got.take(), Some(HostShop));
-    h.key_press(egui::Key::H);
-    h.run_steps(2);
-    assert_eq!(got.take(), Some(HostShop));
+    assert_eq!(got.take(), None);
+    assert!(v.borrow().host_ask.is_some());
     h.get_by_label("List my arcade when I host").click();
     h.run_steps(2);
-    assert_eq!(got.take(), Some(ListShop(true)));
-    assert!(v.borrow().list_shop);
+    h.get_by_label("Cancel").click();
+    h.run_steps(2);
+    assert_eq!(got.take(), None);
+    assert!(v.borrow().host_ask.is_none() && !v.borrow().list_shop);
+    h.key_press(egui::Key::H);
+    h.run_steps(2);
+    h.get_by_label("List my arcade when I host").click();
+    h.run_steps(2);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert_eq!(got.take(), None, "Esc closes the dialog, not the lobby");
+    assert!(v.borrow().host_ask.is_none() && !v.borrow().list_shop);
+    h.key_press(egui::Key::H);
+    h.run_steps(2);
+    h.get_by_label("List my arcade when I host").click();
+    h.run_steps(2);
+    // the tab's HOST ARCADE, then the dialog's
+    h.get_all_by_label("HOST ARCADE").last().unwrap().click();
+    h.run_steps(2);
+    assert_eq!(got.take(), Some(HostShop));
+    assert!(v.borrow().host_ask.is_none() && v.borrow().list_shop);
     v.borrow_mut().code = " k7qm2xpd".into();
     h.run_steps(2);
-    // the code box's JOIN, then the listed room row's
-    let joins: Vec<_> = h.get_all_by_label("JOIN").collect();
-    assert_eq!(joins.len(), 2);
-    joins[0].click();
+    // one JOIN: the code typed, then the listed room row once clicked (the click empties the box)
+    assert_eq!(h.get_all_by_label("JOIN").count(), 1);
+    h.get_by_label("JOIN").click();
     h.run_steps(2);
     assert_eq!(got.take(), Some(JoinCode("K7QM2XPD".into())));
-    h.get_all_by_label("JOIN").nth(1).unwrap().click();
+    h.get_by_label(forza::online::lobby::SHOP_ROOM_NAME).click();
+    h.run_steps(2);
+    assert!(v.borrow().code.is_empty());
+    h.get_by_label("JOIN").click();
     h.run_steps(2);
     assert_eq!(got.take(), Some(Join("p1".into())));
     v.borrow_mut().hosting = true;
@@ -1206,10 +1288,10 @@ fn lobby_lan() {
     h.get_by_label("HOST LAN ARCADE").click();
     h.run_steps(2);
     assert_eq!(got.take(), Some(HostLan));
-    // the JOINs: the code row's and the list's (both greyed), the two found shops', the typed address's
+    // the JOINs: the list's, the two found shops', the typed address's
     let joins: Vec<_> = h.get_all_by_label("JOIN").collect();
-    assert_eq!(joins.len(), 5);
-    joins[2].click();
+    assert_eq!(joins.len(), 4);
+    joins[1].click();
     h.run_steps(2);
     assert_eq!(got.take(), Some(JoinLan("192.168.1.20".into())));
     v.borrow_mut().lan_address = " 10.0.0.7:20031 ".into();
