@@ -381,6 +381,7 @@ settings.layout: {en: "LAYOUT", it: "DISPOSIZIONE", ja: "レイアウト"}
 settings.cabinet: {en: "CABINET", it: "CABINATO", ja: "筐体"}
 settings.compact: {en: "COMPACT", it: "COMPATTA", ja: "コンパクト"}
 settings.hover: {en: "CARD HOVER DELAY", it: "RITARDO ANTEPRIMA CARTA", ja: "カード拡大までの時間"}
+settings.hover_off: {en: "OFF", it: "NO", ja: "なし"}
 settings.logs: {en: "LOGS", it: "LOG", ja: "ログ"}
 settings.just_now: {en: "%{t} (just now)", it: "%{t} (proprio ora)", ja: "%{t}（たった今）"}
 settings.min_ago: {en: "%{t} (%{n} min ago)", it: "%{t} (%{n} min fa)", ja: "%{t}（%{n} 分前）"}
@@ -412,6 +413,7 @@ settings.board_window: {en: "Pop out the formation board", it: "Formazione in po
 settings.msg_board_window: {en: "Formation board in its own window: move it to another screen", it: "Formazione in una finestra a parte: spostala su un altro schermo", ja: "フォーメーションを別ウィンドウに表示：別の画面へ移動できます"}
 settings.msg_board_docked: {en: "Formation board back with the game", it: "Formazione di nuovo con il gioco", ja: "フォーメーションをゲーム画面に戻しました"}
 settings.msg_hover: {en: "Card preview after %{s} s", it: "Anteprima carta dopo %{s} s", ja: "%{s} 秒でカードをプレビュー"}
+settings.msg_hover_off: {en: "Card preview off", it: "Anteprima carta disattivata", ja: "カードのプレビューなし"}
 settings.msg_this_pc: {en: "Next start: this PC", it: "Prossimo avvio: questo PC", ja: "次回の起動：このPC"}
 settings.msg_online: {en: "Online at next start: %{ip}", it: "Online al prossimo avvio: %{ip}", ja: "次回はオンライン：%{ip}"}
 settings.msg_type_address: {en: "Type the address, then Enter", it: "Scrivi l'indirizzo, poi Invio", ja: "アドレスを入力して Enter"}
