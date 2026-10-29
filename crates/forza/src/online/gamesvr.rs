@@ -1111,7 +1111,7 @@ impl Vs {
         match cmd {
             201 if self.matcher.capable(peer, t) => vs::fill_login_loopback(body, &self.cfg),
             201 => vs::fill_login(body, &self.cfg),
-            // vslink (docs/IROH_VS_PLAN.md 2.3): status 1 = accepted
+            // vslink (docs/ARCHITECTURE.md "Online"): status 1 = accepted
             // +36..+52: the lobby VS room's ticket, when the run has one (vs::hello_payload)
             900 if payload.len() >= 36 => {
                 let id = payload[4..36].try_into().unwrap();

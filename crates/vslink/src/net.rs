@@ -1,4 +1,4 @@
-//! The iroh side (docs/IROH_VS_PLAN.md 2.2-2.4): the reflect socket the game probes, one socket per opponent token,
+//! The iroh side (docs/ARCHITECTURE.md "Online"): the reflect socket the game probes, one socket per opponent token,
 //! the gmsvr client (hello, register, lookup) and one QUIC connection per PC pair carrying `[seat][game datagram]`.
 //! Runs on its own thread with its own tokio runtime; [`spawn`] returns once the sockets are bound and the first
 //! hello went out.
