@@ -2242,13 +2242,15 @@ impl Run<'_> {
     }
 
     /// The lobby room for the host's tunnel (`key` its endpoint key), on the club server's desk ([`crate::lobby::shop_lobby`]),
-    /// where the window's guests type its code; listed in SHOPS when data\settings.json `list_shop` is true.
+    /// where the window's guests type its code; listed in SHOPS when data\settings.json `list_shop` is true, as
+    /// `shop_name` (empty: the desk's name).
     fn open_shop_room(&self, key: &Path, log: Log) -> Result<crate::lobby::HostRoom, String> {
         let id = vslink::shop::own_id(key).map_err(|e| format!("{}: {e}", key.display()))?;
         let club = choices::setting(&self.kit.settings_file(), "club_server").unwrap_or_default();
         let desk = crate::lobby::shop_lobby(&club);
         let public = self.kit.settings()["list_shop"].as_bool() == Some(true);
-        crate::lobby::HostRoom::open(&desk, &vslink::shop::id_text(&id), public, log, &|t| {
+        let name = choices::setting(&self.kit.settings_file(), "shop_name").unwrap_or_default();
+        crate::lobby::HostRoom::open(&desk, &vslink::shop::id_text(&id), public, &name, log, &|t| {
             self.tell("     ", t)
         })
     }

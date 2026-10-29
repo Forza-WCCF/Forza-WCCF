@@ -582,7 +582,7 @@ fn board_and_buttons_with_real_data() {
         bar(2),
         "wait:1500".into(),
         "click:321,519".into(), // COMPACT
-        "click:275,608".into(), // 2 s
+        "click:230,608".into(), // 2 s
         "wait:300".into(),
         "click:632,302".into(), // RESTART NOW
         "wait:300".into(),
@@ -605,7 +605,7 @@ fn board_and_buttons_with_real_data() {
     }
     let want = forza::panel_txt::PanelFile {
         compact: true,
-        hover_ms: 2000,
+        hover_ms: Some(2000),
         ..Default::default()
     };
     assert_eq!(

@@ -47,6 +47,7 @@ netdev = { version = "0.46.3", default-features = false }
 junction.workspace = true
 windows-sys = { workspace = true, features = [
     "Win32_Foundation",
+    "Win32_Graphics_Gdi",               # save_logs: pc.txt display mode (EnumDisplaySettingsW)
     "Win32_Media_Multimedia",           # keys: the controllers (joyGetPosEx)
     "Win32_NetworkManagement_IpHelper", # procs: the ports a process listens on (GetTcpTable, read only)
     "Win32_Security",
@@ -57,6 +58,7 @@ windows-sys = { workspace = true, features = [
     "Win32_System_Pipes",
     "Win32_System_Registry",
     "Win32_System_Com",                 # save_logs: CoTaskMemFree
+    "Win32_System_SystemInformation",   # save_logs: pc.txt RAM (GlobalMemoryStatusEx)
     "Win32_System_SystemServices",
     "Win32_System_Threading",
     "Win32_UI_Input_KeyboardAndMouse",

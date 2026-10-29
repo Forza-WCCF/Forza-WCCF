@@ -41,7 +41,7 @@ use std::{env, mem, ptr, thread};
 
 use eframe::egui;
 use egui::ViewportCommand;
-use forza_ui::launcher::{self as screen, Action, Confirm, LauncherState};
+use forza_ui::launcher::{self as screen, Action, Confirm, LauncherState, Tab};
 use forza_ui::lobby::LobbyAction;
 use forza_ui::theme;
 use forza_ui::widgets::Tone;
@@ -731,6 +731,7 @@ impl App {
         lobby.address = address;
         lobby.shop_rooms = ed == Edition::E1718 && run::rules::shop_1718_on(&kit.settings());
         lobby.list_shop = kit.settings()["list_shop"].as_bool() == Some(true);
+        lobby.shop_name = choices::setting(&settings, "shop_name").unwrap_or_default();
         let st = LauncherState {
             edition: ed,
             lang: text::lang(),
@@ -744,7 +745,13 @@ impl App {
             clock: (0.0, 0.0),
             progress: 0.0,
             status: None,
-            setup_open: !set_up || folder.is_some(),
+            tab: if !set_up || folder.is_some() {
+                Tab::Setup
+            } else if online {
+                Tab::Online
+            } else {
+                Tab::Play
+            },
             folder: game,
             pictures_hq: choices::setting(&settings, "card_pictures").as_deref() == Some("hq"),
             skip_tutorial: (kit.edition() == Edition::E1718)
@@ -754,12 +761,10 @@ impl App {
             vs_link: (kit.edition() == Edition::E1718).then(|| kit.settings()["vs_link"].as_bool() != Some(false)),
             updates: true,
             version: version(kit),
-            update_open: false,
             update_available: saved_available(kit),
             update_status: None,
             releases: Vec::new(),
             selected: None,
-            output_open: false,
             output: Vec::new(),
             confirm: None,
             report: None,
@@ -799,7 +804,7 @@ impl App {
     fn folder(&mut self) -> Option<OsString> {
         let f = self.st.folder.trim();
         if f.is_empty() {
-            self.st.setup_open = true;
+            self.st.tab = Tab::Setup;
             refuse(t("launcher.msg_no_folder"));
             return None;
         }
@@ -877,7 +882,7 @@ impl App {
             MINIMIZED.store(false, Ordering::Relaxed);
         }
         if failed {
-            self.st.output_open = true;
+            self.st.tab = Tab::Details;
         }
         if let Some(crashed) = report_open {
             if minimized {
@@ -903,8 +908,8 @@ impl App {
             self.releases = list;
             self.list(&kit);
         }
-        // the UPDATE page opened: the list is asked for again
-        let shown = self.st.update_open;
+        // the UPDATE tab opened: the list is asked for again
+        let shown = self.st.tab == Tab::Update;
         if PAGE_SHOWN.swap(shown, Ordering::Relaxed) != shown && shown {
             set_available(&kit, &mut shared(), None);
             ask_updates();
@@ -1057,16 +1062,20 @@ impl App {
                             return;
                         }
                     }
+                    // the host dialog's switch (default off) and the listed room's name as typed, as the desk carries it
+                    // (run::open_shop_room reads both)
+                    let name = forza::online::lobby::shop_name(&self.st.lobby.shop_name);
+                    let file = kit.settings_file();
+                    if let Err(e) = choices::set_setting_bool(&file, "list_shop", self.st.lobby.list_shop)
+                        .and_then(|()| choices::set_setting(&file, "shop_name", &name))
+                    {
+                        refuse(write_failed(&file, &e));
+                        return;
+                    }
+                    self.st.lobby.shop_name = name;
                     self.st.lobby.hosting = true;
                     self.st.lobby.notice = None;
                     start(vec![Step::Host(false)]);
-                }
-            }
-            Action::Lobby(LobbyAction::ListShop(on)) => {
-                // data\settings.json "list_shop" (default off), which run::open_shop_room reads
-                let file = kit.settings_file();
-                if let Err(e) = choices::set_setting_bool(&file, "list_shop", on) {
-                    refuse(write_failed(&file, &e));
                 }
             }
             Action::Lobby(LobbyAction::HostLan) => {
@@ -1132,7 +1141,9 @@ impl App {
                 .collect();
         }
         let v = &self.st.lobby;
-        if !(self.st.online && v.lan_open && !v.hosting) || self.lan_at.is_some_and(|t| t.elapsed() < LAN_EVERY) {
+        if !(self.st.tab == Tab::Online && v.lan_open && !v.hosting)
+            || self.lan_at.is_some_and(|t| t.elapsed() < LAN_EVERY)
+        {
             return;
         }
         self.lan_at = Some(Instant::now());
@@ -1279,7 +1290,7 @@ impl eframe::App for App {
     /// The gamepad's keys, only while the window has the focus and the lobby shows.
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
         let keys = mem::take(&mut *PAD_KEYS.lock().unwrap_or_else(PoisonError::into_inner));
-        if !raw.focused || !self.st.online {
+        if !raw.focused || self.st.tab != Tab::Online {
             return;
         }
         for key in keys {
@@ -1306,7 +1317,7 @@ impl eframe::App for App {
         let dropped = ui.input(|i| i.raw.dropped_files.first().map(|f| f.path().to_path_buf()));
         if let Some(p) = dropped.filter(|_| !self.st.busy) {
             self.st.folder = p.display().to_string();
-            self.st.setup_open = true;
+            self.st.tab = Tab::Setup;
         }
         if let Some(a) = screen::show(ui, &mut self.st) {
             let ctx = ui.ctx().clone();

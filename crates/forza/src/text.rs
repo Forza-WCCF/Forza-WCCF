@@ -1351,6 +1351,22 @@ fn put(path: &Path, data: &[u8]) -> io::Result<()> {
     t.persist(path).map(drop).map_err(|e| e.error)
 }
 
+/// A manifest key with `folder\..\` taken out: the 0.3.2 Launcher, building the text with 0.3.3's sheets during
+/// the update, keyed the guest teams `prog_data\cpu_team\..\guest_team\cpu_N.dat`; later kits look them up as
+/// `prog_data\guest_team\cpu_N.dat` and refused their own English as "neither original nor backed up" (0.5.0).
+fn fold_dots(k: &str) -> String {
+    let mut out: Vec<&str> = vec![];
+    for p in k.split(['\\', '/']) {
+        match out.last() {
+            Some(l) if p == ".." && *l != ".." => {
+                out.pop();
+            }
+            _ => out.push(p),
+        }
+    }
+    out.join(MAIN_SEPARATOR_STR)
+}
+
 /// The original's fingerprint in a backup-list entry (beside "english"): older kits wrote it under another key.
 fn original_of(h: &Value) -> Option<&str> {
     let m = h.as_object()?;
@@ -1367,8 +1383,11 @@ impl Ctx {
     fn load_manifest(&self) -> Map<String, Value> {
         fs::read(self.manifest_path())
             .ok()
-            .and_then(|d| serde_json::from_slice(&d).ok())
+            .and_then(|d| serde_json::from_slice::<Map<String, Value>>(&d).ok())
             .unwrap_or_default()
+            .into_iter()
+            .map(|(k, v)| (fold_dots(&k), v))
+            .collect()
     }
 
     fn save_manifest(&self, m: &Map<String, Value>) -> R<()> {
@@ -1801,6 +1820,36 @@ mod tests {
             fs::read(game.join("prog_data/cpu_team/cpu_1.dat")).unwrap(),
             b"not the original"
         );
+    }
+
+    #[test]
+    fn a_guest_team_keyed_through_cpu_team_by_0_3_2_is_rebuilt() {
+        let t = tempfile::tempdir().unwrap();
+        let (game, backup) = (t.path().join("game"), t.path().join("backup"));
+        let rel = "prog_data/guest_team/cpu_0.dat";
+        let (orig, old_en, new_en) = (vec![1u8; 64], vec![2u8; 64], vec![3u8; 64]);
+        for (dir, data) in [(&game, &old_en), (&backup, &orig)] {
+            fs::create_dir_all(dir.join("prog_data/guest_team")).unwrap();
+            fs::write(dir.join(rel), data).unwrap();
+        }
+        let old_key = key("prog_data/cpu_team/../guest_team/cpu_0.dat");
+        let man =
+            serde_json::json!({ old_key: { "original": sha(&orig), "english": sha(&old_en) } });
+        fs::write(backup.join("manifest.json"), man.to_string()).unwrap();
+        let mut c = Ctx::new_bare(Edition::E1718, &game, &backup);
+        c.cpu = vec![(rel.into(), sha(&orig), "x".into(), String::new())];
+        c.sheets = t.path().join("kit");
+        c.turn_on(&[(rel.into(), new_en.clone())], Lang::En)
+            .unwrap();
+        assert_eq!(fs::read(game.join(rel)).unwrap(), new_en);
+        assert_eq!(
+            fs::read(backup.join(rel)).unwrap(),
+            orig,
+            "the original stays backed up"
+        );
+        assert_eq!(c.load_manifest().keys().collect::<Vec<_>>(), [&key(rel)]);
+        assert_eq!(c.turn_off().unwrap(), 1);
+        assert_eq!(fs::read(game.join(rel)).unwrap(), orig);
     }
 
     #[test]

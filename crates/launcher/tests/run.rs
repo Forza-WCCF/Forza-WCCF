@@ -933,7 +933,7 @@ fn closing_seat_1_ends_the_2017_18_run() {
     let rc = run::command(&kit, &p, &["remote".into(), "127.0.0.1".into()], &ui);
     assert_eq!(rc, run::REFUSED, "{}", ui.text());
     assert!(
-        ui.text().contains("2017-18 has no server or remote mode"),
+        ui.text().contains("The shared arcade is off on this PC"),
         "{}",
         ui.text()
     );

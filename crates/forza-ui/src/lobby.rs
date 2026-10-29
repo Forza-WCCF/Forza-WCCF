@@ -6,7 +6,7 @@ use super::Lang;
 use super::theme;
 use super::widgets::{
     Cab, Tone, action, cabinet, caps, check_chip, field, fit, fold, section, segmented,
-    status_line, toggle_row,
+    status_line, text_w, toggle_row,
 };
 use egui::{Key, Modifiers, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 
@@ -19,6 +19,12 @@ pub const STALE_S: u32 = 15;
 /// The "ping < 150 ms" filter.
 pub const PING_MAX_MS: u32 = 150;
 const LIST_H: f32 = ROW_H * 6.0;
+/// [`LobbyView::list_fit`]'s shortest list: three rows.
+pub const LIST_MIN_H: f32 = ROW_H * 3.0;
+/// What the list view and the folds took under the list last frame (screen y of the list's bottom, then the height
+/// below it), for [`LobbyView::list_fit`].
+const LIST_BOTTOM: &str = "lobby_list_bottom";
+const BELOW_LIST: &str = "lobby_below_list";
 
 /// The two kinds of lobby, one list each.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -65,8 +71,6 @@ impl Row {
 /// Why a kind has no list in this edition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Grey {
-    /// 2017-18 shops wait for the LAN server.
-    Shops1718,
     /// 2010-11 VS waits for live World Trophy matching.
     Vs1011,
 }
@@ -179,12 +183,13 @@ pub enum LobbyAction {
     CpuNow,
     /// The typed address, on Enter in the Direct address field.
     DirectAddress(String),
-    /// 2017-18: open this PC's shop to others (a shop room with a code).
+    /// CONNECT in the Direct address fold: play online at the Direct address (or the club server), as PLAY did.
+    Connect,
+    /// 2017-18: open this PC's shop to others (a shop room with a code), HOST in the host dialog: the caller saves
+    /// [`LobbyView::list_shop`] and [`LobbyView::shop_name`] first.
     HostShop,
     /// A room code, typed: a shop room's (6 letters) or a listed VS room's (4).
     JoinCode(String),
-    /// 2017-18: the "List my shop" switch, set to this (HOST SHOP lists the room in SHOPS).
-    ListShop(bool),
     /// 2017-18: open this PC's shop to PCs on its network (no internet).
     HostLan,
     /// 2017-18: join the shop at this address on the network (found, or typed).
@@ -218,7 +223,7 @@ pub struct LobbyView {
     /// The server stopped answering: the list is greyed and the Direct address fold opens.
     pub offline: bool,
     pub grey: [Option<Grey>; 2],
-    /// 2017-18: the shops are listed, but no seat can start there yet (no game control on the server).
+    /// 2017-18: the shops are listed; only shop rooms join (see [`shop_rooms`](Self::shop_rooms)).
     pub shops_view_only: bool,
     pub address: String,
     pub direct_open: bool,
@@ -235,8 +240,17 @@ pub struct LobbyView {
     /// HOST SHOP is on: this PC's shop, with its room code once the lobby gave one.
     pub hosting: bool,
     pub host_code: Option<String>,
-    /// 2017-18: HOST SHOP lists the room in others' SHOPS (the "List my shop" switch, data\settings.json `list_shop`).
+    /// 2017-18: HOST SHOP lists the room in others' SHOPS (the "List my shop" switch, data\settings.json `list_shop`,
+    /// saved at HOST SHOP).
     pub list_shop: bool,
+    /// 2017-18: the name others see on this PC's listed room (data\settings.json `shop_name`, saved at HOST SHOP);
+    /// empty: the desk's [`SHOP_ROOM_NAME`](forza::online::lobby::SHOP_ROOM_NAME).
+    pub shop_name: String,
+    /// The host dialog is open (HOST SHOP clicked): `list_shop` and `shop_name` as they were, put back on CANCEL.
+    pub host_ask: Option<(bool, String)>,
+    /// The list takes the height left in the caller's `ui` (at least [`LIST_MIN_H`]) instead of [`LIST_H`]: for a
+    /// lobby in a fixed-height tab with no scroll of its own around it.
+    pub list_fit: bool,
     /// The lobby server shop rooms are on (`host:port`): the host's room's, or the one a code was asked of.
     pub desk: String,
     /// 2017-18 with the shared shop on: the LAN fold, the shops found on this network and the address typed there.
@@ -375,6 +389,9 @@ impl LobbyView {
             hosting: false,
             host_code: None,
             list_shop: false,
+            shop_name: String::new(),
+            host_ask: None,
+            list_fit: false,
             desk: String::new(),
             lan_open: false,
             lan: vec![],
@@ -502,8 +519,8 @@ impl LobbyView {
             // a filter on, so the snapshots show its checked state
             Scenario::VsList => (v.kind, v.open_only) = (Kind::Vs, true),
             Scenario::Greyed => {
-                v.grey[0] = Some(Grey::Shops1718);
-                v.shops.clear();
+                (v.grey[Kind::Vs as usize], v.kind) = (Some(Grey::Vs1011), Kind::Vs);
+                v.vs.clear();
             }
             Scenario::ShopHost
             | Scenario::ShopJoining
@@ -511,7 +528,8 @@ impl LobbyView {
             | Scenario::ShopLost => {
                 // 2017-18 with the shared shop on: one public room listed, the rest by code
                 (v.codes, v.shop_rooms, v.shops_view_only) = (true, true, true);
-                let mut room = row("p1", "Shop room", 2, 8, Some(24), None, Open, None);
+                let name = forza::online::lobby::SHOP_ROOM_NAME;
+                let mut room = row("p1", name, 2, 8, Some(24), None, Open, None);
                 room.room = true;
                 v.shops = vec![room];
                 v.code = "K7QM2XPD".into();
@@ -582,6 +600,11 @@ impl LobbyView {
         self.updated_s.is_some_and(|s| s > STALE_S)
     }
 
+    /// A row listed on its tab: 2017-18 lists only shop rooms (no desk runs a 2017-18 shop of its own to join).
+    fn listed(&self, r: &Row) -> bool {
+        !self.view_only_now() || r.room
+    }
+
     /// The rows the filters let through, as indexes into [`rows`](Self::rows).
     pub fn visible(&self) -> Vec<usize> {
         let want = [None, Some(Lang::En), Some(Lang::It), Some(Lang::Ja)][self.lang_filter.min(3)];
@@ -589,7 +612,8 @@ impl LobbyView {
             .iter()
             .enumerate()
             .filter(|(_, r)| {
-                want.is_none_or(|l| r.lang == Some(l))
+                self.listed(r)
+                    && want.is_none_or(|l| r.lang == Some(l))
                     && (!self.open_only || r.state == RowState::Open)
                     && (!self.ping_ok || r.ping_ms.is_some_and(|p| p < PING_MAX_MS))
             })
@@ -606,19 +630,27 @@ impl LobbyView {
         (r.joinable() && !self.view_only(r)).then_some(r)
     }
 
-    /// Why JOIN is greyed, in a few words; `None` when it can join.
+    /// JOIN: the room code typed, else the selected row when it can be joined now.
+    pub fn join_action(&self) -> Option<LobbyAction> {
+        let code = self.code.trim();
+        if self.codes && !code.is_empty() {
+            return self
+                .joining
+                .is_none()
+                .then(|| LobbyAction::JoinCode(code.to_ascii_uppercase()));
+        }
+        self.joinable().map(|r| LobbyAction::Join(r.id.clone()))
+    }
+
+    /// Why JOIN is greyed, in a few words; `None` when it can join or the greyed list already says why.
     pub fn why_not_join(&self, lang: Lang) -> Option<String> {
-        if self.joinable().is_some() {
+        if self.join_action().is_some() || self.grey_now().is_some() {
             return None;
         }
         Some(if self.offline {
             tr!(lang, "lobby.why_offline")
         } else if self.stale() {
             tr!(lang, "lobby.why_stale")
-        } else if self.grey_now().is_some()
-            || self.selected_row().is_some_and(|r| self.view_only(r))
-        {
-            tr!(lang, "lobby.why_unavailable")
         } else {
             match self.selected_row().map(|r| &r.state) {
                 None => tr!(lang, "lobby.why_pick"),
@@ -634,6 +666,11 @@ impl LobbyView {
     /// The SHOPS tab offers HOST SHOP (2017-18 with the shared shop on) instead of HOST VS.
     pub fn host_shop_now(&self) -> bool {
         self.shop_rooms && self.kind == Kind::Shops
+    }
+
+    /// HOST SHOP: open the host dialog.
+    fn ask_host(&mut self) {
+        self.host_ask = Some((self.list_shop, self.shop_name.clone()));
     }
 
     fn set_kind(&mut self, k: Kind) {
@@ -658,6 +695,10 @@ pub fn clock(s: u32) -> String {
 
 /// The keys: Up/Down the row, Left/Right or Tab the kind, Enter join (ready in a room), F5 refresh, Esc leave.
 fn keys(ui: &Ui, v: &mut LobbyView) -> Option<LobbyAction> {
+    // the host dialog has the keys (Esc closes it)
+    if v.host_ask.is_some() {
+        return None;
+    }
     let pressed = |k: Key, m: Modifiers| ui.input_mut(|i| i.consume_key(m, k));
     let none = Modifiers::NONE;
     if pressed(Key::Escape, none) {
@@ -675,7 +716,8 @@ fn keys(ui: &Ui, v: &mut LobbyView) -> Option<LobbyAction> {
     }
     if pressed(Key::H, none) && !v.offline {
         if v.host_shop_now() {
-            return Some(LobbyAction::HostShop);
+            v.ask_host();
+            return None;
         }
         if v.grey[Kind::Vs as usize].is_none() {
             return Some(LobbyAction::HostVs);
@@ -704,7 +746,7 @@ fn keys(ui: &Ui, v: &mut LobbyView) -> Option<LobbyAction> {
         });
     }
     if pressed(Key::Enter, none) {
-        return v.joinable().map(|r| LobbyAction::Join(r.id.clone()));
+        return v.join_action();
     }
     None
 }
@@ -737,46 +779,83 @@ pub fn show_with(
         }
     });
     ui.add_space(8.0);
-    let summary = v.address.clone();
-    let direct = tr!(lang, "lobby.direct");
-    // the server and club settings stay as they are while this PC hosts
-    ui.add_enabled_ui(!v.hosting, |ui| {
-        fold(
-            ui,
-            &direct,
-            &summary,
-            &mut v.direct_open,
-            theme::BLUE,
-            |ui| {
-                let r = ui.add(
-                    egui::TextEdit::singleline(&mut v.address)
-                        .font(theme::mono(15.0))
-                        .desired_width(ui.available_width())
-                        .margin(vec2(10.0, 7.0)),
-                );
-                if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
-                    act = Some(LobbyAction::DirectAddress(v.address.clone()));
-                }
-                more(ui);
-            },
-        );
-    });
-    // a host's own LAN addresses are in the view above
-    if v.shop_rooms && !v.hosting {
-        ui.add_space(8.0);
-        let summary = tr!(lang, "lobby.lan_found", n = v.lan.len());
-        let mut open = v.lan_open;
-        fold(
-            ui,
-            &tr!(lang, "lobby.lan"),
-            &summary,
-            &mut open,
-            theme::BLUE,
-            |ui| {
-                lan_view(ui, v, lang, &mut act);
-            },
-        );
-        v.lan_open = open;
+    // the folds under the list: in a fitted lobby they scroll on their own once the list is at its minimum
+    let fit = v.list_fit;
+    let folds = |ui: &mut Ui| {
+        let summary = v.address.clone();
+        let direct = tr!(lang, "lobby.direct");
+        // the server and club settings stay as they are while this PC hosts
+        ui.add_enabled_ui(!v.hosting, |ui| {
+            fold(
+                ui,
+                &direct,
+                &summary,
+                &mut v.direct_open,
+                theme::BLUE,
+                |ui| {
+                    // the address and CONNECT on one row
+                    ui.horizontal(|ui| {
+                        let connect = tr!(lang, "lobby.connect");
+                        let bw = text_w(ui, &connect) + 40.0;
+                        let r = ui.add(
+                            egui::TextEdit::singleline(&mut v.address)
+                                .font(theme::mono(15.0))
+                                .desired_width(ui.available_width() - bw)
+                                .margin(vec2(10.0, 7.0)),
+                        );
+                        if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+                            act = Some(LobbyAction::DirectAddress(v.address.clone()));
+                        }
+                        if action(ui, &connect).clicked() {
+                            act = Some(LobbyAction::Connect);
+                        }
+                    });
+                    more(ui);
+                },
+            );
+        });
+        // a host's own LAN addresses are in the view above
+        if v.shop_rooms && !v.hosting {
+            ui.add_space(8.0);
+            let summary = tr!(lang, "lobby.lan_found", n = v.lan.len());
+            let mut open = v.lan_open;
+            fold(
+                ui,
+                &tr!(lang, "lobby.lan"),
+                &summary,
+                &mut open,
+                theme::BLUE,
+                |ui| {
+                    lan_view(ui, v, lang, &mut act);
+                },
+            );
+            v.lan_open = open;
+        }
+    };
+    let mut hidden = 0.0;
+    if fit {
+        let out = egui::ScrollArea::vertical()
+            .id_salt("lobby_folds")
+            .auto_shrink([false, true])
+            .show(ui, folds);
+        hidden = (out.content_size.y - out.inner_rect.height()).max(0.0);
+    } else {
+        folds(ui);
+    }
+    if v.host_ask.is_some() {
+        host_dialog(ui, v, lang, &mut act);
+    }
+    // list_fit: the height under the list this frame, scrolled-away folds included, sizes the list next frame (once more
+    // when it changed)
+    let list_bottom: Option<f32> = ui.data(|d| d.get_temp(egui::Id::new(LIST_BOTTOM)));
+    if let Some(top) = list_bottom.filter(|_| v.list_fit && !v.hosting && v.room.is_none()) {
+        let below = ui.cursor().top() - top + hidden;
+        let id = egui::Id::new(BELOW_LIST);
+        let old: Option<f32> = ui.data(|d| d.get_temp(id));
+        if old.is_none_or(|o| (o - below).abs() > 0.5) {
+            ui.data_mut(|d| d.insert_temp(id, below));
+            ui.ctx().request_repaint();
+        }
     }
     act
 }
@@ -863,10 +942,15 @@ fn state_color(s: &RowState) -> egui::Color32 {
     }
 }
 
-/// The columns of a row of width `w`: x offsets and widths of NAME, PLAYERS, PING, LANG, STATE.
+/// The room language filter and LANG column are hidden: few players yet, and no way to set a room's language.
+const SHOW_LANG: bool = false;
+
+/// The columns of a row of width `w`: x offsets and widths of NAME, PLAYERS, PING, LANG, STATE (LANG empty while
+/// hidden, its width given to NAME).
 fn columns(w: f32) -> [(f32, f32); 5] {
     let pad = 10.0;
-    let (name, players, ping, lang) = (w * 0.34, w * 0.14, w * 0.14, w * 0.10);
+    let lang = if SHOW_LANG { w * 0.10 } else { 0.0 };
+    let (name, players, ping) = (w * 0.44 - lang, w * 0.14, w * 0.14);
     let x1 = pad + name;
     let x2 = x1 + players;
     let x3 = x2 + ping;
@@ -903,7 +987,16 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
             }
         };
         let labels = [
-            format!("{}{}", tr!(lang, "lobby.shops"), count(v.shops.len())),
+            format!(
+                "{}{}",
+                tr!(lang, "lobby.shops"),
+                count(
+                    v.shops
+                        .iter()
+                        .filter(|r| !v.shops_view_only || r.room)
+                        .count()
+                )
+            ),
             format!("{}{}", tr!(lang, "lobby.vs"), count(v.vs.len())),
         ];
         if segmented(ui, &mut k, &[&labels[0], &labels[1]], w * 0.52) {
@@ -934,7 +1027,7 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
         }
     });
     ui.add_space(6.0);
-    // filters: check boxes under "Show:", the language as one choice of four
+    // filters: check boxes under "Show:", the language as one choice of four (hidden, see SHOW_LANG)
     ui.horizontal(|ui| {
         field(ui, &tr!(lang, "lobby.show"), 100.0);
         let open = if v.kind == Kind::Shops {
@@ -951,16 +1044,18 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
             v.selected = 0;
         }
     });
-    ui.horizontal(|ui| {
-        field(ui, &tr!(lang, "lobby.language"), 100.0);
-        let all = tr!(lang, "lobby.all_langs");
-        for (i, l) in [all.as_str(), "EN", "IT", "JA"].into_iter().enumerate() {
-            if check_chip(ui, l, v.lang_filter == i, true).clicked() && v.lang_filter != i {
-                v.lang_filter = i;
-                v.selected = 0;
+    if SHOW_LANG {
+        ui.horizontal(|ui| {
+            field(ui, &tr!(lang, "lobby.language"), 100.0);
+            let all = tr!(lang, "lobby.all_langs");
+            for (i, l) in [all.as_str(), "EN", "IT", "JA"].into_iter().enumerate() {
+                if check_chip(ui, l, v.lang_filter == i, true).clicked() && v.lang_filter != i {
+                    v.lang_filter = i;
+                    v.selected = 0;
+                }
             }
-        }
-    });
+        });
+    }
     ui.add_space(8.0);
     // column heads
     let (head, _) = ui.allocate_exact_size(vec2(w, 20.0), Sense::hover());
@@ -979,6 +1074,7 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
     ]
     .into_iter()
     .enumerate()
+    .filter(|&(i, _)| SHOW_LANG || i != 3)
     {
         cell(
             ui,
@@ -993,18 +1089,20 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
     let offline = v.offline;
     let vis = v.visible();
     v.selected = v.selected.min(vis.len().saturating_sub(1));
+    let list_h = if v.list_fit {
+        let below: f32 = ui.data(|d| d.get_temp(egui::Id::new(BELOW_LIST)).unwrap_or(0.0));
+        (ui.available_height() - below).max(LIST_MIN_H)
+    } else {
+        LIST_H
+    };
     egui::ScrollArea::vertical()
         .id_salt("lobby_rows")
-        .min_scrolled_height(LIST_H)
-        .max_height(LIST_H)
+        .min_scrolled_height(list_h)
+        .max_height(list_h)
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            if let Some(g) = v.grey_now() {
-                let key = match g {
-                    Grey::Shops1718 => "lobby.grey_shops_1718",
-                    Grey::Vs1011 => "lobby.grey_vs_1011",
-                };
-                hint(ui, &tr!(lang, key));
+            if let Some(Grey::Vs1011) = v.grey_now() {
+                hint(ui, &tr!(lang, "lobby.grey_vs_1011"));
                 return;
             }
             if vis.is_empty() {
@@ -1024,6 +1122,8 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
                 });
                 if resp.clicked() {
                     v.selected = n;
+                    // a row picked: JOIN joins it, not a code left in the box
+                    v.code.clear();
                 }
                 if resp.double_clicked() && r.joinable() && !dim {
                     *act = Some(LobbyAction::Join(r.id.clone()));
@@ -1077,7 +1177,10 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
                         theme::TEXT_DIM
                     },
                 );
-                let l = r.lang.map_or(String::new(), |l| l.code().to_uppercase());
+                let l = r
+                    .lang
+                    .filter(|_| SHOW_LANG)
+                    .map_or(String::new(), |l| l.code().to_uppercase());
                 cell(
                     ui,
                     rect,
@@ -1105,6 +1208,8 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
                 );
             }
         });
+    let bottom = ui.cursor().top();
+    ui.data_mut(|d| d.insert_temp(egui::Id::new(LIST_BOTTOM), bottom));
     ui.add_space(8.0);
     if v.codes {
         code_row(ui, v, lang, act);
@@ -1116,7 +1221,7 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
         ui.add_space(8.0);
     }
     // the three actions
-    let can_join = v.joinable().is_some();
+    let can_join = v.join_action().is_some();
     let live = v.grey_now().is_none() && !v.offline;
     let gap = 8.0;
     let bw = (w - 2.0 * gap) / 3.0;
@@ -1149,7 +1254,7 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
             clicked
         });
         if join.inner {
-            *act = v.joinable().map(|r| LobbyAction::Join(r.id.clone()));
+            *act = v.join_action();
         }
         if v.host_shop_now() {
             if on(
@@ -1158,34 +1263,73 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
                 tr!(lang, "lobby.host_shop"),
                 Cab::Plain,
             ) {
-                *act = Some(LobbyAction::HostShop);
+                v.ask_host();
             }
         } else if on(ui, live, tr!(lang, "lobby.host"), Cab::Plain) {
             *act = Some(LobbyAction::HostVs);
         }
     });
-    // HOST SHOP's one setting, right under it
-    if v.host_shop_now() {
-        ui.add_space(4.0);
-        let hint = tr!(
-            lang,
-            if v.list_shop {
-                "lobby.list_shop_on"
-            } else {
-                "lobby.list_shop_off"
-            }
-        );
-        let title = tr!(lang, "lobby.list_shop");
-        let r = ui.add_enabled_ui(v.joining.is_none(), |ui| {
-            toggle_row(ui, &mut v.list_shop, &title, &hint)
+}
+
+/// The host dialog (HOST SHOP): "List my shop", the shop's name, HOST and CANCEL; CANCEL, Esc or a click outside put
+/// both back as they were.
+fn host_dialog(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAction>) {
+    let (mut host, mut cancel) = (false, false);
+    let modal = egui::Modal::new(egui::Id::new("lobby-host"))
+        .backdrop_color(egui::Color32::from_black_alpha(150))
+        .frame(
+            egui::Frame::new()
+                .fill(theme::DEEP)
+                .stroke(Stroke::new(1.0, theme::RIM))
+                .corner_radius(theme::RADIUS_BIG)
+                .inner_margin(20),
+        )
+        .show(ui.ctx(), |ui| {
+            ui.set_width(440.0);
+            ui.label(
+                egui::RichText::new(tr!(lang, "lobby.host_title"))
+                    .font(theme::display(26.0))
+                    .color(theme::TEXT),
+            );
+            ui.add_space(4.0);
+            let hint = tr!(
+                lang,
+                if v.list_shop {
+                    "lobby.list_shop_on"
+                } else {
+                    "lobby.list_shop_off"
+                }
+            );
+            toggle_row(ui, &mut v.list_shop, &tr!(lang, "lobby.list_shop"), &hint);
+            ui.horizontal(|ui| {
+                field(ui, &tr!(lang, "lobby.shop_name"), 130.0);
+                ui.add(
+                    egui::TextEdit::singleline(&mut v.shop_name)
+                        .hint_text(forza::online::lobby::SHOP_ROOM_NAME)
+                        .char_limit(forza::online::lobby::SHOP_NAME_LEN)
+                        .desired_width(ui.available_width())
+                        .margin(vec2(10.0, 6.0)),
+                );
+            });
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                let size = vec2(216.0, 48.0);
+                host = cabinet(ui, size, &tr!(lang, "lobby.host_shop"), Cab::Go, true).clicked();
+                cancel =
+                    cabinet(ui, size, &tr!(lang, "common.cancel"), Cab::Plain, false).clicked();
+            });
         });
-        if r.inner.clicked() {
-            *act = Some(LobbyAction::ListShop(v.list_shop));
-        }
+    if host {
+        v.host_ask = None;
+        *act = Some(LobbyAction::HostShop);
+    } else if (cancel || modal.should_close())
+        && let Some((list, name)) = v.host_ask.take()
+    {
+        (v.list_shop, v.shop_name) = (list, name);
     }
 }
 
-/// "Room code" [______] JOIN: Enter in the box or the button joins the code typed.
+/// "Room code" [______]: Enter in the box joins the code typed; so does the action row's JOIN while it is typed.
 fn code_row(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAction>) {
     ui.add_enabled_ui(v.joining.is_none(), |ui| {
         ui.horizontal(|ui| {
@@ -1197,15 +1341,11 @@ fn code_row(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAc
                     .desired_width(110.0)
                     .margin(vec2(10.0, 6.0)),
             );
-            let enter = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-            let typed = !v.code.trim().is_empty();
-            if ui
-                .add_enabled_ui(typed, |ui| action(ui, &tr!(lang, "lobby.join")))
-                .inner
-                .clicked()
-                || enter && typed
+            if r.lost_focus()
+                && ui.input(|i| i.key_pressed(Key::Enter))
+                && !v.code.trim().is_empty()
             {
-                *act = Some(LobbyAction::JoinCode(v.code.trim().to_ascii_uppercase()));
+                *act = v.join_action();
             }
         });
     });
@@ -1327,7 +1467,7 @@ fn status(v: &LobbyView, lang: Lang) -> Option<(Tone, String)> {
     }
     // with shop rooms on, listed rooms join from their row and the rest by code: the box says it
     if v.view_only_now() && !v.shop_rooms {
-        return Some((Tone::Notice, tr!(lang, "lobby.grey_shops_1718")));
+        return Some((Tone::Notice, tr!(lang, "lobby.shop_rooms_off")));
     }
     if v.grey_now().is_none() && v.rows().is_empty() {
         return Some((Tone::Notice, tr!(lang, "lobby.empty")));
@@ -1507,11 +1647,12 @@ mod tests {
     fn listed_shop_rooms_join_from_their_row() {
         let mut v = LobbyView::sample(Scenario::ShopNoRoom);
         assert_eq!(v.joinable().map(|r| r.id.as_str()), Some("p1"));
-        v.shops[0].room = false; // a desk's own shop, or a desk too old to mark rooms
-        assert_eq!(
-            (v.joinable().is_some(), v.why_not_join(Lang::En).as_deref()),
-            (false, Some("Not available yet"))
-        );
+        v.shops[0].room = false; // a desk's own shop, or a desk too old to mark rooms: not listed
+        assert!(v.visible().is_empty() && v.joinable().is_none());
+        // a code typed joins by code: JOIN is live
+        assert_eq!(v.why_not_join(Lang::En), None);
+        v.code.clear();
+        assert_eq!(v.why_not_join(Lang::En).as_deref(), Some("Pick a room"));
         v.shops[0].room = true;
         v.shop_rooms = false;
         assert!(v.joinable().is_none());

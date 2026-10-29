@@ -29,8 +29,8 @@ pub struct PanelFile {
     pub card_fix: bool,
     /// layout=compact.
     pub compact: bool,
-    /// hover_delay_ms=: 0-5000; missing, not a number or out of range: 500.
-    pub hover_ms: u32,
+    /// hover_delay_ms=: 0-5000, or off (None: no card preview); missing, not a number or out of range: 500.
+    pub hover_ms: Option<u32>,
     /// auto_logs=0: no automatic crash report.
     pub auto_logs_off: bool,
     /// board=window: the formation board, the deck and the pages in a window of their own (the pop-out board).
@@ -48,7 +48,7 @@ impl Default for PanelFile {
             card: String::new(),
             card_fix: false,
             compact: false,
-            hover_ms: 500,
+            hover_ms: Some(500),
             auto_logs_off: false,
             board_window: false,
             board_rect: None,
@@ -78,11 +78,17 @@ impl PanelFile {
                 "card_fix" => f.card_fix = is("bad_endings"),
                 "layout" => f.compact = is("compact"),
                 "hover_delay_ms" => {
-                    f.hover_ms = val
-                        .parse::<i64>()
-                        .ok()
-                        .filter(|v| (0..=5000).contains(v))
-                        .unwrap_or(500) as u32;
+                    // older builds read off as 500
+                    f.hover_ms = if is("off") {
+                        None
+                    } else {
+                        Some(
+                            val.parse::<i64>()
+                                .ok()
+                                .filter(|v| (0..=5000).contains(v))
+                                .unwrap_or(500) as u32,
+                        )
+                    };
                 }
                 "auto_logs" => f.auto_logs_off = val == "0",
                 "board" => f.board_window = is("window"),
@@ -126,7 +132,10 @@ impl PanelFile {
         if self.compact {
             s += "layout=compact\n";
         }
-        s += &format!("hover_delay_ms={}\n", self.hover_ms);
+        match self.hover_ms {
+            Some(ms) => s += &format!("hover_delay_ms={ms}\n"),
+            None => s += "hover_delay_ms=off\n",
+        }
         if self.auto_logs_off {
             s += "auto_logs=0\n";
         }
@@ -161,7 +170,7 @@ play_on=online\nserver=1.2.3.4\nenglish=off\nhover_delay_ms=500\nauto_logs=0\n"
             card_fix: true,
             compact: true,
             english: Some("it".into()),
-            hover_ms: 2000,
+            hover_ms: Some(2000),
             board_window: true,
             board_rect: Some([-1600, 20, 900, 1400, 0]),
             ..PanelFile::default()
@@ -172,14 +181,21 @@ play_on=online\nserver=1.2.3.4\nenglish=off\nhover_delay_ms=500\nauto_logs=0\n"
             all.text(false).ends_with("play_on=this_pc\nenglish=it\ncard=new\ncard_fix=bad_endings\nlayout=compact\nhover_delay_ms=2000\nboard=window\nboard_rect=-1600,20,900,1400,0\n")
         );
         for (line, ms) in [
-            ("", 500),
-            ("hover_delay_ms=5000", 5000),
-            ("hover_delay_ms=0", 0),
-            ("hover_delay_ms=5001", 500),
-            ("hover_delay_ms=abc", 500),
+            ("", Some(500)),
+            ("hover_delay_ms=5000", Some(5000)),
+            ("hover_delay_ms=0", Some(0)),
+            ("hover_delay_ms=5001", Some(500)),
+            ("hover_delay_ms=abc", Some(500)),
+            ("hover_delay_ms=OFF", None),
         ] {
             assert_eq!(PanelFile::parse(line.as_bytes()).hover_ms, ms, "{line}");
         }
+        let off = PanelFile {
+            hover_ms: None,
+            ..PanelFile::default()
+        };
+        assert!(off.text(true).contains("\nhover_delay_ms=off\n"));
+        assert_eq!(PanelFile::parse(off.text(true).as_bytes()), off);
         // a board window place that is not five numbers, or has no size, is dropped
         for bad in [
             "board_rect=1,2,3",

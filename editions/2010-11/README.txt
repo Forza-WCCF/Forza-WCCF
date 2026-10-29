@@ -77,7 +77,7 @@ SETTINGS
   RESTART NOW   click, then CLICK AGAIN: restarts the game with these choices. Not during a match. If the server is
                 unchanged, only your cabinet restarts.
   VIEW          LAYOUT: CABINET (buttons around the game) or COMPACT (larger game, no buttons: use your keys or
-                controller). CARD HOVER DELAY. Both take effect at once.
+                controller). CARD HOVER DELAY (OFF: no big card on a resting mouse). Both take effect at once.
   LOGS          SAVE LOGS saves this game's logs as forza-wccf-logs-DATE-TIME.zip in your Downloads folder and shows
                 where. Your club card is never in it, and your Windows user name and PC name are removed. Send the
                 file to whoever asked for it, with what went wrong. Nothing is uploaded.
@@ -112,9 +112,9 @@ QUIT
   run_projector.txt) says what happened.
 
 ONLINE
-  Lobby: pick Online under PLAY. Under Direct address type a server (HOST or HOST:PORT). SHOPS lists its shops: NAME,
-  PLAYERS (x/8), PING, LANG and STATE (OPEN, IN MATCH, FULL, CLOSED, NO ANSWER), with the time to the next ENTRY.
-  Filters: language, Open only, ping under 150 ms.
+  Lobby: pick Online under PLAY. Under Direct address type a server (HOST or HOST:PORT). ARCADES lists its arcades:
+  NAME, PLAYERS (x/8), PING and STATE (OPEN, IN MATCH, FULL, CLOSED, NO ANSWER), with the time to the next ENTRY.
+  Filters: Open only, ping under 150 ms.
   Pick a row and press JOIN to take a seat, then PLAY. LEAVE gives the seat up. If the game or the Launcher closes,
   Rejoin (offered for 75 seconds) takes the same seat back. VS ROOMS is greyed out for 2010-11.
   Keys: Up/Down row, Left/Right or Tab list, Enter JOIN, F5 refresh, Esc LEAVE.

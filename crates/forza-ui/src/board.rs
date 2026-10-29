@@ -982,7 +982,7 @@ pub fn undo(board: &mut Board, r: &Removed) -> bool {
 
 /// Draws the board and handles it: a card dropped on open pitch lies exactly there (the cabinet's table has no fixed
 /// spots), a card dropped onto another swaps with it (the target is lit while dragging), right-click or a drag off
-/// the board takes a card off ([`take_removed`]), a resting mouse shows the card big after `hover_delay` seconds. While a card is dragged or shown
+/// the board takes a card off ([`take_removed`]), a resting mouse shows the card big after `hover_delay` seconds (None: never). While a card is dragged or shown
 /// big, the pitch shows its suitable positions as a heat zone, and the drop target says how well it fits there.
 /// With `links`, lines join every two linked pitch cards by the club's link stage; a selected card (clicked, or in
 /// hand) brings its group forward - its lines bright, the others and the cards outside its group dimmed - and a list
@@ -991,7 +991,7 @@ pub fn formation_board(
     ui: &mut Ui,
     board: &mut Board,
     links: &Links,
-    hover_delay: f32,
+    hover_delay: Option<f32>,
     lang: Lang,
 ) -> bool {
     let width = ui.available_width();
@@ -1312,7 +1312,8 @@ pub fn formation_board(
                 }
                 e.1
             });
-            let left = hover_delay as f64 - (now - since);
+            // None: CARD HOVER DELAY off, never shown big by resting
+            let left = hover_delay.map(|d| d as f64 - (now - since));
             // turned over until the mouse rests on another card
             let back = ui.data_mut(|d| {
                 let f = d.get_temp_mut_or_default::<Option<usize>>(flip_id);
@@ -1321,7 +1322,7 @@ pub fn formation_board(
                 }
                 *f == Some(slot)
             });
-            if left <= 0.0 || back {
+            if left.is_some_and(|l| l <= 0.0) || back {
                 let ask = PaneAsk {
                     card: board.cards[ci].clone(),
                     at: rect,
@@ -1329,12 +1330,16 @@ pub fn formation_board(
                 };
                 ui.data_mut(|d| d.insert_temp(pane_id(), ask));
                 shown_big = Some(ci);
-            } else {
+            } else if let Some(left) = left {
                 ui.ctx()
                     .request_repaint_after(std::time::Duration::from_secs_f64(left));
             }
         }
-        None => ui.data_mut(|d| d.remove::<(usize, f64)>(hover_id)),
+        // off the cards: a clicked card's big back ends too, so OFF never shows it again on a mere re-hover
+        None => ui.data_mut(|d| {
+            d.remove::<(usize, f64)>(hover_id);
+            d.remove::<Option<usize>>(flip_id);
+        }),
     }
 
     // the heat zone of the card in hand (or shown big), and the drop target's fit
@@ -2442,7 +2447,7 @@ mod tests {
             let mut changed = false;
             ctx.run_ui(raw, |ui| {
                 *pitch = pitch_rect(ui.cursor().min, ui.available_width());
-                changed = formation_board(ui, b, &Links::default(), 3.0, crate::Lang::En);
+                changed = formation_board(ui, b, &Links::default(), Some(3.0), crate::Lang::En);
             })
             .textures_delta
             .clear();
@@ -2563,7 +2568,7 @@ mod tests {
             };
             ctx.run_ui(raw, |ui| {
                 *pitch = pitch_rect(ui.cursor().min, ui.available_width());
-                formation_board(ui, b, &Links::default(), 3.0, crate::Lang::En);
+                formation_board(ui, b, &Links::default(), Some(3.0), crate::Lang::En);
                 removed = removed.take().or(take_removed(ui));
             })
             .textures_delta
@@ -2625,7 +2630,7 @@ mod tests {
                 let r = ui.max_rect().shrink(16.0);
                 let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(r));
                 *pitch = pitch_rect(ui.cursor().min, ui.available_width());
-                formation_board(&mut ui, b, &Links::default(), 3.0, crate::Lang::En);
+                formation_board(&mut ui, b, &Links::default(), Some(3.0), crate::Lang::En);
             })
             .textures_delta
             .clear();
@@ -2680,7 +2685,7 @@ mod tests {
             };
             ctx.run_ui(raw, |ui| {
                 *pitch = pitch_rect(ui.cursor().min, ui.available_width());
-                formation_board(ui, b, &Links::default(), 3.0, crate::Lang::En);
+                formation_board(ui, b, &Links::default(), Some(3.0), crate::Lang::En);
             })
             .textures_delta
             .clear();

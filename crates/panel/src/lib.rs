@@ -1279,14 +1279,14 @@ impl Render {
         let cards = CATALOGUE.get().cloned().unwrap_or_else(|| Arc::new([]));
         let mut st = PanelState::new(files.edition, lang, cards::board(&placed, &cards), cards);
         st.file = files.panel_file();
-        st.hover_delay = st.file.hover_ms as f32 / 1000.0;
+        st.hover_delay = st.file.hover_ms.map(|ms| ms as f32 / 1000.0);
         st.address = st.file.server.clone();
         (st.keys, st.pads) = files.load_keys();
         st.picture = Some(GAME);
         log(&format!(
-            "language {}, hover delay {} s",
+            "language {}, hover delay {}",
             lang.code(),
-            st.hover_delay
+            st.hover_delay.map_or("off".into(), |s| format!("{s} s"))
         ));
         Render {
             ctx,
@@ -2010,6 +2010,7 @@ impl Render {
         let open = self.st.page == panel::Page::Settings;
         if open && self.last_page != panel::Page::Settings {
             self.st.file = f.panel_file();
+            self.st.hover_delay = self.st.file.hover_ms.map(|ms| ms as f32 / 1000.0);
             self.st.address = self.st.file.server.clone();
             self.status_at = None;
         }
@@ -2088,7 +2089,7 @@ impl Render {
                     if p.server.is_empty() { "-" } else { &p.server },
                     p.english.as_deref().unwrap_or("-"),
                     if p.compact { "compact" } else { "cabinet" },
-                    p.hover_ms,
+                    p.hover_ms.map_or("off".into(), |ms| ms.to_string()),
                     if p.auto_logs_off { "off" } else { "on" },
                     if p.board_window { "window" } else { "game" },
                     p.board_rect,
@@ -2656,7 +2657,7 @@ fn retitle(h: HWND) {
     } else {
         "Client"
     };
-    let title: Vec<u16> = format!("{who} - Forza-WCCF {edition}\0")
+    let title: Vec<u16> = format!("{}\0", game_title(who, edition))
         .encode_utf16()
         .collect();
     // the game's window may not take it at once: a few tries (callers are worker threads)
@@ -2678,6 +2679,12 @@ fn retitle(h: HWND) {
         }
         std::thread::sleep(Duration::from_millis(300));
     }
+}
+
+/// The title for the game's own windows, ASCII only: they are ANSI windows (CreateWindowExA), and Windows converts a
+/// WM_SETTEXT to the system code page, which turned the en dash of "2017–18" into a cut-off "2017–1".
+fn game_title(who: &str, edition: &str) -> String {
+    format!("{who} - Forza-WCCF {}", edition.replace('–', "-"))
 }
 
 /// The biggest visible top-level window of this process: the game's.
@@ -3012,7 +3019,7 @@ fn vk_key(vk: u32) -> Option<Key> {
 
 #[cfg(test)]
 mod tests {
-    use super::{big_enough, match_now};
+    use super::{big_enough, game_title, match_now};
 
     /// IMPORT LINEUP: 2017-18 asks the seat's own state (another seat's match puts the shared shop in GAME); the shop
     /// state only when that cannot be read; 2010-11 keeps the shop state; a card session always counts.
@@ -3030,6 +3037,18 @@ mod tests {
         assert!(!match_now(false, None, Some(7), false));
         assert!(match_now(false, None, None, true));
         assert!(match_now(true, Some(3), Some(1), true));
+    }
+
+    /// The game's windows are ANSI: the whole edition survives as ASCII.
+    #[test]
+    fn the_game_title_is_ascii_and_whole() {
+        let t = game_title("Client", forza::Edition::E1718.label());
+        assert_eq!(t, "Client - Forza-WCCF 2017-18");
+        assert!(t.is_ascii());
+        assert_eq!(
+            game_title("Projector", "2010–11"),
+            "Projector - Forza-WCCF 2010-11"
+        );
     }
 
     /// The board window (and the game's) is drawn in only when shown and at least 64x64; otherwise the panel falls

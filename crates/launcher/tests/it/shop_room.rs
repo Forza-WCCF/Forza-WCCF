@@ -100,7 +100,7 @@ fn host_shop_then_a_guest_joins_by_code_through_the_tunnel() {
     };
     let host_id = shop::own_id(&dir.path().join("host.key")).unwrap();
     let (log, host_log) = logger("host");
-    let room = HostRoom::open(&server, &shop::id_text(&host_id), false, log.clone(), &|_| {}).unwrap();
+    let room = HostRoom::open(&server, &shop::id_text(&host_id), false, "", log.clone(), &|_| {}).unwrap();
     // the desk's code length is the one the Launcher's box takes
     assert_eq!(room.code.len(), forza::online::lobby::SHOP_CODE_LEN);
     assert!(room.code.chars().all(|c| c.is_ascii_alphanumeric()));
@@ -172,10 +172,10 @@ fn a_host_back_from_a_crash_gets_a_new_room() {
     let dir = tempfile::tempdir().unwrap();
     let id = shop::id_text(&shop::own_id(&dir.path().join("host.key")).unwrap());
     let (log, _) = logger("crashed host");
-    let old = HostRoom::open(&d.addr().to_string(), &id, false, log.clone(), &|_| {}).unwrap();
+    let old = HostRoom::open(&d.addr().to_string(), &id, false, "", log.clone(), &|_| {}).unwrap();
     let said = Mutex::new(vec![]);
     let note = |l: &launcher::run::Text| said.lock().unwrap().push(l.en());
-    let new = HostRoom::open(&d.addr().to_string(), &id, false, log, &note).unwrap();
+    let new = HostRoom::open(&d.addr().to_string(), &id, false, "", log, &note).unwrap();
     assert_ne!(old.code, new.code);
     assert!(
         said.lock().unwrap().iter().any(|l| l.contains("asking again")),
@@ -195,7 +195,7 @@ fn a_lost_room_lets_nobody_in() {
     let dir = tempfile::tempdir().unwrap();
     let id = shop::id_text(&shop::own_id(&dir.path().join("host.key")).unwrap());
     let (log, lines) = logger("lost host");
-    let room = HostRoom::open(&addr.to_string(), &id, false, log, &|_| {}).unwrap();
+    let room = HostRoom::open(&addr.to_string(), &id, false, "", log, &|_| {}).unwrap();
     let guest = shop::own_id(&dir.path().join("guest.key")).unwrap();
     assert!(matches!(
         join_code(addr, &room.code, &shop::id_text(&guest)).unwrap(),
@@ -220,7 +220,7 @@ fn a_closed_room_admits_nobody_and_is_not_lost() {
     let dir = tempfile::tempdir().unwrap();
     let id = shop::id_text(&shop::own_id(&dir.path().join("host.key")).unwrap());
     let (log, lines) = logger("closing host");
-    let room = HostRoom::open(&addr.to_string(), &id, false, log, &|_| {}).unwrap();
+    let room = HostRoom::open(&addr.to_string(), &id, false, "", log, &|_| {}).unwrap();
     let guest = shop::own_id(&dir.path().join("guest.key")).unwrap();
     join_code(addr, &room.code, &shop::id_text(&guest)).unwrap();
     let (admit, lost) = (room.admit(), room.lost());
@@ -240,13 +240,89 @@ fn a_listed_room_is_joined_from_its_row() {
     let dir = tempfile::tempdir().unwrap();
     let id = shop::id_text(&shop::own_id(&dir.path().join("host.key")).unwrap());
     let (log, _) = logger("listed host");
-    let room = HostRoom::open(&addr.to_string(), &id, true, log, &|_| {}).unwrap();
+    let room = HostRoom::open(&addr.to_string(), &id, true, "Sala Roma", log, &|_| {}).unwrap();
     let lobby = forza::online::lobby::fetch(addr, "2017-18").unwrap();
     let row = lobby.shops.iter().find(|s| s.room).expect("listed");
+    assert_eq!(row.name, "Sala Roma");
     let guest = shop::own_id(&dir.path().join("guest.key")).unwrap();
     assert!(matches!(
         join_code(addr, &row.id, &shop::id_text(&guest)).unwrap(),
         CodeJoin::In { .. }
     ));
     assert_eq!(room.admit()(&guest), Verdict::In);
+}
+
+/// A desk from before room names answers ERR to the named CREATE: the host asks once more without the name.
+#[test]
+fn an_old_desk_gets_the_room_without_its_name() {
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = l.local_addr().unwrap();
+    let asked: Lines = Arc::default();
+    let seen = asked.clone();
+    thread::spawn(move || {
+        for mut c in l.incoming().flatten() {
+            let mut b = [0u8; 256];
+            let n = c.read(&mut b).unwrap_or(0);
+            let line = String::from_utf8_lossy(&b[..n]).trim().to_owned();
+            let named = line.split_whitespace().count() > 4;
+            seen.lock().unwrap().push(line);
+            let answer: &[u8] = if named {
+                b"ERR say WANT or WANT SEAT n\n"
+            } else {
+                b"ROOM r1 K7QMZDRX t1 1\n"
+            };
+            let _ = c.write_all(answer);
+        }
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let id = shop::id_text(&shop::own_id(&dir.path().join("host.key")).unwrap());
+    let (log, _) = logger("old desk host");
+    let room = HostRoom::open(&addr.to_string(), &id, true, "Sala Roma", log, &|_| {}).unwrap();
+    assert_eq!(room.code, "K7QMZDRX");
+    let asked = asked.lock().unwrap();
+    assert_eq!(
+        asked[..2],
+        [
+            format!("CREATE shop {id} public Sala Roma"),
+            format!("CREATE shop {id} public")
+        ]
+    );
+}
+
+/// An old desk that also still holds the host's room from before (ERR host on the plain CREATE): the retry after
+/// the wait stays without the name. Waits DESK_HOST_STALE + 2 s, a const with no test knob.
+#[test]
+fn an_old_desk_with_a_stale_room_never_gets_the_name_again() {
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = l.local_addr().unwrap();
+    let asked: Lines = Arc::default();
+    let seen = asked.clone();
+    thread::spawn(move || {
+        for mut c in l.incoming().flatten() {
+            let mut b = [0u8; 256];
+            let n = c.read(&mut b).unwrap_or(0);
+            let line = String::from_utf8_lossy(&b[..n]).trim().to_owned();
+            let named = line.split_whitespace().count() > 4;
+            let mut seen = seen.lock().unwrap();
+            seen.push(line);
+            let answer: &[u8] = if named {
+                b"ERR say WANT or WANT SEAT n\n"
+            } else if seen.len() == 2 {
+                b"ERR host\n"
+            } else {
+                b"ROOM r1 K7QMZDRX t1 1\n"
+            };
+            let _ = c.write_all(answer);
+        }
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let id = shop::id_text(&shop::own_id(&dir.path().join("host.key")).unwrap());
+    let (log, _) = logger("old desk stale host");
+    let room = HostRoom::open(&addr.to_string(), &id, true, "Sala Roma", log, &|_| {}).unwrap();
+    assert_eq!(room.code, "K7QMZDRX");
+    let asked = asked.lock().unwrap();
+    assert_eq!(
+        asked[1..3],
+        [format!("CREATE shop {id} public"), format!("CREATE shop {id} public")]
+    );
 }

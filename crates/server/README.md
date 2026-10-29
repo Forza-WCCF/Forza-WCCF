@@ -80,7 +80,7 @@ word with `ERR rooms are on the lobby` and only seats its own PCs.
 
 | Ask | Answer |
 |---|---|
-| `CREATE shop ID [public]` (ID = the shop tunnel's iroh EndpointId: 64 hex, a real ed25519 key) | `ROOM id code t 1` (the host on seat 1, an 8-letter code), `FULL`, `ERR id`, `ERR host` |
+| `CREATE shop ID [public]` or `CREATE shop ID public\|private NAME...` (ID = the shop tunnel's iroh EndpointId: 64 hex, a real ed25519 key; NAME the rest of the line, control characters dropped, spaces collapsed, at most 24 characters) | `ROOM id code t 1` (the host on seat 1, an 8-letter code), `FULL`, `ERR id`, `ERR host` |
 | `JOIN CODE [n]` | `TICKET t n` (lowest free of 2-8, or n), `FULL`, `TAKEN`, `CLOSED` (no such code) |
 | `SHOP t [ID]` | a guest's ticket (telling its own tunnel id): `HOST id`; the host's: `GUESTS id ...` (guests that told theirs); else `GONE` |
 | `HEARTBEAT t`, `RELEASE t`, `CLOSE id t` | as for VS rooms: the host's `RELEASE`/`CLOSE` or lease end closes the room |
@@ -93,7 +93,7 @@ that room (a host that crashed and came back); a live room answers `ERR host`.
 The key check on `CREATE shop` is about form only (a canonical ed25519 point not of small order): it proves nothing
 about who holds the key, so anyone can open a room naming any id. What protects a host's tunnel is its admit list
 (`vslink::shop::ShopConfig::admit` fed from `SHOP`'s `GUESTS`), which lets in only guests who joined its room. `LOBBY` lists only `public` rooms, as a `shops` row named
-"Shop room" with x/8 and never the code, a tunnel id, a ticket or an address.
+by its host (or "Arcade room") with x/8 and never the code, a tunnel id, a ticket or an address.
 
 Two homes behind their own NAT, 0-150 ms apart, through the lobby, 243-246 and vslink: the Docker harness in
 `tests/nat/` (opt-in, `tests/nat/run.sh`).

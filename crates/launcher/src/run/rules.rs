@@ -78,9 +78,8 @@ pub enum Words {
     Wrong(String),
 }
 
-// 2017-18 has no remote seats in a shared shop (ROADMAP M2): a server or remote run is refused (what the player is
-// told: `launcher.run_online_1718`). Its online play is VS between homes: ONLINE in the Launcher, then PLAY (a plain
-// start, `Mode::Vs`).
+// 2017-18 with the shared shop off: a server or remote run is refused (what the player is told:
+// `launcher.run_online_1718`).
 
 /// data\settings.json's switch for the 2017-18 shared shop (ROADMAP M2): on unless `"shop_1718": false`; on lets
 /// `server` (the host's control, desk and relay) and `remote HOST` (a seat on that host) run.
