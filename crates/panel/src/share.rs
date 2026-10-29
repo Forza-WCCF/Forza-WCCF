@@ -4,14 +4,18 @@
 use forza::cards::lineup::SHARE_HOST;
 use forza_ui::panel::{self, FetchError};
 use std::ffi::c_void;
+use std::time::{Duration, Instant};
 use windows::Win32::Networking::WinHttp::*;
 use windows::core::{HSTRING, PCWSTR, w};
 
 /// Each step's limit (name lookup, connect, send, each read), in ms; the panel gives up after `panel::FETCH_SECS`.
-const STEP_MS: i32 = 5000;
+const STEP_MS: i32 = 4000;
 
-/// A WinHTTP handle, closed on drop; a request handle reads as its answer's body.
+/// A WinHTTP handle, closed on drop.
 struct H(*mut c_void);
+
+/// A request's answer body, read until `until` (a trickling answer stops there too).
+struct Body(H, Instant);
 
 impl H {
     fn new(h: *mut c_void) -> Result<H, FetchError> {
@@ -30,12 +34,15 @@ impl Drop for H {
     }
 }
 
-impl std::io::Read for H {
+impl std::io::Read for Body {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if Instant::now() > self.1 {
+            return Err(std::io::ErrorKind::TimedOut.into());
+        }
         let mut n = 0u32;
         let want = u32::try_from(buf.len()).unwrap_or(u32::MAX);
         // SAFETY: at most `want` bytes into `buf`, on a request whose answer came
-        unsafe { WinHttpReadData(self.0, buf.as_mut_ptr().cast(), want, &mut n) }
+        unsafe { WinHttpReadData(self.0.0, buf.as_mut_ptr().cast(), want, &mut n) }
             .map_err(std::io::Error::other)?;
         Ok(n as usize)
     }
@@ -45,6 +52,7 @@ impl std::io::Read for H {
 /// fetch's own thread calls it.
 pub fn get(path: String) -> Result<String, FetchError> {
     let off = |_| FetchError::Offline;
+    let until = Instant::now() + Duration::from_secs_f64(panel::FETCH_SECS);
     // SAFETY: handles checked non-null, each closed after the ones opened from it (drop order); buffers outlive the calls
     unsafe {
         let s = H::new(WinHttpOpen(
@@ -56,7 +64,7 @@ pub fn get(path: String) -> Result<String, FetchError> {
         ))?;
         WinHttpSetTimeouts(s.0, STEP_MS, STEP_MS, STEP_MS, STEP_MS).map_err(off)?;
         let c = H::new(WinHttpConnect(s.0, &HSTRING::from(SHARE_HOST), 443, 0))?;
-        let mut r = H::new(WinHttpOpenRequest(
+        let r = H::new(WinHttpOpenRequest(
             c.0,
             w!("GET"),
             &HSTRING::from(path),
@@ -88,7 +96,7 @@ pub fn get(path: String) -> Result<String, FetchError> {
         )
         .map_err(off)?;
         match status {
-            200 => panel::read_capped(&mut r),
+            200 => panel::read_capped(Body(r, until)),
             404 => Err(FetchError::NotFound),
             500.. => Err(FetchError::Offline),
             _ => Err(FetchError::NotLineup),

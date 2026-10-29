@@ -910,7 +910,7 @@ pub enum FetchError {
 /// The most a share link's lineup may weigh: the site's are a few hundred bytes.
 pub const SHARE_MAX: u64 = 64 * 1024;
 /// How long IMPORT LINEUP waits for a share link's lineup before it says there is no answer.
-pub const FETCH_SECS: f64 = 8.0;
+pub const FETCH_SECS: f64 = 10.0;
 
 /// A share link's answer body as text: at most [`SHARE_MAX`] bytes of UTF-8, else `NotLineup`; a read error: `Offline`.
 pub fn read_capped(r: impl std::io::Read) -> Result<String, FetchError> {
