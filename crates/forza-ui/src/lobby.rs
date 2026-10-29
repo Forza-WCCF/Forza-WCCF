@@ -1122,6 +1122,8 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
                 });
                 if resp.clicked() {
                     v.selected = n;
+                    // a row picked: JOIN joins it, not a code left in the box
+                    v.code.clear();
                 }
                 if resp.double_clicked() && r.joinable() && !dim {
                     *act = Some(LobbyAction::Join(r.id.clone()));
@@ -1339,7 +1341,10 @@ fn code_row(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAc
                     .desired_width(110.0)
                     .margin(vec2(10.0, 6.0)),
             );
-            if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+            if r.lost_focus()
+                && ui.input(|i| i.key_pressed(Key::Enter))
+                && !v.code.trim().is_empty()
+            {
                 *act = v.join_action();
             }
         });

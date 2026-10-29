@@ -1248,13 +1248,14 @@ fn lobby_shop_rooms() {
     assert!(v.borrow().host_ask.is_none() && v.borrow().list_shop);
     v.borrow_mut().code = " k7qm2xpd".into();
     h.run_steps(2);
-    // one JOIN: the code typed, then (box emptied) the listed room row
+    // one JOIN: the code typed, then the listed room row once clicked (the click empties the box)
     assert_eq!(h.get_all_by_label("JOIN").count(), 1);
     h.get_by_label("JOIN").click();
     h.run_steps(2);
     assert_eq!(got.take(), Some(JoinCode("K7QM2XPD".into())));
-    v.borrow_mut().code.clear();
+    h.get_by_label(forza::online::lobby::SHOP_ROOM_NAME).click();
     h.run_steps(2);
+    assert!(v.borrow().code.is_empty());
     h.get_by_label("JOIN").click();
     h.run_steps(2);
     assert_eq!(got.take(), Some(Join("p1".into())));
