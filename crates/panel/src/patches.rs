@@ -15,9 +15,9 @@ use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, WAIT_OBJECT_
 use windows::Win32::System::Diagnostics::Debug::FlushInstructionCache;
 use windows::Win32::System::LibraryLoader::{GetModuleHandleA, GetModuleHandleW, GetProcAddress};
 use windows::Win32::System::Memory::{
-    MEM_COMMIT, MEMORY_BASIC_INFORMATION, PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY,
-    PAGE_GUARD, PAGE_NOACCESS, PAGE_PROTECTION_FLAGS, PAGE_READWRITE, PAGE_WRITECOPY,
-    VirtualProtect, VirtualQuery,
+    MEM_COMMIT, MEMORY_BASIC_INFORMATION, PAGE_EXECUTE, PAGE_EXECUTE_READWRITE,
+    PAGE_EXECUTE_WRITECOPY, PAGE_GUARD, PAGE_NOACCESS, PAGE_PROTECTION_FLAGS, PAGE_READWRITE,
+    PAGE_WRITECOPY, VirtualProtect, VirtualQuery,
 };
 use windows::Win32::System::Threading::{
     CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, GetCurrentProcess, GetCurrentThreadId, SetWaitableTimer,
@@ -58,7 +58,7 @@ pub(crate) fn mem_ok(at: usize, len: usize, write: bool) -> bool {
         // SAFETY: a query about our own process's memory
         if unsafe { VirtualQuery(Some(a as *const c_void), &mut mbi, size_of_val(&mbi)) } == 0
             || mbi.State != MEM_COMMIT
-            || mbi.Protect.0 & (PAGE_NOACCESS.0 | PAGE_GUARD.0) != 0
+            || mbi.Protect.0 & (PAGE_NOACCESS.0 | PAGE_GUARD.0 | PAGE_EXECUTE.0) != 0 // execute-only: no reads
             || (write
                 && (mbi.Protect
                     & (PAGE_READWRITE

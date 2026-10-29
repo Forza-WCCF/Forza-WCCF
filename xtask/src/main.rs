@@ -1869,11 +1869,17 @@ fn no_kit_word(files: &[PathBuf]) -> Result<()> {
 
 /// The 2017-18 ZIP's SOURCE.txt: where the source of its programs is, at the commit it was built from.
 fn source_txt(version: &str, commit: &str) -> String {
+    let sha = commit.split(' ').next().unwrap_or(commit);
+    let tag = if version.starts_with(|c: char| c.is_ascii_digit()) {
+        format!("Release tag v{version}, commit")
+    } else {
+        "Commit".to_owned()
+    };
     format!(
         "Forza-WCCF 2017-18 {version}\r\n\r\n\
          The source of every program in this folder (Launcher.exe, bin\\, overlay\\):\r\n\
-         https://github.com/Forza-WCCF/Forza-WCCF/tree/{commit}\r\n\
-         Release tag v{version}, commit {commit}. Licence: MIT or Apache-2.0, your choice.\r\n\r\n\
+         https://github.com/Forza-WCCF/Forza-WCCF/tree/{sha}\r\n\
+         {tag} {commit}. Licence: MIT or Apache-2.0, your choice.\r\n\r\n\
          Il sorgente di ogni programma in questa cartella: il link qui sopra (licenza MIT o Apache-2.0).\r\n\
          このフォルダーのすべてのプログラムのソース：上のリンク（MIT または Apache-2.0 ライセンス）。\r\n"
     )
@@ -1993,8 +1999,15 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
         fs::write(kit.join("version.txt"), format!("kit-{version}\r\n"))?;
     }
     if !is_1011 {
-        let commit = cmd!(sh, "git rev-parse HEAD").read()?;
-        fs::write(kit.join("SOURCE.txt"), source_txt(version, commit.trim()))?;
+        let mut commit = cmd!(sh, "git rev-parse HEAD").read()?.trim().to_owned();
+        if !cmd!(sh, "git status --porcelain -- crates native xtask")
+            .read()?
+            .trim()
+            .is_empty()
+        {
+            commit.push_str(" plus uncommitted changes"); // a test build: the programs are not exactly that commit
+        }
+        fs::write(kit.join("SOURCE.txt"), source_txt(version, &commit))?;
     }
     let mut shipped = BTreeSet::new();
     let mut dirs = BTreeSet::new();
@@ -2178,6 +2191,14 @@ fn walk(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_txt_names_the_tag_only_for_a_version() {
+        let r = source_txt("0.5.1", "abc");
+        assert!(r.contains("/tree/abc\r\n") && r.contains("Release tag v0.5.1, commit abc."));
+        let t = source_txt("test", "abc plus uncommitted changes");
+        assert!(t.contains("/tree/abc\r\n") && !t.contains("Release tag"));
+    }
 
     #[test]
     fn profiles_are_fast_locally_and_release_for_the_gate() {
