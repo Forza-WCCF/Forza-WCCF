@@ -34,7 +34,7 @@ use std::fs::OpenOptions;
 use std::os::windows::io::IntoRawHandle;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 use std::{env, mem, ptr, thread};
@@ -103,6 +103,8 @@ struct Shared {
     report_done: Option<Result<(String, String), String>>, // where the report was saved and its issue link, or why not
     // HOST SHOP: the shop room's code, its lobby server and the flag set when that lobby loses it
     host_room: Option<(String, String, Arc<AtomicBool>)>,
+    // HOST SHOP: the guests connected through its tunnel now (vslink), for the host's "Players here" count
+    host_guests: Option<Arc<AtomicUsize>>,
     // the LAN fold: the shops the last search found (forza::online::lan)
     lan_found: Option<Vec<forza::online::lan::Found>>,
 }
@@ -125,6 +127,7 @@ static SHARED: Mutex<Shared> = Mutex::new(Shared {
     report_open: None,
     report_done: None,
     host_room: None,
+    host_guests: None,
     lan_found: None,
 });
 
@@ -305,6 +308,7 @@ fn start(steps: Vec<Step>) -> bool {
             .any(|x| matches!(x, Step::Game(_) | Step::Host(_)))
             .then_some((0, 6));
         s.host_room = None;
+        s.host_guests = None;
         s.began = Some(Instant::now());
         s.stage_at = s.began;
     }
@@ -423,7 +427,11 @@ fn host_shop(kit: &Kit, lan: bool) -> Result<i32, String> {
         Ok((Ok(room), guests)) => {
             // shortcut: a LAN shop counts no guests (they come by plain address, not the tunnel), so it closes once
             // this PC's seat has ended; count the desk's seats if LAN guests are cut off in practice
-            shared().host_room = room;
+            {
+                let mut s = shared();
+                s.host_room = room;
+                s.host_guests = guests.clone();
+            }
             poke();
             let mode = run::Mode::Remote("127.0.0.1".into(), None);
             let rc = run::play(kit, &Params::of(kit), Some(mode), false, &WindowUi);
@@ -839,9 +847,16 @@ impl App {
         self.st.output.extend(log);
         let kit = Kit::here();
         // HOST SHOP: its code once the lobby gave it, gone with the room if the lobby loses it; the job over, the shop is
-        let room = shared().host_room.clone();
+        let (room, guests) = {
+            let s = shared();
+            (s.host_room.clone(), s.host_guests.clone())
+        };
         let v = &mut self.st.lobby;
         v.host_code = None;
+        // this PC's seat and its tunnel's guests: the desk's count for the room too (seat 1 and the JOINs); capped, as a
+        // guest's reconnect can count twice until its old link times out
+        let seats = usize::from(*forza::online::SEATS.end());
+        v.host_players = guests.map(|g| (1 + g.load(Ordering::Relaxed)).min(seats) as u8);
         if let Some((code, desk, lost)) = room {
             v.desk = desk;
             if lost.load(Ordering::Relaxed) {
