@@ -86,6 +86,41 @@ fn launcher_screens() {
     all.unwrap();
 }
 
+/// A 1280x720 screen (work area about 700 tall): the window fits it, PLAY and the status line stay in it, the tabs
+/// scroll above them.
+#[test]
+fn launcher_on_a_short_screen() {
+    let _gpu = gpu();
+    let size = launcher::window_size(Some(700.0));
+    assert_eq!(size, egui::vec2(600.0, 700.0));
+    assert_eq!(launcher::window_size(None), launcher::SIZE);
+    let mut all = SnapshotResults::new();
+    use launcher::Scenario::*;
+    for (s, tag) in [
+        (Ready, "ready"),
+        (NotSetUp, "setup"),
+        (Update, "update"),
+        (Online, "online"),
+    ] {
+        let mut st = launcher::LauncherState::sample(Edition::E1718, Lang::En, s);
+        let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+            launcher::show(ui, &mut st);
+        });
+        h.run_steps(8);
+        if s != Online {
+            let play = h
+                .get_all_by_label("PLAY")
+                .max_by(|a, b| a.rect().bottom().total_cmp(&b.rect().bottom()))
+                .unwrap()
+                .rect();
+            assert!(play.bottom() <= size.y - 14.0, "{tag}: PLAY at {play:?}");
+        }
+        h.snapshot(format!("launcher_short_{tag}_en"));
+        all.extend_harness(&mut h);
+    }
+    all.unwrap();
+}
+
 /// The ONLINE tab: the lobby inside the launcher, the Direct address fold closed, then open.
 #[test]
 fn launcher_online() {
