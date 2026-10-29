@@ -19,7 +19,7 @@ use forza::cards::lineup::{self, LineupError, Skip, Skipped};
 use forza::cards::{self, AddRefused, Placed};
 use forza::club_view::{self as forza_club, ClubView};
 use forza::panel_txt::{PanelFile, valid_address};
-use std::sync::Arc;
+use std::sync::{Arc, mpsc};
 
 /// The game's own picture size (both editions) and the smallest sheet: a smaller window scales this sheet down.
 pub const SIZE: egui::Vec2 = egui::vec2(1440.0, 900.0);
@@ -896,7 +896,90 @@ pub fn ask_import(st: &mut PanelState, text: &str, in_match: bool) -> bool {
     true
 }
 
-/// The lineup `text` (the site's export: the clipboard's, later a share link's) as the whole table in place of
+/// Why a share link's lineup did not come.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FetchError {
+    /// No answer: no internet, the site down, or the wait ran out.
+    Offline,
+    /// The site has no lineup with that id (404).
+    NotFound,
+    /// An answer that is not a lineup: not text, or over [`SHARE_MAX`].
+    NotLineup,
+}
+
+/// The most a share link's lineup may weigh: the site's are a few hundred bytes.
+pub const SHARE_MAX: u64 = 64 * 1024;
+/// How long IMPORT LINEUP waits for a share link's lineup before it says there is no answer.
+pub const FETCH_SECS: f64 = 8.0;
+
+/// A share link's answer body as text: at most [`SHARE_MAX`] bytes of UTF-8, else `NotLineup`; a read error: `Offline`.
+pub fn read_capped(r: impl std::io::Read) -> Result<String, FetchError> {
+    use std::io::Read as _;
+    let mut buf = Vec::new();
+    r.take(SHARE_MAX + 1)
+        .read_to_end(&mut buf)
+        .map_err(|_| FetchError::Offline)?;
+    if buf.len() as u64 > SHARE_MAX {
+        return Err(FetchError::NotLineup);
+    }
+    String::from_utf8(buf).map_err(|_| FetchError::NotLineup)
+}
+
+/// A share link's lineup on its way: `get` runs on its own thread, never the frame's.
+pub struct ShareFetch {
+    rx: mpsc::Receiver<Result<String, FetchError>>,
+    since: f64,
+}
+
+impl ShareFetch {
+    /// The share `id`'s lineup asked for at `now` (the frame's time) through `get` (given [`lineup::share_path`] on
+    /// [`lineup::SHARE_HOST`]); "Fetching lineup..." shows meanwhile. `None`: refused, in a match.
+    pub fn start(
+        st: &mut PanelState,
+        id: &str,
+        in_match: bool,
+        now: f64,
+        get: impl FnOnce(String) -> Result<String, FetchError> + Send + 'static,
+    ) -> Option<ShareFetch> {
+        if in_match {
+            st.say(Tone::Refused, "cat.msg_import_match");
+            return None;
+        }
+        let (tx, rx) = mpsc::channel();
+        let path = lineup::share_path(id);
+        std::thread::spawn(move || {
+            let _ = tx.send(get(path)); // the panel may have given up on it: nobody listens
+        });
+        st.message = Some(Note::long(Tone::Notice, tr!(st.lang, "cat.msg_fetching")));
+        Some(ShareFetch { rx, since: now })
+    }
+
+    /// The answer once it came, or `Offline` once [`FETCH_SECS`] have passed; `None`: still on its way.
+    pub fn poll(&self, now: f64) -> Option<Result<String, FetchError>> {
+        match self.rx.try_recv() {
+            Ok(got) => Some(got),
+            Err(mpsc::TryRecvError::Empty) if now - self.since < FETCH_SECS => None,
+            Err(_) => Some(Err(FetchError::Offline)),
+        }
+    }
+}
+
+/// A share link's answer: its lineup on to [`ask_import`], else the message why not. `false`: refused.
+pub fn ask_fetched(st: &mut PanelState, got: Result<String, FetchError>, in_match: bool) -> bool {
+    let key = match got {
+        Ok(text) if !matches!(lineup::parse(&text, st.edition), Err(LineupError::Empty)) => {
+            st.message = None; // "Fetching lineup..."
+            return ask_import(st, &text, in_match);
+        }
+        Ok(_) | Err(FetchError::NotLineup) => "cat.msg_link_not_lineup",
+        Err(FetchError::NotFound) => "cat.msg_link_not_found",
+        Err(FetchError::Offline) => "cat.msg_link_offline",
+    };
+    st.say(Tone::Refused, key);
+    false
+}
+
+/// The lineup `text` (the site's export: the clipboard's, or a share link's) as the whole table in place of
 /// `placed`. Refused during a match (the owner's rule) and for another edition's lineup. The message names what came
 /// in, the site's key player (the table has none: the player sets it in the game) and the cards skipped, and why.
 /// `Some(new table)`: the caller writes it; the old one waits in `import_undo` for [`undo_import`].
@@ -5021,7 +5104,7 @@ mod tests {
             (
                 "",
                 false,
-                "No lineup on the clipboard. Copy one on db.wccf.it first.",
+                "Copy a lineup's db.wccf.it link (or its text), then IMPORT LINEUP.",
             ),
         ] {
             assert_eq!(import_lineup(&mut st, &old, lineup, in_match, 0.0), None);
@@ -5035,6 +5118,83 @@ mod tests {
             st.message.as_ref().unwrap().text,
             "None of these cards is in this game.\n998 (not in the catalogue), 999 (not in the catalogue)"
         );
+    }
+
+    #[test]
+    fn a_share_link_is_fetched_off_the_frame_then_asked_like_text() {
+        let (mut st, _) = importer();
+        assert!(ShareFetch::start(&mut st, "abcd123", true, 0.0, |_| unreachable!()).is_none());
+        assert_eq!(
+            st.message.as_ref().unwrap().text,
+            "Not during a match. Import between matches."
+        );
+        let f = ShareFetch::start(&mut st, "abcd123", false, 0.0, |path| {
+            assert_eq!(path, "/api/share/abcd123.txt");
+            Ok("# WCCF DB lineup\ngame 1011\nP 101 50 90\n".into())
+        })
+        .unwrap();
+        assert_eq!(st.message.as_ref().unwrap().text, "Fetching lineup...");
+        let got = loop {
+            if let Some(got) = f.poll(1.0) {
+                break got;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        };
+        assert!(ask_fetched(&mut st, got, false));
+        assert_eq!(st.import_ask.as_ref().map(|a| a.cards), Some(1));
+        assert!(st.message.is_none());
+        // no answer in time: offline, whatever comes later
+        let slow = ShareFetch::start(&mut st, "abcd123", false, 0.0, |_| {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            Ok(String::new())
+        })
+        .unwrap();
+        assert_eq!(slow.poll(1.0), None);
+        assert_eq!(slow.poll(FETCH_SECS), Some(Err(FetchError::Offline)));
+        for (got, said) in [
+            (
+                Err(FetchError::Offline),
+                "No answer from db.wccf.it. Check the internet connection and retry.",
+            ),
+            (
+                Err(FetchError::NotFound),
+                "This link has no lineup on db.wccf.it. Copy the link again.",
+            ),
+            (
+                Err(FetchError::NotLineup),
+                "The link did not give a lineup.",
+            ),
+            (
+                Ok("<html>not found</html>".into()),
+                "The link did not give a lineup.",
+            ),
+        ] {
+            assert!(!ask_fetched(&mut st, got, false));
+            let m = st.message.as_ref().unwrap();
+            assert_eq!((m.tone, m.text.as_str()), (Tone::Refused, said));
+        }
+        // another edition's lineup: the text's own check
+        assert!(!ask_fetched(
+            &mut st,
+            Ok("game 1718\nP 1 50 90\n".into()),
+            false
+        ));
+        assert_eq!(
+            st.message.as_ref().unwrap().text,
+            "This lineup is for 2017-18."
+        );
+    }
+
+    #[test]
+    fn a_share_answer_is_capped() {
+        let max = SHARE_MAX as usize;
+        assert_eq!(read_capped(&b"S 1\n"[..]), Ok("S 1\n".into()));
+        assert_eq!(read_capped(&vec![b'1'; max][..]).map(|t| t.len()), Ok(max));
+        assert_eq!(
+            read_capped(&vec![b'1'; max + 1][..]),
+            Err(FetchError::NotLineup)
+        );
+        assert_eq!(read_capped(&[0xff, 0xfe][..]), Err(FetchError::NotLineup));
     }
 
     #[test]

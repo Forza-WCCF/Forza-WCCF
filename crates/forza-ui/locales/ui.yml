@@ -321,12 +321,16 @@ cat.msg_imported: {en: "%{name}: %{n} cards on the table.", it: "%{name}: %{n} c
 cat.msg_import_kp: {en: "Key player on the site: %{name}. Set it in the game.", it: "Giocatore chiave sul sito: %{name}. Sceglilo nel gioco.", ja: "サイトのキープレイヤー：%{name}。ゲーム内で設定してください。"}
 cat.msg_import_skipped: {en: "Skipped: %{list}", it: "Saltate: %{list}", ja: "読み込めないカード：%{list}"}
 cat.msg_import_edition: {en: "This lineup is for %{game}.", it: "Questa formazione è per %{game}.", ja: "この編成は%{game}用です。"}
-cat.msg_import_empty: {en: "No lineup on the clipboard. Copy one on db.wccf.it first.", it: "Nessuna formazione negli appunti. Copiala prima su db.wccf.it.", ja: "クリップボードに編成がありません。先にdb.wccf.itでコピーしてください。"}
-cat.msg_clipboard: {en: "Could not read the clipboard. Copy the lineup again and retry.", it: "Impossibile leggere gli appunti. Copia di nuovo la formazione e riprova.", ja: "クリップボードを読めません。編成をもう一度コピーして再試行してください。"}
+cat.msg_import_empty: {en: "Copy a lineup's db.wccf.it link (or its text), then IMPORT LINEUP.", it: "Copia il link db.wccf.it di una formazione (o il suo testo), poi IMPORTA FORMAZIONE.", ja: "db.wccf.itで編成のリンク（またはテキスト）をコピーしてから「編成を読み込む」を押してください。"}
+cat.msg_fetching: {en: "Fetching lineup...", it: "Scarico la formazione...", ja: "編成を取得中..."}
+cat.msg_link_offline: {en: "No answer from db.wccf.it. Check the internet connection and retry.", it: "Nessuna risposta da db.wccf.it. Controlla la connessione a internet e riprova.", ja: "db.wccf.itから応答がありません。インターネット接続を確認して再試行してください。"}
+cat.msg_link_not_found: {en: "This link has no lineup on db.wccf.it. Copy the link again.", it: "Questo link non ha una formazione su db.wccf.it. Copia di nuovo il link.", ja: "このリンクの編成はdb.wccf.itにありません。リンクをもう一度コピーしてください。"}
+cat.msg_link_not_lineup: {en: "The link did not give a lineup.", it: "Il link non ha restituito una formazione.", ja: "リンクから編成を読み込めませんでした。"}
+cat.msg_clipboard: {en: "Could not read the clipboard. Copy the lineup's link again and retry.", it: "Impossibile leggere gli appunti. Copia di nuovo il link della formazione e riprova.", ja: "クリップボードを読めません。編成のリンクをもう一度コピーして再試行してください。"}
 cat.msg_import_none: {en: "None of these cards is in this game.", it: "Nessuna di queste carte è in questo gioco.", ja: "この編成のカードはこのゲームにありません。"}
 cat.msg_import_match: {en: "Not during a match. Import between matches.", it: "Non durante una partita. Importa tra una partita e l'altra.", ja: "試合中は読み込めません。試合の合間に読み込んでください。"}
 cat.ask_title: {en: "IMPORT LINEUP?", it: "IMPORTARE LA FORMAZIONE?", ja: "編成を読み込みますか？"}
-cat.ask_body: {en: "Replace your table with %{n} cards from the clipboard?", it: "Sostituire il tavolo con %{n} carte dagli appunti?", ja: "テーブルをクリップボードの%{n}枚に置き換えますか？"}
+cat.ask_body: {en: "Replace your table with %{n} cards from this lineup?", it: "Sostituire il tavolo con %{n} carte di questa formazione?", ja: "テーブルをこの編成の%{n}枚に置き換えますか？"}
 cat.ask_skipped: {en: "%{n} cards skipped (not usable in this game).", it: "%{n} carte saltate (non usabili in questo gioco).", ja: "%{n}枚はこのゲームで使えないため読み込みません。"}
 cat.ask_confirm: {en: "CONFIRM", it: "CONFERMA", ja: "確定"}
 cat.ask_cancel: {en: "CANCEL", it: "ANNULLA", ja: "キャンセル"}
