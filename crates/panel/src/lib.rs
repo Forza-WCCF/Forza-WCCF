@@ -90,6 +90,9 @@ static DEAD: AtomicBool = AtomicBool::new(false);
 static RENDER: Mutex<Option<Render>> = Mutex::new(None);
 // the window side (its own thread) and the render side meet here
 static EVENTS: Mutex<Vec<Event>> = Mutex::new(Vec::new());
+/// The board window's own events and pixels per point (popped out it has an egui of its own).
+static BOARD_EVENTS: Mutex<Vec<Event>> = Mutex::new(Vec::new());
+static BOARD_SCALE: AtomicU32 = AtomicU32::new(0x3F80_0000);
 static WINDOW: AtomicIsize = AtomicIsize::new(0);
 static OLD_PROC: AtomicIsize = AtomicIsize::new(0);
 static SCALE: AtomicU32 = AtomicU32::new(0x3F80_0000); // pixels per point (f32 bits), 1.0 until the first frame
@@ -133,8 +136,8 @@ static LINK_LOST: AtomicBool = AtomicBool::new(false);
 static START: OnceLock<Instant> = OnceLock::new();
 /// The window's maximized state for WCCFPANEL_FS_RECT (tests: a pretend screen), and the size it had before.
 static TEST_MAX: Mutex<Option<RECT>> = Mutex::new(None);
-/// The pop-out board's window (0: none): the formation board, the deck and the pages in a window of their own
-/// ([`board_window`]), the game's window then shows only its picture.
+/// The pop-out board's window (0: none): the formation board in a window of their own ([`board_window`]), the game's
+/// window then shows the picture, the pages and the cabinet buttons (`forza_ui::panel::popped_layout`).
 static BOARD: AtomicIsize = AtomicIsize::new(0);
 /// The board window's thread runs (from its start until its window is gone).
 static BOARD_UP: AtomicBool = AtomicBool::new(false);
@@ -143,7 +146,7 @@ static BOARD_CLOSED: AtomicBool = AtomicBool::new(false);
 /// The board window's place after a move or resize (restored rect, maximized), for panel.txt's board_rect=.
 static BOARD_PLACE: Mutex<Option<[i32; 5]>> = Mutex::new(None);
 static BOARD_FS: fullscreen::Slot = Mutex::new(None);
-/// The panel draws in the board window this frame: the game's window is its picture only, and the game's.
+/// The board is drawn in the board window this frame (its egui takes that window's input).
 static POPPED: AtomicBool = AtomicBool::new(false);
 /// The board window is in Windows' move/size loop: its swap chain is kept until the size settles.
 static BOARD_SIZING: AtomicBool = AtomicBool::new(false);
@@ -375,8 +378,8 @@ fn board_window(place: Option<[i32; 5]>, title: &str) {
             WS_OVERLAPPEDWINDOW,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            1600, // wide: the board full height beside the deck (panel::desk_layout)
-            900,
+            960, // the board with its bench column (panel::desk_board_rect)
+            1232,
             None,
             None,
             Some(inst),
@@ -416,10 +419,10 @@ fn board_window(place: Option<[i32; 5]>, title: &str) {
                 let _ = SetWindowPlacement(h, &wp);
             }
             None => {
-                // 1600x900, or less to stay inside the monitor's work area, centred on it
+                // 960x1232, or less to stay inside the monitor's work area (the board letterboxed), centred on it
                 let wa = projector::work_area(h, None);
                 let (ww, wh) = (wa.right - wa.left, wa.bottom - wa.top);
-                let (w, hh) = (1600.min(ww), 900.min(wh));
+                let (w, hh) = (960.min(ww), 1232.min(wh));
                 let _ = SetWindowPos(
                     h,
                     None,
@@ -538,15 +541,15 @@ unsafe extern "system" fn board_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM)
             // SAFETY: as above
             let _ = unsafe { ReleaseCapture() };
         }
-        0x0215 if lp.0 != 0 && lp.0 != h.0 as isize => push(vec![Event::PointerGone]),
+        0x0215 if lp.0 != 0 && lp.0 != h.0 as isize => push(true, vec![Event::PointerGone]),
         _ => {}
     }
     if matches!(m, WM_KEYDOWN | WM_KEYUP)
-        && let Some(r) = pause::message(m, wp, lp)
+        && let Some(r) = pause::message(true, m, wp, lp)
     {
         return r;
     }
-    if !DEAD.load(Relaxed) && POPPED.load(Relaxed) && input(m, wp, lp) && m != WM_SYSKEYDOWN {
+    if !DEAD.load(Relaxed) && POPPED.load(Relaxed) && input(true, m, wp, lp) && m != WM_SYSKEYDOWN {
         return LRESULT(0);
     }
     // SAFETY: the default procedure for our own window
@@ -1200,6 +1203,9 @@ unsafe extern "system" fn hook_reset(dev: *mut c_void, pp: *mut D3DPRESENT_PARAM
 /// Everything the render thread keeps: egui, the painter, our swap chain and the game frame's copy.
 struct Render {
     ctx: egui::Context,
+    /// The board window's egui (popped out), its painter: the same panel state, drawn there as the board alone.
+    board_ctx: egui::Context,
+    board_painter: painter::Painter,
     st: PanelState,
     table: TableFile,
     /// The table as last read or written; `st.board.cards[i]` is `placed[i]`.
@@ -1239,7 +1245,7 @@ struct Render {
     /// The board window's swap chain (the pop-out board), and whether its failure was logged.
     board_sc: Option<(IDirect3DSwapChain9, u32, u32, HWND)>,
     board_warned: bool,
-    /// The window that carries WCCF_TYPING while a page is open (the game's, or the board's when popped out).
+    /// The window that carries WCCF_TYPING while a page is open (the game's).
     typing: isize,
     game: Option<(IDirect3DTexture9, IDirect3DSurface9, u32, u32)>,
     max_tex: usize,
@@ -1259,6 +1265,7 @@ unsafe impl Send for Render {}
 impl Render {
     fn new() -> Render {
         let ctx = egui::Context::default();
+        let board_ctx = egui::Context::default();
         let files = FILES.get_or_init(|| kit::Files::find(Path::new("")));
         let dir = font_dir();
         if let Err(e) = theme::install(&ctx, files.edition, &dir) {
@@ -1267,7 +1274,9 @@ impl Render {
                 dir.display()
             ));
         }
+        let _ = theme::install(&board_ctx, files.edition, &dir);
         forza_ui::board::set_picture_dir(&ctx, Some(files.cards.clone()));
+        forza_ui::board::set_picture_dir(&board_ctx, Some(files.cards.clone()));
         let mut table = TableFile::in_dir(EXE_DIR.get().map_or(Path::new(""), PathBuf::as_path));
         let placed = table.read().unwrap_or_default();
         log(&format!(
@@ -1290,6 +1299,8 @@ impl Render {
         ));
         Render {
             ctx,
+            board_ctx,
+            board_painter: painter::Painter::default(),
             st,
             table,
             placed,
@@ -1338,6 +1349,7 @@ impl Render {
         self.sc_failed = false;
         self.game = None;
         self.painter.reset();
+        self.board_painter.reset();
     }
 
     /// One frame on our swap chain; `None` = not shown, the game's own Present runs.
@@ -1361,7 +1373,6 @@ impl Render {
                 {
                     let mut vp = D3DVIEWPORT9::default();
                     let _ = dev.GetViewport(&mut vp);
-                    self.st.desk = true;
                     popped = self.board_frame(dev, bw);
                     let _ = dev.SetViewport(&vp);
                     let _ = sb.Apply();
@@ -1374,17 +1385,13 @@ impl Render {
             let sb = dev.CreateStateBlock(D3DSBT_ALL).ok()?;
             let mut vp = D3DVIEWPORT9::default();
             let _ = dev.GetViewport(&mut vp);
-            // popped out: the panel in its own window, the game's window its picture only; a board window that could not
-            // be drawn (minimized, tiny, no swap chain) gives the panel back to the game's window for the frame
-            self.st.desk = board.is_some();
+            // popped out: the board in its own window, the game's window the picture, the pages and the buttons; a board
+            // window that could not be drawn (minimized, tiny, no swap chain) gives the board back to the game's window
+            // for the frame
             let popped = board.is_some_and(|bw| self.board_frame(dev, bw));
             POPPED.store(popped, Relaxed);
-            self.st.desk = popped;
-            let drawn = if popped {
-                self.picture_only(dev, &sc, w, h)
-            } else {
-                self.compose(dev, &sc, w, h, true)
-            };
+            self.st.popped = popped;
+            let drawn = self.compose(dev, &sc, w, h, true);
             let _ = dev.SetViewport(&vp);
             let _ = sb.Apply();
             drawn?;
@@ -1531,8 +1538,8 @@ impl Render {
         Some((sc, w, h))
     }
 
-    /// The panel in the board window, at its client size on its own swap chain; `false` when nothing was drawn there
-    /// (minimized, tiny, no swap chain yet): the caller draws the panel in the game's window instead.
+    /// The board in the board window, at its client size on its own swap chain; `false` when nothing was drawn there
+    /// (minimized, tiny, no swap chain yet): the caller draws the board in the game's window instead.
     unsafe fn board_frame(&mut self, dev: &IDirect3DDevice9, wnd: HWND) -> bool {
         let mut cr = RECT::default();
         // SAFETY: plain window queries, then device calls on the game's render thread
@@ -1559,35 +1566,6 @@ impl Render {
                 log(&format!("board window: present failed ({e})"));
             }
             true
-        }
-    }
-
-    /// Popped out, the game's window: its frame letterboxed on black (the projector's rule); the clicks on that place
-    /// go to the game.
-    unsafe fn picture_only(
-        &mut self,
-        dev: &IDirect3DDevice9,
-        sc: &IDirect3DSwapChain9,
-        w: u32,
-        h: u32,
-    ) -> Option<()> {
-        // SAFETY: device calls with objects of this device and out-parameters we own
-        unsafe {
-            let bb = dev.GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO).ok()?;
-            let mut d = D3DSURFACE_DESC::default();
-            bb.GetDesc(&mut d).ok()?;
-            let scbb = sc.GetBackBuffer(0, D3DBACKBUFFER_TYPE_MONO).ok()?;
-            dev.ColorFill(&scbb, std::ptr::null(), 0xFF00_0000).ok()?;
-            let dst = projector::letterbox(w, h, d.Width, d.Height);
-            dev.StretchRect(&bb, std::ptr::null(), &scbb, &dst, D3DTEXF_LINEAR)
-                .ok()?;
-            if let Ok(mut p) = PICTURE.lock() {
-                *p = Some(egui::Rect::from_min_max(
-                    pos2(dst.left as f32, dst.top as f32),
-                    pos2(dst.right as f32, dst.bottom as f32),
-                ));
-            }
-            Some(())
         }
     }
 
@@ -1721,7 +1699,12 @@ impl Render {
                 0,
             );
             let painted = dev.BeginScene().is_ok() && {
-                let ok = self.paint(dev, w, h);
+                // no copy: the board window's frame
+                let ok = if copy {
+                    self.paint(dev, w, h)
+                } else {
+                    self.paint_board(dev, w, h)
+                };
                 let _ = dev.EndScene();
                 ok
             };
@@ -1737,11 +1720,7 @@ impl Render {
     unsafe fn paint(&mut self, dev: &IDirect3DDevice9, w: u32, h: u32) -> bool {
         // 1 point a pixel from 1440x900 up (a bigger window, a bigger sheet), 2 from 4K, the monitor's scaling when
         // Windows scales it (125% = 1.25), scaled down below 1440x900 (forza_ui::panel)
-        let ppp = if self.st.desk {
-            panel::desk_scale(w as f32, h as f32, screen_dpi() as f32)
-        } else {
-            panel::scale(w as f32, h as f32, screen_dpi() as f32)
-        };
+        let ppp = panel::scale(w as f32, h as f32, screen_dpi() as f32);
         SCALE.store(ppp.to_bits(), Relaxed);
         let mut raw = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
@@ -1823,10 +1802,7 @@ impl Render {
             pause::ASK.store(true, Relaxed);
         }
         self.page_open();
-        // popped out, the picture is the game window's letterbox ([`Render::picture_only`])
-        if !self.st.desk
-            && let Ok(mut p) = PICTURE.lock()
-        {
+        if let Ok(mut p) = PICTURE.lock() {
             *p = self
                 .st
                 .picture_rect
@@ -1858,10 +1834,75 @@ impl Render {
         }
     }
 
+    /// The board window's frame (popped out): the same panel state drawn as the board alone by its own egui, then what
+    /// the board does handed on (a move, UNDO, DOCK, a cabinet button with the buttons switch on).
+    unsafe fn paint_board(&mut self, dev: &IDirect3DDevice9, w: u32, h: u32) -> bool {
+        let ppp = panel::board_scale(w as f32, h as f32, screen_dpi() as f32);
+        BOARD_SCALE.store(ppp.to_bits(), Relaxed);
+        let mut raw = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                Pos2::ZERO,
+                vec2(w as f32, h as f32) / ppp,
+            )),
+            time: Some(self.start.elapsed().as_secs_f64()),
+            max_texture_side: Some(self.max_tex),
+            focused: true,
+            events: BOARD_EVENTS
+                .lock()
+                .map(|mut e| std::mem::take(&mut *e))
+                .unwrap_or_default(),
+            ..Default::default()
+        };
+        // Alt shows the deck's keycaps (the buttons switch on), as in [`Render::paint`]
+        raw.events.insert(
+            0,
+            Event::ModifiersChanged(modifiers_with(|vk| {
+                // SAFETY: a plain key state query
+                (unsafe { GetAsyncKeyState(i32::from(vk)) }) < 0
+            })),
+        );
+        raw.viewports
+            .entry(ViewportId::ROOT)
+            .or_default()
+            .native_pixels_per_point = Some(ppp);
+        self.table_in();
+        self.st.desk = true;
+        let st = &mut self.st;
+        let out = self.board_ctx.run_ui(raw, |ui| panel::show(ui, st));
+        self.st.desk = false;
+        self.import();
+        self.settings_out();
+        self.table_out();
+        self.keys();
+        let prims = self.board_ctx.tessellate(out.shapes, out.pixels_per_point);
+        // SAFETY: the device the painter's textures belong to, on its render thread
+        match unsafe {
+            self.board_painter.paint(
+                dev,
+                [w, h],
+                out.pixels_per_point,
+                &prims,
+                &out.textures_delta,
+            )
+        } {
+            Ok(()) => true,
+            Err(e) => {
+                log(&format!("board window: paint: {e}"));
+                false
+            }
+        }
+    }
+
+    /// A card in hand on either window's board.
+    fn dragging(&self) -> bool {
+        egui::DragAndDrop::has_any_payload(&self.ctx)
+            || egui::DragAndDrop::has_any_payload(&self.board_ctx)
+    }
+
     /// The table read again when someone else changed it (FPR_Emu's own panel, a hand edit), never mid-drag.
     fn table_in(&mut self) {
         if self.frames.is_multiple_of(8)
-            && !egui::DragAndDrop::has_any_payload(&self.ctx)
+            && !self.dragging()
             && self.table.changed()
             && let Some(placed) = self.table.read()
         {
@@ -1915,7 +1956,7 @@ impl Render {
             self.placed = cards::table_after(&self.placed, &self.st.board);
             // a card in hand: the table follows it, the board stays as it is (a rebuild reorders the slots the drag
             // holds), no log line per frame
-            if egui::DragAndDrop::has_any_payload(&self.ctx) {
+            if self.dragging() {
                 return self.table_write();
             }
             // the board's cards follow the table's order again
@@ -1962,14 +2003,8 @@ impl Render {
     fn page_open(&mut self) {
         // the close dialog and the crash screen hold the keys too
         let open = self.st.page != panel::Page::Game || self.st.close_warn || self.st.crash;
-        // the window the page is in: the board's own when popped out (the game's keeps its keys), else the game's
-        let want = if !open {
-            0
-        } else if self.st.desk {
-            BOARD.load(Relaxed)
-        } else {
-            WINDOW.load(Relaxed)
-        };
+        // the window the page is in: the game's (popped out too)
+        let want = if open { WINDOW.load(Relaxed) } else { 0 };
         if want != self.typing {
             // SAFETY: windows of this process and a constant name
             unsafe {
@@ -2084,7 +2119,7 @@ impl Render {
             let p = &self.st.file;
             match f.save_panel(p) {
                 Ok(()) => log(&format!(
-                    "settings: saved play_on={} server={} english={} layout={} hover={} auto_logs={} board={} board_rect={:?}",
+                    "settings: saved play_on={} server={} english={} layout={} hover={} auto_logs={} board={} board_buttons={} board_rect={:?}",
                     if p.online { "online" } else { "this_pc" },
                     if p.server.is_empty() { "-" } else { &p.server },
                     p.english.as_deref().unwrap_or("-"),
@@ -2092,6 +2127,7 @@ impl Render {
                     p.hover_ms.map_or("off".into(), |ms| ms.to_string()),
                     if p.auto_logs_off { "off" } else { "on" },
                     if p.board_window { "window" } else { "game" },
+                    if p.board_buttons { "on" } else { "off" },
                     p.board_rect,
                 )),
                 Err(e) => {
@@ -2468,7 +2504,11 @@ impl Render {
             self.st.held = Some(action);
             self.mouse_down = true;
         }
-        if self.mouse_down && !self.ctx.input(|i| i.pointer.primary_down()) {
+        if self.mouse_down
+            && ![&self.ctx, &self.board_ctx]
+                .iter()
+                .any(|c| c.input(|i| i.pointer.primary_down()))
+        {
             self.mouse_down = false;
         }
         if let Some((vk, since)) = self.key
@@ -2729,7 +2769,7 @@ unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LR
     if m == WM_KILLFOCUS || m == WM_DESTROY || (m == WM_ACTIVATEAPP && wp.0 == 0) {
         latch_up();
     }
-    if let Some(r) = pause::message(m, wp, lp) {
+    if let Some(r) = pause::message(false, m, wp, lp) {
         return r;
     }
     match m {
@@ -2779,7 +2819,7 @@ unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LR
         // (lParam 0 is our own ReleaseCapture on every release: not lost)
         0x0215 if lp.0 != 0 && lp.0 != h.0 as isize => {
             log("drag: capture lost");
-            push(vec![Event::PointerGone]);
+            push(false, vec![Event::PointerGone]);
         }
         _ => {}
     }
@@ -2802,28 +2842,10 @@ unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LR
             )
         };
     }
-    if POPPED.load(Relaxed) {
-        // the board in its own window: this one is the game's picture; the mouse on it is the game's, on the black
-        // bars nobody's; keys are the game's (egui reads the board window's)
-        let lp = match to_game(h, m, lp) {
-            Some(game) => game,
-            None if (WM_MOUSEFIRST..=WM_MOUSELAST).contains(&m) => return LRESULT(0),
-            None => lp,
-        };
-        // SAFETY: as below
-        return unsafe {
-            CallWindowProcW(
-                std::mem::transmute::<isize, WNDPROC>(OLD_PROC.load(Relaxed)),
-                h,
-                m,
-                wp,
-                lp,
-            )
-        };
-    }
+    // popped out too: the board is the board window's, the picture, the pages and the buttons stay here
     let lp = match to_game(h, m, lp) {
         Some(game) => game,
-        None if input(m, wp, lp) => return LRESULT(0), // egui's: the game does not see it
+        None if input(false, m, wp, lp) => return LRESULT(0), // egui's: the game does not see it
         None => lp,
     };
     // SAFETY: the procedure we replaced, with the message as it came (a mouse message on the picture moved into the
@@ -2883,12 +2905,13 @@ fn to_game(h: HWND, m: u32, lp: LPARAM) -> Option<LPARAM> {
             p.x as i32, p.y as i32
         ));
     }
-    // egui follows the pointer, but the press is the game's (popped out, egui's pointer is the board window's)
-    if !POPPED.load(Relaxed) {
-        push(vec![Event::PointerMoved(
+    // egui follows the pointer, but the press is the game's
+    push(
+        false,
+        vec![Event::PointerMoved(
             pos2(p.x, p.y) / f32::from_bits(SCALE.load(Relaxed)),
-        )]);
-    }
+        )],
+    );
     Some(LPARAM(((gy as u16 as isize) << 16) | gx as u16 as isize))
 }
 
@@ -2908,9 +2931,10 @@ fn modifiers_with(down: impl Fn(u16) -> bool) -> Modifiers {
     }
 }
 
-/// One window message into egui's events; `true` when the game must not see it (egui wants that input).
-fn input(m: u32, wp: WPARAM, lp: LPARAM) -> bool {
-    let ppp = f32::from_bits(SCALE.load(Relaxed));
+/// One window message into egui's events (`board`: the board window's egui); `true` when the game must not see it
+/// (egui wants that input).
+fn input(board: bool, m: u32, wp: WPARAM, lp: LPARAM) -> bool {
+    let ppp = f32::from_bits(if board { &BOARD_SCALE } else { &SCALE }.load(Relaxed));
     let pos = pos2(
         f32::from(lp.0 as i16) / ppp,
         f32::from((lp.0 >> 16) as i16) / ppp,
@@ -2938,7 +2962,7 @@ fn input(m: u32, wp: WPARAM, lp: LPARAM) -> bool {
     };
     let (events, keys): (Vec<Event>, bool) = match m {
         WM_MOUSEMOVE => {
-            push(vec![Event::PointerMoved(pos)]);
+            push(board, vec![Event::PointerMoved(pos)]);
             return true; // off the game's picture (to_game): not the game's
         }
         WM_LBUTTONDOWN => (button(PointerButton::Primary, true), false),
@@ -2958,7 +2982,7 @@ fn input(m: u32, wp: WPARAM, lp: LPARAM) -> bool {
         ),
         0x02A3 => {
             // WM_MOUSELEAVE
-            push(vec![Event::PointerGone]);
+            push(board, vec![Event::PointerGone]);
             return false;
         }
         WM_KEYDOWN | WM_SYSKEYDOWN => {
@@ -2981,14 +3005,14 @@ fn input(m: u32, wp: WPARAM, lp: LPARAM) -> bool {
         ),
         _ => return false,
     };
-    push(events);
+    push(board, events);
     // the mouse off the game's picture is the panel's (to_game took the picture's); keys while egui types or a page
     // is open
     !keys || WANTS_KEYS.load(Relaxed) || PAGE_OPEN.load(Relaxed)
 }
 
-fn push(mut events: Vec<Event>) {
-    if let Ok(mut e) = EVENTS.lock() {
+fn push(board: bool, mut events: Vec<Event>) {
+    if let Ok(mut e) = if board { &BOARD_EVENTS } else { &EVENTS }.lock() {
         e.append(&mut events);
     }
 }

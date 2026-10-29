@@ -37,10 +37,11 @@ const DECK_MIN: f32 = 148.0;
 /// gaps 12, a hint of two lines 36).
 const BOARD_PER_W: f32 = 1.455;
 const BOARD_EXTRA: f32 = 80.0;
-/// The same for the pop-out board (the bench a column beside the pitch, [`board::COLUMN_ASPECT`]): margins 32, a gap 4
-/// and one row for POP IN and UNDO 24 (no hint).
-const DESK_PER_W: f32 = board::COLUMN_ASPECT;
-const DESK_EXTRA: f32 = 60.0;
+/// The pop-out board's window lays its bench beside the pitch (a column, [`board::COLUMN_ASPECT`]) when its room is at
+/// least this wide for its height (3:4 and wider), under the pitch when narrower (9:16).
+pub const BENCH_BESIDE: f32 = 2.0 / 3.0;
+/// The pop-out board's foot: a gap 4 and one row for DOCK and UNDO 24.
+const DESK_FOOT: f32 = 28.0;
 
 /// Points per pixel for a window of `w` x `h` pixels on a monitor of `dpi` (96 = 100%): 1 from 1440x900 up (a bigger
 /// window gets a bigger sheet, so the game's picture can grow past its own size), 2 from 2880x1800 (4K), the window's
@@ -50,34 +51,10 @@ pub fn scale(w: f32, h: f32, dpi: f32) -> f32 {
     scale_from((w / SIZE.x).min(h / SIZE.y), dpi)
 }
 
-/// The board window (the pop-out board, [`PanelState::desk`]) held wide: at least this tall, the board a full-height
-/// column, beside it a middle as wide as the game sheet's at 1440x900 (the deck's row and the whole page bar fit it).
-pub const DESK_WIDE_H: f32 = 900.0;
-const DESK_MIDDLE: f32 = SIZE.x - BOARD_W;
-/// The board window held tall: its least sheet (the pages as wide as the game sheet's), and its deck row with room
-/// above the plates for a toast (the gap the game sheet's deck has).
-pub const DESK_TALL: egui::Vec2 = egui::vec2(860.0, 1192.0);
-const DESK_DECK: f32 = ROW.y + 92.0;
-
-/// The board window's full-height board column on a sheet `h` tall: the pitch and the bench sized by the height.
-fn desk_column(h: f32) -> f32 {
-    (h - DESK_EXTRA) / DESK_PER_W + 32.0
-}
-
-/// Whether a board-window sheet is laid out wide ([`desk_layout`]): tall enough, and the full-height board leaves the
-/// middle its room.
-fn desk_wide(sheet: egui::Vec2) -> bool {
-    sheet.y >= DESK_WIDE_H - 0.01 && sheet.x + 0.01 >= desk_column(sheet.y) + DESK_MIDDLE
-}
-
-/// The board window's points per pixel: as [`scale`], for the wide layout (the board full height) unless that would
-/// draw everything more than a fifth smaller than the tall one (a square or portrait window: the tall layout).
-pub fn desk_scale(w: f32, h: f32, dpi: f32) -> f32 {
-    // wide: w/p >= desk_column(h/p) + DESK_MIDDLE, solved for p; and h/p >= DESK_WIDE_H
-    let wide = (h / DESK_WIDE_H)
-        .min((w - h / DESK_PER_W) / (32.0 + DESK_MIDDLE - DESK_EXTRA / DESK_PER_W));
-    let tall = (w / DESK_TALL.x).min(h / DESK_TALL.y);
-    scale_from(if wide >= 0.8 * tall { wide } else { tall }, dpi)
+/// The board window's points per pixel ([`PanelState::desk`]): as [`scale`], against a 900-point square; the board fills
+/// the window at any scale, this sizes its words and buttons.
+pub fn board_scale(w: f32, h: f32, dpi: f32) -> f32 {
+    scale_from(w.min(h) / 900.0, dpi)
 }
 
 /// Points per pixel for a window that fits its least sheet `fit` times, on a monitor of `dpi`.
@@ -105,6 +82,8 @@ pub struct Layout {
     pub tabs: Rect,
     /// Where the pages open: over the picture and the deck (the board window held tall: over the board too).
     pub pages: Rect,
+    /// The deck drawn this many times its own size (1 but in [`popped_layout`]).
+    pub deck_scale: f32,
 }
 
 /// The layout of `sheet` (at least 1440x900): the picture takes the largest 16:10 size that leaves the board its
@@ -132,41 +111,104 @@ pub fn layout(sheet: Rect, compact: bool) -> Layout {
         deck,
         tabs,
         pages: above,
+        deck_scale: 1.0,
     }
 }
 
-/// The board window's layout (the pop-out board): no picture. Wide (whenever the window has the width, [`desk_wide`]):
-/// the board a full-height column on the right, pitch and bench sized by the height, the deck centred in the rest over
-/// the page bar. Tall: the board across the top as wide as the window (or as its height allows), the deck row and the
-/// page bar under it; pages open over everything above the bar.
-pub fn desk_layout(sheet: Rect) -> Layout {
-    if desk_wide(sheet.size()) {
-        let bw = desk_column(sheet.height());
-        let board = Rect::from_min_max(pos2(sheet.right() - bw, sheet.top()), sheet.max);
-        let middle = sheet.with_max_x(board.left());
-        let tabs = middle.with_min_y(middle.bottom() - TABS_H);
-        let above = middle.with_max_y(tabs.top());
-        return Layout {
-            board,
-            middle,
-            picture: Rect::from_min_size(above.min, vec2(above.width(), 0.0)),
-            deck: above,
-            tabs,
-            pages: above,
-        };
-    }
-    let tabs = sheet.with_min_y(sheet.bottom() - TABS_H);
-    let deck = sheet
-        .with_max_y(tabs.top())
-        .with_min_y(tabs.top() - DESK_DECK);
+/// The popped-out game window's deck: its plates stacked, this far apart, with this margin above and under them.
+const SIDE_GAP: f32 = 16.0;
+const SIDE_UNDER: f32 = 8.0;
+/// The popped-out game window's toast line, between the picture and the page bar.
+const SIDE_TOAST: f32 = 48.0;
+/// The popped-out game window's right column: at least this wide (the deck about 1.3 times its size, a card's large
+/// pane fits).
+const SIDE_COLUMN: f32 = 440.0;
+
+/// The stacked plates: as wide as the widest plate, as high as the plates one under the other.
+fn side_deck(both: bool) -> egui::Vec2 {
+    let n = if both { 3.0 } else { 2.0 };
+    vec2(PLATES[1].1, n * ROW.y + (n - 1.0) * SIDE_GAP)
+}
+
+/// The game window while the board is popped out ([`PanelState::popped`]). Left part: the picture 16:10, centred in
+/// what the toast line and the page bar under it leave. Right part, one column ([`SIDE_COLUMN`] wide, wider when the
+/// full-height picture leaves more): the deck at its foot, its plates stacked and scaled to the column's width, and
+/// over it (`board`) the room where the card touched on the board window shows. `both`: the deck has the machine
+/// plate (2010-11). Pages open over the left part.
+pub fn popped_layout(sheet: Rect, both: bool) -> Layout {
+    let d = side_deck(both);
+    let pic_h = sheet.height() - TABS_H - SIDE_TOAST;
+    let cw = SIDE_COLUMN.max(sheet.width() - pic_h * 1.6);
+    // as wide as the column, never more than 70% of its height (the three 2010-11 plates)
+    let s = ((cw - 32.0) / d.x)
+        .min((sheet.height() * 0.7 - 2.0 * SIDE_UNDER) / d.y)
+        .max(0.0);
+    let col = sheet.with_min_x(sheet.right() - cw);
+    let deck = col.with_min_y(col.bottom() - d.y * s - 2.0 * SIDE_UNDER);
+    let left = sheet.with_max_x(col.left());
+    let tabs = left.with_min_y(left.bottom() - TABS_H);
+    let above = left.with_max_y(tabs.top());
+    let room = above.with_max_y(above.bottom() - SIDE_TOAST);
+    let h = (room.width() / 1.6).min(room.height());
     Layout {
-        board: sheet.with_max_y(deck.top()),
-        middle: sheet.with_min_y(deck.top()),
-        picture: Rect::from_min_size(deck.min, vec2(deck.width(), 0.0)),
+        board: col.with_max_y(deck.top()),
+        middle: left,
+        picture: Rect::from_center_size(room.center(), vec2(h * 1.6, h)),
         deck,
         tabs,
-        pages: sheet.with_max_y(tabs.top()),
+        pages: above,
+        deck_scale: s,
     }
+}
+
+/// The board window's parts: the board's room and, with `buttons` (`board_buttons=on`), the deck's: its rect, its
+/// scale and whether its plates are stacked. A landscape window stacks them in a column at the right (a quarter of the
+/// width), a portrait one puts them in a row under the board; either scaled to fill its side.
+pub fn desk_parts(sheet: Rect, buttons: bool, both: bool) -> (Rect, Option<(Rect, f32, bool)>) {
+    if !buttons {
+        return (sheet, None);
+    }
+    if sheet.width() >= sheet.height() {
+        let d = side_deck(both);
+        let cw = sheet.width() / 4.0;
+        let s = ((cw - 32.0) / d.x)
+            .min((sheet.height() - 2.0 * SIDE_UNDER) / d.y)
+            .max(0.0);
+        let deck = sheet.with_min_x(sheet.right() - cw);
+        return (sheet.with_max_x(deck.left()), Some((deck, s, true)));
+    }
+    let w = if both {
+        ROW.x
+    } else {
+        PLATES[1].0 + PLATES[1].1
+    };
+    let s = ((sheet.width() - 32.0) / w)
+        .min(sheet.height() * 0.2 / ROW.y)
+        .max(0.0);
+    let deck = sheet.with_min_y(sheet.bottom() - ROW.y * s - 2.0 * SIDE_UNDER);
+    (sheet.with_max_y(deck.top()), Some((deck, s, false)))
+}
+
+/// The pop-out board in `room` (16 points in from its edges, the DOCK row under it): its rect, as large as the room
+/// allows and centred (the rest a bar on two sides), and whether its bench is a column beside the pitch
+/// ([`BENCH_BESIDE`]), else a strip under it.
+pub fn desk_board_rect(room: Rect) -> (Rect, bool) {
+    let r = room.shrink(16.0);
+    let r = r.with_max_y(r.bottom() - DESK_FOOT);
+    let beside = r.width() >= BENCH_BESIDE * r.height();
+    let size = if beside {
+        let w = r.width().min(r.height() / board::COLUMN_ASPECT);
+        vec2(w, w * board::COLUMN_ASPECT)
+    } else {
+        let per = board::row_height(1.0) - board::row_height(0.0);
+        let w = r.width().min((r.height() - board::row_height(0.0)) / per);
+        vec2(w, board::row_height(w))
+    };
+    let at = Rect::from_center_size(
+        r.center() + vec2(0.0, DESK_FOOT / 2.0),
+        size + vec2(0.0, DESK_FOOT),
+    );
+    (at.with_max_y(at.bottom() - DESK_FOOT), beside)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -620,9 +662,17 @@ pub struct PanelState {
     pub pause_asked: bool,
     /// Paused: the seconds left before the match goes on by itself; the PAUSED page shows.
     pub paused: Option<u64>,
-    /// Drawn in the board's own window (the pop-out board, `file.board_window`): no game picture, [`desk_layout`].
+    /// Drawn in the board's own window (the pop-out board, `file.board_window`): the board alone ([`desk_parts`]).
     pub desk: bool,
+    /// The game window's frame while the board window shows the board: [`popped_layout`].
+    pub popped: bool,
+    /// The card pressed or in hand on the board window last, and when (the frame's time): the game window shows it
+    /// for [`TOUCH_SECS`] after.
+    pub touched: Option<(Card, f64)>,
 }
+
+/// How long the game window keeps showing the card touched on the board window, once the touch ended.
+pub const TOUCH_SECS: f64 = 6.0;
 
 impl PanelState {
     /// The panel at rest: the game page, no message, the default keys, the board and the catalogue given.
@@ -685,6 +735,8 @@ impl PanelState {
             pause_asked: false,
             paused: None,
             desk: false,
+            popped: false,
+            touched: None,
         }
     }
 
@@ -971,20 +1023,20 @@ pub fn board_slot_center(width: f32, spots: &[Pos2; 11], slot: usize) -> Pos2 {
 pub fn show(ui: &mut Ui, st: &mut PanelState) {
     let lang = st.lang;
     let sheet = ui.max_rect();
-    let tall = st.desk && !desk_wide(sheet.size());
-    let lay = if st.desk {
-        desk_layout(sheet)
+    if st.desk {
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new())
+            .show(ui, |ui| board_window(ui, st, lang, sheet));
+        return;
+    }
+    let lay = if st.popped {
+        popped_layout(sheet, st.edition != Edition::E1718)
     } else {
         layout(sheet, st.file.compact)
     };
-    // the board window held tall: a page covers the board, which is not drawn under it
-    if !(tall && st.page != Page::Game && !st.crash) {
-        let panel = if tall {
-            egui::Panel::top("panel-board").exact_size(lay.board.height())
-        } else {
-            egui::Panel::right("panel-board").exact_size(lay.board.width())
-        };
-        panel
+    if !st.popped {
+        egui::Panel::right("panel-board")
+            .exact_size(lay.board.width())
             .resizable(false)
             .show_separator_line(false)
             .frame(egui::Frame::new())
@@ -1010,8 +1062,10 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
         deck,
         tabs,
         pages: above,
+        deck_scale,
         ..
     } = *lay;
+    let side = st.popped;
     let p = ui.painter();
     widgets::gradient(
         p,
@@ -1022,12 +1076,16 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
         true,
     );
     p.rect_filled(tabs, 0, theme::NIGHT);
-    for y in [deck.top(), tabs.top()] {
+    for r in [deck, tabs] {
         p.line_segment(
-            [pos2(area.left(), y + 0.5), pos2(area.right(), y + 0.5)],
+            [
+                pos2(r.left(), r.top() + 0.5),
+                pos2(r.right(), r.top() + 0.5),
+            ],
             Stroke::new(1.0, theme::RIM),
         );
     }
+    // the edge between the middle and the board (popped out: the left part and the column)
     p.line_segment(
         [
             pos2(area.right() - 0.5, area.top()),
@@ -1035,34 +1093,37 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
         ],
         Stroke::new(1.0, theme::RIM),
     );
-    if !st.desk {
-        game_picture(ui, pic, st.picture);
-    }
+    game_picture(ui, pic, st.picture);
     // the dealt card covers the picture: clicks there are its own
-    st.picture_rect =
-        (!st.desk && st.page == Page::Game && st.deal.is_none() && !st.close_warn).then_some(pic);
-    // the board window always shows the deck: COMPACT is the game window's choice
-    let compact = st.file.compact && !st.desk;
+    st.picture_rect = (st.page == Page::Game && st.deal.is_none() && !st.close_warn).then_some(pic);
+    // popped out the deck is the column's: COMPACT is the docked layout's choice
+    let compact = st.file.compact && !side;
     if st.page == Page::Game {
-        // a toast in the gap above the deck row when there is one (the board window always has it), else over the
-        // picture's lower edge
+        // a toast in the gap above the deck row when there is one, else over the picture's lower edge (popped out:
+        // over the page bar)
         let gap = (deck.height() - ROW.y) / 2.0;
-        let y = if !compact && gap >= 40.0 {
-            deck.top() + gap / 2.0
+        let (x, y) = if side {
+            (tabs.center().x, tabs.top() - SIDE_TOAST / 2.0)
+        } else if !compact && gap >= 40.0 {
+            (deck.center().x, deck.top() + gap / 2.0)
         } else {
-            pic.bottom() - 30.0
+            (deck.center().x, pic.bottom() - 30.0)
         };
-        let r = Rect::from_center_size(pos2(deck.center().x, y), vec2(520.0, 34.0));
+        let r = Rect::from_center_size(pos2(x, y), vec2(520.0, 34.0));
         ui.scope_builder(egui::UiBuilder::new().max_rect(r), |ui| {
             note_line(ui, &mut st.message)
         });
     }
     if !compact {
-        cabinet_deck(ui, st, deck, lang);
+        cabinet_deck(ui, st, deck, lang, deck_scale, side);
     } else {
         st.latched = None; // no deck: no button left to let it go
     }
-    page_bar(ui, st, tabs, lang);
+    page_bar(ui, st, tabs, lang, side);
+    // popped out: the card touched on the board window, over the deck in the column
+    if side && !st.close_warn {
+        touched_card(ui, st, lay.board.shrink(16.0), lang);
+    }
     // before the page: Enter and Esc answer the dialog, not the catalogue's search line or the page's close
     if st.import_ask.is_some() {
         import_dialog(ui, st, lang);
@@ -1074,10 +1135,22 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
     deal_window(ui, st, above, lang);
     if let Some(left) = st.paused {
         let key = forza::keys::key_label(st.keys[forza::keys::PAUSE]);
-        paused(ui, if st.desk { above } else { pic }, lang, &key, left);
+        paused(ui, pic, lang, &key, left);
     }
     if st.close_warn {
         close_dialog(ui, st, lang);
+    }
+}
+
+/// The card touched on the board window, its details in `area` (the popped-out column over the deck), until
+/// [`TOUCH_SECS`] after the touch.
+fn touched_card(ui: &Ui, st: &mut PanelState, area: Rect, lang: Lang) {
+    let now = ui.input(|i| i.time);
+    st.touched = st.touched.take().filter(|(_, at)| now - at < TOUCH_SECS);
+    if let Some((card, at)) = &st.touched {
+        board::card_view(ui, card, area, lang);
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_secs_f64(TOUCH_SECS - (now - at)));
     }
 }
 
@@ -1422,16 +1495,35 @@ const ROW: egui::Vec2 = vec2(778.0, 144.0);
 /// Each plate's left edge and width in the row.
 const PLATES: [(f32, f32); 3] = [(0.0, 300.0), (316.0, 328.0), (660.0, 118.0)];
 
-/// The three plates, the row drawn centred in `area`: without the machine plate (`both` false, 2017-18) the row is
-/// only the first two plates wide.
-fn deck_plates(area: Rect, both: bool) -> [Rect; 3] {
+/// The three plates, the row drawn centred in `area` and `s` times its size: without the machine plate (`both` false,
+/// 2017-18) the row is only the first two plates wide. `stack` (the side layout): one plate under the other, each
+/// centred across.
+fn deck_plates(area: Rect, both: bool, s: f32, stack: bool) -> [Rect; 3] {
+    let c = area.center();
+    if stack {
+        let top = c.y - side_deck(both).y / 2.0;
+        let mut i = 0.0;
+        return PLATES.map(|(_, w)| {
+            let r = Rect::from_min_size(
+                pos2(c.x - w / 2.0, top + i * (ROW.y + SIDE_GAP)),
+                vec2(w, ROW.y),
+            );
+            i += 1.0;
+            grow(r, c, s)
+        });
+    }
     let w = if both {
         ROW.x
     } else {
         PLATES[1].0 + PLATES[1].1
     };
-    let o = area.center() - vec2(w, ROW.y) / 2.0;
-    PLATES.map(|(x, w)| Rect::from_min_size(o + vec2(x, 0.0), vec2(w, ROW.y)))
+    let o = c - vec2(w, ROW.y) / 2.0;
+    PLATES.map(|(x, w)| grow(Rect::from_min_size(o + vec2(x, 0.0), vec2(w, ROW.y)), c, s))
+}
+
+/// `r` drawn `s` times its size about `c` (the side layout's deck).
+fn grow(r: Rect, c: Pos2, s: f32) -> Rect {
+    Rect::from_min_max(c + (r.min - c) * s, c + (r.max - c) * s)
 }
 
 /// The cabinet's buttons in one row (a departure from the cabinet on purpose, to leave the picture room). Left: a
@@ -1439,13 +1531,13 @@ fn deck_plates(area: Rect, both: bool) -> [Rect; 3] {
 /// small green DATA square beside it. Middle: small yellow KEY PLAYER, big red SHOOT, big blue KEEPER, small green
 /// START in a line.
 pub fn deck_layout(area: Rect) -> Vec<DeckItem> {
-    deck_layout_for(area, true)
+    deck_layout_for(area, true, 1.0, false)
 }
 
 /// [`deck_layout`] for an edition with (`both`) or without the machine plate.
-fn deck_layout_for(area: Rect, both: bool) -> Vec<DeckItem> {
-    let [left, mid, _] = deck_plates(area, both);
-    let cy = left.center().y;
+fn deck_layout_for(area: Rect, both: bool, s: f32, stack: bool) -> Vec<DeckItem> {
+    let [left, mid, _] = deck_plates(area, both, 1.0, stack);
+    let (cy, my) = (left.center().y, mid.center().y);
     let c = pos2(left.left() + 132.0, cy);
     let (sq, tl, g) = (40.0, 26.0, 2.0);
     let off = sq / 2.0 + g + tl / 2.0;
@@ -1454,7 +1546,7 @@ fn deck_layout_for(area: Rect, both: bool) -> Vec<DeckItem> {
         action,
         kind,
         shape,
-        rect: Rect::from_center_size(centre, size),
+        rect: grow(Rect::from_center_size(centre, size), area.center(), s),
         label,
         tactic,
     };
@@ -1532,7 +1624,7 @@ fn deck_layout_for(area: Rect, both: bool) -> Vec<DeckItem> {
             "KEYPLAYER",
             Cab::KeyPlayer,
             Shape::Round,
-            pos2(key_x, cy),
+            pos2(key_x, my),
             vec2(small, small),
             Some(Dir::Down),
             None,
@@ -1542,7 +1634,7 @@ fn deck_layout_for(area: Rect, both: bool) -> Vec<DeckItem> {
             "START",
             Cab::Go,
             Shape::Round,
-            pos2(start_x, cy),
+            pos2(start_x, my),
             vec2(small, small),
             Some(Dir::Down),
             None,
@@ -1552,7 +1644,7 @@ fn deck_layout_for(area: Rect, both: bool) -> Vec<DeckItem> {
             "SHOOT",
             Cab::Shoot,
             Shape::Round,
-            pos2(shoot_x, cy),
+            pos2(shoot_x, my),
             vec2(big, big),
             None,
             None,
@@ -1562,7 +1654,7 @@ fn deck_layout_for(area: Rect, both: bool) -> Vec<DeckItem> {
             "KEEPER",
             Cab::Keeper,
             Shape::Round,
-            pos2(keeper_x, cy),
+            pos2(keeper_x, my),
             vec2(big, big),
             None,
             None,
@@ -1571,8 +1663,11 @@ fn deck_layout_for(area: Rect, both: bool) -> Vec<DeckItem> {
 }
 
 /// The machine plate's one key, CARD, centred (2017-18 has no card and no machine plate).
-fn card_key(area: Rect) -> Rect {
-    Rect::from_center_size(deck_plates(area, true)[2].center(), vec2(102.0, 32.0))
+fn card_key(area: Rect, s: f32, stack: bool) -> Rect {
+    Rect::from_center_size(
+        deck_plates(area, true, s, stack)[2].center(),
+        vec2(102.0, 32.0) * s,
+    )
 }
 
 const KEYCAP_H: f32 = 13.0;
@@ -1610,7 +1705,7 @@ fn paint_keycap(p: &egui::Painter, r: Rect, text: &str) {
 }
 
 /// The cabinet's controls under the picture, one row: the tactic diamond, the play buttons, the machine.
-fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
+fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32, stack: bool) {
     // a press sends the action's key down (the panel DLL lets it up after the release); the buttons do not light.
     // A right-click on KEY PLAYER or KEEPER latches it down until the next click on it ([`latch_click`]).
     let mut pressed = None;
@@ -1623,9 +1718,10 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
                    action: Option<&'static str>,
                    kind: Cab,
                    shape: Shape,
-                   lit: bool| {
+                   lit: bool,
+                   inside: bool| {
         let resp = ui.put(r, |ui: &mut Ui| {
-            cabinet_shaped(ui, r.size(), &tr!(lang, key), kind, shape, lit)
+            cabinet_shaped(ui, r.size(), &tr!(lang, key), kind, shape, lit, inside)
         });
         let hit = |b| {
             ui.input(|i| {
@@ -1653,7 +1749,7 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
         resp
     };
     let both = st.edition != Edition::E1718; // 2017-18 has no card: no machine plate
-    for plate in deck_plates(area, both)
+    for plate in deck_plates(area, both, s, stack)
         .into_iter()
         .take(if both { 3 } else { 2 })
     {
@@ -1666,10 +1762,21 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
             StrokeKind::Inside,
         );
     }
-    for it in deck_layout_for(area, both) {
+    for it in deck_layout_for(area, both, s, stack) {
         let on = held == Some(it.action);
         let lit = on || it.tactic.is_some_and(|i| st.tactics[i]);
-        put(ui, it.rect, it.key, Some(it.action), it.kind, it.shape, lit);
+        // a name printed beside the button is not printed in it too (the side layout's big buttons)
+        let inside = it.label.is_none();
+        put(
+            ui,
+            it.rect,
+            it.key,
+            Some(it.action),
+            it.kind,
+            it.shape,
+            lit,
+            inside,
+        );
         if on {
             let p = ui.painter();
             p.circle_stroke(
@@ -1691,7 +1798,7 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
             // the name, and the keycap after it, on one line beside the button
             let name = p.layout_no_wrap(tr!(lang, it.key), theme::display(14.0), theme::TEXT_DIM);
             let room = match side {
-                Dir::Left => it.rect.left() - deck_plates(area, both)[0].left() - 8.0,
+                Dir::Left => it.rect.left() - deck_plates(area, both, s, stack)[0].left() - 8.0,
                 _ => 110.0,
             };
             let cap_w = keycap_width(p, &cap, room - name.size().x - 4.0);
@@ -1707,7 +1814,7 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
                 Dir::Right => (it.rect.right() + 4.0, it.rect.center().y),
             };
             // never past the plate's edge (DATA sits close to it)
-            let plate = deck_plates(area, both)
+            let plate = deck_plates(area, both, s, stack)
                 .into_iter()
                 .find(|r| r.contains(it.rect.center()))
                 .unwrap_or(area);
@@ -1739,19 +1846,20 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
     if both {
         put(
             ui,
-            card_key(area),
+            card_key(area, s, stack),
             "cab.card",
             Some("CARD"),
             Cab::Plain,
             Shape::Key,
             false,
+            true,
         );
         let cap = deck_keycap(st, "CARD", alt);
         let p = ui.painter();
         let w = keycap_width(p, &cap, 100.0);
         if w > 0.0 {
             let r = Rect::from_center_size(
-                card_key(area).center_bottom() + vec2(0.0, 4.0 + KEYCAP_H / 2.0),
+                card_key(area, s, stack).center_bottom() + vec2(0.0, 4.0 + KEYCAP_H / 2.0),
                 vec2(w, KEYCAP_H),
             );
             paint_keycap(p, r, &cap);
@@ -1802,7 +1910,7 @@ pub fn page_button(bar: Rect, i: usize) -> Rect {
 }
 
 /// The bottom bar: the edition, the four page buttons (lit while their page is open), the ping and the window key.
-fn page_bar(ui: &mut Ui, st: &mut PanelState, bar: Rect, lang: Lang) {
+fn page_bar(ui: &mut Ui, st: &mut PanelState, bar: Rect, lang: Lang, side: bool) {
     let r = bar.shrink2(vec2(12.0, 8.0));
     let p = ui.painter();
     widgets::mark(p, pos2(r.left() + 11.0, r.center().y), st.edition.accent());
@@ -1864,8 +1972,27 @@ fn page_bar(ui: &mut Ui, st: &mut PanelState, bar: Rect, lang: Lang) {
         |i: f32| Rect::from_min_size(right.min + vec2(0.0, i * 24.0), vec2(right.width(), 22.0));
     let p = ui.painter();
     let mut x = right.left();
+    if side {
+        // the side layout: the lamp and the ping hug the bar's right end
+        let lamp = if st.edition != Edition::E1718 {
+            lamp_width(p, st.status.card, lang) + 10.0
+        } else {
+            0.0
+        };
+        let ping_w = if st.online {
+            ping_width(p, st.ping_ms, lang)
+        } else {
+            0.0
+        };
+        x = x.max(right.right() - lamp - ping_w);
+    }
     if st.edition != Edition::E1718 {
-        x += card_lamp(p, row(0.0), st.status.card, lang) + 10.0;
+        x += card_lamp(
+            p,
+            Rect::from_min_max(pos2(x, row(0.0).top()), row(0.0).max),
+            st.status.card,
+            lang,
+        ) + 10.0;
     }
     if st.online {
         let r0 = row(0.0);
@@ -1883,8 +2010,13 @@ fn page_bar(ui: &mut Ui, st: &mut PanelState, bar: Rect, lang: Lang) {
         theme::TEXT_DIM,
         right.width(),
     );
+    let gx = if side {
+        right.right() - g.size().x
+    } else {
+        right.left()
+    };
     p.galley(
-        pos2(right.left(), row(1.0).center().y - g.size().y / 2.0),
+        pos2(gx, row(1.0).center().y - g.size().y / 2.0),
         g,
         theme::TEXT_DIM,
     );
@@ -1893,12 +2025,8 @@ fn page_bar(ui: &mut Ui, st: &mut PanelState, bar: Rect, lang: Lang) {
 /// The card lamp: IN USE (amber), SAFE TO CLOSE (green), NO CARD (grey); a mark and a word, never colour alone.
 /// Closing is only unsafe while the session is open (the same rule as the close dialog). Returns the width it took.
 fn card_lamp(p: &egui::Painter, r: Rect, card: CardState, lang: Lang) -> f32 {
-    let (tone, key, col) = match card {
-        CardState::Open => (Some(Tone::Notice), "panel.lamp_in_use", theme::AMBER),
-        CardState::Closed | CardState::Cut => (Some(Tone::Done), "panel.lamp_safe", theme::GREEN),
-        _ => (None, "panel.lamp_none", theme::TEXT_DIM),
-    };
-    let g = p.layout_no_wrap(tr!(lang, key), theme::display(16.0), col);
+    let (tone, text, col) = lamp_look(card, lang);
+    let g = p.layout_no_wrap(text, theme::display(16.0), col);
     let w = g.size().x + 44.0;
     let pill = Rect::from_min_size(r.min, vec2(w, r.height()));
     p.rect_filled(pill, 11, col.gamma_multiply(0.16));
@@ -1920,6 +2048,39 @@ fn card_lamp(p: &egui::Painter, r: Rect, card: CardState, lang: Lang) -> f32 {
         col,
     );
     w
+}
+
+/// The card lamp's mark, word and colour.
+fn lamp_look(card: CardState, lang: Lang) -> (Option<Tone>, String, Color32) {
+    let (tone, key, col) = match card {
+        CardState::Open => (Some(Tone::Notice), "panel.lamp_in_use", theme::AMBER),
+        CardState::Closed | CardState::Cut => (Some(Tone::Done), "panel.lamp_safe", theme::GREEN),
+        _ => (None, "panel.lamp_none", theme::TEXT_DIM),
+    };
+    (tone, tr!(lang, key), col)
+}
+
+/// The card lamp's width ([`card_lamp`]).
+fn lamp_width(p: &egui::Painter, card: CardState, lang: Lang) -> f32 {
+    let (_, text, col) = lamp_look(card, lang);
+    p.layout_no_wrap(text, theme::display(16.0), col).size().x + 44.0
+}
+
+/// The ping meter's text.
+fn ping_text(ms: u32, lang: Lang) -> String {
+    if ms == u32::MAX {
+        tr!(lang, "panel.ping", ms = "--")
+    } else {
+        tr!(lang, "panel.ping", ms = ms)
+    }
+}
+
+/// The ping meter's width ([`ping`]).
+fn ping_width(p: &egui::Painter, ms: u32, lang: Lang) -> f32 {
+    36.0 + p
+        .layout_no_wrap(ping_text(ms, lang), theme::display(15.0), theme::TEXT_DIM)
+        .size()
+        .x
 }
 
 fn strip_ground(ui: &Ui) {
@@ -1962,11 +2123,7 @@ fn ping(p: &egui::Painter, r: Rect, ms: u32, lang: Lang) {
     p.text(
         pos2(r.left() + 36.0, r.center().y + 2.0),
         Align2::LEFT_CENTER,
-        if ms == u32::MAX {
-            tr!(lang, "panel.ping", ms = "--")
-        } else {
-            tr!(lang, "panel.ping", ms = ms)
-        },
+        ping_text(ms, lang),
         theme::display(15.0),
         theme::TEXT_DIM,
     );
@@ -1975,20 +2132,12 @@ fn ping(p: &egui::Painter, r: Rect, ms: u32, lang: Lang) {
 fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     strip_ground(ui);
     let r = ui.max_rect().shrink(16.0);
-    // the pop-out board: the bench a column beside the pitch, no hint
-    let (per_w, extra) = if st.desk {
-        (DESK_PER_W, DESK_EXTRA)
-    } else {
-        (BOARD_PER_W, BOARD_EXTRA)
-    };
-    // as wide as the strip, or as its height can use (the board window held tall), centred
-    let w = r.width().min((ui.max_rect().height() - extra) / per_w);
+    // as wide as the strip, or as its height can use, centred
+    let w = r
+        .width()
+        .min((ui.max_rect().height() - BOARD_EXTRA) / BOARD_PER_W);
     let r = Rect::from_min_size(pos2(r.center().x - w / 2.0, r.top()), vec2(w, r.height()));
-    let pitch = if st.desk {
-        Rect::from_min_size(r.min, vec2(w, w * board::COLUMN_ASPECT))
-    } else {
-        board::pitch_rect(r.min + vec2(0.0, BOARD_HEAD), r.width())
-    };
+    let pitch = board::pitch_rect(r.min + vec2(0.0, BOARD_HEAD), r.width());
     let mut b = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(pitch.min, r.max)));
     b.spacing_mut().item_spacing.y = 4.0;
     st.board_changed |= board::formation_board(
@@ -1997,10 +2146,65 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         &st.links,
         st.hover_delay,
         lang,
-        st.desk,
+        false,
+        false,
     );
+    let Some((b, btn)) = board_foot(&mut b, st, lang) else {
+        return;
+    };
+    // the hovered card's pane and the partner list: in this column only, under the hint or over the pitch
+    let hint_bottom = b.min_rect().bottom().max(btn.bottom());
+    board::info_panes(
+        &b,
+        &st.board,
+        &st.links,
+        pitch,
+        hint_bottom,
+        r.bottom(),
+        lang,
+    );
+}
+
+/// The board window ([`PanelState::desk`]): the board alone, as large as the window allows ([`desk_board_rect`]), its
+/// DOCK and UNDO row under it; with `board_buttons=on` the cabinet buttons beside or under it ([`desk_parts`]). The
+/// crash screen takes the board's place.
+fn board_window(ui: &mut Ui, st: &mut PanelState, lang: Lang, sheet: Rect) {
+    strip_ground(ui);
+    let both = st.edition != Edition::E1718;
+    let (room, deck) = desk_parts(sheet, st.file.board_buttons, both);
+    if let Some((r, s, stack)) = deck {
+        widgets::gradient(
+            ui.painter(),
+            r,
+            0,
+            Color32::from_rgb(0x12, 0x1C, 0x2E),
+            theme::NIGHT,
+            true,
+        );
+        cabinet_deck(ui, st, r, lang, s, stack);
+    }
+    let mut c = ui.new_child(egui::UiBuilder::new().max_rect(room));
+    if st.crash {
+        return crash_screen(&mut c, st, lang);
+    }
+    let (at, beside) = desk_board_rect(room);
+    let mut b =
+        c.new_child(egui::UiBuilder::new().max_rect(at.with_max_y(at.bottom() + DESK_FOOT)));
+    b.spacing_mut().item_spacing.y = 4.0;
+    st.board_changed |=
+        board::formation_board(&mut b, &mut st.board, &st.links, None, lang, beside, true);
+    if let Some(card) = board::take_touched(&b) {
+        st.touched = Some((card, b.input(|i| i.time)));
+    }
+    board_foot(&mut b, st, lang);
+}
+
+/// Under a board: a card just taken off (its name and UNDO) or a lineup just imported (its UNDO) at the left, POP OUT
+/// or DOCK at the right; else, on the game window's board, the hint. `None` when the import's line shows, else the
+/// row's left part and the button.
+fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)> {
     let now = b.input(|i| i.time);
-    if let Some(r) = board::take_removed(&b) {
+    if let Some(r) = board::take_removed(b) {
         st.undo = Some((r, now));
         st.import_undo = None; // UNDO now means this card
     }
@@ -2041,7 +2245,7 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     }
     let mut b = b.new_child(egui::UiBuilder::new().max_rect(row.with_max_x(btn.left() - 8.0)));
     if import_undo_line(&mut b, st, lang, now) {
-        return;
+        return None;
     }
     // a card just taken off: its name and UNDO for a few seconds, in the hint's place
     st.undo = st.undo.take().filter(|(_, at)| now - at < UNDO_SECS);
@@ -2066,17 +2270,7 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                 .color(theme::TEXT_DIM),
         );
     }
-    // the hovered card's pane and the partner list: in this column only, under the hint or over the pitch
-    let hint_bottom = b.min_rect().bottom().max(btn.bottom());
-    board::info_panes(
-        &b,
-        &st.board,
-        &st.links,
-        pitch,
-        hint_bottom,
-        r.bottom(),
-        lang,
-    );
+    Some((b, btn))
 }
 
 /// A lineup just imported: a line and its UNDO for [`IMPORT_UNDO_SECS`], in the hint's place; `false`: none.
@@ -3371,6 +3565,16 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                     },
                 );
             }
+            if widgets::toggle_row(
+                ui,
+                &mut st.file.board_buttons,
+                &tr!(lang, "settings.board_buttons"),
+                &tr!(lang, "settings.board_buttons_hint"),
+            )
+            .clicked()
+            {
+                st.file_changed = true;
+            }
         });
         widgets::section(right, &tr!(lang, "settings.next"), accent, |ui| {
             let w = ui.available_width();
@@ -4254,62 +4458,6 @@ mod tests {
         }
     }
 
-    /// The board window (the pop-out board), wide and tall: every part inside, none over another, the deck's row and
-    /// the pages have their room, and the board's pitch is at least as big as on the game's 1440x900 sheet.
-    #[test]
-    fn desk_layout_fits_every_window() {
-        let apart = |a: Rect, b: Rect| !a.intersect(b).is_positive();
-        for (w, h, wide) in [
-            (1400.0, 900.0, true),
-            (1600.0, 900.0, true),
-            (1920.0, 1080.0, true),
-            (2560.0, 1440.0, true),
-            (3840.0, 2160.0, true),
-            (1000.0, 700.0, true),
-            (1024.0, 768.0, false),
-            (1280.0, 1024.0, false),
-            (1000.0, 900.0, false),
-            (860.0, 1104.0, false),
-            (900.0, 1400.0, false),
-            (1080.0, 1920.0, false),
-            (1200.0, 1600.0, false),
-        ] {
-            let ppp = desk_scale(w, h, 96.0);
-            let sheet = Rect::from_min_size(Pos2::ZERO, vec2(w, h) / ppp);
-            let l = desk_layout(sheet);
-            let at = format!("{w}x{h}: {sheet:?} {l:?}");
-            assert_eq!(desk_wide(sheet.size()), wide, "{at}");
-            for r in [l.board, l.deck, l.tabs, l.pages] {
-                assert!(sheet.expand(0.01).contains_rect(r), "{at}");
-            }
-            assert!(
-                apart(l.board, l.deck) && apart(l.board, l.tabs) && apart(l.deck, l.tabs),
-                "{at}"
-            );
-            assert!(l.deck.width() >= ROW.x && l.deck.height() >= ROW.y, "{at}");
-            assert!(
-                l.pages.width() >= 800.0 && l.pages.height() >= 700.0,
-                "{at}"
-            );
-            let pitch_w =
-                (l.board.width() - 32.0).min((l.board.height() - DESK_EXTRA) / DESK_PER_W);
-            assert!(pitch_w >= BOARD_W - 32.0, "{at}");
-            if wide {
-                // the board full height: pitch and bench column, and the POP IN row fill the column top to bottom
-                assert_eq!(l.board.height(), sheet.height(), "{at}");
-                let used = pitch_w * DESK_PER_W + DESK_EXTRA;
-                assert!((used - sheet.height()).abs() < 0.5, "{at}: {used}");
-            } else {
-                // tall: the board as wide as the window (less its margins), or as its height allows
-                let by_w = l.board.width() - 32.0;
-                assert!(
-                    pitch_w == by_w || pitch_w * DESK_PER_W + DESK_EXTRA <= l.board.height() + 0.5,
-                    "{at}"
-                );
-            }
-        }
-    }
-
     /// The hover pane lies in the board's column at every window: docked under the hint where the column has the room
     /// (1920x1080: a strip; 2560x1440: large), else a strip over the pitch's half away from the hovered card; never on
     /// the game's picture or the deck.
@@ -4387,6 +4535,176 @@ mod tests {
         assert_eq!(latch_kept(on, false, true), on);
         assert_eq!(latch_kept(on, true, true), None);
         assert_eq!(latch_kept(on, false, false), None);
+    }
+
+    /// The game window, the board popped out: the left part holds the picture (centred, 16:10) over the toast line and
+    /// the page bar; the column holds the room for a touched card over the stacked deck plates, which fit it.
+    #[test]
+    fn popped_layout_column() {
+        for (w, h) in [
+            (1440.0, 900.0),
+            (1920.0, 1080.0),
+            (2560.0, 1440.0),
+            (1920.0, 1200.0),
+            (3440.0, 1440.0),
+        ] {
+            let sheet = Rect::from_min_size(Pos2::ZERO, vec2(w, h));
+            for both in [false, true] {
+                let l = popped_layout(sheet, both);
+                let at = format!("{w}x{h} {both}: {l:?}");
+                let col = l.board.union(l.deck);
+                assert!((col.width() + l.middle.width() - w).abs() < 0.01, "{at}");
+                assert!(col.width() >= SIDE_COLUMN - 0.01, "{at}");
+                assert!(l.pages.contains_rect(l.picture), "{at}");
+                assert!(
+                    l.picture.bottom() + SIDE_TOAST <= l.tabs.top() + 0.01,
+                    "{at}"
+                );
+                assert!(
+                    (l.picture.center().x - l.tabs.center().x).abs() < 0.01,
+                    "{at}"
+                );
+                assert!((l.picture.aspect_ratio() - 1.6).abs() < 0.01, "{at}");
+                assert_eq!(l.tabs.right(), l.board.left(), "{at}");
+                assert_eq!(l.board.bottom(), l.deck.top(), "{at}");
+                // room for at least a strip pane over the deck
+                assert!(l.board.height() >= 200.0, "{at}");
+                let plates = deck_plates(l.deck, both, l.deck_scale, true);
+                let n = if both { 3 } else { 2 };
+                assert!(plates[..n].iter().all(|r| l.deck.contains_rect(*r)), "{at}");
+                assert!(plates[1].width() <= l.deck.width() - 31.99, "{at}");
+                assert!(plates[0].bottom() < plates[1].top(), "{at}");
+                assert!(l.deck_scale >= 1.0, "{at}");
+            }
+        }
+    }
+
+    /// The board window: the board as large as the window allows, centred (bars on two sides only), its bench beside
+    /// the pitch from 2:3 wide, under it on taller windows.
+    #[test]
+    fn the_board_window_fills_its_shape() {
+        for (w, h, beside) in [
+            (960.0, 1232.0, true),
+            (1080.0, 1920.0, false),
+            (2360.0, 1640.0, true),
+            (1640.0, 2360.0, true),
+            (1920.0, 1080.0, true),
+            (700.0, 1400.0, false),
+        ] {
+            let room = Rect::from_min_size(Pos2::ZERO, vec2(w, h) / board_scale(w, h, 96.0));
+            let (b, side) = desk_board_rect(room);
+            let at = format!("{w}x{h}: {room:?} {b:?}");
+            assert_eq!(side, beside, "{at}");
+            let inner = room.shrink(16.0);
+            assert!(inner.expand(0.01).contains_rect(b), "{at}");
+            assert!(b.bottom() + DESK_FOOT <= inner.bottom() + 0.01, "{at}");
+            // filled across or top to bottom, centred the other way
+            let across = (b.width() - inner.width()).abs() < 0.01;
+            let down = (b.height() + DESK_FOOT - inner.height()).abs() < 0.01;
+            assert!(across || down, "{at}");
+            assert!((b.center().x - inner.center().x).abs() < 0.01, "{at}");
+            let ratio = if side {
+                board::COLUMN_ASPECT
+            } else {
+                board::row_height(b.width()) / b.width()
+            };
+            assert!((b.height() / b.width() - ratio).abs() < 1e-3, "{at}");
+        }
+    }
+
+    /// `board_buttons=on`: the deck in a column at the right of a landscape board window, in a row under a portrait
+    /// one, its plates inside it and apart from the board's room; off, the board has the whole window.
+    #[test]
+    fn the_board_window_buttons() {
+        for (w, h, stacked) in [
+            (1920.0, 1080.0, true),
+            (2360.0, 1640.0, true),
+            (1080.0, 1920.0, false),
+            (960.0, 1232.0, false),
+        ] {
+            let sheet = Rect::from_min_size(Pos2::ZERO, vec2(w, h));
+            for both in [false, true] {
+                assert_eq!(desk_parts(sheet, false, both), (sheet, None));
+                let (room, deck) = desk_parts(sheet, true, both);
+                let (d, s, stack) = deck.expect("a deck");
+                let at = format!("{w}x{h} {both}: {room:?} {d:?} {s}");
+                assert_eq!(stack, stacked, "{at}");
+                assert!(!room.intersects(d.shrink(0.5)), "{at}");
+                assert!((room.union(d).area() - sheet.area()).abs() < 1.0, "{at}");
+                let n = if both { 3 } else { 2 };
+                let plates = deck_plates(d, both, s, stack);
+                assert!(plates[..n].iter().all(|r| d.contains_rect(*r)), "{at}");
+                assert!(s >= 1.0, "{at}");
+                let (b, _) = desk_board_rect(room);
+                assert!(room.contains_rect(b), "{at}");
+            }
+        }
+    }
+
+    /// One frame of `st` on `ctx`, a `w` x `h` sheet at time `t`.
+    fn frame(
+        ctx: &egui::Context,
+        st: &mut PanelState,
+        w: f32,
+        h: f32,
+        t: f64,
+        events: Vec<egui::Event>,
+    ) {
+        let raw = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(w, h))),
+            time: Some(t),
+            events,
+            ..Default::default()
+        };
+        ctx.run_ui(raw, |ui| show(ui, st)).textures_delta.clear();
+    }
+
+    /// A card pressed on the board window is the game window's touched card: shown there at once, gone
+    /// [`TOUCH_SECS`] after; the board window shows nothing big and selects nothing.
+    #[test]
+    fn a_card_touched_on_the_board_window_shows_on_the_game_window() {
+        let mut st = PanelState::sample(Edition::E1718, Lang::En, Page::Game);
+        st.file.board_window = true;
+        let (board_ctx, game_ctx) = (egui::Context::default(), egui::Context::default());
+        for c in [&board_ctx, &game_ctx] {
+            theme::install(c, Edition::E1718, &theme::font_dir()).unwrap();
+            c.run_ui(egui::RawInput::default(), |_| {})
+                .textures_delta
+                .clear();
+        }
+        let (w, h) = (960.0, 1232.0);
+        let (at, beside) = desk_board_rect(Rect::from_min_size(Pos2::ZERO, vec2(w, h)));
+        assert!(beside);
+        let slot = (0..11).find(|&s| st.board.slots[s].is_some()).unwrap();
+        let card = st.board.cards[st.board.slots[slot].unwrap()].number;
+        let pos = board::Mat::column(at.min, at.width()).slot_rects(&st.board.spots)[slot].center();
+        let press = |pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        let both = |st: &mut PanelState, t: f64, events: Vec<egui::Event>| {
+            st.desk = true;
+            frame(&board_ctx, st, w, h, t, events);
+            st.desk = false;
+            st.popped = true;
+            frame(&game_ctx, st, 1920.0, 1080.0, t, vec![]);
+        };
+        let big =
+            |ctx: &egui::Context| ctx.memory(|m| m.area_rect(egui::Id::new("board-big")).is_some());
+        both(&mut st, 0.0, vec![egui::Event::PointerMoved(pos)]);
+        assert!(st.touched.is_none());
+        both(&mut st, 0.1, vec![press(true)]);
+        assert_eq!(st.touched.as_ref().map(|t| t.0.number), Some(card));
+        assert!(big(&game_ctx), "the game window shows it");
+        both(&mut st, 0.2, vec![press(false)]);
+        // rested on past the hover delay: still no big card on the board window
+        both(&mut st, 3.0, vec![]);
+        assert!(!big(&board_ctx), "nothing big on the board window");
+        assert!(st.touched.is_some(), "kept for a while");
+        both(&mut st, 0.2 + TOUCH_SECS + 0.1, vec![]);
+        assert!(st.touched.is_none(), "gone after TOUCH_SECS");
     }
 
     #[test]
@@ -4467,16 +4785,16 @@ mod tests {
                 );
             }
         }
-        let plates = deck_plates(area, true);
+        let plates = deck_plates(area, true, 1.0, false);
         assert!(plates.iter().all(|p| area.contains_rect(*p)));
         assert!(
             items
                 .iter()
                 .all(|i| plates.iter().any(|p| p.contains_rect(i.rect)))
         );
-        assert!(plates[2].contains_rect(card_key(area)));
+        assert!(plates[2].contains_rect(card_key(area, 1.0, false)));
         // without the machine plate (2017-18) the two plates drawn are centred
-        let two = deck_plates(area, false);
+        let two = deck_plates(area, false, 1.0, false);
         assert!((two[0].left() - area.left() - (area.right() - two[1].right())).abs() < 0.01);
     }
 

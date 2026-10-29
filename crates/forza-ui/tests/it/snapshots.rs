@@ -336,68 +336,128 @@ fn hover_pane() {
     all.unwrap();
 }
 
-/// The pop-out board's own window: wide (the board beside the deck), tall (the board over the deck and the page bar),
-/// and tall with a page open over the board.
+/// Popped out, the board window: the board alone, filling the window (bars where the shape differs), its bench
+/// beside the pitch from 2:3 wide and under it on taller windows; with the buttons switch on, the cabinet buttons
+/// under a portrait board and beside a landscape one.
 #[test]
-fn desk_window() {
+fn popout_board_window() {
     let _gpu = gpu();
     let mut all = SnapshotResults::new();
-    for (size, ed, lang, page, name) in [
+    for (w, h, ed, lang, buttons, name) in [
         (
-            Vec2::new(1600.0, 1000.0),
+            960.0,
+            1232.0,
+            Edition::E1718,
+            Lang::En,
+            false,
+            "popout_board_960x1232_en",
+        ),
+        (
+            1080.0,
+            1920.0,
+            Edition::E1718,
+            Lang::En,
+            false,
+            "popout_board_1080x1920_en",
+        ),
+        (
+            2360.0,
+            1640.0,
             Edition::E1011,
             Lang::En,
-            panel::Page::Game,
-            "panel_desk_wide_en",
+            false,
+            "popout_board_2360x1640_en",
         ),
         (
-            Vec2::new(1000.0, 1500.0),
+            1920.0,
+            1080.0,
             Edition::E1718,
-            Lang::Ja,
-            panel::Page::Game,
-            "panel_desk_tall_ja",
+            Lang::En,
+            false,
+            "popout_board_1920x1080_en",
         ),
         (
-            Vec2::new(1000.0, 1500.0),
+            1920.0,
+            1080.0,
             Edition::E1011,
             Lang::It,
-            panel::Page::Catalogue,
-            "panel_desk_tall_catalogue_it",
+            false,
+            "popout_board_1920x1080_it",
         ),
         (
-            Vec2::new(1920.0, 1080.0),
+            1080.0,
+            1920.0,
+            Edition::E1718,
+            Lang::En,
+            true,
+            "popout_board_buttons_1080x1920_en",
+        ),
+        (
+            1920.0,
+            1080.0,
             Edition::E1011,
-            Lang::En,
-            panel::Page::Game,
-            "panel_desk_1920x1080_en",
-        ),
-        (
-            Vec2::new(1080.0, 1920.0),
-            Edition::E1718,
-            Lang::En,
-            panel::Page::Game,
-            "panel_desk_1080x1920_en",
-        ),
-        // the owner's mockup's portrait size, and a wide window
-        (
-            Vec2::new(960.0, 1232.0),
-            Edition::E1718,
-            Lang::En,
-            panel::Page::Game,
-            "panel_desk_960x1232_en",
-        ),
-        (
-            Vec2::new(2560.0, 1440.0),
-            Edition::E1718,
-            Lang::En,
-            panel::Page::Game,
-            "panel_desk_2560x1440_en",
+            Lang::It,
+            true,
+            "popout_board_buttons_1920x1080_it",
         ),
     ] {
-        let mut st = panel::PanelState::sample(ed, lang, page);
+        let mut st = panel::PanelState::sample(ed, lang, panel::Page::Game);
         st.desk = true;
         st.file.board_window = true;
-        snap(&mut all, name, size, ed, |ui| panel::show(ui, &mut st));
+        st.file.board_buttons = buttons;
+        assert_eq!(panel::board_scale(w, h, 96.0), 1.0);
+        snap(&mut all, name, Vec2::new(w, h), ed, |ui| {
+            panel::show(ui, &mut st)
+        });
+    }
+    all.unwrap();
+}
+
+/// Popped out, the game window: the picture on the left over the toast line and the page bar, the cabinet buttons
+/// big in the right column and over them the details of the card touched last on the board window.
+#[test]
+fn popout_game_window() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for (w, h, ed, lang, name) in [
+        (
+            1920.0,
+            1080.0,
+            Edition::E1718,
+            Lang::En,
+            "popout_game_1920x1080_en",
+        ),
+        (
+            2560.0,
+            1440.0,
+            Edition::E1718,
+            Lang::En,
+            "popout_game_2560x1440_en",
+        ),
+        (
+            1920.0,
+            1080.0,
+            Edition::E1011,
+            Lang::It,
+            "popout_game_1920x1080_it",
+        ),
+        (
+            2560.0,
+            1440.0,
+            Edition::E1011,
+            Lang::En,
+            "popout_game_2560x1440_1011_en",
+        ),
+    ] {
+        let mut st = panel::PanelState::sample(ed, lang, panel::Page::Game);
+        st.file.board_window = true;
+        st.popped = true;
+        let ci = st.board.slots[2].expect("a card in slot 2");
+        st.touched = Some((st.board.cards[ci].clone(), 0.0));
+        assert_eq!(panel::scale(w, h, 96.0), 1.0);
+        snap(&mut all, name, Vec2::new(w, h), ed, |ui| {
+            panel::show(ui, &mut st)
+        });
     }
     all.unwrap();
 }
@@ -455,22 +515,6 @@ fn card_view() {
         all.extend_harness(&mut h);
     }
     all.unwrap();
-}
-
-/// The pop-out board's window at 1024x768 (4:3): the tall layout (the board with its bench column is too wide beside the deck there), drawn at the scale the panel
-/// DLL picks for it.
-#[test]
-fn desk_window_4_3() {
-    let _gpu = gpu();
-    let ppp = panel::desk_scale(1024.0, 768.0, 96.0);
-    let mut st = panel::PanelState::sample(Edition::E1011, Lang::En, panel::Page::Game);
-    st.desk = true;
-    st.file.board_window = true;
-    let mut h = harness(Vec2::new(1024.0, 768.0) / ppp, ppp, Edition::E1011, |ui| {
-        panel::show(ui, &mut st)
-    });
-    h.run_steps(8);
-    h.snapshot("panel_desk_1024x768_en");
 }
 
 /// The 2017-18 formation board as the cabinet's mat: at rest, a card in hand, and with the keeper's slot empty.

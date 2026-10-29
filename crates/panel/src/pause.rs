@@ -488,8 +488,8 @@ fn hold(
 /// The window procedure's part: while held every input is egui's or ours, never the game's (`None`: not input, the
 /// game's procedure gets it), and nothing enters Windows' own modal loops (moving or sizing the window, its system
 /// menu), which would hold the hold past its cap; otherwise the pause key asks for a pause unless egui types or a
-/// page is open.
-pub fn message(m: u32, wp: WPARAM, lp: LPARAM) -> Option<LRESULT> {
+/// page is open. `board`: a message of the board window (its own egui).
+pub fn message(board: bool, m: u32, wp: WPARAM, lp: LPARAM) -> Option<LRESULT> {
     let key = KEY.load(Relaxed);
     let is_key = key != 0 && wp.0 as u32 == key;
     if !HELD.load(Relaxed) {
@@ -525,12 +525,9 @@ pub fn message(m: u32, wp: WPARAM, lp: LPARAM) -> Option<LRESULT> {
         | WM_MOUSEMOVE | WM_LBUTTONDOWN | WM_LBUTTONUP | WM_LBUTTONDBLCLK | WM_RBUTTONDOWN
         | WM_RBUTTONUP | WM_RBUTTONDBLCLK | WM_MBUTTONDOWN | WM_MBUTTONUP | WM_MBUTTONDBLCLK
         | WM_MOUSEWHEEL => {
-            // egui's (RESUME, the pages); F11 refused: no resize inside the hold
-            // popped out, the game window's mouse is not the board's
-            let game_mouse =
-                crate::POPPED.load(Relaxed) && (WM_MOUSEFIRST..=WM_MOUSELAST).contains(&m);
-            if !(matches!(m, WM_KEYDOWN | WM_KEYUP) && wp.0 == 0x7A) && !game_mouse {
-                crate::input(m, wp, lp);
+            // egui's (RESUME, the pages; the board window's to its own egui); F11 refused: no resize inside the hold
+            if !(matches!(m, WM_KEYDOWN | WM_KEYUP) && wp.0 == 0x7A) {
+                crate::input(board, m, wp, lp);
             }
             Some(LRESULT(0))
         }
