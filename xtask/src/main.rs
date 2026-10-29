@@ -318,13 +318,16 @@ fn hooks(e1011: bool) -> impl Iterator<Item = (&'static str, bool, &'static str)
 /// pull requests' CI runs, builds and tests the 2010-11 hooks ([`HOOKS`]: wccfk.dll and the 2010-11 Linux server's
 /// winmm.dll) only when a change touches one of these; the full check, `check ci` (main, schedule, releases),
 /// `build` and `package` always do. The hook crate and its dependency count whole (both editions' hooks share their
-/// code), and so do the toolchain and the locked crates.
+/// code), and so do the toolchain and the locked crates. Package-less 2010-11 files (README, deploy scripts) are only
+/// staged or linted, by `check ci` and the lint job alike.
 const PATHS_1011: &[&str] = &[
     "editions/2010-11/",
     "legacy/2010-11/",
     "native/2010-11/",
     "native/hook/",
     "native/common/",
+    // test_dhcphook.exe, the 2010-11 hook's kit test, and the 2010-11 kit's inject.exe and FPR_Emu.exe
+    "native/programs/",
     "crates/forza/src/setup/e1011.rs",
     "crates/forza/examples/setup1011.rs",
     "deploy/linux/wccf-1011",
