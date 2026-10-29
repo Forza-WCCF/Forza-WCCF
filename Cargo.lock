@@ -893,7 +893,7 @@ dependencies = [
 
 [[package]]
 name = "cap"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "png",
  "windows",
@@ -2061,7 +2061,7 @@ dependencies = [
 
 [[package]]
 name = "forza"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "aes 0.9.3",
  "csv",
@@ -2089,7 +2089,7 @@ dependencies = [
 
 [[package]]
 name = "forza-hook"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "forza-native",
  "windows-sys 0.61.2",
@@ -2097,21 +2097,21 @@ dependencies = [
 
 [[package]]
 name = "forza-icmp"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "forza-native"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "forza-netguard"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "forza-native",
  "windows-sys 0.61.2",
@@ -2119,7 +2119,7 @@ dependencies = [
 
 [[package]]
 name = "forza-panel"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "egui",
  "forza",
@@ -2132,7 +2132,7 @@ dependencies = [
 
 [[package]]
 name = "forza-programs"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "forza-native",
  "windows",
@@ -2141,7 +2141,7 @@ dependencies = [
 
 [[package]]
 name = "forza-server"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "clap",
  "ed25519-dalek",
@@ -2156,7 +2156,7 @@ dependencies = [
 
 [[package]]
 name = "forza-ui"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "deunicode",
  "eframe",
@@ -2173,7 +2173,7 @@ dependencies = [
 
 [[package]]
 name = "forza-wccfnet"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "forza-native",
  "windows-sys 0.61.2",
@@ -3402,7 +3402,7 @@ dependencies = [
 
 [[package]]
 name = "launcher"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "csv",
  "eframe",
@@ -3486,7 +3486,7 @@ checksum = "d4a5ff6bcca6c4867b1c4fd4ef63e4db7436ef363e0ad7531d1558856bae64f4"
 
 [[package]]
 name = "linux-host"
-version = "0.5.0"
+version = "0.5.1"
 
 [[package]]
 name = "linux-raw-sys"
@@ -6911,7 +6911,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vslink"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "bytes",
  "forza",
@@ -7162,7 +7162,7 @@ dependencies = [
 
 [[package]]
 name = "wccf-installer"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "aes 0.9.3",
  "anyhow",
@@ -7952,7 +7952,7 @@ checksum = "32ac00cd3f8ec9c1d33fb3e7958a82df6989c42d747bd326c822b1d625283547"
 
 [[package]]
 name = "xtask"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "clap",
