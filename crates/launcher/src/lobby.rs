@@ -367,18 +367,29 @@ pub struct HostRoom {
 }
 
 impl HostRoom {
-    /// A room on `server` ([`shop_lobby`]) for the shop tunnel `shop_id`, private unless `public` (listed in SHOPS,
-    /// never with its code); else why not (`FULL`, `ERR slow`, `ERR host`, no answer). `note` hears about a wait (this
+    /// A room on `server` ([`shop_lobby`]) for the shop tunnel `shop_id`, private unless `public` (listed in SHOPS as
+    /// `name`, never with its code; empty: the desk's name); else why not (`FULL`, `ERR slow`, `ERR host`, no answer). `note` hears about a wait (this
     /// id's room from before still on the desk).
     pub fn open(
         server: &str,
         shop_id: &str,
         public: bool,
+        name: &str,
         log: Log,
         note: &dyn Fn(&crate::run::Text),
     ) -> Result<HostRoom, String> {
         let addr = socket(server).ok_or_else(|| format!("{server} is not an address"))?;
-        let mut made = lobby::create_shop(addr, shop_id, public);
+        let mut name = name;
+        let mut made = lobby::create_shop(addr, shop_id, public, name);
+        // a desk from before names answers ERR to the named word: once more, with its own name, and keep it so
+        if !lobby::shop_name(name).is_empty()
+            && made
+                .as_ref()
+                .is_err_and(|e| e.starts_with("ERR") && e != "ERR host" && e != "ERR slow")
+        {
+            name = "";
+            made = lobby::create_shop(addr, shop_id, public, name);
+        }
         if made.as_ref().is_err_and(|e| e == "ERR host") {
             // one more CREATE only: each counts in the desk's per-address limit
             let wait = DESK_HOST_STALE + Duration::from_secs(2);
@@ -388,7 +399,7 @@ impl HostRoom {
                     .arg("s", wait.as_secs()),
             );
             thread::sleep(wait);
-            made = lobby::create_shop(addr, shop_id, public);
+            made = lobby::create_shop(addr, shop_id, public, name);
         }
         match made {
             Ok(Created::Room { id, code, ticket, .. }) => {
@@ -406,7 +417,7 @@ impl HostRoom {
             }
             Ok(Created::Full) => Err(format!("{server}: full")),
             Err(e) if e == "ERR host" => Err(format!(
-                "{server}: this shop's room from before is still there; try again in a minute"
+                "{server}: this arcade's room from before is still there; try again in a minute"
             )),
             Err(e) => Err(format!("{server}: {e}")),
         }

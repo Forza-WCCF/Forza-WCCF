@@ -1127,21 +1127,17 @@ fn lobby_filters() {
     h.run_steps(4);
     let shown = |v: &lobby::LobbyView| v.visible().len();
     assert_eq!(shown(&v.borrow()), 3);
-    h.get_by_label("Open shops only").click();
+    h.get_by_label("Open arcades only").click();
     h.run_steps(2);
     assert!(v.borrow().open_only);
     assert_eq!(shown(&v.borrow()), 1);
-    h.get_by_label("Open shops only").click();
+    h.get_by_label("Open arcades only").click();
     h.get_by_label("Ping under 150 ms").click();
     h.run_steps(2);
     assert!(!v.borrow().open_only && v.borrow().ping_ok);
     assert_eq!(shown(&v.borrow()), 2);
-    h.get_by_label("IT").click();
-    h.run_steps(2);
-    assert_eq!(v.borrow().lang_filter, 2);
-    h.get_by_label("All").click();
-    h.run_steps(2);
-    assert_eq!(v.borrow().lang_filter, 0);
+    // the room language filter is hidden for now
+    assert!(h.query_by_label("IT").is_none() && h.query_by_label("All").is_none());
 }
 
 /// 2017-18 with the shared shop on: HOST SHOP (and H) and its list switch on the SHOPS tab, the code typed and JOINed in
@@ -1160,13 +1156,13 @@ fn lobby_shop_rooms() {
         }
     });
     h.run_steps(4);
-    h.get_by_label("HOST SHOP").click();
+    h.get_by_label("HOST ARCADE").click();
     h.run_steps(2);
     assert_eq!(got.take(), Some(HostShop));
     h.key_press(egui::Key::H);
     h.run_steps(2);
     assert_eq!(got.take(), Some(HostShop));
-    h.get_by_label("List my shop when I host").click();
+    h.get_by_label("List my arcade when I host").click();
     h.run_steps(2);
     assert_eq!(got.take(), Some(ListShop(true)));
     assert!(v.borrow().list_shop);
@@ -1207,7 +1203,7 @@ fn lobby_lan() {
         }
     });
     h.run_steps(4);
-    h.get_by_label("HOST LAN SHOP").click();
+    h.get_by_label("HOST LAN ARCADE").click();
     h.run_steps(2);
     assert_eq!(got.take(), Some(HostLan));
     // the JOINs: the code row's and the list's (both greyed), the two found shops', the typed address's
@@ -1224,5 +1220,21 @@ fn lobby_lan() {
     assert_eq!(got.take(), Some(JoinLan("10.0.0.7:20031".into())));
     v.borrow_mut().hosting = true;
     h.run_steps(2);
-    assert!(h.query_by_label("HOST LAN SHOP").is_none());
+    assert!(h.query_by_label("HOST LAN ARCADE").is_none());
+}
+
+/// `list_fit`: in a short tab the list gives up rows so the actions and the Direct address fold stay in view, and
+/// never drops under three rows.
+#[test]
+fn lobby_list_fits_a_short_tab() {
+    let _gpu = gpu();
+    let mut v = lobby::LobbyView::sample(lobby::Scenario::List);
+    v.list_fit = true;
+    let mut h = harness(Vec2::new(lobby::SIZE.x, 470.0), 1.0, Edition::E1011, |ui| {
+        lobby::show(ui, &mut v, Lang::En);
+    });
+    h.run_steps(6);
+    let bottom = h.get_by_label_contains("Direct address").rect().bottom();
+    assert!(bottom <= 470.0, "the Direct address fold ends at {bottom}");
+    assert!(h.get_by_label("HOST VS").rect().top() > h.get_by_label("MILANO CUP").rect().bottom());
 }

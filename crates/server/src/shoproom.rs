@@ -53,6 +53,8 @@ struct Room {
     by: String,
     /// Listed in `LOBBY` (without its code)
     public: bool,
+    /// Its name in `LOBBY`, from `CREATE shop` ([`forza::online::lobby::shop_name`]); empty: the desk's default
+    name: String,
     /// seats[0] is the host (seat 1)
     seats: Vec<Sitter>,
 }
@@ -126,7 +128,8 @@ impl ShopRooms {
         self.rooms.iter().filter(|r| r.by == by).count()
     }
 
-    /// A new room with its host on seat 1 (`host_id` checked by the caller with [`valid_id`]).
+    /// A new room with its host on seat 1 (`host_id` checked by the caller with [`valid_id`], `name` already
+    /// [`forza::online::lobby::shop_name`]).
     #[allow(clippy::too_many_arguments)]
     pub fn create(
         &mut self,
@@ -135,6 +138,7 @@ impl ShopRooms {
         host_id: &str,
         by: &str,
         public: bool,
+        name: String,
         ticket: String,
         end: Instant,
     ) {
@@ -143,6 +147,7 @@ impl ShopRooms {
             code,
             by: by.to_owned(),
             public,
+            name,
             seats: vec![Sitter {
                 seat: 1,
                 ticket,
@@ -252,7 +257,11 @@ impl ShopRooms {
                 let seats = r.seats.len() as u8;
                 Shop {
                     id: r.id.clone(),
-                    name: "Shop room".into(),
+                    name: if r.name.is_empty() {
+                        forza::online::lobby::SHOP_ROOM_NAME.into()
+                    } else {
+                        r.name.clone()
+                    },
                     seats,
                     max: 8,
                     state: if seats >= 8 {
@@ -290,6 +299,7 @@ mod tests {
             &host,
             "10.0.0.1",
             public,
+            String::new(),
             "th".into(),
             now + Duration::from_secs(60),
         );

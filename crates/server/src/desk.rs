@@ -591,9 +591,22 @@ fn session(
         ["READY", id, t] if rooms => return ready(sh, id, t, &mut out),
         ["CLOSE", id, t] if rooms || !e1011 => return close(sh, id, t, &mut out),
         // 2017-18 shop rooms: no matcher needed, the shop's own desk seats its PCs
-        ["CREATE", "shop", host] if !e1011 => return create_shop(sh, ip, host, false, &mut out),
+        ["CREATE", "shop", host] if !e1011 => {
+            return create_shop(sh, ip, host, false, String::new(), &mut out);
+        }
         ["CREATE", "shop", host, "public"] if !e1011 => {
-            return create_shop(sh, ip, host, true, &mut out);
+            return create_shop(sh, ip, host, true, String::new(), &mut out);
+        }
+        // a named room: the rest of the line is its name
+        [
+            "CREATE",
+            "shop",
+            host,
+            vis @ ("public" | "private"),
+            ref name @ ..,
+        ] if !e1011 => {
+            let name = lobby::shop_name(&name.join(" "));
+            return create_shop(sh, ip, host, vis == "public", name, &mut out);
         }
         ["JOIN", code] if !e1011 => return join_shop(sh, ip, code, None, &mut out),
         ["JOIN", code, n] if !e1011 => {
@@ -961,7 +974,7 @@ fn create(sh: &Shared, ip: &str, open: bool, out: &mut TcpStream) -> io::Result<
     out.write_all(reply.line().as_bytes())
 }
 
-/// `CREATE shop ID [public]` -> `ROOM id code t 1` (the host PC on seat 1), `FULL` (the desk's rooms, or this
+/// `CREATE shop ID [public]` (or `CREATE shop ID public|private NAME...`) -> `ROOM id code t 1` (the host PC on seat 1), `FULL` (the desk's rooms, or this
 /// address's [`DeskConfig::shop_rooms_per_address`]), `ERR id` (not a tunnel id) or `ERR host` (that tunnel id
 /// holds a live room already: one room per host).
 fn create_shop(
@@ -969,6 +982,7 @@ fn create_shop(
     ip: &str,
     host: &str,
     public: bool,
+    name: String,
     out: &mut TcpStream,
 ) -> io::Result<()> {
     if !crate::shoproom::valid_id(host) {
@@ -1018,6 +1032,7 @@ fn create_shop(
         host,
         ip,
         public,
+        name,
         ticket,
         now + sh.cfg.reserve_lease,
     );

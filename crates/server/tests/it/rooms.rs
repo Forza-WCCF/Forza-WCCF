@@ -345,7 +345,7 @@ fn tunnel_id(seed: u8) -> String {
 }
 
 fn shop_room(a: SocketAddr, host: &str, public: bool) -> (String, String, String) {
-    match lobby::create_shop(a, host, public).unwrap() {
+    match lobby::create_shop(a, host, public, "").unwrap() {
         Created::Room {
             id,
             code,
@@ -418,7 +418,14 @@ fn listed_rooms_join_by_id_private_ones_by_code_only() {
     let host_id = tunnel_id(1);
     let (private_id, private_code, private_t) = shop_room(a, &host_id, false);
     let other_host = tunnel_id(2); // one room per host id
-    let (public_id, public_code, public_t) = shop_room(a, &other_host, true);
+    // a named room: the desk keeps the name as the words carry it
+    let (public_id, public_code, public_t) =
+        match lobby::create_shop(a, &other_host, true, " Sala \t Roma ").unwrap() {
+            Created::Room {
+                id, code, ticket, ..
+            } => (id, code, ticket),
+            r => panic!("{r:?}"),
+        };
     let line = say(a, "LOBBY 2017-18");
     let l = Lobby::parse(&line).unwrap();
     assert!(
@@ -431,6 +438,7 @@ fn listed_rooms_join_by_id_private_ones_by_code_only() {
         .find(|s| s.id == public_id)
         .expect("public: listed");
     assert_eq!((row.seats, row.max, row.room), (1, 8, true));
+    assert_eq!(row.name, "Sala Roma");
     assert_eq!(
         l.shops.iter().filter(|s| s.room).count(),
         1,
@@ -484,7 +492,7 @@ fn rooms_per_address_and_per_host_are_capped() {
     );
     shop_room(a, &tunnel_id(2), false);
     assert_eq!(
-        lobby::create_shop(a, &tunnel_id(3), false).unwrap(),
+        lobby::create_shop(a, &tunnel_id(3), false, "").unwrap(),
         Created::Full
     );
     assert!(lobby::close(a, &id, &t).unwrap());

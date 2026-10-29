@@ -57,10 +57,11 @@ KEYS
   Pause (P or PAUSE) holds a match for up to 20 seconds; P or RESUME resumes sooner. The next pause waits
   10 seconds. No pause online.
 
-ONLINE (VS between two homes)
+ONLINE
   1. Pick Online under PLAY. Open Direct address and type the server's address (HOST or HOST:PORT). The project's
-     server only admits addresses on its allow list: ask its operator to add yours. SHOPS stays greyed for 2017-18;
-     use VS ROOMS.
+     server only admits addresses on its allow list: ask its operator to add yours. In ARCADES, HOST ARCADE opens
+     an arcade and shows its code; friends type it in Room code, or JOIN a listed arcade room. Arcade name, under
+     HOST ARCADE, is the name others see in the list.
   2. HOST VS makes a room and shows its code (e.g. K7QM). Your friend picks that room and presses JOIN.
      QUICK MATCH joins the oldest open room, or opens one. LEAVE (Esc) gives up the seat.
   3. Both players press READY; the game starts after a 5-second countdown. If nobody joins within about 90 seconds,
@@ -76,13 +77,12 @@ ONLINE (VS between two homes)
 
 NOT IN THIS ALPHA
   - Career mode.
-  - LAN play and shops with several seats: one seat per PC. Online is VS between two homes only.
   - A render scale.
 
 KNOWN ISSUES
   - The control program may crash after about 90 minutes idle. Restart the game; your club is kept.
   - Registering a team may wait about 95 seconds before it goes on.
-  - Online VS has not been played end to end on two PCs yet: treat it as a test.
+  - An online match may drop to a CPU opponent after about 2 minutes, most often between AMD and Intel PCs.
 
 ANTIVIRUS AND SMARTSCREEN
   The programs are unsigned, and Forza-WCCF changes copies of the game's programs (never the originals, kept in
