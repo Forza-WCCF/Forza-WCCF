@@ -10,7 +10,7 @@
 //! card's access code (`seat1_aime.txt`) or a `*.tmp`; `aimedb.json` with each access code turned into a short hash, so
 //! the Aime ids stay readable; and the 2017-18 game server's store as a consistent copy (`VACUUM INTO`, as the Launcher
 //! may have it open), its shop guests' tokens cut short. The access codes are also replaced in the logs (the Aime
-//! stand-ins log them). When the ZIP is too big the log tails get shorter, down to
+//! stand-ins log them) and blanked in the dumps (also as UTF-16 and packed BCD). When the ZIP is too big the log tails get shorter, down to
 //! 64 KB; only if that is still too big the saves are left out and the tails start again from full. `report.txt` says
 //! what of the save data was left out. `pc.txt`: Windows, CPU, RAM, GPUs and display (scrubbed like the logs).
 //! A hosting PC's shop logs (`seat_broker.txt`, `match_relay.txt`) are in `data\logs` already.
@@ -545,6 +545,24 @@ pub fn pack_within(
     let pc = scrub.scrub(pc_text().into_bytes());
     let (saves, save_notes) = save_data(kit);
     let codes = access_codes(kit);
+    // a crash dump also holds the codes as the stand-ins keep them: UTF-16 text and the 10 packed BCD bytes
+    let dump_codes: Vec<Vec<u8>> = codes
+        .iter()
+        .flat_map(|c| {
+            let mut v = vec![
+                c.as_bytes().to_vec(),
+                c.encode_utf16().flat_map(u16::to_le_bytes).collect(),
+            ];
+            if c.len() == 20 && c.is_ascii() {
+                v.extend(
+                    (0..10)
+                        .map(|i| u8::from_str_radix(&c[i * 2..i * 2 + 2], 16).ok())
+                        .collect::<Option<Vec<u8>>>(),
+                );
+            }
+            v
+        })
+        .collect();
     let (mut tail, mut with_saves) = (full, true);
     loop {
         let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
@@ -579,8 +597,8 @@ pub fn pack_within(
             if let Ok(data) = fs::read(&path) {
                 z.start_file(arc, opts).map_err(zip_err)?;
                 let mut data = scrub.blank(data);
-                for code in &codes {
-                    data = replace(&data, code.as_bytes(), false, |m| vec![b'_'; m.len()]);
+                for code in &dump_codes {
+                    data = replace(&data, code, false, |m| vec![b'_'; m.len()]);
                 }
                 z.write_all(&data)?;
                 n += 1;
@@ -855,8 +873,11 @@ mod tests {
             "PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0; CREATE TABLE t (b BLOB);",
         )
         .unwrap();
-        live.execute("INSERT INTO t VALUES (?1)", [noise(SAVE_MAX as usize + 1024, 5)])
-            .unwrap();
+        live.execute(
+            "INSERT INTO t VALUES (?1)",
+            [noise(SAVE_MAX as usize + 1024, 5)],
+        )
+        .unwrap();
         assert!(small(&save.join("gamesvr").join("gamesvr.db")));
         let (blob, _) = pack(d.path(), None, &Scrub::default(), TAIL, None).unwrap();
         let mut z = zip::ZipArchive::new(Cursor::new(blob)).unwrap();
@@ -867,6 +888,38 @@ mod tests {
             "[SAVE LOGS] save/gamesvr/gamesvr.db left out: bigger than 3 MB\n"
         );
         drop(live);
+    }
+
+    #[test]
+    fn dumps_lose_the_access_code_in_every_form_and_keep_their_length() {
+        let d = tempfile::tempdir().unwrap();
+        let (save, dumps) = (d.path().join("data/save"), d.path().join("data/dumps"));
+        fs::create_dir_all(&save).unwrap();
+        fs::create_dir_all(&dumps).unwrap();
+        let code = "50123456789012345678";
+        fs::write(save.join("seat1_aime.txt"), code).unwrap();
+        let bcd = [0x50, 0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56, 0x78];
+        let utf16: Vec<u8> = code.encode_utf16().flat_map(u16::to_le_bytes).collect();
+        let forms: [&[u8]; 4] = [
+            code.as_bytes(),
+            b"50 12 34 56 78 90 12 34 56 78",
+            &bcd,
+            &utf16,
+        ];
+        let mut dump = b"MDMP".to_vec();
+        for f in forms {
+            dump.extend_from_slice(f);
+            dump.extend_from_slice(&[0xEE; 8]);
+        }
+        fs::write(dumps.join("x_lean.dmp"), &dump).unwrap();
+        let (blob, _) = pack(d.path(), None, &Scrub::default(), TAIL, None).unwrap();
+        let mut z = zip::ZipArchive::new(Cursor::new(blob)).unwrap();
+        let out = read(&mut z, "dumps/x_lean.dmp");
+        assert_eq!(out.len(), dump.len());
+        assert!(out.starts_with(b"MDMP"));
+        for f in forms {
+            assert!(!out.windows(f.len()).any(|w| w == f), "{f:02x?} left in");
+        }
     }
 
     /// Bytes that do not compress (xorshift).
