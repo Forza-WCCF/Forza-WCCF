@@ -774,8 +774,8 @@ fn spot_in(pitch: Rect, inside: Rect, spot: Pos2) -> Rect {
     ))
 }
 
-/// The in-game board's height `width` wide ([`Mat::row`]): the pitch, its gap of 12 (8 and an item spacing of 4 twice),
-/// the bench strip.
+/// The board window's board height `width` wide ([`Mat::row`]): the pitch, its gap of 12 (8 and the desk's item
+/// spacing of 4), the bench strip.
 pub fn row_height(width: f32) -> f32 {
     width * PITCH_ASPECT + 12.0 + art::bench_h(width)
 }
@@ -1277,7 +1277,7 @@ pub fn formation_board(
                         Color32::from_black_alpha(140),
                     );
                 }
-                if pure && (resp.is_pointer_button_down_on() || is_dragged) {
+                if pure && (resp.is_pointer_button_down_on() || is_dragged || resp.clicked()) {
                     ui.data_mut(|d| d.insert_temp(touched_id(), c.clone()));
                 }
                 if resp.hovered() && dragging.is_none() && !pure {
@@ -2902,6 +2902,44 @@ mod tests {
         assert_eq!(frame(vec![press(true)], 2.1, &mut b).1, (Some(101), false));
         assert!(!frame(vec![press(false)], 2.2, &mut b).1.1);
         assert_eq!(frame(vec![], 4.0, &mut b).1, (None, false));
+        // a tap pressed and let go in one frame: touched too
+        assert_eq!(
+            frame(vec![press(true), press(false)], 5.0, &mut b).1,
+            (Some(101), false)
+        );
+    }
+
+    /// [`row_height`] is what the board window's board (item spacing 4, bench under the pitch) takes, bench included.
+    #[test]
+    fn row_height_holds_the_bench() {
+        let mut b = forza::cards::board(&[], &[]);
+        let ctx = egui::Context::default();
+        theme::install(&ctx, theme::Edition::E1718, &theme::font_dir()).unwrap();
+        let mut used = Rect::NOTHING;
+        let raw = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(600.0, 1400.0))),
+            ..Default::default()
+        };
+        ctx.run_ui(raw, |ui| {
+            ui.spacing_mut().item_spacing.y = 4.0;
+            let top = ui.cursor().top();
+            formation_board(
+                ui,
+                &mut b,
+                &Links::default(),
+                None,
+                crate::Lang::En,
+                false,
+                true,
+            );
+            used = ui.min_rect().with_min_y(top);
+        })
+        .textures_delta
+        .clear();
+        assert!(
+            (used.height() - row_height(used.width())).abs() < 0.5,
+            "{used:?}"
+        );
     }
 
     /// A card dragged off the board and let go leaves the table, and says which card and where it was.

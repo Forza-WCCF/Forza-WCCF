@@ -70,7 +70,7 @@ over the picture one at a time, and while a page is open its keys do not reach t
   down/up. The bindings come from KEYS, so a change applies at once.
 - **Formation board** (the card table): a pitch with up to 16 player cards; 11 on the pitch, the rest on the bench.
   - Drag a card to move it; drop on another card to swap (the target is marked while dragging).
-  - Right-click takes a card off.
+  - Dragging a card off the board takes it off (no right-click: a long press on a touch screen is one).
   - Resting the mouse on a card shows it big with a caption after `hover_delay_ms` (2010–11: setting, default 1000).
   - Every move updates the game's card table at once.
 - **Catalogue** ("+ CARD"): find a card and put it on the table.

@@ -1378,6 +1378,7 @@ impl Render {
                     let _ = sb.Apply();
                 }
                 POPPED.store(popped, Relaxed);
+                self.st.set_popped(popped);
                 return None;
             }
             let (w, h) = (cr.right as u32, cr.bottom as u32);
@@ -1390,7 +1391,7 @@ impl Render {
             // for the frame
             let popped = board.is_some_and(|bw| self.board_frame(dev, bw));
             POPPED.store(popped, Relaxed);
-            self.st.popped = popped;
+            self.st.set_popped(popped);
             let drawn = self.compose(dev, &sc, w, h, true);
             let _ = dev.SetViewport(&vp);
             let _ = sb.Apply();

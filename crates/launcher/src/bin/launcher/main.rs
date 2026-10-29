@@ -1338,6 +1338,36 @@ fn panic_text(p: &(dyn std::any::Any + Send)) -> String {
         .unwrap_or_else(|| "panic".into())
 }
 
+/// The primary screen's work area (the screen less the taskbar) in points, where the window opens.
+fn work_area() -> Option<egui::Rect> {
+    use windows_sys::Win32::Foundation::RECT;
+    use windows_sys::Win32::Graphics::Gdi::{GetDC, GetDeviceCaps, LOGPIXELSY, ReleaseDC};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SPI_GETWORKAREA, SystemParametersInfoW};
+    let mut r = RECT {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
+    // SAFETY: SPI_GETWORKAREA fills the RECT given; the screen DC is released right after its one query
+    let dpi = unsafe {
+        if SystemParametersInfoW(SPI_GETWORKAREA, 0, (&raw mut r).cast(), 0) == 0 {
+            return None;
+        }
+        let dc = GetDC(ptr::null_mut());
+        let dpi = GetDeviceCaps(dc, LOGPIXELSY as _);
+        ReleaseDC(ptr::null_mut(), dc);
+        dpi
+    };
+    // per-monitor aware (the manifest): pixels at the system DPI, the primary screen's
+    let s = if dpi > 0 { dpi as f32 / 96.0 } else { 1.0 };
+    let rect = egui::Rect::from_min_max(
+        egui::pos2(r.left as f32, r.top as f32) / s,
+        egui::pos2(r.right as f32, r.bottom as f32) / s,
+    );
+    (rect.height() > 0.0).then_some(rect)
+}
+
 /// The window, until it is closed (or gone because the game is up and then ended well).
 fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
     let own = env!("CARGO_PKG_VERSION");
@@ -1372,14 +1402,16 @@ fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
         _ => None,
     };
     let mut tries = forced.map_or(vec![eframe::Renderer::Glow, eframe::Renderer::Wgpu], |r| vec![r]);
+    let work = work_area();
+    let size = screen::window_size(work.map(|w| w.height()));
     let mut ran = Ok(());
     while !tries.is_empty() {
         let renderer = tries.remove(0);
-        let options = eframe::NativeOptions {
+        let mut options = eframe::NativeOptions {
             renderer,
             viewport: egui::ViewportBuilder::default()
                 .with_title(&title)
-                .with_inner_size(screen::SIZE)
+                .with_inner_size(size)
                 .with_resizable(false)
                 .with_maximize_button(false)
                 .with_decorations(false)
@@ -1390,6 +1422,12 @@ fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
                 ),
             ..Default::default()
         };
+        // shortened: centred in the work area, so none of it is under the taskbar or off the screen
+        if let Some(w) = work
+            && size.y < screen::SIZE.y
+        {
+            options.viewport = options.viewport.with_position(w.center() - size / 2.0);
+        }
         let fonts = &fonts;
         // a renderer that panics (a driver wgpu cannot use) is tried like one that fails: the next one, or the message
         let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

@@ -259,6 +259,7 @@ fn an_old_desk_gets_the_room_without_its_name() {
     let addr = l.local_addr().unwrap();
     let asked: Lines = Arc::default();
     let seen = asked.clone();
+    let seen2 = asked.clone();
     thread::spawn(move || {
         for mut c in l.incoming().flatten() {
             let mut b = [0u8; 256];
@@ -286,6 +287,20 @@ fn an_old_desk_gets_the_room_without_its_name() {
             format!("CREATE shop {id} public Sala Roma"),
             format!("CREATE shop {id} public")
         ]
+    );
+    drop(asked);
+    drop(room);
+    // a private room sends no name: one CREATE, even on an old desk
+    let n = seen2.lock().unwrap().len();
+    let (log, _) = logger("old desk private host");
+    HostRoom::open(&addr.to_string(), &id, false, "Sala Roma", log, &|_| {}).unwrap();
+    let asked = seen2.lock().unwrap();
+    assert_eq!(
+        asked[n..]
+            .iter()
+            .filter(|l| l.starts_with("CREATE"))
+            .collect::<Vec<_>>(),
+        [&format!("CREATE shop {id}")]
     );
 }
 
