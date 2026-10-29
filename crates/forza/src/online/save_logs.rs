@@ -569,8 +569,12 @@ pub fn pack_within(
         let mut z = ZipWriter::new(Cursor::new(Vec::new()));
         let mut n = 0;
         let mut notes = save_notes.clone();
-        if !with_saves && !saves.is_empty() {
-            notes.push("save data left out: the ZIP was too big with it".into());
+        if !with_saves {
+            notes.extend(
+                saves
+                    .iter()
+                    .map(|(arc, _)| format!("{arc} left out: the ZIP was too big with it")),
+            );
         }
         let mut report = note.map(|t| t.as_bytes().to_vec());
         if !notes.is_empty() {
@@ -966,7 +970,10 @@ mod tests {
         assert!((128 * 1024..140 * 1024).contains(&log_len(&mut z)));
         let report = String::from_utf8(read(&mut z, "report.txt")).unwrap();
         assert!(
-            report.starts_with("hi\n\n[SAVE LOGS] save data left out"),
+            report.starts_with(
+                "hi\n\n[SAVE LOGS] save/big.bin left out: the ZIP was too big with it\n\
+                 [SAVE LOGS] save/seat1_club.bin left out: the ZIP was too big with it\n"
+            ),
             "{report}"
         );
     }
