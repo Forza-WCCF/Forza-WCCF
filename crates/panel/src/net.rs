@@ -999,12 +999,21 @@ mod tests {
         );
     }
 
-    /// A hosted shop's two matches (live 2026-10-27): seats 1-2 and 3-4, every opponent at 127.0.0.1 through the
-    /// tunnel. Each seat's packets from the game's peer socket reach its opponent through the relay; seats 3-6 from
+    /// A hosted shop's matches (live 2026-10-27: seats 1-2 and 3-4; the relay takes seats up to 8), every opponent at
+    /// 127.0.0.1 through the tunnel. Each seat's packets from the game's peer socket reach its opponent through the relay; seats 3-6 from
     /// another socket (MATCH_PORT, CLIENT_PORT1..3) stay direct.
     #[test]
     fn a_second_match_in_the_shop_goes_through_the_relay() {
-        for (me, opponent) in [(1, 2), (2, 1), (3, 4), (4, 3)] {
+        for (me, opponent) in [
+            (1, 2),
+            (2, 1),
+            (3, 4),
+            (4, 3),
+            (5, 6),
+            (6, 5),
+            (7, 8),
+            (8, 7),
+        ] {
             let to = sa([127, 0, 0, 1], 20000 + opponent as u16);
             assert_eq!(
                 peer_seat(&to, false, Some(me), true),
