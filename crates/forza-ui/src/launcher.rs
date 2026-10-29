@@ -17,10 +17,7 @@ pub const SIZE: egui::Vec2 = egui::vec2(600.0, 820.0);
 /// The window's size for a screen whose work area (the screen less the taskbar) is `work_height` points tall: [`SIZE`],
 /// shorter on a short screen (1366x768, 1280x720) so PLAY and the status line stay on it; the tabs scroll.
 pub fn window_size(work_height: Option<f32>) -> egui::Vec2 {
-    vec2(
-        SIZE.x,
-        work_height.map_or(SIZE.y, |h| h.clamp(480.0, SIZE.y)),
-    )
+    vec2(SIZE.x, work_height.map_or(SIZE.y, |h| h.min(SIZE.y)))
 }
 
 /// A release in the update list.
