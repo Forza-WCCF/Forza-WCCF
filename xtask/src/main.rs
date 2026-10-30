@@ -1417,6 +1417,10 @@ fn tests(
         if !expr.is_empty() {
             test.args(["-E", &expr.join(" & ")]);
         }
+        // a filtered package may have no tests (forza-icmp has none): nothing to run is a pass
+        if only.is_some() {
+            test.arg("--no-tests=pass");
+        }
         test.args(extra);
     } else {
         test.arg("--");
