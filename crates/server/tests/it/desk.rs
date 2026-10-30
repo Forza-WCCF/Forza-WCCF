@@ -209,3 +209,55 @@ fn a_club_needs_a_held_seat() {
     club::release(desk.addr(), 50, code).unwrap();
     assert!(club::fetch(desk.addr(), 50, code, "").is_err(), "dropped");
 }
+
+/// det-math: a PC whose match engine math differs from a seat already held is refused (its engine would desync against
+/// that seat's); the same token, and a reclaim, take a seat; a PC that sends none counts as the original math.
+#[test]
+fn seats_must_run_the_same_det_math() {
+    use std::io::{Read, Write};
+    let mut c = DeskConfig::new(Edition::E1718);
+    c.bind = "127.0.0.1".into();
+    c.port = 0;
+    let desk = start(c, capture().0).unwrap();
+    let want = |line: &str| {
+        let mut s = std::net::TcpStream::connect(desk.addr()).unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        s.write_all(format!("{line}\n").as_bytes()).unwrap();
+        let mut b = [0u8; 128];
+        let n = s.read(&mut b).unwrap();
+        (s, String::from_utf8_lossy(&b[..n]).trim_end().to_owned())
+    };
+    let (_host, got) = want("WANT DMATH 0123456789abcdef");
+    assert_eq!(got, "SEAT 1 PROJECTOR 1");
+    let (_same, got) = want("WANT DMATH 0123456789abcdef");
+    assert_eq!(got, "SEAT 2 PROJECTOR 0");
+    for (line, theirs) in [
+        ("WANT DMATH 0123456789abcdef-off", "0123456789abcdef-off"),
+        ("WANT DMATH fedcba9876543210", "fedcba9876543210"),
+        ("WANT", "none"),
+        ("WANT SEAT 5 TICKET ab12 DMATH none", "none"),
+    ] {
+        let (_, got) = want(line);
+        assert_eq!(
+            got,
+            format!("ERR dmath 0123456789abcdef {theirs}"),
+            "{line}"
+        );
+    }
+    // the seat-desk client's own words reach the same answer
+    let refused = forza::online::seat::claim_with(
+        desk.addr(),
+        None,
+        None,
+        Some("0123456789abcdef-off"),
+        Duration::from_secs(5),
+        forza::online::seat::Timing::default(),
+        std::sync::Arc::new(|_| {}),
+    )
+    .err()
+    .unwrap();
+    assert_eq!(
+        refused.detail,
+        "ERR dmath 0123456789abcdef 0123456789abcdef-off"
+    );
+}
