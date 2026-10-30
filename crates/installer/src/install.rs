@@ -601,7 +601,10 @@ mod tests {
         fs::write(&exe, b"").unwrap();
         let link = t.join("Forza-WCCF 2017-18.lnk");
         lnk::write(&link, &exe, &t).unwrap();
-        assert_eq!(lnk::read(&link).unwrap(), (exe, t.clone()));
+        let (target, dir) = lnk::read(&link).unwrap();
+        let same =
+            |a: &Path, b: &Path| fs::canonicalize(a).unwrap() == fs::canonicalize(b).unwrap(); // 8.3 names expand
+        assert!(same(&target, &exe) && same(&dir, &t), "{target:?} {dir:?}");
         fs::remove_dir_all(&t).unwrap();
     }
 
