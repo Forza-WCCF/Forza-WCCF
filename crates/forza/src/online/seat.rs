@@ -157,7 +157,10 @@ pub fn dmath_token(game: &Path, seat: &Path) -> String {
             || l.starts_with("det-math ") && l.contains("/") && l.contains("atan2")
     });
     match last {
-        Some(l) if !l.starts_with("det-math 140/140, atan2 hooked") => format!("{hash}-off"),
+        // the DLL writes "det-math n/n" only when every site of its table was patched (140 today)
+        Some(l) if !l.contains(", atan2 hooked") || l.starts_with("det-math NOT") => {
+            format!("{hash}-off")
+        }
         _ => hash,
     }
 }
