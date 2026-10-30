@@ -1,16 +1,17 @@
 //! Not shipped. test_logowin.exe <path to the 2017-18 winmm.dll>: once the hook has loaded, this program's
 //! CreateProcessA of logowin.exe, made as control_Release makes it, must be answered in-process: success, no new
 //! process, a handle to this process that only queries (control's TerminateProcess on it fails), and the message in
-//! logowin_messages.txt in the current folder. The start is made only once the import points into the hook; the test
-//! folder has no logowin.exe, so even an unhooked call starts nothing.
+//! logowin_messages.txt in the current folder. Any other start passes on: this program started again (without arguments it
+//! exits 2) runs as a real process. The starts are made only once the import points into the hook; the test folder has no
+//! logowin.exe, so even an unhooked call starts nothing.
 #[path = "../check.rs"]
 mod check;
 use check::{check, done, load, owner, target};
 use std::process::ExitCode;
 use windows_sys::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
 use windows_sys::Win32::System::Threading::{
-    CreateProcessA, GetExitCodeProcess, GetProcessId, PROCESS_INFORMATION, STARTUPINFOA,
-    TerminateProcess,
+    CreateProcessA, GetExitCodeProcess, GetProcessId, INFINITE, PROCESS_INFORMATION, STARTUPINFOA,
+    TerminateProcess, WaitForSingleObject,
 };
 
 const MESSAGES: &str = "logowin_messages.txt";
@@ -78,6 +79,50 @@ fn main() -> ExitCode {
     check(
         text.contains("logowin.exe error=TEST_error_0001"),
         "the message is in logowin_messages.txt",
+    );
+    // any other program starts as before (control's match_Release, the client's FPR_Emu)
+    let me = std::env::current_exe()
+        .map(|p| p.display().to_string())
+        .unwrap_or_default();
+    let mut app = me.clone().into_bytes();
+    app.push(0);
+    let mut cmd = format!("\"{me}\"\0").into_bytes();
+    // SAFETY: as above
+    let mut pi: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
+    // SAFETY: NUL-terminated strings and live structs
+    let ok = unsafe {
+        CreateProcessA(
+            app.as_ptr(),
+            cmd.as_mut_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            0,
+            0,
+            std::ptr::null(),
+            std::ptr::null(),
+            &si,
+            &mut pi,
+        )
+    };
+    if check(
+        ok != 0 && pi.dwProcessId != 0,
+        "another program starts as a real process",
+    ) {
+        // SAFETY: the started child's handles; each is closed once
+        unsafe {
+            let mut code = 0;
+            WaitForSingleObject(pi.hProcess, INFINITE);
+            check(
+                GetExitCodeProcess(pi.hProcess, &mut code) != 0 && code == 2,
+                "it runs (exit code 2)",
+            );
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+        }
+    }
+    check(
+        std::fs::read_to_string(MESSAGES).unwrap_or_default() == text,
+        "logowin_messages.txt has no line for it",
     );
     done("logowin hook test")
 }
