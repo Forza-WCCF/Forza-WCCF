@@ -1,6 +1,6 @@
 [package]
 name = "forza-hook"
-version.workspace = true
+version = "0.5.1" # its own version, not the release number (docs/RELEASING.md)
 license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
