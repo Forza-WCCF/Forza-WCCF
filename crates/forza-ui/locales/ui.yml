@@ -414,6 +414,9 @@ settings.msg_board_window: {en: "Formation board in its own window: move it to a
 settings.msg_board_docked: {en: "Formation board back with the game", it: "Formazione di nuovo con il gioco", ja: "フォーメーションをゲーム画面に戻しました"}
 settings.board_buttons: {en: "Buttons on the board window", it: "Pulsanti nella finestra della formazione", ja: "ボードのウィンドウにもボタン"}
 settings.board_buttons_hint: {en: "The cabinet buttons beside the popped-out board too", it: "I pulsanti del cabinato anche accanto alla formazione in pop-out", ja: "ポップアウトしたボードの横にも筐体のボタンを表示"}
+settings.pad_bg: {en: "Controller in the background", it: "Controller in secondo piano", ja: "バックグラウンドでもコントローラー"}
+settings.pad_bg_hint: {en: "The controller keeps working with another window in front. The keyboard does not.", it: "Il controller funziona anche con un'altra finestra davanti. La tastiera no.", ja: "他のウィンドウが前面にあってもコントローラーは動作します。キーボードは動作しません。"}
+settings.pad_bg_seats: {en: "Off while 2 or more seats run on this PC: all controllers count as one.", it: "Disattivato con 2 o più posti su questo PC: i controller contano come uno solo.", ja: "このPCで2席以上が動作中は無効です。コントローラーは1台として扱われます。"}
 settings.msg_hover: {en: "Card preview after %{s} s", it: "Anteprima carta dopo %{s} s", ja: "%{s} 秒でカードをプレビュー"}
 settings.msg_hover_off: {en: "Card preview off", it: "Anteprima carta disattivata", ja: "カードのプレビューなし"}
 settings.msg_this_pc: {en: "Next start: this PC", it: "Prossimo avvio: questo PC", ja: "次回の起動：このPC"}

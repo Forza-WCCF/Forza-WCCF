@@ -51,8 +51,8 @@ pub struct Proc {
     pub path: PathBuf,
 }
 
-/// Every process, with the full path of those this user may look at.
-pub fn processes() -> Vec<Proc> {
+/// Every process by name, without its path (cheap: the panel counts seats with it).
+pub fn snapshot() -> Vec<Proc> {
     let mut out = Vec::new();
     // SAFETY: the snapshot handle is checked and closed once; the entry is plain data with its size set.
     unsafe {
@@ -79,6 +79,12 @@ pub fn processes() -> Vec<Proc> {
         }
         CloseHandle(snap);
     }
+    out
+}
+
+/// Every process, with the full path of those this user may look at.
+pub fn processes() -> Vec<Proc> {
+    let mut out = snapshot();
     for p in &mut out {
         p.path = image(p.pid).unwrap_or_default();
     }
