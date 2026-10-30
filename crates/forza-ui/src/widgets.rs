@@ -1161,7 +1161,6 @@ pub fn field(ui: &mut Ui, label: &str, width: f32) {
     );
 }
 
-/// An option as a row: a painted switch, a title and a one-line hint. The whole row toggles.
 /// `text` as a QR code `side` points wide: black modules on white with a four-module quiet zone, each module whole
 /// pixels so a phone camera reads it off the screen.
 pub fn qr(ui: &mut Ui, text: &str, side: f32) -> Response {
@@ -1182,6 +1181,7 @@ pub fn qr(ui: &mut Ui, text: &str, side: f32) -> Response {
     resp
 }
 
+/// An option as a row: a painted switch, a title and a one-line hint. The whole row toggles.
 pub fn toggle_row(ui: &mut Ui, on: &mut bool, title: &str, hint: &str) -> Response {
     let w = ui.available_width();
     let (rect, resp) = ui.allocate_exact_size(vec2(w, 44.0), Sense::click());

@@ -36,6 +36,9 @@ pub const URL_FILE: &str = "tablet.url";
 const MIN_HOLD: Duration = Duration::from_millis(140);
 /// How often the table file is checked for someone else's write.
 const WATCH: Duration = Duration::from_millis(30);
+/// The tablet is pinged this often; silent for [`SILENT`] (Wi-Fi gone, the tablet asleep): let go, its buttons up.
+const PING: Duration = Duration::from_secs(2);
+const SILENT: Duration = Duration::from_secs(6);
 /// The tablet's buttons: the cabinet's play buttons and tactics; never CARD, COIN or the operator's switches.
 pub const BUTTONS: [&str; 10] = [
     "START",
@@ -329,16 +332,28 @@ async fn tablet(s: Arc<Shared>, mut sock: WebSocket) {
     if sock.send(Message::Text(first.into())).await.is_err() {
         return;
     }
+    let (mut ping, mut heard) = (tokio::time::interval(PING), Instant::now());
     loop {
         tokio::select! {
-            m = sock.recv() => match m {
-                Some(Ok(Message::Text(t))) => match parse(t.as_str()) {
-                    Some(Op::Key { action, down }) => s.key(action, down),
-                    Some(op) => s.board_op(op),
-                    None => (s.log)("tablet: a message not understood - ignored"),
-                },
-                Some(Ok(Message::Close(_)) | Err(_)) | None => break,
-                Some(Ok(_)) => {}
+            _ = ping.tick() => {
+                if heard.elapsed() >= SILENT || sock.send(Message::Ping(Default::default())).await.is_err() {
+                    (s.log)(&format!("tablet: tablet {id} silent - let go"));
+                    break;
+                }
+            },
+            m = sock.recv() => {
+                if let Some(Ok(_)) = &m {
+                    heard = Instant::now();
+                }
+                match m {
+                    Some(Ok(Message::Text(t))) => match parse(t.as_str()) {
+                        Some(Op::Key { action, down }) => s.key(action, down),
+                        Some(op) => s.board_op(op),
+                        None => (s.log)("tablet: a message not understood - ignored"),
+                    },
+                    Some(Ok(Message::Close(_)) | Err(_)) | None => break,
+                    Some(Ok(_)) => {}
+                }
             },
             r = state.changed() => {
                 let j = state.borrow_and_update().clone();
@@ -467,7 +482,12 @@ pub fn spawn(kit: &Kit, seat: PathBuf, keys: Arc<AtomicU16>, log: Log) -> Handle
                                 let _ = std::fs::write(&url_file, format!("!{why}"));
                             }
                         }
-                    } else if !on && tried {
+                    } else if server.as_ref().is_some_and(|(_, t)| t.is_finished()) {
+                        // the server ended by itself: the panel stops showing its address
+                        server = None;
+                        let _ = std::fs::write(&url_file, "!the board stopped");
+                    }
+                    if !on && tried {
                         tried = false;
                         stop_server(server.take()).await;
                         let _ = std::fs::remove_file(&url_file);
@@ -486,9 +506,13 @@ pub fn spawn(kit: &Kit, seat: PathBuf, keys: Arc<AtomicU16>, log: Log) -> Handle
 type Running = (tokio::sync::oneshot::Sender<()>, tokio::task::JoinHandle<()>);
 
 async fn stop_server(s: Option<Running>) {
-    if let Some((tx, task)) = s {
+    if let Some((tx, mut task)) = s {
         let _ = tx.send(());
-        let _ = tokio::time::timeout(Duration::from_secs(2), task).await;
+        if tokio::time::timeout(Duration::from_secs(2), &mut task).await.is_err() {
+            // a tablet that does not let go: the server ends now, not detached
+            task.abort();
+            let _ = task.await;
+        }
     }
 }
 

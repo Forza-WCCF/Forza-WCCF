@@ -234,3 +234,22 @@ async fn buttons_reach_the_key_driver() {
     };
     assert!(bye.contains("other"), "{bye}");
 }
+
+/// A tablet that goes silent (Wi-Fi gone, asleep: it answers no ping) has its buttons let go within 10 s.
+#[tokio::test]
+async fn a_silent_tablet_lets_go_of_its_buttons() {
+    let s = start((Ipv4Addr::LOCALHOST, 8)).await;
+    let mut ws = tablet(s.port).await;
+    next_state(&mut ws).await;
+    say(&mut ws, r#"{"t":"key","a":"SHOOT","down":true}"#).await;
+    // never read again: no pong goes back
+    let t0 = Instant::now();
+    while s.keys.load(Ordering::Relaxed) == 0 {
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    while s.keys.load(Ordering::Relaxed) != 0 {
+        assert!(t0.elapsed() < Duration::from_secs(10), "still held");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    drop(ws);
+}

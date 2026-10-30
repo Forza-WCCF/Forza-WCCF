@@ -86,6 +86,7 @@ function grab(e) {
  drag = {d, from: +d.dataset.slot, x0: e.clientX, y0: e.clientY};
  d.classList.add("drag");
  d.addEventListener("pointermove", move); d.addEventListener("pointerup", drop); d.addEventListener("pointercancel", cancel);
+ d.addEventListener("lostpointercapture", cancel);
 }
 function target(x, y) {
  for (const el of document.elementsFromPoint(x, y)) {
@@ -104,6 +105,7 @@ function move(e) {
 }
 function finish() {
  const d = drag.d; d.removeEventListener("pointermove", move); d.removeEventListener("pointerup", drop); d.removeEventListener("pointercancel", cancel);
+ d.removeEventListener("lostpointercapture", cancel);
  document.querySelectorAll(".hot").forEach(h => h.classList.remove("hot"));
  drag = null;
 }
@@ -119,7 +121,7 @@ function drop(e) {
  else if (t.slot !== from) send({t:"swap", from, to:t.slot});
  else draw(last);
 }
-function cancel() { finish(); draw(last); }
+function cancel() { if (drag) { finish(); draw(last); } }
 
 let last = [];
 function connect() {
