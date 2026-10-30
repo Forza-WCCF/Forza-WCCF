@@ -270,7 +270,7 @@ fn room_json_holds_no_address_ticket_or_card() {
 fn pc(m: &Matcher, n: u8, ticket: Option<&str>) {
     let t = Instant::now();
     let (ip, port) = ([127, n, n, n], 20000 + u16::from(n));
-    m.hello(IpAddr::from([10, 0, 0, n]), [n; 32], ticket, t);
+    m.hello(IpAddr::from([10, 0, 0, n]), [n; 32], ticket, None, t);
     assert!(m.register(u32::from_le_bytes(ip), port, [n; 32], t));
     let mut e = vec![0u8; ENTRY_LEN];
     e[0..4].copy_from_slice(&u32::from(n).to_le_bytes());

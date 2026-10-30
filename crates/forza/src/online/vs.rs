@@ -120,13 +120,15 @@ impl Entry {
 const LINK_TTL: Duration = Duration::from_secs(600);
 
 /// What vslink told gmsvr: which PCs run it, the EndpointId behind each token, and the lobby room ticket each
-/// EndpointId's hello carried; and what the desk told it: the room each live ticket sits in.
+/// EndpointId's hello carried, and its match engine token; and what the desk told it: the room each live ticket sits
+/// in.
 #[derive(Debug, Default)]
 struct Links {
     capable: HashMap<IpAddr, Instant>,
     ids: HashMap<(u32, u16), ([u8; 32], Instant)>,
     tickets: HashMap<[u8; 32], (String, Instant)>,
     rooms: HashMap<String, u64>,
+    engines: HashMap<[u8; 32], (String, Instant)>,
 }
 
 /// Where an entry may find its partner.
@@ -153,26 +155,42 @@ impl Links {
             Some((t, _)) => self.rooms.get(t).map_or(Pool::Lost, |r| Pool::Room(*r)),
         }
     }
+
+    /// The det-math token the entry's PC sent in its hello; None for an older vslink, or a PC without vslink.
+    fn engine(&self, e: &Entry) -> Option<&str> {
+        let (id, _) = self.ids.get(&e.addr())?;
+        self.engines.get(id).map(|(d, _)| d.as_str())
+    }
 }
 
 /// The room ticket field of a vslink hello (900): payload +36..+52, ASCII, NUL-padded.
 pub const HELLO_TICKET: std::ops::Range<usize> = 36..52;
 
-/// A vslink hello (900) payload: +4 the EndpointId, and with a lobby VS room +36 its ticket (the `ROOM`/`TICKET`
-/// answer's `t`, at most 16 bytes; ROADMAP "Online lobby view", `crates/server/README.md`).
-pub fn hello_payload(id: &[u8; 32], ticket: Option<&str>) -> Vec<u8> {
-    let mut p = vec![
-        0u8;
-        if ticket.is_some() {
-            HELLO_TICKET.end
-        } else {
-            36
-        }
-    ];
+/// The det-math token field of a vslink hello (900): payload +52..+72, ASCII, NUL-padded ([`super::seat::dmath_token`]).
+pub const HELLO_DMATH: std::ops::Range<usize> = 52..72;
+
+/// 901 status for a hello that carried a det-math token while a PC in its lobby VS room holds another (or none): the
+/// hello is accepted, but the two never pair.
+pub const HELLO_DMATH_DIFFERS: u32 = 2;
+
+/// A vslink hello (900) payload: +4 the EndpointId, with a lobby VS room +36 its ticket (the `ROOM`/`TICKET`
+/// answer's `t`, at most 16 bytes; ROADMAP "Online lobby view", `crates/server/README.md`), and +52 this PC's
+/// det-math token: gmsvr pairs only PCs whose tokens match.
+pub fn hello_payload(id: &[u8; 32], ticket: Option<&str>, dmath: Option<&str>) -> Vec<u8> {
+    let len = if dmath.is_some() {
+        HELLO_DMATH.end
+    } else if ticket.is_some() {
+        HELLO_TICKET.end
+    } else {
+        36
+    };
+    let mut p = vec![0u8; len];
     p[4..36].copy_from_slice(id);
-    if let Some(t) = ticket {
-        let n = t.len().min(HELLO_TICKET.len());
-        p[36..36 + n].copy_from_slice(&t.as_bytes()[..n]);
+    for (field, text) in [(HELLO_TICKET, ticket), (HELLO_DMATH, dmath)] {
+        if let Some(t) = text {
+            let n = t.len().min(field.len());
+            p[field.start..field.start + n].copy_from_slice(&t.as_bytes()[..n]);
+        }
     }
     p
 }
@@ -259,16 +277,44 @@ impl Matcher {
     }
 
     /// A 900: `ip` runs vslink as EndpointId `id`; `ticket` is the lobby room ticket its hello carried (a hello
-    /// without one takes the id back to the open pool).
-    pub fn hello(&self, ip: IpAddr, id: [u8; 32], ticket: Option<&str>, now: Instant) {
+    /// without one takes the id back to the open pool), `dmath` its det-math token (None: an older vslink). True when
+    /// another PC in the same lobby room holds a different token (or none): the room's two PCs will not pair.
+    pub fn hello(
+        &self,
+        ip: IpAddr,
+        id: [u8; 32],
+        ticket: Option<&str>,
+        dmath: Option<&str>,
+        now: Instant,
+    ) -> bool {
         let mut l = self.links();
         l.capable.insert(ip, now);
+        // vslink registers a seat's token once per run: its hellos keep the registration (room, engine) alive
+        for (_, at) in l.ids.values_mut().filter(|(r, _)| *r == id) {
+            *at = now;
+        }
         l.tickets
             .retain(|_, (_, t)| now.duration_since(*t) < LINK_TTL);
-        match ticket.filter(|t| !t.is_empty()) {
-            Some(t) => l.tickets.insert(id, (t.to_owned(), now)),
-            None => l.tickets.remove(&id),
+        l.engines
+            .retain(|_, (_, t)| now.duration_since(*t) < LINK_TTL);
+        match dmath.filter(|d| !d.is_empty()) {
+            Some(d) => l.engines.insert(id, (d.to_owned(), now)),
+            None => l.engines.remove(&id),
         };
+        let Some(t) = ticket.filter(|t| !t.is_empty()) else {
+            l.tickets.remove(&id);
+            return false;
+        };
+        l.tickets.insert(id, (t.to_owned(), now));
+        let Some(room) = l.rooms.get(t) else {
+            return false;
+        };
+        let mine = l.engines.get(&id).map(|(d, _)| d);
+        l.tickets.iter().any(|(other, (ot, _))| {
+            *other != id
+                && l.rooms.get(ot) == Some(room)
+                && l.engines.get(other).map(|(d, _)| d) != mine
+        })
     }
 
     /// The desk: `ticket` sits in the room `room` now (`None`: the ticket is gone). The two PCs holding one room's
@@ -354,7 +400,13 @@ impl Matcher {
             let pm = l.pool(&v[me]);
             v.iter()
                 .enumerate()
-                .find(|(i, x)| *i != me && x.pair.is_none() && compatible(&v[me], x, pm, l.pool(x)))
+                .find(|(i, x)| {
+                    *i != me
+                        && x.pair.is_none()
+                        && compatible(&v[me], x, pm, l.pool(x))
+                        // one engine math on both PCs, else the match desyncs; an older vslink sends no token
+                        && l.engine(&v[me]) == l.engine(x)
+                })
                 .map(|(i, _)| i)
         };
         let Some(other) = other else {
@@ -637,7 +689,7 @@ mod tests {
         let t = Instant::now();
         let ip = IpAddr::from([1, 2, 3, 4]);
         assert!(!m.capable(ip, t));
-        m.hello(ip, [1; 32], None, t);
+        m.hello(ip, [1; 32], None, None, t);
         assert!(m.capable(ip, t) && !m.capable([1, 2, 3, 5].into(), t));
         assert!(!m.capable(ip, t + LINK_TTL));
         let tok = u32::from_le_bytes([127, 1, 2, 3]);
@@ -682,9 +734,21 @@ mod tests {
 
     /// A vslink PC: token 127.n.n.n:2000n registered as EndpointId [n; 32], its hello with `ticket`; its 243.
     fn pc(m: &Matcher, t: Instant, n: u8, ticket: Option<&str>, round: u32) -> Vec<u8> {
+        pc_dmath(m, t, n, ticket, None, round)
+    }
+
+    /// [`pc`] whose hello carries the det-math token `dmath` (None: an older vslink).
+    fn pc_dmath(
+        m: &Matcher,
+        t: Instant,
+        n: u8,
+        ticket: Option<&str>,
+        dmath: Option<&str>,
+        round: u32,
+    ) -> Vec<u8> {
         let ip = [127, n, n, n];
         let port = 20000 + u16::from(n);
-        m.hello(IpAddr::from([10, 0, 0, n]), [n; 32], ticket, t);
+        m.hello(IpAddr::from([10, 0, 0, n]), [n; 32], ticket, dmath, t);
         assert!(m.register(u32::from_le_bytes(ip), port, [n; 32], t));
         let e = entry(u32::from(n), round, ip, port, 100 + u32::from(n), 5);
         assert!(m.enter(&e, t));
@@ -761,18 +825,106 @@ mod tests {
             "the room's host waits for its own guest"
         );
         // a later hello without a ticket takes the PC back to the open pool
-        m.hello(IpAddr::from([10, 0, 0, 3]), [3; 32], None, t);
+        m.hello(IpAddr::from([10, 0, 0, 3]), [3; 32], None, None, t);
         assert_eq!(partner(&m, t, 3), Some(102));
     }
 
     #[test]
+    fn only_equal_det_math_tokens_pair() {
+        let m = Matcher::default();
+        let t = Instant::now();
+        m.room_ticket("ta1", Some(1));
+        m.room_ticket("ta2", Some(1));
+        let hello =
+            |n: u8, ticket, dmath| m.hello(IpAddr::from([10, 0, 0, n]), [n; 32], ticket, dmath, t);
+        // a room: the second hello learns the engines differ, and the two never pair
+        pc_dmath(&m, t, 1, Some("ta1"), Some("00ff00ff00ff00ff"), 7);
+        assert!(
+            !hello(1, Some("ta1"), Some("00ff00ff00ff00ff")),
+            "alone in the room"
+        );
+        pc_dmath(&m, t, 2, Some("ta2"), Some("00ff00ff00ff00ff-off"), 7);
+        assert!(hello(2, Some("ta2"), Some("00ff00ff00ff00ff-off")));
+        assert!(
+            hello(1, Some("ta1"), Some("00ff00ff00ff00ff")),
+            "the host learns at its next hello"
+        );
+        assert_eq!((partner(&m, t, 2), partner(&m, t, 1)), (None, None));
+        // the guest sets up again: same token, they pair
+        assert!(!hello(2, Some("ta2"), Some("00ff00ff00ff00ff")));
+        assert_eq!(partner(&m, t, 2), Some(101));
+        // the open pool: an older vslink (no token) never pairs with a token, two equal tokens do
+        pc_dmath(&m, t, 3, None, Some("00ff00ff00ff00ff"), 7);
+        pc_dmath(&m, t, 4, None, None, 7);
+        assert_eq!(partner(&m, t, 4), None, "an old build meets nobody new");
+        pc_dmath(&m, t, 5, None, Some("00ff00ff00ff00ff"), 7);
+        assert_eq!(partner(&m, t, 5), Some(103));
+    }
+
+    #[test]
+    fn hellos_keep_a_registration_and_its_engine_alive() {
+        let m = Matcher::default();
+        let t = Instant::now();
+        pc_dmath(&m, t, 1, None, Some("00ff00ff00ff00ff"), 7);
+        pc_dmath(&m, t, 2, None, Some("00ff00ff00ff00ff-off"), 7);
+        // past the registrations' first TTL, with hellos every minute: the tokens still keep the two apart
+        let mut at = t;
+        while at < t + LINK_TTL + Duration::from_secs(60) {
+            at += Duration::from_secs(60);
+            m.hello(
+                IpAddr::from([10, 0, 0, 1]),
+                [1; 32],
+                None,
+                Some("00ff00ff00ff00ff"),
+                at,
+            );
+            m.hello(
+                IpAddr::from([10, 0, 0, 2]),
+                [2; 32],
+                None,
+                Some("00ff00ff00ff00ff-off"),
+                at,
+            );
+        }
+        assert!(m.enter(&entry(1, 8, [127, 1, 1, 1], 20001, 101, 5), at));
+        assert!(m.enter(&entry(2, 8, [127, 2, 2, 2], 20002, 102, 5), at));
+        assert_eq!(partner(&m, at, 2), None);
+    }
+
+    #[test]
+    fn an_older_vslink_in_a_room_is_a_mismatch() {
+        let m = Matcher::default();
+        let t = Instant::now();
+        m.room_ticket("ta1", Some(1));
+        m.room_ticket("ta2", Some(1));
+        pc_dmath(&m, t, 1, Some("ta1"), None, 7);
+        // the old hello is told nothing new; the new one hears the clash and neither pairs
+        let ip = IpAddr::from([10, 0, 0, 2]);
+        assert!(m.hello(
+            ip,
+            [2; 32],
+            Some("ta2"),
+            Some(crate::online::seat::NO_DMATH),
+            t
+        ));
+        assert!(m.register(u32::from_le_bytes([127, 2, 2, 2]), 20002, [2; 32], t));
+        assert!(m.enter(&entry(2, 7, [127, 2, 2, 2], 20002, 102, 5), t));
+        assert_eq!((partner(&m, t, 2), partner(&m, t, 1)), (None, None));
+    }
+
+    #[test]
     fn hello_payload_carries_the_ticket() {
-        let p = hello_payload(&[7; 32], Some("0123456789abcdef"));
+        let p = hello_payload(&[7; 32], Some("0123456789abcdef"), None);
         assert_eq!(
             (p.len(), &p[4..36], &p[HELLO_TICKET]),
             (52, &[7u8; 32][..], &b"0123456789abcdef"[..])
         );
-        assert_eq!(hello_payload(&[7; 32], None).len(), 36);
+        assert_eq!(hello_payload(&[7; 32], None, None).len(), 36);
+        let p = hello_payload(&[7; 32], None, Some("00ff00ff00ff00ff-off"));
+        assert_eq!(
+            (p.len(), &p[HELLO_TICKET], &p[HELLO_DMATH]),
+            (72, &[0u8; 16][..], &b"00ff00ff00ff00ff-off"[..])
+        );
     }
 
     #[test]

@@ -202,6 +202,8 @@ fn client(f: &dyn Fn(&str, &str) -> String) {
             l.lock().unwrap().push(s.to_owned());
         }),
         ticket: ticket.clone(),
+        dmath: None,
+        on_dmath_differs: None,
     })
     .unwrap();
 
