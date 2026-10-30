@@ -938,17 +938,21 @@ fn package_dir(root: &str, manifest: &str) -> Result<String> {
 }
 
 /// The files that differ from the base's merge-base with HEAD (committed, staged, unstaged or untracked), one per line.
-fn changed_files(root: &Path, base: &str) -> Result<String> {
+/// `None` when `base` has no merge base with HEAD here (not fetched, unknown): the caller then checks everything.
+fn changed_files(root: &Path, base: &str) -> Result<Option<String>> {
     let git = |args: &[&str]| -> Result<String> {
         let o = Command::new("git").args(args).current_dir(root).output()?;
         ensure!(o.status.success(), "git {} failed", args.join(" "));
         Ok(String::from_utf8(o.stdout)?)
     };
-    let mb = git(&["merge-base", base, "HEAD"])?.trim().to_owned();
+    let Ok(mb) = git(&["merge-base", base, "HEAD"]) else {
+        return Ok(None);
+    };
+    let mb = mb.trim().to_owned();
     // no renames: the old path of a moved file is a change in its old package too
     let mut files = git(&["diff", "--name-only", "--no-renames", &mb])?;
     files += &git(&["ls-files", "--others", "--exclude-standard"])?;
-    Ok(files)
+    Ok(Some(files))
 }
 
 /// Workspace packages that own one of `files` ([`changed_files`]), plus every package that depends on one by path. A
@@ -962,7 +966,7 @@ fn changed_packages(root: &Path, files: &str) -> Result<Option<BTreeSet<String>>
     let meta: serde_json::Value = serde_json::from_slice(&meta.stdout)?;
     let pkgs = meta["packages"].as_array().context("no packages")?;
     // (name, dir relative to the root, names of path dependencies)
-    let mut info: Vec<(String, String, Vec<String>)> = pkgs
+    let info: Vec<(String, String, Vec<String>)> = pkgs
         .iter()
         .map(|p| -> Result<_> {
             let manifest = p["manifest_path"].as_str().unwrap_or_default();
@@ -977,6 +981,11 @@ fn changed_packages(root: &Path, files: &str) -> Result<Option<BTreeSet<String>>
             Ok((p["name"].as_str().unwrap_or_default().to_owned(), dir, deps))
         })
         .collect::<Result<_>>()?;
+    Ok(affected(info, files))
+}
+
+/// [`changed_packages`] over `info`: (name, dir relative to the root, names of path dependencies) per package.
+fn affected(mut info: Vec<(String, String, Vec<String>)>, files: &str) -> Option<BTreeSet<String>> {
     // files that other crates embed with `include_str!`: (the file's package, the package whose tests read it)
     const EMBEDDED_BY: &[(&str, &str)] = &[("forza-panel", "launcher")];
     for (_, _, deps) in info
@@ -998,7 +1007,7 @@ fn changed_packages(root: &Path, files: &str) -> Result<Option<BTreeSet<String>>
             || f.starts_with("assets/")
             || f.starts_with("editions/")
         {
-            return Ok(None);
+            return None;
         }
         // the owning package: the longest package dir that prefixes the file
         if let Some((n, _, _)) = info
@@ -1008,7 +1017,7 @@ fn changed_packages(root: &Path, files: &str) -> Result<Option<BTreeSet<String>>
         {
             hit.insert(n.clone());
         } else if f == "cargo.toml" {
-            return Ok(None);
+            return None;
         }
     }
     // dependents, to a fixed point
@@ -1019,7 +1028,7 @@ fn changed_packages(root: &Path, files: &str) -> Result<Option<BTreeSet<String>>
             .map(|(n, _, _)| n.clone())
             .collect();
         if more.is_empty() {
-            return Ok(Some(hit));
+            return Some(hit);
         }
         hit.extend(more);
     }
@@ -1075,8 +1084,14 @@ fn target_scopes(scope: &[String], hook: &str) -> Vec<(&'static str, Vec<String>
 fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str) -> Result<()> {
     let _lock = check_lock()?;
     let files = changed_files(root, base)?;
-    let pkgs = changed_packages(root, &files)?;
-    let e1011 = touches_1011(&files);
+    if files.is_none() {
+        println!("quick: no merge base with {base} (not fetched?): everything");
+    }
+    let pkgs = match &files {
+        Some(f) => changed_packages(root, f)?,
+        None => None,
+    };
+    let e1011 = files.as_deref().is_none_or(touches_1011);
     let scope: Vec<String> = match &pkgs {
         None => {
             println!("quick: xtask, Cargo.lock or a manifest changed: whole workspace");
@@ -1125,16 +1140,16 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
     // other features and rebuilt dependencies main's cache holds (a launcher-only CI run built its tests in 6 min, the
     // whole workspace's took 4); the changed crates' tests alone run
     let wide = target_scopes(&["--workspace".to_owned()], hooks[0]);
-    let wide = |t: &str| -> Vec<String> {
+    let wide = |t: &str| -> Result<Vec<String>> {
         wide.iter()
             .find(|(w, _)| *w == t)
             .map(|(_, s)| s.clone())
-            .unwrap_or_default()
+            .with_context(|| format!("no workspace scope for {t}"))
     };
     for (target, _) in &runs {
         let mut clippy = rust("clippy", root);
         clippy.args(["--locked", "--all-targets", "--target", target]);
-        clippy.args(wide(target)).args(["--", "-D", "warnings"]);
+        clippy.args(wide(target)?).args(["--", "-D", "warnings"]);
         run_ok(clippy, "cargo clippy")?;
     }
     // the hook's other features, as `check` lints them
@@ -1154,16 +1169,15 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
             run_ok(clippy, "cargo clippy (32-bit)")?;
         }
     }
-    for (target, scope) in &runs {
-        let only = pkgs.as_ref().map(|_| {
-            scope
-                .windows(2)
-                .filter(|w| w[0] == "-p")
-                .map(|w| format!("package({})", w[1]))
-                .collect::<Vec<_>>()
-                .join(" | ")
-        });
-        let wide = wide(target);
+    for (target, _) in &runs {
+        let only = match &pkgs {
+            None => None,
+            Some(p) => match test_filter(p, target) {
+                Some(f) => Some(f),
+                None => continue,
+            },
+        };
+        let wide = wide(target)?;
         let wide: Vec<&str> = wide.iter().map(String::as_str).collect();
         run_ok(
             tests(root, in_ci(), &[], target, &wide, only.as_deref()),
@@ -1187,6 +1201,21 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
     ensure!(ck.failed.is_empty(), "FAILED: {}", ck.failed.join(", "));
     println!("quick check passed (no release build; the full check and `check ci` run everything)");
     Ok(())
+}
+
+/// The nextest filterset of `pkgs` ([`changed_packages`]) built for `target` (the split of [`target_scopes`]): `None`
+/// when none is, so no `package()`-less `()` reaches nextest.
+fn test_filter(pkgs: &BTreeSet<String>, target: &str) -> Option<String> {
+    let on = |p: &str| match target {
+        PANEL_TARGET => p == "forza-panel" || NATIVE_PKGS.contains(&p),
+        _ => p != "forza-panel",
+    };
+    let f: Vec<String> = pkgs
+        .iter()
+        .filter(|p| on(p))
+        .map(|p| format!("package({p})"))
+        .collect();
+    (!f.is_empty()).then(|| f.join(" | "))
 }
 
 /// The staged kits must hold the built programs and the test programs.
@@ -2431,6 +2460,59 @@ mod tests {
         assert_eq!(
             hook,
             [(TARGET, v(&["-p", "forza-hook"])), (PANEL_TARGET, native)]
+        );
+    }
+
+    #[test]
+    fn quick_tests_the_changed_crates_and_their_dependents() {
+        let info = || {
+            [
+                ("forza", "crates/forza", &[][..]),
+                ("forza-ui", "crates/ui", &["forza"][..]),
+                ("launcher", "crates/launcher", &["forza", "forza-ui"][..]),
+                ("forza-tools", "crates/tools", &[][..]),
+                ("forza-panel", "native/panel", &[][..]),
+            ]
+            .map(|(n, d, deps)| {
+                let deps = deps.iter().map(|s| s.to_string()).collect();
+                (n.to_owned(), d.to_owned(), deps)
+            })
+            .to_vec()
+        };
+        let set = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<BTreeSet<_>>();
+        assert_eq!(affected(info(), ""), Some(set(&[])));
+        assert_eq!(affected(info(), "docs/README.md\n"), Some(set(&[])));
+        // a leaf: itself only
+        let leaf = affected(info(), "crates/launcher/src/main.rs\n").unwrap();
+        assert_eq!(leaf, set(&["launcher"]));
+        // the shared library: its dependents too, through forza-ui
+        let lib = affected(info(), "crates/forza/src/lib.rs\n").unwrap();
+        assert_eq!(lib, set(&["forza", "forza-ui", "launcher"]));
+        // the launcher embeds the panel's files
+        let panel = affected(info(), "native/panel/src/lib.rs\n").unwrap();
+        assert_eq!(panel, set(&["forza-panel", "launcher"]));
+        assert_eq!(affected(info(), "Cargo.lock\n"), None);
+        assert_eq!(affected(info(), "xtask/src/main.rs\n"), None);
+        // filters per target, never an empty one
+        assert_eq!(test_filter(&set(&[]), TARGET), None);
+        assert_eq!(test_filter(&set(&["forza-panel"]), TARGET), None);
+        assert_eq!(
+            test_filter(&panel, TARGET).as_deref(),
+            Some("package(launcher)")
+        );
+        assert_eq!(
+            test_filter(&panel, PANEL_TARGET).as_deref(),
+            Some("package(forza-panel)")
+        );
+        assert_eq!(
+            test_filter(&set(&["forza-hook", "forza"]), PANEL_TARGET).as_deref(),
+            Some("package(forza-hook)")
+        );
+        // a base git cannot resolve: no file list, so quick checks everything
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        assert_eq!(
+            changed_files(root, "0123456789abcdef0123456789abcdef01234567").unwrap(),
+            None
         );
     }
 
