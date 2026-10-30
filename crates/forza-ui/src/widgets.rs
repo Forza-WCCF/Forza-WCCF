@@ -1162,6 +1162,26 @@ pub fn field(ui: &mut Ui, label: &str, width: f32) {
 }
 
 /// An option as a row: a painted switch, a title and a one-line hint. The whole row toggles.
+/// `text` as a QR code `side` points wide: black modules on white with a four-module quiet zone, each module whole
+/// pixels so a phone camera reads it off the screen.
+pub fn qr(ui: &mut Ui, text: &str, side: f32) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(side, side), Sense::hover());
+    let p = ui.painter();
+    p.rect_filled(rect, 0.0, Color32::WHITE);
+    if let Ok(code) = qrcode::QrCode::new(text.as_bytes()) {
+        let n = code.width();
+        let m = (side / (n + 8) as f32).floor().max(1.0);
+        let o = rect.min + vec2((side - m * n as f32) / 2.0, (side - m * n as f32) / 2.0).floor();
+        for (i, c) in code.to_colors().iter().enumerate() {
+            if *c == qrcode::Color::Dark {
+                let at = o + vec2((i % n) as f32 * m, (i / n) as f32 * m);
+                p.rect_filled(Rect::from_min_size(at, vec2(m, m)), 0.0, Color32::BLACK);
+            }
+        }
+    }
+    resp
+}
+
 pub fn toggle_row(ui: &mut Ui, on: &mut bool, title: &str, hint: &str) -> Response {
     let w = ui.available_width();
     let (rect, resp) = ui.allocate_exact_size(vec2(w, 44.0), Sense::click());

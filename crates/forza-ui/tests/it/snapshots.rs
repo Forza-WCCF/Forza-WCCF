@@ -292,6 +292,28 @@ fn panel_2017_18_and_compact() {
     all.unwrap();
 }
 
+/// SETTINGS on 2017-18 with the tablet board on: its QR code, the address and what to answer when the tablet cannot
+/// connect (issue #94).
+#[test]
+fn panel_settings_tablet() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    let url = "http://192.168.1.20:20080/?t=0123456789abcdef0123456789abcdef";
+    for lang in Lang::ALL {
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Settings);
+        st.file.tablet = true;
+        st.tablet_url = Some(url.into());
+        snap(
+            &mut all,
+            &format!("panel_settings_tablet_1718_{}", lang.code()),
+            panel::SIZE,
+            Edition::E1718,
+            |ui| panel::show(ui, &mut st),
+        );
+    }
+    all.unwrap();
+}
+
 #[test]
 fn widget_sheet() {
     let _gpu = gpu();

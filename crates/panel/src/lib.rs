@@ -2066,6 +2066,7 @@ impl Render {
             );
             self.st.status = f.status();
             self.st.status.logs = logs;
+            self.st.tablet_url = f.tablet_url();
             let after = format!(
                 "{:?}",
                 (
@@ -2120,7 +2121,7 @@ impl Render {
             let p = &self.st.file;
             match f.save_panel(p) {
                 Ok(()) => log(&format!(
-                    "settings: saved play_on={} server={} english={} layout={} hover={} auto_logs={} board={} board_buttons={} board_rect={:?}",
+                    "settings: saved play_on={} server={} english={} layout={} hover={} auto_logs={} board={} board_buttons={} board_rect={:?} tablet={}",
                     if p.online { "online" } else { "this_pc" },
                     if p.server.is_empty() { "-" } else { &p.server },
                     p.english.as_deref().unwrap_or("-"),
@@ -2130,6 +2131,7 @@ impl Render {
                     if p.board_window { "window" } else { "game" },
                     if p.board_buttons { "on" } else { "off" },
                     p.board_rect,
+                    if p.tablet { "on" } else { "off" },
                 )),
                 Err(e) => {
                     log(&format!("settings: could not save panel.txt: {e}"));
