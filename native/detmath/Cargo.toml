@@ -12,12 +12,15 @@ name = "dmath"
 # rlib too: the V4 check program (examples/v4.rs) runs the same caves
 crate-type = ["cdylib", "rlib"]
 
-# 32-bit like the game (`cargo xtask build`); on any other target the crate is empty (lib.rs)
+# 32-bit like the game (`cargo xtask build`); on any other target the crate is empty (lib.rs). The caves, their
+# harness and the V4 program also build for i686 Linux (a test box without Windows); the DLL is Windows only.
 [target.'cfg(target_arch = "x86")'.dependencies]
-forza-native = { path = "../common" }
 iced-x86 = { workspace = true }
 libm = { workspace = true }
 sha2 = { workspace = true }
+
+[target.'cfg(all(target_arch = "x86", windows))'.dependencies]
+forza-native = { path = "../common" }
 windows-sys = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_System_Diagnostics_Debug",

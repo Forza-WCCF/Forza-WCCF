@@ -7,9 +7,55 @@ use iced_x86::code_asm::{
     xmm2, xmm3, xmm4, xmm5, xmm6, xmm7, xmmword_ptr,
 };
 use std::mem::offset_of;
-use windows_sys::Win32::System::Memory::{
-    MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_EXECUTE_READWRITE, VirtualAlloc, VirtualFree,
-};
+
+/// Executable memory for the harness (Windows: the cave tests; Linux: the V4 program on a test box).
+#[cfg(windows)]
+fn alloc(size: usize) -> *mut u8 {
+    use windows_sys::Win32::System::Memory::{
+        MEM_COMMIT, MEM_RESERVE, PAGE_EXECUTE_READWRITE, VirtualAlloc,
+    };
+    // SAFETY: a fresh private allocation
+    unsafe {
+        VirtualAlloc(
+            std::ptr::null(),
+            size,
+            MEM_COMMIT | MEM_RESERVE,
+            PAGE_EXECUTE_READWRITE,
+        )
+        .cast()
+    }
+}
+
+#[cfg(windows)]
+fn free(mem: *mut u8, _size: usize) {
+    use windows_sys::Win32::System::Memory::{MEM_RELEASE, VirtualFree};
+    // SAFETY: an allocation of `alloc`
+    unsafe { VirtualFree(mem.cast(), 0, MEM_RELEASE) };
+}
+
+#[cfg(unix)]
+unsafe extern "C" {
+    fn mmap(addr: *mut u8, len: usize, prot: i32, flags: i32, fd: i32, off: i64) -> *mut u8;
+    fn munmap(addr: *mut u8, len: usize) -> i32;
+}
+
+#[cfg(unix)]
+fn alloc(size: usize) -> *mut u8 {
+    // PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS (musl's 64-bit off_t)
+    // SAFETY: a fresh private anonymous mapping
+    let p = unsafe { mmap(std::ptr::null_mut(), size, 7, 0x22, -1, 0) };
+    if p as isize == -1 {
+        std::ptr::null_mut()
+    } else {
+        p
+    }
+}
+
+#[cfg(unix)]
+fn free(mem: *mut u8, size: usize) {
+    // SAFETY: a mapping of `alloc`
+    unsafe { munmap(mem, size) };
+}
 
 /// xmm0-7, then eax ecx edx esi edi ebp, then EFLAGS.
 #[repr(C)]
@@ -44,17 +90,8 @@ pub struct Harness {
 impl Harness {
     /// `code(ip, back)`: the code under test, assembled for `ip`, ending with a jump to `back`.
     pub fn new(code: impl FnOnce(u32, u32) -> Vec<u8>) -> Self {
-        // SAFETY: a fresh private allocation
-        let mem = unsafe {
-            VirtualAlloc(
-                std::ptr::null(),
-                SIZE,
-                MEM_COMMIT | MEM_RESERVE,
-                PAGE_EXECUTE_READWRITE,
-            )
-            .cast::<u8>()
-        };
-        assert!(!mem.is_null(), "VirtualAlloc");
+        let mem = alloc(SIZE);
+        assert!(!mem.is_null(), "no executable memory");
         let addr = |off: usize| mem as u32 + off as u32;
         let st = addr(0);
         let gpr_in = offset_of!(State, inp) + offset_of!(Regs, gpr);
@@ -149,7 +186,6 @@ impl Harness {
 
 impl Drop for Harness {
     fn drop(&mut self) {
-        // SAFETY: the allocation made in `new`
-        unsafe { VirtualFree(self.mem.cast(), 0, MEM_RELEASE) };
+        free(self.mem, SIZE);
     }
 }

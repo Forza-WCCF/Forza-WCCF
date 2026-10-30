@@ -3,6 +3,10 @@
 //! patterns: denormals, infinities and NaNs included) and prints one hash per operation and one for all. The same
 //! "det-math" hash on two PCs means the same results. The "native" lines hash the CPU's own estimates: they are
 //! expected to differ between CPU vendors (that is the bug the caves fix). Starts no game; needs nothing beside it.
+//!
+//! Windows: `cargo build --release --target i686-pc-windows-msvc -p forza-detmath --example v4`. A Linux test box
+//! (static, no libraries needed): the same with `--target i686-unknown-linux-musl` and
+//! `RUSTFLAGS="-C linker=rust-lld -C linker-flavor=ld.lld -C target-feature=+crt-static"`.
 
 #[cfg(target_arch = "x86")]
 fn main() {
