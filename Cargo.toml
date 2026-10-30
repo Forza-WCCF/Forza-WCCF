@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "native/common", "native/hook", "native/icmp", "native/netguard", "native/programs", "native/wccfnet", "xtask", "xtask/cap"]
+members = ["crates/*", "native/common", "native/detmath", "native/hook", "native/icmp", "native/netguard", "native/programs", "native/wccfnet", "xtask", "xtask/cap"]
 default-members = ["crates/*"]
 
 [workspace.package]
@@ -50,6 +50,9 @@ iroh = { version = "1.4.1", default-features = false, features = ["tls-ring"] }
 tokio = "1.53.2"
 bytes = "1.12.1"
 getrandom = "0.3.4"
+# the match engine's deterministic math (native/detmath): x86 decode/encode for its caves, f64 atan2 in plain SSE2
+iced-x86 = { version = "1.21.0", default-features = false, features = ["std", "decoder", "encoder", "block_encoder", "code_asm", "instr_info"] }
+libm = "0.2.16"
 tl = "0.7.8"
 zip = { version = "9.0.1", default-features = false, features = ["deflate"] }
 

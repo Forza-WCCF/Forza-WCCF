@@ -18,6 +18,7 @@ Everything shipped is Rust, in one Cargo workspace. Windows builds the kits with
 | `crates/vslink` | the 2017–18 direct VS link over iroh |
 | `native/hook` | `forza-hook`, the hook in the game's programs; one source, four DLLs by feature |
 | `native/wccfnet`, `native/netguard` | the network guards (2017–18 players; Linux servers under Wine) |
+| `native/detmath` | dmath.dll: the 2017–18 match engine's math made the same on every CPU (online seats stay in step) |
 | `native/icmp`, `native/programs`, `native/common` | the 2017–18 stand-in `ICMP.DLL`; the 32-bit programs beside the game (`FPR_Emu.exe`, `inject.exe`, `logowin.exe`, `sddy_maps.exe`) and the hook and guard test programs; their shared code |
 | `xtask` | `cargo xtask build`, `check`, `package`, `cap` (window capture) |
 | `editions/` | what goes into each ZIP besides the programs: READMEs, language tables, overlay assets |

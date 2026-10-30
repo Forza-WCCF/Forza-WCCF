@@ -1,0 +1,31 @@
+[package]
+name = "forza-detmath"
+version = "0.1.0" # its own version, not the release number (docs/RELEASING.md)
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "The 2017-18 match engine's deterministic math: match_Release.exe imports it instead of PSAPI.DLL"
+
+[lib]
+name = "dmath"
+# rlib too: the V4 check program (examples/v4.rs) runs the same caves
+crate-type = ["cdylib", "rlib"]
+
+# 32-bit like the game (`cargo xtask build`); on any other target the crate is empty (lib.rs)
+[target.'cfg(target_arch = "x86")'.dependencies]
+forza-native = { path = "../common" }
+iced-x86 = { workspace = true }
+libm = { workspace = true }
+sha2 = { workspace = true }
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+] }
+
+[lints]
+workspace = true

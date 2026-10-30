@@ -181,8 +181,9 @@ const MAP_1718: &[(&str, &str)] = &[
     ("italian", "editions/2017-18/italian"), // the Italian text: key + Italian, the English behind each key
     ("fonts", "assets/fonts"),
     ("source/README.txt", "native/2017-18/README.txt"),
-    // the sources of the kit's 32-bit programs (winmm.dll, wccfnet.dll, ICMP.DLL, logowin.exe, FPR_Emu.exe)
+    // the sources of the kit's 32-bit programs (winmm.dll, wccfnet.dll, dmath.dll, ICMP.DLL, logowin.exe, FPR_Emu.exe)
     ("source/native/common", "native/common"),
+    ("source/native/detmath", "native/detmath"),
     ("source/native/hook", "native/hook"),
     ("source/native/wccfnet", "native/wccfnet"),
     ("source/native/icmp", "native/icmp"),
@@ -199,6 +200,7 @@ const KEEP_1718: &[&str] = &[
     "bin/forza-server.exe",
     "bin/winmm.dll",
     "bin/wccfnet.dll",
+    "bin/dmath.dll",
     "bin/ICMP.DLL",
     "bin/logowin.exe",
     "bin/FPR_Emu.exe",
@@ -244,6 +246,7 @@ const NATIVE: &[(&str, bool, &str)] = &[
     ("fpr_emu.exe", false, "bin/FPR_Emu.exe"),
     ("logowin.exe", false, "bin/logowin.exe"),
     ("wccfnet.dll", false, "bin/wccfnet.dll"),
+    ("dmath.dll", false, "bin/dmath.dll"),
     ("icmp.dll", false, "bin/ICMP.DLL"),
     // not in the 2017-18 kit: the Linux servers' hooks load it (forza-hook e1011-server and e1718-server, [`HOOKS`])
     ("netguard.dll", false, "source/build/netguard.dll"),
@@ -351,6 +354,8 @@ const NATIVE_CRATES: &[&str] = &[
     "-p",
     "forza-wccfnet",
     "-p",
+    "forza-detmath",
+    "-p",
     "forza-netguard",
     "-p",
     "forza-icmp",
@@ -379,6 +384,7 @@ const PROGRAMS_1718: &[&str] = &[
     "bin/forza-server.exe",
     "bin/winmm.dll",
     "bin/wccfnet.dll",
+    "bin/dmath.dll",
     "bin/ICMP.DLL",
     "bin/logowin.exe",
     "bin/FPR_Emu.exe",
@@ -1039,6 +1045,7 @@ const NATIVE_PKGS: &[&str] = &[
     "forza-native",
     "forza-hook",
     "forza-wccfnet",
+    "forza-detmath",
     "forza-netguard",
     "forza-icmp",
     "forza-programs",
