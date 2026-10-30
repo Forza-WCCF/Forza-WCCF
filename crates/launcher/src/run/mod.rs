@@ -1008,7 +1008,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
     };
     // before anything of the run exists: no game program may start unguarded (docs/SAFETY.md)
     if edition == Edition::E1718
-        && let Err(why) = guard::check(&game, &seat, p.client(), p.control())
+        && let Err(why) = guard::check(&game, &seat, p.client(), p.control(), p.matcher())
     {
         tell(ui, "", &Text::key("launcher.run_not_guarded").arg("why", why));
         return Err(NOT_GUARDED);
