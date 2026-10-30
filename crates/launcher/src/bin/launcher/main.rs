@@ -1569,11 +1569,25 @@ fn console(kit: &Kit, args: &[OsString]) -> ExitCode {
     ExitCode::from(u8::try_from(rc).unwrap_or(1))
 }
 
+/// `Launcher.exe server ARGS`: the online server (`forza-server ARGS`, the 2017-18 kit has no forza-server.exe).
+/// `server`, `server lan` and `server debug` stay play.py's words (the HOST mode).
+fn server_args(args: &[OsString]) -> Option<&[OsString]> {
+    let word = |i: usize, w: &str| args.get(i).is_some_and(|a| a.eq_ignore_ascii_case(w));
+    (word(0, "server") && args.len() > 1 && !word(1, "lan") && !word(1, "debug")).then(|| &args[1..])
+}
+
 fn main() -> ExitCode {
     let args: Vec<OsString> = env::args_os().skip(1).collect();
     // the run's child that switches QuickEdit off in the server's console (it changes its own console): nothing else
     if args.first().is_some_and(|a| a == launcher::helper::console::ARG) {
         return ExitCode::from(u8::try_from(launcher::helper::console::child_main(&args[1..])).unwrap_or(1));
+    }
+    if let Some(rest) = server_args(&args) {
+        // its log goes to the file the run redirects it to; from a console (--help) it prints there
+        if !redirected(STD_OUTPUT_HANDLE) {
+            attach_console();
+        }
+        forza_server::cli::main(std::iter::once(OsString::from("Launcher.exe server")).chain(rest.iter().cloned()));
     }
     let kit = Kit::here();
     let first = args.first().map(|a| a.to_string_lossy().to_ascii_lowercase());
@@ -1662,6 +1676,24 @@ mod tests {
             );
         }
         text::set(Lang::En);
+    }
+
+    #[test]
+    fn server_words_stay_host_mode() {
+        let a = |s: &str| s.split(' ').map(OsString::from).collect::<Vec<_>>();
+        for host in [
+            "server",
+            "server lan",
+            "Server LAN",
+            "server debug",
+            "server lan debug",
+            "local",
+        ] {
+            assert!(server_args(&a(host)).is_none(), "{host}");
+        }
+        let all = a("server --edition 2017-18 all");
+        assert_eq!(server_args(&all), Some(&all[1..]));
+        assert!(server_args(&a("SERVER --help")).is_some());
     }
 
     #[test]

@@ -20,6 +20,8 @@ path = "src/bin/launcher/main.rs"
 eframe.workspace = true
 forza.workspace = true
 forza-ui.workspace = true
+# `Launcher.exe server ...`: the online server's command line (2017-18 ships no forza-server.exe)
+forza-server = { path = "../server" }
 rfd.workspace = true
 vslink = { path = "../vslink" }
 regex = "1.13.1"
@@ -63,7 +65,6 @@ semver.workspace = true
 self-replace.workspace = true
 
 [dev-dependencies]
-forza-server = { path = "../server" }
 # tests/it/shop_room.rs: an in-process iroh relay (iroh::test_utils::run_relay_server)
 iroh = { workspace = true, features = ["test-utils"] }
 tokio = { workspace = true, features = ["rt-multi-thread"] }

@@ -196,7 +196,6 @@ const KEEP: &[&str] = &["programs", "Launcher.exe", "source/build"];
 /// Built into the staged 2017-18 kit (`source/build` holds the guard tests, which the kit does not ship; the guard `bin/wccfnet.dll` ships, setup copies it into the game runtime).
 const KEEP_1718: &[&str] = &[
     "Launcher.exe",
-    "bin/forza-server.exe",
     "bin/winmm.dll",
     "bin/wccfnet.dll",
     "bin/ICMP.DLL",
@@ -361,12 +360,9 @@ const NATIVE_CRATES: &[&str] = &[
 ];
 
 /// Shipped programs that may be console programs, each started only by Launcher.exe with CREATE_NO_WINDOW and its output
-/// read through a file or a pipe: inject.exe (exit code and message read from a pipe), forza-server.exe (log file).  FPR_Emu.exe is not here: the game starts it.
-const CONSOLE_OK: &[&str] = &[
-    "programs/inject.exe",
-    "bin/forza-server.exe",
-    "programs/forza-server.exe",
-];
+/// read through a file or a pipe: inject.exe (exit code and message read from a pipe), forza-server.exe (log file; 2010-11 only,
+/// 2017-18 runs the server as `Launcher.exe server`).  FPR_Emu.exe is not here: the game starts it.
+const CONSOLE_OK: &[&str] = &["programs/inject.exe", "programs/forza-server.exe"];
 /// The Subsystem field of a PE file's optional header (2 GUI, 3 console).
 fn pe_subsystem(b: &[u8]) -> Option<u16> {
     let at = |o: usize, n: usize| b.get(o..o + n);
@@ -376,7 +372,6 @@ fn pe_subsystem(b: &[u8]) -> Option<u16> {
 }
 const PROGRAMS_1718: &[&str] = &[
     "Launcher.exe",
-    "bin/forza-server.exe",
     "bin/winmm.dll",
     "bin/wccfnet.dll",
     "bin/ICMP.DLL",
@@ -730,10 +725,6 @@ fn build_all(root: &Path, kit: &Path, kit_1718: &Path, e1011: bool) -> Result<()
         // beside fakegame.exe: the panel's tests and self-tests load it from there
         (panel.clone(), kit.join("source/build/forza_panel.dll")),
         (release.join("Launcher.exe"), kit_1718.join("Launcher.exe")),
-        (
-            release.join("forza-server.exe"),
-            kit_1718.join("bin/forza-server.exe"),
-        ),
         (panel, kit_1718.join("overlay/forza_panel.dll")),
     ] {
         fs::copy(from, &to)?;
