@@ -1001,6 +1001,44 @@ fn import_dialog() {
     all.unwrap();
 }
 
+/// FORMATIONS (issue #89) during a match: two slots filled (one from another club), LOAD greyed out with its reason,
+/// slot 2 being named for SAVE (REPLACE: it is filled).
+#[test]
+fn formations_dialog() {
+    use forza::cards::{Placed, formations};
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for lang in Lang::ALL {
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Catalogue);
+        st.catalogue.filter = panel::Filter::default();
+        let t = [Placed {
+            slot: 1,
+            no: 1,
+            x: 0.0,
+            y: 0.9,
+        }];
+        let slot = |name, club| {
+            formations::slot_of(&formations::text(&t, st.edition, name, club), st.edition)
+        };
+        let mut slots = vec![None; formations::SLOTS];
+        slots[0] = slot("4-3-3 attack", "KITAKAZE");
+        slots[1] = slot("Cup XI", "OTHER FC");
+        st.formations = Some(panel::Formations {
+            slots,
+            naming: Some((1, "Cup XI".into())),
+        });
+        st.in_match = true;
+        snap(
+            &mut all,
+            &format!("panel_formations_{}", lang.code()),
+            panel::SIZE,
+            Edition::E1718,
+            |ui| panel::show(ui, &mut st),
+        );
+    }
+    all.unwrap();
+}
+
 /// CONFIRM and Enter ask for the import; CANCEL and Esc drop the question and stay on the catalogue.
 #[test]
 fn import_dialog_answers() {

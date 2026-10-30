@@ -15,6 +15,7 @@ use crate::board::{PositionColor, RarityRim};
 use crate::sizing;
 use crate::theme::Accent;
 use egui::{Align2, Color32, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
+use forza::cards::formations;
 use forza::cards::lineup::{self, LineupError, Skip, Skipped};
 use forza::cards::{self, AddRefused, Placed};
 use forza::club_view::{self as forza_club, ClubView};
@@ -644,6 +645,18 @@ pub struct PanelState {
     pub import_undo: Option<(Vec<Placed>, f64)>,
     /// That UNDO clicked: the panel DLL calls [`undo_import`].
     pub import_undone: bool,
+    /// FORMATIONS clicked: the panel DLL reads the slots into `formations` and the match state into `in_match`.
+    pub formations_open: bool,
+    /// The FORMATIONS dialog, open.
+    pub formations: Option<Formations>,
+    /// This seat plays a match, as the panel DLL saw it when FORMATIONS opened: LOAD is greyed out.
+    pub in_match: bool,
+    /// A slot clicked to load: the panel DLL calls [`load_formation`].
+    pub formation_load: Option<usize>,
+    /// SAVE confirmed (slot, name): the panel DLL writes the table into the slot.
+    pub formation_save: Option<(usize, String)>,
+    /// COPY clicked: a slot's lineup, or `None` the table's, as the site's text on the clipboard.
+    pub formation_copy: Option<Option<usize>>,
     /// The bindings changed: keys.txt is written.
     pub keys_changed: bool,
     /// The choices changed: data\panel.txt is written.
@@ -726,6 +739,12 @@ impl PanelState {
             import_go: false,
             import_undo: None,
             import_undone: false,
+            formations_open: false,
+            formations: None,
+            in_match: false,
+            formation_load: None,
+            formation_save: None,
+            formation_copy: None,
             keys_changed: false,
             file_changed: false,
             restart: false,
@@ -997,6 +1016,35 @@ pub fn undo_import(st: &mut PanelState, in_match: bool) -> Option<Vec<Placed>> {
     Some(old)
 }
 
+/// The FORMATIONS dialog: the ten slots as read, and the slot being named for SAVE (the name typed so far).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Formations {
+    pub slots: Vec<Option<formations::Slot>>,
+    pub naming: Option<(usize, String)>,
+}
+
+/// A saved formation on the table, as IMPORT LINEUP puts a lineup there: cards this game lacks are skipped and listed,
+/// refused during a match, the table before it kept for UNDO. The dialog closes so the board and its UNDO show.
+pub fn load_formation(
+    st: &mut PanelState,
+    placed: &[Placed],
+    slot: usize,
+    in_match: bool,
+    now: f64,
+) -> Option<Vec<Placed>> {
+    let text = st
+        .formations
+        .as_ref()?
+        .slots
+        .get(slot)?
+        .as_ref()?
+        .text
+        .clone();
+    let new = import_lineup(st, placed, &text, in_match, now)?;
+    st.formations = None;
+    Some(new)
+}
+
 /// "NAME (why), ...", the first 8, then "+N more".
 fn skip_list(skipped: &[Skipped], lang: Lang) -> String {
     let mut list: Vec<String> = skipped
@@ -1136,6 +1184,8 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
     // before the page: Enter and Esc answer the dialog, not the catalogue's search line or the page's close
     if st.import_ask.is_some() {
         import_dialog(ui, st, lang);
+    } else if st.formations.is_some() {
+        formations_dialog(ui, st, lang);
     }
     if st.page != Page::Game {
         let mut pg = ui.new_child(egui::UiBuilder::new().max_rect(above));
@@ -1333,6 +1383,144 @@ fn import_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     } else if go.clicked() || enter {
         st.import_go = true;
     }
+}
+
+/// FORMATIONS: ten slots, each its name and the club it was saved from. A filled slot's name loads it (greyed out
+/// during a match, the reason under the list); SAVE asks for a name (REPLACE when the slot is filled); COPY puts the
+/// slot's lineup, COPY BOARD the table's, on the clipboard as the site's text. CLOSE or Esc leaves.
+fn formations_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
+    let Some(mut f) = st.formations.take() else {
+        return;
+    };
+    let in_match = st.in_match;
+    let mut close = false;
+    let modal = egui::Modal::new(egui::Id::new("formations-dialog"))
+        .backdrop_color(Color32::from_black_alpha(170))
+        .frame(
+            egui::Frame::new()
+                .fill(Color32::from_rgba_unmultiplied(10, 16, 28, 240))
+                .stroke(Stroke::new(3.0, theme::GOLD))
+                .corner_radius(theme::RADIUS_BIG)
+                .inner_margin(20),
+        )
+        .show(ui.ctx(), |ui| {
+            ui.set_width(560.0);
+            ui.spacing_mut().item_spacing = vec2(8.0, 6.0);
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(tr!(lang, "form.title"))
+                        .font(theme::display(28.0))
+                        .color(theme::GOLD),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if action(ui, &tr!(lang, "form.copy_board")).clicked() {
+                        st.formation_copy = Some(None);
+                    }
+                });
+            });
+            for (i, slot) in f.slots.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.add_sized(
+                        [22.0, 30.0],
+                        egui::Label::new(
+                            egui::RichText::new(format!("{}", i + 1))
+                                .font(theme::bold(15.0))
+                                .color(theme::TEXT_DIM),
+                        ),
+                    );
+                    let (name, club) = match slot {
+                        Some(s) if s.name.is_empty() => (tr!(lang, "cat.lineup"), s.club.clone()),
+                        Some(s) => (s.name.clone(), s.club.clone()),
+                        None => (tr!(lang, "form.empty"), String::new()),
+                    };
+                    let load = ui.add_enabled(
+                        slot.is_some() && !in_match,
+                        egui::Button::new(egui::RichText::new(name).font(theme::bold(15.0)))
+                            .min_size(vec2(230.0, 30.0)),
+                    );
+                    if load.clicked() {
+                        st.formation_load = Some(i);
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .add_enabled(
+                                slot.is_some(),
+                                egui::Button::new(
+                                    egui::RichText::new(tr!(lang, "form.copy"))
+                                        .font(theme::bold(14.0)),
+                                ),
+                            )
+                            .clicked()
+                        {
+                            st.formation_copy = Some(Some(i));
+                        }
+                        if action(ui, &tr!(lang, "form.save")).clicked() {
+                            let name = slot.as_ref().map_or_else(String::new, |s| s.name.clone());
+                            f.naming = Some((i, name));
+                        }
+                        ui.label(
+                            egui::RichText::new(club)
+                                .font(theme::body(14.0))
+                                .color(theme::TEXT_DIM),
+                        );
+                    });
+                });
+            }
+            if in_match {
+                status_line(ui, Tone::Refused, &tr!(lang, "form.load_match"));
+            }
+            if let Some((i, name)) = &mut f.naming {
+                let i = *i;
+                ui.separator();
+                ui.label(
+                    egui::RichText::new(tr!(lang, "form.name_for", n = i + 1))
+                        .font(theme::bold(15.0))
+                        .color(theme::TEXT),
+                );
+                let old = f.slots.get(i).and_then(Option::as_ref);
+                if let Some(o) = old {
+                    status_line(
+                        ui,
+                        Tone::Notice,
+                        &tr!(lang, "form.replaces", name = o.name.clone()),
+                    );
+                }
+                let edit = ui.add(
+                    egui::TextEdit::singleline(name)
+                        .id_salt("form-name")
+                        .char_limit(40)
+                        .font(theme::body(16.0))
+                        .desired_width(f32::INFINITY),
+                );
+                if !edit.has_focus() {
+                    edit.request_focus();
+                }
+                let enter =
+                    ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+                ui.horizontal(|ui| {
+                    let label = if old.is_some() {
+                        "form.replace"
+                    } else {
+                        "form.save"
+                    };
+                    if action(ui, &tr!(lang, label)).clicked() || enter {
+                        st.formation_save = Some((i, name.trim().to_owned()));
+                    }
+                    if action(ui, &tr!(lang, "common.cancel")).clicked() {
+                        close = true;
+                    }
+                });
+            } else if action(ui, &tr!(lang, "common.close")).clicked() {
+                close = true;
+            }
+        });
+    let esc = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+    if st.formation_save.is_some() || ((close || esc) && f.naming.is_some()) {
+        f.naming = None; // CANCEL or Esc while naming: back to the list
+    } else if close || esc || modal.should_close() {
+        return;
+    }
+    st.formations = Some(f);
 }
 
 // ---- the card deal ----
@@ -2584,8 +2772,9 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
         add = c.results.first().map(|&i| cards[i].number);
     }
-    let mut import = false;
-    // the search line, IMPORT LINEUP at its right end
+    let (mut import, mut form) = (false, false);
+    let e1718 = st.edition == Edition::E1718;
+    // the search line, IMPORT LINEUP and FORMATIONS at its right end
     let row = vec2(ui.available_width(), 36.0);
     let search = ui
         .allocate_ui_with_layout(
@@ -2593,6 +2782,8 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             egui::Layout::right_to_left(egui::Align::Center),
             |ui| {
                 import = action(ui, &tr!(lang, "cat.import")).clicked();
+                // 2017-18 only (issue #89): 2010-11 stays as it is
+                form = e1718 && action(ui, &tr!(lang, "form.open")).clicked();
                 ui.add(
                     egui::TextEdit::singleline(&mut c.filter.search)
                         .id_salt("cat-search")
@@ -2604,7 +2795,9 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             },
         )
         .inner;
-    if !search.has_focus() && !egui::Popup::is_any_open(ui.ctx()) {
+    st.formations_open |= form;
+    // the FORMATIONS dialog's name line keeps the keys
+    if !search.has_focus() && !egui::Popup::is_any_open(ui.ctx()) && st.formations.is_none() {
         search.request_focus();
     }
     // an import's report runs to a few lines: across the page under the search line, not in the stats pane
@@ -4408,6 +4601,7 @@ pub fn widget_sheet(ui: &mut Ui, ws: &mut WidgetSheet) {
 mod tests {
     use super::*;
     use crate::board::Aptitude;
+    use forza::cards::BENCH_X;
 
     fn sheet_of(w: f32, h: f32) -> Rect {
         // what a window of w x h pixels shows, in points
@@ -5073,6 +5267,48 @@ mod tests {
         assert_eq!(undo_import(&mut st, false), Some(old));
         assert_eq!(st.board.cards[0].number, 10);
         assert_eq!(undo_import(&mut st, false), None);
+    }
+
+    #[test]
+    fn a_formation_from_another_club_loads_without_its_missing_cards_and_undo_restores() {
+        let (mut st, old) = importer();
+        let other = [
+            (101, 0.0, 0.8),
+            (210, 0.2, -0.3),
+            (999, -0.4, 0.1),
+            (32, 1.24, 0.0),
+        ]
+        .map(|(no, x, y)| Placed { slot: 1, no, x, y });
+        let text = formations::text(&other, st.edition, "Away", "OTHER FC");
+        let slot = formations::slot_of(&text, st.edition);
+        assert_eq!(slot.as_ref().map(|s| s.club.as_str()), Some("OTHER FC"));
+        st.formations = Some(Formations {
+            slots: vec![None, slot],
+            naming: None,
+        });
+        // during a match: refused, the dialog and the table stay
+        assert_eq!(load_formation(&mut st, &old, 1, true, 1.0), None);
+        assert_eq!(
+            st.message.as_ref().unwrap().text,
+            "Not during a match. Import between matches."
+        );
+        assert!(st.formations.is_some() && st.import_undo.is_none());
+        // an empty slot loads nothing
+        assert_eq!(load_formation(&mut st, &old, 0, false, 1.0), None);
+        let new = load_formation(&mut st, &old, 1, false, 2.0).unwrap();
+        assert_eq!(
+            new.iter().map(|p| (p.no, p.x, p.y)).collect::<Vec<_>>(),
+            [(101, 0.0, 0.8), (210, 0.2, -0.3), (32, BENCH_X, -0.68)]
+        );
+        assert!(st.formations.is_none());
+        let m = st.message.as_ref().unwrap();
+        assert_eq!(m.tone, Tone::Notice);
+        assert_eq!(
+            m.text,
+            "Away: 3 cards on the table.\nSkipped: 999 (not in the catalogue)"
+        );
+        assert_eq!(undo_import(&mut st, false), Some(old));
+        assert_eq!(st.board.cards[0].number, 10);
     }
 
     #[test]
