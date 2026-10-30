@@ -1,10 +1,11 @@
 //! 2017-18 setup (`setup.py`): set up your copy of the decrypted game for Forza-WCCF, once; run it again to check and
 //! repair.  Works in place on the game folder; the runtime is the folder that holds it:
 //!
-//! - `original\` the untouched client_Release.exe and control_Release.exe, kept on the first run; every later run
-//!   patches from them, so running setup again never stacks a patch (a second run changes nothing)
+//! - `original\` the untouched client_Release.exe, control_Release.exe and match_Release.exe, kept on the first run;
+//!   every later run patches from them, so running setup again never stacks a patch (a second run changes nothing)
 //! - `game\` the server and projector: guarded programs (they import wccfnet.dll, which stubs the four IP-helper
-//!   calls, instead of IPHLPAPI.DLL), the kit's winmm.dll / logowin.exe / ICMP.DLL stand-ins, the settings files
+//!   calls, instead of IPHLPAPI.DLL), the kit's winmm.dll / logowin.exe / ICMP.DLL stand-ins, the settings files; the
+//!   match engine imports dmath.dll instead of PSAPI.DLL (the same math on every CPU, so online seats stay in step)
 //! - `seat1\` the player's cabinet: junctions to game's folders, hard links to its files, its own patched
 //!   client_Release.exe, the card-table helper
 //! - `setup-hashes.json` the SHA-256 of what setup made; Launcher.exe starts nothing unless every file still matches
@@ -36,6 +37,14 @@ const PINNED: [(&str, &str); 2] = [
 ];
 const OLD: &[u8] = b"IPHLPAPI.DLL\0";
 const NEW: &[u8] = b"wccfnet.dll\0\0";
+/// The match engine and its SHA-256: its copy imports dmath.dll (native/detmath, which checks the same hash) in
+/// PSAPI.DLL's place.
+const ENGINE: (&str, &str) = (
+    "match_Release.exe",
+    "061d05b563e67675c240cefa9a642eaad5da6b0777cd5dca560804fbd6f9b58c",
+);
+const PSAPI: &[u8] = b"PSAPI.DLL\0";
+const DMATH: &[u8] = b"dmath.dll\0";
 /// The card-table helper as the client names it, relative to seat 1's folder.
 const FPR_EMU: &str = "FlatPanelReader_Emulator/FPR_Emu.exe";
 const CONF_CLIENT: &str = "local/client_user_option.conf";
@@ -226,6 +235,8 @@ static CONTROL: [Patch; 2] = [
 pub struct Spec {
     /// (program, SHA-256) of client_Release.exe and control_Release.exe
     pub pinned: [(&'static str, &'static str); 2],
+    /// (program, SHA-256) of match_Release.exe
+    pub engine: (&'static str, &'static str),
     pub seat: &'static [Patch],
     pub projector: &'static [Patch],
     pub control: &'static [Patch],
@@ -239,6 +250,7 @@ impl Spec {
             .map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from);
         Self {
             pinned: PINNED,
+            engine: ENGINE,
             seat: &SEAT,
             projector: &PROJECTOR,
             control: &CONTROL,
@@ -280,17 +292,34 @@ pub fn setup_game(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
             .0
             .push(((*exe).into(), Hash::Pair(sha(&orig), sha(&g))));
     }
+    // the match engine: the same results on every CPU (dmath.dll); seat 1 links to this copy below
+    let (engine, pinned) = spec.engine;
+    let orig = original(
+        engine,
+        &game.join(engine),
+        &rt.join("original").join(engine),
+        pinned,
+        "2017-18",
+    )?;
+    let g = rename_import(&orig, PSAPI, DMATH)?;
+    if fs::read(game.join(engine)).ok().as_deref() != Some(&g) {
+        replace(&game.join(engine), &g)?;
+    }
+    report
+        .0
+        .push((engine.into(), Hash::Pair(sha(&orig), sha(&g))));
     // older kits put netguard.dll here (and setup copied it into seat1\); nothing loads it now
     for old in [game.join("netguard.dll"), seat.join("netguard.dll")] {
         if old.is_file() {
             fs::remove_file(old)?;
         }
     }
-    for (dll, built) in [
-        ("wccfnet.dll", bin.join("wccfnet.dll")),
-        ("ICMP.DLL", bin.join("ICMP.DLL")),
+    for (dll, what) in [
+        ("wccfnet.dll", "the network guard"),
+        ("ICMP.DLL", "the network guard"),
+        ("dmath.dll", "the match engine's deterministic math"),
     ] {
-        copy_in(&built, &game.join(dll), "the network guard")?;
+        copy_in(&bin.join(dll), &game.join(dll), what)?;
         report
             .0
             .push((dll.into(), Hash::One(sha(&read(&game.join(dll))?))));
@@ -426,6 +455,20 @@ pub fn undo(kit: &Path, game: &Path, spec: &Spec) -> Result<()> {
         }
         backups.push((exe, data));
     }
+    // a runtime set up before dmath.dll has no backup of the engine: its engine is still the original
+    let (engine, pinned) = spec.engine;
+    let from = rt.join("original").join(engine);
+    if from.is_file() {
+        let data = read(&from)?;
+        if sha(&data) != pinned {
+            return Err(Error(format!(
+                "{} is not the original {engine} (SHA-256 {}, expected {pinned}); undo changed nothing",
+                from.display(),
+                sha(&data)
+            )));
+        }
+        backups.push((engine, data));
+    }
     for (exe, data) in backups {
         replace(&game.join(exe), &data)?;
     }
@@ -439,6 +482,7 @@ pub fn undo(kit: &Path, game: &Path, spec: &Spec) -> Result<()> {
         "wccfnet.dll",
         "netguard.dll",
         "ICMP.DLL",
+        "dmath.dll",
     ] {
         if game.join(f).is_file() {
             fs::remove_file(game.join(f))?;
@@ -608,6 +652,7 @@ mod tests {
         for (d, n) in [
             ("bin", "wccfnet.dll"),
             ("bin", "ICMP.DLL"),
+            ("bin", "dmath.dll"),
             ("bin", "winmm.dll"),
             ("bin", "logowin.exe"),
             ("bin", "FPR_Emu.exe"),
@@ -621,8 +666,10 @@ mod tests {
         }
         let client = pe(&["IPHLPAPI.DLL"], format!("./{FPR_EMU}").as_bytes());
         let control = pe(&["iphlpapi.dll"], b"control");
+        let engine = pe(&["KERNEL32.dll", "PSAPI.DLL"], b"engine");
         fs::write(game.join("client_Release.exe"), &client).unwrap();
         fs::write(game.join("control_Release.exe"), &control).unwrap();
+        fs::write(game.join("match_Release.exe"), &engine).unwrap();
         fs::write(game.join("logowin.exe"), "their logo").unwrap();
         fs::write(game.join("other.dll"), "other").unwrap();
         fs::write(game.join("notes.txt"), "text").unwrap();
@@ -635,6 +682,7 @@ mod tests {
                 ("client_Release.exe", leak(&client)),
                 ("control_Release.exe", leak(&control)),
             ],
+            engine: ("match_Release.exe", leak(&engine)),
             seat: &T_SEAT,
             projector: &T_PROJ,
             control: &T_CTRL,
@@ -645,12 +693,27 @@ mod tests {
         fs::write(game.join("netguard.dll"), "old kit netguard").unwrap();
 
         let report = run(&kit, &game, &spec).unwrap();
-        assert_eq!(report.0.len(), 5);
+        assert_eq!(report.0.len(), 7);
         let record = fs::read_to_string(rt.join("setup-hashes.json")).unwrap();
         let json: serde_json::Value = serde_json::from_str(&record).unwrap();
         assert_eq!(json["client_Release.exe"]["original"], sha(&client));
         assert_eq!(json["wccfnet.dll"], sha(b"kit wccfnet.dll"));
         assert_eq!(json["ICMP.DLL"], sha(b"kit ICMP.DLL"));
+        assert_eq!(json["dmath.dll"], sha(b"kit dmath.dll"));
+        // the engine imports dmath.dll, not PSAPI.DLL, in the game folder and (a link) in seat 1
+        let made = fs::read(game.join("match_Release.exe")).unwrap();
+        assert_eq!(json["match_Release.exe"]["original"], sha(&engine));
+        assert_eq!(json["match_Release.exe"]["guarded"], sha(&made));
+        assert!(crate::setup::imports(&made, DMATH) && !crate::setup::imports(&made, PSAPI));
+        assert_eq!(fs::read(rt.join("seat1/match_Release.exe")).unwrap(), made);
+        assert_eq!(
+            fs::read(rt.join("seat1/dmath.dll")).unwrap(),
+            b"kit dmath.dll"
+        );
+        assert_eq!(
+            fs::read(rt.join("original/match_Release.exe")).unwrap(),
+            engine
+        );
         assert_eq!(
             fs::read(rt.join("seat1/ICMP.DLL")).unwrap(),
             b"kit ICMP.DLL"
@@ -729,9 +792,11 @@ mod tests {
         undo(&kit, &game, &spec).unwrap();
         assert_eq!(fs::read(game.join("logowin.exe")).unwrap(), b"their logo");
         assert_eq!(fs::read(game.join("client_Release.exe")).unwrap(), client);
+        assert_eq!(fs::read(game.join("match_Release.exe")).unwrap(), engine);
         assert!(
             !seat.exists()
                 && !rt.join("setup-hashes.json").exists()
+                && !game.join("dmath.dll").exists()
                 && !game.join("wccfnet.dll").exists()
                 && !game.join("ICMP.DLL").exists()
         );
@@ -758,6 +823,12 @@ mod tests {
         assert_eq!(fs::read(game.join("client_Release.exe")).unwrap(), patched);
         fs::write(&backup, &client).unwrap();
         undo(&kit, &game, &spec).unwrap();
+        // a runtime set up before dmath.dll (no engine backup, the engine untouched): undo still works
+        run(&kit, &game, &spec).unwrap();
+        fs::remove_file(rt.join("original/match_Release.exe")).unwrap();
+        fs::write(game.join("match_Release.exe"), &engine).unwrap();
+        undo(&kit, &game, &spec).unwrap();
+        assert_eq!(fs::read(game.join("match_Release.exe")).unwrap(), engine);
         // a seat1 that setup did not make is neither used nor deleted
         fs::create_dir(&seat).unwrap();
         fs::write(seat.join("save.dat"), b"theirs").unwrap();
