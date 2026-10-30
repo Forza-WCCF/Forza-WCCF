@@ -11,3 +11,4 @@ mod rec_kit;
 mod rec_logs;
 mod shop_room;
 mod sound;
+mod tablet;

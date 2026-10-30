@@ -197,6 +197,20 @@ pub fn addresses() -> Vec<Ipv4Addr> {
     if private.is_empty() { all } else { private }
 }
 
+/// The private network this PC reaches others through: its default route's interface, else the first private one
+/// that is up; its address and prefix length. `None` when no private IPv4 network is up (the tablet board refuses to
+/// listen).
+pub fn private_net() -> Option<(Ipv4Addr, u8)> {
+    let default = netdev::get_default_interface()
+        .ok()
+        .into_iter()
+        .flat_map(|i| i.ipv4);
+    default
+        .chain(networks())
+        .find(|n| n.addr().is_private())
+        .map(|n| (n.addr(), n.prefix_len()))
+}
+
 fn networks() -> impl Iterator<Item = netdev::ipnet::Ipv4Net> {
     netdev::get_interfaces()
         .into_iter()

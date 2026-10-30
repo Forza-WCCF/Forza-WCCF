@@ -913,6 +913,8 @@ pub enum End {
 /// Seat 1's side: dropped in this order - the key driver before the board, so every button is let go.
 #[derive(Default)]
 struct Cabinet {
+    /// 2017-18 seat 1: the tablet formation board (stopped first: its buttons go before the key driver).
+    tablet: Option<Handle>,
     keys: Option<Handle>,
     board: Option<Handle>,
     /// The club card reader (2010-11) or the Aime reader (2017-18).
@@ -1951,13 +1953,24 @@ impl Run<'_> {
             self.tell("  6/6 ", &Text::key("launcher.run_panels_failed").part("why", why));
         }
         let keys_path = env::var_os("WCCF_KEYS").map_or_else(|| self.kit.data().join("keys.txt"), PathBuf::from);
+        let tablet_keys = Arc::new(std::sync::atomic::AtomicU16::new(0));
         self.cabinet.keys = Some(crate::keys::spawn(
             p.shared.clone(),
             keys_path,
             // START puts in a coin only where the game is not in FREE PLAY: 2017-18 runs it from the panel (seen live, run 8)
             self.kit.edition() != Edition::E1718,
+            tablet_keys.clone(),
             file_log(self.logs().join("run_keys.txt")),
         ));
+        // the tablet board (issue #94): 2017-18 seat 1 only; it serves only while panel.txt says tablet=on
+        if self.edition == Edition::E1718 && n == 1 {
+            self.cabinet.tablet = Some(crate::tablet::spawn(
+                self.kit,
+                self.seat.clone(),
+                tablet_keys,
+                file_log(self.logs().join("run_tablet.txt")),
+            ));
+        }
         Ok(())
     }
 
