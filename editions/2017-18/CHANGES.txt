@@ -1,6 +1,29 @@
 Forza-WCCF 2017-18 - release notes
 ==================================
 
+0.6.0 - 2026-11-01 (alpha)
+--------------------------
+The online play fix: VS matches between different PCs no longer fall apart.
+
+  - Online VS matches stay in step between AMD and Intel PCs: the match engine math is now the same on every CPU.
+    Before, a match between different CPUs dropped to CPU control about 140 s in. The server checks that both seats
+    run the same math.
+  - The host's server and game programs run at above-normal priority; the online server runs inside Launcher.exe.
+  - The Launcher shows the host how many players are in its arcade.
+  - The game window can be dragged to any size.
+  - The VS lobby and the in-match pause are hidden for now.
+  - Saved formations, IMPORT LINEUP from a db.wccf.it share link, and RESET LINEUP to put the board back to the start
+    of the match.
+  - The controller keeps working while the game window is in the background.
+  - After an update the Launcher runs SET UP again by itself before the first start.
+  - Update checks every file and rolls back if one is wrong.
+  - The original-text backup is kept beside the game.
+  - More game texts translated; Italian menu wording; English gallery names; windows titled like the original.
+  - The formation board clears its selection after a few seconds; accented letters show in LINKS and panel text.
+  - The Forza-WCCF version shows in the panel bar and on every Launcher tab.
+  - Fewer antivirus false alarms: logowin.exe is gone, FPR_Emu.exe is smaller, unchanged programs keep their hash.
+  - Known issue: RESET LINEUP timing will be refined in a later release.
+
 0.5.1 - 2026-10-29 (alpha)
 --------------------------
 Arcades lobby, Launcher tabs, a three-window pop-out board and SAVE LOGS fixes. Not played before release.

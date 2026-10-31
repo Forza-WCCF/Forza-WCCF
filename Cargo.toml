@@ -6,7 +6,7 @@ default-members = ["crates/*"]
 [workspace.package]
 # the release number (tag v<this>, version.txt): only Launcher, installer and panel inherit it; every other crate has its
 # own, so an unchanged helper program (FPR_Emu.exe, logowin.exe) rebuilds byte-identical (docs/RELEASING.md)
-version = "0.5.1"
+version = "0.6.0"
 edition = "2024"
 rust-version = "1.99"
 publish = false
