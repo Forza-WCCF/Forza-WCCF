@@ -1,0 +1,129 @@
+name: Reproducible builds
+
+# Builds the 2017-18 ZIP and the installer twice, on two runners, in two different checkout folders (one with the release
+# cache, one without), and fails when a shipped PE file differs between the builds. Then lists the files that differ
+# from the last published release and says why: "source changed", or "no source change" (toolchain or runner changed).
+# A release keeps its reputation with the antivirus engines only while an unchanged file keeps its hash.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit or tag to build (default the one the workflow runs on)
+        default: ''
+      base:
+        description: Release tag to compare with (default the latest published release)
+        default: ''
+  pull_request:
+    paths:
+      - .github/workflows/reproducible.yml
+      - .github/scripts/repro.sh
+      - rust-toolchain.toml
+      - .cargo/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repro-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  REF: ${{ inputs.ref || github.sha }}
+
+jobs:
+  build:
+    name: build ${{ matrix.copy }}
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { copy: a, dir: src, cache: true }
+          - { copy: b, dir: other/deeper/copy, cache: false }
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ matrix.dir }}
+    steps:
+      - run: git config --global core.autocrlf false
+        working-directory: .
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.REF }}
+          path: ${{ matrix.dir }}
+          persist-credentials: false
+      - run: |
+          rustup show
+          a=$(rustup show active-toolchain | cut -d' ' -f1)
+          rustup toolchain list | cut -d' ' -f1 | grep -vx "$a" | xargs -r -n1 rustup toolchain uninstall
+      # restore only, as release.yml does
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        if: matrix.cache
+        with:
+          shared-key: windows
+          save-if: false
+          workspaces: ${{ matrix.dir }}
+      - name: Build environment
+        run: |
+          echo "image: $ImageOS $ImageVersion"
+          rustc -vV
+          for d in "/c/Program Files/Microsoft Visual Studio"/*/*/VC/Tools/MSVC/* "/c/Program Files (x86)/Windows Kits/10/Lib"/*; do echo "$d"; done
+      - name: Packages
+        run: |
+          V=$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version *= *"\(.*\)"/\1/p}' Cargo.toml | head -n1)
+          cargo xtask package 2017-18 --name "Forza-WCCF-2017-18-$V"
+          cargo xtask package installer
+          cd dist
+          find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -printf '%f\n' | sort | xargs sha256sum > "$RUNNER_TEMP/sums"
+          mv "$RUNNER_TEMP/sums" SHA256SUMS.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist-${{ matrix.copy }}
+          path: ${{ matrix.dir }}/dist/
+          retention-days: 3
+          if-no-files-found: error
+
+  compare:
+    name: compare
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.REF }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: dist-*
+          path: .
+      - name: Build a against build b
+        run: |
+          .github/scripts/repro.sh hashes dist-a > a.txt
+          .github/scripts/repro.sh hashes dist-b > b.txt
+          {
+            echo "### Build a against build b"
+            echo '```'
+            cat a.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if diff a.txt b.txt && diff dist-a/SHA256SUMS.txt dist-b/SHA256SUMS.txt; then
+            echo "::notice::the two builds are byte-identical"
+          else
+            echo "::error::the two builds differ"
+            exit 1
+          fi
+      - name: Build against the last release
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ inputs.base }}
+        run: |
+          [ -n "$BASE" ] || BASE=$(gh release list --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName')
+          mkdir base
+          gh release download "$BASE" -D base -p 'Forza-WCCF-2017-18-*.zip' -p 'Forza-WCCF-Installer-*.exe'
+          .github/scripts/repro.sh hashes base > base.txt
+          { echo "### $BASE against this build"; .github/scripts/repro.sh why base.txt a.txt "$BASE" "$REF"; } | tee -a "$GITHUB_STEP_SUMMARY"
