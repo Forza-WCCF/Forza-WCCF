@@ -57,6 +57,7 @@ use windows_sys::Win32::System::Console::{
     ATTACH_PARENT_PROCESS, AttachConsole, CTRL_BREAK_EVENT, CTRL_C_EVENT, CTRL_CLOSE_EVENT, GetConsoleMode,
     GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, SetConsoleCtrlHandler, SetStdHandle,
 };
+use windows_sys::Win32::System::Threading::{ABOVE_NORMAL_PRIORITY_CLASS, GetCurrentProcess, SetPriorityClass};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     IDYES, MB_ICONERROR, MB_ICONQUESTION, MB_OK, MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO, MessageBoxW,
 };
@@ -1602,6 +1603,15 @@ fn main() -> ExitCode {
         if !redirected(STD_OUTPUT_HANDLE) {
             attach_console();
         }
+        // background load on the host (builds, disk tools) must not stall the relay and tunnel of a VS match; never
+        // HIGH: the game processes run at above normal too (debug::Options::above_normal)
+        // SAFETY: plain call on this process's pseudo handle.
+        let raised = unsafe { SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS) } != 0;
+        println!(
+            "{} this server: above-normal priority {}",
+            forza_server::stamp(forza_server::now(), false),
+            if raised { "yes" } else { "NO" }
+        );
         forza_server::cli::main(std::iter::once(OsString::from("Launcher.exe server")).chain(rest.iter().cloned()));
     }
     let kit = Kit::here();

@@ -1397,6 +1397,7 @@ impl Run<'_> {
             dumps: self.kit.data().join("dumps"),
             index: index.is_dir().then_some(index),
             // control+0x1226A is 2010-11's control: 2017-18's is guarded by its hook (whole messages)
+            above_normal: self.edition == Edition::E1718,
             msgguard: (self.edition == Edition::E1011).then(|| env::var("WCCF_MSGGUARD").map_or(true, |v| v != "0")),
             env: self.kit_env().into_iter().chain(env).chain([game_dpi()]).collect(),
             stop: Some(stop.clone()),

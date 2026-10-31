@@ -43,6 +43,7 @@ fn options(exe: PathBuf, top: &Path, role: Role) -> Options {
         dumps: top.join("data/dumps"),
         index: None,
         msgguard: Some(true),
+        above_normal: false,
         env: Vec::new(),
         stop: None,
     }
@@ -252,6 +253,25 @@ fn hide_starts_the_windows_hidden() {
         assert_eq!(code, 0);
         assert!(job.wait_empty(Duration::from_secs(10)));
     }
+}
+
+/// `above_normal` (2017-18): a game program starts at above-normal priority and the log says so.
+#[test]
+fn above_normal_raises_a_game_program() {
+    let top = tempfile::tempdir().unwrap();
+    let game = top.path().join("game");
+    fs::create_dir_all(&game).unwrap();
+    let exe = game.join("match_Release.exe");
+    fs::copy(std::env::current_exe().unwrap(), &exe).unwrap();
+    let mut opts = options(exe, top.path(), Role::Control);
+    opts.args = vec!["--list".into()];
+    opts.above_normal = true;
+    let (job, log, t) = start(opts);
+    let code = t.join().unwrap();
+    let out = log.text();
+    assert!(out.contains("above-normal priority: yes"), "{out}");
+    assert_eq!(code, 0, "{out}");
+    assert!(job.wait_empty(Duration::from_secs(10)));
 }
 
 /// make_all on made-up motion files under a name of the test's own: every mapping holds its payload; a mapping that
