@@ -712,18 +712,27 @@ fn card_open() -> bool {
 
 /// This seat plays a match (IMPORT LINEUP is refused then, the owner's rule); the decision and its inputs are logged.
 fn in_match() -> bool {
+    let (refuse, _, why) = match_check();
+    log(&format!(
+        "import: match check - {why} -> {}",
+        if refuse { "in a match" } else { "free" }
+    ));
+    refuse
+}
+
+/// [`in_match`] without the log line: the answer and the inputs it came from.
+fn match_check() -> (bool, bool, String) {
     let e1718 = FILES
         .get()
         .is_some_and(|f| f.edition == theme::Edition::E1718);
     let seat = if e1718 { pause::seat_state() } else { None };
     let shop = pause::shop_state(e1718);
     let card = card_open();
-    let refuse = match_now(e1718, seat, shop, card);
-    log(&format!(
-        "import: match check - seat state {seat:?}, shop state {shop:?}, card session {card} -> {}",
-        if refuse { "in a match" } else { "free" }
-    ));
-    refuse
+    (
+        match_now(e1718, seat, shop, card),
+        match_now(e1718, seat, shop, false),
+        format!("seat state {seat:?}, shop state {shop:?}, card session {card}"),
+    )
 }
 
 /// 2017-18: the seat's own sequence state is the match one (the shop state is the whole shop's: another seat's
@@ -1314,6 +1323,8 @@ struct Render {
     deal_last: Option<forza::card::Session>,
     /// Links: when the club card was last looked at, and its time then.
     links_at: Option<Instant>,
+    /// When the match state was last read for RESET LINEUP ([`Render::lineup`]).
+    match_at: Option<Instant>,
     links_stamp: Option<Option<std::time::SystemTime>>,
     /// CLUB CARD: when club_view.txt was last looked at, and its time then.
     club_at: Option<Instant>,
@@ -1399,6 +1410,7 @@ impl Render {
             // an answer from an earlier run is not shown
             logs_stamp: stamp(&files.request("savelogs.result")),
             links_at: None,
+            match_at: None,
             links_stamp: None,
             club_at: None,
             club_stamp: None,
@@ -2517,6 +2529,7 @@ impl Render {
     /// ([`Render::import_text`]); its UNDO: the table before it.
     fn import(&mut self) {
         self.formations();
+        self.lineup();
         if std::mem::take(&mut self.st.import_undone)
             && let Some(old) = panel::undo_import(&mut self.st, in_match())
         {
@@ -2570,6 +2583,41 @@ impl Render {
             && let Some(ask) = self.st.import_ask.take()
         {
             self.import_text(&ask.text);
+        }
+    }
+
+    /// 2017-18: the table kept when a match begins (the seat state read every frame, the full match state once a
+    /// second), and RESET LINEUP writing it back like a card move.
+    fn lineup(&mut self) {
+        if self.st.edition != theme::Edition::E1718 {
+            return;
+        }
+        // the seat state is cheap: read every frame to catch the match edge before that frame's board change
+        let seat = pause::seat_state().map(|s| s == pause::SEAT_MATCH);
+        let polled = if self
+            .match_at
+            .is_none_or(|t| t.elapsed() >= Duration::from_secs(1))
+        {
+            self.match_at = Some(Instant::now());
+            let (busy, playing, _) = match_check();
+            Some((busy, playing))
+        } else {
+            None
+        };
+        let was_seen = self.st.match_seen;
+        panel::lineup_tick(&mut self.st, seat, polled, &self.placed);
+        if self.st.match_seen && !was_seen {
+            log(&format!(
+                "board: match began, {} card(s) kept for RESET LINEUP",
+                self.placed.len()
+            ));
+        }
+        // the click is served on the match state now, not the last second's
+        let fresh = self.st.reset_lineup && match_check().0;
+        if let Some(new) = panel::take_reset(&mut self.st, fresh) {
+            log(&format!("board: RESET LINEUP - {} card(s)", new.len()));
+            self.placed = new;
+            self.table_write();
         }
     }
 
