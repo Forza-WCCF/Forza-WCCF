@@ -212,6 +212,20 @@ mod tests {
             en.iter().map(key).collect::<Vec<_>>(),
             it.iter().map(key).collect::<Vec<_>>()
         );
+        // rows that would break the game (city readings, lookup keys); see the file for why
+        let protected = include_str!("../../../editions/2017-18/exe_text_protected.tsv");
+        for l in protected
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.is_empty())
+        {
+            let rva =
+                usize::from_str_radix(l[2..l.find('\t').unwrap()].trim_start_matches('0'), 16)
+                    .unwrap();
+            assert!(
+                en.iter().all(|r| r.rva != rva),
+                "protected rva {rva:#X} is in exe_text.tsv"
+            );
+        }
         let mut rooms: Vec<_> = en.iter().map(|r| (r.rva, r.rva + r.room)).collect();
         rooms.sort();
         for w in rooms.windows(2) {
