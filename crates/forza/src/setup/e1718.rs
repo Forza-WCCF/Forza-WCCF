@@ -267,6 +267,57 @@ pub fn find_game(path: &str) -> Option<PathBuf> {
 
 const SEAT_MARK: &str = ".forza-seat";
 
+/// Setup's version, in setup-hashes.json as "setup-version": raise it when [`setup_game`] makes something new (a patch, a
+/// file; the Launcher's run again is that function alone) and the Launcher sets up again a runtime an older setup made
+/// ([`stale`]). 2: det-math (dmath.dll, the engine's copy).
+pub const VERSION: u32 = 2;
+const VERSION_KEY: &str = "setup-version";
+/// The kit's DLLs setup copies into the game folder (seat 1 links to them), each recorded in setup-hashes.json.
+const KIT_DLLS: [(&str, &str); 3] = [
+    ("wccfnet.dll", "the network guard"),
+    ("ICMP.DLL", "the network guard"),
+    ("dmath.dll", "the match engine's deterministic math"),
+];
+
+/// Why the runtime of `game` needs setup again for the kit in `kit`: an older setup made it (no or a lower
+/// "setup-version", as before det-math), or a kit file it holds is not this kit's (an update or new files unzipped over
+/// it). None: current, or never set up (no readable setup-hashes.json: the Launcher's guard check refuses that).
+pub fn stale(kit: &Path, game: &Path) -> Option<String> {
+    let rt = game.parent().unwrap_or(game);
+    let record: serde_json::Value =
+        serde_json::from_slice(&fs::read(rt.join("setup-hashes.json")).ok()?).ok()?;
+    let made = record
+        .get(VERSION_KEY)
+        .and_then(serde_json::Value::as_str)
+        .and_then(|v| v.parse::<u32>().ok())
+        .unwrap_or(1);
+    if made < VERSION {
+        return Some(format!(
+            "setup version {made}, this Forza-WCCF needs {VERSION}"
+        ));
+    }
+    let bin = kit.join(Edition::E1718.layout().bin);
+    let copies = KIT_DLLS
+        .map(|(dll, _)| (dll, game.join(dll)))
+        .into_iter()
+        .chain([
+            ("winmm.dll", game.join("winmm.dll")),
+            ("FPR_Emu.exe", rt.join("seat1").join(FPR_EMU)),
+        ]);
+    for (name, copy) in copies {
+        // a kit without the file is not compared: setup itself names it missing
+        if let Ok(new) = fs::read(bin.join(name))
+            && fs::read(&copy).ok() != Some(new)
+        {
+            return Some(format!(
+                "{} is not this Forza-WCCF's {name}",
+                copy.display()
+            ));
+        }
+    }
+    None
+}
+
 /// game\ (server + projector, guarded) and seat1\; returns what setup-hashes.json holds.
 pub fn setup_game(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
     let lay = Edition::E1718.layout();
@@ -274,15 +325,24 @@ pub fn setup_game(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
     let seat = rt.join("seat1");
     let bin = kit.join(lay.bin);
     let mut report = Report::default();
-    for (i, (exe, pinned)) in spec.pinned.iter().enumerate() {
-        let orig = original(
-            exe,
-            &game.join(exe),
-            &rt.join("original").join(exe),
-            pinned,
-            "2017-18",
-        )?;
-        let g = rename_import(&orig, OLD, NEW)?;
+    // every original is checked before the game folder changes (original\ may gain a backup of a pinned one): a refused
+    // one leaves the game as it was
+    let origs = spec
+        .pinned
+        .iter()
+        .chain([&spec.engine])
+        .map(|(exe, pinned)| {
+            original(
+                exe,
+                &game.join(exe),
+                &rt.join("original").join(exe),
+                pinned,
+                "2017-18",
+            )
+        })
+        .collect::<Result<Vec<_>>>()?;
+    for (i, ((exe, _), orig)) in spec.pinned.iter().zip(&origs).enumerate() {
+        let g = rename_import(orig, OLD, NEW)?;
         // the projector's status icon needs the same ALL.Net answers as seat 1
         let g = apply(&g, if i == 1 { spec.control } else { spec.projector })?;
         if fs::read(game.join(exe)).ok().as_deref() != Some(&g) {
@@ -291,35 +351,24 @@ pub fn setup_game(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
         }
         report
             .0
-            .push(((*exe).into(), Hash::Pair(sha(&orig), sha(&g))));
+            .push(((*exe).into(), Hash::Pair(sha(orig), sha(&g))));
     }
     // the match engine: the same results on every CPU (dmath.dll); seat 1 links to this copy below
-    let (engine, pinned) = spec.engine;
-    let orig = original(
-        engine,
-        &game.join(engine),
-        &rt.join("original").join(engine),
-        pinned,
-        "2017-18",
-    )?;
-    let g = rename_import(&orig, PSAPI, DMATH)?;
+    let (engine, orig) = (spec.engine.0, &origs[2]);
+    let g = rename_import(orig, PSAPI, DMATH)?;
     if fs::read(game.join(engine)).ok().as_deref() != Some(&g) {
         replace(&game.join(engine), &g)?;
     }
     report
         .0
-        .push((engine.into(), Hash::Pair(sha(&orig), sha(&g))));
+        .push((engine.into(), Hash::Pair(sha(orig), sha(&g))));
     // older kits put netguard.dll here (and setup copied it into seat1\); nothing loads it now
     for old in [game.join("netguard.dll"), seat.join("netguard.dll")] {
         if old.is_file() {
             fs::remove_file(old)?;
         }
     }
-    for (dll, what) in [
-        ("wccfnet.dll", "the network guard"),
-        ("ICMP.DLL", "the network guard"),
-        ("dmath.dll", "the match engine's deterministic math"),
-    ] {
+    for (dll, what) in KIT_DLLS {
         copy_in(&bin.join(dll), &game.join(dll), what)?;
         report
             .0
@@ -406,6 +455,9 @@ pub fn setup_game(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
     let helper = seat.join(FPR_EMU);
     make_dir(helper.parent().unwrap_or(&helper))?;
     copy_in(&bin.join("FPR_Emu.exe"), &helper, "the card-table helper")?;
+    report
+        .0
+        .push((VERSION_KEY.into(), Hash::One(VERSION.to_string())));
     fs::write(rt.join("setup-hashes.json"), report.json())?;
     Ok(report)
 }
@@ -640,11 +692,11 @@ mod tests {
         out
     }
 
-    #[test]
-    fn setup_makes_the_runtime_twice_and_undo_restores_it() {
-        let top = tempfile::tempdir().unwrap();
-        let (kit, rt) = (top.path().join("kit"), top.path().join("rt"));
-        let game = rt.join("game");
+    /// `top\kit` (bin\ with its five files) and `top\rt\game`, a decrypted game of stand-in programs: (kit, game, the
+    /// spec that pins them, [client, control, engine]).
+    fn fixture(top: &Path) -> (PathBuf, PathBuf, Spec, [Vec<u8>; 3]) {
+        let kit = top.join("kit");
+        let game = top.join("rt").join("game");
         for d in ["bin", "overlay", "data"] {
             fs::create_dir_all(kit.join(d)).unwrap();
         }
@@ -672,7 +724,7 @@ mod tests {
         fs::write(game.join("other.dll"), "other").unwrap();
         fs::write(game.join("notes.txt"), "text").unwrap();
         fs::write(game.join("local/SDDY_Table.dat"), "table").unwrap();
-        fs::write(top.path().join("winmm.dll"), "windows winmm").unwrap();
+        fs::write(top.join("winmm.dll"), "windows winmm").unwrap();
         // the pinned hashes are static in the real spec; a test leaks its own
         let leak = |b: &[u8]| -> &'static str { Box::leak(sha(b).into_boxed_str()) };
         let spec = Spec {
@@ -684,8 +736,16 @@ mod tests {
             seat: &T_SEAT,
             projector: &T_PROJ,
             control: &T_CTRL,
-            winmm: top.path().join("winmm.dll"),
+            winmm: top.join("winmm.dll"),
         };
+        (kit, game, spec, [client, control, engine])
+    }
+
+    #[test]
+    fn setup_makes_the_runtime_twice_and_undo_restores_it() {
+        let top = tempfile::tempdir().unwrap();
+        let (kit, game, spec, [client, _, engine]) = fixture(top.path());
+        let rt = top.path().join("rt");
         let before = tree(&rt);
         // an older kit's netguard.dll: setup deletes it (undo deletes it too, so it stays out of `before`)
         fs::write(game.join("netguard.dll"), "old kit netguard").unwrap();
@@ -694,13 +754,14 @@ mod tests {
         fs::write(game.join("logowin.exe"), "old kit logowin.exe").unwrap();
 
         let report = run(&kit, &game, &spec).unwrap();
-        assert_eq!(report.0.len(), 7);
+        assert_eq!(report.0.len(), 8);
         let record = fs::read_to_string(rt.join("setup-hashes.json")).unwrap();
         let json: serde_json::Value = serde_json::from_str(&record).unwrap();
         assert_eq!(json["client_Release.exe"]["original"], sha(&client));
         assert_eq!(json["wccfnet.dll"], sha(b"kit wccfnet.dll"));
         assert_eq!(json["ICMP.DLL"], sha(b"kit ICMP.DLL"));
         assert_eq!(json["dmath.dll"], sha(b"kit dmath.dll"));
+        assert_eq!(json["setup-version"], VERSION.to_string());
         // the engine imports dmath.dll, not PSAPI.DLL, in the game folder and (a link) in seat 1
         let made = fs::read(game.join("match_Release.exe")).unwrap();
         assert_eq!(json["match_Release.exe"]["original"], sha(&engine));
@@ -831,6 +892,87 @@ mod tests {
         assert!(run(&kit, &game, &spec).is_err());
         undo(&kit, &game, &spec).unwrap();
         assert_eq!(fs::read(seat.join("save.dat")).unwrap(), b"theirs");
+    }
+
+    /// A runtime a setup before det-math made (the engine untouched, no dmath.dll, a record without both or a setup
+    /// version) is stale; a refused setup leaves it as it was; setup again makes it current, and a current one is not
+    /// stale. New kit files unzipped over a current runtime make it stale the same way.
+    #[test]
+    fn an_older_setup_is_stale_until_setup_runs_again() {
+        let top = tempfile::tempdir().unwrap();
+        let (kit, game, spec, [.., engine]) = fixture(top.path());
+        let rt = top.path().join("rt");
+        let seat = rt.join("seat1");
+        assert_eq!(
+            stale(&kit, &game),
+            None,
+            "never set up: the guard check refuses it"
+        );
+        run(&kit, &game, &spec).unwrap();
+        assert_eq!(stale(&kit, &game), None, "current: left alone");
+
+        let old_engine = |data: &[u8]| {
+            for d in [&game, &seat] {
+                fs::remove_file(d.join("match_Release.exe")).unwrap();
+                let _ = fs::remove_file(d.join("dmath.dll"));
+            }
+            fs::write(game.join("match_Release.exe"), data).unwrap();
+            fs::hard_link(
+                game.join("match_Release.exe"),
+                seat.join("match_Release.exe"),
+            )
+            .unwrap();
+        };
+        old_engine(&engine);
+        fs::remove_file(rt.join("original/match_Release.exe")).unwrap();
+        let path = rt.join("setup-hashes.json");
+        let mut record: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        for k in ["match_Release.exe", "dmath.dll", "setup-version"] {
+            record.as_object_mut().unwrap().remove(k).unwrap();
+        }
+        fs::write(&path, record.to_string()).unwrap();
+        let why = stale(&kit, &game).unwrap();
+        assert!(why.contains("setup version 1"), "{why}");
+
+        // an engine that is not the pinned original: refused before anything changes
+        old_engine(b"another engine");
+        let before = tree(&rt);
+        assert!(setup_game(&kit, &game, &spec).is_err());
+        assert_eq!(tree(&rt), before, "a refused setup changes nothing");
+        assert!(stale(&kit, &game).is_some());
+
+        old_engine(&engine);
+        setup_game(&kit, &game, &spec).unwrap();
+        assert_eq!(stale(&kit, &game), None);
+        let json: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        let made = fs::read(game.join("match_Release.exe")).unwrap();
+        assert_eq!(json["match_Release.exe"]["guarded"], sha(&made));
+        assert_eq!(json["dmath.dll"], sha(b"kit dmath.dll"));
+        assert_eq!(fs::read(seat.join("dmath.dll")).unwrap(), b"kit dmath.dll");
+        assert_eq!(fs::read(seat.join("match_Release.exe")).unwrap(), made);
+
+        // the manual unzip: a newer kit's files over a current runtime
+        for (n, d) in [("dmath.dll", &game), ("FPR_Emu.exe", &seat)] {
+            fs::write(kit.join("bin").join(n), format!("kit {n}, newer")).unwrap();
+            let why = stale(&kit, &game).unwrap();
+            assert!(
+                why.contains(n) && why.contains(&d.display().to_string()),
+                "{why}"
+            );
+            setup_game(&kit, &game, &spec).unwrap();
+            assert_eq!(stale(&kit, &game), None);
+        }
+        assert_eq!(
+            fs::read(seat.join("dmath.dll")).unwrap(),
+            b"kit dmath.dll, newer"
+        );
+        assert_eq!(
+            fs::read(seat.join(FPR_EMU)).unwrap(),
+            b"kit FPR_Emu.exe, newer"
+        );
+        let json: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(json["dmath.dll"], sha(b"kit dmath.dll, newer"));
     }
 
     #[test]

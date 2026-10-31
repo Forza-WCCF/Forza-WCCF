@@ -48,7 +48,9 @@ use std::cell::Cell;
 use std::ffi::c_void;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicUsize, Ordering::Relaxed};
+use std::sync::atomic::{
+    AtomicBool, AtomicIsize, AtomicU8, AtomicU32, AtomicU64, AtomicUsize, Ordering::Relaxed,
+};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::*;
@@ -100,6 +102,10 @@ static BOARD_SCALE: AtomicU32 = AtomicU32::new(0x3F80_0000);
 static WINDOW: AtomicIsize = AtomicIsize::new(0);
 static OLD_PROC: AtomicIsize = AtomicIsize::new(0);
 static SCALE: AtomicU32 = AtomicU32::new(0x3F80_0000); // pixels per point (f32 bits), 1.0 until the first frame
+/// Per egui (0 the game window's, 1 the board window's): the mouse buttons egui was told are down (one bit per
+/// `PointerButton`) and the last pointer spot (x and y as f32 bits), so a release lost to a focus change can be sent.
+static HELD: [AtomicU8; 2] = [AtomicU8::new(0), AtomicU8::new(0)];
+static HELD_AT: [AtomicU64; 2] = [AtomicU64::new(0), AtomicU64::new(0)];
 static WANTS_KEYS: AtomicBool = AtomicBool::new(false);
 /// A page is open: its keys are the page's, never the game's.
 static PAGE_OPEN: AtomicBool = AtomicBool::new(false);
@@ -486,6 +492,7 @@ unsafe extern "system" fn board_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM)
     thread_local! { static MOVING: Cell<bool> = const { Cell::new(false) }; }
     if m == WM_KILLFOCUS || (m == WM_ACTIVATEAPP && wp.0 == 0) {
         latch_up();
+        release_held(true);
     }
     match m {
         WM_FORZA_DOCK => {
@@ -547,7 +554,7 @@ unsafe extern "system" fn board_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM)
             // SAFETY: as above
             let _ = unsafe { ReleaseCapture() };
         }
-        0x0215 if lp.0 != 0 && lp.0 != h.0 as isize => push(true, vec![Event::PointerGone]),
+        0x0215 if lp.0 != 0 && lp.0 != h.0 as isize => release_held(true),
         _ => {}
     }
     if matches!(m, WM_KEYDOWN | WM_KEYUP)
@@ -705,18 +712,27 @@ fn card_open() -> bool {
 
 /// This seat plays a match (IMPORT LINEUP is refused then, the owner's rule); the decision and its inputs are logged.
 fn in_match() -> bool {
+    let (refuse, _, why) = match_check();
+    log(&format!(
+        "import: match check - {why} -> {}",
+        if refuse { "in a match" } else { "free" }
+    ));
+    refuse
+}
+
+/// [`in_match`] without the log line: the answer and the inputs it came from.
+fn match_check() -> (bool, bool, String) {
     let e1718 = FILES
         .get()
         .is_some_and(|f| f.edition == theme::Edition::E1718);
     let seat = if e1718 { pause::seat_state() } else { None };
     let shop = pause::shop_state(e1718);
     let card = card_open();
-    let refuse = match_now(e1718, seat, shop, card);
-    log(&format!(
-        "import: match check - seat state {seat:?}, shop state {shop:?}, card session {card} -> {}",
-        if refuse { "in a match" } else { "free" }
-    ));
-    refuse
+    (
+        match_now(e1718, seat, shop, card),
+        match_now(e1718, seat, shop, false),
+        format!("seat state {seat:?}, shop state {shop:?}, card session {card}"),
+    )
 }
 
 /// 2017-18: the seat's own sequence state is the match one (the shop state is the whole shop's: another seat's
@@ -1307,6 +1323,8 @@ struct Render {
     deal_last: Option<forza::card::Session>,
     /// Links: when the club card was last looked at, and its time then.
     links_at: Option<Instant>,
+    /// When the match state was last read for RESET LINEUP ([`Render::lineup`]).
+    match_at: Option<Instant>,
     links_stamp: Option<Option<std::time::SystemTime>>,
     /// CLUB CARD: when club_view.txt was last looked at, and its time then.
     club_at: Option<Instant>,
@@ -1392,6 +1410,7 @@ impl Render {
             // an answer from an earlier run is not shown
             logs_stamp: stamp(&files.request("savelogs.result")),
             links_at: None,
+            match_at: None,
             links_stamp: None,
             club_at: None,
             club_stamp: None,
@@ -2510,6 +2529,7 @@ impl Render {
     /// ([`Render::import_text`]); its UNDO: the table before it.
     fn import(&mut self) {
         self.formations();
+        self.lineup();
         if std::mem::take(&mut self.st.import_undone)
             && let Some(old) = panel::undo_import(&mut self.st, in_match())
         {
@@ -2563,6 +2583,41 @@ impl Render {
             && let Some(ask) = self.st.import_ask.take()
         {
             self.import_text(&ask.text);
+        }
+    }
+
+    /// 2017-18: the table kept when a match begins (the seat state read every frame, the full match state once a
+    /// second), and RESET LINEUP writing it back like a card move.
+    fn lineup(&mut self) {
+        if self.st.edition != theme::Edition::E1718 {
+            return;
+        }
+        // the seat state is cheap: read every frame to catch the match edge before that frame's board change
+        let seat = pause::seat_state().map(|s| s == pause::SEAT_MATCH);
+        let polled = if self
+            .match_at
+            .is_none_or(|t| t.elapsed() >= Duration::from_secs(1))
+        {
+            self.match_at = Some(Instant::now());
+            let (busy, playing, _) = match_check();
+            Some((busy, playing))
+        } else {
+            None
+        };
+        let was_seen = self.st.match_seen;
+        panel::lineup_tick(&mut self.st, seat, polled, &self.placed);
+        if self.st.match_seen && !was_seen {
+            log(&format!(
+                "board: match began, {} card(s) kept for RESET LINEUP",
+                self.placed.len()
+            ));
+        }
+        // the click is served on the match state now, not the last second's
+        let fresh = self.st.reset_lineup && match_check().0;
+        if let Some(new) = panel::take_reset(&mut self.st, fresh) {
+            log(&format!("board: RESET LINEUP - {} card(s)", new.len()));
+            self.placed = new;
+            self.table_write();
         }
     }
 
@@ -2981,6 +3036,35 @@ fn game_window() -> Option<HWND> {
 }
 
 /// The latched key up now, once (the render thread or the window procedure, whichever comes first).
+/// The focus or the mouse capture went to another window: no release will come, so egui is told every held button is
+/// up (at the last spot: a card in hand drops there), else the pointer is gone. `PointerGone` alone leaves egui's
+/// buttons down, and with them a card dragged from the board.
+fn release_held(board: bool) {
+    let i = usize::from(board);
+    let held = HELD[i].swap(0, Relaxed);
+    let at = HELD_AT[i].load(Relaxed);
+    let pos = pos2(f32::from_bits(at as u32), f32::from_bits((at >> 32) as u32));
+    let mut events: Vec<Event> = [
+        PointerButton::Primary,
+        PointerButton::Secondary,
+        PointerButton::Middle,
+    ]
+    .into_iter()
+    .filter(|&b| held & (1 << b as u8) != 0)
+    .map(|button| Event::PointerButton {
+        pos,
+        button,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    })
+    .collect();
+    // the release leaves the pointer at its spot (the drop is judged there); PointerGone only when nothing was held
+    if events.is_empty() {
+        events.push(Event::PointerGone);
+    }
+    push(board, events);
+}
+
 fn latch_up() {
     let vk = LATCH_VK.swap(0, Relaxed);
     if vk != 0 {
@@ -2992,6 +3076,7 @@ unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LR
     // the focus gone (or the window), also while paused: a latched button lets go, so its key cannot stay down
     if m == WM_KILLFOCUS || m == WM_DESTROY || (m == WM_ACTIVATEAPP && wp.0 == 0) {
         latch_up();
+        release_held(false);
     }
     if let Some(r) = pause::message(false, m, wp, lp) {
         return r;
@@ -3045,7 +3130,7 @@ unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LR
         // (lParam 0 is our own ReleaseCapture on every release: not lost)
         0x0215 if lp.0 != 0 && lp.0 != h.0 as isize => {
             log("drag: capture lost");
-            push(false, vec![Event::PointerGone]);
+            release_held(false);
         }
         _ => {}
     }
@@ -3177,7 +3262,20 @@ fn input(board: bool, m: u32, wp: WPARAM, lp: LPARAM) -> bool {
         f32::from((lp.0 >> 16) as i16) / ppp,
     );
     let modifiers = modifiers();
-    let button = |button, pressed| {
+    let seen = |pos: Pos2| {
+        HELD_AT[usize::from(board)].store(
+            u64::from(pos.x.to_bits()) | (u64::from(pos.y.to_bits()) << 32),
+            Relaxed,
+        );
+    };
+    let button = |button: PointerButton, pressed| {
+        seen(pos);
+        let bit = 1 << button as u8;
+        if pressed {
+            HELD[usize::from(board)].fetch_or(bit, Relaxed);
+        } else {
+            HELD[usize::from(board)].fetch_and(!bit, Relaxed);
+        }
         vec![
             Event::PointerMoved(pos),
             Event::PointerButton {
@@ -3199,6 +3297,7 @@ fn input(board: bool, m: u32, wp: WPARAM, lp: LPARAM) -> bool {
     };
     let (events, keys): (Vec<Event>, bool) = match m {
         WM_MOUSEMOVE => {
+            seen(pos);
             push(board, vec![Event::PointerMoved(pos)]);
             return true; // off the game's picture (to_game): not the game's
         }

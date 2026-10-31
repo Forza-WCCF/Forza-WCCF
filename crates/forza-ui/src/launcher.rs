@@ -365,7 +365,7 @@ pub fn show(ui: &mut Ui, st: &mut LauncherState) -> Option<Action> {
         .frame(egui::Frame::new())
         .show_separator_line(false)
         .show(ui, |ui| {
-            title_bar(ui, st.edition, &mut st.lang);
+            title_bar(ui, st.edition, &st.version, &mut st.lang);
         });
     if st.lang != was {
         act = Some(Action::Language);
