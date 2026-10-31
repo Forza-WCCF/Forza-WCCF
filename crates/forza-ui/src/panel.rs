@@ -653,6 +653,12 @@ pub struct PanelState {
     pub formations: Option<Formations>,
     /// This seat plays a match, as the panel DLL saw it when FORMATIONS opened: LOAD is greyed out.
     pub in_match: bool,
+    /// The table as it was when the last match began (2017-18): RESET LINEUP puts it back ([`lineup_tick`]).
+    pub before_match: Option<Vec<Placed>>,
+    /// The table differs from `before_match`: RESET LINEUP is offered, greyed out while `in_match`.
+    pub reset_ready: bool,
+    /// RESET LINEUP clicked: the panel DLL calls [`take_reset`].
+    pub reset_lineup: bool,
     /// A slot clicked to load: the panel DLL calls [`load_formation`].
     pub formation_load: Option<usize>,
     /// SAVE confirmed (slot, name): the panel DLL writes the table into the slot.
@@ -744,6 +750,9 @@ impl PanelState {
             formations_open: false,
             formations: None,
             in_match: false,
+            before_match: None,
+            reset_ready: false,
+            reset_lineup: false,
             formation_load: None,
             formation_save: None,
             formation_copy: None,
@@ -1100,6 +1109,47 @@ pub fn undo_import(st: &mut PanelState, in_match: bool) -> Option<Vec<Placed>> {
     let (old, _) = st.import_undo.take()?;
     st.board = cards::board(&old, &st.cards);
     Some(old)
+}
+
+/// The panel DLL's look at the table and the match, every frame: `in_match` is the match state when it was read this
+/// frame (`None`: not read). The table is kept when a match begins, the earliest moment the seat's state shows it;
+/// RESET LINEUP is offered when the table now differs from it.
+pub fn lineup_tick(st: &mut PanelState, in_match: Option<bool>, placed: &[Placed]) {
+    if let Some(now) = in_match {
+        if now && !st.in_match {
+            st.before_match = Some(placed.to_vec());
+        }
+        st.in_match = now;
+    }
+    st.reset_ready = st
+        .before_match
+        .as_ref()
+        .is_some_and(|b| lineup_differs(b, placed));
+}
+
+/// Two tables hold the same cards on the same spots, whatever their slot numbers.
+fn lineup_differs(a: &[Placed], b: &[Placed]) -> bool {
+    let key = |t: &[Placed]| {
+        let mut v: Vec<_> = t
+            .iter()
+            .map(|p| (p.no, p.x.to_bits(), p.y.to_bits()))
+            .collect();
+        v.sort_unstable();
+        v
+    };
+    key(a) != key(b)
+}
+
+/// RESET LINEUP: the table kept when the match began, to be written like a card move; `None` in a match, or when
+/// nothing differs. The board shows it at once.
+pub fn take_reset(st: &mut PanelState) -> Option<Vec<Placed>> {
+    if !std::mem::take(&mut st.reset_lineup) || st.in_match || !st.reset_ready {
+        return None;
+    }
+    let before = st.before_match.clone()?;
+    st.board = cards::board(&before, &st.cards);
+    st.reset_ready = false;
+    Some(before)
 }
 
 /// The FORMATIONS dialog: the ten slots as read, and the slot being named for SAVE (the name typed so far).
@@ -2526,6 +2576,23 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
         vec2(text_w + pad, 22.0),
     );
     let button = egui::Button::new(label).wrap_mode(egui::TextWrapMode::Extend);
+    // 2017-18: RESET LINEUP at its left, greyed out in a match and while the table is the one the match began with
+    let mut left = btn.left();
+    if st.edition == Edition::E1718 {
+        let label = egui::RichText::new(tr!(lang, "board.reset")).font(theme::bold(12.0));
+        let w = b
+            .painter()
+            .layout_no_wrap(label.text().to_owned(), theme::bold(12.0), theme::TEXT)
+            .size()
+            .x
+            + pad;
+        let at = Rect::from_min_size(pos2(btn.left() - 6.0 - w, row.top()), vec2(w, 22.0));
+        left = at.left();
+        let mut c = b.new_child(egui::UiBuilder::new().max_rect(at));
+        let ready = st.reset_ready && !st.in_match;
+        let button = egui::Button::new(label).wrap_mode(egui::TextWrapMode::Extend);
+        st.reset_lineup |= c.add_enabled(ready, button).clicked();
+    }
     if b.put(btn, button).clicked() {
         st.file.board_window = !st.file.board_window;
         st.file_changed = true;
@@ -2538,7 +2605,7 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
             },
         );
     }
-    let mut b = b.new_child(egui::UiBuilder::new().max_rect(row.with_max_x(btn.left() - 8.0)));
+    let mut b = b.new_child(egui::UiBuilder::new().max_rect(row.with_max_x(left - 8.0)));
     if import_undo_line(&mut b, st, lang, now) {
         return None;
     }
@@ -5463,6 +5530,56 @@ mod tests {
         assert_eq!(undo_import(&mut st, false), Some(old));
         assert_eq!(st.board.cards[0].number, 10);
         assert_eq!(undo_import(&mut st, false), None);
+    }
+
+    /// The table is kept when a match begins; changed (a sub), RESET LINEUP is offered after the match, never in it, and
+    /// writes back exactly what was kept.
+    #[test]
+    fn reset_lineup_restores_the_table_kept_at_the_start_of_the_match() {
+        let (mut st, _) = importer();
+        st.edition = Edition::E1718;
+        let at = |slot, no, x, y| Placed { slot, no, x, y };
+        let start = vec![
+            at(1, 10, 0.25, 0.9),
+            at(2, 101, -0.5, 0.4),
+            at(3, 210, 0.5, -0.3),
+        ];
+        // no match yet: nothing kept, nothing to reset
+        lineup_tick(&mut st, Some(false), &start);
+        assert!(st.before_match.is_none() && !st.reset_ready);
+        // the match begins: the table is kept; unchanged, nothing to reset
+        lineup_tick(&mut st, Some(true), &start);
+        assert_eq!(st.before_match.as_deref(), Some(&start[..]));
+        assert!(!st.reset_ready);
+        // a sub in the match: 101 and 210 trade places, as the table's slots follow the cards
+        let subbed = vec![
+            at(1, 10, 0.25, 0.9),
+            at(2, 101, 0.5, -0.3),
+            at(3, 210, -0.5, 0.4),
+        ];
+        lineup_tick(&mut st, None, &subbed);
+        assert!(st.reset_ready);
+        // the match's later reads do not keep the table again
+        lineup_tick(&mut st, Some(true), &subbed);
+        assert_eq!(st.before_match.as_deref(), Some(&start[..]));
+        // in the match: refused, the click is spent
+        st.reset_lineup = true;
+        assert_eq!(take_reset(&mut st), None);
+        assert!(!st.reset_lineup);
+        // after it: the kept table back exactly, on the board too
+        lineup_tick(&mut st, Some(false), &subbed);
+        st.reset_lineup = true;
+        assert_eq!(take_reset(&mut st), Some(start.clone()));
+        assert_eq!(cards::table_after(&start, &st.board), start);
+        // written back: nothing differs any more
+        lineup_tick(&mut st, None, &start);
+        assert!(!st.reset_ready);
+        st.reset_lineup = true;
+        assert_eq!(take_reset(&mut st), None);
+        // the next match keeps its own start
+        let next = vec![at(1, 10, 0.0, 0.5)];
+        lineup_tick(&mut st, Some(true), &next);
+        assert_eq!(st.before_match.as_deref(), Some(&next[..]));
     }
 
     #[test]

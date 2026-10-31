@@ -264,6 +264,7 @@ board.flip_back: {en: "Click: card face.", it: "Clic: fronte.", ja: "クリッ�
 board.hint: {en: "Drag cards to the pitch. Drop on a card to swap. Drag off: remove.", it: "Trascina sul campo. Su una carta: scambia. Trascina fuori: rimuovi.", ja: "ピッチへドラッグ。カードに重ねて入れ替え。外へドラッグで外す。"}
 board.removed: {en: "Removed %{name}", it: "Rimosso %{name}", ja: "%{name}を外しました"}
 board.undo: {en: "UNDO", it: "ANNULLA", ja: "元に戻す"}
+board.reset: {en: "RESET LINEUP", it: "RIPRISTINA", ja: "試合前に戻す"}
 board.fit_best: {en: "BEST POSITION", it: "POSIZIONE IDEALE", ja: "ベストポジション"}
 board.fit_ok: {en: "FITS", it: "ADATTO", ja: "適性あり"}
 board.fit_out: {en: "OUT OF POSITION", it: "FUORI RUOLO", ja: "ポジション外"}

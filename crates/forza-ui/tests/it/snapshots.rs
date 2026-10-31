@@ -651,6 +651,25 @@ fn board_links() {
     h.snapshot("panel_catalogue_affinity_en");
 }
 
+/// 2017-18: RESET LINEUP under the board, lit after a match when the table changed, greyed out in a match.
+#[test]
+fn board_reset_lineup() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for (name, ready, in_match) in [
+        ("board_reset_lineup_en", true, false),
+        ("board_reset_lineup_in_match_en", true, true),
+    ] {
+        let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
+        st.reset_ready = ready;
+        st.in_match = in_match;
+        snap(&mut all, name, panel::SIZE, Edition::E1718, |ui| {
+            panel::show(ui, &mut st)
+        });
+    }
+    all.unwrap();
+}
+
 /// A 1920×1080 screen: one point a pixel, a 1920×1080 sheet; the picture grows past the game's size, the board keeps its height's width.
 #[test]
 fn panel_1920x1080() {
