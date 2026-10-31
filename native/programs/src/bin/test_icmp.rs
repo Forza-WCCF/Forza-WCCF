@@ -1,13 +1,14 @@
-//! Not shipped. test_icmp.exe <path to ICMP.DLL>: loads the stand-in, checks its three exports, and that IcmpSendEcho
-//! returns 0 at once (well under the game's 5 s timeout) and leaves the reply buffer untouched.
+//! Not shipped. test_icmp.exe <path to wccfnet.dll>: loads the guard as the game's import does, then by bare name as the
+//! game's (renamed) LoadLibraryA("ICMP.DLL") does, checks its three ICMP exports, and that IcmpSendEcho returns 0 at once
+//! (well under the game's 5 s timeout), leaves the reply buffer untouched and logs one line.
 #[path = "../check.rs"]
 mod check;
-use check::{check, done, load};
+use check::{check, done, load, owner};
 use std::ffi::c_void;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE};
-use windows_sys::Win32::System::LibraryLoader::GetProcAddress;
+use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryA};
 
 type Create = unsafe extern "system" fn() -> HANDLE;
 type Close = unsafe extern "system" fn(HANDLE) -> i32;
@@ -28,9 +29,17 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     }
     let m = load(&args[1]);
-    if !check(!m.is_null(), "ICMP.DLL loads") {
+    if !check(!m.is_null(), "wccfnet.dll loads") {
         return ExitCode::from(1);
     }
+    // SAFETY: a NUL-terminated name, the string setup writes over "ICMP.DLL"
+    let by_name = unsafe { LoadLibraryA(c"wccfnet.dll".as_ptr().cast()) };
+    check(
+        by_name == m,
+        "LoadLibraryA(\"wccfnet.dll\") gives the loaded guard",
+    );
+    let log = std::path::Path::new(&args[1]).with_file_name("wccfnet.log");
+    let _ = std::fs::remove_file(&log);
     // SAFETY: NUL-terminated names in the loaded stand-in; each is cast to its documented signature
     let (create, close, echo) = unsafe {
         let f = |n: &std::ffi::CStr| GetProcAddress(m, n.as_ptr().cast());
@@ -43,16 +52,23 @@ fn main() -> ExitCode {
                 .map(|p| std::mem::transmute::<unsafe extern "system" fn() -> isize, Echo>(p)),
         )
     };
-    let (Some(create), Some(close), Some(echo)) = (create, close, echo) else {
+    let inside = [
+        create.map(|f| f as usize),
+        close.map(|f| f as usize),
+        echo.map(|f| f as usize),
+    ]
+    .iter()
+    .all(|f| f.is_some_and(|f| owner(f) == m));
+    let (Some(create), Some(close), Some(echo), true) = (create, close, echo, inside) else {
         check(
             false,
-            "exports IcmpCreateFile, IcmpCloseHandle, IcmpSendEcho",
+            "exports IcmpCreateFile, IcmpCloseHandle, IcmpSendEcho, inside wccfnet.dll",
         );
         return ExitCode::from(1);
     };
     check(
         true,
-        "exports IcmpCreateFile, IcmpCloseHandle, IcmpSendEcho",
+        "exports IcmpCreateFile, IcmpCloseHandle, IcmpSendEcho, inside wccfnet.dll",
     );
     // SAFETY: the stand-in's own calls, with a reply buffer of the size given
     unsafe {
@@ -80,6 +96,22 @@ fn main() -> ExitCode {
         );
         check(reply == [0xA5; 64], "reply buffer untouched");
         check(close(h) != 0, "IcmpCloseHandle succeeds");
+        echo(
+            h,
+            0,
+            std::ptr::null(),
+            0,
+            std::ptr::null_mut(),
+            reply.as_mut_ptr().cast(),
+            64,
+            5000,
+        );
     }
+    let text = std::fs::read_to_string(&log).unwrap_or_default();
+    check(
+        text.lines().count() == 1
+            && text.contains("icmp: ping to 192.168.46.254 answered no reply"),
+        "wccfnet.log has one line for two pings, with the address",
+    );
     done("icmp test")
 }

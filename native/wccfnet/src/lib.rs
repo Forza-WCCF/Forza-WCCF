@@ -3,6 +3,9 @@
 //! the host's network (the DHCP release and renew, two route writes) are stubs that touch nothing; the six read-only
 //! ones are forwarded to Windows' iphlpapi (build.rs). No adapter is ever changed.
 //!
+//! It also answers the game's pings ([`IcmpSendEcho`]): setup points the programs' LoadLibraryA("ICMP.DLL") at
+//! wccfnet.dll, so no packet leaves the PC.
+//!
 //! DllMain also loads the panel when the Launcher sets FORZA_PANEL ([`panel`]), and, only with WCCF_TRACE_NET=1, logs
 //! the program's send and recv ([`trace`]).
 #![cfg(target_arch = "x86")]
@@ -53,6 +56,43 @@ pub extern "system" fn CreateIpForwardEntry(_: *mut c_void) -> u32 {
 #[unsafe(no_mangle)]
 pub extern "system" fn SetIpForwardEntry(_: *mut c_void) -> u32 {
     blocked("SetIpForwardEntry")
+}
+
+/// The ICMP calls: the game programs LoadLibraryA("ICMP.DLL") (setup renames the string to wccfnet.dll) and ping
+/// 192.168.46.254 with 5 s timeouts (about 45 s in the control, 20 s in each client). IcmpSendEcho returns 0 (no reply)
+/// at once and writes nothing, the same result as the timeout. No packet leaves the PC.
+#[unsafe(no_mangle)]
+pub extern "system" fn IcmpCreateFile() -> windows_sys::Win32::Foundation::HANDLE {
+    1 as _
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn IcmpCloseHandle(
+    _: windows_sys::Win32::Foundation::HANDLE,
+) -> windows_sys::core::BOOL {
+    1
+}
+
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub extern "system" fn IcmpSendEcho(
+    _: windows_sys::Win32::Foundation::HANDLE,
+    dest: u32,
+    _data: *mut c_void,
+    _size: u16,
+    _options: *mut c_void,
+    _reply: *mut c_void,
+    _reply_size: u32,
+    _timeout: u32,
+) -> u32 {
+    static LOGGED: std::sync::Once = std::sync::Once::new();
+    LOGGED.call_once(|| {
+        let ip = std::net::Ipv4Addr::from(dest.to_le_bytes()); // IPAddr: network order in memory
+        log(&format!(
+            "icmp: ping to {ip} answered no reply at once, nothing sent (first of this program)"
+        ));
+    });
+    0
 }
 
 #[unsafe(no_mangle)]

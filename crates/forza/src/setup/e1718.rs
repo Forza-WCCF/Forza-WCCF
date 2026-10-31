@@ -4,8 +4,8 @@
 //! - `original\` the untouched client_Release.exe, control_Release.exe and match_Release.exe, kept on the first run;
 //!   every later run patches from them, so running setup again never stacks a patch (a second run changes nothing)
 //! - `game\` the server and projector: guarded programs (they import wccfnet.dll, which stubs the four IP-helper
-//!   calls, instead of IPHLPAPI.DLL), the kit's winmm.dll / ICMP.DLL stand-ins (winmm.dll
-//!   also answers control's start of logowin.exe, which stays the original), the settings files
+//!   calls, instead of IPHLPAPI.DLL, and load it for their pings in ICMP.DLL's place), the kit's winmm.dll stand-in
+//!   (it also answers control's start of logowin.exe, which stays the original), the settings files
 //!   match engine imports dmath.dll instead of PSAPI.DLL (the same math on every CPU, so online seats stay in step)
 //! - `seat1\` the player's cabinet: junctions to game's folders, hard links to its files, its own patched
 //!   client_Release.exe, the card-table helper
@@ -101,8 +101,23 @@ const MOVIE_ASYNC_DEPTH: Patch = Patch {
     what: "movie decoder AsyncDepth 0 -> 1 (VA 0x00DE991B)",
 };
 
+/// The game programs' one LoadLibraryA("ICMP.DLL") (for their pings) loads wccfnet.dll, which answers them; the name
+/// and its three padding bytes fit "wccfnet.dll" exactly. Before 0.6.0 a stand-in ICMP.DLL lay beside the game.
+const fn icmp_to_wccfnet(at: usize, what: &'static str) -> Patch {
+    Patch {
+        at,
+        old: b"ICMP.DLL\0\0\0\0",
+        new: b"wccfnet.dll\0",
+        what,
+    }
+}
+const CLIENT_ICMP: Patch = icmp_to_wccfnet(
+    0xfaa954,
+    "pings load wccfnet.dll, not ICMP.DLL (.rdata VA 0x013AB554, push at VA 0x004833EE)",
+);
+
 /// Seat 1's client_Release.exe (the 2010-11 kit's patches as each proved needed).
-static SEAT: [Patch; 16] = [
+static SEAT: [Patch; 17] = [
     Patch {
         at: 0x1db8a0,
         old: &[0x6a, 0xff, 0x68],
@@ -194,11 +209,12 @@ static SEAT: [Patch; 16] = [
         what: "AiMeDB host aime.naominet.jp -> localhost",
     },
     MOVIE_ASYNC_DEPTH,
+    CLIENT_ICMP,
 ];
 
 /// The projector (game\\client_Release.exe, its own copy: seat 1 has another): the two ALL.Net answers, so its corner
 /// status icon agrees with seat 1's, and its title movie counted as over.
-static PROJECTOR: [Patch; 4] = [
+static PROJECTOR: [Patch; 5] = [
     ALLNET_AUTHORIZED,
     ALLNET_BILLING_IDLE,
     // Stopgap: the title movie stalls in Sofdec PREP, so the projector never sent GAME_READY. sub_88A230: call
@@ -211,11 +227,12 @@ static PROJECTOR: [Patch; 4] = [
         what: "projector title movie counted as over (VA 0x0088A294 jz -> nop nop)",
     },
     MOVIE_ASYNC_DEPTH,
+    CLIENT_ICMP,
 ];
 
 /// The server (control_Release.exe): its ALL.Net library's "network up" check answers yes, so it connects to the local
 /// game server stand-in (FORCE_ONLINE=1, GAME_SVR_IP=localhost); its GAME_READY fallback comes after 15 s, not 100 s.
-static CONTROL: [Patch; 2] = [
+static CONTROL: [Patch; 3] = [
     Patch {
         at: 0xb67c0,
         old: &[0x56, 0xe8, 0xaa, 0xf2, 0xff, 0xff],
@@ -230,6 +247,11 @@ static CONTROL: [Patch; 2] = [
         new: &[0x83, 0xb8, 0x90, 0x00, 0x00, 0x00, 0x0f],
         what: "GAME_READY fallback after 15 s, not 100 s (VA 0x0043204B)",
     },
+    // in .rdata, whose VA is file offset + 0x401000 (.text's, above, + 0x400C00)
+    icmp_to_wccfnet(
+        0x229d4c,
+        "pings load wccfnet.dll, not ICMP.DLL (.rdata VA 0x0062AD4C, push at VA 0x0041FD3E)",
+    ),
 ];
 
 /// What setup checks and changes; [`Spec::game`] is the real game's, tests give their own.
@@ -309,15 +331,8 @@ pub fn setup_game(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
     report
         .0
         .push((engine.into(), Hash::Pair(sha(&orig), sha(&g))));
-    // older kits put netguard.dll here (and setup copied it into seat1\); nothing loads it now
-    for old in [game.join("netguard.dll"), seat.join("netguard.dll")] {
-        if old.is_file() {
-            fs::remove_file(old)?;
-        }
-    }
     for (dll, what) in [
         ("wccfnet.dll", "the network guard"),
-        ("ICMP.DLL", "the network guard"),
         ("dmath.dll", "the match engine's deterministic math"),
     ] {
         copy_in(&bin.join(dll), &game.join(dll), what)?;
@@ -407,6 +422,16 @@ pub fn setup_game(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
     make_dir(helper.parent().unwrap_or(&helper))?;
     copy_in(&bin.join("FPR_Emu.exe"), &helper, "the card-table helper")?;
     fs::write(rt.join("setup-hashes.json"), report.json())?;
+    // older kits put netguard.dll and ICMP.DLL here (and setup linked them into seat1\); nothing loads them now.
+    // Last, after the record: a setup cut short leaves them where the old record expects them
+    for old in ["netguard.dll", "ICMP.DLL"]
+        .map(|f| [game.join(f), seat.join(f)])
+        .concat()
+    {
+        if old.is_file() {
+            fs::remove_file(old)?;
+        }
+    }
     Ok(report)
 }
 
@@ -563,6 +588,44 @@ mod tests {
     }
 
     #[test]
+    fn the_pings_load_wccfnet_in_every_guarded_program() {
+        // the import rename's name, NUL-terminated: the one DLL the guard check makes sure is loaded
+        assert_eq!(CLIENT_ICMP.new, &NEW[..12]);
+        for list in [&SEAT[..], &PROJECTOR[..], &CONTROL[..]] {
+            let p: Vec<_> = list.iter().filter(|p| p.old == CLIENT_ICMP.old).collect();
+            assert_eq!(p.len(), 1, "once in each program");
+            let p = p[0];
+            assert_eq!((p.old.len(), p.new.len()), (12, 12));
+            let mut buf = vec![0xccu8; p.at + 16];
+            buf[p.at..p.at + 12].copy_from_slice(b"ICMP.DLL\0\0\0\0");
+            let out = apply(&buf, std::slice::from_ref(p)).unwrap();
+            assert_eq!(&out[p.at..p.at + 12], b"wccfnet.dll\0");
+            buf[p.at + 9] = b'x'; // the padding is not free: refused
+            assert!(apply(&buf, std::slice::from_ref(p)).is_err());
+        }
+    }
+
+    /// With the real programs: FORZA_1718_CLIENT_EXE and FORZA_1718_CONTROL_EXE name the pinned originals (read only).
+    #[test]
+    fn the_icmp_patches_find_their_original_bytes_in_the_real_programs() {
+        for (var, (exe, pinned), p) in [
+            ("FORZA_1718_CLIENT_EXE", PINNED[0], &CLIENT_ICMP),
+            ("FORZA_1718_CONTROL_EXE", PINNED[1], &CONTROL[2]),
+        ] {
+            let Some(path) = std::env::var_os(var) else {
+                eprintln!("{var} not set: skipped");
+                continue;
+            };
+            let data = fs::read(path).unwrap();
+            assert_eq!(sha(&data), pinned, "{exe} is the pinned original");
+            assert_eq!(&data[p.at..p.at + 12], b"ICMP.DLL\0\0\0\0", "{exe}");
+            let hits = data.windows(8).filter(|w| w == b"ICMP.DLL").count();
+            assert_eq!(hits, 1, "{exe} names ICMP.DLL once");
+            apply(&data, std::slice::from_ref(p)).unwrap();
+        }
+    }
+
+    #[test]
     fn movies_get_asyncdepth_1_in_both_clients() {
         let p = &MOVIE_ASYNC_DEPTH;
         let mut buf = vec![0xccu8; p.at + 16];
@@ -650,6 +713,7 @@ mod tests {
         }
         for (d, n) in [
             ("bin", "wccfnet.dll"),
+            // an install updated from a kit before 0.6.0 still has it; setup no longer places it
             ("bin", "ICMP.DLL"),
             ("bin", "dmath.dll"),
             ("bin", "winmm.dll"),
@@ -689,17 +753,25 @@ mod tests {
         let before = tree(&rt);
         // an older kit's netguard.dll: setup deletes it (undo deletes it too, so it stays out of `before`)
         fs::write(game.join("netguard.dll"), "old kit netguard").unwrap();
+        // and its ICMP.DLL stand-in (wccfnet.dll answers the pings now): setup deletes it too
+        fs::write(game.join("ICMP.DLL"), "old kit ICMP.DLL").unwrap();
         // an older kit's stand-in logowin.exe, the original kept under the backup name: setup puts the original back
         fs::rename(game.join("logowin.exe"), game.join(logowin_backup())).unwrap();
         fs::write(game.join("logowin.exe"), "old kit logowin.exe").unwrap();
 
+        // a setup cut short (no dmath.dll in the kit) keeps the old ICMP.DLL: it goes only after the record
+        fs::rename(kit.join("bin/dmath.dll"), top.path().join("dmath.dll")).unwrap();
+        assert!(run(&kit, &game, &spec).is_err());
+        assert!(game.join("ICMP.DLL").is_file() && !rt.join("setup-hashes.json").exists());
+        fs::rename(top.path().join("dmath.dll"), kit.join("bin/dmath.dll")).unwrap();
+
         let report = run(&kit, &game, &spec).unwrap();
-        assert_eq!(report.0.len(), 7);
+        assert_eq!(report.0.len(), 6);
         let record = fs::read_to_string(rt.join("setup-hashes.json")).unwrap();
         let json: serde_json::Value = serde_json::from_str(&record).unwrap();
         assert_eq!(json["client_Release.exe"]["original"], sha(&client));
         assert_eq!(json["wccfnet.dll"], sha(b"kit wccfnet.dll"));
-        assert_eq!(json["ICMP.DLL"], sha(b"kit ICMP.DLL"));
+        assert!(json.get("ICMP.DLL").is_none());
         assert_eq!(json["dmath.dll"], sha(b"kit dmath.dll"));
         // the engine imports dmath.dll, not PSAPI.DLL, in the game folder and (a link) in seat 1
         let made = fs::read(game.join("match_Release.exe")).unwrap();
@@ -715,10 +787,7 @@ mod tests {
             fs::read(rt.join("original/match_Release.exe")).unwrap(),
             engine
         );
-        assert_eq!(
-            fs::read(rt.join("seat1/ICMP.DLL")).unwrap(),
-            b"kit ICMP.DLL"
-        );
+        assert!(!game.join("ICMP.DLL").exists() && !rt.join("seat1/ICMP.DLL").exists());
         assert!(
             record.ends_with("}\r\n") && record.starts_with("{\r\n  \"client_Release.exe\": {\r\n")
         );
