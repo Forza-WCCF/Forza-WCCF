@@ -138,8 +138,10 @@ struct Spec {
     short_latin: usize,
     skill_en: usize,
     skill_jp: usize,
-    /// 2010-11 only: the full Latin name and the card name it goes over
+    /// The full Latin name and the full name it goes over (the gallery's detail name)
     full: Option<(usize, usize)>,
+    /// 2017-18 only: the ASCII display name, used when a record has no short Latin name
+    display: Option<usize>,
     originals: Vec<(&'static str, &'static str)>,
 }
 
@@ -152,6 +154,7 @@ fn spec(e: Edition) -> Spec {
             skill_en: 0x1B7,
             skill_jp: 0x1F7,
             full: Some((0x0C, 0x4C)),
+            display: None,
             originals: vec![
                 (
                     BIN,
@@ -185,7 +188,8 @@ fn spec(e: Edition) -> Spec {
             short_latin: 0x370,
             skill_en: 0x45F,
             skill_jp: 0x49F,
-            full: None,
+            full: Some((0x2B0, 0x2F0)),
+            display: Some(0x3DF),
             originals: vec![
                 (
                     BIN,
@@ -1162,7 +1166,10 @@ impl Ctx {
         for i in 0..pd.len() / s.rec {
             let r = i * s.rec;
             let kana = cp932(first(&pd[r + s.short_kana..r + s.short_kana + FIELD]));
-            let latin = utf16(&pd[r + s.short_latin..r + s.short_latin + FIELD]);
+            let mut latin = utf16(&pd[r + s.short_latin..r + s.short_latin + FIELD]);
+            if let (true, Some(d)) = (latin.is_empty(), s.display) {
+                latin = String::from_utf8_lossy(first(&pd[r + d..r + d + FIELD])).into_owned();
+            }
             if latin.is_empty() {
                 continue;
             }
