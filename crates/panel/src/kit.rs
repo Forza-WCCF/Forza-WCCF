@@ -138,7 +138,9 @@ impl Files {
             .filter_map(|e| e.metadata().ok()?.modified().ok())
             .collect();
         let kit = forza::kit::Kit::at(self.data.parent().unwrap_or(&self.data));
-        let version = kit.release().unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
+        let version = kit
+            .release()
+            .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
         Status {
             link: server_link(),
             card: match session {

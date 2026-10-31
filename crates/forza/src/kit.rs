@@ -26,7 +26,12 @@ impl Kit {
     /// The release as the Launcher and the panel show it: version.txt's first line without `kit-` ("0.3.0").
     pub fn release(&self) -> Option<String> {
         let v = self.version()?;
-        let v = v.lines().next().unwrap_or("").trim().trim_start_matches("kit-");
+        let v = v
+            .lines()
+            .next()
+            .unwrap_or("")
+            .trim()
+            .trim_start_matches("kit-");
         Some(v.to_owned()).filter(|v| !v.is_empty())
     }
 
