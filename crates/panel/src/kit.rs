@@ -105,6 +105,12 @@ impl Files {
         )
     }
 
+    /// The tablet board's address the run wrote (data\tablet.url): `http://...`, or `!` and why there is none.
+    pub fn tablet_url(&self) -> Option<String> {
+        let t = std::fs::read_to_string(self.data.join("tablet.url")).ok()?;
+        Some(t.lines().next()?.trim().chars().take(200).collect())
+    }
+
     /// RESTART NOW's and SAVE LOGS' requests to the run (`data\restart.request`, `data\savelogs.request`) and SAVE
     /// LOGS' answer (`data\savelogs.result`).
     pub fn request(&self, what: &str) -> PathBuf {

@@ -40,6 +40,8 @@ pub struct PanelFile {
     pub board_buttons: bool,
     /// board_rect=x,y,w,h,max: where that window was last (its restored place in screen pixels, and maximized).
     pub board_rect: Option<[i32; 5]>,
+    /// tablet=on: Launcher.exe serves the tablet formation board on the home network while the game runs (2017-18).
+    pub tablet: bool,
 }
 
 impl Default for PanelFile {
@@ -56,6 +58,7 @@ impl Default for PanelFile {
             board_window: false,
             board_buttons: false,
             board_rect: None,
+            tablet: false,
         }
     }
 }
@@ -97,6 +100,7 @@ impl PanelFile {
                 "auto_logs" => f.auto_logs_off = val == "0",
                 "board" => f.board_window = is("window"),
                 "board_buttons" => f.board_buttons = is("on"),
+                "tablet" => f.tablet = is("on"),
                 "board_rect" => {
                     let n: Vec<i32> = val
                         .split(',')
@@ -153,6 +157,9 @@ impl PanelFile {
         if let Some([x, y, w, h, max]) = self.board_rect {
             s += &format!("board_rect={x},{y},{w},{h},{max}\n");
         }
+        if self.tablet {
+            s += "tablet=on\n";
+        }
         s
     }
 }
@@ -182,12 +189,13 @@ play_on=online\nserver=1.2.3.4\nenglish=off\nhover_delay_ms=500\nauto_logs=0\n"
             board_window: true,
             board_buttons: true,
             board_rect: Some([-1600, 20, 900, 1400, 0]),
+            tablet: true,
             ..PanelFile::default()
         };
         assert_eq!(PanelFile::parse(all.text(true).as_bytes()), all);
         assert!(all.text(true).contains("read by PLAY.bat at its next\n"));
         assert!(
-            all.text(false).ends_with("play_on=this_pc\nenglish=it\ncard=new\ncard_fix=bad_endings\nlayout=compact\nhover_delay_ms=2000\nboard=window\nboard_buttons=on\nboard_rect=-1600,20,900,1400,0\n")
+            all.text(false).ends_with("play_on=this_pc\nenglish=it\ncard=new\ncard_fix=bad_endings\nlayout=compact\nhover_delay_ms=2000\nboard=window\nboard_buttons=on\nboard_rect=-1600,20,900,1400,0\ntablet=on\n")
         );
         for (line, ms) in [
             ("", Some(500)),

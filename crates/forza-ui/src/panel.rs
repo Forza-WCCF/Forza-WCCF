@@ -590,6 +590,9 @@ pub struct PanelState {
     pub file: PanelFile,
     /// The address line while typing.
     pub address: String,
+    /// The tablet board's address (data\tablet.url, written by the run while `tablet=on`): `http://...`, or `!` and why
+    /// it did not start; `None` until the run wrote it.
+    pub tablet_url: Option<String>,
     /// What SETTINGS shows under NOW, read about once a second while it is open.
     pub status: Status,
     /// RESTART NOW armed by a first click until this time (egui's clock); RESTART NOW / SAVE LOGS asked for (waiting
@@ -699,6 +702,7 @@ impl PanelState {
             pad_names: Vec::new(),
             file: PanelFile::default(),
             address: String::new(),
+            tablet_url: None,
             status: Status::default(),
             restart_armed: 0.0,
             restart_sent: false,
@@ -3717,8 +3721,69 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                 _ => {}
             }
         });
+        if st.edition == Edition::E1718 {
+            widgets::section(right, &tr!(lang, "settings.tablet"), accent, |ui| {
+                tablet(ui, st, lang)
+            });
+        }
     });
     note_line(ui, &mut st.message);
+}
+
+/// SETTINGS' tablet board (2017-18): the switch and, while it is on, the QR code of the run's address, the address
+/// itself and what to answer when the tablet cannot connect.
+fn tablet(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
+    if widgets::toggle_row(
+        ui,
+        &mut st.file.tablet,
+        &tr!(lang, "settings.tablet_on"),
+        &tr!(lang, "settings.tablet_hint"),
+    )
+    .clicked()
+    {
+        st.file_changed = true;
+        st.say(
+            Tone::Done,
+            if st.file.tablet {
+                "settings.msg_tablet_on"
+            } else {
+                "settings.msg_tablet_off"
+            },
+        );
+    }
+    if !st.file.tablet {
+        return;
+    }
+    let hint = |ui: &mut Ui, text: String, c: Color32| {
+        ui.label(egui::RichText::new(text).font(theme::body(11.0)).color(c));
+    };
+    match st.tablet_url.as_deref() {
+        Some(url) if url.starts_with("http://") => {
+            ui.horizontal_top(|ui| {
+                widgets::qr(ui, url, 128.0);
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 4.0;
+                    hint(ui, tr!(lang, "settings.tablet_scan"), theme::TEXT);
+                    ui.label(
+                        egui::RichText::new(url)
+                            .font(theme::mono(11.0))
+                            .color(theme::TEXT_DIM),
+                    );
+                    hint(ui, tr!(lang, "settings.tablet_firewall"), theme::TEXT_DIM);
+                });
+            });
+        }
+        Some(why) => hint(
+            ui,
+            tr!(
+                lang,
+                "settings.tablet_none",
+                why = why.trim_start_matches('!')
+            ),
+            theme::RED_TEXT,
+        ),
+        None => hint(ui, tr!(lang, "settings.tablet_starting"), theme::TEXT_DIM),
+    }
 }
 
 // ---- CLUB CARD ----

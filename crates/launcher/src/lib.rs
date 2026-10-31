@@ -14,6 +14,7 @@ pub mod release;
 pub mod report;
 pub mod run;
 pub mod setup;
+pub mod tablet;
 
 // the kit folder, the key driver, the club card's session and the game's processes: in forza, which the panel shares
 pub use forza::{card, keys, kit, procs};

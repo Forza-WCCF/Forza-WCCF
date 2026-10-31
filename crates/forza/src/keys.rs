@@ -24,6 +24,9 @@ pub fn is_allowed(vk: i128) -> bool {
 pub const PAD_BUTTON: u32 = 0x100;
 pub const PAD_AXIS: u32 = 0x200;
 pub const PAD_HAT: u32 = 0x300;
+/// The tablet board's buttons (Launcher.exe's tablet server, issue #94): 0x400 + n holds the key driver's action n
+/// (`driver::ACTIONS` order), whichever window is in front.
+pub const TABLET: u32 = 0x400;
 const AXES: &str = "XYZRUV";
 const HATS: [&str; 4] = ["UP", "RIGHT", "DOWN", "LEFT"];
 

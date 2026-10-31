@@ -131,7 +131,7 @@ const CARD: usize = 10;
 const COIN: usize = 11;
 const START: usize = 0;
 
-use super::{PAD_AXIS, PAD_BUTTON, PAD_HAT, is_allowed, key_label, pad_code, pad_label};
+use super::{PAD_AXIS, PAD_BUTTON, PAD_HAT, TABLET, is_allowed, key_label, pad_code, pad_label};
 #[cfg(windows)]
 pub use win::{Winmm, pad_name};
 
@@ -146,7 +146,7 @@ pub fn default_keys() -> [u32; 16] {
     std::array::from_fn(|i| ACTIONS[i].vk)
 }
 
-fn action_index(name: &str) -> Option<usize> {
+pub fn action_index(name: &str) -> Option<usize> {
     ACTIONS.iter().position(|a| a.name == name)
 }
 
@@ -436,10 +436,10 @@ impl Bindings {
         self.pads.iter().any(|c| *c != 0)
     }
 
-    /// The actions held by these inputs (key codes and controller controls), one bit per action.
+    /// The actions held by these inputs (key codes, controller controls and the tablet's buttons), one bit per action.
     pub fn held_actions(&self, down: &BTreeSet<u32>) -> u16 {
         (0..16).fold(0, |m, i| {
-            let held = [self.keys[i], self.pads[i]]
+            let held = [self.keys[i], self.pads[i], TABLET + i as u32]
                 .iter()
                 .any(|x| *x != 0 && down.contains(x));
             m | (u16::from(held) << i)
@@ -893,14 +893,23 @@ fn file_stamp(path: &std::path::Path) -> Option<(SystemTime, u64)> {
     Some((m.modified().ok()?, m.len()))
 }
 
+/// The tablet's held buttons (one bit per [`ACTIONS`] index) as input codes ([`TABLET`] + n).
+pub fn tablet_codes(bits: u16) -> impl Iterator<Item = u32> {
+    (0..16u32)
+        .filter(move |i| bits >> i & 1 == 1)
+        .map(|i| TABLET + i)
+}
+
 /// Starts the driver thread: it reads `keys_path` (missing = the defaults, read again when it changes), polls the
-/// keyboard and controllers every 10 ms while a game window is in front, and sets the switches on `shared`. Dropping the
-/// handle stops it and lets go of every button.
+/// keyboard and controllers every 10 ms while a game window is in front, and sets the switches on `shared`. The
+/// tablet's buttons (`tablet`, set by Launcher.exe's tablet server; shared path with 2010-11, which never sets it) count
+/// whichever window is in front. Dropping the handle stops it and lets go of every button.
 #[cfg(windows)]
 pub fn spawn(
     shared: Arc<Shared>,
     keys_path: std::path::PathBuf,
     start_coin: bool,
+    tablet: Arc<std::sync::atomic::AtomicU16>,
     log: Log,
 ) -> Handle {
     let stop = Arc::new(AtomicBool::new(false));
@@ -1022,6 +1031,7 @@ pub fn spawn(
             {
                 down.extend(p.poll()); // controller controls: numbers above every key code
             }
+            down.extend(tablet_codes(tablet.load(Ordering::Relaxed)));
             for e in driver.tick(now, &down) {
                 log(&e);
             }
@@ -1298,6 +1308,19 @@ mod tests {
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(keys[action_index("PRESS").unwrap()], 0x58);
         assert_eq!(keys[action_index("SHOOT").unwrap()], 0x47);
+    }
+
+    /// A tablet button holds its action with no key down at all (no game window in front: the keyboard reads nothing).
+    #[test]
+    fn tablet_buttons_hold_without_the_game_in_front() {
+        let shared = Shared::new();
+        let mut d = Driver::new(Bindings::defaults(), shared.clone(), 0.0);
+        let shoot = action_index("SHOOT").unwrap();
+        let down: BTreeSet<u32> = tablet_codes(1 << shoot).collect();
+        d.tick(0.0, &down);
+        assert_eq!(shared.inputs().p[0][0] & 0x01, 0x01, "SHOOT held");
+        d.tick(0.01, &BTreeSet::new());
+        assert_eq!(shared.inputs().p[0][0] & 0x01, 0, "SHOOT let go");
     }
 
     /// Only the desktop and the taskbar count as "nobody chose this": a browser or the Launcher keeps the focus.

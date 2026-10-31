@@ -416,6 +416,15 @@ settings.msg_board_window: {en: "Formation board in its own window: move it to a
 settings.msg_board_docked: {en: "Formation board back with the game", it: "Formazione di nuovo con il gioco", ja: "フォーメーションをゲーム画面に戻しました"}
 settings.board_buttons: {en: "Buttons on the board window", it: "Pulsanti nella finestra della formazione", ja: "ボードのウィンドウにもボタン"}
 settings.board_buttons_hint: {en: "The cabinet buttons beside the popped-out board too", it: "I pulsanti del cabinato anche accanto alla formazione in pop-out", ja: "ポップアウトしたボードの横にも筐体のボタンを表示"}
+settings.tablet: {en: "TABLET", it: "TABLET", ja: "タブレット"}
+settings.tablet_on: {en: "Formation board on a tablet", it: "Formazione su un tablet", ja: "タブレットでフォーメーション"}
+settings.tablet_hint: {en: "Move the cards and press the buttons from a tablet on this Wi-Fi", it: "Muovi le carte e premi i pulsanti da un tablet su questa rete Wi-Fi", ja: "同じWi-Fiのタブレットでカードを動かし、ボタンを押せます"}
+settings.tablet_scan: {en: "Scan with the tablet", it: "Inquadra con il tablet", ja: "タブレットで読み取り"}
+settings.tablet_firewall: {en: "Can't connect? Allow Launcher on Private networks when Windows asks, or later in Windows Security > Firewall > Allow an app. Same Wi-Fi, not a guest one.", it: "Non si collega? Consenti Launcher sulle reti private quando Windows lo chiede, o dopo in Sicurezza di Windows > Firewall > Consenti app. Stessa rete Wi-Fi, non quella ospiti.", ja: "接続できない場合：Windowsが尋ねたらLauncherをプライベートネットワークで許可、または後でWindows セキュリティ > ファイアウォール > アプリの許可。ゲスト用ではない同じWi-Fiで。"}
+settings.tablet_starting: {en: "Starting: the code shows here in a moment (only while the game runs)", it: "Avvio: il codice compare qui tra poco (solo mentre il gioco è in esecuzione)", ja: "起動中：まもなくここにコードが表示されます（ゲーム実行中のみ）"}
+settings.tablet_none: {en: "No tablet board: %{why}. Connect this PC to your home Wi-Fi or router, then turn it off and on.", it: "Niente formazione su tablet: %{why}. Collega questo PC al Wi-Fi o al router di casa, poi spegni e riaccendi.", ja: "タブレットボードなし：%{why}。このPCを家庭のWi-Fiまたはルーターに接続し、オフにしてから再びオンにしてください。"}
+settings.msg_tablet_on: {en: "Tablet board on: scan the code with the tablet", it: "Formazione su tablet attiva: inquadra il codice con il tablet", ja: "タブレットボードをオンにしました：タブレットでコードを読み取ってください"}
+settings.msg_tablet_off: {en: "Tablet board off", it: "Formazione su tablet spenta", ja: "タブレットボードをオフにしました"}
 settings.msg_hover: {en: "Card preview after %{s} s", it: "Anteprima carta dopo %{s} s", ja: "%{s} 秒でカードをプレビュー"}
 settings.msg_hover_off: {en: "Card preview off", it: "Anteprima carta disattivata", ja: "カードのプレビューなし"}
 settings.msg_this_pc: {en: "Next start: this PC", it: "Prossimo avvio: questo PC", ja: "次回の起動：このPC"}
