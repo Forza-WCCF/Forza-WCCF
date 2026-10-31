@@ -1008,7 +1008,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
     };
     // before anything of the run exists: no game program may start unguarded (docs/SAFETY.md)
     if edition == Edition::E1718
-        && let Err(why) = guard::check(&game, &seat, p.client(), p.control())
+        && let Err(why) = guard::check(&game, &seat, p.client(), p.control(), p.matcher())
     {
         tell(ui, "", &Text::key("launcher.run_not_guarded").arg("why", why));
         return Err(NOT_GUARDED);
@@ -2289,7 +2289,17 @@ impl Run<'_> {
         if ticket.is_some() {
             let _ = choices::write(&panel, &choices::set_panel_value(&text, "ticket", None));
         }
-        match seat::claim_with(at, want, ticket.as_deref(), LIFE, seat::Timing::default(), log) {
+        // every seat of a shop must run the same match engine math (the desk refuses another)
+        let dmath = (self.edition == Edition::E1718).then(|| seat::dmath_token(&self.game, &self.seat));
+        match seat::claim_with(
+            at,
+            want,
+            ticket.as_deref(),
+            dmath.as_deref(),
+            LIFE,
+            seat::Timing::default(),
+            log,
+        ) {
             Ok(lease) => {
                 let got = (lease.seat, lease.projector);
                 self.lease = Some(lease);

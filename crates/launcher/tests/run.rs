@@ -852,7 +852,10 @@ fn scratch_kit_1718(top: &Path) -> Kit {
     guarded_copy(&game.join("standin_client.exe"));
     guarded_copy(&game.join("standin_control.exe")); // checked, never run: the tests play on a "server"
     guarded_copy(&seat.join("standin_client.exe"));
-    fs::write(game.join("standin_match.exe"), b"never run").unwrap();
+    for dir in [&game, &seat] {
+        fs::write(dir.join("standin_match.exe"), b"never run").unwrap();
+        fs::write(dir.join("dmath.dll"), b"the det-math stand-in").unwrap();
+    }
     built_copy("2017-18/bin", "wccfnet.dll", &game.join("wccfnet.dll"));
     built_copy("2017-18/bin", "wccfnet.dll", &seat.join("wccfnet.dll"));
     built_copy("2017-18/bin", "ICMP.DLL", &game.join("ICMP.DLL"));
@@ -872,6 +875,8 @@ fn scratch_kit_1718(top: &Path) -> Kit {
         "wccfnet.dll": sha(&game.join("wccfnet.dll")),
         "ICMP.DLL": sha(&game.join("ICMP.DLL")),
         "seat1/standin_client.exe": sha(&seat.join("standin_client.exe")),
+        "standin_match.exe": {"original": "-", "guarded": sha(&game.join("standin_match.exe"))},
+        "dmath.dll": sha(&game.join("dmath.dll")),
     });
     fs::write(top.join("setup-hashes.json"), hashes.to_string()).unwrap();
     let kit = Kit::at(kit);
@@ -906,6 +911,13 @@ fn a_2017_18_kit_that_is_not_guarded_starts_nothing() {
     fs::write(seat.join("ICMP.DLL"), b"pings for real").unwrap();
     refused("a changed ICMP.DLL in seat 1", "ICMP.DLL is not the file Setup made");
     built_copy("2017-18/bin", "ICMP.DLL", &seat.join("ICMP.DLL"));
+
+    fs::write(seat.join("dmath.dll"), b"another det-math").unwrap();
+    refused("a changed dmath.dll in seat 1", "dmath.dll is not the file Setup made");
+    fs::write(seat.join("dmath.dll"), b"the det-math stand-in").unwrap();
+    fs::write(game.join("standin_match.exe"), b"another engine").unwrap();
+    refused("a changed match engine", "standin_match.exe is not the file Setup made");
+    fs::write(game.join("standin_match.exe"), b"never run").unwrap();
 
     stand_in("fakegame_iphlp.exe", &game.join("standin_control.exe"));
     let mut record: serde_json::Value =

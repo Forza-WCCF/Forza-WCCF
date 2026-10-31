@@ -17,7 +17,7 @@ use forza::online::lobby::{
     self, Created, Lobby, Occupant, Reserved, Shop, State as ShopState, VsRoom,
 };
 use forza::online::vs::Matcher;
-use forza::online::{Reply, SEATS, Want};
+use forza::online::{Reply, SEATS, Want, seat};
 use regex::Regex;
 use std::collections::{BTreeMap, HashMap};
 use std::io::{self, Read, Write};
@@ -303,7 +303,8 @@ struct Room {
 
 #[derive(Default)]
 struct State {
-    leases: HashMap<u8, (String, u64)>,
+    /// seat -> (peer, lease id, the PC's det-math token: `WANT ... DMATH d`, [`seat::NO_DMATH`] without).
+    leases: HashMap<u8, (String, u64, String)>,
     /// `RESERVE`d seats: seat -> (ticket, lease end). A seat in here is busy until claimed or expired.
     reserved: HashMap<u8, (String, Instant)>,
     next_id: u64,
@@ -637,6 +638,17 @@ fn session(
         }
         _ => {}
     }
+    // `WANT ... DMATH d`: the PC's match engine math; every seat must run the same (forza::online::seat::dmath_token)
+    let (line, dmath) = match line.split_whitespace().collect::<Vec<_>>()[..] {
+        [.., "DMATH", d] => (
+            line.rsplitn(3, char::is_whitespace)
+                .last()
+                .unwrap_or("")
+                .to_string(),
+            d.to_string(),
+        ),
+        _ => (line, seat::NO_DMATH.to_string()),
+    };
     // `WANT ... TICKET t` claims the seat `RESERVE` held
     let (line, ticket) = match line.split_whitespace().collect::<Vec<_>>()[..] {
         [.., "TICKET", t] => (
@@ -665,6 +677,12 @@ fn session(
                 || st.reserved.contains_key(&s)
                 || others.contains_key(&u32::from(s))
         };
+        if let Some(theirs) = seat::dmath_clash(&dmath, st.leases.values().map(|l| l.2.as_str())) {
+            log(&format!(
+                "{peer}: refused - det-math {dmath}, a seat here runs {theirs}"
+            ));
+            return out.write_all(format!("ERR dmath {theirs} {dmath}\n").as_bytes());
+        }
         let want = Want::parse(&line);
         let seat = if let Some(t) = ticket {
             let held = st
@@ -743,7 +761,7 @@ fn session(
         };
         st.next_id += 1;
         let id = st.next_id;
-        st.leases.insert(seat, (peer.to_string(), id));
+        st.leases.insert(seat, (peer.to_string(), id, dmath));
         *lease = Some((seat, id));
         let show = !e1011 && st.projector.is_none();
         if show {
