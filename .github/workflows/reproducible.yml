@@ -19,6 +19,9 @@ on:
       - .github/scripts/repro.sh
       - rust-toolchain.toml
       - .cargo/**
+  # weekly on main: a new runner image (Visual Studio, Windows SDK) that changes the output shows here, not at a release
+  schedule:
+    - cron: '23 5 * * 1'
 
 permissions:
   contents: read

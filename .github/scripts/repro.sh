@@ -32,7 +32,8 @@ pkg_of() {
   esac
 }
 
-# the package and the workspace packages it depends on, as directories (cargo metadata --no-deps lists path dependencies)
+# the package and the workspace packages it depends on, as directories (cargo metadata --no-deps lists path dependencies).
+# version_rc.rs, every build script's version resource, is added by `why`: it is included by path, not a dependency.
 dirs_of() {
   local meta=$1 todo=$2 seen=" "
   local n
@@ -62,10 +63,10 @@ why() {
     else
       p=$(pkg_of "$name")
       # shellcheck disable=SC2046
-      if [ -z "$p" ] || ! git diff --quiet "$oref" "$nref" -- .cargo rust-toolchain.toml $(dirs_of "$meta" "$p"); then
+      if [ -z "$p" ] || ! git diff --quiet "$oref" "$nref" -- .cargo rust-toolchain.toml crates/launcher/version_rc.rs $(dirs_of "$meta" "$p"); then
         d="source changed"
       else
-        d="no source change in $p or its workspace dependencies: toolchain or runner changed (or the build is not reproducible)"
+        d="toolchain changed: no source change in $p or its workspace dependencies (compare the Build environment step of both runs)"
       fi
     fi
     printf '| %s | %s | %s | %s |\n' "$name" "${o:--}" "${n:--}" "$d"
