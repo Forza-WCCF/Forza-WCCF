@@ -46,6 +46,7 @@ const GAME_CTRL_DEFAULTS: &[(usize, usize, u32)] = &[
     (996, 1, 1),
     (997, 1, 10),
     (998, 1, 1),
+    // only the host's control asks 237/238 and schedules the cup (seats ask it NEXT_COMPE), so its OPEN_TIME keys win
     (1092, 4, 1_200),
     (1096, 4, 1_500),
     (1100, 4, 1_800),

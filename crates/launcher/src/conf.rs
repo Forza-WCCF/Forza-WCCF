@@ -58,7 +58,7 @@ pub fn cup_open_times(minutes: u32, now: u32) -> Option<[u32; 4]> {
 
 /// The control's own Universal Cup times in ctrl_user_option.conf, read once as it starts (control 0x49EE90, copied at
 /// 0x45CF77): UNIVERSAL_CHAMPIONSHIP_OPEN_TIME_OPTION=1 and OPEN_TIME1..4 for `times`, or OPTION=0 for the game's
-/// times (then the control takes the stand-in's GAME_CTRL times).
+/// times (then the control takes the stand-in's GAME_CTRL times and ignores OPEN_TIME1..4, so they stay as they are).
 pub fn cup_times_text(raw: &[u8], times: Option<[u32; 4]>) -> io::Result<Vec<u8>> {
     let on = if times.is_some() { "1" } else { "0" };
     let mut out = conf_text_with(raw, "UNIVERSAL_CHAMPIONSHIP_OPEN_TIME_OPTION", on)?;
