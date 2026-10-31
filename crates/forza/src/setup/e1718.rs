@@ -4,7 +4,8 @@
 //! - `original\` the untouched client_Release.exe, control_Release.exe and match_Release.exe, kept on the first run;
 //!   every later run patches from them, so running setup again never stacks a patch (a second run changes nothing)
 //! - `game\` the server and projector: guarded programs (they import wccfnet.dll, which stubs the four IP-helper
-//!   calls, instead of IPHLPAPI.DLL), the kit's winmm.dll / logowin.exe / ICMP.DLL stand-ins, the settings files; the
+//!   calls, instead of IPHLPAPI.DLL), the kit's winmm.dll / ICMP.DLL stand-ins (winmm.dll
+//!   also answers control's start of logowin.exe, which stays the original), the settings files
 //!   match engine imports dmath.dll instead of PSAPI.DLL (the same math on every CPU, so online seats stay in step)
 //! - `seat1\` the player's cabinet: junctions to game's folders, hard links to its files, its own patched
 //!   client_Release.exe, the card-table helper
@@ -334,14 +335,12 @@ pub fn setup_game(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
         &game.join("winmm.dll"),
         "the cabinet stand-in",
     )?;
-    if !game.join(logowin_backup()).exists() {
-        fs::rename(game.join("logowin.exe"), game.join(logowin_backup()))?;
+    // winmm.dll answers control's start of logowin.exe itself (2026-10-29), so the original stays; a kit before that put
+    // a stand-in there and kept the original under the backup name: the original goes back
+    let backup = game.join(logowin_backup());
+    if backup.is_file() {
+        fs::rename(&backup, game.join("logowin.exe"))?;
     }
-    copy_in(
-        &bin.join("logowin.exe"),
-        &game.join("logowin.exe"),
-        "the logo stand-in",
-    )?;
     make_dir(&game.join("local"))?;
     put(&game.join(CONF_CLIENT), client_keys(0).as_bytes())?;
     put(
@@ -654,7 +653,6 @@ mod tests {
             ("bin", "ICMP.DLL"),
             ("bin", "dmath.dll"),
             ("bin", "winmm.dll"),
-            ("bin", "logowin.exe"),
             ("bin", "FPR_Emu.exe"),
         ] {
             fs::write(kit.join(d).join(n), format!("kit {n}")).unwrap();
@@ -691,6 +689,9 @@ mod tests {
         let before = tree(&rt);
         // an older kit's netguard.dll: setup deletes it (undo deletes it too, so it stays out of `before`)
         fs::write(game.join("netguard.dll"), "old kit netguard").unwrap();
+        // an older kit's stand-in logowin.exe, the original kept under the backup name: setup puts the original back
+        fs::rename(game.join("logowin.exe"), game.join(logowin_backup())).unwrap();
+        fs::write(game.join("logowin.exe"), "old kit logowin.exe").unwrap();
 
         let report = run(&kit, &game, &spec).unwrap();
         assert_eq!(report.0.len(), 7);
@@ -738,14 +739,9 @@ mod tests {
             fs::read(game.join("winmm_orig.dll")).unwrap(),
             b"windows winmm"
         );
-        assert_eq!(
-            fs::read(game.join(logowin_backup())).unwrap(),
-            b"their logo"
-        );
-        assert_eq!(
-            fs::read(game.join("logowin.exe")).unwrap(),
-            b"kit logowin.exe"
-        );
+        assert!(!game.join(logowin_backup()).exists());
+        assert_eq!(fs::read(game.join("logowin.exe")).unwrap(), b"their logo");
+        assert_eq!(fs::read(seat.join("logowin.exe")).unwrap(), b"their logo");
         assert_eq!(fs::read(seat.join("other.dll")).unwrap(), b"other");
         assert!(!game.join("netguard.dll").exists() && !seat.join("netguard.dll").exists());
         assert!(

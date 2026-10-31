@@ -30,7 +30,7 @@
 //!
 //! In this process too (no Python since 2026-10-20): the club card steps (`forza::cards::steps`: the CLUB CARD panel's
 //! requests, the table and the club card view), the game's text and setup (`crate::setup`).  The server side is
-//! `programs\forza-server.exe all`, a child in the job.
+//! `programs\forza-server.exe all` (2017-18: `Launcher.exe server all`), a child in the job.
 
 pub mod rules;
 
@@ -1705,7 +1705,7 @@ impl Run<'_> {
         Ok(())
     }
 
-    /// "server": `forza-server all` (the seat desk and the match relay in one Job child, each with its
+    /// "server": `forza-server all` (2017-18: `Launcher.exe server all`; the seat desk and the match relay in one Job child, each with its
     /// own log in data\logs), then the run waits for a stop.
     fn start_server_side(&mut self) -> Result<(), Failed> {
         let logs = self.logs();
@@ -1731,7 +1731,14 @@ impl Run<'_> {
             let db = self.kit.save().join("gamesvr").join("gamesvr.db");
             env.push(("WCCF_CLUB_DB".to_owned(), db.display().to_string()));
         }
-        let mut cmd = Command::new(self.kit.program("forza-server.exe"));
+        // 2017-18 ships no forza-server.exe (an AV false positive): the kit's Launcher.exe runs it as `server ...`
+        let mut cmd = if self.edition == Edition::E1718 {
+            let mut c = Command::new(self.kit.dir().join("Launcher.exe"));
+            c.arg("server");
+            c
+        } else {
+            Command::new(self.kit.program("forza-server.exe"))
+        };
         cmd.args(["--edition", self.edition.name(), "all"]);
         if self.edition == Edition::E1718 {
             // this PC's game server is the run's own stand-in (start_gamesvr)

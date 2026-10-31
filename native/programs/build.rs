@@ -12,21 +12,44 @@ fn main() {
     {
         return;
     }
-    for (bin, exe, what) in [
+    // FPR_Emu.exe, which the game starts, also has Forza-WCCF's icon and a manifest (2026-10-29): a known face for
+    // Windows' file checks, run as the user who starts it, nothing more
+    let manifest = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"))
+        .join("fpr_emu.manifest");
+    std::fs::write(&manifest, FPR_EMU_MANIFEST).expect("write fpr_emu.manifest");
+    println!("cargo:rustc-link-arg-bin=fpr_emu=/MANIFEST:EMBED");
+    println!(
+        "cargo:rustc-link-arg-bin=fpr_emu=/MANIFESTINPUT:{}",
+        manifest.display()
+    );
+    println!("cargo:rustc-link-arg-bin=fpr_emu=/MANIFESTUAC:level='asInvoker' uiAccess='false'");
+    for (bin, exe, what, icon) in [
         (
             "inject",
             "inject",
             "loads the Forza-WCCF panel into the running game",
+            None,
         ),
-        ("fpr_emu", "FPR_Emu", "the card table's stand-in"),
         (
-            "logowin",
-            "logowin",
-            "the start-up notice window, replaced by one that only records the notice",
+            "fpr_emu",
+            "FPR_Emu",
+            "the card table's stand-in",
+            Some("../../assets/logo/forza-wccf.ico"),
         ),
     ] {
-        if let Some(res) = version_rc::make(exe, what, None) {
+        if let Some(res) = version_rc::make(exe, what, icon) {
             println!("cargo:rustc-link-arg-bin={bin}={}", res.display());
         }
     }
 }
+
+/// FPR_Emu.exe's manifest beside the linker's asInvoker one: Windows 10 and 11.
+const FPR_EMU_MANIFEST: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
+    </application>
+  </compatibility>
+</assembly>
+"#;

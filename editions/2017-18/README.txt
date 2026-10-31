@@ -86,7 +86,7 @@ KNOWN ISSUES
 
 ANTIVIRUS AND SMARTSCREEN
   The programs are unsigned, and Forza-WCCF changes copies of the game's programs (never the originals, kept in
-  original\). Antivirus programs may treat this like a cheat tool and flag bin\winmm.dll. Its source is in source\.
+  original\). Antivirus programs may treat this like a cheat tool and flag bin\winmm.dll. SOURCE.txt links its source.
   Each release is reported to Microsoft as a false positive before it is published.
   SmartScreen ("Windows protected your PC"): choose More info, then Run anyway.
   Defender flags a file: do not turn Defender off. Note the detection name. If the file came from the official
@@ -104,9 +104,8 @@ LOGS AND BUGS
   it. Nothing is uploaded. For a Defender or SmartScreen warning, add the file name and the warning's text.
 
 FOLDERS
-  bin\       Forza-WCCF's programs: the game server (forza-server.exe), the stand-ins, the card-table helper
+  bin\       Forza-WCCF's programs: the stand-ins, the card-table helper
   overlay\   the panel; SET UP adds the catalogue and the card pictures
   fonts\     the panel's fonts and their licences
   english\, italian\   the game's English and Italian text
-  source\    the source of the programs in bin\ and overlay\ (Rust)
   data\      made on your PC: settings, saves (save\gamesvr), logs

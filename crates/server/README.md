@@ -39,7 +39,8 @@ yet in Rust: `python3 projector_relay.py LIFE [LOG_FILE]` with `WCCF_CONTROL_LOG
 
 Code: `src/` holds the desk and relay; the game server, the matcher and the reflect service are
 `forza::online::{gamesvr, vs}`, shared with the Launcher's local stand-in. Builds: `cargo build --release -p forza-server`
-(Linux), `cargo xtask build` (Windows, `programs\forza-server.exe` in the 2010-11 kit).
+(Linux), `cargo xtask build` (Windows, `programs\forza-server.exe` in the 2010-11 kit). The 2017-18 kit ships no
+`forza-server.exe`: `Launcher.exe server ARGS` takes the same arguments (`src/cli.rs`).
 
 ## VS rooms (2017-18)
 

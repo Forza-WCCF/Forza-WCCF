@@ -97,7 +97,7 @@ Forza-WCCF 2017-18（アルファ版）
 ウイルス対策と SmartScreen
   プログラムには署名がなく、Forza-WCCF はゲームのプログラムのコピーを書き換えます（オリジナルは変更せず original\ に
   残します）。そのためウイルス対策ソフトがチートツールと見なし、bin\winmm.dll を検出することがあります。ソースは
-  source\ にあります。各リリースのファイルは、公開前に誤検出として Microsoft に報告しています。
+  SOURCE.txt のリンク先にあります。各リリースのファイルは、公開前に誤検出として Microsoft に報告しています。
   SmartScreen（「Windows によって PC が保護されました」）: 「詳細情報」を選び、「実行」を押してください。
   Defender が検出したとき: Defender は無効にしないでください。検出名を控え、公式ダウンロードのファイルであれば
   「保護の履歴」から復元し、報告してください: https://github.com/Forza-WCCF/Forza-WCCF/issues
@@ -115,9 +115,8 @@ Forza-WCCF 2017-18（アルファ版）
   警告の文面も添えてください。
 
 フォルダー
-  bin\       Forza-WCCF のプログラム: ゲームサーバー（forza-server.exe）、代役、カードテーブル用ヘルパー
+  bin\       Forza-WCCF のプログラム: 代役、カードテーブル用ヘルパー
   overlay\   パネル。「設定する」でカタログとカード画像が追加されます
   fonts\     パネルのフォントとライセンス
   english\, italian\   ゲームの英語・イタリア語テキスト
-  source\    bin\ と overlay\ のプログラムのソース（Rust）
   data\      お使いの PC で作られます: 設定、セーブ（save\gamesvr）、ログ
