@@ -11,7 +11,6 @@ target\ (the 2017-18 folder) at the paths below; `cargo xtask package 2017-18` z
                        DLL (the panel) into the game)
   bin\ICMP.DLL         native\icmp (the game's pings of the arcade network return at once instead of timing out)
   bin\FPR_Emu.exe      native\programs\src\bin\fpr_emu.rs (forza-programs, --features programs)
-  bin\logowin.exe      native\programs\src\bin\logowin.rs
   overlay\forza_panel.dll   the repository's crates\panel, one build for both editions; its fonts are fonts\ at the top
                        of the folder.
   native\common        what they share: a loaded program's import table, the parent process
@@ -20,9 +19,11 @@ target\ (the 2017-18 folder) at the paths below; `cargo xtask package 2017-18` z
   source\build\server-hook\winmm.dll   native\hook (forza-hook --features e1011-server; not in the ZIP, not used by
                        2017-18): the Linux server's 2010-11 hook under Wine, with its self-tests msgguard_test.exe,
                        sleepfix_test.exe, spinfix_test.exe (native\programs\src\bin)
-  source\build\test_wccfnet.exe, test_netguard.exe, test_icmp.exe, test_panel.exe   native\programs\src\bin\test_*.rs:
-                       `cargo xtask check` loads each guard from a scratch folder, proves the four calls return 0 without
-                       reaching the real IP helper, and that FORZA_PANEL makes wccfnet.dll load a DLL once a window shows
+  source\build\test_wccfnet.exe, test_netguard.exe, test_icmp.exe, test_panel.exe, test_logowin.exe
+                       native\programs\src\bin\test_*.rs: `cargo xtask check` loads each guard from a scratch folder,
+                       proves the four calls return 0 without reaching the real IP helper, that FORZA_PANEL makes
+                       wccfnet.dll load a DLL once a window shows, and that winmm.dll answers a start of logowin.exe
+                       without starting anything
 
 overlay\skin.tex is a picture (the panel's art, 1728x1080, BGRA) rendered from the project's skin page; it has no
 source here.
@@ -30,9 +31,10 @@ source here.
 What each does, in short:
   winmm.dll     loaded by the game in place of Windows' winmm.dll (the game's folder is searched first); passes
                 every winmm call through, and stands in for the arcade's devices: serial ports to the card reader
-                and I/O board stand-ins (named pipes), the RingEdge memory, the network address (127.0.0.1)
+                and I/O board stand-ins (named pipes), the RingEdge memory, the network address (127.0.0.1); answers
+                control's start of the original logowin.exe (its white notice screen) itself: nothing starts, the
+                notice goes to game\logowin_messages.txt
   FPR_Emu.exe   answers the game's card-table polls with the cards in seat1\fpr_table0.txt
-  logowin.exe   the original start-up notice window, replaced by one that only records the notice
   forza_panel.dll the panel around seat 1's picture (drawn with the game's own Direct3D 9 device)
   wccfnet.dll   the guard; loads forza_panel.dll into seat 1 and the projector when the Launcher asks (FORZA_PANEL)
   ICMP.DLL      answers the game's pings at once: no reply, as when the arcade network is not there

@@ -195,7 +195,6 @@ const KEEP_1718: &[&str] = &[
     "bin/winmm.dll",
     "bin/wccfnet.dll",
     "bin/ICMP.DLL",
-    "bin/logowin.exe",
     "bin/FPR_Emu.exe",
     "overlay/forza_panel.dll",
     "source/build",
@@ -237,7 +236,6 @@ const NATIVE: &[(&str, bool, &str)] = &[
     ("inject.exe", true, "programs/inject.exe"),
     ("fpr_emu.exe", true, "programs/FPR_Emu.exe"),
     ("fpr_emu.exe", false, "bin/FPR_Emu.exe"),
-    ("logowin.exe", false, "bin/logowin.exe"),
     ("wccfnet.dll", false, "bin/wccfnet.dll"),
     ("icmp.dll", false, "bin/ICMP.DLL"),
     // not in the 2017-18 kit: the Linux servers' hooks load it (forza-hook e1011-server and e1718-server, [`HOOKS`])
@@ -282,6 +280,7 @@ const NATIVE: &[(&str, bool, &str)] = &[
     ("crashme.exe", true, "source/build/crashme.exe"),
     ("test_icmp.exe", false, "source/build/test_icmp.exe"),
     ("test_wccfnet.exe", false, "source/build/test_wccfnet.exe"),
+    ("test_logowin.exe", false, "source/build/test_logowin.exe"),
     ("test_netguard.exe", false, "source/build/test_netguard.exe"),
     ("test_panel.exe", false, "source/build/test_panel.exe"),
     // test_panel's stand-in for the panel: a DLL that does nothing when it loads
@@ -375,7 +374,6 @@ const PROGRAMS_1718: &[&str] = &[
     "bin/winmm.dll",
     "bin/wccfnet.dll",
     "bin/ICMP.DLL",
-    "bin/logowin.exe",
     "bin/FPR_Emu.exe",
     "overlay/forza_panel.dll",
 ];
@@ -1233,12 +1231,18 @@ fn ensure_built(kit: &Path, kit_1718: &Path) -> Result<()> {
         "source/build/test_panel.exe",
         "source/build/panel_probe.dll",
         "source/build/test_icmp.exe",
+        "source/build/test_logowin.exe",
     ]) {
         ensure!(
             kit_1718.join(p).is_file(),
             "2017-18 {p} is missing: run `cargo xtask build` first"
         );
     }
+    // bin\winmm.dll answers control's start of logowin.exe (2026-10-29): no stand-in exe in the kit
+    ensure!(
+        !kit_1718.join("bin/logowin.exe").exists(),
+        "2017-18 bin/logowin.exe must not be in the kit"
+    );
     Ok(())
 }
 
@@ -1532,7 +1536,8 @@ fn panel_selftests(ck: &mut Checks) -> Result<()> {
 /// The 2017-18 network guard, never the real IP helper calls: test_wccfnet.exe loads wccfnet.dll from a scratch folder and calls
 /// its four stubs (each must return 0 and log a line); test_netguard.exe imports the four IP helper calls and checks netguard.dll
 /// (not shipped: the 2010-11 Linux server loads it) moved them into itself before calling anything; test_panel.exe checks that FORZA_PANEL makes it load a probe DLL once a
-/// window shows, and that without the variable nothing loads.
+/// window shows, and that without the variable nothing loads; test_logowin.exe checks that the 2017-18 hook answers a start
+/// of logowin.exe without starting anything.
 fn guard_tests(ck: &mut Checks, kit: &Path) -> Result<()> {
     let t = ck.tmp.join(format!("wccfnet-check-{}", std::process::id()));
     let _ = fs::remove_dir_all(&t);
@@ -1588,6 +1593,23 @@ fn guard_tests(ck: &mut Checks, kit: &Path) -> Result<()> {
         }
         ck.run(what, c, false);
     }
+    // a folder of its own: no other test program there loads the hook as its winmm.dll
+    let lw = t.join("logowin");
+    fs::create_dir_all(&lw)?;
+    fs::copy(kit.join("bin/winmm.dll"), lw.join("winmm.dll"))?;
+    fs::copy(
+        kit.join("source/build/test_logowin.exe"),
+        lw.join("test_logowin.exe"),
+    )?;
+    let mut c = Command::new(lw.join("test_logowin.exe"));
+    c.arg(lw.join("winmm.dll"))
+        .current_dir(&lw)
+        .env_remove("MXHOOK_LOG_DIR");
+    ck.run(
+        "2017-18 hook winmm.dll: a start of logowin.exe is answered in-process, no new process",
+        c,
+        false,
+    );
     let _ = fs::remove_dir_all(&t);
     Ok(())
 }
