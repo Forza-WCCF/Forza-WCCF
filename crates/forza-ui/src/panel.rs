@@ -2206,11 +2206,19 @@ fn page_bar(ui: &mut Ui, st: &mut PanelState, bar: Rect, lang: Lang, side: bool)
     let r = bar.shrink2(vec2(12.0, 8.0));
     let p = ui.painter();
     widgets::mark(p, pos2(r.left() + 11.0, r.center().y), st.edition.accent());
+    // the edition's badge with the Forza-WCCF version under it (the same text the launcher shows)
     let mut b = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(
-        pos2(r.left() + 30.0, r.center().y - 11.0),
-        pos2(r.left() + 130.0, r.center().y + 11.0),
+        pos2(r.left() + 30.0, r.center().y - 17.0),
+        pos2(r.left() + 130.0, r.center().y + 5.0),
     )));
-    widgets::badge(&mut b, st.edition);
+    let badge = widgets::badge(&mut b, st.edition);
+    ui.painter().text(
+        pos2(badge.rect.center().x, badge.rect.bottom() + 2.0),
+        egui::Align2::CENTER_TOP,
+        &st.status.version,
+        theme::body(11.0),
+        theme::TEXT_FAINT,
+    );
     let mut pages = vec![
         (Page::Catalogue, "panel.add_card"),
         (Page::Keys, "panel.keys"),
@@ -4534,7 +4542,7 @@ pub fn widget_sheet(ui: &mut Ui, ws: &mut WidgetSheet) {
             // the title bar, at the launcher's width
             let (bar, _) = ui.allocate_exact_size(vec2(600.0, 44.0), Sense::hover());
             let mut tb = ui.new_child(egui::UiBuilder::new().max_rect(bar));
-            widgets::title_bar(&mut tb, Edition::E1011, &mut ws.launcher_lang);
+            widgets::title_bar(&mut tb, Edition::E1011, "", &mut ws.launcher_lang);
             caps(ui, "CABINET: IDLE · LIT · PRESSED · HOVER · DISABLED");
             ui.horizontal(|ui| {
                 let kinds = [

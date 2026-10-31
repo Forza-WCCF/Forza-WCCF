@@ -138,18 +138,7 @@ impl Files {
             .filter_map(|e| e.metadata().ok()?.modified().ok())
             .collect();
         let kit = forza::kit::Kit::at(self.data.parent().unwrap_or(&self.data));
-        let version = std::fs::read_to_string(kit.dir().join("version.txt"))
-            .ok()
-            .map(|v| {
-                v.lines()
-                    .next()
-                    .unwrap_or("")
-                    .trim()
-                    .trim_start_matches("kit-")
-                    .to_owned()
-            })
-            .filter(|v| !v.is_empty())
-            .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
+        let version = kit.release().unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
         Status {
             link: server_link(),
             card: match session {

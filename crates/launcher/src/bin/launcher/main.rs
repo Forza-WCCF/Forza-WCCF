@@ -1273,8 +1273,7 @@ fn write_failed(path: &Path, e: &std::io::Error) -> String {
 
 /// This folder's version as the window shows it ("kit-7.0.0" -> "7.0.0").
 fn version(kit: &Kit) -> String {
-    let v = this_kit(kit);
-    v.strip_prefix("kit-").map(str::to_owned).unwrap_or(v)
+    kit.release().unwrap_or_else(|| t("launcher.msg_not_known"))
 }
 
 /// Gamepad presses since the window last looked, as the lobby's keys (`forza_ui::lobby::pad_key`).
@@ -1674,6 +1673,16 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The title bar and the UPDATE tab show `version(kit)`; the panel's bar shows `Kit::release` (`panel` `Files::status`).
+    #[test]
+    fn the_version_is_the_panels() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("version.txt"), "kit-0.6.0\n").unwrap();
+        let kit = Kit::at(dir.path());
+        assert_eq!(version(&kit), "0.6.0");
+        assert_eq!(Some(version(&kit)), kit.release());
+    }
 
     #[test]
     fn play_py_steps() {
