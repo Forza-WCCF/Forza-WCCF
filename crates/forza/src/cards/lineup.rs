@@ -323,6 +323,29 @@ pub fn table(l: &Lineup, catalogue: &[Card]) -> Result<Import, LineupError> {
     })
 }
 
+/// The site whose share links IMPORT LINEUP reads, and the only host the panel asks for one.
+pub const SHARE_HOST: &str = "db.wccf.it";
+
+static SHARE_LINK: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"^(?:https?://)?db\.wccf\.it(?:/s/([A-Za-z0-9]{4,16})(?:[/?#]\S*)?|/\S*#/board\?(?:\S*&)?s=([A-Za-z0-9]{4,16})(?:&\S*)?)$",
+    )
+    .expect("share link pattern")
+});
+
+/// The share id in `text` when the whole text (trimmed) is a db.wccf.it share link: `https://db.wccf.it/s/ID`,
+/// `http://` or no scheme, or the board's `.../#/board?s=ID`; the id is 4 to 16 letters and digits. `None`: not a
+/// link (read as lineup text).
+pub fn share_id(text: &str) -> Option<&str> {
+    let c = SHARE_LINK.captures(text.trim())?;
+    c.get(1).or_else(|| c.get(2)).map(|m| m.as_str())
+}
+
+/// The share id's lineup text on [`SHARE_HOST`] (the share service's `GET /api/share/ID.txt`).
+pub fn share_path(id: &str) -> String {
+    format!("/api/share/{id}.txt")
+}
+
 /// The table as the site's text: `game`, `name` (left out when empty), `P no x y` (percent, whole numbers, the first 11
 /// on the pitch in table order, the order the board shows them) and `S no` (the bench by band, the first 5). No key
 /// player and no comments: the table has neither.
@@ -360,6 +383,44 @@ fn write(placed: &[Placed], edition: Edition, name: &str, num: impl Fn(f32) -> S
 mod tests {
     use super::*;
     use crate::board::Position;
+
+    #[test]
+    fn share_links_are_recognised_and_nothing_else() {
+        for (text, id) in [
+            ("https://db.wccf.it/s/Ab3dE7x", "Ab3dE7x"),
+            ("  http://db.wccf.it/s/Ab3dE7x/\r\n", "Ab3dE7x"),
+            ("db.wccf.it/s/abcd", "abcd"),
+            ("https://db.wccf.it/s/Ab3dE7x?utm=x", "Ab3dE7x"),
+            ("https://db.wccf.it/#/board?s=Ab3dE7x", "Ab3dE7x"),
+            (
+                "https://db.wccf.it/it/#/board?lang=it&s=Ab3dE7x&x=1",
+                "Ab3dE7x",
+            ),
+        ] {
+            assert_eq!(share_id(text), Some(id), "{text}");
+        }
+        for text in [
+            "https://db.wccf.it.evil.com/s/Ab3dE7x",
+            "https://evil.com/s/Ab3dE7x",
+            "https://user@db.wccf.it/s/Ab3dE7x",
+            "https://evil.com/?db.wccf.it/s/Ab3dE7x",
+            "ftp://db.wccf.it/s/Ab3dE7x",
+            "https://DB.WCCF.IT/s/Ab3dE7x",
+            "https://db.wccf.it:8443/s/Ab3dE7x",
+            "https://db.wccf.it/s/abc",
+            "https://db.wccf.it/s/abcdefghijklmnopq",
+            "https://db.wccf.it/s/ab-cd",
+            "https://db.wccf.it/s/abcd@evil.com",
+            "https://db.wccf.it/s/../api/x",
+            "https://db.wccf.it/#/board?s=ab%2Fcd",
+            "https://db.wccf.it/s/Ab3dE7x\nP 1 50 50",
+            SITE,
+            "",
+        ] {
+            assert_eq!(share_id(text), None, "{text}");
+        }
+        assert_eq!(share_path("Ab3dE7x"), "/api/share/Ab3dE7x.txt");
+    }
 
     const SITE: &str = "# WCCF DB lineup\ngame 1718\nname My team\nP 1234 50 88 K\nP 2001 30 70\nS 2345\nS \"13/GES 3 \"\n";
 

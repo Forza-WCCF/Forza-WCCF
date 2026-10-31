@@ -34,6 +34,7 @@ mod patches;
 mod pause;
 mod probe;
 mod projector;
+mod share;
 
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, TextureId, ViewportId, pos2, vec2};
 use forza::cards::{self, Placed, TableFile};
@@ -1258,6 +1259,8 @@ struct Render {
     table: TableFile,
     /// The table as last read or written; `st.board.cards[i]` is `placed[i]`.
     placed: Vec<Placed>,
+    /// IMPORT LINEUP's share link, its lineup on the way.
+    share: Option<panel::ShareFetch>,
     /// A cabinet button's key that is down, since when; the mouse still held on it.
     key: Option<(u32, Instant)>,
     /// The key the latch holds down (0: none): `LATCH_VK` as this thread last set it.
@@ -1352,6 +1355,7 @@ impl Render {
             st,
             table,
             placed,
+            share: None,
             key: None,
             latch: 0,
             mouse_down: false,
@@ -2471,7 +2475,7 @@ impl Render {
         }
     }
 
-    /// IMPORT LINEUP: the clipboard's text checked, then on the table once the dialog's CONFIRM comes
+    /// IMPORT LINEUP: the clipboard's text (or its share link's lineup, fetched off this thread) checked, then on the table once the dialog's CONFIRM comes
     /// ([`Render::import_text`]); its UNDO: the table before it.
     fn import(&mut self) {
         self.formations();
@@ -2482,10 +2486,35 @@ impl Render {
             self.placed = old;
             self.table_write();
         }
-        if std::mem::take(&mut self.st.import) {
-            match clipboard_text() {
-                Some(text) => {
-                    if !panel::ask_import(&mut self.st, &text, in_match()) {
+        if let Some(got) = self
+            .share
+            .as_ref()
+            .and_then(|f| f.poll(self.ctx.input(|i| i.time)))
+        {
+            self.share = None;
+            log(&format!(
+                "import: share link answered {:?}",
+                got.as_ref().map(String::len)
+            ));
+            if !panel::ask_fetched(&mut self.st, got, in_match()) {
+                let why = self.st.message.as_ref().map_or("", |m| m.text.as_str());
+                log(&format!("import: refused - {}", why.replace('\n', " / ")));
+            }
+        }
+        if std::mem::take(&mut self.st.import) && self.share.is_none() {
+            let text = clipboard_text();
+            match text
+                .as_deref()
+                .map(|t| (t, forza::cards::lineup::share_id(t)))
+            {
+                Some((_, Some(id))) => {
+                    log(&format!("import: share link {id}"));
+                    let now = self.ctx.input(|i| i.time);
+                    self.share =
+                        panel::ShareFetch::start(&mut self.st, id, in_match(), now, share::get);
+                }
+                Some((text, None)) => {
+                    if !panel::ask_import(&mut self.st, text, in_match()) {
                         let why = self.st.message.as_ref().map_or("", |m| m.text.as_str());
                         log(&format!("import: refused - {}", why.replace('\n', " / ")));
                     }
