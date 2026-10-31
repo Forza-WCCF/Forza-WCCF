@@ -906,6 +906,49 @@ pub fn restore(game: &Path, state_path: &Path) -> R<usize> {
     Ok(entries.len())
 }
 
+/// The state is this archive's way back: the archive is longer than the state's `length` and every entry it names
+/// points past that length, where [`apply`] put the pictures; and it holds what [`restore`] needs (a header that
+/// agrees with that length, whole entries). Another folder's state is taken only then.
+pub fn state_matches(game: &Path, state_path: &Path) -> bool {
+    let Some(s) = load_state(state_path) else {
+        return false;
+    };
+    let (Some(length), Some(header), Some(entries)) = (
+        s.get("length").and_then(Value::as_u64),
+        s.get("header")
+            .and_then(Value::as_str)
+            .and_then(|h| hex(h).ok()),
+        s.get("entries").and_then(Value::as_object),
+    ) else {
+        return false;
+    };
+    if header.len() != 0x18
+        || u64::from_le_bytes(header[..8].try_into().unwrap()) * SECTOR != length
+        || !entries.values().all(|e| {
+            e.as_str()
+                .and_then(|e| hex(e).ok())
+                .is_some_and(|e| e.len() == ENTRY)
+        })
+    {
+        return false;
+    }
+    let Ok(mut f) = File::open(game.join(XAF)) else {
+        return false;
+    };
+    if f.seek(SeekFrom::End(0)).map_or(true, |end| end <= length) || entries.is_empty() {
+        return false;
+    }
+    entries.keys().all(|i| {
+        let mut e = [0u8; ENTRY];
+        i.parse::<u64>().is_ok_and(|i| {
+            TOC_AT + (i + 1) * ENTRY as u64 <= length
+                && f.seek(SeekFrom::Start(TOC_AT + i * ENTRY as u64)).is_ok()
+                && f.read_exact(&mut e).is_ok()
+                && u64::from(u32_at(&e, 0xA0)) * SECTOR >= length
+        })
+    })
+}
+
 /// From the original archive every time (never stacked): the way back saved, the pictures added at the end (YS
 /// packed when that is smaller), the header grown, the entries pointed at them, each read back.
 pub fn apply(game: &Path, pics: &Pics, state_path: &Path) -> R<usize> {

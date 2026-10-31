@@ -23,6 +23,18 @@ impl Kit {
         Some(v.trim().to_owned()).filter(|v| !v.is_empty())
     }
 
+    /// The release as the Launcher and the panel show it: version.txt's first line without `kit-` ("0.3.0").
+    pub fn release(&self) -> Option<String> {
+        let v = self.version()?;
+        let v = v
+            .lines()
+            .next()
+            .unwrap_or("")
+            .trim()
+            .trim_start_matches("kit-");
+        Some(v.to_owned()).filter(|v| !v.is_empty())
+    }
+
     pub fn here() -> Self {
         let exe = env::current_exe().unwrap_or_default();
         let dir = exe
@@ -191,6 +203,15 @@ mod tests {
             Edition::E1011,
             "an old 2010-11 kit's overlay\\ left beside programs\\"
         );
+    }
+
+    #[test]
+    fn release_drops_the_kit_prefix() {
+        let dir = tempfile::tempdir().unwrap();
+        let kit = Kit::at(dir.path());
+        assert_eq!(kit.release(), None);
+        fs::write(dir.path().join("version.txt"), "kit-0.6.0\r\n").unwrap();
+        assert_eq!(kit.release().as_deref(), Some("0.6.0"));
     }
 
     #[test]

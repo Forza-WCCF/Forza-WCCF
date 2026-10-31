@@ -10366,7 +10366,7 @@ MAN_COM_default_0002	In the manager's office you can assign $c[FF0000FF]roles$c 
 MAN_COM_default_0003	In the lounge you talk with two players\nto raise their $c[FF0000FF]partnership$c.
 MAN_COM_default_0004	In the medical room you manage players' fitness\nand recover them from $c[FF0000FF]injuries$c and low motivation.
 MAN_COM_message_0000	Rub the card of the player to train.\nTraining sessions left: $c[FF6633FF]%d$c
-MAN_COM_message_0001	Choose Train or rub a player card to train a player.\nPress the $c[FFFF00FF]Key Player button$c to change Key Players.
+MAN_COM_message_0001	Choose 'Train' or rub a player card to train a player.\nPress the $c[FFFF00FF]KEY PLAYER button$c to change the key player.
 MAN_COM_message_0002	Talk to your secretary with the $c[99FF66FF]Start button$c.\nThe $c[FFFF00FF]Key Player button$c opens the item window.
 MAN_COM_message_0003	Rub $c[FF6633FF]2 player cards$c to build their partnership.\nTraining sessions left: $c[FF6633FF]%d$c
 MAN_COM_message_0005	Rub the card of the player whose condition to manage.\nTraining sessions left: $c[FF6633FF]%d$c

@@ -670,6 +670,33 @@ fn board_reset_lineup() {
     all.unwrap();
 }
 
+/// The LINKS list draws Latin Extended-A letters (ć č š ž ł ő): Noto Sans JP has none of them, so Barlow follows it.
+#[test]
+fn links_list_latin_extended() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    snap(
+        &mut all,
+        "board_links_glyphs_en",
+        Vec2::new(260.0, 150.0),
+        Edition::E1718,
+        |ui| {
+            ui.add_space(6.0);
+            for (name, v) in [
+                ("Neven SUBOTIĆ", 5),
+                ("Nemanja VIDIĆ", 4),
+                ("Luka MODRIĆ Čeh", 3),
+                ("Łukasz PISZCZEK", 3),
+                ("Gábor KIRÁLY Őri", 2),
+                ("Šime VRSALJKO Žiga", 1),
+            ] {
+                forza_ui::board::partner_row(ui, name, None, Some(v), 230.0);
+            }
+        },
+    );
+    all.unwrap();
+}
+
 /// A 1920×1080 screen: one point a pixel, a 1920×1080 sheet; the picture grows past the game's size, the board keeps its height's width.
 #[test]
 fn panel_1920x1080() {
