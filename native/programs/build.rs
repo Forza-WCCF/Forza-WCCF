@@ -13,7 +13,8 @@ fn main() {
         return;
     }
     // FPR_Emu.exe, which the game starts, also has Forza-WCCF's icon and a manifest (2026-10-29): a known face for
-    // Windows' file checks, run as the user who starts it, nothing more
+    // Windows' file checks, run as the user who starts it, nothing more. The icon is forza-wccf.ico without its 64, 128
+    // and 256 pixel images: the full one was 122 KB of the 389 KB exe (0.5.1: 268 KB), and a windowless helper shows 16-48
     let manifest = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"))
         .join("fpr_emu.manifest");
     std::fs::write(&manifest, FPR_EMU_MANIFEST).expect("write fpr_emu.manifest");
@@ -34,7 +35,7 @@ fn main() {
             "fpr_emu",
             "FPR_Emu",
             "the card table's stand-in",
-            Some("../../assets/logo/forza-wccf.ico"),
+            Some("../../assets/logo/forza-wccf-small.ico"),
         ),
     ] {
         if let Some(res) = version_rc::make(exe, what, icon) {
