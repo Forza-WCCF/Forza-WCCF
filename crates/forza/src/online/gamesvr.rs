@@ -1112,14 +1112,32 @@ impl Vs {
             201 if self.matcher.capable(peer, t) => vs::fill_login_loopback(body, &self.cfg),
             201 => vs::fill_login(body, &self.cfg),
             // vslink (docs/ARCHITECTURE.md "Online"): status 1 = accepted
-            // +36..+52: the lobby VS room's ticket, when the run has one (vs::hello_payload)
+            // +36..+52: the lobby VS room's ticket, when the run has one; +52..+72 the det-math token, from newer
+            // vslinks (vs::hello_payload). Status 2 (to a hello with a token only): its room partner's engine differs
             900 if payload.len() >= 36 => {
                 let id = payload[4..36].try_into().unwrap();
-                let ticket = payload.get(vs::HELLO_TICKET).map(|b| {
-                    String::from_utf8_lossy(b.split(|c| *c == 0).next().unwrap_or(&[])).into_owned()
-                });
-                self.matcher.hello(peer, id, ticket.as_deref(), t);
-                put(body, 4, 1);
+                let field = |r| {
+                    payload
+                        .get(r)
+                        .map(|b: &[u8]| {
+                            String::from_utf8_lossy(b.split(|c| *c == 0).next().unwrap_or(&[]))
+                                .into_owned()
+                        })
+                        .filter(|s| !s.is_empty())
+                };
+                let (ticket, dmath) = (field(vs::HELLO_TICKET), field(vs::HELLO_DMATH));
+                let differs = self
+                    .matcher
+                    .hello(peer, id, ticket.as_deref(), dmath.as_deref(), t);
+                put(
+                    body,
+                    4,
+                    if differs && dmath.is_some() {
+                        vs::HELLO_DMATH_DIFFERS
+                    } else {
+                        1
+                    },
+                );
             }
             902 if payload.len() >= 40 => {
                 let id = payload[8..40].try_into().unwrap();
