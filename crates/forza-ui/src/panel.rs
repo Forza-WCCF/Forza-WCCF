@@ -1908,6 +1908,10 @@ pub fn latch_kept(
     latched.filter(|_| !crash && focused)
 }
 
+/// Whether the 2017-18 page bar shows the PAUSE button. Off (owner, 2026-10-31, on hold); `true` brings it back. The
+/// pause key still works.
+pub const PAUSE_BUTTON: bool = false;
+
 /// The page bar's button `i` (0 CATALOGUE, 1 KEYS, 2 SETTINGS, 3 CLUB CARD) on the bar `bar` (also for tests that
 /// click it).
 pub fn page_button(bar: Rect, i: usize) -> Rect {
@@ -1960,17 +1964,20 @@ fn page_bar(ui: &mut Ui, st: &mut PanelState, bar: Rect, lang: Lang, side: bool)
     } else {
         "pause.button"
     };
-    let resp = ui.put(t, |ui: &mut Ui| {
-        cabinet(
-            ui,
-            t.size(),
-            &tr!(lang, key),
-            Cab::Plain,
-            st.paused.is_some(),
-        )
-    });
-    if resp.clicked() {
-        st.pause_asked = true;
+    // 2017-18 hides PAUSE while [`PAUSE_BUTTON`] is off; RESUME stays while a pause (the key's) holds the game
+    if PAUSE_BUTTON || st.edition != Edition::E1718 || st.paused.is_some() {
+        let resp = ui.put(t, |ui: &mut Ui| {
+            cabinet(
+                ui,
+                t.size(),
+                &tr!(lang, key),
+                Cab::Plain,
+                st.paused.is_some(),
+            )
+        });
+        if resp.clicked() {
+            st.pause_asked = true;
+        }
     }
     // the right end, two rows: the card lamp (2010-11) and the ping (online only), then the window key
     let right = Rect::from_min_max(

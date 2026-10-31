@@ -26,6 +26,10 @@ pub const LIST_MIN_H: f32 = ROW_H * 3.0;
 const LIST_BOTTOM: &str = "lobby_list_bottom";
 const BELOW_LIST: &str = "lobby_below_list";
 
+/// Whether the 2017-18 VS lobby shows: the VS ROOMS tab, HOST VS, the H and tab keys to it and typed VS room codes.
+/// Off (owner, 2026-10-31, on hold); `true` brings it all back. The shop side is not behind it.
+pub const VS_LOBBY: bool = false;
+
 /// The two kinds of lobby, one list each.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -225,6 +229,8 @@ pub struct LobbyView {
     pub grey: [Option<Grey>; 2],
     /// 2017-18: the shops are listed; only shop rooms join (see [`shop_rooms`](Self::shop_rooms)).
     pub shops_view_only: bool,
+    /// The VS side is out of reach (2017-18 while [`VS_LOBBY`] is off): one tab, no HOST VS, no VS room by code.
+    pub vs_hidden: bool,
     pub address: String,
     pub direct_open: bool,
     /// Scroll the selected row into view on the next frame.
@@ -382,6 +388,7 @@ impl LobbyView {
             offline: false,
             grey: [None, None],
             shops_view_only: false,
+            vs_hidden: false,
             address: "192.168.1.20".into(),
             direct_open: false,
             scroll: true,
@@ -724,7 +731,7 @@ fn keys(ui: &Ui, v: &mut LobbyView) -> Option<LobbyAction> {
             v.ask_host();
             return None;
         }
-        if v.grey[Kind::Vs as usize].is_none() {
+        if v.grey[Kind::Vs as usize].is_none() && !v.vs_hidden {
             return Some(LobbyAction::HostVs);
         }
     }
@@ -740,10 +747,10 @@ fn keys(ui: &Ui, v: &mut LobbyView) -> Option<LobbyAction> {
     if pressed(Key::ArrowLeft, none) {
         v.set_kind(Kind::Shops);
     }
-    if pressed(Key::ArrowRight, none) {
+    if pressed(Key::ArrowRight, none) && !v.vs_hidden {
         v.set_kind(Kind::Vs);
     }
-    if pressed(Key::Tab, none) || pressed(Key::Tab, Modifiers::SHIFT) {
+    if (pressed(Key::Tab, none) || pressed(Key::Tab, Modifiers::SHIFT)) && !v.vs_hidden {
         v.set_kind(if v.kind == Kind::Shops {
             Kind::Vs
         } else {
@@ -1004,7 +1011,13 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
             ),
             format!("{}{}", tr!(lang, "lobby.vs"), count(v.vs.len())),
         ];
-        if segmented(ui, &mut k, &[&labels[0], &labels[1]], w * 0.52) {
+        let tabs = if v.vs_hidden {
+            &labels[..1]
+        } else {
+            &labels[..]
+        };
+        let tabs: Vec<&str> = tabs.iter().map(String::as_str).collect();
+        if segmented(ui, &mut k, &tabs, w * if v.vs_hidden { 0.26 } else { 0.52 }) {
             v.set_kind(if k == 0 { Kind::Shops } else { Kind::Vs });
         }
         let retry = v.offline
@@ -1270,7 +1283,7 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
             ) {
                 v.ask_host();
             }
-        } else if on(ui, live, tr!(lang, "lobby.host"), Cab::Plain) {
+        } else if !v.vs_hidden && on(ui, live, tr!(lang, "lobby.host"), Cab::Plain) {
             *act = Some(LobbyAction::HostVs);
         }
     });

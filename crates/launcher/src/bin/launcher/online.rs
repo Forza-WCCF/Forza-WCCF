@@ -529,7 +529,11 @@ impl Online {
     /// A code typed: an open VS room's as the list shows it, else (with the shared shop on) a shop room's, asked of
     /// the club server's desk, where hosts make them.
     fn join_code(&mut self, st: &mut LauncherState, code: &str) {
-        let vs = st.lobby.vs.iter().find(|r| r.name == code && r.state == RowState::Open);
+        let vs = st
+            .lobby
+            .vs
+            .iter()
+            .find(|r| !st.lobby.vs_hidden && r.name == code && r.state == RowState::Open);
         if let Some(id) = vs.map(|r| r.id.clone()) {
             st.lobby.notice = None;
             self.join(st, &id, None);
