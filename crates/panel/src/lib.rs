@@ -2725,6 +2725,10 @@ fn retitle(h: HWND) {
 /// The title for the game's own windows, ASCII only: they are ANSI windows (CreateWindowExA), and Windows converts a
 /// WM_SETTEXT to the system code page, which turned the en dash of "2017–18" into a cut-off "2017–1".
 fn game_title(who: &str, edition: &str) -> String {
+    // 2017-18 is written like the original title, "client_Release WCCF 17-18 Ver2.0"
+    if edition == forza::Edition::E1718.label() {
+        return format!("{who} - Forza-WCCF 17-18 Ver2.0");
+    }
     format!("{who} - Forza-WCCF {}", edition.replace('–', "-"))
 }
 
@@ -3068,10 +3072,14 @@ mod tests {
     #[test]
     fn the_game_title_is_ascii_and_whole() {
         let t = game_title("Client", forza::Edition::E1718.label());
-        assert_eq!(t, "Client - Forza-WCCF 2017-18");
+        assert_eq!(t, "Client - Forza-WCCF 17-18 Ver2.0");
         assert!(t.is_ascii());
         assert_eq!(
-            game_title("Projector", "2010–11"),
+            game_title("Projector", forza::Edition::E1718.label()),
+            "Projector - Forza-WCCF 17-18 Ver2.0"
+        );
+        assert_eq!(
+            game_title("Projector", forza::Edition::E1011.label()),
             "Projector - Forza-WCCF 2010-11"
         );
     }

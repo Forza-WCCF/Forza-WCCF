@@ -2,7 +2,7 @@
 //! `native/2017-18/overlay/wccfpanel.c`): the frame limiter with its frame stats, the card dispenser fix, and FREE PLAY
 //! (2010-11 only). Every change checks the program's name, its base where the C does, and the original bytes before
 //! it writes; anything else leaves the game as it is. The C reads the game's memory under `__try`; here
-//! `ReadProcessMemory`/`WriteProcessMemory` on our own process fail instead of faulting, with the same outcome.
+//! [`mem_ok`] (VirtualQuery) refuses memory that would fault, with the same outcome.
 
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};
@@ -12,13 +12,12 @@ use std::sync::atomic::{
 };
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, WAIT_OBJECT_0};
-use windows::Win32::System::Diagnostics::Debug::{
-    FlushInstructionCache, ReadProcessMemory, WriteProcessMemory,
-};
+use windows::Win32::System::Diagnostics::Debug::FlushInstructionCache;
 use windows::Win32::System::LibraryLoader::{GetModuleHandleA, GetModuleHandleW, GetProcAddress};
 use windows::Win32::System::Memory::{
-    MEM_COMMIT, MEMORY_BASIC_INFORMATION, PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS,
-    PAGE_READWRITE, PAGE_WRITECOPY, VirtualProtect, VirtualQuery,
+    MEM_COMMIT, MEMORY_BASIC_INFORMATION, PAGE_EXECUTE, PAGE_EXECUTE_READWRITE,
+    PAGE_EXECUTE_WRITECOPY, PAGE_GUARD, PAGE_NOACCESS, PAGE_PROTECTION_FLAGS, PAGE_READWRITE,
+    PAGE_WRITECOPY, VirtualProtect, VirtualQuery,
 };
 use windows::Win32::System::Threading::{
     CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, GetCurrentProcess, GetCurrentThreadId, SetWaitableTimer,
@@ -46,21 +45,40 @@ pub(crate) fn exe_base() -> usize {
     unsafe { GetModuleHandleW(None) }.map_or(0, |h| h.0 as usize)
 }
 
+/// `len` bytes at `at` are committed and readable (`write`: and writable), what the C's `__try` would not have faulted on.
+/// The panel reads and writes its own process directly once this says yes (2026-10-29: Read/WriteProcessMemory
+/// imports in a DLL loaded into a game are what antivirus heuristics flag).
+pub(crate) fn mem_ok(at: usize, len: usize, write: bool) -> bool {
+    let Some(end) = at.checked_add(len) else {
+        return false;
+    };
+    let mut a = at;
+    while a < end {
+        let mut mbi = MEMORY_BASIC_INFORMATION::default();
+        // SAFETY: a query about our own process's memory
+        if unsafe { VirtualQuery(Some(a as *const c_void), &mut mbi, size_of_val(&mbi)) } == 0
+            || mbi.State != MEM_COMMIT
+            || mbi.Protect.0 & (PAGE_NOACCESS.0 | PAGE_GUARD.0 | PAGE_EXECUTE.0) != 0 // execute-only: no reads
+            || (write
+                && (mbi.Protect
+                    & (PAGE_READWRITE
+                        | PAGE_WRITECOPY
+                        | PAGE_EXECUTE_READWRITE
+                        | PAGE_EXECUTE_WRITECOPY))
+                    .0
+                    == 0)
+        {
+            return false;
+        }
+        a = mbi.BaseAddress as usize + mbi.RegionSize;
+    }
+    true
+}
+
 /// `N` bytes at `at`, or `None` where the C's `__try` would have caught a fault.
 pub(crate) fn read<const N: usize>(at: usize) -> Option<[u8; N]> {
-    let mut b = [0u8; N];
-    // SAFETY: ReadProcessMemory copies into our own buffer and fails instead of faulting on unreadable memory
-    unsafe {
-        ReadProcessMemory(
-            GetCurrentProcess(),
-            at as *const c_void,
-            b.as_mut_ptr().cast(),
-            N,
-            None,
-        )
-    }
-    .ok()?;
-    Some(b)
+    // SAFETY: checked committed and readable; the game's image and heap pages stay mapped while it runs
+    mem_ok(at, N, false).then(|| unsafe { std::ptr::read_unaligned(at as *const [u8; N]) })
 }
 
 pub(crate) fn read_u32(at: usize) -> Option<u32> {
@@ -69,17 +87,12 @@ pub(crate) fn read_u32(at: usize) -> Option<u32> {
 
 /// Data written into the game, `false` where the C's `__try` would have caught a fault.
 fn write_data(at: usize, bytes: &[u8]) -> bool {
-    // SAFETY: WriteProcessMemory copies from our own buffer and fails instead of faulting on unwritable memory
-    unsafe {
-        WriteProcessMemory(
-            GetCurrentProcess(),
-            at as *const c_void,
-            bytes.as_ptr().cast(),
-            bytes.len(),
-            None,
-        )
-        .is_ok()
+    if !mem_ok(at, bytes.len(), true) {
+        return false;
     }
+    // SAFETY: checked committed and writable
+    unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), at as *mut u8, bytes.len()) };
+    true
 }
 
 /// Code bytes written as the C does: VirtualProtect, copy, protection back, FlushInstructionCache. `false`: the page

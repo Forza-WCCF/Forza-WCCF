@@ -16,8 +16,8 @@ crate-type = ["cdylib", "rlib"]
 # programs\wccfk.dll: the 2010-11 game's WINMM import renamed to it; forwards the three timer calls to Windows' winmm,
 # answers control's start of logowin.exe itself and gives control the players' messages only whole
 e1011 = []
-# bin\winmm.dll: the 2017-18 game loads it in place of winmm.dll; forwards every winmm call to winmm_orig.dll and gives
-# control the players' messages only whole (src/whole.rs)
+# bin\winmm.dll: the 2017-18 game loads it in place of winmm.dll; forwards every winmm call to winmm_orig.dll, answers
+# control's start of logowin.exe itself and gives control the players' messages only whole (src/whole.rs)
 e1718 = []
 # the Linux server's winmm.dll for the 2010-11 control and match engines under Wine: e1718's forwarding, plus netguard.dll
 # and the three server fixes (src/server.rs)

@@ -78,6 +78,8 @@ launcher.msg_unverified: {en: "The download could not be verified. Nothing was c
 launcher.msg_launcher_differs: {en: "Launcher.exe is version %{own} but the other files are %{files}. Reinstall %{files} with UPDATE.", it: "Launcher.exe è la versione %{own}, gli altri file la %{files}. Reinstalla la %{files} da AGGIORNAMENTO.", ja: "Launcher.exe はバージョン %{own}、ほかのファイルは %{files} です。「アップデート」で %{files} をインストールし直してください。"}
 launcher.msg_needs_installer: {en: "%{tag} needs the installer. Download it from the release page.", it: "%{tag} richiede l'installer. Scaricalo dalla pagina della versione.", ja: "%{tag} にはインストーラーが必要です。リリースページからダウンロードしてください。"}
 launcher.msg_not_a_kit: {en: "This ZIP is not a Forza-WCCF release.", it: "Questo ZIP non è una versione di Forza-WCCF.", ja: "この ZIP は Forza-WCCF のリリースではありません。"}
+launcher.msg_update_files_missing: {en: "Update stopped: the antivirus probably removed %{files}. Nothing was changed.", it: "Aggiornamento interrotto: probabilmente l'antivirus ha rimosso %{files}. Non è stato modificato nulla.", ja: "アップデートを中止しました。ウイルス対策ソフトが %{files} を削除した可能性があります。何も変更されていません。"}
+launcher.msg_update_rolled_back: {en: "Update stopped, the installed version was kept. %{error}", it: "Aggiornamento interrotto, la versione installata è stata mantenuta. %{error}", ja: "アップデートを中止しました。インストール済みのバージョンはそのままです。%{error}"}
 launcher.msg_write_failed: {en: "Cannot write %{path} (%{error}). Close the game and try again.", it: "Impossibile scrivere %{path} (%{error}). Chiudi il gioco e riprova.", ja: "%{path} に書き込めませんでした（%{error}）。ゲームを閉じて、もう一度お試しください。"}
 launcher.msg_done: {en: "Done.", it: "Fatto.", ja: "完了しました。"}
 launcher.msg_failed: {en: "Failed. See DETAILS.", it: "Non riuscito. Vedi DETTAGLI.", ja: "失敗しました。「詳細」を確認してください。"}
@@ -541,6 +543,7 @@ lobby.shop_howto: {en: "Both players: card in during the same ENTRY, then Arrang
 lobby.joining: {en: "Joining %{code}…", it: "Ingresso in %{code}…", ja: "%{code} に参加しています…"}
 lobby.no_room: {en: "No room has that code on %{desk}.", it: "Nessuna stanza ha quel codice su %{desk}.", ja: "%{desk} にそのコードのルームはありません。"}
 lobby.room_desk: {en: "Room on %{desk}", it: "Stanza su %{desk}", ja: "ルームの場所：%{desk}"}
+lobby.host_players: {en: "Players here: %{n}/%{max}", it: "Giocatori in sala: %{n}/%{max}", ja: "現在の人数：%{n}/%{max}"}
 lobby.room_lost: {en: "The lobby lost this room: nobody new can join.", it: "La lobby ha perso questa stanza: nessun altro può entrare.", ja: "ロビーがこのルームを失いました。新しい参加はできません。"}
 lobby.room_full: {en: "That room is full.", it: "Quella stanza è piena.", ja: "そのルームは満員です。"}
 lobby.shop_closed: {en: "The host has left: the arcade is closed.", it: "L'host è uscito: la sala è chiusa.", ja: "ホストが退出しました：ゲームセンターは閉じています。"}
