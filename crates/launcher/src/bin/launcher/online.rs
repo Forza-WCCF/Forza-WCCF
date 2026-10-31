@@ -302,7 +302,8 @@ impl Online {
         st.rejoin = self
             .last
             .iter()
-            .filter(|l| self.held.is_none() && !st.running && unix() <= l.at + REJOIN_SECS)
+            // the saved room is a VS room on 2017-18: no offer while the VS lobby is hidden
+            .filter(|l| !st.lobby.vs_hidden && self.held.is_none() && !st.running && unix() <= l.at + REJOIN_SECS)
             .map(|l| tf("launcher.rejoin", &[("name", &l.name), ("seat", &l.seat.to_string())]))
             .next();
         go
@@ -529,7 +530,11 @@ impl Online {
     /// A code typed: an open VS room's as the list shows it, else (with the shared shop on) a shop room's, asked of
     /// the club server's desk, where hosts make them.
     fn join_code(&mut self, st: &mut LauncherState, code: &str) {
-        let vs = st.lobby.vs.iter().find(|r| r.name == code && r.state == RowState::Open);
+        let vs = st
+            .lobby
+            .vs
+            .iter()
+            .find(|r| !st.lobby.vs_hidden && r.name == code && r.state == RowState::Open);
         if let Some(id) = vs.map(|r| r.id.clone()) {
             st.lobby.notice = None;
             self.join(st, &id, None);

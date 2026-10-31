@@ -72,6 +72,14 @@ fn state() -> MutexGuard<'static, Option<State>> {
     STATE.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// The pause is on for this edition (`forza_ui::panel::PAUSE_ON`; 2017-18 has it on hold). The test switch keeps it on.
+pub fn enabled() -> bool {
+    FILES
+        .get()
+        .is_none_or(|f| forza_ui::panel::pause_on(f.edition))
+        || test_ms().is_some()
+}
+
 /// The test switch: the hold's length in ms instead of the cap.
 fn test_ms() -> Option<u64> {
     std::env::var("WCCFPANEL_PAUSETEST")
@@ -490,7 +498,7 @@ fn hold(
 /// menu), which would hold the hold past its cap; otherwise the pause key asks for a pause unless egui types or a
 /// page is open. `board`: a message of the board window (its own egui).
 pub fn message(board: bool, m: u32, wp: WPARAM, lp: LPARAM) -> Option<LRESULT> {
-    let key = KEY.load(Relaxed);
+    let key = if enabled() { KEY.load(Relaxed) } else { 0 };
     let is_key = key != 0 && wp.0 as u32 == key;
     if !HELD.load(Relaxed) {
         if is_key

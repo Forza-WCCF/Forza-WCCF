@@ -213,6 +213,7 @@ pub fn lobby_for(edition: Edition) -> LobbyView {
         Edition::E1718 => {
             v.shops_view_only = true;
             v.codes = true;
+            v.vs_hidden = !lobby::VS_LOBBY;
         }
     }
     v
@@ -315,6 +316,7 @@ impl LauncherState {
                 v.kind = st.lobby.kind;
                 v.codes = st.lobby.codes;
                 v.shops_view_only = st.lobby.shops_view_only;
+                v.vs_hidden = st.lobby.vs_hidden;
                 if v.shops_view_only {
                     // 2017-18 lists only shop rooms
                     v.shop_rooms = true;
