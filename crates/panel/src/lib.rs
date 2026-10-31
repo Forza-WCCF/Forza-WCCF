@@ -705,7 +705,7 @@ fn card_open() -> bool {
 
 /// This seat plays a match (IMPORT LINEUP is refused then, the owner's rule); the decision and its inputs are logged.
 fn in_match() -> bool {
-    let (refuse, why) = match_check();
+    let (refuse, _, why) = match_check();
     log(&format!(
         "import: match check - {why} -> {}",
         if refuse { "in a match" } else { "free" }
@@ -714,7 +714,7 @@ fn in_match() -> bool {
 }
 
 /// [`in_match`] without the log line: the answer and the inputs it came from.
-fn match_check() -> (bool, String) {
+fn match_check() -> (bool, bool, String) {
     let e1718 = FILES
         .get()
         .is_some_and(|f| f.edition == theme::Edition::E1718);
@@ -723,6 +723,7 @@ fn match_check() -> (bool, String) {
     let card = card_open();
     (
         match_now(e1718, seat, shop, card),
+        match_now(e1718, seat, shop, false),
         format!("seat state {seat:?}, shop state {shop:?}, card session {card}"),
     )
 }
@@ -2589,17 +2590,22 @@ impl Render {
             .is_none_or(|t| t.elapsed() >= Duration::from_secs(1))
         {
             self.match_at = Some(Instant::now());
-            Some(match_check().0)
+            let (busy, playing, _) = match_check();
+            Some((busy, playing))
         } else {
             None
         };
-        let began = polled == Some(true) && !self.st.in_match;
+        let began = polled.is_some_and(|(_, playing)| playing) && !self.st.match_seen;
         panel::lineup_tick(&mut self.st, polled, &self.placed);
         if began {
             log(&format!(
                 "board: match began, {} card(s) kept for RESET LINEUP",
                 self.placed.len()
             ));
+        }
+        // the click is served on the match state now, not the last second's
+        if self.st.reset_lineup && match_check().0 {
+            self.st.in_match = true;
         }
         if let Some(new) = panel::take_reset(&mut self.st) {
             log(&format!("board: RESET LINEUP - {} card(s)", new.len()));

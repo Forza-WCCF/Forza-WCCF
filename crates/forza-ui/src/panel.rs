@@ -655,6 +655,9 @@ pub struct PanelState {
     pub in_match: bool,
     /// The table as it was when the last match began (2017-18): RESET LINEUP puts it back ([`lineup_tick`]).
     pub before_match: Option<Vec<Placed>>,
+    /// The last read said a match is being played (the seat's own state, not the card session): the edge that keeps
+    /// `before_match`, apart from `in_match`, which the FORMATIONS dialog also sets.
+    pub match_seen: bool,
     /// The table differs from `before_match`: RESET LINEUP is offered, greyed out while `in_match`.
     pub reset_ready: bool,
     /// RESET LINEUP clicked: the panel DLL calls [`take_reset`].
@@ -751,6 +754,7 @@ impl PanelState {
             formations: None,
             in_match: false,
             before_match: None,
+            match_seen: false,
             reset_ready: false,
             reset_lineup: false,
             formation_load: None,
@@ -1111,15 +1115,17 @@ pub fn undo_import(st: &mut PanelState, in_match: bool) -> Option<Vec<Placed>> {
     Some(old)
 }
 
-/// The panel DLL's look at the table and the match, every frame: `in_match` is the match state when it was read this
-/// frame (`None`: not read). The table is kept when a match begins, the earliest moment the seat's state shows it;
-/// RESET LINEUP is offered when the table now differs from it.
-pub fn lineup_tick(st: &mut PanelState, in_match: Option<bool>, placed: &[Placed]) {
-    if let Some(now) = in_match {
-        if now && !st.in_match {
+/// The panel DLL's look at the table and the match, every frame: `read` is the match state when it was read this
+/// frame, `(busy, playing)` (`None`: not read): `busy` the import rule's (a card session counts), `playing` the match
+/// itself. The table is kept when a match begins, the earliest moment the seat's state shows it; RESET LINEUP is
+/// offered when the table now differs from it.
+pub fn lineup_tick(st: &mut PanelState, read: Option<(bool, bool)>, placed: &[Placed]) {
+    if let Some((busy, playing)) = read {
+        if playing && !st.match_seen {
             st.before_match = Some(placed.to_vec());
         }
-        st.in_match = now;
+        st.match_seen = playing;
+        st.in_match = busy;
     }
     st.reset_ready = st
         .before_match
@@ -1148,6 +1154,9 @@ pub fn take_reset(st: &mut PanelState) -> Option<Vec<Placed>> {
     }
     let before = st.before_match.clone()?;
     st.board = cards::board(&before, &st.cards);
+    // the UNDO lines belong to an older table
+    st.undo = None;
+    st.import_undo = None;
     st.reset_ready = false;
     Some(before)
 }
@@ -5545,10 +5554,10 @@ mod tests {
             at(3, 210, 0.5, -0.3),
         ];
         // no match yet: nothing kept, nothing to reset
-        lineup_tick(&mut st, Some(false), &start);
+        lineup_tick(&mut st, Some((false, false)), &start);
         assert!(st.before_match.is_none() && !st.reset_ready);
         // the match begins: the table is kept; unchanged, nothing to reset
-        lineup_tick(&mut st, Some(true), &start);
+        lineup_tick(&mut st, Some((true, true)), &start);
         assert_eq!(st.before_match.as_deref(), Some(&start[..]));
         assert!(!st.reset_ready);
         // a sub in the match: 101 and 210 trade places, as the table's slots follow the cards
@@ -5560,14 +5569,14 @@ mod tests {
         lineup_tick(&mut st, None, &subbed);
         assert!(st.reset_ready);
         // the match's later reads do not keep the table again
-        lineup_tick(&mut st, Some(true), &subbed);
+        lineup_tick(&mut st, Some((true, true)), &subbed);
         assert_eq!(st.before_match.as_deref(), Some(&start[..]));
         // in the match: refused, the click is spent
         st.reset_lineup = true;
         assert_eq!(take_reset(&mut st), None);
         assert!(!st.reset_lineup);
         // after it: the kept table back exactly, on the board too
-        lineup_tick(&mut st, Some(false), &subbed);
+        lineup_tick(&mut st, Some((false, false)), &subbed);
         st.reset_lineup = true;
         assert_eq!(take_reset(&mut st), Some(start.clone()));
         assert_eq!(cards::table_after(&start, &st.board), start);
@@ -5576,9 +5585,15 @@ mod tests {
         assert!(!st.reset_ready);
         st.reset_lineup = true;
         assert_eq!(take_reset(&mut st), None);
-        // the next match keeps its own start
+        // a card session outside a match (a manager transfer) greys RESET out but keeps nothing
+        lineup_tick(&mut st, Some((true, false)), &subbed);
+        assert!(st.in_match);
+        assert_eq!(st.before_match.as_deref(), Some(&start[..]));
+        lineup_tick(&mut st, Some((false, false)), &subbed);
+        // the next match keeps its own start, even when the FORMATIONS dialog set `in_match` first
+        st.in_match = true;
         let next = vec![at(1, 10, 0.0, 0.5)];
-        lineup_tick(&mut st, Some(true), &next);
+        lineup_tick(&mut st, Some((true, true)), &next);
         assert_eq!(st.before_match.as_deref(), Some(&next[..]));
     }
 
