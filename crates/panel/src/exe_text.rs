@@ -199,8 +199,14 @@ mod tests {
     /// two rooms overlap.
     #[test]
     fn shipped_sheets_fit() {
-        let en = parse(include_str!("../../../editions/2017-18/english/exe_text.tsv")).unwrap();
-        let it = parse(include_str!("../../../editions/2017-18/italian/exe_text.tsv")).unwrap();
+        let en = parse(include_str!(
+            "../../../editions/2017-18/english/exe_text.tsv"
+        ))
+        .unwrap();
+        let it = parse(include_str!(
+            "../../../editions/2017-18/italian/exe_text.tsv"
+        ))
+        .unwrap();
         let key = |r: &Row| (r.rva, r.len, r.sha, r.room);
         assert_eq!(
             en.iter().map(key).collect::<Vec<_>>(),
