@@ -1006,6 +1006,10 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         tell(ui, "", &Text::key("launcher.run_busy"));
         return Err(REFUSED);
     };
+    // a runtime an older setup made is set up again first; the guard check below still decides
+    if edition == Edition::E1718 && !crate::setup::again_if_stale(kit, &game, ui) {
+        return Err(NOT_GUARDED);
+    }
     // before anything of the run exists: no game program may start unguarded (docs/SAFETY.md)
     if edition == Edition::E1718
         && let Err(why) = guard::check(&game, &seat, p.client(), p.control(), p.matcher())

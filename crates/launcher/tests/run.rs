@@ -877,6 +877,7 @@ fn scratch_kit_1718(top: &Path) -> Kit {
         "seat1/standin_client.exe": sha(&seat.join("standin_client.exe")),
         "standin_match.exe": {"original": "-", "guarded": sha(&game.join("standin_match.exe"))},
         "dmath.dll": sha(&game.join("dmath.dll")),
+        "setup-version": forza::setup::e1718::VERSION.to_string(),
     });
     fs::write(top.join("setup-hashes.json"), hashes.to_string()).unwrap();
     let kit = Kit::at(kit);
@@ -928,6 +929,37 @@ fn a_2017_18_kit_that_is_not_guarded_starts_nothing() {
 
     fs::remove_file(top.path().join("setup-hashes.json")).unwrap();
     refused("no record", "setup-hashes.json cannot be read");
+}
+
+/// A runtime an older setup made (here: a record without "setup-version", as before det-math) is set up again before
+/// the guard check, said in one line; when that fails (no original game programs here) the start is refused with what to
+/// do, before anything of the run exists, and the record stays as it was.
+#[test]
+fn a_2017_18_runtime_an_older_setup_made_is_set_up_again_or_not_started() {
+    let top = tempfile::Builder::new().prefix("wccf-1718-").tempdir().unwrap();
+    let kit = scratch_kit_1718(top.path());
+    let path = top.path().join("setup-hashes.json");
+    let mut record: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    record.as_object_mut().unwrap().remove("setup-version");
+    fs::write(&path, record.to_string()).unwrap();
+    let before = fs::read(&path).unwrap();
+    let ui = Said::default();
+    let rc = run::command(&kit, &params("stale", Shared::new()), &["local".into()], &ui);
+    let said = ui.text();
+    assert_eq!(rc, run::NOT_GUARDED, "{said}");
+    assert!(
+        said.contains("needs the game set up again") && said.contains("setup version 1"),
+        "{said}"
+    );
+    assert!(
+        said.contains("Not started: the game could not be set up again") && said.contains("Press SET UP"),
+        "{said}"
+    );
+    assert!(!said.contains("the network guard is not in place"), "{said}");
+    assert_eq!(fs::read(&path).unwrap(), before, "the record is untouched");
+    assert!(!run::is_on(&kit, Kind::Run));
+    assert!(!kit.logs().exists(), "no logs");
+    assert!(running_from(top.path()).is_empty());
 }
 
 /// 2017-18 on a scratch server: the guard passes, the Aime reader, AiMeDB, the network and I/O board stand-ins come

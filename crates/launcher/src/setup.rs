@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use forza::setup::{find_edition_game, kit_setup};
+use forza::setup::{e1718, find_edition_game, kit_setup};
 use forza::text::{self, Lang, Mode};
 
 use crate::run::{Text, Ui, tell, tell_line};
@@ -64,6 +64,32 @@ pub(crate) fn folder_step(kit: &Kit, folder: &str, undo: bool, ui: &dyn Ui) -> i
         return RUNNING;
     }
     kit_setup(ed, kit.dir(), &folder, undo, false, &|lead, l| tell_line(ui, lead, l))
+}
+
+/// 2017-18, before a start's guard check: a runtime an older Forza-WCCF set up (an update, new files unzipped over it;
+/// `e1718::stale`) is set up again, said in one line and its result. False: it could not be, and nothing may start.
+pub(crate) fn again_if_stale(kit: &Kit, game: &Path, ui: &dyn Ui) -> bool {
+    let Some(why) = e1718::stale(kit.dir(), game) else {
+        return true;
+    };
+    tell(ui, "", &Text::key("launcher.run_setup_again").arg("why", why));
+    if running(game, "launcher.run_running_setup", ui) {
+        return false;
+    }
+    match e1718::setup_game(kit.dir(), game, &e1718::Spec::game()) {
+        Ok(_) => {
+            tell(ui, "  ok    ", &Text::key("launcher.run_setup_again_done"));
+            true
+        }
+        Err(e) => {
+            tell(
+                ui,
+                "  FAIL  ",
+                &Text::key("launcher.run_setup_again_failed").arg("why", e),
+            );
+            false
+        }
+    }
 }
 
 /// The game's text into `lang`: "en" English, "it" Italian, "" the original Japanese.
