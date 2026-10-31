@@ -1083,6 +1083,9 @@ pub fn undo(board: &mut Board, r: &Removed) -> bool {
         .is_some_and(|s| board.put(&r.card, s))
 }
 
+/// Seconds after the last touch of the board that a selected card stays selected.
+const SELECT_HOLD: f64 = 3.0;
+
 /// Draws the board and handles it: a card dropped on open pitch lies exactly there (the cabinet's table has no fixed
 /// spots), a card dropped onto another swaps with it (the target is lit while dragging), a drag off the board takes
 /// a card off ([`take_removed`]; no right-click: a long press on a touch screen is one), a resting mouse shows the card big after `hover_delay` seconds (None: never). While a card is dragged or shown
@@ -1414,6 +1417,40 @@ pub fn formation_board(
     }
     back.append(&mut front);
     ui.painter().set(lines_at, egui::Shape::Vec(back));
+    // a selection lets go by itself `SELECT_HOLD` seconds after the last touch of the board: a card in hand, a press
+    // on the board, the mouse on the selected card, a key. A drag in progress keeps it, whatever its length.
+    let now = ui.input(|i| i.time);
+    let touch_id = Id::new("board-select-touch");
+    let on_board = |p: Pos2| shown.union(bench).contains(p);
+    let over_selected = clicked_card.is_some_and(|s| {
+        (0..16).any(|i| board.number(i) == Some(s) && pointer.is_some_and(|p| rects[i].contains(p)))
+    });
+    let touched = dragging.is_some()
+        || over_selected
+        || ui.input(|i| {
+            i.events.iter().any(|e| match e {
+                egui::Event::Key { .. } => true,
+                egui::Event::PointerButton { pos, .. } => on_board(*pos),
+                _ => false,
+            })
+        });
+    if touched {
+        ui.data_mut(|d| d.insert_temp(touch_id, now));
+        // a frame when the hold runs out, though nothing else happens
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_secs_f64(SELECT_HOLD));
+    } else if clicked_card.is_some() {
+        let last = ui.data(|d| d.get_temp::<f64>(touch_id)).unwrap_or(now);
+        if now - last >= SELECT_HOLD {
+            ui.data_mut(|d| d.insert_temp(select_id, None::<u32>));
+            ui.ctx().request_repaint();
+        } else {
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_secs_f64(
+                    SELECT_HOLD - (now - last),
+                ));
+        }
+    }
     // the list while the card is in hand or the mouse is on the board, drawn by [`info_panes`] in the board's column
     if let Some(s) = selected
         && (dragging.is_some() || pointer.is_some_and(|p| shown.union(bench).contains(p)))
@@ -1425,7 +1462,6 @@ pub fn formation_board(
     }
 
     // the big card after a resting mouse
-    let now = ui.input(|i| i.time);
     let mut shown_big = None;
     match hovered_card {
         Some((slot, ci, rect)) => {
@@ -2907,6 +2943,119 @@ mod tests {
             frame(vec![press(true), press(false)], 5.0, &mut b).1,
             (Some(101), false)
         );
+    }
+
+    /// A selected card lets go 3 s after the last touch of the board (a press on it, the mouse on the selected card, a
+    /// key); a drag in progress is never cut off, however long it lasts.
+    #[test]
+    fn a_selection_lets_go_three_seconds_after_the_last_touch() {
+        use egui::{Event, Key, PointerButton};
+        use forza::cards::Placed;
+        let placed = |slot, no, x| Placed {
+            slot,
+            no,
+            x,
+            y: 0.0,
+        };
+        let mut b = forza::cards::board(&[placed(1, 101, -0.6), placed(2, 102, 0.6)], &[]);
+        let ctx = egui::Context::default();
+        theme::install(&ctx, theme::Edition::E1718, &theme::font_dir()).unwrap();
+        let links = Links {
+            club: [((101, 102), 200)].into_iter().collect(),
+            affinity: None,
+        };
+        type Frame<'a> = dyn FnMut(Vec<Event>, f64, &mut Board) -> (Mat, (Option<u32>, bool)) + 'a;
+        // (the selected card, a drag in hand) after one frame at time `t`
+        let mut frame = |events: Vec<Event>, t: f64, b: &mut Board| {
+            let raw = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(620.0, 900.0))),
+                time: Some(t),
+                events,
+                ..Default::default()
+            };
+            let (mut mat, mut seen) = (None, (None, false));
+            ctx.run_ui(raw, |ui| {
+                mat = Some(Mat::column(ui.cursor().min, ui.available_width()));
+                formation_board(ui, b, &links, Some(0.5), crate::Lang::En, true, false);
+                let sel = ui.data(|d| d.get_temp::<Option<u32>>(Id::new("board-select")).flatten());
+                seen = (
+                    sel,
+                    egui::DragAndDrop::has_payload_of_type::<usize>(ui.ctx()),
+                );
+            })
+            .textures_delta
+            .clear();
+            (mat.unwrap(), seen)
+        };
+        let (m, _) = frame(vec![], 0.0, &mut b);
+        let rects = m.slot_rects(&b.spots);
+        let slot = |no| (0..11).find(|&s| b.number(s) == Some(no)).unwrap();
+        let (at, other) = (rects[slot(101)].center(), rects[slot(102)].center());
+        let button = |pos, pressed| Event::PointerButton {
+            pos,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        let click = |t: f64, b: &mut Board, frame: &mut Frame| {
+            frame(vec![Event::PointerMoved(at)], t, b);
+            frame(vec![button(at, true)], t + 0.1, b);
+            let sel = frame(vec![button(at, false)], t + 0.2, b).1.0;
+            assert_eq!(sel, Some(101), "a click selects");
+        };
+        let sel = |events, t, b: &mut Board, frame: &mut Frame| frame(events, t, b).1.0;
+
+        // the mouse leaves: 3 s after the click, not before
+        click(0.0, &mut b, &mut frame);
+        assert_eq!(
+            sel(vec![Event::PointerGone], 0.3, &mut b, &mut frame),
+            Some(101)
+        );
+        assert_eq!(sel(vec![], 2.1, &mut b, &mut frame), Some(101));
+        assert_eq!(sel(vec![], 3.4, &mut b, &mut frame), None);
+        // a key restarts the count
+        click(10.0, &mut b, &mut frame);
+        sel(vec![Event::PointerGone], 10.3, &mut b, &mut frame);
+        let key = Event::Key {
+            key: Key::A,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Default::default(),
+        };
+        assert_eq!(sel(vec![key], 12.0, &mut b, &mut frame), Some(101));
+        assert_eq!(sel(vec![], 14.9, &mut b, &mut frame), Some(101));
+        assert_eq!(sel(vec![], 15.1, &mut b, &mut frame), None);
+        // the mouse resting on the selected card keeps it; once on another card the count starts
+        click(20.0, &mut b, &mut frame);
+        assert_eq!(sel(vec![], 29.0, &mut b, &mut frame), Some(101));
+        assert_eq!(
+            sel(vec![Event::PointerMoved(other)], 29.5, &mut b, &mut frame),
+            Some(101)
+        );
+        assert_eq!(sel(vec![], 31.9, &mut b, &mut frame), Some(101));
+        assert_eq!(sel(vec![], 32.2, &mut b, &mut frame), None);
+        // a drag in hand for 20 s never cancels it; 3 s after the drop it goes
+        click(40.0, &mut b, &mut frame);
+        frame(vec![Event::PointerMoved(at)], 41.0, &mut b);
+        frame(vec![button(at, true)], 41.1, &mut b);
+        for (i, dx) in [10.0, 30.0, 50.0, 30.0].into_iter().enumerate() {
+            frame(
+                vec![Event::PointerMoved(at + vec2(dx, 0.0))],
+                41.2 + i as f64 * 0.1,
+                &mut b,
+            );
+        }
+        let held = frame(vec![], 60.0, &mut b).1;
+        assert_eq!(held, (Some(101), true), "still in hand, still selected");
+        let drop_at = at + vec2(30.0, 0.0);
+        frame(
+            vec![button(drop_at, false), Event::PointerGone],
+            60.1,
+            &mut b,
+        );
+        assert_eq!(sel(vec![], 62.9, &mut b, &mut frame), Some(101));
+        assert_eq!(sel(vec![], 63.3, &mut b, &mut frame), None);
     }
 
     /// [`row_height`] is what the board window's board (item spacing 4, bench under the pitch) takes, bench included.
