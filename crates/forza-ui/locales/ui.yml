@@ -596,7 +596,16 @@ lobby.shop_name: {en: "Arcade name", it: "Nome della sala", ja: "ゲームセン
 lobby.list_shop_off: {en: "Only players with the code can join.", it: "Entra solo chi ha il codice.", ja: "コードを知っているプレイヤーだけが参加できます。"}
 lobby.cup: {en: "Universal Cup", it: "Universal Cup", ja: "ユニバーサルカップ"}
 lobby.cup_game_times: {en: "Game times", it: "Orari del gioco", ja: "通常の時間"}
-lobby.cup_in: {en: "In %{m} min", it: "Tra %{m} min", ja: "%{m}分後"}
+lobby.cup_off: {en: "Off", it: "No", ja: "なし"}
+lobby.cup_in: {en: "In N min", it: "Tra N min", ja: "N分後"}
+lobby.cup_at: {en: "At HH:MM", it: "Alle HH:MM", ja: "時刻指定"}
+lobby.cup_min_unit: {en: " min", it: " min", ja: " 分後"}
+lobby.cup_off_line: {en: "No Universal Cup in this arcade.", it: "Nessuna Universal Cup in questa sala.", ja: "このゲームセンターではユニバーサルカップを開催しません。"}
+lobby.cup_game_times_line: {en: "Cups open at 12:00, 15:00, 18:00 and 21:00.", it: "Le cup aprono alle 12:00, 15:00, 18:00 e 21:00.", ja: "大会は12:00、15:00、18:00、21:00に開始します。"}
+lobby.cup_opens: {en: "Opens at about %{time}. Card in before then; entry closes about 1.5 min after it opens.", it: "Apre verso le %{time}. Inserisci la carta prima; le iscrizioni chiudono circa 1,5 min dopo l'apertura.", ja: "%{time}ごろ開始。それまでにカードを入れてください。エントリーは開始の約1分30秒後に締め切られます。"}
+lobby.cup_night: {en: "The cup can't open after midnight or before 05:00.", it: "La cup non può aprire dopo mezzanotte o prima delle 05:00.", ja: "大会は0時から5時までの間には開始できません。"}
+lobby.cup_too_soon: {en: "Too soon: the cup needs at least %{m} min.", it: "Troppo presto: servono almeno %{m} min.", ja: "早すぎます。%{m}分以上先にしてください。"}
+lobby.cup_too_far: {en: "Too far ahead: at most %{m} min from now.", it: "Troppo lontano: al massimo tra %{m} min.", ja: "先すぎます。%{m}分以内にしてください。"}
 lobby.cup_restart: {en: "Set when the arcade opens. To change it, close the arcade and host again.", it: "Si sceglie all'apertura della sala. Per cambiarlo, chiudi la sala e riaprila.", ja: "ゲームセンターを開くときに決まります。変更するには、閉じてから開き直してください。"}
 
 # ---- pause (the panel holds the match, at most 20 s) ----
@@ -752,6 +761,8 @@ launcher.run_gamesvr_failed: {en: "the game server did not start (%{error})", it
 launcher.run_gamesvr_local: {en: "game server on port %{port} (clubs in data\\save\\gamesvr)", it: "server di gioco sulla porta %{port} (club in data\\save\\gamesvr)", ja: "ゲームサーバー ポート %{port} (クラブは data\\save\\gamesvr)"}
 launcher.run_cup_at: {en: "Universal Cup opens at about %{time}", it: "La Universal Cup apre verso le %{time}", ja: "ユニバーサルカップは%{time}ごろ開始"}
 launcher.run_cup_game_times: {en: "Universal Cup at 12:00, 15:00, 18:00 and 21:00", it: "Universal Cup alle 12:00, 15:00, 18:00 e 21:00", ja: "ユニバーサルカップは12:00、15:00、18:00、21:00"}
+launcher.run_cup_off: {en: "no Universal Cup", it: "nessuna Universal Cup", ja: "ユニバーサルカップなし"}
+launcher.run_cup_refused: {en: "Universal Cup at the game's times: %{why}", it: "Universal Cup agli orari del gioco: %{why}", ja: "ユニバーサルカップは通常の時間: %{why}"}
 launcher.run_marker_unread: {en: "club marker not read (%{error})", it: "indicatore del club non letto (%{error})", ja: "クラブのマーカーを読み取れませんでした (%{error})"}
 launcher.run_no_card: {en: "club: no card yet on this PC, so none to bring", it: "club: ancora nessuna carta su questo PC, quindi niente da portare", ja: "クラブ: このPCにはまだカードがないため、持ち込むものはありません"}
 launcher.run_with_why: {en: "%{text} (%{why})", it: "%{text} (%{why})", ja: "%{text} (%{why})"}

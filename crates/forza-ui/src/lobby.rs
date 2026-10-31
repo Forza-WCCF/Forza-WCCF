@@ -200,9 +200,134 @@ pub enum LobbyAction {
     JoinLan(String),
 }
 
-/// The host dialog's Universal Cup choices: minutes after HOST, 0 = the game's times. Each is more than the control's
-/// 20-minute lead (GAME_CTRL 1174) and less than its 100-minute look-ahead (control 0x462820).
-pub const CUP_MINUTES: [u8; 4] = [0, 25, 40, 60];
+/// One friendly slot of the 2017-18 control's schedule, seconds: the control starts a competition only at a slot's
+/// start, so a host-picked cup opens a whole number of slots after the control's state machine starts (host logs: each
+/// slot's entry closes with `send(LIVE_INFO)` about 86 s after it starts, at 91.37 s then 581.37 s with no
+/// `schedule_option.conf`; a cup put first opens at boot and its GL round 1 starts about 91 s in, probe 1).
+pub const CUP_SLOT_SECS: u32 = 490;
+/// The control's start to its first slot, seconds (`CoStateManage` 5-18 s after the control's launch in host logs).
+const CUP_BOOT_SECS: u32 = 15;
+/// The earliest "In N min": one slot. Slot 0 starts with the control, before a seat can card in (probe 1).
+pub const CUP_MIN_MINUTES: u16 = 8;
+/// The latest: 18 slots, so the schedule (18 friendlies, the cup, 21 friendlies) stays within the 43 entries the
+/// control's own timed insertion makes (21 friendlies + the cup + 21, control 0x45F030).
+pub const CUP_MAX_MINUTES: u16 = 150;
+
+/// The host's Universal Cup choice, saved in data\settings.json (`cup`, `cup_minutes`, `cup_at`) and read as the
+/// control starts.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CupMode {
+    /// No cup: the control's open times all 0.
+    Off,
+    /// The game's 12:00/15:00/18:00/21:00 (the stand-in's GAME_CTRL).
+    #[default]
+    GameTimes,
+    /// [`CupChoice::minutes`] after the control starts.
+    In,
+    /// At [`CupChoice::at`] today.
+    At,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CupChoice {
+    pub mode: CupMode,
+    /// "In N min".
+    pub minutes: u16,
+    /// "At HH:MM", minutes after midnight.
+    pub at: u16,
+}
+
+impl Default for CupChoice {
+    fn default() -> Self {
+        Self {
+            mode: CupMode::GameTimes,
+            minutes: 10,
+            at: 21 * 60,
+        }
+    }
+}
+
+/// What the control is given for a [`CupChoice`] at a start.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CupPlan {
+    Off,
+    GameTimes,
+    /// `schedule_option.conf`: `friendlies` friendly slots, then the cup, which opens at about `opens` (seconds after
+    /// midnight, this PC's clock).
+    Slot {
+        friendlies: u32,
+        opens: u32,
+    },
+}
+
+/// Why a cup time is refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CupRefused {
+    /// It would open after midnight or before 05:00.
+    Night,
+    /// Less than [`CUP_MIN_MINUTES`] away (or past).
+    TooSoon,
+    /// More than [`CUP_MAX_MINUTES`] away.
+    TooFar,
+}
+
+impl CupRefused {
+    /// Its `locales/ui.yml` key, which takes `%{m}` = [`Self::minutes`].
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Night => "lobby.cup_night",
+            Self::TooSoon => "lobby.cup_too_soon",
+            Self::TooFar => "lobby.cup_too_far",
+        }
+    }
+
+    pub fn minutes(self) -> u16 {
+        if self == Self::TooFar {
+            CUP_MAX_MINUTES
+        } else {
+            CUP_MIN_MINUTES
+        }
+    }
+}
+
+impl CupChoice {
+    /// The plan for a control starting `now` (seconds after midnight). The cup takes the slot nearest the time asked,
+    /// at least one; it opens at that slot's start and takes entries until GL round 1, about 90 s later.
+    pub fn plan(self, now: u32) -> Result<CupPlan, CupRefused> {
+        let lead = match self.mode {
+            CupMode::Off => return Ok(CupPlan::Off),
+            CupMode::GameTimes => return Ok(CupPlan::GameTimes),
+            CupMode::In => i64::from(self.minutes) * 60,
+            CupMode::At => i64::from(self.at) * 60 - i64::from(now),
+        };
+        let friendlies =
+            u32::try_from((lead + i64::from(CUP_SLOT_SECS / 2)) / i64::from(CUP_SLOT_SECS))
+                .unwrap_or(0)
+                .max(1);
+        let opens = now + CUP_BOOT_SECS + friendlies * CUP_SLOT_SECS;
+        if !(5 * 3600..24 * 3600).contains(&opens) || (self.mode == CupMode::At && self.at < 5 * 60)
+        {
+            Err(CupRefused::Night)
+        } else if lead < i64::from(CUP_MIN_MINUTES) * 60 {
+            Err(CupRefused::TooSoon)
+        } else if lead > i64::from(CUP_MAX_MINUTES) * 60 {
+            Err(CupRefused::TooFar)
+        } else {
+            Ok(CupPlan::Slot { friendlies, opens })
+        }
+    }
+}
+
+/// "HH:MM" of seconds after midnight.
+pub fn clock_text(secs: u32) -> String {
+    format!("{:02}:{:02}", secs / 3600 % 24, secs / 60 % 60)
+}
+
+/// This PC's clock, seconds after midnight (UTC if Windows gives no offset).
+pub fn local_clock() -> u32 {
+    let t = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+    u32::from(t.hour()) * 3600 + u32::from(t.minute()) * 60 + u32::from(t.second())
+}
 
 /// A shop found on this PC's network.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -259,12 +384,13 @@ pub struct LobbyView {
     /// 2017-18: the name others see on this PC's listed room (data\settings.json `shop_name`, saved at HOST SHOP);
     /// empty: the desk's [`SHOP_ROOM_NAME`](forza::online::lobby::SHOP_ROOM_NAME).
     pub shop_name: String,
-    /// 2017-18: when the shop's Universal Cup opens, minutes after HOST (one of [`CUP_MINUTES`]); 0 = the game's
-    /// 12:00/15:00/18:00/21:00 (data\settings.json `cup_minutes`, saved at HOST SHOP, read as the control starts).
-    pub cup_minutes: u8,
-    /// The host dialog is open (HOST SHOP clicked): `list_shop`, `shop_name` and `cup_minutes` as they were, put back
-    /// on CANCEL.
-    pub host_ask: Option<(bool, String, u8)>,
+    /// 2017-18: the shop's Universal Cup (saved at HOST SHOP, read as the control starts).
+    pub cup: CupChoice,
+    /// The host dialog's clock (seconds after midnight); `None`: this PC's, read each frame.
+    pub clock: Option<u32>,
+    /// The host dialog is open (HOST SHOP clicked): `list_shop`, `shop_name` and `cup` as they were, put back on
+    /// CANCEL.
+    pub host_ask: Option<(bool, String, CupChoice)>,
     /// The list takes the height left in the caller's `ui` (at least [`LIST_MIN_H`]) instead of [`LIST_H`]: for a
     /// lobby in a fixed-height tab with no scroll of its own around it.
     pub list_fit: bool,
@@ -409,7 +535,8 @@ impl LobbyView {
             host_players: None,
             list_shop: false,
             shop_name: String::new(),
-            cup_minutes: 0,
+            cup: CupChoice::default(),
+            clock: None,
             host_ask: None,
             list_fit: false,
             desk: String::new(),
@@ -691,7 +818,7 @@ impl LobbyView {
 
     /// HOST SHOP: open the host dialog.
     fn ask_host(&mut self) {
-        self.host_ask = Some((self.list_shop, self.shop_name.clone(), self.cup_minutes));
+        self.host_ask = Some((self.list_shop, self.shop_name.clone(), self.cup));
     }
 
     fn set_kind(&mut self, k: Kind) {
@@ -1339,24 +1466,64 @@ fn host_dialog(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<Lobb
                 );
             });
             // the control reads the cup times only as it starts (no live change: that would drop every seat)
+            const MODES: [CupMode; 4] =
+                [CupMode::Off, CupMode::GameTimes, CupMode::In, CupMode::At];
             ui.horizontal(|ui| {
                 field(ui, &tr!(lang, "lobby.cup"), 130.0);
-                let labels: Vec<String> = CUP_MINUTES
-                    .iter()
-                    .map(|&m| match m {
-                        0 => tr!(lang, "lobby.cup_game_times"),
-                        m => tr!(lang, "lobby.cup_in", m = m),
-                    })
-                    .collect();
+                let labels = [
+                    "lobby.cup_off",
+                    "lobby.cup_game_times",
+                    "lobby.cup_in",
+                    "lobby.cup_at",
+                ]
+                .map(|k| tr!(lang, k));
                 let labels: Vec<&str> = labels.iter().map(String::as_str).collect();
-                let mut i = CUP_MINUTES
-                    .iter()
-                    .position(|&m| m == v.cup_minutes)
-                    .unwrap_or(0);
+                let mut i = MODES.iter().position(|&m| m == v.cup.mode).unwrap_or(1);
                 if segmented(ui, &mut i, &labels, ui.available_width()) {
-                    v.cup_minutes = CUP_MINUTES[i];
+                    v.cup.mode = MODES[i];
                 }
             });
+            let now = v.clock.unwrap_or_else(local_clock);
+            if matches!(v.cup.mode, CupMode::In | CupMode::At) {
+                ui.horizontal(|ui| {
+                    field(ui, "", 130.0);
+                    if v.cup.mode == CupMode::In {
+                        ui.add(
+                            egui::DragValue::new(&mut v.cup.minutes)
+                                .range(CUP_MIN_MINUTES..=CUP_MAX_MINUTES)
+                                .suffix(tr!(lang, "lobby.cup_min_unit")),
+                        );
+                    } else {
+                        let (mut h, mut m) = (v.cup.at / 60, v.cup.at % 60);
+                        let two = |n: f64, _| format!("{n:02.0}");
+                        let a = ui.add(
+                            egui::DragValue::new(&mut h)
+                                .range(5..=23)
+                                .custom_formatter(two),
+                        );
+                        ui.label(":");
+                        let b = ui.add(
+                            egui::DragValue::new(&mut m)
+                                .range(0..=59)
+                                .custom_formatter(two),
+                        );
+                        if a.changed() || b.changed() {
+                            v.cup.at = h * 60 + m;
+                        }
+                    }
+                });
+            }
+            let (tone, line) = match v.cup.plan(now) {
+                Ok(CupPlan::Off) => (Tone::Notice, tr!(lang, "lobby.cup_off_line")),
+                Ok(CupPlan::GameTimes) => (Tone::Done, tr!(lang, "lobby.cup_game_times_line")),
+                Ok(CupPlan::Slot { opens, .. }) => (
+                    Tone::Done,
+                    tr!(lang, "lobby.cup_opens", time = clock_text(opens)),
+                ),
+                Err(r) => (Tone::Refused, tr!(lang, r.key(), m = r.minutes())),
+            };
+            let refused = tone == Tone::Refused;
+            status_line(ui, tone, &line);
             ui.label(
                 egui::RichText::new(tr!(lang, "lobby.cup_restart"))
                     .size(12.5)
@@ -1365,7 +1532,12 @@ fn host_dialog(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<Lobb
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 let size = vec2(216.0, 48.0);
-                host = cabinet(ui, size, &tr!(lang, "lobby.host_shop"), Cab::Go, true).clicked();
+                host = ui
+                    .add_enabled_ui(!refused, |ui| {
+                        cabinet(ui, size, &tr!(lang, "lobby.host_shop"), Cab::Go, !refused)
+                    })
+                    .inner
+                    .clicked();
                 cancel =
                     cabinet(ui, size, &tr!(lang, "common.cancel"), Cab::Plain, false).clicked();
             });
@@ -1376,7 +1548,7 @@ fn host_dialog(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<Lobb
     } else if (cancel || modal.should_close())
         && let Some((list, name, cup)) = v.host_ask.take()
     {
-        (v.list_shop, v.shop_name, v.cup_minutes) = (list, name, cup);
+        (v.list_shop, v.shop_name, v.cup) = (list, name, cup);
     }
 }
 
@@ -1681,6 +1853,47 @@ fn room_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
 mod tests {
     use super::*;
     use forza::keys::{PAD_AXIS, PAD_BUTTON, PAD_HAT};
+
+    #[test]
+    fn cup_time_maps_to_friendly_slots_and_refuses_night_and_short_leads() {
+        let h = |h: u32, m: u32| h * 3600 + m * 60;
+        let cup = |mode, minutes, at| CupChoice { mode, minutes, at };
+        let slot = |friendlies, opens| Ok(CupPlan::Slot { friendlies, opens });
+        let (in_, at) = (CupMode::In, CupMode::At);
+        // one slot is the minimum: 8 min -> 1 friendly, open 15 s + 490 s after the start
+        assert_eq!(cup(in_, 8, 0).plan(h(14, 0)), slot(1, h(14, 0) + 505));
+        assert_eq!(clock_text(h(14, 0) + 505), "14:08");
+        assert_eq!(cup(in_, 25, 0).plan(h(14, 0)), slot(3, h(14, 0) + 1485));
+        assert_eq!(cup(in_, 150, 0).plan(h(14, 0)), slot(18, h(14, 0) + 8835));
+        // a time: the nearest slot (90 min = 11 slots, 21:30:05)
+        assert_eq!(
+            cup(at, 0, 21 * 60 + 30).plan(h(20, 0)),
+            slot(11, h(21, 30) + 5)
+        );
+        assert_eq!(
+            cup(at, 0, 5 * 60 + 10).plan(h(4, 30)),
+            slot(5, h(4, 30) + 2465)
+        );
+        for (c, now, why) in [
+            (cup(in_, 7, 0), h(14, 0), CupRefused::TooSoon),
+            (cup(in_, 151, 0), h(14, 0), CupRefused::TooFar),
+            (cup(at, 0, 14 * 60 + 5), h(14, 0), CupRefused::TooSoon),
+            (cup(at, 0, 13 * 60), h(14, 0), CupRefused::TooSoon),
+            (cup(at, 0, 18 * 60), h(14, 0), CupRefused::TooFar),
+            // past midnight, before 05:00
+            (cup(in_, 30, 0), h(23, 45), CupRefused::Night),
+            (cup(in_, 10, 0), h(4, 0), CupRefused::Night),
+            (cup(at, 0, 4 * 60 + 30), h(3, 0), CupRefused::Night),
+            (cup(at, 0, 23 * 60 + 59), h(23, 52), CupRefused::Night),
+        ] {
+            assert_eq!(c.plan(now), Err(why), "{c:?} at {}", clock_text(now));
+        }
+        assert_eq!(cup(CupMode::Off, 0, 0).plan(h(4, 0)), Ok(CupPlan::Off));
+        assert_eq!(
+            cup(CupMode::GameTimes, 0, 0).plan(h(4, 0)),
+            Ok(CupPlan::GameTimes)
+        );
+    }
 
     #[test]
     fn pad_buttons_are_the_lobby_keys() {

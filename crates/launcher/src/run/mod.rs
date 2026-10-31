@@ -52,6 +52,7 @@ use forza::online::save_logs::{self, Scrub};
 use forza::online::seat::{self, Lease};
 use forza::online::{club, gamesvr};
 use forza::standins::{Handle, Log, aime, aimedb, card_reader, io_board, network, scenes};
+use forza_ui::lobby::CupPlan;
 use regex::Regex;
 use windows_sys::Win32::Foundation::{ERROR_ALREADY_EXISTS, FALSE, GetLastError, WAIT_ABANDONED, WAIT_OBJECT_0};
 use windows_sys::Win32::System::Threading::{
@@ -2030,17 +2031,30 @@ impl Run<'_> {
         }
         let port = self.p.gamesvr_port;
         let ctrl_conf = self.game.join(r"local\ctrl_user_option.conf");
-        // the Universal Cup: the host dialog's data\settings.json "cup_minutes" (0 = the game's times), which the control
-        // reads only as it starts, so a new choice needs a new start
-        let minutes = self.kit.settings()["cup_minutes"].as_u64().unwrap_or(0);
-        let now = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
-        let hhmm = u32::from(now.hour()) * 100 + u32::from(now.minute());
-        let cup = conf::cup_open_times(u32::try_from(minutes).unwrap_or(0), hhmm);
-        conf::set_cup_times(&ctrl_conf, cup)?;
-        let line = match cup {
-            Some([t, ..]) => Text::key("launcher.run_cup_at").arg("time", format!("{}:{:02}", t / 100, t % 100)),
-            None => Text::key("launcher.run_cup_game_times"),
+        // the Universal Cup: the host dialog's choice, which the control reads only as it starts (a new choice needs a
+        // new start). A cup at a time is a schedule slot (local\schedule_option.conf); VS keeps the game's times.
+        let plan = if let Mode::Vs(_) = self.mode {
+            Ok(CupPlan::GameTimes)
+        } else {
+            conf::cup_choice(&self.kit.settings()).plan(forza_ui::lobby::local_clock())
         };
+        let (times, friendlies, line) = match plan {
+            Ok(CupPlan::Off) => (Some([0; 4]), None, Text::key("launcher.run_cup_off")),
+            Ok(CupPlan::GameTimes) => (None, None, Text::key("launcher.run_cup_game_times")),
+            // open times 0: the file's cup is the only one (the control also skips its timed cups while one is listed)
+            Ok(CupPlan::Slot { friendlies, opens }) => (
+                Some([0; 4]),
+                Some(friendlies),
+                Text::key("launcher.run_cup_at").arg("time", forza_ui::lobby::clock_text(opens)),
+            ),
+            Err(r) => (
+                None,
+                None,
+                Text::key("launcher.run_cup_refused").part("why", Text::key(r.key()).arg("m", r.minutes())),
+            ),
+        };
+        conf::set_cup_times(&ctrl_conf, times)?;
+        conf::set_cup_schedule(&self.game.join(r"local\schedule_option.conf"), friendlies)?;
         self.tell("  ", &line);
         if let Mode::Vs(_) = self.mode {
             let panel_file = self.kit.data().join("panel.txt");

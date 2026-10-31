@@ -191,8 +191,9 @@ fn launcher_host_dialog() {
         let mut st =
             launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Online);
         let v = &mut st.lobby;
-        (v.shop_rooms, v.kind, v.list_shop, v.cup_minutes) = (true, lobby::Kind::Shops, true, 25);
-        v.host_ask = Some((false, String::new(), 0));
+        (v.shop_rooms, v.kind, v.list_shop) = (true, lobby::Kind::Shops, true);
+        (v.cup.mode, v.cup.minutes, v.clock) = (lobby::CupMode::In, 10, Some(14 * 3600));
+        v.host_ask = Some((false, String::new(), lobby::CupChoice::default()));
         snap(
             &mut all,
             &format!("launcher_host_dialog_{}", lang.code()),
@@ -1446,14 +1447,18 @@ fn lobby_shop_rooms() {
     assert_eq!(got.take(), None);
     assert!(v.borrow().host_ask.is_some());
     h.get_by_label("List my arcade when I host").click();
-    h.get_by_label("In 40 min").click();
+    h.get_by_label("In N min").click();
     h.run_steps(2);
-    assert_eq!(v.borrow().cup_minutes, 40);
+    assert_eq!(v.borrow().cup.mode, lobby::CupMode::In);
     h.get_by_label("Cancel").click();
     h.run_steps(2);
     assert_eq!(got.take(), None);
     assert!(v.borrow().host_ask.is_none() && !v.borrow().list_shop);
-    assert_eq!(v.borrow().cup_minutes, 0, "CANCEL puts the cup time back");
+    assert_eq!(
+        v.borrow().cup,
+        lobby::CupChoice::default(),
+        "CANCEL puts the cup back"
+    );
     h.key_press(egui::Key::H);
     h.run_steps(2);
     h.get_by_label("List my arcade when I host").click();
@@ -1465,17 +1470,32 @@ fn lobby_shop_rooms() {
     h.key_press(egui::Key::H);
     h.run_steps(2);
     h.get_by_label("List my arcade when I host").click();
-    h.get_by_label("In 25 min").click();
+    h.get_by_label("At HH:MM").click();
+    // a time that would open after midnight: refused, HOST does nothing
+    let cup_at = |clock, at| {
+        let mut b = v.borrow_mut();
+        (b.clock, b.cup.at) = (Some(clock), at);
+    };
+    cup_at(23 * 3600 + 52 * 60, 23 * 60 + 59);
     h.run_steps(2);
+    h.get_by_label("The cup can't open after midnight or before 05:00.");
+    h.get_all_by_label("HOST ARCADE").last().unwrap().click();
+    h.run_steps(2);
+    assert_eq!(got.take(), None, "a refused cup time keeps the dialog open");
+    cup_at(22 * 3600, 23 * 60 + 30);
+    h.run_steps(2);
+    h.get_by_label(
+        "Opens at about 23:30. Card in before then; entry closes about 1.5 min after it opens.",
+    );
     // the tab's HOST ARCADE, then the dialog's
     h.get_all_by_label("HOST ARCADE").last().unwrap().click();
     h.run_steps(2);
     assert_eq!(got.take(), Some(HostShop));
     assert!(v.borrow().host_ask.is_none() && v.borrow().list_shop);
     assert_eq!(
-        v.borrow().cup_minutes,
-        25,
-        "HOST keeps the cup time for the caller to save"
+        (v.borrow().cup.mode, v.borrow().cup.at),
+        (lobby::CupMode::At, 23 * 60 + 30),
+        "HOST keeps the cup for the caller to save"
     );
     v.borrow_mut().code = " k7qm2xpd".into();
     h.run_steps(2);
