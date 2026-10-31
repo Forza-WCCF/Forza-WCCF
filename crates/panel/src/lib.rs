@@ -2579,12 +2579,14 @@ impl Render {
         }
     }
 
-    /// 2017-18: the table kept when a match begins (the match state read once a second), and RESET LINEUP writing it
-    /// back like a card move.
+    /// 2017-18: the table kept when a match begins (the seat state read every frame, the full match state once a
+    /// second), and RESET LINEUP writing it back like a card move.
     fn lineup(&mut self) {
         if self.st.edition != theme::Edition::E1718 {
             return;
         }
+        // the seat state is cheap: read every frame to catch the match edge before that frame's board change
+        let seat = pause::seat_state().map(|s| s == pause::SEAT_MATCH);
         let polled = if self
             .match_at
             .is_none_or(|t| t.elapsed() >= Duration::from_secs(1))
@@ -2595,19 +2597,17 @@ impl Render {
         } else {
             None
         };
-        let began = polled.is_some_and(|(_, playing)| playing) && !self.st.match_seen;
-        panel::lineup_tick(&mut self.st, polled, &self.placed);
-        if began {
+        let was_seen = self.st.match_seen;
+        panel::lineup_tick(&mut self.st, seat, polled, &self.placed);
+        if self.st.match_seen && !was_seen {
             log(&format!(
                 "board: match began, {} card(s) kept for RESET LINEUP",
                 self.placed.len()
             ));
         }
         // the click is served on the match state now, not the last second's
-        if self.st.reset_lineup && match_check().0 {
-            self.st.in_match = true;
-        }
-        if let Some(new) = panel::take_reset(&mut self.st) {
+        let fresh = self.st.reset_lineup && match_check().0;
+        if let Some(new) = panel::take_reset(&mut self.st, fresh) {
             log(&format!("board: RESET LINEUP - {} card(s)", new.len()));
             self.placed = new;
             self.table_write();
