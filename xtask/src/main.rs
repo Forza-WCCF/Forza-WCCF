@@ -282,8 +282,8 @@ const NATIVE: &[(&str, bool, &str)] = &[
     ("test_logowin.exe", false, "source/build/test_logowin.exe"),
     ("test_netguard.exe", false, "source/build/test_netguard.exe"),
     ("test_panel.exe", false, "source/build/test_panel.exe"),
-    // test_panel's stand-in for the panel: a DLL that does nothing when it loads (a second wccfnet.dll finds
-    // FORZA_PANEL already taken by the first)
+    // test_panel's stand-in for the panel: a copy of wccfnet.dll, inert only because the first wccfnet.dll clears
+    // FORZA_PANEL before it loads the probe (panel::start), so the copy finds no panel to load
     ("wccfnet.dll", false, "source/build/panel_probe.dll"),
 ];
 /// forza_hook.dll per edition: (its feature, `true` the 2010-11 kit, where the kit has it). The Linux server's hooks

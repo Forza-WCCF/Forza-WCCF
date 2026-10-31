@@ -113,7 +113,7 @@ const fn icmp_to_wccfnet(at: usize, what: &'static str) -> Patch {
 }
 const CLIENT_ICMP: Patch = icmp_to_wccfnet(
     0xfaa954,
-    "pings load wccfnet.dll, not ICMP.DLL (VA 0x013AB554, pushed at VA 0x004833EF)",
+    "pings load wccfnet.dll, not ICMP.DLL (.rdata VA 0x013AB554, push at VA 0x004833EE)",
 );
 
 /// Seat 1's client_Release.exe (the 2010-11 kit's patches as each proved needed).
@@ -247,9 +247,10 @@ static CONTROL: [Patch; 3] = [
         new: &[0x83, 0xb8, 0x90, 0x00, 0x00, 0x00, 0x0f],
         what: "GAME_READY fallback after 15 s, not 100 s (VA 0x0043204B)",
     },
+    // in .rdata, whose VA is file offset + 0x401000 (.text's, above, + 0x400C00)
     icmp_to_wccfnet(
         0x229d4c,
-        "pings load wccfnet.dll, not ICMP.DLL (VA 0x0062AD4C, pushed at VA 0x0041FD3F)",
+        "pings load wccfnet.dll, not ICMP.DLL (.rdata VA 0x0062AD4C, push at VA 0x0041FD3E)",
     ),
 ];
 
@@ -330,15 +331,6 @@ pub fn setup_game(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
     report
         .0
         .push((engine.into(), Hash::Pair(sha(&orig), sha(&g))));
-    // older kits put netguard.dll and ICMP.DLL here (and setup linked them into seat1\); nothing loads them now
-    for old in ["netguard.dll", "ICMP.DLL"]
-        .map(|f| [game.join(f), seat.join(f)])
-        .concat()
-    {
-        if old.is_file() {
-            fs::remove_file(old)?;
-        }
-    }
     for (dll, what) in [
         ("wccfnet.dll", "the network guard"),
         ("dmath.dll", "the match engine's deterministic math"),
@@ -430,6 +422,16 @@ pub fn setup_game(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
     make_dir(helper.parent().unwrap_or(&helper))?;
     copy_in(&bin.join("FPR_Emu.exe"), &helper, "the card-table helper")?;
     fs::write(rt.join("setup-hashes.json"), report.json())?;
+    // older kits put netguard.dll and ICMP.DLL here (and setup linked them into seat1\); nothing loads them now.
+    // Last, after the record: a setup cut short leaves them where the old record expects them
+    for old in ["netguard.dll", "ICMP.DLL"]
+        .map(|f| [game.join(f), seat.join(f)])
+        .concat()
+    {
+        if old.is_file() {
+            fs::remove_file(old)?;
+        }
+    }
     Ok(report)
 }
 
@@ -603,6 +605,26 @@ mod tests {
         }
     }
 
+    /// With the real programs: FORZA_1718_CLIENT_EXE and FORZA_1718_CONTROL_EXE name the pinned originals (read only).
+    #[test]
+    fn the_icmp_patches_find_their_original_bytes_in_the_real_programs() {
+        for (var, (exe, pinned), p) in [
+            ("FORZA_1718_CLIENT_EXE", PINNED[0], &CLIENT_ICMP),
+            ("FORZA_1718_CONTROL_EXE", PINNED[1], &CONTROL[2]),
+        ] {
+            let Some(path) = std::env::var_os(var) else {
+                eprintln!("{var} not set: skipped");
+                continue;
+            };
+            let data = fs::read(path).unwrap();
+            assert_eq!(sha(&data), pinned, "{exe} is the pinned original");
+            assert_eq!(&data[p.at..p.at + 12], b"ICMP.DLL\0\0\0\0", "{exe}");
+            let hits = data.windows(8).filter(|w| w == b"ICMP.DLL").count();
+            assert_eq!(hits, 1, "{exe} names ICMP.DLL once");
+            apply(&data, std::slice::from_ref(p)).unwrap();
+        }
+    }
+
     #[test]
     fn movies_get_asyncdepth_1_in_both_clients() {
         let p = &MOVIE_ASYNC_DEPTH;
@@ -736,6 +758,12 @@ mod tests {
         // an older kit's stand-in logowin.exe, the original kept under the backup name: setup puts the original back
         fs::rename(game.join("logowin.exe"), game.join(logowin_backup())).unwrap();
         fs::write(game.join("logowin.exe"), "old kit logowin.exe").unwrap();
+
+        // a setup cut short (no dmath.dll in the kit) keeps the old ICMP.DLL: it goes only after the record
+        fs::rename(kit.join("bin/dmath.dll"), top.path().join("dmath.dll")).unwrap();
+        assert!(run(&kit, &game, &spec).is_err());
+        assert!(game.join("ICMP.DLL").is_file() && !rt.join("setup-hashes.json").exists());
+        fs::rename(top.path().join("dmath.dll"), kit.join("bin/dmath.dll")).unwrap();
 
         let report = run(&kit, &game, &spec).unwrap();
         assert_eq!(report.0.len(), 6);
