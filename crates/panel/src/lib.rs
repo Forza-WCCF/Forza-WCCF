@@ -1799,7 +1799,9 @@ impl Render {
         self.close_out();
         WANTS_KEYS.store(self.ctx.egui_wants_keyboard_input(), Relaxed);
         pause::KEY.store(self.st.keys[forza::keys::PAUSE], Relaxed);
-        if std::mem::take(&mut self.st.pause_asked) && pause::enabled() {
+        if std::mem::take(&mut self.st.pause_asked)
+            && (pause::enabled() || self.st.paused.is_some())
+        {
             pause::ASK.store(true, Relaxed);
         }
         self.page_open();
