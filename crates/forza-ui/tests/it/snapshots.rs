@@ -292,6 +292,47 @@ fn panel_2017_18_and_compact() {
     all.unwrap();
 }
 
+/// Owner, 2026-10-31, on hold: 2017-18 shows no PAUSE button on the page bar, no VS ROOMS tab and no HOST VS; 2010-11
+/// keeps its own. The shop side (ARCADES tab, HOST ARCADE) stays.
+#[test]
+fn vs_lobby_and_pause_button_hidden_1718() {
+    let _gpu = gpu();
+    for (ed, shown) in [(Edition::E1718, panel::PAUSE_ON), (Edition::E1011, true)] {
+        let st =
+            std::cell::RefCell::new(panel::PanelState::sample(ed, Lang::En, panel::Page::Game));
+        let mut h = harness(panel::SIZE, 1.0, ed, |ui| {
+            panel::show(ui, &mut st.borrow_mut())
+        });
+        h.run_steps(4);
+        assert_eq!(
+            h.query_all_by_label("PAUSE").count() == 1,
+            shown,
+            "{ed:?} PAUSE"
+        );
+    }
+    for (ed, shown) in [(Edition::E1718, lobby::VS_LOBBY), (Edition::E1011, true)] {
+        let st = launcher::LauncherState::sample(ed, Lang::En, launcher::Scenario::Online);
+        let st = std::cell::RefCell::new(st);
+        let mut h = harness(launcher::SIZE, 1.0, ed, |ui| {
+            launcher::show(ui, &mut st.borrow_mut());
+        });
+        h.run_steps(4);
+        let vs = h.query_all_by_label_contains("VS ROOMS").count() == 1;
+        assert_eq!(vs, shown, "{ed:?} VS ROOMS tab");
+        if ed == Edition::E1718 {
+            assert_eq!(
+                h.query_all_by_label("HOST ARCADE").count(),
+                1,
+                "HOST ARCADE stays"
+            );
+        }
+        assert!(
+            h.query_all_by_label_contains("ARCADES").count() >= 1,
+            "{ed:?} ARCADES tab"
+        );
+    }
+}
+
 #[test]
 fn widget_sheet() {
     let _gpu = gpu();
@@ -995,6 +1036,44 @@ fn import_dialog() {
             &format!("panel_import_dialog_{}", lang.code()),
             panel::SIZE,
             Edition::E1011,
+            |ui| panel::show(ui, &mut st),
+        );
+    }
+    all.unwrap();
+}
+
+/// FORMATIONS (issue #89) during a match: two slots filled (one from another club), LOAD greyed out with its reason,
+/// slot 2 being named for SAVE (REPLACE: it is filled).
+#[test]
+fn formations_dialog() {
+    use forza::cards::{Placed, formations};
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for lang in Lang::ALL {
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Catalogue);
+        st.catalogue.filter = panel::Filter::default();
+        let t = [Placed {
+            slot: 1,
+            no: 1,
+            x: 0.0,
+            y: 0.9,
+        }];
+        let slot = |name, club| {
+            formations::slot_of(&formations::text(&t, st.edition, name, club), st.edition)
+        };
+        let mut slots = vec![None; formations::SLOTS];
+        slots[0] = slot("4-3-3 attack", "KITAKAZE");
+        slots[1] = slot("Cup XI", "OTHER FC");
+        st.formations = Some(panel::Formations {
+            slots,
+            naming: Some((1, "Cup XI".into())),
+        });
+        st.in_match = true;
+        snap(
+            &mut all,
+            &format!("panel_formations_{}", lang.code()),
+            panel::SIZE,
+            Edition::E1718,
             |ui| panel::show(ui, &mut st),
         );
     }

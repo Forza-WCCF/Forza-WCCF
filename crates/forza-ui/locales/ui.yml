@@ -322,13 +322,32 @@ cat.lineup: {en: "Lineup", it: "Formazione", ja: "編成"}
 cat.msg_imported: {en: "%{name}: %{n} cards on the table.", it: "%{name}: %{n} carte sul tavolo.", ja: "%{name}：%{n}枚をテーブルに置きました。"}
 cat.msg_import_kp: {en: "Key player on the site: %{name}. Set it in the game.", it: "Giocatore chiave sul sito: %{name}. Sceglilo nel gioco.", ja: "サイトのキープレイヤー：%{name}。ゲーム内で設定してください。"}
 cat.msg_import_skipped: {en: "Skipped: %{list}", it: "Saltate: %{list}", ja: "読み込めないカード：%{list}"}
+form.open: {en: "FORMATIONS", it: "FORMAZIONI", ja: "保存した編成"}
+form.title: {en: "FORMATIONS", it: "FORMAZIONI", ja: "保存した編成"}
+form.empty: {en: "Empty", it: "Vuoto", ja: "空き"}
+form.save: {en: "SAVE", it: "SALVA", ja: "保存"}
+form.replace: {en: "REPLACE", it: "SOSTITUISCI", ja: "上書き"}
+form.copy: {en: "COPY", it: "COPIA", ja: "コピー"}
+form.copy_board: {en: "COPY BOARD", it: "COPIA TAVOLO", ja: "今の編成をコピー"}
+form.name_for: {en: "Name for slot %{n}", it: "Nome per lo slot %{n}", ja: "スロット %{n} の名前"}
+form.replaces: {en: "Replaces %{name}.", it: "Sostituisce %{name}.", ja: "%{name} を上書きします。"}
+form.load_match: {en: "Loading is off during a match.", it: "Non si carica durante una partita.", ja: "試合中は読み込めません。"}
+form.msg_saved: {en: "Saved in slot %{n}.", it: "Salvata nello slot %{n}.", ja: "スロット %{n} に保存しました。"}
+form.msg_not_saved: {en: "Could not save the formation.", it: "Impossibile salvare la formazione.", ja: "編成を保存できませんでした。"}
+form.msg_empty_table: {en: "The table is empty: nothing to save.", it: "Il tavolo è vuoto: niente da salvare.", ja: "テーブルが空なので保存できません。"}
+form.msg_copied: {en: "Copied. Paste it in IMPORT LINEUP or on db.wccf.it.", it: "Copiata. Incollala in IMPORTA FORMAZIONE o su db.wccf.it.", ja: "コピーしました。「編成を読み込む」か db.wccf.it に貼り付けられます。"}
+form.msg_not_copied: {en: "Could not copy to the clipboard.", it: "Impossibile copiare negli appunti.", ja: "クリップボードにコピーできませんでした。"}
 cat.msg_import_edition: {en: "This lineup is for %{game}.", it: "Questa formazione è per %{game}.", ja: "この編成は%{game}用です。"}
-cat.msg_import_empty: {en: "No lineup on the clipboard. Copy one on db.wccf.it first.", it: "Nessuna formazione negli appunti. Copiala prima su db.wccf.it.", ja: "クリップボードに編成がありません。先にdb.wccf.itでコピーしてください。"}
-cat.msg_clipboard: {en: "Could not read the clipboard. Copy the lineup again and retry.", it: "Impossibile leggere gli appunti. Copia di nuovo la formazione e riprova.", ja: "クリップボードを読めません。編成をもう一度コピーして再試行してください。"}
+cat.msg_import_empty: {en: "Copy a lineup's db.wccf.it link (or its text), then IMPORT LINEUP.", it: "Copia il link db.wccf.it di una formazione (o il suo testo), poi IMPORTA FORMAZIONE.", ja: "db.wccf.itで編成のリンク（またはテキスト）をコピーしてから「編成を読み込む」を押してください。"}
+cat.msg_fetching: {en: "Fetching lineup...", it: "Scarico la formazione...", ja: "編成を取得中..."}
+cat.msg_link_offline: {en: "No answer from db.wccf.it. Check the internet connection and retry.", it: "Nessuna risposta da db.wccf.it. Controlla la connessione a internet e riprova.", ja: "db.wccf.itから応答がありません。インターネット接続を確認して再試行してください。"}
+cat.msg_link_not_found: {en: "This link has no lineup on db.wccf.it. Copy the link again.", it: "Questo link non ha una formazione su db.wccf.it. Copia di nuovo il link.", ja: "このリンクの編成はdb.wccf.itにありません。リンクをもう一度コピーしてください。"}
+cat.msg_link_not_lineup: {en: "The link did not give a lineup.", it: "Il link non ha restituito una formazione.", ja: "リンクから編成を読み込めませんでした。"}
+cat.msg_clipboard: {en: "Could not read the clipboard. Copy the lineup's link again and retry.", it: "Impossibile leggere gli appunti. Copia di nuovo il link della formazione e riprova.", ja: "クリップボードを読めません。編成のリンクをもう一度コピーして再試行してください。"}
 cat.msg_import_none: {en: "None of these cards is in this game.", it: "Nessuna di queste carte è in questo gioco.", ja: "この編成のカードはこのゲームにありません。"}
 cat.msg_import_match: {en: "Not during a match. Import between matches.", it: "Non durante una partita. Importa tra una partita e l'altra.", ja: "試合中は読み込めません。試合の合間に読み込んでください。"}
 cat.ask_title: {en: "IMPORT LINEUP?", it: "IMPORTARE LA FORMAZIONE?", ja: "編成を読み込みますか？"}
-cat.ask_body: {en: "Replace your table with %{n} cards from the clipboard?", it: "Sostituire il tavolo con %{n} carte dagli appunti?", ja: "テーブルをクリップボードの%{n}枚に置き換えますか？"}
+cat.ask_body: {en: "Replace your table with %{n} cards from this lineup?", it: "Sostituire il tavolo con %{n} carte di questa formazione?", ja: "テーブルをこの編成の%{n}枚に置き換えますか？"}
 cat.ask_skipped: {en: "%{n} cards skipped (not usable in this game).", it: "%{n} carte saltate (non usabili in questo gioco).", ja: "%{n}枚はこのゲームで使えないため読み込みません。"}
 cat.ask_confirm: {en: "CONFIRM", it: "CONFERMA", ja: "確定"}
 cat.ask_cancel: {en: "CANCEL", it: "ANNULLA", ja: "キャンセル"}
@@ -416,6 +435,9 @@ settings.msg_board_window: {en: "Formation board in its own window: move it to a
 settings.msg_board_docked: {en: "Formation board back with the game", it: "Formazione di nuovo con il gioco", ja: "フォーメーションをゲーム画面に戻しました"}
 settings.board_buttons: {en: "Buttons on the board window", it: "Pulsanti nella finestra della formazione", ja: "ボードのウィンドウにもボタン"}
 settings.board_buttons_hint: {en: "The cabinet buttons beside the popped-out board too", it: "I pulsanti del cabinato anche accanto alla formazione in pop-out", ja: "ポップアウトしたボードの横にも筐体のボタンを表示"}
+settings.pad_bg: {en: "Controller in the background", it: "Controller in secondo piano", ja: "バックグラウンドでもコントローラー"}
+settings.pad_bg_hint: {en: "The controller keeps working with another window in front. The keyboard does not.", it: "Il controller funziona anche con un'altra finestra davanti. La tastiera no.", ja: "他のウィンドウが前面にあってもコントローラーは動作します。キーボードは動作しません。"}
+settings.pad_bg_seats: {en: "Off while 2 or more seats run on this PC: all controllers count as one.", it: "Disattivato con 2 o più posti su questo PC: i controller contano come uno solo.", ja: "このPCで2席以上が動作中は無効です。コントローラーは1台として扱われます。"}
 settings.msg_hover: {en: "Card preview after %{s} s", it: "Anteprima carta dopo %{s} s", ja: "%{s} 秒でカードをプレビュー"}
 settings.msg_hover_off: {en: "Card preview off", it: "Anteprima carta disattivata", ja: "カードのプレビューなし"}
 settings.msg_this_pc: {en: "Next start: this PC", it: "Prossimo avvio: questo PC", ja: "次回の起動：このPC"}
@@ -792,6 +814,7 @@ launcher.run_seat_taken: {en: "seat %{seat} is taken on the server at %{ip}. Lea
 launcher.run_desk_no_answer: {en: "the seat desk at %{ip} did not answer (%{detail}). Try again, or use Launcher.exe local.", it: "il banco dei posti a %{ip} non ha risposto (%{detail}). Riprova, oppure usa Launcher.exe local.", ja: "%{ip} の席デスクから応答がありません (%{detail})。もう一度試すか、Launcher.exe local を使ってください。"}
 launcher.run_desk_unreachable: {en: "the seat desk at %{ip} cannot be reached (%{detail}). A 2017-18 arcade's desk is open to the network only with \"shop_lan\": true on the arcade's PC.", it: "il banco dei posti a %{ip} non è raggiungibile (%{detail}). Il banco di una sala 2017-18 è aperto alla rete solo con \"shop_lan\": true sul PC della sala.", ja: "%{ip} の席デスクに接続できません (%{detail})。2017-18 のゲームセンターの席デスクは、ゲームセンターのPCで \"shop_lan\": true を設定した場合のみネットワークに公開されます。"}
 launcher.run_desk_refused: {en: "the seat desk at %{ip} refused a seat (%{detail})", it: "il banco dei posti a %{ip} ha rifiutato un posto (%{detail})", ja: "%{ip} の席デスクが席を拒否しました (%{detail})"}
+launcher.run_dmath_differs: {en: "the shop at %{ip} refused this PC: its match engine (det-math %{mine}) differs from a seat's there (%{theirs}), and the match would drop to the CPU. Both PCs need the same Forza-WCCF version, set up again; \"-off\" means dmath.log says det-math was not applied", it: "la sala a %{ip} ha rifiutato questo PC: il suo motore delle partite (det-math %{mine}) è diverso da quello di un posto lì (%{theirs}) e la partita passerebbe alla CPU. Entrambi i PC devono avere la stessa versione di Forza-WCCF, configurata di nuovo; \"-off\" vuol dire che dmath.log indica det-math non applicato", ja: "%{ip} のゲームセンターがこの PC を拒否しました: この PC の試合エンジン (det-math %{mine}) がそこの席 (%{theirs}) と異なり、試合が CPU 戦に切り替わってしまいます。両方の PC に同じバージョンの Forza-WCCF を入れ、セットアップをやり直してください。\"-off\" は dmath.log で det-math が適用されていないことを示します"}
 launcher.run_room_waiting: {en: "arcade room: this arcade's room from before is still on %{server}; asking again in %{s} s", it: "stanza della sala: la stanza di prima di questa sala è ancora su %{server}; nuova richiesta tra %{s} s", ja: "ゲームセンターのルーム: 以前のこのゲームセンターのルームがまだ %{server} に残っています。%{s} 秒後にもう一度確認します"}
 launcher.run_running_undo: {en: "The game is running. Close its window, then undo.", it: "Il gioco è in esecuzione. Chiudi la sua finestra, poi annulla.", ja: "ゲームが実行中です。ウィンドウを閉じてから元に戻してください。"}
 launcher.run_running_setup: {en: "The game is running. Close its window, then run setup again.", it: "Il gioco è in esecuzione. Chiudi la sua finestra, poi esegui di nuovo la configurazione.", ja: "ゲームが起動中です。ウィンドウを閉じてから、もう一度セットアップを実行してください。"}

@@ -75,6 +75,7 @@ fn lobby_rows_then_join_ticket_then_want_ticket_claims_that_seat() {
         d.addr(),
         None,
         Some(&ticket),
+        None,
         Duration::from_secs(30),
         t,
         Arc::new(|_| {}),
@@ -90,7 +91,16 @@ fn lobby_rows_then_join_ticket_then_want_ticket_claims_that_seat() {
         panic!("no ticket");
     };
     assert_eq!(s5, 5);
-    let l5 = seat::claim_with(d.addr(), None, Some(&t5), Duration::from_secs(30), t, Arc::new(|_| {})).unwrap();
+    let l5 = seat::claim_with(
+        d.addr(),
+        None,
+        Some(&t5),
+        None,
+        Duration::from_secs(30),
+        t,
+        Arc::new(|_| {}),
+    )
+    .unwrap();
     assert_eq!(l5.seat, 5);
 
     // the ticket was spent by the claim: the heartbeat says gone

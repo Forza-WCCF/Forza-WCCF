@@ -166,6 +166,7 @@ impl Files {
             text: Some(kit.game_language()),
             version,
             logs: None,
+            seats: forza::keys::seats_here(),
         }
     }
 

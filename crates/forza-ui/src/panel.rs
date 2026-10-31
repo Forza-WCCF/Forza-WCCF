@@ -15,11 +15,12 @@ use crate::board::{PositionColor, RarityRim};
 use crate::sizing;
 use crate::theme::Accent;
 use egui::{Align2, Color32, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
+use forza::cards::formations;
 use forza::cards::lineup::{self, LineupError, Skip, Skipped};
 use forza::cards::{self, AddRefused, Placed};
 use forza::club_view::{self as forza_club, ClubView};
 use forza::panel_txt::{PanelFile, valid_address};
-use std::sync::Arc;
+use std::sync::{Arc, mpsc};
 
 /// The game's own picture size (both editions) and the smallest sheet: a smaller window scales this sheet down.
 pub const SIZE: egui::Vec2 = egui::vec2(1440.0, 900.0);
@@ -531,6 +532,8 @@ pub struct Status {
     pub version: String,
     /// SAVE LOGS' answer from the run: "ok PATH", "fail WHY".
     pub logs: Option<String>,
+    /// Seats running on this PC (2017-18's CONTROLLER IN THE BACKGROUND is ignored from two).
+    pub seats: usize,
 }
 
 /// [`When`] of a file time.
@@ -644,6 +647,18 @@ pub struct PanelState {
     pub import_undo: Option<(Vec<Placed>, f64)>,
     /// That UNDO clicked: the panel DLL calls [`undo_import`].
     pub import_undone: bool,
+    /// FORMATIONS clicked: the panel DLL reads the slots into `formations` and the match state into `in_match`.
+    pub formations_open: bool,
+    /// The FORMATIONS dialog, open.
+    pub formations: Option<Formations>,
+    /// This seat plays a match, as the panel DLL saw it when FORMATIONS opened: LOAD is greyed out.
+    pub in_match: bool,
+    /// A slot clicked to load: the panel DLL calls [`load_formation`].
+    pub formation_load: Option<usize>,
+    /// SAVE confirmed (slot, name): the panel DLL writes the table into the slot.
+    pub formation_save: Option<(usize, String)>,
+    /// COPY clicked: a slot's lineup, or `None` the table's, as the site's text on the clipboard.
+    pub formation_copy: Option<Option<usize>>,
     /// The bindings changed: keys.txt is written.
     pub keys_changed: bool,
     /// The choices changed: data\panel.txt is written.
@@ -726,6 +741,12 @@ impl PanelState {
             import_go: false,
             import_undo: None,
             import_undone: false,
+            formations_open: false,
+            formations: None,
+            in_match: false,
+            formation_load: None,
+            formation_save: None,
+            formation_copy: None,
             keys_changed: false,
             file_changed: false,
             restart: false,
@@ -807,6 +828,7 @@ impl PanelState {
                 logs: Some(
                     r"ok C:\Users\Mario\Downloads\forza-wccf-logs-20261027-150412.zip".into(),
                 ),
+                seats: 1,
             },
             restart_armed: if page == Page::Settings {
                 f64::INFINITY
@@ -896,7 +918,90 @@ pub fn ask_import(st: &mut PanelState, text: &str, in_match: bool) -> bool {
     true
 }
 
-/// The lineup `text` (the site's export: the clipboard's, later a share link's) as the whole table in place of
+/// Why a share link's lineup did not come.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FetchError {
+    /// No answer: no internet, the site down, or the wait ran out.
+    Offline,
+    /// The site has no lineup with that id (404).
+    NotFound,
+    /// An answer that is not a lineup: not text, or over [`SHARE_MAX`].
+    NotLineup,
+}
+
+/// The most a share link's lineup may weigh: the site's are a few hundred bytes.
+pub const SHARE_MAX: u64 = 64 * 1024;
+/// How long IMPORT LINEUP waits for a share link's lineup before it says there is no answer.
+pub const FETCH_SECS: f64 = 10.0;
+
+/// A share link's answer body as text: at most [`SHARE_MAX`] bytes of UTF-8, else `NotLineup`; a read error: `Offline`.
+pub fn read_capped(r: impl std::io::Read) -> Result<String, FetchError> {
+    use std::io::Read as _;
+    let mut buf = Vec::new();
+    r.take(SHARE_MAX + 1)
+        .read_to_end(&mut buf)
+        .map_err(|_| FetchError::Offline)?;
+    if buf.len() as u64 > SHARE_MAX {
+        return Err(FetchError::NotLineup);
+    }
+    String::from_utf8(buf).map_err(|_| FetchError::NotLineup)
+}
+
+/// A share link's lineup on its way: `get` runs on its own thread, never the frame's.
+pub struct ShareFetch {
+    rx: mpsc::Receiver<Result<String, FetchError>>,
+    since: f64,
+}
+
+impl ShareFetch {
+    /// The share `id`'s lineup asked for at `now` (the frame's time) through `get` (given [`lineup::share_path`] on
+    /// [`lineup::SHARE_HOST`]); "Fetching lineup..." shows meanwhile. `None`: refused, in a match.
+    pub fn start(
+        st: &mut PanelState,
+        id: &str,
+        in_match: bool,
+        now: f64,
+        get: impl FnOnce(String) -> Result<String, FetchError> + Send + 'static,
+    ) -> Option<ShareFetch> {
+        if in_match {
+            st.say(Tone::Refused, "cat.msg_import_match");
+            return None;
+        }
+        let (tx, rx) = mpsc::channel();
+        let path = lineup::share_path(id);
+        std::thread::spawn(move || {
+            let _ = tx.send(get(path)); // the panel may have given up on it: nobody listens
+        });
+        st.message = Some(Note::long(Tone::Notice, tr!(st.lang, "cat.msg_fetching")));
+        Some(ShareFetch { rx, since: now })
+    }
+
+    /// The answer once it came, or `Offline` once [`FETCH_SECS`] have passed; `None`: still on its way.
+    pub fn poll(&self, now: f64) -> Option<Result<String, FetchError>> {
+        match self.rx.try_recv() {
+            Ok(got) => Some(got),
+            Err(mpsc::TryRecvError::Empty) if now - self.since < FETCH_SECS => None,
+            Err(_) => Some(Err(FetchError::Offline)),
+        }
+    }
+}
+
+/// A share link's answer: its lineup on to [`ask_import`], else the message why not. `false`: refused.
+pub fn ask_fetched(st: &mut PanelState, got: Result<String, FetchError>, in_match: bool) -> bool {
+    let key = match got {
+        Ok(text) if !matches!(lineup::parse(&text, st.edition), Err(LineupError::Empty)) => {
+            st.message = None; // "Fetching lineup..."
+            return ask_import(st, &text, in_match);
+        }
+        Ok(_) | Err(FetchError::NotLineup) => "cat.msg_link_not_lineup",
+        Err(FetchError::NotFound) => "cat.msg_link_not_found",
+        Err(FetchError::Offline) => "cat.msg_link_offline",
+    };
+    st.say(Tone::Refused, key);
+    false
+}
+
+/// The lineup `text` (the site's export: the clipboard's, or a share link's) as the whole table in place of
 /// `placed`. Refused during a match (the owner's rule) and for another edition's lineup. The message names what came
 /// in, the site's key player (the table has none: the player sets it in the game) and the cards skipped, and why.
 /// `Some(new table)`: the caller writes it; the old one waits in `import_undo` for [`undo_import`].
@@ -995,6 +1100,35 @@ pub fn undo_import(st: &mut PanelState, in_match: bool) -> Option<Vec<Placed>> {
     let (old, _) = st.import_undo.take()?;
     st.board = cards::board(&old, &st.cards);
     Some(old)
+}
+
+/// The FORMATIONS dialog: the ten slots as read, and the slot being named for SAVE (the name typed so far).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Formations {
+    pub slots: Vec<Option<formations::Slot>>,
+    pub naming: Option<(usize, String)>,
+}
+
+/// A saved formation on the table, as IMPORT LINEUP puts a lineup there: cards this game lacks are skipped and listed,
+/// refused during a match, the table before it kept for UNDO. The dialog closes so the board and its UNDO show.
+pub fn load_formation(
+    st: &mut PanelState,
+    placed: &[Placed],
+    slot: usize,
+    in_match: bool,
+    now: f64,
+) -> Option<Vec<Placed>> {
+    let text = st
+        .formations
+        .as_ref()?
+        .slots
+        .get(slot)?
+        .as_ref()?
+        .text
+        .clone();
+    let new = import_lineup(st, placed, &text, in_match, now)?;
+    st.formations = None;
+    Some(new)
 }
 
 /// "NAME (why), ...", the first 8, then "+N more".
@@ -1136,6 +1270,8 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
     // before the page: Enter and Esc answer the dialog, not the catalogue's search line or the page's close
     if st.import_ask.is_some() {
         import_dialog(ui, st, lang);
+    } else if st.formations.is_some() {
+        formations_dialog(ui, st, lang);
     }
     if st.page != Page::Game {
         let mut pg = ui.new_child(egui::UiBuilder::new().max_rect(above));
@@ -1333,6 +1469,144 @@ fn import_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     } else if go.clicked() || enter {
         st.import_go = true;
     }
+}
+
+/// FORMATIONS: ten slots, each its name and the club it was saved from. A filled slot's name loads it (greyed out
+/// during a match, the reason under the list); SAVE asks for a name (REPLACE when the slot is filled); COPY puts the
+/// slot's lineup, COPY BOARD the table's, on the clipboard as the site's text. CLOSE or Esc leaves.
+fn formations_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
+    let Some(mut f) = st.formations.take() else {
+        return;
+    };
+    let in_match = st.in_match;
+    let mut close = false;
+    let modal = egui::Modal::new(egui::Id::new("formations-dialog"))
+        .backdrop_color(Color32::from_black_alpha(170))
+        .frame(
+            egui::Frame::new()
+                .fill(Color32::from_rgba_unmultiplied(10, 16, 28, 240))
+                .stroke(Stroke::new(3.0, theme::GOLD))
+                .corner_radius(theme::RADIUS_BIG)
+                .inner_margin(20),
+        )
+        .show(ui.ctx(), |ui| {
+            ui.set_width(560.0);
+            ui.spacing_mut().item_spacing = vec2(8.0, 6.0);
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(tr!(lang, "form.title"))
+                        .font(theme::display(28.0))
+                        .color(theme::GOLD),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if action(ui, &tr!(lang, "form.copy_board")).clicked() {
+                        st.formation_copy = Some(None);
+                    }
+                });
+            });
+            for (i, slot) in f.slots.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.add_sized(
+                        [22.0, 30.0],
+                        egui::Label::new(
+                            egui::RichText::new(format!("{}", i + 1))
+                                .font(theme::bold(15.0))
+                                .color(theme::TEXT_DIM),
+                        ),
+                    );
+                    let (name, club) = match slot {
+                        Some(s) if s.name.is_empty() => (tr!(lang, "cat.lineup"), s.club.clone()),
+                        Some(s) => (s.name.clone(), s.club.clone()),
+                        None => (tr!(lang, "form.empty"), String::new()),
+                    };
+                    let load = ui.add_enabled(
+                        slot.is_some() && !in_match,
+                        egui::Button::new(egui::RichText::new(name).font(theme::bold(15.0)))
+                            .min_size(vec2(230.0, 30.0)),
+                    );
+                    if load.clicked() {
+                        st.formation_load = Some(i);
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .add_enabled(
+                                slot.is_some(),
+                                egui::Button::new(
+                                    egui::RichText::new(tr!(lang, "form.copy"))
+                                        .font(theme::bold(14.0)),
+                                ),
+                            )
+                            .clicked()
+                        {
+                            st.formation_copy = Some(Some(i));
+                        }
+                        if action(ui, &tr!(lang, "form.save")).clicked() {
+                            let name = slot.as_ref().map_or_else(String::new, |s| s.name.clone());
+                            f.naming = Some((i, name));
+                        }
+                        ui.label(
+                            egui::RichText::new(club)
+                                .font(theme::body(14.0))
+                                .color(theme::TEXT_DIM),
+                        );
+                    });
+                });
+            }
+            if in_match {
+                status_line(ui, Tone::Refused, &tr!(lang, "form.load_match"));
+            }
+            if let Some((i, name)) = &mut f.naming {
+                let i = *i;
+                ui.separator();
+                ui.label(
+                    egui::RichText::new(tr!(lang, "form.name_for", n = i + 1))
+                        .font(theme::bold(15.0))
+                        .color(theme::TEXT),
+                );
+                let old = f.slots.get(i).and_then(Option::as_ref);
+                if let Some(o) = old {
+                    status_line(
+                        ui,
+                        Tone::Notice,
+                        &tr!(lang, "form.replaces", name = o.name.clone()),
+                    );
+                }
+                let edit = ui.add(
+                    egui::TextEdit::singleline(name)
+                        .id_salt("form-name")
+                        .char_limit(40)
+                        .font(theme::body(16.0))
+                        .desired_width(f32::INFINITY),
+                );
+                if !edit.has_focus() {
+                    edit.request_focus();
+                }
+                let enter =
+                    ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+                ui.horizontal(|ui| {
+                    let label = if old.is_some() {
+                        "form.replace"
+                    } else {
+                        "form.save"
+                    };
+                    if action(ui, &tr!(lang, label)).clicked() || enter {
+                        st.formation_save = Some((i, name.trim().to_owned()));
+                    }
+                    if action(ui, &tr!(lang, "common.cancel")).clicked() {
+                        close = true;
+                    }
+                });
+            } else if action(ui, &tr!(lang, "common.close")).clicked() {
+                close = true;
+            }
+        });
+    let esc = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+    if st.formation_save.is_some() || ((close || esc) && f.naming.is_some()) {
+        f.naming = None; // CANCEL or Esc while naming: back to the list
+    } else if close || esc || modal.should_close() {
+        return;
+    }
+    st.formations = Some(f);
 }
 
 // ---- the card deal ----
@@ -1908,6 +2182,15 @@ pub fn latch_kept(
     latched.filter(|_| !crash && focused)
 }
 
+/// Whether 2017-18 has the in-match pause: the PAUSE button, the pause key (and its row on the KEYS page) and the
+/// panel DLL's hold. Off (owner, 2026-10-31, on hold); `true` brings it all back. 2010-11 is not behind it.
+pub const PAUSE_ON: bool = false;
+
+/// The pause is offered to this edition.
+pub fn pause_on(edition: Edition) -> bool {
+    PAUSE_ON || edition != Edition::E1718
+}
+
 /// The page bar's button `i` (0 CATALOGUE, 1 KEYS, 2 SETTINGS, 3 CLUB CARD) on the bar `bar` (also for tests that
 /// click it).
 pub fn page_button(bar: Rect, i: usize) -> Rect {
@@ -1960,17 +2243,20 @@ fn page_bar(ui: &mut Ui, st: &mut PanelState, bar: Rect, lang: Lang, side: bool)
     } else {
         "pause.button"
     };
-    let resp = ui.put(t, |ui: &mut Ui| {
-        cabinet(
-            ui,
-            t.size(),
-            &tr!(lang, key),
-            Cab::Plain,
-            st.paused.is_some(),
-        )
-    });
-    if resp.clicked() {
-        st.pause_asked = true;
+    // 2017-18 hides PAUSE while [`PAUSE_ON`] is off (RESUME stays if a pause somehow holds)
+    if pause_on(st.edition) || st.paused.is_some() {
+        let resp = ui.put(t, |ui: &mut Ui| {
+            cabinet(
+                ui,
+                t.size(),
+                &tr!(lang, key),
+                Cab::Plain,
+                st.paused.is_some(),
+            )
+        });
+        if resp.clicked() {
+            st.pause_asked = true;
+        }
     }
     // the right end, two rows: the card lamp (2010-11) and the ping (online only), then the window key
     let right = Rect::from_min_max(
@@ -2584,8 +2870,9 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
         add = c.results.first().map(|&i| cards[i].number);
     }
-    let mut import = false;
-    // the search line, IMPORT LINEUP at its right end
+    let (mut import, mut form) = (false, false);
+    let e1718 = st.edition == Edition::E1718;
+    // the search line, IMPORT LINEUP and FORMATIONS at its right end
     let row = vec2(ui.available_width(), 36.0);
     let search = ui
         .allocate_ui_with_layout(
@@ -2593,6 +2880,8 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             egui::Layout::right_to_left(egui::Align::Center),
             |ui| {
                 import = action(ui, &tr!(lang, "cat.import")).clicked();
+                // 2017-18 only (issue #89): 2010-11 stays as it is
+                form = e1718 && action(ui, &tr!(lang, "form.open")).clicked();
                 ui.add(
                     egui::TextEdit::singleline(&mut c.filter.search)
                         .id_salt("cat-search")
@@ -2604,7 +2893,9 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             },
         )
         .inner;
-    if !search.has_focus() && !egui::Popup::is_any_open(ui.ctx()) {
+    st.formations_open |= form;
+    // the FORMATIONS dialog's name line keeps the keys
+    if !search.has_focus() && !egui::Popup::is_any_open(ui.ctx()) && st.formations.is_none() {
         search.request_focus();
     }
     // an import's report runs to a few lines: across the page under the search line, not in the stats pane
@@ -3290,6 +3581,9 @@ fn keys(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                     caps(ui, &tr!(lang, "keys.controller"));
                     ui.end_row();
                     for i in (0..ACTIONS.len()).filter(|i| !OPERATOR.contains(i)) {
+                        if i == forza::keys::PAUSE && !pause_on(st.edition) {
+                            continue;
+                        }
                         row(ui, st, lang, i, cell_w);
                         ui.end_row();
                     }
@@ -3583,6 +3877,24 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             .clicked()
             {
                 st.file_changed = true;
+            }
+            if st.edition == Edition::E1718 {
+                // the key driver reads panel.txt again at once; with 2+ seats here it ignores the choice, and says so
+                let hint = if s.seats >= forza::keys::MAX_PAD_SEATS {
+                    "settings.pad_bg_seats"
+                } else {
+                    "settings.pad_bg_hint"
+                };
+                if widgets::toggle_row(
+                    ui,
+                    &mut st.file.pad_background,
+                    &tr!(lang, "settings.pad_bg"),
+                    &tr!(lang, hint),
+                )
+                .clicked()
+                {
+                    st.file_changed = true;
+                }
             }
         });
         widgets::section(right, &tr!(lang, "settings.next"), accent, |ui| {
@@ -4408,6 +4720,7 @@ pub fn widget_sheet(ui: &mut Ui, ws: &mut WidgetSheet) {
 mod tests {
     use super::*;
     use crate::board::Aptitude;
+    use forza::cards::BENCH_X;
 
     fn sheet_of(w: f32, h: f32) -> Rect {
         // what a window of w x h pixels shows, in points
@@ -5021,7 +5334,7 @@ mod tests {
             (
                 "",
                 false,
-                "No lineup on the clipboard. Copy one on db.wccf.it first.",
+                "Copy a lineup's db.wccf.it link (or its text), then IMPORT LINEUP.",
             ),
         ] {
             assert_eq!(import_lineup(&mut st, &old, lineup, in_match, 0.0), None);
@@ -5035,6 +5348,83 @@ mod tests {
             st.message.as_ref().unwrap().text,
             "None of these cards is in this game.\n998 (not in the catalogue), 999 (not in the catalogue)"
         );
+    }
+
+    #[test]
+    fn a_share_link_is_fetched_off_the_frame_then_asked_like_text() {
+        let (mut st, _) = importer();
+        assert!(ShareFetch::start(&mut st, "abcd123", true, 0.0, |_| unreachable!()).is_none());
+        assert_eq!(
+            st.message.as_ref().unwrap().text,
+            "Not during a match. Import between matches."
+        );
+        let f = ShareFetch::start(&mut st, "abcd123", false, 0.0, |path| {
+            assert_eq!(path, "/api/share/abcd123.txt");
+            Ok("# WCCF DB lineup\ngame 1011\nP 101 50 90\n".into())
+        })
+        .unwrap();
+        assert_eq!(st.message.as_ref().unwrap().text, "Fetching lineup...");
+        let got = loop {
+            if let Some(got) = f.poll(1.0) {
+                break got;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        };
+        assert!(ask_fetched(&mut st, got, false));
+        assert_eq!(st.import_ask.as_ref().map(|a| a.cards), Some(1));
+        assert!(st.message.is_none());
+        // no answer in time: offline, whatever comes later
+        let slow = ShareFetch::start(&mut st, "abcd123", false, 0.0, |_| {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            Ok(String::new())
+        })
+        .unwrap();
+        assert_eq!(slow.poll(1.0), None);
+        assert_eq!(slow.poll(FETCH_SECS), Some(Err(FetchError::Offline)));
+        for (got, said) in [
+            (
+                Err(FetchError::Offline),
+                "No answer from db.wccf.it. Check the internet connection and retry.",
+            ),
+            (
+                Err(FetchError::NotFound),
+                "This link has no lineup on db.wccf.it. Copy the link again.",
+            ),
+            (
+                Err(FetchError::NotLineup),
+                "The link did not give a lineup.",
+            ),
+            (
+                Ok("<html>not found</html>".into()),
+                "The link did not give a lineup.",
+            ),
+        ] {
+            assert!(!ask_fetched(&mut st, got, false));
+            let m = st.message.as_ref().unwrap();
+            assert_eq!((m.tone, m.text.as_str()), (Tone::Refused, said));
+        }
+        // another edition's lineup: the text's own check
+        assert!(!ask_fetched(
+            &mut st,
+            Ok("game 1718\nP 1 50 90\n".into()),
+            false
+        ));
+        assert_eq!(
+            st.message.as_ref().unwrap().text,
+            "This lineup is for 2017-18."
+        );
+    }
+
+    #[test]
+    fn a_share_answer_is_capped() {
+        let max = SHARE_MAX as usize;
+        assert_eq!(read_capped(&b"S 1\n"[..]), Ok("S 1\n".into()));
+        assert_eq!(read_capped(&vec![b'1'; max][..]).map(|t| t.len()), Ok(max));
+        assert_eq!(
+            read_capped(&vec![b'1'; max + 1][..]),
+            Err(FetchError::NotLineup)
+        );
+        assert_eq!(read_capped(&[0xff, 0xfe][..]), Err(FetchError::NotLineup));
     }
 
     #[test]
@@ -5073,6 +5463,48 @@ mod tests {
         assert_eq!(undo_import(&mut st, false), Some(old));
         assert_eq!(st.board.cards[0].number, 10);
         assert_eq!(undo_import(&mut st, false), None);
+    }
+
+    #[test]
+    fn a_formation_from_another_club_loads_without_its_missing_cards_and_undo_restores() {
+        let (mut st, old) = importer();
+        let other = [
+            (101, 0.0, 0.8),
+            (210, 0.2, -0.3),
+            (999, -0.4, 0.1),
+            (32, 1.24, 0.0),
+        ]
+        .map(|(no, x, y)| Placed { slot: 1, no, x, y });
+        let text = formations::text(&other, st.edition, "Away", "OTHER FC");
+        let slot = formations::slot_of(&text, st.edition);
+        assert_eq!(slot.as_ref().map(|s| s.club.as_str()), Some("OTHER FC"));
+        st.formations = Some(Formations {
+            slots: vec![None, slot],
+            naming: None,
+        });
+        // during a match: refused, the dialog and the table stay
+        assert_eq!(load_formation(&mut st, &old, 1, true, 1.0), None);
+        assert_eq!(
+            st.message.as_ref().unwrap().text,
+            "Not during a match. Import between matches."
+        );
+        assert!(st.formations.is_some() && st.import_undo.is_none());
+        // an empty slot loads nothing
+        assert_eq!(load_formation(&mut st, &old, 0, false, 1.0), None);
+        let new = load_formation(&mut st, &old, 1, false, 2.0).unwrap();
+        assert_eq!(
+            new.iter().map(|p| (p.no, p.x, p.y)).collect::<Vec<_>>(),
+            [(101, 0.0, 0.8), (210, 0.2, -0.3), (32, BENCH_X, -0.68)]
+        );
+        assert!(st.formations.is_none());
+        let m = st.message.as_ref().unwrap();
+        assert_eq!(m.tone, Tone::Notice);
+        assert_eq!(
+            m.text,
+            "Away: 3 cards on the table.\nSkipped: 999 (not in the catalogue)"
+        );
+        assert_eq!(undo_import(&mut st, false), Some(old));
+        assert_eq!(st.board.cards[0].number, 10);
     }
 
     #[test]

@@ -52,14 +52,11 @@ TASTI
       S       DATA                 D   KEY PLAYER
       frecce  tattiche: Su CENTRAL, Giù COUNTER, Sinistra L-SIDE, Destra R-SIDE
       I       carta Aime dentro / fuori   5   moneta
-      P       pausa
   I pulsanti del pannello fanno lo stesso: i triangoli (CENTRAL, COUNTER, L-SIDE, R-SIDE), PRESS, DATA, SHOOT,
   KEEPER, KEY PLAYER e START. Tasti e pulsanti del controller si cambiano in TASTI.
   Lavagna della formazione: trascinate una carta per spostarla, rilasciatela su un'altra per scambiarle. + CARTA apre
   il CATALOGO.
   Le carte rare con codice 2D funzionano.
-  La pausa (P o PAUSA) ferma una partita per al massimo 20 secondi; P o RIPRENDI la fa ripartire prima. Tra una pausa
-  e l'altra passano 10 secondi. Online non c'è pausa.
 
 ONLINE
   1. In GIOCA scegliete Online. Aprite Indirizzo diretto e scrivete l'indirizzo del server (HOST o HOST:PORTA). Il
@@ -67,13 +64,8 @@ ONLINE
      vostro. In SALE GIOCHI, APRI SALA apre una sala e ne mostra il codice; gli amici lo scrivono in Codice stanza,
      oppure scelgono una stanza dell'elenco e premono ENTRA. Nome della sala, sotto APRI SALA, è il nome che gli altri
      vedono nell'elenco.
-  2. CREA SFIDA apre una stanza e ne mostra il codice (ad es. K7QM). L'amico sceglie quella stanza e preme ENTRA.
-     PARTITA RAPIDA entra nella stanza aperta da più tempo, o ne apre una. ESCI (Esc) lascia il posto.
-  3. Tutti e due premono PRONTO; il gioco parte dopo un conto alla rovescia di 5 secondi. Se nessuno entra entro circa
-     90 secondi, giocate contro una squadra CPU.
-  Tasti della lobby: Su/Giù riga, Sinistra/Destra o Tab elenco, Invio ENTRA o PRONTO, H CREA SFIDA, F5 aggiorna,
-  Esc ESCI. Gamepad: croce o stick sinistro per muoversi, A = Invio, B = Esc, X = aggiorna, Y = CREA SFIDA,
-  LB/RB = elenco.
+  Tasti della lobby: Su/Giù riga, Invio ENTRA, H APRI SALA, F5 aggiorna, Esc ESCI.
+  Gamepad: croce o stick sinistro per muoversi, A = Invio, B = Esc, X = aggiorna, Y = APRI SALA.
   Sotto Indirizzo diretto:
     Server club               dove è salvato il vostro club. Vuoto: il server scelto.
     Collegamento VS diretto   collega il vostro PC a quello dell'avversario (relay.wccf.it). Spento: il VS passa dal

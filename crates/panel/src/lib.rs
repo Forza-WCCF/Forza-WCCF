@@ -16,6 +16,9 @@
 //! keys from keys.txt as the C panel does (down on the press, up after the release and at least 140 ms). Clicks on
 //! the game's picture go to the game, moved into its own client area, for its own on-screen buttons.
 //!
+//! The 2017-18 game's window gets a sizing border with its maximize at the start: the panel and the picture (16:10,
+//! clicks mapped back, [`game_point`]) follow any size the player drags it to.
+//!
 //! In the projector the panel draws nothing: its window is resizable, the picture letterboxed to it, and F11 /
 //! double-click / Esc give it borderless full screen ([`projector`], [`fullscreen`]).
 //!
@@ -34,6 +37,7 @@ mod patches;
 mod pause;
 mod probe;
 mod projector;
+mod share;
 
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, TextureId, ViewportId, pos2, vec2};
 use forza::cards::{self, Placed, TableFile};
@@ -150,6 +154,8 @@ static BOARD_FS: fullscreen::Slot = Mutex::new(None);
 static POPPED: AtomicBool = AtomicBool::new(false);
 /// The board window is in Windows' move/size loop: its swap chain is kept until the size settles.
 static BOARD_SIZING: AtomicBool = AtomicBool::new(false);
+/// The game's window is in Windows' move/size loop (2017-18 drags its edges): the same for its swap chain.
+static GAME_SIZING: AtomicBool = AtomicBool::new(false);
 /// Our own window message: maximized (wParam 1) or the game's size (0), done on the window's thread.
 const WM_FORZA_FS: u32 = WM_APP + 0x57;
 /// To the board window from the render thread, once it let go of the window's swap chain: the window goes.
@@ -757,6 +763,54 @@ fn clipboard_text() -> Option<String> {
     }
 }
 
+/// `text` on the clipboard as Unicode text; `false`: the clipboard could not be opened or taken.
+/// `WCCFPANEL_IMPORTTEST=FILE` writes `FILE.copy` instead (fakegame: the player's clipboard is left alone).
+fn set_clipboard_text(text: &str) -> bool {
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::System::DataExchange::{
+        CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+    };
+    if let Some(p) = std::env::var_os("WCCFPANEL_IMPORTTEST") {
+        let mut p = PathBuf::from(p).into_os_string();
+        p.push(".copy");
+        return std::fs::write(p, text).is_ok();
+    }
+    const CF_UNICODETEXT: u32 = 13;
+    let wide: Vec<u16> = text
+        .replace('\n', "\r\n")
+        .encode_utf16()
+        .chain([0])
+        .collect();
+    // SAFETY: a fresh movable block filled while locked; once SetClipboardData takes it the clipboard owns it, else it
+    // is freed here
+    unsafe {
+        let Ok(g) = GlobalAlloc(GMEM_MOVEABLE, wide.len() * 2) else {
+            return false;
+        };
+        let p = GlobalLock(g).cast::<u16>();
+        if p.is_null() {
+            let _ = GlobalFree(Some(g));
+            return false;
+        }
+        std::ptr::copy_nonoverlapping(wide.as_ptr(), p, wide.len());
+        let _ = GlobalUnlock(g);
+        if OpenClipboard(None).is_err() {
+            std::thread::sleep(Duration::from_millis(30));
+            if OpenClipboard(None).is_err() {
+                let _ = GlobalFree(Some(g));
+                return false;
+            }
+        }
+        let ok =
+            EmptyClipboard().is_ok() && SetClipboardData(CF_UNICODETEXT, Some(HANDLE(g.0))).is_ok();
+        if !ok {
+            let _ = GlobalFree(Some(g));
+        }
+        let _ = CloseClipboard();
+        ok
+    }
+}
+
 /// The screen's dpi as this process sees it: the real one when the game runs DPI-aware (the Launcher starts it with
 /// `__COMPAT_LAYER=HighDpiAware`), 96 when Windows stretches it. Asked once: a system-aware process keeps the dpi it
 /// started with (no WM_DPICHANGED), so a change of the scaling takes a new start.
@@ -790,29 +844,46 @@ fn test_screen() -> Option<RECT> {
 }
 
 /// Maximized with its title bar kept (minimize, maximize/restore and close), or the game's own size, as `wccfpanel.c`
-/// `set_maximized`; on the window's thread.
+/// `set_maximized`; on the window's thread. 2017-18 also gets a sizing border: the panel lays itself and the picture
+/// out at any client size, so the player can drag the window to any size; its client keeps the game's size.
 fn set_maximized(h: HWND, on: bool) {
+    // 2010-11 keeps its fixed frame (AGENTS.md: 2010-11 stays as it is)
+    let sizable = FILES
+        .get()
+        .is_some_and(|f| f.edition == theme::Edition::E1718);
     // SAFETY: window calls on a window of this process, from its own thread
     unsafe {
         let st = GetWindowLongW(h, GWL_STYLE);
+        let border = if sizable { WS_THICKFRAME.0 } else { 0 };
         let want = (st & !(WS_POPUP.0 as i32))
-            | (WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX).0 as i32;
+            | (WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX).0 as i32
+            | border as i32;
         if want != st {
+            // the window grows by the new border, so its client keeps its size (restore brings that size back)
+            let mut cr = RECT::default();
+            let _ = GetClientRect(h, &mut cr);
+            let mut o = RECT {
+                right: cr.right,
+                bottom: cr.bottom,
+                ..Default::default()
+            };
+            let ex = WINDOW_EX_STYLE(GetWindowLongW(h, GWL_EXSTYLE) as u32);
+            let keep = sizable
+                && !IsZoomed(h).as_bool()
+                && AdjustWindowRectEx(&mut o, WINDOW_STYLE(want as u32), false, ex).is_ok();
             SetWindowLongW(h, GWL_STYLE, want);
-            let _ = SetWindowPos(
-                h,
-                None,
-                0,
-                0,
-                0,
-                0,
-                SWP_NOMOVE
-                    | SWP_NOSIZE
-                    | SWP_NOZORDER
-                    | SWP_NOOWNERZORDER
-                    | SWP_NOACTIVATE
-                    | SWP_FRAMECHANGED,
-            );
+            let mut flags =
+                SWP_NOMOVE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED;
+            if !keep {
+                flags |= SWP_NOSIZE;
+            }
+            let _ = SetWindowPos(h, None, 0, 0, o.right - o.left, o.bottom - o.top, flags);
+            if sizable {
+                log(&format!(
+                    "window: resizable, client {}x{} kept",
+                    cr.right, cr.bottom
+                ));
+            }
         }
         if let Some(m) = test_screen() {
             let Ok(mut saved) = TEST_MAX.lock() else {
@@ -1210,6 +1281,8 @@ struct Render {
     table: TableFile,
     /// The table as last read or written; `st.board.cards[i]` is `placed[i]`.
     placed: Vec<Placed>,
+    /// IMPORT LINEUP's share link, its lineup on the way.
+    share: Option<panel::ShareFetch>,
     /// A cabinet button's key that is down, since when; the mouse still held on it.
     key: Option<(u32, Instant)>,
     /// The key the latch holds down (0: none): `LATCH_VK` as this thread last set it.
@@ -1304,6 +1377,7 @@ impl Render {
             st,
             table,
             placed,
+            share: None,
             key: None,
             latch: 0,
             mouse_down: false,
@@ -1381,7 +1455,14 @@ impl Render {
                 self.st.set_popped(popped);
                 return None;
             }
-            let (w, h) = (cr.right as u32, cr.bottom as u32);
+            // while the player drags the window's edge the chain it has is kept (Present stretches it to the window),
+            // made again once the size settles, as the board window's
+            let (w, h) = match &self.sc {
+                Some((_, sw, sh, swnd)) if *swnd == target && GAME_SIZING.load(Relaxed) => {
+                    (*sw, *sh)
+                }
+                _ => (cr.right as u32, cr.bottom as u32),
+            };
             let sc = self.swap_chain(dev, target, w, h)?;
             let sb = dev.CreateStateBlock(D3DSBT_ALL).ok()?;
             let mut vp = D3DVIEWPORT9::default();
@@ -1799,7 +1880,9 @@ impl Render {
         self.close_out();
         WANTS_KEYS.store(self.ctx.egui_wants_keyboard_input(), Relaxed);
         pause::KEY.store(self.st.keys[forza::keys::PAUSE], Relaxed);
-        if std::mem::take(&mut self.st.pause_asked) {
+        if std::mem::take(&mut self.st.pause_asked)
+            && (pause::enabled() || self.st.paused.is_some())
+        {
             pause::ASK.store(true, Relaxed);
         }
         self.page_open();
@@ -2120,7 +2203,7 @@ impl Render {
             let p = &self.st.file;
             match f.save_panel(p) {
                 Ok(()) => log(&format!(
-                    "settings: saved play_on={} server={} english={} layout={} hover={} auto_logs={} board={} board_buttons={} board_rect={:?}",
+                    "settings: saved play_on={} server={} english={} layout={} hover={} auto_logs={} board={} board_buttons={} pad_background={} board_rect={:?}",
                     if p.online { "online" } else { "this_pc" },
                     if p.server.is_empty() { "-" } else { &p.server },
                     p.english.as_deref().unwrap_or("-"),
@@ -2129,6 +2212,7 @@ impl Render {
                     if p.auto_logs_off { "off" } else { "on" },
                     if p.board_window { "window" } else { "game" },
                     if p.board_buttons { "on" } else { "off" },
+                    if p.pad_background { "on" } else { "off" },
                     p.board_rect,
                 )),
                 Err(e) => {
@@ -2422,9 +2506,10 @@ impl Render {
         }
     }
 
-    /// IMPORT LINEUP: the clipboard's text checked, then on the table once the dialog's CONFIRM comes
+    /// IMPORT LINEUP: the clipboard's text (or its share link's lineup, fetched off this thread) checked, then on the table once the dialog's CONFIRM comes
     /// ([`Render::import_text`]); its UNDO: the table before it.
     fn import(&mut self) {
+        self.formations();
         if std::mem::take(&mut self.st.import_undone)
             && let Some(old) = panel::undo_import(&mut self.st, in_match())
         {
@@ -2432,10 +2517,35 @@ impl Render {
             self.placed = old;
             self.table_write();
         }
-        if std::mem::take(&mut self.st.import) {
-            match clipboard_text() {
-                Some(text) => {
-                    if !panel::ask_import(&mut self.st, &text, in_match()) {
+        if let Some(got) = self
+            .share
+            .as_ref()
+            .and_then(|f| f.poll(self.ctx.input(|i| i.time)))
+        {
+            self.share = None;
+            log(&format!(
+                "import: share link answered {:?}",
+                got.as_ref().map(String::len)
+            ));
+            if !panel::ask_fetched(&mut self.st, got, in_match()) {
+                let why = self.st.message.as_ref().map_or("", |m| m.text.as_str());
+                log(&format!("import: refused - {}", why.replace('\n', " / ")));
+            }
+        }
+        if std::mem::take(&mut self.st.import) && self.share.is_none() {
+            let text = clipboard_text();
+            match text
+                .as_deref()
+                .map(|t| (t, forza::cards::lineup::share_id(t)))
+            {
+                Some((_, Some(id))) => {
+                    log(&format!("import: share link {id}"));
+                    let now = self.ctx.input(|i| i.time);
+                    self.share =
+                        panel::ShareFetch::start(&mut self.st, id, in_match(), now, share::get);
+                }
+                Some((text, None)) => {
+                    if !panel::ask_import(&mut self.st, text, in_match()) {
                         let why = self.st.message.as_ref().map_or("", |m| m.text.as_str());
                         log(&format!("import: refused - {}", why.replace('\n', " / ")));
                     }
@@ -2453,6 +2563,115 @@ impl Render {
             && let Some(ask) = self.st.import_ask.take()
         {
             self.import_text(&ask.text);
+        }
+    }
+
+    /// FORMATIONS (issue #89): the slots read on opening and after a SAVE; a slot loaded as IMPORT LINEUP loads a
+    /// lineup (UNDO the same); SAVE writes the table with the club it came from; COPY puts the site's text on the
+    /// clipboard.
+    fn formations(&mut self) {
+        use forza::cards::formations as fm;
+        use forza_ui::widgets::Tone;
+        let Some(f) = FILES.get() else { return };
+        let dir = fm::dir(&f.data.join("save"));
+        let edition = self.st.edition;
+        if std::mem::take(&mut self.st.formations_open) {
+            self.st.in_match = in_match();
+            self.st.formations = Some(panel::Formations {
+                slots: fm::read(&dir, edition),
+                naming: None,
+            });
+            log(&format!("formations: opened {}", dir.display()));
+        }
+        if let Some(i) = self.st.formation_load.take() {
+            let now = self.ctx.input(|i| i.time);
+            if let Some(new) = panel::load_formation(&mut self.st, &self.placed, i, in_match(), now)
+            {
+                log(&format!(
+                    "formations: slot {} loaded - {} card(s)",
+                    i + 1,
+                    new.len()
+                ));
+                let keep = self
+                    .table
+                    .table
+                    .with_file_name("fpr_table0.before-import.txt");
+                if let Err(e) = std::fs::write(&keep, cards::table_text(&self.placed)) {
+                    log(&format!("formations: {} not written ({e})", keep.display()));
+                }
+                self.placed = new;
+                self.table_write();
+            } else {
+                let why = self.st.message.as_ref().map_or("", |m| m.text.as_str());
+                log(&format!(
+                    "formations: slot {} not loaded - {}",
+                    i + 1,
+                    why.replace('\n', " / ")
+                ));
+            }
+        }
+        if let Some((i, name)) = self.st.formation_save.take() {
+            self.formation_save(&dir, i, &name, &f.data);
+        }
+        if let Some(which) = self.st.formation_copy.take() {
+            let text = match which {
+                None => Some(cards::lineup::export(&self.placed, edition, "")),
+                Some(i) => self
+                    .st
+                    .formations
+                    .as_ref()
+                    .and_then(|d| d.slots.get(i)?.as_ref())
+                    .and_then(|s| fm::site_text(&s.text, edition)),
+            };
+            if text.as_deref().is_some_and(set_clipboard_text) {
+                log(&format!("formations: copied {which:?}"));
+                self.st.say(Tone::Done, "form.msg_copied");
+            } else {
+                log(&format!("formations: copy {which:?} failed"));
+                self.st.say(Tone::Refused, "form.msg_not_copied");
+            }
+        }
+    }
+
+    /// SAVE: the table into slot `i` with its club (data\club_view.txt's CLUB row), then the slots read again.
+    fn formation_save(&mut self, dir: &Path, i: usize, name: &str, data: &Path) {
+        use forza::cards::formations as fm;
+        use forza_ui::widgets::Tone;
+        let edition = self.st.edition;
+        if self.placed.is_empty() {
+            self.st.say(Tone::Refused, "form.msg_empty_table");
+            return;
+        }
+        let club = std::fs::read(data.join("club_view.txt"))
+            .ok()
+            .and_then(|raw| {
+                forza::club_view::ClubView::parse(&raw)
+                    .row("CLUB")
+                    // "NAME  (founded DATE)"
+                    .map(|v| v.split("  (").next().unwrap_or(v).trim().to_owned())
+            })
+            .unwrap_or_default();
+        match fm::write(dir, i, &fm::text(&self.placed, edition, name, &club)) {
+            Ok(()) => {
+                log(&format!(
+                    "formations: slot {} saved ({} card(s), club {club:?})",
+                    i + 1,
+                    self.placed.len()
+                ));
+                let text = forza_ui::text(
+                    self.st.lang,
+                    "form.msg_saved",
+                    &[("n", &(i + 1).to_string())],
+                );
+                self.st.note(Tone::Done, text);
+            }
+            Err(e) => {
+                log(&format!("formations: slot {} not saved ({e})", i + 1));
+                self.st.say(Tone::Refused, "form.msg_not_saved");
+            }
+        }
+        if let Some(d) = self.st.formations.as_mut() {
+            d.slots = fm::read(dir, edition);
         }
     }
 
@@ -2782,6 +3001,8 @@ unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LR
             set_maximized(h, wp.0 != 0);
             return LRESULT(0);
         }
+        WM_ENTERSIZEMOVE => GAME_SIZING.store(true, Relaxed),
+        WM_EXITSIZEMOVE => GAME_SIZING.store(false, Relaxed),
         WM_CLOSE if !close_allowed() => return LRESULT(0), // a match is on: warned once
         WM_CLOSE => {
             CLOSING.store(true, Relaxed); // the window goes: link_watch calls the drop ENDED
@@ -2866,6 +3087,22 @@ unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LR
     }
 }
 
+/// The window point `p` on the game's picture `pic` (window pixels) as a point in the game's client area `cw` x `ch`.
+/// Off the picture (its bars, the panel) it is not the game's (`None`), unless `drag` (a press made on the picture is
+/// held): then it is clamped to the picture's edge.
+fn game_point(p: Pos2, pic: egui::Rect, cw: i32, ch: i32, drag: bool) -> Option<(i32, i32)> {
+    if !drag && !pic.contains(p) {
+        return None;
+    }
+    let at = |v: f32, a: f32, b: f32, size: i32| {
+        (((v - a) / (b - a) * size as f32) as i32).clamp(0, (size - 1).max(0))
+    };
+    Some((
+        at(p.x, pic.left(), pic.right(), cw),
+        at(p.y, pic.top(), pic.bottom(), ch),
+    ))
+}
+
 /// A mouse message on the game's picture (or the release of a button pressed there), moved from the picture into the
 /// game's whole client area, where the game drew its frame before the panel shrank it; `None` = not the game's.
 fn to_game(h: HWND, m: u32, lp: LPARAM) -> Option<LPARAM> {
@@ -2881,29 +3118,24 @@ fn to_game(h: HWND, m: u32, lp: LPARAM) -> Option<LPARAM> {
     let down = matches!(m, WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN);
     let up = matches!(m, WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP);
     let held = GAME_DOWN.load(Relaxed);
-    let ours = if up {
+    // a press made on the picture: its moves and its release stay the game's, wherever they are
+    let drag = if up {
         held & bit != 0
     } else {
-        pic.contains(p) || (m == WM_MOUSEMOVE && held != 0)
+        m == WM_MOUSEMOVE && held != 0
     };
-    if !ours {
+    if up && !drag {
         return None;
     }
+    let mut cr = RECT::default();
+    // SAFETY: a plain window query
+    unsafe { GetClientRect(h, &mut cr) }.ok()?;
+    let (gx, gy) = game_point(p, pic, cr.right, cr.bottom, drag)?;
     if down {
         GAME_DOWN.fetch_or(bit, Relaxed);
     } else if up {
         GAME_DOWN.fetch_and(!bit, Relaxed);
     }
-    let mut cr = RECT::default();
-    // SAFETY: a plain window query
-    unsafe { GetClientRect(h, &mut cr) }.ok()?;
-    let at = |v: f32, a: f32, b: f32, size: i32| {
-        (((v - a) / (b - a) * size as f32) as i32).clamp(0, (size - 1).max(0))
-    };
-    let (gx, gy) = (
-        at(p.x, pic.left(), pic.right(), cr.right),
-        at(p.y, pic.top(), pic.bottom(), cr.bottom),
-    );
     if down {
         log(&format!(
             "click at {},{} -> the game at {gx},{gy}",
@@ -3048,7 +3280,44 @@ fn vk_key(vk: u32) -> Option<Key> {
 
 #[cfg(test)]
 mod tests {
-    use super::{big_enough, game_title, match_now};
+    use super::{big_enough, game_point, game_title, match_now};
+    use egui::{Rect, pos2};
+
+    /// A click on the letterboxed picture lands where it would on the game's own frame; the bars around the picture are
+    /// not the game's, and a press held from the picture into a bar is clamped to the picture's edge.
+    #[test]
+    fn a_click_on_the_picture_maps_into_the_game() {
+        // a 1440x900 picture in a 2000x1000 window: pillarbox bars 280 wide, the game's client the whole window
+        let pic = Rect::from_min_max(pos2(280.0, 50.0), pos2(1720.0, 950.0));
+        let (cw, ch) = (2000, 1000);
+        assert_eq!(game_point(pic.min, pic, cw, ch, false), Some((0, 0)));
+        assert_eq!(
+            game_point(pic.center(), pic, cw, ch, false),
+            Some((1000, 500))
+        );
+        assert_eq!(
+            game_point(pic.max, pic, cw, ch, false),
+            Some((cw - 1, ch - 1))
+        );
+        // a quarter in from the left and the top
+        assert_eq!(
+            game_point(pos2(640.0, 275.0), pic, cw, ch, false),
+            Some((500, 250))
+        );
+        // the bars: nothing
+        assert_eq!(game_point(pos2(100.0, 500.0), pic, cw, ch, false), None);
+        assert_eq!(game_point(pos2(1900.0, 500.0), pic, cw, ch, false), None);
+        assert_eq!(game_point(pos2(1000.0, 10.0), pic, cw, ch, false), None);
+        // a drag from the picture into a bar: the picture's edge
+        assert_eq!(
+            game_point(pos2(100.0, 500.0), pic, cw, ch, true),
+            Some((0, 500))
+        );
+        assert_eq!(
+            game_point(pos2(1900.0, 990.0), pic, cw, ch, true),
+            Some((cw - 1, ch - 1))
+        );
+    }
 
     /// IMPORT LINEUP: 2017-18 asks the seat's own state (another seat's match puts the shared shop in GAME); the shop
     /// state only when that cannot be read; 2010-11 keeps the shop state; a card session always counts.
