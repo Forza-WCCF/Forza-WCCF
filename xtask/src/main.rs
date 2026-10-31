@@ -180,13 +180,8 @@ const MAP_1718: &[(&str, &str)] = &[
     ("english", "editions/2017-18/english"),
     ("italian", "editions/2017-18/italian"), // the Italian text: key + Italian, the English behind each key
     ("fonts", "assets/fonts"),
-    ("source/README.txt", "native/2017-18/README.txt"),
-    // the sources of the kit's 32-bit programs (winmm.dll, wccfnet.dll, ICMP.DLL, logowin.exe, FPR_Emu.exe)
-    ("source/native/common", "native/common"),
-    ("source/native/hook", "native/hook"),
-    ("source/native/wccfnet", "native/wccfnet"),
-    ("source/native/icmp", "native/icmp"),
-    ("source/native/programs", "native/programs"),
+    // no source\ (2026-10-29): its plain-text process-injection code got the ZIP flagged; `package` writes SOURCE.txt,
+    // the repository at the exact commit, instead
 ];
 /// Product name in the version information of programs both kits share.
 const PRODUCT_COMMON: &str = "Forza-WCCF";
@@ -2074,8 +2069,8 @@ fn shipped_docs_no_kit(root: &Path, kits: &[&Path]) -> Result<()> {
                 .filter_map(|e| Some(e.ok()?.path()))
                 .filter(|p| p.extension().is_some_and(|e| e == "txt" || e == "md")),
         );
-        docs.push(kit.join("source/README.txt"));
     }
+    docs.push(kits[0].join("source/README.txt")); // 2010-11 only: the 2017-18 ZIP has SOURCE.txt instead
     let src = root.join("crates/installer");
     docs.extend([src.join("README.md"), src.join("CHANGELOG.md")]);
     no_kit_word(&docs)
@@ -2100,6 +2095,24 @@ fn no_kit_word(files: &[PathBuf]) -> Result<()> {
     Ok(())
 }
 
+/// The 2017-18 ZIP's SOURCE.txt: where the source of its programs is, at the commit it was built from.
+fn source_txt(version: &str, commit: &str) -> String {
+    let sha = commit.split(' ').next().unwrap_or(commit);
+    let tag = if version.starts_with(|c: char| c.is_ascii_digit()) {
+        format!("Release tag v{version}, commit")
+    } else {
+        "Commit".to_owned()
+    };
+    format!(
+        "Forza-WCCF 2017-18 {version}\r\n\r\n\
+         The source of every program in this folder (Launcher.exe, bin\\, overlay\\):\r\n\
+         https://github.com/Forza-WCCF/Forza-WCCF/tree/{sha}\r\n\
+         {tag} {commit}. Licence: MIT or Apache-2.0, your choice.\r\n\r\n\
+         Il sorgente di ogni programma in questa cartella: il link qui sopra (licenza MIT o Apache-2.0).\r\n\
+         このフォルダーのすべてのプログラムのソース：上のリンク（MIT または Apache-2.0 ライセンス）。\r\n"
+    )
+}
+
 fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
     let Ed {
         top,
@@ -2122,7 +2135,9 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
         .filter_map(|e| Some(e.ok()?.path()))
         .filter(|p| p.extension().is_some_and(|e| e == "txt" || e == "md"))
         .collect();
-    docs.push(kit.join("source/README.txt"));
+    if is_1011 {
+        docs.push(kit.join("source/README.txt"));
+    }
     no_kit_word(&docs)?;
     for p in programs {
         ensure!(
@@ -2211,9 +2226,23 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
     if !version.is_empty() {
         fs::write(kit.join("version.txt"), format!("kit-{version}\r\n"))?;
     }
+    if !is_1011 {
+        let mut commit = cmd!(sh, "git rev-parse HEAD").read()?.trim().to_owned();
+        if !cmd!(sh, "git status --porcelain -- crates native xtask")
+            .read()?
+            .trim()
+            .is_empty()
+        {
+            commit.push_str(" plus uncommitted changes"); // a test build: the programs are not exactly that commit
+        }
+        fs::write(kit.join("SOURCE.txt"), source_txt(version, &commit))?;
+    }
     let mut shipped = BTreeSet::new();
     let mut dirs = BTreeSet::new();
     walk(kit, "", &mut shipped, &mut dirs)?;
+    if !shipped.iter().any(|f| f.starts_with("source/")) {
+        dirs.remove("source"); // only the unshipped source/build is left in it
+    }
     // files.sha256: each file's SHA-256, for the Launcher's update to check the unzipped kit before it copies anything
     // (lists of an earlier run in the folder are not in them)
     shipped.retain(|f| f != "files.txt" && f != "files.sha256");
@@ -2404,6 +2433,14 @@ fn walk(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_txt_names_the_tag_only_for_a_version() {
+        let r = source_txt("0.5.1", "abc");
+        assert!(r.contains("/tree/abc\r\n") && r.contains("Release tag v0.5.1, commit abc."));
+        let t = source_txt("test", "abc plus uncommitted changes");
+        assert!(t.contains("/tree/abc\r\n") && !t.contains("Release tag"));
+    }
 
     #[test]
     fn profiles_are_fast_locally_and_release_for_the_gate() {
