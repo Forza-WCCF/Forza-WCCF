@@ -2013,6 +2013,18 @@ impl Run<'_> {
         }
         let port = self.p.gamesvr_port;
         let ctrl_conf = self.game.join(r"local\ctrl_user_option.conf");
+        // the Universal Cup: the host dialog's data\settings.json "cup_minutes" (0 = the game's times), which the control
+        // reads only as it starts, so a new choice needs a new start
+        let minutes = self.kit.settings()["cup_minutes"].as_u64().unwrap_or(0);
+        let now = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+        let hhmm = u32::from(now.hour()) * 100 + u32::from(now.minute());
+        let cup = conf::cup_open_times(u32::try_from(minutes).unwrap_or(0), hhmm);
+        conf::set_cup_times(&ctrl_conf, cup)?;
+        let line = match cup {
+            Some([t, ..]) => Text::key("launcher.run_cup_at").arg("time", format!("{}:{:02}", t / 100, t % 100)),
+            None => Text::key("launcher.run_cup_game_times"),
+        };
+        self.tell("  ", &line);
         if let Mode::Vs(_) = self.mode {
             let panel_file = self.kit.data().join("panel.txt");
             let panel = choices::read(&panel_file);

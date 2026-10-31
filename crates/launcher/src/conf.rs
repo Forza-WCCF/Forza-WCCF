@@ -36,6 +36,49 @@ pub fn set_conf_value(conf: &Path, key: &str, value: &str) -> io::Result<bool> {
     write(conf, &raw, &out)
 }
 
+/// The game's Universal Cup open times (HHMM), which the stand-in's GAME_CTRL also sends (1,092..1,104).
+pub const CUP_TIMES: [u32; 4] = [1200, 1500, 1800, 2100];
+
+/// The Universal Cup open times (HHMM, this PC's clock) for a cup `minutes` after `now` (HHMM): that time, then the
+/// game's later ones, the rest 0 (passed over: the control takes the first time after now, control 0x462820).
+/// `None` keeps the game's times: `minutes` outside 21..=99 (the control inserts a cup only more than 20 minutes,
+/// GAME_CTRL 1174, after it started and less than 100 ahead), or a time before 05:00 or past midnight (no cup then).
+pub fn cup_open_times(minutes: u32, now: u32) -> Option<[u32; 4]> {
+    let at = now / 100 * 60 + now % 100 + minutes;
+    if !(21..100).contains(&minutes) || !(5 * 60..24 * 60).contains(&at) {
+        return None;
+    }
+    let first = at / 60 * 100 + at % 60;
+    let mut times = [first, 0, 0, 0];
+    for (t, &d) in times[1..].iter_mut().zip(CUP_TIMES.iter().filter(|&&d| d > first)) {
+        *t = d;
+    }
+    Some(times)
+}
+
+/// The control's own Universal Cup times in ctrl_user_option.conf, read once as it starts (control 0x49EE90, copied at
+/// 0x45CF77): UNIVERSAL_CHAMPIONSHIP_OPEN_TIME_OPTION=1 and OPEN_TIME1..4 for `times`, or OPTION=0 for the game's
+/// times (then the control takes the stand-in's GAME_CTRL times).
+pub fn cup_times_text(raw: &[u8], times: Option<[u32; 4]>) -> io::Result<Vec<u8>> {
+    let on = if times.is_some() { "1" } else { "0" };
+    let mut out = conf_text_with(raw, "UNIVERSAL_CHAMPIONSHIP_OPEN_TIME_OPTION", on)?;
+    for (i, t) in times.iter().flatten().enumerate() {
+        out = conf_text_with(
+            &out,
+            &format!("UNIVERSAL_CHAMPIONSHIP_OPEN_TIME{}", i + 1),
+            &t.to_string(),
+        )?;
+    }
+    Ok(out)
+}
+
+/// [`cup_times_text`] on the file; true if it changed.
+pub fn set_cup_times(conf: &Path, times: Option<[u32; 4]>) -> io::Result<bool> {
+    let raw = fs::read(conf)?;
+    let out = cup_times_text(&raw, times)?;
+    write(conf, &raw, &out)
+}
+
 /// 2017-18's control and its game server (ctrl_user_option.conf): GAME_SVR_IP, GAME_SVR_PORT and GAME_SVR_ENTRY,
 /// 1 = online, the control's VS entries (243-246) on, else 0 (control_Release.exe reads it at +932 of its options).
 /// `host` must be one the control can use: see [`game_server_host`].
@@ -178,5 +221,39 @@ mod club_tests {
         let t = conf_text_with(&t, "GAME_SVR_PORT", "20060").unwrap();
         assert_eq!(t, b"A=1\r\nGAME_SVR_IP=club.example.org\r\nGAME_SVR_PORT=20060\r\n");
         assert_eq!(conf_text_with(b"A=1", "K", "v").unwrap(), b"A=1\nK=v\n");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cup_in_n_minutes_becomes_the_controls_open_time_keys() {
+        assert_eq!(cup_open_times(25, 1410), Some([1435, 1500, 1800, 2100]));
+        assert_eq!(cup_open_times(40, 1150), Some([1230, 1500, 1800, 2100]));
+        assert_eq!(cup_open_times(60, 2030), Some([2130, 0, 0, 0]));
+        assert_eq!(cup_open_times(25, 2050), Some([2115, 0, 0, 0]));
+        assert_eq!(cup_open_times(25, 1940), Some([2005, 2100, 0, 0]));
+        // the game's times: no choice, under the control's 20-minute lead, past midnight, before 05:00
+        for (m, now) in [(0, 1410), (10, 1410), (100, 1000), (25, 2350), (25, 420)] {
+            assert_eq!(cup_open_times(m, now), None, "{m} min at {now}");
+        }
+        let raw = b"GAME_SVR_IP=localhost\r\nUNIVERSAL_CHAMPIONSHIP_OPEN_TIME1=900\r\n";
+        assert_eq!(
+            cup_times_text(raw, cup_open_times(25, 1410)).unwrap(),
+            b"GAME_SVR_IP=localhost\r\nUNIVERSAL_CHAMPIONSHIP_OPEN_TIME1=1435\r\n\
+UNIVERSAL_CHAMPIONSHIP_OPEN_TIME_OPTION=1\r\nUNIVERSAL_CHAMPIONSHIP_OPEN_TIME2=1500\r\n\
+UNIVERSAL_CHAMPIONSHIP_OPEN_TIME3=1800\r\nUNIVERSAL_CHAMPIONSHIP_OPEN_TIME4=2100\r\n"
+        );
+        // the game's times: the option off, the old times left for nobody to read
+        assert_eq!(
+            cup_times_text(
+                b"UNIVERSAL_CHAMPIONSHIP_OPEN_TIME_OPTION=1\nUNIVERSAL_CHAMPIONSHIP_OPEN_TIME1=1435\n",
+                None
+            )
+            .unwrap(),
+            b"UNIVERSAL_CHAMPIONSHIP_OPEN_TIME_OPTION=0\nUNIVERSAL_CHAMPIONSHIP_OPEN_TIME1=1435\n"
+        );
     }
 }

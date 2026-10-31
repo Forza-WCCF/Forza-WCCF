@@ -571,6 +571,10 @@ lobby.list_shop: {en: "List my arcade when I host", it: "Elenca la mia sala quan
 lobby.list_shop_on: {en: "Others can find and join your arcade from the list.", it: "Gli altri trovano la tua sala nell'elenco e possono entrare.", ja: "ほかのプレイヤーが一覧からゲームセンターを見つけて参加できます。"}
 lobby.shop_name: {en: "Arcade name", it: "Nome della sala", ja: "ゲームセンター名"}
 lobby.list_shop_off: {en: "Only players with the code can join.", it: "Entra solo chi ha il codice.", ja: "コードを知っているプレイヤーだけが参加できます。"}
+lobby.cup: {en: "Universal Cup", it: "Universal Cup", ja: "ユニバーサルカップ"}
+lobby.cup_game_times: {en: "Game times", it: "Orari del gioco", ja: "通常の時間"}
+lobby.cup_in: {en: "In %{m} min", it: "Tra %{m} min", ja: "%{m}分後"}
+lobby.cup_restart: {en: "Set when the arcade opens. To change it, close the arcade and host again.", it: "Si sceglie all'apertura della sala. Per cambiarlo, chiudi la sala e riaprila.", ja: "ゲームセンターを開くときに決まります。変更するには、閉じてから開き直してください。"}
 
 # ---- pause (the panel holds the match, at most 20 s) ----
 pause.button: {en: "PAUSE", it: "PAUSA", ja: "一時停止"}
@@ -719,6 +723,8 @@ launcher.run_guests_dropped: {en: "%{n} guest clubs left by an earlier arcade dr
 launcher.run_guests_unchecked: {en: "guest clubs left by an earlier arcade not checked (%{error})", it: "club ospiti lasciati da una sala precedente non controllati (%{error})", ja: "以前のゲームセンターに残っていたゲストのクラブは確認できませんでした (%{error})"}
 launcher.run_gamesvr_failed: {en: "the game server did not start (%{error})", it: "il server di gioco non si è avviato (%{error})", ja: "ゲームサーバーが起動しませんでした (%{error})"}
 launcher.run_gamesvr_local: {en: "game server on port %{port} (clubs in data\\save\\gamesvr)", it: "server di gioco sulla porta %{port} (club in data\\save\\gamesvr)", ja: "ゲームサーバー ポート %{port} (クラブは data\\save\\gamesvr)"}
+launcher.run_cup_at: {en: "Universal Cup opens at about %{time}", it: "La Universal Cup apre verso le %{time}", ja: "ユニバーサルカップは%{time}ごろ開始"}
+launcher.run_cup_game_times: {en: "Universal Cup at 12:00, 15:00, 18:00 and 21:00", it: "Universal Cup alle 12:00, 15:00, 18:00 e 21:00", ja: "ユニバーサルカップは12:00、15:00、18:00、21:00"}
 launcher.run_marker_unread: {en: "club marker not read (%{error})", it: "indicatore del club non letto (%{error})", ja: "クラブのマーカーを読み取れませんでした (%{error})"}
 launcher.run_no_card: {en: "club: no card yet on this PC, so none to bring", it: "club: ancora nessuna carta su questo PC, quindi niente da portare", ja: "クラブ: このPCにはまだカードがないため、持ち込むものはありません"}
 launcher.run_with_why: {en: "%{text} (%{why})", it: "%{text} (%{why})", ja: "%{text} (%{why})"}

@@ -191,8 +191,8 @@ fn launcher_host_dialog() {
         let mut st =
             launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Online);
         let v = &mut st.lobby;
-        (v.shop_rooms, v.kind, v.list_shop) = (true, lobby::Kind::Shops, true);
-        v.host_ask = Some((false, String::new()));
+        (v.shop_rooms, v.kind, v.list_shop, v.cup_minutes) = (true, lobby::Kind::Shops, true, 25);
+        v.host_ask = Some((false, String::new(), 0));
         snap(
             &mut all,
             &format!("launcher_host_dialog_{}", lang.code()),
@@ -1321,11 +1321,14 @@ fn lobby_shop_rooms() {
     assert_eq!(got.take(), None);
     assert!(v.borrow().host_ask.is_some());
     h.get_by_label("List my arcade when I host").click();
+    h.get_by_label("In 40 min").click();
     h.run_steps(2);
+    assert_eq!(v.borrow().cup_minutes, 40);
     h.get_by_label("Cancel").click();
     h.run_steps(2);
     assert_eq!(got.take(), None);
     assert!(v.borrow().host_ask.is_none() && !v.borrow().list_shop);
+    assert_eq!(v.borrow().cup_minutes, 0, "CANCEL puts the cup time back");
     h.key_press(egui::Key::H);
     h.run_steps(2);
     h.get_by_label("List my arcade when I host").click();
@@ -1337,12 +1340,18 @@ fn lobby_shop_rooms() {
     h.key_press(egui::Key::H);
     h.run_steps(2);
     h.get_by_label("List my arcade when I host").click();
+    h.get_by_label("In 25 min").click();
     h.run_steps(2);
     // the tab's HOST ARCADE, then the dialog's
     h.get_all_by_label("HOST ARCADE").last().unwrap().click();
     h.run_steps(2);
     assert_eq!(got.take(), Some(HostShop));
     assert!(v.borrow().host_ask.is_none() && v.borrow().list_shop);
+    assert_eq!(
+        v.borrow().cup_minutes,
+        25,
+        "HOST keeps the cup time for the caller to save"
+    );
     v.borrow_mut().code = " k7qm2xpd".into();
     h.run_steps(2);
     // one JOIN: the code typed, then the listed room row once clicked (the click empties the box)

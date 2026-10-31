@@ -196,6 +196,10 @@ pub enum LobbyAction {
     JoinLan(String),
 }
 
+/// The host dialog's Universal Cup choices: minutes after HOST, 0 = the game's times. Each is more than the control's
+/// 20-minute lead (GAME_CTRL 1174) and less than its 100-minute look-ahead (control 0x462820).
+pub const CUP_MINUTES: [u8; 4] = [0, 25, 40, 60];
+
 /// A shop found on this PC's network.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LanShop {
@@ -249,8 +253,12 @@ pub struct LobbyView {
     /// 2017-18: the name others see on this PC's listed room (data\settings.json `shop_name`, saved at HOST SHOP);
     /// empty: the desk's [`SHOP_ROOM_NAME`](forza::online::lobby::SHOP_ROOM_NAME).
     pub shop_name: String,
-    /// The host dialog is open (HOST SHOP clicked): `list_shop` and `shop_name` as they were, put back on CANCEL.
-    pub host_ask: Option<(bool, String)>,
+    /// 2017-18: when the shop's Universal Cup opens, minutes after HOST (one of [`CUP_MINUTES`]); 0 = the game's
+    /// 12:00/15:00/18:00/21:00 (data\settings.json `cup_minutes`, saved at HOST SHOP, read as the control starts).
+    pub cup_minutes: u8,
+    /// The host dialog is open (HOST SHOP clicked): `list_shop`, `shop_name` and `cup_minutes` as they were, put back
+    /// on CANCEL.
+    pub host_ask: Option<(bool, String, u8)>,
     /// The list takes the height left in the caller's `ui` (at least [`LIST_MIN_H`]) instead of [`LIST_H`]: for a
     /// lobby in a fixed-height tab with no scroll of its own around it.
     pub list_fit: bool,
@@ -394,6 +402,7 @@ impl LobbyView {
             host_players: None,
             list_shop: false,
             shop_name: String::new(),
+            cup_minutes: 0,
             host_ask: None,
             list_fit: false,
             desk: String::new(),
@@ -675,7 +684,7 @@ impl LobbyView {
 
     /// HOST SHOP: open the host dialog.
     fn ask_host(&mut self) {
-        self.host_ask = Some((self.list_shop, self.shop_name.clone()));
+        self.host_ask = Some((self.list_shop, self.shop_name.clone(), self.cup_minutes));
     }
 
     fn set_kind(&mut self, k: Kind) {
@@ -1316,6 +1325,30 @@ fn host_dialog(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<Lobb
                         .margin(vec2(10.0, 6.0)),
                 );
             });
+            // the control reads the cup times only as it starts (no live change: that would drop every seat)
+            ui.horizontal(|ui| {
+                field(ui, &tr!(lang, "lobby.cup"), 130.0);
+                let labels: Vec<String> = CUP_MINUTES
+                    .iter()
+                    .map(|&m| match m {
+                        0 => tr!(lang, "lobby.cup_game_times"),
+                        m => tr!(lang, "lobby.cup_in", m = m),
+                    })
+                    .collect();
+                let labels: Vec<&str> = labels.iter().map(String::as_str).collect();
+                let mut i = CUP_MINUTES
+                    .iter()
+                    .position(|&m| m == v.cup_minutes)
+                    .unwrap_or(0);
+                if segmented(ui, &mut i, &labels, ui.available_width()) {
+                    v.cup_minutes = CUP_MINUTES[i];
+                }
+            });
+            ui.label(
+                egui::RichText::new(tr!(lang, "lobby.cup_restart"))
+                    .size(12.5)
+                    .color(theme::TEXT_DIM),
+            );
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 let size = vec2(216.0, 48.0);
@@ -1328,9 +1361,9 @@ fn host_dialog(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<Lobb
         v.host_ask = None;
         *act = Some(LobbyAction::HostShop);
     } else if (cancel || modal.should_close())
-        && let Some((list, name)) = v.host_ask.take()
+        && let Some((list, name, cup)) = v.host_ask.take()
     {
-        (v.list_shop, v.shop_name) = (list, name);
+        (v.list_shop, v.shop_name, v.cup_minutes) = (list, name, cup);
     }
 }
 

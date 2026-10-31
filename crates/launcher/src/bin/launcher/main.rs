@@ -740,6 +740,11 @@ impl App {
         lobby.shop_rooms = ed == Edition::E1718 && run::rules::shop_1718_on(&kit.settings());
         lobby.list_shop = kit.settings()["list_shop"].as_bool() == Some(true);
         lobby.shop_name = choices::setting(&settings, "shop_name").unwrap_or_default();
+        lobby.cup_minutes = kit.settings()["cup_minutes"]
+            .as_u64()
+            .and_then(|m| u8::try_from(m).ok())
+            .filter(|m| forza_ui::lobby::CUP_MINUTES.contains(m))
+            .unwrap_or(0);
         let st = LauncherState {
             edition: ed,
             lang: text::lang(),
@@ -1078,11 +1083,14 @@ impl App {
                         }
                     }
                     // the host dialog's switch (default off) and the listed room's name as typed, as the desk carries it
-                    // (run::open_shop_room reads both)
+                    // (run::open_shop_room reads both), and the Universal Cup time (run's start_gamesvr)
                     let name = forza::online::lobby::shop_name(&self.st.lobby.shop_name);
                     let file = kit.settings_file();
                     if let Err(e) = choices::set_setting_bool(&file, "list_shop", self.st.lobby.list_shop)
                         .and_then(|()| choices::set_setting(&file, "shop_name", &name))
+                        .and_then(|()| {
+                            choices::set_setting_json(&file, "cup_minutes", self.st.lobby.cup_minutes.into())
+                        })
                     {
                         refuse(write_failed(&file, &e));
                         return;
