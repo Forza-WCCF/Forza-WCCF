@@ -2989,8 +2989,8 @@ fn game_window() -> Option<HWND> {
 
 /// The latched key up now, once (the render thread or the window procedure, whichever comes first).
 /// The focus or the mouse capture went to another window: no release will come, so egui is told every held button is
-/// up (at the last spot: a card in hand drops there) and the pointer is gone. `PointerGone` alone leaves egui's buttons
-/// down, and with them a card dragged from the board.
+/// up (at the last spot: a card in hand drops there), else the pointer is gone. `PointerGone` alone leaves egui's
+/// buttons down, and with them a card dragged from the board.
 fn release_held(board: bool) {
     let i = usize::from(board);
     let held = HELD[i].swap(0, Relaxed);
@@ -3010,7 +3010,10 @@ fn release_held(board: bool) {
         modifiers: Modifiers::NONE,
     })
     .collect();
-    events.push(Event::PointerGone);
+    // the release leaves the pointer at its spot (the drop is judged there); PointerGone only when nothing was held
+    if events.is_empty() {
+        events.push(Event::PointerGone);
+    }
     push(board, events);
 }
 
