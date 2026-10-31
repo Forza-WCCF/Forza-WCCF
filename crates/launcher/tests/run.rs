@@ -858,8 +858,6 @@ fn scratch_kit_1718(top: &Path) -> Kit {
     }
     built_copy("2017-18/bin", "wccfnet.dll", &game.join("wccfnet.dll"));
     built_copy("2017-18/bin", "wccfnet.dll", &seat.join("wccfnet.dll"));
-    built_copy("2017-18/bin", "ICMP.DLL", &game.join("ICMP.DLL"));
-    built_copy("2017-18/bin", "ICMP.DLL", &seat.join("ICMP.DLL"));
     // no panel (overlay\forza_panel.dll): the run says so and plays on
     for dir in [&game, &seat] {
         fs::create_dir_all(dir.join("local")).unwrap();
@@ -873,7 +871,6 @@ fn scratch_kit_1718(top: &Path) -> Kit {
         "standin_client.exe": {"original": "-", "guarded": sha(&game.join("standin_client.exe"))},
         "standin_control.exe": {"original": "-", "guarded": sha(&game.join("standin_control.exe"))},
         "wccfnet.dll": sha(&game.join("wccfnet.dll")),
-        "ICMP.DLL": sha(&game.join("ICMP.DLL")),
         "seat1/standin_client.exe": sha(&seat.join("standin_client.exe")),
         "standin_match.exe": {"original": "-", "guarded": sha(&game.join("standin_match.exe"))},
         "dmath.dll": sha(&game.join("dmath.dll")),
@@ -908,9 +905,25 @@ fn a_2017_18_kit_that_is_not_guarded_starts_nothing() {
     refused("a wrong hash", "is not the file Setup made");
     guarded_copy(&seat.join("standin_client.exe"));
 
+    fs::write(game.join("wccfnet.dll"), b"no guard").unwrap();
+    refused("a changed wccfnet.dll", "wccfnet.dll is not the file Setup made");
+    built_copy("2017-18/bin", "wccfnet.dll", &game.join("wccfnet.dll"));
+
+    // a runtime set up before 0.6.0: its programs still load ICMP.DLL, so it is checked while the record names it
+    let record_at = top.path().join("setup-hashes.json");
+    let fresh = fs::read_to_string(&record_at).unwrap();
+    let mut old: serde_json::Value = serde_json::from_str(&fresh).unwrap();
+    for dir in [&game, &seat] {
+        fs::write(dir.join("ICMP.DLL"), b"the old stand-in").unwrap();
+    }
+    old["ICMP.DLL"] = sha(&game.join("ICMP.DLL")).into();
+    fs::write(&record_at, old.to_string()).unwrap();
     fs::write(seat.join("ICMP.DLL"), b"pings for real").unwrap();
-    refused("a changed ICMP.DLL in seat 1", "ICMP.DLL is not the file Setup made");
-    built_copy("2017-18/bin", "ICMP.DLL", &seat.join("ICMP.DLL"));
+    refused(
+        "a changed ICMP.DLL in an old runtime",
+        "ICMP.DLL is not the file Setup made",
+    );
+    fs::write(&record_at, fresh).unwrap(); // a new record does not name it: nothing loads it
 
     fs::write(seat.join("dmath.dll"), b"another det-math").unwrap();
     refused("a changed dmath.dll in seat 1", "dmath.dll is not the file Setup made");

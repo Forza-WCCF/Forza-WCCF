@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "native/common", "native/detmath", "native/hook", "native/icmp", "native/netguard", "native/programs", "native/wccfnet", "xtask", "xtask/cap"]
+members = ["crates/*", "native/common", "native/detmath", "native/hook", "native/netguard", "native/programs", "native/wccfnet", "xtask", "xtask/cap"]
 default-members = ["crates/*"]
 
 [workspace.package]

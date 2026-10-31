@@ -17,7 +17,8 @@ use sha2::{Digest, Sha256};
 pub const HASHES: &str = "setup-hashes.json";
 /// The guard DLL the guarded programs import.
 pub const WCCFNET: &str = "wccfnet.dll";
-/// The stand-in the game loads by name for its pings (they return at once), in the game folder and seat 1.
+/// The stand-in a runtime set up before 0.6.0 loads by name for its pings; setup now points that load at wccfnet.dll
+/// and deletes it.
 pub const ICMP: &str = "ICMP.DLL";
 /// The DLL setup's copy of the match engine imports (the same math on every CPU); seat 1 links to the game's.
 pub const DMATH: &str = "dmath.dll";
@@ -30,8 +31,8 @@ pub const BLOCKED: [&str; 4] = [
 ];
 
 /// The files the guard checks, each with where setup-hashes.json keeps its hash: the game's two guarded programs, seat
-/// 1's own guarded client, wccfnet.dll, the ICMP.DLL stand-in, the match engine and dmath.dll (seat 1's copies of the
-/// last four are links to the game's).
+/// 1's own guarded client, wccfnet.dll, the match engine and dmath.dll (seat 1's copies of the last three are links to
+/// the game's).
 pub fn files(game: &Path, seat: &Path, [client, control, engine]: [&str; 3]) -> Vec<(PathBuf, Vec<String>)> {
     let key = |k: &[&str]| k.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
     vec![
@@ -40,8 +41,6 @@ pub fn files(game: &Path, seat: &Path, [client, control, engine]: [&str; 3]) -> 
         (seat.join(client), key(&[&format!("seat1/{client}")])),
         (game.join(WCCFNET), key(&[WCCFNET])),
         (seat.join(WCCFNET), key(&[WCCFNET])),
-        (game.join(ICMP), key(&[ICMP])),
-        (seat.join(ICMP), key(&[ICMP])),
         (game.join(engine), key(&[engine, "guarded"])),
         (seat.join(engine), key(&[engine, "guarded"])),
         (game.join(DMATH), key(&[DMATH])),
@@ -53,7 +52,17 @@ pub fn files(game: &Path, seat: &Path, [client, control, engine]: [&str; 3]) -> 
 /// or a test's stand-ins): Ok, or what is wrong.
 pub fn check(game: &Path, seat: &Path, client: &str, control: &str, engine: &str) -> Result<(), String> {
     let runtime = game.parent().unwrap_or(game);
-    hashes(&runtime.join(HASHES), &files(game, seat, [client, control, engine]))?;
+    let record = runtime.join(HASHES);
+    let mut list = files(game, seat, [client, control, engine]);
+    // a runtime set up before 0.6.0 still loads its ICMP.DLL: checked while the record names it (setup again drops both)
+    if fs::read_to_string(&record)
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .is_some_and(|j| j.get(ICMP).is_some())
+    {
+        list.extend([game, seat].map(|d| (d.join(ICMP), vec![ICMP.to_owned()])));
+    }
+    hashes(&record, &list)?;
     for exe in [game.join(client), game.join(control), seat.join(client)] {
         let data = fs::read(&exe).map_err(|e| format!("{}: {e}", exe.display()))?;
         imports(&data).map_err(|why| format!("{}: {why}", exe.display()))?;
@@ -202,7 +211,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (game, seat) = (dir.path().join("game"), dir.path().join("seat1"));
         let (client, control, engine) = ("client.exe", "control.exe", "match_Release.exe");
-        let names = [client, control, WCCFNET, ICMP, engine, DMATH];
+        let names = [client, control, WCCFNET, engine, DMATH];
         for d in [&game, &seat] {
             fs::create_dir_all(d).unwrap();
             for n in names {
@@ -219,7 +228,6 @@ mod tests {
             control: {"guarded": sha(control.as_bytes())},
             format!("seat1/{client}"): sha(client.as_bytes()),
             WCCFNET: sha(WCCFNET.as_bytes()),
-            ICMP: sha(ICMP.as_bytes()),
         });
         fs::write(&record, json.to_string()).unwrap();
         let why = hashes(&record, &list).unwrap_err();

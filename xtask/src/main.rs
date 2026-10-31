@@ -194,7 +194,6 @@ const KEEP_1718: &[&str] = &[
     "bin/winmm.dll",
     "bin/wccfnet.dll",
     "bin/dmath.dll",
-    "bin/ICMP.DLL",
     "bin/FPR_Emu.exe",
     "overlay/forza_panel.dll",
     "source/build",
@@ -238,7 +237,6 @@ const NATIVE: &[(&str, bool, &str)] = &[
     ("fpr_emu.exe", false, "bin/FPR_Emu.exe"),
     ("wccfnet.dll", false, "bin/wccfnet.dll"),
     ("dmath.dll", false, "bin/dmath.dll"),
-    ("icmp.dll", false, "bin/ICMP.DLL"),
     // not in the 2017-18 kit: the Linux servers' hooks load it (forza-hook e1011-server and e1718-server, [`HOOKS`])
     ("netguard.dll", false, "source/build/netguard.dll"),
     // the server hook's self-tests, run under Wine beside it (native/hook/src/server.rs); a folder of their own, so
@@ -284,8 +282,9 @@ const NATIVE: &[(&str, bool, &str)] = &[
     ("test_logowin.exe", false, "source/build/test_logowin.exe"),
     ("test_netguard.exe", false, "source/build/test_netguard.exe"),
     ("test_panel.exe", false, "source/build/test_panel.exe"),
-    // test_panel's stand-in for the panel: a DLL that does nothing when it loads
-    ("icmp.dll", false, "source/build/panel_probe.dll"),
+    // test_panel's stand-in for the panel: a DLL that does nothing when it loads (a second wccfnet.dll finds
+    // FORZA_PANEL already taken by the first)
+    ("wccfnet.dll", false, "source/build/panel_probe.dll"),
 ];
 /// forza_hook.dll per edition: (its feature, `true` the 2010-11 kit, where the kit has it). The Linux server's hooks
 /// are in neither ZIP: the 2017-18 kit's source/build, which is not zipped, holds them beside netguard.dll.
@@ -350,8 +349,6 @@ const NATIVE_CRATES: &[&str] = &[
     "-p",
     "forza-netguard",
     "-p",
-    "forza-icmp",
-    "-p",
     "forza-programs",
     "--features",
     "forza-programs/programs",
@@ -373,7 +370,6 @@ const PROGRAMS_1718: &[&str] = &[
     "bin/winmm.dll",
     "bin/wccfnet.dll",
     "bin/dmath.dll",
-    "bin/ICMP.DLL",
     "bin/FPR_Emu.exe",
     "overlay/forza_panel.dll",
 ];
@@ -1030,7 +1026,6 @@ const NATIVE_PKGS: &[&str] = &[
     "forza-wccfnet",
     "forza-detmath",
     "forza-netguard",
-    "forza-icmp",
     "forza-programs",
 ];
 
@@ -1413,7 +1408,7 @@ fn tests(
         if !expr.is_empty() {
             test.args(["-E", &expr.join(" & ")]);
         }
-        // a filtered package may have no tests (forza-icmp has none): nothing to run is a pass
+        // a filtered package may have no tests (forza-wccfnet has none): nothing to run is a pass
         if only.is_some() {
             test.arg("--no-tests=pass");
         }
@@ -1531,7 +1526,7 @@ fn panel_selftests(ck: &mut Checks) -> Result<()> {
 }
 
 /// The 2017-18 network guard, never the real IP helper calls: test_wccfnet.exe loads wccfnet.dll from a scratch folder and calls
-/// its four stubs (each must return 0 and log a line); test_netguard.exe imports the four IP helper calls and checks netguard.dll
+/// its four stubs (each must return 0 and log a line), test_icmp.exe its three ICMP calls; test_netguard.exe imports the four IP helper calls and checks netguard.dll
 /// (not shipped: the 2010-11 Linux server loads it) moved them into itself before calling anything; test_panel.exe checks that FORZA_PANEL makes it load a probe DLL once a
 /// window shows, and that without the variable nothing loads; test_logowin.exe checks that the 2017-18 hook answers a start
 /// of logowin.exe without starting anything.
@@ -1546,7 +1541,6 @@ fn guard_tests(ck: &mut Checks, kit: &Path) -> Result<()> {
         ("source/build/test_netguard.exe", "test_netguard.exe"),
         ("source/build/test_panel.exe", "test_panel.exe"),
         ("source/build/panel_probe.dll", "panel_probe.dll"),
-        ("bin/ICMP.DLL", "ICMP.DLL"),
         ("source/build/test_icmp.exe", "test_icmp.exe"),
     ] {
         fs::copy(kit.join(from), t.join(to))?;
@@ -1563,9 +1557,9 @@ fn guard_tests(ck: &mut Checks, kit: &Path) -> Result<()> {
             "netguard.dll",
         ),
         (
-            "ICMP.DLL stand-in: three exports, IcmpSendEcho returns 0 at once",
+            "wccfnet.dll answers the pings: three ICMP exports, IcmpSendEcho returns 0 at once and logs",
             "test_icmp.exe",
-            "ICMP.DLL",
+            "wccfnet.dll",
         ),
     ] {
         let mut c = Command::new(t.join(exe));
