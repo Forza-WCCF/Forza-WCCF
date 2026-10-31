@@ -13,7 +13,11 @@ use std::time::{Duration, Instant};
 use launcher::debug::{Options, Role, maps, run};
 use launcher::job::Job;
 use launcher::kit::Edition;
+use windows_sys::Win32::Foundation::CloseHandle;
 use windows_sys::Win32::System::Memory::{FILE_MAP_READ, MapViewOfFile, UnmapViewOfFile};
+use windows_sys::Win32::System::Threading::{
+    ABOVE_NORMAL_PRIORITY_CLASS, GetPriorityClass, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+};
 
 /// A stand-in from the kit build, copied into `dir` as `name`.
 fn stand_in(exe: &str, dir: &Path, name: &str) -> PathBuf {
@@ -43,6 +47,7 @@ fn options(exe: PathBuf, top: &Path, role: Role) -> Options {
         dumps: top.join("data/dumps"),
         index: None,
         msgguard: Some(true),
+        above_normal: false,
         env: Vec::new(),
         stop: None,
     }
@@ -252,6 +257,37 @@ fn hide_starts_the_windows_hidden() {
         assert_eq!(code, 0);
         assert!(job.wait_empty(Duration::from_secs(10)));
     }
+}
+
+/// `above_normal` (2017-18): a game program starts at above-normal priority and the log says so.
+#[test]
+fn above_normal_raises_a_game_program() {
+    let top = tempfile::tempdir().unwrap();
+    let game = top.path().join("game");
+    fs::create_dir_all(&game).unwrap();
+    let exe = game.join("match_Release.exe");
+    fs::copy(std::env::current_exe().unwrap(), &exe).unwrap();
+    let mut opts = options(exe, top.path(), Role::Control);
+    opts.args = ["debug::window_stand_in", "--exact", "--ignored", "--nocapture"]
+        .map(String::from)
+        .to_vec();
+    opts.above_normal = true;
+    let (job, log, t) = start(opts);
+    let pid = launched_pid(&log);
+    // SAFETY: plain calls; the handle is closed before it goes out of scope.
+    let class = unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        assert!(!h.is_null(), "{}", log.text());
+        let c = GetPriorityClass(h);
+        CloseHandle(h);
+        c
+    };
+    let code = t.join().unwrap();
+    let out = log.text();
+    assert_eq!(class, ABOVE_NORMAL_PRIORITY_CLASS, "{out}");
+    assert!(out.contains("above-normal priority: yes"), "{out}");
+    assert_eq!(code, 0, "{out}");
+    assert!(job.wait_empty(Duration::from_secs(10)));
 }
 
 /// make_all on made-up motion files under a name of the test's own: every mapping holds its payload; a mapping that

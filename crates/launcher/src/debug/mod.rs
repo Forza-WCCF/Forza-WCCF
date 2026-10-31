@@ -49,7 +49,7 @@ use windows_sys::Win32::System::Diagnostics::Debug::{
     Wow64GetThreadContext, Wow64SetThreadContext, WriteProcessMemory,
 };
 use windows_sys::Win32::System::Threading::{
-    GetCurrentProcess, HIGH_PRIORITY_CLASS, PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+    ABOVE_NORMAL_PRIORITY_CLASS, GetCurrentProcess, HIGH_PRIORITY_CLASS, PROCESS_POWER_THROTTLING_CURRENT_VERSION,
     PROCESS_POWER_THROTTLING_EXECUTION_SPEED, PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION,
     PROCESS_POWER_THROTTLING_STATE, ProcessPowerThrottling, SetPriorityClass, SetProcessInformation, TerminateProcess,
 };
@@ -94,6 +94,8 @@ const INDEXED: [(&str, &str); 4] = [
     ("match_release.exe", "match"),
     ("launcher1011.exe", "launcher"),
 ];
+/// The programs raised to above-normal priority ([`Options::above_normal`]); helpers like FPR_Emu stay normal.
+const GAME_PROGRAMS: [&str; 3] = ["control_release.exe", "client_release.exe", "match_release.exe"];
 /// The program the message-reassembly guard is for.
 const CONTROL: &str = "control_release.exe";
 
@@ -142,6 +144,9 @@ pub struct Options {
     /// The 2010-11 message-reassembly guard for control (WCCF_MSGGUARD, on unless "0"); None: 2017-18, whose control
     /// the hook guards in-process (whole messages).
     pub msgguard: Option<bool>,
+    /// The game programs (control, client, match engines) run at above-normal priority, so background load on the
+    /// host does not stall a VS match (2017-18).  Never higher: the engines step with Sleep(0) while catching up.
+    pub above_normal: bool,
     /// Added to the program's environment (the run's WCCF_ and MXHOOK_ settings).
     pub env: Vec<(String, String)>,
     /// Set by the run to end the program now (a quit or a cabinet restart), as the timeout does.
@@ -695,6 +700,20 @@ pub fn run(opts: &Options, job: &Job, out: &mut dyn Write) -> io::Result<i32> {
                     who(main, pid, &pr.name),
                     // SAFETY: plain call.
                     fast.map_or_else(|| format!("FAILED (error {})", last_error()), str::to_owned)
+                );
+            }
+            if opts.above_normal && GAME_PROGRAMS.iter().any(|g| pr.name.eq_ignore_ascii_case(g)) {
+                // SAFETY: the event's process handle, live while the process is debugged.
+                let raised = unsafe { SetPriorityClass(ci.hProcess, ABOVE_NORMAL_PRIORITY_CLASS) } != 0;
+                say!(
+                    out,
+                    "  t+{now:5.1}s {}above-normal priority: {}",
+                    who(main, pid, &pr.name),
+                    if raised {
+                        "yes".to_owned()
+                    } else {
+                        format!("FAILED (error {})", last_error())
+                    }
                 );
             }
             if pid == main {
