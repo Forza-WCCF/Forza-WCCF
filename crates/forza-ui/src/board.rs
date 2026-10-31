@@ -1436,6 +1436,9 @@ pub fn formation_board(
         });
     if touched {
         ui.data_mut(|d| d.insert_temp(touch_id, now));
+        // a frame when the hold runs out, though nothing else happens
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_secs_f64(SELECT_HOLD));
     } else if clicked_card.is_some() {
         let last = ui.data(|d| d.get_temp::<f64>(touch_id)).unwrap_or(now);
         if now - last >= SELECT_HOLD {
