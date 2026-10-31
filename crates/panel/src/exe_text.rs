@@ -195,6 +195,24 @@ fn names(base: usize, size: usize, italian: bool) -> usize {
 mod tests {
     use super::*;
 
+    /// The shipped sheets: every row parses and fits its room (`parse`), both languages list the same rows, and no
+    /// two rooms overlap.
+    #[test]
+    fn shipped_sheets_fit() {
+        let en = parse(include_str!("../../../editions/2017-18/english/exe_text.tsv")).unwrap();
+        let it = parse(include_str!("../../../editions/2017-18/italian/exe_text.tsv")).unwrap();
+        let key = |r: &Row| (r.rva, r.len, r.sha, r.room);
+        assert_eq!(
+            en.iter().map(key).collect::<Vec<_>>(),
+            it.iter().map(key).collect::<Vec<_>>()
+        );
+        let mut rooms: Vec<_> = en.iter().map(|r| (r.rva, r.rva + r.room)).collect();
+        rooms.sort();
+        for w in rooms.windows(2) {
+            assert!(w[0].1 <= w[1].0, "rooms overlap at {:#X}", w[1].0);
+        }
+    }
+
     fn sheet_for(orig: &[u8], room: usize, text: &str) -> String {
         let sha: String = Sha256::digest(orig)
             .iter()
