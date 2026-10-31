@@ -1961,6 +1961,8 @@ impl Run<'_> {
         self.cabinet.keys = Some(crate::keys::spawn(
             p.shared.clone(),
             keys_path,
+            // 2017-18's panel SETTINGS has CONTROLLER IN THE BACKGROUND (data\panel.txt); 2010-11 never sets it
+            (self.kit.edition() == Edition::E1718).then(|| self.kit.data().join("panel.txt")),
             // START puts in a coin only where the game is not in FREE PLAY: 2017-18 runs it from the panel (seen live, run 8)
             self.kit.edition() != Edition::E1718,
             file_log(self.logs().join("run_keys.txt")),

@@ -2168,7 +2168,7 @@ impl Render {
             let p = &self.st.file;
             match f.save_panel(p) {
                 Ok(()) => log(&format!(
-                    "settings: saved play_on={} server={} english={} layout={} hover={} auto_logs={} board={} board_buttons={} board_rect={:?}",
+                    "settings: saved play_on={} server={} english={} layout={} hover={} auto_logs={} board={} board_buttons={} pad_background={} board_rect={:?}",
                     if p.online { "online" } else { "this_pc" },
                     if p.server.is_empty() { "-" } else { &p.server },
                     p.english.as_deref().unwrap_or("-"),
@@ -2177,6 +2177,7 @@ impl Render {
                     if p.auto_logs_off { "off" } else { "on" },
                     if p.board_window { "window" } else { "game" },
                     if p.board_buttons { "on" } else { "off" },
+                    if p.pad_background { "on" } else { "off" },
                     p.board_rect,
                 )),
                 Err(e) => {

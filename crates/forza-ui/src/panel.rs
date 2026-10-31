@@ -532,6 +532,8 @@ pub struct Status {
     pub version: String,
     /// SAVE LOGS' answer from the run: "ok PATH", "fail WHY".
     pub logs: Option<String>,
+    /// Seats running on this PC (2017-18's CONTROLLER IN THE BACKGROUND is ignored from two).
+    pub seats: usize,
 }
 
 /// [`When`] of a file time.
@@ -826,6 +828,7 @@ impl PanelState {
                 logs: Some(
                     r"ok C:\Users\Mario\Downloads\forza-wccf-logs-20261027-150412.zip".into(),
                 ),
+                seats: 1,
             },
             restart_armed: if page == Page::Settings {
                 f64::INFINITY
@@ -3776,6 +3779,24 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             .clicked()
             {
                 st.file_changed = true;
+            }
+            if st.edition == Edition::E1718 {
+                // the key driver reads panel.txt again at once; with 2+ seats here it ignores the choice, and says so
+                let hint = if s.seats >= forza::keys::MAX_PAD_SEATS {
+                    "settings.pad_bg_seats"
+                } else {
+                    "settings.pad_bg_hint"
+                };
+                if widgets::toggle_row(
+                    ui,
+                    &mut st.file.pad_background,
+                    &tr!(lang, "settings.pad_bg"),
+                    &tr!(lang, hint),
+                )
+                .clicked()
+                {
+                    st.file_changed = true;
+                }
             }
         });
         widgets::section(right, &tr!(lang, "settings.next"), accent, |ui| {
