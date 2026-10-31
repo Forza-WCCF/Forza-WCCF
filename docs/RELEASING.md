@@ -10,6 +10,13 @@
   the last release (`git diff --stat v<last> -- <crate dir> native/common`); an unchanged helper program (FPR_Emu.exe,
   logowin.exe, wccfnet.dll, forza-server.exe) then rebuilds byte-identical, and the hash an antivirus once judged
   stays the same.
+  FPR_Emu.exe is 277 KB (2026-10-31): its icon is `assets/logo/forza-wccf-small.ico` (16-48 px), not the 122 KB
+  `forza-wccf.ico`. Two local builds, also in separate target folders, give one hash. No expected-hash file yet: the
+  C runtime is linked in (`+crt-static`), so the bytes also follow the build PC's Visual Studio toolset, and a hash
+  recorded here would differ on the CI runner (ICMP.DLL, unchanged since 0.5.1, differs between a local build and
+  the release's CI one). Once `ci/reproducible-builds` pins the toolset: record the CI build's SHA-256 in
+  `editions/2017-18/fpr_emu.sha256` and have `cargo xtask package` compare it, failing when the exe changed and
+  `native/programs` and `native/common` did not.
 - 0.x means alpha: features missing, bugs expected. The count restarted from 7.0.0 at **0.2.0**, because the installer
   already published `v0.1.0` and `v0.1.1`.
 - Each test build with new features or a batch of fixes raises the minor number (0.2.0, 0.3.0, …). A rebuild of a
