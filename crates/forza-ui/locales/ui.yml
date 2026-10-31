@@ -669,6 +669,7 @@ launcher.run_updating_hook: {en: "Updating the game's helper file (wccfk.dll)...
 launcher.run_setup_unfinished: {en: "Setup did not finish (see above). Open Launcher.exe and press SET UP.", it: "La configurazione non è terminata (vedi sopra). Apri Launcher.exe e premi CONFIGURA.", ja: "セットアップが完了しませんでした(上記参照)。Launcher.exe を開いて「設定する」を押してください。"}
 launcher.run_text_old: {en: "The game's text is from an older Forza-WCCF: building it again...", it: "Il testo del gioco è di una versione precedente di Forza-WCCF: lo ricreo...", ja: "ゲームのテキストが古い Forza-WCCF のものです。作り直しています..."}
 launcher.run_text_not_built: {en: "Could not build the text (%{why}). The game starts with its previous text.", it: "Impossibile creare il testo (%{why}). Il gioco parte con il testo precedente.", ja: "テキストを作成できませんでした(%{why})。ゲームは以前のテキストのまま起動します。"}
+launcher.run_text_foreign: {en: "The game's text was changed by another install and its backup of the original files is missing or does not match. The text stays as it is.", it: "Il testo del gioco è stato modificato da un'altra installazione e il backup dei file originali manca o non corrisponde. Il testo resta com'è.", ja: "ゲームのテキストは別のインストールで変更されており、元ファイルのバックアップがないか一致しません。テキストはそのままです。"}
 launcher.run_text_current: {en: "Game text is up to date.", it: "Il testo del gioco è aggiornato.", ja: "ゲームのテキストは最新です。"}
 launcher.run_lang_en: {en: "English", it: "inglese", ja: "英語"}
 launcher.run_lang_it: {en: "Italian", it: "italiano", ja: "イタリア語"}
