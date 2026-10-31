@@ -26,7 +26,10 @@ const SECRETARIES: std::ops::Range<usize> = 16 + 1176..16 + 1212;
 /// secretaries (1,176..1,211) and the rest stay as [`SECRETARIES`] and zero. Answer 238 replaces the defaults on
 /// every seat, so zeros there changed the client's behaviour (poll count, times, limits). Payload offset = offset + 16.
 /// 12, 14, 15 are also the relay thresholds `vs::fill_game_ctrl` sets; 19,740 is the REQ_MATCH poll count, which VS
-/// lowers to 9. Offsets 1,092..1,104 are times (A: HHMM); 14,608 / 14,610 take the common branch (A).
+/// lowers to 9. Offsets 1,092..1,104 are the Universal Cup open times (HHMM, host clock); 1,172 = 1 lets the control
+/// insert a Universal Cup (competition 31) into its schedule before each open time (control 0x462820; the client's
+/// default 0 never schedules one), 1,173 = minutes per slot, 1,174 = minutes after control start before the first
+/// cup; 14,608 / 14,610 take the common branch (A).
 const GAME_CTRL_DEFAULTS: &[(usize, usize, u32)] = &[
     (1, 1, 5),
     (2, 2, 5),
@@ -47,6 +50,7 @@ const GAME_CTRL_DEFAULTS: &[(usize, usize, u32)] = &[
     (1096, 4, 1_500),
     (1100, 4, 1_800),
     (1104, 4, 2_100),
+    (1172, 1, 1),
     (1173, 1, 9),
     (1174, 1, 20),
     (1216, 1, 1),
@@ -1615,6 +1619,16 @@ mod tests {
             (5_000, 250_000, 26, 1)
         );
         assert!(body[8..16].iter().all(|b| *b == 0), "date and time stay 0");
+        // the Universal Cup: scheduling on (payload +1,188), 9-minute slots, 20 minutes, and the four open times
+        assert_eq!(
+            (body[1_188], body[1_189], body[1_190]),
+            (1, 9, 20),
+            "Universal Cup info"
+        );
+        assert_eq!(
+            [1_092, 1_096, 1_100, 1_104].map(|o| at(&body, o, 4)),
+            [1_200, 1_500, 1_800, 2_100]
+        );
         // the Grand Trophy window stays closed (0..0) outside VS, and VS overlays the polls and the window
         assert_eq!((at(&body, 7_622, 2), at(&body, 7_624, 2)), (0, 0));
         vs::fill_game_ctrl(&mut body);
