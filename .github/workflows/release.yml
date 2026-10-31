@@ -46,6 +46,11 @@ jobs:
             [ "$GITHUB_REF_NAME" = "v$V" ] || { echo "::error::tag $GITHUB_REF_NAME is not v$V"; exit 1; }
           fi
           echo "V=$V" >> "$GITHUB_ENV"
+      - name: Build environment (what changed, when a file differs from the last release for no source reason)
+        run: |
+          echo "image: $ImageOS $ImageVersion"
+          rustc -vV
+          for d in "/c/Program Files/Microsoft Visual Studio"/*/*/VC/Tools/MSVC/* "/c/Program Files (x86)/Windows Kits/10/Lib"/*; do echo "$d"; done
       - name: Packages
         run: |
           cargo xtask package 2017-18 --name "Forza-WCCF-2017-18-$V"
@@ -60,6 +65,34 @@ jobs:
           path: dist/
           retention-days: 7
           if-no-files-found: error
+
+  # An unchanged program keeps its hash, and with it its reputation with the antivirus engines. Lists the PE files that
+  # differ from the last published release and says why. Informational: a source change is a good reason.
+  reproducibility:
+    name: reproducibility
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      - name: PE files against the last release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BASE=$(gh release list --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName')
+          mkdir base
+          gh release download "$BASE" -D base -p 'Forza-WCCF-2017-18-*.zip' -p 'Forza-WCCF-Installer-*.exe'
+          .github/scripts/repro.sh hashes base > base.txt
+          .github/scripts/repro.sh hashes dist > new.txt
+          { echo "### PE files against $BASE"; .github/scripts/repro.sh why base.txt new.txt "$BASE" "$GITHUB_SHA"; } | tee -a "$GITHUB_STEP_SUMMARY"
 
   # Every ZIP and EXE uploaded to VirusTotal (they are public release files anyway). Microsoft's engine (what Windows
   # Defender uses) must find nothing: only that stops the release. Other engines flagging a file are a warning (their
