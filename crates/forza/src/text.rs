@@ -1382,19 +1382,24 @@ fn original_of(h: &Value) -> Option<&str> {
         .as_str()
 }
 
+/// A backup list, its keys folded (`..` resolved); empty when missing or unreadable.
+fn read_manifest(p: &Path) -> Map<String, Value> {
+    fs::read(p)
+        .ok()
+        .and_then(|d| serde_json::from_slice::<Map<String, Value>>(&d).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(k, v)| (fold_dots(&k), v))
+        .collect()
+}
+
 impl Ctx {
     fn manifest_path(&self) -> PathBuf {
         self.backup.join("manifest.json")
     }
 
     fn load_manifest(&self) -> Map<String, Value> {
-        fs::read(self.manifest_path())
-            .ok()
-            .and_then(|d| serde_json::from_slice::<Map<String, Value>>(&d).ok())
-            .unwrap_or_default()
-            .into_iter()
-            .map(|(k, v)| (fold_dots(&k), v))
-            .collect()
+        read_manifest(&self.manifest_path())
     }
 
     fn save_manifest(&self, m: &Map<String, Value>) -> R<()> {
@@ -1510,6 +1515,130 @@ impl Ctx {
     }
 }
 
+/// 2017-18: the backup is also kept here, next to the game (`original\text`, beside `game\` and the original
+/// programs), so a Forza-WCCF folder that never switched this game still finds the originals.
+pub fn beside(game: &Path) -> PathBuf {
+    game.parent().unwrap_or(game).join("original").join("text")
+}
+
+/// What [`sync_beside`] found.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Beside {
+    /// Nothing to do, or the backup beside the game was kept or taken into this folder's own backup.
+    Fine,
+    /// The game text is not original and no backup that matches the original files exists: the text stays as it is.
+    Foreign,
+}
+
+/// Every file under `from` to `to` except those named in `skip`.
+fn copy_tree(from: &Path, to: &Path, skip: &[&str]) -> io::Result<()> {
+    for e in fs::read_dir(from)? {
+        let e = e?;
+        let (p, name) = (e.path(), e.file_name());
+        if p.is_dir() {
+            copy_tree(&p, &to.join(&name), skip)?;
+        } else if !skip.iter().any(|s| name == *s) {
+            put(&to.join(&name), &fs::read(&p)?)?;
+        }
+    }
+    Ok(())
+}
+
+impl Ctx {
+    /// The game's `string_list.bin` is the pinned original (or absent).
+    fn text_is_original(&self) -> bool {
+        let rel = self.spec.originals[0].0;
+        !fs::read(self.at(rel)).is_ok_and(|d| Some(sha(&d)) != self.original_hash(rel))
+    }
+
+    /// Copy this folder's backup beside the game, the manifest last: a copy cut short is not used. Entries
+    /// another folder left there stay listed while their file is there: their originals are nowhere else.
+    fn save_beside(&self) -> io::Result<()> {
+        let to = beside(&self.game);
+        let mut man = read_manifest(&to.join("manifest.json"));
+        man.retain(|k, _| to.join(k.replace('\\', "/")).is_file());
+        // the old list stays until the new one lands in one step: the files it names stay originals meanwhile
+        copy_tree(&self.backup, &to, &["manifest.json", SHEETS])?;
+        man.extend(self.load_manifest());
+        put(&to.join("manifest.json"), &serde_json::to_vec_pretty(&man)?)
+    }
+
+    /// Take the backup beside the game as this folder's own: each file this folder's sheets pin must be that
+    /// original (a wrong one refuses the whole backup); files they do not name are another kit's and stay out.
+    /// The pictures' way back comes along only when it matches the archive. No `sheets.txt`: the text counts as
+    /// older and the next step builds it again from these sheets.
+    fn adopt_beside(&self) -> Beside {
+        let from = beside(&self.game);
+        let mut keep = vec![];
+        for (k, h) in read_manifest(&from.join("manifest.json")) {
+            let rel = k.replace('\\', "/");
+            let Some(want) = self.original_hash(&rel) else {
+                continue;
+            };
+            match norm_read(&from.join(&rel), &rel) {
+                Some(d)
+                    if sha(&d) == want
+                        && original_of(&h).is_some_and(|o| o.eq_ignore_ascii_case(&want)) =>
+                {
+                    keep.push((k, h, rel, d));
+                }
+                _ => return Beside::Foreign,
+            }
+        }
+        if keep.is_empty() {
+            return Beside::Foreign;
+        }
+        let lang = fs::read(from.join("language.txt")).unwrap_or_else(|_| b"en\n".to_vec());
+        let state = from.join(pictures::STATE);
+        let done = (|| -> R<()> {
+            for (_, _, rel, d) in &keep {
+                put(&self.backup.join(rel), d)?;
+            }
+            put(&self.backup.join("language.txt"), &lang)?;
+            if pictures::state_matches(&self.game, &state) {
+                put(&self.backup.join(pictures::STATE), &fs::read(&state)?)?;
+            }
+            self.save_manifest(&keep.into_iter().map(|(k, h, ..)| (k, h)).collect())
+        })();
+        if done.is_ok() {
+            Beside::Fine
+        } else {
+            Beside::Foreign
+        }
+    }
+}
+
+/// A file read and normalised as its backup is kept, or `None`.
+fn norm_read(p: &Path, rel: &str) -> Option<Vec<u8>> {
+    norm(fs::read(p).ok()?, rel).ok()
+}
+
+/// Before a 2017-18 start: keep this folder's backup beside the game if it is not there yet, or, with no backup
+/// here and a game text that is not original, adopt the one beside the game ([`Beside::Foreign`] when there is
+/// none or it does not match the pinned originals; nothing is changed then).
+pub fn sync_beside(ed: Edition, game: &Path, backup: &Path, sheets: &Path) -> Beside {
+    let c = match Ctx::new(ed, game, backup, sheets) {
+        Ok(c) if ed == Edition::E1718 => c,
+        _ => return Beside::Fine,
+    };
+    let own = c.load_manifest();
+    if !own.is_empty() {
+        // missing beside the game, or it lacks entries or files this folder has (a newer or bigger backup): refresh it
+        let there = read_manifest(&beside(game).join("manifest.json"));
+        if own
+            .keys()
+            .any(|k| !there.contains_key(k) || !beside(game).join(k.replace('\\', "/")).is_file())
+        {
+            let _ = c.save_beside();
+        }
+        return Beside::Fine;
+    }
+    if c.text_is_original() {
+        return Beside::Fine;
+    }
+    c.adopt_beside()
+}
+
 /// Empty folders removed, bottom up, `dir` itself included.
 fn prune(dir: &Path) {
     if let Ok(rd) = fs::read_dir(dir) {
@@ -1553,6 +1682,7 @@ pub fn run(
                 return Ok(());
             }
             let p = pictures::restore(game, &state)?;
+            // the backup beside the game stays: it may hold originals of files another folder changed
             let n = c.turn_off()?;
             say(
                 "  ok    ",
@@ -1592,6 +1722,14 @@ pub fn run(
         }
         c.turn_on(&files, lang)?;
         pictures::apply(game, &pics, &state)?;
+        if ed == Edition::E1718
+            && let Err(e) = c.save_beside()
+        {
+            say(
+                "  ",
+                &Line::raw(format!("could not keep the backup beside the game: {e}")),
+            );
+        }
         say(
             "  ok    ",
             &Line::key("text.replaced")
@@ -2176,6 +2314,284 @@ mod tests {
             }
         }
         assert!(bad.is_empty(), "{bad:?}");
+    }
+
+    const TEAM: &str = "prog_data/cpu_team/cpu_1.dat";
+
+    /// A kit folder (its sheets name `TEAM`'s original), a game whose text an older kit changed (a changed
+    /// `string_list.bin`, `TEAM` in "old" text) and, with `kept`, the originals beside the game. Returns the root,
+    /// the original `TEAM`, the game and the fresh kit's backup folder (not there yet).
+    fn translated_game(kept: bool) -> (tempfile::TempDir, Vec<u8>, PathBuf, PathBuf) {
+        let t = tempfile::tempdir().unwrap();
+        let (orig, old) = (vec![7u8; 64], vec![8u8; 64]);
+        let game = t.path().join("game");
+        for (rel, d) in [(TEAM, &old), (BIN, &old)] {
+            fs::create_dir_all(game.join(rel).parent().unwrap()).unwrap();
+            fs::write(game.join(rel), d).unwrap();
+        }
+        let sheet = t.path().join("kit/english/cpu_names.tsv");
+        fs::create_dir_all(sheet.parent().unwrap()).unwrap();
+        fs::write(
+            &sheet,
+            format!(
+                "file\toriginal_sha256\tenglish\titaliano\ncpu_1.dat\t{}\tx\t\n",
+                sha(&orig)
+            ),
+        )
+        .unwrap();
+        if kept {
+            let b = beside(&game);
+            fs::create_dir_all(b.join(TEAM).parent().unwrap()).unwrap();
+            fs::write(b.join(TEAM), &orig).unwrap();
+            let k = key(TEAM);
+            let man = serde_json::json!({ k: {"original": sha(&orig), "english": sha(&old)} });
+            fs::write(b.join("manifest.json"), serde_json::to_vec(&man).unwrap()).unwrap();
+            fs::write(b.join("language.txt"), "en\n").unwrap();
+        }
+        let backup = t.path().join("fresh/data/english_backup");
+        (t, orig, game, backup)
+    }
+
+    #[test]
+    fn a_fresh_folder_takes_the_backup_beside_the_game_and_builds_current_text() {
+        let (t, orig, game, backup) = translated_game(true);
+        let kit = t.path().join("kit");
+        assert_eq!(
+            sync_beside(Edition::E1718, &game, &backup, &kit),
+            Beside::Fine
+        );
+        assert!(
+            stale(Edition::E1718, &backup, &kit),
+            "the old text is rebuilt"
+        );
+        let c = Ctx::new(Edition::E1718, &game, &backup, &kit).unwrap();
+        c.turn_on(&[(TEAM.to_string(), vec![9u8; 64])], Lang::En)
+            .unwrap();
+        assert_eq!(
+            fs::read(game.join(TEAM)).unwrap(),
+            vec![9u8; 64],
+            "the current text"
+        );
+        assert_eq!(fs::read(backup.join(TEAM)).unwrap(), orig);
+        assert!(!stale(Edition::E1718, &backup, &kit));
+        c.save_beside().unwrap(); // what `run` does after an `on`
+        assert_eq!(fs::read(beside(&game).join(TEAM)).unwrap(), orig);
+        assert_eq!(c.turn_off().unwrap(), 1);
+        assert_eq!(fs::read(game.join(TEAM)).unwrap(), orig);
+    }
+
+    #[test]
+    fn a_backup_that_is_not_the_original_is_refused() {
+        let (t, _, game, backup) = translated_game(true);
+        let kit = t.path().join("kit");
+        fs::write(beside(&game).join(TEAM), vec![1u8; 64]).unwrap();
+        assert_eq!(
+            sync_beside(Edition::E1718, &game, &backup, &kit),
+            Beside::Foreign
+        );
+        assert!(!backup.exists(), "nothing taken");
+        assert_eq!(
+            fs::read(game.join(TEAM)).unwrap(),
+            vec![8u8; 64],
+            "the text untouched"
+        );
+        let (t, _, game, backup) = translated_game(false); // no backup anywhere
+        let kit = t.path().join("kit");
+        assert_eq!(
+            sync_beside(Edition::E1718, &game, &backup, &kit),
+            Beside::Foreign
+        );
+        assert!(!backup.exists());
+    }
+
+    #[test]
+    fn the_same_folder_update_keeps_its_own_backup() {
+        let (t, orig, game, backup) = translated_game(false);
+        let kit = t.path().join("kit");
+        let c = Ctx::new(Edition::E1718, &game, &backup, &kit).unwrap();
+        fs::write(game.join(TEAM), &orig).unwrap();
+        c.turn_on(&[(TEAM.to_string(), vec![8u8; 64])], Lang::It)
+            .unwrap();
+        fs::remove_file(backup.join(SHEETS)).unwrap(); // text from an older kit
+        let before = fs::read(backup.join("manifest.json")).unwrap();
+        assert_eq!(
+            sync_beside(Edition::E1718, &game, &backup, &kit),
+            Beside::Fine
+        );
+        assert_eq!(fs::read(backup.join("manifest.json")).unwrap(), before);
+        assert_eq!(fs::read(backup.join("language.txt")).unwrap(), b"it\n");
+        assert!(
+            stale(Edition::E1718, &backup, &kit),
+            "still rebuilt by the normal path"
+        );
+        assert_eq!(
+            fs::read(beside(&game).join(TEAM)).unwrap(),
+            orig,
+            "kept beside the game"
+        );
+        // a backup beside the game is not read when this folder has its own
+        fs::write(beside(&game).join(TEAM), vec![1u8; 64]).unwrap();
+        assert_eq!(
+            sync_beside(Edition::E1718, &game, &backup, &kit),
+            Beside::Fine
+        );
+        assert_eq!(fs::read(backup.join(TEAM)).unwrap(), orig);
+        // an original game with no backup: nothing to say
+        let (t, _, game, backup) = translated_game(false);
+        fs::remove_file(game.join(BIN)).unwrap();
+        assert_eq!(
+            sync_beside(Edition::E1718, &game, &backup, &t.path().join("kit")),
+            Beside::Fine
+        );
+    }
+
+    const TEAM2: &str = "prog_data/cpu_team/cpu_2.dat";
+
+    /// A second kit folder `name` whose sheet pins `TEAM` and `TEAM2` (both originals `orig`).
+    fn bigger_kit(root: &Path, name: &str, orig: &[u8]) -> PathBuf {
+        let kit = root.join(name);
+        fs::create_dir_all(kit.join("english")).unwrap();
+        fs::write(
+            kit.join("english/cpu_names.tsv"),
+            format!(
+                "file\toriginal_sha256\tenglish\titaliano\ncpu_1.dat\t{h}\tx\t\ncpu_2.dat\t{h}\ty\t\n",
+                h = sha(orig)
+            ),
+        )
+        .unwrap();
+        kit
+    }
+
+    #[test]
+    fn an_older_folder_turning_off_keeps_the_originals_a_newer_one_left_beside_the_game() {
+        let (t, orig, game, _) = translated_game(false);
+        fs::write(game.join(TEAM), &orig).unwrap();
+        fs::write(game.join(TEAM2), &orig).unwrap();
+        // B (older, pins TEAM only) turns English on first and keeps its backup beside the game
+        let (kit_b, bak_b) = (t.path().join("kit"), t.path().join("b/backup"));
+        let b = Ctx::new(Edition::E1718, &game, &bak_b, &kit_b).unwrap();
+        b.turn_on(&[(TEAM.to_string(), vec![9u8; 64])], Lang::En)
+            .unwrap();
+        b.save_beside().unwrap();
+        // A (newer, pins both) takes it, switches both and keeps the bigger backup there; then A is deleted
+        let (kit_a, bak_a) = (
+            bigger_kit(t.path(), "kit_a", &orig),
+            t.path().join("a/backup"),
+        );
+        assert_eq!(
+            sync_beside(Edition::E1718, &game, &bak_a, &kit_a),
+            Beside::Fine
+        );
+        let a = Ctx::new(Edition::E1718, &game, &bak_a, &kit_a).unwrap();
+        a.turn_on(
+            &[
+                (TEAM.to_string(), vec![9u8; 64]),
+                (TEAM2.to_string(), vec![9u8; 64]),
+            ],
+            Lang::En,
+        )
+        .unwrap();
+        a.save_beside().unwrap();
+        fs::remove_dir_all(t.path().join("a")).unwrap();
+        // B turns the text off: its file back, A's original of TEAM2 still beside the game
+        let say: crate::Say = &|_, _| {};
+        assert_eq!(
+            run(
+                Edition::E1718,
+                &game,
+                &bak_b,
+                &kit_b,
+                Mode::Off,
+                Lang::En,
+                say
+            ),
+            0
+        );
+        assert_eq!(fs::read(game.join(TEAM)).unwrap(), orig);
+        assert_eq!(fs::read(beside(&game).join(TEAM2)).unwrap(), orig);
+        // B turning on again does not drop TEAM2 from the list beside the game
+        b.turn_on(&[(TEAM.to_string(), vec![9u8; 64])], Lang::En)
+            .unwrap();
+        b.save_beside().unwrap();
+        assert!(read_manifest(&beside(&game).join("manifest.json")).contains_key(&key(TEAM2)));
+        // a fresh folder with A's sheets takes both and puts TEAM2 back
+        let (kit_c, bak_c) = (
+            bigger_kit(t.path(), "kit_c", &orig),
+            t.path().join("c/backup"),
+        );
+        assert_eq!(
+            sync_beside(Edition::E1718, &game, &bak_c, &kit_c),
+            Beside::Fine
+        );
+        let c = Ctx::new(Edition::E1718, &game, &bak_c, &kit_c).unwrap();
+        assert_eq!(c.turn_off().unwrap(), 2);
+        assert_eq!(fs::read(game.join(TEAM2)).unwrap(), orig);
+    }
+
+    #[test]
+    fn a_key_this_folder_does_not_pin_is_skipped_and_the_rest_taken() {
+        let (t, orig, game, backup) = translated_game(true);
+        let b = beside(&game);
+        let mut man = read_manifest(&b.join("manifest.json"));
+        man.insert(
+            key(TEAM2),
+            serde_json::json!({"original": "00", "english": "11"}),
+        );
+        fs::write(b.join("manifest.json"), serde_json::to_vec(&man).unwrap()).unwrap();
+        fs::write(b.join(TEAM2), vec![5u8; 64]).unwrap();
+        let kit = t.path().join("kit");
+        assert_eq!(
+            sync_beside(Edition::E1718, &game, &backup, &kit),
+            Beside::Fine
+        );
+        let c = Ctx::new(Edition::E1718, &game, &backup, &kit).unwrap();
+        let got = c.load_manifest();
+        assert!(got.contains_key(&key(TEAM)) && !got.contains_key(&key(TEAM2)));
+        assert_eq!(fs::read(backup.join(TEAM)).unwrap(), orig);
+        assert!(!backup.join(TEAM2).exists());
+    }
+
+    #[test]
+    fn a_pictures_state_that_does_not_match_the_archive_is_not_taken() {
+        let (t, _, game, backup) = translated_game(true);
+        let b = beside(&game);
+        // an archive as the original: its one entry points inside the original length
+        let mut xaf = vec![0u8; 4096];
+        xaf[..4].copy_from_slice(b"xaf0");
+        fs::create_dir_all(game.join(pictures::XAF).parent().unwrap()).unwrap();
+        fs::write(game.join(pictures::XAF), &xaf).unwrap();
+        let state = |total: &str| {
+            let h = format!("{total:0<48}");
+            let st = serde_json::json!({"length": 2048, "header": h, "entries": {"0": "00".repeat(0xB0)}});
+            fs::write(b.join(pictures::STATE), serde_json::to_vec(&st).unwrap()).unwrap();
+        };
+        state("01"); // a header of one sector: 2048 bytes
+        let kit = t.path().join("kit");
+        assert_eq!(
+            sync_beside(Edition::E1718, &game, &backup, &kit),
+            Beside::Fine
+        );
+        assert!(
+            !backup.join(pictures::STATE).exists(),
+            "foreign state left out"
+        );
+        // the same state once the entry points at pictures past the original length: taken
+        fs::remove_dir_all(&backup).unwrap();
+        xaf[0x100 + 0xA0..0x100 + 0xA4].copy_from_slice(&1u32.to_le_bytes());
+        fs::write(game.join(pictures::XAF), &xaf).unwrap();
+        state("02"); // its header disagrees with its length: restore would break the archive
+        assert_eq!(
+            sync_beside(Edition::E1718, &game, &backup, &kit),
+            Beside::Fine
+        );
+        assert!(!backup.join(pictures::STATE).exists());
+        fs::remove_dir_all(&backup).unwrap();
+        state("01");
+        assert_eq!(
+            sync_beside(Edition::E1718, &game, &backup, &kit),
+            Beside::Fine
+        );
+        assert!(backup.join(pictures::STATE).is_file());
     }
 
     impl Ctx {

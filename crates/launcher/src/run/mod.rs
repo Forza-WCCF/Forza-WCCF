@@ -1296,6 +1296,15 @@ impl Run<'_> {
         }
     }
 
+    /// 2017-18: the original-text backup is kept beside the game; a Forza-WCCF folder with none of its own takes it.
+    /// Text that is not original with no matching backup is said, not changed.
+    fn adopt_text_backup(&self) {
+        let backup = self.kit.data().join("english_backup");
+        if forza::text::sync_beside(self.edition, &self.game, &backup, self.kit.dir()) == forza::text::Beside::Foreign {
+            self.tell("  ", &Text::key("launcher.run_text_foreign"));
+        }
+    }
+
     /// English or Italian built from an older kit's sheets (a kit copied over the old one, no text switch since):
     /// built again from this kit's, in the same language, before anything starts.
     fn refresh_old_text(&self) {
@@ -1485,6 +1494,7 @@ impl Run<'_> {
             for line in logs::rotate(&self.logs())? {
                 self.say(&line);
             }
+            self.adopt_text_backup();
             self.apply_english_request();
             self.refresh_old_text();
             if self.edition == Edition::E1011 {
