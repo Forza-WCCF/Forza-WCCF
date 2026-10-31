@@ -16,6 +16,9 @@
 //! keys from keys.txt as the C panel does (down on the press, up after the release and at least 140 ms). Clicks on
 //! the game's picture go to the game, moved into its own client area, for its own on-screen buttons.
 //!
+//! The 2017-18 game's window gets a sizing border with its maximize at the start: the panel and the picture (16:10,
+//! clicks mapped back, [`game_point`]) follow any size the player drags it to.
+//!
 //! In the projector the panel draws nothing: its window is resizable, the picture letterboxed to it, and F11 /
 //! double-click / Esc give it borderless full screen ([`projector`], [`fullscreen`]).
 //!
@@ -150,6 +153,8 @@ static BOARD_FS: fullscreen::Slot = Mutex::new(None);
 static POPPED: AtomicBool = AtomicBool::new(false);
 /// The board window is in Windows' move/size loop: its swap chain is kept until the size settles.
 static BOARD_SIZING: AtomicBool = AtomicBool::new(false);
+/// The game's window is in Windows' move/size loop (2017-18 drags its edges): the same for its swap chain.
+static GAME_SIZING: AtomicBool = AtomicBool::new(false);
 /// Our own window message: maximized (wParam 1) or the game's size (0), done on the window's thread.
 const WM_FORZA_FS: u32 = WM_APP + 0x57;
 /// To the board window from the render thread, once it let go of the window's swap chain: the window goes.
@@ -790,29 +795,46 @@ fn test_screen() -> Option<RECT> {
 }
 
 /// Maximized with its title bar kept (minimize, maximize/restore and close), or the game's own size, as `wccfpanel.c`
-/// `set_maximized`; on the window's thread.
+/// `set_maximized`; on the window's thread. 2017-18 also gets a sizing border: the panel lays itself and the picture
+/// out at any client size, so the player can drag the window to any size; its client keeps the game's size.
 fn set_maximized(h: HWND, on: bool) {
+    // 2010-11 keeps its fixed frame (AGENTS.md: 2010-11 stays as it is)
+    let sizable = FILES
+        .get()
+        .is_some_and(|f| f.edition == theme::Edition::E1718);
     // SAFETY: window calls on a window of this process, from its own thread
     unsafe {
         let st = GetWindowLongW(h, GWL_STYLE);
+        let border = if sizable { WS_THICKFRAME.0 } else { 0 };
         let want = (st & !(WS_POPUP.0 as i32))
-            | (WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX).0 as i32;
+            | (WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX).0 as i32
+            | border as i32;
         if want != st {
+            // the window grows by the new border, so its client keeps its size (restore brings that size back)
+            let mut cr = RECT::default();
+            let _ = GetClientRect(h, &mut cr);
+            let mut o = RECT {
+                right: cr.right,
+                bottom: cr.bottom,
+                ..Default::default()
+            };
+            let ex = WINDOW_EX_STYLE(GetWindowLongW(h, GWL_EXSTYLE) as u32);
+            let keep = sizable
+                && !IsZoomed(h).as_bool()
+                && AdjustWindowRectEx(&mut o, WINDOW_STYLE(want as u32), false, ex).is_ok();
             SetWindowLongW(h, GWL_STYLE, want);
-            let _ = SetWindowPos(
-                h,
-                None,
-                0,
-                0,
-                0,
-                0,
-                SWP_NOMOVE
-                    | SWP_NOSIZE
-                    | SWP_NOZORDER
-                    | SWP_NOOWNERZORDER
-                    | SWP_NOACTIVATE
-                    | SWP_FRAMECHANGED,
-            );
+            let mut flags =
+                SWP_NOMOVE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED;
+            if !keep {
+                flags |= SWP_NOSIZE;
+            }
+            let _ = SetWindowPos(h, None, 0, 0, o.right - o.left, o.bottom - o.top, flags);
+            if sizable {
+                log(&format!(
+                    "window: resizable, client {}x{} kept",
+                    cr.right, cr.bottom
+                ));
+            }
         }
         if let Some(m) = test_screen() {
             let Ok(mut saved) = TEST_MAX.lock() else {
@@ -1381,7 +1403,14 @@ impl Render {
                 self.st.set_popped(popped);
                 return None;
             }
-            let (w, h) = (cr.right as u32, cr.bottom as u32);
+            // while the player drags the window's edge the chain it has is kept (Present stretches it to the window),
+            // made again once the size settles, as the board window's
+            let (w, h) = match &self.sc {
+                Some((_, sw, sh, swnd)) if *swnd == target && GAME_SIZING.load(Relaxed) => {
+                    (*sw, *sh)
+                }
+                _ => (cr.right as u32, cr.bottom as u32),
+            };
             let sc = self.swap_chain(dev, target, w, h)?;
             let sb = dev.CreateStateBlock(D3DSBT_ALL).ok()?;
             let mut vp = D3DVIEWPORT9::default();
@@ -2782,6 +2811,8 @@ unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LR
             set_maximized(h, wp.0 != 0);
             return LRESULT(0);
         }
+        WM_ENTERSIZEMOVE => GAME_SIZING.store(true, Relaxed),
+        WM_EXITSIZEMOVE => GAME_SIZING.store(false, Relaxed),
         WM_CLOSE if !close_allowed() => return LRESULT(0), // a match is on: warned once
         WM_CLOSE => {
             CLOSING.store(true, Relaxed); // the window goes: link_watch calls the drop ENDED
@@ -2866,6 +2897,22 @@ unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LR
     }
 }
 
+/// The window point `p` on the game's picture `pic` (window pixels) as a point in the game's client area `cw` x `ch`.
+/// Off the picture (its bars, the panel) it is not the game's (`None`), unless `drag` (a press made on the picture is
+/// held): then it is clamped to the picture's edge.
+fn game_point(p: Pos2, pic: egui::Rect, cw: i32, ch: i32, drag: bool) -> Option<(i32, i32)> {
+    if !drag && !pic.contains(p) {
+        return None;
+    }
+    let at = |v: f32, a: f32, b: f32, size: i32| {
+        (((v - a) / (b - a) * size as f32) as i32).clamp(0, (size - 1).max(0))
+    };
+    Some((
+        at(p.x, pic.left(), pic.right(), cw),
+        at(p.y, pic.top(), pic.bottom(), ch),
+    ))
+}
+
 /// A mouse message on the game's picture (or the release of a button pressed there), moved from the picture into the
 /// game's whole client area, where the game drew its frame before the panel shrank it; `None` = not the game's.
 fn to_game(h: HWND, m: u32, lp: LPARAM) -> Option<LPARAM> {
@@ -2881,29 +2928,24 @@ fn to_game(h: HWND, m: u32, lp: LPARAM) -> Option<LPARAM> {
     let down = matches!(m, WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN);
     let up = matches!(m, WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP);
     let held = GAME_DOWN.load(Relaxed);
-    let ours = if up {
+    // a press made on the picture: its moves and its release stay the game's, wherever they are
+    let drag = if up {
         held & bit != 0
     } else {
-        pic.contains(p) || (m == WM_MOUSEMOVE && held != 0)
+        m == WM_MOUSEMOVE && held != 0
     };
-    if !ours {
+    if up && !drag {
         return None;
     }
+    let mut cr = RECT::default();
+    // SAFETY: a plain window query
+    unsafe { GetClientRect(h, &mut cr) }.ok()?;
+    let (gx, gy) = game_point(p, pic, cr.right, cr.bottom, drag)?;
     if down {
         GAME_DOWN.fetch_or(bit, Relaxed);
     } else if up {
         GAME_DOWN.fetch_and(!bit, Relaxed);
     }
-    let mut cr = RECT::default();
-    // SAFETY: a plain window query
-    unsafe { GetClientRect(h, &mut cr) }.ok()?;
-    let at = |v: f32, a: f32, b: f32, size: i32| {
-        (((v - a) / (b - a) * size as f32) as i32).clamp(0, (size - 1).max(0))
-    };
-    let (gx, gy) = (
-        at(p.x, pic.left(), pic.right(), cr.right),
-        at(p.y, pic.top(), pic.bottom(), cr.bottom),
-    );
     if down {
         log(&format!(
             "click at {},{} -> the game at {gx},{gy}",
@@ -3048,7 +3090,44 @@ fn vk_key(vk: u32) -> Option<Key> {
 
 #[cfg(test)]
 mod tests {
-    use super::{big_enough, game_title, match_now};
+    use super::{big_enough, game_point, game_title, match_now};
+    use egui::{Rect, pos2};
+
+    /// A click on the letterboxed picture lands where it would on the game's own frame; the bars around the picture are
+    /// not the game's, and a press held from the picture into a bar is clamped to the picture's edge.
+    #[test]
+    fn a_click_on_the_picture_maps_into_the_game() {
+        // a 1440x900 picture in a 2000x1000 window: pillarbox bars 280 wide, the game's client the whole window
+        let pic = Rect::from_min_max(pos2(280.0, 50.0), pos2(1720.0, 950.0));
+        let (cw, ch) = (2000, 1000);
+        assert_eq!(game_point(pic.min, pic, cw, ch, false), Some((0, 0)));
+        assert_eq!(
+            game_point(pic.center(), pic, cw, ch, false),
+            Some((1000, 500))
+        );
+        assert_eq!(
+            game_point(pic.max, pic, cw, ch, false),
+            Some((cw - 1, ch - 1))
+        );
+        // a quarter in from the left and the top
+        assert_eq!(
+            game_point(pos2(640.0, 275.0), pic, cw, ch, false),
+            Some((500, 250))
+        );
+        // the bars: nothing
+        assert_eq!(game_point(pos2(100.0, 500.0), pic, cw, ch, false), None);
+        assert_eq!(game_point(pos2(1900.0, 500.0), pic, cw, ch, false), None);
+        assert_eq!(game_point(pos2(1000.0, 10.0), pic, cw, ch, false), None);
+        // a drag from the picture into a bar: the picture's edge
+        assert_eq!(
+            game_point(pos2(100.0, 500.0), pic, cw, ch, true),
+            Some((0, 500))
+        );
+        assert_eq!(
+            game_point(pos2(1900.0, 990.0), pic, cw, ch, true),
+            Some((cw - 1, ch - 1))
+        );
+    }
 
     /// IMPORT LINEUP: 2017-18 asks the seat's own state (another seat's match puts the shared shop in GAME); the shop
     /// state only when that cannot be read; 2010-11 keeps the shop state; a card session always counts.
