@@ -297,10 +297,7 @@ fn panel_2017_18_and_compact() {
 #[test]
 fn vs_lobby_and_pause_button_hidden_1718() {
     let _gpu = gpu();
-    for (ed, shown) in [
-        (Edition::E1718, panel::PAUSE_BUTTON),
-        (Edition::E1011, true),
-    ] {
+    for (ed, shown) in [(Edition::E1718, panel::PAUSE_ON), (Edition::E1011, true)] {
         let st =
             std::cell::RefCell::new(panel::PanelState::sample(ed, Lang::En, panel::Page::Game));
         let mut h = harness(panel::SIZE, 1.0, ed, |ui| {

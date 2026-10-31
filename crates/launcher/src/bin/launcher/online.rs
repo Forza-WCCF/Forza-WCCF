@@ -302,7 +302,8 @@ impl Online {
         st.rejoin = self
             .last
             .iter()
-            .filter(|l| self.held.is_none() && !st.running && unix() <= l.at + REJOIN_SECS)
+            // the saved room is a VS room on 2017-18: no offer while the VS lobby is hidden
+            .filter(|l| !st.lobby.vs_hidden && self.held.is_none() && !st.running && unix() <= l.at + REJOIN_SECS)
             .map(|l| tf("launcher.rejoin", &[("name", &l.name), ("seat", &l.seat.to_string())]))
             .next();
         go

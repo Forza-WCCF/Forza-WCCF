@@ -1908,9 +1908,14 @@ pub fn latch_kept(
     latched.filter(|_| !crash && focused)
 }
 
-/// Whether the 2017-18 page bar shows the PAUSE button. Off (owner, 2026-10-31, on hold); `true` brings it back. The
-/// pause key still works.
-pub const PAUSE_BUTTON: bool = false;
+/// Whether 2017-18 has the in-match pause: the PAUSE button, the pause key (and its row on the KEYS page) and the
+/// panel DLL's hold. Off (owner, 2026-10-31, on hold); `true` brings it all back. 2010-11 is not behind it.
+pub const PAUSE_ON: bool = false;
+
+/// The pause is offered to this edition.
+pub fn pause_on(edition: Edition) -> bool {
+    PAUSE_ON || edition != Edition::E1718
+}
 
 /// The page bar's button `i` (0 CATALOGUE, 1 KEYS, 2 SETTINGS, 3 CLUB CARD) on the bar `bar` (also for tests that
 /// click it).
@@ -1964,8 +1969,8 @@ fn page_bar(ui: &mut Ui, st: &mut PanelState, bar: Rect, lang: Lang, side: bool)
     } else {
         "pause.button"
     };
-    // 2017-18 hides PAUSE while [`PAUSE_BUTTON`] is off; RESUME stays while a pause (the key's) holds the game
-    if PAUSE_BUTTON || st.edition != Edition::E1718 || st.paused.is_some() {
+    // 2017-18 hides PAUSE while [`PAUSE_ON`] is off (RESUME stays if a pause somehow holds)
+    if pause_on(st.edition) || st.paused.is_some() {
         let resp = ui.put(t, |ui: &mut Ui| {
             cabinet(
                 ui,
@@ -3297,6 +3302,9 @@ fn keys(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                     caps(ui, &tr!(lang, "keys.controller"));
                     ui.end_row();
                     for i in (0..ACTIONS.len()).filter(|i| !OPERATOR.contains(i)) {
+                        if i == forza::keys::PAUSE && !pause_on(st.edition) {
+                            continue;
+                        }
                         row(ui, st, lang, i, cell_w);
                         ui.end_row();
                     }
