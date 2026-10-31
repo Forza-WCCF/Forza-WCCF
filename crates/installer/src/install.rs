@@ -10,7 +10,6 @@ use ntfs::{Ntfs, NtfsReadSeek, structured_values::NtfsFileNamespace};
 use std::fs::{self, File};
 use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub const GAME_DIR: &str = "game";
@@ -494,33 +493,120 @@ fn pictures(dest: &Path, edition: Edition, folder: &str, emit: &dyn Fn(Event)) {
 }
 
 fn shortcuts(dest: &Path, edition: Edition, emit: &dyn Fn(Event)) {
-    if !cfg!(windows) {
-        return;
-    }
-    let q = |p: PathBuf| p.display().to_string().replace('\'', "''");
-    let ps = format!(
-        "$d=[Environment]::GetFolderPath('Desktop');$w=New-Object -ComObject WScript.Shell;\
-         $s=$w.CreateShortcut(\"$d\\Forza-WCCF {}.lnk\");\
-         $s.TargetPath='{}\\Launcher.exe';$s.WorkingDirectory='{}';$s.Save()",
-        edition.label(),
-        q(dest.into()),
-        q(dest.into())
-    );
-    let mut cmd = Command::new("powershell");
-    cmd.args(["-NoProfile", "-Command", &ps]);
     #[cfg(windows)]
-    std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000);
-    match cmd.status() {
-        Ok(s) if s.success() => emit(Event::Log("Desktop shortcut created.".into())),
-        _ => emit(Event::Log(
-            "Could not create the desktop shortcut. Use Launcher.exe in the install folder.".into(),
-        )),
+    {
+        let made = lnk::desktop().and_then(|d| {
+            let link = d.join(format!("Forza-WCCF {}.lnk", edition.label()));
+            lnk::write(&link, &dest.join("Launcher.exe"), dest)
+        });
+        emit(Event::Log(match made {
+            Ok(()) => "Desktop shortcut created.".into(),
+            Err(_) => {
+                "Could not create the desktop shortcut. Use Launcher.exe in the install folder."
+                    .into()
+            }
+        }));
+    }
+    #[cfg(not(windows))]
+    let _ = (dest, edition, emit);
+}
+
+/// The desktop shortcut made with the shell's IShellLinkW (2026-10-29: a PowerShell child made by an unsigned installer
+/// is what antivirus machine learning flags).
+#[cfg(windows)]
+mod lnk {
+    use std::path::{Path, PathBuf};
+    use windows::Win32::System::Com::{
+        CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
+        CoTaskMemFree, CoUninitialize, IPersistFile,
+    };
+    use windows::Win32::UI::Shell::{
+        FOLDERID_Desktop, IShellLinkW, KF_FLAG_DEFAULT, SHGetKnownFolderPath, ShellLink,
+    };
+    use windows::core::{HSTRING, Interface, Result};
+
+    pub fn desktop() -> Result<PathBuf> {
+        // SAFETY: the returned string is ours to read and free
+        unsafe {
+            let p = SHGetKnownFolderPath(&FOLDERID_Desktop, KF_FLAG_DEFAULT, None)?;
+            let s = p.to_string();
+            CoTaskMemFree(Some(p.0.cast()));
+            Ok(PathBuf::from(s.map_err(|_| windows::core::Error::empty())?))
+        }
+    }
+
+    /// `f` with COM started on this thread (left alone when the thread already has it).
+    fn com<T>(f: impl FnOnce() -> Result<T>) -> Result<T> {
+        // SAFETY: paired with CoUninitialize below only when it succeeded
+        let hr = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) };
+        let r = f();
+        if hr.is_ok() {
+            // SAFETY: matches the successful CoInitializeEx above
+            unsafe { CoUninitialize() };
+        }
+        r
+    }
+
+    fn shell_link() -> Result<IShellLinkW> {
+        // SAFETY: an in-process shell object, COM started by `com`
+        unsafe { CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER) }
+    }
+
+    /// The .lnk at `link`: `target`, started in `dir` (what the PowerShell shortcut set, nothing more).
+    pub fn write(link: &Path, target: &Path, dir: &Path) -> Result<()> {
+        com(|| {
+            let l = shell_link()?;
+            // SAFETY: the strings live for each call
+            unsafe {
+                l.SetPath(&HSTRING::from(target))?;
+                l.SetWorkingDirectory(&HSTRING::from(dir))?;
+                l.cast::<IPersistFile>()?.Save(&HSTRING::from(link), true)
+            }
+        })
+    }
+
+    /// The target and working folder of the .lnk at `link`.
+    #[cfg(test)]
+    pub fn read(link: &Path) -> Result<(PathBuf, PathBuf)> {
+        com(|| {
+            let l = shell_link()?;
+            let (mut t, mut d) = ([0u16; 260], [0u16; 260]);
+            // SAFETY: the buffers outlive the calls; no find data asked for
+            unsafe {
+                l.cast::<IPersistFile>()?
+                    .Load(&HSTRING::from(link), windows::Win32::System::Com::STGM_READ)?;
+                l.GetPath(&mut t, std::ptr::null_mut(), 0)?;
+                l.GetWorkingDirectory(&mut d)?;
+            }
+            let s = |b: &[u16]| {
+                PathBuf::from(String::from_utf16_lossy(
+                    &b[..b.iter().position(|&c| c == 0).unwrap_or(b.len())],
+                ))
+            };
+            Ok((s(&t), s(&d)))
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn the_shortcut_points_at_the_launcher() {
+        let t = std::env::temp_dir().join(format!("install-lnk-test-{}", std::process::id()));
+        fs::create_dir_all(&t).unwrap();
+        let exe = t.join("Launcher.exe");
+        fs::write(&exe, b"").unwrap();
+        let link = t.join("Forza-WCCF 2017-18.lnk");
+        lnk::write(&link, &exe, &t).unwrap();
+        let (target, dir) = lnk::read(&link).unwrap();
+        let same =
+            |a: &Path, b: &Path| fs::canonicalize(a).unwrap() == fs::canonicalize(b).unwrap(); // 8.3 names expand
+        assert!(same(&target, &exe) && same(&dir, &t), "{target:?} {dir:?}");
+        fs::remove_dir_all(&t).unwrap();
+    }
 
     #[test]
     fn a_picked_folder_gets_its_own_forza_wccf_folder() {

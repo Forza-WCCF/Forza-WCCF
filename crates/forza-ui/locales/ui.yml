@@ -78,6 +78,8 @@ launcher.msg_unverified: {en: "The download could not be verified. Nothing was c
 launcher.msg_launcher_differs: {en: "Launcher.exe is version %{own} but the other files are %{files}. Reinstall %{files} with UPDATE.", it: "Launcher.exe è la versione %{own}, gli altri file la %{files}. Reinstalla la %{files} da AGGIORNAMENTO.", ja: "Launcher.exe はバージョン %{own}、ほかのファイルは %{files} です。「アップデート」で %{files} をインストールし直してください。"}
 launcher.msg_needs_installer: {en: "%{tag} needs the installer. Download it from the release page.", it: "%{tag} richiede l'installer. Scaricalo dalla pagina della versione.", ja: "%{tag} にはインストーラーが必要です。リリースページからダウンロードしてください。"}
 launcher.msg_not_a_kit: {en: "This ZIP is not a Forza-WCCF release.", it: "Questo ZIP non è una versione di Forza-WCCF.", ja: "この ZIP は Forza-WCCF のリリースではありません。"}
+launcher.msg_update_files_missing: {en: "Update stopped: the antivirus probably removed %{files}. Nothing was changed.", it: "Aggiornamento interrotto: probabilmente l'antivirus ha rimosso %{files}. Non è stato modificato nulla.", ja: "アップデートを中止しました。ウイルス対策ソフトが %{files} を削除した可能性があります。何も変更されていません。"}
+launcher.msg_update_rolled_back: {en: "Update stopped, the installed version was kept. %{error}", it: "Aggiornamento interrotto, la versione installata è stata mantenuta. %{error}", ja: "アップデートを中止しました。インストール済みのバージョンはそのままです。%{error}"}
 launcher.msg_write_failed: {en: "Cannot write %{path} (%{error}). Close the game and try again.", it: "Impossibile scrivere %{path} (%{error}). Chiudi il gioco e riprova.", ja: "%{path} に書き込めませんでした（%{error}）。ゲームを閉じて、もう一度お試しください。"}
 launcher.msg_done: {en: "Done.", it: "Fatto.", ja: "完了しました。"}
 launcher.msg_failed: {en: "Failed. See DETAILS.", it: "Non riuscito. Vedi DETTAGLI.", ja: "失敗しました。「詳細」を確認してください。"}
@@ -537,10 +539,11 @@ lobby.host_shop: {en: "HOST ARCADE", it: "APRI SALA", ja: "ゲームセンター
 lobby.host_title: {en: "Host an arcade", it: "Apri la tua sala", ja: "自分のゲームセンターを開く"}
 lobby.room_code: {en: "Room code", it: "Codice stanza", ja: "ルームコード"}
 lobby.opening: {en: "Opening the arcade…", it: "Apertura della sala…", ja: "ゲームセンターを開いています…"}
-lobby.shop_howto: {en: "Both players: card in during the same ENTRY, then Arrange Fixture → Set opponent.", it: "Entrambi: inserite la carta nella stessa ENTRY, poi Arrange Fixture → Set opponent.", ja: "二人とも同じエントリー中にカードを入れ、Arrange Fixture → Set opponent を選びます。"}
+lobby.shop_howto: {en: "Both players: card in during the same ENTRY, then Arrange Fixture → Set opponent.", it: "Entrambi: inserite la carta nella stessa ENTRY, poi Fissa un incontro → Scegli avversario.", ja: "二人とも同じエントリー中にカードを入れ、Arrange Fixture → Set opponent を選びます。"}
 lobby.joining: {en: "Joining %{code}…", it: "Ingresso in %{code}…", ja: "%{code} に参加しています…"}
 lobby.no_room: {en: "No room has that code on %{desk}.", it: "Nessuna stanza ha quel codice su %{desk}.", ja: "%{desk} にそのコードのルームはありません。"}
 lobby.room_desk: {en: "Room on %{desk}", it: "Stanza su %{desk}", ja: "ルームの場所：%{desk}"}
+lobby.host_players: {en: "Players here: %{n}/%{max}", it: "Giocatori in sala: %{n}/%{max}", ja: "現在の人数：%{n}/%{max}"}
 lobby.room_lost: {en: "The lobby lost this room: nobody new can join.", it: "La lobby ha perso questa stanza: nessun altro può entrare.", ja: "ロビーがこのルームを失いました。新しい参加はできません。"}
 lobby.room_full: {en: "That room is full.", it: "Quella stanza è piena.", ja: "そのルームは満員です。"}
 lobby.shop_closed: {en: "The host has left: the arcade is closed.", it: "L'host è uscito: la sala è chiusa.", ja: "ホストが退出しました：ゲームセンターは閉じています。"}
@@ -610,7 +613,7 @@ launcher.run_no_server: {en: "No server is running on this PC.", it: "Nessun ser
 launcher.run_restarting_running: {en: "Restarting the running game.", it: "Riavvio del gioco in esecuzione.", ja: "実行中のゲームを再起動します。"}
 launcher.run_no_restart: {en: "Could not ask for a restart: %{error}", it: "Impossibile richiedere il riavvio: %{error}", ja: "再起動を要求できませんでした: %{error}"}
 launcher.run_pictures_ready: {en: "Card pictures ready.", it: "Immagini delle carte pronte.", ja: "カード画像の準備ができました。"}
-launcher.run_which_server: {en: "Which server? Use: Launcher.exe remote HOST or HOST:PORT.", it: "Quale server? Usa: Launcher.exe remote HOST or HOST:PORT.", ja: "どのサーバーですか? Launcher.exe remote HOST または HOST:PORT の形で指定してください。"}
+launcher.run_which_server: {en: "Which server? Use: Launcher.exe remote HOST or HOST:PORT.", it: "Quale server? Usa: Launcher.exe remote HOST oppure HOST:PORT.", ja: "どのサーバーですか? Launcher.exe remote HOST または HOST:PORT の形で指定してください。"}
 launcher.run_strays: {en: "Game programs are running that this Launcher.exe did not start: %{list}. Close them, or restart Windows.", it: "Ci sono programmi del gioco in esecuzione che questo Launcher.exe non ha avviato: %{list}. Chiudili, oppure riavvia Windows.", ja: "この Launcher.exe が起動していないゲームのプログラムが動いています: %{list}。それらを閉じるか、Windows を再起動してください。"}
 launcher.run_server_keeps: {en: "The server keeps running with this PC's seat (it holds that seat's match).", it: "Il server resta attivo con il posto di questo PC (gestisce la partita di quel posto).", ja: "サーバーはこのPCの席を保持したまま動き続けます(その席の試合を保持しているためです)。"}
 launcher.run_stopping: {en: "Stopping.", it: "Arresto in corso.", ja: "終了しています。"}

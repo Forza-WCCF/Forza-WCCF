@@ -6,7 +6,7 @@
 //!  - serves the serial ports MXHOOK_COM names from the card reader's and the I/O board's named pipes ([`serial`]);
 //!  - blocks the DHCP release and renew on the host's network card, which dropped the player's LAN, and presents this
 //!    PC to the game with one address in the cabinet's network ([`net`]);
-//!  - 2010-11: answers the server's start of logowin.exe itself ([`logowin`]);
+//!  - both editions' game programs: answer the server's start of logowin.exe themselves ([`logowin`]);
 //!  - control (2010-11 on Windows, 2017-18 on Windows and Wine): gives it the players' messages only whole ([`whole`]);
 //!  - a server under Wine (both editions): loads netguard.dll as the second guard ([`net::load_netguard`]); 2010-11
 //!    also fixes three faults of control ([`server`]).
@@ -54,7 +54,7 @@ const EDITION: &str = if cfg!(feature = "e1011") {
 mod dmi;
 #[cfg_attr(not(feature = "e1011-server"), allow(dead_code))]
 mod fixes;
-#[cfg_attr(not(feature = "e1011"), allow(dead_code))]
+#[cfg_attr(not(any(feature = "e1011", feature = "e1718")), allow(dead_code))]
 mod logowin;
 mod ports;
 #[cfg_attr(feature = "e1011-server", allow(dead_code))]
@@ -133,6 +133,15 @@ fn install() -> bool {
     let (host, inet) = net::install_address();
     #[cfg(any(feature = "e1011", feature = "e1718", feature = "e1718-server"))]
     whole::install();
+    // 2017-18: the kit ships no stand-in logowin.exe any more, so a miss here lets the original's white screen show
+    #[cfg(feature = "e1718")]
+    if logowin::install() {
+        log!("logowin: answered in-process (CreateProcessA hooked)");
+    } else {
+        log!(
+            "logowin: NOT HOOKED - CreateProcessA is not imported or could not be patched; a start of logowin.exe runs the original"
+        );
+    }
 
     let b = u8::from;
     let [cfw, cfa, cfm, ofm, dio] = dev.map(b);

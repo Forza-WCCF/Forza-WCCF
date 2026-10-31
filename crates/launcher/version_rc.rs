@@ -35,6 +35,14 @@ pub fn make(bin: &str, what: &str, icon: Option<&str>) -> Option<PathBuf> {
     Some(res)
 }
 
+/// An embedded asInvoker manifest for the program `bin` (MSVC linker): a program without one is left to Windows' installer
+/// guesses, and antivirus heuristics weigh a missing manifest against an unsigned program.
+#[allow(dead_code)] // not every build script that includes this file links a program
+pub fn as_invoker(bin: &str) {
+    println!("cargo:rustc-link-arg-bin={bin}=/MANIFEST:EMBED");
+    println!("cargo:rustc-link-arg-bin={bin}=/MANIFESTUAC:level='asInvoker' uiAccess='false'");
+}
+
 /// rc.exe on PATH (after vcvarsall), else llvm-rc (WSL), else the newest x64 rc.exe under the Windows Kits.
 fn find_rc() -> Option<PathBuf> {
     for rc in ["rc.exe", "llvm-rc"] {
@@ -64,7 +72,7 @@ fn version_rc(bin: &str, what: &str, version: &str) -> String {
     format!(
         "1 VERSIONINFO\nFILEVERSION {comma}\nPRODUCTVERSION {comma}\nFILEOS 0x40004\nFILETYPE {kind}\nBEGIN\n\
          BLOCK \"StringFileInfo\"\nBEGIN\nBLOCK \"040904b0\"\nBEGIN\n\
-         VALUE \"CompanyName\", \"Forza-WCCF community\"\n\
+         VALUE \"CompanyName\", \"Forza-WCCF\"\n\
          VALUE \"FileDescription\", \"Forza-WCCF - {bin}: {what}\"\n\
          VALUE \"FileVersion\", \"{version}\"\n\
          VALUE \"InternalName\", \"{bin}\"\n\

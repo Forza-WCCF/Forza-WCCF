@@ -240,6 +240,9 @@ pub struct LobbyView {
     /// HOST SHOP is on: this PC's shop, with its room code once the lobby gave one.
     pub hosting: bool,
     pub host_code: Option<String>,
+    /// HOST SHOP: the players in this PC's arcade now (its own seat and the guests connected through its tunnel);
+    /// the Launcher stops polling the list while the game runs, so this is the host's only count.
+    pub host_players: Option<u8>,
     /// 2017-18: HOST SHOP lists the room in others' SHOPS (the "List my shop" switch, data\settings.json `list_shop`,
     /// saved at HOST SHOP).
     pub list_shop: bool,
@@ -388,6 +391,7 @@ impl LobbyView {
             joining: None,
             hosting: false,
             host_code: None,
+            host_players: None,
             list_shop: false,
             shop_name: String::new(),
             host_ask: None,
@@ -536,7 +540,8 @@ impl LobbyView {
                 v.desk = "lobby.wccf.it:20032".into();
                 match s {
                     Scenario::ShopHost => {
-                        (v.hosting, v.host_code) = (true, Some("K7QM2XPD".into()))
+                        (v.hosting, v.host_code, v.host_players) =
+                            (true, Some("K7QM2XPD".into()), Some(3))
                     }
                     Scenario::ShopJoining => {
                         (v.joining, v.list_shop) = (Some("K7QM2XPD".into()), true)
@@ -1351,6 +1356,21 @@ fn code_row(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAc
     });
 }
 
+impl LobbyView {
+    /// HOST SHOP: "Players here: 3/8" under the room code once the room is up; None on a LAN shop (no tunnel count).
+    pub fn host_players_line(&self, lang: Lang) -> Option<String> {
+        let n = self
+            .host_players
+            .filter(|_| self.host_code.is_some() && self.host_lan.is_none())?;
+        Some(tr!(
+            lang,
+            "lobby.host_players",
+            n = n,
+            max = forza::online::SEATS.end()
+        ))
+    }
+}
+
 /// HOST SHOP: the room code to pass on, its copy button, LEAVE (the shop closes).
 fn host_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAction>) {
     let w = ui.available_width();
@@ -1380,6 +1400,13 @@ fn host_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
                 theme::TEXT_FAINT
             }),
     );
+    if let Some(p) = v.host_players_line(lang) {
+        ui.label(
+            egui::RichText::new(p)
+                .font(theme::bold(15.0))
+                .color(theme::TEXT),
+        );
+    }
     if lan {
         ui.label(
             egui::RichText::new(tr!(lang, "lobby.lan_host_hint"))
@@ -1656,6 +1683,24 @@ mod tests {
         v.shops[0].room = true;
         v.shop_rooms = false;
         assert!(v.joinable().is_none());
+    }
+
+    /// The host's own arcade showed no count while it ran (2026-10-28 live test: seats 1-3 taken, nothing shown).
+    #[test]
+    fn host_sees_its_players() {
+        let mut v = LobbyView::sample(Scenario::ShopHost);
+        assert_eq!(
+            v.host_players_line(Lang::En).as_deref(),
+            Some("Players here: 3/8")
+        );
+        for l in [Lang::It, Lang::Ja] {
+            assert!(
+                v.host_players_line(l).is_some_and(|s| s.contains("3/8")),
+                "{l:?}"
+            );
+        }
+        v.host_code = None; // the room not made yet
+        assert_eq!(v.host_players_line(Lang::En), None);
     }
 
     /// Each filter on its own lets through the rows it did before, and off again shows them all.

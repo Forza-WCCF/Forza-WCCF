@@ -26,10 +26,7 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicUsize, Ordering:
 use std::sync::{Mutex, OnceLock};
 use windows::Win32::Foundation::{GetLastError, SetLastError};
 use windows::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
-use windows::Win32::System::Memory::{
-    MEM_COMMIT, MEMORY_BASIC_INFORMATION, PAGE_GUARD, PAGE_NOACCESS, PAGE_PROTECTION_FLAGS,
-    PAGE_READWRITE, VirtualProtect, VirtualQuery,
-};
+use windows::Win32::System::Memory::{PAGE_PROTECTION_FLAGS, PAGE_READWRITE, VirtualProtect};
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::core::s;
 
@@ -919,33 +916,11 @@ const P429_HEAD: [u8; 0x19] = [
 const _: () = assert!(0x006D_7DA0 + SETTEXT_HEAD.len() == MONEY_SETTEXT_RET);
 const _: () = assert!(0x0042_9750 + P429_HEAD.len() == MONEY_P429_RET);
 
-/// `len` bytes at `at` are committed and readable (the C reads them under `__try`).
-fn readable(at: usize, len: usize) -> bool {
-    let mut a = at;
-    while a < at + len {
-        let mut mbi = MEMORY_BASIC_INFORMATION::default();
-        // SAFETY: a query about our own process's memory
-        if unsafe {
-            VirtualQuery(
-                Some(a as *const c_void),
-                &mut mbi,
-                size_of::<MEMORY_BASIC_INFORMATION>(),
-            )
-        } == 0
-            || mbi.State != MEM_COMMIT
-            || mbi.Protect.0 & (PAGE_NOACCESS.0 | PAGE_GUARD.0) != 0
-        {
-            return false;
-        }
-        a = mbi.BaseAddress as usize + mbi.RegionSize;
-    }
-    true
-}
-
 /// `len` bytes of the program at `at`, None when they cannot be read.
 fn bytes(at: usize, len: usize) -> Option<&'static [u8]> {
     // SAFETY: checked readable; the program's code and data stay mapped while it runs
-    readable(at, len).then(|| unsafe { std::slice::from_raw_parts(at as *const u8, len) })
+    crate::patches::mem_ok(at, len, false)
+        .then(|| unsafe { std::slice::from_raw_parts(at as *const u8, len) })
 }
 
 /// The C's place and head checks: the count of places / helpers not as studied; None = a read failed.

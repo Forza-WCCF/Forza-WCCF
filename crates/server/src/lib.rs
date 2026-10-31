@@ -3,6 +3,7 @@
 //! and blocking I/O; builds for Windows and Linux. Ports, timers and paths are parameters of each service's config
 //! (the binary fills them from the Python's environment variables); tests bind `127.0.0.1:0`.
 
+pub mod cli;
 pub mod desk;
 pub mod desync;
 pub mod relay;

@@ -7198,6 +7198,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tl",
+ "windows",
  "zip",
 ]
 
