@@ -323,20 +323,54 @@ pub fn table(l: &Lineup, catalogue: &[Card]) -> Result<Import, LineupError> {
     })
 }
 
+/// The site whose share links IMPORT LINEUP reads, and the only host the panel asks for one.
+pub const SHARE_HOST: &str = "db.wccf.it";
+
+static SHARE_LINK: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"^(?:https?://)?db\.wccf\.it(?:/s/([A-Za-z0-9]{4,16})(?:[/?#]\S*)?|/\S*#/board\?(?:\S*&)?s=([A-Za-z0-9]{4,16})(?:&\S*)?)$",
+    )
+    .expect("share link pattern")
+});
+
+/// The share id in `text` when the whole text (trimmed) is a db.wccf.it share link: `https://db.wccf.it/s/ID`,
+/// `http://` or no scheme, or the board's `.../#/board?s=ID`; the id is 4 to 16 letters and digits. `None`: not a
+/// link (read as lineup text).
+pub fn share_id(text: &str) -> Option<&str> {
+    let c = SHARE_LINK.captures(text.trim())?;
+    c.get(1).or_else(|| c.get(2)).map(|m| m.as_str())
+}
+
+/// The share id's lineup text on [`SHARE_HOST`] (the share service's `GET /api/share/ID.txt`).
+pub fn share_path(id: &str) -> String {
+    format!("/api/share/{id}.txt")
+}
+
 /// The table as the site's text: `game`, `name` (left out when empty), `P no x y` (percent, whole numbers, the first 11
-/// on the pitch in slot order) and `S no` (the bench by band, the first 5). No key player and no comments: the table
-/// has neither.
+/// on the pitch in table order, the order the board shows them) and `S no` (the bench by band, the first 5). No key
+/// player and no comments: the table has neither.
 pub fn export(placed: &[Placed], edition: Edition, name: &str) -> String {
-    let mut pitch: Vec<&Placed> = placed.iter().filter(|p| !p.on_bench()).collect();
-    pitch.sort_by_key(|p| p.slot);
+    write(placed, edition, name, |v| format!("{}", v.round()))
+}
+
+/// [`export`] with the percent to two decimals (the table's own three-decimal spots), so [`parse`] and [`table`] give
+/// the same table back: a saved formation's file.
+pub fn export_exact(placed: &[Placed], edition: Edition, name: &str) -> String {
+    write(placed, edition, name, |v| {
+        let t = format!("{v:.2}");
+        t.trim_end_matches('0').trim_end_matches('.').to_string()
+    })
+}
+
+fn write(placed: &[Placed], edition: Edition, name: &str, num: impl Fn(f32) -> String) -> String {
     let mut bench: Vec<&Placed> = placed.iter().filter(|p| p.on_bench()).collect();
     bench.sort_by_key(|p| (super::bench_band(p.y), p.slot));
-    let pct = |v: f32| ((v + 1.0) * 50.0).round().clamp(0.0, 100.0);
+    let pct = |v: f32| num(((v + 1.0) * 50.0).clamp(0.0, 100.0));
     let mut t = format!("# WCCF DB lineup\ngame {}\n", game(edition));
     if !name.is_empty() {
         t += &format!("name {name}\n");
     }
-    for p in pitch.iter().take(PITCH) {
+    for p in placed.iter().filter(|p| !p.on_bench()).take(PITCH) {
         t += &format!("P {} {} {}\n", p.no, pct(p.x), pct(p.y));
     }
     for p in bench.iter().take(BENCH) {
@@ -349,6 +383,44 @@ pub fn export(placed: &[Placed], edition: Edition, name: &str) -> String {
 mod tests {
     use super::*;
     use crate::board::Position;
+
+    #[test]
+    fn share_links_are_recognised_and_nothing_else() {
+        for (text, id) in [
+            ("https://db.wccf.it/s/Ab3dE7x", "Ab3dE7x"),
+            ("  http://db.wccf.it/s/Ab3dE7x/\r\n", "Ab3dE7x"),
+            ("db.wccf.it/s/abcd", "abcd"),
+            ("https://db.wccf.it/s/Ab3dE7x?utm=x", "Ab3dE7x"),
+            ("https://db.wccf.it/#/board?s=Ab3dE7x", "Ab3dE7x"),
+            (
+                "https://db.wccf.it/it/#/board?lang=it&s=Ab3dE7x&x=1",
+                "Ab3dE7x",
+            ),
+        ] {
+            assert_eq!(share_id(text), Some(id), "{text}");
+        }
+        for text in [
+            "https://db.wccf.it.evil.com/s/Ab3dE7x",
+            "https://evil.com/s/Ab3dE7x",
+            "https://user@db.wccf.it/s/Ab3dE7x",
+            "https://evil.com/?db.wccf.it/s/Ab3dE7x",
+            "ftp://db.wccf.it/s/Ab3dE7x",
+            "https://DB.WCCF.IT/s/Ab3dE7x",
+            "https://db.wccf.it:8443/s/Ab3dE7x",
+            "https://db.wccf.it/s/abc",
+            "https://db.wccf.it/s/abcdefghijklmnopq",
+            "https://db.wccf.it/s/ab-cd",
+            "https://db.wccf.it/s/abcd@evil.com",
+            "https://db.wccf.it/s/../api/x",
+            "https://db.wccf.it/#/board?s=ab%2Fcd",
+            "https://db.wccf.it/s/Ab3dE7x\nP 1 50 50",
+            SITE,
+            "",
+        ] {
+            assert_eq!(share_id(text), None, "{text}");
+        }
+        assert_eq!(share_path("Ab3dE7x"), "/api/share/Ab3dE7x.txt");
+    }
 
     const SITE: &str = "# WCCF DB lineup\ngame 1718\nname My team\nP 1234 50 88 K\nP 2001 30 70\nS 2345\nS \"13/GES 3 \"\n";
 
@@ -641,5 +713,36 @@ mod tests {
         assert_eq!(t.matches("\nP ").count(), 11);
         assert!(t.starts_with("# WCCF DB lineup\ngame 1011\nP 1 50 50\n"));
         assert!(t.ends_with("S 91\nS 90\n"));
+    }
+
+    /// db.wccf.it's own `exportText` (board.js) run on real 2017-18 cards (E:\\wccf-builds\\saved-formations-20261030\\
+    /// site_sample.mjs): it reads, and [`export`] writes it back line for line minus the comments, padding and K.
+    #[test]
+    fn a_real_site_export_comes_back_in_the_same_format() {
+        const REAL: &str = "# WCCF DB lineup\ngame 1718\nname Sample XI\nP 10000 50 94   # SZCZESNY · 11-12 001\nP 10006 20 72   # A.SANTOS · 11-12 002\nP 10001 40 74   # GIBBS · 11-12 003\nP 10002 60 74   # KOSCIELNY · 11-12 004\nP 10003 80 72   # MERTESACKER · 11-12 005\nP 10004 18 48   # SAGNA · 11-12 006\nP 10007 38 52   # VERMAELEN · 11-12 007\nP 10009 62 52   # ARTETA · 11-12 008\nP 10010 82 48   # RAMSEY · 11-12 009\nP 10012 38 26 K # SONG · 11-12 010\nP 10013 62 26   # WILSHERE · 11-12 011\nS 10014         # GERVINHO · 11-12 012\nS 10017         # RYO · 11-12 013\nS 10019         # CHAMBERLAIN · 11-12 014\nS 10020         # V.PERSIE · 11-12 015\nS 10022         # WALCOTT · 11-12 016\n";
+        let l = parse(REAL, Edition::E1718).unwrap();
+        assert!(l.skipped.is_empty());
+        assert_eq!((l.pitch.len(), l.bench.len(), l.kp), (11, 5, Some(10012)));
+        assert_eq!(l.pitch[0].label, "SZCZESNY · 11-12 001");
+        let c = cat(&l
+            .pitch
+            .iter()
+            .chain(&l.bench)
+            .map(|e| e.no)
+            .collect::<Vec<_>>());
+        let i = table(&l, &c).unwrap();
+        let ours = export(&i.placed, Edition::E1718, "Sample XI");
+        let theirs: String = REAL
+            .lines()
+            .map(|s| {
+                let s = if s.starts_with('#') {
+                    s
+                } else {
+                    s.split('#').next().unwrap()
+                };
+                format!("{}\n", s.trim_end().trim_end_matches(" K"))
+            })
+            .collect();
+        assert_eq!(ours, theirs);
     }
 }

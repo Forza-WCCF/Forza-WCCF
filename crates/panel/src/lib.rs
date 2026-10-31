@@ -37,6 +37,7 @@ mod patches;
 mod pause;
 mod probe;
 mod projector;
+mod share;
 
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, TextureId, ViewportId, pos2, vec2};
 use forza::cards::{self, Placed, TableFile};
@@ -762,6 +763,54 @@ fn clipboard_text() -> Option<String> {
     }
 }
 
+/// `text` on the clipboard as Unicode text; `false`: the clipboard could not be opened or taken.
+/// `WCCFPANEL_IMPORTTEST=FILE` writes `FILE.copy` instead (fakegame: the player's clipboard is left alone).
+fn set_clipboard_text(text: &str) -> bool {
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::System::DataExchange::{
+        CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+    };
+    if let Some(p) = std::env::var_os("WCCFPANEL_IMPORTTEST") {
+        let mut p = PathBuf::from(p).into_os_string();
+        p.push(".copy");
+        return std::fs::write(p, text).is_ok();
+    }
+    const CF_UNICODETEXT: u32 = 13;
+    let wide: Vec<u16> = text
+        .replace('\n', "\r\n")
+        .encode_utf16()
+        .chain([0])
+        .collect();
+    // SAFETY: a fresh movable block filled while locked; once SetClipboardData takes it the clipboard owns it, else it
+    // is freed here
+    unsafe {
+        let Ok(g) = GlobalAlloc(GMEM_MOVEABLE, wide.len() * 2) else {
+            return false;
+        };
+        let p = GlobalLock(g).cast::<u16>();
+        if p.is_null() {
+            let _ = GlobalFree(Some(g));
+            return false;
+        }
+        std::ptr::copy_nonoverlapping(wide.as_ptr(), p, wide.len());
+        let _ = GlobalUnlock(g);
+        if OpenClipboard(None).is_err() {
+            std::thread::sleep(Duration::from_millis(30));
+            if OpenClipboard(None).is_err() {
+                let _ = GlobalFree(Some(g));
+                return false;
+            }
+        }
+        let ok =
+            EmptyClipboard().is_ok() && SetClipboardData(CF_UNICODETEXT, Some(HANDLE(g.0))).is_ok();
+        if !ok {
+            let _ = GlobalFree(Some(g));
+        }
+        let _ = CloseClipboard();
+        ok
+    }
+}
+
 /// The screen's dpi as this process sees it: the real one when the game runs DPI-aware (the Launcher starts it with
 /// `__COMPAT_LAYER=HighDpiAware`), 96 when Windows stretches it. Asked once: a system-aware process keeps the dpi it
 /// started with (no WM_DPICHANGED), so a change of the scaling takes a new start.
@@ -1232,6 +1281,8 @@ struct Render {
     table: TableFile,
     /// The table as last read or written; `st.board.cards[i]` is `placed[i]`.
     placed: Vec<Placed>,
+    /// IMPORT LINEUP's share link, its lineup on the way.
+    share: Option<panel::ShareFetch>,
     /// A cabinet button's key that is down, since when; the mouse still held on it.
     key: Option<(u32, Instant)>,
     /// The key the latch holds down (0: none): `LATCH_VK` as this thread last set it.
@@ -1326,6 +1377,7 @@ impl Render {
             st,
             table,
             placed,
+            share: None,
             key: None,
             latch: 0,
             mouse_down: false,
@@ -2149,7 +2201,7 @@ impl Render {
             let p = &self.st.file;
             match f.save_panel(p) {
                 Ok(()) => log(&format!(
-                    "settings: saved play_on={} server={} english={} layout={} hover={} auto_logs={} board={} board_buttons={} board_rect={:?}",
+                    "settings: saved play_on={} server={} english={} layout={} hover={} auto_logs={} board={} board_buttons={} pad_background={} board_rect={:?}",
                     if p.online { "online" } else { "this_pc" },
                     if p.server.is_empty() { "-" } else { &p.server },
                     p.english.as_deref().unwrap_or("-"),
@@ -2158,6 +2210,7 @@ impl Render {
                     if p.auto_logs_off { "off" } else { "on" },
                     if p.board_window { "window" } else { "game" },
                     if p.board_buttons { "on" } else { "off" },
+                    if p.pad_background { "on" } else { "off" },
                     p.board_rect,
                 )),
                 Err(e) => {
@@ -2451,9 +2504,10 @@ impl Render {
         }
     }
 
-    /// IMPORT LINEUP: the clipboard's text checked, then on the table once the dialog's CONFIRM comes
+    /// IMPORT LINEUP: the clipboard's text (or its share link's lineup, fetched off this thread) checked, then on the table once the dialog's CONFIRM comes
     /// ([`Render::import_text`]); its UNDO: the table before it.
     fn import(&mut self) {
+        self.formations();
         if std::mem::take(&mut self.st.import_undone)
             && let Some(old) = panel::undo_import(&mut self.st, in_match())
         {
@@ -2461,10 +2515,35 @@ impl Render {
             self.placed = old;
             self.table_write();
         }
-        if std::mem::take(&mut self.st.import) {
-            match clipboard_text() {
-                Some(text) => {
-                    if !panel::ask_import(&mut self.st, &text, in_match()) {
+        if let Some(got) = self
+            .share
+            .as_ref()
+            .and_then(|f| f.poll(self.ctx.input(|i| i.time)))
+        {
+            self.share = None;
+            log(&format!(
+                "import: share link answered {:?}",
+                got.as_ref().map(String::len)
+            ));
+            if !panel::ask_fetched(&mut self.st, got, in_match()) {
+                let why = self.st.message.as_ref().map_or("", |m| m.text.as_str());
+                log(&format!("import: refused - {}", why.replace('\n', " / ")));
+            }
+        }
+        if std::mem::take(&mut self.st.import) && self.share.is_none() {
+            let text = clipboard_text();
+            match text
+                .as_deref()
+                .map(|t| (t, forza::cards::lineup::share_id(t)))
+            {
+                Some((_, Some(id))) => {
+                    log(&format!("import: share link {id}"));
+                    let now = self.ctx.input(|i| i.time);
+                    self.share =
+                        panel::ShareFetch::start(&mut self.st, id, in_match(), now, share::get);
+                }
+                Some((text, None)) => {
+                    if !panel::ask_import(&mut self.st, text, in_match()) {
                         let why = self.st.message.as_ref().map_or("", |m| m.text.as_str());
                         log(&format!("import: refused - {}", why.replace('\n', " / ")));
                     }
@@ -2482,6 +2561,115 @@ impl Render {
             && let Some(ask) = self.st.import_ask.take()
         {
             self.import_text(&ask.text);
+        }
+    }
+
+    /// FORMATIONS (issue #89): the slots read on opening and after a SAVE; a slot loaded as IMPORT LINEUP loads a
+    /// lineup (UNDO the same); SAVE writes the table with the club it came from; COPY puts the site's text on the
+    /// clipboard.
+    fn formations(&mut self) {
+        use forza::cards::formations as fm;
+        use forza_ui::widgets::Tone;
+        let Some(f) = FILES.get() else { return };
+        let dir = fm::dir(&f.data.join("save"));
+        let edition = self.st.edition;
+        if std::mem::take(&mut self.st.formations_open) {
+            self.st.in_match = in_match();
+            self.st.formations = Some(panel::Formations {
+                slots: fm::read(&dir, edition),
+                naming: None,
+            });
+            log(&format!("formations: opened {}", dir.display()));
+        }
+        if let Some(i) = self.st.formation_load.take() {
+            let now = self.ctx.input(|i| i.time);
+            if let Some(new) = panel::load_formation(&mut self.st, &self.placed, i, in_match(), now)
+            {
+                log(&format!(
+                    "formations: slot {} loaded - {} card(s)",
+                    i + 1,
+                    new.len()
+                ));
+                let keep = self
+                    .table
+                    .table
+                    .with_file_name("fpr_table0.before-import.txt");
+                if let Err(e) = std::fs::write(&keep, cards::table_text(&self.placed)) {
+                    log(&format!("formations: {} not written ({e})", keep.display()));
+                }
+                self.placed = new;
+                self.table_write();
+            } else {
+                let why = self.st.message.as_ref().map_or("", |m| m.text.as_str());
+                log(&format!(
+                    "formations: slot {} not loaded - {}",
+                    i + 1,
+                    why.replace('\n', " / ")
+                ));
+            }
+        }
+        if let Some((i, name)) = self.st.formation_save.take() {
+            self.formation_save(&dir, i, &name, &f.data);
+        }
+        if let Some(which) = self.st.formation_copy.take() {
+            let text = match which {
+                None => Some(cards::lineup::export(&self.placed, edition, "")),
+                Some(i) => self
+                    .st
+                    .formations
+                    .as_ref()
+                    .and_then(|d| d.slots.get(i)?.as_ref())
+                    .and_then(|s| fm::site_text(&s.text, edition)),
+            };
+            if text.as_deref().is_some_and(set_clipboard_text) {
+                log(&format!("formations: copied {which:?}"));
+                self.st.say(Tone::Done, "form.msg_copied");
+            } else {
+                log(&format!("formations: copy {which:?} failed"));
+                self.st.say(Tone::Refused, "form.msg_not_copied");
+            }
+        }
+    }
+
+    /// SAVE: the table into slot `i` with its club (data\club_view.txt's CLUB row), then the slots read again.
+    fn formation_save(&mut self, dir: &Path, i: usize, name: &str, data: &Path) {
+        use forza::cards::formations as fm;
+        use forza_ui::widgets::Tone;
+        let edition = self.st.edition;
+        if self.placed.is_empty() {
+            self.st.say(Tone::Refused, "form.msg_empty_table");
+            return;
+        }
+        let club = std::fs::read(data.join("club_view.txt"))
+            .ok()
+            .and_then(|raw| {
+                forza::club_view::ClubView::parse(&raw)
+                    .row("CLUB")
+                    // "NAME  (founded DATE)"
+                    .map(|v| v.split("  (").next().unwrap_or(v).trim().to_owned())
+            })
+            .unwrap_or_default();
+        match fm::write(dir, i, &fm::text(&self.placed, edition, name, &club)) {
+            Ok(()) => {
+                log(&format!(
+                    "formations: slot {} saved ({} card(s), club {club:?})",
+                    i + 1,
+                    self.placed.len()
+                ));
+                let text = forza_ui::text(
+                    self.st.lang,
+                    "form.msg_saved",
+                    &[("n", &(i + 1).to_string())],
+                );
+                self.st.note(Tone::Done, text);
+            }
+            Err(e) => {
+                log(&format!("formations: slot {} not saved ({e})", i + 1));
+                self.st.say(Tone::Refused, "form.msg_not_saved");
+            }
+        }
+        if let Some(d) = self.st.formations.as_mut() {
+            d.slots = fm::read(dir, edition);
         }
     }
 

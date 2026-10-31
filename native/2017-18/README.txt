@@ -9,6 +9,9 @@ target\ (the 2017-18 folder) at the paths below; `cargo xtask package 2017-18` z
                        import it instead of IPHLPAPI.DLL; the four stubs are its own exports, six read-only calls are
                        forwarded to iphlpapi by its build.rs. When the Launcher sets FORZA_PANEL, it also loads that
                        DLL (the panel) into the game)
+  bin\dmath.dll        native\detmath (setup copies it into the game folder, where match_Release.exe imports it
+                       instead of PSAPI.DLL; its build.rs forwards the four psapi calls. It makes the match engine's
+                       math the same on every CPU: examples\v4.rs is the check program that prints its results' hash)
   bin\ICMP.DLL         native\icmp (the game's pings of the arcade network return at once instead of timing out)
   bin\FPR_Emu.exe      native\programs\src\bin\fpr_emu.rs (forza-programs, --features programs)
   overlay\forza_panel.dll   the repository's crates\panel, one build for both editions; its fonts are fonts\ at the top
@@ -37,4 +40,7 @@ What each does, in short:
   FPR_Emu.exe   answers the game's card-table polls with the cards in seat1\fpr_table0.txt
   forza_panel.dll the panel around seat 1's picture (drawn with the game's own Direct3D 9 device)
   wccfnet.dll   the guard; loads forza_panel.dll into seat 1 and the projector when the Launcher asks (FORZA_PANEL)
+  dmath.dll     replaces the engine's approximate SSE instructions and its atan2 with exact ones, so two seats
+                on different CPUs compute the same match (online friendlies no longer drop to the CPU); logs to
+                dmath.log beside it
   ICMP.DLL      answers the game's pings at once: no reply, as when the arcade network is not there
