@@ -1550,7 +1550,7 @@ impl Ctx {
         let to = beside(&self.game);
         let mut man = read_manifest(&to.join("manifest.json"));
         man.retain(|k, _| to.join(k.replace('\\', "/")).is_file());
-        let _ = fs::remove_file(to.join("manifest.json"));
+        // the old list stays until the new one lands in one step: the files it names stay originals meanwhile
         copy_tree(&self.backup, &to, &["manifest.json", SHEETS])?;
         man.extend(self.load_manifest());
         put(&to.join("manifest.json"), &serde_json::to_vec_pretty(&man)?)
@@ -1616,9 +1616,12 @@ pub fn sync_beside(ed: Edition, game: &Path, backup: &Path, sheets: &Path) -> Be
     };
     let own = c.load_manifest();
     if !own.is_empty() {
-        // missing beside the game, or it lacks entries this folder has (a newer or bigger backup): refresh it
+        // missing beside the game, or it lacks entries or files this folder has (a newer or bigger backup): refresh it
         let there = read_manifest(&beside(game).join("manifest.json"));
-        if own.keys().any(|k| !there.contains_key(k)) {
+        if own
+            .keys()
+            .any(|k| !there.contains_key(k) || !beside(game).join(k.replace('\\', "/")).is_file())
+        {
             let _ = c.save_beside();
         }
         return Beside::Fine;
@@ -2550,8 +2553,12 @@ mod tests {
         xaf[..4].copy_from_slice(b"xaf0");
         fs::create_dir_all(game.join(pictures::XAF).parent().unwrap()).unwrap();
         fs::write(game.join(pictures::XAF), &xaf).unwrap();
-        let st = serde_json::json!({"length": 2048, "header": "00".repeat(0x18), "entries": {"0": "00".repeat(0xB0)}});
-        fs::write(b.join(pictures::STATE), serde_json::to_vec(&st).unwrap()).unwrap();
+        let state = |total: &str| {
+            let h = format!("{total:0<48}");
+            let st = serde_json::json!({"length": 2048, "header": h, "entries": {"0": "00".repeat(0xB0)}});
+            fs::write(b.join(pictures::STATE), serde_json::to_vec(&st).unwrap()).unwrap();
+        };
+        state("01"); // a header of one sector: 2048 bytes
         let kit = t.path().join("kit");
         assert_eq!(
             sync_beside(Edition::E1718, &game, &backup, &kit),
@@ -2565,6 +2572,14 @@ mod tests {
         fs::remove_dir_all(&backup).unwrap();
         xaf[0x100 + 0xA0..0x100 + 0xA4].copy_from_slice(&1u32.to_le_bytes());
         fs::write(game.join(pictures::XAF), &xaf).unwrap();
+        state("02"); // its header disagrees with its length: restore would break the archive
+        assert_eq!(
+            sync_beside(Edition::E1718, &game, &backup, &kit),
+            Beside::Fine
+        );
+        assert!(!backup.join(pictures::STATE).exists());
+        fs::remove_dir_all(&backup).unwrap();
+        state("01");
         assert_eq!(
             sync_beside(Edition::E1718, &game, &backup, &kit),
             Beside::Fine

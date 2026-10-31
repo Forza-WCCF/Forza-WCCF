@@ -907,17 +907,31 @@ pub fn restore(game: &Path, state_path: &Path) -> R<usize> {
 }
 
 /// The state is this archive's way back: the archive is longer than the state's `length` and every entry it names
-/// points past that length, where [`apply`] put the pictures. Another folder's state is taken only then.
+/// points past that length, where [`apply`] put the pictures; and it holds what [`restore`] needs (a header that
+/// agrees with that length, whole entries). Another folder's state is taken only then.
 pub fn state_matches(game: &Path, state_path: &Path) -> bool {
     let Some(s) = load_state(state_path) else {
         return false;
     };
-    let (Some(length), Some(entries)) = (
+    let (Some(length), Some(header), Some(entries)) = (
         s.get("length").and_then(Value::as_u64),
+        s.get("header")
+            .and_then(Value::as_str)
+            .and_then(|h| hex(h).ok()),
         s.get("entries").and_then(Value::as_object),
     ) else {
         return false;
     };
+    if header.len() != 0x18
+        || u64::from_le_bytes(header[..8].try_into().unwrap()) * SECTOR != length
+        || !entries.values().all(|e| {
+            e.as_str()
+                .and_then(|e| hex(e).ok())
+                .is_some_and(|e| e.len() == ENTRY)
+        })
+    {
+        return false;
+    }
     let Ok(mut f) = File::open(game.join(XAF)) else {
         return false;
     };
