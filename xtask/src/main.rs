@@ -2214,6 +2214,19 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
     let mut shipped = BTreeSet::new();
     let mut dirs = BTreeSet::new();
     walk(kit, "", &mut shipped, &mut dirs)?;
+    // files.sha256: each file's SHA-256, for the Launcher's update to check the unzipped kit before it copies anything
+    // (lists of an earlier run in the folder are not in them)
+    shipped.retain(|f| f != "files.txt" && f != "files.sha256");
+    let mut sums = String::new();
+    for f in &shipped {
+        let hash: String = Sha256::digest(fs::read(kit.join(f))?)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        sums.push_str(&format!("{hash}  {}\r\n", f.replace('/', "\\")));
+    }
+    fs::write(kit.join("files.sha256"), sums)?;
+    shipped.insert("files.sha256".to_owned());
     shipped.insert("files.txt".to_owned());
     let mut files = String::from("\u{feff}");
     for f in &shipped {

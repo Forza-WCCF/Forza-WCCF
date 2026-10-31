@@ -238,14 +238,62 @@ pub fn apply(kit: &Kit, r: &Release) -> Result<(), String> {
     running_check(kit)?; // the game may have started during the download
     log(&tf("launcher.msg_copying", &[("tag", &r.tag)]));
     say(tf("launcher.msg_copying", &[("tag", &r.tag)]), 950);
+    // this running Launcher.exe last: self-replace swaps it for the new one, which the next start runs.  It moves the
+    // running one away first: if it then fails, the copy kept in data\update goes back
+    let me = dir.join("Launcher.exe");
+    let kept = work.join("Launcher.exe");
+    install(&top, dir, &work, || {
+        let failed = |e: io::Error| {
+            tf(
+                "launcher.msg_write_failed",
+                &[("path", "Launcher.exe"), ("error", &e.to_string())],
+            )
+        };
+        fs::copy(&me, &kept).map_err(failed)?;
+        self_replace::self_replace(top.join("Launcher.exe")).map_err(|e| {
+            if !me.is_file() {
+                let _ = fs::copy(&kept, &me);
+            }
+            failed(e)
+        })
+    })
+}
+
+/// The unzipped kit `top` over the kit folder `dir`, `replace` (the Launcher.exe swap) last; `work` (data\update) goes
+/// when done.  Nothing is touched unless every listed file is there and whole; a failure on the way puts the old kit back.
+fn install(top: &Path, dir: &Path, work: &Path, replace: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
+    // every file the new kit lists, there and whole, before the installed kit is touched: an antivirus may have taken some
+    let bad = damaged(top);
+    if !bad.is_empty() {
+        log(&format!("  missing or changed: {}", bad.join(", ")));
+        let _ = fs::remove_dir_all(work);
+        return Err(tf("launcher.msg_update_files_missing", &[("files", &bad.join(", "))]));
+    }
+
     let mut old = manifest(&dir.join("files.txt")).unwrap_or_default();
     old.extend(LEGACY.iter().map(|&f| f.to_owned()));
     let new = manifest(&top.join("files.txt"));
+    // the files replaced go aside into data\update\old: a copy that fails puts them back, the old kit stays whole
+    let aside = work.join("old");
+    let mut undo = Vec::new();
+    let copied = fs::create_dir_all(&aside)
+        .map_err(|e| format!("{}: {e}", aside.display()))
+        .and_then(|()| copy_over(top, dir, true, &aside, &mut undo))
+        .and_then(|()| replace());
+    if let Err(e) = copied {
+        log(&format!("  {e}"));
+        if !roll_back(&undo) {
+            return Err(e); // what could not go back is still in data\update\old
+        }
+        let _ = fs::remove_dir_all(work);
+        return Err(tf("launcher.msg_update_rolled_back", &[("error", &e)]));
+    }
     // an older kit brings neither: the newer kit's must not stay behind and speak for it
     for f in ["files.txt", "version.txt"] {
-        let _ = fs::remove_file(dir.join(f));
+        if !top.join(f).is_file() {
+            let _ = fs::remove_file(dir.join(f));
+        }
     }
-    copy_over(&top, dir, true)?;
     // without the new kit's list nothing is known to be gone: nothing is removed
     if let Some(new) = new {
         for f in obsolete(&old, &new) {
@@ -254,19 +302,42 @@ pub fn apply(kit: &Kit, r: &Release) -> Result<(), String> {
             }
         }
     }
-    // this running Launcher.exe last: self-replace swaps it for the new one, which the next start runs
-    self_replace::self_replace(top.join("Launcher.exe")).map_err(|e| {
-        tf(
-            "launcher.msg_write_failed",
-            &[("path", "Launcher.exe"), ("error", &e.to_string())],
-        )
-    })?;
-    let _ = fs::remove_dir_all(&work);
+    let _ = fs::remove_dir_all(work);
     Ok(())
 }
 
-/// Every file of `from` over `to`; the kit folder's own data\ and the Launcher.exe at the top are left out.
-fn copy_over(from: &Path, to: &Path, top: bool) -> Result<(), String> {
+/// The files the unzipped kit's files.sha256 lists with another hash or not at all, and those its files.txt lists that
+/// are not there.  Older kits have only files.txt: for them, only that each file is there.
+fn damaged(top: &Path) -> Vec<String> {
+    let mut bad = Vec::new();
+    let sums = fs::read_to_string(top.join("files.sha256")).ok();
+    let mut hashed = HashSet::new();
+    for line in sums.as_deref().unwrap_or("").trim_start_matches('\u{feff}').lines() {
+        if let Some((hash, f)) = line.trim().split_once("  ") {
+            hashed.insert(f.to_ascii_lowercase());
+            if verify(&top.join(f), &hash.to_ascii_lowercase()).is_err() {
+                bad.push(f.to_owned());
+            }
+        }
+    }
+    // with files.sha256, every other file files.txt lists must have its line there too
+    let lists = ["files.txt", "files.sha256"];
+    for f in manifest(&top.join("files.txt")).unwrap_or_default() {
+        let low = f.to_ascii_lowercase();
+        let unhashed = sums.is_some() && !lists.contains(&low.as_str()) && !hashed.contains(&low);
+        if (unhashed || !top.join(&f).is_file()) && !bad.contains(&f) {
+            bad.push(f);
+        }
+    }
+    bad
+}
+
+/// What `copy_over` did, newest last: each file written, and where the one it replaced went (None: it was new).
+type Undo = Vec<(PathBuf, Option<PathBuf>)>;
+
+/// Every file of `from` over `to`; the kit folder's own data\ and the Launcher.exe at the top are left out.  A file it
+/// replaces is first moved into `aside` and noted in `undo`, for `roll_back`.
+fn copy_over(from: &Path, to: &Path, top: bool, aside: &Path, undo: &mut Undo) -> Result<(), String> {
     for entry in fs::read_dir(from).map_err(|e| format!("{}: {e}", from.display()))? {
         let entry = entry.map_err(|e| e.to_string())?;
         let name = entry.file_name();
@@ -278,7 +349,16 @@ fn copy_over(from: &Path, to: &Path, top: bool) -> Result<(), String> {
         let written = if dir {
             fs::create_dir_all(&dst)
         } else {
-            fs::copy(&src, &dst).map(drop)
+            let moved = aside.join(undo.len().to_string());
+            let kept = if dst.is_file() {
+                fs::rename(&dst, &moved).map(|()| Some(moved))
+            } else {
+                Ok(None)
+            };
+            kept.and_then(|kept| {
+                undo.push((dst.clone(), kept));
+                fs::copy(&src, &dst).map(drop)
+            })
         };
         written.map_err(|e| {
             tf(
@@ -287,10 +367,25 @@ fn copy_over(from: &Path, to: &Path, top: bool) -> Result<(), String> {
             )
         })?;
         if dir {
-            copy_over(&src, &dst, false)?;
+            copy_over(&src, &dst, false, aside, undo)?;
         }
     }
     Ok(())
+}
+
+/// Undoes `copy_over`, newest first: each file written goes, the one it replaced comes back.  False: not all came back.
+fn roll_back(undo: &Undo) -> bool {
+    let mut all = true;
+    for (dst, kept) in undo.iter().rev() {
+        let _ = fs::remove_file(dst);
+        if let Some(kept) = kept
+            && let Err(e) = fs::rename(kept, dst)
+        {
+            log(&format!("  could not put back {}: {e}", dst.display()));
+            all = false;
+        }
+    }
+    all
 }
 
 /// files.txt: every file a kit ships, one path under the kit folder per line (source\package.ps1 writes it).
@@ -324,14 +419,37 @@ fn obsolete<'a>(old: &'a [String], new: &[String]) -> Vec<&'a str> {
 /// At the start: the Launcher.exe.old an earlier update left, and the launchers an earlier kit had that this one replaced (a kit
 /// unzipped by hand over an older one).
 pub fn tidy(kit: &Kit) {
-    if let Ok(mut me) = env::current_exe().map(PathBuf::into_os_string) {
-        me.push(".old");
-        let _ = fs::remove_file(me);
+    if let Ok(me) = env::current_exe() {
+        if let Some(dir) = me.parent() {
+            sweep_replaced(dir, &me);
+        }
+        let mut old = me.into_os_string();
+        old.push(".old");
+        let _ = fs::remove_file(old);
     }
     if let Some(shipped) = manifest(&kit.dir().join("files.txt")) {
         let legacy: Vec<String> = LEGACY.iter().map(|&f| f.to_owned()).collect();
         for f in obsolete(&legacy, &shipped) {
             let _ = fs::remove_file(kit.dir().join(f));
+        }
+    }
+}
+
+/// What self_replace leaves next to Launcher.exe: `.Launcher.<random>.__selfdelete__.exe`, the helper that deletes the old
+/// Launcher.exe once it has exited and should then delete itself (Windows does not always let it: 33 MB a time pile up),
+/// `.__relocated__.exe`, the old Launcher.exe itself, and `.__temp__.exe`, a new one a failed swap left.  One still running is locked: its delete fails and it stays.
+fn sweep_replaced(dir: &Path, me: &Path) {
+    let Some(stem) = me.file_stem().and_then(OsStr::to_str) else {
+        return;
+    };
+    let prefix = format!(".{}.", stem.to_ascii_lowercase());
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+        let left = [".__selfdelete__.exe", ".__relocated__.exe", ".__temp__.exe"]
+            .iter()
+            .any(|s| name.ends_with(s));
+        if name.starts_with(&prefix) && left && entry.path() != me {
+            let _ = fs::remove_file(entry.path());
         }
     }
 }
@@ -446,10 +564,12 @@ mod tests {
         fs::create_dir_all(from.join("data")).unwrap();
         fs::create_dir_all(from.join("bin")).unwrap();
         fs::create_dir_all(to.join("data")).unwrap();
+        fs::create_dir_all(base.join("old")).unwrap();
         fs::write(from.join("data").join("keys.txt"), "new").unwrap();
         fs::write(from.join("bin").join("a.dll"), "new").unwrap();
         fs::write(to.join("data").join("keys.txt"), "mine").unwrap();
-        copy_over(&from, &to, true).unwrap();
+        let mut undo = Undo::new();
+        copy_over(&from, &to, true, &base.join("old"), &mut undo).unwrap();
         assert_eq!(fs::read_to_string(to.join("data").join("keys.txt")).unwrap(), "mine");
         assert_eq!(fs::read_to_string(to.join("bin").join("a.dll")).unwrap(), "new");
         fs::remove_dir_all(&base).unwrap();
@@ -470,5 +590,136 @@ mod tests {
         .into();
         let new: Vec<String> = ["launcher.exe"].map(String::from).into();
         assert_eq!(obsolete(&old, &new), ["ENGLISH.exe", "SETUP.exe", "scripts\\old.py"]);
+    }
+
+    /// A kit folder `kit` with a.dll "old" and files.txt, and an unzipped kit `top` with a.dll, bin\\b.exe "new" and its lists.
+    fn kits(name: &str) -> (PathBuf, PathBuf, PathBuf, PathBuf) {
+        let base = env::temp_dir().join(format!("wccf-install-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let (kit, work) = (base.join("kit"), base.join("kit").join("data").join("update"));
+        let top = work.join("kit").join("Forza-WCCF-2017-18");
+        fs::create_dir_all(top.join("bin")).unwrap();
+        fs::write(kit.join("a.dll"), "old").unwrap();
+        fs::write(kit.join("files.txt"), "a.dll\r\nfiles.txt\r\n").unwrap();
+        fs::write(top.join("a.dll"), "new").unwrap();
+        fs::write(top.join("bin").join("b.exe"), "new").unwrap();
+        fs::write(
+            top.join("files.txt"),
+            "\u{feff}a.dll\r\nbin\\b.exe\r\nfiles.sha256\r\nfiles.txt\r\n",
+        )
+        .unwrap();
+        let new: String = Sha256::digest(b"new").iter().map(|b| format!("{b:02x}")).collect();
+        fs::write(
+            top.join("files.sha256"),
+            format!("{new}  a.dll\r\n{new}  bin\\b.exe\r\n"),
+        )
+        .unwrap();
+        (base, kit, work, top)
+    }
+
+    fn old_kit_unchanged(kit: &Path) {
+        assert_eq!(fs::read_to_string(kit.join("a.dll")).unwrap(), "old");
+        assert_eq!(
+            fs::read_to_string(kit.join("files.txt")).unwrap(),
+            "a.dll\r\nfiles.txt\r\n"
+        );
+        assert!(!kit.join("bin").join("b.exe").exists());
+    }
+
+    #[test]
+    fn a_missing_or_changed_file_refuses_the_update() {
+        let (base, kit, work, top) = kits("missing");
+        fs::remove_file(top.join("bin").join("b.exe")).unwrap(); // the antivirus took it
+        fs::write(top.join("a.dll"), "eaten").unwrap();
+        let e = install(&top, &kit, &work, || Ok(())).unwrap_err();
+        assert!(e.contains("a.dll") && e.contains("bin\\b.exe"), "{e}");
+        old_kit_unchanged(&kit);
+        assert!(!work.exists());
+        // files.sha256 without a line for a file files.txt lists: that file is not checked, so it is refused
+        let (base3, _, _, top3) = kits("unhashed");
+        let new: String = Sha256::digest(b"new").iter().map(|b| format!("{b:02x}")).collect();
+        fs::write(top3.join("files.sha256"), format!("{new}  a.dll\r\n")).unwrap();
+        assert_eq!(damaged(&top3), ["bin\\b.exe"]);
+        fs::remove_dir_all(&base3).unwrap();
+        // an older kit, files.txt only: a file it lists that is not there is enough
+        let (base2, kit2, work2, top2) = kits("missing-old");
+        fs::remove_file(top2.join("files.sha256")).unwrap();
+        fs::remove_file(top2.join("bin").join("b.exe")).unwrap();
+        assert_eq!(damaged(&top2), ["bin\\b.exe", "files.sha256"]);
+        assert!(install(&top2, &kit2, &work2, || Ok(())).is_err());
+        old_kit_unchanged(&kit2);
+        fs::remove_dir_all(&base).unwrap();
+        fs::remove_dir_all(&base2).unwrap();
+    }
+
+    #[test]
+    fn a_failure_on_the_way_puts_the_old_kit_back() {
+        let (base, kit, work, top) = kits("rollback");
+        // the Launcher.exe swap fails after every file was copied
+        let e = install(&top, &kit, &work, || Err("locked".into())).unwrap_err();
+        assert!(e.contains("locked"), "{e}");
+        old_kit_unchanged(&kit);
+        assert!(!work.exists());
+        // a copy that fails half way: a folder where bin\\b.exe must go (a.dll is already written)
+        let (base2, kit2, work2, top2) = kits("rollback-mid");
+        fs::create_dir_all(kit2.join("bin").join("b.exe")).unwrap();
+        assert!(install(&top2, &kit2, &work2, || Ok(())).is_err());
+        assert_eq!(fs::read_to_string(kit2.join("a.dll")).unwrap(), "old");
+        assert_eq!(
+            fs::read_to_string(kit2.join("files.txt")).unwrap(),
+            "a.dll\r\nfiles.txt\r\n"
+        );
+        fs::remove_dir_all(&base).unwrap();
+        fs::remove_dir_all(&base2).unwrap();
+    }
+
+    #[test]
+    fn a_whole_kit_is_installed() {
+        let (base, kit, work, top) = kits("whole");
+        install(&top, &kit, &work, || Ok(())).unwrap();
+        assert_eq!(fs::read_to_string(kit.join("a.dll")).unwrap(), "new");
+        assert_eq!(fs::read_to_string(kit.join("bin").join("b.exe")).unwrap(), "new");
+        assert!(
+            fs::read_to_string(kit.join("files.txt"))
+                .unwrap()
+                .contains("files.sha256")
+        );
+        assert!(!work.exists());
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn self_replace_leftovers_go_a_locked_one_stays() {
+        let dir = env::temp_dir().join(format!("wccf-sweep-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let me = dir.join("Launcher.exe");
+        let names = [
+            ".Launcher.abc.__selfdelete__.exe",
+            ".Launcher.def.__relocated__.exe",
+            ".Launcher.ghi.__selfdelete__.exe",
+            ".Other.abc.__selfdelete__.exe",
+            "Launcher.exe",
+        ];
+        for n in names {
+            fs::write(dir.join(n), "x").unwrap();
+        }
+        #[cfg(windows)]
+        let _lock = {
+            use std::os::windows::fs::OpenOptionsExt;
+            fs::OpenOptions::new()
+                .read(true)
+                .share_mode(1) // FILE_SHARE_READ only: no delete while open, as a running helper
+                .open(dir.join(names[2]))
+                .unwrap()
+        };
+        sweep_replaced(&dir, &me);
+        let left = |n: &str| dir.join(n).exists();
+        assert!(!left(names[0]) && !left(names[1]));
+        assert_eq!(left(names[2]), cfg!(windows));
+        assert!(left(names[3]) && left(names[4]));
+        #[cfg(windows)]
+        drop(_lock);
+        fs::remove_dir_all(&dir).unwrap();
     }
 }
