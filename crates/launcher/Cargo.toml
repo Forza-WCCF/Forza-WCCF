@@ -1,6 +1,6 @@
 [package]
 name = "launcher"
-version.workspace = true
+version.workspace = true # the release number: it shows it to players (docs/RELEASING.md)
 license.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -1,6 +1,6 @@
 [package]
 name = "linux-host"
-version.workspace = true
+version = "0.5.1" # its own version, not the release number (docs/RELEASING.md)
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
