@@ -112,7 +112,7 @@ LOG E SEGNALAZIONI
   SmartScreen aggiungete il nome del file e il testo dell'avviso.
 
 CARTELLE
-  bin\       i programmi di Forza-WCCF: il server di gioco (forza-server.exe), i sostituti, l'aiuto per il tavolo carte
+  bin\       i programmi di Forza-WCCF: i sostituti, l'aiuto per il tavolo carte
   overlay\   il pannello; CONFIGURA aggiunge il catalogo e le immagini delle carte
   fonts\     i caratteri del pannello e le loro licenze
   english\, italian\   i testi inglese e italiano del gioco

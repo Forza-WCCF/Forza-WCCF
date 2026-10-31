@@ -104,7 +104,7 @@ LOGS AND BUGS
   it. Nothing is uploaded. For a Defender or SmartScreen warning, add the file name and the warning's text.
 
 FOLDERS
-  bin\       Forza-WCCF's programs: the game server (forza-server.exe), the stand-ins, the card-table helper
+  bin\       Forza-WCCF's programs: the stand-ins, the card-table helper
   overlay\   the panel; SET UP adds the catalogue and the card pictures
   fonts\     the panel's fonts and their licences
   english\, italian\   the game's English and Italian text
