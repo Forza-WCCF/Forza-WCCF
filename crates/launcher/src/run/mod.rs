@@ -1008,7 +1008,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
     };
     // before anything of the run exists: no game program may start unguarded (docs/SAFETY.md)
     if edition == Edition::E1718
-        && let Err(why) = guard::check(&game, &seat, p.client(), p.control())
+        && let Err(why) = guard::check(&game, &seat, p.client(), p.control(), p.matcher())
     {
         tell(ui, "", &Text::key("launcher.run_not_guarded").arg("why", why));
         return Err(NOT_GUARDED);
@@ -1962,6 +1962,8 @@ impl Run<'_> {
         self.cabinet.keys = Some(crate::keys::spawn(
             p.shared.clone(),
             keys_path,
+            // 2017-18's panel SETTINGS has CONTROLLER IN THE BACKGROUND (data\panel.txt); 2010-11 never sets it
+            (self.kit.edition() == Edition::E1718).then(|| self.kit.data().join("panel.txt")),
             // START puts in a coin only where the game is not in FREE PLAY: 2017-18 runs it from the panel (seen live, run 8)
             self.kit.edition() != Edition::E1718,
             file_log(self.logs().join("run_keys.txt")),
@@ -2290,7 +2292,17 @@ impl Run<'_> {
         if ticket.is_some() {
             let _ = choices::write(&panel, &choices::set_panel_value(&text, "ticket", None));
         }
-        match seat::claim_with(at, want, ticket.as_deref(), LIFE, seat::Timing::default(), log) {
+        // every seat of a shop must run the same match engine math (the desk refuses another)
+        let dmath = (self.edition == Edition::E1718).then(|| seat::dmath_token(&self.game, &self.seat));
+        match seat::claim_with(
+            at,
+            want,
+            ticket.as_deref(),
+            dmath.as_deref(),
+            LIFE,
+            seat::Timing::default(),
+            log,
+        ) {
             Ok(lease) => {
                 let got = (lease.seat, lease.projector);
                 self.lease = Some(lease);

@@ -19,6 +19,8 @@ pub const HASHES: &str = "setup-hashes.json";
 pub const WCCFNET: &str = "wccfnet.dll";
 /// The stand-in the game loads by name for its pings (they return at once), in the game folder and seat 1.
 pub const ICMP: &str = "ICMP.DLL";
+/// The DLL setup's copy of the match engine imports (the same math on every CPU); seat 1 links to the game's.
+pub const DMATH: &str = "dmath.dll";
 /// The calls wccfnet.dll stubs.
 pub const BLOCKED: [&str; 4] = [
     "IpReleaseAddress",
@@ -28,9 +30,9 @@ pub const BLOCKED: [&str; 4] = [
 ];
 
 /// The files the guard checks, each with where setup-hashes.json keeps its hash: the game's two guarded programs, seat
-/// 1's own guarded client, wccfnet.dll and the ICMP.DLL stand-in (seat 1's wccfnet.dll and ICMP.DLL are links
-/// to the game's).
-pub fn files(game: &Path, seat: &Path, client: &str, control: &str) -> Vec<(PathBuf, Vec<String>)> {
+/// 1's own guarded client, wccfnet.dll, the ICMP.DLL stand-in, the match engine and dmath.dll (seat 1's copies of the
+/// last four are links to the game's).
+pub fn files(game: &Path, seat: &Path, [client, control, engine]: [&str; 3]) -> Vec<(PathBuf, Vec<String>)> {
     let key = |k: &[&str]| k.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
     vec![
         (game.join(client), key(&[client, "guarded"])),
@@ -40,14 +42,18 @@ pub fn files(game: &Path, seat: &Path, client: &str, control: &str) -> Vec<(Path
         (seat.join(WCCFNET), key(&[WCCFNET])),
         (game.join(ICMP), key(&[ICMP])),
         (seat.join(ICMP), key(&[ICMP])),
+        (game.join(engine), key(&[engine, "guarded"])),
+        (seat.join(engine), key(&[engine, "guarded"])),
+        (game.join(DMATH), key(&[DMATH])),
+        (seat.join(DMATH), key(&[DMATH])),
     ]
 }
 
-/// The whole check for a game folder and its seat 1 (`client`, `control`: the programs' names - the game's, or a test's
-/// stand-ins): Ok, or what is wrong.
-pub fn check(game: &Path, seat: &Path, client: &str, control: &str) -> Result<(), String> {
+/// The whole check for a game folder and its seat 1 (`client`, `control`, `engine`: the programs' names - the game's,
+/// or a test's stand-ins): Ok, or what is wrong.
+pub fn check(game: &Path, seat: &Path, client: &str, control: &str, engine: &str) -> Result<(), String> {
     let runtime = game.parent().unwrap_or(game);
-    hashes(&runtime.join(HASHES), &files(game, seat, client, control))?;
+    hashes(&runtime.join(HASHES), &files(game, seat, [client, control, engine]))?;
     for exe in [game.join(client), game.join(control), seat.join(client)] {
         let data = fs::read(&exe).map_err(|e| format!("{}: {e}", exe.display()))?;
         imports(&data).map_err(|why| format!("{}: {why}", exe.display()))?;
@@ -187,6 +193,47 @@ mod tests {
         let json = serde_json::json!({"a.exe": {"guarded": sha(b"guarded copy")}, "b.dll": sha(b"the guard")});
         fs::write(&record, json.to_string()).unwrap();
         assert!(hashes(&record, &files).unwrap_err().contains("b.dll"));
+    }
+
+    /// The list holds the match engine and dmath.dll in both folders: a changed engine or DLL is refused, and so is a
+    /// record from before det-math (no hash for them: setup must run again).
+    #[test]
+    fn the_engine_and_dmath_dll_are_checked() {
+        let dir = tempfile::tempdir().unwrap();
+        let (game, seat) = (dir.path().join("game"), dir.path().join("seat1"));
+        let (client, control, engine) = ("client.exe", "control.exe", "match_Release.exe");
+        let names = [client, control, WCCFNET, ICMP, engine, DMATH];
+        for d in [&game, &seat] {
+            fs::create_dir_all(d).unwrap();
+            for n in names {
+                fs::write(d.join(n), n).unwrap();
+            }
+        }
+        let list = files(&game, &seat, [client, control, engine]);
+        for n in [engine, DMATH] {
+            assert!(list.iter().any(|(p, _)| *p == game.join(n)) && list.iter().any(|(p, _)| *p == seat.join(n)));
+        }
+        let record = dir.path().join(HASHES);
+        let mut json = serde_json::json!({
+            client: {"guarded": sha(client.as_bytes())},
+            control: {"guarded": sha(control.as_bytes())},
+            format!("seat1/{client}"): sha(client.as_bytes()),
+            WCCFNET: sha(WCCFNET.as_bytes()),
+            ICMP: sha(ICMP.as_bytes()),
+        });
+        fs::write(&record, json.to_string()).unwrap();
+        let why = hashes(&record, &list).unwrap_err();
+        assert!(why.contains("no hash for match_Release.exe guarded"), "{why}");
+        json[engine] = serde_json::json!({"original": "00", "guarded": sha(engine.as_bytes())});
+        json[DMATH] = sha(DMATH.as_bytes()).into();
+        fs::write(&record, json.to_string()).unwrap();
+        hashes(&record, &list).unwrap();
+        for (d, n) in [(&seat, DMATH), (&game, engine), (&seat, engine), (&game, DMATH)] {
+            fs::write(d.join(n), b"changed").unwrap();
+            let why = hashes(&record, &list).unwrap_err();
+            assert!(why.contains(n) && why.contains("is not the file Setup made"), "{why}");
+            fs::write(d.join(n), n).unwrap();
+        }
     }
 
     #[test]
