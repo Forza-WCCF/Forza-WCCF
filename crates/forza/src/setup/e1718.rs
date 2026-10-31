@@ -5,7 +5,7 @@
 //!   every later run patches from them, so running setup again never stacks a patch (a second run changes nothing)
 //! - `game\` the server and projector: guarded programs (they import wccfnet.dll, which stubs the four IP-helper
 //!   calls, instead of IPHLPAPI.DLL), the kit's winmm.dll / ICMP.DLL stand-ins (winmm.dll
-//!   also answers control's start of logowin.exe, which stays the original), the settings files
+//!   also answers control's start of logowin.exe, which stays the original), the settings files; the
 //!   match engine imports dmath.dll instead of PSAPI.DLL (the same math on every CPU, so online seats stay in step)
 //! - `seat1\` the player's cabinet: junctions to game's folders, hard links to its files, its own patched
 //!   client_Release.exe, the card-table helper
