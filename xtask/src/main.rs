@@ -34,12 +34,13 @@ enum Task {
         #[arg(long)]
         release: bool,
     },
-    /// fmt, clippy, tests, the kit's self-test programs, the scrub; `check quick` = fmt, clippy and the tests of the crates changed since --base
+    /// fmt, clippy, tests, the kit's self-test programs, the scrub; `check quick` = fmt, clippy and the tests of the crates changed since --base (pull requests' CI)
     /// (in the `fast` profile unless CI is set or `--release`; it rebuilds the staged kit first when it is older than the sources)
     ///
     /// sccache is used when it is installed and RUSTC_WRAPPER is unset (not under CI; FORZA_NO_SCCACHE=1 turns it off)
     Check {
-        /// `quick`: only the crates changed since the base (and their dependents); no release build, no kit, no smoke.
+        /// `quick`: only the crates changed since the base (and their dependents), the kit tests and smoke of those; the
+        /// 2010-11 hooks only when a 2010-11 path changed (PATHS_1011); no release build.
         /// `ci`: the full check minus the GPU snapshot tests (the GitHub runner has no GPU), in the `ci` profile (no LTO;
         /// `--release` for release)
         /// `text`: the scrub, the script-host check and the installer docs' word check; no build (docs-only changes)
@@ -95,11 +96,13 @@ fn profile() -> &'static str {
 }
 
 /// The profile of `build` (`mode` "build") and `check <mode>`: `--fast` is `fast`; `ci` is `ci` (`--release`: release);
-/// `build` and `check quick` are `fast` without CI and `--release`; the rest (`package`, the full check) is release.
+/// `build` and `check quick` are `fast` without CI and `--release` (`quick` under CI: `ci`); the rest (`package`, the full check) is release.
 fn pick_profile(mode: Option<&str>, fast: bool, release: bool, in_ci: bool) -> &'static str {
     match mode {
         _ if fast => "fast",
         Some("ci") if !release => "ci",
+        // pull requests' CI: the profile main's `check ci` fills the cache with
+        Some("quick") if !release && in_ci => "ci",
         Some("build" | "quick") if !release && !in_ci => "fast",
         _ => "release",
     }
@@ -177,13 +180,8 @@ const MAP_1718: &[(&str, &str)] = &[
     ("english", "editions/2017-18/english"),
     ("italian", "editions/2017-18/italian"), // the Italian text: key + Italian, the English behind each key
     ("fonts", "assets/fonts"),
-    ("source/README.txt", "native/2017-18/README.txt"),
-    // the sources of the kit's 32-bit programs (winmm.dll, wccfnet.dll, ICMP.DLL, FPR_Emu.exe)
-    ("source/native/common", "native/common"),
-    ("source/native/hook", "native/hook"),
-    ("source/native/wccfnet", "native/wccfnet"),
-    ("source/native/icmp", "native/icmp"),
-    ("source/native/programs", "native/programs"),
+    // no source\ (2026-10-29): its plain-text process-injection code got the ZIP flagged; `package` writes SOURCE.txt,
+    // the repository at the exact commit, instead
 ];
 /// Product name in the version information of programs both kits share.
 const PRODUCT_COMMON: &str = "Forza-WCCF";
@@ -304,6 +302,42 @@ const HOOKS: [(&str, bool, &str); 4] = [
         "source/build/server-hook-1718/winmm.dll",
     ),
 ];
+/// [`HOOKS`], without the 2010-11 ones unless `e1011`.
+fn hooks(e1011: bool) -> impl Iterator<Item = (&'static str, bool, &'static str)> {
+    HOOKS
+        .into_iter()
+        .filter(move |(f, _, _)| e1011 || !f.starts_with("forza-hook/e1011"))
+}
+/// What only the 2010-11 edition builds from (git's paths, lower case; a folder ends in `/`). `check quick`, which
+/// pull requests' CI runs, builds and tests the 2010-11 hooks ([`HOOKS`]: wccfk.dll and the 2010-11 Linux server's
+/// winmm.dll) only when a change touches one of these; the full check, `check ci` (main, schedule, releases),
+/// `build` and `package` always do. The hook crate and its dependency count whole (both editions' hooks share their
+/// code), and so do the toolchain and the locked crates. Package-less 2010-11 files (README, deploy scripts) are only
+/// staged or linted, by `check ci` and the lint job alike.
+const PATHS_1011: &[&str] = &[
+    "editions/2010-11/",
+    "legacy/2010-11/",
+    "native/2010-11/",
+    "native/hook/",
+    "native/common/",
+    // test_dhcphook.exe, the 2010-11 hook's kit test, and the 2010-11 kit's inject.exe and FPR_Emu.exe
+    "native/programs/",
+    "crates/forza/src/setup/e1011.rs",
+    "crates/forza/examples/setup1011.rs",
+    "deploy/linux/wccf-1011",
+    "cargo.lock",
+    "rust-toolchain.toml",
+    ".cargo/",
+];
+
+/// A changed file (one per line, git's spelling) is in [`PATHS_1011`].
+fn touches_1011(files: &str) -> bool {
+    files
+        .lines()
+        .map(str::to_lowercase)
+        .any(|f| PATHS_1011.iter().any(|p| f.starts_with(p)))
+}
+
 /// The 32-bit crates besides the panel, as `build`, clippy and the tests take them (the hook gets its feature apart).
 const NATIVE_CRATES: &[&str] = &[
     "-p",
@@ -375,7 +409,7 @@ fn main() -> Result<()> {
     match task {
         Task::Build { fast, release } => {
             let _ = PROFILE.set(pick_profile(Some("build"), fast, release, in_ci()));
-            build_all(&root, &kit, &kit_1718)
+            build_all(&root, &kit, &kit_1718, true)
         }
         Task::Cap { root, outdir } => cap(&root, &outdir),
         Task::Gallery => gallery(&root),
@@ -391,11 +425,11 @@ fn main() -> Result<()> {
             let ci = mode.as_deref() == Some("ci");
             let _ = PROFILE.set(pick_profile(mode.as_deref(), fast, release, in_ci()));
             match mode.as_deref() {
-                Some("quick") => return quick(&root, &kit, &kit_1718, &base),
+                Some("quick") => return quick(&root, &stage_root, &kit, &kit_1718, &base),
                 Some("text") => return check_text(&root),
                 _ => {}
             }
-            build_all(&root, &kit, &kit_1718)
+            build_all(&root, &kit, &kit_1718, true)
                 .and_then(|()| check(&root, &stage_root, &kit, &kit_1718, ci, &test_args))
         }
         Task::Stage { edition } => match edition.as_str() {
@@ -405,7 +439,7 @@ fn main() -> Result<()> {
         },
         Task::Package { edition, name } => match edition.as_str() {
             "installer" => package_installer(&root, name),
-            "2010-11" | "2017-18" if let Err(e) = build_all(&root, &kit, &kit_1718) => Err(e),
+            "2010-11" | "2017-18" if let Err(e) = build_all(&root, &kit, &kit_1718, true) => Err(e),
             "2010-11" => package(&root, &kit, &name.unwrap_or_else(|| TOP.into()), true),
             "2017-18" => package(
                 &root,
@@ -575,6 +609,55 @@ fn wipe(dir: &Path, rel: &str, keep: &[&str]) -> Result<()> {
     Ok(())
 }
 
+/// The date of every ZIP entry: `SOURCE_DATE_EPOCH`, else the commit's time, else now. A ZIP stays the same for a
+/// commit, and unzipped files show a real date (the zip crate's default, 1980-01-01, left Explorer's column empty).
+fn zip_time(root: &Path) -> Result<zip::DateTime> {
+    let commit = || {
+        let o = Command::new("git")
+            .args(["log", "-1", "--format=%ct", "HEAD"])
+            .current_dir(root)
+            .output()
+            .ok()?;
+        o.status
+            .success()
+            .then(|| String::from_utf8_lossy(&o.stdout).into_owned())
+    };
+    let secs = std::env::var("SOURCE_DATE_EPOCH")
+        .ok()
+        .or_else(commit)
+        .and_then(|s| s.trim().parse::<i64>().ok())
+        .unwrap_or_else(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs().cast_signed())
+        });
+    dos_time(secs)
+}
+
+/// Unix seconds as a ZIP date, in UTC (ZIP dates have no time zone); days to a date by Howard Hinnant's civil_from_days.
+fn dos_time(secs: i64) -> Result<zip::DateTime> {
+    let (days, s) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    let n = |v: i64| u8::try_from(v).unwrap_or(0);
+    zip::DateTime::from_date_and_time(
+        u16::try_from(year).unwrap_or(0),
+        n(month),
+        n(day),
+        n(s / 3600),
+        n(s % 3600 / 60),
+        n(s % 60),
+    )
+    .map_err(|e| anyhow::anyhow!("{secs} is no ZIP date: {e:?}"))
+}
+
 /// The workspace version: the first `version = "..."` line of the root Cargo.toml ([workspace.package]).
 fn workspace_version(root: &Path) -> Result<String> {
     let text = fs::read_to_string(root.join("Cargo.toml"))?;
@@ -592,8 +675,9 @@ fn workspace_version(root: &Path) -> Result<String> {
 /// Build jobs running at once: the 64-bit programs and the 32-bit ones, joined by `build_all`.
 type Jobs<'s> = Vec<std::thread::ScopedJoinHandle<'s, (String, Result<()>)>>;
 
-/// Stage both kits, build the 64-bit and the 32-bit programs at once, then report every failure.
-fn build_all(root: &Path, kit: &Path, kit_1718: &Path) -> Result<()> {
+/// Stage both kits, build the 64-bit and the 32-bit programs at once, then report every failure. `e1011`: also the
+/// 2010-11 hooks ([`HOOKS`]); without them the 2010-11 kit holds only the shared programs and the test programs.
+fn build_all(root: &Path, kit: &Path, kit_1718: &Path, e1011: bool) -> Result<()> {
     let started = std::time::SystemTime::now();
     for (k, ed) in [(kit, &ED_1011), (kit_1718, &ED_1718)] {
         stage(root, k, ed.map, ed.keep)?;
@@ -603,9 +687,13 @@ fn build_all(root: &Path, kit: &Path, kit_1718: &Path) -> Result<()> {
     }
     // programs\ is kept between builds: the C panel it held up to step 9.4c must not ship beside forza_panel.dll
     let _ = fs::remove_file(kit.join("programs/wccfpanel.dll"));
+    if !e1011 {
+        // no stale hook: `check` and a `quick` that needs it rebuild (ensure_built, quick's kit test)
+        let _ = fs::remove_file(kit.join("programs/wccfk.dll"));
+    }
     let mut failed = vec![];
     std::thread::scope(|s| {
-        for j in build(s, root, kit, kit_1718) {
+        for j in build(s, root, kit, kit_1718, e1011) {
             let (what, r) = j.join().expect("build thread");
             if let Err(e) = r {
                 failed.push(format!("{what}: {e:#}"));
@@ -698,6 +786,7 @@ fn build<'s>(
     root: &'s Path,
     kit: &Path,
     kit_1718: &Path,
+    e1011: bool,
 ) -> Jobs<'s> {
     // the toolchain is pinned by rust-toolchain.toml, the crates by Cargo.lock, the static runtime by .cargo/config.toml
     let mut c = rust_shipped(root);
@@ -723,13 +812,14 @@ fn build<'s>(
             .args(extra);
         c
     };
+    let hooks: Vec<_> = hooks(e1011).collect();
     let mut first = native(&[
         "-p",
         "forza-panel",
         "-p",
         "forza-hook",
         "--features",
-        HOOKS[0].0,
+        hooks[0].0,
     ]);
     first.args(NATIVE_CRATES);
     let out = target_dir(root).join(PANEL_TARGET).join(profile());
@@ -740,14 +830,14 @@ fn build<'s>(
         for (from, in_1011, rel) in NATIVE {
             fs::copy(out.join(from), to(*in_1011, rel))?;
         }
-        for (i, (feature, in_1011, rel)) in HOOKS.iter().enumerate() {
+        for (i, (feature, in_1011, rel)) in hooks.into_iter().enumerate() {
             if i > 0 {
                 run_ok(
                     native(&["-p", "forza-hook", "--features", feature]),
                     "cargo build -p forza-hook",
                 )?;
             }
-            fs::copy(out.join("forza_hook.dll"), to(*in_1011, rel))?;
+            fs::copy(out.join("forza_hook.dll"), to(in_1011, rel))?;
         }
         Ok(())
     };
@@ -840,18 +930,27 @@ fn package_dir(root: &str, manifest: &str) -> Result<String> {
         .with_context(|| format!("package {manifest} is outside the repository {root}"))
 }
 
-/// Workspace packages whose files differ from the base's merge-base with HEAD (committed, staged, unstaged or untracked),
-/// plus every package that depends on one by path. A change to xtask, Cargo.lock, a Cargo.toml or the toolchain means all.
-fn changed_packages(root: &Path, base: &str) -> Result<Option<BTreeSet<String>>> {
+/// The files that differ from the base's merge-base with HEAD (committed, staged, unstaged or untracked), one per line.
+/// `None` when `base` has no merge base with HEAD here (not fetched, unknown): the caller then checks everything.
+fn changed_files(root: &Path, base: &str) -> Result<Option<String>> {
     let git = |args: &[&str]| -> Result<String> {
         let o = Command::new("git").args(args).current_dir(root).output()?;
         ensure!(o.status.success(), "git {} failed", args.join(" "));
         Ok(String::from_utf8(o.stdout)?)
     };
-    let mb = git(&["merge-base", base, "HEAD"])?.trim().to_owned();
+    let Ok(mb) = git(&["merge-base", base, "HEAD"]) else {
+        return Ok(None);
+    };
+    let mb = mb.trim().to_owned();
     // no renames: the old path of a moved file is a change in its old package too
     let mut files = git(&["diff", "--name-only", "--no-renames", &mb])?;
     files += &git(&["ls-files", "--others", "--exclude-standard"])?;
+    Ok(Some(files))
+}
+
+/// Workspace packages that own one of `files` ([`changed_files`]), plus every package that depends on one by path. A
+/// change to xtask, Cargo.lock, a Cargo.toml or the toolchain means all.
+fn changed_packages(root: &Path, files: &str) -> Result<Option<BTreeSet<String>>> {
     let meta = Command::new("cargo")
         .args(["metadata", "--format-version", "1", "--no-deps", "--locked"])
         .current_dir(root)
@@ -860,7 +959,7 @@ fn changed_packages(root: &Path, base: &str) -> Result<Option<BTreeSet<String>>>
     let meta: serde_json::Value = serde_json::from_slice(&meta.stdout)?;
     let pkgs = meta["packages"].as_array().context("no packages")?;
     // (name, dir relative to the root, names of path dependencies)
-    let mut info: Vec<(String, String, Vec<String>)> = pkgs
+    let info: Vec<(String, String, Vec<String>)> = pkgs
         .iter()
         .map(|p| -> Result<_> {
             let manifest = p["manifest_path"].as_str().unwrap_or_default();
@@ -875,6 +974,11 @@ fn changed_packages(root: &Path, base: &str) -> Result<Option<BTreeSet<String>>>
             Ok((p["name"].as_str().unwrap_or_default().to_owned(), dir, deps))
         })
         .collect::<Result<_>>()?;
+    Ok(affected(info, files))
+}
+
+/// [`changed_packages`] over `info`: (name, dir relative to the root, names of path dependencies) per package.
+fn affected(mut info: Vec<(String, String, Vec<String>)>, files: &str) -> Option<BTreeSet<String>> {
     // files that other crates embed with `include_str!`: (the file's package, the package whose tests read it)
     const EMBEDDED_BY: &[(&str, &str)] = &[("forza-panel", "launcher")];
     for (_, _, deps) in info
@@ -896,7 +1000,7 @@ fn changed_packages(root: &Path, base: &str) -> Result<Option<BTreeSet<String>>>
             || f.starts_with("assets/")
             || f.starts_with("editions/")
         {
-            return Ok(None);
+            return None;
         }
         // the owning package: the longest package dir that prefixes the file
         if let Some((n, _, _)) = info
@@ -906,7 +1010,7 @@ fn changed_packages(root: &Path, base: &str) -> Result<Option<BTreeSet<String>>>
         {
             hit.insert(n.clone());
         } else if f == "cargo.toml" {
-            return Ok(None);
+            return None;
         }
     }
     // dependents, to a fixed point
@@ -917,17 +1021,30 @@ fn changed_packages(root: &Path, base: &str) -> Result<Option<BTreeSet<String>>>
             .map(|(n, _, _)| n.clone())
             .collect();
         if more.is_empty() {
-            return Ok(Some(hit));
+            return Some(hit);
         }
         hit.extend(more);
     }
 }
 
+/// The 32-bit crates of [`NATIVE_CRATES`] and the hook: a change to one also lints and tests them for [`PANEL_TARGET`].
+const NATIVE_PKGS: &[&str] = &[
+    "forza-native",
+    "forza-hook",
+    "forza-wccfnet",
+    "forza-netguard",
+    "forza-icmp",
+    "forza-programs",
+];
+
 /// The cargo arguments of a scope (`--workspace` or `-p` pairs) split by target: forza-panel is a 32-bit crate, empty on
-/// the 64-bit target, so its lints and tests (the fakegame stages too) run for [`PANEL_TARGET`] or not at all.
-fn target_scopes(scope: &[String]) -> Vec<(&'static str, Vec<String>)> {
+/// the 64-bit target, so its lints and tests (the fakegame stages too) run for [`PANEL_TARGET`] or not at all. The other
+/// 32-bit crates ([`NATIVE_PKGS`]) stay on the 64-bit target (the hook's tests run there too) and, in scope, are added
+/// to the 32-bit run as `build` builds them, the hook with `hook` (its feature).
+fn target_scopes(scope: &[String], hook: &str) -> Vec<(&'static str, Vec<String>)> {
     let all = scope.first().is_some_and(|a| a == "--workspace");
     let has_panel = all || scope.iter().any(|a| a == "forza-panel");
+    let has_native = all || scope.iter().any(|a| NATIVE_PKGS.contains(&a.as_str()));
     let rest: Vec<String> = if all {
         ["--workspace", "--exclude", "forza-panel"]
             .map(Into::into)
@@ -940,20 +1057,34 @@ fn target_scopes(scope: &[String]) -> Vec<(&'static str, Vec<String>)> {
             .cloned()
             .collect()
     };
-    let panel = ["-p", "forza-panel"].map(String::from).to_vec();
-    [
-        (TARGET, rest),
-        (PANEL_TARGET, if has_panel { panel } else { vec![] }),
-    ]
-    .into_iter()
-    .filter(|(_, s)| !s.is_empty())
-    .collect()
+    let mut x86: Vec<String> = vec![];
+    if has_panel {
+        x86.extend(["-p", "forza-panel"].map(String::from));
+    }
+    if has_native {
+        x86.extend(["-p", "forza-hook", "--features", hook].map(String::from));
+        x86.extend(NATIVE_CRATES.iter().map(|a| a.to_string()));
+    }
+    [(TARGET, rest), (PANEL_TARGET, x86)]
+        .into_iter()
+        .filter(|(_, s)| !s.is_empty())
+        .collect()
 }
 
-/// `cargo xtask check quick`: fmt, clippy and tests for the packages changed since `base`; no release build, kit or smoke.
-fn quick(root: &Path, kit: &Path, kit_1718: &Path, base: &str) -> Result<()> {
+/// `cargo xtask check quick`: fmt, clippy and tests for the packages changed since `base`, then the kit's self-tests
+/// when a 32-bit crate changed, the Launcher's imports and the installer's checks when theirs did. The 2010-11 hooks
+/// only when [`touches_1011`]. Pull requests' CI runs it (in the `ci` profile); no release build.
+fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str) -> Result<()> {
     let _lock = check_lock()?;
-    let pkgs = changed_packages(root, base)?;
+    let files = changed_files(root, base)?;
+    if files.is_none() {
+        println!("quick: no merge base with {base} (not fetched?): everything");
+    }
+    let pkgs = match &files {
+        Some(f) => changed_packages(root, f)?,
+        None => None,
+    };
+    let e1011 = files.as_deref().is_none_or(touches_1011);
     let scope: Vec<String> = match &pkgs {
         None => {
             println!("quick: xtask, Cargo.lock or a manifest changed: whole workspace");
@@ -973,38 +1104,111 @@ fn quick(root: &Path, kit: &Path, kit_1718: &Path, base: &str) -> Result<()> {
                 .collect()
         }
     };
+    println!(
+        "quick: 2010-11 hooks {}",
+        if e1011 {
+            "in (a 2010-11 path changed)"
+        } else {
+            "skipped (no 2010-11 path changed)"
+        }
+    );
+    let has = |p: &str| pkgs.as_ref().is_none_or(|s| s.contains(p));
+    let native = NATIVE_PKGS.iter().any(|p| has(p));
     // the launcher's and the panel's tests start the stand-ins and the panel DLL that `cargo xtask build` puts in the kit
-    let needs_kit = pkgs
-        .as_ref()
-        .is_none_or(|p| p.contains("launcher") || p.contains("forza-panel"));
+    let needs_kit = has("launcher") || has("forza-panel") || has(INSTALLER) || native;
     let mut fmt = Command::new("cargo");
     fmt.args(["fmt", "--all", "--check"]).current_dir(root);
     run_ok(fmt, "cargo fmt")?;
     if scope.is_empty() {
         return Ok(());
     }
-    if needs_kit && kit_stale(root, kit)? {
+    // a kit built without the 2010-11 hook has no wccfk.dll (build_all)
+    if needs_kit && (kit_stale(root, kit)? || e1011 && !kit.join("programs/wccfk.dll").is_file()) {
         println!("quick: the staged kit is missing or older than the sources: rebuilding it");
-        build_all(root, kit, kit_1718)?;
+        build_all(root, kit, kit_1718, e1011)?;
     }
-    let runs = target_scopes(&scope);
-    for (target, scope) in &runs {
+    let hooks: Vec<_> = hooks(e1011).map(|(f, _, _)| f).collect();
+    let runs = target_scopes(&scope, hooks[0]);
+    // clippy and the test build take the whole workspace of each target, as `check` does: a smaller `-p` set unifies
+    // other features and rebuilt dependencies main's cache holds (a launcher-only CI run built its tests in 6 min, the
+    // whole workspace's took 4); the changed crates' tests alone run
+    let wide = target_scopes(&["--workspace".to_owned()], hooks[0]);
+    let wide = |t: &str| -> Result<Vec<String>> {
+        wide.iter()
+            .find(|(w, _)| *w == t)
+            .map(|(_, s)| s.clone())
+            .with_context(|| format!("no workspace scope for {t}"))
+    };
+    for (target, _) in &runs {
         let mut clippy = rust("clippy", root);
         clippy.args(["--locked", "--all-targets", "--target", target]);
-        clippy.args(scope).args(["--", "-D", "warnings"]);
+        clippy.args(wide(target)?).args(["--", "-D", "warnings"]);
         run_ok(clippy, "cargo clippy")?;
     }
-    for (target, scope) in &runs {
-        let mut test = rust("test", root);
-        test.args(["--locked", "--target", target]).args(scope);
-        // the kit's profile and rustflags, so the tests reuse its crates (the usual test profile for `--release`)
-        if profile() != "release" {
-            test.args(remap_config(root)).args(["--profile", profile()]);
+    // the hook's other features, as `check` lints them
+    if native {
+        for feature in &hooks[1..] {
+            let mut clippy = rust("clippy", root);
+            clippy.args(["--locked", "--all-targets", "--target", PANEL_TARGET]);
+            clippy.args([
+                "-p",
+                "forza-hook",
+                "--features",
+                feature,
+                "--",
+                "-D",
+                "warnings",
+            ]);
+            run_ok(clippy, "cargo clippy (32-bit)")?;
         }
-        run_ok(test, "cargo test")?;
     }
-    println!("quick check passed (no release build, no installer smoke, no kit tests)");
+    for (target, _) in &runs {
+        let only = match &pkgs {
+            None => None,
+            Some(p) => match test_filter(p, target) {
+                Some(f) => Some(f),
+                None => continue,
+            },
+        };
+        let wide = wide(target)?;
+        let wide: Vec<&str> = wide.iter().map(String::as_str).collect();
+        run_ok(
+            tests(root, in_ci(), &[], target, &wide, only.as_deref()),
+            "cargo test",
+        )?;
+    }
+    let mut ck = Checks {
+        kit: kit.to_owned(),
+        tmp: stage_root.join("check-tmp"),
+        failed: vec![],
+    };
+    if native || has("forza-panel") {
+        windows_tests(&mut ck, kit, kit_1718, e1011)?;
+    }
+    if has("launcher") {
+        launcher_imports(&mut ck, kit_1718);
+    }
+    if has(INSTALLER) {
+        installer_checks(root, stage_root, &mut ck.failed);
+    }
+    ensure!(ck.failed.is_empty(), "FAILED: {}", ck.failed.join(", "));
+    println!("quick check passed (no release build; the full check and `check ci` run everything)");
     Ok(())
+}
+
+/// The nextest filterset of `pkgs` ([`changed_packages`]) built for `target` (the split of [`target_scopes`]): `None`
+/// when none is, so no `package()`-less `()` reaches nextest.
+fn test_filter(pkgs: &BTreeSet<String>, target: &str) -> Option<String> {
+    let on = |p: &str| match target {
+        PANEL_TARGET => p == "forza-panel" || NATIVE_PKGS.contains(&p),
+        _ => p != "forza-panel",
+    };
+    let f: Vec<String> = pkgs
+        .iter()
+        .filter(|p| on(p))
+        .map(|p| format!("package({p})"))
+        .collect();
+    (!f.is_empty()).then(|| f.join(" | "))
 }
 
 /// The staged kits must hold the built programs and the test programs.
@@ -1042,9 +1246,9 @@ fn ensure_built(kit: &Path, kit_1718: &Path) -> Result<()> {
     Ok(())
 }
 
-/// The checks that start Windows programs from the staged kits.
-fn windows_tests(ck: &mut Checks, kit: &Path, kit_1718: &Path) -> Result<()> {
-    {
+/// The checks that start Windows programs from the staged kits; the 2010-11 hook's only with `e1011`.
+fn windows_tests(ck: &mut Checks, kit: &Path, kit_1718: &Path, e1011: bool) -> Result<()> {
+    if e1011 {
         let mut c = Command::new(kit.join("source/build/test_dhcphook.exe"));
         c.arg(kit.join("programs/wccfk.dll"));
         ck.run(
@@ -1120,7 +1324,7 @@ fn check(
         tmp: stage_root.join("check-tmp"),
         failed: vec![],
     };
-    windows_tests(&mut ck, kit, kit_1718)?;
+    windows_tests(&mut ck, kit, kit_1718, true)?;
     launcher_imports(&mut ck, kit_1718);
 
     // the Rust workspace, xtask included: format, lint, tests
@@ -1148,7 +1352,7 @@ fn check(
     ] {
         cargo_step(
             what,
-            tests(root, ci, test_args, target, scope),
+            tests(root, ci, test_args, target, scope, None),
             &mut ck.failed,
         );
     }
@@ -1170,7 +1374,15 @@ fn check(
 /// The workspace's tests: cargo-nextest when it is installed (one process per test, all cores, `--partition` for
 /// split CI jobs), else `cargo test`. `ci` skips the GPU snapshot tests; `--fast` runs them in the kits' profile.
 /// nextest runs no doctests; the workspace has none.
-fn tests(root: &Path, ci: bool, extra: &[String], target: &str, scope: &[&str]) -> Command {
+/// `only`: a nextest filterset of the tests to run (all of `scope` without nextest).
+fn tests(
+    root: &Path,
+    ci: bool,
+    extra: &[String],
+    target: &str,
+    scope: &[&str],
+    only: Option<&str>,
+) -> Command {
     let nextest = Command::new("cargo")
         .args(["nextest", "--version"])
         .stdout(Stdio::null())
@@ -1195,8 +1407,18 @@ fn tests(root: &Path, ci: bool, extra: &[String], target: &str, scope: &[&str]) 
         ]);
     }
     if nextest {
-        if ci {
-            test.args(["-E", "not test(/^snapshots::/)"]);
+        // one expression: nextest runs the union of several -E
+        let expr: Vec<String> = only
+            .map(|o| format!("({o})"))
+            .into_iter()
+            .chain(ci.then(|| "not test(/^snapshots::/)".to_owned()))
+            .collect();
+        if !expr.is_empty() {
+            test.args(["-E", &expr.join(" & ")]);
+        }
+        // a filtered package may have no tests (forza-icmp has none): nothing to run is a pass
+        if only.is_some() {
+            test.arg("--no-tests=pass");
         }
         test.args(extra);
     } else {
@@ -1826,7 +2048,8 @@ fn package_installer(root: &Path, name: Option<String>) -> Result<()> {
     let zip_name = format!("{name}.zip");
     let mut zip = zip::ZipWriter::new(fs::File::create(dist.join(&zip_name))?);
     let opts = zip::write::SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated);
+        .compression_method(zip::CompressionMethod::Deflated)
+        .last_modified_time(zip_time(root)?);
     for (n, path) in &payload {
         fs::copy(path, dist.join(n))?;
         zip.start_file(n, opts)?;
@@ -1868,8 +2091,8 @@ fn shipped_docs_no_kit(root: &Path, kits: &[&Path]) -> Result<()> {
                 .filter_map(|e| Some(e.ok()?.path()))
                 .filter(|p| p.extension().is_some_and(|e| e == "txt" || e == "md")),
         );
-        docs.push(kit.join("source/README.txt"));
     }
+    docs.push(kits[0].join("source/README.txt")); // 2010-11 only: the 2017-18 ZIP has SOURCE.txt instead
     let src = root.join("crates/installer");
     docs.extend([src.join("README.md"), src.join("CHANGELOG.md")]);
     no_kit_word(&docs)
@@ -1894,6 +2117,24 @@ fn no_kit_word(files: &[PathBuf]) -> Result<()> {
     Ok(())
 }
 
+/// The 2017-18 ZIP's SOURCE.txt: where the source of its programs is, at the commit it was built from.
+fn source_txt(version: &str, commit: &str) -> String {
+    let sha = commit.split(' ').next().unwrap_or(commit);
+    let tag = if version.starts_with(|c: char| c.is_ascii_digit()) {
+        format!("Release tag v{version}, commit")
+    } else {
+        "Commit".to_owned()
+    };
+    format!(
+        "Forza-WCCF 2017-18 {version}\r\n\r\n\
+         The source of every program in this folder (Launcher.exe, bin\\, overlay\\):\r\n\
+         https://github.com/Forza-WCCF/Forza-WCCF/tree/{sha}\r\n\
+         {tag} {commit}. Licence: MIT or Apache-2.0, your choice.\r\n\r\n\
+         Il sorgente di ogni programma in questa cartella: il link qui sopra (licenza MIT o Apache-2.0).\r\n\
+         このフォルダーのすべてのプログラムのソース：上のリンク（MIT または Apache-2.0 ライセンス）。\r\n"
+    )
+}
+
 fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
     let Ed {
         top,
@@ -1916,7 +2157,9 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
         .filter_map(|e| Some(e.ok()?.path()))
         .filter(|p| p.extension().is_some_and(|e| e == "txt" || e == "md"))
         .collect();
-    docs.push(kit.join("source/README.txt"));
+    if is_1011 {
+        docs.push(kit.join("source/README.txt"));
+    }
     no_kit_word(&docs)?;
     for p in programs {
         ensure!(
@@ -2005,9 +2248,36 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
     if !version.is_empty() {
         fs::write(kit.join("version.txt"), format!("kit-{version}\r\n"))?;
     }
+    if !is_1011 {
+        let mut commit = cmd!(sh, "git rev-parse HEAD").read()?.trim().to_owned();
+        if !cmd!(sh, "git status --porcelain -- crates native xtask")
+            .read()?
+            .trim()
+            .is_empty()
+        {
+            commit.push_str(" plus uncommitted changes"); // a test build: the programs are not exactly that commit
+        }
+        fs::write(kit.join("SOURCE.txt"), source_txt(version, &commit))?;
+    }
     let mut shipped = BTreeSet::new();
     let mut dirs = BTreeSet::new();
     walk(kit, "", &mut shipped, &mut dirs)?;
+    if !shipped.iter().any(|f| f.starts_with("source/")) {
+        dirs.remove("source"); // only the unshipped source/build is left in it
+    }
+    // files.sha256: each file's SHA-256, for the Launcher's update to check the unzipped kit before it copies anything
+    // (lists of an earlier run in the folder are not in them)
+    shipped.retain(|f| f != "files.txt" && f != "files.sha256");
+    let mut sums = String::new();
+    for f in &shipped {
+        let hash: String = Sha256::digest(fs::read(kit.join(f))?)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        sums.push_str(&format!("{hash}  {}\r\n", f.replace('/', "\\")));
+    }
+    fs::write(kit.join("files.sha256"), sums)?;
+    shipped.insert("files.sha256".to_owned());
     shipped.insert("files.txt".to_owned());
     let mut files = String::from("\u{feff}");
     for f in &shipped {
@@ -2022,7 +2292,8 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
     let zip_path = dist.join(format!("{name}.zip"));
     let mut zip = zip::ZipWriter::new(fs::File::create(&zip_path)?);
     let opts = zip::write::SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated);
+        .compression_method(zip::CompressionMethod::Deflated)
+        .last_modified_time(zip_time(root)?);
     zip.add_directory(format!("{top}/"), opts)?;
     for d in &dirs {
         zip.add_directory(format!("{top}/{d}/"), opts)?;
@@ -2186,6 +2457,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn source_txt_names_the_tag_only_for_a_version() {
+        let r = source_txt("0.5.1", "abc");
+        assert!(r.contains("/tree/abc\r\n") && r.contains("Release tag v0.5.1, commit abc."));
+        let t = source_txt("test", "abc plus uncommitted changes");
+        assert!(t.contains("/tree/abc\r\n") && !t.contains("Release tag"));
+    }
+
+    #[test]
     fn profiles_are_fast_locally_and_release_for_the_gate() {
         let p = |mode, fast, release, ci| pick_profile(Some(mode), fast, release, ci);
         assert_eq!(p("build", false, false, false), "fast");
@@ -2193,7 +2472,7 @@ mod tests {
         assert_eq!(p("build", false, true, false), "release");
         assert_eq!(p("quick", false, true, false), "release");
         assert_eq!(p("build", false, false, true), "release");
-        assert_eq!(p("quick", false, false, true), "release");
+        assert_eq!(p("quick", false, false, true), "ci");
         assert_eq!(p("build", true, false, true), "fast");
         assert_eq!(p("ci", false, false, false), "ci");
         assert_eq!(p("ci", false, true, false), "release");
@@ -2217,30 +2496,132 @@ mod tests {
         };
         let want = config(rust_shipped(root));
         assert_eq!(want.len(), 2);
-        assert_eq!(config(tests(root, true, &[], TARGET, &[])), want);
-        assert_eq!(config(tests(root, true, &[], PANEL_TARGET, &[])), want);
+        assert_eq!(config(tests(root, true, &[], TARGET, &[], None)), want);
+        assert_eq!(
+            config(tests(root, true, &[], PANEL_TARGET, &[], None)),
+            want
+        );
     }
 
     #[test]
     fn the_32_bit_panel_is_linted_and_tested_for_its_own_target() {
         let v = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        let all = target_scopes(&v(&["--workspace"]));
+        let native: Vec<String> = ["-p", "forza-hook", "--features", "f"]
+            .into_iter()
+            .chain(NATIVE_CRATES.iter().copied())
+            .map(String::from)
+            .collect();
+        let all = target_scopes(&v(&["--workspace"]), "f");
         assert_eq!(
             all[0],
             (TARGET, v(&["--workspace", "--exclude", "forza-panel"]))
         );
-        assert_eq!(all[1], (PANEL_TARGET, v(&["-p", "forza-panel"])));
-        let some = target_scopes(&v(&["-p", "forza", "-p", "forza-panel"]));
+        let panel_native: Vec<String> = v(&["-p", "forza-panel"])
+            .into_iter()
+            .chain(native.clone())
+            .collect();
+        assert_eq!(all[1], (PANEL_TARGET, panel_native));
+        let some = target_scopes(&v(&["-p", "forza", "-p", "forza-panel"]), "f");
         assert_eq!(some[0], (TARGET, v(&["-p", "forza"])));
         assert_eq!(some[1], (PANEL_TARGET, v(&["-p", "forza-panel"])));
         assert_eq!(
-            target_scopes(&v(&["-p", "forza"])),
+            target_scopes(&v(&["-p", "forza"]), "f"),
             [(TARGET, v(&["-p", "forza"]))]
         );
         assert_eq!(
-            target_scopes(&v(&["-p", "forza-panel"])),
+            target_scopes(&v(&["-p", "forza-panel"]), "f"),
             [(PANEL_TARGET, v(&["-p", "forza-panel"]))]
         );
+        let hook = target_scopes(&v(&["-p", "forza-hook"]), "f");
+        assert_eq!(
+            hook,
+            [(TARGET, v(&["-p", "forza-hook"])), (PANEL_TARGET, native)]
+        );
+    }
+
+    #[test]
+    fn quick_tests_the_changed_crates_and_their_dependents() {
+        let info = || {
+            [
+                ("forza", "crates/forza", &[][..]),
+                ("forza-ui", "crates/ui", &["forza"][..]),
+                ("launcher", "crates/launcher", &["forza", "forza-ui"][..]),
+                ("forza-tools", "crates/tools", &[][..]),
+                ("forza-panel", "native/panel", &[][..]),
+            ]
+            .map(|(n, d, deps)| {
+                let deps = deps.iter().map(|s| s.to_string()).collect();
+                (n.to_owned(), d.to_owned(), deps)
+            })
+            .to_vec()
+        };
+        let set = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<BTreeSet<_>>();
+        assert_eq!(affected(info(), ""), Some(set(&[])));
+        assert_eq!(affected(info(), "docs/README.md\n"), Some(set(&[])));
+        // a leaf: itself only
+        let leaf = affected(info(), "crates/launcher/src/main.rs\n").unwrap();
+        assert_eq!(leaf, set(&["launcher"]));
+        // the shared library: its dependents too, through forza-ui
+        let lib = affected(info(), "crates/forza/src/lib.rs\n").unwrap();
+        assert_eq!(lib, set(&["forza", "forza-ui", "launcher"]));
+        // the launcher embeds the panel's files
+        let panel = affected(info(), "native/panel/src/lib.rs\n").unwrap();
+        assert_eq!(panel, set(&["forza-panel", "launcher"]));
+        assert_eq!(affected(info(), "Cargo.lock\n"), None);
+        assert_eq!(affected(info(), "xtask/src/main.rs\n"), None);
+        // filters per target, never an empty one
+        assert_eq!(test_filter(&set(&[]), TARGET), None);
+        assert_eq!(test_filter(&set(&["forza-panel"]), TARGET), None);
+        assert_eq!(
+            test_filter(&panel, TARGET).as_deref(),
+            Some("package(launcher)")
+        );
+        assert_eq!(
+            test_filter(&panel, PANEL_TARGET).as_deref(),
+            Some("package(forza-panel)")
+        );
+        assert_eq!(
+            test_filter(&set(&["forza-hook", "forza"]), PANEL_TARGET).as_deref(),
+            Some("package(forza-hook)")
+        );
+        // a base git cannot resolve: no file list, so quick checks everything
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        assert_eq!(
+            changed_files(root, "0123456789abcdef0123456789abcdef01234567").unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn zip_dates_are_the_utc_date_of_the_seconds() {
+        let d = dos_time(1_793_281_530).unwrap(); // 2026-10-29 13:45:30 UTC
+        let got = (
+            d.year(),
+            d.month(),
+            d.day(),
+            d.hour(),
+            d.minute(),
+            d.second(),
+        );
+        assert_eq!(got, (2026, 10, 29, 13, 45, 30));
+        assert!(dos_time(0).is_err()); // 1970 is before ZIP's 1980
+    }
+
+    #[test]
+    fn only_2010_11_paths_bring_in_the_2010_11_hooks() {
+        assert!(!touches_1011(
+            "crates/launcher/src/lib.rs\ncrates/forza/src/setup/e1718.rs\n"
+        ));
+        assert!(!touches_1011("editions/2017-18/CHANGES.txt\n"));
+        assert!(touches_1011(
+            "crates/launcher/src/lib.rs\nEditions/2010-11/x.txt\n"
+        ));
+        assert!(touches_1011("crates/forza/src/setup/e1011.rs\n"));
+        assert!(touches_1011("native/hook/src/lib.rs\n"));
+        assert!(touches_1011("Cargo.lock\n"));
+        assert_eq!(hooks(false).count(), 2);
+        assert!(hooks(false).all(|(f, _, _)| f.contains("e1718")));
+        assert_eq!(hooks(true).count(), HOOKS.len());
     }
 
     #[test]

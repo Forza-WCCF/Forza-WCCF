@@ -94,7 +94,7 @@ PROBLEMI NOTI
 ANTIVIRUS E SMARTSCREEN
   I programmi non sono firmati e Forza-WCCF modifica copie dei programmi del gioco (mai gli originali, che restano in
   original\). Gli antivirus possono scambiarlo per un programma per barare e segnalare bin\winmm.dll. Il sorgente è
-  in source\. I file di ogni versione vengono segnalati a Microsoft come falso positivo prima della pubblicazione.
+  al link in SOURCE.txt. I file di ogni versione vengono segnalati a Microsoft come falso positivo prima della pubblicazione.
   SmartScreen ("Il PC è stato protetto da Windows"): scegliete Ulteriori informazioni, poi Esegui comunque.
   Defender segnala un file: non disattivate Defender. Annotate il nome del rilevamento. Se il file viene dal download
   ufficiale, ripristinatelo dalla Cronologia protezione. Segnalatelo: https://github.com/Forza-WCCF/Forza-WCCF/issues
@@ -116,5 +116,4 @@ CARTELLE
   overlay\   il pannello; CONFIGURA aggiunge il catalogo e le immagini delle carte
   fonts\     i caratteri del pannello e le loro licenze
   english\, italian\   i testi inglese e italiano del gioco
-  source\    il sorgente dei programmi in bin\ e overlay\ (Rust)
   data\      creata sul vostro PC: impostazioni, salvataggi (save\gamesvr), log

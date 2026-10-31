@@ -131,6 +131,7 @@ Refs: #12
 - **Breaking change:** a `!` before the colon and/or a `BREAKING CHANGE:` footer.
 - **Versions** ([docs/RELEASING.md](docs/RELEASING.md)): `fix` is a patch, `feat` a minor version, a breaking change a
   major version (a minor one while the version is 0.x).
+  Each crate has its own version besides the release number; a release bumps only the crates that changed.
 - **Revert:** `revert(scope): description of the reverted commit`, with `Refs:` naming the commit hash.
 - Git's own `Merge ...` lines pass; `fixup!`, `squash!` and `amend!` commits are fine locally but must be squashed
   (`git rebase -i --autosquash`) before a pull request.

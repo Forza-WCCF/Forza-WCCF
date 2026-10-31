@@ -117,8 +117,11 @@ jobs:
           printf '%s\n' "$TITLE" > "$RUNNER_TEMP/msg"
           xtask/commit-msg "$RUNNER_TEMP/msg" || { echo "::error::pull request title"; exit 1; }
 
-  # Everything builds and runs natively: the kits, the guard and hook test programs, the workspace tests and the installer smoke run
-  # (`cargo xtask check ci`); then the kits are scanned
+  # Pull requests: `cargo xtask check quick` against the base, the crates they change and their dependents (the kit and
+  # its self-tests when a 32-bit crate, the Launcher or the panel changed; the installer smoke when the installer did;
+  # the 2010-11 hooks only when a 2010-11 path changed, xtask PATHS_1011). Main, the weekly run and dispatch: everything
+  # (`cargo xtask check ci`: both kits, the guard and hook test programs, the workspace tests, the installer smoke).
+  # Then whatever was built is scanned
   build-test:
     name: build-test
     needs: changes
@@ -169,6 +172,8 @@ jobs:
       - run: git config --global core.autocrlf false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # a pull request's merge commit and its first parent, the base `check quick` diffs against
+          fetch-depth: 2
           persist-credentials: false
       # the build no longer pins the CRT and SDK as xwin did: the log records them
       - name: toolchain (rust-toolchain.toml installs 1.99.0 and both targets)
@@ -202,7 +207,8 @@ jobs:
         run: mkdir -p ci-stamp/.cargo && echo "# week $(date -u +%G-W%V)" > ci-stamp/.cargo/config.toml
       # one cache for every Windows build (the shared key drops the job name from the key), written only by main (also
       # when a check fails, so the compiling is kept): pull requests and release.yml's tag builds restore main's
-      # newest by the key's prefix. Old entries fall out at 10 GB.
+      # newest by the key's prefix. Old entries fall out at 10 GB. Pull requests save none: an entry is about 4.7 GB,
+      # so one per pull request would push main's out of the 10 GB and every other run would start cold.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: windows
@@ -218,10 +224,19 @@ jobs:
           $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
           "screen $($b.Width)x$($b.Height)"
           if ($b.Width -lt 1600 -or $b.Height -lt 1000) { throw "screen still $($b.Width)x$($b.Height)" }
-      - name: cargo xtask check ci (the GPU snapshot tests run in the snapshots job)
+      - name: cargo xtask check (pull requests quick, else ci; the GPU snapshot tests run in the snapshots job)
+        shell: bash
         env:
           CARGO_LOG: ${{ inputs.fingerprints && 'cargo::core::compiler::fingerprint=info' || '' }}
-        run: cargo xtask check ci ${{ env.PROFILE == 'release' && '--release' || '' }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ -n "$BASE" ]; then
+            cargo xtask check quick --base "$BASE"
+          elif [ "$PROFILE" = release ]; then
+            cargo xtask check ci --release
+          else
+            cargo xtask check ci
+          fi
       - name: Defender scan of the kits and the installer
         shell: pwsh
         env:
@@ -231,11 +246,17 @@ jobs:
           if ($env:UPDATE_PID) { Wait-Process -Id ([int]$env:UPDATE_PID) -Timeout 300 -ErrorAction SilentlyContinue }
           $log = Join-Path $env:RUNNER_TEMP 'sigupdate.log'
           if (Test-Path $log) { Get-Content $log }
-          $age = (Get-Date) - (Get-MpComputerStatus).AntivirusSignatureLastUpdated
-          if ($age.TotalDays -gt 2) { "::warning::Defender signatures are $([int]$age.TotalDays) days old; the signature update may have failed" }
-          Get-MpComputerStatus | Select-Object AMEngineVersion, AntivirusSignatureVersion | Format-List
+          # informational, as in "Defender status"; the scan below stays the gate
+          try {
+            $st = Get-MpComputerStatus
+            $age = (Get-Date) - $st.AntivirusSignatureLastUpdated
+            if ($age.TotalDays -gt 2) { "::warning::Defender signatures are $([int]$age.TotalDays) days old; the signature update may have failed" }
+            $st | Select-Object AMEngineVersion, AntivirusSignatureVersion | Format-List
+          } catch { "::warning::Get-MpComputerStatus failed: $_" }
           $bad = 0
           foreach ($p in 'target\kit', "target\x86_64-pc-windows-msvc\$env:PROFILE\Forza-WCCF-Installer.exe") {
+            # a pull request's quick check builds the kit and the installer only when their crates changed
+            if (-not (Test-Path $p)) { "${p}: not built in this run"; continue }
             $full = (Resolve-Path $p).Path
             $out = & "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -Scan -ScanType 3 -File $full -DisableRemediation 2>&1 | Out-String
             $code = $LASTEXITCODE
@@ -263,9 +284,11 @@ jobs:
               -not ($_.Resources | Where-Object { $_ -like "*$eicar*" }) -and
               $names[[int64]$_.ThreatID] -notlike '*EICAR*'
             })
-          if (-not (Get-MpComputerStatus).RealTimeProtectionEnabled) {
-            "::notice::real-time protection is off on this runner: behaviour detection during the tests was not checked"
-          }
+          try {
+            if (-not (Get-MpComputerStatus).RealTimeProtectionEnabled) {
+              "::notice::real-time protection is off on this runner: behaviour detection during the tests was not checked"
+            }
+          } catch { "::warning::Get-MpComputerStatus failed: $_" }
           if ($hits.Count -eq 0) { "no Defender detections since $start"; exit 0 }
           $hits | ForEach-Object {
             [pscustomobject]@{

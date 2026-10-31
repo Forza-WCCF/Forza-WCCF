@@ -2,8 +2,14 @@
 
 ## Version numbers
 
-- One [semver](https://semver.org) version for the whole repo: `[workspace.package] version` in `Cargo.toml`. The
-  Launcher, server, installer, panel and the edition ZIPs all carry it.
+- The release number: `[workspace.package] version` in `Cargo.toml` ([semver](https://semver.org)). The tag
+  (`v<number>`), the edition ZIPs (`version.txt`) and the three crates that inherit it (`launcher`, `wccf-installer`,
+  `forza-panel`: they show it to players) carry it.
+- Every other crate has its own `version` in its `Cargo.toml`, embedded in its programs' version information. Bump a
+  crate's own version (patch for a fix, minor for a feature) only when its files or a path dependency's changed since
+  the last release (`git diff --stat v<last> -- <crate dir> native/common`); an unchanged helper program (FPR_Emu.exe,
+  logowin.exe, wccfnet.dll, forza-server.exe) then rebuilds byte-identical, and the hash an antivirus once judged
+  stays the same.
 - 0.x means alpha: features missing, bugs expected. The count restarted from 7.0.0 at **0.2.0**, because the installer
   already published `v0.1.0` and `v0.1.1`.
 - Each test build with new features or a batch of fixes raises the minor number (0.2.0, 0.3.0, …). A rebuild of a
@@ -11,7 +17,7 @@
   the ZIPs, the online lobby).
 - Package with the version in the name: `cargo xtask package 2017-18 --name Forza-WCCF-2017-18-0.2.0` writes
   `version.txt` = `kit-0.2.0`. Tag the commit `v0.2.0`.
-- A version change also changes the `forza` and `forza-ui` entries in `crates/installer/THIRD-PARTY-LICENSES.json`;
+- A change of the `forza` or `forza-ui` version also changes its entry in `crates/installer/THIRD-PARTY-LICENSES.json`;
   `cargo xtask check` fails until they match.
 
 ## Alpha builds for players
