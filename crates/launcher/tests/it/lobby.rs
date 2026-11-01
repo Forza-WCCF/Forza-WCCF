@@ -52,8 +52,8 @@ fn lobby_rows_then_join_ticket_then_want_ticket_claims_that_seat() {
     book.apply(&m, Instant::now());
     let mut view = LobbyView::new();
     let at = book.fill(&mut view, Instant::now());
-    assert_eq!(view.shops.len(), 1);
-    let row = view.shops[0].clone();
+    assert_eq!(view.arcades.len(), 1);
+    let row = view.arcades[0].clone();
     assert_eq!((row.state.clone(), row.players, row.max), (RowState::Open, 0, 8));
     assert_eq!(at[&row.id], server);
     assert_eq!(view.updated_s, Some(0));
@@ -139,12 +139,12 @@ fn silent_servers_show_no_answer_and_the_list_goes_offline() {
     book.fill(&mut view, now);
     assert!(!view.offline);
     for _ in 0..MISSES {
-        assert!(!book.offline() || view.shops[0].state == RowState::NoAnswer);
+        assert!(!book.offline() || view.arcades[0].state == RowState::NoAnswer);
         book.apply(&poll(Err("down".into())), now);
         book.fill(&mut view, now + Duration::from_secs(20));
     }
     assert!(view.offline && view.direct_open);
-    assert_eq!(view.shops[0].state, RowState::NoAnswer);
+    assert_eq!(view.arcades[0].state, RowState::NoAnswer);
     assert_eq!(view.updated_s, Some(20));
 }
 
@@ -152,7 +152,7 @@ fn silent_servers_show_no_answer_and_the_list_goes_offline() {
 fn leave_releases_the_seat_at_once() {
     let d = desk();
     let server = d.addr().to_string();
-    let id = forza::online::lobby::fetch(d.addr(), "2017-18").unwrap().shops[0]
+    let id = forza::online::lobby::fetch(d.addr(), "2017-18").unwrap().arcades[0]
         .id
         .clone();
     let Ok(Reserved::Ticket { ticket, seat }) = forza::online::lobby::reserve(d.addr(), &id) else {
@@ -160,7 +160,7 @@ fn leave_releases_the_seat_at_once() {
     };
     launcher::lobby::release(&server, &ticket).join().unwrap();
     assert_eq!(
-        forza::online::lobby::fetch(d.addr(), "2017-18").unwrap().shops[0].seats,
+        forza::online::lobby::fetch(d.addr(), "2017-18").unwrap().arcades[0].seats,
         0
     );
     assert_eq!(forza::online::lobby::heartbeat(d.addr(), &ticket), Ok(false));

@@ -175,7 +175,7 @@ fn ms() -> u32 {
 }
 
 /// Overlay and capture hooks other programs load into games; they hook the same Present we do. Discord's capture hook
-/// blacked a seat's picture while its owner streamed the game (2026-10-22).
+/// blacked a seat's picture while the game was streamed (2026-10-22).
 const FOREIGN_HOOKS: &[&str] = &[
     "DiscordHook.dll",         // Discord overlay and Go Live
     "GameOverlayRenderer.dll", // Steam overlay
@@ -623,7 +623,8 @@ fn is_projector() -> bool {
 
 /// The server link, watched all the time (`wccfpanel.c` `link_watch`): every 2 s this process's link to the server's
 /// control port; one dated line in WCCF_LOGS\server_link.txt when it comes up ("UP 1.2.3.4") and when it drops ("LOST
-/// (it was up N s)", or ENDED after the player closed the window: no fault). The run reads it (launcher run::rules).
+/// (it was up N s)", or ENDED after the player closed the window: no fault), then who closed it ([`kit::close_reason`]).
+/// The run reads it (launcher run::rules).
 fn link_watch() {
     use forza_ui::panel::Link;
     let Some(dir) = std::env::var_os("WCCF_LOGS") else {
@@ -635,6 +636,7 @@ fn link_watch() {
         .ok()
         .and_then(|a| std::net::TcpStream::connect(a).ok());
     let mut up_at: Option<Instant> = None;
+    let mut port = None;
     loop {
         let now = match kit::server_link() {
             Link::Unknown => None,
@@ -654,13 +656,14 @@ fn link_watch() {
             let line = match (&now, up_at) {
                 (Some(peer), _) => format!("{stamp} UP {peer}\n"),
                 (None, at) => format!(
-                    "{stamp} {} (it was up {} s)\n",
+                    "{stamp} {} (it was up {} s), {}\n",
                     if CLOSING.load(Relaxed) {
                         "ENDED"
                     } else {
                         "LOST"
                     },
-                    at.map_or(0, |a| a.elapsed().as_secs())
+                    at.map_or(0, |a| a.elapsed().as_secs()),
+                    kit::close_reason(port.and_then(kit::link_left))
                 ),
             };
             if let Ok(mut f) = std::fs::OpenOptions::new()
@@ -671,6 +674,9 @@ fn link_watch() {
                 let _ = f.write_all(line.as_bytes());
             }
             up_at = now.map(|_| Instant::now());
+        }
+        if up_at.is_some() {
+            port = kit::link_port().or(port);
         }
         std::thread::sleep(Duration::from_secs(2));
     }
@@ -710,7 +716,7 @@ fn card_open() -> bool {
     })
 }
 
-/// This seat plays a match (IMPORT LINEUP is refused then, the owner's rule); the decision and its inputs are logged.
+/// This seat plays a match (IMPORT LINEUP is refused then, a project rule); the decision and its inputs are logged.
 fn in_match() -> bool {
     let (refuse, _, why) = match_check();
     log(&format!(
@@ -726,22 +732,22 @@ fn match_check() -> (bool, bool, String) {
         .get()
         .is_some_and(|f| f.edition == theme::Edition::E1718);
     let seat = if e1718 { pause::seat_state() } else { None };
-    let shop = pause::shop_state(e1718);
+    let arcade = pause::arcade_state(e1718);
     let card = card_open();
     (
-        match_now(e1718, seat, shop, card),
-        match_now(e1718, seat, shop, false),
-        format!("seat state {seat:?}, shop state {shop:?}, card session {card}"),
+        match_now(e1718, seat, arcade, card),
+        match_now(e1718, seat, arcade, false),
+        format!("seat state {seat:?}, arcade state {arcade:?}, card session {card}"),
     )
 }
 
-/// 2017-18: the seat's own sequence state is the match one (the shop state is the whole shop's: another seat's
-/// match sets it too); the shop state MATCHING-GAME_RESULT_WAIT (4-6) only when the seat state cannot be read.
-/// 2010-11: that shop state. Either: a card session open (2010-11's club card).
-fn match_now(e1718: bool, seat: Option<u32>, shop: Option<u32>, card: bool) -> bool {
+/// 2017-18: the seat's own sequence state is the match one (the arcade state is the whole arcade's: another seat's
+/// match sets it too); the arcade state MATCHING-GAME_RESULT_WAIT (4-6) only when the seat state cannot be read.
+/// 2010-11: that arcade state. Either: a card session open (2010-11's club card).
+fn match_now(e1718: bool, seat: Option<u32>, arcade: Option<u32>, card: bool) -> bool {
     let playing = match seat {
         Some(s) if e1718 => s == pause::SEAT_MATCH,
-        _ => matches!(shop, Some(4..=6)),
+        _ => matches!(arcade, Some(4..=6)),
     };
     playing || card
 }
@@ -3418,8 +3424,8 @@ mod tests {
         );
     }
 
-    /// IMPORT LINEUP: 2017-18 asks the seat's own state (another seat's match puts the shared shop in GAME); the shop
-    /// state only when that cannot be read; 2010-11 keeps the shop state; a card session always counts.
+    /// IMPORT LINEUP: 2017-18 asks the seat's own state (another seat's match puts the shared arcade in GAME); the arcade
+    /// state only when that cannot be read; 2010-11 keeps the arcade state; a card session always counts.
     #[test]
     fn import_is_refused_only_in_this_seats_match() {
         assert!(

@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use launcher::debug::{Options, Role, maps, run};
+use launcher::debug::{HANG_AFTER, Options, Role, maps, run};
 use launcher::job::Job;
 use launcher::kit::Edition;
 use windows_sys::Win32::Foundation::CloseHandle;
@@ -50,6 +50,7 @@ fn options(exe: PathBuf, top: &Path, role: Role) -> Options {
         above_normal: false,
         env: Vec::new(),
         stop: None,
+        hang_after: HANG_AFTER,
     }
 }
 
@@ -170,10 +171,13 @@ fn a_closed_window_ends_the_program() {
         .map(String::from)
         .to_vec();
     opts.follow = false;
+    opts.hang_after = Duration::from_secs(1); // a window that answers never counts, however short
     let t0 = Instant::now();
     let (job, log, t) = start(opts);
     let code = t.join().unwrap();
     let out = log.text();
+    assert!(!out.contains("hang:"), "{out}");
+    assert!(!top.path().join("data/dumps").exists());
     assert!(
         out.contains("its window was closed - ending standin_window.exe (the program never quits by itself)"),
         "{out}"
@@ -189,6 +193,20 @@ fn a_closed_window_ends_the_program() {
 #[test]
 #[ignore = "a stand-in started by hide_starts_the_windows_hidden"]
 fn window_stand_in() {
+    show_window();
+    thread::sleep(Duration::from_secs(3));
+}
+
+/// The same window, left unanswered for 15 s: Windows calls it hung after 5.
+#[test]
+#[ignore = "a stand-in started by a_hung_window_is_dumped_once"]
+fn hung_stand_in() {
+    show_window();
+    thread::sleep(Duration::from_secs(15));
+}
+
+/// A window of this thread, which never pumps its messages.
+fn show_window() {
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, RegisterClassW, SW_SHOWDEFAULT, ShowWindow, WNDCLASSW, WS_OVERLAPPEDWINDOW,
@@ -220,7 +238,34 @@ fn window_stand_in() {
         assert!(!w.is_null());
         ShowWindow(w, SW_SHOWDEFAULT);
     }
-    thread::sleep(Duration::from_secs(3));
+}
+
+/// A client whose window stops answering gets one set of snapshots after `hang_after`, a log line, and runs on.
+#[test]
+fn a_hung_window_is_dumped_once() {
+    let top = tempfile::tempdir().unwrap();
+    let mut opts = options(std::env::current_exe().unwrap(), top.path(), Role::Client);
+    opts.args = ["debug::hung_stand_in", "--exact", "--ignored", "--nocapture"]
+        .map(String::from)
+        .to_vec();
+    opts.hang_after = Duration::from_secs(2);
+    let (job, log, t) = start(opts);
+    let code = t.join().unwrap();
+    let out = log.text();
+    assert_eq!(
+        out.matches("hang: seat window not responding for 2 s, dumps written: ")
+            .count(),
+        1,
+        "{out}"
+    );
+    let dumps: Vec<_> = fs::read_dir(top.path().join("data/dumps")).unwrap().flatten().collect();
+    assert_eq!(dumps.len(), 2, "one lean and one full: {out}");
+    assert!(
+        out.contains("process exited, exit code 0x00000000"),
+        "it was left running: {out}"
+    );
+    assert_eq!(code, 0);
+    assert!(job.wait_empty(Duration::from_secs(10)));
 }
 
 /// `hide` (the server's start): the program's window exists but is not visible; without it the same window shows.
@@ -372,4 +417,43 @@ fn the_2017_18_shared_memory_holds_the_player_data() {
     let text = String::from_utf8(out).unwrap();
     assert!(text.contains(&format!("{id}_ WCCF 17-18 Ver2.0")), "{text}");
     assert!(!text.contains("moai") && !text.contains("status"), "{text}");
+}
+
+/// SAVE LOGS during a run: the client and the match engine running from the game's folders get a lean snapshot, and the
+/// ZIP carries both; with nothing running nothing is written.
+#[test]
+fn save_logs_dumps_the_running_client_and_match_engine() {
+    use forza::online::save_logs::Scrub;
+    let top = tempfile::tempdir().unwrap();
+    let game = top.path().join("game");
+    fs::create_dir_all(&game).unwrap();
+    let (kit, dumps, zips) = (
+        top.path().join("kit"),
+        top.path().join("kit/data/dumps"),
+        top.path().join("zips"),
+    );
+    // nothing running: no snapshot, no folder
+    launcher::report::save_zip(&zips, &kit, Some(&game), &Scrub::default(), None).unwrap();
+    assert!(!dumps.exists());
+    let mut kids = Vec::new();
+    for name in ["client_Release.exe", "match_Release.exe"] {
+        fs::copy(std::env::current_exe().unwrap(), game.join(name)).unwrap();
+        kids.push(
+            std::process::Command::new(game.join(name))
+                .args(["debug::window_stand_in", "--exact", "--ignored", "--nocapture"])
+                .spawn()
+                .unwrap(),
+        );
+    }
+    thread::sleep(Duration::from_millis(500));
+    let zip = launcher::report::save_zip(&zips, &kit, Some(&game), &Scrub::default(), None).unwrap();
+    let zip = String::from_utf8_lossy(&fs::read(zip).unwrap()).into_owned();
+    for (kid, name) in kids.iter_mut().zip(["client_Release", "match_Release"]) {
+        assert!(
+            zip.contains("dumps/") && zip.contains(&format!("_{name}_{}_lean.dmp", kid.id())),
+            "{name} is not in the ZIP"
+        );
+        let _ = kid.kill();
+    }
+    assert!(!zip.contains("_full.dmp"), "lean only");
 }

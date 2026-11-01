@@ -252,7 +252,7 @@ fn client(f: &dyn Fn(&str, &str) -> String) {
         le(&mut r, 0, 1);
         word(&ask(ctl, 223, &r), 4)
     };
-    let (card, shop) = (rnd() >> 1, rnd() >> 1);
+    let (card, arcade) = (rnd() >> 1, rnd() >> 1);
     let enter = |ctl: &mut TcpStream, round: u32| {
         let mut e = vec![0u8; 280];
         le(&mut e, 0, 1);
@@ -260,7 +260,7 @@ fn client(f: &dyn Fn(&str, &str) -> String) {
         e[8..12].copy_from_slice(&token.ip().octets());
         e[12..14].copy_from_slice(&token.port().to_le_bytes());
         le(&mut e, 44, card);
-        le(&mut e, 48, shop);
+        le(&mut e, 48, arcade);
         ask(ctl, 243, &e);
     };
     let mut rd = round(&mut ctl);
@@ -272,7 +272,7 @@ fn client(f: &dyn Fn(&str, &str) -> String) {
         le(&mut p, 0, 1);
         le(&mut p, 4, rd);
         le(&mut p, 8, card);
-        le(&mut p, 12, shop);
+        le(&mut p, 12, arcade);
         let m = ask(&mut ctl, 245, &p);
         if m.len() > 122 && m[122] == 1 {
             opp = Some((

@@ -34,8 +34,8 @@ fn say(addr: SocketAddr, line: &str) -> String {
     String::from_utf8(s).unwrap().trim().to_string()
 }
 
-fn shop_id(addr: SocketAddr) -> String {
-    lobby::fetch(addr, "2017-18").unwrap().shops[0].id.clone()
+fn arcade_id(addr: SocketAddr) -> String {
+    lobby::fetch(addr, "2017-18").unwrap().arcades[0].id.clone()
 }
 
 #[test]
@@ -44,7 +44,7 @@ fn lobby_json_parses_and_follows_the_seats() {
     let l = lobby::fetch(d.addr(), "2017-18").unwrap();
     assert_eq!((l.v, l.edition.as_str()), (1, "2017-18"));
     assert!(l.vs.is_empty());
-    let s = &l.shops[0];
+    let s = &l.arcades[0];
     assert_eq!((s.seats, s.max, s.state), (0, 8, State::Open));
     assert_eq!(
         (s.name.as_str(), s.lang.as_deref()),
@@ -53,7 +53,10 @@ fn lobby_json_parses_and_follows_the_seats() {
     let mut held = TcpStream::connect(d.addr()).unwrap();
     held.write_all(b"WANT\n").unwrap();
     let _ = held.read(&mut [0; 64]);
-    assert_eq!(lobby::fetch(d.addr(), "2017-18").unwrap().shops[0].seats, 1);
+    assert_eq!(
+        lobby::fetch(d.addr(), "2017-18").unwrap().arcades[0].seats,
+        1
+    );
     assert!(lobby::fetch(d.addr(), "2010-11").is_err());
 }
 
@@ -67,9 +70,9 @@ fn lobby_answer_holds_no_address_or_stored_id() {
     let ipv4 = regex::Regex::new(r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}").unwrap();
     assert!(!ipv4.is_match(&json), "{json}");
     assert!(!json.contains("127.0.0.1") && !json.contains("localhost"));
-    // only the shop's own random id; its name is the setting
+    // only the arcade's own random id; its name is the setting
     let l = Lobby::parse(&json).unwrap();
-    assert_eq!(l.shops[0].id.len(), 8);
+    assert_eq!(l.arcades[0].id.len(), 8);
     assert!(json.len() <= lobby::MAX_ANSWER);
 }
 
@@ -82,19 +85,25 @@ fn lobby_rate_limit_and_cache() {
     assert!(say(d.addr(), "LOBBY 2017-18").starts_with('{'));
     // the cache: a seat taken inside the window is not shown yet
     let d = desk(|c| c.lobby_cache = Duration::from_secs(30));
-    assert_eq!(lobby::fetch(d.addr(), "2017-18").unwrap().shops[0].seats, 0);
-    let id = shop_id(d.addr());
+    assert_eq!(
+        lobby::fetch(d.addr(), "2017-18").unwrap().arcades[0].seats,
+        0
+    );
+    let id = arcade_id(d.addr());
     assert!(matches!(
         lobby::reserve(d.addr(), &id),
         Ok(Reserved::Ticket { .. })
     ));
-    assert_eq!(lobby::fetch(d.addr(), "2017-18").unwrap().shops[0].seats, 0);
+    assert_eq!(
+        lobby::fetch(d.addr(), "2017-18").unwrap().arcades[0].seats,
+        0
+    );
 }
 
 #[test]
 fn reserve_then_want_ticket_claims_that_seat() {
     let d = desk(|_| {});
-    let id = shop_id(d.addr());
+    let id = arcade_id(d.addr());
     let Reserved::Ticket { ticket, seat } = lobby::reserve(d.addr(), &id).unwrap() else {
         panic!()
     };
@@ -124,7 +133,7 @@ fn reserve_then_want_ticket_claims_that_seat() {
 #[test]
 fn last_seat_race_and_taken() {
     let d = desk(|_| {});
-    let id = shop_id(d.addr());
+    let id = arcade_id(d.addr());
     let _held: Vec<TcpStream> = (0..7)
         .map(|_| {
             let mut c = TcpStream::connect(d.addr()).unwrap();
@@ -142,7 +151,7 @@ fn last_seat_race_and_taken() {
     assert_eq!(say(d.addr(), &format!("RESERVE {id} 8")), "TAKEN");
     assert_eq!(say(d.addr(), &format!("RESERVE {id} 3")), "TAKEN");
     assert_eq!(
-        lobby::fetch(d.addr(), "2017-18").unwrap().shops[0].state,
+        lobby::fetch(d.addr(), "2017-18").unwrap().arcades[0].state,
         State::Full
     );
     assert_eq!(lobby::reserve(d.addr(), "zzzz").unwrap(), Reserved::Closed);
@@ -151,7 +160,7 @@ fn last_seat_race_and_taken() {
 #[test]
 fn lease_expires_and_heartbeat_extends() {
     let d = desk(|c| c.reserve_lease = Duration::from_millis(500));
-    let id = shop_id(d.addr());
+    let id = arcade_id(d.addr());
     let Reserved::Ticket { ticket: kept, seat } = lobby::reserve(d.addr(), &id).unwrap() else {
         panic!()
     };
@@ -163,10 +172,16 @@ fn lease_expires_and_heartbeat_extends() {
         assert_eq!(lobby::heartbeat(d.addr(), &kept), Ok(true));
     }
     assert_eq!(lobby::heartbeat(d.addr(), &lost), Ok(false));
-    assert_eq!(lobby::fetch(d.addr(), "2017-18").unwrap().shops[0].seats, 1);
+    assert_eq!(
+        lobby::fetch(d.addr(), "2017-18").unwrap().arcades[0].seats,
+        1
+    );
     std::thread::sleep(Duration::from_millis(600));
     assert_eq!(lobby::heartbeat(d.addr(), &kept), Ok(false));
-    assert_eq!(lobby::fetch(d.addr(), "2017-18").unwrap().shops[0].seats, 0);
+    assert_eq!(
+        lobby::fetch(d.addr(), "2017-18").unwrap().arcades[0].seats,
+        0
+    );
     assert!(
         matches!(lobby::reserve(d.addr(), &id), Ok(Reserved::Ticket { seat: s, .. }) if s == seat)
     );
@@ -193,7 +208,7 @@ fn per_address_connection_cap() {
 #[test]
 fn lobby_drops_expired_reservations() {
     let d = desk(|c| c.reserve_lease = Duration::from_millis(300));
-    let id = shop_id(d.addr());
+    let id = arcade_id(d.addr());
     for _ in 0..8 {
         assert!(matches!(
             lobby::reserve(d.addr(), &id),
@@ -201,8 +216,8 @@ fn lobby_drops_expired_reservations() {
         ));
     }
     std::thread::sleep(Duration::from_millis(500));
-    let shop = &lobby::fetch(d.addr(), "2017-18").unwrap().shops[0];
-    assert_eq!((shop.seats, shop.state), (0, State::Open));
+    let arcade = &lobby::fetch(d.addr(), "2017-18").unwrap().arcades[0];
+    assert_eq!((arcade.seats, arcade.state), (0, State::Open));
 }
 
 #[test]
@@ -216,7 +231,7 @@ fn ticket_never_claims_a_seat_taken_meanwhile() {
     c.lobby_cache = Duration::ZERO;
     c.control_log = Some(log.clone());
     let d = start(c, std::sync::Arc::new(|_| {})).unwrap();
-    let id = lobby::fetch(d.addr(), "2010-11").unwrap().shops[0]
+    let id = lobby::fetch(d.addr(), "2010-11").unwrap().arcades[0]
         .id
         .clone();
     let Reserved::Ticket { ticket, seat } = lobby::reserve(d.addr(), &id).unwrap() else {
@@ -237,13 +252,19 @@ fn ticket_never_claims_a_seat_taken_meanwhile() {
 #[test]
 fn release_frees_the_seat_at_once_and_spent_tickets_are_gone() {
     let d = desk(|_| {});
-    let id = shop_id(d.addr());
+    let id = arcade_id(d.addr());
     let Reserved::Ticket { ticket, seat } = lobby::reserve(d.addr(), &id).unwrap() else {
         panic!()
     };
-    assert_eq!(lobby::fetch(d.addr(), "2017-18").unwrap().shops[0].seats, 1);
+    assert_eq!(
+        lobby::fetch(d.addr(), "2017-18").unwrap().arcades[0].seats,
+        1
+    );
     assert_eq!(lobby::release(d.addr(), &ticket), Ok(true));
-    assert_eq!(lobby::fetch(d.addr(), "2017-18").unwrap().shops[0].seats, 0);
+    assert_eq!(
+        lobby::fetch(d.addr(), "2017-18").unwrap().arcades[0].seats,
+        0
+    );
     assert!(
         matches!(lobby::reserve_seat(d.addr(), &id, Some(seat)), Ok(Reserved::Ticket { seat: s, .. }) if s == seat)
     );

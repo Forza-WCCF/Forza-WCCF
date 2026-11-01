@@ -1,8 +1,9 @@
 name: Release
 
-# A tag v<workspace version> builds the installer ZIP and the 2017-18 ZIP, checks them on VirusTotal and opens a DRAFT
+# A tag v<version> builds the installer ZIP and the 2017-18 ZIP, checks them on VirusTotal and opens a DRAFT
 # pre-release. A maintainer publishes it after someone has played the build. Run by hand (workflow_dispatch) it is a
-# dry run: build and VirusTotal, no release.
+# dry run: build and VirusTotal, no release. The version comes from the tag (cargo xtask: `git describe`), no commit
+# bumps it: v0.6.1 -> version.txt kit-0.6.1, the programs' version information and the file names.
 on:
   push:
     tags: ['v*']
@@ -27,6 +28,8 @@ jobs:
       - run: git config --global core.autocrlf false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # the tags and the history to them: cargo xtask takes the version from `git describe`
+          fetch-depth: 0
           persist-credentials: false
       # only the pinned toolchain, as in ci.yml, so the cache key matches the one main saves
       - run: |
@@ -38,14 +41,12 @@ jobs:
         with:
           shared-key: windows
           save-if: false
-      - name: The tag is v + the workspace version
+      - name: The tag is v + a version
         run: |
-          V=$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version *= *"\(.*\)"/\1/p}' Cargo.toml | head -n1)
-          [ -n "$V" ] || { echo "::error::no workspace version"; exit 1; }
           if [ "$GITHUB_REF_TYPE" = tag ]; then
-            [ "$GITHUB_REF_NAME" = "v$V" ] || { echo "::error::tag $GITHUB_REF_NAME is not v$V"; exit 1; }
+            [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::tag $GITHUB_REF_NAME is not v<semver>"; exit 1; }
           fi
-          echo "V=$V" >> "$GITHUB_ENV"
+          git describe --tags --long --match 'v[0-9]*.[0-9]*.[0-9]*' || echo "no tag: a 0.0.0-dev build"
       - name: Build environment (what changed, when a file differs from the last release for no source reason)
         run: |
           echo "image: $ImageOS $ImageVersion"
@@ -53,8 +54,13 @@ jobs:
           for d in "/c/Program Files/Microsoft Visual Studio"/*/*/VC/Tools/MSVC/* "/c/Program Files (x86)/Windows Kits/10/Lib"/*; do echo "$d"; done
       - name: Packages
         run: |
-          cargo xtask package 2017-18 --name "Forza-WCCF-2017-18-$V"
+          cargo xtask package 2017-18
           cargo xtask package installer
+          # on a tag the files carry its version (`git describe` found the tag itself)
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            V=${GITHUB_REF_NAME#v}
+            ls "dist/Forza-WCCF-2017-18-$V.zip" "dist/Forza-WCCF-Installer-$V-windows-x64.exe" || { echo "::error::the files do not carry $V"; exit 1; }
+          fi
           cd dist
           find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -printf '%f\n' | sort | xargs sha256sum > "$RUNNER_TEMP/sums"
           mv "$RUNNER_TEMP/sums" SHA256SUMS.txt
@@ -114,31 +120,59 @@ jobs:
           set -euo pipefail
           [ -n "$VT_API_KEY" ] || { echo "::error::the VT_API_KEY secret is missing"; exit 1; }
           api=https://www.virustotal.com/api/v3
-          vt() { curl -fsS --retry 3 -H "x-apikey: $VT_API_KEY" "$@"; }
+          # no -f: a 404 is normal here (a file just uploaded, or one the API does not know yet) and the poll decides
+          vt() { curl -sS --retry 3 --retry-all-errors -H "x-apikey: $VT_API_KEY" "$@"; }
           out=virustotal.md
           printf '| File | Microsoft | Engines flagging | Report |\n|---|---|---|---|\n' > "$out"
+          # One poll of the file object, done when Microsoft has a verdict and the engine count stopped moving: one
+          # poll every 20 s, up to 15 minutes, as the free API allows 4 requests a minute. Sets a, ms, bad, mst, engines.
+          poll() {
+            prev=-1; ms=; a=
+            for _ in $(seq 1 45); do
+              sleep 20
+              a=$(vt "$api/files/$sha")
+              n=$(jq -r '.data.attributes.last_analysis_stats | (.undetected + .malicious + .suspicious + .timeout) // 0' <<<"$a" 2>/dev/null || echo 0)
+              ms=$(jq -r '.data.attributes.last_analysis_results.Microsoft.category // empty' <<<"$a" 2>/dev/null || true)
+              if [ -n "$ms" ] && [ "$n" = "$prev" ]; then break; fi
+              prev=$n
+            done
+            bad=$(jq -r '.data.attributes.last_analysis_stats.malicious + .data.attributes.last_analysis_stats.suspicious' <<<"$a" 2>/dev/null || echo 0)
+            mst=$(jq -r '.data.attributes.last_analysis_results.Microsoft | .category + (if .result then " (" + .result + ")" else "" end)' <<<"$a" 2>/dev/null || true)
+            engines=$(jq -r '[.data.attributes.last_analysis_results[] | select(.engine_name != "Microsoft") | select(.category == "malicious" or .category == "suspicious") | .engine_name + ": " + (.result // "?")] | join(", ")' <<<"$a" 2>/dev/null || true)
+          }
           fail=0
           for f in dist/*.zip dist/*.exe; do
             [ -e "$f" ] || continue
             name=$(basename "$f"); sha=$(sha256sum "$f" | cut -d' ' -f1)
-            url=$api/files
-            # over 32 MB the free API wants an upload URL
-            if [ "$(stat -c%s "$f")" -gt 33554432 ]; then url=$(vt "$api/files/upload_url" | jq -r .data); fi
-            id=$(vt -F "file=@$f" "$url" | jq -r .data.id)
-            # the free API allows 4 requests a minute: one poll every 20 s, up to 15 minutes
-            a=
-            for _ in $(seq 1 45); do
-              sleep 20
-              a=$(vt "$api/analyses/$id")
-              [ "$(jq -r .data.attributes.status <<<"$a")" = completed ] && break
-            done
-            [ "$(jq -r .data.attributes.status <<<"$a")" = completed ] || { echo "::error::$name: VirusTotal did not finish"; fail=1; continue; }
-            bad=$(jq '.data.attributes.stats.malicious + .data.attributes.stats.suspicious' <<<"$a")
-            ms=$(jq -r '.data.attributes.results.Microsoft | if . == null then "not run" else .category + (if .result then " (" + .result + ")" else "" end) end' <<<"$a")
-            engines=$(jq -r '[.data.attributes.results[] | select(.category == "malicious" or .category == "suspicious") | .engine_name + ": " + (.result // "?")] | join(", ")' <<<"$a")
-            printf '| %s | %s | %s %s | [report](https://www.virustotal.com/gui/file/%s) |\n' "$name" "$ms" "$bad" "${engines:+($engines)}" "$sha" >> "$out"
-            case "$ms" in
-              malicious*|suspicious*) echo "::error::$name: Microsoft flags it: $ms"; fail=1 ;;
+            # upload only when VirusTotal does not have the hash yet: a known file needs no upload, and the 4
+            # requests a minute go to the polls
+            if [ "$(vt "$api/files/$sha" | jq -r '.data.id // empty')" != "$sha" ]; then
+              url=$api/files
+              # over 32 MB the free API wants an upload URL
+              if [ "$(stat -c%s "$f")" -gt 33554432 ]; then url=$(vt "$api/files/upload_url" | jq -r .data); fi
+              if ! vt -F "file=@$f" "$url" | jq -e .data.id >/dev/null; then
+                echo "::error::$name: the upload failed"; fail=1; continue
+              fi
+              echo "uploaded $name"
+            fi
+            # poll the file object, not /analyses/<id>: that id comes from the upload and 404s while the scan is
+            # queued (the 0.6.0 run died there)
+            poll
+            if [ -z "$ms" ]; then echo "::error::$name: VirusTotal gave no Microsoft result"; echo "$a" | head -c 400; fail=1; continue; fi
+            # A Microsoft hit is one engine's opinion of these bytes at this moment, and it moves: 0.6.0's FPR_Emu.exe
+            # was flagged at 02:12 and undetected at 03:47 with the same sha256, Launcher.exe and forza_panel.dll
+            # flipped within 1.5 h, and the same bytes gave different answers on a player's Defender minutes apart
+            # (E:\wccf-builds\av-oracle-20261101\, av-bisect-20261101\RESULTS.md). So a hit buys one fresh analysis
+            # before it stops the release: the free API allows it, and a rescan is the only self-service there is.
+            if [ "$ms" = malicious ] || [ "$ms" = suspicious ]; then
+              echo "::warning::$name: Microsoft said $mst; asking VirusTotal for a fresh analysis"
+              vt -X POST "$api/files/$sha/analyse" >/dev/null || true
+              poll
+              if [ -n "$mst" ]; then echo "::warning::$name: the fresh analysis says $mst"; fi
+            fi
+            printf '| %s | %s | %s %s | [report](https://www.virustotal.com/gui/file/%s) |\n' "$name" "$mst" "$bad" "${engines:+($engines)}" "$sha" >> "$out"
+            case "$mst" in
+              malicious*|suspicious*) echo "::error::$name: Microsoft flags it: $mst"; fail=1 ;;
             esac
             if [ "$bad" -gt 0 ]; then echo "::warning::$name: $bad engine(s) flag it: $engines"; fi
           done

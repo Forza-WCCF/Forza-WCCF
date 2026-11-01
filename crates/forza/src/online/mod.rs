@@ -5,7 +5,7 @@
 //!
 //! Seat desk (TCP [`SEAT_PORT`]), ASCII lines:
 //! `WANT` or `WANT SEAT n` -> `SEAT n PROJECTOR p`, `TAKEN n`, `FULL` or `ERR ...`; then `PING` -> `PONG`.
-//! A 2017-18 shop guest's club goes to the host's desk and back with `CLUB PUT`, `CLUB GET` and `CLUB DONE` ([`club`]).
+//! A 2017-18 arcade guest's club goes to the host's desk and back with `CLUB PUT`, `CLUB GET` and `CLUB DONE` ([`club`]).
 
 pub mod club;
 pub mod gamesvr;

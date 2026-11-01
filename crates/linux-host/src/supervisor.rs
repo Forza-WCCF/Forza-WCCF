@@ -1,6 +1,6 @@
 //! The server supervisor: Xvfb, the Wine prefix, control and its four match engines. 2010-11 (the default) also has a
 //! built-in seat broker and match relay (off with `WCCF_EXTERNAL_DESK=1`, when `forza-server` serves TCP 20030 and UDP
-//! 20040). `--edition 2017-18` runs a 2017-18 shop from its own tree (own Wine prefix and display): the two editions use
+//! 20040). `--edition 2017-18` runs a 2017-18 arcade from its own tree (own Wine prefix and display): the two editions use
 //! the same shared-memory names, so they never share a prefix.
 use std::{
     collections::HashMap,
@@ -241,7 +241,7 @@ fn relay(socket: UdpSocket) {
         }
     }
 }
-/// The two shops. Each runs from its own `ROOT` (`WCCF_ROOT`), so each has its own Wine prefix and wineserver.
+/// The two arcades. Each runs from its own `ROOT` (`WCCF_ROOT`), so each has its own Wine prefix and wineserver.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Edition {
     E1011,
@@ -265,7 +265,7 @@ impl Edition {
             Self::E1718 => "2017-18",
         }
     }
-    /// Xvfb's display; apart per edition so both shops can run on one host.
+    /// Xvfb's display; apart per edition so both arcades can run on one host.
     fn display(self) -> &'static str {
         match self {
             Self::E1011 => ":97",
@@ -285,7 +285,7 @@ impl Edition {
             Self::E1718 => "fixme-all,+debugstr,+pid,+timestamp",
         }
     }
-    /// The line each hooked process's `mxhook_<pid>.log` must carry before the shop counts as up (`native/hook`'s
+    /// The line each hooked process's `mxhook_<pid>.log` must carry before the arcade counts as up (`native/hook`'s
     /// `EDITION`). 2010-11 is not checked here: the hook's own netguard check ends a process that is not guarded.
     fn hook_line(self) -> Option<&'static str> {
         match self {
@@ -297,15 +297,15 @@ impl Edition {
     fn external_desk(self, env_switch: bool) -> bool {
         self == Self::E1718 || env_switch
     }
-    /// TCP port of control: fixed for 2010-11; 2017-18's tree says (`CONTROL_PORT`), as two shops cannot share 20002.
+    /// TCP port of control: fixed for 2010-11; 2017-18's tree says (`CONTROL_PORT`), as two arcades cannot share 20002.
     fn control_port(self, conf: &str) -> Result<u16, String> {
         match self {
             Self::E1011 => Ok(20002),
-            // required, and not 20002: the 2010-11 shop on this host holds that port, and ready must be this control's
+            // required, and not 20002: the 2010-11 arcade on this host holds that port, and ready must be this control's
             Self::E1718 => match conf_values(conf, "CONTROL_PORT").as_slice() {
                 [v] => match v.parse::<u16>() {
                     Ok(20002) => {
-                        Err("CONTROL_PORT=20002 is the 2010-11 shop's port: use another".into())
+                        Err("CONTROL_PORT=20002 is the 2010-11 arcade's port: use another".into())
                     }
                     Ok(p) if p > 0 => {
                         // the control's other ports in the same conf must differ from its listening port
@@ -351,7 +351,7 @@ fn listen_inodes(tcp: &str, port: u16) -> Vec<u64> {
         .collect()
 }
 /// Whether one of `pids` (the prefix's processes, wineserver included: Wine keeps sockets there) holds a socket
-/// listening on `port`: ready must be this shop's control, not another shop's.
+/// listening on `port`: ready must be this arcade's control, not another arcade's.
 fn owns_listener(pids: &[u32], port: u16) -> bool {
     // IPv4 and IPv6 sockets (Wine's may be either)
     let mut inodes = Vec::new();
@@ -398,7 +398,7 @@ fn hook_logs(dir: &Path, line: &str, need: usize) -> io::Result<HookLogs> {
         if !(name.starts_with("mxhook_") && name.ends_with(".log")) {
             continue;
         }
-        // a transient read error must not stop a healthy shop: the log counts as not OK, and the next check retries
+        // a transient read error must not stop a healthy arcade: the log counts as not OK, and the next check retries
         let bytes = match fs::read(&path) {
             Ok(b) => b,
             Err(e) => {
@@ -521,7 +521,7 @@ fn engine_pids(root: &Path) -> Vec<u32> {
 fn match_count(root: &Path) -> usize {
     engine_pids(root).len()
 }
-/// Guarded processes a 2017-18 shop must have logged: control and its four match engines.
+/// Guarded processes a 2017-18 arcade must have logged: control and its four match engines.
 const GUARDED: usize = 5;
 fn record_engine_health(root: &Path, engines: usize) -> io::Result<()> {
     if engines != 4 && root.join("run/ready").exists() {
@@ -816,7 +816,7 @@ fn serve(root: &Path, edition: Edition) -> io::Result<()> {
             {
                 return Err(io::Error::other(if foreign {
                     format!(
-                        "port {control_port} listened on, but not by this prefix (another shop's control?)"
+                        "port {control_port} listened on, but not by this prefix (another arcade's control?)"
                     )
                 } else {
                     "controller/four match engines not ready within 180s or stop requested".into()
@@ -1119,7 +1119,7 @@ mod tests {
         let conf =
             "DHCP=0\r\nCONTROL_PORT=20012\r\nGAME_SVR_IP=localhost\r\nGAME_SVR_PORT=20060\r\n";
         assert_eq!(e.control_port(conf), Ok(20012));
-        // required, never the 2010-11 shop's port, set once
+        // required, never the 2010-11 arcade's port, set once
         assert!(e.control_port("DHCP=0\n").is_err());
         assert!(e.control_port("CONTROL_PORT=20002\n").is_err());
         assert!(e.control_port("CONTROL_PORT=0\n").is_err());
@@ -1254,10 +1254,10 @@ mod tests {
     /// wineserver at stop: every Wine process the supervisor starts runs inside the tree.
     #[test]
     fn sddy_runs_inside_the_tree() {
-        let root = Path::new("/srv/x/1718-shop");
+        let root = Path::new("/srv/x/1718-arcade");
         let cmd = sddy_command(
             root,
-            &[("WINEPREFIX", "/srv/x/1718-shop/wineprefix".into())],
+            &[("WINEPREFIX", "/srv/x/1718-arcade/wineprefix".into())],
         );
         assert_eq!(cmd.get_current_dir(), Some(root.join("runtime").as_path()));
         assert!(

@@ -11,8 +11,8 @@
 //!   SETUP        the game folder: set up / repair (launcher::setup) and undo; it is typed, picked, dropped on
 //!                the window or on Launcher.exe, and remembered by setup in data\settings.json.  The card pictures
 //!                (the game's or the high-quality pack) and, for 2017-18, skip the tutorial.
-//!   HOST SHOP    (2017-18, unless "shop_1718": false) this PC's shop for players elsewhere: the server, its tunnel and its room
-//!                in the lobby (the code shown here), then this PC's own seat; the shop closes once that seat's run has ended and every guest has left.
+//!   HOST ARCADE    (2017-18, unless "shop_1718": false) this PC's arcade for players elsewhere: the server, its tunnel and its room
+//!                in the lobby (the code shown here), then this PC's own seat; the arcade closes once that seat's run has ended and every guest has left.
 //!   UPDATE       (update.rs, 2010-11 only): the kit's releases and test builds at UPDATE_URL.
 //! The choices go where the kit already keeps them (choices.rs): data\panel.txt, which the in-game SETTINGS panel
 //! writes too, and data\settings.json.  Setup's lines fill OUTPUT.
@@ -46,7 +46,7 @@ use forza_ui::lobby::LobbyAction;
 use forza_ui::theme;
 use forza_ui::widgets::Tone;
 use forza_ui::{Lang, text as ui_text};
-use launcher::release::{check_due, files_differ, is_newer, parse};
+use launcher::release::{check_due, files_differ, is_newer, keep_notes, kept_notes, parse};
 use launcher::run::{self, Params};
 use launcher::{Edition, Kit, choices};
 use text::{t, tf};
@@ -79,8 +79,8 @@ enum Step {
     Game(Vec<OsString>),
     /// The card pictures (launcher::run::make_pictures), after setup and when the pictures choice changes
     Pictures,
-    /// HOST SHOP (2017-18): the server with its shop room, then this PC's seat on it; the server ends after the seat, once
-    /// no guest is connected. `true`: HOST LAN SHOP, the server for this network only (`server lan`), no room
+    /// HOST ARCADE (2017-18): the server with its arcade room, then this PC's seat on it; the server ends after the seat, once
+    /// no guest is connected. `true`: HOST LAN ARCADE, the server for this network only (`server lan`), no room
     Host(bool),
 }
 
@@ -102,11 +102,11 @@ struct Shared {
     game: Option<u8>,          // a Game step has just ended with this exit code
     report_open: Option<bool>, // open the report dialog: Some(after a crash)
     report_done: Option<Result<(String, String), String>>, // where the report was saved and its issue link, or why not
-    // HOST SHOP: the shop room's code, its lobby server and the flag set when that lobby loses it
+    // HOST ARCADE: the arcade room's code, its lobby server and the flag set when that lobby loses it
     host_room: Option<(String, String, Arc<AtomicBool>)>,
-    // HOST SHOP: the guests connected through its tunnel now (vslink), for the host's "Players here" count
+    // HOST ARCADE: the guests connected through its tunnel now (vslink), for the host's "Players here" count
     host_guests: Option<Arc<AtomicUsize>>,
-    // the LAN fold: the shops the last search found (forza::online::lan)
+    // the LAN fold: the arcades the last search found (forza::online::lan)
     lan_found: Option<Vec<forza::online::lan::Found>>,
 }
 
@@ -357,7 +357,7 @@ fn start(steps: Vec<Step>) -> bool {
                     }
                     Ok(())
                 }
-                Step::Host(lan) => host_shop(&kit, *lan).map(|rc| {
+                Step::Host(lan) => host_arcade(&kit, *lan).map(|rc| {
                     game = Some(u8::try_from(rc).unwrap_or(1));
                     if rc == run::WENT_WRONG {
                         shared().report_open = Some(true);
@@ -399,15 +399,15 @@ fn start(steps: Vec<Step>) -> bool {
     true
 }
 
-/// HOST SHOP: the server on a thread of its own until its shop room is made (or not), then this PC's seat on it as a
+/// HOST ARCADE: the server on a thread of its own until its arcade room is made (or not), then this PC's seat on it as a
 /// `remote 127.0.0.1` run would (first, so it gets the projector); when that run ends, the server is asked to stop, which
 /// it does once no guest is connected; that closes the room. The seat's exit code, or why there is no room.
-/// `lan`: HOST LAN SHOP, `server lan` (no tunnel, no room, found by LAN searches).
-fn host_shop(kit: &Kit, lan: bool) -> Result<i32, String> {
+/// `lan`: HOST LAN ARCADE, `server lan` (no tunnel, no room, found by LAN searches).
+fn host_arcade(kit: &Kit, lan: bool) -> Result<i32, String> {
     log(if lan {
-        "> server lan, then remote 127.0.0.1 (HOST LAN SHOP)"
+        "> server lan, then remote 127.0.0.1 (HOST LAN ARCADE)"
     } else {
-        "> server, then remote 127.0.0.1 (HOST SHOP)"
+        "> server, then remote 127.0.0.1 (HOST ARCADE)"
     });
     let (tx, rx) = std::sync::mpsc::channel();
     let server = thread::spawn(move || {
@@ -417,7 +417,10 @@ fn host_shop(kit: &Kit, lan: bool) -> Result<i32, String> {
         let Ok(r) = run::start(&kit, &p, mode, false, &ServerUi) else {
             return; // what went wrong is in OUTPUT
         };
-        let _ = tx.send((if lan { Ok(None) } else { r.shop_code().map(Some) }, r.shop_guests()));
+        let _ = tx.send((
+            if lan { Ok(None) } else { r.arcade_code().map(Some) },
+            r.arcade_guests(),
+        ));
         let _ = r.supervise();
     });
     let stop = |server: thread::JoinHandle<()>| {
@@ -426,7 +429,7 @@ fn host_shop(kit: &Kit, lan: bool) -> Result<i32, String> {
     };
     match rx.recv() {
         Ok((Ok(room), guests)) => {
-            // shortcut: a LAN shop counts no guests (they come by plain address, not the tunnel), so it closes once
+            // shortcut: a LAN arcade counts no guests (they come by plain address, not the tunnel), so it closes once
             // this PC's seat has ended; count the desk's seats if LAN guests are cut off in practice
             {
                 let mut s = shared();
@@ -436,13 +439,13 @@ fn host_shop(kit: &Kit, lan: bool) -> Result<i32, String> {
             poke();
             let mode = run::Mode::Remote("127.0.0.1".into(), None);
             let rc = run::play(kit, &Params::of(kit), Some(mode), false, &WindowUi);
-            // a plain stop: the shop stays while guests are connected (run::rules::shop_rule), until they have all left
+            // a plain stop: the arcade stays while guests are connected (run::rules::arcade_rule), until they have all left
             // (asked again then) or STOP THE GAME and "stop anyway"
             if let Some((code, why)) = run::request(kit, run::Kind::Server, "stop")
                 && code != run::OK
             {
                 log(&why);
-                say(t("launcher.msg_shop_stays"), 0);
+                say(t("launcher.msg_arcade_stays"), 0);
             }
             let connected = || guests.as_ref().map_or(0, |g| g.load(Ordering::Relaxed));
             while !server.is_finished() {
@@ -460,7 +463,7 @@ fn host_shop(kit: &Kit, lan: bool) -> Result<i32, String> {
         }
         Ok((Err(why), _)) => {
             stop(server);
-            Err(tf("launcher.msg_no_shop_room", &[("error", &why)]))
+            Err(tf("launcher.msg_no_arcade_room", &[("error", &why)]))
         }
         Err(_) => {
             let _ = server.join();
@@ -469,7 +472,7 @@ fn host_shop(kit: &Kit, lan: bool) -> Result<i32, String> {
     }
 }
 
-/// The HOST SHOP server's lines: into OUTPUT and the status line (its start, a wait for the lobby), never the bar or
+/// The HOST ARCADE server's lines: into OUTPUT and the status line (its start, a wait for the lobby), never the bar or
 /// the window's game state (the seat's run has those).
 struct ServerUi;
 
@@ -544,7 +547,7 @@ impl run::Ui for WindowUi {
 /// SAVE LOGS: the logs ZIP in the Downloads folder, said in the status line and shown selected in Explorer.
 fn save_logs(kit: &Path, game: Option<&Path>) {
     let dir = forza::online::save_logs::downloads();
-    match forza::online::save_logs::save(&dir, kit, game, &forza::online::save_logs::Scrub::from_env(), None) {
+    match launcher::report::save_zip(&dir, kit, game, &forza::online::save_logs::Scrub::from_env(), None) {
         Ok(dest) => {
             say(tf("logs.saved", &[("path", &dest.display().to_string())]), 0);
             show_in_explorer(&dest);
@@ -670,8 +673,16 @@ fn ask_updates() {
         let kit = Kit::here();
         let found = update::fetch(kit.edition().name());
         let installed = this_kit(&kit);
-        if found.is_ok() {
+        if let Ok(list) = &found {
             let _ = std::fs::write(check_file(&kit), unix_now().to_string());
+            // the notes of this version and the newest, kept for UPDATE when GitHub does not answer
+            let newer = update::newest(list, &installed).map(|r| r.tag.as_str());
+            for r in list
+                .iter()
+                .filter(|r| parse(&r.tag) == parse(&installed) || Some(r.tag.as_str()) == newer)
+            {
+                keep_notes(&kit.data(), &r.tag, &r.notes);
+            }
         }
         ASKING.store(false, Ordering::Relaxed);
         {
@@ -704,6 +715,8 @@ fn ask_updates() {
 struct App {
     st: LauncherState,
     releases: Vec<Release>,
+    /// The release and language `st.notes` was made for.
+    notes_for: Option<(String, Lang)>,
     online: online::Online,
     /// When the LAN fold's last search started.
     lan_at: Option<Instant>,
@@ -738,9 +751,10 @@ impl App {
         let online_state = online::Online::new(&settings, &address, ed);
         let mut lobby = screen::lobby_for(ed);
         lobby.address = address;
-        lobby.shop_rooms = ed == Edition::E1718 && run::rules::shop_1718_on(&kit.settings());
-        lobby.list_shop = kit.settings()["list_shop"].as_bool() == Some(true);
-        lobby.shop_name = choices::setting(&settings, "shop_name").unwrap_or_default();
+        lobby.arcade_rooms = ed == Edition::E1718 && run::rules::arcade_1718_on(&kit.settings());
+        // settings keys kept from before the arcade rename: players' settings.json already holds them
+        lobby.list_arcade = kit.settings()["list_shop"].as_bool() == Some(true);
+        lobby.arcade_name = choices::setting(&settings, "shop_name").unwrap_or_default();
         lobby.cup = launcher::conf::cup_choice(&kit.settings());
         let st = LauncherState {
             edition: ed,
@@ -775,6 +789,7 @@ impl App {
             update_status: None,
             releases: Vec::new(),
             selected: None,
+            notes: None,
             output: Vec::new(),
             confirm: None,
             report: None,
@@ -783,6 +798,7 @@ impl App {
         App {
             st,
             releases: Vec::new(),
+            notes_for: None,
             online: online_state,
             lan_at: None,
         }
@@ -802,6 +818,25 @@ impl App {
                 newer: !r.test && is_newer(&r.tag, &installed),
             })
             .collect();
+    }
+
+    /// The notes under UPDATE's list: the chosen release's (the list's copy, else the one kept in data\), else this
+    /// version's kept copy, in the window's language. Made again only when the release or the language changes.
+    fn notes(&mut self, kit: &Kit) {
+        let chosen = self.st.selected.and_then(|i| self.releases.get(i));
+        let tag = chosen.map_or_else(|| this_kit(kit), |r| r.tag.clone());
+        let key = (tag, self.st.lang);
+        if self.notes_for.as_ref() == Some(&key) {
+            return;
+        }
+        let body = chosen
+            .map(|r| r.notes.clone())
+            .filter(|b| !b.trim().is_empty())
+            .or_else(|| kept_notes(&kit.data(), &key.0));
+        self.st.notes = body
+            .map(|b| launcher::release::notes(&b, key.1.code()))
+            .filter(|t| !t.is_empty());
+        self.notes_for = Some(key);
     }
 
     /// The question for the player, in the window's language.
@@ -848,7 +883,7 @@ impl App {
         self.st.running = RUNNING.load(Ordering::Relaxed);
         self.st.output.extend(log);
         let kit = Kit::here();
-        // HOST SHOP: its code once the lobby gave it, gone with the room if the lobby loses it; the job over, the shop is
+        // HOST ARCADE: its code once the lobby gave it, gone with the room if the lobby loses it; the job over, the arcade is
         let (room, guests) = {
             let s = shared();
             (s.host_room.clone(), s.host_guests.clone())
@@ -872,7 +907,7 @@ impl App {
             self.st.lobby.host_lan = None;
         }
         self.find_lan();
-        // the VS room's countdown ran out, or a shop code got this PC a seat: the run starts
+        // the VS room's countdown ran out, or an arcade code got this PC a seat: the run starts
         let go = self
             .online
             .look(&mut self.st, kit.edition().name(), &kit.settings_file());
@@ -1060,11 +1095,13 @@ impl App {
                 }
             }
             Action::WhatsNew(i) => {
-                if let Some(r) = self.releases.get(i) {
-                    ctx.open_url(egui::OpenUrl::new_tab(&r.page));
-                }
+                // the chosen release's page, else (no list: offline) the releases page
+                let page = i
+                    .and_then(|i| self.releases.get(i))
+                    .map_or(RELEASES_PAGE, |r| r.page.as_str());
+                ctx.open_url(egui::OpenUrl::new_tab(page));
             }
-            Action::Lobby(LobbyAction::HostShop) => {
+            Action::Lobby(LobbyAction::HostArcade) => {
                 if !self.st.busy && !self.st.running {
                     // the room goes on the club server the box names now (the run reads the setting), checked as PLAY does
                     if let Some(club) = &self.st.club_server {
@@ -1080,10 +1117,11 @@ impl App {
                         }
                     }
                     // the host dialog's switch (default off) and the listed room's name as typed, as the desk carries it
-                    // (run::open_shop_room reads both), and the Universal Cup time (run's start_gamesvr)
-                    let name = forza::online::lobby::shop_name(&self.st.lobby.shop_name);
+                    // (run::open_arcade_room reads both), and the Universal Cup time (run's start_gamesvr)
+                    let name = forza::online::lobby::arcade_name(&self.st.lobby.arcade_name);
                     let file = kit.settings_file();
-                    if let Err(e) = choices::set_setting_bool(&file, "list_shop", self.st.lobby.list_shop)
+                    // same kept settings keys as at start-up
+                    if let Err(e) = choices::set_setting_bool(&file, "list_shop", self.st.lobby.list_arcade)
                         .and_then(|()| choices::set_setting(&file, "shop_name", &name))
                         .and_then(|()| {
                             launcher::conf::cup_settings(self.st.lobby.cup)
@@ -1094,7 +1132,7 @@ impl App {
                         refuse(write_failed(&file, &e));
                         return;
                     }
-                    self.st.lobby.shop_name = name;
+                    self.st.lobby.arcade_name = name;
                     self.st.lobby.hosting = true;
                     self.st.lobby.notice = None;
                     start(vec![Step::Host(false)]);
@@ -1120,7 +1158,7 @@ impl App {
                 }
             }
             // LEAVE while hosting: the seat stops by the card rule; the server (and the room) after it, never under its
-            // match (run::rules::stop_server_too, and host_shop's stop once the seat's run has ended)
+            // match (run::rules::stop_server_too, and host_arcade's stop once the seat's run has ended)
             Action::Lobby(LobbyAction::Leave) if self.st.lobby.hosting => stop_game(),
             Action::Lobby(a) => self.online.act(a, &mut self.st, &kit.settings_file()),
             Action::Rejoin => self.online.rejoin(),
@@ -1152,7 +1190,7 @@ impl App {
         if let Some(found) = shared().lan_found.take() {
             self.st.lobby.lan = found
                 .into_iter()
-                .map(|f| forza_ui::lobby::LanShop {
+                .map(|f| forza_ui::lobby::LanArcade {
                     address: if f.desk_port == forza::online::SEAT_PORT {
                         f.ip.to_string()
                     } else {
@@ -1181,7 +1219,7 @@ impl App {
     }
 
     /// PLAY: the choices into data\panel.txt, then the run (`words` empty: what the choices say; else play.py's words,
-    /// a shop room's `remote ID`).
+    /// an arcade room's `remote ID`).
     fn play(&mut self, kit: &Kit, words: Vec<OsString>) {
         let online = self.st.online;
         let mut server = self.st.lobby.address.trim().to_owned();
@@ -1277,6 +1315,9 @@ fn write_failed(path: &Path, e: &std::io::Error) -> String {
     )
 }
 
+/// GitHub's page of every release: VIEW ON GITHUB before the list has come.
+const RELEASES_PAGE: &str = "https://github.com/Forza-WCCF/Forza-WCCF/releases";
+
 /// This folder's version as the window shows it ("kit-7.0.0" -> "7.0.0").
 fn version(kit: &Kit) -> String {
     kit.release().unwrap_or_else(|| t("launcher.msg_not_known"))
@@ -1329,6 +1370,9 @@ impl eframe::App for App {
 
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.look(ctx);
+        if self.st.tab == Tab::Update {
+            self.notes(&Kit::here());
+        }
         // a safety net for anything that changed without a poke
         ctx.request_repaint_after(Duration::from_millis(if self.st.busy { 250 } else { 1000 }));
     }
@@ -1391,7 +1435,7 @@ fn work_area() -> Option<egui::Rect> {
 
 /// The window, until it is closed (or gone because the game is up and then ended well).
 fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
-    let own = env!("CARGO_PKG_VERSION");
+    let own = env!("FORZA_VERSION");
     log(&format!("Launcher.exe {own}, files {}", this_kit(kit)));
     if files_differ(own, &this_kit(kit)) {
         say(

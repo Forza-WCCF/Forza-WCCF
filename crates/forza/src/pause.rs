@@ -14,15 +14,15 @@ pub const CAP: Duration = Duration::from_secs(20);
 /// The least play between two pauses: at least three `CONTROL_STATE` / `KEEP_ALIVE` rounds (one every 2-3 s), so the
 /// control's missed-answer counter is back at zero before the next pause starts counting it again.
 pub const GAP: Duration = Duration::from_secs(10);
-/// The shop state GAME (the match itself): the only state with a pause, and the only one the Stop checkbox may be set
+/// The arcade state GAME (the match itself): the only state with a pause, and the only one the Stop checkbox may be set
 /// in (in ENTRY it changes seat admission, in 0 it would hold start-up).
 pub const GAME: u32 = 5;
 
 /// What the panel knows when the pause key or button is pressed.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Facts {
-    /// The seat's copy of the shop state; `None`: not readable (not the game's program).
-    pub shop_state: Option<u32>,
+    /// The seat's copy of the arcade state; `None`: not readable (not the game's program).
+    pub arcade_state: Option<u32>,
     /// A run on a server (the match relay is set, or the link to the control is not to this PC).
     pub online: bool,
     /// Seats linked to this PC's control (the projector counts); `None`: no control on this PC.
@@ -73,11 +73,11 @@ impl Refusal {
 /// No card traffic for this long before a pause (the card file's or the game server's store's last write).
 pub const CARD_QUIET: Duration = Duration::from_secs(2);
 
-/// Where a pause is allowed (PAUSE.md §5): the match itself (shop state 5) of an offline run whose control is on this
+/// Where a pause is allowed (PAUSE.md §5): the match itself (arcade state 5) of an offline run whose control is on this
 /// PC with one seat and no projector, no card written in the last [`CARD_QUIET`], the panel on its own swap chain, and
 /// Stop not already set by someone else.
 pub fn allowed(f: &Facts) -> Result<(), Refusal> {
-    if f.shop_state != Some(GAME) {
+    if f.arcade_state != Some(GAME) {
         return Err(Refusal::NotInMatch);
     }
     if f.online || f.seats.is_none() {
@@ -153,9 +153,9 @@ pub struct Owed {
 }
 
 impl Owed {
-    /// Stop as found, with the shop state read just before: whether to set it now (only clear, only in the match).
-    pub fn take_stop(&mut self, shop_state: Option<u32>, found: Option<bool>) -> bool {
-        let take = shop_state == Some(GAME) && found == Some(false);
+    /// Stop as found, with the arcade state read just before: whether to set it now (only clear, only in the match).
+    pub fn take_stop(&mut self, arcade_state: Option<u32>, found: Option<bool>) -> bool {
+        let take = arcade_state == Some(GAME) && found == Some(false);
         if take {
             self.stop = true;
             self.fresh();
@@ -230,7 +230,7 @@ mod tests {
 
     fn ok() -> Facts {
         Facts {
-            shop_state: Some(GAME),
+            arcade_state: Some(GAME),
             seats: Some(1),
             own_picture: true,
             stop: Some(false),
@@ -256,7 +256,7 @@ mod tests {
             (Some(6), false),
         ] {
             let f = Facts {
-                shop_state: state,
+                arcade_state: state,
                 ..ok()
             };
             assert_eq!(allowed(&f).is_ok(), want, "state {state:?}");
@@ -321,7 +321,7 @@ mod tests {
         );
         // not in the match wins over everything else
         let f = Facts {
-            shop_state: Some(1),
+            arcade_state: Some(1),
             online: true,
             ..ok()
         };
@@ -379,7 +379,7 @@ mod tests {
         assert_eq!(o.due(t0 + RETRY), Some(2));
         // no new pause while Stop is owed
         let f = Facts {
-            shop_state: Some(GAME),
+            arcade_state: Some(GAME),
             seats: Some(1),
             own_picture: true,
             stop: Some(false),

@@ -44,6 +44,8 @@ pub struct Release {
     pub page: String,
     /// The release notes carry the marker `needs-installer`: the game data changed, UPDATE copies nothing.
     pub needs_installer: bool,
+    /// The release notes (markdown, remote text: shown only through `launcher::release::notes`).
+    pub notes: String,
     zip_url: String,
     zip_size: u64,
     /// The `<zip>.sha256` asset, and GitHub's own `digest` of the ZIP ("sha256:<hex>").
@@ -79,6 +81,7 @@ fn releases(json: &str, edition: &str) -> Result<Vec<Release>, String> {
                 needs_installer: r["body"]
                     .as_str()
                     .is_some_and(|b| b.to_ascii_lowercase().contains("needs-installer")),
+                notes: r["body"].as_str().unwrap_or("").to_owned(),
                 zip_url: https(asset)?,
                 zip_size: asset["size"].as_u64().unwrap_or(0),
                 sha_url: find(&format!("{name}.sha256")).and_then(https),

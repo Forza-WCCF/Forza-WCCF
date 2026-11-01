@@ -9,11 +9,11 @@
 //! The save data goes whole under `save/`: `data\save`'s own files (the club card) up to [`SAVE_MAX`] each, never the
 //! card's access code (`seat1_aime.txt`) or a `*.tmp`; `aimedb.json` with each access code turned into a short hash, so
 //! the Aime ids stay readable; and the 2017-18 game server's store as a consistent copy (`VACUUM INTO`, as the Launcher
-//! may have it open), its shop guests' tokens cut short. The access codes are also replaced in the logs (the Aime
+//! may have it open), its arcade guests' tokens cut short. The access codes are also replaced in the logs (the Aime
 //! stand-ins log them) and blanked in the dumps (also as UTF-16 and packed BCD). When the ZIP is too big the log tails get shorter, down to
 //! 64 KB; only if that is still too big the saves are left out and the tails start again from full. `report.txt` says
 //! what of the save data was left out. `pc.txt`: Windows, CPU, RAM, GPUs and display (scrubbed like the logs).
-//! A hosting PC's shop logs (`seat_broker.txt`, `match_relay.txt`) are in `data\logs` already.
+//! A hosting PC's arcade logs (`seat_broker.txt`, `match_relay.txt`) are in `data\logs` already.
 
 use rusqlite::{Connection, OpenFlags};
 use sha2::{Digest, Sha256};
@@ -202,7 +202,7 @@ fn access_codes(kit: &Path) -> Vec<String> {
 }
 
 /// A consistent copy of the game server's store (the Launcher's stand-in may hold it open in WAL mode, so a file copy
-/// could be torn), the shop guests' tokens cut to 8 characters: a token owns a guest's club on this host's desk.
+/// could be torn), the arcade guests' tokens cut to 8 characters: a token owns a guest's club on this host's desk.
 fn snapshot(db: &Path) -> Result<Vec<u8>, String> {
     let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
     let out = dir.path().join("gamesvr.db");
@@ -299,6 +299,85 @@ pub fn pc_text() -> String {
         t += "windows: unknown\n";
     }
     t
+}
+
+/// `pc.txt`'s session part, to tell the players' PCs apart: seat 1's card (its Aime id and a short hash, never the
+/// access code), the card's clubs in this PC's store (name, card and coach ids, plays, [`super::club::team_tag`]) and
+/// each kept run's `session:` line from run_launcher.txt (the arcade role and id, the seat, the projector).
+pub fn session_text(kit: &Path) -> String {
+    let save = kit.join("data").join("save");
+    let mut t = String::from("\n[session]\n");
+    let code = fs::read_to_string(save.join("seat1_aime.txt")).map(|c| c.trim().to_owned());
+    match code {
+        Ok(code) if !code.is_empty() => {
+            let online = crate::standins::aimedb::hash_id(&code);
+            let map: serde_json::Map<String, serde_json::Value> =
+                fs::read(save.join("aimedb.json"))
+                    .ok()
+                    .and_then(|d| serde_json::from_slice(&d).ok())
+                    .unwrap_or_default();
+            let home = map
+                .get(&code)
+                .and_then(serde_json::Value::as_i64)
+                .map_or(online, |v| v as i32);
+            let hex: String = Sha256::digest(code.as_bytes())[..6]
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            t += &format!("card: sha256:{hex}, Aime id {home} here, {online} online\n");
+            t += &clubs_text(&save.join("gamesvr").join("gamesvr.db"), home as u32);
+        }
+        _ => t += "card: none on this PC\n",
+    }
+    for sub in ["", "previous", "previous-2", "previous-3"] {
+        let log = kit
+            .join("data")
+            .join("logs")
+            .join(sub)
+            .join("run_launcher.txt");
+        let text = fs::read(&log).unwrap_or_default();
+        for l in String::from_utf8_lossy(&text)
+            .lines()
+            .filter(|l| l.contains("session: "))
+        {
+            let run = if sub.is_empty() { "last run" } else { sub };
+            t += &format!("{run}: {}\n", l.trim());
+        }
+    }
+    t
+}
+
+/// One `club:` line per club of `aime` in the store at `db`, read only (the stand-in may hold it open).
+fn clubs_text(db: &Path, aime: u32) -> String {
+    let club = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .and_then(|c| super::club::export(&c, aime));
+    match club {
+        Ok(c) if c.coaches.is_empty() => "club: none yet\n".into(),
+        Ok(c) => c
+            .coaches
+            .iter()
+            .map(|k| {
+                // the club's name lives in the save block at byte 324 (docs/research/ONLINE-2017-18.md)
+                let name = k
+                    .save
+                    .as_ref()
+                    .and_then(|s| s.block.get(324..380))
+                    .map_or_else(
+                        || super::gamesvr::name_text(&k.name2),
+                        super::gamesvr::name_text,
+                    );
+                let team = k
+                    .save
+                    .as_ref()
+                    .map_or("-".into(), |s| super::club::team_tag(&s.block));
+                format!(
+                    "club: {name:?} (card {}, coach {}, plays {}, team {team})\n",
+                    k.card, k.coach, k.play_count
+                )
+            })
+            .collect(),
+        Err(e) => format!("club: unknown ({e})\n"),
+    }
 }
 
 /// A string or DWORD value under HKEY_LOCAL_MACHINE.
@@ -542,7 +621,7 @@ pub fn pack_within(
     note: Option<&str>,
     limit: usize,
 ) -> io::Result<(Vec<u8>, usize)> {
-    let pc = scrub.scrub(pc_text().into_bytes());
+    let pc = scrub.scrub((pc_text() + &session_text(kit)).into_bytes());
     let (saves, save_notes) = save_data(kit);
     let codes = access_codes(kit);
     // a crash dump also holds the codes as the stand-ins keep them: UTF-16 text and the 10 packed BCD bytes
@@ -789,6 +868,11 @@ mod tests {
             format!("card access code {code} on the reader\n[00 00 00 00 00 00 50 12 34 56 78 90 12 34 56 78]\n"),
         )
         .unwrap();
+        fs::write(
+            logs.join("run_launcher.txt"),
+            "14:31:02  session: role guest, mode remote, arcade abc, seat 2, projector off\n",
+        )
+        .unwrap();
         // the stand-in holds the store open in WAL mode: the rows sit in gamesvr.db-wal, not yet in gamesvr.db
         let live = Connection::open(save.join("gamesvr").join("gamesvr.db")).unwrap();
         live.execute_batch(
@@ -853,11 +937,18 @@ mod tests {
                 .windows(10)
                 .any(|w| w == b"abcdef0123")
         );
-        assert!(
-            String::from_utf8(read(&mut z, "pc.txt"))
-                .unwrap()
-                .contains("logical processors: ")
-        );
+        // the session header: the card as its Aime id and a hash, never the access code, and the run's role
+        let pc = String::from_utf8(read(&mut z, "pc.txt")).unwrap();
+        for want in [
+            "logical processors: ",
+            "\n[session]\ncard: sha256:",
+            ", Aime id 7 here, ",
+            "\nclub: ",
+            "last run: 14:31:02  session: role guest, mode remote, arcade abc, seat 2, projector off\n",
+        ] {
+            assert!(pc.contains(want), "{want:?} in {pc}");
+        }
+        assert!(!pc.contains("0123456789"), "{pc}");
         // a closed WAL store (no -shm left) copies too
         drop(live);
         let (blob, _) = pack(d.path(), None, &scrub, TAIL, None).unwrap();

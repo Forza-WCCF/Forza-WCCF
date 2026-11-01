@@ -16,6 +16,11 @@ pub const CRASH_SIGNS: [&str; 2] = ["SECOND-chance / FATAL", "STOP: invalid para
 /// The projector's launcher log: closing the projector leaves the seats playing.
 pub const PROJECTOR_LOG: &str = "run_projector.txt";
 
+/// The Launcher log's start-up line: milliseconds since the start began (PLAY) at the end of `stage`.
+pub fn startup_line(stage: &str, since: std::time::Duration) -> String {
+    format!("startup: {stage} {}", since.as_millis())
+}
+
 /// What a run is for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Mode {
@@ -24,11 +29,11 @@ pub enum Mode {
     /// The server side only, for other players' PCs.
     Server,
     /// 2017-18 `server lan`: the server side for PCs on this network only: desk and relay open to it, LAN searches
-    /// answered (`forza::online::lan`), no shop tunnel or lobby room (no internet needed).
+    /// answered (`forza::online::lan`), no arcade tunnel or lobby room (no internet needed).
     LanServer,
     /// The cabinet only, on the server at this address; a seat asked for (1-8), or the next free one.
     Remote(String, Option<u8>),
-    /// 2017-18 online: everything on this PC (its own shop), the clubs and VS on the server data\panel.txt names
+    /// 2017-18 online: everything on this PC (its own arcade), the clubs and VS on the server data\panel.txt names
     /// (`server=`, the value held here) through [`vs_target`].
     Vs(String),
 }
@@ -47,6 +52,23 @@ impl Mode {
             Self::Vs(_) => "vs",
         }
     }
+}
+
+/// The run's `session:` line in run_launcher.txt (SAVE LOGS copies every kept run's into pc.txt), to tell the players'
+/// PCs apart: this PC's part (a server hosts, a remote seat is a guest, the rest plays solo), the arcade (the host's id
+/// and room code, the guest's entry), the seat and the projector ("-" on a server).
+pub fn session_line(mode: &Mode, arcade: Option<&str>, seat: u8, projector: Option<bool>) -> String {
+    let role = match mode {
+        Mode::Server | Mode::LanServer => "host",
+        Mode::Remote(..) => "guest",
+        Mode::Local | Mode::Vs(_) => "solo",
+    };
+    let projector = projector.map_or("-", |p| if p { "on" } else { "off" });
+    format!(
+        "session: role {role}, mode {}, arcade {}, seat {seat}, projector {projector}",
+        mode.word(),
+        arcade.unwrap_or("-")
+    )
 }
 
 /// What the command line asks (play.py's words).
@@ -78,31 +100,32 @@ pub enum Words {
     Wrong(String),
 }
 
-// 2017-18 with the shared shop off: a server or remote run is refused (what the player is told:
+// 2017-18 with the shared arcade off: a server or remote run is refused (what the player is told:
 // `launcher.run_online_1718`).
 
-/// data\settings.json's switch for the 2017-18 shared shop (ROADMAP M2): on unless `"shop_1718": false`; on lets
+/// data\settings.json's switch for the 2017-18 shared arcade (ROADMAP M2): on unless `"shop_1718": false`; on lets
 /// `server` (the host's control, desk and relay) and `remote HOST` (a seat on that host) run.
-pub const SHOP_1718: &str = "shop_1718";
+// the key keeps "shop" from before the arcade rename: players' settings.json already holds it
+pub const ARCADE_1718: &str = "shop_1718";
 
-/// The 2017-18 shared shop is on unless data\settings.json says `"shop_1718": false` ([`SHOP_1718`]).
-pub fn shop_1718_on(settings: &serde_json::Value) -> bool {
-    settings[SHOP_1718].as_bool() != Some(false)
+/// The 2017-18 shared arcade is on unless data\settings.json says `"shop_1718": false` ([`ARCADE_1718`]).
+pub fn arcade_1718_on(settings: &serde_json::Value) -> bool {
+    settings[ARCADE_1718].as_bool() != Some(false)
 }
 
-/// 2017-18 refuses the shared-shop modes (server, remote) unless `shop` ([`SHOP_1718`]) is on.
-pub fn online_refused(edition: crate::Edition, mode: &Mode, shop: bool) -> bool {
-    edition == crate::Edition::E1718 && !shop && (mode.is_server() || matches!(mode, Mode::Remote(..)))
+/// 2017-18 refuses the shared-arcade modes (server, remote) unless `arcade` ([`ARCADE_1718`]) is on.
+pub fn online_refused(edition: crate::Edition, mode: &Mode, arcade: bool) -> bool {
+    edition == crate::Edition::E1718 && !arcade && (mode.is_server() || matches!(mode, Mode::Remote(..)))
 }
 
-/// `VSLINK_DELAY_MS` (tests only): milliseconds added to the shop tunnel's round trip, 0-2000; anything else is none.
+/// `VSLINK_DELAY_MS` (tests only): milliseconds added to the arcade tunnel's round trip, 0-2000; anything else is none.
 pub fn delay_knob(v: Option<&str>) -> std::time::Duration {
     let ms = v.and_then(|s| s.trim().parse::<u64>().ok()).filter(|ms| *ms <= 2000);
     std::time::Duration::from_millis(ms.unwrap_or(0))
 }
 
 /// AiMeDB answers every card the hash of its access code when the clubs are on another PC's game server: VS, and a
-/// seat that joins a shop elsewhere (each PC's AiMeDB numbers its own cards, so two homes' first cards would both be
+/// seat that joins an arcade elsewhere (each PC's AiMeDB numbers its own cards, so two homes' first cards would both be
 /// Aime ID 1, one club). This PC alone, and a seat on this PC's own server (`own_store`, [`is_this_pc`] of the address
 /// joined: its game server is this PC's store, where an older card's club lives under its old ID), keep the IDs the
 /// store has; new cards get the hash there too.
@@ -114,8 +137,8 @@ pub fn aime_hashed(mode: &Mode, own_store: bool) -> bool {
     }
 }
 
-/// The seat joined at `ip` plays on this PC's store ([`aime_hashed`]): `ip` is this PC, and not through the shop
-/// tunnel, whose local end is 127.0.0.1 although the shop's game server is the host's.
+/// The seat joined at `ip` plays on this PC's store ([`aime_hashed`]): `ip` is this PC, and not through the arcade
+/// tunnel, whose local end is 127.0.0.1 although the arcade's game server is the host's.
 pub fn own_store(ip: &str, tunnelled: bool) -> bool {
     !tunnelled && is_this_pc(ip)
 }
@@ -127,7 +150,7 @@ pub fn is_this_pc(ip: &str) -> bool {
 }
 
 /// The seat to play with when the server's seat desk cannot be reached: only 2010-11 servers may run without one
-/// ([`SeatError::no_desk_seat`]); a 2017-18 shop always has its desk, so there it is a stop, never seat 1.
+/// ([`SeatError::no_desk_seat`]); a 2017-18 arcade always has its desk, so there it is a stop, never seat 1.
 pub fn desk_fallback(edition: crate::Edition, e: &SeatError, asked: Option<u8>) -> Option<(u8, bool)> {
     e.no_desk_seat(asked).filter(|_| edition == crate::Edition::E1011)
 }
@@ -249,18 +272,18 @@ pub fn stop_server_too(run_answer: Option<i32>, run_still_on: bool) -> bool {
     run_answer.map_or(!run_still_on, |a| a == super::OK) || !run_still_on
 }
 
-/// A shop server: a plain stop (or restart) waits while this PC's seat still runs beside it or guests are connected
+/// An arcade server: a plain stop (or restart) waits while this PC's seat still runs beside it or guests are connected
 /// through its tunnel (their match is on this server); `force` goes on. The refusal's words, or None.
-pub fn shop_rule(force: bool, seat_on: bool, guests: usize) -> Option<Text> {
+pub fn arcade_rule(force: bool, seat_on: bool, guests: usize) -> Option<Text> {
     if force || (!seat_on && guests == 0) {
         return None;
     }
     Some(if seat_on {
-        Text::key("launcher.run_shop_seat_on")
+        Text::key("launcher.run_arcade_seat_on")
     } else if guests == 1 {
-        Text::key("launcher.run_shop_guest")
+        Text::key("launcher.run_arcade_guest")
     } else {
-        Text::key("launcher.run_shop_guests").arg("n", guests)
+        Text::key("launcher.run_arcade_guests").arg("n", guests)
     })
 }
 
@@ -321,7 +344,7 @@ pub fn went_by_itself(gone: &[String], read: impl Fn(&str) -> String) -> Text {
 
 /// Whether another game window counts as left for [`after_end`]. At home (one PC, one seat) a seat that went by itself
 /// leaves only the projector, which nobody plays: that stops too. A projector crash still lets the seat play on, and in
-/// a shop the projector stays for the other PCs' seats.
+/// an arcade the projector stays for the other PCs' seats.
 pub fn windows_left(others_alive: bool, home: bool, seat_gone: bool) -> bool {
     others_alive && !(home && seat_gone)
 }
@@ -452,11 +475,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_2017_18_shop_is_on_unless_settings_say_false() {
-        assert!(shop_1718_on(&serde_json::json!({})), "missing: on");
-        assert!(shop_1718_on(&serde_json::Value::Null), "no settings file: on");
-        assert!(shop_1718_on(&serde_json::json!({"shop_1718": true})));
-        assert!(!shop_1718_on(&serde_json::json!({"shop_1718": false})), "opt-out");
+    fn the_session_line_names_the_role_arcade_seat_and_projector() {
+        assert_eq!(
+            session_line(&Mode::Remote("abc".into(), None), Some("abc"), 2, Some(false)),
+            "session: role guest, mode remote, arcade abc, seat 2, projector off"
+        );
+        assert_eq!(
+            session_line(&Mode::Server, Some("xyz code VBWZBPKS"), 1, None),
+            "session: role host, mode server, arcade xyz code VBWZBPKS, seat 1, projector -"
+        );
+        assert_eq!(
+            session_line(&Mode::Local, None, 1, Some(true)),
+            "session: role solo, mode local, arcade -, seat 1, projector on"
+        );
+    }
+
+    #[test]
+    fn the_startup_line_names_the_stage_and_whole_milliseconds() {
+        let ms = std::time::Duration::from_micros(1_234_567);
+        assert_eq!(startup_line("guard", ms), "startup: guard 1234");
+    }
+
+    #[test]
+    fn the_2017_18_arcade_is_on_unless_settings_say_false() {
+        assert!(arcade_1718_on(&serde_json::json!({})), "missing: on");
+        assert!(arcade_1718_on(&serde_json::Value::Null), "no settings file: on");
+        assert!(arcade_1718_on(&serde_json::json!({"shop_1718": true})));
+        assert!(!arcade_1718_on(&serde_json::json!({"shop_1718": false})), "opt-out");
     }
 
     #[test]
@@ -473,12 +518,12 @@ mod tests {
     }
 
     #[test]
-    fn a_live_shop_room_holds_a_plain_stop() {
-        assert!(shop_rule(false, true, 0).is_some_and(|w| w.en().contains("seat")));
-        assert!(shop_rule(false, false, 2).is_some_and(|w| w.en().contains("2 guests")));
-        assert!(shop_rule(false, false, 1).is_some_and(|w| w.en().starts_with("1 guest ")));
-        assert_eq!(shop_rule(false, false, 0), None);
-        assert_eq!(shop_rule(true, true, 3), None);
+    fn a_live_arcade_room_holds_a_plain_stop() {
+        assert!(arcade_rule(false, true, 0).is_some_and(|w| w.en().contains("seat")));
+        assert!(arcade_rule(false, false, 2).is_some_and(|w| w.en().contains("2 guests")));
+        assert!(arcade_rule(false, false, 1).is_some_and(|w| w.en().starts_with("1 guest ")));
+        assert_eq!(arcade_rule(false, false, 0), None);
+        assert_eq!(arcade_rule(true, true, 3), None);
     }
 
     #[test]
@@ -490,17 +535,17 @@ mod tests {
     }
 
     #[test]
-    fn online_1718_is_refused_unless_the_shop_is_on() {
+    fn online_1718_is_refused_unless_the_arcade_is_on() {
         use crate::Edition::{E1011, E1718};
         let remote = Mode::Remote("192.168.1.20".into(), None);
-        for shop in [false, true] {
-            assert_eq!(online_refused(E1718, &remote, shop), !shop);
-            assert_eq!(online_refused(E1718, &Mode::Server, shop), !shop);
-            assert_eq!(online_refused(E1718, &Mode::LanServer, shop), !shop);
-            assert!(!online_refused(E1718, &Mode::Local, shop));
-            assert!(!online_refused(E1718, &Mode::Vs("192.168.1.20".into()), shop));
-            assert!(!online_refused(E1011, &remote, shop));
-            assert!(!online_refused(E1011, &Mode::Server, shop));
+        for arcade in [false, true] {
+            assert_eq!(online_refused(E1718, &remote, arcade), !arcade);
+            assert_eq!(online_refused(E1718, &Mode::Server, arcade), !arcade);
+            assert_eq!(online_refused(E1718, &Mode::LanServer, arcade), !arcade);
+            assert!(!online_refused(E1718, &Mode::Local, arcade));
+            assert!(!online_refused(E1718, &Mode::Vs("192.168.1.20".into()), arcade));
+            assert!(!online_refused(E1011, &remote, arcade));
+            assert!(!online_refused(E1011, &Mode::Server, arcade));
         }
     }
 
@@ -531,7 +576,7 @@ mod tests {
     }
 
     /// The host seat is told by the address joined, not by a server running here: a PC with its own server that joins
-    /// another shop is a guest there.
+    /// another arcade is a guest there.
     #[test]
     fn this_pc_is_loopback_or_an_own_address() {
         assert!(is_this_pc("127.0.0.1") && is_this_pc("127.0.0.2"));
@@ -742,7 +787,7 @@ mod tests {
         assert!(windows_left(true, true, false), "home: projector gone, seat plays on");
         assert!(
             windows_left(true, false, true),
-            "shop: the projector stays for other seats"
+            "arcade: the projector stays for other seats"
         );
         assert!(!windows_left(false, true, false), "nothing left");
     }
@@ -903,7 +948,7 @@ mod tests {
         assert_eq!(desk_fallback(E1718, &gone, Some(2)), None);
         assert!(seat_refusal(&gone, None, "10.0.0.5").en().contains("shop_lan"));
         assert_eq!(e(Fault::Full, "").no_desk_seat(None), None);
-        // det-math: the desk names the shop's token, then this PC's
+        // det-math: the desk names the arcade's token, then this PC's
         let m = seat_refusal(&e(Fault::Refused, "ERR dmath 0123 0123-off"), None, "127.0.0.1").en();
         assert!(m.contains("det-math 0123-off") && m.contains("(0123)"), "{m}");
     }

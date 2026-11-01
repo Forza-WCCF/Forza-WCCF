@@ -68,8 +68,8 @@ pub enum Action {
     Update(usize),
     /// UPDATE, confirmed.
     UpdateNow(usize),
-    /// "What's new" of the release at this place in the list.
-    WhatsNew(usize),
+    /// VIEW ON GITHUB: the release page of the release at this place in the list; none chosen, every release.
+    WhatsNew(Option<usize>),
     /// The window's language changed (`lang`).
     Language,
     /// SAVE LOGS: the logs ZIP into the Downloads folder.
@@ -165,6 +165,9 @@ pub struct LauncherState {
     pub update_status: Option<(Tone, String)>,
     pub releases: Vec<Release>,
     pub selected: Option<usize>,
+    /// The chosen release's notes in the window's language, plain text (`launcher::release::notes`); remote text, drawn
+    /// only as a label.
+    pub notes: Option<String>,
     pub output: Vec<String>,
     /// A question shown in a modal.
     pub confirm: Option<Confirm>,
@@ -202,7 +205,7 @@ pub enum Scenario {
     Report,
 }
 
-/// An empty lobby for the edition, open on SHOPS: the kind with nothing behind it greyed (2010–11 VS); 2017–18 shops are
+/// An empty lobby for the edition, open on ARCADES: the kind with nothing behind it greyed (2010–11 VS); 2017–18 arcades are
 /// listed, view-only.
 pub fn lobby_for(edition: Edition) -> LobbyView {
     let mut v = LobbyView::new();
@@ -211,7 +214,7 @@ pub fn lobby_for(edition: Edition) -> LobbyView {
             v.grey[Kind::Vs as usize] = Some(Grey::Vs1011);
         }
         Edition::E1718 => {
-            v.shops_view_only = true;
+            v.arcades_view_only = true;
             v.codes = true;
             v.vs_hidden = !lobby::VS_LOBBY;
         }
@@ -258,6 +261,7 @@ impl LauncherState {
                 release("v6.4.2", false, "2026-08-30", false, false),
             ],
             selected: Some(1),
+            notes: None,
             output: [
                 "[15:02:11] start: seat 1, this PC",
                 "[15:02:11] card table: 16 slots ready",
@@ -299,6 +303,20 @@ impl LauncherState {
             }
             Scenario::Update => {
                 st.tab = Tab::Update;
+                st.notes = Some(
+                    match lang {
+                        Lang::En => "A short network stall no longer hands a match to the CPU.\n\nFor players\n\n\
+                            - RESET LINEUP puts the board back to the start of the match.\n\
+                            - The Launcher shows these notes in your language.",
+                        Lang::It => "Un breve blocco della rete non passa più la partita alla CPU.\n\nPer i giocatori\n\n\
+                            - RESET LINEUP riporta la lavagna all'inizio della partita.\n\
+                            - Il Launcher mostra queste note nella tua lingua.",
+                        Lang::Ja => "短いネットワークの停止で試合が CPU に渡らなくなりました。\n\nプレイヤー向け\n\n\
+                            - RESET LINEUP でボードが試合開始時に戻ります。\n\
+                            - Launcher がこのノートをあなたの言語で表示します。",
+                    }
+                    .to_owned(),
+                );
                 st.update_status = Some((
                     Tone::Refused,
                     tr!(
@@ -315,12 +333,12 @@ impl LauncherState {
                 v.grey = st.lobby.grey;
                 v.kind = st.lobby.kind;
                 v.codes = st.lobby.codes;
-                v.shops_view_only = st.lobby.shops_view_only;
+                v.arcades_view_only = st.lobby.arcades_view_only;
                 v.vs_hidden = st.lobby.vs_hidden;
-                if v.shops_view_only {
-                    // 2017-18 lists only shop rooms
-                    v.shop_rooms = true;
-                    v.shops.iter_mut().for_each(|r| r.room = true);
+                if v.arcades_view_only {
+                    // 2017-18 lists only arcade rooms
+                    v.arcade_rooms = true;
+                    v.arcades.iter_mut().for_each(|r| r.room = true);
                 }
                 st.lobby = v;
             }
@@ -500,7 +518,7 @@ fn online(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
     let free = !st.running && !st.busy;
     // the list takes the height the tab leaves: the tab has no scroll of its own
     st.lobby.list_fit = true;
-    // HOST SHOP's code and LEAVE stay live while the shop and this PC's seat run
+    // HOST ARCADE's code and LEAVE stay live while the arcade and this PC's seat run
     ui.add_enabled_ui(free || st.lobby.hosting, |ui| {
         if let Some(text) = st.rejoin.clone()
             && action(ui, &text).clicked()
@@ -720,7 +738,8 @@ fn release_text(r: &Release, lang: Lang) -> String {
     s
 }
 
-/// The UPDATE tab: this version or the newest, the releases in a list box with UPDATE beside it, "What's new".
+/// The UPDATE tab: this version or the newest, the releases in a list box with UPDATE beside it, VIEW ON GITHUB and the
+/// chosen release's notes.
 fn update(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Action>) {
     let version = match &st.update_available {
         Some(tag) => tr!(lang, "launcher.update_available", tag = tag.as_str()),
@@ -765,14 +784,30 @@ fn update(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
             *act = Some(Action::Update(i));
         }
     });
-    let notes = ui.add_enabled_ui(chosen.is_some(), |ui| {
-        action(ui, &tr!(lang, "launcher.whats_new"))
-    });
-    if let (true, Some(i)) = (notes.inner.clicked(), chosen) {
-        *act = Some(Action::WhatsNew(i));
+    if action(ui, &tr!(lang, "launcher.view_on_github")).clicked() {
+        *act = Some(Action::WhatsNew(chosen));
     }
     if let Some((tone, text)) = &st.update_status {
         status_line(ui, *tone, text);
+    }
+    // the release notes: remote text, so a plain label (no markup, no links)
+    if let Some(notes) = &st.notes {
+        ui.label(
+            egui::RichText::new(tr!(lang, "launcher.whats_new"))
+                .font(theme::body(14.0))
+                .color(theme::TEXT_DIM),
+        );
+        egui::Frame::new()
+            .fill(theme::WELL)
+            .corner_radius(theme::RADIUS)
+            .inner_margin(10)
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.add(
+                    egui::Label::new(egui::RichText::new(notes.as_str()).font(theme::body(13.0)))
+                        .wrap(),
+                );
+            });
     }
 }
 
@@ -999,20 +1034,20 @@ mod tests {
     }
 
     #[test]
-    fn shops_listed_but_not_joinable_on_2017_18() {
-        // the server shows its shops; with shop rooms off none joins, VS rooms still do
+    fn arcades_listed_but_not_joinable_on_2017_18() {
+        // the server shows its arcades; with arcade rooms off none joins, VS rooms still do
         let mut v = lobby_for(Edition::E1718);
         assert_eq!(
-            (v.kind, v.grey_now(), v.grey[Kind::Shops as usize]),
-            (Kind::Shops, None, None)
+            (v.kind, v.grey_now(), v.grey[Kind::Arcades as usize]),
+            (Kind::Arcades, None, None)
         );
-        v.shops = LobbyView::sample(LobbyScenario::List).shops;
+        v.arcades = LobbyView::sample(LobbyScenario::List).arcades;
         assert!(!v.rows().is_empty() && v.view_only_now());
         assert!(v.joinable().is_none());
-        // 2010-11 keeps joinable shops
+        // 2010-11 keeps joinable arcades
         let mut w = lobby_for(Edition::E1011);
-        w.shops = v.shops.clone();
-        w.kind = Kind::Shops;
+        w.arcades = v.arcades.clone();
+        w.kind = Kind::Arcades;
         assert!(!w.view_only_now() && w.joinable().is_some());
     }
 

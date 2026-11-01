@@ -6,7 +6,7 @@
 //! and `WCCF_SEAT=n`, the game's own `sendto` / `recvfrom` import slots come here: a packet for another player (a
 //! public address, port 20001-20008) goes to the server's relay labelled with both seats, and what the relay passes on
 //! arrives on the same socket and is handed to the game as if straight from that player. Everything else (127.x, the
-//! server's TCP, other ports) passes untouched. 2017-18 also routes 127.x (another seat of the shop may have reached
+//! server's TCP, other ports) passes untouched. 2017-18 also routes 127.x (another seat of the arcade may have reached
 //! the control from the host's own loopback, so the control names 127.0.0.1 as its address), except to its own seat;
 //! ports 20003-20006 (also the client's `MATCH_PORT` and `CLIENT_PORT1..3` defaults, whose loopback use is not known)
 //! only from the game's peer socket, the one bound to 20000 + its seat.
@@ -179,10 +179,10 @@ fn peer_seat(
     }
     let seat = usize::from(port) - 20000;
     // seats 3-6 share their ports with MATCH_PORT and CLIENT_PORT1..3, whose loopback use is not known: only the game's
-    // peer socket sends to them through the relay, so a shop's second match (seats 3 and 4) plays too (live 2026-10-27)
-    let shop =
+    // peer socket sends to them through the relay, so an arcade's second match (seats 3 and 4) plays too (live 2026-10-27)
+    let arcade =
         loopback.is_some_and(|own| seat != own && (!(3..=6).contains(&seat) || from_game_port));
-    if (ip >> 24) == 127 && !shop && !(test && ip == 0x7F00_0002) {
+    if (ip >> 24) == 127 && !arcade && !(test && ip == 0x7F00_0002) {
         return None;
     }
     Some(seat)
@@ -690,7 +690,7 @@ pub fn relay_selftest(log: fn(&str)) {
         rt_recv(b, &mut buf, &mut from) == -2,
         "",
     );
-    RELAY_LOOPBACK.store(true, Relaxed); // 2017-18's shop: seat 2 named as 127.0.0.1 by the control
+    RELAY_LOOPBACK.store(true, Relaxed); // 2017-18's arcade: seat 2 named as 127.0.0.1 by the control
     send_via_hook(a, b"loop-2", &SockaddrIn::new([127, 0, 0, 1], 20002));
     let r = rt_recv(b, &mut buf, &mut from);
     let d = show(r, &from);
@@ -946,10 +946,10 @@ mod tests {
         assert_eq!(peer_seat(&v6, false, Some(1), false), None);
     }
 
-    /// 2017-18 in a shared shop (seat 2 here): another seat at 127.x goes to the relay, its own seat and the
+    /// 2017-18 in a shared arcade (seat 2 here): another seat at 127.x goes to the relay, its own seat and the
     /// MATCH_PORT and CLIENT_PORT1..3 ports stay direct; other addresses as before.
     #[test]
-    fn loopback_peers_in_the_1718_shop() {
+    fn loopback_peers_in_the_1718_arcade() {
         let mine = Some(2);
         assert_eq!(
             peer_seat(&sa([127, 0, 0, 1], 20001), false, mine, false),
@@ -999,11 +999,11 @@ mod tests {
         );
     }
 
-    /// A hosted shop's matches (live 2026-10-27: seats 1-2 and 3-4; the relay takes seats up to 8), every opponent at
+    /// A hosted arcade's matches (live 2026-10-27: seats 1-2 and 3-4; the relay takes seats up to 8), every opponent at
     /// 127.0.0.1 through the tunnel. Each seat's packets from the game's peer socket reach its opponent through the relay; seats 3-6 from
     /// another socket (MATCH_PORT, CLIENT_PORT1..3) stay direct.
     #[test]
-    fn a_second_match_in_the_shop_goes_through_the_relay() {
+    fn a_second_match_in_the_arcade_goes_through_the_relay() {
         for (me, opponent) in [
             (1, 2),
             (2, 1),

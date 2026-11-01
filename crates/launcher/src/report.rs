@@ -51,6 +51,14 @@ pub fn contents(kit: &Kit, game: Option<&Path>) -> Vec<String> {
     v
 }
 
+/// [`save_logs::save`] after a lean snapshot of the game programs running from `game` (they ride along in `dumps/`).
+pub fn save_zip(dir: &Path, kit: &Path, game: Option<&Path>, scrub: &Scrub, note: Option<&str>) -> io::Result<PathBuf> {
+    if let Some(game) = game {
+        crate::debug::dump_running(game, &kit.join("data").join("dumps"));
+    }
+    save_logs::save(dir, kit, game, scrub, note)
+}
+
 /// Saves a report in `dir`: `report.txt` holds a summary (edition, versions, why) and the player's words; the ZIP's
 /// path.
 pub fn save(kit: &Kit, game: Option<&Path>, words: &str, why: &str, dir: &Path) -> io::Result<PathBuf> {
@@ -59,10 +67,10 @@ pub fn save(kit: &Kit, game: Option<&Path>, words: &str, why: &str, dir: &Path) 
         "edition: {}\nversion: {}\nlauncher: {}\nwhy: {why}\n\n{}\n",
         kit.edition().name(),
         save_logs::version(kit.dir()),
-        env!("CARGO_PKG_VERSION"),
+        env!("FORZA_VERSION"),
         save_logs::note(words, &scrub),
     );
-    save_logs::save(dir, kit.dir(), game, &scrub, Some(&summary))
+    save_zip(dir, kit.dir(), game, &scrub, Some(&summary))
 }
 
 /// GitHub's new-issue page; [`issue_url`] fills it in.
@@ -89,7 +97,7 @@ pub fn issue_url(kit: &Kit, why: &str) -> String {
     let version = save_logs::version(kit.dir());
     let body = format!(
         "Version: {version} (Launcher {}), {}\nWindows: {}\nWhy: {why}\n\nLast errors:\n```\n{errors}\n```\n\nWhat happened:\n\n\n(Attach the forza-wccf-logs ZIP here.)\n",
-        env!("CARGO_PKG_VERSION"),
+        env!("FORZA_VERSION"),
         kit.edition().name(),
         windows_version(),
     );

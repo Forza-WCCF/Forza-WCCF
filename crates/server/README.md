@@ -7,7 +7,7 @@ One program for every online service of both editions. Std threads and blocking 
 | Service | What | Port (flag, else env, else default) |
 |---|---|---|
 | `desk [LIFE] [LOG_FILE]` | seat desk, `LOBBY` | TCP `--port`, `WCCF_BROKER_PORT`, 20030 |
-| `relay [LIFE] [LOG_FILE]` | in-shop match relay | UDP `--port`, `WCCF_RELAY_PORT`, 20040 |
+| `relay [LIFE] [LOG_FILE]` | in-arcade match relay | UDP `--port`, `WCCF_RELAY_PORT`, 20040 |
 | `gmsvr` | 2017-18 game server, VS matcher (runs until stopped) | TCP `--port`, 20060 |
 | `reflect [LIFE] [LOG_FILE]` | 2017-18 VS reflect alone | UDP `--port`, 20070 |
 | `all [LIFE] [LOGS_DIR]` | desk + relay + (2017-18) gmsvr | `--desk-port`, `--relay-port`, `--gmsvr-port` |
@@ -26,9 +26,9 @@ One program for every online service of both editions. Std threads and blocking 
 
 - No logs are collected: `REPORT` (older Launchers' problem reports) gets `NO` at once, and nothing listens on the old
   log inbox port (TCP 20050). Players save their logs (`forza::online::save_logs`) and send the ZIP themselves.
-- A 2017-18 shop guest's own club (`forza::online::club`): `CLUB PUT seat aime token size` + the club's JSON ->
+- A 2017-18 arcade guest's own club (`forza::online::club`): `CLUB PUT seat aime token size` + the club's JSON ->
   `OK size` + the id map, `CLUB GET aime token stamp` -> `SAME` or `OK size stamp` + the club, `CLUB DONE aime token`
-  -> `OK 0`; `NO why` for any refusal. Only with `WCCF_CLUB_DB` (the shop host's `gamesvr.db`, set by the Launcher);
+  -> `OK 0`; `NO why` for any refusal. Only with `WCCF_CLUB_DB` (the arcade host's `gamesvr.db`, set by the Launcher);
   a PUT needs a seat held on this desk, at most 2 MiB.
 - The projector hold no longer touches the firewall and is not enforced (`HOLD` stays `HOLD 0`). A Windows server that ran an
   older version: remove the leftover rule by hand with `netsh advfirewall firewall delete rule name="WCCF hold projector box"`.
@@ -53,9 +53,9 @@ The desk's words (`forza::online::lobby` has the client side; one line each way,
 | `RESERVE room-id [2]` | `TICKET t 2`, `FULL` (two players), `TAKEN` (the seat asked for), `CLOSED` (no such room) |
 | `READY id t` | `OK` or `GONE` |
 | `CLOSE id t` | `OK` or `GONE`; the host's ticket closes the room and drops the guest's, a guest's leaves its seat |
-| `HEARTBEAT t`, `RELEASE t` | as for shop seats; the host's `RELEASE` closes the room |
+| `HEARTBEAT t`, `RELEASE t` | as for arcade seats; the host's `RELEASE` closes the room |
 
-The client reads a `ROOM id code t` without the seat (a desk before the field) as seat 1. A room ticket lives 60 s past its last `HEARTBEAT` (the shop lease); the host's lease ending closes the room.
+The client reads a `ROOM id code t` without the seat (a desk before the field) as seat 1. A room ticket lives 60 s past its last `HEARTBEAT` (the arcade lease); the host's lease ending closes the room.
 `RESERVE` and `CREATE` together: 20 per address per 60 s, else `ERR slow`. `LOBBY` lists each room as `{"id",
 "code","players","max":2,"kind":2,"occupants":[{"seat":1,"club":"A7K2","ready":true},…]}`: id (8 hex), code and club
 ids (4 of `ABCDEFGHJKMNPQRSTUVWXYZ23456789`) are random and drawn apart from the tickets; no address, ticket, card or
@@ -70,18 +70,18 @@ closed, lease ended) = nobody, never the open pool. Rooms need `all` (desk and g
 a desk without the matcher (2010-11, `desk` alone, `--no-gmsvr`) holds no rooms: `CREATE`, `READY` and `CLOSE`
 answer `ERR` as unknown words, `RESERVE room-id` answers `CLOSED`.
 
-## Shop rooms (2017-18)
+## Arcade rooms (2017-18)
 
-A player's PC that hosts a shop (the Launcher's `server`, reached through its shop tunnel, `vslink::shop`) can open a
-room in a public lobby. No matcher needed; they share `max_rooms` with VS rooms. One address holds at most 2 shop
+A player's PC that hosts an arcade (the Launcher's `server`, reached through its arcade tunnel, `vslink::arcade`) can open a
+room in a public lobby. No matcher needed; they share `max_rooms` with VS rooms. One address holds at most 2 arcade
 rooms (`WCCF_SHOP_ROOMS_PER_ADDRESS`) and 8 VS rooms (`WCCF_ROOMS_PER_ADDRESS`; players behind one NAT share an
-address), and one tunnel id one live room (`ERR host`, unless that room went quiet: below). A shop's own desk behind its tunnel (`WCCF_DESK_TUNNEL=1`,
+address), and one tunnel id one live room (`ERR host`, unless that room went quiet: below). An arcade's own desk behind its tunnel (`WCCF_DESK_TUNNEL=1`,
 the Launcher's 2017-18 server; loopback there is many guests, so it has no per-address limits) refuses every room
 word with `ERR rooms are on the lobby` and only seats its own PCs.
 
 | Ask | Answer |
 |---|---|
-| `CREATE shop ID [public]` or `CREATE shop ID public\|private NAME...` (ID = the shop tunnel's iroh EndpointId: 64 hex, a real ed25519 key; NAME the rest of the line, control characters dropped, spaces collapsed, at most 24 characters) | `ROOM id code t 1` (the host on seat 1, an 8-letter code), `FULL`, `ERR id`, `ERR host` |
+| `CREATE shop ID [public]` or `CREATE shop ID public\|private NAME...` (ID = the arcade tunnel's iroh EndpointId: 64 hex, a real ed25519 key; NAME the rest of the line, control characters dropped, spaces collapsed, at most 24 characters) | `ROOM id code t 1` (the host on seat 1, an 8-letter code), `FULL`, `ERR id`, `ERR host` |
 | `JOIN CODE [n]` | `TICKET t n` (lowest free of 2-8, or n), `FULL`, `TAKEN`, `CLOSED` (no such code) |
 | `SHOP t [ID]` | a guest's ticket (telling its own tunnel id): `HOST id`; the host's: `GUESTS id ...` (guests that told theirs); else `GONE` |
 | `HEARTBEAT t`, `RELEASE t`, `CLOSE id t` | as for VS rooms: the host's `RELEASE`/`CLOSE` or lease end closes the room |
@@ -93,7 +93,7 @@ a minute (logged when it trips). A `CREATE shop` from a tunnel id whose room has
 that room (a host that crashed and came back); a live room answers `ERR host`.
 The key check on `CREATE shop` is about form only (a canonical ed25519 point not of small order): it proves nothing
 about who holds the key, so anyone can open a room naming any id. What protects a host's tunnel is its admit list
-(`vslink::shop::ShopConfig::admit` fed from `SHOP`'s `GUESTS`), which lets in only guests who joined its room. `LOBBY` lists only `public` rooms, as a `shops` row named
+(`vslink::arcade::ArcadeConfig::admit` fed from `SHOP`'s `GUESTS`), which lets in only guests who joined its room. `LOBBY` lists only `public` rooms, as a `shops` row named
 by its host (or "Arcade room") with x/8 and never the code, a tunnel id, a ticket or an address.
 
 Two homes behind their own NAT, 0-150 ms apart, through the lobby, 243-246 and vslink: the Docker harness in
@@ -102,7 +102,7 @@ Two homes behind their own NAT, 0-150 ms apart, through the lobby, 243-246 and v
 **What the run sends** (the Launcher side, B3):
 1. The lobby's ticket reaches the run as today, `data\panel.txt` `ticket=t` (`play()` writes it); the run reads it
    and takes the line out, as `take_seat` does. A VS room run does not claim a desk seat (`WANT … TICKET` is for
-   shops): it is a one-PC shop on this PC, with `club_server` = the lobby server's host and its game server port, so
+   arcades): it is a one-PC arcade on this PC, with `club_server` = the lobby server's host and its game server port, so
    the control's 243s reach the game server whose matcher the desk feeds.
 2. vslink stays on (`vs_link`), and its hello (900, sent at start and every 60 s) carries the ticket: payload
    `forza::online::vs::hello_payload(&endpoint_id, Some(t))`, 52 bytes = +4..+36 the EndpointId, +36..+52 the
@@ -110,5 +110,5 @@ Two homes behind their own NAT, 0-150 ms apart, through the lobby, 243-246 and v
    (open pool). Nothing else changes: the 902 registration and the 243 the control sends are as now.
 3. The Launcher keeps `HEARTBEAT t` every 20 s while the run lasts (`Held`'s beat already does), so the room and its
    pairing outlive the 60 s lease; leaving, and the run's end, send `CLOSE` (seat 1) or `RELEASE` (seat 2). Only a
-   VS room's ticket goes into a 2017-18 run (SHOPS stays greyed there).
+   VS room's ticket goes into a 2017-18 run (ARCADES stays greyed there).
 

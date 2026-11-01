@@ -76,7 +76,7 @@ enum Service {
         life: Option<f64>,
         log_file: Option<PathBuf>,
     },
-    /// The shop's services together: the desk, the relay and (2017-18) the game server sharing its VS matcher with the
+    /// The arcade's services together: the desk, the relay and (2017-18) the game server sharing its VS matcher with the
     /// desk's lobby. LOGS_DIR gets seat_broker.txt, match_relay.txt, gmsvr.txt
     All {
         #[arg(long)]
@@ -89,7 +89,7 @@ enum Service {
         /// 2017-18: no game server (the Launcher's server mode runs its own stand-in on the PC)
         #[arg(long)]
         no_gmsvr: bool,
-        /// 2017-18: answer LAN shop searches (UDP 20035, `forza::online::lan`) with this shop name
+        /// 2017-18: answer LAN arcade searches (UDP 20035, `forza::online::lan`) with this arcade name
         #[arg(long)]
         lan: Option<String>,
         #[command(flatten)]

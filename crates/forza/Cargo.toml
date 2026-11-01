@@ -1,6 +1,6 @@
 [package]
 name = "forza"
-version = "0.5.1" # its own version, not the release number (docs/RELEASING.md)
+version = "0.6.0" # its own version, not the release number (docs/RELEASING.md)
 license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -40,7 +40,7 @@ freetype-rs = { version = "0.38.0", features = ["bundled"], optional = true }
 encoding_rs = { version = "0.8.42", optional = true }
 # the game server stand-in's club store (gamesvr.db); bundled: no system SQLite on the cabinet PC
 rusqlite = { version = "0.40.2", features = ["bundled"] }
-# LAN shops (online::lan): each network's broadcast address and this PC's own addresses
+# LAN arcades (online::lan): each network's broadcast address and this PC's own addresses
 netdev = { version = "0.46.3", default-features = false }
 
 [target.'cfg(windows)'.dependencies]

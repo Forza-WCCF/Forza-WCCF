@@ -56,6 +56,8 @@ jobs:
         with:
           ref: ${{ env.REF }}
           path: ${{ matrix.dir }}
+          # the history to the commit that editions/2017-18/fpr_emu.sha256 records (cargo xtask package)
+          fetch-depth: 0
           persist-credentials: false
       - run: |
           rustup show
@@ -75,8 +77,7 @@ jobs:
           for d in "/c/Program Files/Microsoft Visual Studio"/*/*/VC/Tools/MSVC/* "/c/Program Files (x86)/Windows Kits/10/Lib"/*; do echo "$d"; done
       - name: Packages
         run: |
-          V=$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version *= *"\(.*\)"/\1/p}' Cargo.toml | head -n1)
-          cargo xtask package 2017-18 --name "Forza-WCCF-2017-18-$V"
+          cargo xtask package 2017-18
           cargo xtask package installer
           cd dist
           find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -printf '%f\n' | sort | xargs sha256sum > "$RUNNER_TEMP/sums"

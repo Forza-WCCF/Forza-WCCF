@@ -76,7 +76,7 @@ enum Task {
     Package {
         /// 2010-11, 2017-18 or installer
         edition: String,
-        /// File name without .zip; version.txt is made from it
+        /// File name without .zip (2017-18 and installer: the version's by default); version.txt comes from git
         #[arg(long)]
         name: Option<String>,
     },
@@ -176,7 +176,6 @@ const MAP_1718: &[(&str, &str)] = &[
     ("README.txt", "editions/2017-18/README.txt"),
     ("README.it.txt", "editions/2017-18/README.it.txt"),
     ("README.ja.txt", "editions/2017-18/README.ja.txt"),
-    ("CHANGES.txt", "editions/2017-18/CHANGES.txt"),
     ("english", "editions/2017-18/english"),
     ("italian", "editions/2017-18/italian"), // the Italian text: key + Italian, the English behind each key
     ("fonts", "assets/fonts"),
@@ -264,7 +263,7 @@ const NATIVE: &[(&str, bool, &str)] = &[
         false,
         "source/build/server-hook-1718/server1718_test.exe",
     ),
-    // the 2017-18 Linux shop's stand-in for the Launcher's shared memory (crates/linux-host), beside its hook
+    // the 2017-18 Linux arcade's stand-in for the Launcher's shared memory (crates/linux-host), beside its hook
     (
         "sddy_maps.exe",
         false,
@@ -444,7 +443,7 @@ fn main() -> Result<()> {
             "2017-18" => package(
                 &root,
                 &kit_1718,
-                &name.unwrap_or_else(|| TOP_1718.into()),
+                &name.unwrap_or_else(|| format!("{TOP_1718}-{}", version(&root))),
                 false,
             ),
             _ => anyhow::bail!("unknown edition {edition} (2010-11 or 2017-18)"),
@@ -466,6 +465,7 @@ fn rust(sub: &str, root: &Path) -> Command {
     if let Some(w) = WRAPPER.get() {
         c.env("RUSTC_WRAPPER", w);
     }
+    c.env("FORZA_VERSION", version(root));
     // the `fast` profile stays incremental: sccache serves the dependencies either way (cargo never compiles those
     // incrementally), and an incremental rebuild of the changed workspace crate beats a whole one (measured)
     if NO_INCREMENTAL.load(Ordering::Relaxed) && profile() != "fast" {
@@ -658,16 +658,52 @@ fn dos_time(secs: i64) -> Result<zip::DateTime> {
     .map_err(|e| anyhow::anyhow!("{secs} is no ZIP date: {e:?}"))
 }
 
-/// The workspace version: the first `version = "..."` line of the root Cargo.toml ([workspace.package]).
-fn workspace_version(root: &Path) -> Result<String> {
-    let text = fs::read_to_string(root.join("Cargo.toml"))?;
-    text.lines()
-        .find_map(|l| {
-            l.strip_prefix("version = \"")?
-                .strip_suffix('"')
-                .map(str::to_owned)
-        })
-        .context("no version in the root Cargo.toml")
+/// The release number this build carries, from git: `FORZA_VERSION` for the build scripts of Launcher, installer and
+/// panel (crates/launcher/version_rc.rs), version.txt and the file names. Asked once per run.
+fn version(root: &Path) -> &'static str {
+    static V: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    V.get_or_init(|| {
+        let git = |args: &[&str]| {
+            Command::new("git")
+                .args(args)
+                .current_dir(root)
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
+        };
+        git(&[
+            "describe",
+            "--tags",
+            "--long",
+            "--abbrev=7",
+            "--match",
+            "v[0-9]*.[0-9]*.[0-9]*",
+        ])
+        .and_then(|d| version_from_describe(&d))
+        // no tag reachable (a shallow clone): a dev version of the commit
+        .or_else(|| git(&["rev-parse", "--short=7", "HEAD"]).map(|sha| format!("0.0.0-dev+{sha}")))
+        .unwrap_or_else(|| "0.0.0-dev".to_owned())
+    })
+}
+
+/// `git describe --tags --long` -> the version: on the tag `v1.2.3` (`v1.2.3-0-g<sha>`) `1.2.3`; on a later commit the
+/// next patch as a dev build, `1.2.4-dev+<sha>`, so the Launcher offers the next release and never the one it came from
+/// (semver: 1.2.4-dev < 1.2.4). After a pre-release tag `v1.3.0-rc.1`: `1.3.0-rc.1-dev+<sha>`.
+fn version_from_describe(d: &str) -> Option<String> {
+    let (rest, sha) = d.rsplit_once("-g")?;
+    let (tag, n) = rest.rsplit_once('-')?;
+    let v = tag.strip_prefix('v')?;
+    if n == "0" {
+        return Some(v.to_owned());
+    }
+    let next = match v.rsplit_once('.') {
+        Some((head, patch)) if !v.contains(['-', '+']) => {
+            format!("{head}.{}", patch.parse::<u64>().ok()? + 1)
+        }
+        _ => v.to_owned(),
+    };
+    Some(format!("{next}-dev+{sha}"))
 }
 
 // ---- build ----
@@ -1938,8 +1974,7 @@ fn smoke_in(root: &Path, exe: &Path, dir: &Path) -> Result<()> {
         "Wrong branding or edition help."
     );
     ensure!(
-        run(&[p("--version")], 0)?.trim()
-            == format!("Forza-WCCF Installer {}", workspace_version(root)?),
+        run(&[p("--version")], 0)?.trim() == format!("Forza-WCCF Installer {}", version(root)),
         "Wrong release version/branding."
     );
     run(&[p("--dest")], 1)?;
@@ -2020,12 +2055,8 @@ fn package_installer(root: &Path, name: Option<String>) -> Result<()> {
         "{} holds a user folder path - see rust_shipped",
         exe.display()
     );
-    let name = name.unwrap_or_else(|| {
-        format!(
-            "Forza-WCCF-Installer-{}-windows-x64",
-            workspace_version(root).unwrap_or_default()
-        )
-    });
+    let name =
+        name.unwrap_or_else(|| format!("Forza-WCCF-Installer-{}-windows-x64", version(root)));
     let dist = root.join("dist");
     fs::create_dir_all(&dist)?;
     // explicit payload: never archive the repository, media, kit, saves or target tree
@@ -2117,7 +2148,9 @@ fn no_kit_word(files: &[PathBuf]) -> Result<()> {
 /// The 2017-18 ZIP's SOURCE.txt: where the source of its programs is, at the commit it was built from.
 fn source_txt(version: &str, commit: &str) -> String {
     let sha = commit.split(' ').next().unwrap_or(commit);
-    let tag = if version.starts_with(|c: char| c.is_ascii_digit()) {
+    // a release (1.2.3), not a dev build (1.2.4-dev+<sha>) or a test label
+    let tag = if version.starts_with(|c: char| c.is_ascii_digit()) && !version.contains(['-', '+'])
+    {
         format!("Release tag v{version}, commit")
     } else {
         "Commit".to_owned()
@@ -2163,6 +2196,10 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
             kit.join(p).is_file(),
             "{p} is missing: run `cargo xtask build` first"
         );
+    }
+
+    if !is_1011 && let Err(e) = freeze_fpr_emu(root, kit) {
+        println!("warning: FPR_Emu.exe is built fresh, not taken from the release: {e:#}");
     }
 
     // every program must carry its version information: a nameless unsigned program is what Windows Defender's
@@ -2239,12 +2276,8 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
 
     // for SETUP.exe's update: version.txt, which kit this is, and files.txt, every file this kit ships - an update removes
     // what the old kit's list has and the new one's does not
-    let version = name
-        .strip_prefix(top)
-        .map_or(name, |v| v.strip_prefix('-').unwrap_or(v));
-    if !version.is_empty() {
-        fs::write(kit.join("version.txt"), format!("kit-{version}\r\n"))?;
-    }
+    let version = version(root);
+    fs::write(kit.join("version.txt"), format!("kit-{version}\r\n"))?;
     if !is_1011 {
         let mut commit = cmd!(sh, "git rev-parse HEAD").read()?.trim().to_owned();
         if !cmd!(sh, "git status --porcelain -- crates native xtask")
@@ -2329,6 +2362,93 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
         zip_path.display(),
         fs::metadata(&zip_path)?.len() as f64 / 1048576.0
     );
+    Ok(())
+}
+
+/// The 2017-18 `bin/FPR_Emu.exe` keeps the bytes of the last release while its sources are unchanged, so a release does
+/// not put a new binary in front of the antivirus engines (docs/RELEASING.md, "Antivirus verdicts"). The file holds the
+/// sha256 of that release's file, its tag and the commit it was built from.
+const FREEZE_FILE: &str = "editions/2017-18/fpr_emu.sha256";
+/// What FPR_Emu.exe is built from besides Cargo.lock and the toolchain: its crate, the common crate and its icon.
+/// shortcut: `crates/launcher/version_rc.rs` (shared with every program) is not here, it changed in 0.6.2 without
+/// changing this exe; add it back when its output for fpr_emu changes.
+const FREEZE_SRC: &[&str] = &[
+    "native/programs",
+    "native/common",
+    "assets/logo/forza-wccf-small.ico",
+];
+
+/// `<sha256> <tag> <commit>`
+fn parse_freeze(text: &str) -> Result<[&str; 3]> {
+    let Ok([hash, tag, commit]) =
+        <[&str; 3]>::try_from(text.split_whitespace().collect::<Vec<_>>())
+    else {
+        anyhow::bail!("{FREEZE_FILE} wants `<sha256> <tag> <commit>`");
+    };
+    ensure!(
+        hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()),
+        "{FREEZE_FILE}: {hash} is not a sha256"
+    );
+    Ok([hash, tag, commit])
+}
+
+/// Replace the freshly built `bin/FPR_Emu.exe` of `kit` with the release's file when `FREEZE_SRC` is unchanged since the
+/// recorded commit. `Ok` also when the sources changed (it says so and the fresh build stays); `Err` when the release
+/// file cannot be had or does not match the hash (offline, a moved release): the caller warns and ships the fresh build.
+fn freeze_fpr_emu(root: &Path, kit: &Path) -> Result<()> {
+    use std::io::Read;
+    let text = fs::read_to_string(root.join(FREEZE_FILE))?;
+    let [hash, tag, commit] = parse_freeze(&text)?;
+    let sh = Shell::new()?;
+    sh.change_dir(root);
+    // committed, uncommitted and new files since the commit
+    let changed = cmd!(sh, "git diff --name-only {commit} -- {FREEZE_SRC...}")
+        .read()
+        .with_context(|| format!("git cannot compare with {commit} (a shallow clone?)"))?;
+    let new = cmd!(
+        sh,
+        "git ls-files --others --exclude-standard -- {FREEZE_SRC...}"
+    )
+    .read()?;
+    let changed = format!("{changed}\n{new}");
+    if !changed.trim().is_empty() {
+        println!(
+            "FPR_Emu.exe: the frozen hash is stale, its sources changed since {commit}; built fresh:\n{}\nAfter the next release, put the new file's hash, tag and commit in {FREEZE_FILE}",
+            changed.trim()
+        );
+        return Ok(());
+    }
+    let zip_path = kit.with_file_name("frozen-release.zip");
+    let url = format!(
+        "https://github.com/Forza-WCCF/Forza-WCCF/releases/download/{tag}/{TOP_1718}-{}.zip",
+        tag.trim_start_matches('v')
+    );
+    cmd!(
+        sh,
+        "curl -fsSL --retry 2 --max-time 300 -o {zip_path} {url}"
+    )
+    .quiet()
+    .run()
+    .with_context(|| format!("cannot download {url}"))?;
+    let mut bytes = Vec::new();
+    let read = || -> Result<usize> {
+        let mut ar = zip::ZipArchive::new(fs::File::open(&zip_path)?)?;
+        Ok(ar
+            .by_name(&format!("{TOP_1718}/bin/FPR_Emu.exe"))?
+            .read_to_end(&mut bytes)?)
+    }();
+    let _ = fs::remove_file(&zip_path);
+    read?;
+    let got: String = Sha256::digest(&bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    ensure!(
+        got == hash,
+        "the {tag} file is sha256 {got}, {FREEZE_FILE} says {hash}"
+    );
+    fs::write(kit.join("bin/FPR_Emu.exe"), bytes)?;
+    println!("FPR_Emu.exe: the {tag} file, sha256 {got} (sources unchanged since {commit})");
     Ok(())
 }
 
@@ -2459,6 +2579,28 @@ mod tests {
         assert!(r.contains("/tree/abc\r\n") && r.contains("Release tag v0.5.1, commit abc."));
         let t = source_txt("test", "abc plus uncommitted changes");
         assert!(t.contains("/tree/abc\r\n") && !t.contains("Release tag"));
+        assert!(!source_txt("0.5.2-dev+abc", "abc").contains("Release tag"));
+    }
+
+    #[test]
+    fn the_version_is_the_tag_or_a_dev_build() {
+        assert_eq!(
+            version_from_describe("v1.2.3-0-gabc1234").as_deref(),
+            Some("1.2.3")
+        );
+        assert_eq!(
+            version_from_describe("v1.2.3-5-gabc1234").as_deref(),
+            Some("1.2.4-dev+abc1234")
+        );
+        assert_eq!(
+            version_from_describe("v1.3.0-rc.1-2-gabc1234").as_deref(),
+            Some("1.3.0-rc.1-dev+abc1234")
+        );
+        assert_eq!(
+            version_from_describe("v1.3.0-rc.1-0-gabc1234").as_deref(),
+            Some("1.3.0-rc.1")
+        );
+        assert_eq!(version_from_describe("nonsense"), None);
     }
 
     #[test]
@@ -2590,6 +2732,15 @@ mod tests {
     }
 
     #[test]
+    fn the_frozen_hash_file_parses() {
+        let [hash, tag, commit] =
+            parse_freeze(include_str!("../../editions/2017-18/fpr_emu.sha256")).unwrap();
+        assert!(tag.starts_with('v') && commit.len() == 40 && hash.len() == 64);
+        assert!(parse_freeze("abc v0.6.1 33f4591e").is_err());
+        assert!(parse_freeze("").is_err());
+    }
+
+    #[test]
     fn zip_dates_are_the_utc_date_of_the_seconds() {
         let d = dos_time(1_793_281_530).unwrap(); // 2026-10-29 13:45:30 UTC
         let got = (
@@ -2609,7 +2760,7 @@ mod tests {
         assert!(!touches_1011(
             "crates/launcher/src/lib.rs\ncrates/forza/src/setup/e1718.rs\n"
         ));
-        assert!(!touches_1011("editions/2017-18/CHANGES.txt\n"));
+        assert!(!touches_1011("editions/2017-18/README.txt\n"));
         assert!(touches_1011(
             "crates/launcher/src/lib.rs\nEditions/2010-11/x.txt\n"
         ));
@@ -2675,7 +2826,7 @@ mod tests {
                 .map(|f| root.join(f)),
             )
             .collect();
-        assert!(files.len() > 8);
+        assert!(files.len() >= 8);
         no_kit_word(&files).unwrap();
         let bad = std::env::temp_dir().join("no-kit-word-test.txt");
         fs::write(&bad, "fine\nthe Kit-5 zip\nskit kitchen\n").unwrap();

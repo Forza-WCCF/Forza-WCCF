@@ -191,7 +191,7 @@ fn launcher_host_dialog() {
         let mut st =
             launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Online);
         let v = &mut st.lobby;
-        (v.shop_rooms, v.kind, v.list_shop) = (true, lobby::Kind::Shops, true);
+        (v.arcade_rooms, v.kind, v.list_arcade) = (true, lobby::Kind::Arcades, true);
         (v.cup.mode, v.cup.minutes, v.clock) = (lobby::CupMode::In, 10, Some(14 * 3600));
         v.host_ask = Some((false, String::new(), lobby::CupChoice::default()));
         snap(
@@ -293,8 +293,8 @@ fn panel_2017_18_and_compact() {
     all.unwrap();
 }
 
-/// Owner, 2026-10-31, on hold: 2017-18 shows no PAUSE button on the page bar, no VS ROOMS tab and no HOST VS; 2010-11
-/// keeps its own. The shop side (ARCADES tab, HOST ARCADE) stays.
+/// On hold since 2026-10-31: 2017-18 shows no PAUSE button on the page bar, no VS ROOMS tab and no HOST VS; 2010-11
+/// keeps its own. The arcade side (ARCADES tab, HOST ARCADE) stays.
 #[test]
 fn vs_lobby_and_pause_button_hidden_1718() {
     let _gpu = gpu();
@@ -1296,9 +1296,9 @@ fn cabinet_shapes_click() {
     }
 }
 
-/// HOST SHOP while the shop and this PC's seat run: the room code, COPY and LEAVE stay live, the rest is greyed.
+/// HOST ARCADE while the arcade and this PC's seat run: the room code, COPY and LEAVE stay live, the rest is greyed.
 #[test]
-fn launcher_host_shop() {
+fn launcher_host_arcade() {
     let _gpu = gpu();
     let mut all = SnapshotResults::new();
     for lang in Lang::ALL {
@@ -1306,11 +1306,11 @@ fn launcher_host_shop() {
             launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Online);
         st.running = true;
         let v = &mut st.lobby;
-        (v.shop_rooms, v.hosting, v.host_code) = (true, true, Some("K7QM2XPD".into()));
-        v.kind = lobby::Kind::Shops;
+        (v.arcade_rooms, v.hosting, v.host_code) = (true, true, Some("K7QM2XPD".into()));
+        v.kind = lobby::Kind::Arcades;
         snap(
             &mut all,
-            &format!("launcher_host_shop_{}", lang.code()),
+            &format!("launcher_host_arcade_{}", lang.code()),
             launcher::SIZE,
             Edition::E1718,
             |ui| {
@@ -1359,7 +1359,7 @@ fn lobby_keys() {
         }
     });
     h.run_steps(4);
-    let third = v.borrow().shops[2].id.clone();
+    let third = v.borrow().arcades[2].id.clone();
     for key in [egui::Key::ArrowDown, egui::Key::ArrowDown, egui::Key::Enter] {
         h.key_press(key);
         h.run_steps(2);
@@ -1425,14 +1425,14 @@ fn lobby_filters() {
     assert!(h.query_by_label("IT").is_none() && h.query_by_label("All").is_none());
 }
 
-/// 2017-18 with the shared shop on: HOST SHOP (and H) opens the host dialog (its HOST gives HostShop with the switch as
+/// 2017-18 with the shared arcade on: HOST ARCADE (and H) opens the host dialog (its HOST gives HostArcade with the switch as
 /// set, CANCEL and Esc put it back), the code typed and JOINed in capitals, the listed room joined from its row; while
 /// hosting only Esc (LEAVE) answers.
 #[test]
-fn lobby_shop_rooms() {
+fn lobby_arcade_rooms() {
     use lobby::LobbyAction::*;
     let _gpu = gpu();
-    let mut start = lobby::LobbyView::sample(lobby::Scenario::ShopNoRoom);
+    let mut start = lobby::LobbyView::sample(lobby::Scenario::ArcadeNoRoom);
     (start.notice, start.code) = (None, String::new());
     let v = std::cell::RefCell::new(start);
     let got = std::cell::RefCell::new(None);
@@ -1453,7 +1453,7 @@ fn lobby_shop_rooms() {
     h.get_by_label("Cancel").click();
     h.run_steps(2);
     assert_eq!(got.take(), None);
-    assert!(v.borrow().host_ask.is_none() && !v.borrow().list_shop);
+    assert!(v.borrow().host_ask.is_none() && !v.borrow().list_arcade);
     assert_eq!(
         v.borrow().cup,
         lobby::CupChoice::default(),
@@ -1466,7 +1466,7 @@ fn lobby_shop_rooms() {
     h.key_press(egui::Key::Escape);
     h.run_steps(2);
     assert_eq!(got.take(), None, "Esc closes the dialog, not the lobby");
-    assert!(v.borrow().host_ask.is_none() && !v.borrow().list_shop);
+    assert!(v.borrow().host_ask.is_none() && !v.borrow().list_arcade);
     h.key_press(egui::Key::H);
     h.run_steps(2);
     h.get_by_label("List my arcade when I host").click();
@@ -1490,8 +1490,8 @@ fn lobby_shop_rooms() {
     // the tab's HOST ARCADE, then the dialog's
     h.get_all_by_label("HOST ARCADE").last().unwrap().click();
     h.run_steps(2);
-    assert_eq!(got.take(), Some(HostShop));
-    assert!(v.borrow().host_ask.is_none() && v.borrow().list_shop);
+    assert_eq!(got.take(), Some(HostArcade));
+    assert!(v.borrow().host_ask.is_none() && v.borrow().list_arcade);
     assert_eq!(
         (v.borrow().cup.mode, v.borrow().cup.at),
         (lobby::CupMode::At, 23 * 60 + 30),
@@ -1504,7 +1504,8 @@ fn lobby_shop_rooms() {
     h.get_by_label("JOIN").click();
     h.run_steps(2);
     assert_eq!(got.take(), Some(JoinCode("K7QM2XPD".into())));
-    h.get_by_label(forza::online::lobby::SHOP_ROOM_NAME).click();
+    h.get_by_label(forza::online::lobby::ARCADE_ROOM_NAME)
+        .click();
     h.run_steps(2);
     assert!(v.borrow().code.is_empty());
     h.get_by_label("JOIN").click();
@@ -1522,7 +1523,7 @@ fn lobby_shop_rooms() {
     assert_eq!(got.take(), Some(Leave));
 }
 
-/// The LAN fold: HOST LAN SHOP, a found shop's JOIN and a typed address's JOIN each give their action; hosting hides it.
+/// The LAN fold: HOST LAN ARCADE, a found arcade's JOIN and a typed address's JOIN each give their action; hosting hides it.
 #[test]
 fn lobby_lan() {
     use lobby::LobbyAction::*;
@@ -1539,7 +1540,7 @@ fn lobby_lan() {
     h.get_by_label("HOST LAN ARCADE").click();
     h.run_steps(2);
     assert_eq!(got.take(), Some(HostLan));
-    // the JOINs: the list's, the two found shops', the typed address's
+    // the JOINs: the list's, the two found arcades', the typed address's
     let joins: Vec<_> = h.get_all_by_label("JOIN").collect();
     assert_eq!(joins.len(), 4);
     joins[1].click();

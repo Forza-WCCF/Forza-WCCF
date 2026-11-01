@@ -1,4 +1,4 @@
-//! HOST SHOP and a typed code end to end, without a game: an in-process lobby desk and iroh relay, a host whose
+//! HOST ARCADE and a typed code end to end, without a game: an in-process lobby desk and iroh relay, a host whose
 //! "control" is a TCP echo, its room made at the desk and its tunnel admitting only that room's guests; a guest that
 //! joins by the code, tells its id, dials the host id the desk gave it and reaches the control; a stranger with the
 //! host id alone is refused; the room closed, its code joins nothing.
@@ -14,7 +14,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use vslink::shop::{self, Ports, Role, ShopConfig, Verdict};
+use vslink::arcade::{self, ArcadeConfig, Ports, Role, Verdict};
 
 fn desk() -> Handle {
     let mut c = DeskConfig::new(Edition::E1718);
@@ -73,14 +73,14 @@ fn free_udp() -> u16 {
 }
 
 #[test]
-fn host_shop_then_a_guest_joins_by_code_through_the_tunnel() {
+fn host_arcade_then_a_guest_joins_by_code_through_the_tunnel() {
     let d = desk();
     let server = d.addr().to_string();
     let addr: SocketAddr = d.addr();
     let dir = tempfile::tempdir().unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
     let (relay, _url, _relay_server) = rt.block_on(iroh::test_utils::run_relay_server()).unwrap();
-    let cfg = |role, ports, key: &str, log| ShopConfig {
+    let cfg = |role, ports, key: &str, log| ArcadeConfig {
         role,
         ports,
         relay: relay.clone(),
@@ -98,15 +98,15 @@ fn host_shop_then_a_guest_joins_by_code_through_the_tunnel() {
         desk: free_tcp(),
         relay: free_udp(),
     };
-    let host_id = shop::own_id(&dir.path().join("host.key")).unwrap();
+    let host_id = arcade::own_id(&dir.path().join("host.key")).unwrap();
     let (log, host_log) = logger("host");
-    let room = HostRoom::open(&server, &shop::id_text(&host_id), false, "", log.clone(), &|_| {}).unwrap();
+    let room = HostRoom::open(&server, &arcade::id_text(&host_id), false, "", log.clone(), &|_| {}).unwrap();
     // the desk's code length is the one the Launcher's box takes
-    assert_eq!(room.code.len(), forza::online::lobby::SHOP_CODE_LEN);
+    assert_eq!(room.code.len(), forza::online::lobby::ARCADE_CODE_LEN);
     assert!(room.code.chars().all(|c| c.is_ascii_alphanumeric()));
     let mut c = cfg(Role::Host, host_ports, "host.key", log);
     c.admit = Some(room.admit());
-    let host = shop::spawn(c).unwrap();
+    let host = arcade::spawn(c).unwrap();
     assert_eq!(host.id, host_id, "the id registered is the id guests dial");
 
     // a stranger with the host id alone: let in by no room
@@ -116,26 +116,26 @@ fn host_shop_then_a_guest_joins_by_code_through_the_tunnel() {
         desk: free_tcp(),
         relay: free_udp(),
     };
-    let stranger = shop::spawn(cfg(Role::Join(host_id), stranger_ports, "stranger.key", log)).unwrap();
-    wait_for(&host_log, "refused: not in the shop's room");
+    let stranger = arcade::spawn(cfg(Role::Join(host_id), stranger_ports, "stranger.key", log)).unwrap();
+    wait_for(&host_log, "refused: not in the arcade's room");
     drop(stranger);
-    wait_for(&stranger_log, "the shop refused this PC: not in its room");
+    wait_for(&stranger_log, "the arcade refused this PC: not in its room");
 
     // the guest: the code typed, its id told, the host id dialled; the control answers through the tunnel
-    let own = shop::own_id(&dir.path().join("guest.key")).unwrap();
-    let joined = join_code(addr, &room.code, &shop::id_text(&own)).unwrap();
+    let own = arcade::own_id(&dir.path().join("guest.key")).unwrap();
+    let joined = join_code(addr, &room.code, &arcade::id_text(&own)).unwrap();
     let CodeJoin::In { ticket, host: id } = joined else {
         panic!("{joined:?}")
     };
-    assert_eq!(id, shop::id_text(&host_id));
+    assert_eq!(id, arcade::id_text(&host_id));
     let (log, _) = logger("guest");
     let guest_ports = Ports {
         control: free_tcp(),
         desk: free_tcp(),
         relay: free_udp(),
     };
-    let guest = shop::spawn(cfg(
-        Role::Join(shop::parse_id(&id).unwrap()),
+    let guest = arcade::spawn(cfg(
+        Role::Join(arcade::parse_id(&id).unwrap()),
         guest_ports,
         "guest.key",
         log,
@@ -143,10 +143,10 @@ fn host_shop_then_a_guest_joins_by_code_through_the_tunnel() {
     .unwrap();
     let mut c = TcpStream::connect(("127.0.0.1", guest.ports.control)).unwrap();
     c.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
-    c.write_all(b"HELLO SHOP").unwrap();
+    c.write_all(b"HELLO ROOM").unwrap();
     let mut b = [0u8; 10];
     c.read_exact(&mut b).unwrap();
-    assert_eq!(&b, b"HELLO SHOP");
+    assert_eq!(&b, b"HELLO ROOM");
     wait_for(&host_log, "joined");
     assert!(
         forza::online::lobby::heartbeat(addr, &ticket).unwrap(),
@@ -156,7 +156,10 @@ fn host_shop_then_a_guest_joins_by_code_through_the_tunnel() {
     // the host leaves: the room and its code are gone
     let code = room.code.clone();
     drop(room);
-    assert_eq!(join_code(addr, &code, &shop::id_text(&own)).unwrap(), CodeJoin::NoRoom);
+    assert_eq!(
+        join_code(addr, &code, &arcade::id_text(&own)).unwrap(),
+        CodeJoin::NoRoom
+    );
     assert!(
         !forza::online::lobby::heartbeat(addr, &ticket).unwrap(),
         "the guest's ticket went with the room"
@@ -170,7 +173,7 @@ fn host_shop_then_a_guest_joins_by_code_through_the_tunnel() {
 fn a_host_back_from_a_crash_gets_a_new_room() {
     let d = desk();
     let dir = tempfile::tempdir().unwrap();
-    let id = shop::id_text(&shop::own_id(&dir.path().join("host.key")).unwrap());
+    let id = arcade::id_text(&arcade::own_id(&dir.path().join("host.key")).unwrap());
     let (log, _) = logger("crashed host");
     let old = HostRoom::open(&d.addr().to_string(), &id, false, "", log.clone(), &|_| {}).unwrap();
     let said = Mutex::new(vec![]);
@@ -193,19 +196,19 @@ fn a_lost_room_lets_nobody_in() {
     let d = start(c, Arc::new(|_| {})).unwrap();
     let addr = d.addr();
     let dir = tempfile::tempdir().unwrap();
-    let id = shop::id_text(&shop::own_id(&dir.path().join("host.key")).unwrap());
+    let id = arcade::id_text(&arcade::own_id(&dir.path().join("host.key")).unwrap());
     let (log, lines) = logger("lost host");
     let room = HostRoom::open(&addr.to_string(), &id, false, "", log, &|_| {}).unwrap();
-    let guest = shop::own_id(&dir.path().join("guest.key")).unwrap();
+    let guest = arcade::own_id(&dir.path().join("guest.key")).unwrap();
     assert!(matches!(
-        join_code(addr, &room.code, &shop::id_text(&guest)).unwrap(),
+        join_code(addr, &room.code, &arcade::id_text(&guest)).unwrap(),
         CodeJoin::In { .. }
     ));
     let admit = room.admit();
     assert_eq!(admit(&guest), Verdict::In, "the room's guest comes in");
     thread::sleep(Duration::from_secs(3)); // no heartbeat within the lease: the desk forgets the room
     // a stranger at the door makes the room ask; the answer, GONE, empties the list
-    let stranger = shop::own_id(&dir.path().join("stranger.key")).unwrap();
+    let stranger = arcade::own_id(&dir.path().join("stranger.key")).unwrap();
     assert_eq!(admit(&stranger), Verdict::NotInRoom);
     assert_eq!(admit(&guest), Verdict::NotInRoom, "a room the desk lost admits nobody");
     assert!(room.lost().load(Ordering::Relaxed));
@@ -218,11 +221,11 @@ fn a_closed_room_admits_nobody_and_is_not_lost() {
     let d = desk();
     let addr = d.addr();
     let dir = tempfile::tempdir().unwrap();
-    let id = shop::id_text(&shop::own_id(&dir.path().join("host.key")).unwrap());
+    let id = arcade::id_text(&arcade::own_id(&dir.path().join("host.key")).unwrap());
     let (log, lines) = logger("closing host");
     let room = HostRoom::open(&addr.to_string(), &id, false, "", log, &|_| {}).unwrap();
-    let guest = shop::own_id(&dir.path().join("guest.key")).unwrap();
-    join_code(addr, &room.code, &shop::id_text(&guest)).unwrap();
+    let guest = arcade::own_id(&dir.path().join("guest.key")).unwrap();
+    join_code(addr, &room.code, &arcade::id_text(&guest)).unwrap();
     let (admit, lost) = (room.admit(), room.lost());
     assert_eq!(admit(&guest), Verdict::In);
     drop(room);
@@ -232,21 +235,21 @@ fn a_closed_room_admits_nobody_and_is_not_lost() {
     assert!(!lines.lock().unwrap().iter().any(|l| l.contains("no longer holds it")));
 }
 
-/// "List my shop" on: the room is a row in `LOBBY`, and a guest who picks that row (its id, no code) gets in.
+/// "List my arcade" on: the room is a row in `LOBBY`, and a guest who picks that row (its id, no code) gets in.
 #[test]
 fn a_listed_room_is_joined_from_its_row() {
     let d = desk();
     let addr = d.addr();
     let dir = tempfile::tempdir().unwrap();
-    let id = shop::id_text(&shop::own_id(&dir.path().join("host.key")).unwrap());
+    let id = arcade::id_text(&arcade::own_id(&dir.path().join("host.key")).unwrap());
     let (log, _) = logger("listed host");
     let room = HostRoom::open(&addr.to_string(), &id, true, "Sala Roma", log, &|_| {}).unwrap();
     let lobby = forza::online::lobby::fetch(addr, "2017-18").unwrap();
-    let row = lobby.shops.iter().find(|s| s.room).expect("listed");
+    let row = lobby.arcades.iter().find(|s| s.room).expect("listed");
     assert_eq!(row.name, "Sala Roma");
-    let guest = shop::own_id(&dir.path().join("guest.key")).unwrap();
+    let guest = arcade::own_id(&dir.path().join("guest.key")).unwrap();
     assert!(matches!(
-        join_code(addr, &row.id, &shop::id_text(&guest)).unwrap(),
+        join_code(addr, &row.id, &arcade::id_text(&guest)).unwrap(),
         CodeJoin::In { .. }
     ));
     assert_eq!(room.admit()(&guest), Verdict::In);
@@ -276,7 +279,7 @@ fn an_old_desk_gets_the_room_without_its_name() {
         }
     });
     let dir = tempfile::tempdir().unwrap();
-    let id = shop::id_text(&shop::own_id(&dir.path().join("host.key")).unwrap());
+    let id = arcade::id_text(&arcade::own_id(&dir.path().join("host.key")).unwrap());
     let (log, _) = logger("old desk host");
     let room = HostRoom::open(&addr.to_string(), &id, true, "Sala Roma", log, &|_| {}).unwrap();
     assert_eq!(room.code, "K7QMZDRX");
@@ -331,7 +334,7 @@ fn an_old_desk_with_a_stale_room_never_gets_the_name_again() {
         }
     });
     let dir = tempfile::tempdir().unwrap();
-    let id = shop::id_text(&shop::own_id(&dir.path().join("host.key")).unwrap());
+    let id = arcade::id_text(&arcade::own_id(&dir.path().join("host.key")).unwrap());
     let (log, _) = logger("old desk stale host");
     let room = HostRoom::open(&addr.to_string(), &id, true, "Sala Roma", log, &|_| {}).unwrap();
     assert_eq!(room.code, "K7QMZDRX");

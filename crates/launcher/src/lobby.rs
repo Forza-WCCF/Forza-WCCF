@@ -53,7 +53,7 @@ pub enum Msg {
     },
     /// The desk's answer to READY: false when the room or the seat is gone.
     Readied { id: String, result: Result<bool, String> },
-    /// A typed shop code's outcome ([`join_code`]).
+    /// A typed arcade code's outcome ([`join_code`]).
     Coded {
         server: String,
         code: String,
@@ -67,10 +67,10 @@ pub const PROJECT_SERVER_1011: &str = "lobby.wccf.it:20030";
 /// The project's lobby server for 2017-18 (its desk beside the game server on 20060).
 pub const PROJECT_SERVER_1718: &str = "lobby.wccf.it:20032";
 
-/// Where 2017-18 shop rooms are made and joined: the desk beside the club server's game server (the project server's
+/// Where 2017-18 arcade rooms are made and joined: the desk beside the club server's game server (the project server's
 /// desk port on that host), or the project's server ([`project_server`]) when no club server is set. Never this PC's
-/// own shop desk: the host and its guests must meet on the same public desk.
-pub fn shop_lobby(club_server: &str) -> String {
+/// own arcade desk: the host and its guests must meet on the same public desk.
+pub fn arcade_lobby(club_server: &str) -> String {
     let project = project_server(Edition::E1718);
     let port = crate::choices::host_port(&project, SEAT_PORT).map_or(SEAT_PORT, |h| h.1);
     crate::choices::parse_club_server(club_server).map_or(project, |(h, _)| format!("{h}:{port}"))
@@ -244,7 +244,7 @@ impl Poller {
         })
     }
 
-    /// A shop room's code (2017-18), typed, or a listed room's id: `JOIN`, then `SHOP t own` ([`join_code`]) on a
+    /// An arcade room's code (2017-18), typed, or a listed room's id: `JOIN`, then `SHOP t own` ([`join_code`]) on a
     /// worker; the answer comes back as [`Msg::Coded`].
     pub fn join_code(&self, server: &str, code: &str, own: &str, wake: Wake) {
         let (server2, code, own) = (server.to_owned(), code.to_owned(), own.to_owned());
@@ -288,10 +288,11 @@ fn beat(server: &str, ticket: &str, every: Duration, gone: impl FnOnce() + Send 
     Beat(stop)
 }
 
-/// The key whose id a guest tells its shop room (`SHOP t own`) and dials the host with (data\shop_join.key).
-pub const SHOP_JOIN_KEY: &str = "shop_join.key";
+/// The key whose id a guest tells its arcade room (`SHOP t own`) and dials the host with (data\shop_join.key).
+// file name kept from before the arcade rename
+pub const ARCADE_JOIN_KEY: &str = "shop_join.key";
 
-/// A typed shop code's outcome (2017-18).
+/// A typed arcade code's outcome (2017-18).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CodeJoin {
     /// A guest seat: the ticket to keep alive while the run lasts, and the host's tunnel id to dial.
@@ -304,15 +305,15 @@ pub enum CodeJoin {
     Gone,
 }
 
-/// A guest's way into a shop room: `JOIN CODE`, then `SHOP t own` (`own` = this PC's join key id, which the host's
+/// A guest's way into an arcade room: `JOIN CODE`, then `SHOP t own` (`own` = this PC's join key id, which the host's
 /// tunnel then admits; it must be told before the dial).
 pub fn join_code(a: SocketAddr, code: &str, own: &str) -> Result<CodeJoin, String> {
-    let ticket = match lobby::join_shop(a, code, None)? {
+    let ticket = match lobby::join_arcade(a, code, None)? {
         Reserved::Ticket { ticket, .. } => ticket,
         Reserved::Closed => return Ok(CodeJoin::NoRoom),
         Reserved::Full | Reserved::Taken => return Ok(CodeJoin::Full),
     };
-    match lobby::shop_peers(a, &ticket, Some(own)) {
+    match lobby::arcade_peers(a, &ticket, Some(own)) {
         Ok(Some(Peers::Host(host))) => Ok(CodeJoin::In { ticket, host }),
         Ok(None) => Ok(CodeJoin::Gone),
         other => {
@@ -353,7 +354,7 @@ struct RoomState {
     stop: bool,
 }
 
-/// A shop room this PC hosts (2017-18, `CREATE shop`): its code; a worker keeps it with heartbeats and keeps its
+/// An arcade room this PC hosts (2017-18, `CREATE shop`): its code; a worker keeps it with heartbeats and keeps its
 /// guest list; closed when dropped.
 pub struct HostRoom {
     pub code: String,
@@ -367,29 +368,29 @@ pub struct HostRoom {
 }
 
 impl HostRoom {
-    /// A room on `server` ([`shop_lobby`]) for the shop tunnel `shop_id`, private unless `public` (listed in SHOPS as
+    /// A room on `server` ([`arcade_lobby`]) for the arcade tunnel `arcade_id`, private unless `public` (listed in ARCADES as
     /// `name`, never with its code; empty: the desk's name); else why not (`FULL`, `ERR slow`, `ERR host`, no answer). `note` hears about a wait (this
     /// id's room from before still on the desk).
     pub fn open(
         server: &str,
-        shop_id: &str,
+        arcade_id: &str,
         public: bool,
         name: &str,
         log: Log,
         note: &dyn Fn(&crate::run::Text),
     ) -> Result<HostRoom, String> {
         let addr = socket(server).ok_or_else(|| format!("{server} is not an address"))?;
-        // the name only shows in SHOPS: a private room sends none (an old desk's ERR costs a CREATE)
+        // the name only shows in ARCADES: a private room sends none (an old desk's ERR costs a CREATE)
         let mut name = if public { name } else { "" };
-        let mut made = lobby::create_shop(addr, shop_id, public, name);
+        let mut made = lobby::create_arcade(addr, arcade_id, public, name);
         // a desk from before names answers ERR to the named word: once more, with its own name, and keep it so
-        if !lobby::shop_name(name).is_empty()
+        if !lobby::arcade_name(name).is_empty()
             && made
                 .as_ref()
                 .is_err_and(|e| e.starts_with("ERR") && e != "ERR host" && e != "ERR slow")
         {
             name = "";
-            made = lobby::create_shop(addr, shop_id, public, name);
+            made = lobby::create_arcade(addr, arcade_id, public, name);
         }
         if made.as_ref().is_err_and(|e| e == "ERR host") {
             // one more CREATE only: each counts in the desk's per-address limit
@@ -400,7 +401,7 @@ impl HostRoom {
                     .arg("s", wait.as_secs()),
             );
             thread::sleep(wait);
-            made = lobby::create_shop(addr, shop_id, public, name);
+            made = lobby::create_arcade(addr, arcade_id, public, name);
         }
         match made {
             Ok(Created::Room { id, code, ticket, .. }) => {
@@ -475,7 +476,7 @@ impl HostRoom {
                 } else {
                     list_at = Instant::now() + GUESTS_EVERY;
                     asked_at = Some(Instant::now());
-                    match lobby::shop_peers(addr, &ticket, None) {
+                    match lobby::arcade_peers(addr, &ticket, None) {
                         Ok(Some(Peers::Guests(g))) => Some(g),
                         Ok(None) => {
                             gone = true;
@@ -493,9 +494,9 @@ impl HostRoom {
                 };
                 match (&err, failing) {
                     (Some(e), false) => log(&format!(
-                        "shop room {code}: the lobby did not answer ({e}); trying again"
+                        "arcade room {code}: the lobby did not answer ({e}); trying again"
                     )),
-                    (None, true) => log(&format!("shop room {code}: the lobby answers again")),
+                    (None, true) => log(&format!("arcade room {code}: the lobby answers again")),
                     _ => {}
                 }
                 failing = err.is_some();
@@ -508,7 +509,7 @@ impl HostRoom {
                     st.guests.clear();
                     lost.store(true, Ordering::Relaxed);
                     log(&format!(
-                        "shop room {code}: the lobby no longer holds it; nobody new gets in"
+                        "arcade room {code}: the lobby no longer holds it; nobody new gets in"
                     ));
                 } else if let Some(g) = guests {
                     st.guests = g;
@@ -527,11 +528,11 @@ impl HostRoom {
     /// The tunnel's admit rule: a guest the desk named in this room. One not on the last list waits (at most
     /// [`ADMIT_WAIT`]) for an answer the worker asked after it came, so its own `SHOP` is in it. Not named by a fresh
     /// list, a lost or closed room: not in the room. No fresh answer in time: no answer (the guest comes back).
-    pub fn admit(&self) -> vslink::shop::Admit {
-        use vslink::shop::Verdict;
+    pub fn admit(&self) -> vslink::arcade::Admit {
+        use vslink::arcade::Verdict;
         let (state, lost) = (self.state.clone(), self.lost.clone());
         Arc::new(move |id: &[u8; 32]| {
-            let id = vslink::shop::id_text(id);
+            let id = vslink::arcade::id_text(id);
             let (lock, cv) = &*state;
             let mut st = lock.lock().unwrap_or_else(PoisonError::into_inner);
             if st.stop || lost.load(Ordering::Relaxed) {
@@ -540,7 +541,7 @@ impl HostRoom {
             if st.guests.contains(&id) {
                 return Verdict::In;
             }
-            // an answer already on the wire may predate this guest's SHOP: wait for the one after it
+            // an answer already on the wire may predate this guest's `SHOP`: wait for the one after it
             let target = st.asked + if st.busy { 2 } else { 1 };
             st.want = true;
             cv.notify_all();
@@ -607,9 +608,9 @@ fn lang(code: &Option<String>) -> Option<Lang> {
     Lang::ALL.into_iter().find(|l| Some(l.code()) == code.as_deref())
 }
 
-/// QUICK MATCH on SHOPS: the open shop with the lowest ping, the nearest next ENTRY breaking a tie.
-pub fn quick_shop(v: &LobbyView) -> Option<String> {
-    v.shops
+/// QUICK MATCH on ARCADES: the open arcade with the lowest ping, the nearest next ENTRY breaking a tie.
+pub fn quick_arcade(v: &LobbyView) -> Option<String> {
+    v.arcades
         .iter()
         .filter(|r| r.state == RowState::Open)
         .min_by_key(|r| (r.ping_ms.unwrap_or(u32::MAX), r.next_entry.unwrap_or(u32::MAX)))
@@ -679,15 +680,15 @@ impl Book {
     /// The selection stays on its row when that row is still listed.
     pub fn fill(&mut self, v: &mut LobbyView, now: Instant) -> HashMap<String, String> {
         let kept = v.visible().get(v.selected).map(|&i| v.rows()[i].id.clone());
-        let (mut shops, mut vs, mut at) = (vec![], vec![], HashMap::new());
+        let (mut arcades, mut vs, mut at) = (vec![], vec![], HashMap::new());
         for s in &self.order {
             let Some(e) = self.servers.get(s) else { continue };
             let Some(l) = &e.lobby else { continue };
             let silent = e.misses >= MISSES;
             let pick = |st: RowState| if silent { RowState::NoAnswer } else { st };
-            for sh in &l.shops {
+            for sh in &l.arcades {
                 at.insert(sh.id.clone(), s.clone());
-                shops.push(Row {
+                arcades.push(Row {
                     id: sh.id.clone(),
                     name: sh.name.clone(),
                     players: sh.seats,
@@ -723,7 +724,7 @@ impl Book {
                 });
             }
         }
-        (v.shops, v.vs) = (shops, vs);
+        (v.arcades, v.vs) = (arcades, vs);
         v.updated_s = self
             .servers
             .values()
@@ -753,14 +754,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn shop_rooms_meet_on_the_club_servers_desk() {
+    fn arcade_rooms_meet_on_the_club_servers_desk() {
         if std::env::var_os("WCCF_LOBBY").is_some() {
             return;
         }
-        assert_eq!(shop_lobby(""), PROJECT_SERVER_1718);
-        assert_eq!(shop_lobby("  "), PROJECT_SERVER_1718);
-        assert_eq!(shop_lobby("club.example"), "club.example:20032");
-        assert_eq!(shop_lobby("203.0.113.10:20060"), "203.0.113.10:20032");
+        assert_eq!(arcade_lobby(""), PROJECT_SERVER_1718);
+        assert_eq!(arcade_lobby("  "), PROJECT_SERVER_1718);
+        assert_eq!(arcade_lobby("club.example"), "club.example:20032");
+        assert_eq!(arcade_lobby("203.0.113.10:20060"), "203.0.113.10:20032");
     }
 
     #[test]
