@@ -82,6 +82,14 @@ debug = false            # no debug info for the crates.io code: less to generat
 # (package always uses release).
 # Release code without LTO, incremental: a change in forza recompiles and relinks without the thin-LTO pass.
 # `check --fast` runs the tests in this profile too, so the dependencies compile once for the kits and the tests.
+# The programs beside the game are built for size, not for speed: they format a few lines and write them to a pipe.
+# Microsoft's engine flags small 32-bit programs of this shape (docs/RELEASING.md, "Antivirus verdicts"), so their code
+# is kept as small and as plain as it goes. `panic` cannot be set per package; the workspace unwinds on purpose
+# (profile.release above). 2026-11-01: with this alone, FPR_Emu.exe stopped being flagged (6 scans, see av-oracle).
+[profile.release.package.forza-programs]
+opt-level = "z"
+codegen-units = 1
+
 [profile.fast]
 inherits = "release"
 lto = false
