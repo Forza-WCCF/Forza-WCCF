@@ -105,9 +105,14 @@ Two homes behind their own NAT, 0-150 ms apart, through the lobby, 243-246 and v
    shops): it is a one-PC shop on this PC, with `club_server` = the lobby server's host and its game server port, so
    the control's 243s reach the game server whose matcher the desk feeds.
 2. vslink stays on (`vs_link`), and its hello (900, sent at start and every 60 s) carries the ticket: payload
-   `forza::online::vs::hello_payload(&endpoint_id, Some(t))`, 52 bytes = +4..+36 the EndpointId, +36..+52 the
-   ticket in ASCII, NUL-padded (desk tickets are 16 hex characters). Without a ticket, the 36-byte hello as today
-   (open pool). Nothing else changes: the 902 registration and the 243 the control sends are as now.
+   `forza::online::vs::hello_payload(&endpoint_id, Some(t), Some(d))`, 72 bytes = +4..+36 the EndpointId, +36..+52
+   the ticket in ASCII, NUL-padded (desk tickets are 16 hex characters; zeros for the open pool), +52..+72 the PC's
+   det-math token (`forza::online::seat::dmath_token`, as on shop seat claims). Older vslinks send 36 bytes (open
+   pool) or 52 (room), no token. The matcher pairs two entries only when their PCs' tokens are equal, a missing token
+   counting as its own value (two older builds still pair, an older and a newer never do). A hello with a token
+   whose room partner holds another gets 901 status 2 (`HELLO_DMATH_DIFFERS`), and the Launcher says
+   `launcher.run_vs_dmath_differs` once. Nothing else changes: the 902 registration and the 243 the control sends
+   are as now.
 3. The Launcher keeps `HEARTBEAT t` every 20 s while the run lasts (`Held`'s beat already does), so the room and its
    pairing outlive the 60 s lease; leaving, and the run's end, send `CLOSE` (seat 1) or `RELEASE` (seat 2). Only a
    VS room's ticket goes into a 2017-18 run (SHOPS stays greyed there).

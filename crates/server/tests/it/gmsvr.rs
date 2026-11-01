@@ -267,16 +267,22 @@ fn all_pairs_a_lobby_room_on_the_game_server() {
     assert_eq!(lobby::ready(desk, &id, &host), Ok(true));
     assert_eq!(lobby::ready(desk, &id, &guest), Ok(true));
     // three PCs' runs on the game server: a stranger in the open pool first, then the room's host and guest. Each
-    // vslink says hello (900, the room ticket at +36), registers its token (902), then its control sends the 243.
-    let pc = |c: &mut TcpStream, n: u8, ticket: Option<&str>| {
+    // vslink says hello (900, the room ticket at +36, the det-math token at +52), registers its token (902), then
+    // its control sends the 243.
+    let hello = |n: u8, ticket: Option<&str>, dmath: &str| {
         let mut gm = TcpStream::connect(("127.0.0.1", gm_port)).unwrap();
         gm.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         let (rc, r) = ask(
             &mut gm,
             900,
-            &forza::online::vs::hello_payload(&[n; 32], ticket),
+            &forza::online::vs::hello_payload(&[n; 32], ticket, Some(dmath)),
         );
-        assert_eq!((rc, word(&r, 4)), (901, 1));
+        assert_eq!(rc, 901);
+        (gm, word(&r, 4))
+    };
+    let pc = |c: &mut TcpStream, n: u8, ticket: Option<&str>| {
+        let (mut gm, status) = hello(n, ticket, "00ff00ff00ff00ff");
+        assert_eq!(status, 1);
         let mut reg = vec![0u8; 40];
         reg[..4].copy_from_slice(&[127, n, n, n]);
         reg[4..6].copy_from_slice(&(20000 + u16::from(n)).to_le_bytes());
@@ -299,6 +305,8 @@ fn all_pairs_a_lobby_room_on_the_game_server() {
     };
     pc(&mut c, 1, None);
     pc(&mut c, 2, Some(&host));
+    // the guest's engine differs first: its hello hears so (2), then it sets up again and says hello with the host's token
+    assert_eq!(hello(3, Some(&guest), "00ff00ff00ff00ff-off").1, 2);
     pc(&mut c, 3, Some(&guest));
     assert_eq!(poll(&mut c, 3), 900_000_002, "the guest gets the host");
     assert_eq!(poll(&mut c, 2), 900_000_003, "the host gets the guest");

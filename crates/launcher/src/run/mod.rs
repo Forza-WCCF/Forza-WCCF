@@ -2164,6 +2164,16 @@ impl Run<'_> {
             file_log(self.logs().join("vslink_log.txt")),
         );
         cfg.ticket = ticket;
+        // gmsvr pairs only PCs whose match engine math is the same; a room partner with another is said once
+        if self.edition == Edition::E1718 {
+            cfg.dmath = Some(seat::dmath_token(&self.game, &self.seat));
+            let tx = self.tx.clone();
+            cfg.on_dmath_differs = Some(Arc::new(move |mine| {
+                let _ = tx.send(Event::Said(
+                    Text::key("launcher.run_vs_dmath_differs").arg("mine", mine),
+                ));
+            }));
+        }
         // WCCF_VS_RELAY, else settings "vs_relay" (URL); settings "vs_relay_ca" (PEM file) is the relay's only trusted root
         let settings = self.kit.settings();
         let saved = |k: &str| settings[k].as_str().map(str::to_owned);

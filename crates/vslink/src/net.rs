@@ -6,7 +6,7 @@
 use crate::core::{self, Pair, SEAT_BASE, Seats, Via};
 use bytes::Bytes;
 use forza::online::gamesvr;
-use forza::online::vs::{Reflect, hello_payload, reflect};
+use forza::online::vs::{HELLO_DMATH_DIFFERS, Reflect, hello_payload, reflect};
 use forza::service::{Handle, Log};
 use iroh::endpoint::{Connection, IdleTimeout, QuicTransportConfig, presets};
 use iroh::tls::CaTlsConfig;
@@ -55,6 +55,12 @@ pub struct Config {
     /// The lobby VS room's ticket, sent in every hello so gmsvr pairs this PC only within its room; None = the open
     /// pool
     pub ticket: Option<String>,
+    /// This PC's det-math token (`forza::online::seat::dmath_token`), sent in every hello: gmsvr pairs this PC only
+    /// with one that sent the same
+    pub dmath: Option<String>,
+    /// Called once, with [`Config::dmath`], when gmsvr answers that the other PC of this lobby VS room runs another
+    /// match engine
+    pub on_dmath_differs: Option<Log>,
 }
 
 /// The project's relay (webpki roots) and the reflect port gmsvr's `--vslink-port` defaults to.
@@ -152,6 +158,8 @@ impl Config {
             key,
             log,
             ticket: None,
+            dmath: None,
+            on_dmath_differs: None,
         }
     }
 }
@@ -320,6 +328,9 @@ struct Shared {
     st: Mutex<State>,
     oversize: AtomicU64,
     ticket: Option<String>,
+    dmath: Option<String>,
+    on_dmath_differs: Option<Log>,
+    told_dmath: AtomicBool,
 }
 
 impl Shared {
@@ -328,9 +339,19 @@ impl Shared {
     }
 
     async fn hello(&self) {
-        let p = hello_payload(&self.id, self.ticket.as_deref());
+        let p = hello_payload(&self.id, self.ticket.as_deref(), self.dmath.as_deref());
         match self.gm.ask(900, &p).await {
             Ok(b) if ok(&b) => {}
+            Ok(b) if b.get(4..8) == Some(&HELLO_DMATH_DIFFERS.to_le_bytes()[..]) => {
+                (self.log)(
+                    "gmsvr: the other PC of this VS room runs another match engine (det-math), so no pair",
+                );
+                if !self.told_dmath.swap(true, Ordering::Relaxed)
+                    && let Some(tell) = &self.on_dmath_differs
+                {
+                    tell(self.dmath.as_deref().unwrap_or_default());
+                }
+            }
             Ok(_) => (self.log)("gmsvr refused the hello (no VS there?)"),
             Err(e) => (self.log)(&format!("gmsvr hello: {e}")),
         }
@@ -742,6 +763,9 @@ async fn start(cfg: Config) -> io::Result<Arc<Shared>> {
         st: Default::default(),
         oversize: AtomicU64::new(0),
         ticket: cfg.ticket,
+        dmath: cfg.dmath,
+        on_dmath_differs: cfg.on_dmath_differs,
+        told_dmath: AtomicBool::new(false),
     });
     sh.hello().await;
     let fallback = fallback_for(&cfg.relay);
@@ -894,17 +918,17 @@ mod tests {
     #[test]
     fn hello_with_and_without_a_room_ticket() {
         let id = [7u8; 32];
-        let open = hello_payload(&id, None);
+        let open = hello_payload(&id, None, None);
         assert_eq!(
             (open.len(), &open[..4], &open[4..]),
             (36, &[0u8; 4][..], &id[..])
         );
-        let room = hello_payload(&id, Some("0123456789abcdef"));
+        let room = hello_payload(&id, Some("0123456789abcdef"), None);
         assert_eq!(
             (room.len(), &room[..36], &room[36..]),
             (52, &open[..], &b"0123456789abcdef"[..])
         );
-        let short = hello_payload(&id, Some("ab12"));
+        let short = hello_payload(&id, Some("ab12"), None);
         assert_eq!(&short[36..], b"ab12\0\0\0\0\0\0\0\0\0\0\0\0");
     }
 
