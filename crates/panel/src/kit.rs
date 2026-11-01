@@ -74,12 +74,9 @@ impl Files {
         }
     }
 
-    /// data\settings.json, the Launcher's file (`Null` when missing or unreadable).
+    /// data\settings.json, the Launcher's choices (an empty object when missing).
     pub fn settings(&self) -> serde_json::Value {
-        std::fs::read(self.data.join("settings.json"))
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default()
+        forza::kit::read_settings(&self.data.join("settings.json"))
     }
 
     /// settings.json's "projector" (its window shown) set, every other key kept. A missing, locked or damaged
