@@ -980,30 +980,30 @@ pub fn title_bar(ui: &mut Ui, edition: Edition, version: &str, lang: &mut Lang) 
             .max_rect(rect.shrink2(vec2(12.0, 0.0)))
             .layout(egui::Layout::left_to_right(egui::Align::Center)),
     );
-    // the edition badge, with the Forza-WCCF version small under it: shown on every tab (no room beside it)
-    let up = if version.is_empty() { 0.0 } else { 5.0 };
+    // the edition badge, then the Forza-WCCF version beside it on the badge's line, shown on every tab (a version
+    // that is not a number, "not known", is left out: the UPDATE tab says it)
     let mut b = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_size(
-        pos2(
-            rect.left() + 12.0 + 34.0 + name_w + 10.0,
-            rect.center().y - 11.0 - up,
-        ),
+        pos2(rect.left() + 12.0 + 34.0 + name_w + 10.0, rect.center().y - 11.0),
         vec2(120.0, 22.0),
     )));
     let pill = badge(&mut b, edition);
-    ui.painter().text(
-        pos2(pill.rect.center().x, pill.rect.bottom() + 1.0),
-        egui::Align2::CENTER_TOP,
-        version,
-        theme::body(11.0),
-        theme::TEXT_FAINT,
-    );
+    if version.starts_with(|c: char| c.is_ascii_digit()) {
+        ui.painter().text(
+            pos2(pill.rect.right() + 8.0, pill.rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            format!("v{version}"),
+            theme::display(15.0),
+            theme::TEXT_DIM,
+        );
+    }
     child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         action = window_buttons(ui);
         ui.add_space(10.0);
         let mut i = Lang::ALL.iter().position(|l| l == lang).unwrap_or(0);
-        ui.allocate_ui(vec2(252.0, 30.0), |ui| {
+        // narrow enough for the version beside the badge in the 600 px Launcher
+        ui.allocate_ui(vec2(216.0, 30.0), |ui| {
             // each language in its own words, whatever the UI language
-            if segmented(ui, &mut i, &["English", "Italiano", "日本語"], 252.0) {
+            if segmented(ui, &mut i, &["English", "Italiano", "日本語"], 216.0) {
                 *lang = Lang::ALL[i];
             }
         });
