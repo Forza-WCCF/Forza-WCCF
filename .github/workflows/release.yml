@@ -41,7 +41,7 @@ jobs:
       # Microsoft's Defender engine flagged FPR_Emu.exe built by the image's default toolset (MSVC 14.51) on
       # VirusTotal while the same source built with 14.44 is clean, 4/4 vs 3/3 (E:\wccf-builds\av-bisect-20261101\
       # RESULTS.md): pin the toolset, and with it the CRT objects and link.exe the 32-bit programs link against.
-      # Bump the rust-cache shared key whenever this version changes: cargo does not fingerprint the CRT, so a
+      # Bump the rust-cache shared key below whenever this version changes: cargo does not fingerprint the CRT, so a
       # cached tree built with another toolset would be relinked and the pin would do nothing.
       - name: MSVC toolset 14.44 (the one Microsoft does not flag)
         shell: cmd
@@ -127,31 +127,44 @@ jobs:
           set -euo pipefail
           [ -n "$VT_API_KEY" ] || { echo "::error::the VT_API_KEY secret is missing"; exit 1; }
           api=https://www.virustotal.com/api/v3
-          vt() { curl -fsS --retry 3 -H "x-apikey: $VT_API_KEY" "$@"; }
+          # no -f: a 404 is normal here (a file just uploaded, or one the API does not know yet) and the poll decides
+          vt() { curl -sS --retry 3 --retry-all-errors -H "x-apikey: $VT_API_KEY" "$@"; }
           out=virustotal.md
           printf '| File | Microsoft | Engines flagging | Report |\n|---|---|---|---|\n' > "$out"
           fail=0
           for f in dist/*.zip dist/*.exe; do
             [ -e "$f" ] || continue
             name=$(basename "$f"); sha=$(sha256sum "$f" | cut -d' ' -f1)
-            url=$api/files
-            # over 32 MB the free API wants an upload URL
-            if [ "$(stat -c%s "$f")" -gt 33554432 ]; then url=$(vt "$api/files/upload_url" | jq -r .data); fi
-            id=$(vt -F "file=@$f" "$url" | jq -r .data.id)
-            # the free API allows 4 requests a minute: one poll every 20 s, up to 15 minutes
-            a=
+            # upload only when VirusTotal does not have the hash yet: a known file needs no upload, and the 4
+            # requests a minute go to the polls
+            if [ "$(vt "$api/files/$sha" | jq -r '.data.id // empty')" != "$sha" ]; then
+              url=$api/files
+              # over 32 MB the free API wants an upload URL
+              if [ "$(stat -c%s "$f")" -gt 33554432 ]; then url=$(vt "$api/files/upload_url" | jq -r .data); fi
+              if ! vt -F "file=@$f" "$url" | jq -e .data.id >/dev/null; then
+                echo "::error::$name: the upload failed"; fail=1; continue
+              fi
+              echo "uploaded $name"
+            fi
+            # poll the file object, not /analyses/<id>: that id comes from the upload and 404s while the scan is
+            # queued (the 0.6.0 run died there). Done when Microsoft has a verdict and the engine count stopped
+            # moving: one poll every 20 s, up to 15 minutes, as the free API allows 4 requests a minute
+            prev=-1; ms=; a=
             for _ in $(seq 1 45); do
               sleep 20
-              a=$(vt "$api/analyses/$id")
-              [ "$(jq -r .data.attributes.status <<<"$a")" = completed ] && break
+              a=$(vt "$api/files/$sha")
+              n=$(jq -r '.data.attributes.last_analysis_stats | (.undetected + .malicious + .suspicious + .timeout) // 0' <<<"$a" 2>/dev/null || echo 0)
+              ms=$(jq -r '.data.attributes.last_analysis_results.Microsoft.category // empty' <<<"$a" 2>/dev/null || true)
+              if [ -n "$ms" ] && [ "$n" = "$prev" ]; then break; fi
+              prev=$n
             done
-            [ "$(jq -r .data.attributes.status <<<"$a")" = completed ] || { echo "::error::$name: VirusTotal did not finish"; fail=1; continue; }
-            bad=$(jq '.data.attributes.stats.malicious + .data.attributes.stats.suspicious' <<<"$a")
-            ms=$(jq -r '.data.attributes.results.Microsoft | if . == null then "not run" else .category + (if .result then " (" + .result + ")" else "" end) end' <<<"$a")
-            engines=$(jq -r '[.data.attributes.results[] | select(.category == "malicious" or .category == "suspicious") | .engine_name + ": " + (.result // "?")] | join(", ")' <<<"$a")
-            printf '| %s | %s | %s %s | [report](https://www.virustotal.com/gui/file/%s) |\n' "$name" "$ms" "$bad" "${engines:+($engines)}" "$sha" >> "$out"
-            case "$ms" in
-              malicious*|suspicious*) echo "::error::$name: Microsoft flags it: $ms"; fail=1 ;;
+            if [ -z "$ms" ]; then echo "::error::$name: VirusTotal gave no Microsoft result"; echo "$a" | head -c 400; fail=1; continue; fi
+            bad=$(jq '.data.attributes.last_analysis_stats.malicious + .data.attributes.last_analysis_stats.suspicious' <<<"$a")
+            mst=$(jq -r '.data.attributes.last_analysis_results.Microsoft | .category + (if .result then " (" + .result + ")" else "" end)' <<<"$a")
+            engines=$(jq -r '[.data.attributes.last_analysis_results[] | select(.category == "malicious" or .category == "suspicious") | .engine_name + ": " + (.result // "?")] | join(", ")' <<<"$a")
+            printf '| %s | %s | %s %s | [report](https://www.virustotal.com/gui/file/%s) |\n' "$name" "$mst" "$bad" "${engines:+($engines)}" "$sha" >> "$out"
+            case "$mst" in
+              malicious*|suspicious*) echo "::error::$name: Microsoft flags it: $mst"; fail=1 ;;
             esac
             if [ "$bad" -gt 0 ]; then echo "::warning::$name: $bad engine(s) flag it: $engines"; fi
           done
