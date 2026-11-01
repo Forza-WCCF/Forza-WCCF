@@ -281,9 +281,13 @@ fn window_title(kit: &Kit) -> String {
     format!("Launcher - {TITLE} {}", kit.edition().name())
 }
 
-/// Another Launcher window of this edition to the front (a second start ends after it).
+/// Another Launcher window of this edition to the front (a second start ends after it); not while a game runs: the
+/// window stays minimized behind it.
 // shortcut: found by title, so two installs of one edition both open bring the first; key it by kit path if needed
 fn bring_to_front(kit: &Kit) {
+    if run::is_on(kit, run::Kind::Run) {
+        return;
+    }
     let title: Vec<u16> = window_title(kit).encode_utf16().chain([0]).collect();
     // SAFETY: a NUL-terminated title; the window handle is only passed back to Windows.
     unsafe {
