@@ -42,6 +42,8 @@ launcher.hq_pack: {en: "High-quality pack", it: "Pacchetto HQ", ja: "高画質�
 launcher.choose_pack: {en: "Choose pack…", it: "Scegli pacchetto…", ja: "パックを選択…"}
 launcher.skip_tutorial: {en: "Skip the tutorial", it: "Salta il tutorial", ja: "チュートリアルを省略"}
 launcher.skip_tutorial_hint: {en: "Applied at the next start.", it: "Si applica al prossimo avvio.", ja: "次回の起動時に反映されます。"}
+launcher.projector: {en: "Projector and CPU championship", it: "Proiettore e campionato CPU", ja: "プロジェクターとCPU大会"}
+launcher.projector_hint: {en: "Off saves CPU. Applied at the next start.", it: "Off risparmia CPU. Si applica al prossimo avvio.", ja: "オフでCPUを節約。次回の起動時に反映されます。"}
 launcher.club_server: {en: "Club server", it: "Server club", ja: "クラブサーバー"}
 launcher.club_server_hint: {en: "Empty: the server you play on", it: "Vuoto: il server a cui giochi", ja: "空欄：プレイ中のサーバー"}
 launcher.vs_link: {en: "Direct VS link", it: "Collegamento VS diretto", ja: "ダイレクトVSリンク"}
@@ -698,6 +700,7 @@ launcher.run_remote_seat_projector: {en: "server %{ip}, port %{port}: seat %{sea
 launcher.run_server_up: {en: "server on port %{port} (%{n} match engines)", it: "server sulla port %{port} (%{n} motori di partita)", ja: "ポート %{port} のサーバー(試合エンジン %{n} 個)"}
 launcher.run_projector: {en: "projector", it: "proiettore", ja: "プロジェクター"}
 launcher.run_no_projector_1011: {en: "no projector here (each PC runs its own cabinet)", it: "nessun proiettore qui (ogni PC usa il proprio cabinato)", ja: "ここにはプロジェクターはありません (各PCがそれぞれの筐体を動かします)"}
+launcher.run_projector_off: {en: "no projector (Launcher setting off): no CPU championship", it: "nessun proiettore (impostazione del Launcher disattivata): niente campionato CPU", ja: "プロジェクターなし (Launcherの設定でオフ)：CPU大会なし"}
 launcher.run_no_projector_1718: {en: "no projector here (the server's first PC shows it)", it: "nessun proiettore qui (lo mostra il primo PC del server)", ja: "ここにはプロジェクターはありません (サーバーの最初のPCが表示します)"}
 launcher.run_money_by_game: {en: "projector: money overlay loaded by the game", it: "proiettore: overlay dei soldi caricato dal gioco", ja: "プロジェクター: 金額オーバーレイをゲームが読み込みました"}
 launcher.run_money_on: {en: "projector: money overlay on", it: "proiettore: overlay dei soldi attivo", ja: "プロジェクター: 金額オーバーレイ オン"}
