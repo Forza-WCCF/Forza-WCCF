@@ -2,14 +2,14 @@
 //! echo, whose "desk" never reads and whose "relay" is a UDP echo, and a join side on other loopback ports. Checked:
 //! control bytes both ways, two local UDP sockets kept apart as two flows, the test delay at 0/50/100/150 ms on the
 //! round trip, the forced relay path, and a reader that never reads neither blocking the writer nor growing past
-//! the 4 MiB buffer.
+//! the 4 MiB buffer. Flows ride an 8 s stall whole and in order, and fall back to datagrams with an old peer.
 
 use forza::service::Log;
 use iroh::tls::CaTlsConfig;
 use std::collections::BTreeSet;
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -107,6 +107,8 @@ struct Pair {
     join_log: Lines,
     relay: iroh::RelayMap,
     relay_only: bool,
+    /// The join side speaks only the 0.6.2 datagram flows
+    old_join: bool,
     dir: std::path::PathBuf,
     _relay: iroh_relay::server::Server,
     _rt: tokio::runtime::Runtime,
@@ -131,6 +133,7 @@ impl Pair {
             log,
             delay,
             admit: None,
+            datagram_flows: false,
         }
     }
 
@@ -143,13 +146,14 @@ impl Pair {
             relay: free_udp(),
         };
         let (log, lines) = logger(tag);
-        let cfg = self.config(
+        let mut cfg = self.config(
             Role::Join(self.host.id),
             self.join_ports,
             &format!("{tag}.key"),
             log,
             Duration::from_millis(knob_ms / 2),
         );
+        cfg.datagram_flows = self.old_join;
         let link = arcade::spawn(cfg).unwrap();
         assert_eq!(
             link.ports, self.join_ports,
@@ -163,10 +167,31 @@ impl Pair {
 
 /// A host and a join side through a fresh test relay; the join side has the test delay `knob_ms` / 2 each way.
 fn pair(name: &str, knob_ms: u64, relay_only: bool) -> Pair {
+    pair_with(name, knob_ms, relay_only, None, (false, false))
+}
+
+/// [`pair`], the relay reached through [`stall_proxy`] when `stall` is given, and `old` (host, join) sides speaking
+/// only the 0.6.2 datagram flows.
+fn pair_with(
+    name: &str,
+    knob_ms: u64,
+    relay_only: bool,
+    stall: Option<Arc<AtomicBool>>,
+    old: (bool, bool),
+) -> Pair {
     let dir = std::env::temp_dir().join(format!("vslink_arcade_{name}_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let (relay, _url, server) = rt.block_on(iroh::test_utils::run_relay_server()).unwrap();
+    let (mut relay, url, server) = rt.block_on(iroh::test_utils::run_relay_server()).unwrap();
+    if let Some(blocked) = stall {
+        let to = SocketAddr::from((Ipv4Addr::LOCALHOST, url.port().unwrap()));
+        let via = stall_proxy(to, blocked);
+        relay = iroh::RelayMap::from(
+            format!("https://127.0.0.1:{via}")
+                .parse::<iroh::RelayUrl>()
+                .unwrap(),
+        );
+    }
     let services = host_services();
     let (host_log, host_lines) = logger(&format!("{name} host"));
     let host = arcade::spawn(ArcadeConfig {
@@ -179,6 +204,7 @@ fn pair(name: &str, knob_ms: u64, relay_only: bool) -> Pair {
         log: host_log,
         delay: Duration::ZERO,
         admit: None,
+        datagram_flows: old.0,
     })
     .unwrap();
     let mut p = Pair {
@@ -194,6 +220,7 @@ fn pair(name: &str, knob_ms: u64, relay_only: bool) -> Pair {
         join_log: Lines::default(),
         relay,
         relay_only,
+        old_join: old.1,
         dir,
         _relay: server,
         _rt: rt,
@@ -379,6 +406,7 @@ fn a_join_without_a_host_fails_at_start() {
         log,
         delay: Duration::ZERO,
         admit: None,
+        datagram_flows: false,
     });
     let e = r.err().expect("no host: an error");
     assert!(e.to_string().contains("did not answer"), "{e}");
@@ -561,4 +589,99 @@ fn only_the_rooms_guests_come_in() {
     assert!(logged(&p.join_log, "dialling again"));
     assert!(!unsure.load(std::sync::atomic::Ordering::Relaxed));
     control_rtt(&p);
+}
+
+/// A TCP proxy to `to` that, while `blocked` is set, moves no byte either way (new connections wait too): the path
+/// through the relay stalls, and what iroh queues meanwhile may be dropped.
+fn stall_proxy(to: SocketAddr, blocked: Arc<AtomicBool>) -> u16 {
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = l.local_addr().unwrap().port();
+    thread::spawn(move || {
+        for a in l.incoming().flatten() {
+            let Ok(b) = TcpStream::connect(to) else {
+                continue;
+            };
+            for (mut r, mut w) in [(a.try_clone().unwrap(), b.try_clone().unwrap()), (b, a)] {
+                let blocked = blocked.clone();
+                thread::spawn(move || {
+                    let mut buf = [0u8; 16 * 1024];
+                    while let Ok(n) = r.read(&mut buf) {
+                        while blocked.load(Ordering::Relaxed) {
+                            thread::sleep(Duration::from_millis(10));
+                        }
+                        if n == 0 || w.write_all(&buf[..n]).is_err() {
+                            let _ = w.shutdown(std::net::Shutdown::Both);
+                            return;
+                        }
+                    }
+                });
+            }
+        }
+    });
+    port
+}
+
+/// The game's peer packets (about 15 a second each way, 520 bytes) through an 8 s stall of the only path: every one
+/// comes back from the relay's echo, once and in order, after the stall.
+#[test]
+fn a_stall_pauses_the_flow_and_loses_nothing() {
+    let blocked = Arc::new(AtomicBool::new(false));
+    let p = pair_with("stall", 0, true, Some(blocked.clone()), (false, false));
+    assert!(logged(&p.join_log, "arcade link: flows on a stream"));
+    let s = UdpSocket::bind("127.0.0.1:0").unwrap();
+    s.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
+    let r = s.try_clone().unwrap();
+    const N: u32 = 200; // 13 s at 15 a second
+    let got = thread::spawn(move || {
+        let (mut got, mut gap, mut last) = (Vec::new(), Duration::ZERO, Instant::now());
+        let mut b = [0u8; 1024];
+        while got.len() < N as usize {
+            let Ok(n) = r.recv(&mut b) else { break };
+            assert_eq!(n, 520);
+            got.push(u32::from_le_bytes(b[..4].try_into().unwrap()));
+            gap = gap.max(last.elapsed());
+            last = Instant::now();
+        }
+        (got, gap)
+    });
+    let mut pkt = [0u8; 520];
+    let mut stalled = None;
+    for i in 0..N {
+        if i == 30 {
+            blocked.store(true, Ordering::Relaxed);
+            stalled = Some(Instant::now());
+        }
+        if stalled.is_some_and(|t| t.elapsed() >= Duration::from_secs(8)) {
+            blocked.store(false, Ordering::Relaxed);
+            stalled = None;
+        }
+        pkt[..4].copy_from_slice(&i.to_le_bytes());
+        s.send_to(&pkt, at(p.join_ports.relay)).unwrap();
+        thread::sleep(Duration::from_millis(66));
+    }
+    let (got, gap) = got.join().unwrap();
+    assert_eq!(
+        got,
+        (0..N).collect::<Vec<_>>(),
+        "every packet, once, in order"
+    );
+    // the proxy really cut the only path
+    assert!(gap >= Duration::from_secs(6), "longest silence {gap:?}");
+}
+
+/// A new side with a 0.6.2 one, either way round: datagram flows, and the packets still cross.
+#[test]
+fn an_old_peer_gets_datagram_flows() {
+    for (name, old) in [("oldhost", (true, false)), ("oldjoin", (false, true))] {
+        let p = pair_with(name, 0, false, None, old);
+        datagram_rtt(&p);
+        control_rtt(&p);
+        assert!(logged(&p.host_log, "joined, flows as datagrams"), "{name}");
+        if !old.1 {
+            assert!(
+                logged(&p.join_log, "arcade link: flows as datagrams"),
+                "{name}"
+            );
+        }
+    }
 }
