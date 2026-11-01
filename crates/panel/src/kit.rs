@@ -236,6 +236,39 @@ pub fn server_link() -> Link {
     Link::Down
 }
 
+/// The local port of this process's live link to the control port, to find what is left of it once it drops.
+pub fn link_port() -> Option<u16> {
+    let (me, want) = (std::process::id(), control_port());
+    let rows = tcp_rows()?;
+    rows.iter()
+        .find(|r| r[5] == me && r[0] == 5 && u16::from_be((r[4] & 0xFFFF) as u16) == want)
+        .map(|r| u16::from_be((r[2] & 0xFFFF) as u16))
+}
+
+/// The TCP state the dropped link from local port `local` left behind (a TIME_WAIT row has no process), if any.
+pub fn link_left(local: u16) -> Option<u32> {
+    let want = control_port();
+    let rows = tcp_rows()?;
+    rows.iter()
+        .find(|r| {
+            r[0] != 5
+                && u16::from_be((r[2] & 0xFFFF) as u16) == local
+                && u16::from_be((r[4] & 0xFFFF) as u16) == want
+        })
+        .map(|r| r[0])
+}
+
+/// Who closed the link, from the state it left ([`link_left`], MIB_TCP_STATE): the side that sends its FIN first
+/// waits in FIN_WAIT, CLOSING or TIME_WAIT; the one that got the FIN (an EOF on its socket) in CLOSE_WAIT or LAST_ACK.
+/// Nothing left: a reset, or a close by the control seen too late to tell (the row goes within the 2 s poll).
+pub fn close_reason(state: Option<u32>) -> &'static str {
+    match state {
+        Some(6 | 7 | 9 | 11) => "this seat closed it",
+        Some(8 | 10) => "the control closed it (EOF)",
+        _ => "no close seen: the control closed it or the link was reset",
+    }
+}
+
 /// The seats linked to the control `pid` on this PC: its connections on the control port (the projector counts).
 pub fn seats_on(pid: u32) -> Option<usize> {
     let want = control_port();
@@ -472,4 +505,26 @@ pub fn send_key(vk: u32, up: bool, log: impl Fn(&str)) {
     };
     // SAFETY: one keyboard input of our own
     unsafe { SendInput(&[input], size_of::<INPUT>() as i32) };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::close_reason;
+
+    #[test]
+    fn a_dropped_link_says_who_closed_it() {
+        assert_eq!(close_reason(Some(11)), "this seat closed it");
+        assert_eq!(close_reason(Some(7)), "this seat closed it");
+        assert_eq!(close_reason(Some(8)), "the control closed it (EOF)");
+        assert_eq!(
+            close_reason(Some(10)),
+            "the control closed it (EOF)",
+            "LAST_ACK"
+        );
+        assert_eq!(close_reason(Some(9)), "this seat closed it", "CLOSING");
+        assert_eq!(
+            close_reason(None),
+            "no close seen: the control closed it or the link was reset"
+        );
+    }
 }

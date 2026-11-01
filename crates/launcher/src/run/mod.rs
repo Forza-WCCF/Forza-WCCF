@@ -33,6 +33,7 @@
 //! `programs\forza-server.exe all` (2017-18: `Launcher.exe server all`), a child in the job.
 
 pub mod rules;
+mod sampler;
 
 use std::fs::{self, File};
 use std::io::{self, Write};
@@ -849,13 +850,14 @@ fn launched_pid(logs: &Path, log: &str) -> Option<u32> {
     re.captures(&text)?[1].parse().ok()
 }
 
-/// A log of the run's stand-ins: data\logs\<name>, a line each with the seconds since it started.
+/// A log of the run's stand-ins: data\logs\<name>, a line each with the wall clock and the seconds since it started.
 fn file_log(path: PathBuf) -> Log {
     let t0 = Instant::now();
     let file = Mutex::new(File::create(path).ok());
     Arc::new(move |msg| {
         if let Some(f) = file.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_mut() {
-            let _ = writeln!(f, "{:8.2}  {msg}", t0.elapsed().as_secs_f64());
+            let now = logs::clock(logs::local(std::time::SystemTime::now()));
+            let _ = writeln!(f, "{now} {:8.2}  {msg}", t0.elapsed().as_secs_f64());
         }
     })
 }
@@ -975,6 +977,10 @@ pub struct Run<'a> {
     remote: Option<(String, u16)>,
     /// 2017-18 server: its arcade room in the lobby (the code guests type), or why it has none.
     arcade_room: Option<Result<crate::lobby::HostRoom, String>>,
+    /// 2017-18 host: its arcade id and room code, for the run's `session:` line.
+    arcade: Option<String>,
+    /// The CPU and RAM sampler (run_sampler.txt), from the run's start to its end.
+    sampler: Option<Handle>,
     /// 2017-18 server: the guests its arcade tunnel has connected now.
     arcade_guests: Option<Arc<AtomicUsize>>,
     /// When the start began, and the setup and guard checks' end (logged once the log folder is rotated).
@@ -1066,6 +1072,8 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         beside_server,
         own_store: false,
         tunnel_ports: None,
+        arcade: None,
+        sampler: None,
         job,
         tx,
         rx,
@@ -1366,6 +1374,20 @@ impl Run<'_> {
         let _ = choices::write(&path, &left);
     }
 
+    /// The run's `session:` line in run_launcher.txt, once it has started (`projector`: None on a server).
+    fn session(&mut self, projector: Option<bool>) {
+        let arcade = match &self.mode {
+            Mode::Remote(entry, _) => Some(entry.as_str()),
+            _ => self.arcade.as_deref(),
+        };
+        crate::logs::append(
+            &self.logs().join("run_launcher.txt"),
+            &rules::session_line(&self.mode, arcade, self.seat_no, projector),
+        );
+        let logs = self.logs();
+        self.sampler.get_or_insert_with(|| sampler::spawn(logs));
+    }
+
     fn write_running(&self) {
         let t = logs::local(SystemTime::now());
         let started = format!(
@@ -1431,7 +1453,7 @@ impl Run<'_> {
             env: self.kit_env().into_iter().chain(env).chain([game_dpi()]).collect(),
             stop: Some(stop.clone()),
         };
-        let mut log = File::create(self.logs().join(role.log()))?;
+        let mut log = logs::Stamped::new(File::create(self.logs().join(role.log()))?);
         let (job, tx, id) = (self.job.clone(), self.tx.clone(), self.next_id);
         self.next_id += 1;
         let thread = thread::spawn(move || {
@@ -1716,6 +1738,7 @@ impl Run<'_> {
         }
         self.start_helper(projector);
         self.write_running();
+        self.session(Some(projector));
         self.say("");
         if let Mode::Remote(ip, _) = &self.mode {
             let playing = if projector {
@@ -1845,6 +1868,7 @@ impl Run<'_> {
             }
         }
         self.write_running();
+        self.session(None);
         self.say("");
         self.tell(
             "",
@@ -2256,6 +2280,10 @@ impl Run<'_> {
             let id = vslink::arcade::id_text(&link.id);
             // file name kept from before the arcade rename
             let _ = choices::write(&self.kit.data().join("shop_id.txt"), &format!("{id}\n"));
+            self.arcade = Some(match &room {
+                Some(Ok(r)) => format!("{id} code {}", r.code),
+                _ => id.clone(),
+            });
             match &room {
                 Some(Ok(r)) => self.tell(
                     "     ",
@@ -2590,6 +2618,7 @@ impl Run<'_> {
     /// `Job::stop` for whatever is left (its windows closed, then ended after the deadline); then the stand-ins, the
     /// key driver first.
     fn shutdown(&mut self) {
+        self.sampler = None;
         self.helper = None; // joins its threads (a view being made is given up)
         for (_, c) in &mut self.kids {
             let _ = c.kill();

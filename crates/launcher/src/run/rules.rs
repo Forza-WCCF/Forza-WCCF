@@ -54,6 +54,23 @@ impl Mode {
     }
 }
 
+/// The run's `session:` line in run_launcher.txt (SAVE LOGS copies every kept run's into pc.txt), to tell the players'
+/// PCs apart: this PC's part (a server hosts, a remote seat is a guest, the rest plays solo), the arcade (the host's id
+/// and room code, the guest's entry), the seat and the projector ("-" on a server).
+pub fn session_line(mode: &Mode, arcade: Option<&str>, seat: u8, projector: Option<bool>) -> String {
+    let role = match mode {
+        Mode::Server | Mode::LanServer => "host",
+        Mode::Remote(..) => "guest",
+        Mode::Local | Mode::Vs(_) => "solo",
+    };
+    let projector = projector.map_or("-", |p| if p { "on" } else { "off" });
+    format!(
+        "session: role {role}, mode {}, arcade {}, seat {seat}, projector {projector}",
+        mode.word(),
+        arcade.unwrap_or("-")
+    )
+}
+
 /// What the command line asks (play.py's words).
 #[derive(Debug, PartialEq, Eq)]
 pub enum Words {
@@ -456,6 +473,22 @@ pub fn compat_layer(existing: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_session_line_names_the_role_arcade_seat_and_projector() {
+        assert_eq!(
+            session_line(&Mode::Remote("abc".into(), None), Some("abc"), 2, Some(false)),
+            "session: role guest, mode remote, arcade abc, seat 2, projector off"
+        );
+        assert_eq!(
+            session_line(&Mode::Server, Some("xyz code VBWZBPKS"), 1, None),
+            "session: role host, mode server, arcade xyz code VBWZBPKS, seat 1, projector -"
+        );
+        assert_eq!(
+            session_line(&Mode::Local, None, 1, Some(true)),
+            "session: role solo, mode local, arcade -, seat 1, projector on"
+        );
+    }
 
     #[test]
     fn the_startup_line_names_the_stage_and_whole_milliseconds() {

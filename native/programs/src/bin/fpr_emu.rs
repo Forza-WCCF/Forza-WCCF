@@ -112,7 +112,11 @@ impl State {
         let Ok(bytes) = std::fs::read(&self.path) else {
             return; // being swapped: the stamp is not taken, so the next poll tries again
         };
-        self.cards = parse(&String::from_utf8_lossy(&bytes));
+        let cards = parse(&String::from_utf8_lossy(&bytes));
+        for line in changes(&self.cards, &cards) {
+            self.log(format_args!("{line}"));
+        }
+        self.cards = cards;
         self.stamp = Some((lo, hi));
         let n = self.cards.iter().flatten().count();
         if n != self.count || self.polls < 2 {
@@ -199,6 +203,25 @@ fn parse(text: &str) -> [Option<Card>; SLOTS + 1] {
         }
     }
     cards
+}
+
+/// One log line per card that left or reached a slot between two reads of the table (a card moved within its slot
+/// says nothing): what reaches the game, so a card that goes missing from a lineup shows when.
+fn changes(old: &[Option<Card>; SLOTS + 1], new: &[Option<Card>; SLOTS + 1]) -> Vec<String> {
+    let mut out = vec![];
+    for (s, (a, b)) in old.iter().zip(new).enumerate().skip(1) {
+        let (a, b) = (a.map(|c| c.card), b.map(|c| c.card));
+        if a == b {
+            continue;
+        }
+        if let Some(c) = a {
+            out.push(format!("table: card {c} off slot {s}"));
+        }
+        if let Some(c) = b {
+            out.push(format!("table: card {c} on slot {s}"));
+        }
+    }
+    out
 }
 
 /// Every slot, then the commit.
@@ -400,6 +423,21 @@ mod tests {
                 .iter()
                 .all(|l| l.split(',').all(|w| w.len() <= 7)),
             "fields of at most 7 characters"
+        );
+    }
+
+    #[test]
+    fn a_card_leaving_or_reaching_a_slot_is_one_line() {
+        let before = parse("1 100 0 0\n2 200 0 0\n3 300 0 0\n");
+        let after = parse("1 100 0.5 0.5\n2 250 0 0\n4 400 0 0\n");
+        assert_eq!(
+            changes(&before, &after),
+            [
+                "table: card 200 off slot 2",
+                "table: card 250 on slot 2",
+                "table: card 300 off slot 3",
+                "table: card 400 on slot 4",
+            ]
         );
     }
 

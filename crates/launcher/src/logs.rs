@@ -21,6 +21,17 @@ pub(crate) fn local(t: SystemTime) -> OffsetDateTime {
     UtcOffset::local_offset_at(utc).map_or(utc, |o| utc.to_offset(o))
 }
 
+/// `t` as the run logs' lines start: `hh:mm:ss.mmm`.
+pub fn clock(t: OffsetDateTime) -> String {
+    format!(
+        "{:02}:{:02}:{:02}.{:03}",
+        t.hour(),
+        t.minute(),
+        t.second(),
+        t.millisecond()
+    )
+}
+
 /// One "hh:mm:ss  line" added to `file`, its folder made first. A write that fails is skipped: logs never stop a step.
 pub fn append(file: &Path, line: &str) {
     if let Some(dir) = file.parent() {
@@ -190,4 +201,61 @@ pub fn rotate(logs: &Path) -> io::Result<Vec<String>> {
     }
     fs::create_dir_all(logs.join("hook"))?;
     Ok(said)
+}
+
+/// A run log whose every line starts with the wall clock ([`clock`]): the debugger's own lines keep their `t+`
+/// seconds after it, so lines of logs started at different times line up.
+pub struct Stamped<W: Write> {
+    out: W,
+    at_start: bool,
+    now: fn() -> String,
+}
+
+impl<W: Write> Stamped<W> {
+    pub fn new(out: W) -> Self {
+        Self::with_clock(out, || clock(local(SystemTime::now())))
+    }
+
+    fn with_clock(out: W, now: fn() -> String) -> Self {
+        Self {
+            out,
+            at_start: true,
+            now,
+        }
+    }
+}
+
+impl<W: Write> Write for Stamped<W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        for piece in buf.split_inclusive(|&b| b == b'\n') {
+            if self.at_start {
+                self.out.write_all(format!("{} ", (self.now)()).as_bytes())?;
+            }
+            self.out.write_all(piece)?;
+            self.at_start = piece.ends_with(b"\n");
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.out.flush()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Stamped;
+    use std::io::Write;
+
+    #[test]
+    fn every_line_of_a_stamped_log_starts_with_the_clock() {
+        let mut s = Stamped::with_clock(Vec::new(), || "09:05:07.042".into());
+        write!(s, "  t+  1.0s process ").unwrap();
+        writeln!(s, "started").unwrap();
+        write!(s, "a\nb\n").unwrap();
+        assert_eq!(
+            String::from_utf8(s.out).unwrap(),
+            "09:05:07.042   t+  1.0s process started\n09:05:07.042 a\n09:05:07.042 b\n"
+        );
+    }
 }

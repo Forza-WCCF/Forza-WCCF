@@ -623,7 +623,8 @@ fn is_projector() -> bool {
 
 /// The server link, watched all the time (`wccfpanel.c` `link_watch`): every 2 s this process's link to the server's
 /// control port; one dated line in WCCF_LOGS\server_link.txt when it comes up ("UP 1.2.3.4") and when it drops ("LOST
-/// (it was up N s)", or ENDED after the player closed the window: no fault). The run reads it (launcher run::rules).
+/// (it was up N s)", or ENDED after the player closed the window: no fault), then who closed it ([`kit::close_reason`]).
+/// The run reads it (launcher run::rules).
 fn link_watch() {
     use forza_ui::panel::Link;
     let Some(dir) = std::env::var_os("WCCF_LOGS") else {
@@ -635,6 +636,7 @@ fn link_watch() {
         .ok()
         .and_then(|a| std::net::TcpStream::connect(a).ok());
     let mut up_at: Option<Instant> = None;
+    let mut port = None;
     loop {
         let now = match kit::server_link() {
             Link::Unknown => None,
@@ -654,13 +656,14 @@ fn link_watch() {
             let line = match (&now, up_at) {
                 (Some(peer), _) => format!("{stamp} UP {peer}\n"),
                 (None, at) => format!(
-                    "{stamp} {} (it was up {} s)\n",
+                    "{stamp} {} (it was up {} s), {}\n",
                     if CLOSING.load(Relaxed) {
                         "ENDED"
                     } else {
                         "LOST"
                     },
-                    at.map_or(0, |a| a.elapsed().as_secs())
+                    at.map_or(0, |a| a.elapsed().as_secs()),
+                    kit::close_reason(port.and_then(kit::link_left))
                 ),
             };
             if let Ok(mut f) = std::fs::OpenOptions::new()
@@ -671,6 +674,9 @@ fn link_watch() {
                 let _ = f.write_all(line.as_bytes());
             }
             up_at = now.map(|_| Instant::now());
+        }
+        if up_at.is_some() {
+            port = kit::link_port().or(port);
         }
         std::thread::sleep(Duration::from_secs(2));
     }
