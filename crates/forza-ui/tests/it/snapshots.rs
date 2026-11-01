@@ -273,9 +273,20 @@ fn panel_2017_18_and_compact() {
     let _gpu = gpu();
     let mut all = SnapshotResults::new();
     let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
+    st.fps = Some(30); // SETTINGS > FPS COUNTER on
     snap(
         &mut all,
         "panel_game_1718_en",
+        panel::SIZE,
+        Edition::E1718,
+        |ui| panel::show(ui, &mut st),
+    );
+    // 2017-18's own SETTINGS rows (controller in the background, texture filtering, FPS counter), the longest text
+    st = panel::PanelState::sample(Edition::E1718, Lang::Ja, panel::Page::Settings);
+    (st.file.textures, st.file.fps) = (8, true);
+    snap(
+        &mut all,
+        "panel_settings_1718_ja",
         panel::SIZE,
         Edition::E1718,
         |ui| panel::show(ui, &mut st),

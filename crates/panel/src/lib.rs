@@ -29,6 +29,7 @@
 
 mod exe_text;
 mod fullscreen;
+mod graphics;
 mod kit;
 mod money;
 mod net;
@@ -204,7 +205,7 @@ fn foreign_hooks() -> String {
 }
 
 thread_local! {
-    static IN_PRESENT: Cell<bool> = const { Cell::new(false) };
+    pub(crate) static IN_PRESENT: Cell<bool> = const { Cell::new(false) };
 }
 
 fn log(msg: &str) {
@@ -1291,12 +1292,16 @@ unsafe extern "system" fn hook_present(
     }
     // the game's own parts, every frame (each acts on its own clock): as wccfpanel.c hook_present
     patches::frame_stats_tick(log);
-    // 2017-18: the per-match frame log (2010-11 stays as it is)
+    // 2017-18: the per-match frame log, the FPS counter and TEXTURE FILTERING (2010-11 stays as it is)
     if FILES
         .get()
         .is_some_and(|f| f.edition == theme::Edition::E1718)
     {
         pacing::tick(match_playing, frame_log);
+        // SAFETY: the game's device, alive for the call; before the panel's state block, so its filters stay
+        if let Some(d) = unsafe { IDirect3DDevice9::from_raw_borrowed(&dev) } {
+            graphics::tick(d, log);
+        }
     }
     patches::dispenser_tick(log);
     patches::free_play_tick(log);
@@ -1532,6 +1537,11 @@ impl Render {
                 _ => (cr.right as u32, cr.bottom as u32),
             };
             let sc = self.swap_chain(dev, target, w, h)?;
+            // SETTINGS > TEXTURE FILTERING and FPS COUNTER (2017-18): the hook reads the choice on the next frame
+            if self.st.edition == theme::Edition::E1718 {
+                graphics::WANT.store(self.st.file.textures, Relaxed);
+                self.st.fps = self.st.file.fps.then(pacing::fps);
+            }
             let sb = dev.CreateStateBlock(D3DSBT_ALL).ok()?;
             let mut vp = D3DVIEWPORT9::default();
             let _ = dev.GetViewport(&mut vp);
