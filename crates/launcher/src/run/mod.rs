@@ -976,6 +976,8 @@ pub struct Run<'a> {
     remote: Option<(String, u16)>,
     /// 2017-18 server: its arcade room in the lobby (the code guests type), or why it has none.
     arcade_room: Option<Result<crate::lobby::HostRoom, String>>,
+    /// 2017-18 host: its arcade id and room code, for the run's `session:` line.
+    arcade: Option<String>,
     /// 2017-18 server: the guests its arcade tunnel has connected now.
     arcade_guests: Option<Arc<AtomicUsize>>,
     /// When the start began, and the setup and guard checks' end (logged once the log folder is rotated).
@@ -1067,6 +1069,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         beside_server,
         own_store: false,
         tunnel_ports: None,
+        arcade: None,
         job,
         tx,
         rx,
@@ -1365,6 +1368,18 @@ impl Run<'_> {
         }
         let left = choices::set_panel_value(&choices::read(&path), "english", None);
         let _ = choices::write(&path, &left);
+    }
+
+    /// The run's `session:` line in run_launcher.txt, once it has started (`projector`: None on a server).
+    fn session(&self, projector: Option<bool>) {
+        let arcade = match &self.mode {
+            Mode::Remote(entry, _) => Some(entry.as_str()),
+            _ => self.arcade.as_deref(),
+        };
+        crate::logs::append(
+            &self.logs().join("run_launcher.txt"),
+            &rules::session_line(&self.mode, arcade, self.seat_no, projector),
+        );
     }
 
     fn write_running(&self) {
@@ -1717,6 +1732,7 @@ impl Run<'_> {
         }
         self.start_helper(projector);
         self.write_running();
+        self.session(Some(projector));
         self.say("");
         if let Mode::Remote(ip, _) = &self.mode {
             let playing = if projector {
@@ -1846,6 +1862,7 @@ impl Run<'_> {
             }
         }
         self.write_running();
+        self.session(None);
         self.say("");
         self.tell(
             "",
@@ -2257,6 +2274,10 @@ impl Run<'_> {
             let id = vslink::arcade::id_text(&link.id);
             // file name kept from before the arcade rename
             let _ = choices::write(&self.kit.data().join("shop_id.txt"), &format!("{id}\n"));
+            self.arcade = Some(match &room {
+                Some(Ok(r)) => format!("{id} code {}", r.code),
+                _ => id.clone(),
+            });
             match &room {
                 Some(Ok(r)) => self.tell(
                     "     ",
