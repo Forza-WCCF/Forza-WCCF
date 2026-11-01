@@ -7,6 +7,7 @@
 //! answered from a SQLite store, `<save_dir>/gamesvr.db`, by the recipe of docs/research/ONLINE-2017-18.md ("M1");
 //! every other message gets zeros. A request the store refuses (short, wrong revision, unknown ids) gets errCode 1.
 
+use super::club::team_tag;
 use super::vs::{self, Matcher, VsConfig};
 use crate::service::{Handle, Log, accept_loop, read_some};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
@@ -989,9 +990,17 @@ fn club(
             if usize::from(u16_at(req, 3102)) > BLOCK {
                 return Err(format!("save size {}", u16_at(req, 3102)));
             }
+            let before = st
+                .save(aime, coach, card)
+                .map_err(db)?
+                .map_or("-".into(), |(block, ..)| team_tag(&block));
             if !st.set_save(aime, coach, card, req).map_err(db)? {
                 return Err(format!("no club aime {aime} coach {coach} card {card}"));
             }
+            log(&format!(
+                "club save: aime {aime} coach {coach} card {card} team {before} -> {}",
+                team_tag(&req[28..28 + BLOCK])
+            ));
             put(body, 8, coach);
         }
         275 => {
@@ -1043,9 +1052,13 @@ fn club(
 /// Tests elsewhere in `online` (club): one request answered from `store` with no VS and no skip club; the answer
 /// and the store's refusal.
 #[cfg(test)]
-pub(super) fn ask_for_test(store: &Mutex<Store>, cmd: u16, p: &[u8]) -> (Vec<u8>, Option<String>) {
-    let log: Log = Arc::new(|_: &str| {});
-    let (_, body, why) = answer(cmd, p, store, None, &[], None, &log).unwrap();
+pub(super) fn ask_for_test(
+    store: &Mutex<Store>,
+    cmd: u16,
+    p: &[u8],
+    log: &Log,
+) -> (Vec<u8>, Option<String>) {
+    let (_, body, why) = answer(cmd, p, store, None, &[], None, log).unwrap();
     (body, why)
 }
 
@@ -1097,7 +1110,51 @@ fn answer(
     if refused.is_some() {
         put(&mut body, 4, 1);
     }
+    if let Some(line) = match_line(cmd, payload, refused.as_deref()) {
+        log(&line);
+    }
     Some((rcmd, body, refused))
+}
+
+/// A 56-byte name of the game's records: up to its NUL, Shift-JIS (without the `full` feature its bytes as UTF-8).
+pub(super) fn name_text(b: &[u8]) -> String {
+    let b = b.split(|&c| c == 0).next().unwrap_or(&[]);
+    #[cfg(feature = "full")]
+    let t = encoding_rs::SHIFT_JIS.decode_without_bom_handling(b).0;
+    #[cfg(not(feature = "full"))]
+    let t = String::from_utf8_lossy(b);
+    t.trim().to_owned()
+}
+
+/// The log's match lines, CPU and VS matches alike (docs/research/ONLINE-2017-18.md): INJUSTICE_COUNT 289 with +1 is a
+/// play's start (sub_785BA0); SAVE_DATA_SET 277 its end, with the opponent (a CPU club has coachId 0), the score and
+/// whether the store took the result.
+fn match_line(cmd: u16, req: &[u8], refused: Option<&str>) -> Option<String> {
+    let id = |at| u32_at(req, at);
+    match cmd {
+        289 if req.len() >= 20 && id(16) == 1 => Some(format!(
+            "match start: aime {} coach {} card {}",
+            id(4),
+            id(8),
+            id(12)
+        )),
+        277 if req.len() >= 8572 => Some(format!(
+            "match end: aime {} coach {} vs {:?} (manager {:?}, coach {}) score {}-{} pk {}-{}, save kind {}: \
+             result save {}",
+            id(4),
+            id(8),
+            name_text(&req[3356..3412]),
+            name_text(&req[3300..3356]),
+            id(3296),
+            id(3416),
+            id(3428),
+            id(3424),
+            id(3436),
+            req[24],
+            refused.map_or("ok".into(), |why| format!("FAILED ({why})"))
+        )),
+        _ => None,
+    }
 }
 
 /// The VS switch (M3): the reflect address 202 hands out and the entry matcher.
@@ -1950,6 +2007,38 @@ mod tests {
         let log: Log = Arc::new(|_: &str| {});
         let (_, body, why) = answer(cmd, p, store, None, &[], None, &log).unwrap();
         (body, why)
+    }
+
+    /// A play's start (289 +1) and end (277 with its report) as the log says them; other 289s say nothing.
+    #[test]
+    fn match_lines_name_the_opponent_score_and_save() {
+        let mut start = vec![0u8; 28];
+        for (at, v) in [(4, 7), (8, 2), (12, 3), (16, 1)] {
+            put(&mut start, at, v);
+        }
+        assert_eq!(
+            match_line(289, &start, None).unwrap(),
+            "match start: aime 7 coach 2 card 3"
+        );
+        put(&mut start, 16, u32::MAX); // -1: the save went through
+        assert_eq!(match_line(289, &start, None), None);
+        let mut end = vec![0u8; 8572];
+        for (at, v) in [(4, 7), (8, 2), (3416, 3), (3428, 1)] {
+            put(&mut end, at, v);
+        }
+        end[24] = 2;
+        end[3300..3303].copy_from_slice(b"CPU");
+        end[3356..3366].copy_from_slice(b"BEST ELEVN");
+        assert_eq!(
+            match_line(277, &end, None).unwrap(),
+            "match end: aime 7 coach 2 vs \"BEST ELEVN\" (manager \"CPU\", coach 0) score 3-1 pk 0-0, save kind 2: \
+             result save ok"
+        );
+        assert!(
+            match_line(277, &end, Some("block sum 0x1"))
+                .unwrap()
+                .ends_with("result save FAILED (block sum 0x1)")
+        );
     }
 
     #[test]

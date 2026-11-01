@@ -164,6 +164,21 @@ impl Swap {
     }
 }
 
+/// A save block's tag for the logs: 8 hex digits of its SHA-256 with the ids a copy swaps zeroed, so a club reads the
+/// same at home and in an arcade, and any change to its squad, lineup or record shows as a new tag.
+pub fn team_tag(block: &[u8]) -> String {
+    let mut b = block.to_vec();
+    if b.len() >= BLOCK {
+        for bit in CARD_BITS.into_iter().chain([COACH_BIT]) {
+            put_bits(&mut b, bit, 32, 0);
+        }
+    }
+    Sha256::digest(&b)[..4]
+        .iter()
+        .map(|x| format!("{x:02x}"))
+        .collect()
+}
+
 fn swap_u32(b: &mut [u8], at: usize, ids: &HashMap<u32, u32>) {
     if let Some(&n) = ids.get(&u32_at(b, at)) {
         put(b, at, n);
@@ -268,6 +283,19 @@ impl Club {
             }
         }
         Ok(())
+    }
+
+    /// One short log line: the card count, then each club card's id, coach id, play count and [`team_tag`].
+    pub fn summary(&self) -> String {
+        let mut s = format!("aime {}: {} card(s)", self.aime, self.coaches.len());
+        for k in &self.coaches {
+            let team = k.save.as_ref().map_or("-".into(), |v| team_tag(&v.block));
+            s += &format!(
+                " [card {} coach {} plays {} team {team}]",
+                k.card, k.coach, k.play_count
+            );
+        }
+        s
     }
 
     /// A short hash of the club's JSON: equal stamps, equal clubs.
@@ -668,8 +696,9 @@ pub fn serve(
                 Ok(link) => {
                     let json = serde_json::to_vec(&link).unwrap_or_default();
                     let said = format!(
-                        "club in: seat {seat}, Aime id {aime}, {} clubs",
-                        club.coaches.len()
+                        "club in: seat {seat}, Aime id {aime}, {} clubs; home {}",
+                        club.coaches.len(),
+                        club.summary()
                     );
                     (format!("OK {}\n", json.len()), json, said)
                 }
@@ -683,7 +712,11 @@ pub fn serve(
                 if now == stamp {
                     ("SAME\n".to_owned(), Vec::new(), String::new())
                 } else {
-                    let said = format!("club out: Aime id {aime}, {} clubs", club.coaches.len());
+                    let said = format!(
+                        "club out: Aime id {aime}, {} clubs; {}",
+                        club.coaches.len(),
+                        club.summary()
+                    );
                     (format!("OK {} {now}\n", json.len()), json, said)
                 }
             }
@@ -921,6 +954,7 @@ impl Guest {
         let saved = backup(&self.dir, &format!("club-{}", self.home_aime), &json)
             .map_err(|e| e.to_string())?;
         log(&format!("home club backed up: {}", saved.display()));
+        log(&format!("club copy-in, home: {}", club.summary()));
         let link = send(self.desk, self.seat, self.arcade_aime, &self.code, &club)?;
         let out = Out {
             arcade: self.arcade.clone(),
@@ -1008,6 +1042,9 @@ impl Guest {
                 "club copy-back: cannot keep the pulled copy ({e})"
             ));
         }
+        if let Ok(home) = store.club(self.home_aime) {
+            log(&format!("club copy-back, home before: {}", home.summary()));
+        }
         // the stamp moves only once this copy is home or set aside, so a failed write is tried again next poll
         match store.write_home(&host, &mut out.link, self.home_aime, &out.home_stamp) {
             Ok(Some(home)) => {
@@ -1019,6 +1056,9 @@ impl Guest {
                     log(&format!("club copy-back: marker not updated ({e})"));
                 }
                 log(&format!("club copied home: {} clubs", host.coaches.len()));
+                if let Ok(home) = store.club(self.home_aime) {
+                    log(&format!("club copy-back, home after: {}", home.summary()));
+                }
                 true
             }
             Ok(None) => {
@@ -1268,8 +1308,12 @@ mod tests {
         let k = &there.coaches[1];
         let mut block = k.save.as_ref().unwrap().block.clone();
         block[1000] ^= 0x5A;
-        let (_, refused) =
-            super::super::gamesvr::ask_for_test(&host, 277, &save_277(arcade_aime, 5, 5, &block));
+        let (_, refused) = super::super::gamesvr::ask_for_test(
+            &host,
+            277,
+            &save_277(arcade_aime, 5, 5, &block),
+            &(Arc::new(|_: &str| {}) as Log),
+        );
         assert_eq!(refused, None);
         let after = host
             .lock()
@@ -1510,7 +1554,9 @@ mod tests {
         let host_db = d.path().join("host.db");
         drop(store_with(&host_db, &club(9, &[(1, 1)])));
         let (at, _down) = desk(host_db.clone());
-        let log: Log = Arc::new(|_: &str| {});
+        let said = Arc::new(Mutex::new(Vec::<String>::new()));
+        let keep = said.clone();
+        let log: Log = Arc::new(move |l: &str| keep.lock().unwrap().push(l.to_owned()));
         assert!(
             guest(at, &dir, 3)
                 .bring(log.clone())
@@ -1520,7 +1566,7 @@ mod tests {
         );
         assert!(!out_file(&dir).exists());
 
-        let trip = guest(at, &dir, 2).bring(log).unwrap();
+        let trip = guest(at, &dir, 2).bring(log.clone()).unwrap();
         assert!(out_file(&dir).exists(), "marked out");
         let backups = std::fs::read_dir(dir.join("backups")).unwrap().count();
         assert_eq!(
@@ -1534,7 +1580,7 @@ mod tests {
         block[2000] ^= 1;
         let (k, c) = (there.coaches[0].coach, there.coaches[0].card);
         assert_eq!(
-            super::super::gamesvr::ask_for_test(&host, 277, &save_277(50, k, c, &block)).1,
+            super::super::gamesvr::ask_for_test(&host, 277, &save_277(50, k, c, &block), &log).1,
             None
         );
         let home = Store::open(&dir.join("gamesvr.db")).unwrap();
@@ -1560,6 +1606,46 @@ mod tests {
             sent.coaches[0].save.as_ref().unwrap().block[2000] ^ 1
         );
         assert_eq!(leftover(&dir).unwrap(), None);
+        // the club's cards and team, logged on copy-in, at the result save and around each copy-back
+        let said = said.lock().unwrap().join("\n");
+        let (old, new) = (
+            team_tag(&sent.coaches[0].save.as_ref().unwrap().block),
+            team_tag(&block),
+        );
+        for want in [
+            format!("club copy-in, home: aime 1: 1 card(s) [card 1 coach 1 plays 7 team {old}]"),
+            format!("club save: aime 50 coach {k} card {c} team {old} -> {new}"),
+            format!(
+                "club copy-back, home before: aime 1: 1 card(s) [card 1 coach 1 plays 7 team {old}]"
+            ),
+            format!(
+                "club copy-back, home after: aime 1: 1 card(s) [card 1 coach 1 plays 8 team {new}]"
+            ),
+        ] {
+            assert!(said.contains(&want), "{want:?} in:\n{said}");
+        }
+        assert!(said.contains("match end: aime 50 "), "{said}");
+    }
+
+    /// The logs' team tag reads the same at home and in the arcade (the swapped ids are left out of it).
+    #[test]
+    fn the_team_tag_ignores_the_swapped_ids() {
+        let home = club(1, &[(1, 1)]);
+        let link = Link {
+            coaches: vec![(1, 70)],
+            cards: vec![(1, 71)],
+        };
+        let host = home.remap(&Swap::out(&link, 1, 50));
+        let tag = |c: &Club| team_tag(&c.coaches[0].save.as_ref().unwrap().block);
+        assert_eq!(tag(&home), tag(&host));
+        assert_eq!(tag(&home).len(), 8);
+        assert_eq!(
+            host.summary(),
+            format!(
+                "aime 50: 1 card(s) [card 71 coach 70 plays 7 team {}]",
+                tag(&home)
+            )
+        );
     }
 
     /// The host dies mid-session: the club stays marked out; the next start keeps the home copy, puts the last
