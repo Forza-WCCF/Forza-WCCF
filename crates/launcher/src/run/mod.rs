@@ -2405,7 +2405,7 @@ impl Run<'_> {
         let (dir, kit, game) = (self.p.logs_dir.clone(), self.kit.dir().to_path_buf(), self.game.clone());
         let tx = self.tx.clone();
         thread::spawn(move || {
-            let line = match save_logs::save(&dir, &kit, Some(&game), &Scrub::from_env(), None) {
+            let line = match crate::report::save_zip(&dir, &kit, Some(&game), &Scrub::from_env(), None) {
                 Ok(path) => format!("ok {}", path.display()),
                 Err(e) => format!("fail {e}"),
             };

@@ -56,6 +56,7 @@ use windows_sys::Win32::System::Threading::{
 
 use windows_sys::Win32::UI::WindowsAndMessaging::IsHungAppWindow;
 
+pub use dump::dump_running;
 use dump::write_dumps;
 use mem::{Index, MSGPARSE_RET_OFF, MSGPARSE_STACK_SCAN};
 

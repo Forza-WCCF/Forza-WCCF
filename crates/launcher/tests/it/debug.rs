@@ -418,3 +418,42 @@ fn the_2017_18_shared_memory_holds_the_player_data() {
     assert!(text.contains(&format!("{id}_ WCCF 17-18 Ver2.0")), "{text}");
     assert!(!text.contains("moai") && !text.contains("status"), "{text}");
 }
+
+/// SAVE LOGS during a run: the client and the match engine running from the game's folders get a lean snapshot, and the
+/// ZIP carries both; with nothing running nothing is written.
+#[test]
+fn save_logs_dumps_the_running_client_and_match_engine() {
+    use forza::online::save_logs::Scrub;
+    let top = tempfile::tempdir().unwrap();
+    let game = top.path().join("game");
+    fs::create_dir_all(&game).unwrap();
+    let (kit, dumps, zips) = (
+        top.path().join("kit"),
+        top.path().join("kit/data/dumps"),
+        top.path().join("zips"),
+    );
+    // nothing running: no snapshot, no folder
+    launcher::report::save_zip(&zips, &kit, Some(&game), &Scrub::default(), None).unwrap();
+    assert!(!dumps.exists());
+    let mut kids = Vec::new();
+    for name in ["client_Release.exe", "match_Release.exe"] {
+        fs::copy(std::env::current_exe().unwrap(), game.join(name)).unwrap();
+        kids.push(
+            std::process::Command::new(game.join(name))
+                .args(["debug::window_stand_in", "--exact", "--ignored", "--nocapture"])
+                .spawn()
+                .unwrap(),
+        );
+    }
+    thread::sleep(Duration::from_millis(500));
+    let zip = launcher::report::save_zip(&zips, &kit, Some(&game), &Scrub::default(), None).unwrap();
+    let zip = String::from_utf8_lossy(&fs::read(zip).unwrap()).into_owned();
+    for (kid, name) in kids.iter_mut().zip(["client_Release", "match_Release"]) {
+        assert!(
+            zip.contains("dumps/") && zip.contains(&format!("_{name}_{}_lean.dmp", kid.id())),
+            "{name} is not in the ZIP"
+        );
+        let _ = kid.kill();
+    }
+    assert!(!zip.contains("_full.dmp"), "lean only");
+}
