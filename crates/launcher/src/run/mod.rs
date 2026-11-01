@@ -977,11 +977,15 @@ pub struct Run<'a> {
     arcade_room: Option<Result<crate::lobby::HostRoom, String>>,
     /// 2017-18 server: the guests its arcade tunnel has connected now.
     arcade_guests: Option<Arc<AtomicUsize>>,
+    /// When the start began, and the setup and guard checks' end (logged once the log folder is rotated).
+    t0: Instant,
+    early: [Duration; 2],
     _lock: OwnedHandle,
 }
 
 /// Starts a run; `Err` is the exit code (what went wrong is said).
 pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a dyn Ui) -> Result<Run<'a>, i32> {
+    let t0 = Instant::now();
     if procs::prefers_system32() {
         tell(ui, "", &Text::key("launcher.run_unguarded"));
         return Err(UNGUARDED);
@@ -1010,6 +1014,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
     if edition == Edition::E1718 && !crate::setup::again_if_stale(kit, &game, ui) {
         return Err(NOT_GUARDED);
     }
+    let setup_done = t0.elapsed();
     // before anything of the run exists: no game program may start unguarded (docs/SAFETY.md)
     if edition == Edition::E1718
         && let Err(why) = guard::check(&game, &seat, p.client(), p.control(), p.matcher())
@@ -1017,6 +1022,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         tell(ui, "", &Text::key("launcher.run_not_guarded").arg("why", why));
         return Err(NOT_GUARDED);
     }
+    let early = [setup_done, t0.elapsed()];
     if !kit.cache().join("catalogue.tsv").is_file() {
         // the panel's card browser only: never a reason not to start
         tell(ui, "  ", &Text::key("launcher.run_no_catalogue"));
@@ -1078,6 +1084,8 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         remote: None,
         arcade_room: None,
         arcade_guests: None,
+        t0,
+        early,
         _lock: lock,
     };
     // requests left by a run that ended are never carried out
@@ -1120,6 +1128,11 @@ impl Run<'_> {
             &format!("{lead}{}", text.get(self.ui.lang())),
             &format!("{lead}{}", text.en()),
         );
+    }
+
+    /// `startup: <stage> <ms>` in data\logs\run_launcher.txt: ms since the start began (PLAY).
+    fn startup(&self, stage: &str, since: Duration) {
+        crate::logs::append(&self.logs().join("run_launcher.txt"), &rules::startup_line(stage, since));
     }
 
     /// A line as shown and in English (the log's).
@@ -1502,6 +1515,8 @@ impl Run<'_> {
                 self.ensure_hook()?;
             }
         }
+        self.startup("setup", self.early[0]);
+        self.startup("guard", self.early[1]);
         // here the start is admitted (nothing else writes the pictures), unrefused, guarded and the folder repaired; a
         // server that does not answer is only found at step 2, after this wait. Not beside a server on this PC: its
         // game reads the folder. A failure never stops the start.
@@ -1655,6 +1670,7 @@ impl Run<'_> {
                     .arg("n", self.job_count(p.matcher())),
             );
         }
+        self.startup("engines", self.t0.elapsed());
         if self.mode.is_server() {
             return self.start_server_side();
         }
@@ -1936,6 +1952,7 @@ impl Run<'_> {
             || procs::has_window(pid),
         )?;
         self.tell("  5/6 ", &Text::key("launcher.run_window_up").arg("n", n));
+        self.startup("window", self.t0.elapsed());
         let olog = self.seat.join("forza_panel.log");
         let skip = fs::metadata(&olog).map_or(0, |m| m.len() as usize);
         // 2017-18: wccfnet.dll loads the panel 3 s after the window (FORZA_PANEL); 2010-11: inject.exe does
