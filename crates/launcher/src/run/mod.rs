@@ -1132,7 +1132,10 @@ impl Run<'_> {
 
     /// `startup: <stage> <ms>` in data\logs\run_launcher.txt: ms since the start began (PLAY).
     fn startup(&self, stage: &str, since: Duration) {
-        crate::logs::append(&self.logs().join("run_launcher.txt"), &rules::startup_line(stage, since));
+        crate::logs::append(
+            &self.logs().join("run_launcher.txt"),
+            &rules::startup_line(stage, since),
+        );
     }
 
     /// A line as shown and in English (the log's).
