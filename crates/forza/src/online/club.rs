@@ -904,8 +904,10 @@ pub struct Progress {
     pub last_ok: Option<Instant>,
     /// The last copy-back (at the end) brought it home.
     pub home: bool,
-    /// The last copy-back found the host's PC up but its server gone (refused or reset): the host closed the arcade.
+    /// The last two copy-backs found the host's PC up but its server gone (refused or reset): the host closed the
+    /// arcade, not a desk that restarts.
     pub gone: bool,
+    gone_once: bool,
 }
 
 /// A copy-back error that says the host's server is gone while its PC answers: refused or reset (Windows errors).
@@ -1053,8 +1055,12 @@ impl Guest {
     ) -> bool {
         let since = if all { "" } else { out.host_stamp.as_str() };
         let got = fetch(self.desk, self.arcade_aime, &self.code, since);
-        progress.lock().unwrap_or_else(PoisonError::into_inner).gone =
-            got.as_ref().is_err_and(|e| server_gone(e));
+        {
+            let mut p = progress.lock().unwrap_or_else(PoisonError::into_inner);
+            let now = got.as_ref().is_err_and(|e| server_gone(e));
+            p.gone = now && p.gone_once;
+            p.gone_once = now;
+        }
         let (stamp, host) = match got {
             Ok(Some(got)) => got,
             Ok(None) => return true,
@@ -1688,7 +1694,7 @@ mod tests {
         });
         closed.store(true, Ordering::Relaxed);
         let _ = TcpStream::connect(addr); // wakes the desk, which then closes its listener
-        thread::sleep(Duration::from_millis(100));
+        wait("a refused copy-back", || progress.lock().unwrap().gone_once);
         drop(trip);
         let p = *progress.lock().unwrap();
         assert!(!p.home && p.gone, "{p:?}");

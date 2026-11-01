@@ -361,12 +361,12 @@ pub fn went_wrong(launcher_logs: &[&str], read: impl Fn(&str) -> String) -> Vec<
     why
 }
 
-/// A guest's saves after a match reach the host's store within this long of the seat's last match line (the panel logs
-/// a match's end 5-10 s after its last frame; the game saves at the result screen and once more about 20 s later).
+/// A guest's saves after a match reach the host's store within this long of the seat's last match end line (the panel
+/// logs it 5-10 s after the last frame; the game saves at the result screen and once more about 20 s later).
 pub const CLUB_SETTLE: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// Whether an arcade guest's club is safe at home after the host closed the arcade: brought home at the end, or its
-/// last good copy-back came after every match could have saved (no match line seen, or [`CLUB_SETTLE`] after the last).
+/// last good copy-back came after every match could have saved (no match seen, or [`CLUB_SETTLE`] after the last end).
 /// shortcut: only matches through the relay (VS) log a line, not CPU matches in the arcade; upgrade if those save late.
 pub fn club_safe(home: bool, last_ok: Option<Instant>, last_match: Option<Instant>) -> bool {
     home || last_match.is_none_or(|m| last_ok.is_some_and(|ok| ok >= m + CLUB_SETTLE))
@@ -934,7 +934,7 @@ mod tests {
         );
         let net = include_str!("../../../panel/src/net.rs");
         assert!(
-            net.contains(&format!("\"{}start, ", super::super::MATCH_LINE))
+            net.contains(&format!("\"{}", super::super::MATCH_START))
                 && net.contains(&format!("\"{}end after ", super::super::MATCH_LINE)),
             "the panel's match lines the club rule reads ({:?})",
             super::super::MATCH_LINE

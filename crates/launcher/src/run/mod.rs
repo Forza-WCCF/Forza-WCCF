@@ -89,6 +89,7 @@ const ANSWER_WAIT: Duration = Duration::from_secs(60);
 pub(crate) const PANEL_UP: &str = "first frame shown";
 /// The start of the panel's match lines ("match: start, ...", "match: end after N s"; crates/panel/src/net.rs).
 pub(crate) const MATCH_LINE: &str = "match: ";
+pub(crate) const MATCH_START: &str = "match: start, ";
 
 /// 2017-18 arcade guest: what the end needs to tell that the host closed the arcade, and whether the club is safe.
 #[derive(Default)]
@@ -97,8 +98,10 @@ struct Visit {
     host_closed: Option<Arc<AtomicBool>>,
     /// The club trip's progress, and the home store's folder.
     club: Option<(Arc<Mutex<club::Progress>>, PathBuf)>,
-    /// When a match line last came in the seat's panel log, and how far that log is read.
-    match_seen: Option<Instant>,
+    /// When the seat's panel last logged a match's end; whether its last match line was a start (a match on); how far
+    /// that log is read.
+    match_end: Option<Instant>,
+    match_on: bool,
     panel_read: u64,
 }
 
@@ -2484,15 +2487,20 @@ impl Run<'_> {
             return;
         }
         self.visit.panel_read += new.len() as u64;
-        if String::from_utf8_lossy(&new).contains(MATCH_LINE) {
-            self.visit.match_seen = Some(Instant::now());
+        let new = String::from_utf8_lossy(&new);
+        if let Some(line) = new.lines().rev().find(|l| l.contains(MATCH_LINE)) {
+            self.visit.match_on = line.contains(MATCH_START);
+            if !self.visit.match_on {
+                self.visit.match_end = Some(Instant::now());
+            }
         }
     }
 
     /// An arcade guest whose host closed the arcade (the tunnel heard it; without one, the club's last copy-back found
     /// the host's server gone): the end's notice, with the club safe or not. A safe club that did not come home at the
     /// end is settled, so the next start says nothing. After `shutdown` (the trip's last copy-back done).
-    fn host_closed_notice(&self) -> Option<Text> {
+    fn host_closed_notice(&mut self) -> Option<Text> {
+        self.watch_matches(); // the lines since the last look
         let progress = self
             .visit
             .club
@@ -2506,7 +2514,13 @@ impl Run<'_> {
             return None;
         }
         let safe = progress.map(|(p, dir)| {
-            let safe = rules::club_safe(p.home, p.last_ok, self.visit.match_seen);
+            // a match still on at the end may have saved after the last copy-back: it counts as ending now
+            let last_match = if self.visit.match_on {
+                Some(Instant::now())
+            } else {
+                self.visit.match_end
+            };
+            let safe = rules::club_safe(p.home, p.last_ok, last_match);
             if safe && !p.home {
                 // the marker would only make the next start say the club did not come home
                 let _ = club::settle(dir);
