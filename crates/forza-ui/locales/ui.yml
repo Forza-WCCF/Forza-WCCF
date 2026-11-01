@@ -42,6 +42,10 @@ launcher.hq_pack: {en: "High-quality pack", it: "Pacchetto HQ", ja: "高画質�
 launcher.choose_pack: {en: "Choose pack…", it: "Scegli pacchetto…", ja: "パックを選択…"}
 launcher.skip_tutorial: {en: "Skip the tutorial", it: "Salta il tutorial", ja: "チュートリアルを省略"}
 launcher.skip_tutorial_hint: {en: "Applied at the next start.", it: "Si applica al prossimo avvio.", ja: "次回の起動時に反映されます。"}
+launcher.frame_cap: {en: "Frame cap", it: "Limite fotogrammi", ja: "フレーム制限"}
+launcher.frame_cap_hint: {en: "Waits between frames without using a full CPU core. Applied at the next start.", it: "Attende tra i fotogrammi senza occupare un intero core della CPU. Si applica al prossimo avvio.", ja: "CPUコアを使い切らずにフレーム間を待ちます。次回の起動時に反映されます。"}
+launcher.vsync: {en: "VSync", it: "VSync", ja: "垂直同期"}
+launcher.vsync_hint: {en: "Waits for the screen before showing each frame. Off: less input delay. Applied at the next start.", it: "Attende lo schermo prima di ogni fotogramma. Spento: meno ritardo dei comandi. Si applica al prossimo avvio.", ja: "各フレームを画面の更新に合わせて表示します。オフで入力の遅れが減ります。次回の起動時に反映されます。"}
 launcher.club_server: {en: "Club server", it: "Server club", ja: "クラブサーバー"}
 launcher.club_server_hint: {en: "Empty: the server you play on", it: "Vuoto: il server a cui giochi", ja: "空欄：プレイ中のサーバー"}
 launcher.vs_link: {en: "Direct VS link", it: "Collegamento VS diretto", ja: "ダイレクトVSリンク"}
@@ -406,6 +410,7 @@ settings.compact: {en: "COMPACT", it: "COMPATTA", ja: "コンパクト"}
 settings.hover: {en: "CARD HOVER DELAY", it: "RITARDO ANTEPRIMA CARTA", ja: "カード拡大までの時間"}
 settings.hover_off: {en: "OFF", it: "NO", ja: "なし"}
 settings.logs: {en: "LOGS", it: "LOG", ja: "ログ"}
+settings.graphics: {en: "GRAPHICS", it: "GRAFICA", ja: "グラフィック"}
 settings.just_now: {en: "%{t} (just now)", it: "%{t} (proprio ora)", ja: "%{t}（たった今）"}
 settings.min_ago: {en: "%{t} (%{n} min ago)", it: "%{t} (%{n} min fa)", ja: "%{t}（%{n} 分前）"}
 settings.h_ago: {en: "%{t} (%{n} h ago)", it: "%{t} (%{n} h fa)", ja: "%{t}（%{n} 時間前）"}
@@ -440,6 +445,10 @@ settings.board_buttons_hint: {en: "The cabinet buttons beside the popped-out boa
 settings.pad_bg: {en: "Controller in the background", it: "Controller in secondo piano", ja: "バックグラウンドでもコントローラー"}
 settings.pad_bg_hint: {en: "The controller keeps working with another window in front. The keyboard does not.", it: "Il controller funziona anche con un'altra finestra davanti. La tastiera no.", ja: "他のウィンドウが前面にあってもコントローラーは動作します。キーボードは動作しません。"}
 settings.pad_bg_seats: {en: "Off while 2 or more seats run on this PC: all controllers count as one.", it: "Disattivato con 2 o più posti su questo PC: i controller contano come uno solo.", ja: "このPCで2席以上が動作中は無効です。コントローラーは1台として扱われます。"}
+settings.textures: {en: "Texture filtering", it: "Filtro texture", ja: "テクスチャフィルタ"}
+settings.textures_game: {en: "Game", it: "Gioco", ja: "ゲーム"}
+settings.fps: {en: "FPS counter", it: "Contatore FPS", ja: "FPSカウンター"}
+settings.fps_hint: {en: "The game's frames per second, in the picture's corner. The game runs at 30.", it: "I fotogrammi al secondo del gioco, nell'angolo dell'immagine. Il gioco gira a 30.", ja: "毎秒のフレーム数を画面の隅に表示します（ゲームは30）。"}
 settings.msg_hover: {en: "Card preview after %{s} s", it: "Anteprima carta dopo %{s} s", ja: "%{s} 秒でカードをプレビュー"}
 settings.msg_hover_off: {en: "Card preview off", it: "Anteprima carta disattivata", ja: "カードのプレビューなし"}
 settings.msg_this_pc: {en: "Next start: this PC", it: "Prossimo avvio: questo PC", ja: "次回の起動：このPC"}

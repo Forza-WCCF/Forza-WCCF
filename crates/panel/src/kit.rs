@@ -74,11 +74,13 @@ impl Files {
         }
     }
 
+    /// data\settings.json, the Launcher's choices (an empty object when missing).
+    pub fn settings(&self) -> serde_json::Value {
+        forza::kit::read_settings(&self.data.join("settings.json"))
+    }
+
     pub fn lang(&self) -> Lang {
-        let saved = std::fs::read(self.data.join("settings.json"))
-            .ok()
-            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-            .and_then(|v| v.get("language")?.as_str().map(str::to_owned));
+        let saved = self.settings()["language"].as_str().map(str::to_owned);
         // SAFETY: a plain query without arguments
         let windows = match unsafe { GetUserDefaultUILanguage() } & 0x3ff {
             0x10 => "it",

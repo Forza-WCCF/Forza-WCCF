@@ -134,7 +134,11 @@ fn every_2s(next: &Mutex<Option<Instant>>) -> bool {
 // held in esi: a whole core per game window. Its loop's one call goes to limiter_now: when the frame is due in more than
 // 3 ms it first sleeps on a high-resolution waitable timer until 2 ms before, then returns the clock as FUN_00720540
 // does; the loop's own compares keep the timing. "limiter_off" beside the DLL switches it off within a second,
-// "frame_stats" logs seat 1's frame timing every 10 s, WCCFPANEL_LIMITER=0 keeps it out.
+// "frame_stats" logs seat 1's frame timing every 10 s, WCCFPANEL_LIMITER=0 keeps it out, the Launcher's FRAME CAP off
+// (data\settings.json "frame_cap": false) leaves the original spin for the whole run.
+// 2017-18 has the same loop at another address (C17 sub_C29040, its call at 0x00C29100, the clock sub_BBCEF0): the
+// game's own pacing, N/60 s per frame (interval 2: 30 frames a second) counted from its start, so the wait's length is
+// the game's and sleeping through most of it changes neither the frame rate nor the match's lock-step.
 
 /// "call FUN_00720540" inside the spin loop, 16-byte aligned.
 const LIMITER_CALL: usize = 0x0075_FD90;
@@ -143,6 +147,41 @@ const LIMITER_CLOCK: usize = 0x0072_0540;
 const LIMITER_LOOP: [u8; 16] = [
     0xE8, 0xAB, 0x07, 0xFC, 0xFF, 0x3B, 0xC7, 0x77, 0xF7, 0x3B, 0xC6, 0x72, 0xF3, 0xEB, 0x0D, 0x69,
 ];
+/// 2017-18: the same, at the preferred base 0x00400000 (the program moves: [`limiter_site`] relocates them).
+const LIMITER_CALL_1718: usize = 0x00C2_9100;
+const LIMITER_CLOCK_1718: usize = 0x00BB_CEF0;
+const LIMITER_LOOP_1718: [u8; 16] = [
+    0xE8, 0xEB, 0x3D, 0xF9, 0xFF, 0x3B, 0xC7, 0x77, 0xF7, 0x3B, 0xC6, 0x72, 0xF3, 0xEB, 0x0D, 0x69,
+];
+
+/// The frame wait in this program: (the call, the clock it calls, the bytes expected at the call), or `None`: not a
+/// program studied. 2010-11 stays at its fixed base; 2017-18's both move with its base (the call's own operand is
+/// relative, so its bytes do not).
+fn limiter_site(e1718: bool, base: usize) -> Option<(usize, usize, [u8; 16])> {
+    if e1718 {
+        let at = |va: usize| va - BASE_1718 + base;
+        Some((
+            at(LIMITER_CALL_1718),
+            at(LIMITER_CLOCK_1718),
+            LIMITER_LOOP_1718,
+        ))
+    } else {
+        (base == BASE_1718).then_some((LIMITER_CALL, LIMITER_CLOCK, LIMITER_LOOP))
+    }
+}
+
+/// The Launcher's FRAME CAP (data\settings.json "frame_cap", on unless false), read once at the start.
+static CAP: AtomicBool = AtomicBool::new(true);
+
+/// The frame wait sleeps: the Launcher's FRAME CAP on and no "limiter_off" beside the DLL.
+fn limiter_wanted(dll_dir: &Path) -> bool {
+    CAP.load(Relaxed) && !dll_dir.join("limiter_off").exists()
+}
+
+/// The frame wait is patched in and sleeping (the per-match frame log says so).
+pub fn limiter_sleeps() -> bool {
+    LIMITER_IN.load(Relaxed) && LIMITER_ON.load(Relaxed)
+}
 
 /// The clock `limiter_wait` reads (`g_lclock`): the game's, or the self-test's stand-in.
 static CLOCK: AtomicUsize = AtomicUsize::new(LIMITER_CLOCK);
@@ -268,18 +307,17 @@ fn limiter_stats_line(sleeps: i32, late: i32, n: i32, sum: i32, mx: i32, hitch: 
 
 /// The C's `limiter_watch`: the two switch files once a second, the sleep counts every 10 s.
 fn limiter_watch(dir: PathBuf, log: fn(&str)) {
-    let off = dir.join("limiter_off");
     let stats = dir.join("frame_stats");
     let mut next = Instant::now() + Duration::from_secs(10);
     let (mut s0, mut l0) = (0i32, 0i32);
     loop {
-        let on = !off.exists();
+        let on = limiter_wanted(&dir);
         let st = stats.exists();
         if LIMITER_ON.swap(on, Relaxed) != on && LIMITER_IN.load(Relaxed) {
             log(if on {
                 "limiter: ON - the frame wait sleeps until 2 ms before each frame"
             } else {
-                "limiter: OFF (limiter_off beside the DLL) - the original spin, as before"
+                "limiter: OFF (limiter_off beside the DLL, or FRAME CAP off) - the original spin, as before"
             });
         }
         if STATS_ON.swap(st, Relaxed) != st {
@@ -369,9 +407,9 @@ pub fn frame_stats_tick(log: fn(&str)) {
     }
 }
 
-/// The C's `limiter_install`. Both editions' C has the same code and addresses; the 2017-18 program moves (ASLR), so
-/// there its base is not 0x00400000 and this logs "not the game".
-fn limiter_install(dll_dir: &Path, log: fn(&str)) {
+/// The C's `limiter_install`, both editions: [`limiter_site`] says where (2017-18 relocated by its base); the bytes there
+/// are checked before the call is swapped.
+fn limiter_install(e1718: bool, dll_dir: &Path, log: fn(&str)) {
     if std::env::var_os("WCCFPANEL_LIMITER")
         .is_some_and(|v| v.as_encoded_bytes().first() == Some(&b'0'))
     {
@@ -379,16 +417,17 @@ fn limiter_install(dll_dir: &Path, log: fn(&str)) {
         return;
     }
     let nm = exe_name();
-    if !is_client(&nm) || exe_base() != 0x0040_0000 {
+    let site = limiter_site(e1718, exe_base()).filter(|_| is_client(&nm));
+    let Some((call, clock, code)) = site else {
         log(&format!("limiter: not the game ({nm}) - nothing changed"));
         return;
-    }
-    match read::<16>(LIMITER_CALL) {
+    };
+    match read::<16>(call) {
         None => {
             log("limiter: the frame wait could not be read - the original spin stays");
             return;
         }
-        Some(b) if b != LIMITER_LOOP => {
+        Some(b) if b != code => {
             log("limiter: the frame wait is not the code studied - the original spin stays");
             return;
         }
@@ -401,7 +440,8 @@ fn limiter_install(dll_dir: &Path, log: fn(&str)) {
         return;
     };
     TIMER.store(timer.0 as isize, Relaxed);
-    let p = LIMITER_CALL as *mut u64;
+    CLOCK.store(clock, Relaxed);
+    let p = call as *mut u64;
     let mut prot = PAGE_PROTECTION_FLAGS(0);
     // SAFETY: the 8 code bytes just checked, made writable for the exchange
     if unsafe { VirtualProtect(p as *const c_void, 8, PAGE_EXECUTE_READWRITE, &mut prot) }.is_err()
@@ -413,12 +453,14 @@ fn limiter_install(dll_dir: &Path, log: fn(&str)) {
         ));
         return;
     }
-    // SAFETY: 0x0075FD90 is 8-byte aligned, readable (checked above) and writable now; cmpxchg8b swaps the call
-    // atomically under a running game loop, as the C's InterlockedCompareExchange64
+    // SAFETY: the call is 16-byte aligned (a 64K-aligned base plus an aligned offset), readable (checked above) and
+    // writable now; cmpxchg8b swaps the call atomically under a running game loop, as the C's
+    // InterlockedCompareExchange64
     let swapped = unsafe {
-        let old8 = std::ptr::read_volatile(p);
-        LIMITER_ON.store(!dll_dir.join("limiter_off").exists(), Relaxed); // on unless limiter_off is there
-        let new8 = call_patch(old8, LIMITER_CALL, limiter_now as *const () as usize);
+        // the bytes checked above, not a fresh read: anything changed since then fails the swap
+        let old8 = u64::from_le_bytes(code[..8].try_into().unwrap_or_default());
+        LIMITER_ON.store(limiter_wanted(dll_dir), Relaxed);
+        let new8 = call_patch(old8, call, limiter_now as *const () as usize);
         AtomicU64::from_ptr(p)
             .compare_exchange(old8, new8, Relaxed, Relaxed)
             .is_ok()
@@ -436,24 +478,27 @@ fn limiter_install(dll_dir: &Path, log: fn(&str)) {
     }
     LIMITER_IN.store(true, Relaxed);
     log(&format!(
-        "limiter: the frame wait (0x{LIMITER_CALL:08X}) now sleeps until 2 ms before each frame; the original loop \
-         keeps the timing{}",
+        "limiter: the frame wait (0x{call:08X}) now sleeps until 2 ms before each frame; the original loop keeps the \
+         timing{}",
         if LIMITER_ON.load(Relaxed) {
             ""
         } else {
-            " - but limiter_off is there: OFF for now"
+            " - but limiter_off is there or FRAME CAP is off: OFF for now"
         }
     ));
 }
 
 /// The C's `limiter_start`, both roles (seat and projector): the self-test when WCCFPANEL_LIMITERTEST is set, the
-/// change, the two switch files. The limiter is the same in both editions (`e1718` changes nothing; see
-/// [`limiter_install`]).
-pub fn limiter_start(e1718: bool, dll_dir: &Path, log: fn(&str)) {
+/// change, the two switch files. `cap`: the Launcher's FRAME CAP.
+pub fn limiter_start(e1718: bool, dll_dir: &Path, cap: bool, log: fn(&str)) {
     if std::env::var_os("WCCFPANEL_LIMITERTEST").is_some_and(|v| !v.is_empty()) {
         limiter_selftest(log);
     }
-    limiter_install(dll_dir, log);
+    CAP.store(cap, Relaxed);
+    if !cap {
+        log("limiter: FRAME CAP off in the Launcher - the original spin");
+    }
+    limiter_install(e1718, dll_dir, log);
     if e1718 && crate::is_projector() {
         prj_gate_install(log); // here because both roles call limiter_start and lib.rs is not ours to change
     }
@@ -1113,6 +1158,22 @@ mod tests {
             i32::from_le_bytes(new8[1..5].try_into().unwrap()),
             0x1000_0000 - 0x0075_FD95
         );
+    }
+
+    #[test]
+    fn limiter_site_follows_the_2017_18_base() {
+        assert_eq!(
+            limiter_site(false, BASE_1718),
+            Some((LIMITER_CALL, LIMITER_CLOCK, LIMITER_LOOP))
+        );
+        assert_eq!(limiter_site(false, 0x0100_0000), None); // 2010-11 moved: not the program studied
+        let (call, clock, code) = limiter_site(true, 0x0013_0000).unwrap();
+        assert_eq!((call, clock), (0x0095_9100, 0x008E_CEF0));
+        assert_eq!(call % 16, 0); // cmpxchg8b needs 8-byte alignment
+        // the call's operand is relative: rebuilt at the moved site it still reaches the moved clock
+        let old8 = u64::from_le_bytes(code[..8].try_into().unwrap());
+        assert_eq!(call_patch(old8, call, clock), old8);
+        assert_eq!(code[5..], LIMITER_LOOP[5..]); // the same loop as 2010-11's after the call
     }
 
     #[test]

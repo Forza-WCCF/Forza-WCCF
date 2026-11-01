@@ -775,6 +775,8 @@ impl App {
             pictures_hq: choices::setting(&settings, "card_pictures").as_deref() == Some("hq"),
             skip_tutorial: (kit.edition() == Edition::E1718)
                 .then(|| kit.settings()["skip_tutorial"].as_bool() == Some(true)),
+            frame_cap: (kit.edition() == Edition::E1718).then(|| forza::kit::frame_cap(&kit.settings())),
+            vsync: (kit.edition() == Edition::E1718).then(|| forza::kit::vsync(&kit.settings())),
             club_server: (kit.edition() == Edition::E1718)
                 .then(|| choices::setting(&settings, "club_server").unwrap_or_default()),
             vs_link: (kit.edition() == Edition::E1718).then(|| kit.settings()["vs_link"].as_bool() != Some(false)),
@@ -1057,6 +1059,18 @@ impl App {
                 let on = self.st.skip_tutorial == Some(true);
                 if let Err(e) = choices::set_setting_bool(&file, "skip_tutorial", on) {
                     refuse(write_failed(&file, &e));
+                }
+            }
+            Action::FramePacing => {
+                // data\settings.json "frame_cap" and "vsync", which forza_panel.dll reads at the game's start
+                let file = kit.settings_file();
+                for (key, on) in [("frame_cap", self.st.frame_cap), ("vsync", self.st.vsync)] {
+                    if let Some(on) = on
+                        && let Err(e) = choices::set_setting_bool(&file, key, on)
+                    {
+                        refuse(write_failed(&file, &e));
+                        break;
+                    }
                 }
             }
             Action::VsLink => {

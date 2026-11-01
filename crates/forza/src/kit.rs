@@ -111,10 +111,7 @@ impl Kit {
 
     /// data\settings.json; an empty object when it is missing or not JSON.
     pub fn settings(&self) -> serde_json::Value {
-        fs::read_to_string(self.settings_file())
-            .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_else(|| serde_json::json!({}))
+        read_settings(&self.settings_file())
     }
 
     /// English is on: the game text's list of the original files it backed up is not empty (kit_common.english_on).
@@ -184,6 +181,25 @@ pub fn seat_dir(game: &Path) -> PathBuf {
 /// The FPR_Emu helper's folder beside the game folder.
 pub fn misc_dir(game: &Path) -> PathBuf {
     game.parent().unwrap_or(game).join("misc")
+}
+
+/// A settings.json file; an empty object when it is missing or not JSON.
+pub fn read_settings(file: &Path) -> serde_json::Value {
+    fs::read_to_string(file)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_else(|| serde_json::json!({}))
+}
+
+/// settings.json "frame_cap" (2017-18, the Launcher's FRAME CAP; on unless false): the panel's frame wait sleeps
+/// instead of spinning a core.
+pub fn frame_cap(settings: &serde_json::Value) -> bool {
+    settings["frame_cap"].as_bool() != Some(false)
+}
+
+/// settings.json "vsync" (2017-18, the Launcher's VSYNC; off unless true): the panel's picture waits for the screen.
+pub fn vsync(settings: &serde_json::Value) -> bool {
+    settings["vsync"].as_bool() == Some(true)
 }
 
 #[cfg(test)]

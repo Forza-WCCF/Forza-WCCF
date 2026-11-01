@@ -573,6 +573,8 @@ pub struct PanelState {
     pub online: bool,
     /// The round trip to the server's relay (online only); `u32::MAX` = no answer for 6 s.
     pub ping_ms: u32,
+    /// The game's frames a second, shown over its picture's corner while SETTINGS > FPS COUNTER is on.
+    pub fps: Option<u32>,
     /// The last thing done, refused or worth knowing; one line for every page.
     pub message: Option<Note>,
     pub catalogue: Catalogue,
@@ -712,6 +714,7 @@ impl PanelState {
             tactics: [false; 5],
             online: false,
             ping_ms: 0,
+            fps: None,
             message: None,
             catalogue: Catalogue::default(),
             keys: forza::keys::defaults(edition == Edition::E1718),
@@ -1315,6 +1318,9 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
         Stroke::new(1.0, theme::RIM),
     );
     game_picture(ui, pic, st.picture);
+    if let Some(n) = st.fps {
+        fps_counter(ui.painter(), pic, n);
+    }
     // the dealt card covers the picture: clicks there are its own
     st.picture_rect = (st.page == Page::Game && st.deal.is_none() && !st.close_warn).then_some(pic);
     // popped out the deck is the column's: COMPACT is the docked layout's choice
@@ -2791,6 +2797,19 @@ fn crash_screen(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
 
 // ---- the game picture ----
 
+/// The FPS counter over the picture's top-left corner: green at the game's 30 (29 counts, a second's rounding), else amber.
+fn fps_counter(p: &egui::Painter, pic: Rect, n: u32) {
+    let col = if n >= 29 { theme::GREEN } else { theme::AMBER };
+    let text = p.layout_no_wrap(format!("{n} FPS"), theme::mono(14.0), col);
+    let at = pic.left_top() + vec2(8.0, 8.0);
+    p.rect_filled(
+        Rect::from_min_size(at, text.size() + vec2(12.0, 6.0)),
+        3,
+        Color32::from_black_alpha(170),
+    );
+    p.galley(at + vec2(6.0, 3.0), text, col);
+}
+
 /// A neutral stand-in for the game's picture: diagonal hatching and its size.
 fn game_picture(ui: &mut Ui, pic: Rect, picture: Option<egui::TextureId>) {
     let p = ui.painter();
@@ -4132,6 +4151,37 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                 _ => {}
             }
         });
+        if st.edition == Edition::E1718 {
+            widgets::section(right, &tr!(lang, "settings.graphics"), accent, |ui| {
+                let w = ui.available_width();
+                // applied at once: the panel's SetSamplerState sends the game's filters again through the new choice
+                field(ui, &tr!(lang, "settings.textures"), w);
+                const LEVELS: [u32; 4] = [0, 4, 8, 16];
+                let mut i = LEVELS
+                    .iter()
+                    .position(|&l| l == st.file.textures)
+                    .unwrap_or(0);
+                if segmented(
+                    ui,
+                    &mut i,
+                    &[&tr!(lang, "settings.textures_game"), "4x", "8x", "16x"],
+                    w,
+                ) {
+                    st.file.textures = LEVELS[i];
+                    st.file_changed = true;
+                }
+                if widgets::toggle_row(
+                    ui,
+                    &mut st.file.fps,
+                    &tr!(lang, "settings.fps"),
+                    &tr!(lang, "settings.fps_hint"),
+                )
+                .clicked()
+                {
+                    st.file_changed = true;
+                }
+            });
+        }
     });
     note_line(ui, &mut st.message);
 }
