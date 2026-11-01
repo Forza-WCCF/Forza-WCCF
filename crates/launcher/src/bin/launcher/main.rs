@@ -804,6 +804,7 @@ impl App {
             pictures_hq: choices::setting(&settings, "card_pictures").as_deref() == Some("hq"),
             skip_tutorial: (kit.edition() == Edition::E1718)
                 .then(|| kit.settings()["skip_tutorial"].as_bool() == Some(true)),
+            projector: (kit.edition() == Edition::E1718).then(|| choices::projector_on(&kit.settings())),
             club_server: (kit.edition() == Edition::E1718)
                 .then(|| choices::setting(&settings, "club_server").unwrap_or_default()),
             vs_link: (kit.edition() == Edition::E1718).then(|| kit.settings()["vs_link"].as_bool() != Some(false)),
@@ -1085,6 +1086,13 @@ impl App {
                 let file = kit.settings_file();
                 let on = self.st.skip_tutorial == Some(true);
                 if let Err(e) = choices::set_setting_bool(&file, "skip_tutorial", on) {
+                    refuse(write_failed(&file, &e));
+                }
+            }
+            Action::Projector => {
+                let file = kit.settings_file();
+                let on = self.st.projector != Some(false);
+                if let Err(e) = choices::set_setting_bool(&file, choices::PROJECTOR, on) {
                     refuse(write_failed(&file, &e));
                 }
             }

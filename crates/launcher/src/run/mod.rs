@@ -1466,6 +1466,7 @@ impl Run<'_> {
             index: index.is_dir().then_some(index),
             // control+0x1226A is 2010-11's control: 2017-18's is guarded by its hook (whole messages)
             above_normal: self.edition == Edition::E1718,
+            background: role == Role::Projector && self.edition == Edition::E1718,
             msgguard: (self.edition == Edition::E1011).then(|| env::var("WCCF_MSGGUARD").map_or(true, |v| v != "0")),
             env: self.kit_env().into_iter().chain(env).chain([game_dpi()]).collect(),
             stop: Some(stop.clone()),
@@ -1664,6 +1665,9 @@ impl Run<'_> {
         } else {
             let ctrl_conf = self.game.join(r"local\ctrl_user_option.conf");
             if matches!(self.mode, Mode::Local | Mode::Vs(_)) {
+                // 2017-18 setting off: no projector, so no CPU championship on it and nobody waits for it
+                projector = self.edition != Edition::E1718 || choices::projector_on(&self.kit.settings());
+                let wait = if projector { "1" } else { "0" };
                 for c in &confs {
                     conf::set_control_ip(c, "127.0.0.1")?; // after a "remote" run: the cabinets play on this PC again
                     if self.edition == Edition::E1718 {
@@ -1671,8 +1675,8 @@ impl Run<'_> {
                     }
                 }
                 conf::set_satellite_no(&confs[1], 1)?;
-                conf::set_conf_value(&confs[1], "WAIT_PROJECTOR", "1")?; // the game's own way, its projector here
-                conf::set_conf_value(&ctrl_conf, "WAIT_PROJECTOR", "1")?;
+                conf::set_conf_value(&confs[1], "WAIT_PROJECTOR", wait)?; // the game's own way, its projector here
+                conf::set_conf_value(&ctrl_conf, "WAIT_PROJECTOR", wait)?;
             } else if self.edition == Edition::E1718 {
                 // a server for others: its seat desk gives the first PC the projector, which control waits for
                 conf::set_conf_value(&ctrl_conf, "WAIT_PROJECTOR", "1")?;
@@ -1728,6 +1732,7 @@ impl Run<'_> {
                 "  3/6 ",
                 &Text::key(match self.edition {
                     Edition::E1011 => "launcher.run_no_projector_1011",
+                    Edition::E1718 if self.remote.is_none() => "launcher.run_projector_off",
                     Edition::E1718 => "launcher.run_no_projector_1718",
                 }),
             );
