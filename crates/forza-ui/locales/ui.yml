@@ -791,6 +791,9 @@ launcher.run_force_closed: {en: "%{n} processes were force-closed.", it: "%{n} p
 launcher.run_still_running: {en: "Still running: %{n} processes of the run.", it: "Ancora in esecuzione: %{n} processi della sessione.", ja: "実行中のプロセスが %{n} 個残っています。"}
 launcher.run_closed_by_player: {en: "Game closed by the player.", it: "Gioco chiuso dal giocatore.", ja: "プレイヤーがゲームを終了しました。"}
 launcher.run_ended_problem: {en: "Game ended with a problem: %{why}.", it: "Il gioco è terminato con un problema: %{why}.", ja: "ゲームが問題で終了しました: %{why}。"}
+launcher.run_host_closed: {en: "The host closed the arcade.", it: "L'host ha chiuso la sala.", ja: "ホストがゲームセンターを閉じました。"}
+launcher.run_host_closed_club_safe: {en: "The host closed the arcade. Your club is safe (saved after your last match).", it: "L'host ha chiuso la sala. Il tuo club è al sicuro (salvato dopo l'ultima partita).", ja: "ホストがゲームセンターを閉じました。クラブは無事です（最後の試合の後に保存済み）。"}
+launcher.run_host_closed_club_not_home: {en: "The host closed the arcade before your last match came home. Your club at home is from before that match.", it: "L'host ha chiuso la sala prima che l'ultima partita tornasse a casa. Il tuo club di casa è quello di prima di quella partita.", ja: "最後の試合がホームに戻る前に、ホストがゲームセンターを閉じました。ホームのクラブはその試合の前の状態です。"}
 launcher.run_restart_requested: {en: "Restart requested.", it: "Riavvio richiesto.", ja: "再起動を要求しました。"}
 launcher.run_not_restarted: {en: "Not restarted: the game is still running.", it: "Non riavviato: il gioco è ancora in esecuzione.", ja: "再起動していません: ゲームはまだ実行中です。"}
 launcher.run_restarting: {en: "Restarting WCCF %{edition}.", it: "Riavvio di WCCF %{edition}.", ja: "WCCF %{edition} を再起動します。"}
