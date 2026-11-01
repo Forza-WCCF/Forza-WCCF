@@ -81,7 +81,6 @@ NON C'È IN QUESTA ALPHA
 PROBLEMI NOTI
   - Il programma di controllo può chiudersi dopo circa 90 minuti di inattività. Riavviate il gioco; il club resta.
   - La registrazione di una squadra può restare ferma circa 95 secondi prima di andare avanti.
-  - Una partita online può passare a un avversario CPU dopo circa 2 minuti, soprattutto tra PC AMD e Intel.
 
 ANTIVIRUS E SMARTSCREEN
   I programmi non sono firmati e Forza-WCCF modifica copie dei programmi del gioco (mai gli originali, che restano in
