@@ -88,6 +88,17 @@ impl Kit {
         self.dir.join(lay.program_dir(name)).join(name)
     }
 
+    /// The kit's own programs that are missing, by name. An antivirus quarantines them (Microsoft flagged
+    /// FPR_Emu.exe from 0.6.0 on) and the game then runs without what they do: no card table, no panel, and nothing
+    /// says why. The Launcher names them before the start, as it does with a missing catalogue.
+    pub fn missing_programs(&self) -> Vec<&'static str> {
+        const NEEDED: [&str; 2] = ["FPR_Emu.exe", "forza_panel.dll"];
+        NEEDED
+            .into_iter()
+            .filter(|name| !self.program(name).is_file())
+            .collect()
+    }
+
     pub fn data(&self) -> PathBuf {
         self.dir.join("data")
     }
@@ -203,6 +214,25 @@ mod tests {
             Edition::E1011,
             "an old 2010-11 kit's overlay\\ left beside programs\\"
         );
+    }
+
+    #[test]
+    fn missing_programs_follows_the_layout_of_both_editions() {
+        let dir = tempfile::tempdir().unwrap();
+        let kit = Kit::at(dir.path());
+        assert_eq!(kit.missing_programs(), ["FPR_Emu.exe", "forza_panel.dll"]);
+        fs::create_dir_all(dir.path().join("bin")).unwrap();
+        fs::create_dir_all(dir.path().join("overlay")).unwrap();
+        fs::write(dir.path().join("bin").join("FPR_Emu.exe"), "").unwrap();
+        assert_eq!(kit.missing_programs(), ["forza_panel.dll"]);
+        fs::write(dir.path().join("overlay").join("forza_panel.dll"), "").unwrap();
+        assert!(kit.missing_programs().is_empty());
+        // 2010-11 keeps both in programs\
+        let old = tempfile::tempdir().unwrap();
+        let kit = Kit::at(old.path());
+        fs::create_dir_all(old.path().join("programs")).unwrap();
+        fs::write(old.path().join("programs").join("forza_panel.dll"), "").unwrap();
+        assert_eq!(kit.missing_programs(), ["FPR_Emu.exe"]);
     }
 
     #[test]

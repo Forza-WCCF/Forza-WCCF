@@ -1021,6 +1021,15 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         // the panel's card browser only: never a reason not to start
         tell(ui, "  ", &Text::key("launcher.run_no_catalogue"));
     }
+    let missing = kit.missing_programs();
+    if !missing.is_empty() {
+        // an antivirus quarantining them breaks the card table and the panel, silently: never a reason not to start
+        tell(
+            ui,
+            "  ",
+            &Text::key("launcher.run_no_program").arg("files", missing.join(", ")),
+        );
+    }
     let kind = Kind::of(&mode);
     let beside_server = matches!(mode, Mode::Remote(..)) && is_on(kit, Kind::Server);
     let left = if beside_server { Vec::new() } else { strays(&game, p) };
