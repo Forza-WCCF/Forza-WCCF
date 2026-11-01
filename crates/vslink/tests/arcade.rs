@@ -430,6 +430,30 @@ fn a_guest_that_leaves_leaves_nothing_open() {
     }
 }
 
+/// The host stops its arcade: the guest hears "the host closed the arcade" (code 6) and dials again, which is also all
+/// a 0.6.1 guest does with any close but "not in the room".
+#[test]
+fn a_host_that_stops_tells_its_guest() {
+    let p = pair("closing", 0, false);
+    let closed = p.join.as_ref().unwrap().host_closed();
+    assert!(!closed.load(Ordering::Relaxed));
+    drop(p.host);
+    let t = Instant::now();
+    while !closed.load(Ordering::Relaxed) {
+        assert!(
+            t.elapsed() < Duration::from_secs(10),
+            "the guest never heard the host close"
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+    assert!(logged(&p.join_log, "the host closed the arcade"));
+    assert!(
+        logged(&p.join_log, "arcade closed (code 6)"),
+        "the host's own code, not the endpoint's 0"
+    );
+    assert!(logged(&p.join_log, "dialling again"));
+}
+
 /// A guest holds at most 4 streams; the 5th is refused while the others keep working.
 #[test]
 fn streams_past_the_cap_are_refused() {

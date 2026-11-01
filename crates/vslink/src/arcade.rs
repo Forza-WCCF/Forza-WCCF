@@ -50,6 +50,10 @@ pub const CLOSE_NOT_IN_ROOM: u8 = 4;
 /// The host's close code for a guest it could not check now (its room's list did not come, too many at the door): the
 /// join side dials again.
 pub const CLOSE_NO_ANSWER: u8 = 5;
+/// The host's close code for every guest when it stops its arcade: the join side says the host closed it (and dials
+/// again, in case the host comes back). Old peers: a 0.6.1 guest only acts on [`CLOSE_NOT_IN_ROOM`], so it takes this
+/// as any drop and dials again, as it did after a 0.6.1 host's plain endpoint close (code 0).
+pub const CLOSE_ARCADE_CLOSED: u8 = 6;
 /// Bytes the streams may hold on this side together (per guest on the host) before the one that overflows is closed.
 pub const STREAM_BUF: usize = 4 << 20;
 /// Streams a guest may hold open at once (the control, the projector-less seat's reconnects, the desk).
@@ -248,6 +252,13 @@ impl Drop for Live {
     }
 }
 
+/// Join: whether the link went down because the host closed the arcade: its [`CLOSE_ARCADE_CLOSED`], or code 0, the
+/// endpoint close a 0.6.1 host sends when it stops (iroh's `Endpoint::close`; every other close here has its own code).
+pub fn closed_by_host(why: &iroh::endpoint::ConnectionError) -> bool {
+    matches!(why, iroh::endpoint::ConnectionError::ApplicationClosed(c)
+        if c.error_code == CLOSE_ARCADE_CLOSED.into() || c.error_code == 0u8.into())
+}
+
 /// A running arcade tunnel. Dropping `handle` stops it: up to about 3 s (the endpoint's close, then the runtime's).
 pub struct ArcadeLink {
     pub handle: Handle,
@@ -258,9 +269,16 @@ pub struct ArcadeLink {
     flows: Arc<AtomicUsize>,
     streams: Arc<AtomicUsize>,
     guests: Arc<AtomicUsize>,
+    host_closed: Arc<AtomicBool>,
 }
 
 impl ArcadeLink {
+    /// Join: true while the link is down because the host closed the arcade ([`closed_by_host`]); false again once
+    /// the link is back.
+    pub fn host_closed(&self) -> Arc<AtomicBool> {
+        self.host_closed.clone()
+    }
+
     /// Host: the guests connected now (admitted, link up), live: an arcade server with guests holds their matches.
     pub fn guests(&self) -> Arc<AtomicUsize> {
         self.guests.clone()
@@ -288,6 +306,10 @@ struct Sh {
     flows: Arc<AtomicUsize>,
     streams: Arc<AtomicUsize>,
     admit: Option<Admit>,
+    /// Host: the guests' connections, told [`CLOSE_ARCADE_CLOSED`] when the arcade stops.
+    conns: Mutex<Vec<Connection>>,
+    /// Join: [`ArcadeLink::host_closed`].
+    host_closed: Arc<AtomicBool>,
 }
 
 fn loopback(port: u16) -> SocketAddr {
@@ -514,6 +536,11 @@ impl Sh {
             return;
         }
         (self.log)(&format!("guest {who} joined"));
+        {
+            let mut conns = self.conns.lock().unwrap_or_else(PoisonError::into_inner);
+            conns.retain(|c| c.close_reason().is_none());
+            conns.push(conn.clone());
+        }
         tokio::spawn(watch_path(self.log.clone(), conn.clone()));
         let used = Arc::new(AtomicBool::new(false));
         let streams = tokio::spawn(self.clone().guest_streams(
@@ -695,6 +722,10 @@ impl Join {
             let why = conn.closed().await;
             inbound.abort();
             self.link.send_replace(None);
+            if closed_by_host(&why) {
+                self.sh.host_closed.store(true, Ordering::Relaxed);
+                (self.sh.log)("the host closed the arcade");
+            }
             if let iroh::endpoint::ConnectionError::ApplicationClosed(c) = &why
                 && c.error_code == CLOSE_NOT_IN_ROOM.into()
             {
@@ -714,6 +745,7 @@ impl Join {
                     }
                 }
             };
+            self.sh.host_closed.store(false, Ordering::Relaxed);
             (self.sh.log)("link to the arcade up again");
         }
     }
@@ -834,6 +866,8 @@ async fn start(cfg: ArcadeConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
         flows: Arc::default(),
         streams: Arc::default(),
         admit: cfg.admit,
+        conns: Mutex::default(),
+        host_closed: Arc::default(),
     });
     let fallback = fallback_for(&cfg.relay);
     let only = format!(
@@ -947,6 +981,7 @@ pub fn spawn(cfg: ArcadeConfig) -> io::Result<ArcadeLink> {
                 sh.flows.clone(),
                 sh.streams.clone(),
                 sh.guests.clone(),
+                sh.host_closed.clone(),
                 ports,
             )));
             rt.block_on(async {
@@ -965,11 +1000,20 @@ pub fn spawn(cfg: ArcadeConfig) -> io::Result<ArcadeLink> {
                 while !flag.load(Ordering::Relaxed) {
                     t.tick().await;
                 }
+                // the guests hear why before the endpoint closes (its close flushes these frames)
+                for c in sh
+                    .conns
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .drain(..)
+                {
+                    c.close(CLOSE_ARCADE_CLOSED.into(), b"arcade closed");
+                }
                 let _ = timeout(Duration::from_secs(2), sh.ep.close()).await;
             });
             rt.shutdown_timeout(Duration::from_secs(1));
         })?;
-    let (id, flows, streams, guests, ports) = rx
+    let (id, flows, streams, guests, host_closed, ports) = rx
         .recv()
         .map_err(|_| io::Error::other("the arcade tunnel's thread ended at start"))??;
     Ok(ArcadeLink {
@@ -979,6 +1023,7 @@ pub fn spawn(cfg: ArcadeConfig) -> io::Result<ArcadeLink> {
         flows,
         streams,
         guests,
+        host_closed,
     })
 }
 
@@ -1034,6 +1079,27 @@ mod tests {
             n + 1,
             "the forgotten socket comes back as a new flow"
         );
+    }
+
+    /// A new guest reads the host's close as "the host closed the arcade" from a new host (code 6) and from a 0.6.1
+    /// host (its endpoint close, code 0); the refusals and drops are not that. A 0.6.1 guest only acts on code 4, so
+    /// code 6 must stay apart from it (it then dials again, as after code 0).
+    #[test]
+    fn the_hosts_close_is_told_apart() {
+        use iroh::endpoint::{ApplicationClose, ConnectionError};
+        let app = |code: u8| {
+            ConnectionError::ApplicationClosed(ApplicationClose {
+                error_code: code.into(),
+                reason: Bytes::new(),
+            })
+        };
+        assert!(closed_by_host(&app(CLOSE_ARCADE_CLOSED)));
+        assert!(closed_by_host(&app(0)), "a 0.6.1 host's endpoint close");
+        for code in [1, 3, CLOSE_NOT_IN_ROOM, CLOSE_NO_ANSWER] {
+            assert!(!closed_by_host(&app(code)), "code {code}");
+        }
+        assert!(!closed_by_host(&ConnectionError::TimedOut));
+        assert_ne!(CLOSE_ARCADE_CLOSED, CLOSE_NOT_IN_ROOM);
     }
 
     #[test]
