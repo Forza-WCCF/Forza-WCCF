@@ -263,7 +263,7 @@ const NATIVE: &[(&str, bool, &str)] = &[
         false,
         "source/build/server-hook-1718/server1718_test.exe",
     ),
-    // the 2017-18 Linux shop's stand-in for the Launcher's shared memory (crates/linux-host), beside its hook
+    // the 2017-18 Linux arcade's stand-in for the Launcher's shared memory (crates/linux-host), beside its hook
     (
         "sddy_maps.exe",
         false,
