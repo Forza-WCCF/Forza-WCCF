@@ -16,6 +16,11 @@ pub const CRASH_SIGNS: [&str; 2] = ["SECOND-chance / FATAL", "STOP: invalid para
 /// The projector's launcher log: closing the projector leaves the seats playing.
 pub const PROJECTOR_LOG: &str = "run_projector.txt";
 
+/// The Launcher log's start-up line: milliseconds since the start began (PLAY) at the end of `stage`.
+pub fn startup_line(stage: &str, since: std::time::Duration) -> String {
+    format!("startup: {stage} {}", since.as_millis())
+}
+
 /// What a run is for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Mode {
@@ -451,6 +456,12 @@ pub fn compat_layer(existing: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_startup_line_names_the_stage_and_whole_milliseconds() {
+        let ms = std::time::Duration::from_micros(1_234_567);
+        assert_eq!(startup_line("guard", ms), "startup: guard 1234");
+    }
 
     #[test]
     fn the_2017_18_arcade_is_on_unless_settings_say_false() {
