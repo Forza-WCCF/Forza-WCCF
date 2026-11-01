@@ -59,7 +59,8 @@ use windows_sys::Win32::System::Console::{
 };
 use windows_sys::Win32::System::Threading::{ABOVE_NORMAL_PRIORITY_CLASS, GetCurrentProcess, SetPriorityClass};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    IDYES, MB_ICONERROR, MB_ICONQUESTION, MB_OK, MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO, MessageBoxW,
+    FindWindowW, IDYES, IsIconic, MB_ICONERROR, MB_ICONQUESTION, MB_OK, MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO,
+    MessageBoxW, SW_RESTORE, SetForegroundWindow, ShowWindow,
 };
 use windows_sys::core::BOOL;
 
@@ -274,6 +275,30 @@ fn steps_after_update(edition: Edition, folder: &str, lang: &'static str) -> Vec
     }
     steps.push(Step::Pictures); // last: a failure here must not skip the game's text
     steps
+}
+
+fn window_title(kit: &Kit) -> String {
+    format!("Launcher - {TITLE} {}", kit.edition().name())
+}
+
+/// Another Launcher window of this edition to the front (a second start ends after it); not while a game runs: the
+/// window stays minimized behind it.
+// shortcut: found by title, so two installs of one edition both open bring the first; key it by kit path if needed
+fn bring_to_front(kit: &Kit) {
+    if run::is_on(kit, run::Kind::Run) {
+        return;
+    }
+    let title: Vec<u16> = window_title(kit).encode_utf16().chain([0]).collect();
+    // SAFETY: a NUL-terminated title; the window handle is only passed back to Windows.
+    unsafe {
+        let w = FindWindowW(std::ptr::null(), title.as_ptr());
+        if !w.is_null() {
+            if IsIconic(w) != 0 {
+                ShowWindow(w, SW_RESTORE);
+            }
+            SetForegroundWindow(w);
+        }
+    }
 }
 
 /// Starts the Launcher.exe the update put in place; false when it did not start.
@@ -1451,7 +1476,7 @@ fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
         start(first);
     }
     pad_thread();
-    let title = format!("Launcher - {TITLE} {}", kit.edition().name());
+    let title = window_title(kit);
     let fonts = theme::font_dir();
     // OpenGL first, wgpu once if it cannot open the window (as the installer: wgpu flashed black on an RTX 2060 and
     // never opened on a GeForce 920MX laptop). FORZA_RENDERER=glow|wgpu forces one.
@@ -1710,6 +1735,14 @@ fn main() -> ExitCode {
         Some(_) if attach_console() => return console(&kit, &args),
         Some(_) => vec![Step::Game(args.clone())],
     };
+    // one window per kit folder: a second start shows the first and ends; the Launcher an update started waits
+    // for the old one to close
+    let after_update = env::var_os(AFTER_UPDATE).is_some();
+    let window_lock = run::hold_window(&kit, if after_update { 30_000 } else { 0 });
+    if window_lock.is_none() && !after_update {
+        bring_to_front(&kit);
+        return ExitCode::SUCCESS;
+    }
     window(&kit, step, folder.map(OsString::as_os_str));
     ExitCode::SUCCESS
 }
