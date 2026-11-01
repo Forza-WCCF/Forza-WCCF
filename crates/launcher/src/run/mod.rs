@@ -849,13 +849,14 @@ fn launched_pid(logs: &Path, log: &str) -> Option<u32> {
     re.captures(&text)?[1].parse().ok()
 }
 
-/// A log of the run's stand-ins: data\logs\<name>, a line each with the seconds since it started.
+/// A log of the run's stand-ins: data\logs\<name>, a line each with the wall clock and the seconds since it started.
 fn file_log(path: PathBuf) -> Log {
     let t0 = Instant::now();
     let file = Mutex::new(File::create(path).ok());
     Arc::new(move |msg| {
         if let Some(f) = file.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_mut() {
-            let _ = writeln!(f, "{:8.2}  {msg}", t0.elapsed().as_secs_f64());
+            let now = logs::clock(logs::local(std::time::SystemTime::now()));
+            let _ = writeln!(f, "{now} {:8.2}  {msg}", t0.elapsed().as_secs_f64());
         }
     })
 }
@@ -1431,7 +1432,7 @@ impl Run<'_> {
             env: self.kit_env().into_iter().chain(env).chain([game_dpi()]).collect(),
             stop: Some(stop.clone()),
         };
-        let mut log = File::create(self.logs().join(role.log()))?;
+        let mut log = logs::Stamped::new(File::create(self.logs().join(role.log()))?);
         let (job, tx, id) = (self.job.clone(), self.tx.clone(), self.next_id);
         self.next_id += 1;
         let thread = thread::spawn(move || {

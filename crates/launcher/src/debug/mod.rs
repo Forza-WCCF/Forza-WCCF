@@ -514,7 +514,9 @@ struct DbgFile {
 
 impl DbgFile {
     fn line(&mut self, s: &str) {
-        let _ = writeln!(self.file, "{s}");
+        // the wall clock first, the `t+` seconds after it
+        let now = crate::logs::clock(crate::logs::local(std::time::SystemTime::now()));
+        let _ = writeln!(self.file, "{now} {s}");
         if self.each_line {
             let _ = self.file.flush();
         }
