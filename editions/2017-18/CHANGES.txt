@@ -1,6 +1,16 @@
 Forza-WCCF 2017-18 - release notes
 ==================================
 
+0.6.1 - 2026-11-01 (alpha)
+--------------------------
+0.6.0, rebuilt so that Windows Defender stops flagging one helper.
+
+  - Windows Defender flagged FPR_Emu.exe, the small card-table helper beside the game, as a trojan. It is not one, and
+    nothing in it changed except how it is compiled: the file is smaller and the verdict is gone. Restore it from
+    Windows Security's protection history if an earlier 0.6.0 install left it in quarantine.
+  - Everything else is 0.6.0: online VS matches between different PCs stay in step (AMD and Intel), RESET LINEUP,
+    saved formations, the server inside Launcher.exe.
+
 0.6.0 - 2026-11-01 (alpha)
 --------------------------
 The online play fix: VS matches between different PCs no longer fall apart.
