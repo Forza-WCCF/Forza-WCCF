@@ -163,23 +163,23 @@ impl Pc {
         panic!("seat {}: no probe echo", self.seat);
     }
 
-    fn entry(&self, round: u32, card: u32, shop: u32) -> Vec<u8> {
+    fn entry(&self, round: u32, card: u32, arcade: u32) -> Vec<u8> {
         let mut e = vec![0u8; 280];
         le(&mut e, 0, 1);
         le(&mut e, 4, round);
         e[8..12].copy_from_slice(&self.token.ip().octets());
         e[12..14].copy_from_slice(&self.token.port().to_le_bytes());
         le(&mut e, 44, card);
-        le(&mut e, 48, shop);
+        le(&mut e, 48, arcade);
         e
     }
 
-    fn poll(&mut self, round: u32, card: u32, shop: u32) -> Vec<u8> {
+    fn poll(&mut self, round: u32, card: u32, arcade: u32) -> Vec<u8> {
         let mut q = vec![0u8; 20];
         le(&mut q, 0, 1);
         le(&mut q, 4, round);
         le(&mut q, 8, card);
-        le(&mut q, 12, shop);
+        le(&mut q, 12, arcade);
         ask(&mut self.ctl, 245, &q)
     }
 }

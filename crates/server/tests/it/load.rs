@@ -1,12 +1,12 @@
 //! S0 load harness (Linux only, `#[ignore]`d): starts the built `forza-server all` binary on loopback, holds fake
-//! shops on the seat desk (WANT, then PING every second), pumps datagrams through the relay between seat pairs, reads
+//! arcades on the seat desk (WANT, then PING every second), pumps datagrams through the relay between seat pairs, reads
 //! the server's RSS and CPU from /proc and prints one JSON line.
 //!
 //! Run: `cargo test --release -p forza-server --test main -- --ignored load --nocapture`
 //!
 //! Knobs (environment): `WCCF_LOAD_IDLE` idle seconds measured first (default 10), `WCCF_LOAD_SECS` load seconds
-//! (10), `WCCF_LOAD_RATE` packets per second per side (60), `WCCF_LOAD_PAIRS` seat pairs (4), `WCCF_LOAD_SHOPS`
-//! shops on the desk (8). The protocol has seats 1-8 and a seat belongs to one address, so one relay carries 4 pairs
+//! (10), `WCCF_LOAD_RATE` packets per second per side (60), `WCCF_LOAD_PAIRS` seat pairs (4), `WCCF_LOAD_ARCADES`
+//! arcades on the desk (8). The protocol has seats 1-8 and a seat belongs to one address, so one relay carries 4 pairs
 //! at most; the harness refuses more.
 #![cfg(target_os = "linux")]
 
@@ -52,7 +52,7 @@ fn cpu_ticks(pid: u32) -> u64 {
     f[11].parse::<u64>().unwrap() + f[12].parse::<u64>().unwrap() // fields 14 and 15
 }
 
-fn shop(port: u16, stop: Arc<AtomicBool>, pongs: Arc<AtomicU64>) {
+fn arcade(port: u16, stop: Arc<AtomicBool>, pongs: Arc<AtomicU64>) {
     let mut c = TcpStream::connect(("127.0.0.1", port)).unwrap();
     c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
     let mut r = BufReader::new(c.try_clone().unwrap());
@@ -115,7 +115,10 @@ fn load() {
         knob("WCCF_LOAD_SECS", 10),
         knob("WCCF_LOAD_RATE", 60),
     );
-    let (pairs, shops) = (knob("WCCF_LOAD_PAIRS", 4) as u8, knob("WCCF_LOAD_SHOPS", 8));
+    let (pairs, arcades) = (
+        knob("WCCF_LOAD_PAIRS", 4) as u8,
+        knob("WCCF_LOAD_ARCADES", 8),
+    );
     assert!(
         (1..=4).contains(&pairs),
         "seats 1-8 give at most 4 pairs per relay"
@@ -150,9 +153,9 @@ fn load() {
         Arc::new(AtomicU64::new(0)),
     );
     let mut threads = Vec::new();
-    for _ in 0..shops {
+    for _ in 0..arcades {
         let (st, p) = (stop.clone(), pongs.clone());
-        threads.push(thread::spawn(move || shop(desk, st, p)));
+        threads.push(thread::spawn(move || arcade(desk, st, p)));
     }
     for i in 0..pairs {
         for (seat, peer) in [(2 * i + 1, 2 * i + 2), (2 * i + 2, 2 * i + 1)] {
@@ -176,7 +179,7 @@ fn load() {
 
     let (sent, got) = (sent.load(Ordering::Relaxed), got.load(Ordering::Relaxed));
     println!(
-        "{{\"pairs\":{pairs},\"shops\":{shops},\"rate_per_side\":{rate},\"idle_s\":{idle},\"load_s\":{secs},\
+        "{{\"pairs\":{pairs},\"arcades\":{arcades},\"rate_per_side\":{rate},\"idle_s\":{idle},\"load_s\":{secs},\
          \"idle_rss_kib\":{idle_rss},\"idle_cpu_pct\":{idle_cpu:.3},\"load_rss_kib\":{load_rss},\"vmhwm_kib\":{hwm},\
          \"load_cpu_pct\":{load_cpu:.3},\"sent\":{sent},\"relayed\":{got},\"pongs\":{}}}",
         pongs.load(Ordering::Relaxed)

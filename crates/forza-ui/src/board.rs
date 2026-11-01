@@ -874,7 +874,7 @@ fn field(pitch: Rect) -> Rect {
     art::rect(pitch, art::FIELD)
 }
 
-/// The owner's pitch artwork (`campo wccf`, a 2964x4419 picture of the cabinet's mat), traced into shapes so it is
+/// The project's pitch artwork (`campo wccf`, a 2964x4419 picture of the cabinet's mat), traced into shapes so it is
 /// sharp at any size: its pitch part, from 20 px under the top, 2964x3705 px ([`PITCH_ASPECT`] tall). Positions are
 /// that picture's pixels (line centres), colours sampled from it.
 mod art {
@@ -1679,7 +1679,7 @@ pub fn fit_badge(p: &Painter, top_center: Pos2, fit: Fit, lang: Lang) {
     p.galley(r.center() - g.size() / 2.0, g, ink);
 }
 
-/// The pitch, attacking upwards. With `mat`, the formation board's: the owner's artwork of the cabinet's mat
+/// The pitch, attacking upwards. With `mat`, the formation board's: the project's artwork of the cabinet's mat
 /// ([`mat_pitch`]); without, the card back's small plain pitch.
 fn paint_pitch(p: &Painter, pitch: Rect, mat: bool) {
     if mat {
@@ -1722,7 +1722,7 @@ fn paint_pitch(p: &Painter, pitch: Rect, mat: bool) {
     }
 }
 
-/// The formation board's pitch: the owner's artwork ([`art`]), mown stripes, the yellower midfield band, the zone names
+/// The formation board's pitch: the project's artwork ([`art`]), mown stripes, the yellower midfield band, the zone names
 /// FW, MF and DF down the middle, the markings in chalk and the keeper's GK box half under the own goal line.
 fn mat_pitch(p: &Painter, pitch: Rect) {
     use std::f32::consts::{FRAC_PI_2, PI};
@@ -1792,7 +1792,7 @@ fn mat_pitch(p: &Painter, pitch: Rect) {
 }
 
 /// The formation board's bench: the artwork's strip (a cream line, the soil, SUB, the five numbered boxes and the
-/// Forza-WCCF badge), drawn as the owner's file has it, untranslated.
+/// Forza-WCCF badge), drawn as the source file has it, untranslated.
 fn mat_bench(ui: &Ui, bench: Rect) {
     let p = ui.painter();
     let at = |x, y| art::bench_at(bench, x, y);

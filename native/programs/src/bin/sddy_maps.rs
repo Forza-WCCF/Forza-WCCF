@@ -1,4 +1,4 @@
-//! sddy_maps.exe GAME_DIR: the shared memory the 2017-18 Launcher makes before it starts control, for the Linux shop (run
+//! sddy_maps.exe GAME_DIR: the shared memory the 2017-18 Launcher makes before it starts control, for the Linux arcade (run
 //! under Wine by `wccf-linux-server --edition 2017-18`, which has no Launcher). Same layout as the Launcher's
 //! (crates/launcher/src/debug/maps.rs `make_all`, 2017-18): `SDDY_<file>` = a u32 size + `prog_data/player_data/<file>`
 //! for each file that exists, then `SDDY_ WCCF 17-18 Ver2.0` with byte 0 = 1, which control waits up to 60 s for. Prints one

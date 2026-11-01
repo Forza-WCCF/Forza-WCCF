@@ -1,11 +1,11 @@
-//! A guest's own club in a 2017-18 shop (owner decision 2026-10-27). Only the host's control talks to a game server,
+//! A guest's own club in a 2017-18 arcade (decided 2026-10-27). Only the host's control talks to a game server,
 //! so on JOIN the guest's Launcher sends its home club (every row of its card's Aime id in `data\save\gamesvr`) to
-//! the host's seat desk, which imports it under the guest's shop Aime id with fresh coach and card ids. The guest
+//! the host's seat desk, which imports it under the guest's arcade Aime id with fresh coach and card ids. The guest
 //! pulls it back every [`POLL`] (so within seconds of each saved match) and on leave, and writes it home with its own
-//! ids restored. A card whose home club sits under an older integer Aime id is read and written there: the shop
+//! ids restored. A card whose home club sits under an older integer Aime id is read and written there: the arcade
 //! only ever sees the hash.
 //!
-//! Desk words (TCP 20030, through the shop tunnel or on the LAN), one request per connection:
+//! Desk words (TCP 20030, through the arcade tunnel or on the LAN), one request per connection:
 //! `CLUB PUT seat aime token size` + size bytes of [`Club`] JSON -> `OK size` + [`Link`] JSON | `NO why`;
 //! `CLUB GET aime token stamp` -> `SAME` | `OK size stamp` + [`Club`] JSON | `NO why`;
 //! `CLUB DONE aime token` -> `OK 0` | `NO why`.
@@ -14,7 +14,7 @@
 //! id that holds a club the desk did not import (the host's own, or one from before) is never read, replaced or
 //! dropped.
 //!
-//! The guest's side keeps `club_out.json` (the marker: in which shop since when, the id map, the home club's stamp)
+//! The guest's side keeps `club_out.json` (the marker: in which arcade since when, the id map, the home club's stamp)
 //! beside its store while the club is out, and `club_last.json`, the last copy pulled. A marker found at the next
 //! start means the session did not end cleanly: the home copy stays, the last pulled copy goes to `backups`, and the
 //! player is told ([`leftover`]).
@@ -146,9 +146,9 @@ pub struct Swap {
 
 impl Swap {
     /// Home -> host ids.
-    pub fn out(link: &Link, home_aime: u32, shop_aime: u32) -> Swap {
+    pub fn out(link: &Link, home_aime: u32, arcade_aime: u32) -> Swap {
         Swap {
-            aimes: HashMap::from([(home_aime, shop_aime)]),
+            aimes: HashMap::from([(home_aime, arcade_aime)]),
             coaches: link.coaches.iter().copied().collect(),
             cards: link.cards.iter().copied().collect(),
         }
@@ -283,7 +283,7 @@ fn stamp_of(json: &[u8]) -> String {
         .collect()
 }
 
-/// The token that owns a card's club in a shop: SHA-256 of the access code with a fixed prefix, so the host never
+/// The token that owns a card's club in an arcade: SHA-256 of the access code with a fixed prefix, so the host never
 /// learns the code (which would let it play as that card elsewhere).
 pub fn token(code: &str) -> String {
     let h = Sha256::digest(format!("forza-wccf club\0{code}").as_bytes());
@@ -440,13 +440,13 @@ fn has_rows(db: &Connection, aime: u32) -> rusqlite::Result<bool> {
 fn owned(db: &Connection, aime: u32, token: &str) -> Result<(), String> {
     match guest_token(db, aime).map_err(db_err)? {
         Some(t) if t == token => Ok(()),
-        Some(_) => Err("another player's club for this card is in this shop".into()),
+        Some(_) => Err("another player's club for this card is in this arcade".into()),
         None => Err("no club of this card was brought here".into()),
     }
 }
 
 impl Store {
-    /// Host: imports a guest's home club under its shop Aime id `aime` with fresh coach and card ids; the map goes
+    /// Host: imports a guest's home club under its arcade Aime id `aime` with fresh coach and card ids; the map goes
     /// back to the guest. A copy of the same token replaces the old one (a rejoin); any other club under `aime` is
     /// refused, never touched.
     pub fn import_guest(
@@ -460,11 +460,11 @@ impl Store {
         let tx = self.0.transaction().map_err(db_err)?;
         match guest_token(&tx, aime).map_err(db_err)? {
             Some(t) if t != token => {
-                return Err("another player's club for this card is in this shop".into());
+                return Err("another player's club for this card is in this arcade".into());
             }
             Some(_) => {}
             None if has_rows(&tx, aime).map_err(db_err)? => {
-                return Err("this shop already keeps a club for this card".into());
+                return Err("this arcade already keeps a club for this card".into());
             }
             None => {
                 let n: u32 = tx
@@ -472,7 +472,7 @@ impl Store {
                     .map_err(db_err)?;
                 if n as usize >= MAX_GUESTS {
                     return Err(format!(
-                        "this shop holds {MAX_GUESTS} guests' clubs already"
+                        "this arcade holds {MAX_GUESTS} guests' clubs already"
                     ));
                 }
             }
@@ -542,7 +542,7 @@ impl Store {
     }
 
     /// Guest: writes the host's copy `host` home under `home_aime` with the home ids (`link`, which gains fresh home
-    /// ids for clubs or cards made in the shop), in one transaction. `expect` is the home club's stamp at the last
+    /// ids for clubs or cards made in the arcade), in one transaction. `expect` is the home club's stamp at the last
     /// copy: a home club changed since is never overwritten (`Ok(None)`). Returns the new home stamp.
     pub fn write_home(
         &mut self,
@@ -787,14 +787,16 @@ pub fn release(desk: SocketAddr, aime: u32, code: &str) -> Result<(), String> {
     ask(desk, &format!("CLUB DONE {aime} {}\n", token(code)), &[]).map(|_| ())
 }
 
-/// `club_out.json`: the club is out, in which shop since when, and what copying it back needs.
+/// `club_out.json`: the club is out, in which arcade since when, and what copying it back needs.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Out {
-    pub shop: String,
+    #[serde(rename = "shop")] // on-disk key from before the arcade rename
+    pub arcade: String,
     pub since: i64,
     pub seat: u8,
     pub home_aime: u32,
-    pub shop_aime: u32,
+    #[serde(rename = "shop_aime")] // on-disk key from before the arcade rename
+    pub arcade_aime: u32,
     pub link: Link,
     /// The home club's stamp after the last copy (in or back).
     pub home_stamp: String,
@@ -863,7 +865,7 @@ fn backup(dir: &Path, what: &str, bytes: &[u8]) -> io::Result<PathBuf> {
     Ok(path)
 }
 
-/// At a start: a club still marked out means the last shop session ended without bringing it home. The home copy
+/// At a start: a club still marked out means the last arcade session ended without bringing it home. The home copy
 /// stays; the last copy pulled from the host (if any) goes to `backups`, the marker goes. `Some(path)` (the backup,
 /// or the store folder when no copy came) when the player must be told.
 pub fn leftover(dir: &Path) -> io::Result<Option<PathBuf>> {
@@ -873,6 +875,7 @@ pub fn leftover(dir: &Path) -> io::Result<Option<PathBuf>> {
     }
     let last = last_file(dir);
     let kept = match std::fs::read(&last) {
+        // file prefix kept from before the arcade rename: players' backups already carry it
         Ok(b) => backup(dir, "club-shop", &b)?,
         Err(e) if e.kind() == io::ErrorKind::NotFound => dir.to_path_buf(),
         // unreadable now: keep the marker and the copy for the next start
@@ -883,25 +886,25 @@ pub fn leftover(dir: &Path) -> io::Result<Option<PathBuf>> {
     Ok(Some(kept))
 }
 
-/// The guest's card for a shop.
+/// The guest's card for an arcade.
 pub struct Guest {
     /// The seat desk (through the tunnel: 127.0.0.1 and the tunnel's port).
     pub desk: SocketAddr,
     pub seat: u8,
     /// The card's access code (`data\save\seat1_aime.txt`).
     pub code: String,
-    /// Its Aime id at home (`aimedb.json`; an older card keeps its integer id there) and in the shop (the hash).
+    /// Its Aime id at home (`aimedb.json`; an older card keeps its integer id there) and in the arcade (the hash).
     pub home_aime: u32,
-    pub shop_aime: u32,
+    pub arcade_aime: u32,
     /// The home store's folder, `data\save\gamesvr`.
     pub dir: PathBuf,
-    /// Which shop, for the marker.
-    pub shop: String,
+    /// Which arcade, for the marker.
+    pub arcade: String,
     /// Between copy-backs ([`POLL`]; tests shorten it).
     pub poll: Duration,
 }
 
-/// The club out in a shop: pulls it home every [`POLL`] and once more when dropped (the run's end), then tells the
+/// The club out in an arcade: pulls it home every [`POLL`] and once more when dropped (the run's end), then tells the
 /// host; the marker goes only after that last copy is home.
 pub struct Trip {
     _handle: Handle,
@@ -909,7 +912,7 @@ pub struct Trip {
 
 impl Guest {
     /// JOIN: backs the home club up, sends it, marks it out, and starts the copy-back. `Err`: the club stays home
-    /// (nothing marked), the player plays with what the shop has for the card.
+    /// (nothing marked), the player plays with what the arcade has for the card.
     pub fn bring(self, log: Log) -> Result<Trip, String> {
         std::fs::create_dir_all(&self.dir).map_err(|e| e.to_string())?;
         let store = Store::open(&self.dir.join("gamesvr.db")).map_err(db_err)?;
@@ -918,13 +921,13 @@ impl Guest {
         let saved = backup(&self.dir, &format!("club-{}", self.home_aime), &json)
             .map_err(|e| e.to_string())?;
         log(&format!("home club backed up: {}", saved.display()));
-        let link = send(self.desk, self.seat, self.shop_aime, &self.code, &club)?;
+        let link = send(self.desk, self.seat, self.arcade_aime, &self.code, &club)?;
         let out = Out {
-            shop: self.shop.clone(),
+            arcade: self.arcade.clone(),
             since: now(),
             seat: self.seat,
             home_aime: self.home_aime,
-            shop_aime: self.shop_aime,
+            arcade_aime: self.arcade_aime,
             link,
             home_stamp: club.stamp(),
             host_stamp: String::new(),
@@ -933,10 +936,10 @@ impl Guest {
         };
         self.mark(&out).map_err(|e| e.to_string())?;
         log(&format!(
-            "club in the shop: {} clubs, Aime id {} at home, {} here",
+            "club in the arcade: {} clubs, Aime id {} at home, {} here",
             club.coaches.len(),
             self.home_aime,
-            self.shop_aime
+            self.arcade_aime
         ));
         let stop = Arc::new(AtomicBool::new(false));
         let flag = stop.clone();
@@ -966,10 +969,10 @@ impl Guest {
             let home = self.pull(&mut out, &mut store, last, log);
             if last {
                 if home {
-                    match release(self.desk, self.shop_aime, &self.code) {
-                        Ok(()) => log("club home; the shop dropped its copy"),
+                    match release(self.desk, self.arcade_aime, &self.code) {
+                        Ok(()) => log("club home; the arcade dropped its copy"),
                         Err(e) => log(&format!(
-                            "club home; the shop keeps its copy until it restarts ({e})"
+                            "club home; the arcade keeps its copy until it restarts ({e})"
                         )),
                     }
                     let _ = std::fs::remove_file(last_file(&self.dir));
@@ -988,7 +991,7 @@ impl Guest {
     /// the stamp is the same (the last one).
     fn pull(&self, out: &mut Out, store: &mut Store, all: bool, log: &Log) -> bool {
         let since = if all { "" } else { out.host_stamp.as_str() };
-        let (stamp, host) = match fetch(self.desk, self.shop_aime, &self.code, since) {
+        let (stamp, host) = match fetch(self.desk, self.arcade_aime, &self.code, since) {
             Ok(Some(got)) => got,
             Ok(None) => return true,
             Err(e) => {
@@ -1021,9 +1024,10 @@ impl Guest {
             Ok(None) => {
                 out.host_stamp = stamp;
                 let _ = self.mark(out);
+                // same kept "club-shop" prefix as above
                 match backup(&self.dir, "club-shop", &pulled) {
                     Ok(p) => log(&format!(
-                        "club copy-back: the home club changed meanwhile, so it stays; the shop's copy is {}",
+                        "club copy-back: the home club changed meanwhile, so it stays; the arcade's copy is {}",
                         p.display()
                     )),
                     Err(e) => log(&format!(
@@ -1043,6 +1047,20 @@ impl Guest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A `club_out.json` written before the arcade rename still loads, and the keys on disk stay the same.
+    #[test]
+    fn club_out_keeps_its_old_keys() {
+        let old = r#"{"shop":"Sala Roma","since":1,"seat":2,"home_aime":3,"shop_aime":4,
+            "link":{"coaches":[],"cards":[]},"home_stamp":"a","host_stamp":"b","back_stamp":"c","back":0}"#;
+        let out: Out = serde_json::from_str(old).unwrap();
+        assert_eq!((out.arcade.as_str(), out.arcade_aime), ("Sala Roma", 4));
+        let json = serde_json::to_value(&out).unwrap();
+        assert!(
+            json.get("shop").is_some() && json.get("shop_aime").is_some(),
+            "{json}"
+        );
+    }
 
     #[test]
     fn ask_lines() {
@@ -1187,7 +1205,7 @@ mod tests {
     #[test]
     fn round_trip_restores_the_ids_and_every_byte() {
         let d = tempfile::tempdir().unwrap();
-        let (home_aime, shop_aime) = (1, crate::standins::aimedb::hash_id(CODE) as u32);
+        let (home_aime, arcade_aime) = (1, crate::standins::aimedb::hash_id(CODE) as u32);
         let sent = club(home_aime, &[(1, 1), (2, 3)]);
         let mut home = store_with(&d.path().join("home.db"), &sent);
         let host = store_with(
@@ -1201,18 +1219,18 @@ mod tests {
         let link = host
             .lock()
             .unwrap()
-            .import_guest(&out, shop_aime, 2, &token(CODE))
+            .import_guest(&out, arcade_aime, 2, &token(CODE))
             .unwrap();
         assert_eq!(link.coaches, [(1, 4), (2, 5)]);
         assert_eq!(link.cards, [(1, 4), (3, 5)]);
 
-        // in the shop: host ids everywhere the store and the client read them
+        // in the arcade: host ids everywhere the store and the client read them
         let there = host
             .lock()
             .unwrap()
-            .guest_club(shop_aime, &token(CODE))
+            .guest_club(arcade_aime, &token(CODE))
             .unwrap();
-        assert_eq!(there.aime, shop_aime);
+        assert_eq!(there.aime, arcade_aime);
         for (k, (coach, card)) in there.coaches.iter().zip([(4, 4), (5, 5)]) {
             assert_eq!((k.coach, k.card), (coach, card));
             let b = &k.save.as_ref().unwrap().block;
@@ -1227,10 +1245,10 @@ mod tests {
             let p = &k.requests[0].payload;
             assert_eq!(
                 [u32_at(p, 4), u32_at(p, 8), u32_at(p, 12)],
-                [shop_aime, coach, card]
+                [arcade_aime, coach, card]
             );
         }
-        assert_eq!(u32_at(&there.purchases[0].payload, 4), shop_aime);
+        assert_eq!(u32_at(&there.purchases[0].payload, 4), arcade_aime);
         assert_eq!(
             host.lock().unwrap().club(9).unwrap(),
             host_own,
@@ -1246,17 +1264,17 @@ mod tests {
         assert_eq!(home.club(home_aime).unwrap(), sent);
         assert_eq!(back, link);
 
-        // a match saved in the shop by the stand-in (277 with the shop's ids, one byte of the block changed)
+        // a match saved in the arcade by the stand-in (277 with the arcade's ids, one byte of the block changed)
         let k = &there.coaches[1];
         let mut block = k.save.as_ref().unwrap().block.clone();
         block[1000] ^= 0x5A;
         let (_, refused) =
-            super::super::gamesvr::ask_for_test(&host, 277, &save_277(shop_aime, 5, 5, &block));
+            super::super::gamesvr::ask_for_test(&host, 277, &save_277(arcade_aime, 5, 5, &block));
         assert_eq!(refused, None);
         let after = host
             .lock()
             .unwrap()
-            .guest_club(shop_aime, &token(CODE))
+            .guest_club(arcade_aime, &token(CODE))
             .unwrap();
         home.write_home(&after, &mut back, home_aime, &stamp)
             .unwrap()
@@ -1285,16 +1303,16 @@ mod tests {
         assert_eq!(host.lock().unwrap().club(9).unwrap(), host_own);
     }
 
-    /// A club made in the shop gets fresh home ids; the next copy back keeps them.
+    /// A club made in the arcade gets fresh home ids; the next copy back keeps them.
     #[test]
-    fn a_club_made_in_the_shop_gets_home_ids() {
+    fn a_club_made_in_the_arcade_gets_home_ids() {
         let d = tempfile::tempdir().unwrap();
         let mut home = store_with(&d.path().join("home.db"), &club(1, &[(1, 1)]));
         let mut host = store_with(&d.path().join("host.db"), &club(9, &[(1, 1)]));
         let link = host
             .import_guest(&home.club(1).unwrap(), 50, 3, &token(CODE))
             .unwrap();
-        // made in the shop: coach 7 / card 8, as COACH_LIST_ADD would
+        // made in the arcade: coach 7 / card 8, as COACH_LIST_ADD would
         insert(
             &host.0,
             &Club {
@@ -1465,9 +1483,9 @@ mod tests {
             seat,
             code: CODE.into(),
             home_aime: 1,
-            shop_aime: 50,
+            arcade_aime: 50,
             dir: dir.to_path_buf(),
-            shop: "test shop".into(),
+            arcade: "test arcade".into(),
             poll: Duration::from_millis(200),
         }
     }
@@ -1509,7 +1527,7 @@ mod tests {
             backups, 2,
             "the home club backed up first (the refused try made one too)"
         );
-        // a save in the shop comes home within a poll
+        // a save in the arcade comes home within a poll
         let host = Mutex::new(Store::open(&host_db).unwrap());
         let there = host.lock().unwrap().guest_club(50, &token(CODE)).unwrap();
         let mut block = there.coaches[0].save.as_ref().unwrap().block.clone();

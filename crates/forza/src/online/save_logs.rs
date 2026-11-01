@@ -9,11 +9,11 @@
 //! The save data goes whole under `save/`: `data\save`'s own files (the club card) up to [`SAVE_MAX`] each, never the
 //! card's access code (`seat1_aime.txt`) or a `*.tmp`; `aimedb.json` with each access code turned into a short hash, so
 //! the Aime ids stay readable; and the 2017-18 game server's store as a consistent copy (`VACUUM INTO`, as the Launcher
-//! may have it open), its shop guests' tokens cut short. The access codes are also replaced in the logs (the Aime
+//! may have it open), its arcade guests' tokens cut short. The access codes are also replaced in the logs (the Aime
 //! stand-ins log them) and blanked in the dumps (also as UTF-16 and packed BCD). When the ZIP is too big the log tails get shorter, down to
 //! 64 KB; only if that is still too big the saves are left out and the tails start again from full. `report.txt` says
 //! what of the save data was left out. `pc.txt`: Windows, CPU, RAM, GPUs and display (scrubbed like the logs).
-//! A hosting PC's shop logs (`seat_broker.txt`, `match_relay.txt`) are in `data\logs` already.
+//! A hosting PC's arcade logs (`seat_broker.txt`, `match_relay.txt`) are in `data\logs` already.
 
 use rusqlite::{Connection, OpenFlags};
 use sha2::{Digest, Sha256};
@@ -202,7 +202,7 @@ fn access_codes(kit: &Path) -> Vec<String> {
 }
 
 /// A consistent copy of the game server's store (the Launcher's stand-in may hold it open in WAL mode, so a file copy
-/// could be torn), the shop guests' tokens cut to 8 characters: a token owns a guest's club on this host's desk.
+/// could be torn), the arcade guests' tokens cut to 8 characters: a token owns a guest's club on this host's desk.
 fn snapshot(db: &Path) -> Result<Vec<u8>, String> {
     let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
     let out = dir.path().join("gamesvr.db");

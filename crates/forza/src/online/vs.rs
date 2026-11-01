@@ -472,6 +472,7 @@ pub fn spawn_reflect(sock: UdpSocket, log: Log) -> io::Result<Handle> {
 mod tests {
     use super::*;
 
+    // `shop`: the original packets' venue fields, not an arcade room
     fn entry(slot: u32, seq: u32, ip: [u8; 4], port: u16, card: u32, shop: u32) -> Vec<u8> {
         let mut r = vec![0u8; ENTRY_LEN];
         r[0..4].copy_from_slice(&slot.to_le_bytes());

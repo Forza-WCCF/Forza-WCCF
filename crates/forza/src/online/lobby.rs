@@ -1,22 +1,22 @@
-//! The desk's `LOBBY edition` answer: one JSON line listing the shops and VS rooms the Launcher's lobby view shows
+//! The desk's `LOBBY edition` answer: one JSON line listing the arcades and VS rooms the Launcher's lobby view shows
 //! (ROADMAP, "Online lobby view"), and the client calls of the other words. Ids are random per server run; no answer
 //! holds addresses, card numbers or names of people.
 //!
 //! The words, one line each way, the desk hangs up after its answer:
 //! - `LOBBY edition` -> one [`Lobby`] JSON line, or `ERR slow`.
-//! - `RESERVE id [n]` -> [`Reserved`]: a shop seat or the guest seat of a VS room.
+//! - `RESERVE id [n]` -> [`Reserved`]: an arcade seat or the guest seat of a VS room.
 //! - `HEARTBEAT t`, `RELEASE t` -> `OK` | `GONE`.
 //! - `CREATE vs` -> [`Created`]: a VS room with this PC on seat 1; `CREATE vs open` puts it in the open pool instead
 //!   (the desk seats it on seat 2 of the oldest room waiting there, else makes one; QUICK MATCH on VS ROOMS).
 //! - `READY id t` -> `OK` | `GONE`: the ticket's seat in room `id` is ready (READY).
 //! - `CLOSE id t` -> `OK` | `GONE`: the host's ticket closes room `id` (LEAVE by the host).
-//! - `CREATE shop ID [public]` (2017-18) -> [`Created`]: a shop room hosted by the PC whose shop tunnel is ID (an
+//! - `CREATE shop ID [public]` (2017-18) -> [`Created`]: an arcade room hosted by the PC whose arcade tunnel is ID (an
 //!   iroh EndpointId, 64 hex digits), the host on seat 1. Private unless `public` (then listed, without its code).
-//!   `CREATE shop ID public|private NAME...` names it too (the rest of the line, [`shop_name`]); desks before this
+//!   `CREATE shop ID public|private NAME...` names it too (the rest of the line, [`arcade_name`]); desks before this
 //!   answer `ERR`, and the Launcher asks again without the name.
-//! - `JOIN CODE [n]` -> [`Reserved`]: a guest seat (2-8) in the shop room with that code. `JOIN ID [n]` with the id of
+//! - `JOIN CODE [n]` -> [`Reserved`]: a guest seat (2-8) in the arcade room with that code. `JOIN ID [n]` with the id of
 //!   a listed (`public`) room seats a guest too; a private room's id answers `CLOSED`, so its code is the only way in.
-//!   Desks before this list rooms without [`Shop::room`]; the Launcher joins only rows that have it.
+//!   Desks before this list rooms without [`Arcade::room`]; the Launcher joins only rows that have it.
 //! - `SHOP t [ID]` -> [`Peers`] | `GONE`: a guest's ticket (telling its own tunnel id) gets the host's id, the host's
 //!   ticket the ids of the guests that asked. Ids go only to tickets of the same room, never into `LOBBY`.
 
@@ -32,16 +32,16 @@ pub const MAX_ANSWER: usize = 64 * 1024;
 /// A reserved seat is held this long without a `HEARTBEAT`; clients send one every [`HEARTBEAT_EVERY`] seconds.
 pub const LEASE_SECS: u64 = 60;
 pub const HEARTBEAT_EVERY: u64 = 20;
-/// A shop room's code: this many letters and digits (the desk makes them, the Launcher's box takes them).
-pub const SHOP_CODE_LEN: usize = 8;
-/// A shop room's name: at most this many characters, as the desk lists its own shop's.
-pub const SHOP_NAME_LEN: usize = 24;
-/// A listed shop room's name when its host gave none.
-pub const SHOP_ROOM_NAME: &str = "Arcade room";
+/// An arcade room's code: this many letters and digits (the desk makes them, the Launcher's box takes them).
+pub const ARCADE_CODE_LEN: usize = 8;
+/// An arcade room's name: at most this many characters, as the desk lists its own arcade's.
+pub const ARCADE_NAME_LEN: usize = 24;
+/// A listed arcade room's name when its host gave none.
+pub const ARCADE_ROOM_NAME: &str = "Arcade room";
 
-/// A shop room's name as the words carry it: no control characters, single spaces, at most [`SHOP_NAME_LEN`]
+/// An arcade room's name as the words carry it: no control characters, single spaces, at most [`ARCADE_NAME_LEN`]
 /// characters; empty when nothing is left.
-pub fn shop_name(s: &str) -> String {
+pub fn arcade_name(s: &str) -> String {
     // invisible and bidi format characters could show a listed name reversed or blank
     let seen: String = s
         .chars()
@@ -53,13 +53,13 @@ pub fn shop_name(s: &str) -> String {
     let name: String = words
         .chars()
         .filter(|c| !c.is_control())
-        .take(SHOP_NAME_LEN)
+        .take(ARCADE_NAME_LEN)
         .collect();
     name.trim_end().to_owned()
 }
 
 /// The desk's answer to `RESERVE id` (or `RESERVE id n`): `TICKET t n`, `FULL`, `TAKEN` (the seat asked for is
-/// busy) or `CLOSED` (not this desk's shop).
+/// busy) or `CLOSED` (not this desk's arcade).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Reserved {
     Ticket { ticket: String, seat: u8 },
@@ -92,7 +92,7 @@ impl Reserved {
     }
 }
 
-/// A shop's phase, as the desk reads it from the control's log.
+/// An arcade's phase, as the desk reads it from the control's log.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum State {
@@ -102,9 +102,9 @@ pub enum State {
     Closed,
 }
 
-/// One shop: the 8 seats of one control.
+/// One arcade: the 8 seats of one control.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Shop {
+pub struct Arcade {
     pub id: String,
     /// The operator's setting, up to 24 characters.
     pub name: String,
@@ -117,7 +117,7 @@ pub struct Shop {
     /// `en`, `it` or `ja`, declared by the operator.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lang: Option<String>,
-    /// A listed shop room (2017-18), joined by `JOIN id`; false for a desk's own shop.
+    /// A listed arcade room (2017-18), joined by `JOIN id`; false for a desk's own arcade.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub room: bool,
 }
@@ -165,7 +165,7 @@ pub struct Occupant {
     pub ready: bool,
 }
 
-/// One VS room: a one-PC shop waiting for, or holding, its opponent.
+/// One VS room: a one-PC arcade waiting for, or holding, its opponent.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VsRoom {
     pub id: String,
@@ -248,17 +248,17 @@ pub enum Ask {
     Create {
         open: bool,
     },
-    /// `name` empty: the desk's own ([`SHOP_ROOM_NAME`]); else already [`shop_name`].
-    CreateShop {
+    /// `name` empty: the desk's own ([`ARCADE_ROOM_NAME`]); else already [`arcade_name`].
+    CreateArcade {
         host: String,
         public: bool,
         name: String,
     },
-    JoinShop {
+    JoinArcade {
         code: String,
         seat: Option<u8>,
     },
-    Shop {
+    Arcade {
         ticket: String,
         own: Option<String>,
     },
@@ -282,25 +282,26 @@ impl Ask {
             Ask::Release { ticket } => format!("RELEASE {ticket}\n"),
             Ask::Create { open: false } => "CREATE vs\n".into(),
             Ask::Create { open: true } => "CREATE vs open\n".into(),
-            Ask::CreateShop { host, public, name } if !name.is_empty() => {
+            // wire tokens `CREATE shop` and `SHOP` kept from before the arcade rename: older clients and desks speak them
+            Ask::CreateArcade { host, public, name } if !name.is_empty() => {
                 let vis = if *public { "public" } else { "private" };
                 format!("CREATE shop {host} {vis} {name}\n")
             }
-            Ask::CreateShop {
+            Ask::CreateArcade {
                 host,
                 public: false,
                 ..
             } => format!("CREATE shop {host}\n"),
-            Ask::CreateShop {
+            Ask::CreateArcade {
                 host, public: true, ..
             } => format!("CREATE shop {host} public\n"),
-            Ask::JoinShop { code, seat: None } => format!("JOIN {code}\n"),
-            Ask::JoinShop {
+            Ask::JoinArcade { code, seat: None } => format!("JOIN {code}\n"),
+            Ask::JoinArcade {
                 code,
                 seat: Some(n),
             } => format!("JOIN {code} {n}\n"),
-            Ask::Shop { ticket, own: None } => format!("SHOP {ticket}\n"),
-            Ask::Shop {
+            Ask::Arcade { ticket, own: None } => format!("SHOP {ticket}\n"),
+            Ask::Arcade {
                 ticket,
                 own: Some(id),
             } => format!("SHOP {ticket} {id}\n"),
@@ -325,12 +326,13 @@ impl Ask {
             ["RELEASE", t] => Ask::Release { ticket: s(t) },
             ["CREATE", "vs"] => Ask::Create { open: false },
             ["CREATE", "vs", "open"] => Ask::Create { open: true },
-            ["CREATE", "shop", id] if valid_endpoint_id(id) => Ask::CreateShop {
+            // kept wire tokens `CREATE shop` and `SHOP` (see `line`)
+            ["CREATE", "shop", id] if valid_endpoint_id(id) => Ask::CreateArcade {
                 host: s(id),
                 public: false,
                 name: String::new(),
             },
-            ["CREATE", "shop", id, "public"] if valid_endpoint_id(id) => Ask::CreateShop {
+            ["CREATE", "shop", id, "public"] if valid_endpoint_id(id) => Ask::CreateArcade {
                 host: s(id),
                 public: true,
                 name: String::new(),
@@ -341,26 +343,26 @@ impl Ask {
                 id,
                 vis @ ("public" | "private"),
                 ref name @ ..,
-            ] if valid_endpoint_id(id) && !shop_name(&name.join(" ")).is_empty() => {
-                Ask::CreateShop {
+            ] if valid_endpoint_id(id) && !arcade_name(&name.join(" ")).is_empty() => {
+                Ask::CreateArcade {
                     host: s(id),
                     public: vis == "public",
-                    name: shop_name(&name.join(" ")),
+                    name: arcade_name(&name.join(" ")),
                 }
             }
-            ["JOIN", c] => Ask::JoinShop {
+            ["JOIN", c] => Ask::JoinArcade {
                 code: s(c),
                 seat: None,
             },
-            ["JOIN", c, n] => Ask::JoinShop {
+            ["JOIN", c, n] => Ask::JoinArcade {
                 code: s(c),
                 seat: Some(n.parse().ok()?),
             },
-            ["SHOP", t] => Ask::Shop {
+            ["SHOP", t] => Ask::Arcade {
                 ticket: s(t),
                 own: None,
             },
-            ["SHOP", t, id] if valid_endpoint_id(id) => Ask::Shop {
+            ["SHOP", t, id] if valid_endpoint_id(id) => Ask::Arcade {
                 ticket: s(t),
                 own: Some(s(id)),
             },
@@ -384,8 +386,8 @@ pub struct Lobby {
     pub edition: String,
     /// Seconds since the Unix epoch, when the desk built the answer.
     pub at: u64,
-    #[serde(default)]
-    pub shops: Vec<Shop>,
+    #[serde(default, rename = "shops")] // wire field kept: older clients and desks read `shops`
+    pub arcades: Vec<Arcade>,
     #[serde(default)]
     pub vs: Vec<VsRoom>,
 }
@@ -457,9 +459,9 @@ pub fn create(addr: SocketAddr, open: bool) -> Result<Created, String> {
     Created::parse(&a).ok_or(a)
 }
 
-/// `CREATE shop ID [public]` (2017-18): a shop room for the PC whose shop tunnel is `host`, this PC on seat 1;
-/// `public` lists it in `LOBBY` (never its code) under `name` ([`shop_name`] applied; empty: the desk's own).
-pub fn create_shop(
+/// `CREATE shop ID [public]` (2017-18): an arcade room for the PC whose arcade tunnel is `host`, this PC on seat 1;
+/// `public` lists it in `LOBBY` (never its code) under `name` ([`arcade_name`] applied; empty: the desk's own).
+pub fn create_arcade(
     addr: SocketAddr,
     host: &str,
     public: bool,
@@ -467,21 +469,21 @@ pub fn create_shop(
 ) -> Result<Created, String> {
     let a = ask(
         addr,
-        &Ask::CreateShop {
+        &Ask::CreateArcade {
             host: host.into(),
             public,
-            name: shop_name(name),
+            name: arcade_name(name),
         }
         .line(),
     )?;
     Created::parse(&a).ok_or(a)
 }
 
-/// `JOIN CODE [n]`: a guest seat in the shop room with that code, or in the listed room with that id.
-pub fn join_shop(addr: SocketAddr, code: &str, seat: Option<u8>) -> Result<Reserved, String> {
+/// `JOIN CODE [n]`: a guest seat in the arcade room with that code, or in the listed room with that id.
+pub fn join_arcade(addr: SocketAddr, code: &str, seat: Option<u8>) -> Result<Reserved, String> {
     let a = ask(
         addr,
-        &Ask::JoinShop {
+        &Ask::JoinArcade {
             code: code.into(),
             seat,
         }
@@ -491,14 +493,14 @@ pub fn join_shop(addr: SocketAddr, code: &str, seat: Option<u8>) -> Result<Reser
 }
 
 /// `SHOP t [ID]`: the room's other tunnel ids for this ticket; `Ok(None)` when the desk says `GONE`.
-pub fn shop_peers(
+pub fn arcade_peers(
     addr: SocketAddr,
     ticket: &str,
     own: Option<&str>,
 ) -> Result<Option<Peers>, String> {
     let a = ask(
         addr,
-        &Ask::Shop {
+        &Ask::Arcade {
             ticket: ticket.into(),
             own: own.map(str::to_owned),
         }
@@ -583,10 +585,10 @@ mod tests {
     #[test]
     fn parses_and_round_trips() {
         let l = Lobby::parse(SAMPLE).unwrap();
-        assert_eq!(l.shops.len(), 2);
-        assert_eq!(l.shops[0].state, State::Open);
-        assert_eq!(l.shops[1].state, State::InMatch);
-        assert_eq!(l.shops[1].next_entry, None);
+        assert_eq!(l.arcades.len(), 2);
+        assert_eq!(l.arcades[0].state, State::Open);
+        assert_eq!(l.arcades[1].state, State::InMatch);
+        assert_eq!(l.arcades[1].next_entry, None);
         assert_eq!(l.vs[0].code, "K7QM");
         assert_eq!(l.line(), format!("{SAMPLE}\n"));
         assert_eq!(Lobby::parse(&l.line()).unwrap(), l);
@@ -601,44 +603,44 @@ mod tests {
         assert_eq!(Lobby::parse(&l.line()).unwrap(), l);
     }
 
-    /// The shop-room words: only a well-formed tunnel id is a word.
+    /// The arcade-room words: only a well-formed tunnel id is a word.
     #[test]
-    fn shop_room_words_round_trip() {
+    fn arcade_room_words_round_trip() {
         let id = "ab".repeat(32);
         for ask in [
-            Ask::CreateShop {
+            Ask::CreateArcade {
                 host: id.clone(),
                 public: false,
                 name: String::new(),
             },
-            Ask::CreateShop {
+            Ask::CreateArcade {
                 host: id.clone(),
                 public: true,
                 name: String::new(),
             },
-            Ask::CreateShop {
+            Ask::CreateArcade {
                 host: id.clone(),
                 public: false,
                 name: "Sala Roma".into(),
             },
-            Ask::CreateShop {
+            Ask::CreateArcade {
                 host: id.clone(),
                 public: true,
                 name: "ゲームセンター 1".into(),
             },
-            Ask::JoinShop {
+            Ask::JoinArcade {
                 code: "K7QMZD".into(),
                 seat: None,
             },
-            Ask::JoinShop {
+            Ask::JoinArcade {
                 code: "K7QMZD".into(),
                 seat: Some(3),
             },
-            Ask::Shop {
+            Ask::Arcade {
                 ticket: "0123456789abcdef".into(),
                 own: None,
             },
-            Ask::Shop {
+            Ask::Arcade {
                 ticket: "0123456789abcdef".into(),
                 own: Some(id.clone()),
             },
@@ -652,16 +654,22 @@ mod tests {
 
     /// A room's name loses control characters and extra spaces, and stops at 24 characters.
     #[test]
-    fn shop_names_fit_the_line() {
-        assert_eq!(shop_name("  Sala\t Roma \n"), "Sala Roma");
-        assert_eq!(shop_name("a\u{7}b"), "ab");
+    fn arcade_names_fit_the_line() {
+        assert_eq!(arcade_name("  Sala\t Roma \n"), "Sala Roma");
+        assert_eq!(arcade_name("a\u{7}b"), "ab");
         assert_eq!(
-            shop_name("\u{202E}amoR \u{200B} alaS\u{2066}\u{FEFF}"),
+            arcade_name("\u{202E}amoR \u{200B} alaS\u{2066}\u{FEFF}"),
             "amoR alaS"
         );
-        assert_eq!(shop_name(" \r\n "), "");
-        assert_eq!(shop_name(&"ゲ".repeat(30)).chars().count(), SHOP_NAME_LEN);
-        assert_eq!(shop_name(&format!("{} x", "a".repeat(23))), "a".repeat(23));
+        assert_eq!(arcade_name(" \r\n "), "");
+        assert_eq!(
+            arcade_name(&"ゲ".repeat(30)).chars().count(),
+            ARCADE_NAME_LEN
+        );
+        assert_eq!(
+            arcade_name(&format!("{} x", "a".repeat(23))),
+            "a".repeat(23)
+        );
     }
 
     #[test]

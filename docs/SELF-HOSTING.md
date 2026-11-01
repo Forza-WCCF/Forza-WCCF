@@ -9,8 +9,8 @@ paths assume `FORZA_HOME=/srv/forza-wccf` and a service user `wccf`.
 
 | Piece | For | Program | Ports |
 |---|---|---|---|
-| 2010-11 shop server | 2010-11 online play | the original control and four match engines under Wine, started by `wccf-linux-server` (`crates/linux-host`) with the server hook `winmm.dll` (`native/hook`, feature `e1011-server`) | TCP 20002 |
-| 2010-11 seat desk, match relay | seats, the lobby, in-shop matches | `forza-server --edition 2010-11 all` (`crates/server`) | TCP 20030, UDP 20040 |
+| 2010-11 arcade server | 2010-11 online play | the original control and four match engines under Wine, started by `wccf-linux-server` (`crates/linux-host`) with the server hook `winmm.dll` (`native/hook`, feature `e1011-server`) | TCP 20002 |
+| 2010-11 seat desk, match relay | seats, the lobby, in-arcade matches | `forza-server --edition 2010-11 all` (`crates/server`) | TCP 20030, UDP 20040 |
 | 2010-11 projector relay | the projector (big screen) on every player's PC | `projector_relay.py` (`crates/server/python`), the one service still in Python | TCP 20031 |
 | 2017-18 server | the lobby, VS rooms, clubs and saves (SQLite), VS pairing | `forza-server --edition 2017-18 all` | TCP 20032, TCP 20060, UDP 20061 |
 | iroh relay | 2017-18 direct VS when two PCs cannot reach each other | upstream `iroh-relay` | TCP 8443, UDP 7842 |
@@ -53,7 +53,7 @@ For the 2010-11 server also, build the two Windows helpers on a Windows PC with 
     cargo xtask build        # also on Windows
     # the network guard: target/kit/2017-18/bin/wccfnet.dll, source/build/netguard.dll, source/build/test_wccfnet.exe
     # the server hook: target/kit/2017-18/source/build/server-hook/winmm.dll and its three self-tests
-    # the 2017-18 shop: target/kit/2017-18/source/build/server-hook-1718/winmm.dll, server1718_test.exe, sddy_maps.exe
+    # the 2017-18 arcade: target/kit/2017-18/source/build/server-hook-1718/winmm.dll, server1718_test.exe, sddy_maps.exe
 
 The iroh relay is upstream's binary at the iroh version in `Cargo.lock` (1.4.1 now), built the same way:
 
@@ -86,9 +86,9 @@ Another architecture for `forza-server`: `deploy/linux/Dockerfile.forza-server`.
 - Check from a player's PC: `python3 deploy/linux/lobby_check.py game.example.org:20032 2017-18 --room`.
 - The VS options, the room words and the pairing rules: `crates/server/README.md`.
 
-### The 2017-18 shop
+### The 2017-18 arcade
 
-A 2017-18 shop runs the original control and its four match engines under Wine like 2010-11, started by
+A 2017-18 arcade runs the original control and its four match engines under Wine like 2010-11, started by
 `wccf-linux-server start --edition 2017-18` (section 7 builds it). Its `winmm.dll` (`native/hook`,
 feature `e1718-server`) forwards every winmm call to `winmm_orig.dll` (`winmm_orig.py`, section 7), ends the process unless
 `netguard.dll` loads, blocks the DHCP release and renew (the guarded control imports them from `wccfnet.dll`), and
@@ -103,7 +103,7 @@ server1718_test.exe`; the last line is `2017-18 server hook test: all passed`. T
 IPHLPAPI; for the guarded control's case, run it again on a copy with that import renamed as setup does
 (`iphlpapi.dll\0` to `wccfnet.dll\0\0`).
 
-The shop has a tree of its own (the layout of section 7, with `1718-shop` for `1011`), so its Wine prefix and display
+The arcade has a tree of its own (the layout of section 7, with `1718-shop` for `1011`; the folder keeps the name hosts already use), so its Wine prefix and display
 differ: both editions use the same shared-memory names, so they never share a prefix. As `wccf`:
 
     S=/srv/forza-wccf/1718-shop
@@ -120,14 +120,14 @@ differ: both editions use the same shared-memory names, so they never share a pr
     WCCF_ROOT=$S $S/target/release/wccf-linux-server start --edition 2017-18
 
 `runtime/local/ctrl_user_option.conf` needs `GAME_SVR_IP=localhost` once (the supervisor refuses anything else,
-`127.0.0.1` too: the control reads that as the network's own host), the `GAME_SVR_PORT` of the shop's `forza-server`,
-and a `CONTROL_PORT` that is not 20002, the 2010-11 shop's port.
-The player setup writes `CONTROL_PORT=20002`, so the deploy step sets these values in the shop's own copy of the
+`127.0.0.1` too: the control reads that as the network's own host), the `GAME_SVR_PORT` of the arcade's `forza-server`,
+and a `CONTROL_PORT` that is not 20002, the 2010-11 arcade's port.
+The player setup writes `CONTROL_PORT=20002`, so the deploy step sets these values in the arcade's own copy of the
 conf; the port must also differ from `MATCH_PORT` and `GAME_SVR_PORT`.
 The seat desk and match relay are `forza-server`'s (the built-in ones speak the 2010-11 protocol). Start runs
-`sddy_maps.exe` (the `SDDY_*` shared memory the Launcher makes), then control, and declares the shop up when control's
+`sddy_maps.exe` (the `SDDY_*` shared memory the Launcher makes), then control, and declares the arcade up when control's
 port listens (in this prefix), four `match_Release` run and a `mxhook_<pid>.log` per live process (five) in `logs/<start time>/` say
-`edition: 2017-18 server` with none saying `REFUSED`; the supervisor checks this again every 10 s and stops the shop on a refusal. `status` and `stop` take the same `WCCF_ROOT`.
+`edition: 2017-18 server` with none saying `REFUSED`; the supervisor checks this again every 10 s and stops the arcade on a refusal. `status` and `stop` take the same `WCCF_ROOT`.
 
 ## 7. The 2010-11 server
 

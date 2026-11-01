@@ -478,9 +478,9 @@ pub fn command(kit: &Kit, p: &Params, words: &[String], ui: &dyn Ui) -> i32 {
         }
         Words::Plain { debug } => play(kit, p, None, debug, ui),
         Words::Start { mode, debug } => {
-            // a shop's tunnel id is not a server address: the lobby would ask it
+            // an arcade's tunnel id is not a server address: the lobby would ask it
             if let Mode::Remote(ip, _) = &mode
-                && vslink::shop::parse_id(ip).is_none()
+                && vslink::arcade::parse_id(ip).is_none()
                 && choices::setting(&kit.settings_file(), "server").as_deref() != Some(ip)
             {
                 let _ = choices::set_setting(&kit.settings_file(), "server", ip); // "remote" alone uses it again
@@ -608,7 +608,7 @@ fn plain_mode(kit: &Kit, p: &Params, ui: &dyn Ui) -> Mode {
     }
     let ip = choices::panel_value(&panel, "server").unwrap_or_default();
     if kit.edition() == Edition::E1718 {
-        // VS between homes: this PC is its own shop, the clubs and the pairing on the server's game server
+        // VS between homes: this PC is its own arcade, the clubs and the pairing on the server's game server
         let club = choices::setting(&kit.settings_file(), "club_server").unwrap_or_default();
         return match rules::vs_target(&panel, &club) {
             Err(why) => {
@@ -947,8 +947,8 @@ pub struct Run<'a> {
     beside_server: bool,
     /// Remote: the server is this PC's own (its address is one of this PC's), so its game server is this PC's store.
     own_store: bool,
-    /// Remote through the shop tunnel: the loopback ports it listens on (the shop's own unless this PC holds them).
-    tunnel_ports: Option<vslink::shop::Ports>,
+    /// Remote through the arcade tunnel: the loopback ports it listens on (the arcade's own unless this PC holds them).
+    tunnel_ports: Option<vslink::arcade::Ports>,
     job: Arc<Job>,
     tx: Sender<Event>,
     rx: Receiver<Event>,
@@ -962,21 +962,21 @@ pub struct Run<'a> {
     scenes: Option<Handle>,
     /// 2017-18: the game server stand-in (control keeps the clubs there).
     gamesvr: Option<Handle>,
-    /// 2017-18 with a club server: the direct VS link (crates/vslink), beside the game. A shop's host or a seat that
-    /// joins it by its id: the shop tunnel (vslink::shop).
+    /// 2017-18 with a club server: the direct VS link (crates/vslink), beside the game. An arcade's host or a seat that
+    /// joins it by its id: the arcade tunnel (vslink::arcade).
     vslink: Option<Handle>,
     /// 2017-18 online: where this run's VS plays (RESTART NOW keeps the cabinet only for the same target).
     vs_target: Option<rules::VsTarget>,
     lease: Option<Lease>,
-    /// 2017-18 shop guest: its home club, out in the shop until this is dropped (online::club).
+    /// 2017-18 arcade guest: its home club, out in the arcade until this is dropped (online::club).
     club: Option<club::Trip>,
     /// Remote: the server as the game takes it (its IPv4 address) and its seat desk's port (`host:port` written:
     /// that port), found at step 2 from [`Mode::Remote`]'s entry.
     remote: Option<(String, u16)>,
-    /// 2017-18 server: its shop room in the lobby (the code guests type), or why it has none.
-    shop_room: Option<Result<crate::lobby::HostRoom, String>>,
-    /// 2017-18 server: the guests its shop tunnel has connected now.
-    shop_guests: Option<Arc<AtomicUsize>>,
+    /// 2017-18 server: its arcade room in the lobby (the code guests type), or why it has none.
+    arcade_room: Option<Result<crate::lobby::HostRoom, String>>,
+    /// 2017-18 server: the guests its arcade tunnel has connected now.
+    arcade_guests: Option<Arc<AtomicUsize>>,
     _lock: OwnedHandle,
 }
 
@@ -992,8 +992,8 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
     };
     let seat = seat_dir(&game);
     let edition = kit.edition();
-    let shop = rules::shop_1718_on(&kit.settings());
-    if rules::online_refused(edition, &mode, shop) {
+    let arcade = rules::arcade_1718_on(&kit.settings());
+    if rules::online_refused(edition, &mode, arcade) {
         tell(ui, "", &Text::key("launcher.run_online_1718"));
         return Err(REFUSED);
     }
@@ -1076,8 +1076,8 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         lease: None,
         club: None,
         remote: None,
-        shop_room: None,
-        shop_guests: None,
+        arcade_room: None,
+        arcade_guests: None,
         _lock: lock,
     };
     // requests left by a run that ended are never carried out
@@ -1550,12 +1550,12 @@ impl Run<'_> {
 
         let mut projector = true;
         if let Mode::Remote(entry, want) = self.mode.clone() {
-            // the entry as written: a 2017-18 shop's id (its tunnel serves this PC's loopback), or a name or an IPv4
+            // the entry as written: a 2017-18 arcade's id (its tunnel serves this PC's loopback), or a name or an IPv4
             // address, ":port" the seat desk's (the lobby's entry)
-            let shop = vslink::shop::parse_id(&entry).filter(|_| self.edition == Edition::E1718);
-            let (ip, desk) = match shop {
+            let arcade = vslink::arcade::parse_id(&entry).filter(|_| self.edition == Edition::E1718);
+            let (ip, desk) = match arcade {
                 Some(id) => {
-                    let ports = self.start_shop_tunnel(vslink::shop::Role::Join(id))?;
+                    let ports = self.start_arcade_tunnel(vslink::arcade::Role::Join(id))?;
                     self.tunnel_ports = Some(ports);
                     ("127.0.0.1".to_owned(), ports.desk)
                 }
@@ -1563,9 +1563,9 @@ impl Run<'_> {
                     .map(|a| (a.ip().to_string(), a.port()))
                     .ok_or_else(|| Failed(Text::key("launcher.run_not_found").arg("entry", &entry)))?,
             };
-            // through the tunnel the shop is at 127.0.0.1 too, but its game server is the host's
-            self.own_store = rules::own_store(&ip, shop.is_some());
-            // this PC's own server by its LAN address: loopback, where a 2017-18 shop's desk and relay listen
+            // through the tunnel the arcade is at 127.0.0.1 too, but its game server is the host's
+            self.own_store = rules::own_store(&ip, arcade.is_some());
+            // this PC's own server by its LAN address: loopback, where a 2017-18 arcade's desk and relay listen
             let ip = if self.own_store { "127.0.0.1".to_owned() } else { ip };
             self.remote = Some((ip.clone(), desk));
             let control_port = self.tunnel_ports.map_or(p.control_port, |t| t.control);
@@ -1729,10 +1729,11 @@ impl Run<'_> {
             ("WCCF_BROKER_PORT".to_owned(), self.p.seat_port.to_string()),
             ("WCCF_RELAY_PORT".to_owned(), self.p.relay_port.to_string()),
         ]);
-        // 2017-18: guests come through the shop tunnel, so the desk and relay listen on loopback only (no firewall
+        // 2017-18: guests come through the arcade tunnel, so the desk and relay listen on loopback only (no firewall
         // prompt, nothing open on the LAN) unless data\settings.json "shop_lan": true asks for the plain-address path
         // `server lan` (2017-18): this network only - no tunnel, no lobby room, LAN searches answered
         let lan_only = self.edition == Edition::E1718 && self.mode == Mode::LanServer;
+        // "shop_lan": settings key kept from before the arcade rename
         let lan = lan_only || self.edition == Edition::E1011 || self.kit.settings()["shop_lan"].as_bool() == Some(true);
         if !lan {
             env.push(("WCCF_BIND".to_owned(), "127.0.0.1".to_owned()));
@@ -1800,7 +1801,7 @@ impl Run<'_> {
                 };
                 self.tell(
                     "     ",
-                    &Text::key("launcher.run_lan_shop")
+                    &Text::key("launcher.run_lan_arcade")
                         .arg("port", forza::online::lan::PORT)
                         .part("ips", ips),
                 );
@@ -1809,11 +1810,11 @@ impl Run<'_> {
             self.tell("     ", &Text::key("launcher.run_server_ended_early").arg("log", out));
         }
         if self.edition == Edition::E1718 && !lan_only {
-            // guests reach this shop through iroh: no inbound port; the plain address stays the LAN fallback
-            if let Err(Failed(why)) = self.start_shop_tunnel(vslink::shop::Role::Host) {
+            // guests reach this arcade through iroh: no inbound port; the plain address stays the LAN fallback
+            if let Err(Failed(why)) = self.start_arcade_tunnel(vslink::arcade::Role::Host) {
                 let off = Text::key("launcher.run_tunnel_off").part("why", why);
                 self.tell("     ", &off);
-                self.shop_room = Some(Err(off.get(self.ui.lang())));
+                self.arcade_room = Some(Err(off.get(self.ui.lang())));
                 self.tell(
                     "     ",
                     &Text::key(if lan {
@@ -2070,7 +2071,7 @@ impl Run<'_> {
         // and data\settings.json "skip_tutorial": true makes it give a new Aime id a club from the game's cpu_50.dat
         let skip = self.kit.settings()["skip_tutorial"].as_bool().unwrap_or(false);
         let game = Some(self.game.clone());
-        // guests' clubs a crashed shop left here (online::club): their players keep their home copies
+        // guests' clubs a crashed arcade left here (online::club): their players keep their home copies
         let store = self.kit.save().join("gamesvr");
         fs::create_dir_all(&store)?;
         match gamesvr::Store::open(&store.join("gamesvr.db")).and_then(|mut s| s.purge_guests()) {
@@ -2089,7 +2090,7 @@ impl Run<'_> {
         Ok(())
     }
 
-    /// A club still marked out in a shop (the last trip ended before it came home): the home copy stays, the shop's
+    /// A club still marked out in an arcade (the last trip ended before it came home): the home copy stays, the arcade's
     /// last copy goes to backups, and the player is told once.
     fn club_leftover(&self, dir: &Path) {
         match club::leftover(dir) {
@@ -2101,9 +2102,9 @@ impl Run<'_> {
         }
     }
 
-    /// 2017-18 shop guest: the home club comes along to the shop (online::club), under the card's home Aime id (an
+    /// 2017-18 arcade guest: the home club comes along to the arcade (online::club), under the card's home Aime id (an
     /// older card's integer id) here and its hash there. Any failure keeps it home and the run goes on.
-    fn bring_club(&mut self, ip: &str, desk: u16, seat: u8, shop: &str) {
+    fn bring_club(&mut self, ip: &str, desk: u16, seat: u8, arcade: &str) {
         let save = self.kit.save();
         let dir = save.join("gamesvr");
         self.club_leftover(&dir);
@@ -2121,11 +2122,11 @@ impl Run<'_> {
         let guest = club::Guest {
             desk,
             seat,
-            shop_aime: aimedb::hash_id(&code) as u32,
+            arcade_aime: aimedb::hash_id(&code) as u32,
             code,
             home_aime: home as u32,
             dir,
-            shop: shop.to_owned(),
+            arcade: arcade.to_owned(),
             poll: club::POLL,
         };
         match guest.bring(file_log(self.logs().join("club_trip.txt"))) {
@@ -2190,24 +2191,25 @@ impl Run<'_> {
         }
     }
 
-    /// 2017-18 shop over iroh (vslink::shop). Host: beside `forza-server all`, its id said and kept in
+    /// 2017-18 arcade over iroh (vslink::arcade). Host: beside `forza-server all`, its id said and kept in
     /// data\shop_id.txt. Join: this PC's loopback control, desk and relay ports lead to that host. The relay as for VS
     /// (WCCF_VS_RELAY, settings "vs_relay" and "vs_relay_ca"); `VSLINK_DELAY_MS` (tests only) adds that much to the
     /// round trip.
-    fn start_shop_tunnel(&mut self, role: vslink::shop::Role) -> Result<vslink::shop::Ports, Failed> {
+    fn start_arcade_tunnel(&mut self, role: vslink::arcade::Role) -> Result<vslink::arcade::Ports, Failed> {
         let p = self.p;
-        let ports = vslink::shop::Ports {
+        let ports = vslink::arcade::Ports {
             control: p.control_port,
             desk: p.seat_port,
             relay: p.relay_port,
         };
-        let host = role == vslink::shop::Role::Host;
+        let host = role == vslink::arcade::Role::Host;
         let key = self
             .kit
             .data()
+            // file names kept from before the arcade rename: players' installs already hold these keys and logs
             .join(if host { "shop_host.key" } else { "shop_join.key" });
         let log = file_log(self.logs().join("shop_tunnel.txt"));
-        let mut cfg = vslink::shop::ShopConfig::public(role, ports, key, log);
+        let mut cfg = vslink::arcade::ArcadeConfig::public(role, ports, key, log);
         let settings = self.kit.settings();
         let saved = |k: &str| settings[k].as_str().map(str::to_owned);
         if let Some(url) = choices::env_or_var("WCCF_VS_RELAY", saved("vs_relay")) {
@@ -2216,7 +2218,7 @@ impl Run<'_> {
                 .map_err(|e| Failed(Text::Raw(e)))?;
         }
         // a host's room first: its code is the only way in, and the tunnel admits only the guests the room names
-        let room = host.then(|| self.open_shop_room(&cfg.key, cfg.log.clone()));
+        let room = host.then(|| self.open_arcade_room(&cfg.key, cfg.log.clone()));
         if let Some(Ok(r)) = &room {
             cfg.admit = Some(r.admit());
         }
@@ -2229,27 +2231,28 @@ impl Run<'_> {
             );
         }
         let link =
-            vslink::shop::spawn(cfg).map_err(|e| Failed(Text::key("launcher.run_tunnel_failed").arg("error", e)))?;
+            vslink::arcade::spawn(cfg).map_err(|e| Failed(Text::key("launcher.run_tunnel_failed").arg("error", e)))?;
         if host {
-            let id = vslink::shop::id_text(&link.id);
+            let id = vslink::arcade::id_text(&link.id);
+            // file name kept from before the arcade rename
             let _ = choices::write(&self.kit.data().join("shop_id.txt"), &format!("{id}\n"));
             match &room {
                 Some(Ok(r)) => self.tell(
                     "     ",
-                    &Text::key("launcher.run_shop_room")
+                    &Text::key("launcher.run_arcade_room")
                         .arg("code", &r.code)
                         .arg("server", &r.server)
                         .arg("id", &id),
                 ),
                 Some(Err(why)) => self.tell(
                     "     ",
-                    &Text::key("launcher.run_shop_no_room").arg("why", why).arg("id", &id),
+                    &Text::key("launcher.run_arcade_no_room").arg("why", why).arg("id", &id),
                 ),
                 None => {}
             }
-            self.tell("     ", &Text::key("launcher.run_shop_id_file"));
-            self.shop_room = room;
-            self.shop_guests = Some(link.guests());
+            self.tell("     ", &Text::key("launcher.run_arcade_id_file"));
+            self.arcade_room = room;
+            self.arcade_guests = Some(link.guests());
         } else if link.ports != ports {
             self.tell(
                 "       ",
@@ -2265,33 +2268,34 @@ impl Run<'_> {
         Ok(link.ports)
     }
 
-    /// The lobby room for the host's tunnel (`key` its endpoint key), on the club server's desk ([`crate::lobby::shop_lobby`]),
-    /// where the window's guests type its code; listed in SHOPS when data\settings.json `list_shop` is true, as
+    /// The lobby room for the host's tunnel (`key` its endpoint key), on the club server's desk ([`crate::lobby::arcade_lobby`]),
+    /// where the window's guests type its code; listed in ARCADES when data\settings.json `list_shop` is true, as
     /// `shop_name` (empty: the desk's name).
-    fn open_shop_room(&self, key: &Path, log: Log) -> Result<crate::lobby::HostRoom, String> {
-        let id = vslink::shop::own_id(key).map_err(|e| format!("{}: {e}", key.display()))?;
+    fn open_arcade_room(&self, key: &Path, log: Log) -> Result<crate::lobby::HostRoom, String> {
+        let id = vslink::arcade::own_id(key).map_err(|e| format!("{}: {e}", key.display()))?;
         let club = choices::setting(&self.kit.settings_file(), "club_server").unwrap_or_default();
-        let desk = crate::lobby::shop_lobby(&club);
+        let desk = crate::lobby::arcade_lobby(&club);
+        // settings keys kept from before the arcade rename: players' settings.json already holds them
         let public = self.kit.settings()["list_shop"].as_bool() == Some(true);
         let name = choices::setting(&self.kit.settings_file(), "shop_name").unwrap_or_default();
-        crate::lobby::HostRoom::open(&desk, &vslink::shop::id_text(&id), public, &name, log, &|t| {
+        crate::lobby::HostRoom::open(&desk, &vslink::arcade::id_text(&id), public, &name, log, &|t| {
             self.tell("     ", t)
         })
     }
 
-    /// A 2017-18 server's shop room: its code, the lobby server holding it and the flag set when that lobby loses it;
-    /// or why it has none (the window's HOST SHOP shows one or the other).
-    pub fn shop_code(&self) -> Result<(String, String, Arc<AtomicBool>), String> {
-        match &self.shop_room {
+    /// A 2017-18 server's arcade room: its code, the lobby server holding it and the flag set when that lobby loses it;
+    /// or why it has none (the window's HOST ARCADE shows one or the other).
+    pub fn arcade_code(&self) -> Result<(String, String, Arc<AtomicBool>), String> {
+        match &self.arcade_room {
             Some(Ok(r)) => Ok((r.code.clone(), r.server.clone(), r.lost())),
             Some(Err(why)) => Err(why.clone()),
             None => Err(Text::key("launcher.run_no_tunnel").get(self.ui.lang())),
         }
     }
 
-    /// 2017-18 server: its shop tunnel's live guest count (HOST SHOP closes an empty shop on its own).
-    pub fn shop_guests(&self) -> Option<Arc<AtomicUsize>> {
-        self.shop_guests.clone()
+    /// 2017-18 server: its arcade tunnel's live guest count (HOST ARCADE closes an empty arcade on its own).
+    pub fn arcade_guests(&self) -> Option<Arc<AtomicUsize>> {
+        self.arcade_guests.clone()
     }
 
     /// Online: this PC's seat from the server's seat desk, held while the run lasts; None asked = the next free seat.
@@ -2306,7 +2310,7 @@ impl Run<'_> {
         if ticket.is_some() {
             let _ = choices::write(&panel, &choices::set_panel_value(&text, "ticket", None));
         }
-        // every seat of a shop must run the same match engine math (the desk refuses another)
+        // every seat of an arcade must run the same match engine math (the desk refuses another)
         let dmath = (self.edition == Edition::E1718).then(|| seat::dmath_token(&self.game, &self.seat));
         match seat::claim_with(
             at,
@@ -2496,12 +2500,12 @@ impl Run<'_> {
 
     /// The card rule now: the refusal's words, or None to go on.
     fn refusal(&self, force: bool) -> Option<Text> {
-        // a server has no seat of its own, so the card rule never holds it: a shop server's matches are its tunnel's
+        // a server has no seat of its own, so the card rule never holds it: an arcade server's matches are its tunnel's
         // guests' (still connected even when the lobby lost the room) and this PC's seat beside it
         if self.mode.is_server()
-            && let Some(g) = &self.shop_guests
+            && let Some(g) = &self.arcade_guests
         {
-            return rules::shop_rule(force, is_on(self.kit, Kind::Run), g.load(Ordering::Relaxed));
+            return rules::arcade_rule(force, is_on(self.kit, Kind::Run), g.load(Ordering::Relaxed));
         }
         let (slot, new) = self.card_files();
         let (session, _) = card::club_session(&slot, &new, self.run_started());
@@ -2590,7 +2594,7 @@ impl Run<'_> {
         self.cabinet = Cabinet::default();
         self.scenes = None;
         self.gamesvr = None;
-        // the club's last copy home, while the game is closed and the shop tunnel still up
+        // the club's last copy home, while the game is closed and the arcade tunnel still up
         self.club = None;
         self.vslink = None;
         self.lease = None;

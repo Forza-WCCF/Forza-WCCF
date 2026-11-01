@@ -65,7 +65,7 @@ semver.workspace = true
 self-replace.workspace = true
 
 [dev-dependencies]
-# tests/it/shop_room.rs: an in-process iroh relay (iroh::test_utils::run_relay_server)
+# tests/it/arcade_room.rs: an in-process iroh relay (iroh::test_utils::run_relay_server)
 iroh = { workspace = true, features = ["test-utils"] }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 tempfile = "3.27.0"

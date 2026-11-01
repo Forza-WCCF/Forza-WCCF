@@ -739,6 +739,7 @@ fn vs_two_clients_pair_through_reflect() {
     };
     let _svc = gamesvr::spawn_opts(l.try_clone().unwrap(), dir, quiet(), o).unwrap();
     // a client: login, probe, returns (tcp, public ip, public port)
+    // `shop` below: the original packets' venue id, not an arcade room
     let client = |shop: u32| {
         let mut c = connect(&l);
         let login = ask(&mut c, 201, &req(28, 24, |b| le(b, 8, shop)));

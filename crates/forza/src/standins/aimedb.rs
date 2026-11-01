@@ -58,7 +58,7 @@ impl Aes {
 /// ponytail: two cards collide with probability ~n^2/2^32 for n cards (n = 1000 gives about 1 in 4300); past that,
 /// hand out IDs from the game server instead.
 /// shortcut: hashed IDs share the integer space with the stores' older IDs (counted from 1), unchecked; a hash
-/// below 1,000 is about 1 in 2 million per card. Upgrade with the game-server IDs above, or when shops pass a few
+/// below 1,000 is about 1 in 2 million per card. Upgrade with the game-server IDs above, or when arcades pass a few
 /// hundred cards. The range cannot move: VS clubs on the shared server already live under these IDs.
 pub fn hash_id(code: &str) -> i32 {
     let h = Sha256::digest(code.as_bytes());
@@ -96,7 +96,7 @@ impl Db {
     }
 
     /// The card's Aime id in this PC's own store (its mapping from before the hash, else the hash), read only: a
-    /// shop guest's home club is found and written back under it (online::club).
+    /// arcade guest's home club is found and written back under it (online::club).
     pub fn home_id(&self, code: &str) -> i32 {
         self.cards
             .lock()

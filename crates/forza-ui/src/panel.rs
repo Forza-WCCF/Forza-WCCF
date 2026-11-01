@@ -1015,7 +1015,7 @@ pub fn ask_fetched(st: &mut PanelState, got: Result<String, FetchError>, in_matc
 }
 
 /// The lineup `text` (the site's export: the clipboard's, or a share link's) as the whole table in place of
-/// `placed`. Refused during a match (the owner's rule) and for another edition's lineup. The message names what came
+/// `placed`. Refused during a match (a project rule) and for another edition's lineup. The message names what came
 /// in, the site's key player (the table has none: the player sets it in the game) and the cards skipped, and why.
 /// `Some(new table)`: the caller writes it; the old one waits in `import_undo` for [`undo_import`].
 pub fn import_lineup(
@@ -2261,7 +2261,7 @@ pub fn latch_kept(
 }
 
 /// Whether 2017-18 has the in-match pause: the PAUSE button, the pause key (and its row on the KEYS page) and the
-/// panel DLL's hold. Off (owner, 2026-10-31, on hold); `true` brings it all back. 2010-11 is not behind it.
+/// panel DLL's hold. Off (on hold since 2026-10-31); `true` brings it all back. 2010-11 is not behind it.
 pub const PAUSE_ON: bool = false;
 
 /// The pause is offered to this edition.
