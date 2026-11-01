@@ -16,7 +16,9 @@
 //!   answer `ERR`, and the Launcher asks again without the name.
 //! - `JOIN CODE [n]` -> [`Reserved`]: a guest seat (2-8) in the arcade room with that code. `JOIN ID [n]` with the id of
 //!   a listed (`public`) room seats a guest too; a private room's id answers `CLOSED`, so its code is the only way in.
-//!   Desks before this list rooms without [`Arcade::room`]; the Launcher joins only rows that have it.
+//!   Desks before this list rooms without [`Shop::room`]. The Launcher joins a row with it by `JOIN id`; a 2017-18
+//!   row without it is the desk's own arcade, joined by playing at the desk's address (an old desk's room among
+//!   them would lead there too).
 //! - `SHOP t [ID]` -> [`Peers`] | `GONE`: a guest's ticket (telling its own tunnel id) gets the host's id, the host's
 //!   ticket the ids of the guests that asked. Ids go only to tickets of the same room, never into `LOBBY`.
 
