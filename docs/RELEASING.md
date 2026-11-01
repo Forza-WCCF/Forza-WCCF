@@ -49,13 +49,16 @@ hands is seen.
 ## Antivirus verdicts
 
 Microsoft's engine, the one players' Defender runs, decides a release: the VirusTotal job in `release.yml` fails on a
-Microsoft hit and no other engine stops it (`av-bisect-20261101/RESULTS.md`). The verdict is not stable. The same
-`FPR_Emu.exe` (sha256 `2cd8bf99…`) was flagged at 02:12 and undetected at 03:47, and one player's Defender answered
-differently about the same bytes minutes apart, so:
+Microsoft hit and no other engine stops it (`av-bisect-20261101/RESULTS.md`). The verdict is not stable, but it is
+mostly one-sided: 0.6.0's `FPR_Emu.exe` (sha256 `2cd8bf99…`) has been flagged on every scan but one on 2026-11-01 —
+four on VirusTotal including two byte-changed copies, and five of six on a Windows PC, with one clean reading in
+between (`av-oracle-20261101/`). Treat a build of it as flagged until a scan of *that file* says otherwise, and never
+as clean because an earlier scan did. What helps:
 
 - a Microsoft hit gets one fresh analysis before it stops the release, as the workflow does now: re-scan rather than
   rebuild, and never change bytes just to change a hash (two byte-patched copies of a flagged file stayed flagged);
-- keep a published program's bytes when its sources did not change, so a cleared verdict stays cleared;
+- a program whose sources did not change keeps its bytes; do not rebuild it for a release, and do not change a
+  program's bytes hoping the verdict clears: it is one engine's opinion of those bytes, measured to stay put;
 - scanning on a Windows PC before tagging is advisory only, not a gate: the verdict flips both ways. If a scan is
   wanted, copy the file first and scan the copy: real-time protection deletes the sample about 30 s after the scan,
   and `MpCmdRun` exits 2 both for a detection and for a missing file, so read `Scanning <path> found N threats` and
