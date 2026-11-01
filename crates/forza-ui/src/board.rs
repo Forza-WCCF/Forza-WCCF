@@ -1049,6 +1049,25 @@ fn removed_id() -> Id {
     Id::new("board-removed")
 }
 
+fn keep_id() -> Id {
+    Id::new("board-keep")
+}
+
+fn kept_id() -> Id {
+    Id::new("board-kept")
+}
+
+/// While `keep` (a match runs), a card let go off the board stays on the table and snaps back to its spot
+/// ([`take_kept`]); set it before each [`formation_board`] call.
+pub fn keep_on_table(ui: &Ui, keep: bool) {
+    ui.data_mut(|d| d.insert_temp(keep_id(), keep));
+}
+
+/// The card [`formation_board`] refused to take off (a match runs) since the last call, if any.
+pub fn take_kept(ui: &Ui) -> Option<u32> {
+    ui.data_mut(|d| d.remove_temp::<u32>(kept_id()))
+}
+
 fn touched_id() -> Id {
     Id::new("board-touched")
 }
@@ -1341,7 +1360,17 @@ pub fn formation_board(
         let spot = origin
             .or(board.spots.get(from).copied())
             .unwrap_or_default();
-        removed = Some((from, spot));
+        if ui.data(|d| d.get_temp::<bool>(keep_id())) == Some(true) {
+            // a match runs: the card goes back to its spot from before the lift (a bench card never moved)
+            if from < 11 {
+                board.spots[from] = spot;
+            }
+            changed = true;
+            let n = board.number(from).unwrap_or(0);
+            ui.data_mut(|d| d.insert_temp(kept_id(), n));
+        } else {
+            removed = Some((from, spot));
+        }
     }
     // a release: onto the target card (swap, or put the catalogue card there), else on open pitch
     if ui.input(|i| i.pointer.any_released()) {
@@ -3168,6 +3197,75 @@ mod tests {
         assert_eq!(b.slots.iter().flatten().count(), 0);
         let r = removed.expect("the removal is reported");
         assert_eq!((r.card.number, r.slot, r.spot), (101, 0, spot));
+    }
+
+    /// During a match, a card let go off the board stays on the table at its spot from before the lift, and the
+    /// board says so ([`take_kept`]); no removal is reported.
+    #[test]
+    fn a_card_dragged_off_the_board_stays_during_a_match() {
+        use egui::{Event, PointerButton};
+        use forza::cards::Placed;
+        let before = vec![Placed {
+            slot: 1,
+            no: 101,
+            x: 0.0,
+            y: 0.0,
+        }];
+        let mut b = forza::cards::board(&before, &[]);
+        let ctx = egui::Context::default();
+        theme::install(&ctx, theme::Edition::E1718, &theme::font_dir()).unwrap();
+        ctx.run_ui(egui::RawInput::default(), |_| {})
+            .textures_delta
+            .clear();
+        let mut pitch = Rect::NOTHING;
+        let (mut removed, mut kept) = (None, None);
+        let mut frame = |events: Vec<Event>, b: &mut Board, pitch: &mut Rect| {
+            let raw = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(500.0, 1400.0))),
+                events,
+                ..Default::default()
+            };
+            ctx.run_ui(raw, |ui| {
+                *pitch = pitch_rect(ui.cursor().min, ui.available_width());
+                keep_on_table(ui, true);
+                formation_board(
+                    ui,
+                    b,
+                    &Links::default(),
+                    Some(3.0),
+                    crate::Lang::En,
+                    false,
+                    false,
+                );
+                removed = removed.take().or(take_removed(ui));
+                kept = kept.take().or(take_kept(ui));
+            })
+            .textures_delta
+            .clear();
+        };
+        frame(vec![], &mut b, &mut pitch);
+        let spot = b.spots[0];
+        let at = spot_rect(pitch, spot).center();
+        let press = |pos, pressed| Event::PointerButton {
+            pos,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        frame(
+            vec![Event::PointerMoved(at), press(at, true)],
+            &mut b,
+            &mut pitch,
+        );
+        let out = pos2(at.x, 1300.0);
+        for p in [at + vec2(0.0, 30.0), at + vec2(0.0, 200.0), out] {
+            frame(vec![Event::PointerMoved(p)], &mut b, &mut pitch);
+        }
+        frame(vec![press(out, false)], &mut b, &mut pitch);
+        assert_eq!(b.slots[0], Some(0), "the card left the table");
+        assert_eq!(b.spots[0], spot, "the card did not snap back");
+        assert!(removed.is_none(), "a removal was reported");
+        assert_eq!(kept, Some(101));
     }
 
     /// A full rub of the leftmost bench card from its outer edge, let go at its far end, keeps the card on the table.

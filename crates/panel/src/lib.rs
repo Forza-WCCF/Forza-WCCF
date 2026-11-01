@@ -2075,7 +2075,11 @@ impl Render {
     /// that could not be swapped in is tried again next frame.
     fn table_out(&mut self) {
         if std::mem::take(&mut self.st.board_changed) {
-            self.placed = cards::table_after(&self.placed, &self.st.board);
+            let new = cards::table_after(&self.placed, &self.st.board);
+            for line in take_off_lines(&self.placed, &new, self.st.kept_log.take()) {
+                log(&line);
+            }
+            self.placed = new;
             // a card in hand: the table follows it, the board stays as it is (a rebuild reorders the slots the drag
             // holds), no log line per frame
             if self.dragging() {
@@ -3396,8 +3400,40 @@ fn vk_key(vk: u32) -> Option<Key> {
     Key::from_name(name)
 }
 
+/// The log lines for a table write: `board: card N taken off` per card the new table lacks, and the refused take-off
+/// of a match (`kept`) first.
+fn take_off_lines(old: &[cards::Placed], new: &[cards::Placed], kept: Option<u32>) -> Vec<String> {
+    let refused = kept.map(|n| format!("board: take-off refused during a match (card {n})"));
+    let gone = old
+        .iter()
+        .filter(|c| !new.iter().any(|n| n.no == c.no))
+        .map(|c| format!("board: card {} taken off", c.no));
+    refused.into_iter().chain(gone).collect()
+}
+
 #[cfg(test)]
 mod tests {
+    use super::{cards, take_off_lines};
+    #[test]
+    fn take_off_lines_name_the_cards() {
+        let at = |no| cards::Placed {
+            slot: 1,
+            no,
+            x: 0.0,
+            y: 0.0,
+        };
+        let (a, b) = (at(101), at(102));
+        assert_eq!(
+            take_off_lines(&[a, b], &[a], None),
+            ["board: card 102 taken off"]
+        );
+        assert_eq!(
+            take_off_lines(&[a, b], &[a, b], Some(101)),
+            ["board: take-off refused during a match (card 101)"]
+        );
+        assert!(take_off_lines(&[a], &[a, b], None).is_empty());
+    }
+
     use super::{big_enough, clock_text, game_point, game_title, match_now};
     use egui::{Rect, pos2};
 
