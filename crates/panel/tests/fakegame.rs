@@ -928,7 +928,10 @@ fn pause_holds_the_game() {
         .lines()
         .find(|l| l.contains("pause: off (cap) after "))
         .expect("the pause did not end at its cap");
+    // the numbers after the line's wall-clock stamp
     let nums: Vec<u64> = off
+        .split_once("pause: off")
+        .map_or(off, |(_, rest)| rest)
         .split(|c: char| !c.is_ascii_digit())
         .filter_map(|n| n.parse().ok())
         .collect();

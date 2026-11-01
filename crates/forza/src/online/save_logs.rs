@@ -63,7 +63,8 @@ fn files_in(dir: &Path) -> Vec<PathBuf> {
 fn files(kit: &Path, game: Option<&Path>) -> Vec<(String, PathBuf)> {
     let data = kit.join("data");
     let mut out = vec![];
-    for sub in ["", "previous", "hook"] {
+    // the last run and the two before it (the launcher's logs::rotate keeps them as folders)
+    for sub in ["", "previous", "previous-2", "previous-3", "hook"] {
         for p in files_in(&data.join("logs").join(sub)) {
             let n = p.file_name().unwrap_or_default().to_string_lossy();
             out.push((

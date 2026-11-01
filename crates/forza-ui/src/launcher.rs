@@ -62,6 +62,8 @@ pub enum Action {
     Pictures { choose: bool },
     /// The skip-the-tutorial switch changed.
     SkipTutorial,
+    /// The projector switch changed.
+    Projector,
     /// The direct VS link switch changed.
     VsLink,
     /// UPDATE to the release at this place in the list: Launcher.exe asks to confirm.
@@ -152,6 +154,8 @@ pub struct LauncherState {
     pub pictures_hq: bool,
     /// The skip-the-tutorial switch (2017–18 only).
     pub skip_tutorial: Option<bool>,
+    /// The projector switch: this PC's projector and its CPU championship (2017–18 only).
+    pub projector: Option<bool>,
     /// The club server, "HOST" or "HOST:PORT", empty for this PC (2017–18 only; saved at PLAY).
     pub club_server: Option<String>,
     /// The direct VS link switch, for club-server runs (2017–18 only).
@@ -248,6 +252,7 @@ impl LauncherState {
             folder: r"C:\Games\Forza-WCCF\2010-2011".into(),
             pictures_hq: false,
             skip_tutorial: None,
+            projector: None,
             club_server: None,
             vs_link: None,
             updates: edition == Edition::E1011,
@@ -278,6 +283,7 @@ impl LauncherState {
         if edition == Edition::E1718 {
             st.folder = r"C:\Games\Forza-WCCF\2017-2018".into();
             st.skip_tutorial = Some(true);
+            st.projector = Some(true);
             st.club_server = Some(String::new());
             st.vs_link = Some(true);
         }
@@ -689,6 +695,17 @@ fn setup(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Actio
         {
             *act = Some(Action::SkipTutorial);
         }
+        if let Some(on) = &mut st.projector
+            && toggle_row(
+                ui,
+                on,
+                &tr!(lang, "launcher.projector"),
+                &tr!(lang, "launcher.projector_hint"),
+            )
+            .clicked()
+        {
+            *act = Some(Action::Projector);
+        }
     });
 }
 
@@ -1035,7 +1052,7 @@ mod tests {
 
     #[test]
     fn arcades_listed_but_not_joinable_on_2017_18() {
-        // the server shows its arcades; with arcade rooms off none joins, VS rooms still do
+        // a server's own arcade joins (by CONNECT); with arcade rooms off a listed arcade room does not
         let mut v = lobby_for(Edition::E1718);
         assert_eq!(
             (v.kind, v.grey_now(), v.grey[Kind::Arcades as usize]),
@@ -1043,7 +1060,10 @@ mod tests {
         );
         v.arcades = LobbyView::sample(LobbyScenario::List).arcades;
         assert!(!v.rows().is_empty() && v.view_only_now());
+        assert!(v.joinable().is_some());
+        v.arcades.iter_mut().for_each(|r| r.room = true);
         assert!(v.joinable().is_none());
+        v.arcades.iter_mut().for_each(|r| r.room = false);
         // 2010-11 keeps joinable arcades
         let mut w = lobby_for(Edition::E1011);
         w.arcades = v.arcades.clone();

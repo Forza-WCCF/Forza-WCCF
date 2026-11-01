@@ -217,8 +217,21 @@ fn log(msg: &str) {
         .append(true)
         .open(path)
     {
-        let _ = writeln!(f, "{msg}");
+        let _ = writeln!(f, "{} {msg}", clock());
     }
+}
+
+/// This PC's wall clock as every panel log line starts: `hh:mm:ss.mmm`.
+pub(crate) fn clock() -> String {
+    // SAFETY: a plain clock query
+    clock_text(&unsafe { windows::Win32::System::SystemInformation::GetLocalTime() })
+}
+
+fn clock_text(t: &windows::Win32::Foundation::SYSTEMTIME) -> String {
+    format!(
+        "{:02}:{:02}:{:02}.{:03}",
+        t.wHour, t.wMinute, t.wSecond, t.wMilliseconds
+    )
 }
 
 #[unsafe(no_mangle)]
@@ -2062,7 +2075,16 @@ impl Render {
     /// that could not be swapped in is tried again next frame.
     fn table_out(&mut self) {
         if std::mem::take(&mut self.st.board_changed) {
-            self.placed = cards::table_after(&self.placed, &self.st.board);
+            let new = cards::table_after(&self.placed, &self.st.board);
+            for line in take_off_lines(
+                &self.placed,
+                &new,
+                self.st.kept_log.take(),
+                self.st.off_at.take(),
+            ) {
+                log(&line);
+            }
+            self.placed = new;
             // a card in hand: the table follows it, the board stays as it is (a rebuild reorders the slots the drag
             // holds), no log line per frame
             if self.dragging() {
@@ -3383,10 +3405,71 @@ fn vk_key(vk: u32) -> Option<Key> {
     Key::from_name(name)
 }
 
+/// The log lines for a table write: `board: card N taken off` per card the new table lacks, and the refused take-off
+/// of a match (`kept`) first.
+fn take_off_lines(
+    old: &[cards::Placed],
+    new: &[cards::Placed],
+    kept: Option<u32>,
+    off_at: Option<(egui::Pos2, egui::Vec2)>,
+) -> Vec<String> {
+    // where the pointer let go (from the board's top left) and the board's size, when a drag did it
+    let at = off_at.map_or(String::new(), |(p, s)| {
+        format!(
+            " at {:.0},{:.0} (board {:.0}\u{d7}{:.0})",
+            p.x, p.y, s.x, s.y
+        )
+    });
+    let refused = kept.map(|n| format!("board: take-off refused during a match (card {n})"));
+    let gone = old
+        .iter()
+        .filter(|c| !new.iter().any(|n| n.no == c.no))
+        .map(|c| format!("board: card {} taken off{at}", c.no));
+    refused.into_iter().chain(gone).collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{big_enough, game_point, game_title, match_now};
+    use super::{cards, take_off_lines};
+    #[test]
+    fn take_off_lines_name_the_cards() {
+        let at = |no| cards::Placed {
+            slot: 1,
+            no,
+            x: 0.0,
+            y: 0.0,
+        };
+        let (a, b) = (at(101), at(102));
+        assert_eq!(
+            take_off_lines(
+                &[a, b],
+                &[a],
+                None,
+                Some((egui::pos2(10.4, 1700.0), egui::vec2(1094.0, 1663.0)))
+            ),
+            ["board: card 102 taken off at 10,1700 (board 1094\u{d7}1663)"]
+        );
+        assert_eq!(
+            take_off_lines(&[a, b], &[a, b], Some(101), None),
+            ["board: take-off refused during a match (card 101)"]
+        );
+        assert!(take_off_lines(&[a], &[a, b], None, None).is_empty());
+    }
+
+    use super::{big_enough, clock_text, game_point, game_title, match_now};
     use egui::{Rect, pos2};
+
+    #[test]
+    fn log_lines_start_with_the_wall_clock() {
+        let t = windows::Win32::Foundation::SYSTEMTIME {
+            wHour: 9,
+            wMinute: 5,
+            wSecond: 7,
+            wMilliseconds: 42,
+            ..Default::default()
+        };
+        assert_eq!(clock_text(&t), "09:05:07.042");
+    }
 
     /// A click on the letterboxed picture lands where it would on the game's own frame; the bars around the picture are
     /// not the game's, and a press held from the picture into a bar is clamped to the picture's edge.

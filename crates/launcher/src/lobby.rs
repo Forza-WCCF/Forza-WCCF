@@ -764,6 +764,32 @@ mod tests {
         assert_eq!(arcade_lobby("203.0.113.10:20060"), "203.0.113.10:20032");
     }
 
+    /// ovh1's answer on 2026-11-01: its always-on arcade, without `room`, showed "ARCADES 0" in 0.6.1.
+    #[test]
+    fn a_servers_own_arcade_is_listed_and_joins() {
+        const OVH1: &str = r#"{"v":1,"edition":"2017-18","at":1793523072,"shops":[{"id":"bc07afa0","name":"Forza-WCCF","seats":0,"max":8,"state":"open"}],"vs":[]}"#;
+        let server = PROJECT_SERVER_1718.to_owned();
+        let mut book = Book::new(std::slice::from_ref(&server));
+        let now = Instant::now();
+        book.apply(
+            &Msg::Poll {
+                server: server.clone(),
+                ping_ms: Some(30),
+                result: Lobby::parse(OVH1),
+            },
+            now,
+        );
+        for arcade_rooms in [false, true] {
+            let mut v = forza_ui::launcher::lobby_for(forza_ui::theme::Edition::E1718);
+            v.arcade_rooms = arcade_rooms;
+            let at = book.fill(&mut v, now);
+            let names: Vec<&str> = v.visible().iter().map(|&i| v.rows()[i].name.as_str()).collect();
+            assert_eq!(names, ["Forza-WCCF"]);
+            assert_eq!(v.joinable().map(|r| r.id.as_str()), Some("bc07afa0"));
+            assert_eq!(at.get("bc07afa0"), Some(&server));
+        }
+    }
+
     #[test]
     fn wccf_lobby_replaces_the_default_server() {
         let s = |v: &str| Some(v.to_owned());

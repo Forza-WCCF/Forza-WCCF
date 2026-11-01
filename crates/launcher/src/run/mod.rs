@@ -364,6 +364,23 @@ pub fn admit(kit: &Kit) -> Option<Admission> {
     }
 }
 
+/// The Launcher window's mutex for this kit folder (2010-11 and 2017-18 installs never share it), owned by this
+/// thread for as long as the handle lives; `None` while another Launcher window holds it past `wait_ms`.
+pub fn hold_window(kit: &Kit, wait_ms: u32) -> Option<OwnedHandle> {
+    let name = lock_name(kit, "window");
+    // SAFETY: a NUL-terminated name; the handle is checked, then owned (closed on drop).
+    unsafe {
+        let h = CreateMutexW(ptr::null(), FALSE, name.as_ptr());
+        if h.is_null() {
+            return None;
+        }
+        let h = OwnedHandle::from_raw_handle(h);
+        let got = WaitForSingleObject(h.as_raw_handle(), wait_ms);
+        // abandoned: the window that held it ended
+        (got == WAIT_OBJECT_0 || got == WAIT_ABANDONED).then_some(h)
+    }
+}
+
 /// A run of this kind is on (in this process or another).
 pub fn is_on(kit: &Kit, kind: Kind) -> bool {
     let name = lock_name(kit, kind.name());
@@ -1450,6 +1467,7 @@ impl Run<'_> {
             index: index.is_dir().then_some(index),
             // control+0x1226A is 2010-11's control: 2017-18's is guarded by its hook (whole messages)
             above_normal: self.edition == Edition::E1718,
+            background: role == Role::Projector && self.edition == Edition::E1718,
             msgguard: (self.edition == Edition::E1011).then(|| env::var("WCCF_MSGGUARD").map_or(true, |v| v != "0")),
             env: self.kit_env().into_iter().chain(env).chain([game_dpi()]).collect(),
             stop: Some(stop.clone()),
@@ -1648,6 +1666,9 @@ impl Run<'_> {
         } else {
             let ctrl_conf = self.game.join(r"local\ctrl_user_option.conf");
             if matches!(self.mode, Mode::Local | Mode::Vs(_)) {
+                // 2017-18 setting off: no projector, so no CPU championship on it and nobody waits for it
+                projector = self.edition != Edition::E1718 || choices::projector_on(&self.kit.settings());
+                let wait = if projector { "1" } else { "0" };
                 for c in &confs {
                     conf::set_control_ip(c, "127.0.0.1")?; // after a "remote" run: the cabinets play on this PC again
                     if self.edition == Edition::E1718 {
@@ -1655,8 +1676,8 @@ impl Run<'_> {
                     }
                 }
                 conf::set_satellite_no(&confs[1], 1)?;
-                conf::set_conf_value(&confs[1], "WAIT_PROJECTOR", "1")?; // the game's own way, its projector here
-                conf::set_conf_value(&ctrl_conf, "WAIT_PROJECTOR", "1")?;
+                conf::set_conf_value(&confs[1], "WAIT_PROJECTOR", wait)?; // the game's own way, its projector here
+                conf::set_conf_value(&ctrl_conf, "WAIT_PROJECTOR", wait)?;
             } else if self.edition == Edition::E1718 {
                 // a server for others: its seat desk gives the first PC the projector, which control waits for
                 conf::set_conf_value(&ctrl_conf, "WAIT_PROJECTOR", "1")?;
@@ -1712,6 +1733,7 @@ impl Run<'_> {
                 "  3/6 ",
                 &Text::key(match self.edition {
                     Edition::E1011 => "launcher.run_no_projector_1011",
+                    Edition::E1718 if self.remote.is_none() => "launcher.run_projector_off",
                     Edition::E1718 => "launcher.run_no_projector_1718",
                 }),
             );
