@@ -62,6 +62,8 @@ pub enum Action {
     Pictures { choose: bool },
     /// The skip-the-tutorial switch changed.
     SkipTutorial,
+    /// The projector switch changed.
+    Projector,
     /// The direct VS link switch changed.
     VsLink,
     /// UPDATE to the release at this place in the list: Launcher.exe asks to confirm.
@@ -152,6 +154,8 @@ pub struct LauncherState {
     pub pictures_hq: bool,
     /// The skip-the-tutorial switch (2017–18 only).
     pub skip_tutorial: Option<bool>,
+    /// The projector switch: this PC's projector and its CPU championship (2017–18 only).
+    pub projector: Option<bool>,
     /// The club server, "HOST" or "HOST:PORT", empty for this PC (2017–18 only; saved at PLAY).
     pub club_server: Option<String>,
     /// The direct VS link switch, for club-server runs (2017–18 only).
@@ -248,6 +252,7 @@ impl LauncherState {
             folder: r"C:\Games\Forza-WCCF\2010-2011".into(),
             pictures_hq: false,
             skip_tutorial: None,
+            projector: None,
             club_server: None,
             vs_link: None,
             updates: edition == Edition::E1011,
@@ -278,6 +283,7 @@ impl LauncherState {
         if edition == Edition::E1718 {
             st.folder = r"C:\Games\Forza-WCCF\2017-2018".into();
             st.skip_tutorial = Some(true);
+            st.projector = Some(true);
             st.club_server = Some(String::new());
             st.vs_link = Some(true);
         }
@@ -688,6 +694,17 @@ fn setup(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Actio
             .clicked()
         {
             *act = Some(Action::SkipTutorial);
+        }
+        if let Some(on) = &mut st.projector
+            && toggle_row(
+                ui,
+                on,
+                &tr!(lang, "launcher.projector"),
+                &tr!(lang, "launcher.projector_hint"),
+            )
+            .clicked()
+        {
+            *act = Some(Action::Projector);
         }
     });
 }

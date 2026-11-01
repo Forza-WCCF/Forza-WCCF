@@ -16,7 +16,8 @@ use launcher::kit::Edition;
 use windows_sys::Win32::Foundation::CloseHandle;
 use windows_sys::Win32::System::Memory::{FILE_MAP_READ, MapViewOfFile, UnmapViewOfFile};
 use windows_sys::Win32::System::Threading::{
-    ABOVE_NORMAL_PRIORITY_CLASS, GetPriorityClass, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS, GetPriorityClass, OpenProcess,
+    PROCESS_QUERY_LIMITED_INFORMATION,
 };
 
 /// A stand-in from the kit build, copied into `dir` as `name`.
@@ -48,6 +49,7 @@ fn options(exe: PathBuf, top: &Path, role: Role) -> Options {
         index: None,
         msgguard: Some(true),
         above_normal: false,
+        background: false,
         env: Vec::new(),
         stop: None,
     }
@@ -286,6 +288,38 @@ fn above_normal_raises_a_game_program() {
     let out = log.text();
     assert_eq!(class, ABOVE_NORMAL_PRIORITY_CLASS, "{out}");
     assert!(out.contains("above-normal priority: yes"), "{out}");
+    assert_eq!(code, 0, "{out}");
+    assert!(job.wait_empty(Duration::from_secs(10)));
+}
+
+/// `background` (the 2017-18 projector): the program starts at below-normal priority, over `above_normal`.
+#[test]
+fn background_lowers_a_game_program() {
+    let top = tempfile::tempdir().unwrap();
+    let game = top.path().join("game");
+    fs::create_dir_all(&game).unwrap();
+    let exe = game.join("client_Release.exe");
+    fs::copy(std::env::current_exe().unwrap(), &exe).unwrap();
+    let mut opts = options(exe, top.path(), Role::Client);
+    opts.args = ["debug::window_stand_in", "--exact", "--ignored", "--nocapture"]
+        .map(String::from)
+        .to_vec();
+    (opts.above_normal, opts.background) = (true, true);
+    let (job, log, t) = start(opts);
+    let pid = launched_pid(&log);
+    // SAFETY: plain calls; the handle is closed before it goes out of scope.
+    let class = unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        assert!(!h.is_null(), "{}", log.text());
+        let c = GetPriorityClass(h);
+        CloseHandle(h);
+        c
+    };
+    let code = t.join().unwrap();
+    let out = log.text();
+    assert_eq!(class, BELOW_NORMAL_PRIORITY_CLASS, "{out}");
+    assert!(out.contains("background: below-normal priority: yes"), "{out}");
+    assert!(!out.contains("above-normal priority"), "{out}");
     assert_eq!(code, 0, "{out}");
     assert!(job.wait_empty(Duration::from_secs(10)));
 }
