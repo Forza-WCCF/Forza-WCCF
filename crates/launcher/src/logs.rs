@@ -135,15 +135,20 @@ pub fn archive_run(folder: &Path, archive: &Path, limit: u64) -> io::Result<bool
     Ok(true)
 }
 
-/// At a start: previous\ zipped into archive\, the last run's logs into previous\, and a fresh hook\ folder.  What it
-/// had to step around, in the words to say; an error only if `logs` or its hook\ cannot be made.  A previous-<time>
-/// folder set aside by an earlier start (a file in it was busy then) goes now (play.py left them for ever); one still
-/// busy stays until a later start.
+/// The two runs kept as folders behind previous\, newest first (SAVE LOGS sends all three).
+pub const OLDER: [&str; 2] = ["previous-2", "previous-3"];
+
+/// At a start: previous\ zipped into archive\ and moved to previous-2\ (previous-2\ to previous-3\, the old
+/// previous-3\ gone), the last run's logs into previous\, and a fresh hook\ folder.  What it had to step around, in
+/// the words to say; an error only if `logs` or its hook\ cannot be made.  A previous-<time> folder set aside by an
+/// earlier start (a file in it was busy then) goes now (play.py left them for ever); one still busy stays until a later
+/// start.
 pub fn rotate(logs: &Path) -> io::Result<Vec<String>> {
     let mut said = Vec::new();
     fs::create_dir_all(logs)?;
     for e in fs::read_dir(logs)?.flatten() {
-        if e.file_name().to_string_lossy().starts_with("previous-") && e.file_type().is_ok_and(|t| t.is_dir()) {
+        let n = e.file_name().to_string_lossy().into_owned();
+        if n.starts_with("previous-") && !OLDER.contains(&n.as_str()) && e.file_type().is_ok_and(|t| t.is_dir()) {
             let _ = fs::remove_dir_all(e.path());
         }
     }
@@ -152,7 +157,10 @@ pub fn rotate(logs: &Path) -> io::Result<Vec<String>> {
         if let Err(ex) = archive_run(&prev, &logs.join("archive"), ARCHIVE_LIMIT) {
             said.push(format!("  logs: the run before last not archived ({ex})"));
         }
-        if let Err(ex) = fs::remove_dir_all(&prev) {
+        let _ = fs::remove_dir_all(logs.join(OLDER[1]));
+        let _ = fs::rename(logs.join(OLDER[0]), logs.join(OLDER[1]));
+        // a run that cannot move (previous-2\ still there, a file held) goes as before: it is in the archive
+        if let Err(ex) = fs::rename(&prev, logs.join(OLDER[0])).or_else(|_| fs::remove_dir_all(&prev)) {
             // a file in it is held open: set it aside so a fresh one can be made
             let t = local(SystemTime::now());
             let name = format!(
