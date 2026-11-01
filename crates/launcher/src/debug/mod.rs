@@ -49,9 +49,10 @@ use windows_sys::Win32::System::Diagnostics::Debug::{
     Wow64GetThreadContext, Wow64SetThreadContext, WriteProcessMemory,
 };
 use windows_sys::Win32::System::Threading::{
-    ABOVE_NORMAL_PRIORITY_CLASS, GetCurrentProcess, HIGH_PRIORITY_CLASS, PROCESS_POWER_THROTTLING_CURRENT_VERSION,
-    PROCESS_POWER_THROTTLING_EXECUTION_SPEED, PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION,
-    PROCESS_POWER_THROTTLING_STATE, ProcessPowerThrottling, SetPriorityClass, SetProcessInformation, TerminateProcess,
+    ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS, GetCurrentProcess, HIGH_PRIORITY_CLASS,
+    PROCESS_POWER_THROTTLING_CURRENT_VERSION, PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+    PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION, PROCESS_POWER_THROTTLING_STATE, ProcessPowerThrottling,
+    SetPriorityClass, SetProcessInformation, TerminateProcess,
 };
 
 use windows_sys::Win32::UI::WindowsAndMessaging::IsHungAppWindow;
@@ -152,6 +153,9 @@ pub struct Options {
     /// The game programs (control, client, match engines) run at above-normal priority, so background load on the
     /// host does not stall a VS match (2017-18).  Never higher: the engines step with Sleep(0) while catching up.
     pub above_normal: bool,
+    /// A background program (the 2017-18 projector, its CPU championship): below-normal priority and Windows'
+    /// efficiency mode instead of the above.
+    pub background: bool,
     /// Added to the program's environment (the run's WCCF_ and MXHOOK_ settings).
     pub env: Vec<(String, String)>,
     /// Set by the run to end the program now (a quit or a cabinet restart), as the timeout does.
@@ -509,6 +513,25 @@ fn full_speed(h: HANDLE) -> Option<&'static str> {
     None
 }
 
+/// Windows' efficiency mode (EcoQoS) on: the process runs on slower cores and clocks when Windows has them.
+fn throttle(h: HANDLE) -> bool {
+    let s = PROCESS_POWER_THROTTLING_STATE {
+        Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+        ControlMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+        StateMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+    };
+    // SAFETY: the structure is the one the class takes, live for the call.
+    !h.is_null()
+        && unsafe {
+            SetProcessInformation(
+                h,
+                ProcessPowerThrottling,
+                (&s as *const PROCESS_POWER_THROTTLING_STATE).cast(),
+                size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
+            )
+        } != 0
+}
+
 /// "" for the program itself, "[name pid] " for a child.
 fn who(main: u32, pid: u32, name: &str) -> String {
     if pid == main {
@@ -749,17 +772,35 @@ pub fn run(opts: &Options, job: &Job, out: &mut dyn Write) -> io::Result<i32> {
             pr.end = pr.image_end(pr.base);
             pr.threads
                 .insert(tid, (ci.hThread, ci.lpStartAddress.map_or(0, |f| f as usize as u64)));
-            let fast = full_speed(ci.hProcess);
-            if pid == main || fast.is_none() {
+            let said = |ok: bool| {
+                if ok {
+                    "yes".to_owned()
+                } else {
+                    format!("FAILED (error {})", last_error())
+                }
+            };
+            if opts.background {
+                // SAFETY: the event's process handle, live while the process is debugged.
+                let low = said(unsafe { SetPriorityClass(ci.hProcess, BELOW_NORMAL_PRIORITY_CLASS) } != 0);
+                let eco = said(throttle(ci.hProcess));
                 say!(
                     out,
-                    "  t+{now:5.1}s {}Windows' throttling off: {}",
-                    who(main, pid, &pr.name),
-                    // SAFETY: plain call.
-                    fast.map_or_else(|| format!("FAILED (error {})", last_error()), str::to_owned)
+                    "  t+{now:5.1}s {}background: below-normal priority: {low}, efficiency mode: {eco}",
+                    who(main, pid, &pr.name)
                 );
+            } else {
+                let fast = full_speed(ci.hProcess);
+                if pid == main || fast.is_none() {
+                    say!(
+                        out,
+                        "  t+{now:5.1}s {}Windows' throttling off: {}",
+                        who(main, pid, &pr.name),
+                        // SAFETY: plain call.
+                        fast.map_or_else(|| format!("FAILED (error {})", last_error()), str::to_owned)
+                    );
+                }
             }
-            if opts.above_normal && GAME_PROGRAMS.iter().any(|g| pr.name.eq_ignore_ascii_case(g)) {
+            if opts.above_normal && !opts.background && GAME_PROGRAMS.iter().any(|g| pr.name.eq_ignore_ascii_case(g)) {
                 // SAFETY: the event's process handle, live while the process is debugged.
                 let raised = unsafe { SetPriorityClass(ci.hProcess, ABOVE_NORMAL_PRIORITY_CLASS) } != 0;
                 say!(

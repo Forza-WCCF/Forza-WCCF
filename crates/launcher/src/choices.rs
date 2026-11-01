@@ -103,6 +103,14 @@ pub fn setting(path: &Path, key: &str) -> Option<String> {
     json[key].as_str().map(str::to_owned)
 }
 
+/// settings.json "projector" (2017-18, default on): start this PC's projector, whose CPU championship then runs
+/// in the background; off starts no projector at all.
+pub const PROJECTOR: &str = "projector";
+
+pub fn projector_on(settings: &Value) -> bool {
+    settings[PROJECTOR].as_bool() != Some(false)
+}
+
 pub use forza::panel_txt::valid_address;
 
 /// An override's value: the environment variable first, then the setting; empty counts as unset.
@@ -231,6 +239,20 @@ mod tests {
         ] {
             assert!(!valid_address(bad), "{bad}");
         }
+    }
+
+    #[test]
+    fn projector_setting_persists_and_defaults_on() {
+        let dir = std::env::temp_dir().join(format!("wccf-projector-test-{}", std::process::id()));
+        let path = dir.join("settings.json");
+        let saved = |p: &Path| serde_json::from_str::<Value>(&read(p)).unwrap();
+        write(&path, r#"{"game": "D:\\WCCF"}"#).unwrap();
+        assert!(projector_on(&saved(&path)));
+        set_setting_bool(&path, PROJECTOR, false).unwrap();
+        assert!(!projector_on(&saved(&path)));
+        set_setting_bool(&path, PROJECTOR, true).unwrap();
+        assert!(projector_on(&saved(&path)));
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
