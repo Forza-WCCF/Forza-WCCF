@@ -263,8 +263,8 @@ pub fn link_left(local: u16) -> Option<u32> {
 /// Nothing left: a reset, or a close by the control seen too late to tell (the row goes within the 2 s poll).
 pub fn close_reason(state: Option<u32>) -> &'static str {
     match state {
-        Some(6 | 7 | 10 | 11) => "this seat closed it",
-        Some(8 | 9) => "the control closed it (EOF)",
+        Some(6 | 7 | 9 | 11) => "this seat closed it",
+        Some(8 | 10) => "the control closed it (EOF)",
         _ => "no close seen: the control closed it or the link was reset",
     }
 }
@@ -516,6 +516,12 @@ mod tests {
         assert_eq!(close_reason(Some(11)), "this seat closed it");
         assert_eq!(close_reason(Some(7)), "this seat closed it");
         assert_eq!(close_reason(Some(8)), "the control closed it (EOF)");
+        assert_eq!(
+            close_reason(Some(10)),
+            "the control closed it (EOF)",
+            "LAST_ACK"
+        );
+        assert_eq!(close_reason(Some(9)), "this seat closed it", "CLOSING");
         assert_eq!(
             close_reason(None),
             "no close seen: the control closed it or the link was reset"
