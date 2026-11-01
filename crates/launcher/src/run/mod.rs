@@ -33,6 +33,7 @@
 //! `programs\forza-server.exe all` (2017-18: `Launcher.exe server all`), a child in the job.
 
 pub mod rules;
+mod sampler;
 
 use std::fs::{self, File};
 use std::io::{self, Write};
@@ -978,6 +979,8 @@ pub struct Run<'a> {
     arcade_room: Option<Result<crate::lobby::HostRoom, String>>,
     /// 2017-18 host: its arcade id and room code, for the run's `session:` line.
     arcade: Option<String>,
+    /// The CPU and RAM sampler (run_sampler.txt), from the run's start to its end.
+    sampler: Option<Handle>,
     /// 2017-18 server: the guests its arcade tunnel has connected now.
     arcade_guests: Option<Arc<AtomicUsize>>,
     /// When the start began, and the setup and guard checks' end (logged once the log folder is rotated).
@@ -1070,6 +1073,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         own_store: false,
         tunnel_ports: None,
         arcade: None,
+        sampler: None,
         job,
         tx,
         rx,
@@ -1371,7 +1375,7 @@ impl Run<'_> {
     }
 
     /// The run's `session:` line in run_launcher.txt, once it has started (`projector`: None on a server).
-    fn session(&self, projector: Option<bool>) {
+    fn session(&mut self, projector: Option<bool>) {
         let arcade = match &self.mode {
             Mode::Remote(entry, _) => Some(entry.as_str()),
             _ => self.arcade.as_deref(),
@@ -1380,6 +1384,8 @@ impl Run<'_> {
             &self.logs().join("run_launcher.txt"),
             &rules::session_line(&self.mode, arcade, self.seat_no, projector),
         );
+        let logs = self.logs();
+        self.sampler.get_or_insert_with(|| sampler::spawn(logs));
     }
 
     fn write_running(&self) {
@@ -2612,6 +2618,7 @@ impl Run<'_> {
     /// `Job::stop` for whatever is left (its windows closed, then ended after the deadline); then the stand-ins, the
     /// key driver first.
     fn shutdown(&mut self) {
+        self.sampler = None;
         self.helper = None; // joins its threads (a view being made is given up)
         for (_, c) in &mut self.kids {
             let _ = c.kill();
