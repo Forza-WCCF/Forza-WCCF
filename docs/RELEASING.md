@@ -20,9 +20,8 @@
   cargo does **not** give the local bytes: a run with `vcvarsall -vcvars_ver=14.44` produced a `FPR_Emu.exe`
   byte-identical to the 14.51 one (`FlsAlloc` CRT imports and all, 2026-11-01, `E:\wccf-builds\av-bisect-20261101\`),
   because rustc takes the CRT's lib directories from its own detection of the newest MSVC, not from PATH. A hash
-  recorded here therefore still differs between a build PC and the runner: record the CI build's SHA-256 in
-  `editions/2017-18/fpr_emu.sha256` and have `cargo xtask package` compare it, failing when the exe changed and
-  `native/programs` and `native/common` did not.
+  recorded here therefore still differs between a build PC and the runner, so `editions/2017-18/fpr_emu.sha256` freezes
+  the published file instead of comparing builds (see "Antivirus verdicts").
 - 0.x means alpha: features missing, bugs expected. The count restarted from 7.0.0 at **0.2.0**, because the installer
   already published `v0.1.0` and `v0.1.1`.
 - Each test build with new features or a batch of fixes raises the minor number (0.2.0, 0.3.0, …). A rebuild of a
@@ -63,6 +62,12 @@ as clean because an earlier scan did. What helps:
 
 - a Microsoft hit gets one fresh analysis before it stops the release, as the workflow does now: re-scan rather than
   rebuild, and never change bytes just to change a hash (two byte-patched copies of a flagged file stayed flagged);
+- `FPR_Emu.exe` is frozen: `editions/2017-18/fpr_emu.sha256` holds the sha256, tag and commit of the last release's
+  file, and `cargo xtask package 2017-18` ships that file (downloaded from the release ZIP, checked against the hash)
+  while `native/programs` and `native/common` (and the icon they embed) are unchanged since the
+  commit. A change there, or an offline build, builds fresh and says why. After a release that changed `FPR_Emu.exe`,
+  put its new hash, tag and commit in the file. The reproducibility jobs see the frozen file, so they no longer test
+  that `FPR_Emu.exe` builds the same twice;
 - a program whose sources did not change keeps its bytes; do not rebuild it for a release, and do not change a
   program's bytes hoping the verdict clears: it is one engine's opinion of those bytes, measured to stay put;
 - scanning on a Windows PC before tagging is advisory only, not a gate: the verdict flips both ways. If a scan is

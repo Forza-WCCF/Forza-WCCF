@@ -263,7 +263,7 @@ const NATIVE: &[(&str, bool, &str)] = &[
         false,
         "source/build/server-hook-1718/server1718_test.exe",
     ),
-    // the 2017-18 Linux shop's stand-in for the Launcher's shared memory (crates/linux-host), beside its hook
+    // the 2017-18 Linux arcade's stand-in for the Launcher's shared memory (crates/linux-host), beside its hook
     (
         "sddy_maps.exe",
         false,
@@ -2198,6 +2198,10 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
         );
     }
 
+    if !is_1011 && let Err(e) = freeze_fpr_emu(root, kit) {
+        println!("warning: FPR_Emu.exe is built fresh, not taken from the release: {e:#}");
+    }
+
     // every program must carry its version information: a nameless unsigned program is what Windows Defender's
     // machine learning flagged (Kit 5.5's first SETUP.exe, then its winmm.dll)
     for p in programs {
@@ -2358,6 +2362,93 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
         zip_path.display(),
         fs::metadata(&zip_path)?.len() as f64 / 1048576.0
     );
+    Ok(())
+}
+
+/// The 2017-18 `bin/FPR_Emu.exe` keeps the bytes of the last release while its sources are unchanged, so a release does
+/// not put a new binary in front of the antivirus engines (docs/RELEASING.md, "Antivirus verdicts"). The file holds the
+/// sha256 of that release's file, its tag and the commit it was built from.
+const FREEZE_FILE: &str = "editions/2017-18/fpr_emu.sha256";
+/// What FPR_Emu.exe is built from besides Cargo.lock and the toolchain: its crate, the common crate and its icon.
+/// shortcut: `crates/launcher/version_rc.rs` (shared with every program) is not here, it changed in 0.6.2 without
+/// changing this exe; add it back when its output for fpr_emu changes.
+const FREEZE_SRC: &[&str] = &[
+    "native/programs",
+    "native/common",
+    "assets/logo/forza-wccf-small.ico",
+];
+
+/// `<sha256> <tag> <commit>`
+fn parse_freeze(text: &str) -> Result<[&str; 3]> {
+    let Ok([hash, tag, commit]) =
+        <[&str; 3]>::try_from(text.split_whitespace().collect::<Vec<_>>())
+    else {
+        anyhow::bail!("{FREEZE_FILE} wants `<sha256> <tag> <commit>`");
+    };
+    ensure!(
+        hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()),
+        "{FREEZE_FILE}: {hash} is not a sha256"
+    );
+    Ok([hash, tag, commit])
+}
+
+/// Replace the freshly built `bin/FPR_Emu.exe` of `kit` with the release's file when `FREEZE_SRC` is unchanged since the
+/// recorded commit. `Ok` also when the sources changed (it says so and the fresh build stays); `Err` when the release
+/// file cannot be had or does not match the hash (offline, a moved release): the caller warns and ships the fresh build.
+fn freeze_fpr_emu(root: &Path, kit: &Path) -> Result<()> {
+    use std::io::Read;
+    let text = fs::read_to_string(root.join(FREEZE_FILE))?;
+    let [hash, tag, commit] = parse_freeze(&text)?;
+    let sh = Shell::new()?;
+    sh.change_dir(root);
+    // committed, uncommitted and new files since the commit
+    let changed = cmd!(sh, "git diff --name-only {commit} -- {FREEZE_SRC...}")
+        .read()
+        .with_context(|| format!("git cannot compare with {commit} (a shallow clone?)"))?;
+    let new = cmd!(
+        sh,
+        "git ls-files --others --exclude-standard -- {FREEZE_SRC...}"
+    )
+    .read()?;
+    let changed = format!("{changed}\n{new}");
+    if !changed.trim().is_empty() {
+        println!(
+            "FPR_Emu.exe: the frozen hash is stale, its sources changed since {commit}; built fresh:\n{}\nAfter the next release, put the new file's hash, tag and commit in {FREEZE_FILE}",
+            changed.trim()
+        );
+        return Ok(());
+    }
+    let zip_path = kit.with_file_name("frozen-release.zip");
+    let url = format!(
+        "https://github.com/Forza-WCCF/Forza-WCCF/releases/download/{tag}/{TOP_1718}-{}.zip",
+        tag.trim_start_matches('v')
+    );
+    cmd!(
+        sh,
+        "curl -fsSL --retry 2 --max-time 300 -o {zip_path} {url}"
+    )
+    .quiet()
+    .run()
+    .with_context(|| format!("cannot download {url}"))?;
+    let mut bytes = Vec::new();
+    let read = || -> Result<usize> {
+        let mut ar = zip::ZipArchive::new(fs::File::open(&zip_path)?)?;
+        Ok(ar
+            .by_name(&format!("{TOP_1718}/bin/FPR_Emu.exe"))?
+            .read_to_end(&mut bytes)?)
+    }();
+    let _ = fs::remove_file(&zip_path);
+    read?;
+    let got: String = Sha256::digest(&bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    ensure!(
+        got == hash,
+        "the {tag} file is sha256 {got}, {FREEZE_FILE} says {hash}"
+    );
+    fs::write(kit.join("bin/FPR_Emu.exe"), bytes)?;
+    println!("FPR_Emu.exe: the {tag} file, sha256 {got} (sources unchanged since {commit})");
     Ok(())
 }
 
@@ -2638,6 +2729,15 @@ mod tests {
             changed_files(root, "0123456789abcdef0123456789abcdef01234567").unwrap(),
             None
         );
+    }
+
+    #[test]
+    fn the_frozen_hash_file_parses() {
+        let [hash, tag, commit] =
+            parse_freeze(include_str!("../../editions/2017-18/fpr_emu.sha256")).unwrap();
+        assert!(tag.starts_with('v') && commit.len() == 40 && hash.len() == 64);
+        assert!(parse_freeze("abc v0.6.1 33f4591e").is_err());
+        assert!(parse_freeze("").is_err());
     }
 
     #[test]
