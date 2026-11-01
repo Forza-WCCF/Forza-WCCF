@@ -227,7 +227,8 @@ pub struct LobbyView {
     /// The server stopped answering: the list is greyed and the Direct address fold opens.
     pub offline: bool,
     pub grey: [Option<Grey>; 2],
-    /// 2017-18: the shops are listed; only shop rooms join (see [`shop_rooms`](Self::shop_rooms)).
+    /// 2017-18: a server's own arcade joins by CONNECT at its address; shop rooms join only with
+    /// [`shop_rooms`](Self::shop_rooms) on.
     pub shops_view_only: bool,
     /// The VS side is out of reach (2017-18 while [`VS_LOBBY`] is off): one tab, no HOST VS, no VS room by code.
     pub vs_hidden: bool,
@@ -594,9 +595,9 @@ impl LobbyView {
         self.shops_view_only && self.kind == Kind::Shops
     }
 
-    /// Row `r` is shown but cannot be joined: a view-only SHOPS row, unless it is a listed shop room.
+    /// Row `r` is shown but cannot be joined: a listed shop room on 2017-18 while shop rooms are off.
     pub fn view_only(&self, r: &Row) -> bool {
-        self.view_only_now() && !(self.shop_rooms && r.room)
+        self.view_only_now() && r.room && !self.shop_rooms
     }
 
     /// The selected row, whatever its state.
@@ -613,10 +614,6 @@ impl LobbyView {
     }
 
     /// A row listed on its tab: 2017-18 lists only shop rooms (no desk runs a 2017-18 shop of its own to join).
-    fn listed(&self, r: &Row) -> bool {
-        !self.view_only_now() || r.room
-    }
-
     /// The rows the filters let through, as indexes into [`rows`](Self::rows).
     pub fn visible(&self) -> Vec<usize> {
         let want = [None, Some(Lang::En), Some(Lang::It), Some(Lang::Ja)][self.lang_filter.min(3)];
@@ -624,8 +621,7 @@ impl LobbyView {
             .iter()
             .enumerate()
             .filter(|(_, r)| {
-                self.listed(r)
-                    && want.is_none_or(|l| r.lang == Some(l))
+                want.is_none_or(|l| r.lang == Some(l))
                     && (!self.open_only || r.state == RowState::Open)
                     && (!self.ping_ok || r.ping_ms.is_some_and(|p| p < PING_MAX_MS))
             })
@@ -1002,12 +998,7 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
             format!(
                 "{}{}",
                 tr!(lang, "lobby.shops"),
-                count(
-                    v.shops
-                        .iter()
-                        .filter(|r| !v.shops_view_only || r.room)
-                        .count()
-                )
+                count(v.shops.len())
             ),
             format!("{}{}", tr!(lang, "lobby.vs"), count(v.vs.len())),
         ];
@@ -1682,20 +1673,25 @@ mod tests {
         }
     }
 
-    /// 2017-18 SHOPS are view-only, but a listed shop room joins from its row while shop rooms are on.
+    /// 2017-18: a listed shop room joins from its row while shop rooms are on; a server's own arcade (ovh1's,
+    /// listed without `room`) is listed and joins always (0.6.1 showed "ARCADES 0").
     #[test]
     fn listed_shop_rooms_join_from_their_row() {
         let mut v = LobbyView::sample(Scenario::ShopNoRoom);
         assert_eq!(v.joinable().map(|r| r.id.as_str()), Some("p1"));
-        v.shops[0].room = false; // a desk's own shop, or a desk too old to mark rooms: not listed
-        assert!(v.visible().is_empty() && v.joinable().is_none());
+        v.shops[0].room = false;
+        assert_eq!(v.visible().len(), 1);
+        assert_eq!(v.joinable().map(|r| r.id.as_str()), Some("p1"));
+        v.shop_rooms = false;
+        assert_eq!(v.joinable().map(|r| r.id.as_str()), Some("p1"));
+        v.shops[0].room = true;
+        assert!(v.visible().len() == 1 && v.joinable().is_none());
         // a code typed joins by code: JOIN is live
+        v.shop_rooms = true;
+        v.shops.clear();
         assert_eq!(v.why_not_join(Lang::En), None);
         v.code.clear();
         assert_eq!(v.why_not_join(Lang::En).as_deref(), Some("Pick a room"));
-        v.shops[0].room = true;
-        v.shop_rooms = false;
-        assert!(v.joinable().is_none());
     }
 
     /// The host's own arcade showed no count while it ran (2026-10-28 live test: seats 1-3 taken, nothing shown).

@@ -1035,7 +1035,7 @@ mod tests {
 
     #[test]
     fn shops_listed_but_not_joinable_on_2017_18() {
-        // the server shows its shops; with shop rooms off none joins, VS rooms still do
+        // a server's own arcade joins (by CONNECT); with shop rooms off a listed shop room does not
         let mut v = lobby_for(Edition::E1718);
         assert_eq!(
             (v.kind, v.grey_now(), v.grey[Kind::Shops as usize]),
@@ -1043,7 +1043,10 @@ mod tests {
         );
         v.shops = LobbyView::sample(LobbyScenario::List).shops;
         assert!(!v.rows().is_empty() && v.view_only_now());
+        assert!(v.joinable().is_some());
+        v.shops.iter_mut().for_each(|r| r.room = true);
         assert!(v.joinable().is_none());
+        v.shops.iter_mut().for_each(|r| r.room = false);
         // 2010-11 keeps joinable shops
         let mut w = lobby_for(Edition::E1011);
         w.shops = v.shops.clone();

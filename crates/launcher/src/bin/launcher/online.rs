@@ -159,6 +159,8 @@ pub struct Online {
     clock: Clock,
     /// The shop room being joined is a listed row's (its id), not a typed code.
     joining_listed: bool,
+    /// JOIN on a server's own 2017-18 arcade: PLAY at its address on the next look.
+    connect: bool,
 }
 
 impl Online {
@@ -298,7 +300,7 @@ impl Online {
         if self.poller.is_some() {
             self.rows = self.book.fill(&mut st.lobby, Instant::now());
         }
-        let go = self.room(st).then_some(Go::Play);
+        let go = (self.room(st) | std::mem::take(&mut self.connect)).then_some(Go::Play);
         st.rejoin = self
             .last
             .iter()
@@ -577,6 +579,13 @@ impl Online {
             let server = server.clone();
             st.lobby.desk.clone_from(&server);
             self.shop_join(st, &server, id, true);
+            return;
+        }
+        // a server's own 2017-18 arcade (no `room`): CONNECT at its address, the game server beside its desk
+        // (run::rules::vs_target); the desk seats no one there
+        if st.lobby.shops_view_only && st.lobby.shops.iter().any(|r| !r.room && r.id == id) {
+            st.lobby.address.clone_from(server);
+            self.connect = true;
             return;
         }
         let name = st
