@@ -191,6 +191,17 @@ jobs:
           VS=$(cygpath -u "$("$VSW" -latest -products '*' -requires "$REQ" -property installationPath)")
           ls "$VS/VC/Tools/MSVC"
           ls "/c/Program Files (x86)/Windows Kits/10/Include"
+      # Same pin as release.yml, and for the same reason: Microsoft's Defender engine flags FPR_Emu.exe built by the
+      # image's default toolset (14.51) while 14.44 builds of the same source are clean (av-bisect-20261101). CI has to
+      # build what ships. Bump the rust-cache shared key below with this version: cargo does not fingerprint the CRT.
+      - name: MSVC toolset 14.44 (the one Microsoft does not flag)
+        shell: cmd
+        run: |
+          for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath`) do set "VS=%%i"
+          call "%VS%\VC\Auxiliary\Build\vcvarsall.bat" x64 -vcvars_ver=14.44 >nul
+          if errorlevel 1 (echo ::error::MSVC toolset 14.44 is not on this image & exit /b 1)
+          where link.exe
+          echo PATH=%PATH%>>"%GITHUB_ENV%"
       # `cargo xtask check` runs the tests with cargo-nextest when it is installed; the action checks the download's hash
       - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
         with:
@@ -211,7 +222,7 @@ jobs:
       # so one per pull request would push main's out of the 10 GB and every other run would start cold.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: windows
+          shared-key: windows-msvc14.44
           # only the ci profile: a weekly release-profile run would hold the week's key with trees no other run uses
           save-if: ${{ github.ref == 'refs/heads/main' && env.PROFILE == 'ci' }}
           cache-on-failure: true

@@ -36,8 +36,21 @@ jobs:
       # restore only: CI's build-test on main saves this cache (a tag build can read the default branch's caches)
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: windows
+          shared-key: windows-msvc14.44
           save-if: false
+      # Microsoft's Defender engine flagged FPR_Emu.exe built by the image's default toolset (MSVC 14.51) on
+      # VirusTotal while the same source built with 14.44 is clean, 4/4 vs 3/3 (E:\wccf-builds\av-bisect-20261101\
+      # RESULTS.md): pin the toolset, and with it the CRT objects and link.exe the 32-bit programs link against.
+      # Bump the rust-cache shared key whenever this version changes: cargo does not fingerprint the CRT, so a
+      # cached tree built with another toolset would be relinked and the pin would do nothing.
+      - name: MSVC toolset 14.44 (the one Microsoft does not flag)
+        shell: cmd
+        run: |
+          for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath`) do set "VS=%%i"
+          call "%VS%\VC\Auxiliary\Build\vcvarsall.bat" x64 -vcvars_ver=14.44 >nul
+          if errorlevel 1 (echo ::error::MSVC toolset 14.44 is not on this image & exit /b 1)
+          where link.exe
+          echo PATH=%PATH%>>"%GITHUB_ENV%"
       - name: The tag is v + the workspace version
         run: |
           V=$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version *= *"\(.*\)"/\1/p}' Cargo.toml | head -n1)
