@@ -1093,29 +1093,12 @@ fn import_dialog() {
 /// slot 2 being named for SAVE (REPLACE: it is filled).
 #[test]
 fn formations_dialog() {
-    use forza::cards::{Placed, formations};
     let _gpu = gpu();
     let mut all = SnapshotResults::new();
     for lang in Lang::ALL {
-        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Catalogue);
-        st.catalogue.filter = panel::Filter::default();
-        let t = [Placed {
-            slot: 1,
-            no: 1,
-            x: 0.0,
-            y: 0.9,
-        }];
-        let slot = |name, club| {
-            formations::slot_of(&formations::text(&t, st.edition, name, club), st.edition)
-        };
-        let mut slots = vec![None; formations::SLOTS];
-        slots[0] = slot("4-3-3 attack", "KITAKAZE");
-        slots[1] = slot("Cup XI", "OTHER FC");
-        st.formations = Some(panel::Formations {
-            slots,
-            naming: Some((1, "Cup XI".into())),
-        });
-        st.in_match = true;
+        let mut st = formations_state(lang, true);
+        st.formations.as_mut().unwrap().naming = Some((1, "Cup XI".into()));
+        st.page = panel::Page::Catalogue;
         snap(
             &mut all,
             &format!("panel_formations_{}", lang.code()),
@@ -1125,6 +1108,115 @@ fn formations_dialog() {
         );
     }
     all.unwrap();
+}
+
+/// A FORMATIONS dialog with two filled slots (the second from another club).
+fn formations_state(lang: Lang, in_match: bool) -> panel::PanelState {
+    use forza::cards::{Placed, formations};
+    let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+    let t = [Placed {
+        slot: 1,
+        no: 1,
+        x: 0.0,
+        y: 0.9,
+    }];
+    let slot = |name, club, day: &str| {
+        let mut s = formations::slot_of(&formations::text(&t, st.edition, name, club), st.edition);
+        if let Some(s) = s.as_mut() {
+            s.saved = day.into();
+        }
+        s
+    };
+    let mut slots = vec![None; formations::SLOTS];
+    slots[0] = slot("4-3-3 attack", "KITAKAZE", "2026-10-30");
+    slots[1] = slot("Cup XI", "OTHER FC", "2026-11-01");
+    st.formations = Some(panel::Formations {
+        slots,
+        naming: None,
+    });
+    st.in_match = in_match;
+    st
+}
+
+/// 2017-18: FORMATIONS in the row under the board (with RESET LINEUP and POP OUT), on the game window's board and on
+/// the pop-out board's window; the dialog opened from the pop-out board shows there.
+#[test]
+fn board_formations_button() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for lang in Lang::ALL {
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+        st.reset_ready = true;
+        snap(
+            &mut all,
+            &format!("board_formations_{}", lang.code()),
+            panel::SIZE,
+            Edition::E1718,
+            |ui| panel::show(ui, &mut st),
+        );
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+        st.desk = true;
+        st.file.board_window = true;
+        st.reset_ready = true;
+        snap(
+            &mut all,
+            &format!("popout_board_formations_{}", lang.code()),
+            Vec2::new(960.0, 1232.0),
+            Edition::E1718,
+            |ui| panel::show(ui, &mut st),
+        );
+    }
+    let mut st = formations_state(Lang::En, false);
+    st.desk = true;
+    st.formations_desk = true;
+    st.file.board_window = true;
+    snap(
+        &mut all,
+        "popout_board_formations_dialog_en",
+        Vec2::new(960.0, 1232.0),
+        Edition::E1718,
+        |ui| panel::show(ui, &mut st),
+    );
+    all.unwrap();
+}
+
+/// LOAD is greyed out and answers nothing while the own seat plays a match; SAVE works at any time.
+#[test]
+fn formations_load_refused_in_match_and_save_works() {
+    let _gpu = gpu();
+    let st = std::cell::RefCell::new(formations_state(Lang::En, true));
+    let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+        panel::show(ui, &mut st.borrow_mut())
+    });
+    h.run_steps(4);
+    h.get_all_by_label("LOAD").next().unwrap().click();
+    h.run_steps(4);
+    assert!(st.borrow().formation_load.is_none());
+    // SAVE on the empty slot 3 asks for a name, then stores it, match or not
+    h.get_all_by_label("SAVE").nth(2).unwrap().click();
+    h.run_steps(4);
+    assert_eq!(
+        st.borrow()
+            .formations
+            .as_ref()
+            .unwrap()
+            .naming
+            .as_ref()
+            .map(|n| n.0),
+        Some(2)
+    );
+    h.get_by_role(egui::accesskit::Role::TextInput)
+        .type_text("Mine");
+    h.run_steps(4);
+    h.get_all_by_label("SAVE").last().unwrap().click();
+    h.run_steps(4);
+    assert_eq!(st.borrow().formation_save, Some((2, "Mine".to_owned())));
+    // between matches the same click loads
+    st.borrow_mut().in_match = false;
+    h.run_steps(4);
+    h.get_all_by_label("LOAD").next().unwrap().click();
+    h.run_steps(4);
+    assert_eq!(st.borrow().formation_load, Some(0));
 }
 
 /// CONFIRM and Enter ask for the import; CANCEL and Esc drop the question and stay on the catalogue.
