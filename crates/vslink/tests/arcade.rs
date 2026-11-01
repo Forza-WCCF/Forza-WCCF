@@ -1,4 +1,4 @@
-//! The shop tunnel on one host (M2 plan 5.2): an in-process iroh test relay, a host side whose "control" is a TCP
+//! The arcade tunnel on one host (M2 plan 5.2): an in-process iroh test relay, a host side whose "control" is a TCP
 //! echo, whose "desk" never reads and whose "relay" is a UDP echo, and a join side on other loopback ports. Checked:
 //! control bytes both ways, two local UDP sockets kept apart as two flows, the test delay at 0/50/100/150 ms on the
 //! round trip, the forced relay path, and a reader that never reads neither blocking the writer nor growing past
@@ -13,7 +13,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use vslink::shop::{self, Ports, Role, ShopConfig};
+use vslink::arcade::{self, ArcadeConfig, Ports, Role};
 
 type Lines = Arc<Mutex<Vec<String>>>;
 
@@ -99,8 +99,8 @@ fn host_services() -> HostServices {
 }
 
 struct Pair {
-    host: shop::ShopLink,
-    join: Option<shop::ShopLink>,
+    host: arcade::ArcadeLink,
+    join: Option<arcade::ArcadeLink>,
     services: HostServices,
     join_ports: Ports,
     host_log: Lines,
@@ -113,8 +113,15 @@ struct Pair {
 }
 
 impl Pair {
-    fn config(&self, role: Role, ports: Ports, key: &str, log: Log, delay: Duration) -> ShopConfig {
-        ShopConfig {
+    fn config(
+        &self,
+        role: Role,
+        ports: Ports,
+        key: &str,
+        log: Log,
+        delay: Duration,
+    ) -> ArcadeConfig {
+        ArcadeConfig {
             role,
             ports,
             relay: self.relay.clone(),
@@ -143,26 +150,26 @@ impl Pair {
             log,
             Duration::from_millis(knob_ms / 2),
         );
-        let link = shop::spawn(cfg).unwrap();
+        let link = arcade::spawn(cfg).unwrap();
         assert_eq!(
             link.ports, self.join_ports,
             "free ports: the ones asked for"
         );
         self.join = Some(link);
-        assert!(logged(&lines, "link to the shop up"));
+        assert!(logged(&lines, "link to the arcade up"));
         self.join_log = lines;
     }
 }
 
 /// A host and a join side through a fresh test relay; the join side has the test delay `knob_ms` / 2 each way.
 fn pair(name: &str, knob_ms: u64, relay_only: bool) -> Pair {
-    let dir = std::env::temp_dir().join(format!("vslink_shop_{name}_{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("vslink_arcade_{name}_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let rt = tokio::runtime::Runtime::new().unwrap();
     let (relay, _url, server) = rt.block_on(iroh::test_utils::run_relay_server()).unwrap();
     let services = host_services();
     let (host_log, host_lines) = logger(&format!("{name} host"));
-    let host = shop::spawn(ShopConfig {
+    let host = arcade::spawn(ArcadeConfig {
         role: Role::Host,
         ports: services.ports,
         relay: relay.clone(),
@@ -354,11 +361,11 @@ fn a_reader_that_never_reads() {
 fn a_join_without_a_host_fails_at_start() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let (relay, _url, _server) = rt.block_on(iroh::test_utils::run_relay_server()).unwrap();
-    let dir = std::env::temp_dir().join(format!("vslink_shop_nohost_{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("vslink_arcade_nohost_{}", std::process::id()));
     let (log, _) = logger("nohost");
     let nobody = *iroh::SecretKey::generate().public().as_bytes();
     let t = Instant::now();
-    let r = shop::spawn(ShopConfig {
+    let r = arcade::spawn(ArcadeConfig {
         role: Role::Join(nobody),
         ports: Ports {
             control: free_tcp(),
@@ -457,7 +464,7 @@ fn an_idle_guest_is_closed() {
     }
 }
 
-/// The shop's ports taken on the joining PC (it runs a server of its own): the join side takes free ones and says
+/// The arcade's ports taken on the joining PC (it runs a server of its own): the join side takes free ones and says
 /// which, and the tunnel works on them.
 #[test]
 fn taken_ports_move_the_join_side() {
@@ -478,7 +485,7 @@ fn taken_ports_move_the_join_side() {
         log,
         Duration::ZERO,
     );
-    let link = shop::spawn(cfg).unwrap();
+    let link = arcade::spawn(cfg).unwrap();
     assert_ne!(link.ports.control, want.control);
     assert_ne!(link.ports.relay, want.relay);
     assert_eq!(link.ports.desk, want.desk);
@@ -512,26 +519,26 @@ fn only_the_rooms_guests_come_in() {
     let first = unsure.clone();
     cfg.admit = Some(Arc::new(move |id: &[u8; 32]| {
         if !list.lock().unwrap().contains(id) {
-            shop::Verdict::NotInRoom
+            arcade::Verdict::NotInRoom
         } else if first.swap(false, std::sync::atomic::Ordering::Relaxed) {
-            shop::Verdict::NoAnswer
+            arcade::Verdict::NoAnswer
         } else {
-            shop::Verdict::In
+            arcade::Verdict::In
         }
     }));
-    p.host = shop::spawn(cfg).unwrap();
+    p.host = arcade::spawn(cfg).unwrap();
     p.host_log = host_lines;
     // a stranger: the link comes up, then the host closes it, and the stranger stops dialling and says why
     p.join("admit stranger", 0);
     let t = Instant::now();
-    while !logged(&p.join_log, "the shop refused this PC: not in its room") {
+    while !logged(&p.join_log, "the arcade refused this PC: not in its room") {
         assert!(
             t.elapsed() < Duration::from_secs(10),
             "the stranger was let in, or not told"
         );
         thread::sleep(Duration::from_millis(50));
     }
-    assert!(logged(&p.host_log, "refused: not in the shop's room"));
+    assert!(logged(&p.host_log, "refused: not in the arcade's room"));
     assert!(!logged(&p.join_log, "dialling again"));
     // the room's guest: its id on the list before it dials
     drop(p.join.take());

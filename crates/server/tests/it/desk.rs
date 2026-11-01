@@ -173,7 +173,7 @@ fn reports_and_log_uploads_are_refused() {
     }
 }
 
-/// A shop guest's club through the real desk: refused for a seat nobody holds, in, out and dropped once it holds one.
+/// An arcade guest's club through the real desk: refused for a seat nobody holds, in, out and dropped once it holds one.
 #[test]
 fn a_club_needs_a_held_seat() {
     use forza::online::club::{self, Club};

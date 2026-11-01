@@ -88,21 +88,21 @@ fn test_ms() -> Option<u64> {
 }
 
 // 2010-11 is not relocated (base 0x00400000); 2017-18 may be, so its address moves with the base.
-const SHOP_1011: usize = 0x0113_700C;
-const SHOP_1718: usize = 0x06D9_EB08;
+const ARCADE_1011: usize = 0x0113_700C;
+const ARCADE_1718: usize = 0x06D9_EB08;
 const BASE: usize = 0x0040_0000;
 
-/// The seat's copy of the shop state (`GAME-CLOCK.md`: the object at C10 `*(0x113700C)`, C17 `*(0x6D9EB08)`, its
+/// The seat's copy of the arcade state (`GAME-CLOCK.md`: the object at C10 `*(0x113700C)`, C17 `*(0x6D9EB08)`, its
 /// dword +12; 0-7 = boot, ENTRY, CR_DATA_WAIT, MATCHING_WAIT, MATCHING, GAME, GAME_RESULT_WAIT, GAME_RESULT). `None`
 /// when this is not the client, the object is not there yet or the value is no state.
-pub(crate) fn shop_state(e1718: bool) -> Option<u32> {
+pub(crate) fn arcade_state(e1718: bool) -> Option<u32> {
     if !patches::is_client(&patches::exe_name()) {
         return None;
     }
     let base = patches::exe_base();
     let at = match (e1718, base) {
-        (true, _) => SHOP_1718 - BASE + base,
-        (false, BASE) => SHOP_1011,
+        (true, _) => ARCADE_1718 - BASE + base,
+        (false, BASE) => ARCADE_1011,
         _ => return None,
     };
     let obj = patches::read_u32(at).filter(|&o| o != 0)?;
@@ -310,10 +310,10 @@ pub fn present(dev: &IDirect3DDevice9, wnd: HWND) {
     let stop_found = stop_box
         .and_then(|b| ask(b, BM_GETCHECK, 0))
         .map(|v| v == 1);
-    let shop = if test.is_some() {
+    let arcade = if test.is_some() {
         Some(pause::GAME)
     } else {
-        shop_state(e1718)
+        arcade_state(e1718)
     };
     let mut st = state();
     let st = st.get_or_insert_with(State::default);
@@ -324,7 +324,7 @@ pub fn present(dev: &IDirect3DDevice9, wnd: HWND) {
         let Ok(mut r) = RENDER.lock() else { return };
         let Some(r) = r.as_mut() else { return };
         let facts = Facts {
-            shop_state: shop,
+            arcade_state: arcade,
             online: std::env::var_os("WCCF_RELAY").is_some_and(|v| !v.is_empty()),
             seats: if test.is_some() {
                 Some(1)
@@ -358,7 +358,7 @@ pub fn present(dev: &IDirect3DDevice9, wnd: HWND) {
     // what the pause borrows: Stop (only now, in state 5, if it was clear) and the sound sessions not muted; owed
     // from before the set, as a set that timed out may still happen
     let stop = match stop_box {
-        Some(b) if st.owed.take_stop(shop, stop_found) => {
+        Some(b) if st.owed.take_stop(arcade, stop_found) => {
             st.stop_box = Some(b.0 as isize);
             let _ = ask(b, BM_SETCHECK, 1);
             if ask(b, BM_GETCHECK, 0) == Some(1) {
@@ -383,7 +383,7 @@ pub fn present(dev: &IDirect3DDevice9, wnd: HWND) {
         "still being muted from the last pause"
     };
     log(&format!(
-        "pause: on (shop state {shop:?}; Stop {stop}; sound {sound}; {} ms to set up)",
+        "pause: on (arcade state {arcade:?}; Stop {stop}; sound {sound}; {} ms to set up)",
         begun.elapsed().as_millis()
     ));
     let holding = Holding;

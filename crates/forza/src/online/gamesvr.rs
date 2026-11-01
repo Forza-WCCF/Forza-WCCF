@@ -60,13 +60,15 @@ const GAME_CTRL_DEFAULTS: &[(usize, usize, u32)] = &[
     (19740, 1, 26),
 ];
 
+// "shop" in this file is the original game's: its item shop and the venue fields of its packets, not an arcade room
+
 /// The shop's sale list: GAME_CTRL +22,896 (payload +22,912), 10 entries of `{u32 category, u32 item, u32 start,
 /// u32 end}` (client sub_834520). Categories: 1 Uniform, 2 SE, 3 BGM, 4 Flag, 5 Trainingwear; 0 is never valid. The
 /// client offers an entry only when the item's master row also has its for-sale flag set, so rows outside the
 /// flagged ones are skipped on the client. These ten are rows of the 2017–18 data tables that look like shop goods
 /// (Uniform = the "shop_1718_*" rows of ShopUni, BGM 1..3 = Bgm1..3, Flag 1..3 and Trainingwear 1..2 = the first
 /// coloured rows); the flags themselves are not read. SE (2) stays out: its 286 +93 mapping is unverified
-/// ([`APPLY_SE`]). Owner decision: a data-driven rotation is a follow-up.
+/// ([`APPLY_SE`]). A data-driven rotation is a follow-up.
 const SHOP_SALE: [(u32, u32); 10] = [
     (1, 1),
     (1, 2),
@@ -505,7 +507,7 @@ CREATE TABLE IF NOT EXISTS purchases (
     at      INTEGER NOT NULL,
     payload BLOB    NOT NULL
 );
--- a shop guest's club imported for the session (online::club): its Aime id, the token that owns it, its seat
+-- an arcade guest's club imported for the session (online::club): its Aime id, the token that owns it, its seat
 CREATE TABLE IF NOT EXISTS guests (
     aime_id INTEGER PRIMARY KEY,
     token   TEXT    NOT NULL,
@@ -597,7 +599,7 @@ impl Store {
         // WAL: a commit appends to gamesvr.db-wal; NORMAL syncs at checkpoints, so a power cut can lose the last
         // commits but never corrupts the store
         db.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
-        // the shop host's desk writes guests' clubs from another process: take the write lock at BEGIN, so a
+        // the arcade host's desk writes guests' clubs from another process: take the write lock at BEGIN, so a
         // read-then-write transaction waits for the other (busy timeout) instead of failing on a stale snapshot
         db.set_transaction_behavior(TransactionBehavior::Immediate);
         db.execute_batch(SCHEMA)?;
@@ -795,7 +797,7 @@ impl Store {
         Ok(())
     }
 
-    /// The newest stored 309 of any shop. This stand-in serves one shop, so "the same shop's last 309" (owner
+    /// The newest stored 309 of any shop. This stand-in serves one shop, so "the same shop's last 309" (project
     /// decision D3, default) is the newest one; on a server with several shops a rule per area replaces this.
     fn last_best_eleven(&self) -> rusqlite::Result<Option<Vec<u8>>> {
         self.0

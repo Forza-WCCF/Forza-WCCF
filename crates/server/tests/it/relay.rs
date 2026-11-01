@@ -128,11 +128,11 @@ fn the_report_says_what_passed_was_dropped_and_rejected() {
     );
 }
 
-/// A hosted 2017-18 shop (live 2026-10-27): every tunnelled seat reaches the relay from 127.0.0.1, each from its own
+/// A hosted 2017-18 arcade (live 2026-10-27): every tunnelled seat reaches the relay from 127.0.0.1, each from its own
 /// port. Seats 1 and 2 play; then seats 3 and 4 start a match of their own. Each seat gets only its opponent's
 /// packets, all of them, labelled with the opponent's seat, before and after the second match starts.
 #[test]
-fn two_matches_in_one_shop_stay_apart() {
+fn two_matches_in_one_arcade_stay_apart() {
     let relay = start(config(Edition::E1718, 30.0), capture().0).unwrap();
     let seats: Vec<_> = (0..4).map(|_| udp_client()).collect();
     let peer = |s: u8| [2, 1, 4, 3][usize::from(s) - 1];

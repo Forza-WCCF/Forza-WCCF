@@ -1,20 +1,20 @@
-//! The shop tunnel (M2 plan 5.2): a seat on another PC reaches a 2017-18 shop's control, seat desk and match relay
-//! through one iroh connection to the shop's PC, so the shop needs no inbound port (a hole punch, else the relay).
+//! The arcade tunnel (M2 plan 5.2): a seat on another PC reaches a 2017-18 arcade's control, seat desk and match relay
+//! through one iroh connection to the arcade's PC, so the arcade needs no inbound port (a hole punch, else the relay).
 //!
-//! - Join side: listens on its own loopback where the Launcher and the game look for a shop (TCP: the control and
+//! - Join side: listens on its own loopback where the Launcher and the game look for an arcade (TCP: the control and
 //!   desk ports; UDP: the relay port). Each TCP connection becomes a QUIC bi-stream whose first byte is its kind
 //!   ([`KIND_CONTROL`], [`KIND_DESK`]). Each local UDP socket that sends to the relay port is a flow: its datagrams
 //!   cross as `[flow u32 LE][datagram]`, and the answers go back to that socket from the relay port.
 //! - Host side: dials only its own loopback: the kind's port for a stream; for datagrams, the relay port, from one
 //!   socket per (guest, flow), so the relay tells the guest's game socket and ping socket apart.
 //!
-//! The panel relay already routes every in-shop match packet through the relay port (`crates/panel/src/net.rs`), so
+//! The panel relay already routes every in-arcade match packet through the relay port (`crates/panel/src/net.rs`), so
 //! the seats' peer link needs nothing more. The streams are buffered on this side (all of a guest's on the host, all
 //! of the join side's) up to [`STREAM_BUF`] together, so a slow path never blocks the game's own `send`; past that the
 //! stream that overflows is closed and logged. A host takes [`MAX_STREAMS`] streams per guest, and closes a guest
 //! that opens nothing usable within [`GUEST_GRACE`].
-//! Join side ports: the shop's own where free, else any free one ([`ShopLink::ports`] says which).
-//! The test-only delay ([`ShopConfig::delay`], the Launcher's `VSLINK_DELAY_MS` / 2) holds everything this side
+//! Join side ports: the arcade's own where free, else any free one ([`ArcadeLink::ports`] says which).
+//! The test-only delay ([`ArcadeConfig::delay`], the Launcher's `VSLINK_DELAY_MS` / 2) holds everything this side
 //! sends and receives that much longer.
 
 use crate::core::EndpointId;
@@ -40,7 +40,8 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinSet;
 use tokio::time::{Instant, interval, sleep, sleep_until, timeout};
 
-pub const SHOP_ALPN: &[u8] = b"forza-wccf/shop/1";
+// the ALPN keeps "shop" from before the arcade rename: both tunnel ends must agree on it
+pub const ARCADE_ALPN: &[u8] = b"forza-wccf/shop/1";
 /// The first byte of a stream: what the host dials for it.
 pub const KIND_CONTROL: u8 = 1;
 pub const KIND_DESK: u8 = 2;
@@ -65,10 +66,10 @@ const DGRAM_QUEUE: usize = 1024;
 const KEEP_ALIVE: Duration = Duration::from_secs(5);
 /// Above the game's 30 s silence error (2001).
 const IDLE: Duration = Duration::from_secs(60);
-/// How long a local connection waits for the link to the shop, and the join's first dial.
+/// How long a local connection waits for the link to the arcade, and the join's first dial.
 const LINK_WAIT: Duration = Duration::from_secs(20);
 
-/// The shop's loopback ports: where the host dials them, where the join side listens.
+/// The arcade's loopback ports: where the host dials them, where the join side listens.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Ports {
     pub control: u16,
@@ -89,13 +90,13 @@ impl Ports {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Role {
-    /// The shop's PC: guests dial this endpoint.
+    /// The arcade's PC: guests dial this endpoint.
     Host,
     /// A seat elsewhere: dials the host's EndpointId.
     Join(EndpointId),
 }
 
-/// Host: whether a guest's EndpointId may come in (a shop room's `GUESTS`, `forza::online::lobby::shop_peers`). It
+/// Host: whether a guest's EndpointId may come in (an arcade room's `GUESTS`, `forza::online::lobby::arcade_peers`). It
 /// may block (it runs off the network threads, at most [`MAX_ADMITTING`] at once); None lets in anyone who knows the
 /// host's id.
 pub type Admit = Arc<dyn Fn(&EndpointId) -> Verdict + Send + Sync>;
@@ -111,7 +112,7 @@ pub enum Verdict {
 }
 
 /// What [`spawn`] needs.
-pub struct ShopConfig {
+pub struct ArcadeConfig {
     pub role: Role,
     pub ports: Ports,
     /// The relays the endpoint homes on; the host is dialled through these and their fallback (`net::dial_relays`)
@@ -129,10 +130,10 @@ pub struct ShopConfig {
     pub admit: Option<Admit>,
 }
 
-impl ShopConfig {
+impl ArcadeConfig {
     /// What the Launcher runs: `net::public_relays` (n0's as the fallback), direct paths allowed, no delay.
     pub fn public(role: Role, ports: Ports, key: PathBuf, log: Log) -> Self {
-        ShopConfig {
+        ArcadeConfig {
             role,
             ports,
             relay: public_relays(),
@@ -177,7 +178,7 @@ pub fn id_text(id: &EndpointId) -> String {
 }
 
 /// The id an endpoint with the key at `key` has (the key made on first use, as [`spawn`] does): a host registers it
-/// in its shop room before it listens, a guest tells it before it dials.
+/// in its arcade room before it listens, a guest tells it before it dials.
 pub fn own_id(key: &Path) -> io::Result<EndpointId> {
     Ok(*load_key(key)?.public().as_bytes())
 }
@@ -247,20 +248,20 @@ impl Drop for Live {
     }
 }
 
-/// A running shop tunnel. Dropping `handle` stops it: up to about 3 s (the endpoint's close, then the runtime's).
-pub struct ShopLink {
+/// A running arcade tunnel. Dropping `handle` stops it: up to about 3 s (the endpoint's close, then the runtime's).
+pub struct ArcadeLink {
     pub handle: Handle,
     /// This endpoint's id (the host's is what guests type)
     pub id: EndpointId,
-    /// Join: the loopback ports it listens on (the shop's own unless taken). Host: the ports it dials.
+    /// Join: the loopback ports it listens on (the arcade's own unless taken). Host: the ports it dials.
     pub ports: Ports,
     flows: Arc<AtomicUsize>,
     streams: Arc<AtomicUsize>,
     guests: Arc<AtomicUsize>,
 }
 
-impl ShopLink {
-    /// Host: the guests connected now (admitted, link up), live: a shop server with guests holds their matches.
+impl ArcadeLink {
+    /// Host: the guests connected now (admitted, link up), live: an arcade server with guests holds their matches.
     pub fn guests(&self) -> Arc<AtomicUsize> {
         self.guests.clone()
     }
@@ -493,7 +494,7 @@ impl Sh {
             match v {
                 Verdict::In => {}
                 Verdict::NotInRoom => {
-                    (self.log)(&format!("guest {who} refused: not in the shop's room"));
+                    (self.log)(&format!("guest {who} refused: not in the arcade's room"));
                     conn.close(CLOSE_NOT_IN_ROOM.into(), b"not in the room");
                     return;
                 }
@@ -672,7 +673,12 @@ impl Join {
     }
 
     async fn dial(&self) -> Result<Connection, String> {
-        match timeout(LINK_WAIT, self.sh.ep.connect(self.host.clone(), SHOP_ALPN)).await {
+        match timeout(
+            LINK_WAIT,
+            self.sh.ep.connect(self.host.clone(), ARCADE_ALPN),
+        )
+        .await
+        {
             Ok(Ok(c)) => Ok(c),
             Ok(Err(e)) => Err(e.to_string()),
             Err(_) => Err(format!("no answer in {} s", LINK_WAIT.as_secs())),
@@ -692,23 +698,23 @@ impl Join {
             if let iroh::endpoint::ConnectionError::ApplicationClosed(c) = &why
                 && c.error_code == CLOSE_NOT_IN_ROOM.into()
             {
-                // dialling again would be refused again: the game finds no shop and says so
+                // dialling again would be refused again: the game finds no arcade and says so
                 (self.sh.log)(
-                    "the shop refused this PC: not in its room (join with the room code, in ONLINE)",
+                    "the arcade refused this PC: not in its room (join with the room code, in ONLINE)",
                 );
                 return;
             }
-            (self.sh.log)(&format!("link to the shop down: {why}; dialling again"));
+            (self.sh.log)(&format!("link to the arcade down: {why}; dialling again"));
             conn = loop {
                 match self.dial().await {
                     Ok(c) => break c,
                     Err(e) => {
-                        (self.sh.log)(&format!("shop: {e}"));
+                        (self.sh.log)(&format!("arcade: {e}"));
                         sleep(Duration::from_secs(2)).await;
                     }
                 }
             };
-            (self.sh.log)("link to the shop up again");
+            (self.sh.log)("link to the arcade up again");
         }
     }
 
@@ -769,7 +775,7 @@ impl Join {
                     Ok(Ok(c)) => c.clone().expect("waited for Some"),
                     _ => {
                         (me.sh.log)(&format!(
-                            "{} connection dropped: no link to the shop",
+                            "{} connection dropped: no link to the arcade",
                             kind_name(kind)
                         ));
                         return;
@@ -792,7 +798,7 @@ impl Join {
 /// The join side as [`start`] leaves it: the first link up, the control and desk listeners bound, the ports bound.
 type Joined = (Arc<Join>, Connection, [TcpListener; 2], Ports);
 
-async fn start(cfg: ShopConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
+async fn start(cfg: ArcadeConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
     if cfg.relay.is_empty() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "no relay URL"));
     }
@@ -807,7 +813,7 @@ async fn start(cfg: ShopConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
         .clear_address_lookup()
         .transport_config(transport);
     if cfg.role == Role::Host {
-        b = b.alpns(vec![SHOP_ALPN.to_vec()]);
+        b = b.alpns(vec![ARCADE_ALPN.to_vec()]);
     }
     if let Some(ca) = cfg.ca {
         b = b.ca_tls_config(ca);
@@ -849,14 +855,14 @@ async fn start(cfg: ShopConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
     }
     let Role::Join(host) = cfg.role else {
         (sh.log)(&format!(
-            "shop host {} (relay {}{only}): guests run Launcher.exe remote {}",
+            "arcade host {} (relay {}{only}): guests run Launcher.exe remote {}",
             sh.ep.id().fmt_short(),
             relay_names(&cfg.relay),
             id_text(sh.ep.id().as_bytes())
         ));
         return Ok((sh, None));
     };
-    // the local side first, before anything dials: the shop's own ports, else any free one (this PC runs a server of
+    // the local side first, before anything dials: the arcade's own ports, else any free one (this PC runs a server of
     // its own); the Launcher points the game at what was bound
     let want = cfg.ports;
     let control = bind_tcp(want.control).await?;
@@ -881,7 +887,7 @@ async fn start(cfg: ShopConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
         flows: Mutex::default(),
     });
     (sh.log)(&format!(
-        "shop join {} to {} (relay {}{only}), local ports TCP {} and {}, UDP {}",
+        "arcade join {} to {} (relay {}{only}), local ports TCP {} and {}, UDP {}",
         sh.ep.id().fmt_short(),
         id_short(&host),
         relay_names(&cfg.relay),
@@ -890,9 +896,12 @@ async fn start(cfg: ShopConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
         p.relay
     ));
     let first = join.dial().await.map_err(|e| {
-        io::Error::other(format!("the shop {} did not answer: {e}", id_short(&host)))
+        io::Error::other(format!(
+            "the arcade {} did not answer: {e}",
+            id_short(&host)
+        ))
     })?;
-    (sh.log)("link to the shop up");
+    (sh.log)("link to the arcade up");
     Ok((sh, Some((join, first, [control, desk], p))))
 }
 
@@ -906,16 +915,16 @@ async fn bind_tcp(port: u16) -> io::Result<TcpListener> {
 
 /// Starts the tunnel on its own thread. Host: returns once the endpoint is bound. Join: once its local ports are
 /// bound and the first link to the host is up (an error if the host does not answer within 20 s).
-pub fn spawn(cfg: ShopConfig) -> io::Result<ShopLink> {
+pub fn spawn(cfg: ArcadeConfig) -> io::Result<ArcadeLink> {
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
     let (tx, rx) = std::sync::mpsc::channel();
     let thread = std::thread::Builder::new()
-        .name("vslink-shop".into())
+        .name("vslink-arcade".into())
         .spawn(move || {
             let rt = match tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
-                .thread_name("vslink-shop-rt")
+                .thread_name("vslink-arcade-rt")
                 .enable_all()
                 .build()
             {
@@ -962,8 +971,8 @@ pub fn spawn(cfg: ShopConfig) -> io::Result<ShopLink> {
         })?;
     let (id, flows, streams, guests, ports) = rx
         .recv()
-        .map_err(|_| io::Error::other("the shop tunnel's thread ended at start"))??;
-    Ok(ShopLink {
+        .map_err(|_| io::Error::other("the arcade tunnel's thread ended at start"))??;
+    Ok(ArcadeLink {
         handle: Handle::new(stop, thread),
         id,
         ports,
@@ -978,7 +987,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn kinds_map_to_the_shop_ports_only() {
+    fn kinds_map_to_the_arcade_ports_only() {
         let p = Ports {
             control: 20002,
             desk: 20030,

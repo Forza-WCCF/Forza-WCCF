@@ -1,16 +1,16 @@
-//! 2017-18 shop rooms (M2 plan 5.3): a player's PC that hosts a shop opens a room with `CREATE shop ID [public]`,
-//! where ID is its shop tunnel's iroh EndpointId. A room is private: guests join with its code alone (`JOIN CODE
+//! 2017-18 arcade rooms (M2 plan 5.3): a player's PC that hosts an arcade opens a room with `CREATE shop ID [public]`,
+//! where ID is its arcade tunnel's iroh EndpointId. A room is private: guests join with its code alone (`JOIN CODE
 //! [n]`, seats 2-8), which the host passes on; `RESERVE` of a room's id gives nothing. A guest's ticket then gets the
 //! host's id through `SHOP t own-id`, the host's ticket the ids of the guests that asked, so each tunnel end learns
-//! the other's id from the room alone. `LOBBY` lists only `public` rooms, as a shop row with x/8 and never the code;
+//! the other's id from the room alone. `LOBBY` lists only `public` rooms, as an arcade row with x/8 and never the code;
 //! `JOIN` of a public row's id seats a guest too (the host chose to list it), a private room's id joins nothing.
 //! Sans-IO: the desk passes the clock, the random ids and tickets in.
 
 pub use forza::online::lobby::Peers;
-use forza::online::lobby::{Reserved, Shop, State as ShopState};
+use forza::online::lobby::{Arcade, Reserved, State as ArcadeState};
 use std::time::Instant;
 
-/// Seats in a shop room: the host on 1, guests on 2-8.
+/// Seats in an arcade room: the host on 1, guests on 2-8.
 const SEATS: std::ops::RangeInclusive<u8> = 1..=8;
 /// A room's code: this many of the desk's code letters (31^8, about 2^39.6, against `JOIN`'s budgets).
 pub const CODE_LEN: usize = 8;
@@ -53,13 +53,13 @@ struct Room {
     by: String,
     /// Listed in `LOBBY` (without its code)
     public: bool,
-    /// Its name in `LOBBY`, from `CREATE shop` ([`forza::online::lobby::shop_name`]); empty: the desk's default
+    /// Its name in `LOBBY`, from `CREATE shop` ([`forza::online::lobby::arcade_name`]); empty: the desk's default
     name: String,
     /// seats[0] is the host (seat 1)
     seats: Vec<Sitter>,
 }
 
-/// What a host's earlier room is to its new `CREATE shop` ([`ShopRooms::replace_stale`]).
+/// What a host's earlier room is to its new `CREATE shop` ([`ArcadeRooms::replace_stale`]).
 #[derive(Debug, PartialEq, Eq)]
 pub enum Prior {
     None,
@@ -69,11 +69,11 @@ pub enum Prior {
 }
 
 #[derive(Default)]
-pub struct ShopRooms {
+pub struct ArcadeRooms {
     rooms: Vec<Room>,
 }
 
-impl ShopRooms {
+impl ArcadeRooms {
     pub fn len(&self) -> usize {
         self.rooms.len()
     }
@@ -91,7 +91,7 @@ impl ShopRooms {
         })
     }
 
-    /// Whether `id` is a shop room's (its `RESERVE` answers `CLOSED`: a room is joined by code).
+    /// Whether `id` is an arcade room's (its `RESERVE` answers `CLOSED`: a room is joined by code).
     pub fn has_id(&self, id: &str) -> bool {
         self.rooms.iter().any(|r| r.id == id)
     }
@@ -129,7 +129,7 @@ impl ShopRooms {
     }
 
     /// A new room with its host on seat 1 (`host_id` checked by the caller with [`valid_id`], `name` already
-    /// [`forza::online::lobby::shop_name`]).
+    /// [`forza::online::lobby::arcade_name`]).
     #[allow(clippy::too_many_arguments)]
     pub fn create(
         &mut self,
@@ -192,7 +192,7 @@ impl ShopRooms {
         })
     }
 
-    /// `HEARTBEAT t`: the ticket's lease runs to `end`; false when it is no shop room's.
+    /// `HEARTBEAT t`: the ticket's lease runs to `end`; false when it is no arcade room's.
     pub fn heartbeat(&mut self, t: &str, end: Instant) -> bool {
         self.find(t)
             .map(|(r, s)| self.rooms[r].seats[s].end = end)
@@ -200,7 +200,7 @@ impl ShopRooms {
     }
 
     /// `RELEASE t` (or `CLOSE id t` with the room's id): a guest leaves its seat, the host closes the room (its code
-    /// returned, for the log). `None`: no shop room's ticket.
+    /// returned, for the log). `None`: no arcade room's ticket.
     pub fn leave(&mut self, id: Option<&str>, t: &str) -> Option<Option<String>> {
         let (r, s) = self.find(t)?;
         if id.is_some_and(|id| id != self.rooms[r].id) {
@@ -214,7 +214,7 @@ impl ShopRooms {
     }
 
     /// `SHOP t [own-id]`: a guest's ticket records its tunnel id (when given) and gets the host's; the host's ticket
-    /// gets the guests' ids. `None`: no shop room's ticket (`GONE`).
+    /// gets the guests' ids. `None`: no arcade room's ticket (`GONE`).
     pub fn peers(&mut self, t: &str, own: Option<&str>) -> Option<Peers> {
         let (r, s) = self.find(t)?;
         let room = &mut self.rooms[r];
@@ -249,25 +249,25 @@ impl ShopRooms {
     }
 
     /// The public rooms as lobby rows: id (which `JOIN` takes), seats taken of 8. Never the code.
-    pub fn listed(&self) -> Vec<Shop> {
+    pub fn listed(&self) -> Vec<Arcade> {
         self.rooms
             .iter()
             .filter(|r| r.public)
             .map(|r| {
                 let seats = r.seats.len() as u8;
-                Shop {
+                Arcade {
                     id: r.id.clone(),
                     name: if r.name.is_empty() {
-                        forza::online::lobby::SHOP_ROOM_NAME.into()
+                        forza::online::lobby::ARCADE_ROOM_NAME.into()
                     } else {
                         r.name.clone()
                     },
                     seats,
                     max: 8,
                     state: if seats >= 8 {
-                        ShopState::Full
+                        ArcadeState::Full
                     } else {
-                        ShopState::Open
+                        ArcadeState::Open
                     },
                     next_entry: None,
                     lang: None,
@@ -289,9 +289,9 @@ mod tests {
         k.to_bytes().iter().map(|b| format!("{b:02x}")).collect()
     }
 
-    fn room(public: bool) -> (ShopRooms, Instant, String) {
+    fn room(public: bool) -> (ArcadeRooms, Instant, String) {
         let now = Instant::now();
-        let mut r = ShopRooms::default();
+        let mut r = ArcadeRooms::default();
         let host = key(1);
         r.create(
             "r1".into(),

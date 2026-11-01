@@ -102,8 +102,8 @@ launcher.msg_busy: {en: "Please wait until this finishes.", it: "Attendi la fine
 launcher.msg_unguarded: {en: "Not started. Open Launcher.exe from Explorer.", it: "Non avviato. Apri Launcher.exe da Esplora file.", ja: "起動しませんでした。エクスプローラーから Launcher.exe を開いてください。"}
 launcher.msg_not_guarded: {en: "Not started. Press SET UP first.", it: "Non avviato. Premi prima CONFIGURA.", ja: "起動しませんでした。先に「設定する」を押してください。"}
 launcher.msg_rooms_full: {en: "No VS room free. Try again in a minute.", it: "Nessuna sfida VS libera. Riprova tra un minuto.", ja: "サーバーに対戦ルームの空きがありません。1分後にもう一度お試しください。"}
-launcher.msg_no_shop_room: {en: "No arcade room: %{error}", it: "Nessuna stanza per la sala: %{error}", ja: "ゲームセンターのルームを作れません：%{error}"}
-launcher.msg_shop_stays: {en: "The arcade stays open while guests play. It closes when they leave, or now with STOP THE GAME.", it: "La sala resta aperta finché ci sono ospiti. Si chiude quando escono, o subito con FERMA IL GIOCO.", ja: "ゲストがいる間、ゲームセンターは開いたままです。全員が抜けると閉じます。「ゲームを終了」ですぐに閉じます。"}
+launcher.msg_no_arcade_room: {en: "No arcade room: %{error}", it: "Nessuna stanza per la sala: %{error}", ja: "ゲームセンターのルームを作れません：%{error}"}
+launcher.msg_arcade_stays: {en: "The arcade stays open while guests play. It closes when they leave, or now with STOP THE GAME.", it: "La sala resta aperta finché ci sono ospiti. Si chiude quando escono, o subito con FERMA IL GIOCO.", ja: "ゲストがいる間、ゲームセンターは開いたままです。全員が抜けると閉じます。「ゲームを終了」ですぐに閉じます。"}
 launcher.club_in: {en: "Your club came along to this arcade. It goes back home after every match and when you leave.", it: "Il tuo club è venuto con te in questa sala. Torna a casa dopo ogni partita e quando esci.", ja: "あなたのクラブをこのゲームセンターに持ち込みました。試合のたびと退出時にホームへ戻ります。"}
 launcher.club_not_in: {en: "Your club stays at home this time; in this arcade your card plays with the arcade's club.", it: "Questa volta il tuo club resta a casa; in questa sala la tua carta gioca con il club della sala.", ja: "今回はクラブを持ち込めませんでした。このゲームセンターでは、カードにゲームセンター側のクラブを使います。"}
 launcher.club_kept: {en: "Your last arcade visit ended before your club came home. Your home club is kept as it was; the arcade's last copy is in %{path}.", it: "L'ultima visita in sala è finita prima che il club tornasse a casa. Il tuo club di casa resta com'era; l'ultima copia della sala è in %{path}.", ja: "前回のゲームセンタープレイは、クラブがホームに戻る前に終了しました。ホームのクラブはそのまま残しています。ゲームセンター側の最新コピーは %{path} にあります。"}
@@ -518,7 +518,7 @@ close.body: {en: "Closing now damages your card.", it: "Chiudere ora danneggia l
 
 # ---- online lobby ----
 lobby.title: {en: "LOBBY", it: "LOBBY", ja: "ロビー"}
-lobby.shops: {en: "ARCADES", it: "SALE GIOCHI", ja: "ゲームセンター"}
+lobby.arcades: {en: "ARCADES", it: "SALE GIOCHI", ja: "ゲームセンター"}
 lobby.vs: {en: "VS ROOMS", it: "SFIDE VS", ja: "対戦ルーム"}
 lobby.players: {en: "PLAYERS", it: "GIOCATORI", ja: "人数"}
 lobby.open: {en: "OPEN", it: "APERTA", ja: "受付中"}
@@ -557,20 +557,20 @@ lobby.why_pick: {en: "Pick a room", it: "Scegli una stanza", ja: "ルームを�
 lobby.taken: {en: "That seat was just taken.", it: "Quel posto è appena stato preso.", ja: "その席はたった今埋まりました。"}
 lobby.room_closed: {en: "The host closed the room.", it: "L'host ha chiuso la stanza.", ja: "ホストがルームを閉じました。"}
 lobby.stale: {en: "Updated %{s} s ago.", it: "Aggiornato %{s} s fa.", ja: "%{s} 秒前に更新。"}
-lobby.shop_rooms_off: {en: "Arcade rooms are off on this PC.", it: "Le stanze delle sale sono disattivate su questo PC.", ja: "このPCではゲームセンターのルームがオフになっています。"}
+lobby.arcade_rooms_off: {en: "Arcade rooms are off on this PC.", it: "Le stanze delle sale sono disattivate su questo PC.", ja: "このPCではゲームセンターのルームがオフになっています。"}
 lobby.grey_vs_1011: {en: "VS ROOMS are not available for 2010-11.", it: "Le SFIDE VS non sono disponibili per 2010-11.", ja: "2010-11 では対戦ルームは利用できません。"}
-lobby.host_shop: {en: "HOST ARCADE", it: "APRI SALA", ja: "ゲームセンターを開く"}
+lobby.host_arcade: {en: "HOST ARCADE", it: "APRI SALA", ja: "ゲームセンターを開く"}
 lobby.host_title: {en: "Host an arcade", it: "Apri la tua sala", ja: "自分のゲームセンターを開く"}
 lobby.room_code: {en: "Room code", it: "Codice stanza", ja: "ルームコード"}
 lobby.opening: {en: "Opening the arcade…", it: "Apertura della sala…", ja: "ゲームセンターを開いています…"}
-lobby.shop_howto: {en: "Both players: card in during the same ENTRY, then Arrange Fixture → Set opponent.", it: "Entrambi: inserite la carta nella stessa ENTRY, poi Fissa un incontro → Scegli avversario.", ja: "二人とも同じエントリー中にカードを入れ、Arrange Fixture → Set opponent を選びます。"}
+lobby.arcade_howto: {en: "Both players: card in during the same ENTRY, then Arrange Fixture → Set opponent.", it: "Entrambi: inserite la carta nella stessa ENTRY, poi Fissa un incontro → Scegli avversario.", ja: "二人とも同じエントリー中にカードを入れ、Arrange Fixture → Set opponent を選びます。"}
 lobby.joining: {en: "Joining %{code}…", it: "Ingresso in %{code}…", ja: "%{code} に参加しています…"}
 lobby.no_room: {en: "No room has that code on %{desk}.", it: "Nessuna stanza ha quel codice su %{desk}.", ja: "%{desk} にそのコードのルームはありません。"}
 lobby.room_desk: {en: "Room on %{desk}", it: "Stanza su %{desk}", ja: "ルームの場所：%{desk}"}
 lobby.host_players: {en: "Players here: %{n}/%{max}", it: "Giocatori in sala: %{n}/%{max}", ja: "現在の人数：%{n}/%{max}"}
 lobby.room_lost: {en: "The lobby lost this room: nobody new can join.", it: "La lobby ha perso questa stanza: nessun altro può entrare.", ja: "ロビーがこのルームを失いました。新しい参加はできません。"}
 lobby.room_full: {en: "That room is full.", it: "Quella stanza è piena.", ja: "そのルームは満員です。"}
-lobby.shop_closed: {en: "The host has left: the arcade is closed.", it: "L'host è uscito: la sala è chiusa.", ja: "ホストが退出しました：ゲームセンターは閉じています。"}
+lobby.arcade_closed: {en: "The host has left: the arcade is closed.", it: "L'host è uscito: la sala è chiusa.", ja: "ホストが退出しました：ゲームセンターは閉じています。"}
 lobby.lan: {en: "LAN", it: "Rete locale (LAN)", ja: "LAN（同じネットワーク）"}
 lobby.lan_found: {en: "%{n} found", it: "%{n} trovate", ja: "%{n} 件"}
 lobby.host_lan: {en: "HOST LAN ARCADE", it: "APRI SALA LAN", ja: "LAN でゲームセンターを開く"}
@@ -585,16 +585,16 @@ lobby.cpu: {en: "No opponent: CPU team.", it: "Nessun avversario: squadra CPU.",
 lobby.keep_waiting: {en: "KEEP WAITING", it: "ASPETTA ANCORA", ja: "待ち続ける"}
 lobby.cpu_now: {en: "PLAY CPU NOW", it: "GIOCA CON LA CPU", ja: "今すぐCPU戦"}
 lobby.stale_room: {en: "Updated %{s} s ago.", it: "Aggiornato %{s} s fa.", ja: "%{s} 秒前の情報です。"}
-# lobby controls: the list filters and HOST SHOP's "List my shop" switch
+# lobby controls: the list filters and HOST ARCADE's "List my arcade" switch
 lobby.show: {en: "Show:", it: "Mostra:", ja: "表示:"}
-lobby.open_shops: {en: "Open arcades only", it: "Solo sale aperte", ja: "受付中のゲームセンターのみ"}
+lobby.open_arcades: {en: "Open arcades only", it: "Solo sale aperte", ja: "受付中のゲームセンターのみ"}
 lobby.open_rooms: {en: "Open rooms only", it: "Solo sfide aperte", ja: "受付中のルームのみ"}
 lobby.ping_under: {en: "Ping under 150 ms", it: "Ping sotto i 150 ms", ja: "Ping 150 ms 未満"}
 lobby.language: {en: "Language:", it: "Lingua:", ja: "言語:"}
-lobby.list_shop: {en: "List my arcade when I host", it: "Elenca la mia sala quando la apro", ja: "ゲームセンターを開くとき一覧に表示"}
-lobby.list_shop_on: {en: "Others can find and join your arcade from the list.", it: "Gli altri trovano la tua sala nell'elenco e possono entrare.", ja: "ほかのプレイヤーが一覧からゲームセンターを見つけて参加できます。"}
-lobby.shop_name: {en: "Arcade name", it: "Nome della sala", ja: "ゲームセンター名"}
-lobby.list_shop_off: {en: "Only players with the code can join.", it: "Entra solo chi ha il codice.", ja: "コードを知っているプレイヤーだけが参加できます。"}
+lobby.list_arcade: {en: "List my arcade when I host", it: "Elenca la mia sala quando la apro", ja: "ゲームセンターを開くとき一覧に表示"}
+lobby.list_arcade_on: {en: "Others can find and join your arcade from the list.", it: "Gli altri trovano la tua sala nell'elenco e possono entrare.", ja: "ほかのプレイヤーが一覧からゲームセンターを見つけて参加できます。"}
+lobby.arcade_name: {en: "Arcade name", it: "Nome della sala", ja: "ゲームセンター名"}
+lobby.list_arcade_off: {en: "Only players with the code can join.", it: "Entra solo chi ha il codice.", ja: "コードを知っているプレイヤーだけが参加できます。"}
 
 # ---- pause (the panel holds the match, at most 20 s) ----
 pause.button: {en: "PAUSE", it: "PAUSA", ja: "一時停止"}
@@ -715,14 +715,14 @@ launcher.run_server_not_started: {en: "the online server did not start (%{error}
 launcher.run_desk_1011: {en: "seat desk: TCP %{port} - next free seat per PC (cabinet only)", it: "banco dei posti: TCP %{port} - prossimo posto libero per PC (solo cabinato)", ja: "席デスク: TCP %{port} - PCごとに次の空き席 (筐体のみ)"}
 launcher.run_desk_1718: {en: "seat desk: TCP %{port} - next free seat per PC (first PC shows the projector)", it: "banco dei posti: TCP %{port} - prossimo posto libero per PC (il primo PC mostra il proiettore)", ja: "席デスク: TCP %{port} - PCごとに次の空き席 (最初のPCがプロジェクターを表示)"}
 launcher.run_relay: {en: "match relay: UDP %{port}", it: "relay delle partite: UDP %{port}", ja: "試合リレー: UDP %{port}"}
-launcher.run_lan_shop: {en: "LAN arcade: found by searches on UDP %{port}; this PC's address: %{ips}", it: "sala LAN: trovata dalle ricerche su UDP %{port}; indirizzo di questo PC: %{ips}", ja: "LAN のゲームセンター: UDP %{port} の検索で見つかります。このPCのアドレス: %{ips}"}
+launcher.run_lan_arcade: {en: "LAN arcade: found by searches on UDP %{port}; this PC's address: %{ips}", it: "sala LAN: trovata dalle ricerche su UDP %{port}; indirizzo di questo PC: %{ips}", ja: "LAN のゲームセンター: UDP %{port} の検索で見つかります。このPCのアドレス: %{ips}"}
 launcher.run_none_found: {en: "none found", it: "nessuno trovato", ja: "見つかりません"}
 launcher.run_server_ended_early: {en: "the online server did not start or ended (data\\logs\\%{log}, seat_broker.txt, match_relay.txt)", it: "il server online non si è avviato o si è fermato (data\\logs\\%{log}, seat_broker.txt, match_relay.txt)", ja: "オンラインサーバーが起動しなかったか、終了しました (data\\logs\\%{log}, seat_broker.txt, match_relay.txt)"}
 launcher.run_tunnel_off: {en: "arcade tunnel: off (%{why})", it: "tunnel della sala: spento (%{why})", ja: "ゲームセンタートンネル: オフ (%{why})"}
 launcher.run_lan_still: {en: "Players on this network can still use this PC's address.", it: "I giocatori su questa rete possono comunque usare l'indirizzo di questo PC.", ja: "このネットワークのプレイヤーは、このPCのアドレスを使えます。"}
 launcher.run_lan_only_flag: {en: "Players on this network can use this PC's address only with \"shop_lan\": true in data\\settings.json.", it: "I giocatori su questa rete possono usare l'indirizzo di questo PC solo con \"shop_lan\": true in data\\settings.json.", ja: "このネットワークのプレイヤーがこのPCのアドレスを使うには、data\\settings.json に \"shop_lan\": true が必要です。"}
 launcher.run_server_lan: {en: "Server running. On each player's PC on this network: JOIN LAN in the Launcher, or Launcher.exe remote ADDRESS; this PC's own seat: Launcher.exe remote 127.0.0.1.", it: "Server in esecuzione. Sul PC di ogni giocatore in questa rete: LAN, poi ENTRA nel Launcher, oppure Launcher.exe remote ADDRESS; il posto di questo PC: Launcher.exe remote 127.0.0.1.", ja: "サーバー実行中です。このネットワークの各プレイヤーのPCでは、Launcherで LAN の「参加」、または Launcher.exe remote ADDRESS を使ってください。このPC自身の席: Launcher.exe remote 127.0.0.1。"}
-launcher.run_server_tunnel: {en: "Server running. On each player's PC run: Launcher.exe remote SHOP-ID (the id above); this PC's own seat: Launcher.exe remote 127.0.0.1.", it: "Server in esecuzione. Sul PC di ogni giocatore esegui: Launcher.exe remote SHOP-ID (l'id qui sopra); il posto di questo PC: Launcher.exe remote 127.0.0.1.", ja: "サーバー実行中です。各プレイヤーのPCで Launcher.exe remote SHOP-ID (上のID) を実行してください。このPC自身の席: Launcher.exe remote 127.0.0.1。"}
+launcher.run_server_tunnel: {en: "Server running. On each player's PC run: Launcher.exe remote ARCADE-ID (the id above); this PC's own seat: Launcher.exe remote 127.0.0.1.", it: "Server in esecuzione. Sul PC di ogni giocatore esegui: Launcher.exe remote ARCADE-ID (l'id qui sopra); il posto di questo PC: Launcher.exe remote 127.0.0.1.", ja: "サーバー実行中です。各プレイヤーのPCで Launcher.exe remote ARCADE-ID (上のID) を実行してください。このPC自身の席: Launcher.exe remote 127.0.0.1。"}
 launcher.run_server_plain: {en: "Server running. On each player's PC run: Launcher.exe remote ADDRESS (this machine's address).", it: "Server in esecuzione. Sul PC di ogni giocatore esegui: Launcher.exe remote ADDRESS (l'indirizzo di questa macchina).", ja: "サーバー実行中です。各プレイヤーのPCで Launcher.exe remote ADDRESS (このマシンのアドレス) を実行してください。"}
 launcher.run_open_ports: {en: "Open TCP ports %{control} and %{desk}, and UDP %{relay}. Launcher.exe stop ends it.", it: "Apri le porte TCP %{control} e %{desk}, e UDP %{relay}. Launcher.exe stop lo ferma.", ja: "TCP ポート %{control} と %{desk}、UDP %{relay} を開けてください。Launcher.exe stop で終了します。"}
 launcher.run_local_ports: {en: "Seat desk and relay on this PC only (\"shop_lan\": true in data\\settings.json opens them to the network). Launcher.exe stop ends it.", it: "Banco dei posti e relay solo su questo PC (\"shop_lan\": true in data\\settings.json li apre alla rete). Launcher.exe stop lo ferma.", ja: "席デスクとリレーはこのPCのみです (data\\settings.json の \"shop_lan\": true でネットワークに公開されます)。Launcher.exe stop で終了します。"}
@@ -757,9 +757,9 @@ launcher.run_vs_on_room: {en: "VS link on, with the lobby's VS room", it: "colle
 launcher.run_vs_on: {en: "VS link on", it: "collegamento VS attivo", ja: "対戦リンク オン"}
 launcher.run_test_delay: {en: "test delay: %{ms} ms added to the arcade tunnel's round trip (VSLINK_DELAY_MS)", it: "ritardo di prova: %{ms} ms aggiunti all'andata e ritorno del tunnel della sala (VSLINK_DELAY_MS)", ja: "テスト遅延: ゲームセンタートンネルの往復に %{ms} ms を追加 (VSLINK_DELAY_MS)"}
 launcher.run_tunnel_failed: {en: "the arcade tunnel did not start (%{error}) - see data\\logs\\shop_tunnel.txt", it: "il tunnel della sala non è partito (%{error}) - vedi data\\logs\\shop_tunnel.txt", ja: "ゲームセンタートンネルが起動しませんでした (%{error}) - data\\logs\\shop_tunnel.txt を確認してください"}
-launcher.run_shop_room: {en: "arcade room: %{code} on %{server} - players elsewhere type this code in ONLINE (or run Launcher.exe remote %{id})", it: "stanza della sala: %{code} su %{server} - i giocatori altrove digitano questo codice in ONLINE (oppure eseguono Launcher.exe remote %{id})", ja: "ゲームセンターのルーム: %{server} の %{code} - 離れた場所のプレイヤーは「オンライン」にこのコードを入力します (または Launcher.exe remote %{id} を実行)"}
-launcher.run_shop_no_room: {en: "arcade room: none (%{why}). Players elsewhere run: Launcher.exe remote %{id}", it: "stanza della sala: nessuna (%{why}). I giocatori altrove eseguono: Launcher.exe remote %{id}", ja: "ゲームセンターのルーム: なし (%{why})。離れた場所のプレイヤーは Launcher.exe remote %{id} を実行します"}
-launcher.run_shop_id_file: {en: "(the id is also in data\\shop_id.txt; no port needs to be open on this PC)", it: "(l'id è anche in data\\shop_id.txt; su questo PC non serve aprire nessuna port)", ja: "(IDは data\\shop_id.txt にもあります。このPCで開けるportはありません)"}
+launcher.run_arcade_room: {en: "arcade room: %{code} on %{server} - players elsewhere type this code in ONLINE (or run Launcher.exe remote %{id})", it: "stanza della sala: %{code} su %{server} - i giocatori altrove digitano questo codice in ONLINE (oppure eseguono Launcher.exe remote %{id})", ja: "ゲームセンターのルーム: %{server} の %{code} - 離れた場所のプレイヤーは「オンライン」にこのコードを入力します (または Launcher.exe remote %{id} を実行)"}
+launcher.run_arcade_no_room: {en: "arcade room: none (%{why}). Players elsewhere run: Launcher.exe remote %{id}", it: "stanza della sala: nessuna (%{why}). I giocatori altrove eseguono: Launcher.exe remote %{id}", ja: "ゲームセンターのルーム: なし (%{why})。離れた場所のプレイヤーは Launcher.exe remote %{id} を実行します"}
+launcher.run_arcade_id_file: {en: "(the id is also in data\\shop_id.txt; no port needs to be open on this PC)", it: "(l'id è anche in data\\shop_id.txt; su questo PC non serve aprire nessuna port)", ja: "(IDは data\\shop_id.txt にもあります。このPCで開けるportはありません)"}
 launcher.run_tunnel_ports: {en: "arcade tunnel up on ports %{control} / %{desk} / %{relay} (this PC holds the usual ones; data\\logs\\shop_tunnel.txt)", it: "tunnel della sala attivo sulle port %{control} / %{desk} / %{relay} (questo PC tiene quelle abituali; data\\logs\\shop_tunnel.txt)", ja: "ゲームセンタートンネルが port %{control} / %{desk} / %{relay} で起動 (通常のportはこのPCが使用中です。data\\logs\\shop_tunnel.txt)"}
 launcher.run_tunnel_up: {en: "arcade tunnel up (data\\logs\\shop_tunnel.txt)", it: "tunnel della sala attivo (data\\logs\\shop_tunnel.txt)", ja: "ゲームセンタートンネルが起動 (data\\logs\\shop_tunnel.txt)"}
 launcher.run_no_tunnel: {en: "no arcade tunnel", it: "nessun tunnel della sala", ja: "ゲームセンタートンネルなし"}
@@ -800,9 +800,9 @@ launcher.run_seat_back: {en: "Seat %{n} is back.", it: "Il posto %{n} è tornato
 launcher.run_online_1718: {en: "The shared arcade is off on this PC, so server and remote do not run. To play online, choose ONLINE in the Launcher window, then PLAY.", it: "La sala condivisa è disattivata su questo PC, quindi server e remota non partono. Per giocare online, scegli ONLINE nella finestra del Launcher, poi GIOCA.", ja: "このPCでは共有ゲームセンターがオフのため、サーバーとリモートは起動しません。オンラインで遊ぶには、Launcherのウィンドウで「オンライン」を選び、「プレイ」を押してください。"}
 launcher.run_bad_club_server: {en: "club_server \"%{club}\" in data\\settings.json is not HOST or HOST:PORT", it: "club_server \"%{club}\" in data\\settings.json non è HOST o HOST:PORT", ja: "data\\settings.json の club_server \"%{club}\" は HOST または HOST:PORT の形式ではありません"}
 launcher.run_no_server_set: {en: "no server address is set in SETTINGS", it: "in IMPOSTAZIONI non è impostato nessun indirizzo del server", ja: "「設定」にサーバーのアドレスが設定されていません"}
-launcher.run_shop_seat_on: {en: "This PC's seat still plays in this arcade. Stop it first (or stop force).", it: "Il posto di questo PC gioca ancora in questa sala. Fermalo prima (oppure stop force).", ja: "このPCの席がまだこのゲームセンターでプレイ中です。先に終了してください (または stop force)。"}
-launcher.run_shop_guest: {en: "1 guest connected to this arcade may be in a match here. Stop force ends it for them.", it: "1 ospite connesso a questa sala potrebbe essere in una partita qui. Stop force la termina per lui.", ja: "このゲームセンターに接続中のゲスト 1 人がここで試合中の可能性があります。stop force を使うとその試合が終了します。"}
-launcher.run_shop_guests: {en: "%{n} guests connected to this arcade may be in a match here. Stop force ends it for them.", it: "%{n} ospiti connessi a questa sala potrebbero essere in una partita qui. Stop force la termina per loro.", ja: "このゲームセンターに接続中のゲスト %{n} 人がここで試合中の可能性があります。stop force を使うとその試合が終了します。"}
+launcher.run_arcade_seat_on: {en: "This PC's seat still plays in this arcade. Stop it first (or stop force).", it: "Il posto di questo PC gioca ancora in questa sala. Fermalo prima (oppure stop force).", ja: "このPCの席がまだこのゲームセンターでプレイ中です。先に終了してください (または stop force)。"}
+launcher.run_arcade_guest: {en: "1 guest connected to this arcade may be in a match here. Stop force ends it for them.", it: "1 ospite connesso a questa sala potrebbe essere in una partita qui. Stop force la termina per lui.", ja: "このゲームセンターに接続中のゲスト 1 人がここで試合中の可能性があります。stop force を使うとその試合が終了します。"}
+launcher.run_arcade_guests: {en: "%{n} guests connected to this arcade may be in a match here. Stop force ends it for them.", it: "%{n} ospiti connessi a questa sala potrebbero essere in una partita qui. Stop force la termina per loro.", ja: "このゲームセンターに接続中のゲスト %{n} 人がここで試合中の可能性があります。stop force を使うとその試合が終了します。"}
 launcher.run_card_session: {en: "A card session is open. Stopping now skips the locker-room save and gives the card a bad ending (trade rights are lost at 2). If the game is stuck (\"WCCF CONTROL NOT FOUND\"), the match is lost already: stop.", it: "Una sessione della carta è aperta. Fermare ora salta il salvataggio nello spogliatoio e dà alla carta un cattivo finale (i diritti di scambio si perdono a 2). Se il gioco è bloccato (\"WCCF CONTROL NOT FOUND\"), la partita è già persa: ferma.", ja: "カードのセッションが開いています。今終了するとロッカールームでのセーブが行われず、カードが不正な終了状態になります (トレード権は 2 回で失われます)。ゲームが固まっている場合 (\"WCCF CONTROL NOT FOUND\")、試合はすでに失われているため、終了してください。"}
 launcher.run_card_in: {en: "Your club card is IN the reader. Press I in the game to take the card out first.", it: "La tua tessera club è NEL lettore. Premi I nel gioco per estrarre prima la carta.", ja: "クラブカードがリーダーに入っています。先にゲーム内で I を押してカードを取り出してください。"}
 launcher.run_card_unknown: {en: "Cannot tell whether your club card is in. Press I in the game to take the card out first.", it: "Non si capisce se la tua tessera club è inserita. Premi I nel gioco per estrarre prima la carta.", ja: "クラブカードが入っているか確認できません。先にゲーム内で I を押してカードを取り出してください。"}
@@ -814,7 +814,7 @@ launcher.run_seat_taken: {en: "seat %{seat} is taken on the server at %{ip}. Lea
 launcher.run_desk_no_answer: {en: "the seat desk at %{ip} did not answer (%{detail}). Try again, or use Launcher.exe local.", it: "il banco dei posti a %{ip} non ha risposto (%{detail}). Riprova, oppure usa Launcher.exe local.", ja: "%{ip} の席デスクから応答がありません (%{detail})。もう一度試すか、Launcher.exe local を使ってください。"}
 launcher.run_desk_unreachable: {en: "the seat desk at %{ip} cannot be reached (%{detail}). A 2017-18 arcade's desk is open to the network only with \"shop_lan\": true on the arcade's PC.", it: "il banco dei posti a %{ip} non è raggiungibile (%{detail}). Il banco di una sala 2017-18 è aperto alla rete solo con \"shop_lan\": true sul PC della sala.", ja: "%{ip} の席デスクに接続できません (%{detail})。2017-18 のゲームセンターの席デスクは、ゲームセンターのPCで \"shop_lan\": true を設定した場合のみネットワークに公開されます。"}
 launcher.run_desk_refused: {en: "the seat desk at %{ip} refused a seat (%{detail})", it: "il banco dei posti a %{ip} ha rifiutato un posto (%{detail})", ja: "%{ip} の席デスクが席を拒否しました (%{detail})"}
-launcher.run_dmath_differs: {en: "the shop at %{ip} refused this PC: its match engine (det-math %{mine}) differs from a seat's there (%{theirs}), and the match would drop to the CPU. Both PCs need the same Forza-WCCF version, set up again; \"-off\" means dmath.log says det-math was not applied", it: "la sala a %{ip} ha rifiutato questo PC: il suo motore delle partite (det-math %{mine}) è diverso da quello di un posto lì (%{theirs}) e la partita passerebbe alla CPU. Entrambi i PC devono avere la stessa versione di Forza-WCCF, configurata di nuovo; \"-off\" vuol dire che dmath.log indica det-math non applicato", ja: "%{ip} のゲームセンターがこの PC を拒否しました: この PC の試合エンジン (det-math %{mine}) がそこの席 (%{theirs}) と異なり、試合が CPU 戦に切り替わってしまいます。両方の PC に同じバージョンの Forza-WCCF を入れ、セットアップをやり直してください。\"-off\" は dmath.log で det-math が適用されていないことを示します"}
+launcher.run_dmath_differs: {en: "the arcade at %{ip} refused this PC: its match engine (det-math %{mine}) differs from a seat's there (%{theirs}), and the match would drop to the CPU. Both PCs need the same Forza-WCCF version, set up again; \"-off\" means dmath.log says det-math was not applied", it: "la sala a %{ip} ha rifiutato questo PC: il suo motore delle partite (det-math %{mine}) è diverso da quello di un posto lì (%{theirs}) e la partita passerebbe alla CPU. Entrambi i PC devono avere la stessa versione di Forza-WCCF, configurata di nuovo; \"-off\" vuol dire che dmath.log indica det-math non applicato", ja: "%{ip} のゲームセンターがこの PC を拒否しました: この PC の試合エンジン (det-math %{mine}) がそこの席 (%{theirs}) と異なり、試合が CPU 戦に切り替わってしまいます。両方の PC に同じバージョンの Forza-WCCF を入れ、セットアップをやり直してください。\"-off\" は dmath.log で det-math が適用されていないことを示します"}
 launcher.run_room_waiting: {en: "arcade room: this arcade's room from before is still on %{server}; asking again in %{s} s", it: "stanza della sala: la stanza di prima di questa sala è ancora su %{server}; nuova richiesta tra %{s} s", ja: "ゲームセンターのルーム: 以前のこのゲームセンターのルームがまだ %{server} に残っています。%{s} 秒後にもう一度確認します"}
 launcher.run_running_undo: {en: "The game is running. Close its window, then undo.", it: "Il gioco è in esecuzione. Chiudi la sua finestra, poi annulla.", ja: "ゲームが実行中です。ウィンドウを閉じてから元に戻してください。"}
 launcher.run_running_setup: {en: "The game is running. Close its window, then run setup again.", it: "Il gioco è in esecuzione. Chiudi la sua finestra, poi esegui di nuovo la configurazione.", ja: "ゲームが起動中です。ウィンドウを閉じてから、もう一度セットアップを実行してください。"}

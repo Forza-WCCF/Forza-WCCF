@@ -205,7 +205,7 @@ pub enum Scenario {
     Report,
 }
 
-/// An empty lobby for the edition, open on SHOPS: the kind with nothing behind it greyed (2010–11 VS); 2017–18 shops are
+/// An empty lobby for the edition, open on ARCADES: the kind with nothing behind it greyed (2010–11 VS); 2017–18 arcades are
 /// listed, view-only.
 pub fn lobby_for(edition: Edition) -> LobbyView {
     let mut v = LobbyView::new();
@@ -214,7 +214,7 @@ pub fn lobby_for(edition: Edition) -> LobbyView {
             v.grey[Kind::Vs as usize] = Some(Grey::Vs1011);
         }
         Edition::E1718 => {
-            v.shops_view_only = true;
+            v.arcades_view_only = true;
             v.codes = true;
             v.vs_hidden = !lobby::VS_LOBBY;
         }
@@ -333,12 +333,12 @@ impl LauncherState {
                 v.grey = st.lobby.grey;
                 v.kind = st.lobby.kind;
                 v.codes = st.lobby.codes;
-                v.shops_view_only = st.lobby.shops_view_only;
+                v.arcades_view_only = st.lobby.arcades_view_only;
                 v.vs_hidden = st.lobby.vs_hidden;
-                if v.shops_view_only {
-                    // 2017-18 lists only shop rooms
-                    v.shop_rooms = true;
-                    v.shops.iter_mut().for_each(|r| r.room = true);
+                if v.arcades_view_only {
+                    // 2017-18 lists only arcade rooms
+                    v.arcade_rooms = true;
+                    v.arcades.iter_mut().for_each(|r| r.room = true);
                 }
                 st.lobby = v;
             }
@@ -518,7 +518,7 @@ fn online(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
     let free = !st.running && !st.busy;
     // the list takes the height the tab leaves: the tab has no scroll of its own
     st.lobby.list_fit = true;
-    // HOST SHOP's code and LEAVE stay live while the shop and this PC's seat run
+    // HOST ARCADE's code and LEAVE stay live while the arcade and this PC's seat run
     ui.add_enabled_ui(free || st.lobby.hosting, |ui| {
         if let Some(text) = st.rejoin.clone()
             && action(ui, &text).clicked()
@@ -1034,20 +1034,20 @@ mod tests {
     }
 
     #[test]
-    fn shops_listed_but_not_joinable_on_2017_18() {
-        // the server shows its shops; with shop rooms off none joins, VS rooms still do
+    fn arcades_listed_but_not_joinable_on_2017_18() {
+        // the server shows its arcades; with arcade rooms off none joins, VS rooms still do
         let mut v = lobby_for(Edition::E1718);
         assert_eq!(
-            (v.kind, v.grey_now(), v.grey[Kind::Shops as usize]),
-            (Kind::Shops, None, None)
+            (v.kind, v.grey_now(), v.grey[Kind::Arcades as usize]),
+            (Kind::Arcades, None, None)
         );
-        v.shops = LobbyView::sample(LobbyScenario::List).shops;
+        v.arcades = LobbyView::sample(LobbyScenario::List).arcades;
         assert!(!v.rows().is_empty() && v.view_only_now());
         assert!(v.joinable().is_none());
-        // 2010-11 keeps joinable shops
+        // 2010-11 keeps joinable arcades
         let mut w = lobby_for(Edition::E1011);
-        w.shops = v.shops.clone();
-        w.kind = Kind::Shops;
+        w.arcades = v.arcades.clone();
+        w.kind = Kind::Arcades;
         assert!(!w.view_only_now() && w.joinable().is_some());
     }
 
