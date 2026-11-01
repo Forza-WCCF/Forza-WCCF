@@ -583,7 +583,7 @@ impl Online {
         }
         // a server's own 2017-18 arcade (no `room`): CONNECT at its address, the game server beside its desk
         // (run::rules::vs_target); the desk seats no one there
-        if st.lobby.shops_view_only && st.lobby.shops.iter().any(|r| !r.room && r.id == id) {
+        if st.lobby.arcades_view_only && st.lobby.arcades.iter().any(|r| !r.room && r.id == id) {
             st.lobby.address.clone_from(server);
             self.connect = true;
             return;

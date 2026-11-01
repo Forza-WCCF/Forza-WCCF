@@ -779,9 +779,9 @@ mod tests {
             },
             now,
         );
-        for shop_rooms in [false, true] {
+        for arcade_rooms in [false, true] {
             let mut v = forza_ui::launcher::lobby_for(forza_ui::theme::Edition::E1718);
-            v.shop_rooms = shop_rooms;
+            v.arcade_rooms = arcade_rooms;
             let at = book.fill(&mut v, now);
             let names: Vec<&str> = v.visible().iter().map(|&i| v.rows()[i].name.as_str()).collect();
             assert_eq!(names, ["Forza-WCCF"]);
