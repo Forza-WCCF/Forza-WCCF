@@ -1097,13 +1097,14 @@ fn answer(
         fill_game_ctrl(&mut body);
     }
     if cmd == 261 && payload.len() >= 8 {
-        // the control downloads a 0x3DA38-byte buffer in 2,032-byte chunks (request +4 = chunk) and copies answer
-        // +4 bytes of each (sub_443090); it never zeroes the buffer, so size 0 left heap garbage that it later read
-        // as clubs and crashed on (error 3000 on the seats). Full sizes copy zeros: an empty list, CPU teams. The
-        // last chunk is short: the control does not bound the copy. The buffer is the data-match replay feed
-        // (VtrPlayData, control sub_47AFE0): an all-zero 6,480-byte match at +66 of each round (`live_game_at`)
-        // reads as "LiveGameInit bin is empty", so the projector gets no replays. Its CPU championship comes from
-        // the control's own CPU-filled Universal Championship instead: the Launcher turns it off (CPU_MATCH_MODE=0).
+        // the control downloads a 0x3DA38-byte buffer in 2,032-byte chunks (request +4 = chunk) and copies the answer
+        // +4 count of bytes from +8 of each (sub_443090); it never zeroes the buffer, so size 0 left heap garbage that
+        // it later read as clubs and crashed on (error 3000 on the seats). Full sizes copy zeros: an empty list, CPU
+        // teams. The last chunk is short: the control does not bound the copy. The buffer is the data-match replay
+        // feed (VtrPlayData, control sub_47AFE0): an all-zero 6,480-byte match at +58 of each 8,602-byte round
+        // (`live_game_at`) reads as "LiveGameInit bin is empty", so the projector gets no replays. Its CPU
+        // championship is the control's own CPU-filled Universal Championship: the Launcher turns that off
+        // (CPU_MATCH_MODE=0).
         put(&mut body, 4, live_chunk_size(u32_at(payload, 4)));
     }
     if matches!(cmd, 307 | 311) {
