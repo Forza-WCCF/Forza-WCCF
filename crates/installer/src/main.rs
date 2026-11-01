@@ -526,12 +526,12 @@ fn headless(args: &[String]) -> anyhow::Result<bool> {
                     Info:    --help, --version\n\n\
                     Supply your own image and key. No game files or keys are included.\n\
                     Existing game folders are never replaced. Extraction does not make the game playable.",
-                    env!("CARGO_PKG_VERSION")
+                    env!("FORZA_VERSION")
                 );
                 return Ok(true);
             }
             "--version" | "-V" => {
-                println!("Forza-WCCF Installer {}", env!("CARGO_PKG_VERSION"));
+                println!("Forza-WCCF Installer {}", env!("FORZA_VERSION"));
                 return Ok(true);
             }
             _ => {}

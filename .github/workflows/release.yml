@@ -1,8 +1,9 @@
 name: Release
 
-# A tag v<workspace version> builds the installer ZIP and the 2017-18 ZIP, checks them on VirusTotal and opens a DRAFT
+# A tag v<version> builds the installer ZIP and the 2017-18 ZIP, checks them on VirusTotal and opens a DRAFT
 # pre-release. A maintainer publishes it after someone has played the build. Run by hand (workflow_dispatch) it is a
-# dry run: build and VirusTotal, no release.
+# dry run: build and VirusTotal, no release. The version comes from the tag (cargo xtask: `git describe`), no commit
+# bumps it: v0.6.1 -> version.txt kit-0.6.1, the programs' version information and the file names.
 on:
   push:
     tags: ['v*']
@@ -27,6 +28,8 @@ jobs:
       - run: git config --global core.autocrlf false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # the tags and the history to them: cargo xtask takes the version from `git describe`
+          fetch-depth: 0
           persist-credentials: false
       # only the pinned toolchain, as in ci.yml, so the cache key matches the one main saves
       - run: |
@@ -38,14 +41,12 @@ jobs:
         with:
           shared-key: windows
           save-if: false
-      - name: The tag is v + the workspace version
+      - name: The tag is v + a version
         run: |
-          V=$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version *= *"\(.*\)"/\1/p}' Cargo.toml | head -n1)
-          [ -n "$V" ] || { echo "::error::no workspace version"; exit 1; }
           if [ "$GITHUB_REF_TYPE" = tag ]; then
-            [ "$GITHUB_REF_NAME" = "v$V" ] || { echo "::error::tag $GITHUB_REF_NAME is not v$V"; exit 1; }
+            [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::tag $GITHUB_REF_NAME is not v<semver>"; exit 1; }
           fi
-          echo "V=$V" >> "$GITHUB_ENV"
+          git describe --tags --long --match 'v[0-9]*.[0-9]*.[0-9]*' || echo "no tag: a 0.0.0-dev build"
       - name: Build environment (what changed, when a file differs from the last release for no source reason)
         run: |
           echo "image: $ImageOS $ImageVersion"
@@ -53,8 +54,13 @@ jobs:
           for d in "/c/Program Files/Microsoft Visual Studio"/*/*/VC/Tools/MSVC/* "/c/Program Files (x86)/Windows Kits/10/Lib"/*; do echo "$d"; done
       - name: Packages
         run: |
-          cargo xtask package 2017-18 --name "Forza-WCCF-2017-18-$V"
+          cargo xtask package 2017-18
           cargo xtask package installer
+          # on a tag the files carry its version (`git describe` found the tag itself)
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            V=${GITHUB_REF_NAME#v}
+            ls "dist/Forza-WCCF-2017-18-$V.zip" "dist/Forza-WCCF-Installer-$V-windows-x64.exe" || { echo "::error::the files do not carry $V"; exit 1; }
+          fi
           cd dist
           find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -printf '%f\n' | sort | xargs sha256sum > "$RUNNER_TEMP/sums"
           mv "$RUNNER_TEMP/sums" SHA256SUMS.txt

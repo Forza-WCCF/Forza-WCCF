@@ -59,7 +59,7 @@ pub fn save(kit: &Kit, game: Option<&Path>, words: &str, why: &str, dir: &Path) 
         "edition: {}\nversion: {}\nlauncher: {}\nwhy: {why}\n\n{}\n",
         kit.edition().name(),
         save_logs::version(kit.dir()),
-        env!("CARGO_PKG_VERSION"),
+        env!("FORZA_VERSION"),
         save_logs::note(words, &scrub),
     );
     save_logs::save(dir, kit.dir(), game, &scrub, Some(&summary))
@@ -89,7 +89,7 @@ pub fn issue_url(kit: &Kit, why: &str) -> String {
     let version = save_logs::version(kit.dir());
     let body = format!(
         "Version: {version} (Launcher {}), {}\nWindows: {}\nWhy: {why}\n\nLast errors:\n```\n{errors}\n```\n\nWhat happened:\n\n\n(Attach the forza-wccf-logs ZIP here.)\n",
-        env!("CARGO_PKG_VERSION"),
+        env!("FORZA_VERSION"),
         kit.edition().name(),
         windows_version(),
     );

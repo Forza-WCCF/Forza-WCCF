@@ -7,16 +7,40 @@ use std::process::Command;
 
 /// The compiled .res for `bin` (a program; `name.dll` or `NAME.DLL` for a DLL), or None (and a build warning) without an rc.exe.
 /// `icon`: an .ico for the program's own icon (Explorer, taskbar, shortcuts), relative to the crate.
+#[allow(dead_code)] // the three crates that show the release number call `make_with`
 pub fn make(bin: &str, what: &str, icon: Option<&str>) -> Option<PathBuf> {
+    make_with(
+        bin,
+        what,
+        icon,
+        &env::var("CARGO_PKG_VERSION").expect("CARGO_PKG_VERSION"),
+    )
+}
+
+/// The release number: FORZA_VERSION (`cargo xtask` sets it from the git tag: 0.6.1, or 0.6.2-dev+<sha> between tags),
+/// else the workspace version (a plain cargo build). The crate's code reads it as `env!("FORZA_VERSION")`, so every
+/// target calls this, also one that makes no version resource.
+#[allow(dead_code)]
+pub fn release_version() -> String {
+    println!("cargo:rerun-if-env-changed=FORZA_VERSION");
+    let v = env::var("FORZA_VERSION")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| env::var("CARGO_PKG_VERSION").expect("CARGO_PKG_VERSION"));
+    println!("cargo:rustc-env=FORZA_VERSION={v}");
+    v
+}
+
+/// [`make`] with `version`: [`release_version`] for Launcher.exe, the installer and forza_panel.dll.
+pub fn make_with(bin: &str, what: &str, icon: Option<&str>, version: &str) -> Option<PathBuf> {
     let Some(rc) = find_rc() else {
         println!("cargo:warning=no rc.exe: {bin} has no version information");
         return None;
     };
     let out = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
-    let version = env::var("CARGO_PKG_VERSION").expect("CARGO_PKG_VERSION");
     let script = out.join(format!("{bin}.rc"));
     let res = out.join(format!("{bin}.res"));
-    let mut rc_text = version_rc(bin, what, &version);
+    let mut rc_text = version_rc(bin, what, version);
     if let Some(icon) = icon {
         println!("cargo:rerun-if-changed={icon}");
         let dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
@@ -60,14 +84,15 @@ fn find_rc() -> Option<PathBuf> {
     found.pop()
 }
 
-/// The version resource of one program: 5.5.0 -> FILEVERSION 5,5,0,0.
+/// The version resource of one program: 5.5.0 -> FILEVERSION 5,5,0,0; a dev build 5.5.1-dev+abc -> 5,5,1,0.
 fn version_rc(bin: &str, what: &str, version: &str) -> String {
     let dll = [".dll", ".DLL"].iter().find_map(|s| bin.strip_suffix(s));
     let (bin, file, kind) = match dll {
         Some(stem) => (stem, bin.to_owned(), "0x2"),
         None => (bin, format!("{bin}.exe"), "0x1"),
     };
-    let nums: Vec<&str> = version.split('.').chain(["0", "0", "0"]).take(4).collect();
+    let number = version.split(['-', '+']).next().unwrap_or(version);
+    let nums: Vec<&str> = number.split('.').chain(["0", "0", "0"]).take(4).collect();
     let comma = nums.join(",");
     format!(
         "1 VERSIONINFO\nFILEVERSION {comma}\nPRODUCTVERSION {comma}\nFILEOS 0x40004\nFILETYPE {kind}\nBEGIN\n\
