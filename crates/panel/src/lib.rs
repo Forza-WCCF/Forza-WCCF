@@ -2644,7 +2644,7 @@ impl Render {
         }
         // the click is served on the match state now, not the last second's
         let fresh = self.st.reset_lineup && match_check().0;
-        if let Some(new) = panel::take_reset(&mut self.st, fresh) {
+        if let Some(new) = panel::take_reset(&mut self.st, &self.placed, fresh) {
             log(&format!("board: RESET LINEUP - {} card(s)", new.len()));
             self.placed = new;
             self.table_write();

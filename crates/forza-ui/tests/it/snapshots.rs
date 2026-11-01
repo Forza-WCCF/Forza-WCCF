@@ -671,6 +671,26 @@ fn board_reset_lineup() {
     all.unwrap();
 }
 
+/// A reset leaves an UNDO under the board.
+#[test]
+fn board_reset_lineup_undo() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for lang in Lang::ALL {
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+        st.reset_after = Some(Vec::new());
+        st.import_undo = Some((Vec::new(), 0.0));
+        snap(
+            &mut all,
+            &format!("board_reset_undo_{}", lang.code()),
+            panel::SIZE,
+            Edition::E1718,
+            |ui| panel::show(ui, &mut st),
+        );
+    }
+    all.unwrap();
+}
+
 /// The LINKS list draws Latin Extended-A letters (ć č š ž ł ő): Noto Sans JP has none of them, so Barlow follows it.
 #[test]
 fn links_list_latin_extended() {

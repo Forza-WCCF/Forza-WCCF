@@ -663,6 +663,8 @@ pub struct PanelState {
     pub in_match: bool,
     /// The table as it was when the last match began (2017-18): RESET LINEUP puts it back ([`lineup_tick`]).
     pub before_match: Option<Vec<Placed>>,
+    /// RESET LINEUP just put this table on the board: its UNDO (in `import_undo`) stays until the table changes.
+    pub reset_after: Option<Vec<Placed>>,
     /// The last read said a match is being played (the seat's own state, not the card session): the edge that keeps
     /// `before_match`, apart from `in_match`, which the FORMATIONS dialog also sets.
     pub match_seen: bool,
@@ -770,6 +772,7 @@ impl PanelState {
             in_match: false,
             before_match: None,
             match_seen: false,
+            reset_after: None,
             seat_on: false,
             reset_ready: false,
             reset_lineup: false,
@@ -1065,6 +1068,7 @@ pub fn import_lineup(
     st.message = Some(Note::long(tone, text));
     st.board = cards::board(&imp.placed, &st.cards);
     st.import_undo = Some((placed.to_vec(), now));
+    st.reset_after = None;
     st.undo = None; // UNDO now means the import
     Some(imp.placed)
 }
@@ -1127,6 +1131,7 @@ pub fn undo_import(st: &mut PanelState, in_match: bool) -> Option<Vec<Placed>> {
         return None;
     }
     let (old, _) = st.import_undo.take()?;
+    st.reset_after = None;
     st.board = cards::board(&old, &st.cards);
     Some(old)
 }
@@ -1157,6 +1162,15 @@ pub fn lineup_tick(
         st.match_seen = playing;
         st.in_match = busy;
     }
+    // RESET LINEUP's UNDO lasts until the table changes or a match begins
+    if st
+        .reset_after
+        .as_ref()
+        .is_some_and(|after| st.match_seen || lineup_differs(after, placed))
+    {
+        st.reset_after = None;
+        st.import_undo = None;
+    }
     st.reset_ready = st
         .before_match
         .as_ref()
@@ -1176,10 +1190,10 @@ fn lineup_differs(a: &[Placed], b: &[Placed]) -> bool {
     key(a) != key(b)
 }
 
-/// RESET LINEUP: the table kept when the match began to be written like a card move; `None` when nothing differs, or
+/// RESET LINEUP: the table kept when the match began (`placed`: the table now, kept for UNDO), to be written like a card move; `None` when nothing differs, or
 /// in a match (`in_match`, read at the click, not the last poll's: refused with a note, as the import is). The board
 /// shows it at once.
-pub fn take_reset(st: &mut PanelState, in_match: bool) -> Option<Vec<Placed>> {
+pub fn take_reset(st: &mut PanelState, placed: &[Placed], in_match: bool) -> Option<Vec<Placed>> {
     if !std::mem::take(&mut st.reset_lineup) {
         return None;
     }
@@ -1195,7 +1209,8 @@ pub fn take_reset(st: &mut PanelState, in_match: bool) -> Option<Vec<Placed>> {
     st.board = cards::board(&before, &st.cards);
     // the UNDO lines belong to an older table; the new one undoes the reset
     st.undo = None;
-    st.import_undo = None;
+    st.import_undo = Some((placed.to_vec(), 0.0));
+    st.reset_after = Some(before.clone());
     st.reset_ready = false;
     Some(before)
 }
@@ -2646,6 +2661,7 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
         st.off_at = Some((r.at, r.size));
         st.undo = Some((r, now));
         st.import_undo = None; // UNDO now means this card
+        st.reset_after = None;
     }
     if let Some(n) = board::take_kept(b) {
         st.kept_at = Some(now);
@@ -2765,22 +2781,32 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
 
 /// A lineup just imported: a line and its UNDO for [`IMPORT_UNDO_SECS`], in the hint's place; `false`: none.
 fn import_undo_line(ui: &mut Ui, st: &mut PanelState, lang: Lang, now: f64) -> bool {
+    let reset = st.reset_after.is_some();
     st.import_undo = st
         .import_undo
         .take()
-        .filter(|(_, at)| now - at < IMPORT_UNDO_SECS);
+        .filter(|(_, at)| reset || now - at < IMPORT_UNDO_SECS);
     let Some(at) = st.import_undo.as_ref().map(|u| u.1) else {
         return false;
     };
-    ui.ctx()
-        .request_repaint_after(std::time::Duration::from_secs_f64(
-            IMPORT_UNDO_SECS - (now - at),
-        ));
+    if !reset {
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_secs_f64(
+                IMPORT_UNDO_SECS - (now - at),
+            ));
+    }
     ui.horizontal(|ui| {
         ui.label(
-            egui::RichText::new(tr!(lang, "board.imported"))
-                .font(theme::body(HINT))
-                .color(theme::TEXT),
+            egui::RichText::new(tr!(
+                lang,
+                if reset {
+                    "board.reset_done"
+                } else {
+                    "board.imported"
+                }
+            ))
+            .font(theme::body(HINT))
+            .color(theme::TEXT),
         );
         if widgets::action(ui, &tr!(lang, "board.undo")).clicked() {
             st.import_undone = true;
@@ -5714,19 +5740,19 @@ mod tests {
         assert_eq!(st.before_match.as_deref(), Some(&start[..]));
         // in the match: refused, the click is spent
         st.reset_lineup = true;
-        assert_eq!(take_reset(&mut st, true), None);
+        assert_eq!(take_reset(&mut st, &subbed, true), None);
         assert!(!st.reset_lineup);
         assert_eq!(st.message.as_ref().map(|n| n.tone), Some(Tone::Refused));
         // after it: the kept table back exactly, on the board too
         lineup_tick(&mut st, None, Some((false, false)), &subbed);
         st.reset_lineup = true;
-        assert_eq!(take_reset(&mut st, false), Some(start.clone()));
+        assert_eq!(take_reset(&mut st, &subbed, false), Some(start.clone()));
         assert_eq!(cards::table_after(&start, &st.board), start);
         // written back: nothing differs any more
         lineup_tick(&mut st, None, None, &start);
         assert!(!st.reset_ready);
         st.reset_lineup = true;
-        assert_eq!(take_reset(&mut st, false), None);
+        assert_eq!(take_reset(&mut st, &start, false), None);
         // a card session outside a match (a manager transfer) greys RESET out but keeps nothing
         lineup_tick(&mut st, None, Some((true, false)), &subbed);
         assert!(st.in_match);
@@ -5737,6 +5763,36 @@ mod tests {
         let next = vec![at(1, 10, 0.0, 0.5)];
         lineup_tick(&mut st, None, Some((true, true)), &next);
         assert_eq!(st.before_match.as_deref(), Some(&next[..]));
+    }
+
+    /// After RESET LINEUP, UNDO puts back the table as it was just before; it stays until the table changes or a
+    /// match begins, however long the player takes.
+    #[test]
+    fn reset_lineup_can_be_undone_until_the_table_changes() {
+        let (mut st, _) = importer();
+        st.edition = Edition::E1718;
+        let at = |slot, no, x, y| Placed { slot, no, x, y };
+        let start = vec![at(1, 10, 0.25, 0.9), at(2, 101, -0.5, 0.4)];
+        let subbed = vec![at(1, 10, 0.25, 0.9), at(2, 210, -0.5, 0.4)];
+        lineup_tick(&mut st, None, Some((true, true)), &start);
+        lineup_tick(&mut st, None, Some((false, false)), &subbed);
+        st.reset_lineup = true;
+        assert_eq!(take_reset(&mut st, &subbed, false), Some(start.clone()));
+        // a minute later, the table written: the UNDO is still there
+        lineup_tick(&mut st, None, None, &start);
+        assert!(st.import_undo.is_some() && st.reset_after.is_some());
+        // UNDO: the table before the reset, back on the board
+        assert_eq!(undo_import(&mut st, false), Some(subbed.clone()));
+        assert!(st.reset_after.is_none() && st.import_undo.is_none());
+        lineup_tick(&mut st, None, None, &subbed);
+        assert!(st.reset_ready);
+        // a card moved after a reset drops the UNDO
+        st.reset_lineup = true;
+        take_reset(&mut st, &subbed, false).unwrap();
+        lineup_tick(&mut st, None, None, &start);
+        let moved = vec![at(1, 10, 0.0, 0.9), at(2, 101, -0.5, 0.4)];
+        lineup_tick(&mut st, None, None, &moved);
+        assert!(st.import_undo.is_none() && st.reset_after.is_none());
     }
 
     /// The game leaves the seat's match flag on after a match: out of the match the table is neither kept again nor
