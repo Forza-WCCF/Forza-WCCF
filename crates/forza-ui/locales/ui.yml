@@ -441,6 +441,7 @@ settings.compact: {en: "COMPACT", it: "COMPATTA", ja: "コンパクト"}
 settings.hover: {en: "CARD HOVER DELAY", it: "RITARDO ANTEPRIMA CARTA", ja: "カード拡大までの時間"}
 settings.hover_off: {en: "OFF", it: "NO", ja: "なし"}
 settings.logs: {en: "LOGS", it: "LOG", ja: "ログ"}
+settings.graphics: {en: "GRAPHICS", it: "GRAFICA", ja: "グラフィック"}
 settings.just_now: {en: "%{t} (just now)", it: "%{t} (proprio ora)", ja: "%{t}（たった今）"}
 settings.min_ago: {en: "%{t} (%{n} min ago)", it: "%{t} (%{n} min fa)", ja: "%{t}（%{n} 分前）"}
 settings.h_ago: {en: "%{t} (%{n} h ago)", it: "%{t} (%{n} h fa)", ja: "%{t}（%{n} 時間前）"}
@@ -476,6 +477,10 @@ settings.projector_hint: {en: "Shows the big screen with live matches or a demo 
 settings.pad_bg: {en: "Controller in the background", it: "Controller in secondo piano", ja: "バックグラウンドでもコントローラー"}
 settings.pad_bg_hint: {en: "The controller keeps working while another window is in front. The keyboard stops working then.", it: "Il controller funziona anche con un'altra finestra davanti. In quel caso la tastiera smette di funzionare.", ja: "ほかのウィンドウが前面にあってもコントローラーは動きます。そのときキーボードは動きません。"}
 settings.pad_bg_seats: {en: "The setting turns off while 2 or more seats run on this PC, because all controllers count as one.", it: "L'impostazione si disattiva mentre su questo PC girano 2 o più posti: i controller contano come uno solo.", ja: "このPCで2席以上を動かしている間は無効になります。コントローラーが1台として扱われるためです。"}
+settings.textures: {en: "Texture filtering", it: "Filtro texture", ja: "テクスチャフィルタ"}
+settings.textures_game: {en: "Game", it: "Gioco", ja: "ゲーム"}
+settings.fps: {en: "FPS counter", it: "Contatore FPS", ja: "FPSカウンター"}
+settings.fps_hint: {en: "The game's frames per second, in the picture's corner. The game runs at 30.", it: "I fotogrammi al secondo del gioco, nell'angolo dell'immagine. Il gioco gira a 30.", ja: "毎秒のフレーム数を画面の隅に表示します（ゲームは30）。"}
 settings.msg_hover: {en: "Card preview after %{s} s", it: "Anteprima carta dopo %{s} s", ja: "%{s} 秒でカードをプレビュー"}
 settings.msg_hover_off: {en: "Card preview off", it: "Anteprima carta disattivata", ja: "カードのプレビューなし"}
 settings.msg_this_pc: {en: "Next start: this PC", it: "Prossimo avvio: questo PC", ja: "次回の起動：このPC"}
