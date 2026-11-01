@@ -664,6 +664,9 @@ pub struct PanelState {
     /// The last read said a match is being played (the seat's own state, not the card session): the edge that keeps
     /// `before_match`, apart from `in_match`, which the FORMATIONS dialog also sets.
     pub match_seen: bool,
+    /// The seat's match flag as the last frame read it: the edge is the flag turning on, not the flag staying on (the
+    /// game leaves it on after the match until the next sequence writes its own).
+    pub seat_on: bool,
     /// The table differs from `before_match`: RESET LINEUP is offered, greyed out while `in_match`.
     pub reset_ready: bool,
     /// RESET LINEUP clicked: the panel DLL calls [`take_reset`].
@@ -764,6 +767,7 @@ impl PanelState {
             in_match: false,
             before_match: None,
             match_seen: false,
+            seat_on: false,
             reset_ready: false,
             reset_lineup: false,
             formation_load: None,
@@ -1135,7 +1139,11 @@ pub fn lineup_tick(
     read: Option<(bool, bool)>,
     placed: &[Placed],
 ) {
-    if seat == Some(true) && !st.match_seen {
+    let rising = seat == Some(true) && !st.seat_on;
+    if let Some(on) = seat {
+        st.seat_on = on;
+    }
+    if rising && !st.match_seen {
         st.before_match = Some(placed.to_vec());
         st.match_seen = true;
     }
@@ -5666,6 +5674,28 @@ mod tests {
         let next = vec![at(1, 10, 0.0, 0.5)];
         lineup_tick(&mut st, None, Some((true, true)), &next);
         assert_eq!(st.before_match.as_deref(), Some(&next[..]));
+    }
+
+    /// The game leaves the seat's match flag on after a match: out of the match the table is neither kept again nor
+    /// locked, one read after another.
+    #[test]
+    fn a_match_flag_left_on_after_the_match_keeps_nothing_and_locks_nothing() {
+        let (mut st, _) = importer();
+        let at = |slot, no, x, y| Placed { slot, no, x, y };
+        let start = vec![at(1, 10, 0.0, 0.5)];
+        let after = vec![at(1, 11, 0.0, 0.5)];
+        lineup_tick(&mut st, Some(false), Some((false, false)), &start);
+        lineup_tick(&mut st, Some(true), None, &start);
+        lineup_tick(&mut st, Some(true), Some((true, true)), &start);
+        assert!(st.match_seen && st.in_match);
+        // the match ended: the arcade is idle again, the flag is still on
+        for _ in 0..3 {
+            lineup_tick(&mut st, Some(true), Some((false, false)), &after);
+            lineup_tick(&mut st, Some(true), None, &after);
+            assert!(!st.match_seen && !st.in_match);
+            assert_eq!(st.before_match.as_deref(), Some(&start[..]));
+        }
+        assert!(st.reset_ready);
     }
 
     #[test]

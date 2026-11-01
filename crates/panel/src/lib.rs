@@ -754,12 +754,14 @@ fn match_check() -> (bool, bool, String) {
     )
 }
 
-/// 2017-18: the seat's own sequence state is the match one (the arcade state is the whole arcade's: another seat's
-/// match sets it too); the arcade state MATCHING-GAME_RESULT_WAIT (4-6) only when the seat state cannot be read.
-/// 2010-11: that arcade state. Either: a card session open (2010-11's club card).
+/// 2017-18: the seat's own sequence state says the match is this seat's (the arcade state is the whole arcade's:
+/// another seat's match sets it too), but the game leaves it at the match value after the match and after a
+/// cancelled matching until the next sequence writes its own, so the arcade state must also be MATCHING_WAIT to
+/// GAME_RESULT_WAIT (3-6), when it can be read; without the seat state, the arcade state MATCHING-GAME_RESULT_WAIT
+/// (4-6) alone. 2010-11: that arcade state. Either: a card session open (2010-11's club card).
 fn match_now(e1718: bool, seat: Option<u32>, arcade: Option<u32>, card: bool) -> bool {
     let playing = match seat {
-        Some(s) if e1718 => s == pause::SEAT_MATCH,
+        Some(s) if e1718 => s == pause::SEAT_MATCH && arcade.is_none_or(|a| matches!(a, 3..=6)),
         _ => matches!(arcade, Some(4..=6)),
     };
     playing || card
@@ -3516,7 +3518,11 @@ mod tests {
             "another seat plays"
         );
         assert!(match_now(true, Some(19), Some(5), false));
-        assert!(match_now(true, Some(19), Some(1), false));
+        assert!(match_now(true, Some(19), Some(3), false));
+        assert!(match_now(true, Some(19), None, false));
+        // the seat flag the game leaves on after a match or a cancelled matching is not a match
+        assert!(!match_now(true, Some(19), Some(1), false), "menus");
+        assert!(!match_now(true, Some(19), Some(7), false), "result screen");
         assert!(match_now(true, None, Some(5), false));
         assert!(!match_now(true, None, Some(1), false));
         assert!(match_now(false, None, Some(4), false));
