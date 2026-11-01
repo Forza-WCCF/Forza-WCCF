@@ -1452,6 +1452,7 @@ impl Run<'_> {
             msgguard: (self.edition == Edition::E1011).then(|| env::var("WCCF_MSGGUARD").map_or(true, |v| v != "0")),
             env: self.kit_env().into_iter().chain(env).chain([game_dpi()]).collect(),
             stop: Some(stop.clone()),
+            hang_after: crate::debug::HANG_AFTER,
         };
         let mut log = logs::Stamped::new(File::create(self.logs().join(role.log()))?);
         let (job, tx, id) = (self.job.clone(), self.tx.clone(), self.next_id);
@@ -2404,7 +2405,7 @@ impl Run<'_> {
         let (dir, kit, game) = (self.p.logs_dir.clone(), self.kit.dir().to_path_buf(), self.game.clone());
         let tx = self.tx.clone();
         thread::spawn(move || {
-            let line = match save_logs::save(&dir, &kit, Some(&game), &Scrub::from_env(), None) {
+            let line = match crate::report::save_zip(&dir, &kit, Some(&game), &Scrub::from_env(), None) {
                 Ok(path) => format!("ok {}", path.display()),
                 Err(e) => format!("fail {e}"),
             };

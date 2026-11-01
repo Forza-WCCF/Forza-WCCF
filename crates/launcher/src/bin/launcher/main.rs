@@ -547,7 +547,7 @@ impl run::Ui for WindowUi {
 /// SAVE LOGS: the logs ZIP in the Downloads folder, said in the status line and shown selected in Explorer.
 fn save_logs(kit: &Path, game: Option<&Path>) {
     let dir = forza::online::save_logs::downloads();
-    match forza::online::save_logs::save(&dir, kit, game, &forza::online::save_logs::Scrub::from_env(), None) {
+    match launcher::report::save_zip(&dir, kit, game, &forza::online::save_logs::Scrub::from_env(), None) {
         Ok(dest) => {
             say(tf("logs.saved", &[("path", &dest.display().to_string())]), 0);
             show_in_explorer(&dest);
