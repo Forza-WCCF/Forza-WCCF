@@ -118,6 +118,22 @@ jobs:
           vt() { curl -sS --retry 3 --retry-all-errors -H "x-apikey: $VT_API_KEY" "$@"; }
           out=virustotal.md
           printf '| File | Microsoft | Engines flagging | Report |\n|---|---|---|---|\n' > "$out"
+          # One poll of the file object, done when Microsoft has a verdict and the engine count stopped moving: one
+          # poll every 20 s, up to 15 minutes, as the free API allows 4 requests a minute. Sets a, ms, bad, mst, engines.
+          poll() {
+            prev=-1; ms=; a=
+            for _ in $(seq 1 45); do
+              sleep 20
+              a=$(vt "$api/files/$sha")
+              n=$(jq -r '.data.attributes.last_analysis_stats | (.undetected + .malicious + .suspicious + .timeout) // 0' <<<"$a" 2>/dev/null || echo 0)
+              ms=$(jq -r '.data.attributes.last_analysis_results.Microsoft.category // empty' <<<"$a" 2>/dev/null || true)
+              if [ -n "$ms" ] && [ "$n" = "$prev" ]; then break; fi
+              prev=$n
+            done
+            bad=$(jq -r '.data.attributes.last_analysis_stats.malicious + .data.attributes.last_analysis_stats.suspicious' <<<"$a" 2>/dev/null || echo 0)
+            mst=$(jq -r '.data.attributes.last_analysis_results.Microsoft | .category + (if .result then " (" + .result + ")" else "" end)' <<<"$a" 2>/dev/null || true)
+            engines=$(jq -r '[.data.attributes.last_analysis_results[] | select(.engine_name != "Microsoft") | select(.category == "malicious" or .category == "suspicious") | .engine_name + ": " + (.result // "?")] | join(", ")' <<<"$a" 2>/dev/null || true)
+          }
           fail=0
           for f in dist/*.zip dist/*.exe; do
             [ -e "$f" ] || continue
@@ -134,21 +150,20 @@ jobs:
               echo "uploaded $name"
             fi
             # poll the file object, not /analyses/<id>: that id comes from the upload and 404s while the scan is
-            # queued (the 0.6.0 run died there). Done when Microsoft has a verdict and the engine count stopped
-            # moving: one poll every 20 s, up to 15 minutes, as the free API allows 4 requests a minute
-            prev=-1; ms=; a=
-            for _ in $(seq 1 45); do
-              sleep 20
-              a=$(vt "$api/files/$sha")
-              n=$(jq -r '.data.attributes.last_analysis_stats | (.undetected + .malicious + .suspicious + .timeout) // 0' <<<"$a" 2>/dev/null || echo 0)
-              ms=$(jq -r '.data.attributes.last_analysis_results.Microsoft.category // empty' <<<"$a" 2>/dev/null || true)
-              if [ -n "$ms" ] && [ "$n" = "$prev" ]; then break; fi
-              prev=$n
-            done
+            # queued (the 0.6.0 run died there)
+            poll
             if [ -z "$ms" ]; then echo "::error::$name: VirusTotal gave no Microsoft result"; echo "$a" | head -c 400; fail=1; continue; fi
-            bad=$(jq '.data.attributes.last_analysis_stats.malicious + .data.attributes.last_analysis_stats.suspicious' <<<"$a")
-            mst=$(jq -r '.data.attributes.last_analysis_results.Microsoft | .category + (if .result then " (" + .result + ")" else "" end)' <<<"$a")
-            engines=$(jq -r '[.data.attributes.last_analysis_results[] | select(.category == "malicious" or .category == "suspicious") | .engine_name + ": " + (.result // "?")] | join(", ")' <<<"$a")
+            # A Microsoft hit is one engine's opinion of these bytes at this moment, and it moves: 0.6.0's FPR_Emu.exe
+            # was flagged at 02:12 and undetected at 03:47 with the same sha256, Launcher.exe and forza_panel.dll
+            # flipped within 1.5 h, and the same bytes gave different answers on a player's Defender minutes apart
+            # (E:\wccf-builds\av-oracle-20261101\, av-bisect-20261101\RESULTS.md). So a hit buys one fresh analysis
+            # before it stops the release: the free API allows it, and a rescan is the only self-service there is.
+            if [ "$ms" = malicious ] || [ "$ms" = suspicious ]; then
+              echo "::warning::$name: Microsoft said $mst; asking VirusTotal for a fresh analysis"
+              vt -X POST "$api/files/$sha/analyse" >/dev/null || true
+              poll
+              if [ -n "$mst" ]; then echo "::warning::$name: the fresh analysis says $mst"; fi
+            fi
             printf '| %s | %s | %s %s | [report](https://www.virustotal.com/gui/file/%s) |\n' "$name" "$mst" "$bad" "${engines:+($engines)}" "$sha" >> "$out"
             case "$mst" in
               malicious*|suspicious*) echo "::error::$name: Microsoft flags it: $mst"; fail=1 ;;
