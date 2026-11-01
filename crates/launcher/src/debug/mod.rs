@@ -39,7 +39,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::{
-    CloseHandle, DBG_CONTINUE, DBG_EXCEPTION_NOT_HANDLED, GetLastError, HANDLE, NTSTATUS,
+    CloseHandle, DBG_CONTINUE, DBG_EXCEPTION_NOT_HANDLED, GetLastError, HANDLE, HWND, NTSTATUS,
 };
 use windows_sys::Win32::Storage::FileSystem::GetFinalPathNameByHandleW;
 use windows_sys::Win32::System::Diagnostics::Debug::{
@@ -53,6 +53,8 @@ use windows_sys::Win32::System::Threading::{
     PROCESS_POWER_THROTTLING_EXECUTION_SPEED, PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION,
     PROCESS_POWER_THROTTLING_STATE, ProcessPowerThrottling, SetPriorityClass, SetProcessInformation, TerminateProcess,
 };
+
+use windows_sys::Win32::UI::WindowsAndMessaging::IsHungAppWindow;
 
 use dump::write_dumps;
 use mem::{Index, MSGPARSE_RET_OFF, MSGPARSE_STACK_SCAN};
@@ -69,6 +71,8 @@ unsafe extern "system" {
 /// 2026-10-08: seat 4's client ran on windowless, and the whole run with it).  So a client is ended once its window, up
 /// for this long, has been gone for two looks in a row.  Never control: its windows are hidden.
 const WINDOW_SETTLE: f64 = 5.0;
+/// How long a client's window stays unresponsive before its memory is saved (`Options::hang_after`).
+pub const HANG_AFTER: Duration = Duration::from_secs(20);
 const EXCEPTION_ACCESS_VIOLATION: u32 = 0xC000_0005;
 /// Native and WOW64 breakpoints.
 const BREAKPOINTS: [u32; 2] = [0x8000_0003, 0x4000_001F];
@@ -151,6 +155,15 @@ pub struct Options {
     pub env: Vec<(String, String)>,
     /// Set by the run to end the program now (a quit or a cabinet restart), as the timeout does.
     pub stop: Option<Arc<AtomicBool>>,
+    /// A client whose window has not answered for this long gets a memory snapshot of itself and its match engines,
+    /// once per hang; the game is left running.  `HANG_AFTER`.
+    pub hang_after: Duration,
+}
+
+/// Windows has found the window's program not answering for 5 s (never waits for it).
+fn is_hung(hwnd: HWND) -> bool {
+    // SAFETY: a window handle Windows just gave; the call only reads.
+    unsafe { IsHungAppWindow(hwnd) != 0 }
 }
 
 macro_rules! say {
@@ -601,6 +614,7 @@ pub fn run(opts: &Options, job: &Job, out: &mut dyn Write) -> io::Result<i32> {
     let mut ev_time: BTreeMap<u32, (u32, f64, f64)> = BTreeMap::new(); // event kind -> count, total ms, max ms
     let watch_window = opts.role == Role::Client;
     let (mut next_win_check, mut win_since, mut win_gone) = (0.0, None::<f64>, 0);
+    let (mut next_hang_check, mut hung_since, mut hang_dumped) = (0.0, None::<f64>, false);
     let mut timed_out = true;
     let mut main_exited = false;
     let mut de = DEBUG_EVENT::default();
@@ -634,6 +648,46 @@ pub fn run(opts: &Options, job: &Job, out: &mut dyn Write) -> io::Result<i32> {
                 }
             } else {
                 win_since = None; // a window replaced while it starts: not a close
+            }
+        }
+        if watch_window && now >= next_hang_check {
+            next_hang_check = now + 1.0;
+            if crate::procs::windows(main).iter().any(|w| w.visible && is_hung(w.hwnd)) {
+                let since = *hung_since.get_or_insert(now);
+                if !hang_dumped && now - since >= opts.hang_after.as_secs_f64() {
+                    hang_dumped = true;
+                    // the client and its match engines, only read: the game is not touched
+                    let (mut names, mut lines) = (Vec::new(), Vec::new());
+                    for q in procs
+                        .values()
+                        .filter(|q| q.pid == main || q.name.to_lowercase().ends_with("match_release.exe"))
+                    {
+                        names.push(format!(
+                            "{} {}",
+                            Path::new(&q.name).file_name().unwrap_or_default().to_string_lossy(),
+                            q.pid
+                        ));
+                        lines.push(write_dumps(
+                            q.hproc,
+                            q.pid,
+                            &q.name,
+                            "window not responding",
+                            &opts.dumps,
+                        ));
+                    }
+                    for l in lines {
+                        say!(out, "  t+{now:5.1}s {l}");
+                    }
+                    say!(
+                        out,
+                        "  t+{now:5.1}s hang: seat window not responding for {} s, dumps written: {}",
+                        opts.hang_after.as_secs(),
+                        names.join(", ")
+                    );
+                    let _ = out.flush();
+                }
+            } else {
+                (hung_since, hang_dumped) = (None, false); // answering again: a later hang is a new one
             }
         }
         if !opts.follow && now >= next_kid_check {
