@@ -14,7 +14,7 @@
   `forza-wccf.ico`. Two local builds, also in separate target folders, give one hash. The bytes follow the toolset: a
   local MSVC 14.44 build and a CI 14.51 build of the same commit differ by about 2.8 KB, and Microsoft's engine on
   VirusTotal flagged the 14.51 one (4/4, also at two other hashes) while the 14.44 builds came out clean (3/3;
-  `E:\wccf-builds\av-bisect-20261101\RESULTS.md`). Both workflows therefore build with 14.44 (`vcvarsall
+  `E:\wccf-builds\av-bisect-20261101\RESULTS.md`). Every Windows workflow therefore builds with 14.44 (`vcvarsall
   -vcvars_ver=14.44`, and the rust-cache shared key names the version), so a hash recorded here is reproducible: record
   the CI build's SHA-256 in `editions/2017-18/fpr_emu.sha256` and have `cargo xtask package` compare it, failing when
   the exe changed and `native/programs` and `native/common` did not. Changing the pinned toolset changes every
