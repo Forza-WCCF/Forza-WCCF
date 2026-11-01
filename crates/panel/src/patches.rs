@@ -457,7 +457,8 @@ fn limiter_install(e1718: bool, dll_dir: &Path, log: fn(&str)) {
     // writable now; cmpxchg8b swaps the call atomically under a running game loop, as the C's
     // InterlockedCompareExchange64
     let swapped = unsafe {
-        let old8 = std::ptr::read_volatile(p);
+        // the bytes checked above, not a fresh read: anything changed since then fails the swap
+        let old8 = u64::from_le_bytes(code[..8].try_into().unwrap_or_default());
         LIMITER_ON.store(limiter_wanted(dll_dir), Relaxed);
         let new8 = call_patch(old8, call, limiter_now as *const () as usize);
         AtomicU64::from_ptr(p)

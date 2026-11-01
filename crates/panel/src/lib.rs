@@ -1326,6 +1326,7 @@ unsafe extern "system" fn hook_present(
 }
 
 unsafe extern "system" fn hook_reset(dev: *mut c_void, pp: *mut D3DPRESENT_PARAMETERS) -> HRESULT {
+    graphics::reset(); // the device's samplers go back to their defaults
     if let Ok(mut r) = RENDER.lock()
         && let Some(r) = r.as_mut()
     {
