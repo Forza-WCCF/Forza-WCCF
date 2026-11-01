@@ -663,6 +663,8 @@ pub struct PanelState {
     pub in_match: bool,
     /// The table as it was when the last match began (2017-18): RESET LINEUP puts it back ([`lineup_tick`]).
     pub before_match: Option<Vec<Placed>>,
+    /// The clock time (`HH:MM`) `before_match` was kept at.
+    pub before_match_at: Option<String>,
     /// RESET LINEUP just put this table on the board: its UNDO (in `import_undo`) stays until the table changes.
     pub reset_after: Option<Vec<Placed>>,
     /// The last read said a match is being played (the seat's own state, not the card session): the edge that keeps
@@ -772,6 +774,7 @@ impl PanelState {
             in_match: false,
             before_match: None,
             match_seen: false,
+            before_match_at: None,
             reset_after: None,
             seat_on: false,
             reset_ready: false,
@@ -1152,12 +1155,12 @@ pub fn lineup_tick(
         st.seat_on = on;
     }
     if rising && !st.match_seen {
-        st.before_match = Some(placed.to_vec());
+        keep_table(st, placed);
         st.match_seen = true;
     }
     if let Some((busy, playing)) = read {
         if playing && !st.match_seen {
-            st.before_match = Some(placed.to_vec());
+            keep_table(st, placed);
         }
         st.match_seen = playing;
         st.in_match = busy;
@@ -1175,6 +1178,27 @@ pub fn lineup_tick(
         .before_match
         .as_ref()
         .is_some_and(|b| lineup_differs(b, placed));
+}
+
+/// The table a match begins with, kept for RESET LINEUP, and when.
+fn keep_table(st: &mut PanelState, placed: &[Placed]) {
+    let t = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+    st.before_match = Some(placed.to_vec());
+    st.before_match_at = Some(format!("{:02}:{:02}", t.hour(), t.minute()));
+}
+
+/// RESET LINEUP's hover text: where it goes back to, or why it is greyed out.
+fn reset_hint(st: &PanelState, lang: Lang) -> String {
+    let at = st.before_match_at.clone().unwrap_or_default();
+    if st.in_match {
+        tr!(lang, "board.reset_match")
+    } else if st.before_match.is_none() {
+        tr!(lang, "board.reset_none")
+    } else if !st.reset_ready {
+        tr!(lang, "board.reset_same", at = at)
+    } else {
+        tr!(lang, "board.reset_to", at = at)
+    }
 }
 
 /// Two tables hold the same cards on the same spots, whatever their slot numbers.
@@ -2705,7 +2729,10 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
         let mut c = b.new_child(egui::UiBuilder::new().max_rect(at));
         let ready = st.reset_ready && !st.in_match;
         let button = egui::Button::new(label).wrap_mode(egui::TextWrapMode::Extend);
-        st.reset_lineup |= c.add_enabled(ready, button).clicked();
+        let hint = reset_hint(st, lang);
+        let r = c.add_enabled(ready, button);
+        st.reset_lineup |= r.clicked();
+        r.on_hover_text(&hint).on_disabled_hover_text(&hint);
         // FORMATIONS at its left: the same dialog as the catalogue's button
         let label = egui::RichText::new(tr!(lang, "form.open")).font(theme::bold(12.0));
         let w = b
@@ -5793,6 +5820,32 @@ mod tests {
         let moved = vec![at(1, 10, 0.0, 0.9), at(2, 101, -0.5, 0.4)];
         lineup_tick(&mut st, None, None, &moved);
         assert!(st.import_undo.is_none() && st.reset_after.is_none());
+    }
+
+    /// The button's hover text names the moment the table was kept, or why there is nothing to reset to.
+    #[test]
+    fn reset_lineup_names_the_moment_it_goes_back_to() {
+        let (mut st, _) = importer();
+        st.edition = Edition::E1718;
+        let at = |slot, no, x, y| Placed { slot, no, x, y };
+        let start = vec![at(1, 10, 0.25, 0.9), at(2, 101, -0.5, 0.4)];
+        let subbed = vec![at(1, 10, 0.25, 0.9), at(2, 210, -0.5, 0.4)];
+        assert_eq!(reset_hint(&st, Lang::En), "No match played yet");
+        lineup_tick(&mut st, None, Some((true, true)), &start);
+        assert!(st.before_match_at.is_some());
+        lineup_tick(&mut st, None, Some((false, false)), &subbed);
+        st.before_match_at = Some("21:40".into());
+        assert_eq!(
+            reset_hint(&st, Lang::En),
+            "Back to the lineup from the start of the last match (21:40)"
+        );
+        for lang in [Lang::It, Lang::Ja] {
+            assert!(reset_hint(&st, lang).contains("21:40"));
+        }
+        lineup_tick(&mut st, None, None, &start);
+        assert!(reset_hint(&st, Lang::En).starts_with("Already the lineup"));
+        st.in_match = true;
+        assert_eq!(reset_hint(&st, Lang::En), "Not during a match");
     }
 
     /// The game leaves the seat's match flag on after a match: out of the match the table is neither kept again nor

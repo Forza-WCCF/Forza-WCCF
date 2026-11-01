@@ -671,13 +671,29 @@ fn board_reset_lineup() {
     all.unwrap();
 }
 
-/// A reset leaves an UNDO under the board.
+/// RESET LINEUP names the moment its table was kept in its hover text, and a reset leaves an UNDO under the board.
 #[test]
-fn board_reset_lineup_undo() {
+fn board_reset_lineup_hint_and_undo() {
     let _gpu = gpu();
     let mut all = SnapshotResults::new();
     for lang in Lang::ALL {
         let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+        st.reset_ready = true;
+        st.before_match = Some(Vec::new());
+        st.before_match_at = Some("21:40".into());
+        let st = std::cell::RefCell::new(st);
+        let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+            panel::show(ui, &mut st.borrow_mut())
+        });
+        h.run_steps(4);
+        h.get_by_label(&forza_ui::text(lang, "board.reset", &[]))
+            .hover();
+        h.run_steps(12);
+        h.snapshot(format!("board_reset_hint_{}", lang.code()));
+        all.extend_harness(&mut h);
+        drop(h);
+        let mut st = st.into_inner();
+        st.reset_ready = false;
         st.reset_after = Some(Vec::new());
         st.import_undo = Some((Vec::new(), 0.0));
         snap(

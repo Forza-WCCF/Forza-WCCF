@@ -362,6 +362,10 @@ cat.skip_bad_line: {en: "unreadable line", it: "riga illeggibile", ja: "読め�
 cat.skip_duplicate: {en: "same player twice", it: "giocatore doppio", ja: "同じ選手"}
 cat.skip_not_in_catalogue: {en: "not in the catalogue", it: "non nel catalogo", ja: "カタログにない"}
 cat.skip_no_room: {en: "no room", it: "nessuno spazio", ja: "空きなし"}
+board.reset_to: {en: "Back to the lineup from the start of the last match (%{at})", it: "Torna alla formazione di inizio dell'ultima partita (%{at})", ja: "直前の試合開始時の編成に戻します（%{at}）"}
+board.reset_same: {en: "Already the lineup from the start of the last match (%{at})", it: "È già la formazione di inizio dell'ultima partita (%{at})", ja: "すでに直前の試合開始時の編成です（%{at}）"}
+board.reset_none: {en: "No match played yet", it: "Nessuna partita giocata", ja: "まだ試合をしていません"}
+board.reset_match: {en: "Not during a match", it: "Non durante una partita", ja: "試合中は使えません"}
 board.reset_done: {en: "Lineup reset", it: "Formazione ripristinata", ja: "編成を戻しました"}
 board.imported: {en: "Lineup imported", it: "Formazione importata", ja: "編成を読み込みました"}
 
