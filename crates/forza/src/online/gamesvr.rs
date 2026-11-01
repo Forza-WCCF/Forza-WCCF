@@ -1103,8 +1103,8 @@ fn answer(
         // teams. The last chunk is short: the control does not bound the copy. The buffer is the data-match replay
         // feed (VtrPlayData, control sub_47AFE0): an all-zero 6,480-byte match at +58 of each 8,602-byte round
         // (`live_game_at`) reads as "LiveGameInit bin is empty", so the projector gets no replays. Its CPU
-        // championship is the control's own CPU-filled Universal Championship: the Launcher turns that off
-        // (CPU_MATCH_MODE=0).
+        // championship is the control's own CPU-filled Universal Championship, which the hook keeps off the
+        // projector (native/hook/src/uclive.rs).
         put(&mut body, 4, live_chunk_size(u32_at(payload, 4)));
     }
     if matches!(cmd, 307 | 311) {

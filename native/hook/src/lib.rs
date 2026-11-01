@@ -8,6 +8,7 @@
 //!    PC to the game with one address in the cabinet's network ([`net`]);
 //!  - both editions' game programs: answer the server's start of logowin.exe themselves ([`logowin`]);
 //!  - control (2010-11 on Windows, 2017-18 on Windows and Wine): gives it the players' messages only whole ([`whole`]);
+//!  - 2017-18 control: no CPU championship played live on the projector ([`uclive`]);
 //!  - a server under Wine (both editions): loads netguard.dll as the second guard ([`net::load_netguard`]); 2010-11
 //!    also fixes three faults of control ([`server`]).
 //!
@@ -57,6 +58,8 @@ mod fixes;
 #[cfg_attr(not(any(feature = "e1011", feature = "e1718")), allow(dead_code))]
 mod logowin;
 mod ports;
+#[cfg_attr(any(feature = "e1011", feature = "e1011-server"), allow(dead_code))]
+mod uclive;
 #[cfg_attr(feature = "e1011-server", allow(dead_code))]
 mod wholemsg;
 
@@ -133,6 +136,8 @@ fn install() -> bool {
     let (host, inet) = net::install_address();
     #[cfg(any(feature = "e1011", feature = "e1718", feature = "e1718-server"))]
     whole::install();
+    #[cfg(any(feature = "e1718", feature = "e1718-server"))]
+    uclive::install();
     // 2017-18: the kit ships no stand-in logowin.exe any more, so a miss here lets the original's white screen show
     #[cfg(feature = "e1718")]
     if logowin::install() {
