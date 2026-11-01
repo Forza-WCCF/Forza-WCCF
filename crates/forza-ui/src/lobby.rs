@@ -995,11 +995,7 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
             }
         };
         let labels = [
-            format!(
-                "{}{}",
-                tr!(lang, "lobby.shops"),
-                count(v.shops.len())
-            ),
+            format!("{}{}", tr!(lang, "lobby.shops"), count(v.shops.len())),
             format!("{}{}", tr!(lang, "lobby.vs"), count(v.vs.len())),
         ];
         let tabs = if v.vs_hidden {

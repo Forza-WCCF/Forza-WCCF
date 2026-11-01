@@ -983,7 +983,10 @@ pub fn title_bar(ui: &mut Ui, edition: Edition, version: &str, lang: &mut Lang) 
     // the edition badge, then the Forza-WCCF version beside it on the badge's line, shown on every tab (a version
     // that is not a number, "not known", is left out: the UPDATE tab says it)
     let mut b = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_size(
-        pos2(rect.left() + 12.0 + 34.0 + name_w + 10.0, rect.center().y - 11.0),
+        pos2(
+            rect.left() + 12.0 + 34.0 + name_w + 10.0,
+            rect.center().y - 11.0,
+        ),
         vec2(120.0, 22.0),
     )));
     let pill = badge(&mut b, edition);
