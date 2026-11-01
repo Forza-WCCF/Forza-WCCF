@@ -2,12 +2,16 @@
 
 ## Version numbers
 
-- The release number: `[workspace.package] version` in `Cargo.toml` ([semver](https://semver.org)). The tag
-  (`v<number>`), the edition ZIPs (`version.txt`) and the three crates that inherit it (`launcher`, `wccf-installer`,
-  `forza-panel`: they show it to players) carry it.
+- The release number is the git tag (`v<number>`, [semver](https://semver.org)); no commit bumps it. `cargo xtask`
+  reads it with `git describe` and sets `FORZA_VERSION` for the build: the edition ZIPs (`version.txt`, `kit-<number>`),
+  the file names and the three crates that show it to players (`launcher`, `wccf-installer`, `forza-panel`: their
+  version information and `env!("FORZA_VERSION")`, from `crates/launcher/version_rc.rs`) carry it. The commit tagged
+  `v0.6.1` builds `0.6.1`; a later commit builds `0.6.2-dev+<short sha>` (the next patch, so the Launcher offers the next
+  release, never the one the build came from); a clone without tags builds `0.0.0-dev+<short sha>`.
+  `[workspace.package] version` in `Cargo.toml` only serves a plain `cargo build`.
 - Every other crate has its own `version` in its `Cargo.toml`, embedded in its programs' version information. Bump a
-  crate's own version (patch for a fix, minor for a feature) only when its files or a path dependency's changed since
-  the last release (`git diff --stat v<last> -- <crate dir> native/common`); an unchanged helper program (FPR_Emu.exe,
+  crate's own version (patch for a fix, minor for a feature) in the PR that changes it, if at all; never bump an unchanged
+  crate (`git diff --stat v<last> -- <crate dir> native/common`): an unchanged helper program (FPR_Emu.exe,
   logowin.exe, wccfnet.dll, forza-server.exe) then rebuilds byte-identical, and the hash an antivirus once judged
   stays the same.
   FPR_Emu.exe is 277 KB (2026-10-31): its icon is `assets/logo/forza-wccf-small.ico` (16-48 px), not the 122 KB
@@ -24,8 +28,8 @@
 - Each test build with new features or a batch of fixes raises the minor number (0.2.0, 0.3.0, …). A rebuild of a
   published build that only fixes it raises the patch number (0.2.1). 1.0.0 is Release 1 (both editions, no Python in
   the ZIPs, the online lobby).
-- Package with the version in the name: `cargo xtask package 2017-18 --name Forza-WCCF-2017-18-0.2.0` writes
-  `version.txt` = `kit-0.2.0`. Tag the commit `v0.2.0`.
+- `cargo xtask package 2017-18` on the commit tagged `v0.2.0` writes `Forza-WCCF-2017-18-0.2.0.zip` with `version.txt` =
+  `kit-0.2.0`. `--name` changes only the file name.
 - A change of the `forza` or `forza-ui` version also changes its entry in `crates/installer/THIRD-PARTY-LICENSES.json`;
   `cargo xtask check` fails until they match.
 
@@ -34,8 +38,10 @@
 - 2017-18 only, as a GitHub **pre-release** of this repository with the ZIP and the installer.
 - Before publishing: the [stability gate](#stability-gate) passes on the tagged commit, someone has played the build,
   and a maintainer approves the tag and the upload.
-- Release notes in English, Italian and Japanese: this is an alpha, what changed, known bugs, and how to report one
-  (SAVE LOGS in the panel, then attach the file to a GitHub issue).
+- Release notes in English, Italian and Japanese, only in the GitHub release body (no CHANGES.txt in the ZIP), under the
+  headings `## English`, `## Italiano` and `## 日本語`: this is an alpha, what changed, known bugs, and how to report one
+  (SAVE LOGS in the panel, then attach the file to a GitHub issue). The Launcher's UPDATE tab shows the section in the
+  player's language (English when there is none), up to the `SHA-256 sums` line, as plain text with VIEW ON GITHUB.
 - Player feedback: GitHub issues, in English, Italian or Japanese.
 
 ## Stability gate
@@ -80,6 +86,8 @@ The Launcher's UPDATE (both editions) reads this repository's releases from the 
   with neither, or a mismatch, UPDATE changes nothing.
 - A release whose game files need the installer again: put `<!-- needs-installer -->` in the release notes. UPDATE then
   copies nothing and opens the release page.
+- The release list brings each release's notes. The notes of the installed version and of the newest release are kept
+  once per version in `data\release-notes\<version>.md`; UPDATE shows the kept copy when GitHub does not answer.
 - The Launcher checks at most once a day at start (`data\update-check.txt`) and every time the UPDATE page opens.
 - A newer release that is not a test build shows a notice: a line at the top of the main page and the tag on the UPDATE
   entry. It stays (`data\update-available.txt`, kept across restarts while the release is still newer) until the

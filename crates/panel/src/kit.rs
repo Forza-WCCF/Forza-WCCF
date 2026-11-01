@@ -140,7 +140,7 @@ impl Files {
         let kit = forza::kit::Kit::at(self.data.parent().unwrap_or(&self.data));
         let version = kit
             .release()
-            .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
+            .unwrap_or_else(|| env!("FORZA_VERSION").to_owned());
         Status {
             link: server_link(),
             card: match session {

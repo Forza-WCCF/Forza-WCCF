@@ -2,6 +2,8 @@
 //! Test builds (pre-releases) are never "newer": only a release is offered that way.
 
 use std::env;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 use semver::Version;
 
@@ -81,6 +83,78 @@ pub fn check_due(now: u64, last: Option<u64>) -> bool {
     last.is_none_or(|l| now < l || now - l >= 24 * 3600)
 }
 
+/// What UPDATE shows of a release's notes (GitHub's markdown body), in `lang` ("en", "it", "ja"): the `## English`,
+/// `## Italiano` or `## 日本語` section, else the English one, else the whole body; up to the checksums line and the
+/// VirusTotal table, headings without their `#`. Remote text: no HTML comments (the `needs-installer` marker), no `**`, no control or bidi/zero-width
+/// characters, at most 16,000 characters. Tags stay literal text: the window draws it as a label, never as markup or links.
+pub fn notes(body: &str, lang: &str) -> String {
+    let heading = match lang {
+        "it" => "Italiano",
+        "ja" => "日本語",
+        _ => "English",
+    };
+    let section = |name: &str| {
+        let mut lines = body.lines().skip_while(|l| {
+            !l.strip_prefix("## ")
+                .is_some_and(|h| h.trim().eq_ignore_ascii_case(name))
+        });
+        lines.next()?;
+        Some(lines.take_while(|l| !l.starts_with("## ")).collect::<Vec<_>>())
+    };
+    let lines = section(heading)
+        .or_else(|| section("English"))
+        .unwrap_or_else(|| body.lines().collect());
+    let mut text: String = lines
+        .into_iter()
+        .take_while(|l| !l.starts_with("SHA-256 sums") && !l.starts_with("### VirusTotal"))
+        // a heading's `### ` goes, its words stay
+        .map(|l| match l.trim_start_matches('#') {
+            t if t.len() < l.len() && t.starts_with(' ') => t.trim_start(),
+            _ => l,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    while let Some(a) = text.find("<!--") {
+        let b = text[a..].find("-->").map_or(text.len(), |b| a + b + 3);
+        text.replace_range(a..b, "");
+    }
+    text.replace("**", "")
+        .chars()
+        .filter(|&c| {
+            c == '\n'
+                || !(c.is_control()
+                    || matches!(c, '\u{200b}'..='\u{200f}' | '\u{2028}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}'))
+        })
+        .take(16_000)
+        .collect::<String>()
+        .trim()
+        .to_owned()
+}
+
+/// The copy of a release's notes in `data`\release-notes\, named by its version (none for a tag of unknown shape).
+fn notes_file(data: &Path, tag: &str) -> Option<PathBuf> {
+    parse(tag).map(|v| data.join("release-notes").join(format!("{v}.md")))
+}
+
+/// Keeps the notes of release `tag` once: a version's first copy stays, so each is written at most once.  UPDATE shows
+/// it when GitHub does not answer.
+pub fn keep_notes(data: &Path, tag: &str, body: &str) {
+    if let Some(f) = notes_file(data, tag)
+        && !body.trim().is_empty()
+        && !f.exists()
+    {
+        let _ = f.parent().map(fs::create_dir_all);
+        // a self-hosted target has no size limit: GitHub's bodies stay under 125,000 characters
+        let end = body.char_indices().nth(125_000).map_or(body.len(), |(i, _)| i);
+        let _ = fs::write(f, &body[..end]);
+    }
+}
+
+/// The notes of release `tag` kept by [`keep_notes`].
+pub fn kept_notes(data: &Path, tag: &str) -> Option<String> {
+    fs::read_to_string(notes_file(data, tag)?).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,6 +191,42 @@ mod tests {
         assert!(!files_differ("0.3.2", "kit-0.3.2-defendertest")); // a test kit's label
         assert!(!files_differ("0.3.2", "kit-1208d80")); // a build of a commit
         assert!(!files_differ("0.3.2", "not known"));
+    }
+
+    const BODY: &str = "## English\r\n\r\n**Big one.** 0.6.0 adds a cup.\r\n\r\n### For players\r\n\r\n- A cup.\r\n\
+        <!-- needs-installer -->\r\n\r\n## Italiano\r\n\r\n- Una\u{202e} coppa.\u{7}\r\n\r\n## 日本語\r\n\r\n- カップ。\r\n\r\n\
+        SHA-256 sums: `SHA256SUMS.txt`.\r\n\r\n### VirusTotal\r\n\r\n| File |\r\n";
+
+    #[test]
+    fn notes_in_the_players_language_as_plain_text() {
+        assert_eq!(
+            notes(BODY, "en"),
+            "Big one. 0.6.0 adds a cup.\n\nFor players\n\n- A cup."
+        );
+        assert_eq!(notes(BODY, "it"), "- Una coppa."); // the control and bidi characters dropped
+        assert_eq!(notes(BODY, "ja"), "- カップ。"); // no checksums, no VirusTotal table
+        // no section in the language: English; no sections at all: the whole body
+        let en_only = "## English\n- A cup.\n";
+        assert_eq!(notes(en_only, "ja"), "- A cup.");
+        assert_eq!(notes("Just <b>text</b> <!-- x", "it"), "Just <b>text</b>");
+        assert_eq!(notes("#42 stays\n## Heading", "en"), "#42 stays\nHeading");
+        assert_eq!(notes(&"x".repeat(20_000), "en").len(), 16_000);
+    }
+
+    #[test]
+    fn notes_are_kept_once_per_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path();
+        assert_eq!(kept_notes(data, "v0.6.0"), None);
+        keep_notes(data, "v0.6.0", "");
+        assert_eq!(kept_notes(data, "v0.6.0"), None); // an empty body is not kept
+        keep_notes(data, "v0.6.0", "first");
+        keep_notes(data, "v0.6.0", "edited later");
+        assert_eq!(kept_notes(data, "v0.6.0").as_deref(), Some("first"));
+        assert_eq!(kept_notes(data, "kit-0.6.0").as_deref(), Some("first")); // version.txt's name for it
+        keep_notes(data, "../../evil", "x");
+        assert!(!data.join("release-notes").join("..").join("..").join("evil").exists());
+        assert_eq!(fs::read_dir(data.join("release-notes")).unwrap().count(), 1);
     }
 
     #[test]

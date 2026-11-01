@@ -68,8 +68,8 @@ pub enum Action {
     Update(usize),
     /// UPDATE, confirmed.
     UpdateNow(usize),
-    /// "What's new" of the release at this place in the list.
-    WhatsNew(usize),
+    /// VIEW ON GITHUB: the release page of the release at this place in the list; none chosen, every release.
+    WhatsNew(Option<usize>),
     /// The window's language changed (`lang`).
     Language,
     /// SAVE LOGS: the logs ZIP into the Downloads folder.
@@ -165,6 +165,9 @@ pub struct LauncherState {
     pub update_status: Option<(Tone, String)>,
     pub releases: Vec<Release>,
     pub selected: Option<usize>,
+    /// The chosen release's notes in the window's language, plain text (`launcher::release::notes`); remote text, drawn
+    /// only as a label.
+    pub notes: Option<String>,
     pub output: Vec<String>,
     /// A question shown in a modal.
     pub confirm: Option<Confirm>,
@@ -258,6 +261,7 @@ impl LauncherState {
                 release("v6.4.2", false, "2026-08-30", false, false),
             ],
             selected: Some(1),
+            notes: None,
             output: [
                 "[15:02:11] start: seat 1, this PC",
                 "[15:02:11] card table: 16 slots ready",
@@ -299,6 +303,20 @@ impl LauncherState {
             }
             Scenario::Update => {
                 st.tab = Tab::Update;
+                st.notes = Some(
+                    match lang {
+                        Lang::En => "A short network stall no longer hands a match to the CPU.\n\nFor players\n\n\
+                            - RESET LINEUP puts the board back to the start of the match.\n\
+                            - The Launcher shows these notes in your language.",
+                        Lang::It => "Un breve blocco della rete non passa più la partita alla CPU.\n\nPer i giocatori\n\n\
+                            - RESET LINEUP riporta la lavagna all'inizio della partita.\n\
+                            - Il Launcher mostra queste note nella tua lingua.",
+                        Lang::Ja => "短いネットワークの停止で試合が CPU に渡らなくなりました。\n\nプレイヤー向け\n\n\
+                            - RESET LINEUP でボードが試合開始時に戻ります。\n\
+                            - Launcher がこのノートをあなたの言語で表示します。",
+                    }
+                    .to_owned(),
+                );
                 st.update_status = Some((
                     Tone::Refused,
                     tr!(
@@ -720,7 +738,8 @@ fn release_text(r: &Release, lang: Lang) -> String {
     s
 }
 
-/// The UPDATE tab: this version or the newest, the releases in a list box with UPDATE beside it, "What's new".
+/// The UPDATE tab: this version or the newest, the releases in a list box with UPDATE beside it, VIEW ON GITHUB and the
+/// chosen release's notes.
 fn update(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Action>) {
     let version = match &st.update_available {
         Some(tag) => tr!(lang, "launcher.update_available", tag = tag.as_str()),
@@ -765,14 +784,30 @@ fn update(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
             *act = Some(Action::Update(i));
         }
     });
-    let notes = ui.add_enabled_ui(chosen.is_some(), |ui| {
-        action(ui, &tr!(lang, "launcher.whats_new"))
-    });
-    if let (true, Some(i)) = (notes.inner.clicked(), chosen) {
-        *act = Some(Action::WhatsNew(i));
+    if action(ui, &tr!(lang, "launcher.view_on_github")).clicked() {
+        *act = Some(Action::WhatsNew(chosen));
     }
     if let Some((tone, text)) = &st.update_status {
         status_line(ui, *tone, text);
+    }
+    // the release notes: remote text, so a plain label (no markup, no links)
+    if let Some(notes) = &st.notes {
+        ui.label(
+            egui::RichText::new(tr!(lang, "launcher.whats_new"))
+                .font(theme::body(14.0))
+                .color(theme::TEXT_DIM),
+        );
+        egui::Frame::new()
+            .fill(theme::WELL)
+            .corner_radius(theme::RADIUS)
+            .inner_margin(10)
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.add(
+                    egui::Label::new(egui::RichText::new(notes.as_str()).font(theme::body(13.0)))
+                        .wrap(),
+                );
+            });
     }
 }
 

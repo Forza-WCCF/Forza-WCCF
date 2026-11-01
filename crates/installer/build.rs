@@ -18,6 +18,7 @@ const DPI_MANIFEST: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="y
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=../launcher/version_rc.rs");
+    let version = version_rc::release_version();
     if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() != Ok("msvc") {
         return;
     }
@@ -30,10 +31,11 @@ fn main() {
         "cargo:rustc-link-arg-bin={bin}=/MANIFESTINPUT:{}",
         dpi.display()
     );
-    if let Some(res) = version_rc::make(
+    if let Some(res) = version_rc::make_with(
         bin,
         "installs Forza-WCCF from your game disc",
         Some("../../assets/logo/forza-wccf.ico"),
+        &version,
     ) {
         println!("cargo:rustc-link-arg-bin={bin}={}", res.display());
     }
