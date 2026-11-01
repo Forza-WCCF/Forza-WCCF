@@ -780,6 +780,7 @@ impl App {
         // settings keys kept from before the arcade rename: players' settings.json already holds them
         lobby.list_arcade = kit.settings()["list_shop"].as_bool() == Some(true);
         lobby.arcade_name = choices::setting(&settings, "shop_name").unwrap_or_default();
+        lobby.cup = launcher::conf::cup_choice(&kit.settings());
         let st = LauncherState {
             edition: ed,
             lang: text::lang(),
@@ -1149,12 +1150,17 @@ impl App {
                         }
                     }
                     // the host dialog's switch (default off) and the listed room's name as typed, as the desk carries it
-                    // (run::open_arcade_room reads both)
+                    // (run::open_arcade_room reads both), and the Universal Cup time (run's start_gamesvr)
                     let name = forza::online::lobby::arcade_name(&self.st.lobby.arcade_name);
                     let file = kit.settings_file();
                     // same kept settings keys as at start-up
                     if let Err(e) = choices::set_setting_bool(&file, "list_shop", self.st.lobby.list_arcade)
                         .and_then(|()| choices::set_setting(&file, "shop_name", &name))
+                        .and_then(|()| {
+                            launcher::conf::cup_settings(self.st.lobby.cup)
+                                .into_iter()
+                                .try_for_each(|(k, v)| choices::set_setting_json(&file, k, v))
+                        })
                     {
                         refuse(write_failed(&file, &e));
                         return;
