@@ -975,11 +975,148 @@ fn stall_install_at(base: usize, log: fn(&str)) -> bool {
     true
 }
 
-/// 2017-18 client only: a VS tolerates a short network stall. Called from the panel's start.
+/// 2017-18 client only: a VS tolerates a short network stall, and the moment one drops to the CPU is logged. Called
+/// from the panel's start.
 pub fn stall_tolerance_install(e1718: bool, log: fn(&str)) {
     let nm = exe_name();
     if e1718 && is_client(&nm) {
-        stall_install_at(exe_base(), log);
+        let base = exe_base();
+        stall_install_at(base, log);
+        wait_install_at(base, log);
+        lost_log_install(base, log);
+    }
+}
+
+// The frame wait. sub_4B0E10 (VS session setup) sets the link's wait limit, `[session+0x10]+0xD8`, to 500 x TIMEOUT_P2P
+// (the user option at `[0x06D9F288]+0x3C`, 7 unless a config line sets it). sub_4C4640 spins Sleep(1) while the peer's
+// frame is missing, counting spins in `+0xD4`; at the limit the caller (0x4B1940) sets flag 0x1000 TIMEOUT(ON) and calls
+// sub_4B1F90, which drops the VS to the CPU. The game raises the timer to 1 ms (timeBeginPeriod), so 3,500 spins are
+// 3.5-5 s of stall (2026-11-01: two drops after ~5 s). The limit is local: the peer's value never goes on the wire.
+
+/// `mov eax, [ecx+3Ch]; imul eax, eax, 500`: the multiplier's imm32 starts 5 bytes in.
+const WAIT_SITE: usize = 0x004B_1215;
+const WAIT_ORIG: [u8; 9] = [0x8B, 0x41, 0x3C, 0x69, 0xC0, 0xF4, 0x01, 0x00, 0x00];
+/// Spins per TIMEOUT_P2P unit: 7 x 1,500 = 10,500 spins, about 10.5-15 s at the game's 1-1.5 ms per Sleep(1).
+/// shortcut: counts spins, not time; a window Windows 11 denies the 1 ms timer (minimized or covered) waits ~15 ms a
+/// spin, so up to ~160 s before the drop. Upgrade to a clock check in the loop if covered seats show it.
+pub(crate) const WAIT_PER_UNIT: u32 = 1500;
+
+/// The image at `base`: the session's wait multiplier 500 -> [`WAIT_PER_UNIT`], on the original bytes only.
+fn wait_install_at(base: usize, log: fn(&str)) -> bool {
+    let at = WAIT_SITE - BASE_1718 + base;
+    if pe_stamp(base) != Some(CLIENT_STAMP) || read::<9>(at) != Some(WAIT_ORIG) {
+        log(
+            "vs wait: not the code studied - nothing changed (a VS drops after a ~5 s network stall)",
+        );
+        return false;
+    }
+    if !patch_code(at + 5, &WAIT_PER_UNIT.to_le_bytes()) {
+        log("vs wait: code not writable - nothing changed");
+        return false;
+    }
+    log(&format!(
+        "vs wait: frame wait 500 -> {WAIT_PER_UNIT} spins per TIMEOUT_P2P unit - a VS rides out a ~10 s network stall"
+    ));
+    true
+}
+
+// The drop itself. Every path to the CPU calls sub_4B1F90 (esi = the VS session); it acts once, while byte `+0x49` is 0,
+// then sets it. Its callers name the reason; `[session+0x10]` is the link, its `+0xCC` the frame count.
+
+/// sub_4B1F90's first five bytes: `push ecx; cmp byte [esi+49h], 0`.
+const LOST_FN: usize = 0x004B_1F90;
+const LOST_PROLOGUE: [u8; 5] = [0x51, 0x80, 0x7E, 0x49, 0x00];
+/// sub_4B1F90's return addresses (call + 5) and the reason each stands for.
+const LOST_CALLERS: [(usize, &str); 9] = [
+    (0x004B_1972, "frame wait timeout"),  // flag 0x1000 TIMEOUT(ON)
+    (0x004B_1534, "link timeout"),        // flag 0x100000 TIMEOUT(OFF)
+    (0x004B_44B5, "peer frames missing"), // flag 0x200000, sub_4B41E0's count of 30 (90 patched)
+    (0x004B_44F6, "frame mismatch"),      // flag 0x2000 SLIP_FRAME
+    (0x004B_48F2, "game flag"),           // sub_4B48E0, flag passed in
+    (0x0040_FB7B, "peer disconnected"),   // P2P_DISCON
+    (0x007D_405C, "divide wait timeout"), // flag 0x40000 TIMEOUT_DIVIDE_WAIT
+    (0x007D_4099, "opponent version differs"), // flag 0x80000
+    (0x004C_21CD, "game"),
+];
+static LOST_LOG: AtomicUsize = AtomicUsize::new(0);
+static LOST_BASE: AtomicUsize = AtomicUsize::new(0);
+
+/// The reason for a drop whose sub_4B1F90 call returns to `ret` (an address in the studied image).
+fn lost_reason(ret: usize) -> String {
+    LOST_CALLERS.iter().find(|&&(r, _)| r == ret).map_or_else(
+        || format!("caller {:08X}", ret.wrapping_sub(5)),
+        |&(_, why)| why.into(),
+    )
+}
+
+/// The stub sub_4B1F90's first bytes jump to, built for the page at `at`: once per VS (byte +0x49 still 0) it calls
+/// `hook(session, return address)` with every register kept, then runs the five moved bytes and jumps back.
+fn lost_stub(at: usize, hook: usize, target: usize) -> [u8; 31] {
+    let rel = |from: usize, to: usize| (to.wrapping_sub(from) as u32).to_le_bytes();
+    let mut s = [0u8; 31];
+    s[..6].copy_from_slice(&[0x80, 0x7E, 0x49, 0x00, 0x75, 0x0F]); // cmp byte [esi+49h], 0; jne +15 (to the moved bytes)
+    s[6..12].copy_from_slice(&[0x60, 0xFF, 0x74, 0x24, 0x20, 0x56]); // pushad; push [esp+20h] (the return address); push esi
+    s[12] = 0xE8;
+    s[13..17].copy_from_slice(&rel(at + 17, hook));
+    s[17..21].copy_from_slice(&[0x83, 0xC4, 0x08, 0x61]); // add esp, 8; popad
+    s[21..26].copy_from_slice(&LOST_PROLOGUE);
+    s[26] = 0xE9;
+    s[27..31].copy_from_slice(&rel(at + 31, target + 5));
+    s
+}
+
+/// Called by the stub on the game's thread when a VS drops to the CPU. Reads only through the checked readers.
+extern "C" fn lost_hook(session: usize, ret: usize) {
+    let log = LOST_LOG.load(Relaxed);
+    if log == 0 {
+        return;
+    }
+    // SAFETY: stored from a `fn(&str)` in lost_log_install
+    let log: fn(&str) = unsafe { std::mem::transmute(log) };
+    let ret = ret
+        .wrapping_sub(LOST_BASE.load(Relaxed))
+        .wrapping_add(BASE_1718);
+    let link = read_u32(session + 0x10).unwrap_or(0) as usize;
+    let at = |off| read_u32(link + off).map_or("?".into(), |v| v.to_string());
+    log(&format!(
+        "vs: peer lost ({}) at frame {}, {} (frame wait {} of {} spins)",
+        lost_reason(ret),
+        at(0xCC),
+        crate::clock(),
+        at(0xD4),
+        at(0xD8)
+    ));
+}
+
+/// sub_4B1F90 jumps to [`lost_stub`] first, on the original bytes only.
+fn lost_log_install(base: usize, log: fn(&str)) {
+    let target = LOST_FN - BASE_1718 + base;
+    if pe_stamp(base) != Some(CLIENT_STAMP) || read::<5>(target) != Some(LOST_PROLOGUE) {
+        log("vs: sub_4B1F90 is not the code studied - a drop to the CPU is not logged");
+        return;
+    }
+    // SAFETY: a fresh executable page of our own
+    let page = unsafe {
+        windows::Win32::System::Memory::VirtualAlloc(
+            None,
+            32,
+            windows::Win32::System::Memory::MEM_COMMIT
+                | windows::Win32::System::Memory::MEM_RESERVE,
+            PAGE_EXECUTE_READWRITE,
+        )
+    } as usize;
+    if page == 0 {
+        log("vs: no page for the drop log - a drop to the CPU is not logged");
+        return;
+    }
+    let stub = lost_stub(page, lost_hook as *const () as usize, target);
+    // SAFETY: 31 bytes into the 32-byte page just made
+    unsafe { std::ptr::copy_nonoverlapping(stub.as_ptr(), page as *mut u8, stub.len()) };
+    LOST_BASE.store(base, Relaxed);
+    LOST_LOG.store(log as usize, Relaxed);
+    let [a, b, c, d] = (page.wrapping_sub(target + 5) as u32).to_le_bytes();
+    if patch_code(target, &[0xE9, a, b, c, d]) {
+        log("vs: a drop to the CPU is logged (sub_4B1F90)");
     }
 }
 
@@ -1020,6 +1157,43 @@ mod tests {
         // a second run finds 90, not 30: refused, unchanged
         assert!(!stall_install_at(base, |_| {}));
         assert_eq!(site(&img, 2)[6], 90);
+    }
+
+    #[test]
+    fn wait_patch_checks_then_writes() {
+        // a fake image relocated anywhere: the PE header and the imul at its offset from the preferred base
+        let mut img = vec![0u8; 0x0B_2000];
+        img[0x3C..0x40].copy_from_slice(&0x100u32.to_le_bytes());
+        img[0x108..0x10C].copy_from_slice(&CLIENT_STAMP.0.to_le_bytes());
+        img[0x150..0x154].copy_from_slice(&CLIENT_STAMP.1.to_le_bytes());
+        let off = WAIT_SITE - BASE_1718;
+        img[off..off + 9].copy_from_slice(&WAIT_ORIG);
+        img[off + 2] = 0x3D; // not the original: refused
+        let base = img.as_mut_ptr() as usize;
+        assert!(!wait_install_at(base, |_| {}));
+        assert_eq!(img[off + 5..off + 9], 500u32.to_le_bytes());
+        img[off + 2] = 0x3C;
+        assert!(wait_install_at(base, |_| {}));
+        assert_eq!(img[off..off + 5], WAIT_ORIG[..5]);
+        assert_eq!(img[off + 5..off + 9], 1500u32.to_le_bytes());
+        assert_eq!(7 * WAIT_PER_UNIT, 10_500); // TIMEOUT_P2P 7: 10,500 spins
+        assert!(!wait_install_at(base, |_| {})); // patched once only
+    }
+
+    #[test]
+    fn lost_stub_calls_then_resumes() {
+        let (at, hook, target) = (0x1000_0000usize, 0x2000_0000usize, 0x004B_1F90usize);
+        let s = lost_stub(at, hook, target);
+        let dest = |i: usize| {
+            (at + i + 4).wrapping_add(i32::from_le_bytes(s[i..i + 4].try_into().unwrap()) as usize)
+        };
+        assert_eq!(s[4..6], [0x75, 0x0F]);
+        assert_eq!(6 + 15, 21); // the jne lands on the moved bytes
+        assert_eq!((s[12], dest(13)), (0xE8, hook));
+        assert_eq!(s[21..26], LOST_PROLOGUE);
+        assert_eq!((s[26], dest(27)), (0xE9, target + 5)); // back to sub_4B1F90's `jne` after the moved bytes
+        assert_eq!(lost_reason(0x004B_1972), "frame wait timeout");
+        assert_eq!(lost_reason(0x0050_0005), "caller 00500000");
     }
 
     #[test]
