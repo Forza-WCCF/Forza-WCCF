@@ -33,6 +33,7 @@ launcher.mark_this: {en: "(this version)", it: "(questa versione)", ja: "（使�
 launcher.mark_newer: {en: "(newer)", it: "(più recente)", ja: "（新しい版）"}
 launcher.update_button: {en: "UPDATE", it: "AGGIORNA", ja: "アップデート"}
 launcher.whats_new: {en: "What's new", it: "Novità", ja: "更新内容"}
+launcher.view_on_github: {en: "View on GitHub", it: "Vedi su GitHub", ja: "GitHubで見る"}
 launcher.output: {en: "DETAILS", it: "DETTAGLI", ja: "詳細"}
 launcher.copy: {en: "Copy", it: "Copia", ja: "コピー"}
 launcher.card_pictures: {en: "CARD PICTURES", it: "IMMAGINI CARTE", ja: "カード画像"}

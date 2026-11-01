@@ -46,7 +46,7 @@ use forza_ui::lobby::LobbyAction;
 use forza_ui::theme;
 use forza_ui::widgets::Tone;
 use forza_ui::{Lang, text as ui_text};
-use launcher::release::{check_due, files_differ, is_newer, parse};
+use launcher::release::{check_due, files_differ, is_newer, keep_notes, kept_notes, parse};
 use launcher::run::{self, Params};
 use launcher::{Edition, Kit, choices};
 use text::{t, tf};
@@ -670,8 +670,16 @@ fn ask_updates() {
         let kit = Kit::here();
         let found = update::fetch(kit.edition().name());
         let installed = this_kit(&kit);
-        if found.is_ok() {
+        if let Ok(list) = &found {
             let _ = std::fs::write(check_file(&kit), unix_now().to_string());
+            // the notes of this version and the newest, kept for UPDATE when GitHub does not answer
+            let newer = update::newest(list, &installed).map(|r| r.tag.as_str());
+            for r in list
+                .iter()
+                .filter(|r| parse(&r.tag) == parse(&installed) || Some(r.tag.as_str()) == newer)
+            {
+                keep_notes(&kit.data(), &r.tag, &r.notes);
+            }
         }
         ASKING.store(false, Ordering::Relaxed);
         {
@@ -704,6 +712,8 @@ fn ask_updates() {
 struct App {
     st: LauncherState,
     releases: Vec<Release>,
+    /// The release and language `st.notes` was made for.
+    notes_for: Option<(String, Lang)>,
     online: online::Online,
     /// When the LAN fold's last search started.
     lan_at: Option<Instant>,
@@ -774,6 +784,7 @@ impl App {
             update_status: None,
             releases: Vec::new(),
             selected: None,
+            notes: None,
             output: Vec::new(),
             confirm: None,
             report: None,
@@ -782,6 +793,7 @@ impl App {
         App {
             st,
             releases: Vec::new(),
+            notes_for: None,
             online: online_state,
             lan_at: None,
         }
@@ -801,6 +813,25 @@ impl App {
                 newer: !r.test && is_newer(&r.tag, &installed),
             })
             .collect();
+    }
+
+    /// The notes under UPDATE's list: the chosen release's (the list's copy, else the one kept in data\), else this
+    /// version's kept copy, in the window's language. Made again only when the release or the language changes.
+    fn notes(&mut self, kit: &Kit) {
+        let chosen = self.st.selected.and_then(|i| self.releases.get(i));
+        let tag = chosen.map_or_else(|| this_kit(kit), |r| r.tag.clone());
+        let key = (tag, self.st.lang);
+        if self.notes_for.as_ref() == Some(&key) {
+            return;
+        }
+        let body = chosen
+            .map(|r| r.notes.clone())
+            .filter(|b| !b.trim().is_empty())
+            .or_else(|| kept_notes(&kit.data(), &key.0));
+        self.st.notes = body
+            .map(|b| launcher::release::notes(&b, key.1.code()))
+            .filter(|t| !t.is_empty());
+        self.notes_for = Some(key);
     }
 
     /// The question for the player, in the window's language.
@@ -1059,9 +1090,11 @@ impl App {
                 }
             }
             Action::WhatsNew(i) => {
-                if let Some(r) = self.releases.get(i) {
-                    ctx.open_url(egui::OpenUrl::new_tab(&r.page));
-                }
+                // the chosen release's page, else (no list: offline) the releases page
+                let page = i
+                    .and_then(|i| self.releases.get(i))
+                    .map_or(RELEASES_PAGE, |r| r.page.as_str());
+                ctx.open_url(egui::OpenUrl::new_tab(page));
             }
             Action::Lobby(LobbyAction::HostShop) => {
                 if !self.st.busy && !self.st.running {
@@ -1271,6 +1304,9 @@ fn write_failed(path: &Path, e: &std::io::Error) -> String {
     )
 }
 
+/// GitHub's page of every release: VIEW ON GITHUB before the list has come.
+const RELEASES_PAGE: &str = "https://github.com/Forza-WCCF/Forza-WCCF/releases";
+
 /// This folder's version as the window shows it ("kit-7.0.0" -> "7.0.0").
 fn version(kit: &Kit) -> String {
     kit.release().unwrap_or_else(|| t("launcher.msg_not_known"))
@@ -1323,6 +1359,9 @@ impl eframe::App for App {
 
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.look(ctx);
+        if self.st.tab == Tab::Update {
+            self.notes(&Kit::here());
+        }
         // a safety net for anything that changed without a poke
         ctx.request_repaint_after(Duration::from_millis(if self.st.busy { 250 } else { 1000 }));
     }
@@ -1385,7 +1424,7 @@ fn work_area() -> Option<egui::Rect> {
 
 /// The window, until it is closed (or gone because the game is up and then ended well).
 fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
-    let own = env!("CARGO_PKG_VERSION");
+    let own = env!("FORZA_VERSION");
     log(&format!("Launcher.exe {own}, files {}", this_kit(kit)));
     if files_differ(own, &this_kit(kit)) {
         say(
