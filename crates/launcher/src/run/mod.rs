@@ -363,6 +363,23 @@ pub fn admit(kit: &Kit) -> Option<Admission> {
     }
 }
 
+/// The Launcher window's mutex for this kit folder (2010-11 and 2017-18 installs never share it), owned by this
+/// thread for as long as the handle lives; `None` while another Launcher window holds it past `wait_ms`.
+pub fn hold_window(kit: &Kit, wait_ms: u32) -> Option<OwnedHandle> {
+    let name = lock_name(kit, "window");
+    // SAFETY: a NUL-terminated name; the handle is checked, then owned (closed on drop).
+    unsafe {
+        let h = CreateMutexW(ptr::null(), FALSE, name.as_ptr());
+        if h.is_null() {
+            return None;
+        }
+        let h = OwnedHandle::from_raw_handle(h);
+        let got = WaitForSingleObject(h.as_raw_handle(), wait_ms);
+        // abandoned: the window that held it ended
+        (got == WAIT_OBJECT_0 || got == WAIT_ABANDONED).then_some(h)
+    }
+}
+
 /// A run of this kind is on (in this process or another).
 pub fn is_on(kit: &Kit, kind: Kind) -> bool {
     let name = lock_name(kit, kind.name());
