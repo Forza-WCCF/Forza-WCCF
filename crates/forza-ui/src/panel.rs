@@ -635,6 +635,8 @@ pub struct PanelState {
     pub undo: Option<(board::Removed, f64)>,
     /// A take-off refused during a match: when (the frame's time) the note under the board shows for [`UNDO_SECS`].
     pub kept_at: Option<f64>,
+    /// Where the last take-off was let go (from the board's top left) and the board's size, until the panel DLL logs it.
+    pub off_at: Option<(Pos2, egui::Vec2)>,
     /// That card's number, until the panel DLL logs it ([`board::take_kept`]).
     pub kept_log: Option<u32>,
     /// KEY PLAYER or KEEPER latched down by a right-click ([`latch_click`]): its key stays down until the next click.
@@ -758,6 +760,7 @@ impl PanelState {
             formations: None,
             kept_at: None,
             kept_log: None,
+            off_at: None,
             in_match: false,
             before_match: None,
             match_seen: false,
@@ -2594,6 +2597,7 @@ fn board_window(ui: &mut Ui, st: &mut PanelState, lang: Lang, sheet: Rect) {
 fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)> {
     let now = b.input(|i| i.time);
     if let Some(r) = board::take_removed(b) {
+        st.off_at = Some((r.at, r.size));
         st.undo = Some((r, now));
         st.import_undo = None; // UNDO now means this card
     }
