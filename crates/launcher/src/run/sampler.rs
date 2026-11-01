@@ -30,8 +30,8 @@ pub struct Usage {
 }
 
 /// The line: `cpu 23% free 5123 MB | client 12% 812 MB pf +1234 | match x4 9% 840 MB pf +22` (the match engines
-/// summed; "-" for a program not running).
-pub fn line(cpu: u32, free_mb: u64, client: Option<Usage>, matches: (usize, Usage)) -> String {
+/// summed; "-" for a program not running, "?" for RAM Windows would not say).
+pub fn line(cpu: u32, free_mb: Option<u64>, client: Option<Usage>, matches: (usize, Usage)) -> String {
     let client = client.map_or("-".into(), |u| format!("{}% {} MB pf +{}", u.cpu, u.mb, u.faults));
     let (n, m) = matches;
     let matches = if n == 0 {
@@ -39,7 +39,8 @@ pub fn line(cpu: u32, free_mb: u64, client: Option<Usage>, matches: (usize, Usag
     } else {
         format!("x{n} {}% {} MB pf +{}", m.cpu, m.mb, m.faults)
     };
-    format!("cpu {cpu}% free {free_mb} MB | client {client} | match {matches}")
+    let free = free_mb.map_or("?".into(), |f| f.to_string());
+    format!("cpu {cpu}% free {free} MB | client {client} | match {matches}")
 }
 
 /// The WARN line for `free_mb` of free RAM, if it is low.
@@ -73,15 +74,12 @@ fn process(pid: u32) -> Option<(u64, u64, u64)> {
     }
 }
 
-fn free_mb() -> u64 {
+fn free_mb() -> Option<u64> {
     // SAFETY: a zeroed MEMORYSTATUSEX with its length set, as the call asks
     unsafe {
         let mut m: MEMORYSTATUSEX = std::mem::zeroed();
         m.dwLength = size_of::<MEMORYSTATUSEX>() as u32;
-        if GlobalMemoryStatusEx(&mut m) == 0 {
-            return 0;
-        }
-        m.ullAvailPhys >> 20
+        (GlobalMemoryStatusEx(&mut m) != 0).then_some(m.ullAvailPhys >> 20)
     }
 }
 
@@ -126,6 +124,10 @@ pub fn spawn(logs: PathBuf) -> Handle {
                     continue;
                 }
                 let Some((t, bytes, faults)) = process(p.pid) else {
+                    // a read that failed keeps its last figures for the next line
+                    if let Some(&v) = last.get(&p.pid) {
+                        seen.insert(p.pid, v);
+                    }
                     continue;
                 };
                 let (t0, f0) = last.get(&p.pid).copied().unwrap_or((t, faults));
@@ -147,7 +149,7 @@ pub fn spawn(logs: PathBuf) -> Handle {
             last = seen;
             let free = free_mb();
             crate::logs::append(&file, &line(cpu, free, client, matches));
-            if let Some(w) = low_ram(free) {
+            if let Some(w) = free.and_then(low_ram) {
                 crate::logs::append(&file, &w);
             }
         }
@@ -171,15 +173,15 @@ mod tests {
             mb: 840,
             faults: 22,
         };
-        let l = line(23, 5123, Some(u), (4, m));
+        let l = line(23, Some(5123), Some(u), (4, m));
         assert_eq!(
             l,
             "cpu 23% free 5123 MB | client 12% 812 MB pf +1234 | match x4 9% 840 MB pf +22"
         );
         assert!(l.len() <= 100, "{} bytes", l.len());
         assert_eq!(
-            line(5, 900, None, (0, Usage::default())),
-            "cpu 5% free 900 MB | client - | match -"
+            line(5, None, None, (0, Usage::default())),
+            "cpu 5% free ? MB | client - | match -"
         );
     }
 
