@@ -28,7 +28,7 @@ pub const TAIL: usize = 2 * 1024 * 1024;
 /// A bigger ZIP is made again with shorter tails (it stays small enough to attach to a chat message).
 pub const LIMIT: usize = 7 * 1024 * 1024;
 /// A cabinet's lean snapshot is about 1 MB, 90 KB zipped.
-pub const DUMPS_SENT: usize = 4;
+pub const DUMPS_SENT: usize = 3;
 /// A save file bigger than this is left out (it is never cut).
 pub const SAVE_MAX: u64 = 3 * 1024 * 1024;
 
