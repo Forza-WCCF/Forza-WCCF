@@ -217,8 +217,21 @@ fn log(msg: &str) {
         .append(true)
         .open(path)
     {
-        let _ = writeln!(f, "{msg}");
+        let _ = writeln!(f, "{} {msg}", clock());
     }
+}
+
+/// This PC's wall clock as every panel log line starts: `hh:mm:ss.mmm`.
+pub(crate) fn clock() -> String {
+    // SAFETY: a plain clock query
+    clock_text(&unsafe { windows::Win32::System::SystemInformation::GetLocalTime() })
+}
+
+fn clock_text(t: &windows::Win32::Foundation::SYSTEMTIME) -> String {
+    format!(
+        "{:02}:{:02}:{:02}.{:03}",
+        t.wHour, t.wMinute, t.wSecond, t.wMilliseconds
+    )
 }
 
 #[unsafe(no_mangle)]
@@ -3385,8 +3398,20 @@ fn vk_key(vk: u32) -> Option<Key> {
 
 #[cfg(test)]
 mod tests {
-    use super::{big_enough, game_point, game_title, match_now};
+    use super::{big_enough, clock_text, game_point, game_title, match_now};
     use egui::{Rect, pos2};
+
+    #[test]
+    fn log_lines_start_with_the_wall_clock() {
+        let t = windows::Win32::Foundation::SYSTEMTIME {
+            wHour: 9,
+            wMinute: 5,
+            wSecond: 7,
+            wMilliseconds: 42,
+            ..Default::default()
+        };
+        assert_eq!(clock_text(&t), "09:05:07.042");
+    }
 
     /// A click on the letterboxed picture lands where it would on the game's own frame; the bars around the picture are
     /// not the game's, and a press held from the picture into a bar is clamped to the picture's edge.
