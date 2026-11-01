@@ -62,6 +62,8 @@ pub enum Action {
     Pictures { choose: bool },
     /// The skip-the-tutorial switch changed.
     SkipTutorial,
+    /// The FRAME CAP or VSYNC switch changed (`frame_cap`, `vsync`).
+    FramePacing,
     /// The direct VS link switch changed.
     VsLink,
     /// UPDATE to the release at this place in the list: Launcher.exe asks to confirm.
@@ -152,6 +154,10 @@ pub struct LauncherState {
     pub pictures_hq: bool,
     /// The skip-the-tutorial switch (2017–18 only).
     pub skip_tutorial: Option<bool>,
+    /// The frame cap switch: the game's frame wait sleeps instead of spinning a core (2017–18 only).
+    pub frame_cap: Option<bool>,
+    /// The VSync switch: the game's picture waits for the screen (2017–18 only).
+    pub vsync: Option<bool>,
     /// The club server, "HOST" or "HOST:PORT", empty for this PC (2017–18 only; saved at PLAY).
     pub club_server: Option<String>,
     /// The direct VS link switch, for club-server runs (2017–18 only).
@@ -248,6 +254,8 @@ impl LauncherState {
             folder: r"C:\Games\Forza-WCCF\2010-2011".into(),
             pictures_hq: false,
             skip_tutorial: None,
+            frame_cap: None,
+            vsync: None,
             club_server: None,
             vs_link: None,
             updates: edition == Edition::E1011,
@@ -278,6 +286,8 @@ impl LauncherState {
         if edition == Edition::E1718 {
             st.folder = r"C:\Games\Forza-WCCF\2017-2018".into();
             st.skip_tutorial = Some(true);
+            st.frame_cap = Some(true);
+            st.vsync = Some(false);
             st.club_server = Some(String::new());
             st.vs_link = Some(true);
         }
@@ -688,6 +698,24 @@ fn setup(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Actio
             .clicked()
         {
             *act = Some(Action::SkipTutorial);
+        }
+        for (on, label, hint) in [
+            (
+                &mut st.frame_cap,
+                tr!(lang, "launcher.frame_cap"),
+                tr!(lang, "launcher.frame_cap_hint"),
+            ),
+            (
+                &mut st.vsync,
+                tr!(lang, "launcher.vsync"),
+                tr!(lang, "launcher.vsync_hint"),
+            ),
+        ] {
+            if let Some(on) = on
+                && toggle_row(ui, on, &label, &hint).clicked()
+            {
+                *act = Some(Action::FramePacing);
+            }
         }
     });
 }

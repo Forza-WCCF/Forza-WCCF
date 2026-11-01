@@ -42,6 +42,10 @@ launcher.hq_pack: {en: "High-quality pack", it: "Pacchetto HQ", ja: "高画質�
 launcher.choose_pack: {en: "Choose pack…", it: "Scegli pacchetto…", ja: "パックを選択…"}
 launcher.skip_tutorial: {en: "Skip the tutorial", it: "Salta il tutorial", ja: "チュートリアルを省略"}
 launcher.skip_tutorial_hint: {en: "Applied at the next start.", it: "Si applica al prossimo avvio.", ja: "次回の起動時に反映されます。"}
+launcher.frame_cap: {en: "Frame cap", it: "Limite fotogrammi", ja: "フレーム制限"}
+launcher.frame_cap_hint: {en: "Waits between frames without using a full CPU core. Applied at the next start.", it: "Attende tra i fotogrammi senza occupare un intero core della CPU. Si applica al prossimo avvio.", ja: "CPUコアを使い切らずにフレーム間を待ちます。次回の起動時に反映されます。"}
+launcher.vsync: {en: "VSync", it: "VSync", ja: "垂直同期"}
+launcher.vsync_hint: {en: "Waits for the screen before showing each frame. Off: less input delay. Applied at the next start.", it: "Attende lo schermo prima di ogni fotogramma. Spento: meno ritardo dei comandi. Si applica al prossimo avvio.", ja: "各フレームを画面の更新に合わせて表示します。オフで入力の遅れが減ります。次回の起動時に反映されます。"}
 launcher.club_server: {en: "Club server", it: "Server club", ja: "クラブサーバー"}
 launcher.club_server_hint: {en: "Empty: the server you play on", it: "Vuoto: il server a cui giochi", ja: "空欄：プレイ中のサーバー"}
 launcher.vs_link: {en: "Direct VS link", it: "Collegamento VS diretto", ja: "ダイレクトVSリンク"}

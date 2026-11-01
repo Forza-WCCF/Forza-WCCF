@@ -32,6 +32,7 @@ mod fullscreen;
 mod kit;
 mod money;
 mod net;
+mod pacing;
 mod painter;
 mod patches;
 mod pause;
@@ -85,6 +86,12 @@ const GAME: TextureId = TextureId::User(0);
 
 /// The trampolines (the detoured functions' first bytes, then a jump back).
 static PRESENT: AtomicUsize = AtomicUsize::new(0);
+/// The Launcher's VSYNC (data\settings.json "vsync", 2017-18 only): our swap chain's interval. [`VSYNC_GAME`]: the
+/// game's own (2010-11 and the projector), else [`VSYNC_OFF`] (IMMEDIATE) or [`VSYNC_ON`] (ONE).
+pub(crate) static VSYNC: AtomicU8 = AtomicU8::new(VSYNC_GAME);
+const VSYNC_GAME: u8 = 0;
+const VSYNC_OFF: u8 = 1;
+pub(crate) const VSYNC_ON: u8 = 2;
 static RESET: AtomicUsize = AtomicUsize::new(0);
 /// What [`unload`] puts back: (function, its first five bytes, trampoline).
 static PATCHES: Mutex<Vec<(usize, [u8; 5], usize)>> = Mutex::new(Vec::new());
@@ -252,11 +259,13 @@ fn init() {
             std::process::id()
         ));
         let e1718 = files.edition == theme::Edition::E1718;
+        let cap = forza::kit::frame_cap(&files.settings());
         let _ = FILES.set(files);
         money::money_install(e1718, true, log);
         patches::limiter_start(
             e1718,
             DLL_DIR.get().map_or(Path::new(""), PathBuf::as_path),
+            cap,
             log,
         ); // the frame wait sleeps instead of spinning a core
         hook_device(); // its window composes the picture at any size
@@ -271,9 +280,15 @@ fn init() {
     let e1718 = files.edition == theme::Edition::E1718;
     money::fmt_guard_install(e1718, log); // a bad % no longer stops seat 1
     money::money_install(e1718, false, log); // amounts with commas (after the guard: box texts go through it)
+    let settings = files.settings();
+    if e1718 {
+        let on = forza::kit::vsync(&settings);
+        VSYNC.store(if on { VSYNC_ON } else { VSYNC_OFF }, Relaxed);
+    }
     patches::limiter_start(
         e1718,
         DLL_DIR.get().map_or(Path::new(""), PathBuf::as_path),
+        forza::kit::frame_cap(&settings),
         log,
     );
     net::relay_install(e1718, log); // on a server: a match against another player through its relay
@@ -621,6 +636,38 @@ fn is_projector() -> bool {
         })
 }
 
+/// The local time, "YYYY-MM-DD HH:MM:SS", for the lines the panel adds to the run's logs.
+fn local_stamp() -> String {
+    // SAFETY: a plain clock query
+    let t = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond
+    )
+}
+
+/// This seat plays a match, for the frame log ([`match_now`] without the card session: asked every half second).
+fn match_playing() -> bool {
+    let e1718 = FILES
+        .get()
+        .is_some_and(|f| f.edition == theme::Edition::E1718);
+    let seat = if e1718 { pause::seat_state() } else { None };
+    match_now(e1718, seat, pause::shop_state(e1718), false)
+}
+
+/// A finished match's frame times: the panel's log, and a dated line in WCCF_LOGS\frame_times.txt (a run's logs).
+fn frame_log(line: &str) {
+    log(&format!("frame times: {line}"));
+    if let Some(dir) = std::env::var_os("WCCF_LOGS")
+        && let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(PathBuf::from(dir).join("frame_times.txt"))
+    {
+        let _ = writeln!(f, "{} {line}", local_stamp());
+    }
+}
+
 /// The server link, watched all the time (`wccfpanel.c` `link_watch`): every 2 s this process's link to the server's
 /// control port; one dated line in WCCF_LOGS\server_link.txt when it comes up ("UP 1.2.3.4") and when it drops ("LOST
 /// (it was up N s)", or ENDED after the player closed the window: no fault). The run reads it (launcher run::rules).
@@ -644,12 +691,7 @@ fn link_watch() {
         if let Some(now) = now
             && now.is_some() != up_at.is_some()
         {
-            // SAFETY: a plain clock query
-            let t = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
-            let stamp = format!(
-                "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
-                t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond
-            );
+            let stamp = local_stamp();
             LINK_LOST.store(now.is_none() && !CLOSING.load(Relaxed), Relaxed);
             let line = match (&now, up_at) {
                 (Some(peer), _) => format!("{stamp} UP {peer}\n"),
@@ -1249,6 +1291,13 @@ unsafe extern "system" fn hook_present(
     }
     // the game's own parts, every frame (each acts on its own clock): as wccfpanel.c hook_present
     patches::frame_stats_tick(log);
+    // 2017-18: the per-match frame log (2010-11 stays as it is)
+    if FILES
+        .get()
+        .is_some_and(|f| f.edition == theme::Edition::E1718)
+    {
+        pacing::tick(match_playing, frame_log);
+    }
     patches::dispenser_tick(log);
     patches::free_play_tick(log);
     // a panic must not cross into the game: the panel stops, the game goes on
@@ -1705,6 +1754,15 @@ impl Render {
                 .ok()?
                 .GetPresentParameters(&mut ip)
                 .ok()?;
+            // the Launcher's VSYNC: this chain shows the game's frame, so its interval is the one seen; the game's own
+            // frame wait keeps 30 frames a second either way (ONE: each frame waits for the screen, under DWM no tearing
+            // without it)
+            let vsync = VSYNC.load(Relaxed);
+            let interval = match vsync {
+                VSYNC_ON => D3DPRESENT_INTERVAL_ONE as u32,
+                VSYNC_OFF => D3DPRESENT_INTERVAL_IMMEDIATE as u32,
+                _ => ip.PresentationInterval, // the game's own pacing
+            };
             let mut pp = D3DPRESENT_PARAMETERS {
                 BackBufferWidth: w,
                 BackBufferHeight: h,
@@ -1713,7 +1771,7 @@ impl Render {
                 SwapEffect: D3DSWAPEFFECT_DISCARD,
                 hDeviceWindow: wnd,
                 Windowed: TRUE,
-                PresentationInterval: ip.PresentationInterval, // the game's own pacing
+                PresentationInterval: interval,
                 ..Default::default()
             };
             let mut sc = None;
@@ -1727,8 +1785,11 @@ impl Render {
                 self.max_tex = caps.MaxTextureWidth.min(caps.MaxTextureHeight) as usize;
             }
             log(&format!(
-                "own swap chain {w}x{h} (game {}x{})",
-                ip.BackBufferWidth, ip.BackBufferHeight
+                "own swap chain {w}x{h} (game {}x{}), vsync {} (the game's interval 0x{:X})",
+                ip.BackBufferWidth,
+                ip.BackBufferHeight,
+                ["the game's", "off", "on"][usize::from(vsync.min(VSYNC_ON))],
+                ip.PresentationInterval
             ));
             let sc = sc?;
             self.sc = Some((sc.clone(), w, h, wnd));

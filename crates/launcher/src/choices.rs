@@ -250,4 +250,23 @@ mod tests {
         assert_eq!(read(&dir.join("settings.json.bad")), "not json");
         fs::remove_dir_all(&dir).unwrap();
     }
+
+    /// FRAME CAP and VSYNC as the Launcher saves them and forza_panel.dll reads them back (defaults: cap on, vsync off).
+    #[test]
+    fn frame_pacing_settings_persist() {
+        use forza::kit::{frame_cap, read_settings, vsync};
+        let dir = std::env::temp_dir().join(format!("wccf-pacing-test-{}", std::process::id()));
+        let path = dir.join("settings.json");
+        let _ = fs::remove_dir_all(&dir);
+        assert!(frame_cap(&read_settings(&path)) && !vsync(&read_settings(&path))); // no file: the defaults
+        set_setting_bool(&path, "frame_cap", false).unwrap();
+        set_setting_bool(&path, "vsync", true).unwrap();
+        let s = read_settings(&path);
+        assert!(!frame_cap(&s) && vsync(&s));
+        set_setting_bool(&path, "frame_cap", true).unwrap();
+        set_setting_bool(&path, "vsync", false).unwrap();
+        let s = read_settings(&path);
+        assert!(frame_cap(&s) && !vsync(&s));
+        fs::remove_dir_all(&dir).unwrap();
+    }
 }
