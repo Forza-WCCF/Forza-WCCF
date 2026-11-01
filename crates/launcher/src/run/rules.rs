@@ -6,6 +6,7 @@ use forza::online::seat::{Fault, SeatError};
 
 use super::Text;
 use crate::card::Session;
+use std::time::Instant;
 
 /// debug::run's line when it ends a game because its window was closed.
 pub const WINDOW_CLOSED: &str = "its window was closed";
@@ -358,6 +359,33 @@ pub fn went_wrong(launcher_logs: &[&str], read: impl Fn(&str) -> String) -> Vec<
             .map(|l| format!("server_link.txt: {}", l.trim())),
     );
     why
+}
+
+/// A guest's saves after a match reach the host's store within this long of the seat's last match line (the panel logs
+/// a match's end 5-10 s after its last frame; the game saves at the result screen and once more about 20 s later).
+pub const CLUB_SETTLE: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Whether an arcade guest's club is safe at home after the host closed the arcade: brought home at the end, or its
+/// last good copy-back came after every match could have saved (no match line seen, or [`CLUB_SETTLE`] after the last).
+/// shortcut: only matches through the relay (VS) log a line, not CPU matches in the arcade; upgrade if those save late.
+pub fn club_safe(home: bool, last_ok: Option<Instant>, last_match: Option<Instant>) -> bool {
+    home || last_match.is_none_or(|m| last_ok.is_some_and(|ok| ok >= m + CLUB_SETTLE))
+}
+
+/// The end's words when the host closed the arcade; `club`: whether the club is safe, None when none came along.
+pub fn host_closed_notice(club: Option<bool>) -> Text {
+    Text::key(match club {
+        None => "launcher.run_host_closed",
+        Some(true) => "launcher.run_host_closed_club_safe",
+        Some(false) => "launcher.run_host_closed_club_not_home",
+    })
+}
+
+/// [`went_wrong`]'s reasons without the server link's LOST lines, which follow the host closing the arcade.
+pub fn without_link_lost(why: Vec<String>) -> Vec<String> {
+    why.into_iter()
+        .filter(|w| !w.starts_with("server_link.txt: "))
+        .collect()
 }
 
 /// Why no seat was taken on the server at `ip` (play.py's _seat_decision messages): every fault but "no broker" stops
@@ -841,6 +869,45 @@ mod tests {
         assert_eq!(why, ["run_server.txt: a crash recorded (STOP: invalid parameter)"]);
     }
 
+    /// The host closes the arcade while the guest plays (the guest's 2026-11-01 logs): the server link's LOST is no
+    /// problem then, the end is a notice, and the club is called safe only when its last good copy-back came after
+    /// the last match could have saved.
+    #[test]
+    fn the_host_closing_is_a_notice_not_a_problem() {
+        let seat = ["run_seat1.txt"];
+        let lost = "2026-11-01 00:01:58 UP 127.0.0.1\n2026-11-01 00:27:13 LOST (it was up 1514 s)\n";
+        let why = went_wrong(&seat, logs(&[("run_seat1.txt", CLOSED), ("server_link.txt", lost)]));
+        assert_eq!(why.len(), 1);
+        assert!(without_link_lost(why).is_empty());
+        let crash = format!("{CLOSED}  SECOND-chance / FATAL exception 0xC0000005\n");
+        let why = went_wrong(&seat, logs(&[("run_seat1.txt", &crash), ("server_link.txt", lost)]));
+        assert_eq!(without_link_lost(why).len(), 1, "a crash stays a problem");
+
+        use std::time::Duration;
+        let t0 = Instant::now();
+        let at = |s: u64| Some(t0 + Duration::from_secs(s));
+        // matches ended at 1300 s, copy-backs good until 1525 s, the host gone at 1530 s
+        assert!(club_safe(false, at(1525), at(1300)));
+        assert!(
+            !club_safe(false, at(1325), at(1300)),
+            "a save of that match may not be home"
+        );
+        assert!(!club_safe(false, None, at(1300)), "no copy-back ever came");
+        assert!(club_safe(false, None, None), "no match: the home copy is the club");
+        assert!(club_safe(true, None, at(1300)), "brought home at the end");
+
+        assert_eq!(
+            host_closed_notice(Some(true)).en(),
+            "The host closed the arcade. Your club is safe (saved after your last match)."
+        );
+        assert!(
+            host_closed_notice(Some(false))
+                .en()
+                .contains("Your club at home is from before that match")
+        );
+        assert_eq!(host_closed_notice(None).en(), "The host closed the arcade.");
+    }
+
     /// The words must stay the launcher's and the panel's own (test_ended.py read debugger.py and wccfpanel.c; now the Rust panel's link_watch).
     #[test]
     fn the_words_match_their_writers() {
@@ -864,6 +931,13 @@ mod tests {
         assert!(
             panel.contains("\"ENDED\"") && panel.contains("CLOSING.load"),
             "forza-panel link_watch's ENDED after a close"
+        );
+        let net = include_str!("../../../panel/src/net.rs");
+        assert!(
+            net.contains(&format!("\"{}start, ", super::super::MATCH_LINE))
+                && net.contains(&format!("\"{}end after ", super::super::MATCH_LINE)),
+            "the panel's match lines the club rule reads ({:?})",
+            super::super::MATCH_LINE
         );
         assert!(
             panel.contains(&format!("\"{}", super::super::PANEL_UP)),
