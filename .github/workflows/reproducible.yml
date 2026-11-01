@@ -65,20 +65,9 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         if: matrix.cache
         with:
-          shared-key: windows-msvc14.44
+          shared-key: windows
           save-if: false
           workspaces: ${{ matrix.dir }}
-      # The same pin as ci.yml and release.yml: a build with another toolset has other bytes, and this job exists to
-      # compare the shipped bytes with a rebuild
-      - name: MSVC toolset 14.44 (the one Microsoft does not flag)
-        shell: cmd
-        working-directory: .
-        run: |
-          for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath`) do set "VS=%%i"
-          call "%VS%\VC\Auxiliary\Build\vcvarsall.bat" x64 -vcvars_ver=14.44 >nul
-          if errorlevel 1 (echo ::error::MSVC toolset 14.44 is not on this image & exit /b 1)
-          where link.exe
-          echo PATH=%PATH%>>"%GITHUB_ENV%"
       - name: Build environment
         run: |
           echo "image: $ImageOS $ImageVersion"
