@@ -633,6 +633,12 @@ pub struct PanelState {
     pub held: Option<&'static str>,
     /// The card taken off the board last and when (the frame's time): UNDO puts it back for [`UNDO_SECS`].
     pub undo: Option<(board::Removed, f64)>,
+    /// A take-off refused during a match: when (the frame's time) the note under the board shows for [`UNDO_SECS`].
+    pub kept_at: Option<f64>,
+    /// Where the last take-off was let go (from the board's top left) and the board's size, until the panel DLL logs it.
+    pub off_at: Option<(Pos2, egui::Vec2)>,
+    /// That card's number, until the panel DLL logs it ([`board::take_kept`]).
+    pub kept_log: Option<u32>,
     /// KEY PLAYER or KEEPER latched down by a right-click ([`latch_click`]): its key stays down until the next click.
     pub latched: Option<&'static str>,
     /// A catalogue card to put on the table (its number): [`add_card`].
@@ -752,6 +758,9 @@ impl PanelState {
             import_undone: false,
             formations_open: false,
             formations: None,
+            kept_at: None,
+            kept_log: None,
+            off_at: None,
             in_match: false,
             before_match: None,
             match_seen: false,
@@ -2521,6 +2530,7 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let pitch = board::pitch_rect(r.min + vec2(0.0, BOARD_HEAD), r.width());
     let mut b = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(pitch.min, r.max)));
     b.spacing_mut().item_spacing.y = 4.0;
+    board::keep_on_table(&b, st.in_match || st.match_seen);
     st.board_changed |= board::formation_board(
         &mut b,
         &mut st.board,
@@ -2572,6 +2582,7 @@ fn board_window(ui: &mut Ui, st: &mut PanelState, lang: Lang, sheet: Rect) {
     let mut b =
         c.new_child(egui::UiBuilder::new().max_rect(at.with_max_y(at.bottom() + DESK_FOOT)));
     b.spacing_mut().item_spacing.y = 4.0;
+    board::keep_on_table(&b, st.in_match || st.match_seen);
     st.board_changed |=
         board::formation_board(&mut b, &mut st.board, &st.links, None, lang, beside, true);
     if let Some(card) = board::take_touched(&b) {
@@ -2586,8 +2597,13 @@ fn board_window(ui: &mut Ui, st: &mut PanelState, lang: Lang, sheet: Rect) {
 fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)> {
     let now = b.input(|i| i.time);
     if let Some(r) = board::take_removed(b) {
+        st.off_at = Some((r.at, r.size));
         st.undo = Some((r, now));
         st.import_undo = None; // UNDO now means this card
+    }
+    if let Some(n) = board::take_kept(b) {
+        st.kept_at = Some(now);
+        st.kept_log = Some(n);
     }
     b.add_space(4.0);
     // at the hint's right: the board in its own window, or back with the game
@@ -2661,6 +2677,14 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
                 st.undo = None;
             }
         });
+    } else if let Some(at) = st.kept_at.filter(|at| now - at < UNDO_SECS) {
+        b.ctx()
+            .request_repaint_after(std::time::Duration::from_secs_f64(UNDO_SECS - (now - at)));
+        b.label(
+            egui::RichText::new(tr!(lang, "board.kept"))
+                .font(theme::body(HINT))
+                .color(theme::TEXT),
+        );
     } else if !st.desk {
         b.label(
             egui::RichText::new(tr!(lang, "board.hint"))
