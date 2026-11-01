@@ -104,6 +104,13 @@ unsafe extern "system" fn hook_sampler(dev: *mut c_void, smp: u32, t: u32, v: u3
     unsafe { sampler_game(dev, smp, t, v) }
 }
 
+/// A device Reset puts every sampler state back at its default: the maximum anisotropy is sent again, and the choice
+/// replayed through the game's last filters on the next frame.
+pub fn reset() {
+    SENT_MAXA.iter().for_each(|a| a.store(0, Relaxed));
+    SENT.store(u32::MAX, Relaxed);
+}
+
 /// Every frame on the render thread (`hook_present`, before the panel's state block): the hook put in on the first
 /// frame, a new choice sent through the game's last filters.
 pub fn tick(dev: &IDirect3DDevice9, log: fn(&str)) {
