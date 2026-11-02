@@ -2,9 +2,10 @@
 //! echo, whose "desk" never reads and whose "relay" is a UDP echo, and a join side on other loopback ports. Checked:
 //! control bytes both ways, two local UDP sockets kept apart as two flows, the test delay at 0/50/100/150 ms on the
 //! round trip, the forced relay path, and a reader that never reads neither blocking the writer nor growing past
-//! the 4 MiB buffer. Flows ride an 8 s stall whole and in order, and fall back to datagrams with an old peer.
+//! the 4 MiB buffer. Flows ride a stall whole and in order (datagram flows lose packets in the same stall), carry
+//! packets over the datagram limit, open a fresh stream after a reconnect, and fall back to datagrams with an old peer.
 
-use forza::service::Log;
+use forza::service::{Handle, Log};
 use iroh::tls::CaTlsConfig;
 use std::collections::BTreeSet;
 use std::io::{Read, Write};
@@ -85,7 +86,7 @@ fn host_services() -> HostServices {
     let relay_sources: Arc<Mutex<BTreeSet<SocketAddr>>> = Arc::default();
     let seen = relay_sources.clone();
     thread::spawn(move || {
-        let mut b = [0u8; 2048];
+        let mut b = vec![0u8; 65536];
         while let Ok((n, src)) = relay.recv_from(&mut b) {
             seen.lock().unwrap().insert(src);
             let _ = relay.send_to(&b[..n], src);
@@ -621,52 +622,172 @@ fn stall_proxy(to: SocketAddr, blocked: Arc<AtomicBool>) -> u16 {
     port
 }
 
-/// The game's peer packets (about 15 a second each way, 520 bytes) through an 8 s stall of the only path: every one
-/// comes back from the relay's echo, once and in order, after the stall.
+/// Packets of [`stall_size()`] bytes through the stall proxy, counted in frames: 20 sent and all echoed; then `during`
+/// sent while the proxy holds every byte (none may come back meanwhile); then 20 after it lets go. The ids that came
+/// back, in arrival order, once all have or nothing came for `quiet`.
+fn through_a_stall(p: &Pair, blocked: &AtomicBool, during: u32, quiet: Duration) -> Vec<u32> {
+    const AROUND: u32 = 20;
+    let total = 2 * AROUND + during;
+    let s = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let r = s.try_clone().unwrap();
+    r.set_read_timeout(Some(Duration::from_millis(100)))
+        .unwrap();
+    let got: Arc<Mutex<Vec<u32>>> = Arc::default();
+    let sent_all: Arc<Mutex<Option<Instant>>> = Arc::default();
+    let reader = {
+        let (got, sent_all) = (got.clone(), sent_all.clone());
+        thread::spawn(move || {
+            let (mut b, mut last) = (vec![0u8; 65536], Instant::now());
+            while got.lock().unwrap().len() < total as usize {
+                match r.recv(&mut b) {
+                    Ok(n) => {
+                        assert_eq!(n, stall_size());
+                        got.lock()
+                            .unwrap()
+                            .push(u32::from_le_bytes(b[..4].try_into().unwrap()));
+                        last = Instant::now();
+                    }
+                    Err(_) => {
+                        if sent_all
+                            .lock()
+                            .unwrap()
+                            .is_some_and(|t| t.max(last).elapsed() >= quiet)
+                        {
+                            return;
+                        }
+                    }
+                }
+            }
+        })
+    };
+    let mut pkt = vec![0u8; stall_size()];
+    let mut send = |i: u32| {
+        pkt[..4].copy_from_slice(&i.to_le_bytes());
+        s.send_to(&pkt, at(p.join_ports.relay)).unwrap();
+    };
+    for i in 0..AROUND {
+        send(i);
+        thread::sleep(Duration::from_millis(20));
+    }
+    let t = Instant::now();
+    while got.lock().unwrap().len() < AROUND as usize {
+        assert!(
+            t.elapsed() < Duration::from_secs(15),
+            "the first packets did not come back"
+        );
+        thread::sleep(Duration::from_millis(20));
+    }
+    blocked.store(true, Ordering::Relaxed);
+    for i in AROUND..AROUND + during {
+        send(i);
+        if i % 16 == 0 {
+            thread::sleep(Duration::from_millis(1)); // the game's pace is lower; this keeps loopback buffers in bounds
+        }
+    }
+    thread::sleep(Duration::from_secs(2));
+    assert_eq!(
+        got.lock().unwrap().len(),
+        AROUND as usize,
+        "a packet crossed the cut path"
+    );
+    blocked.store(false, Ordering::Relaxed);
+    for i in AROUND + during..total {
+        send(i);
+        thread::sleep(Duration::from_millis(20));
+    }
+    *sent_all.lock().unwrap() = Some(Instant::now());
+    reader.join().unwrap();
+    Arc::try_unwrap(got).unwrap().into_inner().unwrap()
+}
+
+/// Stall packets: about 2.3 MB in the stall below, past the stream's 1.25 MB window and the 1,024-packet queue behind
+/// it, and past the 1 MB a datagram connection keeps.
+fn stall_size() -> usize { std::env::var("SZ").map(|v| v.parse().unwrap()).unwrap_or(1000) }
+fn stall_packets() -> u32 { std::env::var("NP").map(|v| v.parse().unwrap()).unwrap_or(2300) }
+
+/// One packet of `size` bytes from a fresh socket to the relay port; its echo, if one comes in `wait`.
+fn echo(p: &Pair, size: usize, wait: Duration) -> Option<Vec<u8>> {
+    let s = UdpSocket::bind("127.0.0.1:0").unwrap();
+    s.set_read_timeout(Some(wait)).unwrap();
+    let pkt: Vec<u8> = (0..size).map(|i| i as u8).collect();
+    s.send_to(&pkt, at(p.join_ports.relay)).unwrap();
+    let mut b = vec![0u8; 65536];
+    let n = s.recv(&mut b).ok()?;
+    b.truncate(n);
+    assert_eq!(b, pkt, "the echo, whole");
+    Some(b)
+}
+
+/// The flows on a stream through a stall of the only path that holds more than the stream's window and the queue
+/// behind it: every packet comes back, once and in order. Then a packet far over the datagram limit crosses whole, and
+/// after the host restarts the join side dials again and its flows cross on a fresh stream.
 #[test]
 fn a_stall_pauses_the_flow_and_loses_nothing() {
     let blocked = Arc::new(AtomicBool::new(false));
-    let p = pair_with("stall", 0, true, Some(blocked.clone()), (false, false));
+    let mut p = pair_with("stall", 0, true, Some(blocked.clone()), (false, false));
     assert!(logged(&p.join_log, "arcade link: flows on a stream"));
-    let s = UdpSocket::bind("127.0.0.1:0").unwrap();
-    s.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
-    let r = s.try_clone().unwrap();
-    const N: u32 = 200; // 13 s at 15 a second
-    let got = thread::spawn(move || {
-        let (mut got, mut gap, mut last) = (Vec::new(), Duration::ZERO, Instant::now());
-        let mut b = [0u8; 1024];
-        while got.len() < N as usize {
-            let Ok(n) = r.recv(&mut b) else { break };
-            assert_eq!(n, 520);
-            got.push(u32::from_le_bytes(b[..4].try_into().unwrap()));
-            gap = gap.max(last.elapsed());
-            last = Instant::now();
-        }
-        (got, gap)
-    });
-    let mut pkt = [0u8; 520];
-    let mut stalled = None;
-    for i in 0..N {
-        if i == 30 {
-            blocked.store(true, Ordering::Relaxed);
-            stalled = Some(Instant::now());
-        }
-        if stalled.is_some_and(|t| t.elapsed() >= Duration::from_secs(8)) {
-            blocked.store(false, Ordering::Relaxed);
-            stalled = None;
-        }
-        pkt[..4].copy_from_slice(&i.to_le_bytes());
-        s.send_to(&pkt, at(p.join_ports.relay)).unwrap();
-        thread::sleep(Duration::from_millis(66));
-    }
-    let (got, gap) = got.join().unwrap();
-    assert_eq!(
-        got,
-        (0..N).collect::<Vec<_>>(),
-        "every packet, once, in order"
+    let got = through_a_stall(&p, &blocked, stall_packets(), Duration::from_secs(30));
+    let n = got.len();
+    let miss: Vec<u32> = (0..stall_packets() + 40).filter(|i| !got.contains(i)).collect();
+    eprintln!("RESULT stream sz={} np={} back={n} missing_first={:?} missing_last={:?}", stall_size(), stall_packets(), miss.first(), miss.last());
+    assert!(
+        got == (0..stall_packets() + 40).collect::<Vec<_>>(),
+        "every packet, once, in order: {n} back"
     );
-    // the proxy really cut the only path
-    assert!(gap >= Duration::from_secs(6), "longest silence {gap:?}");
+    assert!(
+        echo(&p, 60_000, Duration::from_secs(10)).is_some(),
+        "the 60,000-byte packet"
+    );
+    // the host restarts with its key: the link drops, the join side dials again, the flows take a fresh stream
+    // the old host's endpoint is gone (its thread joined) before the new one takes its key
+    drop(std::mem::replace(
+        &mut p.host.handle,
+        Handle::new(Arc::default(), thread::spawn(|| {})),
+    ));
+    let (log, lines) = logger("stall host 2");
+    p.host = arcade::spawn(p.config(
+        Role::Host,
+        p.services.ports,
+        "host.key",
+        log,
+        Duration::ZERO,
+    ))
+    .unwrap();
+    p.host_log = lines;
+    let t = Instant::now();
+    while !logged(&p.join_log, "link to the arcade up again") {
+        assert!(
+            t.elapsed() < Duration::from_secs(45),
+            "the join side did not come back"
+        );
+        thread::sleep(Duration::from_millis(100));
+    }
+    assert!(
+        echo(&p, stall_size(), Duration::from_secs(10)).is_some(),
+        "a packet after the reconnect"
+    );
+}
+
+/// The control run: the same stall with datagram flows (both sides 0.6.2) loses packets, and drops the packet over the
+/// datagram limit (logged).
+#[test]
+fn datagram_flows_lose_packets_in_the_same_stall() {
+    let blocked = Arc::new(AtomicBool::new(false));
+    let p = pair_with("dgramstall", 0, true, Some(blocked.clone()), (true, true));
+    let t = Instant::now();
+    while !logged(&p.host_log, "joined, flows as datagrams") {
+        assert!(t.elapsed() < Duration::from_secs(10), "the host did not log the guest");
+        thread::sleep(Duration::from_millis(50));
+    }
+    let got = through_a_stall(&p, &blocked, stall_packets(), Duration::from_secs(5));
+    eprintln!("RESULT dgram sz={} np={} back={}", stall_size(), stall_packets(), got.len());
+    assert!(
+        got.len() < (stall_packets() + 40) as usize,
+        "datagram flows lost nothing ({} back): the stall test proves nothing",
+        got.len()
+    );
+    assert!(echo(&p, 60_000, Duration::from_secs(2)).is_none());
+    assert!(logged(&p.join_log, "dropped a 60004-byte datagram"));
 }
 
 /// A new side with a 0.6.2 one, either way round: datagram flows, and the packets still cross.
