@@ -1660,7 +1660,14 @@ impl Run<'_> {
             if self.edition == Edition::E1718 && !self.own_store {
                 self.club = None; // a trip of an earlier start comes home first
                 self.visit.club = None; // and its progress is not this start's
-                self.bring_club(&ip, desk, seat, &entry);
+                if let Err(why) = self.bring_club(addr(&ip, desk), seat, &entry) {
+                    self.tell(
+                        "  ",
+                        &Text::key("launcher.run_with_why")
+                            .part("text", Text::key("launcher.club_not_in"))
+                            .part("why", why),
+                    );
+                }
             }
             // never "WAITING FOR THE PROJECTOR" on a server: its projector is on another PC, or gone
             conf::set_conf_value(&confs[1], "WAIT_PROJECTOR", "0")?;
@@ -2148,6 +2155,15 @@ impl Run<'_> {
                         .arg("port", t.port),
                 )
             })?;
+            // the server's own game server (a room's too) keeps no club of this PC's card: it comes along, as to an
+            // arcade, or the game does not start. A club server keeps the club itself.
+            if t.room.is_some() || club.trim().is_empty() {
+                let server = choices::panel_value(&panel, "server").unwrap_or_default();
+                self.club = None;
+                self.visit.club = None;
+                self.bring_club(choices::resolve(&server, self.p.seat_port), 1, &server)
+                    .map_err(|why| Failed(Text::key("launcher.run_vs_club_refused").part("why", why)))?;
+            }
             conf::set_game_server(&ctrl_conf, &t.host, t.port, true)?;
             self.tell(
                 &format!("  1/{steps} "),
@@ -2204,12 +2220,15 @@ impl Run<'_> {
         }
     }
 
-    /// 2017-18 arcade guest: the home club comes along to the arcade (online::club), under the card's home Aime id (an
-    /// older card's integer id) here and its hash there. Any failure keeps it home and the run goes on.
-    fn bring_club(&mut self, ip: &str, desk: u16, seat: u8, arcade: &str) {
+    /// 2017-18 arcade guest, or online on a server's own arcade: the home club comes along to the desk at `desk`
+    /// (online::club), under the card's home Aime id (an older card's integer id) here and its hash there. `Err`: why
+    /// it stayed home.
+    fn bring_club(&mut self, desk: Option<SocketAddr>, seat: u8, arcade: &str) -> Result<(), Text> {
         let save = self.kit.save();
         let dir = save.join("gamesvr");
         self.club_leftover(&dir);
+        // a first run: the card the reader will read, made now so its club (none yet) comes along too
+        aime::ensure_card(&save.join("seat1_aime.txt"));
         let code = fs::read_to_string(save.join("seat1_aime.txt"))
             .ok()
             .map(|s| s.trim().to_owned())
@@ -2217,9 +2236,8 @@ impl Run<'_> {
         let home = code
             .as_ref()
             .map(|c| aimedb::Db::open(save.join("aimedb.json")).map(|db| db.home_id(c)));
-        let (Some(code), Some(Ok(home)), Some(desk)) = (code, home, addr(ip, desk)) else {
-            self.tell("  ", &Text::key("launcher.run_no_card"));
-            return;
+        let (Some(code), Some(Ok(home)), Some(desk)) = (code, home, desk) else {
+            return Err(Text::key("launcher.run_no_card"));
         };
         let guest = club::Guest {
             desk,
@@ -2236,13 +2254,9 @@ impl Run<'_> {
                 self.visit.club = Some(trip.progress());
                 self.club = Some(trip);
                 self.tell("  ", &Text::key("launcher.club_in"));
+                Ok(())
             }
-            Err(why) => self.tell(
-                "  ",
-                &Text::key("launcher.run_with_why")
-                    .part("text", Text::key("launcher.club_not_in"))
-                    .arg("why", why),
-            ),
+            Err(why) => Err(Text::Raw(why)),
         }
     }
 
@@ -2554,6 +2568,9 @@ impl Run<'_> {
     /// the host's server gone): the end's notice, with the club home or maybe missing its last saves (then the marker
     /// stays, so the next start says so too). After `shutdown`: dropping the trip joins it, its last copy-back done.
     fn host_closed_notice(&self) -> Option<Text> {
+        if matches!(self.mode, Mode::Vs(_)) {
+            return None; // no host: the end says whether the club came home (finish)
+        }
         let progress = self
             .visit
             .club
@@ -2758,6 +2775,15 @@ impl Run<'_> {
         }
         if let Some(n) = &notice {
             self.tell("", n);
+        }
+        let club_home = self
+            .visit
+            .club
+            .as_ref()
+            .map(|p| p.lock().unwrap_or_else(PoisonError::into_inner).home);
+        if matches!(self.mode, Mode::Vs(_)) && club_home == Some(false) {
+            // the marker stays, so the next start says so too
+            self.tell("", &Text::key("launcher.run_vs_club_maybe_old"));
         }
         if let Some(words) = words {
             self.tell("", &words);
