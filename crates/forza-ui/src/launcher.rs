@@ -80,6 +80,8 @@ pub enum Action {
     Lobby(LobbyAction),
     /// "Rejoin ..." (`rejoin`): reserve the last seat again.
     Rejoin,
+    /// CLEAN UP AFTER A CRASH (2017-18): the leftovers of a crash and a dropped arcade visit go, after a backup.
+    CleanUp,
     /// REPORT A PROBLEM: open the report dialog (`report`).
     Report,
     /// SAVE LOGS in the report dialog: its words and the logs in one ZIP on this PC.
@@ -160,6 +162,9 @@ pub struct LauncherState {
     pub club_server: Option<String>,
     /// The direct VS link switch, for club-server runs (2017–18 only).
     pub vs_link: Option<bool>,
+    /// CLEAN UP AFTER A CRASH is offered (2017–18 only) and its last result line.
+    pub clean_up: bool,
+    pub clean_status: Option<(Tone, String)>,
     /// The UPDATE section (2010–11 only: the releases are 2010–11 versions).
     pub updates: bool,
     /// The version in this folder.
@@ -207,6 +212,8 @@ pub enum Scenario {
     Online,
     /// The report dialog after a crash, words typed.
     Report,
+    /// SETUP on 2017-18 after CLEAN UP AFTER A CRASH cleaned something.
+    CleanedUp,
 }
 
 /// An empty lobby for the edition, open on ARCADES: the kind with nothing behind it greyed (2010–11 VS); 2017–18 arcades are
@@ -255,6 +262,8 @@ impl LauncherState {
             projector: None,
             club_server: None,
             vs_link: None,
+            clean_up: false,
+            clean_status: None,
             updates: edition == Edition::E1011,
             version: "7.0.0".into(),
             update_available: None,
@@ -286,6 +295,7 @@ impl LauncherState {
             st.projector = Some(true);
             st.club_server = Some(String::new());
             st.vs_link = Some(true);
+            st.clean_up = true;
         }
         match s {
             Scenario::Ready => {}
@@ -366,6 +376,18 @@ impl LauncherState {
                     .into(),
                     ..ReportForm::default()
                 });
+            }
+            Scenario::CleanedUp => {
+                st.tab = Tab::Setup;
+                st.clean_status = Some((
+                    Tone::Done,
+                    tr!(
+                        lang,
+                        "launcher.cleanup_done",
+                        n = "3",
+                        path = r"data\backup\bad-ending-2026-11-02"
+                    ),
+                ));
             }
             Scenario::Busy => {
                 st.busy = true;
@@ -705,6 +727,23 @@ fn setup(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Actio
             .clicked()
         {
             *act = Some(Action::Projector);
+        }
+        if st.clean_up {
+            ui.horizontal(|ui| {
+                ui.add_enabled_ui(!st.running, |ui| {
+                    if action(ui, &tr!(lang, "launcher.cleanup")).clicked() {
+                        *act = Some(Action::CleanUp);
+                    }
+                });
+                ui.label(
+                    egui::RichText::new(tr!(lang, "launcher.cleanup_hint"))
+                        .font(theme::body(13.0))
+                        .color(theme::TEXT_DIM),
+                );
+            });
+            if let Some((tone, text)) = &st.clean_status {
+                status_line(ui, *tone, text);
+            }
         }
     });
 }

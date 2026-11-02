@@ -70,6 +70,7 @@ fn launcher_screens() {
             (Update, Edition::E1011, "update"),
             (Busy, Edition::E1718, "busy"),
             (Report, Edition::E1718, "report"),
+            (CleanedUp, Edition::E1718, "cleanup"),
         ] {
             let mut st = launcher::LauncherState::sample(ed, lang, s);
             snap(
