@@ -1097,10 +1097,14 @@ fn answer(
         fill_game_ctrl(&mut body);
     }
     if cmd == 261 && payload.len() >= 8 {
-        // the control downloads a 0x3DA38-byte buffer in 2,032-byte chunks (request +4 = chunk) and copies answer
-        // +4 bytes of each (sub_443090); it never zeroes the buffer, so size 0 left heap garbage that it later read
-        // as clubs and crashed on (error 3000 on the seats). Full sizes copy zeros: an empty list, CPU teams. The
-        // last chunk is short: the control does not bound the copy.
+        // the control downloads a 0x3DA38-byte buffer in 2,032-byte chunks (request +4 = chunk) and copies the answer
+        // +4 count of bytes from +8 of each (sub_443090); it never zeroes the buffer, so size 0 left heap garbage that
+        // it later read as clubs and crashed on (error 3000 on the seats). Full sizes copy zeros: an empty list, CPU
+        // teams. The last chunk is short: the control does not bound the copy. The buffer is the data-match replay
+        // feed (VtrPlayData, control sub_47AFE0): an all-zero 6,480-byte match at +58 of each 8,602-byte round
+        // (`live_game_at`) reads as "LiveGameInit bin is empty", so the projector gets no replays. Its CPU
+        // championship is the control's own CPU-filled Universal Championship, which the hook keeps off the
+        // projector unless an arcade player's club is in it (native/hook/src/uclive.rs).
         put(&mut body, 4, live_chunk_size(u32_at(payload, 4)));
     }
     if matches!(cmd, 307 | 311) {
@@ -1514,6 +1518,41 @@ mod tests {
         assert_eq!((cmd, body.len(), u32_at(&body, 4)), (262, 2040, 504));
     }
 
+    /// Where round `round` (0..8) of competition `compe` (0..2) keeps its 6,480-byte match in the control's 261 buffer
+    /// (the answers' bytes from +8, joined): the buffer's own 8-byte head (week id, weekday), then 68,816 bytes per
+    /// competition, 8,602 per round, the match at +58 (control sub_47AFE0, sub_47A530).
+    fn live_game_at(compe: usize, round: usize) -> usize {
+        8 + 68_816 * compe + 8_602 * round + 58
+    }
+
+    #[test]
+    fn the_live_download_holds_no_data_match_to_replay() {
+        let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
+        let log: Log = Arc::new(|_: &str| {});
+        let mut buf = Vec::new();
+        for chunk in 0..125 {
+            let mut p = vec![0u8; 8];
+            put(&mut p, 4, chunk);
+            let (_, body, _) = answer(261, &p, &store, None, &[], None, &log).unwrap();
+            let n = u32_at(&body, 4) as usize;
+            buf.extend_from_slice(&body[8..8 + n]); // what sub_443090 copies: answer +8, size at +4
+        }
+        assert_eq!(buf.len(), 0x3DA38);
+        // the layout: 8 rounds fill a competition, 2 competitions end where the team names start (+137,640)
+        assert_eq!(live_game_at(0, 1) - live_game_at(0, 0), 8_602);
+        assert_eq!(live_game_at(1, 0) - live_game_at(0, 0), 8 * 8_602);
+        assert_eq!(live_game_at(2, 0) - 58, 137_640);
+        // every match slot is zero ("LiveGameInit bin is empty"), as is the rest: names and emblems of nobody
+        for (c, r) in (0..2).flat_map(|c| (0..8).map(move |r| (c, r))) {
+            let at = live_game_at(c, r);
+            assert!(
+                buf[at..at + 6480].iter().all(|&b| b == 0),
+                "competition {c} round {r}: a non-zero match would play on the projector"
+            );
+        }
+        assert!(buf.iter().all(|&b| b == 0));
+    }
+
     #[test]
     fn c1_c2_of_hand_built_blocks() {
         // 768 words of 1: C1 = 768; 0xFFFF_FFFF words wrap to -768
@@ -1681,7 +1720,8 @@ mod tests {
             (5_000, 250_000, 26, 1)
         );
         assert!(body[8..16].iter().all(|b| *b == 0), "date and time stay 0");
-        // the Universal Cup: scheduling on (payload +1,188), 9-minute slots, 20 minutes, and the four open times
+        // the Universal Cup: scheduling on (payload +1,188 = GAME_CTRL 1172; without it control 0x462820 never counts a
+        // cup held and the Universal Championship never follows), 9-minute slots, 20 minutes, and the four open times
         assert_eq!(
             (body[1_188], body[1_189], body[1_190]),
             (1, 9, 20),

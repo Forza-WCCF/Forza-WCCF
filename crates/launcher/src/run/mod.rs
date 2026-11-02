@@ -51,7 +51,7 @@ use std::{env, ptr};
 use crate::helper::{self, Helper, Target, ViewFiles};
 use forza::online::save_logs::{self, Scrub};
 use forza::online::seat::{self, Lease};
-use forza::online::{club, gamesvr};
+use forza::online::{championship, club, gamesvr};
 use forza::standins::{Handle, Log, aime, aimedb, card_reader, io_board, network, scenes};
 use forza_ui::lobby::CupPlan;
 use regex::Regex;
@@ -64,6 +64,7 @@ use crate::card;
 use crate::debug::{self, Maps, Options};
 use crate::job::Job;
 use crate::kit::{Edition, find_game_named, seat_dir};
+use crate::report::championship_line;
 use crate::{Kit, choices, conf, guard, logs, procs};
 pub use rules::{Mode, Words};
 
@@ -691,6 +692,18 @@ fn addr(ip: &str, port: u16) -> Option<SocketAddr> {
     format!("{ip}:{port}").parse().ok()
 }
 
+fn now_local() -> time::OffsetDateTime {
+    time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc())
+}
+
+/// The player's notice: their club plays the Universal Championship on the projector from about `opens` (this PC's
+/// clock). The finalists' seats need nothing more: the control plays the team each winner registered for the cup and
+/// sends the results itself (0x47BFF0, 0x462990).
+fn championship_notice(opens: SystemTime) -> Text {
+    let t = time::OffsetDateTime::from(opens).to_offset(now_local().offset());
+    Text::key("launcher.run_championship").arg("time", format!("{:02}:{:02}", t.hour(), t.minute()))
+}
+
 // ---- the start ----------------------------------------------------------------------------------------------------
 
 /// The game folder setup recorded, found by the run's program names; 2017-18 without a record: `game\` beside the kit
@@ -1014,6 +1027,9 @@ pub struct Run<'a> {
     /// When the start began, and the setup and guard checks' end (logged once the log folder is rotated).
     t0: Instant,
     early: [Duration; 2],
+    /// 2017-18: the Universal Championship's day file as last read (its time), and the date whose notice was given.
+    uc_seen: Option<SystemTime>,
+    uc_told: Option<u32>,
     _lock: OwnedHandle,
 }
 
@@ -1123,6 +1139,8 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         arcade_guests: None,
         t0,
         early,
+        uc_seen: None,
+        uc_told: None,
         _lock: lock,
     };
     // requests left by a run that ended are never carried out
@@ -1698,6 +1716,10 @@ impl Run<'_> {
                 conf::set_conf_value(&ctrl_conf, "WAIT_PROJECTOR", "0")?;
             }
             let game = self.game.clone();
+            if self.edition == Edition::E1718 {
+                // the control saves the Universal Championship in log\<date>_uc.bin but makes no folder (0x41EF00)
+                fs::create_dir_all(game.join("log"))?;
+            }
             self.start_game(Role::Server, p.control_args.clone(), &game, !self.debug, Vec::new())?;
             wait_for(
                 Text::key("launcher.run_part_server"),
@@ -2113,20 +2135,21 @@ impl Run<'_> {
         let ctrl_conf = self.game.join(r"local\ctrl_user_option.conf");
         // the Universal Cup: the host dialog's choice, which the control reads only as it starts (a new choice needs a
         // new start; local play's PLAY tab writes the same setting). A cup at a time is a schedule slot
-        // (local\schedule_option.conf).
+        // (local\schedule_option.conf); VS keeps the game's times.
         let plan = rules::cup_plan(&self.mode, &self.kit.settings(), forza_ui::lobby::local_clock());
-        let (times, friendlies, line) = match plan {
-            Ok(CupPlan::Off) => (Some([0; 4]), None, Text::key("launcher.run_cup_off")),
-            Ok(CupPlan::GameTimes) => (None, None, Text::key("launcher.run_cup_game_times")),
-            // open times 0: the file's cup is the only one (the control also skips its timed cups while one is listed)
-            Ok(CupPlan::Slot { friendlies, opens }) => (
-                Some([0; 4]),
-                Some(friendlies),
-                Text::key("launcher.run_cup_at").arg("time", forza_ui::lobby::clock_text(opens)),
+        let ((times, friendlies), line) = match plan {
+            Ok(p) => (
+                conf::cup_files(p),
+                match p {
+                    CupPlan::Off => Text::key("launcher.run_cup_off"),
+                    CupPlan::GameTimes => Text::key("launcher.run_cup_game_times"),
+                    CupPlan::Slot { opens, .. } => {
+                        Text::key("launcher.run_cup_at").arg("time", forza_ui::lobby::clock_text(opens))
+                    }
+                },
             ),
             Err(r) => (
-                None,
-                None,
+                (None, None),
                 Text::key("launcher.run_cup_refused").part("why", Text::key(r.key()).arg("m", r.minutes())),
             ),
         };
@@ -2478,6 +2501,35 @@ impl Run<'_> {
         });
     }
 
+    /// 2017-18 with the control here: once a day, when today's Universal Championship (game\log\<date>_uc.bin) has
+    /// a player's club, the notice with about when it plays on the projector, and the bracket's line in the log.
+    fn watch_championship(&mut self) {
+        if self.edition != Edition::E1718 || !self.alive(Role::Server) {
+            return;
+        }
+        let date = championship::date(now_local());
+        let f = championship::file(&self.game, date);
+        let Ok(at) = fs::metadata(&f).and_then(|m| m.modified()) else {
+            return;
+        };
+        if self.uc_told == Some(date) || self.uc_seen == Some(at) {
+            return;
+        }
+        self.uc_seen = Some(at);
+        let teams = championship::teams(&fs::read(&f).unwrap_or_default());
+        // shortcut: any player's club counts as "yours"; an arcade host with guests may see a guest's win, tell the
+        // clubs apart (block +0 = coach id) if hosts report it
+        if !teams.iter().any(|t| t.player) {
+            return;
+        }
+        self.uc_told = Some(date);
+        // the winner alone is written as the cup's final ends, and the championship opens at the next slot (2-3 min
+        // later); all four teams are written as it opens
+        let opens = at + Duration::from_secs(if teams.len() < 4 { 180 } else { 0 });
+        self.tell("", &championship_notice(opens));
+        crate::logs::append(&self.logs().join("run_launcher.txt"), &championship_line(&self.game));
+    }
+
     // ---- the supervisor ----
 
     /// Requests from outside (other Launcher.exe processes, the panel's files) as events, every half second.
@@ -2518,6 +2570,7 @@ impl Run<'_> {
             let ev = match self.rx.recv_timeout(Duration::from_millis(500)) {
                 Ok(ev) => ev,
                 Err(RecvTimeoutError::Timeout) => {
+                    self.watch_championship();
                     if let Some(end) = self.check_threads() {
                         self.ui.running(false);
                         return end;
@@ -2650,6 +2703,9 @@ impl Run<'_> {
         self.gone.push(g.role);
         if g.role == Role::Server {
             self.tell("", &Text::key("launcher.run_server_ended"));
+            if self.edition == Edition::E1718 {
+                crate::logs::append(&self.logs().join("run_launcher.txt"), &championship_line(&self.game));
+            }
             if self.mode.is_server() {
                 return Some(self.finish(false, Some(Text::key("launcher.run_server_has_ended"))));
             }
@@ -2980,6 +3036,24 @@ mod tests {
     use super::due;
     use std::fs;
     use std::path::Path;
+
+    #[test]
+    fn the_championship_notice_gives_the_time_in_every_language() {
+        let opens = std::time::SystemTime::now();
+        let t = time::OffsetDateTime::from(opens).to_offset(super::now_local().offset());
+        let hhmm = format!("{:02}:{:02}", t.hour(), t.minute());
+        let n = super::championship_notice(opens);
+        assert_eq!(
+            n.en(),
+            format!(
+                "Your club is in the Universal Championship: it plays on the big screen from about {hhmm}. Your club plays with its last lineup; you watch."
+            )
+        );
+        for lang in [forza_ui::Lang::It, forza_ui::Lang::Ja] {
+            let s = n.get(lang);
+            assert!(s.contains(&hhmm) && s != n.en() && !s.contains("%{"), "{lang:?}: {s}");
+        }
+    }
 
     #[test]
     fn pictures_are_made_at_play_when_missing_older_or_changed_but_not_after_a_failure() {

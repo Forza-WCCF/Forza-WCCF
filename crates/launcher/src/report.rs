@@ -3,6 +3,7 @@
 //! network failures: players never see a tool's own error text, the log keeps it.
 
 use crate::Kit;
+use forza::online::championship;
 use forza::online::save_logs::{self, Scrub};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -55,8 +56,21 @@ pub fn contents(kit: &Kit, game: Option<&Path>) -> Vec<String> {
 pub fn save_zip(dir: &Path, kit: &Path, game: Option<&Path>, scrub: &Scrub, note: Option<&str>) -> io::Result<PathBuf> {
     if let Some(game) = game {
         crate::debug::dump_running(game, &kit.join("data").join("dumps"));
+        // 2017-18: today's Universal Championship in the run's log before it is packed
+        if game.join("log").is_dir() {
+            crate::logs::append(
+                &kit.join("data").join("logs").join("run_launcher.txt"),
+                &championship_line(game),
+            );
+        }
     }
     save_logs::save(dir, kit, game, scrub, note)
+}
+
+/// `championship: <date> teams: ...` for today's Universal Championship day file in `game` (the control's date).
+pub fn championship_line(game: &Path) -> String {
+    let now = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+    championship::line(game, championship::date(now))
 }
 
 /// Saves a report in `dir`: `report.txt` holds a summary (edition, versions, why) and the player's words; the ZIP's
