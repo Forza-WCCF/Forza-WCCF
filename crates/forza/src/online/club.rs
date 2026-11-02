@@ -18,6 +18,10 @@
 //! beside its store while the club is out, and `club_last.json`, the last copy pulled. A marker found at the next
 //! start means the session did not end cleanly: the home copy stays, the last pulled copy goes to `backups`, and the
 //! player is told ([`leftover`]).
+//!
+//! Online on a server's own arcade (`forza-server all`, its game server beside the desk) the trip is the same, to
+//! that server's store; there no seat is needed and the brought club replaces what the server kept for the card
+//! ([`Store::import_public`]).
 
 use super::gamesvr::{BLOCK, Store, TAIL, get_bits, next_id, now, put, put_bits, u32_at};
 use crate::service::{Handle, Log};
@@ -39,6 +43,8 @@ pub const MAX_BYTES: usize = 2 << 20;
 pub const POLL: Duration = Duration::from_secs(10);
 /// Guest clubs a host holds at once (one per seat): a guest cannot fill the host's store.
 const MAX_GUESTS: usize = 8;
+/// Guest clubs a public server's store holds ([`Store::import_public`]); the oldest copy makes room for a new one.
+const MAX_PUBLIC_GUESTS: usize = 256;
 /// Backups of each kind kept in `backups` (oldest go first).
 const KEEP_BACKUPS: usize = 30;
 /// A stored request the copy carries: SAVE_DATA_SET 277, whole.
@@ -484,6 +490,30 @@ impl Store {
         seat: u8,
         token: &str,
     ) -> Result<Link, String> {
+        self.import(club, aime, seat, token, false)
+    }
+
+    /// A public server's desk beside its own game server (`forza-server all`): no host club to keep, so the
+    /// brought club replaces whatever the server kept for the card (a copy that never went home, a club made
+    /// there), and the oldest guest copy makes room past [`MAX_PUBLIC_GUESTS`]. Another token's copy is still refused.
+    pub fn import_public(
+        &mut self,
+        club: &Club,
+        aime: u32,
+        seat: u8,
+        token: &str,
+    ) -> Result<Link, String> {
+        self.import(club, aime, seat, token, true)
+    }
+
+    fn import(
+        &mut self,
+        club: &Club,
+        aime: u32,
+        seat: u8,
+        token: &str,
+        public: bool,
+    ) -> Result<Link, String> {
         club.check()?;
         let tx = self.0.transaction().map_err(db_err)?;
         match guest_token(&tx, aime).map_err(db_err)? {
@@ -491,14 +521,25 @@ impl Store {
                 return Err("another player's club for this card is in this arcade".into());
             }
             Some(_) => {}
-            None if has_rows(&tx, aime).map_err(db_err)? => {
+            None if !public && has_rows(&tx, aime).map_err(db_err)? => {
                 return Err("this arcade already keeps a club for this card".into());
             }
             None => {
                 let n: u32 = tx
                     .query_row("SELECT count(*) FROM guests", [], |r| r.get(0))
                     .map_err(db_err)?;
-                if n as usize >= MAX_GUESTS {
+                if public && n as usize >= MAX_PUBLIC_GUESTS {
+                    let oldest: u32 = tx
+                        .query_row(
+                            "SELECT aime_id FROM guests ORDER BY since LIMIT 1",
+                            [],
+                            |r| r.get(0),
+                        )
+                        .map_err(db_err)?;
+                    delete(&tx, oldest).map_err(db_err)?;
+                    tx.execute("DELETE FROM guests WHERE aime_id = ?1", [oldest])
+                        .map_err(db_err)?;
+                } else if !public && n as usize >= MAX_GUESTS {
                     return Err(format!(
                         "this arcade holds {MAX_GUESTS} guests' clubs already"
                     ));
@@ -657,13 +698,15 @@ impl Ask {
 }
 
 /// Host: answers one `CLUB` request. `head` is the line, `rest` what came after it, `held` says whether a seat is
-/// leased on the desk now. Returns the line for the desk's log.
+/// leased on the desk now; `public`: a public server's store, which needs no seat ([`Store::import_public`]).
+/// Returns the line for the desk's log.
 pub fn serve(
     db: &Path,
     head: &str,
     rest: Vec<u8>,
     conn: &mut TcpStream,
     held: &dyn Fn(u8) -> bool,
+    public: bool,
 ) -> io::Result<String> {
     fn no(conn: &mut TcpStream, why: &str) -> io::Result<String> {
         conn.write_all(format!("NO {why}\n").as_bytes())?;
@@ -685,14 +728,19 @@ pub fn serve(
         } => {
             // read first: a refusal with the upload unread would reset the connection before the answer arrives
             let body = read_body(conn, rest, size)?;
-            if !held(seat) {
+            if !public && !held(seat) {
                 return no(conn, &format!("seat {seat} is not taken"));
             }
             let club: Club = match serde_json::from_slice(&body) {
                 Ok(c) => c,
                 Err(e) => return no(conn, &format!("not a club ({e})")),
             };
-            match store.import_guest(&club, aime, seat, &token) {
+            let imported = if public {
+                store.import_public(&club, aime, seat, &token)
+            } else {
+                store.import_guest(&club, aime, seat, &token)
+            };
+            match imported {
                 Ok(link) => {
                     let json = serde_json::to_vec(&link).unwrap_or_default();
                     let said = format!(
@@ -1550,6 +1598,40 @@ mod tests {
         assert_eq!(host.club(9).unwrap(), own);
     }
 
+    /// A public server: the brought club replaces what the server kept for the card (a club made there, a copy
+    /// that never went home), another token is still refused, and the oldest copy makes room past the cap.
+    #[test]
+    fn a_public_server_keeps_the_brought_club() {
+        let d = tempfile::tempdir().unwrap();
+        let mut srv = store_with(&d.path().join("srv.db"), &club(50, &[(1, 1), (2, 2)]));
+        let (a, b) = (token(CODE), token("50123456789012345679"));
+        let mine = club(1, &[(1, 1)]);
+        srv.import_public(&mine, 50, 1, &a).unwrap();
+        assert_eq!(
+            srv.guest_club(50, &a).unwrap().coaches.len(),
+            1,
+            "the made-there club is gone"
+        );
+        assert!(
+            srv.import_public(&mine, 50, 1, &b)
+                .unwrap_err()
+                .contains("another player")
+        );
+        // a newer home club replaces the copy left from an earlier session
+        srv.import_public(&club(1, &[(1, 1), (2, 2), (3, 3)]), 50, 1, &a)
+            .unwrap();
+        assert_eq!(srv.guest_club(50, &a).unwrap().coaches.len(), 3);
+        srv.0
+            .execute("UPDATE guests SET since = 0 WHERE aime_id = 50", [])
+            .unwrap();
+        for aime in 1000..1000 + MAX_PUBLIC_GUESTS as u32 {
+            srv.import_public(&club(1, &[(1, 1)]), aime, 1, &a).unwrap();
+        }
+        assert!(srv.guest_club(50, &a).is_err(), "the oldest copy made room");
+        assert!(!has_rows(&srv.0, 50).unwrap());
+        assert!(srv.guest_club(1000, &a).is_ok());
+    }
+
     /// The host's desk for tests: `serve` on every connection, seat 2 taken; `down` closes connections unanswered;
     /// `closed`: the next connection closes the desk itself (later ones are refused, as after the host's Stop).
     fn desk(db: PathBuf) -> (SocketAddr, Arc<AtomicBool>, Arc<AtomicBool>) {
@@ -1582,7 +1664,7 @@ mod tests {
                 };
                 let rest = buf.split_off(at + 1);
                 let line = String::from_utf8_lossy(&buf).trim().to_owned();
-                let _ = serve(&db, &line, rest, &mut c, &|s| s == 2);
+                let _ = serve(&db, &line, rest, &mut c, &|s| s == 2, false);
                 let _ = c.shutdown(std::net::Shutdown::Write);
             }
         });

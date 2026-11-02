@@ -104,6 +104,10 @@ pub struct DeskConfig {
     /// The arcade host's club store (`WCCF_CLUB_DB`, its `gamesvr.db`): guests bring their clubs there with `CLUB`
     /// ([`forza::online::club`]). None: `CLUB` answers `NO`.
     pub club_db: Option<PathBuf>,
+    /// The club store is this server's own game server's (`forza-server all` on a public server): any PC brings its
+    /// club there without a seat, and it replaces what the server kept for the card
+    /// ([`forza::online::club::Store::import_public`]).
+    pub club_public: bool,
 }
 
 /// A positive count from the environment variable `name`, else `default`.
@@ -128,6 +132,7 @@ impl DeskConfig {
             hold_every: Duration::from_secs(1),
             tunnel: std::env::var("WCCF_DESK_TUNNEL").is_ok_and(|v| v == "1"),
             club_db: std::env::var_os("WCCF_CLUB_DB").map(PathBuf::from),
+            club_public: false,
             // WCCF_SHOP_* names kept from before the arcade rename: hosts' service files set them
             name: std::env::var("WCCF_SHOP_NAME").unwrap_or_else(|_| "Forza-WCCF".into()),
             lang: std::env::var("WCCF_SHOP_LANG")
@@ -625,6 +630,11 @@ fn session(
             let Some(db) = &sh.cfg.club_db else {
                 return out.write_all(b"NO no club store here\n");
             };
+            let public = sh.cfg.club_public;
+            // no seat holds a public server's uploads back: the per-address ask limit does
+            if public && line.starts_with("CLUB PUT") && sh.slow(ip, Instant::now()) {
+                return out.write_all(b"NO slow\n");
+            }
             let held = |s: u8| sh.state.lock().unwrap().leases.contains_key(&s);
             let said = forza::online::club::serve(
                 db,
@@ -632,6 +642,7 @@ fn session(
                 std::mem::take(&mut lines.buf),
                 &mut out,
                 &held,
+                public,
             )?;
             if !said.is_empty() {
                 log(&format!("{peer}: {said}"));
