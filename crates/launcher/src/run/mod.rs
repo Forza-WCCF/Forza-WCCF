@@ -1264,7 +1264,28 @@ impl Run<'_> {
     /// not to start.
     fn card_steps(&self, what: &[&str]) {
         if self.edition == Edition::E1718 {
-            return; // its club is on the game server stand-in, its card is an Aime: no club card file
+            // its club is on the game server stand-in, its card is an Aime: no club card file; CLEAR BAD ENDINGS
+            // (the panel's card_fix=bad_endings) clears the stand-in's counters instead
+            let panel = self.kit.data().join("panel.txt");
+            let steps = forza::cards::steps::read_panel(&panel);
+            if what.contains(&"start") && steps.contains_key("card_fix") {
+                let dir = self.kit.save().join("gamesvr");
+                let done = if matches!(self.mode, Mode::Remote(..)) {
+                    "the club is on another PC's server - clear its bad endings there".to_owned()
+                } else if steps["card_fix"].eq_ignore_ascii_case("bad_endings") {
+                    if self.club.is_none() {
+                        self.club_leftover(&dir); // no trip on: an out marker is a crash's, the club is home
+                    }
+                    club::clear_bad_endings(&dir).unwrap_or_else(|e| format!("bad endings not cleared ({e})"))
+                } else {
+                    String::new()
+                };
+                if !done.is_empty() {
+                    self.say(&format!("  club: {done}"));
+                }
+                forza::cards::steps::drop_panel_line("card_fix", &panel);
+            }
+            return;
         }
         let seat = self.seat.display().to_string();
         let mut args = what.to_vec();

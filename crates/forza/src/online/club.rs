@@ -898,6 +898,51 @@ fn backup(dir: &Path, what: &str, bytes: &[u8]) -> io::Result<PathBuf> {
     Ok(path)
 }
 
+/// CLEAR BAD ENDINGS (2017-18), at a restart asked by the panel: the improper-end counters (INJUSTICE_COUNT 289; the
+/// client writes count - 1 to save parameter 73) of this PC's clubs back to 0, `gamesvr.db` copied to `backups\` first.
+/// Arcade guests' clubs are left alone. -> what was done, in words.
+pub fn clear_bad_endings(dir: &Path) -> Result<String, String> {
+    if out_file(dir).exists() {
+        return Ok(
+            "the club is out in an arcade - its bad endings stay (clear them at home)".into(),
+        );
+    }
+    let path = dir.join("gamesvr.db");
+    if !path.exists() {
+        return Ok("no club store - nothing to clear".into());
+    }
+    const HOME: &str =
+        "FROM injustice WHERE count > 0 AND aime_id NOT IN (SELECT aime_id FROM guests)";
+    let s = Store::open(&path).map_err(db_err)?;
+    let n: u32 =
+        s.0.query_row(&format!("SELECT count(*) {HOME}"), [], |r| r.get(0))
+            .map_err(db_err)?;
+    if n == 0 {
+        return Ok("no bad endings to clear".into());
+    }
+    let b = dir.join("backups");
+    std::fs::create_dir_all(&b).map_err(|e| e.to_string())?;
+    let mut copy = b.join(format!("bad-endings-{}.db", time_name()));
+    for k in 2.. {
+        if !copy.exists() {
+            break;
+        }
+        copy = b.join(format!("bad-endings-{}-{k}.db", time_name()));
+    }
+    // a consistent copy of the store, its WAL included
+    s.0.execute("VACUUM INTO ?1", [copy.to_string_lossy()])
+        .map_err(db_err)?;
+    s.0.execute(
+        &format!("UPDATE injustice SET count = 0 WHERE rowid IN (SELECT rowid {HOME})"),
+        [],
+    )
+    .map_err(db_err)?;
+    Ok(format!(
+        "bad endings cleared ({n} club(s) back to 0; the old store is in {})",
+        copy.display()
+    ))
+}
+
 /// At a start: a club still marked out means the last arcade session ended without bringing it home. The home copy
 /// stays; the last copy pulled from the host (if any) goes to `backups`, the marker goes. `Some(path)` (the backup,
 /// or the store folder when no copy came) when the player must be told.
@@ -1237,6 +1282,55 @@ mod tests {
         st.0.execute("INSERT INTO ids VALUES ('coach', ?1), ('card', ?1)", [top])
             .unwrap();
         st
+    }
+
+    /// CLEAR BAD ENDINGS (2017-18): home counters to 0 after a copy of the store; a guest's counter stays; a second
+    /// clear has nothing to do; a club out in an arcade is left as it is.
+    #[test]
+    fn clear_bad_endings_zeroes_home_clubs_after_a_backup() {
+        let d = tempfile::tempdir().unwrap();
+        let db = d.path().join("gamesvr.db");
+        let s = Store::open(&db).unwrap();
+        s.0.execute_batch(
+            "INSERT INTO injustice VALUES (7, 1, 3), (7, 2, 0), (9, 1, 2);
+             INSERT INTO guests VALUES (9, 't', 2, 0);",
+        )
+        .unwrap();
+        drop(s);
+        let said = clear_bad_endings(d.path()).unwrap();
+        assert!(said.starts_with("bad endings cleared (1 club(s)"), "{said}");
+        let count = |c: &Connection, a: u32, k: u32| -> u32 {
+            c.query_row(
+                "SELECT count FROM injustice WHERE aime_id = ?1 AND coach_id = ?2",
+                [a, k],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        let now = Connection::open(&db).unwrap();
+        assert_eq!((count(&now, 7, 1), count(&now, 9, 1)), (0, 2));
+        let copies: Vec<_> = std::fs::read_dir(d.path().join("backups"))
+            .unwrap()
+            .flatten()
+            .collect();
+        assert_eq!(copies.len(), 1);
+        assert_eq!(count(&Connection::open(copies[0].path()).unwrap(), 7, 1), 3);
+        assert_eq!(
+            clear_bad_endings(d.path()).unwrap(),
+            "no bad endings to clear"
+        );
+        now.execute(
+            "UPDATE injustice SET count = 4 WHERE aime_id = 7 AND coach_id = 1",
+            [],
+        )
+        .unwrap();
+        std::fs::write(out_file(d.path()), b"{}").unwrap();
+        assert!(
+            clear_bad_endings(d.path())
+                .unwrap()
+                .contains("out in an arcade")
+        );
+        assert_eq!(count(&now, 7, 1), 4);
     }
 
     /// An old card at home (integer Aime id 1, from before the hash) brings two clubs to a host whose own club holds
