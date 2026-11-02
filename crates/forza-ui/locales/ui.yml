@@ -56,7 +56,7 @@ launcher.cleanup_failed: {en: "Not everything was cleaned: %{what}", it: "Non tu
 launcher.frame_cap: {en: "Frame cap", it: "Limite fotogrammi", ja: "フレーム制限"}
 launcher.frame_cap_hint: {en: "Waits between frames without using a full CPU core. Applied at the next start.", it: "Attende tra i fotogrammi senza occupare un intero core della CPU. Si applica al prossimo avvio.", ja: "CPUコアを使い切らずにフレーム間を待ちます。次回の起動時に反映されます。"}
 launcher.vsync: {en: "VSync", it: "VSync", ja: "垂直同期"}
-launcher.vsync_hint: {en: "Waits for the screen before showing each frame. Off: less input delay. Applied at the next start.", it: "Attende lo schermo prima di ogni fotogramma. Spento: meno ritardo dei comandi. Si applica al prossimo avvio.", ja: "各フレームを画面の更新に合わせて表示します。オフで入力の遅れが減ります。次回の起動時に反映されます。"}
+launcher.vsync_hint: {en: "While the Forza-WCCF panel is on, waits for the screen before showing each frame. Off: less input delay. Applied at the next start.", it: "Con il pannello di Forza-WCCF attivo, attende lo schermo prima di ogni fotogramma. Spento: meno ritardo dei comandi. Si applica al prossimo avvio.", ja: "Forza-WCCFパネルの表示中は、各フレームを画面の更新に合わせて表示します。オフで入力の遅れが減ります。次回の起動時に反映されます。"}
 launcher.club_server: {en: "Club server", it: "Server club", ja: "クラブサーバー"}
 launcher.club_server_hint: {en: "Leave it empty to use the server you play on.", it: "Lascia vuoto per usare il server su cui giochi.", ja: "空欄にすると、プレイ中のサーバーを使います。"}
 launcher.vs_link: {en: "Direct VS link", it: "Collegamento VS diretto", ja: "ダイレクトVSリンク"}
