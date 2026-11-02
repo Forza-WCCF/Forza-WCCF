@@ -1136,6 +1136,8 @@ pub(super) fn name_text(b: &[u8]) -> String {
 /// whether the store took the result.
 fn match_line(cmd: u16, req: &[u8], refused: Option<&str>) -> Option<String> {
     let id = |at| u32_at(req, at);
+    // goals and PKs are single bytes: the bytes after them belong to other fields (owner run logs showed packed u32s
+    // such as 2950146 = 0x2D0502 for a 2 goal score)
     match cmd {
         289 if req.len() >= 20 && id(16) == 1 => Some(format!(
             "match start: aime {} coach {} card {}",
@@ -1151,10 +1153,10 @@ fn match_line(cmd: u16, req: &[u8], refused: Option<&str>) -> Option<String> {
             name_text(&req[3356..3412]),
             name_text(&req[3300..3356]),
             id(3296),
-            id(3416),
-            id(3428),
-            id(3424),
-            id(3436),
+            req[3416],
+            req[3428],
+            req[3424],
+            req[3436],
             req[24],
             refused.map_or("ok".into(), |why| format!("FAILED ({why})"))
         )),
@@ -2038,9 +2040,12 @@ mod tests {
         put(&mut start, 16, u32::MAX); // -1: the save went through
         assert_eq!(match_line(289, &start, None), None);
         let mut end = vec![0u8; 8572];
-        for (at, v) in [(4, 7), (8, 2), (3416, 3), (3428, 1)] {
+        for (at, v) in [(4, 7), (8, 2)] {
             put(&mut end, at, v);
         }
+        // a real body's neighbours are nonzero: home 2 then 0x05 0x2D 0x00, away 1 then 0x00 0x3B 0x01 (run log)
+        end[3416..3420].copy_from_slice(&[3, 5, 0x2D, 0]);
+        end[3428..3432].copy_from_slice(&[1, 0, 0x3B, 1]);
         end[24] = 2;
         end[3300..3303].copy_from_slice(b"CPU");
         end[3356..3366].copy_from_slice(b"BEST ELEVN");
