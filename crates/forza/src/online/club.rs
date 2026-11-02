@@ -525,6 +525,18 @@ impl Store {
                 return Err("this arcade already keeps a club for this card".into());
             }
             None => {
+                if public && has_rows(&tx, aime).map_err(db_err)? {
+                    // the server's own copy is replaced: kept in `backups` beside the store first
+                    let old = serde_json::to_vec(&export(&tx, aime).map_err(db_err)?)
+                        .map_err(|e| e.to_string())?;
+                    let dir = tx.path().and_then(|p| Path::new(p).parent());
+                    backup(
+                        dir.unwrap_or(Path::new(".")),
+                        &format!("replaced-{aime}"),
+                        &old,
+                    )
+                    .map_err(|e| format!("backup: {e}"))?;
+                }
                 let n: u32 = tx
                     .query_row("SELECT count(*) FROM guests", [], |r| r.get(0))
                     .map_err(db_err)?;
@@ -1612,6 +1624,8 @@ mod tests {
             1,
             "the made-there club is gone"
         );
+        let kept = std::fs::read_dir(d.path().join("backups")).unwrap().count();
+        assert_eq!(kept, 1, "the made-there club is in backups");
         assert!(
             srv.import_public(&mine, 50, 1, &b)
                 .unwrap_err()
