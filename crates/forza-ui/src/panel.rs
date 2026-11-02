@@ -623,7 +623,7 @@ pub struct PanelState {
     /// The game's own frame as a texture of the panel DLL's painter; `None` draws the stand-in picture.
     pub picture: Option<egui::TextureId>,
     // what a frame hands the panel DLL
-    /// Where the game's picture was drawn while no page covers it: clicks there go to the game.
+    /// Where the game's picture was drawn while no page, dealt card or dialog covers it: clicks there go to the game.
     pub picture_rect: Option<Rect>,
     /// The board changed this frame (a card moved, swapped or taken off): the card table is written.
     pub board_changed: bool,
@@ -1375,8 +1375,11 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
         Stroke::new(1.0, theme::RIM),
     );
     game_picture(ui, pic, st.picture);
-    // the dealt card covers the picture: clicks there are its own
-    st.picture_rect = (st.page == Page::Game && st.deal.is_none() && !st.close_warn).then_some(pic);
+    // the dealt card and the dialogs drawn here cover the picture: clicks there are theirs, not the game's
+    let dialog = st.import_ask.is_some()
+        || (st.formations.is_some() && (!st.formations_desk || !st.file.board_window));
+    st.picture_rect =
+        (st.page == Page::Game && st.deal.is_none() && !st.close_warn && !dialog).then_some(pic);
     // popped out the deck is the column's: COMPACT is the docked layout's choice
     let compact = st.file.compact && !side;
     if st.page == Page::Game {
@@ -5301,6 +5304,16 @@ mod tests {
         theme::install(&ctx, Edition::E1718, &theme::font_dir()).unwrap();
         frame(&ctx, &mut st, 1920.0, 1080.0, 0.0, vec![]);
         assert!(!st.formations_desk && st.formations.is_some());
+        // over the picture: CLOSE's click is the dialog's, not the game's
+        assert!(st.picture_rect.is_none());
+        // on the board window: the game window's picture stays the game's
+        st.formations_desk = true;
+        st.file.board_window = true;
+        frame(&ctx, &mut st, 1920.0, 1080.0, 0.05, vec![]);
+        assert!(st.picture_rect.is_some(), "dialog on the board window");
+        st.formations = None;
+        frame(&ctx, &mut st, 1920.0, 1080.0, 0.1, vec![]);
+        assert!(st.picture_rect.is_some(), "closed: the picture is the game's again");
     }
 
     #[test]
