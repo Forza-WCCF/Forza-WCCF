@@ -89,22 +89,14 @@ const ANSWER_WAIT: Duration = Duration::from_secs(60);
 
 /// The panel's line in `seat1\forza_panel.log` once its Present detour has drawn a frame: the run's proof it is up.
 pub(crate) const PANEL_UP: &str = "first frame shown";
-/// The start of the panel's match lines ("match: start, ...", "match: end after N s"; crates/panel/src/net.rs).
-pub(crate) const MATCH_LINE: &str = "match: ";
-pub(crate) const MATCH_START: &str = "match: start, ";
 
-/// 2017-18 arcade guest: what the end needs to tell that the host closed the arcade, and whether the club is safe.
+/// 2017-18 arcade guest: what the end needs to tell that the host closed the arcade, and whether the club came home.
 #[derive(Default)]
 struct Visit {
     /// Through the tunnel: its `ArcadeLink::host_closed`.
     host_closed: Option<Arc<AtomicBool>>,
-    /// The club trip's progress, and the home store's folder.
-    club: Option<(Arc<Mutex<club::Progress>>, PathBuf)>,
-    /// When the seat's panel last logged a match's end; whether its last match line was a start (a match on); how far
-    /// that log is read.
-    match_end: Option<Instant>,
-    match_on: bool,
-    panel_read: u64,
+    /// The club trip's progress.
+    club: Option<Arc<Mutex<club::Progress>>>,
 }
 
 /// A line the player reads, by its `locales/ui.yml` key (forza-ui) and arguments, which may be lines too: the window
@@ -2025,7 +2017,6 @@ impl Run<'_> {
         self.startup("window", self.t0.elapsed());
         let olog = self.seat.join("forza_panel.log");
         let skip = fs::metadata(&olog).map_or(0, |m| m.len() as usize);
-        self.visit.panel_read = skip as u64;
         // 2017-18: wccfnet.dll loads the panel 3 s after the window (FORZA_PANEL); 2010-11: inject.exe does
         let panel = self.kit.program("forza_panel.dll");
         let why = if self.edition == Edition::E1718 {
@@ -2238,13 +2229,13 @@ impl Run<'_> {
             arcade_aime: aimedb::hash_id(&code) as u32,
             code,
             home_aime: home as u32,
-            dir: dir.clone(),
+            dir,
             arcade: arcade.to_owned(),
             poll: club::POLL,
         };
         match guest.bring(file_log(self.logs().join("club_trip.txt"))) {
             Ok(trip) => {
-                self.visit.club = Some((trip.progress(), dir));
+                self.visit.club = Some(trip.progress());
                 self.club = Some(trip);
                 self.tell("  ", &Text::key("launcher.club_in"));
             }
@@ -2529,7 +2520,6 @@ impl Run<'_> {
             let ev = match self.rx.recv_timeout(Duration::from_millis(500)) {
                 Ok(ev) => ev,
                 Err(RecvTimeoutError::Timeout) => {
-                    self.watch_matches();
                     if let Some(end) = self.check_threads() {
                         self.ui.running(false);
                         return end;
@@ -2562,69 +2552,20 @@ impl Run<'_> {
         }
     }
 
-    /// An arcade guest's match lines in its seat's panel log, as they come: the club rule at the end needs the last one's
-    /// time ([`rules::club_safe`]).
-    fn watch_matches(&mut self) {
-        use std::io::{Read, Seek, SeekFrom};
-        if self.visit.club.is_none() {
-            return;
-        }
-        let Ok(mut f) = File::open(self.seat.join("forza_panel.log")) else {
-            return;
-        };
-        let len = f.metadata().map_or(0, |m| m.len());
-        if len < self.visit.panel_read {
-            self.visit.panel_read = 0; // a new log
-        }
-        let mut new = Vec::new();
-        if len == self.visit.panel_read
-            || f.seek(SeekFrom::Start(self.visit.panel_read)).is_err()
-            || f.read_to_end(&mut new).is_err()
-        {
-            return;
-        }
-        self.visit.panel_read += new.len() as u64;
-        let new = String::from_utf8_lossy(&new);
-        if let Some(line) = new.lines().rev().find(|l| l.contains(MATCH_LINE)) {
-            self.visit.match_on = line.contains(MATCH_START);
-            if !self.visit.match_on {
-                self.visit.match_end = Some(Instant::now());
-            }
-        }
-    }
-
     /// An arcade guest whose host closed the arcade (the tunnel heard it; without one, the club's last copy-back found
-    /// the host's server gone): the end's notice, with the club safe or not. A safe club that did not come home at the
-    /// end is settled, so the next start says nothing. After `shutdown` (the trip's last copy-back done).
-    fn host_closed_notice(&mut self) -> Option<Text> {
-        self.watch_matches(); // the lines since the last look
+    /// the host's server gone): the end's notice, with the club home or maybe missing its last saves (then the marker
+    /// stays, so the next start says so too). After `shutdown`: dropping the trip joins it, its last copy-back done.
+    fn host_closed_notice(&self) -> Option<Text> {
         let progress = self
             .visit
             .club
             .as_ref()
-            .map(|(p, dir)| (*p.lock().unwrap_or_else(PoisonError::into_inner), dir));
+            .map(|p| *p.lock().unwrap_or_else(PoisonError::into_inner));
         let closed = match &self.visit.host_closed {
             Some(flag) => flag.load(Ordering::Relaxed),
-            None => progress.is_some_and(|(p, _)| p.gone),
+            None => progress.is_some_and(|p| p.gone),
         };
-        if !closed {
-            return None;
-        }
-        let safe = progress.map(|(p, dir)| {
-            // a match still on at the end may have saved after the last copy-back: it counts as ending now
-            let last_match = if self.visit.match_on {
-                Some(Instant::now())
-            } else {
-                self.visit.match_end
-            };
-            let safe = rules::club_safe(p.home, p.last_ok, last_match);
-            if safe && !p.home {
-                // the marker would only make the next start say the club did not come home
-                let _ = club::settle(dir);
-            }
-            safe
-        });
-        Some(rules::host_closed_notice(safe))
+        closed.then(|| rules::host_closed_notice(progress.map(|p| p.home)))
     }
 
     /// Stand-in and helper threads that ended by themselves (a panic, an error) are said once, in the run log; the run

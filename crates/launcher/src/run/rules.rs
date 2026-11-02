@@ -6,7 +6,6 @@ use forza::online::seat::{Fault, SeatError};
 
 use super::Text;
 use crate::card::Session;
-use std::time::Instant;
 
 /// debug::run's line when it ends a game because its window was closed.
 pub const WINDOW_CLOSED: &str = "its window was closed";
@@ -383,23 +382,13 @@ pub fn went_wrong(launcher_logs: &[&str], read: impl Fn(&str) -> String) -> Vec<
     why
 }
 
-/// A guest's saves after a match reach the host's store within this long of the seat's last match end line (the panel
-/// logs it 5-10 s after the last frame; the game saves at the result screen and once more about 20 s later).
-pub const CLUB_SETTLE: std::time::Duration = std::time::Duration::from_secs(60);
-
-/// Whether an arcade guest's club is safe at home after the host closed the arcade: brought home at the end, or its
-/// last good copy-back came after every match could have saved (no match seen, or [`CLUB_SETTLE`] after the last end).
-/// shortcut: only matches through the relay (VS) log a line, not CPU matches in the arcade; upgrade if those save late.
-pub fn club_safe(home: bool, last_ok: Option<Instant>, last_match: Option<Instant>) -> bool {
-    home || last_match.is_none_or(|m| last_ok.is_some_and(|ok| ok >= m + CLUB_SETTLE))
-}
-
-/// The end's words when the host closed the arcade; `club`: whether the club is safe, None when none came along.
+/// The end's words when the host closed the arcade; `club`: whether the club came home at the end, None when none came
+/// along. Not home: a save after its last good copy-back (a VS or a CPU match) may be missing at home.
 pub fn host_closed_notice(club: Option<bool>) -> Text {
     Text::key(match club {
         None => "launcher.run_host_closed",
         Some(true) => "launcher.run_host_closed_club_safe",
-        Some(false) => "launcher.run_host_closed_club_not_home",
+        Some(false) => "launcher.run_host_closed_club_maybe_old",
     })
 }
 
@@ -914,8 +903,7 @@ mod tests {
     }
 
     /// The host closes the arcade while the guest plays (the guest's 2026-11-01 logs): the server link's LOST is no
-    /// problem then, the end is a notice, and the club is called safe only when its last good copy-back came after
-    /// the last match could have saved.
+    /// problem then, the end is a notice, and the club is called safe only when it came home at the end.
     #[test]
     fn the_host_closing_is_a_notice_not_a_problem() {
         let seat = ["run_seat1.txt"];
@@ -927,27 +915,14 @@ mod tests {
         let why = went_wrong(&seat, logs(&[("run_seat1.txt", &crash), ("server_link.txt", lost)]));
         assert_eq!(without_link_lost(why).len(), 1, "a crash stays a problem");
 
-        use std::time::Duration;
-        let t0 = Instant::now();
-        let at = |s: u64| Some(t0 + Duration::from_secs(s));
-        // matches ended at 1300 s, copy-backs good until 1525 s, the host gone at 1530 s
-        assert!(club_safe(false, at(1525), at(1300)));
-        assert!(
-            !club_safe(false, at(1325), at(1300)),
-            "a save of that match may not be home"
-        );
-        assert!(!club_safe(false, None, at(1300)), "no copy-back ever came");
-        assert!(club_safe(false, None, None), "no match: the home copy is the club");
-        assert!(club_safe(true, None, at(1300)), "brought home at the end");
-
         assert_eq!(
             host_closed_notice(Some(true)).en(),
-            "The host closed the arcade. Your club is safe (saved after your last match)."
+            "The host closed the arcade. Your club is safe (brought home at the end)."
         );
         assert!(
             host_closed_notice(Some(false))
                 .en()
-                .contains("Your club at home is from before that match")
+                .contains("may be from before your last match")
         );
         assert_eq!(host_closed_notice(None).en(), "The host closed the arcade.");
     }
@@ -975,13 +950,6 @@ mod tests {
         assert!(
             panel.contains("\"ENDED\"") && panel.contains("CLOSING.load"),
             "forza-panel link_watch's ENDED after a close"
-        );
-        let net = include_str!("../../../panel/src/net.rs");
-        assert!(
-            net.contains(&format!("\"{}", super::super::MATCH_START))
-                && net.contains(&format!("\"{}end after ", super::super::MATCH_LINE)),
-            "the panel's match lines the club rule reads ({:?})",
-            super::super::MATCH_LINE
         );
         assert!(
             panel.contains(&format!("\"{}", super::super::PANEL_UP)),

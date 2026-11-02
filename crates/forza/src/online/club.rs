@@ -919,18 +919,8 @@ pub fn leftover(dir: &Path) -> io::Result<Option<PathBuf>> {
     Ok(Some(kept))
 }
 
-/// The club as one more step settles it: the club came home in effect (the home copy is the host's last), so the marker
-/// goes as after a trip that ended at home. For a trip whose last copy-back found no host ([`Progress::gone`]) but
-/// whose earlier copies already brought every saved match home.
-pub fn settle(dir: &Path) -> io::Result<()> {
-    let _ = std::fs::remove_file(last_file(dir));
-    match std::fs::remove_file(out_file(dir)) {
-        Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
-        _ => Ok(()),
-    }
-}
-
-/// How a trip went, for the run's end: read after the [`Trip`] is dropped (its last copy-back done).
+/// How a trip went, for the run's end: read after the [`Trip`] is dropped (dropping it joins the trip's thread, so
+/// its last copy-back is done; `a_trip_over_the_desk` checks the marker is gone right after the drop).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Progress {
     /// The last copy-back that left the home club matching the host's.
@@ -1068,8 +1058,8 @@ impl Guest {
                         format!("{} s ago", t.elapsed().as_secs())
                     });
                     log(&format!(
-                        "club not brought home at the end (last good copy-back: {ago}): the marker stays unless the \
-                         Launcher finds the club safe, else the next start keeps the home copy"
+                        "club NOT brought home at the end (last good copy-back: {ago}): the marker stays, the next \
+                         start keeps the home copy"
                     ));
                 }
                 return;
@@ -1763,10 +1753,10 @@ mod tests {
         assert_eq!(leftover(&dir).unwrap(), None, "said once");
     }
 
-    /// The host closes its arcade (its desk gone, the PC still up): the last copy-back says so, and once the run
-    /// finds the club safe, `settle` takes the marker away so the next start says nothing.
+    /// The host closes its arcade (its desk gone, the PC still up): the last copy-back says so, and the marker stays
+    /// (a save after the last good copy-back may be missing at home), so the next start tells it.
     #[test]
-    fn a_closed_arcade_is_told_and_settled() {
+    fn a_closed_arcade_is_told_and_the_marker_stays() {
         let d = tempfile::tempdir().unwrap();
         let dir = d.path().join("gamesvr");
         std::fs::create_dir_all(&dir).unwrap();
@@ -1784,15 +1774,8 @@ mod tests {
         drop(trip);
         let p = *progress.lock().unwrap();
         assert!(!p.home && p.gone, "{p:?}");
-        assert!(out_file(&dir).exists());
-        settle(&dir).unwrap();
-        assert!(!out_file(&dir).exists() && !last_file(&dir).exists());
-        settle(&dir).unwrap();
-        assert_eq!(
-            leftover(&dir).unwrap(),
-            None,
-            "nothing to tell at the next start"
-        );
+        assert!(out_file(&dir).exists(), "not home: still marked out");
+        assert!(leftover(&dir).unwrap().is_some(), "the next start tells it");
     }
 
     #[test]
