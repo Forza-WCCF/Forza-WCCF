@@ -5313,7 +5313,10 @@ mod tests {
         assert!(st.picture_rect.is_some(), "dialog on the board window");
         st.formations = None;
         frame(&ctx, &mut st, 1920.0, 1080.0, 0.1, vec![]);
-        assert!(st.picture_rect.is_some(), "closed: the picture is the game's again");
+        assert!(
+            st.picture_rect.is_some(),
+            "closed: the picture is the game's again"
+        );
     }
 
     #[test]
