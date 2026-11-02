@@ -10097,3 +10097,47 @@ NET_TWIT_week_0000	Dom
 NET_TWIT_week_0003	Mer
 NET_TWIT_updown_0000	Promosso
 NET_TWIT_updown_0001	Retrocesso
+MAN_Regist_menu_0003	Golden Championship
+INF_ENTRY_division_0000	Divisione Premier
+INF_LEAGUE_division_0000	Divisione Premier
+MAN_APPLICATION_action_0001	Vs amico .Net
+MAN_DATA_message_0002	Dati trasferiti da questa Carta Club.\nCon questa Carta Club non puoi giocare.
+MAN_FIRSTPLAY_message_0090	Golden Championship aggiornato!!
+PRO_PRO_explanation_0011	Coppa Dom
+PRO_PRO_explanation_0012	Coppa Lun
+PRO_PRO_explanation_0013	Coppa Mar
+PRO_PRO_explanation_0014	Coppa Mer
+PRO_PRO_explanation_0015	Coppa Gio
+PRO_PRO_explanation_0016	Coppa Ven
+PRO_PRO_explanation_0017	Coppa Sab
+TRA_THEME_effect_0000	Intese +
+TRA_THEME_effect_0001	Intese ++
+TRA_THEME_effect_0002	Intese +++
+TRA_THEME_effect_0003	Abilita' ++
+TRA_THEME_effect_0004	Abilita' +++
+TRA_THEME_effect_0005	Speciali ++
+TRA_THEME_effect_0006	Speciali +++
+TRA_THEME_effect_0007	Piazzati +
+TRA_THEME_effect_0008	Piazzati ++
+TRA_THEME_effect_0009	Piazzati +++
+TRA_THEME_effect_0010	Intese/Abilita' +
+TRA_THEME_effect_0011	Intese/Speciali +
+TRA_THEME_effect_0012	Intese/Piazzati +
+TRA_THEME_effect_0013	Abilita'/Speciali +
+TRA_THEME_effect_0014	Abilita'/Piazzati +
+TRA_THEME_effect_0015	Speciali/Piazzati +
+TRA_THEME_effect_0016	Intese/Abilita' ++
+TRA_THEME_effect_0017	Intese/Speciali ++
+TRA_THEME_effect_0018	Intese/Piazzati ++
+TRA_THEME_effect_0019	Abilita'/Speciali ++
+TRA_THEME_effect_0020	Abilita'/Piazzati ++
+TRA_THEME_effect_0021	Speciali/Piazzati ++
+TRA_THEME_effect_0022	Intese/Abilita' +++
+TRA_THEME_effect_0023	Intese/Speciali +++
+TRA_THEME_effect_0024	Intese/Piazzati +++
+TRA_THEME_effect_0025	Abilita'/Speciali +++
+TRA_THEME_effect_0026	Abilita'/Piazzati +++
+TRA_THEME_effect_0027	Speciali/Piazzati +++
+TRA_THEME_effect_0028	Intese/Abilita'/Speciali +
+TRA_THEME_effect_0029	Intese/Abilita'/Speciali ++
+TRA_THEME_effect_0030	Intese/Abilita'/Speciali +++
