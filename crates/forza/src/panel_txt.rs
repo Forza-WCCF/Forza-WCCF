@@ -1,7 +1,7 @@
 //! data\panel.txt as the in-game SETTINGS page reads and writes it, by `wccfpanel.c` `set_load_locked` and
 //! `set_save_locked` (play.py's read_panel rules: "name=value", "#" starts a note): where the next plain start plays,
 //! the game's text asked for, the club card chosen, the layout, the card hover delay, automatic reports. The file is
-//! written whole from these choices, so lines the panel does not know are not kept (as the C panel).
+//! written whole from these choices; "name=value" lines this panel does not know (a newer one's) are kept at its end.
 
 /// Four numbers 0-255 with dots, only the digits 0-9, as play.py's valid_ipv4 (the game takes no names).
 pub fn valid_address(s: &str) -> bool {
@@ -48,6 +48,8 @@ pub struct PanelFile {
     pub textures: u32,
     /// fps=on (2017-18): the frames a second over the game's picture.
     pub fps: bool,
+    /// The "name=value" lines not known here, each with its newline, written back as they were.
+    pub other: String,
 }
 
 impl Default for PanelFile {
@@ -67,6 +69,7 @@ impl Default for PanelFile {
             pad_background: false,
             textures: 0,
             fps: false,
+            other: String::new(),
         }
     }
 }
@@ -125,7 +128,10 @@ impl PanelFile {
                         .ok()
                         .filter(|r| r[2] > 0 && r[3] > 0);
                 }
-                _ => {}
+                _ => {
+                    f.other += line.trim();
+                    f.other.push('\n');
+                }
             }
         }
         f
@@ -181,7 +187,7 @@ impl PanelFile {
         if let Some([x, y, w, h, max]) = self.board_rect {
             s += &format!("board_rect={x},{y},{w},{h},{max}\n");
         }
-        s
+        s + &self.other
     }
 }
 
@@ -189,7 +195,8 @@ impl PanelFile {
 mod tests {
     use super::*;
 
-    /// wccfpanel.c's own output for these choices, and its reading rules (set_selftest's cases).
+    /// wccfpanel.c's own output for these choices, and its reading rules (set_selftest's cases); a line it does not
+    /// know is kept at the end.
     #[test]
     fn panel_txt_as_the_c_panel() {
         let f = PanelFile::parse(
@@ -199,7 +206,7 @@ mod tests {
             f.text(false).as_bytes(),
             b"# Forza-WCCF 2010-11 - written by the SETTINGS panel in seat 1's window, read by Launcher.exe at its next\n\
 # plain start (play.py). english= is a change asked for that start; PLAY takes the line out once it is done.\n\
-play_on=online\nserver=1.2.3.4\nenglish=off\nhover_delay_ms=500\nauto_logs=0\n"
+play_on=online\nserver=1.2.3.4\nenglish=off\nhover_delay_ms=500\nauto_logs=0\nwhat=ever\n"
         );
         let all = PanelFile {
             card: "new".into(),
