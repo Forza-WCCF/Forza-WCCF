@@ -776,6 +776,7 @@ launcher.run_cup_at: {en: "Universal Cup opens at about %{time}", it: "La Univer
 launcher.run_cup_game_times: {en: "Universal Cup at 12:00, 15:00, 18:00 and 21:00", it: "Universal Cup alle 12:00, 15:00, 18:00 e 21:00", ja: "ユニバーサルカップは12:00、15:00、18:00、21:00"}
 launcher.run_cup_off: {en: "no Universal Cup", it: "nessuna Universal Cup", ja: "ユニバーサルカップなし"}
 launcher.run_cup_refused: {en: "Universal Cup at the game's times: %{why}", it: "Universal Cup agli orari del gioco: %{why}", ja: "ユニバーサルカップは通常の時間: %{why}"}
+launcher.run_championship: {en: "Your club is in the Universal Championship: it plays on the big screen from about %{time}. Your club plays with its last lineup; you watch.", it: "Il tuo club è nell'Universal Championship: gioca sul maxischermo da circa le %{time}. Il tuo club gioca con l'ultima formazione registrata; tu guardi.", ja: "あなたのクラブがユニバーサルチャンピオンシップに出場します。%{time}ごろから大画面で試合が始まります。クラブは最後に登録した編成で戦い、あなたは観戦します。"}
 launcher.run_marker_unread: {en: "club marker not read (%{error})", it: "indicatore del club non letto (%{error})", ja: "クラブのマーカーを読み取れませんでした (%{error})"}
 launcher.run_no_card: {en: "club: no card yet on this PC, so none to bring", it: "club: ancora nessuna carta su questo PC, quindi niente da portare", ja: "クラブ: このPCにはまだカードがないため、持ち込むものはありません"}
 launcher.run_with_why: {en: "%{text} (%{why})", it: "%{text} (%{why})", ja: "%{text} (%{why})"}

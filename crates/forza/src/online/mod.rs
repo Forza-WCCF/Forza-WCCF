@@ -7,6 +7,7 @@
 //! `WANT` or `WANT SEAT n` -> `SEAT n PROJECTOR p`, `TAKEN n`, `FULL` or `ERR ...`; then `PING` -> `PONG`.
 //! A 2017-18 arcade guest's club goes to the host's desk and back with `CLUB PUT`, `CLUB GET` and `CLUB DONE` ([`club`]).
 
+pub mod championship;
 pub mod club;
 pub mod gamesvr;
 pub mod lan;

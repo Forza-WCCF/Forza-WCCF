@@ -84,6 +84,18 @@ fn files(kit: &Path, game: Option<&Path>) -> Vec<(String, PathBuf)> {
     if let Some(game) = game {
         // 2017-18: control's guard log, beside the game folder's wccfnet.dll
         out.push(("game/wccfnet.log".into(), game.join("wccfnet.log")));
+        // the Universal Championship's day files (super::championship), today's and yesterday's
+        let mut uc = files_in(&game.join("log"));
+        uc.retain(|p| p.to_string_lossy().ends_with("_uc.bin"));
+        for p in uc.split_off(uc.len().saturating_sub(2)) {
+            out.push((
+                format!(
+                    "game/log/{}",
+                    p.file_name().unwrap_or_default().to_string_lossy()
+                ),
+                p,
+            ));
+        }
     }
     if let Some(dir) = game.and_then(Path::parent) {
         for p in files_in(&dir.join("seat1")) {
@@ -1068,6 +1080,27 @@ mod tests {
             ),
             "{report}"
         );
+    }
+
+    #[test]
+    fn the_championship_day_files_go_today_and_yesterday() {
+        let d = tempfile::tempdir().unwrap();
+        let log = d.path().join("game").join("log");
+        fs::create_dir_all(&log).unwrap();
+        for n in [
+            "20261031_uc.bin",
+            "20261101_uc.bin",
+            "20261102_uc.bin",
+            "otameshi.bin",
+        ] {
+            fs::write(log.join(n), b"x").unwrap();
+        }
+        let names = names(d.path(), Some(&d.path().join("game")));
+        let uc: Vec<&String> = names
+            .iter()
+            .filter(|n| n.starts_with("game/log/"))
+            .collect();
+        assert_eq!(uc, ["game/log/20261101_uc.bin", "game/log/20261102_uc.bin"]);
     }
 
     #[test]
