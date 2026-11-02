@@ -407,6 +407,17 @@ pub fn frame_stats_tick(log: fn(&str)) {
     }
 }
 
+/// Why the frame wait at `call` is left alone (its log line), or `None`: it holds `code`, the bytes studied.
+fn limiter_refused(call: usize, code: &[u8; 16]) -> Option<&'static str> {
+    match read::<16>(call) {
+        None => Some("limiter: the frame wait could not be read - the original spin stays"),
+        Some(b) if b != *code => {
+            Some("limiter: the frame wait is not the code studied - the original spin stays")
+        }
+        Some(_) => None,
+    }
+}
+
 /// The C's `limiter_install`, both editions: [`limiter_site`] says where (2017-18 relocated by its base); the bytes there
 /// are checked before the call is swapped.
 fn limiter_install(e1718: bool, dll_dir: &Path, log: fn(&str)) {
@@ -422,16 +433,9 @@ fn limiter_install(e1718: bool, dll_dir: &Path, log: fn(&str)) {
         log(&format!("limiter: not the game ({nm}) - nothing changed"));
         return;
     };
-    match read::<16>(call) {
-        None => {
-            log("limiter: the frame wait could not be read - the original spin stays");
-            return;
-        }
-        Some(b) if b != code => {
-            log("limiter: the frame wait is not the code studied - the original spin stays");
-            return;
-        }
-        Some(_) => {}
+    if let Some(why) = limiter_refused(call, &code) {
+        log(why);
+        return;
     }
     let Some(timer) = hires_timer() else {
         log(
@@ -1348,6 +1352,24 @@ mod tests {
         let old8 = u64::from_le_bytes(code[..8].try_into().unwrap());
         assert_eq!(call_patch(old8, call, clock), old8);
         assert_eq!(code[5..], LIMITER_LOOP[5..]); // the same loop as 2010-11's after the call
+    }
+
+    #[test]
+    fn limiter_refuses_other_bytes() {
+        let (_, _, code) = limiter_site(true, BASE_1718).unwrap();
+        let mut at = code;
+        assert_eq!(limiter_refused(at.as_ptr() as usize, &code), None);
+        at[1] ^= 1; // another call target: a different build
+        assert!(
+            limiter_refused(at.as_ptr() as usize, &code)
+                .is_some_and(|w| w.contains("not the code studied"))
+        );
+        assert!(limiter_refused(0, &code).is_some_and(|w| w.contains("could not be read")));
+        // FRAME CAP off keeps the original spin even without limiter_off
+        let dir = std::env::temp_dir();
+        CAP.store(false, Relaxed);
+        assert!(!limiter_wanted(&dir));
+        CAP.store(true, Relaxed);
     }
 
     #[test]
