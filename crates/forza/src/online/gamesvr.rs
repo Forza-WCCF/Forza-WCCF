@@ -1104,7 +1104,7 @@ fn answer(
         // feed (VtrPlayData, control sub_47AFE0): an all-zero 6,480-byte match at +58 of each 8,602-byte round
         // (`live_game_at`) reads as "LiveGameInit bin is empty", so the projector gets no replays. Its CPU
         // championship is the control's own CPU-filled Universal Championship, which the hook keeps off the
-        // projector (native/hook/src/uclive.rs).
+        // projector unless an arcade player's club is in it (native/hook/src/uclive.rs).
         put(&mut body, 4, live_chunk_size(u32_at(payload, 4)));
     }
     if matches!(cmd, 307 | 311) {
@@ -1518,8 +1518,9 @@ mod tests {
         assert_eq!((cmd, body.len(), u32_at(&body, 4)), (262, 2040, 504));
     }
 
-    /// Where round `round` (0..8) of competition `compe` (0..2) keeps its 6,480-byte match in the 261 buffer: +8, then
-    /// 68,816 bytes per competition, 8,602 per round, the match at +58 (control sub_47AFE0, sub_47A530).
+    /// Where round `round` (0..8) of competition `compe` (0..2) keeps its 6,480-byte match in the control's 261 buffer
+    /// (the answers' bytes from +8, joined): the buffer's own 8-byte head (week id, weekday), then 68,816 bytes per
+    /// competition, 8,602 per round, the match at +58 (control sub_47AFE0, sub_47A530).
     fn live_game_at(compe: usize, round: usize) -> usize {
         8 + 68_816 * compe + 8_602 * round + 58
     }
@@ -1537,6 +1538,11 @@ mod tests {
             buf.extend_from_slice(&body[8..8 + n]); // what sub_443090 copies: answer +8, size at +4
         }
         assert_eq!(buf.len(), 0x3DA38);
+        // the layout: 8 rounds fill a competition, 2 competitions end where the team names start (+137,640)
+        assert_eq!(live_game_at(0, 1) - live_game_at(0, 0), 8_602);
+        assert_eq!(live_game_at(1, 0) - live_game_at(0, 0), 8 * 8_602);
+        assert_eq!(live_game_at(2, 0) - 58, 137_640);
+        // every match slot is zero ("LiveGameInit bin is empty"), as is the rest: names and emblems of nobody
         for (c, r) in (0..2).flat_map(|c| (0..8).map(move |r| (c, r))) {
             let at = live_game_at(c, r);
             assert!(
@@ -1544,6 +1550,7 @@ mod tests {
                 "competition {c} round {r}: a non-zero match would play on the projector"
             );
         }
+        assert!(buf.iter().all(|&b| b == 0));
     }
 
     #[test]
@@ -1713,7 +1720,8 @@ mod tests {
             (5_000, 250_000, 26, 1)
         );
         assert!(body[8..16].iter().all(|b| *b == 0), "date and time stay 0");
-        // the Universal Cup: scheduling on (payload +1,188), 9-minute slots, 20 minutes, and the four open times
+        // the Universal Cup: scheduling on (payload +1,188 = GAME_CTRL 1172; without it control 0x462820 never counts a
+        // cup held and the Universal Championship never follows), 9-minute slots, 20 minutes, and the four open times
         assert_eq!(
             (body[1_188], body[1_189], body[1_190]),
             (1, 9, 20),
