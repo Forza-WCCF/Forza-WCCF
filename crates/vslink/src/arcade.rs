@@ -1102,6 +1102,36 @@ mod tests {
         assert_ne!(CLOSE_ARCADE_CLOSED, CLOSE_NOT_IN_ROOM);
     }
 
+    /// The real closes, not made-up ones: a 0.6.1 host's stop (iroh's `Endpoint::close`, code 0) reads as the host
+    /// closing the arcade; the guest's own stop (`LocallyClosed` on its side) does not.
+    #[tokio::test]
+    async fn real_closes_are_told_apart() {
+        let ep = || {
+            Endpoint::builder(presets::Minimal)
+                .alpns(vec![ARCADE_ALPN.to_vec()])
+                .relay_mode(RelayMode::Disabled)
+                .bind()
+        };
+        async fn link(guest: &Endpoint, host: &Endpoint) -> (Connection, Connection) {
+            let (c, h) = tokio::join!(guest.connect(host.addr(), ARCADE_ALPN), async {
+                host.accept().await.unwrap().await.unwrap()
+            });
+            (c.unwrap(), h)
+        }
+        let (host, guest) = (ep().await.unwrap(), ep().await.unwrap());
+        let (c, _h) = link(&guest, &host).await;
+        host.close().await;
+        let why = c.closed().await;
+        assert!(closed_by_host(&why), "{why:?}");
+
+        let host = ep().await.unwrap();
+        let (c, _h) = link(&guest, &host).await;
+        guest.close().await;
+        let why = c.closed().await;
+        assert!(!closed_by_host(&why), "{why:?}");
+        host.close().await;
+    }
+
     #[test]
     fn ids_are_64_hex_digits() {
         let key = iroh::SecretKey::generate();

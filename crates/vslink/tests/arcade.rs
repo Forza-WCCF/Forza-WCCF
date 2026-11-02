@@ -454,6 +454,17 @@ fn a_host_that_stops_tells_its_guest() {
     assert!(logged(&p.join_log, "dialling again"));
 }
 
+/// The guest stops its own tunnel (the game closed): that is not the host closing the arcade.
+#[test]
+fn a_guest_that_stops_is_not_told_the_host_closed() {
+    let mut p = pair("guest_stops", 0, false);
+    let join = p.join.take().unwrap();
+    let closed = join.host_closed();
+    drop(join);
+    assert!(!closed.load(Ordering::Relaxed));
+    assert!(!logged(&p.join_log, "the host closed the arcade"));
+}
+
 /// A guest holds at most 4 streams; the 5th is refused while the others keep working.
 #[test]
 fn streams_past_the_cap_are_refused() {
