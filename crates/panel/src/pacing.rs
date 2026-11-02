@@ -27,7 +27,6 @@ static STATE: Mutex<Option<State>> = Mutex::new(None);
 
 /// Every game frame, on the render thread. `playing` (this seat is in a match) is asked every 15 frames, half a
 /// second; when a match ends its line goes to `done`.
-// shortcut: a match still running when the game closes writes no line; add a flush on unload if that run matters
 pub fn tick(playing: impl FnOnce() -> bool, done: impl FnOnce(&str)) {
     let Ok(mut g) = STATE.lock() else { return };
     let now = Instant::now();
@@ -59,14 +58,26 @@ pub fn tick(playing: impl FnOnce() -> bool, done: impl FnOnce(&str)) {
     match (playing(), s.playing.take()) {
         (true, None) => s.playing = Some((now, Vec::with_capacity(30 * 600))),
         (true, kept) => s.playing = kept,
-        (false, Some((t0, mut times))) => done(&match_line(
-            (now - t0).as_secs_f32(),
-            &mut times,
-            crate::patches::limiter_sleeps(),
-            crate::VSYNC.load(Relaxed) == crate::VSYNC_ON,
-        )),
+        (false, Some((t0, mut times))) => done(&finished(now - t0, &mut times)),
         (false, None) => {}
     }
+}
+
+/// The game closes: a match still running writes its line now.
+pub fn flush(done: impl FnOnce(&str)) {
+    let Ok(mut g) = STATE.lock() else { return };
+    if let Some((t0, mut times)) = g.as_mut().and_then(|s| s.playing.take()) {
+        done(&finished(t0.elapsed(), &mut times));
+    }
+}
+
+fn finished(took: std::time::Duration, times: &mut [f32]) -> String {
+    match_line(
+        took.as_secs_f32(),
+        times,
+        crate::patches::limiter_sleeps(),
+        crate::VSYNC.load(Relaxed) == crate::VSYNC_ON,
+    )
 }
 
 /// Frames, average, 99th percentile, longest (ms) and the count over 50 ms. `times` comes back sorted.
@@ -116,5 +127,22 @@ mod tests {
         // 100 frames: the p99 is the 99th, not the longest
         let mut t: Vec<f32> = (1..=100).map(|i| i as f32).collect();
         assert_eq!(summary(&mut t).2, 99.0);
+    }
+
+    #[test]
+    fn flush_writes_a_running_match() {
+        let now = Instant::now();
+        *STATE.lock().unwrap() = Some(State {
+            last: now,
+            second: (now, 0),
+            polls: 0,
+            playing: Some((now, vec![33.0, 34.0])),
+        });
+        let mut line = String::new();
+        flush(|l| line = l.to_owned());
+        assert!(line.contains(": 2 frames, avg 33.50 ms"), "{line}");
+        line.clear();
+        flush(|l| line = l.to_owned()); // written once
+        assert!(line.is_empty());
     }
 }
