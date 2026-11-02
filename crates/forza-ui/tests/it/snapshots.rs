@@ -207,6 +207,29 @@ fn launcher_host_dialog() {
     all.unwrap();
 }
 
+/// The PLAY tab on 2017-18, This PC: the Universal Cup against 7 CPU teams, in 25 min at 14:00.
+#[test]
+fn launcher_play_cup() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for lang in Lang::ALL {
+        let mut st =
+            launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
+        let v = &mut st.lobby;
+        (v.cup.mode, v.cup.minutes, v.clock) = (lobby::CupMode::In, 25, Some(14 * 3600));
+        snap(
+            &mut all,
+            &format!("launcher_play_cup_{}", lang.code()),
+            launcher::SIZE,
+            Edition::E1718,
+            |ui| {
+                launcher::show(ui, &mut st);
+            },
+        );
+    }
+    all.unwrap();
+}
+
 /// The ONLINE tab on 2017-18 with the Direct address fold open (the club server and the VS link switch live there),
 /// then closed.
 #[test]

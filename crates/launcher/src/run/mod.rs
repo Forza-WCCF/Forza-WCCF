@@ -2112,12 +2112,9 @@ impl Run<'_> {
         let port = self.p.gamesvr_port;
         let ctrl_conf = self.game.join(r"local\ctrl_user_option.conf");
         // the Universal Cup: the host dialog's choice, which the control reads only as it starts (a new choice needs a
-        // new start). A cup at a time is a schedule slot (local\schedule_option.conf); VS keeps the game's times.
-        let plan = if let Mode::Vs(_) = self.mode {
-            Ok(CupPlan::GameTimes)
-        } else {
-            conf::cup_choice(&self.kit.settings()).plan(forza_ui::lobby::local_clock())
-        };
+        // new start; local play's PLAY tab writes the same setting). A cup at a time is a schedule slot
+        // (local\schedule_option.conf).
+        let plan = rules::cup_plan(&self.mode, &self.kit.settings(), forza_ui::lobby::local_clock());
         let (times, friendlies, line) = match plan {
             Ok(CupPlan::Off) => (Some([0; 4]), None, Text::key("launcher.run_cup_off")),
             Ok(CupPlan::GameTimes) => (None, None, Text::key("launcher.run_cup_game_times")),

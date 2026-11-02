@@ -1426,6 +1426,86 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
     });
 }
 
+/// The Universal Cup rows (mode, time, the line it gives): the host dialog's and, `local`, the PLAY tab's for a cup on
+/// this PC alone. True when the time is refused (the caller greys its start).
+pub fn cup_rows(
+    ui: &mut Ui,
+    cup: &mut CupChoice,
+    now: u32,
+    lang: Lang,
+    label_w: f32,
+    local: bool,
+) -> bool {
+    let (off_key, note_key) = if local {
+        ("lobby.cup_off_local", "lobby.cup_local")
+    } else {
+        ("lobby.cup_off_line", "lobby.cup_restart")
+    };
+    // the control reads the cup times only as it starts (no live change: that would drop every seat)
+    const MODES: [CupMode; 4] = [CupMode::Off, CupMode::GameTimes, CupMode::In, CupMode::At];
+    ui.horizontal(|ui| {
+        field(ui, &tr!(lang, "lobby.cup"), label_w);
+        let labels = [
+            "lobby.cup_off",
+            "lobby.cup_game_times",
+            "lobby.cup_in",
+            "lobby.cup_at",
+        ]
+        .map(|k| tr!(lang, k));
+        let labels: Vec<&str> = labels.iter().map(String::as_str).collect();
+        let mut i = MODES.iter().position(|&m| m == cup.mode).unwrap_or(1);
+        if segmented(ui, &mut i, &labels, ui.available_width()) {
+            cup.mode = MODES[i];
+        }
+    });
+    if matches!(cup.mode, CupMode::In | CupMode::At) {
+        ui.horizontal(|ui| {
+            field(ui, "", label_w);
+            if cup.mode == CupMode::In {
+                ui.add(
+                    egui::DragValue::new(&mut cup.minutes)
+                        .range(CUP_MIN_MINUTES..=CUP_MAX_MINUTES)
+                        .suffix(tr!(lang, "lobby.cup_min_unit")),
+                );
+            } else {
+                let (mut h, mut m) = (cup.at / 60, cup.at % 60);
+                let two = |n: f64, _| format!("{n:02.0}");
+                let a = ui.add(
+                    egui::DragValue::new(&mut h)
+                        .range(0..=23)
+                        .custom_formatter(two),
+                );
+                ui.label(":");
+                let b = ui.add(
+                    egui::DragValue::new(&mut m)
+                        .range(0..=59)
+                        .custom_formatter(two),
+                );
+                if a.changed() || b.changed() {
+                    cup.at = h * 60 + m;
+                }
+            }
+        });
+    }
+    let (tone, line) = match cup.plan(now) {
+        Ok(CupPlan::Off) => (Tone::Notice, tr!(lang, off_key)),
+        Ok(CupPlan::GameTimes) => (Tone::Done, tr!(lang, "lobby.cup_game_times_line")),
+        Ok(CupPlan::Slot { opens, .. }) => (
+            Tone::Done,
+            tr!(lang, "lobby.cup_opens", time = clock_text(opens)),
+        ),
+        Err(r) => (Tone::Refused, tr!(lang, r.key(), m = r.minutes())),
+    };
+    let refused = tone == Tone::Refused;
+    status_line(ui, tone, &line);
+    ui.label(
+        egui::RichText::new(tr!(lang, note_key))
+            .size(12.5)
+            .color(theme::TEXT_DIM),
+    );
+    refused
+}
+
 /// The host dialog (HOST ARCADE): "List my arcade", the arcade's name, HOST and CANCEL; CANCEL, Esc or a click outside put
 /// both back as they were.
 fn host_dialog(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAction>) {
@@ -1471,70 +1551,8 @@ fn host_dialog(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<Lobb
                         .margin(vec2(10.0, 6.0)),
                 );
             });
-            // the control reads the cup times only as it starts (no live change: that would drop every seat)
-            const MODES: [CupMode; 4] =
-                [CupMode::Off, CupMode::GameTimes, CupMode::In, CupMode::At];
-            ui.horizontal(|ui| {
-                field(ui, &tr!(lang, "lobby.cup"), 130.0);
-                let labels = [
-                    "lobby.cup_off",
-                    "lobby.cup_game_times",
-                    "lobby.cup_in",
-                    "lobby.cup_at",
-                ]
-                .map(|k| tr!(lang, k));
-                let labels: Vec<&str> = labels.iter().map(String::as_str).collect();
-                let mut i = MODES.iter().position(|&m| m == v.cup.mode).unwrap_or(1);
-                if segmented(ui, &mut i, &labels, ui.available_width()) {
-                    v.cup.mode = MODES[i];
-                }
-            });
             let now = v.clock.unwrap_or_else(local_clock);
-            if matches!(v.cup.mode, CupMode::In | CupMode::At) {
-                ui.horizontal(|ui| {
-                    field(ui, "", 130.0);
-                    if v.cup.mode == CupMode::In {
-                        ui.add(
-                            egui::DragValue::new(&mut v.cup.minutes)
-                                .range(CUP_MIN_MINUTES..=CUP_MAX_MINUTES)
-                                .suffix(tr!(lang, "lobby.cup_min_unit")),
-                        );
-                    } else {
-                        let (mut h, mut m) = (v.cup.at / 60, v.cup.at % 60);
-                        let two = |n: f64, _| format!("{n:02.0}");
-                        let a = ui.add(
-                            egui::DragValue::new(&mut h)
-                                .range(0..=23)
-                                .custom_formatter(two),
-                        );
-                        ui.label(":");
-                        let b = ui.add(
-                            egui::DragValue::new(&mut m)
-                                .range(0..=59)
-                                .custom_formatter(two),
-                        );
-                        if a.changed() || b.changed() {
-                            v.cup.at = h * 60 + m;
-                        }
-                    }
-                });
-            }
-            let (tone, line) = match v.cup.plan(now) {
-                Ok(CupPlan::Off) => (Tone::Notice, tr!(lang, "lobby.cup_off_line")),
-                Ok(CupPlan::GameTimes) => (Tone::Done, tr!(lang, "lobby.cup_game_times_line")),
-                Ok(CupPlan::Slot { opens, .. }) => (
-                    Tone::Done,
-                    tr!(lang, "lobby.cup_opens", time = clock_text(opens)),
-                ),
-                Err(r) => (Tone::Refused, tr!(lang, r.key(), m = r.minutes())),
-            };
-            let refused = tone == Tone::Refused;
-            status_line(ui, tone, &line);
-            ui.label(
-                egui::RichText::new(tr!(lang, "lobby.cup_restart"))
-                    .size(12.5)
-                    .color(theme::TEXT_DIM),
-            );
+            let refused = cup_rows(ui, &mut v.cup, now, lang, 130.0, false);
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 let size = vec2(216.0, 48.0);

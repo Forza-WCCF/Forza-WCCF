@@ -611,6 +611,8 @@ lobby.cup_night: {en: "The cup and its championship must end before 05:00.", it:
 lobby.cup_too_soon: {en: "Too soon: the cup needs at least %{m} min.", it: "Troppo presto: servono almeno %{m} min.", ja: "早すぎます。%{m}分以上先にしてください。"}
 lobby.cup_too_far: {en: "Too far ahead: at most %{m} min from now.", it: "Troppo lontano: al massimo tra %{m} min.", ja: "先すぎます。%{m}分以内にしてください。"}
 lobby.cup_restart: {en: "Set when the arcade opens. To change it, close the arcade and host again.", it: "Si sceglie all'apertura della sala. Per cambiarlo, chiudi la sala e riaprila.", ja: "ゲームセンターを開くときに決まります。変更するには、閉じてから開き直してください。"}
+lobby.cup_off_local: {en: "No Universal Cup: normal play.", it: "Nessuna Universal Cup: gioco normale.", ja: "ユニバーサルカップなし：通常プレイ。"}
+lobby.cup_local: {en: "Your club and 7 CPU teams. Set at PLAY; to change it, stop the game and play again.", it: "Il tuo club e 7 squadre CPU. Si sceglie a GIOCA; per cambiarlo, ferma il gioco e riavvialo.", ja: "あなたのクラブとCPU 7チーム。プレイ開始時に決まります。変更するには、ゲームを終了して再度プレイしてください。"}
 
 # ---- pause (the panel holds the match, at most 20 s) ----
 pause.button: {en: "PAUSE", it: "PAUSA", ja: "一時停止"}
