@@ -28,8 +28,8 @@ use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -919,6 +919,25 @@ pub fn leftover(dir: &Path) -> io::Result<Option<PathBuf>> {
     Ok(Some(kept))
 }
 
+/// How a trip went, for the run's end: read after the [`Trip`] is dropped (dropping it joins the trip's thread, so
+/// its last copy-back is done; `a_trip_over_the_desk` checks the marker is gone right after the drop).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Progress {
+    /// The last copy-back that left the home club matching the host's.
+    pub last_ok: Option<Instant>,
+    /// The last copy-back (at the end) brought it home.
+    pub home: bool,
+    /// The last two copy-backs found the host's PC up but its server gone (refused or reset): the host closed the
+    /// arcade, not a desk that restarts.
+    pub gone: bool,
+    gone_once: bool,
+}
+
+/// A copy-back error that says the host's server is gone while its PC answers: refused or reset (Windows errors).
+fn server_gone(e: &str) -> bool {
+    e.contains("(os error 10061)") || e.contains("(os error 10054)")
+}
+
 /// The guest's card for an arcade.
 pub struct Guest {
     /// The seat desk (through the tunnel: 127.0.0.1 and the tunnel's port).
@@ -941,6 +960,14 @@ pub struct Guest {
 /// host; the marker goes only after that last copy is home.
 pub struct Trip {
     _handle: Handle,
+    progress: Arc<Mutex<Progress>>,
+}
+
+impl Trip {
+    /// How the trip goes; final once the trip is dropped.
+    pub fn progress(&self) -> Arc<Mutex<Progress>> {
+        self.progress.clone()
+    }
 }
 
 impl Guest {
@@ -977,12 +1004,15 @@ impl Guest {
         ));
         let stop = Arc::new(AtomicBool::new(false));
         let flag = stop.clone();
+        let progress = Arc::new(Mutex::new(Progress::default()));
+        let p = progress.clone();
         let thread = thread::Builder::new()
             .name("club-trip".into())
-            .spawn(move || self.trip(out, store, &flag, &log))
+            .spawn(move || self.trip(out, store, &flag, &log, &p))
             .map_err(|e| e.to_string())?;
         Ok(Trip {
             _handle: Handle::new(stop, thread),
+            progress,
         })
     }
 
@@ -993,15 +1023,27 @@ impl Guest {
         )
     }
 
-    fn trip(self, mut out: Out, mut store: Store, stop: &AtomicBool, log: &Log) {
+    fn trip(
+        self,
+        mut out: Out,
+        mut store: Store,
+        stop: &AtomicBool,
+        log: &Log,
+        progress: &Mutex<Progress>,
+    ) {
         loop {
             let until = Instant::now() + self.poll;
             while Instant::now() < until && !stop.load(Ordering::Relaxed) {
                 thread::sleep(Duration::from_millis(100));
             }
             let last = stop.load(Ordering::Relaxed);
-            let home = self.pull(&mut out, &mut store, last, log);
+            let home = self.pull(&mut out, &mut store, last, log, progress);
+            let mut p = progress.lock().unwrap_or_else(PoisonError::into_inner);
+            if home {
+                p.last_ok = Some(Instant::now());
+            }
             if last {
+                p.home = home;
                 if home {
                     match release(self.desk, self.arcade_aime, &self.code) {
                         Ok(()) => log("club home; the arcade dropped its copy"),
@@ -1012,9 +1054,13 @@ impl Guest {
                     let _ = std::fs::remove_file(last_file(&self.dir));
                     let _ = std::fs::remove_file(out_file(&self.dir));
                 } else {
-                    log(
-                        "club NOT brought home at the end: the marker stays, the next start keeps the home copy",
-                    );
+                    let ago = p.last_ok.map_or("none".into(), |t| {
+                        format!("{} s ago", t.elapsed().as_secs())
+                    });
+                    log(&format!(
+                        "club NOT brought home at the end (last good copy-back: {ago}): the marker stays, the next \
+                         start keeps the home copy"
+                    ));
                 }
                 return;
             }
@@ -1023,9 +1069,23 @@ impl Guest {
 
     /// One copy-back; true when the home club now matches the host's (or nothing changed). `all`: ask even when
     /// the stamp is the same (the last one).
-    fn pull(&self, out: &mut Out, store: &mut Store, all: bool, log: &Log) -> bool {
+    fn pull(
+        &self,
+        out: &mut Out,
+        store: &mut Store,
+        all: bool,
+        log: &Log,
+        progress: &Mutex<Progress>,
+    ) -> bool {
         let since = if all { "" } else { out.host_stamp.as_str() };
-        let (stamp, host) = match fetch(self.desk, self.arcade_aime, &self.code, since) {
+        let got = fetch(self.desk, self.arcade_aime, &self.code, since);
+        {
+            let mut p = progress.lock().unwrap_or_else(PoisonError::into_inner);
+            let now = got.as_ref().is_err_and(|e| server_gone(e));
+            p.gone = now && p.gone_once;
+            p.gone_once = now;
+        }
+        let (stamp, host) = match got {
             Ok(Some(got)) => got,
             Ok(None) => return true,
             Err(e) => {
@@ -1490,14 +1550,22 @@ mod tests {
         assert_eq!(host.club(9).unwrap(), own);
     }
 
-    /// The host's desk for tests: `serve` on every connection, seat 2 taken; `down` closes connections unanswered.
-    fn desk(db: PathBuf) -> (SocketAddr, Arc<AtomicBool>) {
+    /// The host's desk for tests: `serve` on every connection, seat 2 taken; `down` closes connections unanswered;
+    /// `closed`: the next connection closes the desk itself (later ones are refused, as after the host's Stop).
+    fn desk(db: PathBuf) -> (SocketAddr, Arc<AtomicBool>, Arc<AtomicBool>) {
         let l = TcpListener::bind("127.0.0.1:0").unwrap();
-        let (at, down) = (l.local_addr().unwrap(), Arc::new(AtomicBool::new(false)));
-        let off = down.clone();
+        let (at, down, closed) = (
+            l.local_addr().unwrap(),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(AtomicBool::new(false)),
+        );
+        let (off, gone) = (down.clone(), closed.clone());
         thread::spawn(move || {
             for c in l.incoming() {
                 let mut c = c.unwrap();
+                if gone.load(Ordering::Relaxed) {
+                    return;
+                }
                 if off.load(Ordering::Relaxed) {
                     continue;
                 }
@@ -1518,7 +1586,7 @@ mod tests {
                 let _ = c.shutdown(std::net::Shutdown::Write);
             }
         });
-        (at, down)
+        (at, down, closed)
     }
 
     fn guest(desk: SocketAddr, dir: &Path, seat: u8) -> Guest {
@@ -1553,7 +1621,7 @@ mod tests {
         drop(store_with(&dir.join("gamesvr.db"), &sent));
         let host_db = d.path().join("host.db");
         drop(store_with(&host_db, &club(9, &[(1, 1)])));
-        let (at, _down) = desk(host_db.clone());
+        let (at, _down, _) = desk(host_db.clone());
         let said = Arc::new(Mutex::new(Vec::<String>::new()));
         let keep = said.clone();
         let log: Log = Arc::new(move |l: &str| keep.lock().unwrap().push(l.to_owned()));
@@ -1657,13 +1725,16 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         drop(store_with(&dir.join("gamesvr.db"), &club(1, &[(1, 1)])));
         let host_db = d.path().join("host.db");
-        let (at, down) = desk(host_db.clone());
+        let (at, down, _) = desk(host_db.clone());
         let trip = guest(at, &dir, 2).bring(Arc::new(|_: &str| {})).unwrap();
         wait("a first copy pulled", || last_file(&dir).exists());
         let home = Store::open(&dir.join("gamesvr.db")).unwrap();
         let before = home.club(1).unwrap();
         down.store(true, Ordering::Relaxed);
+        let progress = trip.progress();
         drop(trip);
+        let p = *progress.lock().unwrap();
+        assert!(!p.home && p.last_ok.is_some(), "{p:?}");
         assert!(out_file(&dir).exists(), "not home: still marked out");
         assert!(
             has_rows(&Store::open(&host_db).unwrap().0, 50).unwrap(),
@@ -1680,6 +1751,31 @@ mod tests {
         assert!(!out_file(&dir).exists());
         assert_eq!(home.club(1).unwrap(), before, "the home copy is kept");
         assert_eq!(leftover(&dir).unwrap(), None, "said once");
+    }
+
+    /// The host closes its arcade (its desk gone, the PC still up): the last copy-back says so, and the marker stays
+    /// (a save after the last good copy-back may be missing at home), so the next start tells it.
+    #[test]
+    fn a_closed_arcade_is_told_and_the_marker_stays() {
+        let d = tempfile::tempdir().unwrap();
+        let dir = d.path().join("gamesvr");
+        std::fs::create_dir_all(&dir).unwrap();
+        drop(store_with(&dir.join("gamesvr.db"), &club(1, &[(1, 1)])));
+        let (addr, _down, closed) = desk(d.path().join("host.db"));
+        let trip = guest(addr, &dir, 2).bring(Arc::new(|_: &str| {})).unwrap();
+        wait("a first copy pulled", || last_file(&dir).exists());
+        let progress = trip.progress();
+        wait("a good copy-back", || {
+            progress.lock().unwrap().last_ok.is_some()
+        });
+        closed.store(true, Ordering::Relaxed);
+        let _ = TcpStream::connect(addr); // wakes the desk, which then closes its listener
+        wait("a refused copy-back", || progress.lock().unwrap().gone_once);
+        drop(trip);
+        let p = *progress.lock().unwrap();
+        assert!(!p.home && p.gone, "{p:?}");
+        assert!(out_file(&dir).exists(), "not home: still marked out");
+        assert!(leftover(&dir).unwrap().is_some(), "the next start tells it");
     }
 
     #[test]

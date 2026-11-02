@@ -90,6 +90,15 @@ const ANSWER_WAIT: Duration = Duration::from_secs(60);
 /// The panel's line in `seat1\forza_panel.log` once its Present detour has drawn a frame: the run's proof it is up.
 pub(crate) const PANEL_UP: &str = "first frame shown";
 
+/// 2017-18 arcade guest: what the end needs to tell that the host closed the arcade, and whether the club came home.
+#[derive(Default)]
+struct Visit {
+    /// Through the tunnel: its `ArcadeLink::host_closed`.
+    host_closed: Option<Arc<AtomicBool>>,
+    /// The club trip's progress.
+    club: Option<Arc<Mutex<club::Progress>>>,
+}
+
 /// A line the player reads, by its `locales/ui.yml` key (forza-ui) and arguments, which may be lines too: the window
 /// shows it in the player's language, the log files keep the English (support reads them).  `Raw`: words that are
 /// the same in every language (an error from Windows, another program's line).
@@ -990,6 +999,7 @@ pub struct Run<'a> {
     lease: Option<Lease>,
     /// 2017-18 arcade guest: its home club, out in the arcade until this is dropped (online::club).
     club: Option<club::Trip>,
+    visit: Visit,
     /// Remote: the server as the game takes it (its IPv4 address) and its seat desk's port (`host:port` written:
     /// that port), found at step 2 from [`Mode::Remote`]'s entry.
     remote: Option<(String, u16)>,
@@ -1107,6 +1117,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         vs_target: None,
         lease: None,
         club: None,
+        visit: Visit::default(),
         remote: None,
         arcade_room: None,
         arcade_guests: None,
@@ -1648,6 +1659,7 @@ impl Run<'_> {
             conf::set_satellite_no(&confs[1], u32::from(seat))?; // the cabinet's seat
             if self.edition == Edition::E1718 && !self.own_store {
                 self.club = None; // a trip of an earlier start comes home first
+                self.visit.club = None; // and its progress is not this start's
                 self.bring_club(&ip, desk, seat, &entry);
             }
             // never "WAITING FOR THE PROJECTOR" on a server: its projector is on another PC, or gone
@@ -2224,6 +2236,7 @@ impl Run<'_> {
         };
         match guest.bring(file_log(self.logs().join("club_trip.txt"))) {
             Ok(trip) => {
+                self.visit.club = Some(trip.progress());
                 self.club = Some(trip);
                 self.tell("  ", &Text::key("launcher.club_in"));
             }
@@ -2360,6 +2373,9 @@ impl Run<'_> {
             );
         } else {
             self.tell("       ", &Text::key("launcher.run_tunnel_up"));
+        }
+        if !host {
+            self.visit.host_closed = Some(link.host_closed());
         }
         self.vslink = Some(link.handle);
         Ok(link.ports)
@@ -2535,6 +2551,22 @@ impl Run<'_> {
                 return end;
             }
         }
+    }
+
+    /// An arcade guest whose host closed the arcade (the tunnel heard it; without one, the club's last copy-back found
+    /// the host's server gone): the end's notice, with the club home or maybe missing its last saves (then the marker
+    /// stays, so the next start says so too). After `shutdown`: dropping the trip joins it, its last copy-back done.
+    fn host_closed_notice(&self) -> Option<Text> {
+        let progress = self
+            .visit
+            .club
+            .as_ref()
+            .map(|p| *p.lock().unwrap_or_else(PoisonError::into_inner));
+        let closed = match &self.visit.host_closed {
+            Some(flag) => flag.load(Ordering::Relaxed),
+            None => progress.is_some_and(|p| p.gone),
+        };
+        closed.then(|| rules::host_closed_notice(progress.map(|p| p.home)))
     }
 
     /// Stand-in and helper threads that ended by themselves (a panic, an error) are said once, in the run log; the run
@@ -2713,6 +2745,12 @@ impl Run<'_> {
             Vec::new()
         };
         self.shutdown();
+        let notice = self.host_closed_notice();
+        let why = if notice.is_some() {
+            rules::without_link_lost(why)
+        } else {
+            why
+        };
         let left = self.job.active();
         self.card_steps(&["keep"]); // the cards on the table kept with their club: data\save holds the latest
         self.job.stop(STOP_DEADLINE);
@@ -2721,16 +2759,16 @@ impl Run<'_> {
             self.tell("", &Text::key("launcher.run_still_running").arg("n", left));
             return End::Over(FAILED);
         }
-        self.tell(
-            "",
-            &if let Some(words) = words {
-                words
-            } else if why.is_empty() {
-                Text::key("launcher.run_closed_by_player")
-            } else {
-                Text::key("launcher.run_ended_problem").arg("why", why.join("; "))
-            },
-        );
+        if let Some(n) = &notice {
+            self.tell("", n);
+        }
+        if let Some(words) = words {
+            self.tell("", &words);
+        } else if !why.is_empty() {
+            self.tell("", &Text::key("launcher.run_ended_problem").arg("why", why.join("; ")));
+        } else if notice.is_none() {
+            self.tell("", &Text::key("launcher.run_closed_by_player"));
+        }
         End::Over(if why.is_empty() { OK } else { WENT_WRONG })
     }
 

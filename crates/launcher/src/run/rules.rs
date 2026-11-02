@@ -382,6 +382,23 @@ pub fn went_wrong(launcher_logs: &[&str], read: impl Fn(&str) -> String) -> Vec<
     why
 }
 
+/// The end's words when the host closed the arcade; `club`: whether the club came home at the end, None when none came
+/// along. Not home: a save after its last good copy-back (a VS or a CPU match) may be missing at home.
+pub fn host_closed_notice(club: Option<bool>) -> Text {
+    Text::key(match club {
+        None => "launcher.run_host_closed",
+        Some(true) => "launcher.run_host_closed_club_safe",
+        Some(false) => "launcher.run_host_closed_club_maybe_old",
+    })
+}
+
+/// [`went_wrong`]'s reasons without the server link's LOST lines, which follow the host closing the arcade.
+pub fn without_link_lost(why: Vec<String>) -> Vec<String> {
+    why.into_iter()
+        .filter(|w| !w.starts_with("server_link.txt: "))
+        .collect()
+}
+
 /// Why no seat was taken on the server at `ip` (play.py's _seat_decision messages): every fault but "no broker" stops
 /// the start, so two PCs never land on one seat (A4).
 pub fn seat_refusal(e: &SeatError, asked: Option<u8>, ip: &str) -> Text {
@@ -883,6 +900,31 @@ mod tests {
             ]),
         );
         assert_eq!(why, ["run_server.txt: a crash recorded (STOP: invalid parameter)"]);
+    }
+
+    /// The host closes the arcade while the guest plays (the guest's 2026-11-01 logs): the server link's LOST is no
+    /// problem then, the end is a notice, and the club is called safe only when it came home at the end.
+    #[test]
+    fn the_host_closing_is_a_notice_not_a_problem() {
+        let seat = ["run_seat1.txt"];
+        let lost = "2026-11-01 00:01:58 UP 127.0.0.1\n2026-11-01 00:27:13 LOST (it was up 1514 s)\n";
+        let why = went_wrong(&seat, logs(&[("run_seat1.txt", CLOSED), ("server_link.txt", lost)]));
+        assert_eq!(why.len(), 1);
+        assert!(without_link_lost(why).is_empty());
+        let crash = format!("{CLOSED}  SECOND-chance / FATAL exception 0xC0000005\n");
+        let why = went_wrong(&seat, logs(&[("run_seat1.txt", &crash), ("server_link.txt", lost)]));
+        assert_eq!(without_link_lost(why).len(), 1, "a crash stays a problem");
+
+        assert_eq!(
+            host_closed_notice(Some(true)).en(),
+            "The host closed the arcade. Your club is safe (brought home at the end)."
+        );
+        assert!(
+            host_closed_notice(Some(false))
+                .en()
+                .contains("may be from before your last match")
+        );
+        assert_eq!(host_closed_notice(None).en(), "The host closed the arcade.");
     }
 
     /// The words must stay the launcher's and the panel's own (test_ended.py read debugger.py and wccfpanel.c; now the Rust panel's link_watch).
