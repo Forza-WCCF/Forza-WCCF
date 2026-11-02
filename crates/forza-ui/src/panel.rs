@@ -671,7 +671,8 @@ pub struct PanelState {
     /// `before_match`, apart from `in_match`, which the FORMATIONS dialog also sets.
     pub match_seen: bool,
     /// The seat's match flag as the last frame read it: the edge is the flag turning on, not the flag staying on (the
-    /// game leaves it on after the match until the next sequence writes its own).
+    /// game leaves it on after the match until the next sequence writes its own). Starts on: a flag already on when the
+    /// panel starts is one left over, not a match beginning.
     pub seat_on: bool,
     /// The table differs from `before_match`: RESET LINEUP is offered, greyed out while `in_match`.
     pub reset_ready: bool,
@@ -776,7 +777,7 @@ impl PanelState {
             match_seen: false,
             before_match_at: None,
             reset_after: None,
-            seat_on: false,
+            seat_on: true,
             reset_ready: false,
             reset_lineup: false,
             formation_load: None,
@@ -5868,6 +5869,18 @@ mod tests {
             assert_eq!(st.before_match.as_deref(), Some(&start[..]));
         }
         assert!(st.reset_ready);
+    }
+
+    /// The panel starts with the flag already on from an earlier match: no table is kept as "the start of the last
+    /// match".
+    #[test]
+    fn a_match_flag_on_when_the_panel_starts_keeps_nothing() {
+        let (mut st, _) = importer();
+        let at = |slot, no, x, y| Placed { slot, no, x, y };
+        let now = vec![at(1, 10, 0.0, 0.5)];
+        lineup_tick(&mut st, Some(true), Some((false, false)), &now);
+        lineup_tick(&mut st, Some(true), None, &now);
+        assert!(st.before_match.is_none() && !st.match_seen);
     }
 
     #[test]
