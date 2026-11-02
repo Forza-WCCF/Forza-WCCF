@@ -508,6 +508,11 @@ fn play(ui: &mut Ui, st: &mut LauncherState, lang: Lang, accent: Color32) {
                     }
                 }
             });
+            // 2017-18 on this PC: the same Universal Cup as an arcade's, the club and 7 CPU teams
+            if st.edition == Edition::E1718 && !st.online {
+                let now = st.lobby.clock.unwrap_or_else(lobby::local_clock);
+                lobby::cup_rows(ui, &mut st.lobby.cup, now, lang, label_w, true);
+            }
         });
     });
     if !st.updates {
@@ -575,8 +580,19 @@ fn footer(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
             (tr!(lang, "launcher.play"), Cab::Go)
         };
         // STOP THE GAME stays on while this Launcher.exe runs the game (that run is its job)
+        // a local cup time the control would refuse greys PLAY under its line, as it greys HOST ARCADE (elsewhere
+        // the run says why and keeps the game's times)
+        let refused = !st.running
+            && st.tab == Tab::Play
+            && st.edition == Edition::E1718
+            && !st.online
+            && st
+                .lobby
+                .cup
+                .plan(st.lobby.clock.unwrap_or_else(lobby::local_clock))
+                .is_err();
         let resp = ui
-            .add_enabled_ui(st.running || !st.busy, |ui| {
+            .add_enabled_ui(st.running || (!st.busy && !refused), |ui| {
                 cabinet(ui, size, &label, kind, st.set_up || st.running)
             })
             .inner;

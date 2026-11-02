@@ -1156,11 +1156,7 @@ impl App {
                     // same kept settings keys as at start-up
                     if let Err(e) = choices::set_setting_bool(&file, "list_shop", self.st.lobby.list_arcade)
                         .and_then(|()| choices::set_setting(&file, "shop_name", &name))
-                        .and_then(|()| {
-                            launcher::conf::cup_settings(self.st.lobby.cup)
-                                .into_iter()
-                                .try_for_each(|(k, v)| choices::set_setting_json(&file, k, v))
-                        })
+                        .and_then(|()| launcher::conf::save_cup(&file, self.st.lobby.cup))
                     {
                         refuse(write_failed(&file, &e));
                         return;
@@ -1173,6 +1169,12 @@ impl App {
             }
             Action::Lobby(LobbyAction::HostLan) => {
                 if !self.st.busy && !self.st.running {
+                    // the cup the PLAY tab shows (run's start_gamesvr reads it)
+                    let file = kit.settings_file();
+                    if let Err(e) = launcher::conf::save_cup(&file, self.st.lobby.cup) {
+                        refuse(write_failed(&file, &e));
+                        return;
+                    }
                     let ips = forza::online::lan::addresses()
                         .iter()
                         .map(ToString::to_string)
@@ -1277,6 +1279,14 @@ impl App {
             }
             let file = kit.settings_file();
             if let Err(e) = choices::set_setting(&file, "club_server", club) {
+                refuse(write_failed(&file, &e));
+                return;
+            }
+        }
+        if kit.edition() == Edition::E1718 && !online {
+            // the PLAY tab's Universal Cup, which run's start_gamesvr reads as for a host (one settings key for both)
+            let file = kit.settings_file();
+            if let Err(e) = launcher::conf::save_cup(&file, self.st.lobby.cup) {
                 refuse(write_failed(&file, &e));
                 return;
             }

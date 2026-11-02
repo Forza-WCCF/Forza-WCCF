@@ -3,6 +3,7 @@
 //! only the cabinet.  Their cases are ported from test_ended.py, test_take_seat.py and play.py's own rules.
 
 use forza::online::seat::{Fault, SeatError};
+use forza_ui::lobby::{CupPlan, CupRefused};
 
 use super::Text;
 use crate::card::Session;
@@ -69,6 +70,15 @@ pub fn session_line(mode: &Mode, arcade: Option<&str>, seat: u8, projector: Opti
         mode.word(),
         arcade.unwrap_or("-")
     )
+}
+
+/// The Universal Cup a run's control gets from the saved choice (data\settings.json `cup`, read at `now`): the host
+/// dialog's for a server, the PLAY tab's for local play, the same plan either way; VS keeps the game's times.
+pub fn cup_plan(mode: &Mode, settings: &serde_json::Value, now: u32) -> Result<CupPlan, CupRefused> {
+    match mode {
+        Mode::Vs(_) => Ok(CupPlan::GameTimes),
+        _ => crate::conf::cup_choice(settings).plan(now),
+    }
 }
 
 /// What the command line asks (play.py's words).
@@ -473,6 +483,30 @@ pub fn compat_layer(existing: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Local PLAY with a cup chosen gives the control the arcade host's schedule. The file carries no seat count: the
+    /// local control has seat 1 only and fills the other 7 teams with CPU, as a host's with one seat did (probe 1).
+    #[test]
+    fn local_play_with_a_cup_writes_the_hosts_schedule() {
+        let two_pm = 14 * 3600;
+        for st in [
+            serde_json::json!({"cup": "in", "cup_minutes": 25}),
+            serde_json::json!({"cup": "at", "cup_at": 1530}),
+            serde_json::json!({"cup": "off"}),
+            serde_json::json!({}),
+            serde_json::json!({"cup": "in", "cup_minutes": 5}),
+        ] {
+            let host = cup_plan(&Mode::Server, &st, two_pm);
+            assert_eq!(cup_plan(&Mode::Local, &st, two_pm), host, "{st}");
+            assert_eq!(cup_plan(&Mode::LanServer, &st, two_pm), host, "{st}");
+        }
+        let st = serde_json::json!({"cup": "in", "cup_minutes": 25});
+        let Ok(CupPlan::Slot { friendlies, .. }) = cup_plan(&Mode::Local, &st, two_pm) else {
+            panic!("no slot")
+        };
+        assert_eq!(crate::conf::schedule_text(friendlies), crate::conf::schedule_text(3));
+        assert_eq!(cup_plan(&Mode::Vs("x".into()), &st, two_pm), Ok(CupPlan::GameTimes));
+    }
 
     #[test]
     fn the_session_line_names_the_role_arcade_seat_and_projector() {

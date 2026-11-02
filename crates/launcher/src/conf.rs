@@ -71,6 +71,13 @@ pub fn cup_settings(c: CupChoice) -> [(&'static str, serde_json::Value); 3] {
     ]
 }
 
+/// [`cup_settings`] written to data\settings.json, where run's start_gamesvr reads them.
+pub fn save_cup(settings_file: &Path, c: CupChoice) -> io::Result<()> {
+    cup_settings(c)
+        .into_iter()
+        .try_for_each(|(k, v)| crate::choices::set_setting_json(settings_file, k, v))
+}
+
 /// The first line of the `schedule_option.conf` the Launcher writes (the control skips `#` lines, 0x4A0F40): a file
 /// without it is someone else's and stays.
 const SCHEDULE_MARK: &str = "# Forza-WCCF Universal Cup";
