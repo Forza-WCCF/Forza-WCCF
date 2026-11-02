@@ -1408,7 +1408,8 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
     // before the page: Enter and Esc answer the dialog, not the catalogue's search line or the page's close
     if st.import_ask.is_some() {
         import_dialog(ui, st, lang);
-    } else if st.formations.is_some() && !st.formations_desk {
+    } else if st.formations.is_some() && (!st.formations_desk || !st.file.board_window) {
+        st.formations_desk = false; // the board window closed under it: the dialog comes back to the game window
         formations_dialog(ui, st, lang);
     }
     if st.page != Page::Game {
@@ -5284,6 +5285,22 @@ mod tests {
         assert!(st.touched.is_some());
         st.set_popped(false);
         assert!(st.touched.is_none(), "docked: forgotten");
+    }
+
+    /// FORMATIONS opened on the board window, then the board window closed: the dialog comes back to the game window.
+    #[test]
+    fn the_formations_dialog_outlives_the_board_window() {
+        let mut st = PanelState::sample(Edition::E1718, Lang::En, Page::Game);
+        st.formations = Some(Formations {
+            slots: vec![None],
+            naming: None,
+        });
+        st.formations_desk = true;
+        st.file.board_window = false;
+        let ctx = egui::Context::default();
+        theme::install(&ctx, Edition::E1718, &theme::font_dir()).unwrap();
+        frame(&ctx, &mut st, 1920.0, 1080.0, 0.0, vec![]);
+        assert!(!st.formations_desk && st.formations.is_some());
     }
 
     #[test]
