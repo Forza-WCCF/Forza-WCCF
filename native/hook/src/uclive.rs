@@ -9,7 +9,7 @@
 //! [`live_flag`], which writes 1 only when the current day's semifinals hold a player's team (team block +4 == 0; a CPU
 //! team carries its CPU id there, 0x47DB20/0x45E840). A real bracket then shows, advances and sends its results (cmd
 //! 301/257); an all-CPU one never goes live. Every other store to the flag writes 0 (constructor 0x45CAB4, each state
-//! entry 0x45DE47). WCCF_UCLIVE=1 leaves the original.
+//! entry 0x45DE47). Off unless WCCF_UCLIVE=on ([`opted_in`]): the projector then loops the CPU championship as before.
 
 /// The two `mov byte [ebp+14938h], 1` in GameManage's state entry (control sub_45D840), as offsets from the program's
 /// base (ASLR moves it): the replay store, patched to store 0, and the championship store, replaced by the call. Both
@@ -38,6 +38,13 @@ pub fn human_in(records: &[u8]) -> bool {
             records.get(at..at + 4) == Some(&[0; 4])
         })
     })
+}
+
+/// Whether WCCF_UCLIVE asks for the patch: only `on` (`1` kept the original before, so it still does). Off by default:
+/// with UC live 0 the control sends the projector an empty `TO MATCH INI` and its league scene reads NULL, a black
+/// projector at match start (2026-11-02).
+pub fn opted_in(var: Option<&str>) -> bool {
+    var == Some("on")
 }
 
 /// Checks both sites in `span` (the program's [`LEN`] bytes from [`REPLAY`], at address `span_at`) and patches them:
@@ -117,8 +124,10 @@ pub fn install() {
     if !exe_is("control_Release.exe") {
         return;
     }
-    if std::env::var("WCCF_UCLIVE").is_ok_and(|v| v == "1") {
-        log!("UC live: original (WCCF_UCLIVE=1) - the projector may play an all-CPU championship");
+    if !opted_in(std::env::var("WCCF_UCLIVE").ok().as_deref()) {
+        log!(
+            "UC live: original (WCCF_UCLIVE=on patches it) - the projector plays the championship, CPU-only ones too"
+        );
         return;
     }
     let base = exe();
@@ -228,6 +237,28 @@ mod tests {
             assert_eq!(s, before);
         }
         assert_eq!(apply(&mut [0u8; 8], 0, 0), Err(REPLAY), "a short span");
+    }
+
+    #[test]
+    fn by_default_the_championship_store_stays_original() {
+        // install's gate: only WCCF_UCLIVE=on applies; unset, the old opt-out 1 and anything else leave both stores
+        for v in [None, Some(""), Some("1"), Some("off"), Some("ON")] {
+            let mut s = span();
+            if opted_in(v) {
+                apply(&mut s, 0x40_0000 + REPLAY, 0x1000_0000).unwrap();
+            }
+            assert_eq!(s, span(), "WCCF_UCLIVE={v:?}");
+            assert_eq!(s[UC - REPLAY..], ORIGINAL, "0x45DFAC");
+        }
+    }
+
+    #[test]
+    fn opting_in_installs_the_patch() {
+        assert!(opted_in(Some("on")));
+        let mut s = span();
+        apply(&mut s, 0x40_0000 + REPLAY, 0x1000_0000).unwrap();
+        assert_eq!(s[UC - REPLAY], 0xE8, "the call at 0x45DFAC");
+        assert_eq!(s[IMM], 0, "the replay store");
     }
 
     #[test]
