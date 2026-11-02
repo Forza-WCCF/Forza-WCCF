@@ -14,11 +14,13 @@ pub const SLOTS: usize = 10;
 const MAX_NAME: usize = 40;
 const CLUB: &str = "# club ";
 
-/// A filled slot: its name, the club it was saved from ("" unknown), and the file's text.
+/// A filled slot: its name, the club it was saved from ("" unknown), the day its file was written
+/// (`YYYY-MM-DD`, "" unknown), and the file's text.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Slot {
     pub name: String,
     pub club: String,
+    pub saved: String,
     pub text: String,
 }
 
@@ -66,8 +68,21 @@ pub fn slot_of(text: &str, edition: Edition) -> Option<Slot> {
     Some(Slot {
         name: l.name.unwrap_or_default(),
         club,
+        saved: String::new(),
         text: text.to_owned(),
     })
+}
+
+/// A file's last write as `YYYY-MM-DD` on this PC's clock.
+fn day(p: &Path) -> Option<String> {
+    let utc = time::OffsetDateTime::from(fs::metadata(p).ok()?.modified().ok()?);
+    let t = time::UtcOffset::local_offset_at(utc).map_or(utc, |o| utc.to_offset(o));
+    Some(format!(
+        "{:04}-{:02}-{:02}",
+        t.year(),
+        u8::from(t.month()),
+        t.day()
+    ))
 }
 
 /// The ten slots; an empty, missing or unreadable file is an empty slot.
@@ -75,7 +90,9 @@ pub fn read(dir: &Path, edition: Edition) -> Vec<Option<Slot>> {
     (0..SLOTS)
         .map(|i| {
             let t = fs::read_to_string(file(dir, i)).ok()?;
-            slot_of(&t, edition)
+            let mut slot = slot_of(&t, edition)?;
+            slot.saved = day(&file(dir, i)).unwrap_or_default();
+            Some(slot)
         })
         .collect()
 }
@@ -231,6 +248,11 @@ mod tests {
         assert_eq!(
             s[2].as_ref().map(|s| (s.name.as_str(), s.club.as_str())),
             Some(("", ""))
+        );
+        // written just now: a date like 2026-11-01
+        assert!(
+            s[2].as_ref()
+                .is_some_and(|s| s.saved.len() == 10 && s.saved.as_bytes()[4] == b'-')
         );
         assert!(write(dir.path(), SLOTS, "x").is_err());
     }
