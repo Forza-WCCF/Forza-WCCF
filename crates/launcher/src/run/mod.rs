@@ -1659,6 +1659,7 @@ impl Run<'_> {
             conf::set_satellite_no(&confs[1], u32::from(seat))?; // the cabinet's seat
             if self.edition == Edition::E1718 && !self.own_store {
                 self.club = None; // a trip of an earlier start comes home first
+                self.visit.club = None; // and its progress is not this start's
                 self.bring_club(&ip, desk, seat, &entry);
             }
             // never "WAITING FOR THE PROJECTOR" on a server: its projector is on another PC, or gone
