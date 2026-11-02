@@ -78,7 +78,7 @@ as clean because an earlier scan did. What helps:
   0.6.2 ZIP on 2026-11-02 while the local engine (signatures 1.463.94.0) flagged `Launcher.exe` **and**
   `overlay/forza_panel.dll` in it as `Trojan:Win32/Wacatac.C!ml`, and acted on the owner's install while a game ran.
   The 0.6.1 files of both were clean in the same session. Scan the unzipped files before tagging and again before
-  uploading (`E:\wccf-builds\defender-0603-20261102\scan.ps1`: one fresh copy per file, phase-3 `MpCmdRun`,
+  uploading (`tooling/av-scan/scan.ps1`: one fresh copy per file, phase-3 `MpCmdRun`,
   `-DisableRemediation`), and read it file by file: the two big files are what moves, the five small programs have
   stayed clean;
 - a flagged file of ours is rebuilt for size, not for a new hash: `[profile.release.package.…] opt-level = "z"` with
