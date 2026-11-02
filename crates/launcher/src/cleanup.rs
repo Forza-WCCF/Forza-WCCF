@@ -1,6 +1,6 @@
 //! CLEAN UP AFTER A CRASH (the 2017-18 SETUP tab): what a crash, a freeze or a dropped arcade visit leaves behind that
-//! can make the next start misbehave.  The 2010-11 CLEAR BAD ENDINGS resets one counter in the club card; 2017-18 has no
-//! such counter, so this clears the run's leftovers instead:
+//! can make the next start misbehave.  The bad-ending counter itself is CLEAR BAD ENDINGS' job (the panel; 2017-18:
+//! `club::clear_bad_endings`); this clears the run's leftovers:
 //! - `data\running.json` of a run nobody supervises, and the requests and answers a run left (`*.request`, `*.answer`);
 //! - a club still marked out in an arcade (`club_out.json`, `club_last.json` in `data\save\gamesvr`);
 //! - game programs left running without a window (`match_Release`, `control_Release`, `FPR_Emu`, `logowin`), only those
@@ -95,11 +95,11 @@ pub fn clean(
     if ARCADE_COPY.iter().any(|n| store.join(n).is_file()) {
         // the home club stays as it was; the marker and the arcade's last copy go (the copy to save\gamesvr\backups too)
         match club::leftover(&store) {
-            Ok(_) => {
-                // a copy without its marker is stale too (both are in the backup)
-                let _ = fs::remove_file(store.join(ARCADE_COPY[1]));
-                report.cleaned.push("arcade visit closed: the home club is kept".into());
-            }
+            // a copy without its marker is stale too (both are in the backup); `leftover` may have removed it already
+            Ok(_) => match fs::remove_file(store.join(ARCADE_COPY[1])) {
+                Err(e) if e.kind() != io::ErrorKind::NotFound => report.failed.push(format!("arcade copy: {e}")),
+                _ => report.cleaned.push("arcade visit closed: the home club is kept".into()),
+            },
             Err(e) => report.failed.push(format!("arcade copy: {e}")),
         }
     }
@@ -135,10 +135,14 @@ fn backup_dir(data: &Path, stamp: &str) -> io::Result<PathBuf> {
 
 /// `from` copied to `to`, without the backup folders and the captured `req_*` files.
 fn copy_save(from: &Path, to: &Path) -> io::Result<()> {
-    let Ok(entries) = fs::read_dir(from) else {
-        return Ok(());
+    let entries = match fs::read_dir(from) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        // unreadable is not empty: no backup, nothing removed
+        Err(e) => return Err(e),
     };
-    for e in entries.flatten() {
+    for e in entries {
+        let e = e?;
         let name = e.file_name().to_string_lossy().to_lowercase();
         let (path, dest) = (e.path(), to.join(e.file_name()));
         if path.is_dir() {
@@ -268,6 +272,38 @@ mod tests {
         let r = run(&t.path().join("data"), false, &[], &[], &killed);
         assert_eq!(r, Report::default());
         assert!(!t.path().join("data").exists());
+    }
+
+    #[test]
+    fn an_unreadable_save_is_an_error_and_nothing_is_removed() {
+        let t = install();
+        let data = t.path().join("data");
+        // a `save` that cannot be listed (here a file) is not an empty one
+        fs::remove_dir_all(data.join("save")).unwrap();
+        fs::write(data.join("save"), b"not a folder").unwrap();
+        let r = clean(&data, false, &[], |_| false, |_| true, "2026-11-02");
+        assert!(r.is_err(), "{r:?}");
+        assert!(data.join("running.json").exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_copy_that_cannot_be_removed_is_reported_failed() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let t = install();
+        let data = t.path().join("data");
+        let store = data.join("save").join("gamesvr");
+        fs::remove_file(store.join("club_out.json")).unwrap();
+        // held open without delete sharing (FILE_SHARE_READ): copied to the backup, not removable
+        let _held = fs::File::options()
+            .read(true)
+            .share_mode(1)
+            .open(store.join("club_last.json"))
+            .unwrap();
+        let r = run(&data, false, &[], &[], &RefCell::new(Vec::new()));
+        assert_eq!(r.failed.len(), 1, "{r:?}");
+        assert!(r.failed[0].starts_with("arcade copy"), "{r:?}");
+        assert!(!r.cleaned.iter().any(|l| l.starts_with("arcade visit closed")), "{r:?}");
     }
 
     #[test]
