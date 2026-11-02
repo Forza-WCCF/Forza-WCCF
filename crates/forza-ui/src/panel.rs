@@ -5838,6 +5838,11 @@ mod tests {
         let moved = vec![at(1, 10, 0.0, 0.9), at(2, 101, -0.5, 0.4)];
         lineup_tick(&mut st, None, None, &moved);
         assert!(st.import_undo.is_none() && st.reset_after.is_none());
+        // so does the next match
+        st.reset_lineup = true;
+        assert_eq!(take_reset(&mut st, &moved, false), Some(start.clone()));
+        lineup_tick(&mut st, None, Some((true, true)), &start);
+        assert!(st.import_undo.is_none() && st.reset_after.is_none());
     }
 
     /// The button's hover text names the moment the table was kept, or why there is nothing to reset to.
