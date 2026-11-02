@@ -6939,6 +6939,7 @@ dependencies = [
  "iroh",
  "iroh-relay",
  "rustls-pki-types",
+ "socket2",
  "tokio",
 ]
 
