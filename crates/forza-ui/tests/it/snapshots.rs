@@ -1471,14 +1471,14 @@ fn lobby_arcade_rooms() {
     h.run_steps(2);
     h.get_by_label("List my arcade when I host").click();
     h.get_by_label("At HH:MM").click();
-    // a time that would open after midnight: refused, HOST does nothing
+    // a cup whose championship would still run at 05:00: refused, HOST does nothing
     let cup_at = |clock, at| {
         let mut b = v.borrow_mut();
         (b.clock, b.cup.at) = (Some(clock), at);
     };
-    cup_at(23 * 3600 + 52 * 60, 23 * 60 + 59);
+    cup_at(3 * 3600, 4 * 60 + 30);
     h.run_steps(2);
-    h.get_by_label("The cup can't open after midnight or before 05:00.");
+    h.get_by_label("The cup and its championship must end before 05:00.");
     h.get_all_by_label("HOST ARCADE").last().unwrap().click();
     h.run_steps(2);
     assert_eq!(got.take(), None, "a refused cup time keeps the dialog open");

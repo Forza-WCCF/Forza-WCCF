@@ -212,6 +212,17 @@ pub const CUP_MIN_MINUTES: u16 = 8;
 /// The latest: 18 slots, so the schedule (18 friendlies, the cup, 21 friendlies) stays within the 43 entries the
 /// control's own timed insertion makes (21 friendlies + the cup + 21, control 0x45F030).
 pub const CUP_MAX_MINUTES: u16 = 150;
+/// The control's day change, 05:00 on the host's clock (a constant in the control: 0x45D913, 0x46287E). Its day roll
+/// clears the Universal Cup records a running cup writes to (0x47BCB0 -> 0x47BF00; the cup reads them at 0x45EBA0) and
+/// replaces the Universal Championship bracket (the cup and the next three slots) with a CPU-only one, so the cup and
+/// its championship must not run across it. Before it nothing in the slot schedule reads the clock: a cup at 01:00 is fine.
+const CUP_DAY_CHANGE: u32 = 5 * 3600;
+/// A cup from its open to the end of its championship: the cup about 45 min (rounds about 530 s apart, probe 1), the
+/// championship 3 slots, about 27 min, with a margin.
+const CUP_RUN_SECS: u32 = 75 * 60;
+/// Slack for the open time we estimate (boot and slot lengths vary by seconds per slot).
+const CUP_SLACK_SECS: u32 = 5 * 60;
+const DAY: u32 = 24 * 3600;
 
 /// The host's Universal Cup choice, saved in data\settings.json (`cup`, `cup_minutes`, `cup_at`) and read as the
 /// control starts.
@@ -263,7 +274,7 @@ pub enum CupPlan {
 /// Why a cup time is refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CupRefused {
-    /// It would open after midnight or before 05:00.
+    /// The cup or its championship would still run at 05:00, the control's day change.
     Night,
     /// Less than [`CUP_MIN_MINUTES`] away (or past).
     TooSoon,
@@ -298,20 +309,24 @@ impl CupChoice {
             CupMode::Off => return Ok(CupPlan::Off),
             CupMode::GameTimes => return Ok(CupPlan::GameTimes),
             CupMode::In => i64::from(self.minutes) * 60,
-            CupMode::At => i64::from(self.at) * 60 - i64::from(now),
+            // the nearest such time: "At 00:30" asked at 23:30 is tomorrow's
+            CupMode::At => match i64::from(self.at) * 60 - i64::from(now) {
+                l if l < -12 * 3600 => l + i64::from(DAY),
+                l => l,
+            },
         };
         let friendlies =
             u32::try_from((lead + i64::from(CUP_SLOT_SECS / 2)) / i64::from(CUP_SLOT_SECS))
                 .unwrap_or(0)
                 .max(1);
-        let opens = now + CUP_BOOT_SECS + friendlies * CUP_SLOT_SECS;
-        if !(5 * 3600..24 * 3600).contains(&opens) || (self.mode == CupMode::At && self.at < 5 * 60)
-        {
-            Err(CupRefused::Night)
-        } else if lead < i64::from(CUP_MIN_MINUTES) * 60 {
+        let opens = (now + CUP_BOOT_SECS + friendlies * CUP_SLOT_SECS) % DAY;
+        if lead < i64::from(CUP_MIN_MINUTES) * 60 {
             Err(CupRefused::TooSoon)
         } else if lead > i64::from(CUP_MAX_MINUTES) * 60 {
             Err(CupRefused::TooFar)
+        } else if (CUP_DAY_CHANGE - CUP_RUN_SECS..CUP_DAY_CHANGE + CUP_SLACK_SECS).contains(&opens)
+        {
+            Err(CupRefused::Night)
         } else {
             Ok(CupPlan::Slot { friendlies, opens })
         }
@@ -1489,7 +1504,7 @@ fn host_dialog(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<Lobb
                         let two = |n: f64, _| format!("{n:02.0}");
                         let a = ui.add(
                             egui::DragValue::new(&mut h)
-                                .range(5..=23)
+                                .range(0..=23)
                                 .custom_formatter(two),
                         );
                         ui.label(":");
@@ -1865,17 +1880,27 @@ mod tests {
             cup(at, 0, 5 * 60 + 10).plan(h(4, 30)),
             slot(5, h(4, 30) + 2465)
         );
+        // after midnight: open times wrap to the next day ("At" takes the nearest such time)
+        assert_eq!(cup(in_, 30, 0).plan(h(23, 45)), slot(4, h(0, 17) + 55));
+        assert_eq!(cup(at, 0, 60).plan(h(23, 30)), slot(11, h(1, 0) + 5));
+        // the last cup whose championship ends before the 05:00 day change, the first after it
+        assert_eq!(cup(at, 0, 3 * 60 + 41).plan(h(3, 0)), slot(5, h(3, 41) + 5));
+        assert_eq!(cup(at, 0, 5 * 60 + 6).plan(h(4, 0)), slot(8, h(5, 5) + 35));
         for (c, now, why) in [
             (cup(in_, 7, 0), h(14, 0), CupRefused::TooSoon),
             (cup(in_, 151, 0), h(14, 0), CupRefused::TooFar),
             (cup(at, 0, 14 * 60 + 5), h(14, 0), CupRefused::TooSoon),
             (cup(at, 0, 13 * 60), h(14, 0), CupRefused::TooSoon),
             (cup(at, 0, 18 * 60), h(14, 0), CupRefused::TooFar),
-            // past midnight, before 05:00
-            (cup(in_, 30, 0), h(23, 45), CupRefused::Night),
-            (cup(in_, 10, 0), h(4, 0), CupRefused::Night),
+            (cup(at, 0, 23 * 60 + 59), h(23, 52), CupRefused::TooSoon),
+            (cup(at, 0, 4 * 60), h(4, 30), CupRefused::TooSoon),
+            (cup(at, 0, 4 * 60 + 30), h(1, 0), CupRefused::TooFar),
+            // the cup or its championship still running at 05:00
+            (cup(in_, 15, 0), h(4, 0), CupRefused::Night),
             (cup(at, 0, 4 * 60 + 30), h(3, 0), CupRefused::Night),
-            (cup(at, 0, 23 * 60 + 59), h(23, 52), CupRefused::Night),
+            (cup(at, 0, 5 * 60), h(4, 0), CupRefused::Night),
+            (cup(at, 0, 4 * 60 + 5), h(3, 0), CupRefused::Night),
+            (cup(at, 0, 3 * 60 + 50), h(3, 0), CupRefused::Night),
         ] {
             assert_eq!(c.plan(now), Err(why), "{c:?} at {}", clock_text(now));
         }
