@@ -69,8 +69,10 @@ const MAX_GUESTS: usize = 8;
 /// Guests checked against the room at once; more at the door are told to come back without a check.
 pub const MAX_ADMITTING: usize = MAX_GUESTS * 2;
 const MAX_FLOWS: usize = 32;
-/// Datagrams queued per direction before new ones are dropped.
+/// Flow datagrams queued per direction: then datagram flows drop new ones, stream flows wait.
 const DGRAM_QUEUE: usize = 1024;
+/// The largest flow packet a side sends: a flow number and a loopback UDP datagram (65,507 bytes).
+const MAX_FLOW_PACKET: usize = 4 + 65_507;
 const KEEP_ALIVE: Duration = Duration::from_secs(5);
 /// Above the game's 30 s silence error (2001).
 const IDLE: Duration = Duration::from_secs(60);
@@ -321,7 +323,7 @@ fn flows_name(conn: &Connection) -> &'static str {
 }
 
 /// Sends flow datagrams on `conn` after the test delay, in order: on its stream ([`ARCADE_ALPN_2`]), where a stall
-/// holds them; else as datagrams, where full or too big drops them (the big ones logged).
+/// holds them (feed it with [`feed`]); else as datagrams, where too big drops them (logged).
 fn datagram_line(sh: &Arc<Sh>, conn: Connection) -> mpsc::Sender<(Instant, Bytes)> {
     let (tx, mut rx) = mpsc::channel::<(Instant, Bytes)>(DGRAM_QUEUE);
     let sh = sh.clone();
@@ -336,7 +338,7 @@ fn datagram_line(sh: &Arc<Sh>, conn: Connection) -> mpsc::Sender<(Instant, Bytes
                         Err(_) => return,
                     });
                 }
-                // a loopback datagram (at most 65,507 bytes) and its flow always fit
+                // a loopback datagram and its flow always fit (MAX_FLOW_PACKET)
                 let Ok(len) = u16::try_from(d.len()) else {
                     continue;
                 };
@@ -368,8 +370,19 @@ fn datagram_line(sh: &Arc<Sh>, conn: Connection) -> mpsc::Sender<(Instant, Bytes
     tx
 }
 
+/// Queues `d` on a [`datagram_line`] for `conn`: on a stream it waits for room (a stall holds the sender, not drops);
+/// as datagrams a full queue drops it, as a lost datagram. `false`: the line is gone.
+async fn feed(conn: &Connection, tx: &mpsc::Sender<(Instant, Bytes)>, d: Bytes) -> bool {
+    if on_streams(conn) {
+        tx.send((Instant::now(), d)).await.is_ok()
+    } else {
+        tx.try_send((Instant::now(), d)).is_ok() || !tx.is_closed()
+    }
+}
+
 /// The next flow datagram from the other side: on its stream ([`ARCADE_ALPN_2`], `stream` holds it once it came), else
-/// as a datagram. `None`: the link is gone.
+/// as a datagram. `None`: the link is gone, or its flow stream ended mid-frame or sent one over [`MAX_FLOW_PACKET`]
+/// (then stopped).
 async fn recv_flow(conn: &Connection, stream: &mut Option<RecvStream>) -> Option<Bytes> {
     if !on_streams(conn) {
         return conn.read_datagram().await.ok();
@@ -379,9 +392,18 @@ async fn recv_flow(conn: &Connection, stream: &mut Option<RecvStream>) -> Option
     }
     let s = stream.as_mut()?;
     let mut len = [0u8; 2];
-    s.read_exact(&mut len).await.ok()?;
-    let mut d = vec![0u8; u16::from_le_bytes(len).into()];
-    s.read_exact(&mut d).await.ok()?;
+    let mut d = Vec::new();
+    let ok = s.read_exact(&mut len).await.is_ok() && {
+        let n = usize::from(u16::from_le_bytes(len));
+        n <= MAX_FLOW_PACKET && {
+            d.resize(n, 0);
+            s.read_exact(&mut d).await.is_ok()
+        }
+    };
+    if !ok {
+        let _ = s.stop(0u32.into());
+        return None;
+    }
     Some(d.into())
 }
 
@@ -693,7 +715,8 @@ impl Sh {
                         relay.port()
                     ));
                 }
-                let (sock, tx, live) = (s.clone(), out.clone(), Live::new(&self.flows));
+                let (sock, tx, live, conn) =
+                    (s.clone(), out.clone(), Live::new(&self.flows), conn.clone());
                 let task = tasks.spawn(async move {
                     let _live = live;
                     let mut buf = vec![0u8; 65536];
@@ -701,7 +724,7 @@ impl Sh {
                         match sock.recv_from(&mut buf).await {
                             Ok((n, src)) if src == relay => {
                                 let d = Bytes::from(encode_flow(flow, &buf[..n]));
-                                if tx.try_send((Instant::now(), d)).is_err() && tx.is_closed() {
+                                if !feed(&conn, &tx, d).await {
                                     return flow;
                                 }
                             }
@@ -833,12 +856,12 @@ impl Join {
             };
             let id = conn.stable_id();
             if line.as_ref().is_none_or(|(i, _)| *i != id) {
-                line = Some((id, datagram_line(&self.sh, conn)));
+                line = Some((id, datagram_line(&self.sh, conn.clone())));
             }
             let flow = self.flows().flow_of(src);
             let d = Bytes::from(encode_flow(flow, &buf[..n]));
             if let Some((_, tx)) = &line {
-                let _ = tx.try_send((Instant::now(), d));
+                feed(&conn, tx, d).await;
             }
         }
     }
