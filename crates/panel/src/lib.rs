@@ -3537,6 +3537,7 @@ unsafe fn panel_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
         WM_CLOSE if !close_allowed() => return LRESULT(0), // a match is on: warned once
         WM_CLOSE => {
             CLOSING.store(true, Relaxed); // the window goes: link_watch calls the drop ENDED
+            pacing::flush(frame_log); // a match closed mid-way still gets its frame-times line
             latch_up();
         }
         // F11: borderless full screen <-> the window as it was (maximized at the start), once frames are shown; the
