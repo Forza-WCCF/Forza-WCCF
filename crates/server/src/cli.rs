@@ -178,9 +178,14 @@ fn start_desk(
     port: Option<u16>,
     log_file: Option<&Path>,
     vs: Option<Arc<vs::Matcher>>,
+    club: Option<PathBuf>,
     log: Log,
 ) -> std::io::Result<Handle> {
     let mut c = desk::DeskConfig::new(ed);
+    if let Some(db) = club {
+        c.club_db = Some(db);
+        c.club_public = true;
+    }
     c.bind = bind();
     c.port = port.unwrap_or_else(|| env("WCCF_BROKER_PORT", c.port));
     c.vs = vs;
@@ -340,6 +345,7 @@ where
                 *port,
                 log_file.as_deref(),
                 None,
+                None,
                 file_log(log_file.clone()),
             )],
         ),
@@ -383,12 +389,17 @@ where
             let gmsvr = ed == Edition::E1718 && !no_gmsvr;
             // one matcher: the game server pairs the 243 entries, the desk's LOBBY lists them as VS rooms
             let matcher = (gmsvr && g.vs().is_some()).then(Arc::<vs::Matcher>::default);
+            // players bring their clubs to the game server beside the desk (forza::online::club), unless
+            // WCCF_CLUB_DB names another store
+            let club = (gmsvr && std::env::var_os("WCCF_CLUB_DB").is_none())
+                .then(|| g.store.join("gamesvr.db"));
             let services = vec![
                 start_desk(
                     ed,
                     *desk_port,
                     desk_log.as_deref(),
                     matcher.clone(),
+                    club,
                     file_log(desk_log.clone()),
                 ),
                 start_relay(ed, *relay_port, file_log(relay_log)),

@@ -142,6 +142,12 @@ fn parse(stream: &[u8]) -> (Vec<Req>, Vec<u8>) {
     }
 }
 
+/// Makes the card file at `path` as the reader would at its start, if there is none yet (an online run carries the
+/// card's club before the reader starts).
+pub fn ensure_card(path: &Path) {
+    Card::load(Some(path));
+}
+
 /// The card on the reader.
 struct Card {
     code: String,
