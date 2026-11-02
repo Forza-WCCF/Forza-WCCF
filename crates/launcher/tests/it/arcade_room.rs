@@ -90,6 +90,7 @@ fn host_arcade_then_a_guest_joins_by_code_through_the_tunnel() {
         log,
         delay: Duration::ZERO,
         admit: None,
+        datagram_flows: false,
     };
 
     // the host: its room first (the id from its key), then its tunnel with the room's admit rule
