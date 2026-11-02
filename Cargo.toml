@@ -91,6 +91,18 @@ debug = false            # no debug info for the crates.io code: less to generat
 opt-level = "z"
 codegen-units = 1
 
+# 2026-11-02, 0.6.2: with the same sources and toolchain that shipped clean in 0.6.1, Microsoft's engine flagged both
+# Launcher.exe and forza_panel.dll as Trojan:Win32/Wacatac.C!ml (the live install too), while FPR_Emu.exe and the four
+# small programs stayed clean. Same lever as the programs above: keep their code small, and the shape that trips
+# the model goes with it. `lto` cannot be set per package; the workspace keeps thin LTO.
+[profile.release.package.launcher]
+opt-level = "z"
+codegen-units = 1
+
+[profile.release.package.forza-panel]
+opt-level = "z"
+codegen-units = 1
+
 [profile.fast]
 inherits = "release"
 lto = false

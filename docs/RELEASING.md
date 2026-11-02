@@ -74,6 +74,17 @@ as clean because an earlier scan did. What helps:
   wanted, copy the file first and scan the copy: real-time protection deletes the sample about 30 s after the scan,
   and `MpCmdRun` exits 2 both for a detection and for a missing file, so read `Scanning <path> found N threats` and
   the `Threat` lines.
+- the local scan is the only read of the cloud verdict: VirusTotal's Microsoft engine said "undetected" for the
+  0.6.2 ZIP on 2026-11-02 while the local engine (signatures 1.463.94.0) flagged `Launcher.exe` **and**
+  `overlay/forza_panel.dll` in it as `Trojan:Win32/Wacatac.C!ml`, and acted on the owner's install while a game ran.
+  The 0.6.1 files of both were clean in the same session. Scan the unzipped files before tagging and again before
+  uploading (`E:\wccf-builds\defender-0603-20261102\scan.ps1`: one fresh copy per file, phase-3 `MpCmdRun`,
+  `-DisableRemediation`), and read it file by file: the two big files are what moves, the five small programs have
+  stayed clean;
+- a flagged file of ours is rebuilt for size, not for a new hash: `[profile.release.package.…] opt-level = "z"` with
+  `codegen-units = 1` took 0.6.0's `FPR_Emu.exe` off the list (#134, `av-oracle-20261101/`), and the same override
+  covers `launcher` and `forza-panel` since 0.6.2. Fresh bytes of a flagged file stayed flagged (the 0.6.0 bisect), so
+  the shape is the only lever measured to work.
 
 Obfuscation and packing raise the verdict instead of lowering it (Microsoft says so outright), and signing without a
 paid certificate leaves `!ml` verdicts untouched: `E:\wccf-builds\codesign-20261101\OPTIONS.md`.
