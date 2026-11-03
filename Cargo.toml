@@ -103,6 +103,12 @@ codegen-units = 1
 opt-level = "z"
 codegen-units = 1
 
+# The setup wizard is the other big eframe program players download: same reason and same lever as the Launcher above,
+# and it needs no speed.
+[profile.release.package.wccf-installer]
+opt-level = "z"
+codegen-units = 1
+
 [profile.fast]
 inherits = "release"
 lto = false
