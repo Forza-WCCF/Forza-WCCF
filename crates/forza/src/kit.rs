@@ -88,9 +88,9 @@ impl Kit {
         self.dir.join(lay.program_dir(name)).join(name)
     }
 
-    /// Forza-WCCF's own programs that are missing from this folder, by name. An antivirus quarantines them (Microsoft flagged
-    /// FPR_Emu.exe from 0.6.0 on) and the game then runs without what they do: no card table, no panel, and nothing
-    /// says why. The Launcher names them before the start, as it does with a missing catalogue.
+    /// Forza-WCCF's own programs that are missing from this folder, by name. An antivirus quarantines them (Microsoft
+    /// flagged FPR_Emu.exe from 0.6.0 on) and the game then runs without what they do: no card table, no panel, and
+    /// nothing says why. The Launcher names them and refuses the start.
     pub fn missing_programs(&self) -> Vec<&'static str> {
         const NEEDED: [&str; 2] = ["FPR_Emu.exe", "forza_panel.dll"];
         NEEDED
