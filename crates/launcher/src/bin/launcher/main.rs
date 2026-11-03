@@ -1095,7 +1095,9 @@ impl App {
                 // the projector in the run picks it up within a second
                 let file = kit.settings_file();
                 let on = self.st.projector != Some(false);
-                let set = choices::pin_cpu_championship(&file)
+                // the championship as shown written too: with no key of its own it would follow the window
+                let championship = self.st.cpu_championship != Some(false);
+                let set = choices::set_setting_bool(&file, choices::CPU_CHAMPIONSHIP, championship)
                     .and_then(|()| choices::set_setting_bool(&file, choices::PROJECTOR, on));
                 if let Err(e) = set {
                     refuse(write_failed(&file, &e));

@@ -83,7 +83,7 @@ impl Files {
     }
 
     /// settings.json's "projector" (its window shown) set, every other key kept, and the old switch's CPU
-    /// championship pinned first as the Launcher does (`choices::pin_cpu_championship`). A missing, locked or damaged
+    /// championship pinned first (missing, it would follow the window). A missing, locked or damaged
     /// file is never written over: it holds the game folder.
     pub fn save_projector(&self, on: bool) -> std::io::Result<()> {
         let path = self.data.join("settings.json");

@@ -105,17 +105,6 @@ pub fn setting(path: &Path, key: &str) -> Option<String> {
 
 pub use forza::kit::{CPU_CHAMPIONSHIP, PROJECTOR, cpu_championship_on, projector_shown};
 
-/// The old "Projector and CPU championship" switch split in two: "cpu_championship" written once from it, so a
-/// later change of the window ("projector") leaves the championship as the player had it.
-pub fn pin_cpu_championship(path: &Path) -> io::Result<()> {
-    // a missing, locked or damaged file is left as it is
-    let saved = serde_json::from_str::<Value>(&read(path)).unwrap_or_default();
-    if !saved.is_object() || saved.get(CPU_CHAMPIONSHIP).is_some() {
-        return Ok(());
-    }
-    set_setting_bool(path, CPU_CHAMPIONSHIP, cpu_championship_on(&saved))
-}
-
 pub use forza::panel_txt::valid_address;
 
 /// An override's value: the environment variable first, then the setting; empty counts as unset.
@@ -257,27 +246,6 @@ mod tests {
         assert!(!projector_shown(&saved(&path)));
         set_setting_bool(&path, PROJECTOR, true).unwrap();
         assert!(projector_shown(&saved(&path)));
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn the_old_projector_switch_off_keeps_the_championship_off_once_split() {
-        let dir = std::env::temp_dir().join(format!("wccf-championship-test-{}", std::process::id()));
-        let path = dir.join("settings.json");
-        let saved = |p: &Path| serde_json::from_str::<Value>(&read(p)).unwrap();
-        pin_cpu_championship(&path).unwrap();
-        assert!(!path.exists(), "no settings.json: nothing written");
-        write(&path, r#"{"game": "D:\\WCCF", "projector": false}"#).unwrap();
-        pin_cpu_championship(&path).unwrap();
-        // the window shown again: the championship stays as the old switch left it
-        set_setting_bool(&path, PROJECTOR, true).unwrap();
-        let s = saved(&path);
-        assert!(projector_shown(&s) && !cpu_championship_on(&s));
-        assert_eq!(s["game"], "D:\\WCCF");
-        // pinned once: a later choice is never overwritten
-        set_setting_bool(&path, CPU_CHAMPIONSHIP, true).unwrap();
-        pin_cpu_championship(&path).unwrap();
-        assert!(cpu_championship_on(&saved(&path)));
         let _ = fs::remove_dir_all(&dir);
     }
 
