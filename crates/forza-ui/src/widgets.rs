@@ -373,12 +373,14 @@ fn solid_face(p: &Painter, rect: Rect, label: &str, kind: Cab, shape: Shape, f: 
         rect.min + vec2(0.0, f.press * travel),
         rect.size() - vec2(0.0, travel),
     );
-    let fill = if f.lit {
-        base.lerp_to_gamma(Color32::WHITE, 0.3)
+    // lit: the full colour; off: most of the way to grey, so a lit lamp stands out
+    let tone = if f.lit {
+        base
     } else {
-        base.lerp_to_gamma(Color32::WHITE, 0.1 * f.hover)
+        base.lerp_to_gamma(Color32::from_gray(0x80), 0.65)
     };
-    let rim = Stroke::new(1.0, base.lerp_to_gamma(Color32::BLACK, 0.4));
+    let fill = tone.lerp_to_gamma(Color32::WHITE, 0.1 * f.hover);
+    let rim = Stroke::new(1.0, tone.lerp_to_gamma(Color32::BLACK, 0.4));
     let draw = |r: Rect, fill: Color32, stroke: Stroke| match shape {
         Shape::Round => {
             p.circle(r.center(), r.width().min(r.height()) / 2.0, fill, stroke);
@@ -396,7 +398,7 @@ fn solid_face(p: &Painter, rect: Rect, label: &str, kind: Cab, shape: Shape, f: 
     };
     draw(
         skirt,
-        base.lerp_to_gamma(Color32::BLACK, 0.55),
+        tone.lerp_to_gamma(Color32::BLACK, 0.55),
         Stroke::NONE,
     );
     draw(face, fill, rim);
