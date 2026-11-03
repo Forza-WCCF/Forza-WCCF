@@ -162,6 +162,25 @@ impl Kit {
     }
 }
 
+/// settings.json "projector" (2017-18, default on): the projector's window shown. Off hides it, at once, while its
+/// CPU championship plays on (the panel in the projector reads it each second).
+pub const PROJECTOR: &str = "projector";
+/// settings.json "cpu_championship" (2017-18): the projector program runs, and with it the CPU championship it plays.
+/// Read at the start of a run on this PC. Missing: what the old "projector" switch said, as it turned both off.
+pub const CPU_CHAMPIONSHIP: &str = "cpu_championship";
+/// The start of the projector window's title (the panel writes it): a hidden window with it is still the projector's.
+pub const PROJECTOR_TITLE: &str = "Projector - Forza-WCCF";
+
+pub fn projector_shown(settings: &serde_json::Value) -> bool {
+    settings[PROJECTOR].as_bool() != Some(false)
+}
+
+pub fn cpu_championship_on(settings: &serde_json::Value) -> bool {
+    settings[CPU_CHAMPIONSHIP]
+        .as_bool()
+        .unwrap_or_else(|| projector_shown(settings))
+}
+
 /// The game's three programs, as find_game looks for them.
 pub const GAME_PROGRAMS: [&str; 3] = [
     "client_Release.exe",
@@ -200,6 +219,25 @@ pub fn misc_dir(game: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn projector_and_cpu_championship_are_separate_and_the_old_switch_migrates() {
+        use serde_json::json;
+        let both = |v: serde_json::Value| (projector_shown(&v), cpu_championship_on(&v));
+        assert_eq!(both(json!({})), (true, true));
+        // the old "Projector and CPU championship" switch: its choice holds for both until the new key is written
+        assert_eq!(both(json!({"projector": false})), (false, false));
+        assert_eq!(both(json!({"projector": true})), (true, true));
+        // apart: the window hidden with the championship on, and the other way round
+        assert_eq!(
+            both(json!({"projector": false, "cpu_championship": true})),
+            (false, true)
+        );
+        assert_eq!(
+            both(json!({"projector": true, "cpu_championship": false})),
+            (true, false)
+        );
+    }
 
     #[test]
     fn the_edition_comes_from_the_layout() {
