@@ -794,6 +794,7 @@ impl App {
             clock: (0.0, 0.0),
             progress: 0.0,
             status: None,
+            server_notice: None,
             tab: if !set_up || folder.is_some() {
                 Tab::Setup
             } else if online {

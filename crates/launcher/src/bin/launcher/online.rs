@@ -10,6 +10,7 @@ use forza_ui::lobby::{Kind, LobbyAction, Notice, Occupant, Room, RowState};
 use launcher::choices;
 use launcher::lobby::CodeJoin;
 use launcher::lobby::{Beat, Book, Msg, Poller, REJOIN_SECS, Wake, close, quick_arcade, release};
+use launcher::notice::{self, Notices};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::Path;
@@ -161,6 +162,8 @@ pub struct Online {
     joining_listed: bool,
     /// JOIN on a server's own 2017-18 arcade: PLAY at its address on the next look.
     connect: bool,
+    /// The project server's notice and that server (2017-18 only; [`launcher::notice`]).
+    notices: Option<(Notices, String)>,
 }
 
 impl Online {
@@ -179,6 +182,12 @@ impl Online {
         o.book = Book::new(&servers);
         o.servers = servers;
         o.last = last;
+        if edition == launcher::Edition::E1718 {
+            let project = launcher::lobby::project_server(edition);
+            let n = Notices::new(settings.with_file_name("notice.json"));
+            n.watch(project.clone(), edition.name(), notice::EVERY, Arc::new(poke));
+            o.notices = Some((n, project));
+        }
         o
     }
 
@@ -254,7 +263,17 @@ impl Online {
         let msgs: Vec<Msg> = self.poller.iter().flat_map(|p| p.rx.try_iter()).collect();
         for m in msgs {
             match m {
-                Msg::Poll { .. } => self.book.apply(&m, Instant::now()),
+                Msg::Poll { .. } => {
+                    if let Msg::Poll {
+                        server, result: Ok(l), ..
+                    } = &m
+                        && let Some((n, project)) = &self.notices
+                        && server == project
+                    {
+                        n.heard(l);
+                    }
+                    self.book.apply(&m, Instant::now());
+                }
                 Msg::Reserved {
                     server,
                     id,
@@ -300,6 +319,7 @@ impl Online {
         if self.poller.is_some() {
             self.rows = self.book.fill(&mut st.lobby, Instant::now());
         }
+        st.server_notice = self.notices.as_ref().and_then(|(n, _)| n.text(st.lang.code()));
         let go = (self.room(st) | std::mem::take(&mut self.connect)).then_some(Go::Play);
         st.rejoin = self
             .last
