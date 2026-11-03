@@ -440,3 +440,49 @@ fn all_takes_a_players_club_without_a_seat() {
         "{broker}"
     );
 }
+
+#[test]
+/// ovh1's lobby row: 2017-18 players take no seat at the desk, they log in with a card on the game server beside it.
+/// The row counts those cards while their connection is open (by card: two cards behind one address are two).
+fn the_lobby_row_counts_the_cards_on_the_game_server() {
+    use forza::online::{gamesvr, lobby, sessions::Sessions};
+    use std::sync::Arc;
+    let dir = std::env::temp_dir().join(format!("forza_row_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let sessions = Arc::new(Sessions::default());
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let gm = l.local_addr().unwrap();
+    let o = gamesvr::Options {
+        dump: false,
+        sessions: Some(sessions.clone()),
+        ..Default::default()
+    };
+    let _svc = gamesvr::spawn_opts(l, dir.clone(), Arc::new(|_| {}), o).unwrap();
+    let mut c = forza_server::desk::DeskConfig::new(forza_server::Edition::E1718);
+    (c.bind, c.port, c.sessions) = ("127.0.0.1".into(), 0, Some(sessions));
+    (c.lobby_gap, c.lobby_cache) = (Duration::ZERO, Duration::ZERO);
+    let desk = forza_server::desk::start(c, Arc::new(|_| {})).unwrap();
+    let row = || lobby::fetch(desk.addr(), "2017-18").unwrap().arcades[0].seats;
+    assert_eq!(row(), 0);
+    let mut pc = TcpStream::connect(gm).unwrap();
+    pc.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let mut login = req(20, 16);
+    le(&mut login, 0, 1);
+    le(&mut login, 4, 1_210_000_001);
+    assert_eq!(ask(&mut pc, 271, &login).0, 272);
+    assert_eq!(row(), 1, "a card logged in");
+    le(&mut login, 0, 2);
+    le(&mut login, 4, 1_210_000_002);
+    ask(&mut pc, 271, &login);
+    assert_eq!(row(), 2, "a second card on the same connection");
+    drop(pc);
+    let t = Instant::now();
+    while row() != 0 {
+        assert!(
+            t.elapsed() < Duration::from_secs(5),
+            "the closed connection still counts"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
