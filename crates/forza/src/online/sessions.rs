@@ -2,8 +2,8 @@
 //! play and in which mode. For the server's own log and the desk's lobby count; kept in memory only, nothing stored.
 //!
 //! A connection is one arcade's control (it relays every seat, request +0 = the seat's slot) or one vslink PC. A card
-//! is in when COACH_LIST 271 names its Aime id on a slot, and stays in until another card takes that slot or the
-//! connection closes.
+//! is in when COACH_LIST 271 names its Aime id on a slot, and stays in until another card takes that slot, the
+//! connection closes or it sends nothing for [`IDLE`].
 
 use super::gamesvr::{match_line, u32_at};
 use crate::service::Log;
@@ -69,11 +69,23 @@ impl Seat {
     }
 }
 
+/// How long a connection may send nothing before its cards and plays stop counting: a connected PC sends cmd 18 every
+/// 2 min, in play too (ovh1 log, 2026-11-03), so 5 min is two missed beats. Keeps half-open sockets (a Wi-Fi drop, a
+/// laptop asleep) off the lobby count until the TCP stack reaps them.
+pub const IDLE: Duration = Duration::from_secs(5 * 60);
+
+#[derive(Debug)]
+struct Conn {
+    /// The last answered request.
+    seen: Instant,
+    /// slot -> seat.
+    seats: HashMap<u32, Seat>,
+}
+
 #[derive(Debug, Default)]
 struct Inner {
     next: u64,
-    /// Open connections: slot -> seat.
-    conns: HashMap<u64, HashMap<u32, Seat>>,
+    conns: HashMap<u64, Conn>,
     /// Ends of play since the last [`Sessions::summary`], by mode.
     finished: BTreeMap<Mode, u32>,
 }
@@ -82,20 +94,26 @@ struct Inner {
 #[derive(Debug, Default)]
 pub struct Sessions(Mutex<Inner>);
 
+impl Inner {
+    /// Seats of connections heard from within [`IDLE`], one map per connection.
+    fn live(&self) -> impl Iterator<Item = &HashMap<u32, Seat>> {
+        self.conns
+            .values()
+            .filter(|c| c.seen.elapsed() < IDLE)
+            .map(|c| &c.seats)
+    }
+}
+
 impl Sessions {
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Distinct cards logged in on open connections (one card on two connections counts once; players behind one NAT
+    /// Distinct cards logged in on live connections (one card on two connections counts once; players behind one NAT
     /// address count apart).
     pub fn cards(&self) -> usize {
         let i = self.lock();
-        let cards: HashSet<u32> = i
-            .conns
-            .values()
-            .flat_map(|s| s.values().map(|s| s.aime))
-            .collect();
+        let cards: HashSet<u32> = i.live().flat_map(|s| s.values().map(|s| s.aime)).collect();
         cards.len()
     }
 
@@ -104,7 +122,7 @@ impl Sessions {
     pub fn summary(&self) -> Option<String> {
         let mut i = self.lock();
         let finished = std::mem::take(&mut i.finished);
-        let busy: Vec<_> = i.conns.values().filter(|s| !s.is_empty()).collect();
+        let busy: Vec<_> = i.live().filter(|s| !s.is_empty()).collect();
         if busy.is_empty() && finished.is_empty() {
             return None;
         }
@@ -139,7 +157,13 @@ impl Sessions {
             let mut i = self.lock();
             i.next += 1;
             let id = i.next;
-            i.conns.insert(id, HashMap::new());
+            i.conns.insert(
+                id,
+                Conn {
+                    seen: Instant::now(),
+                    seats: HashMap::new(),
+                },
+            );
             id
         };
         let now = Instant::now();
@@ -178,21 +202,32 @@ impl Session {
     /// the lines for the log.
     pub fn request(&mut self, cmd: u16, req: &[u8], refused: Option<&str>) -> Vec<String> {
         let mut out = Vec::new();
-        if req.len() < 4 {
-            return out;
-        }
-        let (slot, id) = (u32_at(req, 0), self.id);
+        let id = self.id;
         let mut i = self.all.lock();
         let Inner {
             conns, finished, ..
         } = &mut *i;
-        let Some(seats) = conns.get_mut(&id) else {
+        let Some(Conn { seen, seats }) = conns.get_mut(&id) else {
             return out;
         };
+        *seen = Instant::now();
+        if req.len() < 4 {
+            return out;
+        }
+        let slot = u32_at(req, 0);
         match cmd {
             271 if req.len() >= 20 && refused.is_none() => {
                 let aime = u32_at(req, 4);
-                if aime != 0 && seats.get(&slot).is_none_or(|s| s.aime != aime) {
+                if aime == 0 {
+                    return out;
+                }
+                if let Some(s) = seats.get_mut(&slot).filter(|s| s.aime == aime) {
+                    // the same card again: a new credit, so a play it left unfinished is over
+                    *s = Seat {
+                        aime,
+                        ..Seat::default()
+                    };
+                } else {
                     seats.insert(
                         slot,
                         Seat {
@@ -391,5 +426,34 @@ mod tests {
             ),
             "{said:?}"
         );
+    }
+
+    #[test]
+    fn an_idle_connection_and_an_abandoned_play_stop_counting() {
+        let all = Arc::new(Sessions::default());
+        let log: Log = Arc::new(|_: &str| {});
+        let peer: SocketAddr = "192.0.2.1:5000".parse().unwrap();
+        let mut a = all.open(peer, log.clone());
+        let mut b = all.open(peer, log);
+        let login = |slot, aime| req(20, &[(0, slot), (4, aime), (16, 47565)]);
+        let start = |slot, aime| req(28, &[(0, slot), (4, aime), (8, 13), (12, 13), (16, 1)]);
+        a.request(271, &login(1, 77), None);
+        b.request(271, &login(1, 88), None);
+        b.request(289, &start(1, 88), None);
+        assert_eq!(all.cards(), 2);
+        // a goes quiet (half-open socket): its card drops out
+        all.lock().conns.get_mut(&a.id).unwrap().seen -= IDLE;
+        assert_eq!(all.cards(), 1);
+        assert!(
+            all.summary()
+                .unwrap()
+                .starts_with("online: 1 card(s), 1 session(s), 1 match(es) in progress")
+        );
+        // any request, a payload-less cmd 18 too, brings it back
+        a.request(18, &[], None);
+        assert_eq!(all.cards(), 2);
+        // b's play is abandoned and the card comes back for a new credit: no play under way
+        b.request(271, &login(1, 88), None);
+        assert!(all.summary().unwrap().contains(" 0 match(es) in progress"));
     }
 }
