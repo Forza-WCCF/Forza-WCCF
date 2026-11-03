@@ -179,9 +179,18 @@ fn start_desk(
     log_file: Option<&Path>,
     vs: Option<Arc<vs::Matcher>>,
     club: Option<PathBuf>,
+    store: Option<&Path>,
     log: Log,
 ) -> std::io::Result<Handle> {
     let mut c = desk::DeskConfig::new(ed);
+    // the operator's notice: beside the game server's store (`all`), else in data\ beside hold_projector.txt
+    c.notice = c.notice.or_else(|| {
+        Some(
+            store
+                .map_or_else(|| data_dir(log_file), Path::to_path_buf)
+                .join("notice.json"),
+        )
+    });
     if let Some(db) = club {
         c.club_db = Some(db);
         c.club_public = true;
@@ -346,6 +355,7 @@ where
                 log_file.as_deref(),
                 None,
                 None,
+                None,
                 file_log(log_file.clone()),
             )],
         ),
@@ -400,6 +410,7 @@ where
                     desk_log.as_deref(),
                     matcher.clone(),
                     club,
+                    Some(&g.store),
                     file_log(desk_log.clone()),
                 ),
                 start_relay(ed, *relay_port, file_log(relay_log)),

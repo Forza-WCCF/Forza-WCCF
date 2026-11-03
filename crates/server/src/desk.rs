@@ -14,7 +14,7 @@
 
 use crate::{Edition, Handle, Log};
 use forza::online::lobby::{
-    self, Arcade, Created, Lobby, Occupant, Reserved, State as ArcadeState, VsRoom,
+    self, Arcade, Created, Lobby, Occupant, Reserved, ServerNotice, State as ArcadeState, VsRoom,
 };
 use forza::online::vs::Matcher;
 use forza::online::{Reply, SEATS, Want, seat};
@@ -108,6 +108,10 @@ pub struct DeskConfig {
     /// club there without a seat, and it replaces what the server kept for the card
     /// ([`forza::online::club::Store::import_public`]).
     pub club_public: bool,
+    /// The operator's notice to players (`WCCF_NOTICE`, else `notice.json` in the data or store folder, `cli.rs`):
+    /// JSON with `id`, `en`, optional `it`, `ja` and RFC 3339 `start`, `end`. Read again when its time changes;
+    /// missing or unreadable = no notice. None: never a notice.
+    pub notice: Option<PathBuf>,
 }
 
 /// A positive count from the environment variable `name`, else `default`.
@@ -133,6 +137,9 @@ impl DeskConfig {
             tunnel: std::env::var("WCCF_DESK_TUNNEL").is_ok_and(|v| v == "1"),
             club_db: std::env::var_os("WCCF_CLUB_DB").map(PathBuf::from),
             club_public: false,
+            notice: std::env::var_os("WCCF_NOTICE")
+                .filter(|v| !v.is_empty())
+                .map(PathBuf::from),
             // WCCF_SHOP_* names kept from before the arcade rename: hosts' service files set them
             name: std::env::var("WCCF_SHOP_NAME").unwrap_or_else(|_| "Forza-WCCF".into()),
             lang: std::env::var("WCCF_SHOP_LANG")
@@ -333,6 +340,8 @@ struct Shared {
     /// Last `LOBBY` per address, and the cached answer with its build time.
     lobby_seen: Mutex<HashMap<String, Instant>>,
     lobby_cached: Mutex<Option<(Instant, String)>>,
+    /// The notice file as last read: its modified time, and its notice with the window's start and end.
+    notice: Mutex<Option<(Option<SystemTime>, Option<Notice>)>>,
     /// Open connections per address ([`MAX_PER_IP`]).
     open: Mutex<HashMap<String, usize>>,
     /// `RESERVE` + `CREATE` per address: window start, count.
@@ -896,16 +905,67 @@ fn lobby_answer(sh: &Shared, ip: &str, edition: &str, out: &mut TcpStream) -> io
     let answer = Lobby {
         v: lobby::VERSION,
         edition: sh.cfg.edition.name().into(),
-        at: SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs()),
+        at: unix_now(),
         arcades: std::iter::once(arcade).chain(rooms).collect(),
         vs,
+        notice: notice(sh, unix_now()),
     }
     .line();
     debug_assert!(answer.len() <= lobby::MAX_ANSWER);
     *cache = Some((now, answer.clone()));
     out.write_all(answer.as_bytes())
+}
+
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
+
+/// A notice and when it is live (Unix seconds, either end open).
+type Notice = (ServerNotice, Option<i64>, Option<i64>);
+
+/// The notice file's words ([`DeskConfig::notice`]), cleaned ([`ServerNotice::clean`]).
+fn read_notice(raw: &[u8]) -> Result<Notice, String> {
+    use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+    let v: serde_json::Value = serde_json::from_slice(raw).map_err(|e| e.to_string())?;
+    let when = |k: &str| {
+        v.get(k)
+            .and_then(serde_json::Value::as_str)
+            .map(|t| OffsetDateTime::parse(t, &Rfc3339).map_err(|e| format!("{k}: {e}")))
+            .transpose()
+            .map(|t| t.map(OffsetDateTime::unix_timestamp))
+    };
+    let n = serde_json::from_value::<ServerNotice>(v.clone())
+        .map_err(|e| e.to_string())?
+        .clean()
+        .ok_or("no id or no English text")?;
+    Ok((n, when("start")?, when("end")?))
+}
+
+/// The notice live at `now` (Unix seconds): the file read again when its modified time changed, a log line each time.
+fn notice(sh: &Shared, now: u64) -> Option<ServerNotice> {
+    let path = sh.cfg.notice.as_ref()?;
+    let stamp = std::fs::metadata(path).and_then(|m| m.modified()).ok();
+    let mut cached = sh.notice.lock().unwrap();
+    if cached.as_ref().is_none_or(|(t, _)| *t != stamp) {
+        let read = stamp.map(|_| {
+            std::fs::read(path)
+                .map_err(|e| e.to_string())
+                .and_then(|b| read_notice(&b))
+        });
+        let shown = path.display();
+        match &read {
+            Some(Ok((n, ..))) => (sh.log)(&format!("notice: {shown} read, id {}", n.id)),
+            Some(Err(e)) => (sh.log)(&format!("notice: {shown} unreadable ({e}) - no notice")),
+            None if cached.is_some() => (sh.log)(&format!("notice: {shown} gone - no notice")),
+            None => {}
+        }
+        *cached = Some((stamp, read.and_then(Result::ok)));
+    }
+    let (n, start, end) = cached.as_ref()?.1.as_ref()?;
+    let now = i64::try_from(now).unwrap_or(i64::MAX);
+    (start.is_none_or(|s| now >= s) && end.is_none_or(|e| now < e)).then(|| n.clone())
 }
 
 /// A room as the lobby shows it: random id, code and club ids, the ready flags; never a ticket or an address.
@@ -1293,6 +1353,7 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
         arcade_id: random_hex(4),
         lobby_seen: Mutex::default(),
         lobby_cached: Mutex::default(),
+        notice: Mutex::default(),
         open: Mutex::default(),
         asks: Mutex::default(),
         join_fails: Mutex::new((Instant::now(), 0)),
