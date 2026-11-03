@@ -805,7 +805,8 @@ impl App {
             pictures_hq: choices::setting(&settings, "card_pictures").as_deref() == Some("hq"),
             skip_tutorial: (kit.edition() == Edition::E1718)
                 .then(|| kit.settings()["skip_tutorial"].as_bool() == Some(true)),
-            projector: (kit.edition() == Edition::E1718).then(|| choices::projector_on(&kit.settings())),
+            projector: (kit.edition() == Edition::E1718).then(|| choices::projector_shown(&kit.settings())),
+            cpu_championship: (kit.edition() == Edition::E1718).then(|| choices::cpu_championship_on(&kit.settings())),
             club_server: (kit.edition() == Edition::E1718)
                 .then(|| choices::setting(&settings, "club_server").unwrap_or_default()),
             vs_link: (kit.edition() == Edition::E1718).then(|| kit.settings()["vs_link"].as_bool() != Some(false)),
@@ -1091,9 +1092,19 @@ impl App {
                 }
             }
             Action::Projector => {
+                // the projector in the run picks it up within a second
                 let file = kit.settings_file();
                 let on = self.st.projector != Some(false);
-                if let Err(e) = choices::set_setting_bool(&file, choices::PROJECTOR, on) {
+                let set = choices::pin_cpu_championship(&file)
+                    .and_then(|()| choices::set_setting_bool(&file, choices::PROJECTOR, on));
+                if let Err(e) = set {
+                    refuse(write_failed(&file, &e));
+                }
+            }
+            Action::CpuChampionship => {
+                let file = kit.settings_file();
+                let on = self.st.cpu_championship != Some(false);
+                if let Err(e) = choices::set_setting_bool(&file, choices::CPU_CHAMPIONSHIP, on) {
                     refuse(write_failed(&file, &e));
                 }
             }
@@ -1413,6 +1424,12 @@ impl eframe::App for App {
 
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.look(ctx);
+        if self.st.projector.is_some() && ctx.input(|i| i.events.contains(&egui::Event::WindowFocused(true))) {
+            // the in-game SETTINGS may have changed the projector while this window was down
+            let s = Kit::here().settings();
+            self.st.projector = Some(choices::projector_shown(&s));
+            self.st.cpu_championship = Some(choices::cpu_championship_on(&s));
+        }
         if self.st.tab == Tab::Update {
             self.notes(&Kit::here());
         }

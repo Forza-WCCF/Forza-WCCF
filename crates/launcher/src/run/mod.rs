@@ -1713,8 +1713,9 @@ impl Run<'_> {
         } else {
             let ctrl_conf = self.game.join(r"local\ctrl_user_option.conf");
             if matches!(self.mode, Mode::Local | Mode::Vs(_)) {
-                // 2017-18 setting off: no projector, so no CPU championship on it and nobody waits for it
-                projector = self.edition != Edition::E1718 || choices::projector_on(&self.kit.settings());
+                // 2017-18 CPU championship off: no projector program (it plays the championship), nobody waits for it;
+                // the "projector" setting only shows or hides its window (the panel in it)
+                projector = self.edition != Edition::E1718 || choices::cpu_championship_on(&self.kit.settings());
                 let wait = if projector { "1" } else { "0" };
                 for c in &confs {
                     conf::set_control_ip(c, "127.0.0.1")?; // after a "remote" run: the cabinets play on this PC again
@@ -1778,7 +1779,15 @@ impl Run<'_> {
             let args = p.projector_args.clone().unwrap_or_else(|| vec!["0".into()]);
             let game = self.game.clone();
             self.start_game(Role::Projector, args, &game, false, self.panel_env())?;
-            self.tell("  3/6 ", &Text::key("launcher.run_projector"));
+            let hidden = self.edition == Edition::E1718 && !choices::projector_shown(&self.kit.settings());
+            self.tell(
+                "  3/6 ",
+                &Text::key(if hidden {
+                    "launcher.run_projector_hidden"
+                } else {
+                    "launcher.run_projector"
+                }),
+            );
         } else {
             self.tell(
                 "  3/6 ",
