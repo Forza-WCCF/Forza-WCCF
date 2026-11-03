@@ -373,13 +373,15 @@ fn solid_face(p: &Painter, rect: Rect, label: &str, kind: Cab, shape: Shape, f: 
         rect.min + vec2(0.0, f.press * travel),
         rect.size() - vec2(0.0, travel),
     );
-    // lit: the full colour; off: most of the way to grey, so a lit lamp stands out
-    let tone = if f.lit {
-        base
-    } else {
+    // only the tactic lamps grey out when off (lit = full colour); the action buttons keep their colour at rest
+    let lamp = matches!(kind, Cab::Tactic | Cab::Press);
+    let tone = if lamp && !f.lit {
         base.lerp_to_gamma(Color32::from_gray(0x80), 0.65)
+    } else {
+        base
     };
-    let fill = tone.lerp_to_gamma(Color32::WHITE, 0.1 * f.hover);
+    let wash = if !lamp && f.lit { 0.3 } else { 0.1 * f.hover };
+    let fill = tone.lerp_to_gamma(Color32::WHITE, wash);
     let rim = Stroke::new(1.0, tone.lerp_to_gamma(Color32::BLACK, 0.4));
     let draw = |r: Rect, fill: Color32, stroke: Stroke| match shape {
         Shape::Round => {
