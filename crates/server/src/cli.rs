@@ -300,6 +300,7 @@ fn start_gmsvr(
         max_per_ip: 8,
         vs: g.vs(),
         matcher,
+        sessions: None,
     };
     let mut handles = Vec::new();
     if let Some(cfg) = o.vs {
