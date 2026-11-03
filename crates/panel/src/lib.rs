@@ -1350,6 +1350,10 @@ struct Render {
     /// CLUB CARD: when club_view.txt was last looked at, and its time then.
     club_at: Option<Instant>,
     club_stamp: Option<std::time::SystemTime>,
+    /// The server's notice (data\notice.json): when it was last looked at, its time then, and the notice not shown yet.
+    notice_at: Option<Instant>,
+    notice_stamp: Option<std::time::SystemTime>,
+    notice: Option<forza::online::lobby::ServerNotice>,
     painter: painter::Painter,
     start: Instant,
     sc: Option<(IDirect3DSwapChain9, u32, u32, HWND)>,
@@ -1435,6 +1439,9 @@ impl Render {
             links_stamp: None,
             club_at: None,
             club_stamp: None,
+            notice_at: None,
+            notice_stamp: None,
+            notice: None,
             deal_at: Instant::now(),
             deal_last: None,
             painter: painter::Painter::default(),
@@ -1874,6 +1881,7 @@ impl Render {
         self.table_in();
         self.links_in();
         self.settings_in();
+        self.notice_in();
         self.club_in();
         self.deal_in();
         self.keys_in();
@@ -2382,6 +2390,46 @@ impl Render {
                 self.st.deal = Some(panel::Deal::new(i));
             }
             None => log("deal: a match finished, but no catalogue card to show"),
+        }
+    }
+
+    /// 2017-18: the server's notice, as the Launcher wrote it (data\notice.json, looked at every 5 s), shown once per id
+    /// (data\notice_seen.txt keeps the id shown last, across runs) on the message line in the panel's language, at a
+    /// calm moment: no match on this seat and no other message on the line.
+    fn notice_in(&mut self) {
+        use forza_ui::widgets::Tone;
+        let Some(f) = FILES.get().filter(|f| f.edition == theme::Edition::E1718) else {
+            return;
+        };
+        if self
+            .notice_at
+            .is_some_and(|t| t.elapsed() < Duration::from_secs(5))
+        {
+            return;
+        }
+        self.notice_at = Some(Instant::now());
+        let path = f.data.join("notice.json");
+        let st = stamp(&path);
+        let seen = f.data.join("notice_seen.txt");
+        if st != self.notice_stamp {
+            self.notice_stamp = st;
+            self.notice = std::fs::read(&path)
+                .ok()
+                .and_then(|b| serde_json::from_slice::<forza::online::lobby::ServerNotice>(&b).ok())
+                .and_then(forza::online::lobby::ServerNotice::clean)
+                .filter(|n| n.unseen(std::fs::read_to_string(&seen).ok().as_deref()));
+        }
+        if self.notice.is_none() || self.st.message.is_some() || match_check().0 {
+            return;
+        }
+        let Some(n) = self.notice.take() else { return };
+        log(&format!("notice: {} shown", n.id));
+        self.st.message = Some(panel::Note::long(
+            Tone::Notice,
+            n.text(self.st.lang.code()).to_owned(),
+        ));
+        if let Err(e) = std::fs::write(&seen, &n.id) {
+            log(&format!("notice: {} not kept ({e})", seen.display()));
         }
     }
 
