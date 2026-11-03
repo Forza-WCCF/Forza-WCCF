@@ -1055,6 +1055,16 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         tell(ui, "", &Text::key("launcher.run_not_set_up"));
         return Err(NOT_SET_UP);
     }
+    // an antivirus quarantining them leaves the game without its card table and panel; a server-only run needs neither
+    let missing = kit.missing_programs();
+    if !mode.is_server() && !missing.is_empty() {
+        tell(
+            ui,
+            "",
+            &Text::key("launcher.run_no_program").arg("files", missing.join(", ")),
+        );
+        return Err(REFUSED);
+    }
     // held to the end of the start: see Admission
     let Some(_admitted) = admit(kit) else {
         tell(ui, "", &Text::key("launcher.run_busy"));
