@@ -83,7 +83,7 @@ as clean because an earlier scan did. What helps:
   stayed clean;
 - a flagged file of ours is rebuilt for size, not for a new hash: `[profile.release.package.…] opt-level = "z"` with
   `codegen-units = 1` took 0.6.0's `FPR_Emu.exe` off the list (#134, `av-oracle-20261101/`), and the same override
-  covers `launcher` and `forza-panel` since 0.6.2. Fresh bytes of a flagged file stayed flagged (the 0.6.0 bisect), so
+  covers `launcher` and `forza-panel` since 0.6.2 and `wccf-installer` since 0.6.3. Fresh bytes of a flagged file stayed flagged (the 0.6.0 bisect), so
   the shape is the only lever measured to work.
 
 Obfuscation and packing raise the verdict instead of lowering it (Microsoft says so outright), and signing without a
