@@ -688,6 +688,10 @@ pub struct PanelState {
     pub keys_changed: bool,
     /// The choices changed: data\panel.txt is written.
     pub file_changed: bool,
+    /// SETTINGS' projector switch, its window shown (settings.json "projector"; `None`: not offered, 2010–11).
+    pub projector: Option<bool>,
+    /// The projector switch changed: settings.json is written.
+    pub projector_changed: bool,
     /// RESTART NOW asked (data\restart.request).
     pub restart: bool,
     /// SAVE LOGS asked (data\savelogs.request): the run saves the ZIP in the Downloads folder.
@@ -785,6 +789,8 @@ impl PanelState {
             formation_copy: None,
             keys_changed: false,
             file_changed: false,
+            projector: None,
+            projector_changed: false,
             restart: false,
             save_logs: false,
             vk_down: Vec::new(),
@@ -872,6 +878,7 @@ impl PanelState {
                 0.0
             },
             club: super::sample::club_view(),
+            projector: (edition == Edition::E1718).then_some(true),
             held: Some("KEYPLAYER"), // lit on the design sheets
             ..Self::new(
                 edition,
@@ -4151,6 +4158,17 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                 {
                     st.file_changed = true;
                 }
+            }
+            if let Some(on) = &mut st.projector
+                && widgets::toggle_row(
+                    ui,
+                    on,
+                    &tr!(lang, "launcher.projector"),
+                    &tr!(lang, "settings.projector_hint"),
+                )
+                .clicked()
+            {
+                st.projector_changed = true;
             }
         });
         widgets::section(right, &tr!(lang, "settings.next"), accent, |ui| {

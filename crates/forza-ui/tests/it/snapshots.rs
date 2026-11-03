@@ -277,7 +277,8 @@ fn panel_pages() {
     let mut all = SnapshotResults::new();
     for lang in Lang::ALL {
         for page in panel::Page::ALL {
-            let ed = if page == panel::Page::Keys {
+            // SETTINGS on 2017-18: its projector and controller switches
+            let ed = if matches!(page, panel::Page::Keys | panel::Page::Settings) {
                 Edition::E1718
             } else {
                 Edition::E1011

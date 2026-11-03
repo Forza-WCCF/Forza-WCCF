@@ -74,11 +74,32 @@ impl Files {
         }
     }
 
-    pub fn lang(&self) -> Lang {
-        let saved = std::fs::read(self.data.join("settings.json"))
+    /// data\settings.json, the Launcher's file (`Null` when missing or unreadable).
+    pub fn settings(&self) -> serde_json::Value {
+        std::fs::read(self.data.join("settings.json"))
             .ok()
-            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-            .and_then(|v| v.get("language")?.as_str().map(str::to_owned));
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default()
+    }
+
+    /// settings.json's "projector" (its window shown) set, every other key kept, and the old switch's CPU
+    /// championship pinned first as the Launcher does (`choices::pin_cpu_championship`). A missing, locked or damaged
+    /// file is never written over: it holds the game folder.
+    pub fn save_projector(&self, on: bool) -> std::io::Result<()> {
+        let path = self.data.join("settings.json");
+        let mut v: serde_json::Value = serde_json::from_slice(&std::fs::read(&path)?)?;
+        let championship = forza::kit::cpu_championship_on(&v);
+        let o = v
+            .as_object_mut()
+            .ok_or_else(|| std::io::Error::other("settings.json is not an object"))?;
+        o.entry(forza::kit::CPU_CHAMPIONSHIP)
+            .or_insert(championship.into());
+        o.insert(forza::kit::PROJECTOR.into(), on.into());
+        swap_write(&path, &serde_json::to_string_pretty(&v)?)
+    }
+
+    pub fn lang(&self) -> Lang {
+        let saved = self.settings()["language"].as_str().map(str::to_owned);
         // SAFETY: a plain query without arguments
         let windows = match unsafe { GetUserDefaultUILanguage() } & 0x3ff {
             0x10 => "it",
