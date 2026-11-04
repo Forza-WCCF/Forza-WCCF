@@ -66,7 +66,7 @@ impl Packer {
 #[derive(Default)]
 pub struct Unpacker {
     hist: History,
-    /// Frame bytes read so far
+    /// Frame bytes read so far, a frame cut short by the stream's end included
     pub wire: u64,
 }
 
@@ -75,15 +75,16 @@ fn bad(why: String) -> io::Error {
 }
 
 impl Unpacker {
-    /// The next frame's raw bytes; `None` when `r` ends between frames. A short, oversized or undecodable frame is
-    /// an error.
+    /// The next frame's raw bytes; `None` when `r` ends between frames. A short, oversized, cut or undecodable frame
+    /// is an error.
     pub async fn next<R: AsyncRead + Unpin>(&mut self, r: &mut R) -> io::Result<Option<Vec<u8>>> {
         let mut head = [0u8; HEAD];
         let n = r.read(&mut head).await?;
         if n == 0 {
             return Ok(None);
         }
-        r.read_exact(&mut head[n..]).await?;
+        self.wire += n as u64;
+        self.fill(r, &mut head[n..]).await?;
         let raw_len = u16::from_le_bytes([head[1], head[2]]) as usize;
         let stored_len = u16::from_le_bytes([head[3], head[4]]) as usize;
         if raw_len == 0 || raw_len > MAX_RAW || stored_len > MAX_RAW {
@@ -92,8 +93,7 @@ impl Unpacker {
             )));
         }
         let mut stored = vec![0u8; stored_len];
-        r.read_exact(&mut stored).await?;
-        self.wire += (HEAD + stored_len) as u64;
+        self.fill(r, &mut stored).await?;
         let raw = match head[0] {
             RAW if stored_len == raw_len => stored,
             LZ4 => {
@@ -116,6 +116,24 @@ impl Unpacker {
         };
         self.hist.push(&raw);
         Ok(Some(raw))
+    }
+
+    /// Fills `buf`, counting each byte into [`Unpacker::wire`]. A stream that ends first is a cut frame, not a clean
+    /// end: `read_exact` would report it as `UnexpectedEof`, which callers take for the other side hanging up.
+    async fn fill<R: AsyncRead + Unpin>(&mut self, r: &mut R, buf: &mut [u8]) -> io::Result<()> {
+        let mut got = 0;
+        while got < buf.len() {
+            match r.read(&mut buf[got..]).await {
+                Ok(0) => return Err(bad(format!("frame cut after {got} of {} bytes", buf.len()))),
+                Ok(n) => {
+                    got += n;
+                    self.wire += n as u64;
+                }
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
     }
 }
 
@@ -222,10 +240,13 @@ mod tests {
             ("cut body", good[..good.len() - 1].to_vec()),
         ];
         for (name, wire) in cases {
-            assert!(unpack_all(&wire).await.is_err(), "{name}");
+            match unpack_all(&wire).await {
+                Err(e) => assert_eq!(e.kind(), io::ErrorKind::InvalidData, "{name}: {e}"),
+                Ok(_) => panic!("{name}: ended cleanly"),
+            }
         }
         assert_eq!(unpack_all(&good).await.unwrap(), vec![0u8; 4000]);
-        // every truncation of a frame sequence too
+        // every truncation of a frame sequence too: a cut between frames is a clean end, one inside a frame is not
         let mut p = Packer::default();
         let wire: Vec<u8> = [&b"abc"[..], &[7u8; 900], b"abcabcabc"]
             .iter()
@@ -234,7 +255,20 @@ mod tests {
         for cut in 1..wire.len() {
             let mut u = Unpacker::default();
             let mut r = &wire[..cut];
-            while let Ok(Some(_)) = u.next(&mut r).await {}
+            loop {
+                match u.next(&mut r).await {
+                    Ok(Some(_)) => {}
+                    Ok(None) => break,
+                    Err(e) => {
+                        assert_eq!(e.kind(), io::ErrorKind::InvalidData, "cut {cut}: {e}");
+                        break;
+                    }
+                }
+            }
+            assert_eq!(
+                u.wire, cut as u64,
+                "cut {cut}: the bytes of a cut frame count too"
+            );
         }
     }
 
