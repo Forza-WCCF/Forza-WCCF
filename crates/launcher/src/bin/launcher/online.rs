@@ -185,7 +185,8 @@ impl Online {
         if edition == launcher::Edition::E1718 {
             let project = launcher::lobby::project_server(edition);
             let n = Notices::new(settings.with_file_name("notice.json"));
-            n.watch(project.clone(), edition.name(), notice::EVERY, Arc::new(poke));
+            let log: forza::service::Log = Arc::new(|line: &str| super::log(line));
+            n.watch(project.clone(), edition.name(), notice::EVERY, Arc::new(poke), log);
             o.notices = Some((n, project));
         }
         o
@@ -270,7 +271,7 @@ impl Online {
                         && let Some((n, project)) = &self.notices
                         && server == project
                     {
-                        n.heard(l);
+                        n.heard(l, &super::log);
                     }
                     self.book.apply(&m, Instant::now());
                 }
