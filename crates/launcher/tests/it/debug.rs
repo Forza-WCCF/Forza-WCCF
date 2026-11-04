@@ -207,18 +207,22 @@ fn hung_stand_in() {
     thread::sleep(Duration::from_secs(15));
 }
 
-/// The projector's window as its setting hides it: the title `game_title` gives it (crates/panel), never shown, for
-/// 12 s (past the window settle and its two checks).
+/// The projector's window as its setting has it: the title `game_title` gives it (crates/panel), shown at first,
+/// then hidden 8 s in as the panel does, and kept 8 s more: past the window settle and its two checks.
 #[test]
 #[ignore = "a stand-in started by a_hidden_projector_window_is_not_a_closed_one"]
 fn projector_stand_in() {
-    show_window(&format!("{} 17-18 Ver2.0", launcher::kit::PROJECTOR_TITLE), false);
-    thread::sleep(Duration::from_secs(12));
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SW_HIDE, ShowWindow};
+    let w = show_window(&format!("{} 17-18 Ver2.0", launcher::kit::PROJECTOR_TITLE), true);
+    thread::sleep(Duration::from_secs(8));
+    // SAFETY: the window this thread made, alive in this program
+    unsafe { ShowWindow(w, SW_HIDE) };
+    thread::sleep(Duration::from_secs(8));
 }
 
 /// A window of this thread, which never pumps its messages: `title`, shown the way a program shows its first one
-/// (`SW_SHOWDEFAULT`: what the starter asked for) or created hidden.
-fn show_window(title: &str, shown: bool) {
+/// (`SW_SHOWDEFAULT`: what the starter asked for) or created hidden; the caller hides it again (as the panel does).
+fn show_window(title: &str, shown: bool) -> windows_sys::Win32::Foundation::HWND {
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, RegisterClassW, SW_SHOWDEFAULT, ShowWindow, WNDCLASSW, WS_OVERLAPPEDWINDOW,
@@ -252,6 +256,7 @@ fn show_window(title: &str, shown: bool) {
         if shown {
             ShowWindow(w, SW_SHOWDEFAULT);
         }
+        w
     }
 }
 
@@ -330,28 +335,40 @@ fn a_hidden_projector_window_is_not_a_closed_one() {
         .to_vec();
     let (job, log, t) = start(opts);
     let pid = launched_pid(&log);
+    // the stand-in shows the window first: the watcher can only take a window for a closed one after it has seen one
     let since = Instant::now();
     let mut win = None;
     while win.is_none() && since.elapsed() < Duration::from_secs(10) {
         thread::sleep(Duration::from_millis(100));
         win = launcher::procs::windows(pid)
             .into_iter()
-            .find(|w| w.class == "wccf-debug-stand-in");
+            .find(|w| w.class == "wccf-debug-stand-in" && w.visible);
     }
-    let win = win.expect("no window at all");
-    assert!(!win.visible, "the stand-in showed its window: {}", win.title);
+    let win = win.expect("the stand-in showed no window");
     assert!(
         win.title.starts_with(launcher::kit::PROJECTOR_TITLE),
         "its title: {}",
         win.title
     );
-    assert!(launcher::procs::has_window(pid));
-    // a hidden window taken for a closed one is ended after the 5 s settle and two 1 s checks; the stand-in lives 12 s
-    // and the run ends when it exits
-    let t1 = Instant::now();
-    while t1.elapsed() < Duration::from_secs(20) && !t.is_finished() {
+    // the panel hides the window when the setting is off; the stand-in does the same 8 s in
+    let hiding = Instant::now();
+    let mut hidden = false;
+    while !hidden && hiding.elapsed() < Duration::from_secs(15) {
+        thread::sleep(Duration::from_millis(100));
+        hidden = !launcher::procs::windows(pid).iter().any(|w| w.visible);
+    }
+    assert!(hidden, "the stand-in did not hide its window: {}", log.text());
+    // a window the watcher saw and lost ends the program 5 s later (WINDOW_SETTLE) plus two 1 s checks. A hidden
+    // projector window is still a window: the run goes on, and the stand-in exits 8 s past the hide.
+    let hidden_since = Instant::now();
+    while hidden_since.elapsed() < Duration::from_secs(7) && !t.is_finished() {
         thread::sleep(Duration::from_millis(100));
     }
+    assert!(
+        !t.is_finished(),
+        "the hidden window was taken for a closed one: {}",
+        log.text()
+    );
     let code = t.join().unwrap();
     let out = log.text();
     assert!(!out.contains("its window was closed"), "{out}");
