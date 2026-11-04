@@ -1,10 +1,13 @@
 //! The publisher's network hosts, which the original programs still name (ALL.Net and AiMeDB servers, a proxy): the
 //! game program's name lookups and WinInet calls fail for them before anything leaves the PC. [`install`] points the
-//! program's imports at the checks; every other name is passed on unchanged.
+//! program's imports at the checks; every other name is passed on unchanged. The 2017-18 guard also refuses the
+//! publisher's addresses the programs hold as numbers as a destination of `connect` and `sendto`
+//! ([`install_addresses`]).
 
 use std::ffi::{CStr, c_void};
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::Relaxed};
 use windows_sys::Win32::Foundation::SetLastError;
 
 /// The domains the original programs name, and their parents; a name is denied when it is one or ends in `.<one>`.
@@ -36,6 +39,11 @@ pub fn mentions_denied(text: &[u8]) -> bool {
 const WSAHOST_NOT_FOUND: u32 = 11001; // also getaddrinfo's EAI_NONAME
 const DNS_ERROR_RCODE_NAME_ERROR: i32 = 9003;
 const ERROR_INTERNET_NAME_NOT_RESOLVED: u32 = 12007;
+/// The control's connect wrappers (0x40B710, 0x4E1810) close the socket and fail on any error but WOULDBLOCK and a few
+/// retry codes; its sendto callers (0x433BF0, 0x4C1480) on any error.
+const WSAECONNREFUSED: u32 = 10061;
+const WSAEHOSTUNREACH: u32 = 10065;
+const SOCKET_ERROR: i32 = -1;
 
 static LOG: OnceLock<fn(&str)> = OnceLock::new();
 
@@ -58,15 +66,15 @@ fn denied(text: *const u8) -> bool {
     true
 }
 
-/// The original of each hooked import, by [`HOOKS`] index.
+/// The original of each hooked import, by [`hooks`] index.
 static REAL: [AtomicUsize; 6] = [const { AtomicUsize::new(0) }; 6];
 
 /// # Safety
-/// `REAL[i]` holds the original of an import of type `F` (set before its slot points at the hook).
-unsafe fn real<F: Copy>(i: usize) -> F {
+/// `slot` holds the original of an import of type `F` (set before its import slot points at the hook).
+unsafe fn real<F: Copy>(slot: &AtomicUsize) -> F {
     const { assert!(size_of::<F>() == size_of::<usize>()) };
     // SAFETY: the caller's contract
-    unsafe { std::mem::transmute_copy(&REAL[i].load(Relaxed)) }
+    unsafe { std::mem::transmute_copy(&slot.load(Relaxed)) }
 }
 
 type Gethostbyname = unsafe extern "system" fn(*const u8) -> *mut c_void;
@@ -77,7 +85,7 @@ unsafe extern "system" fn gethostbyname(name: *const u8) -> *mut c_void {
         return std::ptr::null_mut();
     }
     // SAFETY: the game's own call, passed on
-    unsafe { real::<Gethostbyname>(0)(name) }
+    unsafe { real::<Gethostbyname>(&REAL[0])(name) }
 }
 
 type Getaddrinfo =
@@ -99,7 +107,7 @@ unsafe extern "system" fn getaddrinfo(
         return WSAHOST_NOT_FOUND as i32;
     }
     // SAFETY: the game's own call, passed on
-    unsafe { real::<Getaddrinfo>(1)(node, service, hints, res) }
+    unsafe { real::<Getaddrinfo>(&REAL[1])(node, service, hints, res) }
 }
 
 type DnsQueryA = unsafe extern "system" fn(
@@ -126,7 +134,7 @@ unsafe extern "system" fn dns_query_a(
         return DNS_ERROR_RCODE_NAME_ERROR;
     }
     // SAFETY: the game's own call, passed on
-    unsafe { real::<DnsQueryA>(2)(name, kind, options, extra, results, reserved) }
+    unsafe { real::<DnsQueryA>(&REAL[2])(name, kind, options, extra, results, reserved) }
 }
 
 /// WinInet resolves inside its own DLL, so its entry points are checked instead: the proxy, the URL, the server.
@@ -145,7 +153,7 @@ unsafe extern "system" fn internet_open_a(
         return std::ptr::null_mut();
     }
     // SAFETY: the game's own call, passed on
-    unsafe { real::<InternetOpenA>(3)(agent, access, proxy, bypass, flags) }
+    unsafe { real::<InternetOpenA>(&REAL[3])(agent, access, proxy, bypass, flags) }
 }
 
 type InternetOpenUrlA =
@@ -164,7 +172,7 @@ unsafe extern "system" fn internet_open_url_a(
         return std::ptr::null_mut();
     }
     // SAFETY: the game's own call, passed on
-    unsafe { real::<InternetOpenUrlA>(4)(inet, url, headers, len, flags, context) }
+    unsafe { real::<InternetOpenUrlA>(&REAL[4])(inet, url, headers, len, flags, context) }
 }
 
 type InternetConnectA = unsafe extern "system" fn(
@@ -195,12 +203,109 @@ unsafe extern "system" fn internet_connect_a(
     }
     // SAFETY: the game's own call, passed on
     unsafe {
-        real::<InternetConnectA>(5)(inet, server, port, user, password, service, flags, context)
+        real::<InternetConnectA>(&REAL[5])(
+            inet, server, port, user, password, service, flags, context,
+        )
     }
 }
 
+/// The publisher's addresses the original programs hold as numbers: the 2017-18 control's built-in game server
+/// (control_Release.exe 0x43F50A, string at 0x63723C), dialled when ctrl_user_option.conf has no GAME_SVR_IP.
+pub const BLOCKED_ADDRS: [Ipv4Addr; 1] = [Ipv4Addr::new(157, 109, 70, 71)];
+
+/// Whether each [`BLOCKED_ADDRS`] entry was logged in this process.
+static ADDR_LOGGED: [AtomicBool; BLOCKED_ADDRS.len()] =
+    [const { AtomicBool::new(false) }; BLOCKED_ADDRS.len()];
+
+/// The [`BLOCKED_ADDRS`] index and port of a socket address (`AF_INET`, or `AF_INET6` holding a mapped IPv4) that is
+/// one of them; None for every other address and for anything too short to read.
+fn blocked_dest(sa: &[u8]) -> Option<(usize, u16)> {
+    let family = u16::from_le_bytes(sa.get(..2)?.try_into().ok()?);
+    let port = u16::from_be_bytes(sa.get(2..4)?.try_into().ok()?);
+    let ip = match family {
+        2 => Ipv4Addr::from(<[u8; 4]>::try_from(sa.get(4..8)?).ok()?),
+        23 => Ipv6Addr::from(<[u8; 16]>::try_from(sa.get(8..24)?).ok()?).to_ipv4_mapped()?,
+        _ => return None,
+    };
+    BLOCKED_ADDRS
+        .iter()
+        .position(|b| *b == ip)
+        .map(|i| (i, port))
+}
+
+/// True when the game's socket address `name` of `len` bytes is a blocked destination; the first time for each
+/// address, one log line.
+fn refused(call: &str, name: *const u8, len: i32) -> bool {
+    if name.is_null() || len <= 0 {
+        return false;
+    }
+    // SAFETY: the address of `len` bytes the game passes to the call
+    let sa = unsafe { std::slice::from_raw_parts(name, len as usize) };
+    let Some((i, port)) = blocked_dest(sa) else {
+        return false;
+    };
+    if !ADDR_LOGGED[i].swap(true, Relaxed)
+        && let Some(log) = LOG.get()
+    {
+        log(&format!(
+            "blocked publisher address {}:{port} ({call}), later attempts refused unlogged",
+            BLOCKED_ADDRS[i]
+        ));
+    }
+    true
+}
+
+/// The original of each address-checked import, by [`addr_hooks`] index.
+static REAL_ADDR: [AtomicUsize; 2] = [const { AtomicUsize::new(0) }; 2];
+
+type Connect = unsafe extern "system" fn(usize, *const u8, i32) -> i32;
+unsafe extern "system" fn connect(s: usize, name: *const u8, len: i32) -> i32 {
+    if refused("connect", name, len) {
+        // SAFETY: plain Win32 call (WSASetLastError is SetLastError)
+        unsafe { SetLastError(WSAECONNREFUSED) };
+        return SOCKET_ERROR;
+    }
+    // SAFETY: the game's own call, passed on
+    unsafe { real::<Connect>(&REAL_ADDR[0])(s, name, len) }
+}
+
+type Sendto = unsafe extern "system" fn(usize, *const u8, i32, i32, *const u8, i32) -> i32;
+unsafe extern "system" fn sendto(
+    s: usize,
+    buf: *const u8,
+    len: i32,
+    flags: i32,
+    to: *const u8,
+    tolen: i32,
+) -> i32 {
+    if refused("sendto", to, tolen) {
+        // SAFETY: plain Win32 call (WSASetLastError is SetLastError)
+        unsafe { SetLastError(WSAEHOSTUNREACH) };
+        return SOCKET_ERROR;
+    }
+    // SAFETY: the game's own call, passed on
+    unsafe { real::<Sendto>(&REAL_ADDR[1])(s, buf, len, flags, to, tolen) }
+}
+
+/// (DLL, import, ordinal, hook), by [`REAL_ADDR`] index: the calls that take a destination address which the 2017-18
+/// programs import (both by ordinal; neither imports WSAConnect, WSASendTo or ConnectEx).
+fn addr_hooks() -> [Hook; 2] {
+    [
+        (
+            "ws2_32.dll",
+            c"connect",
+            Some(4),
+            connect as Connect as usize,
+        ),
+        ("ws2_32.dll", c"sendto", Some(20), sendto as Sendto as usize),
+    ]
+}
+
+/// (DLL, import, ordinal if winsock's, hook).
+type Hook = (&'static str, &'static CStr, Option<u16>, usize);
+
 /// (DLL, import, ordinal if winsock's, hook), by [`REAL`] index: every resolver the games' programs import.
-fn hooks() -> [(&'static str, &'static CStr, Option<u16>, usize); 6] {
+fn hooks() -> [Hook; 6] {
     [
         (
             "ws2_32.dll",
@@ -245,8 +350,23 @@ fn hooks() -> [(&'static str, &'static CStr, Option<u16>, usize); 6] {
 /// (`publisher hosts blocked in: gethostbyname=1 ...`, 0 = not imported or not patched).
 pub fn install(log: fn(&str)) -> String {
     let _ = LOG.set(log);
-    let hooks = hooks();
-    let mut done = [false; 6];
+    format!("publisher hosts blocked in: {}", patch(&hooks(), &REAL))
+}
+
+/// Points the program's imports of `connect` and `sendto` at the address checks, which log through `log`; returns the
+/// summary line (`publisher addresses blocked in: connect=1 sendto=1`, 0 = not imported or not patched).
+pub fn install_addresses(log: fn(&str)) -> String {
+    let _ = LOG.set(log);
+    format!(
+        "publisher addresses blocked in: {}",
+        patch(&addr_hooks(), &REAL_ADDR)
+    )
+}
+
+/// Points the main program's import of each of `hooks` at its hook, the original kept in `real` at the same index;
+/// returns `name=1` (patched) or `name=0` for each.
+fn patch(hooks: &[Hook], real: &[AtomicUsize]) -> String {
+    let mut done = vec![false; hooks.len()];
     // SAFETY: the process's main module, loaded for its whole life
     let exe = unsafe {
         windows_sys::Win32::System::LibraryLoader::GetModuleHandleW(std::ptr::null()) as *const u8
@@ -265,7 +385,7 @@ pub fn install(log: fn(&str)) -> String {
                 // SAFETY: an import slot of the loaded program; the hook has the import's signature; the original is
                 // kept before the slot points at the hook
                 unsafe {
-                    REAL[i].store(slot.read(), Relaxed);
+                    real[i].store(slot.read(), Relaxed);
                     done[i] = crate::redirect(slot, *hook).is_some();
                 }
             }
@@ -276,7 +396,7 @@ pub fn install(log: fn(&str)) -> String {
         .zip(done)
         .map(|((_, n, _, _), ok)| format!("{}={}", n.to_string_lossy(), u8::from(ok)))
         .collect();
-    format!("publisher hosts blocked in: {}", list.join(" "))
+    list.join(" ")
 }
 
 #[cfg(test)]
@@ -326,5 +446,109 @@ mod tests {
             );
             assert_eq!(gethostbyname(c"lobby.wccf.it".as_ptr().cast()) as usize, 8);
         }
+    }
+
+    /// An `AF_INET` socket address, as winsock takes it.
+    fn v4(ip: [u8; 4], port: u16) -> [u8; 16] {
+        let mut a = [0; 16];
+        a[..2].copy_from_slice(&2u16.to_le_bytes());
+        a[2..4].copy_from_slice(&port.to_be_bytes());
+        a[4..8].copy_from_slice(&ip);
+        a
+    }
+
+    /// An `AF_INET6` socket address of `ip`.
+    fn v6(ip: Ipv6Addr, port: u16) -> [u8; 28] {
+        let mut a = [0; 28];
+        a[..2].copy_from_slice(&23u16.to_le_bytes());
+        a[2..4].copy_from_slice(&port.to_be_bytes());
+        a[8..24].copy_from_slice(&ip.octets());
+        a
+    }
+
+    #[test]
+    fn refuses_the_publishers_address_only() {
+        let publisher = BLOCKED_ADDRS[0];
+        assert_eq!(
+            blocked_dest(&v4(publisher.octets(), 17182)),
+            Some((0, 17182))
+        );
+        let mapped = v6(publisher.to_ipv6_mapped(), 17182);
+        assert_eq!(blocked_dest(&mapped), Some((0, 17182)));
+        assert_eq!(blocked_dest(&mapped[..16]), None); // too short to hold the address
+        for (ip, port) in [
+            ([127, 0, 0, 1], 20050),     // loopback: the game server stand-in
+            ([127, 0, 0, 1], 20002),     // the control
+            ([192, 168, 46, 254], 80),   // the game's own LAN
+            ([10, 0, 0, 2], 20003),      // a LAN address
+            ([157, 109, 70, 70], 17182), // its neighbours
+            ([157, 109, 70, 72], 17182),
+            ([0, 0, 0, 0], 0),
+        ] {
+            assert_eq!(blocked_dest(&v4(ip, port)), None, "{ip:?}");
+            let m = v6(Ipv4Addr::from(ip).to_ipv6_mapped(), port);
+            assert_eq!(blocked_dest(&m), None, "mapped {ip:?}");
+        }
+        assert_eq!(blocked_dest(&v6(Ipv6Addr::LOCALHOST, 20050)), None);
+        assert_eq!(blocked_dest(&[]), None);
+    }
+
+    static LOGGED: AtomicUsize = AtomicUsize::new(0);
+    fn count(line: &str) {
+        if line.starts_with("blocked publisher address 157.109.70.71:17182 (connect)") {
+            LOGGED.fetch_add(1, Relaxed);
+        }
+    }
+
+    #[test]
+    fn a_hooked_connect_fails_the_publishers_address_once_logged() {
+        unsafe extern "system" fn fake_connect(_: usize, _: *const u8, _: i32) -> i32 {
+            0
+        }
+        unsafe extern "system" fn fake_sendto(
+            _: usize,
+            _: *const u8,
+            len: i32,
+            _: i32,
+            _: *const u8,
+            _: i32,
+        ) -> i32 {
+            len
+        }
+        let _ = LOG.set(count);
+        REAL_ADDR[0].store(fake_connect as Connect as usize, Relaxed);
+        REAL_ADDR[1].store(fake_sendto as Sendto as usize, Relaxed);
+        let publisher = v4(BLOCKED_ADDRS[0].octets(), 17182);
+        let mapped = v6(BLOCKED_ADDRS[0].to_ipv6_mapped(), 17182);
+        let standin = v4([127, 0, 0, 1], 20050);
+        let n = |a: &[u8]| a.len() as i32;
+        // SAFETY: socket addresses of the given length; REAL_ADDR holds functions of the hooks' types
+        unsafe {
+            for _ in 0..3 {
+                assert_eq!(connect(1, publisher.as_ptr(), n(&publisher)), SOCKET_ERROR);
+                assert_eq!(
+                    windows_sys::Win32::Foundation::GetLastError(),
+                    WSAECONNREFUSED
+                );
+            }
+            assert_eq!(connect(1, mapped.as_ptr(), n(&mapped)), SOCKET_ERROR);
+            assert_eq!(connect(1, standin.as_ptr(), n(&standin)), 0);
+            assert_eq!(connect(1, std::ptr::null(), 0), 0);
+            let buf = [0u8; 8];
+            assert_eq!(
+                sendto(1, buf.as_ptr(), 8, 0, publisher.as_ptr(), n(&publisher)),
+                SOCKET_ERROR
+            );
+            assert_eq!(
+                windows_sys::Win32::Foundation::GetLastError(),
+                WSAEHOSTUNREACH
+            );
+            assert_eq!(
+                sendto(1, buf.as_ptr(), 8, 0, standin.as_ptr(), n(&standin)),
+                8
+            );
+            assert_eq!(sendto(1, buf.as_ptr(), 8, 0, std::ptr::null(), 0), 8);
+        }
+        assert_eq!(LOGGED.load(Relaxed), 1); // one line for the address, whatever the call
     }
 }
