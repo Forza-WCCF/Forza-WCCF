@@ -41,4 +41,6 @@
  "licence_caution_notes": ["*1", "Una volta scelti, questi dati non si", "possono cambiare fino a fine mandato.", "*2", "I dati registrati si usano nelle", "classifiche ufficiali e altrove."],
  "mng_dataview_ratings": ["Euforici", "Lieti", "Incerti", "Critici", "Furiosi", "Delusi", "Fuori!", "Voluto"],
  "mng_dataview_coachdata": ["Risultati aree", "Area", "Titoli", "Vinte", "Tifosi"],
- "mng_dataview_coachdata_asia": ["Risultati aree", "Area", "Titoli", "Vinte", "Tifosi"]}
+ "mng_dataview_coachdata_asia": ["Risultati aree", "Area", "Titoli", "Vinte", "Tifosi"],
+ "agm_matchreport": ["Voto squadra", "Pagella", "Pagella"],
+ "sys_wccfpoint_window": ["Punti WCCF", "Voto partita"]}

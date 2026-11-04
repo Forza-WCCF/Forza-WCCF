@@ -245,5 +245,14 @@
     {"at": 65397, "len": 4, "en": "Area"},
     {"at": 65511, "len": 6, "en": "Titles"},
     {"at": 65627, "len": 6, "en": "Wins"},
-    {"at": 65743, "len": 8, "en": "Fans"}]}
+    {"at": 65743, "len": 8, "en": "Fans"}]},
+  {"id": "agm_matchreport", "where": "locker room, match report: the header (two copies) and the team rating label (scene text, in place)", "sha256": "33334DC43D1F1555D3C4C56B984C4EE5D05CE9A8A6853AD6E90C2CEE388F1DBC", "files": ["data/sb_data/client_game/AGM_MatchReport/Scene_AGM_MatchReport.sbscene"],
+   "labels": [
+    {"at": 3679, "len": 14, "en": "Overall rating"},
+    {"at": 4390, "len": 8, "en": "Rating"},
+    {"at": 4730, "len": 8, "en": "Rating"}]},
+  {"id": "sys_wccfpoint_window", "where": "the WCCF points banner (locker room, continue screen): the two labels beside the numbers (scene text, in place)", "sha256": "AB40DADA2EA1EB6E6C92E58675C95B7517239F599571C3B17A3CFB22E9794077", "files": ["data/sb_data/client_system/SYS_Continue_info/Scene_SYS_Continue_info_window_WCCFPoint.sbscene"],
+   "labels": [
+    {"at": 7101, "len": 12, "en": "WCCF points"},
+    {"at": 7705, "len": 16, "en": "Match rating"}]}
  ]}
