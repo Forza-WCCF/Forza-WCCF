@@ -2201,29 +2201,29 @@ MAN_MATCH_report_team_enemy_0006	Sfida a un club rivale.
 MAN_MATCH_report_team_enemy_0007	Sfida a un avversario di pari livello.
 MAN_MATCH_report_team_enemy_0008	Sfida a una squadra di meta' classifica.
 MAN_MATCH_report_team_enemy_0009	Sfida a un avversario inferiore.
-MAN_MATCH_report_team_score_0000	Vittoria piena di gioia!
-MAN_MATCH_report_team_score_0001	Rimonta miracolosa e vittoria!
-MAN_MATCH_report_team_score_0002	Rimonta all'ultimo respiro!
-MAN_MATCH_report_team_score_0003	Vittoria in rimonta!
-MAN_MATCH_report_team_score_0004	Vittoria schiacciante!
-MAN_MATCH_report_team_score_0005	Porta inviolata!
-MAN_MATCH_report_team_score_0006	Vittoria difesa fino alla fine.
-MAN_MATCH_report_team_score_0007	Vittoria di misura.
-MAN_MATCH_report_team_score_0008	Vittoria.
-MAN_MATCH_report_team_score_0009	Vittoria dopo una dura battaglia.
-MAN_MATCH_report_team_score_0010	Pareggio agguantato a fatica.
-MAN_MATCH_report_team_score_0011	Non siamo riusciti a resistere.
-MAN_MATCH_report_team_score_0012	Sfida equilibrata.
-MAN_MATCH_report_team_score_0013	Sconfitta nonostante la lotta.
-MAN_MATCH_report_team_score_0014	Sconfitta amara.
-MAN_MATCH_report_team_score_0015	Sconfitta in rimonta, incredibile.
-MAN_MATCH_report_team_score_0016	Concentrazione venuta meno.
-MAN_MATCH_report_team_score_0017	Sconfitta in rimonta.
-MAN_MATCH_report_team_score_0018	Pesante sconfitta.
-MAN_MATCH_report_team_score_0019	Sconfitta netta.
-MAN_MATCH_report_team_score_0020	Buon inizio, ma finale amaro.
-MAN_MATCH_report_team_score_0021	Sconfitta di misura.
-MAN_MATCH_report_team_score_0022	Sconfitta.
+MAN_MATCH_report_team_score_0000	 Vittoria piena di gioia!
+MAN_MATCH_report_team_score_0001	 Rimonta miracolosa e vittoria!
+MAN_MATCH_report_team_score_0002	 Rimonta all'ultimo respiro!
+MAN_MATCH_report_team_score_0003	 Vittoria in rimonta!
+MAN_MATCH_report_team_score_0004	 Vittoria schiacciante!
+MAN_MATCH_report_team_score_0005	 Porta inviolata!
+MAN_MATCH_report_team_score_0006	 Vittoria difesa fino alla fine.
+MAN_MATCH_report_team_score_0007	 Vittoria di misura.
+MAN_MATCH_report_team_score_0008	 Vittoria.
+MAN_MATCH_report_team_score_0009	 Vittoria dopo una dura battaglia.
+MAN_MATCH_report_team_score_0010	 Pareggio agguantato a fatica.
+MAN_MATCH_report_team_score_0011	 Non siamo riusciti a resistere.
+MAN_MATCH_report_team_score_0012	 Sfida equilibrata.
+MAN_MATCH_report_team_score_0013	 Sconfitta nonostante la lotta.
+MAN_MATCH_report_team_score_0014	 Sconfitta amara.
+MAN_MATCH_report_team_score_0015	 Sconfitta in rimonta, incredibile.
+MAN_MATCH_report_team_score_0016	 Concentrazione venuta meno.
+MAN_MATCH_report_team_score_0017	 Sconfitta in rimonta.
+MAN_MATCH_report_team_score_0018	 Pesante sconfitta.
+MAN_MATCH_report_team_score_0019	 Sconfitta netta.
+MAN_MATCH_report_team_score_0020	 Buon inizio, ma finale amaro.
+MAN_MATCH_report_team_score_0021	 Sconfitta di misura.
+MAN_MATCH_report_team_score_0022	 Sconfitta.
 MAN_MATCH_report_team_perform_0000	Con un attacco di livello mondiale
 MAN_MATCH_report_team_perform_0001	Con un attacco strabordante
 MAN_MATCH_report_team_perform_0002	Con un attacco forte
@@ -2271,24 +2271,24 @@ MAN_MATCH_report_team_perform_0047	Con buoni recuperi palla
 MAN_MATCH_report_team_perform_0048	Con contrasti di livello mondiale
 MAN_MATCH_report_team_perform_0049	Con contrasti strabilianti
 MAN_MATCH_report_team_perform_0050	Con contrasti decisi
-MAN_MATCH_report_team_perform_0051	Dando l'anima
-MAN_MATCH_report_team_perform_0052	Pieni di grinta
-MAN_MATCH_report_team_perform_0053	Pieni di cuore
-MAN_MATCH_report_team_perform_0054	Mostrando quanto contasse questa gara
-MAN_MATCH_report_team_perform_0055	Mostrando la voglia di tutti
+MAN_MATCH_report_team_perform_0051	Dando l'anima,
+MAN_MATCH_report_team_perform_0052	Con una grinta da vendere
+MAN_MATCH_report_team_perform_0053	Con tanto cuore
+MAN_MATCH_report_team_perform_0054	Mostrando quanto contasse questa gara,
+MAN_MATCH_report_team_perform_0055	Mostrando la voglia di tutti,
 MAN_MATCH_report_team_perform_0056	Con una preparazione perfetta
 MAN_MATCH_report_team_perform_0057	Con grande concentrazione
 MAN_MATCH_report_team_perform_0058	Con parate super del portiere
 MAN_MATCH_report_team_perform_0059	Con un duello tattico di alto livello
 MAN_MATCH_report_team_perform_0060	Con la squadra in gran forma
-MAN_MATCH_report_team_value_0000	Ha incantato il mondo.
-MAN_MATCH_report_team_value_0001	Ha tenuto il mondo con il fiato sospeso.
-MAN_MATCH_report_team_value_0002	Ha incantato il pubblico.
-MAN_MATCH_report_team_value_0003	Ha tenuto il pubblico incollato.
-MAN_MATCH_report_team_value_0004	Ha fatto girare la testa agli avversari.
-MAN_MATCH_report_team_value_0005	Ha travolto gli avversari.
-MAN_MATCH_report_team_value_0006	Ha mostrato la sua forza.
-MAN_MATCH_report_team_value_0007	Ha regalato bei momenti.
+MAN_MATCH_report_team_value_0000	 ha incantato il mondo.
+MAN_MATCH_report_team_value_0001	 ha tenuto il mondo con il fiato sospeso.
+MAN_MATCH_report_team_value_0002	 ha incantato il pubblico.
+MAN_MATCH_report_team_value_0003	 ha tenuto il pubblico incollato.
+MAN_MATCH_report_team_value_0004	 ha fatto girare la testa agli avversari.
+MAN_MATCH_report_team_value_0005	 ha travolto gli avversari.
+MAN_MATCH_report_team_value_0006	 ha mostrato la sua forza.
+MAN_MATCH_report_team_value_0007	 ha regalato bei momenti.
 MAN_MATCH_report_team_advice_0000	La squadra e' stanca. Serve riposo.
 MAN_MATCH_report_team_advice_0001	La squadra e' stanca. Forse serve riposo.
 MAN_MATCH_report_team_advice_0002	Alcuni giocatori devono riposare.
@@ -2328,10 +2328,10 @@ MAN_MATCH_report_team_advice_0035	La potenza va migliorata ancora?
 MAN_MATCH_report_team_advice_0036	Migliorare la forza complessiva e' essenziale.
 MAN_MATCH_report_team_advice_0037	La forza complessiva va migliorata ancora?
 MAN_MATCH_report_team_advice_0038	Forse la fortuna non era dalla nostra?
-MAN_MATCH_report_player_perform_0000	Con una tripletta e
+MAN_MATCH_report_player_perform_0000	Con una tripletta
 MAN_MATCH_report_player_perform_0001	Con 2 gol
 MAN_MATCH_report_player_perform_0002	Con un gol splendido
-MAN_MATCH_report_player_perform_0003	Coinvolto in quasi tutti i gol
+MAN_MATCH_report_player_perform_0003	Coinvolto in quasi tutti i gol,
 MAN_MATCH_report_player_perform_0004	Con 2 assist
 MAN_MATCH_report_player_perform_0005	Con un assist splendido
 MAN_MATCH_report_player_perform_0006	Con un fiuto del tiro di livello mondiale
@@ -2376,36 +2376,36 @@ MAN_MATCH_report_player_perform_0047	Con coperture sicure
 MAN_MATCH_report_player_perform_0048	Con contrasti di livello mondiale
 MAN_MATCH_report_player_perform_0049	Con contrasti strabilianti
 MAN_MATCH_report_player_perform_0050	Con contrasti decisi
-MAN_MATCH_report_player_perform_0051	Dando l'anima
+MAN_MATCH_report_player_perform_0051	Dando l'anima,
 MAN_MATCH_report_player_perform_0052	Con grinta
 MAN_MATCH_report_player_perform_0053	Con cuore
 MAN_MATCH_report_player_perform_0056	Con movimenti scattanti
-MAN_MATCH_report_player_perform_0057	Chiudendo la porta e
-MAN_MATCH_report_player_perform_0058	Con una parata super dopo l'altra e
+MAN_MATCH_report_player_perform_0057	Chiudendo la porta,
+MAN_MATCH_report_player_perform_0058	Con una parata super dopo l'altra,
 MAN_MATCH_report_player_perform_0059	Con parate coraggiose
 MAN_MATCH_report_player_perform_0060	Con prese divine
 MAN_MATCH_report_player_perform_0061	Con prese sicurissime
 MAN_MATCH_report_player_perform_0062	Con prese sicure
 MAN_MATCH_report_player_perform_0063	Con grande concentrazione
-MAN_MATCH_report_player_perform_0064	Mostrando un bel gioco e
+MAN_MATCH_report_player_perform_0064	Mostrando un bel gioco,
 MAN_MATCH_report_player_perform_0065	Con ottimo giudizio
 MAN_MATCH_report_player_perform_0066	Con un gioco brillante
-MAN_MATCH_report_player_value_0000	Ha incantato il mondo.
-MAN_MATCH_report_player_value_0001	Ha tenuto il mondo con il fiato sospeso.
-MAN_MATCH_report_player_value_0002	Ha mostrato un altro livello.
-MAN_MATCH_report_player_value_0003	Ha entusiasmato chi guardava.
-MAN_MATCH_report_player_value_0004	Ha ripagato la fiducia della squadra.
-MAN_MATCH_report_player_value_0005	Grande contributo alla squadra.
-MAN_MATCH_report_player_value_0006	Si e' distinto dagli altri.
-MAN_MATCH_report_player_value_0007	Ha mostrato grande presenza.
-MAN_MATCH_report_player_value_0008	Ha portato risultati.
-MAN_MATCH_report_player_value_0009	Ha dato il suo apporto.
-MAN_MATCH_report_player_value_0010	Ha spronato i compagni.
-MAN_MATCH_report_player_value_0011	Ha guidato la squadra.
-MAN_MATCH_report_player_value_0012	Ha fatto la partita.
-MAN_MATCH_report_player_value_0013	Ha creato il ritmo.
-MAN_MATCH_report_player_value_0014	Ha fatto il suo dovere.
-MAN_MATCH_report_player_value_0015	Ha mostrato i suoi pregi.
+MAN_MATCH_report_player_value_0000	 ha incantato il mondo.
+MAN_MATCH_report_player_value_0001	 ha tenuto il mondo con il fiato sospeso.
+MAN_MATCH_report_player_value_0002	 ha mostrato un altro livello.
+MAN_MATCH_report_player_value_0003	 ha entusiasmato chi guardava.
+MAN_MATCH_report_player_value_0004	 ha ripagato la fiducia della squadra.
+MAN_MATCH_report_player_value_0005	 ha dato un grande contributo alla squadra.
+MAN_MATCH_report_player_value_0006	 si e' distinto dagli altri.
+MAN_MATCH_report_player_value_0007	 ha mostrato grande presenza.
+MAN_MATCH_report_player_value_0008	 ha portato risultati.
+MAN_MATCH_report_player_value_0009	 ha dato il suo apporto.
+MAN_MATCH_report_player_value_0010	 ha spronato i compagni.
+MAN_MATCH_report_player_value_0011	 ha guidato la squadra.
+MAN_MATCH_report_player_value_0012	 ha fatto la partita.
+MAN_MATCH_report_player_value_0013	 ha creato il ritmo.
+MAN_MATCH_report_player_value_0014	 ha fatto il suo dovere.
+MAN_MATCH_report_player_value_0015	 ha mostrato i suoi pregi.
 MAN_MATCH_report_player_advice_0000	E' stanco. Serve riposo.
 MAN_MATCH_report_player_advice_0001	E' stanco. Serve riposo.
 MAN_MATCH_report_player_advice_0002	Recuperare la condizione e' essenziale.
@@ -11009,12 +11009,12 @@ MAN_MANAGER_contents_0004	S%d
 MAN_MANAGER_contents_0005	P%d
 MAN_MATCH_report_player_perform_0054	-
 MAN_MATCH_report_player_perform_0055	-
-MAN_MATCH_report_player_value_0016	-
+MAN_MATCH_report_player_value_0016	 -
 MAN_MATCH_report_team_perform_0033	-
 MAN_MATCH_report_team_perform_0034	-
 MAN_MATCH_report_team_perform_0036	-
 MAN_MATCH_report_team_perform_0037	-
-MAN_MATCH_report_team_value_0008	-
+MAN_MATCH_report_team_value_0008	 -
 MAN_PRIZE_value_0001	$%d00
 MAN_PRIZE_value_0002	<empty>
 MAN_TEAM_contents_0000	$%dM+$%d00

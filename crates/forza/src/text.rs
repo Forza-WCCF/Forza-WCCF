@@ -2286,6 +2286,64 @@ mod tests {
         );
     }
 
+    /// The locker-room match report joins two table lines with no separator: opponent + score, team play + its
+    /// result, player play + his. A lost space ran them together on screen ("inferiore.Vittoria", "mondialeHa"),
+    /// so the second line of each pair carries the space at its start and the first never ends one.
+    #[test]
+    fn the_1718_match_report_lines_join_with_one_space() {
+        let mut c = Ctx::new_bare(Edition::E1718, Path::new("g"), Path::new("b"));
+        c.sheets = manifest_dir().join("../../editions/2017-18");
+        let glue = Regex::new(r"[a-z][A-Z]|[.!?,][A-Z]").unwrap();
+        let pairs = [
+            (
+                "MAN_MATCH_report_team_enemy_",
+                "MAN_MATCH_report_team_score_",
+            ),
+            (
+                "MAN_MATCH_report_team_perform_",
+                "MAN_MATCH_report_team_value_",
+            ),
+            (
+                "MAN_MATCH_report_player_perform_",
+                "MAN_MATCH_report_player_value_",
+            ),
+        ];
+        let (mut bad, mut n) = (vec![], 0);
+        for (folder, column) in [("english", "english"), ("italian", "italiano")] {
+            let table: HashMap<String, String> = c
+                .sheet("screen_text.tsv", folder)
+                .unwrap()
+                .iter()
+                .map(|r| (cell(r, "key").into(), cell(r, column).into()))
+                .collect();
+            let with = |pre: &str| {
+                let mut v: Vec<(&String, &String)> =
+                    table.iter().filter(|(k, _)| k.starts_with(pre)).collect();
+                v.sort();
+                v
+            };
+            for (first, second) in pairs {
+                for (k1, a) in with(first) {
+                    for (k2, b) in with(second) {
+                        n += 1;
+                        let joined = format!("{a}{b}");
+                        if a.ends_with(' ') || !b.starts_with(' ') || b.starts_with("  ") {
+                            bad.push(format!("{folder} {k1} + {k2}: the join is {joined:?}"));
+                        } else if glue.is_match(&joined) {
+                            bad.push(format!("{folder} {k1} + {k2}: {joined:?}"));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            n > 3000 && bad.is_empty(),
+            "{n} pairs, {} problem(s): {:?}",
+            bad.len(),
+            &bad[..bad.len().min(5)]
+        );
+    }
+
     /// Texts the 2017-18 client prints with sprintf_s into a fixed buffer: (key, buffer bytes with its NUL, widest
     /// number for each %d). A text that does not fit ends the game with 0xC0000417 (Italian "mese %d giorno %d" in the
     /// secretary's 10-byte birthday, sub_500910, 2026-10-22). The friend-mission notice goes into 128 bytes at 0x6D0EEE

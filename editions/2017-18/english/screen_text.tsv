@@ -2483,12 +2483,12 @@ MAN_MAP_header_0005	Medical Room
 MAN_MAP_header_0007	Corridor
 MAN_MATCH_report_player_perform_0054	-
 MAN_MATCH_report_player_perform_0055	-
-MAN_MATCH_report_player_value_0016	-
+MAN_MATCH_report_player_value_0016	 -
 MAN_MATCH_report_team_perform_0033	-
 MAN_MATCH_report_team_perform_0034	-
 MAN_MATCH_report_team_perform_0036	-
 MAN_MATCH_report_team_perform_0037	-
-MAN_MATCH_report_team_value_0008	-
+MAN_MATCH_report_team_value_0008	 -
 MAN_MENU_action_0000	Team Entry
 MAN_MENU_action_0006	Partnership Data
 MAN_MENU_button_0001	Back
@@ -6121,94 +6121,94 @@ MAN_MATCH_report_team_enemy_0006	Faced a rival club.
 MAN_MATCH_report_team_enemy_0007	Faced an opponent of equal level.
 MAN_MATCH_report_team_enemy_0008	Faced a mid-table opponent.
 MAN_MATCH_report_team_enemy_0009	Faced a weaker opponent.
-MAN_MATCH_report_team_score_0000	A joyful victory!
-MAN_MATCH_report_team_score_0001	A miraculous comeback win!
-MAN_MATCH_report_team_score_0002	A last-gasp comeback!
-MAN_MATCH_report_team_score_0003	A comeback win!
-MAN_MATCH_report_team_score_0004	A crushing win!
-MAN_MATCH_report_team_score_0005	A clean sheet!
-MAN_MATCH_report_team_score_0006	Held on for the win.
-MAN_MATCH_report_team_score_0007	A narrow win.
-MAN_MATCH_report_team_score_0008	A win.
-MAN_MATCH_report_team_score_0009	A win after a fierce battle.
-MAN_MATCH_report_team_score_0010	Managed to level the score.
-MAN_MATCH_report_team_score_0011	Could not hold on.
-MAN_MATCH_report_team_score_0012	An even contest.
-MAN_MATCH_report_team_score_0013	Fought hard but lost.
-MAN_MATCH_report_team_score_0014	A bitter defeat.
-MAN_MATCH_report_team_score_0015	A shock comeback loss.
-MAN_MATCH_report_team_score_0016	Lost concentration.
-MAN_MATCH_report_team_score_0017	A comeback loss.
-MAN_MATCH_report_team_score_0018	A heavy defeat.
-MAN_MATCH_report_team_score_0019	A total defeat.
-MAN_MATCH_report_team_score_0020	A good start, but tears in the end.
-MAN_MATCH_report_team_score_0021	A narrow defeat.
-MAN_MATCH_report_team_score_0022	A defeat.
-MAN_MATCH_report_team_perform_0000	With world-class attack
-MAN_MATCH_report_team_perform_0001	With overwhelming attack
-MAN_MATCH_report_team_perform_0002	With strong attack
-MAN_MATCH_report_team_perform_0003	With world-class defence
-MAN_MATCH_report_team_perform_0004	With overwhelming defence
-MAN_MATCH_report_team_perform_0005	With strong defence
-MAN_MATCH_report_team_perform_0006	With world-class passing
-MAN_MATCH_report_team_perform_0007	With overwhelming passing
-MAN_MATCH_report_team_perform_0008	With skilful passing
-MAN_MATCH_report_team_perform_0009	With world-class individual skill
-MAN_MATCH_report_team_perform_0010	With overwhelming individual skill
-MAN_MATCH_report_team_perform_0011	With high individual skill
-MAN_MATCH_report_team_perform_0012	With world-class physical strength
-MAN_MATCH_report_team_perform_0013	With overwhelming physical strength
-MAN_MATCH_report_team_perform_0014	With strong physical strength
-MAN_MATCH_report_team_perform_0015	Using world-class speed
-MAN_MATCH_report_team_perform_0016	Using overwhelming speed
-MAN_MATCH_report_team_perform_0017	Using speed
-MAN_MATCH_report_team_perform_0018	With bottomless stamina
-MAN_MATCH_report_team_perform_0019	With overwhelming work rate
-MAN_MATCH_report_team_perform_0020	With plenty of running
-MAN_MATCH_report_team_perform_0021	With world-class wing play
-MAN_MATCH_report_team_perform_0022	With threatening wing play
-MAN_MATCH_report_team_perform_0023	With effective wing play
-MAN_MATCH_report_team_perform_0024	With world-class left-wing attacks
-MAN_MATCH_report_team_perform_0025	With threatening left-wing attacks
-MAN_MATCH_report_team_perform_0026	With effective left-wing attacks
-MAN_MATCH_report_team_perform_0027	With world-class right-wing attacks
-MAN_MATCH_report_team_perform_0028	With threatening right-wing attacks
-MAN_MATCH_report_team_perform_0029	With effective right-wing attacks
-MAN_MATCH_report_team_perform_0030	With world-class central breakthroughs
-MAN_MATCH_report_team_perform_0031	With threatening central breakthroughs
-MAN_MATCH_report_team_perform_0032	With effective central breakthroughs
-MAN_MATCH_report_team_perform_0035	With effective counterattacks
-MAN_MATCH_report_team_perform_0038	With effective pressing
-MAN_MATCH_report_team_perform_0039	With world-class control
-MAN_MATCH_report_team_perform_0040	With overwhelming control
-MAN_MATCH_report_team_perform_0041	With strong control
-MAN_MATCH_report_team_perform_0042	With world-class organisation
-MAN_MATCH_report_team_perform_0043	With overwhelming organisation
-MAN_MATCH_report_team_perform_0044	With strong organisation
-MAN_MATCH_report_team_perform_0045	With world-class ball winning
-MAN_MATCH_report_team_perform_0046	With overwhelming ball winning
-MAN_MATCH_report_team_perform_0047	With strong ball winning
-MAN_MATCH_report_team_perform_0048	With world-class challenges
-MAN_MATCH_report_team_perform_0049	With overwhelming challenges
-MAN_MATCH_report_team_perform_0050	With strong challenges
-MAN_MATCH_report_team_perform_0051	Giving everything
-MAN_MATCH_report_team_perform_0052	Full of fighting spirit
-MAN_MATCH_report_team_perform_0053	Full of guts
-MAN_MATCH_report_team_perform_0054	Showing how much this match meant
-MAN_MATCH_report_team_perform_0055	Showing everyone's determination
-MAN_MATCH_report_team_perform_0056	With perfect preparation
-MAN_MATCH_report_team_perform_0057	With strong concentration
-MAN_MATCH_report_team_perform_0058	With superb goalkeeper saves
-MAN_MATCH_report_team_perform_0059	With a high-level battle of wits
-MAN_MATCH_report_team_perform_0060	With the team in top form
-MAN_MATCH_report_team_value_0000	Captivated the world.
-MAN_MATCH_report_team_value_0001	Held the world spellbound.
-MAN_MATCH_report_team_value_0002	Captivated the crowd.
-MAN_MATCH_report_team_value_0003	Held the crowd spellbound.
-MAN_MATCH_report_team_value_0004	Ran rings around the opponent.
-MAN_MATCH_report_team_value_0005	Overwhelmed the opponent.
-MAN_MATCH_report_team_value_0006	Showed its strength.
-MAN_MATCH_report_team_value_0007	Made some highlights.
+MAN_MATCH_report_team_score_0000	 A joyful victory!
+MAN_MATCH_report_team_score_0001	 A miraculous comeback win!
+MAN_MATCH_report_team_score_0002	 A last-gasp comeback!
+MAN_MATCH_report_team_score_0003	 A comeback win!
+MAN_MATCH_report_team_score_0004	 A crushing win!
+MAN_MATCH_report_team_score_0005	 A clean sheet!
+MAN_MATCH_report_team_score_0006	 Held on for the win.
+MAN_MATCH_report_team_score_0007	 A narrow win.
+MAN_MATCH_report_team_score_0008	 A win.
+MAN_MATCH_report_team_score_0009	 A win after a fierce battle.
+MAN_MATCH_report_team_score_0010	 Managed to level the score.
+MAN_MATCH_report_team_score_0011	 Could not hold on.
+MAN_MATCH_report_team_score_0012	 An even contest.
+MAN_MATCH_report_team_score_0013	 Fought hard but lost.
+MAN_MATCH_report_team_score_0014	 A bitter defeat.
+MAN_MATCH_report_team_score_0015	 A shock comeback loss.
+MAN_MATCH_report_team_score_0016	 Lost concentration.
+MAN_MATCH_report_team_score_0017	 A comeback loss.
+MAN_MATCH_report_team_score_0018	 A heavy defeat.
+MAN_MATCH_report_team_score_0019	 A total defeat.
+MAN_MATCH_report_team_score_0020	 A good start, but tears in the end.
+MAN_MATCH_report_team_score_0021	 A narrow defeat.
+MAN_MATCH_report_team_score_0022	 A defeat.
+MAN_MATCH_report_team_perform_0000	With world-class attack,
+MAN_MATCH_report_team_perform_0001	With overwhelming attack,
+MAN_MATCH_report_team_perform_0002	With strong attack,
+MAN_MATCH_report_team_perform_0003	With world-class defence,
+MAN_MATCH_report_team_perform_0004	With overwhelming defence,
+MAN_MATCH_report_team_perform_0005	With strong defence,
+MAN_MATCH_report_team_perform_0006	With world-class passing,
+MAN_MATCH_report_team_perform_0007	With overwhelming passing,
+MAN_MATCH_report_team_perform_0008	With skilful passing,
+MAN_MATCH_report_team_perform_0009	With world-class individual skill,
+MAN_MATCH_report_team_perform_0010	With overwhelming individual skill,
+MAN_MATCH_report_team_perform_0011	With high individual skill,
+MAN_MATCH_report_team_perform_0012	With world-class physical strength,
+MAN_MATCH_report_team_perform_0013	With overwhelming physical strength,
+MAN_MATCH_report_team_perform_0014	With strong physical strength,
+MAN_MATCH_report_team_perform_0015	Using world-class speed,
+MAN_MATCH_report_team_perform_0016	Using overwhelming speed,
+MAN_MATCH_report_team_perform_0017	Using speed,
+MAN_MATCH_report_team_perform_0018	With bottomless stamina,
+MAN_MATCH_report_team_perform_0019	With overwhelming work rate,
+MAN_MATCH_report_team_perform_0020	With plenty of running,
+MAN_MATCH_report_team_perform_0021	With world-class wing play,
+MAN_MATCH_report_team_perform_0022	With threatening wing play,
+MAN_MATCH_report_team_perform_0023	With effective wing play,
+MAN_MATCH_report_team_perform_0024	With world-class left-wing attacks,
+MAN_MATCH_report_team_perform_0025	With threatening left-wing attacks,
+MAN_MATCH_report_team_perform_0026	With effective left-wing attacks,
+MAN_MATCH_report_team_perform_0027	With world-class right-wing attacks,
+MAN_MATCH_report_team_perform_0028	With threatening right-wing attacks,
+MAN_MATCH_report_team_perform_0029	With effective right-wing attacks,
+MAN_MATCH_report_team_perform_0030	With world-class central breakthroughs,
+MAN_MATCH_report_team_perform_0031	With threatening central breakthroughs,
+MAN_MATCH_report_team_perform_0032	With effective central breakthroughs,
+MAN_MATCH_report_team_perform_0035	With effective counterattacks,
+MAN_MATCH_report_team_perform_0038	With effective pressing,
+MAN_MATCH_report_team_perform_0039	With world-class control,
+MAN_MATCH_report_team_perform_0040	With overwhelming control,
+MAN_MATCH_report_team_perform_0041	With strong control,
+MAN_MATCH_report_team_perform_0042	With world-class organisation,
+MAN_MATCH_report_team_perform_0043	With overwhelming organisation,
+MAN_MATCH_report_team_perform_0044	With strong organisation,
+MAN_MATCH_report_team_perform_0045	With world-class ball winning,
+MAN_MATCH_report_team_perform_0046	With overwhelming ball winning,
+MAN_MATCH_report_team_perform_0047	With strong ball winning,
+MAN_MATCH_report_team_perform_0048	With world-class challenges,
+MAN_MATCH_report_team_perform_0049	With overwhelming challenges,
+MAN_MATCH_report_team_perform_0050	With strong challenges,
+MAN_MATCH_report_team_perform_0051	Giving everything,
+MAN_MATCH_report_team_perform_0052	Full of fighting spirit,
+MAN_MATCH_report_team_perform_0053	Full of guts,
+MAN_MATCH_report_team_perform_0054	Showing how much this match meant,
+MAN_MATCH_report_team_perform_0055	Showing everyone's determination,
+MAN_MATCH_report_team_perform_0056	With perfect preparation,
+MAN_MATCH_report_team_perform_0057	With strong concentration,
+MAN_MATCH_report_team_perform_0058	With superb goalkeeper saves,
+MAN_MATCH_report_team_perform_0059	With a high-level battle of wits,
+MAN_MATCH_report_team_perform_0060	With the team in top form,
+MAN_MATCH_report_team_value_0000	 they captivated the world.
+MAN_MATCH_report_team_value_0001	 they held the world spellbound.
+MAN_MATCH_report_team_value_0002	 they captivated the crowd.
+MAN_MATCH_report_team_value_0003	 they held the crowd spellbound.
+MAN_MATCH_report_team_value_0004	 they ran rings around the opponent.
+MAN_MATCH_report_team_value_0005	 they overwhelmed the opponent.
+MAN_MATCH_report_team_value_0006	 they showed their strength.
+MAN_MATCH_report_team_value_0007	 they made some highlights.
 MAN_MATCH_report_team_advice_0000	The whole team looks tired. Rest is a must.
 MAN_MATCH_report_team_advice_0001	The whole team looks tired. Rest may be needed.
 MAN_MATCH_report_team_advice_0002	Some players need rest.
@@ -6248,84 +6248,84 @@ MAN_MATCH_report_team_advice_0035	Does power need further work?
 MAN_MATCH_report_team_advice_0036	Improving overall team strength is a must.
 MAN_MATCH_report_team_advice_0037	Does overall team strength need further work?
 MAN_MATCH_report_team_advice_0038	Was luck not on our side?
-MAN_MATCH_report_player_perform_0000	Scored a hat-trick and
-MAN_MATCH_report_player_perform_0001	With 2 goals
-MAN_MATCH_report_player_perform_0002	With a superb goal
-MAN_MATCH_report_player_perform_0003	Involved in almost every goal
-MAN_MATCH_report_player_perform_0004	With 2 assists
-MAN_MATCH_report_player_perform_0005	With a superb assist
-MAN_MATCH_report_player_perform_0006	With world-class shooting sense
-MAN_MATCH_report_player_perform_0007	With plenty of shots
-MAN_MATCH_report_player_perform_0008	With many shots
-MAN_MATCH_report_player_perform_0009	With out-of-this-world attacking
-MAN_MATCH_report_player_perform_0010	With overwhelming attacking
-MAN_MATCH_report_player_perform_0012	With out-of-this-world defending
-MAN_MATCH_report_player_perform_0013	With overwhelming defending
-MAN_MATCH_report_player_perform_0015	With pinpoint short passes
-MAN_MATCH_report_player_perform_0016	With highly accurate short passes
-MAN_MATCH_report_player_perform_0017	With accurate short passes
-MAN_MATCH_report_player_perform_0018	With pinpoint long passes
-MAN_MATCH_report_player_perform_0019	With highly accurate long passes
-MAN_MATCH_report_player_perform_0020	With accurate long passes
-MAN_MATCH_report_player_perform_0021	Using world-class speed
-MAN_MATCH_report_player_perform_0022	Using overwhelming speed
-MAN_MATCH_report_player_perform_0024	With world-class physical strength
-MAN_MATCH_report_player_perform_0025	With overwhelming physical strength
-MAN_MATCH_report_player_perform_0026	With strong physical strength
-MAN_MATCH_report_player_perform_0027	With world-class left-wing attacks
-MAN_MATCH_report_player_perform_0028	With threatening left-wing attacks
-MAN_MATCH_report_player_perform_0029	With effective left-wing attacks
-MAN_MATCH_report_player_perform_0030	With world-class right-wing attacks
-MAN_MATCH_report_player_perform_0031	With threatening right-wing attacks
-MAN_MATCH_report_player_perform_0032	With effective right-wing attacks
-MAN_MATCH_report_player_perform_0033	With world-class central breakthroughs
-MAN_MATCH_report_player_perform_0034	With threatening central breakthroughs
-MAN_MATCH_report_player_perform_0035	With effective central breakthroughs
-MAN_MATCH_report_player_perform_0036	With dribbling no one could stop
-MAN_MATCH_report_player_perform_0037	With brilliant dribbling
-MAN_MATCH_report_player_perform_0038	With high individual skill
-MAN_MATCH_report_player_perform_0039	With world-class crosses
-MAN_MATCH_report_player_perform_0040	With threatening crosses
-MAN_MATCH_report_player_perform_0041	With effective crosses
-MAN_MATCH_report_player_perform_0042	With out-of-this-world ball winning
-MAN_MATCH_report_player_perform_0043	With overwhelming ball winning
-MAN_MATCH_report_player_perform_0044	With strong ball winning
-MAN_MATCH_report_player_perform_0045	With world-class covering
-MAN_MATCH_report_player_perform_0046	With formidable covering
-MAN_MATCH_report_player_perform_0047	With reliable covering
-MAN_MATCH_report_player_perform_0048	With world-class challenges
-MAN_MATCH_report_player_perform_0049	With overwhelming challenges
-MAN_MATCH_report_player_perform_0050	With strong challenges
-MAN_MATCH_report_player_perform_0051	Giving everything
-MAN_MATCH_report_player_perform_0052	With fighting spirit
-MAN_MATCH_report_player_perform_0053	With guts
-MAN_MATCH_report_player_perform_0056	With sharp movement
-MAN_MATCH_report_player_perform_0057	Locking the goal and
-MAN_MATCH_report_player_perform_0058	Making save after super save and
-MAN_MATCH_report_player_perform_0059	With bold saves
-MAN_MATCH_report_player_perform_0060	With heavenly catching
-MAN_MATCH_report_player_perform_0061	With glue-like catching
-MAN_MATCH_report_player_perform_0062	With reliable catching
-MAN_MATCH_report_player_perform_0063	With strong concentration
-MAN_MATCH_report_player_perform_0064	Showing fine play and
-MAN_MATCH_report_player_perform_0065	With excellent judgement
-MAN_MATCH_report_player_perform_0066	With sharp play
-MAN_MATCH_report_player_value_0000	Captivated the world.
-MAN_MATCH_report_player_value_0001	Held the world spellbound.
-MAN_MATCH_report_player_value_0002	Showed a different level.
-MAN_MATCH_report_player_value_0003	Thrilled all who watched.
-MAN_MATCH_report_player_value_0004	Lived up to the team's expectations.
-MAN_MATCH_report_player_value_0005	A big contribution to the team.
-MAN_MATCH_report_player_value_0006	Stood out from the rest.
-MAN_MATCH_report_player_value_0007	Showed real presence.
-MAN_MATCH_report_player_value_0008	Delivered results.
-MAN_MATCH_report_player_value_0009	Produced the goods.
-MAN_MATCH_report_player_value_0010	Inspired teammates.
-MAN_MATCH_report_player_value_0011	Led the team.
-MAN_MATCH_report_player_value_0012	Shaped the match.
-MAN_MATCH_report_player_value_0013	Created the flow.
-MAN_MATCH_report_player_value_0014	Did his job.
-MAN_MATCH_report_player_value_0015	Showed his strengths.
+MAN_MATCH_report_player_perform_0000	With a hat-trick,
+MAN_MATCH_report_player_perform_0001	With 2 goals,
+MAN_MATCH_report_player_perform_0002	With a superb goal,
+MAN_MATCH_report_player_perform_0003	Involved in almost every goal,
+MAN_MATCH_report_player_perform_0004	With 2 assists,
+MAN_MATCH_report_player_perform_0005	With a superb assist,
+MAN_MATCH_report_player_perform_0006	With world-class shooting sense,
+MAN_MATCH_report_player_perform_0007	With plenty of shots,
+MAN_MATCH_report_player_perform_0008	With many shots,
+MAN_MATCH_report_player_perform_0009	With out-of-this-world attacking,
+MAN_MATCH_report_player_perform_0010	With overwhelming attacking,
+MAN_MATCH_report_player_perform_0012	With out-of-this-world defending,
+MAN_MATCH_report_player_perform_0013	With overwhelming defending,
+MAN_MATCH_report_player_perform_0015	With pinpoint short passes,
+MAN_MATCH_report_player_perform_0016	With highly accurate short passes,
+MAN_MATCH_report_player_perform_0017	With accurate short passes,
+MAN_MATCH_report_player_perform_0018	With pinpoint long passes,
+MAN_MATCH_report_player_perform_0019	With highly accurate long passes,
+MAN_MATCH_report_player_perform_0020	With accurate long passes,
+MAN_MATCH_report_player_perform_0021	Using world-class speed,
+MAN_MATCH_report_player_perform_0022	Using overwhelming speed,
+MAN_MATCH_report_player_perform_0024	With world-class physical strength,
+MAN_MATCH_report_player_perform_0025	With overwhelming physical strength,
+MAN_MATCH_report_player_perform_0026	With strong physical strength,
+MAN_MATCH_report_player_perform_0027	With world-class left-wing attacks,
+MAN_MATCH_report_player_perform_0028	With threatening left-wing attacks,
+MAN_MATCH_report_player_perform_0029	With effective left-wing attacks,
+MAN_MATCH_report_player_perform_0030	With world-class right-wing attacks,
+MAN_MATCH_report_player_perform_0031	With threatening right-wing attacks,
+MAN_MATCH_report_player_perform_0032	With effective right-wing attacks,
+MAN_MATCH_report_player_perform_0033	With world-class central breakthroughs,
+MAN_MATCH_report_player_perform_0034	With threatening central breakthroughs,
+MAN_MATCH_report_player_perform_0035	With effective central breakthroughs,
+MAN_MATCH_report_player_perform_0036	With dribbling no one could stop,
+MAN_MATCH_report_player_perform_0037	With brilliant dribbling,
+MAN_MATCH_report_player_perform_0038	With high individual skill,
+MAN_MATCH_report_player_perform_0039	With world-class crosses,
+MAN_MATCH_report_player_perform_0040	With threatening crosses,
+MAN_MATCH_report_player_perform_0041	With effective crosses,
+MAN_MATCH_report_player_perform_0042	With out-of-this-world ball winning,
+MAN_MATCH_report_player_perform_0043	With overwhelming ball winning,
+MAN_MATCH_report_player_perform_0044	With strong ball winning,
+MAN_MATCH_report_player_perform_0045	With world-class covering,
+MAN_MATCH_report_player_perform_0046	With formidable covering,
+MAN_MATCH_report_player_perform_0047	With reliable covering,
+MAN_MATCH_report_player_perform_0048	With world-class challenges,
+MAN_MATCH_report_player_perform_0049	With overwhelming challenges,
+MAN_MATCH_report_player_perform_0050	With strong challenges,
+MAN_MATCH_report_player_perform_0051	Giving everything,
+MAN_MATCH_report_player_perform_0052	With fighting spirit,
+MAN_MATCH_report_player_perform_0053	With guts,
+MAN_MATCH_report_player_perform_0056	With sharp movement,
+MAN_MATCH_report_player_perform_0057	Locking up the goal,
+MAN_MATCH_report_player_perform_0058	Making save after superb save,
+MAN_MATCH_report_player_perform_0059	With bold saves,
+MAN_MATCH_report_player_perform_0060	With heavenly catching,
+MAN_MATCH_report_player_perform_0061	With glue-like catching,
+MAN_MATCH_report_player_perform_0062	With reliable catching,
+MAN_MATCH_report_player_perform_0063	With strong concentration,
+MAN_MATCH_report_player_perform_0064	Showing fine play,
+MAN_MATCH_report_player_perform_0065	With excellent judgement,
+MAN_MATCH_report_player_perform_0066	With sharp play,
+MAN_MATCH_report_player_value_0000	 he captivated the world.
+MAN_MATCH_report_player_value_0001	 he held the world spellbound.
+MAN_MATCH_report_player_value_0002	 he showed a different level.
+MAN_MATCH_report_player_value_0003	 he thrilled all who watched.
+MAN_MATCH_report_player_value_0004	 he lived up to the team's expectations.
+MAN_MATCH_report_player_value_0005	 he made a big contribution to the team.
+MAN_MATCH_report_player_value_0006	 he stood out from the rest.
+MAN_MATCH_report_player_value_0007	 he had real presence.
+MAN_MATCH_report_player_value_0008	 he delivered results.
+MAN_MATCH_report_player_value_0009	 he produced the goods.
+MAN_MATCH_report_player_value_0010	 he inspired his teammates.
+MAN_MATCH_report_player_value_0011	 he led the team.
+MAN_MATCH_report_player_value_0012	 he shaped the match.
+MAN_MATCH_report_player_value_0013	 he created the flow.
+MAN_MATCH_report_player_value_0014	 he did his job.
+MAN_MATCH_report_player_value_0015	 he showed his strengths.
 MAN_MATCH_report_player_advice_0000	Looks tired. Rest is a must.
 MAN_MATCH_report_player_advice_0001	Looks tired. Rest is needed.
 MAN_MATCH_report_player_advice_0002	Recovering condition is a must.
