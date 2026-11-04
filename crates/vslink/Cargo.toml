@@ -12,6 +12,8 @@ forza = { workspace = true, default-features = false }
 bytes.workspace = true
 getrandom.workspace = true
 iroh.workspace = true
+# the arcade tunnel's stream frames (src/pack.rs): pure Rust, block format only, errors instead of panics on bad input
+lz4_flex = { version = "0.12.2", default-features = false, features = ["std", "safe-encode", "safe-decode", "checked-decode"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "time", "sync", "macros", "io-util"] }
 
