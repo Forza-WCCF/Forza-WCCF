@@ -41,6 +41,7 @@ mod share;
 
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, TextureId, ViewportId, pos2, vec2};
 use forza::cards::{self, Placed, TableFile};
+use forza::online::lobby::ServerNotice;
 use forza_ui::board::Card;
 use forza_ui::panel::{self, PanelState};
 use forza_ui::theme;
@@ -1353,7 +1354,10 @@ struct Render {
     /// The server's notice (data\notice.json): when it was last looked at, its time then, and the notice not shown yet.
     notice_at: Option<Instant>,
     notice_stamp: Option<std::time::SystemTime>,
-    notice: Option<forza::online::lobby::ServerNotice>,
+    notice: Option<ServerNotice>,
+    /// The notice on the message line, waiting for a frame to paint it: its id and its text as shown. The id goes to
+    /// data\notice_seen.txt only once the line has drawn it.
+    notice_pending: Option<(String, String)>,
     painter: painter::Painter,
     start: Instant,
     sc: Option<(IDirect3DSwapChain9, u32, u32, HWND)>,
@@ -1442,6 +1446,7 @@ impl Render {
             notice_at: None,
             notice_stamp: None,
             notice: None,
+            notice_pending: None,
             deal_at: Instant::now(),
             deal_last: None,
             painter: painter::Painter::default(),
@@ -2395,12 +2400,28 @@ impl Render {
 
     /// 2017-18: the server's notice, as the Launcher wrote it (data\notice.json, looked at every 5 s), shown once per id
     /// (data\notice_seen.txt keeps the id shown last, across runs) on the message line in the panel's language, at a
-    /// calm moment: no match on this seat and no other message on the line.
+    /// calm moment: no match on this seat and no other message on the line. The id is kept only after the line has
+    /// shown the text (a notice the panel could not show is offered again on the next start).
     fn notice_in(&mut self) {
         use forza_ui::widgets::Tone;
         let Some(f) = FILES.get().filter(|f| f.edition == theme::Edition::E1718) else {
             return;
         };
+        let seen = f.data.join("notice_seen.txt");
+        // the notice on the line was painted (a frame ran with it there): the player could read it, so the id is
+        // kept; a text the panel never got to draw stays pending and is not marked seen
+        let painted = self.notice_pending.as_ref().is_some_and(|(_, text)| {
+            self.st
+                .message
+                .as_ref()
+                .is_some_and(|m| m.started() && &m.text == text)
+        });
+        if painted
+            && let Some((id, _)) = self.notice_pending.take()
+            && let Err(e) = std::fs::write(&seen, id)
+        {
+            log(&format!("notice: {} not kept ({e})", seen.display()));
+        }
         if self
             .notice_at
             .is_some_and(|t| t.elapsed() < Duration::from_secs(5))
@@ -2410,16 +2431,15 @@ impl Render {
         self.notice_at = Some(Instant::now());
         let path = f.data.join("notice.json");
         let st = stamp(&path);
-        let seen = f.data.join("notice_seen.txt");
         if st != self.notice_stamp {
-            let read = std::fs::read(&path).ok().and_then(|b| {
-                serde_json::from_slice::<forza::online::lobby::ServerNotice>(&b).ok()
-            });
+            let read = std::fs::read(&path)
+                .ok()
+                .and_then(|b| serde_json::from_slice::<ServerNotice>(&b).ok());
             // a file there but not read (held by a scanner, say): looked at again on the next tick
             if st.is_none() || read.is_some() {
                 self.notice_stamp = st;
                 self.notice = read
-                    .and_then(forza::online::lobby::ServerNotice::clean)
+                    .and_then(ServerNotice::clean)
                     .filter(|n| n.unseen(std::fs::read_to_string(&seen).ok().as_deref()));
             }
         }
@@ -2428,13 +2448,9 @@ impl Render {
         }
         let Some(n) = self.notice.take() else { return };
         log(&format!("notice: {} shown", n.id));
-        self.st.message = Some(panel::Note::long(
-            Tone::Notice,
-            n.text(self.st.lang.code()).to_owned(),
-        ));
-        if let Err(e) = std::fs::write(&seen, &n.id) {
-            log(&format!("notice: {} not kept ({e})", seen.display()));
-        }
+        let text = n.text(self.st.lang.code()).to_owned();
+        self.st.message = Some(panel::Note::long(Tone::Notice, text.clone()));
+        self.notice_pending = Some((n.id, text));
     }
 
     /// CLUB CARD: data\club_view.txt read on opening and again each second while open when it changed (the run's helper
@@ -3485,6 +3501,7 @@ fn take_off_lines(
 #[cfg(test)]
 mod tests {
     use super::{cards, take_off_lines};
+
     #[test]
     fn take_off_lines_name_the_cards() {
         let at = |no| cards::Placed {

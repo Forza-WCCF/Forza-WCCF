@@ -495,6 +495,11 @@ impl Note {
             ..Note::new(tone, text)
         }
     }
+
+    /// Painted at least once: the frame that showed it has run, so the text did reach the screen.
+    pub fn started(&self) -> bool {
+        self.shown.is_some()
+    }
 }
 
 /// The link to the game server (this process's TCP link to its control port).
