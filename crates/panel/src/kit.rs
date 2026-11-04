@@ -74,11 +74,32 @@ impl Files {
         }
     }
 
-    pub fn lang(&self) -> Lang {
-        let saved = std::fs::read(self.data.join("settings.json"))
+    /// data\settings.json, the Launcher's file (`Null` when missing or unreadable).
+    pub fn settings(&self) -> serde_json::Value {
+        std::fs::read(self.data.join("settings.json"))
             .ok()
-            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-            .and_then(|v| v.get("language")?.as_str().map(str::to_owned));
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default()
+    }
+
+    /// settings.json's "projector" (its window shown) set, every other key kept, and the old switch's CPU
+    /// championship pinned first (missing, it would follow the window). A missing, locked or damaged
+    /// file is never written over: it holds the game folder.
+    pub fn save_projector(&self, on: bool) -> std::io::Result<()> {
+        let path = self.data.join("settings.json");
+        let mut v: serde_json::Value = serde_json::from_slice(&std::fs::read(&path)?)?;
+        let championship = forza::kit::cpu_championship_on(&v);
+        let o = v
+            .as_object_mut()
+            .ok_or_else(|| std::io::Error::other("settings.json is not an object"))?;
+        o.entry(forza::kit::CPU_CHAMPIONSHIP)
+            .or_insert(championship.into());
+        o.insert(forza::kit::PROJECTOR.into(), on.into());
+        swap_write(&path, &serde_json::to_string_pretty(&v)?)
+    }
+
+    pub fn lang(&self) -> Lang {
+        let saved = self.settings()["language"].as_str().map(str::to_owned);
         // SAFETY: a plain query without arguments
         let windows = match unsafe { GetUserDefaultUILanguage() } & 0x3ff {
             0x10 => "it",
@@ -509,7 +530,59 @@ pub fn send_key(vk: u32, up: bool, log: impl Fn(&str)) {
 
 #[cfg(test)]
 mod tests {
-    use super::close_reason;
+    use super::{Files, close_reason};
+    use forza_ui::theme::Edition;
+    use std::path::{Path, PathBuf};
+
+    /// A data folder of this test's own and the `Files` that write there.
+    fn files(tag: &str) -> (Files, PathBuf) {
+        let d = std::env::temp_dir().join(format!("forza-panel-kit-{}-{tag}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let files = Files {
+            edition: Edition::E1718,
+            data: d.clone(),
+            catalogue: d.join("catalogue.tsv"),
+            cards: d.join("cards"),
+            keys: d.join("keys.txt"),
+        };
+        (files, d)
+    }
+
+    /// settings.json as it was written.
+    fn saved(dir: &Path) -> serde_json::Value {
+        serde_json::from_slice(&std::fs::read(dir.join("settings.json")).unwrap()).unwrap()
+    }
+
+    /// The old combined switch was off: turning the window on leaves the championship off, as it was.
+    #[test]
+    fn saving_the_projector_pins_the_championship_from_the_old_switch() {
+        let (files, d) = files("pinned");
+        std::fs::write(d.join("settings.json"), r#"{"projector": false}"#).unwrap();
+        files.save_projector(true).unwrap();
+        assert_eq!(
+            saved(&d),
+            serde_json::json!({"projector": true, "cpu_championship": false})
+        );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// The keys apart: saving the window leaves the championship, the game and every other key as they were.
+    #[test]
+    fn saving_the_projector_keeps_the_championship_and_the_other_keys() {
+        let (files, d) = files("kept");
+        std::fs::write(
+            d.join("settings.json"),
+            r#"{"projector": false, "cpu_championship": true, "game": "x"}"#,
+        )
+        .unwrap();
+        files.save_projector(false).unwrap();
+        assert_eq!(
+            saved(&d),
+            serde_json::json!({"projector": false, "cpu_championship": true, "game": "x"})
+        );
+        let _ = std::fs::remove_dir_all(&d);
+    }
 
     #[test]
     fn a_dropped_link_says_who_closed_it() {

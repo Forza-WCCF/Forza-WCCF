@@ -240,9 +240,12 @@ pub fn windows(pid: u32) -> Vec<Window> {
     find.found
 }
 
-/// The process has a visible top-level window (kit_common.windows_of, as play.py uses it).
+/// The process has a visible top-level window (kit_common.windows_of, as play.py uses it), or the 2017-18 projector's
+/// window hidden by its setting: the run must not take that for a closed one.
 pub fn has_window(pid: u32) -> bool {
-    windows(pid).iter().any(|w| w.visible)
+    windows(pid)
+        .iter()
+        .any(|w| w.visible || w.title.starts_with(crate::kit::PROJECTOR_TITLE))
 }
 
 /// Hides every visible top-level window of a process; their titles.  Asynchronous: never waits for the program (a stuck

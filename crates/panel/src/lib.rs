@@ -376,6 +376,35 @@ fn projector_window() {
     // SAFETY: as above; the message is handled by proj_wndproc on the window's thread
     let _ = unsafe { PostMessageW(Some(wnd), WM_FORZA_PROJ, WPARAM(0), LPARAM(0)) };
     retitle(wnd); // "Projector - Forza-WCCF <edition>"; this is a worker thread
+    let Some(f) = FILES.get().filter(|f| f.edition == theme::Edition::E1718) else {
+        return;
+    };
+    // settings.json "projector" (the Launcher's and seat 1's SETTINGS): the window hidden or shown, the game going on
+    // either way (it keeps rendering; the run counts a hidden window by its title, forza::procs::has_window)
+    let mut was = None;
+    loop {
+        let shown = forza::kit::projector_shown(&f.settings());
+        // hidden whenever the setting is off (the game may show it again); shown again only when it is turned on
+        // SAFETY: a window of this process; ShowWindowAsync posts the change to its thread and never waits for it
+        let changed = unsafe {
+            let visible = IsWindowVisible(wnd).as_bool();
+            visible != shown
+                && (!shown || was == Some(false))
+                && ShowWindowAsync(wnd, if shown { SW_SHOWNOACTIVATE } else { SW_HIDE }).as_bool()
+        };
+        if changed {
+            log(&format!(
+                "projector: window {}",
+                if shown {
+                    "shown"
+                } else {
+                    "hidden (setting off)"
+                }
+            ));
+        }
+        was = Some(shown);
+        std::thread::sleep(Duration::from_secs(1));
+    }
 }
 
 /// The pop-out board's window, on this thread until it goes: its own class, resizable, at its saved place (restored
@@ -2180,6 +2209,8 @@ impl Render {
             self.st.file = f.panel_file();
             self.st.hover_delay = self.st.file.hover_ms.map(|ms| ms as f32 / 1000.0);
             self.st.address = self.st.file.server.clone();
+            self.st.projector = (f.edition == theme::Edition::E1718)
+                .then(|| forza::kit::projector_shown(&f.settings()));
             self.status_at = None;
         }
         // NOW each second while SETTINGS is open, every 2 s otherwise (the card lamp, the crash screen)
@@ -2266,6 +2297,21 @@ impl Render {
                 )),
                 Err(e) => {
                     log(&format!("settings: could not save panel.txt: {e}"));
+                    self.st.say(Tone::Refused, "settings.msg_not_saved");
+                }
+            }
+        }
+        if std::mem::take(&mut self.st.projector_changed)
+            && let Some(on) = self.st.projector
+        {
+            // the projector's panel shows or hides its window within a second
+            match f.save_projector(on) {
+                Ok(()) => log(&format!(
+                    "settings: saved projector={}",
+                    if on { "on" } else { "off" }
+                )),
+                Err(e) => {
+                    log(&format!("settings: could not save settings.json: {e}"));
                     self.st.say(Tone::Refused, "settings.msg_not_saved");
                 }
             }
