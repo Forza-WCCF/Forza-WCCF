@@ -10281,14 +10281,14 @@ INF_LICENCE_message_0002	Your newly issued\n$c[FF6633FF]National Manager License
 INF_LICENCE_message_0003	Your newly issued\n$c[FF6633FF]Continental Manager License$c.\nAs a leader representing your continent, your ability will be tested.
 INF_LICENCE_message_0004	Your newly issued\n$c[FF6633FF]International Manager License$c.\nAs an international leader, all eyes will be on your skill.
 INF_OFFER_message_0000	□ A club interested in your career has sent an $c[FF0000FF]offer$c
-INF_OFFER_message_0002	An offer from a Regular League %s club\nbased in $c[FF0000FF]%s$c.
+INF_OFFER_message_0002	An offer from a club based in $c[FF0000FF]%s$c\nin Regular League %s.
 INF_PARTNER_message_0005	Wants to take on a new team with you.\nEven in a new place, they will show $c[FF6633FF]the strength gained from experience$c.
 INF_RESULT_message_0000	Congratulations on winning the\n$c[FF0000FF]World Trophy$c!
 INF_RESULT_message_0001	You have finally carved your name into history\nas the $c[FF0000FF]No. 1 Manager in your class$c!
 INF_SCOUT_message_0001	A scout reports a person who suits the team.\nTheir name is $c[FF0000FF]%s$c.
 INF_SPONSORINSTRUCTION_message_0000	You are one step from winning %s, and\nthe sponsor has ordered you to $c[FF0000FF]"win and take the title"$c.
 INF_SPONSORINSTRUCTION_message_0001	Depending on the result, your $c[FF0000FF]term may be reviewed$c.\nLet's go all out for the title.
-INF_SPONSOR_message_0001	%s "%s" of $c[FF0000FF]%s$c.\nSponsor item effect: $c[FF0000FF]%s$c
+INF_SPONSOR_message_0001	$c[FF0000FF]%s$c: %s "%s".\nSponsor item effect: $c[FF0000FF]%s$c
 INF_SPO_offer_0000	A $c[FF0000FF]new sponsor$c has joined\nour rising club.
 INF_SPO_offer_0001	We failed to meet the sponsor's expectations, and our club's\n$c[FF0000FF]sponsor has changed$c.
 INF_SPO_offer_0002	After our run of poor results,\nthe $c[FF0000FF]sponsor has withdrawn$c.

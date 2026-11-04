@@ -5066,7 +5066,7 @@ INF_COACH_choices_0017	Coach generico
 INF_COACH_choices_0018	Coach generico
 INF_COACH_choices_0019	Coach generico
 INF_COACH_choices_0020	Coach generico
-INF_COACH_choices_0021	Si puo' nominare un coach. Fallo $c[FF6633FF]entro 40 secondi dal calcio d'inizio$c.
+INF_COACH_choices_0021	Si puo' nominare un coach. Fallo $c[FF6633FF]almeno 40 secondi prima del calcio d'inizio$c.
 INF_COACH_choices_0022	Abilita' coach attacco
 INF_COACH_choices_0023	Abilita' coach difesa
 INF_COACH_choices_0024	Abilita' coach tecnica
@@ -6345,7 +6345,7 @@ INF_LEAGUE_message_0000	Campionato regolare %s: %s Complimenti.\nDi conseguenza 
 INF_LEAGUE_message_0001	Campionato regolare %s: dopo il risultato %s,\nla squadra e' $c[66CCFFFF]retrocessa$c in %s.
 INF_LEAGUE_message_0002	Con la $c[FF0000FF]retrocessione$c in %s,\nabbiamo perso il posto in %s.
 INF_OFFER_message_0000	□Un club interessato alla tua carriera ti ha mandato un'$c[FF0000FF]offerta$c
-INF_OFFER_message_0002	Un'offerta da un club del Campionato regolare %s\ncon sede a $c[FF0000FF]%s$c.
+INF_OFFER_message_0002	Un'offerta da un club con sede a $c[FF0000FF]%s$c\ndel Campionato regolare %s.
 INF_057_message_0000	Grazie per aver partecipato all'Area Championship.\nContiamo su di te anche la prossima volta.
 INF_057_TOPICS_title_0000	Ristrutturazione stadio
 INF_062_message_0001	Per fare il nuovo allenamento,\nscegli $c[FF0000FF]"Allenamento speciale"$c in Allenamento di squadra.
@@ -6576,7 +6576,7 @@ CLM_CUNIFORM2_message_0000	Scegli la 2a divisa.
 CLM_CEMBLEM_message_0000	Scegli lo stemma. 
 MAKE_area_007	Americhe
 INF_PARTNER_message_0005	Vuole affrontare una nuova squadra con te.\nAnche nel nuovo posto mostrera' $c[FF6633FF]la forza maturata con l'esperienza$c.
-INF_SPONSOR_message_0001	%s "%s" di $c[FF0000FF]%s$c.\nEffetto oggetto sponsor: $c[FF0000FF]%s$c
+INF_SPONSOR_message_0001	$c[FF0000FF]%s$c: %s "%s".\nEffetto oggetto sponsor: $c[FF0000FF]%s$c
 INF_FRIENDTRAINING_message_0000	$c[FF0000FF]%s$c e' venuto ad aiutare l'allenamento di squadra.\nEffetti positivi su $c[FF0000FF]"%s", "%s" e "%s"$c.
 INF_FRIENDOFFER_message_0000	$c[FF0000FF]%s$c ti ha segnalato un'offerta.\nControlla l'offerta segnalata nell'elenco offerte.
 INF_CONTRACT_message_0001	□La tua abilita' e' stata riconosciuta e il contratto e' esteso di $c[FF0000FF]%d partite$c
@@ -7164,12 +7164,12 @@ MAN_ACTION_message_0023	Dati intesa: controlla le intese di squadra.
 MAN_ACTION_message_0024	In Infermeria.
 MAN_ENTRY_contents_0000	Centrale
 MAN_ENTRY_contents_0001	Ala destra
-MAN_ENTRY_contents_0002	Possesso
+MAN_ENTRY_contents_0002	Pressing
 MAN_ENTRY_contents_0003	Ala sinistra
 MAN_ENTRY_contents_0004	Contropiede
 MAN_ENTRY_contents_0005	Centrale
 MAN_ENTRY_contents_0006	Ala destra
-MAN_ENTRY_contents_0007	Possesso
+MAN_ENTRY_contents_0007	Pressing
 MAN_ENTRY_contents_0008	Ala sinistra
 MAN_ENTRY_contents_0009	Contropiede
 MAN_ENTRY_message_0008	REGOLE ISCRIZIONE AREA CHAMPIONSHIP
@@ -7517,7 +7517,7 @@ TRA_RESULT_message_0004	I giocatori valgono molto di piu'.\nAspettiamoci di piu'
 TRA_RESULT_message_0020	Il nostro attacco e' molto piu' forte.\nGli altri ci temeranno.
 TRA_RESULT_message_0021	Il nostro attacco e' discreto.\nCreeremo piu' occasioni.
 TRA_RESULT_message_0022	Il nostro attacco migliora piano piano.\nPuntiamo ancora piu' in alto.
-TRA_RESULT_message_0023	Il loro attacco e' al livello minimo.\nDeve cercare di migliorarli.
+TRA_RESULT_message_0023	Il nostro attacco e' ai minimi.\nDobbiamo solo allenarci duro.
 TRA_RESULT_message_0026	Il nostro possesso palla e' molto meglio.\nGli altri ci temeranno.
 TRA_RESULT_message_0027	Il nostro possesso palla e' discreto.\nLa manovra dovrebbe stabilizzarsi.
 TRA_RESULT_message_0028	Il possesso palla migliora piano piano.\nPuntiamo ancora piu' in alto.
@@ -8030,7 +8030,7 @@ COM_DISCONTENT_answer_0047	Grazie al coach, ora capisce la Sua tattica.\nI dubbi
 COM_DISCONTENT_answer_0049	Sembra contento che Lei ascolti i giocatori.\nSembra aver capito anche la Sua tattica.
 COM_DISCONTENT_answer_0051	Sembra capire il Suo punto di vista.\nAvete fatto un passo avanti.
 COM_DISCONTENT_answer_0053	Sembra contento che Lei dia peso alla sua opinione.\nE' riuscito a creare un legame con lui.
-COM_DISCONTENT_answer_0055	Sembra molto contento che Lei\nlo schieri in partita.
+COM_DISCONTENT_answer_0055	Ora sa perche' non gioca ed e' sereno.\nD'ora in poi lavorera' per la squadra.
 COM_DISCONTENT_answer_0057	Sembra essersi accesa in lui una nuova determinazione.\nDa ora si allenera' di sicuro con piu' impegno.
 COM_DISCONTENT_answer_0059	Sembra un po' imbarazzato, ma contento.
 COM_DISCONTENT_answer_0061	Il Suo incoraggiamento sembra aver funzionato.
@@ -8978,7 +8978,7 @@ COM_NEW_LOUNGE_answer_0005_02	Conoscersi e' importante.\nLa loro intesa e' cresc
 COM_NEW_LOUNGE_answer_0005_03	Divertirsi non li fara' migliorare.\nEntrambi restano pensierosi.
 COM_NEW_LOUNGE_answer_0005_04	Non serve spiegare sempre tutto.\nIl Suo silenzio li ha fatti parlare e avvicinare.
 COM_NEW_LOUNGE_answer_0005_05	Speravano in un consiglio...\nEntrambi restano pensierosi.
-COM_NEW_LOUNGE_choices_0006_00	Falli esercitare in
+COM_NEW_LOUNGE_choices_0006_00	Falli allenare insieme
 COM_NEW_LOUNGE_choices_0006_01	Andate a divertirvi
 COM_NEW_LOUNGE_choices_0006_02	Rinuncia alla coppia
 COM_NEW_LOUNGE_answer_0006_00	La pratica e' fondamentale.\nLa loro intesa e' cresciuta.
@@ -8987,7 +8987,7 @@ COM_NEW_LOUNGE_answer_0006_02	Divertirsi li aiuta a conoscersi.\nBel consiglio: 
 COM_NEW_LOUNGE_answer_0006_03	Divertirsi non li fara' migliorare.\nEntrambi restano pensierosi.
 COM_NEW_LOUNGE_answer_0006_04	Invece li ha carichi.\nHanno parlato e si sono avvicinati.
 COM_NEW_LOUNGE_answer_0006_05	Mollare non porta a nulla.\nEntrambi restano pensierosi.
-COM_NEW_LOUNGE_choices_0007_00	Falli esercitare in
+COM_NEW_LOUNGE_choices_0007_00	Falli allenare insieme
 COM_NEW_LOUNGE_choices_0007_01	Andate a divertirvi
 COM_NEW_LOUNGE_choices_0007_02	Rinuncia alla coppia
 COM_NEW_LOUNGE_answer_0007_00	La pratica e' fondamentale.\nLa loro intesa e' cresciuta.
@@ -9981,9 +9981,9 @@ PRO_PRO_condition_0017	Regole di iscrizione
 PRO_PRO_condition_0023	Titoli vinti
 PRO_PRO_condition_0026	Giocato in 1a Divisione
 PRO_PRO_condition_0027	Vincitore Nations Cup
-PRO_PRO_seat_0000	Non disponibile
+PRO_PRO_seat_0000	Iscrizione confermata
 PRO_PRO_seat_0001	Non iscrivibile
-PRO_PRO_seat_0002	Non disponibile
+PRO_PRO_seat_0002	Iscrizione in attesa
 PRO_PRO_seat_0003	Iscrizioni aperte
 PRO_PRO_seat_0004	Qualificato
 PRO_PRO_seat_0005	Perso
