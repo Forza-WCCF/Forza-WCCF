@@ -16,6 +16,12 @@ pub const EVERY: Duration = Duration::from_secs(60);
 /// The watcher does not ask when an answer came this recently (the lobby's 5 s polls while ONLINE shows): the desk
 /// answers a second `LOBBY` from one address within 2 s with `ERR slow`.
 const FRESH: Duration = Duration::from_secs(50);
+/// The first ask waits this long for the window's own first lobby poll, whose answer sets `at`; with no poll (never
+/// on the ONLINE page) it asks then. Asking before that poll lands put both asks from one address inside the desk's
+/// 2 s gap, and one of them got `ERR slow`.
+const FIRST_WAIT: Duration = Duration::from_secs(8);
+/// How often the first wait looks again for that poll's answer.
+const FIRST_STEP: Duration = Duration::from_secs(1);
 
 struct Inner {
     file: PathBuf,
@@ -41,12 +47,16 @@ impl Notices {
         })))
     }
 
-    /// The watcher: asks `server` for `edition` now and every `every`, while no other answer came within [`FRESH`];
-    /// it ends when the last other copy of this box is dropped. `log` hears about each change and each write that
-    /// failed.
+    /// The watcher: asks `server` for `edition` at the start and every `every`, while no other answer came within
+    /// [`FRESH`]; it ends when the last other copy of this box is dropped. `log` hears about each change and each
+    /// write that failed.
     pub fn watch(&self, server: String, edition: &'static str, every: Duration, wake: Wake, log: Log) {
         let me = self.clone();
         thread::spawn(move || {
+            let started = Instant::now();
+            while me.lock().waiting_for_the_poll(started, Instant::now()) {
+                thread::sleep(FIRST_STEP);
+            }
             loop {
                 // the window's box is gone (a renderer that failed made it): this watcher too
                 if Arc::strong_count(&me.0) == 1 {
@@ -122,6 +132,11 @@ impl Inner {
             },
         }
     }
+
+    /// The first ask waits for the window's own lobby poll (its answer sets `at`), no longer than [`FIRST_WAIT`].
+    fn waiting_for_the_poll(&self, started: Instant, now: Instant) -> bool {
+        self.at.is_none() && now.duration_since(started) < FIRST_WAIT
+    }
 }
 
 #[cfg(test)]
@@ -132,6 +147,15 @@ mod tests {
         Lobby::parse(r#"{"v":1,"edition":"2017-18","at":1}"#)
             .map(|l| Lobby { notice, ..l })
             .unwrap()
+    }
+
+    fn inner(at: Option<Instant>) -> Inner {
+        Inner {
+            file: PathBuf::new(),
+            notice: None,
+            at,
+            saved: true,
+        }
     }
 
     fn dir(name: &str) -> PathBuf {
@@ -189,5 +213,24 @@ mod tests {
         let kept: ServerNotice = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
         assert_eq!(kept.id, "n7", "the retry wrote it");
         let _ = std::fs::remove_file(&file);
+    }
+
+    /// The one-ask-first race: the watcher waits for the window's own poll before its first ask, so the two never
+    /// land inside the desk's 2 s gap (one of them got `ERR slow`).
+    #[test]
+    fn the_first_ask_waits_for_the_windows_poll() {
+        let t = Instant::now();
+        let quiet = inner(None);
+        assert!(quiet.waiting_for_the_poll(t, t), "the poll goes first");
+        assert!(quiet.waiting_for_the_poll(t, t + FIRST_WAIT - FIRST_STEP));
+        assert!(
+            !quiet.waiting_for_the_poll(t, t + FIRST_WAIT),
+            "no poll answered: this ask goes"
+        );
+        let polled = inner(Some(t));
+        assert!(
+            !polled.waiting_for_the_poll(t, t + FIRST_STEP),
+            "the poll answered: this ask stands back"
+        );
     }
 }
