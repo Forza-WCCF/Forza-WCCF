@@ -8,6 +8,7 @@
 //! every other message gets zeros. A request the store refuses (short, wrong revision, unknown ids) gets errCode 1.
 
 use super::club::team_tag;
+use super::sessions::{Session, Sessions};
 use super::vs::{self, Matcher, VsConfig};
 use crate::service::{Handle, Log, accept_loop, read_some};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
@@ -1064,6 +1065,9 @@ pub(super) fn ask_for_test(
     log: &Log,
 ) -> (Vec<u8>, Option<String>) {
     let (_, body, why) = answer(cmd, p, store, None, &[], None, log).unwrap();
+    if let Some(line) = match_line(cmd, p, why.as_deref()) {
+        log(&line);
+    }
     (body, why)
 }
 
@@ -1119,9 +1123,6 @@ fn answer(
     if refused.is_some() {
         put(&mut body, 4, 1);
     }
-    if let Some(line) = match_line(cmd, payload, refused.as_deref()) {
-        log(&line);
-    }
     Some((rcmd, body, refused))
 }
 
@@ -1137,8 +1138,8 @@ pub(super) fn name_text(b: &[u8]) -> String {
 
 /// The log's match lines, CPU and VS matches alike (docs/research/ONLINE-2017-18.md): INJUSTICE_COUNT 289 with +1 is a
 /// play's start (sub_785BA0); SAVE_DATA_SET 277 its end, with the opponent (a CPU club has coachId 0), the score and
-/// whether the store took the result.
-fn match_line(cmd: u16, req: &[u8], refused: Option<&str>) -> Option<String> {
+/// whether the store took the result. [`Session::request`] logs them with the seat's mode.
+pub(super) fn match_line(cmd: u16, req: &[u8], refused: Option<&str>) -> Option<String> {
     let id = |at| u32_at(req, at);
     // goals and PKs are single bytes: the bytes after them belong to other fields (owner run logs showed packed u32s
     // such as 2950146 = 0x2D0502 for a 2 goal score)
@@ -1288,6 +1289,9 @@ pub struct Options {
     /// The matcher VS uses, when another service shares it (`forza-server all`: the desk lists its rooms); None =
     /// a new one
     pub matcher: Option<Arc<Matcher>>,
+    /// Who is connected, when another service shares it (`forza-server all`: the desk counts the cards in its lobby
+    /// row); None = a new one
+    pub sessions: Option<Arc<Sessions>>,
 }
 
 impl Default for Options {
@@ -1300,6 +1304,7 @@ impl Default for Options {
             max_per_ip: 0,
             vs: None,
             matcher: None,
+            sessions: None,
         }
     }
 }
@@ -1364,7 +1369,9 @@ pub fn spawn_opts(
         max_per_ip,
         vs,
         matcher,
+        sessions,
     } = opts;
+    let sessions = sessions.unwrap_or_default();
     let vs = vs.map(|cfg| {
         Arc::new(Vs {
             cfg,
@@ -1405,6 +1412,7 @@ pub fn spawn_opts(
             Slot(&peers, peer.ip())
         };
         log(&format!("connected {peer}"));
+        let mut session: Session = sessions.open(peer, log.clone());
         // the header on the stack, one payload buffer per link (it grows to at most MAX_FRAME - 40 bytes)
         let (mut head, mut have) = ([0u8; 40], 0);
         let mut payload: Vec<u8> = Vec::new();
@@ -1459,10 +1467,18 @@ pub fn spawn_opts(
                 .take(48)
                 .map(|b| format!("{b:02x}"))
                 .collect();
-            log(&format!(
-                "<- cmd {cmd} seq {seq} status {status} payload {} conn {id} text {text:?} first {first}",
-                payload.len()
-            ));
+            // vslink's lookup comes every 0.5 s while a link is up: counted, said once a minute
+            let quiet = cmd == 904;
+            if quiet {
+                if let Some(line) = session.vslink_poll() {
+                    log(&line);
+                }
+            } else {
+                log(&format!(
+                    "<- cmd {cmd} seq {seq} status {status} payload {} conn {id} text {text:?} first {first}",
+                    payload.len()
+                ));
+            }
             if dump && !payload.is_empty() {
                 let ms = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -1480,13 +1496,18 @@ pub fn spawn_opts(
                 &log,
             ) {
                 Some((rcmd, body, refused)) => {
+                    for line in session.request(cmd, &payload, refused.as_deref()) {
+                        log(&line);
+                    }
                     if let Some(why) = refused {
                         log(&format!("   refused cmd {cmd}: {why} (errCode 1)"));
                     }
                     if send(&mut conn, &header(rcmd, seq, 1, body.len(), id), &body).is_err() {
                         return;
                     }
-                    log(&format!("-> cmd {rcmd} payload {}", body.len()));
+                    if !quiet {
+                        log(&format!("-> cmd {rcmd} payload {}", body.len()));
+                    }
                 }
                 None => log(&format!("   (no answer for cmd {cmd})")),
             }
