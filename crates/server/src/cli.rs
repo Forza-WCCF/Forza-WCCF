@@ -174,6 +174,7 @@ fn data_dir(log_file: Option<&Path>) -> PathBuf {
         .unwrap_or_default()
 }
 
+#[allow(clippy::too_many_arguments)] // sessions (#164) and store (#167) each add one
 fn start_desk(
     ed: Edition,
     port: Option<u16>,
@@ -181,10 +182,19 @@ fn start_desk(
     vs: Option<Arc<vs::Matcher>>,
     club: Option<PathBuf>,
     sessions: Option<Arc<Sessions>>,
+    store: Option<&Path>,
     log: Log,
 ) -> std::io::Result<Handle> {
     let mut c = desk::DeskConfig::new(ed);
     c.sessions = sessions;
+    // the operator's notice: beside the game server's store (`all`), else in data\ beside hold_projector.txt
+    c.notice = c.notice.or_else(|| {
+        Some(
+            store
+                .map_or_else(|| data_dir(log_file), Path::to_path_buf)
+                .join("notice.json"),
+        )
+    });
     if let Some(db) = club {
         c.club_db = Some(db);
         c.club_public = true;
@@ -352,6 +362,7 @@ where
                 None,
                 None,
                 None,
+                None,
                 file_log(log_file.clone()),
             )],
         ),
@@ -409,6 +420,7 @@ where
                     matcher.clone(),
                     club,
                     sessions.clone(),
+                    Some(&g.store),
                     file_log(desk_log.clone()),
                 ),
                 start_relay(ed, *relay_port, file_log(relay_log)),

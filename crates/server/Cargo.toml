@@ -19,10 +19,10 @@ getrandom = "0.3.4"
 # an arcade room's tunnel id must be a real ed25519 public key, as iroh takes it (arcade_room.rs)
 ed25519-dalek = { version = "3.0.0", default-features = false }
 regex = "1.13.1"
-time = { version = "0.3.55", features = ["local-offset"] }
+serde_json.workspace = true # the notice file (desk.rs)
+time = { version = "0.3.55", features = ["local-offset", "parsing"] }
 
 [dev-dependencies]
-serde_json.workspace = true
 sha2.workspace = true
 
 [lints]

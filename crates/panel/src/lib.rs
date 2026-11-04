@@ -41,11 +41,13 @@ mod share;
 
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, TextureId, ViewportId, pos2, vec2};
 use forza::cards::{self, Placed, TableFile};
+use forza::online::lobby::ServerNotice;
 use forza_ui::board::Card;
 use forza_ui::panel::{self, PanelState};
 use forza_ui::theme;
 use std::cell::Cell;
 use std::ffi::c_void;
+use std::io::Read as _;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{
@@ -1379,6 +1381,13 @@ struct Render {
     /// CLUB CARD: when club_view.txt was last looked at, and its time then.
     club_at: Option<Instant>,
     club_stamp: Option<std::time::SystemTime>,
+    /// The server's notice (data\notice.json): when it was last looked at, its time then, and the notice not shown yet.
+    notice_at: Option<Instant>,
+    notice_stamp: Option<std::time::SystemTime>,
+    notice: Option<ServerNotice>,
+    /// The notice on the message line, waiting for a frame to paint it: its id and its text as shown. The id goes to
+    /// data\notice_seen.txt only once the line has drawn it.
+    notice_pending: Option<(String, String)>,
     painter: painter::Painter,
     start: Instant,
     sc: Option<(IDirect3DSwapChain9, u32, u32, HWND)>,
@@ -1464,6 +1473,10 @@ impl Render {
             links_stamp: None,
             club_at: None,
             club_stamp: None,
+            notice_at: None,
+            notice_stamp: None,
+            notice: None,
+            notice_pending: None,
             deal_at: Instant::now(),
             deal_last: None,
             painter: painter::Painter::default(),
@@ -1903,6 +1916,7 @@ impl Render {
         self.table_in();
         self.links_in();
         self.settings_in();
+        self.notice_in();
         self.club_in();
         self.deal_in();
         self.keys_in();
@@ -2429,6 +2443,75 @@ impl Render {
             }
             None => log("deal: a match finished, but no catalogue card to show"),
         }
+    }
+
+    /// 2017-18: the server's notice, as the Launcher wrote it (data\notice.json, looked at every 5 s), shown once per id
+    /// (data\notice_seen.txt keeps the id shown last, across runs) on the message line in the panel's language, at a
+    /// calm moment: no match on this seat and no other message on the line. The id is kept only after the line has
+    /// shown the text (a notice the panel could not show is offered again on the next start).
+    fn notice_in(&mut self) {
+        use forza_ui::widgets::Tone;
+        let Some(f) = FILES.get().filter(|f| f.edition == theme::Edition::E1718) else {
+            return;
+        };
+        let seen = f.data.join("notice_seen.txt");
+        // the notice on the line was painted (a frame ran with it there): the player could read it, so the id is
+        // kept; a text the panel never got to draw stays pending and is not marked seen
+        let painted = self.notice_pending.as_ref().is_some_and(|(_, text)| {
+            self.st
+                .message
+                .as_ref()
+                .is_some_and(|m| m.started() && &m.text == text)
+        });
+        if painted
+            && let Some((id, _)) = self.notice_pending.take()
+            && let Err(e) = std::fs::write(&seen, id)
+        {
+            log(&format!("notice: {} not kept ({e})", seen.display()));
+        }
+        if self
+            .notice_at
+            .is_some_and(|t| t.elapsed() < Duration::from_secs(5))
+        {
+            return;
+        }
+        self.notice_at = Some(Instant::now());
+        let path = f.data.join("notice.json");
+        let st = stamp(&path);
+        if st != self.notice_stamp {
+            if st.is_none() {
+                self.notice_stamp = None;
+                self.notice = None;
+            } else {
+                match read_notice(&path) {
+                    // a file there but not read (held by a scanner, say): looked at again on the next tick
+                    Err(e) => log(&format!("notice: {} not read ({e})", path.display())),
+                    Ok(None) => {
+                        self.notice_stamp = st;
+                        self.notice = None;
+                        log(&format!(
+                            "notice: {} over {NOTICE_MAX} bytes: ignored",
+                            path.display()
+                        ));
+                    }
+                    Ok(Some(b)) => {
+                        self.notice_stamp = st;
+                        self.notice = serde_json::from_slice::<ServerNotice>(&b)
+                            .ok()
+                            .and_then(ServerNotice::clean)
+                            .filter(|n| n.unseen(std::fs::read_to_string(&seen).ok().as_deref()));
+                    }
+                }
+            }
+        }
+        if self.notice.is_none() || self.st.message.is_some() || match_check().0 {
+            return;
+        }
+        let Some(n) = self.notice.take() else { return };
+        log(&format!("notice: {} shown", n.id));
+        let text = n.text(self.st.lang.code()).to_owned();
+        self.st.message = Some(panel::Note::long(Tone::Notice, text.clone()));
+        self.notice_pending = Some((n.id, text));
     }
 
     /// CLUB CARD: data\club_view.txt read on opening and again each second while open when it changed (the run's helper
@@ -2985,6 +3068,20 @@ fn stamp(p: &Path) -> Option<std::time::SystemTime> {
     std::fs::metadata(p).and_then(|m| m.modified()).ok()
 }
 
+/// A notice file larger than this is not a notice: never read whole (the panel is 32-bit, so a huge file would
+/// abort the game and answer again on every start).
+const NOTICE_MAX: u64 = 64 * 1024;
+
+/// `data\notice.json`, at most [`NOTICE_MAX`] bytes: `Ok(None)` for a larger file (ignored, not read), `Err` when it
+/// could not be read now (held by a scanner, say: look again).
+fn read_notice(p: &Path) -> std::io::Result<Option<Vec<u8>>> {
+    let mut b = Vec::new();
+    std::fs::File::open(p)?
+        .take(NOTICE_MAX + 1)
+        .read_to_end(&mut b)?;
+    Ok((b.len() as u64 <= NOTICE_MAX).then_some(b))
+}
+
 /// The controllers through winmm (from the system folder: seat 1's own winmm.dll is the hook), or the test's
 /// (`WCCFPANEL_FAKEPAD`).
 fn pads() -> forza::keys::Pads {
@@ -3478,7 +3575,28 @@ fn take_off_lines(
 
 #[cfg(test)]
 mod tests {
-    use super::{cards, take_off_lines};
+    use super::{NOTICE_MAX, cards, read_notice, take_off_lines};
+
+    /// A botched copy in data\notice.json must not be read whole into the 32-bit panel: the cap holds, and the file
+    /// is ignored rather than retried on every tick.
+    #[test]
+    fn a_notice_file_over_the_cap_is_ignored() {
+        let dir = std::env::temp_dir().join(format!("forza_notice_cap_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("notice.json");
+        std::fs::write(&file, "x".repeat(NOTICE_MAX as usize)).unwrap();
+        assert!(
+            read_notice(&file).unwrap().is_some(),
+            "a file at the cap is read"
+        );
+        std::fs::write(&file, "x".repeat(NOTICE_MAX as usize + 1)).unwrap();
+        assert!(
+            read_notice(&file).unwrap().is_none(),
+            "one byte over: ignored, never read"
+        );
+        let _ = std::fs::remove_file(&file);
+    }
+
     #[test]
     fn take_off_lines_name_the_cards() {
         let at = |no| cards::Placed {

@@ -149,6 +149,8 @@ pub struct LauncherState {
     pub clock: (f32, f32),
     /// The status line: a tone and its text.
     pub status: Option<(Tone, String)>,
+    /// The project server's notice in the window's language (remote text, drawn only as a label), under the status.
+    pub server_notice: Option<String>,
     /// The tab shown.
     pub tab: Tab,
     pub folder: String,
@@ -252,6 +254,7 @@ impl LauncherState {
             progress: 0.0,
             clock: (0.0, 0.0),
             status: Some((Tone::Done, tr!(lang, "launcher.status_ready"))),
+            server_notice: None,
             tab: Tab::Play,
             folder: r"C:\Games\Forza-WCCF\2010-2011".into(),
             pictures_hq: false,
@@ -628,6 +631,9 @@ fn footer(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
         status_line(ui, Tone::Notice, &tr!(lang, "launcher.msg_stop_armed"));
     } else if let Some((tone, text)) = &st.status {
         status_line(ui, *tone, text);
+    }
+    if let Some(text) = &st.server_notice {
+        status_line(ui, Tone::Notice, text);
     }
 }
 
