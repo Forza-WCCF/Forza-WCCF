@@ -231,6 +231,23 @@ mod tests {
         for w in rooms.windows(2) {
             assert!(w[0].1 <= w[1].0, "rooms overlap at {:#X}", w[1].0);
         }
+        // sub_7DA590 strcmp's a record against these rows in order: two equal texts return the wrong region
+        const REGION_KEYS: [usize; 14] = [
+            0x0F9EE7C, 0x0F9EB44, 0x0E5C79C, 0x0F9EA20, 0x0E5C778, 0x0E5C62C, 0x0E5C74C, 0x0F9EA04,
+            0x0E5C784, 0x0F9E91C, 0x0E5C47C, 0x0E5C764, 0x0E5C7A8, 0x0F9E880,
+        ];
+        for sheet in [&en, &it] {
+            let texts: Vec<_> = sheet
+                .iter()
+                .filter(|r| REGION_KEYS.contains(&r.rva))
+                .map(|r| &r.text)
+                .collect();
+            assert!(texts.len() >= 6, "region rows missing");
+            let mut uniq = texts.clone();
+            uniq.sort();
+            uniq.dedup();
+            assert_eq!(uniq.len(), texts.len(), "two region rows share a text");
+        }
     }
 
     fn sheet_for(orig: &[u8], room: usize, text: &str) -> String {
