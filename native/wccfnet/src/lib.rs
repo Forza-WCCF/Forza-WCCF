@@ -1,7 +1,9 @@
 //! wccfnet.dll: the guarded copies of the 2017-18 game programs import it instead of IPHLPAPI.DLL. An ordinary import,
 //! unlike a hook loaded into a running program, also protects the programs' children. The four calls that would change
 //! the host's network (the DHCP release and renew, two route writes) are stubs that touch nothing; the six read-only
-//! ones are forwarded to Windows' iphlpapi (build.rs). No adapter is ever changed.
+//! ones are forwarded to Windows' iphlpapi (build.rs). No adapter is ever changed. The program's name lookups and
+//! WinInet calls fail for the publisher's network hosts, and its `connect` and `sendto` for the publisher's addresses
+//! ([`forza_native::hosts`]).
 //!
 //! DllMain also loads the panel when the Launcher sets FORZA_PANEL ([`panel`]), and, only with WCCF_TRACE_NET=1, logs
 //! the program's send and recv ([`trace`]).
@@ -72,6 +74,8 @@ extern "system" fn DllMain(
             let dll = PathBuf::from(String::from_utf16_lossy(&buf[..n]));
             let _ = LOG.set(dll.with_file_name("wccfnet.log"));
         }
+        log(&forza_native::hosts::install(log));
+        log(&forza_native::hosts::install_addresses(log));
         panel::start();
         if std::env::var("WCCF_TRACE_NET").is_ok_and(|v| v == "1") {
             trace::start();

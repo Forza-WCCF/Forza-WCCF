@@ -10,6 +10,8 @@
 //!  - control (2010-11 on Windows, 2017-18 on Windows and Wine): gives it the players' messages only whole ([`whole`]);
 //!  - 2017-18 control, opt-in (WCCF_UCLIVE=on): the Universal Championship live on the projector only with a player's
 //!    club in it ([`uclive`]);
+//!  - 2010-11: the program's name lookups and WinInet calls fail for the publisher's network hosts
+//!    ([`forza_native::hosts`]; 2017-18's wccfnet.dll does the same);
 //!  - a server under Wine (both editions): loads netguard.dll as the second guard ([`net::load_netguard`]); 2010-11
 //!    also fixes three faults of control ([`server`]).
 //!
@@ -135,6 +137,10 @@ fn install() -> bool {
         if ringedge { "ON - mxsram" } else { "off" }
     );
     let (host, inet) = net::install_address();
+    // 2010-11 (wccfk.dll, the server's winmm.dll): after install_address, whose gethostbyname then sits behind the
+    // check; 2017-18's programs get the same from wccfnet.dll
+    #[cfg(any(feature = "e1011", feature = "e1011-server"))]
+    log!("{}", forza_native::hosts::install(|s| log!("{s}")));
     #[cfg(any(feature = "e1011", feature = "e1718", feature = "e1718-server"))]
     whole::install();
     #[cfg(any(feature = "e1718", feature = "e1718-server"))]
