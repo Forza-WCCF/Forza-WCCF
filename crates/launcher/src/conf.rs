@@ -193,20 +193,64 @@ pub fn set_game_server(conf: &Path, host: &str, port: u16, entry: bool) -> io::R
 
 /// `set_conf_value` on the file's bytes.
 pub fn conf_text_with(raw: &[u8], key: &str, value: &str) -> io::Result<Vec<u8>> {
+    conf_bytes_with(raw, key, value.as_bytes())
+}
+
+fn conf_bytes_with(raw: &[u8], key: &str, value: &[u8]) -> io::Result<Vec<u8>> {
     let nl: &[u8] = if raw.windows(2).any(|w| w == b"\r\n") {
         b"\r\n"
     } else {
         b"\n"
     };
-    let line = format!("{key}={value}");
+    let line = [key.as_bytes(), b"=", value].concat();
     let pat = Regex::new(&format!(r"(?m-u)^{}=[^\r\n]*", regex::escape(key))).map_err(io::Error::other)?;
     Ok(if pat.is_match(raw) {
-        pat.replace_all(raw, regex::bytes::NoExpand(line.as_bytes()))
-            .into_owned()
+        pat.replace_all(raw, regex::bytes::NoExpand(&line)).into_owned()
     } else {
         let sep: &[u8] = if raw.ends_with(nl) || raw.is_empty() { b"" } else { nl };
-        [raw, sep, line.as_bytes(), nl].concat()
+        [raw, sep, &line, nl].concat()
     })
+}
+
+/// The name a cabinet's club shows under it when ALL.Net gives none (data\settings.json `shop_name` here).
+pub const PLACE_DEFAULT: &str = "Forza-WCCF";
+/// Bytes of the place name: the control's own copy for the VS entry is cut at 26 (control 0x418F70, a char[28]).
+const PLACE_MAX: usize = 26;
+
+/// The arcade name the client shows under its own club, Shift-JIS (TENPO_NAME1, client 0x84CB54 into its option block
+/// +0x280, read at 0x832C90), and both clubs' region as none (PREFECTURE_ID1 / PREFECTURE_ID2 = -1, read at 0x832B62 /
+/// 0x832B7D; -1 is the blank of 0x854AC0). Without them the client keeps its built-in place (the original showroom
+/// name, set at 0x82F6BE) and turns ALL.Net's region 0 into "Other". `name` empty or nothing Shift-JIS can write:
+/// [`PLACE_DEFAULT`].
+pub fn place_text(raw: &[u8], name: &str) -> io::Result<Vec<u8>> {
+    let mut sjis = Vec::new();
+    for c in forza::online::lobby::arcade_name(name).chars() {
+        let mut utf8 = [0; 4];
+        let (b, _, bad) = encoding_rs::SHIFT_JIS.encode(c.encode_utf8(&mut utf8));
+        if bad {
+            continue;
+        }
+        if sjis.len() + b.len() > PLACE_MAX {
+            break;
+        }
+        sjis.extend_from_slice(&b);
+    }
+    while sjis.last() == Some(&b' ') {
+        sjis.pop();
+    }
+    if sjis.is_empty() {
+        sjis = PLACE_DEFAULT.as_bytes().to_vec();
+    }
+    let t = conf_bytes_with(raw, "TENPO_NAME1", &sjis)?;
+    let t = conf_text_with(&t, "PREFECTURE_ID1", "-1")?;
+    conf_text_with(&t, "PREFECTURE_ID2", "-1")
+}
+
+/// [`place_text`] on a cabinet's client_user_option.conf; true if it changed.
+pub fn set_place(conf: &Path, name: &str) -> io::Result<bool> {
+    let raw = fs::read(conf)?;
+    let out = place_text(&raw, name)?;
+    write(conf, &raw, &out)
 }
 
 fn need(conf: &Path, raw: &[u8], key: &str) -> io::Result<()> {
@@ -237,7 +281,7 @@ fn write(conf: &Path, raw: &[u8], out: &[u8]) -> io::Result<bool> {
 
 #[cfg(test)]
 mod club_tests {
-    use super::{conf_text_with, game_server_text};
+    use super::{conf_text_with, game_server_text, place_text};
 
     /// Online 2017-18 points control at the server's game server with its VS entries on; this PC goes back to the
     /// stand-in with them off. The rest of setup's CONF_CONTROL stays as it was.
@@ -285,6 +329,34 @@ mod club_tests {
         let t = conf_text_with(&t, "GAME_SVR_PORT", "20060").unwrap();
         assert_eq!(t, b"A=1\r\nGAME_SVR_IP=club.example.org\r\nGAME_SVR_PORT=20060\r\n");
         assert_eq!(conf_text_with(b"A=1", "K", "v").unwrap(), b"A=1\nK=v\n");
+    }
+
+    /// The cabinet's own arcade name in Shift-JIS within the control's 26 bytes, the default when none is set, and no
+    /// region on either side; the other lines stay.
+    #[test]
+    fn place_carries_the_arcade_name_and_no_region() {
+        let conf = b"IS_RINGEDGE=1\r\nTENPO_NAME1=old\r\n";
+        let text = |name: &str| place_text(conf, name).unwrap();
+        assert_eq!(
+            text(""),
+            b"IS_RINGEDGE=1\r\nTENPO_NAME1=Forza-WCCF\r\nPREFECTURE_ID1=-1\r\nPREFECTURE_ID2=-1\r\n"
+        );
+        assert!(text("Bar Sport").starts_with(b"IS_RINGEDGE=1\r\nTENPO_NAME1=Bar Sport\r\n"));
+        // 13 full-width characters are 26 bytes; the 14th does not fit
+        let jp = "ゲームセンターフォルツァ東京店";
+        let line = [
+            b"TENPO_NAME1=",
+            &encoding_rs::SHIFT_JIS.encode(&jp[..13 * 3]).0[..],
+            b"\r\n",
+        ]
+        .concat();
+        assert!(
+            text(jp).windows(line.len()).any(|w| w == line),
+            "26 bytes, whole characters"
+        );
+        // a name Shift-JIS cannot write keeps what it can, or falls back
+        assert!(text("Caffè Ω€").starts_with(b"IS_RINGEDGE=1\r\nTENPO_NAME1=Caff"));
+        assert!(text("€€").starts_with(b"IS_RINGEDGE=1\r\nTENPO_NAME1=Forza-WCCF\r\n"));
     }
 }
 

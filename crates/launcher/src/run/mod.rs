@@ -1622,6 +1622,17 @@ impl Run<'_> {
             self.game.join(r"local\client_user_option.conf"),
             self.seat.join(r"local\client_user_option.conf"),
         ];
+        if self.edition == Edition::E1718 {
+            // shortcut: a guest at another PC's arcade shows the default, not that arcade's name; upgrade when the desk
+            // tells its guests the name
+            let name = match self.mode {
+                Mode::Remote(..) => String::new(),
+                _ => choices::setting(&self.kit.settings_file(), "shop_name").unwrap_or_default(),
+            };
+            for c in confs.iter().filter(|c| c.is_file()) {
+                conf::set_place(c, &name)?;
+            }
+        }
         let starting = match &self.mode {
             Mode::Server | Mode::LanServer => Text::key("launcher.run_starting_server"),
             Mode::Remote(ip, _) => Text::key("launcher.run_starting_remote").arg("ip", ip),

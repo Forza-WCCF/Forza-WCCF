@@ -3426,6 +3426,7 @@ version = "0.6.1"
 dependencies = [
  "csv",
  "eframe",
+ "encoding_rs",
  "forza",
  "forza-server",
  "forza-ui",
