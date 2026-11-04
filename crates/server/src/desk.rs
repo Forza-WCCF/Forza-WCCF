@@ -930,9 +930,12 @@ fn read_notice(raw: &[u8]) -> Result<Notice, String> {
     use time::{OffsetDateTime, format_description::well_known::Rfc3339};
     let v: serde_json::Value = serde_json::from_slice(raw).map_err(|e| e.to_string())?;
     let when = |k: &str| {
+        // present but not an RFC 3339 string (a number, say): an error, never an open window
         v.get(k)
-            .and_then(serde_json::Value::as_str)
-            .map(|t| OffsetDateTime::parse(t, &Rfc3339).map_err(|e| format!("{k}: {e}")))
+            .map(|t| {
+                let t = t.as_str().ok_or(format!("{k}: not an RFC 3339 string"))?;
+                OffsetDateTime::parse(t, &Rfc3339).map_err(|e| format!("{k}: {e}"))
+            })
             .transpose()
             .map(|t| t.map(OffsetDateTime::unix_timestamp))
     };

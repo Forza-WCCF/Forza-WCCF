@@ -312,6 +312,9 @@ fn a_notice_file_rides_in_the_lobby_answer() {
     assert_eq!(notice(), None);
     write(r#"{"id":"n4","it":"Solo italiano"}"#.into());
     assert_eq!(notice(), None);
+    // an end that is not a date string: no notice, never one without an end
+    write(r#"{"id":"n6","en":"Forever?","end":1}"#.into());
+    assert_eq!(notice(), None);
     write(r#"{"id":"n5","en":"Grand Trophy open 24 h","end":"2999-01-01T00:00:00Z"}"#.into());
     assert_eq!(notice().unwrap().id, "n5");
     std::fs::remove_file(&file).unwrap();
