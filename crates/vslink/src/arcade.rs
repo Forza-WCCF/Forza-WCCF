@@ -378,9 +378,9 @@ enum End {
 }
 
 /// Copies `r` to `w` through `codec`, holding each chunk the test delay and at most [`STREAM_BUF`] bytes (as they
-/// are held: frames when packed, raw when unpacked); then shuts `w` down. Returns the bytes read and written; a
-/// stream over the limit or with a bad frame is logged and dropped at once (0 written). Nothing is spawned: dropping
-/// the future ends both halves.
+/// are held: frames when packed, raw when unpacked); then shuts `w` down. Returns the bytes read and written, both
+/// as far as a stream over the limit or with a bad frame got before it is logged and dropped there. Nothing is
+/// spawned: dropping the future ends both halves.
 async fn pipe<R, W>(
     mut r: R,
     mut w: W,
@@ -399,6 +399,7 @@ where
         mine: AtomicUsize::new(0),
     };
     let read = AtomicU64::new(0);
+    let written = AtomicU64::new(0);
     let (tx, mut rx) = mpsc::unbounded_channel::<(Instant, Vec<u8>)>();
     let reader = async {
         let tx = tx;
@@ -412,8 +413,13 @@ where
                         raw
                     }
                     Ok(None) => return End::Done,
-                    Err(e) if e.kind() == io::ErrorKind::InvalidData => return End::Bad(e),
-                    Err(_) => return End::Done,
+                    Err(e) => {
+                        read.store(unpacker.wire, Ordering::Relaxed); // a cut frame's bytes count too
+                        return match e.kind() {
+                            io::ErrorKind::InvalidData => End::Bad(e),
+                            _ => End::Done,
+                        };
+                    }
                 }
             } else {
                 let n = match r.read(&mut buf).await {
@@ -442,6 +448,7 @@ where
                 return n;
             }
             n += chunk.len() as u64;
+            written.store(n, Ordering::Relaxed);
             held.sub(chunk.len());
         }
         let _ = w.shutdown().await;
@@ -455,11 +462,17 @@ where
                 End::Done => reading = false, // the sender is gone: the writer drains, then shuts down
                 End::Over => {
                     log(&format!("{what}: more than {} MiB waiting to cross, closed", STREAM_BUF >> 20));
-                    return (read.load(Ordering::Relaxed), 0);
+                    return (
+                        read.load(Ordering::Relaxed),
+                        written.load(Ordering::Relaxed),
+                    );
                 }
                 End::Bad(e) => {
                     log(&format!("{what}: a bad frame from the other side ({e}), closed"));
-                    return (read.load(Ordering::Relaxed), 0);
+                    return (
+                        read.load(Ordering::Relaxed),
+                        written.load(Ordering::Relaxed),
+                    );
                 }
             },
             n = &mut writer => return (read.load(Ordering::Relaxed), n),
@@ -1153,6 +1166,65 @@ mod tests {
                 (6_251, 2_020)
             ),
             "guest 9581768412: control connection lz4: out 1.79 MB -> 41 KB, in 6 KB -> 2 KB"
+        );
+    }
+
+    /// A frame cut by the other side's end is a bad frame, not a half-close: the line names it, and the counts keep
+    /// what crossed before the drop.
+    #[tokio::test]
+    async fn a_cut_frame_is_logged_and_counted() {
+        let mut p = crate::pack::Packer::default();
+        let mut wire = p.pack(&[7u8; 4000]);
+        let first = wire.len();
+        let mut cut = p.pack(&[9u8; 4000]);
+        cut.truncate(cut.len() - 3); // the second frame's body, short
+        wire.extend_from_slice(&cut);
+        let (mut feed, rd) = tokio::io::duplex(64 << 10);
+        let (wr, mut down) = tokio::io::duplex(64 << 10);
+        let lines: Arc<Mutex<Vec<String>>> = Arc::default();
+        let log: Log = {
+            let lines = lines.clone();
+            Arc::new(move |s: &str| lines.lock().unwrap().push(s.to_owned()))
+        };
+        let budget = Arc::new(AtomicUsize::new(0));
+        let run = pipe(
+            rd,
+            wr,
+            Codec::Unpack,
+            Duration::ZERO,
+            budget.clone(),
+            "control connection".into(),
+            log,
+        );
+        // the cut frame only once the first one has crossed, so the counts are the ones the pipe returns with
+        let wire_len = wire.len() as u64;
+        let feed_it = async move {
+            feed.write_all(&wire[..first]).await.unwrap();
+            let mut got = [0u8; 4000];
+            down.read_exact(&mut got).await.unwrap();
+            assert!(got.iter().all(|&b| b == 7));
+            feed.write_all(&wire[first..]).await.unwrap();
+            drop(feed); // the other side hangs up inside the second frame
+            let mut rest = Vec::new();
+            down.read_to_end(&mut rest).await.unwrap();
+            rest
+        };
+        let (counts, rest) = tokio::join!(run, feed_it);
+        assert_eq!(
+            counts,
+            (wire_len, 4000),
+            "the cut frame's bytes count, the raw bytes it never brought do not"
+        );
+        assert!(rest.is_empty(), "the cut frame reached the game");
+        assert_eq!(budget.load(Ordering::Relaxed), 0, "nothing still held");
+        let lines = lines.lock().unwrap();
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(
+            lines[0].starts_with(
+                "control connection: a bad frame from the other side (frame cut after "
+            ),
+            "{}",
+            lines[0]
         );
     }
 
