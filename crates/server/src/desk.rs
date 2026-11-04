@@ -16,6 +16,7 @@ use crate::{Edition, Handle, Log};
 use forza::online::lobby::{
     self, Arcade, Created, Lobby, Occupant, Reserved, ServerNotice, State as ArcadeState, VsRoom,
 };
+use forza::online::sessions::Sessions;
 use forza::online::vs::Matcher;
 use forza::online::{Reply, SEATS, Want, seat};
 use regex::Regex;
@@ -108,6 +109,12 @@ pub struct DeskConfig {
     /// club there without a seat, and it replaces what the server kept for the card
     /// ([`forza::online::club::Store::import_public`]).
     pub club_public: bool,
+    /// The game server's open connections when they run together (`forza-server all`): 2017-18 players log in there
+    /// with a card and take no seat, so the lobby row counts their cards, and the desk logs a summary line every
+    /// [`DeskConfig::summary_every`] while anyone is on.
+    pub sessions: Option<Arc<Sessions>>,
+    /// 5 min.
+    pub summary_every: Duration,
     /// The operator's notice to players (`WCCF_NOTICE`, else `notice.json` in the data or store folder, `cli.rs`):
     /// JSON with `id`, `en`, optional `it`, `ja` and RFC 3339 `start`, `end` with an offset (the format and an
     /// example: `docs/SELF-HOSTING.md`). Read again when its time changes; missing or unreadable = no notice, and a
@@ -138,6 +145,8 @@ impl DeskConfig {
             tunnel: std::env::var("WCCF_DESK_TUNNEL").is_ok_and(|v| v == "1"),
             club_db: std::env::var_os("WCCF_CLUB_DB").map(PathBuf::from),
             club_public: false,
+            sessions: None,
+            summary_every: Duration::from_secs(300),
             notice: std::env::var_os("WCCF_NOTICE")
                 .filter(|v| !v.is_empty())
                 .map(PathBuf::from),
@@ -878,7 +887,11 @@ fn lobby_answer(sh: &Shared, ip: &str, edition: &str, out: &mut TcpStream) -> io
         let mut st = sh.state.lock().unwrap();
         expire(sh, &mut st, now);
         (
-            used(sh, &st).len() as u8,
+            // the larger, not the sum: one PC may hold a seat lease and a card on the game server
+            used(sh, &st)
+                .len()
+                .max(sh.cfg.sessions.as_ref().map_or(0, |s| s.cards()))
+                .min(SEATS.count()) as u8,
             st.rooms.iter().map(vs_room).collect(),
             st.arcades.listed(),
         )
@@ -1382,7 +1395,7 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
     ));
     let stop = Arc::new(AtomicBool::new(false));
     let mut threads = vec![];
-    let mut ticker = None;
+    let mut tickers = vec![];
     let hold_ip = sh
         .cfg
         .hold_file
@@ -1399,11 +1412,30 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
         };
         hold.tick(&sh); // at once: the box must not be the first in
         let (tx, rx) = mpsc::channel::<()>();
-        ticker = Some(tx);
+        tickers.push(tx);
         let (sh, every) = (sh.clone(), sh.cfg.hold_every);
         threads.push(thread::spawn(move || {
             while rx.recv_timeout(every) == Err(mpsc::RecvTimeoutError::Timeout) {
                 hold.tick(&sh);
+            }
+        }));
+    }
+    if let Some(sessions) = sh.cfg.sessions.clone() {
+        let (tx, rx) = mpsc::channel::<()>();
+        tickers.push(tx);
+        let (sh, every) = (sh.clone(), sh.cfg.summary_every);
+        threads.push(thread::spawn(move || {
+            while rx.recv_timeout(every) == Err(mpsc::RecvTimeoutError::Timeout) {
+                if let Some(line) = sessions.summary() {
+                    let (vs, arcades) = {
+                        let mut st = sh.state.lock().unwrap();
+                        expire(&sh, &mut st, Instant::now());
+                        (st.rooms.len(), st.arcades.len())
+                    };
+                    (sh.log)(&format!(
+                        "{line}; lobby: {vs} VS room(s), {arcades} arcade room(s)"
+                    ));
+                }
             }
         }));
     }
@@ -1446,7 +1478,7 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
             });
         }
     }));
-    Ok(Handle::new(addr, stop, true, threads, ticker))
+    Ok(Handle::new(addr, stop, true, threads, tickers))
 }
 
 #[cfg(test)]

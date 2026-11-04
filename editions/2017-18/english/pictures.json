@@ -221,5 +221,38 @@
    "labels": []},
   {"id": "rotate_button", "where": "uniform edit: the rotate button", "sha256": "2718E96CF3EBB0EF3C4C84931F10BA09DEF0A3087A1C9DF218A7D8763AB8A122", "files": ["data/sb_data/club_make/CL_UniformEdit/0809_CL_rotate_button.dds"], "style": {"core": "auto", "halo": null},
    "labels": [
-    {"box": [0, 16, 31, 30], "en": "Turn"}]}
+    {"box": [0, 16, 31, 30], "en": "Turn"}]},
+  {"id": "mng_dataview_ratings", "where": "Dati, record by area: the supporters' rating in each bubble (cells from the scene's crop list)", "sha256": "70341A355608361C5CE087063C814D4A8230EFEA601E0716769672E22048EAC4", "files": ["data/sb_data/management/MNG_DataView/MNG_DataView_Image_04.dds"], "style": {"core": "auto", "halo": null, "size": 12, "squeeze": 0.7}, "clear": [[0, 104, 97, 115], [0, 116, 108, 127]],
+   "labels": [
+    {"box": [1, 105, 28, 114], "en": "Elated!"},
+    {"box": [30, 105, 47, 114], "en": "Glad"},
+    {"box": [49, 105, 76, 114], "en": "Unsure"},
+    {"box": [79, 105, 96, 114], "en": "Cross", "squeeze": 0.6},
+    {"box": [1, 117, 30, 126], "en": "Furious"},
+    {"box": [32, 117, 57, 126], "en": "Gutted"},
+    {"box": [60, 117, 81, 126], "en": "Out!"},
+    {"box": [84, 117, 107, 126], "en": "Wanted"}]},
+  {"id": "mng_dataview_coachdata", "where": "Dati, record by area: the title and column headers (scene text, in place: no longer than the original bytes)", "sha256": "8F65D2B2693D14AEC617AE69A8BF2F6D6067C3EC3C567EA8FC775DE5247C0AFE", "files": ["data/sb_data/management/MNG_DataView/Scene_MNG_DataView_CoachData.sbscene"],
+   "labels": [
+    {"at": 66820, "len": 14, "en": "Record by area"},
+    {"at": 67590, "len": 4, "en": "Area"},
+    {"at": 67704, "len": 6, "en": "Titles"},
+    {"at": 67820, "len": 6, "en": "Wins"},
+    {"at": 67936, "len": 14, "en": "Fans"}]},
+  {"id": "mng_dataview_coachdata_asia", "where": "the same for the Asia variant", "sha256": "84372D696036A97330D44CD9F45FA7C4CB6A5FE91B8C919336E77C143DC6F2DD", "files": ["data/sb_data/management/MNG_DataView/Scene_MNG_DataView_CoachData_ASIA.sbscene"],
+   "labels": [
+    {"at": 64627, "len": 14, "en": "Record by area"},
+    {"at": 65397, "len": 4, "en": "Area"},
+    {"at": 65511, "len": 6, "en": "Titles"},
+    {"at": 65627, "len": 6, "en": "Wins"},
+    {"at": 65743, "len": 8, "en": "Fans"}]},
+  {"id": "agm_matchreport", "where": "locker room, match report: the header (two copies) and the team rating label (scene text, in place)", "sha256": "33334DC43D1F1555D3C4C56B984C4EE5D05CE9A8A6853AD6E90C2CEE388F1DBC", "files": ["data/sb_data/client_game/AGM_MatchReport/Scene_AGM_MatchReport.sbscene"],
+   "labels": [
+    {"at": 3679, "len": 14, "en": "Overall rating"},
+    {"at": 4390, "len": 8, "en": "Rating"},
+    {"at": 4730, "len": 8, "en": "Rating"}]},
+  {"id": "sys_wccfpoint_window", "where": "the WCCF points banner (locker room, continue screen): the two labels beside the numbers (scene text, in place)", "sha256": "AB40DADA2EA1EB6E6C92E58675C95B7517239F599571C3B17A3CFB22E9794077", "files": ["data/sb_data/client_system/SYS_Continue_info/Scene_SYS_Continue_info_window_WCCFPoint.sbscene"],
+   "labels": [
+    {"at": 7101, "len": 12, "en": "WCCF points"},
+    {"at": 7705, "len": 16, "en": "Match rating"}]}
  ]}

@@ -2201,29 +2201,29 @@ MAN_MATCH_report_team_enemy_0006	Sfida a un club rivale.
 MAN_MATCH_report_team_enemy_0007	Sfida a un avversario di pari livello.
 MAN_MATCH_report_team_enemy_0008	Sfida a una squadra di meta' classifica.
 MAN_MATCH_report_team_enemy_0009	Sfida a un avversario inferiore.
-MAN_MATCH_report_team_score_0000	Vittoria piena di gioia!
-MAN_MATCH_report_team_score_0001	Rimonta miracolosa e vittoria!
-MAN_MATCH_report_team_score_0002	Rimonta all'ultimo respiro!
-MAN_MATCH_report_team_score_0003	Vittoria in rimonta!
-MAN_MATCH_report_team_score_0004	Vittoria schiacciante!
-MAN_MATCH_report_team_score_0005	Porta inviolata!
-MAN_MATCH_report_team_score_0006	Vittoria difesa fino alla fine.
-MAN_MATCH_report_team_score_0007	Vittoria di misura.
-MAN_MATCH_report_team_score_0008	Vittoria.
-MAN_MATCH_report_team_score_0009	Vittoria dopo una dura battaglia.
-MAN_MATCH_report_team_score_0010	Pareggio agguantato a fatica.
-MAN_MATCH_report_team_score_0011	Non siamo riusciti a resistere.
-MAN_MATCH_report_team_score_0012	Sfida equilibrata.
-MAN_MATCH_report_team_score_0013	Sconfitta nonostante la lotta.
-MAN_MATCH_report_team_score_0014	Sconfitta amara.
-MAN_MATCH_report_team_score_0015	Sconfitta in rimonta, incredibile.
-MAN_MATCH_report_team_score_0016	Concentrazione venuta meno.
-MAN_MATCH_report_team_score_0017	Sconfitta in rimonta.
-MAN_MATCH_report_team_score_0018	Pesante sconfitta.
-MAN_MATCH_report_team_score_0019	Sconfitta netta.
-MAN_MATCH_report_team_score_0020	Buon inizio, ma finale amaro.
-MAN_MATCH_report_team_score_0021	Sconfitta di misura.
-MAN_MATCH_report_team_score_0022	Sconfitta.
+MAN_MATCH_report_team_score_0000	 Vittoria piena di gioia!
+MAN_MATCH_report_team_score_0001	 Rimonta miracolosa e vittoria!
+MAN_MATCH_report_team_score_0002	 Rimonta all'ultimo respiro!
+MAN_MATCH_report_team_score_0003	 Vittoria in rimonta!
+MAN_MATCH_report_team_score_0004	 Vittoria schiacciante!
+MAN_MATCH_report_team_score_0005	 Porta inviolata!
+MAN_MATCH_report_team_score_0006	 Vittoria difesa fino alla fine.
+MAN_MATCH_report_team_score_0007	 Vittoria di misura.
+MAN_MATCH_report_team_score_0008	 Vittoria.
+MAN_MATCH_report_team_score_0009	 Vittoria dopo una dura battaglia.
+MAN_MATCH_report_team_score_0010	 Pareggio agguantato a fatica.
+MAN_MATCH_report_team_score_0011	 Non siamo riusciti a resistere.
+MAN_MATCH_report_team_score_0012	 Sfida equilibrata.
+MAN_MATCH_report_team_score_0013	 Sconfitta nonostante la lotta.
+MAN_MATCH_report_team_score_0014	 Sconfitta amara.
+MAN_MATCH_report_team_score_0015	 Sconfitta in rimonta, incredibile.
+MAN_MATCH_report_team_score_0016	 Concentrazione venuta meno.
+MAN_MATCH_report_team_score_0017	 Sconfitta in rimonta.
+MAN_MATCH_report_team_score_0018	 Pesante sconfitta.
+MAN_MATCH_report_team_score_0019	 Sconfitta netta.
+MAN_MATCH_report_team_score_0020	 Buon inizio, ma finale amaro.
+MAN_MATCH_report_team_score_0021	 Sconfitta di misura.
+MAN_MATCH_report_team_score_0022	 Sconfitta.
 MAN_MATCH_report_team_perform_0000	Con un attacco di livello mondiale
 MAN_MATCH_report_team_perform_0001	Con un attacco strabordante
 MAN_MATCH_report_team_perform_0002	Con un attacco forte
@@ -2271,24 +2271,24 @@ MAN_MATCH_report_team_perform_0047	Con buoni recuperi palla
 MAN_MATCH_report_team_perform_0048	Con contrasti di livello mondiale
 MAN_MATCH_report_team_perform_0049	Con contrasti strabilianti
 MAN_MATCH_report_team_perform_0050	Con contrasti decisi
-MAN_MATCH_report_team_perform_0051	Dando l'anima
-MAN_MATCH_report_team_perform_0052	Pieni di grinta
-MAN_MATCH_report_team_perform_0053	Pieni di cuore
-MAN_MATCH_report_team_perform_0054	Mostrando quanto contasse questa gara
-MAN_MATCH_report_team_perform_0055	Mostrando la voglia di tutti
+MAN_MATCH_report_team_perform_0051	Dando l'anima,
+MAN_MATCH_report_team_perform_0052	Con una grinta da vendere
+MAN_MATCH_report_team_perform_0053	Con tanto cuore
+MAN_MATCH_report_team_perform_0054	Mostrando quanto contasse questa gara,
+MAN_MATCH_report_team_perform_0055	Mostrando la voglia di tutti,
 MAN_MATCH_report_team_perform_0056	Con una preparazione perfetta
 MAN_MATCH_report_team_perform_0057	Con grande concentrazione
 MAN_MATCH_report_team_perform_0058	Con parate super del portiere
 MAN_MATCH_report_team_perform_0059	Con un duello tattico di alto livello
 MAN_MATCH_report_team_perform_0060	Con la squadra in gran forma
-MAN_MATCH_report_team_value_0000	Ha incantato il mondo.
-MAN_MATCH_report_team_value_0001	Ha tenuto il mondo con il fiato sospeso.
-MAN_MATCH_report_team_value_0002	Ha incantato il pubblico.
-MAN_MATCH_report_team_value_0003	Ha tenuto il pubblico incollato.
-MAN_MATCH_report_team_value_0004	Ha fatto girare la testa agli avversari.
-MAN_MATCH_report_team_value_0005	Ha travolto gli avversari.
-MAN_MATCH_report_team_value_0006	Ha mostrato la sua forza.
-MAN_MATCH_report_team_value_0007	Ha regalato bei momenti.
+MAN_MATCH_report_team_value_0000	 ha incantato il mondo.
+MAN_MATCH_report_team_value_0001	 ha tenuto il mondo con il fiato sospeso.
+MAN_MATCH_report_team_value_0002	 ha incantato il pubblico.
+MAN_MATCH_report_team_value_0003	 ha tenuto il pubblico incollato.
+MAN_MATCH_report_team_value_0004	 ha fatto girare la testa agli avversari.
+MAN_MATCH_report_team_value_0005	 ha travolto gli avversari.
+MAN_MATCH_report_team_value_0006	 ha mostrato la sua forza.
+MAN_MATCH_report_team_value_0007	 ha regalato bei momenti.
 MAN_MATCH_report_team_advice_0000	La squadra e' stanca. Serve riposo.
 MAN_MATCH_report_team_advice_0001	La squadra e' stanca. Forse serve riposo.
 MAN_MATCH_report_team_advice_0002	Alcuni giocatori devono riposare.
@@ -2328,10 +2328,10 @@ MAN_MATCH_report_team_advice_0035	La potenza va migliorata ancora?
 MAN_MATCH_report_team_advice_0036	Migliorare la forza complessiva e' essenziale.
 MAN_MATCH_report_team_advice_0037	La forza complessiva va migliorata ancora?
 MAN_MATCH_report_team_advice_0038	Forse la fortuna non era dalla nostra?
-MAN_MATCH_report_player_perform_0000	Con una tripletta e
+MAN_MATCH_report_player_perform_0000	Con una tripletta
 MAN_MATCH_report_player_perform_0001	Con 2 gol
 MAN_MATCH_report_player_perform_0002	Con un gol splendido
-MAN_MATCH_report_player_perform_0003	Coinvolto in quasi tutti i gol
+MAN_MATCH_report_player_perform_0003	Coinvolto in quasi tutti i gol,
 MAN_MATCH_report_player_perform_0004	Con 2 assist
 MAN_MATCH_report_player_perform_0005	Con un assist splendido
 MAN_MATCH_report_player_perform_0006	Con un fiuto del tiro di livello mondiale
@@ -2376,36 +2376,36 @@ MAN_MATCH_report_player_perform_0047	Con coperture sicure
 MAN_MATCH_report_player_perform_0048	Con contrasti di livello mondiale
 MAN_MATCH_report_player_perform_0049	Con contrasti strabilianti
 MAN_MATCH_report_player_perform_0050	Con contrasti decisi
-MAN_MATCH_report_player_perform_0051	Dando l'anima
+MAN_MATCH_report_player_perform_0051	Dando l'anima,
 MAN_MATCH_report_player_perform_0052	Con grinta
 MAN_MATCH_report_player_perform_0053	Con cuore
 MAN_MATCH_report_player_perform_0056	Con movimenti scattanti
-MAN_MATCH_report_player_perform_0057	Chiudendo la porta e
-MAN_MATCH_report_player_perform_0058	Con una parata super dopo l'altra e
+MAN_MATCH_report_player_perform_0057	Chiudendo la porta,
+MAN_MATCH_report_player_perform_0058	Con una parata super dopo l'altra,
 MAN_MATCH_report_player_perform_0059	Con parate coraggiose
 MAN_MATCH_report_player_perform_0060	Con prese divine
 MAN_MATCH_report_player_perform_0061	Con prese sicurissime
 MAN_MATCH_report_player_perform_0062	Con prese sicure
 MAN_MATCH_report_player_perform_0063	Con grande concentrazione
-MAN_MATCH_report_player_perform_0064	Mostrando un bel gioco e
+MAN_MATCH_report_player_perform_0064	Mostrando un bel gioco,
 MAN_MATCH_report_player_perform_0065	Con ottimo giudizio
 MAN_MATCH_report_player_perform_0066	Con un gioco brillante
-MAN_MATCH_report_player_value_0000	Ha incantato il mondo.
-MAN_MATCH_report_player_value_0001	Ha tenuto il mondo con il fiato sospeso.
-MAN_MATCH_report_player_value_0002	Ha mostrato un altro livello.
-MAN_MATCH_report_player_value_0003	Ha entusiasmato chi guardava.
-MAN_MATCH_report_player_value_0004	Ha ripagato la fiducia della squadra.
-MAN_MATCH_report_player_value_0005	Grande contributo alla squadra.
-MAN_MATCH_report_player_value_0006	Si e' distinto dagli altri.
-MAN_MATCH_report_player_value_0007	Ha mostrato grande presenza.
-MAN_MATCH_report_player_value_0008	Ha portato risultati.
-MAN_MATCH_report_player_value_0009	Ha dato il suo apporto.
-MAN_MATCH_report_player_value_0010	Ha spronato i compagni.
-MAN_MATCH_report_player_value_0011	Ha guidato la squadra.
-MAN_MATCH_report_player_value_0012	Ha fatto la partita.
-MAN_MATCH_report_player_value_0013	Ha creato il ritmo.
-MAN_MATCH_report_player_value_0014	Ha fatto il suo dovere.
-MAN_MATCH_report_player_value_0015	Ha mostrato i suoi pregi.
+MAN_MATCH_report_player_value_0000	 ha incantato il mondo.
+MAN_MATCH_report_player_value_0001	 ha tenuto il mondo con il fiato sospeso.
+MAN_MATCH_report_player_value_0002	 ha mostrato un altro livello.
+MAN_MATCH_report_player_value_0003	 ha entusiasmato chi guardava.
+MAN_MATCH_report_player_value_0004	 ha ripagato la fiducia della squadra.
+MAN_MATCH_report_player_value_0005	 ha dato un grande contributo alla squadra.
+MAN_MATCH_report_player_value_0006	 si e' distinto dagli altri.
+MAN_MATCH_report_player_value_0007	 ha mostrato grande presenza.
+MAN_MATCH_report_player_value_0008	 ha portato risultati.
+MAN_MATCH_report_player_value_0009	 ha dato il suo apporto.
+MAN_MATCH_report_player_value_0010	 ha spronato i compagni.
+MAN_MATCH_report_player_value_0011	 ha guidato la squadra.
+MAN_MATCH_report_player_value_0012	 ha fatto la partita.
+MAN_MATCH_report_player_value_0013	 ha creato il ritmo.
+MAN_MATCH_report_player_value_0014	 ha fatto il suo dovere.
+MAN_MATCH_report_player_value_0015	 ha mostrato i suoi pregi.
 MAN_MATCH_report_player_advice_0000	E' stanco. Serve riposo.
 MAN_MATCH_report_player_advice_0001	E' stanco. Serve riposo.
 MAN_MATCH_report_player_advice_0002	Recuperare la condizione e' essenziale.
@@ -5066,7 +5066,7 @@ INF_COACH_choices_0017	Coach generico
 INF_COACH_choices_0018	Coach generico
 INF_COACH_choices_0019	Coach generico
 INF_COACH_choices_0020	Coach generico
-INF_COACH_choices_0021	Si puo' nominare un coach. Fallo $c[FF6633FF]entro 40 secondi dal calcio d'inizio$c.
+INF_COACH_choices_0021	Si puo' nominare un coach. Fallo $c[FF6633FF]almeno 40 secondi prima del calcio d'inizio$c.
 INF_COACH_choices_0022	Abilita' coach attacco
 INF_COACH_choices_0023	Abilita' coach difesa
 INF_COACH_choices_0024	Abilita' coach tecnica
@@ -6345,7 +6345,7 @@ INF_LEAGUE_message_0000	Campionato regolare %s: %s Complimenti.\nDi conseguenza 
 INF_LEAGUE_message_0001	Campionato regolare %s: dopo il risultato %s,\nla squadra e' $c[66CCFFFF]retrocessa$c in %s.
 INF_LEAGUE_message_0002	Con la $c[FF0000FF]retrocessione$c in %s,\nabbiamo perso il posto in %s.
 INF_OFFER_message_0000	□Un club interessato alla tua carriera ti ha mandato un'$c[FF0000FF]offerta$c
-INF_OFFER_message_0002	Un'offerta da un club del Campionato regolare %s\ncon sede a $c[FF0000FF]%s$c.
+INF_OFFER_message_0002	Un'offerta da un club con sede a $c[FF0000FF]%s$c\ndel Campionato regolare %s.
 INF_057_message_0000	Grazie per aver partecipato all'Area Championship.\nContiamo su di te anche la prossima volta.
 INF_057_TOPICS_title_0000	Ristrutturazione stadio
 INF_062_message_0001	Per fare il nuovo allenamento,\nscegli $c[FF0000FF]"Allenamento speciale"$c in Allenamento di squadra.
@@ -6576,7 +6576,7 @@ CLM_CUNIFORM2_message_0000	Scegli la 2a divisa.
 CLM_CEMBLEM_message_0000	Scegli lo stemma. 
 MAKE_area_007	Americhe
 INF_PARTNER_message_0005	Vuole affrontare una nuova squadra con te.\nAnche nel nuovo posto mostrera' $c[FF6633FF]la forza maturata con l'esperienza$c.
-INF_SPONSOR_message_0001	%s "%s" di $c[FF0000FF]%s$c.\nEffetto oggetto sponsor: $c[FF0000FF]%s$c
+INF_SPONSOR_message_0001	$c[FF0000FF]%s$c: %s "%s".\nEffetto oggetto sponsor: $c[FF0000FF]%s$c
 INF_FRIENDTRAINING_message_0000	$c[FF0000FF]%s$c e' venuto ad aiutare l'allenamento di squadra.\nEffetti positivi su $c[FF0000FF]"%s", "%s" e "%s"$c.
 INF_FRIENDOFFER_message_0000	$c[FF0000FF]%s$c ti ha segnalato un'offerta.\nControlla l'offerta segnalata nell'elenco offerte.
 INF_CONTRACT_message_0001	□La tua abilita' e' stata riconosciuta e il contratto e' esteso di $c[FF0000FF]%d partite$c
@@ -7164,12 +7164,12 @@ MAN_ACTION_message_0023	Dati intesa: controlla le intese di squadra.
 MAN_ACTION_message_0024	In Infermeria.
 MAN_ENTRY_contents_0000	Centrale
 MAN_ENTRY_contents_0001	Ala destra
-MAN_ENTRY_contents_0002	Possesso
+MAN_ENTRY_contents_0002	Pressing
 MAN_ENTRY_contents_0003	Ala sinistra
 MAN_ENTRY_contents_0004	Contropiede
 MAN_ENTRY_contents_0005	Centrale
 MAN_ENTRY_contents_0006	Ala destra
-MAN_ENTRY_contents_0007	Possesso
+MAN_ENTRY_contents_0007	Pressing
 MAN_ENTRY_contents_0008	Ala sinistra
 MAN_ENTRY_contents_0009	Contropiede
 MAN_ENTRY_message_0008	REGOLE ISCRIZIONE AREA CHAMPIONSHIP
@@ -7517,7 +7517,7 @@ TRA_RESULT_message_0004	I giocatori valgono molto di piu'.\nAspettiamoci di piu'
 TRA_RESULT_message_0020	Il nostro attacco e' molto piu' forte.\nGli altri ci temeranno.
 TRA_RESULT_message_0021	Il nostro attacco e' discreto.\nCreeremo piu' occasioni.
 TRA_RESULT_message_0022	Il nostro attacco migliora piano piano.\nPuntiamo ancora piu' in alto.
-TRA_RESULT_message_0023	Il loro attacco e' al livello minimo.\nDeve cercare di migliorarli.
+TRA_RESULT_message_0023	Il nostro attacco e' ai minimi.\nDobbiamo solo allenarci duro.
 TRA_RESULT_message_0026	Il nostro possesso palla e' molto meglio.\nGli altri ci temeranno.
 TRA_RESULT_message_0027	Il nostro possesso palla e' discreto.\nLa manovra dovrebbe stabilizzarsi.
 TRA_RESULT_message_0028	Il possesso palla migliora piano piano.\nPuntiamo ancora piu' in alto.
@@ -7953,25 +7953,25 @@ COM_DISCONTENT_choices_0023	Insisti sulla tattica
 COM_DISCONTENT_choices_0024	Chiedi al coach
 COM_DISCONTENT_choices_0025	Ascoltalo
 COM_DISCONTENT_choices_0026	Esponi la tua
-COM_DISCONTENT_choices_0027	Chiedigli che fare
-COM_DISCONTENT_choices_0028	Schieralo
-COM_DISCONTENT_choices_0029	Non schierarlo
-COM_DISCONTENT_choices_0030	Una pacca sulla testa
+COM_DISCONTENT_choices_0027	Consiglia la cessione
+COM_DISCONTENT_choices_0028	Non adatto alla tattica
+COM_DISCONTENT_choices_0029	Non e' all'altezza
+COM_DISCONTENT_choices_0030	E' un'arma segreta
 COM_DISCONTENT_choices_0031	Incoraggialo
 COM_DISCONTENT_choices_0032	Urlagli contro
 COM_DISCONTENT_choices_0033	Chiedi cosa c'e'
 COM_DISCONTENT_choices_0034	Pensaci su
 COM_DISCONTENT_choices_0035	Rifiuta
-COM_DISCONTENT_choices_0036	Invitalo fuori
+COM_DISCONTENT_choices_0036	Affidagli una commissione
 COM_DISCONTENT_choices_0037	Pensaci su
 COM_DISCONTENT_choices_0038	Rifiuta
-COM_DISCONTENT_choices_0039	Invitalo fuori
+COM_DISCONTENT_choices_0039	Affidagli una commissione
 COM_DISCONTENT_choices_0040	Pensaci su
-COM_DISCONTENT_choices_0041	Rifiuta
+COM_DISCONTENT_choices_0041	Spiega il motivo
 COM_DISCONTENT_choices_0042	Lascialo fuori
-COM_DISCONTENT_choices_0043	Rifiuta
-COM_DISCONTENT_choices_0044	Accetta
-COM_DISCONTENT_choices_0045	Insultalo
+COM_DISCONTENT_choices_0043	Trattienilo
+COM_DISCONTENT_choices_0044	Trovagli un club
+COM_DISCONTENT_choices_0045	Sfogati con lui
 COM_DISCONTENT_choices_0046	Vai con lui
 COM_DISCONTENT_choices_0047	Non andare
 COM_DISCONTENT_choices_0048	Raggiungilo dopo
@@ -7979,10 +7979,10 @@ COM_DISCONTENT_choices_0049	Si', credo di si'
 COM_DISCONTENT_choices_0050	No, non lo e'
 COM_DISCONTENT_choices_0051	Ci penso
 COM_DISCONTENT_choices_0052	Pensaci su
-COM_DISCONTENT_choices_0053	Rifiuta
+COM_DISCONTENT_choices_0053	Spiega il motivo
 COM_DISCONTENT_choices_0054	Lascialo fuori
 COM_DISCONTENT_choices_0055	Pensaci su
-COM_DISCONTENT_choices_0056	Rifiuta
+COM_DISCONTENT_choices_0056	Convincilo
 COM_DISCONTENT_choices_0057	Fallo aspettare
 COM_DISCONTENT_choices_0058	Vinci ancora
 COM_DISCONTENT_choices_0059	Resta calmo
@@ -8030,7 +8030,7 @@ COM_DISCONTENT_answer_0047	Grazie al coach, ora capisce la Sua tattica.\nI dubbi
 COM_DISCONTENT_answer_0049	Sembra contento che Lei ascolti i giocatori.\nSembra aver capito anche la Sua tattica.
 COM_DISCONTENT_answer_0051	Sembra capire il Suo punto di vista.\nAvete fatto un passo avanti.
 COM_DISCONTENT_answer_0053	Sembra contento che Lei dia peso alla sua opinione.\nE' riuscito a creare un legame con lui.
-COM_DISCONTENT_answer_0055	Sembra molto contento che Lei\nlo schieri in partita.
+COM_DISCONTENT_answer_0055	Ora sa perche' non gioca ed e' sereno.\nD'ora in poi lavorera' per la squadra.
 COM_DISCONTENT_answer_0057	Sembra essersi accesa in lui una nuova determinazione.\nDa ora si allenera' di sicuro con piu' impegno.
 COM_DISCONTENT_answer_0059	Sembra un po' imbarazzato, ma contento.
 COM_DISCONTENT_answer_0061	Il Suo incoraggiamento sembra aver funzionato.
@@ -8978,7 +8978,7 @@ COM_NEW_LOUNGE_answer_0005_02	Conoscersi e' importante.\nLa loro intesa e' cresc
 COM_NEW_LOUNGE_answer_0005_03	Divertirsi non li fara' migliorare.\nEntrambi restano pensierosi.
 COM_NEW_LOUNGE_answer_0005_04	Non serve spiegare sempre tutto.\nIl Suo silenzio li ha fatti parlare e avvicinare.
 COM_NEW_LOUNGE_answer_0005_05	Speravano in un consiglio...\nEntrambi restano pensierosi.
-COM_NEW_LOUNGE_choices_0006_00	Falli esercitare in
+COM_NEW_LOUNGE_choices_0006_00	Falli allenare insieme
 COM_NEW_LOUNGE_choices_0006_01	Andate a divertirvi
 COM_NEW_LOUNGE_choices_0006_02	Rinuncia alla coppia
 COM_NEW_LOUNGE_answer_0006_00	La pratica e' fondamentale.\nLa loro intesa e' cresciuta.
@@ -8987,7 +8987,7 @@ COM_NEW_LOUNGE_answer_0006_02	Divertirsi li aiuta a conoscersi.\nBel consiglio: 
 COM_NEW_LOUNGE_answer_0006_03	Divertirsi non li fara' migliorare.\nEntrambi restano pensierosi.
 COM_NEW_LOUNGE_answer_0006_04	Invece li ha carichi.\nHanno parlato e si sono avvicinati.
 COM_NEW_LOUNGE_answer_0006_05	Mollare non porta a nulla.\nEntrambi restano pensierosi.
-COM_NEW_LOUNGE_choices_0007_00	Falli esercitare in
+COM_NEW_LOUNGE_choices_0007_00	Falli allenare insieme
 COM_NEW_LOUNGE_choices_0007_01	Andate a divertirvi
 COM_NEW_LOUNGE_choices_0007_02	Rinuncia alla coppia
 COM_NEW_LOUNGE_answer_0007_00	La pratica e' fondamentale.\nLa loro intesa e' cresciuta.
@@ -9981,9 +9981,9 @@ PRO_PRO_condition_0017	Regole di iscrizione
 PRO_PRO_condition_0023	Titoli vinti
 PRO_PRO_condition_0026	Giocato in 1a Divisione
 PRO_PRO_condition_0027	Vincitore Nations Cup
-PRO_PRO_seat_0000	Non disponibile
+PRO_PRO_seat_0000	Iscrizione confermata
 PRO_PRO_seat_0001	Non iscrivibile
-PRO_PRO_seat_0002	Non disponibile
+PRO_PRO_seat_0002	Iscrizione in attesa
 PRO_PRO_seat_0003	Iscrizioni aperte
 PRO_PRO_seat_0004	Qualificato
 PRO_PRO_seat_0005	Perso
@@ -11009,12 +11009,12 @@ MAN_MANAGER_contents_0004	S%d
 MAN_MANAGER_contents_0005	P%d
 MAN_MATCH_report_player_perform_0054	-
 MAN_MATCH_report_player_perform_0055	-
-MAN_MATCH_report_player_value_0016	-
+MAN_MATCH_report_player_value_0016	 -
 MAN_MATCH_report_team_perform_0033	-
 MAN_MATCH_report_team_perform_0034	-
 MAN_MATCH_report_team_perform_0036	-
 MAN_MATCH_report_team_perform_0037	-
-MAN_MATCH_report_team_value_0008	-
+MAN_MATCH_report_team_value_0008	 -
 MAN_PRIZE_value_0001	$%d00
 MAN_PRIZE_value_0002	<empty>
 MAN_TEAM_contents_0000	$%dM+$%d00

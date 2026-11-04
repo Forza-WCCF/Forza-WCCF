@@ -103,13 +103,7 @@ pub fn setting(path: &Path, key: &str) -> Option<String> {
     json[key].as_str().map(str::to_owned)
 }
 
-/// settings.json "projector" (2017-18, default on): start this PC's projector, whose CPU championship then runs
-/// in the background; off starts no projector at all.
-pub const PROJECTOR: &str = "projector";
-
-pub fn projector_on(settings: &Value) -> bool {
-    settings[PROJECTOR].as_bool() != Some(false)
-}
+pub use forza::kit::{CPU_CHAMPIONSHIP, PROJECTOR, cpu_championship_on, projector_shown};
 
 pub use forza::panel_txt::valid_address;
 
@@ -247,11 +241,11 @@ mod tests {
         let path = dir.join("settings.json");
         let saved = |p: &Path| serde_json::from_str::<Value>(&read(p)).unwrap();
         write(&path, r#"{"game": "D:\\WCCF"}"#).unwrap();
-        assert!(projector_on(&saved(&path)));
+        assert!(projector_shown(&saved(&path)));
         set_setting_bool(&path, PROJECTOR, false).unwrap();
-        assert!(!projector_on(&saved(&path)));
+        assert!(!projector_shown(&saved(&path)));
         set_setting_bool(&path, PROJECTOR, true).unwrap();
-        assert!(projector_on(&saved(&path)));
+        assert!(projector_shown(&saved(&path)));
         let _ = fs::remove_dir_all(&dir);
     }
 

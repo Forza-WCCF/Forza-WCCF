@@ -31,6 +31,9 @@ same-file = "1.0.6"
 # one player's cards across seasons: names spelt with and without accents (Petr CECH / Petr ČECH)
 deunicode = "1.6.2"
 time = { version = "0.3.55", features = ["local-offset"] }
+# the Grand Trophy week (GAME_CTRL 7,620) rolls on Sunday 23:00 Italian time, summer time included
+chrono = { version = "0.4.45", default-features = false }
+chrono-tz = "0.10.4"
 # the game text (forza::text): the printf/$ codes of a line, and the Latin spelling of player names
 regex = { version = "1.13.1", optional = true }
 unicode-normalization = { version = "0.1.25", optional = true }

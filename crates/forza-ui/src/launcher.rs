@@ -64,6 +64,8 @@ pub enum Action {
     SkipTutorial,
     /// The projector switch changed.
     Projector,
+    /// The CPU championship switch changed.
+    CpuChampionship,
     /// The direct VS link switch changed.
     VsLink,
     /// UPDATE to the release at this place in the list: Launcher.exe asks to confirm.
@@ -156,8 +158,10 @@ pub struct LauncherState {
     pub pictures_hq: bool,
     /// The skip-the-tutorial switch (2017–18 only).
     pub skip_tutorial: Option<bool>,
-    /// The projector switch: this PC's projector and its CPU championship (2017–18 only).
+    /// The projector switch: its window shown (2017–18 only).
     pub projector: Option<bool>,
+    /// The CPU championship switch: the projector program runs, shown or hidden (2017–18 only).
+    pub cpu_championship: Option<bool>,
     /// The club server, "HOST" or "HOST:PORT", empty for this PC (2017–18 only; saved at PLAY).
     pub club_server: Option<String>,
     /// The direct VS link switch, for club-server runs (2017–18 only).
@@ -256,6 +260,7 @@ impl LauncherState {
             pictures_hq: false,
             skip_tutorial: None,
             projector: None,
+            cpu_championship: None,
             club_server: None,
             vs_link: None,
             updates: edition == Edition::E1011,
@@ -287,6 +292,7 @@ impl LauncherState {
             st.folder = r"C:\Games\Forza-WCCF\2017-2018".into();
             st.skip_tutorial = Some(true);
             st.projector = Some(true);
+            st.cpu_championship = Some(true);
             st.club_server = Some(String::new());
             st.vs_link = Some(true);
         }
@@ -727,6 +733,17 @@ fn setup(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Actio
             .clicked()
         {
             *act = Some(Action::Projector);
+        }
+        if let Some(on) = &mut st.cpu_championship
+            && toggle_row(
+                ui,
+                on,
+                &tr!(lang, "launcher.cpu_championship"),
+                &tr!(lang, "launcher.cpu_championship_hint"),
+            )
+            .clicked()
+        {
+            *act = Some(Action::CpuChampionship);
         }
     });
 }
