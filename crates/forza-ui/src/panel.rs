@@ -121,6 +121,10 @@ const SIDE_GAP: f32 = 16.0;
 const SIDE_UNDER: f32 = 8.0;
 /// The popped-out game window's toast line, between the picture and the page bar.
 const SIDE_TOAST: f32 = 48.0;
+/// The game page's message line: as wide as this on the 1440x900 sheet, and one line ([`NOTE_LINE`]) high; a longer
+/// text wraps and [`note_height`] makes the toast taller.
+const NOTE_TOAST: f32 = 520.0;
+const NOTE_LINE: f32 = 34.0;
 /// The popped-out game window's right column: at least this wide (the deck about 1.3 times its size, a card's large
 /// pane fits).
 const SIDE_COLUMN: f32 = 440.0;
@@ -1384,7 +1388,8 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
     let compact = st.file.compact && !side;
     if st.page == Page::Game {
         // a toast in the gap above the deck row when there is one, else over the picture's lower edge (popped out:
-        // over the page bar)
+        // over the page bar); its foot stays put and a wrapped text makes it grow up over the picture, so the deck
+        // and the page bar never cover it
         let gap = (deck.height() - ROW.y) / 2.0;
         let (x, y) = if side {
             (tabs.center().x, tabs.top() - SIDE_TOAST / 2.0)
@@ -1393,7 +1398,10 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
         } else {
             (deck.center().x, pic.bottom() - 30.0)
         };
-        let r = Rect::from_center_size(pos2(x, y), vec2(520.0, 34.0));
+        let foot = y + NOTE_LINE / 2.0;
+        let h = note_height(ui.ctx(), st.message.as_ref(), NOTE_TOAST)
+            .min((foot - area.top()).max(NOTE_LINE));
+        let r = Rect::from_center_size(pos2(x, foot - h / 2.0), vec2(NOTE_TOAST, h));
         ui.scope_builder(egui::UiBuilder::new().max_rect(r), |ui| {
             note_line(ui, &mut st.message)
         });
@@ -3092,6 +3100,20 @@ fn rarity_key(r: Rarity) -> &'static str {
         Rarity::Rare => "cat.rare",
         Rarity::Special => "cat.special",
         Rarity::Regular => "cat.regular",
+    }
+}
+
+/// The message line's height for `message` at `width`: one line is [`NOTE_LINE`]; a text wrapping to more lines adds
+/// each row, so the whole text stays on screen. Same font and margins as [`status_line`].
+fn note_height(ctx: &egui::Context, message: Option<&Note>, width: f32) -> f32 {
+    let Some(n) = message else { return NOTE_LINE };
+    let [left, right, top, bottom] = widgets::STATUS_LINE_MARGIN.map(f32::from);
+    let wrap = width - left - right;
+    let g = ctx.fonts_mut(|f| f.layout(n.text.clone(), theme::body(14.0), theme::TEXT, wrap));
+    if g.rows.len() <= 1 {
+        NOTE_LINE
+    } else {
+        g.size().y + top + bottom
     }
 }
 
@@ -4977,6 +4999,53 @@ mod tests {
     use super::*;
     use crate::board::Aptitude;
     use forza::cards::BENCH_X;
+
+    /// The longest text the server sends (160 characters) must not be cut off on the game page's one-line toast: it
+    /// wraps, and the toast grows to hold every row.
+    #[test]
+    fn a_long_notice_grows_the_toast_instead_of_running_under_the_deck() {
+        let ctx = egui::Context::default();
+        theme::install(&ctx, Edition::E1718, &theme::font_dir())
+            .expect("the fonts in assets/fonts");
+        // the font atlas is a texture delta kittest would upload; the layout needs a frame's fonts
+        ctx.run_ui(Default::default(), |_| {})
+            .textures_delta
+            .clear();
+        let one = Note::long(
+            Tone::Notice,
+            "Server update at 23:00 CET, about 10 minutes.".into(),
+        );
+        assert_eq!(note_height(&ctx, Some(&one), NOTE_TOAST), NOTE_LINE);
+        assert_eq!(note_height(&ctx, None, NOTE_TOAST), NOTE_LINE);
+        let text: String =
+            "The server updates tonight at 23:00 CET and is back after about ten minutes. "
+                .chars()
+                .cycle()
+                .take(forza::online::lobby::NOTICE_TEXT_LEN)
+                .collect();
+        let long = Note::long(Tone::Notice, text.clone());
+        let [left, right, top, bottom] = widgets::STATUS_LINE_MARGIN.map(f32::from);
+        let g = ctx.fonts_mut(|f| {
+            f.layout(
+                text,
+                theme::body(14.0),
+                theme::TEXT,
+                NOTE_TOAST - left - right,
+            )
+        });
+        assert!(
+            g.rows.len() >= 3,
+            "{} rows at the toast's width, {} points high",
+            g.rows.len(),
+            g.size().y
+        );
+        let h = note_height(&ctx, Some(&long), NOTE_TOAST);
+        assert!(
+            h >= g.size().y + top + bottom,
+            "{h} does not hold the {}-row text",
+            g.rows.len()
+        );
+    }
 
     fn sheet_of(w: f32, h: f32) -> Rect {
         // what a window of w x h pixels shows, in points

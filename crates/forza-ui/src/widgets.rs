@@ -603,17 +603,21 @@ pub fn tone_icon(p: &Painter, c: Pos2, tone: Tone) {
     }
 }
 
+/// The room [`status_line`] takes around its text: left (the mark's place), right, top and bottom.
+pub const STATUS_LINE_MARGIN: [i8; 4] = [34, 10, 7, 7];
+
 /// One message line: a tone bar, a mark and the text (wrapped if it must).
 pub fn status_line(ui: &mut Ui, tone: Tone, text: &str) -> Response {
     let col = tone.color();
+    let [left, right, top, bottom] = STATUS_LINE_MARGIN;
     let r = egui::Frame::new()
         .fill(col.gamma_multiply(0.12))
         .corner_radius(theme::RADIUS)
         .inner_margin(egui::Margin {
-            left: 34,
-            right: 10,
-            top: 7,
-            bottom: 7,
+            left,
+            right,
+            top,
+            bottom,
         })
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
