@@ -1027,9 +1027,12 @@ pub struct Run<'a> {
     /// When the start began, and the setup and guard checks' end (logged once the log folder is rotated).
     t0: Instant,
     early: [Duration; 2],
-    /// 2017-18: the Universal Championship's day file as last read (its time), and the date whose notice was given.
+    /// 2017-18: the Universal Championship's day file as last read (its time), and the date already looked at.
     uc_seen: Option<SystemTime>,
     uc_told: Option<u32>,
+    /// The projector program runs (2017-18: the CPU championship is on, and this PC holds the projector). Its window
+    /// may be hidden: the championship plays unseen then.
+    projector: bool,
     _lock: OwnedHandle,
 }
 
@@ -1151,6 +1154,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         early,
         uc_seen: None,
         uc_told: None,
+        projector: false,
         _lock: lock,
     };
     // requests left by a run that ended are never carried out
@@ -1774,6 +1778,7 @@ impl Run<'_> {
         if self.mode.is_server() {
             return self.start_server_side();
         }
+        self.projector = projector;
 
         if projector {
             let args = p.projector_args.clone().unwrap_or_else(|| vec!["0".into()]);
@@ -2559,7 +2564,10 @@ impl Run<'_> {
         // the winner alone is written as the cup's final ends, and the championship opens at the next slot (2-3 min
         // later); all four teams are written as it opens
         let opens = at + Duration::from_secs(if teams.len() < 4 { 180 } else { 0 });
-        self.tell("", &championship_notice(opens));
+        // the notice sends the player to the big screen: tell it only when the projector runs with its window shown
+        if self.projector && choices::projector_shown(&self.kit.settings()) {
+            self.tell("", &championship_notice(opens));
+        }
         crate::logs::append(&self.logs().join("run_launcher.txt"), &championship_line(&self.game));
     }
 
