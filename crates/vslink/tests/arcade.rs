@@ -645,6 +645,8 @@ fn new_and_new_compress() {
         &p.join_log,
         "control connection closed (260000 bytes out, 260000 in)",
     );
+    // the lz4 line is the next one out: wait for it rather than race the two log calls
+    wait_logged(&p.join_log, "control connection lz4: out 260 KB -> ");
     let line = p
         .join_log
         .lock()
