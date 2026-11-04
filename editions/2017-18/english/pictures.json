@@ -221,5 +221,15 @@
    "labels": []},
   {"id": "rotate_button", "where": "uniform edit: the rotate button", "sha256": "2718E96CF3EBB0EF3C4C84931F10BA09DEF0A3087A1C9DF218A7D8763AB8A122", "files": ["data/sb_data/club_make/CL_UniformEdit/0809_CL_rotate_button.dds"], "style": {"core": "auto", "halo": null},
    "labels": [
-    {"box": [0, 16, 31, 30], "en": "Turn"}]}
+    {"box": [0, 16, 31, 30], "en": "Turn"}]},
+  {"id": "mng_dataview_ratings", "where": "Dati, record by area: the supporters' rating in each bubble (cells from the scene's crop list)", "sha256": "70341A355608361C5CE087063C814D4A8230EFEA601E0716769672E22048EAC4", "files": ["data/sb_data/management/MNG_DataView/MNG_DataView_Image_04.dds"], "style": {"core": "auto", "halo": null, "size": 12, "squeeze": 0.7}, "clear": [[0, 104, 97, 115], [0, 116, 108, 127]],
+   "labels": [
+    {"box": [1, 105, 28, 114], "en": "Elated!"},
+    {"box": [30, 105, 47, 114], "en": "Glad"},
+    {"box": [49, 105, 76, 114], "en": "Unsure"},
+    {"box": [79, 105, 96, 114], "en": "Cross", "squeeze": 0.6},
+    {"box": [1, 117, 30, 126], "en": "Furious"},
+    {"box": [32, 117, 57, 126], "en": "Gutted"},
+    {"box": [60, 117, 81, 126], "en": "Out!"},
+    {"box": [84, 117, 107, 126], "en": "Wanted"}]}
  ]}
