@@ -530,7 +530,59 @@ pub fn send_key(vk: u32, up: bool, log: impl Fn(&str)) {
 
 #[cfg(test)]
 mod tests {
-    use super::close_reason;
+    use super::{Files, close_reason};
+    use forza_ui::theme::Edition;
+    use std::path::{Path, PathBuf};
+
+    /// A data folder of this test's own and the `Files` that write there.
+    fn files(tag: &str) -> (Files, PathBuf) {
+        let d = std::env::temp_dir().join(format!("forza-panel-kit-{}-{tag}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let files = Files {
+            edition: Edition::E1718,
+            data: d.clone(),
+            catalogue: d.join("catalogue.tsv"),
+            cards: d.join("cards"),
+            keys: d.join("keys.txt"),
+        };
+        (files, d)
+    }
+
+    /// settings.json as it was written.
+    fn saved(dir: &Path) -> serde_json::Value {
+        serde_json::from_slice(&std::fs::read(dir.join("settings.json")).unwrap()).unwrap()
+    }
+
+    /// The old combined switch was off: turning the window on leaves the championship off, as it was.
+    #[test]
+    fn saving_the_projector_pins_the_championship_from_the_old_switch() {
+        let (files, d) = files("pinned");
+        std::fs::write(d.join("settings.json"), r#"{"projector": false}"#).unwrap();
+        files.save_projector(true).unwrap();
+        assert_eq!(
+            saved(&d),
+            serde_json::json!({"projector": true, "cpu_championship": false})
+        );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// The keys apart: saving the window leaves the championship, the game and every other key as they were.
+    #[test]
+    fn saving_the_projector_keeps_the_championship_and_the_other_keys() {
+        let (files, d) = files("kept");
+        std::fs::write(
+            d.join("settings.json"),
+            r#"{"projector": false, "cpu_championship": true, "game": "x"}"#,
+        )
+        .unwrap();
+        files.save_projector(false).unwrap();
+        assert_eq!(
+            saved(&d),
+            serde_json::json!({"projector": false, "cpu_championship": true, "game": "x"})
+        );
+        let _ = std::fs::remove_dir_all(&d);
+    }
 
     #[test]
     fn a_dropped_link_says_who_closed_it() {
