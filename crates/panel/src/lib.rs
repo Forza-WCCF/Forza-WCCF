@@ -47,6 +47,7 @@ use forza_ui::panel::{self, PanelState};
 use forza_ui::theme;
 use std::cell::Cell;
 use std::ffi::c_void;
+use std::io::Read as _;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{
@@ -2432,15 +2433,29 @@ impl Render {
         let path = f.data.join("notice.json");
         let st = stamp(&path);
         if st != self.notice_stamp {
-            let read = std::fs::read(&path)
-                .ok()
-                .and_then(|b| serde_json::from_slice::<ServerNotice>(&b).ok());
-            // a file there but not read (held by a scanner, say): looked at again on the next tick
-            if st.is_none() || read.is_some() {
-                self.notice_stamp = st;
-                self.notice = read
-                    .and_then(ServerNotice::clean)
-                    .filter(|n| n.unseen(std::fs::read_to_string(&seen).ok().as_deref()));
+            if st.is_none() {
+                self.notice_stamp = None;
+                self.notice = None;
+            } else {
+                match read_notice(&path) {
+                    // a file there but not read (held by a scanner, say): looked at again on the next tick
+                    Err(e) => log(&format!("notice: {} not read ({e})", path.display())),
+                    Ok(None) => {
+                        self.notice_stamp = st;
+                        self.notice = None;
+                        log(&format!(
+                            "notice: {} over {NOTICE_MAX} bytes: ignored",
+                            path.display()
+                        ));
+                    }
+                    Ok(Some(b)) => {
+                        self.notice_stamp = st;
+                        self.notice = serde_json::from_slice::<ServerNotice>(&b)
+                            .ok()
+                            .and_then(ServerNotice::clean)
+                            .filter(|n| n.unseen(std::fs::read_to_string(&seen).ok().as_deref()));
+                    }
+                }
             }
         }
         if self.notice.is_none() || self.st.message.is_some() || match_check().0 {
@@ -3007,6 +3022,20 @@ fn stamp(p: &Path) -> Option<std::time::SystemTime> {
     std::fs::metadata(p).and_then(|m| m.modified()).ok()
 }
 
+/// A notice file larger than this is not a notice: never read whole (the panel is 32-bit, so a huge file would
+/// abort the game and answer again on every start).
+const NOTICE_MAX: u64 = 64 * 1024;
+
+/// `data\notice.json`, at most [`NOTICE_MAX`] bytes: `Ok(None)` for a larger file (ignored, not read), `Err` when it
+/// could not be read now (held by a scanner, say: look again).
+fn read_notice(p: &Path) -> std::io::Result<Option<Vec<u8>>> {
+    let mut b = Vec::new();
+    std::fs::File::open(p)?
+        .take(NOTICE_MAX + 1)
+        .read_to_end(&mut b)?;
+    Ok((b.len() as u64 <= NOTICE_MAX).then_some(b))
+}
+
 /// The controllers through winmm (from the system folder: seat 1's own winmm.dll is the hook), or the test's
 /// (`WCCFPANEL_FAKEPAD`).
 fn pads() -> forza::keys::Pads {
@@ -3500,7 +3529,27 @@ fn take_off_lines(
 
 #[cfg(test)]
 mod tests {
-    use super::{cards, take_off_lines};
+    use super::{NOTICE_MAX, cards, read_notice, take_off_lines};
+
+    /// A botched copy in data\notice.json must not be read whole into the 32-bit panel: the cap holds, and the file
+    /// is ignored rather than retried on every tick.
+    #[test]
+    fn a_notice_file_over_the_cap_is_ignored() {
+        let dir = std::env::temp_dir().join(format!("forza_notice_cap_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("notice.json");
+        std::fs::write(&file, "x".repeat(NOTICE_MAX as usize)).unwrap();
+        assert!(
+            read_notice(&file).unwrap().is_some(),
+            "a file at the cap is read"
+        );
+        std::fs::write(&file, "x".repeat(NOTICE_MAX as usize + 1)).unwrap();
+        assert!(
+            read_notice(&file).unwrap().is_none(),
+            "one byte over: ignored, never read"
+        );
+        let _ = std::fs::remove_file(&file);
+    }
 
     #[test]
     fn take_off_lines_name_the_cards() {
