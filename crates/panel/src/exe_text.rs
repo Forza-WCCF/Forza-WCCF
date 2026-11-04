@@ -300,24 +300,58 @@ mod tests {
         }
     }
 
+    /// The four instructions read from the original `client_Release.exe` by hand (VA, then
+    /// `C7 84 24 disp 00 00 00` and the MAKE_country key's VA), so a broken [`dati_originals`] fails this test.
+    const DATI_ORIGINAL: [(usize, [u8; 11]); 4] = [
+        (
+            0x0071_64F2,
+            [0xC7, 0x84, 0x24, 0x88, 0, 0, 0, 0xFC, 0xF2, 0x39, 0x01],
+        ),
+        (
+            0x0071_64FD,
+            [0xC7, 0x84, 0x24, 0x8C, 0, 0, 0, 0x48, 0xF2, 0x39, 0x01],
+        ),
+        (
+            0x0071_6508,
+            [0xC7, 0x84, 0x24, 0x90, 0, 0, 0, 0xE8, 0xF2, 0x39, 0x01],
+        ),
+        (
+            0x0071_6513,
+            [0xC7, 0x84, 0x24, 0x94, 0, 0, 0, 0xE4, 0xF1, 0x39, 0x01],
+        ),
+    ];
+
+    /// [`DATI_ORIGINAL`] at the ASLR base 0x50_0000: addresses and keys 0x10_0000 higher (reloc type 3 on each key).
+    const DATI_RELOCATED: [(usize, [u8; 11]); 4] = [
+        (
+            0x0081_64F2,
+            [0xC7, 0x84, 0x24, 0x88, 0, 0, 0, 0xFC, 0xF2, 0x49, 0x01],
+        ),
+        (
+            0x0081_64FD,
+            [0xC7, 0x84, 0x24, 0x8C, 0, 0, 0, 0x48, 0xF2, 0x49, 0x01],
+        ),
+        (
+            0x0081_6508,
+            [0xC7, 0x84, 0x24, 0x90, 0, 0, 0, 0xE8, 0xF2, 0x49, 0x01],
+        ),
+        (
+            0x0081_6513,
+            [0xC7, 0x84, 0x24, 0x94, 0, 0, 0, 0xE4, 0xF1, 0x49, 0x01],
+        ),
+    ];
+
     #[test]
     fn dati_rows_need_the_original_code() {
-        // the bytes at 0x7164F2 in the original program
-        let orig = [0xC7, 0x84, 0x24, 0x88, 0, 0, 0, 0xFC, 0xF2, 0x39, 0x01];
-        assert_eq!(dati_originals(0x40_0000)[0], (0x0071_64F2, orig));
-        let mem = |base: usize| {
-            move |at: usize| {
-                dati_originals(base)
-                    .into_iter()
-                    .find(|o| o.0 == at)
-                    .map(|o| o.1)
-            }
+        assert_eq!(dati_originals(0x40_0000), DATI_ORIGINAL);
+        let mem = |t: &'static [(usize, [u8; 11]); 4]| {
+            move |at: usize| t.iter().find(|(a, _)| *a == at).map(|(_, b)| *b)
         };
-        assert!(dati_found(0x40_0000, mem(0x40_0000)));
-        assert!(dati_found(0x50_0000, mem(0x50_0000))); // relocated: the key addresses move with it
+        assert!(dati_found(0x40_0000, mem(&DATI_ORIGINAL)));
+        assert!(dati_found(0x50_0000, mem(&DATI_RELOCATED)));
         assert!(!dati_found(0x40_0000, |_| None));
         let changed = |at: usize| {
-            let mut b = mem(0x40_0000)(at)?;
+            let mut b = mem(&DATI_ORIGINAL)(at)?;
             if at == 0x0071_6513 {
                 b[10] ^= 1;
             }
