@@ -89,8 +89,8 @@ Another architecture for `forza-server`: `deploy/linux/Dockerfile.forza-server`.
 ### Server notices
 
 The desk sends one short notice to players in its lobby answer; the Launcher shows it, and the in-game panel shows it
-once per id. The notice is a JSON file, read at the start and again whenever its time changes (`WCCF_NOTICE` names
-another file):
+once per id. The notice is a JSON file, read on the first lobby answer and again whenever its time changes
+(`WCCF_NOTICE` names another file):
 
     /srv/forza-wccf/1718/data/notice.json      # `--store`'s folder
 
