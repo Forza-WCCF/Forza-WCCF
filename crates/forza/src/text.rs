@@ -565,13 +565,14 @@ fn has_high(b: &[u8]) -> bool {
 }
 
 /// The line as the game's bytes, or what is wrong with it: a line keeps exactly the printf and `$` codes of the
-/// game's Japanese line.
+/// game's Japanese line, the printf ones in its order (msvcr90's `vsprintf_s` takes no positional argument).
 fn encoded(ed: Edition, jp: &str, text: &str, nl: &[u8]) -> Result<Vec<u8>, String> {
     let sorted = |r: &Regex, s: &str| {
         let mut v: Vec<String> = r.find_iter(s).map(|m| m.as_str().into()).collect();
         v.sort();
         v
     };
+    // In the order they come, never sorted: the game reaches its values by position.
     let fmt = |s: &str| {
         FMT.find_iter(s)
             .map(|m| m.as_str().to_string())
@@ -1779,6 +1780,10 @@ mod tests {
         let e = Edition::E1718;
         assert!(encoded(e, "%dポイント", "%d points", b"\n").is_ok());
         assert!(encoded(e, "%dポイント", "points", b"\n").is_err());
+        // the codes in the game's order: a sort would let "%d ... %s" stand against a "%s ... %d" line and the
+        // game would print each value in the other's slot
+        assert!(encoded(e, "%sは%d点", "%d points by %s", b"\n").is_err());
+        assert!(encoded(e, "%sは%d点", "%s: %d points", b"\n").is_ok());
         assert!(encoded(e, "$c[FF0000FF]赤$c", "red", b"\n").is_err());
         assert!(
             encoded(Edition::E1011, "$pあ$t", "a$p", b"\n").is_err(),
