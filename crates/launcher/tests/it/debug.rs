@@ -195,7 +195,7 @@ fn a_closed_window_ends_the_program() {
 #[test]
 #[ignore = "a stand-in started by hide_starts_the_windows_hidden"]
 fn window_stand_in() {
-    show_window();
+    show_window("wccf-debug-stand-in", true);
     thread::sleep(Duration::from_secs(3));
 }
 
@@ -203,17 +203,28 @@ fn window_stand_in() {
 #[test]
 #[ignore = "a stand-in started by a_hung_window_is_dumped_once"]
 fn hung_stand_in() {
-    show_window();
+    show_window("wccf-debug-stand-in", true);
     thread::sleep(Duration::from_secs(15));
 }
 
-/// A window of this thread, which never pumps its messages.
-fn show_window() {
+/// The projector's window as its setting hides it: the title `game_title` gives it (crates/panel), never shown, for
+/// 12 s (past the window settle and its two checks).
+#[test]
+#[ignore = "a stand-in started by a_hidden_projector_window_is_not_a_closed_one"]
+fn projector_stand_in() {
+    show_window(&format!("{} 17-18 Ver2.0", launcher::kit::PROJECTOR_TITLE), false);
+    thread::sleep(Duration::from_secs(12));
+}
+
+/// A window of this thread, which never pumps its messages: `title`, shown the way a program shows its first one
+/// (`SW_SHOWDEFAULT`: what the starter asked for) or created hidden.
+fn show_window(title: &str, shown: bool) {
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, RegisterClassW, SW_SHOWDEFAULT, ShowWindow, WNDCLASSW, WS_OVERLAPPEDWINDOW,
     };
     let class: Vec<u16> = "wccf-debug-stand-in\0".encode_utf16().collect();
+    let title: Vec<u16> = format!("{title}\0").encode_utf16().collect();
     // SAFETY: zeroed WNDCLASSW plus the fields set is a valid class; the strings outlive the calls.
     unsafe {
         let wc = WNDCLASSW {
@@ -226,7 +237,7 @@ fn show_window() {
         let w = CreateWindowExW(
             0,
             class.as_ptr(),
-            class.as_ptr(),
+            title.as_ptr(),
             WS_OVERLAPPEDWINDOW,
             -32000,
             -32000,
@@ -238,7 +249,9 @@ fn show_window() {
             std::ptr::null(),
         );
         assert!(!w.is_null());
-        ShowWindow(w, SW_SHOWDEFAULT);
+        if shown {
+            ShowWindow(w, SW_SHOWDEFAULT);
+        }
     }
 }
 
@@ -304,6 +317,47 @@ fn hide_starts_the_windows_hidden() {
         assert_eq!(code, 0);
         assert!(job.wait_empty(Duration::from_secs(10)));
     }
+}
+
+/// The projector's window, hidden by its setting, is still a window: `has_window` keeps it, so the run does not take
+/// it for a closed one and end the championship.
+#[test]
+fn a_hidden_projector_window_is_not_a_closed_one() {
+    let top = tempfile::tempdir().unwrap();
+    let mut opts = options(std::env::current_exe().unwrap(), top.path(), Role::Client);
+    opts.args = ["debug::projector_stand_in", "--exact", "--ignored", "--nocapture"]
+        .map(String::from)
+        .to_vec();
+    let (job, log, t) = start(opts);
+    let pid = launched_pid(&log);
+    let since = Instant::now();
+    let mut win = None;
+    while win.is_none() && since.elapsed() < Duration::from_secs(10) {
+        thread::sleep(Duration::from_millis(100));
+        win = launcher::procs::windows(pid)
+            .into_iter()
+            .find(|w| w.class == "wccf-debug-stand-in");
+    }
+    let win = win.expect("no window at all");
+    assert!(!win.visible, "the stand-in showed its window: {}", win.title);
+    assert!(
+        win.title.starts_with(launcher::kit::PROJECTOR_TITLE),
+        "its title: {}",
+        win.title
+    );
+    assert!(launcher::procs::has_window(pid));
+    // a hidden window taken for a closed one is ended after the 5 s settle and two 1 s checks; the stand-in lives 12 s
+    // and the run ends when it exits
+    let t1 = Instant::now();
+    while t1.elapsed() < Duration::from_secs(20) && !t.is_finished() {
+        thread::sleep(Duration::from_millis(100));
+    }
+    let code = t.join().unwrap();
+    let out = log.text();
+    assert!(!out.contains("its window was closed"), "{out}");
+    assert!(out.contains("process exited, exit code 0x00000000"), "{out}");
+    assert_eq!(code, 0, "{out}");
+    assert!(job.wait_empty(Duration::from_secs(10)), "the job is empty: {out}");
 }
 
 /// `above_normal` (2017-18): a game program starts at above-normal priority and the log says so.
