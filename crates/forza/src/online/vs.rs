@@ -63,21 +63,15 @@ pub fn fill_login_loopback(body: &mut [u8], cfg: &VsConfig) {
 pub const POLLS: u8 = 9;
 /// 238 payload offset of [`POLLS`] (GAME_CTRL starts at payload +16).
 const POLLS_AT: usize = 16 + 19_740;
-/// 238 payload offsets of the Grand Trophy window, u16 HHMM start and end (GAME_CTRL bytes 7,622 / 7,624; control
-/// checkGrandTrophyOpen 0x4568A0). A closed window (equal values, zeros) does not stop the entry but turns the VS game
-/// into a friendly result with 243 +16 kbn 0; 0..2400 is open all day and keeps VS a Grand Trophy match.
-const GT_OPEN_AT: usize = 16 + 7_622;
-const GT_CLOSE_AT: usize = 16 + 7_624;
-
 /// 238 payload (GAME_CTRL from +16): the relay thresholds in bytes 12, 14, 15 (payload +28 u16 ms, +30 and +31 u8
-/// percent, A until a live capture), the poll count and the Grand Trophy window.
+/// percent, A until a live capture) and the poll count. The Grand Trophy window (7,622 / 7,624, control
+/// checkGrandTrophyOpen 0x4568A0) is open all day in every gamesvr's defaults: a closed one turns the VS game into a
+/// friendly result with 243 +16 kbn 0.
 pub fn fill_game_ctrl(body: &mut [u8]) {
     body[28..30].copy_from_slice(&200u16.to_le_bytes());
     body[30] = 20;
     body[31] = 50;
     body[POLLS_AT] = POLLS;
-    body[GT_OPEN_AT..GT_OPEN_AT + 2].copy_from_slice(&0u16.to_le_bytes());
-    body[GT_CLOSE_AT..GT_CLOSE_AT + 2].copy_from_slice(&2400u16.to_le_bytes());
 }
 
 /// 224 body (92 bytes): round id and the entry window.
@@ -515,7 +509,6 @@ mod tests {
         fill_game_ctrl(&mut c);
         assert_eq!((u16_at(&c, 28), c[30], c[31]), (200, 20, 50));
         assert_eq!(c[19_756], POLLS);
-        assert_eq!((u16_at(&c, 7_638), u16_at(&c, 7_640)), (0, 2400));
     }
 
     #[test]

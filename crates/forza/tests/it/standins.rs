@@ -76,12 +76,16 @@ fn gamesvr_replay() {
         .unwrap();
     let recs = records("gamesvr");
     for (i, r) in recs.iter().enumerate() {
-        let resp = exchange(
+        let mut resp = exchange(
             &mut c,
             &unhex(r["req"].as_str().unwrap()),
             r["split"].as_u64().unwrap() as usize,
             r["resp_len"].as_u64().unwrap() as usize,
         );
+        // 238's Grand Trophy week id (GAME_CTRL 7,620 = body +16) follows the clock; the recording holds 0
+        if resp.len() >= 40 + 16 + 7_622 && resp[8..10] == 238u16.to_le_bytes() {
+            resp[40 + 16 + 7_620..40 + 16 + 7_622].fill(0);
+        }
         assert_eq!(
             resp.len() as u64,
             r["resp_len"].as_u64().unwrap(),

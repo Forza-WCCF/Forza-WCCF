@@ -31,7 +31,13 @@ const SECRETARIES: std::ops::Range<usize> = 16 + 1176..16 + 1212;
 /// lowers to 9. Offsets 1,092..1,104 are the Universal Cup open times (HHMM, host clock); 1,172 = 1 lets the control
 /// insert a Universal Cup (competition 31) into its schedule before each open time (control 0x462820; the client's
 /// default 0 never schedules one), 1,173 = minutes per slot, 1,174 = minutes after control start before the first
-/// cup; 14,608 / 14,610 take the common branch (A).
+/// cup; 14,608 / 14,610 take the common branch (A). 7,622..7,664 are the Grand Trophy block: the window (u16 HHMM
+/// start and end, 0..2400 = open all day; the row is selectable iff start <= now <= end, and the control tags a VS
+/// entry with the card's class only while it is open) and the per-match points as the client's GT object constructor
+/// sets them (win 300, draw 100, per goal 100, clean sheet 50, per goal conceded 10, hat-trick 100, win-streak record
+/// 100, CPU match parameters higher 4,500 / lower 2,000; their reader is unknown, A). The rest of the block (lose,
+/// bonuses, ghost rates, playoff CPU level, promotion / playoff / staying thresholds) is 0 there as here. The week id
+/// and the matches per class are [`fill_game_ctrl`]'s.
 const GAME_CTRL_DEFAULTS: &[(usize, usize, u32)] = &[
     (1, 1, 5),
     (2, 2, 5),
@@ -58,6 +64,17 @@ const GAME_CTRL_DEFAULTS: &[(usize, usize, u32)] = &[
     (1174, 1, 20),
     (1216, 1, 1),
     (1218, 2, 600),
+    (7622, 2, 0),
+    (7624, 2, 2_400),
+    (7626, 2, 300),
+    (7630, 2, 100),
+    (7632, 2, 100),
+    (7634, 2, 50),
+    (7636, 2, 10),
+    (7638, 2, 100),
+    (7640, 2, 100),
+    (7660, 2, 4_500),
+    (7662, 2, 2_000),
     (14532, 4, 61_440),
     (14542, 1, 1),
     (14608, 1, 5),
@@ -97,12 +114,41 @@ const SHOP_TO: u32 = 20_991_231;
 /// table than the shop's), so off; [`SHOP_SALE`] has no SE entry either.
 const APPLY_SE: bool = false;
 
-/// Answer 238's GAME_CTRL (from payload +16): the client's defaults and the unlocked secretaries. +8 and +12 (date
-/// and time) stay 0: the control may set the PC's clock from them.
-fn fill_game_ctrl(body: &mut [u8]) {
+/// Grand Trophy matches counted for the weekly record (the sum of the best N scores), per class: Local, Area B,
+/// Area A, World B, World A (GAME_CTRL 7,666..7,670, u8, max 10: the client keeps 10 best scores). Provisional until
+/// a player of the original confirms them. With 0 the client never grows the record, and the post-match record
+/// screen skips the counter that stops its looping count-up sound.
+const GT_MATCHES_PER_CLASS: [u8; 5] = [3, 5, 5, 7, 7];
+/// 238 payload offsets of the Grand Trophy week id (u16) and [`GT_MATCHES_PER_CLASS`].
+const GT_WEEK_AT: usize = 16 + 7_620;
+const GT_MATCHES_AT: usize = 16 + 7_666;
+/// Week 0 of [`gt_week`] starts on Sunday 2000-01-02 23:00 Italian time (the Monday 2000-01-03 rule shifted by an
+/// hour); a u16 lasts about 1,250 years.
+const GT_EPOCH: chrono::NaiveDate =
+    chrono::NaiveDate::from_ymd_opt(2000, 1, 3).expect("a valid date");
+
+/// The Grand Trophy week of a moment: weeks run Monday to Sunday and roll on Sunday at 23:00 Europe/Rome wall-clock
+/// time (CET or CEST), like the original's Sunday 23:00 in its own time zone.
+fn gt_week(unix_secs: i64) -> u16 {
+    let rome = chrono::DateTime::from_timestamp(unix_secs, 0)
+        .unwrap_or_default()
+        .with_timezone(&chrono_tz::Europe::Rome)
+        .naive_local();
+    let days = (rome + chrono::TimeDelta::hours(1))
+        .date()
+        .signed_duration_since(GT_EPOCH)
+        .num_days();
+    days.div_euclid(7).clamp(0, i64::from(u16::MAX)) as u16
+}
+
+/// Answer 238's GAME_CTRL (from payload +16): the client's defaults, the unlocked secretaries and the Grand Trophy
+/// week of `unix_secs`. +8 and +12 (date and time) stay 0: the control may set the PC's clock from them.
+fn fill_game_ctrl(body: &mut [u8], unix_secs: i64) {
     for &(at, width, v) in GAME_CTRL_DEFAULTS {
         body[16 + at..16 + at + width].copy_from_slice(&v.to_le_bytes()[..width]);
     }
+    body[GT_WEEK_AT..GT_WEEK_AT + 2].copy_from_slice(&gt_week(unix_secs).to_le_bytes());
+    body[GT_MATCHES_AT..GT_MATCHES_AT + 5].copy_from_slice(&GT_MATCHES_PER_CLASS);
     body[SECRETARIES].fill(1);
     for (k, (cat, item)) in SHOP_SALE.into_iter().enumerate() {
         for (i, v) in [cat, item, SHOP_FROM, SHOP_TO].into_iter().enumerate() {
@@ -1098,7 +1144,7 @@ fn answer(
         // the control copies payload +16.. as GAME_CTRL (sub_4419F0) and sends it to every seat, over the client's
         // defaults; all zero leaves no secretary, and the club's SECRETARY step loads a picture that is not on the
         // disc and reads a null pointer (client 0x424AB2, docs/research/ONLINE-2017-18.md)
-        fill_game_ctrl(&mut body);
+        fill_game_ctrl(&mut body, now());
     }
     if cmd == 261 && payload.len() >= 8 {
         // the control downloads a 0x3DA38-byte buffer in 2,032-byte chunks (request +4 = chunk) and copies the answer
@@ -1720,7 +1766,7 @@ mod tests {
     #[test]
     fn game_ctrl_carries_the_clients_defaults() {
         let mut body = vec![0u8; 0x5A54];
-        fill_game_ctrl(&mut body);
+        fill_game_ctrl(&mut body, 0);
         fn at(body: &[u8], off: usize, w: usize) -> u32 {
             let mut b = [0u8; 4];
             b[..w].copy_from_slice(&body[16 + off..16 + off + w]);
@@ -1752,25 +1798,89 @@ mod tests {
             [1_092, 1_096, 1_100, 1_104].map(|o| at(&body, o, 4)),
             [1_200, 1_500, 1_800, 2_100]
         );
-        // the Grand Trophy window stays closed (0..0) outside VS, and VS overlays the polls and the window
-        assert_eq!((at(&body, 7_622, 2), at(&body, 7_624, 2)), (0, 0));
+        // VS overlays the polls and keeps the Grand Trophy block
         vs::fill_game_ctrl(&mut body);
         assert_eq!(
             (
                 at(&body, 19_740, 1),
                 at(&body, 7_624, 2),
+                at(&body, 7_670, 1),
                 at(&body, 1_211, 1)
             ),
-            (u32::from(vs::POLLS), 2400, 1)
+            (u32::from(vs::POLLS), 2400, 7, 1)
         );
-        // no two defaults overlap each other or the secretaries
+        // no two defaults overlap each other, the secretaries, the week id or the matches per class
         let mut spans: Vec<_> = GAME_CTRL_DEFAULTS
             .iter()
             .map(|&(o, w, _)| (o, o + w))
             .collect();
-        spans.push((1_176, 1_212));
+        spans.extend([(1_176, 1_212), (7_620, 7_622), (7_666, 7_671)]);
         spans.sort();
         assert!(spans.windows(2).all(|w| w[0].1 <= w[1].0));
+    }
+
+    #[test]
+    fn grand_trophy_block_without_vs() {
+        // the arcade's stand-in: no VS switch, so the 238 is the default filler alone
+        let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
+        let log: Log = Arc::new(|_: &str| {});
+        let mut req = vec![0u8; 16];
+        put(&mut req, 0, 1);
+        let (body, _) = ask_for_test(&store, 237, &req, &log);
+        let at = |off: usize| u16_at(&body, 16 + off);
+        assert_eq!((at(7_622), at(7_624)), (0, 2_400), "open all day");
+        assert_eq!(body[16 + 7_666..16 + 7_671], [3, 5, 5, 7, 7], "N per class");
+        assert_eq!(
+            [
+                7_626, 7_628, 7_630, 7_632, 7_634, 7_636, 7_638, 7_640, 7_642
+            ]
+            .map(at),
+            [300, 0, 100, 100, 50, 10, 100, 100, 0],
+            "win, lose, draw, goal, clean sheet, conceded, hat-trick, streak, streak step"
+        );
+        assert_eq!((at(7_660), at(7_662), at(7_664)), (4_500, 2_000, 0));
+        assert!(
+            body[16 + 7_671..16 + 7_736].iter().all(|b| *b == 0),
+            "playoff CPU level and the class thresholds"
+        );
+        assert_eq!(at(7_620), gt_week(now()));
+    }
+
+    #[test]
+    fn gt_week_rolls_on_sunday_23_italian_time() {
+        // Unix seconds of a Rome wall-clock time: winter UTC+1, summer UTC+2
+        let utc = |y, mo, d, h, mi| {
+            chrono::NaiveDate::from_ymd_opt(y, mo, d)
+                .unwrap()
+                .and_hms_opt(h, mi, 0)
+                .unwrap()
+                .and_utc()
+                .timestamp()
+        };
+        // winter: Sunday 2026-11-08 22:59 / 23:00 CET = 21:59 / 22:00 UTC
+        let w = gt_week(utc(2026, 11, 8, 21, 59));
+        assert_eq!(gt_week(utc(2026, 11, 8, 22, 0)), w + 1);
+        assert_eq!(
+            gt_week(utc(2026, 11, 2, 0, 0)),
+            w,
+            "Monday 01:00 is the same week"
+        );
+        // summer: Sunday 2026-07-05 22:59 / 23:00 CEST = 20:59 / 21:00 UTC
+        let s = gt_week(utc(2026, 7, 5, 20, 59));
+        assert_eq!(gt_week(utc(2026, 7, 5, 21, 0)), s + 1);
+        assert_eq!(
+            w - s,
+            18,
+            "18 weeks from Monday 2026-06-29 to Monday 2026-11-02"
+        );
+        // week 0 starts on Sunday 2000-01-02 23:00 CET
+        assert_eq!(gt_week(utc(2000, 1, 2, 22, 0)), 0);
+        assert_eq!(
+            gt_week(utc(2000, 1, 2, 21, 59)),
+            0,
+            "clamped below the epoch"
+        );
+        assert_eq!(gt_week(utc(2000, 1, 9, 22, 0)), 1);
     }
 
     #[test]
