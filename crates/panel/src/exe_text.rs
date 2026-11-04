@@ -147,6 +147,56 @@ pub fn install(e1718: bool, data: &Path, log: fn(&str)) {
         rows.len(),
         names(base, size, lang == "it")
     ));
+    if crate::patches::is_client(&crate::patches::exe_name()) {
+        log(&format!(
+            "exe text: Dati record by area, {}",
+            dati_rows(base)
+        ));
+    }
+}
+
+/// The Dati screen's "record by area" rows: sub_715A40 puts 8 string-table keys on the stack, one
+/// `mov dword [esp+disp32], imm32` each. The first four are MAKE_country keys, data the game must keep in Japanese
+/// (`forza::text` DATA_FAMILIES), so those four instructions get the INF_COACH_country keys instead: the same
+/// countries, translated. (instruction VA, disp, original key VA, our key)
+const DATI_ROWS: [(usize, u8, u32, &str); 4] = [
+    (0x0071_64F2, 0x88, 0x0139_F2FC, "INF_COACH_country_0000"), // MAKE_country_014 England
+    (0x0071_64FD, 0x8C, 0x0139_F248, "INF_COACH_country_0001"), // MAKE_country_023 Spain
+    (0x0071_6508, 0x90, 0x0139_F2E8, "INF_COACH_country_0002"), // MAKE_country_015 Italy
+    (0x0071_6513, 0x94, 0x0139_F1E4, "INF_COACH_country_0003"), // MAKE_country_028 Germany
+];
+
+/// The original instruction of each row at `base`: C7 84 24 disp 00 00 00, then the key's address.
+fn dati_originals(base: usize) -> [(usize, [u8; 11]); 4] {
+    DATI_ROWS.map(|(va, disp, key, _)| {
+        let mut b = [0xC7, 0x84, 0x24, disp, 0, 0, 0, 0, 0, 0, 0];
+        let key = (key as usize).wrapping_sub(0x40_0000).wrapping_add(base) as u32;
+        b[7..].copy_from_slice(&key.to_le_bytes());
+        (base + va - 0x40_0000, b)
+    })
+}
+
+/// All four instructions are the original's (`read`: the bytes at an address, `None` where unreadable).
+fn dati_found(base: usize, read: impl Fn(usize) -> Option<[u8; 11]>) -> bool {
+    dati_originals(base)
+        .iter()
+        .all(|(at, want)| read(*at) == Some(*want))
+}
+
+/// Point the four country rows at our keys; the log's words.
+fn dati_rows(base: usize) -> String {
+    if base == 0 || !dati_found(base, crate::patches::read::<11>) {
+        return "not the original code, left as is".into();
+    }
+    let mut done = 0;
+    for ((at, _), (.., key)) in dati_originals(base).iter().zip(DATI_ROWS) {
+        // the key is copied into a std::string on each use; ours stays for as long as the game runs
+        let ours: &'static [u8] = Box::leak(format!("{key}\0").into_bytes().into_boxed_slice());
+        if crate::patches::patch_code(at + 7, &(ours.as_ptr() as u32).to_le_bytes()) {
+            done += 1;
+        }
+    }
+    format!("{done} of 4 country rows on the translated keys")
 }
 
 /// Point the club and nationality name tables at our names; how many entries changed.
@@ -248,6 +298,32 @@ mod tests {
             uniq.dedup();
             assert_eq!(uniq.len(), texts.len(), "two region rows share a text");
         }
+    }
+
+    #[test]
+    fn dati_rows_need_the_original_code() {
+        // the bytes at 0x7164F2 in the original program
+        let orig = [0xC7, 0x84, 0x24, 0x88, 0, 0, 0, 0xFC, 0xF2, 0x39, 0x01];
+        assert_eq!(dati_originals(0x40_0000)[0], (0x0071_64F2, orig));
+        let mem = |base: usize| {
+            move |at: usize| {
+                dati_originals(base)
+                    .into_iter()
+                    .find(|o| o.0 == at)
+                    .map(|o| o.1)
+            }
+        };
+        assert!(dati_found(0x40_0000, mem(0x40_0000)));
+        assert!(dati_found(0x50_0000, mem(0x50_0000))); // relocated: the key addresses move with it
+        assert!(!dati_found(0x40_0000, |_| None));
+        let changed = |at: usize| {
+            let mut b = mem(0x40_0000)(at)?;
+            if at == 0x0071_6513 {
+                b[10] ^= 1;
+            }
+            Some(b)
+        };
+        assert!(!dati_found(0x40_0000, changed));
     }
 
     fn sheet_for(orig: &[u8], room: usize, text: &str) -> String {
