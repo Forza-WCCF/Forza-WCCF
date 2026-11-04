@@ -231,5 +231,19 @@
     {"box": [1, 117, 30, 126], "en": "Furious"},
     {"box": [32, 117, 57, 126], "en": "Gutted"},
     {"box": [60, 117, 81, 126], "en": "Out!"},
-    {"box": [84, 117, 107, 126], "en": "Wanted"}]}
+    {"box": [84, 117, 107, 126], "en": "Wanted"}]},
+  {"id": "mng_dataview_coachdata", "where": "Dati, record by area: the title and column headers (scene text, in place: no longer than the original bytes)", "sha256": "8F65D2B2693D14AEC617AE69A8BF2F6D6067C3EC3C567EA8FC775DE5247C0AFE", "files": ["data/sb_data/management/MNG_DataView/Scene_MNG_DataView_CoachData.sbscene"],
+   "labels": [
+    {"at": 66820, "len": 14, "en": "Record by area"},
+    {"at": 67590, "len": 4, "en": "Area"},
+    {"at": 67704, "len": 6, "en": "Titles"},
+    {"at": 67820, "len": 6, "en": "Wins"},
+    {"at": 67936, "len": 14, "en": "Fans"}]},
+  {"id": "mng_dataview_coachdata_asia", "where": "the same for the Asia variant", "sha256": "84372D696036A97330D44CD9F45FA7C4CB6A5FE91B8C919336E77C143DC6F2DD", "files": ["data/sb_data/management/MNG_DataView/Scene_MNG_DataView_CoachData_ASIA.sbscene"],
+   "labels": [
+    {"at": 64627, "len": 14, "en": "Record by area"},
+    {"at": 65397, "len": 4, "en": "Area"},
+    {"at": 65511, "len": 6, "en": "Titles"},
+    {"at": 65627, "len": 6, "en": "Wins"},
+    {"at": 65743, "len": 8, "en": "Fans"}]}
  ]}

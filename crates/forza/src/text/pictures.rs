@@ -563,6 +563,41 @@ fn redraw(im: &mut Img, r: &Value, font: &Font, refh: i64) -> R<()> {
     Ok(())
 }
 
+/// The entry with our words: a picture redrawn, or a scene's text replaced ([`retext`]).
+fn remake(data: &[u8], r: &Value, font: &Font, refh: i64, p: &str) -> R<Vec<u8>> {
+    if p.ends_with(".sbscene") {
+        let mut d = data.to_vec();
+        retext(&mut d, r)?;
+        return Ok(d);
+    }
+    let (w, h, px) = bcn::decode_dds(data).map_err(|e| super::Failed(format!("{p}: {e}")))?;
+    let mut im = Img {
+        w: w as usize,
+        h: h as usize,
+        px,
+    };
+    redraw(&mut im, r, font, refh)?;
+    encode(data, &im)
+}
+
+/// A scene's literal text, same byte length: each label's `at` is the length byte (`len`) of a KEY text the game
+/// draws as it is; the words, centred in spaces, take the original bytes' place, so no chunk size changes.
+fn retext(d: &mut [u8], r: &Value) -> R<()> {
+    for lab in r["labels"].as_array().into_iter().flatten() {
+        let num = |k: &str| usize::try_from(lab[k].as_u64().unwrap_or(0)).unwrap_or(usize::MAX);
+        let (at, len) = (num("at"), num("len"));
+        let t = lab["text"].as_str().unwrap_or("");
+        let fits = at.checked_add(len).is_some_and(|e| e < d.len()) && usize::from(d[at]) == len;
+        if !t.is_ascii() || t.len() > len || !fits {
+            return fail(format!("{}: {t:?} does not fit at {at}", r["id"]));
+        }
+        let pad = len - t.len();
+        let s = format!("{}{t}{}", " ".repeat(pad / 2), " ".repeat(pad - pad / 2));
+        d[at + 1..at + 1 + len].copy_from_slice(s.as_bytes());
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------- DDS: the original's format, size and mips
 fn u32_at(d: &[u8], o: usize) -> u32 {
     u32::from_le_bytes(d[o..o + 4].try_into().unwrap())
@@ -806,15 +841,7 @@ pub fn build(
                 skipped.push(format!("{p} (not the picture the recipe is for)"));
                 continue;
             }
-            let (w, h, px) =
-                bcn::decode_dds(&data).map_err(|e| super::Failed(format!("{p}: {e}")))?;
-            let mut im = Img {
-                w: w as usize,
-                h: h as usize,
-                px,
-            };
-            redraw(&mut im, &r, &font, refh)?;
-            out.push((i, p.to_owned(), encode(&data, &im)?));
+            out.push((i, p.to_owned(), remake(&data, &r, &font, refh, p)?));
         }
     }
     if names.is_some() && !seen {
@@ -1166,6 +1193,85 @@ mod tests {
             pack_pixels(&[0, 136, 255, 17], 16, [0xF00, 0xF0, 0xF, 0xF000]),
             [0x8F, 0x10] // A 1, R 0, G 8, B 15
         );
+    }
+
+    /// Every scene text of the shipped recipes is ASCII and fits its original bytes, in both languages.
+    #[test]
+    fn shipped_scene_texts_fit() {
+        let sheets = super::super::tests::manifest_dir().join("../../editions/2017-18");
+        let mut n = 0;
+        for it in [false, true] {
+            for r in recipes(&sheets, it).unwrap() {
+                for lab in r["labels"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|l| l.get("at").is_some())
+                {
+                    let t = lab["text"].as_str().unwrap();
+                    assert!(
+                        t.is_ascii() && t.len() <= lab["len"].as_u64().unwrap() as usize,
+                        "{t}"
+                    );
+                    n += 1;
+                }
+            }
+        }
+        assert!(n > 0);
+        // centred in spaces, the length byte checked
+        let mut d = [0u8, 6, 0xE5, 0x8B, 0x9D, 0x88, 0xE6, 0x95];
+        let r = json!({"id": "t", "labels": [{"at": 1, "len": 6, "text": "Wins"}]});
+        retext(&mut d, &r).unwrap();
+        assert_eq!(&d, b"\0\x06 Wins ");
+        assert!(
+            retext(
+                &mut d,
+                &json!({"id": "t", "labels": [{"at": 0, "len": 6, "text": "Wins"}]})
+            )
+            .is_err()
+        );
+    }
+
+    /// The shipped recipes on the original files: `WCCF_PICTURES_FROM` = a folder of unpacked DDS and sbscene files
+    /// (never in the tree), each remade in English and Italian to `<name>.<lang>.<ext>` beside it, same size.
+    #[test]
+    #[ignore = "needs original pictures"]
+    fn shipped_recipes_redraw_original_pictures() {
+        let dir = PathBuf::from(std::env::var_os("WCCF_PICTURES_FROM").unwrap());
+        let sheets = super::super::tests::manifest_dir().join("../../editions/2017-18");
+        let font = Font {
+            lib: freetype::Library::init().unwrap(),
+            data: std::rc::Rc::new(fs::read(font_file()).unwrap()),
+        };
+        let refh = font.line(100, "Hgjy").unwrap().height().unwrap();
+        let mut done = 0;
+        for f in fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()) {
+            let name = f.to_string_lossy().into_owned();
+            let Some(ext) = [".dds", ".sbscene"].into_iter().find(|e| name.ends_with(e)) else {
+                continue;
+            };
+            let data = fs::read(&f).unwrap();
+            for (it, lang) in [(false, "en"), (true, "it")] {
+                let Some(r) = recipes(&sheets, it)
+                    .unwrap()
+                    .into_iter()
+                    .find(|r| r["sha256"].as_str() == Some(&sha(&data)))
+                else {
+                    continue;
+                };
+                let out = remake(&data, &r, &font, refh, &name).unwrap();
+                assert_eq!(out.len(), data.len(), "{name}");
+                assert_eq!(out[..128], data[..128], "{name}: header changed");
+                assert_ne!(out, data, "{name}: nothing changed");
+                fs::write(
+                    format!("{}.{lang}{ext}", &name[..name.len() - ext.len()]),
+                    out,
+                )
+                .unwrap();
+                done += 1;
+            }
+        }
+        assert!(done > 0, "no original picture in {}", dir.display());
     }
 
     #[test]
