@@ -1630,7 +1630,15 @@ impl Run<'_> {
                 _ => choices::setting(&self.kit.settings_file(), "shop_name").unwrap_or_default(),
             };
             for c in confs.iter().filter(|c| c.is_file()) {
-                conf::set_place(c, &name)?;
+                // a label only: a conf that cannot be written is told and the start goes on
+                if let Err(e) = conf::set_place(c, &name) {
+                    self.tell(
+                        "  ",
+                        &Text::key("launcher.run_place_failed")
+                            .arg("file", c.display())
+                            .arg("error", e),
+                    );
+                }
             }
         }
         let starting = match &self.mode {
