@@ -109,8 +109,9 @@ pub struct DeskConfig {
     /// ([`forza::online::club::Store::import_public`]).
     pub club_public: bool,
     /// The operator's notice to players (`WCCF_NOTICE`, else `notice.json` in the data or store folder, `cli.rs`):
-    /// JSON with `id`, `en`, optional `it`, `ja` and RFC 3339 `start`, `end`. Read again when its time changes;
-    /// missing or unreadable = no notice. None: never a notice.
+    /// JSON with `id`, `en`, optional `it`, `ja` and RFC 3339 `start`, `end` with an offset (the format and an
+    /// example: `docs/SELF-HOSTING.md`). Read again when its time changes; missing or unreadable = no notice, and a
+    /// `start`/`end` that is not such a date drops the notice too (the log says why). None: never a notice.
     pub notice: Option<PathBuf>,
 }
 
@@ -925,16 +926,24 @@ fn unix_now() -> u64 {
 /// A notice and when it is live (Unix seconds, either end open).
 type Notice = (ServerNotice, Option<i64>, Option<i64>);
 
+/// A notice's `start`/`end` as the desk wants it: an operator's local time or a bare date cannot be placed on the
+/// clock, so it is refused (with this text in the log) rather than guessed.
+const NOTICE_DATE: &str = "an RFC 3339 date with an offset, such as 2026-11-05T23:00:00+01:00";
+
 /// The notice file's words ([`DeskConfig::notice`]), cleaned ([`ServerNotice::clean`]).
 fn read_notice(raw: &[u8]) -> Result<Notice, String> {
     use time::{OffsetDateTime, format_description::well_known::Rfc3339};
     let v: serde_json::Value = serde_json::from_slice(raw).map_err(|e| e.to_string())?;
     let when = |k: &str| {
-        // present but not an RFC 3339 string (a number, say): an error, never an open window
+        // present but not an RFC 3339 string with an offset (a number, a local time, a bare date): an error, never
+        // an open window. The notice is dropped and the desk's log names the field and the wanted form.
         v.get(k)
             .map(|t| {
-                let t = t.as_str().ok_or(format!("{k}: not an RFC 3339 string"))?;
-                OffsetDateTime::parse(t, &Rfc3339).map_err(|e| format!("{k}: {e}"))
+                let t = t
+                    .as_str()
+                    .ok_or(format!("{k}: not a string, want {NOTICE_DATE}"))?;
+                OffsetDateTime::parse(t, &Rfc3339)
+                    .map_err(|e| format!("{k}: {e}, want {NOTICE_DATE}"))
             })
             .transpose()
             .map(|t| t.map(OffsetDateTime::unix_timestamp))
@@ -1531,6 +1540,30 @@ mod tests {
         assert_eq!(g.phase(Instant::now()), (Some(1), Some(0)));
         std::fs::remove_file(&path).unwrap();
         assert_eq!(g.phase(Instant::now()), (None, None));
+    }
+
+    /// A `start` that is not an RFC 3339 date with an offset drops the whole notice (the log carries the reason),
+    /// so an operator's local time never turns into a window nobody expected.
+    #[test]
+    fn a_notice_date_without_an_offset_drops_the_notice_with_the_reason() {
+        let body = r#""id":"n1","en":"Server update""#;
+        let read = |field: &str, value: &str| {
+            read_notice(format!(r#"{{{body},"{field}":{value}}}"#).as_bytes())
+        };
+        let (_, start, end) =
+            read("start", r#""2026-11-05T23:00:00+01:00""#).expect("a date with an offset");
+        assert!(start.is_some() && end.is_none());
+        for (field, value) in [
+            ("start", r#""2026-11-05T23:00:00""#),
+            ("end", r#""2026-11-05""#),
+            ("start", "1762372800"),
+        ] {
+            let e = read(field, value).expect_err("dropped, not taken as open");
+            assert!(
+                e.starts_with(&format!("{field}: ")) && e.contains("RFC 3339"),
+                "{e} names neither the field nor the wanted form"
+            );
+        }
     }
 
     #[test]
