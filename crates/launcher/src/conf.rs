@@ -214,17 +214,21 @@ fn conf_bytes_with(raw: &[u8], key: &str, value: &[u8]) -> io::Result<Vec<u8>> {
 
 /// The name a cabinet's club shows under it when ALL.Net gives none (data\settings.json `shop_name` here).
 pub const PLACE_DEFAULT: &str = "Forza-WCCF";
-/// Bytes of the place name: the control's own copy for the VS entry is cut at 26 (control 0x418F70, a char[28]).
-const PLACE_MAX: usize = 26;
+/// Bytes of the place name: 25, short of the 26-byte field the client may keep it in, so the name and its NUL always
+/// fit (the control's own copy for the VS entry is cut at 26: control 0x418F70, a char[28]).
+const PLACE_MAX: usize = 25;
 
 /// The arcade name the client shows under its own club, Shift-JIS (TENPO_NAME1, client 0x84CB54 into its option block
 /// +0x280, read at 0x832C90), and both clubs' region as none (PREFECTURE_ID1 / PREFECTURE_ID2 = -1, read at 0x832B62 /
 /// 0x832B7D; -1 is the blank of 0x854AC0). Without them the client keeps its built-in place (the original showroom
 /// name, set at 0x82F6BE) and turns ALL.Net's region 0 into "Other". `name` empty or nothing Shift-JIS can write:
-/// [`PLACE_DEFAULT`].
+/// [`PLACE_DEFAULT`]. `=` is dropped too: it would end the value for a client that splits the line at it.
 pub fn place_text(raw: &[u8], name: &str) -> io::Result<Vec<u8>> {
     let mut sjis = Vec::new();
     for c in forza::online::lobby::arcade_name(name).chars() {
+        if c == '=' {
+            continue;
+        }
         let mut utf8 = [0; 4];
         let (b, _, bad) = encoding_rs::SHIFT_JIS.encode(c.encode_utf8(&mut utf8));
         if bad {
@@ -281,7 +285,7 @@ fn write(conf: &Path, raw: &[u8], out: &[u8]) -> io::Result<bool> {
 
 #[cfg(test)]
 mod club_tests {
-    use super::{conf_text_with, game_server_text, place_text};
+    use super::{PLACE_DEFAULT, conf_text_with, game_server_text, place_text};
 
     /// Online 2017-18 points control at the server's game server with its VS entries on; this PC goes back to the
     /// stand-in with them off. The rest of setup's CONF_CONTROL stays as it was.
@@ -331,32 +335,30 @@ mod club_tests {
         assert_eq!(conf_text_with(b"A=1", "K", "v").unwrap(), b"A=1\nK=v\n");
     }
 
-    /// The cabinet's own arcade name in Shift-JIS within the control's 26 bytes, the default when none is set, and no
+    /// The cabinet's own arcade name in Shift-JIS within the control's 25 bytes, the default when none is set, and no
     /// region on either side; the other lines stay.
     #[test]
     fn place_carries_the_arcade_name_and_no_region() {
         let conf = b"IS_RINGEDGE=1\r\nTENPO_NAME1=old\r\n";
         let text = |name: &str| place_text(conf, name).unwrap();
-        assert_eq!(
-            text(""),
-            b"IS_RINGEDGE=1\r\nTENPO_NAME1=Forza-WCCF\r\nPREFECTURE_ID1=-1\r\nPREFECTURE_ID2=-1\r\n"
-        );
-        assert!(text("Bar Sport").starts_with(b"IS_RINGEDGE=1\r\nTENPO_NAME1=Bar Sport\r\n"));
-        // 13 full-width characters are 26 bytes; the 14th does not fit
+        let want = |place: &[u8]| {
+            [
+                b"IS_RINGEDGE=1\r\nTENPO_NAME1=".as_slice(),
+                place,
+                b"\r\nPREFECTURE_ID1=-1\r\nPREFECTURE_ID2=-1\r\n",
+            ]
+            .concat()
+        };
+        assert_eq!(text(""), want(PLACE_DEFAULT.as_bytes()));
+        assert_eq!(text("Bar Sport"), want(b"Bar Sport"));
+        // a '=' ends the value for a client that splits the line at it
+        assert_eq!(text("Bar=Sport"), want(b"BarSport"));
+        // 12 full-width characters are 24 bytes; the 13th would make 26, one past the name
         let jp = "ゲームセンターフォルツァ東京店";
-        let line = [
-            b"TENPO_NAME1=",
-            &encoding_rs::SHIFT_JIS.encode(&jp[..13 * 3]).0[..],
-            b"\r\n",
-        ]
-        .concat();
-        assert!(
-            text(jp).windows(line.len()).any(|w| w == line),
-            "26 bytes, whole characters"
-        );
-        // a name Shift-JIS cannot write keeps what it can, or falls back
-        assert!(text("Caffè Ω€").starts_with(b"IS_RINGEDGE=1\r\nTENPO_NAME1=Caff"));
-        assert!(text("€€").starts_with(b"IS_RINGEDGE=1\r\nTENPO_NAME1=Forza-WCCF\r\n"));
+        assert_eq!(text(jp), want(&encoding_rs::SHIFT_JIS.encode(&jp[..12 * 3]).0));
+        // a name Shift-JIS cannot write keeps what it can: Caff, blank, Ω (0x83B6); è and € are dropped
+        assert_eq!(text("Caffè Ω€"), want(b"Caff \x83\xb6"));
+        assert_eq!(text("€€"), want(PLACE_DEFAULT.as_bytes()));
     }
 }
 
