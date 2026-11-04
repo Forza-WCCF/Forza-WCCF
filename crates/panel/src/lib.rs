@@ -2412,12 +2412,16 @@ impl Render {
         let st = stamp(&path);
         let seen = f.data.join("notice_seen.txt");
         if st != self.notice_stamp {
-            self.notice_stamp = st;
-            self.notice = std::fs::read(&path)
-                .ok()
-                .and_then(|b| serde_json::from_slice::<forza::online::lobby::ServerNotice>(&b).ok())
-                .and_then(forza::online::lobby::ServerNotice::clean)
-                .filter(|n| n.unseen(std::fs::read_to_string(&seen).ok().as_deref()));
+            let read = std::fs::read(&path).ok().and_then(|b| {
+                serde_json::from_slice::<forza::online::lobby::ServerNotice>(&b).ok()
+            });
+            // a file there but not read (held by a scanner, say): looked at again on the next tick
+            if st.is_none() || read.is_some() {
+                self.notice_stamp = st;
+                self.notice = read
+                    .and_then(forza::online::lobby::ServerNotice::clean)
+                    .filter(|n| n.unseen(std::fs::read_to_string(&seen).ok().as_deref()));
+            }
         }
         if self.notice.is_none() || self.st.message.is_some() || match_check().0 {
             return;
