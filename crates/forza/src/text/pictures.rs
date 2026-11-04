@@ -564,10 +564,17 @@ fn redraw(im: &mut Img, r: &Value, font: &Font, refh: i64) -> R<()> {
 }
 
 /// The entry with our words: a picture redrawn, or a scene's text replaced ([`retext`]).
-fn remake(data: &[u8], r: &Value, font: &Font, refh: i64, p: &str) -> R<Vec<u8>> {
+fn remake(
+    data: &[u8],
+    r: &Value,
+    font: &Font,
+    refh: i64,
+    p: &str,
+    notes: &mut Vec<String>,
+) -> R<Vec<u8>> {
     if p.ends_with(".sbscene") {
         let mut d = data.to_vec();
-        retext(&mut d, r)?;
+        retext(&mut d, r, notes)?;
         return Ok(d);
     }
     let (w, h, px) = bcn::decode_dds(data).map_err(|e| super::Failed(format!("{p}: {e}")))?;
@@ -581,8 +588,9 @@ fn remake(data: &[u8], r: &Value, font: &Font, refh: i64, p: &str) -> R<Vec<u8>>
 }
 
 /// A scene's literal text, same byte length: each label's `at` is the length byte (`len`) of a KEY text the game
-/// draws as it is; the words, centred in spaces, take the original bytes' place, so no chunk size changes.
-fn retext(d: &mut [u8], r: &Value) -> R<()> {
+/// draws as it is; the words, centred in spaces, take the original bytes' place, so no chunk size changes. A label
+/// with no words keeps the original text, and `notes` says so.
+fn retext(d: &mut [u8], r: &Value, notes: &mut Vec<String>) -> R<()> {
     for lab in r["labels"].as_array().into_iter().flatten() {
         let num = |k: &str| usize::try_from(lab[k].as_u64().unwrap_or(0)).unwrap_or(usize::MAX);
         let (at, len) = (num("at"), num("len"));
@@ -590,6 +598,13 @@ fn retext(d: &mut [u8], r: &Value) -> R<()> {
         let fits = at.checked_add(len).is_some_and(|e| e < d.len()) && usize::from(d[at]) == len;
         if !t.is_ascii() || t.len() > len || !fits {
             return fail(format!("{}: {t:?} does not fit at {at}", r["id"]));
+        }
+        if t.is_empty() {
+            notes.push(format!(
+                "{}: no words at {at}, the original text stays",
+                r["id"]
+            ));
+            continue;
         }
         let pad = len - t.len();
         let s = format!("{}{t}{}", " ".repeat(pad / 2), " ".repeat(pad - pad / 2));
@@ -811,6 +826,8 @@ pub fn build(
     let mut f = File::open(game.join(XAF))?;
     let index = toc(&mut f)?;
     let (mut out, mut skipped, mut seen) = (Pics::new(), vec![], false);
+    // notes of a scene label left as the original, ahead of the summary
+    let mut notes = vec![];
     for r in recipes(sheets, it)? {
         let id = r["id"].as_str().unwrap_or("");
         for p in r["files"]
@@ -841,7 +858,11 @@ pub fn build(
                 skipped.push(format!("{p} (not the picture the recipe is for)"));
                 continue;
             }
-            out.push((i, p.to_owned(), remake(&data, &r, &font, refh, p)?));
+            out.push((
+                i,
+                p.to_owned(),
+                remake(&data, &r, &font, refh, p, &mut notes)?,
+            ));
         }
     }
     if names.is_some() && !seen {
@@ -850,11 +871,14 @@ pub fn build(
             spec.unwrap_or("")
         ));
     }
-    let mut notes = vec![format!(
-        "{} pictures with their writing in {}",
-        out.len(),
-        if it { "Italian" } else { "English" }
-    )];
+    notes.insert(
+        0,
+        format!(
+            "{} pictures with their writing in {}",
+            out.len(),
+            if it { "Italian" } else { "English" }
+        ),
+    );
     if let Some(s) = skipped.first() {
         notes.push(format!(
             "{} pictures stay as they are: {s}{}",
@@ -1195,7 +1219,7 @@ mod tests {
         );
     }
 
-    /// Every scene text of the shipped recipes is ASCII and fits its original bytes, in both languages.
+    /// Every scene text of the shipped recipes is present, ASCII and fits its original bytes, in both languages.
     #[test]
     fn shipped_scene_texts_fit() {
         let sheets = super::super::tests::manifest_dir().join("../../editions/2017-18");
@@ -1210,8 +1234,10 @@ mod tests {
                 {
                     let t = lab["text"].as_str().unwrap();
                     assert!(
-                        t.is_ascii() && t.len() <= lab["len"].as_u64().unwrap() as usize,
-                        "{t}"
+                        !t.is_empty()
+                            && t.is_ascii()
+                            && t.len() <= lab["len"].as_u64().unwrap() as usize,
+                        "{t:?}"
                     );
                     n += 1;
                 }
@@ -1221,15 +1247,33 @@ mod tests {
         // centred in spaces, the length byte checked
         let mut d = [0u8, 6, 0xE5, 0x8B, 0x9D, 0x88, 0xE6, 0x95];
         let r = json!({"id": "t", "labels": [{"at": 1, "len": 6, "text": "Wins"}]});
-        retext(&mut d, &r).unwrap();
+        retext(&mut d, &r, &mut vec![]).unwrap();
         assert_eq!(&d, b"\0\x06 Wins ");
         assert!(
             retext(
                 &mut d,
-                &json!({"id": "t", "labels": [{"at": 0, "len": 6, "text": "Wins"}]})
+                &json!({"id": "t", "labels": [{"at": 0, "len": 6, "text": "Wins"}]}),
+                &mut vec![]
             )
             .is_err()
         );
+    }
+
+    /// A label with no words keeps the original text, and a note says so: a blank title is not a translation.
+    #[test]
+    fn empty_scene_text_keeps_the_original() {
+        let original = b"\0\x04\xE5\x8B\x9D\x88";
+        for lab in [
+            json!({"at": 1, "len": 4, "text": ""}),
+            json!({"at": 1, "len": 4}),
+        ] {
+            let mut d = *original;
+            let mut notes = vec![];
+            retext(&mut d, &json!({"id": "t", "labels": [lab]}), &mut notes).unwrap();
+            assert_eq!(&d, original, "the original bytes stay");
+            assert_eq!(notes.len(), 1, "{notes:?}");
+            assert!(notes[0].contains("original text"), "{notes:?}");
+        }
     }
 
     /// The shipped recipes on the original files: `WCCF_PICTURES_FROM` = a folder of unpacked DDS and sbscene files
@@ -1259,7 +1303,7 @@ mod tests {
                 else {
                     continue;
                 };
-                let out = remake(&data, &r, &font, refh, &name).unwrap();
+                let out = remake(&data, &r, &font, refh, &name, &mut vec![]).unwrap();
                 assert_eq!(out.len(), data.len(), "{name}");
                 assert_eq!(out[..128], data[..128], "{name}: header changed");
                 assert_ne!(out, data, "{name}: nothing changed");
