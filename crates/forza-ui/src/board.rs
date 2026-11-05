@@ -121,8 +121,8 @@ pub fn heat_zone(p: &Painter, pitch: Rect, field: Rect, apt: &Aptitude, size: f3
 // ---- card pictures ----
 
 /// Names the folder of card pictures, `<number>.png` each (the kit's `data\cache\cards`, extracted at setup on the
-/// player's PC), or none for the drawn stand-in. Pictures load in the background through egui's loaders and stay
-/// cached, so scrolling the catalogue never waits on a file.
+/// player's PC), or none for the drawn stand-in. Pictures load in the background through egui's loaders and the last
+/// [`PICTURES_KEPT`] drawn stay cached, so scrolling the catalogue back seldom waits on a file.
 pub fn set_picture_dir(ctx: &egui::Context, dir: Option<std::path::PathBuf>) {
     ctx.data_mut(|d| d.insert_temp(Id::new("card-pictures"), dir));
 }
@@ -202,11 +202,56 @@ fn load_picture(
     let loaded = ctx.try_load_texture(&uri, options, egui::SizeHint::default());
     if loaded.is_err() {
         ctx.data_mut(|d| d.insert_temp(miss, true));
+    } else {
+        keep_recent(ctx, &uri);
     }
     match loaded {
         Ok(egui::load::TexturePoll::Ready { texture }) => Pic::Ready(texture.id, texture.size),
         Ok(egui::load::TexturePoll::Pending { .. }) => Pic::Pending,
         Err(_) => Pic::Missing,
+    }
+}
+
+/// The card pictures one egui context keeps loaded: the ones drawn last. A catalogue browsed for long would otherwise
+/// keep every picture it ever showed, its file, its decoded pixels and its texture.
+const PICTURES_KEPT: usize = 200;
+
+/// The picture URIs loaded lately, each with the pass that last drew it.
+#[derive(Clone, Default)]
+struct RecentPictures(HashMap<String, u64>);
+
+/// Marks the picture `uri` drawn in this pass; past [`PICTURES_KEPT`], forgets those drawn longest ago, never one
+/// drawn in this pass (no flicker, no reload loop while more than the bound are on screen).
+fn keep_recent(ctx: &egui::Context, uri: &str) {
+    let now = ctx.cumulative_pass_nr();
+    let gone = ctx.data_mut(|d| {
+        let r = &mut d
+            .get_temp_mut_or_default::<RecentPictures>(Id::new("card-pictures-recent"))
+            .0;
+        match r.get_mut(uri) {
+            Some(pass) => *pass = now,
+            None => {
+                r.insert(uri.to_owned(), now);
+            }
+        }
+        let mut gone = Vec::new();
+        while r.len() > PICTURES_KEPT {
+            let Some(old) = r
+                .iter()
+                .filter(|(_, pass)| **pass < now)
+                .min_by_key(|(_, pass)| **pass)
+                .map(|(u, _)| u.clone())
+            else {
+                break;
+            };
+            r.remove(&old);
+            gone.push(old);
+        }
+        gone
+    });
+    // outside `data_mut`: forgetting locks the context again
+    for u in gone {
+        ctx.forget_image(&u);
     }
 }
 
@@ -3570,5 +3615,49 @@ mod tests {
             real(&ctx, &card(7)),
             std::borrow::Cow::Borrowed(_)
         ));
+    }
+
+    /// Past [`PICTURES_KEPT`] distinct pictures, the oldest are forgotten (their textures freed), while a picture
+    /// drawn in every pass keeps its first texture.
+    #[test]
+    fn card_pictures_stay_bounded() {
+        let dir = tempfile::tempdir().unwrap();
+        let n = PICTURES_KEPT as u32 + 40;
+        let px = image::RgbaImage::from_pixel(2, 2, image::Rgba([9, 9, 9, 255]));
+        for i in 0..=n {
+            px.save(dir.path().join(format!("{i}.png"))).unwrap();
+        }
+        let ctx = egui::Context::default();
+        egui_extras::install_image_loaders(&ctx);
+        let still = n; // on screen all along
+        let mut first = None;
+        for i in 0..n {
+            // each card until it loads (the loaders read and decode on threads)
+            let mut ready = false;
+            for _ in 0..2000 {
+                ctx.run_ui(egui::RawInput::default(), |_| {
+                    if let Some((id, _)) = card_picture_texture(&ctx, dir.path(), still) {
+                        assert_eq!(*first.get_or_insert(id), id, "the visible card reloaded");
+                    }
+                    ready = card_picture_texture(&ctx, dir.path(), i).is_some();
+                })
+                .textures_delta
+                .clear();
+                if ready && first.is_some() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            assert!(ready, "card {i} loaded");
+        }
+        let kept = ctx
+            .data(|d| d.get_temp::<RecentPictures>(Id::new("card-pictures-recent")))
+            .unwrap()
+            .0;
+        assert!(kept.len() <= PICTURES_KEPT, "{} kept", kept.len());
+        assert!(kept.keys().any(|u| u.ends_with(&format!("{still}.png"))));
+        // the textures: the kept pictures and the font atlas
+        let textures = ctx.tex_manager().read().num_allocated();
+        assert!(textures <= PICTURES_KEPT + 1, "{textures} textures");
     }
 }
