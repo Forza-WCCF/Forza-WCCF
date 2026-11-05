@@ -1166,9 +1166,11 @@ pub fn text_w(ui: &Ui, text: &str) -> f32 {
         .x
 }
 
-/// A field label of a fixed width in front of a control, so the controls of a section line up.
-pub fn field(ui: &mut Ui, label: &str, width: f32) {
-    let (r, _) = ui.allocate_exact_size(vec2(width, 30.0), Sense::hover());
+/// A field label of a fixed width in front of a control, so the controls of a section line up; the response names
+/// that control for screen readers (`labelled_by`).
+pub fn field(ui: &mut Ui, label: &str, width: f32) -> Response {
+    let (r, resp) = ui.allocate_exact_size(vec2(width, 30.0), Sense::hover());
+    resp.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, label));
     let g = fit(
         ui.painter(),
         label,
@@ -1181,6 +1183,14 @@ pub fn field(ui: &mut Ui, label: &str, width: f32) {
         g,
         theme::TEXT_DIM,
     );
+    resp
+}
+
+/// An accessible name for a control with no label next to it to point at with `labelled_by`.
+pub fn named(resp: Response, name: &str) -> Response {
+    resp.ctx
+        .accesskit_node_builder(resp.id, |b| b.set_label(name));
+    resp
 }
 
 /// An option as a row: a painted switch, a title and a one-line hint. The whole row toggles.

@@ -1752,7 +1752,7 @@ fn formations_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             if let Some((i, name)) = &mut f.naming {
                 let i = *i;
                 ui.separator();
-                ui.label(
+                let label = ui.label(
                     egui::RichText::new(tr!(lang, "form.name_for", n = i + 1))
                         .font(theme::bold(15.0))
                         .color(theme::TEXT),
@@ -1765,13 +1765,15 @@ fn formations_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                         &tr!(lang, "form.replaces", name = o.name.clone()),
                     );
                 }
-                let edit = ui.add(
-                    egui::TextEdit::singleline(name)
-                        .id_salt("form-name")
-                        .char_limit(40)
-                        .font(theme::body(16.0))
-                        .desired_width(f32::INFINITY),
-                );
+                let edit = ui
+                    .add(
+                        egui::TextEdit::singleline(name)
+                            .id_salt("form-name")
+                            .char_limit(40)
+                            .font(theme::body(16.0))
+                            .desired_width(f32::INFINITY),
+                    )
+                    .labelled_by(label.id);
                 if !edit.has_focus() {
                     edit.request_focus();
                 }
@@ -3169,13 +3171,16 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                 import = action(ui, &tr!(lang, "cat.import")).clicked();
                 // 2017-18 only (issue #89): 2010-11 stays as it is
                 form = e1718 && action(ui, &tr!(lang, "form.open")).clicked();
-                ui.add(
-                    egui::TextEdit::singleline(&mut c.filter.search)
-                        .id_salt("cat-search")
-                        .hint_text(tr!(lang, "cat.search_hint"))
-                        .font(theme::body(16.0))
-                        .desired_width(f32::INFINITY)
-                        .margin(vec2(12.0, 8.0)),
+                widgets::named(
+                    ui.add(
+                        egui::TextEdit::singleline(&mut c.filter.search)
+                            .id_salt("cat-search")
+                            .hint_text(tr!(lang, "cat.search_hint"))
+                            .font(theme::body(16.0))
+                            .desired_width(f32::INFINITY)
+                            .margin(vec2(12.0, 8.0)),
+                    ),
+                    &tr!(lang, "cat.search_hint"),
                 )
             },
         )
@@ -4227,14 +4232,17 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                 }
             }
             // the server's address: digits and dots; Enter (or a click elsewhere) keeps a good one, Esc leaves it
-            let r = ui.add(
-                egui::TextEdit::singleline(&mut st.address)
-                    .id(egui::Id::new("settings-address"))
-                    .char_limit(15)
-                    .hint_text(tr!(lang, "settings.address_hint"))
-                    .font(theme::mono(15.0))
-                    .desired_width(w)
-                    .margin(vec2(10.0, 7.0)),
+            let r = widgets::named(
+                ui.add(
+                    egui::TextEdit::singleline(&mut st.address)
+                        .id(egui::Id::new("settings-address"))
+                        .char_limit(15)
+                        .hint_text(tr!(lang, "settings.address_hint"))
+                        .font(theme::mono(15.0))
+                        .desired_width(w)
+                        .margin(vec2(10.0, 7.0)),
+                ),
+                &tr!(lang, "settings.address_hint"),
             );
             st.address.retain(|c| c.is_ascii_digit() || c == '.');
             if r.lost_focus() {

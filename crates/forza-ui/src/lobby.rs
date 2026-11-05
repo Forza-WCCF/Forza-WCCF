@@ -5,7 +5,7 @@
 use super::Lang;
 use super::theme;
 use super::widgets::{
-    Cab, Tone, action, cabinet, caps, check_chip, field, fit, fold, section, segmented,
+    Cab, Tone, action, cabinet, caps, check_chip, field, fit, fold, named, section, segmented,
     status_line, text_w, toggle_row,
 };
 use egui::{Key, Modifiers, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
@@ -955,11 +955,14 @@ pub fn show_with(
                     ui.horizontal(|ui| {
                         let connect = tr!(lang, "lobby.connect");
                         let bw = text_w(ui, &connect) + 40.0;
-                        let r = ui.add(
-                            egui::TextEdit::singleline(&mut v.address)
-                                .font(theme::mono(15.0))
-                                .desired_width(ui.available_width() - bw)
-                                .margin(vec2(10.0, 7.0)),
+                        let r = named(
+                            ui.add(
+                                egui::TextEdit::singleline(&mut v.address)
+                                    .font(theme::mono(15.0))
+                                    .desired_width(ui.available_width() - bw)
+                                    .margin(vec2(10.0, 7.0)),
+                            ),
+                            &direct,
                         );
                         if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
                             act = Some(LobbyAction::DirectAddress(v.address.clone()));
@@ -1050,13 +1053,15 @@ fn lan_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAc
     }
     ui.add_space(6.0);
     ui.horizontal(|ui| {
-        field(ui, &tr!(lang, "lobby.lan_type"), 130.0);
-        let r = ui.add(
-            egui::TextEdit::singleline(&mut v.lan_address)
-                .font(theme::mono(15.0))
-                .desired_width(180.0)
-                .margin(vec2(10.0, 6.0)),
-        );
+        let label = field(ui, &tr!(lang, "lobby.lan_type"), 130.0);
+        let r = ui
+            .add(
+                egui::TextEdit::singleline(&mut v.lan_address)
+                    .font(theme::mono(15.0))
+                    .desired_width(180.0)
+                    .margin(vec2(10.0, 6.0)),
+            )
+            .labelled_by(label.id);
         let enter = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
         let typed = !v.lan_address.trim().is_empty();
         if ui
@@ -1542,14 +1547,15 @@ fn host_dialog(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<Lobb
                 &hint,
             );
             ui.horizontal(|ui| {
-                field(ui, &tr!(lang, "lobby.arcade_name"), 130.0);
+                let label = field(ui, &tr!(lang, "lobby.arcade_name"), 130.0);
                 ui.add(
                     egui::TextEdit::singleline(&mut v.arcade_name)
                         .hint_text(forza::online::lobby::ARCADE_ROOM_NAME)
                         .char_limit(forza::online::lobby::ARCADE_NAME_LEN)
                         .desired_width(ui.available_width())
                         .margin(vec2(10.0, 6.0)),
-                );
+                )
+                .labelled_by(label.id);
             });
             let now = v.clock.unwrap_or_else(local_clock);
             let refused = cup_rows(ui, &mut v.cup, now, lang, 130.0, false);
@@ -1580,14 +1586,16 @@ fn host_dialog(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<Lobb
 fn code_row(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAction>) {
     ui.add_enabled_ui(v.joining.is_none(), |ui| {
         ui.horizontal(|ui| {
-            field(ui, &tr!(lang, "lobby.room_code"), 130.0);
-            let r = ui.add(
-                egui::TextEdit::singleline(&mut v.code)
-                    .font(theme::mono(17.0))
-                    .char_limit(forza::online::lobby::ARCADE_CODE_LEN)
-                    .desired_width(110.0)
-                    .margin(vec2(10.0, 6.0)),
-            );
+            let label = field(ui, &tr!(lang, "lobby.room_code"), 130.0);
+            let r = ui
+                .add(
+                    egui::TextEdit::singleline(&mut v.code)
+                        .font(theme::mono(17.0))
+                        .char_limit(forza::online::lobby::ARCADE_CODE_LEN)
+                        .desired_width(110.0)
+                        .margin(vec2(10.0, 6.0)),
+                )
+                .labelled_by(label.id);
             if r.lost_focus()
                 && ui.input(|i| i.key_pressed(Key::Enter))
                 && !v.code.trim().is_empty()

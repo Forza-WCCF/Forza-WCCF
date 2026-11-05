@@ -613,7 +613,7 @@ fn path_row(
     out: &mut Option<Action>,
 ) {
     ui.horizontal(|ui| {
-        field(ui, label, 120.0);
+        let label = field(ui, label, 120.0);
         let browse = tr!(lang, "launcher.browse");
         let bw = ui
             .painter()
@@ -626,7 +626,8 @@ fn path_row(
                 .font(theme::mono(13.0))
                 .desired_width(ui.available_width() - bw)
                 .margin(vec2(8.0, 7.0)),
-        );
+        )
+        .labelled_by(label.id);
         if action(ui, &browse).clicked() {
             out.get_or_insert(Action::Browse(which));
         }

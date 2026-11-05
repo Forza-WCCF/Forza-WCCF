@@ -644,7 +644,7 @@ fn setup(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Actio
         status_line(ui, Tone::Notice, &tr!(lang, "launcher.setup_needed"));
     }
     ui.add_enabled_ui(!st.busy, |ui| {
-        ui.label(
+        let folder_hint = ui.label(
             egui::RichText::new(tr!(lang, "launcher.folder_hint"))
                 .font(theme::body(13.0))
                 .color(theme::TEXT_DIM),
@@ -657,7 +657,8 @@ fn setup(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Actio
                     .font(theme::mono(14.0))
                     .desired_width(ui.available_width() - bw)
                     .margin(vec2(10.0, 7.0)),
-            );
+            )
+            .labelled_by(folder_hint.id);
             if action(ui, &browse).clicked() {
                 *act = Some(Action::Browse);
             }
@@ -757,14 +758,15 @@ fn club_rows(
 ) -> bool {
     if let Some(club) = club_server {
         ui.horizontal(|ui| {
-            field(ui, &tr!(lang, "launcher.club_server"), 150.0);
+            let label = field(ui, &tr!(lang, "launcher.club_server"), 150.0);
             ui.add(
                 egui::TextEdit::singleline(club)
                     .font(theme::mono(14.0))
                     .hint_text(tr!(lang, "launcher.club_server_hint"))
                     .desired_width(ui.available_width())
                     .margin(vec2(10.0, 7.0)),
-            );
+            )
+            .labelled_by(label.id);
         });
     }
     vs_link.as_mut().is_some_and(|on| {
@@ -982,7 +984,7 @@ fn report_modal(ui: &mut Ui, st: &mut LauncherState, lang: Lang) -> Option<Actio
                     .color(theme::TEXT),
             );
             ui.add_space(4.0);
-            field(ui, &tr!(lang, "report.what_happened"), 460.0);
+            let label = field(ui, &tr!(lang, "report.what_happened"), 460.0);
             ui.add_enabled(
                 !f.sending && !f.sent,
                 egui::TextEdit::multiline(&mut f.words)
@@ -991,7 +993,8 @@ fn report_modal(ui: &mut Ui, st: &mut LauncherState, lang: Lang) -> Option<Actio
                     .desired_width(f32::INFINITY)
                     .font(theme::body(14.0))
                     .margin(vec2(10.0, 7.0)),
-            );
+            )
+            .labelled_by(label.id);
             ui.add_space(4.0);
             field(ui, &tr!(lang, "report.what_is_sent"), 460.0);
             egui::Frame::new()
