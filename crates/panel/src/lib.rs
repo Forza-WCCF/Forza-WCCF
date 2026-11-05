@@ -1421,7 +1421,7 @@ impl Render {
         // read once for both contexts: the files stay in memory for the program's life
         let fonts = theme::fonts(&dir).unwrap_or_else(|e| {
             log(&format!(
-                "fonts from {}: {e} (egui's own fonts used)",
+                "fonts from {}: {e} (no fonts: the panel stops at its first text)",
                 dir.display()
             ));
             egui::FontDefinitions::default()
