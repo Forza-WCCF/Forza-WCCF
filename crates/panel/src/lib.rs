@@ -1430,6 +1430,10 @@ impl Render {
         theme::install_fonts(&board_ctx, files.edition, fonts);
         forza_ui::board::set_picture_dir(&ctx, Some(files.cards.clone()));
         forza_ui::board::set_picture_dir(&board_ctx, Some(files.cards.clone()));
+        // a card picture's file and decoded pixels go once its texture exists: the managed pool keeps its own copy
+        for c in [&ctx, &board_ctx] {
+            c.options_mut(|o| o.reduce_texture_memory = true);
+        }
         let mut table = TableFile::in_dir(EXE_DIR.get().map_or(Path::new(""), PathBuf::as_path));
         let placed = table.read().unwrap_or_default();
         log(&format!(
