@@ -392,6 +392,71 @@ pub struct Lobby {
     pub arcades: Vec<Arcade>,
     #[serde(default)]
     pub vs: Vec<VsRoom>,
+    /// The server's notice to players, when one is live ([`ServerNotice`]); desks before it send none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<ServerNotice>,
+}
+
+/// A notice id: at most this many characters.
+pub const NOTICE_ID_LEN: usize = 64;
+/// A notice's text, in each language: at most this many characters (three lines of the panel's message line).
+pub const NOTICE_TEXT_LEN: usize = 160;
+
+/// A short notice from the server's operator ("server update at 23:00"), in English and maybe Italian and Japanese.
+/// The Launcher shows it and hands it to the panel (`data\notice.json`), which shows each `id` once.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServerNotice {
+    pub id: String,
+    pub en: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub it: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ja: Option<String>,
+}
+
+impl ServerNotice {
+    /// Bounded and on one line: control characters become spaces, each part trimmed and cut to its length; an empty
+    /// `it`/`ja` is missing. `None` when the id or the English text is empty.
+    pub fn clean(self) -> Option<ServerNotice> {
+        fn line(s: &str, max: usize) -> String {
+            let s: String = s
+                .chars()
+                .map(|c| if c.is_control() { ' ' } else { c })
+                .collect();
+            s.trim()
+                .chars()
+                .take(max)
+                .collect::<String>()
+                .trim_end()
+                .to_owned()
+        }
+        let opt = |s: Option<String>| {
+            s.map(|s| line(&s, NOTICE_TEXT_LEN))
+                .filter(|s| !s.is_empty())
+        };
+        let n = ServerNotice {
+            id: line(&self.id, NOTICE_ID_LEN),
+            en: line(&self.en, NOTICE_TEXT_LEN),
+            it: opt(self.it),
+            ja: opt(self.ja),
+        };
+        (!n.id.is_empty() && !n.en.is_empty()).then_some(n)
+    }
+
+    /// The text in language `code` ("en", "it", "ja"), else English.
+    pub fn text(&self, code: &str) -> &str {
+        match code {
+            "it" => self.it.as_deref(),
+            "ja" => self.ja.as_deref(),
+            _ => None,
+        }
+        .unwrap_or(&self.en)
+    }
+
+    /// Not shown yet: `seen` (the id shown last) is another id.
+    pub fn unseen(&self, seen: Option<&str>) -> bool {
+        seen.map(str::trim) != Some(self.id.as_str())
+    }
 }
 
 impl Lobby {
@@ -594,6 +659,49 @@ mod tests {
         assert_eq!(l.vs[0].code, "K7QM");
         assert_eq!(l.line(), format!("{SAMPLE}\n"));
         assert_eq!(Lobby::parse(&l.line()).unwrap(), l);
+    }
+
+    #[test]
+    fn a_notice_rides_along_and_older_answers_have_none() {
+        assert_eq!(Lobby::parse(SAMPLE).unwrap().notice, None);
+        let j = r#"{"v":1,"edition":"2017-18","at":1,"notice":{"id":"n1","en":"Server update at 23:00","ja":"23:00に更新"}}"#;
+        let n = Lobby::parse(j).unwrap().notice.unwrap();
+        assert_eq!(n.text("ja"), "23:00に更新");
+        // no Italian: English
+        assert_eq!(n.text("it"), "Server update at 23:00");
+        assert_eq!(n.text("en"), "Server update at 23:00");
+        assert!(
+            Lobby::parse(&Lobby::parse(j).unwrap().line())
+                .unwrap()
+                .notice
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn a_notice_is_cleaned_and_shown_once() {
+        let n = ServerNotice {
+            id: " n2 ".into(),
+            en: format!("line one\nline\u{7}two {}", "x".repeat(400)),
+            it: Some(" \t ".into()),
+            ja: Some("日本語".repeat(100)),
+        }
+        .clean()
+        .unwrap();
+        assert_eq!(n.id, "n2");
+        assert!(n.en.starts_with("line one line two x"));
+        assert!(!n.en.chars().any(char::is_control));
+        assert_eq!(n.en.chars().count(), NOTICE_TEXT_LEN);
+        assert_eq!(n.it, None);
+        assert_eq!(n.ja.as_ref().unwrap().chars().count(), NOTICE_TEXT_LEN);
+        let blank = ServerNotice {
+            id: "n3".into(),
+            en: "\r\n".into(),
+            ..ServerNotice::default()
+        };
+        assert_eq!(blank.clean(), None);
+        assert!(n.unseen(None) && n.unseen(Some("n1")));
+        assert!(!n.unseen(Some("n2\n")));
     }
 
     #[test]

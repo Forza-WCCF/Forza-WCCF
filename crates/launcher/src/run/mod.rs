@@ -51,7 +51,7 @@ use std::{env, ptr};
 use crate::helper::{self, Helper, Target, ViewFiles};
 use forza::online::save_logs::{self, Scrub};
 use forza::online::seat::{self, Lease};
-use forza::online::{club, gamesvr};
+use forza::online::{championship, club, gamesvr};
 use forza::standins::{Handle, Log, aime, aimedb, card_reader, io_board, network, scenes};
 use forza_ui::lobby::CupPlan;
 use regex::Regex;
@@ -64,6 +64,7 @@ use crate::card;
 use crate::debug::{self, Maps, Options};
 use crate::job::Job;
 use crate::kit::{Edition, find_game_named, seat_dir};
+use crate::report::championship_line;
 use crate::{Kit, choices, conf, guard, logs, procs};
 pub use rules::{Mode, Words};
 
@@ -89,6 +90,15 @@ const ANSWER_WAIT: Duration = Duration::from_secs(60);
 
 /// The panel's line in `seat1\forza_panel.log` once its Present detour has drawn a frame: the run's proof it is up.
 pub(crate) const PANEL_UP: &str = "first frame shown";
+
+/// 2017-18 arcade guest: what the end needs to tell that the host closed the arcade, and whether the club came home.
+#[derive(Default)]
+struct Visit {
+    /// Through the tunnel: its `ArcadeLink::host_closed`.
+    host_closed: Option<Arc<AtomicBool>>,
+    /// The club trip's progress.
+    club: Option<Arc<Mutex<club::Progress>>>,
+}
 
 /// A line the player reads, by its `locales/ui.yml` key (forza-ui) and arguments, which may be lines too: the window
 /// shows it in the player's language, the log files keep the English (support reads them).  `Raw`: words that are
@@ -682,6 +692,18 @@ fn addr(ip: &str, port: u16) -> Option<SocketAddr> {
     format!("{ip}:{port}").parse().ok()
 }
 
+fn now_local() -> time::OffsetDateTime {
+    time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc())
+}
+
+/// The player's notice: their club plays the Universal Championship on the projector from about `opens` (this PC's
+/// clock). The finalists' seats need nothing more: the control plays the team each winner registered for the cup and
+/// sends the results itself (0x47BFF0, 0x462990).
+fn championship_notice(opens: SystemTime) -> Text {
+    let t = time::OffsetDateTime::from(opens).to_offset(now_local().offset());
+    Text::key("launcher.run_championship").arg("time", format!("{:02}:{:02}", t.hour(), t.minute()))
+}
+
 // ---- the start ----------------------------------------------------------------------------------------------------
 
 /// The game folder setup recorded, found by the run's program names; 2017-18 without a record: `game\` beside the kit
@@ -990,6 +1012,7 @@ pub struct Run<'a> {
     lease: Option<Lease>,
     /// 2017-18 arcade guest: its home club, out in the arcade until this is dropped (online::club).
     club: Option<club::Trip>,
+    visit: Visit,
     /// Remote: the server as the game takes it (its IPv4 address) and its seat desk's port (`host:port` written:
     /// that port), found at step 2 from [`Mode::Remote`]'s entry.
     remote: Option<(String, u16)>,
@@ -1004,6 +1027,12 @@ pub struct Run<'a> {
     /// When the start began, and the setup and guard checks' end (logged once the log folder is rotated).
     t0: Instant,
     early: [Duration; 2],
+    /// 2017-18: the Universal Championship's day file as last read (its time), and the date already looked at.
+    uc_seen: Option<SystemTime>,
+    uc_told: Option<u32>,
+    /// The projector program runs (2017-18: the CPU championship is on, and this PC holds the projector). Its window
+    /// may be hidden: the championship plays unseen then.
+    projector: bool,
     _lock: OwnedHandle,
 }
 
@@ -1028,6 +1057,16 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
     if edition == Edition::E1011 && !seat.join(".wccf-kit").is_file() {
         tell(ui, "", &Text::key("launcher.run_not_set_up"));
         return Err(NOT_SET_UP);
+    }
+    // an antivirus quarantining them leaves the game without its card table and panel; a server-only run needs neither
+    let missing = kit.missing_programs();
+    if !mode.is_server() && !missing.is_empty() {
+        tell(
+            ui,
+            "",
+            &Text::key("launcher.run_no_program").arg("files", missing.join(", ")),
+        );
+        return Err(REFUSED);
     }
     // held to the end of the start: see Admission
     let Some(_admitted) = admit(kit) else {
@@ -1107,11 +1146,15 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         vs_target: None,
         lease: None,
         club: None,
+        visit: Visit::default(),
         remote: None,
         arcade_room: None,
         arcade_guests: None,
         t0,
         early,
+        uc_seen: None,
+        uc_told: None,
+        projector: false,
         _lock: lock,
     };
     // requests left by a run that ended are never carried out
@@ -1669,7 +1712,15 @@ impl Run<'_> {
             conf::set_satellite_no(&confs[1], u32::from(seat))?; // the cabinet's seat
             if self.edition == Edition::E1718 && !self.own_store {
                 self.club = None; // a trip of an earlier start comes home first
-                self.bring_club(&ip, desk, seat, &entry);
+                self.visit.club = None; // and its progress is not this start's
+                if let Err(why) = self.bring_club(addr(&ip, desk), seat, &entry) {
+                    self.tell(
+                        "  ",
+                        &Text::key("launcher.run_with_why")
+                            .part("text", Text::key("launcher.club_not_in"))
+                            .part("why", why),
+                    );
+                }
             }
             // never "WAITING FOR THE PROJECTOR" on a server: its projector is on another PC, or gone
             conf::set_conf_value(&confs[1], "WAIT_PROJECTOR", "0")?;
@@ -1687,8 +1738,9 @@ impl Run<'_> {
         } else {
             let ctrl_conf = self.game.join(r"local\ctrl_user_option.conf");
             if matches!(self.mode, Mode::Local | Mode::Vs(_)) {
-                // 2017-18 setting off: no projector, so no CPU championship on it and nobody waits for it
-                projector = self.edition != Edition::E1718 || choices::projector_on(&self.kit.settings());
+                // 2017-18 CPU championship off: no projector program (it plays the championship), nobody waits for it;
+                // the "projector" setting only shows or hides its window (the panel in it)
+                projector = self.edition != Edition::E1718 || choices::cpu_championship_on(&self.kit.settings());
                 let wait = if projector { "1" } else { "0" };
                 for c in &confs {
                     conf::set_control_ip(c, "127.0.0.1")?; // after a "remote" run: the cabinets play on this PC again
@@ -1707,6 +1759,10 @@ impl Run<'_> {
                 conf::set_conf_value(&ctrl_conf, "WAIT_PROJECTOR", "0")?;
             }
             let game = self.game.clone();
+            if self.edition == Edition::E1718 {
+                // the control saves the Universal Championship in log\<date>_uc.bin but makes no folder (0x41EF00)
+                fs::create_dir_all(game.join("log"))?;
+            }
             self.start_game(Role::Server, p.control_args.clone(), &game, !self.debug, Vec::new())?;
             wait_for(
                 Text::key("launcher.run_part_server"),
@@ -1743,12 +1799,21 @@ impl Run<'_> {
         if self.mode.is_server() {
             return self.start_server_side();
         }
+        self.projector = projector;
 
         if projector {
             let args = p.projector_args.clone().unwrap_or_else(|| vec!["0".into()]);
             let game = self.game.clone();
             self.start_game(Role::Projector, args, &game, false, self.panel_env())?;
-            self.tell("  3/6 ", &Text::key("launcher.run_projector"));
+            let hidden = self.edition == Edition::E1718 && !choices::projector_shown(&self.kit.settings());
+            self.tell(
+                "  3/6 ",
+                &Text::key(if hidden {
+                    "launcher.run_projector_hidden"
+                } else {
+                    "launcher.run_projector"
+                }),
+            );
         } else {
             self.tell(
                 "  3/6 ",
@@ -2121,24 +2186,22 @@ impl Run<'_> {
         let port = self.p.gamesvr_port;
         let ctrl_conf = self.game.join(r"local\ctrl_user_option.conf");
         // the Universal Cup: the host dialog's choice, which the control reads only as it starts (a new choice needs a
-        // new start). A cup at a time is a schedule slot (local\schedule_option.conf); VS keeps the game's times.
-        let plan = if let Mode::Vs(_) = self.mode {
-            Ok(CupPlan::GameTimes)
-        } else {
-            conf::cup_choice(&self.kit.settings()).plan(forza_ui::lobby::local_clock())
-        };
-        let (times, friendlies, line) = match plan {
-            Ok(CupPlan::Off) => (Some([0; 4]), None, Text::key("launcher.run_cup_off")),
-            Ok(CupPlan::GameTimes) => (None, None, Text::key("launcher.run_cup_game_times")),
-            // open times 0: the file's cup is the only one (the control also skips its timed cups while one is listed)
-            Ok(CupPlan::Slot { friendlies, opens }) => (
-                Some([0; 4]),
-                Some(friendlies),
-                Text::key("launcher.run_cup_at").arg("time", forza_ui::lobby::clock_text(opens)),
+        // new start; local play's PLAY tab writes the same setting). A cup at a time is a schedule slot
+        // (local\schedule_option.conf); VS keeps the game's times.
+        let plan = rules::cup_plan(&self.mode, &self.kit.settings(), forza_ui::lobby::local_clock());
+        let ((times, friendlies), line) = match plan {
+            Ok(p) => (
+                conf::cup_files(p),
+                match p {
+                    CupPlan::Off => Text::key("launcher.run_cup_off"),
+                    CupPlan::GameTimes => Text::key("launcher.run_cup_game_times"),
+                    CupPlan::Slot { opens, .. } => {
+                        Text::key("launcher.run_cup_at").arg("time", forza_ui::lobby::clock_text(opens))
+                    }
+                },
             ),
             Err(r) => (
-                None,
-                None,
+                (None, None),
                 Text::key("launcher.run_cup_refused").part("why", Text::key(r.key()).arg("m", r.minutes())),
             ),
         };
@@ -2160,6 +2223,15 @@ impl Run<'_> {
                         .arg("port", t.port),
                 )
             })?;
+            // the server's own game server (a room's too) keeps no club of this PC's card: it comes along, as to an
+            // arcade, or the game does not start. A club server keeps the club itself.
+            if t.room.is_some() || club.trim().is_empty() {
+                let server = choices::panel_value(&panel, "server").unwrap_or_default();
+                self.club = None;
+                self.visit.club = None;
+                self.bring_club(choices::resolve(&server, self.p.seat_port), 1, &server)
+                    .map_err(|why| Failed(Text::key("launcher.run_vs_club_refused").part("why", why)))?;
+            }
             conf::set_game_server(&ctrl_conf, &t.host, t.port, true)?;
             self.tell(
                 &format!("  1/{steps} "),
@@ -2216,12 +2288,15 @@ impl Run<'_> {
         }
     }
 
-    /// 2017-18 arcade guest: the home club comes along to the arcade (online::club), under the card's home Aime id (an
-    /// older card's integer id) here and its hash there. Any failure keeps it home and the run goes on.
-    fn bring_club(&mut self, ip: &str, desk: u16, seat: u8, arcade: &str) {
+    /// 2017-18 arcade guest, or online on a server's own arcade: the home club comes along to the desk at `desk`
+    /// (online::club), under the card's home Aime id (an older card's integer id) here and its hash there. `Err`: why
+    /// it stayed home.
+    fn bring_club(&mut self, desk: Option<SocketAddr>, seat: u8, arcade: &str) -> Result<(), Text> {
         let save = self.kit.save();
         let dir = save.join("gamesvr");
         self.club_leftover(&dir);
+        // a first run: the card the reader will read, made now so its club (none yet) comes along too
+        aime::ensure_card(&save.join("seat1_aime.txt"));
         let code = fs::read_to_string(save.join("seat1_aime.txt"))
             .ok()
             .map(|s| s.trim().to_owned())
@@ -2229,9 +2304,8 @@ impl Run<'_> {
         let home = code
             .as_ref()
             .map(|c| aimedb::Db::open(save.join("aimedb.json")).map(|db| db.home_id(c)));
-        let (Some(code), Some(Ok(home)), Some(desk)) = (code, home, addr(ip, desk)) else {
-            self.tell("  ", &Text::key("launcher.run_no_card"));
-            return;
+        let (Some(code), Some(Ok(home)), Some(desk)) = (code, home, desk) else {
+            return Err(Text::key("launcher.run_no_card"));
         };
         let guest = club::Guest {
             desk,
@@ -2245,15 +2319,12 @@ impl Run<'_> {
         };
         match guest.bring(file_log(self.logs().join("club_trip.txt"))) {
             Ok(trip) => {
+                self.visit.club = Some(trip.progress());
                 self.club = Some(trip);
                 self.tell("  ", &Text::key("launcher.club_in"));
+                Ok(())
             }
-            Err(why) => self.tell(
-                "  ",
-                &Text::key("launcher.run_with_why")
-                    .part("text", Text::key("launcher.club_not_in"))
-                    .arg("why", why),
-            ),
+            Err(why) => Err(Text::Raw(why)),
         }
     }
 
@@ -2382,6 +2453,9 @@ impl Run<'_> {
         } else {
             self.tell("       ", &Text::key("launcher.run_tunnel_up"));
         }
+        if !host {
+            self.visit.host_closed = Some(link.host_closed());
+        }
         self.vslink = Some(link.handle);
         Ok(link.ports)
     }
@@ -2486,6 +2560,38 @@ impl Run<'_> {
         });
     }
 
+    /// 2017-18 with the control here: once a day, when today's Universal Championship (game\log\<date>_uc.bin) has
+    /// a player's club, the notice with about when it plays on the projector, and the bracket's line in the log.
+    fn watch_championship(&mut self) {
+        if self.edition != Edition::E1718 || !self.alive(Role::Server) {
+            return;
+        }
+        let date = championship::date(now_local());
+        let f = championship::file(&self.game, date);
+        let Ok(at) = fs::metadata(&f).and_then(|m| m.modified()) else {
+            return;
+        };
+        if self.uc_told == Some(date) || self.uc_seen == Some(at) {
+            return;
+        }
+        self.uc_seen = Some(at);
+        let teams = championship::teams(&fs::read(&f).unwrap_or_default());
+        // shortcut: any player's club counts as "yours"; an arcade host with guests may see a guest's win, tell the
+        // clubs apart (block +0 = coach id) if hosts report it
+        if !teams.iter().any(|t| t.player) {
+            return;
+        }
+        self.uc_told = Some(date);
+        // the winner alone is written as the cup's final ends, and the championship opens at the next slot (2-3 min
+        // later); all four teams are written as it opens
+        let opens = at + Duration::from_secs(if teams.len() < 4 { 180 } else { 0 });
+        // the notice sends the player to the big screen: tell it only when the projector runs with its window shown
+        if self.projector && choices::projector_shown(&self.kit.settings()) {
+            self.tell("", &championship_notice(opens));
+        }
+        crate::logs::append(&self.logs().join("run_launcher.txt"), &championship_line(&self.game));
+    }
+
     // ---- the supervisor ----
 
     /// Requests from outside (other Launcher.exe processes, the panel's files) as events, every half second.
@@ -2526,6 +2632,7 @@ impl Run<'_> {
             let ev = match self.rx.recv_timeout(Duration::from_millis(500)) {
                 Ok(ev) => ev,
                 Err(RecvTimeoutError::Timeout) => {
+                    self.watch_championship();
                     if let Some(end) = self.check_threads() {
                         self.ui.running(false);
                         return end;
@@ -2556,6 +2663,25 @@ impl Run<'_> {
                 return end;
             }
         }
+    }
+
+    /// An arcade guest whose host closed the arcade (the tunnel heard it; without one, the club's last copy-back found
+    /// the host's server gone): the end's notice, with the club home or maybe missing its last saves (then the marker
+    /// stays, so the next start says so too). After `shutdown`: dropping the trip joins it, its last copy-back done.
+    fn host_closed_notice(&self) -> Option<Text> {
+        if matches!(self.mode, Mode::Vs(_)) {
+            return None; // no host: the end says whether the club came home (finish)
+        }
+        let progress = self
+            .visit
+            .club
+            .as_ref()
+            .map(|p| *p.lock().unwrap_or_else(PoisonError::into_inner));
+        let closed = match &self.visit.host_closed {
+            Some(flag) => flag.load(Ordering::Relaxed),
+            None => progress.is_some_and(|p| p.gone),
+        };
+        closed.then(|| rules::host_closed_notice(progress.map(|p| p.home)))
     }
 
     /// Stand-in and helper threads that ended by themselves (a panic, an error) are said once, in the run log; the run
@@ -2642,6 +2768,9 @@ impl Run<'_> {
         self.gone.push(g.role);
         if g.role == Role::Server {
             self.tell("", &Text::key("launcher.run_server_ended"));
+            if self.edition == Edition::E1718 {
+                crate::logs::append(&self.logs().join("run_launcher.txt"), &championship_line(&self.game));
+            }
             if self.mode.is_server() {
                 return Some(self.finish(false, Some(Text::key("launcher.run_server_has_ended"))));
             }
@@ -2734,6 +2863,12 @@ impl Run<'_> {
             Vec::new()
         };
         self.shutdown();
+        let notice = self.host_closed_notice();
+        let why = if notice.is_some() {
+            rules::without_link_lost(why)
+        } else {
+            why
+        };
         let left = self.job.active();
         self.card_steps(&["keep"]); // the cards on the table kept with their club: data\save holds the latest
         self.job.stop(STOP_DEADLINE);
@@ -2742,16 +2877,25 @@ impl Run<'_> {
             self.tell("", &Text::key("launcher.run_still_running").arg("n", left));
             return End::Over(FAILED);
         }
-        self.tell(
-            "",
-            &if let Some(words) = words {
-                words
-            } else if why.is_empty() {
-                Text::key("launcher.run_closed_by_player")
-            } else {
-                Text::key("launcher.run_ended_problem").arg("why", why.join("; "))
-            },
-        );
+        if let Some(n) = &notice {
+            self.tell("", n);
+        }
+        let club_home = self
+            .visit
+            .club
+            .as_ref()
+            .map(|p| p.lock().unwrap_or_else(PoisonError::into_inner).home);
+        if matches!(self.mode, Mode::Vs(_)) && club_home == Some(false) {
+            // the marker stays, so the next start says so too
+            self.tell("", &Text::key("launcher.run_vs_club_maybe_old"));
+        }
+        if let Some(words) = words {
+            self.tell("", &words);
+        } else if !why.is_empty() {
+            self.tell("", &Text::key("launcher.run_ended_problem").arg("why", why.join("; ")));
+        } else if notice.is_none() {
+            self.tell("", &Text::key("launcher.run_closed_by_player"));
+        }
         End::Over(if why.is_empty() { OK } else { WENT_WRONG })
     }
 
@@ -2966,6 +3110,24 @@ mod tests {
     use super::due;
     use std::fs;
     use std::path::Path;
+
+    #[test]
+    fn the_championship_notice_gives_the_time_in_every_language() {
+        let opens = std::time::SystemTime::now();
+        let t = time::OffsetDateTime::from(opens).to_offset(super::now_local().offset());
+        let hhmm = format!("{:02}:{:02}", t.hour(), t.minute());
+        let n = super::championship_notice(opens);
+        assert_eq!(
+            n.en(),
+            format!(
+                "Your club is in the Universal Championship: it plays on the big screen from about {hhmm}. Your club plays with its last lineup; you watch."
+            )
+        );
+        for lang in [forza_ui::Lang::It, forza_ui::Lang::Ja] {
+            let s = n.get(lang);
+            assert!(s.contains(&hhmm) && s != n.en() && !s.contains("%{"), "{lang:?}: {s}");
+        }
+    }
 
     #[test]
     fn pictures_are_made_at_play_when_missing_older_or_changed_but_not_after_a_failure() {

@@ -42,8 +42,10 @@ launcher.hq_pack: {en: "High-quality pack", it: "Pacchetto HQ", ja: "高画質�
 launcher.choose_pack: {en: "Choose pack…", it: "Scegli pacchetto…", ja: "パックを選択…"}
 launcher.skip_tutorial: {en: "Skip the tutorial", it: "Salta il tutorial", ja: "チュートリアルを省略"}
 launcher.skip_tutorial_hint: {en: "Applied at the next start.", it: "Si applica al prossimo avvio.", ja: "次回の起動時に反映されます。"}
-launcher.projector: {en: "Projector and CPU championship", it: "Proiettore e campionato CPU", ja: "プロジェクターとCPU大会"}
-launcher.projector_hint: {en: "Off saves CPU. Applied at the next start.", it: "Off risparmia CPU. Si applica al prossimo avvio.", ja: "オフでCPUを節約。次回の起動時に反映されます。"}
+launcher.projector: {en: "Projector", it: "Proiettore", ja: "プロジェクター"}
+launcher.projector_hint: {en: "Its window, shown or hidden at once. Also in the game's SETTINGS.", it: "La sua finestra, mostrata o nascosta subito. Anche nelle IMPOSTAZIONI del gioco.", ja: "ウィンドウをすぐに表示・非表示。ゲームの設定でも変更できます。"}
+launcher.cpu_championship: {en: "CPU championship", it: "Campionato CPU", ja: "CPU大会"}
+launcher.cpu_championship_hint: {en: "Plays on the projector, shown or hidden. Off saves CPU. Applied at the next start.", it: "Si gioca sul proiettore, visibile o nascosto. Off risparmia CPU. Si applica al prossimo avvio.", ja: "プロジェクターで行われます (表示・非表示どちらでも)。オフでCPUを節約。次回の起動時に反映されます。"}
 launcher.cleanup: {en: "CLEAN UP AFTER A CRASH", it: "RIPULISCI DOPO UN BLOCCO", ja: "クラッシュ後の後片付け"}
 launcher.cleanup_hint: {en: "Your club is kept.", it: "Il tuo club resta.", ja: "クラブは残ります。"}
 launcher.cleanup_done: {en: "Items cleaned: %{n}. Backup: %{path}", it: "Elementi ripuliti: %{n}. Copia: %{path}", ja: "片付けた項目：%{n}。バックアップ：%{path}"}
@@ -337,8 +339,9 @@ form.title: {en: "FORMATIONS", it: "FORMAZIONI", ja: "保存した編成"}
 form.empty: {en: "Empty", it: "Vuoto", ja: "空き"}
 form.save: {en: "SAVE", it: "SALVA", ja: "保存"}
 form.replace: {en: "REPLACE", it: "SOSTITUISCI", ja: "上書き"}
-form.copy: {en: "COPY", it: "COPIA", ja: "コピー"}
-form.copy_board: {en: "COPY BOARD", it: "COPIA TAVOLO", ja: "今の編成をコピー"}
+form.load: {en: "LOAD", it: "CARICA", ja: "読み込む"}
+form.copy: {en: "COPY TEXT", it: "COPIA TESTO", ja: "テキストをコピー"}
+form.copy_board: {en: "COPY TABLE AS TEXT", it: "COPIA TAVOLO COME TESTO", ja: "今の編成をテキストでコピー"}
 form.name_for: {en: "Name for slot %{n}", it: "Nome per lo slot %{n}", ja: "スロット %{n} の名前"}
 form.replaces: {en: "Replaces %{name}.", it: "Sostituisce %{name}.", ja: "%{name} を上書きします。"}
 form.load_match: {en: "Loading is off during a match.", it: "Non si carica durante una partita.", ja: "試合中は読み込めません。"}
@@ -366,6 +369,11 @@ cat.skip_bad_line: {en: "unreadable line", it: "riga illeggibile", ja: "読め�
 cat.skip_duplicate: {en: "same player twice", it: "giocatore doppio", ja: "同じ選手"}
 cat.skip_not_in_catalogue: {en: "not in the catalogue", it: "non nel catalogo", ja: "カタログにない"}
 cat.skip_no_room: {en: "no room", it: "nessuno spazio", ja: "空きなし"}
+board.reset_to: {en: "Back to the lineup from the start of the last match (%{at})", it: "Torna alla formazione di inizio dell'ultima partita (%{at})", ja: "直前の試合開始時の編成に戻します（%{at}）"}
+board.reset_same: {en: "Already the lineup from the start of the last match (%{at})", it: "È già la formazione di inizio dell'ultima partita (%{at})", ja: "すでに直前の試合開始時の編成です（%{at}）"}
+board.reset_none: {en: "No match played yet", it: "Nessuna partita giocata", ja: "まだ試合をしていません"}
+board.reset_match: {en: "Not during a match", it: "Non durante una partita", ja: "試合中は使えません"}
+board.reset_done: {en: "Lineup reset", it: "Formazione ripristinata", ja: "編成を戻しました"}
 board.imported: {en: "Lineup imported", it: "Formazione importata", ja: "編成を読み込みました"}
 
 # ---- keys ----
@@ -445,6 +453,7 @@ settings.msg_board_window: {en: "Formation board in its own window: move it to a
 settings.msg_board_docked: {en: "Formation board back with the game", it: "Formazione di nuovo con il gioco", ja: "フォーメーションをゲーム画面に戻しました"}
 settings.board_buttons: {en: "Buttons on the board window", it: "Pulsanti nella finestra della formazione", ja: "ボードのウィンドウにもボタン"}
 settings.board_buttons_hint: {en: "The cabinet buttons beside the popped-out board too", it: "I pulsanti del cabinato anche accanto alla formazione in pop-out", ja: "ポップアウトしたボードの横にも筐体のボタンを表示"}
+settings.projector_hint: {en: "Its window, shown or hidden at once. Needs the CPU championship on: set it in the Launcher.", it: "La sua finestra, mostrata o nascosta subito. Serve il campionato CPU attivo: si imposta nel Launcher.", ja: "ウィンドウをすぐに表示・非表示。CPU大会がオンのときだけ表示されます。Launcher で設定します。"}
 settings.pad_bg: {en: "Controller in the background", it: "Controller in secondo piano", ja: "バックグラウンドでもコントローラー"}
 settings.pad_bg_hint: {en: "The controller keeps working with another window in front. The keyboard does not.", it: "Il controller funziona anche con un'altra finestra davanti. La tastiera no.", ja: "他のウィンドウが前面にあってもコントローラーは動作します。キーボードは動作しません。"}
 settings.pad_bg_seats: {en: "Off while 2 or more seats run on this PC: all controllers count as one.", it: "Disattivato con 2 o più posti su questo PC: i controller contano come uno solo.", ja: "このPCで2席以上が動作中は無効です。コントローラーは1台として扱われます。"}
@@ -612,10 +621,12 @@ lobby.cup_min_unit: {en: " min", it: " min", ja: " 分後"}
 lobby.cup_off_line: {en: "No Universal Cup in this arcade.", it: "Nessuna Universal Cup in questa sala.", ja: "このゲームセンターではユニバーサルカップを開催しません。"}
 lobby.cup_game_times_line: {en: "Cups open at 12:00, 15:00, 18:00 and 21:00.", it: "Le cup aprono alle 12:00, 15:00, 18:00 e 21:00.", ja: "大会は12:00、15:00、18:00、21:00に開始します。"}
 lobby.cup_opens: {en: "Opens at about %{time}. Card in before then; entry closes about 1.5 min after it opens.", it: "Apre verso le %{time}. Inserisci la carta prima; le iscrizioni chiudono circa 1,5 min dopo l'apertura.", ja: "%{time}ごろ開始。それまでにカードを入れてください。エントリーは開始の約1分30秒後に締め切られます。"}
-lobby.cup_night: {en: "The cup can't open after midnight or before 05:00.", it: "La cup non può aprire dopo mezzanotte o prima delle 05:00.", ja: "大会は0時から5時までの間には開始できません。"}
+lobby.cup_night: {en: "The cup and its championship must end before 05:00.", it: "La cup e il suo campionato devono finire prima delle 05:00.", ja: "大会と選手権は5:00までに終了する必要があります。"}
 lobby.cup_too_soon: {en: "Too soon: the cup needs at least %{m} min.", it: "Troppo presto: servono almeno %{m} min.", ja: "早すぎます。%{m}分以上先にしてください。"}
 lobby.cup_too_far: {en: "Too far ahead: at most %{m} min from now.", it: "Troppo lontano: al massimo tra %{m} min.", ja: "先すぎます。%{m}分以内にしてください。"}
 lobby.cup_restart: {en: "Set when the arcade opens. To change it, close the arcade and host again.", it: "Si sceglie all'apertura della sala. Per cambiarlo, chiudi la sala e riaprila.", ja: "ゲームセンターを開くときに決まります。変更するには、閉じてから開き直してください。"}
+lobby.cup_off_local: {en: "No Universal Cup: normal play.", it: "Nessuna Universal Cup: gioco normale.", ja: "ユニバーサルカップなし：通常プレイ。"}
+lobby.cup_local: {en: "Your club and 7 CPU teams. Set at PLAY; to change it, stop the game and play again.", it: "Il tuo club e 7 squadre CPU. Si sceglie a GIOCA; per cambiarlo, ferma il gioco e riavvialo.", ja: "あなたのクラブとCPU 7チーム。プレイ開始時に決まります。変更するには、ゲームを終了して再度プレイしてください。"}
 
 # ---- pause (the panel holds the match, at most 20 s) ----
 pause.button: {en: "PAUSE", it: "PAUSA", ja: "一時停止"}
@@ -678,6 +689,7 @@ launcher.run_not_set_up: {en: "Not set up yet. Open Launcher.exe and press SET U
 launcher.run_busy: {en: "Not started: another Launcher window is setting up or starting the game. Try again when it is done.", it: "Non avviato: un'altra finestra del Launcher sta configurando o avviando il gioco. Riprova quando ha finito.", ja: "起動しませんでした: 別のLauncherのウィンドウがゲームのセットアップまたは起動をしています。終わってからもう一度お試しください。"}
 launcher.run_not_guarded: {en: "Not started: the network guard is not in place, and the game could change this PC's network settings. Press SET UP in Launcher.exe, then start again. Problem: %{why}", it: "Non avviato: la protezione di rete non è attiva e il gioco potrebbe cambiare le impostazioni di rete di questo PC. Premi CONFIGURA in Launcher.exe, poi avvia di nuovo. Problema: %{why}", ja: "起動しませんでした: ネットワーク保護が有効でなく、ゲームがこのPCのネットワーク設定を変更するおそれがあります。Launcher.exe で「設定する」を押してから、もう一度起動してください。問題: %{why}"}
 launcher.run_no_catalogue: {en: "Card catalogue not built, so the panel's card list is empty. Setup rebuilds it.", it: "Catalogo delle carte non creato, quindi l'elenco carte del pannello è vuoto. La configurazione lo ricrea.", ja: "カードカタログが作成されていないため、パネルのカード一覧が空です。セットアップで再作成されます。"}
+launcher.run_no_program: {en: "Files missing from the Forza-WCCF folder: %{files}. Windows Defender may have quarantined them. Restore them in Windows Security, Protection history, or add the Forza-WCCF folder to its exclusions. The game does not start until they are back.", it: "File mancanti nella cartella di Forza-WCCF: %{files}. Windows Defender potrebbe averli messi in quarantena. Ripristinali in Sicurezza di Windows, Cronologia protezione, oppure aggiungi la cartella di Forza-WCCF alle esclusioni. Il gioco non parte finché non tornano.", ja: "Forza-WCCF フォルダーにないファイル: %{files}。Windows Defender が検疫した可能性があります。Windows セキュリティの「保護の履歴」で復元するか、Forza-WCCF フォルダーを除外に追加してください。ファイルが戻るまでゲームは起動しません。"}
 launcher.run_already: {en: "Already running (%{names}). Close the game window first, or run Launcher.exe stop if it is stuck.", it: "Già in esecuzione (%{names}). Chiudi prima la finestra del gioco, oppure esegui Launcher.exe stop se è bloccato.", ja: "すでに実行中です(%{names})。先にゲームのウィンドウを閉じてください。止まっている場合は Launcher.exe stop を実行してください。"}
 launcher.run_the_game: {en: "the game", it: "il gioco", ja: "ゲーム"}
 launcher.run_failed: {en: "FAILED: %{why}", it: "NON RIUSCITO: %{why}", ja: "失敗: %{why}"}
@@ -719,7 +731,8 @@ launcher.run_remote_seat_projector: {en: "server %{ip}, port %{port}: seat %{sea
 launcher.run_server_up: {en: "server on port %{port} (%{n} match engines)", it: "server sulla port %{port} (%{n} motori di partita)", ja: "ポート %{port} のサーバー(試合エンジン %{n} 個)"}
 launcher.run_projector: {en: "projector", it: "proiettore", ja: "プロジェクター"}
 launcher.run_no_projector_1011: {en: "no projector here (each PC runs its own cabinet)", it: "nessun proiettore qui (ogni PC usa il proprio cabinato)", ja: "ここにはプロジェクターはありません (各PCがそれぞれの筐体を動かします)"}
-launcher.run_projector_off: {en: "no projector (Launcher setting off): no CPU championship", it: "nessun proiettore (impostazione del Launcher disattivata): niente campionato CPU", ja: "プロジェクターなし (Launcherの設定でオフ)：CPU大会なし"}
+launcher.run_projector_off: {en: "no projector: CPU championship off", it: "nessun proiettore: campionato CPU disattivato", ja: "プロジェクターなし：CPU大会オフ"}
+launcher.run_projector_hidden: {en: "projector, its window hidden (Projector off)", it: "proiettore, finestra nascosta (Proiettore disattivato)", ja: "プロジェクター、ウィンドウ非表示 (プロジェクター オフ)"}
 launcher.run_no_projector_1718: {en: "no projector here (the server's first PC shows it)", it: "nessun proiettore qui (lo mostra il primo PC del server)", ja: "ここにはプロジェクターはありません (サーバーの最初のPCが表示します)"}
 launcher.run_money_by_game: {en: "projector: money overlay loaded by the game", it: "proiettore: overlay dei soldi caricato dal gioco", ja: "プロジェクター: 金額オーバーレイをゲームが読み込みました"}
 launcher.run_money_on: {en: "projector: money overlay on", it: "proiettore: overlay dei soldi attivo", ja: "プロジェクター: 金額オーバーレイ オン"}
@@ -773,9 +786,12 @@ launcher.run_cup_at: {en: "Universal Cup opens at about %{time}", it: "La Univer
 launcher.run_cup_game_times: {en: "Universal Cup at 12:00, 15:00, 18:00 and 21:00", it: "Universal Cup alle 12:00, 15:00, 18:00 e 21:00", ja: "ユニバーサルカップは12:00、15:00、18:00、21:00"}
 launcher.run_cup_off: {en: "no Universal Cup", it: "nessuna Universal Cup", ja: "ユニバーサルカップなし"}
 launcher.run_cup_refused: {en: "Universal Cup at the game's times: %{why}", it: "Universal Cup agli orari del gioco: %{why}", ja: "ユニバーサルカップは通常の時間: %{why}"}
+launcher.run_championship: {en: "Your club is in the Universal Championship: it plays on the big screen from about %{time}. Your club plays with its last lineup; you watch.", it: "Il tuo club è nell'Universal Championship: gioca sul maxischermo da circa le %{time}. Il tuo club gioca con l'ultima formazione registrata; tu guardi.", ja: "あなたのクラブがユニバーサルチャンピオンシップに出場します。%{time}ごろから大画面で試合が始まります。クラブは最後に登録した編成で戦い、あなたは観戦します。"}
 launcher.run_marker_unread: {en: "club marker not read (%{error})", it: "indicatore del club non letto (%{error})", ja: "クラブのマーカーを読み取れませんでした (%{error})"}
 launcher.run_no_card: {en: "club: no card yet on this PC, so none to bring", it: "club: ancora nessuna carta su questo PC, quindi niente da portare", ja: "クラブ: このPCにはまだカードがないため、持ち込むものはありません"}
 launcher.run_with_why: {en: "%{text} (%{why})", it: "%{text} (%{why})", ja: "%{text} (%{why})"}
+launcher.run_vs_club_refused: {en: "your club could not come along to the online server (%{why}), and without it your card has no club there. Try again in a moment, or play on this PC.", it: "il tuo club non è potuto venire con te sul server online (%{why}) e senza di esso la tua carta lì non ha un club. Riprova tra poco, oppure gioca su questo PC.", ja: "クラブをオンラインサーバーに持ち込めませんでした（%{why}）。持ち込まないと、サーバーではカードにクラブがありません。少し待ってからもう一度試すか、このPCでプレイしてください。"}
+launcher.run_vs_club_maybe_old: {en: "Your club did not come back from the online server at the end. Your club on this PC may be from before your last match.", it: "Alla fine il tuo club non è tornato dal server online. Il tuo club su questo PC potrebbe essere quello di prima dell'ultima partita.", ja: "最後にクラブがオンラインサーバーから戻りませんでした。このPCのクラブは最後の試合より前の状態かもしれません。"}
 launcher.run_vs_off_room: {en: "VS link off (vs_link in data\\settings.json); the lobby's VS room is not used.", it: "collegamento VS spento (vs_link in data\\settings.json); la stanza VS della lobby non viene usata.", ja: "対戦リンク オフ (data\\settings.json の vs_link)。ロビーの対戦ルームは使いません。"}
 launcher.run_vs_off: {en: "VS link off (vs_link in data\\settings.json)", it: "collegamento VS spento (vs_link in data\\settings.json)", ja: "対戦リンク オフ (data\\settings.json の vs_link)"}
 launcher.run_vs_failed: {en: "VS link failed (%{error}). VS matches will be against a CPU team.", it: "collegamento VS non riuscito (%{error}). Le partite VS saranno contro una squadra della CPU.", ja: "対戦リンクに失敗しました (%{error})。対戦はCPUチームとの試合になります。"}
@@ -817,6 +833,9 @@ launcher.run_force_closed: {en: "%{n} processes were force-closed.", it: "%{n} p
 launcher.run_still_running: {en: "Still running: %{n} processes of the run.", it: "Ancora in esecuzione: %{n} processi della sessione.", ja: "実行中のプロセスが %{n} 個残っています。"}
 launcher.run_closed_by_player: {en: "Game closed by the player.", it: "Gioco chiuso dal giocatore.", ja: "プレイヤーがゲームを終了しました。"}
 launcher.run_ended_problem: {en: "Game ended with a problem: %{why}.", it: "Il gioco è terminato con un problema: %{why}.", ja: "ゲームが問題で終了しました: %{why}。"}
+launcher.run_host_closed: {en: "The host closed the arcade.", it: "L'host ha chiuso la sala.", ja: "ホストがゲームセンターを閉じました。"}
+launcher.run_host_closed_club_safe: {en: "The host closed the arcade. Your club is safe (brought home at the end).", it: "L'host ha chiuso la sala. Il tuo club è al sicuro (riportato a casa alla fine).", ja: "ホストがゲームセンターを閉じました。クラブは無事です（最後にホームへ戻しました）。"}
+launcher.run_host_closed_club_maybe_old: {en: "The host closed the arcade before your club came home. Your club at home may be from before your last match.", it: "L'host ha chiuso la sala prima che il tuo club tornasse a casa. Il tuo club di casa potrebbe essere quello di prima dell'ultima partita.", ja: "クラブがホームに戻る前に、ホストがゲームセンターを閉じました。ホームのクラブは最後の試合より前の状態かもしれません。"}
 launcher.run_restart_requested: {en: "Restart requested.", it: "Riavvio richiesto.", ja: "再起動を要求しました。"}
 launcher.run_not_restarted: {en: "Not restarted: the game is still running.", it: "Non riavviato: il gioco è ancora in esecuzione.", ja: "再起動していません: ゲームはまだ実行中です。"}
 launcher.run_restarting: {en: "Restarting WCCF %{edition}.", it: "Riavvio di WCCF %{edition}.", ja: "WCCF %{edition} を再起動します。"}

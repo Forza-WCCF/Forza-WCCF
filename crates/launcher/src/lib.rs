@@ -11,6 +11,7 @@ pub mod home;
 pub mod job;
 pub mod lobby;
 pub mod logs;
+pub mod notice;
 pub mod release;
 pub mod report;
 pub mod run;

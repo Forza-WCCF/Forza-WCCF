@@ -5,7 +5,7 @@
 use std::path::Path;
 use std::{fs, io};
 
-use forza_ui::lobby::{CUP_MAX_MINUTES, CUP_MIN_MINUTES, CupChoice, CupMode};
+use forza_ui::lobby::{CUP_MAX_MINUTES, CUP_MIN_MINUTES, CupChoice, CupMode, CupPlan};
 use regex::bytes::{Captures, Regex};
 
 /// The CONTROL_IP= and MATCH_IP= lines of a cabinet's client_user_option.conf set to `ip`; true if the file changed.
@@ -71,6 +71,13 @@ pub fn cup_settings(c: CupChoice) -> [(&'static str, serde_json::Value); 3] {
     ]
 }
 
+/// [`cup_settings`] written to data\settings.json, where run's start_gamesvr reads them.
+pub fn save_cup(settings_file: &Path, c: CupChoice) -> io::Result<()> {
+    cup_settings(c)
+        .into_iter()
+        .try_for_each(|(k, v)| crate::choices::set_setting_json(settings_file, k, v))
+}
+
 /// The first line of the `schedule_option.conf` the Launcher writes (the control skips `#` lines, 0x4A0F40): a file
 /// without it is someone else's and stays.
 const SCHEDULE_MARK: &str = "# Forza-WCCF Universal Cup";
@@ -97,6 +104,18 @@ pub fn set_cup_schedule(file: &Path, friendlies: Option<u32>) -> io::Result<()> 
         (Some(n), _) => write(file, &fs::read(file).unwrap_or_default(), schedule_text(n).as_bytes()).map(drop),
         (None, Ok(true)) => fs::remove_file(file),
         (None, _) => Ok(()),
+    }
+}
+
+/// The control's cup files for `plan`: OPEN_TIME1..4 for [`set_cup_times`] (None: the game's times) and the friendlies
+/// before the cup for [`set_cup_schedule`] (None: no file). Open times 0: the file's cup is the only one (the control
+/// skips its timed cups while one is listed), and once it has left the list all four count as held (0x462820, with
+/// GAME_CTRL 1172 = 1 from the stand-in), so the Universal Championship opens at the next friendly slot (0x45DD21).
+pub fn cup_files(plan: CupPlan) -> (Option<[u32; 4]>, Option<u32>) {
+    match plan {
+        CupPlan::Off => (Some([0; 4]), None),
+        CupPlan::GameTimes => (None, None),
+        CupPlan::Slot { friendlies, .. } => (Some([0; 4]), Some(friendlies)),
     }
 }
 
@@ -272,6 +291,31 @@ mod club_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_slot_cup_lets_the_universal_championship_follow() {
+        // OPTION=1 with OPEN_TIME1..4 = 0: once the file's cup has left the list the control counts four cups held
+        // (0x462820) and opens the championship at the next friendly slot; GAME_CTRL 1172 = 1 (the stand-in's, pinned in
+        // gamesvr::tests::game_ctrl_carries_the_clients_defaults) lets 0x462820 run at all
+        let (times, friendlies) = cup_files(CupPlan::Slot {
+            friendlies: 3,
+            opens: 0,
+        });
+        assert_eq!((times, friendlies), (Some([0; 4]), Some(3)));
+        let text = String::from_utf8(cup_times_text(b"", times).unwrap()).unwrap();
+        for want in [
+            "UNIVERSAL_CHAMPIONSHIP_OPEN_TIME_OPTION=1",
+            "UNIVERSAL_CHAMPIONSHIP_OPEN_TIME1=0",
+            "UNIVERSAL_CHAMPIONSHIP_OPEN_TIME2=0",
+            "UNIVERSAL_CHAMPIONSHIP_OPEN_TIME3=0",
+            "UNIVERSAL_CHAMPIONSHIP_OPEN_TIME4=0",
+        ] {
+            assert!(text.contains(want), "{want} in {text}");
+        }
+        // the cup off: the same open times, no schedule file; the game's times: the stand-in's
+        assert_eq!(cup_files(CupPlan::Off), (Some([0; 4]), None));
+        assert_eq!(cup_files(CupPlan::GameTimes), (None, None));
+    }
 
     #[test]
     fn cup_choice_becomes_the_controls_schedule_and_open_time_keys() {

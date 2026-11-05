@@ -2,7 +2,7 @@
 //! echo, whose "desk" never reads and whose "relay" is a UDP echo, and a join side on other loopback ports. Checked:
 //! control bytes both ways, two local UDP sockets kept apart as two flows, the test delay at 0/50/100/150 ms on the
 //! round trip, the forced relay path, and a reader that never reads neither blocking the writer nor growing past
-//! the 4 MiB buffer.
+//! the 4 MiB buffer; the streams in lz4 between new ends, plain when either end is old.
 
 use forza::service::Log;
 use iroh::tls::CaTlsConfig;
@@ -430,6 +430,41 @@ fn a_guest_that_leaves_leaves_nothing_open() {
     }
 }
 
+/// The host stops its arcade: the guest hears "the host closed the arcade" (code 6) and dials again, which is also all
+/// a 0.6.1 guest does with any close but "not in the room".
+#[test]
+fn a_host_that_stops_tells_its_guest() {
+    let p = pair("closing", 0, false);
+    let closed = p.join.as_ref().unwrap().host_closed();
+    assert!(!closed.load(Ordering::Relaxed));
+    drop(p.host);
+    let t = Instant::now();
+    while !closed.load(Ordering::Relaxed) {
+        assert!(
+            t.elapsed() < Duration::from_secs(10),
+            "the guest never heard the host close"
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+    assert!(logged(&p.join_log, "the host closed the arcade"));
+    assert!(
+        logged(&p.join_log, "arcade closed (code 6)"),
+        "the host's own code, not the endpoint's 0"
+    );
+    assert!(logged(&p.join_log, "dialling again"));
+}
+
+/// The guest stops its own tunnel (the game closed): that is not the host closing the arcade.
+#[test]
+fn a_guest_that_stops_is_not_told_the_host_closed() {
+    let mut p = pair("guest_stops", 0, false);
+    let join = p.join.take().unwrap();
+    let closed = join.host_closed();
+    drop(join);
+    assert!(!closed.load(Ordering::Relaxed));
+    assert!(!logged(&p.join_log, "the host closed the arcade"));
+}
+
 /// A guest holds at most 4 streams; the 5th is refused while the others keep working.
 #[test]
 fn streams_past_the_cap_are_refused() {
@@ -561,4 +596,184 @@ fn only_the_rooms_guests_come_in() {
     assert!(logged(&p.join_log, "dialling again"));
     assert!(!unsure.load(std::sync::atomic::Ordering::Relaxed));
     control_rtt(&p);
+}
+
+/// Waits up to 10 s for a log line containing `what`.
+fn wait_logged(lines: &Lines, what: &str) {
+    let t = Instant::now();
+    while !logged(lines, what) {
+        assert!(
+            t.elapsed() < Duration::from_secs(10),
+            "no {what:?} in the log"
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// The 261 feed's size and shape (125 answers of 2,080 bytes, nearly all zero) through the control echo.
+fn feed_round_trip(control: u16) {
+    let mut feed = Vec::new();
+    for i in 0..125u32 {
+        let mut answer = vec![0u8; 2080];
+        answer[..4].copy_from_slice(&i.to_le_bytes());
+        feed.extend_from_slice(&answer);
+    }
+    let mut c = TcpStream::connect(at(control)).unwrap();
+    c.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    let mut w = c.try_clone().unwrap();
+    let sent = feed.clone();
+    let writer = thread::spawn(move || w.write_all(&sent).unwrap());
+    let mut back = vec![0u8; feed.len()];
+    c.read_exact(&mut back).unwrap();
+    writer.join().unwrap();
+    assert!(back == feed, "the feed came back changed");
+}
+
+/// New host, new guest: both offer the lz4 ALPN, the streams are compressed, and each end logs what crossed.
+#[test]
+fn new_and_new_compress() {
+    let p = pair("lz4", 0, false);
+    assert!(logged(
+        &p.join_log,
+        "link to the arcade up (streams in lz4)"
+    ));
+    wait_logged(&p.host_log, "joined (streams in lz4)");
+    feed_round_trip(p.join_ports.control);
+    control_rtt(&p);
+    // 260 KB each way through the echo: the guest's line shows them shrunk, its own bytes the same as the plain line
+    wait_logged(
+        &p.join_log,
+        "control connection closed (260000 bytes out, 260000 in)",
+    );
+    // the lz4 line is the next one out: wait for it rather than race the two log calls
+    wait_logged(&p.join_log, "control connection lz4: out 260 KB -> ");
+    let line = p
+        .join_log
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|l| l.starts_with("control connection lz4: out 260 KB -> "))
+        .cloned()
+        .expect("the guest's lz4 line");
+    let across: u64 = line
+        .split(" -> ")
+        .nth(1)
+        .and_then(|s| s.strip_suffix(" KB, in 260 KB"))
+        .expect(&line)
+        .parse()
+        .expect(&line);
+    assert!(across < 26, "{line}: under a tenth");
+    wait_logged(&p.host_log, "control connection lz4: out 260 KB -> ");
+}
+
+/// An endpoint of 0.6.3 or before: only the plain ALPN, no frames.
+fn old_endpoint(p: &Pair, host: bool) -> iroh::Endpoint {
+    let mut b = iroh::Endpoint::builder(iroh::endpoint::presets::Minimal)
+        .relay_mode(iroh::RelayMode::Custom(p.relay.clone()))
+        .ca_tls_config(CaTlsConfig::insecure_skip_verify())
+        .clear_address_lookup();
+    if host {
+        b = b.alpns(vec![arcade::ARCADE_ALPN.to_vec()]);
+    }
+    p._rt.block_on(async {
+        let ep = b.bind().await.unwrap();
+        ep.online().await;
+        ep
+    })
+}
+
+/// New host, old guest: the link speaks the plain ALPN and the bytes cross as they are.
+#[test]
+fn new_host_old_guest_stays_plain() {
+    let mut p = pair("oldguest", 0, false);
+    drop(p.join.take());
+    let guest = old_endpoint(&p, false);
+    let url = p.relay.urls::<Vec<iroh::RelayUrl>>().remove(0);
+    let host = iroh::EndpointAddr::new(iroh::PublicKey::from_bytes(&p.host.id).unwrap())
+        .with_relay_url(url);
+    let back = p._rt.block_on(async {
+        let conn = guest.connect(host, arcade::ARCADE_ALPN).await.unwrap();
+        assert_eq!(conn.alpn(), arcade::ARCADE_ALPN);
+        let (mut w, mut r) = conn.open_bi().await.unwrap();
+        w.write_all(&[arcade::KIND_CONTROL]).await.unwrap();
+        w.write_all(&[0u8; 3000]).await.unwrap();
+        w.write_all(b"plain").await.unwrap();
+        let mut b = vec![0u8; 3005];
+        r.read_exact(&mut b).await.unwrap();
+        // the stream ends, not the link: a guest's close aborts its streams before their "closed" lines
+        w.finish().unwrap();
+        (conn, b)
+    });
+    let (conn, back) = (back.0, back.1);
+    assert_eq!(&back[3000..], b"plain");
+    assert!(back[..3000].iter().all(|&b| b == 0));
+    wait_logged(
+        &p.host_log,
+        "streams uncompressed: the other side runs an older Forza-WCCF",
+    );
+    wait_logged(
+        &p.host_log,
+        "control connection closed (3005 bytes out, 3005 in)",
+    );
+    assert!(!logged(&p.host_log, "connection lz4"));
+    conn.close(0u8.into(), b"bye");
+    p._rt.block_on(guest.close());
+}
+
+/// Old host, new guest: the guest falls back to the plain ALPN and its game's bytes cross as they are.
+#[test]
+fn old_host_new_guest_stays_plain() {
+    let p = pair("oldhost", 0, false);
+    let host = old_endpoint(&p, true);
+    // the old host's echo: the kind byte, then everything back unchanged
+    let h = host.clone();
+    p._rt.spawn(async move {
+        let Some(incoming) = h.accept().await else {
+            return;
+        };
+        let Ok(conn) = incoming.await else {
+            return;
+        };
+        while let Ok((mut w, mut r)) = conn.accept_bi().await {
+            tokio::spawn(async move {
+                let mut k = [0u8; 1];
+                if r.read_exact(&mut k).await.is_err() || k[0] != arcade::KIND_CONTROL {
+                    return;
+                }
+                let mut b = vec![0u8; 4096];
+                while let Ok(Some(n)) = r.read(&mut b).await {
+                    if w.write_all(&b[..n]).await.is_err() {
+                        return;
+                    }
+                }
+                let _ = w.finish();
+            });
+        }
+    });
+    let (log, lines) = logger("oldhost new join");
+    let ports = Ports {
+        control: free_tcp(),
+        desk: free_tcp(),
+        relay: free_udp(),
+    };
+    let cfg = p.config(
+        Role::Join(*host.id().as_bytes()),
+        ports,
+        "oldhost-join.key",
+        log,
+        Duration::ZERO,
+    );
+    let join = arcade::spawn(cfg).unwrap();
+    assert!(logged(
+        &lines,
+        "link to the arcade up (streams uncompressed: the other side runs an older Forza-WCCF)"
+    ));
+    feed_round_trip(join.ports.control);
+    wait_logged(
+        &lines,
+        "control connection closed (260000 bytes out, 260000 in)",
+    );
+    assert!(!logged(&lines, "connection lz4"));
+    drop(join);
+    p._rt.block_on(host.close());
 }

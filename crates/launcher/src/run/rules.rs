@@ -3,6 +3,7 @@
 //! only the cabinet.  Their cases are ported from test_ended.py, test_take_seat.py and play.py's own rules.
 
 use forza::online::seat::{Fault, SeatError};
+use forza_ui::lobby::{CupPlan, CupRefused};
 
 use super::Text;
 use crate::card::Session;
@@ -69,6 +70,15 @@ pub fn session_line(mode: &Mode, arcade: Option<&str>, seat: u8, projector: Opti
         mode.word(),
         arcade.unwrap_or("-")
     )
+}
+
+/// The Universal Cup a run's control gets from the saved choice (data\settings.json `cup`, read at `now`): the host
+/// dialog's for a server, the PLAY tab's for local play, the same plan either way; VS keeps the game's times.
+pub fn cup_plan(mode: &Mode, settings: &serde_json::Value, now: u32) -> Result<CupPlan, CupRefused> {
+    match mode {
+        Mode::Vs(_) => Ok(CupPlan::GameTimes),
+        _ => crate::conf::cup_choice(settings).plan(now),
+    }
 }
 
 /// What the command line asks (play.py's words).
@@ -382,6 +392,23 @@ pub fn went_wrong(launcher_logs: &[&str], read: impl Fn(&str) -> String) -> Vec<
     why
 }
 
+/// The end's words when the host closed the arcade; `club`: whether the club came home at the end, None when none came
+/// along. Not home: a save after its last good copy-back (a VS or a CPU match) may be missing at home.
+pub fn host_closed_notice(club: Option<bool>) -> Text {
+    Text::key(match club {
+        None => "launcher.run_host_closed",
+        Some(true) => "launcher.run_host_closed_club_safe",
+        Some(false) => "launcher.run_host_closed_club_maybe_old",
+    })
+}
+
+/// [`went_wrong`]'s reasons without the server link's LOST lines, which follow the host closing the arcade.
+pub fn without_link_lost(why: Vec<String>) -> Vec<String> {
+    why.into_iter()
+        .filter(|w| !w.starts_with("server_link.txt: "))
+        .collect()
+}
+
 /// Why no seat was taken on the server at `ip` (play.py's _seat_decision messages): every fault but "no broker" stops
 /// the start, so two PCs never land on one seat (A4).
 pub fn seat_refusal(e: &SeatError, asked: Option<u8>, ip: &str) -> Text {
@@ -473,6 +500,30 @@ pub fn compat_layer(existing: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Local PLAY with a cup chosen gives the control the arcade host's schedule. The file carries no seat count: the
+    /// local control has seat 1 only and fills the other 7 teams with CPU, as a host's with one seat did (probe 1).
+    #[test]
+    fn local_play_with_a_cup_writes_the_hosts_schedule() {
+        let two_pm = 14 * 3600;
+        for st in [
+            serde_json::json!({"cup": "in", "cup_minutes": 25}),
+            serde_json::json!({"cup": "at", "cup_at": 1530}),
+            serde_json::json!({"cup": "off"}),
+            serde_json::json!({}),
+            serde_json::json!({"cup": "in", "cup_minutes": 5}),
+        ] {
+            let host = cup_plan(&Mode::Server, &st, two_pm);
+            assert_eq!(cup_plan(&Mode::Local, &st, two_pm), host, "{st}");
+            assert_eq!(cup_plan(&Mode::LanServer, &st, two_pm), host, "{st}");
+        }
+        let st = serde_json::json!({"cup": "in", "cup_minutes": 25});
+        let Ok(CupPlan::Slot { friendlies, .. }) = cup_plan(&Mode::Local, &st, two_pm) else {
+            panic!("no slot")
+        };
+        assert_eq!(crate::conf::schedule_text(friendlies), crate::conf::schedule_text(3));
+        assert_eq!(cup_plan(&Mode::Vs("x".into()), &st, two_pm), Ok(CupPlan::GameTimes));
+    }
 
     #[test]
     fn the_session_line_names_the_role_arcade_seat_and_projector() {
@@ -883,6 +934,31 @@ mod tests {
             ]),
         );
         assert_eq!(why, ["run_server.txt: a crash recorded (STOP: invalid parameter)"]);
+    }
+
+    /// The host closes the arcade while the guest plays (the guest's 2026-11-01 logs): the server link's LOST is no
+    /// problem then, the end is a notice, and the club is called safe only when it came home at the end.
+    #[test]
+    fn the_host_closing_is_a_notice_not_a_problem() {
+        let seat = ["run_seat1.txt"];
+        let lost = "2026-11-01 00:01:58 UP 127.0.0.1\n2026-11-01 00:27:13 LOST (it was up 1514 s)\n";
+        let why = went_wrong(&seat, logs(&[("run_seat1.txt", CLOSED), ("server_link.txt", lost)]));
+        assert_eq!(why.len(), 1);
+        assert!(without_link_lost(why).is_empty());
+        let crash = format!("{CLOSED}  SECOND-chance / FATAL exception 0xC0000005\n");
+        let why = went_wrong(&seat, logs(&[("run_seat1.txt", &crash), ("server_link.txt", lost)]));
+        assert_eq!(without_link_lost(why).len(), 1, "a crash stays a problem");
+
+        assert_eq!(
+            host_closed_notice(Some(true)).en(),
+            "The host closed the arcade. Your club is safe (brought home at the end)."
+        );
+        assert!(
+            host_closed_notice(Some(false))
+                .en()
+                .contains("may be from before your last match")
+        );
+        assert_eq!(host_closed_notice(None).en(), "The host closed the arcade.");
     }
 
     /// The words must stay the launcher's and the panel's own (test_ended.py read debugger.py and wccfpanel.c; now the Rust panel's link_watch).

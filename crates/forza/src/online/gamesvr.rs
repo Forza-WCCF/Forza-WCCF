@@ -8,6 +8,7 @@
 //! every other message gets zeros. A request the store refuses (short, wrong revision, unknown ids) gets errCode 1.
 
 use super::club::team_tag;
+use super::sessions::{Session, Sessions};
 use super::vs::{self, Matcher, VsConfig};
 use crate::service::{Handle, Log, accept_loop, read_some};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
@@ -30,7 +31,13 @@ const SECRETARIES: std::ops::Range<usize> = 16 + 1176..16 + 1212;
 /// lowers to 9. Offsets 1,092..1,104 are the Universal Cup open times (HHMM, host clock); 1,172 = 1 lets the control
 /// insert a Universal Cup (competition 31) into its schedule before each open time (control 0x462820; the client's
 /// default 0 never schedules one), 1,173 = minutes per slot, 1,174 = minutes after control start before the first
-/// cup; 14,608 / 14,610 take the common branch (A).
+/// cup; 14,608 / 14,610 take the common branch (A). 7,622..7,664 are the Grand Trophy block: the window (u16 HHMM
+/// start and end, 0..2400 = open all day; the row is selectable iff start <= now <= end, and the control tags a VS
+/// entry with the card's class only while it is open) and the per-match points as the client's GT object constructor
+/// sets them (win 300, draw 100, per goal 100, clean sheet 50, per goal conceded 10, hat-trick 100, win-streak record
+/// 100, CPU match parameters higher 4,500 / lower 2,000; their reader is unknown, A). The rest of the block (lose,
+/// bonuses, ghost rates, playoff CPU level, promotion / playoff / staying thresholds) is 0 there as here. The week id
+/// and the matches per class are [`fill_game_ctrl`]'s.
 const GAME_CTRL_DEFAULTS: &[(usize, usize, u32)] = &[
     (1, 1, 5),
     (2, 2, 5),
@@ -57,6 +64,17 @@ const GAME_CTRL_DEFAULTS: &[(usize, usize, u32)] = &[
     (1174, 1, 20),
     (1216, 1, 1),
     (1218, 2, 600),
+    (7622, 2, 0),
+    (7624, 2, 2_400),
+    (7626, 2, 300),
+    (7630, 2, 100),
+    (7632, 2, 100),
+    (7634, 2, 50),
+    (7636, 2, 10),
+    (7638, 2, 100),
+    (7640, 2, 100),
+    (7660, 2, 4_500),
+    (7662, 2, 2_000),
     (14532, 4, 61_440),
     (14542, 1, 1),
     (14608, 1, 5),
@@ -96,12 +114,41 @@ const SHOP_TO: u32 = 20_991_231;
 /// table than the shop's), so off; [`SHOP_SALE`] has no SE entry either.
 const APPLY_SE: bool = false;
 
-/// Answer 238's GAME_CTRL (from payload +16): the client's defaults and the unlocked secretaries. +8 and +12 (date
-/// and time) stay 0: the control may set the PC's clock from them.
-fn fill_game_ctrl(body: &mut [u8]) {
+/// Grand Trophy matches counted for the weekly record (the sum of the best N scores), per class: Local, Area B,
+/// Area A, World B, World A (GAME_CTRL 7,666..7,670, u8, max 10: the client keeps 10 best scores). Provisional until
+/// a player of the original confirms them. With 0 the client never grows the record, and the post-match record
+/// screen skips the counter that stops its looping count-up sound.
+const GT_MATCHES_PER_CLASS: [u8; 5] = [3, 5, 5, 7, 7];
+/// 238 payload offsets of the Grand Trophy week id (u16) and [`GT_MATCHES_PER_CLASS`].
+const GT_WEEK_AT: usize = 16 + 7_620;
+const GT_MATCHES_AT: usize = 16 + 7_666;
+/// Week 0 of [`gt_week`] starts on Sunday 2000-01-02 23:00 Italian time (the Monday 2000-01-03 rule shifted by an
+/// hour); a u16 lasts about 1,250 years.
+const GT_EPOCH: chrono::NaiveDate =
+    chrono::NaiveDate::from_ymd_opt(2000, 1, 3).expect("a valid date");
+
+/// The Grand Trophy week of a moment: weeks run Monday to Sunday and roll on Sunday at 23:00 Europe/Rome wall-clock
+/// time (CET or CEST), like the original's Sunday 23:00 in its own time zone.
+fn gt_week(unix_secs: i64) -> u16 {
+    let rome = chrono::DateTime::from_timestamp(unix_secs, 0)
+        .unwrap_or_default()
+        .with_timezone(&chrono_tz::Europe::Rome)
+        .naive_local();
+    let days = (rome + chrono::TimeDelta::hours(1))
+        .date()
+        .signed_duration_since(GT_EPOCH)
+        .num_days();
+    days.div_euclid(7).clamp(0, i64::from(u16::MAX)) as u16
+}
+
+/// Answer 238's GAME_CTRL (from payload +16): the client's defaults, the unlocked secretaries and the Grand Trophy
+/// week of `unix_secs`. +8 and +12 (date and time) stay 0: the control may set the PC's clock from them.
+fn fill_game_ctrl(body: &mut [u8], unix_secs: i64) {
     for &(at, width, v) in GAME_CTRL_DEFAULTS {
         body[16 + at..16 + at + width].copy_from_slice(&v.to_le_bytes()[..width]);
     }
+    body[GT_WEEK_AT..GT_WEEK_AT + 2].copy_from_slice(&gt_week(unix_secs).to_le_bytes());
+    body[GT_MATCHES_AT..GT_MATCHES_AT + 5].copy_from_slice(&GT_MATCHES_PER_CLASS);
     body[SECRETARIES].fill(1);
     for (k, (cat, item)) in SHOP_SALE.into_iter().enumerate() {
         for (i, v) in [cat, item, SHOP_FROM, SHOP_TO].into_iter().enumerate() {
@@ -1064,6 +1111,9 @@ pub(super) fn ask_for_test(
     log: &Log,
 ) -> (Vec<u8>, Option<String>) {
     let (_, body, why) = answer(cmd, p, store, None, &[], None, log).unwrap();
+    if let Some(line) = match_line(cmd, p, why.as_deref()) {
+        log(&line);
+    }
     (body, why)
 }
 
@@ -1094,13 +1144,17 @@ fn answer(
         // the control copies payload +16.. as GAME_CTRL (sub_4419F0) and sends it to every seat, over the client's
         // defaults; all zero leaves no secretary, and the club's SECRETARY step loads a picture that is not on the
         // disc and reads a null pointer (client 0x424AB2, docs/research/ONLINE-2017-18.md)
-        fill_game_ctrl(&mut body);
+        fill_game_ctrl(&mut body, now());
     }
     if cmd == 261 && payload.len() >= 8 {
-        // the control downloads a 0x3DA38-byte buffer in 2,032-byte chunks (request +4 = chunk) and copies answer
-        // +4 bytes of each (sub_443090); it never zeroes the buffer, so size 0 left heap garbage that it later read
-        // as clubs and crashed on (error 3000 on the seats). Full sizes copy zeros: an empty list, CPU teams. The
-        // last chunk is short: the control does not bound the copy.
+        // the control downloads a 0x3DA38-byte buffer in 2,032-byte chunks (request +4 = chunk) and copies the answer
+        // +4 count of bytes from +8 of each (sub_443090); it never zeroes the buffer, so size 0 left heap garbage that
+        // it later read as clubs and crashed on (error 3000 on the seats). Full sizes copy zeros: an empty list, CPU
+        // teams. The last chunk is short: the control does not bound the copy. The buffer is the data-match replay
+        // feed (VtrPlayData, control sub_47AFE0): an all-zero 6,480-byte match at +58 of each 8,602-byte round
+        // (`live_game_at`) reads as "LiveGameInit bin is empty", so the projector gets no replays. Its CPU
+        // championship is the control's own CPU-filled Universal Championship; with WCCF_UCLIVE=on the hook keeps it
+        // off the projector unless an arcade player's club is in it (native/hook/src/uclive.rs).
         put(&mut body, 4, live_chunk_size(u32_at(payload, 4)));
     }
     if matches!(cmd, 307 | 311) {
@@ -1114,9 +1168,6 @@ fn answer(
     let refused = club(cmd, payload, &mut body, store, skip, rare, log).err();
     if refused.is_some() {
         put(&mut body, 4, 1);
-    }
-    if let Some(line) = match_line(cmd, payload, refused.as_deref()) {
-        log(&line);
     }
     Some((rcmd, body, refused))
 }
@@ -1133,9 +1184,11 @@ pub(super) fn name_text(b: &[u8]) -> String {
 
 /// The log's match lines, CPU and VS matches alike (docs/research/ONLINE-2017-18.md): INJUSTICE_COUNT 289 with +1 is a
 /// play's start (sub_785BA0); SAVE_DATA_SET 277 its end, with the opponent (a CPU club has coachId 0), the score and
-/// whether the store took the result.
-fn match_line(cmd: u16, req: &[u8], refused: Option<&str>) -> Option<String> {
+/// whether the store took the result. [`Session::request`] logs them with the seat's mode.
+pub(super) fn match_line(cmd: u16, req: &[u8], refused: Option<&str>) -> Option<String> {
     let id = |at| u32_at(req, at);
+    // goals and PKs are single bytes: the bytes after them belong to other fields (owner run logs showed packed u32s
+    // such as 2950146 = 0x2D0502 for a 2 goal score)
     match cmd {
         289 if req.len() >= 20 && id(16) == 1 => Some(format!(
             "match start: aime {} coach {} card {}",
@@ -1151,10 +1204,10 @@ fn match_line(cmd: u16, req: &[u8], refused: Option<&str>) -> Option<String> {
             name_text(&req[3356..3412]),
             name_text(&req[3300..3356]),
             id(3296),
-            id(3416),
-            id(3428),
-            id(3424),
-            id(3436),
+            req[3416],
+            req[3428],
+            req[3424],
+            req[3436],
             req[24],
             refused.map_or("ok".into(), |why| format!("FAILED ({why})"))
         )),
@@ -1282,6 +1335,9 @@ pub struct Options {
     /// The matcher VS uses, when another service shares it (`forza-server all`: the desk lists its rooms); None =
     /// a new one
     pub matcher: Option<Arc<Matcher>>,
+    /// Who is connected, when another service shares it (`forza-server all`: the desk counts the cards in its lobby
+    /// row); None = a new one
+    pub sessions: Option<Arc<Sessions>>,
 }
 
 impl Default for Options {
@@ -1294,6 +1350,7 @@ impl Default for Options {
             max_per_ip: 0,
             vs: None,
             matcher: None,
+            sessions: None,
         }
     }
 }
@@ -1358,7 +1415,9 @@ pub fn spawn_opts(
         max_per_ip,
         vs,
         matcher,
+        sessions,
     } = opts;
+    let sessions = sessions.unwrap_or_default();
     let vs = vs.map(|cfg| {
         Arc::new(Vs {
             cfg,
@@ -1399,6 +1458,7 @@ pub fn spawn_opts(
             Slot(&peers, peer.ip())
         };
         log(&format!("connected {peer}"));
+        let mut session: Session = sessions.open(peer, log.clone());
         // the header on the stack, one payload buffer per link (it grows to at most MAX_FRAME - 40 bytes)
         let (mut head, mut have) = ([0u8; 40], 0);
         let mut payload: Vec<u8> = Vec::new();
@@ -1453,10 +1513,18 @@ pub fn spawn_opts(
                 .take(48)
                 .map(|b| format!("{b:02x}"))
                 .collect();
-            log(&format!(
-                "<- cmd {cmd} seq {seq} status {status} payload {} conn {id} text {text:?} first {first}",
-                payload.len()
-            ));
+            // vslink's lookup comes every 0.5 s while a link is up: counted, said once a minute
+            let quiet = cmd == 904;
+            if quiet {
+                if let Some(line) = session.vslink_poll() {
+                    log(&line);
+                }
+            } else {
+                log(&format!(
+                    "<- cmd {cmd} seq {seq} status {status} payload {} conn {id} text {text:?} first {first}",
+                    payload.len()
+                ));
+            }
             if dump && !payload.is_empty() {
                 let ms = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -1474,13 +1542,18 @@ pub fn spawn_opts(
                 &log,
             ) {
                 Some((rcmd, body, refused)) => {
+                    for line in session.request(cmd, &payload, refused.as_deref()) {
+                        log(&line);
+                    }
                     if let Some(why) = refused {
                         log(&format!("   refused cmd {cmd}: {why} (errCode 1)"));
                     }
                     if send(&mut conn, &header(rcmd, seq, 1, body.len(), id), &body).is_err() {
                         return;
                     }
-                    log(&format!("-> cmd {rcmd} payload {}", body.len()));
+                    if !quiet {
+                        log(&format!("-> cmd {rcmd} payload {}", body.len()));
+                    }
                 }
                 None => log(&format!("   (no answer for cmd {cmd})")),
             }
@@ -1510,6 +1583,41 @@ mod tests {
         let log: Log = Arc::new(|_: &str| {});
         let (cmd, body, _) = answer(261, &p, &store, None, &[], None, &log).unwrap();
         assert_eq!((cmd, body.len(), u32_at(&body, 4)), (262, 2040, 504));
+    }
+
+    /// Where round `round` (0..8) of competition `compe` (0..2) keeps its 6,480-byte match in the control's 261 buffer
+    /// (the answers' bytes from +8, joined): the buffer's own 8-byte head (week id, weekday), then 68,816 bytes per
+    /// competition, 8,602 per round, the match at +58 (control sub_47AFE0, sub_47A530).
+    fn live_game_at(compe: usize, round: usize) -> usize {
+        8 + 68_816 * compe + 8_602 * round + 58
+    }
+
+    #[test]
+    fn the_live_download_holds_no_data_match_to_replay() {
+        let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
+        let log: Log = Arc::new(|_: &str| {});
+        let mut buf = Vec::new();
+        for chunk in 0..125 {
+            let mut p = vec![0u8; 8];
+            put(&mut p, 4, chunk);
+            let (_, body, _) = answer(261, &p, &store, None, &[], None, &log).unwrap();
+            let n = u32_at(&body, 4) as usize;
+            buf.extend_from_slice(&body[8..8 + n]); // what sub_443090 copies: answer +8, size at +4
+        }
+        assert_eq!(buf.len(), 0x3DA38);
+        // the layout: 8 rounds fill a competition, 2 competitions end where the team names start (+137,640)
+        assert_eq!(live_game_at(0, 1) - live_game_at(0, 0), 8_602);
+        assert_eq!(live_game_at(1, 0) - live_game_at(0, 0), 8 * 8_602);
+        assert_eq!(live_game_at(2, 0) - 58, 137_640);
+        // every match slot is zero ("LiveGameInit bin is empty"), as is the rest: names and emblems of nobody
+        for (c, r) in (0..2).flat_map(|c| (0..8).map(move |r| (c, r))) {
+            let at = live_game_at(c, r);
+            assert!(
+                buf[at..at + 6480].iter().all(|&b| b == 0),
+                "competition {c} round {r}: a non-zero match would play on the projector"
+            );
+        }
+        assert!(buf.iter().all(|&b| b == 0));
     }
 
     #[test]
@@ -1658,7 +1766,7 @@ mod tests {
     #[test]
     fn game_ctrl_carries_the_clients_defaults() {
         let mut body = vec![0u8; 0x5A54];
-        fill_game_ctrl(&mut body);
+        fill_game_ctrl(&mut body, 0);
         fn at(body: &[u8], off: usize, w: usize) -> u32 {
             let mut b = [0u8; 4];
             b[..w].copy_from_slice(&body[16 + off..16 + off + w]);
@@ -1679,7 +1787,8 @@ mod tests {
             (5_000, 250_000, 26, 1)
         );
         assert!(body[8..16].iter().all(|b| *b == 0), "date and time stay 0");
-        // the Universal Cup: scheduling on (payload +1,188), 9-minute slots, 20 minutes, and the four open times
+        // the Universal Cup: scheduling on (payload +1,188 = GAME_CTRL 1172; without it control 0x462820 never counts a
+        // cup held and the Universal Championship never follows), 9-minute slots, 20 minutes, and the four open times
         assert_eq!(
             (body[1_188], body[1_189], body[1_190]),
             (1, 9, 20),
@@ -1689,25 +1798,89 @@ mod tests {
             [1_092, 1_096, 1_100, 1_104].map(|o| at(&body, o, 4)),
             [1_200, 1_500, 1_800, 2_100]
         );
-        // the Grand Trophy window stays closed (0..0) outside VS, and VS overlays the polls and the window
-        assert_eq!((at(&body, 7_622, 2), at(&body, 7_624, 2)), (0, 0));
+        // VS overlays the polls and keeps the Grand Trophy block
         vs::fill_game_ctrl(&mut body);
         assert_eq!(
             (
                 at(&body, 19_740, 1),
                 at(&body, 7_624, 2),
+                at(&body, 7_670, 1),
                 at(&body, 1_211, 1)
             ),
-            (u32::from(vs::POLLS), 2400, 1)
+            (u32::from(vs::POLLS), 2400, 7, 1)
         );
-        // no two defaults overlap each other or the secretaries
+        // no two defaults overlap each other, the secretaries, the week id or the matches per class
         let mut spans: Vec<_> = GAME_CTRL_DEFAULTS
             .iter()
             .map(|&(o, w, _)| (o, o + w))
             .collect();
-        spans.push((1_176, 1_212));
+        spans.extend([(1_176, 1_212), (7_620, 7_622), (7_666, 7_671)]);
         spans.sort();
         assert!(spans.windows(2).all(|w| w[0].1 <= w[1].0));
+    }
+
+    #[test]
+    fn grand_trophy_block_without_vs() {
+        // the arcade's stand-in: no VS switch, so the 238 is the default filler alone
+        let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
+        let log: Log = Arc::new(|_: &str| {});
+        let mut req = vec![0u8; 16];
+        put(&mut req, 0, 1);
+        let (body, _) = ask_for_test(&store, 237, &req, &log);
+        let at = |off: usize| u16_at(&body, 16 + off);
+        assert_eq!((at(7_622), at(7_624)), (0, 2_400), "open all day");
+        assert_eq!(body[16 + 7_666..16 + 7_671], [3, 5, 5, 7, 7], "N per class");
+        assert_eq!(
+            [
+                7_626, 7_628, 7_630, 7_632, 7_634, 7_636, 7_638, 7_640, 7_642
+            ]
+            .map(at),
+            [300, 0, 100, 100, 50, 10, 100, 100, 0],
+            "win, lose, draw, goal, clean sheet, conceded, hat-trick, streak, streak step"
+        );
+        assert_eq!((at(7_660), at(7_662), at(7_664)), (4_500, 2_000, 0));
+        assert!(
+            body[16 + 7_671..16 + 7_736].iter().all(|b| *b == 0),
+            "playoff CPU level and the class thresholds"
+        );
+        assert_eq!(at(7_620), gt_week(now()));
+    }
+
+    #[test]
+    fn gt_week_rolls_on_sunday_23_italian_time() {
+        // Unix seconds of a Rome wall-clock time: winter UTC+1, summer UTC+2
+        let utc = |y, mo, d, h, mi| {
+            chrono::NaiveDate::from_ymd_opt(y, mo, d)
+                .unwrap()
+                .and_hms_opt(h, mi, 0)
+                .unwrap()
+                .and_utc()
+                .timestamp()
+        };
+        // winter: Sunday 2026-11-08 22:59 / 23:00 CET = 21:59 / 22:00 UTC
+        let w = gt_week(utc(2026, 11, 8, 21, 59));
+        assert_eq!(gt_week(utc(2026, 11, 8, 22, 0)), w + 1);
+        assert_eq!(
+            gt_week(utc(2026, 11, 2, 0, 0)),
+            w,
+            "Monday 01:00 is the same week"
+        );
+        // summer: Sunday 2026-07-05 22:59 / 23:00 CEST = 20:59 / 21:00 UTC
+        let s = gt_week(utc(2026, 7, 5, 20, 59));
+        assert_eq!(gt_week(utc(2026, 7, 5, 21, 0)), s + 1);
+        assert_eq!(
+            w - s,
+            18,
+            "18 weeks from Monday 2026-06-29 to Monday 2026-11-02"
+        );
+        // week 0 starts on Sunday 2000-01-02 23:00 CET
+        assert_eq!(gt_week(utc(2000, 1, 2, 22, 0)), 0);
+        assert_eq!(
+            gt_week(utc(2000, 1, 2, 21, 59)),
+            0,
+            "clamped below the epoch"
+        );
+        assert_eq!(gt_week(utc(2000, 1, 9, 22, 0)), 1);
     }
 
     #[test]
@@ -2038,9 +2211,12 @@ mod tests {
         put(&mut start, 16, u32::MAX); // -1: the save went through
         assert_eq!(match_line(289, &start, None), None);
         let mut end = vec![0u8; 8572];
-        for (at, v) in [(4, 7), (8, 2), (3416, 3), (3428, 1)] {
+        for (at, v) in [(4, 7), (8, 2)] {
             put(&mut end, at, v);
         }
+        // a real body's neighbours are nonzero: home 2 then 0x05 0x2D 0x00, away 1 then 0x00 0x3B 0x01 (run log)
+        end[3416..3420].copy_from_slice(&[3, 5, 0x2D, 0]);
+        end[3428..3432].copy_from_slice(&[1, 0, 0x3B, 1]);
         end[24] = 2;
         end[3300..3303].copy_from_slice(b"CPU");
         end[3356..3366].copy_from_slice(b"BEST ELEVN");

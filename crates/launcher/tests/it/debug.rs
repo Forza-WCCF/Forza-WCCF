@@ -195,7 +195,7 @@ fn a_closed_window_ends_the_program() {
 #[test]
 #[ignore = "a stand-in started by hide_starts_the_windows_hidden"]
 fn window_stand_in() {
-    show_window();
+    show_window("wccf-debug-stand-in", true);
     thread::sleep(Duration::from_secs(3));
 }
 
@@ -203,17 +203,32 @@ fn window_stand_in() {
 #[test]
 #[ignore = "a stand-in started by a_hung_window_is_dumped_once"]
 fn hung_stand_in() {
-    show_window();
+    show_window("wccf-debug-stand-in", true);
     thread::sleep(Duration::from_secs(15));
 }
 
-/// A window of this thread, which never pumps its messages.
-fn show_window() {
+/// The projector's window as its setting has it: the title `game_title` gives it (crates/panel), shown at first,
+/// then hidden 8 s in as the panel does, and kept 8 s more: past the window settle and its two checks.
+#[test]
+#[ignore = "a stand-in started by a_hidden_projector_window_is_not_a_closed_one"]
+fn projector_stand_in() {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SW_HIDE, ShowWindow};
+    let w = show_window(&format!("{} 17-18 Ver2.0", launcher::kit::PROJECTOR_TITLE), true);
+    thread::sleep(Duration::from_secs(8));
+    // SAFETY: the window this thread made, alive in this program
+    unsafe { ShowWindow(w, SW_HIDE) };
+    thread::sleep(Duration::from_secs(8));
+}
+
+/// A window of this thread, which never pumps its messages: `title`, shown the way a program shows its first one
+/// (`SW_SHOWDEFAULT`: what the starter asked for) or created hidden; the caller hides it again (as the panel does).
+fn show_window(title: &str, shown: bool) -> windows_sys::Win32::Foundation::HWND {
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, RegisterClassW, SW_SHOWDEFAULT, ShowWindow, WNDCLASSW, WS_OVERLAPPEDWINDOW,
     };
     let class: Vec<u16> = "wccf-debug-stand-in\0".encode_utf16().collect();
+    let title: Vec<u16> = format!("{title}\0").encode_utf16().collect();
     // SAFETY: zeroed WNDCLASSW plus the fields set is a valid class; the strings outlive the calls.
     unsafe {
         let wc = WNDCLASSW {
@@ -226,7 +241,7 @@ fn show_window() {
         let w = CreateWindowExW(
             0,
             class.as_ptr(),
-            class.as_ptr(),
+            title.as_ptr(),
             WS_OVERLAPPEDWINDOW,
             -32000,
             -32000,
@@ -238,7 +253,10 @@ fn show_window() {
             std::ptr::null(),
         );
         assert!(!w.is_null());
-        ShowWindow(w, SW_SHOWDEFAULT);
+        if shown {
+            ShowWindow(w, SW_SHOWDEFAULT);
+        }
+        w
     }
 }
 
@@ -304,6 +322,59 @@ fn hide_starts_the_windows_hidden() {
         assert_eq!(code, 0);
         assert!(job.wait_empty(Duration::from_secs(10)));
     }
+}
+
+/// The projector's window, hidden by its setting, is still a window: `has_window` keeps it, so the run does not take
+/// it for a closed one and end the championship.
+#[test]
+fn a_hidden_projector_window_is_not_a_closed_one() {
+    let top = tempfile::tempdir().unwrap();
+    let mut opts = options(std::env::current_exe().unwrap(), top.path(), Role::Client);
+    opts.args = ["debug::projector_stand_in", "--exact", "--ignored", "--nocapture"]
+        .map(String::from)
+        .to_vec();
+    let (job, log, t) = start(opts);
+    let pid = launched_pid(&log);
+    // the stand-in shows the window first: the watcher can only take a window for a closed one after it has seen one
+    let since = Instant::now();
+    let mut win = None;
+    while win.is_none() && since.elapsed() < Duration::from_secs(10) {
+        thread::sleep(Duration::from_millis(100));
+        win = launcher::procs::windows(pid)
+            .into_iter()
+            .find(|w| w.class == "wccf-debug-stand-in" && w.visible);
+    }
+    let win = win.expect("the stand-in showed no window");
+    assert!(
+        win.title.starts_with(launcher::kit::PROJECTOR_TITLE),
+        "its title: {}",
+        win.title
+    );
+    // the panel hides the window when the setting is off; the stand-in does the same 8 s in
+    let hiding = Instant::now();
+    let mut hidden = false;
+    while !hidden && hiding.elapsed() < Duration::from_secs(15) {
+        thread::sleep(Duration::from_millis(100));
+        hidden = !launcher::procs::windows(pid).iter().any(|w| w.visible);
+    }
+    assert!(hidden, "the stand-in did not hide its window: {}", log.text());
+    // a window the watcher saw and lost ends the program 5 s later (WINDOW_SETTLE) plus two 1 s checks. A hidden
+    // projector window is still a window: the run goes on, and the stand-in exits 8 s past the hide.
+    let hidden_since = Instant::now();
+    while hidden_since.elapsed() < Duration::from_secs(7) && !t.is_finished() {
+        thread::sleep(Duration::from_millis(100));
+    }
+    assert!(
+        !t.is_finished(),
+        "the hidden window was taken for a closed one: {}",
+        log.text()
+    );
+    let code = t.join().unwrap();
+    let out = log.text();
+    assert!(!out.contains("its window was closed"), "{out}");
+    assert!(out.contains("process exited, exit code 0x00000000"), "{out}");
+    assert_eq!(code, 0, "{out}");
+    assert!(job.wait_empty(Duration::from_secs(10)), "the job is empty: {out}");
 }
 
 /// `above_normal` (2017-18): a game program starts at above-normal priority and the log says so.

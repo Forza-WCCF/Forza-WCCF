@@ -14,8 +14,9 @@
 
 use crate::{Edition, Handle, Log};
 use forza::online::lobby::{
-    self, Arcade, Created, Lobby, Occupant, Reserved, State as ArcadeState, VsRoom,
+    self, Arcade, Created, Lobby, Occupant, Reserved, ServerNotice, State as ArcadeState, VsRoom,
 };
+use forza::online::sessions::Sessions;
 use forza::online::vs::Matcher;
 use forza::online::{Reply, SEATS, Want, seat};
 use regex::Regex;
@@ -104,6 +105,21 @@ pub struct DeskConfig {
     /// The arcade host's club store (`WCCF_CLUB_DB`, its `gamesvr.db`): guests bring their clubs there with `CLUB`
     /// ([`forza::online::club`]). None: `CLUB` answers `NO`.
     pub club_db: Option<PathBuf>,
+    /// The club store is this server's own game server's (`forza-server all` on a public server): any PC brings its
+    /// club there without a seat, and it replaces what the server kept for the card
+    /// ([`forza::online::club::Store::import_public`]).
+    pub club_public: bool,
+    /// The game server's open connections when they run together (`forza-server all`): 2017-18 players log in there
+    /// with a card and take no seat, so the lobby row counts their cards, and the desk logs a summary line every
+    /// [`DeskConfig::summary_every`] while anyone is on.
+    pub sessions: Option<Arc<Sessions>>,
+    /// 5 min.
+    pub summary_every: Duration,
+    /// The operator's notice to players (`WCCF_NOTICE`, else `notice.json` in the data or store folder, `cli.rs`):
+    /// JSON with `id`, `en`, optional `it`, `ja` and RFC 3339 `start`, `end` with an offset (the format and an
+    /// example: `docs/SELF-HOSTING.md`). Read again when its time changes; missing or unreadable = no notice, and a
+    /// `start`/`end` that is not such a date drops the notice too (the log says why). None: never a notice.
+    pub notice: Option<PathBuf>,
 }
 
 /// A positive count from the environment variable `name`, else `default`.
@@ -128,6 +144,12 @@ impl DeskConfig {
             hold_every: Duration::from_secs(1),
             tunnel: std::env::var("WCCF_DESK_TUNNEL").is_ok_and(|v| v == "1"),
             club_db: std::env::var_os("WCCF_CLUB_DB").map(PathBuf::from),
+            club_public: false,
+            sessions: None,
+            summary_every: Duration::from_secs(300),
+            notice: std::env::var_os("WCCF_NOTICE")
+                .filter(|v| !v.is_empty())
+                .map(PathBuf::from),
             // WCCF_SHOP_* names kept from before the arcade rename: hosts' service files set them
             name: std::env::var("WCCF_SHOP_NAME").unwrap_or_else(|_| "Forza-WCCF".into()),
             lang: std::env::var("WCCF_SHOP_LANG")
@@ -328,6 +350,8 @@ struct Shared {
     /// Last `LOBBY` per address, and the cached answer with its build time.
     lobby_seen: Mutex<HashMap<String, Instant>>,
     lobby_cached: Mutex<Option<(Instant, String)>>,
+    /// The notice file as last read: its modified time, and its notice with the window's start and end.
+    notice: Mutex<Option<(Option<SystemTime>, Option<Notice>)>>,
     /// Open connections per address ([`MAX_PER_IP`]).
     open: Mutex<HashMap<String, usize>>,
     /// `RESERVE` + `CREATE` per address: window start, count.
@@ -625,6 +649,11 @@ fn session(
             let Some(db) = &sh.cfg.club_db else {
                 return out.write_all(b"NO no club store here\n");
             };
+            let public = sh.cfg.club_public;
+            // no seat holds a public server's uploads back: the per-address ask limit does
+            if public && line.starts_with("CLUB PUT") && sh.slow(ip, Instant::now()) {
+                return out.write_all(b"NO slow\n");
+            }
             let held = |s: u8| sh.state.lock().unwrap().leases.contains_key(&s);
             let said = forza::online::club::serve(
                 db,
@@ -632,6 +661,7 @@ fn session(
                 std::mem::take(&mut lines.buf),
                 &mut out,
                 &held,
+                public,
             )?;
             if !said.is_empty() {
                 log(&format!("{peer}: {said}"));
@@ -857,7 +887,11 @@ fn lobby_answer(sh: &Shared, ip: &str, edition: &str, out: &mut TcpStream) -> io
         let mut st = sh.state.lock().unwrap();
         expire(sh, &mut st, now);
         (
-            used(sh, &st).len() as u8,
+            // the larger, not the sum: one PC may hold a seat lease and a card on the game server
+            used(sh, &st)
+                .len()
+                .max(sh.cfg.sessions.as_ref().map_or(0, |s| s.cards()))
+                .min(SEATS.count()) as u8,
             st.rooms.iter().map(vs_room).collect(),
             st.arcades.listed(),
         )
@@ -885,16 +919,78 @@ fn lobby_answer(sh: &Shared, ip: &str, edition: &str, out: &mut TcpStream) -> io
     let answer = Lobby {
         v: lobby::VERSION,
         edition: sh.cfg.edition.name().into(),
-        at: SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs()),
+        at: unix_now(),
         arcades: std::iter::once(arcade).chain(rooms).collect(),
         vs,
+        notice: notice(sh, unix_now()),
     }
     .line();
     debug_assert!(answer.len() <= lobby::MAX_ANSWER);
     *cache = Some((now, answer.clone()));
     out.write_all(answer.as_bytes())
+}
+
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
+
+/// A notice and when it is live (Unix seconds, either end open).
+type Notice = (ServerNotice, Option<i64>, Option<i64>);
+
+/// A notice's `start`/`end` as the desk wants it: an operator's local time or a bare date cannot be placed on the
+/// clock, so it is refused (with this text in the log) rather than guessed.
+const NOTICE_DATE: &str = "an RFC 3339 date with an offset, such as 2026-11-05T23:00:00+01:00";
+
+/// The notice file's words ([`DeskConfig::notice`]), cleaned ([`ServerNotice::clean`]).
+fn read_notice(raw: &[u8]) -> Result<Notice, String> {
+    use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+    let v: serde_json::Value = serde_json::from_slice(raw).map_err(|e| e.to_string())?;
+    let when = |k: &str| {
+        // present but not an RFC 3339 string with an offset (a number, a local time, a bare date): an error, never
+        // an open window. The notice is dropped and the desk's log names the field and the wanted form.
+        v.get(k)
+            .map(|t| {
+                let t = t
+                    .as_str()
+                    .ok_or(format!("{k}: not a string, want {NOTICE_DATE}"))?;
+                OffsetDateTime::parse(t, &Rfc3339)
+                    .map_err(|e| format!("{k}: {e}, want {NOTICE_DATE}"))
+            })
+            .transpose()
+            .map(|t| t.map(OffsetDateTime::unix_timestamp))
+    };
+    let n = serde_json::from_value::<ServerNotice>(v.clone())
+        .map_err(|e| e.to_string())?
+        .clean()
+        .ok_or("no id or no English text")?;
+    Ok((n, when("start")?, when("end")?))
+}
+
+/// The notice live at `now` (Unix seconds): the file read again when its modified time changed, a log line each time.
+fn notice(sh: &Shared, now: u64) -> Option<ServerNotice> {
+    let path = sh.cfg.notice.as_ref()?;
+    let stamp = std::fs::metadata(path).and_then(|m| m.modified()).ok();
+    let mut cached = sh.notice.lock().unwrap();
+    if cached.as_ref().is_none_or(|(t, _)| *t != stamp) {
+        let read = stamp.map(|_| {
+            std::fs::read(path)
+                .map_err(|e| e.to_string())
+                .and_then(|b| read_notice(&b))
+        });
+        let shown = path.display();
+        match &read {
+            Some(Ok((n, ..))) => (sh.log)(&format!("notice: {shown} read, id {}", n.id)),
+            Some(Err(e)) => (sh.log)(&format!("notice: {shown} unreadable ({e}) - no notice")),
+            None if cached.is_some() => (sh.log)(&format!("notice: {shown} gone - no notice")),
+            None => {}
+        }
+        *cached = Some((stamp, read.and_then(Result::ok)));
+    }
+    let (n, start, end) = cached.as_ref()?.1.as_ref()?;
+    let now = i64::try_from(now).unwrap_or(i64::MAX);
+    (start.is_none_or(|s| now >= s) && end.is_none_or(|e| now < e)).then(|| n.clone())
 }
 
 /// A room as the lobby shows it: random id, code and club ids, the ready flags; never a ticket or an address.
@@ -1282,6 +1378,7 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
         arcade_id: random_hex(4),
         lobby_seen: Mutex::default(),
         lobby_cached: Mutex::default(),
+        notice: Mutex::default(),
         open: Mutex::default(),
         asks: Mutex::default(),
         join_fails: Mutex::new((Instant::now(), 0)),
@@ -1298,7 +1395,7 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
     ));
     let stop = Arc::new(AtomicBool::new(false));
     let mut threads = vec![];
-    let mut ticker = None;
+    let mut tickers = vec![];
     let hold_ip = sh
         .cfg
         .hold_file
@@ -1315,11 +1412,30 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
         };
         hold.tick(&sh); // at once: the box must not be the first in
         let (tx, rx) = mpsc::channel::<()>();
-        ticker = Some(tx);
+        tickers.push(tx);
         let (sh, every) = (sh.clone(), sh.cfg.hold_every);
         threads.push(thread::spawn(move || {
             while rx.recv_timeout(every) == Err(mpsc::RecvTimeoutError::Timeout) {
                 hold.tick(&sh);
+            }
+        }));
+    }
+    if let Some(sessions) = sh.cfg.sessions.clone() {
+        let (tx, rx) = mpsc::channel::<()>();
+        tickers.push(tx);
+        let (sh, every) = (sh.clone(), sh.cfg.summary_every);
+        threads.push(thread::spawn(move || {
+            while rx.recv_timeout(every) == Err(mpsc::RecvTimeoutError::Timeout) {
+                if let Some(line) = sessions.summary() {
+                    let (vs, arcades) = {
+                        let mut st = sh.state.lock().unwrap();
+                        expire(&sh, &mut st, Instant::now());
+                        (st.rooms.len(), st.arcades.len())
+                    };
+                    (sh.log)(&format!(
+                        "{line}; lobby: {vs} VS room(s), {arcades} arcade room(s)"
+                    ));
+                }
             }
         }));
     }
@@ -1362,7 +1478,7 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
             });
         }
     }));
-    Ok(Handle::new(addr, stop, true, threads, ticker))
+    Ok(Handle::new(addr, stop, true, threads, tickers))
 }
 
 #[cfg(test)]
@@ -1456,6 +1572,30 @@ mod tests {
         assert_eq!(g.phase(Instant::now()), (Some(1), Some(0)));
         std::fs::remove_file(&path).unwrap();
         assert_eq!(g.phase(Instant::now()), (None, None));
+    }
+
+    /// A `start` that is not an RFC 3339 date with an offset drops the whole notice (the log carries the reason),
+    /// so an operator's local time never turns into a window nobody expected.
+    #[test]
+    fn a_notice_date_without_an_offset_drops_the_notice_with_the_reason() {
+        let body = r#""id":"n1","en":"Server update""#;
+        let read = |field: &str, value: &str| {
+            read_notice(format!(r#"{{{body},"{field}":{value}}}"#).as_bytes())
+        };
+        let (_, start, end) =
+            read("start", r#""2026-11-05T23:00:00+01:00""#).expect("a date with an offset");
+        assert!(start.is_some() && end.is_none());
+        for (field, value) in [
+            ("start", r#""2026-11-05T23:00:00""#),
+            ("end", r#""2026-11-05""#),
+            ("start", "1762372800"),
+        ] {
+            let e = read(field, value).expect_err("dropped, not taken as open");
+            assert!(
+                e.starts_with(&format!("{field}: ")) && e.contains("RFC 3339"),
+                "{e} names neither the field nor the wanted form"
+            );
+        }
     }
 
     #[test]

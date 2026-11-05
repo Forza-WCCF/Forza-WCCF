@@ -89,6 +89,14 @@ const ALLNET_BILLING_IDLE: Patch = Patch {
     what: "ALL.Net billing phase reads IDLE (20) in the online test",
 };
 
+/// Both clients' AiMeDB host: the publisher's network host becomes this PC.
+const AIMEDB_LOCAL: Patch = Patch {
+    at: 0xe2c250,
+    old: b"aime.naominet.jp\0",
+    new: b"localhost\0\0\0\0\0\0\0\0",
+    what: "AiMeDB host aime.naominet.jp -> localhost",
+};
+
 /// Every movie (H.264 through Media SDK's software decoder): the wrapper (sub_DE95B0) gives the decoder 16 surfaces
 /// and AsyncDepth 0, and with AsyncDepth 0 the decoder sizes its pipeline from the PC's logical CPUs (29 surfaces
 /// on 12 threads). It keeps answering MFX_ERR_MORE_SURFACE, no frame comes out and the movie never leaves PREP.
@@ -181,24 +189,13 @@ static SEAT: [Patch; 16] = [
     },
     ALLNET_AUTHORIZED,
     ALLNET_BILLING_IDLE,
-    Patch {
-        at: 0xe2c250,
-        old: &[
-            0x61, 0x69, 0x6d, 0x65, 0x2e, 0x6e, 0x61, 0x6f, 0x6d, 0x69, 0x6e, 0x65, 0x74, 0x2e,
-            0x6a, 0x70, 0x00,
-        ],
-        new: &[
-            0x6c, 0x6f, 0x63, 0x61, 0x6c, 0x68, 0x6f, 0x73, 0x74, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00,
-        ],
-        what: "AiMeDB host aime.naominet.jp -> localhost",
-    },
+    AIMEDB_LOCAL,
     MOVIE_ASYNC_DEPTH,
 ];
 
 /// The projector (game\\client_Release.exe, its own copy: seat 1 has another): the two ALL.Net answers, so its corner
-/// status icon agrees with seat 1's, and its title movie counted as over.
-static PROJECTOR: [Patch; 4] = [
+/// status icon agrees with seat 1's, its title movie counted as over and its AiMeDB host this PC.
+static PROJECTOR: [Patch; 5] = [
     ALLNET_AUTHORIZED,
     ALLNET_BILLING_IDLE,
     // Stopgap: the title movie stalls in Sofdec PREP, so the projector never sent GAME_READY. sub_88A230: call
@@ -211,6 +208,7 @@ static PROJECTOR: [Patch; 4] = [
         what: "projector title movie counted as over (VA 0x0088A294 jz -> nop nop)",
     },
     MOVIE_ASYNC_DEPTH,
+    AIMEDB_LOCAL,
 ];
 
 /// The server (control_Release.exe): its ALL.Net library's "network up" check answers yes, so it connects to the local
@@ -623,6 +621,15 @@ mod tests {
         assert_eq!(out[p.at..p.at + 4], [0xc6, 0x40, 0x0e, 0x01]); // mov byte [eax+0Eh], 1
         buf[p.at] = 0x90; // not the original: refused
         assert!(apply(&buf, std::slice::from_ref(p)).is_err());
+        let both = SEAT.iter().chain(&PROJECTOR).filter(|q| q.at == p.at);
+        assert_eq!(both.count(), 2); // seat 1 and the projector
+    }
+
+    #[test]
+    fn neither_client_keeps_the_aimedb_host() {
+        let p = &AIMEDB_LOCAL;
+        assert_eq!(p.old.len(), p.new.len());
+        assert!(p.new.starts_with(b"localhost\0"));
         let both = SEAT.iter().chain(&PROJECTOR).filter(|q| q.at == p.at);
         assert_eq!(both.count(), 2); // seat 1 and the projector
     }

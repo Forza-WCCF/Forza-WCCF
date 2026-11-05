@@ -794,6 +794,7 @@ impl App {
             clock: (0.0, 0.0),
             progress: 0.0,
             status: None,
+            server_notice: None,
             tab: if !set_up || folder.is_some() {
                 Tab::Setup
             } else if online {
@@ -805,7 +806,8 @@ impl App {
             pictures_hq: choices::setting(&settings, "card_pictures").as_deref() == Some("hq"),
             skip_tutorial: (kit.edition() == Edition::E1718)
                 .then(|| kit.settings()["skip_tutorial"].as_bool() == Some(true)),
-            projector: (kit.edition() == Edition::E1718).then(|| choices::projector_on(&kit.settings())),
+            projector: (kit.edition() == Edition::E1718).then(|| choices::projector_shown(&kit.settings())),
+            cpu_championship: (kit.edition() == Edition::E1718).then(|| choices::cpu_championship_on(&kit.settings())),
             club_server: (kit.edition() == Edition::E1718)
                 .then(|| choices::setting(&settings, "club_server").unwrap_or_default()),
             vs_link: (kit.edition() == Edition::E1718).then(|| kit.settings()["vs_link"].as_bool() != Some(false)),
@@ -1146,9 +1148,21 @@ impl App {
                 }
             }
             Action::Projector => {
+                // the projector in the run picks it up within a second
                 let file = kit.settings_file();
                 let on = self.st.projector != Some(false);
-                if let Err(e) = choices::set_setting_bool(&file, choices::PROJECTOR, on) {
+                // the championship as shown written too: with no key of its own it would follow the window
+                let championship = self.st.cpu_championship != Some(false);
+                let set = choices::set_setting_bool(&file, choices::CPU_CHAMPIONSHIP, championship)
+                    .and_then(|()| choices::set_setting_bool(&file, choices::PROJECTOR, on));
+                if let Err(e) = set {
+                    refuse(write_failed(&file, &e));
+                }
+            }
+            Action::CpuChampionship => {
+                let file = kit.settings_file();
+                let on = self.st.cpu_championship != Some(false);
+                if let Err(e) = choices::set_setting_bool(&file, choices::CPU_CHAMPIONSHIP, on) {
                     refuse(write_failed(&file, &e));
                 }
             }
@@ -1211,11 +1225,7 @@ impl App {
                     // same kept settings keys as at start-up
                     if let Err(e) = choices::set_setting_bool(&file, "list_shop", self.st.lobby.list_arcade)
                         .and_then(|()| choices::set_setting(&file, "shop_name", &name))
-                        .and_then(|()| {
-                            launcher::conf::cup_settings(self.st.lobby.cup)
-                                .into_iter()
-                                .try_for_each(|(k, v)| choices::set_setting_json(&file, k, v))
-                        })
+                        .and_then(|()| launcher::conf::save_cup(&file, self.st.lobby.cup))
                     {
                         refuse(write_failed(&file, &e));
                         return;
@@ -1228,6 +1238,12 @@ impl App {
             }
             Action::Lobby(LobbyAction::HostLan) => {
                 if !self.st.busy && !self.st.running {
+                    // the cup the PLAY tab shows (run's start_gamesvr reads it)
+                    let file = kit.settings_file();
+                    if let Err(e) = launcher::conf::save_cup(&file, self.st.lobby.cup) {
+                        refuse(write_failed(&file, &e));
+                        return;
+                    }
                     let ips = forza::online::lan::addresses()
                         .iter()
                         .map(ToString::to_string)
@@ -1332,6 +1348,14 @@ impl App {
             }
             let file = kit.settings_file();
             if let Err(e) = choices::set_setting(&file, "club_server", club) {
+                refuse(write_failed(&file, &e));
+                return;
+            }
+        }
+        if kit.edition() == Edition::E1718 && !online {
+            // the PLAY tab's Universal Cup, which run's start_gamesvr reads as for a host (one settings key for both)
+            let file = kit.settings_file();
+            if let Err(e) = launcher::conf::save_cup(&file, self.st.lobby.cup) {
                 refuse(write_failed(&file, &e));
                 return;
             }
@@ -1458,6 +1482,12 @@ impl eframe::App for App {
 
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.look(ctx);
+        if self.st.projector.is_some() && ctx.input(|i| i.events.contains(&egui::Event::WindowFocused(true))) {
+            // the in-game SETTINGS may have changed the projector while this window was down
+            let s = Kit::here().settings();
+            self.st.projector = Some(choices::projector_shown(&s));
+            self.st.cpu_championship = Some(choices::cpu_championship_on(&s));
+        }
         if self.st.tab == Tab::Update {
             self.notes(&Kit::here());
         }
