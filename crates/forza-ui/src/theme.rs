@@ -356,7 +356,12 @@ pub fn style(edition: Edition) -> Style {
                 strength: 0.6,
                 size: 24.0,
             },
-            kinetic: egui::style::KineticScrollStyle::default(),
+            // 0.37 coasts after a flick and rubber-bands past the ends; 0.36 did neither.
+            kinetic: egui::style::KineticScrollStyle {
+                decay_time: 0.0,
+                rubber_band: false,
+                ..Default::default()
+            },
         },
     };
 
