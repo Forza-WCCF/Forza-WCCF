@@ -335,7 +335,7 @@ pub fn show(ui: &mut Ui, st: &mut InstallerState) -> Option<Action> {
 /// INSTALL without a package: the game would not start, so ask once. CONTINUE installs the files only.
 fn confirm_modal(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Action>) {
     let mut go = false;
-    let modal = egui::Modal::new(Id::new("installer-confirm"))
+    let modal = egui::Modal::new(Id::unique("installer-confirm"))
         .backdrop_color(Color32::from_black_alpha(150))
         .frame(
             egui::Frame::new()
@@ -387,7 +387,7 @@ fn confirm_modal(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Opt
 
 /// Grabbing this area moves the window (the program starts the drag).
 fn drag_area(ui: &mut Ui, rect: Rect, id: &'static str, out: &mut Option<Action>) {
-    let r = ui.interact(rect, Id::new(id), Sense::click_and_drag());
+    let r = ui.interact(rect, Id::unique(id), Sense::click_and_drag());
     if r.drag_started_by(egui::PointerButton::Primary) {
         out.get_or_insert(Action::Drag);
     }

@@ -815,7 +815,7 @@ fn update(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
         ui.spacing_mut().interact_size.y = 44.0;
         ui.add_enabled_ui(!st.busy, |ui| {
             let shown = chosen.map_or_else(String::new, |i| release_text(&st.releases[i], lang));
-            egui::ComboBox::from_id_salt("releases")
+            let list = egui::ComboBox::from_id_salt("releases")
                 .selected_text(egui::RichText::new(shown).font(theme::body(14.0)))
                 .width(ui.available_width() - bw - 8.0)
                 .height(400.0)
@@ -828,6 +828,8 @@ fn update(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
                         );
                     }
                 });
+            list.response
+                .accessible_name(tr!(lang, "launcher.msg_pick"));
         });
         let up = ui.add_enabled_ui(chosen.is_some() && !st.busy, |ui| {
             cabinet(
@@ -914,7 +916,7 @@ fn output(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
 
 fn confirm_modal(ui: &mut Ui, st: &mut LauncherState, c: &Confirm, lang: Lang) -> Option<Action> {
     let mut act = None;
-    let modal = egui::Modal::new(egui::Id::new("launcher-confirm"))
+    let modal = egui::Modal::new(egui::Id::unique("launcher-confirm"))
         .backdrop_color(Color32::from_black_alpha(150))
         .frame(
             egui::Frame::new()
@@ -962,7 +964,7 @@ fn report_modal(ui: &mut Ui, st: &mut LauncherState, lang: Lang) -> Option<Actio
     let mut act = None;
     let mut close = false;
     let f = st.report.as_mut()?;
-    let modal = egui::Modal::new(egui::Id::new("launcher-report"))
+    let modal = egui::Modal::new(egui::Id::unique("launcher-report"))
         .backdrop_color(Color32::from_black_alpha(150))
         .frame(
             egui::Frame::new()

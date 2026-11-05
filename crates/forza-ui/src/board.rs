@@ -124,7 +124,7 @@ pub fn heat_zone(p: &Painter, pitch: Rect, field: Rect, apt: &Aptitude, size: f3
 /// player's PC), or none for the drawn stand-in. Pictures load in the background through egui's loaders and stay
 /// cached, so scrolling the catalogue never waits on a file.
 pub fn set_picture_dir(ctx: &egui::Context, dir: Option<std::path::PathBuf>) {
-    ctx.data_mut(|d| d.insert_temp(Id::new("card-pictures"), dir));
+    ctx.data_mut(|d| d.insert_temp(Id::unique("card-pictures"), dir));
 }
 
 /// The card face in a picture of `size`, whole (never cut): a square picture is the game's 128x128 one, its face
@@ -144,7 +144,7 @@ fn letterbox(r: Rect, aspect: f32) -> Rect {
 }
 
 fn picture_dir(ctx: &egui::Context) -> Option<std::path::PathBuf> {
-    ctx.data(|d| d.get_temp::<Option<std::path::PathBuf>>(Id::new("card-pictures")))
+    ctx.data(|d| d.get_temp::<Option<std::path::PathBuf>>(Id::unique("card-pictures")))
         .flatten()
 }
 
@@ -195,7 +195,7 @@ fn load_picture(
         "file:///{}",
         file.display().to_string().trim_start_matches('/')
     );
-    let miss = Id::new(("card-picture-miss", &uri));
+    let miss = Id::unique(("card-picture-miss", &uri));
     if ctx.data(|d| d.get_temp::<bool>(miss)).is_some() {
         return Pic::Missing;
     }
@@ -282,7 +282,7 @@ pub fn card_side(p: &Painter, rect: Rect, card: &Card, back: bool, nearest: bool
 /// The pack's real values by card number (`hq_stats.tsv` beside the pictures), read once per folder.
 fn hq_map(ctx: &egui::Context) -> Option<std::sync::Arc<std::collections::HashMap<u32, Hq>>> {
     let dir = picture_dir(ctx)?;
-    let id = Id::new(("card-hq", &dir));
+    let id = Id::unique(("card-hq", &dir));
     if let Some(m) =
         ctx.data(|d| d.get_temp::<std::sync::Arc<std::collections::HashMap<u32, Hq>>>(id))
     {
@@ -1033,7 +1033,7 @@ fn target_slot(
 /// The grab of the drag in progress: the card centre less the press point, as a fraction of the card. Board drags
 /// store it on their first frame; a catalogue card stores it when its drag starts ([`catalogue_card`]).
 fn grab_id() -> Id {
-    Id::new("board-grab")
+    Id::unique("board-grab")
 }
 
 /// A card taken off the board (dragged off it and let go): what UNDO puts back.
@@ -1049,15 +1049,15 @@ pub struct Removed {
 }
 
 fn removed_id() -> Id {
-    Id::new("board-removed")
+    Id::unique("board-removed")
 }
 
 fn keep_id() -> Id {
-    Id::new("board-keep")
+    Id::unique("board-keep")
 }
 
 fn kept_id() -> Id {
-    Id::new("board-kept")
+    Id::unique("board-kept")
 }
 
 /// While `keep` (a match runs), a card let go off the board stays on the table and snaps back to its spot
@@ -1072,7 +1072,7 @@ pub fn take_kept(ui: &Ui) -> Option<u32> {
 }
 
 fn touched_id() -> Id {
-    Id::new("board-touched")
+    Id::unique("board-touched")
 }
 
 /// The card pressed or in hand on a `pure` [`formation_board`] this frame, if any.
@@ -1155,7 +1155,7 @@ pub fn formation_board(
     let lines_at = ui.painter().add(egui::Shape::Noop);
     let card = card_size(pitch.width());
     // the selection: the card in hand, else the card clicked last (while it is on the board)
-    let select_id = Id::new("board-select");
+    let select_id = Id::unique("board-select");
     let clicked_card = ui
         .data(|d| d.get_temp::<Option<u32>>(select_id))
         .flatten()
@@ -1175,7 +1175,7 @@ pub fn formation_board(
     }
     // a pitch card in hand moves live: the table follows it every frame, as the C panels' board_move, so the game
     // sees the card slide and rub, not one jump on release; its spot before the lift is kept for a swap
-    let origin_id = Id::new("board-origin");
+    let origin_id = Id::unique("board-origin");
     if dragging.is_some() || incoming.is_some() {
         // the first frame of a board drag: the grab is measured on the card's resting rect, before it moves
         if let Some(from) = dragging.filter(|&d| d < 16 && board.slots[d].is_some())
@@ -1251,8 +1251,8 @@ pub fn formation_board(
     });
     let mut removed: Option<(usize, Pos2)> = None;
 
-    let hover_id = Id::new("board-hover");
-    let flip_id = Id::new("board-flip");
+    let hover_id = Id::unique("board-hover");
+    let flip_id = Id::unique("board-flip");
     let mut hovered_card = None;
     let mut drop_target = None;
     // the swap target is the card under the held card's centre (as drawn), not under the pointer
@@ -1269,7 +1269,11 @@ pub fn formation_board(
         if slot < 11 && board.slots[slot].is_none() {
             continue;
         }
-        let resp = ui.interact(rect, Id::new(("board-slot", slot)), Sense::click_and_drag());
+        let resp = ui.interact(
+            rect,
+            Id::unique(("board-slot", slot)),
+            Sense::click_and_drag(),
+        );
         let p = ui.painter();
         let hovered_by_drag = (dragging.is_some() || incoming.is_some()) && target == Some(slot);
         if hovered_by_drag {
@@ -1330,9 +1334,10 @@ pub fn formation_board(
                 }
                 if is_dragged && let Some(pt) = pointer {
                     // the lifted card follows the pointer above everything
-                    let lp = ui
-                        .ctx()
-                        .layer_painter(egui::LayerId::new(Order::Tooltip, Id::new("board-lift")));
+                    let lp = ui.ctx().layer_painter(egui::LayerId::new(
+                        Order::Tooltip,
+                        Id::unique("board-lift"),
+                    ));
                     let at = drag_centre(pt, grab, card);
                     card_face(
                         &lp,
@@ -1420,7 +1425,7 @@ pub fn formation_board(
     if let (Some(c), Some(pt)) = (incoming.as_ref(), pointer) {
         let lp = ui
             .ctx()
-            .layer_painter(egui::LayerId::new(Order::Tooltip, Id::new("board-lift")));
+            .layer_painter(egui::LayerId::new(Order::Tooltip, Id::unique("board-lift")));
         card_face(
             &lp,
             Rect::from_center_size(drag_centre(pt, grab, card), card * 1.08),
@@ -1458,7 +1463,7 @@ pub fn formation_board(
     // a selection lets go by itself `SELECT_HOLD` seconds after the last touch of the board: a card in hand, a press
     // on the board, the mouse on the selected card, a key. A drag in progress keeps it, whatever its length.
     let now = ui.input(|i| i.time);
-    let touch_id = Id::new("board-select-touch");
+    let touch_id = Id::unique("board-select-touch");
     let on_board = |p: Pos2| shown.union(bench).contains(p);
     let over_selected = clicked_card.is_some_and(|s| {
         (0..16).any(|i| board.number(i) == Some(s) && pointer.is_some_and(|p| rects[i].contains(p)))
@@ -1556,7 +1561,7 @@ pub fn formation_board(
                 let fit = Fit::of(apt.at(board.spots[slot]));
                 let lp = ui
                     .ctx()
-                    .layer_painter(egui::LayerId::new(Order::Tooltip, Id::new("board-fit")));
+                    .layer_painter(egui::LayerId::new(Order::Tooltip, Id::unique("board-fit")));
                 fit_badge(&lp, pos2(rect.center().x, rect.bottom() + 4.0), fit, lang);
             }
         } else {
@@ -1648,7 +1653,7 @@ fn partner_list(ui: &Ui, board: &Board, links: &Links, sel: u32, at: Pos2, lang:
         .map(|(p, v)| (p.name.as_str(), v))
         .collect();
     let w = 230.0;
-    egui::Area::new(Id::new("board-partners"))
+    egui::Area::new(Id::unique("board-partners"))
         .order(Order::Foreground)
         .fixed_pos(at)
         .interactable(false)
@@ -2124,12 +2129,12 @@ struct PaneAsk {
 }
 
 fn pane_id() -> Id {
-    Id::new("board-pane-ask")
+    Id::unique("board-pane-ask")
 }
 
 /// The selected card's partner list asked for: its number and where it lies.
 fn partners_id() -> Id {
-    Id::new("board-partners-ask")
+    Id::unique("board-partners-ask")
 }
 
 /// The info pane's two sizes: large (the face at its picture's own pixels, the position map beside it, the caption
@@ -2224,7 +2229,7 @@ pub fn info_panes(
         // as tall as it was last frame (about 220 points the first time)
         let h = ui
             .ctx()
-            .memory(|m| m.area_rect(Id::new("board-partners")))
+            .memory(|m| m.area_rect(Id::unique("board-partners")))
             .map_or(220.0, |r| r.height());
         let (r, _) = pane_place(pitch, hint_bottom, foot, f32::INFINITY, h, at.center().y);
         partner_list(ui, board, links, sel, r.min, lang);
@@ -2271,7 +2276,7 @@ fn info_pane(
     let map_w = ((face.y - 22.0) / PITCH_ASPECT).min(pane.width() - BIG_FRAME - 10.0 - face.x);
     let map = vec2(map_w, map_w * PITCH_ASPECT);
     let ppp = ui.ctx().pixels_per_point();
-    egui::Area::new(Id::new("board-big"))
+    egui::Area::new(Id::unique("board-big"))
         .order(Order::Tooltip)
         .fixed_pos(pane.min)
         .interactable(false)
@@ -2970,7 +2975,10 @@ mod tests {
                 mat = Some(Mat::column(ui.cursor().min, ui.available_width()));
                 formation_board(ui, b, &links, Some(0.5), crate::Lang::En, true, true);
                 let big = ui.data(|d| d.get_temp::<PaneAsk>(pane_id()).is_some());
-                let sel = ui.data(|d| d.get_temp::<Option<u32>>(Id::new("board-select")).flatten());
+                let sel = ui.data(|d| {
+                    d.get_temp::<Option<u32>>(Id::unique("board-select"))
+                        .flatten()
+                });
                 seen = (take_touched(ui).map(|c| c.number), big || sel.is_some());
             })
             .textures_delta
@@ -3031,7 +3039,10 @@ mod tests {
             ctx.run_ui(raw, |ui| {
                 mat = Some(Mat::column(ui.cursor().min, ui.available_width()));
                 formation_board(ui, b, &links, Some(0.5), crate::Lang::En, true, false);
-                let sel = ui.data(|d| d.get_temp::<Option<u32>>(Id::new("board-select")).flatten());
+                let sel = ui.data(|d| {
+                    d.get_temp::<Option<u32>>(Id::unique("board-select"))
+                        .flatten()
+                });
                 seen = (
                     sel,
                     egui::DragAndDrop::has_payload_of_type::<usize>(ui.ctx()),

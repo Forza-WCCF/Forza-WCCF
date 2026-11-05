@@ -18,12 +18,13 @@ license = "MIT OR Apache-2.0"
 anyhow = "1.0.104"
 aes = "0.9.3"
 clap = { version = "4.6.7", features = ["derive"] }
-# GUI: eframe's defaults minus `web_screen_reader`; `glow` (OpenGL) is the fallback when wgpu finds no DX12/Vulkan/GL device
-eframe = { version = "0.36.2", default-features = false, features = ["accesskit", "links", "wgpu", "glow", "wayland", "x11"] }
-egui = { version = "0.36.2", default-features = false }
-egui_extras = { version = "0.36.2", default-features = false }
-emath = { version = "0.36.2", default-features = false }
-egui_kittest = { version = "0.36.2", features = ["snapshot", "wgpu"] }
+# GUI: eframe's defaults minus `web_screen_reader` and `system_fonts` (our own fonts); `clipboard` keeps paste from
+# other programs; `glow` (OpenGL) is the fallback when wgpu finds no DX12/Vulkan/GL device
+eframe = { version = "0.37.0", default-features = false, features = ["accesskit", "clipboard", "links", "wgpu", "glow", "wayland", "x11"] }
+egui = { version = "0.37.0", default-features = false }
+egui_extras = { version = "0.37.0", default-features = false }
+emath = { version = "0.37.0", default-features = false }
+egui_kittest = { version = "0.37.0", features = ["snapshot", "wgpu"] }
 forza = { path = "crates/forza" }
 forza-ui = { path = "crates/forza-ui" }
 rust-i18n = "4.2.4"

@@ -356,6 +356,7 @@ pub fn style(edition: Edition) -> Style {
                 strength: 0.6,
                 size: 24.0,
             },
+            kinetic: egui::style::KineticScrollStyle::default(),
         },
     };
 

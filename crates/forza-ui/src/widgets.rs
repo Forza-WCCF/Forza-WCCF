@@ -6,8 +6,8 @@ use super::theme::{self, Edition};
 use crate::theme::Accent;
 use egui::epaint::{Mesh, RectShape, TessellationOptions, Tessellator};
 use egui::{
-    Align2, Color32, CornerRadius, FontId, Galley, Id, Painter, Pos2, Rect, Response, Sense,
-    Shadow, Stroke, StrokeKind, Ui, ViewportCommand, WidgetInfo, WidgetType, pos2, vec2,
+    Align2, Color32, CornerRadius, FontId, Galley, Id, Painter, Pos2, Rect, Response, Role, Sense,
+    Shadow, Stroke, StrokeKind, Ui, ViewportCommand, WidgetInfo, pos2, vec2,
 };
 use std::sync::Arc;
 
@@ -219,7 +219,7 @@ pub fn cabinet_shaped(
 ) -> Response {
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let enabled = ui.is_enabled();
-    resp.widget_info(|| WidgetInfo::selected(WidgetType::Button, enabled, lit, label));
+    resp.widget_info(|| WidgetInfo::selected(Role::Button, enabled, lit, label));
     if ui.is_rect_visible(rect) {
         let ctx = ui.ctx();
         let press = ctx.animate_bool_with_time(
@@ -428,9 +428,9 @@ pub fn segmented(ui: &mut Ui, selected: &mut usize, labels: &[&str], width: f32)
     ui.painter().rect_filled(rect, theme::RADIUS, theme::WELL);
     for (i, label) in labels.iter().enumerate() {
         let r = Rect::from_min_size(rect.min + vec2(w * i as f32, 0.0), vec2(w, h)).shrink(2.0);
-        let resp = ui.interact(r, ui.id().with(("seg", label)), Sense::click());
+        let resp = ui.interact(r, ui.scope_id().with(("seg", label)), Sense::click());
         let on = *selected == i;
-        resp.widget_info(|| WidgetInfo::selected(WidgetType::RadioButton, true, on, *label));
+        resp.widget_info(|| WidgetInfo::selected(Role::RadioButton, true, on, *label));
         if resp.clicked() && !on {
             *selected = i;
             changed = true;
@@ -474,7 +474,7 @@ pub fn chip(ui: &mut Ui, text: &str, on: bool, color: Option<Color32>) -> Respon
         .layout_no_wrap(text.to_owned(), font, theme::TEXT);
     let size = vec2(g.size().x + 22.0, 26.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
-    resp.widget_info(|| WidgetInfo::selected(WidgetType::Checkbox, true, on, text));
+    resp.widget_info(|| WidgetInfo::selected(Role::CheckBox, true, on, text));
     let p = ui.painter();
     let c = color.unwrap_or(theme::AMBER);
     let (fill, rim, ink) = if on {
@@ -506,9 +506,9 @@ pub fn check_chip(ui: &mut Ui, text: &str, on: bool, radio: bool) -> Response {
     let size = vec2(g.size().x + 40.0, 26.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let kind = if radio {
-        WidgetType::RadioButton
+        Role::RadioButton
     } else {
-        WidgetType::Checkbox
+        Role::CheckBox
     };
     resp.widget_info(|| WidgetInfo::selected(kind, true, on, text));
     let p = ui.painter();
@@ -893,7 +893,13 @@ pub enum KeyState {
 /// A keycap: the bound key, "press a key" while capturing (an amber pulsing rim), a dash when cleared.
 pub fn key_cell(ui: &mut Ui, text: &str, state: KeyState, width: f32, lang: Lang) -> Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(width, 32.0), Sense::click());
-    resp.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, text));
+    let drawn = match state {
+        KeyState::Capturing => tr!(lang, "keys.press_a_key"),
+        KeyState::Empty => "—".to_owned(),
+        _ => text.to_owned(),
+    };
+    // the name a screen reader reads is the cell's own drawn text ("press a key", "—"), not the empty binding
+    resp.widget_info(|| WidgetInfo::labeled(Role::Button, true, &drawn));
     let p = ui.painter();
     p.rect_filled(rect, 5, theme::WELL);
     let cap = rect.shrink(2.0).with_max_y(rect.bottom() - 4.0);
@@ -960,7 +966,7 @@ pub enum TitleAction {
 /// launcher language, minimize and close. Dragging the bar moves the window.
 pub fn title_bar(ui: &mut Ui, edition: Edition, version: &str, lang: &mut Lang) -> TitleAction {
     let rect = ui.max_rect().with_max_y(ui.max_rect().top() + 44.0);
-    let drag = ui.interact(rect, Id::new("title-drag"), Sense::click_and_drag());
+    let drag = ui.interact(rect, Id::unique("title-drag"), Sense::click_and_drag());
     if drag.drag_started_by(egui::PointerButton::Primary) {
         ui.ctx().send_viewport_cmd(ViewportCommand::StartDrag);
     }
@@ -1091,9 +1097,7 @@ pub fn fold(
             ui.set_width(ui.available_width());
             let (rect, resp) =
                 ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::click());
-            resp.widget_info(|| {
-                WidgetInfo::selected(WidgetType::CollapsingHeader, true, *open, title)
-            });
+            resp.widget_info(|| WidgetInfo::selected(Role::DisclosureTriangle, true, *open, title));
             if resp.clicked() {
                 *open = !*open;
             }
@@ -1170,7 +1174,7 @@ pub fn text_w(ui: &Ui, text: &str) -> f32 {
 /// that control for screen readers (`labelled_by`).
 pub fn field(ui: &mut Ui, label: &str, width: f32) -> Response {
     let (r, resp) = ui.allocate_exact_size(vec2(width, 30.0), Sense::hover());
-    resp.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, label));
+    resp.widget_info(|| WidgetInfo::labeled(Role::Label, true, label));
     let g = fit(
         ui.painter(),
         label,
@@ -1186,18 +1190,11 @@ pub fn field(ui: &mut Ui, label: &str, width: f32) -> Response {
     resp
 }
 
-/// An accessible name for a control with no label next to it to point at with `labelled_by`.
-pub fn named(resp: Response, name: &str) -> Response {
-    resp.ctx
-        .accesskit_node_builder(resp.id, |b| b.set_label(name));
-    resp
-}
-
 /// An option as a row: a painted switch, a title and a one-line hint. The whole row toggles.
 pub fn toggle_row(ui: &mut Ui, on: &mut bool, title: &str, hint: &str) -> Response {
     let w = ui.available_width();
     let (rect, resp) = ui.allocate_exact_size(vec2(w, 44.0), Sense::click());
-    resp.widget_info(|| WidgetInfo::selected(WidgetType::Checkbox, true, *on, title));
+    resp.widget_info(|| WidgetInfo::selected(Role::CheckBox, true, *on, title));
     if resp.clicked() {
         *on = !*on;
     }
