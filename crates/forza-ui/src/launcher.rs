@@ -828,8 +828,7 @@ fn update(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
                         );
                     }
                 });
-            list.response
-                .accessible_name(tr!(lang, "launcher.msg_pick"));
+            list.response.accessible_name(tr!(lang, "settings.version"));
         });
         let up = ui.add_enabled_ui(chosen.is_some() && !st.busy, |ui| {
             cabinet(
