@@ -18,11 +18,14 @@ license = "MIT OR Apache-2.0"
 anyhow = "1.0.104"
 aes = "0.9.3"
 clap = { version = "4.6.7", features = ["derive"] }
-# GUI: eframe's defaults minus `web_screen_reader`; `glow` (OpenGL) is the fallback when wgpu finds no DX12/Vulkan/GL device
-eframe = { version = "0.36.2", default-features = false, features = ["accesskit", "links", "wgpu", "glow", "wayland", "x11"] }
+# GUI: eframe's defaults minus `web_screen_reader`; `glow` (OpenGL) first, wgpu the fallback when it cannot open the
+# window (launcher, installer). `wgpu_no_default_features`: wgpu's backends come from the `wgpu` entry below
+eframe = { version = "0.36.2", default-features = false, features = ["accesskit", "links", "wgpu_no_default_features", "glow", "wayland", "x11"] }
 egui = { version = "0.36.2", default-features = false }
 egui_extras = { version = "0.36.2", default-features = false }
 emath = { version = "0.36.2", default-features = false }
+# eframe's wgpu (same version) with only the DX12 backend: the Windows fallback renderer, without Vulkan, Metal, GL, WebGPU
+wgpu = { version = "30.0.1", default-features = false, features = ["std", "wgsl", "dx12"] }
 egui_kittest = { version = "0.36.2", features = ["snapshot", "wgpu"] }
 forza = { path = "crates/forza" }
 forza-ui = { path = "crates/forza-ui" }
