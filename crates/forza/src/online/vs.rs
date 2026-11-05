@@ -208,8 +208,10 @@ fn card(c: u32) -> u32 {
 
 /// Two entries may pair: both open, or both in the same lobby room. The round (+4) is not compared: each home takes
 /// its own 224 and polls for about 90 s, so two homes rarely share one 40 s round, and the control checks no round
-/// either. A room pair was chosen by its players, so it also skips the class (kbn, +16) and the rematch history. Two
-/// entries of one card id never pair: both would be Home (246 +20 == +8).
+/// either. The class (kbn, +16) is the Grand Trophy class 1..4 (Area B..World A) or 0 (Local class, or no GT; control
+/// 0x46C680): open entries of any two classes 1..4 pair (owner, 2026-11-04: few players), 0 pairs only with 0, so a
+/// Local coach never meets a GT class and plays the CPU. A room pair was chosen by its players, so it also skips the
+/// class and the rematch history. Two entries of one card id never pair: both would be Home (246 +20 == +8).
 fn compatible(a: &Entry, b: &Entry, pa: Pool, pb: Pool) -> bool {
     let room = match (pa, pb) {
         (Pool::Open, Pool::Open) => false,
@@ -222,7 +224,7 @@ fn compatible(a: &Entry, b: &Entry, pa: Pool, pb: Pool) -> bool {
     ![0, u32::MAX].contains(&ca)
         && ![0, u32::MAX].contains(&cb)
         && ca != cb
-        && (room || a.req[16] == b.req[16])
+        && (room || (a.req[16] == 0) == (b.req[16] == 0))
         && is_loopback(a.addr().0) == is_loopback(b.addr().0)
         && (a.addr().0 != b.addr().0 || u32_at(&a.req, 48) != u32_at(&b.req, 48))
         && (room || !a.history().any(|c| c == cb) && !b.history().any(|c| c == ca))
@@ -594,7 +596,7 @@ mod tests {
         let t = Instant::now();
         assert!(m.enter(&entry(1, 7, [9, 9, 9, 1], 20001, 111, 5), t));
         assert!(m.poll(&poll_req(1, 111, 5), t).is_none());
-        // same cabinet, same card id elsewhere (both would be Home), other kbn do not pair
+        // same cabinet, same card id elsewhere (both would be Home), a GT class (kbn 1) with no class (0) do not pair
         m.enter(&entry(2, 7, [9, 9, 9, 1], 20002, 222, 5), t);
         m.enter(&entry(3, 7, [9, 9, 9, 3], 20003, 111, 7), t);
         let mut k = entry(4, 7, [9, 9, 9, 4], 20004, 444, 8);
@@ -611,6 +613,55 @@ mod tests {
         assert!(!m.enter(&entry(5, 7, [9, 9, 9, 5], 0, 555, 9), t));
         assert_eq!(m.waiting(), 4);
         assert!(m.poll(&poll_req(1, 111, 5), t + ENTRY_TTL).is_none());
+        assert_eq!(m.waiting(), 0);
+    }
+
+    #[test]
+    fn gt_classes_pair_across_classes_and_local_plays_the_cpu() {
+        let t = Instant::now();
+        let step = Duration::from_secs(10);
+        let gt = |slot: u32, card, kbn| {
+            let mut e = entry(
+                slot,
+                7,
+                [9, 9, 9, slot as u8],
+                20000 + slot as u16,
+                card,
+                slot,
+            );
+            e[16] = kbn;
+            e
+        };
+        // a Local coach (kbn 0) waits first; Area B (1) and World A (4) pair with each other, never with it
+        let m = Matcher::default();
+        assert!(
+            m.enter(&gt(1, 111, 0), t) && m.enter(&gt(2, 222, 1), t) && m.enter(&gt(3, 333, 4), t)
+        );
+        let p = m.poll(&poll_req(3, 333, 3), t).unwrap();
+        assert_eq!(u32_at(&p, 12), 222, "World A takes the waiting Area B");
+        assert_eq!(p[216], 1, "the 246 carries the partner's class");
+        for i in 1..=u32::from(POLLS) {
+            assert!(
+                m.poll(&poll_req(1, 111, 1), t + step * i).is_none(),
+                "poll {i}"
+            );
+        }
+        assert_eq!(
+            m.waiting(),
+            2,
+            "Local got no pair and its seat plays the CPU"
+        );
+        // a lone Area A entry answers no pair to each poll and drops out at the last: the CPU fallback
+        let m = Matcher::default();
+        m.enter(&gt(2, 222, 2), t);
+        for i in 1..u32::from(POLLS) {
+            assert!(m.poll(&poll_req(2, 222, 2), t + step * i).is_none());
+            assert_eq!(m.waiting(), 1, "poll {i}");
+        }
+        assert!(
+            m.poll(&poll_req(2, 222, 2), t + step * u32::from(POLLS))
+                .is_none()
+        );
         assert_eq!(m.waiting(), 0);
     }
 
