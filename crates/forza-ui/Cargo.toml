@@ -10,8 +10,10 @@ description = "Forza-WCCF's shared UI: the theme, the bespoke widgets and the sc
 [dependencies]
 forza.workspace = true
 egui.workspace = true
-# `file` and `image`: the card pictures, read and decoded off the UI thread by egui's loaders (PNG only)
+# `file` and `image`: the card pictures, read and decoded off the UI thread by egui's loaders
 egui_extras = { workspace = true, features = ["file", "image"] }
+# the decoders those loaders use: the game's `<number>.png`, the album's and the pack's JPEG (board::picture_names)
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
 rust-i18n.workspace = true
 # the catalogue's search: accents and other scripts folded to plain letters ("kaka" finds KAKÀ)
 deunicode = "1.6.2"
@@ -23,7 +25,6 @@ windows-sys = { workspace = true, features = ["Win32_Globalization"] }
 [dev-dependencies]
 eframe.workspace = true
 egui_kittest.workspace = true
-image = { version = "0.25.10", default-features = false, features = ["png"] }
 tempfile = "3.27.0"
 
 [lints]

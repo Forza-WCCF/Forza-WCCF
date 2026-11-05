@@ -1418,13 +1418,16 @@ impl Render {
         let board_ctx = egui::Context::default();
         let files = FILES.get_or_init(|| kit::Files::find(Path::new("")));
         let dir = font_dir();
-        if let Err(e) = theme::install(&ctx, files.edition, &dir) {
+        // read once for both contexts: the files stay in memory for the program's life
+        let fonts = theme::fonts(&dir).unwrap_or_else(|e| {
             log(&format!(
                 "fonts from {}: {e} (egui's own fonts used)",
                 dir.display()
             ));
-        }
-        let _ = theme::install(&board_ctx, files.edition, &dir);
+            egui::FontDefinitions::default()
+        });
+        theme::install_fonts(&ctx, files.edition, fonts.clone());
+        theme::install_fonts(&board_ctx, files.edition, fonts);
         forza_ui::board::set_picture_dir(&ctx, Some(files.cards.clone()));
         forza_ui::board::set_picture_dir(&board_ctx, Some(files.cards.clone()));
         let mut table = TableFile::in_dir(EXE_DIR.get().map_or(Path::new(""), PathBuf::as_path));
