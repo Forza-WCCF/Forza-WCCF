@@ -497,9 +497,39 @@ pub fn compat_layer(existing: Option<&str>) -> String {
     layers.join(" ")
 }
 
+/// The ports a joining arcade tunnel asks for: 0 (any free one, the tunnel says which it bound) for each this PC already
+/// listens on. Windows lets the tunnel's 127.0.0.1 bind shadow a 0.0.0.0 listener on the same port (this PC's own
+/// control), and that PC's dials to its control would then loop into the tunnel.
+pub fn join_ports(want: vslink::arcade::Ports, listening: &[u16]) -> vslink::arcade::Ports {
+    let free = |p: u16| if listening.contains(&p) { 0 } else { p };
+    vslink::arcade::Ports {
+        control: free(want.control),
+        desk: free(want.desk),
+        relay: want.relay, // UDP: the TCP table says nothing about it, and its bind already falls back
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_joining_tunnel_leaves_the_ports_this_pc_listens_on() {
+        let want = vslink::arcade::Ports {
+            control: 20002,
+            desk: 20030,
+            relay: 20040,
+        };
+        // separate PCs: nothing of the arcade's listens here, the usual ports
+        assert_eq!(join_ports(want, &[135, 445]), want);
+        // one PC that hosts too: its control holds 20002, its desk 20030
+        let moved = vslink::arcade::Ports {
+            control: 0,
+            desk: 0,
+            relay: 20040,
+        };
+        assert_eq!(join_ports(want, &[20002, 20003, 20030]), moved);
+    }
 
     /// Local PLAY with a cup chosen gives the control the arcade host's schedule. The file carries no seat count: the
     /// local control has seat 1 only and fills the other 7 teams with CPU, as a host's with one seat did (probe 1).

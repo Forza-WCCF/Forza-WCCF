@@ -2361,12 +2361,16 @@ impl Run<'_> {
     /// round trip.
     fn start_arcade_tunnel(&mut self, role: vslink::arcade::Role) -> Result<vslink::arcade::Ports, Failed> {
         let p = self.p;
-        let ports = vslink::arcade::Ports {
+        let host = role == vslink::arcade::Role::Host;
+        let mut ports = vslink::arcade::Ports {
             control: p.control_port,
             desk: p.seat_port,
             relay: p.relay_port,
         };
-        let host = role == vslink::arcade::Role::Host;
+        if !host {
+            // a server on this PC holds the usual ports: the tunnel takes free ones, the seat confs follow them
+            ports = rules::join_ports(ports, &procs::listening_ports());
+        }
         let key = self
             .kit
             .data()
