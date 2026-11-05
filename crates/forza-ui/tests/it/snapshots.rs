@@ -50,7 +50,20 @@ fn snap(
     edition: Edition,
     show: impl FnMut(&mut Ui),
 ) {
-    let mut h = harness(size, 1.0, edition, show);
+    snap_at(all, name, size, 1.0, edition, show);
+}
+
+/// [`snap`] on a screen of another density: Windows at 125, 150 or 200 %, where the panel's own rounding and
+/// letterboxing bite and at 100 % they do not.
+fn snap_at(
+    all: &mut SnapshotResults,
+    name: &str,
+    size: Vec2,
+    pixels_per_point: f32,
+    edition: Edition,
+    show: impl FnMut(&mut Ui),
+) {
+    let mut h = harness(size, pixels_per_point, edition, show);
     h.run_steps(8);
     h.snapshot(name);
     all.extend_harness(&mut h);
@@ -289,23 +302,59 @@ fn panel_pages() {
                 panel::show(ui, &mut st)
             });
         }
+        // the pages the 2010-11 shots above cover, as 2017-18 draws them: its arcade line on the game page, its
+        // own filters in the catalogue, the club card's share code
+        for page in [
+            panel::Page::Game,
+            panel::Page::Catalogue,
+            panel::Page::ClubCard,
+        ] {
+            let mut st = panel::PanelState::sample(Edition::E1718, lang, page);
+            let name = format!("panel_{}_1718_{}", page.tag(), lang.code());
+            snap(&mut all, &name, panel::SIZE, Edition::E1718, |ui| {
+                panel::show(ui, &mut st)
+            });
+        }
     }
     all.unwrap();
 }
 
+/// Windows at 150 % and 200 %: the Launcher on a 1.5 screen and the 2017-18 panel on a 2.0 one. The panel's sheet
+/// scales by `min(H/900, W/1440)` through `pixels_per_point`, so a fraction of a point shows here first.
 #[test]
-fn panel_2017_18_and_compact() {
+fn scaled_screens() {
     let _gpu = gpu();
     let mut all = SnapshotResults::new();
-    let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
-    snap(
+    let mut st =
+        launcher::LauncherState::sample(Edition::E1718, Lang::En, launcher::Scenario::Ready);
+    snap_at(
         &mut all,
-        "panel_game_1718_en",
+        "launcher_ready_15x_en",
+        launcher::SIZE,
+        1.5,
+        Edition::E1718,
+        |ui| {
+            launcher::show(ui, &mut st);
+        },
+    );
+    let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
+    snap_at(
+        &mut all,
+        "panel_game_2x_en",
         panel::SIZE,
+        2.0,
         Edition::E1718,
         |ui| panel::show(ui, &mut st),
     );
-    st = panel::PanelState::sample(Edition::E1011, Lang::It, panel::Page::Game);
+    all.unwrap();
+}
+
+/// COMPACT: the sheet folded down for a small window.
+#[test]
+fn panel_compact() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    let mut st = panel::PanelState::sample(Edition::E1011, Lang::It, panel::Page::Game);
     st.file.compact = true;
     snap(
         &mut all,
