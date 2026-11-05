@@ -74,11 +74,32 @@ impl Files {
         }
     }
 
-    pub fn lang(&self) -> Lang {
-        let saved = std::fs::read(self.data.join("settings.json"))
+    /// data\settings.json, the Launcher's file (`Null` when missing or unreadable).
+    pub fn settings(&self) -> serde_json::Value {
+        std::fs::read(self.data.join("settings.json"))
             .ok()
-            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-            .and_then(|v| v.get("language")?.as_str().map(str::to_owned));
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default()
+    }
+
+    /// settings.json's "projector" (its window shown) set, every other key kept, and the old switch's CPU
+    /// championship pinned first (missing, it would follow the window). A missing, locked or damaged
+    /// file is never written over: it holds the game folder.
+    pub fn save_projector(&self, on: bool) -> std::io::Result<()> {
+        let path = self.data.join("settings.json");
+        let mut v: serde_json::Value = serde_json::from_slice(&std::fs::read(&path)?)?;
+        let championship = forza::kit::cpu_championship_on(&v);
+        let o = v
+            .as_object_mut()
+            .ok_or_else(|| std::io::Error::other("settings.json is not an object"))?;
+        o.entry(forza::kit::CPU_CHAMPIONSHIP)
+            .or_insert(championship.into());
+        o.insert(forza::kit::PROJECTOR.into(), on.into());
+        swap_write(&path, &serde_json::to_string_pretty(&v)?)
+    }
+
+    pub fn lang(&self) -> Lang {
+        let saved = self.settings()["language"].as_str().map(str::to_owned);
         // SAFETY: a plain query without arguments
         let windows = match unsafe { GetUserDefaultUILanguage() } & 0x3ff {
             0x10 => "it",
@@ -138,18 +159,9 @@ impl Files {
             .filter_map(|e| e.metadata().ok()?.modified().ok())
             .collect();
         let kit = forza::kit::Kit::at(self.data.parent().unwrap_or(&self.data));
-        let version = std::fs::read_to_string(kit.dir().join("version.txt"))
-            .ok()
-            .map(|v| {
-                v.lines()
-                    .next()
-                    .unwrap_or("")
-                    .trim()
-                    .trim_start_matches("kit-")
-                    .to_owned()
-            })
-            .filter(|v| !v.is_empty())
-            .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
+        let version = kit
+            .release()
+            .unwrap_or_else(|| env!("FORZA_VERSION").to_owned());
         Status {
             link: server_link(),
             card: match session {
@@ -166,6 +178,7 @@ impl Files {
             text: Some(kit.game_language()),
             version,
             logs: None,
+            seats: forza::keys::seats_here(),
         }
     }
 
@@ -242,6 +255,39 @@ pub fn server_link() -> Link {
         }
     }
     Link::Down
+}
+
+/// The local port of this process's live link to the control port, to find what is left of it once it drops.
+pub fn link_port() -> Option<u16> {
+    let (me, want) = (std::process::id(), control_port());
+    let rows = tcp_rows()?;
+    rows.iter()
+        .find(|r| r[5] == me && r[0] == 5 && u16::from_be((r[4] & 0xFFFF) as u16) == want)
+        .map(|r| u16::from_be((r[2] & 0xFFFF) as u16))
+}
+
+/// The TCP state the dropped link from local port `local` left behind (a TIME_WAIT row has no process), if any.
+pub fn link_left(local: u16) -> Option<u32> {
+    let want = control_port();
+    let rows = tcp_rows()?;
+    rows.iter()
+        .find(|r| {
+            r[0] != 5
+                && u16::from_be((r[2] & 0xFFFF) as u16) == local
+                && u16::from_be((r[4] & 0xFFFF) as u16) == want
+        })
+        .map(|r| r[0])
+}
+
+/// Who closed the link, from the state it left ([`link_left`], MIB_TCP_STATE): the side that sends its FIN first
+/// waits in FIN_WAIT, CLOSING or TIME_WAIT; the one that got the FIN (an EOF on its socket) in CLOSE_WAIT or LAST_ACK.
+/// Nothing left: a reset, or a close by the control seen too late to tell (the row goes within the 2 s poll).
+pub fn close_reason(state: Option<u32>) -> &'static str {
+    match state {
+        Some(6 | 7 | 9 | 11) => "this seat closed it",
+        Some(8 | 10) => "the control closed it (EOF)",
+        _ => "no close seen: the control closed it or the link was reset",
+    }
 }
 
 /// The seats linked to the control `pid` on this PC: its connections on the control port (the projector counts).
@@ -480,4 +526,78 @@ pub fn send_key(vk: u32, up: bool, log: impl Fn(&str)) {
     };
     // SAFETY: one keyboard input of our own
     unsafe { SendInput(&[input], size_of::<INPUT>() as i32) };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Files, close_reason};
+    use forza_ui::theme::Edition;
+    use std::path::{Path, PathBuf};
+
+    /// A data folder of this test's own and the `Files` that write there.
+    fn files(tag: &str) -> (Files, PathBuf) {
+        let d = std::env::temp_dir().join(format!("forza-panel-kit-{}-{tag}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let files = Files {
+            edition: Edition::E1718,
+            data: d.clone(),
+            catalogue: d.join("catalogue.tsv"),
+            cards: d.join("cards"),
+            keys: d.join("keys.txt"),
+        };
+        (files, d)
+    }
+
+    /// settings.json as it was written.
+    fn saved(dir: &Path) -> serde_json::Value {
+        serde_json::from_slice(&std::fs::read(dir.join("settings.json")).unwrap()).unwrap()
+    }
+
+    /// The old combined switch was off: turning the window on leaves the championship off, as it was.
+    #[test]
+    fn saving_the_projector_pins_the_championship_from_the_old_switch() {
+        let (files, d) = files("pinned");
+        std::fs::write(d.join("settings.json"), r#"{"projector": false}"#).unwrap();
+        files.save_projector(true).unwrap();
+        assert_eq!(
+            saved(&d),
+            serde_json::json!({"projector": true, "cpu_championship": false})
+        );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// The keys apart: saving the window leaves the championship, the game and every other key as they were.
+    #[test]
+    fn saving_the_projector_keeps_the_championship_and_the_other_keys() {
+        let (files, d) = files("kept");
+        std::fs::write(
+            d.join("settings.json"),
+            r#"{"projector": false, "cpu_championship": true, "game": "x"}"#,
+        )
+        .unwrap();
+        files.save_projector(false).unwrap();
+        assert_eq!(
+            saved(&d),
+            serde_json::json!({"projector": false, "cpu_championship": true, "game": "x"})
+        );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_dropped_link_says_who_closed_it() {
+        assert_eq!(close_reason(Some(11)), "this seat closed it");
+        assert_eq!(close_reason(Some(7)), "this seat closed it");
+        assert_eq!(close_reason(Some(8)), "the control closed it (EOF)");
+        assert_eq!(
+            close_reason(Some(10)),
+            "the control closed it (EOF)",
+            "LAST_ACK"
+        );
+        assert_eq!(close_reason(Some(9)), "this seat closed it", "CLOSING");
+        assert_eq!(
+            close_reason(None),
+            "no close seen: the control closed it or the link was reset"
+        );
+    }
 }

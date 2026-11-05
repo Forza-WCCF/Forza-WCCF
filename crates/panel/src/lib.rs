@@ -16,6 +16,9 @@
 //! keys from keys.txt as the C panel does (down on the press, up after the release and at least 140 ms). Clicks on
 //! the game's picture go to the game, moved into its own client area, for its own on-screen buttons.
 //!
+//! The 2017-18 game's window gets a sizing border with its maximize at the start: the panel and the picture (16:10,
+//! clicks mapped back, [`game_point`]) follow any size the player drags it to.
+//!
 //! In the projector the panel draws nothing: its window is resizable, the picture letterboxed to it, and F11 /
 //! double-click / Esc give it borderless full screen ([`projector`], [`fullscreen`]).
 //!
@@ -34,17 +37,22 @@ mod patches;
 mod pause;
 mod probe;
 mod projector;
+mod share;
 
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, TextureId, ViewportId, pos2, vec2};
 use forza::cards::{self, Placed, TableFile};
+use forza::online::lobby::ServerNotice;
 use forza_ui::board::Card;
 use forza_ui::panel::{self, PanelState};
 use forza_ui::theme;
 use std::cell::Cell;
 use std::ffi::c_void;
+use std::io::Read as _;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicUsize, Ordering::Relaxed};
+use std::sync::atomic::{
+    AtomicBool, AtomicIsize, AtomicU8, AtomicU32, AtomicU64, AtomicUsize, Ordering::Relaxed,
+};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::*;
@@ -96,6 +104,10 @@ static BOARD_SCALE: AtomicU32 = AtomicU32::new(0x3F80_0000);
 static WINDOW: AtomicIsize = AtomicIsize::new(0);
 static OLD_PROC: AtomicIsize = AtomicIsize::new(0);
 static SCALE: AtomicU32 = AtomicU32::new(0x3F80_0000); // pixels per point (f32 bits), 1.0 until the first frame
+/// Per egui (0 the game window's, 1 the board window's): the mouse buttons egui was told are down (one bit per
+/// `PointerButton`) and the last pointer spot (x and y as f32 bits), so a release lost to a focus change can be sent.
+static HELD: [AtomicU8; 2] = [AtomicU8::new(0), AtomicU8::new(0)];
+static HELD_AT: [AtomicU64; 2] = [AtomicU64::new(0), AtomicU64::new(0)];
 static WANTS_KEYS: AtomicBool = AtomicBool::new(false);
 /// A page is open: its keys are the page's, never the game's.
 static PAGE_OPEN: AtomicBool = AtomicBool::new(false);
@@ -150,6 +162,8 @@ static BOARD_FS: fullscreen::Slot = Mutex::new(None);
 static POPPED: AtomicBool = AtomicBool::new(false);
 /// The board window is in Windows' move/size loop: its swap chain is kept until the size settles.
 static BOARD_SIZING: AtomicBool = AtomicBool::new(false);
+/// The game's window is in Windows' move/size loop (2017-18 drags its edges): the same for its swap chain.
+static GAME_SIZING: AtomicBool = AtomicBool::new(false);
 /// Our own window message: maximized (wParam 1) or the game's size (0), done on the window's thread.
 const WM_FORZA_FS: u32 = WM_APP + 0x57;
 /// To the board window from the render thread, once it let go of the window's swap chain: the window goes.
@@ -163,7 +177,7 @@ fn ms() -> u32 {
 }
 
 /// Overlay and capture hooks other programs load into games; they hook the same Present we do. Discord's capture hook
-/// blacked a seat's picture while its owner streamed the game (2026-10-22).
+/// blacked a seat's picture while the game was streamed (2026-10-22).
 const FOREIGN_HOOKS: &[&str] = &[
     "DiscordHook.dll",         // Discord overlay and Go Live
     "GameOverlayRenderer.dll", // Steam overlay
@@ -205,8 +219,21 @@ fn log(msg: &str) {
         .append(true)
         .open(path)
     {
-        let _ = writeln!(f, "{msg}");
+        let _ = writeln!(f, "{} {msg}", clock());
     }
+}
+
+/// This PC's wall clock as every panel log line starts: `hh:mm:ss.mmm`.
+pub(crate) fn clock() -> String {
+    // SAFETY: a plain clock query
+    clock_text(&unsafe { windows::Win32::System::SystemInformation::GetLocalTime() })
+}
+
+fn clock_text(t: &windows::Win32::Foundation::SYSTEMTIME) -> String {
+    format!(
+        "{:02}:{:02}:{:02}.{:03}",
+        t.wHour, t.wMinute, t.wSecond, t.wMilliseconds
+    )
 }
 
 #[unsafe(no_mangle)]
@@ -351,6 +378,35 @@ fn projector_window() {
     // SAFETY: as above; the message is handled by proj_wndproc on the window's thread
     let _ = unsafe { PostMessageW(Some(wnd), WM_FORZA_PROJ, WPARAM(0), LPARAM(0)) };
     retitle(wnd); // "Projector - Forza-WCCF <edition>"; this is a worker thread
+    let Some(f) = FILES.get().filter(|f| f.edition == theme::Edition::E1718) else {
+        return;
+    };
+    // settings.json "projector" (the Launcher's and seat 1's SETTINGS): the window hidden or shown, the game going on
+    // either way (it keeps rendering; the run counts a hidden window by its title, forza::procs::has_window)
+    let mut was = None;
+    loop {
+        let shown = forza::kit::projector_shown(&f.settings());
+        // hidden whenever the setting is off (the game may show it again); shown again only when it is turned on
+        // SAFETY: a window of this process; ShowWindowAsync posts the change to its thread and never waits for it
+        let changed = unsafe {
+            let visible = IsWindowVisible(wnd).as_bool();
+            visible != shown
+                && (!shown || was == Some(false))
+                && ShowWindowAsync(wnd, if shown { SW_SHOWNOACTIVATE } else { SW_HIDE }).as_bool()
+        };
+        if changed {
+            log(&format!(
+                "projector: window {}",
+                if shown {
+                    "shown"
+                } else {
+                    "hidden (setting off)"
+                }
+            ));
+        }
+        was = Some(shown);
+        std::thread::sleep(Duration::from_secs(1));
+    }
 }
 
 /// The pop-out board's window, on this thread until it goes: its own class, resizable, at its saved place (restored
@@ -480,6 +536,7 @@ unsafe extern "system" fn board_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM)
     thread_local! { static MOVING: Cell<bool> = const { Cell::new(false) }; }
     if m == WM_KILLFOCUS || (m == WM_ACTIVATEAPP && wp.0 == 0) {
         latch_up();
+        release_held(true);
     }
     match m {
         WM_FORZA_DOCK => {
@@ -541,7 +598,7 @@ unsafe extern "system" fn board_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM)
             // SAFETY: as above
             let _ = unsafe { ReleaseCapture() };
         }
-        0x0215 if lp.0 != 0 && lp.0 != h.0 as isize => push(true, vec![Event::PointerGone]),
+        0x0215 if lp.0 != 0 && lp.0 != h.0 as isize => release_held(true),
         _ => {}
     }
     if matches!(m, WM_KEYDOWN | WM_KEYUP)
@@ -610,7 +667,8 @@ fn is_projector() -> bool {
 
 /// The server link, watched all the time (`wccfpanel.c` `link_watch`): every 2 s this process's link to the server's
 /// control port; one dated line in WCCF_LOGS\server_link.txt when it comes up ("UP 1.2.3.4") and when it drops ("LOST
-/// (it was up N s)", or ENDED after the player closed the window: no fault). The run reads it (launcher run::rules).
+/// (it was up N s)", or ENDED after the player closed the window: no fault), then who closed it ([`kit::close_reason`]).
+/// The run reads it (launcher run::rules).
 fn link_watch() {
     use forza_ui::panel::Link;
     let Some(dir) = std::env::var_os("WCCF_LOGS") else {
@@ -622,6 +680,7 @@ fn link_watch() {
         .ok()
         .and_then(|a| std::net::TcpStream::connect(a).ok());
     let mut up_at: Option<Instant> = None;
+    let mut port = None;
     loop {
         let now = match kit::server_link() {
             Link::Unknown => None,
@@ -641,13 +700,14 @@ fn link_watch() {
             let line = match (&now, up_at) {
                 (Some(peer), _) => format!("{stamp} UP {peer}\n"),
                 (None, at) => format!(
-                    "{stamp} {} (it was up {} s)\n",
+                    "{stamp} {} (it was up {} s), {}\n",
                     if CLOSING.load(Relaxed) {
                         "ENDED"
                     } else {
                         "LOST"
                     },
-                    at.map_or(0, |a| a.elapsed().as_secs())
+                    at.map_or(0, |a| a.elapsed().as_secs()),
+                    kit::close_reason(port.and_then(kit::link_left))
                 ),
             };
             if let Ok(mut f) = std::fs::OpenOptions::new()
@@ -658,6 +718,9 @@ fn link_watch() {
                 let _ = f.write_all(line.as_bytes());
             }
             up_at = now.map(|_| Instant::now());
+        }
+        if up_at.is_some() {
+            port = kit::link_port().or(port);
         }
         std::thread::sleep(Duration::from_secs(2));
     }
@@ -697,29 +760,40 @@ fn card_open() -> bool {
     })
 }
 
-/// This seat plays a match (IMPORT LINEUP is refused then, the owner's rule); the decision and its inputs are logged.
+/// This seat plays a match (IMPORT LINEUP is refused then, a project rule); the decision and its inputs are logged.
 fn in_match() -> bool {
-    let e1718 = FILES
-        .get()
-        .is_some_and(|f| f.edition == theme::Edition::E1718);
-    let seat = if e1718 { pause::seat_state() } else { None };
-    let shop = pause::shop_state(e1718);
-    let card = card_open();
-    let refuse = match_now(e1718, seat, shop, card);
+    let (refuse, _, why) = match_check();
     log(&format!(
-        "import: match check - seat state {seat:?}, shop state {shop:?}, card session {card} -> {}",
+        "import: match check - {why} -> {}",
         if refuse { "in a match" } else { "free" }
     ));
     refuse
 }
 
-/// 2017-18: the seat's own sequence state is the match one (the shop state is the whole shop's: another seat's
-/// match sets it too); the shop state MATCHING-GAME_RESULT_WAIT (4-6) only when the seat state cannot be read.
-/// 2010-11: that shop state. Either: a card session open (2010-11's club card).
-fn match_now(e1718: bool, seat: Option<u32>, shop: Option<u32>, card: bool) -> bool {
+/// [`in_match`] without the log line: the answer and the inputs it came from.
+fn match_check() -> (bool, bool, String) {
+    let e1718 = FILES
+        .get()
+        .is_some_and(|f| f.edition == theme::Edition::E1718);
+    let seat = if e1718 { pause::seat_state() } else { None };
+    let arcade = pause::arcade_state(e1718);
+    let card = card_open();
+    (
+        match_now(e1718, seat, arcade, card),
+        match_now(e1718, seat, arcade, false),
+        format!("seat state {seat:?}, arcade state {arcade:?}, card session {card}"),
+    )
+}
+
+/// 2017-18: the seat's own sequence state says the match is this seat's (the arcade state is the whole arcade's:
+/// another seat's match sets it too), but the game leaves it at the match value after the match and after a
+/// cancelled matching until the next sequence writes its own, so the arcade state must also be MATCHING_WAIT to
+/// GAME_RESULT_WAIT (3-6), when it can be read; without the seat state, the arcade state MATCHING-GAME_RESULT_WAIT
+/// (4-6) alone. 2010-11: that arcade state. Either: a card session open (2010-11's club card).
+fn match_now(e1718: bool, seat: Option<u32>, arcade: Option<u32>, card: bool) -> bool {
     let playing = match seat {
-        Some(s) if e1718 => s == pause::SEAT_MATCH,
-        _ => matches!(shop, Some(4..=6)),
+        Some(s) if e1718 => s == pause::SEAT_MATCH && arcade.is_none_or(|a| matches!(a, 3..=6)),
+        _ => matches!(arcade, Some(4..=6)),
     };
     playing || card
 }
@@ -757,6 +831,54 @@ fn clipboard_text() -> Option<String> {
     }
 }
 
+/// `text` on the clipboard as Unicode text; `false`: the clipboard could not be opened or taken.
+/// `WCCFPANEL_IMPORTTEST=FILE` writes `FILE.copy` instead (fakegame: the player's clipboard is left alone).
+fn set_clipboard_text(text: &str) -> bool {
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::System::DataExchange::{
+        CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+    };
+    if let Some(p) = std::env::var_os("WCCFPANEL_IMPORTTEST") {
+        let mut p = PathBuf::from(p).into_os_string();
+        p.push(".copy");
+        return std::fs::write(p, text).is_ok();
+    }
+    const CF_UNICODETEXT: u32 = 13;
+    let wide: Vec<u16> = text
+        .replace('\n', "\r\n")
+        .encode_utf16()
+        .chain([0])
+        .collect();
+    // SAFETY: a fresh movable block filled while locked; once SetClipboardData takes it the clipboard owns it, else it
+    // is freed here
+    unsafe {
+        let Ok(g) = GlobalAlloc(GMEM_MOVEABLE, wide.len() * 2) else {
+            return false;
+        };
+        let p = GlobalLock(g).cast::<u16>();
+        if p.is_null() {
+            let _ = GlobalFree(Some(g));
+            return false;
+        }
+        std::ptr::copy_nonoverlapping(wide.as_ptr(), p, wide.len());
+        let _ = GlobalUnlock(g);
+        if OpenClipboard(None).is_err() {
+            std::thread::sleep(Duration::from_millis(30));
+            if OpenClipboard(None).is_err() {
+                let _ = GlobalFree(Some(g));
+                return false;
+            }
+        }
+        let ok =
+            EmptyClipboard().is_ok() && SetClipboardData(CF_UNICODETEXT, Some(HANDLE(g.0))).is_ok();
+        if !ok {
+            let _ = GlobalFree(Some(g));
+        }
+        let _ = CloseClipboard();
+        ok
+    }
+}
+
 /// The screen's dpi as this process sees it: the real one when the game runs DPI-aware (the Launcher starts it with
 /// `__COMPAT_LAYER=HighDpiAware`), 96 when Windows stretches it. Asked once: a system-aware process keeps the dpi it
 /// started with (no WM_DPICHANGED), so a change of the scaling takes a new start.
@@ -790,29 +912,46 @@ fn test_screen() -> Option<RECT> {
 }
 
 /// Maximized with its title bar kept (minimize, maximize/restore and close), or the game's own size, as `wccfpanel.c`
-/// `set_maximized`; on the window's thread.
+/// `set_maximized`; on the window's thread. 2017-18 also gets a sizing border: the panel lays itself and the picture
+/// out at any client size, so the player can drag the window to any size; its client keeps the game's size.
 fn set_maximized(h: HWND, on: bool) {
+    // 2010-11 keeps its fixed frame (AGENTS.md: 2010-11 stays as it is)
+    let sizable = FILES
+        .get()
+        .is_some_and(|f| f.edition == theme::Edition::E1718);
     // SAFETY: window calls on a window of this process, from its own thread
     unsafe {
         let st = GetWindowLongW(h, GWL_STYLE);
+        let border = if sizable { WS_THICKFRAME.0 } else { 0 };
         let want = (st & !(WS_POPUP.0 as i32))
-            | (WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX).0 as i32;
+            | (WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX).0 as i32
+            | border as i32;
         if want != st {
+            // the window grows by the new border, so its client keeps its size (restore brings that size back)
+            let mut cr = RECT::default();
+            let _ = GetClientRect(h, &mut cr);
+            let mut o = RECT {
+                right: cr.right,
+                bottom: cr.bottom,
+                ..Default::default()
+            };
+            let ex = WINDOW_EX_STYLE(GetWindowLongW(h, GWL_EXSTYLE) as u32);
+            let keep = sizable
+                && !IsZoomed(h).as_bool()
+                && AdjustWindowRectEx(&mut o, WINDOW_STYLE(want as u32), false, ex).is_ok();
             SetWindowLongW(h, GWL_STYLE, want);
-            let _ = SetWindowPos(
-                h,
-                None,
-                0,
-                0,
-                0,
-                0,
-                SWP_NOMOVE
-                    | SWP_NOSIZE
-                    | SWP_NOZORDER
-                    | SWP_NOOWNERZORDER
-                    | SWP_NOACTIVATE
-                    | SWP_FRAMECHANGED,
-            );
+            let mut flags =
+                SWP_NOMOVE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED;
+            if !keep {
+                flags |= SWP_NOSIZE;
+            }
+            let _ = SetWindowPos(h, None, 0, 0, o.right - o.left, o.bottom - o.top, flags);
+            if sizable {
+                log(&format!(
+                    "window: resizable, client {}x{} kept",
+                    cr.right, cr.bottom
+                ));
+            }
         }
         if let Some(m) = test_screen() {
             let Ok(mut saved) = TEST_MAX.lock() else {
@@ -1210,6 +1349,8 @@ struct Render {
     table: TableFile,
     /// The table as last read or written; `st.board.cards[i]` is `placed[i]`.
     placed: Vec<Placed>,
+    /// IMPORT LINEUP's share link, its lineup on the way.
+    share: Option<panel::ShareFetch>,
     /// A cabinet button's key that is down, since when; the mouse still held on it.
     key: Option<(u32, Instant)>,
     /// The key the latch holds down (0: none): `LATCH_VK` as this thread last set it.
@@ -1234,10 +1375,19 @@ struct Render {
     deal_last: Option<forza::card::Session>,
     /// Links: when the club card was last looked at, and its time then.
     links_at: Option<Instant>,
+    /// When the match state was last read for RESET LINEUP ([`Render::lineup`]).
+    match_at: Option<Instant>,
     links_stamp: Option<Option<std::time::SystemTime>>,
     /// CLUB CARD: when club_view.txt was last looked at, and its time then.
     club_at: Option<Instant>,
     club_stamp: Option<std::time::SystemTime>,
+    /// The server's notice (data\notice.json): when it was last looked at, its time then, and the notice not shown yet.
+    notice_at: Option<Instant>,
+    notice_stamp: Option<std::time::SystemTime>,
+    notice: Option<ServerNotice>,
+    /// The notice on the message line, waiting for a frame to paint it: its id and its text as shown. The id goes to
+    /// data\notice_seen.txt only once the line has drawn it.
+    notice_pending: Option<(String, String)>,
     painter: painter::Painter,
     start: Instant,
     sc: Option<(IDirect3DSwapChain9, u32, u32, HWND)>,
@@ -1304,6 +1454,7 @@ impl Render {
             st,
             table,
             placed,
+            share: None,
             key: None,
             latch: 0,
             mouse_down: false,
@@ -1318,9 +1469,14 @@ impl Render {
             // an answer from an earlier run is not shown
             logs_stamp: stamp(&files.request("savelogs.result")),
             links_at: None,
+            match_at: None,
             links_stamp: None,
             club_at: None,
             club_stamp: None,
+            notice_at: None,
+            notice_stamp: None,
+            notice: None,
+            notice_pending: None,
             deal_at: Instant::now(),
             deal_last: None,
             painter: painter::Painter::default(),
@@ -1381,7 +1537,14 @@ impl Render {
                 self.st.set_popped(popped);
                 return None;
             }
-            let (w, h) = (cr.right as u32, cr.bottom as u32);
+            // while the player drags the window's edge the chain it has is kept (Present stretches it to the window),
+            // made again once the size settles, as the board window's
+            let (w, h) = match &self.sc {
+                Some((_, sw, sh, swnd)) if *swnd == target && GAME_SIZING.load(Relaxed) => {
+                    (*sw, *sh)
+                }
+                _ => (cr.right as u32, cr.bottom as u32),
+            };
             let sc = self.swap_chain(dev, target, w, h)?;
             let sb = dev.CreateStateBlock(D3DSBT_ALL).ok()?;
             let mut vp = D3DVIEWPORT9::default();
@@ -1753,6 +1916,7 @@ impl Render {
         self.table_in();
         self.links_in();
         self.settings_in();
+        self.notice_in();
         self.club_in();
         self.deal_in();
         self.keys_in();
@@ -1799,7 +1963,9 @@ impl Render {
         self.close_out();
         WANTS_KEYS.store(self.ctx.egui_wants_keyboard_input(), Relaxed);
         pause::KEY.store(self.st.keys[forza::keys::PAUSE], Relaxed);
-        if std::mem::take(&mut self.st.pause_asked) {
+        if std::mem::take(&mut self.st.pause_asked)
+            && (pause::enabled() || self.st.paused.is_some())
+        {
             pause::ASK.store(true, Relaxed);
         }
         self.page_open();
@@ -1954,7 +2120,16 @@ impl Render {
     /// that could not be swapped in is tried again next frame.
     fn table_out(&mut self) {
         if std::mem::take(&mut self.st.board_changed) {
-            self.placed = cards::table_after(&self.placed, &self.st.board);
+            let new = cards::table_after(&self.placed, &self.st.board);
+            for line in take_off_lines(
+                &self.placed,
+                &new,
+                self.st.kept_log.take(),
+                self.st.off_at.take(),
+            ) {
+                log(&line);
+            }
+            self.placed = new;
             // a card in hand: the table follows it, the board stays as it is (a rebuild reorders the slots the drag
             // holds), no log line per frame
             if self.dragging() {
@@ -2048,6 +2223,8 @@ impl Render {
             self.st.file = f.panel_file();
             self.st.hover_delay = self.st.file.hover_ms.map(|ms| ms as f32 / 1000.0);
             self.st.address = self.st.file.server.clone();
+            self.st.projector = (f.edition == theme::Edition::E1718)
+                .then(|| forza::kit::projector_shown(&f.settings()));
             self.status_at = None;
         }
         // NOW each second while SETTINGS is open, every 2 s otherwise (the card lamp, the crash screen)
@@ -2120,7 +2297,7 @@ impl Render {
             let p = &self.st.file;
             match f.save_panel(p) {
                 Ok(()) => log(&format!(
-                    "settings: saved play_on={} server={} english={} layout={} hover={} auto_logs={} board={} board_buttons={} board_rect={:?}",
+                    "settings: saved play_on={} server={} english={} layout={} hover={} auto_logs={} board={} board_buttons={} pad_background={} board_rect={:?}",
                     if p.online { "online" } else { "this_pc" },
                     if p.server.is_empty() { "-" } else { &p.server },
                     p.english.as_deref().unwrap_or("-"),
@@ -2129,10 +2306,26 @@ impl Render {
                     if p.auto_logs_off { "off" } else { "on" },
                     if p.board_window { "window" } else { "game" },
                     if p.board_buttons { "on" } else { "off" },
+                    if p.pad_background { "on" } else { "off" },
                     p.board_rect,
                 )),
                 Err(e) => {
                     log(&format!("settings: could not save panel.txt: {e}"));
+                    self.st.say(Tone::Refused, "settings.msg_not_saved");
+                }
+            }
+        }
+        if std::mem::take(&mut self.st.projector_changed)
+            && let Some(on) = self.st.projector
+        {
+            // the projector's panel shows or hides its window within a second
+            match f.save_projector(on) {
+                Ok(()) => log(&format!(
+                    "settings: saved projector={}",
+                    if on { "on" } else { "off" }
+                )),
+                Err(e) => {
+                    log(&format!("settings: could not save settings.json: {e}"));
                     self.st.say(Tone::Refused, "settings.msg_not_saved");
                 }
             }
@@ -2250,6 +2443,75 @@ impl Render {
             }
             None => log("deal: a match finished, but no catalogue card to show"),
         }
+    }
+
+    /// 2017-18: the server's notice, as the Launcher wrote it (data\notice.json, looked at every 5 s), shown once per id
+    /// (data\notice_seen.txt keeps the id shown last, across runs) on the message line in the panel's language, at a
+    /// calm moment: no match on this seat and no other message on the line. The id is kept only after the line has
+    /// shown the text (a notice the panel could not show is offered again on the next start).
+    fn notice_in(&mut self) {
+        use forza_ui::widgets::Tone;
+        let Some(f) = FILES.get().filter(|f| f.edition == theme::Edition::E1718) else {
+            return;
+        };
+        let seen = f.data.join("notice_seen.txt");
+        // the notice on the line was painted (a frame ran with it there): the player could read it, so the id is
+        // kept; a text the panel never got to draw stays pending and is not marked seen
+        let painted = self.notice_pending.as_ref().is_some_and(|(_, text)| {
+            self.st
+                .message
+                .as_ref()
+                .is_some_and(|m| m.started() && &m.text == text)
+        });
+        if painted
+            && let Some((id, _)) = self.notice_pending.take()
+            && let Err(e) = std::fs::write(&seen, id)
+        {
+            log(&format!("notice: {} not kept ({e})", seen.display()));
+        }
+        if self
+            .notice_at
+            .is_some_and(|t| t.elapsed() < Duration::from_secs(5))
+        {
+            return;
+        }
+        self.notice_at = Some(Instant::now());
+        let path = f.data.join("notice.json");
+        let st = stamp(&path);
+        if st != self.notice_stamp {
+            if st.is_none() {
+                self.notice_stamp = None;
+                self.notice = None;
+            } else {
+                match read_notice(&path) {
+                    // a file there but not read (held by a scanner, say): looked at again on the next tick
+                    Err(e) => log(&format!("notice: {} not read ({e})", path.display())),
+                    Ok(None) => {
+                        self.notice_stamp = st;
+                        self.notice = None;
+                        log(&format!(
+                            "notice: {} over {NOTICE_MAX} bytes: ignored",
+                            path.display()
+                        ));
+                    }
+                    Ok(Some(b)) => {
+                        self.notice_stamp = st;
+                        self.notice = serde_json::from_slice::<ServerNotice>(&b)
+                            .ok()
+                            .and_then(ServerNotice::clean)
+                            .filter(|n| n.unseen(std::fs::read_to_string(&seen).ok().as_deref()));
+                    }
+                }
+            }
+        }
+        if self.notice.is_none() || self.st.message.is_some() || match_check().0 {
+            return;
+        }
+        let Some(n) = self.notice.take() else { return };
+        log(&format!("notice: {} shown", n.id));
+        let text = n.text(self.st.lang.code()).to_owned();
+        self.st.message = Some(panel::Note::long(Tone::Notice, text.clone()));
+        self.notice_pending = Some((n.id, text));
     }
 
     /// CLUB CARD: data\club_view.txt read on opening and again each second while open when it changed (the run's helper
@@ -2422,9 +2684,11 @@ impl Render {
         }
     }
 
-    /// IMPORT LINEUP: the clipboard's text checked, then on the table once the dialog's CONFIRM comes
+    /// IMPORT LINEUP: the clipboard's text (or its share link's lineup, fetched off this thread) checked, then on the table once the dialog's CONFIRM comes
     /// ([`Render::import_text`]); its UNDO: the table before it.
     fn import(&mut self) {
+        self.formations();
+        self.lineup();
         if std::mem::take(&mut self.st.import_undone)
             && let Some(old) = panel::undo_import(&mut self.st, in_match())
         {
@@ -2432,10 +2696,35 @@ impl Render {
             self.placed = old;
             self.table_write();
         }
-        if std::mem::take(&mut self.st.import) {
-            match clipboard_text() {
-                Some(text) => {
-                    if !panel::ask_import(&mut self.st, &text, in_match()) {
+        if let Some(got) = self
+            .share
+            .as_ref()
+            .and_then(|f| f.poll(self.ctx.input(|i| i.time)))
+        {
+            self.share = None;
+            log(&format!(
+                "import: share link answered {:?}",
+                got.as_ref().map(String::len)
+            ));
+            if !panel::ask_fetched(&mut self.st, got, in_match()) {
+                let why = self.st.message.as_ref().map_or("", |m| m.text.as_str());
+                log(&format!("import: refused - {}", why.replace('\n', " / ")));
+            }
+        }
+        if std::mem::take(&mut self.st.import) && self.share.is_none() {
+            let text = clipboard_text();
+            match text
+                .as_deref()
+                .map(|t| (t, forza::cards::lineup::share_id(t)))
+            {
+                Some((_, Some(id))) => {
+                    log(&format!("import: share link {id}"));
+                    let now = self.ctx.input(|i| i.time);
+                    self.share =
+                        panel::ShareFetch::start(&mut self.st, id, in_match(), now, share::get);
+                }
+                Some((text, None)) => {
+                    if !panel::ask_import(&mut self.st, text, in_match()) {
                         let why = self.st.message.as_ref().map_or("", |m| m.text.as_str());
                         log(&format!("import: refused - {}", why.replace('\n', " / ")));
                     }
@@ -2453,6 +2742,150 @@ impl Render {
             && let Some(ask) = self.st.import_ask.take()
         {
             self.import_text(&ask.text);
+        }
+    }
+
+    /// 2017-18: the table kept when a match begins (the seat state read every frame, the full match state once a
+    /// second), and RESET LINEUP writing it back like a card move.
+    fn lineup(&mut self) {
+        if self.st.edition != theme::Edition::E1718 {
+            return;
+        }
+        // the seat state is cheap: read every frame to catch the match edge before that frame's board change
+        let seat = pause::seat_state().map(|s| s == pause::SEAT_MATCH);
+        let polled = if self
+            .match_at
+            .is_none_or(|t| t.elapsed() >= Duration::from_secs(1))
+        {
+            self.match_at = Some(Instant::now());
+            let (busy, playing, _) = match_check();
+            Some((busy, playing))
+        } else {
+            None
+        };
+        let was_seen = self.st.match_seen;
+        panel::lineup_tick(&mut self.st, seat, polled, &self.placed);
+        if self.st.match_seen && !was_seen {
+            log(&format!(
+                "board: match began, {} card(s) kept for RESET LINEUP",
+                self.placed.len()
+            ));
+        }
+        // the click is served on the match state now, not the last second's
+        let fresh = self.st.reset_lineup && match_check().0;
+        if let Some(new) = panel::take_reset(&mut self.st, &self.placed, fresh) {
+            log(&format!("board: RESET LINEUP - {} card(s)", new.len()));
+            self.placed = new;
+            self.table_write();
+        }
+    }
+
+    /// FORMATIONS (issue #89): the slots read on opening and after a SAVE; a slot loaded as IMPORT LINEUP loads a
+    /// lineup (UNDO the same); SAVE writes the table with the club it came from; COPY puts the site's text on the
+    /// clipboard.
+    fn formations(&mut self) {
+        use forza::cards::formations as fm;
+        use forza_ui::widgets::Tone;
+        let Some(f) = FILES.get() else { return };
+        let dir = fm::dir(&f.data.join("save"));
+        let edition = self.st.edition;
+        if std::mem::take(&mut self.st.formations_open) {
+            self.st.in_match = in_match();
+            self.st.formations = Some(panel::Formations {
+                slots: fm::read(&dir, edition),
+                naming: None,
+            });
+            log(&format!("formations: opened {}", dir.display()));
+        }
+        if let Some(i) = self.st.formation_load.take() {
+            let now = self.ctx.input(|i| i.time);
+            if let Some(new) = panel::load_formation(&mut self.st, &self.placed, i, in_match(), now)
+            {
+                log(&format!(
+                    "formations: slot {} loaded - {} card(s)",
+                    i + 1,
+                    new.len()
+                ));
+                let keep = self
+                    .table
+                    .table
+                    .with_file_name("fpr_table0.before-import.txt");
+                if let Err(e) = std::fs::write(&keep, cards::table_text(&self.placed)) {
+                    log(&format!("formations: {} not written ({e})", keep.display()));
+                }
+                self.placed = new;
+                self.table_write();
+            } else {
+                let why = self.st.message.as_ref().map_or("", |m| m.text.as_str());
+                log(&format!(
+                    "formations: slot {} not loaded - {}",
+                    i + 1,
+                    why.replace('\n', " / ")
+                ));
+            }
+        }
+        if let Some((i, name)) = self.st.formation_save.take() {
+            self.formation_save(&dir, i, &name, &f.data);
+        }
+        if let Some(which) = self.st.formation_copy.take() {
+            let text = match which {
+                None => Some(cards::lineup::export(&self.placed, edition, "")),
+                Some(i) => self
+                    .st
+                    .formations
+                    .as_ref()
+                    .and_then(|d| d.slots.get(i)?.as_ref())
+                    .and_then(|s| fm::site_text(&s.text, edition)),
+            };
+            if text.as_deref().is_some_and(set_clipboard_text) {
+                log(&format!("formations: copied {which:?}"));
+                self.st.say(Tone::Done, "form.msg_copied");
+            } else {
+                log(&format!("formations: copy {which:?} failed"));
+                self.st.say(Tone::Refused, "form.msg_not_copied");
+            }
+        }
+    }
+
+    /// SAVE: the table into slot `i` with its club (data\club_view.txt's CLUB row), then the slots read again.
+    fn formation_save(&mut self, dir: &Path, i: usize, name: &str, data: &Path) {
+        use forza::cards::formations as fm;
+        use forza_ui::widgets::Tone;
+        let edition = self.st.edition;
+        if self.placed.is_empty() {
+            self.st.say(Tone::Refused, "form.msg_empty_table");
+            return;
+        }
+        let club = std::fs::read(data.join("club_view.txt"))
+            .ok()
+            .and_then(|raw| {
+                forza::club_view::ClubView::parse(&raw)
+                    .row("CLUB")
+                    // "NAME  (founded DATE)"
+                    .map(|v| v.split("  (").next().unwrap_or(v).trim().to_owned())
+            })
+            .unwrap_or_default();
+        match fm::write(dir, i, &fm::text(&self.placed, edition, name, &club)) {
+            Ok(()) => {
+                log(&format!(
+                    "formations: slot {} saved ({} card(s), club {club:?})",
+                    i + 1,
+                    self.placed.len()
+                ));
+                let text = forza_ui::text(
+                    self.st.lang,
+                    "form.msg_saved",
+                    &[("n", &(i + 1).to_string())],
+                );
+                self.st.note(Tone::Done, text);
+            }
+            Err(e) => {
+                log(&format!("formations: slot {} not saved ({e})", i + 1));
+                self.st.say(Tone::Refused, "form.msg_not_saved");
+            }
+        }
+        if let Some(d) = self.st.formations.as_mut() {
+            d.slots = fm::read(dir, edition);
         }
     }
 
@@ -2635,6 +3068,20 @@ fn stamp(p: &Path) -> Option<std::time::SystemTime> {
     std::fs::metadata(p).and_then(|m| m.modified()).ok()
 }
 
+/// A notice file larger than this is not a notice: never read whole (the panel is 32-bit, so a huge file would
+/// abort the game and answer again on every start).
+const NOTICE_MAX: u64 = 64 * 1024;
+
+/// `data\notice.json`, at most [`NOTICE_MAX`] bytes: `Ok(None)` for a larger file (ignored, not read), `Err` when it
+/// could not be read now (held by a scanner, say: look again).
+fn read_notice(p: &Path) -> std::io::Result<Option<Vec<u8>>> {
+    let mut b = Vec::new();
+    std::fs::File::open(p)?
+        .take(NOTICE_MAX + 1)
+        .read_to_end(&mut b)?;
+    Ok((b.len() as u64 <= NOTICE_MAX).then_some(b))
+}
+
 /// The controllers through winmm (from the system folder: seat 1's own winmm.dll is the hook), or the test's
 /// (`WCCFPANEL_FAKEPAD`).
 fn pads() -> forza::keys::Pads {
@@ -2725,6 +3172,10 @@ fn retitle(h: HWND) {
 /// The title for the game's own windows, ASCII only: they are ANSI windows (CreateWindowExA), and Windows converts a
 /// WM_SETTEXT to the system code page, which turned the en dash of "2017–18" into a cut-off "2017–1".
 fn game_title(who: &str, edition: &str) -> String {
+    // 2017-18 is written like the original title, "client_Release WCCF 17-18 Ver2.0"
+    if edition == forza::Edition::E1718.label() {
+        return format!("{who} - Forza-WCCF 17-18 Ver2.0");
+    }
     format!("{who} - Forza-WCCF {}", edition.replace('–', "-"))
 }
 
@@ -2758,6 +3209,35 @@ fn game_window() -> Option<HWND> {
 }
 
 /// The latched key up now, once (the render thread or the window procedure, whichever comes first).
+/// The focus or the mouse capture went to another window: no release will come, so egui is told every held button is
+/// up (at the last spot: a card in hand drops there), else the pointer is gone. `PointerGone` alone leaves egui's
+/// buttons down, and with them a card dragged from the board.
+fn release_held(board: bool) {
+    let i = usize::from(board);
+    let held = HELD[i].swap(0, Relaxed);
+    let at = HELD_AT[i].load(Relaxed);
+    let pos = pos2(f32::from_bits(at as u32), f32::from_bits((at >> 32) as u32));
+    let mut events: Vec<Event> = [
+        PointerButton::Primary,
+        PointerButton::Secondary,
+        PointerButton::Middle,
+    ]
+    .into_iter()
+    .filter(|&b| held & (1 << b as u8) != 0)
+    .map(|button| Event::PointerButton {
+        pos,
+        button,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    })
+    .collect();
+    // the release leaves the pointer at its spot (the drop is judged there); PointerGone only when nothing was held
+    if events.is_empty() {
+        events.push(Event::PointerGone);
+    }
+    push(board, events);
+}
+
 fn latch_up() {
     let vk = LATCH_VK.swap(0, Relaxed);
     if vk != 0 {
@@ -2769,6 +3249,7 @@ unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LR
     // the focus gone (or the window), also while paused: a latched button lets go, so its key cannot stay down
     if m == WM_KILLFOCUS || m == WM_DESTROY || (m == WM_ACTIVATEAPP && wp.0 == 0) {
         latch_up();
+        release_held(false);
     }
     if let Some(r) = pause::message(false, m, wp, lp) {
         return r;
@@ -2778,6 +3259,8 @@ unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LR
             set_maximized(h, wp.0 != 0);
             return LRESULT(0);
         }
+        WM_ENTERSIZEMOVE => GAME_SIZING.store(true, Relaxed),
+        WM_EXITSIZEMOVE => GAME_SIZING.store(false, Relaxed),
         WM_CLOSE if !close_allowed() => return LRESULT(0), // a match is on: warned once
         WM_CLOSE => {
             CLOSING.store(true, Relaxed); // the window goes: link_watch calls the drop ENDED
@@ -2820,7 +3303,7 @@ unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LR
         // (lParam 0 is our own ReleaseCapture on every release: not lost)
         0x0215 if lp.0 != 0 && lp.0 != h.0 as isize => {
             log("drag: capture lost");
-            push(false, vec![Event::PointerGone]);
+            release_held(false);
         }
         _ => {}
     }
@@ -2862,6 +3345,22 @@ unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LR
     }
 }
 
+/// The window point `p` on the game's picture `pic` (window pixels) as a point in the game's client area `cw` x `ch`.
+/// Off the picture (its bars, the panel) it is not the game's (`None`), unless `drag` (a press made on the picture is
+/// held): then it is clamped to the picture's edge.
+fn game_point(p: Pos2, pic: egui::Rect, cw: i32, ch: i32, drag: bool) -> Option<(i32, i32)> {
+    if !drag && !pic.contains(p) {
+        return None;
+    }
+    let at = |v: f32, a: f32, b: f32, size: i32| {
+        (((v - a) / (b - a) * size as f32) as i32).clamp(0, (size - 1).max(0))
+    };
+    Some((
+        at(p.x, pic.left(), pic.right(), cw),
+        at(p.y, pic.top(), pic.bottom(), ch),
+    ))
+}
+
 /// A mouse message on the game's picture (or the release of a button pressed there), moved from the picture into the
 /// game's whole client area, where the game drew its frame before the panel shrank it; `None` = not the game's.
 fn to_game(h: HWND, m: u32, lp: LPARAM) -> Option<LPARAM> {
@@ -2877,29 +3376,24 @@ fn to_game(h: HWND, m: u32, lp: LPARAM) -> Option<LPARAM> {
     let down = matches!(m, WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN);
     let up = matches!(m, WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP);
     let held = GAME_DOWN.load(Relaxed);
-    let ours = if up {
+    // a press made on the picture: its moves and its release stay the game's, wherever they are
+    let drag = if up {
         held & bit != 0
     } else {
-        pic.contains(p) || (m == WM_MOUSEMOVE && held != 0)
+        m == WM_MOUSEMOVE && held != 0
     };
-    if !ours {
+    if up && !drag {
         return None;
     }
+    let mut cr = RECT::default();
+    // SAFETY: a plain window query
+    unsafe { GetClientRect(h, &mut cr) }.ok()?;
+    let (gx, gy) = game_point(p, pic, cr.right, cr.bottom, drag)?;
     if down {
         GAME_DOWN.fetch_or(bit, Relaxed);
     } else if up {
         GAME_DOWN.fetch_and(!bit, Relaxed);
     }
-    let mut cr = RECT::default();
-    // SAFETY: a plain window query
-    unsafe { GetClientRect(h, &mut cr) }.ok()?;
-    let at = |v: f32, a: f32, b: f32, size: i32| {
-        (((v - a) / (b - a) * size as f32) as i32).clamp(0, (size - 1).max(0))
-    };
-    let (gx, gy) = (
-        at(p.x, pic.left(), pic.right(), cr.right),
-        at(p.y, pic.top(), pic.bottom(), cr.bottom),
-    );
     if down {
         log(&format!(
             "click at {},{} -> the game at {gx},{gy}",
@@ -2941,7 +3435,20 @@ fn input(board: bool, m: u32, wp: WPARAM, lp: LPARAM) -> bool {
         f32::from((lp.0 >> 16) as i16) / ppp,
     );
     let modifiers = modifiers();
-    let button = |button, pressed| {
+    let seen = |pos: Pos2| {
+        HELD_AT[usize::from(board)].store(
+            u64::from(pos.x.to_bits()) | (u64::from(pos.y.to_bits()) << 32),
+            Relaxed,
+        );
+    };
+    let button = |button: PointerButton, pressed| {
+        seen(pos);
+        let bit = 1 << button as u8;
+        if pressed {
+            HELD[usize::from(board)].fetch_or(bit, Relaxed);
+        } else {
+            HELD[usize::from(board)].fetch_and(!bit, Relaxed);
+        }
         vec![
             Event::PointerMoved(pos),
             Event::PointerButton {
@@ -2963,6 +3470,7 @@ fn input(board: bool, m: u32, wp: WPARAM, lp: LPARAM) -> bool {
     };
     let (events, keys): (Vec<Event>, bool) = match m {
         WM_MOUSEMOVE => {
+            seen(pos);
             push(board, vec![Event::PointerMoved(pos)]);
             return true; // off the game's picture (to_game): not the game's
         }
@@ -3042,12 +3550,131 @@ fn vk_key(vk: u32) -> Option<Key> {
     Key::from_name(name)
 }
 
+/// The log lines for a table write: `board: card N taken off` per card the new table lacks, and the refused take-off
+/// of a match (`kept`) first.
+fn take_off_lines(
+    old: &[cards::Placed],
+    new: &[cards::Placed],
+    kept: Option<u32>,
+    off_at: Option<(egui::Pos2, egui::Vec2)>,
+) -> Vec<String> {
+    // where the pointer let go (from the board's top left) and the board's size, when a drag did it
+    let at = off_at.map_or(String::new(), |(p, s)| {
+        format!(
+            " at {:.0},{:.0} (board {:.0}\u{d7}{:.0})",
+            p.x, p.y, s.x, s.y
+        )
+    });
+    let refused = kept.map(|n| format!("board: take-off refused during a match (card {n})"));
+    let gone = old
+        .iter()
+        .filter(|c| !new.iter().any(|n| n.no == c.no))
+        .map(|c| format!("board: card {} taken off{at}", c.no));
+    refused.into_iter().chain(gone).collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{big_enough, game_title, match_now};
+    use super::{NOTICE_MAX, cards, read_notice, take_off_lines};
 
-    /// IMPORT LINEUP: 2017-18 asks the seat's own state (another seat's match puts the shared shop in GAME); the shop
-    /// state only when that cannot be read; 2010-11 keeps the shop state; a card session always counts.
+    /// A botched copy in data\notice.json must not be read whole into the 32-bit panel: the cap holds, and the file
+    /// is ignored rather than retried on every tick.
+    #[test]
+    fn a_notice_file_over_the_cap_is_ignored() {
+        let dir = std::env::temp_dir().join(format!("forza_notice_cap_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("notice.json");
+        std::fs::write(&file, "x".repeat(NOTICE_MAX as usize)).unwrap();
+        assert!(
+            read_notice(&file).unwrap().is_some(),
+            "a file at the cap is read"
+        );
+        std::fs::write(&file, "x".repeat(NOTICE_MAX as usize + 1)).unwrap();
+        assert!(
+            read_notice(&file).unwrap().is_none(),
+            "one byte over: ignored, never read"
+        );
+        let _ = std::fs::remove_file(&file);
+    }
+
+    #[test]
+    fn take_off_lines_name_the_cards() {
+        let at = |no| cards::Placed {
+            slot: 1,
+            no,
+            x: 0.0,
+            y: 0.0,
+        };
+        let (a, b) = (at(101), at(102));
+        assert_eq!(
+            take_off_lines(
+                &[a, b],
+                &[a],
+                None,
+                Some((egui::pos2(10.4, 1700.0), egui::vec2(1094.0, 1663.0)))
+            ),
+            ["board: card 102 taken off at 10,1700 (board 1094\u{d7}1663)"]
+        );
+        assert_eq!(
+            take_off_lines(&[a, b], &[a, b], Some(101), None),
+            ["board: take-off refused during a match (card 101)"]
+        );
+        assert!(take_off_lines(&[a], &[a, b], None, None).is_empty());
+    }
+
+    use super::{big_enough, clock_text, game_point, game_title, match_now};
+    use egui::{Rect, pos2};
+
+    #[test]
+    fn log_lines_start_with_the_wall_clock() {
+        let t = windows::Win32::Foundation::SYSTEMTIME {
+            wHour: 9,
+            wMinute: 5,
+            wSecond: 7,
+            wMilliseconds: 42,
+            ..Default::default()
+        };
+        assert_eq!(clock_text(&t), "09:05:07.042");
+    }
+
+    /// A click on the letterboxed picture lands where it would on the game's own frame; the bars around the picture are
+    /// not the game's, and a press held from the picture into a bar is clamped to the picture's edge.
+    #[test]
+    fn a_click_on_the_picture_maps_into_the_game() {
+        // a 1440x900 picture in a 2000x1000 window: pillarbox bars 280 wide, the game's client the whole window
+        let pic = Rect::from_min_max(pos2(280.0, 50.0), pos2(1720.0, 950.0));
+        let (cw, ch) = (2000, 1000);
+        assert_eq!(game_point(pic.min, pic, cw, ch, false), Some((0, 0)));
+        assert_eq!(
+            game_point(pic.center(), pic, cw, ch, false),
+            Some((1000, 500))
+        );
+        assert_eq!(
+            game_point(pic.max, pic, cw, ch, false),
+            Some((cw - 1, ch - 1))
+        );
+        // a quarter in from the left and the top
+        assert_eq!(
+            game_point(pos2(640.0, 275.0), pic, cw, ch, false),
+            Some((500, 250))
+        );
+        // the bars: nothing
+        assert_eq!(game_point(pos2(100.0, 500.0), pic, cw, ch, false), None);
+        assert_eq!(game_point(pos2(1900.0, 500.0), pic, cw, ch, false), None);
+        assert_eq!(game_point(pos2(1000.0, 10.0), pic, cw, ch, false), None);
+        // a drag from the picture into a bar: the picture's edge
+        assert_eq!(
+            game_point(pos2(100.0, 500.0), pic, cw, ch, true),
+            Some((0, 500))
+        );
+        assert_eq!(
+            game_point(pos2(1900.0, 990.0), pic, cw, ch, true),
+            Some((cw - 1, ch - 1))
+        );
+    }
+
+    /// IMPORT LINEUP: 2017-18 asks the seat's own state (another seat's match puts the shared arcade in GAME); the arcade
+    /// state only when that cannot be read; 2010-11 keeps the arcade state; a card session always counts.
     #[test]
     fn import_is_refused_only_in_this_seats_match() {
         assert!(
@@ -3055,7 +3682,11 @@ mod tests {
             "another seat plays"
         );
         assert!(match_now(true, Some(19), Some(5), false));
-        assert!(match_now(true, Some(19), Some(1), false));
+        assert!(match_now(true, Some(19), Some(3), false));
+        assert!(match_now(true, Some(19), None, false));
+        // the seat flag the game leaves on after a match or a cancelled matching is not a match
+        assert!(!match_now(true, Some(19), Some(1), false), "menus");
+        assert!(!match_now(true, Some(19), Some(7), false), "result screen");
         assert!(match_now(true, None, Some(5), false));
         assert!(!match_now(true, None, Some(1), false));
         assert!(match_now(false, None, Some(4), false));
@@ -3068,10 +3699,14 @@ mod tests {
     #[test]
     fn the_game_title_is_ascii_and_whole() {
         let t = game_title("Client", forza::Edition::E1718.label());
-        assert_eq!(t, "Client - Forza-WCCF 2017-18");
+        assert_eq!(t, "Client - Forza-WCCF 17-18 Ver2.0");
         assert!(t.is_ascii());
         assert_eq!(
-            game_title("Projector", "2010–11"),
+            game_title("Projector", forza::Edition::E1718.label()),
+            "Projector - Forza-WCCF 17-18 Ver2.0"
+        );
+        assert_eq!(
+            game_title("Projector", forza::Edition::E1011.label()),
             "Projector - Forza-WCCF 2010-11"
         );
     }

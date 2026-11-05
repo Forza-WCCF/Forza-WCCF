@@ -4032,7 +4032,7 @@ TRA_THEME_effect_0028	Links/Ability/Special +
 TRA_THEME_effect_0029	Links/Ability/Special ++
 TRA_THEME_effect_0030	Links/Ability/Special +++
 TRA_THEME_confirm_0000	Give them a day off?
-TRA_THEME_confirm_0001	Tell
+TRA_THEME_confirm_0001	Yes
 TRA_THEME_confirm_0002	Cancel
 TRA_THEME_confirm_0003	Pass this attitude on to the players?
 INF_INFO_title_0000	$p[16]$t[0:1]★★★$t$p  LICENSE ISSUED  $p[16]$t[0:1]★★★$t$p

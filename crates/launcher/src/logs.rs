@@ -21,6 +21,17 @@ pub(crate) fn local(t: SystemTime) -> OffsetDateTime {
     UtcOffset::local_offset_at(utc).map_or(utc, |o| utc.to_offset(o))
 }
 
+/// `t` as the run logs' lines start: `hh:mm:ss.mmm`.
+pub fn clock(t: OffsetDateTime) -> String {
+    format!(
+        "{:02}:{:02}:{:02}.{:03}",
+        t.hour(),
+        t.minute(),
+        t.second(),
+        t.millisecond()
+    )
+}
+
 /// One "hh:mm:ss  line" added to `file`, its folder made first. A write that fails is skipped: logs never stop a step.
 pub fn append(file: &Path, line: &str) {
     if let Some(dir) = file.parent() {
@@ -124,15 +135,20 @@ pub fn archive_run(folder: &Path, archive: &Path, limit: u64) -> io::Result<bool
     Ok(true)
 }
 
-/// At a start: previous\ zipped into archive\, the last run's logs into previous\, and a fresh hook\ folder.  What it
-/// had to step around, in the words to say; an error only if `logs` or its hook\ cannot be made.  A previous-<time>
-/// folder set aside by an earlier start (a file in it was busy then) goes now (play.py left them for ever); one still
-/// busy stays until a later start.
+/// The two runs kept as folders behind previous\, newest first (SAVE LOGS sends all three).
+pub const OLDER: [&str; 2] = ["previous-2", "previous-3"];
+
+/// At a start: previous\ zipped into archive\ and moved to previous-2\ (previous-2\ to previous-3\, the old
+/// previous-3\ gone), the last run's logs into previous\, and a fresh hook\ folder.  What it had to step around, in
+/// the words to say; an error only if `logs` or its hook\ cannot be made.  A previous-<time> folder set aside by an
+/// earlier start (a file in it was busy then) goes now (play.py left them for ever); one still busy stays until a later
+/// start.
 pub fn rotate(logs: &Path) -> io::Result<Vec<String>> {
     let mut said = Vec::new();
     fs::create_dir_all(logs)?;
     for e in fs::read_dir(logs)?.flatten() {
-        if e.file_name().to_string_lossy().starts_with("previous-") && e.file_type().is_ok_and(|t| t.is_dir()) {
+        let n = e.file_name().to_string_lossy().into_owned();
+        if n.starts_with("previous-") && !OLDER.contains(&n.as_str()) && e.file_type().is_ok_and(|t| t.is_dir()) {
             let _ = fs::remove_dir_all(e.path());
         }
     }
@@ -141,7 +157,10 @@ pub fn rotate(logs: &Path) -> io::Result<Vec<String>> {
         if let Err(ex) = archive_run(&prev, &logs.join("archive"), ARCHIVE_LIMIT) {
             said.push(format!("  logs: the run before last not archived ({ex})"));
         }
-        if let Err(ex) = fs::remove_dir_all(&prev) {
+        let _ = fs::remove_dir_all(logs.join(OLDER[1]));
+        let _ = fs::rename(logs.join(OLDER[0]), logs.join(OLDER[1]));
+        // a run that cannot move (previous-2\ still there, a file held) goes as before: it is in the archive
+        if let Err(ex) = fs::rename(&prev, logs.join(OLDER[0])).or_else(|_| fs::remove_dir_all(&prev)) {
             // a file in it is held open: set it aside so a fresh one can be made
             let t = local(SystemTime::now());
             let name = format!(
@@ -190,4 +209,61 @@ pub fn rotate(logs: &Path) -> io::Result<Vec<String>> {
     }
     fs::create_dir_all(logs.join("hook"))?;
     Ok(said)
+}
+
+/// A run log whose every line starts with the wall clock ([`clock`]): the debugger's own lines keep their `t+`
+/// seconds after it, so lines of logs started at different times line up.
+pub struct Stamped<W: Write> {
+    out: W,
+    at_start: bool,
+    now: fn() -> String,
+}
+
+impl<W: Write> Stamped<W> {
+    pub fn new(out: W) -> Self {
+        Self::with_clock(out, || clock(local(SystemTime::now())))
+    }
+
+    fn with_clock(out: W, now: fn() -> String) -> Self {
+        Self {
+            out,
+            at_start: true,
+            now,
+        }
+    }
+}
+
+impl<W: Write> Write for Stamped<W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        for piece in buf.split_inclusive(|&b| b == b'\n') {
+            if self.at_start {
+                self.out.write_all(format!("{} ", (self.now)()).as_bytes())?;
+            }
+            self.out.write_all(piece)?;
+            self.at_start = piece.ends_with(b"\n");
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.out.flush()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Stamped;
+    use std::io::Write;
+
+    #[test]
+    fn every_line_of_a_stamped_log_starts_with_the_clock() {
+        let mut s = Stamped::with_clock(Vec::new(), || "09:05:07.042".into());
+        write!(s, "  t+  1.0s process ").unwrap();
+        writeln!(s, "started").unwrap();
+        write!(s, "a\nb\n").unwrap();
+        assert_eq!(
+            String::from_utf8(s.out).unwrap(),
+            "09:05:07.042   t+  1.0s process started\n09:05:07.042 a\n09:05:07.042 b\n"
+        );
+    }
 }

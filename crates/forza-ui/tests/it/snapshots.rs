@@ -6,7 +6,7 @@ use egui_kittest::kittest::Queryable;
 use egui_kittest::{Harness, SnapshotResults};
 use forza_ui::Lang;
 use forza_ui::theme::{self, Edition};
-use forza_ui::{installer, launcher, lobby, panel};
+use forza_ui::{installer, launcher, lobby, panel, widgets};
 
 /// One test on the GPU at a time: wgpu devices made in parallel crashed the test process now and then (exit 116,
 /// about 1 run in 4 on 2026-10-12); one after another they never did.
@@ -191,11 +191,35 @@ fn launcher_host_dialog() {
         let mut st =
             launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Online);
         let v = &mut st.lobby;
-        (v.shop_rooms, v.kind, v.list_shop) = (true, lobby::Kind::Shops, true);
-        v.host_ask = Some((false, String::new()));
+        (v.arcade_rooms, v.kind, v.list_arcade) = (true, lobby::Kind::Arcades, true);
+        (v.cup.mode, v.cup.minutes, v.clock) = (lobby::CupMode::In, 10, Some(14 * 3600));
+        v.host_ask = Some((false, String::new(), lobby::CupChoice::default()));
         snap(
             &mut all,
             &format!("launcher_host_dialog_{}", lang.code()),
+            launcher::SIZE,
+            Edition::E1718,
+            |ui| {
+                launcher::show(ui, &mut st);
+            },
+        );
+    }
+    all.unwrap();
+}
+
+/// The PLAY tab on 2017-18, This PC: the Universal Cup against 7 CPU teams, in 25 min at 14:00.
+#[test]
+fn launcher_play_cup() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for lang in Lang::ALL {
+        let mut st =
+            launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
+        let v = &mut st.lobby;
+        (v.cup.mode, v.cup.minutes, v.clock) = (lobby::CupMode::In, 25, Some(14 * 3600));
+        snap(
+            &mut all,
+            &format!("launcher_play_cup_{}", lang.code()),
             launcher::SIZE,
             Edition::E1718,
             |ui| {
@@ -253,7 +277,8 @@ fn panel_pages() {
     let mut all = SnapshotResults::new();
     for lang in Lang::ALL {
         for page in panel::Page::ALL {
-            let ed = if page == panel::Page::Keys {
+            // SETTINGS on 2017-18: its projector and controller switches
+            let ed = if matches!(page, panel::Page::Keys | panel::Page::Settings) {
                 Edition::E1718
             } else {
                 Edition::E1011
@@ -290,6 +315,81 @@ fn panel_2017_18_and_compact() {
         |ui| panel::show(ui, &mut st),
     );
     all.unwrap();
+}
+
+/// The server's notice: on the panel's message line (2017-18 game page) and under the Launcher's status line.
+#[test]
+fn server_notice() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for (lang, text) in [
+        (Lang::En, "Server update at 23:00 CET, about 10 minutes."),
+        (Lang::Ja, "23:00(CET)にサーバーを更新します。約10分。"),
+    ] {
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+        st.message = Some(panel::Note::long(widgets::Tone::Notice, text.into()));
+        snap(
+            &mut all,
+            &format!("panel_notice_1718_{}", lang.code()),
+            panel::SIZE,
+            Edition::E1718,
+            |ui| panel::show(ui, &mut st),
+        );
+        let mut st =
+            launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
+        st.server_notice = Some(text.into());
+        snap(
+            &mut all,
+            &format!("launcher_notice_{}", lang.code()),
+            launcher::SIZE,
+            Edition::E1718,
+            |ui| {
+                launcher::show(ui, &mut st);
+            },
+        );
+    }
+    all.unwrap();
+}
+
+/// On hold since 2026-10-31: 2017-18 shows no PAUSE button on the page bar, no VS ROOMS tab and no HOST VS; 2010-11
+/// keeps its own. The arcade side (ARCADES tab, HOST ARCADE) stays.
+#[test]
+fn vs_lobby_and_pause_button_hidden_1718() {
+    let _gpu = gpu();
+    for (ed, shown) in [(Edition::E1718, panel::PAUSE_ON), (Edition::E1011, true)] {
+        let st =
+            std::cell::RefCell::new(panel::PanelState::sample(ed, Lang::En, panel::Page::Game));
+        let mut h = harness(panel::SIZE, 1.0, ed, |ui| {
+            panel::show(ui, &mut st.borrow_mut())
+        });
+        h.run_steps(4);
+        assert_eq!(
+            h.query_all_by_label("PAUSE").count() == 1,
+            shown,
+            "{ed:?} PAUSE"
+        );
+    }
+    for (ed, shown) in [(Edition::E1718, lobby::VS_LOBBY), (Edition::E1011, true)] {
+        let st = launcher::LauncherState::sample(ed, Lang::En, launcher::Scenario::Online);
+        let st = std::cell::RefCell::new(st);
+        let mut h = harness(launcher::SIZE, 1.0, ed, |ui| {
+            launcher::show(ui, &mut st.borrow_mut());
+        });
+        h.run_steps(4);
+        let vs = h.query_all_by_label_contains("VS ROOMS").count() == 1;
+        assert_eq!(vs, shown, "{ed:?} VS ROOMS tab");
+        if ed == Edition::E1718 {
+            assert_eq!(
+                h.query_all_by_label("HOST ARCADE").count(),
+                1,
+                "HOST ARCADE stays"
+            );
+        }
+        assert!(
+            h.query_all_by_label_contains("ARCADES").count() >= 1,
+            "{ed:?} ARCADES tab"
+        );
+    }
 }
 
 #[test]
@@ -608,6 +708,88 @@ fn board_links() {
     h.hover_at(egui::pos2(500.0, 440.0));
     h.run_steps(4);
     h.snapshot("panel_catalogue_affinity_en");
+}
+
+/// 2017-18: RESET LINEUP under the board, lit after a match when the table changed, greyed out in a match.
+#[test]
+fn board_reset_lineup() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for (name, ready, in_match) in [
+        ("board_reset_lineup_en", true, false),
+        ("board_reset_lineup_in_match_en", true, true),
+    ] {
+        let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
+        st.reset_ready = ready;
+        st.in_match = in_match;
+        snap(&mut all, name, panel::SIZE, Edition::E1718, |ui| {
+            panel::show(ui, &mut st)
+        });
+    }
+    all.unwrap();
+}
+
+/// RESET LINEUP names the moment its table was kept in its hover text, and a reset leaves an UNDO under the board.
+#[test]
+fn board_reset_lineup_hint_and_undo() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for lang in Lang::ALL {
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+        st.reset_ready = true;
+        st.before_match = Some(Vec::new());
+        st.before_match_at = Some("21:40".into());
+        let st = std::cell::RefCell::new(st);
+        let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+            panel::show(ui, &mut st.borrow_mut())
+        });
+        h.run_steps(4);
+        h.get_by_label(&forza_ui::text(lang, "board.reset", &[]))
+            .hover();
+        h.run_steps(12);
+        h.snapshot(format!("board_reset_hint_{}", lang.code()));
+        all.extend_harness(&mut h);
+        drop(h);
+        let mut st = st.into_inner();
+        st.reset_ready = false;
+        st.reset_after = Some(Vec::new());
+        st.import_undo = Some((Vec::new(), 0.0));
+        snap(
+            &mut all,
+            &format!("board_reset_undo_{}", lang.code()),
+            panel::SIZE,
+            Edition::E1718,
+            |ui| panel::show(ui, &mut st),
+        );
+    }
+    all.unwrap();
+}
+
+/// The LINKS list draws Latin Extended-A letters (ć č š ž ł ő): Noto Sans JP has none of them, so Barlow follows it.
+#[test]
+fn links_list_latin_extended() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    snap(
+        &mut all,
+        "board_links_glyphs_en",
+        Vec2::new(260.0, 150.0),
+        Edition::E1718,
+        |ui| {
+            ui.add_space(6.0);
+            for (name, v) in [
+                ("Neven SUBOTIĆ", 5),
+                ("Nemanja VIDIĆ", 4),
+                ("Luka MODRIĆ Čeh", 3),
+                ("Łukasz PISZCZEK", 3),
+                ("Gábor KIRÁLY Őri", 2),
+                ("Šime VRSALJKO Žiga", 1),
+            ] {
+                forza_ui::board::partner_row(ui, name, None, Some(v), 230.0);
+            }
+        },
+    );
+    all.unwrap();
 }
 
 /// A 1920×1080 screen: one point a pixel, a 1920×1080 sheet; the picture grows past the game's size, the board keeps its height's width.
@@ -1001,6 +1183,136 @@ fn import_dialog() {
     all.unwrap();
 }
 
+/// FORMATIONS (issue #89) during a match: two slots filled (one from another club), LOAD greyed out with its reason,
+/// slot 2 being named for SAVE (REPLACE: it is filled).
+#[test]
+fn formations_dialog() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for lang in Lang::ALL {
+        let mut st = formations_state(lang, true);
+        st.formations.as_mut().unwrap().naming = Some((1, "Cup XI".into()));
+        st.page = panel::Page::Catalogue;
+        snap(
+            &mut all,
+            &format!("panel_formations_{}", lang.code()),
+            panel::SIZE,
+            Edition::E1718,
+            |ui| panel::show(ui, &mut st),
+        );
+    }
+    all.unwrap();
+}
+
+/// A FORMATIONS dialog with two filled slots (the second from another club).
+fn formations_state(lang: Lang, in_match: bool) -> panel::PanelState {
+    use forza::cards::{Placed, formations};
+    let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+    let t = [Placed {
+        slot: 1,
+        no: 1,
+        x: 0.0,
+        y: 0.9,
+    }];
+    let slot = |name, club, day: &str| {
+        let mut s = formations::slot_of(&formations::text(&t, st.edition, name, club), st.edition);
+        if let Some(s) = s.as_mut() {
+            s.saved = day.into();
+        }
+        s
+    };
+    let mut slots = vec![None; formations::SLOTS];
+    slots[0] = slot("4-3-3 attack", "KITAKAZE", "2026-10-30");
+    slots[1] = slot("Cup XI", "OTHER FC", "2026-11-01");
+    st.formations = Some(panel::Formations {
+        slots,
+        naming: None,
+    });
+    st.in_match = in_match;
+    st
+}
+
+/// 2017-18: FORMATIONS in the row under the board (with RESET LINEUP and POP OUT), on the game window's board and on
+/// the pop-out board's window; the dialog opened from the pop-out board shows there.
+#[test]
+fn board_formations_button() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for lang in Lang::ALL {
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+        st.reset_ready = true;
+        snap(
+            &mut all,
+            &format!("board_formations_{}", lang.code()),
+            panel::SIZE,
+            Edition::E1718,
+            |ui| panel::show(ui, &mut st),
+        );
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+        st.desk = true;
+        st.file.board_window = true;
+        st.reset_ready = true;
+        snap(
+            &mut all,
+            &format!("popout_board_formations_{}", lang.code()),
+            Vec2::new(960.0, 1232.0),
+            Edition::E1718,
+            |ui| panel::show(ui, &mut st),
+        );
+    }
+    let mut st = formations_state(Lang::En, false);
+    st.desk = true;
+    st.formations_desk = true;
+    st.file.board_window = true;
+    snap(
+        &mut all,
+        "popout_board_formations_dialog_en",
+        Vec2::new(960.0, 1232.0),
+        Edition::E1718,
+        |ui| panel::show(ui, &mut st),
+    );
+    all.unwrap();
+}
+
+/// LOAD is greyed out and answers nothing while the own seat plays a match; SAVE works at any time.
+#[test]
+fn formations_load_refused_in_match_and_save_works() {
+    let _gpu = gpu();
+    let st = std::cell::RefCell::new(formations_state(Lang::En, true));
+    let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+        panel::show(ui, &mut st.borrow_mut())
+    });
+    h.run_steps(4);
+    h.get_all_by_label("LOAD").next().unwrap().click();
+    h.run_steps(4);
+    assert!(st.borrow().formation_load.is_none());
+    // SAVE on the empty slot 3 asks for a name, then stores it, match or not
+    h.get_all_by_label("SAVE").nth(2).unwrap().click();
+    h.run_steps(4);
+    assert_eq!(
+        st.borrow()
+            .formations
+            .as_ref()
+            .unwrap()
+            .naming
+            .as_ref()
+            .map(|n| n.0),
+        Some(2)
+    );
+    h.get_by_role(egui::accesskit::Role::TextInput)
+        .type_text("Mine");
+    h.run_steps(4);
+    h.get_all_by_label("SAVE").last().unwrap().click();
+    h.run_steps(4);
+    assert_eq!(st.borrow().formation_save, Some((2, "Mine".to_owned())));
+    // between matches the same click loads
+    st.borrow_mut().in_match = false;
+    h.run_steps(4);
+    h.get_all_by_label("LOAD").next().unwrap().click();
+    h.run_steps(4);
+    assert_eq!(st.borrow().formation_load, Some(0));
+}
+
 /// CONFIRM and Enter ask for the import; CANCEL and Esc drop the question and stay on the catalogue.
 #[test]
 fn import_dialog_answers() {
@@ -1170,9 +1482,9 @@ fn cabinet_shapes_click() {
     }
 }
 
-/// HOST SHOP while the shop and this PC's seat run: the room code, COPY and LEAVE stay live, the rest is greyed.
+/// HOST ARCADE while the arcade and this PC's seat run: the room code, COPY and LEAVE stay live, the rest is greyed.
 #[test]
-fn launcher_host_shop() {
+fn launcher_host_arcade() {
     let _gpu = gpu();
     let mut all = SnapshotResults::new();
     for lang in Lang::ALL {
@@ -1180,11 +1492,11 @@ fn launcher_host_shop() {
             launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Online);
         st.running = true;
         let v = &mut st.lobby;
-        (v.shop_rooms, v.hosting, v.host_code) = (true, true, Some("K7QM2XPD".into()));
-        v.kind = lobby::Kind::Shops;
+        (v.arcade_rooms, v.hosting, v.host_code) = (true, true, Some("K7QM2XPD".into()));
+        v.kind = lobby::Kind::Arcades;
         snap(
             &mut all,
-            &format!("launcher_host_shop_{}", lang.code()),
+            &format!("launcher_host_arcade_{}", lang.code()),
             launcher::SIZE,
             Edition::E1718,
             |ui| {
@@ -1233,7 +1545,7 @@ fn lobby_keys() {
         }
     });
     h.run_steps(4);
-    let third = v.borrow().shops[2].id.clone();
+    let third = v.borrow().arcades[2].id.clone();
     for key in [egui::Key::ArrowDown, egui::Key::ArrowDown, egui::Key::Enter] {
         h.key_press(key);
         h.run_steps(2);
@@ -1299,14 +1611,14 @@ fn lobby_filters() {
     assert!(h.query_by_label("IT").is_none() && h.query_by_label("All").is_none());
 }
 
-/// 2017-18 with the shared shop on: HOST SHOP (and H) opens the host dialog (its HOST gives HostShop with the switch as
+/// 2017-18 with the shared arcade on: HOST ARCADE (and H) opens the host dialog (its HOST gives HostArcade with the switch as
 /// set, CANCEL and Esc put it back), the code typed and JOINed in capitals, the listed room joined from its row; while
 /// hosting only Esc (LEAVE) answers.
 #[test]
-fn lobby_shop_rooms() {
+fn lobby_arcade_rooms() {
     use lobby::LobbyAction::*;
     let _gpu = gpu();
-    let mut start = lobby::LobbyView::sample(lobby::Scenario::ShopNoRoom);
+    let mut start = lobby::LobbyView::sample(lobby::Scenario::ArcadeNoRoom);
     (start.notice, start.code) = (None, String::new());
     let v = std::cell::RefCell::new(start);
     let got = std::cell::RefCell::new(None);
@@ -1321,11 +1633,18 @@ fn lobby_shop_rooms() {
     assert_eq!(got.take(), None);
     assert!(v.borrow().host_ask.is_some());
     h.get_by_label("List my arcade when I host").click();
+    h.get_by_label("In N min").click();
     h.run_steps(2);
+    assert_eq!(v.borrow().cup.mode, lobby::CupMode::In);
     h.get_by_label("Cancel").click();
     h.run_steps(2);
     assert_eq!(got.take(), None);
-    assert!(v.borrow().host_ask.is_none() && !v.borrow().list_shop);
+    assert!(v.borrow().host_ask.is_none() && !v.borrow().list_arcade);
+    assert_eq!(
+        v.borrow().cup,
+        lobby::CupChoice::default(),
+        "CANCEL puts the cup back"
+    );
     h.key_press(egui::Key::H);
     h.run_steps(2);
     h.get_by_label("List my arcade when I host").click();
@@ -1333,16 +1652,37 @@ fn lobby_shop_rooms() {
     h.key_press(egui::Key::Escape);
     h.run_steps(2);
     assert_eq!(got.take(), None, "Esc closes the dialog, not the lobby");
-    assert!(v.borrow().host_ask.is_none() && !v.borrow().list_shop);
+    assert!(v.borrow().host_ask.is_none() && !v.borrow().list_arcade);
     h.key_press(egui::Key::H);
     h.run_steps(2);
     h.get_by_label("List my arcade when I host").click();
+    h.get_by_label("At HH:MM").click();
+    // a cup whose championship would still run at 05:00: refused, HOST does nothing
+    let cup_at = |clock, at| {
+        let mut b = v.borrow_mut();
+        (b.clock, b.cup.at) = (Some(clock), at);
+    };
+    cup_at(3 * 3600, 4 * 60 + 30);
     h.run_steps(2);
+    h.get_by_label("The cup and its championship must end before 05:00.");
+    h.get_all_by_label("HOST ARCADE").last().unwrap().click();
+    h.run_steps(2);
+    assert_eq!(got.take(), None, "a refused cup time keeps the dialog open");
+    cup_at(22 * 3600, 23 * 60 + 30);
+    h.run_steps(2);
+    h.get_by_label(
+        "Opens at about 23:30. Card in before then; entry closes about 1.5 min after it opens.",
+    );
     // the tab's HOST ARCADE, then the dialog's
     h.get_all_by_label("HOST ARCADE").last().unwrap().click();
     h.run_steps(2);
-    assert_eq!(got.take(), Some(HostShop));
-    assert!(v.borrow().host_ask.is_none() && v.borrow().list_shop);
+    assert_eq!(got.take(), Some(HostArcade));
+    assert!(v.borrow().host_ask.is_none() && v.borrow().list_arcade);
+    assert_eq!(
+        (v.borrow().cup.mode, v.borrow().cup.at),
+        (lobby::CupMode::At, 23 * 60 + 30),
+        "HOST keeps the cup for the caller to save"
+    );
     v.borrow_mut().code = " k7qm2xpd".into();
     h.run_steps(2);
     // one JOIN: the code typed, then the listed room row once clicked (the click empties the box)
@@ -1350,7 +1690,8 @@ fn lobby_shop_rooms() {
     h.get_by_label("JOIN").click();
     h.run_steps(2);
     assert_eq!(got.take(), Some(JoinCode("K7QM2XPD".into())));
-    h.get_by_label(forza::online::lobby::SHOP_ROOM_NAME).click();
+    h.get_by_label(forza::online::lobby::ARCADE_ROOM_NAME)
+        .click();
     h.run_steps(2);
     assert!(v.borrow().code.is_empty());
     h.get_by_label("JOIN").click();
@@ -1368,7 +1709,7 @@ fn lobby_shop_rooms() {
     assert_eq!(got.take(), Some(Leave));
 }
 
-/// The LAN fold: HOST LAN SHOP, a found shop's JOIN and a typed address's JOIN each give their action; hosting hides it.
+/// The LAN fold: HOST LAN ARCADE, a found arcade's JOIN and a typed address's JOIN each give their action; hosting hides it.
 #[test]
 fn lobby_lan() {
     use lobby::LobbyAction::*;
@@ -1385,7 +1726,7 @@ fn lobby_lan() {
     h.get_by_label("HOST LAN ARCADE").click();
     h.run_steps(2);
     assert_eq!(got.take(), Some(HostLan));
-    // the JOINs: the list's, the two found shops', the typed address's
+    // the JOINs: the list's, the two found arcades', the typed address's
     let joins: Vec<_> = h.get_all_by_label("JOIN").collect();
     assert_eq!(joins.len(), 4);
     joins[1].click();

@@ -10,10 +10,15 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use launcher::debug::{Options, Role, maps, run};
+use launcher::debug::{HANG_AFTER, Options, Role, maps, run};
 use launcher::job::Job;
 use launcher::kit::Edition;
+use windows_sys::Win32::Foundation::CloseHandle;
 use windows_sys::Win32::System::Memory::{FILE_MAP_READ, MapViewOfFile, UnmapViewOfFile};
+use windows_sys::Win32::System::Threading::{
+    ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS, GetPriorityClass, OpenProcess,
+    PROCESS_QUERY_LIMITED_INFORMATION,
+};
 
 /// A stand-in from the kit build, copied into `dir` as `name`.
 fn stand_in(exe: &str, dir: &Path, name: &str) -> PathBuf {
@@ -43,8 +48,11 @@ fn options(exe: PathBuf, top: &Path, role: Role) -> Options {
         dumps: top.join("data/dumps"),
         index: None,
         msgguard: Some(true),
+        above_normal: false,
+        background: false,
         env: Vec::new(),
         stop: None,
+        hang_after: HANG_AFTER,
     }
 }
 
@@ -165,10 +173,13 @@ fn a_closed_window_ends_the_program() {
         .map(String::from)
         .to_vec();
     opts.follow = false;
+    opts.hang_after = Duration::from_secs(1); // a window that answers never counts, however short
     let t0 = Instant::now();
     let (job, log, t) = start(opts);
     let code = t.join().unwrap();
     let out = log.text();
+    assert!(!out.contains("hang:"), "{out}");
+    assert!(!top.path().join("data/dumps").exists());
     assert!(
         out.contains("its window was closed - ending standin_window.exe (the program never quits by itself)"),
         "{out}"
@@ -184,11 +195,40 @@ fn a_closed_window_ends_the_program() {
 #[test]
 #[ignore = "a stand-in started by hide_starts_the_windows_hidden"]
 fn window_stand_in() {
+    show_window("wccf-debug-stand-in", true);
+    thread::sleep(Duration::from_secs(3));
+}
+
+/// The same window, left unanswered for 15 s: Windows calls it hung after 5.
+#[test]
+#[ignore = "a stand-in started by a_hung_window_is_dumped_once"]
+fn hung_stand_in() {
+    show_window("wccf-debug-stand-in", true);
+    thread::sleep(Duration::from_secs(15));
+}
+
+/// The projector's window as its setting has it: the title `game_title` gives it (crates/panel), shown at first,
+/// then hidden 8 s in as the panel does, and kept 8 s more: past the window settle and its two checks.
+#[test]
+#[ignore = "a stand-in started by a_hidden_projector_window_is_not_a_closed_one"]
+fn projector_stand_in() {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SW_HIDE, ShowWindow};
+    let w = show_window(&format!("{} 17-18 Ver2.0", launcher::kit::PROJECTOR_TITLE), true);
+    thread::sleep(Duration::from_secs(8));
+    // SAFETY: the window this thread made, alive in this program
+    unsafe { ShowWindow(w, SW_HIDE) };
+    thread::sleep(Duration::from_secs(8));
+}
+
+/// A window of this thread, which never pumps its messages: `title`, shown the way a program shows its first one
+/// (`SW_SHOWDEFAULT`: what the starter asked for) or created hidden; the caller hides it again (as the panel does).
+fn show_window(title: &str, shown: bool) -> windows_sys::Win32::Foundation::HWND {
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, RegisterClassW, SW_SHOWDEFAULT, ShowWindow, WNDCLASSW, WS_OVERLAPPEDWINDOW,
     };
     let class: Vec<u16> = "wccf-debug-stand-in\0".encode_utf16().collect();
+    let title: Vec<u16> = format!("{title}\0").encode_utf16().collect();
     // SAFETY: zeroed WNDCLASSW plus the fields set is a valid class; the strings outlive the calls.
     unsafe {
         let wc = WNDCLASSW {
@@ -201,7 +241,7 @@ fn window_stand_in() {
         let w = CreateWindowExW(
             0,
             class.as_ptr(),
-            class.as_ptr(),
+            title.as_ptr(),
             WS_OVERLAPPEDWINDOW,
             -32000,
             -32000,
@@ -213,9 +253,39 @@ fn window_stand_in() {
             std::ptr::null(),
         );
         assert!(!w.is_null());
-        ShowWindow(w, SW_SHOWDEFAULT);
+        if shown {
+            ShowWindow(w, SW_SHOWDEFAULT);
+        }
+        w
     }
-    thread::sleep(Duration::from_secs(3));
+}
+
+/// A client whose window stops answering gets one set of snapshots after `hang_after`, a log line, and runs on.
+#[test]
+fn a_hung_window_is_dumped_once() {
+    let top = tempfile::tempdir().unwrap();
+    let mut opts = options(std::env::current_exe().unwrap(), top.path(), Role::Client);
+    opts.args = ["debug::hung_stand_in", "--exact", "--ignored", "--nocapture"]
+        .map(String::from)
+        .to_vec();
+    opts.hang_after = Duration::from_secs(2);
+    let (job, log, t) = start(opts);
+    let code = t.join().unwrap();
+    let out = log.text();
+    assert_eq!(
+        out.matches("hang: seat window not responding for 2 s, dumps written: ")
+            .count(),
+        1,
+        "{out}"
+    );
+    let dumps: Vec<_> = fs::read_dir(top.path().join("data/dumps")).unwrap().flatten().collect();
+    assert_eq!(dumps.len(), 2, "one lean and one full: {out}");
+    assert!(
+        out.contains("process exited, exit code 0x00000000"),
+        "it was left running: {out}"
+    );
+    assert_eq!(code, 0);
+    assert!(job.wait_empty(Duration::from_secs(10)));
 }
 
 /// `hide` (the server's start): the program's window exists but is not visible; without it the same window shows.
@@ -252,6 +322,122 @@ fn hide_starts_the_windows_hidden() {
         assert_eq!(code, 0);
         assert!(job.wait_empty(Duration::from_secs(10)));
     }
+}
+
+/// The projector's window, hidden by its setting, is still a window: `has_window` keeps it, so the run does not take
+/// it for a closed one and end the championship.
+#[test]
+fn a_hidden_projector_window_is_not_a_closed_one() {
+    let top = tempfile::tempdir().unwrap();
+    let mut opts = options(std::env::current_exe().unwrap(), top.path(), Role::Client);
+    opts.args = ["debug::projector_stand_in", "--exact", "--ignored", "--nocapture"]
+        .map(String::from)
+        .to_vec();
+    let (job, log, t) = start(opts);
+    let pid = launched_pid(&log);
+    // the stand-in shows the window first: the watcher can only take a window for a closed one after it has seen one
+    let since = Instant::now();
+    let mut win = None;
+    while win.is_none() && since.elapsed() < Duration::from_secs(10) {
+        thread::sleep(Duration::from_millis(100));
+        win = launcher::procs::windows(pid)
+            .into_iter()
+            .find(|w| w.class == "wccf-debug-stand-in" && w.visible);
+    }
+    let win = win.expect("the stand-in showed no window");
+    assert!(
+        win.title.starts_with(launcher::kit::PROJECTOR_TITLE),
+        "its title: {}",
+        win.title
+    );
+    // the panel hides the window when the setting is off; the stand-in does the same 8 s in
+    let hiding = Instant::now();
+    let mut hidden = false;
+    while !hidden && hiding.elapsed() < Duration::from_secs(15) {
+        thread::sleep(Duration::from_millis(100));
+        hidden = !launcher::procs::windows(pid).iter().any(|w| w.visible);
+    }
+    assert!(hidden, "the stand-in did not hide its window: {}", log.text());
+    // a window the watcher saw and lost ends the program 5 s later (WINDOW_SETTLE) plus two 1 s checks. A hidden
+    // projector window is still a window: the run goes on, and the stand-in exits 8 s past the hide.
+    let hidden_since = Instant::now();
+    while hidden_since.elapsed() < Duration::from_secs(7) && !t.is_finished() {
+        thread::sleep(Duration::from_millis(100));
+    }
+    assert!(
+        !t.is_finished(),
+        "the hidden window was taken for a closed one: {}",
+        log.text()
+    );
+    let code = t.join().unwrap();
+    let out = log.text();
+    assert!(!out.contains("its window was closed"), "{out}");
+    assert!(out.contains("process exited, exit code 0x00000000"), "{out}");
+    assert_eq!(code, 0, "{out}");
+    assert!(job.wait_empty(Duration::from_secs(10)), "the job is empty: {out}");
+}
+
+/// `above_normal` (2017-18): a game program starts at above-normal priority and the log says so.
+#[test]
+fn above_normal_raises_a_game_program() {
+    let top = tempfile::tempdir().unwrap();
+    let game = top.path().join("game");
+    fs::create_dir_all(&game).unwrap();
+    let exe = game.join("match_Release.exe");
+    fs::copy(std::env::current_exe().unwrap(), &exe).unwrap();
+    let mut opts = options(exe, top.path(), Role::Control);
+    opts.args = ["debug::window_stand_in", "--exact", "--ignored", "--nocapture"]
+        .map(String::from)
+        .to_vec();
+    opts.above_normal = true;
+    let (job, log, t) = start(opts);
+    let pid = launched_pid(&log);
+    // SAFETY: plain calls; the handle is closed before it goes out of scope.
+    let class = unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        assert!(!h.is_null(), "{}", log.text());
+        let c = GetPriorityClass(h);
+        CloseHandle(h);
+        c
+    };
+    let code = t.join().unwrap();
+    let out = log.text();
+    assert_eq!(class, ABOVE_NORMAL_PRIORITY_CLASS, "{out}");
+    assert!(out.contains("above-normal priority: yes"), "{out}");
+    assert_eq!(code, 0, "{out}");
+    assert!(job.wait_empty(Duration::from_secs(10)));
+}
+
+/// `background` (the 2017-18 projector): the program starts at below-normal priority, over `above_normal`.
+#[test]
+fn background_lowers_a_game_program() {
+    let top = tempfile::tempdir().unwrap();
+    let game = top.path().join("game");
+    fs::create_dir_all(&game).unwrap();
+    let exe = game.join("client_Release.exe");
+    fs::copy(std::env::current_exe().unwrap(), &exe).unwrap();
+    let mut opts = options(exe, top.path(), Role::Client);
+    opts.args = ["debug::window_stand_in", "--exact", "--ignored", "--nocapture"]
+        .map(String::from)
+        .to_vec();
+    (opts.above_normal, opts.background) = (true, true);
+    let (job, log, t) = start(opts);
+    let pid = launched_pid(&log);
+    // SAFETY: plain calls; the handle is closed before it goes out of scope.
+    let class = unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        assert!(!h.is_null(), "{}", log.text());
+        let c = GetPriorityClass(h);
+        CloseHandle(h);
+        c
+    };
+    let code = t.join().unwrap();
+    let out = log.text();
+    assert_eq!(class, BELOW_NORMAL_PRIORITY_CLASS, "{out}");
+    assert!(out.contains("background: below-normal priority: yes"), "{out}");
+    assert!(!out.contains("above-normal priority"), "{out}");
+    assert_eq!(code, 0, "{out}");
+    assert!(job.wait_empty(Duration::from_secs(10)));
 }
 
 /// make_all on made-up motion files under a name of the test's own: every mapping holds its payload; a mapping that
@@ -336,4 +522,43 @@ fn the_2017_18_shared_memory_holds_the_player_data() {
     let text = String::from_utf8(out).unwrap();
     assert!(text.contains(&format!("{id}_ WCCF 17-18 Ver2.0")), "{text}");
     assert!(!text.contains("moai") && !text.contains("status"), "{text}");
+}
+
+/// SAVE LOGS during a run: the client and the match engine running from the game's folders get a lean snapshot, and the
+/// ZIP carries both; with nothing running nothing is written.
+#[test]
+fn save_logs_dumps_the_running_client_and_match_engine() {
+    use forza::online::save_logs::Scrub;
+    let top = tempfile::tempdir().unwrap();
+    let game = top.path().join("game");
+    fs::create_dir_all(&game).unwrap();
+    let (kit, dumps, zips) = (
+        top.path().join("kit"),
+        top.path().join("kit/data/dumps"),
+        top.path().join("zips"),
+    );
+    // nothing running: no snapshot, no folder
+    launcher::report::save_zip(&zips, &kit, Some(&game), &Scrub::default(), None).unwrap();
+    assert!(!dumps.exists());
+    let mut kids = Vec::new();
+    for name in ["client_Release.exe", "match_Release.exe"] {
+        fs::copy(std::env::current_exe().unwrap(), game.join(name)).unwrap();
+        kids.push(
+            std::process::Command::new(game.join(name))
+                .args(["debug::window_stand_in", "--exact", "--ignored", "--nocapture"])
+                .spawn()
+                .unwrap(),
+        );
+    }
+    thread::sleep(Duration::from_millis(500));
+    let zip = launcher::report::save_zip(&zips, &kit, Some(&game), &Scrub::default(), None).unwrap();
+    let zip = String::from_utf8_lossy(&fs::read(zip).unwrap()).into_owned();
+    for (kid, name) in kids.iter_mut().zip(["client_Release", "match_Release"]) {
+        assert!(
+            zip.contains("dumps/") && zip.contains(&format!("_{name}_{}_lean.dmp", kid.id())),
+            "{name} is not in the ZIP"
+        );
+        let _ = kid.kill();
+    }
+    assert!(!zip.contains("_full.dmp"), "lean only");
 }

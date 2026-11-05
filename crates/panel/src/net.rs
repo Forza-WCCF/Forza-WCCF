@@ -6,7 +6,7 @@
 //! and `WCCF_SEAT=n`, the game's own `sendto` / `recvfrom` import slots come here: a packet for another player (a
 //! public address, port 20001-20008) goes to the server's relay labelled with both seats, and what the relay passes on
 //! arrives on the same socket and is handed to the game as if straight from that player. Everything else (127.x, the
-//! server's TCP, other ports) passes untouched. 2017-18 also routes 127.x (another seat of the shop may have reached
+//! server's TCP, other ports) passes untouched. 2017-18 also routes 127.x (another seat of the arcade may have reached
 //! the control from the host's own loopback, so the control names 127.0.0.1 as its address), except to its own seat;
 //! ports 20003-20006 (also the client's `MATCH_PORT` and `CLIENT_PORT1..3` defaults, whose loopback use is not known)
 //! only from the game's peer socket, the one bound to 20000 + its seat.
@@ -117,6 +117,49 @@ static RL_IN: AtomicI32 = AtomicI32::new(0);
 static RL_SAID_OUT: AtomicBool = AtomicBool::new(false);
 static RL_SAID_IN: AtomicBool = AtomicBool::new(false);
 static LOG: OnceLock<fn(&str)> = OnceLock::new();
+static MATCH: Mutex<Match> = Mutex::new(Match {
+    since: None,
+    last: 0,
+});
+
+/// No frame-sync packet out for this long ends a match (the game's own pauses in a match stay under 2.5 s).
+const MATCH_QUIET_MS: u32 = 5000;
+
+/// A 2017-18 peer packet of kind 10, the match engine's frame sync (layout: the server's `desync.rs`): sent all through
+/// a match and only then.
+fn is_frame_sync(p: &[u8]) -> bool {
+    p.len() >= 52
+        && p[..8] == [0xF1, 0xC0, 0x80, 0x44, 0xB4, 0x9E, 0xDA, 0x3C]
+        && u16::from_le_bytes([p[8], p[9]]) == 10
+}
+
+/// This seat's match as its frame-sync packets show it, for one log line at its start and one at its end (times in
+/// ms, GetTickCount).
+struct Match {
+    since: Option<u32>,
+    last: u32,
+}
+
+impl Match {
+    /// A frame-sync packet out at `now`: true when it starts a match.
+    fn sync(&mut self, now: u32) -> bool {
+        self.last = now;
+        let new = self.since.is_none();
+        if new {
+            self.since = Some(now);
+        }
+        new
+    }
+
+    /// At `now`: the match's length in seconds, once, when it has ended ([`MATCH_QUIET_MS`] without a frame sync).
+    fn quiet(&mut self, now: u32) -> Option<u32> {
+        let since = self.since?;
+        (now.wrapping_sub(self.last) > MATCH_QUIET_MS).then(|| {
+            self.since = None;
+            self.last.wrapping_sub(since) / 1000
+        })
+    }
+}
 
 fn say(msg: &str) {
     if let Some(f) = LOG.get() {
@@ -179,10 +222,10 @@ fn peer_seat(
     }
     let seat = usize::from(port) - 20000;
     // seats 3-6 share their ports with MATCH_PORT and CLIENT_PORT1..3, whose loopback use is not known: only the game's
-    // peer socket sends to them through the relay, so a shop's second match (seats 3 and 4) plays too (live 2026-10-27)
-    let shop =
+    // peer socket sends to them through the relay, so an arcade's second match (seats 3 and 4) plays too (live 2026-10-27)
+    let arcade =
         loopback.is_some_and(|own| seat != own && (!(3..=6).contains(&seat) || from_game_port));
-    if (ip >> 24) == 127 && !shop && !(test && ip == 0x7F00_0002) {
+    if (ip >> 24) == 127 && !arcade && !(test && ip == 0x7F00_0002) {
         return None;
     }
     Some(seat)
@@ -340,6 +383,16 @@ unsafe extern "system" fn relay_sendto(
         return sent;
     }
     RL_OUT.fetch_add(1, Relaxed);
+    if is_frame_sync(payload) {
+        // SAFETY: GetTickCount takes nothing.
+        let now = unsafe { GetTickCount() };
+        if MATCH.lock().unwrap_or_else(|e| e.into_inner()).sync(now) {
+            say(&format!(
+                "match: start, seat {} vs seat {seat}",
+                MY_SEAT.load(Relaxed)
+            ));
+        }
+    }
     if !RL_SAID_OUT.swap(true, Relaxed) {
         say(&format!(
             "relay: the first packet for seat {seat}'s cabinet goes through the server's relay"
@@ -452,6 +505,9 @@ fn relay_watch() {
         }
         // SAFETY: GetTickCount takes nothing.
         let now = unsafe { GetTickCount() };
+        if let Some(secs) = MATCH.lock().unwrap_or_else(|e| e.into_inner()).quiet(now) {
+            say(&format!("match: end after {secs} s"));
+        }
         if now.wrapping_sub(next) as i32 >= 0 {
             let (o, i) = (RL_OUT.load(Relaxed), RL_IN.load(Relaxed));
             if o != o0 || i != i0 {
@@ -690,7 +746,7 @@ pub fn relay_selftest(log: fn(&str)) {
         rt_recv(b, &mut buf, &mut from) == -2,
         "",
     );
-    RELAY_LOOPBACK.store(true, Relaxed); // 2017-18's shop: seat 2 named as 127.0.0.1 by the control
+    RELAY_LOOPBACK.store(true, Relaxed); // 2017-18's arcade: seat 2 named as 127.0.0.1 by the control
     send_via_hook(a, b"loop-2", &SockaddrIn::new([127, 0, 0, 1], 20002));
     let r = rt_recv(b, &mut buf, &mut from);
     let d = show(r, &from);
@@ -946,10 +1002,10 @@ mod tests {
         assert_eq!(peer_seat(&v6, false, Some(1), false), None);
     }
 
-    /// 2017-18 in a shared shop (seat 2 here): another seat at 127.x goes to the relay, its own seat and the
+    /// 2017-18 in a shared arcade (seat 2 here): another seat at 127.x goes to the relay, its own seat and the
     /// MATCH_PORT and CLIENT_PORT1..3 ports stay direct; other addresses as before.
     #[test]
-    fn loopback_peers_in_the_1718_shop() {
+    fn loopback_peers_in_the_1718_arcade() {
         let mine = Some(2);
         assert_eq!(
             peer_seat(&sa([127, 0, 0, 1], 20001), false, mine, false),
@@ -999,11 +1055,11 @@ mod tests {
         );
     }
 
-    /// A hosted shop's matches (live 2026-10-27: seats 1-2 and 3-4; the relay takes seats up to 8), every opponent at
+    /// A hosted arcade's matches (live 2026-10-27: seats 1-2 and 3-4; the relay takes seats up to 8), every opponent at
     /// 127.0.0.1 through the tunnel. Each seat's packets from the game's peer socket reach its opponent through the relay; seats 3-6 from
     /// another socket (MATCH_PORT, CLIENT_PORT1..3) stay direct.
     #[test]
-    fn a_second_match_in_the_shop_goes_through_the_relay() {
+    fn a_second_match_in_the_arcade_goes_through_the_relay() {
         for (me, opponent) in [
             (1, 2),
             (2, 1),
@@ -1052,6 +1108,40 @@ mod tests {
         assert!(parse_f(b"WRL1F\x09\x7f\x00\x00\x02").is_none()); // seat 9
         assert!(parse_f(b"WRL1Q\x02\x7f\x00\x00\x02").is_none()); // not F
         assert!(parse_f(b"XRL1F\x02\x7f\x00\x00\x02").is_none()); // magic
+    }
+
+    /// One start line and one end line per match: frame syncs start it, 5 s without one end it, once.
+    #[test]
+    fn a_match_is_its_frame_syncs() {
+        let mut sync = vec![0xF1, 0xC0, 0x80, 0x44, 0xB4, 0x9E, 0xDA, 0x3C, 10, 0];
+        sync.resize(52 + 12 + 6 * 76, 0);
+        assert!(is_frame_sync(&sync));
+        let mut ack = sync.clone();
+        ack[8] = 3;
+        assert!(!is_frame_sync(&ack), "a handshake or ack");
+        assert!(!is_frame_sync(&sync[..40]), "short");
+        assert!(!is_frame_sync(b"WRL1D\x02\x01abc"));
+
+        let mut m = Match {
+            since: None,
+            last: 0,
+        };
+        assert_eq!(m.quiet(1000), None, "no match yet");
+        assert!(
+            m.sync(u32::MAX - 1000),
+            "starts (across the tick counter's wrap)"
+        );
+        assert!(!m.sync(u32::MAX - 500));
+        assert_eq!(m.quiet(1000), None, "2.5 s pause: still on");
+        assert!(!m.sync(60_000));
+        assert_eq!(m.quiet(64_000), None);
+        assert_eq!(
+            m.quiet(65_001),
+            Some(61),
+            "61 s from the first sync to the last"
+        );
+        assert_eq!(m.quiet(70_000), None, "said once");
+        assert!(m.sync(80_000), "the next match starts again");
     }
 
     #[test]

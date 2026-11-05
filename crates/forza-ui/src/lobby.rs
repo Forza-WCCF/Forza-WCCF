@@ -1,4 +1,4 @@
-//! The online lobby (ROADMAP, "Online lobby view"): the shops and VS rooms a server lists, one row each, drawn from
+//! The online lobby (ROADMAP, "Online lobby view"): the arcades and VS rooms a server lists, one row each, drawn from
 //! [`LobbyView`] alone. [`show`] reads no socket and keeps no thread: it returns the [`LobbyAction`] the player chose
 //! and the caller does the rest. Milestone L0 runs on [`LobbyView::sample`] data.
 
@@ -26,10 +26,14 @@ pub const LIST_MIN_H: f32 = ROW_H * 3.0;
 const LIST_BOTTOM: &str = "lobby_list_bottom";
 const BELOW_LIST: &str = "lobby_below_list";
 
+/// Whether the 2017-18 VS lobby shows: the VS ROOMS tab, HOST VS, the H and tab keys to it and typed VS room codes.
+/// Off (on hold since 2026-10-31); `true` brings it all back. The arcade side is not behind it.
+pub const VS_LOBBY: bool = false;
+
 /// The two kinds of lobby, one list each.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
-    Shops,
+    Arcades,
     Vs,
 }
 
@@ -45,7 +49,7 @@ pub enum RowState {
     NeedsVersion(String),
 }
 
-/// One shop or VS room.
+/// One arcade or VS room.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Row {
     pub id: String,
@@ -57,7 +61,7 @@ pub struct Row {
     pub state: RowState,
     /// Seconds to the next ENTRY.
     pub next_entry: Option<u32>,
-    /// A shop room a host listed (2017-18): joined from its row even where SHOPS are view-only.
+    /// An arcade room a host listed (2017-18): joined from its row even where ARCADES are view-only.
     pub room: bool,
 }
 
@@ -86,9 +90,9 @@ pub enum Notice {
     NoRoom,
     /// The room of the code typed has no free seat.
     RoomFull,
-    /// The shop's host left before this PC got in.
-    ShopClosed,
-    /// HOST SHOP: the lobby no longer holds this PC's room.
+    /// The arcade's host left before this PC got in.
+    ArcadeClosed,
+    /// HOST ARCADE: the lobby no longer holds this PC's room.
     RoomLost,
 }
 
@@ -102,7 +106,7 @@ pub struct Occupant {
 /// The room a JOIN or HOST opened, before the start.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Room {
-    /// The shop's name or the VS room's code.
+    /// The arcade's name or the VS room's code.
     pub title: String,
     pub kind: Kind,
     /// One entry per seat; `None` is an empty seat.
@@ -185,20 +189,164 @@ pub enum LobbyAction {
     DirectAddress(String),
     /// CONNECT in the Direct address fold: play online at the Direct address (or the club server), as PLAY did.
     Connect,
-    /// 2017-18: open this PC's shop to others (a shop room with a code), HOST in the host dialog: the caller saves
-    /// [`LobbyView::list_shop`] and [`LobbyView::shop_name`] first.
-    HostShop,
-    /// A room code, typed: a shop room's (6 letters) or a listed VS room's (4).
+    /// 2017-18: open this PC's arcade to others (an arcade room with a code), HOST in the host dialog: the caller saves
+    /// [`LobbyView::list_arcade`] and [`LobbyView::arcade_name`] first.
+    HostArcade,
+    /// A room code, typed: an arcade room's (6 letters) or a listed VS room's (4).
     JoinCode(String),
-    /// 2017-18: open this PC's shop to PCs on its network (no internet).
+    /// 2017-18: open this PC's arcade to PCs on its network (no internet).
     HostLan,
-    /// 2017-18: join the shop at this address on the network (found, or typed).
+    /// 2017-18: join the arcade at this address on the network (found, or typed).
     JoinLan(String),
 }
 
-/// A shop found on this PC's network.
+/// One friendly slot of the 2017-18 control's schedule, seconds: the control starts a competition only at a slot's
+/// start, so a host-picked cup opens a whole number of slots after the control's state machine starts (host logs: each
+/// slot's entry closes with `send(LIVE_INFO)` about 86 s after it starts, at 91.37 s then 581.37 s with no
+/// `schedule_option.conf`; a cup put first opens at boot and its GL round 1 starts about 91 s in, probe 1).
+pub const CUP_SLOT_SECS: u32 = 490;
+/// The control's start to its first slot, seconds (`CoStateManage` 5-18 s after the control's launch in host logs).
+const CUP_BOOT_SECS: u32 = 15;
+/// The earliest "In N min": one slot. Slot 0 starts with the control, before a seat can card in (probe 1).
+pub const CUP_MIN_MINUTES: u16 = 8;
+/// The latest: 18 slots, so the schedule (18 friendlies, the cup, 21 friendlies) stays within the 43 entries the
+/// control's own timed insertion makes (21 friendlies + the cup + 21, control 0x45F030).
+pub const CUP_MAX_MINUTES: u16 = 150;
+/// The control's day change, 05:00 on the host's clock (a constant in the control: 0x45D913, 0x46287E). Its day roll
+/// clears the Universal Cup records a running cup writes to (0x47BCB0 -> 0x47BF00; the cup reads them at 0x45EBA0) and
+/// replaces the Universal Championship bracket (the cup and the next three slots) with a CPU-only one, so the cup and
+/// its championship must not run across it. Before it nothing in the slot schedule reads the clock: a cup at 01:00 is fine.
+const CUP_DAY_CHANGE: u32 = 5 * 3600;
+/// A cup from its open to the end of its championship: the cup about 45 min (rounds about 530 s apart, probe 1), the
+/// championship 3 slots, about 27 min, with a margin.
+const CUP_RUN_SECS: u32 = 75 * 60;
+/// Slack for the open time we estimate (boot and slot lengths vary by seconds per slot).
+const CUP_SLACK_SECS: u32 = 5 * 60;
+const DAY: u32 = 24 * 3600;
+
+/// The host's Universal Cup choice, saved in data\settings.json (`cup`, `cup_minutes`, `cup_at`) and read as the
+/// control starts.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CupMode {
+    /// No cup: the control's open times all 0.
+    Off,
+    /// The game's 12:00/15:00/18:00/21:00 (the stand-in's GAME_CTRL).
+    #[default]
+    GameTimes,
+    /// [`CupChoice::minutes`] after the control starts.
+    In,
+    /// At [`CupChoice::at`] today.
+    At,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CupChoice {
+    pub mode: CupMode,
+    /// "In N min".
+    pub minutes: u16,
+    /// "At HH:MM", minutes after midnight.
+    pub at: u16,
+}
+
+impl Default for CupChoice {
+    fn default() -> Self {
+        Self {
+            mode: CupMode::GameTimes,
+            minutes: 10,
+            at: 21 * 60,
+        }
+    }
+}
+
+/// What the control is given for a [`CupChoice`] at a start.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CupPlan {
+    Off,
+    GameTimes,
+    /// `schedule_option.conf`: `friendlies` friendly slots, then the cup, which opens at about `opens` (seconds after
+    /// midnight, this PC's clock).
+    Slot {
+        friendlies: u32,
+        opens: u32,
+    },
+}
+
+/// Why a cup time is refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CupRefused {
+    /// The cup or its championship would still run at 05:00, the control's day change.
+    Night,
+    /// Less than [`CUP_MIN_MINUTES`] away (or past).
+    TooSoon,
+    /// More than [`CUP_MAX_MINUTES`] away.
+    TooFar,
+}
+
+impl CupRefused {
+    /// Its `locales/ui.yml` key, which takes `%{m}` = [`Self::minutes`].
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Night => "lobby.cup_night",
+            Self::TooSoon => "lobby.cup_too_soon",
+            Self::TooFar => "lobby.cup_too_far",
+        }
+    }
+
+    pub fn minutes(self) -> u16 {
+        if self == Self::TooFar {
+            CUP_MAX_MINUTES
+        } else {
+            CUP_MIN_MINUTES
+        }
+    }
+}
+
+impl CupChoice {
+    /// The plan for a control starting `now` (seconds after midnight). The cup takes the slot nearest the time asked,
+    /// at least one; it opens at that slot's start and takes entries until GL round 1, about 90 s later.
+    pub fn plan(self, now: u32) -> Result<CupPlan, CupRefused> {
+        let lead = match self.mode {
+            CupMode::Off => return Ok(CupPlan::Off),
+            CupMode::GameTimes => return Ok(CupPlan::GameTimes),
+            CupMode::In => i64::from(self.minutes) * 60,
+            // the nearest such time: "At 00:30" asked at 23:30 is tomorrow's
+            CupMode::At => match i64::from(self.at) * 60 - i64::from(now) {
+                l if l < -12 * 3600 => l + i64::from(DAY),
+                l => l,
+            },
+        };
+        let friendlies =
+            u32::try_from((lead + i64::from(CUP_SLOT_SECS / 2)) / i64::from(CUP_SLOT_SECS))
+                .unwrap_or(0)
+                .max(1);
+        let opens = (now + CUP_BOOT_SECS + friendlies * CUP_SLOT_SECS) % DAY;
+        if lead < i64::from(CUP_MIN_MINUTES) * 60 {
+            Err(CupRefused::TooSoon)
+        } else if lead > i64::from(CUP_MAX_MINUTES) * 60 {
+            Err(CupRefused::TooFar)
+        } else if (CUP_DAY_CHANGE - CUP_RUN_SECS..CUP_DAY_CHANGE + CUP_SLACK_SECS).contains(&opens)
+        {
+            Err(CupRefused::Night)
+        } else {
+            Ok(CupPlan::Slot { friendlies, opens })
+        }
+    }
+}
+
+/// "HH:MM" of seconds after midnight.
+pub fn clock_text(secs: u32) -> String {
+    format!("{:02}:{:02}", secs / 3600 % 24, secs / 60 % 60)
+}
+
+/// This PC's clock, seconds after midnight (UTC if Windows gives no offset).
+pub fn local_clock() -> u32 {
+    let t = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+    u32::from(t.hour()) * 3600 + u32::from(t.minute()) * 60 + u32::from(t.second())
+}
+
+/// An arcade found on this PC's network.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LanShop {
+pub struct LanArcade {
     pub name: String,
     /// `IP`, or `IP:PORT` when its seat desk is not on the usual port.
     pub address: String,
@@ -208,7 +356,7 @@ pub struct LanShop {
 #[derive(Clone, Debug)]
 pub struct LobbyView {
     pub kind: Kind,
-    pub shops: Vec<Row>,
+    pub arcades: Vec<Row>,
     pub vs: Vec<Row>,
     /// Index into the visible rows of the current kind.
     pub selected: usize,
@@ -223,41 +371,52 @@ pub struct LobbyView {
     /// The server stopped answering: the list is greyed and the Direct address fold opens.
     pub offline: bool,
     pub grey: [Option<Grey>; 2],
-    /// 2017-18: the shops are listed; only shop rooms join (see [`shop_rooms`](Self::shop_rooms)).
-    pub shops_view_only: bool,
+    /// 2017-18: a server's own arcade joins by CONNECT at its address; arcade rooms join only with
+    /// [`arcade_rooms`](Self::arcade_rooms) on.
+    pub arcades_view_only: bool,
+    /// The VS side is out of reach (2017-18 while [`VS_LOBBY`] is off): one tab, no HOST VS, no VS room by code.
+    pub vs_hidden: bool,
     pub address: String,
     pub direct_open: bool,
     /// Scroll the selected row into view on the next frame.
     pub scroll: bool,
     /// 2017-18: the room code box.
     pub codes: bool,
-    /// 2017-18 with the shared shop on: HOST SHOP, and shop codes in the box.
-    pub shop_rooms: bool,
+    /// 2017-18 with the shared arcade on: HOST ARCADE, and arcade codes in the box.
+    pub arcade_rooms: bool,
     /// The code typed in the box.
     pub code: String,
     /// The code being joined, until the run starts.
     pub joining: Option<String>,
-    /// HOST SHOP is on: this PC's shop, with its room code once the lobby gave one.
+    /// HOST ARCADE is on: this PC's arcade, with its room code once the lobby gave one.
     pub hosting: bool,
     pub host_code: Option<String>,
-    /// 2017-18: HOST SHOP lists the room in others' SHOPS (the "List my shop" switch, data\settings.json `list_shop`,
-    /// saved at HOST SHOP).
-    pub list_shop: bool,
-    /// 2017-18: the name others see on this PC's listed room (data\settings.json `shop_name`, saved at HOST SHOP);
-    /// empty: the desk's [`SHOP_ROOM_NAME`](forza::online::lobby::SHOP_ROOM_NAME).
-    pub shop_name: String,
-    /// The host dialog is open (HOST SHOP clicked): `list_shop` and `shop_name` as they were, put back on CANCEL.
-    pub host_ask: Option<(bool, String)>,
+    /// HOST ARCADE: the players in this PC's arcade now (its own seat and the guests connected through its tunnel);
+    /// the Launcher stops polling the list while the game runs, so this is the host's only count.
+    pub host_players: Option<u8>,
+    /// 2017-18: HOST ARCADE lists the room in others' ARCADES (the "List my arcade" switch, data\settings.json `list_shop`,
+    /// saved at HOST ARCADE).
+    pub list_arcade: bool,
+    /// 2017-18: the name others see on this PC's listed room (data\settings.json `shop_name`, saved at HOST ARCADE);
+    /// empty: the desk's [`ARCADE_ROOM_NAME`](forza::online::lobby::ARCADE_ROOM_NAME).
+    pub arcade_name: String,
+    /// 2017-18: the arcade's Universal Cup (saved at HOST ARCADE, read as the control starts).
+    pub cup: CupChoice,
+    /// The host dialog's clock (seconds after midnight); `None`: this PC's, read each frame.
+    pub clock: Option<u32>,
+    /// The host dialog is open (HOST ARCADE clicked): `list_shop`, `shop_name` and `cup` as they were, put back on
+    /// CANCEL.
+    pub host_ask: Option<(bool, String, CupChoice)>,
     /// The list takes the height left in the caller's `ui` (at least [`LIST_MIN_H`]) instead of [`LIST_H`]: for a
     /// lobby in a fixed-height tab with no scroll of its own around it.
     pub list_fit: bool,
-    /// The lobby server shop rooms are on (`host:port`): the host's room's, or the one a code was asked of.
+    /// The lobby server arcade rooms are on (`host:port`): the host's room's, or the one a code was asked of.
     pub desk: String,
-    /// 2017-18 with the shared shop on: the LAN fold, the shops found on this network and the address typed there.
+    /// 2017-18 with the shared arcade on: the LAN fold, the arcades found on this network and the address typed there.
     pub lan_open: bool,
-    pub lan: Vec<LanShop>,
+    pub lan: Vec<LanArcade>,
     pub lan_address: String,
-    /// HOST LAN SHOP is on: this PC's addresses on its network (shown instead of a room code).
+    /// HOST LAN ARCADE is on: this PC's addresses on its network (shown instead of a room code).
     pub host_lan: Option<Vec<String>>,
 }
 
@@ -278,19 +437,19 @@ pub enum Scenario {
     RoomReady,
     /// No opponent in time: the CPU line and the countdown.
     Cpu,
-    /// HOST SHOP: the room code and its copy button.
-    ShopHost,
-    /// A shop code typed and being joined.
-    ShopJoining,
-    /// A shop code no room has.
-    ShopNoRoom,
-    /// HOST SHOP after the lobby lost the room: no code, the line that says so.
-    ShopLost,
-    /// The LAN fold open with two shops found.
+    /// HOST ARCADE: the room code and its copy button.
+    ArcadeHost,
+    /// An arcade code typed and being joined.
+    ArcadeJoining,
+    /// An arcade code no room has.
+    ArcadeNoRoom,
+    /// HOST ARCADE after the lobby lost the room: no code, the line that says so.
+    ArcadeLost,
+    /// The LAN fold open with two arcades found.
     LanList,
     /// The LAN fold open, nothing found: the hint.
     LanNone,
-    /// HOST LAN SHOP: this PC's addresses.
+    /// HOST LAN ARCADE: this PC's addresses.
     LanHost,
 }
 
@@ -306,10 +465,10 @@ impl Scenario {
         Scenario::Host,
         Scenario::RoomReady,
         Scenario::Cpu,
-        Scenario::ShopHost,
-        Scenario::ShopJoining,
-        Scenario::ShopNoRoom,
-        Scenario::ShopLost,
+        Scenario::ArcadeHost,
+        Scenario::ArcadeJoining,
+        Scenario::ArcadeNoRoom,
+        Scenario::ArcadeLost,
         Scenario::LanList,
         Scenario::LanNone,
         Scenario::LanHost,
@@ -327,10 +486,10 @@ impl Scenario {
             Scenario::Host => "host",
             Scenario::RoomReady => "room_ready",
             Scenario::Cpu => "cpu",
-            Scenario::ShopHost => "shop_host",
-            Scenario::ShopJoining => "shop_joining",
-            Scenario::ShopNoRoom => "shop_no_room",
-            Scenario::ShopLost => "shop_lost",
+            Scenario::ArcadeHost => "arcade_host",
+            Scenario::ArcadeJoining => "arcade_joining",
+            Scenario::ArcadeNoRoom => "arcade_no_room",
+            Scenario::ArcadeLost => "arcade_lost",
             Scenario::LanList => "lan_list",
             Scenario::LanNone => "lan_none",
             Scenario::LanHost => "lan_host",
@@ -366,8 +525,8 @@ impl LobbyView {
     /// A view with nothing in it.
     pub fn new() -> Self {
         LobbyView {
-            kind: Kind::Shops,
-            shops: vec![],
+            kind: Kind::Arcades,
+            arcades: vec![],
             vs: vec![],
             selected: 0,
             lang_filter: 0,
@@ -378,18 +537,22 @@ impl LobbyView {
             notice: None,
             offline: false,
             grey: [None, None],
-            shops_view_only: false,
+            arcades_view_only: false,
+            vs_hidden: false,
             address: "192.168.1.20".into(),
             direct_open: false,
             scroll: true,
             codes: false,
-            shop_rooms: false,
+            arcade_rooms: false,
             code: String::new(),
             joining: None,
             hosting: false,
             host_code: None,
-            list_shop: false,
-            shop_name: String::new(),
+            host_players: None,
+            list_arcade: false,
+            arcade_name: String::new(),
+            cup: CupChoice::default(),
+            clock: None,
             host_ask: None,
             list_fit: false,
             desk: String::new(),
@@ -405,7 +568,7 @@ impl LobbyView {
         use Lang::{En, It, Ja};
         use RowState::*;
         let mut v = LobbyView::new();
-        v.shops = vec![
+        v.arcades = vec![
             row(
                 "k3f9q2",
                 "FORZA ROMA",
@@ -463,7 +626,7 @@ impl LobbyView {
                     "NAGOYA SQ",
                     "PALERMO",
                 ];
-                v.shops = names
+                v.arcades = names
                     .iter()
                     .enumerate()
                     .map(|(i, n)| {
@@ -492,7 +655,7 @@ impl LobbyView {
                 v.updated_s = Some(40);
                 v.offline = true;
                 v.direct_open = true;
-                for r in &mut v.shops {
+                for r in &mut v.arcades {
                     r.state = NoAnswer;
                 }
             }
@@ -522,43 +685,44 @@ impl LobbyView {
                 (v.grey[Kind::Vs as usize], v.kind) = (Some(Grey::Vs1011), Kind::Vs);
                 v.vs.clear();
             }
-            Scenario::ShopHost
-            | Scenario::ShopJoining
-            | Scenario::ShopNoRoom
-            | Scenario::ShopLost => {
-                // 2017-18 with the shared shop on: one public room listed, the rest by code
-                (v.codes, v.shop_rooms, v.shops_view_only) = (true, true, true);
-                let name = forza::online::lobby::SHOP_ROOM_NAME;
+            Scenario::ArcadeHost
+            | Scenario::ArcadeJoining
+            | Scenario::ArcadeNoRoom
+            | Scenario::ArcadeLost => {
+                // 2017-18 with the shared arcade on: one public room listed, the rest by code
+                (v.codes, v.arcade_rooms, v.arcades_view_only) = (true, true, true);
+                let name = forza::online::lobby::ARCADE_ROOM_NAME;
                 let mut room = row("p1", name, 2, 8, Some(24), None, Open, None);
                 room.room = true;
-                v.shops = vec![room];
+                v.arcades = vec![room];
                 v.code = "K7QM2XPD".into();
                 v.desk = "lobby.wccf.it:20032".into();
                 match s {
-                    Scenario::ShopHost => {
-                        (v.hosting, v.host_code) = (true, Some("K7QM2XPD".into()))
+                    Scenario::ArcadeHost => {
+                        (v.hosting, v.host_code, v.host_players) =
+                            (true, Some("K7QM2XPD".into()), Some(3))
                     }
-                    Scenario::ShopJoining => {
-                        (v.joining, v.list_shop) = (Some("K7QM2XPD".into()), true)
+                    Scenario::ArcadeJoining => {
+                        (v.joining, v.list_arcade) = (Some("K7QM2XPD".into()), true)
                     }
-                    Scenario::ShopLost => (v.hosting, v.notice) = (true, Some(Notice::RoomLost)),
+                    Scenario::ArcadeLost => (v.hosting, v.notice) = (true, Some(Notice::RoomLost)),
                     _ => v.notice = Some(Notice::NoRoom),
                 }
             }
             Scenario::LanList | Scenario::LanNone | Scenario::LanHost => {
                 // no internet: the lobby does not answer, the LAN fold does the work
-                (v.codes, v.shop_rooms, v.shops_view_only) = (true, true, true);
+                (v.codes, v.arcade_rooms, v.arcades_view_only) = (true, true, true);
                 (v.offline, v.updated_s) = (true, None);
-                v.shops.clear();
+                v.arcades.clear();
                 v.lan_open = true;
                 if s == Scenario::LanList {
-                    let shop = |name: &str, address: &str| LanShop {
+                    let arcade = |name: &str, address: &str| LanArcade {
                         name: name.into(),
                         address: address.into(),
                     };
                     v.lan = vec![
-                        shop("SALOTTO-PC", "192.168.1.20"),
-                        shop("MARCO-LAPTOP", "192.168.1.34"),
+                        arcade("SALOTTO-PC", "192.168.1.20"),
+                        arcade("MARCO-LAPTOP", "192.168.1.34"),
                     ];
                 }
                 if s == Scenario::LanHost {
@@ -572,19 +736,19 @@ impl LobbyView {
 
     pub fn rows(&self) -> &[Row] {
         match self.kind {
-            Kind::Shops => &self.shops,
+            Kind::Arcades => &self.arcades,
             Kind::Vs => &self.vs,
         }
     }
 
-    /// The SHOPS tab shows its rows but cannot join.
+    /// The ARCADES tab shows its rows but cannot join.
     pub fn view_only_now(&self) -> bool {
-        self.shops_view_only && self.kind == Kind::Shops
+        self.arcades_view_only && self.kind == Kind::Arcades
     }
 
-    /// Row `r` is shown but cannot be joined: a view-only SHOPS row, unless it is a listed shop room.
+    /// Row `r` is shown but cannot be joined: a listed arcade room on 2017-18 while arcade rooms are off.
     pub fn view_only(&self, r: &Row) -> bool {
-        self.view_only_now() && !(self.shop_rooms && r.room)
+        self.view_only_now() && r.room && !self.arcade_rooms
     }
 
     /// The selected row, whatever its state.
@@ -600,11 +764,6 @@ impl LobbyView {
         self.updated_s.is_some_and(|s| s > STALE_S)
     }
 
-    /// A row listed on its tab: 2017-18 lists only shop rooms (no desk runs a 2017-18 shop of its own to join).
-    fn listed(&self, r: &Row) -> bool {
-        !self.view_only_now() || r.room
-    }
-
     /// The rows the filters let through, as indexes into [`rows`](Self::rows).
     pub fn visible(&self) -> Vec<usize> {
         let want = [None, Some(Lang::En), Some(Lang::It), Some(Lang::Ja)][self.lang_filter.min(3)];
@@ -612,8 +771,7 @@ impl LobbyView {
             .iter()
             .enumerate()
             .filter(|(_, r)| {
-                self.listed(r)
-                    && want.is_none_or(|l| r.lang == Some(l))
+                want.is_none_or(|l| r.lang == Some(l))
                     && (!self.open_only || r.state == RowState::Open)
                     && (!self.ping_ok || r.ping_ms.is_some_and(|p| p < PING_MAX_MS))
             })
@@ -663,14 +821,14 @@ impl LobbyView {
         })
     }
 
-    /// The SHOPS tab offers HOST SHOP (2017-18 with the shared shop on) instead of HOST VS.
-    pub fn host_shop_now(&self) -> bool {
-        self.shop_rooms && self.kind == Kind::Shops
+    /// The ARCADES tab offers HOST ARCADE (2017-18 with the shared arcade on) instead of HOST VS.
+    pub fn host_arcade_now(&self) -> bool {
+        self.arcade_rooms && self.kind == Kind::Arcades
     }
 
-    /// HOST SHOP: open the host dialog.
+    /// HOST ARCADE: open the host dialog.
     fn ask_host(&mut self) {
-        self.host_ask = Some((self.list_shop, self.shop_name.clone()));
+        self.host_ask = Some((self.list_arcade, self.arcade_name.clone(), self.cup));
     }
 
     fn set_kind(&mut self, k: Kind) {
@@ -715,11 +873,11 @@ fn keys(ui: &Ui, v: &mut LobbyView) -> Option<LobbyAction> {
         return (pressed(Key::Enter, none) && can).then_some(LobbyAction::Ready);
     }
     if pressed(Key::H, none) && !v.offline {
-        if v.host_shop_now() {
+        if v.host_arcade_now() {
             v.ask_host();
             return None;
         }
-        if v.grey[Kind::Vs as usize].is_none() {
+        if v.grey[Kind::Vs as usize].is_none() && !v.vs_hidden {
             return Some(LobbyAction::HostVs);
         }
     }
@@ -733,16 +891,16 @@ fn keys(ui: &Ui, v: &mut LobbyView) -> Option<LobbyAction> {
         v.scroll = true;
     }
     if pressed(Key::ArrowLeft, none) {
-        v.set_kind(Kind::Shops);
+        v.set_kind(Kind::Arcades);
     }
-    if pressed(Key::ArrowRight, none) {
+    if pressed(Key::ArrowRight, none) && !v.vs_hidden {
         v.set_kind(Kind::Vs);
     }
-    if pressed(Key::Tab, none) || pressed(Key::Tab, Modifiers::SHIFT) {
-        v.set_kind(if v.kind == Kind::Shops {
+    if (pressed(Key::Tab, none) || pressed(Key::Tab, Modifiers::SHIFT)) && !v.vs_hidden {
+        v.set_kind(if v.kind == Kind::Arcades {
             Kind::Vs
         } else {
-            Kind::Shops
+            Kind::Arcades
         });
     }
     if pressed(Key::Enter, none) {
@@ -815,7 +973,7 @@ pub fn show_with(
             );
         });
         // a host's own LAN addresses are in the view above
-        if v.shop_rooms && !v.hosting {
+        if v.arcade_rooms && !v.hosting {
             ui.add_space(8.0);
             let summary = tr!(lang, "lobby.lan_found", n = v.lan.len());
             let mut open = v.lan_open;
@@ -860,7 +1018,7 @@ pub fn show_with(
     act
 }
 
-/// The LAN fold (2017-18, no internet needed): HOST LAN SHOP, the shops found on this network, an address typed.
+/// The LAN fold (2017-18, no internet needed): HOST LAN ARCADE, the arcades found on this network, an address typed.
 fn lan_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAction>) {
     if action(ui, &tr!(lang, "lobby.host_lan")).clicked() {
         *act = Some(LobbyAction::HostLan);
@@ -987,20 +1145,17 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
             }
         };
         let labels = [
-            format!(
-                "{}{}",
-                tr!(lang, "lobby.shops"),
-                count(
-                    v.shops
-                        .iter()
-                        .filter(|r| !v.shops_view_only || r.room)
-                        .count()
-                )
-            ),
+            format!("{}{}", tr!(lang, "lobby.arcades"), count(v.arcades.len())),
             format!("{}{}", tr!(lang, "lobby.vs"), count(v.vs.len())),
         ];
-        if segmented(ui, &mut k, &[&labels[0], &labels[1]], w * 0.52) {
-            v.set_kind(if k == 0 { Kind::Shops } else { Kind::Vs });
+        let tabs = if v.vs_hidden {
+            &labels[..1]
+        } else {
+            &labels[..]
+        };
+        let tabs: Vec<&str> = tabs.iter().map(String::as_str).collect();
+        if segmented(ui, &mut k, &tabs, w * if v.vs_hidden { 0.26 } else { 0.52 }) {
+            v.set_kind(if k == 0 { Kind::Arcades } else { Kind::Vs });
         }
         let retry = v.offline
             && cabinet(
@@ -1030,8 +1185,8 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
     // filters: check boxes under "Show:", the language as one choice of four (hidden, see SHOW_LANG)
     ui.horizontal(|ui| {
         field(ui, &tr!(lang, "lobby.show"), 100.0);
-        let open = if v.kind == Kind::Shops {
-            "lobby.open_shops"
+        let open = if v.kind == Kind::Arcades {
+            "lobby.open_arcades"
         } else {
             "lobby.open_rooms"
         };
@@ -1060,7 +1215,7 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
     // column heads
     let (head, _) = ui.allocate_exact_size(vec2(w, 20.0), Sense::hover());
     let cols = columns(w);
-    let name_key = if v.kind == Kind::Shops {
+    let name_key = if v.kind == Kind::Arcades {
         "lobby.name"
     } else {
         "lobby.code"
@@ -1256,22 +1411,102 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
         if join.inner {
             *act = v.join_action();
         }
-        if v.host_shop_now() {
+        if v.host_arcade_now() {
             if on(
                 ui,
                 !v.offline && v.joining.is_none(),
-                tr!(lang, "lobby.host_shop"),
+                tr!(lang, "lobby.host_arcade"),
                 Cab::Plain,
             ) {
                 v.ask_host();
             }
-        } else if on(ui, live, tr!(lang, "lobby.host"), Cab::Plain) {
+        } else if !v.vs_hidden && on(ui, live, tr!(lang, "lobby.host"), Cab::Plain) {
             *act = Some(LobbyAction::HostVs);
         }
     });
 }
 
-/// The host dialog (HOST SHOP): "List my shop", the shop's name, HOST and CANCEL; CANCEL, Esc or a click outside put
+/// The Universal Cup rows (mode, time, the line it gives): the host dialog's and, `local`, the PLAY tab's for a cup on
+/// this PC alone. True when the time is refused (the caller greys its start).
+pub fn cup_rows(
+    ui: &mut Ui,
+    cup: &mut CupChoice,
+    now: u32,
+    lang: Lang,
+    label_w: f32,
+    local: bool,
+) -> bool {
+    let (off_key, note_key) = if local {
+        ("lobby.cup_off_local", "lobby.cup_local")
+    } else {
+        ("lobby.cup_off_line", "lobby.cup_restart")
+    };
+    // the control reads the cup times only as it starts (no live change: that would drop every seat)
+    const MODES: [CupMode; 4] = [CupMode::Off, CupMode::GameTimes, CupMode::In, CupMode::At];
+    ui.horizontal(|ui| {
+        field(ui, &tr!(lang, "lobby.cup"), label_w);
+        let labels = [
+            "lobby.cup_off",
+            "lobby.cup_game_times",
+            "lobby.cup_in",
+            "lobby.cup_at",
+        ]
+        .map(|k| tr!(lang, k));
+        let labels: Vec<&str> = labels.iter().map(String::as_str).collect();
+        let mut i = MODES.iter().position(|&m| m == cup.mode).unwrap_or(1);
+        if segmented(ui, &mut i, &labels, ui.available_width()) {
+            cup.mode = MODES[i];
+        }
+    });
+    if matches!(cup.mode, CupMode::In | CupMode::At) {
+        ui.horizontal(|ui| {
+            field(ui, "", label_w);
+            if cup.mode == CupMode::In {
+                ui.add(
+                    egui::DragValue::new(&mut cup.minutes)
+                        .range(CUP_MIN_MINUTES..=CUP_MAX_MINUTES)
+                        .suffix(tr!(lang, "lobby.cup_min_unit")),
+                );
+            } else {
+                let (mut h, mut m) = (cup.at / 60, cup.at % 60);
+                let two = |n: f64, _| format!("{n:02.0}");
+                let a = ui.add(
+                    egui::DragValue::new(&mut h)
+                        .range(0..=23)
+                        .custom_formatter(two),
+                );
+                ui.label(":");
+                let b = ui.add(
+                    egui::DragValue::new(&mut m)
+                        .range(0..=59)
+                        .custom_formatter(two),
+                );
+                if a.changed() || b.changed() {
+                    cup.at = h * 60 + m;
+                }
+            }
+        });
+    }
+    let (tone, line) = match cup.plan(now) {
+        Ok(CupPlan::Off) => (Tone::Notice, tr!(lang, off_key)),
+        Ok(CupPlan::GameTimes) => (Tone::Done, tr!(lang, "lobby.cup_game_times_line")),
+        Ok(CupPlan::Slot { opens, .. }) => (
+            Tone::Done,
+            tr!(lang, "lobby.cup_opens", time = clock_text(opens)),
+        ),
+        Err(r) => (Tone::Refused, tr!(lang, r.key(), m = r.minutes())),
+    };
+    let refused = tone == Tone::Refused;
+    status_line(ui, tone, &line);
+    ui.label(
+        egui::RichText::new(tr!(lang, note_key))
+            .size(12.5)
+            .color(theme::TEXT_DIM),
+    );
+    refused
+}
+
+/// The host dialog (HOST ARCADE): "List my arcade", the arcade's name, HOST and CANCEL; CANCEL, Esc or a click outside put
 /// both back as they were.
 fn host_dialog(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAction>) {
     let (mut host, mut cancel) = (false, false);
@@ -1294,38 +1529,50 @@ fn host_dialog(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<Lobb
             ui.add_space(4.0);
             let hint = tr!(
                 lang,
-                if v.list_shop {
-                    "lobby.list_shop_on"
+                if v.list_arcade {
+                    "lobby.list_arcade_on"
                 } else {
-                    "lobby.list_shop_off"
+                    "lobby.list_arcade_off"
                 }
             );
-            toggle_row(ui, &mut v.list_shop, &tr!(lang, "lobby.list_shop"), &hint);
+            toggle_row(
+                ui,
+                &mut v.list_arcade,
+                &tr!(lang, "lobby.list_arcade"),
+                &hint,
+            );
             ui.horizontal(|ui| {
-                field(ui, &tr!(lang, "lobby.shop_name"), 130.0);
+                field(ui, &tr!(lang, "lobby.arcade_name"), 130.0);
                 ui.add(
-                    egui::TextEdit::singleline(&mut v.shop_name)
-                        .hint_text(forza::online::lobby::SHOP_ROOM_NAME)
-                        .char_limit(forza::online::lobby::SHOP_NAME_LEN)
+                    egui::TextEdit::singleline(&mut v.arcade_name)
+                        .hint_text(forza::online::lobby::ARCADE_ROOM_NAME)
+                        .char_limit(forza::online::lobby::ARCADE_NAME_LEN)
                         .desired_width(ui.available_width())
                         .margin(vec2(10.0, 6.0)),
                 );
             });
+            let now = v.clock.unwrap_or_else(local_clock);
+            let refused = cup_rows(ui, &mut v.cup, now, lang, 130.0, false);
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 let size = vec2(216.0, 48.0);
-                host = cabinet(ui, size, &tr!(lang, "lobby.host_shop"), Cab::Go, true).clicked();
+                host = ui
+                    .add_enabled_ui(!refused, |ui| {
+                        cabinet(ui, size, &tr!(lang, "lobby.host_arcade"), Cab::Go, !refused)
+                    })
+                    .inner
+                    .clicked();
                 cancel =
                     cabinet(ui, size, &tr!(lang, "common.cancel"), Cab::Plain, false).clicked();
             });
         });
     if host {
         v.host_ask = None;
-        *act = Some(LobbyAction::HostShop);
+        *act = Some(LobbyAction::HostArcade);
     } else if (cancel || modal.should_close())
-        && let Some((list, name)) = v.host_ask.take()
+        && let Some((list, name, cup)) = v.host_ask.take()
     {
-        (v.list_shop, v.shop_name) = (list, name);
+        (v.list_arcade, v.arcade_name, v.cup) = (list, name, cup);
     }
 }
 
@@ -1337,7 +1584,7 @@ fn code_row(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAc
             let r = ui.add(
                 egui::TextEdit::singleline(&mut v.code)
                     .font(theme::mono(17.0))
-                    .char_limit(forza::online::lobby::SHOP_CODE_LEN)
+                    .char_limit(forza::online::lobby::ARCADE_CODE_LEN)
                     .desired_width(110.0)
                     .margin(vec2(10.0, 6.0)),
             );
@@ -1351,7 +1598,22 @@ fn code_row(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAc
     });
 }
 
-/// HOST SHOP: the room code to pass on, its copy button, LEAVE (the shop closes).
+impl LobbyView {
+    /// HOST ARCADE: "Players here: 3/8" under the room code once the room is up; None on a LAN arcade (no tunnel count).
+    pub fn host_players_line(&self, lang: Lang) -> Option<String> {
+        let n = self
+            .host_players
+            .filter(|_| self.host_code.is_some() && self.host_lan.is_none())?;
+        Some(tr!(
+            lang,
+            "lobby.host_players",
+            n = n,
+            max = forza::online::SEATS.end()
+        ))
+    }
+}
+
+/// HOST ARCADE: the room code to pass on, its copy button, LEAVE (the arcade closes).
 fn host_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAction>) {
     let w = ui.available_width();
     let lan = v.host_lan.is_some();
@@ -1380,6 +1642,13 @@ fn host_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
                 theme::TEXT_FAINT
             }),
     );
+    if let Some(p) = v.host_players_line(lang) {
+        ui.label(
+            egui::RichText::new(p)
+                .font(theme::bold(15.0))
+                .color(theme::TEXT),
+        );
+    }
     if lan {
         ui.label(
             egui::RichText::new(tr!(lang, "lobby.lan_host_hint"))
@@ -1395,9 +1664,9 @@ fn host_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
     }
     ui.add_space(8.0);
     let (tone, text) = match (&v.host_code, v.notice) {
-        _ if lan => (Tone::Done, tr!(lang, "lobby.shop_howto")),
+        _ if lan => (Tone::Done, tr!(lang, "lobby.arcade_howto")),
         (_, Some(Notice::RoomLost)) => (Tone::Refused, tr!(lang, "lobby.room_lost")),
-        (Some(_), _) => (Tone::Done, tr!(lang, "lobby.shop_howto")),
+        (Some(_), _) => (Tone::Done, tr!(lang, "lobby.arcade_howto")),
         (None, _) => (Tone::Notice, tr!(lang, "lobby.opening")),
     };
     status_line(ui, tone, &text);
@@ -1456,7 +1725,7 @@ fn status(v: &LobbyView, lang: Lang) -> Option<(Tone, String)> {
         }
         Some(Notice::RoomLost) => Some("lobby.room_lost"),
         Some(Notice::RoomFull) => Some("lobby.room_full"),
-        Some(Notice::ShopClosed) => Some("lobby.shop_closed"),
+        Some(Notice::ArcadeClosed) => Some("lobby.arcade_closed"),
         None => None,
     };
     if let Some(k) = key {
@@ -1465,9 +1734,9 @@ fn status(v: &LobbyView, lang: Lang) -> Option<(Tone, String)> {
     if let (true, Some(s)) = (v.stale(), v.updated_s) {
         return Some((Tone::Notice, tr!(lang, "lobby.stale", s = s)));
     }
-    // with shop rooms on, listed rooms join from their row and the rest by code: the box says it
-    if v.view_only_now() && !v.shop_rooms {
-        return Some((Tone::Notice, tr!(lang, "lobby.shop_rooms_off")));
+    // with arcade rooms on, listed rooms join from their row and the rest by code: the box says it
+    if v.view_only_now() && !v.arcade_rooms {
+        return Some((Tone::Notice, tr!(lang, "lobby.arcade_rooms_off")));
     }
     if v.grey_now().is_none() && v.rows().is_empty() {
         return Some((Tone::Notice, tr!(lang, "lobby.empty")));
@@ -1491,7 +1760,7 @@ fn room_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
             if room.kind == Kind::Vs {
                 "lobby.vs"
             } else {
-                "lobby.shops"
+                "lobby.arcades"
             }
         ),
     );
@@ -1522,7 +1791,7 @@ fn room_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
             Some(o) => {
                 let col = if o.ready { theme::GREEN } else { theme::AMBER };
                 ui.painter().circle_filled(c, 6.0, col);
-                // no club id yet (this PC's seat before the next LOBBY, a shop seat): nothing
+                // no club id yet (this PC's seat before the next LOBBY, an arcade seat): nothing
                 let mut t = if o.club.is_empty() {
                     String::new()
                 } else {
@@ -1610,6 +1879,57 @@ mod tests {
     use forza::keys::{PAD_AXIS, PAD_BUTTON, PAD_HAT};
 
     #[test]
+    fn cup_time_maps_to_friendly_slots_and_refuses_night_and_short_leads() {
+        let h = |h: u32, m: u32| h * 3600 + m * 60;
+        let cup = |mode, minutes, at| CupChoice { mode, minutes, at };
+        let slot = |friendlies, opens| Ok(CupPlan::Slot { friendlies, opens });
+        let (in_, at) = (CupMode::In, CupMode::At);
+        // one slot is the minimum: 8 min -> 1 friendly, open 15 s + 490 s after the start
+        assert_eq!(cup(in_, 8, 0).plan(h(14, 0)), slot(1, h(14, 0) + 505));
+        assert_eq!(clock_text(h(14, 0) + 505), "14:08");
+        assert_eq!(cup(in_, 25, 0).plan(h(14, 0)), slot(3, h(14, 0) + 1485));
+        assert_eq!(cup(in_, 150, 0).plan(h(14, 0)), slot(18, h(14, 0) + 8835));
+        // a time: the nearest slot (90 min = 11 slots, 21:30:05)
+        assert_eq!(
+            cup(at, 0, 21 * 60 + 30).plan(h(20, 0)),
+            slot(11, h(21, 30) + 5)
+        );
+        assert_eq!(
+            cup(at, 0, 5 * 60 + 10).plan(h(4, 30)),
+            slot(5, h(4, 30) + 2465)
+        );
+        // after midnight: open times wrap to the next day ("At" takes the nearest such time)
+        assert_eq!(cup(in_, 30, 0).plan(h(23, 45)), slot(4, h(0, 17) + 55));
+        assert_eq!(cup(at, 0, 60).plan(h(23, 30)), slot(11, h(1, 0) + 5));
+        // the last cup whose championship ends before the 05:00 day change, the first after it
+        assert_eq!(cup(at, 0, 3 * 60 + 41).plan(h(3, 0)), slot(5, h(3, 41) + 5));
+        assert_eq!(cup(at, 0, 5 * 60 + 6).plan(h(4, 0)), slot(8, h(5, 5) + 35));
+        for (c, now, why) in [
+            (cup(in_, 7, 0), h(14, 0), CupRefused::TooSoon),
+            (cup(in_, 151, 0), h(14, 0), CupRefused::TooFar),
+            (cup(at, 0, 14 * 60 + 5), h(14, 0), CupRefused::TooSoon),
+            (cup(at, 0, 13 * 60), h(14, 0), CupRefused::TooSoon),
+            (cup(at, 0, 18 * 60), h(14, 0), CupRefused::TooFar),
+            (cup(at, 0, 23 * 60 + 59), h(23, 52), CupRefused::TooSoon),
+            (cup(at, 0, 4 * 60), h(4, 30), CupRefused::TooSoon),
+            (cup(at, 0, 4 * 60 + 30), h(1, 0), CupRefused::TooFar),
+            // the cup or its championship still running at 05:00
+            (cup(in_, 15, 0), h(4, 0), CupRefused::Night),
+            (cup(at, 0, 4 * 60 + 30), h(3, 0), CupRefused::Night),
+            (cup(at, 0, 5 * 60), h(4, 0), CupRefused::Night),
+            (cup(at, 0, 4 * 60 + 5), h(3, 0), CupRefused::Night),
+            (cup(at, 0, 3 * 60 + 50), h(3, 0), CupRefused::Night),
+        ] {
+            assert_eq!(c.plan(now), Err(why), "{c:?} at {}", clock_text(now));
+        }
+        assert_eq!(cup(CupMode::Off, 0, 0).plan(h(4, 0)), Ok(CupPlan::Off));
+        assert_eq!(
+            cup(CupMode::GameTimes, 0, 0).plan(h(4, 0)),
+            Ok(CupPlan::GameTimes)
+        );
+    }
+
+    #[test]
     fn pad_buttons_are_the_lobby_keys() {
         for (code, key) in [
             (PAD_HAT, Key::ArrowUp),
@@ -1642,20 +1962,43 @@ mod tests {
         }
     }
 
-    /// 2017-18 SHOPS are view-only, but a listed shop room joins from its row while shop rooms are on.
+    /// 2017-18: a listed arcade room joins from its row while arcade rooms are on; a server's own arcade (ovh1's,
+    /// listed without `room`) is listed and joins always (0.6.1 showed "ARCADES 0").
     #[test]
-    fn listed_shop_rooms_join_from_their_row() {
-        let mut v = LobbyView::sample(Scenario::ShopNoRoom);
+    fn listed_arcade_rooms_join_from_their_row() {
+        let mut v = LobbyView::sample(Scenario::ArcadeNoRoom);
         assert_eq!(v.joinable().map(|r| r.id.as_str()), Some("p1"));
-        v.shops[0].room = false; // a desk's own shop, or a desk too old to mark rooms: not listed
-        assert!(v.visible().is_empty() && v.joinable().is_none());
+        v.arcades[0].room = false;
+        assert_eq!(v.visible().len(), 1);
+        assert_eq!(v.joinable().map(|r| r.id.as_str()), Some("p1"));
+        v.arcade_rooms = false;
+        assert_eq!(v.joinable().map(|r| r.id.as_str()), Some("p1"));
+        v.arcades[0].room = true;
+        assert!(v.visible().len() == 1 && v.joinable().is_none());
         // a code typed joins by code: JOIN is live
+        v.arcade_rooms = true;
+        v.arcades.clear();
         assert_eq!(v.why_not_join(Lang::En), None);
         v.code.clear();
         assert_eq!(v.why_not_join(Lang::En).as_deref(), Some("Pick a room"));
-        v.shops[0].room = true;
-        v.shop_rooms = false;
-        assert!(v.joinable().is_none());
+    }
+
+    /// The host's own arcade showed no count while it ran (2026-10-28 live test: seats 1-3 taken, nothing shown).
+    #[test]
+    fn host_sees_its_players() {
+        let mut v = LobbyView::sample(Scenario::ArcadeHost);
+        assert_eq!(
+            v.host_players_line(Lang::En).as_deref(),
+            Some("Players here: 3/8")
+        );
+        for l in [Lang::It, Lang::Ja] {
+            assert!(
+                v.host_players_line(l).is_some_and(|s| s.contains("3/8")),
+                "{l:?}"
+            );
+        }
+        v.host_code = None; // the room not made yet
+        assert_eq!(v.host_players_line(Lang::En), None);
     }
 
     /// Each filter on its own lets through the rows it did before, and off again shows them all.

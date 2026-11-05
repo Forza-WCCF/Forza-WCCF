@@ -1,6 +1,6 @@
 [package]
 name = "forza"
-version = "0.5.1" # its own version, not the release number (docs/RELEASING.md)
+version = "0.6.0" # its own version, not the release number (docs/RELEASING.md)
 license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -31,6 +31,9 @@ same-file = "1.0.6"
 # one player's cards across seasons: names spelt with and without accents (Petr CECH / Petr ČECH)
 deunicode = "1.6.2"
 time = { version = "0.3.55", features = ["local-offset"] }
+# the Grand Trophy week (GAME_CTRL 7,620) rolls on Sunday 23:00 Italian time, summer time included
+chrono = { version = "0.4.45", default-features = false }
+chrono-tz = "0.10.4"
 # the game text (forza::text): the printf/$ codes of a line, and the Latin spelling of player names
 regex = { version = "1.13.1", optional = true }
 unicode-normalization = { version = "0.1.25", optional = true }
@@ -40,7 +43,7 @@ freetype-rs = { version = "0.38.0", features = ["bundled"], optional = true }
 encoding_rs = { version = "0.8.42", optional = true }
 # the game server stand-in's club store (gamesvr.db); bundled: no system SQLite on the cabinet PC
 rusqlite = { version = "0.40.2", features = ["bundled"] }
-# LAN shops (online::lan): each network's broadcast address and this PC's own addresses
+# LAN arcades (online::lan): each network's broadcast address and this PC's own addresses
 netdev = { version = "0.46.3", default-features = false }
 
 [target.'cfg(windows)'.dependencies]

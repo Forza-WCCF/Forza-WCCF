@@ -49,25 +49,18 @@ KEYS
       S       DATA                 D   KEY PLAYER
       arrows  tactics: Up CENTRAL, Down COUNTER, Left L-SIDE, Right R-SIDE
       I       Aime card in / out   5   coin
-      P       pause a match
   The panel's buttons do the same: the triangles (CENTRAL, COUNTER, L-SIDE, R-SIDE), PRESS, DATA, SHOOT, KEEPER,
   KEY PLAYER and START. Change keys and controller buttons under KEYS.
   Formation board: drag a card to move it, drop it on another to swap. + CARD opens the CATALOGUE.
   Rare 2D-code cards work.
-  Pause (P or PAUSE) holds a match for up to 20 seconds; P or RESUME resumes sooner. The next pause waits
-  10 seconds. No pause online.
 
 ONLINE
   1. Pick Online under PLAY. Open Direct address and type the server's address (HOST or HOST:PORT). The project's
      server only admits addresses on its allow list: ask its operator to add yours. In ARCADES, HOST ARCADE opens
      an arcade and shows its code; friends type it in Room code, or JOIN a listed arcade room. Arcade name, under
      HOST ARCADE, is the name others see in the list.
-  2. HOST VS makes a room and shows its code (e.g. K7QM). Your friend picks that room and presses JOIN.
-     QUICK MATCH joins the oldest open room, or opens one. LEAVE (Esc) gives up the seat.
-  3. Both players press READY; the game starts after a 5-second countdown. If nobody joins within about 90 seconds,
-     you play a CPU team.
-  Lobby keys: Up/Down row, Left/Right or Tab list, Enter JOIN or READY, H HOST VS, F5 refresh, Esc LEAVE.
-  Gamepad: D-pad or left stick move, A = Enter, B = Esc, X = refresh, Y = HOST VS, LB/RB = list.
+  Lobby keys: Up/Down row, Enter JOIN, H HOST ARCADE, F5 refresh, Esc LEAVE.
+  Gamepad: D-pad or left stick move, A = Enter, B = Esc, X = refresh, Y = HOST ARCADE.
   Under Direct address:
     Club server     where your club is kept. Empty: the server you chose.
     Direct VS link  connects your PC to the other player's (relay.wccf.it). Off: VS runs through the relay.
@@ -82,11 +75,10 @@ NOT IN THIS ALPHA
 KNOWN ISSUES
   - The control program may crash after about 90 minutes idle. Restart the game; your club is kept.
   - Registering a team may wait about 95 seconds before it goes on.
-  - An online match may drop to a CPU opponent after about 2 minutes, most often between AMD and Intel PCs.
 
 ANTIVIRUS AND SMARTSCREEN
   The programs are unsigned, and Forza-WCCF changes copies of the game's programs (never the originals, kept in
-  original\). Antivirus programs may treat this like a cheat tool and flag bin\winmm.dll. Its source is in source\.
+  original\). Antivirus programs may treat this like a cheat tool and flag bin\winmm.dll. SOURCE.txt links its source.
   Each release is reported to Microsoft as a false positive before it is published.
   SmartScreen ("Windows protected your PC"): choose More info, then Run anyway.
   Defender flags a file: do not turn Defender off. Note the detection name. If the file came from the official
@@ -104,9 +96,8 @@ LOGS AND BUGS
   it. Nothing is uploaded. For a Defender or SmartScreen warning, add the file name and the warning's text.
 
 FOLDERS
-  bin\       Forza-WCCF's programs: the game server (forza-server.exe), the stand-ins, the card-table helper
+  bin\       Forza-WCCF's programs: the stand-ins, the card-table helper
   overlay\   the panel; SET UP adds the catalogue and the card pictures
   fonts\     the panel's fonts and their licences
   english\, italian\   the game's English and Italian text
-  source\    the source of the programs in bin\ and overlay\ (Rust)
   data\      made on your PC: settings, saves (save\gamesvr), logs

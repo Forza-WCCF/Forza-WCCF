@@ -16,6 +16,11 @@ Environment=WCCF_BIND=0.0.0.0
 ExecStart=/srv/forza-wccf/1718/forza-server --edition 2017-18 all --desk-port 20032 --relay-port 20042 --gmsvr-port 20060 --store /srv/forza-wccf/1718/data --game-data /srv/forza-wccf/1718/game-data --skip-tutorial --allow-file /srv/forza-wccf/1718/allow.txt --vs-public-ip 203.0.113.10 --reflect-port 20061 315360000 /srv/forza-wccf/1718/logs
 Restart=always
 RestartSec=3
+# Players first on a small host: a larger CPU and IO share than the other services; nothing real-time.
+Nice=-5
+CPUWeight=200
+IOSchedulingClass=best-effort
+IOSchedulingPriority=0
 NoNewPrivileges=yes
 ProtectSystem=strict
 ReadWritePaths=/srv/forza-wccf/1718/data /srv/forza-wccf/1718/logs

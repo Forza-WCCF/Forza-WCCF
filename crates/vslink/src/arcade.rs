@@ -1,20 +1,22 @@
-//! The shop tunnel (M2 plan 5.2): a seat on another PC reaches a 2017-18 shop's control, seat desk and match relay
-//! through one iroh connection to the shop's PC, so the shop needs no inbound port (a hole punch, else the relay).
+//! The arcade tunnel (M2 plan 5.2): a seat on another PC reaches a 2017-18 arcade's control, seat desk and match relay
+//! through one iroh connection to the arcade's PC, so the arcade needs no inbound port (a hole punch, else the relay).
 //!
-//! - Join side: listens on its own loopback where the Launcher and the game look for a shop (TCP: the control and
+//! - Join side: listens on its own loopback where the Launcher and the game look for an arcade (TCP: the control and
 //!   desk ports; UDP: the relay port). Each TCP connection becomes a QUIC bi-stream whose first byte is its kind
 //!   ([`KIND_CONTROL`], [`KIND_DESK`]). Each local UDP socket that sends to the relay port is a flow: its datagrams
 //!   cross as `[flow u32 LE][datagram]`, and the answers go back to that socket from the relay port.
 //! - Host side: dials only its own loopback: the kind's port for a stream; for datagrams, the relay port, from one
 //!   socket per (guest, flow), so the relay tells the guest's game socket and ping socket apart.
 //!
-//! The panel relay already routes every in-shop match packet through the relay port (`crates/panel/src/net.rs`), so
+//! The panel relay already routes every in-arcade match packet through the relay port (`crates/panel/src/net.rs`), so
 //! the seats' peer link needs nothing more. The streams are buffered on this side (all of a guest's on the host, all
 //! of the join side's) up to [`STREAM_BUF`] together, so a slow path never blocks the game's own `send`; past that the
 //! stream that overflows is closed and logged. A host takes [`MAX_STREAMS`] streams per guest, and closes a guest
 //! that opens nothing usable within [`GUEST_GRACE`].
-//! Join side ports: the shop's own where free, else any free one ([`ShopLink::ports`] says which).
-//! The test-only delay ([`ShopConfig::delay`], the Launcher's `VSLINK_DELAY_MS` / 2) holds everything this side
+//! Join side ports: the arcade's own where free, else any free one ([`ArcadeLink::ports`] says which).
+//! Between two ends newer than 0.6.3 the streams cross in lz4 frames (`crate::pack`, negotiated by ALPN:
+//! [`ARCADE_ALPN_LZ4`]); with an older end they stay as they are. Datagrams are never compressed.
+//! The test-only delay ([`ArcadeConfig::delay`], the Launcher's `VSLINK_DELAY_MS` / 2) holds everything this side
 //! sends and receives that much longer.
 
 use crate::core::EndpointId;
@@ -22,9 +24,10 @@ use crate::net::{
     FALLBACK_AFTER, dial_relays, fallback_for, home_or_fall_back, id_short, load_key,
     public_relays, relay_addr, relay_from, relay_names, watch_path,
 };
+use crate::pack::{Packer, Unpacker, size};
 use bytes::Bytes;
 use forza::service::{Handle, Log};
-use iroh::endpoint::{Connection, IdleTimeout, QuicTransportConfig, presets};
+use iroh::endpoint::{ConnectOptions, Connection, IdleTimeout, QuicTransportConfig, presets};
 use iroh::tls::CaTlsConfig;
 use iroh::{Endpoint, EndpointAddr, PublicKey, RelayMap, RelayMode};
 use std::collections::HashMap;
@@ -40,7 +43,11 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinSet;
 use tokio::time::{Instant, interval, sleep, sleep_until, timeout};
 
-pub const SHOP_ALPN: &[u8] = b"forza-wccf/shop/1";
+// the ALPN keeps "shop" from before the arcade rename: both tunnel ends must agree on it
+pub const ARCADE_ALPN: &[u8] = b"forza-wccf/shop/1";
+/// The same tunnel with its streams in lz4 frames (`crate::pack`). Both ends offer it first and [`ARCADE_ALPN`] too, so
+/// a link with an older peer (0.6.3 and before: only [`ARCADE_ALPN`]) stays uncompressed; the datagrams never change.
+pub const ARCADE_ALPN_LZ4: &[u8] = b"forza-wccf/shop/2";
 /// The first byte of a stream: what the host dials for it.
 pub const KIND_CONTROL: u8 = 1;
 pub const KIND_DESK: u8 = 2;
@@ -49,6 +56,10 @@ pub const CLOSE_NOT_IN_ROOM: u8 = 4;
 /// The host's close code for a guest it could not check now (its room's list did not come, too many at the door): the
 /// join side dials again.
 pub const CLOSE_NO_ANSWER: u8 = 5;
+/// The host's close code for every guest when it stops its arcade: the join side says the host closed it (and dials
+/// again, in case the host comes back). Old peers: a 0.6.1 guest only acts on [`CLOSE_NOT_IN_ROOM`], so it takes this
+/// as any drop and dials again, as it did after a 0.6.1 host's plain endpoint close (code 0).
+pub const CLOSE_ARCADE_CLOSED: u8 = 6;
 /// Bytes the streams may hold on this side together (per guest on the host) before the one that overflows is closed.
 pub const STREAM_BUF: usize = 4 << 20;
 /// Streams a guest may hold open at once (the control, the projector-less seat's reconnects, the desk).
@@ -65,10 +76,10 @@ const DGRAM_QUEUE: usize = 1024;
 const KEEP_ALIVE: Duration = Duration::from_secs(5);
 /// Above the game's 30 s silence error (2001).
 const IDLE: Duration = Duration::from_secs(60);
-/// How long a local connection waits for the link to the shop, and the join's first dial.
+/// How long a local connection waits for the link to the arcade, and the join's first dial.
 const LINK_WAIT: Duration = Duration::from_secs(20);
 
-/// The shop's loopback ports: where the host dials them, where the join side listens.
+/// The arcade's loopback ports: where the host dials them, where the join side listens.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Ports {
     pub control: u16,
@@ -89,13 +100,13 @@ impl Ports {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Role {
-    /// The shop's PC: guests dial this endpoint.
+    /// The arcade's PC: guests dial this endpoint.
     Host,
     /// A seat elsewhere: dials the host's EndpointId.
     Join(EndpointId),
 }
 
-/// Host: whether a guest's EndpointId may come in (a shop room's `GUESTS`, `forza::online::lobby::shop_peers`). It
+/// Host: whether a guest's EndpointId may come in (an arcade room's `GUESTS`, `forza::online::lobby::arcade_peers`). It
 /// may block (it runs off the network threads, at most [`MAX_ADMITTING`] at once); None lets in anyone who knows the
 /// host's id.
 pub type Admit = Arc<dyn Fn(&EndpointId) -> Verdict + Send + Sync>;
@@ -111,7 +122,7 @@ pub enum Verdict {
 }
 
 /// What [`spawn`] needs.
-pub struct ShopConfig {
+pub struct ArcadeConfig {
     pub role: Role,
     pub ports: Ports,
     /// The relays the endpoint homes on; the host is dialled through these and their fallback (`net::dial_relays`)
@@ -129,10 +140,10 @@ pub struct ShopConfig {
     pub admit: Option<Admit>,
 }
 
-impl ShopConfig {
+impl ArcadeConfig {
     /// What the Launcher runs: `net::public_relays` (n0's as the fallback), direct paths allowed, no delay.
     pub fn public(role: Role, ports: Ports, key: PathBuf, log: Log) -> Self {
-        ShopConfig {
+        ArcadeConfig {
             role,
             ports,
             relay: public_relays(),
@@ -177,7 +188,7 @@ pub fn id_text(id: &EndpointId) -> String {
 }
 
 /// The id an endpoint with the key at `key` has (the key made on first use, as [`spawn`] does): a host registers it
-/// in its shop room before it listens, a guest tells it before it dials.
+/// in its arcade room before it listens, a guest tells it before it dials.
 pub fn own_id(key: &Path) -> io::Result<EndpointId> {
     Ok(*load_key(key)?.public().as_bytes())
 }
@@ -247,20 +258,34 @@ impl Drop for Live {
     }
 }
 
-/// A running shop tunnel. Dropping `handle` stops it: up to about 3 s (the endpoint's close, then the runtime's).
-pub struct ShopLink {
+/// Join: whether the link went down because the host closed the arcade: its [`CLOSE_ARCADE_CLOSED`], or code 0, the
+/// endpoint close a 0.6.1 host sends when it stops (iroh's `Endpoint::close`; every other close here has its own code).
+pub fn closed_by_host(why: &iroh::endpoint::ConnectionError) -> bool {
+    matches!(why, iroh::endpoint::ConnectionError::ApplicationClosed(c)
+        if c.error_code == CLOSE_ARCADE_CLOSED.into() || c.error_code == 0u8.into())
+}
+
+/// A running arcade tunnel. Dropping `handle` stops it: up to about 3 s (the endpoint's close, then the runtime's).
+pub struct ArcadeLink {
     pub handle: Handle,
     /// This endpoint's id (the host's is what guests type)
     pub id: EndpointId,
-    /// Join: the loopback ports it listens on (the shop's own unless taken). Host: the ports it dials.
+    /// Join: the loopback ports it listens on (the arcade's own unless taken). Host: the ports it dials.
     pub ports: Ports,
     flows: Arc<AtomicUsize>,
     streams: Arc<AtomicUsize>,
     guests: Arc<AtomicUsize>,
+    host_closed: Arc<AtomicBool>,
 }
 
-impl ShopLink {
-    /// Host: the guests connected now (admitted, link up), live: a shop server with guests holds their matches.
+impl ArcadeLink {
+    /// Join: true while the link is down because the host closed the arcade ([`closed_by_host`]); false again once
+    /// the link is back.
+    pub fn host_closed(&self) -> Arc<AtomicBool> {
+        self.host_closed.clone()
+    }
+
+    /// Host: the guests connected now (admitted, link up), live: an arcade server with guests holds their matches.
     pub fn guests(&self) -> Arc<AtomicUsize> {
         self.guests.clone()
     }
@@ -287,6 +312,10 @@ struct Sh {
     flows: Arc<AtomicUsize>,
     streams: Arc<AtomicUsize>,
     admit: Option<Admit>,
+    /// Host: the guests' connections, told [`CLOSE_ARCADE_CLOSED`] when the arcade stops.
+    conns: Mutex<Vec<Connection>>,
+    /// Join: [`ArcadeLink::host_closed`].
+    host_closed: Arc<AtomicBool>,
 }
 
 fn loopback(port: u16) -> SocketAddr {
@@ -331,16 +360,36 @@ fn udp_line(sock: Arc<UdpSocket>, delay: Duration) -> mpsc::Sender<(Instant, Vec
     tx
 }
 
-/// Copies `r` to `w`, holding each chunk the test delay and at most [`STREAM_BUF`] bytes; then shuts `w` down.
-/// Returns the bytes copied. Nothing is spawned: dropping the future ends both halves.
+/// What a [`pipe`] does to the bytes on their way.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Codec {
+    Plain,
+    /// Reads raw bytes, writes `crate::pack` frames (TCP to QUIC on a compressed link)
+    Pack,
+    /// Reads frames, writes raw bytes (QUIC to TCP)
+    Unpack,
+}
+
+/// How a [`pipe`]'s reading ended.
+enum End {
+    Done,
+    Over,
+    Bad(io::Error),
+}
+
+/// Copies `r` to `w` through `codec`, holding each chunk the test delay and at most [`STREAM_BUF`] bytes (as they
+/// are held: frames when packed, raw when unpacked); then shuts `w` down. Returns the bytes read and written, both
+/// as far as a stream over the limit or with a bad frame got before it is logged and dropped there. Nothing is
+/// spawned: dropping the future ends both halves.
 async fn pipe<R, W>(
     mut r: R,
     mut w: W,
+    codec: Codec,
     delay: Duration,
     budget: Arc<AtomicUsize>,
     what: String,
     log: Log,
-) -> u64
+) -> (u64, u64)
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
@@ -349,21 +398,45 @@ where
         budget,
         mine: AtomicUsize::new(0),
     };
+    let read = AtomicU64::new(0);
+    let written = AtomicU64::new(0);
     let (tx, mut rx) = mpsc::unbounded_channel::<(Instant, Vec<u8>)>();
-    // true: over the limit
     let reader = async {
         let tx = tx;
-        let mut buf = vec![0u8; 16 * 1024];
+        let mut buf = vec![0u8; crate::pack::MAX_RAW];
+        let (mut packer, mut unpacker) = (Packer::default(), Unpacker::default());
         loop {
-            let n = match r.read(&mut buf).await {
-                Ok(0) | Err(_) => return false,
-                Ok(n) => n,
+            let chunk = if codec == Codec::Unpack {
+                match unpacker.next(&mut r).await {
+                    Ok(Some(raw)) => {
+                        read.store(unpacker.wire, Ordering::Relaxed);
+                        raw
+                    }
+                    Ok(None) => return End::Done,
+                    Err(e) => {
+                        read.store(unpacker.wire, Ordering::Relaxed); // a cut frame's bytes count too
+                        return match e.kind() {
+                            io::ErrorKind::InvalidData => End::Bad(e),
+                            _ => End::Done,
+                        };
+                    }
+                }
+            } else {
+                let n = match r.read(&mut buf).await {
+                    Ok(0) | Err(_) => return End::Done,
+                    Ok(n) => n,
+                };
+                read.fetch_add(n as u64, Ordering::Relaxed);
+                match codec {
+                    Codec::Pack => packer.pack(&buf[..n]),
+                    _ => buf[..n].to_vec(),
+                }
             };
-            if held.add(n) > STREAM_BUF {
-                return true;
+            if held.add(chunk.len()) > STREAM_BUF {
+                return End::Over;
             }
-            if tx.send((Instant::now(), buf[..n].to_vec())).is_err() {
-                return false;
+            if tx.send((Instant::now(), chunk)).is_err() {
+                return End::Done;
             }
         }
     };
@@ -375,6 +448,7 @@ where
                 return n;
             }
             n += chunk.len() as u64;
+            written.store(n, Ordering::Relaxed);
             held.sub(chunk.len());
         }
         let _ = w.shutdown().await;
@@ -384,14 +458,24 @@ where
     let mut reading = true;
     loop {
         tokio::select! {
-            over = &mut reader, if reading => {
-                if over {
+            end = &mut reader, if reading => match end {
+                End::Done => reading = false, // the sender is gone: the writer drains, then shuts down
+                End::Over => {
                     log(&format!("{what}: more than {} MiB waiting to cross, closed", STREAM_BUF >> 20));
-                    return 0;
+                    return (
+                        read.load(Ordering::Relaxed),
+                        written.load(Ordering::Relaxed),
+                    );
                 }
-                reading = false; // the sender is gone: the writer drains, then shuts down
-            }
-            n = &mut writer => return n,
+                End::Bad(e) => {
+                    log(&format!("{what}: a bad frame from the other side ({e}), closed"));
+                    return (
+                        read.load(Ordering::Relaxed),
+                        written.load(Ordering::Relaxed),
+                    );
+                }
+            },
+            n = &mut writer => return (read.load(Ordering::Relaxed), n),
         }
     }
 }
@@ -422,11 +506,13 @@ impl Drop for Held {
     }
 }
 
-/// Both directions between a local TCP connection and a QUIC stream; logs the totals when both are done.
+/// Both directions between a local TCP connection and a QUIC stream, in lz4 frames if `packed`; logs the totals when
+/// both are done (the game's bytes, and on a packed stream what crossed for them).
 async fn splice<QR, QW>(
     tcp: TcpStream,
     qr: QR,
     qw: QW,
+    packed: bool,
     sh: Arc<Sh>,
     budget: Arc<AtomicUsize>,
     what: String,
@@ -436,18 +522,51 @@ async fn splice<QR, QW>(
 {
     let _live = Live::new(&sh.streams);
     let (tr, tw) = tcp.into_split();
-    let (up, down) = tokio::join!(
+    let (out, inn) = match packed {
+        true => (Codec::Pack, Codec::Unpack),
+        false => (Codec::Plain, Codec::Plain),
+    };
+    let ((up, up_wire), (down_wire, down)) = tokio::join!(
         pipe(
             tr,
             qw,
+            out,
             sh.delay,
             budget.clone(),
             what.clone(),
             sh.log.clone()
         ),
-        pipe(qr, tw, sh.delay, budget, what.clone(), sh.log.clone())
+        pipe(qr, tw, inn, sh.delay, budget, what.clone(), sh.log.clone())
     );
     (sh.log)(&format!("{what} closed ({up} bytes out, {down} in)"));
+    if packed {
+        (sh.log)(&packed_line(&what, (up, up_wire), (down, down_wire)));
+    }
+}
+
+/// `{what} lz4: out <game bytes> -> <bytes across>, in <game bytes> -> <bytes across>`.
+fn packed_line(what: &str, out: (u64, u64), inn: (u64, u64)) -> String {
+    format!(
+        "{what} lz4: out {} -> {}, in {} -> {}",
+        size(out.0),
+        size(out.1),
+        size(inn.0),
+        size(inn.1)
+    )
+}
+
+/// Whether the link's streams are in lz4 frames: both ends offered [`ARCADE_ALPN_LZ4`].
+fn packs(conn: &Connection) -> bool {
+    conn.alpn() == ARCADE_ALPN_LZ4
+}
+
+/// What a link's streams carry, for its "joined" / "up" line.
+fn streams_text(conn: &Connection) -> &'static str {
+    if packs(conn) {
+        "streams in lz4"
+    } else {
+        "streams uncompressed: the other side runs an older Forza-WCCF"
+    }
 }
 
 fn kind_name(kind: u8) -> &'static str {
@@ -493,7 +612,7 @@ impl Sh {
             match v {
                 Verdict::In => {}
                 Verdict::NotInRoom => {
-                    (self.log)(&format!("guest {who} refused: not in the shop's room"));
+                    (self.log)(&format!("guest {who} refused: not in the arcade's room"));
                     conn.close(CLOSE_NOT_IN_ROOM.into(), b"not in the room");
                     return;
                 }
@@ -512,7 +631,12 @@ impl Sh {
             conn.close(1u8.into(), b"full");
             return;
         }
-        (self.log)(&format!("guest {who} joined"));
+        (self.log)(&format!("guest {who} joined ({})", streams_text(&conn)));
+        {
+            let mut conns = self.conns.lock().unwrap_or_else(PoisonError::into_inner);
+            conns.retain(|c| c.close_reason().is_none());
+            conns.push(conn.clone());
+        }
         tokio::spawn(watch_path(self.log.clone(), conn.clone()));
         let used = Arc::new(AtomicBool::new(false));
         let streams = tokio::spawn(self.clone().guest_streams(
@@ -556,7 +680,13 @@ impl Sh {
                 ));
                 continue; // dropped: the guest sees the stream reset
             }
-            let (me, who, used, budget) = (self.clone(), who.clone(), used.clone(), budget.clone());
+            let (me, who, used, budget, conn) = (
+                self.clone(),
+                who.clone(),
+                used.clone(),
+                budget.clone(),
+                conn.clone(),
+            );
             tasks.spawn(async move {
                 let mut k = [0u8; 1];
                 if timeout(LINK_WAIT, qr.read_exact(&mut k)).await.is_err() {
@@ -575,7 +705,7 @@ impl Sh {
                     Ok(tcp) => {
                         let _ = tcp.set_nodelay(true);
                         (me.log)(&format!("{what} to port {port}"));
-                        splice(tcp, qr, qw, me.clone(), budget, what).await;
+                        splice(tcp, qr, qw, packs(&conn), me.clone(), budget, what).await;
                     }
                     Err(e) => (me.log)(&format!("{what}: port {port}: {e}")),
                 }
@@ -672,9 +802,18 @@ impl Join {
     }
 
     async fn dial(&self) -> Result<Connection, String> {
-        match timeout(LINK_WAIT, self.sh.ep.connect(self.host.clone(), SHOP_ALPN)).await {
-            Ok(Ok(c)) => Ok(c),
-            Ok(Err(e)) => Err(e.to_string()),
+        let opts = ConnectOptions::new().with_additional_alpns(vec![ARCADE_ALPN.to_vec()]);
+        let dial = async {
+            let connecting = self
+                .sh
+                .ep
+                .connect_with_opts(self.host.clone(), ARCADE_ALPN_LZ4, opts)
+                .await
+                .map_err(|e| e.to_string())?;
+            connecting.await.map_err(|e| e.to_string())
+        };
+        match timeout(LINK_WAIT, dial).await {
+            Ok(r) => r,
             Err(_) => Err(format!("no answer in {} s", LINK_WAIT.as_secs())),
         }
     }
@@ -689,26 +828,34 @@ impl Join {
             let why = conn.closed().await;
             inbound.abort();
             self.link.send_replace(None);
+            if closed_by_host(&why) {
+                self.sh.host_closed.store(true, Ordering::Relaxed);
+                (self.sh.log)("the host closed the arcade");
+            }
             if let iroh::endpoint::ConnectionError::ApplicationClosed(c) = &why
                 && c.error_code == CLOSE_NOT_IN_ROOM.into()
             {
-                // dialling again would be refused again: the game finds no shop and says so
+                // dialling again would be refused again: the game finds no arcade and says so
                 (self.sh.log)(
-                    "the shop refused this PC: not in its room (join with the room code, in ONLINE)",
+                    "the arcade refused this PC: not in its room (join with the room code, in ONLINE)",
                 );
                 return;
             }
-            (self.sh.log)(&format!("link to the shop down: {why}; dialling again"));
+            (self.sh.log)(&format!("link to the arcade down: {why}; dialling again"));
             conn = loop {
                 match self.dial().await {
                     Ok(c) => break c,
                     Err(e) => {
-                        (self.sh.log)(&format!("shop: {e}"));
+                        (self.sh.log)(&format!("arcade: {e}"));
                         sleep(Duration::from_secs(2)).await;
                     }
                 }
             };
-            (self.sh.log)("link to the shop up again");
+            self.sh.host_closed.store(false, Ordering::Relaxed);
+            (self.sh.log)(&format!(
+                "link to the arcade up again ({})",
+                streams_text(&conn)
+            ));
         }
     }
 
@@ -769,7 +916,7 @@ impl Join {
                     Ok(Ok(c)) => c.clone().expect("waited for Some"),
                     _ => {
                         (me.sh.log)(&format!(
-                            "{} connection dropped: no link to the shop",
+                            "{} connection dropped: no link to the arcade",
                             kind_name(kind)
                         ));
                         return;
@@ -779,7 +926,9 @@ impl Join {
                 match conn.open_bi().await {
                     Ok((mut qw, qr)) => {
                         if qw.write_all(&[kind]).await.is_ok() {
-                            splice(tcp, qr, qw, me.sh.clone(), me.budget.clone(), what).await;
+                            let packed = packs(&conn);
+                            splice(tcp, qr, qw, packed, me.sh.clone(), me.budget.clone(), what)
+                                .await;
                         }
                     }
                     Err(e) => (me.sh.log)(&format!("{what}: {e}")),
@@ -792,7 +941,7 @@ impl Join {
 /// The join side as [`start`] leaves it: the first link up, the control and desk listeners bound, the ports bound.
 type Joined = (Arc<Join>, Connection, [TcpListener; 2], Ports);
 
-async fn start(cfg: ShopConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
+async fn start(cfg: ArcadeConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
     if cfg.relay.is_empty() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "no relay URL"));
     }
@@ -807,7 +956,7 @@ async fn start(cfg: ShopConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
         .clear_address_lookup()
         .transport_config(transport);
     if cfg.role == Role::Host {
-        b = b.alpns(vec![SHOP_ALPN.to_vec()]);
+        b = b.alpns(vec![ARCADE_ALPN_LZ4.to_vec(), ARCADE_ALPN.to_vec()]);
     }
     if let Some(ca) = cfg.ca {
         b = b.ca_tls_config(ca);
@@ -828,6 +977,8 @@ async fn start(cfg: ShopConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
         flows: Arc::default(),
         streams: Arc::default(),
         admit: cfg.admit,
+        conns: Mutex::default(),
+        host_closed: Arc::default(),
     });
     let fallback = fallback_for(&cfg.relay);
     let only = format!(
@@ -849,14 +1000,14 @@ async fn start(cfg: ShopConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
     }
     let Role::Join(host) = cfg.role else {
         (sh.log)(&format!(
-            "shop host {} (relay {}{only}): guests run Launcher.exe remote {}",
+            "arcade host {} (relay {}{only}): guests run Launcher.exe remote {}",
             sh.ep.id().fmt_short(),
             relay_names(&cfg.relay),
             id_text(sh.ep.id().as_bytes())
         ));
         return Ok((sh, None));
     };
-    // the local side first, before anything dials: the shop's own ports, else any free one (this PC runs a server of
+    // the local side first, before anything dials: the arcade's own ports, else any free one (this PC runs a server of
     // its own); the Launcher points the game at what was bound
     let want = cfg.ports;
     let control = bind_tcp(want.control).await?;
@@ -881,7 +1032,7 @@ async fn start(cfg: ShopConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
         flows: Mutex::default(),
     });
     (sh.log)(&format!(
-        "shop join {} to {} (relay {}{only}), local ports TCP {} and {}, UDP {}",
+        "arcade join {} to {} (relay {}{only}), local ports TCP {} and {}, UDP {}",
         sh.ep.id().fmt_short(),
         id_short(&host),
         relay_names(&cfg.relay),
@@ -890,9 +1041,12 @@ async fn start(cfg: ShopConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
         p.relay
     ));
     let first = join.dial().await.map_err(|e| {
-        io::Error::other(format!("the shop {} did not answer: {e}", id_short(&host)))
+        io::Error::other(format!(
+            "the arcade {} did not answer: {e}",
+            id_short(&host)
+        ))
     })?;
-    (sh.log)("link to the shop up");
+    (sh.log)(&format!("link to the arcade up ({})", streams_text(&first)));
     Ok((sh, Some((join, first, [control, desk], p))))
 }
 
@@ -906,16 +1060,16 @@ async fn bind_tcp(port: u16) -> io::Result<TcpListener> {
 
 /// Starts the tunnel on its own thread. Host: returns once the endpoint is bound. Join: once its local ports are
 /// bound and the first link to the host is up (an error if the host does not answer within 20 s).
-pub fn spawn(cfg: ShopConfig) -> io::Result<ShopLink> {
+pub fn spawn(cfg: ArcadeConfig) -> io::Result<ArcadeLink> {
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
     let (tx, rx) = std::sync::mpsc::channel();
     let thread = std::thread::Builder::new()
-        .name("vslink-shop".into())
+        .name("vslink-arcade".into())
         .spawn(move || {
             let rt = match tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
-                .thread_name("vslink-shop-rt")
+                .thread_name("vslink-arcade-rt")
                 .enable_all()
                 .build()
             {
@@ -938,6 +1092,7 @@ pub fn spawn(cfg: ShopConfig) -> io::Result<ShopLink> {
                 sh.flows.clone(),
                 sh.streams.clone(),
                 sh.guests.clone(),
+                sh.host_closed.clone(),
                 ports,
             )));
             rt.block_on(async {
@@ -956,20 +1111,30 @@ pub fn spawn(cfg: ShopConfig) -> io::Result<ShopLink> {
                 while !flag.load(Ordering::Relaxed) {
                     t.tick().await;
                 }
+                // the guests hear why before the endpoint closes (its close flushes these frames)
+                for c in sh
+                    .conns
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .drain(..)
+                {
+                    c.close(CLOSE_ARCADE_CLOSED.into(), b"arcade closed");
+                }
                 let _ = timeout(Duration::from_secs(2), sh.ep.close()).await;
             });
             rt.shutdown_timeout(Duration::from_secs(1));
         })?;
-    let (id, flows, streams, guests, ports) = rx
+    let (id, flows, streams, guests, host_closed, ports) = rx
         .recv()
-        .map_err(|_| io::Error::other("the shop tunnel's thread ended at start"))??;
-    Ok(ShopLink {
+        .map_err(|_| io::Error::other("the arcade tunnel's thread ended at start"))??;
+    Ok(ArcadeLink {
         handle: Handle::new(stop, thread),
         id,
         ports,
         flows,
         streams,
         guests,
+        host_closed,
     })
 }
 
@@ -978,7 +1143,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn kinds_map_to_the_shop_ports_only() {
+    fn kinds_map_to_the_arcade_ports_only() {
         let p = Ports {
             control: 20002,
             desk: 20030,
@@ -989,6 +1154,78 @@ mod tests {
         for k in [0u8, 3, 255] {
             assert_eq!(p.of_kind(k), None, "kind {k}");
         }
+    }
+
+    /// The line a packed stream adds beside its "closed" line: the game's bytes, then what crossed for them.
+    #[test]
+    fn the_lz4_line() {
+        assert_eq!(
+            packed_line(
+                "guest 9581768412: control connection",
+                (1_792_094, 41_234),
+                (6_251, 2_020)
+            ),
+            "guest 9581768412: control connection lz4: out 1.79 MB -> 41 KB, in 6 KB -> 2 KB"
+        );
+    }
+
+    /// A frame cut by the other side's end is a bad frame, not a half-close: the line names it, and the counts keep
+    /// what crossed before the drop.
+    #[tokio::test]
+    async fn a_cut_frame_is_logged_and_counted() {
+        let mut p = crate::pack::Packer::default();
+        let mut wire = p.pack(&[7u8; 4000]);
+        let first = wire.len();
+        let mut cut = p.pack(&[9u8; 4000]);
+        cut.truncate(cut.len() - 3); // the second frame's body, short
+        wire.extend_from_slice(&cut);
+        let (mut feed, rd) = tokio::io::duplex(64 << 10);
+        let (wr, mut down) = tokio::io::duplex(64 << 10);
+        let lines: Arc<Mutex<Vec<String>>> = Arc::default();
+        let log: Log = {
+            let lines = lines.clone();
+            Arc::new(move |s: &str| lines.lock().unwrap().push(s.to_owned()))
+        };
+        let budget = Arc::new(AtomicUsize::new(0));
+        let run = pipe(
+            rd,
+            wr,
+            Codec::Unpack,
+            Duration::ZERO,
+            budget.clone(),
+            "control connection".into(),
+            log,
+        );
+        // the cut frame only once the first one has crossed, so the counts are the ones the pipe returns with
+        let wire_len = wire.len() as u64;
+        let feed_it = async move {
+            feed.write_all(&wire[..first]).await.unwrap();
+            let mut got = [0u8; 4000];
+            down.read_exact(&mut got).await.unwrap();
+            assert!(got.iter().all(|&b| b == 7));
+            feed.write_all(&wire[first..]).await.unwrap();
+            drop(feed); // the other side hangs up inside the second frame
+            let mut rest = Vec::new();
+            down.read_to_end(&mut rest).await.unwrap();
+            rest
+        };
+        let (counts, rest) = tokio::join!(run, feed_it);
+        assert_eq!(
+            counts,
+            (wire_len, 4000),
+            "the cut frame's bytes count, the raw bytes it never brought do not"
+        );
+        assert!(rest.is_empty(), "the cut frame reached the game");
+        assert_eq!(budget.load(Ordering::Relaxed), 0, "nothing still held");
+        let lines = lines.lock().unwrap();
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(
+            lines[0].starts_with(
+                "control connection: a bad frame from the other side (frame cut after "
+            ),
+            "{}",
+            lines[0]
+        );
     }
 
     #[test]
@@ -1025,6 +1262,57 @@ mod tests {
             n + 1,
             "the forgotten socket comes back as a new flow"
         );
+    }
+
+    /// A new guest reads the host's close as "the host closed the arcade" from a new host (code 6) and from a 0.6.1
+    /// host (its endpoint close, code 0); the refusals and drops are not that. A 0.6.1 guest only acts on code 4, so
+    /// code 6 must stay apart from it (it then dials again, as after code 0).
+    #[test]
+    fn the_hosts_close_is_told_apart() {
+        use iroh::endpoint::{ApplicationClose, ConnectionError};
+        let app = |code: u8| {
+            ConnectionError::ApplicationClosed(ApplicationClose {
+                error_code: code.into(),
+                reason: Bytes::new(),
+            })
+        };
+        assert!(closed_by_host(&app(CLOSE_ARCADE_CLOSED)));
+        assert!(closed_by_host(&app(0)), "a 0.6.1 host's endpoint close");
+        for code in [1, 3, CLOSE_NOT_IN_ROOM, CLOSE_NO_ANSWER] {
+            assert!(!closed_by_host(&app(code)), "code {code}");
+        }
+        assert!(!closed_by_host(&ConnectionError::TimedOut));
+        assert_ne!(CLOSE_ARCADE_CLOSED, CLOSE_NOT_IN_ROOM);
+    }
+
+    /// The real closes, not made-up ones: a 0.6.1 host's stop (iroh's `Endpoint::close`, code 0) reads as the host
+    /// closing the arcade; the guest's own stop (`LocallyClosed` on its side) does not.
+    #[tokio::test]
+    async fn real_closes_are_told_apart() {
+        let ep = || {
+            Endpoint::builder(presets::Minimal)
+                .alpns(vec![ARCADE_ALPN.to_vec()])
+                .relay_mode(RelayMode::Disabled)
+                .bind()
+        };
+        async fn link(guest: &Endpoint, host: &Endpoint) -> (Connection, Connection) {
+            let (c, h) = tokio::join!(guest.connect(host.addr(), ARCADE_ALPN), async {
+                host.accept().await.unwrap().await.unwrap()
+            });
+            (c.unwrap(), h)
+        }
+        let (host, guest) = (ep().await.unwrap(), ep().await.unwrap());
+        let (c, _h) = link(&guest, &host).await;
+        host.close().await;
+        let why = c.closed().await;
+        assert!(closed_by_host(&why), "{why:?}");
+
+        let host = ep().await.unwrap();
+        let (c, _h) = link(&guest, &host).await;
+        guest.close().await;
+        let why = c.closed().await;
+        assert!(!closed_by_host(&why), "{why:?}");
+        host.close().await;
     }
 
     #[test]

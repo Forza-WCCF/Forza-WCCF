@@ -147,6 +147,56 @@ pub fn install(e1718: bool, data: &Path, log: fn(&str)) {
         rows.len(),
         names(base, size, lang == "it")
     ));
+    if crate::patches::is_client(&crate::patches::exe_name()) {
+        log(&format!(
+            "exe text: Dati record by area, {}",
+            dati_rows(base)
+        ));
+    }
+}
+
+/// The Dati screen's "record by area" rows: sub_715A40 puts 8 string-table keys on the stack, one
+/// `mov dword [esp+disp32], imm32` each. The first four are MAKE_country keys, data the game must keep in Japanese
+/// (`forza::text` DATA_FAMILIES), so those four instructions get the INF_COACH_country keys instead: the same
+/// countries, translated. (instruction VA, disp, original key VA, our key)
+const DATI_ROWS: [(usize, u8, u32, &str); 4] = [
+    (0x0071_64F2, 0x88, 0x0139_F2FC, "INF_COACH_country_0000"), // MAKE_country_014 England
+    (0x0071_64FD, 0x8C, 0x0139_F248, "INF_COACH_country_0001"), // MAKE_country_023 Spain
+    (0x0071_6508, 0x90, 0x0139_F2E8, "INF_COACH_country_0002"), // MAKE_country_015 Italy
+    (0x0071_6513, 0x94, 0x0139_F1E4, "INF_COACH_country_0003"), // MAKE_country_028 Germany
+];
+
+/// The original instruction of each row at `base`: C7 84 24 disp 00 00 00, then the key's address.
+fn dati_originals(base: usize) -> [(usize, [u8; 11]); 4] {
+    DATI_ROWS.map(|(va, disp, key, _)| {
+        let mut b = [0xC7, 0x84, 0x24, disp, 0, 0, 0, 0, 0, 0, 0];
+        let key = (key as usize).wrapping_sub(0x40_0000).wrapping_add(base) as u32;
+        b[7..].copy_from_slice(&key.to_le_bytes());
+        (base + va - 0x40_0000, b)
+    })
+}
+
+/// All four instructions are the original's (`read`: the bytes at an address, `None` where unreadable).
+fn dati_found(base: usize, read: impl Fn(usize) -> Option<[u8; 11]>) -> bool {
+    dati_originals(base)
+        .iter()
+        .all(|(at, want)| read(*at) == Some(*want))
+}
+
+/// Point the four country rows at our keys; the log's words.
+fn dati_rows(base: usize) -> String {
+    if base == 0 || !dati_found(base, crate::patches::read::<11>) {
+        return "not the original code, left as is".into();
+    }
+    let mut done = 0;
+    for ((at, _), (.., key)) in dati_originals(base).iter().zip(DATI_ROWS) {
+        // the key is copied into a std::string on each use; ours stays for as long as the game runs
+        let ours: &'static [u8] = Box::leak(format!("{key}\0").into_bytes().into_boxed_slice());
+        if crate::patches::patch_code(at + 7, &(ours.as_ptr() as u32).to_le_bytes()) {
+            done += 1;
+        }
+    }
+    format!("{done} of 4 country rows on the translated keys")
 }
 
 /// Point the club and nationality name tables at our names; how many entries changed.
@@ -194,6 +244,121 @@ fn names(base: usize, size: usize, italian: bool) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The shipped sheets: every row parses and fits its room (`parse`), both languages list the same rows, and no
+    /// two rooms overlap.
+    #[test]
+    fn shipped_sheets_fit() {
+        let en = parse(include_str!(
+            "../../../editions/2017-18/english/exe_text.tsv"
+        ))
+        .unwrap();
+        let it = parse(include_str!(
+            "../../../editions/2017-18/italian/exe_text.tsv"
+        ))
+        .unwrap();
+        let key = |r: &Row| (r.rva, r.len, r.sha, r.room);
+        assert_eq!(
+            en.iter().map(key).collect::<Vec<_>>(),
+            it.iter().map(key).collect::<Vec<_>>()
+        );
+        // rows that would break the game (city readings, lookup keys); see the file for why
+        let protected = include_str!("../../../editions/2017-18/exe_text_protected.tsv");
+        for l in protected
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.is_empty())
+        {
+            let rva =
+                usize::from_str_radix(l[2..l.find('\t').unwrap()].trim_start_matches('0'), 16)
+                    .unwrap();
+            assert!(
+                en.iter().all(|r| r.rva != rva),
+                "protected rva {rva:#X} is in exe_text.tsv"
+            );
+        }
+        let mut rooms: Vec<_> = en.iter().map(|r| (r.rva, r.rva + r.room)).collect();
+        rooms.sort();
+        for w in rooms.windows(2) {
+            assert!(w[0].1 <= w[1].0, "rooms overlap at {:#X}", w[1].0);
+        }
+        // sub_7DA590 strcmp's a record against these rows in order: two equal texts return the wrong region
+        const REGION_KEYS: [usize; 14] = [
+            0x0F9EE7C, 0x0F9EB44, 0x0E5C79C, 0x0F9EA20, 0x0E5C778, 0x0E5C62C, 0x0E5C74C, 0x0F9EA04,
+            0x0E5C784, 0x0F9E91C, 0x0E5C47C, 0x0E5C764, 0x0E5C7A8, 0x0F9E880,
+        ];
+        for sheet in [&en, &it] {
+            let texts: Vec<_> = sheet
+                .iter()
+                .filter(|r| REGION_KEYS.contains(&r.rva))
+                .map(|r| &r.text)
+                .collect();
+            assert!(texts.len() >= 6, "region rows missing");
+            let mut uniq = texts.clone();
+            uniq.sort();
+            uniq.dedup();
+            assert_eq!(uniq.len(), texts.len(), "two region rows share a text");
+        }
+    }
+
+    /// The four instructions read from the original `client_Release.exe` by hand (VA, then
+    /// `C7 84 24 disp 00 00 00` and the MAKE_country key's VA), so a broken [`dati_originals`] fails this test.
+    const DATI_ORIGINAL: [(usize, [u8; 11]); 4] = [
+        (
+            0x0071_64F2,
+            [0xC7, 0x84, 0x24, 0x88, 0, 0, 0, 0xFC, 0xF2, 0x39, 0x01],
+        ),
+        (
+            0x0071_64FD,
+            [0xC7, 0x84, 0x24, 0x8C, 0, 0, 0, 0x48, 0xF2, 0x39, 0x01],
+        ),
+        (
+            0x0071_6508,
+            [0xC7, 0x84, 0x24, 0x90, 0, 0, 0, 0xE8, 0xF2, 0x39, 0x01],
+        ),
+        (
+            0x0071_6513,
+            [0xC7, 0x84, 0x24, 0x94, 0, 0, 0, 0xE4, 0xF1, 0x39, 0x01],
+        ),
+    ];
+
+    /// [`DATI_ORIGINAL`] at the ASLR base 0x50_0000: addresses and keys 0x10_0000 higher (reloc type 3 on each key).
+    const DATI_RELOCATED: [(usize, [u8; 11]); 4] = [
+        (
+            0x0081_64F2,
+            [0xC7, 0x84, 0x24, 0x88, 0, 0, 0, 0xFC, 0xF2, 0x49, 0x01],
+        ),
+        (
+            0x0081_64FD,
+            [0xC7, 0x84, 0x24, 0x8C, 0, 0, 0, 0x48, 0xF2, 0x49, 0x01],
+        ),
+        (
+            0x0081_6508,
+            [0xC7, 0x84, 0x24, 0x90, 0, 0, 0, 0xE8, 0xF2, 0x49, 0x01],
+        ),
+        (
+            0x0081_6513,
+            [0xC7, 0x84, 0x24, 0x94, 0, 0, 0, 0xE4, 0xF1, 0x49, 0x01],
+        ),
+    ];
+
+    #[test]
+    fn dati_rows_need_the_original_code() {
+        assert_eq!(dati_originals(0x40_0000), DATI_ORIGINAL);
+        let mem = |t: &'static [(usize, [u8; 11]); 4]| {
+            move |at: usize| t.iter().find(|(a, _)| *a == at).map(|(_, b)| *b)
+        };
+        assert!(dati_found(0x40_0000, mem(&DATI_ORIGINAL)));
+        assert!(dati_found(0x50_0000, mem(&DATI_RELOCATED)));
+        assert!(!dati_found(0x40_0000, |_| None));
+        let changed = |at: usize| {
+            let mut b = mem(&DATI_ORIGINAL)(at)?;
+            if at == 0x0071_6513 {
+                b[10] ^= 1;
+            }
+            Some(b)
+        };
+        assert!(!dati_found(0x40_0000, changed));
+    }
 
     fn sheet_for(orig: &[u8], room: usize, text: &str) -> String {
         let sha: String = Sha256::digest(orig)

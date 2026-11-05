@@ -603,17 +603,21 @@ pub fn tone_icon(p: &Painter, c: Pos2, tone: Tone) {
     }
 }
 
+/// The room [`status_line`] takes around its text: left (the mark's place), right, top and bottom.
+pub const STATUS_LINE_MARGIN: [i8; 4] = [34, 10, 7, 7];
+
 /// One message line: a tone bar, a mark and the text (wrapped if it must).
 pub fn status_line(ui: &mut Ui, tone: Tone, text: &str) -> Response {
     let col = tone.color();
+    let [left, right, top, bottom] = STATUS_LINE_MARGIN;
     let r = egui::Frame::new()
         .fill(col.gamma_multiply(0.12))
         .corner_radius(theme::RADIUS)
         .inner_margin(egui::Margin {
-            left: 34,
-            right: 10,
-            top: 7,
-            bottom: 7,
+            left,
+            right,
+            top,
+            bottom,
         })
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
@@ -954,7 +958,7 @@ pub enum TitleAction {
 
 /// The launcher's own title bar (its window has no system frame): our mark, the name, the edition badge, the
 /// launcher language, minimize and close. Dragging the bar moves the window.
-pub fn title_bar(ui: &mut Ui, edition: Edition, lang: &mut Lang) -> TitleAction {
+pub fn title_bar(ui: &mut Ui, edition: Edition, version: &str, lang: &mut Lang) -> TitleAction {
     let rect = ui.max_rect().with_max_y(ui.max_rect().top() + 44.0);
     let drag = ui.interact(rect, Id::new("title-drag"), Sense::click_and_drag());
     if drag.drag_started_by(egui::PointerButton::Primary) {
@@ -980,15 +984,33 @@ pub fn title_bar(ui: &mut Ui, edition: Edition, lang: &mut Lang) -> TitleAction 
             .max_rect(rect.shrink2(vec2(12.0, 0.0)))
             .layout(egui::Layout::left_to_right(egui::Align::Center)),
     );
-    child.add_space(34.0 + name_w + 10.0);
-    badge(&mut child, edition);
+    // the edition badge, then the Forza-WCCF version beside it on the badge's line, shown on every tab (a version
+    // that is not a number, "not known", is left out: the UPDATE tab says it)
+    let mut b = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_size(
+        pos2(
+            rect.left() + 12.0 + 34.0 + name_w + 10.0,
+            rect.center().y - 11.0,
+        ),
+        vec2(120.0, 22.0),
+    )));
+    let pill = badge(&mut b, edition);
+    if version.starts_with(|c: char| c.is_ascii_digit()) {
+        ui.painter().text(
+            pos2(pill.rect.right() + 8.0, pill.rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            format!("v{version}"),
+            theme::display(15.0),
+            theme::TEXT_DIM,
+        );
+    }
     child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         action = window_buttons(ui);
         ui.add_space(10.0);
         let mut i = Lang::ALL.iter().position(|l| l == lang).unwrap_or(0);
-        ui.allocate_ui(vec2(252.0, 30.0), |ui| {
+        // narrow enough for the version beside the badge in the 600 px Launcher
+        ui.allocate_ui(vec2(216.0, 30.0), |ui| {
             // each language in its own words, whatever the UI language
-            if segmented(ui, &mut i, &["English", "Italiano", "日本語"], 252.0) {
+            if segmented(ui, &mut i, &["English", "Italiano", "日本語"], 216.0) {
                 *lang = Lang::ALL[i];
             }
         });

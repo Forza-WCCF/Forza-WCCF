@@ -231,5 +231,5 @@ pub fn start(cfg: RelayConfig, log: Log) -> io::Result<Handle> {
         let stop = stop.clone();
         move || run(cfg, log, sock, stop)
     });
-    Ok(Handle::new(addr, stop, false, vec![t], None))
+    Ok(Handle::new(addr, stop, false, vec![t], vec![]))
 }

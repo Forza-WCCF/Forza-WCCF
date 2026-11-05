@@ -1,7 +1,10 @@
 //! What the 32-bit DLLs and programs in and beside the game share. The hook (`forza-hook`) and the guards (`wccfnet`,
 //! `netguard`) patch the import table of the game's own program in its process: [`imports`] walks it, [`redirect`]
-//! points one slot elsewhere. FPR_Emu.exe and logowin.exe wait on the program that started them ([`parent_pid`]).
+//! points one slot elsewhere. FPR_Emu.exe and logowin.exe wait on the program that started them ([`parent_pid`]). Both
+//! editions' guards keep the publisher's network hosts unresolved ([`hosts`]).
 #![cfg(target_arch = "x86")]
+
+pub mod hosts;
 
 use std::ffi::CStr;
 use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE, SYSTEMTIME};

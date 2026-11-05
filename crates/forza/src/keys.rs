@@ -8,6 +8,15 @@ pub mod driver;
 #[cfg(windows)]
 pub use driver::*;
 
+/// From this many seats on one PC the controller no longer counts in the background: winmm reports every pad as one.
+pub const MAX_PAD_SEATS: usize = 2;
+
+/// What counts this tick: (keyboard, controller). The keyboard only while a game window is in front; the controller
+/// also in the background when the player turned that on (panel SETTINGS) and fewer than `MAX_PAD_SEATS` seats run here.
+pub fn input_gate(front: bool, pad_background: bool, seats: usize) -> (bool, bool) {
+    (front, front || (pad_background && seats < MAX_PAD_SEATS))
+}
+
 /// Keys an action may have: letters, digits, the number pad, F1-F9 and F12-F24, arrows and the keys around them, Enter
 /// Space Tab Backspace Shift Ctrl Pause and the punctuation keys. Never Esc (it closes the panels), F10 (Windows' menu
 /// key froze the game window), F11 (the window's size), Alt, the Windows keys, the lock keys or a mouse button.

@@ -3,6 +3,7 @@
 //! network failures: players never see a tool's own error text, the log keeps it.
 
 use crate::Kit;
+use forza::online::championship;
 use forza::online::save_logs::{self, Scrub};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -51,6 +52,27 @@ pub fn contents(kit: &Kit, game: Option<&Path>) -> Vec<String> {
     v
 }
 
+/// [`save_logs::save`] after a lean snapshot of the game programs running from `game` (they ride along in `dumps/`).
+pub fn save_zip(dir: &Path, kit: &Path, game: Option<&Path>, scrub: &Scrub, note: Option<&str>) -> io::Result<PathBuf> {
+    if let Some(game) = game {
+        crate::debug::dump_running(game, &kit.join("data").join("dumps"));
+        // 2017-18: today's Universal Championship in the run's log before it is packed
+        if game.join("log").is_dir() {
+            crate::logs::append(
+                &kit.join("data").join("logs").join("run_launcher.txt"),
+                &championship_line(game),
+            );
+        }
+    }
+    save_logs::save(dir, kit, game, scrub, note)
+}
+
+/// `championship: <date> teams: ...` for today's Universal Championship day file in `game` (the control's date).
+pub fn championship_line(game: &Path) -> String {
+    let now = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+    championship::line(game, championship::date(now))
+}
+
 /// Saves a report in `dir`: `report.txt` holds a summary (edition, versions, why) and the player's words; the ZIP's
 /// path.
 pub fn save(kit: &Kit, game: Option<&Path>, words: &str, why: &str, dir: &Path) -> io::Result<PathBuf> {
@@ -59,10 +81,10 @@ pub fn save(kit: &Kit, game: Option<&Path>, words: &str, why: &str, dir: &Path) 
         "edition: {}\nversion: {}\nlauncher: {}\nwhy: {why}\n\n{}\n",
         kit.edition().name(),
         save_logs::version(kit.dir()),
-        env!("CARGO_PKG_VERSION"),
+        env!("FORZA_VERSION"),
         save_logs::note(words, &scrub),
     );
-    save_logs::save(dir, kit.dir(), game, &scrub, Some(&summary))
+    save_zip(dir, kit.dir(), game, &scrub, Some(&summary))
 }
 
 /// GitHub's new-issue page; [`issue_url`] fills it in.
@@ -89,7 +111,7 @@ pub fn issue_url(kit: &Kit, why: &str) -> String {
     let version = save_logs::version(kit.dir());
     let body = format!(
         "Version: {version} (Launcher {}), {}\nWindows: {}\nWhy: {why}\n\nLast errors:\n```\n{errors}\n```\n\nWhat happened:\n\n\n(Attach the forza-wccf-logs ZIP here.)\n",
-        env!("CARGO_PKG_VERSION"),
+        env!("FORZA_VERSION"),
         kit.edition().name(),
         windows_version(),
     );

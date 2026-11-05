@@ -7,6 +7,7 @@
 
 pub mod catalogue;
 pub mod codes;
+pub mod formations;
 pub mod hq;
 pub mod lineup;
 pub mod links;

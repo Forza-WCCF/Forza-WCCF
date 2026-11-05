@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.0
+
+- The desktop shortcut is made directly by the installer, without PowerShell.
+
 ## 0.4.0
 
 - The package is marked as needed, and the newest package is the default.

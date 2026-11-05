@@ -14,12 +14,12 @@ Everything shipped is Rust, in one Cargo workspace. Windows builds the kits with
 | `crates/panel` | `forza_panel.dll`, 32-bit, inside the game: draws `forza-ui`'s panel over the game's Direct3D 9 picture; the projector window |
 | `crates/installer` | the installer: extracts the player's own disc image, optionally sets up the 2010–11 package |
 | `crates/server` | `forza-server`: every online service of both editions ([README](../crates/server/README.md)) |
-| `crates/linux-host` | `wccf-linux-server`: runs a shop (the original control and four match engines) under Wine on Linux ([README](../crates/linux-host/README.md)) |
+| `crates/linux-host` | `wccf-linux-server`: runs an arcade (the original control and four match engines) under Wine on Linux ([README](../crates/linux-host/README.md)) |
 | `crates/vslink` | the 2017–18 direct VS link over iroh |
 | `native/hook` | `forza-hook`, the hook in the game's programs; one source, four DLLs by feature |
 | `native/wccfnet`, `native/netguard` | the network guards (2017–18 players; Linux servers under Wine) |
 | `native/detmath` | dmath.dll: the 2017–18 match engine's math made the same on every CPU (online seats stay in step) |
-| `native/icmp`, `native/programs`, `native/common` | the 2017–18 stand-in `ICMP.DLL`; the 32-bit programs beside the game (`FPR_Emu.exe`, `inject.exe`, `logowin.exe`, `sddy_maps.exe`) and the hook and guard test programs; their shared code |
+| `native/icmp`, `native/programs`, `native/common` | the 2017–18 stand-in `ICMP.DLL`; the 32-bit programs beside the game (`FPR_Emu.exe`, `inject.exe`, `sddy_maps.exe`) and the hook and guard test programs; their shared code |
 | `xtask` | `cargo xtask build`, `check`, `package`, `cap` (window capture) |
 | `editions/` | what goes into each ZIP besides the programs: READMEs, language tables, overlay assets |
 | `deploy/` | Linux server templates ([SELF-HOSTING.md](SELF-HOSTING.md)) |
@@ -50,9 +50,9 @@ Everything shipped is Rust, in one Cargo workspace. Windows builds the kits with
 
 ## Online
 
-- `forza-server` serves the seat desk and lobby, the in-shop match relay and, for 2017–18,
+- `forza-server` serves the seat desk and lobby, the in-arcade match relay and, for 2017–18,
   the game server, VS matcher and reflect. The project runs it at `lobby.wccf.it`; anyone can host their own.
-- A shared shop is a host running the original control and engines: a player's PC, or Linux under Wine through
+- A shared arcade is a host running the original control and engines: a player's PC, or Linux under Wine through
   `wccf-linux-server` with the hook's server features (`e1011-server`, `e1718-server`) and `netguard.dll`.
 - 2017–18 direct VS: `vslink` pairs two PCs through the game server and carries the game's datagrams over one iroh
   QUIC connection, direct when possible, through the relay (`relay.wccf.it`) otherwise.

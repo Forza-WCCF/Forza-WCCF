@@ -173,10 +173,11 @@ pub fn fonts_from(
     defs.font_data
         .insert("hack".into(), Arc::new(FontData::from_static(hack)));
     let fam = |v: &[&str]| v.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+    // Noto Sans JP lacks Latin Extended-A (ć č š ž ł ő ğ: player names); Barlow has them, so it follows as the fallback
     defs.families
-        .insert(FontFamily::Proportional, fam(&["noto"]));
+        .insert(FontFamily::Proportional, fam(&["noto", "barlow"]));
     defs.families
-        .insert(FontFamily::Name(BOLD.into()), fam(&["noto-bold"]));
+        .insert(FontFamily::Name(BOLD.into()), fam(&["noto-bold", "barlow"]));
     defs.families.insert(
         FontFamily::Name(DISPLAY.into()),
         fam(&["barlow", "noto-display"]),

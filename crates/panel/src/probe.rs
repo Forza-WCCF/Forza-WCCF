@@ -70,12 +70,7 @@ fn say(msg: &str) {
     let Some(log) = *LOG.lock().unwrap_or_else(|e| e.into_inner()) else {
         return;
     };
-    // SAFETY: a plain clock query
-    let t = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
-    log(&format!(
-        "{:02}:{:02}:{:02}.{:03} gameready: {msg}",
-        t.wHour, t.wMinute, t.wSecond, t.wMilliseconds
-    ));
+    log(&format!("gameready: {msg}")); // the panel log stamps the time
 }
 
 fn u32_at(p: usize) -> u32 {

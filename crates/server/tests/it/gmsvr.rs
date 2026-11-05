@@ -330,3 +330,167 @@ fn all_pairs_a_lobby_room_on_the_game_server() {
         "{json}"
     );
 }
+
+#[test]
+/// A server's own arcade (ovh1's row): a PC brings its club to `all`'s desk without a seat. It replaces the club the
+/// game server made for the card before, a club made there comes home, and the end drops the server's copy; another
+/// card can neither read nor replace it.
+fn all_takes_a_players_club_without_a_seat() {
+    use forza::online::club::{self, Club, Guest};
+    let free = || {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        l.local_addr().unwrap().port().to_string()
+    };
+    let dir = std::env::temp_dir().join(format!("forza_all_club_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let (desk, gm, relay) = (free(), free(), free());
+    let child = Command::new(crate::common::server_exe())
+        .args(["--edition", "2017-18", "all", "--desk-port", &desk])
+        .args(["--relay-port", &relay, "--gmsvr-port", &gm, "--store"])
+        .arg(dir.join("srv"))
+        .args(["30", &dir.join("logs").to_string_lossy()])
+        .env("WCCF_BIND", "127.0.0.1")
+        .env_remove("WCCF_CLUB_DB")
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let _srv = Server(child);
+    std::fs::create_dir_all(dir.join("logs")).unwrap();
+    let t = Instant::now();
+    let mut c = loop {
+        match TcpStream::connect(("127.0.0.1", gm.parse::<u16>().unwrap())) {
+            Ok(c) => break c,
+            Err(_) if t.elapsed() < Duration::from_secs(10) => {
+                std::thread::sleep(Duration::from_millis(50))
+            }
+            Err(e) => panic!("all did not bind the game server: {e}"),
+        }
+    };
+    c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let desk: std::net::SocketAddr = format!("127.0.0.1:{desk}").parse().unwrap();
+    let aime = 0x1234_5678; // req()'s Aime id
+    let (code, other) = ("50123456789012345678", "50123456789012345679");
+    let first_coach = |c: &mut TcpStream| word(&ask(c, 271, &req(20, 16)).1, 8);
+    // a new club with its first save, as the game makes one (COACH_LIST lists saved clubs only)
+    let new_club = |c: &mut TcpStream| {
+        let mut add = req(36, 32);
+        add[12] = 1;
+        let (_, a) = ask(c, 279, &add);
+        let blk = vec![7u8; 3072];
+        let mut set = req(8572, 5940);
+        le(&mut set, 8, word(&a, 8));
+        le(&mut set, 12, word(&a, 12));
+        set[24] = 1;
+        set[28..3100].copy_from_slice(&blk);
+        set[3100..3104].copy_from_slice(&[12, 0, 0, 12]);
+        let sum = blk.chunks(4).fold(0u32, |s, w| {
+            s.wrapping_add(u32::from_le_bytes(w.try_into().unwrap()))
+        });
+        le(&mut set, 5236, sum);
+        assert_eq!(word(&ask(c, 277, &set).1, 4), 0, "SAVE_DATA_SET accepted");
+    };
+    // an earlier run without the club: the game server made one for the card
+    new_club(&mut c);
+    assert_ne!(first_coach(&mut c), 0);
+    let home = dir.join("home");
+    let (log, said) = crate::common::capture();
+    let trip = Guest {
+        desk,
+        seat: 1,
+        code: code.into(),
+        home_aime: 1,
+        arcade_aime: aime,
+        dir: home.clone(),
+        arcade: "lobby".into(),
+        poll: Duration::from_millis(200),
+    }
+    .bring(log)
+    .unwrap();
+    assert_eq!(
+        first_coach(&mut c),
+        0,
+        "this PC's club (none yet) replaced the server's"
+    );
+    let theirs = Club {
+        aime: 7,
+        ..Default::default()
+    };
+    let err = club::send(desk, 1, aime, other, &theirs).unwrap_err();
+    assert!(err.contains("another player"), "{err}");
+    assert!(club::fetch(desk, aime, other, "").is_err());
+    club::send(desk, 1, aime + 1, other, &theirs).unwrap();
+    // a club made on the server comes home within a poll
+    new_club(&mut c);
+    assert_ne!(first_coach(&mut c), 0);
+    let home_db = forza::online::gamesvr::Store::open(&home.join("gamesvr.db")).unwrap();
+    let t = Instant::now();
+    while home_db.club(1).unwrap().coaches.is_empty() {
+        assert!(t.elapsed() < Duration::from_secs(10), "no copy-back");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    drop(trip);
+    assert!(!home.join("club_out.json").exists(), "home: marker gone");
+    assert_eq!(home_db.club(1).unwrap().coaches.len(), 1);
+    assert_eq!(first_coach(&mut c), 0, "the server dropped its copy");
+    assert!(
+        club::fetch(desk, aime + 1, other, "").is_ok(),
+        "the other card's copy stays"
+    );
+    assert!(
+        said.lock()
+            .unwrap()
+            .iter()
+            .any(|l| l.contains("club in the arcade"))
+    );
+    let broker = std::fs::read_to_string(dir.join("logs").join("seat_broker.txt")).unwrap();
+    assert!(
+        broker.contains(&format!("club in: seat 1, Aime id {aime}")),
+        "{broker}"
+    );
+}
+
+#[test]
+/// ovh1's lobby row: 2017-18 players take no seat at the desk, they log in with a card on the game server beside it.
+/// The row counts those cards while their connection is open (by card: two cards behind one address are two).
+fn the_lobby_row_counts_the_cards_on_the_game_server() {
+    use forza::online::{gamesvr, lobby, sessions::Sessions};
+    use std::sync::Arc;
+    let dir = std::env::temp_dir().join(format!("forza_row_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let sessions = Arc::new(Sessions::default());
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let gm = l.local_addr().unwrap();
+    let o = gamesvr::Options {
+        dump: false,
+        sessions: Some(sessions.clone()),
+        ..Default::default()
+    };
+    let _svc = gamesvr::spawn_opts(l, dir.clone(), Arc::new(|_| {}), o).unwrap();
+    let mut c = forza_server::desk::DeskConfig::new(forza_server::Edition::E1718);
+    (c.bind, c.port, c.sessions) = ("127.0.0.1".into(), 0, Some(sessions));
+    (c.lobby_gap, c.lobby_cache) = (Duration::ZERO, Duration::ZERO);
+    let desk = forza_server::desk::start(c, Arc::new(|_| {})).unwrap();
+    let row = || lobby::fetch(desk.addr(), "2017-18").unwrap().arcades[0].seats;
+    assert_eq!(row(), 0);
+    let mut pc = TcpStream::connect(gm).unwrap();
+    pc.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let mut login = req(20, 16);
+    le(&mut login, 0, 1);
+    le(&mut login, 4, 1_210_000_001);
+    assert_eq!(ask(&mut pc, 271, &login).0, 272);
+    assert_eq!(row(), 1, "a card logged in");
+    le(&mut login, 0, 2);
+    le(&mut login, 4, 1_210_000_002);
+    ask(&mut pc, 271, &login);
+    assert_eq!(row(), 2, "a second card on the same connection");
+    drop(pc);
+    let t = Instant::now();
+    while row() != 0 {
+        assert!(
+            t.elapsed() < Duration::from_secs(5),
+            "the closed connection still counts"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

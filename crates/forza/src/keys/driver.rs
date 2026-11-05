@@ -131,7 +131,10 @@ const CARD: usize = 10;
 const COIN: usize = 11;
 const START: usize = 0;
 
-use super::{PAD_AXIS, PAD_BUTTON, PAD_HAT, is_allowed, key_label, pad_code, pad_label};
+use super::{
+    MAX_PAD_SEATS, PAD_AXIS, PAD_BUTTON, PAD_HAT, input_gate, is_allowed, key_label, pad_code,
+    pad_label,
+};
 #[cfg(windows)]
 pub use win::{Winmm, pad_name};
 
@@ -893,13 +896,21 @@ fn file_stamp(path: &std::path::Path) -> Option<(SystemTime, u64)> {
     Some((m.modified().ok()?, m.len()))
 }
 
+/// Seats running on this PC (the panel's SETTINGS says why CONTROLLER IN THE BACKGROUND is off from two).
+#[cfg(windows)]
+pub fn seats_here() -> usize {
+    win::seats_here()
+}
+
 /// Starts the driver thread: it reads `keys_path` (missing = the defaults, read again when it changes), polls the
 /// keyboard and controllers every 10 ms while a game window is in front, and sets the switches on `shared`. Dropping the
-/// handle stops it and lets go of every button.
+/// handle stops it and lets go of every button. `panel_path` (2017-18 only; None: never) is data\panel.txt, read again
+/// when it changes: its `pad_background=on` lets the controller count while the game is not in front (`input_gate`).
 #[cfg(windows)]
 pub fn spawn(
     shared: Arc<Shared>,
     keys_path: std::path::PathBuf,
+    panel_path: Option<std::path::PathBuf>,
     start_coin: bool,
     log: Log,
 ) -> Handle {
@@ -965,6 +976,9 @@ pub fn spawn(
         );
         let mut pads: Option<Pads> = None;
         let mut os = win::Foreground::default();
+        // the panel's CONTROLLER IN THE BACKGROUND, and the seats on this PC (counted only when it matters)
+        let (mut pstamp, mut pad_bg, mut ignored) = (None, false, false);
+        let (mut seats, mut next_seats) = (1usize, 0.0);
         while !flag.load(Ordering::Relaxed) {
             let now = since(t0);
             if now >= next_keys_check {
@@ -997,6 +1011,21 @@ pub fn spawn(
                     }
                 }
             }
+            if let Some(pp) = &panel_path {
+                let st = file_stamp(pp);
+                if st != pstamp {
+                    pstamp = st;
+                    let on = crate::panel_txt::PanelFile::parse(&read(pp)).pad_background;
+                    if on != pad_bg {
+                        pad_bg = on;
+                        ignored = false;
+                        log(&format!(
+                            "controller in the background: {}",
+                            if on { "on" } else { "off" }
+                        ));
+                    }
+                }
+            }
             if driver.bindings.has_pads() && pads.is_none() {
                 log("controllers: looking for them (keys.txt gives one a job)");
                 pads = Some(Pads::spawn(
@@ -1006,7 +1035,20 @@ pub fn spawn(
                 ));
             }
             let front = os.game_in_front();
-            let mut down: BTreeSet<u32> = if front {
+            if pad_bg && !front && now >= next_seats {
+                next_seats = now + 2.0;
+                seats = win::seats_here();
+                if (seats >= MAX_PAD_SEATS) != ignored {
+                    ignored = !ignored;
+                    log(if ignored {
+                        "controller in the background: ignored while 2 or more seats run on this PC"
+                    } else {
+                        "controller in the background: one seat on this PC again"
+                    });
+                }
+            }
+            let (keyboard, pad) = input_gate(front, pad_bg, seats);
+            let mut down: BTreeSet<u32> = if keyboard {
                 driver
                     .bindings
                     .polled()
@@ -1016,7 +1058,7 @@ pub fn spawn(
             } else {
                 BTreeSet::new()
             };
-            if front
+            if pad
                 && driver.bindings.has_pads()
                 && let Some(p) = &pads
             {
@@ -1071,6 +1113,21 @@ mod win {
         let w = wide(name);
         // SAFETY: `w` is a NUL-terminated UTF-16 string that outlives the call.
         !unsafe { GetPropW(hwnd, w.as_ptr()) }.is_null()
+    }
+
+    /// Seats running on this PC: game clients started from a `seat1` folder (the projector starts from the game's).
+    pub fn seats_here() -> usize {
+        procs::snapshot()
+            .iter()
+            .filter(|p| {
+                p.name.eq_ignore_ascii_case("client_release.exe")
+                    && procs::image(p.pid)
+                        .as_deref()
+                        .and_then(std::path::Path::parent)
+                        .and_then(|d| d.file_name())
+                        .is_some_and(|n| n.eq_ignore_ascii_case("seat1"))
+            })
+            .count()
     }
 
     /// Is a game window in front - what decides whether keys count.
@@ -1289,6 +1346,22 @@ mod tests {
         b.start_coin = false;
         assert_eq!(b.step(&start, &none, false, 0).1, 0);
         assert_eq!(b.step(&BTreeSet::from([0x35]), &none, false, 0).1, 1); // COIN still works
+    }
+
+    /// The gate's whole table: front x setting x seats -> (keyboard, controller).
+    #[test]
+    fn gate_truth_table() {
+        for seats in [0, 1, 2, 3] {
+            for setting in [false, true] {
+                // in front: both count, whatever the setting and the seats
+                assert_eq!(input_gate(true, setting, seats), (true, true));
+                // in the background the keyboard never counts; the controller only with the setting on and one seat
+                assert_eq!(
+                    input_gate(false, setting, seats),
+                    (false, setting && seats < 2)
+                );
+            }
+        }
     }
 
     /// The panel's PAUSE line is no action of the driver's: no note, no key taken from anyone.

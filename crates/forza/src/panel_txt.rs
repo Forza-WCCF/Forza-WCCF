@@ -40,6 +40,9 @@ pub struct PanelFile {
     pub board_buttons: bool,
     /// board_rect=x,y,w,h,max: where that window was last (its restored place in screen pixels, and maximized).
     pub board_rect: Option<[i32; 5]>,
+    /// pad_background=on (2017-18): the controller also counts while the game is not in front; the key driver reads
+    /// it again when the file changes. Ignored while two or more seats run on the PC.
+    pub pad_background: bool,
 }
 
 impl Default for PanelFile {
@@ -56,6 +59,7 @@ impl Default for PanelFile {
             board_window: false,
             board_buttons: false,
             board_rect: None,
+            pad_background: false,
         }
     }
 }
@@ -97,6 +101,7 @@ impl PanelFile {
                 "auto_logs" => f.auto_logs_off = val == "0",
                 "board" => f.board_window = is("window"),
                 "board_buttons" => f.board_buttons = is("on"),
+                "pad_background" => f.pad_background = is("on"),
                 "board_rect" => {
                     let n: Vec<i32> = val
                         .split(',')
@@ -150,6 +155,9 @@ impl PanelFile {
         if self.board_buttons {
             s += "board_buttons=on\n";
         }
+        if self.pad_background {
+            s += "pad_background=on\n";
+        }
         if let Some([x, y, w, h, max]) = self.board_rect {
             s += &format!("board_rect={x},{y},{w},{h},{max}\n");
         }
@@ -181,13 +189,14 @@ play_on=online\nserver=1.2.3.4\nenglish=off\nhover_delay_ms=500\nauto_logs=0\n"
             hover_ms: Some(2000),
             board_window: true,
             board_buttons: true,
+            pad_background: true,
             board_rect: Some([-1600, 20, 900, 1400, 0]),
             ..PanelFile::default()
         };
         assert_eq!(PanelFile::parse(all.text(true).as_bytes()), all);
         assert!(all.text(true).contains("read by PLAY.bat at its next\n"));
         assert!(
-            all.text(false).ends_with("play_on=this_pc\nenglish=it\ncard=new\ncard_fix=bad_endings\nlayout=compact\nhover_delay_ms=2000\nboard=window\nboard_buttons=on\nboard_rect=-1600,20,900,1400,0\n")
+            all.text(false).ends_with("play_on=this_pc\nenglish=it\ncard=new\ncard_fix=bad_endings\nlayout=compact\nhover_delay_ms=2000\nboard=window\nboard_buttons=on\npad_background=on\nboard_rect=-1600,20,900,1400,0\n")
         );
         for (line, ms) in [
             ("", Some(500)),

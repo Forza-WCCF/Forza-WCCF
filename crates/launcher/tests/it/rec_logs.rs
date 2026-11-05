@@ -133,8 +133,11 @@ fn rotate_case(root: &Path, rec: &Value) {
         .map(|s| now.replace(&ex.replace(s, "({ex})$1"), "previous-{now}").into_owned())
         .collect();
     assert_eq!(json!(said), rec["said"], "{}", rec["case"]);
+    // the other change: the run before last also stays as previous-2\ (play.py only zipped it)
+    let older = |v: &Value| v[0].as_str().unwrap().starts_with("previous-2");
     let t: Vec<Value> = tree(&logs)
         .into_iter()
+        .filter(|v| !older(v))
         .map(|v| {
             let p = v[0].as_str().unwrap();
             let p = if p.contains("20261001") {
@@ -199,4 +202,30 @@ fn append_makes_the_folder_and_adds_timed_lines() {
     assert_eq!(lines.len(), 2, "{text}");
     assert!(lines[0].ends_with("  one") && lines[0].len() == 13, "{text}");
     assert!(lines[1].ends_with("  two") && lines[1].as_bytes()[2] == b':', "{text}");
+}
+
+#[test]
+fn rotate_keeps_the_last_three_runs() {
+    let d = tempfile::tempdir().unwrap();
+    let logs = d.path().join("logs");
+    for run in 1..=5 {
+        rotate(&logs).unwrap();
+        fs::write(logs.join("run.txt"), format!("run {run}")).unwrap();
+    }
+    fs::create_dir_all(logs.join("previous-20261001-000000")).unwrap(); // set aside by an earlier start
+    rotate(&logs).unwrap();
+    let run = |dir: &str| fs::read_to_string(logs.join(dir).join("run.txt")).unwrap();
+    assert_eq!(
+        (run("previous"), run("previous-2"), run("previous-3")),
+        ("run 5".into(), "run 4".into(), "run 3".into())
+    );
+    assert!(!logs.join("previous-20261001-000000").exists());
+    let zips = fs::read_dir(logs.join("archive")).unwrap().count();
+    assert!(zips >= 1, "every run that left previous\\ is zipped");
+}
+
+#[test]
+fn run_log_clock_has_milliseconds() {
+    let t = OffsetDateTime::from_unix_timestamp_nanos(1_791_500_001_042_000_000).unwrap();
+    assert_eq!(launcher::logs::clock(t), "22:53:21.042");
 }

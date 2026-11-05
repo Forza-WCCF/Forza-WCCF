@@ -6,8 +6,12 @@
 //!  - serves the serial ports MXHOOK_COM names from the card reader's and the I/O board's named pipes ([`serial`]);
 //!  - blocks the DHCP release and renew on the host's network card, which dropped the player's LAN, and presents this
 //!    PC to the game with one address in the cabinet's network ([`net`]);
-//!  - 2010-11: answers the server's start of logowin.exe itself ([`logowin`]);
+//!  - both editions' game programs: answer the server's start of logowin.exe themselves ([`logowin`]);
 //!  - control (2010-11 on Windows, 2017-18 on Windows and Wine): gives it the players' messages only whole ([`whole`]);
+//!  - 2017-18 control, opt-in (WCCF_UCLIVE=on): the Universal Championship live on the projector only with a player's
+//!    club in it ([`uclive`]);
+//!  - 2010-11: the program's name lookups and WinInet calls fail for the publisher's network hosts
+//!    ([`forza_native::hosts`]; 2017-18's wccfnet.dll does the same);
 //!  - a server under Wine (both editions): loads netguard.dll as the second guard ([`net::load_netguard`]); 2010-11
 //!    also fixes three faults of control ([`server`]).
 //!
@@ -54,9 +58,11 @@ const EDITION: &str = if cfg!(feature = "e1011") {
 mod dmi;
 #[cfg_attr(not(feature = "e1011-server"), allow(dead_code))]
 mod fixes;
-#[cfg_attr(not(feature = "e1011"), allow(dead_code))]
+#[cfg_attr(not(any(feature = "e1011", feature = "e1718")), allow(dead_code))]
 mod logowin;
 mod ports;
+#[cfg_attr(any(feature = "e1011", feature = "e1011-server"), allow(dead_code))]
+mod uclive;
 #[cfg_attr(feature = "e1011-server", allow(dead_code))]
 mod wholemsg;
 
@@ -131,8 +137,23 @@ fn install() -> bool {
         if ringedge { "ON - mxsram" } else { "off" }
     );
     let (host, inet) = net::install_address();
+    // 2010-11 (wccfk.dll, the server's winmm.dll): after install_address, whose gethostbyname then sits behind the
+    // check; 2017-18's programs get the same from wccfnet.dll
+    #[cfg(any(feature = "e1011", feature = "e1011-server"))]
+    log!("{}", forza_native::hosts::install(|s| log!("{s}")));
     #[cfg(any(feature = "e1011", feature = "e1718", feature = "e1718-server"))]
     whole::install();
+    #[cfg(any(feature = "e1718", feature = "e1718-server"))]
+    uclive::install();
+    // 2017-18: the kit ships no stand-in logowin.exe any more, so a miss here lets the original's white screen show
+    #[cfg(feature = "e1718")]
+    if logowin::install() {
+        log!("logowin: answered in-process (CreateProcessA hooked)");
+    } else {
+        log!(
+            "logowin: NOT HOOKED - CreateProcessA is not imported or could not be patched; a start of logowin.exe runs the original"
+        );
+    }
 
     let b = u8::from;
     let [cfw, cfa, cfm, ofm, dio] = dev.map(b);

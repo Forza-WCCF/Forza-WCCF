@@ -7,7 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Which game a kit runs.  The two kits are laid out differently: 2010-11 has `programs\`, 2017-18 has `bin\` (the
-/// hook, logowin, FPR_Emu, forza-server) and `overlay\` (the panel, the catalogue; 2010-11 keeps inject.exe in programs\);
+/// hook, FPR_Emu, forza-server) and `overlay\` (the panel, the catalogue; 2010-11 keeps inject.exe in programs\);
 /// [`Kit::edition`] tells them apart.
 pub use crate::Edition;
 
@@ -21,6 +21,18 @@ impl Kit {
     pub fn version(&self) -> Option<String> {
         let v = fs::read_to_string(self.dir.join("version.txt")).ok()?;
         Some(v.trim().to_owned()).filter(|v| !v.is_empty())
+    }
+
+    /// The release as the Launcher and the panel show it: version.txt's first line without `kit-` ("0.3.0").
+    pub fn release(&self) -> Option<String> {
+        let v = self.version()?;
+        let v = v
+            .lines()
+            .next()
+            .unwrap_or("")
+            .trim()
+            .trim_start_matches("kit-");
+        Some(v.to_owned()).filter(|v| !v.is_empty())
     }
 
     pub fn here() -> Self {
@@ -74,6 +86,17 @@ impl Kit {
     pub fn program(&self, name: &str) -> PathBuf {
         let lay = self.edition().layout();
         self.dir.join(lay.program_dir(name)).join(name)
+    }
+
+    /// Forza-WCCF's own programs that are missing from this folder, by name. An antivirus quarantines them (Microsoft
+    /// flagged FPR_Emu.exe from 0.6.0 on) and the game then runs without what they do: no card table, no panel, and
+    /// nothing says why. The Launcher names them and refuses the start.
+    pub fn missing_programs(&self) -> Vec<&'static str> {
+        const NEEDED: [&str; 2] = ["FPR_Emu.exe", "forza_panel.dll"];
+        NEEDED
+            .into_iter()
+            .filter(|name| !self.program(name).is_file())
+            .collect()
     }
 
     pub fn data(&self) -> PathBuf {
@@ -139,6 +162,25 @@ impl Kit {
     }
 }
 
+/// settings.json "projector" (2017-18, default on): the projector's window shown. Off hides it, at once, while its
+/// CPU championship plays on (the panel in the projector reads it each second).
+pub const PROJECTOR: &str = "projector";
+/// settings.json "cpu_championship" (2017-18): the projector program runs, and with it the CPU championship it plays.
+/// Read at the start of a run on this PC. Missing: what the old "projector" switch said, as it turned both off.
+pub const CPU_CHAMPIONSHIP: &str = "cpu_championship";
+/// The start of the projector window's title (the panel writes it): a hidden window with it is still the projector's.
+pub const PROJECTOR_TITLE: &str = "Projector - Forza-WCCF";
+
+pub fn projector_shown(settings: &serde_json::Value) -> bool {
+    settings[PROJECTOR].as_bool() != Some(false)
+}
+
+pub fn cpu_championship_on(settings: &serde_json::Value) -> bool {
+    settings[CPU_CHAMPIONSHIP]
+        .as_bool()
+        .unwrap_or_else(|| projector_shown(settings))
+}
+
 /// The game's three programs, as find_game looks for them.
 pub const GAME_PROGRAMS: [&str; 3] = [
     "client_Release.exe",
@@ -179,6 +221,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn projector_and_cpu_championship_are_separate_and_the_old_switch_migrates() {
+        use serde_json::json;
+        let both = |v: serde_json::Value| (projector_shown(&v), cpu_championship_on(&v));
+        assert_eq!(both(json!({})), (true, true));
+        // the old "Projector and CPU championship" switch: its choice holds for both until the new key is written
+        assert_eq!(both(json!({"projector": false})), (false, false));
+        assert_eq!(both(json!({"projector": true})), (true, true));
+        // apart: the window hidden with the championship on, and the other way round
+        assert_eq!(
+            both(json!({"projector": false, "cpu_championship": true})),
+            (false, true)
+        );
+        assert_eq!(
+            both(json!({"projector": true, "cpu_championship": false})),
+            (true, false)
+        );
+    }
+
+    #[test]
     fn the_edition_comes_from_the_layout() {
         let dir = tempfile::tempdir().unwrap();
         let kit = Kit::at(dir.path());
@@ -191,6 +252,34 @@ mod tests {
             Edition::E1011,
             "an old 2010-11 kit's overlay\\ left beside programs\\"
         );
+    }
+
+    #[test]
+    fn missing_programs_follows_the_layout_of_both_editions() {
+        let dir = tempfile::tempdir().unwrap();
+        let kit = Kit::at(dir.path());
+        assert_eq!(kit.missing_programs(), ["FPR_Emu.exe", "forza_panel.dll"]);
+        fs::create_dir_all(dir.path().join("bin")).unwrap();
+        fs::create_dir_all(dir.path().join("overlay")).unwrap();
+        fs::write(dir.path().join("bin").join("FPR_Emu.exe"), "").unwrap();
+        assert_eq!(kit.missing_programs(), ["forza_panel.dll"]);
+        fs::write(dir.path().join("overlay").join("forza_panel.dll"), "").unwrap();
+        assert!(kit.missing_programs().is_empty());
+        // 2010-11 keeps both in programs\
+        let old = tempfile::tempdir().unwrap();
+        let kit = Kit::at(old.path());
+        fs::create_dir_all(old.path().join("programs")).unwrap();
+        fs::write(old.path().join("programs").join("forza_panel.dll"), "").unwrap();
+        assert_eq!(kit.missing_programs(), ["FPR_Emu.exe"]);
+    }
+
+    #[test]
+    fn release_drops_the_kit_prefix() {
+        let dir = tempfile::tempdir().unwrap();
+        let kit = Kit::at(dir.path());
+        assert_eq!(kit.release(), None);
+        fs::write(dir.path().join("version.txt"), "kit-0.6.0\r\n").unwrap();
+        assert_eq!(kit.release().as_deref(), Some("0.6.0"));
     }
 
     #[test]

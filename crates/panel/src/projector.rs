@@ -16,8 +16,9 @@ use windows::core::HRESULT;
 pub fn letterbox(cw: u32, ch: u32, bw: u32, bh: u32) -> RECT {
     let s = (cw as f32 / bw.max(1) as f32).min(ch as f32 / bh.max(1) as f32);
     let (w, h) = (
-        ((bw as f32 * s) as i32).clamp(1, cw as i32),
-        ((bh as f32 * s) as i32).clamp(1, ch as i32),
+        // rounded: 1000/1440 * 1440 is 999.99994 in f32, a 1-pixel bar the window's edge would show
+        ((bw as f32 * s).round() as i32).clamp(1, cw as i32),
+        ((bh as f32 * s).round() as i32).clamp(1, ch as i32),
     );
     let (x, y) = ((cw as i32 - w) / 2, (ch as i32 - h) / 2);
     RECT {
@@ -229,8 +230,52 @@ mod tests {
         // 1600x600 into a 1200x700 client: full width, bars above and below
         assert_eq!(letterbox(1200, 700, 1600, 600), r(0, 125, 1200, 575));
         // into 3200x1000: full height, bars left and right
-        assert_eq!(letterbox(3200, 1000, 1600, 600), r(267, 0, 2933, 1000));
+        assert_eq!(letterbox(3200, 1000, 1600, 600), r(266, 0, 2933, 1000));
         assert_eq!(letterbox(1600, 600, 1600, 600), r(0, 0, 1600, 600));
+    }
+
+    /// For a wider, a taller and an exact window: the picture keeps its shape (within a pixel of rounding), fills one
+    /// axis and sits centred, the bars on either side equal within a pixel.
+    #[test]
+    fn letterbox_fills_one_axis_centred() {
+        for (bw, bh) in [(1440, 900), (1600, 600)] {
+            for (cw, ch) in [
+                (2560, 1080),
+                (1000, 1400),
+                (bw, bh),
+                (1920, 1200),
+                (801, 333),
+            ] {
+                let r = letterbox(cw, ch, bw, bh);
+                let (w, h) = (r.right - r.left, r.bottom - r.top);
+                let (cw, ch, bw, bh) = (cw as i32, ch as i32, bw as i32, bh as i32);
+                assert!(w == cw || h == ch, "{cw}x{ch}: {w}x{h} fills neither axis");
+                assert!(w <= cw && h <= ch, "{cw}x{ch}: {w}x{h} spills over");
+                // same shape: w/h = bw/bh, to a pixel on the scaled axis
+                assert!(
+                    (w * bh - h * bw).abs() <= bw.max(bh),
+                    "{cw}x{ch}: {w}x{h} is not {bw}:{bh}"
+                );
+                assert!(
+                    (r.left - (cw - r.right)).abs() <= 1,
+                    "{cw}x{ch}: not centred"
+                );
+                assert!(
+                    (r.top - (ch - r.bottom)).abs() <= 1,
+                    "{cw}x{ch}: not centred"
+                );
+            }
+        }
+        // exact: no bars at all
+        assert_eq!(
+            letterbox(1440, 900, 1440, 900),
+            RECT {
+                left: 0,
+                top: 0,
+                right: 1440,
+                bottom: 900
+            }
+        );
     }
 
     #[test]

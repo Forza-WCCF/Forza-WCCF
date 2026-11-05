@@ -1,6 +1,6 @@
 //! The window's side of the online lobby: the polling thread while ONLINE is shown, JOIN and its ticket, the heartbeat
 //! while the lease waits for the run, the last seat offered again within 75 s, and the VS rooms: HOST VS, READY, the
-//! 5 s countdown that starts the run, the CPU fallback; 2017-18 shop rooms joined by their code (HOST SHOP itself is
+//! 5 s countdown that starts the run, the CPU fallback; 2017-18 arcade rooms joined by their code (HOST ARCADE itself is
 //! `main.rs`'s job) (`launcher::lobby` has the workers).
 
 use super::{plain_error, poke, refuse, t, tf};
@@ -9,7 +9,8 @@ use forza_ui::launcher::{LauncherState, Tab};
 use forza_ui::lobby::{Kind, LobbyAction, Notice, Occupant, Room, RowState};
 use launcher::choices;
 use launcher::lobby::CodeJoin;
-use launcher::lobby::{Beat, Book, Msg, Poller, REJOIN_SECS, Wake, close, quick_shop, release};
+use launcher::lobby::{Beat, Book, Msg, Poller, REJOIN_SECS, Wake, close, quick_arcade, release};
+use launcher::notice::{self, Notices};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::Path;
@@ -43,8 +44,8 @@ struct Held {
     _beat: Beat,
     /// A VS room: its id, and whether this PC made it (LEAVE then closes it).
     vs: Option<(String, bool)>,
-    /// A shop room's guest seat (2017-18, by code): released when its run ends.
-    shop: bool,
+    /// An arcade room's guest seat (2017-18, by code): released when its run ends.
+    arcade: bool,
     since: Instant,
 }
 
@@ -52,7 +53,7 @@ struct Held {
 pub enum Go {
     /// PLAY, as the button does (a VS room's countdown ran out).
     Play,
-    /// `remote ID`: a shop room's host, reached through its tunnel.
+    /// `remote ID`: an arcade room's host, reached through its tunnel.
     Remote(String),
 }
 
@@ -157,8 +158,12 @@ pub struct Online {
     last: Option<Last>,
     was_running: bool,
     clock: Clock,
-    /// The shop room being joined is a listed row's (its id), not a typed code.
+    /// The arcade room being joined is a listed row's (its id), not a typed code.
     joining_listed: bool,
+    /// JOIN on a server's own 2017-18 arcade: PLAY at its address on the next look.
+    connect: bool,
+    /// The project server's notice and that server (2017-18 only; [`launcher::notice`]).
+    notices: Option<(Notices, String)>,
 }
 
 impl Online {
@@ -177,6 +182,13 @@ impl Online {
         o.book = Book::new(&servers);
         o.servers = servers;
         o.last = last;
+        if edition == launcher::Edition::E1718 {
+            let project = launcher::lobby::project_server(edition);
+            let n = Notices::new(settings.with_file_name("notice.json"));
+            let log: forza::service::Log = Arc::new(|line: &str| super::log(line));
+            n.watch(project.clone(), edition.name(), notice::EVERY, Arc::new(poke), log);
+            o.notices = Some((n, project));
+        }
         o
     }
 
@@ -218,10 +230,10 @@ impl Online {
             st.lobby.room = None;
             st.lobby.joining = None;
         }
-        // a shop guest's run is over (or never came up): its seat goes back
+        // an arcade guest's run is over (or never came up): its seat goes back
         if !st.running
             && !st.busy
-            && self.held.as_ref().is_some_and(|h| h.shop && h.played)
+            && self.held.as_ref().is_some_and(|h| h.arcade && h.played)
             && let Some(h) = self.held.take()
         {
             give_back(h);
@@ -252,7 +264,17 @@ impl Online {
         let msgs: Vec<Msg> = self.poller.iter().flat_map(|p| p.rx.try_iter()).collect();
         for m in msgs {
             match m {
-                Msg::Poll { .. } => self.book.apply(&m, Instant::now()),
+                Msg::Poll { .. } => {
+                    if let Msg::Poll {
+                        server, result: Ok(l), ..
+                    } = &m
+                        && let Some((n, project)) = &self.notices
+                        && server == project
+                    {
+                        n.heard(l, &super::log);
+                    }
+                    self.book.apply(&m, Instant::now());
+                }
                 Msg::Reserved {
                     server,
                     id,
@@ -298,11 +320,13 @@ impl Online {
         if self.poller.is_some() {
             self.rows = self.book.fill(&mut st.lobby, Instant::now());
         }
-        let go = self.room(st).then_some(Go::Play);
+        st.server_notice = self.notices.as_ref().and_then(|(n, _)| n.text(st.lang.code()));
+        let go = (self.room(st) | std::mem::take(&mut self.connect)).then_some(Go::Play);
         st.rejoin = self
             .last
             .iter()
-            .filter(|l| self.held.is_none() && !st.running && unix() <= l.at + REJOIN_SECS)
+            // the saved room is a VS room on 2017-18: no offer while the VS lobby is hidden
+            .filter(|l| !st.lobby.vs_hidden && self.held.is_none() && !st.running && unix() <= l.at + REJOIN_SECS)
             .map(|l| tf("launcher.rejoin", &[("name", &l.name), ("seat", &l.seat.to_string())]))
             .next();
         go
@@ -399,7 +423,7 @@ impl Online {
                     played: false,
                     _beat: beat,
                     vs: Some((id, seat == 1)),
-                    shop: false,
+                    arcade: false,
                     since: Instant::now(),
                 });
             }
@@ -429,21 +453,21 @@ impl Online {
             Ok(Reserved::Ticket { ticket, seat }) => {
                 let beat = p.beat(&server, &ticket, Duration::from_secs(HEARTBEAT_EVERY), Arc::new(poke));
                 let vs = st.lobby.vs.iter().find(|r| r.id == id);
-                // 2017-18 (SHOPS view-only) reserves only VS rooms, also a rejoin before the list came
+                // 2017-18 (ARCADES view-only) reserves only VS rooms, also a rejoin before the list came
                 let (kind, n) = match vs {
                     Some(r) => (Kind::Vs, usize::from(r.max.max(2))),
-                    None if st.lobby.shops_view_only => (Kind::Vs, 2),
-                    None => (Kind::Shops, 8),
+                    None if st.lobby.arcades_view_only => (Kind::Vs, 2),
+                    None => (Kind::Arcades, 8),
                 };
                 let mut room = Room::new(&name, kind, n);
-                room.next_entry = st.lobby.shops.iter().find(|r| r.id == id).and_then(|r| r.next_entry);
+                room.next_entry = st.lobby.arcades.iter().find(|r| r.id == id).and_then(|r| r.next_entry);
                 let i = usize::from(seat).clamp(1, n) - 1;
                 room.mine = Some(i);
-                // a shop seat is ready once reserved; a VS seat waits for READY
+                // an arcade seat is ready once reserved; a VS seat waits for READY
                 // the club id comes with the next LOBBY (the desk's, never the ticket)
                 room.seats[i] = Some(Occupant {
                     club: String::new(),
-                    ready: kind == Kind::Shops,
+                    ready: kind == Kind::Arcades,
                 });
                 st.lobby.room = Some(room);
                 self.clock = Clock::default();
@@ -462,7 +486,7 @@ impl Online {
                     played: false,
                     _beat: beat,
                     vs: (kind == Kind::Vs).then_some((id, false)),
-                    shop: false,
+                    arcade: false,
                     since: Instant::now(),
                 });
             }
@@ -475,7 +499,7 @@ impl Online {
         }
     }
 
-    /// A typed shop code's answer: in, the seat is held (its heartbeat runs until the run ends) and the run goes to the
+    /// A typed arcade code's answer: in, the seat is held (its heartbeat runs until the run ends) and the run goes to the
     /// host's id; else why not.
     fn coded(
         &mut self,
@@ -503,7 +527,7 @@ impl Online {
                     played: true,
                     _beat: beat,
                     vs: None,
-                    shop: true,
+                    arcade: true,
                     since: Instant::now(),
                 });
                 st.lobby.notice = None;
@@ -511,10 +535,10 @@ impl Online {
                 return Some(host);
             }
             // a listed row's room left the desk since the list came
-            Ok(CodeJoin::NoRoom) if self.joining_listed => Notice::ShopClosed,
+            Ok(CodeJoin::NoRoom) if self.joining_listed => Notice::ArcadeClosed,
             Ok(CodeJoin::NoRoom) => Notice::NoRoom,
             Ok(CodeJoin::Full) => Notice::RoomFull,
-            Ok(CodeJoin::Gone) => Notice::ShopClosed,
+            Ok(CodeJoin::Gone) => Notice::ArcadeClosed,
             Err(e) => {
                 st.lobby.joining = None;
                 refuse(plain_error(&e));
@@ -526,10 +550,14 @@ impl Online {
         None
     }
 
-    /// A code typed: an open VS room's as the list shows it, else (with the shared shop on) a shop room's, asked of
+    /// A code typed: an open VS room's as the list shows it, else (with the shared arcade on) an arcade room's, asked of
     /// the club server's desk, where hosts make them.
     fn join_code(&mut self, st: &mut LauncherState, code: &str) {
-        let vs = st.lobby.vs.iter().find(|r| r.name == code && r.state == RowState::Open);
+        let vs = st
+            .lobby
+            .vs
+            .iter()
+            .find(|r| !st.lobby.vs_hidden && r.name == code && r.state == RowState::Open);
         if let Some(id) = vs.map(|r| r.id.clone()) {
             st.lobby.notice = None;
             self.join(st, &id, None);
@@ -538,26 +566,26 @@ impl Online {
         if self.poller.is_none() {
             return;
         }
-        let server = launcher::lobby::shop_lobby(st.club_server.as_deref().unwrap_or_default());
+        let server = launcher::lobby::arcade_lobby(st.club_server.as_deref().unwrap_or_default());
         st.lobby.desk.clone_from(&server); // a "no room" names it: the host's room may be on another club server
         // a code of another length is no room's: not worth one of the desk's wrong-code tries
-        if !st.lobby.shop_rooms || code.len() != forza::online::lobby::SHOP_CODE_LEN {
+        if !st.lobby.arcade_rooms || code.len() != forza::online::lobby::ARCADE_CODE_LEN {
             st.lobby.notice = Some(Notice::NoRoom);
             return;
         }
-        self.shop_join(st, &server, code, false);
+        self.arcade_join(st, &server, code, false);
     }
 
-    /// `JOIN` of a shop room on `server` by its code, or by a listed row's id (`listed`).
-    fn shop_join(&mut self, st: &mut LauncherState, server: &str, key: &str, listed: bool) {
+    /// `JOIN` of an arcade room on `server` by its code, or by a listed row's id (`listed`).
+    fn arcade_join(&mut self, st: &mut LauncherState, server: &str, key: &str, listed: bool) {
         let Some(p) = &self.poller else { return };
-        let file = launcher::Kit::here().data().join(launcher::lobby::SHOP_JOIN_KEY);
-        match vslink::shop::own_id(&file) {
+        let file = launcher::Kit::here().data().join(launcher::lobby::ARCADE_JOIN_KEY);
+        match vslink::arcade::own_id(&file) {
             Ok(own) => {
                 self.joining_listed = listed;
                 st.lobby.joining = Some(key.to_owned());
                 st.lobby.notice = None;
-                p.join_code(server, key, &vslink::shop::id_text(&own), Arc::new(poke));
+                p.join_code(server, key, &vslink::arcade::id_text(&own), Arc::new(poke));
             }
             Err(e) => refuse(plain_error(&format!("{}: {e}", file.display()))),
         }
@@ -567,16 +595,23 @@ impl Online {
         let (Some(p), Some(server)) = (&self.poller, self.rows.get(id)) else {
             return;
         };
-        // a listed shop room (2017-18): JOIN its id, as a typed code would be
-        if st.lobby.shop_rooms && st.lobby.shops.iter().any(|r| r.room && r.id == id) {
+        // a listed arcade room (2017-18): JOIN its id, as a typed code would be
+        if st.lobby.arcade_rooms && st.lobby.arcades.iter().any(|r| r.room && r.id == id) {
             let server = server.clone();
             st.lobby.desk.clone_from(&server);
-            self.shop_join(st, &server, id, true);
+            self.arcade_join(st, &server, id, true);
+            return;
+        }
+        // a server's own 2017-18 arcade (no `room`): CONNECT at its address, the game server beside its desk
+        // (run::rules::vs_target); the desk seats no one there
+        if st.lobby.arcades_view_only && st.lobby.arcades.iter().any(|r| !r.room && r.id == id) {
+            st.lobby.address.clone_from(server);
+            self.connect = true;
             return;
         }
         let name = st
             .lobby
-            .shops
+            .arcades
             .iter()
             .chain(&st.lobby.vs)
             .find(|r| r.id == id)
@@ -590,7 +625,7 @@ impl Online {
             LobbyAction::Join(id) => self.join(st, &id, None),
             LobbyAction::QuickMatch if st.lobby.kind == Kind::Vs => self.host(true),
             LobbyAction::QuickMatch => {
-                if let Some(id) = quick_shop(&st.lobby) {
+                if let Some(id) = quick_arcade(&st.lobby) {
                     self.join(st, &id, None);
                 }
             }
@@ -618,8 +653,8 @@ impl Online {
                 }
             }
             LobbyAction::JoinCode(code) => self.join_code(st, &code),
-            // HOST SHOP and the LAN fold are jobs of the window's (main.rs); CONNECT arrives as Action::Play
-            LobbyAction::HostShop | LobbyAction::HostLan | LobbyAction::JoinLan(_) | LobbyAction::Connect => {}
+            // HOST ARCADE and the LAN fold are jobs of the window's (main.rs); CONNECT arrives as Action::Play
+            LobbyAction::HostArcade | LobbyAction::HostLan | LobbyAction::JoinLan(_) | LobbyAction::Connect => {}
             LobbyAction::DirectAddress(a) => {
                 let a = a.trim().to_owned();
                 if !launcher::lobby::valid_server(&a) {

@@ -24,6 +24,7 @@ ans = say("LOBBY " + edition)
 print("LOBBY ->", ans[:300])
 try:
     j = json.loads(ans)
+    # "shops": the LOBBY wire field, kept from before the arcade rename
     good = j.get("v") == 1 and j.get("edition") == edition and isinstance(j.get("shops"), list)
 except ValueError:
     good = False

@@ -1,11 +1,11 @@
-//! A guest's own club in a 2017-18 shop (owner decision 2026-10-27). Only the host's control talks to a game server,
+//! A guest's own club in a 2017-18 arcade (decided 2026-10-27). Only the host's control talks to a game server,
 //! so on JOIN the guest's Launcher sends its home club (every row of its card's Aime id in `data\save\gamesvr`) to
-//! the host's seat desk, which imports it under the guest's shop Aime id with fresh coach and card ids. The guest
+//! the host's seat desk, which imports it under the guest's arcade Aime id with fresh coach and card ids. The guest
 //! pulls it back every [`POLL`] (so within seconds of each saved match) and on leave, and writes it home with its own
-//! ids restored. A card whose home club sits under an older integer Aime id is read and written there: the shop
+//! ids restored. A card whose home club sits under an older integer Aime id is read and written there: the arcade
 //! only ever sees the hash.
 //!
-//! Desk words (TCP 20030, through the shop tunnel or on the LAN), one request per connection:
+//! Desk words (TCP 20030, through the arcade tunnel or on the LAN), one request per connection:
 //! `CLUB PUT seat aime token size` + size bytes of [`Club`] JSON -> `OK size` + [`Link`] JSON | `NO why`;
 //! `CLUB GET aime token stamp` -> `SAME` | `OK size stamp` + [`Club`] JSON | `NO why`;
 //! `CLUB DONE aime token` -> `OK 0` | `NO why`.
@@ -14,10 +14,14 @@
 //! id that holds a club the desk did not import (the host's own, or one from before) is never read, replaced or
 //! dropped.
 //!
-//! The guest's side keeps `club_out.json` (the marker: in which shop since when, the id map, the home club's stamp)
+//! The guest's side keeps `club_out.json` (the marker: in which arcade since when, the id map, the home club's stamp)
 //! beside its store while the club is out, and `club_last.json`, the last copy pulled. A marker found at the next
 //! start means the session did not end cleanly: the home copy stays, the last pulled copy goes to `backups`, and the
 //! player is told ([`leftover`]).
+//!
+//! Online on a server's own arcade (`forza-server all`, its game server beside the desk) the trip is the same, to
+//! that server's store; there no seat is needed and the brought club replaces what the server kept for the card
+//! ([`Store::import_public`]).
 
 use super::gamesvr::{BLOCK, Store, TAIL, get_bits, next_id, now, put, put_bits, u32_at};
 use crate::service::{Handle, Log};
@@ -28,8 +32,8 @@ use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -39,6 +43,8 @@ pub const MAX_BYTES: usize = 2 << 20;
 pub const POLL: Duration = Duration::from_secs(10);
 /// Guest clubs a host holds at once (one per seat): a guest cannot fill the host's store.
 const MAX_GUESTS: usize = 8;
+/// Guest clubs a public server's store holds ([`Store::import_public`]); the oldest copy makes room for a new one.
+const MAX_PUBLIC_GUESTS: usize = 256;
 /// Backups of each kind kept in `backups` (oldest go first).
 const KEEP_BACKUPS: usize = 30;
 /// A stored request the copy carries: SAVE_DATA_SET 277, whole.
@@ -146,9 +152,9 @@ pub struct Swap {
 
 impl Swap {
     /// Home -> host ids.
-    pub fn out(link: &Link, home_aime: u32, shop_aime: u32) -> Swap {
+    pub fn out(link: &Link, home_aime: u32, arcade_aime: u32) -> Swap {
         Swap {
-            aimes: HashMap::from([(home_aime, shop_aime)]),
+            aimes: HashMap::from([(home_aime, arcade_aime)]),
             coaches: link.coaches.iter().copied().collect(),
             cards: link.cards.iter().copied().collect(),
         }
@@ -162,6 +168,21 @@ impl Swap {
             cards: flip(&self.cards),
         }
     }
+}
+
+/// A save block's tag for the logs: 8 hex digits of its SHA-256 with the ids a copy swaps zeroed, so a club reads the
+/// same at home and in an arcade, and any change to its squad, lineup or record shows as a new tag.
+pub fn team_tag(block: &[u8]) -> String {
+    let mut b = block.to_vec();
+    if b.len() >= BLOCK {
+        for bit in CARD_BITS.into_iter().chain([COACH_BIT]) {
+            put_bits(&mut b, bit, 32, 0);
+        }
+    }
+    Sha256::digest(&b)[..4]
+        .iter()
+        .map(|x| format!("{x:02x}"))
+        .collect()
 }
 
 fn swap_u32(b: &mut [u8], at: usize, ids: &HashMap<u32, u32>) {
@@ -270,6 +291,19 @@ impl Club {
         Ok(())
     }
 
+    /// One short log line: the card count, then each club card's id, coach id, play count and [`team_tag`].
+    pub fn summary(&self) -> String {
+        let mut s = format!("aime {}: {} card(s)", self.aime, self.coaches.len());
+        for k in &self.coaches {
+            let team = k.save.as_ref().map_or("-".into(), |v| team_tag(&v.block));
+            s += &format!(
+                " [card {} coach {} plays {} team {team}]",
+                k.card, k.coach, k.play_count
+            );
+        }
+        s
+    }
+
     /// A short hash of the club's JSON: equal stamps, equal clubs.
     pub fn stamp(&self) -> String {
         stamp_of(&serde_json::to_vec(self).unwrap_or_default())
@@ -283,7 +317,7 @@ fn stamp_of(json: &[u8]) -> String {
         .collect()
 }
 
-/// The token that owns a card's club in a shop: SHA-256 of the access code with a fixed prefix, so the host never
+/// The token that owns a card's club in an arcade: SHA-256 of the access code with a fixed prefix, so the host never
 /// learns the code (which would let it play as that card elsewhere).
 pub fn token(code: &str) -> String {
     let h = Sha256::digest(format!("forza-wccf club\0{code}").as_bytes());
@@ -440,13 +474,13 @@ fn has_rows(db: &Connection, aime: u32) -> rusqlite::Result<bool> {
 fn owned(db: &Connection, aime: u32, token: &str) -> Result<(), String> {
     match guest_token(db, aime).map_err(db_err)? {
         Some(t) if t == token => Ok(()),
-        Some(_) => Err("another player's club for this card is in this shop".into()),
+        Some(_) => Err("another player's club for this card is in this arcade".into()),
         None => Err("no club of this card was brought here".into()),
     }
 }
 
 impl Store {
-    /// Host: imports a guest's home club under its shop Aime id `aime` with fresh coach and card ids; the map goes
+    /// Host: imports a guest's home club under its arcade Aime id `aime` with fresh coach and card ids; the map goes
     /// back to the guest. A copy of the same token replaces the old one (a rejoin); any other club under `aime` is
     /// refused, never touched.
     pub fn import_guest(
@@ -456,23 +490,70 @@ impl Store {
         seat: u8,
         token: &str,
     ) -> Result<Link, String> {
+        self.import(club, aime, seat, token, false)
+    }
+
+    /// A public server's desk beside its own game server (`forza-server all`): no host club to keep, so the
+    /// brought club replaces whatever the server kept for the card (a copy that never went home, a club made
+    /// there), and the oldest guest copy makes room past [`MAX_PUBLIC_GUESTS`]. Another token's copy is still refused.
+    pub fn import_public(
+        &mut self,
+        club: &Club,
+        aime: u32,
+        seat: u8,
+        token: &str,
+    ) -> Result<Link, String> {
+        self.import(club, aime, seat, token, true)
+    }
+
+    fn import(
+        &mut self,
+        club: &Club,
+        aime: u32,
+        seat: u8,
+        token: &str,
+        public: bool,
+    ) -> Result<Link, String> {
         club.check()?;
         let tx = self.0.transaction().map_err(db_err)?;
         match guest_token(&tx, aime).map_err(db_err)? {
             Some(t) if t != token => {
-                return Err("another player's club for this card is in this shop".into());
+                return Err("another player's club for this card is in this arcade".into());
             }
             Some(_) => {}
-            None if has_rows(&tx, aime).map_err(db_err)? => {
-                return Err("this shop already keeps a club for this card".into());
+            None if !public && has_rows(&tx, aime).map_err(db_err)? => {
+                return Err("this arcade already keeps a club for this card".into());
             }
             None => {
+                if public && has_rows(&tx, aime).map_err(db_err)? {
+                    // the server's own copy is replaced: kept in `backups` beside the store first
+                    let old = serde_json::to_vec(&export(&tx, aime).map_err(db_err)?)
+                        .map_err(|e| e.to_string())?;
+                    let dir = tx.path().and_then(|p| Path::new(p).parent());
+                    backup(
+                        dir.unwrap_or(Path::new(".")),
+                        &format!("replaced-{aime}"),
+                        &old,
+                    )
+                    .map_err(|e| format!("backup: {e}"))?;
+                }
                 let n: u32 = tx
                     .query_row("SELECT count(*) FROM guests", [], |r| r.get(0))
                     .map_err(db_err)?;
-                if n as usize >= MAX_GUESTS {
+                if public && n as usize >= MAX_PUBLIC_GUESTS {
+                    let oldest: u32 = tx
+                        .query_row(
+                            "SELECT aime_id FROM guests ORDER BY since LIMIT 1",
+                            [],
+                            |r| r.get(0),
+                        )
+                        .map_err(db_err)?;
+                    delete(&tx, oldest).map_err(db_err)?;
+                    tx.execute("DELETE FROM guests WHERE aime_id = ?1", [oldest])
+                        .map_err(db_err)?;
+                } else if !public && n as usize >= MAX_GUESTS {
                     return Err(format!(
-                        "this shop holds {MAX_GUESTS} guests' clubs already"
+                        "this arcade holds {MAX_GUESTS} guests' clubs already"
                     ));
                 }
             }
@@ -542,7 +623,7 @@ impl Store {
     }
 
     /// Guest: writes the host's copy `host` home under `home_aime` with the home ids (`link`, which gains fresh home
-    /// ids for clubs or cards made in the shop), in one transaction. `expect` is the home club's stamp at the last
+    /// ids for clubs or cards made in the arcade), in one transaction. `expect` is the home club's stamp at the last
     /// copy: a home club changed since is never overwritten (`Ok(None)`). Returns the new home stamp.
     pub fn write_home(
         &mut self,
@@ -629,13 +710,15 @@ impl Ask {
 }
 
 /// Host: answers one `CLUB` request. `head` is the line, `rest` what came after it, `held` says whether a seat is
-/// leased on the desk now. Returns the line for the desk's log.
+/// leased on the desk now; `public`: a public server's store, which needs no seat ([`Store::import_public`]).
+/// Returns the line for the desk's log.
 pub fn serve(
     db: &Path,
     head: &str,
     rest: Vec<u8>,
     conn: &mut TcpStream,
     held: &dyn Fn(u8) -> bool,
+    public: bool,
 ) -> io::Result<String> {
     fn no(conn: &mut TcpStream, why: &str) -> io::Result<String> {
         conn.write_all(format!("NO {why}\n").as_bytes())?;
@@ -657,19 +740,25 @@ pub fn serve(
         } => {
             // read first: a refusal with the upload unread would reset the connection before the answer arrives
             let body = read_body(conn, rest, size)?;
-            if !held(seat) {
+            if !public && !held(seat) {
                 return no(conn, &format!("seat {seat} is not taken"));
             }
             let club: Club = match serde_json::from_slice(&body) {
                 Ok(c) => c,
                 Err(e) => return no(conn, &format!("not a club ({e})")),
             };
-            match store.import_guest(&club, aime, seat, &token) {
+            let imported = if public {
+                store.import_public(&club, aime, seat, &token)
+            } else {
+                store.import_guest(&club, aime, seat, &token)
+            };
+            match imported {
                 Ok(link) => {
                     let json = serde_json::to_vec(&link).unwrap_or_default();
                     let said = format!(
-                        "club in: seat {seat}, Aime id {aime}, {} clubs",
-                        club.coaches.len()
+                        "club in: seat {seat}, Aime id {aime}, {} clubs; home {}",
+                        club.coaches.len(),
+                        club.summary()
                     );
                     (format!("OK {}\n", json.len()), json, said)
                 }
@@ -683,7 +772,11 @@ pub fn serve(
                 if now == stamp {
                     ("SAME\n".to_owned(), Vec::new(), String::new())
                 } else {
-                    let said = format!("club out: Aime id {aime}, {} clubs", club.coaches.len());
+                    let said = format!(
+                        "club out: Aime id {aime}, {} clubs; {}",
+                        club.coaches.len(),
+                        club.summary()
+                    );
                     (format!("OK {} {now}\n", json.len()), json, said)
                 }
             }
@@ -787,14 +880,16 @@ pub fn release(desk: SocketAddr, aime: u32, code: &str) -> Result<(), String> {
     ask(desk, &format!("CLUB DONE {aime} {}\n", token(code)), &[]).map(|_| ())
 }
 
-/// `club_out.json`: the club is out, in which shop since when, and what copying it back needs.
+/// `club_out.json`: the club is out, in which arcade since when, and what copying it back needs.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Out {
-    pub shop: String,
+    #[serde(rename = "shop")] // on-disk key from before the arcade rename
+    pub arcade: String,
     pub since: i64,
     pub seat: u8,
     pub home_aime: u32,
-    pub shop_aime: u32,
+    #[serde(rename = "shop_aime")] // on-disk key from before the arcade rename
+    pub arcade_aime: u32,
     pub link: Link,
     /// The home club's stamp after the last copy (in or back).
     pub home_stamp: String,
@@ -863,7 +958,7 @@ fn backup(dir: &Path, what: &str, bytes: &[u8]) -> io::Result<PathBuf> {
     Ok(path)
 }
 
-/// At a start: a club still marked out means the last shop session ended without bringing it home. The home copy
+/// At a start: a club still marked out means the last arcade session ended without bringing it home. The home copy
 /// stays; the last copy pulled from the host (if any) goes to `backups`, the marker goes. `Some(path)` (the backup,
 /// or the store folder when no copy came) when the player must be told.
 pub fn leftover(dir: &Path) -> io::Result<Option<PathBuf>> {
@@ -873,6 +968,7 @@ pub fn leftover(dir: &Path) -> io::Result<Option<PathBuf>> {
     }
     let last = last_file(dir);
     let kept = match std::fs::read(&last) {
+        // file prefix kept from before the arcade rename: players' backups already carry it
         Ok(b) => backup(dir, "club-shop", &b)?,
         Err(e) if e.kind() == io::ErrorKind::NotFound => dir.to_path_buf(),
         // unreadable now: keep the marker and the copy for the next start
@@ -883,33 +979,60 @@ pub fn leftover(dir: &Path) -> io::Result<Option<PathBuf>> {
     Ok(Some(kept))
 }
 
-/// The guest's card for a shop.
+/// How a trip went, for the run's end: read after the [`Trip`] is dropped (dropping it joins the trip's thread, so
+/// its last copy-back is done; `a_trip_over_the_desk` checks the marker is gone right after the drop).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Progress {
+    /// The last copy-back that left the home club matching the host's.
+    pub last_ok: Option<Instant>,
+    /// The last copy-back (at the end) brought it home.
+    pub home: bool,
+    /// The last two copy-backs found the host's PC up but its server gone (refused or reset): the host closed the
+    /// arcade, not a desk that restarts.
+    pub gone: bool,
+    gone_once: bool,
+}
+
+/// A copy-back error that says the host's server is gone while its PC answers: refused or reset (Windows errors).
+fn server_gone(e: &str) -> bool {
+    e.contains("(os error 10061)") || e.contains("(os error 10054)")
+}
+
+/// The guest's card for an arcade.
 pub struct Guest {
     /// The seat desk (through the tunnel: 127.0.0.1 and the tunnel's port).
     pub desk: SocketAddr,
     pub seat: u8,
     /// The card's access code (`data\save\seat1_aime.txt`).
     pub code: String,
-    /// Its Aime id at home (`aimedb.json`; an older card keeps its integer id there) and in the shop (the hash).
+    /// Its Aime id at home (`aimedb.json`; an older card keeps its integer id there) and in the arcade (the hash).
     pub home_aime: u32,
-    pub shop_aime: u32,
+    pub arcade_aime: u32,
     /// The home store's folder, `data\save\gamesvr`.
     pub dir: PathBuf,
-    /// Which shop, for the marker.
-    pub shop: String,
+    /// Which arcade, for the marker.
+    pub arcade: String,
     /// Between copy-backs ([`POLL`]; tests shorten it).
     pub poll: Duration,
 }
 
-/// The club out in a shop: pulls it home every [`POLL`] and once more when dropped (the run's end), then tells the
+/// The club out in an arcade: pulls it home every [`POLL`] and once more when dropped (the run's end), then tells the
 /// host; the marker goes only after that last copy is home.
 pub struct Trip {
     _handle: Handle,
+    progress: Arc<Mutex<Progress>>,
+}
+
+impl Trip {
+    /// How the trip goes; final once the trip is dropped.
+    pub fn progress(&self) -> Arc<Mutex<Progress>> {
+        self.progress.clone()
+    }
 }
 
 impl Guest {
     /// JOIN: backs the home club up, sends it, marks it out, and starts the copy-back. `Err`: the club stays home
-    /// (nothing marked), the player plays with what the shop has for the card.
+    /// (nothing marked), the player plays with what the arcade has for the card.
     pub fn bring(self, log: Log) -> Result<Trip, String> {
         std::fs::create_dir_all(&self.dir).map_err(|e| e.to_string())?;
         let store = Store::open(&self.dir.join("gamesvr.db")).map_err(db_err)?;
@@ -918,13 +1041,14 @@ impl Guest {
         let saved = backup(&self.dir, &format!("club-{}", self.home_aime), &json)
             .map_err(|e| e.to_string())?;
         log(&format!("home club backed up: {}", saved.display()));
-        let link = send(self.desk, self.seat, self.shop_aime, &self.code, &club)?;
+        log(&format!("club copy-in, home: {}", club.summary()));
+        let link = send(self.desk, self.seat, self.arcade_aime, &self.code, &club)?;
         let out = Out {
-            shop: self.shop.clone(),
+            arcade: self.arcade.clone(),
             since: now(),
             seat: self.seat,
             home_aime: self.home_aime,
-            shop_aime: self.shop_aime,
+            arcade_aime: self.arcade_aime,
             link,
             home_stamp: club.stamp(),
             host_stamp: String::new(),
@@ -933,19 +1057,22 @@ impl Guest {
         };
         self.mark(&out).map_err(|e| e.to_string())?;
         log(&format!(
-            "club in the shop: {} clubs, Aime id {} at home, {} here",
+            "club in the arcade: {} clubs, Aime id {} at home, {} here",
             club.coaches.len(),
             self.home_aime,
-            self.shop_aime
+            self.arcade_aime
         ));
         let stop = Arc::new(AtomicBool::new(false));
         let flag = stop.clone();
+        let progress = Arc::new(Mutex::new(Progress::default()));
+        let p = progress.clone();
         let thread = thread::Builder::new()
             .name("club-trip".into())
-            .spawn(move || self.trip(out, store, &flag, &log))
+            .spawn(move || self.trip(out, store, &flag, &log, &p))
             .map_err(|e| e.to_string())?;
         Ok(Trip {
             _handle: Handle::new(stop, thread),
+            progress,
         })
     }
 
@@ -956,28 +1083,44 @@ impl Guest {
         )
     }
 
-    fn trip(self, mut out: Out, mut store: Store, stop: &AtomicBool, log: &Log) {
+    fn trip(
+        self,
+        mut out: Out,
+        mut store: Store,
+        stop: &AtomicBool,
+        log: &Log,
+        progress: &Mutex<Progress>,
+    ) {
         loop {
             let until = Instant::now() + self.poll;
             while Instant::now() < until && !stop.load(Ordering::Relaxed) {
                 thread::sleep(Duration::from_millis(100));
             }
             let last = stop.load(Ordering::Relaxed);
-            let home = self.pull(&mut out, &mut store, last, log);
+            let home = self.pull(&mut out, &mut store, last, log, progress);
+            let mut p = progress.lock().unwrap_or_else(PoisonError::into_inner);
+            if home {
+                p.last_ok = Some(Instant::now());
+            }
             if last {
+                p.home = home;
                 if home {
-                    match release(self.desk, self.shop_aime, &self.code) {
-                        Ok(()) => log("club home; the shop dropped its copy"),
+                    match release(self.desk, self.arcade_aime, &self.code) {
+                        Ok(()) => log("club home; the arcade dropped its copy"),
                         Err(e) => log(&format!(
-                            "club home; the shop keeps its copy until it restarts ({e})"
+                            "club home; the arcade keeps its copy until it restarts ({e})"
                         )),
                     }
                     let _ = std::fs::remove_file(last_file(&self.dir));
                     let _ = std::fs::remove_file(out_file(&self.dir));
                 } else {
-                    log(
-                        "club NOT brought home at the end: the marker stays, the next start keeps the home copy",
-                    );
+                    let ago = p.last_ok.map_or("none".into(), |t| {
+                        format!("{} s ago", t.elapsed().as_secs())
+                    });
+                    log(&format!(
+                        "club NOT brought home at the end (last good copy-back: {ago}): the marker stays, the next \
+                         start keeps the home copy"
+                    ));
                 }
                 return;
             }
@@ -986,9 +1129,23 @@ impl Guest {
 
     /// One copy-back; true when the home club now matches the host's (or nothing changed). `all`: ask even when
     /// the stamp is the same (the last one).
-    fn pull(&self, out: &mut Out, store: &mut Store, all: bool, log: &Log) -> bool {
+    fn pull(
+        &self,
+        out: &mut Out,
+        store: &mut Store,
+        all: bool,
+        log: &Log,
+        progress: &Mutex<Progress>,
+    ) -> bool {
         let since = if all { "" } else { out.host_stamp.as_str() };
-        let (stamp, host) = match fetch(self.desk, self.shop_aime, &self.code, since) {
+        let got = fetch(self.desk, self.arcade_aime, &self.code, since);
+        {
+            let mut p = progress.lock().unwrap_or_else(PoisonError::into_inner);
+            let now = got.as_ref().is_err_and(|e| server_gone(e));
+            p.gone = now && p.gone_once;
+            p.gone_once = now;
+        }
+        let (stamp, host) = match got {
             Ok(Some(got)) => got,
             Ok(None) => return true,
             Err(e) => {
@@ -1005,6 +1162,9 @@ impl Guest {
                 "club copy-back: cannot keep the pulled copy ({e})"
             ));
         }
+        if let Ok(home) = store.club(self.home_aime) {
+            log(&format!("club copy-back, home before: {}", home.summary()));
+        }
         // the stamp moves only once this copy is home or set aside, so a failed write is tried again next poll
         match store.write_home(&host, &mut out.link, self.home_aime, &out.home_stamp) {
             Ok(Some(home)) => {
@@ -1016,14 +1176,18 @@ impl Guest {
                     log(&format!("club copy-back: marker not updated ({e})"));
                 }
                 log(&format!("club copied home: {} clubs", host.coaches.len()));
+                if let Ok(home) = store.club(self.home_aime) {
+                    log(&format!("club copy-back, home after: {}", home.summary()));
+                }
                 true
             }
             Ok(None) => {
                 out.host_stamp = stamp;
                 let _ = self.mark(out);
+                // same kept "club-shop" prefix as above
                 match backup(&self.dir, "club-shop", &pulled) {
                     Ok(p) => log(&format!(
-                        "club copy-back: the home club changed meanwhile, so it stays; the shop's copy is {}",
+                        "club copy-back: the home club changed meanwhile, so it stays; the arcade's copy is {}",
                         p.display()
                     )),
                     Err(e) => log(&format!(
@@ -1043,6 +1207,20 @@ impl Guest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A `club_out.json` written before the arcade rename still loads, and the keys on disk stay the same.
+    #[test]
+    fn club_out_keeps_its_old_keys() {
+        let old = r#"{"shop":"Sala Roma","since":1,"seat":2,"home_aime":3,"shop_aime":4,
+            "link":{"coaches":[],"cards":[]},"home_stamp":"a","host_stamp":"b","back_stamp":"c","back":0}"#;
+        let out: Out = serde_json::from_str(old).unwrap();
+        assert_eq!((out.arcade.as_str(), out.arcade_aime), ("Sala Roma", 4));
+        let json = serde_json::to_value(&out).unwrap();
+        assert!(
+            json.get("shop").is_some() && json.get("shop_aime").is_some(),
+            "{json}"
+        );
+    }
 
     #[test]
     fn ask_lines() {
@@ -1187,7 +1365,7 @@ mod tests {
     #[test]
     fn round_trip_restores_the_ids_and_every_byte() {
         let d = tempfile::tempdir().unwrap();
-        let (home_aime, shop_aime) = (1, crate::standins::aimedb::hash_id(CODE) as u32);
+        let (home_aime, arcade_aime) = (1, crate::standins::aimedb::hash_id(CODE) as u32);
         let sent = club(home_aime, &[(1, 1), (2, 3)]);
         let mut home = store_with(&d.path().join("home.db"), &sent);
         let host = store_with(
@@ -1201,18 +1379,18 @@ mod tests {
         let link = host
             .lock()
             .unwrap()
-            .import_guest(&out, shop_aime, 2, &token(CODE))
+            .import_guest(&out, arcade_aime, 2, &token(CODE))
             .unwrap();
         assert_eq!(link.coaches, [(1, 4), (2, 5)]);
         assert_eq!(link.cards, [(1, 4), (3, 5)]);
 
-        // in the shop: host ids everywhere the store and the client read them
+        // in the arcade: host ids everywhere the store and the client read them
         let there = host
             .lock()
             .unwrap()
-            .guest_club(shop_aime, &token(CODE))
+            .guest_club(arcade_aime, &token(CODE))
             .unwrap();
-        assert_eq!(there.aime, shop_aime);
+        assert_eq!(there.aime, arcade_aime);
         for (k, (coach, card)) in there.coaches.iter().zip([(4, 4), (5, 5)]) {
             assert_eq!((k.coach, k.card), (coach, card));
             let b = &k.save.as_ref().unwrap().block;
@@ -1227,10 +1405,10 @@ mod tests {
             let p = &k.requests[0].payload;
             assert_eq!(
                 [u32_at(p, 4), u32_at(p, 8), u32_at(p, 12)],
-                [shop_aime, coach, card]
+                [arcade_aime, coach, card]
             );
         }
-        assert_eq!(u32_at(&there.purchases[0].payload, 4), shop_aime);
+        assert_eq!(u32_at(&there.purchases[0].payload, 4), arcade_aime);
         assert_eq!(
             host.lock().unwrap().club(9).unwrap(),
             host_own,
@@ -1246,17 +1424,21 @@ mod tests {
         assert_eq!(home.club(home_aime).unwrap(), sent);
         assert_eq!(back, link);
 
-        // a match saved in the shop by the stand-in (277 with the shop's ids, one byte of the block changed)
+        // a match saved in the arcade by the stand-in (277 with the arcade's ids, one byte of the block changed)
         let k = &there.coaches[1];
         let mut block = k.save.as_ref().unwrap().block.clone();
         block[1000] ^= 0x5A;
-        let (_, refused) =
-            super::super::gamesvr::ask_for_test(&host, 277, &save_277(shop_aime, 5, 5, &block));
+        let (_, refused) = super::super::gamesvr::ask_for_test(
+            &host,
+            277,
+            &save_277(arcade_aime, 5, 5, &block),
+            &(Arc::new(|_: &str| {}) as Log),
+        );
         assert_eq!(refused, None);
         let after = host
             .lock()
             .unwrap()
-            .guest_club(shop_aime, &token(CODE))
+            .guest_club(arcade_aime, &token(CODE))
             .unwrap();
         home.write_home(&after, &mut back, home_aime, &stamp)
             .unwrap()
@@ -1285,16 +1467,16 @@ mod tests {
         assert_eq!(host.lock().unwrap().club(9).unwrap(), host_own);
     }
 
-    /// A club made in the shop gets fresh home ids; the next copy back keeps them.
+    /// A club made in the arcade gets fresh home ids; the next copy back keeps them.
     #[test]
-    fn a_club_made_in_the_shop_gets_home_ids() {
+    fn a_club_made_in_the_arcade_gets_home_ids() {
         let d = tempfile::tempdir().unwrap();
         let mut home = store_with(&d.path().join("home.db"), &club(1, &[(1, 1)]));
         let mut host = store_with(&d.path().join("host.db"), &club(9, &[(1, 1)]));
         let link = host
             .import_guest(&home.club(1).unwrap(), 50, 3, &token(CODE))
             .unwrap();
-        // made in the shop: coach 7 / card 8, as COACH_LIST_ADD would
+        // made in the arcade: coach 7 / card 8, as COACH_LIST_ADD would
         insert(
             &host.0,
             &Club {
@@ -1428,14 +1610,58 @@ mod tests {
         assert_eq!(host.club(9).unwrap(), own);
     }
 
-    /// The host's desk for tests: `serve` on every connection, seat 2 taken; `down` closes connections unanswered.
-    fn desk(db: PathBuf) -> (SocketAddr, Arc<AtomicBool>) {
+    /// A public server: the brought club replaces what the server kept for the card (a club made there, a copy
+    /// that never went home), another token is still refused, and the oldest copy makes room past the cap.
+    #[test]
+    fn a_public_server_keeps_the_brought_club() {
+        let d = tempfile::tempdir().unwrap();
+        let mut srv = store_with(&d.path().join("srv.db"), &club(50, &[(1, 1), (2, 2)]));
+        let (a, b) = (token(CODE), token("50123456789012345679"));
+        let mine = club(1, &[(1, 1)]);
+        srv.import_public(&mine, 50, 1, &a).unwrap();
+        assert_eq!(
+            srv.guest_club(50, &a).unwrap().coaches.len(),
+            1,
+            "the made-there club is gone"
+        );
+        let kept = std::fs::read_dir(d.path().join("backups")).unwrap().count();
+        assert_eq!(kept, 1, "the made-there club is in backups");
+        assert!(
+            srv.import_public(&mine, 50, 1, &b)
+                .unwrap_err()
+                .contains("another player")
+        );
+        // a newer home club replaces the copy left from an earlier session
+        srv.import_public(&club(1, &[(1, 1), (2, 2), (3, 3)]), 50, 1, &a)
+            .unwrap();
+        assert_eq!(srv.guest_club(50, &a).unwrap().coaches.len(), 3);
+        srv.0
+            .execute("UPDATE guests SET since = 0 WHERE aime_id = 50", [])
+            .unwrap();
+        for aime in 1000..1000 + MAX_PUBLIC_GUESTS as u32 {
+            srv.import_public(&club(1, &[(1, 1)]), aime, 1, &a).unwrap();
+        }
+        assert!(srv.guest_club(50, &a).is_err(), "the oldest copy made room");
+        assert!(!has_rows(&srv.0, 50).unwrap());
+        assert!(srv.guest_club(1000, &a).is_ok());
+    }
+
+    /// The host's desk for tests: `serve` on every connection, seat 2 taken; `down` closes connections unanswered;
+    /// `closed`: the next connection closes the desk itself (later ones are refused, as after the host's Stop).
+    fn desk(db: PathBuf) -> (SocketAddr, Arc<AtomicBool>, Arc<AtomicBool>) {
         let l = TcpListener::bind("127.0.0.1:0").unwrap();
-        let (at, down) = (l.local_addr().unwrap(), Arc::new(AtomicBool::new(false)));
-        let off = down.clone();
+        let (at, down, closed) = (
+            l.local_addr().unwrap(),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(AtomicBool::new(false)),
+        );
+        let (off, gone) = (down.clone(), closed.clone());
         thread::spawn(move || {
             for c in l.incoming() {
                 let mut c = c.unwrap();
+                if gone.load(Ordering::Relaxed) {
+                    return;
+                }
                 if off.load(Ordering::Relaxed) {
                     continue;
                 }
@@ -1452,11 +1678,11 @@ mod tests {
                 };
                 let rest = buf.split_off(at + 1);
                 let line = String::from_utf8_lossy(&buf).trim().to_owned();
-                let _ = serve(&db, &line, rest, &mut c, &|s| s == 2);
+                let _ = serve(&db, &line, rest, &mut c, &|s| s == 2, false);
                 let _ = c.shutdown(std::net::Shutdown::Write);
             }
         });
-        (at, down)
+        (at, down, closed)
     }
 
     fn guest(desk: SocketAddr, dir: &Path, seat: u8) -> Guest {
@@ -1465,9 +1691,9 @@ mod tests {
             seat,
             code: CODE.into(),
             home_aime: 1,
-            shop_aime: 50,
+            arcade_aime: 50,
             dir: dir.to_path_buf(),
-            shop: "test shop".into(),
+            arcade: "test arcade".into(),
             poll: Duration::from_millis(200),
         }
     }
@@ -1491,8 +1717,10 @@ mod tests {
         drop(store_with(&dir.join("gamesvr.db"), &sent));
         let host_db = d.path().join("host.db");
         drop(store_with(&host_db, &club(9, &[(1, 1)])));
-        let (at, _down) = desk(host_db.clone());
-        let log: Log = Arc::new(|_: &str| {});
+        let (at, _down, _) = desk(host_db.clone());
+        let said = Arc::new(Mutex::new(Vec::<String>::new()));
+        let keep = said.clone();
+        let log: Log = Arc::new(move |l: &str| keep.lock().unwrap().push(l.to_owned()));
         assert!(
             guest(at, &dir, 3)
                 .bring(log.clone())
@@ -1502,21 +1730,21 @@ mod tests {
         );
         assert!(!out_file(&dir).exists());
 
-        let trip = guest(at, &dir, 2).bring(log).unwrap();
+        let trip = guest(at, &dir, 2).bring(log.clone()).unwrap();
         assert!(out_file(&dir).exists(), "marked out");
         let backups = std::fs::read_dir(dir.join("backups")).unwrap().count();
         assert_eq!(
             backups, 2,
             "the home club backed up first (the refused try made one too)"
         );
-        // a save in the shop comes home within a poll
+        // a save in the arcade comes home within a poll
         let host = Mutex::new(Store::open(&host_db).unwrap());
         let there = host.lock().unwrap().guest_club(50, &token(CODE)).unwrap();
         let mut block = there.coaches[0].save.as_ref().unwrap().block.clone();
         block[2000] ^= 1;
         let (k, c) = (there.coaches[0].coach, there.coaches[0].card);
         assert_eq!(
-            super::super::gamesvr::ask_for_test(&host, 277, &save_277(50, k, c, &block)).1,
+            super::super::gamesvr::ask_for_test(&host, 277, &save_277(50, k, c, &block), &log).1,
             None
         );
         let home = Store::open(&dir.join("gamesvr.db")).unwrap();
@@ -1542,6 +1770,46 @@ mod tests {
             sent.coaches[0].save.as_ref().unwrap().block[2000] ^ 1
         );
         assert_eq!(leftover(&dir).unwrap(), None);
+        // the club's cards and team, logged on copy-in, at the result save and around each copy-back
+        let said = said.lock().unwrap().join("\n");
+        let (old, new) = (
+            team_tag(&sent.coaches[0].save.as_ref().unwrap().block),
+            team_tag(&block),
+        );
+        for want in [
+            format!("club copy-in, home: aime 1: 1 card(s) [card 1 coach 1 plays 7 team {old}]"),
+            format!("club save: aime 50 coach {k} card {c} team {old} -> {new}"),
+            format!(
+                "club copy-back, home before: aime 1: 1 card(s) [card 1 coach 1 plays 7 team {old}]"
+            ),
+            format!(
+                "club copy-back, home after: aime 1: 1 card(s) [card 1 coach 1 plays 8 team {new}]"
+            ),
+        ] {
+            assert!(said.contains(&want), "{want:?} in:\n{said}");
+        }
+        assert!(said.contains("match end: aime 50 "), "{said}");
+    }
+
+    /// The logs' team tag reads the same at home and in the arcade (the swapped ids are left out of it).
+    #[test]
+    fn the_team_tag_ignores_the_swapped_ids() {
+        let home = club(1, &[(1, 1)]);
+        let link = Link {
+            coaches: vec![(1, 70)],
+            cards: vec![(1, 71)],
+        };
+        let host = home.remap(&Swap::out(&link, 1, 50));
+        let tag = |c: &Club| team_tag(&c.coaches[0].save.as_ref().unwrap().block);
+        assert_eq!(tag(&home), tag(&host));
+        assert_eq!(tag(&home).len(), 8);
+        assert_eq!(
+            host.summary(),
+            format!(
+                "aime 50: 1 card(s) [card 71 coach 70 plays 7 team {}]",
+                tag(&home)
+            )
+        );
     }
 
     /// The host dies mid-session: the club stays marked out; the next start keeps the home copy, puts the last
@@ -1553,13 +1821,16 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         drop(store_with(&dir.join("gamesvr.db"), &club(1, &[(1, 1)])));
         let host_db = d.path().join("host.db");
-        let (at, down) = desk(host_db.clone());
+        let (at, down, _) = desk(host_db.clone());
         let trip = guest(at, &dir, 2).bring(Arc::new(|_: &str| {})).unwrap();
         wait("a first copy pulled", || last_file(&dir).exists());
         let home = Store::open(&dir.join("gamesvr.db")).unwrap();
         let before = home.club(1).unwrap();
         down.store(true, Ordering::Relaxed);
+        let progress = trip.progress();
         drop(trip);
+        let p = *progress.lock().unwrap();
+        assert!(!p.home && p.last_ok.is_some(), "{p:?}");
         assert!(out_file(&dir).exists(), "not home: still marked out");
         assert!(
             has_rows(&Store::open(&host_db).unwrap().0, 50).unwrap(),
@@ -1576,6 +1847,31 @@ mod tests {
         assert!(!out_file(&dir).exists());
         assert_eq!(home.club(1).unwrap(), before, "the home copy is kept");
         assert_eq!(leftover(&dir).unwrap(), None, "said once");
+    }
+
+    /// The host closes its arcade (its desk gone, the PC still up): the last copy-back says so, and the marker stays
+    /// (a save after the last good copy-back may be missing at home), so the next start tells it.
+    #[test]
+    fn a_closed_arcade_is_told_and_the_marker_stays() {
+        let d = tempfile::tempdir().unwrap();
+        let dir = d.path().join("gamesvr");
+        std::fs::create_dir_all(&dir).unwrap();
+        drop(store_with(&dir.join("gamesvr.db"), &club(1, &[(1, 1)])));
+        let (addr, _down, closed) = desk(d.path().join("host.db"));
+        let trip = guest(addr, &dir, 2).bring(Arc::new(|_: &str| {})).unwrap();
+        wait("a first copy pulled", || last_file(&dir).exists());
+        let progress = trip.progress();
+        wait("a good copy-back", || {
+            progress.lock().unwrap().last_ok.is_some()
+        });
+        closed.store(true, Ordering::Relaxed);
+        let _ = TcpStream::connect(addr); // wakes the desk, which then closes its listener
+        wait("a refused copy-back", || progress.lock().unwrap().gone_once);
+        drop(trip);
+        let p = *progress.lock().unwrap();
+        assert!(!p.home && p.gone, "{p:?}");
+        assert!(out_file(&dir).exists(), "not home: still marked out");
+        assert!(leftover(&dir).unwrap().is_some(), "the next start tells it");
     }
 
     #[test]

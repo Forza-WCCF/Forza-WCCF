@@ -39,7 +39,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::{
-    CloseHandle, DBG_CONTINUE, DBG_EXCEPTION_NOT_HANDLED, GetLastError, HANDLE, NTSTATUS,
+    CloseHandle, DBG_CONTINUE, DBG_EXCEPTION_NOT_HANDLED, GetLastError, HANDLE, HWND, NTSTATUS,
 };
 use windows_sys::Win32::Storage::FileSystem::GetFinalPathNameByHandleW;
 use windows_sys::Win32::System::Diagnostics::Debug::{
@@ -49,11 +49,15 @@ use windows_sys::Win32::System::Diagnostics::Debug::{
     Wow64GetThreadContext, Wow64SetThreadContext, WriteProcessMemory,
 };
 use windows_sys::Win32::System::Threading::{
-    GetCurrentProcess, HIGH_PRIORITY_CLASS, PROCESS_POWER_THROTTLING_CURRENT_VERSION,
-    PROCESS_POWER_THROTTLING_EXECUTION_SPEED, PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION,
-    PROCESS_POWER_THROTTLING_STATE, ProcessPowerThrottling, SetPriorityClass, SetProcessInformation, TerminateProcess,
+    ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS, GetCurrentProcess, HIGH_PRIORITY_CLASS,
+    PROCESS_POWER_THROTTLING_CURRENT_VERSION, PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+    PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION, PROCESS_POWER_THROTTLING_STATE, ProcessPowerThrottling,
+    SetPriorityClass, SetProcessInformation, TerminateProcess,
 };
 
+use windows_sys::Win32::UI::WindowsAndMessaging::IsHungAppWindow;
+
+pub use dump::dump_running;
 use dump::write_dumps;
 use mem::{Index, MSGPARSE_RET_OFF, MSGPARSE_STACK_SCAN};
 
@@ -69,6 +73,8 @@ unsafe extern "system" {
 /// 2026-10-08: seat 4's client ran on windowless, and the whole run with it).  So a client is ended once its window, up
 /// for this long, has been gone for two looks in a row.  Never control: its windows are hidden.
 const WINDOW_SETTLE: f64 = 5.0;
+/// How long a client's window stays unresponsive before its memory is saved (`Options::hang_after`).
+pub const HANG_AFTER: Duration = Duration::from_secs(20);
 const EXCEPTION_ACCESS_VIOLATION: u32 = 0xC000_0005;
 /// Native and WOW64 breakpoints.
 const BREAKPOINTS: [u32; 2] = [0x8000_0003, 0x4000_001F];
@@ -94,6 +100,8 @@ const INDEXED: [(&str, &str); 4] = [
     ("match_release.exe", "match"),
     ("launcher1011.exe", "launcher"),
 ];
+/// The programs raised to above-normal priority ([`Options::above_normal`]); helpers like FPR_Emu stay normal.
+const GAME_PROGRAMS: [&str; 3] = ["control_release.exe", "client_release.exe", "match_release.exe"];
 /// The program the message-reassembly guard is for.
 const CONTROL: &str = "control_release.exe";
 
@@ -142,10 +150,25 @@ pub struct Options {
     /// The 2010-11 message-reassembly guard for control (WCCF_MSGGUARD, on unless "0"); None: 2017-18, whose control
     /// the hook guards in-process (whole messages).
     pub msgguard: Option<bool>,
+    /// The game programs (control, client, match engines) run at above-normal priority, so background load on the
+    /// host does not stall a VS match (2017-18).  Never higher: the engines step with Sleep(0) while catching up.
+    pub above_normal: bool,
+    /// A background program (the 2017-18 projector, its CPU championship): below-normal priority and Windows'
+    /// efficiency mode instead of the above.
+    pub background: bool,
     /// Added to the program's environment (the run's WCCF_ and MXHOOK_ settings).
     pub env: Vec<(String, String)>,
     /// Set by the run to end the program now (a quit or a cabinet restart), as the timeout does.
     pub stop: Option<Arc<AtomicBool>>,
+    /// A client whose window has not answered for this long gets a memory snapshot of itself and its match engines,
+    /// once per hang; the game is left running.  `HANG_AFTER`.
+    pub hang_after: Duration,
+}
+
+/// Windows has found the window's program not answering for 5 s (never waits for it).
+fn is_hung(hwnd: HWND) -> bool {
+    // SAFETY: a window handle Windows just gave; the call only reads.
+    unsafe { IsHungAppWindow(hwnd) != 0 }
 }
 
 macro_rules! say {
@@ -490,6 +513,25 @@ fn full_speed(h: HANDLE) -> Option<&'static str> {
     None
 }
 
+/// Windows' efficiency mode (EcoQoS) on: the process runs on slower cores and clocks when Windows has them.
+fn throttle(h: HANDLE) -> bool {
+    let s = PROCESS_POWER_THROTTLING_STATE {
+        Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+        ControlMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+        StateMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+    };
+    // SAFETY: the structure is the one the class takes, live for the call.
+    !h.is_null()
+        && unsafe {
+            SetProcessInformation(
+                h,
+                ProcessPowerThrottling,
+                (&s as *const PROCESS_POWER_THROTTLING_STATE).cast(),
+                size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
+            )
+        } != 0
+}
+
 /// "" for the program itself, "[name pid] " for a child.
 fn who(main: u32, pid: u32, name: &str) -> String {
     if pid == main {
@@ -509,7 +551,9 @@ struct DbgFile {
 
 impl DbgFile {
     fn line(&mut self, s: &str) {
-        let _ = writeln!(self.file, "{s}");
+        // the wall clock first, the `t+` seconds after it
+        let now = crate::logs::clock(crate::logs::local(std::time::SystemTime::now()));
+        let _ = writeln!(self.file, "{now} {s}");
         if self.each_line {
             let _ = self.file.flush();
         }
@@ -594,6 +638,7 @@ pub fn run(opts: &Options, job: &Job, out: &mut dyn Write) -> io::Result<i32> {
     let mut ev_time: BTreeMap<u32, (u32, f64, f64)> = BTreeMap::new(); // event kind -> count, total ms, max ms
     let watch_window = opts.role == Role::Client;
     let (mut next_win_check, mut win_since, mut win_gone) = (0.0, None::<f64>, 0);
+    let (mut next_hang_check, mut hung_since, mut hang_dumped) = (0.0, None::<f64>, false);
     let mut timed_out = true;
     let mut main_exited = false;
     let mut de = DEBUG_EVENT::default();
@@ -627,6 +672,46 @@ pub fn run(opts: &Options, job: &Job, out: &mut dyn Write) -> io::Result<i32> {
                 }
             } else {
                 win_since = None; // a window replaced while it starts: not a close
+            }
+        }
+        if watch_window && now >= next_hang_check {
+            next_hang_check = now + 1.0;
+            if crate::procs::windows(main).iter().any(|w| w.visible && is_hung(w.hwnd)) {
+                let since = *hung_since.get_or_insert(now);
+                if !hang_dumped && now - since >= opts.hang_after.as_secs_f64() {
+                    hang_dumped = true;
+                    // the client and its match engines, only read: the game is not touched
+                    let (mut names, mut lines) = (Vec::new(), Vec::new());
+                    for q in procs
+                        .values()
+                        .filter(|q| q.pid == main || q.name.to_lowercase().ends_with("match_release.exe"))
+                    {
+                        names.push(format!(
+                            "{} {}",
+                            Path::new(&q.name).file_name().unwrap_or_default().to_string_lossy(),
+                            q.pid
+                        ));
+                        lines.push(write_dumps(
+                            q.hproc,
+                            q.pid,
+                            &q.name,
+                            "window not responding",
+                            &opts.dumps,
+                        ));
+                    }
+                    for l in lines {
+                        say!(out, "  t+{now:5.1}s {l}");
+                    }
+                    say!(
+                        out,
+                        "  t+{now:5.1}s hang: seat window not responding for {} s, dumps written: {}",
+                        opts.hang_after.as_secs(),
+                        names.join(", ")
+                    );
+                    let _ = out.flush();
+                }
+            } else {
+                (hung_since, hang_dumped) = (None, false); // answering again: a later hang is a new one
             }
         }
         if !opts.follow && now >= next_kid_check {
@@ -687,14 +772,46 @@ pub fn run(opts: &Options, job: &Job, out: &mut dyn Write) -> io::Result<i32> {
             pr.end = pr.image_end(pr.base);
             pr.threads
                 .insert(tid, (ci.hThread, ci.lpStartAddress.map_or(0, |f| f as usize as u64)));
-            let fast = full_speed(ci.hProcess);
-            if pid == main || fast.is_none() {
+            let said = |ok: bool| {
+                if ok {
+                    "yes".to_owned()
+                } else {
+                    format!("FAILED (error {})", last_error())
+                }
+            };
+            if opts.background {
+                // SAFETY: the event's process handle, live while the process is debugged.
+                let low = said(unsafe { SetPriorityClass(ci.hProcess, BELOW_NORMAL_PRIORITY_CLASS) } != 0);
+                let eco = said(throttle(ci.hProcess));
                 say!(
                     out,
-                    "  t+{now:5.1}s {}Windows' throttling off: {}",
+                    "  t+{now:5.1}s {}background: below-normal priority: {low}, efficiency mode: {eco}",
+                    who(main, pid, &pr.name)
+                );
+            } else {
+                let fast = full_speed(ci.hProcess);
+                if pid == main || fast.is_none() {
+                    say!(
+                        out,
+                        "  t+{now:5.1}s {}Windows' throttling off: {}",
+                        who(main, pid, &pr.name),
+                        // SAFETY: plain call.
+                        fast.map_or_else(|| format!("FAILED (error {})", last_error()), str::to_owned)
+                    );
+                }
+            }
+            if opts.above_normal && !opts.background && GAME_PROGRAMS.iter().any(|g| pr.name.eq_ignore_ascii_case(g)) {
+                // SAFETY: the event's process handle, live while the process is debugged.
+                let raised = unsafe { SetPriorityClass(ci.hProcess, ABOVE_NORMAL_PRIORITY_CLASS) } != 0;
+                say!(
+                    out,
+                    "  t+{now:5.1}s {}above-normal priority: {}",
                     who(main, pid, &pr.name),
-                    // SAFETY: plain call.
-                    fast.map_or_else(|| format!("FAILED (error {})", last_error()), str::to_owned)
+                    if raised {
+                        "yes".to_owned()
+                    } else {
+                        format!("FAILED (error {})", last_error())
+                    }
                 );
             }
             if pid == main {

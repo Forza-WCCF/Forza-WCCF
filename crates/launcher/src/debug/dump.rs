@@ -14,8 +14,11 @@ use std::path::Path;
 use std::ptr;
 use std::time::SystemTime;
 
-use windows_sys::Win32::Foundation::HANDLE;
+use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
 use windows_sys::Win32::System::Diagnostics::Debug::{MINIDUMP_TYPE, MiniDumpWriteDump};
+use windows_sys::Win32::System::Threading::{
+    OpenProcess, PROCESS_DUP_HANDLE, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
+};
 
 /// Handles, unloaded modules, indirectly referenced memory, process/thread data, thread info.
 const DUMP_LEAN: MINIDUMP_TYPE = 0x1164;
@@ -26,6 +29,11 @@ const DUMPS_KEEP: usize = 5;
 /// Both snapshots of a process the debugger holds stopped, into `folder` -> a line for the log.  Never fails: a report
 /// must not stop the debugger.
 pub(crate) fn write_dumps(hproc: HANDLE, pid: u32, name: &str, why: &str, folder: &Path) -> String {
+    write(hproc, pid, name, why, folder, true)
+}
+
+/// `write_dumps`, the lean snapshot alone unless `full`.
+fn write(hproc: HANDLE, pid: u32, name: &str, why: &str, folder: &Path, full: bool) -> String {
     if let Err(e) = fs::create_dir_all(folder) {
         return format!("memory snapshot ({why}) not written: {e}");
     }
@@ -41,7 +49,10 @@ pub(crate) fn write_dumps(hproc: HANDLE, pid: u32, name: &str, why: &str, folder
         Path::new(name).file_stem().and_then(|s| s.to_str()).unwrap_or(name)
     );
     let mut made = Vec::new();
-    for (kind, flags) in [("lean", DUMP_LEAN), ("full", DUMP_FULL)] {
+    for (kind, flags) in [("lean", DUMP_LEAN), ("full", DUMP_FULL)]
+        .into_iter()
+        .take(if full { 2 } else { 1 })
+    {
         let path = folder.join(format!("{stem}_{kind}.dmp"));
         let file = match fs::File::create(&path) {
             Ok(f) => f,
@@ -84,4 +95,33 @@ pub(crate) fn write_dumps(hproc: HANDLE, pid: u32, name: &str, why: &str, folder
         }
     }
     format!("memory snapshot ({why}): data\\dumps\\{stem}_* - {}", made.join(", "))
+}
+
+/// A lean snapshot of the game's client and match engines now running from `game`'s folders (SAVE LOGS puts the newest
+/// in its ZIP), into `folder`; a line each for the log.  Nothing running: nothing written.  The programs are only read
+/// (dbghelp holds their threads for a moment); one that cannot be opened is left out.
+pub fn dump_running(game: &Path, folder: &Path) -> Vec<String> {
+    let mut lines = Vec::new();
+    for p in crate::procs::game_processes(game).into_iter().filter(|p| {
+        matches!(
+            p.name.to_lowercase().as_str(),
+            "client_release.exe" | "match_release.exe"
+        )
+    }) {
+        // SAFETY: the handle is checked, used for the one call and closed.
+        let h = unsafe {
+            OpenProcess(
+                PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | PROCESS_DUP_HANDLE,
+                0,
+                p.pid,
+            )
+        };
+        if h.is_null() {
+            continue;
+        }
+        lines.push(write(h, p.pid, &p.name, "SAVE LOGS", folder, false));
+        // SAFETY: as above.
+        unsafe { CloseHandle(h) };
+    }
+    lines
 }

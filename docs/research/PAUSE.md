@@ -13,7 +13,7 @@ Binary prefixes as in GAME-CLOCK: `C10`/`K10`/`M10` client/control/match engine 
    bound by `DDX_Control` to the `CButton` at dialog+0x7CC (its HWND at +0x7EC, the "+2028" of GAME-CLOCK). It has no
    click handler: the control polls it with `BM_GETCHECK`, so a `BM_SETCHECK` from another process acts exactly like a
    click. [V K10 0x4027AA, K17 0x40255A; message maps]
-2. **Stop freezes only the shop clock.** While it is checked, the shop tick (K10 sub_446720, K17 sub_4557F0) throws
+2. **Stop freezes only the arcade clock.** While it is checked, the arcade tick (K10 sub_446720, K17 sub_4557F0) throws
    the `_time64` delta away instead of adding it to the state time (+144) and game time (+128). That holds ENTRY
    (40 s), MATCHING_WAIT, the GAME cap (980 s), GAME_RESULT_WAIT and GAME_RESULT. **It does not stop the
    `CONTROL_STATE` send timer or the missed-answer counter**, which read `_time64` on their own (K10 sub_42E350,
@@ -57,7 +57,7 @@ Binary prefixes as in GAME-CLOCK: `C10`/`K10`/`M10` client/control/match engine 
 | Control | ID 1035, caption "Stop", style 0x50010003 (child, visible, tab stop, auto checkbox) in DIALOG 102 | same ID, caption, style and dialog |
 | Binding | `DDX_Control(pDX, 0x40B, dlg+0x7CC)` at 0x4027AA; HWND at dialog+0x7EC | same, at 0x40255A |
 | Click handler | none (message map has 1048 NEXT → sub_403F50, 1034 NextState → sub_404080) | none (1048 → sub_404220, 1034 → sub_404350) |
-| Readers | shop tick sub_446720 (twice), ENTRY answers sub_42AE40 | shop tick sub_4557F0 (0x45586A, 0x455A62), ENTRY 0x42C2D5, `CONTROL_STATE` build 0x430271, svrMng state enables NEXT 0x45D64E |
+| Readers | arcade tick sub_446720 (twice), ENTRY answers sub_42AE40 | arcade tick sub_4557F0 (0x45586A, 0x455A62), ENTRY 0x42C2D5, `CONTROL_STATE` build 0x430271, svrMng state enables NEXT 0x45D64E |
 | Set by the original | 0x44B7A0 (start-up, setting +0x3C0 = 1), 0x44E8DE, 0x44F29B (cup) | 0x45AC40, 0x45E000, 0x45EEB9 |
 | Cleared by the original | 0x404711, 0x45126D ("WCCFCUP MODE OUT"), sub_403F50 (NEXT) | 0x46220E ("WCCFCUP MODE OUT"), sub_404220 (NEXT) |
 
@@ -71,14 +71,14 @@ GAME_RESULT 60 s. The ENTRY rest time sent to the seats (40 − state time, sub_
 What it does not freeze [V]: the `CONTROL_STATE` sender (every > 2 s of `_time64`, each send +1 on the seat's miss
 counter) and the drop at > 11 (K10) / > 21 (K17) misses; the client's own 30 s check; the gmsvr link.
 
-**Is `BM_SETCHECK` from outside enough?** For the shop clock, yes: the window is hidden by the launcher
+**Is `BM_SETCHECK` from outside enough?** For the arcade clock, yes: the window is hidden by the launcher
 (`crates/launcher/src/procs.rs` `hide_windows`, run/mod.rs:1349) but exists, the control polls the state every tick,
 and `BM_SETCHECK` carries no pointer, so it works across processes. Find it with `EnumWindows` → the `#32770` window of
 the kit's `control_Release.exe` (title "control" in 2010–11, blank in 2017–18) → `GetDlgItem(dlg, 1035)`. [V for the
 code path, A for the window class until a window list from a run confirms it]
 
 Side effects and rules:
-- Set it only while the shop state is 5 (GAME). In state 1 it changes seat admission; in 0 (boot/sync) it would
+- Set it only while the arcade state is 5 (GAME). In state 1 it changes seat admission; in 0 (boot/sync) it would
   hold start-up.
 - Always clear it on resume, and never clear a Stop the panel did not set (a cup mode, a start-up setting). Read the
   state first; if it was already checked, leave it alone and do not offer a pause.
@@ -100,7 +100,7 @@ GAME-CLOCK §2 where they come from there.
 | C10 error 2001 (GC #4: sub_407A20) | `timeGetTime` since the last `CONTROL_STATE` | 30 s | fires on the first tick after resume if the gap was ≥ 30 s minus the age of the last `CONTROL_STATE` (≤ 3 s): **27 s worst case** | client `timeGetTime` frozen |
 | C17 2001 / 2012 / reconnect (GC #5: sub_410310, sub_40F600) | `timeGetTime` | 30 s (60 s in states 3 and 16), 49 s reconnect, 50 s 2012 | same, 27 s worst case | same |
 | Request waits C10/C17 (GC #6, #7, #9) | `timeGetTime` | 10 s, 5 s × 3, 3 s | fire after resume only if a request was open | pause only in the match, where none is open [A]; client `timeGetTime` frozen |
-| Shop cycle (GC #13: K10 sub_446A20, K17 sub_455AD0) | shop clock from `_time64` | GAME cap 980 s from game start; others in §1 | the cap keeps running: many short pauses can end the game "TIMEOUT! game" | Stop checkbox (P1) or control `_time64` frozen (P2) |
+| Arcade cycle (GC #13: K10 sub_446A20, K17 sub_455AD0) | arcade clock from `_time64` | GAME cap 980 s from game start; others in §1 | the cap keeps running: many short pauses can end the game "TIMEOUT! game" | Stop checkbox (P1) or control `_time64` frozen (P2) |
 | ENTRY countdown on the seat (GC #14) | the control's | 40 s | runs out while the seat is frozen | not allowed: no pause outside the match |
 | Client↔engine mutex (GC #10: C10 sub_431E40; M17 0x609344 "MemmapCommErrorTimeout") | `WaitForSingleObject` | 30 ms per wait | not reached: the hold is at Present, outside any mapping call [A] | none |
 | Engine start-up (GC #11, #12; M17 sub_406060) | QPC / `timeGetTime` | 60 s, 1 s × 120 | start-up only | not allowed in start-up |
@@ -177,7 +177,7 @@ source with Italian and Japanese in the panel's text tables; nothing else is nee
 ### Where pause is allowed (all milestones)
 
 Only when all hold: the launcher runs this PC's control and engines and one seat, offline (no online mode, no World
-Trophy, no linked or network seat, no 2010–11 projector in P2); the seat's copy of the shop state is 5 (C10
+Trophy, no linked or network seat, no 2010–11 projector in P2); the seat's copy of the arcade state is 5 (C10
 `*(0x113700C)+12`, C17 `*(0x6D9EB08)+12`); the client↔engine traffic is live (the match runs between GO TO GAME and END
 MATCH GAME); no card traffic in the last second (no COM1 bytes in 2010–11; no card/save exchange in 2017–18);
 not in M10 training. This keeps every save (2010–11 card writes after the match, 2017–18 `SAVE_DATA_SET` relayed by
@@ -221,12 +221,12 @@ clock simply lags the wall clock by the paused time (dates on a save are off by 
 
 | Program | Hooks to serve virtual time | Why |
 |---|---|---|
-| control (K10/K17) | `_time64` (MSVCR90 IAT), `timeGetTime` | shop clock, `CONTROL_STATE` sends and misses, GmSync waits |
+| control (K10/K17) | `_time64` (MSVCR90 IAT), `timeGetTime` | arcade clock, `CONTROL_STATE` sends and misses, GmSync waits |
 | client (C10/C17) | `timeGetTime`; `_time64` for consistency | 2001/2012, request waits; not QPC (limiter resets, CRI risk) |
 | match engine (M10/M17) | `timeGetTime`, QPC | M10 training 23 s; start-up waits stay outside a pause anyway |
 
 With all three on one clock the control sends nothing and counts no misses while paused, the client's 30 s check sees
-no gap, and the shop cycle waits; Stop is no longer needed. Threads other than the game's main thread also see the
+no gap, and the arcade cycle waits; Stop is no longer needed. Threads other than the game's main thread also see the
 clock stop; anything that spins until a deadline would spin for the pause (none found) [A].
 
 Code to add:
@@ -280,6 +280,6 @@ The same section serves it: rate 2/1. Findings that change the ROADMAP plan:
   justified or dropped.
 - M17's sim loop: confirmed only by the absence of clock users; one IDA pass on its `TO MATCH` handler (registered at
   sub_405760, polled at sub_5CF6D0) would make it [V].
-- The meaning of K10 `sub_43AE50()+275` (a second shop-clock hold) and the ENTRY counter +140 ≥ 1500 under Stop.
+- The meaning of K10 `sub_43AE50()+275` (a second arcade-clock hold) and the ENTRY counter +140 ≥ 1500 under Stop.
 - How much of the 980 s GAME cap a CPU match leaves free (for a P1 budget without Stop).
 - XAudio2 `StopEngine` behaviour with the ZDX stream thread and CRI.

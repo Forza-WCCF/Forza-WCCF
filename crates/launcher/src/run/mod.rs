@@ -30,9 +30,10 @@
 //!
 //! In this process too (no Python since 2026-10-20): the club card steps (`forza::cards::steps`: the CLUB CARD panel's
 //! requests, the table and the club card view), the game's text and setup (`crate::setup`).  The server side is
-//! `programs\forza-server.exe all`, a child in the job.
+//! `programs\forza-server.exe all` (2017-18: `Launcher.exe server all`), a child in the job.
 
 pub mod rules;
+mod sampler;
 
 use std::fs::{self, File};
 use std::io::{self, Write};
@@ -50,8 +51,9 @@ use std::{env, ptr};
 use crate::helper::{self, Helper, Target, ViewFiles};
 use forza::online::save_logs::{self, Scrub};
 use forza::online::seat::{self, Lease};
-use forza::online::{club, gamesvr};
+use forza::online::{championship, club, gamesvr};
 use forza::standins::{Handle, Log, aime, aimedb, card_reader, io_board, network, scenes};
+use forza_ui::lobby::CupPlan;
 use regex::Regex;
 use windows_sys::Win32::Foundation::{ERROR_ALREADY_EXISTS, FALSE, GetLastError, WAIT_ABANDONED, WAIT_OBJECT_0};
 use windows_sys::Win32::System::Threading::{
@@ -62,6 +64,7 @@ use crate::card;
 use crate::debug::{self, Maps, Options};
 use crate::job::Job;
 use crate::kit::{Edition, find_game_named, seat_dir};
+use crate::report::championship_line;
 use crate::{Kit, choices, conf, guard, logs, procs};
 pub use rules::{Mode, Words};
 
@@ -87,6 +90,15 @@ const ANSWER_WAIT: Duration = Duration::from_secs(60);
 
 /// The panel's line in `seat1\forza_panel.log` once its Present detour has drawn a frame: the run's proof it is up.
 pub(crate) const PANEL_UP: &str = "first frame shown";
+
+/// 2017-18 arcade guest: what the end needs to tell that the host closed the arcade, and whether the club came home.
+#[derive(Default)]
+struct Visit {
+    /// Through the tunnel: its `ArcadeLink::host_closed`.
+    host_closed: Option<Arc<AtomicBool>>,
+    /// The club trip's progress.
+    club: Option<Arc<Mutex<club::Progress>>>,
+}
 
 /// A line the player reads, by its `locales/ui.yml` key (forza-ui) and arguments, which may be lines too: the window
 /// shows it in the player's language, the log files keep the English (support reads them).  `Raw`: words that are
@@ -362,6 +374,23 @@ pub fn admit(kit: &Kit) -> Option<Admission> {
     }
 }
 
+/// The Launcher window's mutex for this kit folder (2010-11 and 2017-18 installs never share it), owned by this
+/// thread for as long as the handle lives; `None` while another Launcher window holds it past `wait_ms`.
+pub fn hold_window(kit: &Kit, wait_ms: u32) -> Option<OwnedHandle> {
+    let name = lock_name(kit, "window");
+    // SAFETY: a NUL-terminated name; the handle is checked, then owned (closed on drop).
+    unsafe {
+        let h = CreateMutexW(ptr::null(), FALSE, name.as_ptr());
+        if h.is_null() {
+            return None;
+        }
+        let h = OwnedHandle::from_raw_handle(h);
+        let got = WaitForSingleObject(h.as_raw_handle(), wait_ms);
+        // abandoned: the window that held it ended
+        (got == WAIT_OBJECT_0 || got == WAIT_ABANDONED).then_some(h)
+    }
+}
+
 /// A run of this kind is on (in this process or another).
 pub fn is_on(kit: &Kit, kind: Kind) -> bool {
     let name = lock_name(kit, kind.name());
@@ -478,9 +507,9 @@ pub fn command(kit: &Kit, p: &Params, words: &[String], ui: &dyn Ui) -> i32 {
         }
         Words::Plain { debug } => play(kit, p, None, debug, ui),
         Words::Start { mode, debug } => {
-            // a shop's tunnel id is not a server address: the lobby would ask it
+            // an arcade's tunnel id is not a server address: the lobby would ask it
             if let Mode::Remote(ip, _) = &mode
-                && vslink::shop::parse_id(ip).is_none()
+                && vslink::arcade::parse_id(ip).is_none()
                 && choices::setting(&kit.settings_file(), "server").as_deref() != Some(ip)
             {
                 let _ = choices::set_setting(&kit.settings_file(), "server", ip); // "remote" alone uses it again
@@ -608,7 +637,7 @@ fn plain_mode(kit: &Kit, p: &Params, ui: &dyn Ui) -> Mode {
     }
     let ip = choices::panel_value(&panel, "server").unwrap_or_default();
     if kit.edition() == Edition::E1718 {
-        // VS between homes: this PC is its own shop, the clubs and the pairing on the server's game server
+        // VS between homes: this PC is its own arcade, the clubs and the pairing on the server's game server
         let club = choices::setting(&kit.settings_file(), "club_server").unwrap_or_default();
         return match rules::vs_target(&panel, &club) {
             Err(why) => {
@@ -661,6 +690,18 @@ fn reach(host: &str, port: u16) -> Option<SocketAddr> {
 
 fn addr(ip: &str, port: u16) -> Option<SocketAddr> {
     format!("{ip}:{port}").parse().ok()
+}
+
+fn now_local() -> time::OffsetDateTime {
+    time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc())
+}
+
+/// The player's notice: their club plays the Universal Championship on the projector from about `opens` (this PC's
+/// clock). The finalists' seats need nothing more: the control plays the team each winner registered for the cup and
+/// sends the results itself (0x47BFF0, 0x462990).
+fn championship_notice(opens: SystemTime) -> Text {
+    let t = time::OffsetDateTime::from(opens).to_offset(now_local().offset());
+    Text::key("launcher.run_championship").arg("time", format!("{:02}:{:02}", t.hour(), t.minute()))
 }
 
 // ---- the start ----------------------------------------------------------------------------------------------------
@@ -849,13 +890,14 @@ fn launched_pid(logs: &Path, log: &str) -> Option<u32> {
     re.captures(&text)?[1].parse().ok()
 }
 
-/// A log of the run's stand-ins: data\logs\<name>, a line each with the seconds since it started.
+/// A log of the run's stand-ins: data\logs\<name>, a line each with the wall clock and the seconds since it started.
 fn file_log(path: PathBuf) -> Log {
     let t0 = Instant::now();
     let file = Mutex::new(File::create(path).ok());
     Arc::new(move |msg| {
         if let Some(f) = file.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_mut() {
-            let _ = writeln!(f, "{:8.2}  {msg}", t0.elapsed().as_secs_f64());
+            let now = logs::clock(logs::local(std::time::SystemTime::now()));
+            let _ = writeln!(f, "{now} {:8.2}  {msg}", t0.elapsed().as_secs_f64());
         }
     })
 }
@@ -947,8 +989,8 @@ pub struct Run<'a> {
     beside_server: bool,
     /// Remote: the server is this PC's own (its address is one of this PC's), so its game server is this PC's store.
     own_store: bool,
-    /// Remote through the shop tunnel: the loopback ports it listens on (the shop's own unless this PC holds them).
-    tunnel_ports: Option<vslink::shop::Ports>,
+    /// Remote through the arcade tunnel: the loopback ports it listens on (the arcade's own unless this PC holds them).
+    tunnel_ports: Option<vslink::arcade::Ports>,
     job: Arc<Job>,
     tx: Sender<Event>,
     rx: Receiver<Event>,
@@ -962,26 +1004,41 @@ pub struct Run<'a> {
     scenes: Option<Handle>,
     /// 2017-18: the game server stand-in (control keeps the clubs there).
     gamesvr: Option<Handle>,
-    /// 2017-18 with a club server: the direct VS link (crates/vslink), beside the game. A shop's host or a seat that
-    /// joins it by its id: the shop tunnel (vslink::shop).
+    /// 2017-18 with a club server: the direct VS link (crates/vslink), beside the game. An arcade's host or a seat that
+    /// joins it by its id: the arcade tunnel (vslink::arcade).
     vslink: Option<Handle>,
     /// 2017-18 online: where this run's VS plays (RESTART NOW keeps the cabinet only for the same target).
     vs_target: Option<rules::VsTarget>,
     lease: Option<Lease>,
-    /// 2017-18 shop guest: its home club, out in the shop until this is dropped (online::club).
+    /// 2017-18 arcade guest: its home club, out in the arcade until this is dropped (online::club).
     club: Option<club::Trip>,
+    visit: Visit,
     /// Remote: the server as the game takes it (its IPv4 address) and its seat desk's port (`host:port` written:
     /// that port), found at step 2 from [`Mode::Remote`]'s entry.
     remote: Option<(String, u16)>,
-    /// 2017-18 server: its shop room in the lobby (the code guests type), or why it has none.
-    shop_room: Option<Result<crate::lobby::HostRoom, String>>,
-    /// 2017-18 server: the guests its shop tunnel has connected now.
-    shop_guests: Option<Arc<AtomicUsize>>,
+    /// 2017-18 server: its arcade room in the lobby (the code guests type), or why it has none.
+    arcade_room: Option<Result<crate::lobby::HostRoom, String>>,
+    /// 2017-18 host: its arcade id and room code, for the run's `session:` line.
+    arcade: Option<String>,
+    /// The CPU and RAM sampler (run_sampler.txt), from the run's start to its end.
+    sampler: Option<Handle>,
+    /// 2017-18 server: the guests its arcade tunnel has connected now.
+    arcade_guests: Option<Arc<AtomicUsize>>,
+    /// When the start began, and the setup and guard checks' end (logged once the log folder is rotated).
+    t0: Instant,
+    early: [Duration; 2],
+    /// 2017-18: the Universal Championship's day file as last read (its time), and the date already looked at.
+    uc_seen: Option<SystemTime>,
+    uc_told: Option<u32>,
+    /// The projector program runs (2017-18: the CPU championship is on, and this PC holds the projector). Its window
+    /// may be hidden: the championship plays unseen then.
+    projector: bool,
     _lock: OwnedHandle,
 }
 
 /// Starts a run; `Err` is the exit code (what went wrong is said).
 pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a dyn Ui) -> Result<Run<'a>, i32> {
+    let t0 = Instant::now();
     if procs::prefers_system32() {
         tell(ui, "", &Text::key("launcher.run_unguarded"));
         return Err(UNGUARDED);
@@ -992,8 +1049,8 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
     };
     let seat = seat_dir(&game);
     let edition = kit.edition();
-    let shop = rules::shop_1718_on(&kit.settings());
-    if rules::online_refused(edition, &mode, shop) {
+    let arcade = rules::arcade_1718_on(&kit.settings());
+    if rules::online_refused(edition, &mode, arcade) {
         tell(ui, "", &Text::key("launcher.run_online_1718"));
         return Err(REFUSED);
     }
@@ -1001,11 +1058,26 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         tell(ui, "", &Text::key("launcher.run_not_set_up"));
         return Err(NOT_SET_UP);
     }
+    // an antivirus quarantining them leaves the game without its card table and panel; a server-only run needs neither
+    let missing = kit.missing_programs();
+    if !mode.is_server() && !missing.is_empty() {
+        tell(
+            ui,
+            "",
+            &Text::key("launcher.run_no_program").arg("files", missing.join(", ")),
+        );
+        return Err(REFUSED);
+    }
     // held to the end of the start: see Admission
     let Some(_admitted) = admit(kit) else {
         tell(ui, "", &Text::key("launcher.run_busy"));
         return Err(REFUSED);
     };
+    // a runtime an older setup made is set up again first; the guard check below still decides
+    if edition == Edition::E1718 && !crate::setup::again_if_stale(kit, &game, ui) {
+        return Err(NOT_GUARDED);
+    }
+    let setup_done = t0.elapsed();
     // before anything of the run exists: no game program may start unguarded (docs/SAFETY.md)
     if edition == Edition::E1718
         && let Err(why) = guard::check(&game, &seat, p.client(), p.control(), p.matcher())
@@ -1013,6 +1085,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         tell(ui, "", &Text::key("launcher.run_not_guarded").arg("why", why));
         return Err(NOT_GUARDED);
     }
+    let early = [setup_done, t0.elapsed()];
     if !kit.cache().join("catalogue.tsv").is_file() {
         // the panel's card browser only: never a reason not to start
         tell(ui, "  ", &Text::key("launcher.run_no_catalogue"));
@@ -1056,6 +1129,8 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         beside_server,
         own_store: false,
         tunnel_ports: None,
+        arcade: None,
+        sampler: None,
         job,
         tx,
         rx,
@@ -1071,9 +1146,15 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         vs_target: None,
         lease: None,
         club: None,
+        visit: Visit::default(),
         remote: None,
-        shop_room: None,
-        shop_guests: None,
+        arcade_room: None,
+        arcade_guests: None,
+        t0,
+        early,
+        uc_seen: None,
+        uc_told: None,
+        projector: false,
         _lock: lock,
     };
     // requests left by a run that ended are never carried out
@@ -1115,6 +1196,14 @@ impl Run<'_> {
         self.say_pair(
             &format!("{lead}{}", text.get(self.ui.lang())),
             &format!("{lead}{}", text.en()),
+        );
+    }
+
+    /// `startup: <stage> <ms>` in data\logs\run_launcher.txt: ms since the start began (PLAY).
+    fn startup(&self, stage: &str, since: Duration) {
+        crate::logs::append(
+            &self.logs().join("run_launcher.txt"),
+            &rules::startup_line(stage, since),
         );
     }
 
@@ -1292,6 +1381,15 @@ impl Run<'_> {
         }
     }
 
+    /// 2017-18: the original-text backup is kept beside the game; a Forza-WCCF folder with none of its own takes it.
+    /// Text that is not original with no matching backup is said, not changed.
+    fn adopt_text_backup(&self) {
+        let backup = self.kit.data().join("english_backup");
+        if forza::text::sync_beside(self.edition, &self.game, &backup, self.kit.dir()) == forza::text::Beside::Foreign {
+            self.tell("  ", &Text::key("launcher.run_text_foreign"));
+        }
+    }
+
     /// English or Italian built from an older kit's sheets (a kit copied over the old one, no text switch since):
     /// built again from this kit's, in the same language, before anything starts.
     fn refresh_old_text(&self) {
@@ -1335,6 +1433,20 @@ impl Run<'_> {
         }
         let left = choices::set_panel_value(&choices::read(&path), "english", None);
         let _ = choices::write(&path, &left);
+    }
+
+    /// The run's `session:` line in run_launcher.txt, once it has started (`projector`: None on a server).
+    fn session(&mut self, projector: Option<bool>) {
+        let arcade = match &self.mode {
+            Mode::Remote(entry, _) => Some(entry.as_str()),
+            _ => self.arcade.as_deref(),
+        };
+        crate::logs::append(
+            &self.logs().join("run_launcher.txt"),
+            &rules::session_line(&self.mode, arcade, self.seat_no, projector),
+        );
+        let logs = self.logs();
+        self.sampler.get_or_insert_with(|| sampler::spawn(logs));
     }
 
     fn write_running(&self) {
@@ -1397,11 +1509,14 @@ impl Run<'_> {
             dumps: self.kit.data().join("dumps"),
             index: index.is_dir().then_some(index),
             // control+0x1226A is 2010-11's control: 2017-18's is guarded by its hook (whole messages)
+            above_normal: self.edition == Edition::E1718,
+            background: role == Role::Projector && self.edition == Edition::E1718,
             msgguard: (self.edition == Edition::E1011).then(|| env::var("WCCF_MSGGUARD").map_or(true, |v| v != "0")),
             env: self.kit_env().into_iter().chain(env).chain([game_dpi()]).collect(),
             stop: Some(stop.clone()),
+            hang_after: crate::debug::HANG_AFTER,
         };
-        let mut log = File::create(self.logs().join(role.log()))?;
+        let mut log = logs::Stamped::new(File::create(self.logs().join(role.log()))?);
         let (job, tx, id) = (self.job.clone(), self.tx.clone(), self.next_id);
         self.next_id += 1;
         let thread = thread::spawn(move || {
@@ -1480,6 +1595,7 @@ impl Run<'_> {
             for line in logs::rotate(&self.logs())? {
                 self.say(&line);
             }
+            self.adopt_text_backup();
             self.apply_english_request();
             self.refresh_old_text();
             if self.edition == Edition::E1011 {
@@ -1487,6 +1603,8 @@ impl Run<'_> {
                 self.ensure_hook()?;
             }
         }
+        self.startup("setup", self.early[0]);
+        self.startup("guard", self.early[1]);
         // here the start is admitted (nothing else writes the pictures), unrefused, guarded and the folder repaired; a
         // server that does not answer is only found at step 2, after this wait. Not beside a server on this PC: its
         // game reads the folder. A failure never stops the start.
@@ -1535,12 +1653,12 @@ impl Run<'_> {
 
         let mut projector = true;
         if let Mode::Remote(entry, want) = self.mode.clone() {
-            // the entry as written: a 2017-18 shop's id (its tunnel serves this PC's loopback), or a name or an IPv4
+            // the entry as written: a 2017-18 arcade's id (its tunnel serves this PC's loopback), or a name or an IPv4
             // address, ":port" the seat desk's (the lobby's entry)
-            let shop = vslink::shop::parse_id(&entry).filter(|_| self.edition == Edition::E1718);
-            let (ip, desk) = match shop {
+            let arcade = vslink::arcade::parse_id(&entry).filter(|_| self.edition == Edition::E1718);
+            let (ip, desk) = match arcade {
                 Some(id) => {
-                    let ports = self.start_shop_tunnel(vslink::shop::Role::Join(id))?;
+                    let ports = self.start_arcade_tunnel(vslink::arcade::Role::Join(id))?;
                     self.tunnel_ports = Some(ports);
                     ("127.0.0.1".to_owned(), ports.desk)
                 }
@@ -1548,9 +1666,9 @@ impl Run<'_> {
                     .map(|a| (a.ip().to_string(), a.port()))
                     .ok_or_else(|| Failed(Text::key("launcher.run_not_found").arg("entry", &entry)))?,
             };
-            // through the tunnel the shop is at 127.0.0.1 too, but its game server is the host's
-            self.own_store = rules::own_store(&ip, shop.is_some());
-            // this PC's own server by its LAN address: loopback, where a 2017-18 shop's desk and relay listen
+            // through the tunnel the arcade is at 127.0.0.1 too, but its game server is the host's
+            self.own_store = rules::own_store(&ip, arcade.is_some());
+            // this PC's own server by its LAN address: loopback, where a 2017-18 arcade's desk and relay listen
             let ip = if self.own_store { "127.0.0.1".to_owned() } else { ip };
             self.remote = Some((ip.clone(), desk));
             let control_port = self.tunnel_ports.map_or(p.control_port, |t| t.control);
@@ -1573,7 +1691,15 @@ impl Run<'_> {
             conf::set_satellite_no(&confs[1], u32::from(seat))?; // the cabinet's seat
             if self.edition == Edition::E1718 && !self.own_store {
                 self.club = None; // a trip of an earlier start comes home first
-                self.bring_club(&ip, desk, seat, &entry);
+                self.visit.club = None; // and its progress is not this start's
+                if let Err(why) = self.bring_club(addr(&ip, desk), seat, &entry) {
+                    self.tell(
+                        "  ",
+                        &Text::key("launcher.run_with_why")
+                            .part("text", Text::key("launcher.club_not_in"))
+                            .part("why", why),
+                    );
+                }
             }
             // never "WAITING FOR THE PROJECTOR" on a server: its projector is on another PC, or gone
             conf::set_conf_value(&confs[1], "WAIT_PROJECTOR", "0")?;
@@ -1591,6 +1717,10 @@ impl Run<'_> {
         } else {
             let ctrl_conf = self.game.join(r"local\ctrl_user_option.conf");
             if matches!(self.mode, Mode::Local | Mode::Vs(_)) {
+                // 2017-18 CPU championship off: no projector program (it plays the championship), nobody waits for it;
+                // the "projector" setting only shows or hides its window (the panel in it)
+                projector = self.edition != Edition::E1718 || choices::cpu_championship_on(&self.kit.settings());
+                let wait = if projector { "1" } else { "0" };
                 for c in &confs {
                     conf::set_control_ip(c, "127.0.0.1")?; // after a "remote" run: the cabinets play on this PC again
                     if self.edition == Edition::E1718 {
@@ -1598,8 +1728,8 @@ impl Run<'_> {
                     }
                 }
                 conf::set_satellite_no(&confs[1], 1)?;
-                conf::set_conf_value(&confs[1], "WAIT_PROJECTOR", "1")?; // the game's own way, its projector here
-                conf::set_conf_value(&ctrl_conf, "WAIT_PROJECTOR", "1")?;
+                conf::set_conf_value(&confs[1], "WAIT_PROJECTOR", wait)?; // the game's own way, its projector here
+                conf::set_conf_value(&ctrl_conf, "WAIT_PROJECTOR", wait)?;
             } else if self.edition == Edition::E1718 {
                 // a server for others: its seat desk gives the first PC the projector, which control waits for
                 conf::set_conf_value(&ctrl_conf, "WAIT_PROJECTOR", "1")?;
@@ -1608,6 +1738,10 @@ impl Run<'_> {
                 conf::set_conf_value(&ctrl_conf, "WAIT_PROJECTOR", "0")?;
             }
             let game = self.game.clone();
+            if self.edition == Edition::E1718 {
+                // the control saves the Universal Championship in log\<date>_uc.bin but makes no folder (0x41EF00)
+                fs::create_dir_all(game.join("log"))?;
+            }
             self.start_game(Role::Server, p.control_args.clone(), &game, !self.debug, Vec::new())?;
             wait_for(
                 Text::key("launcher.run_part_server"),
@@ -1640,20 +1774,31 @@ impl Run<'_> {
                     .arg("n", self.job_count(p.matcher())),
             );
         }
+        self.startup("engines", self.t0.elapsed());
         if self.mode.is_server() {
             return self.start_server_side();
         }
+        self.projector = projector;
 
         if projector {
             let args = p.projector_args.clone().unwrap_or_else(|| vec!["0".into()]);
             let game = self.game.clone();
             self.start_game(Role::Projector, args, &game, false, self.panel_env())?;
-            self.tell("  3/6 ", &Text::key("launcher.run_projector"));
+            let hidden = self.edition == Edition::E1718 && !choices::projector_shown(&self.kit.settings());
+            self.tell(
+                "  3/6 ",
+                &Text::key(if hidden {
+                    "launcher.run_projector_hidden"
+                } else {
+                    "launcher.run_projector"
+                }),
+            );
         } else {
             self.tell(
                 "  3/6 ",
                 &Text::key(match self.edition {
                     Edition::E1011 => "launcher.run_no_projector_1011",
+                    Edition::E1718 if self.remote.is_none() => "launcher.run_projector_off",
                     Edition::E1718 => "launcher.run_no_projector_1718",
                 }),
             );
@@ -1682,6 +1827,7 @@ impl Run<'_> {
         }
         self.start_helper(projector);
         self.write_running();
+        self.session(Some(projector));
         self.say("");
         if let Mode::Remote(ip, _) = &self.mode {
             let playing = if projector {
@@ -1705,7 +1851,7 @@ impl Run<'_> {
         Ok(())
     }
 
-    /// "server": `forza-server all` (the seat desk and the match relay in one Job child, each with its
+    /// "server": `forza-server all` (2017-18: `Launcher.exe server all`; the seat desk and the match relay in one Job child, each with its
     /// own log in data\logs), then the run waits for a stop.
     fn start_server_side(&mut self) -> Result<(), Failed> {
         let logs = self.logs();
@@ -1714,10 +1860,11 @@ impl Run<'_> {
             ("WCCF_BROKER_PORT".to_owned(), self.p.seat_port.to_string()),
             ("WCCF_RELAY_PORT".to_owned(), self.p.relay_port.to_string()),
         ]);
-        // 2017-18: guests come through the shop tunnel, so the desk and relay listen on loopback only (no firewall
+        // 2017-18: guests come through the arcade tunnel, so the desk and relay listen on loopback only (no firewall
         // prompt, nothing open on the LAN) unless data\settings.json "shop_lan": true asks for the plain-address path
         // `server lan` (2017-18): this network only - no tunnel, no lobby room, LAN searches answered
         let lan_only = self.edition == Edition::E1718 && self.mode == Mode::LanServer;
+        // "shop_lan": settings key kept from before the arcade rename
         let lan = lan_only || self.edition == Edition::E1011 || self.kit.settings()["shop_lan"].as_bool() == Some(true);
         if !lan {
             env.push(("WCCF_BIND".to_owned(), "127.0.0.1".to_owned()));
@@ -1731,7 +1878,14 @@ impl Run<'_> {
             let db = self.kit.save().join("gamesvr").join("gamesvr.db");
             env.push(("WCCF_CLUB_DB".to_owned(), db.display().to_string()));
         }
-        let mut cmd = Command::new(self.kit.program("forza-server.exe"));
+        // 2017-18 ships no forza-server.exe (an AV false positive): the kit's Launcher.exe runs it as `server ...`
+        let mut cmd = if self.edition == Edition::E1718 {
+            let mut c = Command::new(self.kit.dir().join("Launcher.exe"));
+            c.arg("server");
+            c
+        } else {
+            Command::new(self.kit.program("forza-server.exe"))
+        };
         cmd.args(["--edition", self.edition.name(), "all"]);
         if self.edition == Edition::E1718 {
             // this PC's game server is the run's own stand-in (start_gamesvr)
@@ -1778,7 +1932,7 @@ impl Run<'_> {
                 };
                 self.tell(
                     "     ",
-                    &Text::key("launcher.run_lan_shop")
+                    &Text::key("launcher.run_lan_arcade")
                         .arg("port", forza::online::lan::PORT)
                         .part("ips", ips),
                 );
@@ -1787,11 +1941,11 @@ impl Run<'_> {
             self.tell("     ", &Text::key("launcher.run_server_ended_early").arg("log", out));
         }
         if self.edition == Edition::E1718 && !lan_only {
-            // guests reach this shop through iroh: no inbound port; the plain address stays the LAN fallback
-            if let Err(Failed(why)) = self.start_shop_tunnel(vslink::shop::Role::Host) {
+            // guests reach this arcade through iroh: no inbound port; the plain address stays the LAN fallback
+            if let Err(Failed(why)) = self.start_arcade_tunnel(vslink::arcade::Role::Host) {
                 let off = Text::key("launcher.run_tunnel_off").part("why", why);
                 self.tell("     ", &off);
-                self.shop_room = Some(Err(off.get(self.ui.lang())));
+                self.arcade_room = Some(Err(off.get(self.ui.lang())));
                 self.tell(
                     "     ",
                     &Text::key(if lan {
@@ -1803,6 +1957,7 @@ impl Run<'_> {
             }
         }
         self.write_running();
+        self.session(None);
         self.say("");
         self.tell(
             "",
@@ -1913,6 +2068,7 @@ impl Run<'_> {
             || procs::has_window(pid),
         )?;
         self.tell("  5/6 ", &Text::key("launcher.run_window_up").arg("n", n));
+        self.startup("window", self.t0.elapsed());
         let olog = self.seat.join("forza_panel.log");
         let skip = fs::metadata(&olog).map_or(0, |m| m.len() as usize);
         // 2017-18: wccfnet.dll loads the panel 3 s after the window (FORZA_PANEL); 2010-11: inject.exe does
@@ -1954,6 +2110,8 @@ impl Run<'_> {
         self.cabinet.keys = Some(crate::keys::spawn(
             p.shared.clone(),
             keys_path,
+            // 2017-18's panel SETTINGS has CONTROLLER IN THE BACKGROUND (data\panel.txt); 2010-11 never sets it
+            (self.kit.edition() == Edition::E1718).then(|| self.kit.data().join("panel.txt")),
             // START puts in a coin only where the game is not in FREE PLAY: 2017-18 runs it from the panel (seen live, run 8)
             self.kit.edition() != Edition::E1718,
             file_log(self.logs().join("run_keys.txt")),
@@ -2006,6 +2164,29 @@ impl Run<'_> {
         }
         let port = self.p.gamesvr_port;
         let ctrl_conf = self.game.join(r"local\ctrl_user_option.conf");
+        // the Universal Cup: the host dialog's choice, which the control reads only as it starts (a new choice needs a
+        // new start; local play's PLAY tab writes the same setting). A cup at a time is a schedule slot
+        // (local\schedule_option.conf); VS keeps the game's times.
+        let plan = rules::cup_plan(&self.mode, &self.kit.settings(), forza_ui::lobby::local_clock());
+        let ((times, friendlies), line) = match plan {
+            Ok(p) => (
+                conf::cup_files(p),
+                match p {
+                    CupPlan::Off => Text::key("launcher.run_cup_off"),
+                    CupPlan::GameTimes => Text::key("launcher.run_cup_game_times"),
+                    CupPlan::Slot { opens, .. } => {
+                        Text::key("launcher.run_cup_at").arg("time", forza_ui::lobby::clock_text(opens))
+                    }
+                },
+            ),
+            Err(r) => (
+                (None, None),
+                Text::key("launcher.run_cup_refused").part("why", Text::key(r.key()).arg("m", r.minutes())),
+            ),
+        };
+        conf::set_cup_times(&ctrl_conf, times)?;
+        conf::set_cup_schedule(&self.game.join(r"local\schedule_option.conf"), friendlies)?;
+        self.tell("  ", &line);
         if let Mode::Vs(_) = self.mode {
             let panel_file = self.kit.data().join("panel.txt");
             let panel = choices::read(&panel_file);
@@ -2021,6 +2202,15 @@ impl Run<'_> {
                         .arg("port", t.port),
                 )
             })?;
+            // the server's own game server (a room's too) keeps no club of this PC's card: it comes along, as to an
+            // arcade, or the game does not start. A club server keeps the club itself.
+            if t.room.is_some() || club.trim().is_empty() {
+                let server = choices::panel_value(&panel, "server").unwrap_or_default();
+                self.club = None;
+                self.visit.club = None;
+                self.bring_club(choices::resolve(&server, self.p.seat_port), 1, &server)
+                    .map_err(|why| Failed(Text::key("launcher.run_vs_club_refused").part("why", why)))?;
+            }
             conf::set_game_server(&ctrl_conf, &t.host, t.port, true)?;
             self.tell(
                 &format!("  1/{steps} "),
@@ -2046,7 +2236,7 @@ impl Run<'_> {
         // and data\settings.json "skip_tutorial": true makes it give a new Aime id a club from the game's cpu_50.dat
         let skip = self.kit.settings()["skip_tutorial"].as_bool().unwrap_or(false);
         let game = Some(self.game.clone());
-        // guests' clubs a crashed shop left here (online::club): their players keep their home copies
+        // guests' clubs a crashed arcade left here (online::club): their players keep their home copies
         let store = self.kit.save().join("gamesvr");
         fs::create_dir_all(&store)?;
         match gamesvr::Store::open(&store.join("gamesvr.db")).and_then(|mut s| s.purge_guests()) {
@@ -2065,7 +2255,7 @@ impl Run<'_> {
         Ok(())
     }
 
-    /// A club still marked out in a shop (the last trip ended before it came home): the home copy stays, the shop's
+    /// A club still marked out in an arcade (the last trip ended before it came home): the home copy stays, the arcade's
     /// last copy goes to backups, and the player is told once.
     fn club_leftover(&self, dir: &Path) {
         match club::leftover(dir) {
@@ -2077,12 +2267,15 @@ impl Run<'_> {
         }
     }
 
-    /// 2017-18 shop guest: the home club comes along to the shop (online::club), under the card's home Aime id (an
-    /// older card's integer id) here and its hash there. Any failure keeps it home and the run goes on.
-    fn bring_club(&mut self, ip: &str, desk: u16, seat: u8, shop: &str) {
+    /// 2017-18 arcade guest, or online on a server's own arcade: the home club comes along to the desk at `desk`
+    /// (online::club), under the card's home Aime id (an older card's integer id) here and its hash there. `Err`: why
+    /// it stayed home.
+    fn bring_club(&mut self, desk: Option<SocketAddr>, seat: u8, arcade: &str) -> Result<(), Text> {
         let save = self.kit.save();
         let dir = save.join("gamesvr");
         self.club_leftover(&dir);
+        // a first run: the card the reader will read, made now so its club (none yet) comes along too
+        aime::ensure_card(&save.join("seat1_aime.txt"));
         let code = fs::read_to_string(save.join("seat1_aime.txt"))
             .ok()
             .map(|s| s.trim().to_owned())
@@ -2090,31 +2283,27 @@ impl Run<'_> {
         let home = code
             .as_ref()
             .map(|c| aimedb::Db::open(save.join("aimedb.json")).map(|db| db.home_id(c)));
-        let (Some(code), Some(Ok(home)), Some(desk)) = (code, home, addr(ip, desk)) else {
-            self.tell("  ", &Text::key("launcher.run_no_card"));
-            return;
+        let (Some(code), Some(Ok(home)), Some(desk)) = (code, home, desk) else {
+            return Err(Text::key("launcher.run_no_card"));
         };
         let guest = club::Guest {
             desk,
             seat,
-            shop_aime: aimedb::hash_id(&code) as u32,
+            arcade_aime: aimedb::hash_id(&code) as u32,
             code,
             home_aime: home as u32,
             dir,
-            shop: shop.to_owned(),
+            arcade: arcade.to_owned(),
             poll: club::POLL,
         };
         match guest.bring(file_log(self.logs().join("club_trip.txt"))) {
             Ok(trip) => {
+                self.visit.club = Some(trip.progress());
                 self.club = Some(trip);
                 self.tell("  ", &Text::key("launcher.club_in"));
+                Ok(())
             }
-            Err(why) => self.tell(
-                "  ",
-                &Text::key("launcher.run_with_why")
-                    .part("text", Text::key("launcher.club_not_in"))
-                    .arg("why", why),
-            ),
+            Err(why) => Err(Text::Raw(why)),
         }
     }
 
@@ -2176,24 +2365,25 @@ impl Run<'_> {
         }
     }
 
-    /// 2017-18 shop over iroh (vslink::shop). Host: beside `forza-server all`, its id said and kept in
+    /// 2017-18 arcade over iroh (vslink::arcade). Host: beside `forza-server all`, its id said and kept in
     /// data\shop_id.txt. Join: this PC's loopback control, desk and relay ports lead to that host. The relay as for VS
     /// (WCCF_VS_RELAY, settings "vs_relay" and "vs_relay_ca"); `VSLINK_DELAY_MS` (tests only) adds that much to the
     /// round trip.
-    fn start_shop_tunnel(&mut self, role: vslink::shop::Role) -> Result<vslink::shop::Ports, Failed> {
+    fn start_arcade_tunnel(&mut self, role: vslink::arcade::Role) -> Result<vslink::arcade::Ports, Failed> {
         let p = self.p;
-        let ports = vslink::shop::Ports {
+        let ports = vslink::arcade::Ports {
             control: p.control_port,
             desk: p.seat_port,
             relay: p.relay_port,
         };
-        let host = role == vslink::shop::Role::Host;
+        let host = role == vslink::arcade::Role::Host;
         let key = self
             .kit
             .data()
+            // file names kept from before the arcade rename: players' installs already hold these keys and logs
             .join(if host { "shop_host.key" } else { "shop_join.key" });
         let log = file_log(self.logs().join("shop_tunnel.txt"));
-        let mut cfg = vslink::shop::ShopConfig::public(role, ports, key, log);
+        let mut cfg = vslink::arcade::ArcadeConfig::public(role, ports, key, log);
         let settings = self.kit.settings();
         let saved = |k: &str| settings[k].as_str().map(str::to_owned);
         if let Some(url) = choices::env_or_var("WCCF_VS_RELAY", saved("vs_relay")) {
@@ -2202,7 +2392,7 @@ impl Run<'_> {
                 .map_err(|e| Failed(Text::Raw(e)))?;
         }
         // a host's room first: its code is the only way in, and the tunnel admits only the guests the room names
-        let room = host.then(|| self.open_shop_room(&cfg.key, cfg.log.clone()));
+        let room = host.then(|| self.open_arcade_room(&cfg.key, cfg.log.clone()));
         if let Some(Ok(r)) = &room {
             cfg.admit = Some(r.admit());
         }
@@ -2215,27 +2405,32 @@ impl Run<'_> {
             );
         }
         let link =
-            vslink::shop::spawn(cfg).map_err(|e| Failed(Text::key("launcher.run_tunnel_failed").arg("error", e)))?;
+            vslink::arcade::spawn(cfg).map_err(|e| Failed(Text::key("launcher.run_tunnel_failed").arg("error", e)))?;
         if host {
-            let id = vslink::shop::id_text(&link.id);
+            let id = vslink::arcade::id_text(&link.id);
+            // file name kept from before the arcade rename
             let _ = choices::write(&self.kit.data().join("shop_id.txt"), &format!("{id}\n"));
+            self.arcade = Some(match &room {
+                Some(Ok(r)) => format!("{id} code {}", r.code),
+                _ => id.clone(),
+            });
             match &room {
                 Some(Ok(r)) => self.tell(
                     "     ",
-                    &Text::key("launcher.run_shop_room")
+                    &Text::key("launcher.run_arcade_room")
                         .arg("code", &r.code)
                         .arg("server", &r.server)
                         .arg("id", &id),
                 ),
                 Some(Err(why)) => self.tell(
                     "     ",
-                    &Text::key("launcher.run_shop_no_room").arg("why", why).arg("id", &id),
+                    &Text::key("launcher.run_arcade_no_room").arg("why", why).arg("id", &id),
                 ),
                 None => {}
             }
-            self.tell("     ", &Text::key("launcher.run_shop_id_file"));
-            self.shop_room = room;
-            self.shop_guests = Some(link.guests());
+            self.tell("     ", &Text::key("launcher.run_arcade_id_file"));
+            self.arcade_room = room;
+            self.arcade_guests = Some(link.guests());
         } else if link.ports != ports {
             self.tell(
                 "       ",
@@ -2247,37 +2442,41 @@ impl Run<'_> {
         } else {
             self.tell("       ", &Text::key("launcher.run_tunnel_up"));
         }
+        if !host {
+            self.visit.host_closed = Some(link.host_closed());
+        }
         self.vslink = Some(link.handle);
         Ok(link.ports)
     }
 
-    /// The lobby room for the host's tunnel (`key` its endpoint key), on the club server's desk ([`crate::lobby::shop_lobby`]),
-    /// where the window's guests type its code; listed in SHOPS when data\settings.json `list_shop` is true, as
+    /// The lobby room for the host's tunnel (`key` its endpoint key), on the club server's desk ([`crate::lobby::arcade_lobby`]),
+    /// where the window's guests type its code; listed in ARCADES when data\settings.json `list_shop` is true, as
     /// `shop_name` (empty: the desk's name).
-    fn open_shop_room(&self, key: &Path, log: Log) -> Result<crate::lobby::HostRoom, String> {
-        let id = vslink::shop::own_id(key).map_err(|e| format!("{}: {e}", key.display()))?;
+    fn open_arcade_room(&self, key: &Path, log: Log) -> Result<crate::lobby::HostRoom, String> {
+        let id = vslink::arcade::own_id(key).map_err(|e| format!("{}: {e}", key.display()))?;
         let club = choices::setting(&self.kit.settings_file(), "club_server").unwrap_or_default();
-        let desk = crate::lobby::shop_lobby(&club);
+        let desk = crate::lobby::arcade_lobby(&club);
+        // settings keys kept from before the arcade rename: players' settings.json already holds them
         let public = self.kit.settings()["list_shop"].as_bool() == Some(true);
         let name = choices::setting(&self.kit.settings_file(), "shop_name").unwrap_or_default();
-        crate::lobby::HostRoom::open(&desk, &vslink::shop::id_text(&id), public, &name, log, &|t| {
+        crate::lobby::HostRoom::open(&desk, &vslink::arcade::id_text(&id), public, &name, log, &|t| {
             self.tell("     ", t)
         })
     }
 
-    /// A 2017-18 server's shop room: its code, the lobby server holding it and the flag set when that lobby loses it;
-    /// or why it has none (the window's HOST SHOP shows one or the other).
-    pub fn shop_code(&self) -> Result<(String, String, Arc<AtomicBool>), String> {
-        match &self.shop_room {
+    /// A 2017-18 server's arcade room: its code, the lobby server holding it and the flag set when that lobby loses it;
+    /// or why it has none (the window's HOST ARCADE shows one or the other).
+    pub fn arcade_code(&self) -> Result<(String, String, Arc<AtomicBool>), String> {
+        match &self.arcade_room {
             Some(Ok(r)) => Ok((r.code.clone(), r.server.clone(), r.lost())),
             Some(Err(why)) => Err(why.clone()),
             None => Err(Text::key("launcher.run_no_tunnel").get(self.ui.lang())),
         }
     }
 
-    /// 2017-18 server: its shop tunnel's live guest count (HOST SHOP closes an empty shop on its own).
-    pub fn shop_guests(&self) -> Option<Arc<AtomicUsize>> {
-        self.shop_guests.clone()
+    /// 2017-18 server: its arcade tunnel's live guest count (HOST ARCADE closes an empty arcade on its own).
+    pub fn arcade_guests(&self) -> Option<Arc<AtomicUsize>> {
+        self.arcade_guests.clone()
     }
 
     /// Online: this PC's seat from the server's seat desk, held while the run lasts; None asked = the next free seat.
@@ -2292,7 +2491,7 @@ impl Run<'_> {
         if ticket.is_some() {
             let _ = choices::write(&panel, &choices::set_panel_value(&text, "ticket", None));
         }
-        // every seat of a shop must run the same match engine math (the desk refuses another)
+        // every seat of an arcade must run the same match engine math (the desk refuses another)
         let dmath = (self.edition == Edition::E1718).then(|| seat::dmath_token(&self.game, &self.seat));
         match seat::claim_with(
             at,
@@ -2338,7 +2537,7 @@ impl Run<'_> {
         let (dir, kit, game) = (self.p.logs_dir.clone(), self.kit.dir().to_path_buf(), self.game.clone());
         let tx = self.tx.clone();
         thread::spawn(move || {
-            let line = match save_logs::save(&dir, &kit, Some(&game), &Scrub::from_env(), None) {
+            let line = match crate::report::save_zip(&dir, &kit, Some(&game), &Scrub::from_env(), None) {
                 Ok(path) => format!("ok {}", path.display()),
                 Err(e) => format!("fail {e}"),
             };
@@ -2348,6 +2547,38 @@ impl Run<'_> {
                 None => Text::key("launcher.run_logs_not_saved").arg("error", &line[5..]),
             }));
         });
+    }
+
+    /// 2017-18 with the control here: once a day, when today's Universal Championship (game\log\<date>_uc.bin) has
+    /// a player's club, the notice with about when it plays on the projector, and the bracket's line in the log.
+    fn watch_championship(&mut self) {
+        if self.edition != Edition::E1718 || !self.alive(Role::Server) {
+            return;
+        }
+        let date = championship::date(now_local());
+        let f = championship::file(&self.game, date);
+        let Ok(at) = fs::metadata(&f).and_then(|m| m.modified()) else {
+            return;
+        };
+        if self.uc_told == Some(date) || self.uc_seen == Some(at) {
+            return;
+        }
+        self.uc_seen = Some(at);
+        let teams = championship::teams(&fs::read(&f).unwrap_or_default());
+        // shortcut: any player's club counts as "yours"; an arcade host with guests may see a guest's win, tell the
+        // clubs apart (block +0 = coach id) if hosts report it
+        if !teams.iter().any(|t| t.player) {
+            return;
+        }
+        self.uc_told = Some(date);
+        // the winner alone is written as the cup's final ends, and the championship opens at the next slot (2-3 min
+        // later); all four teams are written as it opens
+        let opens = at + Duration::from_secs(if teams.len() < 4 { 180 } else { 0 });
+        // the notice sends the player to the big screen: tell it only when the projector runs with its window shown
+        if self.projector && choices::projector_shown(&self.kit.settings()) {
+            self.tell("", &championship_notice(opens));
+        }
+        crate::logs::append(&self.logs().join("run_launcher.txt"), &championship_line(&self.game));
     }
 
     // ---- the supervisor ----
@@ -2390,6 +2621,7 @@ impl Run<'_> {
             let ev = match self.rx.recv_timeout(Duration::from_millis(500)) {
                 Ok(ev) => ev,
                 Err(RecvTimeoutError::Timeout) => {
+                    self.watch_championship();
                     if let Some(end) = self.check_threads() {
                         self.ui.running(false);
                         return end;
@@ -2420,6 +2652,25 @@ impl Run<'_> {
                 return end;
             }
         }
+    }
+
+    /// An arcade guest whose host closed the arcade (the tunnel heard it; without one, the club's last copy-back found
+    /// the host's server gone): the end's notice, with the club home or maybe missing its last saves (then the marker
+    /// stays, so the next start says so too). After `shutdown`: dropping the trip joins it, its last copy-back done.
+    fn host_closed_notice(&self) -> Option<Text> {
+        if matches!(self.mode, Mode::Vs(_)) {
+            return None; // no host: the end says whether the club came home (finish)
+        }
+        let progress = self
+            .visit
+            .club
+            .as_ref()
+            .map(|p| *p.lock().unwrap_or_else(PoisonError::into_inner));
+        let closed = match &self.visit.host_closed {
+            Some(flag) => flag.load(Ordering::Relaxed),
+            None => progress.is_some_and(|p| p.gone),
+        };
+        closed.then(|| rules::host_closed_notice(progress.map(|p| p.home)))
     }
 
     /// Stand-in and helper threads that ended by themselves (a panic, an error) are said once, in the run log; the run
@@ -2482,12 +2733,12 @@ impl Run<'_> {
 
     /// The card rule now: the refusal's words, or None to go on.
     fn refusal(&self, force: bool) -> Option<Text> {
-        // a server has no seat of its own, so the card rule never holds it: a shop server's matches are its tunnel's
+        // a server has no seat of its own, so the card rule never holds it: an arcade server's matches are its tunnel's
         // guests' (still connected even when the lobby lost the room) and this PC's seat beside it
         if self.mode.is_server()
-            && let Some(g) = &self.shop_guests
+            && let Some(g) = &self.arcade_guests
         {
-            return rules::shop_rule(force, is_on(self.kit, Kind::Run), g.load(Ordering::Relaxed));
+            return rules::arcade_rule(force, is_on(self.kit, Kind::Run), g.load(Ordering::Relaxed));
         }
         let (slot, new) = self.card_files();
         let (session, _) = card::club_session(&slot, &new, self.run_started());
@@ -2506,6 +2757,9 @@ impl Run<'_> {
         self.gone.push(g.role);
         if g.role == Role::Server {
             self.tell("", &Text::key("launcher.run_server_ended"));
+            if self.edition == Edition::E1718 {
+                crate::logs::append(&self.logs().join("run_launcher.txt"), &championship_line(&self.game));
+            }
             if self.mode.is_server() {
                 return Some(self.finish(false, Some(Text::key("launcher.run_server_has_ended"))));
             }
@@ -2552,6 +2806,7 @@ impl Run<'_> {
     /// `Job::stop` for whatever is left (its windows closed, then ended after the deadline); then the stand-ins, the
     /// key driver first.
     fn shutdown(&mut self) {
+        self.sampler = None;
         self.helper = None; // joins its threads (a view being made is given up)
         for (_, c) in &mut self.kids {
             let _ = c.kill();
@@ -2576,7 +2831,7 @@ impl Run<'_> {
         self.cabinet = Cabinet::default();
         self.scenes = None;
         self.gamesvr = None;
-        // the club's last copy home, while the game is closed and the shop tunnel still up
+        // the club's last copy home, while the game is closed and the arcade tunnel still up
         self.club = None;
         self.vslink = None;
         self.lease = None;
@@ -2597,6 +2852,12 @@ impl Run<'_> {
             Vec::new()
         };
         self.shutdown();
+        let notice = self.host_closed_notice();
+        let why = if notice.is_some() {
+            rules::without_link_lost(why)
+        } else {
+            why
+        };
         let left = self.job.active();
         self.card_steps(&["keep"]); // the cards on the table kept with their club: data\save holds the latest
         self.job.stop(STOP_DEADLINE);
@@ -2605,16 +2866,25 @@ impl Run<'_> {
             self.tell("", &Text::key("launcher.run_still_running").arg("n", left));
             return End::Over(FAILED);
         }
-        self.tell(
-            "",
-            &if let Some(words) = words {
-                words
-            } else if why.is_empty() {
-                Text::key("launcher.run_closed_by_player")
-            } else {
-                Text::key("launcher.run_ended_problem").arg("why", why.join("; "))
-            },
-        );
+        if let Some(n) = &notice {
+            self.tell("", n);
+        }
+        let club_home = self
+            .visit
+            .club
+            .as_ref()
+            .map(|p| p.lock().unwrap_or_else(PoisonError::into_inner).home);
+        if matches!(self.mode, Mode::Vs(_)) && club_home == Some(false) {
+            // the marker stays, so the next start says so too
+            self.tell("", &Text::key("launcher.run_vs_club_maybe_old"));
+        }
+        if let Some(words) = words {
+            self.tell("", &words);
+        } else if !why.is_empty() {
+            self.tell("", &Text::key("launcher.run_ended_problem").arg("why", why.join("; ")));
+        } else if notice.is_none() {
+            self.tell("", &Text::key("launcher.run_closed_by_player"));
+        }
         End::Over(if why.is_empty() { OK } else { WENT_WRONG })
     }
 
@@ -2829,6 +3099,24 @@ mod tests {
     use super::due;
     use std::fs;
     use std::path::Path;
+
+    #[test]
+    fn the_championship_notice_gives_the_time_in_every_language() {
+        let opens = std::time::SystemTime::now();
+        let t = time::OffsetDateTime::from(opens).to_offset(super::now_local().offset());
+        let hhmm = format!("{:02}:{:02}", t.hour(), t.minute());
+        let n = super::championship_notice(opens);
+        assert_eq!(
+            n.en(),
+            format!(
+                "Your club is in the Universal Championship: it plays on the big screen from about {hhmm}. Your club plays with its last lineup; you watch."
+            )
+        );
+        for lang in [forza_ui::Lang::It, forza_ui::Lang::Ja] {
+            let s = n.get(lang);
+            assert!(s.contains(&hhmm) && s != n.en() && !s.contains("%{"), "{lang:?}: {s}");
+        }
+    }
 
     #[test]
     fn pictures_are_made_at_play_when_missing_older_or_changed_but_not_after_a_failure() {

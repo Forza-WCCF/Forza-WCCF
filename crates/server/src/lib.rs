@@ -3,10 +3,11 @@
 //! and blocking I/O; builds for Windows and Linux. Ports, timers and paths are parameters of each service's config
 //! (the binary fills them from the Python's environment variables); tests bind `127.0.0.1:0`.
 
+pub mod arcade_room;
+pub mod cli;
 pub mod desk;
 pub mod desync;
 pub mod relay;
-pub mod shoproom;
 
 pub use forza::service::Log;
 use std::io::{self, Read, Write};
@@ -77,7 +78,8 @@ pub struct Handle {
     stop: Arc<AtomicBool>,
     tcp: bool,
     threads: Vec<JoinHandle<()>>,
-    _ticker: Option<mpsc::Sender<()>>,
+    /// Dropped to wake and end the ticker threads.
+    tickers: Vec<mpsc::Sender<()>>,
 }
 
 impl Handle {
@@ -86,14 +88,14 @@ impl Handle {
         stop: Arc<AtomicBool>,
         tcp: bool,
         threads: Vec<JoinHandle<()>>,
-        ticker: Option<mpsc::Sender<()>>,
+        tickers: Vec<mpsc::Sender<()>>,
     ) -> Self {
         Self {
             addr,
             stop,
             tcp,
             threads,
-            _ticker: ticker,
+            tickers,
         }
     }
 
@@ -108,7 +110,7 @@ impl Handle {
 impl Drop for Handle {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
-        self._ticker.take();
+        self.tickers.clear();
         if self.tcp {
             // wakes the blocking accept
             let mut wake = self.addr;

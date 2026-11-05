@@ -81,7 +81,7 @@ fn create_reserve_ready_and_the_seat_races() {
     assert_eq!(lobby::ready(a, &other, &g), Ok(false));
     assert_eq!(lobby::ready(a, &id, &host), Ok(true));
     assert_eq!(seats(&listed(a, &id).unwrap()), [(1, true), (2, true)]);
-    // a room ticket claims no shop seat
+    // a room ticket claims no arcade seat
     assert_eq!(say(a, &format!("WANT TICKET {g}")), "ERR ticket");
 }
 
@@ -175,7 +175,7 @@ fn quick_match_pairs_the_oldest_open_room() {
 }
 
 #[test]
-fn room_leases_follow_the_shop_rules() {
+fn room_leases_follow_the_arcade_rules() {
     let d = desk(|c| c.reserve_lease = Duration::from_millis(500));
     let a = d.addr();
     let (id, _, host) = room(a, false);
@@ -326,7 +326,7 @@ fn no_rooms_without_the_matcher() {
         for w in ["CREATE vs", "CREATE vs open", "READY 0a1b2c3d t"] {
             assert!(say(a, w).starts_with("ERR"), "{name} {w}");
         }
-        // 2017-18 knows CLOSE for its shop rooms, which need no matcher
+        // 2017-18 knows CLOSE for its arcade rooms, which need no matcher
         let close = say(a, "CLOSE 0a1b2c3d t");
         if ed == Edition::E1718 {
             assert_eq!(close, "GONE");
@@ -344,8 +344,8 @@ fn tunnel_id(seed: u8) -> String {
     k.to_bytes().iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn shop_room(a: SocketAddr, host: &str, public: bool) -> (String, String, String) {
-    match lobby::create_shop(a, host, public, "").unwrap() {
+fn arcade_room(a: SocketAddr, host: &str, public: bool) -> (String, String, String) {
+    match lobby::create_arcade(a, host, public, "").unwrap() {
         Created::Room {
             id,
             code,
@@ -356,11 +356,11 @@ fn shop_room(a: SocketAddr, host: &str, public: bool) -> (String, String, String
     }
 }
 
-/// 2017-18 shop rooms: joined by code alone; a guest's ticket gets the host's tunnel id and tells its own, the host's
-/// ticket gets the guests'; leaving and the host's `CLOSE` as for VS rooms. No matcher needed: a Launcher's shop desk
+/// 2017-18 arcade rooms: joined by code alone; a guest's ticket gets the host's tunnel id and tells its own, the host's
+/// ticket gets the guests'; leaving and the host's `CLOSE` as for VS rooms. No matcher needed: a Launcher's arcade desk
 /// (`--no-gmsvr`) holds them too.
 #[test]
-fn shop_rooms_join_by_code_and_swap_tunnel_ids() {
+fn arcade_rooms_join_by_code_and_swap_tunnel_ids() {
     use forza::online::lobby::Peers;
     let d = desk(|c| c.vs = None);
     let a = d.addr();
@@ -371,33 +371,33 @@ fn shop_rooms_join_by_code_and_swap_tunnel_ids() {
         "ERR id",
         "hex, but no public key"
     );
-    let (id, code, host_t) = shop_room(a, &host_id, false);
+    let (id, code, host_t) = arcade_room(a, &host_id, false);
     assert_eq!(code.len(), 8);
-    let guest_t = match lobby::join_shop(a, &code.to_lowercase(), None).unwrap() {
+    let guest_t = match lobby::join_arcade(a, &code.to_lowercase(), None).unwrap() {
         Reserved::Ticket { ticket, seat: 2 } => ticket,
         r => panic!("{r:?}"),
     };
     assert_eq!(
-        lobby::shop_peers(a, &host_t, None).unwrap(),
+        lobby::arcade_peers(a, &host_t, None).unwrap(),
         Some(Peers::Guests(vec![]))
     );
     assert_eq!(
-        lobby::shop_peers(a, &guest_t, Some(&guest_id)).unwrap(),
+        lobby::arcade_peers(a, &guest_t, Some(&guest_id)).unwrap(),
         Some(Peers::Host(host_id.clone()))
     );
     assert_eq!(
-        lobby::shop_peers(a, &host_t, None).unwrap(),
+        lobby::arcade_peers(a, &host_t, None).unwrap(),
         Some(Peers::Guests(vec![guest_id.clone()]))
     );
     assert_eq!(
-        lobby::shop_peers(a, "0000000000000000", None).unwrap(),
+        lobby::arcade_peers(a, "0000000000000000", None).unwrap(),
         None,
         "GONE"
     );
     assert!(lobby::heartbeat(a, &guest_t).unwrap());
     assert!(lobby::release(a, &guest_t).unwrap(), "the guest leaves");
     assert_eq!(
-        lobby::shop_peers(a, &host_t, None).unwrap(),
+        lobby::arcade_peers(a, &host_t, None).unwrap(),
         Some(Peers::Guests(vec![]))
     );
     assert!(
@@ -405,7 +405,10 @@ fn shop_rooms_join_by_code_and_swap_tunnel_ids() {
         "the host closes the room"
     );
     assert!(!lobby::heartbeat(a, &host_t).unwrap());
-    assert_eq!(lobby::join_shop(a, &code, None).unwrap(), Reserved::Closed);
+    assert_eq!(
+        lobby::join_arcade(a, &code, None).unwrap(),
+        Reserved::Closed
+    );
 }
 
 /// What `LOBBY` says lets a stranger into a public room and nowhere else: a private room is not listed and its id
@@ -416,11 +419,11 @@ fn listed_rooms_join_by_id_private_ones_by_code_only() {
     let d = desk(|c| c.vs = None);
     let a = d.addr();
     let host_id = tunnel_id(1);
-    let (private_id, private_code, private_t) = shop_room(a, &host_id, false);
+    let (private_id, private_code, private_t) = arcade_room(a, &host_id, false);
     let other_host = tunnel_id(2); // one room per host id
     // a named room: the desk keeps the name as the words carry it
     let (public_id, public_code, public_t) =
-        match lobby::create_shop(a, &other_host, true, " Sala \t Roma ").unwrap() {
+        match lobby::create_arcade(a, &other_host, true, " Sala \t Roma ").unwrap() {
             Created::Room {
                 id, code, ticket, ..
             } => (id, code, ticket),
@@ -429,20 +432,20 @@ fn listed_rooms_join_by_id_private_ones_by_code_only() {
     let line = say(a, "LOBBY 2017-18");
     let l = Lobby::parse(&line).unwrap();
     assert!(
-        !l.shops.iter().any(|s| s.id == private_id),
+        !l.arcades.iter().any(|s| s.id == private_id),
         "private: not listed"
     );
     let row = l
-        .shops
+        .arcades
         .iter()
         .find(|s| s.id == public_id)
         .expect("public: listed");
     assert_eq!((row.seats, row.max, row.room), (1, 8, true));
     assert_eq!(row.name, "Sala Roma");
     assert_eq!(
-        l.shops.iter().filter(|s| s.room).count(),
+        l.arcades.iter().filter(|s| s.room).count(),
         1,
-        "the desk's own shop is no room"
+        "the desk's own arcade is no room"
     );
     for secret in [
         &host_id,
@@ -456,20 +459,20 @@ fn listed_rooms_join_by_id_private_ones_by_code_only() {
     }
     assert_eq!(lobby::reserve(a, &public_id).unwrap(), Reserved::Closed);
     assert_eq!(
-        lobby::join_shop(a, &private_id, None).unwrap(),
+        lobby::join_arcade(a, &private_id, None).unwrap(),
         Reserved::Closed,
         "a private room's id"
     );
     assert!(matches!(
-        lobby::join_shop(a, &public_id, None).unwrap(),
+        lobby::join_arcade(a, &public_id, None).unwrap(),
         Reserved::Ticket { seat: 2, .. }
     ));
     assert!(matches!(
-        lobby::join_shop(a, &public_code, None).unwrap(),
+        lobby::join_arcade(a, &public_code, None).unwrap(),
         Reserved::Ticket { seat: 3, .. }
     ));
     assert!(matches!(
-        lobby::join_shop(a, &private_code, None).unwrap(),
+        lobby::join_arcade(a, &private_code, None).unwrap(),
         Reserved::Ticket { seat: 2, .. }
     ));
     let line = say(a, "LOBBY 2017-18");
@@ -478,25 +481,25 @@ fn listed_rooms_join_by_id_private_ones_by_code_only() {
     }
 }
 
-/// One address holds at most 2 shop rooms (and 8 VS rooms: players behind one NAT) at once, and one tunnel id one
+/// One address holds at most 2 arcade rooms (and 8 VS rooms: players behind one NAT) at once, and one tunnel id one
 /// room; closing one makes room again.
 #[test]
 fn rooms_per_address_and_per_host_are_capped() {
     let d = desk(|_| {});
     let a = d.addr();
-    let (id, _, t) = shop_room(a, &tunnel_id(1), false);
+    let (id, _, t) = arcade_room(a, &tunnel_id(1), false);
     assert_eq!(
         say(a, &format!("CREATE shop {}", tunnel_id(1))),
         "ERR host",
         "one room per host"
     );
-    shop_room(a, &tunnel_id(2), false);
+    arcade_room(a, &tunnel_id(2), false);
     assert_eq!(
-        lobby::create_shop(a, &tunnel_id(3), false, "").unwrap(),
+        lobby::create_arcade(a, &tunnel_id(3), false, "").unwrap(),
         Created::Full
     );
     assert!(lobby::close(a, &id, &t).unwrap());
-    shop_room(a, &tunnel_id(1), false);
+    arcade_room(a, &tunnel_id(1), false);
     let vs: Vec<_> = (0..8).map(|_| room(a, false)).collect();
     assert_eq!(
         lobby::create(a, false).unwrap(),
@@ -516,17 +519,17 @@ fn wrong_codes_slow_the_address_that_sends_them() {
         c.join_fail_address_window = Duration::from_millis(800);
     });
     let a = d.addr();
-    let (_, code, _) = shop_room(a, &tunnel_id(1), false);
+    let (_, code, _) = arcade_room(a, &tunnel_id(1), false);
     for _ in 0..3 {
         assert_eq!(
-            lobby::join_shop(a, "AAAAAAAA", None).unwrap(),
+            lobby::join_arcade(a, "AAAAAAAA", None).unwrap(),
             Reserved::Closed
         );
     }
     assert_eq!(say(a, &format!("JOIN {code}")), "ERR slow");
     std::thread::sleep(Duration::from_millis(900));
     assert!(matches!(
-        lobby::join_shop(a, &code, None).unwrap(),
+        lobby::join_arcade(a, &code, None).unwrap(),
         Reserved::Ticket { seat: 2, .. }
     ));
 }
@@ -538,10 +541,10 @@ fn the_desk_wide_ceiling_still_trips() {
         c.join_fail_window = Duration::from_millis(800);
     });
     let a = d.addr();
-    let (_, code, _) = shop_room(a, &tunnel_id(1), false);
+    let (_, code, _) = arcade_room(a, &tunnel_id(1), false);
     for _ in 0..2 {
         assert_eq!(
-            lobby::join_shop(a, "AAAAAAAA", None).unwrap(),
+            lobby::join_arcade(a, "AAAAAAAA", None).unwrap(),
             Reserved::Closed
         );
     }
@@ -559,14 +562,14 @@ fn the_desk_wide_ceiling_still_trips() {
 fn a_host_replaces_its_own_stale_room() {
     let d = desk(|c| c.host_stale = Duration::from_millis(300));
     let a = d.addr();
-    let (_, _, old_t) = shop_room(a, &tunnel_id(1), false);
+    let (_, _, old_t) = arcade_room(a, &tunnel_id(1), false);
     assert_eq!(
         say(a, &format!("CREATE shop {}", tunnel_id(1))),
         "ERR host",
         "alive: kept"
     );
     std::thread::sleep(Duration::from_millis(400));
-    let (_, _, new_t) = shop_room(a, &tunnel_id(1), false);
+    let (_, _, new_t) = arcade_room(a, &tunnel_id(1), false);
     assert!(
         !lobby::heartbeat(a, &old_t).unwrap(),
         "the stale room is gone"
@@ -579,7 +582,7 @@ fn a_host_replaces_its_own_stale_room() {
     );
 }
 
-/// A shop's own desk behind its tunnel seats its PCs and nothing else: the room words are refused there.
+/// An arcade's own desk behind its tunnel seats its PCs and nothing else: the room words are refused there.
 #[test]
 fn a_tunnel_desk_holds_no_rooms() {
     let d = desk(|c| c.tunnel = true);
@@ -595,19 +598,22 @@ fn a_tunnel_desk_holds_no_rooms() {
         assert_eq!(say(a, &w), "ERR rooms are on the lobby", "{w}");
     }
     let l = lobby::fetch(a, "2017-18").unwrap();
-    assert!(l.vs.is_empty() && l.shops.len() == 1, "only its own shop");
+    assert!(
+        l.vs.is_empty() && l.arcades.len() == 1,
+        "only its own arcade"
+    );
     assert!(
         matches!(
-            lobby::reserve(a, &l.shops[0].id).unwrap(),
+            lobby::reserve(a, &l.arcades[0].id).unwrap(),
             Reserved::Ticket { .. }
         ),
         "seats still"
     );
 }
 
-/// A 2010-11 desk knows no shop rooms.
+/// A 2010-11 desk knows no arcade rooms.
 #[test]
-fn no_shop_rooms_on_2010_11() {
+fn no_arcade_rooms_on_2010_11() {
     let d = desk(|c| {
         c.edition = Edition::E1011;
         c.vs = None;

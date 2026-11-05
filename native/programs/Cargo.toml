@@ -1,11 +1,11 @@
 [package]
 name = "forza-programs"
-version = "0.5.1" # its own version, not the release number (docs/RELEASING.md)
+version = "0.6.0" # its own version, not the release number (docs/RELEASING.md)
 license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
-description = "The small 32-bit programs beside the game (FPR_Emu.exe, inject.exe, logowin.exe) and the test programs of the hook and the guards"
+description = "The small 32-bit programs beside the game (FPR_Emu.exe, inject.exe) and the test programs of the hook and the guards"
 
 # 32-bit like the game: `cargo xtask build` builds them for i686-pc-windows-msvc with `--features programs`. Without
 # the feature (the workspace's x86_64 clippy and tests) no program is built.
@@ -49,9 +49,9 @@ required-features = ["programs"]
 name = "fpr_emu"
 required-features = ["programs"]
 
-# shipped 2017-18: the start-up notice, only recorded
+# tests: the 2017-18 hook answers a start of logowin.exe in-process
 [[bin]]
-name = "logowin"
+name = "test_logowin"
 required-features = ["programs"]
 
 # tests: a write to address 0
@@ -107,7 +107,7 @@ required-features = ["programs"]
 name = "server1718_test"
 required-features = ["programs"]
 
-# the Linux 2017-18 shop's stand-in for the Launcher's shared memory (crates/linux-host), run under Wine
+# the Linux 2017-18 arcade's stand-in for the Launcher's shared memory (crates/linux-host), run under Wine
 [[bin]]
 name = "sddy_maps"
 required-features = ["programs"]

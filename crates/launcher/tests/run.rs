@@ -97,6 +97,10 @@ fn scratch_kit(top: &Path) -> (Kit, PathBuf) {
         fs::write(dir.join("wccfk.dll"), b"this kit's hook").unwrap();
     }
     fs::write(seat.join(".wccf-kit"), b"").unwrap();
+    // a start refuses without them; the game starts FPR_Emu, and a panel that does not load never stops a run
+    for n in ["FPR_Emu.exe", "forza_panel.dll"] {
+        fs::write(kit.join("programs").join(n), b"a stand-in").unwrap();
+    }
     stand_in("fakegame.exe", &game.join("standin_client.exe"));
     stand_in("fakegame.exe", &seat.join("standin_client.exe"));
     for n in ["standin_control.exe", "standin_match.exe"] {
@@ -860,7 +864,14 @@ fn scratch_kit_1718(top: &Path) -> Kit {
     built_copy("2017-18/bin", "wccfnet.dll", &seat.join("wccfnet.dll"));
     built_copy("2017-18/bin", "ICMP.DLL", &game.join("ICMP.DLL"));
     built_copy("2017-18/bin", "ICMP.DLL", &seat.join("ICMP.DLL"));
-    // no panel (overlay\forza_panel.dll): the run says so and plays on
+    // a start refuses without them; the game starts FPR_Emu, and a panel that does not load never stops a run
+    for (dir, n) in [("bin", "FPR_Emu.exe"), ("overlay", "forza_panel.dll")] {
+        fs::create_dir_all(kit.join(dir)).unwrap();
+        fs::write(kit.join(dir).join(n), b"a stand-in").unwrap();
+    }
+    // setup's copy, or the start sets the runtime up again
+    fs::create_dir_all(seat.join("FlatPanelReader_Emulator")).unwrap();
+    fs::write(seat.join(r"FlatPanelReader_Emulator\FPR_Emu.exe"), b"a stand-in").unwrap();
     for dir in [&game, &seat] {
         fs::create_dir_all(dir.join("local")).unwrap();
         fs::write(
@@ -877,6 +888,7 @@ fn scratch_kit_1718(top: &Path) -> Kit {
         "seat1/standin_client.exe": sha(&seat.join("standin_client.exe")),
         "standin_match.exe": {"original": "-", "guarded": sha(&game.join("standin_match.exe"))},
         "dmath.dll": sha(&game.join("dmath.dll")),
+        "setup-version": forza::setup::e1718::VERSION.to_string(),
     });
     fs::write(top.join("setup-hashes.json"), hashes.to_string()).unwrap();
     let kit = Kit::at(kit);
@@ -930,6 +942,57 @@ fn a_2017_18_kit_that_is_not_guarded_starts_nothing() {
     refused("no record", "setup-hashes.json cannot be read");
 }
 
+/// A program an antivirus took (FPR_Emu.exe, the panel) refuses the start with its name, before anything of the run
+/// exists; a server-only run needs neither.
+#[test]
+fn a_2017_18_kit_missing_a_program_starts_nothing() {
+    let top = tempfile::Builder::new().prefix("wccf-1718-").tempdir().unwrap();
+    let kit = scratch_kit_1718(top.path());
+    fs::remove_file(kit.dir().join(r"bin\FPR_Emu.exe")).unwrap();
+    let ui = Said::default();
+    let rc = run::command(&kit, &params("quarantined", Shared::new()), &["local".into()], &ui);
+    let said = ui.text();
+    assert_eq!(rc, run::REFUSED, "{said}");
+    assert!(
+        said.contains("Files missing from the Forza-WCCF folder: FPR_Emu.exe.") && !said.contains("forza_panel.dll"),
+        "{said}"
+    );
+    assert!(!run::is_on(&kit, Kind::Run));
+    assert!(!kit.logs().exists(), "no logs");
+    assert!(running_from(top.path()).is_empty());
+}
+
+/// A runtime an older setup made (here: a record without "setup-version", as before det-math) is set up again before
+/// the guard check, said in one line; when that fails (no original game programs here) the start is refused with what to
+/// do, before anything of the run exists, and the record stays as it was.
+#[test]
+fn a_2017_18_runtime_an_older_setup_made_is_set_up_again_or_not_started() {
+    let top = tempfile::Builder::new().prefix("wccf-1718-").tempdir().unwrap();
+    let kit = scratch_kit_1718(top.path());
+    let path = top.path().join("setup-hashes.json");
+    let mut record: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    record.as_object_mut().unwrap().remove("setup-version");
+    fs::write(&path, record.to_string()).unwrap();
+    let before = fs::read(&path).unwrap();
+    let ui = Said::default();
+    let rc = run::command(&kit, &params("stale", Shared::new()), &["local".into()], &ui);
+    let said = ui.text();
+    assert_eq!(rc, run::NOT_GUARDED, "{said}");
+    assert!(
+        said.contains("needs the game set up again") && said.contains("setup version 1"),
+        "{said}"
+    );
+    assert!(
+        said.contains("Not started: the game could not be set up again") && said.contains("Press SET UP"),
+        "{said}"
+    );
+    assert!(!said.contains("the network guard is not in place"), "{said}");
+    assert_eq!(fs::read(&path).unwrap(), before, "the record is untouched");
+    assert!(!run::is_on(&kit, Kind::Run));
+    assert!(!kit.logs().exists(), "no logs");
+    assert!(running_from(top.path()).is_empty());
+}
+
 /// 2017-18 on a scratch server: the guard passes, the Aime reader, AiMeDB, the network and I/O board stand-ins come
 /// up, seat 1 starts; closing its window ends the run with nothing left.
 #[test]
@@ -939,7 +1002,7 @@ fn closing_seat_1_ends_the_2017_18_run() {
     let p = params("close1718", Shared::new());
     let _control = TcpListener::bind(("127.0.0.1", p.control_port)).unwrap(); // "the server answers"
     let _desk = seat_desk(p.seat_port);
-    // no seat in a shared shop with data\settings.json "shop_1718": false; on when the key is missing
+    // no seat in a shared arcade with data\settings.json "shop_1718": false; on when the key is missing
     fs::write(kit.settings_file(), r#"{"shop_1718": false}"#).unwrap();
     let ui = Said::default();
     let rc = run::command(&kit, &p, &["remote".into(), "127.0.0.1".into()], &ui);
@@ -952,18 +1015,31 @@ fn closing_seat_1_ends_the_2017_18_run() {
     assert!(!kit.logs().exists(), "refused before anything of the run exists");
     fs::write(kit.settings_file(), "{}").unwrap();
     let aimedb = p.aimedb_port;
+    // the stand-in panel never shows a frame: its log says it did, as the real one would
+    let shown = Arc::new(AtomicBool::new(false));
+    let panel_log = top.path().join(r"seat1\forza_panel.log");
+    let writer = {
+        let shown = shown.clone();
+        thread::spawn(move || {
+            while !shown.load(Ordering::Relaxed) {
+                if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&panel_log) {
+                    let _ = writeln!(f, "first frame shown");
+                }
+                thread::sleep(Duration::from_millis(200));
+            }
+        })
+    };
     let (ui, t) = run_on_thread(&kit, p, &["remote", "127.0.0.1"]);
     wait_said(&ui, &t, "  6/6 ", 120);
+    shown.store(true, Ordering::Relaxed);
+    writer.join().unwrap();
     let said = ui.text();
     assert!(said.contains("Starting WCCF 2017-18 from"), "{said}");
     assert!(
         said.contains("cabinet (card file data\\save\\seat1_aime.txt)"),
         "{said}"
     );
-    assert!(
-        said.contains("6/6 panels did not load (forza_panel.dll is missing)"),
-        "no panel in the scratch kit, and the run says so: {said}"
-    );
+    assert!(said.contains("6/6 panels loaded"), "{said}");
     assert!(
         std::net::TcpStream::connect(("127.0.0.1", aimedb)).is_ok(),
         "AiMeDB listens"

@@ -15,11 +15,12 @@ use crate::board::{PositionColor, RarityRim};
 use crate::sizing;
 use crate::theme::Accent;
 use egui::{Align2, Color32, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
+use forza::cards::formations;
 use forza::cards::lineup::{self, LineupError, Skip, Skipped};
 use forza::cards::{self, AddRefused, Placed};
 use forza::club_view::{self as forza_club, ClubView};
 use forza::panel_txt::{PanelFile, valid_address};
-use std::sync::Arc;
+use std::sync::{Arc, mpsc};
 
 /// The game's own picture size (both editions) and the smallest sheet: a smaller window scales this sheet down.
 pub const SIZE: egui::Vec2 = egui::vec2(1440.0, 900.0);
@@ -120,6 +121,10 @@ const SIDE_GAP: f32 = 16.0;
 const SIDE_UNDER: f32 = 8.0;
 /// The popped-out game window's toast line, between the picture and the page bar.
 const SIDE_TOAST: f32 = 48.0;
+/// The game page's message line: as wide as this on the 1440x900 sheet, and one line ([`NOTE_LINE`]) high; a longer
+/// text wraps and [`note_height`] makes the toast taller.
+const NOTE_TOAST: f32 = 520.0;
+const NOTE_LINE: f32 = 34.0;
 /// The popped-out game window's right column: at least this wide (the deck about 1.3 times its size, a card's large
 /// pane fits).
 const SIDE_COLUMN: f32 = 440.0;
@@ -490,6 +495,11 @@ impl Note {
             ..Note::new(tone, text)
         }
     }
+
+    /// Painted at least once: the frame that showed it has run, so the text did reach the screen.
+    pub fn started(&self) -> bool {
+        self.shown.is_some()
+    }
 }
 
 /// The link to the game server (this process's TCP link to its control port).
@@ -531,6 +541,8 @@ pub struct Status {
     pub version: String,
     /// SAVE LOGS' answer from the run: "ok PATH", "fail WHY".
     pub logs: Option<String>,
+    /// Seats running on this PC (2017-18's CONTROLLER IN THE BACKGROUND is ignored from two).
+    pub seats: usize,
 }
 
 /// [`When`] of a file time.
@@ -620,7 +632,7 @@ pub struct PanelState {
     /// The game's own frame as a texture of the panel DLL's painter; `None` draws the stand-in picture.
     pub picture: Option<egui::TextureId>,
     // what a frame hands the panel DLL
-    /// Where the game's picture was drawn while no page covers it: clicks there go to the game.
+    /// Where the game's picture was drawn while no page, dealt card or dialog covers it: clicks there go to the game.
     pub picture_rect: Option<Rect>,
     /// The board changed this frame (a card moved, swapped or taken off): the card table is written.
     pub board_changed: bool,
@@ -630,6 +642,12 @@ pub struct PanelState {
     pub held: Option<&'static str>,
     /// The card taken off the board last and when (the frame's time): UNDO puts it back for [`UNDO_SECS`].
     pub undo: Option<(board::Removed, f64)>,
+    /// A take-off refused during a match: when (the frame's time) the note under the board shows for [`UNDO_SECS`].
+    pub kept_at: Option<f64>,
+    /// Where the last take-off was let go (from the board's top left) and the board's size, until the panel DLL logs it.
+    pub off_at: Option<(Pos2, egui::Vec2)>,
+    /// That card's number, until the panel DLL logs it ([`board::take_kept`]).
+    pub kept_log: Option<u32>,
     /// KEY PLAYER or KEEPER latched down by a right-click ([`latch_click`]): its key stays down until the next click.
     pub latched: Option<&'static str>,
     /// A catalogue card to put on the table (its number): [`add_card`].
@@ -644,10 +662,45 @@ pub struct PanelState {
     pub import_undo: Option<(Vec<Placed>, f64)>,
     /// That UNDO clicked: the panel DLL calls [`undo_import`].
     pub import_undone: bool,
+    /// FORMATIONS clicked: the panel DLL reads the slots into `formations` and the match state into `in_match`.
+    pub formations_open: bool,
+    /// FORMATIONS was clicked on the board window: the dialog opens there, else in the game window.
+    pub formations_desk: bool,
+    /// The FORMATIONS dialog, open.
+    pub formations: Option<Formations>,
+    /// This seat plays a match, as the panel DLL saw it when FORMATIONS opened: LOAD is greyed out.
+    pub in_match: bool,
+    /// The table as it was when the last match began (2017-18): RESET LINEUP puts it back ([`lineup_tick`]).
+    pub before_match: Option<Vec<Placed>>,
+    /// The clock time (`HH:MM`) `before_match` was kept at.
+    pub before_match_at: Option<String>,
+    /// RESET LINEUP just put this table on the board: its UNDO (in `import_undo`) stays until the table changes.
+    pub reset_after: Option<Vec<Placed>>,
+    /// The last read said a match is being played (the seat's own state, not the card session): the edge that keeps
+    /// `before_match`, apart from `in_match`, which the FORMATIONS dialog also sets.
+    pub match_seen: bool,
+    /// The seat's match flag as the last frame read it: the edge is the flag turning on, not the flag staying on (the
+    /// game leaves it on after the match until the next sequence writes its own). Starts on: a flag already on when the
+    /// panel starts is one left over, not a match beginning.
+    pub seat_on: bool,
+    /// The table differs from `before_match`: RESET LINEUP is offered, greyed out while `in_match`.
+    pub reset_ready: bool,
+    /// RESET LINEUP clicked: the panel DLL calls [`take_reset`].
+    pub reset_lineup: bool,
+    /// A slot clicked to load: the panel DLL calls [`load_formation`].
+    pub formation_load: Option<usize>,
+    /// SAVE confirmed (slot, name): the panel DLL writes the table into the slot.
+    pub formation_save: Option<(usize, String)>,
+    /// COPY clicked: a slot's lineup, or `None` the table's, as the site's text on the clipboard.
+    pub formation_copy: Option<Option<usize>>,
     /// The bindings changed: keys.txt is written.
     pub keys_changed: bool,
     /// The choices changed: data\panel.txt is written.
     pub file_changed: bool,
+    /// SETTINGS' projector switch, its window shown (settings.json "projector"; `None`: not offered, 2010–11).
+    pub projector: Option<bool>,
+    /// The projector switch changed: settings.json is written.
+    pub projector_changed: bool,
     /// RESTART NOW asked (data\restart.request).
     pub restart: bool,
     /// SAVE LOGS asked (data\savelogs.request): the run saves the ZIP in the Downloads folder.
@@ -726,8 +779,27 @@ impl PanelState {
             import_go: false,
             import_undo: None,
             import_undone: false,
+            formations_open: false,
+            formations_desk: false,
+            formations: None,
+            kept_at: None,
+            kept_log: None,
+            off_at: None,
+            in_match: false,
+            before_match: None,
+            match_seen: false,
+            before_match_at: None,
+            reset_after: None,
+            seat_on: true,
+            reset_ready: false,
+            reset_lineup: false,
+            formation_load: None,
+            formation_save: None,
+            formation_copy: None,
             keys_changed: false,
             file_changed: false,
+            projector: None,
+            projector_changed: false,
             restart: false,
             save_logs: false,
             vk_down: Vec::new(),
@@ -807,6 +879,7 @@ impl PanelState {
                 logs: Some(
                     r"ok C:\Users\Mario\Downloads\forza-wccf-logs-20261027-150412.zip".into(),
                 ),
+                seats: 1,
             },
             restart_armed: if page == Page::Settings {
                 f64::INFINITY
@@ -814,6 +887,7 @@ impl PanelState {
                 0.0
             },
             club: super::sample::club_view(),
+            projector: (edition == Edition::E1718).then_some(true),
             held: Some("KEYPLAYER"), // lit on the design sheets
             ..Self::new(
                 edition,
@@ -896,8 +970,91 @@ pub fn ask_import(st: &mut PanelState, text: &str, in_match: bool) -> bool {
     true
 }
 
-/// The lineup `text` (the site's export: the clipboard's, later a share link's) as the whole table in place of
-/// `placed`. Refused during a match (the owner's rule) and for another edition's lineup. The message names what came
+/// Why a share link's lineup did not come.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FetchError {
+    /// No answer: no internet, the site down, or the wait ran out.
+    Offline,
+    /// The site has no lineup with that id (404).
+    NotFound,
+    /// An answer that is not a lineup: not text, or over [`SHARE_MAX`].
+    NotLineup,
+}
+
+/// The most a share link's lineup may weigh: the site's are a few hundred bytes.
+pub const SHARE_MAX: u64 = 64 * 1024;
+/// How long IMPORT LINEUP waits for a share link's lineup before it says there is no answer.
+pub const FETCH_SECS: f64 = 10.0;
+
+/// A share link's answer body as text: at most [`SHARE_MAX`] bytes of UTF-8, else `NotLineup`; a read error: `Offline`.
+pub fn read_capped(r: impl std::io::Read) -> Result<String, FetchError> {
+    use std::io::Read as _;
+    let mut buf = Vec::new();
+    r.take(SHARE_MAX + 1)
+        .read_to_end(&mut buf)
+        .map_err(|_| FetchError::Offline)?;
+    if buf.len() as u64 > SHARE_MAX {
+        return Err(FetchError::NotLineup);
+    }
+    String::from_utf8(buf).map_err(|_| FetchError::NotLineup)
+}
+
+/// A share link's lineup on its way: `get` runs on its own thread, never the frame's.
+pub struct ShareFetch {
+    rx: mpsc::Receiver<Result<String, FetchError>>,
+    since: f64,
+}
+
+impl ShareFetch {
+    /// The share `id`'s lineup asked for at `now` (the frame's time) through `get` (given [`lineup::share_path`] on
+    /// [`lineup::SHARE_HOST`]); "Fetching lineup..." shows meanwhile. `None`: refused, in a match.
+    pub fn start(
+        st: &mut PanelState,
+        id: &str,
+        in_match: bool,
+        now: f64,
+        get: impl FnOnce(String) -> Result<String, FetchError> + Send + 'static,
+    ) -> Option<ShareFetch> {
+        if in_match {
+            st.say(Tone::Refused, "cat.msg_import_match");
+            return None;
+        }
+        let (tx, rx) = mpsc::channel();
+        let path = lineup::share_path(id);
+        std::thread::spawn(move || {
+            let _ = tx.send(get(path)); // the panel may have given up on it: nobody listens
+        });
+        st.message = Some(Note::long(Tone::Notice, tr!(st.lang, "cat.msg_fetching")));
+        Some(ShareFetch { rx, since: now })
+    }
+
+    /// The answer once it came, or `Offline` once [`FETCH_SECS`] have passed; `None`: still on its way.
+    pub fn poll(&self, now: f64) -> Option<Result<String, FetchError>> {
+        match self.rx.try_recv() {
+            Ok(got) => Some(got),
+            Err(mpsc::TryRecvError::Empty) if now - self.since < FETCH_SECS => None,
+            Err(_) => Some(Err(FetchError::Offline)),
+        }
+    }
+}
+
+/// A share link's answer: its lineup on to [`ask_import`], else the message why not. `false`: refused.
+pub fn ask_fetched(st: &mut PanelState, got: Result<String, FetchError>, in_match: bool) -> bool {
+    let key = match got {
+        Ok(text) if !matches!(lineup::parse(&text, st.edition), Err(LineupError::Empty)) => {
+            st.message = None; // "Fetching lineup..."
+            return ask_import(st, &text, in_match);
+        }
+        Ok(_) | Err(FetchError::NotLineup) => "cat.msg_link_not_lineup",
+        Err(FetchError::NotFound) => "cat.msg_link_not_found",
+        Err(FetchError::Offline) => "cat.msg_link_offline",
+    };
+    st.say(Tone::Refused, key);
+    false
+}
+
+/// The lineup `text` (the site's export: the clipboard's, or a share link's) as the whole table in place of
+/// `placed`. Refused during a match (a project rule) and for another edition's lineup. The message names what came
 /// in, the site's key player (the table has none: the player sets it in the game) and the cards skipped, and why.
 /// `Some(new table)`: the caller writes it; the old one waits in `import_undo` for [`undo_import`].
 pub fn import_lineup(
@@ -931,6 +1088,7 @@ pub fn import_lineup(
     st.message = Some(Note::long(tone, text));
     st.board = cards::board(&imp.placed, &st.cards);
     st.import_undo = Some((placed.to_vec(), now));
+    st.reset_after = None;
     st.undo = None; // UNDO now means the import
     Some(imp.placed)
 }
@@ -993,8 +1151,138 @@ pub fn undo_import(st: &mut PanelState, in_match: bool) -> Option<Vec<Placed>> {
         return None;
     }
     let (old, _) = st.import_undo.take()?;
+    st.reset_after = None;
     st.board = cards::board(&old, &st.cards);
     Some(old)
+}
+
+/// The panel DLL's look at the table and the match, every frame: `seat` is the seat state's own match flag (cheap,
+/// read every frame so a sub in the first second cannot slip into the kept table; `None`: unreadable), `read` the full
+/// match state when it was read this frame, `(busy, playing)` (`None`: not read): `busy` the import rule's (a card
+/// session counts), `playing` the match itself. The table is kept when a match begins, the earliest moment the
+/// seat's state shows it; RESET LINEUP is offered when the table now differs from it.
+pub fn lineup_tick(
+    st: &mut PanelState,
+    seat: Option<bool>,
+    read: Option<(bool, bool)>,
+    placed: &[Placed],
+) {
+    let rising = seat == Some(true) && !st.seat_on;
+    if let Some(on) = seat {
+        st.seat_on = on;
+    }
+    if rising && !st.match_seen {
+        keep_table(st, placed);
+        st.match_seen = true;
+    }
+    if let Some((busy, playing)) = read {
+        if playing && !st.match_seen {
+            keep_table(st, placed);
+        }
+        st.match_seen = playing;
+        st.in_match = busy;
+    }
+    // RESET LINEUP's UNDO lasts until the table changes or a match begins
+    if st
+        .reset_after
+        .as_ref()
+        .is_some_and(|after| st.match_seen || lineup_differs(after, placed))
+    {
+        st.reset_after = None;
+        st.import_undo = None;
+    }
+    st.reset_ready = st
+        .before_match
+        .as_ref()
+        .is_some_and(|b| lineup_differs(b, placed));
+}
+
+/// The table a match begins with, kept for RESET LINEUP, and when.
+fn keep_table(st: &mut PanelState, placed: &[Placed]) {
+    let t = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+    st.before_match = Some(placed.to_vec());
+    st.before_match_at = Some(format!("{:02}:{:02}", t.hour(), t.minute()));
+}
+
+/// RESET LINEUP's hover text: where it goes back to, or why it is greyed out.
+fn reset_hint(st: &PanelState, lang: Lang) -> String {
+    let at = st.before_match_at.clone().unwrap_or_default();
+    if st.in_match {
+        tr!(lang, "board.reset_match")
+    } else if st.before_match.is_none() {
+        tr!(lang, "board.reset_none")
+    } else if !st.reset_ready {
+        tr!(lang, "board.reset_same", at = at)
+    } else {
+        tr!(lang, "board.reset_to", at = at)
+    }
+}
+
+/// Two tables hold the same cards on the same spots, whatever their slot numbers.
+fn lineup_differs(a: &[Placed], b: &[Placed]) -> bool {
+    let key = |t: &[Placed]| {
+        let mut v: Vec<_> = t
+            .iter()
+            .map(|p| (p.no, p.x.to_bits(), p.y.to_bits()))
+            .collect();
+        v.sort_unstable();
+        v
+    };
+    key(a) != key(b)
+}
+
+/// RESET LINEUP: the table kept when the match began (`placed`: the table now, kept for UNDO), to be written like a card move; `None` when nothing differs, or
+/// in a match (`in_match`, read at the click, not the last poll's: refused with a note, as the import is). The board
+/// shows it at once.
+pub fn take_reset(st: &mut PanelState, placed: &[Placed], in_match: bool) -> Option<Vec<Placed>> {
+    if !std::mem::take(&mut st.reset_lineup) {
+        return None;
+    }
+    if in_match {
+        st.in_match = true;
+        st.say(Tone::Refused, "cat.msg_import_match");
+        return None;
+    }
+    if !st.reset_ready {
+        return None;
+    }
+    let before = st.before_match.clone()?;
+    st.board = cards::board(&before, &st.cards);
+    // the UNDO lines belong to an older table; the new one undoes the reset
+    st.undo = None;
+    st.import_undo = Some((placed.to_vec(), 0.0));
+    st.reset_after = Some(before.clone());
+    st.reset_ready = false;
+    Some(before)
+}
+
+/// The FORMATIONS dialog: the ten slots as read, and the slot being named for SAVE (the name typed so far).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Formations {
+    pub slots: Vec<Option<formations::Slot>>,
+    pub naming: Option<(usize, String)>,
+}
+
+/// A saved formation on the table, as IMPORT LINEUP puts a lineup there: cards this game lacks are skipped and listed,
+/// refused during a match, the table before it kept for UNDO. The dialog closes so the board and its UNDO show.
+pub fn load_formation(
+    st: &mut PanelState,
+    placed: &[Placed],
+    slot: usize,
+    in_match: bool,
+    now: f64,
+) -> Option<Vec<Placed>> {
+    let text = st
+        .formations
+        .as_ref()?
+        .slots
+        .get(slot)?
+        .as_ref()?
+        .text
+        .clone();
+    let new = import_lineup(st, placed, &text, in_match, now)?;
+    st.formations = None;
+    Some(new)
 }
 
 /// "NAME (why), ...", the first 8, then "+N more".
@@ -1103,13 +1391,17 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
         Stroke::new(1.0, theme::RIM),
     );
     game_picture(ui, pic, st.picture);
-    // the dealt card covers the picture: clicks there are its own
-    st.picture_rect = (st.page == Page::Game && st.deal.is_none() && !st.close_warn).then_some(pic);
+    // the dealt card and the dialogs drawn here cover the picture: clicks there are theirs, not the game's
+    let dialog = st.import_ask.is_some()
+        || (st.formations.is_some() && (!st.formations_desk || !st.file.board_window));
+    st.picture_rect =
+        (st.page == Page::Game && st.deal.is_none() && !st.close_warn && !dialog).then_some(pic);
     // popped out the deck is the column's: COMPACT is the docked layout's choice
     let compact = st.file.compact && !side;
     if st.page == Page::Game {
         // a toast in the gap above the deck row when there is one, else over the picture's lower edge (popped out:
-        // over the page bar)
+        // over the page bar); its foot stays put and a wrapped text makes it grow up over the picture, so the deck
+        // and the page bar never cover it
         let gap = (deck.height() - ROW.y) / 2.0;
         let (x, y) = if side {
             (tabs.center().x, tabs.top() - SIDE_TOAST / 2.0)
@@ -1118,7 +1410,10 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
         } else {
             (deck.center().x, pic.bottom() - 30.0)
         };
-        let r = Rect::from_center_size(pos2(x, y), vec2(520.0, 34.0));
+        let foot = y + NOTE_LINE / 2.0;
+        let h = note_height(ui.ctx(), st.message.as_ref(), NOTE_TOAST)
+            .min((foot - area.top()).max(NOTE_LINE));
+        let r = Rect::from_center_size(pos2(x, foot - h / 2.0), vec2(NOTE_TOAST, h));
         ui.scope_builder(egui::UiBuilder::new().max_rect(r), |ui| {
             note_line(ui, &mut st.message)
         });
@@ -1136,6 +1431,9 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
     // before the page: Enter and Esc answer the dialog, not the catalogue's search line or the page's close
     if st.import_ask.is_some() {
         import_dialog(ui, st, lang);
+    } else if st.formations.is_some() && (!st.formations_desk || !st.file.board_window) {
+        st.formations_desk = false; // the board window closed under it: the dialog comes back to the game window
+        formations_dialog(ui, st, lang);
     }
     if st.page != Page::Game {
         let mut pg = ui.new_child(egui::UiBuilder::new().max_rect(above));
@@ -1333,6 +1631,176 @@ fn import_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     } else if go.clicked() || enter {
         st.import_go = true;
     }
+}
+
+/// FORMATIONS: ten slots, each its name (or Empty), the club it was saved from and the day. LOAD puts a slot's cards
+/// on the table (greyed out during a match, the reason under the list); SAVE asks for a name (REPLACE when the slot is
+/// filled) and stores the table at any time; COPY TEXT puts the slot's lineup, COPY TABLE AS TEXT the table's, on the
+/// clipboard as the site's text. CLOSE or Esc leaves.
+fn formations_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
+    let Some(mut f) = st.formations.take() else {
+        return;
+    };
+    let in_match = st.in_match;
+    let mut close = false;
+    let modal = egui::Modal::new(egui::Id::new("formations-dialog"))
+        .backdrop_color(Color32::from_black_alpha(170))
+        .frame(
+            egui::Frame::new()
+                .fill(Color32::from_rgba_unmultiplied(10, 16, 28, 240))
+                .stroke(Stroke::new(3.0, theme::GOLD))
+                .corner_radius(theme::RADIUS_BIG)
+                .inner_margin(20),
+        )
+        .show(ui.ctx(), |ui| {
+            ui.set_width(560.0);
+            ui.spacing_mut().item_spacing = vec2(8.0, 6.0);
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(tr!(lang, "form.title"))
+                        .font(theme::display(28.0))
+                        .color(theme::GOLD),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if action(ui, &tr!(lang, "form.copy_board")).clicked() {
+                        st.formation_copy = Some(None);
+                    }
+                });
+            });
+            for (i, slot) in f.slots.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.add_sized(
+                        [22.0, 30.0],
+                        egui::Label::new(
+                            egui::RichText::new(format!("{}", i + 1))
+                                .font(theme::bold(15.0))
+                                .color(theme::TEXT_DIM),
+                        ),
+                    );
+                    let (name, detail) = match slot {
+                        Some(s) => {
+                            let name = if s.name.is_empty() {
+                                tr!(lang, "cat.lineup")
+                            } else {
+                                s.name.clone()
+                            };
+                            let detail: Vec<&str> = [s.club.as_str(), s.saved.as_str()]
+                                .into_iter()
+                                .filter(|t| !t.is_empty())
+                                .collect();
+                            (name, detail.join("  ·  "))
+                        }
+                        None => (tr!(lang, "form.empty"), String::new()),
+                    };
+                    ui.allocate_ui_with_layout(
+                        vec2(270.0, 34.0),
+                        egui::Layout::top_down(egui::Align::Min)
+                            .with_main_align(egui::Align::Center),
+                        |ui| {
+                            ui.spacing_mut().item_spacing.y = 0.0;
+                            let (colour, font) = if slot.is_some() {
+                                (theme::TEXT, theme::bold(15.0))
+                            } else {
+                                (theme::TEXT_DIM, theme::body(15.0))
+                            };
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(name).font(font).color(colour),
+                                )
+                                .truncate(),
+                            );
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(detail)
+                                        .font(theme::body(12.0))
+                                        .color(theme::TEXT_DIM),
+                                )
+                                .truncate(),
+                            );
+                        },
+                    );
+                    // LOAD, SAVE, COPY TEXT from the left
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let button = |key: &str| {
+                            egui::Button::new(
+                                egui::RichText::new(tr!(lang, key)).font(theme::bold(14.0)),
+                            )
+                            .min_size(vec2(0.0, 30.0))
+                        };
+                        if ui
+                            .add_enabled(slot.is_some(), button("form.copy"))
+                            .clicked()
+                        {
+                            st.formation_copy = Some(Some(i));
+                        }
+                        if ui.add(button("form.save")).clicked() {
+                            let name = slot.as_ref().map_or_else(String::new, |s| s.name.clone());
+                            f.naming = Some((i, name));
+                        }
+                        if ui
+                            .add_enabled(slot.is_some() && !in_match, button("form.load"))
+                            .clicked()
+                        {
+                            st.formation_load = Some(i);
+                        }
+                    });
+                });
+            }
+            if in_match {
+                status_line(ui, Tone::Refused, &tr!(lang, "form.load_match"));
+            }
+            if let Some((i, name)) = &mut f.naming {
+                let i = *i;
+                ui.separator();
+                ui.label(
+                    egui::RichText::new(tr!(lang, "form.name_for", n = i + 1))
+                        .font(theme::bold(15.0))
+                        .color(theme::TEXT),
+                );
+                let old = f.slots.get(i).and_then(Option::as_ref);
+                if let Some(o) = old {
+                    status_line(
+                        ui,
+                        Tone::Notice,
+                        &tr!(lang, "form.replaces", name = o.name.clone()),
+                    );
+                }
+                let edit = ui.add(
+                    egui::TextEdit::singleline(name)
+                        .id_salt("form-name")
+                        .char_limit(40)
+                        .font(theme::body(16.0))
+                        .desired_width(f32::INFINITY),
+                );
+                if !edit.has_focus() {
+                    edit.request_focus();
+                }
+                let enter =
+                    ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+                ui.horizontal(|ui| {
+                    let label = if old.is_some() {
+                        "form.replace"
+                    } else {
+                        "form.save"
+                    };
+                    if action(ui, &tr!(lang, label)).clicked() || enter {
+                        st.formation_save = Some((i, name.trim().to_owned()));
+                    }
+                    if action(ui, &tr!(lang, "common.cancel")).clicked() {
+                        close = true;
+                    }
+                });
+            } else if action(ui, &tr!(lang, "common.close")).clicked() {
+                close = true;
+            }
+        });
+    let esc = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+    if st.formation_save.is_some() || ((close || esc) && f.naming.is_some()) {
+        f.naming = None; // CANCEL or Esc while naming: back to the list
+    } else if close || esc || modal.should_close() {
+        return;
+    }
+    st.formations = Some(f);
 }
 
 // ---- the card deal ----
@@ -1908,6 +2376,15 @@ pub fn latch_kept(
     latched.filter(|_| !crash && focused)
 }
 
+/// Whether 2017-18 has the in-match pause: the PAUSE button, the pause key (and its row on the KEYS page) and the
+/// panel DLL's hold. Off (on hold since 2026-10-31); `true` brings it all back. 2010-11 is not behind it.
+pub const PAUSE_ON: bool = false;
+
+/// The pause is offered to this edition.
+pub fn pause_on(edition: Edition) -> bool {
+    PAUSE_ON || edition != Edition::E1718
+}
+
 /// The page bar's button `i` (0 CATALOGUE, 1 KEYS, 2 SETTINGS, 3 CLUB CARD) on the bar `bar` (also for tests that
 /// click it).
 pub fn page_button(bar: Rect, i: usize) -> Rect {
@@ -1923,11 +2400,19 @@ fn page_bar(ui: &mut Ui, st: &mut PanelState, bar: Rect, lang: Lang, side: bool)
     let r = bar.shrink2(vec2(12.0, 8.0));
     let p = ui.painter();
     widgets::mark(p, pos2(r.left() + 11.0, r.center().y), st.edition.accent());
+    // the edition's badge with the Forza-WCCF version under it (the same text the launcher shows)
     let mut b = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(
-        pos2(r.left() + 30.0, r.center().y - 11.0),
-        pos2(r.left() + 130.0, r.center().y + 11.0),
+        pos2(r.left() + 30.0, r.center().y - 17.0),
+        pos2(r.left() + 130.0, r.center().y + 5.0),
     )));
-    widgets::badge(&mut b, st.edition);
+    let badge = widgets::badge(&mut b, st.edition);
+    ui.painter().text(
+        pos2(badge.rect.center().x, badge.rect.bottom() + 2.0),
+        egui::Align2::CENTER_TOP,
+        &st.status.version,
+        theme::body(11.0),
+        theme::TEXT_FAINT,
+    );
     let mut pages = vec![
         (Page::Catalogue, "panel.add_card"),
         (Page::Keys, "panel.keys"),
@@ -1960,17 +2445,20 @@ fn page_bar(ui: &mut Ui, st: &mut PanelState, bar: Rect, lang: Lang, side: bool)
     } else {
         "pause.button"
     };
-    let resp = ui.put(t, |ui: &mut Ui| {
-        cabinet(
-            ui,
-            t.size(),
-            &tr!(lang, key),
-            Cab::Plain,
-            st.paused.is_some(),
-        )
-    });
-    if resp.clicked() {
-        st.pause_asked = true;
+    // 2017-18 hides PAUSE while [`PAUSE_ON`] is off (RESUME stays if a pause somehow holds)
+    if pause_on(st.edition) || st.paused.is_some() {
+        let resp = ui.put(t, |ui: &mut Ui| {
+            cabinet(
+                ui,
+                t.size(),
+                &tr!(lang, key),
+                Cab::Plain,
+                st.paused.is_some(),
+            )
+        });
+        if resp.clicked() {
+            st.pause_asked = true;
+        }
     }
     // the right end, two rows: the card lamp (2010-11) and the ping (online only), then the window key
     let right = Rect::from_min_max(
@@ -2149,6 +2637,7 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let pitch = board::pitch_rect(r.min + vec2(0.0, BOARD_HEAD), r.width());
     let mut b = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(pitch.min, r.max)));
     b.spacing_mut().item_spacing.y = 4.0;
+    board::keep_on_table(&b, st.in_match || st.match_seen);
     st.board_changed |= board::formation_board(
         &mut b,
         &mut st.board,
@@ -2200,12 +2689,16 @@ fn board_window(ui: &mut Ui, st: &mut PanelState, lang: Lang, sheet: Rect) {
     let mut b =
         c.new_child(egui::UiBuilder::new().max_rect(at.with_max_y(at.bottom() + DESK_FOOT)));
     b.spacing_mut().item_spacing.y = 4.0;
+    board::keep_on_table(&b, st.in_match || st.match_seen);
     st.board_changed |=
         board::formation_board(&mut b, &mut st.board, &st.links, None, lang, beside, true);
     if let Some(card) = board::take_touched(&b) {
         st.touched = Some((card, b.input(|i| i.time)));
     }
     board_foot(&mut b, st, lang);
+    if st.formations_desk {
+        formations_dialog(ui, st, lang);
+    }
 }
 
 /// Under a board: a card just taken off (its name and UNDO) or a lineup just imported (its UNDO) at the left, POP OUT
@@ -2214,8 +2707,14 @@ fn board_window(ui: &mut Ui, st: &mut PanelState, lang: Lang, sheet: Rect) {
 fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)> {
     let now = b.input(|i| i.time);
     if let Some(r) = board::take_removed(b) {
+        st.off_at = Some((r.at, r.size));
         st.undo = Some((r, now));
         st.import_undo = None; // UNDO now means this card
+        st.reset_after = None;
+    }
+    if let Some(n) = board::take_kept(b) {
+        st.kept_at = Some(now);
+        st.kept_log = Some(n);
     }
     b.add_space(4.0);
     // at the hint's right: the board in its own window, or back with the game
@@ -2240,6 +2739,41 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
         vec2(text_w + pad, 22.0),
     );
     let button = egui::Button::new(label).wrap_mode(egui::TextWrapMode::Extend);
+    // 2017-18: RESET LINEUP at its left, greyed out in a match and while the table is the one the match began with
+    let mut left = btn.left();
+    if st.edition == Edition::E1718 {
+        let label = egui::RichText::new(tr!(lang, "board.reset")).font(theme::bold(12.0));
+        let w = b
+            .painter()
+            .layout_no_wrap(label.text().to_owned(), theme::bold(12.0), theme::TEXT)
+            .size()
+            .x
+            + pad;
+        let at = Rect::from_min_size(pos2(btn.left() - 6.0 - w, row.top()), vec2(w, 22.0));
+        left = at.left();
+        let mut c = b.new_child(egui::UiBuilder::new().max_rect(at));
+        let ready = st.reset_ready && !st.in_match;
+        let button = egui::Button::new(label).wrap_mode(egui::TextWrapMode::Extend);
+        let hint = reset_hint(st, lang);
+        let r = c.add_enabled(ready, button);
+        st.reset_lineup |= r.clicked();
+        r.on_hover_text(&hint).on_disabled_hover_text(&hint);
+        // FORMATIONS at its left: the same dialog as the catalogue's button
+        let label = egui::RichText::new(tr!(lang, "form.open")).font(theme::bold(12.0));
+        let w = b
+            .painter()
+            .layout_no_wrap(label.text().to_owned(), theme::bold(12.0), theme::TEXT)
+            .size()
+            .x
+            + pad;
+        let at = Rect::from_min_size(pos2(left - 6.0 - w, row.top()), vec2(w, 22.0));
+        left = at.left();
+        let button = egui::Button::new(label).wrap_mode(egui::TextWrapMode::Extend);
+        if b.put(at, button).clicked() {
+            st.formations_open = true;
+            st.formations_desk = st.desk;
+        }
+    }
     if b.put(btn, button).clicked() {
         st.file.board_window = !st.file.board_window;
         st.file_changed = true;
@@ -2252,7 +2786,14 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
             },
         );
     }
-    let mut b = b.new_child(egui::UiBuilder::new().max_rect(row.with_max_x(btn.left() - 8.0)));
+    // 2017-18 on the game window: three buttons leave the hint little room at their left, so it takes the full width
+    // under them
+    let text = if st.edition == Edition::E1718 && !st.desk {
+        Rect::from_min_max(pos2(row.left(), row.top() + 28.0), row.max)
+    } else {
+        row.with_max_x(left - 8.0)
+    };
+    let mut b = b.new_child(egui::UiBuilder::new().max_rect(text));
     if import_undo_line(&mut b, st, lang, now) {
         return None;
     }
@@ -2272,6 +2813,14 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
                 st.undo = None;
             }
         });
+    } else if let Some(at) = st.kept_at.filter(|at| now - at < UNDO_SECS) {
+        b.ctx()
+            .request_repaint_after(std::time::Duration::from_secs_f64(UNDO_SECS - (now - at)));
+        b.label(
+            egui::RichText::new(tr!(lang, "board.kept"))
+                .font(theme::body(HINT))
+                .color(theme::TEXT),
+        );
     } else if !st.desk {
         b.label(
             egui::RichText::new(tr!(lang, "board.hint"))
@@ -2284,22 +2833,32 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
 
 /// A lineup just imported: a line and its UNDO for [`IMPORT_UNDO_SECS`], in the hint's place; `false`: none.
 fn import_undo_line(ui: &mut Ui, st: &mut PanelState, lang: Lang, now: f64) -> bool {
+    let reset = st.reset_after.is_some();
     st.import_undo = st
         .import_undo
         .take()
-        .filter(|(_, at)| now - at < IMPORT_UNDO_SECS);
+        .filter(|(_, at)| reset || now - at < IMPORT_UNDO_SECS);
     let Some(at) = st.import_undo.as_ref().map(|u| u.1) else {
         return false;
     };
-    ui.ctx()
-        .request_repaint_after(std::time::Duration::from_secs_f64(
-            IMPORT_UNDO_SECS - (now - at),
-        ));
+    if !reset {
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_secs_f64(
+                IMPORT_UNDO_SECS - (now - at),
+            ));
+    }
     ui.horizontal(|ui| {
         ui.label(
-            egui::RichText::new(tr!(lang, "board.imported"))
-                .font(theme::body(HINT))
-                .color(theme::TEXT),
+            egui::RichText::new(tr!(
+                lang,
+                if reset {
+                    "board.reset_done"
+                } else {
+                    "board.imported"
+                }
+            ))
+            .font(theme::body(HINT))
+            .color(theme::TEXT),
         );
         if widgets::action(ui, &tr!(lang, "board.undo")).clicked() {
             st.import_undone = true;
@@ -2556,6 +3115,20 @@ fn rarity_key(r: Rarity) -> &'static str {
     }
 }
 
+/// The message line's height for `message` at `width`: one line is [`NOTE_LINE`]; a text wrapping to more lines adds
+/// each row, so the whole text stays on screen. Same font and margins as [`status_line`].
+fn note_height(ctx: &egui::Context, message: Option<&Note>, width: f32) -> f32 {
+    let Some(n) = message else { return NOTE_LINE };
+    let [left, right, top, bottom] = widgets::STATUS_LINE_MARGIN.map(f32::from);
+    let wrap = width - left - right;
+    let g = ctx.fonts_mut(|f| f.layout(n.text.clone(), theme::body(14.0), theme::TEXT, wrap));
+    if g.rows.len() <= 1 {
+        NOTE_LINE
+    } else {
+        g.size().y + top + bottom
+    }
+}
+
 /// The message line, while its time lasts.
 fn note_line(ui: &mut Ui, message: &mut Option<Note>) {
     let now = ui.input(|i| i.time);
@@ -2584,8 +3157,9 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
         add = c.results.first().map(|&i| cards[i].number);
     }
-    let mut import = false;
-    // the search line, IMPORT LINEUP at its right end
+    let (mut import, mut form) = (false, false);
+    let e1718 = st.edition == Edition::E1718;
+    // the search line, IMPORT LINEUP and FORMATIONS at its right end
     let row = vec2(ui.available_width(), 36.0);
     let search = ui
         .allocate_ui_with_layout(
@@ -2593,6 +3167,8 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             egui::Layout::right_to_left(egui::Align::Center),
             |ui| {
                 import = action(ui, &tr!(lang, "cat.import")).clicked();
+                // 2017-18 only (issue #89): 2010-11 stays as it is
+                form = e1718 && action(ui, &tr!(lang, "form.open")).clicked();
                 ui.add(
                     egui::TextEdit::singleline(&mut c.filter.search)
                         .id_salt("cat-search")
@@ -2604,7 +3180,12 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             },
         )
         .inner;
-    if !search.has_focus() && !egui::Popup::is_any_open(ui.ctx()) {
+    if form {
+        st.formations_open = true;
+        st.formations_desk = false;
+    }
+    // the FORMATIONS dialog's name line keeps the keys
+    if !search.has_focus() && !egui::Popup::is_any_open(ui.ctx()) && st.formations.is_none() {
         search.request_focus();
     }
     // an import's report runs to a few lines: across the page under the search line, not in the stats pane
@@ -3290,6 +3871,9 @@ fn keys(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                     caps(ui, &tr!(lang, "keys.controller"));
                     ui.end_row();
                     for i in (0..ACTIONS.len()).filter(|i| !OPERATOR.contains(i)) {
+                        if i == forza::keys::PAUSE && !pause_on(st.edition) {
+                            continue;
+                        }
                         row(ui, st, lang, i, cell_w);
                         ui.end_row();
                     }
@@ -3583,6 +4167,35 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             .clicked()
             {
                 st.file_changed = true;
+            }
+            if st.edition == Edition::E1718 {
+                // the key driver reads panel.txt again at once; with 2+ seats here it ignores the choice, and says so
+                let hint = if s.seats >= forza::keys::MAX_PAD_SEATS {
+                    "settings.pad_bg_seats"
+                } else {
+                    "settings.pad_bg_hint"
+                };
+                if widgets::toggle_row(
+                    ui,
+                    &mut st.file.pad_background,
+                    &tr!(lang, "settings.pad_bg"),
+                    &tr!(lang, hint),
+                )
+                .clicked()
+                {
+                    st.file_changed = true;
+                }
+            }
+            if let Some(on) = &mut st.projector
+                && widgets::toggle_row(
+                    ui,
+                    on,
+                    &tr!(lang, "launcher.projector"),
+                    &tr!(lang, "settings.projector_hint"),
+                )
+                .clicked()
+            {
+                st.projector_changed = true;
             }
         });
         widgets::section(right, &tr!(lang, "settings.next"), accent, |ui| {
@@ -4222,7 +4835,7 @@ pub fn widget_sheet(ui: &mut Ui, ws: &mut WidgetSheet) {
             // the title bar, at the launcher's width
             let (bar, _) = ui.allocate_exact_size(vec2(600.0, 44.0), Sense::hover());
             let mut tb = ui.new_child(egui::UiBuilder::new().max_rect(bar));
-            widgets::title_bar(&mut tb, Edition::E1011, &mut ws.launcher_lang);
+            widgets::title_bar(&mut tb, Edition::E1011, "", &mut ws.launcher_lang);
             caps(ui, "CABINET: IDLE · LIT · PRESSED · HOVER · DISABLED");
             ui.horizontal(|ui| {
                 let kinds = [
@@ -4408,6 +5021,54 @@ pub fn widget_sheet(ui: &mut Ui, ws: &mut WidgetSheet) {
 mod tests {
     use super::*;
     use crate::board::Aptitude;
+    use forza::cards::BENCH_X;
+
+    /// The longest text the server sends (160 characters) must not be cut off on the game page's one-line toast: it
+    /// wraps, and the toast grows to hold every row.
+    #[test]
+    fn a_long_notice_grows_the_toast_instead_of_running_under_the_deck() {
+        let ctx = egui::Context::default();
+        theme::install(&ctx, Edition::E1718, &theme::font_dir())
+            .expect("the fonts in assets/fonts");
+        // the font atlas is a texture delta kittest would upload; the layout needs a frame's fonts
+        ctx.run_ui(Default::default(), |_| {})
+            .textures_delta
+            .clear();
+        let one = Note::long(
+            Tone::Notice,
+            "Server update at 23:00 CET, about 10 minutes.".into(),
+        );
+        assert_eq!(note_height(&ctx, Some(&one), NOTE_TOAST), NOTE_LINE);
+        assert_eq!(note_height(&ctx, None, NOTE_TOAST), NOTE_LINE);
+        let text: String =
+            "The server updates tonight at 23:00 CET and is back after about ten minutes. "
+                .chars()
+                .cycle()
+                .take(forza::online::lobby::NOTICE_TEXT_LEN)
+                .collect();
+        let long = Note::long(Tone::Notice, text.clone());
+        let [left, right, top, bottom] = widgets::STATUS_LINE_MARGIN.map(f32::from);
+        let g = ctx.fonts_mut(|f| {
+            f.layout(
+                text,
+                theme::body(14.0),
+                theme::TEXT,
+                NOTE_TOAST - left - right,
+            )
+        });
+        assert!(
+            g.rows.len() >= 3,
+            "{} rows at the toast's width, {} points high",
+            g.rows.len(),
+            g.size().y
+        );
+        let h = note_height(&ctx, Some(&long), NOTE_TOAST);
+        assert!(
+            h >= g.size().y + top + bottom,
+            "{h} does not hold the {}-row text",
+            g.rows.len()
+        );
+    }
 
     fn sheet_of(w: f32, h: f32) -> Rect {
         // what a window of w x h pixels shows, in points
@@ -4721,6 +5382,35 @@ mod tests {
         assert!(st.touched.is_none(), "docked: forgotten");
     }
 
+    /// FORMATIONS opened on the board window, then the board window closed: the dialog comes back to the game window.
+    #[test]
+    fn the_formations_dialog_outlives_the_board_window() {
+        let mut st = PanelState::sample(Edition::E1718, Lang::En, Page::Game);
+        st.formations = Some(Formations {
+            slots: vec![None],
+            naming: None,
+        });
+        st.formations_desk = true;
+        st.file.board_window = false;
+        let ctx = egui::Context::default();
+        theme::install(&ctx, Edition::E1718, &theme::font_dir()).unwrap();
+        frame(&ctx, &mut st, 1920.0, 1080.0, 0.0, vec![]);
+        assert!(!st.formations_desk && st.formations.is_some());
+        // over the picture: CLOSE's click is the dialog's, not the game's
+        assert!(st.picture_rect.is_none());
+        // on the board window: the game window's picture stays the game's
+        st.formations_desk = true;
+        st.file.board_window = true;
+        frame(&ctx, &mut st, 1920.0, 1080.0, 0.05, vec![]);
+        assert!(st.picture_rect.is_some(), "dialog on the board window");
+        st.formations = None;
+        frame(&ctx, &mut st, 1920.0, 1080.0, 0.1, vec![]);
+        assert!(
+            st.picture_rect.is_some(),
+            "closed: the picture is the game's again"
+        );
+    }
+
     #[test]
     fn layout_numbers() {
         // 1440x900 as before: the picture 860 wide, the board 580
@@ -5021,7 +5711,7 @@ mod tests {
             (
                 "",
                 false,
-                "No lineup on the clipboard. Copy one on db.wccf.it first.",
+                "Copy a lineup's db.wccf.it link (or its text), then IMPORT LINEUP.",
             ),
         ] {
             assert_eq!(import_lineup(&mut st, &old, lineup, in_match, 0.0), None);
@@ -5035,6 +5725,83 @@ mod tests {
             st.message.as_ref().unwrap().text,
             "None of these cards is in this game.\n998 (not in the catalogue), 999 (not in the catalogue)"
         );
+    }
+
+    #[test]
+    fn a_share_link_is_fetched_off_the_frame_then_asked_like_text() {
+        let (mut st, _) = importer();
+        assert!(ShareFetch::start(&mut st, "abcd123", true, 0.0, |_| unreachable!()).is_none());
+        assert_eq!(
+            st.message.as_ref().unwrap().text,
+            "Not during a match. Import between matches."
+        );
+        let f = ShareFetch::start(&mut st, "abcd123", false, 0.0, |path| {
+            assert_eq!(path, "/api/share/abcd123.txt");
+            Ok("# WCCF DB lineup\ngame 1011\nP 101 50 90\n".into())
+        })
+        .unwrap();
+        assert_eq!(st.message.as_ref().unwrap().text, "Fetching lineup...");
+        let got = loop {
+            if let Some(got) = f.poll(1.0) {
+                break got;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        };
+        assert!(ask_fetched(&mut st, got, false));
+        assert_eq!(st.import_ask.as_ref().map(|a| a.cards), Some(1));
+        assert!(st.message.is_none());
+        // no answer in time: offline, whatever comes later
+        let slow = ShareFetch::start(&mut st, "abcd123", false, 0.0, |_| {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            Ok(String::new())
+        })
+        .unwrap();
+        assert_eq!(slow.poll(1.0), None);
+        assert_eq!(slow.poll(FETCH_SECS), Some(Err(FetchError::Offline)));
+        for (got, said) in [
+            (
+                Err(FetchError::Offline),
+                "No answer from db.wccf.it. Check the internet connection and retry.",
+            ),
+            (
+                Err(FetchError::NotFound),
+                "This link has no lineup on db.wccf.it. Copy the link again.",
+            ),
+            (
+                Err(FetchError::NotLineup),
+                "The link did not give a lineup.",
+            ),
+            (
+                Ok("<html>not found</html>".into()),
+                "The link did not give a lineup.",
+            ),
+        ] {
+            assert!(!ask_fetched(&mut st, got, false));
+            let m = st.message.as_ref().unwrap();
+            assert_eq!((m.tone, m.text.as_str()), (Tone::Refused, said));
+        }
+        // another edition's lineup: the text's own check
+        assert!(!ask_fetched(
+            &mut st,
+            Ok("game 1718\nP 1 50 90\n".into()),
+            false
+        ));
+        assert_eq!(
+            st.message.as_ref().unwrap().text,
+            "This lineup is for 2017-18."
+        );
+    }
+
+    #[test]
+    fn a_share_answer_is_capped() {
+        let max = SHARE_MAX as usize;
+        assert_eq!(read_capped(&b"S 1\n"[..]), Ok("S 1\n".into()));
+        assert_eq!(read_capped(&vec![b'1'; max][..]).map(|t| t.len()), Ok(max));
+        assert_eq!(
+            read_capped(&vec![b'1'; max + 1][..]),
+            Err(FetchError::NotLineup)
+        );
+        assert_eq!(read_capped(&[0xff, 0xfe][..]), Err(FetchError::NotLineup));
     }
 
     #[test]
@@ -5073,6 +5840,219 @@ mod tests {
         assert_eq!(undo_import(&mut st, false), Some(old));
         assert_eq!(st.board.cards[0].number, 10);
         assert_eq!(undo_import(&mut st, false), None);
+    }
+
+    /// The seat state is read every frame, the full match state once a second: a sub in the first second after
+    /// kickoff, before the full poll says `playing`, is not part of the kept table.
+    #[test]
+    fn reset_lineup_keeps_the_table_of_the_frame_the_seat_began_the_match() {
+        let (mut st, _) = importer();
+        st.edition = Edition::E1718;
+        let at = |slot, no, x, y| Placed { slot, no, x, y };
+        let start = vec![at(1, 10, 0.25, 0.9), at(2, 101, -0.5, 0.4)];
+        let subbed = vec![at(1, 10, 0.25, 0.9), at(2, 210, -0.5, 0.4)];
+        lineup_tick(&mut st, Some(false), Some((false, false)), &start);
+        // the frame the seat shows the match: kept, before that frame's board change is written
+        lineup_tick(&mut st, Some(true), None, &start);
+        lineup_tick(&mut st, Some(true), None, &subbed);
+        assert!(st.reset_ready);
+        // the poll that follows (up to a second later) does not keep the subbed table
+        lineup_tick(&mut st, Some(true), Some((true, true)), &subbed);
+        assert_eq!(st.before_match.as_deref(), Some(&start[..]));
+    }
+
+    /// The table is kept when a match begins; changed (a sub), RESET LINEUP is offered after the match, never in it, and
+    /// writes back exactly what was kept.
+    #[test]
+    fn reset_lineup_restores_the_table_kept_at_the_start_of_the_match() {
+        let (mut st, _) = importer();
+        st.edition = Edition::E1718;
+        let at = |slot, no, x, y| Placed { slot, no, x, y };
+        let start = vec![
+            at(1, 10, 0.25, 0.9),
+            at(2, 101, -0.5, 0.4),
+            at(3, 210, 0.5, -0.3),
+        ];
+        // no match yet: nothing kept, nothing to reset
+        lineup_tick(&mut st, None, Some((false, false)), &start);
+        assert!(st.before_match.is_none() && !st.reset_ready);
+        // the match begins: the table is kept; unchanged, nothing to reset
+        lineup_tick(&mut st, None, Some((true, true)), &start);
+        assert_eq!(st.before_match.as_deref(), Some(&start[..]));
+        assert!(!st.reset_ready);
+        // a sub in the match: 101 and 210 trade places, as the table's slots follow the cards
+        let subbed = vec![
+            at(1, 10, 0.25, 0.9),
+            at(2, 101, 0.5, -0.3),
+            at(3, 210, -0.5, 0.4),
+        ];
+        lineup_tick(&mut st, None, None, &subbed);
+        assert!(st.reset_ready);
+        // the match's later reads do not keep the table again
+        lineup_tick(&mut st, None, Some((true, true)), &subbed);
+        assert_eq!(st.before_match.as_deref(), Some(&start[..]));
+        // in the match: refused, the click is spent
+        st.reset_lineup = true;
+        assert_eq!(take_reset(&mut st, &subbed, true), None);
+        assert!(!st.reset_lineup);
+        assert_eq!(st.message.as_ref().map(|n| n.tone), Some(Tone::Refused));
+        // after it: the kept table back exactly, on the board too
+        lineup_tick(&mut st, None, Some((false, false)), &subbed);
+        st.reset_lineup = true;
+        assert_eq!(take_reset(&mut st, &subbed, false), Some(start.clone()));
+        assert_eq!(cards::table_after(&start, &st.board), start);
+        // written back: nothing differs any more
+        lineup_tick(&mut st, None, None, &start);
+        assert!(!st.reset_ready);
+        st.reset_lineup = true;
+        assert_eq!(take_reset(&mut st, &start, false), None);
+        // a card session outside a match (a manager transfer) greys RESET out but keeps nothing
+        lineup_tick(&mut st, None, Some((true, false)), &subbed);
+        assert!(st.in_match);
+        assert_eq!(st.before_match.as_deref(), Some(&start[..]));
+        lineup_tick(&mut st, None, Some((false, false)), &subbed);
+        // the next match keeps its own start, even when the FORMATIONS dialog set `in_match` first
+        st.in_match = true;
+        let next = vec![at(1, 10, 0.0, 0.5)];
+        lineup_tick(&mut st, None, Some((true, true)), &next);
+        assert_eq!(st.before_match.as_deref(), Some(&next[..]));
+    }
+
+    /// After RESET LINEUP, UNDO puts back the table as it was just before; it stays until the table changes or a
+    /// match begins, however long the player takes.
+    #[test]
+    fn reset_lineup_can_be_undone_until_the_table_changes() {
+        let (mut st, _) = importer();
+        st.edition = Edition::E1718;
+        let at = |slot, no, x, y| Placed { slot, no, x, y };
+        let start = vec![at(1, 10, 0.25, 0.9), at(2, 101, -0.5, 0.4)];
+        let subbed = vec![at(1, 10, 0.25, 0.9), at(2, 210, -0.5, 0.4)];
+        lineup_tick(&mut st, None, Some((true, true)), &start);
+        lineup_tick(&mut st, None, Some((false, false)), &subbed);
+        st.reset_lineup = true;
+        assert_eq!(take_reset(&mut st, &subbed, false), Some(start.clone()));
+        // a minute later, the table written: the UNDO is still there
+        lineup_tick(&mut st, None, None, &start);
+        assert!(st.import_undo.is_some() && st.reset_after.is_some());
+        // UNDO: the table before the reset, back on the board
+        assert_eq!(undo_import(&mut st, false), Some(subbed.clone()));
+        assert!(st.reset_after.is_none() && st.import_undo.is_none());
+        lineup_tick(&mut st, None, None, &subbed);
+        assert!(st.reset_ready);
+        // a card moved after a reset drops the UNDO
+        st.reset_lineup = true;
+        take_reset(&mut st, &subbed, false).unwrap();
+        lineup_tick(&mut st, None, None, &start);
+        let moved = vec![at(1, 10, 0.0, 0.9), at(2, 101, -0.5, 0.4)];
+        lineup_tick(&mut st, None, None, &moved);
+        assert!(st.import_undo.is_none() && st.reset_after.is_none());
+        // so does the next match
+        st.reset_lineup = true;
+        assert_eq!(take_reset(&mut st, &moved, false), Some(start.clone()));
+        lineup_tick(&mut st, None, Some((true, true)), &start);
+        assert!(st.import_undo.is_none() && st.reset_after.is_none());
+    }
+
+    /// The button's hover text names the moment the table was kept, or why there is nothing to reset to.
+    #[test]
+    fn reset_lineup_names_the_moment_it_goes_back_to() {
+        let (mut st, _) = importer();
+        st.edition = Edition::E1718;
+        let at = |slot, no, x, y| Placed { slot, no, x, y };
+        let start = vec![at(1, 10, 0.25, 0.9), at(2, 101, -0.5, 0.4)];
+        let subbed = vec![at(1, 10, 0.25, 0.9), at(2, 210, -0.5, 0.4)];
+        assert_eq!(reset_hint(&st, Lang::En), "No match played yet");
+        lineup_tick(&mut st, None, Some((true, true)), &start);
+        assert!(st.before_match_at.is_some());
+        lineup_tick(&mut st, None, Some((false, false)), &subbed);
+        st.before_match_at = Some("21:40".into());
+        assert_eq!(
+            reset_hint(&st, Lang::En),
+            "Back to the lineup from the start of the last match (21:40)"
+        );
+        for lang in [Lang::It, Lang::Ja] {
+            assert!(reset_hint(&st, lang).contains("21:40"));
+        }
+        lineup_tick(&mut st, None, None, &start);
+        assert!(reset_hint(&st, Lang::En).starts_with("Already the lineup"));
+        st.in_match = true;
+        assert_eq!(reset_hint(&st, Lang::En), "Not during a match");
+    }
+
+    /// The game leaves the seat's match flag on after a match: out of the match the table is neither kept again nor
+    /// locked, one read after another.
+    #[test]
+    fn a_match_flag_left_on_after_the_match_keeps_nothing_and_locks_nothing() {
+        let (mut st, _) = importer();
+        let at = |slot, no, x, y| Placed { slot, no, x, y };
+        let start = vec![at(1, 10, 0.0, 0.5)];
+        let after = vec![at(1, 11, 0.0, 0.5)];
+        lineup_tick(&mut st, Some(false), Some((false, false)), &start);
+        lineup_tick(&mut st, Some(true), None, &start);
+        lineup_tick(&mut st, Some(true), Some((true, true)), &start);
+        assert!(st.match_seen && st.in_match);
+        // the match ended: the arcade is idle again, the flag is still on
+        for _ in 0..3 {
+            lineup_tick(&mut st, Some(true), Some((false, false)), &after);
+            lineup_tick(&mut st, Some(true), None, &after);
+            assert!(!st.match_seen && !st.in_match);
+            assert_eq!(st.before_match.as_deref(), Some(&start[..]));
+        }
+        assert!(st.reset_ready);
+    }
+
+    /// The panel starts with the flag already on from an earlier match: no table is kept as "the start of the last
+    /// match".
+    #[test]
+    fn a_match_flag_on_when_the_panel_starts_keeps_nothing() {
+        let (mut st, _) = importer();
+        let at = |slot, no, x, y| Placed { slot, no, x, y };
+        let now = vec![at(1, 10, 0.0, 0.5)];
+        lineup_tick(&mut st, Some(true), Some((false, false)), &now);
+        lineup_tick(&mut st, Some(true), None, &now);
+        assert!(st.before_match.is_none() && !st.match_seen);
+    }
+
+    #[test]
+    fn a_formation_from_another_club_loads_without_its_missing_cards_and_undo_restores() {
+        let (mut st, old) = importer();
+        let other = [
+            (101, 0.0, 0.8),
+            (210, 0.2, -0.3),
+            (999, -0.4, 0.1),
+            (32, 1.24, 0.0),
+        ]
+        .map(|(no, x, y)| Placed { slot: 1, no, x, y });
+        let text = formations::text(&other, st.edition, "Away", "OTHER FC");
+        let slot = formations::slot_of(&text, st.edition);
+        assert_eq!(slot.as_ref().map(|s| s.club.as_str()), Some("OTHER FC"));
+        st.formations = Some(Formations {
+            slots: vec![None, slot],
+            naming: None,
+        });
+        // during a match: refused, the dialog and the table stay
+        assert_eq!(load_formation(&mut st, &old, 1, true, 1.0), None);
+        assert_eq!(
+            st.message.as_ref().unwrap().text,
+            "Not during a match. Import between matches."
+        );
+        assert!(st.formations.is_some() && st.import_undo.is_none());
+        // an empty slot loads nothing
+        assert_eq!(load_formation(&mut st, &old, 0, false, 1.0), None);
+        let new = load_formation(&mut st, &old, 1, false, 2.0).unwrap();
+        assert_eq!(
+            new.iter().map(|p| (p.no, p.x, p.y)).collect::<Vec<_>>(),
+            [(101, 0.0, 0.8), (210, 0.2, -0.3), (32, BENCH_X, -0.68)]
+        );
+        assert!(st.formations.is_none());
+        let m = st.message.as_ref().unwrap();
+        assert_eq!(m.tone, Tone::Notice);
+        assert_eq!(
+            m.text,
+            "Away: 3 cards on the table.\nSkipped: 999 (not in the catalogue)"
+        );
+        assert_eq!(undo_import(&mut st, false), Some(old));
+        assert_eq!(st.board.cards[0].number, 10);
     }
 
     #[test]

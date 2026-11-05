@@ -18,7 +18,7 @@ in code, [A] = assumed. Addresses name the binary: `C10` client 2010–11, `K10`
    client last sent in `TO MATCH` (≤ 18,000 frames = 5 min at 60 fps) and otherwise sleeps 1 ms; it has no
    timeout of its own in that loop. When the client stops, the match stops. [V M10] The 2017–18 client speaks the
    same `TO MATCH`/`FROM MATCH` shared-memory protocol to its own `match_Release.exe`. [V strings, A same design]
-3. **The control runs the shop on wall-clock seconds.** Both controls keep a shop cycle (`CoStateManage`) — ENTRY
+3. **The control runs the arcade on wall-clock seconds.** Both controls keep an arcade cycle (`CoStateManage`) — ENTRY
    40 s, CR_DATA_WAIT 5 s, MATCHING_WAIT 30 s, MATCHING 5 s, GAME (until all games end + 14 s, cap 980 s),
    GAME_RESULT_WAIT (+11 s), GAME_RESULT 60 s — advanced by `_time64` deltas, not by `timeGetTime`. The ENTRY
    countdown a seat shows comes from the control. A paused seat falls out of step with this cycle. [V]
@@ -30,15 +30,15 @@ in code, [A] = assumed. Addresses name the binary: `C10` client 2010–11, `K10`
    missed keep-alives and the 980 s GAME cap does not run. The match engine needs no clock change. [V for each
    clock, A for the combined behaviour until a guarded run shows it]
 6. **The control already has a clock-stop switch.** Each tick both controls read a checkbox on their own window
-   with `BM_GETCHECK`; while it is checked the shop clock does not advance and 2010–11 sends the ENTRY rest time as
+   with `BM_GETCHECK`; while it is checked the arcade clock does not advance and 2010–11 sends the ENTRY rest time as
    −1. Which checkbox that is (and whether the kit shows the control window) is open. [V K10 sub_446720,
    K17 sub_4557F0; A purpose]
 7. **Fast-forward needs more frames per second, not a faster clock.** 2× = present every other frame (or run with
    presentation interval IMMEDIATE) and, where the software limiter runs, scale QPC 2× in the client. Wall-clock
    menus (ENTRY, MATCHING_WAIT, GAME_RESULT) shorten only if the control's `_time64` runs 2× too. [V mechanism,
    A effect]
-8. **Unsafe modes: say no.** Pause and 2× are unsafe online (live P2P matches between shops in 2010–11, World
-   Trophy, ghost/server requests), with any second seat linked (in-shop P2P matches; one shared control clock),
+8. **Unsafe modes: say no.** Pause and 2× are unsafe online (live P2P matches between arcades in 2010–11, World
+   Trophy, ghost/server requests), with any second seat linked (in-arcade P2P matches; one shared control clock),
    and during start-up/network setup. Allow them only with one seat, offline, control and engines local. [V for the
    links, judgement for the rule]
 
@@ -48,7 +48,7 @@ in code, [A] = assumed. Addresses name the binary: `C10` client 2010–11, `K10`
 |---|---|---|---|
 | C10 | `timeGetTime` (155 refs), `timeBeginPeriod(1)` once (sub_84D7A0), QPC/QPF (sub_720540 = QPC in µs), `GetTickCount` (sub_7FD660, ALL.Net side), `_time64`, `Sleep` | sub_84D870 → sub_84C9C0 → sub_84CA60: PeekMessage pump, then the task tick sub_8E0AA0, frame stats (16,666 µs reference) | one task tick per frame; sub_7605C0 → sub_75FCD0 is the end-of-frame limiter [V] |
 | C10 present | sub_760A90 (`DeviceDX9.cpp`) | full screen: refresh 60, interval ONE (or 2/3/4 from the setting); windowed: interval ONE if the desktop is 60 Hz, else IMMEDIATE plus the software interval (this+44) | software limiter busy-waits on QPC for 16,667 µs × N (sub_75FCD0) [V] |
-| K10 | `timeGetTime`, `timeBeginPeriod` (sub_48AC00), `_time64` | MFC window; `CoStateManage` tick sub_446720 | shop clock: `_time64` seconds since boot, added to game time (+128) and state time (+144) unless the checkbox is set [V] |
+| K10 | `timeGetTime`, `timeBeginPeriod` (sub_48AC00), `_time64` | MFC window; `CoStateManage` tick sub_446720 | arcade clock: `_time64` seconds since boot, added to game time (+128) and state time (+144) unless the checkbox is set [V] |
 | M10 | `timeGetTime` (start-up 1 s retry ×120, sub_4046D0), `timeBeginPeriod(1)` (sub_4011E0), QPC (sub_5C4920 µs), `Sleep(1)` | sub_403250 → sub_5C3240 / sub_401790 | steps sim frames up to the client's frame index `i` (0x77EBF8, set from `TO MATCH` in sub_562F50); training mode steps once per call and ends after 23 QPC seconds [V] |
 | C17 | `timeGetTime`, `timeBeginPeriod`, QPC/QPF, `GetTickCount`, `_time64`, `Sleep` | sub_401910 → sub_4016F0 ("CoreFrame"): one update per frame, frame counter `dword_6D9EB10` += 1 | frame-counted sequences (e.g. sub_77A7D0: 900 frames; sub_417BB0: 300 frames) [V]; teaGfxAPI interval code sub_C29F70 as in C10 [V strings, A logic] |
 | K17 | as K10 | `CoStateManage` tick sub_4557F0, timing sub_455AD0 | identical cycle and checkbox; GmSync file-sync step in state 0 uses `timeGetTime` 5 s [V] |
@@ -75,7 +75,7 @@ already patch the game module's IAT (`native/2010-11/hook/wccfk.c` patch_iat_any
 | 10 | C10 sub_431E40 (memmap to engine) | `WaitForSingleObject` | 30 ms per mutex wait | error 3009 `MemmapCommErrorTimeout` if the other side holds the mutex | V |
 | 11 | C10 sub_431FF0, M10 sub_557630 | QPC (ms) | 60 s, 500 ms sleeps | start-up wait for the `SBWG_status` mapping | V |
 | 12 | M10 sub_4046D0 | `timeGetTime` | 1 s × 120 | `START UP` handshake to the client | V |
-| 13 | K10 sub_446A20; K17 sub_455AD0 | shop clock (`_time64`) | ENTRY 40 s (rest time sent to clients), CR_DATA_WAIT 5, MATCHING_WAIT 30, MATCHING 5, GAME: 14 s after all games end, **cap 980 s from game start**, GAME_RESULT_WAIT +11 s, GAME_RESULT 60 s (5 s in one mode) | state change; "TIMEOUT! game / game_result_wait / game_result" ends the game for all seats | V |
+| 13 | K10 sub_446A20; K17 sub_455AD0 | arcade clock (`_time64`) | ENTRY 40 s (rest time sent to clients), CR_DATA_WAIT 5, MATCHING_WAIT 30, MATCHING 5, GAME: 14 s after all games end, **cap 980 s from game start**, GAME_RESULT_WAIT +11 s, GAME_RESULT 60 s (5 s in one mode) | state change; "TIMEOUT! game / game_result_wait / game_result" ends the game for all seats | V |
 | 14 | C10 sub_408040, C17 sub_410E00 | from #13 | ENTRY rest seconds + 80 shown/used by the seat | the seat's entry countdown follows the control | V field, A display |
 | 15 | C17 sub_77A7D0 | frame counter | 900 frames (15 s at 60 fps) | `ICCardTimeOut` scene | V |
 | 16 | C17 sub_417BB0 | frame counter | 300 frames (5 s) | leaves to the next scene or `ClientError` | V |
@@ -91,15 +91,15 @@ Effects of a stopped seat with everything else running: #2/#3 and #4/#5 fire (fi
 
 | Source | Address | Values | |
 |---|---|---|---|
-| Shop state in the control | K10 `dword_7D30C0`; K17 `dword_AB8A60` | 0 boot/sync, 1 ENTRY, 2 CR_DATA_WAIT, 3 MATCHING_WAIT, 4 MATCHING, 5 GAME, 6 GAME_RESULT_WAIT, 7 GAME_RESULT | V |
+| Arcade state in the control | K10 `dword_7D30C0`; K17 `dword_AB8A60` | 0 boot/sync, 1 ENTRY, 2 CR_DATA_WAIT, 3 MATCHING_WAIT, 4 MATCHING, 5 GAME, 6 GAME_RESULT_WAIT, 7 GAME_RESULT | V |
 | The same state in the seat (from `CONTROL_STATE` byte 0) | C10 `*(dword_113700C)+12` (object sub_407870); C17 `*(dword_6D9EB08)+12` (object sub_4100B0) | as above | V |
 | Seat main state | C10 `*(dword_1137060)` (1 = START UP); C17 `*(dword_6D9EBCC)`: each sequence's start writes its own id (1-27); 19 = the match (sub_61AB80; its update sub_61B5D0 sends `REQ_MATCH` and `GO TO GAME`, the match sequence sub_87FF60 writes none, so 19 holds until the next sequence), 14 = ClientError (sub_40DD50) | other values open | V |
 | Match engine messages | M10 sub_563170: `SYNC READY`, `GO TO GAME`, `ENTER H-TIME`, `END MATCH GAME`; client → control `REQ_MATCH` (C17 sub_4BC150) | start, half-time, end | V |
 | Frames to the engine | C10/C17 `TO MATCH` writers (C10 sub_4E3060, sub_4E9F40) | present while a match runs | V names, A per-frame |
 
-For the panel and the hook: read the seat's copy of the shop state (one dword). Menus = 0–3 and 7; match = 4–6.
-That state is the whole shop's: in a shared shop another seat's match sets it while this seat sits out (owner's
-live test, 2026-10-28). The per-seat flag in 2017–18 is the seat main state 19 (above); IMPORT LINEUP uses it. [V]
+For the panel and the hook: read the seat's copy of the arcade state (one dword). Menus = 0–3 and 7; match = 4–6.
+That state is the whole arcade's: in a shared arcade another seat's match sets it while this seat sits out (live
+test, 2026-10-28). The per-seat flag in 2017–18 is the seat main state 19 (above); IMPORT LINEUP uses it. [V]
 
 ## 4. Recommended mechanism
 
@@ -111,7 +111,7 @@ each program (2010–11 `wccfk.dll`, 2017–18 `winmm.dll`) serves virtual time 
 |---|---|---|---|---|
 | `timeGetTime` (own export instead of the forwarder) | yes | yes | yes | link timeouts #4–#9, #12 |
 | `QueryPerformanceCounter` (IAT) | yes | if imported | yes | frame limiter, engine seconds |
-| `_time64` (IAT, MSVCR90 import of the exe) | yes | **yes** | yes | the shop clock #1, #13 — the CRT's own call to `GetSystemTimeAsFileTime` is not reachable through the exe's IAT |
+| `_time64` (IAT, MSVCR90 import of the exe) | yes | **yes** | yes | the arcade clock #1, #13 — the CRT's own call to `GetSystemTimeAsFileTime` is not reachable through the exe's IAT |
 | `GetTickCount` (IAT) | yes | yes | — | minor users |
 | Present (panel, seat window only) | yes | — | — | freezes or doubles frames |
 
@@ -119,13 +119,13 @@ each program (2010–11 `wccfk.dll`, 2017–18 `winmm.dll`) serves virtual time 
 keeps pumping window messages, so the game's update (and with it `TO MATCH`, the engine and every frame counter)
 stops. At the same moment the shared clock stops for client, control and engine; on resume it continues from the
 stopped value (offset kept, never a jump forward). The control then neither sends `CONTROL_STATE` nor counts misses,
-the seat's 30 s check sees no gap, and the shop cycle (ENTRY, 980 s cap) waits. A cheaper first step: the control's
+the seat's 30 s check sees no gap, and the arcade cycle (ENTRY, 980 s cap) waits. A cheaper first step: the control's
 own clock-stop checkbox (§1 #6) set by `BM_SETCHECK`, plus a seat pause under 25 s. [A until a guarded run]
 
-**2× in menus.** Allowed only when the seat's shop state is 0–3 or 7 and no match messages flow. The Present hook
+**2× in menus.** Allowed only when the seat's arcade state is 0–3 or 7 and no match messages flow. The Present hook
 returns at once for every second frame (the game runs two updates per vsync); where the software limiter is active
 the client's QPC runs at 2×; the control's `_time64` and `timeGetTime` run at 2× so ENTRY and MATCHING_WAIT shorten
-with it. Switch back to 1× when the shop state reaches 4 (MATCHING), before any `TO MATCH` frame. [A]
+with it. Switch back to 1× when the arcade state reaches 4 (MATCHING), before any `TO MATCH` frame. [A]
 
 **Is pausing only the client safe when control and engines are local?** For under ~25 s, yes: the engine waits
 (lock-step), the control's miss counter needs ~36 s (2010–11) / ~66 s (2017–18), the seat's own check 30 s. Longer,
@@ -133,7 +133,7 @@ no: the seat is dropped or raises error 2001, and in menus the ENTRY countdown r
 
 ### Risks
 
-- **Unsafe online or with linked seats.** A live opponent (another shop in 2010–11, another seat in the same shop
+- **Unsafe online or with linked seats.** A live opponent (another arcade in 2010–11, another seat in the same arcade
   in both editions) keeps running: P2P desync, `P2P_DISCON`, `TIMEOUT_P2P`. One control clock serves all seats, so
   freezing it freezes every seat's cycle. Block pause and 2× whenever online, World Trophy, a second seat or a
   network-entered seat is present. [V links, judgement rule]

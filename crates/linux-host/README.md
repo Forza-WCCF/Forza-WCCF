@@ -1,6 +1,6 @@
 # linux-host
 
-The 2010-11 and 2017-18 shops on Linux. The original control and its four match engines are 32-bit Windows programs; they run
+The 2010-11 and 2017-18 arcades on Linux. The original control and its four match engines are 32-bit Windows programs; they run
 under Wine on a virtual X display (Xvfb). This crate holds the Linux supervisor that starts, watches and stops them,
 and the small Windows helpers it runs inside Wine. The seat desk and match relay are `forza-server`
 (`crates/server`); the projector relay is `crates/server/python/projector_relay.py`. Setup from scratch:
@@ -52,10 +52,10 @@ The supervisor reads everything from one folder, `ROOT`: `WCCF_ROOT`, else three
 Without `WCCF_EXTERNAL_DESK=1` the supervisor runs its own minimal seat broker and relay; it predates
 `forza-server` and knows no lobby or projector relay.
 
-## The 2017-18 shop
+## The 2017-18 arcade
 
 `start --edition 2017-18` uses a tree of its own (`WCCF_ROOT`) with its own `wineprefix/` and Xvfb display `:96`; the
-shop and a 2010-11 shop can run on one host. Differences from 2010-11:
+arcade and a 2010-11 arcade can run on one host. Differences from 2010-11:
 
 - `run/sddy_maps.exe` replaces `win32-helper.exe`; control runs as `wine control_Release.exe` in `runtime/`, and Wine's
   own crash backtrace lands in `game.log` (the supervisor turns the crash dialog off in the prefix).

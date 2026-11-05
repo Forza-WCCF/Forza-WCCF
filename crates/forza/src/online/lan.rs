@@ -1,5 +1,5 @@
-//! LAN shops (2017-18): how a guest's Launcher finds the shops on its own network, with no internet. The guest sends
-//! a query to UDP [`PORT`] as a broadcast on every IPv4 network it is on; a shop's `forza-server all --lan NAME`
+//! LAN arcades (2017-18): how a guest's Launcher finds the arcades on its own network, with no internet. The guest sends
+//! a query to UDP [`PORT`] as a broadcast on every IPv4 network it is on; an arcade's `forza-server all --lan NAME`
 //! answers the asker alone. Nothing listens on the guest's side but its own query's socket.
 //!
 //! Every packet has one fixed layout (a parser's trust boundary: any other length or byte is not a packet):
@@ -15,11 +15,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-/// The UDP port a LAN shop answers on (not one of the game's: 20000-20008, 20030-20032, 20040, 20050, 20060).
+/// The UDP port a LAN arcade answers on (not one of the game's: 20000-20008, 20030-20032, 20040, 20050, 20060).
 pub const PORT: u16 = 20035;
-/// A shop name's most bytes on the wire (longer names are cut at a character).
+/// An arcade name's most bytes on the wire (longer names are cut at a character).
 pub const NAME_MAX: usize = 32;
-/// The edition byte of a 2017-18 shop.
+/// The edition byte of a 2017-18 arcade.
 pub const E1718: u8 = 2;
 
 const VERSION: u8 = 1;
@@ -83,7 +83,7 @@ impl Packet {
     }
 }
 
-/// A shop that answered: its address as the guest saw it, its seat desk's port and its name.
+/// An arcade that answered: its address as the guest saw it, its seat desk's port and its name.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Found {
     pub ip: Ipv4Addr,
@@ -91,7 +91,7 @@ pub struct Found {
     pub name: String,
 }
 
-/// Answers every query for `edition` on UDP `bind:port` with this shop's name and desk port, until the handle drops.
+/// Answers every query for `edition` on UDP `bind:port` with this arcade's name and desk port, until the handle drops.
 /// Only askers on a private, link-local or loopback address get an answer (never one from the internet).
 pub fn serve(
     bind: &str,
@@ -110,7 +110,7 @@ pub fn serve(
     }
     .bytes();
     log(&format!(
-        "LAN shop \"{name}\": answering searches on UDP {port}"
+        "LAN arcade \"{name}\": answering searches on UDP {port}"
     ));
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
@@ -132,7 +132,7 @@ fn local(ip: IpAddr) -> bool {
     matches!(ip, IpAddr::V4(v) if v.is_private() || v.is_link_local() || v.is_loopback())
 }
 
-/// Asks every IPv4 network this PC is on (and this PC itself) for `edition`'s shops on UDP `port`, and lists the
+/// Asks every IPv4 network this PC is on (and this PC itself) for `edition`'s arcades on UDP `port`, and lists the
 /// answers that came within `wait`, one per address.
 pub fn find(port: u16, edition: u8, wait: Duration) -> io::Result<Vec<Found>> {
     let sock = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))?;
@@ -261,12 +261,12 @@ mod tests {
     }
 
     #[test]
-    fn a_shop_on_this_pc_is_found_and_another_edition_is_not() {
+    fn an_arcade_on_this_pc_is_found_and_another_edition_is_not() {
         let log: Log = Arc::new(|_| {});
         let probe = UdpSocket::bind("127.0.0.1:0").unwrap();
         let port = probe.local_addr().unwrap().port();
         drop(probe);
-        let _shop = serve("127.0.0.1", port, E1718, 20030, "HOST-PC", log).unwrap();
+        let _arcade = serve("127.0.0.1", port, E1718, 20030, "HOST-PC", log).unwrap();
         let found = find(port, E1718, Duration::from_millis(500)).unwrap();
         assert_eq!(
             found,
