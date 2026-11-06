@@ -4788,9 +4788,9 @@ SYS_SYS_cloose_0009	Ora non si possono creare nuovi club
 SYS_SYS_cloose_0010	La manutenzione del server sta per iniziare: il gioco termina
 SYS_CARDLIST_label_0010	Numero
 SYS_CARDLIST_label_0011	Nascita
-SYS_CARDLIST_label_0012	Altezza
+SYS_CARDLIST_label_0012	Alt.
 SYS_CARDLIST_label_0013	Peso
-SYS_CARDLIST_label_0014	Nazione
+SYS_CARDLIST_label_0014	Naz.
 SYS_CARDLIST_label_0015	Versione
 SYS_CARDLIST_label_0016	N. carta
 SYS_CARDLIST_search_0000	Mostra tutti
@@ -5177,7 +5177,7 @@ MAN_MENU_button_0038	Scegli chi allenare
 MAN_MENU_button_0039	Negozio
 MAN_MENU_button_0040	Acquista
 MAN_MENU_button_0042	Ascolta
-SYS_QRSEQ_guidance_0000	Registra / elimina carta giocatore (codice 2D)
+SYS_QRSEQ_guidance_0000	Registra / elimina carte (codice 2D)
 SYS_QRSEQ_guidance_0001	Metti la carta giocatore sulla posizione di lettura
 SYS_QRSEQ_guidance_0002	- Se ne sono registrate piu' di una, saranno eliminate tutte
 SYS_QRSEQ_guidance_0003	- Una carta digitale eliminata non si puo' recuperare
