@@ -41,7 +41,7 @@ PLAY
   data\save\gamesvr: back that folder up.
   A new card starts with the manager licence, a 5-play tutorial and the club set-up (about 30 minutes). To skip them,
   tick Skip the tutorial under SETUP before PLAY: a new card gets a ready club and goes to the main screen.
-  Put your card in soon after the start. After a match take it out (I), then close the game window.
+  The Aime card is always on the reader: press START (green) to begin. To quit, close the game window after a match.
 
 KEYS
   Click the game window first.
@@ -49,7 +49,7 @@ KEYS
       X       PRESS (decide)       C   SHOOT        B   KEEPER
       S       DATA                 D   KEY PLAYER
       arrows  tactics: Up CENTRAL, Down COUNTER, Left L-SIDE, Right R-SIDE
-      I       Aime card in / out   5   coin
+      5       coin
   The panel's buttons do the same: the triangles (CENTRAL, COUNTER, L-SIDE, R-SIDE), PRESS, DATA, SHOOT, KEEPER,
   KEY PLAYER and START. Change keys and controller buttons under KEYS.
   Formation board: drag a card to move it, drop it on another to swap. + CARD opens the CATALOGUE.

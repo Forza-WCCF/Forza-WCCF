@@ -44,7 +44,8 @@ COME SI GIOCA
   Una carta nuova parte con la licenza da manager, un tutorial di 5 partite e la creazione del club (circa 30 minuti).
   Per saltarli, spuntate Salta il tutorial in CONFIGURAZIONE prima di GIOCA: la carta nuova riceve un club pronto e va
   alla schermata principale.
-  Inserite la carta subito dopo l'avvio. Dopo una partita toglietela (I), poi chiudete la finestra del gioco.
+  La carta Aime è sempre sul lettore: premete START (verde) per iniziare. Per uscire, chiudete la finestra del gioco
+  dopo una partita.
 
 TASTI
   Prima fate clic sulla finestra del gioco.
@@ -52,7 +53,7 @@ TASTI
       X       PRESS (conferma)     C   SHOOT        B   KEEPER
       S       DATA                 D   KEY PLAYER
       frecce  tattiche: Su CENTRAL, Giù COUNTER, Sinistra L-SIDE, Destra R-SIDE
-      I       carta Aime dentro / fuori   5   moneta
+      5       moneta
   I pulsanti del pannello fanno lo stesso: i triangoli (CENTRAL, COUNTER, L-SIDE, R-SIDE), PRESS, DATA, SHOOT,
   KEEPER, KEY PLAYER e START. Tasti e pulsanti del controller si cambiano in TASTI.
   Lavagna della formazione: trascinate una carta per spostarla, rilasciatela su un'altra per scambiarle. + CARTA apre
