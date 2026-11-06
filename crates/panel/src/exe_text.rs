@@ -150,49 +150,97 @@ pub fn install(e1718: bool, data: &Path, log: fn(&str)) {
     if crate::patches::is_client(&crate::patches::exe_name()) {
         log(&format!(
             "exe text: Dati record by area, {}",
-            dati_rows(base)
+            key_rows(DATI_ROWS, base)
+        ));
+        log(&format!(
+            "exe text: Challenge Tour conquests, {}",
+            key_rows(CTD_ROWS, base)
         ));
     }
 }
 
-/// The Dati screen's "record by area" rows: sub_715A40 puts 8 string-table keys on the stack, one
-/// `mov dword [esp+disp32], imm32` each. The first four are MAKE_country keys, data the game must keep in Japanese
-/// (`forza::text` DATA_FAMILIES), so those four instructions get the INF_COACH_country keys instead: the same
-/// countries, translated. (instruction VA, disp, original key VA, our key)
-const DATI_ROWS: [(usize, u8, u32, &str); 4] = [
-    (0x0071_64F2, 0x88, 0x0139_F2FC, "INF_COACH_country_0000"), // MAKE_country_014 England
-    (0x0071_64FD, 0x8C, 0x0139_F248, "INF_COACH_country_0001"), // MAKE_country_023 Spain
-    (0x0071_6508, 0x90, 0x0139_F2E8, "INF_COACH_country_0002"), // MAKE_country_015 Italy
-    (0x0071_6513, 0x94, 0x0139_F1E4, "INF_COACH_country_0003"), // MAKE_country_028 Germany
+/// Two screens fill their rows from string-table keys put on the stack, one `mov dword [esp+disp], imm32` each
+/// (the key's VA last). The first four are MAKE_country keys, data the game must keep in Japanese (`forza::text`
+/// DATA_FAMILIES), so those four instructions get the INF_COACH_country keys instead: the same countries,
+/// translated. Each row: the instruction's VA and its original bytes at the base 0x40_0000.
+const OUR_KEYS: [&str; 4] = [
+    "INF_COACH_country_0000", // MAKE_country_014 England
+    "INF_COACH_country_0001", // MAKE_country_023 Spain
+    "INF_COACH_country_0002", // MAKE_country_015 Italy
+    "INF_COACH_country_0003", // MAKE_country_028 Germany
 ];
 
-/// The original instruction of each row at `base`: C7 84 24 disp 00 00 00, then the key's address.
-fn dati_originals(base: usize) -> [(usize, [u8; 11]); 4] {
-    DATI_ROWS.map(|(va, disp, key, _)| {
-        let mut b = [0xC7, 0x84, 0x24, disp, 0, 0, 0, 0, 0, 0, 0];
-        let key = (key as usize).wrapping_sub(0x40_0000).wrapping_add(base) as u32;
-        b[7..].copy_from_slice(&key.to_le_bytes());
+/// Dati, record by area (sub_715A40): `C7 84 24 disp32 imm32`.
+const DATI_ROWS: [(usize, [u8; 11]); 4] = [
+    (
+        0x0071_64F2,
+        [0xC7, 0x84, 0x24, 0x88, 0, 0, 0, 0xFC, 0xF2, 0x39, 0x01],
+    ),
+    (
+        0x0071_64FD,
+        [0xC7, 0x84, 0x24, 0x8C, 0, 0, 0, 0x48, 0xF2, 0x39, 0x01],
+    ),
+    (
+        0x0071_6508,
+        [0xC7, 0x84, 0x24, 0x90, 0, 0, 0, 0xE8, 0xF2, 0x39, 0x01],
+    ),
+    (
+        0x0071_6513,
+        [0xC7, 0x84, 0x24, 0x94, 0, 0, 0, 0xE4, 0xF1, 0x39, 0x01],
+    ),
+];
+
+/// Challenge Tour data, conquest status, rows CTD_nation1..4 (sub_714820): `C7 44 24 disp8 imm32`.
+const CTD_ROWS: [(usize, [u8; 8]); 4] = [
+    (
+        0x0071_4866,
+        [0xC7, 0x44, 0x24, 0x30, 0xFC, 0xF2, 0x39, 0x01],
+    ),
+    (
+        0x0071_486E,
+        [0xC7, 0x44, 0x24, 0x34, 0x48, 0xF2, 0x39, 0x01],
+    ),
+    (
+        0x0071_4876,
+        [0xC7, 0x44, 0x24, 0x38, 0xE8, 0xF2, 0x39, 0x01],
+    ),
+    (
+        0x0071_487E,
+        [0xC7, 0x44, 0x24, 0x3C, 0xE4, 0xF1, 0x39, 0x01],
+    ),
+];
+
+/// Each row's instruction at `base`: its address and the key's VA relocated (reloc type 3).
+fn originals<const N: usize>(rows: [(usize, [u8; N]); 4], base: usize) -> [(usize, [u8; N]); 4] {
+    rows.map(|(va, mut b)| {
+        let key = u32::from_le_bytes(b[N - 4..].try_into().unwrap()) as usize;
+        let key = key.wrapping_sub(0x40_0000).wrapping_add(base) as u32;
+        b[N - 4..].copy_from_slice(&key.to_le_bytes());
         (base + va - 0x40_0000, b)
     })
 }
 
 /// All four instructions are the original's (`read`: the bytes at an address, `None` where unreadable).
-fn dati_found(base: usize, read: impl Fn(usize) -> Option<[u8; 11]>) -> bool {
-    dati_originals(base)
+fn found<const N: usize>(
+    rows: [(usize, [u8; N]); 4],
+    base: usize,
+    read: impl Fn(usize) -> Option<[u8; N]>,
+) -> bool {
+    originals(rows, base)
         .iter()
         .all(|(at, want)| read(*at) == Some(*want))
 }
 
 /// Point the four country rows at our keys; the log's words.
-fn dati_rows(base: usize) -> String {
-    if base == 0 || !dati_found(base, crate::patches::read::<11>) {
+fn key_rows<const N: usize>(rows: [(usize, [u8; N]); 4], base: usize) -> String {
+    if base == 0 || !found(rows, base, crate::patches::read::<N>) {
         return "not the original code, left as is".into();
     }
     let mut done = 0;
-    for ((at, _), (.., key)) in dati_originals(base).iter().zip(DATI_ROWS) {
+    for ((at, _), key) in originals(rows, base).iter().zip(OUR_KEYS) {
         // the key is copied into a std::string on each use; ours stays for as long as the game runs
         let ours: &'static [u8] = Box::leak(format!("{key}\0").into_bytes().into_boxed_slice());
-        if crate::patches::patch_code(at + 7, &(ours.as_ptr() as u32).to_le_bytes()) {
+        if crate::patches::patch_code(at + N - 4, &(ours.as_ptr() as u32).to_le_bytes()) {
             done += 1;
         }
     }
@@ -300,28 +348,7 @@ mod tests {
         }
     }
 
-    /// The four instructions read from the original `client_Release.exe` by hand (VA, then
-    /// `C7 84 24 disp 00 00 00` and the MAKE_country key's VA), so a broken [`dati_originals`] fails this test.
-    const DATI_ORIGINAL: [(usize, [u8; 11]); 4] = [
-        (
-            0x0071_64F2,
-            [0xC7, 0x84, 0x24, 0x88, 0, 0, 0, 0xFC, 0xF2, 0x39, 0x01],
-        ),
-        (
-            0x0071_64FD,
-            [0xC7, 0x84, 0x24, 0x8C, 0, 0, 0, 0x48, 0xF2, 0x39, 0x01],
-        ),
-        (
-            0x0071_6508,
-            [0xC7, 0x84, 0x24, 0x90, 0, 0, 0, 0xE8, 0xF2, 0x39, 0x01],
-        ),
-        (
-            0x0071_6513,
-            [0xC7, 0x84, 0x24, 0x94, 0, 0, 0, 0xE4, 0xF1, 0x39, 0x01],
-        ),
-    ];
-
-    /// [`DATI_ORIGINAL`] at the ASLR base 0x50_0000: addresses and keys 0x10_0000 higher (reloc type 3 on each key).
+    /// [`DATI_ROWS`] (read from the original `client_Release.exe` by hand) at the ASLR base 0x50_0000: addresses and keys 0x10_0000 higher (reloc type 3 on each key).
     const DATI_RELOCATED: [(usize, [u8; 11]); 4] = [
         (
             0x0081_64F2,
@@ -342,22 +369,36 @@ mod tests {
     ];
 
     #[test]
-    fn dati_rows_need_the_original_code() {
-        assert_eq!(dati_originals(0x40_0000), DATI_ORIGINAL);
+    fn country_rows_need_the_original_code() {
+        assert_eq!(originals(DATI_ROWS, 0x40_0000), DATI_ROWS);
+        assert_eq!(originals(DATI_ROWS, 0x50_0000), DATI_RELOCATED);
+        assert_eq!(
+            originals(CTD_ROWS, 0x50_0000)[3],
+            (
+                0x0081_487E,
+                [0xC7, 0x44, 0x24, 0x3C, 0xE4, 0xF1, 0x49, 0x01]
+            )
+        );
+        // both screens push the same four MAKE_country keys, in OUR_KEYS' order
+        let keys = |b: &[u8]| u32::from_le_bytes(b[b.len() - 4..].try_into().unwrap());
+        assert_eq!(
+            DATI_ROWS.map(|(_, b)| keys(&b)),
+            CTD_ROWS.map(|(_, b)| keys(&b))
+        );
         let mem = |t: &'static [(usize, [u8; 11]); 4]| {
             move |at: usize| t.iter().find(|(a, _)| *a == at).map(|(_, b)| *b)
         };
-        assert!(dati_found(0x40_0000, mem(&DATI_ORIGINAL)));
-        assert!(dati_found(0x50_0000, mem(&DATI_RELOCATED)));
-        assert!(!dati_found(0x40_0000, |_| None));
+        assert!(found(DATI_ROWS, 0x40_0000, mem(&DATI_ROWS)));
+        assert!(found(DATI_ROWS, 0x50_0000, mem(&DATI_RELOCATED)));
+        assert!(!found(DATI_ROWS, 0x40_0000, |_| None));
         let changed = |at: usize| {
-            let mut b = mem(&DATI_ORIGINAL)(at)?;
+            let mut b = mem(&DATI_ROWS)(at)?;
             if at == 0x0071_6513 {
                 b[10] ^= 1;
             }
             Some(b)
         };
-        assert!(!dati_found(0x40_0000, changed));
+        assert!(!found(DATI_ROWS, 0x40_0000, changed));
     }
 
     fn sheet_for(orig: &[u8], room: usize, text: &str) -> String {
