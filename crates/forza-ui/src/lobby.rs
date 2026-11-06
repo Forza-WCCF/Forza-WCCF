@@ -1322,18 +1322,7 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
                     .ping_ms
                     .filter(|_| !v.offline)
                     .map_or("-".into(), |p| format!("{p} ms"));
-                cell(
-                    ui,
-                    rect,
-                    cols[2],
-                    &ping,
-                    theme::body(14.0),
-                    if off {
-                        theme::TEXT_FAINT
-                    } else {
-                        theme::TEXT_DIM
-                    },
-                );
+                cell(ui, rect, cols[2], &ping, theme::body(14.0), theme::TEXT_DIM);
                 let l = r
                     .lang
                     .filter(|_| SHOW_LANG)
