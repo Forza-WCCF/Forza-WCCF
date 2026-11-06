@@ -6,10 +6,11 @@
 use std::path::Path;
 
 /// A text file the panel and the Launcher write back whole: a missing file is the empty one, any other error is that
-/// error (one failed read must not be taken for an empty file and saved over with the defaults).
+/// error (one failed read must not be taken for an empty file and saved over with the defaults). A byte that is not
+/// UTF-8 is that one replacement character, as the C panel read bytes: the rest of the file still counts.
 pub fn read_text(path: &Path) -> std::io::Result<String> {
-    match std::fs::read_to_string(path) {
-        Ok(t) => Ok(t),
+    match std::fs::read(path) {
+        Ok(raw) => Ok(String::from_utf8_lossy(&raw).into_owned()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
         Err(e) => Err(e),
     }
@@ -189,6 +190,27 @@ mod tests {
         std::fs::create_dir_all(d.join("panel.txt")).unwrap();
         assert_eq!(read_text(&d.join("missing.txt")).unwrap(), "");
         assert!(read_text(&d.join("panel.txt")).is_err());
+        std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// A byte that is not UTF-8 does not make the file unreadable (the C panel parsed bytes): it reads as the
+    /// replacement character and the file's other lines still parse.
+    #[test]
+    fn a_bad_byte_is_read_as_text() {
+        let d = std::env::temp_dir().join(format!("panel-txt-badbyte-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let file = d.join("panel.txt");
+        std::fs::write(
+            &file,
+            b"play_on=online\nserver=1.2.3.4 # \xff\nlayout=compact\n",
+        )
+        .unwrap();
+        let text = read_text(&file).unwrap();
+        assert!(text.contains('\u{fffd}'), "{text:?}");
+        let f = PanelFile::parse(text.as_bytes());
+        assert!(f.online && f.compact);
+        assert_eq!(f.server, "1.2.3.4");
         std::fs::remove_dir_all(&d).unwrap();
     }
 
