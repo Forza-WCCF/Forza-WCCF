@@ -273,7 +273,7 @@ const RESP: &[(u16, usize, Zero)] = &[
         12,
         Zero::Safe("ctl sub_408C50 case only: 247 has no sender"),
     ),
-    (250, 504, Zero::Pending("C6")),
+    (250, 504, Zero::Handled),
     (
         256,
         1008,
@@ -1325,6 +1325,15 @@ fn answer(
         // GHOST_TEAM, BEST_ELEVEN: errCode 0 would install an all-zero team; 1 = none, the client plays a CPU team
         // (docs/research/ONLINE-2017-18.md)
         put(&mut body, 4, 1);
+    }
+    if cmd == 249 {
+        // GMSVR_RANK: the whole answer is copied into the game state and drives the result and prize screens
+        // (docs/research/ONLINE-2017-18.md, "GMSVR_RANK"); +354 is `universalChamp nothingResult`. Left at zero the
+        // cabinet had no Universal Championship result either way, and a club whose best eleven went up at card-in
+        // (309, answered 0) stayed entered in the championship: the client mirrors that in #1085, and while it is
+        // above 1 MATCH SELECT greys the Universal Cup and says "Data match entry is in progress"
+        // (SYS_ADV_normal_0037, client sub_795BC0), for the whole session (2026-11-02).
+        body[354] = 1;
     }
     if let Some((vs, peer)) = vs {
         vs.fill(cmd, payload, peer, &mut body);
@@ -2546,6 +2555,22 @@ mod tests {
             }
         }
         eprintln!("pending: {}", pending.join(", "));
+    }
+
+    /// 2026-11-02: the RANK answer says "no Universal Championship result" (+354) instead of all zeros, so a club
+    /// whose best eleven went up at card-in does not stay entered in the championship, where that entry greys the
+    /// Universal Cup for the whole session.
+    #[test]
+    fn the_rank_answer_says_no_championship_result() {
+        let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
+        let log: Log = Arc::new(|_: &str| {});
+        let (body, refused) = ask_for_test(&store, 249, &fixture(249, [5, 0, 0]), &log);
+        assert_eq!(refused, None);
+        assert_eq!(body.len(), 504);
+        assert_eq!(body[354], 1, "universalChamp nothingResult");
+        assert_eq!(body[8], 0, "the CS rank stays 0");
+        let others: Vec<usize> = (4..504).filter(|i| *i != 354 && body[*i] != 0).collect();
+        assert!(others.is_empty(), "unexpected bytes at {others:?}");
     }
 
     fn req(cmd: u16, ids: [u32; 3]) -> Vec<u8> {
