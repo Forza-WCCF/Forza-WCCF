@@ -261,5 +261,8 @@
     {"at": 19944, "len": 4, "en": "Team"},
     {"at": 20764, "len": 6, "en": "Game1"},
     {"at": 21996, "len": 5, "en": "Game2"},
-    {"at": 23227, "len": 5, "en": "Game3"}]}
+    {"at": 23227, "len": 5, "en": "Game3"}]},
+  {"id": "wpl_title_tag", "where": "the player directory title: the small tag under the site name", "sha256": "E477D0D74C4783BF3EDAA1116EB43D4236FF557D8B05E36389C56D5D592BC16B", "files": ["data/sb_data/client_common/SCM_WorldPlayersListUnit/1314_SCM_WorldPlayersList_Title_01.dds"], "style": {"core": [255, 255, 255], "halo": null, "align": "left"},
+   "labels": [
+    {"box": [197, 15, 252, 25], "en": "Directory", "clear": [195, 13, 255, 27]}]}
  ]}
