@@ -106,6 +106,16 @@ fn launched_pid(log: &Log) -> u32 {
     }
 }
 
+/// Waits until the log has `what`: the debugger thread sets a process's class on its CREATE_PROCESS event, after it
+/// logs the launch, so only the line the setting wrote says it is there to be read.
+fn wait_for(log: &Log, what: &str) {
+    let t = Instant::now();
+    while !log.text().contains(what) {
+        assert!(t.elapsed() < Duration::from_secs(20), "no {what:?} in: {}", log.text());
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
 /// test_crash_dump.py: a write to address 0 in a 32-bit program, run as a client.
 #[test]
 fn a_crash_leaves_a_lean_and_a_full_snapshot() {
@@ -392,6 +402,7 @@ fn above_normal_raises_a_game_program() {
     opts.above_normal = true;
     let (job, log, t) = start(opts);
     let pid = launched_pid(&log);
+    wait_for(&log, "above-normal priority: ");
     // SAFETY: plain calls; the handle is closed before it goes out of scope.
     let class = unsafe {
         let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
@@ -423,6 +434,7 @@ fn background_lowers_a_game_program() {
     (opts.above_normal, opts.background) = (true, true);
     let (job, log, t) = start(opts);
     let pid = launched_pid(&log);
+    wait_for(&log, "background: below-normal priority: ");
     // SAFETY: plain calls; the handle is closed before it goes out of scope.
     let class = unsafe {
         let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
