@@ -33,6 +33,10 @@ struct App {
     run: Option<Run>,
     /// The lookup of the newest package, started once the 2017-18 edition is the target.
     lookup: Option<Receiver<Option<String>>>,
+    /// The inputs [`App::refresh`] derives its answers from, as of its last run: a repaint (typing, dragging, an
+    /// animation) with the same inputs must not probe the disc, the folder and the drive again, where a drive that
+    /// went away or a typed UNC path blocks the UI thread.
+    refreshed: Option<String>,
 }
 
 fn default_dest() -> String {
@@ -80,7 +84,27 @@ impl App {
             st: InstallerState::new(Lang::detect(), default_dest()),
             run: None,
             lookup: None,
+            refreshed: None,
         }
+    }
+
+    /// Everything [`App::refresh`] reads: the text boxes, the newest package and what was found, the edition, the
+    /// page. A repaint with the same line answers the same.
+    fn inputs(&self) -> String {
+        let st = &self.st;
+        format!(
+            "{:?}|{:?}|{:?}|{:?}|{}|{:?}|{:?}|{}|{:?}|{}",
+            clean(&st.folder),
+            clean(&st.iso),
+            clean(&st.key),
+            clean(&st.package),
+            st.use_latest,
+            st.latest,
+            st.edition,
+            st.reuse,
+            st.page,
+            st.running
+        )
     }
 
     fn t(&self, key: &str) -> String {
@@ -97,8 +121,8 @@ impl App {
         (!path.as_os_str().is_empty()).then_some(path)
     }
 
-    /// What the folder, the disc image and the package say, for the screen to show. Runs every frame, as the
-    /// text boxes change under the person's hands.
+    /// What the folder, the disc image and the package say, for the screen to show. Runs when [`App::inputs`] changes
+    /// (a text box, a drop, a page), not on every frame.
     fn refresh(&mut self) {
         let (dest, kit) = (self.dest(), self.kit());
         let st = &mut self.st;
@@ -133,6 +157,15 @@ impl App {
             },
         });
         st.ascii_tip = !st.folder.is_ascii();
+    }
+
+    /// [`App::refresh`] when the inputs changed since its last run: a repaint alone changes no answer.
+    fn refresh_if_changed(&mut self) {
+        let inputs = self.inputs();
+        if self.refreshed.as_deref() != Some(inputs.as_str()) {
+            self.refresh();
+            self.refreshed = Some(inputs);
+        }
     }
 
     fn setup_enabled(&self) -> bool {
@@ -406,7 +439,7 @@ impl eframe::App for App {
             }
         }
         self.look_up_latest(&ctx);
-        self.refresh();
+        self.refresh_if_changed();
         let act = installer::show(ui, &mut self.st);
         match act {
             Some(Action::Drag) => ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag),
@@ -683,6 +716,30 @@ mod tests {
         app.next(&egui::Context::default(), false);
         assert!((app.st.confirm, app.st.page, app.run.is_none()) == (true, Page::Files, true));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The window must not probe the folder, the disc and the drive on every repaint (on a drive that went away, each
+    /// probe blocks the UI thread): the answers change only with the inputs.
+    #[test]
+    fn a_repaint_with_the_same_inputs_probes_nothing() {
+        let mut app = App::new();
+        app.refresh_if_changed();
+        app.refresh_if_changed(); // the first refresh corrects the edition and the reuse flag: settle
+        // a lie the next refresh corrects: a repaint must keep it
+        app.st.installed = vec![Edition::E1011];
+        app.refresh_if_changed();
+        assert_eq!(
+            app.st.installed,
+            vec![Edition::E1011],
+            "a repaint probed the folder"
+        );
+        app.st.folder.push('x');
+        app.refresh_if_changed();
+        assert_ne!(
+            app.st.installed,
+            vec![Edition::E1011],
+            "a typed path refreshes"
+        );
     }
 
     #[test]
