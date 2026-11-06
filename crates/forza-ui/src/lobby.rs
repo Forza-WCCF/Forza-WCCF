@@ -1663,10 +1663,21 @@ fn host_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
         );
     }
     ui.add_space(8.0);
+    // the arcade's rule as steps, once there is a code or an address to pass on
+    let first = if lan {
+        "lobby.howto_lan"
+    } else {
+        "lobby.howto_code"
+    };
+    let howto = || {
+        [first, "lobby.howto_entry", "lobby.howto_fixture"]
+            .map(|k| tr!(lang, k))
+            .join("\n")
+    };
     let (tone, text) = match (&v.host_code, v.notice) {
-        _ if lan => (Tone::Done, tr!(lang, "lobby.arcade_howto")),
+        _ if lan => (Tone::Done, howto()),
         (_, Some(Notice::RoomLost)) => (Tone::Refused, tr!(lang, "lobby.room_lost")),
-        (Some(_), _) => (Tone::Done, tr!(lang, "lobby.arcade_howto")),
+        (Some(_), _) => (Tone::Done, howto()),
         (None, _) => (Tone::Notice, tr!(lang, "lobby.opening")),
     };
     status_line(ui, tone, &text);

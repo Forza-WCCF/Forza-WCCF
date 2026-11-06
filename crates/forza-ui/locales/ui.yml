@@ -580,7 +580,10 @@ lobby.host_arcade: {en: "HOST ARCADE", it: "APRI SALA", ja: "ゲームセンタ�
 lobby.host_title: {en: "Host an arcade", it: "Apri la tua sala", ja: "自分のゲームセンターを開く"}
 lobby.room_code: {en: "Room code", it: "Codice stanza", ja: "ルームコード"}
 lobby.opening: {en: "Opening the arcade…", it: "Apertura della sala…", ja: "ゲームセンターを開いています…"}
-lobby.arcade_howto: {en: "Both players: card in during the same ENTRY, then Arrange Fixture → Set opponent.", it: "Entrambi: inserite la carta nella stessa ENTRY, poi Fissa un incontro → Scegli avversario.", ja: "二人とも同じエントリー中にカードを入れ、Arrange Fixture → Set opponent を選びます。"}
+lobby.howto_code: {en: "1. Give your friends the room code.", it: "1. Dai il codice della stanza ai tuoi amici.", ja: "1. ルームコードを友だちに伝えます。"}
+lobby.howto_lan: {en: "1. Give your friends an address above.", it: "1. Dai ai tuoi amici uno degli indirizzi qui sopra.", ja: "1. 上のアドレスを友だちに伝えます。"}
+lobby.howto_entry: {en: "2. Both players card in during the same ENTRY.", it: "2. Entrambi i giocatori inseriscono la carta nella stessa ENTRY.", ja: "2. 二人とも同じエントリー中にカードを入れます。"}
+lobby.howto_fixture: {en: "3. In the game: Arrange Fixture → Set opponent.", it: "3. Nel gioco: Fissa un incontro → Scegli avversario.", ja: "3. ゲーム内で Arrange Fixture → Set opponent を選びます。"}
 lobby.joining: {en: "Joining %{code}…", it: "Ingresso in %{code}…", ja: "%{code} に参加しています…"}
 lobby.no_room: {en: "No room has that code on %{desk}.", it: "Nessuna stanza ha quel codice su %{desk}.", ja: "%{desk} にそのコードのルームはありません。"}
 lobby.room_desk: {en: "Room on %{desk}", it: "Stanza su %{desk}", ja: "ルームの場所：%{desk}"}
