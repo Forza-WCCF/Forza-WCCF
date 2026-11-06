@@ -68,7 +68,7 @@ jobs:
           cargo xtask package 2017-18
           cargo xtask package installer
           # a candidate's files carry its version, a tag's files the tag's (`git describe` found the tag itself)
-          V=$FORZA_VERSION
+          V=$(printf '%s' "$FORZA_VERSION" | tr -d '[:space:]')
           if [ -z "$V" ] && [ "$GITHUB_REF_TYPE" = tag ]; then V=${GITHUB_REF_NAME#v}; fi
           if [ -n "$V" ]; then
             ls "dist/Forza-WCCF-2017-18-$V.zip" "dist/Forza-WCCF-Installer-$V-windows-x64.exe" || { echo "::error::the files do not carry $V"; exit 1; }
@@ -217,8 +217,8 @@ jobs:
         with:
           name: dist
           path: dist
-      # The owner played a candidate (a dispatch with `version` on this commit): no draft from bytes that differ from
-      # it. The newest successful candidate whose files carry the tag's version counts; with none, a warning.
+      # A candidate was played (a dispatch with `version` on this commit): no draft from bytes that differ from it. The
+      # newest completed candidate whose `dist` artifact carries the tag's version counts; with none, the release stops.
       - name: Same bytes as the candidate
         env:
           GH_TOKEN: ${{ github.token }}
@@ -226,20 +226,35 @@ jobs:
         run: |
           set -euo pipefail
           V=${GITHUB_REF_NAME#v}
+          # a failed virustotal job (a Microsoft false positive) does not spoil a candidate; its artifact decides
+          if ! runs=$(gh run list -R "$REPO" -w release.yml -e workflow_dispatch -c "$GITHUB_SHA" -s completed -L 20 --json databaseId --jq '.[].databaseId'); then
+            echo "::error::gh run list failed: cannot look for a candidate on $GITHUB_SHA"
+            exit 1
+          fi
           cand=
-          for id in $(gh run list -R "$REPO" -w release.yml -e workflow_dispatch -c "$GITHUB_SHA" -s success -L 20 --json databaseId --jq '.[].databaseId'); do
-            gh run download "$id" -R "$REPO" -n dist -D "cand-$id" || continue
+          skipped=
+          : > "$RUNNER_TEMP/found"
+          for id in $runs; do
+            # a missing artifact is reported below; anything else is not swallowed
+            if ! gh run download "$id" -R "$REPO" -n dist -D "cand-$id"; then skipped="$skipped $id"; continue; fi
             # Git Bash's sha256sum writes "<hash> *<name>" (binary mode)
             if grep -qE " [ *]Forza-WCCF-2017-18-${V//./\\.}\.zip\$" "cand-$id/SHA256SUMS.txt"; then cand=$id; break; fi
+            awk '$2 ~ /Forza-WCCF-2017-18-.*\.zip$/ { name = $2; sub(/^\*/, "", name); print name }' "cand-$id/SHA256SUMS.txt" >> "$RUNNER_TEMP/found"
           done
           if [ -z "$cand" ]; then
-            echo "::warning::no successful candidate run (dispatch with version=$V) on $GITHUB_SHA: these files were not played as a candidate"
             echo "### Candidate: none found for $V on $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+            echo "::error::no candidate with version=$V on $GITHUB_SHA: dispatch the Release workflow with version=$V on this commit, play the build, then tag the played commit"
+            if [ -s "$RUNNER_TEMP/found" ]; then
+              echo "::error::the candidates on this commit carry other versions: $(sort -u "$RUNNER_TEMP/found" | tr '\n' ' ')"
+            fi
+            if [ -n "$skipped" ]; then echo "::error::the dist artifact could not be downloaded from run(s):$skipped"; fi
+            exit 1
           fi
           url="https://github.com/$REPO/actions/runs/$cand"
+          # "<hash> *<name>" (Git Bash) and "<hash>  <name>" pair on the name alone
+          sums() { awk '{ name = $2; sub(/^\*/, "", name); print $1, name }' "$1" | sort -k2,2; }
           # file name, this build's sha256, the candidate's: every file whose hashes differ or that one side lacks
-          differ=$(join -1 2 -2 2 -a 1 -a 2 -e missing -o 0,1.1,2.1 <(sort -k2,2 dist/SHA256SUMS.txt) <(sort -k2,2 "cand-$cand/SHA256SUMS.txt") | awk '$2 != $3 { sub(/^\*/, "", $1); print $1 }')
+          differ=$(join -1 2 -2 2 -a 1 -a 2 -e missing -o 0,1.1,2.1 <(sums dist/SHA256SUMS.txt) <(sums "cand-$cand/SHA256SUMS.txt") | awk '$2 != $3 { print $1 }')
           if [ -z "$differ" ]; then
             echo "### Candidate: same bytes as run [$cand]($url)" >> "$GITHUB_STEP_SUMMARY"
             echo "::notice::the tag build matches candidate run $cand"
