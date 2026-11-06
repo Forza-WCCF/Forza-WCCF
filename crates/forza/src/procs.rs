@@ -1,4 +1,4 @@
-//! What runs on this PC, as the run sees it: processes by full path, their windows, the TCP ports something listens on
+//! What runs on this PC, as the run sees it: processes by full path, their windows, the TCP and UDP ports something listens on
 //! and the named pipes.  Read-only except `kill` and showing or hiding a window.  Port of kit_common.py's processes,
 //! same_form, game_processes, kill, listening_ports, pipes, windows_of, top_windows, hide_windows and show_windows,
 //! with the Prefer-System32 check the 2010-11 run refuses to start under.
@@ -12,7 +12,7 @@ use windows_sys::Win32::Foundation::{
     CloseHandle, FALSE, HWND, INVALID_HANDLE_VALUE, LPARAM, TRUE,
 };
 use windows_sys::Win32::NetworkManagement::IpHelper::{
-    GetTcpTable, MIB_TCP_STATE_LISTEN, MIB_TCPROW_LH,
+    GetTcpTable, GetUdpTable, MIB_TCP_STATE_LISTEN, MIB_TCPROW_LH, MIB_UDPROW,
 };
 use windows_sys::Win32::Storage::FileSystem::GetLongPathNameW;
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
@@ -295,6 +295,28 @@ pub fn listening_ports() -> Vec<u16> {
                 .map(|i| &*rows.add(i))
                 .filter(|r| r.Anonymous.dwState == MIB_TCP_STATE_LISTEN as u32)
                 .map(|r| u16::from_be(r.dwLocalPort as u16))
+                .collect();
+        }
+    }
+    Vec::new()
+}
+
+/// The IPv4 UDP ports something is bound to, from Windows' own table.
+pub fn udp_ports() -> Vec<u16> {
+    for _ in 0..5 {
+        let mut size = 0u32;
+        // SAFETY: as listening_ports: a size query, then a u32-aligned buffer with room to grow; a row count and rows.
+        unsafe {
+            GetUdpTable(ptr::null_mut(), &mut size, FALSE);
+            let mut buf = vec![0u32; (size as usize + 1024) / 4];
+            let mut size = (buf.len() * 4) as u32;
+            if GetUdpTable(buf.as_mut_ptr().cast(), &mut size, FALSE) != 0 {
+                continue;
+            }
+            let n = buf[0] as usize;
+            let rows = buf.as_ptr().add(1).cast::<MIB_UDPROW>();
+            return (0..n)
+                .map(|i| u16::from_be((*rows.add(i)).dwLocalPort as u16))
                 .collect();
         }
     }

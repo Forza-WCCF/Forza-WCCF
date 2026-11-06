@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 use std::{env, fs, mem, ptr};
 
 use launcher::procs::{
-    game_processes, image, listening_ports, normcase, pipes, prefers_system32, processes, same_form,
+    game_processes, image, listening_ports, normcase, pipes, prefers_system32, processes, same_form, udp_ports,
 };
 use windows_sys::Win32::Foundation::{CloseHandle, FALSE};
 use windows_sys::Win32::Storage::FileSystem::GetShortPathNameW;
@@ -128,6 +128,8 @@ fn a_listening_port_and_the_pipes_are_seen() {
     let port = l.local_addr().unwrap().port();
     assert!(listening_ports().contains(&port));
     drop(l);
+    let u = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    assert!(udp_ports().contains(&u.local_addr().unwrap().port()));
     assert!(!pipes().is_empty(), "Windows always has named pipes");
 }
 

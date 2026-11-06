@@ -497,15 +497,26 @@ pub fn compat_layer(existing: Option<&str>) -> String {
     layers.join(" ")
 }
 
-/// The ports a joining arcade tunnel asks for: 0 (any free one, the tunnel says which it bound) for each this PC already
-/// listens on. Windows lets the tunnel's 127.0.0.1 bind shadow a 0.0.0.0 listener on the same port (this PC's own
-/// control), and that PC's dials to its control would then loop into the tunnel.
-pub fn join_ports(want: vslink::arcade::Ports, listening: &[u16]) -> vslink::arcade::Ports {
-    let free = |p: u16| if listening.contains(&p) { 0 } else { p };
+/// The ports an arcade tunnel asks for. A host's: the usual ones (its tunnel binds none of them). A join's: 0 (any free
+/// one, the tunnel says which it bound) for each this PC already holds: `tcp` reads its listening TCP ports,
+/// `udp_taken` says whether a UDP port is taken. Windows lets the tunnel's 127.0.0.1 bind shadow a 0.0.0.0 listener on
+/// the same port, TCP and UDP alike (this PC's own control or relay), and this PC's dials or datagrams to it would then
+/// loop into the tunnel.
+pub fn tunnel_ports(
+    want: vslink::arcade::Ports,
+    host: bool,
+    tcp: impl FnOnce() -> Vec<u16>,
+    udp_taken: impl FnOnce(u16) -> bool,
+) -> vslink::arcade::Ports {
+    if host {
+        return want;
+    }
+    let listening = tcp();
+    let free = |p: u16, taken: bool| if taken { 0 } else { p };
     vslink::arcade::Ports {
-        control: free(want.control),
-        desk: free(want.desk),
-        relay: want.relay, // UDP: the TCP table says nothing about it, and its bind already falls back
+        control: free(want.control, listening.contains(&want.control)),
+        desk: free(want.desk, listening.contains(&want.desk)),
+        relay: free(want.relay, udp_taken(want.relay)),
     }
 }
 
@@ -520,15 +531,23 @@ mod tests {
             desk: 20030,
             relay: 20040,
         };
+        let free = |_| false;
         // separate PCs: nothing of the arcade's listens here, the usual ports
-        assert_eq!(join_ports(want, &[135, 445]), want);
-        // one PC that hosts too: its control holds 20002, its desk 20030
+        assert_eq!(tunnel_ports(want, false, || vec![135, 445], free), want);
+        // one PC that hosts too: its control holds 20002, its desk 20030, its relay 20040
         let moved = vslink::arcade::Ports {
             control: 0,
             desk: 0,
-            relay: 20040,
+            relay: 0,
         };
-        assert_eq!(join_ports(want, &[20002, 20003, 20030]), moved);
+        let busy = || vec![20002, 20003, 20030];
+        assert_eq!(tunnel_ports(want, false, busy, |p| p == 20040), moved);
+        // only the control: the desk and relay stay
+        let only = vslink::arcade::Ports { control: 0, ..want };
+        assert_eq!(tunnel_ports(want, false, || vec![20002], free), only);
+        // a host's tunnel binds no ports: the usual ones, nothing read
+        let unread = || -> Vec<u16> { panic!("a host reads no table") };
+        assert_eq!(tunnel_ports(want, true, unread, |_| panic!("nor probes")), want);
     }
 
     /// Local PLAY with a cup chosen gives the control the arcade host's schedule. The file carries no seat count: the
