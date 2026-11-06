@@ -84,7 +84,9 @@ impl Reserved {
         match line.split_whitespace().collect::<Vec<_>>()[..] {
             ["TICKET", t, n] => Some(Reserved::Ticket {
                 ticket: t.into(),
-                seat: n.parse().ok()?,
+                // the desk hands out the seats this arcade has (CREATED guards its own the same way); a broken or
+                // newer desk must not send a player into a seat that does not exist
+                seat: n.parse().ok().filter(|s| super::SEATS.contains(s))?,
             }),
             ["FULL"] => Some(Reserved::Full),
             ["TAKEN"] => Some(Reserved::Taken),
@@ -659,6 +661,24 @@ mod tests {
         assert_eq!(l.vs[0].code, "K7QM");
         assert_eq!(l.line(), format!("{SAMPLE}\n"));
         assert_eq!(Lobby::parse(&l.line()).unwrap(), l);
+    }
+
+    /// The desk hands out seats 1-8: a `TICKET` naming any other number is no ticket (`CREATED` guards its own).
+    #[test]
+    fn a_reserved_seat_is_one_to_eight() {
+        for (line, seat) in [("TICKET t 1", 1), ("TICKET t 8", 8)] {
+            assert_eq!(
+                Reserved::parse(line),
+                Some(Reserved::Ticket {
+                    ticket: "t".into(),
+                    seat
+                }),
+                "{line}"
+            );
+        }
+        for line in ["TICKET t 0", "TICKET t 9", "TICKET t 200", "TICKET t x"] {
+            assert_eq!(Reserved::parse(line), None, "{line}");
+        }
     }
 
     #[test]
