@@ -121,6 +121,10 @@ const SIDE_GAP: f32 = 16.0;
 const SIDE_UNDER: f32 = 8.0;
 /// The popped-out game window's toast line, between the picture and the page bar.
 const SIDE_TOAST: f32 = 48.0;
+/// The game page's message line: as wide as this on the 1440x900 sheet, and one line ([`NOTE_LINE`]) high; a longer
+/// text wraps and [`note_height`] makes the toast taller.
+const NOTE_TOAST: f32 = 520.0;
+const NOTE_LINE: f32 = 34.0;
 /// The popped-out game window's right column: at least this wide (the deck about 1.3 times its size, a card's large
 /// pane fits).
 const SIDE_COLUMN: f32 = 440.0;
@@ -491,6 +495,11 @@ impl Note {
             ..Note::new(tone, text)
         }
     }
+
+    /// Painted at least once: the frame that showed it has run, so the text did reach the screen.
+    pub fn started(&self) -> bool {
+        self.shown.is_some()
+    }
 }
 
 /// The link to the game server (this process's TCP link to its control port).
@@ -688,6 +697,10 @@ pub struct PanelState {
     pub keys_changed: bool,
     /// The choices changed: data\panel.txt is written.
     pub file_changed: bool,
+    /// SETTINGS' projector switch, its window shown (settings.json "projector"; `None`: not offered, 2010–11).
+    pub projector: Option<bool>,
+    /// The projector switch changed: settings.json is written.
+    pub projector_changed: bool,
     /// RESTART NOW asked (data\restart.request).
     pub restart: bool,
     /// SAVE LOGS asked (data\savelogs.request): the run saves the ZIP in the Downloads folder.
@@ -785,6 +798,8 @@ impl PanelState {
             formation_copy: None,
             keys_changed: false,
             file_changed: false,
+            projector: None,
+            projector_changed: false,
             restart: false,
             save_logs: false,
             vk_down: Vec::new(),
@@ -872,6 +887,7 @@ impl PanelState {
                 0.0
             },
             club: super::sample::club_view(),
+            projector: (edition == Edition::E1718).then_some(true),
             held: Some("KEYPLAYER"), // lit on the design sheets
             ..Self::new(
                 edition,
@@ -1384,7 +1400,8 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
     let compact = st.file.compact && !side;
     if st.page == Page::Game {
         // a toast in the gap above the deck row when there is one, else over the picture's lower edge (popped out:
-        // over the page bar)
+        // over the page bar); its foot stays put and a wrapped text makes it grow up over the picture, so the deck
+        // and the page bar never cover it
         let gap = (deck.height() - ROW.y) / 2.0;
         let (x, y) = if side {
             (tabs.center().x, tabs.top() - SIDE_TOAST / 2.0)
@@ -1393,7 +1410,10 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
         } else {
             (deck.center().x, pic.bottom() - 30.0)
         };
-        let r = Rect::from_center_size(pos2(x, y), vec2(520.0, 34.0));
+        let foot = y + NOTE_LINE / 2.0;
+        let h = note_height(ui.ctx(), st.message.as_ref(), NOTE_TOAST)
+            .min((foot - area.top()).max(NOTE_LINE));
+        let r = Rect::from_center_size(pos2(x, foot - h / 2.0), vec2(NOTE_TOAST, h));
         ui.scope_builder(egui::UiBuilder::new().max_rect(r), |ui| {
             note_line(ui, &mut st.message)
         });
@@ -3095,6 +3115,20 @@ fn rarity_key(r: Rarity) -> &'static str {
     }
 }
 
+/// The message line's height for `message` at `width`: one line is [`NOTE_LINE`]; a text wrapping to more lines adds
+/// each row, so the whole text stays on screen. Same font and margins as [`status_line`].
+fn note_height(ctx: &egui::Context, message: Option<&Note>, width: f32) -> f32 {
+    let Some(n) = message else { return NOTE_LINE };
+    let [left, right, top, bottom] = widgets::STATUS_LINE_MARGIN.map(f32::from);
+    let wrap = width - left - right;
+    let g = ctx.fonts_mut(|f| f.layout(n.text.clone(), theme::body(14.0), theme::TEXT, wrap));
+    if g.rows.len() <= 1 {
+        NOTE_LINE
+    } else {
+        g.size().y + top + bottom
+    }
+}
+
 /// The message line, while its time lasts.
 fn note_line(ui: &mut Ui, message: &mut Option<Note>) {
     let now = ui.input(|i| i.time);
@@ -4058,6 +4092,31 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                         None,
                     );
                 });
+            // CLEAR BAD ENDINGS: 2017-18 has no CLUB CARD page (its club is on the game server stand-in), so it sits here
+            if st.edition == Edition::E1718 {
+                let lit = st
+                    .club_armed
+                    .as_ref()
+                    .is_some_and(|(p, until)| *p == ClubPick::Fix && *until > now);
+                if lit {
+                    ui.ctx()
+                        .request_repaint_after(std::time::Duration::from_millis(250));
+                }
+                let key = if lit {
+                    "club.clear_again"
+                } else {
+                    "club.clear_bad"
+                };
+                let w = ui.available_width();
+                if cabinet(ui, vec2(w, 40.0), &tr!(lang, key), Cab::Stop, lit).clicked() {
+                    club_click(st, ClubPick::Fix, now);
+                }
+                ui.label(
+                    egui::RichText::new(tr!(lang, "club.clear_hint"))
+                        .font(theme::body(HINT))
+                        .color(theme::TEXT_DIM),
+                );
+            }
         });
         widgets::section(left, &tr!(lang, "settings.view"), accent, |ui| {
             let w = ui.available_width();
@@ -4151,6 +4210,17 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                 {
                     st.file_changed = true;
                 }
+            }
+            if let Some(on) = &mut st.projector
+                && widgets::toggle_row(
+                    ui,
+                    on,
+                    &tr!(lang, "launcher.projector"),
+                    &tr!(lang, "settings.projector_hint"),
+                )
+                .clicked()
+            {
+                st.projector_changed = true;
             }
         });
         widgets::section(right, &tr!(lang, "settings.next"), accent, |ui| {
@@ -4292,7 +4362,7 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
 // ---- CLUB CARD ----
 
 /// A choice on CLUB CARD that needs a second click within 8 s, then a restart: another card from YOUR CARDS (its file in
-/// data\save\cards and its club), a new card, or CLEAR BAD ENDINGS (2010-11).
+/// data\save\cards and its club), a new card, or CLEAR BAD ENDINGS (2017-18: on SETTINGS).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ClubPick {
     Card { file: String, club: String },
@@ -4977,6 +5047,53 @@ mod tests {
     use super::*;
     use crate::board::Aptitude;
     use forza::cards::BENCH_X;
+
+    /// The longest text the server sends (160 characters) must not be cut off on the game page's one-line toast: it
+    /// wraps, and the toast grows to hold every row.
+    #[test]
+    fn a_long_notice_grows_the_toast_instead_of_running_under_the_deck() {
+        let ctx = egui::Context::default();
+        theme::install(&ctx, Edition::E1718, &theme::font_dir())
+            .expect("the fonts in assets/fonts");
+        // the font atlas is a texture delta kittest would upload; the layout needs a frame's fonts
+        ctx.run_ui(Default::default(), |_| {})
+            .textures_delta
+            .clear();
+        let one = Note::long(
+            Tone::Notice,
+            "Server update at 23:00 CET, about 10 minutes.".into(),
+        );
+        assert_eq!(note_height(&ctx, Some(&one), NOTE_TOAST), NOTE_LINE);
+        assert_eq!(note_height(&ctx, None, NOTE_TOAST), NOTE_LINE);
+        let text: String =
+            "The server updates tonight at 23:00 CET and is back after about ten minutes. "
+                .chars()
+                .cycle()
+                .take(forza::online::lobby::NOTICE_TEXT_LEN)
+                .collect();
+        let long = Note::long(Tone::Notice, text.clone());
+        let [left, right, top, bottom] = widgets::STATUS_LINE_MARGIN.map(f32::from);
+        let g = ctx.fonts_mut(|f| {
+            f.layout(
+                text,
+                theme::body(14.0),
+                theme::TEXT,
+                NOTE_TOAST - left - right,
+            )
+        });
+        assert!(
+            g.rows.len() >= 3,
+            "{} rows at the toast's width, {} points high",
+            g.rows.len(),
+            g.size().y
+        );
+        let h = note_height(&ctx, Some(&long), NOTE_TOAST);
+        assert!(
+            h >= g.size().y + top + bottom,
+            "{h} does not hold the {}-row text",
+            g.rows.len()
+        );
+    }
 
     fn sheet_of(w: f32, h: f32) -> Rect {
         // what a window of w x h pixels shows, in points

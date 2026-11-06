@@ -7,6 +7,9 @@ use std::time::{Duration, Instant};
 
 const MAGIC: [u8; 8] = [0xF1, 0xC0, 0x80, 0x44, 0xB4, 0x9E, 0xDA, 0x3C];
 const REV: u32 = 47565;
+/// The server binds before it opens its store, so a connect succeeds while the first reply may still wait for the
+/// store (slow on a loaded runner: 5 s timed out on CI). A connect is not readiness; give the first reply time.
+const READ: Duration = Duration::from_secs(30);
 
 struct Server(Child);
 impl Drop for Server {
@@ -52,7 +55,7 @@ fn start_with(dir: &std::path::Path, extra: &[&str]) -> (Server, TcpStream) {
     loop {
         match TcpStream::connect(("127.0.0.1", port)) {
             Ok(c) => {
-                c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                c.set_read_timeout(Some(READ)).unwrap();
                 return (srv, c);
             }
             Err(_) if t.elapsed() < Duration::from_secs(10) => {
@@ -244,7 +247,7 @@ fn all_pairs_a_lobby_room_on_the_game_server() {
             Err(e) => panic!("all did not bind the game server: {e}"),
         }
     };
-    c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    c.set_read_timeout(Some(READ)).unwrap();
     use forza::online::lobby::{self, Created, Reserved};
     let desk: std::net::SocketAddr = format!("127.0.0.1:{desk}").parse().unwrap();
     // host makes a room, the guest reserves its seat 2, both press READY
@@ -267,16 +270,22 @@ fn all_pairs_a_lobby_room_on_the_game_server() {
     assert_eq!(lobby::ready(desk, &id, &host), Ok(true));
     assert_eq!(lobby::ready(desk, &id, &guest), Ok(true));
     // three PCs' runs on the game server: a stranger in the open pool first, then the room's host and guest. Each
-    // vslink says hello (900, the room ticket at +36), registers its token (902), then its control sends the 243.
-    let pc = |c: &mut TcpStream, n: u8, ticket: Option<&str>| {
+    // vslink says hello (900, the room ticket at +36, the det-math token at +52), registers its token (902), then
+    // its control sends the 243.
+    let hello = |n: u8, ticket: Option<&str>, dmath: &str| {
         let mut gm = TcpStream::connect(("127.0.0.1", gm_port)).unwrap();
-        gm.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        gm.set_read_timeout(Some(READ)).unwrap();
         let (rc, r) = ask(
             &mut gm,
             900,
-            &forza::online::vs::hello_payload(&[n; 32], ticket),
+            &forza::online::vs::hello_payload(&[n; 32], ticket, Some(dmath)),
         );
-        assert_eq!((rc, word(&r, 4)), (901, 1));
+        assert_eq!(rc, 901);
+        (gm, word(&r, 4))
+    };
+    let pc = |c: &mut TcpStream, n: u8, ticket: Option<&str>| {
+        let (mut gm, status) = hello(n, ticket, "00ff00ff00ff00ff");
+        assert_eq!(status, 1);
         let mut reg = vec![0u8; 40];
         reg[..4].copy_from_slice(&[127, n, n, n]);
         reg[4..6].copy_from_slice(&(20000 + u16::from(n)).to_le_bytes());
@@ -299,13 +308,15 @@ fn all_pairs_a_lobby_room_on_the_game_server() {
     };
     pc(&mut c, 1, None);
     pc(&mut c, 2, Some(&host));
+    // the guest's engine differs first: its hello hears so (2), then it sets up again and says hello with the host's token
+    assert_eq!(hello(3, Some(&guest), "00ff00ff00ff00ff-off").1, 2);
     pc(&mut c, 3, Some(&guest));
     assert_eq!(poll(&mut c, 3), 900_000_002, "the guest gets the host");
     assert_eq!(poll(&mut c, 2), 900_000_003, "the host gets the guest");
     assert_eq!(poll(&mut c, 1), 0, "the stranger still waits");
     let json = {
         let mut raw = TcpStream::connect(desk).unwrap();
-        raw.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        raw.set_read_timeout(Some(READ)).unwrap();
         raw.write_all(b"LOBBY 2017-18\n").unwrap();
         let mut json = String::new();
         raw.read_to_string(&mut json).unwrap();
@@ -358,7 +369,7 @@ fn all_takes_a_players_club_without_a_seat() {
             Err(e) => panic!("all did not bind the game server: {e}"),
         }
     };
-    c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    c.set_read_timeout(Some(READ)).unwrap();
     let desk: std::net::SocketAddr = format!("127.0.0.1:{desk}").parse().unwrap();
     let aime = 0x1234_5678; // req()'s Aime id
     let (code, other) = ("50123456789012345678", "50123456789012345679");
@@ -439,4 +450,50 @@ fn all_takes_a_players_club_without_a_seat() {
         broker.contains(&format!("club in: seat 1, Aime id {aime}")),
         "{broker}"
     );
+}
+
+#[test]
+/// ovh1's lobby row: 2017-18 players take no seat at the desk, they log in with a card on the game server beside it.
+/// The row counts those cards while their connection is open (by card: two cards behind one address are two).
+fn the_lobby_row_counts_the_cards_on_the_game_server() {
+    use forza::online::{gamesvr, lobby, sessions::Sessions};
+    use std::sync::Arc;
+    let dir = std::env::temp_dir().join(format!("forza_row_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let sessions = Arc::new(Sessions::default());
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let gm = l.local_addr().unwrap();
+    let o = gamesvr::Options {
+        dump: false,
+        sessions: Some(sessions.clone()),
+        ..Default::default()
+    };
+    let _svc = gamesvr::spawn_opts(l, dir.clone(), Arc::new(|_| {}), o).unwrap();
+    let mut c = forza_server::desk::DeskConfig::new(forza_server::Edition::E1718);
+    (c.bind, c.port, c.sessions) = ("127.0.0.1".into(), 0, Some(sessions));
+    (c.lobby_gap, c.lobby_cache) = (Duration::ZERO, Duration::ZERO);
+    let desk = forza_server::desk::start(c, Arc::new(|_| {})).unwrap();
+    let row = || lobby::fetch(desk.addr(), "2017-18").unwrap().arcades[0].seats;
+    assert_eq!(row(), 0);
+    let mut pc = TcpStream::connect(gm).unwrap();
+    pc.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let mut login = req(20, 16);
+    le(&mut login, 0, 1);
+    le(&mut login, 4, 1_210_000_001);
+    assert_eq!(ask(&mut pc, 271, &login).0, 272);
+    assert_eq!(row(), 1, "a card logged in");
+    le(&mut login, 0, 2);
+    le(&mut login, 4, 1_210_000_002);
+    ask(&mut pc, 271, &login);
+    assert_eq!(row(), 2, "a second card on the same connection");
+    drop(pc);
+    let t = Instant::now();
+    while row() != 0 {
+        assert!(
+            t.elapsed() < Duration::from_secs(5),
+            "the closed connection still counts"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let _ = std::fs::remove_dir_all(&dir);
 }

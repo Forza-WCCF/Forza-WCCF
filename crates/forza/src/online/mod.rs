@@ -14,6 +14,7 @@ pub mod lan;
 pub mod lobby;
 pub mod save_logs;
 pub mod seat;
+pub mod sessions;
 pub mod vs;
 
 /// The seat desk's port on the server (the Python's `WCCF_BROKER_PORT` default).

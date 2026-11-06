@@ -565,13 +565,14 @@ fn has_high(b: &[u8]) -> bool {
 }
 
 /// The line as the game's bytes, or what is wrong with it: a line keeps exactly the printf and `$` codes of the
-/// game's Japanese line.
+/// game's Japanese line, the printf ones in its order (msvcr90's `vsprintf_s` takes no positional argument).
 fn encoded(ed: Edition, jp: &str, text: &str, nl: &[u8]) -> Result<Vec<u8>, String> {
     let sorted = |r: &Regex, s: &str| {
         let mut v: Vec<String> = r.find_iter(s).map(|m| m.as_str().into()).collect();
         v.sort();
         v
     };
+    // In the order they come, never sorted: the game reaches its values by position.
     let fmt = |s: &str| {
         FMT.find_iter(s)
             .map(|m| m.as_str().to_string())
@@ -1779,6 +1780,10 @@ mod tests {
         let e = Edition::E1718;
         assert!(encoded(e, "%dポイント", "%d points", b"\n").is_ok());
         assert!(encoded(e, "%dポイント", "points", b"\n").is_err());
+        // the codes in the game's order: a sort would let "%d ... %s" stand against a "%s ... %d" line and the
+        // game would print each value in the other's slot
+        assert!(encoded(e, "%sは%d点", "%d points by %s", b"\n").is_err());
+        assert!(encoded(e, "%sは%d点", "%s: %d points", b"\n").is_ok());
         assert!(encoded(e, "$c[FF0000FF]赤$c", "red", b"\n").is_err());
         assert!(
             encoded(Edition::E1011, "$pあ$t", "a$p", b"\n").is_err(),
@@ -2276,6 +2281,64 @@ mod tests {
         assert!(
             n > 0 && bad.is_empty(),
             "{} problem(s): {:?}",
+            bad.len(),
+            &bad[..bad.len().min(5)]
+        );
+    }
+
+    /// The locker-room match report joins two table lines with no separator: opponent + score, team play + its
+    /// result, player play + his. A lost space ran them together on screen ("inferiore.Vittoria", "mondialeHa"),
+    /// so the second line of each pair carries the space at its start and the first never ends one.
+    #[test]
+    fn the_1718_match_report_lines_join_with_one_space() {
+        let mut c = Ctx::new_bare(Edition::E1718, Path::new("g"), Path::new("b"));
+        c.sheets = manifest_dir().join("../../editions/2017-18");
+        let glue = Regex::new(r"[a-z][A-Z]|[.!?,][A-Z]").unwrap();
+        let pairs = [
+            (
+                "MAN_MATCH_report_team_enemy_",
+                "MAN_MATCH_report_team_score_",
+            ),
+            (
+                "MAN_MATCH_report_team_perform_",
+                "MAN_MATCH_report_team_value_",
+            ),
+            (
+                "MAN_MATCH_report_player_perform_",
+                "MAN_MATCH_report_player_value_",
+            ),
+        ];
+        let (mut bad, mut n) = (vec![], 0);
+        for (folder, column) in [("english", "english"), ("italian", "italiano")] {
+            let table: HashMap<String, String> = c
+                .sheet("screen_text.tsv", folder)
+                .unwrap()
+                .iter()
+                .map(|r| (cell(r, "key").into(), cell(r, column).into()))
+                .collect();
+            let with = |pre: &str| {
+                let mut v: Vec<(&String, &String)> =
+                    table.iter().filter(|(k, _)| k.starts_with(pre)).collect();
+                v.sort();
+                v
+            };
+            for (first, second) in pairs {
+                for (k1, a) in with(first) {
+                    for (k2, b) in with(second) {
+                        n += 1;
+                        let joined = format!("{a}{b}");
+                        if a.ends_with(' ') || !b.starts_with(' ') || b.starts_with("  ") {
+                            bad.push(format!("{folder} {k1} + {k2}: the join is {joined:?}"));
+                        } else if glue.is_match(&joined) {
+                            bad.push(format!("{folder} {k1} + {k2}: {joined:?}"));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            n > 3000 && bad.is_empty(),
+            "{n} pairs, {} problem(s): {:?}",
             bad.len(),
             &bad[..bad.len().min(5)]
         );

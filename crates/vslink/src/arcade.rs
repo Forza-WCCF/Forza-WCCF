@@ -14,6 +14,8 @@
 //! stream that overflows is closed and logged. A host takes [`MAX_STREAMS`] streams per guest, and closes a guest
 //! that opens nothing usable within [`GUEST_GRACE`].
 //! Join side ports: the arcade's own where free, else any free one ([`ArcadeLink::ports`] says which).
+//! Between two ends newer than 0.6.3 the streams cross in lz4 frames (`crate::pack`, negotiated by ALPN:
+//! [`ARCADE_ALPN_LZ4`]); with an older end they stay as they are. Datagrams are never compressed.
 //! The test-only delay ([`ArcadeConfig::delay`], the Launcher's `VSLINK_DELAY_MS` / 2) holds everything this side
 //! sends and receives that much longer.
 
@@ -22,9 +24,10 @@ use crate::net::{
     FALLBACK_AFTER, dial_relays, fallback_for, home_or_fall_back, id_short, load_key,
     public_relays, relay_addr, relay_from, relay_names, watch_path,
 };
+use crate::pack::{Packer, Unpacker, size};
 use bytes::Bytes;
 use forza::service::{Handle, Log};
-use iroh::endpoint::{Connection, IdleTimeout, QuicTransportConfig, presets};
+use iroh::endpoint::{ConnectOptions, Connection, IdleTimeout, QuicTransportConfig, presets};
 use iroh::tls::CaTlsConfig;
 use iroh::{Endpoint, EndpointAddr, PublicKey, RelayMap, RelayMode};
 use std::collections::HashMap;
@@ -42,6 +45,9 @@ use tokio::time::{Instant, interval, sleep, sleep_until, timeout};
 
 // the ALPN keeps "shop" from before the arcade rename: both tunnel ends must agree on it
 pub const ARCADE_ALPN: &[u8] = b"forza-wccf/shop/1";
+/// The same tunnel with its streams in lz4 frames (`crate::pack`). Both ends offer it first and [`ARCADE_ALPN`] too, so
+/// a link with an older peer (0.6.3 and before: only [`ARCADE_ALPN`]) stays uncompressed; the datagrams never change.
+pub const ARCADE_ALPN_LZ4: &[u8] = b"forza-wccf/shop/2";
 /// The first byte of a stream: what the host dials for it.
 pub const KIND_CONTROL: u8 = 1;
 pub const KIND_DESK: u8 = 2;
@@ -354,16 +360,36 @@ fn udp_line(sock: Arc<UdpSocket>, delay: Duration) -> mpsc::Sender<(Instant, Vec
     tx
 }
 
-/// Copies `r` to `w`, holding each chunk the test delay and at most [`STREAM_BUF`] bytes; then shuts `w` down.
-/// Returns the bytes copied. Nothing is spawned: dropping the future ends both halves.
+/// What a [`pipe`] does to the bytes on their way.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Codec {
+    Plain,
+    /// Reads raw bytes, writes `crate::pack` frames (TCP to QUIC on a compressed link)
+    Pack,
+    /// Reads frames, writes raw bytes (QUIC to TCP)
+    Unpack,
+}
+
+/// How a [`pipe`]'s reading ended.
+enum End {
+    Done,
+    Over,
+    Bad(io::Error),
+}
+
+/// Copies `r` to `w` through `codec`, holding each chunk the test delay and at most [`STREAM_BUF`] bytes (as they
+/// are held: frames when packed, raw when unpacked); then shuts `w` down. Returns the bytes read and written, both
+/// as far as a stream over the limit or with a bad frame got before it is logged and dropped there. Nothing is
+/// spawned: dropping the future ends both halves.
 async fn pipe<R, W>(
     mut r: R,
     mut w: W,
+    codec: Codec,
     delay: Duration,
     budget: Arc<AtomicUsize>,
     what: String,
     log: Log,
-) -> u64
+) -> (u64, u64)
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
@@ -372,21 +398,45 @@ where
         budget,
         mine: AtomicUsize::new(0),
     };
+    let read = AtomicU64::new(0);
+    let written = AtomicU64::new(0);
     let (tx, mut rx) = mpsc::unbounded_channel::<(Instant, Vec<u8>)>();
-    // true: over the limit
     let reader = async {
         let tx = tx;
-        let mut buf = vec![0u8; 16 * 1024];
+        let mut buf = vec![0u8; crate::pack::MAX_RAW];
+        let (mut packer, mut unpacker) = (Packer::default(), Unpacker::default());
         loop {
-            let n = match r.read(&mut buf).await {
-                Ok(0) | Err(_) => return false,
-                Ok(n) => n,
+            let chunk = if codec == Codec::Unpack {
+                match unpacker.next(&mut r).await {
+                    Ok(Some(raw)) => {
+                        read.store(unpacker.wire, Ordering::Relaxed);
+                        raw
+                    }
+                    Ok(None) => return End::Done,
+                    Err(e) => {
+                        read.store(unpacker.wire, Ordering::Relaxed); // a cut frame's bytes count too
+                        return match e.kind() {
+                            io::ErrorKind::InvalidData => End::Bad(e),
+                            _ => End::Done,
+                        };
+                    }
+                }
+            } else {
+                let n = match r.read(&mut buf).await {
+                    Ok(0) | Err(_) => return End::Done,
+                    Ok(n) => n,
+                };
+                read.fetch_add(n as u64, Ordering::Relaxed);
+                match codec {
+                    Codec::Pack => packer.pack(&buf[..n]),
+                    _ => buf[..n].to_vec(),
+                }
             };
-            if held.add(n) > STREAM_BUF {
-                return true;
+            if held.add(chunk.len()) > STREAM_BUF {
+                return End::Over;
             }
-            if tx.send((Instant::now(), buf[..n].to_vec())).is_err() {
-                return false;
+            if tx.send((Instant::now(), chunk)).is_err() {
+                return End::Done;
             }
         }
     };
@@ -398,6 +448,7 @@ where
                 return n;
             }
             n += chunk.len() as u64;
+            written.store(n, Ordering::Relaxed);
             held.sub(chunk.len());
         }
         let _ = w.shutdown().await;
@@ -407,14 +458,24 @@ where
     let mut reading = true;
     loop {
         tokio::select! {
-            over = &mut reader, if reading => {
-                if over {
+            end = &mut reader, if reading => match end {
+                End::Done => reading = false, // the sender is gone: the writer drains, then shuts down
+                End::Over => {
                     log(&format!("{what}: more than {} MiB waiting to cross, closed", STREAM_BUF >> 20));
-                    return 0;
+                    return (
+                        read.load(Ordering::Relaxed),
+                        written.load(Ordering::Relaxed),
+                    );
                 }
-                reading = false; // the sender is gone: the writer drains, then shuts down
-            }
-            n = &mut writer => return n,
+                End::Bad(e) => {
+                    log(&format!("{what}: a bad frame from the other side ({e}), closed"));
+                    return (
+                        read.load(Ordering::Relaxed),
+                        written.load(Ordering::Relaxed),
+                    );
+                }
+            },
+            n = &mut writer => return (read.load(Ordering::Relaxed), n),
         }
     }
 }
@@ -445,11 +506,13 @@ impl Drop for Held {
     }
 }
 
-/// Both directions between a local TCP connection and a QUIC stream; logs the totals when both are done.
+/// Both directions between a local TCP connection and a QUIC stream, in lz4 frames if `packed`; logs the totals when
+/// both are done (the game's bytes, and on a packed stream what crossed for them).
 async fn splice<QR, QW>(
     tcp: TcpStream,
     qr: QR,
     qw: QW,
+    packed: bool,
     sh: Arc<Sh>,
     budget: Arc<AtomicUsize>,
     what: String,
@@ -459,18 +522,51 @@ async fn splice<QR, QW>(
 {
     let _live = Live::new(&sh.streams);
     let (tr, tw) = tcp.into_split();
-    let (up, down) = tokio::join!(
+    let (out, inn) = match packed {
+        true => (Codec::Pack, Codec::Unpack),
+        false => (Codec::Plain, Codec::Plain),
+    };
+    let ((up, up_wire), (down_wire, down)) = tokio::join!(
         pipe(
             tr,
             qw,
+            out,
             sh.delay,
             budget.clone(),
             what.clone(),
             sh.log.clone()
         ),
-        pipe(qr, tw, sh.delay, budget, what.clone(), sh.log.clone())
+        pipe(qr, tw, inn, sh.delay, budget, what.clone(), sh.log.clone())
     );
     (sh.log)(&format!("{what} closed ({up} bytes out, {down} in)"));
+    if packed {
+        (sh.log)(&packed_line(&what, (up, up_wire), (down, down_wire)));
+    }
+}
+
+/// `{what} lz4: out <game bytes> -> <bytes across>, in <game bytes> -> <bytes across>`.
+fn packed_line(what: &str, out: (u64, u64), inn: (u64, u64)) -> String {
+    format!(
+        "{what} lz4: out {} -> {}, in {} -> {}",
+        size(out.0),
+        size(out.1),
+        size(inn.0),
+        size(inn.1)
+    )
+}
+
+/// Whether the link's streams are in lz4 frames: both ends offered [`ARCADE_ALPN_LZ4`].
+fn packs(conn: &Connection) -> bool {
+    conn.alpn() == ARCADE_ALPN_LZ4
+}
+
+/// What a link's streams carry, for its "joined" / "up" line.
+fn streams_text(conn: &Connection) -> &'static str {
+    if packs(conn) {
+        "streams in lz4"
+    } else {
+        "streams uncompressed: the other side runs an older Forza-WCCF"
+    }
 }
 
 fn kind_name(kind: u8) -> &'static str {
@@ -535,7 +631,7 @@ impl Sh {
             conn.close(1u8.into(), b"full");
             return;
         }
-        (self.log)(&format!("guest {who} joined"));
+        (self.log)(&format!("guest {who} joined ({})", streams_text(&conn)));
         {
             let mut conns = self.conns.lock().unwrap_or_else(PoisonError::into_inner);
             conns.retain(|c| c.close_reason().is_none());
@@ -584,7 +680,13 @@ impl Sh {
                 ));
                 continue; // dropped: the guest sees the stream reset
             }
-            let (me, who, used, budget) = (self.clone(), who.clone(), used.clone(), budget.clone());
+            let (me, who, used, budget, conn) = (
+                self.clone(),
+                who.clone(),
+                used.clone(),
+                budget.clone(),
+                conn.clone(),
+            );
             tasks.spawn(async move {
                 let mut k = [0u8; 1];
                 if timeout(LINK_WAIT, qr.read_exact(&mut k)).await.is_err() {
@@ -603,7 +705,7 @@ impl Sh {
                     Ok(tcp) => {
                         let _ = tcp.set_nodelay(true);
                         (me.log)(&format!("{what} to port {port}"));
-                        splice(tcp, qr, qw, me.clone(), budget, what).await;
+                        splice(tcp, qr, qw, packs(&conn), me.clone(), budget, what).await;
                     }
                     Err(e) => (me.log)(&format!("{what}: port {port}: {e}")),
                 }
@@ -700,14 +802,18 @@ impl Join {
     }
 
     async fn dial(&self) -> Result<Connection, String> {
-        match timeout(
-            LINK_WAIT,
-            self.sh.ep.connect(self.host.clone(), ARCADE_ALPN),
-        )
-        .await
-        {
-            Ok(Ok(c)) => Ok(c),
-            Ok(Err(e)) => Err(e.to_string()),
+        let opts = ConnectOptions::new().with_additional_alpns(vec![ARCADE_ALPN.to_vec()]);
+        let dial = async {
+            let connecting = self
+                .sh
+                .ep
+                .connect_with_opts(self.host.clone(), ARCADE_ALPN_LZ4, opts)
+                .await
+                .map_err(|e| e.to_string())?;
+            connecting.await.map_err(|e| e.to_string())
+        };
+        match timeout(LINK_WAIT, dial).await {
+            Ok(r) => r,
             Err(_) => Err(format!("no answer in {} s", LINK_WAIT.as_secs())),
         }
     }
@@ -746,7 +852,10 @@ impl Join {
                 }
             };
             self.sh.host_closed.store(false, Ordering::Relaxed);
-            (self.sh.log)("link to the arcade up again");
+            (self.sh.log)(&format!(
+                "link to the arcade up again ({})",
+                streams_text(&conn)
+            ));
         }
     }
 
@@ -817,7 +926,9 @@ impl Join {
                 match conn.open_bi().await {
                     Ok((mut qw, qr)) => {
                         if qw.write_all(&[kind]).await.is_ok() {
-                            splice(tcp, qr, qw, me.sh.clone(), me.budget.clone(), what).await;
+                            let packed = packs(&conn);
+                            splice(tcp, qr, qw, packed, me.sh.clone(), me.budget.clone(), what)
+                                .await;
                         }
                     }
                     Err(e) => (me.sh.log)(&format!("{what}: {e}")),
@@ -845,7 +956,7 @@ async fn start(cfg: ArcadeConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
         .clear_address_lookup()
         .transport_config(transport);
     if cfg.role == Role::Host {
-        b = b.alpns(vec![ARCADE_ALPN.to_vec()]);
+        b = b.alpns(vec![ARCADE_ALPN_LZ4.to_vec(), ARCADE_ALPN.to_vec()]);
     }
     if let Some(ca) = cfg.ca {
         b = b.ca_tls_config(ca);
@@ -935,7 +1046,7 @@ async fn start(cfg: ArcadeConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
             id_short(&host)
         ))
     })?;
-    (sh.log)("link to the arcade up");
+    (sh.log)(&format!("link to the arcade up ({})", streams_text(&first)));
     Ok((sh, Some((join, first, [control, desk], p))))
 }
 
@@ -1043,6 +1154,78 @@ mod tests {
         for k in [0u8, 3, 255] {
             assert_eq!(p.of_kind(k), None, "kind {k}");
         }
+    }
+
+    /// The line a packed stream adds beside its "closed" line: the game's bytes, then what crossed for them.
+    #[test]
+    fn the_lz4_line() {
+        assert_eq!(
+            packed_line(
+                "guest 9581768412: control connection",
+                (1_792_094, 41_234),
+                (6_251, 2_020)
+            ),
+            "guest 9581768412: control connection lz4: out 1.79 MB -> 41 KB, in 6 KB -> 2 KB"
+        );
+    }
+
+    /// A frame cut by the other side's end is a bad frame, not a half-close: the line names it, and the counts keep
+    /// what crossed before the drop.
+    #[tokio::test]
+    async fn a_cut_frame_is_logged_and_counted() {
+        let mut p = crate::pack::Packer::default();
+        let mut wire = p.pack(&[7u8; 4000]);
+        let first = wire.len();
+        let mut cut = p.pack(&[9u8; 4000]);
+        cut.truncate(cut.len() - 3); // the second frame's body, short
+        wire.extend_from_slice(&cut);
+        let (mut feed, rd) = tokio::io::duplex(64 << 10);
+        let (wr, mut down) = tokio::io::duplex(64 << 10);
+        let lines: Arc<Mutex<Vec<String>>> = Arc::default();
+        let log: Log = {
+            let lines = lines.clone();
+            Arc::new(move |s: &str| lines.lock().unwrap().push(s.to_owned()))
+        };
+        let budget = Arc::new(AtomicUsize::new(0));
+        let run = pipe(
+            rd,
+            wr,
+            Codec::Unpack,
+            Duration::ZERO,
+            budget.clone(),
+            "control connection".into(),
+            log,
+        );
+        // the cut frame only once the first one has crossed, so the counts are the ones the pipe returns with
+        let wire_len = wire.len() as u64;
+        let feed_it = async move {
+            feed.write_all(&wire[..first]).await.unwrap();
+            let mut got = [0u8; 4000];
+            down.read_exact(&mut got).await.unwrap();
+            assert!(got.iter().all(|&b| b == 7));
+            feed.write_all(&wire[first..]).await.unwrap();
+            drop(feed); // the other side hangs up inside the second frame
+            let mut rest = Vec::new();
+            down.read_to_end(&mut rest).await.unwrap();
+            rest
+        };
+        let (counts, rest) = tokio::join!(run, feed_it);
+        assert_eq!(
+            counts,
+            (wire_len, 4000),
+            "the cut frame's bytes count, the raw bytes it never brought do not"
+        );
+        assert!(rest.is_empty(), "the cut frame reached the game");
+        assert_eq!(budget.load(Ordering::Relaxed), 0, "nothing still held");
+        let lines = lines.lock().unwrap();
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(
+            lines[0].starts_with(
+                "control connection: a bad frame from the other side (frame cut after "
+            ),
+            "{}",
+            lines[0]
+        );
     }
 
     #[test]

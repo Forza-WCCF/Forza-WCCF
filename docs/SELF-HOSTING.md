@@ -86,6 +86,39 @@ Another architecture for `forza-server`: `deploy/linux/Dockerfile.forza-server`.
 - Check from a player's PC: `python3 deploy/linux/lobby_check.py game.example.org:20032 2017-18 --room`.
 - The VS options, the room words and the pairing rules: `crates/server/README.md`.
 
+### Server notices
+
+The desk sends one short notice to players in its lobby answer; the Launcher shows it, and the in-game panel shows it
+once per id. The notice is a JSON file, read on the first lobby answer and again whenever its time changes
+(`WCCF_NOTICE` names another file):
+
+    /srv/forza-wccf/1718/data/notice.json      # `--store`'s folder
+
+```json
+{
+  "id": "n11",
+  "en": "Server update tonight at 23:00 CET, about ten minutes.",
+  "it": "Aggiornamento del server stasera alle 23:00 CET, circa dieci minuti.",
+  "ja": "今夜23:00(CET)にサーバーを更新します。約10分。",
+  "start": "2026-11-05T22:50:00+01:00",
+  "end": "2026-11-05T23:20:00+01:00"
+}
+```
+
+- `id`: the notice's name, at most 64 characters and unique per notice. The panel keeps the last id it showed, so a
+  changed text under the same id is not shown again.
+- `en`: the text, required, at most 160 characters; anything longer is cut. `it` and `ja` carry the same text in those
+  languages, shown when the player's panel runs in one of them; without one the panel shows the English.
+- `start`, `end`: optional RFC 3339 timestamps **with an offset** (`Z` or `+01:00`), the window the notice is live in;
+  `end` is exclusive, either end may be left out. A local time without an offset (`2026-11-05T23:00:00`), a bare date
+  (`2026-11-05`) or a number is not guessed: the whole notice is dropped and the log names the field and the wanted
+  form, `notice: … unreadable (start: … want an RFC 3339 date with an offset, such as 2026-11-05T23:00:00+01:00)`.
+- A good read logs `notice: /srv/forza-wccf/1718/data/notice.json read, id n11`; removing the file takes the notice
+  off the lobby at the next answer.
+- 2017-18 only. The Launcher asks the lobby it is pointed at for the notice (`WCCF_LOBBY`, else the default
+  `lobby.wccf.it`), never the `servers` list; a self-hosted desk's notice reaches the players whose Launcher names
+  that lobby. A Launcher text box for a self-hosted arcade's own notice comes later.
+
 ### The 2017-18 arcade
 
 A 2017-18 arcade runs the original control and its four match engines under Wine like 2010-11, started by

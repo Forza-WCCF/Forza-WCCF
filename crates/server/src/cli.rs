@@ -13,6 +13,7 @@
 use crate::{Edition, Handle, Log, desk, file_log, init_clock, relay};
 use clap::Args;
 use clap::{Parser, Subcommand, ValueEnum};
+use forza::online::sessions::Sessions;
 use forza::online::{gamesvr, vs};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -173,15 +174,27 @@ fn data_dir(log_file: Option<&Path>) -> PathBuf {
         .unwrap_or_default()
 }
 
+#[allow(clippy::too_many_arguments)] // sessions (#164) and store (#167) each add one
 fn start_desk(
     ed: Edition,
     port: Option<u16>,
     log_file: Option<&Path>,
     vs: Option<Arc<vs::Matcher>>,
     club: Option<PathBuf>,
+    sessions: Option<Arc<Sessions>>,
+    store: Option<&Path>,
     log: Log,
 ) -> std::io::Result<Handle> {
     let mut c = desk::DeskConfig::new(ed);
+    c.sessions = sessions;
+    // the operator's notice: beside the game server's store (`all`), else in data\ beside hold_projector.txt
+    c.notice = c.notice.or_else(|| {
+        Some(
+            store
+                .map_or_else(|| data_dir(log_file), Path::to_path_buf)
+                .join("notice.json"),
+        )
+    });
     if let Some(db) = club {
         c.club_db = Some(db);
         c.club_public = true;
@@ -282,6 +295,7 @@ fn start_gmsvr(
     g: &GmsvrOpts,
     port: u16,
     matcher: Option<Arc<vs::Matcher>>,
+    sessions: Option<Arc<Sessions>>,
     log: Log,
 ) -> std::io::Result<Vec<forza::service::Handle>> {
     let host = std::env::var("WCCF_BIND").unwrap_or_else(|_| "127.0.0.1".into());
@@ -300,6 +314,7 @@ fn start_gmsvr(
         max_per_ip: 8,
         vs: g.vs(),
         matcher,
+        sessions,
     };
     let mut handles = Vec::new();
     if let Some(cfg) = o.vs {
@@ -346,6 +361,8 @@ where
                 log_file.as_deref(),
                 None,
                 None,
+                None,
+                None,
                 file_log(log_file.clone()),
             )],
         ),
@@ -359,7 +376,7 @@ where
         ),
         Service::Gmsvr { port, g } => {
             need_1718(ed, "gmsvr");
-            match start_gmsvr(g, *port, None, file_log(None)) {
+            match start_gmsvr(g, *port, None, None, file_log(None)) {
                 Ok(h) => forza_svcs.extend(h.into_iter().map(Ok)),
                 Err(_) => std::process::exit(1),
             }
@@ -389,6 +406,8 @@ where
             let gmsvr = ed == Edition::E1718 && !no_gmsvr;
             // one matcher: the game server pairs the 243 entries, the desk's LOBBY lists them as VS rooms
             let matcher = (gmsvr && g.vs().is_some()).then(Arc::<vs::Matcher>::default);
+            // and one view of who is on the game server: the desk's lobby row counts its cards
+            let sessions = gmsvr.then(Arc::<Sessions>::default);
             // players bring their clubs to the game server beside the desk (forza::online::club), unless
             // WCCF_CLUB_DB names another store
             let club = (gmsvr && std::env::var_os("WCCF_CLUB_DB").is_none())
@@ -400,6 +419,8 @@ where
                     desk_log.as_deref(),
                     matcher.clone(),
                     club,
+                    sessions.clone(),
+                    Some(&g.store),
                     file_log(desk_log.clone()),
                 ),
                 start_relay(ed, *relay_port, file_log(relay_log)),
@@ -427,7 +448,13 @@ where
                 );
             }
             if gmsvr {
-                match start_gmsvr(g, *gmsvr_port, matcher, file_log(file("gmsvr.txt"))) {
+                match start_gmsvr(
+                    g,
+                    *gmsvr_port,
+                    matcher,
+                    sessions,
+                    file_log(file("gmsvr.txt")),
+                ) {
                     Ok(h) => forza_svcs.extend(h.into_iter().map(Ok)),
                     Err(e) => forza_svcs.push(Err(e)),
                 }

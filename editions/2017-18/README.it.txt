@@ -30,7 +30,8 @@ LAUNCHER
   GIOCA            DOVE GIOCARE (Questo PC o Online), poi GIOCA. FERMA IL GIOCO chiude il gioco (durante una
                    partita: CLICCA ANCORA).
   CONFIGURAZIONE   cartella del gioco, CONFIGURA, ANNULLA CONFIGURAZIONE; IMMAGINI CARTE (Dal gioco, oppure
-                   Pacchetto HQ con Scegli pacchetto); Salta il tutorial.
+                   Pacchetto HQ con Scegli pacchetto); Salta il tutorial; RIPULISCI DOPO UN BLOCCO (toglie i resti di un blocco o di una visita in sala interrotta; il
+                   club resta, una copia va prima in data\backup; non mentre il gioco è in esecuzione).
   AGGIORNAMENTO    elenca le versioni pubblicate: sceglietene una, poi AGGIORNA. Il gioco viene configurato di nuovo
                    da solo; club e impostazioni restano.
   DETTAGLI         cosa ha fatto il Launcher, con Copia e SALVA LOG.

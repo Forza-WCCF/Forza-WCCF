@@ -2201,29 +2201,29 @@ MAN_MATCH_report_team_enemy_0006	Sfida a un club rivale.
 MAN_MATCH_report_team_enemy_0007	Sfida a un avversario di pari livello.
 MAN_MATCH_report_team_enemy_0008	Sfida a una squadra di meta' classifica.
 MAN_MATCH_report_team_enemy_0009	Sfida a un avversario inferiore.
-MAN_MATCH_report_team_score_0000	Vittoria piena di gioia!
-MAN_MATCH_report_team_score_0001	Rimonta miracolosa e vittoria!
-MAN_MATCH_report_team_score_0002	Rimonta all'ultimo respiro!
-MAN_MATCH_report_team_score_0003	Vittoria in rimonta!
-MAN_MATCH_report_team_score_0004	Vittoria schiacciante!
-MAN_MATCH_report_team_score_0005	Porta inviolata!
-MAN_MATCH_report_team_score_0006	Vittoria difesa fino alla fine.
-MAN_MATCH_report_team_score_0007	Vittoria di misura.
-MAN_MATCH_report_team_score_0008	Vittoria.
-MAN_MATCH_report_team_score_0009	Vittoria dopo una dura battaglia.
-MAN_MATCH_report_team_score_0010	Pareggio agguantato a fatica.
-MAN_MATCH_report_team_score_0011	Non siamo riusciti a resistere.
-MAN_MATCH_report_team_score_0012	Sfida equilibrata.
-MAN_MATCH_report_team_score_0013	Sconfitta nonostante la lotta.
-MAN_MATCH_report_team_score_0014	Sconfitta amara.
-MAN_MATCH_report_team_score_0015	Sconfitta in rimonta, incredibile.
-MAN_MATCH_report_team_score_0016	Concentrazione venuta meno.
-MAN_MATCH_report_team_score_0017	Sconfitta in rimonta.
-MAN_MATCH_report_team_score_0018	Pesante sconfitta.
-MAN_MATCH_report_team_score_0019	Sconfitta netta.
-MAN_MATCH_report_team_score_0020	Buon inizio, ma finale amaro.
-MAN_MATCH_report_team_score_0021	Sconfitta di misura.
-MAN_MATCH_report_team_score_0022	Sconfitta.
+MAN_MATCH_report_team_score_0000	 Vittoria piena di gioia!
+MAN_MATCH_report_team_score_0001	 Rimonta miracolosa e vittoria!
+MAN_MATCH_report_team_score_0002	 Rimonta all'ultimo respiro!
+MAN_MATCH_report_team_score_0003	 Vittoria in rimonta!
+MAN_MATCH_report_team_score_0004	 Vittoria schiacciante!
+MAN_MATCH_report_team_score_0005	 Porta inviolata!
+MAN_MATCH_report_team_score_0006	 Vittoria difesa fino alla fine.
+MAN_MATCH_report_team_score_0007	 Vittoria di misura.
+MAN_MATCH_report_team_score_0008	 Vittoria.
+MAN_MATCH_report_team_score_0009	 Vittoria dopo una dura battaglia.
+MAN_MATCH_report_team_score_0010	 Pareggio agguantato a fatica.
+MAN_MATCH_report_team_score_0011	 Non siamo riusciti a resistere.
+MAN_MATCH_report_team_score_0012	 Sfida equilibrata.
+MAN_MATCH_report_team_score_0013	 Sconfitta nonostante la lotta.
+MAN_MATCH_report_team_score_0014	 Sconfitta amara.
+MAN_MATCH_report_team_score_0015	 Sconfitta in rimonta, incredibile.
+MAN_MATCH_report_team_score_0016	 Concentrazione venuta meno.
+MAN_MATCH_report_team_score_0017	 Sconfitta in rimonta.
+MAN_MATCH_report_team_score_0018	 Pesante sconfitta.
+MAN_MATCH_report_team_score_0019	 Sconfitta netta.
+MAN_MATCH_report_team_score_0020	 Buon inizio, ma finale amaro.
+MAN_MATCH_report_team_score_0021	 Sconfitta di misura.
+MAN_MATCH_report_team_score_0022	 Sconfitta.
 MAN_MATCH_report_team_perform_0000	Con un attacco di livello mondiale
 MAN_MATCH_report_team_perform_0001	Con un attacco strabordante
 MAN_MATCH_report_team_perform_0002	Con un attacco forte
@@ -2271,24 +2271,24 @@ MAN_MATCH_report_team_perform_0047	Con buoni recuperi palla
 MAN_MATCH_report_team_perform_0048	Con contrasti di livello mondiale
 MAN_MATCH_report_team_perform_0049	Con contrasti strabilianti
 MAN_MATCH_report_team_perform_0050	Con contrasti decisi
-MAN_MATCH_report_team_perform_0051	Dando l'anima
-MAN_MATCH_report_team_perform_0052	Pieni di grinta
-MAN_MATCH_report_team_perform_0053	Pieni di cuore
-MAN_MATCH_report_team_perform_0054	Mostrando quanto contasse questa gara
-MAN_MATCH_report_team_perform_0055	Mostrando la voglia di tutti
+MAN_MATCH_report_team_perform_0051	Dando l'anima,
+MAN_MATCH_report_team_perform_0052	Con una grinta da vendere
+MAN_MATCH_report_team_perform_0053	Con tanto cuore
+MAN_MATCH_report_team_perform_0054	Mostrando quanto contasse questa gara,
+MAN_MATCH_report_team_perform_0055	Mostrando la voglia di tutti,
 MAN_MATCH_report_team_perform_0056	Con una preparazione perfetta
 MAN_MATCH_report_team_perform_0057	Con grande concentrazione
 MAN_MATCH_report_team_perform_0058	Con parate super del portiere
 MAN_MATCH_report_team_perform_0059	Con un duello tattico di alto livello
 MAN_MATCH_report_team_perform_0060	Con la squadra in gran forma
-MAN_MATCH_report_team_value_0000	Ha incantato il mondo.
-MAN_MATCH_report_team_value_0001	Ha tenuto il mondo con il fiato sospeso.
-MAN_MATCH_report_team_value_0002	Ha incantato il pubblico.
-MAN_MATCH_report_team_value_0003	Ha tenuto il pubblico incollato.
-MAN_MATCH_report_team_value_0004	Ha fatto girare la testa agli avversari.
-MAN_MATCH_report_team_value_0005	Ha travolto gli avversari.
-MAN_MATCH_report_team_value_0006	Ha mostrato la sua forza.
-MAN_MATCH_report_team_value_0007	Ha regalato bei momenti.
+MAN_MATCH_report_team_value_0000	 ha incantato il mondo.
+MAN_MATCH_report_team_value_0001	 ha tenuto il mondo con il fiato sospeso.
+MAN_MATCH_report_team_value_0002	 ha incantato il pubblico.
+MAN_MATCH_report_team_value_0003	 ha tenuto il pubblico incollato.
+MAN_MATCH_report_team_value_0004	 ha fatto girare la testa agli avversari.
+MAN_MATCH_report_team_value_0005	 ha travolto gli avversari.
+MAN_MATCH_report_team_value_0006	 ha mostrato la sua forza.
+MAN_MATCH_report_team_value_0007	 ha regalato bei momenti.
 MAN_MATCH_report_team_advice_0000	La squadra e' stanca. Serve riposo.
 MAN_MATCH_report_team_advice_0001	La squadra e' stanca. Forse serve riposo.
 MAN_MATCH_report_team_advice_0002	Alcuni giocatori devono riposare.
@@ -2328,10 +2328,10 @@ MAN_MATCH_report_team_advice_0035	La potenza va migliorata ancora?
 MAN_MATCH_report_team_advice_0036	Migliorare la forza complessiva e' essenziale.
 MAN_MATCH_report_team_advice_0037	La forza complessiva va migliorata ancora?
 MAN_MATCH_report_team_advice_0038	Forse la fortuna non era dalla nostra?
-MAN_MATCH_report_player_perform_0000	Con una tripletta e
+MAN_MATCH_report_player_perform_0000	Con una tripletta
 MAN_MATCH_report_player_perform_0001	Con 2 gol
 MAN_MATCH_report_player_perform_0002	Con un gol splendido
-MAN_MATCH_report_player_perform_0003	Coinvolto in quasi tutti i gol
+MAN_MATCH_report_player_perform_0003	Coinvolto in quasi tutti i gol,
 MAN_MATCH_report_player_perform_0004	Con 2 assist
 MAN_MATCH_report_player_perform_0005	Con un assist splendido
 MAN_MATCH_report_player_perform_0006	Con un fiuto del tiro di livello mondiale
@@ -2376,36 +2376,36 @@ MAN_MATCH_report_player_perform_0047	Con coperture sicure
 MAN_MATCH_report_player_perform_0048	Con contrasti di livello mondiale
 MAN_MATCH_report_player_perform_0049	Con contrasti strabilianti
 MAN_MATCH_report_player_perform_0050	Con contrasti decisi
-MAN_MATCH_report_player_perform_0051	Dando l'anima
+MAN_MATCH_report_player_perform_0051	Dando l'anima,
 MAN_MATCH_report_player_perform_0052	Con grinta
 MAN_MATCH_report_player_perform_0053	Con cuore
 MAN_MATCH_report_player_perform_0056	Con movimenti scattanti
-MAN_MATCH_report_player_perform_0057	Chiudendo la porta e
-MAN_MATCH_report_player_perform_0058	Con una parata super dopo l'altra e
+MAN_MATCH_report_player_perform_0057	Chiudendo la porta,
+MAN_MATCH_report_player_perform_0058	Con una parata super dopo l'altra,
 MAN_MATCH_report_player_perform_0059	Con parate coraggiose
 MAN_MATCH_report_player_perform_0060	Con prese divine
 MAN_MATCH_report_player_perform_0061	Con prese sicurissime
 MAN_MATCH_report_player_perform_0062	Con prese sicure
 MAN_MATCH_report_player_perform_0063	Con grande concentrazione
-MAN_MATCH_report_player_perform_0064	Mostrando un bel gioco e
+MAN_MATCH_report_player_perform_0064	Mostrando un bel gioco,
 MAN_MATCH_report_player_perform_0065	Con ottimo giudizio
 MAN_MATCH_report_player_perform_0066	Con un gioco brillante
-MAN_MATCH_report_player_value_0000	Ha incantato il mondo.
-MAN_MATCH_report_player_value_0001	Ha tenuto il mondo con il fiato sospeso.
-MAN_MATCH_report_player_value_0002	Ha mostrato un altro livello.
-MAN_MATCH_report_player_value_0003	Ha entusiasmato chi guardava.
-MAN_MATCH_report_player_value_0004	Ha ripagato la fiducia della squadra.
-MAN_MATCH_report_player_value_0005	Grande contributo alla squadra.
-MAN_MATCH_report_player_value_0006	Si e' distinto dagli altri.
-MAN_MATCH_report_player_value_0007	Ha mostrato grande presenza.
-MAN_MATCH_report_player_value_0008	Ha portato risultati.
-MAN_MATCH_report_player_value_0009	Ha dato il suo apporto.
-MAN_MATCH_report_player_value_0010	Ha spronato i compagni.
-MAN_MATCH_report_player_value_0011	Ha guidato la squadra.
-MAN_MATCH_report_player_value_0012	Ha fatto la partita.
-MAN_MATCH_report_player_value_0013	Ha creato il ritmo.
-MAN_MATCH_report_player_value_0014	Ha fatto il suo dovere.
-MAN_MATCH_report_player_value_0015	Ha mostrato i suoi pregi.
+MAN_MATCH_report_player_value_0000	 ha incantato il mondo.
+MAN_MATCH_report_player_value_0001	 ha tenuto il mondo con il fiato sospeso.
+MAN_MATCH_report_player_value_0002	 ha mostrato un altro livello.
+MAN_MATCH_report_player_value_0003	 ha entusiasmato chi guardava.
+MAN_MATCH_report_player_value_0004	 ha ripagato la fiducia della squadra.
+MAN_MATCH_report_player_value_0005	 ha dato un grande contributo alla squadra.
+MAN_MATCH_report_player_value_0006	 si e' distinto dagli altri.
+MAN_MATCH_report_player_value_0007	 ha mostrato grande presenza.
+MAN_MATCH_report_player_value_0008	 ha portato risultati.
+MAN_MATCH_report_player_value_0009	 ha dato il suo apporto.
+MAN_MATCH_report_player_value_0010	 ha spronato i compagni.
+MAN_MATCH_report_player_value_0011	 ha guidato la squadra.
+MAN_MATCH_report_player_value_0012	 ha fatto la partita.
+MAN_MATCH_report_player_value_0013	 ha creato il ritmo.
+MAN_MATCH_report_player_value_0014	 ha fatto il suo dovere.
+MAN_MATCH_report_player_value_0015	 ha mostrato i suoi pregi.
 MAN_MATCH_report_player_advice_0000	E' stanco. Serve riposo.
 MAN_MATCH_report_player_advice_0001	E' stanco. Serve riposo.
 MAN_MATCH_report_player_advice_0002	Recuperare la condizione e' essenziale.
@@ -5066,7 +5066,7 @@ INF_COACH_choices_0017	Coach generico
 INF_COACH_choices_0018	Coach generico
 INF_COACH_choices_0019	Coach generico
 INF_COACH_choices_0020	Coach generico
-INF_COACH_choices_0021	Si puo' nominare un coach. Fallo $c[FF6633FF]entro 40 secondi dal calcio d'inizio$c.
+INF_COACH_choices_0021	Si puo' nominare un coach. Fallo $c[FF6633FF]almeno 40 secondi prima del calcio d'inizio$c.
 INF_COACH_choices_0022	Abilita' coach attacco
 INF_COACH_choices_0023	Abilita' coach difesa
 INF_COACH_choices_0024	Abilita' coach tecnica
@@ -6345,7 +6345,7 @@ INF_LEAGUE_message_0000	Campionato regolare %s: %s Complimenti.\nDi conseguenza 
 INF_LEAGUE_message_0001	Campionato regolare %s: dopo il risultato %s,\nla squadra e' $c[66CCFFFF]retrocessa$c in %s.
 INF_LEAGUE_message_0002	Con la $c[FF0000FF]retrocessione$c in %s,\nabbiamo perso il posto in %s.
 INF_OFFER_message_0000	□Un club interessato alla tua carriera ti ha mandato un'$c[FF0000FF]offerta$c
-INF_OFFER_message_0002	Un'offerta da un club del Campionato regolare %s\ncon sede a $c[FF0000FF]%s$c.
+INF_OFFER_message_0002	Un'offerta da un club con sede a $c[FF0000FF]%s$c\ndel Campionato regolare %s.
 INF_057_message_0000	Grazie per aver partecipato all'Area Championship.\nContiamo su di te anche la prossima volta.
 INF_057_TOPICS_title_0000	Ristrutturazione stadio
 INF_062_message_0001	Per fare il nuovo allenamento,\nscegli $c[FF0000FF]"Allenamento speciale"$c in Allenamento di squadra.
@@ -6576,7 +6576,7 @@ CLM_CUNIFORM2_message_0000	Scegli la 2a divisa.
 CLM_CEMBLEM_message_0000	Scegli lo stemma. 
 MAKE_area_007	Americhe
 INF_PARTNER_message_0005	Vuole affrontare una nuova squadra con te.\nAnche nel nuovo posto mostrera' $c[FF6633FF]la forza maturata con l'esperienza$c.
-INF_SPONSOR_message_0001	%s "%s" di $c[FF0000FF]%s$c.\nEffetto oggetto sponsor: $c[FF0000FF]%s$c
+INF_SPONSOR_message_0001	$c[FF0000FF]%s$c: %s "%s".\nEffetto oggetto sponsor: $c[FF0000FF]%s$c
 INF_FRIENDTRAINING_message_0000	$c[FF0000FF]%s$c e' venuto ad aiutare l'allenamento di squadra.\nEffetti positivi su $c[FF0000FF]"%s", "%s" e "%s"$c.
 INF_FRIENDOFFER_message_0000	$c[FF0000FF]%s$c ti ha segnalato un'offerta.\nControlla l'offerta segnalata nell'elenco offerte.
 INF_CONTRACT_message_0001	□La tua abilita' e' stata riconosciuta e il contratto e' esteso di $c[FF0000FF]%d partite$c
@@ -7164,12 +7164,12 @@ MAN_ACTION_message_0023	Dati intesa: controlla le intese di squadra.
 MAN_ACTION_message_0024	In Infermeria.
 MAN_ENTRY_contents_0000	Centrale
 MAN_ENTRY_contents_0001	Ala destra
-MAN_ENTRY_contents_0002	Possesso
+MAN_ENTRY_contents_0002	Pressing
 MAN_ENTRY_contents_0003	Ala sinistra
 MAN_ENTRY_contents_0004	Contropiede
 MAN_ENTRY_contents_0005	Centrale
 MAN_ENTRY_contents_0006	Ala destra
-MAN_ENTRY_contents_0007	Possesso
+MAN_ENTRY_contents_0007	Pressing
 MAN_ENTRY_contents_0008	Ala sinistra
 MAN_ENTRY_contents_0009	Contropiede
 MAN_ENTRY_message_0008	REGOLE ISCRIZIONE AREA CHAMPIONSHIP
@@ -7517,7 +7517,7 @@ TRA_RESULT_message_0004	I giocatori valgono molto di piu'.\nAspettiamoci di piu'
 TRA_RESULT_message_0020	Il nostro attacco e' molto piu' forte.\nGli altri ci temeranno.
 TRA_RESULT_message_0021	Il nostro attacco e' discreto.\nCreeremo piu' occasioni.
 TRA_RESULT_message_0022	Il nostro attacco migliora piano piano.\nPuntiamo ancora piu' in alto.
-TRA_RESULT_message_0023	Il loro attacco e' al livello minimo.\nDeve cercare di migliorarli.
+TRA_RESULT_message_0023	Il nostro attacco e' ai minimi.\nDobbiamo solo allenarci duro.
 TRA_RESULT_message_0026	Il nostro possesso palla e' molto meglio.\nGli altri ci temeranno.
 TRA_RESULT_message_0027	Il nostro possesso palla e' discreto.\nLa manovra dovrebbe stabilizzarsi.
 TRA_RESULT_message_0028	Il possesso palla migliora piano piano.\nPuntiamo ancora piu' in alto.
@@ -7953,25 +7953,25 @@ COM_DISCONTENT_choices_0023	Insisti sulla tattica
 COM_DISCONTENT_choices_0024	Chiedi al coach
 COM_DISCONTENT_choices_0025	Ascoltalo
 COM_DISCONTENT_choices_0026	Esponi la tua
-COM_DISCONTENT_choices_0027	Chiedigli che fare
-COM_DISCONTENT_choices_0028	Schieralo
-COM_DISCONTENT_choices_0029	Non schierarlo
-COM_DISCONTENT_choices_0030	Una pacca sulla testa
+COM_DISCONTENT_choices_0027	Consiglia la cessione
+COM_DISCONTENT_choices_0028	Non adatto alla tattica
+COM_DISCONTENT_choices_0029	Non e' all'altezza
+COM_DISCONTENT_choices_0030	E' un'arma segreta
 COM_DISCONTENT_choices_0031	Incoraggialo
 COM_DISCONTENT_choices_0032	Urlagli contro
 COM_DISCONTENT_choices_0033	Chiedi cosa c'e'
 COM_DISCONTENT_choices_0034	Pensaci su
 COM_DISCONTENT_choices_0035	Rifiuta
-COM_DISCONTENT_choices_0036	Invitalo fuori
+COM_DISCONTENT_choices_0036	Affidagli una commissione
 COM_DISCONTENT_choices_0037	Pensaci su
 COM_DISCONTENT_choices_0038	Rifiuta
-COM_DISCONTENT_choices_0039	Invitalo fuori
+COM_DISCONTENT_choices_0039	Affidagli una commissione
 COM_DISCONTENT_choices_0040	Pensaci su
-COM_DISCONTENT_choices_0041	Rifiuta
+COM_DISCONTENT_choices_0041	Spiega il motivo
 COM_DISCONTENT_choices_0042	Lascialo fuori
-COM_DISCONTENT_choices_0043	Rifiuta
-COM_DISCONTENT_choices_0044	Accetta
-COM_DISCONTENT_choices_0045	Insultalo
+COM_DISCONTENT_choices_0043	Trattienilo
+COM_DISCONTENT_choices_0044	Trovagli un club
+COM_DISCONTENT_choices_0045	Sfogati con lui
 COM_DISCONTENT_choices_0046	Vai con lui
 COM_DISCONTENT_choices_0047	Non andare
 COM_DISCONTENT_choices_0048	Raggiungilo dopo
@@ -7979,10 +7979,10 @@ COM_DISCONTENT_choices_0049	Si', credo di si'
 COM_DISCONTENT_choices_0050	No, non lo e'
 COM_DISCONTENT_choices_0051	Ci penso
 COM_DISCONTENT_choices_0052	Pensaci su
-COM_DISCONTENT_choices_0053	Rifiuta
+COM_DISCONTENT_choices_0053	Spiega il motivo
 COM_DISCONTENT_choices_0054	Lascialo fuori
 COM_DISCONTENT_choices_0055	Pensaci su
-COM_DISCONTENT_choices_0056	Rifiuta
+COM_DISCONTENT_choices_0056	Convincilo
 COM_DISCONTENT_choices_0057	Fallo aspettare
 COM_DISCONTENT_choices_0058	Vinci ancora
 COM_DISCONTENT_choices_0059	Resta calmo
@@ -8030,7 +8030,7 @@ COM_DISCONTENT_answer_0047	Grazie al coach, ora capisce la Sua tattica.\nI dubbi
 COM_DISCONTENT_answer_0049	Sembra contento che Lei ascolti i giocatori.\nSembra aver capito anche la Sua tattica.
 COM_DISCONTENT_answer_0051	Sembra capire il Suo punto di vista.\nAvete fatto un passo avanti.
 COM_DISCONTENT_answer_0053	Sembra contento che Lei dia peso alla sua opinione.\nE' riuscito a creare un legame con lui.
-COM_DISCONTENT_answer_0055	Sembra molto contento che Lei\nlo schieri in partita.
+COM_DISCONTENT_answer_0055	Ora sa perche' non gioca ed e' sereno.\nD'ora in poi lavorera' per la squadra.
 COM_DISCONTENT_answer_0057	Sembra essersi accesa in lui una nuova determinazione.\nDa ora si allenera' di sicuro con piu' impegno.
 COM_DISCONTENT_answer_0059	Sembra un po' imbarazzato, ma contento.
 COM_DISCONTENT_answer_0061	Il Suo incoraggiamento sembra aver funzionato.
@@ -8978,7 +8978,7 @@ COM_NEW_LOUNGE_answer_0005_02	Conoscersi e' importante.\nLa loro intesa e' cresc
 COM_NEW_LOUNGE_answer_0005_03	Divertirsi non li fara' migliorare.\nEntrambi restano pensierosi.
 COM_NEW_LOUNGE_answer_0005_04	Non serve spiegare sempre tutto.\nIl Suo silenzio li ha fatti parlare e avvicinare.
 COM_NEW_LOUNGE_answer_0005_05	Speravano in un consiglio...\nEntrambi restano pensierosi.
-COM_NEW_LOUNGE_choices_0006_00	Falli esercitare in
+COM_NEW_LOUNGE_choices_0006_00	Falli allenare insieme
 COM_NEW_LOUNGE_choices_0006_01	Andate a divertirvi
 COM_NEW_LOUNGE_choices_0006_02	Rinuncia alla coppia
 COM_NEW_LOUNGE_answer_0006_00	La pratica e' fondamentale.\nLa loro intesa e' cresciuta.
@@ -8987,7 +8987,7 @@ COM_NEW_LOUNGE_answer_0006_02	Divertirsi li aiuta a conoscersi.\nBel consiglio: 
 COM_NEW_LOUNGE_answer_0006_03	Divertirsi non li fara' migliorare.\nEntrambi restano pensierosi.
 COM_NEW_LOUNGE_answer_0006_04	Invece li ha carichi.\nHanno parlato e si sono avvicinati.
 COM_NEW_LOUNGE_answer_0006_05	Mollare non porta a nulla.\nEntrambi restano pensierosi.
-COM_NEW_LOUNGE_choices_0007_00	Falli esercitare in
+COM_NEW_LOUNGE_choices_0007_00	Falli allenare insieme
 COM_NEW_LOUNGE_choices_0007_01	Andate a divertirvi
 COM_NEW_LOUNGE_choices_0007_02	Rinuncia alla coppia
 COM_NEW_LOUNGE_answer_0007_00	La pratica e' fondamentale.\nLa loro intesa e' cresciuta.
@@ -9981,9 +9981,9 @@ PRO_PRO_condition_0017	Regole di iscrizione
 PRO_PRO_condition_0023	Titoli vinti
 PRO_PRO_condition_0026	Giocato in 1a Divisione
 PRO_PRO_condition_0027	Vincitore Nations Cup
-PRO_PRO_seat_0000	Non disponibile
+PRO_PRO_seat_0000	Iscrizione confermata
 PRO_PRO_seat_0001	Non iscrivibile
-PRO_PRO_seat_0002	Non disponibile
+PRO_PRO_seat_0002	Iscrizione in attesa
 PRO_PRO_seat_0003	Iscrizioni aperte
 PRO_PRO_seat_0004	Qualificato
 PRO_PRO_seat_0005	Perso
@@ -10141,3 +10141,993 @@ TRA_THEME_effect_0027	Speciali/Piazzati +++
 TRA_THEME_effect_0028	Intese/Abilita'/Speciali +
 TRA_THEME_effect_0029	Intese/Abilita'/Speciali ++
 TRA_THEME_effect_0030	Intese/Abilita'/Speciali +++
+GAM_OROGINAL_stadium_0027	Estadio Salvador
+GAM_OROGINAL_stadium_0041	Johannesburg Stadium
+GAM_OROGINAL_stadium_0042	Durban Stadium
+GAM_OROGINAL_stadium_0043	Cape Town Stadium
+GAM_OROGINAL_stadium_0044	Pretoria Stadium
+GAM_OROGINAL_stadium_0045	Port Elizabeth Stadium
+GAM_OROGINAL_stadium_0046	Busan Stadium
+GAM_OROGINAL_stadium_0047	Seoul Football Stadium
+GAM_OROGINAL_stadium_0048	Daegu Stadium
+GAM_OROGINAL_stadium_0049	Incheon Seaside Park
+GAM_OROGINAL_stadium_0050	Suwon Star Stadium
+GAM_OROGINAL_stadium_0051	Beijing Memorial Park
+GAM_OROGINAL_stadium_0052	Shanghai Marine Park
+GAM_OROGINAL_stadium_0053	Dalian Big Wave
+GAM_OROGINAL_stadium_0054	Taipei Football Stadium
+GAM_OROGINAL_stadium_0055	Chengdu Stadium
+GAM_OROGINAL_stadium_0057	Aomori Apple Swan
+GAM_OROGINAL_stadium_0058	Fjord Stadium
+GAM_OROGINAL_stadium_0059	Crescent Moon Stadium
+GAM_OROGINAL_stadium_0060	Bamboo Candle Park
+GAM_OROGINAL_stadium_0062	Hibiscus Stadium
+GAM_OROGINAL_stadium_0064	Tochigi Masurao Stadium
+GAM_OROGINAL_stadium_0067	Chiba Seaside Stadium
+GAM_OROGINAL_stadium_0073	Mirage Dome
+GAM_OROGINAL_stadium_0074	Kaga Hyakumangoku Stadium
+GAM_OROGINAL_stadium_0075	Echizen Ono Memorial Park
+GAM_OROGINAL_stadium_0078	Sekigahara Country Stadium
+GAM_OROGINAL_stadium_0081	Nagoya Crown Stadium
+GAM_OROGINAL_stadium_0082	Suzuka Firefly Stadium
+GAM_OROGINAL_stadium_0083	Shiga Lake Park
+GAM_OROGINAL_stadium_0086	Kobe Victory Ship
+GAM_OROGINAL_stadium_0087	Yamatokoriyama Goldfish Park
+GAM_OROGINAL_stadium_0088	Wakayama Plum Park
+GAM_OROGINAL_stadium_0089	Tottori Camel Hump
+GAM_OROGINAL_stadium_0090	Delaware Stadium
+GAM_OROGINAL_stadium_0092	Hiroshima Big Wing
+GAM_OROGINAL_stadium_0093	Shimonoseki Balloon Stadium
+GAM_OROGINAL_stadium_0094	Tokushima Sports Park
+GAM_OROGINAL_stadium_0095	Sanuki Big Mountain
+GAM_OROGINAL_stadium_0096	Ehime Summer Eye Stadium
+GAM_OROGINAL_stadium_0097	Katsurahama Dragon Horse Stadium
+GAM_OROGINAL_stadium_0100	Nagasaki Poppen Dome
+GAM_OROGINAL_stadium_0103	Miyazaki Hamayu Seed
+GAM_OROGINAL_stadium_0104	Kagoshima Vulcan Stadium
+GAM_OROGINAL_stadium_0105	Ryukyu Memorial Stadium
+GAM_OROGINAL_stadium_0116	Estadio Lisboa
+GAM_OROGINAL_stadium_0117	Estadio Coimbra
+GAM_OROGINAL_stadium_0118	Estadio Leiria
+GAM_OROGINAL_stadium_0119	Estadio Funchal
+GAM_OROGINAL_stadium_0120	St. Petersburg Stadium
+GAM_OROGINAL_stadium_0121	Kazan Stadium
+GAM_OROGINAL_stadium_0122	Vladikavkaz Stadium
+GAM_OROGINAL_stadium_0123	Volgograd Stadium
+INF_FRE_message_0076	Dummy
+INF_FRE_message_0077	Dummy
+INF_FRE_message_0078	Dummy
+INF_FRE_message_0079	Dummy
+INF_FRE_message_0080	Dummy
+INF_FRE_message_0081	Dummy
+INF_FRE_message_0082	Dummy
+INF_FRE_message_0083	Dummy
+INF_FRE_message_0084	Dummy
+INF_FRE_message_0085	Dummy
+INF_FRE_message_0086	Dummy
+INF_FRE_message_0087	Dummy
+INF_FRE_message_0088	Dummy
+INF_FRE_message_0089	Dummy
+INF_FRE_message_0090	Dummy
+INF_FRE_message_0091	Dummy
+INF_FRE_message_0092	Dummy
+INF_FRE_message_0093	Dummy
+INF_FRE_message_0094	Dummy
+INF_FRE_message_0095	Dummy
+INF_FRE_message_0096	Dummy
+INF_FRE_message_0097	Dummy
+INF_FRE_message_0098	Dummy
+INF_FRE_message_0099	Dummy
+INF_FRE_message_0102	Dummy
+INF_FRE_message_0103	Dummy
+INF_FRE_message_0104	Dummy
+INF_FRE_message_0105	Dummy
+INF_FRE_message_0106	Dummy
+INF_FRE_message_0107	Dummy
+INF_FRE_message_0108	Dummy
+INF_FRE_message_0109	Dummy
+INF_FRE_message_0110	Dummy
+INF_FRE_message_0111	Dummy
+INF_FRE_message_0112	Dummy
+INF_FRE_message_0113	Dummy
+INF_FRE_message_0114	Dummy
+INF_FRE_message_0115	Dummy
+INF_FRE_message_0116	Dummy
+INF_FRE_message_0117	Dummy
+INF_FRE_message_0118	Dummy
+INF_FRE_message_0119	Dummy
+INF_FRE_message_0120	Dummy
+INF_FRE_message_0121	Dummy
+INF_FRE_message_0122	Dummy
+INF_FRE_message_0123	Dummy
+INF_FRE_message_0124	Dummy
+INF_FRE_message_0125	Dummy
+INF_FRE_message_0126	Dummy
+INF_FRE_message_0127	Dummy
+INF_FRE_sponsor_0002	Sponsor: Win Lg Sports
+INF_FRE_sponsor_0003	Sponsor: ADMINISTRA
+INF_FRE_sponsor_0004	Sponsor: TRIONFO
+INF_FRE_sponsor_0005	Sponsor: Hard Wall
+INF_FRE_sponsor_0006	Sponsor: FALCHION
+INF_FRE_sponsor_0007	Sponsor: TRIPLO
+INF_FRE_sponsor_0008	Sponsor: MONSTER CHAMP
+INF_FRE_sponsor_0009	Sponsor: MIRACLE MIRACLE
+INF_FRE_sponsor_0010	Sponsor: GENERATION
+INF_FRE_sponsor_0011	Sponsor: ESPECTADOR
+INF_FRE_sponsor_0012	Sponsor: GALACTIC
+INF_FRE_sponsor_0013	Sponsor: NEVER GIVE UP
+INF_FRE_sponsor_0014	Sponsor: New Century Oil
+INF_FRE_sponsor_0015	Sponsor: TOMORROW
+INF_FRE_sponsor_0016	Sponsor: U&T ELECTRONICS
+INF_FRE_sponsor_0017	Sponsor: KLICKA Electric
+INF_FRE_sponsor_0018	Sponsor: INCH GAMES
+INF_FRE_sponsor_0019	Sponsor: eFcuss
+INF_FRE_sponsor_0020	Sponsor: GOLK BERG
+INF_FRE_sponsor_0021	Sponsor: ABEN WATERS
+INF_FRE_sponsor_0022	Sponsor: JUMBO STOMACH
+INF_FRE_sponsor_0023	Sponsor: Cesto Foods
+INF_FRE_sponsor_0024	Sponsor: Schneider
+INF_FRE_sponsor_0025	Sponsor: RANOORD
+INF_FRE_sponsor_0026	Sponsor: HAM Airline
+INF_FRE_sponsor_0027	Sponsor: KOLTAX Airlines
+INF_FRE_sponsor_0028	Sponsor: Deportes UNO
+INF_FRE_sponsor_0029	Sponsor: DNA Sports
+INF_FRE_sponsor_0030	Sponsor: Vest Card Bank
+INF_FRE_sponsor_0031	Sponsor: EXHUME BANK
+INF_FRE_sponsor_0032	Sponsor: SEBC NETWORK
+INF_FRE_sponsor_0033	Sponsor: RNM TELEVISION
+INF_FRE_sponsor_0034	Sponsor: IK Telephone
+INF_FRE_sponsor_0035	Sponsor: MOMENTO Communications
+INF_FRE_sponsor_0036	Sponsor: VOLTAGE
+INF_FRE_sponsor_0037	Sponsor: KEIMBLATT Electric
+INF_FRE_sponsor_0038	Sponsor: NKA SOFT WARE
+INF_FRE_sponsor_0039	Sponsor: PHOLTON
+INF_FRE_sponsor_0040	Sponsor: PETA WATER
+INF_FRE_sponsor_0041	Sponsor: Blue Sphere
+INF_FRE_sponsor_0042	Sponsor: NYN Foods
+INF_FRE_sponsor_0043	Sponsor: Nachtisch
+INF_FRE_sponsor_0044	Sponsor: UBERMENSCH
+INF_FRE_sponsor_0045	Sponsor: Gravel Motors
+INF_FRE_sponsor_0046	Sponsor: Cyclone Airlines
+INF_FRE_sponsor_0047	Sponsor: CEBVIA AIRLINE
+INF_FRE_sponsor_0048	Sponsor: S1 SPORTS
+INF_FRE_sponsor_0049	Sponsor: K's LEE Sports
+INF_FRE_sponsor_0050	Sponsor: KBYS BANK
+INF_FRE_sponsor_0051	Sponsor: TOP Bank
+INF_FRE_sponsor_0052	Sponsor: SGMTV
+INF_FRE_sponsor_0053	Sponsor: GLOBALE. T
+INF_FRE_sponsor_0054	Sponsor: pulsar+pulsar
+INF_FRE_sponsor_0055	Sponsor: Telejim NETWORK
+INF_FRE_sponsor_0056	Sponsor: FUTURE
+INF_FRE_sponsor_0057	Sponsor: TOR ELECTRONICS
+INF_FRE_sponsor_0058	Sponsor: glimpse
+INF_FRE_sponsor_0059	Sponsor: CELL GAMES
+INF_FRE_sponsor_0060	Sponsor: La Nina DRINK
+INF_FRE_sponsor_0061	Sponsor: ROV POINT
+INF_FRE_sponsor_0062	Sponsor: ENZEES Foods
+INF_FRE_sponsor_0063	Sponsor: POPO Foods
+INF_FRE_sponsor_0064	Sponsor: RVF MOTORS
+INF_FRE_sponsor_0065	Sponsor: salopette Motors
+INF_FRE_sponsor_0066	Sponsor: HAYLAND AIRWAYS
+INF_FRE_sponsor_0067	Sponsor: KUKUHAI Airlines
+INF_FRE_sponsor_0068	Sponsor: KELLTTEN Sports
+INF_FRE_sponsor_0069	Sponsor: Viv@SHOP
+INF_FRE_sponsor_0070	Sponsor: BANCOREF Bank
+INF_FRE_sponsor_0071	Sponsor: SB-BANCA
+INF_FRE_sponsor_0072	Sponsor: Sports Victory 15
+INF_FRE_sponsor_0073	Sponsor: Take It CH
+INF_FRE_sponsor_0074	Sponsor: TEATRO Network
+INF_FRE_sponsor_0075	Sponsor: GBL Communications
+INF_FRE_sponsor_0076	Sponsor: Dummy
+INF_FRE_sponsor_0077	Sponsor: Dummy
+INF_FRE_sponsor_0078	Sponsor: Dummy
+INF_FRE_sponsor_0079	Sponsor: Dummy
+INF_FRE_sponsor_0080	Sponsor: Dummy
+INF_FRE_sponsor_0081	Sponsor: Dummy
+INF_FRE_sponsor_0082	Sponsor: Dummy
+INF_FRE_sponsor_0083	Sponsor: Dummy
+INF_FRE_sponsor_0084	Sponsor: Dummy
+INF_FRE_sponsor_0085	Sponsor: Dummy
+INF_FRE_sponsor_0086	Sponsor: Dummy
+INF_FRE_sponsor_0087	Sponsor: Dummy
+INF_FRE_sponsor_0088	Sponsor: Dummy
+INF_FRE_sponsor_0089	Sponsor: Dummy
+INF_FRE_sponsor_0090	Sponsor: Dummy
+INF_FRE_sponsor_0091	Sponsor: Dummy
+INF_FRE_sponsor_0092	Sponsor: Dummy
+INF_FRE_sponsor_0093	Sponsor: Dummy
+INF_FRE_sponsor_0094	Sponsor: Dummy
+INF_FRE_sponsor_0095	Sponsor: Dummy
+INF_FRE_sponsor_0096	Sponsor: Dummy
+INF_FRE_sponsor_0097	Sponsor: Dummy
+INF_FRE_sponsor_0098	Sponsor: Dummy
+INF_FRE_sponsor_0099	Sponsor: Dummy
+INF_FRE_sponsor_0102	Sponsor: Dummy
+INF_FRE_sponsor_0103	Sponsor: Dummy
+INF_FRE_sponsor_0104	Sponsor: Dummy
+INF_FRE_sponsor_0105	Sponsor: Dummy
+INF_FRE_sponsor_0106	Sponsor: Dummy
+INF_FRE_sponsor_0107	Sponsor: Dummy
+INF_FRE_sponsor_0108	Sponsor: Dummy
+INF_FRE_sponsor_0109	Sponsor: Dummy
+INF_FRE_sponsor_0110	Sponsor: Dummy
+INF_FRE_sponsor_0111	Sponsor: Dummy
+INF_FRE_sponsor_0112	Sponsor: Dummy
+INF_FRE_sponsor_0113	Sponsor: Dummy
+INF_FRE_sponsor_0114	Sponsor: Dummy
+INF_FRE_sponsor_0115	Sponsor: Dummy
+INF_FRE_sponsor_0116	Sponsor: Dummy
+INF_FRE_sponsor_0117	Sponsor: Dummy
+INF_FRE_sponsor_0118	Sponsor: Dummy
+INF_FRE_sponsor_0119	Sponsor: Dummy
+INF_FRE_sponsor_0120	Sponsor: Dummy
+INF_FRE_sponsor_0121	Sponsor: Dummy
+INF_FRE_sponsor_0122	Sponsor: Dummy
+INF_FRE_sponsor_0123	Sponsor: Dummy
+INF_FRE_sponsor_0124	Sponsor: Dummy
+INF_FRE_sponsor_0125	Sponsor: Dummy
+INF_FRE_sponsor_0126	Sponsor: Dummy
+INF_FRE_sponsor_0127	Sponsor: Dummy
+INF_SPO_name_0076	Dummy
+INF_SPO_name_0077	Dummy
+INF_SPO_name_0078	Dummy
+INF_SPO_name_0079	Dummy
+INF_SPO_name_0080	Dummy
+INF_SPO_name_0081	Dummy
+INF_SPO_name_0082	Dummy
+INF_SUPPORTER_adj_0130	Serbi
+INF_SUPPORTER_adj_0131	Dorati
+INF_SUPPORTER_adj_0132	Argentati
+INF_SUPPORTER_adj_0133	Classici
+INF_SUPPORTER_adj_0134	Globali
+INF_SUPPORTER_adj_0135	Impetuosi
+INF_SUPPORTER_adj_0136	Ardenti
+INF_SUPPORTER_adj_0137	Medievali
+INF_SUPPORTER_adj_0138	Nascenti
+INF_SUPPORTER_adj_0140	Emirati
+INF_SUPPORTER_adj_0141	Indiani
+INF_SUPPORTER_adj_0142	Indonesiani
+INF_SUPPORTER_adj_0143	Singaporiani
+INF_SUPPORTER_adj_0144	Thailandesi
+INF_SUPPORTER_adj_0145	Filippini
+INF_SUPPORTER_adj_0146	Vietnamiti
+INF_SUPPORTER_adj_0147	Malesi
+INF_SUPPORTER_adj_0148	Birmani
+INF_SUPPORTER_adj_0149	Britannici
+INF_SUPPORTER_adj_0150	Austriaci
+INF_SUPPORTER_adj_0151	Greci
+INF_SUPPORTER_adj_0152	Svizzeri
+INF_SUPPORTER_adj_0153	Sloveni
+INF_SUPPORTER_adj_0154	Angolani
+INF_SUPPORTER_adj_0155	Egiziani
+INF_SUPPORTER_adj_0156	Ghanesi
+INF_SUPPORTER_adj_0157	Ivoriani
+INF_SUPPORTER_adj_0158	Togolesi
+INF_SUPPORTER_adj_0159	Trinidadiani
+INF_SUPPORTER_adj_0160	Boliviani
+INF_SUPPORTER_adj_0161	Kiwi
+INF_SUPPORTER_noun_0012	Ercole
+INF_SUPPORTER_noun_0013	Generali
+INF_SUPPORTER_noun_0014	Prodigi
+INF_SUPPORTER_noun_0015	Api Assassine
+INF_SUPPORTER_noun_0016	Tirannosauri
+INF_SUPPORTER_noun_0017	Re Demoni
+INF_SUPPORTER_noun_0018	Dei della Guerra
+INF_SUPPORTER_noun_0024	Titani
+INF_SUPPORTER_noun_0025	Professori
+INF_SUPPORTER_noun_0026	Pesi Massimi
+INF_SUPPORTER_noun_0027	Jumbo Jet
+INF_SUPPORTER_noun_0028	Nobili
+INF_SUPPORTER_noun_0029	Comandanti
+INF_SUPPORTER_noun_0030	Irriducibili
+INF_SUPPORTER_noun_0031	Bricconi
+INF_SUPPORTER_noun_0032	Esperti
+INF_SUPPORTER_noun_0033	Gladiatori
+INF_SUPPORTER_noun_0043	Burloni
+INF_SUPPORTER_noun_0044	Novellini
+INF_SUPPORTER_noun_0045	Comici
+INF_SUPPORTER_noun_0046	Soldati Semplici
+INF_SUPPORTER_noun_0047	Caporali
+INF_SUPPORTER_noun_0048	Giocatori d'Azzardo
+INF_SUPPORTER_noun_0057	Reclute
+INF_SUPPORTER_noun_0058	Piantarelli
+INF_SUPPORTER_noun_0059	Samurai Caduti
+INF_SUPPORTER_noun_0060	Squadra della Festa
+INF_SUPPORTER_noun_0061	Squadra Debole
+INF_SUPPORTER_noun_0062	Fragile
+INF_SUPPORTER_noun_0063	Marchio d'Argento
+INF_SUPPORTER_noun_0071	Q.H. di Oros
+INF_SUPPORTER_noun_0078	Lupi
+INF_SUPPORTER_noun_0079	Draghi
+INF_SUPPORTER_noun_0080	Attaccanti
+INF_SUPPORTER_noun_0081	Navi da Guerra
+INF_SUPPORTER_noun_0082	Tridenti
+INF_SUPPORTER_noun_0091	Grandi Buddha
+INF_SUPPORTER_noun_0092	Elefanti
+INF_SUPPORTER_noun_0093	Cemento
+INF_SUPPORTER_noun_0094	Torri Eiffel
+INF_SUPPORTER_noun_0095	Sfingi
+INF_SUPPORTER_noun_0096	Piramidi
+INF_SUPPORTER_noun_0105	Giostra
+INF_SUPPORTER_noun_0106	Ballerini
+INF_SUPPORTER_noun_0107	Specialisti
+INF_SUPPORTER_noun_0108	Immobiliare
+INF_SUPPORTER_noun_0113	Terzini Totali
+INF_SUPPORTER_noun_0119	Triangolo delle Bermuda
+INF_SUPPORTER_noun_0121	Distruttori
+INF_SUPPORTER_noun_0122	Grande Onda
+INF_SUPPORTER_noun_0123	Cinghiali
+INF_SUPPORTER_noun_0124	Inarrestabili
+INF_SUPPORTER_noun_0134	Incrociatori
+INF_SUPPORTER_noun_0135	Espresso
+INF_SUPPORTER_noun_0136	Stelle Cadenti
+INF_SUPPORTER_noun_0138	Ninja
+INF_SUPPORTER_noun_0139	Cavalleria
+INF_SUPPORTER_noun_0140	Squadra Antisommossa
+INF_SUPPORTER_noun_0141	Pericoli
+INF_SUPPORTER_noun_0142	Saggi
+INF_SUPPORTER_noun_0143	Matador
+INF_SUPPORTER_noun_0144	Cronometristi
+INF_SUPPORTER_noun_0145	Controllori
+INF_SUPPORTER_noun_0146	Quartier Generale
+INF_SUPPORTER_noun_0147	Battistrada
+INF_SUPPORTER_noun_0148	Chiaroveggenti
+INF_SUPPORTER_noun_0149	Polizia
+INF_SUPPORTER_noun_0163	Grandi Capi
+INF_SUPPORTER_noun_0164	Direttori
+INF_SUPPORTER_noun_0165	Capi Sezione
+INF_SUPPORTER_noun_0166	Capi Squadra
+INF_SUPPORTER_noun_0167	Supervisori
+INF_SUPPORTER_noun_0176	Transatlantici
+INF_SUPPORTER_noun_0177	Grande Magazzino
+INF_SUPPORTER_noun_0178	Emporio
+INF_SUPPORTER_noun_0190	Cavalieri
+INF_SUPPORTER_noun_0191	Fiori
+INF_SUPPORTER_noun_0192	Tomahawk
+INF_SUPPORTER_noun_0194	Stelle Portafortuna
+INF_SUPPORTER_noun_0195	Uccelli di Fuoco
+INF_SUPPORTER_noun_0196	Novizi
+INF_SUPPORTER_noun_0197	Perfezionisti
+INF_SUPPORTER_noun_0198	Perdenti
+INF_SUPPORTER_noun_0199	Angeli
+INF_SUPPORTER_noun_0200	Bufali
+INF_SUPPORTER_noun_0207	Insegnanti
+INF_SUPPORTER_noun_0208	Arcobaleni
+INF_SUPPORTER_noun_0209	Grandi Lavoratori
+INF_SUPPORTER_noun_0210	Intermedi
+INF_SUPPORTER_noun_0256	Campioni del World Trophy
+INF_SUPPORTER_noun_0257	Vincitori del World Trophy
+INF_SUPPORTER_noun_0258	Attacco d'Oro
+INF_SUPPORTER_noun_0259	Triangolo Magico
+INF_SUPPORTER_noun_0260	Quartetto Mistico
+INF_SUPPORTER_noun_0261	Guardiani Gemelli
+INF_SUPPORTER_noun_0262	Moschettieri di Ferro
+INF_SUPPORTER_noun_0263	Scuola di Commercio
+INF_SUPPORTER_noun_0264	Supermercato
+INF_SUPPORTER_noun_0265	Bottega di Quartiere
+INF_SUPPORTER_noun_0266	Dee
+INF_SUPPORTER_noun_0267	Principianti
+INF_SUPPORTER_noun_0268	Neopatentati
+INF_SUPPORTER_noun_0269	Novizi
+SYS_TEAM_style_0013	Colpo d'ombra
+SYS_TEAM_style_0017	Torre alta
+SYS_TEAM_style_0046	Dribbling
+SYS_TEAM_style_0065	Fantasia
+SYS_TEAM_style_0092	Pressing
+SYS_TEAM_style_0107	Malizia
+SYS_TEAM_style_0115	Avvento
+SYS_TEAM_style_0128	Crotalo
+SYS_TEAM_style_0129	Vulcano
+SYS_TEAM_style_0131	Serramanico
+SYS_TEAM_style_0134	El Nino
+SYS_TEAM_style_0137	Ape killer
+SYS_TEAM_style_0139	Istinto
+SYS_TEAM_style_0140	Letale
+SYS_TEAM_style_0141	Bambino d'Oro
+SYS_TEAM_style_0142	Huracan
+SYS_TEAM_style_0143	Ingranaggio
+SYS_TEAM_style_0147	Batigol
+SYS_TEAM_style_0154	Papinade
+SYS_TEAM_style_0157	Violino d'Oro
+SYS_TEAM_style_0161	Ringhio
+SYS_TEAM_style_0163	Zorozbone
+SYS_TEAM_style_0172	Genesi
+SYS_TEAM_style_0173	Luce immortale
+SYS_TEAM_style_0174	Luce infinita
+SYS_TEAM_style_0175	Danza fatata
+SYS_TEAM_style_0176	Corazon
+SYS_TEAM_style_0177	Ruba avanti
+SYS_TEAM_style_0178	Via libera
+SYS_TEAM_style_0179	Missione libera
+SYS_TEAM_style_0180	Imprevedibile
+SYS_TEAM_style_0181	Microscopio
+SYS_TEAM_style_0182	Mira al bersaglio
+SYS_TEAM_style_0183	Corsa ruba palla
+SYS_TEAM_style_0184	Ginga
+SYS_TEAM_style_0185	Tiro cannone
+SYS_TEAM_style_0186	Cannone laser
+SYS_TEAM_style_0187	Corsa casuale
+SYS_TEAM_style_0188	Autorita' linea
+SYS_TEAM_style_0189	Il Muro
+SYS_TEAM_style_0190	Guardiano coper.
+SYS_TEAM_style_0191	Seconda freccia
+SYS_TEAM_style_0192	Passaggio killer
+SYS_TEAM_style_0193	Rimessa guidata
+SYS_TEAM_style_0194	Grande arco
+SYS_TEAM_style_0195	Passaggio di tacco
+SYS_TEAM_style_0196	Raggio laser
+SYS_TEAM_style_0197	Ragnatela
+SYS_TEAM_style_0198	Difesa wiper
+SYS_TEAM_style_0199	Zona Del Piero
+SYS_TEAM_style_0200	Tiro largo
+SYS_TEAM_style_0201	Calcio totale
+SYS_TEAM_style_0202	Passaggio d'angelo
+SYS_TEAM_style_0203	Box folle
+SYS_TEAM_style_0204	Ruggito
+SYS_TEAM_style_0205	Gol salvezza
+SYS_TEAM_style_0206	Grilletto
+SYS_TEAM_style_0207	Istinto killer
+SYS_TEAM_style_0208	Cacciatore muto
+SYS_TEAM_style_0209	Caccia seriale
+SYS_TEAM_style_0210	Pausa idrica
+SYS_TEAM_style_0211	Rompi muro
+SYS_TEAM_style_0212	Secondo scatto
+SYS_TEAM_style_0213	Skywalker
+SYS_TEAM_style_0214	Cannone dir.
+SYS_TEAM_style_0215	Assist totale
+SYS_TEAM_style_0216	Lampo
+SYS_TEAM_style_0217	Asse orbitale
+SYS_TEAM_style_0218	Visione a 360
+SYS_TEAM_style_0219	Cambio perfetto
+SYS_TEAM_style_0220	Albero
+SYS_TEAM_style_0221	Freccia sacra
+SYS_TEAM_style_0222	Onda alare
+SYS_TEAM_style_0223	Diagonale
+SYS_TEAM_style_0224	Spola
+SYS_TEAM_style_0225	Va e torna
+SYS_TEAM_style_0226	Chakram
+SYS_TEAM_style_0227	Tocco magico
+SYS_TEAM_style_0228	Maestoso
+SYS_TEAM_style_0229	Impulso
+SYS_TEAM_style_0230	Conquista
+SYS_TEAM_style_0231	Luce divina
+SYS_TEAM_style_0232	Bandiera libera
+SYS_TEAM_style_0233	Balestriglia
+SYS_TEAM_style_0234	Arco infinito
+SYS_TEAM_style_0235	Aureola
+SYS_TEAM_style_0236	Guardia Leone
+SYS_TEAM_style_0237	Gladiatore
+SYS_TEAM_style_0238	Sicurezza totale
+SYS_TEAM_style_0239	Albert Dock
+SYS_TEAM_style_0240	Rete di ragno
+SYS_TEAM_style_0241	Muro mentale
+SYS_TEAM_style_0242	Guanto
+SYS_TEAM_style_0243	Finale vincente
+SYS_TEAM_style_0244	Bensan
+SYS_TEAM_style_0245	Mamma Mia
+SYS_TEAM_style_0246	Anima in corsa
+SYS_TEAM_style_0247	Ruolo da re
+SYS_TEAM_style_0248	Sovrano
+SYS_TEAM_style_0249	Protagonista
+SYS_TEAM_style_0251	Istinto risonante
+SYS_TEAM_style_0252	Armata creativa
+SYS_TEAM_style_0253	Passaggi sincro
+SYS_TEAM_style_0254	Tre Leoni
+SYS_TEAM_style_0255	Doppia azione
+SYS_TEAM_style_0256	Triangolo infernale
+SYS_TEAM_style_0257	Doppio taglio
+SYS_TEAM_style_0258	Legame muto
+SYS_TEAM_style_0259	Canto Blondel
+SYS_TEAM_style_0260	Triangolo mistico
+SYS_TEAM_style_0261	Trio diabolico
+SYS_TEAM_style_0262	Muro ferreo
+SYS_TEAM_style_0263	Tre Moschettieri
+SYS_TEAM_style_0264	Catena ferrea
+SYS_TEAM_style_0265	Tenaglia
+SYS_TEAM_style_0266	Triangolo barriera
+SYS_TEAM_style_0267	Doppio contatto
+SYS_TEAM_style_0268	Selecao das Quinas
+SYS_TEAM_style_0269	Celeste y Blanco
+SYS_TEAM_style_0270	Canarinho
+SYS_TEAM_style_0272	Calcio champagne
+SYS_TEAM_style_0273	Spirito tedesco
+SYS_TEAM_style_0274	Calcia e corri
+SYS_TEAM_style_0276	Spirito Yamato
+SYS_TEAM_style_0277	SAMURAI BLUE
+SYS_TEAM_style_0278	Tiro in corsa
+SYS_TEAM_style_0279	Chiquita
+SYS_TEAM_style_0280	Visione di gol
+SYS_TEAM_style_0281	Ruba centro
+SYS_TEAM_style_0282	Passo belva
+SYS_TEAM_style_0283	Gravitazione
+SYS_TEAM_style_0284	Ponte Bosforo
+SYS_TEAM_style_0285	Asse infinito
+SYS_TEAM_style_0286	Ala d'angelo
+SYS_TEAM_style_0287	Muleta
+SYS_TEAM_style_0288	Ali creative
+SYS_TEAM_style_0289	Cross killer
+SYS_TEAM_style_0290	Generale
+SYS_TEAM_style_0291	Visione assoluta
+SYS_TEAM_style_0292	Spia
+SYS_TEAM_style_0293	Faro eterno
+SYS_TEAM_style_0294	Malolactic
+SYS_TEAM_style_0295	Senza confini
+SYS_TEAM_style_0296	Svolta gelida
+SYS_TEAM_style_0297	Via cieca
+SYS_TEAM_style_0298	Petit Velo
+SYS_TEAM_style_0299	Mondo innocente
+SYS_TEAM_style_0300	Rodeo Drive
+SYS_TEAM_style_0301	Barriera fisica
+SYS_TEAM_style_0302	Freccia risonante
+SYS_TEAM_style_0303	Assediato
+SYS_TEAM_style_0304	Pulga Atomica
+SYS_TEAM_style_0305	Zona Nemesi
+SYS_TEAM_style_0306	Stella galattica
+SYS_TEAM_style_0307	Campidoglio
+SYS_TEAM_style_0308	Gioco pericoloso
+SYS_TEAM_style_0309	Senza pausa
+SYS_TEAM_style_0310	Ambizioso
+SYS_TEAM_style_0311	El Pipe
+SYS_TEAM_style_0312	Arcimago
+SYS_TEAM_style_0313	Muro fuoco
+SYS_TEAM_style_0314	Cerbero
+SYS_TEAM_style_0315	Dietro le quinte
+SYS_TEAM_style_0316	In missione
+SYS_TEAM_style_0317	Muro blindato
+SYS_TEAM_style_0318	Ridicolo
+SYS_TEAM_style_0319	Mostro fisico
+SYS_TEAM_style_0320	Gioco perfetto
+SYS_TEAM_style_0321	Pantera
+SYS_TEAM_style_0322	Foro Romano
+SYS_TEAM_style_0323	Sole lucente
+SYS_TEAM_style_0324	Aura di potenza
+SYS_TEAM_style_0325	Icona
+SYS_TEAM_style_0326	Controllo cat.
+SYS_TEAM_style_0327	Linea sogno
+SYS_TEAM_style_0328	Doppia presa
+SYS_TEAM_style_0329	Coppia fissa
+SYS_TEAM_style_0330	Spion Kop
+SYS_TEAM_style_0331	Cavalieri pionieri
+SYS_TEAM_style_0332	Legame doppio
+SYS_TEAM_style_0333	Pressing delta
+SYS_TEAM_style_0334	Doppio impatto
+SYS_TEAM_style_0335	Cortina ferrea
+SYS_TEAM_style_0336	Triangolo cont.
+SYS_TEAM_style_0337	San Marco
+SYS_TEAM_style_0338	Cigno nero
+SYS_TEAM_style_0339	Tulipano nero
+SYS_TEAM_style_0340	Celeste
+SYS_TEAM_style_0341	Blagula
+SYS_TEAM_style_0342	Dinamite danese
+SYS_TEAM_style_0343	Rode Duivels
+SYS_TEAM_style_0344	Vatreni
+SYS_TEAM_style_0345	Re bambino
+SYS_TEAM_style_0346	Charreria
+SYS_TEAM_style_0347	Danza burattini
+SYS_TEAM_style_0348	Trafford Yard
+SYS_TEAM_style_0349	Treno cross
+SYS_TEAM_style_0350	Forza unita
+SYS_TEAM_style_0351	Illusionista
+SYS_TEAM_style_0352	Piatto forte
+SYS_TEAM_style_0353	Corsa oro
+SYS_TEAM_style_0354	Arma volante
+SYS_TEAM_style_0355	Contro testa
+SYS_TEAM_style_0356	Cuculo
+SYS_TEAM_style_0357	Combattente
+SYS_TEAM_style_0358	Slancio magico
+SYS_TEAM_style_0362	Creazione occasioni
+SYS_TEAM_style_0375	Torre alta
+SYS_TEAM_style_0381	Colpo d'ombra
+SYS_TEAM_style_0403	Avvento
+SYS_TEAM_style_0407	Malizia
+SYS_TEAM_style_0409	Marcatura a uomo
+SYS_TEAM_style_0411	Sovrapposizioni
+SYS_TEAM_style_0461	Finale vincente
+SYS_TEAM_style_0462	Gol salvezza
+SYS_TEAM_style_0463	Cross killer
+SYS_TEAM_style_0464	Corsa casuale
+SYS_TEAM_style_0466	Visione a 360
+SYS_TEAM_style_0467	Ruba avanti
+SYS_TEAM_style_0468	Difesa wiper
+SYS_TEAM_style_0469	Letale
+SYS_TEAM_style_0471	Secondo scatto
+SYS_TEAM_style_0472	Finale vincente
+SYS_TEAM_style_0473	Missione libera
+SYS_TEAM_style_0474	Guardiano coper.
+SYS_TEAM_style_0475	Corsa ruba palla
+SYS_TEAM_style_0476	Via libera
+SYS_TEAM_style_0477	In missione
+SYS_TEAM_style_0487	Tiro largo
+SYS_TEAM_style_0491	Maestoso
+SYS_TEAM_style_0495	Generale
+SYS_TEAM_style_0497	Corazon
+SYS_TEAM_style_0501	Albero
+SYS_TEAM_style_0504	Tocco magico
+SYS_TEAM_style_0632	Calcio totale
+SYS_TEAM_style_0736	Tre Leoni
+SYS_TEAM_style_0414	Orlovi
+SYS_TEAM_style_0415	Elvi
+SYS_TEAM_style_0420	Politecnica
+SYS_TEAM_style_0422	Oltre il mondo
+SYS_TEAM_style_0423	Ratbal
+SYS_TEAM_style_0426	Capo Ideale
+SYS_TEAM_style_0429	El Cerebro
+SYS_TEAM_style_0430	Inti Raimi
+SYS_TEAM_style_0432	100/100
+SYS_TEAM_style_0437	Ala Jisamba
+SYS_TEAM_style_0438	Gold Coast
+SYS_TEAM_style_0441	Trio Dinamico
+SYS_TEAM_style_0442	Pases de la Masia
+SYS_TEAM_style_0451	Suerte
+SYS_TEAM_style_0457	Double Van
+SYS_TEAM_style_0480	Faraone
+SYS_TEAM_style_0509	Gran finale
+SYS_TEAM_style_0513	Comandante totale
+SYS_TEAM_style_0514	Il Campione
+SYS_TEAM_style_0515	Super Mario
+SYS_TEAM_style_0516	Rey Valiente
+SYS_TEAM_style_0522	Danzarino
+SYS_TEAM_style_0527	Los Cafeteros
+SYS_TEAM_style_0528	La Roja
+SYS_TEAM_style_0539	Nati
+SYS_TEAM_style_0541	Pilates
+SYS_TEAM_style_0544	Albirroja
+SYS_TEAM_style_0566	Calcio Campione
+SYS_TEAM_style_0570	Puerta del Sol
+SYS_TEAM_style_0573	El Elegancia
+SYS_TEAM_style_0581	Cuneo mordace
+SYS_TEAM_style_0582	Palomita
+SYS_TEAM_style_0587	Guarda Arana
+SYS_TEAM_style_0588	El Peligro
+SYS_TEAM_style_0591	Tridimensionale
+SYS_TEAM_style_0593	Sombrerito
+SYS_TEAM_style_0595	Canonazo
+SYS_TEAM_style_0596	Creatore di gol
+SYS_TEAM_style_0597	La Brujita
+SYS_TEAM_style_0598	Brioso
+SYS_TEAM_style_0603	El Tigre
+SYS_TEAM_style_0611	Pistola d'oro
+SYS_TEAM_style_0612	Gunners
+SYS_TEAM_style_0613	Blues
+SYS_TEAM_style_0614	Reds
+SYS_TEAM_style_0615	Citizens
+SYS_TEAM_style_0617	Marine et Blanc
+SYS_TEAM_style_0618	Rouge et Bleu
+SYS_TEAM_style_0619	Schwarzgelben
+SYS_TEAM_style_0620	Bayern
+SYS_TEAM_style_0621	Knappen
+SYS_TEAM_style_0622	Rossoneri
+SYS_TEAM_style_0623	Giallorossi
+SYS_TEAM_style_0624	Nerazzurri
+SYS_TEAM_style_0625	Bianconeri
+SYS_TEAM_style_0626	Partenopei
+SYS_TEAM_style_0627	Colchoneros
+SYS_TEAM_style_0628	Blaugrana
+SYS_TEAM_style_0629	Merengues
+SYS_TEAM_style_0630	Los Che
+SYS_TEAM_style_0631	Submarino Amarillo
+SYS_TEAM_style_0638	Ola Grande
+SYS_TEAM_style_0641	Antimateriale
+SYS_TEAM_style_0646	Taglio del vento
+SYS_TEAM_style_0648	Azione prodigiosa
+SYS_TEAM_style_0652	Baciare la Rete
+SYS_TEAM_style_0653	Santa Rosa
+SYS_TEAM_style_0655	Raddoppio
+SYS_TEAM_style_0658	El Pistolero
+SYS_TEAM_style_0663	Turning Torso
+SYS_TEAM_style_0667	Matrix
+SYS_TEAM_style_0668	Stroget
+SYS_TEAM_style_0671	Afterman
+SYS_TEAM_style_0674	Ragazzo prodigio
+SYS_TEAM_style_0676	El Delantero
+SYS_TEAM_style_0677	Supercar
+SYS_TEAM_style_0682	El Divino
+SYS_TEAM_style_0685	Schneesturm
+SYS_TEAM_style_0690	Panacea
+SYS_TEAM_style_0701	Kleiner Kaiser
+SYS_TEAM_style_0703	Trezegol
+SYS_TEAM_style_0713	Slip Beat
+SYS_TEAM_style_0717	Ballon d'Or
+SYS_TEAM_style_0722	Cobra
+SYS_TEAM_style_0723	Cannone
+SYS_TEAM_style_0730	Albiceleste
+SYS_TEAM_style_0731	Selecao Brasileira
+SYS_TEAM_style_0732	Azzurri
+SYS_TEAM_style_0733	Oranje
+SYS_TEAM_style_0734	Les Bleus
+SYS_TEAM_style_0735	Nationalmannschaft
+SYS_TEAM_style_0737	La Roja
+SYS_TEAM_style_0738	El Tri
+SYS_TEAM_style_0739	Tricolore
+SYS_TEAM_style_0741	Gouden Zonen
+SYS_TEAM_style_0742	Rood-Witten
+SYS_TEAM_style_0744	Aguias
+SYS_TEAM_style_0745	Celtinhas
+SYS_TEAM_style_0750	Maillot Oro
+SYS_TEAM_style_0765	Balilla
+SYS_TEAM_style_0786	Bis
+SYS_TEAM_style_0791	Asso prodigio
+SYS_TEAM_style_0794	Ala killer
+SYS_TEAM_style_0798	Ventania
+SYS_TEAM_style_0799	Eloi Jifinau
+SYS_TEAM_style_0800	Marcatore
+SYS_TEAM_style_0803	El Ganador
+SYS_TEAM_style_0822	Perun
+SYS_TEAM_style_0838	Ultima
+SYS_TEAM_style_0840	Tiki-Taka
+SYS_TEAM_style_0853	Fai gol
+SYS_TEAM_style_0854	Leoes
+SYS_TEAM_style_0855	Biancocelesti
+SYS_TEAM_style_0869	El Diego
+SYS_TEAM_style_0873	Glanzparade
+SYS_TEAM_style_0876	Biawe Olwi
+SYS_TEAM_style_0901	Quattro Omen di Oro
+SYS_TEAM_style_0904	Gran Capitano
+SYS_TEAM_style_0905	El Sangre
+SYS_TEAM_style_0906	L'oro
+SYS_TEAM_style_0909	Guaranies
+SYS_TEAM_style_0914	Quattro Omen di Oro
+INF_FRE_contents_0001	Golden Championship
+INF_SUPPORTER_noun_0065	Samurai
+CLM_CLUBTEAM_result_0011	%d/%d/%d
+CLM_CNAME_keyboard_0002	ABC
+CLM_CNAME_keyboard_0003	Kana
+CLM_CNAME_omakase_0000	FC %s
+CLM_CNAME_omakase_0001	AC %s
+CLM_CNAME_omakase_0002	SC %s
+CLM_CNAME_omakase_0003	AS %s
+CLM_CNAME_omakase_0004	Real %s
+CLM_CNAME_omakase_0005	Dinamo %s
+CLM_CNAME_omakase_0006	Atletico %s
+CLM_CNAME_omakase_0007	Club %s
+CLM_CNAME_omakase_0008	Athletic %s
+CLM_CNAME_omakase_0009	Sporting %s
+CLM_CNAME_omakase_0010	%s FC
+CLM_CNAME_omakase_0011	%s AC
+CLM_CNAME_omakase_0012	%s SC
+CLM_CNAME_omakase_0013	%s AS
+CLM_CNAME_omakase_0014	%s Athletic
+CLM_CNAME_omakase_0015	%s United
+CLM_MNAME_keyboard_0003	ABC
+CLM_MNAME_keyboard_0004	Kana
+CLM_MNAME_omakase_0001	Goro Ota
+CLM_MNAME_omakase_0010	Junichi Okayama
+CLM_MNAME_omakase_0050	Fernando
+COM_MEDIC_EVENT_choice_0002	Ipnosi
+COM_MEDIC_EVENT_choice_0012	Golf
+COM_NEW_MEDIC_choices_0009_02	Ipnosi
+COM_NEW_MEDIC_choices_0014_01	Golf
+COM_NEW_MEDIC_choices_0014_02	WCCF
+COM_STAMINA_choices_0012	Stretching
+GAM_COMMON_result_0026	V%d
+GAM_COMMON_result_0027	S%d
+GAM_COMMON_result_0028	P%d
+GAM_COMMON_round_0062	%s [%s]
+GAM_CONTINUE_states_0012	%d'
+GAM_FINR_prize_001	00
+GAM_FINR_prize_002	<empty>
+GAM_FINR_regular_000	V/
+GAM_FINR_regular_001	S/
+GAM_FINR_start_000	$%dM + $%d00
+GAM_FINR_start_001	<empty>
+GAM_OPENING_status_0004	$%dM + $%d00
+GAM_OPENING_status_0011	---
+GAM_OPENING_status_0013	-
+GAM_REAL_stadium_0000	San Siro
+GAM_REAL_stadium_0001	Estadio Santiago Bernabeu
+GAM_REAL_stadium_0002	Emirates Stadium
+GAM_REAL_stadium_0004	Nissan Stadium
+GAM_REAL_stadium_0005	La Bombonera
+GAM_REAL_stadium_0006	Estadio do Dragao
+GAM_REAL_stadium_0007	Luzhniki Stadium
+GAM_RESULT_score_0000	%d-%d
+GAM_RESULT_score_0002	%d-%d
+GAM_RESULT_states_0003	+
+GAM_RESULT_states_0004	-
+GAM_SALARY_states_0002	$%dM
+GAM_SALARY_states_0005	$%dM
+GAM_SALARY_states_0008	$%dM
+GAM_WT_result_0016	---
+INF_COACH_country_0009	Africa
+INF_COACH_country_0010	Asia
+INF_ENTRY_title_0004	W4 Title Holders Cup
+INF_ENTRY_title_0010	World Trophy
+INF_ENTRY_title_0031	Oceans Cup
+INF_FANEVENT_fan_0002	%d0K
+INF_FANEVENT_fan_0003	%d00M
+INF_FANEVENT_money_0001	$%d,000,000
+INF_OFFER_contents_0001	Sponsor:
+INF_OFFER_contents_0004	%s (%s)
+INF_SPONSOR_contents_0000	%s (%s)
+INF_SPO_name_0083	Dummy
+INF_SPO_name_0084	Dummy
+INF_SPO_name_0085	Dummy
+INF_SPO_name_0086	Dummy
+INF_SPO_name_0087	Dummy
+INF_SPO_name_0088	Dummy
+INF_SPO_name_0089	Dummy
+INF_SPO_name_0090	Dummy
+INF_SPO_name_0091	Dummy
+INF_SPO_name_0092	Dummy
+INF_SPO_name_0093	Dummy
+INF_SPO_name_0094	Dummy
+INF_SPO_name_0095	Dummy
+INF_SPO_name_0096	Dummy
+INF_SPO_name_0097	Dummy
+INF_SPO_name_0098	Dummy
+INF_SPO_name_0099	Dummy
+INF_SPO_name_0102	Dummy
+INF_SPO_name_0103	Dummy
+INF_SPO_name_0104	Dummy
+INF_SPO_name_0105	Dummy
+INF_SPO_name_0106	Dummy
+INF_SPO_name_0107	Dummy
+INF_SPO_name_0108	Dummy
+INF_SPO_name_0109	Dummy
+INF_SPO_name_0110	Dummy
+INF_SPO_name_0111	Dummy
+INF_SPO_name_0112	Dummy
+INF_SPO_name_0113	Dummy
+INF_SPO_name_0114	Dummy
+INF_SPO_name_0115	Dummy
+INF_SPO_name_0116	Dummy
+INF_SPO_name_0117	Dummy
+INF_SPO_name_0118	Dummy
+INF_SPO_name_0119	Dummy
+INF_SPO_name_0120	Dummy
+INF_SPO_name_0121	Dummy
+INF_SPO_name_0122	Dummy
+INF_SPO_name_0123	Dummy
+INF_SPO_name_0124	Dummy
+INF_SPO_name_0125	Dummy
+INF_SPO_name_0126	Dummy
+INF_SPO_name_0127	Dummy
+INF_WEEKLYCHAMPION_area_0000	HOKKAIDO/TOHOKU
+INF_WEEKLYCHAMPION_area_0002	TOKYO/KANAGAWA
+MAKE_area_001	Asia
+MAKE_area_003	Africa
+MAN_0506LICENSE_contents_0001	$%dM + $%d00
+MAN_0506LICENSE_contents_0002	V%d
+MAN_0506LICENSE_contents_0003	S%d
+MAN_0506LICENSE_contents_0004	P%d
+MAN_0506LICENSE_header_0002	Record:
+MAN_APPLICATION_seat_0007	$%dM + $%d00
+MAN_APPLICATION_seat_0013	Vs CPU
+MAN_DATAENTRY_condition_0003	$%dM+$%d00
+MAN_DATA_contents_0002	$%dM + $%d00
+MAN_DATA_contents_0003	$%dM + $%d00
+MAN_DATA_contents_0004	V%d
+MAN_DATA_contents_0005	S%d
+MAN_DATA_contents_0006	P%d
+MAN_DATA_contents_0008	%d yen
+MAN_DATA_ranking_0001	---
+MAN_ENTRY_message_0012	+
+MAN_MANAGER_contents_0001	%d / %d
+MAN_MANAGER_contents_0002	$%dM + $%d00
+MAN_MANAGER_contents_0003	V%d
+MAN_MANAGER_contents_0004	S%d
+MAN_MANAGER_contents_0005	P%d
+MAN_MATCH_report_player_perform_0054	-
+MAN_MATCH_report_player_perform_0055	-
+MAN_MATCH_report_player_value_0016	 -
+MAN_MATCH_report_team_perform_0033	-
+MAN_MATCH_report_team_perform_0034	-
+MAN_MATCH_report_team_perform_0036	-
+MAN_MATCH_report_team_perform_0037	-
+MAN_MATCH_report_team_value_0008	 -
+MAN_PRIZE_value_0001	$%d00
+MAN_PRIZE_value_0002	<empty>
+MAN_TEAM_contents_0000	$%dM+$%d00
+MAN_TEAM_contents_0001	%dV
+MAN_TEAM_contents_0002	%dS
+MAN_TEAM_contents_0003	%dP
+MAN_TEAM_contents_0029	%dV
+MAN_TEAM_contents_0030	%dS
+MAN_TEAM_contents_0031	%dP
+MAN_TEAM_contents_0045	%dV
+MAN_TEAM_contents_0046	%dS
+MAN_TEAM_contents_0047	%dP
+MAN_TEAM_contents_0052	0
+MAN_TICKER_contents_0012	Premier
+MAN_TRADE_seat_0006	---
+NET_RANK_area_0000	HOKKAIDO/TOHOKU
+NET_RANK_area_0002	TOKYO/KANAGAWA
+NET_RANK_prefecture_0063	Test
+NET_RANK_prefecture_0064	CHN
+NET_RANK_prefecture_0065	TWN
+NET_RANK_prefecture_0066	HKG
+NET_RANK_prefecture_0067	SGP
+NET_RANK_prefecture_0068	Altro
+NET_TWIT_title_0018	-
+PRO_PRO_battlelist_0012	%s [%s]
+PRO_PRO_battlelist_0013	CPU
+PRO_PRO_battlelist_0035	[%s]
+PRO_PRO_explanation_0004	$%dM+$%d00
+PRO_PRO_explanation_0008	$%dM
+PRO_PRO_explanation_0009	$%d,000,000
+PRO_PRO_game_0008	%d'
+PRO_PRO_game_0025	%d - %d
+PRO_PRO_game_0028	 %d'
+PRO_PRO_game_0037	FIN
+PRO_PRO_ranking_0013	%04d.%02d.%02d-%04d.%02d.%02d
+PRO_PRO_ranking_0015	%s [%s]
+PRO_PRO_round_0057	Online
+PRO_PRO_round_0073	Challenge Match
+PRO_PRO_seat_0009	s
+PRO_PRO_title_0012	W4 Title Holder's Cup
+PRO_PRO_title_0028	World Trophy
+PRO_PRO_title_0030	WCCF Cup
+PRO_PRO_title_0038	Oceans Cup
+PRO_PRO_title_0044	Japan Winner's
+PRO_PRO_title_0046	Championship
+PRO_PRO_title_0048	HOKKAIDO/TOHOKU
+PRO_PRO_title_0052	TOKYO/KANAGAWA
+PRO_PRO_title_0065	World Winner's Championship
+PRO_PRO_title_0067	Challenge Match
+PRO_PRO_title_0069	World Winner's
+PRO_PRO_title_0071	Championship
+SYS_ADDSKILL_level_0000	+
+SYS_ADDSKILL_name_0043	Pressing
+SYS_DEBUG_timegame_0041	Challenge Match
+SYS_DIS_error_0009	Dummy (5306)
+SYS_DIS_error_0010	Dummy (5302)
+SYS_DIS_error_0011	Dummy (5305)
+INF_OFFER_contents_0000	Club:
+SYS_ADV_right_0002	Arsenal: ? & c 2006 Arsenal Football Club Plc.Licensed by Granada Ventures\nChelsea FC: c 2006 Chelsea Football Clubs Limited\nLiverpool FC: ? & c 2006 Liverpool Football Club & Athletic Grounds Plc. Licensed by Granada Ventures\nThe player and club statistics are absolutely not from Liverpool Football Club nor they endorsed by the club in any way.\nIt is important to note that the club and Player Statistics have been prepared from information gathered by Panini S.p.A.\nfor the seasons as indicated on the products and not from the club themselves.\nManchester United: Crest & Imagery c MU Ltd.\nNewcastle United: Newcastle United appears under licence from Newcastle United Football Company Limited ("Newcastle FC"). \nThe Newcastle United club crest and imagery c Newcastle FC. All rights reserved.\nOlympique Lyonnais: c 2006 Olympique Lyonnais - Tous droits reserves\nOlympique de Marseille: c Olympique de Marseille.\nParis Saint-Germain FC: c PSG / PSG Merchandising 2005\nc Credits photos Christian Gavelle\nFC Bayern Muenchen
+INF_COACHTRAINING_contents_0001	---
+INF_COACHTRAINING_contents_0002	---
+COM_SEC_COACH_choices_0027_01	No
+GAM_COACHIITEM_name_0003	Maneki-neko
+GAM_COACHIITEM_name_0069	SUV
+SYS_ADDSKILL_name_0000	-
+SYS_ADDSKILL_name_0028	Stopper
+SYS_ADDSKILL_name_0032	Libero
+SYS_ADDSKILL_name_0038	Fantasista
+PRO_PRO_title_0075	Universal Cup
+PRO_PRO_title_0077	Universal Championship
+PRO_PRO_title_0094	Challenge Tour
+INF_INFO_title_0071	★★★  Le Classique! ★★★
+INF_INFO_title_0072	★★★  Der Klassiker! ★★★
+INF_INFO_title_0073	★★★  Revierderby! ★★★
+INF_INFO_title_0074	★★★  De Klassieker! ★★★
+INF_INFO_title_0076	★★★  Derby del Sole! ★★★
+INF_INFO_title_0077	★★★  Derby d'Italia! ★★★
+INF_INFO_title_0078	★★★  O Classico! ★★★
+INF_INFO_title_0080	★★★  El Clasico! ★★★
+INF_090_TOPICS_spmessage_0002	Lv%d  %d / %d
+INF_090_TOPICS_spmessage_0013	Lv%d  %s / %s
+MAN_GOLDAENTRY_menu_0000	Golden Championship
+MAN_GOLDAENTRY_contents_0006	100 yen
+MAN_DATA_gtranking_0017	Playoff
+SYS_CARDLIST_label_0009	Club
+SYS_QRSEQ_guidance_0029	1.
+SYS_QRSEQ_guidance_0030	2.
+SYS_QRSEQ_guidance_0031	3.
+INF_080_title_0000	★★★  Golden Championship  ★★★
+SYS_shop_normal_0023	%s  ~  %s
+GAM_LOUNGEITEM_name_0009	Backgammon
+GAM_LOUNGEITEM_name_0011	Reversi
+SYS_MISSION_data_0000	%s - %s
+SYS_MISSION_data_0001	%s - %s
+MAN_PLAYER_contents_0013	------
+MAN_CLUBOFFER_menu_0000	------
+INF_084_title_0000	★★★  Golden Championship  ★★★
+SYS_SEC_data_0002	Hobby:
+SYS_SEC_data_0008	CV:
+INF_097_title_0000	★★★  Universal Championship  ★★★
+GAM_MEDICALITEM_name_0000	Bevanda Vital
+GAM_MEDICALITEM_name_0001	Bevanda Vital G
+GAM_MEDICALITEM_name_0002	Bevanda Vital DX
+INF_096_title_0000	★★★  Universal Championship  ★★★
+INF_TOPICS_footer_0001	%d/%d
+GAM_REAL_stadium_0008	Old Trafford
+GAM_REAL_stadium_0009	Camp Nou
+GAM_OROGINAL_stadium_0069	Sports Football Park
+COM_SEC_COACH_choices_0035_00	★
+COM_SEC_COACH_choices_0035_01	★★
+COM_SEC_COACH_choices_0035_02	★★★
+INF_070_title_0000	★★★  World Winners Championship  ★★★
+INF_072_title_0000	★★★  Asia Championship  ★★★
+INF_095_title_0000	★★★  UNIVERSAL CUP  ★★★
+INF_134_title_0000	★★★  %s  ★★★
+SYS_shop_normal_0024	JPY 100

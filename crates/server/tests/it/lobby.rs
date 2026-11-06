@@ -273,3 +273,57 @@ fn release_frees_the_seat_at_once_and_spent_tickets_are_gone() {
     assert_eq!(lobby::release(d.addr(), "nope"), Ok(false));
     assert_eq!(lobby::heartbeat(d.addr(), &ticket), Ok(false));
 }
+
+#[test]
+fn a_notice_file_rides_in_the_lobby_answer() {
+    let dir = std::env::temp_dir().join(format!("forza_notice_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("notice.json");
+    let _ = std::fs::remove_file(&file);
+    let d = desk(|c| c.notice = Some(file.clone()));
+    let notice = || lobby::fetch(d.addr(), "2017-18").unwrap().notice;
+    // no file: no field on the wire
+    assert!(!say(d.addr(), "LOBBY 2017-18").contains("notice"));
+    let long = "x".repeat(500);
+    let write = |json: String| {
+        std::fs::write(&file, json).unwrap();
+        // a new modified time even on coarse clocks
+        let t = std::time::SystemTime::now() + Duration::from_secs(bump());
+        std::fs::File::options()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_modified(t)
+            .unwrap();
+    };
+    write(format!(
+        r#"{{"id":"n1","en":"Update\nat 23:00\u0007 {long}","ja":"23:00に更新","start":"2000-01-01T00:00:00+01:00"}}"#
+    ));
+    let n = notice().unwrap();
+    assert_eq!(n.id, "n1");
+    assert!(n.en.starts_with("Update at 23:00  xxx"), "{}", n.en);
+    assert_eq!(n.en.chars().count(), lobby::NOTICE_TEXT_LEN);
+    assert_eq!((n.text("ja"), n.it.as_deref()), ("23:00に更新", None));
+    // over: not sent
+    write(r#"{"id":"n2","en":"Over","end":"2001-01-01T00:00:00Z"}"#.into());
+    assert_eq!(notice(), None);
+    // not JSON, or no English: no notice
+    write("id = n3".into());
+    assert_eq!(notice(), None);
+    write(r#"{"id":"n4","it":"Solo italiano"}"#.into());
+    assert_eq!(notice(), None);
+    // an end that is not a date string: no notice, never one without an end
+    write(r#"{"id":"n6","en":"Forever?","end":1}"#.into());
+    assert_eq!(notice(), None);
+    write(r#"{"id":"n5","en":"Grand Trophy open 24 h","end":"2999-01-01T00:00:00Z"}"#.into());
+    assert_eq!(notice().unwrap().id, "n5");
+    std::fs::remove_file(&file).unwrap();
+    assert_eq!(notice(), None);
+}
+
+/// One second more at each call: each write of the notice file gets its own modified time.
+fn bump() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static N: AtomicU64 = AtomicU64::new(1);
+    N.fetch_add(1, Ordering::Relaxed)
+}

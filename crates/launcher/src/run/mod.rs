@@ -1027,9 +1027,12 @@ pub struct Run<'a> {
     /// When the start began, and the setup and guard checks' end (logged once the log folder is rotated).
     t0: Instant,
     early: [Duration; 2],
-    /// 2017-18: the Universal Championship's day file as last read (its time), and the date whose notice was given.
+    /// 2017-18: the Universal Championship's day file as last read (its time), and the date already looked at.
     uc_seen: Option<SystemTime>,
     uc_told: Option<u32>,
+    /// The projector program runs (2017-18: the CPU championship is on, and this PC holds the projector). Its window
+    /// may be hidden: the championship plays unseen then.
+    projector: bool,
     _lock: OwnedHandle,
 }
 
@@ -1054,6 +1057,16 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
     if edition == Edition::E1011 && !seat.join(".wccf-kit").is_file() {
         tell(ui, "", &Text::key("launcher.run_not_set_up"));
         return Err(NOT_SET_UP);
+    }
+    // an antivirus quarantining them leaves the game without its card table and panel; a server-only run needs neither
+    let missing = kit.missing_programs();
+    if !mode.is_server() && !missing.is_empty() {
+        tell(
+            ui,
+            "",
+            &Text::key("launcher.run_no_program").arg("files", missing.join(", ")),
+        );
+        return Err(REFUSED);
     }
     // held to the end of the start: see Admission
     let Some(_admitted) = admit(kit) else {
@@ -1141,6 +1154,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         early,
         uc_seen: None,
         uc_told: None,
+        projector: false,
         _lock: lock,
     };
     // requests left by a run that ended are never carried out
@@ -1293,7 +1307,28 @@ impl Run<'_> {
     /// not to start.
     fn card_steps(&self, what: &[&str]) {
         if self.edition == Edition::E1718 {
-            return; // its club is on the game server stand-in, its card is an Aime: no club card file
+            // its club is on the game server stand-in, its card is an Aime: no club card file; CLEAR BAD ENDINGS
+            // (the panel's card_fix=bad_endings) clears the stand-in's counters instead
+            let panel = self.kit.data().join("panel.txt");
+            let steps = forza::cards::steps::read_panel(&panel);
+            if what.contains(&"start") && steps.contains_key("card_fix") {
+                let dir = self.kit.save().join("gamesvr");
+                let done = if matches!(self.mode, Mode::Remote(..)) {
+                    "the club is on another PC's server - clear its bad endings there".to_owned()
+                } else if steps["card_fix"].eq_ignore_ascii_case("bad_endings") {
+                    if self.club.is_none() {
+                        self.club_leftover(&dir); // no trip on: an out marker is a crash's, the club is home
+                    }
+                    club::clear_bad_endings(&dir).unwrap_or_else(|e| format!("bad endings not cleared ({e})"))
+                } else {
+                    String::new()
+                };
+                if !done.is_empty() {
+                    self.say(&format!("  club: {done}"));
+                }
+                forza::cards::steps::drop_panel_line("card_fix", &panel);
+            }
+            return;
         }
         let seat = self.seat.display().to_string();
         let mut args = what.to_vec();
@@ -1703,8 +1738,9 @@ impl Run<'_> {
         } else {
             let ctrl_conf = self.game.join(r"local\ctrl_user_option.conf");
             if matches!(self.mode, Mode::Local | Mode::Vs(_)) {
-                // 2017-18 setting off: no projector, so no CPU championship on it and nobody waits for it
-                projector = self.edition != Edition::E1718 || choices::projector_on(&self.kit.settings());
+                // 2017-18 CPU championship off: no projector program (it plays the championship), nobody waits for it;
+                // the "projector" setting only shows or hides its window (the panel in it)
+                projector = self.edition != Edition::E1718 || choices::cpu_championship_on(&self.kit.settings());
                 let wait = if projector { "1" } else { "0" };
                 for c in &confs {
                     conf::set_control_ip(c, "127.0.0.1")?; // after a "remote" run: the cabinets play on this PC again
@@ -1763,12 +1799,21 @@ impl Run<'_> {
         if self.mode.is_server() {
             return self.start_server_side();
         }
+        self.projector = projector;
 
         if projector {
             let args = p.projector_args.clone().unwrap_or_else(|| vec!["0".into()]);
             let game = self.game.clone();
             self.start_game(Role::Projector, args, &game, false, self.panel_env())?;
-            self.tell("  3/6 ", &Text::key("launcher.run_projector"));
+            let hidden = self.edition == Edition::E1718 && !choices::projector_shown(&self.kit.settings());
+            self.tell(
+                "  3/6 ",
+                &Text::key(if hidden {
+                    "launcher.run_projector_hidden"
+                } else {
+                    "launcher.run_projector"
+                }),
+            );
         } else {
             self.tell(
                 "  3/6 ",
@@ -2305,6 +2350,16 @@ impl Run<'_> {
             file_log(self.logs().join("vslink_log.txt")),
         );
         cfg.ticket = ticket;
+        // gmsvr pairs only PCs whose match engine math is the same; a room partner with another is said once
+        if self.edition == Edition::E1718 {
+            cfg.dmath = Some(seat::dmath_token(&self.game, &self.seat));
+            let tx = self.tx.clone();
+            cfg.on_dmath_differs = Some(Arc::new(move |mine| {
+                let _ = tx.send(Event::Said(
+                    Text::key("launcher.run_vs_dmath_differs").arg("mine", mine),
+                ));
+            }));
+        }
         // WCCF_VS_RELAY, else settings "vs_relay" (URL); settings "vs_relay_ca" (PEM file) is the relay's only trusted root
         let settings = self.kit.settings();
         let saved = |k: &str| settings[k].as_str().map(str::to_owned);
@@ -2540,7 +2595,10 @@ impl Run<'_> {
         // the winner alone is written as the cup's final ends, and the championship opens at the next slot (2-3 min
         // later); all four teams are written as it opens
         let opens = at + Duration::from_secs(if teams.len() < 4 { 180 } else { 0 });
-        self.tell("", &championship_notice(opens));
+        // the notice sends the player to the big screen: tell it only when the projector runs with its window shown
+        if self.projector && choices::projector_shown(&self.kit.settings()) {
+            self.tell("", &championship_notice(opens));
+        }
         crate::logs::append(&self.logs().join("run_launcher.txt"), &championship_line(&self.game));
     }
 

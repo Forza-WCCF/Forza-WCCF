@@ -2,6 +2,7 @@
 //! Job object, the debugger, the key driver, the game's settings files, the club card's session, the logs.
 
 pub mod choices;
+pub mod cleanup;
 pub mod conf;
 pub mod debug;
 pub mod guard;
@@ -10,6 +11,7 @@ pub mod home;
 pub mod job;
 pub mod lobby;
 pub mod logs;
+pub mod notice;
 pub mod release;
 pub mod report;
 pub mod run;

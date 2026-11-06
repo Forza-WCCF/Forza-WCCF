@@ -64,6 +64,8 @@ pub enum Action {
     SkipTutorial,
     /// The projector switch changed.
     Projector,
+    /// The CPU championship switch changed.
+    CpuChampionship,
     /// The direct VS link switch changed.
     VsLink,
     /// UPDATE to the release at this place in the list: Launcher.exe asks to confirm.
@@ -80,6 +82,8 @@ pub enum Action {
     Lobby(LobbyAction),
     /// "Rejoin ..." (`rejoin`): reserve the last seat again.
     Rejoin,
+    /// CLEAN UP AFTER A CRASH (2017-18): the leftovers of a crash and a dropped arcade visit go, after a backup.
+    CleanUp,
     /// REPORT A PROBLEM: open the report dialog (`report`).
     Report,
     /// SAVE LOGS in the report dialog: its words and the logs in one ZIP on this PC.
@@ -147,6 +151,8 @@ pub struct LauncherState {
     pub clock: (f32, f32),
     /// The status line: a tone and its text.
     pub status: Option<(Tone, String)>,
+    /// The project server's notice in the window's language (remote text, drawn only as a label), under the status.
+    pub server_notice: Option<String>,
     /// The tab shown.
     pub tab: Tab,
     pub folder: String,
@@ -154,12 +160,17 @@ pub struct LauncherState {
     pub pictures_hq: bool,
     /// The skip-the-tutorial switch (2017–18 only).
     pub skip_tutorial: Option<bool>,
-    /// The projector switch: this PC's projector and its CPU championship (2017–18 only).
+    /// The projector switch: its window shown (2017–18 only).
     pub projector: Option<bool>,
+    /// The CPU championship switch: the projector program runs, shown or hidden (2017–18 only).
+    pub cpu_championship: Option<bool>,
     /// The club server, "HOST" or "HOST:PORT", empty for this PC (2017–18 only; saved at PLAY).
     pub club_server: Option<String>,
     /// The direct VS link switch, for club-server runs (2017–18 only).
     pub vs_link: Option<bool>,
+    /// CLEAN UP AFTER A CRASH is offered (2017–18 only) and its last result line.
+    pub clean_up: bool,
+    pub clean_status: Option<(Tone, String)>,
     /// The UPDATE section (2010–11 only: the releases are 2010–11 versions).
     pub updates: bool,
     /// The version in this folder.
@@ -207,6 +218,8 @@ pub enum Scenario {
     Online,
     /// The report dialog after a crash, words typed.
     Report,
+    /// SETUP on 2017-18 after CLEAN UP AFTER A CRASH cleaned something.
+    CleanedUp,
 }
 
 /// An empty lobby for the edition, open on ARCADES: the kind with nothing behind it greyed (2010–11 VS); 2017–18 arcades are
@@ -248,13 +261,17 @@ impl LauncherState {
             progress: 0.0,
             clock: (0.0, 0.0),
             status: Some((Tone::Done, tr!(lang, "launcher.status_ready"))),
+            server_notice: None,
             tab: Tab::Play,
             folder: r"C:\Games\Forza-WCCF\2010-2011".into(),
             pictures_hq: false,
             skip_tutorial: None,
             projector: None,
+            cpu_championship: None,
             club_server: None,
             vs_link: None,
+            clean_up: false,
+            clean_status: None,
             updates: edition == Edition::E1011,
             version: "7.0.0".into(),
             update_available: None,
@@ -284,8 +301,10 @@ impl LauncherState {
             st.folder = r"C:\Games\Forza-WCCF\2017-2018".into();
             st.skip_tutorial = Some(true);
             st.projector = Some(true);
+            st.cpu_championship = Some(true);
             st.club_server = Some(String::new());
             st.vs_link = Some(true);
+            st.clean_up = true;
         }
         match s {
             Scenario::Ready => {}
@@ -366,6 +385,18 @@ impl LauncherState {
                     .into(),
                     ..ReportForm::default()
                 });
+            }
+            Scenario::CleanedUp => {
+                st.tab = Tab::Setup;
+                st.clean_status = Some((
+                    Tone::Done,
+                    tr!(
+                        lang,
+                        "launcher.cleanup_done",
+                        n = "3",
+                        path = r"data\backup\bad-ending-2026-11-02"
+                    ),
+                ));
             }
             Scenario::Busy => {
                 st.busy = true;
@@ -623,6 +654,9 @@ fn footer(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
     } else if let Some((tone, text)) = &st.status {
         status_line(ui, *tone, text);
     }
+    if let Some(text) = &st.server_notice {
+        status_line(ui, Tone::Notice, text);
+    }
 }
 
 fn setup(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Action>) {
@@ -721,6 +755,34 @@ fn setup(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Actio
             .clicked()
         {
             *act = Some(Action::Projector);
+        }
+        if let Some(on) = &mut st.cpu_championship
+            && toggle_row(
+                ui,
+                on,
+                &tr!(lang, "launcher.cpu_championship"),
+                &tr!(lang, "launcher.cpu_championship_hint"),
+            )
+            .clicked()
+        {
+            *act = Some(Action::CpuChampionship);
+        }
+        if st.clean_up {
+            ui.horizontal(|ui| {
+                ui.add_enabled_ui(!st.running, |ui| {
+                    if action(ui, &tr!(lang, "launcher.cleanup")).clicked() {
+                        *act = Some(Action::CleanUp);
+                    }
+                });
+                ui.label(
+                    egui::RichText::new(tr!(lang, "launcher.cleanup_hint"))
+                        .font(theme::body(13.0))
+                        .color(theme::TEXT_DIM),
+                );
+            });
+            if let Some((tone, text)) = &st.clean_status {
+                status_line(ui, *tone, text);
+            }
         }
     });
 }

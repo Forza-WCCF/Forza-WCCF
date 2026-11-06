@@ -794,6 +794,7 @@ impl App {
             clock: (0.0, 0.0),
             progress: 0.0,
             status: None,
+            server_notice: None,
             tab: if !set_up || folder.is_some() {
                 Tab::Setup
             } else if online {
@@ -805,10 +806,13 @@ impl App {
             pictures_hq: choices::setting(&settings, "card_pictures").as_deref() == Some("hq"),
             skip_tutorial: (kit.edition() == Edition::E1718)
                 .then(|| kit.settings()["skip_tutorial"].as_bool() == Some(true)),
-            projector: (kit.edition() == Edition::E1718).then(|| choices::projector_on(&kit.settings())),
+            projector: (kit.edition() == Edition::E1718).then(|| choices::projector_shown(&kit.settings())),
+            cpu_championship: (kit.edition() == Edition::E1718).then(|| choices::cpu_championship_on(&kit.settings())),
             club_server: (kit.edition() == Edition::E1718)
                 .then(|| choices::setting(&settings, "club_server").unwrap_or_default()),
             vs_link: (kit.edition() == Edition::E1718).then(|| kit.settings()["vs_link"].as_bool() != Some(false)),
+            clean_up: ed == Edition::E1718,
+            clean_status: None,
             updates: true,
             version: version(kit),
             update_available: saved_available(kit),
@@ -1032,6 +1036,58 @@ impl App {
         });
     }
 
+    /// CLEAN UP AFTER A CRASH: the leftovers of a crash go after a backup (`launcher::cleanup`); one line in the window,
+    /// one per item in DETAILS and launcher.txt.
+    fn clean_up(&mut self, kit: &Kit) {
+        let game = game_folder(kit).unwrap_or_else(|| kit.dir().join("game"));
+        let procs = launcher::procs::game_processes(&game);
+        let done = launcher::cleanup::clean(
+            &kit.data(),
+            RUNNING.load(Ordering::Relaxed) || run::any_on(kit),
+            &procs,
+            launcher::procs::has_window,
+            launcher::procs::kill,
+            &launcher::cleanup::today(),
+        );
+        let (tone, line) = match done {
+            Err(e) => {
+                log(&format!("clean-up: backup failed, nothing removed: {e}"));
+                (
+                    Tone::Refused,
+                    tf("launcher.cleanup_failed", &[("what", &e.to_string())]),
+                )
+            }
+            Ok(r) if r.refused => {
+                log("clean-up: refused, the game is running");
+                (Tone::Refused, t("launcher.msg_game_running"))
+            }
+            Ok(r) => {
+                for l in &r.cleaned {
+                    log(&format!("clean-up: {l}"));
+                }
+                for l in &r.failed {
+                    log(&format!("clean-up: FAILED {l}"));
+                }
+                if let Some(b) = &r.backup {
+                    log(&format!("clean-up: backup in {}", b.display()));
+                }
+                if !r.failed.is_empty() {
+                    (
+                        Tone::Refused,
+                        tf("launcher.cleanup_failed", &[("what", &r.failed.join("; "))]),
+                    )
+                } else if r.cleaned.is_empty() {
+                    (Tone::Done, t("launcher.cleanup_none"))
+                } else {
+                    let n = r.cleaned.len().to_string();
+                    let path = r.backup.as_ref().map_or_else(String::new, |b| b.display().to_string());
+                    (Tone::Done, tf("launcher.cleanup_done", &[("n", &n), ("path", &path)]))
+                }
+            }
+        };
+        self.st.clean_status = Some((tone, line));
+    }
+
     /// What the player asked for in the screen.
     fn act(&mut self, a: Action, ctx: &egui::Context, frame: &eframe::Frame) {
         let kit = Kit::here();
@@ -1082,6 +1138,7 @@ impl App {
                 let game = (!game.is_empty()).then(|| Path::new(game));
                 save_logs(kit.dir(), game);
             }
+            Action::CleanUp => self.clean_up(&kit),
             Action::Pictures { choose } => self.pictures(&kit, frame, choose),
             Action::SkipTutorial => {
                 let file = kit.settings_file();
@@ -1091,9 +1148,21 @@ impl App {
                 }
             }
             Action::Projector => {
+                // the projector in the run picks it up within a second
                 let file = kit.settings_file();
                 let on = self.st.projector != Some(false);
-                if let Err(e) = choices::set_setting_bool(&file, choices::PROJECTOR, on) {
+                // the championship as shown written too: with no key of its own it would follow the window
+                let championship = self.st.cpu_championship != Some(false);
+                let set = choices::set_setting_bool(&file, choices::CPU_CHAMPIONSHIP, championship)
+                    .and_then(|()| choices::set_setting_bool(&file, choices::PROJECTOR, on));
+                if let Err(e) = set {
+                    refuse(write_failed(&file, &e));
+                }
+            }
+            Action::CpuChampionship => {
+                let file = kit.settings_file();
+                let on = self.st.cpu_championship != Some(false);
+                if let Err(e) = choices::set_setting_bool(&file, choices::CPU_CHAMPIONSHIP, on) {
                     refuse(write_failed(&file, &e));
                 }
             }
@@ -1413,6 +1482,12 @@ impl eframe::App for App {
 
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.look(ctx);
+        if self.st.projector.is_some() && ctx.input(|i| i.events.contains(&egui::Event::WindowFocused(true))) {
+            // the in-game SETTINGS may have changed the projector while this window was down
+            let s = Kit::here().settings();
+            self.st.projector = Some(choices::projector_shown(&s));
+            self.st.cpu_championship = Some(choices::cpu_championship_on(&s));
+        }
         if self.st.tab == Tab::Update {
             self.notes(&Kit::here());
         }
