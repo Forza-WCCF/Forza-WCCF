@@ -229,7 +229,8 @@ jobs:
           cand=
           for id in $(gh run list -R "$REPO" -w release.yml -e workflow_dispatch -c "$GITHUB_SHA" -s success -L 20 --json databaseId --jq '.[].databaseId'); do
             gh run download "$id" -R "$REPO" -n dist -D "cand-$id" || continue
-            if grep -q "  Forza-WCCF-2017-18-$V\.zip\$" "cand-$id/SHA256SUMS.txt"; then cand=$id; break; fi
+            # Git Bash's sha256sum writes "<hash> *<name>" (binary mode)
+            if grep -qE " [ *]Forza-WCCF-2017-18-${V//./\\.}\.zip\$" "cand-$id/SHA256SUMS.txt"; then cand=$id; break; fi
           done
           if [ -z "$cand" ]; then
             echo "::warning::no successful candidate run (dispatch with version=$V) on $GITHUB_SHA: these files were not played as a candidate"
@@ -238,7 +239,7 @@ jobs:
           fi
           url="https://github.com/$REPO/actions/runs/$cand"
           # file name, this build's sha256, the candidate's: every file whose hashes differ or that one side lacks
-          differ=$(join -1 2 -2 2 -a 1 -a 2 -e missing -o 0,1.1,2.1 <(sort -k2,2 dist/SHA256SUMS.txt) <(sort -k2,2 "cand-$cand/SHA256SUMS.txt") | awk '$2 != $3 { print $1 }')
+          differ=$(join -1 2 -2 2 -a 1 -a 2 -e missing -o 0,1.1,2.1 <(sort -k2,2 dist/SHA256SUMS.txt) <(sort -k2,2 "cand-$cand/SHA256SUMS.txt") | awk '$2 != $3 { sub(/^\*/, "", $1); print $1 }')
           if [ -z "$differ" ]; then
             echo "### Candidate: same bytes as run [$cand]($url)" >> "$GITHUB_STEP_SUMMARY"
             echo "::notice::the tag build matches candidate run $cand"
