@@ -145,6 +145,9 @@ fn gt_week(unix_secs: i64) -> u16 {
 /// best N scores; the client grows it only once it has played N matches this week (client 0x7FCB12), so a non-zero
 /// record is a ranked entry. The client writes it from save key 28,428 (sub_817F10 0x818B4F).
 const GT_RECORD_277: usize = 5572;
+/// The highest record [`record_gt`] keeps; the record comes off a player's PC.
+/// shortcut: a generous bound (10 scores of 100,000), tighten it once a player of the original confirms the range.
+const GT_RECORD_MAX: u32 = 1_000_000;
 /// SAVE_DATA 276 +3,212: the club's rank (SERVER_COACH_GT_NOWRANKING, s32; 0 shows "-----"), which the client sets
 /// from the answer (sub_81AC50 0x81B06D, key 28,472) and shows on its Grand Trophy ranking screen (0x718200). It sits
 /// in [`TAIL_SPANS`]' first span, so the stored 277's value (+5,592) is there unless this server writes its own.
@@ -159,7 +162,8 @@ const GT_WEEKLY_276: [(usize, usize); 4] = [(3192, 8), (3212, 4), (3220, 5), (32
 /// Writes a club's Grand Trophy week into a 276 that already holds its stored 277's spans: a 277 saved in an earlier
 /// week than `week` loses its weekly fields, and the rank (1-based, 0 = not ranked this week) replaces the stored one.
 fn fill_gt_week(body: &mut [u8], saved_week: u16, week: u16, rank: u32) {
-    if saved_week < week {
+    // `!=`: a save stamped in a later week (an imported club, a clock set back) is no record of this week either
+    if saved_week != week {
         for (at, len) in GT_WEEKLY_276 {
             body[at..at + len].fill(0);
         }
@@ -171,12 +175,10 @@ fn fill_gt_week(body: &mut [u8], saved_week: u16, week: u16, rank: u32) {
 /// central server imports a player's club for each session with fresh coachIds (online::club), so the card is the
 /// one id that lasts, and a card's entry is the best record of its clubs. The client's own week id (277 +5,600) is not
 /// used: it is the GAME_CTRL week the control fetched at its start, and a control may run for days. A record that
-/// grows takes `at`, the tie-break. Records of 0 (not yet N matches) are skipped.
-/// shortcut: a play that ends just after the Sunday 23:00 roll counts its card-in week's record in the new week (and
-/// is not reset until the next card-in); store the 276's week per session if that matters.
+/// grows takes `at`, the tie-break. Records of 0 (not yet N matches) and above [`GT_RECORD_MAX`] are skipped.
 fn record_gt(db: &Connection, week: u16, aime: u32, req: &[u8], at: i64) -> rusqlite::Result<()> {
-    let points = u32_at(req, GT_RECORD_277) as i32;
-    if points > 0 {
+    let points = u32_at(req, GT_RECORD_277);
+    if (1..=GT_RECORD_MAX).contains(&points) {
         db.execute(
             "INSERT INTO gt_points VALUES (?1, ?2, ?3, ?4) ON CONFLICT (week, aime_id)
              DO UPDATE SET points = excluded.points, at = excluded.at WHERE excluded.points > points",
@@ -565,7 +567,8 @@ struct Club {
 }
 
 /// The clubs and their saves, `<save_dir>/gamesvr.db`. Ids are allocated from counters and never 0.
-pub struct Store(pub(super) Connection);
+/// The second field is the Grand Trophy week each (Aime id, coachId) carded in (275) on this run of the server.
+pub struct Store(pub(super) Connection, HashMap<(u32, u32), u16>);
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS coaches (
@@ -691,7 +694,10 @@ fn migrate(db: &mut Connection) -> rusqlite::Result<()> {
     }
     if version < 3 {
         let saves: Vec<(u32, Vec<u8>, i64)> = tx
-            .prepare("SELECT aime_id, payload, updated FROM requests WHERE cmd = 277 AND length(payload) = 8572")?
+            .prepare(
+                "SELECT aime_id, payload, updated FROM requests WHERE cmd = 277 AND length(payload) = 8572
+                 ORDER BY updated",
+            )?
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
             .collect::<rusqlite::Result<_>>()?;
         for (aime, req, at) in saves {
@@ -740,7 +746,7 @@ impl Store {
             db.execute_batch("ALTER TABLE saves ADD COLUMN tail BLOB NOT NULL DEFAULT x''")?;
         }
         migrate(&mut db)?;
-        Ok(Self(db))
+        Ok(Self(db, HashMap::new()))
     }
 
     /// The clubs of `aime` that hold a save (a listed club without one would end in error 3107), oldest first.
@@ -1131,7 +1137,27 @@ fn club(
                 .save(aime, coach, card)
                 .map_err(db)?
                 .map_or("-".into(), |(block, ..)| team_tag(&block));
-            if !st.set_save(aime, coach, card, req).map_err(db)? {
+            let t = now();
+            let week = gt_week(t);
+            // a play carded in before the Sunday 23:00 roll grew its card-in week's record: file the record there and
+            // store the save without its weekly fields, so the club starts the new week from zero
+            let carded = gt
+                .then(|| st.1.get(&(aime, coach)).copied())
+                .flatten()
+                .filter(|&w| w < week);
+            let reset: Vec<u8>;
+            let stored = match carded {
+                Some(_) => {
+                    let mut r = req[..8572].to_vec();
+                    for (at, len) in GT_WEEKLY_276 {
+                        r[at + 2380..at + 2380 + len].fill(0);
+                    }
+                    reset = r;
+                    &reset[..]
+                }
+                None => req,
+            };
+            if !st.set_save(aime, coach, card, stored).map_err(db)? {
                 return Err(format!("no club aime {aime} coach {coach} card {card}"));
             }
             log(&format!(
@@ -1139,12 +1165,19 @@ fn club(
                 team_tag(&req[28..28 + BLOCK])
             ));
             if gt {
-                let (week, points) = (gt_week(now()), u32_at(req, GT_RECORD_277) as i32);
-                record_gt(&st.0, week, aime, req, now()).map_err(db)?;
-                if points > 0 {
-                    log(&format!(
+                // the save is stored: a ranking error is logged, never answered as a refused save
+                let (week, points) = (carded.unwrap_or(week), u32_at(req, GT_RECORD_277));
+                match record_gt(&st.0, week, aime, req, t) {
+                    Err(e) => log(&format!(
+                        "grand trophy: aime {aime} coach {coach} record {points} not kept: {e}"
+                    )),
+                    Ok(()) if points > GT_RECORD_MAX => log(&format!(
+                        "grand trophy: aime {aime} coach {coach} record {points} refused, above {GT_RECORD_MAX}"
+                    )),
+                    Ok(()) if points > 0 => log(&format!(
                         "grand trophy: aime {aime} coach {coach} week {week} record {points}"
-                    ));
+                    )),
+                    Ok(()) => {}
                 }
             }
             put(body, 8, coach);
@@ -1160,7 +1193,19 @@ fn club(
             restore_tail(body, &tail);
             if gt {
                 let week = gt_week(now());
-                let ranking = st.gt_ranking(week).map_err(db)?;
+                // shortcut: cleared when full and lost on restart (then a play across the roll files its record in
+                // the new week); keep it in the store if that matters
+                if st.1.len() >= 10_000 {
+                    st.1.clear();
+                }
+                st.1.insert((aime, coach), week);
+                // the ranking is a display: a read error shows "-----", it never fails the card-in
+                let ranking = st.gt_ranking(week).unwrap_or_else(|e| {
+                    log(&format!(
+                        "grand trophy: ranking of week {week} not read: {e}"
+                    ));
+                    Vec::new()
+                });
                 let rank = ranking
                     .iter()
                     .position(|&(a, _)| a == aime)
@@ -2034,6 +2079,64 @@ mod tests {
         assert!(body[3192..3200].iter().all(|b| *b == 0xAA));
         fill_gt_week(&mut body, gt_week(before), gt_week(after), 0);
         assert!(body[3192..3200].iter().all(|b| *b == 0));
+        // a save stamped in a later week resets too
+        body.fill(0xAA);
+        fill_gt_week(&mut body, gt_week(after), gt_week(before), 0);
+        assert!(body[3192..3200].iter().all(|b| *b == 0));
+    }
+
+    /// A play carded in before the Sunday 23:00 roll and saved after it files its record under the card-in week and
+    /// the club's next card-in starts from zero; a store error on `gt_points` neither refuses the save nor the
+    /// card-in.
+    #[test]
+    fn a_play_across_the_roll_keeps_its_card_in_week() {
+        let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
+        let log: Log = Arc::new(|_: &str| {});
+        let vs = Vs {
+            cfg: VsConfig {
+                public_ip: std::net::Ipv4Addr::LOCALHOST,
+                reflect_port: 1,
+                vslink_port: 2,
+            },
+            matcher: Arc::default(),
+        };
+        let vs = Some((&vs, IpAddr::from([127, 0, 0, 1])));
+        let ask = |cmd: u16, p: &[u8]| {
+            let (_, body, why) = answer(cmd, p, &store, None, &[], vs, &log).unwrap();
+            assert!(why.is_none(), "{cmd}: {why:?}");
+            body
+        };
+        let b = ask(279, &fixture(279, [5, 0, 0]));
+        let (club, card) = (u32_at(&b, 8), u32_at(&b, 12));
+        ask(277, &fixture(277, [5, club, card]));
+        ask(275, &req(275, [5, club, card]));
+        let week = gt_week(now());
+        store.lock().unwrap().1.insert((5, club), week - 1);
+        let mut r = fixture(277, [5, club, card]);
+        r[5564..5708].fill(0x11);
+        put(&mut r, GT_RECORD_277, 800);
+        ask(277, &r);
+        assert_eq!(
+            store.lock().unwrap().gt_ranking(week - 1).unwrap(),
+            [(5, 800)]
+        );
+        assert!(store.lock().unwrap().gt_ranking(week).unwrap().is_empty());
+        let a = ask(275, &req(275, [5, club, card]));
+        for (at, len) in GT_WEEKLY_276 {
+            assert!(a[at..at + len].iter().all(|b| *b == 0), "+{at} reset");
+        }
+
+        store
+            .lock()
+            .unwrap()
+            .0
+            .execute_batch("DROP TABLE gt_points")
+            .unwrap();
+        ask(277, &r);
+        assert_eq!(
+            u32_at(&ask(275, &req(275, [5, club, card])), GT_RANK_276),
+            0
+        );
     }
 
     /// The shared ranking on a server with VS: two cards' records in one week come back as ranks 1 and 2 at
@@ -2139,6 +2242,11 @@ mod tests {
             }
             // the same record again keeps its time
             record_gt(&st.0, 1, 3, &r, 99).unwrap();
+            // a record above the bound, or one that is negative as an s32, is not kept
+            for forged in [GT_RECORD_MAX + 1, 0x8000_0000] {
+                put(&mut r, GT_RECORD_277, forged);
+                record_gt(&st.0, 1, 4, &r, 10).unwrap();
+            }
             let order: Vec<_> = st.gt_ranking(1).unwrap().iter().map(|e| e.0).collect();
             assert_eq!(order, [3, 1, 2]);
         }
@@ -2197,6 +2305,12 @@ mod tests {
                 params![r, t],
             )
             .unwrap();
+            // the same record from a later session, first in key order: the earlier session keeps the tie-break
+            db.execute(
+                "INSERT INTO requests VALUES (5, 0, 277, ?1, ?2)",
+                params![r, t + 3_600],
+            )
+            .unwrap();
         }
         let st = Store::open(&path).unwrap();
         let n = |q: &str| -> i64 { st.0.query_row(q, [], |r| r.get(0)).unwrap() };
@@ -2207,11 +2321,13 @@ mod tests {
                 n("SELECT count(*) FROM saves"),
                 n("SELECT count(*) FROM requests")
             ],
-            [1, 1, 1]
+            [1, 1, 2]
         );
         let kept: Vec<u8> =
-            st.0.query_row("SELECT payload FROM requests", [], |r| r.get(0))
-                .unwrap();
+            st.0.query_row("SELECT payload FROM requests WHERE coach_id = 1", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
         assert_eq!(kept, r);
         assert_eq!(st.gt_ranking(gt_week(t)).unwrap(), [(5, 700)]);
         let at: i64 =
