@@ -731,7 +731,7 @@ fn board_links() {
     h.snapshot("panel_catalogue_affinity_en");
 }
 
-/// 2017-18: RESET LINEUP under the board, lit after a match when the table changed, greyed out in a match.
+/// 2017-18: RESET LINEUP under the board, lit while a kept table differs from the board, greyed out in a match.
 #[test]
 fn board_reset_lineup() {
     let _gpu = gpu();
@@ -782,6 +782,66 @@ fn board_reset_lineup_hint_and_undo() {
             Edition::E1718,
             |ui| panel::show(ui, &mut st),
         );
+    }
+    all.unwrap();
+}
+
+/// A table kept by an earlier run (no match in this one) that differs from the board: RESET LINEUP is lit and asks
+/// first. CONFIRM asks for the reset (the board becomes the kept table, with UNDO); CANCEL leaves the board alone.
+#[test]
+fn board_reset_lineup_asks_first() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for confirm in [true, false] {
+        let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
+        let now = forza::cards::table_after(&[], &st.board);
+        // the kept table: the first pitch card and the first sub trade places
+        let mut kept = now.clone();
+        let p = kept.iter().position(|c| !c.on_bench()).unwrap();
+        let b = kept.iter().position(|c| c.on_bench()).unwrap();
+        (kept[p].no, kept[b].no) = (kept[b].no, kept[p].no);
+        panel::keep_saved(&mut st, kept.clone(), std::time::SystemTime::now());
+        st.before_match_at = Some("21:40".into()); // a fixed time for the picture
+        panel::lineup_tick(&mut st, None, Some((false, false)), &now);
+        assert!(st.reset_ready && !st.in_match && !st.match_seen);
+        let shown = |b: &forza::board::Board| (0..16).map(|i| b.number(i)).collect::<Vec<_>>();
+        let before = shown(&st.board);
+        let after = shown(&forza::cards::board(&kept, &st.cards));
+        let st = std::cell::RefCell::new(st);
+        let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+            panel::show(ui, &mut st.borrow_mut())
+        });
+        h.run_steps(4);
+        // lit: a greyed-out button would not take the click
+        h.get_by_label("RESET LINEUP").click();
+        h.run_steps(8);
+        assert_eq!(st.borrow().reset_ask, Some(false));
+        assert!(!st.borrow().reset_lineup, "nothing replaced before CONFIRM");
+        if confirm {
+            h.snapshot("board_reset_ask_en");
+            all.extend_harness(&mut h);
+        }
+        h.get_by_label(if confirm { "CONFIRM" } else { "CANCEL" })
+            .click();
+        h.run_steps(4);
+        {
+            let mut s = st.borrow_mut();
+            assert!(s.reset_ask.is_none());
+            assert_eq!(s.reset_lineup, confirm);
+            // the panel DLL's step after the frame
+            let new = panel::take_reset(&mut s, &now, false);
+            if confirm {
+                assert_eq!(new.as_ref(), Some(&kept));
+                assert_eq!(shown(&s.board), after);
+                assert_eq!(s.import_undo.as_ref().map(|u| &u.0), Some(&now));
+            } else {
+                assert_eq!(new, None);
+                assert_eq!(shown(&s.board), before);
+                assert!(s.import_undo.is_none());
+            }
+        }
+        h.run_steps(4);
+        assert_eq!(h.query_by_label("UNDO").is_some(), confirm);
     }
     all.unwrap();
 }

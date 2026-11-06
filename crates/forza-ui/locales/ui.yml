@@ -376,6 +376,9 @@ board.reset_none: {en: "No match played yet", it: "Nessuna partita giocata", ja:
 board.reset_match: {en: "Not during a match", it: "Non durante una partita", ja: "試合中は使えません"}
 board.reset_done: {en: "Lineup reset", it: "Formazione ripristinata", ja: "編成を戻しました"}
 board.imported: {en: "Lineup imported", it: "Formazione importata", ja: "編成を読み込みました"}
+board.reset_ask_title: {en: "RESET LINEUP?", it: "RIPRISTINARE LA FORMAZIONE?", ja: "試合前の編成に戻しますか？"}
+board.reset_subs: {en: "SUBS", it: "RISERVE", ja: "控え"}
+board.reset_moves: {en: "Gold: players who change place", it: "In oro: chi cambia posto", ja: "金色：入れ替わる選手"}
 
 # ---- keys ----
 keys.hint: {en: "Click a cell, then press a key or button.", it: "Clicca una cella, poi premi un tasto o un pulsante.", ja: "マスをクリックし、キーまたはボタンを押す。"}
