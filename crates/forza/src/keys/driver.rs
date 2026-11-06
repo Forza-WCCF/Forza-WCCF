@@ -415,6 +415,9 @@ pub struct Bindings {
     /// The Launcher turns it off for 2017-18 (setup makes the game itself FREE PLAY); 2010-11's free play is the
     /// panel's in-memory patch, so its START still pays.
     pub start_coin: bool,
+    /// The CARD key moves the card sensor. Off for 2017-18: its club is the Aime card, always on the reader stand-in, and
+    /// whole sessions run with the sensor out, so the key only held the Launcher's stop.
+    pub card_key: bool,
 }
 
 impl Bindings {
@@ -423,6 +426,7 @@ impl Bindings {
             keys,
             pads,
             start_coin: true,
+            card_key: true,
         }
     }
 
@@ -485,7 +489,7 @@ impl Bindings {
         let mut events = Vec::new();
         let (now_a, was_a) = (self.held_actions(down), self.held_actions(prev));
         let edges = now_a & !was_a;
-        if edges >> CARD & 1 == 1 {
+        if self.card_key && edges >> CARD & 1 == 1 {
             card = !card;
             events.push(
                 if card {
@@ -912,6 +916,7 @@ pub fn spawn(
     keys_path: std::path::PathBuf,
     panel_path: Option<std::path::PathBuf>,
     start_coin: bool,
+    card_key: bool,
     log: Log,
 ) -> Handle {
     let stop = Arc::new(AtomicBool::new(false));
@@ -925,6 +930,7 @@ pub fn spawn(
             (
                 Bindings {
                     start_coin,
+                    card_key,
                     ..Bindings::new(keys, pads)
                 },
                 notes.into_iter().chain(pnotes).collect::<Vec<_>>(),
@@ -937,6 +943,9 @@ pub fn spawn(
             "WCCF 2010-11 seat 1 - keyboard and controller (both count only while a game window is in front)",
         );
         for (i, act) in ACTIONS.iter().enumerate() {
+            if i == CARD && !card_key {
+                continue;
+            }
             let b = &driver.bindings;
             let pad = if b.pads[i] != 0 {
                 pad_label(b.pads[i])
@@ -971,9 +980,11 @@ pub fn spawn(
         } else {
             "FREE PLAY is the game's own: Enter (START) puts in no coin (5 is still a coin)."
         });
-        log(
-            "CARD: when the game ejects the card it comes out by itself - press I to put it back in.",
-        );
+        log(if card_key {
+            "CARD: when the game ejects the card it comes out by itself - press I to put it back in."
+        } else {
+            "CARD: no key - the Aime card is always on the reader."
+        });
         let mut pads: Option<Pads> = None;
         let mut os = win::Foreground::default();
         // the panel's CONTROLLER IN THE BACKGROUND, and the seats on this PC (counted only when it matters)
@@ -1365,6 +1376,20 @@ mod tests {
         b.start_coin = false;
         assert_eq!(b.step(&start, &none, false, 0).1, 0);
         assert_eq!(b.step(&BTreeSet::from([0x35]), &none, false, 0).1, 1); // COIN still works
+    }
+
+    /// 2017-18 (`card_key` off): I moves nothing, the sensor stays out; 2010-11's I still puts the card in.
+    #[test]
+    fn the_card_key_is_off_only_when_asked() {
+        let (i, none) = (BTreeSet::from([0x49]), BTreeSet::new());
+        let mut b = Bindings::defaults();
+        assert!(b.step(&i, &none, false, 0).0, "2010-11: I puts the card in");
+        b.card_key = false;
+        let (card, _, events) = b.step(&i, &none, false, 0);
+        assert!(
+            !card && events.is_empty(),
+            "2017-18: I does nothing: {events:?}"
+        );
     }
 
     /// The gate's whole table: front x setting x seats -> (keyboard, controller).

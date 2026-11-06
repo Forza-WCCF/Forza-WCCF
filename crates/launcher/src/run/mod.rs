@@ -1927,7 +1927,15 @@ impl Run<'_> {
         }
         self.tell("", &Text::key("launcher.run_running"));
         self.tell("  ", &Text::key("launcher.run_keys1"));
-        self.tell("  ", &Text::key("launcher.run_keys2"));
+        let e1718 = self.edition == Edition::E1718; // 2017-18 has no card key
+        self.tell(
+            "  ",
+            &Text::key(if e1718 {
+                "launcher.run_keys2_1718"
+            } else {
+                "launcher.run_keys2"
+            }),
+        );
         self.tell(
             "",
             &Text::key(match self.edition {
@@ -1935,7 +1943,14 @@ impl Run<'_> {
                 Edition::E1718 => "launcher.run_card_1718",
             }),
         );
-        self.tell("", &Text::key("launcher.run_to_quit"));
+        self.tell(
+            "",
+            &Text::key(if e1718 {
+                "launcher.run_to_quit_1718"
+            } else {
+                "launcher.run_to_quit"
+            }),
+        );
         Ok(())
     }
 
@@ -2201,6 +2216,8 @@ impl Run<'_> {
             // 2017-18's panel SETTINGS has CONTROLLER IN THE BACKGROUND (data\panel.txt); 2010-11 never sets it
             (self.kit.edition() == Edition::E1718).then(|| self.kit.data().join("panel.txt")),
             // START puts in a coin only where the game is not in FREE PLAY: 2017-18 runs it from the panel (seen live, run 8)
+            self.kit.edition() != Edition::E1718,
+            // the CARD key (I) is 2010-11's: 2017-18's club is the Aime card, always on the reader
             self.kit.edition() != Edition::E1718,
             file_log(self.logs().join("run_keys.txt")),
         ));

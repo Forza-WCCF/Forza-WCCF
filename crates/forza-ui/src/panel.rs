@@ -266,6 +266,9 @@ pub const ACTIONS: [(&str, Cab); forza::keys::COUNT] = [
     ("keys.pause", Cab::Plain),
 ];
 
+/// CARD's place in [`ACTIONS`].
+const CARD_ACTION: usize = 6;
+
 /// The operator's switches (TEST, SERVICE, SW1, SW2): the KEYS page folds them under "Advanced".
 const OPERATOR: std::ops::Range<usize> = 12..16;
 
@@ -3874,6 +3877,10 @@ fn keys(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                         if i == forza::keys::PAUSE && !pause_on(st.edition) {
                             continue;
                         }
+                        // 2017-18's Aime card is always on the reader: no CARD key
+                        if i == CARD_ACTION && st.edition == Edition::E1718 {
+                            continue;
+                        }
                         row(ui, st, lang, i, cell_w);
                         ui.end_row();
                     }
@@ -5051,6 +5058,12 @@ pub fn widget_sheet(ui: &mut Ui, ws: &mut WidgetSheet) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn card_action_is_card() {
+        assert_eq!(ACTIONS[CARD_ACTION].0, "cab.card");
+        assert_eq!(forza::keys::NAMES[CARD_ACTION], "CARD");
+    }
     use crate::board::Aptitude;
     use forza::cards::BENCH_X;
 
