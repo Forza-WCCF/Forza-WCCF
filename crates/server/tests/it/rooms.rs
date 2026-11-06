@@ -487,7 +487,7 @@ fn listed_rooms_join_by_id_private_ones_by_code_only() {
 fn rooms_per_address_and_per_host_are_capped() {
     let d = desk(|_| {});
     let a = d.addr();
-    let (id, _, t) = arcade_room(a, &tunnel_id(1), false);
+    let (id, code, t) = arcade_room(a, &tunnel_id(1), false);
     assert_eq!(
         say(a, &format!("CREATE shop {}", tunnel_id(1))),
         "ERR host",
@@ -499,7 +499,8 @@ fn rooms_per_address_and_per_host_are_capped() {
         Created::Full
     );
     assert!(lobby::close(a, &id, &t).unwrap());
-    arcade_room(a, &tunnel_id(1), false);
+    let (_, again, _) = arcade_room(a, &tunnel_id(1), false);
+    assert_eq!(again, code, "the host's restart keeps its code");
     let vs: Vec<_> = (0..8).map(|_| room(a, false)).collect();
     assert_eq!(
         lobby::create(a, false).unwrap(),
@@ -562,14 +563,15 @@ fn the_desk_wide_ceiling_still_trips() {
 fn a_host_replaces_its_own_stale_room() {
     let d = desk(|c| c.host_stale = Duration::from_millis(300));
     let a = d.addr();
-    let (_, _, old_t) = arcade_room(a, &tunnel_id(1), false);
+    let (_, old_code, old_t) = arcade_room(a, &tunnel_id(1), false);
     assert_eq!(
         say(a, &format!("CREATE shop {}", tunnel_id(1))),
         "ERR host",
         "alive: kept"
     );
     std::thread::sleep(Duration::from_millis(400));
-    let (_, _, new_t) = arcade_room(a, &tunnel_id(1), false);
+    let (_, new_code, new_t) = arcade_room(a, &tunnel_id(1), false);
+    assert_eq!(new_code, old_code, "back from a crash: the same code");
     assert!(
         !lobby::heartbeat(a, &old_t).unwrap(),
         "the stale room is gone"

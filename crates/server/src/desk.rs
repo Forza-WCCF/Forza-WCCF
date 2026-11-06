@@ -1130,12 +1130,19 @@ fn create_arcade(
         }
         crate::arcade_room::Prior::None => {}
     }
+    // a host back from a restart keeps its code: its guests have that one
+    let mut kept = st.arcades.kept_code(host, ip);
     let (id, code) = loop {
-        let (id, code) = (random_hex(4), code(crate::arcade_room::CODE_LEN));
+        let id = random_hex(4);
+        let code = kept
+            .clone()
+            .unwrap_or_else(|| code(crate::arcade_room::CODE_LEN));
         let vs = st.rooms.iter().any(|r| r.id == id || r.code == code);
-        if id != sh.arcade_id && !vs && !st.arcades.holds(&id, &code) {
+        if id != sh.arcade_id && !vs && !st.arcades.holds(&id, &code, host) {
             break (id, code);
         }
+        // no other room holds a kept code; after a clash anyway, a fresh one rather than an endless loop
+        kept = None;
     };
     let ticket = random_hex(8);
     let reply = Created::Room {

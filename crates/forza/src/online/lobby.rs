@@ -13,7 +13,8 @@
 //! - `CREATE shop ID [public]` (2017-18) -> [`Created`]: an arcade room hosted by the PC whose arcade tunnel is ID (an
 //!   iroh EndpointId, 64 hex digits), the host on seat 1. Private unless `public` (then listed, without its code).
 //!   `CREATE shop ID public|private NAME...` names it too (the rest of the line, [`arcade_name`]); desks before this
-//!   answer `ERR`, and the Launcher asks again without the name.
+//!   answer `ERR`, and the Launcher asks again without the name. The same ID from the same address gets its last
+//!   room's code again (a restarted host keeps it; the desk forgets codes when it restarts).
 //! - `JOIN CODE [n]` -> [`Reserved`]: a guest seat (2-8) in the arcade room with that code. `JOIN ID [n]` with the id of
 //!   a listed (`public`) room seats a guest too; a private room's id answers `CLOSED`, so its code is the only way in.
 //!   Desks before this list rooms without [`Arcade::room`]. The Launcher joins a row with it by `JOIN id`; a 2017-18
