@@ -112,6 +112,14 @@ codegen-units = 1
 opt-level = "z"
 codegen-units = 1
 
+# 2026-11-06, 0.7.0: Microsoft's engine flagged dmath.dll as Trojan:Win32/Wacatac.B!ml in 2 of 3 VirusTotal analyses of
+# the release candidate, while 0.6.3's file was clean and the local Defender saw nothing: same lever as the programs
+# above. It cannot move the math: the caves are assembled at run time by iced-x86, libm keeps its own opt-level, and the
+# V4 hashes of the results are the same before and after (det-math ALL c4ca5aec).
+[profile.release.package.forza-detmath]
+opt-level = "z"
+codegen-units = 1
+
 [profile.fast]
 inherits = "release"
 lto = false
