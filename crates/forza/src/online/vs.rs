@@ -259,10 +259,10 @@ fn build(me: &Entry, other: &Entry, seed: u32, home: u32) -> [u8; MATCH_LEN] {
     r[124..148].copy_from_slice(&o[148..172]);
     cstr(&mut r[148..204], &o[200..256]);
     r[204..216].copy_from_slice(&o[256..268]);
+    // +216 feeds the opponent's seat id (+90, must stay < 10, control 0x467090)
     r[216..248].copy_from_slice(&o[16..48]);
-    // classes may differ now; the original server paired one class only, so its 246 always carried the seat's own
-    // class here (what the control reads +216 for is unverified)
-    r[216] = m[16];
+    // the control stores +240 as the opponent's GT class (0x467588 -> userdata +1560); the 243 leaves request +40 at 0
+    r[240..244].copy_from_slice(&u32::from(o[16]).to_le_bytes());
     r
 }
 
@@ -572,8 +572,9 @@ mod tests {
     fn pair_is_mirrored_stable_and_once() {
         let m = Matcher::default();
         let t = Instant::now();
-        let a = entry(1, 7, [9, 9, 9, 1], 20001, 111, 5);
-        let b = entry(2, 7, [9, 9, 9, 2], 20002, 222, 6);
+        let mut a = entry(1, 7, [9, 9, 9, 1], 20001, 111, 5);
+        let mut b = entry(2, 7, [9, 9, 9, 2], 20002, 222, 6);
+        (a[16], b[16]) = (2, 3);
         assert!(m.enter(&a, t) && m.enter(&b, t));
         assert_eq!(m.poll(&poll_req(1, 111, 5), t).map(|_| ()), Some(()));
         let pa = m.poll(&poll_req(1, 111, 5), t).unwrap();
@@ -589,8 +590,10 @@ mod tests {
         // the waiting seat (a) is Home: +20 equals +8 only for it
         assert_eq!(u32_at(&pa, 20), u32_at(&pa, 8));
         assert_ne!(u32_at(&pb, 20), u32_at(&pb, 8));
-        assert_eq!(pa[216..248], b[16..48]);
-        assert_eq!(pb[216..248], a[16..48]);
+        // +216..+248 is the partner's +16..+48, except +240: the partner's class
+        assert_eq!((&pa[216..240], &pa[244..248]), (&b[16..40], &b[44..48]));
+        assert_eq!((&pb[216..240], &pb[244..248]), (&a[16..40], &a[44..48]));
+        assert_eq!((u32_at(&pa, 240), u32_at(&pb, 240)), (3, 2));
     }
 
     #[test]
@@ -642,7 +645,11 @@ mod tests {
         );
         let p = m.poll(&poll_req(3, 333, 3), t).unwrap();
         assert_eq!(u32_at(&p, 12), 222, "World A takes the waiting Area B");
-        assert_eq!(p[216], 4, "the 246 carries the seat's own class");
+        assert_eq!(
+            u32_at(&p, 240),
+            1,
+            "the 246 carries the partner's class at +240"
+        );
         for i in 1..=u32::from(POLLS) {
             assert!(
                 m.poll(&poll_req(1, 111, 1), t + step * i).is_none(),
@@ -675,17 +682,22 @@ mod tests {
                 && m.enter(&gt(7, 777, 3), t)
                 && m.enter(&gt(8, 888, 5), t)
         );
-        assert_eq!(u32_at(&m.poll(&poll_req(5, 555, 5), t).unwrap(), 12), 444);
-        assert_eq!(u32_at(&m.poll(&poll_req(7, 777, 7), t).unwrap(), 12), 666);
+        // 888 polls while all four valid entries still wait
         assert!(
             m.poll(&poll_req(8, 888, 8), t).is_none(),
             "kbn 5 is no class"
         );
+        assert_eq!(u32_at(&m.poll(&poll_req(5, 555, 5), t).unwrap(), 12), 444);
+        assert_eq!(u32_at(&m.poll(&poll_req(7, 777, 7), t).unwrap(), 12), 666);
         let m = Matcher::default();
         assert!(m.enter(&gt(1, 111, 4), t) && m.enter(&gt(2, 222, 7), t));
         assert!(
             m.poll(&poll_req(2, 222, 2), t).is_none(),
             "kbn 7 never meets class 4"
+        );
+        assert!(
+            m.poll(&poll_req(1, 111, 1), t).is_none(),
+            "class 4 never meets kbn 7"
         );
     }
 
