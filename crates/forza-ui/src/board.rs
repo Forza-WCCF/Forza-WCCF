@@ -318,15 +318,17 @@ pub fn card_side(p: &Painter, rect: Rect, card: &Card, back: bool, nearest: bool
             p.add(egui::Shape::mesh(mesh));
         }
         None if back => card_back(p, rect, card, lang),
-        None => card_face(
-            p,
-            rect,
-            card,
-            Look {
-                square: true,
-                ..Look::default()
-            },
-        ),
+        None => {
+            card_face(
+                p,
+                rect,
+                card,
+                Look {
+                    square: true,
+                    ..Look::default()
+                },
+            );
+        }
     }
 }
 
@@ -451,8 +453,9 @@ pub struct Look {
 /// The card face, upright at the real card's shape ([`CARD_ASPECT`]): the card's picture whole, never cut (the game's
 /// album art `<number>_f.jpg`, else the pack's scan `<number>.jpg`, else the game's face `<number>.png`, letterboxed on a dark ground when its shape differs),
 /// from the folder [`set_picture_dir`] names; else a drawn face: the position band with TOTAL, a stand-in, the name on
-/// its foot, and on large ones the club and the season.
-pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
+/// its foot, and on large ones the club and the season. Returns the corner radius it drew with, for whatever a caller
+/// paints over the face (a square picture has none).
+pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) -> u8 {
     let card = &*real(p.ctx(), card);
     let big = rect.width() >= 90.0;
     // a picture is the whole card face (its own band, photo, name and numbers): shown whole, so square
@@ -499,7 +502,7 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
             Color32::WHITE.gamma_multiply(alpha),
         );
         face_marks(p, rect, r, card, rim, alpha, look);
-        return;
+        return r;
     }
     gradient(
         p,
@@ -637,6 +640,7 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
         );
     }
     face_marks(p, rect, r, card, rim, alpha, look);
+    r
 }
 
 /// The rim (amber when selected or a drop target) and the out-of-position corner, over the face or the scan.
@@ -1337,7 +1341,7 @@ pub fn formation_board(
                     } else {
                         zone(board.spots[slot]) != c.pos
                     };
-                card_face(
+                let corners = card_face(
                     p,
                     rect,
                     c,
@@ -1353,11 +1357,7 @@ pub fn formation_board(
                     && !is_dragged
                     && !links.grouped(s, c.number)
                 {
-                    p.rect_filled(
-                        rect,
-                        (rect.width() * 0.08) as u8,
-                        Color32::from_black_alpha(140),
-                    );
+                    p.rect_filled(rect, corners, Color32::from_black_alpha(140));
                 }
                 if pure && (resp.is_pointer_button_down_on() || is_dragged || resp.clicked()) {
                     ui.data_mut(|d| d.insert_temp(touched_id(), c.clone()));
