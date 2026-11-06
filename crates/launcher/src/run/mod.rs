@@ -2210,7 +2210,13 @@ impl Run<'_> {
         self.tell("  ", &line);
         if let Mode::Vs(_) = self.mode {
             let panel_file = self.kit.data().join("panel.txt");
-            let panel = choices::read(&panel_file);
+            let panel = choices::read_ok(&panel_file).map_err(|e| {
+                Failed(
+                    Text::key("launcher.msg_read_failed")
+                        .arg("path", panel_file.display())
+                        .arg("error", e),
+                )
+            })?;
             let club = choices::setting(&self.kit.settings_file(), "club_server").unwrap_or_default();
             let t = rules::vs_target(&panel, &club).map_err(Failed)?;
             self.vs_target = Some(t.clone());

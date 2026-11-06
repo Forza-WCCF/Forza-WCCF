@@ -3,6 +3,18 @@
 //! the game's text asked for, the club card chosen, the layout, the card hover delay, automatic reports. The file is
 //! written whole from these choices, so lines the panel does not know are not kept (as the C panel).
 
+use std::path::Path;
+
+/// A text file the panel and the Launcher write back whole: a missing file is the empty one, any other error is that
+/// error (one failed read must not be taken for an empty file and saved over with the defaults).
+pub fn read_text(path: &Path) -> std::io::Result<String> {
+    match std::fs::read_to_string(path) {
+        Ok(t) => Ok(t),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(e) => Err(e),
+    }
+}
+
 /// Four numbers 0-255 with dots, only the digits 0-9, as play.py's valid_ipv4 (the game takes no names).
 pub fn valid_address(s: &str) -> bool {
     let parts: Vec<&str> = s.split('.').collect();
@@ -168,6 +180,17 @@ impl PanelFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A missing file reads as empty; a file that cannot be read at all is said so, never empty (a save would wipe it).
+    #[test]
+    fn an_unreadable_text_is_not_an_empty_one() {
+        let d = std::env::temp_dir().join(format!("panel-txt-read-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("panel.txt")).unwrap();
+        assert_eq!(read_text(&d.join("missing.txt")).unwrap(), "");
+        assert!(read_text(&d.join("panel.txt")).is_err());
+        std::fs::remove_dir_all(&d).unwrap();
+    }
 
     /// wccfpanel.c's own output for these choices, and its reading rules (set_selftest's cases).
     #[test]

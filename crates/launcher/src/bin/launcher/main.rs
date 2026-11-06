@@ -1362,7 +1362,14 @@ impl App {
         }
         let lang = game_text(kit);
         let path = panel_file(kit);
-        let mut panel = choices::read(&path);
+        let mut panel = match choices::read_ok(&path) {
+            Ok(t) => t,
+            // a file that cannot be read now would be saved over with the defaults: nothing starts
+            Err(e) => {
+                refuse(read_failed(&path, &e));
+                return;
+            }
+        };
         panel = choices::set_panel_value(&panel, "play_on", Some(if online { "online" } else { "this_pc" }));
         if !server.is_empty() {
             panel = choices::set_panel_value(&panel, "server", Some(&server));
@@ -1423,6 +1430,14 @@ impl App {
 fn write_failed(path: &Path, e: &std::io::Error) -> String {
     tf(
         "launcher.msg_write_failed",
+        &[("path", &path.display().to_string()), ("error", &e.to_string())],
+    )
+}
+
+/// A file the Launcher writes back whole could not be read: it is left as it is.
+fn read_failed(path: &Path, e: &std::io::Error) -> String {
+    tf(
+        "launcher.msg_read_failed",
         &[("path", &path.display().to_string()), ("error", &e.to_string())],
     )
 }
