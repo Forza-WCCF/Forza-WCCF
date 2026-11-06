@@ -43,4 +43,5 @@
  "mng_dataview_coachdata": ["Risultati aree", "Area", "Titoli", "Vinte", "Tifosi"],
  "mng_dataview_coachdata_asia": ["Risultati aree", "Area", "Titoli", "Vinte", "Tifosi"],
  "agm_matchreport": ["Voto squadra", "Pagella", "Pagella"],
- "sys_wccfpoint_window": ["Punti WCCF", "Voto partita"]}
+ "sys_wccfpoint_window": ["Punti WCCF", "Voto partita"],
+ "mng_dataview_challengetour": ["Esito", "Club", "1a", "2a", "3a"]}

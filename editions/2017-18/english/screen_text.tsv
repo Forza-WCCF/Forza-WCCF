@@ -2289,6 +2289,7 @@ INF_WEEKLYCHAMPION_area_0002	TOKYO/KANAGAWA
 INF_WTCHAMPIONSHIP_message_0001	The prize money will fund a clubhouse rebuild.\nWork starts after this match - look forward to it.
 INF_WTCHAMPIONSHIP_message_0002	The battle on the world stage goes on,\nlet's aim for even better results!
 MAKE_area_001	Asia
+MAKE_area_002	Europe
 MAKE_area_003	Africa
 MAN_0506LICENSE_contents_0001	$%dM + $%d00
 MAN_0506LICENSE_contents_0002	W%d
