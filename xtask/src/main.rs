@@ -764,9 +764,14 @@ fn build_all(root: &Path, kit: &Path, kit_1718: &Path, e1011: bool) -> Result<()
         fs::copy(from, &to)?;
         println!("built {}", to.display());
     }
-    // dated at the start: a source saved during the build is newer than the stamp, so the next `quick` rebuilds
-    let stamp = fs::File::create(built_stamp(kit))?;
-    stamp.set_modified(started)?;
+    // dated at the start (a source saved during the build is newer than the stamp, so the next `quick` rebuilds) and
+    // holding the list of sources (a deleted or renamed one is then not a build with a file that is gone)
+    let stamp = built_stamp(kit);
+    std::fs::write(&stamp, sources(root)?)?;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&stamp)?
+        .set_modified(started)?;
     Ok(())
 }
 
@@ -776,10 +781,11 @@ fn built_stamp(kit: &Path) -> PathBuf {
 }
 
 /// The staged kit is missing, or a source it is built from changed after the last `build_all` started (a branch switch
-/// counts: git writes the files). shortcut: a deleted file is not seen, `cargo xtask build` by hand then.
+/// counts: git writes the files), or the list of sources is not the one it was built from.
 fn kit_stale(root: &Path, kit: &Path) -> Result<bool> {
     // the stamp sits outside the edition folders: a kit folder deleted by hand leaves it behind
-    let Ok(built) = fs::metadata(built_stamp(kit)).and_then(|m| m.modified()) else {
+    let stamp = built_stamp(kit);
+    let Ok(built) = fs::metadata(&stamp).and_then(|m| m.modified()) else {
         return Ok(true);
     };
     if !kit.join("source/build/fakegame.exe").is_file()
@@ -787,6 +793,13 @@ fn kit_stale(root: &Path, kit: &Path) -> Result<bool> {
     {
         return Ok(true);
     }
+    let files = sources(root)?;
+    let listed = fs::read_to_string(&stamp).unwrap_or_default();
+    Ok(sources_changed(root, built, &listed, &files))
+}
+
+/// The files the kits are built from, sorted, as `git ls-files` lists them (the stamp holds this).
+fn sources(root: &Path) -> Result<String> {
     let sh = Shell::new()?;
     sh.change_dir(root);
     let dirs = [
@@ -806,11 +819,22 @@ fn kit_stale(root: &Path, kit: &Path) -> Result<bool> {
         "git ls-files -z --cached --others --exclude-standard -- {dirs...}"
     )
     .read()?;
-    Ok(files.split('\0').filter(|f| !f.is_empty()).any(|f| {
-        fs::metadata(root.join(f))
-            .and_then(|m| m.modified())
-            .is_ok_and(|m| m > built)
-    }))
+    let mut list: Vec<&str> = files.split('\0').filter(|f| !f.is_empty()).collect();
+    list.sort_unstable();
+    Ok(list.join("\n"))
+}
+
+/// Whether the sources are not the build's: a listed file newer than it, a listed file gone from the tree (deleted and
+/// not staged), or another list than the stamp's (deleted and staged, or renamed).
+fn sources_changed(root: &Path, built: std::time::SystemTime, listed: &str, now: &str) -> bool {
+    listed.trim_end() != now
+        || now
+            .split('\n')
+            .filter(|f| !f.is_empty())
+            .any(|f| match fs::metadata(root.join(f)) {
+                Ok(m) => m.modified().is_ok_and(|m| m > built),
+                Err(_) => true,
+            })
 }
 
 fn build<'s>(
@@ -2572,6 +2596,24 @@ fn walk(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `check quick` must rebuild when a source is gone: deleted and not staged, git still lists it and the mtime
+    /// comparison skips it (the 2026-11-06 sweep); deleted and staged, it is not in the list at all.
+    #[test]
+    fn a_deleted_source_makes_the_kit_stale() {
+        let root = std::env::temp_dir().join(format!("xtask-stale-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.rs"), b"").unwrap();
+        let built = std::fs::metadata(root.join("a.rs"))
+            .unwrap()
+            .modified()
+            .unwrap();
+        assert!(!sources_changed(&root, built, "a.rs\n", "a.rs"));
+        assert!(sources_changed(&root, built, "a.rs\nb.rs\n", "a.rs\nb.rs"));
+        assert!(sources_changed(&root, built, "a.rs\nb.rs\n", "a.rs"));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
 
     #[test]
     fn source_txt_names_the_tag_only_for_a_version() {
