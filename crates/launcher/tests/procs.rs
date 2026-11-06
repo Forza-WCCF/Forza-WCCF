@@ -209,3 +209,11 @@ fn prefer_system32_is_seen() {
         );
     }
 }
+
+/// An unplugged drive, or a share whose server is offline: nothing up the path resolves, and the path is kept as it
+/// is (never with its own tail added again, which compared wrong in "stop").
+#[test]
+fn an_unreachable_root_keeps_the_path() {
+    let path = Path::new(r"Q:\no\such\game");
+    assert_eq!(same_form(path), normcase(path));
+}

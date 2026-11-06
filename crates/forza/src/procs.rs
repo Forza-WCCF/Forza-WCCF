@@ -133,7 +133,12 @@ pub fn same_form(path: &Path) -> String {
                 rest.push(name);
                 at = up;
             }
-            _ => break full.clone(),
+            // nothing above this resolves (an unplugged drive, an offline share): the path is kept as it is, and the
+            // parts pushed so far are not added to it a second time
+            _ => {
+                rest.clear();
+                break full.clone();
+            }
         }
     };
     let resolved = rest.iter().rev().fold(resolved, |p, n| p.join(n));
