@@ -35,7 +35,7 @@ const TABS_H: f32 = 56.0;
 /// The deck row under the picture keeps at least this; on wide sheets the picture stops growing first.
 const DECK_MIN: f32 = 148.0;
 /// What the board's height needs per point of pitch width (pitch 1.25, the artwork's bench 0.205) and besides (margins 32,
-/// gaps 12, and the foot: a gap 4, the row of buttons 22, a gap 8 and a hint line 23).
+/// gaps 12, and the foot: a gap 4, the row of buttons 22, a gap 8 and a line 23: the hint, or a note and its UNDO 22).
 const BOARD_PER_W: f32 = 1.455;
 const BOARD_EXTRA: f32 = 101.0;
 /// The pop-out board's window lays its bench beside the pitch (a column, [`board::COLUMN_ASPECT`]) when its room is at
@@ -2935,6 +2935,9 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
         row.with_max_x(left - 8.0)
     };
     let mut b = b.new_child(egui::UiBuilder::new().max_rect(text));
+    // an UNDO row no higher than the hint's line: the theme's 32-point buttons, centred on it, rose into the row over it
+    b.spacing_mut().interact_size.y = 22.0;
+    b.spacing_mut().button_padding.y = 2.0;
     if import_undo_line(&mut b, st, lang, now) {
         return None;
     }
@@ -2949,7 +2952,7 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
                     .font(theme::body(HINT))
                     .color(theme::TEXT),
             );
-            if widgets::action(ui, &tr!(lang, "board.undo")).clicked() {
+            if foot_undo(ui, lang).clicked() {
                 st.board_changed |= board::undo(&mut st.board, &r);
                 st.undo = None;
             }
@@ -3001,11 +3004,20 @@ fn import_undo_line(ui: &mut Ui, st: &mut PanelState, lang: Lang, now: f64) -> b
             .font(theme::body(HINT))
             .color(theme::TEXT),
         );
-        if widgets::action(ui, &tr!(lang, "board.undo")).clicked() {
+        if foot_undo(ui, lang).clicked() {
             st.import_undone = true;
         }
     });
     true
+}
+
+/// UNDO under a board: 22 high in the type of the buttons above it, so its row fits the hint's line (23 points,
+/// [`BOARD_EXTRA`]).
+fn foot_undo(ui: &mut Ui, lang: Lang) -> egui::Response {
+    ui.add(
+        egui::Button::new(egui::RichText::new(tr!(lang, "board.undo")).font(theme::bold(12.0)))
+            .min_size(vec2(0.0, 22.0)),
+    )
 }
 
 /// How long UNDO stays offered after a card is taken off the board.
