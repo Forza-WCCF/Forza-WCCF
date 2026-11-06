@@ -8529,8 +8529,8 @@ MAN_ST_data_0033	Bonus for players %d kg or heavier!
 MAN_ST_data_0034	Bonus for players %d kg or lighter!
 MAN_ST_data_0035	Bonus for using %s players!
 MAN_ST_data_0036	Total points tournament
-MAN_ST_data_0037	Points needed to update
-MAN_ST_data_0038	Note: you have not reached the required number of plays, so you will not be entered
+MAN_ST_data_0037	Points to beat your best
+MAN_ST_data_0038	Note: play the required number of matches this week to be ranked.
 MAN_ST_data_0039	Entered in the ranking!
 MAN_ST_data_0040	Best total pts for %d matches updated!
 MAN_ST_data_0041	Best total pts for %d matches was not updated

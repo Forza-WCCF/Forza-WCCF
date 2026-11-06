@@ -5002,8 +5002,8 @@ MAN_ST_data_0033	Bonus per giocatori di almeno %d kg!
 MAN_ST_data_0034	Bonus per giocatori di al massimo %d kg!
 MAN_ST_data_0035	Bonus se usi giocatori %s!
 MAN_ST_data_0036	Torneo a punti totali
-MAN_ST_data_0037	Punti per aggiornare
-MAN_ST_data_0038	Nota: non hai raggiunto le partite richieste, quindi non sarai iscritto
+MAN_ST_data_0037	Punti per battere il record
+MAN_ST_data_0038	Nota: gioca le partite richieste questa settimana per entrare in classifica.
 MAN_ST_data_0039	Iscritto alla classifica!
 MAN_ST_data_0040	Record punti per %d partite aggiornato!
 MAN_ST_data_0041	Record punti per %d partite non aggiornato
