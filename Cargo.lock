@@ -3454,6 +3454,7 @@ dependencies = [
  "time",
  "tokio",
  "vslink",
+ "wgpu",
  "windows",
  "windows-sys 0.61.2",
  "zip",
@@ -7235,6 +7236,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tl",
+ "wgpu",
  "windows",
  "zip",
 ]

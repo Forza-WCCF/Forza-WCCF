@@ -127,7 +127,7 @@ const NOTO: &str = "NotoSansJP-VF.ttf";
 const BARLOW: &str = "BarlowCondensed-Bold.ttf";
 const HACK: &str = "Hack-Regular.ttf";
 
-/// One file read stays in memory for the program's life, shared by every weight that uses it (Noto Sans JP is ~9.6 MB).
+/// One file read stays in memory for the program's life, shared by every weight that uses it (Noto Sans JP is ~4.5 MB).
 fn read_static(dir: &Path, name: &str) -> std::io::Result<&'static [u8]> {
     // the error names the file, for the Launcher's missing-files message
     let bytes = std::fs::read(dir.join(name))
@@ -198,7 +198,7 @@ pub fn install_fonts(ctx: &Context, edition: Edition, fonts: FontDefinitions) {
     ctx.set_fonts(fonts);
     ctx.set_theme(egui::Theme::Dark);
     ctx.set_global_style(style(edition));
-    // the card pictures: PNG files through egui's loaders
+    // the card pictures: PNG and JPEG files through egui's loaders
     egui_extras::install_image_loaders(ctx);
 }
 

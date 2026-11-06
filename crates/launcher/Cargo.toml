@@ -16,8 +16,10 @@ name = "Launcher"
 path = "src/bin/launcher/main.rs"
 
 [dependencies]
-# the window: forza's launcher screen in eframe (wgpu; our fonts from fonts\, no default_fonts), pickers through rfd
+# the window: forza's launcher screen in eframe (OpenGL, else wgpu; our fonts from fonts\, no default_fonts), pickers through rfd
 eframe.workspace = true
+# no code uses it: it carries the DX12 backend of eframe's wgpu fallback (the workspace's `wgpu` entry); keep it
+wgpu.workspace = true
 forza.workspace = true
 forza-ui.workspace = true
 # `Launcher.exe server ...`: the online server's command line (2017-18 ships no forza-server.exe)
