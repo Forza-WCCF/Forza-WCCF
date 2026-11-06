@@ -864,11 +864,16 @@ fn scratch_kit_1718(top: &Path) -> Kit {
     built_copy("2017-18/bin", "wccfnet.dll", &seat.join("wccfnet.dll"));
     built_copy("2017-18/bin", "ICMP.DLL", &game.join("ICMP.DLL"));
     built_copy("2017-18/bin", "ICMP.DLL", &seat.join("ICMP.DLL"));
-    // a start refuses without them; the game starts FPR_Emu, and a panel that does not load never stops a run
-    for (dir, n) in [("bin", "FPR_Emu.exe"), ("overlay", "forza_panel.dll")] {
-        fs::create_dir_all(kit.join(dir)).unwrap();
-        fs::write(kit.join(dir).join(n), b"a stand-in").unwrap();
-    }
+    // a start refuses without them; the game starts FPR_Emu, and a panel that does not load never stops a run.
+    fs::create_dir_all(kit.join("bin")).unwrap();
+    fs::write(kit.join(r"bin\FPR_Emu.exe"), b"a stand-in").unwrap();
+    // the built panel, not a placeholder: wccfnet.dll loads it into the seat, and Windows shows a dialog for a file
+    // that is no DLL
+    built_copy(
+        "2017-18/overlay",
+        "forza_panel.dll",
+        &kit.join("overlay").join("forza_panel.dll"),
+    );
     // setup's copy, or the start sets the runtime up again
     fs::create_dir_all(seat.join("FlatPanelReader_Emulator")).unwrap();
     fs::write(seat.join(r"FlatPanelReader_Emulator\FPR_Emu.exe"), b"a stand-in").unwrap();
@@ -1048,6 +1053,12 @@ fn closing_seat_1_ends_the_2017_18_run() {
     let said = ui.text();
     assert_eq!(rc, run::OK, "{said}");
     assert!(said.contains("Game closed by the player."), "{said}");
+    // the start wrote the club's place into the conf, and no region beside it
+    let conf = fs::read_to_string(top.path().join(r"game\local\client_user_option.conf")).unwrap();
+    assert!(
+        conf.contains("TENPO_NAME1=Forza-WCCF") && conf.contains("PREFECTURE_ID1=-1"),
+        "{conf}"
+    );
     let aime = fs::read_to_string(kit.save().join("seat1_aime.txt")).unwrap();
     assert!(aime.trim().len() >= 20, "the Aime card was made: {aime}");
 }

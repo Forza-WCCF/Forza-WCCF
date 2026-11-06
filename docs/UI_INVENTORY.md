@@ -86,8 +86,8 @@ over the picture one at a time, and while a page is open its keys do not reach t
   SERVICE, SW1, SW2), each with a keyboard key and a controller button. Click, then press; a key taken by another
   action swaps over; right-click clears; only allowed keys. Controllers are found when plugged in.
 - **Settings**
-  - Now (status, refreshed every second): server (this PC / online, linked or not), club card session, bad endings
-    count, last saved, latest backup, game text; the version.
+  - Now (status, refreshed every second): server (this PC / online, linked or not), club card session and bad endings
+    count (2010–11 only), last saved, latest backup, game text; the version.
   - Next start: play on this PC / online + address; game text; RESTART NOW (click twice within 8 s; refused during a
     card session; says if no helper took it).
   - View: layout CABINET (strips with buttons) or COMPACT (no cabinet buttons); card hover delay (2010–11: 0.5, 1, 2,

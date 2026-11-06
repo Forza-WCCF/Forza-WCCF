@@ -171,6 +171,39 @@ fn fill_gt_week(body: &mut [u8], saved_week: u16, week: u16, rank: u32) {
     put(body, GT_RANK_276, rank);
 }
 
+/// SAVE_DATA_SET 277 +5,609: the club's Grand Trophy class (COACH_GT_CLASS, key 14,700, u8; sub_817F10 0x818E14):
+/// 0 Local, 1 Area B, 2 Area A, 3 World B, 4 World A. The 276 applier never sets the key (sub_81AC50 skips +3,229);
+/// the client changes it itself from the result fields below.
+const GT_CLASS_277: usize = 5609;
+/// SAVE_DATA 276 Grand Trophy result fields (sub_81AC50): the final rank (SERVER_COACH_GT_FINISHRANKING, s32 +3,216,
+/// key 28,480, 0x81B084), the next class (SERVER_COACH_GT_NEXT_CLASS, u8 +3,230, key 28,484, 0x81B142) and the
+/// play-off flag (u8 +3,285, key 28,488, 0x81B211). A final rank >= 1 makes the card-in show the result info
+/// (sub_6108B0 0x6109E5), which sets the class to the next class unless the flag is 1 and then zeroes rank and next
+/// class (sub_6CEBE0 0x6D09D2, sub_6D1770). The client clamps nothing: a next class below the class demotes, to
+/// Local even. All three sit in the first tail span (277 +5,596/+5,610/+5,665).
+const GT_FINAL_RANK_276: usize = 3216;
+const GT_NEXT_CLASS_276: usize = 3230;
+const GT_PLAYOFF_276: usize = 3285;
+/// The closed week's record that moves a club up one class, per class; 0 = no promotion, so Area A is the cap. Also
+/// GAME_CTRL raisePoint (7,676 + 4 x class, s32), the ranking screen's "est. promotion" (0x7171D0).
+const GT_RAISE: [u32; 5] = [1_000, 1_200, 0, 0, 0];
+const GT_RAISE_AT: usize = 16 + 7_676;
+
+/// Writes a card-in's Grand Trophy result fields: a promotion from `class` with the closed week's `rank` (rank and
+/// next class always together, next = class + 1, never above Area A), or zero, so a stored or imported 277 can never
+/// send a result the server did not issue. The play-off flag is always 0 (no play-offs). Called only on a server with
+/// VS: an arcade's stand-in passes the stored 277's fields through, so a promotion a VS server issued that the club
+/// has not applied yet (saved before the info scene) shows at its next card-in at home, once.
+fn fill_gt_result(body: &mut [u8], promote: Option<(u8, u32)>) {
+    let (rank, next) = match promote {
+        Some((class, rank)) if class < 2 => (rank.max(1), class + 1),
+        _ => (0, 0),
+    };
+    put(body, GT_FINAL_RANK_276, rank);
+    body[GT_NEXT_CLASS_276] = next;
+    body[GT_PLAYOFF_276] = 0;
+}
+
 /// Records a 277's Grand Trophy record under the server's `week`, the one the save arrived in, per card (Aime id): a
 /// central server imports a player's club for each session with fresh coachIds (online::club), so the card is the
 /// one id that lasts, and a card's entry is the best record of its clubs. The client's own week id (277 +5,600) is not
@@ -273,7 +306,7 @@ const RESP: &[(u16, usize, Zero)] = &[
         12,
         Zero::Safe("ctl sub_408C50 case only: 247 has no sender"),
     ),
-    (250, 504, Zero::Pending("C6")),
+    (250, 504, Zero::Handled),
     (
         256,
         1008,
@@ -634,10 +667,25 @@ CREATE TABLE IF NOT EXISTS gt_points (
     at      INTEGER NOT NULL,
     PRIMARY KEY (week, aime_id)
 );
+-- the Grand Trophy promotion issued at a card-in of `week` from the card's record of week - 1: one per week and
+-- card, to the club `coach_id` that carded in, which moved up to `class`; `rank` and `record` are the closed week's
+-- at the grant, so a re-issue sends the same result; `created` is the club's (coaches.created), the one club field an
+-- import keeps (online::club gives it new ids)
+CREATE TABLE IF NOT EXISTS gt_promotions (
+    week     INTEGER NOT NULL,
+    aime_id  INTEGER NOT NULL,
+    coach_id INTEGER NOT NULL,
+    class    INTEGER NOT NULL,
+    at       INTEGER NOT NULL,
+    rank     INTEGER NOT NULL,
+    record   INTEGER NOT NULL,
+    created  INTEGER NOT NULL,
+    PRIMARY KEY (week, aime_id)
+);
 ";
 
 /// `PRAGMA user_version` of a store this code has migrated.
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 /// The 0 -> 1 backfill of [`migrate`]: a club saved before `requests` existed keeps only its tail in `saves`, so its
 /// 277 is rebuilt from the row (ids at +4/+8/+12, kind at +24, block at +28, tail at +3,100) and the first card-in
@@ -683,7 +731,8 @@ fn backfill(tx: &rusqlite::Transaction) -> rusqlite::Result<()> {
 
 /// `PRAGMA user_version` 0 -> 1 runs [`backfill`]; 1 -> 2 only adds `purchases` (`CREATE TABLE IF NOT EXISTS` in
 /// [`SCHEMA`], every open); 2 -> 3 adds `gt_points` the same way and fills it from the stored 277s, each under the
-/// week it was saved in. One transaction; nothing is dropped or rewritten, and an older server ignores the table.
+/// week it was saved in; 3 -> 4 only adds `gt_promotions` (`CREATE TABLE IF NOT EXISTS`). One transaction; nothing
+/// is dropped or rewritten, and an older server ignores the tables.
 fn migrate(db: &mut Connection) -> rusqlite::Result<()> {
     let version = db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))?;
     if version >= SCHEMA_VERSION {
@@ -931,6 +980,70 @@ impl Store {
             .collect()
     }
 
+    /// The promotion a card-in of `week` gives club `coach` of `aime`, whose stored 277 is `saved`: (class, the
+    /// card's rank in week - 1, its record) when that record reached [`GT_RAISE`] of the club's class and no club of
+    /// the card has had one this week. Stored before it is returned, so it is granted once per week and card; the
+    /// granted club gets the stored result again at each card-in of the week while its stored 277 is still one class
+    /// below (a lost 276, or a session that ended before the info scene applied it). A club imported again (a guest's
+    /// next join, online::club) has a new coachId and the granted one is gone: the row moves to it when it is the same
+    /// club (same `created`), never to another club of the card.
+    fn promote(
+        &self,
+        week: u16,
+        aime: u32,
+        coach: u32,
+        saved: &[u8],
+    ) -> rusqlite::Result<Option<(u8, u32, i32)>> {
+        let (Some(last), Some(&class)) = (week.checked_sub(1), saved.get(GT_CLASS_277)) else {
+            return Ok(None);
+        };
+        if saved.len() != 8572 {
+            return Ok(None);
+        }
+        let granted: Option<(u32, u8, u32, i32)> = self
+            .0
+            .query_row(
+                "SELECT coach_id, class, rank, record FROM gt_promotions WHERE week = ?1 AND aime_id = ?2",
+                params![week, aime],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .optional()?;
+        if let Some((to, next, rank, record)) = granted {
+            // the same result again, only to the club it went to (or its re-import) and only while it has not
+            // applied it
+            if class.checked_add(1) != Some(next) {
+                return Ok(None);
+            }
+            if to != coach
+                && self.0.execute(
+                    "UPDATE gt_promotions SET coach_id = ?3 WHERE week = ?1 AND aime_id = ?2
+                     AND created = (SELECT created FROM coaches WHERE coach_id = ?3)
+                     AND NOT EXISTS (SELECT 1 FROM coaches WHERE coach_id = ?4)",
+                    params![week, aime, coach, to],
+                )? == 0
+            {
+                return Ok(None);
+            }
+            return Ok(Some((class, rank, record)));
+        }
+        let ranking = self.gt_ranking(last)?;
+        let entry = ranking.iter().enumerate().find(|(_, e)| e.0 == aime);
+        let need = GT_RAISE.get(usize::from(class)).copied().unwrap_or(0);
+        let Some((i, &(_, record))) = entry else {
+            return Ok(None);
+        };
+        if need == 0 || i64::from(record) < i64::from(need) {
+            return Ok(None);
+        }
+        let n = self.0.execute(
+            "INSERT INTO gt_promotions (week, aime_id, coach_id, class, at, rank, record, created)
+             SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, created FROM coaches WHERE coach_id = ?3
+             ON CONFLICT DO NOTHING",
+            params![week, aime, coach, class + 1, now(), i as u32 + 1, record],
+        )?;
+        Ok((n == 1).then_some((class, i as u32 + 1, record)))
+    }
+
     /// Keeps the latest whole 309 under (0, shop id).
     fn keep_best_eleven(&self, shop: u32, req: &[u8]) -> rusqlite::Result<()> {
         self.0.execute(
@@ -1167,12 +1280,14 @@ fn club(
             ));
             // after the roll the closed week's record is filed once; later saves of the session file nothing
             if gt && !matches!(carded, Some((_, true))) {
-                if let Some((w, _)) = carded {
-                    st.1.insert((aime, coach), (w, true));
-                }
                 // the save is stored: a ranking error is logged, never answered as a refused save
                 let (week, points) = (carded.map_or(week, |(w, _)| w), u32_at(req, GT_RECORD_277));
-                match record_gt(&st.0, week, aime, req, t) {
+                let kept = record_gt(&st.0, week, aime, req, t);
+                // filed only once written: after a store error the session's next save files it again
+                if let (Ok(()), Some((w, _))) = (&kept, carded) {
+                    st.1.insert((aime, coach), (w, true));
+                }
+                match kept {
                     Err(e) => log(&format!(
                         "grand trophy: aime {aime} coach {coach} record {points} not kept: {e}"
                     )),
@@ -1197,8 +1312,8 @@ fn club(
                 return Err(format!("stored block of {} bytes", block.len()));
             }
             restore_tail(body, &tail);
+            let week = gt_week(now());
             if gt {
-                let week = gt_week(now());
                 // shortcut: cleared when full and lost on restart (then a play across the roll files its record in
                 // the new week); keep it in the store if that matters
                 if st.1.len() >= 10_000 {
@@ -1229,6 +1344,23 @@ fn club(
                 ));
             }
             apply_to_save_data(body, &st.bought(aime).map_err(db)?);
+            if gt {
+                // a store error skips the promotion this card-in; a granted one whose 276 is lost goes out again at
+                // the club's next card-in of the week (promote)
+                let promoted = st.promote(week, aime, coach, &tail).unwrap_or_else(|e| {
+                    log(&format!(
+                        "grand trophy: aime {aime} coach {coach} promotion not checked: {e}"
+                    ));
+                    None
+                });
+                if let Some((class, rank, record)) = promoted {
+                    log(&format!(
+                        "grand trophy: aime {aime} coach {coach} week {week} class {class} -> {} (record {record}, rank {rank})",
+                        class + 1
+                    ));
+                }
+                fill_gt_result(body, promoted.map(|(class, rank, _)| (class, rank)));
+            }
             fill_save_data(body, &block, version, size);
         }
         285 => {
@@ -1325,6 +1457,15 @@ fn answer(
         // GHOST_TEAM, BEST_ELEVEN: errCode 0 would install an all-zero team; 1 = none, the client plays a CPU team
         // (docs/research/ONLINE-2017-18.md)
         put(&mut body, 4, 1);
+    }
+    if cmd == 249 {
+        // GMSVR_RANK: the whole answer is copied into the game state and drives the result and prize screens
+        // (docs/research/ONLINE-2017-18.md, "GMSVR_RANK"); +354 is `universalChamp nothingResult`. Left at zero the
+        // cabinet had no Universal Championship result either way, and a club whose best eleven went up at card-in
+        // (309, answered 0) stayed entered in the championship: the client mirrors that in #1085, and while it is
+        // above 1 MATCH SELECT greys the Universal Cup and says "Data match entry is in progress"
+        // (SYS_ADV_normal_0037, client sub_795BC0), for the whole session (2026-11-02).
+        body[354] = 1;
     }
     if let Some((vs, peer)) = vs {
         vs.fill(cmd, payload, peer, &mut body);
@@ -1457,7 +1598,13 @@ impl Vs {
                 put(body, 8, u32::from(u32_at(payload, 4) != 0));
             }
             223 => vs::fill_round(body, now()),
-            237 => vs::fill_game_ctrl(body),
+            237 => {
+                vs::fill_game_ctrl(body);
+                // promotion runs on a server with VS only, so an arcade's stand-in shows no threshold
+                for (c, &p) in GT_RAISE.iter().enumerate() {
+                    put(body, GT_RAISE_AT + 4 * c, p);
+                }
+            }
             243 => {
                 self.matcher.enter(payload, t);
             }
@@ -2141,11 +2288,38 @@ mod tests {
         ask(277, &fixture(277, [5, club, card]));
         ask(275, &req(275, [5, club, card]));
         let week = gt_week(now());
+        // the card-in notes its week, unfiled
+        assert_eq!(
+            store.lock().unwrap().1.get(&(5, club)),
+            Some(&(week, false))
+        );
         store.lock().unwrap().1.insert((5, club), (week - 1, false));
         let mut r = fixture(277, [5, club, card]);
         r[5564..5708].fill(0x11);
         put(&mut r, GT_RECORD_277, 800);
+        // a save across the roll whose record is not written stays unfiled, and the next save files it
+        store
+            .lock()
+            .unwrap()
+            .0
+            .execute_batch("ALTER TABLE gt_points RENAME TO gone")
+            .unwrap();
         ask(277, &r);
+        assert_eq!(
+            store.lock().unwrap().1.get(&(5, club)),
+            Some(&(week - 1, false))
+        );
+        store
+            .lock()
+            .unwrap()
+            .0
+            .execute_batch("ALTER TABLE gone RENAME TO gt_points")
+            .unwrap();
+        ask(277, &r);
+        assert_eq!(
+            store.lock().unwrap().1.get(&(5, club)),
+            Some(&(week - 1, true))
+        );
         assert_eq!(
             store.lock().unwrap().gt_ranking(week - 1).unwrap(),
             [(5, 800)]
@@ -2242,6 +2416,13 @@ mod tests {
         // exact bytes: 276 +3,184..+3,328 = the 277's +5,564..+5,708, but the rank (s32 +3,212) is this server's
         let mut want = r5[5564..5708].to_vec();
         want[GT_RANK_276 - 3184..GT_RANK_276 - 3180].copy_from_slice(&2u32.to_le_bytes());
+        // and so are the result fields: no promotion was issued, so final rank, next class and play-off flag are 0
+        let zero_result = |v: &mut [u8]| {
+            v[GT_FINAL_RANK_276 - 3184..GT_FINAL_RANK_276 - 3180].fill(0);
+            v[GT_NEXT_CLASS_276 - 3184] = 0;
+            v[GT_PLAYOFF_276 - 3184] = 0;
+        };
+        zero_result(&mut want);
         assert_eq!(a[3184..3328], want[..]);
         assert_eq!(
             u32_at(&a, 3192),
@@ -2269,11 +2450,8 @@ mod tests {
         for (at, len) in GT_WEEKLY_276 {
             kept[at - 3184..at - 3184 + len].fill(0);
         }
-        assert_eq!(
-            a[3184..3328],
-            kept[..],
-            "shop, time, card, final rank, class... kept"
-        );
+        zero_result(&mut kept);
+        assert_eq!(a[3184..3328], kept[..], "shop, time, card, class... kept");
         assert_eq!(u32_at(&a, 3088), {
             let mut z = a.clone();
             put(&mut z, 3088, 0);
@@ -2383,6 +2561,289 @@ mod tests {
             st.0.query_row("SELECT at FROM gt_points", [], |r| r.get(0))
                 .unwrap();
         assert_eq!(at, t);
+    }
+
+    /// Promotion at card-in on a server with VS: the card's record of the closed week against the threshold of the
+    /// club's saved class (277 +5,609), one class up, once per week and card, never past Area A; every other card-in
+    /// sends no result, whatever the stored 277 carries.
+    #[test]
+    fn a_closed_week_record_promotes_once_and_never_past_area_a() {
+        let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
+        let lines = Arc::new(Mutex::new(Vec::<String>::new()));
+        let log: Log = {
+            let lines = lines.clone();
+            Arc::new(move |l: &str| lines.lock().unwrap().push(l.to_owned()))
+        };
+        let vs = Vs {
+            cfg: VsConfig {
+                public_ip: std::net::Ipv4Addr::LOCALHOST,
+                reflect_port: 1,
+                vslink_port: 2,
+            },
+            matcher: Arc::default(),
+        };
+        let vs = Some((&vs, IpAddr::from([127, 0, 0, 1])));
+        let ask = |cmd: u16, p: &[u8]| {
+            let (_, body, why) = answer(cmd, p, &store, None, &[], vs, &log).unwrap();
+            assert!(why.is_none(), "{cmd}: {why:?}");
+            body
+        };
+        let week = gt_week(now());
+        // a save of club (club, card) of `aime` in `class`, carrying a stale result (rank 7, next Local, play-off 1)
+        let save = |aime: u32, (club, card): (u32, u32), class: u8| {
+            let mut r = fixture(277, [aime, club, card]);
+            r[GT_CLASS_277] = class;
+            put(&mut r, GT_FINAL_RANK_276 + 2380, 7);
+            r[GT_PLAYOFF_276 + 2380] = 1;
+            ask(277, &r);
+        };
+        // a new club of `aime` saved in `class`
+        let club = |aime: u32, class: u8| {
+            let b = ask(279, &fixture(279, [aime, 0, 0]));
+            let k = (u32_at(&b, 8), u32_at(&b, 12));
+            save(aime, k, class);
+            k
+        };
+        let last_week = |aime: u32, record: u32| {
+            let mut r = vec![0u8; 8572];
+            put(&mut r, GT_RECORD_277, record);
+            record_gt(&store.lock().unwrap().0, week - 1, aime, &r, 1).unwrap();
+        };
+        // (final rank, next class, play-off flag) of a card-in
+        let result = |aime: u32, (club, card): (u32, u32)| {
+            let a = ask(275, &req(275, [aime, club, card]));
+            assert_eq!(u32_at(&a, 3088), {
+                let mut z = a.clone();
+                put(&mut z, 3088, 0);
+                sum32(&z)
+            });
+            (
+                u32_at(&a, GT_FINAL_RANK_276),
+                a[GT_NEXT_CLASS_276],
+                a[GT_PLAYOFF_276],
+            )
+        };
+        last_week(9, 3_000);
+
+        let local = club(5, 0);
+        last_week(5, 999);
+        assert_eq!(result(5, local), (0, 0, 0), "999 stays Local");
+        last_week(5, 1_000);
+        assert_eq!(
+            result(5, local),
+            (2, 1, 0),
+            "1,000: Area B, rank 2 behind card 9"
+        );
+        // the save still shows Local (the 276 was lost, or the session ended before the info scene): the same again
+        assert_eq!(result(5, local), (2, 1, 0), "re-issued until applied");
+        // the closed week's row pruned: the stored rank again, never a made-up first place
+        store
+            .lock()
+            .unwrap()
+            .0
+            .execute(
+                "DELETE FROM gt_points WHERE week = ?1 AND aime_id = 5",
+                [week - 1],
+            )
+            .unwrap();
+        assert_eq!(
+            result(5, local),
+            (2, 1, 0),
+            "stored rank, no closed-week row"
+        );
+        // the card's other club carded in later the same week: the card's promotion is spent
+        let other = club(5, 0);
+        assert_eq!(result(5, other), (0, 0, 0));
+        save(5, local, 1);
+        assert_eq!(result(5, local), (0, 0, 0), "applied: once per week");
+
+        let area_b = club(6, 1);
+        last_week(6, 1_199);
+        assert_eq!(result(6, area_b), (0, 0, 0), "1,199 stays Area B");
+        last_week(6, 1_200);
+        assert_eq!(
+            result(6, area_b),
+            (2, 2, 0),
+            "1,200: Area A, rank 2 behind card 9"
+        );
+
+        // one card, two clubs: the class is the carding club's; an Area A club carding in first spends nothing
+        let area_a = club(13, 2);
+        let local13 = club(13, 0);
+        last_week(13, 1_100);
+        assert_eq!(result(13, area_a), (0, 0, 0), "Area A is the cap");
+        assert_eq!(result(13, local13), (3, 1, 0), "Local -> Area B, rank 3");
+        assert_eq!(result(13, area_a), (0, 0, 0), "not to the other club");
+
+        // a guest's club, imported again at its next join (new coach and card ids): the promotion follows it
+        let guest = club(20, 0);
+        last_week(20, 1_000);
+        assert_eq!(result(20, guest), (4, 1, 0), "Local -> Area B, rank 4");
+        store
+            .lock()
+            .unwrap()
+            .0
+            .execute("INSERT INTO guests VALUES (20, 't', 1, 0)", [])
+            .unwrap();
+        let rejoin = || {
+            let mut st = store.lock().unwrap();
+            let c = st.club(20).unwrap();
+            let link = st.import_public(&c, 20, 1, "t").unwrap();
+            (link.coaches[0].1, link.cards[0].1)
+        };
+        let again = rejoin();
+        assert_ne!(again, guest);
+        assert_eq!(result(20, again), (4, 1, 0), "re-imported, not applied");
+        let again = rejoin();
+        assert_eq!(result(20, again), (4, 1, 0), "each join of the week");
+        save(20, again, 1);
+        let applied = rejoin();
+        assert_eq!(result(20, applied), (0, 0, 0), "applied");
+
+        for (aime, class) in [(7, 2), (8, 3), (10, 4), (11, 200)] {
+            let k = club(aime, class);
+            last_week(aime, 5_000);
+            assert_eq!(result(aime, k), (0, 0, 0), "class {class}: no promotion");
+        }
+        // a record of this week counts next week, not now
+        let fresh = club(12, 0);
+        let mut r = vec![0u8; 8572];
+        put(&mut r, GT_RECORD_277, 5_000);
+        record_gt(&store.lock().unwrap().0, week, 12, &r, 1).unwrap();
+        assert_eq!(result(12, fresh), (0, 0, 0));
+
+        let rows: Vec<(u32, u32, u8)> = store
+            .lock()
+            .unwrap()
+            .0
+            .prepare("SELECT aime_id, coach_id, class FROM gt_promotions WHERE week = ?1 ORDER BY aime_id")
+            .unwrap()
+            .query_map([week], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(
+            rows,
+            [
+                (5, local.0, 1),
+                (6, area_b.0, 2),
+                (13, local13.0, 1),
+                (20, again.0, 1)
+            ]
+        );
+        let lines = lines.lock().unwrap();
+        let want = format!(
+            "grand trophy: aime 5 coach {} week {week} class 0 -> 1 (record 1000, rank 2)",
+            local.0
+        );
+        assert!(lines.contains(&want), "{want}");
+
+        // never a next class below the class or above Area A, whatever the caller passes
+        let mut b = vec![0xFFu8; 6176];
+        for (promote, want) in [
+            (Some((0, 0)), (1, 1)),
+            (Some((1, 4)), (4, 2)),
+            (Some((2, 1)), (0, 0)),
+            (Some((4, 1)), (0, 0)),
+            (None, (0, 0)),
+        ] {
+            fill_gt_result(&mut b, promote);
+            assert_eq!(
+                (
+                    u32_at(&b, GT_FINAL_RANK_276),
+                    b[GT_NEXT_CLASS_276],
+                    b[GT_PLAYOFF_276]
+                ),
+                (want.0, want.1, 0),
+                "{promote:?}"
+            );
+        }
+        assert!(GT_RAISE[2..].iter().all(|&p| p == 0), "Area A is the cap");
+    }
+
+    /// A server with VS sends the promotion thresholds as GAME_CTRL raisePoint; an arcade's stand-in sends none.
+    #[test]
+    fn game_ctrl_carries_the_promotion_thresholds_with_vs() {
+        let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
+        let log: Log = Arc::new(|_: &str| {});
+        let vs = Vs {
+            cfg: VsConfig {
+                public_ip: std::net::Ipv4Addr::LOCALHOST,
+                reflect_port: 1,
+                vslink_port: 2,
+            },
+            matcher: Arc::default(),
+        };
+        let mut req = vec![0u8; 16];
+        put(&mut req, 0, 1);
+        let raise = |vs| {
+            let body = answer(237, &req, &store, None, &[], vs, &log).unwrap().1;
+            [0, 1, 2, 3, 4].map(|c| u32_at(&body, 16 + 7_676 + 4 * c))
+        };
+        assert_eq!(
+            raise(Some((&vs, IpAddr::from([127, 0, 0, 1])))),
+            [1_000, 1_200, 0, 0, 0]
+        );
+        assert_eq!(raise(None), [0; 5]);
+    }
+
+    /// A version-3 store (before `gt_promotions`) keeps every row, gets the table (from [`SCHEMA`], as `purchases`
+    /// and `gt_points` did) and version 4, and its `gt_points` is not filled again from the stored 277s; a second open
+    /// changes nothing.
+    #[test]
+    fn a_v3_store_gets_gt_promotions_and_loses_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gamesvr.db");
+        let mut r = fixture(277, [5, 1, 9]);
+        put(&mut r, GT_RECORD_277, 700);
+        {
+            let db = Connection::open(&path).unwrap();
+            db.execute_batch(SCHEMA).unwrap();
+            db.execute_batch("DROP TABLE gt_promotions; PRAGMA user_version = 3")
+                .unwrap();
+            db.execute(
+                "INSERT INTO coaches (aime_id, coach_id, card_id, created, updated) VALUES (5, 1, 9, 1, 1)",
+                [],
+            )
+            .unwrap();
+            db.execute(
+                "INSERT INTO saves VALUES (5, 1, zeroblob(3072), 12, 3072, 2, 1, ?1)",
+                [&r[TAIL..]],
+            )
+            .unwrap();
+            db.execute("INSERT INTO requests VALUES (5, 1, 277, ?1, 1)", [&r])
+                .unwrap();
+            db.execute("INSERT INTO gt_points VALUES (40, 5, 1234, 77)", [])
+                .unwrap();
+        }
+        for open in 0..2 {
+            let st = Store::open(&path).unwrap();
+            let n = |q: &str| -> i64 { st.0.query_row(q, [], |r| r.get(0)).unwrap() };
+            assert_eq!(n("PRAGMA user_version"), 4, "open {open}");
+            assert_eq!(
+                [
+                    n("SELECT count(*) FROM coaches"),
+                    n("SELECT count(*) FROM saves"),
+                    n("SELECT count(*) FROM requests"),
+                    n("SELECT count(*) FROM gt_promotions")
+                ],
+                [1, 1, 1, open],
+                "open {open}"
+            );
+            let kept: Vec<u8> =
+                st.0.query_row("SELECT payload FROM requests", [], |r| r.get(0))
+                    .unwrap();
+            assert_eq!(kept, r);
+            assert_eq!(n("SELECT count(*) FROM gt_points"), 1, "no second backfill");
+            assert_eq!(st.gt_ranking(40).unwrap(), [(5, 1234)]);
+            assert_eq!(n("SELECT at FROM gt_points"), 77);
+            // the table takes a promotion, and the row outlives the reopen
+            st.0.execute(
+                "INSERT OR IGNORE INTO gt_promotions VALUES (41, 5, 1, 1, 78, 1, 1234, 70)",
+                [],
+            )
+            .unwrap();
+        }
     }
 
     #[test]
@@ -2546,6 +3007,22 @@ mod tests {
             }
         }
         eprintln!("pending: {}", pending.join(", "));
+    }
+
+    /// 2026-11-02: the RANK answer says "no Universal Championship result" (+354) instead of all zeros, so a club
+    /// whose best eleven went up at card-in does not stay entered in the championship, where that entry greys the
+    /// Universal Cup for the whole session.
+    #[test]
+    fn the_rank_answer_says_no_championship_result() {
+        let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
+        let log: Log = Arc::new(|_: &str| {});
+        let (body, refused) = ask_for_test(&store, 249, &fixture(249, [5, 0, 0]), &log);
+        assert_eq!(refused, None);
+        assert_eq!(body.len(), 504);
+        assert_eq!(body[354], 1, "universalChamp nothingResult");
+        assert_eq!(body[8], 0, "the CS rank stays 0");
+        let others: Vec<usize> = (4..504).filter(|i| *i != 354 && body[*i] != 0).collect();
+        assert!(others.is_empty(), "unexpected bytes at {others:?}");
     }
 
     fn req(cmd: u16, ids: [u32; 3]) -> Vec<u8> {

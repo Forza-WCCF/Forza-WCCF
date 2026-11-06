@@ -2289,6 +2289,7 @@ INF_WEEKLYCHAMPION_area_0002	TOKYO/KANAGAWA
 INF_WTCHAMPIONSHIP_message_0001	The prize money will fund a clubhouse rebuild.\nWork starts after this match - look forward to it.
 INF_WTCHAMPIONSHIP_message_0002	The battle on the world stage goes on,\nlet's aim for even better results!
 MAKE_area_001	Asia
+MAKE_area_002	Europe
 MAKE_area_003	Africa
 MAN_0506LICENSE_contents_0001	$%dM + $%d00
 MAN_0506LICENSE_contents_0002	W%d
@@ -8295,17 +8296,17 @@ COM_NEW_LOUNGE_choices_0013_00	Their strengths
 COM_NEW_LOUNGE_choices_0013_01	Their weaknesses
 SYS_SYS_caution_0009	An expired Club saved for tournaments.\nUsable in tournament mode "WCCF CUP".
 SYS_SYS_caution_0010	Press Start to enter the WCCF CUP.
-SYS_SYS_warning_0044	Could not get the Club list.\nReturning to the attract screen.
+SYS_SYS_warning_0044	Could not get the Club list.\nReturning to the title screen.
 SYS_SYS_warning_0045	Could not get the save data.
-SYS_SYS_warning_0046	Time's up.\nReturning to the attract screen.
+SYS_SYS_warning_0046	Time's up.\nReturning to the title screen.
 SYS_SYS_warning_0047	A new Club Card cannot be used.
 SYS_SYS_warning_0048	Data cannot be transferred from a Club Card\nthat has never played online.
-SYS_SYS_warning_0049	Do not insert 2 or more Club Cards at once.\nReturning to the attract screen.
-SYS_SYS_warning_0050	Could not delete the save data.\nReturning to the attract screen.
-SYS_SYS_warning_0051	Could not add the new manager data.\nReturning to the attract screen.
-SYS_SYS_warning_0052	Could not add the save data.\nReturning to the attract screen.
-SYS_SYS_warning_0053	Could not delete the past Club.\nReturning to the attract screen.
-SYS_SYS_warning_0054	Could not add the past Club.\nReturning to the attract screen.
+SYS_SYS_warning_0049	Do not insert 2 or more Club Cards at once.\nReturning to the title screen.
+SYS_SYS_warning_0050	Could not delete the save data.\nReturning to the title screen.
+SYS_SYS_warning_0051	Could not add the new manager data.\nReturning to the title screen.
+SYS_SYS_warning_0052	Could not add the save data.\nReturning to the title screen.
+SYS_SYS_warning_0053	Could not delete the past Club.\nReturning to the title screen.
+SYS_SYS_warning_0054	Could not add the past Club.\nReturning to the title screen.
 SYS_SYS_warning_0055	Could not save the data.
 SYS_SYS_warning_0056	The cabinet is offline,\nso the save data could not be saved.\n\nOnce the network is back, you may be able to resend\nthe Club data in Data Resend mode.
 SYS_SYS_warning_0057	The save data may not have been saved.
@@ -8466,7 +8467,7 @@ INF_SPO_itemcategory_0010	Secretary helps with individual training
 INF_SPO_message_0000	%s$c[FF0000FF]%s$c gave you the\nsponsor item "$c[FF0000FF]%s$c".
 SYS_AIME_error_0000	Error 6501\nAime Card Reader Not Found 
 SYS_AIME_error_0001	Error 6502\nAn unknown error occurred.\nIf power OFF/ON does not fix it, contact Customer Support.\nAn error occurred in an unexpected place in the library. This may be a fault.
-SYS_AIME_error_0002	Error 6503 \nCould not read the Aime.\nReturning to the attract screen.
+SYS_AIME_error_0002	Error 6503 \nCould not read the Aime.\nReturning to the title screen.
 SYS_AIME_error_0003	Error 6504\nAn unsupported card was placed, or the Aime was not recognized.\nTouch the Aime correctly to the card reader.
 SYS_AIME_error_0004	Error 6505\nAn Aime card in use on another cabinet cannot be used.
 SYS_AIME_error_0005	Error 6506\nAime card reader firmware update failed.\nIf power OFF/ON does not fix it, contact Customer Support.
@@ -8498,7 +8499,7 @@ SYS_AIME_warning_0019	Once you start "Normal play", data from another Aime can n
 SYS_AIME_warning_0020	Select "Normal play" to start playing, or "Data transfer" to\nissue an access code.
 SYS_AIME_warning_0021	Normal play
 SYS_AIME_warning_0022	Data transfer
-SYS_AIME_warning_0023	Press the Shoot button to return to the attract screen.\nFinish the data transfer on the Aime service site.
+SYS_AIME_warning_0023	Press the Shoot button to return to the title screen.\nFinish the data transfer on the Aime service site.
 SYS_AIME_title_0000	Terms of Use
 SYS_AIME_title_0001	Service site registration
 MAN_ST_data_0000	Period
@@ -8528,8 +8529,8 @@ MAN_ST_data_0033	Bonus for players %d kg or heavier!
 MAN_ST_data_0034	Bonus for players %d kg or lighter!
 MAN_ST_data_0035	Bonus for using %s players!
 MAN_ST_data_0036	Total points tournament
-MAN_ST_data_0037	Points needed to update
-MAN_ST_data_0038	Note: you have not reached the required number of plays, so you will not be entered
+MAN_ST_data_0037	Points to beat your best
+MAN_ST_data_0038	Note: play the required number of matches this week to be ranked.
 MAN_ST_data_0039	Entered in the ranking!
 MAN_ST_data_0040	Best total pts for %d matches updated!
 MAN_ST_data_0041	Best total pts for %d matches was not updated
@@ -9043,23 +9044,23 @@ GAM_TUTORIAL_SPcommand_0000	When the yellow gauge on the right fills,\nhold the 
 GAM_TUTORIAL_SPcommand_0001	Keep holding until the whole gauge\nturns red and GO! appears
 GAM_TUTORIAL_SPcommand_0002	Raises your team style\none rank for a set time
 SYS_DATARETRY_message_0000	Error 3139\nFailed to send club team data\n\nThe data may be resendable\nPlease call a staff member
-SYS_DATARETRY_message_0001	The club team data\nmay not have been saved correctly\n\nTo resend the data, call a staff member\nand enter Data Resend Mode\nfrom the attract screen
+SYS_DATARETRY_message_0001	The club team data\nmay not have been saved correctly\n\nTo resend the data, call a staff member\nand enter Data Resend Mode\nfrom the title screen
 SYS_DATARETRY_message_0002	Data Resend Mode
-SYS_DATARETRY_message_0003	Touch your Aime to the reader\nto resend data\n\nPress SW2 to return to the attract screen
+SYS_DATARETRY_message_0003	Touch your Aime to the reader\nto resend data\n\nPress SW2 to return to the title screen
 SYS_DATARETRY_message_0004	The following club team data will be resent\n%s
 SYS_DATARETRY_message_0005	Resending backup data
-SYS_DATARETRY_message_0006	Backup data resent\n\nPress SW2 to return to the attract screen
-SYS_DATARETRY_message_0007	Returning to the attract screen
+SYS_DATARETRY_message_0006	Backup data resent\n\nPress SW2 to return to the title screen
+SYS_DATARETRY_message_0007	Returning to the title screen
 SYS_DATARETRY_message_0008	There was no data to resend\n\n* Resend from the satellite\nwhere sending failed
 SYS_DATARETRY_message_0009	Resend failed\nCheck the network status
-SYS_DATARETRY_message_0010	Data Resend Mode is unavailable now\nReturning to the attract screen\n\nPlease wait until the network is restored
+SYS_DATARETRY_message_0010	Data Resend Mode is unavailable now\nReturning to the title screen\n\nPlease wait until the network is restored
 SYS_DATARETRY_message_0011	Returning to the Data Resend Mode top screen
 SYS_DATARETRY_message_0012	Resend the backup data?\n\nSW1: OK  SW2: Cancel\n\n$c[FF6633FF]Caution!$c\nResending restores the data\nto the backup state\nIf you played at another satellite,\nthat data becomes invalid
 SYS_DATARETRY_message_0013	Error 3154\nFailed to send club team data\n\nThe data may be resendable\nPlease call a staff member
 SYS_DATARETRY_message_0014	Error 3174\nFailed to buy the item\n\nThe data may be resendable\nPlease call a staff member
 SYS_DATARETRY_message_0015	The following item data will be resent\n%s
 SYS_DATARETRY_message_0016	Resend the backup data?\n\nSW1: OK  SW2: Cancel
-SYS_DATARETRY_message_0017	The item purchase data\nmay not have been saved correctly\n\nTo resend the data, call a staff member\nand enter Data Resend Mode\nfrom the attract screen
+SYS_DATARETRY_message_0017	The item purchase data\nmay not have been saved correctly\n\nTo resend the data, call a staff member\nand enter Data Resend Mode\nfrom the title screen
 COM_debug_question_0000	Debug communication.\nThe chosen reaction always happens and the communication count does not drop.
 COM_debug_choices_0000_00	Great success
 COM_debug_choices_0000_01	Medium success
@@ -9676,8 +9677,8 @@ SYS_REBOOT_warning_0000	Preparing to restart
 SYS_REBOOT_warning_0001	You can't play until the cabinet restarts
 SYS_REBOOT_warning_0002	Play entry closes in %d min
 SYS_NET_error_0026	Error 3173\nThe game program update failed\nPlease restart the cabinet
-SYS_WCCFCUP_error_0000	The inserted Club Card can't be used in the WCCF CUP\nOnly Club Cards with manager abilities already transferred can be used\nReturning to the attract screen
-SYS_WCCFCUP_error_0001	No club can enter the WCCF CUP.\nReturning to the attract screen.
+SYS_WCCFCUP_error_0000	The inserted Club Card can't be used in the WCCF CUP\nOnly Club Cards with manager abilities already transferred can be used\nReturning to the title screen
+SYS_WCCFCUP_error_0001	No club can enter the WCCF CUP.\nReturning to the title screen.
 SYS_WCCFCUP_error_0002	The WCCF CUP can't be held because you are offline.\nPlease wait until the network is restored.
 SYS_TUTORIAL_cation_0000	[About Transferring Save Data]
 SYS_TUTORIAL_cation_0001	Club Card slot

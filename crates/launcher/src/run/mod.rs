@@ -154,6 +154,16 @@ impl From<String> for Text {
     }
 }
 
+/// The game server's port could not be bound: taken, this PC is already hosting an arcade on it (its own earlier start, or a
+/// server beside it), which "os error 10048" did not say; any other error keeps its port and reason.
+fn gamesvr_bind_error(port: u16, e: &io::Error) -> Text {
+    if e.kind() == io::ErrorKind::AddrInUse {
+        Text::key("launcher.run_gamesvr_busy").arg("port", port)
+    } else {
+        Text::key("launcher.run_gamesvr_port").arg("port", port).arg("error", e)
+    }
+}
+
 /// `text` to `ui` after `lead` (an indent, a step "1/6" the window's bar reads): shown in the player's language, the
 /// English for the logs.
 pub fn tell(ui: &dyn Ui, lead: &str, text: &Text) {
@@ -631,7 +641,15 @@ pub fn play(kit: &Kit, p: &Params, mode: Option<Mode>, debug: bool, ui: &dyn Ui)
 /// What a plain start does: what the SETTINGS panel chose - never locked out: an address that is wrong, or a server
 /// that does not answer, plays on this PC and says why.
 fn plain_mode(kit: &Kit, p: &Params, ui: &dyn Ui) -> Mode {
-    let panel = choices::read(&kit.data().join("panel.txt"));
+    // an unreadable file is said (and logged) like the other reasons a plain start plays locally: the player would
+    // otherwise take it for their own choice and look for the lobby
+    let panel = match choices::read_ok(&kit.data().join("panel.txt")) {
+        Ok(panel) => panel,
+        Err(e) => {
+            tell(ui, "", &Text::key("launcher.run_panel_unread").arg("error", e));
+            String::new()
+        }
+    };
     if !choices::panel_value(&panel, "play_on").is_some_and(|v| v.eq_ignore_ascii_case("online")) {
         return Mode::Local;
     }
@@ -1452,7 +1470,21 @@ impl Run<'_> {
                 None => self.tell("  ", &Text::key("launcher.run_text_now").part("name", name)),
             }
         }
-        let left = choices::set_panel_value(&choices::read(&path), "english", None);
+        // read again, and fallible: this text is written back whole, so a file that cannot be read now (a scanner
+        // holding it) must not be saved over as if the request had been taken out of it
+        let text = match choices::read_ok(&path) {
+            Ok(text) => text,
+            Err(e) => {
+                self.tell(
+                    "  ",
+                    &Text::key("launcher.msg_read_failed")
+                        .arg("path", path.display())
+                        .arg("error", e),
+                );
+                return;
+            }
+        };
+        let left = choices::set_panel_value(&text, "english", None);
         let _ = choices::write(&path, &left);
     }
 
@@ -1597,10 +1629,15 @@ impl Run<'_> {
         if self.edition != Edition::E1718 {
             return Vec::new();
         }
-        vec![(
+        let mut env = vec![(
             "FORZA_PANEL".to_owned(),
             self.kit.program("forza_panel.dll").to_string_lossy().into_owned(),
-        )]
+        )];
+        // a join's tunnel moved the control port: the panel's link watch looks for the seat's link on that one
+        if let Some(t) = self.tunnel_ports.filter(|t| t.control != self.p.control_port) {
+            env.push(("WCCFPANEL_CONTROL_PORT".into(), t.control.to_string()));
+        }
+        env
     }
 
     fn start_all(&mut self) -> Result<(), Failed> {
@@ -1647,6 +1684,25 @@ impl Run<'_> {
             self.game.join(r"local\client_user_option.conf"),
             self.seat.join(r"local\client_user_option.conf"),
         ];
+        if self.edition == Edition::E1718 {
+            // shortcut: a guest at another PC's arcade shows the default, not that arcade's name; upgrade when the desk
+            // tells its guests the name
+            let name = match self.mode {
+                Mode::Remote(..) => String::new(),
+                _ => choices::setting(&self.kit.settings_file(), "shop_name").unwrap_or_default(),
+            };
+            for c in confs.iter().filter(|c| c.is_file()) {
+                // a label only: a conf that cannot be written is told and the start goes on
+                if let Err(e) = conf::set_place(c, &name) {
+                    self.tell(
+                        "  ",
+                        &Text::key("launcher.run_place_failed")
+                            .arg("file", c.display())
+                            .arg("error", e),
+                    );
+                }
+            }
+        }
         let starting = match &self.mode {
             Mode::Server | Mode::LanServer => Text::key("launcher.run_starting_server"),
             Mode::Remote(ip, _) => Text::key("launcher.run_starting_remote").arg("ip", ip),
@@ -1697,7 +1753,7 @@ impl Run<'_> {
                 return Err(Failed(
                     Text::key("launcher.run_remote_no_answer")
                         .arg("entry", &entry)
-                        .arg("port", p.control_port),
+                        .arg("port", control_port),
                 ));
             }
             let (seat, here) = self.take_seat(&ip, want)?;
@@ -1732,7 +1788,7 @@ impl Run<'_> {
                     "launcher.run_remote_seat"
                 })
                 .arg("ip", &ip)
-                .arg("port", p.control_port)
+                .arg("port", control_port)
                 .arg("seat", seat),
             );
         } else {
@@ -1764,12 +1820,23 @@ impl Run<'_> {
                 fs::create_dir_all(game.join("log"))?;
             }
             self.start_game(Role::Server, p.control_args.clone(), &game, !self.debug, Vec::new())?;
+            let said = std::cell::Cell::new(false);
             wait_for(
                 Text::key("launcher.run_part_server"),
                 90,
                 Role::Server.log(),
                 || self.alive(Role::Server),
-                || procs::listening_ports().contains(&p.control_port) && self.job_count(p.matcher()) >= p.match_engines,
+                || match procs::listening_ports_result() {
+                    Ok(ports) => ports.contains(&p.control_port) && self.job_count(p.matcher()) >= p.match_engines,
+                    // the table could not be read: that is not "the server is not up", and the job's programs are a
+                    // weaker but honest sign; said once, so the log says why the wait is longer than usual
+                    Err(e) => {
+                        if !said.replace(true) {
+                            self.tell("  ", &Text::key("launcher.run_ports_unread").arg("error", &e));
+                        }
+                        self.job_count(p.matcher()) >= p.match_engines
+                    }
+                },
             )?;
             if let Some(ctl) = self
                 .job_procs()
@@ -2210,7 +2277,13 @@ impl Run<'_> {
         self.tell("  ", &line);
         if let Mode::Vs(_) = self.mode {
             let panel_file = self.kit.data().join("panel.txt");
-            let panel = choices::read(&panel_file);
+            let panel = choices::read_ok(&panel_file).map_err(|e| {
+                Failed(
+                    Text::key("launcher.msg_read_failed")
+                        .arg("path", panel_file.display())
+                        .arg("error", e),
+                )
+            })?;
             let club = choices::setting(&self.kit.settings_file(), "club_server").unwrap_or_default();
             let t = rules::vs_target(&panel, &club).map_err(Failed)?;
             self.vs_target = Some(t.clone());
@@ -2250,8 +2323,7 @@ impl Run<'_> {
         }
         // this PC: back to the stand-in's address, VS entries off, after an online run
         conf::set_game_server(&ctrl_conf, "localhost", port, false)?;
-        let listener = TcpListener::bind(("127.0.0.1", port))
-            .map_err(|e| Failed(Text::key("launcher.run_gamesvr_port").arg("port", port).arg("error", e)))?;
+        let listener = TcpListener::bind(("127.0.0.1", port)).map_err(|e| Failed(gamesvr_bind_error(port, &e)))?;
         let log = file_log(self.logs().join("gamesvr_log.txt"));
         // the run's game folder (also recorded as "game" by the 2017-18 setup): the stand-in pre-registers its 2D-code cards,
         // and data\settings.json "skip_tutorial": true makes it give a new Aime id a club from the game's cpu_50.dat
@@ -2392,12 +2464,14 @@ impl Run<'_> {
     /// round trip.
     fn start_arcade_tunnel(&mut self, role: vslink::arcade::Role) -> Result<vslink::arcade::Ports, Failed> {
         let p = self.p;
-        let ports = vslink::arcade::Ports {
+        let host = role == vslink::arcade::Role::Host;
+        let usual = vslink::arcade::Ports {
             control: p.control_port,
             desk: p.seat_port,
             relay: p.relay_port,
         };
-        let host = role == vslink::arcade::Role::Host;
+        // a server on this PC holds the usual ports: a join's tunnel takes free ones, the seat confs and env follow them
+        let ports = rules::tunnel_ports(usual, host, procs::listening_ports, |p| procs::udp_ports().contains(&p));
         let key = self
             .kit
             .data()
@@ -3137,6 +3211,34 @@ mod tests {
             let s = n.get(lang);
             assert!(s.contains(&hhmm) && s != n.en() && !s.contains("%{"), "{lang:?}: {s}");
         }
+    }
+
+    #[test]
+    fn a_taken_game_server_port_reads_as_a_hosted_arcade() {
+        // a second arcade on this PC holds 20050: PLAY -> THIS PC used to stop with "os error 10048"
+        let held = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = held.local_addr().unwrap().port();
+        let taken = std::net::TcpListener::bind(("127.0.0.1", port)).unwrap_err();
+        assert_eq!(taken.kind(), std::io::ErrorKind::AddrInUse);
+        let t = super::gamesvr_bind_error(port, &taken);
+        assert_eq!(
+            t.en(),
+            format!("This PC is hosting an arcade on port {port}. Stop the arcade, or join it from ONLINE.")
+        );
+        for lang in [forza_ui::Lang::It, forza_ui::Lang::Ja] {
+            let s = t.get(lang);
+            assert!(
+                !s.contains("%{") && s != t.en() && s.contains(&port.to_string()),
+                "{lang:?}: {s}"
+            );
+        }
+        // any other reason keeps the port and Windows' error
+        let other = super::gamesvr_bind_error(20050, &std::io::Error::from_raw_os_error(87));
+        assert!(
+            other.en().contains("127.0.0.1:20050") && other.en().contains("os error 87"),
+            "{}",
+            other.en()
+        );
     }
 
     #[test]

@@ -112,7 +112,7 @@ QUIT
   run_projector.txt) says what happened.
 
 ONLINE
-  Lobby: pick Online under PLAY. Under Direct address type a server (HOST or HOST:PORT). ARCADES lists its arcades:
+  Lobby: pick Online under PLAY. Under Server address type a server (HOST or HOST:PORT). ARCADES lists its arcades:
   NAME, PLAYERS (x/8), PING and STATE (OPEN, IN MATCH, FULL, CLOSED, NO ANSWER), with the time to the next ENTRY.
   Filters: Open only, ping under 150 ms.
   Pick a row and press JOIN to take a seat, then PLAY. LEAVE gives the seat up. If the game or the Launcher closes,

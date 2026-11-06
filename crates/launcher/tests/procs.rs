@@ -7,7 +7,8 @@ use std::process::{Command, Stdio};
 use std::{env, fs, mem, ptr};
 
 use launcher::procs::{
-    game_processes, image, listening_ports, normcase, pipes, prefers_system32, processes, same_form,
+    game_processes, image, listening_ports, listening_ports_result, normcase, pipes, prefers_system32, processes,
+    same_form, udp_ports,
 };
 use windows_sys::Win32::Foundation::{CloseHandle, FALSE};
 use windows_sys::Win32::Storage::FileSystem::GetShortPathNameW;
@@ -127,7 +128,13 @@ fn a_listening_port_and_the_pipes_are_seen() {
     let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = l.local_addr().unwrap().port();
     assert!(listening_ports().contains(&port));
+    assert!(
+        listening_ports_result().unwrap().contains(&port),
+        "the table was read, and the port is in it"
+    );
     drop(l);
+    let u = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    assert!(udp_ports().contains(&u.local_addr().unwrap().port()));
     assert!(!pipes().is_empty(), "Windows always has named pipes");
 }
 
@@ -203,4 +210,12 @@ fn prefer_system32_is_seen() {
             "a program started with Prefer System32 images on must see it (8 = not seen)"
         );
     }
+}
+
+/// An unplugged drive, or a share whose server is offline: nothing up the path resolves, and the path is kept as it
+/// is (never with its own tail added again, which compared wrong in "stop").
+#[test]
+fn an_unreachable_root_keeps_the_path() {
+    let path = Path::new(r"Q:\no\such\game");
+    assert_eq!(same_form(path), normcase(path));
 }
