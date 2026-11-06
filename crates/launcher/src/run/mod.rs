@@ -1460,7 +1460,21 @@ impl Run<'_> {
                 None => self.tell("  ", &Text::key("launcher.run_text_now").part("name", name)),
             }
         }
-        let left = choices::set_panel_value(&choices::read(&path), "english", None);
+        // read again, and fallible: this text is written back whole, so a file that cannot be read now (a scanner
+        // holding it) must not be saved over as if the request had been taken out of it
+        let text = match choices::read_ok(&path) {
+            Ok(text) => text,
+            Err(e) => {
+                self.tell(
+                    "  ",
+                    &Text::key("launcher.msg_read_failed")
+                        .arg("path", path.display())
+                        .arg("error", e),
+                );
+                return;
+            }
+        };
+        let left = choices::set_panel_value(&text, "english", None);
         let _ = choices::write(&path, &left);
     }
 
