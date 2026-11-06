@@ -595,12 +595,13 @@ fn plain_error(raw: &str) -> String {
     t(launcher::report::plain(raw))
 }
 
-/// The game folder setup recorded (its logs and seat 1's go in a report).
-/// The setup recorded a game folder (data\settings.json "game", written only by a setup that worked).
+/// The setup recorded a game folder (data\settings.json "game"); it writes the key before it builds the catalogue, so
+/// a setup that failed after it has one too, and only a job that worked may re-read it.
 fn set_up(kit: &Kit) -> bool {
     choices::setting(&kit.settings_file(), "game").is_some_and(|g| !g.trim().is_empty())
 }
 
+/// The game folder setup recorded (its logs and seat 1's go in a report).
 fn game_folder(kit: &Kit) -> Option<PathBuf> {
     let f = choices::setting(&kit.settings_file(), "game")?;
     launcher::kit::find_game(&f).or_else(|| Some(PathBuf::from(f)))
@@ -896,8 +897,9 @@ impl App {
     fn look(&mut self, ctx: &egui::Context) {
         let (log, list, updated, failed, game, report_open, report_done) = {
             let mut s = shared();
-            // a job ended (SET UP, UNDO SETUP, an update): "Ready" follows what the setup recorded
-            if self.st.busy && !s.busy {
+            // a job that worked ended (SET UP, UNDO SETUP, an update): "Ready" follows what the setup recorded. A
+            // failed setup may have written "game" before it failed, so its state stays as it was.
+            if self.st.busy && !s.busy && !s.failed {
                 self.st.set_up = set_up(&Kit::here());
             }
             self.st.status.clone_from(&s.status);
