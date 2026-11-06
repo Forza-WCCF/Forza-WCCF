@@ -455,7 +455,10 @@ pub struct Look {
 pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
     let card = &*real(p.ctx(), card);
     let big = rect.width() >= 90.0;
-    let r = if look.square {
+    // a picture is the whole card face (its own band, photo, name and numbers): shown whole, so square
+    let picture =
+        picture_dir(p.ctx()).and_then(|dir| card_picture_texture(p.ctx(), &dir, card.number));
+    let r = if look.square || picture.is_some() {
         0
     } else {
         (rect.width() * 0.08) as u8
@@ -486,10 +489,7 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
         p.add(s.as_shape(rect, r));
     }
     let rim = card.rarity.rim();
-    // a picture is the whole card face (its own band, photo, name and numbers): shown whole
-    if let Some(dir) = picture_dir(p.ctx())
-        && let Some((id, size)) = card_picture_texture(p.ctx(), &dir, card.number)
-    {
+    if let Some((id, size)) = picture {
         let (uv, aspect) = face_uv(size);
         p.rect_filled(rect, r, theme::DEEP.gamma_multiply(alpha));
         p.image(
