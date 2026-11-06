@@ -1597,10 +1597,15 @@ impl Run<'_> {
         if self.edition != Edition::E1718 {
             return Vec::new();
         }
-        vec![(
+        let mut env = vec![(
             "FORZA_PANEL".to_owned(),
             self.kit.program("forza_panel.dll").to_string_lossy().into_owned(),
-        )]
+        )];
+        // a join's tunnel moved the control port: the panel's link watch looks for the seat's link on that one
+        if let Some(t) = self.tunnel_ports.filter(|t| t.control != self.p.control_port) {
+            env.push(("WCCFPANEL_CONTROL_PORT".into(), t.control.to_string()));
+        }
+        env
     }
 
     fn start_all(&mut self) -> Result<(), Failed> {
@@ -1697,7 +1702,7 @@ impl Run<'_> {
                 return Err(Failed(
                     Text::key("launcher.run_remote_no_answer")
                         .arg("entry", &entry)
-                        .arg("port", p.control_port),
+                        .arg("port", control_port),
                 ));
             }
             let (seat, here) = self.take_seat(&ip, want)?;
@@ -1732,7 +1737,7 @@ impl Run<'_> {
                     "launcher.run_remote_seat"
                 })
                 .arg("ip", &ip)
-                .arg("port", p.control_port)
+                .arg("port", control_port)
                 .arg("seat", seat),
             );
         } else {
@@ -2392,12 +2397,14 @@ impl Run<'_> {
     /// round trip.
     fn start_arcade_tunnel(&mut self, role: vslink::arcade::Role) -> Result<vslink::arcade::Ports, Failed> {
         let p = self.p;
-        let ports = vslink::arcade::Ports {
+        let host = role == vslink::arcade::Role::Host;
+        let usual = vslink::arcade::Ports {
             control: p.control_port,
             desk: p.seat_port,
             relay: p.relay_port,
         };
-        let host = role == vslink::arcade::Role::Host;
+        // a server on this PC holds the usual ports: a join's tunnel takes free ones, the seat confs and env follow them
+        let ports = rules::tunnel_ports(usual, host, procs::listening_ports, |p| procs::udp_ports().contains(&p));
         let key = self
             .kit
             .data()

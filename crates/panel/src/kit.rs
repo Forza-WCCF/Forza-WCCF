@@ -301,7 +301,7 @@ pub fn seats_on(pid: u32) -> Option<usize> {
     )
 }
 
-/// The control port: 20002, or the tests' own (WCCFPANEL_CONTROL_PORT), never the server's on a PC that may be playing.
+/// The control port: 20002, or WCCFPANEL_CONTROL_PORT (the tests' own, or the port an arcade guest's tunnel moved it to).
 fn control_port() -> u16 {
     env::var("WCCFPANEL_CONTROL_PORT")
         .ok()

@@ -497,9 +497,58 @@ pub fn compat_layer(existing: Option<&str>) -> String {
     layers.join(" ")
 }
 
+/// The ports an arcade tunnel asks for. A host's: the usual ones (its tunnel binds none of them). A join's: 0 (any free
+/// one, the tunnel says which it bound) for each this PC already holds: `tcp` reads its listening TCP ports,
+/// `udp_taken` says whether a UDP port is taken. Windows lets the tunnel's 127.0.0.1 bind shadow a 0.0.0.0 listener on
+/// the same port, TCP and UDP alike (this PC's own control or relay), and this PC's dials or datagrams to it would then
+/// loop into the tunnel.
+pub fn tunnel_ports(
+    want: vslink::arcade::Ports,
+    host: bool,
+    tcp: impl FnOnce() -> Vec<u16>,
+    udp_taken: impl FnOnce(u16) -> bool,
+) -> vslink::arcade::Ports {
+    if host {
+        return want;
+    }
+    let listening = tcp();
+    let free = |p: u16, taken: bool| if taken { 0 } else { p };
+    vslink::arcade::Ports {
+        control: free(want.control, listening.contains(&want.control)),
+        desk: free(want.desk, listening.contains(&want.desk)),
+        relay: free(want.relay, udp_taken(want.relay)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_joining_tunnel_leaves_the_ports_this_pc_listens_on() {
+        let want = vslink::arcade::Ports {
+            control: 20002,
+            desk: 20030,
+            relay: 20040,
+        };
+        let free = |_| false;
+        // separate PCs: nothing of the arcade's listens here, the usual ports
+        assert_eq!(tunnel_ports(want, false, || vec![135, 445], free), want);
+        // one PC that hosts too: its control holds 20002, its desk 20030, its relay 20040
+        let moved = vslink::arcade::Ports {
+            control: 0,
+            desk: 0,
+            relay: 0,
+        };
+        let busy = || vec![20002, 20003, 20030];
+        assert_eq!(tunnel_ports(want, false, busy, |p| p == 20040), moved);
+        // only the control: the desk and relay stay
+        let only = vslink::arcade::Ports { control: 0, ..want };
+        assert_eq!(tunnel_ports(want, false, || vec![20002], free), only);
+        // a host's tunnel binds no ports: the usual ones, nothing read
+        let unread = || -> Vec<u16> { panic!("a host reads no table") };
+        assert_eq!(tunnel_ports(want, true, unread, |_| panic!("nor probes")), want);
+    }
 
     /// Local PLAY with a cup chosen gives the control the arcade host's schedule. The file carries no seat count: the
     /// local control has seat 1 only and fills the other 7 teams with CPU, as a host's with one seat did (probe 1).
