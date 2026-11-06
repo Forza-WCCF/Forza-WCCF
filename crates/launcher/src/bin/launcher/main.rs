@@ -653,9 +653,14 @@ fn starts_a_run(steps: &[Step]) -> bool {
     steps.iter().any(|s| matches!(s, Step::Game(_) | Step::Host(_)))
 }
 
-/// The window closes when the run it was opened for ends well.
-fn closes_with_run(from_command: bool, game: Option<u8>, was_up: bool) -> bool {
-    from_command && was_up && game == Some(0)
+/// The window closes when the run it was opened for ends well. That job's end, good or bad, is the command line's last
+/// say: a run the player starts later in the window ends on its screen.
+fn closes_with_run(from_command: &mut bool, game: Option<u8>, failed: bool, was_up: bool) -> bool {
+    let close = *from_command && was_up && game == Some(0);
+    if game.is_some() || failed {
+        *from_command = false;
+    }
+    close
 }
 
 /// A Windows message box with no owner; its answer.
@@ -987,7 +992,7 @@ impl App {
             }
         }
         // the run this process held has ended well: Launcher.exe ends with it, unless the player started it here
-        if closes_with_run(self.run_from_command, game, WAS_UP.load(Ordering::Relaxed)) {
+        if closes_with_run(&mut self.run_from_command, game, failed, WAS_UP.load(Ordering::Relaxed)) {
             ctx.send_viewport_cmd(ViewportCommand::Close);
             return;
         }
@@ -1904,13 +1909,25 @@ mod tests {
     /// arcade's game ended); one given on the command line ends the window it opened, as a shortcut always did.
     #[test]
     fn the_window_stays_after_a_run_it_started() {
+        let closes =
+            |from_command: bool, game, failed, was_up| closes_with_run(&mut { from_command }, game, failed, was_up);
         // PLAY or JOIN in the window: the game came up and ended well
-        assert!(!closes_with_run(false, Some(0), true));
+        assert!(!closes(false, Some(0), false, true));
         // a shortcut's `play` (no console): the window was opened for that run alone
-        assert!(closes_with_run(true, Some(0), true));
+        assert!(closes(true, Some(0), false, true));
         // the game never came up, or the run went wrong: the window stays with what it said
-        assert!(!closes_with_run(true, Some(5), true));
-        assert!(!closes_with_run(true, Some(0), false));
+        assert!(!closes(true, Some(5), true, true));
+        assert!(!closes(true, Some(0), false, false));
+        // the shortcut's run failed, the window came back: a later PLAY or JOIN that ends well keeps it
+        for first in [(Some(5), true), (None, true)] {
+            let mut from_command = true;
+            assert!(!closes_with_run(&mut from_command, first.0, first.1, true));
+            assert!(!closes_with_run(&mut from_command, Some(0), false, true));
+        }
+        // looks before the shortcut's job ends keep its close
+        let mut from_command = true;
+        assert!(!closes_with_run(&mut from_command, None, false, false));
+        assert!(closes_with_run(&mut from_command, Some(0), false, true));
     }
 
     /// Only a command line's game start keeps the window for its run: a dropped folder or `undo` are no start.
