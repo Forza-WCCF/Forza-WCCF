@@ -46,6 +46,11 @@ launcher.projector: {en: "Projector", it: "Proiettore", ja: "プロジェクタ�
 launcher.projector_hint: {en: "Its window, shown or hidden at once. Also in the game's SETTINGS.", it: "La sua finestra, mostrata o nascosta subito. Anche nelle IMPOSTAZIONI del gioco.", ja: "ウィンドウをすぐに表示・非表示。ゲームの設定でも変更できます。"}
 launcher.cpu_championship: {en: "CPU championship", it: "Campionato CPU", ja: "CPU大会"}
 launcher.cpu_championship_hint: {en: "Plays on the projector, shown or hidden. Off saves CPU. Applied at the next start.", it: "Si gioca sul proiettore, visibile o nascosto. Off risparmia CPU. Si applica al prossimo avvio.", ja: "プロジェクターで行われます (表示・非表示どちらでも)。オフでCPUを節約。次回の起動時に反映されます。"}
+launcher.cleanup: {en: "CLEAN UP AFTER A CRASH", it: "RIPULISCI DOPO UN BLOCCO", ja: "クラッシュ後の後片付け"}
+launcher.cleanup_hint: {en: "Your club is kept.", it: "Il tuo club resta.", ja: "クラブは残ります。"}
+launcher.cleanup_done: {en: "Items cleaned: %{n}. Backup: %{path}", it: "Elementi ripuliti: %{n}. Copia: %{path}", ja: "片付けた項目：%{n}。バックアップ：%{path}"}
+launcher.cleanup_none: {en: "Nothing to clean up.", it: "Niente da ripulire.", ja: "片付けるものはありません。"}
+launcher.cleanup_failed: {en: "Not everything was cleaned: %{what}", it: "Non tutto è stato ripulito: %{what}", ja: "片付けられないものがありました：%{what}"}
 launcher.club_server: {en: "Club server", it: "Server club", ja: "クラブサーバー"}
 launcher.club_server_hint: {en: "Empty: the server you play on", it: "Vuoto: il server a cui giochi", ja: "空欄：プレイ中のサーバー"}
 launcher.vs_link: {en: "Direct VS link", it: "Collegamento VS diretto", ja: "ダイレクトVSリンク"}

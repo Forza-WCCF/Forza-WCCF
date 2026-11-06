@@ -70,6 +70,7 @@ fn launcher_screens() {
             (Update, Edition::E1011, "update"),
             (Busy, Edition::E1718, "busy"),
             (Report, Edition::E1718, "report"),
+            (CleanedUp, Edition::E1718, "cleanup"),
         ] {
             let mut st = launcher::LauncherState::sample(ed, lang, s);
             snap(
@@ -988,6 +989,38 @@ fn keys_click_then_press() {
     h.run_steps(3);
     assert!(st.borrow().keys_advanced);
     h.snapshot("panel_keys_advanced_en");
+}
+
+/// 2017-18 SETTINGS: CLEAR BAD ENDINGS (no CLUB CARD page there) asks for the reset by its second click.
+#[test]
+fn settings_1718_clear_bad_endings() {
+    use forza_ui::panel::ClubPick;
+    use std::cell::RefCell;
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for lang in Lang::ALL {
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Settings);
+        let name = format!("panel_settings_1718_{}", lang.code());
+        snap(&mut all, &name, panel::SIZE, Edition::E1718, |ui| {
+            panel::show(ui, &mut st)
+        });
+    }
+    all.unwrap();
+    let st = RefCell::new(panel::PanelState::sample(
+        Edition::E1718,
+        Lang::En,
+        panel::Page::Settings,
+    ));
+    let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+        panel::show(ui, &mut st.borrow_mut())
+    });
+    h.run_steps(3);
+    h.get_by_label("CLEAR BAD ENDINGS").click();
+    h.run_steps(2);
+    assert!(st.borrow().club_request.is_none(), "armed, not asked");
+    h.get_by_label("CLICK AGAIN").click();
+    h.run_steps(2);
+    assert_eq!(st.borrow_mut().club_request.take(), Some(ClubPick::Fix));
 }
 
 /// SETTINGS as a player uses it: COMPACT and a 2 s hover change at once and mark data\panel.txt for writing; RESTART

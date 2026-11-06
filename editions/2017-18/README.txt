@@ -28,7 +28,8 @@ INSTALL (once)
 LAUNCHER
   PLAY      WHERE TO PLAY (This PC or Online), then PLAY. STOP THE GAME closes the game (during a match: CLICK AGAIN).
   SETUP     game folder, SET UP, UNDO SETUP; CARD PICTURES (From the game, or High-quality pack with Choose pack);
-            Skip the tutorial.
+            Skip the tutorial; CLEAN UP AFTER A CRASH (removes what a crash or a dropped arcade visit left; your club is
+            kept, a copy goes to data\backup first; not while the game runs).
   UPDATE    lists the published releases: pick one, then UPDATE. The game is set up again by itself; your clubs and
             settings are kept.
   DETAILS   what the Launcher did, with Copy and SAVE LOGS.
