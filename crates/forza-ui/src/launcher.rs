@@ -7,7 +7,7 @@ use super::lobby::{self, Grey, Kind, LobbyAction, LobbyView, Scenario as LobbySc
 use super::theme::{self, Edition};
 use super::widgets::{
     self, Cab, Tone, action, cabinet, field, progress, segmented, start_bar, status_line, steps,
-    text_w, title_bar, toggle_row,
+    text_w, title_bar, toggle_row, working,
 };
 use crate::theme::Accent;
 use egui::{Color32, Ui, vec2};
@@ -402,8 +402,8 @@ impl LauncherState {
                 st.busy = true;
                 st.tab = Tab::Setup;
                 st.pictures_hq = true;
-                st.progress = 0.42;
-                st.status = Some((Tone::Notice, tr!(lang, "launcher.msg_making_pictures")));
+                st.clock = (14.6, 14.6);
+                st.status = Some((Tone::Notice, tr!(lang, "launcher.msg_setting_up")));
             }
         }
         st
@@ -646,6 +646,8 @@ fn footer(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
         match st.steps {
             Some((n, 6)) => start_bar(ui, n, st.clock, ui.available_width()),
             Some((n, m)) => steps(ui, n, m, ui.available_width()),
+            // a setup or the game text says no percentage: the bar shows it works, and for how long
+            None if st.progress <= 0.0 => working(ui, st.clock.1, ui.available_width()),
             None => progress(ui, st.progress, ui.available_width()),
         };
     }
