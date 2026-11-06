@@ -137,7 +137,8 @@ static SHARED: Mutex<Shared> = Mutex::new(Shared {
 
 /// The game is up in this process (its run is supervised here): the window is minimized, closing it asks the run to stop.
 static UP: AtomicBool = AtomicBool::new(false);
-/// The game came up during the current job: when the run then ends well, Launcher.exe ends with it.
+/// The game came up during the current job: when the run then ends well, Launcher.exe ends with it if the run was a
+/// game start from the command line (a shortcut), and the window stays on its screen if the player started it there.
 static WAS_UP: AtomicBool = AtomicBool::new(false);
 /// A run is on in this kit folder (here or in another Launcher.exe): PLAY offers STOP THE GAME.
 static RUNNING: AtomicBool = AtomicBool::new(false);
@@ -646,6 +647,17 @@ fn send_report(words: String, crashed: bool) {
     });
 }
 
+/// A game start was given on the command line (a shortcut's `play`, a dropped game folder is no start): the window it
+/// opens is there for that run and ends with it; one the player starts in the window goes back to its screen instead.
+fn starts_a_run(steps: &[Step]) -> bool {
+    steps.iter().any(|s| matches!(s, Step::Game(_) | Step::Host(_)))
+}
+
+/// The window closes when the run it was opened for ends well.
+fn closes_with_run(from_command: bool, game: Option<u8>, was_up: bool) -> bool {
+    from_command && was_up && game == Some(0)
+}
+
 /// A Windows message box with no owner; its answer.
 fn message(text: &str, style: u32) -> i32 {
     let (text, title) = (wide(text), wide(TITLE));
@@ -763,6 +775,8 @@ struct App {
     online: online::Online,
     /// When the LAN fold's last search started.
     lan_at: Option<Instant>,
+    /// The window was opened for a game start given on the command line (a shortcut's `play`): it ends with that run.
+    run_from_command: bool,
 }
 
 /// The LAN fold searches this often while it is open.
@@ -770,7 +784,7 @@ const LAN_EVERY: Duration = Duration::from_secs(4);
 
 impl App {
     /// The state as the kit has it now; `folder` given (dropped on Launcher.exe) opens SETUP.
-    fn new(kit: &Kit, folder: Option<&OsStr>) -> Self {
+    fn new(kit: &Kit, folder: Option<&OsStr>, run_from_command: bool) -> Self {
         let ed = kit.edition();
         let panel = choices::read(&panel_file(kit));
         let settings = kit.settings_file();
@@ -849,6 +863,7 @@ impl App {
             notes_for: None,
             online: online_state,
             lan_at: None,
+            run_from_command,
         }
     }
 
@@ -904,8 +919,9 @@ impl App {
         Some(f.into())
     }
 
-    /// What the workers said since the last look; the window minimized for the game, back when its run ended badly,
-    /// closed when it ended well.  Runs also while the window is minimized.
+    /// What the workers said since the last look; the window minimized for the game, back when its run ended badly or
+    /// when the player started it here, closed only when a command line's run ended well.  Runs also while the window is
+    /// minimized.
     fn look(&mut self, ctx: &egui::Context) {
         let (log, list, updated, failed, game, report_open, report_done) = {
             let mut s = shared();
@@ -970,8 +986,8 @@ impl App {
                 None => {}
             }
         }
-        // the run this process held has ended well: Launcher.exe ends with it
-        if game == Some(0) && WAS_UP.load(Ordering::Relaxed) {
+        // the run this process held has ended well: Launcher.exe ends with it, unless the player started it here
+        if closes_with_run(self.run_from_command, game, WAS_UP.load(Ordering::Relaxed)) {
             ctx.send_viewport_cmd(ViewportCommand::Close);
             return;
         }
@@ -1593,6 +1609,8 @@ fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
     if check_due(unix_now(), last) {
         ask_updates();
     }
+    // a game start given on the command line: this window is there for that run alone
+    let run_from_command = starts_a_run(&first);
     if !first.is_empty() {
         start(first);
     }
@@ -1642,7 +1660,7 @@ fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
                 Box::new(move |cc| {
                     let _ = CTX.set(cc.egui_ctx.clone());
                     log(&format!("window: {renderer:?} renderer"));
-                    let app = App::new(kit, folder);
+                    let app = App::new(kit, folder, run_from_command);
                     if let Err(e) = theme::install(&cc.egui_ctx, app.st.edition, fonts) {
                         return Err(tf("launcher.msg_no_fonts", &[("error", &e.to_string())]).into());
                     }
@@ -1880,6 +1898,33 @@ mod tests {
         let kit = Kit::at(dir.path());
         assert_eq!(version(&kit), "0.6.0");
         assert_eq!(Some(version(&kit)), kit.release());
+    }
+
+    /// A session the player started in the window ends on its own screen (2026-11-06: the window closed after a joined
+    /// arcade's game ended); one given on the command line ends the window it opened, as a shortcut always did.
+    #[test]
+    fn the_window_stays_after_a_run_it_started() {
+        // PLAY or JOIN in the window: the game came up and ended well
+        assert!(!closes_with_run(false, Some(0), true));
+        // a shortcut's `play` (no console): the window was opened for that run alone
+        assert!(closes_with_run(true, Some(0), true));
+        // the game never came up, or the run went wrong: the window stays with what it said
+        assert!(!closes_with_run(true, Some(5), true));
+        assert!(!closes_with_run(true, Some(0), false));
+    }
+
+    /// Only a command line's game start keeps the window for its run: a dropped folder or `undo` are no start.
+    #[test]
+    fn a_game_start_comes_from_the_command_line() {
+        let pics = || vec![Step::Pictures];
+        assert!(!starts_a_run(&[]));
+        assert!(!starts_a_run(&pics()));
+        assert!(!starts_a_run(&[Step::Setup {
+            folder: "C:\\game".into(),
+            undo: false,
+        }]));
+        assert!(starts_a_run(&[Step::Game(vec!["play".into()])]));
+        assert!(starts_a_run(&[Step::Host(true)]));
     }
 
     #[test]
