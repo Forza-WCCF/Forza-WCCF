@@ -567,6 +567,11 @@ fn fill_save_data(body: &mut [u8], block: &[u8], version: u16, size: u16) {
 /// sent the same value at +32), and 0 there in the save after a play with the +354 RANK answer.
 const UC_ENTRY_DATE_BIT: usize = 23_071;
 
+/// Clears that date (25 bits) in a stored save block: what a 276 answer sends, so MATCH SELECT offers the cup again.
+pub fn clear_uc_entry_date(block: &mut [u8]) {
+    put_bits(block, UC_ENTRY_DATE_BIT, 25, 0);
+}
+
 /// Record +124 of a skip club: bit 4 (TitleHolder) of the mask `sub_792740` reads; with none of 1..8, 19, 21 set the
 /// club list shows "tutorial in progress".
 const SKIP_TITLES: u32 = 1 << 4;
@@ -1320,7 +1325,7 @@ fn club(
             }
             // no championship runs here, so no club is entered in one: the client reads this at MATCH SELECT, before
             // the RANK answer's reset (+354) runs at the play's start
-            put_bits(&mut block, UC_ENTRY_DATE_BIT, 25, 0);
+            clear_uc_entry_date(&mut block);
             restore_tail(body, &tail);
             let week = gt_week(now());
             if gt {
