@@ -1096,7 +1096,8 @@ fn state_color(s: &RowState) -> egui::Color32 {
         RowState::Open => theme::GREEN,
         RowState::InMatch => theme::AMBER,
         RowState::NoAnswer => theme::RED_TEXT,
-        _ => theme::TEXT_FAINT,
+        // FULL, CLOSED, a version: words the player reads, so DIM, not FAINT
+        _ => theme::TEXT_DIM,
     }
 }
 
@@ -1303,7 +1304,8 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
                 } else if resp.hovered() {
                     p.rect_filled(rect, theme::RADIUS, theme::RAISED.gamma_multiply(0.6));
                 }
-                let ink = if off { theme::TEXT_FAINT } else { theme::TEXT };
+                // a row that cannot be joined stays readable on the selected row's fill (FAINT was 2.2:1 there)
+                let ink = if off { theme::TEXT_DIM } else { theme::TEXT };
                 let font = if v.kind == Kind::Vs {
                     theme::mono(15.0)
                 } else {
@@ -1349,7 +1351,7 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
                     },
                 );
                 let sc = if dim {
-                    theme::TEXT_FAINT
+                    theme::TEXT_DIM
                 } else {
                     state_color(&r.state)
                 };
