@@ -87,6 +87,26 @@ fn launcher_screens() {
     all.unwrap();
 }
 
+/// A setup that reports a percentage keeps its bar; the working band is for a job that reports none.
+#[test]
+fn launcher_busy_progress() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    let mut st =
+        launcher::LauncherState::sample(Edition::E1718, Lang::En, launcher::Scenario::Busy);
+    st.progress = 0.42;
+    snap(
+        &mut all,
+        "launcher_busy_progress_en",
+        launcher::SIZE,
+        Edition::E1718,
+        |ui| {
+            launcher::show(ui, &mut st);
+        },
+    );
+    all.unwrap();
+}
+
 /// A 1280x720 screen (work area about 700 tall): the window fits it, PLAY and the status line stay in it, the tabs
 /// scroll above them.
 #[test]
@@ -1787,7 +1807,7 @@ fn lobby_list_fits_a_short_tab() {
         lobby::show(ui, &mut v, Lang::En);
     });
     h.run_steps(6);
-    let bottom = h.get_by_label_contains("Direct address").rect().bottom();
-    assert!(bottom <= 470.0, "the Direct address fold ends at {bottom}");
+    let bottom = h.get_by_label_contains("Server address").rect().bottom();
+    assert!(bottom <= 470.0, "the Server address fold ends at {bottom}");
     assert!(h.get_by_label("HOST VS").rect().top() > h.get_by_label("MILANO CUP").rect().bottom());
 }

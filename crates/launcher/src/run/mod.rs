@@ -154,6 +154,16 @@ impl From<String> for Text {
     }
 }
 
+/// The game server's port could not be bound: taken, this PC is already hosting an arcade on it (its own earlier start, or a
+/// server beside it), which "os error 10048" did not say; any other error keeps its port and reason.
+fn gamesvr_bind_error(port: u16, e: &io::Error) -> Text {
+    if e.kind() == io::ErrorKind::AddrInUse {
+        Text::key("launcher.run_gamesvr_busy").arg("port", port)
+    } else {
+        Text::key("launcher.run_gamesvr_port").arg("port", port).arg("error", e)
+    }
+}
+
 /// `text` to `ui` after `lead` (an indent, a step "1/6" the window's bar reads): shown in the player's language, the
 /// English for the logs.
 pub fn tell(ui: &dyn Ui, lead: &str, text: &Text) {
@@ -2274,8 +2284,7 @@ impl Run<'_> {
         }
         // this PC: back to the stand-in's address, VS entries off, after an online run
         conf::set_game_server(&ctrl_conf, "localhost", port, false)?;
-        let listener = TcpListener::bind(("127.0.0.1", port))
-            .map_err(|e| Failed(Text::key("launcher.run_gamesvr_port").arg("port", port).arg("error", e)))?;
+        let listener = TcpListener::bind(("127.0.0.1", port)).map_err(|e| Failed(gamesvr_bind_error(port, &e)))?;
         let log = file_log(self.logs().join("gamesvr_log.txt"));
         // the run's game folder (also recorded as "game" by the 2017-18 setup): the stand-in pre-registers its 2D-code cards,
         // and data\settings.json "skip_tutorial": true makes it give a new Aime id a club from the game's cpu_50.dat
@@ -3163,6 +3172,34 @@ mod tests {
             let s = n.get(lang);
             assert!(s.contains(&hhmm) && s != n.en() && !s.contains("%{"), "{lang:?}: {s}");
         }
+    }
+
+    #[test]
+    fn a_taken_game_server_port_reads_as_a_hosted_arcade() {
+        // a second arcade on this PC holds 20050: PLAY -> THIS PC used to stop with "os error 10048"
+        let held = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = held.local_addr().unwrap().port();
+        let taken = std::net::TcpListener::bind(("127.0.0.1", port)).unwrap_err();
+        assert_eq!(taken.kind(), std::io::ErrorKind::AddrInUse);
+        let t = super::gamesvr_bind_error(port, &taken);
+        assert_eq!(
+            t.en(),
+            format!("This PC is hosting an arcade on port {port}. Stop the arcade, or join it from ONLINE.")
+        );
+        for lang in [forza_ui::Lang::It, forza_ui::Lang::Ja] {
+            let s = t.get(lang);
+            assert!(
+                !s.contains("%{") && s != t.en() && s.contains(&port.to_string()),
+                "{lang:?}: {s}"
+            );
+        }
+        // any other reason keeps the port and Windows' error
+        let other = super::gamesvr_bind_error(20050, &std::io::Error::from_raw_os_error(87));
+        assert!(
+            other.en().contains("127.0.0.1:20050") && other.en().contains("os error 87"),
+            "{}",
+            other.en()
+        );
     }
 
     #[test]

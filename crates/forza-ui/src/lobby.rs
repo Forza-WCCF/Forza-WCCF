@@ -1096,7 +1096,8 @@ fn state_color(s: &RowState) -> egui::Color32 {
         RowState::Open => theme::GREEN,
         RowState::InMatch => theme::AMBER,
         RowState::NoAnswer => theme::RED_TEXT,
-        _ => theme::TEXT_FAINT,
+        // FULL, CLOSED, a version: words the player reads, so DIM, not FAINT
+        _ => theme::TEXT_DIM,
     }
 }
 
@@ -1303,7 +1304,8 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
                 } else if resp.hovered() {
                     p.rect_filled(rect, theme::RADIUS, theme::RAISED.gamma_multiply(0.6));
                 }
-                let ink = if off { theme::TEXT_FAINT } else { theme::TEXT };
+                // a row that cannot be joined stays readable on the selected row's fill (FAINT was 2.2:1 there)
+                let ink = if off { theme::TEXT_DIM } else { theme::TEXT };
                 let font = if v.kind == Kind::Vs {
                     theme::mono(15.0)
                 } else {
@@ -1320,18 +1322,7 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
                     .ping_ms
                     .filter(|_| !v.offline)
                     .map_or("-".into(), |p| format!("{p} ms"));
-                cell(
-                    ui,
-                    rect,
-                    cols[2],
-                    &ping,
-                    theme::body(14.0),
-                    if off {
-                        theme::TEXT_FAINT
-                    } else {
-                        theme::TEXT_DIM
-                    },
-                );
+                cell(ui, rect, cols[2], &ping, theme::body(14.0), theme::TEXT_DIM);
                 let l = r
                     .lang
                     .filter(|_| SHOW_LANG)
@@ -1349,7 +1340,7 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
                     },
                 );
                 let sc = if dim {
-                    theme::TEXT_FAINT
+                    theme::TEXT_DIM
                 } else {
                     state_color(&r.state)
                 };
@@ -1663,10 +1654,21 @@ fn host_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
         );
     }
     ui.add_space(8.0);
+    // the arcade's rule as steps, once there is a code or an address to pass on
+    let first = if lan {
+        "lobby.howto_lan"
+    } else {
+        "lobby.howto_code"
+    };
+    let howto = || {
+        [first, "lobby.howto_entry", "lobby.howto_fixture"]
+            .map(|k| tr!(lang, k))
+            .join("\n")
+    };
     let (tone, text) = match (&v.host_code, v.notice) {
-        _ if lan => (Tone::Done, tr!(lang, "lobby.arcade_howto")),
+        _ if lan => (Tone::Done, howto()),
         (_, Some(Notice::RoomLost)) => (Tone::Refused, tr!(lang, "lobby.room_lost")),
-        (Some(_), _) => (Tone::Done, tr!(lang, "lobby.arcade_howto")),
+        (Some(_), _) => (Tone::Done, howto()),
         (None, _) => (Tone::Notice, tr!(lang, "lobby.opening")),
     };
     status_line(ui, tone, &text);

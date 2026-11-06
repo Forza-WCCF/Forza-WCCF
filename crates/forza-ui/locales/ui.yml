@@ -548,7 +548,7 @@ lobby.quick: {en: "QUICK MATCH", it: "PARTITA RAPIDA", ja: "クイックマッ�
 lobby.host: {en: "HOST VS", it: "CREA SFIDA", ja: "ルームを作る"}
 lobby.ready: {en: "READY", it: "PRONTO", ja: "準備OK"}
 lobby.leave: {en: "LEAVE", it: "ESCI", ja: "退出"}
-lobby.direct: {en: "Direct address", it: "Indirizzo diretto", ja: "アドレスを直接入力"}
+lobby.direct: {en: "Server address", it: "Indirizzo del server", ja: "サーバーアドレス"}
 lobby.next_entry: {en: "Next ENTRY in %{t}", it: "Prossima ENTRY tra %{t}", ja: "次のエントリーまで %{t}"}
 lobby.wait_entry: {en: "Next ENTRY in %{t}.", it: "Prossimo ENTRY tra %{t}.", ja: "次の ENTRY まで %{t}。"}
 # beyond the ROADMAP table: columns, filters, room lines and status lines
@@ -565,7 +565,7 @@ lobby.needs_version: {en: "needs version %{v}", it: "serve la versione %{v}", ja
 lobby.club: {en: "Club #%{id}", it: "Club #%{id}", ja: "クラブ #%{id}"}
 lobby.waiting: {en: "waiting…", it: "in attesa…", ja: "待機中…"}
 lobby.starting: {en: "Both ready: starting", it: "Entrambi pronti: si parte", ja: "両者準備OK：開始します"}
-lobby.empty: {en: "No rooms yet. Host one or type an address.", it: "Nessuna stanza. Creane una o scrivi un indirizzo.", ja: "ルームなし。作成するかアドレスを入力。"}
+lobby.empty: {en: "No rooms yet. Host one or type a server address.", it: "Nessuna stanza. Creane una o scrivi l'indirizzo di un server.", ja: "ルームなし。作成するかサーバーアドレスを入力。"}
 lobby.offline: {en: "Server not answering. Try again later.", it: "Il server non risponde. Riprova più tardi.", ja: "サーバーが応答しません。後でもう一度お試しください。"}
 lobby.retry: {en: "RETRY", it: "RIPROVA", ja: "再試行"}
 lobby.why_offline: {en: "Server offline", it: "Server offline", ja: "サーバーに接続できません"}
@@ -580,9 +580,12 @@ lobby.host_arcade: {en: "HOST ARCADE", it: "APRI SALA", ja: "ゲームセンタ�
 lobby.host_title: {en: "Host an arcade", it: "Apri la tua sala", ja: "自分のゲームセンターを開く"}
 lobby.room_code: {en: "Room code", it: "Codice stanza", ja: "ルームコード"}
 lobby.opening: {en: "Opening the arcade…", it: "Apertura della sala…", ja: "ゲームセンターを開いています…"}
-lobby.arcade_howto: {en: "Both players: card in during the same ENTRY, then Arrange Fixture → Set opponent.", it: "Entrambi: inserite la carta nella stessa ENTRY, poi Fissa un incontro → Scegli avversario.", ja: "二人とも同じエントリー中にカードを入れ、Arrange Fixture → Set opponent を選びます。"}
+lobby.howto_code: {en: "1. Give your friends the room code.", it: "1. Dai il codice della stanza ai tuoi amici.", ja: "1. ルームコードを友だちに伝えます。"}
+lobby.howto_lan: {en: "1. Give your friends an address above.", it: "1. Dai ai tuoi amici uno degli indirizzi qui sopra.", ja: "1. 上のアドレスを友だちに伝えます。"}
+lobby.howto_entry: {en: "2. Both players card in during the same ENTRY.", it: "2. Entrambi i giocatori inseriscono la carta nella stessa ENTRY.", ja: "2. 二人とも同じエントリー中にカードを入れます。"}
+lobby.howto_fixture: {en: "3. In the game: Arrange Fixture → Set opponent.", it: "3. Nel gioco: Fissa un incontro → Scegli avversario.", ja: "3. ゲーム内で Arrange Fixture → Set opponent を選びます。"}
 lobby.joining: {en: "Joining %{code}…", it: "Ingresso in %{code}…", ja: "%{code} に参加しています…"}
-lobby.no_room: {en: "No room has that code on %{desk}.", it: "Nessuna stanza ha quel codice su %{desk}.", ja: "%{desk} にそのコードのルームはありません。"}
+lobby.no_room: {en: "No room has that code on %{desk}. The arcade may have restarted with a new code: pick it from the list, or ask the host for the new code.", it: "Nessuna stanza ha quel codice su %{desk}. La sala potrebbe essere ripartita con un codice nuovo: sceglila dall'elenco, oppure chiedi all'host il nuovo codice.", ja: "%{desk} にそのコードのルームはありません。ゲームセンターが再起動してコードが変わった可能性があります。一覧から選ぶか、ホストに新しいコードを尋ねてください。"}
 lobby.room_desk: {en: "Room on %{desk}", it: "Stanza su %{desk}", ja: "ルームの場所：%{desk}"}
 lobby.host_players: {en: "Players here: %{n}/%{max}", it: "Giocatori in sala: %{n}/%{max}", ja: "現在の人数：%{n}/%{max}"}
 lobby.room_lost: {en: "The lobby lost this room: nobody new can join.", it: "La lobby ha perso questa stanza: nessun altro può entrare.", ja: "ロビーがこのルームを失いました。新しい参加はできません。"}
@@ -779,6 +782,7 @@ launcher.run_gamesvr_remote: {en: "game server: the server's", it: "server di gi
 launcher.run_gamesvr_no_answer: {en: "the game server %{host}:%{port} does not answer. Check the address, that forza-server is running there, and the firewall - or play on this PC.", it: "il server di gioco %{host}:%{port} non risponde. Controlla l'indirizzo, che forza-server sia in esecuzione lì e il firewall, oppure gioca su questo PC.", ja: "ゲームサーバー %{host}:%{port} が応答しません。アドレス、そこで forza-server が動いているか、ファイアウォールを確認するか、このPCでプレイしてください。"}
 launcher.run_gamesvr_at: {en: "game server %{host}:%{port}", it: "server di gioco %{host}:%{port}", ja: "ゲームサーバー %{host}:%{port}"}
 launcher.run_gamesvr_port: {en: "the game server did not start: 127.0.0.1:%{port} (%{error})", it: "il server di gioco non si è avviato: 127.0.0.1:%{port} (%{error})", ja: "ゲームサーバーが起動しませんでした: 127.0.0.1:%{port} (%{error})"}
+launcher.run_gamesvr_busy: {en: "This PC is hosting an arcade on port %{port}. Stop the arcade, or join it from ONLINE.", it: "Questo PC ospita una sala sulla porta %{port}. Ferma la sala, oppure entra da ONLINE.", ja: "このPCはポート %{port} でゲームセンターを開いています。ゲームセンターを停止するか、「オンライン」から参加してください。"}
 launcher.run_guests_dropped: {en: "%{n} guest clubs left by an earlier arcade dropped (their players keep their own)", it: "%{n} club ospiti lasciati da una sala precedente eliminati (i loro giocatori conservano i propri)", ja: "以前のゲームセンターに残っていたゲストのクラブ %{n} 件を削除しました (各プレイヤー自身のクラブは残ります)"}
 launcher.run_guests_unchecked: {en: "guest clubs left by an earlier arcade not checked (%{error})", it: "club ospiti lasciati da una sala precedente non controllati (%{error})", ja: "以前のゲームセンターに残っていたゲストのクラブは確認できませんでした (%{error})"}
 launcher.run_gamesvr_failed: {en: "the game server did not start (%{error})", it: "il server di gioco non si è avviato (%{error})", ja: "ゲームサーバーが起動しませんでした (%{error})"}
