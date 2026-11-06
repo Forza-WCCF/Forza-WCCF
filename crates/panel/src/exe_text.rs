@@ -240,11 +240,17 @@ fn key_rows<const N: usize>(rows: [(usize, [u8; N]); 4], base: usize) -> String 
     for ((at, _), key) in originals(rows, base).iter().zip(OUR_KEYS) {
         // the key is copied into a std::string on each use; ours stays for as long as the game runs
         let ours: &'static [u8] = Box::leak(format!("{key}\0").into_bytes().into_boxed_slice());
-        if crate::patches::patch_code(at + N - 4, &(ours.as_ptr() as u32).to_le_bytes()) {
+        if crate::patches::patch_code(imm32::<N>(*at), &(ours.as_ptr() as u32).to_le_bytes()) {
             done += 1;
         }
     }
     format!("{done} of 4 country rows on the translated keys")
+}
+
+/// Where the key goes: the instruction's imm32, its last four bytes (dispatch imm32 at `+7`, `C7 44 24 disp8 imm32`
+/// at `+4`).
+fn imm32<const N: usize>(at: usize) -> usize {
+    at + N - 4
 }
 
 /// Point the club and nationality name tables at our names; how many entries changed.
@@ -368,16 +374,39 @@ mod tests {
         ),
     ];
 
+    /// [`CTD_ROWS`] (read from the original `client_Release.exe` by hand) at the ASLR base 0x50_0000: addresses and keys 0x10_0000 higher (reloc type 3 on each key).
+    const CTD_RELOCATED: [(usize, [u8; 8]); 4] = [
+        (
+            0x0081_4866,
+            [0xC7, 0x44, 0x24, 0x30, 0xFC, 0xF2, 0x49, 0x01],
+        ),
+        (
+            0x0081_486E,
+            [0xC7, 0x44, 0x24, 0x34, 0x48, 0xF2, 0x49, 0x01],
+        ),
+        (
+            0x0081_4876,
+            [0xC7, 0x44, 0x24, 0x38, 0xE8, 0xF2, 0x49, 0x01],
+        ),
+        (
+            0x0081_487E,
+            [0xC7, 0x44, 0x24, 0x3C, 0xE4, 0xF1, 0x49, 0x01],
+        ),
+    ];
+
     #[test]
     fn country_rows_need_the_original_code() {
         assert_eq!(originals(DATI_ROWS, 0x40_0000), DATI_ROWS);
         assert_eq!(originals(DATI_ROWS, 0x50_0000), DATI_RELOCATED);
+        assert_eq!(originals(CTD_ROWS, 0x50_0000), CTD_RELOCATED);
+        // the pinned write site: each imm32 at byte 4, the PE relocations of the original exe
         assert_eq!(
-            originals(CTD_ROWS, 0x50_0000)[3],
-            (
-                0x0081_487E,
-                [0xC7, 0x44, 0x24, 0x3C, 0xE4, 0xF1, 0x49, 0x01]
-            )
+            CTD_ROWS.map(|(at, _)| imm32::<8>(at)),
+            [0x0071_486A, 0x0071_4872, 0x0071_487A, 0x0071_4882]
+        );
+        assert_eq!(
+            DATI_ROWS.map(|(at, _)| imm32::<11>(at)),
+            [0x0071_64F9, 0x0071_6504, 0x0071_650F, 0x0071_651A]
         );
         // both screens push the same four MAKE_country keys, in OUR_KEYS' order
         let keys = |b: &[u8]| u32::from_le_bytes(b[b.len() - 4..].try_into().unwrap());
