@@ -804,6 +804,9 @@ fn board_reset_lineup_asks_first() {
         st.before_match_at = Some("21:40".into()); // a fixed time for the picture
         panel::lineup_tick(&mut st, None, Some((false, false)), &now);
         assert!(st.reset_ready && !st.in_match && !st.match_seen);
+        let shown = |b: &forza::board::Board| (0..16).map(|i| b.number(i)).collect::<Vec<_>>();
+        let before = shown(&st.board);
+        let after = shown(&forza::cards::board(&kept, &st.cards));
         let st = std::cell::RefCell::new(st);
         let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
             panel::show(ui, &mut st.borrow_mut())
@@ -829,11 +832,11 @@ fn board_reset_lineup_asks_first() {
             let new = panel::take_reset(&mut s, &now, false);
             if confirm {
                 assert_eq!(new.as_ref(), Some(&kept));
-                assert_eq!(forza::cards::table_after(&kept, &s.board), kept);
+                assert_eq!(shown(&s.board), after);
                 assert_eq!(s.import_undo.as_ref().map(|u| &u.0), Some(&now));
             } else {
                 assert_eq!(new, None);
-                assert_eq!(forza::cards::table_after(&now, &s.board), now);
+                assert_eq!(shown(&s.board), before);
                 assert!(s.import_undo.is_none());
             }
         }
