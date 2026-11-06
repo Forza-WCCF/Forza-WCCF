@@ -222,14 +222,18 @@ const PLACE_MAX: usize = 25;
 /// +0x280, read at 0x832C90), and both clubs' region as none (PREFECTURE_ID1 / PREFECTURE_ID2 = -1, read at 0x832B62 /
 /// 0x832B7D; -1 is the blank of 0x854AC0). Without them the client keeps its built-in place (the original showroom
 /// name, set at 0x82F6BE) and turns ALL.Net's region 0 into "Other". `name` empty or nothing Shift-JIS can write:
-/// [`PLACE_DEFAULT`]. `=` is dropped too: it would end the value for a client that splits the line at it.
+/// [`PLACE_DEFAULT`]. `=` is dropped too: it would end the value for a client that splits the line at it. Blanks
+/// become full-width spaces (Shift-JIS 81 40): the client ends the name at an ASCII space ("Play test A" showed "Play").
 pub fn place_text(raw: &[u8], name: &str) -> io::Result<Vec<u8>> {
     let mut sjis = Vec::new();
+    let mut end = 0; // bytes up to the last non-space character, so the name never ends in a blank
     for c in forza::online::lobby::arcade_name(name).chars() {
         if c == '=' {
             continue;
         }
         let mut utf8 = [0; 4];
+        // the client cuts the value at an ASCII space, so a blank goes in as the full-width one (81 40)
+        let c = if c == ' ' { '\u{3000}' } else { c };
         let (b, _, bad) = encoding_rs::SHIFT_JIS.encode(c.encode_utf8(&mut utf8));
         if bad {
             continue;
@@ -238,10 +242,11 @@ pub fn place_text(raw: &[u8], name: &str) -> io::Result<Vec<u8>> {
             break;
         }
         sjis.extend_from_slice(&b);
+        if c != '\u{3000}' {
+            end = sjis.len();
+        }
     }
-    while sjis.last() == Some(&b' ') {
-        sjis.pop();
-    }
+    sjis.truncate(end);
     if sjis.is_empty() {
         sjis = PLACE_DEFAULT.as_bytes().to_vec();
     }
@@ -350,14 +355,25 @@ mod club_tests {
             .concat()
         };
         assert_eq!(text(""), want(PLACE_DEFAULT.as_bytes()));
-        assert_eq!(text("Bar Sport"), want(b"Bar Sport"));
+        // the client ends the name at an ASCII space, so blanks go in full-width (81 40)
+        assert_eq!(text("Play test A"), want(b"Play\x81\x40test\x81\x40A"));
+        // a long multi-word name stops at 25 bytes on a whole character and drops the trailing blank:
+        // "Sala Giochi Forza" is 19 bytes, "Sala Giochi Forza Ital" 25; "Sala Giochi Forza It " 25 ends in the blank
+        assert_eq!(
+            text("Sala Giochi Forza Italia Centro"),
+            want(b"Sala\x81\x40Giochi\x81\x40Forza\x81\x40Ital")
+        );
+        assert_eq!(
+            text("Sala Giochi Forza It A"),
+            want(b"Sala\x81\x40Giochi\x81\x40Forza\x81\x40It")
+        );
         // a '=' ends the value for a client that splits the line at it
         assert_eq!(text("Bar=Sport"), want(b"BarSport"));
         // 12 full-width characters are 24 bytes; the 13th would make 26, one past the name
         let jp = "ゲームセンターフォルツァ東京店";
         assert_eq!(text(jp), want(&encoding_rs::SHIFT_JIS.encode(&jp[..12 * 3]).0));
-        // a name Shift-JIS cannot write keeps what it can: Caff, blank, Ω (0x83B6); è and € are dropped
-        assert_eq!(text("Caffè Ω€"), want(b"Caff \x83\xb6"));
+        // a name Shift-JIS cannot write keeps what it can: Caff, full-width blank, Ω (0x83B6); è and € are dropped
+        assert_eq!(text("Caffè Ω€"), want(b"Caff\x81\x40\x83\xb6"));
         assert_eq!(text("€€"), want(PLACE_DEFAULT.as_bytes()));
     }
 }
