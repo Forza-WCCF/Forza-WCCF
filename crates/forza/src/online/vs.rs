@@ -208,8 +208,10 @@ fn card(c: u32) -> u32 {
 
 /// Two entries may pair: both open, or both in the same lobby room. The round (+4) is not compared: each home takes
 /// its own 224 and polls for about 90 s, so two homes rarely share one 40 s round, and the control checks no round
-/// either. A room pair was chosen by its players, so it also skips the class (kbn, +16) and the rematch history. Two
-/// entries of one card id never pair: both would be Home (246 +20 == +8).
+/// either. The class (kbn, +16) is the Grand Trophy class 1..4 (Area B..World A) or 0 (Local class, or no GT; control
+/// 0x46C680): open entries of any two classes 1..4 pair (2026-11-04: few players online), 0 pairs only with 0 and
+/// any other value with nothing, so in the open pool a Local coach never meets a GT class and plays the CPU. A room
+/// pair was chosen by its players, so it also skips the class and the rematch history. Two entries of one card id never pair: both would be Home (246 +20 == +8).
 fn compatible(a: &Entry, b: &Entry, pa: Pool, pb: Pool) -> bool {
     let room = match (pa, pb) {
         (Pool::Open, Pool::Open) => false,
@@ -222,7 +224,7 @@ fn compatible(a: &Entry, b: &Entry, pa: Pool, pb: Pool) -> bool {
     ![0, u32::MAX].contains(&ca)
         && ![0, u32::MAX].contains(&cb)
         && ca != cb
-        && (room || a.req[16] == b.req[16])
+        && (room || a.req[16].max(b.req[16]) <= 4 && (a.req[16] == 0) == (b.req[16] == 0))
         && is_loopback(a.addr().0) == is_loopback(b.addr().0)
         && (a.addr().0 != b.addr().0 || u32_at(&a.req, 48) != u32_at(&b.req, 48))
         && (room || !a.history().any(|c| c == cb) && !b.history().any(|c| c == ca))
@@ -257,7 +259,10 @@ fn build(me: &Entry, other: &Entry, seed: u32, home: u32) -> [u8; MATCH_LEN] {
     r[124..148].copy_from_slice(&o[148..172]);
     cstr(&mut r[148..204], &o[200..256]);
     r[204..216].copy_from_slice(&o[256..268]);
+    // +216 feeds the opponent's seat id (+90, must stay < 10, control 0x467090)
     r[216..248].copy_from_slice(&o[16..48]);
+    // the control stores +240 as the opponent's GT class (0x467588 -> userdata +1560); the 243 leaves request +40 at 0
+    r[240..244].copy_from_slice(&u32::from(o[16]).to_le_bytes());
     r
 }
 
@@ -567,8 +572,9 @@ mod tests {
     fn pair_is_mirrored_stable_and_once() {
         let m = Matcher::default();
         let t = Instant::now();
-        let a = entry(1, 7, [9, 9, 9, 1], 20001, 111, 5);
-        let b = entry(2, 7, [9, 9, 9, 2], 20002, 222, 6);
+        let mut a = entry(1, 7, [9, 9, 9, 1], 20001, 111, 5);
+        let mut b = entry(2, 7, [9, 9, 9, 2], 20002, 222, 6);
+        (a[16], b[16]) = (2, 3);
         assert!(m.enter(&a, t) && m.enter(&b, t));
         assert_eq!(m.poll(&poll_req(1, 111, 5), t).map(|_| ()), Some(()));
         let pa = m.poll(&poll_req(1, 111, 5), t).unwrap();
@@ -584,8 +590,10 @@ mod tests {
         // the waiting seat (a) is Home: +20 equals +8 only for it
         assert_eq!(u32_at(&pa, 20), u32_at(&pa, 8));
         assert_ne!(u32_at(&pb, 20), u32_at(&pb, 8));
-        assert_eq!(pa[216..248], b[16..48]);
-        assert_eq!(pb[216..248], a[16..48]);
+        // +216..+248 is the partner's +16..+48, except +240: the partner's class
+        assert_eq!((&pa[216..240], &pa[244..248]), (&b[16..40], &b[44..48]));
+        assert_eq!((&pb[216..240], &pb[244..248]), (&a[16..40], &a[44..48]));
+        assert_eq!((u32_at(&pa, 240), u32_at(&pb, 240)), (3, 2));
     }
 
     #[test]
@@ -594,7 +602,7 @@ mod tests {
         let t = Instant::now();
         assert!(m.enter(&entry(1, 7, [9, 9, 9, 1], 20001, 111, 5), t));
         assert!(m.poll(&poll_req(1, 111, 5), t).is_none());
-        // same cabinet, same card id elsewhere (both would be Home), other kbn do not pair
+        // same cabinet, same card id elsewhere (both would be Home), a GT class (kbn 1) with no class (0) do not pair
         m.enter(&entry(2, 7, [9, 9, 9, 1], 20002, 222, 5), t);
         m.enter(&entry(3, 7, [9, 9, 9, 3], 20003, 111, 7), t);
         let mut k = entry(4, 7, [9, 9, 9, 4], 20004, 444, 8);
@@ -612,6 +620,85 @@ mod tests {
         assert_eq!(m.waiting(), 4);
         assert!(m.poll(&poll_req(1, 111, 5), t + ENTRY_TTL).is_none());
         assert_eq!(m.waiting(), 0);
+    }
+
+    #[test]
+    fn gt_classes_pair_across_classes_and_local_plays_the_cpu() {
+        let t = Instant::now();
+        let step = Duration::from_secs(10);
+        let gt = |slot: u32, card, kbn| {
+            let mut e = entry(
+                slot,
+                7,
+                [9, 9, 9, slot as u8],
+                20000 + slot as u16,
+                card,
+                slot,
+            );
+            e[16] = kbn;
+            e
+        };
+        // a Local coach (kbn 0) waits first; Area B (1) and World A (4) pair with each other, never with it
+        let m = Matcher::default();
+        assert!(
+            m.enter(&gt(1, 111, 0), t) && m.enter(&gt(2, 222, 1), t) && m.enter(&gt(3, 333, 4), t)
+        );
+        let p = m.poll(&poll_req(3, 333, 3), t).unwrap();
+        assert_eq!(u32_at(&p, 12), 222, "World A takes the waiting Area B");
+        assert_eq!(
+            u32_at(&p, 240),
+            1,
+            "the 246 carries the partner's class at +240"
+        );
+        for i in 1..=u32::from(POLLS) {
+            assert!(
+                m.poll(&poll_req(1, 111, 1), t + step * i).is_none(),
+                "poll {i}"
+            );
+        }
+        assert_eq!(
+            m.waiting(),
+            2,
+            "Local got no pair and its seat plays the CPU"
+        );
+        // a lone Area A entry answers no pair to each poll and drops out at the last: the CPU fallback
+        let m = Matcher::default();
+        m.enter(&gt(2, 222, 2), t);
+        for i in 1..u32::from(POLLS) {
+            assert!(m.poll(&poll_req(2, 222, 2), t + step * i).is_none());
+            assert_eq!(m.waiting(), 1, "poll {i}");
+        }
+        assert!(
+            m.poll(&poll_req(2, 222, 2), t + step * u32::from(POLLS))
+                .is_none()
+        );
+        assert_eq!(m.waiting(), 0);
+        // one class pairs with itself, 3 takes a leftover 2, and a value above 4 pairs with nothing
+        let m = Matcher::default();
+        assert!(
+            m.enter(&gt(4, 444, 2), t)
+                && m.enter(&gt(5, 555, 2), t)
+                && m.enter(&gt(6, 666, 2), t)
+                && m.enter(&gt(7, 777, 3), t)
+                && m.enter(&gt(8, 888, 5), t)
+        );
+        // 888 polls while all four valid entries still wait
+        assert!(
+            m.poll(&poll_req(8, 888, 8), t).is_none(),
+            "kbn 5 is no class"
+        );
+        assert_eq!(u32_at(&m.poll(&poll_req(5, 555, 5), t).unwrap(), 12), 444);
+        assert_eq!(u32_at(&m.poll(&poll_req(7, 777, 7), t).unwrap(), 12), 666);
+        let m = Matcher::default();
+        assert!(m.enter(&gt(1, 111, 4), t) && m.enter(&gt(2, 222, 7), t));
+        assert!(
+            m.poll(&poll_req(2, 222, 2), t).is_none(),
+            "kbn 7 never meets class 4"
+        );
+        assert!(
+            m.poll(&poll_req(1, 111, 1), t).is_none(),
+            "class 4 never meets kbn 7"
+        );
     }
 
     #[test]
