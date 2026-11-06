@@ -685,8 +685,11 @@ pub struct PanelState {
     pub seat_on: bool,
     /// The table differs from `before_match`: RESET LINEUP is offered, greyed out while `in_match`.
     pub reset_ready: bool,
-    /// RESET LINEUP clicked: the panel DLL calls [`take_reset`].
+    /// RESET LINEUP's CONFIRM clicked: the panel DLL calls [`take_reset`].
     pub reset_lineup: bool,
+    /// RESET LINEUP clicked: its dialog shows the kept table until CONFIRM or CANCEL; `Some(true)`: on the board
+    /// window ([`PanelState::desk`]), as FORMATIONS does.
+    pub reset_ask: Option<bool>,
     /// A slot clicked to load: the panel DLL calls [`load_formation`].
     pub formation_load: Option<usize>,
     /// SAVE confirmed (slot, name): the panel DLL writes the table into the slot.
@@ -793,6 +796,7 @@ impl PanelState {
             seat_on: true,
             reset_ready: false,
             reset_lineup: false,
+            reset_ask: None,
             formation_load: None,
             formation_save: None,
             formation_copy: None,
@@ -1195,12 +1199,27 @@ pub fn lineup_tick(
         .before_match
         .as_ref()
         .is_some_and(|b| lineup_differs(b, placed));
+    if !st.reset_ready || st.in_match {
+        st.reset_ask = None;
+    }
 }
 
 /// The table a match begins with, kept for RESET LINEUP, and when.
 fn keep_table(st: &mut PanelState, placed: &[Placed]) {
     let t = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
     st.before_match = Some(placed.to_vec());
+    st.before_match_at = Some(format!("{:02}:{:02}", t.hour(), t.minute()));
+}
+
+/// The table an earlier run kept when its last match began (the panel DLL's copy beside the table), `at` the copy's
+/// time: RESET LINEUP offers it from the start, until the next match keeps its own. An empty table keeps nothing.
+pub fn keep_saved(st: &mut PanelState, table: Vec<Placed>, at: std::time::SystemTime) {
+    if table.is_empty() {
+        return;
+    }
+    let t = time::OffsetDateTime::from(at);
+    let t = time::UtcOffset::current_local_offset().map_or(t, |o| t.to_offset(o));
+    st.before_match = Some(table);
     st.before_match_at = Some(format!("{:02}:{:02}", t.hour(), t.minute()));
 }
 
@@ -1393,7 +1412,8 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
     game_picture(ui, pic, st.picture);
     // the dealt card and the dialogs drawn here cover the picture: clicks there are theirs, not the game's
     let dialog = st.import_ask.is_some()
-        || (st.formations.is_some() && (!st.formations_desk || !st.file.board_window));
+        || (st.formations.is_some() && (!st.formations_desk || !st.file.board_window))
+        || (st.reset_ask.is_some() && (st.reset_ask == Some(false) || !st.file.board_window));
     st.picture_rect =
         (st.page == Page::Game && st.deal.is_none() && !st.close_warn && !dialog).then_some(pic);
     // popped out the deck is the column's: COMPACT is the docked layout's choice
@@ -1434,6 +1454,9 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
     } else if st.formations.is_some() && (!st.formations_desk || !st.file.board_window) {
         st.formations_desk = false; // the board window closed under it: the dialog comes back to the game window
         formations_dialog(ui, st, lang);
+    } else if st.reset_ask.is_some() && (st.reset_ask == Some(false) || !st.file.board_window) {
+        st.reset_ask = Some(false);
+        reset_dialog(ui, st, lang);
     }
     if st.page != Page::Game {
         let mut pg = ui.new_child(egui::UiBuilder::new().max_rect(above));
@@ -1630,6 +1653,119 @@ fn import_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         st.import_ask = None;
     } else if go.clicked() || enter {
         st.import_go = true;
+    }
+}
+
+/// RESET LINEUP's question: the kept table as a squad list (the pitch by position, left to right, then the subs), the
+/// cards that change place in gold. CONFIRM (or Enter) asks the panel DLL for [`take_reset`]; CANCEL (or Esc) leaves
+/// the table as it is.
+fn reset_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
+    let Some(kept) = st.before_match.as_deref() else {
+        st.reset_ask = None;
+        return;
+    };
+    let kept = cards::board(kept, &st.cards);
+    let now = &st.board;
+    let pitch_now: Vec<u32> = (0..11).filter_map(|s| now.number(s)).collect();
+    let bench_now: Vec<u32> = (11..16).filter_map(|s| now.number(s)).collect();
+    // one row per position, the subs last: (label, [(name, changes place)])
+    let mut rows: Vec<(String, Vec<(String, bool)>)> = Vec::new();
+    for pos in Position::ALL {
+        let mut on: Vec<usize> = (0..11)
+            .filter(|&s| kept.slots[s].is_some_and(|ci| kept.cards[ci].pos == pos))
+            .collect();
+        on.sort_by(|&a, &b| kept.spots[a].x.total_cmp(&kept.spots[b].x));
+        let names = on
+            .iter()
+            .filter_map(|&s| kept.slots[s].map(|ci| &kept.cards[ci]))
+            .map(|c| (c.short_name().to_owned(), !pitch_now.contains(&c.number)))
+            .collect::<Vec<_>>();
+        if !names.is_empty() {
+            rows.push((pos.code().to_owned(), names));
+        }
+    }
+    let subs: Vec<_> = (11..16)
+        .filter_map(|s| kept.slots[s].map(|ci| &kept.cards[ci]))
+        .map(|c| (c.short_name().to_owned(), !bench_now.contains(&c.number)))
+        .collect();
+    if !subs.is_empty() {
+        rows.push((tr!(lang, "board.reset_subs"), subs));
+    }
+    let at = st.before_match_at.clone().unwrap_or_default();
+    let modal = egui::Modal::new(egui::Id::new("reset-dialog"))
+        .backdrop_color(Color32::from_black_alpha(170))
+        .frame(
+            egui::Frame::new()
+                .fill(Color32::from_rgba_unmultiplied(10, 16, 28, 240))
+                .stroke(Stroke::new(3.0, theme::GOLD))
+                .corner_radius(theme::RADIUS_BIG)
+                .inner_margin(24),
+        )
+        .show(ui.ctx(), |ui| {
+            ui.set_width(440.0);
+            ui.spacing_mut().item_spacing.y = 10.0;
+            ui.vertical_centered(|ui| {
+                ui.label(
+                    egui::RichText::new(tr!(lang, "board.reset_ask_title"))
+                        .font(theme::display(32.0))
+                        .color(theme::GOLD),
+                );
+                ui.label(
+                    egui::RichText::new(tr!(lang, "board.reset_to", at = at))
+                        .font(theme::body(15.0))
+                        .color(theme::TEXT_DIM),
+                );
+            });
+            for (label, names) in &rows {
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = 10.0;
+                    let (r, _) = ui.allocate_exact_size(vec2(44.0, 20.0), Sense::hover());
+                    ui.painter().text(
+                        r.left_center(),
+                        Align2::LEFT_CENTER,
+                        label,
+                        theme::bold(14.0),
+                        theme::TEXT_DIM,
+                    );
+                    for (name, moves) in names {
+                        ui.label(
+                            egui::RichText::new(name)
+                                .font(theme::body(16.0))
+                                .color(if *moves { theme::GOLD } else { theme::TEXT }),
+                        );
+                    }
+                });
+            }
+            ui.label(
+                egui::RichText::new(tr!(lang, "board.reset_moves"))
+                    .font(theme::body(13.0))
+                    .color(theme::GOLD),
+            );
+            ui.add_space(6.0);
+            let go = widgets::cabinet(
+                ui,
+                vec2(440.0, 56.0),
+                &tr!(lang, "cat.ask_confirm"),
+                Cab::Go,
+                true,
+            );
+            let cancel = widgets::cabinet(
+                ui,
+                vec2(440.0, 44.0),
+                &tr!(lang, "cat.ask_cancel"),
+                Cab::Plain,
+                false,
+            );
+            (go, cancel)
+        });
+    let (go, cancel) = modal.inner;
+    let enter = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+    let esc = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+    if cancel.clicked() || esc {
+        st.reset_ask = None;
+    } else if go.clicked() || enter {
+        st.reset_ask = None;
+        st.reset_lineup = true;
     }
 }
 
@@ -2699,6 +2835,9 @@ fn board_window(ui: &mut Ui, st: &mut PanelState, lang: Lang, sheet: Rect) {
     if st.formations_desk {
         formations_dialog(ui, st, lang);
     }
+    if st.reset_ask == Some(true) {
+        reset_dialog(ui, st, lang);
+    }
 }
 
 /// Under a board: a card just taken off (its name and UNDO) or a lineup just imported (its UNDO) at the left, POP OUT
@@ -2756,7 +2895,9 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
         let button = egui::Button::new(label).wrap_mode(egui::TextWrapMode::Extend);
         let hint = reset_hint(st, lang);
         let r = c.add_enabled(ready, button);
-        st.reset_lineup |= r.clicked();
+        if r.clicked() {
+            st.reset_ask = Some(st.desk);
+        }
         r.on_hover_text(&hint).on_disabled_hover_text(&hint);
         // FORMATIONS at its left: the same dialog as the catalogue's button
         let label = egui::RichText::new(tr!(lang, "form.open")).font(theme::bold(12.0));
