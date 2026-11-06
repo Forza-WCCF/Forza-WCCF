@@ -4044,6 +4044,7 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let accent = st.edition.accent();
     let now = ui.input(|i| i.time);
     let s = st.status.clone();
+    let e1718 = st.edition == Edition::E1718;
     ui.columns(2, |cols| {
         let (a, b) = cols.split_at_mut(1);
         let left = &mut a[0];
@@ -4066,15 +4067,20 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                         Link::Unknown => (tr!(lang, "settings.unknown"), theme::TEXT_FAINT),
                     };
                     kv(ui, &tr!(lang, "settings.server"), &v, Some(c));
-                    let (k, c) = card_text(s.card);
-                    kv(ui, &tr!(lang, "settings.session"), &tr!(lang, k), Some(c));
-                    let (v, c) = match s.bad {
-                        None => ("-".to_owned(), None),
-                        Some(0) => ("0".to_owned(), Some(theme::GREEN)),
-                        Some(1) => (tr!(lang, "settings.bad_one"), Some(theme::AMBER)),
-                        Some(n) => (tr!(lang, "settings.bad_many", n = n), Some(theme::RED_TEXT)),
-                    };
-                    kv(ui, &tr!(lang, "settings.bad_endings"), &v, c);
+                    // both rows read the 2010-11 club card file; a 2017-18 club is on the game server, with no such file
+                    if !e1718 {
+                        let (k, c) = card_text(s.card);
+                        kv(ui, &tr!(lang, "settings.session"), &tr!(lang, k), Some(c));
+                        let (v, c) = match s.bad {
+                            None => ("-".to_owned(), None),
+                            Some(0) => ("0".to_owned(), Some(theme::GREEN)),
+                            Some(1) => (tr!(lang, "settings.bad_one"), Some(theme::AMBER)),
+                            Some(n) => {
+                                (tr!(lang, "settings.bad_many", n = n), Some(theme::RED_TEXT))
+                            }
+                        };
+                        kv(ui, &tr!(lang, "settings.bad_endings"), &v, c);
+                    }
                     let v = s
                         .saved
                         .as_ref()
