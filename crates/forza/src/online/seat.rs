@@ -87,6 +87,10 @@ pub struct Lease {
     _handle: Handle,
 }
 
+/// The desk's answer is one line of a few bytes (`SEAT n PROJECTOR p`, `FULL`, `TAKEN n`, `ERR ...`): a desk that
+/// sends more than this without a line end is not answered, it is broken.
+const MAX_ANSWER: usize = 4096;
+
 /// Sends one `WANT` line and reads the desk's reply line.
 fn ask(conn: &mut TcpStream, line: &str, timeout: Duration) -> io::Result<String> {
     conn.set_read_timeout(Some(timeout))?;
@@ -101,7 +105,13 @@ fn ask(conn: &mut TcpStream, line: &str, timeout: Duration) -> io::Result<String
                     "the broker closed the connection",
                 ));
             }
-            n => line.extend_from_slice(&b[..n]),
+            n => {
+                line.extend_from_slice(&b[..n]);
+                // the timeout is per read: without this, a desk that keeps sending holds the Launcher forever
+                if line.len() > MAX_ANSWER {
+                    return Err(io::Error::other("the broker's answer is too long"));
+                }
+            }
         }
     }
     let end = line.iter().position(|&c| c == b'\n').unwrap_or(line.len());
@@ -370,6 +380,42 @@ mod tests {
         std::fs::write(game.join("dmath.dll"), b"another dll").unwrap();
         assert_ne!(dmath_token(&game, &seat), patched);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A desk that keeps sending without a line end is refused at once, not read until its own timeout (and not grown
+    /// in memory): the words are a line, and this is the first call of an online start.
+    #[test]
+    fn an_endless_answer_is_refused() {
+        let desk = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let at = desk.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let Ok((mut c, _)) = desk.accept() else {
+                return;
+            };
+            let junk = [b'a'; 4096];
+            for _ in 0..256 {
+                // 1 MB with no line end, then the socket stays open
+                if c.write_all(&junk).is_err() {
+                    return;
+                }
+            }
+            std::thread::sleep(Duration::from_secs(30));
+        });
+        let t = Timing {
+            answer: Duration::from_secs(10),
+            ..Timing::default()
+        };
+        let started = Instant::now();
+        let fault = match claim(at, None, Duration::from_secs(60), t, Arc::new(|_| {})) {
+            Ok(lease) => panic!("a seat {} from a desk that sent no line", lease.seat),
+            Err(e) => e.fault,
+        };
+        assert_eq!(fault, Fault::NoAnswer);
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "took {:?}",
+            started.elapsed()
+        );
     }
 
     #[test]
