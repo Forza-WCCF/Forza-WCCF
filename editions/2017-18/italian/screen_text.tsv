@@ -6284,7 +6284,7 @@ INF_WEEKLYCHAMPION_message_0002	Sei il $c[FF0000FF]campione settimanale d'area$c
 INF_WEEKLYCHAMPION_message_0003	La tua reputazione cresce ogni giorno.\nContinua a giocare $c[FF0000FF]all'altezza dell'onore di numero 1 dell'area$c.
 INF_058_message_0000	Sei il $c[FF0000FF]campione dell'Area Championship$c.\nComplimenti.
 INF_058_TOPICS_title_0000	Notizie dai tifosi
-INF_058_TOPICS_message_0000	I tifosi sembrano aver dato un soprannome alla squadra.\nPare che vi chiamino\n$c[FF0000FF]"%s%s"$c.
+INF_058_TOPICS_message_0000	I tifosi sembrano aver dato un soprannome alla squadra.\nPare che vi chiamino\n$c[FF0000FF]"%s %s"$c.
 INF_060_message_0000	Sei il $c[FF0000FF]campione della Japan Winners Championship$c.\nComplimenti.
 INF_060_TOPICS_title_0000	Segnalazione di scontento
 INF_060_TOPICS_message_0000	$c[FF0000FF]%s$c e' parso irritato di recente,\nforse insoddisfatto di $c[FF0000FF]%s$c.\nDagli una parola prima che lo scontento esploda.
@@ -10375,36 +10375,36 @@ INF_SPO_name_0079	Dummy
 INF_SPO_name_0080	Dummy
 INF_SPO_name_0081	Dummy
 INF_SPO_name_0082	Dummy
-INF_SUPPORTER_adj_0130	Serbi
-INF_SUPPORTER_adj_0131	Dorati
-INF_SUPPORTER_adj_0132	Argentati
-INF_SUPPORTER_adj_0133	Classici
-INF_SUPPORTER_adj_0134	Globali
-INF_SUPPORTER_adj_0135	Impetuosi
-INF_SUPPORTER_adj_0136	Ardenti
-INF_SUPPORTER_adj_0137	Medievali
-INF_SUPPORTER_adj_0138	Nascenti
+INF_SUPPORTER_adj_0130	Serbia
+INF_SUPPORTER_adj_0131	Oro
+INF_SUPPORTER_adj_0132	Argento
+INF_SUPPORTER_adj_0133	Classic
+INF_SUPPORTER_adj_0134	Mondo
+INF_SUPPORTER_adj_0135	Onda
+INF_SUPPORTER_adj_0136	Fuoco
+INF_SUPPORTER_adj_0137	Medioevo
+INF_SUPPORTER_adj_0138	Alba
 INF_SUPPORTER_adj_0140	Emirati
-INF_SUPPORTER_adj_0141	Indiani
-INF_SUPPORTER_adj_0142	Indonesiani
-INF_SUPPORTER_adj_0143	Singaporiani
-INF_SUPPORTER_adj_0144	Thailandesi
-INF_SUPPORTER_adj_0145	Filippini
-INF_SUPPORTER_adj_0146	Vietnamiti
-INF_SUPPORTER_adj_0147	Malesi
-INF_SUPPORTER_adj_0148	Birmani
-INF_SUPPORTER_adj_0149	Britannici
-INF_SUPPORTER_adj_0150	Austriaci
-INF_SUPPORTER_adj_0151	Greci
-INF_SUPPORTER_adj_0152	Svizzeri
-INF_SUPPORTER_adj_0153	Sloveni
-INF_SUPPORTER_adj_0154	Angolani
-INF_SUPPORTER_adj_0155	Egiziani
-INF_SUPPORTER_adj_0156	Ghanesi
-INF_SUPPORTER_adj_0157	Ivoriani
-INF_SUPPORTER_adj_0158	Togolesi
-INF_SUPPORTER_adj_0159	Trinidadiani
-INF_SUPPORTER_adj_0160	Boliviani
+INF_SUPPORTER_adj_0141	India
+INF_SUPPORTER_adj_0142	Indonesia
+INF_SUPPORTER_adj_0143	Singapore
+INF_SUPPORTER_adj_0144	Thailandia
+INF_SUPPORTER_adj_0145	Filippine
+INF_SUPPORTER_adj_0146	Vietnam
+INF_SUPPORTER_adj_0147	Malesia
+INF_SUPPORTER_adj_0148	Birmania
+INF_SUPPORTER_adj_0149	Britannia
+INF_SUPPORTER_adj_0150	Austria
+INF_SUPPORTER_adj_0151	Grecia
+INF_SUPPORTER_adj_0152	Svizzera
+INF_SUPPORTER_adj_0153	Slovenia
+INF_SUPPORTER_adj_0154	Angola
+INF_SUPPORTER_adj_0155	Egitto
+INF_SUPPORTER_adj_0156	Ghana
+INF_SUPPORTER_adj_0157	Costa d'Avorio
+INF_SUPPORTER_adj_0158	Togo
+INF_SUPPORTER_adj_0159	Trinidad
+INF_SUPPORTER_adj_0160	Bolivia
 INF_SUPPORTER_adj_0161	Kiwi
 INF_SUPPORTER_noun_0012	Ercole
 INF_SUPPORTER_noun_0013	Generali
@@ -11136,133 +11136,133 @@ INF_SUPPORTER_adj_0000	Nessuno
 INF_SUPPORTER_adj_0001	Rosa
 INF_SUPPORTER_adj_0002	Viola
 INF_SUPPORTER_adj_0003	Blu
-INF_SUPPORTER_adj_0004	Gialli
-INF_SUPPORTER_adj_0005	Verdi
-INF_SUPPORTER_adj_0006	Rossi
-INF_SUPPORTER_adj_0007	Arancioni
-INF_SUPPORTER_adj_0008	Neri
-INF_SUPPORTER_adj_0009	Bianchi
-INF_SUPPORTER_adj_0010	Celesti
-INF_SUPPORTER_adj_0011	Grigi
-INF_SUPPORTER_adj_0012	Africani
-INF_SUPPORTER_adj_0013	Asiatici
-INF_SUPPORTER_adj_0014	Nordeuropei
-INF_SUPPORTER_adj_0015	Occidentali
-INF_SUPPORTER_adj_0016	Esteuropei
-INF_SUPPORTER_adj_0017	Nordamericani
-INF_SUPPORTER_adj_0018	Caraibici
-INF_SUPPORTER_adj_0019	Australi
-INF_SUPPORTER_adj_0020	Latini
-INF_SUPPORTER_adj_0021	Nipponici
-INF_SUPPORTER_adj_0022	Orientali
-INF_SUPPORTER_adj_0023	Estremo-orientali
-INF_SUPPORTER_adj_0024	Zipanghesi
-INF_SUPPORTER_adj_0025	Giapponesi
-INF_SUPPORTER_adj_0026	Iraniani
-INF_SUPPORTER_adj_0027	Coreani
-INF_SUPPORTER_adj_0028	Sauditi
-INF_SUPPORTER_adj_0029	Cinesi
-INF_SUPPORTER_adj_0030	Irlandesi
-INF_SUPPORTER_adj_0031	Italiani
-INF_SUPPORTER_adj_0032	Inglesi
-INF_SUPPORTER_adj_0033	Ucraini
-INF_SUPPORTER_adj_0034	Olandesi
-INF_SUPPORTER_adj_0035	Croati
-INF_SUPPORTER_adj_0036	Svedesi
-INF_SUPPORTER_adj_0037	Scozzesi
-INF_SUPPORTER_adj_0038	Spagnoli
-INF_SUPPORTER_adj_0039	Sloveni
-INF_SUPPORTER_adj_0040	Cechi
-INF_SUPPORTER_adj_0041	Danesi
-INF_SUPPORTER_adj_0042	Tedeschi
-INF_SUPPORTER_adj_0043	Turchi
-INF_SUPPORTER_adj_0044	Norvegesi
-INF_SUPPORTER_adj_0045	Francesi
-INF_SUPPORTER_adj_0046	Bulgari
-INF_SUPPORTER_adj_0047	Belgi
-INF_SUPPORTER_adj_0048	Polacchi
-INF_SUPPORTER_adj_0049	Portoghesi
-INF_SUPPORTER_adj_0050	Jugoslavi
-INF_SUPPORTER_adj_0051	Rumeni
-INF_SUPPORTER_adj_0052	Russi
-INF_SUPPORTER_adj_0053	Camerunesi
-INF_SUPPORTER_adj_0054	Senegalesi
-INF_SUPPORTER_adj_0055	Tunisini
-INF_SUPPORTER_adj_0056	Nigeriani
-INF_SUPPORTER_adj_0057	Sudafricani
-INF_SUPPORTER_adj_0058	Marocchini
-INF_SUPPORTER_adj_0059	Americani
-INF_SUPPORTER_adj_0060	Canadesi
-INF_SUPPORTER_adj_0061	Costaricani
-INF_SUPPORTER_adj_0062	Giamaicani
-INF_SUPPORTER_adj_0063	Messicani
-INF_SUPPORTER_adj_0064	Argentini
-INF_SUPPORTER_adj_0065	Uruguaiani
-INF_SUPPORTER_adj_0066	Ecuadoriani
-INF_SUPPORTER_adj_0067	Colombiani
-INF_SUPPORTER_adj_0068	Cileni
-INF_SUPPORTER_adj_0069	Paraguaiani
-INF_SUPPORTER_adj_0070	Brasiliani
-INF_SUPPORTER_adj_0071	Australiani
-INF_SUPPORTER_adj_0072	Desertici
-INF_SUPPORTER_adj_0073	Selvaggi
-INF_SUPPORTER_adj_0074	Della Savana
-INF_SUPPORTER_adj_0075	Tropicali
-INF_SUPPORTER_adj_0076	Nevosi
-INF_SUPPORTER_adj_0077	Remoti
-INF_SUPPORTER_adj_0078	Isolani
-INF_SUPPORTER_adj_0079	Europei
-INF_SUPPORTER_adj_0080	Nordici
-INF_SUPPORTER_adj_0081	Del Tohoku
-INF_SUPPORTER_adj_0082	Del Kanto Nord
-INF_SUPPORTER_adj_0083	Del Kanto
-INF_SUPPORTER_adj_0084	Metropolitani
-INF_SUPPORTER_adj_0085	Del Koshinetsu
-INF_SUPPORTER_adj_0086	Dello Hokuriku
-INF_SUPPORTER_adj_0087	Del Tokai
-INF_SUPPORTER_adj_0088	Del Kinki
-INF_SUPPORTER_adj_0089	Del Kansai
-INF_SUPPORTER_adj_0090	Del San'in
-INF_SUPPORTER_adj_0091	Del San'yo
-INF_SUPPORTER_adj_0092	Dello Shikoku
-INF_SUPPORTER_adj_0093	Del Kyushu
-INF_SUPPORTER_adj_0094	Meridionali
+INF_SUPPORTER_adj_0004	Giallo Oro
+INF_SUPPORTER_adj_0005	Verde Prato
+INF_SUPPORTER_adj_0006	Rosso Fuoco
+INF_SUPPORTER_adj_0007	Arancio
+INF_SUPPORTER_adj_0008	Nero Notte
+INF_SUPPORTER_adj_0009	Bianco Ghiaccio
+INF_SUPPORTER_adj_0010	Acquamarina
+INF_SUPPORTER_adj_0011	Grigio Perla
+INF_SUPPORTER_adj_0012	Africa
+INF_SUPPORTER_adj_0013	Asia
+INF_SUPPORTER_adj_0014	Nord Europa
+INF_SUPPORTER_adj_0015	Occidente
+INF_SUPPORTER_adj_0016	Est Europa
+INF_SUPPORTER_adj_0017	Nord America
+INF_SUPPORTER_adj_0018	Caraibi
+INF_SUPPORTER_adj_0019	Emisfero Sud
+INF_SUPPORTER_adj_0020	Latin
+INF_SUPPORTER_adj_0021	Sol Levante
+INF_SUPPORTER_adj_0022	Oriente
+INF_SUPPORTER_adj_0023	Estremo Oriente
+INF_SUPPORTER_adj_0024	Zipangu
+INF_SUPPORTER_adj_0025	Giappone
+INF_SUPPORTER_adj_0026	Iran
+INF_SUPPORTER_adj_0027	Corea
+INF_SUPPORTER_adj_0028	Saudi
+INF_SUPPORTER_adj_0029	Cina
+INF_SUPPORTER_adj_0030	Irlanda
+INF_SUPPORTER_adj_0031	Italia
+INF_SUPPORTER_adj_0032	Inghilterra
+INF_SUPPORTER_adj_0033	Ucraina
+INF_SUPPORTER_adj_0034	Olanda
+INF_SUPPORTER_adj_0035	Croazia
+INF_SUPPORTER_adj_0036	Svezia
+INF_SUPPORTER_adj_0037	Scozia
+INF_SUPPORTER_adj_0038	Spagna
+INF_SUPPORTER_adj_0039	Slovenia
+INF_SUPPORTER_adj_0040	Cechia
+INF_SUPPORTER_adj_0041	Danimarca
+INF_SUPPORTER_adj_0042	Germania
+INF_SUPPORTER_adj_0043	Turchia
+INF_SUPPORTER_adj_0044	Norvegia
+INF_SUPPORTER_adj_0045	Francia
+INF_SUPPORTER_adj_0046	Bulgaria
+INF_SUPPORTER_adj_0047	Belgio
+INF_SUPPORTER_adj_0048	Polonia
+INF_SUPPORTER_adj_0049	Portogallo
+INF_SUPPORTER_adj_0050	Jugoslavia
+INF_SUPPORTER_adj_0051	Romania
+INF_SUPPORTER_adj_0052	Russia
+INF_SUPPORTER_adj_0053	Camerun
+INF_SUPPORTER_adj_0054	Senegal
+INF_SUPPORTER_adj_0055	Tunisia
+INF_SUPPORTER_adj_0056	Nigeria
+INF_SUPPORTER_adj_0057	Sudafrica
+INF_SUPPORTER_adj_0058	Marocco
+INF_SUPPORTER_adj_0059	America
+INF_SUPPORTER_adj_0060	Canada
+INF_SUPPORTER_adj_0061	Costarica
+INF_SUPPORTER_adj_0062	Giamaica
+INF_SUPPORTER_adj_0063	Messico
+INF_SUPPORTER_adj_0064	Argentina
+INF_SUPPORTER_adj_0065	Uruguay
+INF_SUPPORTER_adj_0066	Ecuador
+INF_SUPPORTER_adj_0067	Colombia
+INF_SUPPORTER_adj_0068	Cile
+INF_SUPPORTER_adj_0069	Paraguay
+INF_SUPPORTER_adj_0070	Brasile
+INF_SUPPORTER_adj_0071	Australia
+INF_SUPPORTER_adj_0072	Deserto
+INF_SUPPORTER_adj_0073	Giungla
+INF_SUPPORTER_adj_0074	Savana
+INF_SUPPORTER_adj_0075	Tropico
+INF_SUPPORTER_adj_0076	Neve
+INF_SUPPORTER_adj_0077	Tundra
+INF_SUPPORTER_adj_0078	Isola
+INF_SUPPORTER_adj_0079	Europa
+INF_SUPPORTER_adj_0080	Nord
+INF_SUPPORTER_adj_0081	Tohoku
+INF_SUPPORTER_adj_0082	Kanto Nord
+INF_SUPPORTER_adj_0083	Kanto
+INF_SUPPORTER_adj_0084	Grande Kanto
+INF_SUPPORTER_adj_0085	Koshinetsu
+INF_SUPPORTER_adj_0086	Hokuriku
+INF_SUPPORTER_adj_0087	Tokai
+INF_SUPPORTER_adj_0088	Kinki
+INF_SUPPORTER_adj_0089	Kansai
+INF_SUPPORTER_adj_0090	San'in
+INF_SUPPORTER_adj_0091	San'yo
+INF_SUPPORTER_adj_0092	Shikoku
+INF_SUPPORTER_adj_0093	Kyushu
+INF_SUPPORTER_adj_0094	Antipodi
 INF_SUPPORTER_adj_0095	Ciliegia
 INF_SUPPORTER_adj_0096	Pesca
-INF_SUPPORTER_adj_0097	Abissali
-INF_SUPPORTER_adj_0098	Marini
-INF_SUPPORTER_adj_0099	Ventosi
-INF_SUPPORTER_adj_0100	Celesti
-INF_SUPPORTER_adj_0101	Acquatici
-INF_SUPPORTER_adj_0102	Sorgivi
-INF_SUPPORTER_adj_0103	Sabbiosi
-INF_SUPPORTER_adj_0104	Luminosi
-INF_SUPPORTER_adj_0105	Lunari
-INF_SUPPORTER_adj_0106	Radiosi
+INF_SUPPORTER_adj_0097	Abisso
+INF_SUPPORTER_adj_0098	Mare
+INF_SUPPORTER_adj_0099	Vento
+INF_SUPPORTER_adj_0100	Cielo
+INF_SUPPORTER_adj_0101	Acqua
+INF_SUPPORTER_adj_0102	Fontana
+INF_SUPPORTER_adj_0103	Sabbia
+INF_SUPPORTER_adj_0104	Luce
+INF_SUPPORTER_adj_0105	Luna
+INF_SUPPORTER_adj_0106	Splendore
 INF_SUPPORTER_adj_0107	Verde Bosco
-INF_SUPPORTER_adj_0108	Silvestri
-INF_SUPPORTER_adj_0109	Del Campo
-INF_SUPPORTER_adj_0110	Crepuscolari
-INF_SUPPORTER_adj_0111	Serali
-INF_SUPPORTER_adj_0112	Fiammeggianti
-INF_SUPPORTER_adj_0113	Infuocati
+INF_SUPPORTER_adj_0108	Foresta
+INF_SUPPORTER_adj_0109	Campo
+INF_SUPPORTER_adj_0110	Crepuscolo
+INF_SUPPORTER_adj_0111	Tramonto
+INF_SUPPORTER_adj_0112	Fiamma
+INF_SUPPORTER_adj_0113	Brace
 INF_SUPPORTER_adj_0114	Cremisi
-INF_SUPPORTER_adj_0115	Oscuri
-INF_SUPPORTER_adj_0116	Corvini
-INF_SUPPORTER_adj_0117	Albeggianti
-INF_SUPPORTER_adj_0118	Nebbiosi
-INF_SUPPORTER_adj_0119	Candidi
-INF_SUPPORTER_adj_0120	In Camice
-INF_SUPPORTER_adj_0121	Mimetici
-INF_SUPPORTER_adj_0122	A Pois
-INF_SUPPORTER_adj_0123	Zebrati
-INF_SUPPORTER_adj_0124	Leopardati
-INF_SUPPORTER_adj_0125	Splendenti
-INF_SUPPORTER_adj_0126	Lucenti
-INF_SUPPORTER_adj_0127	Mediorientali
-INF_SUPPORTER_adj_0128	Sudamericani
-INF_SUPPORTER_adj_0129	Oceaniani
-INF_SUPPORTER_adj_0139	Ventosi
+INF_SUPPORTER_adj_0115	Ombra
+INF_SUPPORTER_adj_0116	Nero Pece
+INF_SUPPORTER_adj_0117	Penombra
+INF_SUPPORTER_adj_0118	Nebbia
+INF_SUPPORTER_adj_0119	Bianco Neve
+INF_SUPPORTER_adj_0120	Bianco Panna
+INF_SUPPORTER_adj_0121	Mimetica
+INF_SUPPORTER_adj_0122	Pois
+INF_SUPPORTER_adj_0123	Zebra
+INF_SUPPORTER_adj_0124	Leopardo
+INF_SUPPORTER_adj_0125	Raggio
+INF_SUPPORTER_adj_0126	Bagliore
+INF_SUPPORTER_adj_0127	Medio Oriente
+INF_SUPPORTER_adj_0128	Sud America
+INF_SUPPORTER_adj_0129	Oceania
+INF_SUPPORTER_adj_0139	Vento
 INF_SUPPORTER_noun_0000	Nessuno
 INF_SUPPORTER_noun_0001	Grandi
 INF_SUPPORTER_noun_0002	Triplete
