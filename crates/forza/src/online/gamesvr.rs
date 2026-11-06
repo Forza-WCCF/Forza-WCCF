@@ -1167,12 +1167,14 @@ fn club(
             ));
             // after the roll the closed week's record is filed once; later saves of the session file nothing
             if gt && !matches!(carded, Some((_, true))) {
-                if let Some((w, _)) = carded {
-                    st.1.insert((aime, coach), (w, true));
-                }
                 // the save is stored: a ranking error is logged, never answered as a refused save
                 let (week, points) = (carded.map_or(week, |(w, _)| w), u32_at(req, GT_RECORD_277));
-                match record_gt(&st.0, week, aime, req, t) {
+                let kept = record_gt(&st.0, week, aime, req, t);
+                // filed only once written: after a store error the session's next save files it again
+                if let (Ok(()), Some((w, _))) = (&kept, carded) {
+                    st.1.insert((aime, coach), (w, true));
+                }
+                match kept {
                     Err(e) => log(&format!(
                         "grand trophy: aime {aime} coach {coach} record {points} not kept: {e}"
                     )),
@@ -2141,11 +2143,38 @@ mod tests {
         ask(277, &fixture(277, [5, club, card]));
         ask(275, &req(275, [5, club, card]));
         let week = gt_week(now());
+        // the card-in notes its week, unfiled
+        assert_eq!(
+            store.lock().unwrap().1.get(&(5, club)),
+            Some(&(week, false))
+        );
         store.lock().unwrap().1.insert((5, club), (week - 1, false));
         let mut r = fixture(277, [5, club, card]);
         r[5564..5708].fill(0x11);
         put(&mut r, GT_RECORD_277, 800);
+        // a save across the roll whose record is not written stays unfiled, and the next save files it
+        store
+            .lock()
+            .unwrap()
+            .0
+            .execute_batch("ALTER TABLE gt_points RENAME TO gone")
+            .unwrap();
         ask(277, &r);
+        assert_eq!(
+            store.lock().unwrap().1.get(&(5, club)),
+            Some(&(week - 1, false))
+        );
+        store
+            .lock()
+            .unwrap()
+            .0
+            .execute_batch("ALTER TABLE gone RENAME TO gt_points")
+            .unwrap();
+        ask(277, &r);
+        assert_eq!(
+            store.lock().unwrap().1.get(&(5, club)),
+            Some(&(week - 1, true))
+        );
         assert_eq!(
             store.lock().unwrap().gt_ranking(week - 1).unwrap(),
             [(5, 800)]
