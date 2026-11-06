@@ -60,14 +60,14 @@ TASTI
   Le carte rare con codice 2D funzionano.
 
 ONLINE
-  1. In GIOCA scegliete Online. Aprite Indirizzo diretto e scrivete l'indirizzo del server (HOST o HOST:PORTA). Il
+  1. In GIOCA scegliete Online. Aprite Indirizzo del server e scrivete l'indirizzo del server (HOST o HOST:PORTA). Il
      server del progetto accetta solo gli indirizzi della sua lista: chiedete a chi lo gestisce di aggiungere il
      vostro. In SALE GIOCHI, APRI SALA apre una sala e ne mostra il codice; gli amici lo scrivono in Codice stanza,
      oppure scelgono una stanza dell'elenco e premono ENTRA. Nome della sala, sotto APRI SALA, è il nome che gli altri
      vedono nell'elenco.
   Tasti della lobby: Su/Giù riga, Invio ENTRA, H APRI SALA, F5 aggiorna, Esc ESCI.
   Gamepad: croce o stick sinistro per muoversi, A = Invio, B = Esc, X = aggiorna, Y = APRI SALA.
-  Sotto Indirizzo diretto:
+  Sotto Indirizzo del server:
     Server club               dove è salvato il vostro club. Vuoto: il server scelto.
     Collegamento VS diretto   collega il vostro PC a quello dell'avversario (relay.wccf.it). Spento: il VS passa dal
                               relay.

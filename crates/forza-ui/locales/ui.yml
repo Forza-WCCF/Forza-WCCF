@@ -548,7 +548,7 @@ lobby.quick: {en: "QUICK MATCH", it: "PARTITA RAPIDA", ja: "クイックマッ�
 lobby.host: {en: "HOST VS", it: "CREA SFIDA", ja: "ルームを作る"}
 lobby.ready: {en: "READY", it: "PRONTO", ja: "準備OK"}
 lobby.leave: {en: "LEAVE", it: "ESCI", ja: "退出"}
-lobby.direct: {en: "Direct address", it: "Indirizzo diretto", ja: "アドレスを直接入力"}
+lobby.direct: {en: "Server address", it: "Indirizzo del server", ja: "サーバーアドレス"}
 lobby.next_entry: {en: "Next ENTRY in %{t}", it: "Prossima ENTRY tra %{t}", ja: "次のエントリーまで %{t}"}
 lobby.wait_entry: {en: "Next ENTRY in %{t}.", it: "Prossimo ENTRY tra %{t}.", ja: "次の ENTRY まで %{t}。"}
 # beyond the ROADMAP table: columns, filters, room lines and status lines
@@ -565,7 +565,7 @@ lobby.needs_version: {en: "needs version %{v}", it: "serve la versione %{v}", ja
 lobby.club: {en: "Club #%{id}", it: "Club #%{id}", ja: "クラブ #%{id}"}
 lobby.waiting: {en: "waiting…", it: "in attesa…", ja: "待機中…"}
 lobby.starting: {en: "Both ready: starting", it: "Entrambi pronti: si parte", ja: "両者準備OK：開始します"}
-lobby.empty: {en: "No rooms yet. Host one or type an address.", it: "Nessuna stanza. Creane una o scrivi un indirizzo.", ja: "ルームなし。作成するかアドレスを入力。"}
+lobby.empty: {en: "No rooms yet. Host one or type a server address.", it: "Nessuna stanza. Creane una o scrivi l'indirizzo di un server.", ja: "ルームなし。作成するかサーバーアドレスを入力。"}
 lobby.offline: {en: "Server not answering. Try again later.", it: "Il server non risponde. Riprova più tardi.", ja: "サーバーが応答しません。後でもう一度お試しください。"}
 lobby.retry: {en: "RETRY", it: "RIPROVA", ja: "再試行"}
 lobby.why_offline: {en: "Server offline", it: "Server offline", ja: "サーバーに接続できません"}

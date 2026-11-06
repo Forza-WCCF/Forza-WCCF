@@ -56,13 +56,13 @@ KEYS
   Rare 2D-code cards work.
 
 ONLINE
-  1. Pick Online under PLAY. Open Direct address and type the server's address (HOST or HOST:PORT). The project's
+  1. Pick Online under PLAY. Open Server address and type the server's address (HOST or HOST:PORT). The project's
      server only admits addresses on its allow list: ask its operator to add yours. In ARCADES, HOST ARCADE opens
      an arcade and shows its code; friends type it in Room code, or JOIN a listed arcade room. Arcade name, under
      HOST ARCADE, is the name others see in the list.
   Lobby keys: Up/Down row, Enter JOIN, H HOST ARCADE, F5 refresh, Esc LEAVE.
   Gamepad: D-pad or left stick move, A = Enter, B = Esc, X = refresh, Y = HOST ARCADE.
-  Under Direct address:
+  Under Server address:
     Club server     where your club is kept. Empty: the server you chose.
     Direct VS link  connects your PC to the other player's (relay.wccf.it). Off: VS runs through the relay.
   Windows Firewall may ask about Launcher.exe the first time. Allow it; if you deny it, VS runs through the relay
