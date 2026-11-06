@@ -100,6 +100,7 @@ struct Shared {
     busy: bool,                // a job runs
     updated: bool,             // an update has just finished: setup runs again
     failed: bool,              // the last job failed: OUTPUT opens, so its output shows
+    setup_failed: bool,        // its Step::Setup failed: a "game" written before it stays as it was
     game: Option<u8>,          // a Game step has just ended with this exit code
     report_open: Option<bool>, // open the report dialog: Some(after a crash)
     report_done: Option<Result<(String, String), String>>, // where the report was saved and its issue link, or why not
@@ -125,6 +126,7 @@ static SHARED: Mutex<Shared> = Mutex::new(Shared {
     busy: false,
     updated: false,
     failed: false,
+    setup_failed: false,
     game: None,
     report_open: None,
     report_done: None,
@@ -343,6 +345,7 @@ fn start(steps: Vec<Step>) -> bool {
         let kit = Kit::here();
         let mut result = Ok(());
         let mut updated = None;
+        let mut setup_failed = false;
         let mut game = None;
         for step in steps {
             result = match &step {
@@ -390,6 +393,8 @@ fn start(steps: Vec<Step>) -> bool {
                 }),
             };
             if result.is_err() {
+                // a setup or undo writes "game" before it builds the catalogue, so a failure after that write is not Ready
+                setup_failed = matches!(step, Step::Setup { .. });
                 break;
             }
         }
@@ -416,6 +421,7 @@ fn start(steps: Vec<Step>) -> bool {
                 set_available(&Kit::here(), &mut s, None);
             }
             s.failed = failed;
+            s.setup_failed = setup_failed;
             s.game = game;
             s.busy = false;
         }
@@ -596,9 +602,15 @@ fn plain_error(raw: &str) -> String {
 }
 
 /// The setup recorded a game folder (data\settings.json "game"); it writes the key before it builds the catalogue, so
-/// a setup that failed after it has one too, and only a job that worked may re-read it.
+/// a setup that failed after it has one too: only a job whose Setup step worked (or had none: an update) re-reads it.
 fn set_up(kit: &Kit) -> bool {
     choices::setting(&kit.settings_file(), "game").is_some_and(|g| !g.trim().is_empty())
+}
+
+/// A job ended this look (busy -> not): read the setup state again, unless its Step::Setup (setup or undo) failed. A
+/// later step may fail after the setup worked (SET UP: the card pictures), and the setup state is still the new one.
+fn reread_setup(busy: bool, now_busy: bool, setup_failed: bool) -> bool {
+    busy && !now_busy && !setup_failed
 }
 
 /// The game folder setup recorded (its logs and seat 1's go in a report).
@@ -897,9 +909,7 @@ impl App {
     fn look(&mut self, ctx: &egui::Context) {
         let (log, list, updated, failed, game, report_open, report_done) = {
             let mut s = shared();
-            // a job that worked ended (SET UP, UNDO SETUP, an update): "Ready" follows what the setup recorded. A
-            // failed setup may have written "game" before it failed, so its state stays as it was.
-            if self.st.busy && !s.busy && !s.failed {
+            if reread_setup(self.st.busy, s.busy, s.setup_failed) {
                 self.st.set_up = set_up(&Kit::here());
             }
             self.st.status.clone_from(&s.status);
@@ -911,6 +921,7 @@ impl App {
                 (a.elapsed().as_secs_f32(), b.elapsed().as_secs_f32())
             });
             self.st.busy = s.busy;
+            s.setup_failed = false; // one look's: the next job says its own
             (
                 mem::take(&mut s.log),
                 mem::take(&mut s.listed).then(|| s.releases.clone()),
@@ -1922,6 +1933,17 @@ mod tests {
         shared().busy = true;
         assert!(!start(vec![Step::Pictures]), "a busy worker takes no second job");
         shared().busy = false;
+    }
+
+    #[test]
+    fn a_setup_that_worked_is_ready_even_when_a_later_step_fails() {
+        // SET UP: the setup worked, the card pictures after it failed
+        assert!(reread_setup(true, false, false));
+        // a Setup step that failed: its half-written "game" stays as it was
+        assert!(!reread_setup(true, false, true));
+        // no job ended
+        assert!(!reread_setup(false, false, false));
+        assert!(!reread_setup(true, true, false));
     }
 
     #[test]
