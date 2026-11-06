@@ -975,7 +975,9 @@ impl Store {
 
     /// The promotion a card-in of `week` gives club `coach` of `aime`, whose stored 277 is `saved`: (class, the
     /// card's rank in week - 1, its record) when that record reached [`GT_RAISE`] of the club's class and no club of
-    /// the card has had one this week. Stored before it is returned, so it is issued once per week and card.
+    /// the card has had one this week. Stored before it is returned, so it is granted once per week and card; the
+    /// granted club gets it again at each card-in of the week until its stored 277 shows the new class (a lost 276,
+    /// or a session that ended before the info scene applied it).
     fn promote(
         &self,
         week: u16,
@@ -986,15 +988,31 @@ impl Store {
         let (Some(last), Some(&class)) = (week.checked_sub(1), saved.get(GT_CLASS_277)) else {
             return Ok(None);
         };
-        let need = GT_RAISE.get(usize::from(class)).copied().unwrap_or(0);
-        if saved.len() != 8572 || need == 0 {
+        if saved.len() != 8572 {
             return Ok(None);
         }
         let ranking = self.gt_ranking(last)?;
-        let Some((i, &(_, record))) = ranking.iter().enumerate().find(|(_, e)| e.0 == aime) else {
+        let entry = ranking.iter().enumerate().find(|(_, e)| e.0 == aime);
+        let granted: Option<(u32, u8)> = self
+            .0
+            .query_row(
+                "SELECT coach_id, class FROM gt_promotions WHERE week = ?1 AND aime_id = ?2",
+                params![week, aime],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        if let Some((to, next)) = granted {
+            // the same result again, only to the club it went to and only while it has not applied it
+            return Ok((to == coach && class < next).then(|| {
+                let (i, record) = entry.map_or((0, 0), |(i, e)| (i, e.1));
+                (next - 1, i as u32 + 1, record)
+            }));
+        }
+        let need = GT_RAISE.get(usize::from(class)).copied().unwrap_or(0);
+        let Some((i, &(_, record))) = entry else {
             return Ok(None);
         };
-        if i64::from(record) < i64::from(need) {
+        if need == 0 || i64::from(record) < i64::from(need) {
             return Ok(None);
         }
         let n = self.0.execute(
@@ -1305,8 +1323,8 @@ fn club(
             }
             apply_to_save_data(body, &st.bought(aime).map_err(db)?);
             if gt {
-                // last before the checksum, so a stored promotion is one whose answer goes out; a store error skips
-                // it this card-in
+                // a store error skips the promotion this card-in; a granted one whose 276 is lost goes out again at
+                // the club's next card-in of the week (promote)
                 let promoted = st.promote(week, aime, coach, &tail).unwrap_or_else(|e| {
                     log(&format!(
                         "grand trophy: aime {aime} coach {coach} promotion not checked: {e}"
@@ -2540,16 +2558,20 @@ mod tests {
             body
         };
         let week = gt_week(now());
-        // a club of `aime` saved in `class`; its stored 277 carries a stale result (rank 7, next Local, play-off 1)
-        let club = |aime: u32, class: u8| {
-            let b = ask(279, &fixture(279, [aime, 0, 0]));
-            let (club, card) = (u32_at(&b, 8), u32_at(&b, 12));
+        // a save of club (club, card) of `aime` in `class`, carrying a stale result (rank 7, next Local, play-off 1)
+        let save = |aime: u32, (club, card): (u32, u32), class: u8| {
             let mut r = fixture(277, [aime, club, card]);
             r[GT_CLASS_277] = class;
             put(&mut r, GT_FINAL_RANK_276 + 2380, 7);
             r[GT_PLAYOFF_276 + 2380] = 1;
             ask(277, &r);
-            (club, card)
+        };
+        // a new club of `aime` saved in `class`
+        let club = |aime: u32, class: u8| {
+            let b = ask(279, &fixture(279, [aime, 0, 0]));
+            let k = (u32_at(&b, 8), u32_at(&b, 12));
+            save(aime, k, class);
+            k
         };
         let last_week = |aime: u32, record: u32| {
             let mut r = vec![0u8; 8572];
@@ -2581,10 +2603,13 @@ mod tests {
             (2, 1, 0),
             "1,000: Area B, rank 2 behind card 9"
         );
-        assert_eq!(result(5, local), (0, 0, 0), "once per week");
+        // the save still shows Local (the 276 was lost, or the session ended before the info scene): the same again
+        assert_eq!(result(5, local), (2, 1, 0), "re-issued until applied");
         // the card's other club carded in later the same week: the card's promotion is spent
         let other = club(5, 0);
         assert_eq!(result(5, other), (0, 0, 0));
+        save(5, local, 1);
+        assert_eq!(result(5, local), (0, 0, 0), "applied: once per week");
 
         let area_b = club(6, 1);
         last_week(6, 1_199);
@@ -2595,6 +2620,14 @@ mod tests {
             (2, 2, 0),
             "1,200: Area A, rank 2 behind card 9"
         );
+
+        // one card, two clubs: the class is the carding club's; an Area A club carding in first spends nothing
+        let area_a = club(13, 2);
+        let local13 = club(13, 0);
+        last_week(13, 1_100);
+        assert_eq!(result(13, area_a), (0, 0, 0), "Area A is the cap");
+        assert_eq!(result(13, local13), (3, 1, 0), "Local -> Area B, rank 3");
+        assert_eq!(result(13, area_a), (0, 0, 0), "not to the other club");
 
         for (aime, class) in [(7, 2), (8, 3), (10, 4), (11, 200)] {
             let k = club(aime, class);
@@ -2618,7 +2651,10 @@ mod tests {
             .unwrap()
             .collect::<rusqlite::Result<_>>()
             .unwrap();
-        assert_eq!(rows, [(5, local.0, 1), (6, area_b.0, 2)]);
+        assert_eq!(
+            rows,
+            [(5, local.0, 1), (6, area_b.0, 2), (13, local13.0, 1)]
+        );
         let lines = lines.lock().unwrap();
         let want = format!(
             "grand trophy: aime 5 coach {} week {week} class 0 -> 1 (record 1000, rank 2)",
@@ -2675,8 +2711,9 @@ mod tests {
         assert_eq!(raise(None), [0; 5]);
     }
 
-    /// A version-3 store (before `gt_promotions`) keeps every row, gets the table, and its `gt_points` is not filled
-    /// again from the stored 277s.
+    /// A version-3 store (before `gt_promotions`) keeps every row, gets the table (from [`SCHEMA`], as `purchases`
+    /// and `gt_points` did) and version 4, and its `gt_points` is not filled again from the stored 277s; a second open
+    /// changes nothing.
     #[test]
     fn a_v3_store_gets_gt_promotions_and_loses_nothing() {
         let dir = tempfile::tempdir().unwrap();
@@ -2703,25 +2740,34 @@ mod tests {
             db.execute("INSERT INTO gt_points VALUES (40, 5, 1234, 77)", [])
                 .unwrap();
         }
-        let st = Store::open(&path).unwrap();
-        let n = |q: &str| -> i64 { st.0.query_row(q, [], |r| r.get(0)).unwrap() };
-        assert_eq!(n("PRAGMA user_version"), 4);
-        assert_eq!(
-            [
-                n("SELECT count(*) FROM coaches"),
-                n("SELECT count(*) FROM saves"),
-                n("SELECT count(*) FROM requests"),
-                n("SELECT count(*) FROM gt_promotions")
-            ],
-            [1, 1, 1, 0]
-        );
-        let kept: Vec<u8> =
-            st.0.query_row("SELECT payload FROM requests", [], |r| r.get(0))
-                .unwrap();
-        assert_eq!(kept, r);
-        assert_eq!(n("SELECT count(*) FROM gt_points"), 1, "no second backfill");
-        assert_eq!(st.gt_ranking(40).unwrap(), [(5, 1234)]);
-        assert_eq!(n("SELECT at FROM gt_points"), 77);
+        for open in 0..2 {
+            let st = Store::open(&path).unwrap();
+            let n = |q: &str| -> i64 { st.0.query_row(q, [], |r| r.get(0)).unwrap() };
+            assert_eq!(n("PRAGMA user_version"), 4, "open {open}");
+            assert_eq!(
+                [
+                    n("SELECT count(*) FROM coaches"),
+                    n("SELECT count(*) FROM saves"),
+                    n("SELECT count(*) FROM requests"),
+                    n("SELECT count(*) FROM gt_promotions")
+                ],
+                [1, 1, 1, open],
+                "open {open}"
+            );
+            let kept: Vec<u8> =
+                st.0.query_row("SELECT payload FROM requests", [], |r| r.get(0))
+                    .unwrap();
+            assert_eq!(kept, r);
+            assert_eq!(n("SELECT count(*) FROM gt_points"), 1, "no second backfill");
+            assert_eq!(st.gt_ranking(40).unwrap(), [(5, 1234)]);
+            assert_eq!(n("SELECT at FROM gt_points"), 77);
+            // the table takes a promotion, and the row outlives the reopen
+            st.0.execute(
+                "INSERT OR IGNORE INTO gt_promotions VALUES (41, 5, 1, 1, 78)",
+                [],
+            )
+            .unwrap();
+        }
     }
 
     #[test]
