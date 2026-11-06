@@ -346,6 +346,17 @@ fn scan<T: Read + Seek>(ntfs: &Ntfs, fs: &mut T) -> Result<Vec<Item>> {
     Ok(out)
 }
 
+/// `partial` made, `fill` run on it, and the tree taken with it when `fill` fails: a Cancel, a full disk or a read
+/// error leaves no half game folder behind.
+fn partial_tree(partial: &Path, fill: impl FnOnce() -> Result<()>) -> Result<()> {
+    fs::create_dir_all(partial)?;
+    let done = fill();
+    if done.is_err() {
+        let _ = fs::remove_dir_all(partial);
+    }
+    done
+}
+
 /// Extract into <dest>/game.partial, then rename: a cancelled run never leaves a half game folder.
 fn extract(
     vol: &mut disc::Volume,
@@ -365,47 +376,48 @@ fn extract(
     if partial.exists() {
         fs::remove_dir_all(&partial)?;
     }
-    fs::create_dir_all(&partial)?;
-    emit(Event::Log(format!(
-        "Copying {} game files from the disc",
-        items.len()
-    )));
-    let (mut buf, mut done) = (vec![0u8; 1 << 20], 0u64);
-    for it in &items {
-        check(cancel)?;
-        let path = partial.join(&it.rel);
-        if it.dir {
-            fs::create_dir_all(&path)?;
-            continue;
-        }
-        let mut out = File::create(&path).map_err(|e| E::CannotWrite {
-            path: shown(&path),
-            detail: e.to_string(),
-        })?;
-        let file = ntfs.file(vol, it.rec)?;
-        if let Some(d) = file.data(vol, "") {
-            let item = d?;
-            let attr = item.to_attribute()?;
-            let mut value = attr.value(vol)?;
-            loop {
-                let n = value.read(vol, &mut buf)?;
-                if n == 0 {
-                    break;
+    partial_tree(&partial, || {
+        emit(Event::Log(format!(
+            "Copying {} game files from the disc",
+            items.len()
+        )));
+        let (mut buf, mut done) = (vec![0u8; 1 << 20], 0u64);
+        for it in &items {
+            check(cancel)?;
+            let path = partial.join(&it.rel);
+            if it.dir {
+                fs::create_dir_all(&path)?;
+                continue;
+            }
+            let mut out = File::create(&path).map_err(|e| E::CannotWrite {
+                path: shown(&path),
+                detail: e.to_string(),
+            })?;
+            let file = ntfs.file(vol, it.rec)?;
+            if let Some(d) = file.data(vol, "") {
+                let item = d?;
+                let attr = item.to_attribute()?;
+                let mut value = attr.value(vol)?;
+                loop {
+                    let n = value.read(vol, &mut buf)?;
+                    if n == 0 {
+                        break;
+                    }
+                    out.write_all(&buf[..n])?;
+                    done += n as u64;
+                    emit(Event::Progress(done, total));
                 }
-                out.write_all(&buf[..n])?;
-                done += n as u64;
-                emit(Event::Progress(done, total));
             }
         }
-    }
-    ensure!(
-        partial.join("client_Release.exe").is_file(),
-        E::ExtractIncomplete
-    );
-    check(cancel)?;
-    ensure!(!game.exists(), E::GameFolderExists);
-    fs::rename(&partial, &game)?;
-    Ok(())
+        ensure!(
+            partial.join("client_Release.exe").is_file(),
+            E::ExtractIncomplete
+        );
+        check(cancel)?;
+        ensure!(!game.exists(), E::GameFolderExists);
+        fs::rename(&partial, &game)?;
+        Ok(())
+    })
 }
 
 /// Unpack the kit zip into dest (Launcher.exe, README, python, scripts ...); an existing data\ (club, keys) is kept.
@@ -615,6 +627,24 @@ mod tests {
         assert_eq!(install_folder(&t), t.join("Forza-WCCF")); // a plain folder (or a drive root) gets its own
         assert_eq!(install_folder(&t.join("forza-wccf")), t.join("forza-wccf"));
         assert_eq!(install_folder(&t.join("old")), t.join("old")); // an existing install stays where it is
+        fs::remove_dir_all(&t).unwrap();
+    }
+
+    /// A cancelled or failed extract takes its half tree with it: nothing is left at `game.partial` to fill the drive
+    /// until the next install (the next run removes it, but only if one comes).
+    #[test]
+    fn a_cancelled_extract_leaves_no_partial() {
+        let t = std::env::temp_dir().join(format!("install-partial-test-{}", std::process::id()));
+        let partial = t.join("game.partial");
+        let done = partial_tree(&partial, || {
+            assert!(partial.is_dir());
+            fs::write(partial.join("client_Release.exe"), b"half")?;
+            Err(E::Cancelled.into())
+        });
+        assert!(
+            done.is_err() && !partial.exists(),
+            "{partial:?} is still there"
+        );
         fs::remove_dir_all(&t).unwrap();
     }
 
