@@ -658,11 +658,20 @@ fn dos_time(secs: i64) -> Result<zip::DateTime> {
     .map_err(|e| anyhow::anyhow!("{secs} is no ZIP date: {e:?}"))
 }
 
-/// The release number this build carries, from git: `FORZA_VERSION` for the build scripts of Launcher, installer and
-/// panel (crates/launcher/version_rc.rs), version.txt and the file names. Asked once per run.
+/// The release number this build carries: `FORZA_VERSION` for the build scripts of Launcher, installer and panel
+/// (crates/launcher/version_rc.rs), version.txt and the file names. Asked once per run. A `FORZA_VERSION` already in
+/// the environment wins over git (a release candidate built before its tag, release.yml); else `git describe`.
 fn version(root: &Path) -> &'static str {
     static V: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     V.get_or_init(|| {
+        match version_override(std::env::var("FORZA_VERSION").ok().as_deref()) {
+            Ok(Some(v)) => return v,
+            Ok(None) => {}
+            Err(e) => {
+                eprintln!("error: {e}");
+                std::process::exit(2);
+            }
+        }
         let git = |args: &[&str]| {
             Command::new("git")
                 .args(args)
@@ -685,6 +694,17 @@ fn version(root: &Path) -> &'static str {
         .or_else(|| git(&["rev-parse", "--short=7", "HEAD"]).map(|sha| format!("0.0.0-dev+{sha}")))
         .unwrap_or_else(|| "0.0.0-dev".to_owned())
     })
+}
+
+/// A `FORZA_VERSION` from the environment: unset or empty -> none (git decides), a semver such as `0.7.0` -> it, else an
+/// error, so a typo never ends up in version.txt and the file names.
+fn version_override(env: Option<&str>) -> Result<Option<String>> {
+    let Some(v) = env.map(str::trim).filter(|v| !v.is_empty()) else {
+        return Ok(None);
+    };
+    semver::Version::parse(v)
+        .map_err(|e| anyhow::anyhow!("FORZA_VERSION={v:?} is no semver version like 0.7.0: {e}"))?;
+    Ok(Some(v.to_owned()))
 }
 
 /// `git describe --tags --long` -> the version: on the tag `v1.2.3` (`v1.2.3-0-g<sha>`) `1.2.3`; on a later commit the
@@ -2601,6 +2621,23 @@ mod tests {
             Some("1.3.0-rc.1")
         );
         assert_eq!(version_from_describe("nonsense"), None);
+    }
+
+    #[test]
+    fn a_forza_version_in_the_environment_wins_and_junk_is_refused() {
+        assert_eq!(version_override(None).unwrap(), None);
+        assert_eq!(version_override(Some(" ")).unwrap(), None);
+        assert_eq!(
+            version_override(Some("0.7.0")).unwrap().as_deref(),
+            Some("0.7.0")
+        );
+        assert_eq!(
+            version_override(Some("1.3.0-rc.1")).unwrap().as_deref(),
+            Some("1.3.0-rc.1")
+        );
+        for junk in ["v0.7.0", "0.7", "0.7.0 beta", "latest"] {
+            assert!(version_override(Some(junk)).is_err(), "{junk}");
+        }
     }
 
     #[test]

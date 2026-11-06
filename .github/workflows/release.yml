@@ -4,10 +4,17 @@ name: Release
 # pre-release. A maintainer publishes it after someone has played the build. Run by hand (workflow_dispatch) it is a
 # dry run: build and VirusTotal, no release. The version comes from the tag (cargo xtask: `git describe`), no commit
 # bumps it: v0.6.1 -> version.txt kit-0.6.1, the programs' version information and the file names.
+# A release candidate is a dispatch with `version` (on the `next` branch): its files already carry that version, and
+# the tag run on the same commit checks that it built the same bytes (publish, "Same bytes as the candidate").
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      version:
+        description: Release candidate version, e.g. 0.7.0 (empty = the version from git describe)
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -24,6 +31,9 @@ jobs:
     defaults:
       run:
         shell: bash
+    env:
+      # empty on a tag push: cargo xtask then takes the tag; set, it wins over git (xtask/src/main.rs version())
+      FORZA_VERSION: ${{ inputs.version }}
     steps:
       - run: git config --global core.autocrlf false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -47,6 +57,7 @@ jobs:
             [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::tag $GITHUB_REF_NAME is not v<semver>"; exit 1; }
           fi
           git describe --tags --long --match 'v[0-9]*.[0-9]*.[0-9]*' || echo "no tag: a 0.0.0-dev build"
+          if [ -n "$FORZA_VERSION" ]; then echo "release candidate: FORZA_VERSION=$FORZA_VERSION"; fi
       - name: Build environment (what changed, when a file differs from the last release for no source reason)
         run: |
           echo "image: $ImageOS $ImageVersion"
@@ -56,20 +67,25 @@ jobs:
         run: |
           cargo xtask package 2017-18
           cargo xtask package installer
-          # on a tag the files carry its version (`git describe` found the tag itself)
-          if [ "$GITHUB_REF_TYPE" = tag ]; then
-            V=${GITHUB_REF_NAME#v}
+          # a candidate's files carry its version, a tag's files the tag's (`git describe` found the tag itself)
+          V=$(printf '%s' "$FORZA_VERSION" | tr -d '[:space:]')
+          if [ -z "$V" ] && [ "$GITHUB_REF_TYPE" = tag ]; then V=${GITHUB_REF_NAME#v}; fi
+          if [ -n "$V" ]; then
             ls "dist/Forza-WCCF-2017-18-$V.zip" "dist/Forza-WCCF-Installer-$V-windows-x64.exe" || { echo "::error::the files do not carry $V"; exit 1; }
           fi
           cd dist
           find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -printf '%f\n' | sort | xargs sha256sum > "$RUNNER_TEMP/sums"
           mv "$RUNNER_TEMP/sums" SHA256SUMS.txt
           cat SHA256SUMS.txt
+          if [ -n "$FORZA_VERSION" ]; then
+            { echo "### Release candidate $FORZA_VERSION"; echo "Commit $GITHUB_SHA, artifact \`dist\` of run $GITHUB_RUN_ID."; echo '```'; cat SHA256SUMS.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist
           path: dist/
-          retention-days: 7
+          # a candidate waits for its play test and its tag
+          retention-days: 14
           if-no-files-found: error
 
   # An unchanged program keeps its hash, and with it its reputation with the antivirus engines. Lists the PE files that
@@ -189,16 +205,64 @@ jobs:
   publish:
     name: publish
     needs: [build, virustotal]
-    if: github.ref_type == 'tag'
+    # a tag push only: a dispatch never publishes, also when it runs on a tag
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: write
+      actions: read
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dist
           path: dist
+      # A candidate was played (a dispatch with `version` on this commit): no draft from bytes that differ from it. The
+      # newest completed candidate whose `dist` artifact carries the tag's version counts; with none, the release stops.
+      - name: Same bytes as the candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          V=${GITHUB_REF_NAME#v}
+          # a failed virustotal job (a Microsoft false positive) does not spoil a candidate; its artifact decides
+          if ! runs=$(gh run list -R "$REPO" -w release.yml -e workflow_dispatch -c "$GITHUB_SHA" -s completed -L 20 --json databaseId --jq '.[].databaseId'); then
+            echo "::error::gh run list failed: cannot look for a candidate on $GITHUB_SHA"
+            exit 1
+          fi
+          cand=
+          skipped=
+          : > "$RUNNER_TEMP/found"
+          for id in $runs; do
+            # a missing artifact is reported below; anything else is not swallowed
+            if ! gh run download "$id" -R "$REPO" -n dist -D "cand-$id"; then skipped="$skipped $id"; continue; fi
+            # Git Bash's sha256sum writes "<hash> *<name>" (binary mode)
+            if grep -qE " [ *]Forza-WCCF-2017-18-${V//./\\.}\.zip\$" "cand-$id/SHA256SUMS.txt"; then cand=$id; break; fi
+            awk '$2 ~ /Forza-WCCF-2017-18-.*\.zip$/ { name = $2; sub(/^\*/, "", name); print name }' "cand-$id/SHA256SUMS.txt" >> "$RUNNER_TEMP/found"
+          done
+          if [ -z "$cand" ]; then
+            echo "### Candidate: none found for $V on $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::no candidate with version=$V on $GITHUB_SHA: dispatch the Release workflow with version=$V on this commit, play the build, then tag the played commit"
+            if [ -s "$RUNNER_TEMP/found" ]; then
+              echo "::error::the candidates on this commit carry other versions: $(sort -u "$RUNNER_TEMP/found" | tr '\n' ' ')"
+            fi
+            if [ -n "$skipped" ]; then echo "::error::the dist artifact could not be downloaded from run(s):$skipped"; fi
+            exit 1
+          fi
+          url="https://github.com/$REPO/actions/runs/$cand"
+          # "<hash> *<name>" (Git Bash) and "<hash>  <name>" pair on the name alone
+          sums() { awk '{ name = $2; sub(/^\*/, "", name); print $1, name }' "$1" | sort -k2,2; }
+          # file name, this build's sha256, the candidate's: every file whose hashes differ or that one side lacks
+          differ=$(join -1 2 -2 2 -a 1 -a 2 -e missing -o 0,1.1,2.1 <(sums dist/SHA256SUMS.txt) <(sums "cand-$cand/SHA256SUMS.txt") | awk '$2 != $3 { print $1 }')
+          if [ -z "$differ" ]; then
+            echo "### Candidate: same bytes as run [$cand]($url)" >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice::the tag build matches candidate run $cand"
+          else
+            { echo "### Candidate: these files differ from run [$cand]($url)"; echo '```'; echo "$differ"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::the tag build differs from the played candidate (run $cand): ${differ//$'\n'/ }"
+            exit 1
+          fi
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: virustotal
