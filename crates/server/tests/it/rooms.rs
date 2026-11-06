@@ -344,8 +344,23 @@ fn tunnel_id(seed: u8) -> String {
     k.to_bytes().iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// A host's room secret: 64 hex digits.
+fn room_secret(seed: u8) -> String {
+    format!("{seed:02x}").repeat(32)
+}
+
 fn arcade_room(a: SocketAddr, host: &str, public: bool) -> (String, String, String) {
-    match lobby::create_arcade(a, host, public, "").unwrap() {
+    kept_room(a, host, None, public)
+}
+
+/// An arcade room made with the host's room secret (`None`: as a Launcher before secrets).
+fn kept_room(
+    a: SocketAddr,
+    host: &str,
+    secret: Option<&str>,
+    public: bool,
+) -> (String, String, String) {
+    match lobby::create_arcade(a, host, secret, public, "").unwrap() {
         Created::Room {
             id,
             code,
@@ -423,7 +438,7 @@ fn listed_rooms_join_by_id_private_ones_by_code_only() {
     let other_host = tunnel_id(2); // one room per host id
     // a named room: the desk keeps the name as the words carry it
     let (public_id, public_code, public_t) =
-        match lobby::create_arcade(a, &other_host, true, " Sala \t Roma ").unwrap() {
+        match lobby::create_arcade(a, &other_host, None, true, " Sala \t Roma ").unwrap() {
             Created::Room {
                 id, code, ticket, ..
             } => (id, code, ticket),
@@ -487,7 +502,7 @@ fn listed_rooms_join_by_id_private_ones_by_code_only() {
 fn rooms_per_address_and_per_host_are_capped() {
     let d = desk(|_| {});
     let a = d.addr();
-    let (id, code, t) = arcade_room(a, &tunnel_id(1), false);
+    let (id, _, t) = arcade_room(a, &tunnel_id(1), false);
     assert_eq!(
         say(a, &format!("CREATE shop {}", tunnel_id(1))),
         "ERR host",
@@ -495,12 +510,11 @@ fn rooms_per_address_and_per_host_are_capped() {
     );
     arcade_room(a, &tunnel_id(2), false);
     assert_eq!(
-        lobby::create_arcade(a, &tunnel_id(3), false, "").unwrap(),
+        lobby::create_arcade(a, &tunnel_id(3), None, false, "").unwrap(),
         Created::Full
     );
     assert!(lobby::close(a, &id, &t).unwrap());
-    let (_, again, _) = arcade_room(a, &tunnel_id(1), false);
-    assert_eq!(again, code, "the host's restart keeps its code");
+    arcade_room(a, &tunnel_id(1), false);
     let vs: Vec<_> = (0..8).map(|_| room(a, false)).collect();
     assert_eq!(
         lobby::create(a, false).unwrap(),
@@ -563,14 +577,15 @@ fn the_desk_wide_ceiling_still_trips() {
 fn a_host_replaces_its_own_stale_room() {
     let d = desk(|c| c.host_stale = Duration::from_millis(300));
     let a = d.addr();
-    let (_, old_code, old_t) = arcade_room(a, &tunnel_id(1), false);
+    let secret = room_secret(1);
+    let (_, old_code, old_t) = kept_room(a, &tunnel_id(1), Some(&secret), false);
     assert_eq!(
         say(a, &format!("CREATE shop {}", tunnel_id(1))),
         "ERR host",
         "alive: kept"
     );
     std::thread::sleep(Duration::from_millis(400));
-    let (_, new_code, new_t) = arcade_room(a, &tunnel_id(1), false);
+    let (_, new_code, new_t) = kept_room(a, &tunnel_id(1), Some(&secret), false);
     assert_eq!(new_code, old_code, "back from a crash: the same code");
     assert!(
         !lobby::heartbeat(a, &old_t).unwrap(),
@@ -582,6 +597,85 @@ fn a_host_replaces_its_own_stale_room() {
         "ERR host",
         "just beat: alive"
     );
+}
+
+/// A kept code belongs to the room secret, not to the address or the tunnel id: from the host's own address, another
+/// secret or none (a guest behind the same NAT who learnt the tunnel id) gets a fresh code, and its rooms take nothing
+/// away from the holder, who gets the code back from any tunnel id. The secret shows in no lobby answer or log line.
+#[test]
+fn a_kept_code_belongs_to_its_room_secret() {
+    let said = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let log = said.clone();
+    let mut c = DeskConfig::new(Edition::E1718);
+    (c.bind, c.port, c.lobby_gap, c.lobby_cache) =
+        ("127.0.0.1".into(), 0, Duration::ZERO, Duration::ZERO);
+    let d = start(c, Arc::new(move |l| log.lock().unwrap().push(l.into()))).unwrap();
+    let a = d.addr();
+    let (host, mine) = (tunnel_id(1), room_secret(1));
+    let made = |secret: Option<&str>| {
+        let (id, code, t) = kept_room(a, &host, secret, true);
+        let line = say(a, "LOBBY 2017-18");
+        assert!(
+            !line.contains(&mine) && !line.contains(&room_secret(2)),
+            "{line}"
+        );
+        assert!(lobby::close(a, &id, &t).unwrap());
+        code
+    };
+    let code = made(Some(&mine));
+    assert_ne!(
+        made(Some(&room_secret(2))),
+        code,
+        "same address, another secret"
+    );
+    assert_ne!(made(None), code, "same address, no secret");
+    assert_eq!(made(Some(&mine)), code, "still the holder's");
+    let (_, other, _) = kept_room(a, &tunnel_id(2), Some(&mine), false);
+    assert_eq!(other, code, "the secret's code, whatever the tunnel id");
+    let said = said.lock().unwrap();
+    assert!(!said.is_empty());
+    assert!(!said.iter().any(|l| l.contains(&mine)), "{said:?}");
+}
+
+/// A Launcher before room secrets (0.7.0) sends none: its room is made as before, with a fresh code each time.
+#[test]
+fn a_create_without_a_secret_gets_a_fresh_code() {
+    let d = desk(|c| c.arcade_rooms_per_address = 3);
+    let a = d.addr();
+    let (id, code, t) = arcade_room(a, &tunnel_id(1), false);
+    assert!(lobby::close(a, &id, &t).unwrap());
+    let (_, again, _) = arcade_room(a, &tunnel_id(1), false);
+    assert_ne!(again, code);
+    assert!(say(a, &format!("CREATE shop {} public", tunnel_id(2))).starts_with("ROOM "));
+    assert!(
+        say(
+            a,
+            &format!("CREATE shop {} private Sala Roma", tunnel_id(3))
+        )
+        .starts_with("ROOM ")
+    );
+}
+
+/// At its address's room cap, a host back from a crash replaces its own stale room (not `FULL`) and gets its code.
+#[test]
+fn a_stale_room_is_replaced_at_the_address_cap() {
+    let d = desk(|c| {
+        c.host_stale = Duration::from_millis(300);
+        c.arcade_rooms_per_address = 2;
+    });
+    let a = d.addr();
+    let secret = room_secret(1);
+    let (_, code, _) = kept_room(a, &tunnel_id(1), Some(&secret), false);
+    let (_, _, beat) = arcade_room(a, &tunnel_id(2), false);
+    assert_eq!(
+        lobby::create_arcade(a, &tunnel_id(3), None, false, "").unwrap(),
+        Created::Full,
+        "at the cap"
+    );
+    std::thread::sleep(Duration::from_millis(400));
+    assert!(lobby::heartbeat(a, &beat).unwrap());
+    let (_, again, _) = kept_room(a, &tunnel_id(1), Some(&secret), false);
+    assert_eq!(again, code);
 }
 
 /// An arcade's own desk behind its tunnel seats its PCs and nothing else: the room words are refused there.

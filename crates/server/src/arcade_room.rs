@@ -8,15 +8,32 @@
 
 pub use forza::online::lobby::Peers;
 use forza::online::lobby::{Arcade, Reserved, State as ArcadeState};
-use std::collections::VecDeque;
-use std::time::Instant;
+use std::collections::HashSet;
+use std::time::{Duration, Instant};
 
 /// Seats in an arcade room: the host on 1, guests on 2-8.
 const SEATS: std::ops::RangeInclusive<u8> = 1..=8;
 /// A room's code: this many of the desk's code letters (31^8, about 2^39.6, against `JOIN`'s budgets).
 pub const CODE_LEN: usize = 8;
-/// Hosts whose last code the desk keeps for their next `CREATE shop` (the oldest go first).
+/// Room secrets whose last code the desk keeps for their next `CREATE shop`, in all and per creator's address. Full:
+/// a new secret's code is not kept (strangers can fill the list, never empty it of someone else's code).
 const KEPT: usize = 4096;
+const KEPT_PER_ADDRESS: usize = 4;
+/// A kept code lapses this long after its last room ended.
+const KEPT_FOR: Duration = Duration::from_secs(30 * 24 * 3600);
+
+/// A host's room secret as the desk keeps it: its SHA-256, never the secret itself.
+pub type SecretHash = [u8; 32];
+
+/// A room secret's last code ([`ArcadeRooms::kept_code`]).
+struct Kept {
+    secret: SecretHash,
+    code: String,
+    /// The last creator's address, for [`KEPT_PER_ADDRESS`]
+    by: String,
+    /// Lapses then, unless a live room holds the code (then pushed on)
+    until: Instant,
+}
 
 /// An iroh EndpointId as written: 64 hex digits that are an ed25519 public key (iroh's `PublicKey::from_bytes`), in
 /// its canonical form and not one of the small-order points no secret key makes.
@@ -74,9 +91,9 @@ pub enum Prior {
 #[derive(Default)]
 pub struct ArcadeRooms {
     rooms: Vec<Room>,
-    /// Each host's last room (tunnel id lower case, creator's address, code), oldest first: the host back from a
-    /// restart gets its code again, so guests keep the one they were given. Memory only: a desk restart draws anew.
-    kept: VecDeque<(String, String, String)>,
+    /// Each room secret's last code: the host back from a restart gets it again, so guests keep the one they were
+    /// given. Memory only: a desk restart draws anew.
+    kept: Vec<Kept>,
 }
 
 impl ArcadeRooms {
@@ -88,9 +105,9 @@ impl ArcadeRooms {
         self.rooms.is_empty()
     }
 
-    /// Whether `id` or `code` is a room's id or code already, or `code` another host's kept code (the desk draws
+    /// Whether `id` or `code` is a room's id or code already, or `code` another secret's kept code (the desk draws
     /// again): `JOIN` takes either.
-    pub fn holds(&self, id: &str, code: &str, host: &str) -> bool {
+    pub fn holds(&self, id: &str, code: &str, secret: Option<&SecretHash>) -> bool {
         self.rooms.iter().any(|r| {
             [&r.id, &r.code]
                 .iter()
@@ -98,16 +115,16 @@ impl ArcadeRooms {
         }) || self
             .kept
             .iter()
-            .any(|(h, _, c)| c.eq_ignore_ascii_case(code) && !h.eq_ignore_ascii_case(host))
+            .any(|k| k.code.eq_ignore_ascii_case(code) && Some(&k.secret) != secret)
     }
 
-    /// The code of `host`'s last room, when this `CREATE shop` comes from the address that made it (whoever else
-    /// learnt the tunnel id, a guest, does not get the code with it).
-    pub fn kept_code(&self, host: &str, by: &str) -> Option<String> {
+    /// The code of the last room made with this room secret: only its holder gets it, whatever its tunnel id or
+    /// address.
+    pub fn kept_code(&self, secret: &SecretHash) -> Option<String> {
         self.kept
             .iter()
-            .find(|(h, b, _)| h.eq_ignore_ascii_case(host) && b == by)
-            .map(|(_, _, c)| c.clone())
+            .find(|k| k.secret == *secret)
+            .map(|k| k.code.clone())
     }
 
     /// Whether `id` is an arcade room's (its `RESERVE` answers `CLOSED`: a room is joined by code).
@@ -148,7 +165,7 @@ impl ArcadeRooms {
     }
 
     /// A new room with its host on seat 1 (`host_id` checked by the caller with [`valid_id`], `name` already
-    /// [`forza::online::lobby::arcade_name`]).
+    /// [`forza::online::lobby::arcade_name`]); its code kept for `secret`'s next room, when there is space.
     #[allow(clippy::too_many_arguments)]
     pub fn create(
         &mut self,
@@ -156,16 +173,26 @@ impl ArcadeRooms {
         code: String,
         host_id: &str,
         by: &str,
+        secret: Option<SecretHash>,
         public: bool,
         name: String,
         ticket: String,
         end: Instant,
     ) {
-        let host = host_id.to_ascii_lowercase();
-        self.kept.retain(|(h, _, _)| *h != host);
-        self.kept.push_back((host, by.to_owned(), code.clone()));
-        if self.kept.len() > KEPT {
-            self.kept.pop_front();
+        if let Some(secret) = secret {
+            let until = end + KEPT_FOR;
+            if let Some(k) = self.kept.iter_mut().find(|k| k.secret == secret) {
+                (k.code, k.by, k.until) = (code.clone(), by.to_owned(), until);
+            } else if self.kept.len() < KEPT
+                && self.kept.iter().filter(|k| k.by == by).count() < KEPT_PER_ADDRESS
+            {
+                self.kept.push(Kept {
+                    secret,
+                    code: code.clone(),
+                    by: by.to_owned(),
+                    until,
+                });
+            }
         }
         self.rooms.push(Room {
             id,
@@ -270,6 +297,13 @@ impl ArcadeRooms {
             }
             live
         });
+        let live: HashSet<&str> = self.rooms.iter().map(|r| r.code.as_str()).collect();
+        self.kept.retain_mut(|k| {
+            if live.contains(k.code.as_str()) {
+                k.until = now + KEPT_FOR;
+            }
+            k.until > now
+        });
         closed
     }
 
@@ -323,12 +357,29 @@ mod tests {
             "K7QMZDRX".into(),
             &host,
             "10.0.0.1",
+            Some([1; 32]),
             public,
             String::new(),
             "th".into(),
             now + Duration::from_secs(60),
         );
         (r, now, host)
+    }
+
+    /// A room for `secret` from `by` with code `code`, its host's lease 60 s from `now`.
+    fn make(r: &mut ArcadeRooms, now: Instant, code: &str, by: &str, secret: Option<SecretHash>) {
+        let t = format!("t{code}");
+        r.create(
+            format!("r{code}"),
+            code.into(),
+            &key(2),
+            by,
+            secret,
+            false,
+            String::new(),
+            t,
+            now + Duration::from_secs(60),
+        );
     }
 
     /// 64 hex digits are not enough: they must be a point iroh takes as a public key.
@@ -433,19 +484,73 @@ mod tests {
         assert_eq!(r.leave(None, "th"), None);
     }
 
-    /// A host's last code stays for its next room from the same address, and no other host draws it.
+    /// A secret's last code stays for its next room, from any tunnel id or address; another secret neither gets it
+    /// nor draws it, nor takes it away by making rooms of its own.
     #[test]
-    fn a_host_keeps_its_code_across_rooms() {
-        let (mut r, _, host) = room(false);
+    fn a_secret_keeps_its_code_across_rooms() {
+        let (mut r, now, _) = room(false);
         assert_eq!(r.leave(Some("r1"), "th"), Some(Some("K7QMZDRX".into())));
-        assert_eq!(
-            r.kept_code(&host.to_uppercase(), "10.0.0.1").as_deref(),
-            Some("K7QMZDRX")
+        assert_eq!(r.kept_code(&[1; 32]).as_deref(), Some("K7QMZDRX"));
+        assert_eq!(r.kept_code(&[2; 32]), None, "another secret, same address");
+        assert!(
+            r.holds("r2", "k7qmzdrx", Some(&[2; 32])),
+            "kept for its secret"
         );
-        assert_eq!(r.kept_code(&host, "10.0.0.9"), None, "another address");
-        assert_eq!(r.kept_code(&key(2), "10.0.0.1"), None, "another host");
-        assert!(r.holds("r2", "k7qmzdrx", &key(2)), "kept for its host");
-        assert!(!r.holds("r2", "K7QMZDRX", &host));
+        assert!(r.holds("r2", "K7QMZDRX", None), "nor drawn without one");
+        assert!(!r.holds("r2", "K7QMZDRX", Some(&[1; 32])));
+        make(&mut r, now, "AAAAAAAA", "10.0.0.1", Some([2; 32]));
+        make(&mut r, now, "BBBBBBBB", "10.0.0.1", None);
+        assert_eq!(
+            r.kept_code(&[1; 32]).as_deref(),
+            Some("K7QMZDRX"),
+            "still its"
+        );
+    }
+
+    /// The kept list is bounded per address and in all: a full list keeps no new code and drops nobody's.
+    #[test]
+    fn kept_codes_are_capped_per_address_and_in_all() {
+        let now = Instant::now();
+        let mut r = ArcadeRooms::default();
+        for n in 0..KEPT_PER_ADDRESS as u8 + 1 {
+            make(&mut r, now, &format!("A{n}"), "10.0.0.1", Some([n; 32]));
+        }
+        assert_eq!(r.kept.len(), KEPT_PER_ADDRESS);
+        assert_eq!(
+            r.kept_code(&[0; 32]).as_deref(),
+            Some("A0"),
+            "the first stays"
+        );
+        assert_eq!(r.kept_code(&[KEPT_PER_ADDRESS as u8; 32]), None);
+        let mut r = ArcadeRooms::default();
+        for n in 0..=KEPT as u16 {
+            let mut secret = [0; 32];
+            secret[..2].copy_from_slice(&n.to_le_bytes());
+            make(
+                &mut r,
+                now,
+                &format!("B{n}"),
+                &format!("10.1.{}.{}", n >> 8, n & 255),
+                Some(secret),
+            );
+        }
+        assert_eq!(r.kept.len(), KEPT);
+        assert_eq!(r.kept_code(&[0; 32]).as_deref(), Some("B0"));
+    }
+
+    /// A kept code lapses KEPT_FOR after its room ended; while a live room holds it, it stays.
+    #[test]
+    fn kept_codes_lapse() {
+        let (mut r, now, _) = room(false);
+        let later = now + Duration::from_secs(60) + KEPT_FOR;
+        r.heartbeat("th", later + Duration::from_secs(60));
+        r.expire(later);
+        assert_eq!(r.kept_code(&[1; 32]).as_deref(), Some("K7QMZDRX"), "live");
+        r.leave(Some("r1"), "th");
+        r.expire(later + KEPT_FOR - Duration::from_secs(1));
+        assert_eq!(r.kept_code(&[1; 32]).as_deref(), Some("K7QMZDRX"));
+        r.expire(later + KEPT_FOR);
+        assert_eq!(r.kept_code(&[1; 32]), None, "lapsed");
     }
 
     /// Private rooms are not listed and their id joins nothing; a public one shows x/8 and its id, never the code, a
