@@ -8018,6 +8018,7 @@ dependencies = [
  "clap",
  "fs-err",
  "object",
+ "semver",
  "serde_json",
  "sha2",
  "xshell",
