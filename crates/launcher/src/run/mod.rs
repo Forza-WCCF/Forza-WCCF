@@ -631,7 +631,15 @@ pub fn play(kit: &Kit, p: &Params, mode: Option<Mode>, debug: bool, ui: &dyn Ui)
 /// What a plain start does: what the SETTINGS panel chose - never locked out: an address that is wrong, or a server
 /// that does not answer, plays on this PC and says why.
 fn plain_mode(kit: &Kit, p: &Params, ui: &dyn Ui) -> Mode {
-    let panel = choices::read(&kit.data().join("panel.txt"));
+    // an unreadable file is said (and logged) like the other reasons a plain start plays locally: the player would
+    // otherwise take it for their own choice and look for the lobby
+    let panel = match choices::read_ok(&kit.data().join("panel.txt")) {
+        Ok(panel) => panel,
+        Err(e) => {
+            tell(ui, "", &Text::key("launcher.run_panel_unread").arg("error", e));
+            String::new()
+        }
+    };
     if !choices::panel_value(&panel, "play_on").is_some_and(|v| v.eq_ignore_ascii_case("online")) {
         return Mode::Local;
     }
