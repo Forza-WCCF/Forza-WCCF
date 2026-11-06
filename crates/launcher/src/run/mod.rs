@@ -1908,6 +1908,14 @@ impl Run<'_> {
             // guests bring their own clubs into this PC's store (online::club), on the tunnel and on the LAN
             let db = self.kit.save().join("gamesvr").join("gamesvr.db");
             env.push(("WCCF_CLUB_DB".to_owned(), db.display().to_string()));
+            // the ARCADES row for this desk's own arcade (a private room is never listed): the name this runtime set,
+            // else the desk's own default
+            let name = forza::online::lobby::arcade_name(
+                &choices::setting(&self.kit.settings_file(), "shop_name").unwrap_or_default(),
+            );
+            if !name.is_empty() {
+                env.push(("WCCF_SHOP_NAME".to_owned(), name));
+            }
         }
         // 2017-18 ships no forza-server.exe (an AV false positive): the kit's Launcher.exe runs it as `server ...`
         let mut cmd = if self.edition == Edition::E1718 {
