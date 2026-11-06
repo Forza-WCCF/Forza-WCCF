@@ -191,7 +191,9 @@ const GT_RAISE_AT: usize = 16 + 7_676;
 
 /// Writes a card-in's Grand Trophy result fields: a promotion from `class` with the closed week's `rank` (rank and
 /// next class always together, next = class + 1, never above Area A), or zero, so a stored or imported 277 can never
-/// send a result the server did not issue. The play-off flag is always 0 (no play-offs).
+/// send a result the server did not issue. The play-off flag is always 0 (no play-offs). Called only on a server with
+/// VS: an arcade's stand-in passes the stored 277's fields through, so a promotion a VS server issued that the club
+/// has not applied yet (saved before the info scene) shows at its next card-in at home, once.
 fn fill_gt_result(body: &mut [u8], promote: Option<(u8, u32)>) {
     let (rank, next) = match promote {
         Some((class, rank)) if class < 2 => (rank.max(1), class + 1),
@@ -666,13 +668,18 @@ CREATE TABLE IF NOT EXISTS gt_points (
     PRIMARY KEY (week, aime_id)
 );
 -- the Grand Trophy promotion issued at a card-in of `week` from the card's record of week - 1: one per week and
--- card, to the club `coach_id` that carded in, which moved up to `class`
+-- card, to the club `coach_id` that carded in, which moved up to `class`; `rank` and `record` are the closed week's
+-- at the grant, so a re-issue sends the same result; `created` is the club's (coaches.created), the one club field an
+-- import keeps (online::club gives it new ids)
 CREATE TABLE IF NOT EXISTS gt_promotions (
     week     INTEGER NOT NULL,
     aime_id  INTEGER NOT NULL,
     coach_id INTEGER NOT NULL,
     class    INTEGER NOT NULL,
     at       INTEGER NOT NULL,
+    rank     INTEGER NOT NULL,
+    record   INTEGER NOT NULL,
+    created  INTEGER NOT NULL,
     PRIMARY KEY (week, aime_id)
 );
 ";
@@ -976,8 +983,10 @@ impl Store {
     /// The promotion a card-in of `week` gives club `coach` of `aime`, whose stored 277 is `saved`: (class, the
     /// card's rank in week - 1, its record) when that record reached [`GT_RAISE`] of the club's class and no club of
     /// the card has had one this week. Stored before it is returned, so it is granted once per week and card; the
-    /// granted club gets it again at each card-in of the week until its stored 277 shows the new class (a lost 276,
-    /// or a session that ended before the info scene applied it).
+    /// granted club gets the stored result again at each card-in of the week while its stored 277 is still one class
+    /// below (a lost 276, or a session that ended before the info scene applied it). A club imported again (a guest's
+    /// next join, online::club) has a new coachId and the granted one is gone: the row moves to it when it is the same
+    /// club (same `created`), never to another club of the card.
     fn promote(
         &self,
         week: u16,
@@ -991,23 +1000,34 @@ impl Store {
         if saved.len() != 8572 {
             return Ok(None);
         }
-        let ranking = self.gt_ranking(last)?;
-        let entry = ranking.iter().enumerate().find(|(_, e)| e.0 == aime);
-        let granted: Option<(u32, u8)> = self
+        let granted: Option<(u32, u8, u32, i32)> = self
             .0
             .query_row(
-                "SELECT coach_id, class FROM gt_promotions WHERE week = ?1 AND aime_id = ?2",
+                "SELECT coach_id, class, rank, record FROM gt_promotions WHERE week = ?1 AND aime_id = ?2",
                 params![week, aime],
-                |r| Ok((r.get(0)?, r.get(1)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )
             .optional()?;
-        if let Some((to, next)) = granted {
-            // the same result again, only to the club it went to and only while it has not applied it
-            return Ok((to == coach && class < next).then(|| {
-                let (i, record) = entry.map_or((0, 0), |(i, e)| (i, e.1));
-                (next - 1, i as u32 + 1, record)
-            }));
+        if let Some((to, next, rank, record)) = granted {
+            // the same result again, only to the club it went to (or its re-import) and only while it has not
+            // applied it
+            if class.checked_add(1) != Some(next) {
+                return Ok(None);
+            }
+            if to != coach
+                && self.0.execute(
+                    "UPDATE gt_promotions SET coach_id = ?3 WHERE week = ?1 AND aime_id = ?2
+                     AND created = (SELECT created FROM coaches WHERE coach_id = ?3)
+                     AND NOT EXISTS (SELECT 1 FROM coaches WHERE coach_id = ?4)",
+                    params![week, aime, coach, to],
+                )? == 0
+            {
+                return Ok(None);
+            }
+            return Ok(Some((class, rank, record)));
         }
+        let ranking = self.gt_ranking(last)?;
+        let entry = ranking.iter().enumerate().find(|(_, e)| e.0 == aime);
         let need = GT_RAISE.get(usize::from(class)).copied().unwrap_or(0);
         let Some((i, &(_, record))) = entry else {
             return Ok(None);
@@ -1016,8 +1036,10 @@ impl Store {
             return Ok(None);
         }
         let n = self.0.execute(
-            "INSERT INTO gt_promotions VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT DO NOTHING",
-            params![week, aime, coach, class + 1, now()],
+            "INSERT INTO gt_promotions (week, aime_id, coach_id, class, at, rank, record, created)
+             SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, created FROM coaches WHERE coach_id = ?3
+             ON CONFLICT DO NOTHING",
+            params![week, aime, coach, class + 1, now(), i as u32 + 1, record],
         )?;
         Ok((n == 1).then_some((class, i as u32 + 1, record)))
     }
@@ -2605,6 +2627,21 @@ mod tests {
         );
         // the save still shows Local (the 276 was lost, or the session ended before the info scene): the same again
         assert_eq!(result(5, local), (2, 1, 0), "re-issued until applied");
+        // the closed week's row pruned: the stored rank again, never a made-up first place
+        store
+            .lock()
+            .unwrap()
+            .0
+            .execute(
+                "DELETE FROM gt_points WHERE week = ?1 AND aime_id = 5",
+                [week - 1],
+            )
+            .unwrap();
+        assert_eq!(
+            result(5, local),
+            (2, 1, 0),
+            "stored rank, no closed-week row"
+        );
         // the card's other club carded in later the same week: the card's promotion is spent
         let other = club(5, 0);
         assert_eq!(result(5, other), (0, 0, 0));
@@ -2628,6 +2665,31 @@ mod tests {
         assert_eq!(result(13, area_a), (0, 0, 0), "Area A is the cap");
         assert_eq!(result(13, local13), (3, 1, 0), "Local -> Area B, rank 3");
         assert_eq!(result(13, area_a), (0, 0, 0), "not to the other club");
+
+        // a guest's club, imported again at its next join (new coach and card ids): the promotion follows it
+        let guest = club(20, 0);
+        last_week(20, 1_000);
+        assert_eq!(result(20, guest), (4, 1, 0), "Local -> Area B, rank 4");
+        store
+            .lock()
+            .unwrap()
+            .0
+            .execute("INSERT INTO guests VALUES (20, 't', 1, 0)", [])
+            .unwrap();
+        let rejoin = || {
+            let mut st = store.lock().unwrap();
+            let c = st.club(20).unwrap();
+            let link = st.import_public(&c, 20, 1, "t").unwrap();
+            (link.coaches[0].1, link.cards[0].1)
+        };
+        let again = rejoin();
+        assert_ne!(again, guest);
+        assert_eq!(result(20, again), (4, 1, 0), "re-imported, not applied");
+        let again = rejoin();
+        assert_eq!(result(20, again), (4, 1, 0), "each join of the week");
+        save(20, again, 1);
+        let applied = rejoin();
+        assert_eq!(result(20, applied), (0, 0, 0), "applied");
 
         for (aime, class) in [(7, 2), (8, 3), (10, 4), (11, 200)] {
             let k = club(aime, class);
@@ -2653,7 +2715,12 @@ mod tests {
             .unwrap();
         assert_eq!(
             rows,
-            [(5, local.0, 1), (6, area_b.0, 2), (13, local13.0, 1)]
+            [
+                (5, local.0, 1),
+                (6, area_b.0, 2),
+                (13, local13.0, 1),
+                (20, again.0, 1)
+            ]
         );
         let lines = lines.lock().unwrap();
         let want = format!(
@@ -2763,7 +2830,7 @@ mod tests {
             assert_eq!(n("SELECT at FROM gt_points"), 77);
             // the table takes a promotion, and the row outlives the reopen
             st.0.execute(
-                "INSERT OR IGNORE INTO gt_promotions VALUES (41, 5, 1, 1, 78)",
+                "INSERT OR IGNORE INTO gt_promotions VALUES (41, 5, 1, 1, 78, 1, 1234, 70)",
                 [],
             )
             .unwrap();
