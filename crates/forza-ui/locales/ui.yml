@@ -697,6 +697,7 @@ launcher.run_failed: {en: "FAILED: %{why}", it: "NON RIUSCITO: %{why}", ja: "失
 launcher.run_no_job: {en: "could not create the run's process group (%{error})", it: "impossibile creare il gruppo di processi dell'esecuzione (%{error})", ja: "実行用のプロセスグループを作成できませんでした(%{error})"}
 launcher.run_not_up: {en: "%{what} did not come up", it: "%{what} non si è avviato", ja: "%{what} が起動しませんでした"}
 launcher.run_not_up_log: {en: "%{what} did not come up - see data\\logs\\%{log}", it: "%{what} non si è avviato - vedi data\\logs\\%{log}", ja: "%{what} が起動しませんでした - data\\logs\\%{log} を確認してください"}
+launcher.run_ports_unread: {en: "Windows' port table could not be read (%{error}) - waiting for the server's programs instead.", it: "Impossibile leggere la tabella delle porte di Windows (%{error}) - si attende i programmi del server.", ja: "Windows のポート表を読み込めませんでした（%{error}） - サーバーのプログラムを待ちます。"}
 launcher.run_part_server: {en: "the server", it: "il server", ja: "サーバー"}
 launcher.run_part_seat: {en: "seat %{n}", it: "posto %{n}", ja: "席 %{n}"}
 launcher.run_part_seat_window: {en: "seat %{n}'s window", it: "la finestra del posto %{n}", ja: "席 %{n} のウィンドウ"}

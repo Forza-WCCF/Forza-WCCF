@@ -7,7 +7,8 @@ use std::process::{Command, Stdio};
 use std::{env, fs, mem, ptr};
 
 use launcher::procs::{
-    game_processes, image, listening_ports, normcase, pipes, prefers_system32, processes, same_form,
+    game_processes, image, listening_ports, listening_ports_result, normcase, pipes, prefers_system32, processes,
+    same_form,
 };
 use windows_sys::Win32::Foundation::{CloseHandle, FALSE};
 use windows_sys::Win32::Storage::FileSystem::GetShortPathNameW;
@@ -127,6 +128,10 @@ fn a_listening_port_and_the_pipes_are_seen() {
     let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = l.local_addr().unwrap().port();
     assert!(listening_ports().contains(&port));
+    assert!(
+        listening_ports_result().unwrap().contains(&port),
+        "the table was read, and the port is in it"
+    );
     drop(l);
     assert!(!pipes().is_empty(), "Windows always has named pipes");
 }

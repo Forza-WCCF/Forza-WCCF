@@ -1772,12 +1772,23 @@ impl Run<'_> {
                 fs::create_dir_all(game.join("log"))?;
             }
             self.start_game(Role::Server, p.control_args.clone(), &game, !self.debug, Vec::new())?;
+            let said = std::cell::Cell::new(false);
             wait_for(
                 Text::key("launcher.run_part_server"),
                 90,
                 Role::Server.log(),
                 || self.alive(Role::Server),
-                || procs::listening_ports().contains(&p.control_port) && self.job_count(p.matcher()) >= p.match_engines,
+                || match procs::listening_ports_result() {
+                    Ok(ports) => ports.contains(&p.control_port) && self.job_count(p.matcher()) >= p.match_engines,
+                    // the table could not be read: that is not "the server is not up", and the job's programs are a
+                    // weaker but honest sign; said once, so the log says why the wait is longer than usual
+                    Err(e) => {
+                        if !said.replace(true) {
+                            self.tell("  ", &Text::key("launcher.run_ports_unread").arg("error", &e));
+                        }
+                        self.job_count(p.matcher()) >= p.match_engines
+                    }
+                },
             )?;
             if let Some(ctl) = self
                 .job_procs()
