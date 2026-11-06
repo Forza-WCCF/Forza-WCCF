@@ -44,9 +44,14 @@ pub fn set_panel_value(text: &str, name: &str, value: Option<&str>) -> String {
     out
 }
 
+/// A panel.txt text for what only shows a value; the callers that write the file back whole take [`read_ok`].
 pub fn read(path: &Path) -> String {
-    fs::read_to_string(path).unwrap_or_default()
+    read_ok(path).unwrap_or_default()
 }
+
+/// A panel.txt text, or what the OS said: read-then-write-whole callers stop on the error instead of saving the
+/// defaults over a file that was only locked for a moment.
+pub use forza::panel_txt::read_text as read_ok;
 
 /// A temporary file beside `path`, then one swap: never a half-written file for the game or the panel.
 pub fn write(path: &Path, text: &str) -> io::Result<()> {
@@ -264,6 +269,20 @@ mod tests {
         assert_eq!(setting(&path, "language").as_deref(), Some("ja"));
         // the damaged file is kept beside the new one, not lost
         assert_eq!(read(&dir.join("settings.json.bad")), "not json");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// PLAY reads panel.txt and writes it back whole: a file it cannot read now (a scanner or a viewer holding it) is
+    /// an error, never the empty text the defaults would be saved from.
+    #[test]
+    fn an_unreadable_panel_file_is_an_error() {
+        let dir = std::env::temp_dir().join(format!("wccf-read-ok-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("panel.txt")).unwrap();
+        assert_eq!(read_ok(&dir.join("missing.txt")).unwrap(), "");
+        assert_eq!(read(&dir.join("missing.txt")), "");
+        assert!(read_ok(&dir.join("panel.txt")).is_err());
+        assert_eq!(read(&dir.join("panel.txt")), "");
         fs::remove_dir_all(&dir).unwrap();
     }
 }

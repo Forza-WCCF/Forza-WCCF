@@ -91,6 +91,7 @@ launcher.msg_not_a_kit: {en: "This ZIP is not a Forza-WCCF release.", it: "Quest
 launcher.msg_update_files_missing: {en: "Update stopped: the antivirus probably removed %{files}. Nothing was changed.", it: "Aggiornamento interrotto: probabilmente l'antivirus ha rimosso %{files}. Non è stato modificato nulla.", ja: "アップデートを中止しました。ウイルス対策ソフトが %{files} を削除した可能性があります。何も変更されていません。"}
 launcher.msg_update_rolled_back: {en: "Update stopped, the installed version was kept. %{error}", it: "Aggiornamento interrotto, la versione installata è stata mantenuta. %{error}", ja: "アップデートを中止しました。インストール済みのバージョンはそのままです。%{error}"}
 launcher.msg_write_failed: {en: "Cannot write %{path} (%{error}). Close the game and try again.", it: "Impossibile scrivere %{path} (%{error}). Chiudi il gioco e riprova.", ja: "%{path} に書き込めませんでした（%{error}）。ゲームを閉じて、もう一度お試しください。"}
+launcher.msg_read_failed: {en: "Cannot read %{path} (%{error}). Nothing was changed.", it: "Impossibile leggere %{path} (%{error}). Non è stato modificato nulla.", ja: "%{path} を読み込めませんでした（%{error}）。何も変更されていません。"}
 launcher.msg_done: {en: "Done.", it: "Fatto.", ja: "完了しました。"}
 launcher.msg_failed: {en: "Failed. See DETAILS.", it: "Non riuscito. Vedi DETTAGLI.", ja: "失敗しました。「詳細」を確認してください。"}
 launcher.msg_went_wrong: {en: "The game stopped unexpectedly.", it: "Il gioco si è chiuso in modo imprevisto.", ja: "ゲームが予期せず終了しました。"}
@@ -700,6 +701,7 @@ launcher.run_failed: {en: "FAILED: %{why}", it: "NON RIUSCITO: %{why}", ja: "失
 launcher.run_no_job: {en: "could not create the run's process group (%{error})", it: "impossibile creare il gruppo di processi dell'esecuzione (%{error})", ja: "実行用のプロセスグループを作成できませんでした(%{error})"}
 launcher.run_not_up: {en: "%{what} did not come up", it: "%{what} non si è avviato", ja: "%{what} が起動しませんでした"}
 launcher.run_not_up_log: {en: "%{what} did not come up - see data\\logs\\%{log}", it: "%{what} non si è avviato - vedi data\\logs\\%{log}", ja: "%{what} が起動しませんでした - data\\logs\\%{log} を確認してください"}
+launcher.run_ports_unread: {en: "Windows' port table could not be read (%{error}) - waiting for the server's programs instead.", it: "Impossibile leggere la tabella delle porte di Windows (%{error}) - si attende i programmi del server.", ja: "Windows のポート表を読み込めませんでした（%{error}） - サーバーのプログラムを待ちます。"}
 launcher.run_part_server: {en: "the server", it: "il server", ja: "サーバー"}
 launcher.run_part_seat: {en: "seat %{n}", it: "posto %{n}", ja: "席 %{n}"}
 launcher.run_part_seat_window: {en: "seat %{n}'s window", it: "la finestra del posto %{n}", ja: "席 %{n} のウィンドウ"}
@@ -849,6 +851,7 @@ launcher.run_stopped: {en: "Stopped.", it: "Fermato.", ja: "停止しました�
 launcher.run_seat_back: {en: "Seat %{n} is back.", it: "Il posto %{n} è tornato.", ja: "席 %{n} が戻りました。"}
 launcher.run_online_1718: {en: "The shared arcade is off on this PC, so server and remote do not run. To play online, choose ONLINE in the Launcher window, then PLAY.", it: "La sala condivisa è disattivata su questo PC, quindi server e remota non partono. Per giocare online, scegli ONLINE nella finestra del Launcher, poi GIOCA.", ja: "このPCでは共有ゲームセンターがオフのため、サーバーとリモートは起動しません。オンラインで遊ぶには、Launcherのウィンドウで「オンライン」を選び、「プレイ」を押してください。"}
 launcher.run_bad_club_server: {en: "club_server \"%{club}\" in data\\settings.json is not HOST or HOST:PORT", it: "club_server \"%{club}\" in data\\settings.json non è HOST o HOST:PORT", ja: "data\\settings.json の club_server \"%{club}\" は HOST または HOST:PORT の形式ではありません"}
+launcher.run_panel_unread: {en: "data\\panel.txt could not be read (%{error}) - playing on this PC.", it: "Impossibile leggere data\\panel.txt (%{error}) - si gioca su questo PC.", ja: "data\\panel.txt を読み込めませんでした（%{error}） - このPCでプレイします。"}
 launcher.run_no_server_set: {en: "no server address is set in SETTINGS", it: "in IMPOSTAZIONI non è impostato nessun indirizzo del server", ja: "「設定」にサーバーのアドレスが設定されていません"}
 launcher.run_arcade_seat_on: {en: "This PC's seat still plays in this arcade. Stop it first (or stop force).", it: "Il posto di questo PC gioca ancora in questa sala. Fermalo prima (oppure stop force).", ja: "このPCの席がまだこのゲームセンターでプレイ中です。先に終了してください (または stop force)。"}
 launcher.run_arcade_guest: {en: "1 guest connected to this arcade may be in a match here. Stop force ends it for them.", it: "1 ospite connesso a questa sala potrebbe essere in una partita qui. Stop force la termina per lui.", ja: "このゲームセンターに接続中のゲスト 1 人がここで試合中の可能性があります。stop force を使うとその試合が終了します。"}

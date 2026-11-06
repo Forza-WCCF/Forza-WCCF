@@ -3,6 +3,19 @@
 //! the game's text asked for, the club card chosen, the layout, the card hover delay, automatic reports. The file is
 //! written whole from these choices, so lines the panel does not know are not kept (as the C panel).
 
+use std::path::Path;
+
+/// A text file the panel and the Launcher write back whole: a missing file is the empty one, any other error is that
+/// error (one failed read must not be taken for an empty file and saved over with the defaults). A byte that is not
+/// UTF-8 is that one replacement character, as the C panel read bytes: the rest of the file still counts.
+pub fn read_text(path: &Path) -> std::io::Result<String> {
+    match std::fs::read(path) {
+        Ok(raw) => Ok(String::from_utf8_lossy(&raw).into_owned()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(e) => Err(e),
+    }
+}
+
 /// Four numbers 0-255 with dots, only the digits 0-9, as play.py's valid_ipv4 (the game takes no names).
 pub fn valid_address(s: &str) -> bool {
     let parts: Vec<&str> = s.split('.').collect();
@@ -168,6 +181,38 @@ impl PanelFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A missing file reads as empty; a file that cannot be read at all is said so, never empty (a save would wipe it).
+    #[test]
+    fn an_unreadable_text_is_not_an_empty_one() {
+        let d = std::env::temp_dir().join(format!("panel-txt-read-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("panel.txt")).unwrap();
+        assert_eq!(read_text(&d.join("missing.txt")).unwrap(), "");
+        assert!(read_text(&d.join("panel.txt")).is_err());
+        std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// A byte that is not UTF-8 does not make the file unreadable (the C panel parsed bytes): it reads as the
+    /// replacement character and the file's other lines still parse.
+    #[test]
+    fn a_bad_byte_is_read_as_text() {
+        let d = std::env::temp_dir().join(format!("panel-txt-badbyte-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let file = d.join("panel.txt");
+        std::fs::write(
+            &file,
+            b"play_on=online\nserver=1.2.3.4 # \xff\nlayout=compact\n",
+        )
+        .unwrap();
+        let text = read_text(&file).unwrap();
+        assert!(text.contains('\u{fffd}'), "{text:?}");
+        let f = PanelFile::parse(text.as_bytes());
+        assert!(f.online && f.compact);
+        assert_eq!(f.server, "1.2.3.4");
+        std::fs::remove_dir_all(&d).unwrap();
+    }
 
     /// wccfpanel.c's own output for these choices, and its reading rules (set_selftest's cases).
     #[test]

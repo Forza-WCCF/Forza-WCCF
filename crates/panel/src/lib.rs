@@ -42,6 +42,7 @@ mod share;
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, TextureId, ViewportId, pos2, vec2};
 use forza::cards::{self, Placed, TableFile};
 use forza::online::lobby::ServerNotice;
+use forza::panel_txt::PanelFile;
 use forza_ui::board::Card;
 use forza_ui::panel::{self, PanelState};
 use forza_ui::theme;
@@ -1346,6 +1347,9 @@ struct Render {
     board_ctx: egui::Context,
     board_painter: painter::Painter,
     st: PanelState,
+    /// panel.txt and keys.txt were read: a write back over a failed read would drop every line it did not see.
+    panel_ok: bool,
+    keys_ok: bool,
     table: TableFile,
     /// The table as last read or written; `st.board.cards[i]` is `placed[i]`.
     placed: Vec<Placed>,
@@ -1444,10 +1448,35 @@ impl Render {
         let lang = files.lang();
         let cards = CATALOGUE.get().cloned().unwrap_or_else(|| Arc::new([]));
         let mut st = PanelState::new(files.edition, lang, cards::board(&placed, &cards), cards);
-        st.file = files.panel_file();
+        // both files are read once and then written whole: a failed read is remembered, and nothing is written back
+        let panel_ok = match files.panel_text() {
+            Ok(text) => {
+                st.file = PanelFile::parse(text.as_bytes());
+                true
+            }
+            Err(e) => {
+                log(&format!(
+                    "settings: {} could not be read: {e} (not saved over)",
+                    files.data.join("panel.txt").display()
+                ));
+                false
+            }
+        };
         st.hover_delay = st.file.hover_ms.map(|ms| ms as f32 / 1000.0);
         st.address = st.file.server.clone();
-        (st.keys, st.pads) = files.load_keys();
+        let keys_ok = match files.load_keys() {
+            Ok((keys, pads)) => {
+                (st.keys, st.pads) = (keys, pads);
+                true
+            }
+            Err(e) => {
+                log(&format!(
+                    "keys: {} could not be read: {e} (not saved over)",
+                    files.keys.display()
+                ));
+                false
+            }
+        };
         st.picture = Some(GAME);
         log(&format!(
             "language {}, hover delay {}",
@@ -1461,6 +1490,8 @@ impl Render {
             st,
             table,
             placed,
+            panel_ok,
+            keys_ok,
             share: None,
             key: None,
             latch: 0,
@@ -2227,9 +2258,19 @@ impl Render {
         let Some(f) = FILES.get() else { return };
         let open = self.st.page == panel::Page::Settings;
         if open && self.last_page != panel::Page::Settings {
-            self.st.file = f.panel_file();
-            self.st.hover_delay = self.st.file.hover_ms.map(|ms| ms as f32 / 1000.0);
-            self.st.address = self.st.file.server.clone();
+            match f.panel_text() {
+                Ok(text) => {
+                    self.st.file = PanelFile::parse(text.as_bytes());
+                    self.st.hover_delay = self.st.file.hover_ms.map(|ms| ms as f32 / 1000.0);
+                    self.st.address = self.st.file.server.clone();
+                    self.panel_ok = true;
+                }
+                // what is in memory stays (a write back is refused): the file is only briefly held, perhaps
+                Err(e) => log(&format!(
+                    "settings: {} could not be read: {e} (not saved over)",
+                    f.data.join("panel.txt").display()
+                )),
+            }
             self.st.projector = (f.edition == theme::Edition::E1718)
                 .then(|| forza::kit::projector_shown(&f.settings()));
             self.status_at = None;
@@ -2295,6 +2336,17 @@ impl Render {
         }
     }
 
+    /// data\panel.txt written whole - unless it could not be read this run: the defaults over it would drop every line
+    /// the read did not see.
+    fn save_panel(&self, f: &kit::Files, p: &PanelFile) -> std::io::Result<()> {
+        if !self.panel_ok {
+            return Err(std::io::Error::other(
+                "not written: the file could not be read",
+            ));
+        }
+        f.save_panel(p)
+    }
+
     /// SETTINGS' changes: data\panel.txt written whole; RESTART NOW and SAVE LOGS asked of the run through their
     /// request files (the run takes them within half a second), RESTART NOW refused during a card session.
     fn settings_out(&mut self) {
@@ -2302,7 +2354,7 @@ impl Render {
         let Some(f) = FILES.get() else { return };
         if std::mem::take(&mut self.st.file_changed) {
             let p = &self.st.file;
-            match f.save_panel(p) {
+            match self.save_panel(f, p) {
                 Ok(()) => log(&format!(
                     "settings: saved play_on={} server={} english={} layout={} hover={} auto_logs={} board={} board_buttons={} pad_background={} board_rect={:?}",
                     if p.online { "online" } else { "this_pc" },
@@ -2578,7 +2630,13 @@ impl Render {
             self.st.say(Tone::Refused, "club.session_refused");
             return;
         }
-        let mut file = f.panel_file();
+        let Ok(text) = f.panel_text() else {
+            log("club: could not read panel.txt - not written");
+            self.st.say(Tone::Refused, "settings.msg_not_saved");
+            return;
+        };
+        self.panel_ok = true;
+        let mut file = PanelFile::parse(text.as_bytes());
         match &pick {
             ClubPick::Fix => file.card_fix = true,
             ClubPick::New => file.card = "new".into(),
@@ -2613,7 +2671,19 @@ impl Render {
         if keys != (self.last_page == panel::Page::Keys) {
             if keys {
                 if let Some(f) = FILES.get() {
-                    (self.st.keys, self.st.pads) = f.load_keys();
+                    match f.load_keys() {
+                        Ok((keys, pads)) => {
+                            (self.st.keys, self.st.pads) = (keys, pads);
+                            self.keys_ok = true;
+                        }
+                        Err(e) => {
+                            log(&format!(
+                                "keys: {} could not be read: {e} (not saved over)",
+                                f.keys.display()
+                            ));
+                            self.keys_ok = false;
+                        }
+                    }
                 }
                 let p = pads();
                 p.rescan();
@@ -2665,6 +2735,12 @@ impl Render {
             return;
         }
         let Some(f) = FILES.get() else { return };
+        if !self.keys_ok {
+            log("keys: keys.txt could not be read - not saved over");
+            self.st
+                .say(forza_ui::widgets::Tone::Refused, "keys.msg_not_saved");
+            return;
+        }
         match f.save_keys(&self.st.keys, &self.st.pads) {
             Ok(()) => log(&format!("keys: saved {}", f.keys.display())),
             Err(e) => {

@@ -114,9 +114,10 @@ impl Files {
             .unwrap_or(Lang::En)
     }
 
-    /// data\panel.txt's choices (missing: this PC, no request, 1 s hover).
-    pub fn panel_file(&self) -> PanelFile {
-        PanelFile::parse(&std::fs::read(self.data.join("panel.txt")).unwrap_or_default())
+    /// data\panel.txt's text, or what the OS said: the callers that write it back whole must not take a failed read
+    /// for an empty file.
+    pub fn panel_text(&self) -> std::io::Result<String> {
+        forza::panel_txt::read_text(&self.data.join("panel.txt"))
     }
 
     pub fn save_panel(&self, f: &PanelFile) -> std::io::Result<()> {
@@ -183,10 +184,23 @@ impl Files {
     }
 
     /// keys.txt's keys and controller controls in the KEYS page's order (`forza::keys::NAMES`), by the key driver's
-    /// rules (`forza::keys::load_keys_with`, `load_pads`) and this edition's defaults.
-    pub fn load_keys(&self) -> ([u32; COUNT], [u32; COUNT]) {
+    /// rules (`forza::keys::load_keys_with`, `load_pads`) and this edition's defaults.  Err: the file could not be
+    /// read, and saving the defaults over it would drop every binding.
+    pub fn load_keys(&self) -> std::io::Result<([u32; COUNT], [u32; COUNT])> {
+        Ok(self.keys_of(&self.keys_raw()?))
+    }
+
+    /// keys.txt's bytes: a missing file is none, any other error is that error.
+    fn keys_raw(&self) -> std::io::Result<Vec<u8>> {
+        match std::fs::read(&self.keys) {
+            Ok(raw) => Ok(raw),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+            Err(e) => Err(e),
+        }
+    }
+
+    fn keys_of(&self, raw: &[u8]) -> ([u32; COUNT], [u32; COUNT]) {
         use forza::keys::{ACTIONS, load_keys_with, load_pads};
-        let raw = std::fs::read(&self.keys).unwrap_or_default();
         let ui = forza::keys::defaults(self.edition == Edition::E1718);
         // forza::keys keeps the actions in its own order: by name both ways
         let at = |name: &str| {
@@ -195,8 +209,8 @@ impl Files {
                 .position(|n| *n == name)
                 .unwrap_or(0)
         };
-        let (keys, _) = load_keys_with(&raw, std::array::from_fn(|i| ui[at(ACTIONS[i].name)]));
-        let (pads, _) = load_pads(&raw);
+        let (keys, _) = load_keys_with(raw, std::array::from_fn(|i| ui[at(ACTIONS[i].name)]));
+        let (pads, _) = load_pads(raw);
         let back = |v: [u32; 16]| -> [u32; COUNT] {
             std::array::from_fn(|i| {
                 ACTIONS
@@ -207,7 +221,7 @@ impl Files {
         };
         let mut keys = back(keys);
         // PAUSE is the panel's own: the key driver skips its line
-        keys[PAUSE] = forza::keys::pause_key(&raw, ui[PAUSE], &keys[..PAUSE]);
+        keys[PAUSE] = forza::keys::pause_key(raw, ui[PAUSE], &keys[..PAUSE]);
         (keys, back(pads))
     }
 
@@ -582,6 +596,18 @@ mod tests {
             serde_json::json!({"projector": false, "cpu_championship": true, "game": "x"})
         );
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// A file held by someone else (here: a directory named like it) is an error to the writers, never an empty file: a
+    /// settings change or a key capture must not save the defaults over the lines and bindings it does not see.
+    #[test]
+    fn an_unreadable_file_is_not_an_empty_one() {
+        let (files, d) = files("unreadable");
+        std::fs::create_dir_all(d.join("panel.txt")).unwrap();
+        std::fs::create_dir_all(&files.keys).unwrap();
+        assert!(files.panel_text().is_err());
+        assert!(files.load_keys().is_err());
+        std::fs::remove_dir_all(&d).unwrap();
     }
 
     #[test]

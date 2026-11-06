@@ -641,7 +641,15 @@ pub fn play(kit: &Kit, p: &Params, mode: Option<Mode>, debug: bool, ui: &dyn Ui)
 /// What a plain start does: what the SETTINGS panel chose - never locked out: an address that is wrong, or a server
 /// that does not answer, plays on this PC and says why.
 fn plain_mode(kit: &Kit, p: &Params, ui: &dyn Ui) -> Mode {
-    let panel = choices::read(&kit.data().join("panel.txt"));
+    // an unreadable file is said (and logged) like the other reasons a plain start plays locally: the player would
+    // otherwise take it for their own choice and look for the lobby
+    let panel = match choices::read_ok(&kit.data().join("panel.txt")) {
+        Ok(panel) => panel,
+        Err(e) => {
+            tell(ui, "", &Text::key("launcher.run_panel_unread").arg("error", e));
+            String::new()
+        }
+    };
     if !choices::panel_value(&panel, "play_on").is_some_and(|v| v.eq_ignore_ascii_case("online")) {
         return Mode::Local;
     }
@@ -1462,7 +1470,21 @@ impl Run<'_> {
                 None => self.tell("  ", &Text::key("launcher.run_text_now").part("name", name)),
             }
         }
-        let left = choices::set_panel_value(&choices::read(&path), "english", None);
+        // read again, and fallible: this text is written back whole, so a file that cannot be read now (a scanner
+        // holding it) must not be saved over as if the request had been taken out of it
+        let text = match choices::read_ok(&path) {
+            Ok(text) => text,
+            Err(e) => {
+                self.tell(
+                    "  ",
+                    &Text::key("launcher.msg_read_failed")
+                        .arg("path", path.display())
+                        .arg("error", e),
+                );
+                return;
+            }
+        };
+        let left = choices::set_panel_value(&text, "english", None);
         let _ = choices::write(&path, &left);
     }
 
@@ -1798,12 +1820,23 @@ impl Run<'_> {
                 fs::create_dir_all(game.join("log"))?;
             }
             self.start_game(Role::Server, p.control_args.clone(), &game, !self.debug, Vec::new())?;
+            let said = std::cell::Cell::new(false);
             wait_for(
                 Text::key("launcher.run_part_server"),
                 90,
                 Role::Server.log(),
                 || self.alive(Role::Server),
-                || procs::listening_ports().contains(&p.control_port) && self.job_count(p.matcher()) >= p.match_engines,
+                || match procs::listening_ports_result() {
+                    Ok(ports) => ports.contains(&p.control_port) && self.job_count(p.matcher()) >= p.match_engines,
+                    // the table could not be read: that is not "the server is not up", and the job's programs are a
+                    // weaker but honest sign; said once, so the log says why the wait is longer than usual
+                    Err(e) => {
+                        if !said.replace(true) {
+                            self.tell("  ", &Text::key("launcher.run_ports_unread").arg("error", &e));
+                        }
+                        self.job_count(p.matcher()) >= p.match_engines
+                    }
+                },
             )?;
             if let Some(ctl) = self
                 .job_procs()
@@ -2244,7 +2277,13 @@ impl Run<'_> {
         self.tell("  ", &line);
         if let Mode::Vs(_) = self.mode {
             let panel_file = self.kit.data().join("panel.txt");
-            let panel = choices::read(&panel_file);
+            let panel = choices::read_ok(&panel_file).map_err(|e| {
+                Failed(
+                    Text::key("launcher.msg_read_failed")
+                        .arg("path", panel_file.display())
+                        .arg("error", e),
+                )
+            })?;
             let club = choices::setting(&self.kit.settings_file(), "club_server").unwrap_or_default();
             let t = rules::vs_target(&panel, &club).map_err(Failed)?;
             self.vs_target = Some(t.clone());
