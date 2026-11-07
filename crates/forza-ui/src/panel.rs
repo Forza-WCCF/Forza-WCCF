@@ -1712,7 +1712,7 @@ fn reset_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         rows.push((tr!(lang, "board.reset_subs"), subs));
     }
     let at = st.before_match_at.clone().unwrap_or_default();
-    let modal = egui::Modal::new(egui::Id::new("reset-dialog"))
+    let modal = egui::Modal::new(egui::Id::unique("reset-dialog"))
         .backdrop_color(Color32::from_black_alpha(170))
         .frame(
             egui::Frame::new()
