@@ -2,6 +2,17 @@
 //! four IP helper calls that release the host's DHCP lease or write its routes (imported by control_Release.exe) are
 //! pointed at stubs that touch nothing, in the import table of the program that loads it. Not in either kit.
 #![cfg(target_arch = "x86")]
+// This code runs in the game's process, where a panic ends the game: no call that can panic (tests may, clippy.toml)
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::unreachable,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::string_slice
+)]
 
 use forza_native::{By, imports, redirect};
 use std::ffi::{CStr, c_void};

@@ -3,6 +3,17 @@
 //! points one slot elsewhere. FPR_Emu.exe and logowin.exe wait on the program that started them ([`parent_pid`]). Both
 //! editions' guards keep the publisher's network hosts unresolved ([`hosts`]).
 #![cfg(target_arch = "x86")]
+// This code runs in the game's process, where a panic ends the game: no call that can panic (tests may, clippy.toml)
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::unreachable,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::string_slice
+)]
 
 pub mod hosts;
 
