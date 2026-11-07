@@ -153,8 +153,30 @@ fn running_check(kit: &Kit) -> Result<(), String> {
 }
 
 /// curl.exe fetches `url` into `file` (`resume`: on from the bytes already there, an HTTP Range request), with the
-/// progress line "`label`  N / M MB" against `total` bytes every 200 ms.
+/// progress line "`label`  N / M MB" against `total` bytes every 200 ms. A server or proxy that refuses the Range
+/// request gets the whole file once instead: the bytes there are deleted first.
 pub(crate) fn download(file: &Path, url: &str, total: u64, label: &str, resume: bool) -> Result<(), String> {
+    match curl_into(file, url, total, label, resume) {
+        Err((code, _)) if resume && cannot_resume(code) => {
+            log(&format!(
+                "  {}: the server cannot resume (curl exit 33), from zero",
+                file.display()
+            ));
+            let _ = fs::remove_file(file);
+            curl_into(file, url, total, label, false)
+        }
+        r => r,
+    }
+    .map_err(|(_, e)| e)
+}
+
+/// curl's exit code 33: "HTTP server does not seem to support byte ranges. Cannot resume."
+fn cannot_resume(code: Option<i32>) -> bool {
+    code == Some(33)
+}
+
+/// One curl.exe run of [`download`] -> its exit code with the error.
+fn curl_into(file: &Path, url: &str, total: u64, label: &str, resume: bool) -> Result<(), (Option<i32>, String)> {
     let mut cmd = curl();
     if resume {
         cmd.args(["-C", "-"]);
@@ -166,12 +188,15 @@ pub(crate) fn download(file: &Path, url: &str, total: u64, label: &str, resume: 
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| {
-            tf(
-                "launcher.msg_download_failed",
-                &[("error", &plain_error(&e.to_string()))],
+            (
+                None,
+                tf(
+                    "launcher.msg_download_failed",
+                    &[("error", &plain_error(&e.to_string()))],
+                ),
             )
         })?;
-    while child.try_wait().map_err(|e| e.to_string())?.is_none() {
+    while child.try_wait().map_err(|e| (None, e.to_string()))?.is_none() {
         let got = fs::metadata(file).map_or(0, |m| m.len());
         let mb = |b: u64| b as f64 / 1_048_576.0;
         say(
@@ -180,10 +205,13 @@ pub(crate) fn download(file: &Path, url: &str, total: u64, label: &str, resume: 
         );
         thread::sleep(Duration::from_millis(200));
     }
-    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    let out = child.wait_with_output().map_err(|e| (None, e.to_string()))?;
     if !out.status.success() {
         let why = plain_error(String::from_utf8_lossy(&out.stderr).trim());
-        return Err(tf("launcher.msg_download_failed", &[("error", &why)]));
+        return Err((
+            out.status.code(),
+            tf("launcher.msg_download_failed", &[("error", &why)]),
+        ));
     }
     Ok(())
 }
@@ -467,6 +495,15 @@ fn sweep_replaced(dir: &Path, me: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_refused_resume_starts_over_and_other_failures_keep_the_part() {
+        assert!(cannot_resume(Some(33)));
+        // a cut connection (56), a timeout (28), an HTTP error (22) or no curl at all keeps the bytes for the next try
+        for code in [Some(56), Some(28), Some(22), None] {
+            assert!(!cannot_resume(code), "{code:?}");
+        }
+    }
 
     /// Modelled on the real v0.3.0 release list.
     const LIST: &str = r#"[
