@@ -35,9 +35,9 @@ const TABS_H: f32 = 56.0;
 /// The deck row under the picture keeps at least this; on wide sheets the picture stops growing first.
 const DECK_MIN: f32 = 148.0;
 /// What the board's height needs per point of pitch width (pitch 1.25, the artwork's bench 0.205) and besides (margins 32,
-/// gaps 12, a hint of two lines 36).
+/// gaps 12, and the foot: a gap 4, the row of buttons 22, a gap 8 and a hint line 23).
 const BOARD_PER_W: f32 = 1.455;
-const BOARD_EXTRA: f32 = 80.0;
+const BOARD_EXTRA: f32 = 101.0;
 /// The pop-out board's window lays its bench beside the pitch (a column, [`board::COLUMN_ASPECT`]) when its room is at
 /// least this wide for its height (3:4 and wider), under the pitch when narrower (9:16).
 pub const BENCH_BESIDE: f32 = 2.0 / 3.0;
@@ -2793,9 +2793,9 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
         );
     }
     // 2017-18 on the game window: three buttons leave the hint little room at their left, so it takes the full width
-    // under them
+    // under them, 8 points under them (the buttons are 22 high; the strip's foot, BOARD_EXTRA, holds both and the line)
     let text = if st.edition == Edition::E1718 && !st.desk {
-        Rect::from_min_max(pos2(row.left(), row.top() + 28.0), row.max)
+        Rect::from_min_max(pos2(row.left(), row.top() + 30.0), row.max)
     } else {
         row.with_max_x(left - 8.0)
     };
@@ -4067,6 +4067,7 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let accent = st.edition.accent();
     let now = ui.input(|i| i.time);
     let s = st.status.clone();
+    let e1718 = st.edition == Edition::E1718;
     ui.columns(2, |cols| {
         let (a, b) = cols.split_at_mut(1);
         let left = &mut a[0];
@@ -4089,15 +4090,20 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                         Link::Unknown => (tr!(lang, "settings.unknown"), theme::TEXT_FAINT),
                     };
                     kv(ui, &tr!(lang, "settings.server"), &v, Some(c));
-                    let (k, c) = card_text(s.card);
-                    kv(ui, &tr!(lang, "settings.session"), &tr!(lang, k), Some(c));
-                    let (v, c) = match s.bad {
-                        None => ("-".to_owned(), None),
-                        Some(0) => ("0".to_owned(), Some(theme::GREEN)),
-                        Some(1) => (tr!(lang, "settings.bad_one"), Some(theme::AMBER)),
-                        Some(n) => (tr!(lang, "settings.bad_many", n = n), Some(theme::RED_TEXT)),
-                    };
-                    kv(ui, &tr!(lang, "settings.bad_endings"), &v, c);
+                    // both rows read the 2010-11 club card file; a 2017-18 club is on the game server, with no such file
+                    if !e1718 {
+                        let (k, c) = card_text(s.card);
+                        kv(ui, &tr!(lang, "settings.session"), &tr!(lang, k), Some(c));
+                        let (v, c) = match s.bad {
+                            None => ("-".to_owned(), None),
+                            Some(0) => ("0".to_owned(), Some(theme::GREEN)),
+                            Some(1) => (tr!(lang, "settings.bad_one"), Some(theme::AMBER)),
+                            Some(n) => {
+                                (tr!(lang, "settings.bad_many", n = n), Some(theme::RED_TEXT))
+                            }
+                        };
+                        kv(ui, &tr!(lang, "settings.bad_endings"), &v, c);
+                    }
                     let v = s
                         .saved
                         .as_ref()
@@ -4115,6 +4121,31 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                         None,
                     );
                 });
+            // CLEAR BAD ENDINGS: 2017-18 has no CLUB CARD page (its club is on the game server stand-in), so it sits here
+            if st.edition == Edition::E1718 {
+                let lit = st
+                    .club_armed
+                    .as_ref()
+                    .is_some_and(|(p, until)| *p == ClubPick::Fix && *until > now);
+                if lit {
+                    ui.ctx()
+                        .request_repaint_after(std::time::Duration::from_millis(250));
+                }
+                let key = if lit {
+                    "club.clear_again"
+                } else {
+                    "club.clear_bad"
+                };
+                let w = ui.available_width();
+                if cabinet(ui, vec2(w, 40.0), &tr!(lang, key), Cab::Stop, lit).clicked() {
+                    club_click(st, ClubPick::Fix, now);
+                }
+                ui.label(
+                    egui::RichText::new(tr!(lang, "club.clear_hint"))
+                        .font(theme::body(HINT))
+                        .color(theme::TEXT_DIM),
+                );
+            }
         });
         widgets::section(left, &tr!(lang, "settings.view"), accent, |ui| {
             let w = ui.available_width();
@@ -4362,7 +4393,7 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
 // ---- CLUB CARD ----
 
 /// A choice on CLUB CARD that needs a second click within 8 s, then a restart: another card from YOUR CARDS (its file in
-/// data\save\cards and its club), a new card, or CLEAR BAD ENDINGS (2010-11).
+/// data\save\cards and its club), a new card, or CLEAR BAD ENDINGS (2017-18: on SETTINGS).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ClubPick {
     Card { file: String, club: String },
@@ -5149,6 +5180,14 @@ mod tests {
                     compact || BOARD_PER_W * bw + BOARD_EXTRA <= l.board.height() + 1.0,
                     "{at}"
                 );
+                // and the foot under it holds the row of buttons and the hint's line, 8 points under them: the gap 4,
+                // the buttons 22, the gap 8 and the line 23 of BOARD_EXTRA, or more where the width, not the height,
+                // makes the board
+                let foot = l.board.height() - 32.0 - board::row_height(bw);
+                assert!(
+                    compact || foot >= 4.0 + 22.0 + 8.0 + 23.0 - 0.5,
+                    "{at}: the foot is {foot}"
+                );
             }
         }
     }
@@ -5173,8 +5212,9 @@ mod tests {
                 let col = l.board.shrink(16.0);
                 let pitch = board::pitch_rect(col.min, col.width());
                 let tile = board::card_size(pitch.width());
-                // the bench (8 + its well) and a line of hint (4 + 17), as board_strip lays them out
-                let hint_bottom = pitch.bottom() + 8.0 + tile.y * 0.8 + 12.0 + 4.0 + 4.0 + 17.0;
+                // the bench (8 + its well), the gap 4 and the row of buttons 22 with the hint's line 23 under it, as
+                // board_strip lays them out
+                let hint_bottom = pitch.bottom() + 8.0 + tile.y * 0.8 + 12.0 + 4.0 + 22.0 + 23.0;
                 for card_y in [
                     pitch.top() + 40.0,
                     pitch.bottom() - 40.0,

@@ -254,5 +254,12 @@
   {"id": "sys_wccfpoint_window", "where": "the WCCF points banner (locker room, continue screen): the two labels beside the numbers (scene text, in place)", "sha256": "AB40DADA2EA1EB6E6C92E58675C95B7517239F599571C3B17A3CFB22E9794077", "files": ["data/sb_data/client_system/SYS_Continue_info/Scene_SYS_Continue_info_window_WCCFPoint.sbscene"],
    "labels": [
     {"at": 7101, "len": 12, "en": "WCCF points"},
-    {"at": 7705, "len": 16, "en": "Match rating"}]}
+    {"at": 7705, "len": 16, "en": "Match rating"}]},
+  {"id": "mng_dataview_challengetour", "where": "Dati, Challenge Tour: the column headers and the three match labels (scene text, in place; Rank stays)", "sha256": "60F116E7600399292748FF1901DFEF66863122F51342FD67530AF085D24C93A8", "files": ["data/sb_data/management/MNG_DataView/Scene_MNG_DataView_TeamData_ChallengeTour.sbscene"],
+   "labels": [
+    {"at": 19845, "len": 6, "en": "Result"},
+    {"at": 19944, "len": 4, "en": "Team"},
+    {"at": 20764, "len": 6, "en": "Game1"},
+    {"at": 21996, "len": 5, "en": "Game2"},
+    {"at": 23227, "len": 5, "en": "Game3"}]}
  ]}

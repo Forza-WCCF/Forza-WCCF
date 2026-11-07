@@ -46,6 +46,11 @@ launcher.projector: {en: "Projector", it: "Proiettore", ja: "プロジェクタ�
 launcher.projector_hint: {en: "Its window, shown or hidden at once. Also in the game's SETTINGS.", it: "La sua finestra, mostrata o nascosta subito. Anche nelle IMPOSTAZIONI del gioco.", ja: "ウィンドウをすぐに表示・非表示。ゲームの設定でも変更できます。"}
 launcher.cpu_championship: {en: "CPU championship", it: "Campionato CPU", ja: "CPU大会"}
 launcher.cpu_championship_hint: {en: "Plays on the projector, shown or hidden. Off saves CPU. Applied at the next start.", it: "Si gioca sul proiettore, visibile o nascosto. Off risparmia CPU. Si applica al prossimo avvio.", ja: "プロジェクターで行われます (表示・非表示どちらでも)。オフでCPUを節約。次回の起動時に反映されます。"}
+launcher.cleanup: {en: "CLEAN UP AFTER A CRASH", it: "RIPULISCI DOPO UN BLOCCO", ja: "クラッシュ後の後片付け"}
+launcher.cleanup_hint: {en: "Your club is kept.", it: "Il tuo club resta.", ja: "クラブは残ります。"}
+launcher.cleanup_done: {en: "Items cleaned: %{n}. Backup: %{path}", it: "Elementi ripuliti: %{n}. Copia: %{path}", ja: "片付けた項目：%{n}。バックアップ：%{path}"}
+launcher.cleanup_none: {en: "Nothing to clean up.", it: "Niente da ripulire.", ja: "片付けるものはありません。"}
+launcher.cleanup_failed: {en: "Not everything was cleaned: %{what}", it: "Non tutto è stato ripulito: %{what}", ja: "片付けられないものがありました：%{what}"}
 launcher.club_server: {en: "Club server", it: "Server club", ja: "クラブサーバー"}
 launcher.club_server_hint: {en: "Empty: the server you play on", it: "Vuoto: il server a cui giochi", ja: "空欄：プレイ中のサーバー"}
 launcher.vs_link: {en: "Direct VS link", it: "Collegamento VS diretto", ja: "ダイレクトVSリンク"}
@@ -86,6 +91,7 @@ launcher.msg_not_a_kit: {en: "This ZIP is not a Forza-WCCF release.", it: "Quest
 launcher.msg_update_files_missing: {en: "Update stopped: the antivirus probably removed %{files}. Nothing was changed.", it: "Aggiornamento interrotto: probabilmente l'antivirus ha rimosso %{files}. Non è stato modificato nulla.", ja: "アップデートを中止しました。ウイルス対策ソフトが %{files} を削除した可能性があります。何も変更されていません。"}
 launcher.msg_update_rolled_back: {en: "Update stopped, the installed version was kept. %{error}", it: "Aggiornamento interrotto, la versione installata è stata mantenuta. %{error}", ja: "アップデートを中止しました。インストール済みのバージョンはそのままです。%{error}"}
 launcher.msg_write_failed: {en: "Cannot write %{path} (%{error}). Close the game and try again.", it: "Impossibile scrivere %{path} (%{error}). Chiudi il gioco e riprova.", ja: "%{path} に書き込めませんでした（%{error}）。ゲームを閉じて、もう一度お試しください。"}
+launcher.msg_read_failed: {en: "Cannot read %{path} (%{error}). Nothing was changed.", it: "Impossibile leggere %{path} (%{error}). Non è stato modificato nulla.", ja: "%{path} を読み込めませんでした（%{error}）。何も変更されていません。"}
 launcher.msg_done: {en: "Done.", it: "Fatto.", ja: "完了しました。"}
 launcher.msg_failed: {en: "Failed. See DETAILS.", it: "Non riuscito. Vedi DETTAGLI.", ja: "失敗しました。「詳細」を確認してください。"}
 launcher.msg_went_wrong: {en: "The game stopped unexpectedly.", it: "Il gioco si è chiuso in modo imprevisto.", ja: "ゲームが予期せず終了しました。"}
@@ -543,7 +549,7 @@ lobby.quick: {en: "QUICK MATCH", it: "PARTITA RAPIDA", ja: "クイックマッ�
 lobby.host: {en: "HOST VS", it: "CREA SFIDA", ja: "ルームを作る"}
 lobby.ready: {en: "READY", it: "PRONTO", ja: "準備OK"}
 lobby.leave: {en: "LEAVE", it: "ESCI", ja: "退出"}
-lobby.direct: {en: "Direct address", it: "Indirizzo diretto", ja: "アドレスを直接入力"}
+lobby.direct: {en: "Server address", it: "Indirizzo del server", ja: "サーバーアドレス"}
 lobby.next_entry: {en: "Next ENTRY in %{t}", it: "Prossima ENTRY tra %{t}", ja: "次のエントリーまで %{t}"}
 lobby.wait_entry: {en: "Next ENTRY in %{t}.", it: "Prossimo ENTRY tra %{t}.", ja: "次の ENTRY まで %{t}。"}
 # beyond the ROADMAP table: columns, filters, room lines and status lines
@@ -560,7 +566,7 @@ lobby.needs_version: {en: "needs version %{v}", it: "serve la versione %{v}", ja
 lobby.club: {en: "Club #%{id}", it: "Club #%{id}", ja: "クラブ #%{id}"}
 lobby.waiting: {en: "waiting…", it: "in attesa…", ja: "待機中…"}
 lobby.starting: {en: "Both ready: starting", it: "Entrambi pronti: si parte", ja: "両者準備OK：開始します"}
-lobby.empty: {en: "No rooms yet. Host one or type an address.", it: "Nessuna stanza. Creane una o scrivi un indirizzo.", ja: "ルームなし。作成するかアドレスを入力。"}
+lobby.empty: {en: "No rooms yet. Host one or type a server address.", it: "Nessuna stanza. Creane una o scrivi l'indirizzo di un server.", ja: "ルームなし。作成するかサーバーアドレスを入力。"}
 lobby.offline: {en: "Server not answering. Try again later.", it: "Il server non risponde. Riprova più tardi.", ja: "サーバーが応答しません。後でもう一度お試しください。"}
 lobby.retry: {en: "RETRY", it: "RIPROVA", ja: "再試行"}
 lobby.why_offline: {en: "Server offline", it: "Server offline", ja: "サーバーに接続できません"}
@@ -575,9 +581,12 @@ lobby.host_arcade: {en: "HOST ARCADE", it: "APRI SALA", ja: "ゲームセンタ�
 lobby.host_title: {en: "Host an arcade", it: "Apri la tua sala", ja: "自分のゲームセンターを開く"}
 lobby.room_code: {en: "Room code", it: "Codice stanza", ja: "ルームコード"}
 lobby.opening: {en: "Opening the arcade…", it: "Apertura della sala…", ja: "ゲームセンターを開いています…"}
-lobby.arcade_howto: {en: "Both players: card in during the same ENTRY, then Arrange Fixture → Set opponent.", it: "Entrambi: inserite la carta nella stessa ENTRY, poi Fissa un incontro → Scegli avversario.", ja: "二人とも同じエントリー中にカードを入れ、Arrange Fixture → Set opponent を選びます。"}
+lobby.howto_code: {en: "1. Give your friends the room code.", it: "1. Dai il codice della stanza ai tuoi amici.", ja: "1. ルームコードを友だちに伝えます。"}
+lobby.howto_lan: {en: "1. Give your friends an address above.", it: "1. Dai ai tuoi amici uno degli indirizzi qui sopra.", ja: "1. 上のアドレスを友だちに伝えます。"}
+lobby.howto_entry: {en: "2. Both players card in during the same ENTRY.", it: "2. Entrambi i giocatori inseriscono la carta nella stessa ENTRY.", ja: "2. 二人とも同じエントリー中にカードを入れます。"}
+lobby.howto_fixture: {en: "3. In the game: Arrange Fixture → Set opponent.", it: "3. Nel gioco: Fissa un incontro → Scegli avversario.", ja: "3. ゲーム内で Arrange Fixture → Set opponent を選びます。"}
 lobby.joining: {en: "Joining %{code}…", it: "Ingresso in %{code}…", ja: "%{code} に参加しています…"}
-lobby.no_room: {en: "No room has that code on %{desk}.", it: "Nessuna stanza ha quel codice su %{desk}.", ja: "%{desk} にそのコードのルームはありません。"}
+lobby.no_room: {en: "No room has that code on %{desk}. The arcade may have restarted with a new code: pick it from the list, or ask the host for the new code.", it: "Nessuna stanza ha quel codice su %{desk}. La sala potrebbe essere ripartita con un codice nuovo: sceglila dall'elenco, oppure chiedi all'host il nuovo codice.", ja: "%{desk} にそのコードのルームはありません。ゲームセンターが再起動してコードが変わった可能性があります。一覧から選ぶか、ホストに新しいコードを尋ねてください。"}
 lobby.room_desk: {en: "Room on %{desk}", it: "Stanza su %{desk}", ja: "ルームの場所：%{desk}"}
 lobby.host_players: {en: "Players here: %{n}/%{max}", it: "Giocatori in sala: %{n}/%{max}", ja: "現在の人数：%{n}/%{max}"}
 lobby.room_lost: {en: "The lobby lost this room: nobody new can join.", it: "La lobby ha perso questa stanza: nessun altro può entrare.", ja: "ロビーがこのルームを失いました。新しい参加はできません。"}
@@ -679,6 +688,7 @@ launcher.run_pictures_busy: {en: "The game is running or starting. Close its win
 launcher.run_pictures_no_game: {en: "No game set up yet. Card pictures are made during setup.", it: "Nessun gioco ancora configurato. Le immagini delle carte vengono create durante la configurazione.", ja: "ゲームがまだセットアップされていません。カード画像はセットアップ中に作成されます。"}
 launcher.run_no_hq_pack: {en: "High-quality card pack not found. Using the game's own pictures.", it: "Pacchetto di immagini carte in alta qualità non trovato. Uso le immagini del gioco.", ja: "高画質カード画像パックが見つかりません。ゲーム本来の画像を使います。"}
 launcher.run_pictures_failed: {en: "Card pictures failed: %{error}. The board shows placeholders.", it: "Immagini delle carte non riuscite: %{error}. Il tabellone mostra segnaposto.", ja: "カード画像の作成に失敗しました: %{error}。ボードには代わりの画像が表示されます。"}
+launcher.run_place_failed: {en: "Could not write the arcade name into %{file} (%{error}). The game keeps the name that file has.", it: "Non è stato possibile scrivere il nome della sala in %{file} (%{error}). Il gioco tiene il nome che quel file ha.", ja: "%{file} にゲームセンター名を書き込めませんでした (%{error})。ゲームはそのファイルにある名前を使います。"}
 launcher.run_unguarded: {en: "Not started: Launcher.exe was started with \"Prefer System32 images\" (a WSL terminal does this), so the game would run without its network protection. Start Launcher.exe from Explorer instead.", it: "Non avviato: Launcher.exe è stato avviato con \"Prefer System32 images\" (lo fa un terminale WSL), quindi il gioco andrebbe senza la sua protezione di rete. Avvia invece Launcher.exe da Esplora file.", ja: "起動しませんでした: Launcher.exe が \"Prefer System32 images\" で起動されています(WSL のターミナルではこうなります)。このままではネットワーク保護なしでゲームが動いてしまいます。代わりにエクスプローラーから Launcher.exe を起動してください。"}
 launcher.run_not_set_up: {en: "Not set up yet. Open Launcher.exe and press SET UP.", it: "Non ancora configurato. Apri Launcher.exe e premi CONFIGURA.", ja: "まだセットアップされていません。Launcher.exe を開いて「設定する」を押してください。"}
 launcher.run_busy: {en: "Not started: another Launcher window is setting up or starting the game. Try again when it is done.", it: "Non avviato: un'altra finestra del Launcher sta configurando o avviando il gioco. Riprova quando ha finito.", ja: "起動しませんでした: 別のLauncherのウィンドウがゲームのセットアップまたは起動をしています。終わってからもう一度お試しください。"}
@@ -691,6 +701,7 @@ launcher.run_failed: {en: "FAILED: %{why}", it: "NON RIUSCITO: %{why}", ja: "失
 launcher.run_no_job: {en: "could not create the run's process group (%{error})", it: "impossibile creare il gruppo di processi dell'esecuzione (%{error})", ja: "実行用のプロセスグループを作成できませんでした(%{error})"}
 launcher.run_not_up: {en: "%{what} did not come up", it: "%{what} non si è avviato", ja: "%{what} が起動しませんでした"}
 launcher.run_not_up_log: {en: "%{what} did not come up - see data\\logs\\%{log}", it: "%{what} non si è avviato - vedi data\\logs\\%{log}", ja: "%{what} が起動しませんでした - data\\logs\\%{log} を確認してください"}
+launcher.run_ports_unread: {en: "Windows' port table could not be read (%{error}) - waiting for the server's programs instead.", it: "Impossibile leggere la tabella delle porte di Windows (%{error}) - si attende i programmi del server.", ja: "Windows のポート表を読み込めませんでした（%{error}） - サーバーのプログラムを待ちます。"}
 launcher.run_part_server: {en: "the server", it: "il server", ja: "サーバー"}
 launcher.run_part_seat: {en: "seat %{n}", it: "posto %{n}", ja: "席 %{n}"}
 launcher.run_part_seat_window: {en: "seat %{n}'s window", it: "la finestra del posto %{n}", ja: "席 %{n} のウィンドウ"}
@@ -773,6 +784,7 @@ launcher.run_gamesvr_remote: {en: "game server: the server's", it: "server di gi
 launcher.run_gamesvr_no_answer: {en: "the game server %{host}:%{port} does not answer. Check the address, that forza-server is running there, and the firewall - or play on this PC.", it: "il server di gioco %{host}:%{port} non risponde. Controlla l'indirizzo, che forza-server sia in esecuzione lì e il firewall, oppure gioca su questo PC.", ja: "ゲームサーバー %{host}:%{port} が応答しません。アドレス、そこで forza-server が動いているか、ファイアウォールを確認するか、このPCでプレイしてください。"}
 launcher.run_gamesvr_at: {en: "game server %{host}:%{port}", it: "server di gioco %{host}:%{port}", ja: "ゲームサーバー %{host}:%{port}"}
 launcher.run_gamesvr_port: {en: "the game server did not start: 127.0.0.1:%{port} (%{error})", it: "il server di gioco non si è avviato: 127.0.0.1:%{port} (%{error})", ja: "ゲームサーバーが起動しませんでした: 127.0.0.1:%{port} (%{error})"}
+launcher.run_gamesvr_busy: {en: "This PC is hosting an arcade on port %{port}. Stop the arcade, or join it from ONLINE.", it: "Questo PC ospita una sala sulla porta %{port}. Ferma la sala, oppure entra da ONLINE.", ja: "このPCはポート %{port} でゲームセンターを開いています。ゲームセンターを停止するか、「オンライン」から参加してください。"}
 launcher.run_guests_dropped: {en: "%{n} guest clubs left by an earlier arcade dropped (their players keep their own)", it: "%{n} club ospiti lasciati da una sala precedente eliminati (i loro giocatori conservano i propri)", ja: "以前のゲームセンターに残っていたゲストのクラブ %{n} 件を削除しました (各プレイヤー自身のクラブは残ります)"}
 launcher.run_guests_unchecked: {en: "guest clubs left by an earlier arcade not checked (%{error})", it: "club ospiti lasciati da una sala precedente non controllati (%{error})", ja: "以前のゲームセンターに残っていたゲストのクラブは確認できませんでした (%{error})"}
 launcher.run_gamesvr_failed: {en: "the game server did not start (%{error})", it: "il server di gioco non si è avviato (%{error})", ja: "ゲームサーバーが起動しませんでした (%{error})"}
@@ -839,6 +851,7 @@ launcher.run_stopped: {en: "Stopped.", it: "Fermato.", ja: "停止しました�
 launcher.run_seat_back: {en: "Seat %{n} is back.", it: "Il posto %{n} è tornato.", ja: "席 %{n} が戻りました。"}
 launcher.run_online_1718: {en: "The shared arcade is off on this PC, so server and remote do not run. To play online, choose ONLINE in the Launcher window, then PLAY.", it: "La sala condivisa è disattivata su questo PC, quindi server e remota non partono. Per giocare online, scegli ONLINE nella finestra del Launcher, poi GIOCA.", ja: "このPCでは共有ゲームセンターがオフのため、サーバーとリモートは起動しません。オンラインで遊ぶには、Launcherのウィンドウで「オンライン」を選び、「プレイ」を押してください。"}
 launcher.run_bad_club_server: {en: "club_server \"%{club}\" in data\\settings.json is not HOST or HOST:PORT", it: "club_server \"%{club}\" in data\\settings.json non è HOST o HOST:PORT", ja: "data\\settings.json の club_server \"%{club}\" は HOST または HOST:PORT の形式ではありません"}
+launcher.run_panel_unread: {en: "data\\panel.txt could not be read (%{error}) - playing on this PC.", it: "Impossibile leggere data\\panel.txt (%{error}) - si gioca su questo PC.", ja: "data\\panel.txt を読み込めませんでした（%{error}） - このPCでプレイします。"}
 launcher.run_no_server_set: {en: "no server address is set in SETTINGS", it: "in IMPOSTAZIONI non è impostato nessun indirizzo del server", ja: "「設定」にサーバーのアドレスが設定されていません"}
 launcher.run_arcade_seat_on: {en: "This PC's seat still plays in this arcade. Stop it first (or stop force).", it: "Il posto di questo PC gioca ancora in questa sala. Fermalo prima (oppure stop force).", ja: "このPCの席がまだこのゲームセンターでプレイ中です。先に終了してください (または stop force)。"}
 launcher.run_arcade_guest: {en: "1 guest connected to this arcade may be in a match here. Stop force ends it for them.", it: "1 ospite connesso a questa sala potrebbe essere in una partita qui. Stop force la termina per lui.", ja: "このゲームセンターに接続中のゲスト 1 人がここで試合中の可能性があります。stop force を使うとその試合が終了します。"}
@@ -855,6 +868,7 @@ launcher.run_desk_no_answer: {en: "the seat desk at %{ip} did not answer (%{deta
 launcher.run_desk_unreachable: {en: "the seat desk at %{ip} cannot be reached (%{detail}). A 2017-18 arcade's desk is open to the network only with \"shop_lan\": true on the arcade's PC.", it: "il banco dei posti a %{ip} non è raggiungibile (%{detail}). Il banco di una sala 2017-18 è aperto alla rete solo con \"shop_lan\": true sul PC della sala.", ja: "%{ip} の席デスクに接続できません (%{detail})。2017-18 のゲームセンターの席デスクは、ゲームセンターのPCで \"shop_lan\": true を設定した場合のみネットワークに公開されます。"}
 launcher.run_desk_refused: {en: "the seat desk at %{ip} refused a seat (%{detail})", it: "il banco dei posti a %{ip} ha rifiutato un posto (%{detail})", ja: "%{ip} の席デスクが席を拒否しました (%{detail})"}
 launcher.run_dmath_differs: {en: "the arcade at %{ip} refused this PC: its match engine (det-math %{mine}) differs from a seat's there (%{theirs}), and the match would drop to the CPU. Both PCs need the same Forza-WCCF version, set up again; \"-off\" means dmath.log says det-math was not applied", it: "la sala a %{ip} ha rifiutato questo PC: il suo motore delle partite (det-math %{mine}) è diverso da quello di un posto lì (%{theirs}) e la partita passerebbe alla CPU. Entrambi i PC devono avere la stessa versione di Forza-WCCF, configurata di nuovo; \"-off\" vuol dire che dmath.log indica det-math non applicato", ja: "%{ip} のゲームセンターがこの PC を拒否しました: この PC の試合エンジン (det-math %{mine}) がそこの席 (%{theirs}) と異なり、試合が CPU 戦に切り替わってしまいます。両方の PC に同じバージョンの Forza-WCCF を入れ、セットアップをやり直してください。\"-off\" は dmath.log で det-math が適用されていないことを示します"}
+launcher.run_vs_dmath_differs: {en: "the other PC of this VS room runs another match engine (this PC: det-math %{mine}), so the game server will not pair the two and the match goes to the CPU. Both PCs need the same Forza-WCCF version, set up again; \"-off\" means dmath.log says det-math was not applied", it: "l'altro PC di questa stanza VS usa un motore delle partite diverso (questo PC: det-math %{mine}), quindi il server di gioco non abbinerà i due PC e la partita sarà contro la CPU. Entrambi i PC devono avere la stessa versione di Forza-WCCF, configurata di nuovo; \"-off\" vuol dire che dmath.log indica det-math non applicato", ja: "この VS ルームのもう一方の PC は別の試合エンジンを使っています (この PC: det-math %{mine})。そのためゲームサーバーは 2 台を組み合わせず、試合は CPU 戦になります。両方の PC に同じバージョンの Forza-WCCF を入れ、セットアップをやり直してください。\"-off\" は dmath.log で det-math が適用されていないことを示します"}
 launcher.run_room_waiting: {en: "arcade room: this arcade's room from before is still on %{server}; asking again in %{s} s", it: "stanza della sala: la stanza di prima di questa sala è ancora su %{server}; nuova richiesta tra %{s} s", ja: "ゲームセンターのルーム: 以前のこのゲームセンターのルームがまだ %{server} に残っています。%{s} 秒後にもう一度確認します"}
 launcher.run_running_undo: {en: "The game is running. Close its window, then undo.", it: "Il gioco è in esecuzione. Chiudi la sua finestra, poi annulla.", ja: "ゲームが実行中です。ウィンドウを閉じてから元に戻してください。"}
 launcher.run_running_setup: {en: "The game is running. Close its window, then run setup again.", it: "Il gioco è in esecuzione. Chiudi la sua finestra, poi esegui di nuovo la configurazione.", ja: "ゲームが起動中です。ウィンドウを閉じてから、もう一度セットアップを実行してください。"}

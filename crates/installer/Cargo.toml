@@ -18,6 +18,8 @@ aes.workspace = true
 anyhow.workspace = true
 crc32fast.workspace = true
 eframe.workspace = true
+# no code uses it: it carries the DX12 backend of eframe's wgpu fallback (the workspace's `wgpu` entry); keep it
+wgpu.workspace = true
 forza.workspace = true
 forza-ui.workspace = true
 fs4.workspace = true

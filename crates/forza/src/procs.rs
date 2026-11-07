@@ -1,4 +1,4 @@
-//! What runs on this PC, as the run sees it: processes by full path, their windows, the TCP ports something listens on
+//! What runs on this PC, as the run sees it: processes by full path, their windows, the TCP and UDP ports something listens on
 //! and the named pipes.  Read-only except `kill` and showing or hiding a window.  Port of kit_common.py's processes,
 //! same_form, game_processes, kill, listening_ports, pipes, windows_of, top_windows, hide_windows and show_windows,
 //! with the Prefer-System32 check the 2010-11 run refuses to start under.
@@ -12,7 +12,7 @@ use windows_sys::Win32::Foundation::{
     CloseHandle, FALSE, HWND, INVALID_HANDLE_VALUE, LPARAM, TRUE,
 };
 use windows_sys::Win32::NetworkManagement::IpHelper::{
-    GetTcpTable, MIB_TCP_STATE_LISTEN, MIB_TCPROW_LH,
+    GetTcpTable, GetUdpTable, MIB_TCP_STATE_LISTEN, MIB_TCPROW_LH, MIB_UDPROW,
 };
 use windows_sys::Win32::Storage::FileSystem::GetLongPathNameW;
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
@@ -133,7 +133,12 @@ pub fn same_form(path: &Path) -> String {
                 rest.push(name);
                 at = up;
             }
-            _ => break full.clone(),
+            // nothing above this resolves (an unplugged drive, an offline share): the path is kept as it is, and the
+            // parts pushed so far are not added to it a second time
+            _ => {
+                rest.clear();
+                break full.clone();
+            }
         }
     };
     let resolved = rest.iter().rev().fold(resolved, |p, n| p.join(n));
@@ -276,8 +281,16 @@ pub fn show_windows(pid: u32) -> Vec<String> {
         .collect()
 }
 
-/// The IPv4 TCP ports something listens on, from Windows' own table (not netstat's translated text).
+/// The IPv4 TCP ports something listens on, from Windows' own table (not netstat's translated text); empty when the
+/// table could not be read (the readiness gate takes that for "the server is not up": use [`listening_ports_result`]
+/// there, which says why).
 pub fn listening_ports() -> Vec<u16> {
+    listening_ports_result().unwrap_or_default()
+}
+
+/// [`listening_ports`] with the OS error Windows gave after its five tries.
+pub fn listening_ports_result() -> std::io::Result<Vec<u16>> {
+    let mut error = 0u32;
     for _ in 0..5 {
         let mut size = 0u32;
         // SAFETY: a size query first (no buffer), then a buffer of the size Windows asked for and room to grow; the
@@ -286,15 +299,39 @@ pub fn listening_ports() -> Vec<u16> {
             GetTcpTable(ptr::null_mut(), &mut size, FALSE);
             let mut buf = vec![0u32; (size as usize + 1024) / 4];
             let mut size = (buf.len() * 4) as u32;
-            if GetTcpTable(buf.as_mut_ptr().cast(), &mut size, FALSE) != 0 {
+            // the call answers the error itself (NO_ERROR, 0, on success)
+            error = GetTcpTable(buf.as_mut_ptr().cast(), &mut size, FALSE);
+            if error != 0 {
                 continue;
             }
             let n = buf[0] as usize;
             let rows = buf.as_ptr().add(1).cast::<MIB_TCPROW_LH>();
-            return (0..n)
+            return Ok((0..n)
                 .map(|i| &*rows.add(i))
                 .filter(|r| r.Anonymous.dwState == MIB_TCP_STATE_LISTEN as u32)
                 .map(|r| u16::from_be(r.dwLocalPort as u16))
+                .collect());
+        }
+    }
+    Err(std::io::Error::from_raw_os_error(error as i32))
+}
+
+/// The IPv4 UDP ports something is bound to, from Windows' own table.
+pub fn udp_ports() -> Vec<u16> {
+    for _ in 0..5 {
+        let mut size = 0u32;
+        // SAFETY: as listening_ports: a size query, then a u32-aligned buffer with room to grow; a row count and rows.
+        unsafe {
+            GetUdpTable(ptr::null_mut(), &mut size, FALSE);
+            let mut buf = vec![0u32; (size as usize + 1024) / 4];
+            let mut size = (buf.len() * 4) as u32;
+            if GetUdpTable(buf.as_mut_ptr().cast(), &mut size, FALSE) != 0 {
+                continue;
+            }
+            let n = buf[0] as usize;
+            let rows = buf.as_ptr().add(1).cast::<MIB_UDPROW>();
+            return (0..n)
+                .map(|i| u16::from_be((*rows.add(i)).dwLocalPort as u16))
                 .collect();
         }
     }

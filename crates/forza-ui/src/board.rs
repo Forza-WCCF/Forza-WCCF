@@ -121,8 +121,8 @@ pub fn heat_zone(p: &Painter, pitch: Rect, field: Rect, apt: &Aptitude, size: f3
 // ---- card pictures ----
 
 /// Names the folder of card pictures, `<number>.png` each (the kit's `data\cache\cards`, extracted at setup on the
-/// player's PC), or none for the drawn stand-in. Pictures load in the background through egui's loaders and stay
-/// cached, so scrolling the catalogue never waits on a file.
+/// player's PC), or none for the drawn stand-in. Pictures load in the background through egui's loaders and the last
+/// [`PICTURES_KEPT`] drawn stay cached, so scrolling the catalogue back seldom waits on a file.
 pub fn set_picture_dir(ctx: &egui::Context, dir: Option<std::path::PathBuf>) {
     ctx.data_mut(|d| d.insert_temp(Id::unique("card-pictures"), dir));
 }
@@ -202,11 +202,62 @@ fn load_picture(
     let loaded = ctx.try_load_texture(&uri, options, egui::SizeHint::default());
     if loaded.is_err() {
         ctx.data_mut(|d| d.insert_temp(miss, true));
+    } else {
+        keep_recent(ctx, &uri);
     }
     match loaded {
         Ok(egui::load::TexturePoll::Ready { texture }) => Pic::Ready(texture.id, texture.size),
         Ok(egui::load::TexturePoll::Pending { .. }) => Pic::Pending,
         Err(_) => Pic::Missing,
+    }
+}
+
+/// The card pictures one egui context keeps loaded: the ones drawn last. A catalogue browsed for long would otherwise
+/// keep every picture it ever showed. One screen draws at most about 130: the catalogue grid (6 to 12 a row from
+/// `sizing::grid`; at most 110 in sight, partial rows included, on a 4:3 to 16:9 window at 100-200 % scaling), the
+/// board's 16 slots and the card in hand, the stats pane's card and the card view's two sides. Worst case per
+/// context: 150 album pictures (256x357 RGBA, 365 KB) = 55 MB of textures, plus a second texture for the few drawn
+/// both NEAREST and LINEAR (the card view, the large hover pane); the panel's contexts set `reduce_texture_memory`, so
+/// no decoded copy sits beside them.
+const PICTURES_KEPT: usize = 150;
+
+/// The picture URIs loaded lately, each with the pass that last drew it.
+#[derive(Clone, Default)]
+struct RecentPictures(HashMap<String, u64>);
+
+/// Marks the picture `uri` drawn in this pass; past [`PICTURES_KEPT`], forgets those drawn longest ago, never one
+/// drawn in this pass or the previous one: a card still on screen may come later in this pass. With more than the
+/// bound on screen the set grows past it instead (no flicker, no reload loop).
+fn keep_recent(ctx: &egui::Context, uri: &str) {
+    let now = ctx.cumulative_pass_nr();
+    let gone = ctx.data_mut(|d| {
+        let r = &mut d
+            .get_temp_mut_or_default::<RecentPictures>(Id::unique("card-pictures-recent"))
+            .0;
+        match r.get_mut(uri) {
+            Some(pass) => *pass = now,
+            None => {
+                r.insert(uri.to_owned(), now);
+            }
+        }
+        let mut gone = Vec::new();
+        while r.len() > PICTURES_KEPT {
+            let Some(old) = r
+                .iter()
+                .filter(|(_, pass)| **pass + 1 < now)
+                .min_by_key(|(_, pass)| **pass)
+                .map(|(u, _)| u.clone())
+            else {
+                break;
+            };
+            r.remove(&old);
+            gone.push(old);
+        }
+        gone
+    });
+    // outside `data_mut`: forgetting locks the context again
+    for u in gone {
+        ctx.forget_image(&u);
     }
 }
 
@@ -267,15 +318,17 @@ pub fn card_side(p: &Painter, rect: Rect, card: &Card, back: bool, nearest: bool
             p.add(egui::Shape::mesh(mesh));
         }
         None if back => card_back(p, rect, card, lang),
-        None => card_face(
-            p,
-            rect,
-            card,
-            Look {
-                square: true,
-                ..Look::default()
-            },
-        ),
+        None => {
+            card_face(
+                p,
+                rect,
+                card,
+                Look {
+                    square: true,
+                    ..Look::default()
+                },
+            );
+        }
     }
 }
 
@@ -400,11 +453,15 @@ pub struct Look {
 /// The card face, upright at the real card's shape ([`CARD_ASPECT`]): the card's picture whole, never cut (the game's
 /// album art `<number>_f.jpg`, else the pack's scan `<number>.jpg`, else the game's face `<number>.png`, letterboxed on a dark ground when its shape differs),
 /// from the folder [`set_picture_dir`] names; else a drawn face: the position band with TOTAL, a stand-in, the name on
-/// its foot, and on large ones the club and the season.
-pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
+/// its foot, and on large ones the club and the season. Returns the corner radius it drew with, for whatever a caller
+/// paints over the face (a square picture has none).
+pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) -> u8 {
     let card = &*real(p.ctx(), card);
     let big = rect.width() >= 90.0;
-    let r = if look.square {
+    // a picture is the whole card face (its own band, photo, name and numbers): shown whole, so square
+    let picture =
+        picture_dir(p.ctx()).and_then(|dir| card_picture_texture(p.ctx(), &dir, card.number));
+    let r = if look.square || picture.is_some() {
         0
     } else {
         (rect.width() * 0.08) as u8
@@ -435,10 +492,7 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
         p.add(s.as_shape(rect, r));
     }
     let rim = card.rarity.rim();
-    // a picture is the whole card face (its own band, photo, name and numbers): shown whole
-    if let Some(dir) = picture_dir(p.ctx())
-        && let Some((id, size)) = card_picture_texture(p.ctx(), &dir, card.number)
-    {
+    if let Some((id, size)) = picture {
         let (uv, aspect) = face_uv(size);
         p.rect_filled(rect, r, theme::DEEP.gamma_multiply(alpha));
         p.image(
@@ -448,7 +502,7 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
             Color32::WHITE.gamma_multiply(alpha),
         );
         face_marks(p, rect, r, card, rim, alpha, look);
-        return;
+        return r;
     }
     gradient(
         p,
@@ -586,6 +640,7 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) {
         );
     }
     face_marks(p, rect, r, card, rim, alpha, look);
+    r
 }
 
 /// The rim (amber when selected or a drop target) and the out-of-position corner, over the face or the scan.
@@ -1290,7 +1345,7 @@ pub fn formation_board(
                     } else {
                         zone(board.spots[slot]) != c.pos
                     };
-                card_face(
+                let corners = card_face(
                     p,
                     rect,
                     c,
@@ -1306,11 +1361,7 @@ pub fn formation_board(
                     && !is_dragged
                     && !links.grouped(s, c.number)
                 {
-                    p.rect_filled(
-                        rect,
-                        (rect.width() * 0.08) as u8,
-                        Color32::from_black_alpha(140),
-                    );
+                    p.rect_filled(rect, corners, Color32::from_black_alpha(140));
                 }
                 if pure && (resp.is_pointer_button_down_on() || is_dragged || resp.clicked()) {
                     ui.data_mut(|d| d.insert_temp(touched_id(), c.clone()));
@@ -3581,5 +3632,102 @@ mod tests {
             real(&ctx, &card(7)),
             std::borrow::Cow::Borrowed(_)
         ));
+    }
+
+    /// Past [`PICTURES_KEPT`] distinct pictures, the oldest are forgotten (their textures freed), while a picture
+    /// drawn in every pass keeps its first texture.
+    #[test]
+    fn card_pictures_stay_bounded() {
+        let dir = tempfile::tempdir().unwrap();
+        let n = PICTURES_KEPT as u32 + 40;
+        // the album name, tried first: no missed name leaves its error in the loaders
+        let px = image::RgbImage::from_pixel(2, 2, image::Rgb([9, 9, 9]));
+        for i in 0..=n {
+            px.save(dir.path().join(format!("{i}_f.jpg"))).unwrap();
+        }
+        // as the panel's contexts: a picture's file and decoded pixels go once its texture exists
+        let new_ctx = || {
+            let ctx = egui::Context::default();
+            egui_extras::install_image_loaders(&ctx);
+            ctx.options_mut(|o| o.reduce_texture_memory = true);
+            ctx
+        };
+        fn pass(ctx: &egui::Context, mut draw: impl FnMut()) {
+            ctx.run_ui(egui::RawInput::default(), |_| draw())
+                .textures_delta
+                .clear();
+        }
+        let id = |ctx: &egui::Context, i: u32| {
+            card_picture_texture(ctx, dir.path(), i).map(|(id, _)| id)
+        };
+
+        // browsing: one new card a pass, one card on screen all along and drawn last in each pass
+        let ctx = new_ctx();
+        let still = n;
+        let mut first = None;
+        for i in 0..n {
+            // each card until it loads (the loaders read and decode on threads)
+            let mut ready = false;
+            for _ in 0..2000 {
+                pass(&ctx, || {
+                    ready = id(&ctx, i).is_some();
+                    if let Some(t) = id(&ctx, still) {
+                        assert_eq!(*first.get_or_insert(t), t, "the visible card reloaded");
+                    }
+                });
+                if ready && first.is_some() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            assert!(ready, "card {i} loaded");
+        }
+        let kept = ctx
+            .data(|d| d.get_temp::<RecentPictures>(Id::unique("card-pictures-recent")))
+            .unwrap()
+            .0;
+        assert!(kept.len() <= PICTURES_KEPT, "{} kept", kept.len());
+        assert!(kept.keys().any(|u| u.ends_with(&format!("{still}_f.jpg"))));
+        // the textures: the kept pictures and the font atlas
+        let textures = ctx.tex_manager().read().num_allocated();
+        assert!(textures <= PICTURES_KEPT + 1, "{textures} textures");
+        // no file or decoded copy beside the textures
+        let loaders = ctx.loaders();
+        let copies = loaders
+            .bytes
+            .lock()
+            .iter()
+            .map(|l| l.byte_size())
+            .sum::<usize>()
+            + loaders
+                .image
+                .lock()
+                .iter()
+                .map(|l| l.byte_size())
+                .sum::<usize>();
+        assert_eq!(copies, 0, "bytes kept beside the textures");
+
+        // more cards on screen than the bound: all stay, none reloads
+        let ctx = new_ctx();
+        let mut ids = vec![None; n as usize];
+        for _ in 0..4000 {
+            pass(&ctx, || {
+                for i in 0..n {
+                    ids[i as usize] = id(&ctx, i);
+                }
+            });
+            if ids.iter().all(Option::is_some) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert!(ids.iter().all(Option::is_some), "all cards loaded");
+        for _ in 0..3 {
+            pass(&ctx, || {
+                for i in 0..n {
+                    assert_eq!(id(&ctx, i), ids[i as usize], "card {i} reloaded");
+                }
+            });
+        }
     }
 }

@@ -1136,6 +1136,8 @@ mod win {
         cache: HashMap<isize, bool>,
         /// The game window that was in front last, until it is given back or something else takes over.
         last: Option<HWND>,
+        /// The match engine's window came up and the game has not had the focus back since.
+        engine: bool,
     }
 
     fn image_is(hwnd: HWND, name: &str) -> bool {
@@ -1196,24 +1198,35 @@ mod win {
             let fg = unsafe { GetForegroundWindow() };
             if !fg.is_null() && self.is_game(fg) {
                 self.last = Some(fg);
+                self.engine = false;
                 return !prop(fg, "WCCF_TYPING");
             }
             // The match engine's window (a child of the client) closed and the focus fell to nothing or the desktop:
-            // give it back to the game once. Never when the player went to another program.
-            if let Some(last) = self.last.take_if(|_| fg.is_null() || nothing_in_front(&class_of(fg)))
-                // SAFETY: plain calls with a window handle.
-                && unsafe { IsWindow(last) != 0 && IsWindowVisible(last) != 0 }
-            {
-                bring_back(last);
-                return false;
+            // give it back to the game once. Never after a click the player made or went somewhere with.
+            let class = if fg.is_null() {
+                String::new()
+            } else {
+                class_of(fg)
+            };
+            if give_back(self.engine, fg.is_null(), &class) {
+                self.engine = false;
+                if let Some(last) = self.last.take()
+                    // SAFETY: plain calls with a window handle.
+                    && unsafe { IsWindow(last) != 0 && IsWindowVisible(last) != 0 }
+                {
+                    bring_back(last);
+                    return false;
+                }
             }
             if fg.is_null() {
                 return false;
             }
             if self.last.is_some() && image_is(fg, "match_release.exe") {
+                self.engine = true;
                 return false; // the match engine is up: keep `last` for when it closes
             }
             self.last = None;
+            self.engine = false;
             if !prop(fg, "WCCF_GAME_HOST") {
                 return false;
             }
@@ -1233,6 +1246,12 @@ mod win {
     /// The focus sits on the desktop or the taskbar: nobody chose it, so the game may have it back.
     pub fn nothing_in_front(class: &str) -> bool {
         matches!(class, "Progman" | "WorkerW" | "Shell_TrayWnd")
+    }
+
+    /// Whether the game may take the focus back. Only a match engine that closed and left the focus on the desktop
+    /// does that; a click on the taskbar or the desktop while the game waits in front stays where it was put.
+    pub fn give_back(engine_was_up: bool, fg_null: bool, class: &str) -> bool {
+        engine_was_up && (fg_null || nothing_in_front(class))
     }
 
     /// X, Y, Z, R, U, V, the hat and the buttons (windows-sys has no JOY_RETURNALL).
@@ -1371,6 +1390,19 @@ mod tests {
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(keys[action_index("PRESS").unwrap()], 0x58);
         assert_eq!(keys[action_index("SHOOT").unwrap()], 0x47);
+    }
+
+    /// A click on the taskbar or the desktop is the player's, not a lost focus: only a closed match engine hands it
+    /// back. Another program keeps it either way.
+    #[cfg(windows)]
+    #[test]
+    fn the_taskbar_keeps_its_click_unless_the_match_engine_closed() {
+        assert!(!win::give_back(false, false, "Shell_TrayWnd"));
+        assert!(!win::give_back(false, false, "Progman"));
+        assert!(!win::give_back(false, true, ""));
+        assert!(win::give_back(true, false, "Shell_TrayWnd"));
+        assert!(win::give_back(true, true, ""));
+        assert!(!win::give_back(true, false, "Chrome_WidgetWin_1"));
     }
 
     /// Only the desktop and the taskbar count as "nobody chose this": a browser or the Launcher keeps the focus.

@@ -481,8 +481,9 @@ fn owned(db: &Connection, aime: u32, token: &str) -> Result<(), String> {
 
 impl Store {
     /// Host: imports a guest's home club under its arcade Aime id `aime` with fresh coach and card ids; the map goes
-    /// back to the guest. A copy of the same token replaces the old one (a rejoin); any other club under `aime` is
-    /// refused, never touched.
+    /// back to the guest. A copy of the same token replaces the old one (a rejoin); a club the arcade kept for that
+    /// card (a copy that never went home, a club made there) is replaced too, kept in `backups` beside the store first:
+    /// refusing it left the player on a club that stopped changing (2026-11-02). Another token's club is refused.
     pub fn import_guest(
         &mut self,
         club: &Club,
@@ -521,12 +522,9 @@ impl Store {
                 return Err("another player's club for this card is in this arcade".into());
             }
             Some(_) => {}
-            None if !public && has_rows(&tx, aime).map_err(db_err)? => {
-                return Err("this arcade already keeps a club for this card".into());
-            }
             None => {
-                if public && has_rows(&tx, aime).map_err(db_err)? {
-                    // the server's own copy is replaced: kept in `backups` beside the store first
+                if has_rows(&tx, aime).map_err(db_err)? {
+                    // the club the arcade kept for this card is replaced: kept in `backups` beside the store first
                     let old = serde_json::to_vec(&export(&tx, aime).map_err(db_err)?)
                         .map_err(|e| e.to_string())?;
                     let dir = tx.path().and_then(|p| Path::new(p).parent());
@@ -958,6 +956,51 @@ fn backup(dir: &Path, what: &str, bytes: &[u8]) -> io::Result<PathBuf> {
     Ok(path)
 }
 
+/// CLEAR BAD ENDINGS (2017-18), at a restart asked by the panel: the improper-end counters (INJUSTICE_COUNT 289; the
+/// client writes count - 1 to save parameter 73) of this PC's clubs back to 0, `gamesvr.db` copied to `backups\` first.
+/// Arcade guests' clubs are left alone. -> what was done, in words.
+pub fn clear_bad_endings(dir: &Path) -> Result<String, String> {
+    if out_file(dir).exists() {
+        return Ok(
+            "the club is out in an arcade - its bad endings stay (clear them at home)".into(),
+        );
+    }
+    let path = dir.join("gamesvr.db");
+    if !path.exists() {
+        return Ok("no club store - nothing to clear".into());
+    }
+    const HOME: &str =
+        "FROM injustice WHERE count > 0 AND aime_id NOT IN (SELECT aime_id FROM guests)";
+    let s = Store::open(&path).map_err(db_err)?;
+    let n: u32 =
+        s.0.query_row(&format!("SELECT count(*) {HOME}"), [], |r| r.get(0))
+            .map_err(db_err)?;
+    if n == 0 {
+        return Ok("no bad endings to clear".into());
+    }
+    let b = dir.join("backups");
+    std::fs::create_dir_all(&b).map_err(|e| e.to_string())?;
+    let mut copy = b.join(format!("bad-endings-{}.db", time_name()));
+    for k in 2.. {
+        if !copy.exists() {
+            break;
+        }
+        copy = b.join(format!("bad-endings-{}-{k}.db", time_name()));
+    }
+    // a consistent copy of the store, its WAL included
+    s.0.execute("VACUUM INTO ?1", [copy.to_string_lossy()])
+        .map_err(db_err)?;
+    s.0.execute(
+        &format!("UPDATE injustice SET count = 0 WHERE rowid IN (SELECT rowid {HOME})"),
+        [],
+    )
+    .map_err(db_err)?;
+    Ok(format!(
+        "bad endings cleared ({n} club(s) back to 0; the old store is in {})",
+        copy.display()
+    ))
+}
+
 /// At a start: a club still marked out means the last arcade session ended without bringing it home. The home copy
 /// stays; the last copy pulled from the host (if any) goes to `backups`, the marker goes. `Some(path)` (the backup,
 /// or the store folder when no copy came) when the player must be told.
@@ -1359,6 +1402,55 @@ mod tests {
         st
     }
 
+    /// CLEAR BAD ENDINGS (2017-18): home counters to 0 after a copy of the store; a guest's counter stays; a second
+    /// clear has nothing to do; a club out in an arcade is left as it is.
+    #[test]
+    fn clear_bad_endings_zeroes_home_clubs_after_a_backup() {
+        let d = tempfile::tempdir().unwrap();
+        let db = d.path().join("gamesvr.db");
+        let s = Store::open(&db).unwrap();
+        s.0.execute_batch(
+            "INSERT INTO injustice VALUES (7, 1, 3), (7, 2, 0), (9, 1, 2);
+             INSERT INTO guests VALUES (9, 't', 2, 0);",
+        )
+        .unwrap();
+        drop(s);
+        let said = clear_bad_endings(d.path()).unwrap();
+        assert!(said.starts_with("bad endings cleared (1 club(s)"), "{said}");
+        let count = |c: &Connection, a: u32, k: u32| -> u32 {
+            c.query_row(
+                "SELECT count FROM injustice WHERE aime_id = ?1 AND coach_id = ?2",
+                [a, k],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        let now = Connection::open(&db).unwrap();
+        assert_eq!((count(&now, 7, 1), count(&now, 9, 1)), (0, 2));
+        let copies: Vec<_> = std::fs::read_dir(d.path().join("backups"))
+            .unwrap()
+            .flatten()
+            .collect();
+        assert_eq!(copies.len(), 1);
+        assert_eq!(count(&Connection::open(copies[0].path()).unwrap(), 7, 1), 3);
+        assert_eq!(
+            clear_bad_endings(d.path()).unwrap(),
+            "no bad endings to clear"
+        );
+        now.execute(
+            "UPDATE injustice SET count = 4 WHERE aime_id = 7 AND coach_id = 1",
+            [],
+        )
+        .unwrap();
+        std::fs::write(out_file(d.path()), b"{}").unwrap();
+        assert!(
+            clear_bad_endings(d.path())
+                .unwrap()
+                .contains("out in an arcade")
+        );
+        assert_eq!(count(&now, 7, 1), 4);
+    }
+
     /// An old card at home (integer Aime id 1, from before the hash) brings two clubs to a host whose own club holds
     /// the same coach and card ids; a match is saved there through the stand-in; the copy back restores the home
     /// ids and every other byte, with the match's changes.
@@ -1524,18 +1616,13 @@ mod tests {
     }
 
     #[test]
-    fn a_guest_cannot_touch_the_host_or_another_guest() {
+    fn a_guest_cannot_touch_another_guests_club() {
         let d = tempfile::tempdir().unwrap();
         let mut host = store_with(&d.path().join("host.db"), &club(9, &[(1, 1)]));
         let own = host.club(9).unwrap();
         let (a, b) = (token(CODE), token("50123456789012345679"));
         let mine = club(1, &[(1, 1)]);
-        // the host's own club (or any club the desk did not import) is never replaced, read or dropped
-        assert!(
-            host.import_guest(&mine, 9, 2, &a)
-                .unwrap_err()
-                .contains("already keeps")
-        );
+        // a club no one brought is not readable or droppable without its token
         assert!(host.guest_club(9, &a).is_err());
         assert!(host.drop_guest(9, &a).is_err());
         assert_eq!(host.club(9).unwrap(), own);
@@ -1608,6 +1695,20 @@ mod tests {
         assert_eq!(host.purge_guests().unwrap(), 8);
         assert!(!has_rows(&host.0, 100).unwrap());
         assert_eq!(host.club(9).unwrap(), own);
+        // a club left under a card by an earlier session (its token gone) does not block the next bring: the club
+        // brought lands and the one left behind goes to backups (before 2026-11-02 the bring was refused for good)
+        host.import_guest(&club(1, &[(1, 1)]), 300, 2, &a).unwrap();
+        host.0
+            .execute("DELETE FROM guests WHERE aime_id = 300", [])
+            .unwrap();
+        host.import_guest(&club(1, &[(1, 1), (2, 2)]), 300, 2, &b)
+            .unwrap();
+        assert_eq!(host.guest_club(300, &b).unwrap().coaches.len(), 2);
+        assert_eq!(
+            std::fs::read_dir(d.path().join("backups")).unwrap().count(),
+            1,
+            "the club left behind is in backups"
+        );
     }
 
     /// A public server: the brought club replaces what the server kept for the card (a club made there, a copy

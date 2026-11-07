@@ -19,11 +19,14 @@ anyhow = "1.0.104"
 aes = "0.9.3"
 clap = { version = "4.6.7", features = ["derive"] }
 # GUI: eframe's defaults minus `web_screen_reader` and `system_fonts` (our own fonts); `clipboard` keeps paste from
-# other programs; `glow` (OpenGL) is the fallback when wgpu finds no DX12/Vulkan/GL device
-eframe = { version = "0.37.0", default-features = false, features = ["accesskit", "clipboard", "links", "wgpu", "glow", "wayland", "x11"] }
+# other programs; `glow` (OpenGL) first, wgpu the fallback when it cannot open the window (launcher, installer).
+# `wgpu_no_default_features`: wgpu's backends come from the `wgpu` entry below
+eframe = { version = "0.37.0", default-features = false, features = ["accesskit", "clipboard", "links", "wgpu_no_default_features", "glow", "wayland", "x11"] }
 egui = { version = "0.37.0", default-features = false }
 egui_extras = { version = "0.37.0", default-features = false }
 emath = { version = "0.37.0", default-features = false }
+# eframe's wgpu (same version) with only the DX12 backend: the Windows fallback renderer, without Vulkan, Metal, GL, WebGPU
+wgpu = { version = "30.0.1", default-features = false, features = ["std", "wgsl", "dx12"] }
 egui_kittest = { version = "0.37.0", features = ["snapshot", "wgpu"] }
 forza = { path = "crates/forza" }
 forza-ui = { path = "crates/forza-ui" }
@@ -107,6 +110,14 @@ codegen-units = 1
 # The setup wizard is the other big eframe program players download: same reason and same lever as the Launcher above,
 # and it needs no speed.
 [profile.release.package.wccf-installer]
+opt-level = "z"
+codegen-units = 1
+
+# 2026-11-06, 0.7.0: Microsoft's engine flagged dmath.dll as Trojan:Win32/Wacatac.B!ml in 2 of 3 VirusTotal analyses of
+# the release candidate, while 0.6.3's file was clean and the local Defender saw nothing: same lever as the programs
+# above. It cannot move the math: the caves are assembled at run time by iced-x86, libm keeps its own opt-level, and the
+# V4 hashes of the results are the same before and after (det-math ALL c4ca5aec).
+[profile.release.package.forza-detmath]
 opt-level = "z"
 codegen-units = 1
 

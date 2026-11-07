@@ -252,14 +252,14 @@ becomes the only root the Launcher trusts for the relay.
 ## 10. Pointing players at your server
 
 The Launcher's lobby asks the servers in the edition's `data\settings.json` `servers` list; without one, the
-address typed under "Direct address" (if any) and then the default, `lobby.wccf.it`. Each entry is `host[:port]`;
+address typed under "Server address" (if any) and then the default, `lobby.wccf.it`. Each entry is `host[:port]`;
 the desk port defaults to 20030 (2010-11) or 20032 (2017-18). For 2017-18 the game server is the same host on TCP
 20060.
 
 | Setting | Where | Effect |
 |---|---|---|
 | `"servers": ["game.example.org"]` | `data\settings.json` | the lobby lists these servers only |
-| Direct address | the Launcher's online screen | one server, typed in |
+| Server address | the Launcher's online screen | one server, typed in |
 | `WCCF_LOBBY=game.example.org[:port]` | environment | replaces the default `lobby.wccf.it` |
 | `"vs_relay": "https://relay.example.org:8443"` | `data\settings.json` | the iroh relay for 2017-18 VS |
 | `"vs_relay_ca": "C:\\path\\ca.pem"` | `data\settings.json` | trust only this CA for the relay (with `vs_relay` or `WCCF_VS_RELAY`) |

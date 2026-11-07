@@ -83,6 +83,7 @@ fn launcher_screens() {
             (Update, Edition::E1011, "update"),
             (Busy, Edition::E1718, "busy"),
             (Report, Edition::E1718, "report"),
+            (CleanedUp, Edition::E1718, "cleanup"),
         ] {
             let mut st = launcher::LauncherState::sample(ed, lang, s);
             snap(
@@ -96,6 +97,26 @@ fn launcher_screens() {
             );
         }
     }
+    all.unwrap();
+}
+
+/// A setup that reports a percentage keeps its bar; the working band is for a job that reports none.
+#[test]
+fn launcher_busy_progress() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    let mut st =
+        launcher::LauncherState::sample(Edition::E1718, Lang::En, launcher::Scenario::Busy);
+    st.progress = 0.42;
+    snap(
+        &mut all,
+        "launcher_busy_progress_en",
+        launcher::SIZE,
+        Edition::E1718,
+        |ui| {
+            launcher::show(ui, &mut st);
+        },
+    );
     all.unwrap();
 }
 
@@ -1039,6 +1060,38 @@ fn keys_click_then_press() {
     h.snapshot("panel_keys_advanced_en");
 }
 
+/// 2017-18 SETTINGS: CLEAR BAD ENDINGS (no CLUB CARD page there) asks for the reset by its second click.
+#[test]
+fn settings_1718_clear_bad_endings() {
+    use forza_ui::panel::ClubPick;
+    use std::cell::RefCell;
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for lang in Lang::ALL {
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Settings);
+        let name = format!("panel_settings_1718_{}", lang.code());
+        snap(&mut all, &name, panel::SIZE, Edition::E1718, |ui| {
+            panel::show(ui, &mut st)
+        });
+    }
+    all.unwrap();
+    let st = RefCell::new(panel::PanelState::sample(
+        Edition::E1718,
+        Lang::En,
+        panel::Page::Settings,
+    ));
+    let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+        panel::show(ui, &mut st.borrow_mut())
+    });
+    h.run_steps(3);
+    h.get_by_label("CLEAR BAD ENDINGS").click();
+    h.run_steps(2);
+    assert!(st.borrow().club_request.is_none(), "armed, not asked");
+    h.get_by_label("CLICK AGAIN").click();
+    h.run_steps(2);
+    assert_eq!(st.borrow_mut().club_request.take(), Some(ClubPick::Fix));
+}
+
 /// SETTINGS as a player uses it: COMPACT and a 2 s hover change at once and mark data\panel.txt for writing; RESTART
 /// NOW needs a second click, and is refused while a club card session is open.
 #[test]
@@ -1803,7 +1856,7 @@ fn lobby_list_fits_a_short_tab() {
         lobby::show(ui, &mut v, Lang::En);
     });
     h.run_steps(6);
-    let bottom = h.get_by_label_contains("Direct address").rect().bottom();
-    assert!(bottom <= 470.0, "the Direct address fold ends at {bottom}");
+    let bottom = h.get_by_label_contains("Server address").rect().bottom();
+    assert!(bottom <= 470.0, "the Server address fold ends at {bottom}");
     assert!(h.get_by_label("HOST VS").rect().top() > h.get_by_label("MILANO CUP").rect().bottom());
 }

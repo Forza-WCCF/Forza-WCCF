@@ -100,6 +100,7 @@ struct Shared {
     busy: bool,                // a job runs
     updated: bool,             // an update has just finished: setup runs again
     failed: bool,              // the last job failed: OUTPUT opens, so its output shows
+    setup_failed: bool,        // its Step::Setup failed: a "game" written before it stays as it was
     game: Option<u8>,          // a Game step has just ended with this exit code
     report_open: Option<bool>, // open the report dialog: Some(after a crash)
     report_done: Option<Result<(String, String), String>>, // where the report was saved and its issue link, or why not
@@ -125,6 +126,7 @@ static SHARED: Mutex<Shared> = Mutex::new(Shared {
     busy: false,
     updated: false,
     failed: false,
+    setup_failed: false,
     game: None,
     report_open: None,
     report_done: None,
@@ -343,6 +345,7 @@ fn start(steps: Vec<Step>) -> bool {
         let kit = Kit::here();
         let mut result = Ok(());
         let mut updated = None;
+        let mut setup_failed = false;
         let mut game = None;
         for step in steps {
             result = match &step {
@@ -390,6 +393,8 @@ fn start(steps: Vec<Step>) -> bool {
                 }),
             };
             if result.is_err() {
+                // a setup or undo writes "game" before it builds the catalogue, so a failure after that write is not Ready
+                setup_failed = matches!(step, Step::Setup { .. });
                 break;
             }
         }
@@ -416,6 +421,7 @@ fn start(steps: Vec<Step>) -> bool {
                 set_available(&Kit::here(), &mut s, None);
             }
             s.failed = failed;
+            s.setup_failed = setup_failed;
             s.game = game;
             s.busy = false;
         }
@@ -595,6 +601,18 @@ fn plain_error(raw: &str) -> String {
     t(launcher::report::plain(raw))
 }
 
+/// The setup recorded a game folder (data\settings.json "game"); it writes the key before it builds the catalogue, so
+/// a setup that failed after it has one too: only a job whose Setup step worked (or had none: an update) re-reads it.
+fn set_up(kit: &Kit) -> bool {
+    choices::setting(&kit.settings_file(), "game").is_some_and(|g| !g.trim().is_empty())
+}
+
+/// A job ended this look (busy -> not): read the setup state again, unless its Step::Setup (setup or undo) failed. A
+/// later step may fail after the setup worked (SET UP: the card pictures), and the setup state is still the new one.
+fn reread_setup(busy: bool, now_busy: bool, setup_failed: bool) -> bool {
+    busy && !now_busy && !setup_failed
+}
+
 /// The game folder setup recorded (its logs and seat 1's go in a report).
 fn game_folder(kit: &Kit) -> Option<PathBuf> {
     let f = choices::setting(&kit.settings_file(), "game")?;
@@ -765,7 +783,7 @@ impl App {
             |f| f.to_string_lossy().into_owned(),
         );
         RUNNING.store(run::any_on(kit), Ordering::Relaxed);
-        let set_up = !game.is_empty();
+        let set_up = set_up(kit);
         if !set_up {
             say(ui_text(text::lang(), "launcher.status_not_set_up", &[]), 0);
         } else if RUNNING.load(Ordering::Relaxed) {
@@ -811,6 +829,8 @@ impl App {
             club_server: (kit.edition() == Edition::E1718)
                 .then(|| choices::setting(&settings, "club_server").unwrap_or_default()),
             vs_link: (kit.edition() == Edition::E1718).then(|| kit.settings()["vs_link"].as_bool() != Some(false)),
+            clean_up: ed == Edition::E1718,
+            clean_status: None,
             updates: true,
             version: version(kit),
             update_available: saved_available(kit),
@@ -889,6 +909,9 @@ impl App {
     fn look(&mut self, ctx: &egui::Context) {
         let (log, list, updated, failed, game, report_open, report_done) = {
             let mut s = shared();
+            if reread_setup(self.st.busy, s.busy, s.setup_failed) {
+                self.st.set_up = set_up(&Kit::here());
+            }
             self.st.status.clone_from(&s.status);
             self.st.update_status.clone_from(&s.update_note);
             self.st.update_available.clone_from(&s.available);
@@ -898,6 +921,7 @@ impl App {
                 (a.elapsed().as_secs_f32(), b.elapsed().as_secs_f32())
             });
             self.st.busy = s.busy;
+            s.setup_failed = false; // one look's: the next job says its own
             (
                 mem::take(&mut s.log),
                 mem::take(&mut s.listed).then(|| s.releases.clone()),
@@ -1034,6 +1058,58 @@ impl App {
         });
     }
 
+    /// CLEAN UP AFTER A CRASH: the leftovers of a crash go after a backup (`launcher::cleanup`); one line in the window,
+    /// one per item in DETAILS and launcher.txt.
+    fn clean_up(&mut self, kit: &Kit) {
+        let game = game_folder(kit).unwrap_or_else(|| kit.dir().join("game"));
+        let procs = launcher::procs::game_processes(&game);
+        let done = launcher::cleanup::clean(
+            &kit.data(),
+            RUNNING.load(Ordering::Relaxed) || run::any_on(kit),
+            &procs,
+            launcher::procs::has_window,
+            launcher::procs::kill,
+            &launcher::cleanup::today(),
+        );
+        let (tone, line) = match done {
+            Err(e) => {
+                log(&format!("clean-up: backup failed, nothing removed: {e}"));
+                (
+                    Tone::Refused,
+                    tf("launcher.cleanup_failed", &[("what", &e.to_string())]),
+                )
+            }
+            Ok(r) if r.refused => {
+                log("clean-up: refused, the game is running");
+                (Tone::Refused, t("launcher.msg_game_running"))
+            }
+            Ok(r) => {
+                for l in &r.cleaned {
+                    log(&format!("clean-up: {l}"));
+                }
+                for l in &r.failed {
+                    log(&format!("clean-up: FAILED {l}"));
+                }
+                if let Some(b) = &r.backup {
+                    log(&format!("clean-up: backup in {}", b.display()));
+                }
+                if !r.failed.is_empty() {
+                    (
+                        Tone::Refused,
+                        tf("launcher.cleanup_failed", &[("what", &r.failed.join("; "))]),
+                    )
+                } else if r.cleaned.is_empty() {
+                    (Tone::Done, t("launcher.cleanup_none"))
+                } else {
+                    let n = r.cleaned.len().to_string();
+                    let path = r.backup.as_ref().map_or_else(String::new, |b| b.display().to_string());
+                    (Tone::Done, tf("launcher.cleanup_done", &[("n", &n), ("path", &path)]))
+                }
+            }
+        };
+        self.st.clean_status = Some((tone, line));
+    }
+
     /// What the player asked for in the screen.
     fn act(&mut self, a: Action, ctx: &egui::Context, frame: &eframe::Frame) {
         let kit = Kit::here();
@@ -1084,6 +1160,7 @@ impl App {
                 let game = (!game.is_empty()).then(|| Path::new(game));
                 save_logs(kit.dir(), game);
             }
+            Action::CleanUp => self.clean_up(&kit),
             Action::Pictures { choose } => self.pictures(&kit, frame, choose),
             Action::SkipTutorial => {
                 let file = kit.settings_file();
@@ -1307,7 +1384,14 @@ impl App {
         }
         let lang = game_text(kit);
         let path = panel_file(kit);
-        let mut panel = choices::read(&path);
+        let mut panel = match choices::read_ok(&path) {
+            Ok(t) => t,
+            // a file that cannot be read now would be saved over with the defaults: nothing starts
+            Err(e) => {
+                refuse(read_failed(&path, &e));
+                return;
+            }
+        };
         panel = choices::set_panel_value(&panel, "play_on", Some(if online { "online" } else { "this_pc" }));
         if !server.is_empty() {
             panel = choices::set_panel_value(&panel, "server", Some(&server));
@@ -1368,6 +1452,14 @@ impl App {
 fn write_failed(path: &Path, e: &std::io::Error) -> String {
     tf(
         "launcher.msg_write_failed",
+        &[("path", &path.display().to_string()), ("error", &e.to_string())],
+    )
+}
+
+/// A file the Launcher writes back whole could not be read: it is left as it is.
+fn read_failed(path: &Path, e: &std::io::Error) -> String {
+    tf(
+        "launcher.msg_read_failed",
         &[("path", &path.display().to_string()), ("error", &e.to_string())],
     )
 }
@@ -1856,6 +1948,17 @@ mod tests {
         shared().busy = true;
         assert!(!start(vec![Step::Pictures]), "a busy worker takes no second job");
         shared().busy = false;
+    }
+
+    #[test]
+    fn a_setup_that_worked_is_ready_even_when_a_later_step_fails() {
+        // SET UP: the setup worked, the card pictures after it failed
+        assert!(reread_setup(true, false, false));
+        // a Setup step that failed: its half-written "game" stays as it was
+        assert!(!reread_setup(true, false, true));
+        // no job ended
+        assert!(!reread_setup(false, false, false));
+        assert!(!reread_setup(true, true, false));
     }
 
     #[test]

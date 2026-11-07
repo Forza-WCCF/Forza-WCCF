@@ -658,11 +658,20 @@ fn dos_time(secs: i64) -> Result<zip::DateTime> {
     .map_err(|e| anyhow::anyhow!("{secs} is no ZIP date: {e:?}"))
 }
 
-/// The release number this build carries, from git: `FORZA_VERSION` for the build scripts of Launcher, installer and
-/// panel (crates/launcher/version_rc.rs), version.txt and the file names. Asked once per run.
+/// The release number this build carries: `FORZA_VERSION` for the build scripts of Launcher, installer and panel
+/// (crates/launcher/version_rc.rs), version.txt and the file names. Asked once per run. A `FORZA_VERSION` already in
+/// the environment wins over git (a release candidate built before its tag, release.yml); else `git describe`.
 fn version(root: &Path) -> &'static str {
     static V: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     V.get_or_init(|| {
+        match version_override(std::env::var("FORZA_VERSION").ok().as_deref()) {
+            Ok(Some(v)) => return v,
+            Ok(None) => {}
+            Err(e) => {
+                eprintln!("error: {e}");
+                std::process::exit(2);
+            }
+        }
         let git = |args: &[&str]| {
             Command::new("git")
                 .args(args)
@@ -685,6 +694,17 @@ fn version(root: &Path) -> &'static str {
         .or_else(|| git(&["rev-parse", "--short=7", "HEAD"]).map(|sha| format!("0.0.0-dev+{sha}")))
         .unwrap_or_else(|| "0.0.0-dev".to_owned())
     })
+}
+
+/// A `FORZA_VERSION` from the environment: unset or empty -> none (git decides), a semver such as `0.7.0` -> it, else an
+/// error, so a typo never ends up in version.txt and the file names.
+fn version_override(env: Option<&str>) -> Result<Option<String>> {
+    let Some(v) = env.map(str::trim).filter(|v| !v.is_empty()) else {
+        return Ok(None);
+    };
+    semver::Version::parse(v)
+        .map_err(|e| anyhow::anyhow!("FORZA_VERSION={v:?} is no semver version like 0.7.0: {e}"))?;
+    Ok(Some(v.to_owned()))
 }
 
 /// `git describe --tags --long` -> the version: on the tag `v1.2.3` (`v1.2.3-0-g<sha>`) `1.2.3`; on a later commit the
@@ -764,9 +784,14 @@ fn build_all(root: &Path, kit: &Path, kit_1718: &Path, e1011: bool) -> Result<()
         fs::copy(from, &to)?;
         println!("built {}", to.display());
     }
-    // dated at the start: a source saved during the build is newer than the stamp, so the next `quick` rebuilds
-    let stamp = fs::File::create(built_stamp(kit))?;
-    stamp.set_modified(started)?;
+    // dated at the start (a source saved during the build is newer than the stamp, so the next `quick` rebuilds) and
+    // holding the list of sources (a deleted or renamed one is then not a build with a file that is gone)
+    let stamp = built_stamp(kit);
+    std::fs::write(&stamp, sources(root)?)?;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&stamp)?
+        .set_modified(started)?;
     Ok(())
 }
 
@@ -776,10 +801,11 @@ fn built_stamp(kit: &Path) -> PathBuf {
 }
 
 /// The staged kit is missing, or a source it is built from changed after the last `build_all` started (a branch switch
-/// counts: git writes the files). shortcut: a deleted file is not seen, `cargo xtask build` by hand then.
+/// counts: git writes the files), or the list of sources is not the one it was built from.
 fn kit_stale(root: &Path, kit: &Path) -> Result<bool> {
     // the stamp sits outside the edition folders: a kit folder deleted by hand leaves it behind
-    let Ok(built) = fs::metadata(built_stamp(kit)).and_then(|m| m.modified()) else {
+    let stamp = built_stamp(kit);
+    let Ok(built) = fs::metadata(&stamp).and_then(|m| m.modified()) else {
         return Ok(true);
     };
     if !kit.join("source/build/fakegame.exe").is_file()
@@ -787,6 +813,13 @@ fn kit_stale(root: &Path, kit: &Path) -> Result<bool> {
     {
         return Ok(true);
     }
+    let files = sources(root)?;
+    let listed = fs::read_to_string(&stamp).unwrap_or_default();
+    Ok(sources_changed(root, built, &listed, &files))
+}
+
+/// The files the kits are built from, sorted, as `git ls-files` lists them (the stamp holds this).
+fn sources(root: &Path) -> Result<String> {
     let sh = Shell::new()?;
     sh.change_dir(root);
     let dirs = [
@@ -806,11 +839,22 @@ fn kit_stale(root: &Path, kit: &Path) -> Result<bool> {
         "git ls-files -z --cached --others --exclude-standard -- {dirs...}"
     )
     .read()?;
-    Ok(files.split('\0').filter(|f| !f.is_empty()).any(|f| {
-        fs::metadata(root.join(f))
-            .and_then(|m| m.modified())
-            .is_ok_and(|m| m > built)
-    }))
+    let mut list: Vec<&str> = files.split('\0').filter(|f| !f.is_empty()).collect();
+    list.sort_unstable();
+    Ok(list.join("\n"))
+}
+
+/// Whether the sources are not the build's: a listed file newer than it, a listed file gone from the tree (deleted and
+/// not staged), or another list than the stamp's (deleted and staged, or renamed).
+fn sources_changed(root: &Path, built: std::time::SystemTime, listed: &str, now: &str) -> bool {
+    listed.trim_end() != now
+        || now
+            .split('\n')
+            .filter(|f| !f.is_empty())
+            .any(|f| match fs::metadata(root.join(f)) {
+                Ok(m) => m.modified().is_ok_and(|m| m > built),
+                Err(_) => true,
+            })
 }
 
 fn build<'s>(
@@ -2573,6 +2617,24 @@ fn walk(
 mod tests {
     use super::*;
 
+    /// `check quick` must rebuild when a source is gone: deleted and not staged, git still lists it and the mtime
+    /// comparison skips it (the 2026-11-06 sweep); deleted and staged, it is not in the list at all.
+    #[test]
+    fn a_deleted_source_makes_the_kit_stale() {
+        let root = std::env::temp_dir().join(format!("xtask-stale-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.rs"), b"").unwrap();
+        let built = std::fs::metadata(root.join("a.rs"))
+            .unwrap()
+            .modified()
+            .unwrap();
+        assert!(!sources_changed(&root, built, "a.rs\n", "a.rs"));
+        assert!(sources_changed(&root, built, "a.rs\nb.rs\n", "a.rs\nb.rs"));
+        assert!(sources_changed(&root, built, "a.rs\nb.rs\n", "a.rs"));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
     #[test]
     fn source_txt_names_the_tag_only_for_a_version() {
         let r = source_txt("0.5.1", "abc");
@@ -2601,6 +2663,23 @@ mod tests {
             Some("1.3.0-rc.1")
         );
         assert_eq!(version_from_describe("nonsense"), None);
+    }
+
+    #[test]
+    fn a_forza_version_in_the_environment_wins_and_junk_is_refused() {
+        assert_eq!(version_override(None).unwrap(), None);
+        assert_eq!(version_override(Some(" ")).unwrap(), None);
+        assert_eq!(
+            version_override(Some("0.7.0")).unwrap().as_deref(),
+            Some("0.7.0")
+        );
+        assert_eq!(
+            version_override(Some("1.3.0-rc.1")).unwrap().as_deref(),
+            Some("1.3.0-rc.1")
+        );
+        for junk in ["v0.7.0", "0.7", "0.7.0 beta", "latest"] {
+            assert!(version_override(Some(junk)).is_err(), "{junk}");
+        }
     }
 
     #[test]

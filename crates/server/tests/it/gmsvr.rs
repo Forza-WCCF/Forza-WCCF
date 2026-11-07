@@ -7,6 +7,9 @@ use std::time::{Duration, Instant};
 
 const MAGIC: [u8; 8] = [0xF1, 0xC0, 0x80, 0x44, 0xB4, 0x9E, 0xDA, 0x3C];
 const REV: u32 = 47565;
+/// The server binds before it opens its store, so a connect succeeds while the first reply may still wait for the
+/// store (slow on a loaded runner: 5 s timed out on CI). A connect is not readiness; give the first reply time.
+const READ: Duration = Duration::from_secs(30);
 
 struct Server(Child);
 impl Drop for Server {
@@ -52,7 +55,7 @@ fn start_with(dir: &std::path::Path, extra: &[&str]) -> (Server, TcpStream) {
     loop {
         match TcpStream::connect(("127.0.0.1", port)) {
             Ok(c) => {
-                c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                c.set_read_timeout(Some(READ)).unwrap();
                 return (srv, c);
             }
             Err(_) if t.elapsed() < Duration::from_secs(10) => {
@@ -244,7 +247,7 @@ fn all_pairs_a_lobby_room_on_the_game_server() {
             Err(e) => panic!("all did not bind the game server: {e}"),
         }
     };
-    c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    c.set_read_timeout(Some(READ)).unwrap();
     use forza::online::lobby::{self, Created, Reserved};
     let desk: std::net::SocketAddr = format!("127.0.0.1:{desk}").parse().unwrap();
     // host makes a room, the guest reserves its seat 2, both press READY
@@ -267,16 +270,22 @@ fn all_pairs_a_lobby_room_on_the_game_server() {
     assert_eq!(lobby::ready(desk, &id, &host), Ok(true));
     assert_eq!(lobby::ready(desk, &id, &guest), Ok(true));
     // three PCs' runs on the game server: a stranger in the open pool first, then the room's host and guest. Each
-    // vslink says hello (900, the room ticket at +36), registers its token (902), then its control sends the 243.
-    let pc = |c: &mut TcpStream, n: u8, ticket: Option<&str>| {
+    // vslink says hello (900, the room ticket at +36, the det-math token at +52), registers its token (902), then
+    // its control sends the 243.
+    let hello = |n: u8, ticket: Option<&str>, dmath: &str| {
         let mut gm = TcpStream::connect(("127.0.0.1", gm_port)).unwrap();
-        gm.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        gm.set_read_timeout(Some(READ)).unwrap();
         let (rc, r) = ask(
             &mut gm,
             900,
-            &forza::online::vs::hello_payload(&[n; 32], ticket),
+            &forza::online::vs::hello_payload(&[n; 32], ticket, Some(dmath)),
         );
-        assert_eq!((rc, word(&r, 4)), (901, 1));
+        assert_eq!(rc, 901);
+        (gm, word(&r, 4))
+    };
+    let pc = |c: &mut TcpStream, n: u8, ticket: Option<&str>| {
+        let (mut gm, status) = hello(n, ticket, "00ff00ff00ff00ff");
+        assert_eq!(status, 1);
         let mut reg = vec![0u8; 40];
         reg[..4].copy_from_slice(&[127, n, n, n]);
         reg[4..6].copy_from_slice(&(20000 + u16::from(n)).to_le_bytes());
@@ -299,13 +308,15 @@ fn all_pairs_a_lobby_room_on_the_game_server() {
     };
     pc(&mut c, 1, None);
     pc(&mut c, 2, Some(&host));
+    // the guest's engine differs first: its hello hears so (2), then it sets up again and says hello with the host's token
+    assert_eq!(hello(3, Some(&guest), "00ff00ff00ff00ff-off").1, 2);
     pc(&mut c, 3, Some(&guest));
     assert_eq!(poll(&mut c, 3), 900_000_002, "the guest gets the host");
     assert_eq!(poll(&mut c, 2), 900_000_003, "the host gets the guest");
     assert_eq!(poll(&mut c, 1), 0, "the stranger still waits");
     let json = {
         let mut raw = TcpStream::connect(desk).unwrap();
-        raw.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        raw.set_read_timeout(Some(READ)).unwrap();
         raw.write_all(b"LOBBY 2017-18\n").unwrap();
         let mut json = String::new();
         raw.read_to_string(&mut json).unwrap();
@@ -358,7 +369,7 @@ fn all_takes_a_players_club_without_a_seat() {
             Err(e) => panic!("all did not bind the game server: {e}"),
         }
     };
-    c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    c.set_read_timeout(Some(READ)).unwrap();
     let desk: std::net::SocketAddr = format!("127.0.0.1:{desk}").parse().unwrap();
     let aime = 0x1234_5678; // req()'s Aime id
     let (code, other) = ("50123456789012345678", "50123456789012345679");

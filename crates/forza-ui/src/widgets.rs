@@ -845,6 +845,41 @@ pub fn start_bar(ui: &mut Ui, done: usize, clock: (f32, f32), width: f32) -> Res
     )
 }
 
+/// A job that reports no progress (a setup, the game text): a band sweeps the bar beside the time since it began,
+/// instead of a percentage nobody knows.
+pub fn working(ui: &mut Ui, secs: f32, width: f32) -> Response {
+    ui.ctx()
+        .request_repaint_after(std::time::Duration::from_millis(50));
+    let (rect, resp) = ui.allocate_exact_size(vec2(width, 14.0), Sense::hover());
+    let p = ui.painter();
+    let bar = rect.with_max_x(rect.right() - 44.0);
+    p.rect_filled(bar, 3, theme::WELL);
+    let band = bar.width() * 0.25;
+    // one sweep in 2 s, entering at the left and leaving at the right
+    let x = bar.left() - band + (secs * 0.5).fract() * (bar.width() + band);
+    let f = Rect::from_x_y_ranges(
+        x.max(bar.left())..=(x + band).min(bar.right()),
+        bar.y_range(),
+    );
+    gradient(
+        p,
+        f,
+        3,
+        theme::GREEN.lerp_to_gamma(Color32::WHITE, 0.2),
+        theme::GREEN,
+        true,
+    );
+    let s = secs as u32;
+    p.text(
+        rect.right_center(),
+        Align2::RIGHT_CENTER,
+        format!("{}:{:02}", s / 60, s % 60),
+        theme::display(17.0),
+        theme::TEXT,
+    );
+    resp
+}
+
 /// A plain progress bar with a percentage, for a download or an install stage.
 pub fn progress(ui: &mut Ui, fraction: f32, width: f32) -> Response {
     bar(ui, fraction, width, format!("{:.0} %", fraction * 100.0))
