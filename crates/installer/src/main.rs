@@ -2,6 +2,18 @@
 //! Forza-WCCF installer: each RingEdge edition owns <dest>\<edition>\game and its kit/save tree.
 //! The kit (the package) is optional and must match the game's edition; without it the game is only extracted. `--iso/--key/--dest` runs headless.
 //! The window is `forza_ui::installer` (the approved design) over the state kept here; this file runs what it asks.
+// The installer writes into the player's folder, where a panic leaves a half-applied install: no call that can
+// panic (tests may, crates/clippy.toml)
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::unreachable,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::string_slice
+)]
 mod disc;
 mod err;
 mod fetch;
@@ -133,8 +145,10 @@ impl App {
             .collect();
         if st.installed.is_empty() {
             st.reuse = false;
-        } else if !st.installed.contains(&st.edition) {
-            st.edition = st.installed[0];
+        } else if !st.installed.contains(&st.edition)
+            && let Some(&e) = st.installed.first()
+        {
+            st.edition = e;
         }
         let size = std::fs::metadata(clean(&st.iso)).ok().map(|m| m.len());
         let found = size.and_then(disc::by_size);
@@ -149,11 +163,11 @@ impl App {
             total: install::total_space(&dest).unwrap_or(free),
             drive: {
                 let s = dest.to_string_lossy();
-                if s.as_bytes().get(1) == Some(&b':') {
-                    s[..2].to_string()
-                } else {
-                    String::new()
-                }
+                // "C:" of "C:\..."
+                s.get(..2)
+                    .filter(|d| d.ends_with(':'))
+                    .unwrap_or_default()
+                    .to_string()
             },
         });
         st.ascii_tip = !st.folder.is_ascii();
@@ -546,8 +560,8 @@ fn parse_headless(args: &[String]) -> anyhow::Result<Option<Plan>> {
 }
 
 fn headless(args: &[String]) -> anyhow::Result<bool> {
-    if args.len() == 1 {
-        match args[0].as_str() {
+    if let [arg] = args {
+        match arg.as_str() {
             "--help" | "-h" => {
                 println!(
                     "Forza-WCCF Installer {}\n\n\
@@ -603,6 +617,7 @@ fn run_window(renderer: eframe::Renderer) -> eframe::Result {
             .with_inner_size(installer::SIZE)
             .with_min_inner_size([680.0, 520.0])
             .with_icon(
+                #[allow(clippy::expect_used, reason = "the logo built into the exe, a PNG")]
                 eframe::icon_data::from_png_bytes(include_bytes!(
                     "../../../assets/logo/forza-wccf-256.png"
                 ))

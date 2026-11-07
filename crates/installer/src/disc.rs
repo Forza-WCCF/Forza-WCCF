@@ -59,6 +59,10 @@ fn double(v: u128) -> u128 {
 }
 
 impl Lrw {
+    #[allow(
+        clippy::unwrap_used,
+        reason = "every caller passes a 16-byte and a 32-byte key"
+    )]
     fn new(lrw_key: &[u8], aes_key: &[u8]) -> Self {
         let mut v = u128::from_be_bytes(lrw_key.try_into().unwrap());
         let kx = std::array::from_fn(|_| {
@@ -73,9 +77,10 @@ impl Lrw {
     }
 
     fn tweak(&self, index: u64) -> u128 {
-        (0..64)
-            .filter(|j| index >> j & 1 == 1)
-            .fold(0, |t, j| t ^ self.kx[j])
+        (0..)
+            .zip(&self.kx)
+            .filter(|(j, _)| index >> j & 1 == 1)
+            .fold(0, |t, (_, k)| t ^ k)
     }
 
     /// Decrypt whole 16-byte blocks; `first` is the LRW index of the first block.
@@ -89,9 +94,10 @@ impl Lrw {
             chunk.copy_from_slice(&(u128::from_be_bytes(block.into()) ^ t).to_be_bytes());
             // ponytail: one block per AES call; batch with decrypt_blocks if extraction is too slow.
             let next = index + 1;
-            t = (0..64)
-                .filter(|j| (index ^ next) >> j & 1 == 1)
-                .fold(t, |t, j| t ^ self.kx[j]);
+            t = (0..)
+                .zip(&self.kx)
+                .filter(|(j, _)| (index ^ next) >> j & 1 == 1)
+                .fold(t, |t, (_, k)| t ^ k);
             index = next;
         }
     }
@@ -101,7 +107,7 @@ impl Lrw {
 fn password_from_keyfile(data: &[u8]) -> [u8; 64] {
     let mut pool = [0u8; 64];
     let (mut crc, mut pos) = (0xFFFF_FFFFu32, 0);
-    for &b in &data[..data.len().min(1 << 20)] {
+    for &b in data.iter().take(1 << 20) {
         crc ^= b as u32;
         for _ in 0..8 {
             crc = if crc & 1 == 1 {
@@ -111,7 +117,9 @@ fn password_from_keyfile(data: &[u8]) -> [u8; 64] {
             };
         }
         for byte in crc.to_be_bytes() {
-            pool[pos] = pool[pos].wrapping_add(byte);
+            if let Some(p) = pool.get_mut(pos) {
+                *p = p.wrapping_add(byte);
+            }
             pos = (pos + 1) % 64;
         }
     }
@@ -126,10 +134,13 @@ fn key_candidates(raw: &[u8]) -> Vec<Vec<u8>> {
         && text.len().is_multiple_of(2)
         && text.bytes().all(|b| b.is_ascii_hexdigit())
     {
-        let bytes = (0..text.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap());
-        out.push(bytes.collect());
+        let bytes = text.as_bytes().chunks(2).map(|d| {
+            std::str::from_utf8(d)
+                .ok()
+                .and_then(|d| u8::from_str_radix(d, 16).ok())
+        });
+        // every pair is two hex digits (checked above)
+        out.extend(bytes.collect::<Option<Vec<u8>>>());
     }
     out
 }
@@ -163,15 +174,15 @@ fn read_header(raw: &[u8; 512], keyfile: &[u8]) -> Option<Result<Header>> {
     pbkdf2::pbkdf2_hmac::<Ripemd160>(&password_from_keyfile(keyfile), &raw[..64], 2000, &mut dk);
     let mut h = *raw;
     Lrw::new(&dk[..16], &dk[32..]).decrypt(&mut h[64..], 1);
-    let be16 = |o: usize| u16::from_be_bytes(h[o..o + 2].try_into().unwrap());
-    let be32 = |o: usize| u32::from_be_bytes(h[o..o + 4].try_into().unwrap());
-    if &h[64..68] != b"TRUE" || be32(72) != crc32fast::hash(&h[256..]) {
+    let be16 = |o: usize| Some(u16::from_be_bytes(*h.get(o..)?.first_chunk()?));
+    let be32 = |o: usize| Some(u32::from_be_bytes(*h.get(o..)?.first_chunk()?));
+    if &h[64..68] != b"TRUE" || be32(72)? != crc32fast::hash(&h[256..]) {
         return None;
     }
-    if be16(70) > PROGRAM_VERSION {
+    if be16(70)? > PROGRAM_VERSION {
         return Some(Err(E::NewerTrueCrypt.into()));
     }
-    let hidden_size = u64::from_be_bytes(h[92..100].try_into().unwrap());
+    let hidden_size = u64::from_be_bytes(*h[92..].first_chunk()?);
     Some(Ok(Header {
         hidden_size,
         lrw: Lrw::new(&h[256..272], &h[288..320]),
@@ -187,16 +198,19 @@ fn check_metadata(f: &mut File, disc: &Disc) -> Result<Vec<u32>> {
     f.seek(SeekFrom::Start(disc.slot_start))?;
     f.read_exact(&mut block)?;
     let mut h = crc32fast::Hasher::new();
-    h.update(&block[..512]);
-    h.update(&block[516..]);
-    let table: Vec<u32> = block[512..512 + 4 * n]
+    // the block is at least 512 + 4 * n bytes (size above)
+    h.update(block.get(..512).unwrap_or_default());
+    h.update(block.get(516..).unwrap_or_default());
+    let table: Vec<u32> = block
+        .get(512..512 + 4 * n)
+        .unwrap_or_default()
         .as_chunks::<4>()
         .0
         .iter()
         .map(|c| u32::from_le_bytes(*c))
         .collect();
     ensure!(
-        h.finalize() == table[0],
+        table.first() == Some(&h.finalize()),
         E::ChecksumTable {
             name: disc.name.to_string()
         }
@@ -301,8 +315,8 @@ impl Read for Volume {
             self.cache_at = at;
         }
         let start = (self.pos - at) as usize;
-        let n = out.len().min(self.cache.len() - start);
-        out[..n].copy_from_slice(&self.cache[start..start + n]);
+        let from = self.cache.get(start..).unwrap_or_default();
+        let n = out.iter_mut().zip(from).map(|(o, b)| *o = *b).count();
         self.pos += n as u64;
         Ok(n)
     }
@@ -432,7 +446,7 @@ mod tests {
     fn hex_to_bytes(s: &str) -> Vec<u8> {
         (0..s.len())
             .step_by(2)
-            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+            .map(|i| u8::from_str_radix(s.get(i..i + 2).unwrap(), 16).unwrap())
             .collect()
     }
 
@@ -469,7 +483,7 @@ mod tests {
                 4_870_635_520,
                 "977fe11057720e6a0f95a6be03ab988c3ec3949d6491dfcebacd86e14846a2e0",
             ),
-            _ => unreachable!(),
+            other => panic!("no known hash for {other}"),
         };
         assert_eq!(vol.size, size);
         let mut mib = vec![0u8; 1 << 20];
