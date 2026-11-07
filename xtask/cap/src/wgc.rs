@@ -33,10 +33,10 @@ pub fn device() -> Result<(ID3D11Device, ID3D11DeviceContext)> {
             D3D11_CREATE_DEVICE_BGRA_SUPPORT,
             None,
             D3D11_SDK_VERSION,
-            Some(&mut d),
+            Some(&raw mut d),
             None,
-            Some(&mut c),
-        )?
+            Some(&raw mut c),
+        )?;
     };
     d.zip(c).ok_or_else(Error::empty)
 }
@@ -82,23 +82,23 @@ pub fn grab(h: windows_sys::Win32::Foundation::HWND) -> Result<(u32, u32, Vec<u8
             .cast::<IDirect3DDxgiInterfaceAccess>()?
             .GetInterface()?;
         let mut desc = D3D11_TEXTURE2D_DESC::default();
-        tex.GetDesc(&mut desc);
+        tex.GetDesc(&raw mut desc);
         desc.Usage = D3D11_USAGE_STAGING;
         desc.BindFlags = 0;
         desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
         desc.MiscFlags = 0;
         let mut staging = None;
-        dev.CreateTexture2D(&desc, None, Some(&mut staging))?;
+        dev.CreateTexture2D(&raw const desc, None, Some(&raw mut staging))?;
         let staging = staging.ok_or_else(Error::empty)?;
         ctx.CopyResource(&staging, &tex);
         // the frame can be smaller than the pool when the window shrank since; keep its own content size
         let cs = frame.ContentSize()?;
         let (w, ht) = (
-            (cs.Width as u32).min(desc.Width),
-            (cs.Height as u32).min(desc.Height),
+            cs.Width.cast_unsigned().min(desc.Width),
+            cs.Height.cast_unsigned().min(desc.Height),
         );
         let mut m = D3D11_MAPPED_SUBRESOURCE::default();
-        ctx.Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut m))?;
+        ctx.Map(&staging, 0, D3D11_MAP_READ, 0, Some(&raw mut m))?;
         let mut px = Vec::with_capacity((w * ht * 4) as usize);
         for y in 0..ht as usize {
             let row = std::slice::from_raw_parts(
