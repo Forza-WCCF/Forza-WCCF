@@ -449,17 +449,29 @@ pub struct Catalogue {
     /// The card view (a full page, front and back at their own pixels): the card shown (an index into the catalogue),
     /// and its back chosen when only one side fits.
     pub view: Option<usize>,
-    /// The back shown: the card view's one side, and the detail pane's picture.
+    /// The back shown: the card view's one side, and the detail pane's picture (another card in the pane goes back
+    /// to its front).
     pub view_back: bool,
     /// The stat range sliders shown (STAT RANGES).
     pub ranges_open: bool,
     /// The detail pane's whole affinity list, not only its best few.
     pub all_partners: bool,
+    /// The card number the detail pane last drew: the side and the affinity list belong to it.
+    shown: Option<u32>,
     searched: Option<Filter>,
     index: Option<Index>,
 }
 
 impl Catalogue {
+    /// The pane's side and its whole affinity list go with the card they were set on: another card (or none) shows its
+    /// front and its best partners again.
+    fn set_shown(&mut self, number: Option<u32>) {
+        if self.shown == number {
+            return;
+        }
+        (self.shown, self.view_back, self.all_partners) = (number, false, false);
+    }
+
     /// The index made once and the search run again when the filter changed; `true` = the results changed.
     fn refresh(&mut self, cards: &[Card]) -> bool {
         let index = self.index.get_or_insert_with(|| Index::new(cards));
@@ -3317,6 +3329,13 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         .flatten()
         .filter_map(|&i| st.board.cards.get(i).map(|k| k.number))
         .collect();
+    let shown = c
+        .focus
+        .filter(|i| c.results.contains(i))
+        .or(c.results.first().copied())
+        .and_then(|i| cards.get(i));
+    // FRONT/BACK and +N more belong to the card they were clicked on, not to the pane
+    c.set_shown(shown.map(|k| k.number));
     let results = &c.results;
     let focus = &mut c.focus;
     let message = &mut st.message;
@@ -3324,26 +3343,30 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let back = &mut c.view_back;
     let all_partners = &mut c.all_partners;
     let ppp = ui.ctx().pixels_per_point();
-    let shown = focus
-        .filter(|i| results.contains(i))
-        .or(results.first().copied())
-        .and_then(|i| cards.get(i));
     egui_extras::StripBuilder::new(ui)
         .size(egui_extras::Size::remainder())
         .size(egui_extras::Size::exact(sizing::detail_width(ppp)))
         .horizontal(|mut strip| {
             strip.cell(|ui| {
-                // the card count, then (the game's links known) the shown card's best partners, wrapping
-                ui.horizontal_wrapped(|ui| {
-                    caps(ui, &tr!(lang, "cat.results", n = results.len()));
-                    if let Some(card) = shown
-                        && links.affinity.is_some()
-                    {
-                        ui.add_space(24.0);
-                        affinity_row(ui, card, links, &on_table, all_partners, lang);
-                    }
-                });
                 let g = sizing::grid(ui.available_width(), ppp);
+                // the card count, then (the game's links known) the shown card's best partners, wrapping; the whole
+                // list scrolls inside a cap that keeps the grid a row of cards under it
+                let cap = sizing::header_cap(ui.available_height(), g.card.y);
+                egui::ScrollArea::vertical()
+                    .id_salt("affinity")
+                    .max_height(cap)
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            caps(ui, &tr!(lang, "cat.results", n = results.len()));
+                            if let Some(card) = shown
+                                && links.affinity.is_some()
+                            {
+                                ui.add_space(24.0);
+                                affinity_row(ui, card, links, &on_table, all_partners, lang);
+                            }
+                        });
+                    });
                 let mut area = egui::ScrollArea::vertical()
                     .id_salt("results")
                     .auto_shrink(false);
@@ -3740,10 +3763,41 @@ fn stats_pane(ui: &mut Ui, card: &Card, back: &mut bool, lang: Lang) -> (bool, b
         .inner
 }
 
-/// The six stats in two rows of three, `label value` each; SECRET across both rows for a secret card.
+/// The six stats in `label value` cells, three to a row; SECRET across the grid for a secret card. Each cell is as
+/// wide as its widest label and value as drawn (the Japanese labels take most of a cell at 14 points), so a value
+/// never runs into its label: two columns of three, or one of six, when the pane's three-column width cannot hold
+/// them.
 fn stat_grid(ui: &mut Ui, card: &Card, lang: Lang, w: f32) {
-    let (rect, _) = ui.allocate_exact_size(vec2(w, 48.0), Sense::hover());
-    let p = ui.painter();
+    /// The gap between a label and its value, the gap between columns, and the room at the grid's two sides.
+    const GAP: f32 = 6.0;
+    const COL_GAP: f32 = 10.0;
+    const SIDE: f32 = 8.0;
+    const ROW: f32 = 24.0;
+    let p = ui.painter().clone();
+    let label = theme::display(14.0);
+    let value = theme::display(18.0);
+    let width =
+        |text: String, font: egui::FontId| p.layout_no_wrap(text, font, theme::TEXT).size().x;
+    // the widest label beside a value, its two digits the widest
+    let widest = STATS
+        .into_iter()
+        .zip(card.stats)
+        .map(|(k, v)| {
+            let l = width(tr!(lang, k), label.clone());
+            let v = width(v.to_string(), value.clone());
+            l + GAP + v
+        })
+        .fold(0.0, f32::max);
+    let inside = (w - 2.0 * SIDE).max(1.0);
+    let cols = (1..=3usize)
+        .rev()
+        .find(|&c| {
+            let c = c as f32;
+            c * widest + (c - 1.0) * COL_GAP <= inside
+        })
+        .unwrap_or(1);
+    let rows = 6usize.div_ceil(cols);
+    let (rect, _) = ui.allocate_exact_size(vec2(w, rows as f32 * ROW), Sense::hover());
     p.rect_filled(rect, 4, theme::DEEP);
     if card.secret {
         let t = tr!(lang, "cat.secret");
@@ -3756,25 +3810,29 @@ fn stat_grid(ui: &mut Ui, card: &Card, lang: Lang, w: f32) {
         );
         return;
     }
-    let cell = vec2(w / 3.0, 24.0);
-    for (i, (k, v)) in STATS.into_iter().zip(card.stats).enumerate() {
+    // the columns in equal shares of the pane's width
+    let cw = (inside - (cols - 1) as f32 * COL_GAP) / cols as f32;
+    for (i, &stat) in card.stats.iter().enumerate() {
         let c = Rect::from_min_size(
-            rect.min + vec2((i % 3) as f32 * cell.x, (i / 3) as f32 * cell.y),
-            cell,
-        )
-        .shrink2(vec2(8.0, 0.0));
+            rect.min
+                + vec2(
+                    SIDE + (i % cols) as f32 * (cw + COL_GAP),
+                    (i / cols) as f32 * ROW,
+                ),
+            vec2(cw, ROW),
+        );
         p.text(
             c.left_center(),
             egui::Align2::LEFT_CENTER,
-            tr!(lang, k),
-            theme::display(14.0),
+            tr!(lang, STATS[i]),
+            label.clone(),
             theme::TEXT_DIM,
         );
         p.text(
             c.right_center(),
             egui::Align2::RIGHT_CENTER,
-            v.to_string(),
-            theme::display(18.0),
+            stat.to_string(),
+            value.clone(),
             theme::TEXT,
         );
     }
@@ -5174,6 +5232,27 @@ mod tests {
             "{h} does not hold the {}-row text",
             g.rows.len()
         );
+    }
+
+    /// The pane's side and its whole affinity list belong to the card shown: another card shows its front and its best
+    /// partners again.
+    #[test]
+    fn the_detail_panes_side_and_affinity_list_belong_to_the_card_shown() {
+        let mut c = Catalogue::default();
+        // the first card drawn, then BACK and +N more clicked on it
+        c.set_shown(Some(8));
+        c.view_back = true;
+        c.all_partners = true;
+        // the same card drawn again keeps what was clicked
+        c.set_shown(Some(8));
+        assert!(c.view_back && c.all_partners);
+        c.set_shown(Some(9));
+        assert!(!c.view_back && !c.all_partners);
+        // no card at all (the filter emptied the results) clears them too
+        c.view_back = true;
+        c.all_partners = true;
+        c.set_shown(None);
+        assert!(!c.view_back && !c.all_partners);
     }
 
     fn sheet_of(w: f32, h: f32) -> Rect {

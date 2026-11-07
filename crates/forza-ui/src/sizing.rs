@@ -60,10 +60,23 @@ pub fn exact(pic_px: Vec2, n: usize, room: Vec2, ppp: f32) -> Option<f32> {
     })
 }
 
-/// The catalogue's detail pane width in points: room for the album art's 256 pixels at x1 and the pane's margins,
-/// within 250..330 points (under that, [`whole_fit`] halves the picture).
+/// The catalogue's detail pane width in points: room for the album art's 256 pixels and the pane's margins, at the
+/// step [`whole_fit`] takes under the 330-point cap (x2 from about 167 %, else x1), within 250..330 points (under that,
+/// [`whole_fit`] halves the picture).
 pub fn detail_width(ppp: f32) -> f32 {
-    (ALBUM.x / ppp + 24.0).clamp(250.0, 330.0)
+    // a point of slack beside the 512 pixels: the strip rounds its cell to the pixel
+    let (k, slack) = if ALBUM.x * 2.0 / ppp + 25.0 <= 330.0 {
+        (2.0, 1.0)
+    } else {
+        (1.0, 0.0)
+    };
+    (ALBUM.x * k / ppp + 24.0 + slack).clamp(250.0, 330.0)
+}
+
+/// The most the results header (the card count and the affinity row) may take of a cell `cell_h` points tall: the rest
+/// is at least one row of `card_h` cards and the gap above them, however long the expanded affinity list is.
+pub fn header_cap(cell_h: f32, card_h: f32) -> f32 {
+    (cell_h - card_h - GAP).max(48.0)
 }
 
 /// A picture of `pic_px` pixels drawn whole in `room` points: its size in points at the largest of x2, x1, 1/2, 1/3 or
@@ -144,6 +157,40 @@ mod tests {
                 px.x / ppp <= room.x + 0.01 && px.y / ppp <= room.y + 0.01,
                 "{ppp}"
             );
+        }
+    }
+
+    /// At 175 and 200 % the pane is sized for the picture's x2 step, so the detail picture is wider than a grid card
+    /// (sized at x1 it stayed 256 pixels against a 267- and a 323-pixel card).
+    #[test]
+    fn the_detail_picture_is_never_smaller_than_a_card_at_high_scaling() {
+        for (w, h, dpi) in [(3840.0, 2160.0, 168.0), (3840.0, 2160.0, 192.0)] {
+            let (a, ppp) = avail(w, h, dpi);
+            assert!([1.75, 2.0].contains(&ppp), "{w}x{h}@{dpi}: {ppp}");
+            let card = grid(a, ppp).card.x * ppp;
+            let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(w, h) / ppp);
+            let page = crate::panel::layout(sheet, false).pages;
+            // the pane's inner width less its frame, and the height its picture has under the rest of the pane
+            let room = vec2(detail_width(ppp) - 24.0, page.height() - 300.0);
+            let picture = whole_fit(ALBUM, room, ppp) * ppp;
+            assert!(close(picture, ALBUM * 2.0), "{ppp} px a point: {picture:?}");
+            assert!(
+                picture.x >= card,
+                "{ppp} px a point: a {} px picture against a {card} px card ({room:?})",
+                picture.x
+            );
+        }
+    }
+
+    /// The header's cap always leaves the grid a row of cards and the gap above it.
+    #[test]
+    fn the_catalogue_header_leaves_a_row_of_cards() {
+        for cell in [300.0, 650.0, 900.0] {
+            for card in [20.0, 120.0, 170.0] {
+                let cap = header_cap(cell, card);
+                assert!(cap >= 48.0, "{cell} {card}: {cap}");
+                assert!(cell - cap >= card + GAP, "{cell} {card}: {cap}");
+            }
         }
     }
 

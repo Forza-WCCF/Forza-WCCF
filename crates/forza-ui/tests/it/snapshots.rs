@@ -731,9 +731,10 @@ fn board_links() {
     h.snapshot("panel_catalogue_affinity_en");
 }
 
-/// The 2017-18 catalogue at 1920x1080 points, x1 and 125 %: the grid fills its width (6 cards a row and more), the
-/// detail pane draws the focused card's picture at whole pixels (a made-up 256x357 pattern of single-pixel lines,
-/// blurred if ever scaled by a fraction), its best five partners under the stats.
+/// The 2017-18 catalogue at 1920x1080 points, x1 and 125 % in English and at 125 % in Japanese: the grid fills its
+/// width (6 cards a row and more), the detail pane draws the focused card's picture at whole pixels (a made-up
+/// 256x357 pattern of single-pixel lines, blurred if ever scaled by a fraction), its best five partners under the
+/// stats, and its stat labels beside their values at the narrow pane (the Japanese ones are the widest).
 #[test]
 fn catalogue_1080() {
     let _gpu = gpu();
@@ -753,11 +754,12 @@ fn catalogue_1080() {
     )
     .expect("a picture written");
     let mut all = SnapshotResults::new();
-    for (ppp, name) in [
-        (1.0, "panel_catalogue_1080_en"),
-        (1.25, "panel_catalogue_1080_125_en"),
+    for (ppp, lang, name) in [
+        (1.0, Lang::En, "panel_catalogue_1080_en"),
+        (1.25, Lang::En, "panel_catalogue_1080_125_en"),
+        (1.25, Lang::Ja, "panel_catalogue_1080_125_ja"),
     ] {
-        let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Catalogue);
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Catalogue);
         st.links = forza_ui::sample::links();
         st.catalogue.filter = Default::default();
         st.catalogue.focus = Some(ci);
