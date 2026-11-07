@@ -58,8 +58,10 @@ pub enum Action {
     UndoNow,
     /// Browse for the game folder.
     Browse,
-    /// DOWNLOAD or REMOVE the high-quality card pictures asked: Launcher.exe asks to confirm.
-    Pictures,
+    /// 2010–11: the card pictures choice changed (`pictures_hq`), or "Choose pack…" (`choose`).
+    Pictures { choose: bool },
+    /// 2017–18: DOWNLOAD or REMOVE the high-quality card pictures asked: Launcher.exe asks to confirm.
+    PicturesAsk,
     /// DOWNLOAD or REMOVE the high-quality card pictures, confirmed.
     PicturesNow,
     /// The skip-the-tutorial switch changed.
@@ -158,8 +160,8 @@ pub struct LauncherState {
     /// The tab shown.
     pub tab: Tab,
     pub folder: String,
-    /// The card pictures: the downloaded high-quality ones (true) or the game's own (2017–18 only).
-    pub pictures_hq: Option<bool>,
+    /// The card pictures: the high-quality pack (2017–18: the downloaded one), else the game's own.
+    pub pictures_hq: bool,
     /// The skip-the-tutorial switch (2017–18 only).
     pub skip_tutorial: Option<bool>,
     /// The projector switch: its window shown (2017–18 only).
@@ -266,7 +268,7 @@ impl LauncherState {
             server_notice: None,
             tab: Tab::Play,
             folder: r"C:\Games\Forza-WCCF\2010-2011".into(),
-            pictures_hq: None,
+            pictures_hq: false,
             skip_tutorial: None,
             projector: None,
             cpu_championship: None,
@@ -302,7 +304,6 @@ impl LauncherState {
         if edition == Edition::E1718 {
             st.folder = r"C:\Games\Forza-WCCF\2017-2018".into();
             st.skip_tutorial = Some(true);
-            st.pictures_hq = Some(false);
             st.projector = Some(true);
             st.cpu_championship = Some(true);
             st.club_server = Some(String::new());
@@ -404,7 +405,7 @@ impl LauncherState {
             Scenario::Busy => {
                 st.busy = true;
                 st.tab = Tab::Setup;
-                st.pictures_hq = Some(true);
+                st.pictures_hq = true;
                 st.clock = (14.6, 14.6);
                 st.status = Some((Tone::Notice, tr!(lang, "launcher.msg_setting_up")));
             }
@@ -717,16 +718,39 @@ fn setup(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Actio
             }
         });
         ui.add_space(2.0);
-        if let Some(hq) = st.pictures_hq {
+        if st.edition == Edition::E1718 {
             ui.horizontal(|ui| {
                 field(ui, &tr!(lang, "launcher.card_pictures"), 150.0);
-                let key = if hq {
+                let key = if st.pictures_hq {
                     "launcher.pictures_remove"
                 } else {
                     "launcher.pictures_download"
                 };
                 if action(ui, &tr!(lang, key)).clicked() {
-                    *act = Some(Action::Pictures);
+                    *act = Some(Action::PicturesAsk);
+                }
+            });
+        } else {
+            ui.horizontal(|ui| {
+                let label_w = 150.0;
+                field(ui, &tr!(lang, "launcher.card_pictures"), label_w);
+                let choose = tr!(lang, "launcher.choose_pack");
+                let w = ui.available_width() - text_w(ui, &choose) - 40.0;
+                let mut i = st.pictures_hq as usize;
+                if segmented(
+                    ui,
+                    &mut i,
+                    &[
+                        &tr!(lang, "launcher.from_game"),
+                        &tr!(lang, "launcher.hq_pack"),
+                    ],
+                    w,
+                ) {
+                    st.pictures_hq = i == 1;
+                    *act = Some(Action::Pictures { choose: false });
+                }
+                if action(ui, &choose).clicked() {
+                    *act = Some(Action::Pictures { choose: true });
                 }
             });
         }

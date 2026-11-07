@@ -37,6 +37,9 @@ launcher.view_on_github: {en: "View on GitHub", it: "Vedi su GitHub", ja: "GitHu
 launcher.output: {en: "DETAILS", it: "DETTAGLI", ja: "詳細"}
 launcher.copy: {en: "Copy", it: "Copia", ja: "コピー"}
 launcher.card_pictures: {en: "CARD PICTURES", it: "IMMAGINI CARTE", ja: "カード画像"}
+launcher.from_game: {en: "From the game", it: "Dal gioco", ja: "ゲームから"}
+launcher.hq_pack: {en: "High-quality pack", it: "Pacchetto HQ", ja: "高画質パック"}
+launcher.choose_pack: {en: "Choose pack…", it: "Scegli pacchetto…", ja: "パックを選択…"}
 launcher.pictures_download: {en: "Download high-quality pictures", it: "Scarica immagini in alta qualità", ja: "高画質画像をダウンロード"}
 launcher.pictures_remove: {en: "Remove high-quality pictures", it: "Rimuovi immagini in alta qualità", ja: "高画質画像を削除"}
 launcher.pictures_download_ask: {en: "Download high-quality card pictures (%{size} MB)? A cut download goes on where it stopped.", it: "Scaricare le immagini delle carte in alta qualità (%{size} MB)? Un download interrotto riprende da dove si è fermato.", ja: "高画質カード画像をダウンロードしますか？（%{size} MB）中断しても続きから再開します。"}
@@ -123,6 +126,7 @@ launcher.msg_stop_anyway: {en: "A match is on. Stopping can damage your card. St
 launcher.msg_link_taken: {en: "This folder path may not work. If the game does not start, move it to C:\\Games.", it: "Questo percorso potrebbe non funzionare. Se il gioco non parte, spostalo in C:\\Games.", ja: "このフォルダーのパスでは動かない場合があります。起動しないときは C:\\Games へ移動してください。"}
 launcher.msg_link_no_junction: {en: "This folder path may not work. If the game does not start, move it to C:\\Games.", it: "Questo percorso potrebbe non funzionare. Se il gioco non parte, spostalo in C:\\Games.", ja: "このフォルダーのパスでは動かない場合があります。起動しないときは C:\\Games へ移動してください。"}
 launcher.msg_link_failed: {en: "This folder path may not work. If the game does not start, move it to C:\\Games.", it: "Questo percorso potrebbe non funzionare. Se il gioco non parte, spostalo in C:\\Games.", ja: "このフォルダーのパスでは動かない場合があります。起動しないときは C:\\Games へ移動してください。"}
+launcher.msg_pack_title: {en: "Pick the high-quality card pack (forza-wccf-card-pictures-hq-*.zip)", it: "Scegli il pacchetto di immagini carte in alta qualità (forza-wccf-card-pictures-hq-*.zip)", ja: "高画質カード画像パックを選んでください（forza-wccf-card-pictures-hq-*.zip）"}
 launcher.msg_pack_downloading: {en: "Downloading card pictures", it: "Scarico le immagini delle carte", ja: "カード画像をダウンロード中"}
 launcher.msg_pack_no_space: {en: "Not enough disk space: %{need} MB needed.", it: "Spazio su disco insufficiente: servono %{need} MB.", ja: "ディスクの空き容量が足りません：%{need} MB 必要です。"}
 launcher.msg_pack_bad_hash: {en: "Download damaged. Try again.", it: "Download danneggiato. Riprova.", ja: "ダウンロードが壊れています。もう一度お試しください。"}
