@@ -449,7 +449,12 @@ pub struct Catalogue {
     /// The card view (a full page, front and back at their own pixels): the card shown (an index into the catalogue),
     /// and its back chosen when only one side fits.
     pub view: Option<usize>,
+    /// The back shown: the card view's one side, and the detail pane's picture.
     pub view_back: bool,
+    /// The stat range sliders shown (STAT RANGES).
+    pub ranges_open: bool,
+    /// The detail pane's whole affinity list, not only its best few.
+    pub all_partners: bool,
     searched: Option<Filter>,
     index: Option<Index>,
 }
@@ -3259,47 +3264,51 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                 f.sort = i;
             }
         }
+        // the six stat ranges and TOTAL fold away: most searches never touch them
+        ui.add_space(16.0);
+        let narrowed = f.ranges != [(1, 20); 6] || f.total != (60, 100);
+        let label = if narrowed {
+            format!("{} ●", tr!(lang, "cat.ranges"))
+        } else {
+            tr!(lang, "cat.ranges")
+        };
+        if chip(ui, &label, c.ranges_open, None).clicked() {
+            c.ranges_open = !c.ranges_open;
+        }
+        if narrowed && chip(ui, &tr!(lang, "cat.reset"), false, None).clicked() {
+            f.ranges = [(1, 20); 6];
+            f.total = (60, 100);
+        }
     });
-    // the stat ranges, two columns
-    egui::Frame::new()
-        .fill(theme::WELL)
-        .corner_radius(theme::RADIUS)
-        .inner_margin(egui::Margin::symmetric(12, 8))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            let w = (ui.available_width() - 24.0) / 2.0;
-            egui::Grid::new("ranges")
-                .num_columns(2)
-                .spacing(vec2(24.0, 4.0))
-                .show(ui, |ui| {
-                    for i in 0..3 {
-                        range_slider(
-                            ui,
-                            &tr!(lang, STATS[i * 2]),
-                            &mut f.ranges[i * 2],
-                            (1, 20),
-                            w,
-                        );
-                        range_slider(
-                            ui,
-                            &tr!(lang, STATS[i * 2 + 1]),
-                            &mut f.ranges[i * 2 + 1],
-                            (1, 20),
-                            w,
-                        );
-                        ui.end_row();
-                    }
-                    range_slider(ui, &tr!(lang, "cat.total"), &mut f.total, (60, 100), w);
-                    ui.horizontal(|ui| {
-                        ui.add_space(w - 110.0);
-                        if action(ui, &tr!(lang, "cat.reset")).clicked() {
-                            f.ranges = [(1, 20); 6];
-                            f.total = (60, 100);
+    if c.ranges_open {
+        egui::Frame::new()
+            .fill(theme::WELL)
+            .corner_radius(theme::RADIUS)
+            .inner_margin(egui::Margin::symmetric(12, 8))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                let w = (ui.available_width() - 24.0) / 2.0;
+                egui::Grid::new("ranges")
+                    .num_columns(2)
+                    .spacing(vec2(24.0, 4.0))
+                    .show(ui, |ui| {
+                        for i in 0..3 {
+                            for j in [i * 2, i * 2 + 1] {
+                                range_slider(
+                                    ui,
+                                    &tr!(lang, STATS[j]),
+                                    &mut f.ranges[j],
+                                    (1, 20),
+                                    w,
+                                );
+                            }
+                            ui.end_row();
                         }
+                        range_slider(ui, &tr!(lang, "cat.total"), &mut f.total, (60, 100), w);
+                        ui.end_row();
                     });
-                    ui.end_row();
-                });
-        });
+            });
+    }
     // results and the stats pane
     let on_table: Vec<u32> = st
         .board
@@ -3312,41 +3321,47 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let focus = &mut c.focus;
     let message = &mut st.message;
     let links = &st.links;
-    // the affinity column when the game's links are known
-    let with_affinity = links.affinity.is_some();
-    let mut strips = egui_extras::StripBuilder::new(ui).size(egui_extras::Size::remainder());
-    if with_affinity {
-        strips = strips.size(egui_extras::Size::exact(220.0));
-    }
-    strips
-        .size(egui_extras::Size::exact(250.0))
+    let back = &mut c.view_back;
+    let all_partners = &mut c.all_partners;
+    let ppp = ui.ctx().pixels_per_point();
+    let shown = focus
+        .filter(|i| results.contains(i))
+        .or(results.first().copied())
+        .and_then(|i| cards.get(i));
+    egui_extras::StripBuilder::new(ui)
+        .size(egui_extras::Size::remainder())
+        .size(egui_extras::Size::exact(sizing::detail_width(ppp)))
         .horizontal(|mut strip| {
             strip.cell(|ui| {
-                ui.horizontal(|ui| {
+                // the card count, then (the game's links known) the shown card's best partners, wrapping
+                ui.horizontal_wrapped(|ui| {
                     caps(ui, &tr!(lang, "cat.results", n = results.len()));
+                    if let Some(card) = shown
+                        && links.affinity.is_some()
+                    {
+                        ui.add_space(24.0);
+                        affinity_row(ui, card, links, &on_table, all_partners, lang);
+                    }
                 });
-                let sizing::Grid {
-                    card: size,
-                    cols: per_row,
-                } = sizing::grid(ui.available_width(), ui.ctx().pixels_per_point());
-                let gap = sizing::GAP;
+                let g = sizing::grid(ui.available_width(), ppp);
                 let mut area = egui::ScrollArea::vertical()
                     .id_salt("results")
                     .auto_shrink(false);
                 if fresh {
                     area = area.vertical_scroll_offset(0.0); // a new search starts at the top
                 }
-                ui.spacing_mut().item_spacing = vec2(gap, gap);
+                ui.spacing_mut().item_spacing = vec2(sizing::GAP, sizing::GAP);
                 // only the rows in sight are laid out: the whole catalogue is thousands of cards
-                area.show_rows(ui, size.y, results.len().div_ceil(per_row), |ui, rows| {
+                area.show_rows(ui, g.card.y, results.len().div_ceil(g.cols), |ui, rows| {
                     for row in rows {
                         ui.horizontal(|ui| {
-                            for &i in results.iter().skip(row * per_row).take(per_row) {
+                            ui.add_space(g.pad);
+                            for &i in results.iter().skip(row * g.cols).take(g.cols) {
                                 let card = &cards[i];
                                 let resp = board::catalogue_card(
                                     ui,
                                     card,
-                                    size,
+                                    g.card,
                                     *focus == Some(i),
                                     on_table.contains(&card.number),
                                 );
@@ -3361,28 +3376,22 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                     }
                 });
             });
-            let shown = focus
-                .filter(|i| results.contains(i))
-                .or(results.first().copied())
-                .and_then(|i| cards.get(i));
-            if with_affinity {
-                strip.cell(|ui| {
-                    if let Some(card) = shown {
-                        affinity_pane(ui, card, links, &on_table, lang);
-                    }
-                });
-            }
             strip.cell(|ui| {
-                if let Some(card) = shown {
-                    let (added, opened) = stats_pane(ui, card, lang);
-                    if added {
-                        add = Some(card.number);
-                    }
-                    open |= opened;
-                }
-                if !long {
-                    note_line(ui, message);
-                }
+                egui::ScrollArea::vertical()
+                    .id_salt("detail")
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        if let Some(card) = shown {
+                            let (added, opened) = stats_pane(ui, card, back, lang);
+                            if added {
+                                add = Some(card.number);
+                            }
+                            open |= opened;
+                        }
+                        if !long {
+                            note_line(ui, message);
+                        }
+                    });
             });
             // Tab or a click on the stats pane's face: the card view of the card shown
             if open && let Some(card) = shown {
@@ -3585,53 +3594,59 @@ fn combo(ui: &mut Ui, id: &str, value: &mut String, options: &[(String, usize)],
         });
 }
 
-/// The card's partners by affinity, best first (from the game's own files), a tick on those already on the table.
-fn affinity_pane(ui: &mut Ui, card: &Card, links: &board::Links, on_table: &[u32], lang: Lang) {
-    egui::Frame::new()
-        .fill(theme::WELL)
-        .corner_radius(theme::RADIUS_BIG)
-        .inner_margin(10)
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.spacing_mut().item_spacing.y = 2.0;
-            caps(ui, &tr!(lang, "cat.affinity"));
-            let w = ui.available_width();
-            let partners: Vec<_> = links
-                .affinity
-                .iter()
-                .flat_map(|a| a.partners(card.number))
-                .collect();
-            if partners.is_empty() {
-                ui.label(
-                    egui::RichText::new(tr!(lang, "cat.no_partners"))
-                        .font(theme::body(HINT))
-                        .color(theme::TEXT_DIM),
-                );
-            }
-            egui::ScrollArea::vertical()
-                .id_salt("affinity")
-                .auto_shrink([false, true])
-                .show(ui, |ui| {
-                    for (p, v) in partners {
-                        let r = ui.cursor();
-                        board::partner_row(ui, &p.name, None, Some(v), w - 22.0);
-                        if p.cards.iter().any(|n| on_table.contains(n)) {
-                            super::widgets::tone_icon(
-                                ui.painter(),
-                                pos2(r.left() + w - 9.0, r.top() + 9.0),
-                                Tone::Done,
-                            );
-                        }
-                    }
-                });
-        });
+/// The partners shown before "+N more".
+const PARTNERS_SHOWN: usize = 5;
+
+/// The card's partners by affinity, best first (from the game's own files), in a wrapping row over the grid, a tick on
+/// those already on the table: the best [`PARTNERS_SHOWN`], or all of them once `all` is set ("+N more").
+fn affinity_row(
+    ui: &mut Ui,
+    card: &Card,
+    links: &board::Links,
+    on_table: &[u32],
+    all: &mut bool,
+    lang: Lang,
+) {
+    caps(ui, &tr!(lang, "cat.affinity"));
+    let partners: Vec<_> = links
+        .affinity
+        .iter()
+        .flat_map(|a| a.partners(card.number))
+        .collect();
+    if partners.is_empty() {
+        ui.label(
+            egui::RichText::new(tr!(lang, "cat.no_partners"))
+                .font(theme::body(HINT))
+                .color(theme::TEXT_DIM),
+        );
+    }
+    let shown = if *all { partners.len() } else { PARTNERS_SHOWN };
+    for (p, v) in partners.iter().take(shown) {
+        // the row's 32-point lead (room for a link line) parts one partner from the last
+        board::partner_row(ui, &p.name, None, Some(*v), 190.0);
+        if p.cards.iter().any(|n| on_table.contains(n)) {
+            let (r, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
+            super::widgets::tone_icon(ui.painter(), r.center(), Tone::Done);
+        }
+    }
+    if partners.len() > PARTNERS_SHOWN {
+        let more = if *all {
+            tr!(lang, "cat.fewer")
+        } else {
+            tr!(lang, "board.more", n = partners.len() - PARTNERS_SHOWN)
+        };
+        if chip(ui, &more, false, None).clicked() {
+            *all = !*all;
+        }
+    }
 }
 
-/// The card's stats and its ADD button; `true` = ADD clicked.
-/// The focused card's stats, ADD under them; returns (ADD clicked, the face clicked: the card view asked for).
-fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> (bool, bool) {
-    let face = sizing::hover_face(ui.ctx().pixels_per_point());
-    let u = sizing::text_unit(face.x);
+/// The focused card's detail: its picture at whole pixels ([`sizing::whole_fit`]) with a FRONT | BACK toggle
+/// (`back`), TOTAL, the position, name, club line, best roles, the six stats in two rows, ADD. Returns (ADD clicked,
+/// the picture clicked: the card view asked for).
+fn stats_pane(ui: &mut Ui, card: &Card, back: &mut bool, lang: Lang) -> (bool, bool) {
+    use egui::emath::GuiRounding as _;
+    let ppp = ui.ctx().pixels_per_point();
     egui::Frame::new()
         .fill(theme::WELL)
         .corner_radius(theme::RADIUS_BIG)
@@ -3639,24 +3654,46 @@ fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> (bool, bool) {
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.spacing_mut().item_spacing.y = 4.0;
-            let mut open = false;
+            let w = ui.available_width();
+            let mut side = usize::from(*back);
+            if segmented(
+                ui,
+                &mut side,
+                &[&tr!(lang, "cat.front"), &tr!(lang, "cat.back")],
+                w,
+            ) {
+                *back = side == 1;
+            }
+            // the picture's own pixels when it is loaded, else the album art's slot (the drawn stand-in)
+            let pic = board::card_picture_px(ui.ctx(), card.number, *back, false)
+                .map_or(sizing::ALBUM, |(_, px)| px);
+            // the room under it: the rest of the pane is about 260 points
+            let room = vec2(w, (ui.available_height() - 260.0).max(160.0));
+            let size = sizing::whole_fit(pic, room, ppp);
+            let (slot, resp) = ui.allocate_exact_size(vec2(w, size.y), Sense::click());
+            let open = resp
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .clicked();
+            let r = Rect::from_min_size(
+                pos2(slot.center().x - size.x / 2.0, slot.top()).round_to_pixels(ppp),
+                size,
+            );
+            board::card_side(
+                ui.painter(),
+                r,
+                card,
+                *back,
+                size.x * ppp > pic.x + 0.5,
+                lang,
+            );
             ui.horizontal(|ui| {
-                let (r, resp) = ui.allocate_exact_size(face, Sense::click());
-                open = resp
-                    .on_hover_cursor(egui::CursorIcon::PointingHand)
-                    .clicked();
-                board::card_face(ui.painter(), r, card, board::Look::default());
+                ui.label(
+                    egui::RichText::new(card.total.to_string())
+                        .font(theme::display(40.0))
+                        .color(theme::AMBER),
+                );
                 ui.vertical(|ui| {
-                    ui.label(
-                        egui::RichText::new(tr!(lang, "cat.total"))
-                            .font(theme::display(14.0 * u))
-                            .color(theme::TEXT_DIM),
-                    );
-                    ui.label(
-                        egui::RichText::new(card.total.to_string())
-                            .font(theme::display(48.0 * u))
-                            .color(theme::AMBER),
-                    );
+                    ui.add_space(6.0);
                     ui.horizontal(|ui| {
                         chip(ui, card.pos.code(), true, Some(card.pos.color()));
                         // the printed code: the original's, never translated
@@ -3668,7 +3705,7 @@ fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> (bool, bool) {
             });
             ui.label(
                 egui::RichText::new(&card.name)
-                    .font(theme::display(22.0 * u))
+                    .font(theme::display(20.0))
                     .color(theme::TEXT),
             );
             ui.label(
@@ -3676,7 +3713,7 @@ fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> (bool, bool) {
                     "{} · {} · {}",
                     card.club, card.country, card.season
                 ))
-                .font(theme::body(HINT * u))
+                .font(theme::body(HINT))
                 .color(theme::TEXT_DIM),
             );
             // every role at the card's top rating (a card rated from its position flags has them all at 8)
@@ -3690,19 +3727,57 @@ fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> (bool, bool) {
             if !best.is_empty() {
                 ui.label(
                     egui::RichText::new(tr!(lang, "cat.best_role", roles = best.join(" ")))
-                        .font(theme::body(HINT * u))
+                        .font(theme::body(HINT))
                         .color(theme::TEXT_DIM),
                 );
             }
             ui.add_space(4.0);
-            let w = ui.available_width();
-            let names = STATS.map(|k| tr!(lang, k));
-            widgets::stat_bars(ui, card, &names, &tr!(lang, "cat.secret"), w);
+            stat_grid(ui, card, lang, w);
             ui.add_space(6.0);
             let add = cabinet(ui, vec2(w, 44.0), &tr!(lang, "cat.add"), Cab::Go, true).clicked();
             (add, open)
         })
         .inner
+}
+
+/// The six stats in two rows of three, `label value` each; SECRET across both rows for a secret card.
+fn stat_grid(ui: &mut Ui, card: &Card, lang: Lang, w: f32) {
+    let (rect, _) = ui.allocate_exact_size(vec2(w, 48.0), Sense::hover());
+    let p = ui.painter();
+    p.rect_filled(rect, 4, theme::DEEP);
+    if card.secret {
+        let t = tr!(lang, "cat.secret");
+        p.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            t,
+            theme::display(24.0),
+            theme::TEXT_DIM,
+        );
+        return;
+    }
+    let cell = vec2(w / 3.0, 24.0);
+    for (i, (k, v)) in STATS.into_iter().zip(card.stats).enumerate() {
+        let c = Rect::from_min_size(
+            rect.min + vec2((i % 3) as f32 * cell.x, (i / 3) as f32 * cell.y),
+            cell,
+        )
+        .shrink2(vec2(8.0, 0.0));
+        p.text(
+            c.left_center(),
+            egui::Align2::LEFT_CENTER,
+            tr!(lang, k),
+            theme::display(14.0),
+            theme::TEXT_DIM,
+        );
+        p.text(
+            c.right_center(),
+            egui::Align2::RIGHT_CENTER,
+            v.to_string(),
+            theme::display(18.0),
+            theme::TEXT,
+        );
+    }
 }
 
 // ---- KEYS ----

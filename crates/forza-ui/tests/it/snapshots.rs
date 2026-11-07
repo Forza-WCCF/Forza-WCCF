@@ -731,6 +731,56 @@ fn board_links() {
     h.snapshot("panel_catalogue_affinity_en");
 }
 
+/// The 2017-18 catalogue at 1920x1080 points, x1 and 125 %: the grid fills its width (6 cards a row and more), the
+/// detail pane draws the focused card's picture at whole pixels (a made-up 256x357 pattern of single-pixel lines,
+/// blurred if ever scaled by a fraction), its best five partners under the stats.
+#[test]
+fn catalogue_1080() {
+    let _gpu = gpu();
+    let dir = tempfile::tempdir().expect("a temp folder");
+    let ci = 7;
+    let no = forza_ui::sample::cards()[ci].number;
+    image::RgbaImage::from_fn(256, 357, |x, y| {
+        if (x + y) % 2 == 0 || x % 32 == 0 || y % 32 == 0 {
+            image::Rgba([200, 60, 40, 255])
+        } else {
+            image::Rgba([235, 235, 225, 255])
+        }
+    })
+    .save_with_format(
+        dir.path().join(format!("{no}_f.jpg")),
+        image::ImageFormat::Png,
+    )
+    .expect("a picture written");
+    let mut all = SnapshotResults::new();
+    for (ppp, name) in [
+        (1.0, "panel_catalogue_1080_en"),
+        (1.25, "panel_catalogue_1080_125_en"),
+    ] {
+        let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Catalogue);
+        st.links = forza_ui::sample::links();
+        st.catalogue.filter = Default::default();
+        st.catalogue.focus = Some(ci);
+        let path = dir.path().to_owned();
+        let mut first = true;
+        let mut h = harness(Vec2::new(1920.0, 1080.0), ppp, Edition::E1718, |ui| {
+            if first {
+                forza_ui::board::set_picture_dir(ui.ctx(), Some(path.clone()));
+                first = false;
+            }
+            panel::show(ui, &mut st)
+        });
+        // the file loads on a thread: step until it shows
+        for _ in 0..40 {
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        h.snapshot(name);
+        all.extend_harness(&mut h);
+    }
+    all.unwrap();
+}
+
 /// 2017-18: RESET LINEUP under the board, lit after a match when the table changed, greyed out in a match.
 #[test]
 fn board_reset_lineup() {
