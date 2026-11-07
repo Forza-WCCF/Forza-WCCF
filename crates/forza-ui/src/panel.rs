@@ -6042,7 +6042,10 @@ mod tests {
         lineup_tick(&mut st, None, None, &start);
         assert!(reset_hint(&st, Lang::En).starts_with("Already the lineup"));
         st.in_match = true;
-        assert_eq!(reset_hint(&st, Lang::En), "Not during a match");
+        assert_eq!(
+            reset_hint(&st, Lang::En),
+            "The lineup cannot be reset during a match."
+        );
     }
 
     /// The game leaves the seat's match flag on after a match: out of the match the table is neither kept again nor
