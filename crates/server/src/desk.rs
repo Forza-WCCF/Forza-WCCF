@@ -109,6 +109,12 @@ pub struct DeskConfig {
     /// club there without a seat, and it replaces what the server kept for the card
     /// ([`forza::online::club::Store::import_public`]).
     pub club_public: bool,
+    /// Who may use `CLUB` on a public server: the game server's allowlist (`forza-server all`, unless
+    /// `--allow-any`). None: anyone.
+    pub club_allow: Option<Allow>,
+    /// The arcade host's own cards (its `aimedb.json`, beside the `gamesvr` folder of [`DeskConfig::club_db`] as the
+    /// Launcher lays them out): a bring never replaces the club of one of them ([`forza::online::club::serve`]).
+    pub club_cards: Option<PathBuf>,
     /// The game server's open connections when they run together (`forza-server all`): 2017-18 players log in there
     /// with a card and take no seat, so the lobby row counts their cards, and the desk logs a summary line every
     /// [`DeskConfig::summary_every`] while anyone is on.
@@ -120,6 +126,16 @@ pub struct DeskConfig {
     /// example: `docs/SELF-HOSTING.md`). Read again when its time changes; missing or unreadable = no notice, and a
     /// `start`/`end` that is not such a date drops the notice too (the log says why). None: never a notice.
     pub notice: Option<PathBuf>,
+}
+
+/// An address check ([`DeskConfig::club_allow`]).
+#[derive(Clone)]
+pub struct Allow(pub Arc<dyn Fn(std::net::IpAddr) -> bool + Send + Sync>);
+
+impl std::fmt::Debug for Allow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Allow(..)")
+    }
 }
 
 /// A positive count from the environment variable `name`, else `default`.
@@ -145,6 +161,10 @@ impl DeskConfig {
             tunnel: std::env::var("WCCF_DESK_TUNNEL").is_ok_and(|v| v == "1"),
             club_db: std::env::var_os("WCCF_CLUB_DB").map(PathBuf::from),
             club_public: false,
+            club_allow: None,
+            // save\gamesvr\gamesvr.db and save\aimedb.json (launcher run/mod.rs)
+            club_cards: std::env::var_os("WCCF_CLUB_DB")
+                .and_then(|db| Some(Path::new(&db).parent()?.parent()?.join("aimedb.json"))),
             sessions: None,
             summary_every: Duration::from_secs(300),
             notice: std::env::var_os("WCCF_NOTICE")
@@ -650,17 +670,33 @@ fn session(
                 return out.write_all(b"NO no club store here\n");
             };
             let public = sh.cfg.club_public;
+            // the game server's allowlist holds for the clubs brought to it as well
+            if public
+                && let Some(allow) = &sh.cfg.club_allow
+                && !ip.parse().is_ok_and(|a| allow.0(a))
+            {
+                return out.write_all(b"NO not allowed on this server\n");
+            }
             // no seat holds a public server's uploads back: the per-address ask limit does
             if public && line.starts_with("CLUB PUT") && sh.slow(ip, Instant::now()) {
                 return out.write_all(b"NO slow\n");
             }
             let held = |s: u8| sh.state.lock().unwrap().leases.contains_key(&s);
+            // a cards file it cannot read counts every Aime id as the host's own: nothing kept is replaced
+            let own = |aime: u32| {
+                sh.cfg.club_cards.as_ref().is_some_and(|f| {
+                    forza::standins::aimedb::Db::open(f.clone())
+                        .ok()
+                        .is_none_or(|db| db.holds(aime))
+                })
+            };
             let said = forza::online::club::serve(
                 db,
                 &line,
                 std::mem::take(&mut lines.buf),
                 &mut out,
                 &held,
+                &own,
                 public,
             )?;
             if !said.is_empty() {

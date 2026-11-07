@@ -180,7 +180,7 @@ fn start_desk(
     port: Option<u16>,
     log_file: Option<&Path>,
     vs: Option<Arc<vs::Matcher>>,
-    club: Option<PathBuf>,
+    club: Option<(PathBuf, Option<desk::Allow>)>,
     sessions: Option<Arc<Sessions>>,
     store: Option<&Path>,
     log: Log,
@@ -195,9 +195,11 @@ fn start_desk(
                 .join("notice.json"),
         )
     });
-    if let Some(db) = club {
+    if let Some((db, allow)) = club {
         c.club_db = Some(db);
         c.club_public = true;
+        c.club_allow = allow;
+        c.club_cards = None; // a server has no cards of its own
     }
     c.bind = bind();
     c.port = port.unwrap_or_else(|| env("WCCF_BROKER_PORT", c.port));
@@ -409,9 +411,12 @@ where
             // and one view of who is on the game server: the desk's lobby row counts its cards
             let sessions = gmsvr.then(Arc::<Sessions>::default);
             // players bring their clubs to the game server beside the desk (forza::online::club), unless
-            // WCCF_CLUB_DB names another store
-            let club = (gmsvr && std::env::var_os("WCCF_CLUB_DB").is_none())
-                .then(|| g.store.join("gamesvr.db"));
+            // WCCF_CLUB_DB names another store; the game server's allowlist holds there too
+            let club = (gmsvr && std::env::var_os("WCCF_CLUB_DB").is_none()).then(|| {
+                let allow = (!g.allow_any)
+                    .then(|| desk::Allow(allowlist(g.allow.clone(), g.allow_file.clone())));
+                (g.store.join("gamesvr.db"), allow)
+            });
             let services = vec![
                 start_desk(
                     ed,
