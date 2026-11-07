@@ -206,11 +206,18 @@ fn is_this_pc(name: *const u8) -> bool {
     };
     me[255] = 0;
     let len = me.iter().position(|&b| b == 0).unwrap_or(255);
-    if !ok || !name.eq_ignore_ascii_case(&me[..len]) {
+    // len <= 255: both fit `me` and the 256-byte name buffer
+    let (Some(mine), Some(with_nul)) = (me.get(..len), me.get(..=len)) else {
+        return false;
+    };
+    if !ok || !name.eq_ignore_ascii_case(mine) {
         return false;
     }
     // SAFETY: the name buffer only; the game reads it after this call returns
-    unsafe { (&mut (*HOST.0.get()).name)[..=len].copy_from_slice(&me[..=len]) };
+    let Some(dst) = (unsafe { (*HOST.0.get()).name.get_mut(..=len) }) else {
+        return false;
+    };
+    dst.copy_from_slice(with_nul);
     true
 }
 

@@ -37,11 +37,17 @@ pub fn open() {
     let mut c = Cursor::new(&mut name[..]);
     let _ = write!(c, "\\mxhook_{}.log", std::process::id()); // at most 26 bytes
     let len = c.position() as usize;
-    let name = &name[..len];
-    for (w, &b) in wide[n..].iter_mut().zip(name) {
+    // n < DIR and the name is under 32 bytes: both fit `wide`
+    let (Some(name), Some(tail)) = (name.get(..len), wide.get_mut(n..)) else {
+        return;
+    };
+    for (w, &b) in tail.iter_mut().zip(name) {
         *w = u16::from(b);
     }
-    wide[n + name.len()] = 0;
+    let Some(end) = wide.get_mut(n + name.len()) else {
+        return;
+    };
+    *end = 0;
     // SAFETY: a NUL-terminated path; the handle lives as long as the process
     let h = unsafe {
         CreateFileW(
@@ -75,7 +81,11 @@ pub fn line(args: fmt::Arguments) {
     let mut c = Cursor::new(&mut buf[..1198]);
     let _ = c.write_fmt(args); // a longer line is cut
     let n = c.position() as usize;
-    buf[n..n + 2].copy_from_slice(b"\r\n");
+    // n <= 1198: the cursor's slice
+    let Some(end) = buf.get_mut(n..n + 2) else {
+        return;
+    };
+    end.copy_from_slice(b"\r\n");
     let _held = LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);

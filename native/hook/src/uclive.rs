@@ -128,12 +128,21 @@ pub fn apply(span: &mut [u8], span_at: usize, thunk: usize) -> Result<(), usize>
             return Err(off);
         }
     }
-    span[IMM] = 0;
     let at = UC - REPLAY;
     let rel = thunk.wrapping_sub(span_at + at + 5) as u32;
-    span[at] = 0xE8;
-    span[at + 1..at + 5].copy_from_slice(&rel.to_le_bytes());
-    span[at + 5..at + 7].copy_from_slice(&[0x90, 0x90]);
+    let mut call = [0x90; 7];
+    call[0] = 0xE8;
+    call[1..5].copy_from_slice(&rel.to_le_bytes());
+    // both sites passed the check above, so both are in `span`; Err before any write all the same
+    if span.get(IMM).is_none() || span.get(at..at + 7).is_none() {
+        return Err(UC);
+    }
+    if let Some(b) = span.get_mut(IMM) {
+        *b = 0;
+    }
+    if let Some(site) = span.get_mut(at..at + 7) {
+        site.copy_from_slice(&call);
+    }
     Ok(())
 }
 
