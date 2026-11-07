@@ -1225,10 +1225,16 @@ pub fn field(ui: &mut Ui, label: &str, width: f32) -> Response {
     resp
 }
 
-/// An option as a row: a painted switch, a title and a one-line hint. The whole row toggles.
+/// An option as a row: a painted switch, a title and a hint, wrapped onto more lines when it needs them (the row grows).
+/// The whole row toggles.
 pub fn toggle_row(ui: &mut Ui, on: &mut bool, title: &str, hint: &str) -> Response {
     let w = ui.available_width();
-    let (rect, resp) = ui.allocate_exact_size(vec2(w, 44.0), Sense::click());
+    let x = 6.0 + 38.0 + 12.0; // the switch's margin, its width, the gap
+    let hint = ui
+        .painter()
+        .layout(hint.to_owned(), theme::body(12.0), theme::TEXT_DIM, w - x);
+    let (rect, resp) =
+        ui.allocate_exact_size(vec2(w, (27.0 + hint.size().y).max(44.0)), Sense::click());
     resp.widget_info(|| WidgetInfo::selected(Role::CheckBox, true, *on, title));
     if resp.clicked() {
         *on = !*on;
@@ -1238,10 +1244,7 @@ pub fn toggle_row(ui: &mut Ui, on: &mut bool, title: &str, hint: &str) -> Respon
     if resp.hovered() {
         p.rect_filled(rect, theme::RADIUS, theme::RAISED.gamma_multiply(0.6));
     }
-    let sw = Rect::from_min_size(
-        pos2(rect.left() + 6.0, rect.center().y - 10.0),
-        vec2(38.0, 20.0),
-    );
+    let sw = Rect::from_min_size(pos2(rect.left() + 6.0, rect.top() + 12.0), vec2(38.0, 20.0));
     p.rect_filled(sw, 10, theme::RAISED.lerp_to_gamma(theme::GREEN, t));
     p.rect_stroke(
         sw,
@@ -1254,17 +1257,10 @@ pub fn toggle_row(ui: &mut Ui, on: &mut bool, title: &str, hint: &str) -> Respon
         7.0,
         Color32::WHITE,
     );
-    let x = sw.right() + 12.0;
+    let x = rect.left() + x;
     let g = fit(p, title, theme::bold(14.0), theme::TEXT, rect.right() - x);
     p.galley(pos2(x, rect.top() + 3.0), g, theme::TEXT);
-    let g = fit(
-        p,
-        hint,
-        theme::body(12.0),
-        theme::TEXT_DIM,
-        rect.right() - x,
-    );
-    p.galley(pos2(x, rect.top() + 23.0), g, theme::TEXT_DIM);
+    p.galley(pos2(x, rect.top() + 23.0), hint, theme::TEXT_DIM);
     resp
 }
 

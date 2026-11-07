@@ -1803,9 +1803,11 @@ impl Run<'_> {
         } else {
             let ctrl_conf = self.game.join(r"local\ctrl_user_option.conf");
             if matches!(self.mode, Mode::Local | Mode::Vs(_)) {
-                // 2017-18 CPU championship off: no projector program (it plays the championship), nobody waits for it;
-                // the "projector" setting only shows or hides its window (the panel in it)
-                projector = self.edition != Edition::E1718 || choices::cpu_championship_on(&self.kit.settings());
+                // 2017-18: the projector program runs for its window or for the CPU championship it plays (hidden when
+                // only the championship wants it); with both off, none, and nobody waits for it
+                let s = self.kit.settings();
+                projector =
+                    self.edition != Edition::E1718 || choices::projector_shown(&s) || choices::cpu_championship_on(&s);
                 let wait = if projector { "1" } else { "0" };
                 for c in &confs {
                     conf::set_control_ip(c, "127.0.0.1")?; // after a "remote" run: the cabinets play on this PC again
@@ -1828,7 +1830,14 @@ impl Run<'_> {
                 // the control saves the Universal Championship in log\<date>_uc.bin but makes no folder (0x41EF00)
                 fs::create_dir_all(game.join("log"))?;
             }
-            self.start_game(Role::Server, p.control_args.clone(), &game, !self.debug, Vec::new())?;
+            // the CPU championship off: the control's hook keeps an all-CPU Universal Championship off the projector
+            // (native/hook/src/uclive.rs); the projector then plays the control's own demo pair instead
+            let env = if self.edition == Edition::E1718 && !choices::cpu_championship_on(&self.kit.settings()) {
+                vec![("WCCF_UCLIVE".to_owned(), "on".to_owned())]
+            } else {
+                Vec::new()
+            };
+            self.start_game(Role::Server, p.control_args.clone(), &game, !self.debug, env)?;
             let said = std::cell::Cell::new(false);
             wait_for(
                 Text::key("launcher.run_part_server"),

@@ -47,9 +47,9 @@ launcher.pictures_remove_ask: {en: "Remove the high-quality card pictures? The g
 launcher.skip_tutorial: {en: "Skip the tutorial", it: "Salta il tutorial", ja: "チュートリアルを省略"}
 launcher.skip_tutorial_hint: {en: "Applied at the next start.", it: "Si applica al prossimo avvio.", ja: "次回の起動時に反映されます。"}
 launcher.projector: {en: "Projector", it: "Proiettore", ja: "プロジェクター"}
-launcher.projector_hint: {en: "Its window, shown or hidden at once. Also in the game's SETTINGS.", it: "La sua finestra, mostrata o nascosta subito. Anche nelle IMPOSTAZIONI del gioco.", ja: "ウィンドウをすぐに表示・非表示。ゲームの設定でも変更できます。"}
+launcher.projector_hint: {en: "Shows the big screen with live matches or a demo match in its own window. You can also switch it in the game's SETTINGS.", it: "Mostra il maxischermo con le partite dal vivo o una partita dimostrativa in una finestra a parte. Puoi cambiarlo anche nelle IMPOSTAZIONI del gioco.", ja: "ライブの試合またはデモ試合を映す大型スクリーンを専用のウィンドウで表示します。ゲームの設定でも切り替えられます。"}
 launcher.cpu_championship: {en: "CPU championship", it: "Campionato CPU", ja: "CPU大会"}
-launcher.cpu_championship_hint: {en: "Plays on the projector, shown or hidden. Off saves CPU. Applied at the next start.", it: "Si gioca sul proiettore, visibile o nascosto. Off risparmia CPU. Si applica al prossimo avvio.", ja: "プロジェクターで行われます (表示・非表示どちらでも)。オフでCPUを節約。次回の起動時に反映されます。"}
+launcher.cpu_championship_hint: {en: "CPU teams play a championship on the projector; when it is off, the projector shows a demo match. Takes effect the next time you play.", it: "Squadre della CPU giocano un campionato sul proiettore; se è disattivato, il proiettore mostra una partita dimostrativa. Si applica la prossima volta che giochi.", ja: "CPUチーム同士の大会をプロジェクターで行います（オフのときはデモ試合を表示します）。次回のプレイから反映されます。"}
 launcher.cleanup: {en: "CLEAN UP AFTER A CRASH", it: "RIPULISCI DOPO UN BLOCCO", ja: "クラッシュ後の後片付け"}
 launcher.cleanup_hint: {en: "Removes what a crashed game left behind. Your club is kept.", it: "Rimuove i resti di un blocco. Il tuo club resta.", ja: "クラッシュの残りを片付けます。クラブは残ります。"}
 launcher.cleanup_done: {en: "Items cleaned: %{n}. Backup: %{path}", it: "Elementi ripuliti: %{n}. Copia: %{path}", ja: "片付けた項目：%{n}。バックアップ：%{path}"}
@@ -464,7 +464,7 @@ settings.msg_board_window: {en: "Formation board in its own window: move it to a
 settings.msg_board_docked: {en: "Formation board back with the game", it: "Formazione di nuovo con il gioco", ja: "フォーメーションをゲーム画面に戻しました"}
 settings.board_buttons: {en: "Buttons on the board window", it: "Pulsanti nella finestra della formazione", ja: "ボードのウィンドウにもボタン"}
 settings.board_buttons_hint: {en: "The popped-out formation board window also shows the cabinet buttons.", it: "La finestra della formazione in pop-out mostra anche i pulsanti del cabinato.", ja: "ポップアウトしたフォーメーションのウィンドウにも筐体のボタンを表示します。"}
-settings.projector_hint: {en: "Its window, shown or hidden at once. Needs the CPU championship on: set it in the Launcher.", it: "La sua finestra, mostrata o nascosta subito. Serve il campionato CPU attivo: si imposta nel Launcher.", ja: "ウィンドウをすぐに表示・非表示。CPU大会がオンのときだけ表示されます。Launcher で設定します。"}
+settings.projector_hint: {en: "Shows the big screen with live matches or a demo match in its own window. If it does not appear now, it appears the next time you play.", it: "Mostra il maxischermo con le partite dal vivo o una partita dimostrativa in una finestra a parte. Se non compare subito, compare la prossima volta che giochi.", ja: "ライブの試合またはデモ試合を映す大型スクリーンを専用のウィンドウで表示します。すぐに表示されない場合は、次回のプレイから表示されます。"}
 settings.pad_bg: {en: "Controller in the background", it: "Controller in secondo piano", ja: "バックグラウンドでもコントローラー"}
 settings.pad_bg_hint: {en: "The controller keeps working while another window is in front. The keyboard stops working then.", it: "Il controller funziona anche con un'altra finestra davanti. In quel caso la tastiera smette di funzionare.", ja: "ほかのウィンドウが前面にあってもコントローラーは動きます。そのときキーボードは動きません。"}
 settings.pad_bg_seats: {en: "The setting turns off while 2 or more seats run on this PC, because all controllers count as one.", it: "L'impostazione si disattiva mentre su questo PC girano 2 o più posti: i controller contano come uno solo.", ja: "このPCで2席以上を動かしている間は無効になります。コントローラーが1台として扱われるためです。"}
@@ -748,7 +748,7 @@ launcher.run_remote_seat_projector: {en: "server %{ip}, port %{port}: seat %{sea
 launcher.run_server_up: {en: "server on port %{port} (%{n} match engines)", it: "server sulla port %{port} (%{n} motori di partita)", ja: "ポート %{port} のサーバー(試合エンジン %{n} 個)"}
 launcher.run_projector: {en: "projector", it: "proiettore", ja: "プロジェクター"}
 launcher.run_no_projector_1011: {en: "no projector here (each PC runs its own cabinet)", it: "nessun proiettore qui (ogni PC usa il proprio cabinato)", ja: "ここにはプロジェクターはありません (各PCがそれぞれの筐体を動かします)"}
-launcher.run_projector_off: {en: "no projector: CPU championship off", it: "nessun proiettore: campionato CPU disattivato", ja: "プロジェクターなし：CPU大会オフ"}
+launcher.run_projector_off: {en: "no projector: Projector and CPU championship off", it: "nessun proiettore: Proiettore e campionato CPU disattivati", ja: "プロジェクターなし：プロジェクターとCPU大会がオフ"}
 launcher.run_projector_hidden: {en: "projector, its window hidden (Projector off)", it: "proiettore, finestra nascosta (Proiettore disattivato)", ja: "プロジェクター、ウィンドウ非表示 (プロジェクター オフ)"}
 launcher.run_no_projector_1718: {en: "no projector here (the server's first PC shows it)", it: "nessun proiettore qui (lo mostra il primo PC del server)", ja: "ここにはプロジェクターはありません (サーバーの最初のPCが表示します)"}
 launcher.run_money_by_game: {en: "projector: money overlay loaded by the game", it: "proiettore: overlay dei soldi caricato dal gioco", ja: "プロジェクター: 金額オーバーレイをゲームが読み込みました"}

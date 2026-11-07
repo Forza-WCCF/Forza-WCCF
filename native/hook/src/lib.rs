@@ -8,8 +8,8 @@
 //!    PC to the game with one address in the cabinet's network ([`net`]);
 //!  - both editions' game programs: answer the server's start of logowin.exe themselves ([`logowin`]);
 //!  - control (2010-11 on Windows, 2017-18 on Windows and Wine): gives it the players' messages only whole ([`whole`]);
-//!  - 2017-18 control, opt-in (WCCF_UCLIVE=on): the Universal Championship live on the projector only with a player's
-//!    club in it ([`uclive`]);
+//!  - 2017-18 control, WCCF_UCLIVE=on (the CPU championship off): the Universal Championship live on the projector
+//!    only with a player's club in it ([`uclive`]);
 //!  - both editions' game programs: their name lookups and WinInet calls fail for the publisher's network hosts
 //!    ([`forza_native::hosts`]; in 2017-18 also for the programs without wccfnet.dll, such as the original test mode);
 //!  - a server under Wine (both editions): loads netguard.dll as the second guard ([`net::load_netguard`]); 2010-11
