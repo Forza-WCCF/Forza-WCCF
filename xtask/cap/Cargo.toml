@@ -31,3 +31,4 @@ windows = { workspace = true, features = [
 
 [lints]
 workspace = true
+# clippy::pedantic (deny, this crate only) is in src/main.rs, for the reason in xtask/Cargo.toml
