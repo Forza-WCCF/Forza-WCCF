@@ -12,6 +12,13 @@
 //! entry 0x45DE47). Off unless WCCF_UCLIVE=on ([`opted_in`]), which the Launcher sets when the CPU championship setting
 //! is off; else the projector loops the CPU championship as before. With nothing live the control sends the projector
 //! its own demo pair (0x4394E0), which the panel's "projector league" patch lets show (crates/panel/src/patches.rs).
+//!
+//! The slot clock (2026-11-07): a FriendlyMatch slot's GAME state ends 14 s after control 0x461CD0 sees its match
+//! finished, the projector's live championship match while UC live is 1, else a seat's match; with neither it waits
+//! for the 980-s timeout (CoStateManage 0x456027), so with UC live 0 an empty slot lasted about 19 min instead of
+//! about 8 and a Launcher cup "In 8 min" opened 20 min after the start (next-0.7.1 UC-TRIAGE.md). The second patch
+//! replaces that call (0x456064) with [`slot_site`]: with UC live 0 the match counts as finished once the GAME state
+//! is [`GAME_SECS`] old, as long as the live championship match takes, so slots keep the original's length.
 
 /// The two `mov byte [ebp+14938h], 1` in GameManage's state entry (control sub_45D840), as offsets from the program's
 /// base (ASLR moves it): the replay store, patched to store 0, and the championship store, replaced by the call. Both
@@ -24,6 +31,18 @@ pub const ORIGINAL: [u8; 7] = [0xC6, 0x85, 0x38, 0x49, 0x01, 0x00, 0x01];
 pub const IMM: usize = 6;
 /// The bytes the hook writes, from the replay site to the end of the championship site (one page).
 pub const LEN: usize = UC + ORIGINAL.len() - REPLAY;
+
+/// CoStateManage's GAME-state test (control sub_455AD0 case 5): `call sub_461CD0` at 0x456064, whose answer "the
+/// slot's match is over" ends the state 14 s later.
+pub const SLOT: usize = 0x5_6064;
+/// The original `call sub_461CD0` (rel32 to 0x461CD0).
+pub const SLOT_ORIGINAL: [u8; 5] = [0xE8, 0x67, 0xBC, 0x00, 0x00];
+/// sub_461CD0, from the program's base.
+pub const FINISHED: usize = 0x6_1CD0;
+/// How long the GAME state of a slot without a live match lasts, seconds: the original's live championship match
+/// ends 318-334 s into it (control logs of 2026-11-01 and 11-04: slots of 489-505 s = 157 s around GAME + 14 s +
+/// this), so slots stay near the Launcher's 490 s (crates/forza-ui/src/lobby.rs CUP_SLOT_SECS).
+pub const GAME_SECS: u32 = 325;
 
 /// The day file's and GameManage's championship layout (control 0x47D0D0, 0x47CFC0): 3 match records of 7,636 bytes,
 /// each with team blocks of 3,800 bytes from +36; a block's +4 is its CPU id (0 = a player's team).
@@ -65,6 +84,27 @@ pub fn apply(span: &mut [u8], span_at: usize, thunk: usize) -> Result<(), usize>
     span[at + 1..at + 5].copy_from_slice(&rel.to_le_bytes());
     span[at + 5..at + 7].copy_from_slice(&[0x90, 0x90]);
     Ok(())
+}
+
+/// Checks the slot site's 5 bytes in `span` (at address `at`) and makes them `call thunk`. False: not
+/// [`SLOT_ORIGINAL`]; then nothing is written.
+pub fn apply_slot(span: &mut [u8], at: usize, thunk: usize) -> bool {
+    if span.get(..5) != Some(&SLOT_ORIGINAL) {
+        return false;
+    }
+    span[0] = 0xE8;
+    span[1..5].copy_from_slice(&(thunk.wrapping_sub(at + 5) as u32).to_le_bytes());
+    true
+}
+
+// the original's 980-s timeout stays far behind; slots stay near the Launcher's 490-s estimate
+const _: () =
+    assert!(GAME_SECS < 980 && 157 + GAME_SECS + 14 >= 480 && 157 + GAME_SECS + 14 <= 505);
+
+/// The GAME state's answer: the original's `finished`, or with UC live 0 and no Universal Cup round running (a cup
+/// round waits for its own matches, as before) a state [`GAME_SECS`] old (`secs` since it started).
+pub fn game_over(finished: bool, uc_live: bool, cup: bool, secs: i32) -> bool {
+    finished || (!uc_live && !cup && secs >= GAME_SECS as i32)
 }
 
 /// The championship site's call: `esi` = the championship object (GameManage +0x14934), `ebp` = GameManage. Every
@@ -115,13 +155,96 @@ extern "C" fn live_flag(ucs: *const u8) -> u8 {
     v
 }
 
+/// sub_461CD0's address in the running control, set by [`install`] before the patch.
+#[cfg(target_arch = "x86")]
+static FINISHED_AT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// The slot site's call: `eax` = GameManage (sub_461CD0's argument; +0x14904 the running cup and +0x14908 its "on",
+/// as sub_461CD0 and 0x45DF25 read them), `ebp` = CoStateManage (+0x80 its seconds, +0xA4 when the GAME state began). Returns sub_461CD0's `al`, or [`game_over`]'s; `ecx` and `edx` are free there (the
+/// caller reloads them, as after sub_461CD0).
+#[cfg(target_arch = "x86")]
+#[unsafe(naked)]
+unsafe extern "C" fn slot_site() {
+    core::arch::naked_asm!(
+        "push eax",
+        "call dword ptr [{orig}]",
+        "pop ecx",
+        "pushfd",
+        "pushad",
+        "mov edx, dword ptr [ebp+0x80]",
+        "sub edx, dword ptr [ebp+0xA4]",
+        "push edx",
+        "xor edx, edx",
+        "cmp dword ptr [ecx+0x14904], 0",
+        "je 2f",
+        "movzx edx, byte ptr [ecx+0x14908]",
+        "2:",
+        "push edx",
+        "movzx edx, byte ptr [ecx+0x14938]",
+        "push edx",
+        "movzx eax, al",
+        "push eax",
+        "call {f}",
+        "add esp, 16",
+        "mov byte ptr [esp+28], al",
+        "popad",
+        "popfd",
+        "ret",
+        orig = sym FINISHED_AT,
+        f = sym slot_over,
+    )
+}
+
+/// [`game_over`] for [`slot_site`]; logs the first slot it ends.
+#[cfg(target_arch = "x86")]
+extern "C" fn slot_over(finished: u32, uc_live: u32, cup: u32, secs: i32) -> u8 {
+    use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
+    static TOLD: AtomicBool = AtomicBool::new(false);
+    let over = game_over(finished != 0, uc_live != 0, cup != 0, secs);
+    if over && finished == 0 && !TOLD.swap(true, Relaxed) {
+        crate::log::log!(
+            "UC live: a slot without a live match ended after {secs} s of play, as with the championship on the projector"
+        );
+    }
+    u8::from(over)
+}
+
+/// Makes `len` bytes of control's code at `base + off` writable, lets `f` patch them (given their address) and puts
+/// the protection back. None: the page could not be made writable.
+#[cfg(target_arch = "x86")]
+fn patch_code<R>(
+    base: *const u8,
+    off: usize,
+    len: usize,
+    f: impl FnOnce(&mut [u8], usize) -> R,
+) -> Option<R> {
+    use windows_sys::Win32::System::Diagnostics::Debug::FlushInstructionCache;
+    use windows_sys::Win32::System::Memory::{PAGE_EXECUTE_READWRITE, VirtualProtect};
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+
+    let p = base.wrapping_add(off).cast_mut();
+    let mut prot = 0;
+    // SAFETY: len bytes of control's code inside its image (the caller checked its size), made writable for the patch,
+    // then put back; DllMain runs before control's own code, so nothing executes them meanwhile
+    unsafe {
+        if VirtualProtect(p.cast(), len, PAGE_EXECUTE_READWRITE, &mut prot) == 0 {
+            return None;
+        }
+        let r = f(std::slice::from_raw_parts_mut(p, len), p as usize);
+        if VirtualProtect(p.cast(), len, prot, &mut prot) == 0 {
+            crate::log::log!(
+                "UC live: control's code page at base+0x{off:X} stays writable (its protection could not be put back)"
+            );
+        }
+        FlushInstructionCache(GetCurrentProcess(), p.cast(), len);
+        Some(r)
+    }
+}
+
 #[cfg(target_arch = "x86")]
 pub fn install() {
     use crate::log::log;
     use crate::patch::{exe, exe_is};
-    use windows_sys::Win32::System::Diagnostics::Debug::FlushInstructionCache;
-    use windows_sys::Win32::System::Memory::{PAGE_EXECUTE_READWRITE, VirtualProtect};
-    use windows_sys::Win32::System::Threading::GetCurrentProcess;
 
     if !exe_is("control_Release.exe") {
         return;
@@ -144,38 +267,34 @@ pub fn install() {
         );
         return;
     }
-    let p = base.wrapping_add(REPLAY).cast_mut();
-    let mut prot = 0;
-    // SAFETY: LEN bytes of control's code inside its image (checked above), made writable for the patch, then put back;
-    // DllMain runs before control's own code, so nothing executes them meanwhile
-    let (done, restored) = unsafe {
-        if VirtualProtect(p.cast(), LEN, PAGE_EXECUTE_READWRITE, &mut prot) == 0 {
-            log!(
-                "UC live: NOT patched (page protection) - the projector may play an all-CPU championship"
-            );
-            return;
-        }
-        let done = apply(
-            std::slice::from_raw_parts_mut(p, LEN),
-            p as usize,
-            uc_site as *const () as usize,
-        );
-        let restored = VirtualProtect(p.cast(), LEN, prot, &mut prot) != 0;
-        FlushInstructionCache(GetCurrentProcess(), p.cast(), LEN);
-        (done, restored)
-    };
-    match done {
-        Ok(()) => log!(
+    match patch_code(base, REPLAY, LEN, |span, at| {
+        apply(span, at, uc_site as *const () as usize)
+    }) {
+        None => log!(
+            "UC live: NOT patched (page protection) - the projector may play an all-CPU championship"
+        ),
+        Some(Ok(())) => log!(
             "UC live: patched - the Universal Championship is live only with a player's club, competition matches still live"
         ),
-        Err(off) => log!(
+        Some(Err(off)) => log!(
             "UC live: NOT patched - control's bytes at base+0x{off:X} differ from 2017-18's ({:02X?}), another build",
             // SAFETY: inside the image (checked above)
             unsafe { base.add(off).cast::<[u8; 7]>().read_unaligned() }
         ),
     }
-    if !restored {
-        log!("UC live: control's code page stays writable (its protection could not be put back)");
+    FINISHED_AT.store(
+        base as usize + FINISHED,
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    match patch_code(base, SLOT, SLOT_ORIGINAL.len(), |span, at| {
+        apply_slot(span, at, slot_site as *const () as usize)
+    }) {
+        Some(true) => log!(
+            "UC live: slot clock patched - a slot without a live match lasts as long as one with it"
+        ),
+        _ => log!(
+            "UC live: slot clock NOT patched (control's bytes at base+0x{SLOT:X} differ, or page protection) - empty slots last about 19 min"
+        ),
     }
 }
 
@@ -261,6 +380,39 @@ mod tests {
         apply(&mut s, 0x40_0000 + REPLAY, 0x1000_0000).unwrap();
         assert_eq!(s[UC - REPLAY], 0xE8, "the call at 0x45DFAC");
         assert_eq!(s[IMM], 0, "the replay store");
+    }
+
+    #[test]
+    fn the_slot_site_is_the_game_state_s_call_to_sub_461cd0() {
+        // 0x456064: E8 rel32, rel from the next instruction 0x456069
+        let rel = i32::from_le_bytes(SLOT_ORIGINAL[1..].try_into().unwrap());
+        assert_eq!(0x40_0000 + SLOT + 5 + rel as usize, 0x40_0000 + FINISHED);
+        assert_eq!(0x40_0000 + FINISHED, 0x46_1CD0);
+        let (at, thunk) = (0x40_0000 + SLOT, 0x1000_0000);
+        let mut s = SLOT_ORIGINAL;
+        assert!(apply_slot(&mut s, at, thunk));
+        assert_eq!(s[0], 0xE8);
+        assert_eq!(
+            (at + 5).wrapping_add(i32::from_le_bytes(s[1..].try_into().unwrap()) as usize),
+            thunk
+        );
+        let before = s;
+        assert!(!apply_slot(&mut s, at, thunk), "patched already");
+        assert_eq!(s, before);
+        assert!(!apply_slot(&mut [0xE8; 4], at, thunk), "short");
+    }
+
+    #[test]
+    fn only_an_empty_friendly_slot_ends_at_game_secs() {
+        let g = GAME_SECS as i32;
+        // the original's answer always counts
+        assert!(game_over(true, false, false, 0) && game_over(true, true, true, 0));
+        // UC live 0, no cup round: the live match's length
+        assert!(!game_over(false, false, false, g - 1));
+        assert!(game_over(false, false, false, g));
+        // the championship live (its match ends the slot) or a cup round (its matches do): untouched
+        assert!(!game_over(false, true, false, 900));
+        assert!(!game_over(false, false, true, 900));
     }
 
     #[test]
