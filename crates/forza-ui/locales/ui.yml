@@ -378,7 +378,7 @@ board.reset_done: {en: "Lineup reset", it: "Formazione ripristinata", ja: "編�
 board.imported: {en: "Lineup imported", it: "Formazione importata", ja: "編成を読み込みました"}
 
 # ---- keys ----
-keys.hint: {en: "Click a cell, then press a key or button. Right-click KEY PLAYER or KEEPER on the cabinet to hold it down.", it: "Clicca una cella, poi premi un tasto o un pulsante. Clic destro su UOMO CHIAVE o PORTIERE del cabinato per tenerlo premuto.", ja: "マスをクリックし、キーまたはボタンを押す。筐体のキープレイヤー／キーパーは右クリックで押したままになります。"}
+keys.hint: {en: "Click a cell, then press a key or button.", it: "Clicca una cella, poi premi un tasto o un pulsante.", ja: "マスをクリックし、キーまたはボタンを押す。"}
 keys.no_controller: {en: "No controller found.", it: "Nessun controller trovato.", ja: "コントローラーが見つかりません。"}
 keys.none: {en: "none", it: "nessuno", ja: "なし"}
 keys.msg_keeps: {en: "%{action} keeps %{key}", it: "%{action} resta su %{key}", ja: "%{action} は %{key} のままです"}
