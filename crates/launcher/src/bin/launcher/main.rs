@@ -26,6 +26,7 @@
 
 mod link;
 mod online;
+mod pack;
 mod text;
 mod update;
 
@@ -80,6 +81,8 @@ enum Step {
     Game(Vec<OsString>),
     /// The card pictures (launcher::run::make_pictures), after setup and when the pictures choice changes
     Pictures,
+    /// DOWNLOAD the high-quality card pictures (pack::PACK), then chosen in data\settings.json for Step::Pictures
+    Pack,
     /// HOST ARCADE (2017-18): the server with its arcade room, then this PC's seat on it; the server ends after the seat, once
     /// no guest is connected. `true`: HOST LAN ARCADE, the server for this network only (`server lan`), no room
     Host(bool),
@@ -368,6 +371,14 @@ fn start(steps: Vec<Step>) -> bool {
                     setup_step(launcher::setup::game_text(&kit, lang, &WindowUi))
                 }
                 Step::Update(r) => update::apply(&kit, r).map(|()| updated = Some(r.tag.clone())),
+                Step::Pack => pack::PACK
+                    .fetch(&kit.data().join("downloads"), |d| fs4::available_space(d).ok())
+                    .and_then(|zip| {
+                        let file = kit.settings_file();
+                        choices::set_setting(&file, "card_pack", &zip.display().to_string())
+                            .and_then(|()| choices::set_setting(&file, "card_pictures", "hq"))
+                            .map_err(|e| write_failed(&file, &e))
+                    }),
                 Step::Pictures => {
                     say(t("launcher.msg_making_pictures"), 0);
                     run::make_pictures(&kit, &Params::of(&kit), &WindowUi)
@@ -821,7 +832,7 @@ impl App {
                 Tab::Play
             },
             folder: game,
-            pictures_hq: choices::setting(&settings, "card_pictures").as_deref() == Some("hq"),
+            pictures_hq: (kit.edition() == Edition::E1718).then(|| pictures_hq(kit)),
             skip_tutorial: (kit.edition() == Edition::E1718)
                 .then(|| kit.settings()["skip_tutorial"].as_bool() == Some(true)),
             projector: (kit.edition() == Edition::E1718).then(|| choices::projector_shown(&kit.settings())),
@@ -911,6 +922,9 @@ impl App {
             let mut s = shared();
             if reread_setup(self.st.busy, s.busy, s.setup_failed) {
                 self.st.set_up = set_up(&Kit::here());
+            }
+            if self.st.busy && !s.busy && self.st.pictures_hq.is_some() {
+                self.st.pictures_hq = Some(pictures_hq(&Kit::here()));
             }
             self.st.status.clone_from(&s.status);
             self.st.update_status.clone_from(&s.update_note);
@@ -1161,7 +1175,23 @@ impl App {
                 save_logs(kit.dir(), game);
             }
             Action::CleanUp => self.clean_up(&kit),
-            Action::Pictures { choose } => self.pictures(&kit, frame, choose),
+            Action::Pictures => {
+                if self.st.pictures_hq == Some(true) {
+                    self.ask(
+                        &t("launcher.pictures_remove_ask"),
+                        "launcher.pictures_remove",
+                        Action::PicturesNow,
+                    );
+                } else {
+                    let size = (pack::PACK.size >> 20).to_string();
+                    self.ask(
+                        &tf("launcher.pictures_download_ask", &[("size", &size)]),
+                        "launcher.pictures_download",
+                        Action::PicturesNow,
+                    );
+                }
+            }
+            Action::PicturesNow => self.pictures(&kit),
             Action::SkipTutorial => {
                 let file = kit.settings_file();
                 let on = self.st.skip_tutorial == Some(true);
@@ -1412,41 +1442,26 @@ impl App {
         start(vec![Step::Game(words)]);
     }
 
-    /// The board's card pictures: the game's own, or the high-quality pack (data\\settings.json "card_pictures" and
-    /// "card_pack"; made at setup and here, launcher::run::make_pictures).  The pack is asked for when none is known
-    /// yet, or with "Choose pack".
-    fn pictures(&mut self, kit: &Kit, frame: &eframe::Frame, choose: bool) {
-        let file = kit.settings_file();
-        let hq = self.st.pictures_hq || choose;
-        let known = choices::setting(&file, "card_pack").filter(|p| Path::new(p).is_file());
-        let pack = if !hq {
-            None
-        } else if let Some(p) = known.filter(|_| !choose) {
-            Some(p)
-        } else if let Some(p) = rfd::FileDialog::new()
-            .set_title(t("launcher.msg_pack_title"))
-            .add_filter("ZIP", &["zip"])
-            .set_parent(frame)
-            .pick_file()
-        {
-            Some(p.display().to_string())
-        } else {
-            // no pack: the choice stays as it was
-            self.st.pictures_hq = choices::setting(&file, "card_pictures").as_deref() == Some("hq");
-            return;
-        };
-        self.st.pictures_hq = pack.is_some();
-        let mut done = choices::set_setting(&file, "card_pictures", if pack.is_some() { "hq" } else { "game" });
-        if let Some(p) = &pack {
-            done = done.and_then(|()| choices::set_setting(&file, "card_pack", p));
-        }
-        match done {
-            Ok(()) => {
-                start(vec![Step::Pictures]);
+    /// The board's card pictures (data\\settings.json "card_pictures", made by launcher::run::make_pictures): REMOVE
+    /// goes back to the game's own (the ZIP stays in data\\downloads), DOWNLOAD fetches the pack first.
+    fn pictures(&mut self, kit: &Kit) {
+        if self.st.pictures_hq == Some(true) {
+            let file = kit.settings_file();
+            match choices::set_setting(&file, "card_pictures", "game") {
+                Ok(()) => {
+                    start(vec![Step::Pictures]);
+                }
+                Err(e) => refuse(write_failed(&file, &e)),
             }
-            Err(e) => refuse(write_failed(&file, &e)),
+        } else {
+            start(vec![Step::Pack, Step::Pictures]);
         }
     }
+}
+
+/// The downloaded card pictures are chosen.
+fn pictures_hq(kit: &Kit) -> bool {
+    choices::setting(&kit.settings_file(), "card_pictures").as_deref() == Some("hq")
 }
 
 fn write_failed(path: &Path, e: &std::io::Error) -> String {

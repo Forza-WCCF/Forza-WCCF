@@ -101,7 +101,7 @@ fn expected_hash(sha_file: Option<&str>, digest: Option<&str>) -> Option<String>
 }
 
 /// The file's SHA-256 is `expected`, hashed as it is read.
-fn verify(file: &Path, expected: &str) -> Result<(), String> {
+pub(crate) fn verify(file: &Path, expected: &str) -> Result<(), String> {
     let mut f = fs::File::open(file).map_err(|e| format!("{}: {e}", file.display()))?;
     let mut hash = Sha256::new();
     let mut buf = vec![0u8; 1 << 16];
@@ -152,6 +152,42 @@ fn running_check(kit: &Kit) -> Result<(), String> {
     }
 }
 
+/// curl.exe fetches `url` into `file` (`resume`: on from the bytes already there, an HTTP Range request), with the
+/// progress line "`label`  N / M MB" against `total` bytes every 200 ms.
+pub(crate) fn download(file: &Path, url: &str, total: u64, label: &str, resume: bool) -> Result<(), String> {
+    let mut cmd = curl();
+    if resume {
+        cmd.args(["-C", "-"]);
+    }
+    let mut child = cmd
+        .arg("-o")
+        .arg(file)
+        .args(["--url", url])
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| {
+            tf(
+                "launcher.msg_download_failed",
+                &[("error", &plain_error(&e.to_string()))],
+            )
+        })?;
+    while child.try_wait().map_err(|e| e.to_string())?.is_none() {
+        let got = fs::metadata(file).map_or(0, |m| m.len());
+        let mb = |b: u64| b as f64 / 1_048_576.0;
+        say(
+            format!("{label}  {:.1} / {:.1} MB", mb(got), mb(total)),
+            (got.saturating_mul(900) / total.max(1)).min(900) as u32,
+        );
+        thread::sleep(Duration::from_millis(200));
+    }
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        let why = plain_error(String::from_utf8_lossy(&out.stderr).trim());
+        return Err(tf("launcher.msg_download_failed", &[("error", &why)]));
+    }
+    Ok(())
+}
+
 /// Download, unzip, copy over the kit folder, remove what the new kit no longer ships.
 pub fn apply(kit: &Kit, r: &Release) -> Result<(), String> {
     if r.needs_installer {
@@ -175,38 +211,9 @@ pub fn apply(kit: &Kit, r: &Release) -> Result<(), String> {
         return Err(t("launcher.msg_unverified"));
     };
 
-    log(&tf("launcher.msg_downloading", &[("tag", &r.tag)]));
-    let mut child = curl()
-        .arg("-o")
-        .arg(&zip)
-        .args(["--url", &r.zip_url])
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| {
-            tf(
-                "launcher.msg_download_failed",
-                &[("error", &plain_error(&e.to_string()))],
-            )
-        })?;
-    while child.try_wait().map_err(|e| e.to_string())?.is_none() {
-        let got = fs::metadata(&zip).map_or(0, |m| m.len());
-        let mb = |b: u64| b as f64 / 1_048_576.0;
-        say(
-            format!(
-                "{}  {:.1} / {:.1} MB",
-                tf("launcher.msg_downloading", &[("tag", &r.tag)]),
-                mb(got),
-                mb(r.zip_size)
-            ),
-            (got.saturating_mul(900) / r.zip_size.max(1)).min(900) as u32,
-        );
-        thread::sleep(Duration::from_millis(200));
-    }
-    let out = child.wait_with_output().map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        let why = plain_error(String::from_utf8_lossy(&out.stderr).trim());
-        return Err(tf("launcher.msg_download_failed", &[("error", &why)]));
-    }
+    let label = tf("launcher.msg_downloading", &[("tag", &r.tag)]);
+    log(&label);
+    download(&zip, &r.zip_url, r.zip_size, &label, false)?;
 
     if let Err(e) = verify(&zip, &expected) {
         log(&format!("  {e}"));
