@@ -822,8 +822,6 @@ impl App {
             },
             folder: game,
             pictures_hq: choices::setting(&settings, "card_pictures").as_deref() == Some("hq"),
-            skip_tutorial: (kit.edition() == Edition::E1718)
-                .then(|| kit.settings()["skip_tutorial"].as_bool() == Some(true)),
             projector: (kit.edition() == Edition::E1718).then(|| choices::projector_shown(&kit.settings())),
             cpu_championship: (kit.edition() == Edition::E1718).then(|| choices::cpu_championship_on(&kit.settings())),
             club_server: (kit.edition() == Edition::E1718)
@@ -1162,13 +1160,6 @@ impl App {
             }
             Action::CleanUp => self.clean_up(&kit),
             Action::Pictures { choose } => self.pictures(&kit, frame, choose),
-            Action::SkipTutorial => {
-                let file = kit.settings_file();
-                let on = self.st.skip_tutorial == Some(true);
-                if let Err(e) = choices::set_setting_bool(&file, "skip_tutorial", on) {
-                    refuse(write_failed(&file, &e));
-                }
-            }
             Action::Projector => {
                 // the projector in the run picks it up within a second
                 let file = kit.settings_file();

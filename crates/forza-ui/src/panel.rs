@@ -4840,7 +4840,7 @@ pub struct WidgetSheet {
     pub seg: usize,
     pub range: (u8, u8),
     pub total: (u8, u8),
-    pub toggles: [bool; 2],
+    pub toggles: [bool; 1],
     pub launcher_lang: Lang,
 }
 
@@ -4851,7 +4851,7 @@ impl WidgetSheet {
             seg: 1,
             range: (8, 17),
             total: (60, 100),
-            toggles: [true, false],
+            toggles: [false],
             launcher_lang: lang,
         }
     }
@@ -5003,12 +5003,6 @@ pub fn widget_sheet(ui: &mut Ui, ws: &mut WidgetSheet) {
                     widgets::toggle_row(
                         ui,
                         &mut ws.toggles[0],
-                        &tr!(lang, "launcher.skip_tutorial"),
-                        &tr!(lang, "launcher.skip_tutorial_hint"),
-                    );
-                    widgets::toggle_row(
-                        ui,
-                        &mut ws.toggles[1],
                         &tr!(lang, "installer.opt_shortcuts"),
                         &tr!(lang, "installer.opt_shortcuts_hint"),
                     );

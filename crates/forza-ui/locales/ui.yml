@@ -40,8 +40,6 @@ launcher.card_pictures: {en: "CARD PICTURES", it: "IMMAGINI CARTE", ja: "カー�
 launcher.from_game: {en: "From the game", it: "Dal gioco", ja: "ゲームから"}
 launcher.hq_pack: {en: "High-quality pack", it: "Pacchetto HQ", ja: "高画質パック"}
 launcher.choose_pack: {en: "Choose pack…", it: "Scegli pacchetto…", ja: "パックを選択…"}
-launcher.skip_tutorial: {en: "Skip the tutorial", it: "Salta il tutorial", ja: "チュートリアルを省略"}
-launcher.skip_tutorial_hint: {en: "Applied at the next start.", it: "Si applica al prossimo avvio.", ja: "次回の起動時に反映されます。"}
 launcher.projector: {en: "Projector", it: "Proiettore", ja: "プロジェクター"}
 launcher.projector_hint: {en: "Its window, shown or hidden at once. Also in the game's SETTINGS.", it: "La sua finestra, mostrata o nascosta subito. Anche nelle IMPOSTAZIONI del gioco.", ja: "ウィンドウをすぐに表示・非表示。ゲームの設定でも変更できます。"}
 launcher.cpu_championship: {en: "CPU championship", it: "Campionato CPU", ja: "CPU大会"}
