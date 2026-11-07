@@ -139,7 +139,7 @@ pub const NO_DMATH: &str = "none";
 /// desyncs against one without, or with another dmath.dll, from the first differing frame): [`NO_DMATH`] without
 /// `game\dmath.dll`; else the first 16 hex digits of its SHA-256, with `-off` when the last engine start in the newer
 /// `dmath.log` (game or seat folder, wherever the engine ran) did not patch all sites and hook atan2, `-tst` when it
-/// ran a test mode of dmath.cfg (`foreign`, `frames`).
+/// ran a dmath.cfg mode that changes the math (`foreign`).
 /// shortcut: no dmath.log yet (no match played since setup) counts as patched, since setup pinned the engine; a strict
 /// check would refuse every first online match.
 pub fn dmath_token(game: &Path, seat: &Path) -> String {
@@ -185,10 +185,11 @@ pub fn dmath_token(game: &Path, seat: &Path) -> String {
         Some(l) if !l.contains(", atan2 hooked") || l.starts_with("det-math NOT") => {
             format!("{hash}-off")
         }
-        // only the normal mode ends at the CW value: foreign, frames or any later suffix must not pair with it (4
-        // letters, as `-off`: the vslink hello holds 20, vs::HELLO_DMATH)
+        // past the CW value only the frame log (no change to the math) pairs: foreign or any other suffix must not
+        // (4 letters, as `-off`: the vslink hello holds 20, vs::HELLO_DMATH)
         Some(l)
-            if l.rsplit_once(", CW ")
+            if l.trim_end_matches(", frame log on")
+                .rsplit_once(", CW ")
                 .is_none_or(|(_, cw)| cw.contains([' ', ','])) =>
         {
             format!("{hash}-tst")
@@ -425,14 +426,18 @@ mod tests {
 
     const DMATH_OK: &str = "det-math 140/140, atan2 hooked, MXCSR 0x1F80, CW 0x027F";
 
-    /// dmath.cfg `foreign` and `frames` (native/detmath/src/dll.rs `patch`) never pair with the normal mode.
+    /// dmath.cfg `foreign` (native/detmath/src/dll.rs `patch`) and any unknown suffix never pair with the normal
+    /// mode; `frames` alone only logs, and pairs.
     #[test]
     fn dmath_test_modes_never_pair_with_the_normal_hash() {
+        let log = format!("2026-11-06 22:44:17 pid=21684 {DMATH_OK}, frame log on\r\n");
+        let (token, hash) = token_with_log("frames", &log);
+        assert_eq!(token, hash);
         for (i, suffix) in [
             ", FOREIGN estimate (test)",
-            ", frame log on",
             ", FOREIGN estimate (test), frame log on",
             ", something later",
+            ", something later, frame log on",
         ]
         .iter()
         .enumerate()
