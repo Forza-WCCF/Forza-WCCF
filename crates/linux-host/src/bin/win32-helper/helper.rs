@@ -77,7 +77,7 @@ fn error() -> io::Error {
     io::Error::from_raw_os_error(unsafe { GetLastError() } as i32)
 }
 fn mapping(name: &str, data: &[u8]) -> io::Result<Handle> {
-    let name = CString::new(name).unwrap();
+    let name = CString::new(name).map_err(io::Error::other)?;
     // SAFETY: the name is a live NUL-terminated string; the view is checked, written within data.len() and unmapped
     unsafe {
         let h = CreateFileMappingA(
@@ -141,7 +141,10 @@ fn motion(game: &Path) -> io::Result<Vec<Handle>> {
     .enumerate()
     {
         let offset = body.len() as u32;
-        body[i * 4..i * 4 + 4].copy_from_slice(&offset.to_le_bytes());
+        // the 16-byte head: one offset per file
+        if let Some(at) = body.get_mut(i * 4..i * 4 + 4) {
+            at.copy_from_slice(&offset.to_le_bytes());
+        }
         body.extend(fs::read(game.join("AI/motion_data").join(name))?);
         while !body.len().is_multiple_of(4) {
             body.push(0);
@@ -157,7 +160,9 @@ fn scenes(game: PathBuf) -> io::Result<()> {
     let mut index = HashMap::new();
     for entry in fs::read_dir(game.join("data/motion/launcherMotion/xscn"))? {
         let path = entry?.path();
-        let name = path.file_name().unwrap().to_string_lossy();
+        let Some(name) = path.file_name().map(|n| n.to_string_lossy()) else {
+            continue;
+        };
         if name.ends_with(".xscn") {
             if let Ok(n) = name
                 .chars()
@@ -169,13 +174,13 @@ fn scenes(game: PathBuf) -> io::Result<()> {
             }
         }
     }
-    let mut board = vec![0u8; 0x5CC];
+    let mut board = [0u8; 0x5CC];
     board[4..8].copy_from_slice(&16u32.to_le_bytes());
     board[8..12].copy_from_slice(&32u32.to_le_bytes());
     let h = mapping("xscnWatch::ComBuf", &board)?;
     // SAFETY: the mutex name is NUL-terminated; the view covers board.len() bytes of the mapping made just above
     unsafe {
-        let name = CString::new("xscnWatch::Mutex").unwrap();
+        let name = CString::new("xscnWatch::Mutex").map_err(io::Error::other)?;
         let mutex = CreateMutexA(ptr::null_mut(), 0, name.as_ptr());
         let view = MapViewOfFile(h, 0xF001F, 0, 0, board.len()).cast::<u32>();
         if mutex.is_null() || view.is_null() {
@@ -230,7 +235,7 @@ fn image(handle: Handle) -> String {
             return String::new();
         }
     }
-    String::from_utf8_lossy(&path[..n as usize]).to_string()
+    String::from_utf8_lossy(path.get(..n as usize).unwrap_or_default()).to_string()
 }
 fn read_memory(process: Handle, address: u32, size: usize) -> Vec<u8> {
     let mut bytes = vec![0u8; size];
@@ -308,7 +313,7 @@ fn file_name(handle: Handle) -> String {
     if n == 0 || n as usize >= path.len() {
         return String::new();
     }
-    String::from_utf8_lossy(&path[..n as usize]).to_string()
+    String::from_utf8_lossy(path.get(..n as usize).unwrap_or_default()).to_string()
 }
 fn dump(process: Handle, thread: Handle, pid: u32, modules: &[(u32, String)]) -> Option<Context32> {
     let mut context = Context32 { words: [0; 179] };

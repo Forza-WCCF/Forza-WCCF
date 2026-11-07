@@ -11,7 +11,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, PoisonError,
         atomic::{AtomicBool, Ordering},
     },
     thread,
@@ -41,14 +41,16 @@ impl Seats {
                 if !(1..=8).contains(&n) {
                     return Err("ERR invalid seat".into());
                 }
-                if self.players[n - 1] {
+                if self.players.get(n - 1) != Some(&false) {
                     return Err(format!("TAKEN {n}"));
                 }
                 n - 1
             }
             _ => return Err("ERR say WANT or WANT SEAT n".into()),
         };
-        self.players[seat] = true;
+        if let Some(p) = self.players.get_mut(seat) {
+            *p = true;
+        }
         let show = self.projector.is_none();
         if show {
             self.projector = Some(seat);
@@ -56,7 +58,9 @@ impl Seats {
         Ok((seat, show))
     }
     fn release(&mut self, seat: usize) {
-        self.players[seat] = false;
+        if let Some(p) = self.players.get_mut(seat) {
+            *p = false;
+        }
         if self.projector == Some(seat) {
             self.projector = None;
         }
@@ -69,14 +73,13 @@ fn line(reader: &mut BufReader<TcpStream>) -> io::Result<String> {
         if buf.is_empty() {
             return Err(io::Error::other("connection closed"));
         }
-        let n = buf
-            .iter()
-            .position(|&b| b == b'\n')
-            .map_or(buf.len(), |i| i + 1);
+        // up to and with the first line end, else all of it
+        let part = buf.split_inclusive(|&b| b == b'\n').next().unwrap_or(buf);
+        let n = part.len();
         if out.len() + n > 256 {
             return Err(io::Error::other("line too long"));
         }
-        out.extend_from_slice(&buf[..n]);
+        out.extend_from_slice(part);
         reader.consume(n);
         if out.last() == Some(&b'\n') {
             return String::from_utf8(out).map_err(io::Error::other);
@@ -121,7 +124,10 @@ fn lease(
     let mut reader = BufReader::new(stream.try_clone()?);
     let peer = stream.peer_addr()?;
     let request = line(&mut reader)?;
-    let result = seats.lock().unwrap().take(&request);
+    let result = seats
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take(&request);
     match result {
         Err(e) => writeln!(stream, "{e}"),
         Ok((seat, show)) => {
@@ -147,7 +153,10 @@ fn lease(
                     stream.write_all(b"PONG\n")?;
                 }
             })();
-            seats.lock().unwrap().release(seat);
+            seats
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .release(seat);
             println!("seat {} released", seat + 1);
             result
         }
@@ -182,38 +191,39 @@ impl Relay {
         addr: SocketAddr,
         now: Instant,
     ) -> Option<(Vec<u8>, SocketAddr)> {
-        if data.len() < 6 || &data[..4] != b"WRL1" || !addr.is_ipv4() {
+        let Some((b"WRL1", body)) = data.split_first_chunk::<4>() else {
+            return None;
+        };
+        if data.len() < 6 || !addr.is_ipv4() {
             return None;
         }
-        match data[4] {
-            b'R' if data.len() == 6 && (1..=8).contains(&data[5]) => {
-                self.seats.insert(data[5], (addr, now));
+        match body {
+            [b'R', seat] if (1..=8).contains(seat) => {
+                self.seats.insert(*seat, (addr, now));
                 None
             }
-            b'D' if data.len() >= 7
-                && data.len() <= 4103
-                && (1..=8).contains(&data[5])
-                && (1..=8).contains(&data[6]) =>
+            [b'D', to, from, payload @ ..]
+                if data.len() <= 4103 && (1..=8).contains(to) && (1..=8).contains(from) =>
             {
                 // The kit protocol has no token; use a private network, not public internet exposure.
-                self.seats.insert(data[6], (addr, now));
-                let &(target, last) = self.seats.get(&data[5])?;
+                self.seats.insert(*from, (addr, now));
+                let &(target, last) = self.seats.get(to)?;
                 if now.duration_since(last) > Duration::from_secs(30) {
                     return None;
                 }
-                let SocketAddr::V4(from) = addr else {
+                let SocketAddr::V4(src) = addr else {
                     return None;
                 };
                 let mut out = b"WRL1F".to_vec();
-                out.push(data[6]);
-                out.extend(from.ip().octets());
-                out.extend(&data[7..]);
+                out.push(*from);
+                out.extend(src.ip().octets());
+                out.extend(payload);
                 Some((out, target))
             }
             // The panel's ping meter (kit 5.x _relay.py): its bytes straight back as "Q".
-            b'P' if data.len() <= 64 => {
+            [b'P', rest @ ..] if data.len() <= 64 => {
                 let mut out = b"WRL1Q".to_vec();
-                out.extend(&data[5..]);
+                out.extend(rest);
                 Some((out, addr))
             }
             _ => None,
@@ -230,7 +240,9 @@ fn relay(socket: UdpSocket) {
                 state
                     .seats
                     .retain(|_, (_, last)| now.duration_since(*last) <= Duration::from_secs(30));
-                if let Some((out, target)) = state.packet(&buf[..n], addr, now) {
+                if let Some((out, target)) =
+                    state.packet(buf.get(..n).unwrap_or_default(), addr, now)
+                {
                     let _ = socket.send_to(&out, target);
                 }
             }
@@ -675,8 +687,7 @@ fn serve(root: &Path, edition: Edition) -> io::Result<()> {
         };
         let stamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+            .map_or(0, |d| d.as_secs());
         let logs = root.join("logs").join(stamp.to_string());
         fs::create_dir_all(&logs)?;
         let display = edition.display();
