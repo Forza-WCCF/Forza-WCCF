@@ -22,8 +22,5 @@ regex = "1.13.1"
 serde_json.workspace = true # the notice file (desk.rs)
 time = { version = "0.3.55", features = ["local-offset", "parsing"] }
 
-[dev-dependencies]
-sha2.workspace = true
-
 [lints]
 workspace = true
