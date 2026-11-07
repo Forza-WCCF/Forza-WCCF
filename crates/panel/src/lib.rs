@@ -801,6 +801,14 @@ fn match_now(e1718: bool, seat: Option<u32>, arcade: Option<u32>, card: bool) ->
     playing || card
 }
 
+/// [`notice_in`]'s gate out of [`match_check`]: the match alone (`.1`), the card session left out. In 2017-18 the card
+/// stays in for the whole club session, so the card-in answer (`.0`) would hold the server's notice off in the club
+/// office and the menus between matches, where it belongs. The banner is 2017-18 only, so 2010-11's card session never
+/// reaches this gate.
+fn notice_waits((_, playing, _): (bool, bool, String)) -> bool {
+    playing
+}
+
 /// The clipboard's text, at most 64K characters; `None`: no text there, or another program holds the clipboard (tried
 /// twice). `WCCFPANEL_IMPORTTEST=FILE` reads that file instead (fakegame: the player's clipboard is left alone).
 fn clipboard_text() -> Option<String> {
@@ -2594,7 +2602,7 @@ impl Render {
         if self.notice.is_none() && self.st.banner.is_none() {
             return;
         }
-        if match_check().0 {
+        if notice_waits(match_check()) {
             // the top of a match screen is the score and the clock: the banner waits for the match's end
             if let Some(l) = banner_off(
                 &mut self.st.banner,
@@ -3786,7 +3794,7 @@ mod tests {
         assert!(take_off_lines(&[a], &[a, b], None, None).is_empty());
     }
 
-    use super::{big_enough, clock_text, game_point, game_title, match_now};
+    use super::{big_enough, clock_text, game_point, game_title, match_now, notice_waits};
     use egui::{Rect, pos2};
 
     #[test]
@@ -3857,6 +3865,31 @@ mod tests {
         assert!(!match_now(false, None, Some(7), false));
         assert!(match_now(false, None, None, true));
         assert!(match_now(true, Some(3), Some(1), true));
+    }
+
+    /// The server's notice waits for this seat's match, not for the card session: the club office and the menus between
+    /// matches keep it on (2017-18 keeps the card in for the whole session), and a match takes it off.
+    #[test]
+    fn the_notice_waits_for_the_match_not_the_card() {
+        // match_check's answers for this seat in an arcade state, the card in or not (its third field is the log line)
+        let check = |seat: Option<u32>, arcade: Option<u32>, card: bool| {
+            (
+                match_now(true, seat, arcade, card),
+                match_now(true, seat, arcade, false),
+                String::new(),
+            )
+        };
+        // the card in, no match (the menus): match_check calls it busy for the club card alone, this gate does not
+        let office = check(Some(19), Some(1), true);
+        assert_eq!((office.0, office.1), (true, false), "the card in, no match");
+        assert!(!notice_waits(office), "the notice shows there");
+        // a match on this seat: off, the card in or not
+        assert!(notice_waits(check(Some(19), Some(4), true)));
+        assert!(notice_waits(check(Some(19), Some(4), false)));
+        // another seat's match: the office keeps the notice
+        assert!(!notice_waits(check(Some(3), Some(5), false)));
+        // a card session is still a match for IMPORT LINEUP, which asks a different question
+        assert!(match_now(true, Some(19), Some(1), true));
     }
 
     /// The game's windows are ANSI: the whole edition survives as ASCII.
