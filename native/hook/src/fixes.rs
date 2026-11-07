@@ -49,9 +49,8 @@ pub fn find_frame(esp: u32, words: &[u32], ret: u32) -> Option<usize> {
         .take_while(|off| (off + 0x10) / 4 <= words.len())
         .find(|&off| {
             let (i, a) = (off / 4, esp.wrapping_add(off as u32));
-            words[i] == ret
-                && words[i + 2] == a.wrapping_add(0x38)
-                && words[i + 3] == a.wrapping_add(0x20)
+            matches!(words.get(i..i + 4), Some(&[r, _, buf, off])
+                if r == ret && buf == a.wrapping_add(0x38) && off == a.wrapping_add(0x20))
         })
 }
 

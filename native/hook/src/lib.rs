@@ -18,6 +18,17 @@
 //! The portable parts (the batch rules, the fake BIOS area, MXHOOK_COM, the logowin test, the server fixes' rules) build
 //! and test on any host; the rest is for the game's 32-bit Windows.
 #![cfg_attr(not(target_arch = "x86"), allow(dead_code))]
+// This code runs in the game's process, where a panic ends the game: no call that can panic (tests may, clippy.toml)
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::unreachable,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::string_slice
+)]
 
 #[cfg(all(
     target_arch = "x86",

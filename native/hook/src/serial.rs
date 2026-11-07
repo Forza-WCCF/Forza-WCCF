@@ -204,7 +204,12 @@ fn waiting(h: HANDLE) -> u32 {
 /// Opens port `i`'s pipe in place of the serial port.
 pub fn open(i: usize) -> HANDLE {
     let mut list = ports();
-    let v = &mut list[i];
+    // `i` comes from port_for_name, an index of this list
+    let Some(v) = list.get_mut(i) else {
+        // SAFETY: plain Win32 call
+        unsafe { SetLastError(ERROR_FILE_NOT_FOUND) };
+        return INVALID_HANDLE_VALUE;
+    };
     // SAFETY: the pipe's NUL-terminated name; the handle goes to the game, which closes it
     unsafe {
         let h = REAL_CREATE_FILE_A.get()(
@@ -226,7 +231,9 @@ pub fn open(i: usize) -> HANDLE {
             v.dcb.ByteSize = 8;
             v.dcb._bitfield = 1; // fBinary
             v.to = std::mem::zeroed();
-            HANDLES[i].store(h as usize, Relaxed);
+            if let Some(slot) = HANDLES.get(i) {
+                slot.store(h as usize, Relaxed);
+            }
         }
         let state = if h == INVALID_HANDLE_VALUE {
             "NO READER (pipe not there)"
@@ -252,8 +259,12 @@ unsafe extern "system" fn hook_get_comm_state(h: HANDLE, d: *mut DCB) -> i32 {
         // SAFETY: the game's own call, passed on
         return unsafe { REAL_GET_COMM_STATE.get()(h, d) };
     };
+    let Some(dcb) = ports().get(i).map(|v| v.dcb) else {
+        // SAFETY: as above
+        return unsafe { REAL_GET_COMM_STATE.get()(h, d) };
+    };
     // SAFETY: the game's DCB
-    unsafe { d.write(ports()[i].dcb) };
+    unsafe { d.write(dcb) };
     1
 }
 
@@ -265,10 +276,13 @@ unsafe extern "system" fn hook_set_comm_state(h: HANDLE, d: *mut DCB) -> i32 {
     // SAFETY: the game's DCB
     let d = unsafe { d.read() };
     let mut list = ports();
-    list[i].dcb = d;
+    let Some(v) = list.get_mut(i) else {
+        return 1;
+    };
+    v.dcb = d;
     log!(
         "virtual port {}: SetCommState {} baud, {} bits, parity {}, stop {}",
-        list[i].port.com,
+        v.port.com,
         d.BaudRate,
         d.ByteSize,
         d.Parity,
@@ -321,8 +335,12 @@ unsafe extern "system" fn hook_get_comm_timeouts(h: HANDLE, t: *mut COMMTIMEOUTS
         // SAFETY: the game's own call, passed on
         return unsafe { REAL_GET_COMM_TIMEOUTS.get()(h, t) };
     };
+    let Some(to) = ports().get(i).map(|v| v.to) else {
+        // SAFETY: as above
+        return unsafe { REAL_GET_COMM_TIMEOUTS.get()(h, t) };
+    };
     // SAFETY: the game's struct
-    unsafe { t.write(ports()[i].to) };
+    unsafe { t.write(to) };
     1
 }
 
@@ -332,7 +350,10 @@ unsafe extern "system" fn hook_set_comm_timeouts(h: HANDLE, t: *mut COMMTIMEOUTS
         return unsafe { REAL_SET_COMM_TIMEOUTS.get()(h, t) };
     };
     // SAFETY: the game's struct
-    ports()[i].to = unsafe { t.read() };
+    let to = unsafe { t.read() };
+    if let Some(v) = ports().get_mut(i) {
+        v.to = to;
+    }
     1
 }
 
@@ -341,9 +362,12 @@ unsafe extern "system" fn hook_get_comm_modem_status(h: HANDLE, s: *mut u32) -> 
         // SAFETY: the game's own call, passed on
         return unsafe { REAL_GET_COMM_MODEM_STATUS.get()(h, s) };
     };
-    let list = ports();
+    let Some((jvs, addressed)) = ports().get(i).map(|v| (v.port.jvs, v.addressed)) else {
+        // SAFETY: as above
+        return unsafe { REAL_GET_COMM_MODEM_STATUS.get()(h, s) };
+    };
     // the sense line: 1 = addressed, 3 = a board waiting
-    let bits = match (list[i].port.jvs, list[i].addressed) {
+    let bits = match (jvs, addressed) {
         (true, true) => MS_DSR_ON,
         (true, false) => 0,
         (false, _) => MS_CTS_ON | MS_DSR_ON,
@@ -377,12 +401,13 @@ unsafe fn complete(ov: *mut OVERLAPPED, got: *mut u32, n: u32) -> i32 {
 /// JVS: what the game sends for reset (F0 D9) and set address (F1 n) drives the sense line.
 fn jvs_watch(v: &mut Vcom, p: &[u8]) {
     for w in p.windows(2) {
-        if w == [0xF0, 0xD9] && v.addressed {
+        let &[a, b] = w else { continue };
+        if [a, b] == [0xF0, 0xD9] && v.addressed {
             v.addressed = false;
             log!("JVS: reset seen - sense = board waiting for an address");
-        } else if w[0] == 0xF1 && !v.addressed {
+        } else if a == 0xF1 && !v.addressed {
             v.addressed = true;
-            log!("JVS: set address {} seen - sense = all addressed", w[1]);
+            log!("JVS: set address {b} seen - sense = all addressed");
         }
     }
 }
@@ -399,10 +424,12 @@ unsafe extern "system" fn hook_write_file(
         return unsafe { REAL_WRITE_FILE.get()(h, buf, n, put, ov) };
     };
     {
-        let mut list = ports();
-        if list[i].port.jvs && !buf.is_null() {
+        if let Some(v) = ports().get_mut(i)
+            && v.port.jvs
+            && !buf.is_null()
+        {
             // SAFETY: the game's buffer of n bytes
-            jvs_watch(&mut list[i], unsafe {
+            jvs_watch(v, unsafe {
                 std::slice::from_raw_parts(buf.cast(), n as usize)
             });
         }
@@ -501,7 +528,11 @@ unsafe extern "system" fn hook_read_file(
         // SAFETY: the game's own pointers
         return unsafe { complete(ov, got, done) };
     }
-    let to = ports()[i].to;
+    // no port entry: zero timeouts, which wait the 1 s cap below
+    // SAFETY: COMMTIMEOUTS is plain integers
+    let to = ports()
+        .get(i)
+        .map_or(unsafe { std::mem::zeroed() }, |v| v.to);
     let mut limit = to
         .ReadTotalTimeoutConstant
         .wrapping_add(to.ReadTotalTimeoutMultiplier.wrapping_mul(n));
@@ -529,8 +560,12 @@ unsafe extern "system" fn hook_read_file(
 
 unsafe extern "system" fn hook_close_handle(h: HANDLE) -> i32 {
     if let Some(i) = port_of(h) {
-        log!("virtual port {} closed", ports()[i].port.com);
-        HANDLES[i].store(0, Relaxed);
+        if let Some(v) = ports().get(i) {
+            log!("virtual port {} closed", v.port.com);
+        }
+        if let Some(slot) = HANDLES.get(i) {
+            slot.store(0, Relaxed);
+        }
     }
     if RINGEDGE.load(Relaxed) {
         devices::forget(h);

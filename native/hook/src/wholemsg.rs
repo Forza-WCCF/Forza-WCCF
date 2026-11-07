@@ -25,8 +25,10 @@ const HEAD: usize = 8;
 /// A record's head: the 16-byte id and the u32 body size.
 const REC: usize = 20;
 
-fn u32_at(p: &[u8], at: usize) -> usize {
-    u32::from_le_bytes([p[at], p[at + 1], p[at + 2], p[at + 3]]) as usize
+/// None: `p` ends before the 4 bytes.
+fn u32_at(p: &[u8], at: usize) -> Option<usize> {
+    let b = p.get(at..at + 4)?.try_into().ok()?;
+    Some(u32::from_le_bytes(b) as usize)
 }
 
 /// What the bytes at the start of `p` are.
@@ -41,10 +43,9 @@ pub enum Batch {
 }
 
 pub fn check(p: &[u8]) -> Batch {
-    if p.len() < HEAD {
-        return Batch::Partial;
-    }
-    let (count, total) = (u32_at(p, 0), u32_at(p, 4));
+    let (Some(count), Some(total)) = (u32_at(p, 0), u32_at(p, 4)) else {
+        return Batch::Partial; // shorter than HEAD
+    };
     if !(HEAD..=MAX_BATCH).contains(&total) || count > (total - HEAD) / REC {
         return Batch::Bad;
     }
@@ -57,12 +58,14 @@ pub fn check(p: &[u8]) -> Batch {
             return Batch::Bad; // earlier bodies left no room for this record's head
         }
         // an id is text: no empty id, no control characters before its end
-        let id = &p[off..off + 16];
+        // the record's head is here (checked above): the else branches never run
+        let (Some(id), Some(body)) = (p.get(off..off + 16), u32_at(p, off + 16)) else {
+            return Batch::Partial;
+        };
         let len = id.iter().position(|&b| b == 0).unwrap_or(16);
-        if len == 0 || id[..len].iter().any(|&b| b < 0x20) {
+        if len == 0 || id.iter().take(len).any(|&b| b < 0x20) {
             return Batch::Bad;
         }
-        let body = u32_at(p, off + 16);
         if body > total - off - REC {
             return Batch::Bad; // a body that runs past the batch
         }
@@ -98,10 +101,12 @@ pub const CONTROL_1718: [(usize, &[u8]); 2] = [
 /// them that fit in `room` together (0: none yet).
 pub fn whole(p: &[u8], room: usize) -> (usize, usize) {
     let skip = (0..p.len())
-        .find(|&s| check(&p[s..]) != Batch::Bad)
+        .find(|&s| p.get(s..).is_some_and(|q| check(q) != Batch::Bad))
         .unwrap_or(p.len());
     let mut used = 0;
-    while let Batch::Whole(n) = check(&p[skip + used..]) {
+    while let Some(q) = p.get(skip + used..)
+        && let Batch::Whole(n) = check(q)
+    {
         if used + n > room {
             break;
         }

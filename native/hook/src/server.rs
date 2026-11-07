@@ -118,11 +118,11 @@ unsafe extern "system" fn msgguard(ep: *mut EXCEPTION_POINTERS) -> i32 {
     let esp = c.Esp;
     let n = top.saturating_sub(esp as usize).min(fixes::STACK_SCAN) / 4;
     let mut words = [0u32; fixes::STACK_SCAN / 4];
-    for (i, w) in words[..n].iter_mut().enumerate() {
+    for (i, w) in words.iter_mut().take(n).enumerate() {
         // SAFETY: the faulting thread's stack, from esp up to its top
         *w = unsafe { (esp as usize as *const u32).add(i).read_unaligned() };
     }
-    let words = &words[..n];
+    let words = words.get(..n).unwrap_or_default();
     let rw = if rec.ExceptionInformation[0] != 0 {
         "write"
     } else {
@@ -130,13 +130,17 @@ unsafe extern "system" fn msgguard(ep: *mut EXCEPTION_POINTERS) -> i32 {
     };
     let at = rec.ExceptionInformation[1] as u32;
     let ret = MSG_RET.load(Relaxed);
-    if let Some(off) = fixes::find_frame(esp, words, ret) {
-        let i = off / 4;
+    // find_frame's offset is 0x10 or more and leaves 4 words from it: the 8 words always exist
+    if let Some(off) = fixes::find_frame(esp, words, ret)
+        && let Some(&[edi, esi, ebp, ebx, _, _, _, p_off]) = (off / 4)
+            .checked_sub(4)
+            .and_then(|lo| words.get(lo..lo + 8))
+    {
         // &off is the live frame's (find_frame), &len the word below it; FUN_00412860 pushed edi, esi (the seat), ebp
         // and ebx (FUN_00412140's this) under its return
-        let p_off = words[i + 3] as usize as *mut u32;
+        let p_off = p_off as usize as *mut u32;
         let p_len = p_off.wrapping_sub(1);
-        let (this, seat) = (words[i - 1] as usize as *mut u32, words[i - 3]);
+        let (this, seat) = (ebx as usize as *mut u32, esi);
         // SAFETY: p_len and p_off are FUN_00412140's locals on this thread's stack (find_frame matched them)
         unsafe {
             log!(
@@ -170,10 +174,10 @@ unsafe extern "system" fn msgguard(ep: *mut EXCEPTION_POINTERS) -> i32 {
                 }
             }
         }
-        c.Edi = words[i - 4];
-        c.Esi = words[i - 3];
-        c.Ebp = words[i - 2];
-        c.Ebx = words[i - 1];
+        c.Edi = edi;
+        c.Esi = esi;
+        c.Ebp = ebp;
+        c.Ebx = ebx;
         c.Eip = ret;
         c.Esp = esp.wrapping_add(off as u32 + 0x10);
         c.Eax = 1;
@@ -251,15 +255,15 @@ extern "C" fn sleep_from(ret: usize, ms: u32) {
         wait(ms.max(IDLE_MS.load(Relaxed)));
         return;
     }
-    let k = match ms {
-        1 => 0,
-        16 => 1,
+    let (count, [orig_us, repl_us]) = match ms {
+        1 => (&SLEEP_N[0], &SLEEP_US[0]),
+        16 => (&SLEEP_N[1], &SLEEP_US[1]),
         _ => {
             wait(ms);
             return;
         }
     };
-    let n = SLEEP_N[k].fetch_add(1, Relaxed) + 1;
+    let n = count.fetch_add(1, Relaxed) + 1;
     if n > 2 * SLEEP_SAMPLE {
         wait(ms);
         return;
@@ -272,12 +276,12 @@ extern "C" fn sleep_from(ret: usize, ms: u32) {
         wait(ms);
     }
     let us = (qpc() - a) * 1_000_000 / QPF.load(Relaxed);
-    SLEEP_US[k][usize::from(n > SLEEP_SAMPLE)].fetch_add(us as i32, Relaxed);
+    if n > SLEEP_SAMPLE { repl_us } else { orig_us }.fetch_add(us as i32, Relaxed);
     if n == 2 * SLEEP_SAMPLE {
         log!(
             "SLEEP fix: Sleep({ms}) over {SLEEP_SAMPLE} calls: original {} us mean, replacement {} us mean",
-            SLEEP_US[k][0].load(Relaxed) / SLEEP_SAMPLE,
-            SLEEP_US[k][1].load(Relaxed) / SLEEP_SAMPLE
+            orig_us.load(Relaxed) / SLEEP_SAMPLE,
+            repl_us.load(Relaxed) / SLEEP_SAMPLE
         );
     }
 }

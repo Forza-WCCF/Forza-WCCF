@@ -162,7 +162,8 @@ unsafe extern "system" fn hook_recv(s: SOCKET, buf: *mut u8, len: i32, flags: i3
             let head = |i: usize| {
                 w.buf
                     .get(i..i + 4)
-                    .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+                    .and_then(|b| b.try_into().ok())
+                    .map(u32::from_le_bytes)
             };
             log!(
                 "whole messages: {}: {skip} byte(s) that cannot be a message skipped (they began count {:?} total {:?}) - the player stays connected",

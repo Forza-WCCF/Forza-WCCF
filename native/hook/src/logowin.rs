@@ -17,8 +17,8 @@ pub fn is_logowin(app: Option<&[u8]>, cmd: Option<&[u8]>) -> bool {
         return false;
     };
     let base = p.rsplit(|&b| b == b'\\').next().unwrap_or(p);
-    base.len() >= 11
-        && base[..11].eq_ignore_ascii_case(b"logowin.exe")
+    base.get(..11)
+        .is_some_and(|b| b.eq_ignore_ascii_case(b"logowin.exe"))
         && matches!(base.get(11), None | Some(b' ' | b'"'))
 }
 

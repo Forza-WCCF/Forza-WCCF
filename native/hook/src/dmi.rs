@@ -45,9 +45,14 @@ pub fn build() -> Vec<u8> {
 
     let mut area = vec![0; SIZE as usize];
     let at = (TABLE - BASE) as usize;
-    area[at..at + table.len()].copy_from_slice(&table);
+    // both fit the area (constants); a part that did not would stay zeros
+    if let Some(a) = area.get_mut(at..at + table.len()) {
+        a.copy_from_slice(&table);
+    }
     let at = (ANCHOR - BASE) as usize;
-    area[at..at + anchor.len()].copy_from_slice(&anchor);
+    if let Some(a) = area.get_mut(at..at + anchor.len()) {
+        a.copy_from_slice(&anchor);
+    }
     area
 }
 
@@ -56,7 +61,7 @@ pub fn read(area: &[u8], addr: u32, out: &mut [u8]) {
     for (i, b) in out.iter_mut().enumerate() {
         let p = addr.wrapping_add(i as u32);
         *b = if (BASE..BASE + SIZE).contains(&p) {
-            area[(p - BASE) as usize]
+            area.get((p - BASE) as usize).copied().unwrap_or(0)
         } else {
             0
         };
