@@ -44,8 +44,6 @@ launcher.pictures_download: {en: "Download high-quality pictures", it: "Scarica 
 launcher.pictures_remove: {en: "Remove high-quality pictures", it: "Rimuovi immagini in alta qualità", ja: "高画質画像を削除"}
 launcher.pictures_download_ask: {en: "Download high-quality card pictures (%{size} MB)? A cut download goes on where it stopped.", it: "Scaricare le immagini delle carte in alta qualità (%{size} MB)? Un download interrotto riprende da dove si è fermato.", ja: "高画質カード画像をダウンロードしますか？（%{size} MB）中断しても続きから再開します。"}
 launcher.pictures_remove_ask: {en: "Remove the high-quality card pictures? The game's own pictures come back. The download stays saved.", it: "Rimuovere le immagini delle carte in alta qualità? Tornano le immagini del gioco. Il download resta salvato.", ja: "高画質カード画像を削除しますか？ゲーム本来の画像に戻ります。ダウンロードしたファイルは残ります。"}
-launcher.skip_tutorial: {en: "Skip the tutorial", it: "Salta il tutorial", ja: "チュートリアルを省略"}
-launcher.skip_tutorial_hint: {en: "Applied at the next start.", it: "Si applica al prossimo avvio.", ja: "次回の起動時に反映されます。"}
 launcher.projector: {en: "Projector", it: "Proiettore", ja: "プロジェクター"}
 launcher.projector_hint: {en: "Shows the big screen with live matches or a demo match in its own window. You can also switch it in the game's SETTINGS.", it: "Mostra il maxischermo con le partite dal vivo o una partita dimostrativa in una finestra a parte. Puoi cambiarlo anche nelle IMPOSTAZIONI del gioco.", ja: "ライブの試合またはデモ試合を映す大型スクリーンを専用のウィンドウで表示します。ゲームの設定でも切り替えられます。"}
 launcher.cpu_championship: {en: "CPU championship", it: "Campionato CPU", ja: "CPU大会"}

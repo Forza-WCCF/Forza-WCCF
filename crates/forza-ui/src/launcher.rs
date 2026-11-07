@@ -64,8 +64,6 @@ pub enum Action {
     PicturesAsk,
     /// DOWNLOAD or REMOVE the high-quality card pictures, confirmed.
     PicturesNow,
-    /// The skip-the-tutorial switch changed.
-    SkipTutorial,
     /// The projector switch changed.
     Projector,
     /// The CPU championship switch changed.
@@ -750,17 +748,6 @@ fn setup(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Actio
                     *act = Some(Action::Pictures { choose: true });
                 }
             });
-        }
-        if let Some(skip) = &mut st.skip_tutorial
-            && toggle_row(
-                ui,
-                skip,
-                &tr!(lang, "launcher.skip_tutorial"),
-                &tr!(lang, "launcher.skip_tutorial_hint"),
-            )
-            .clicked()
-        {
-            *act = Some(Action::SkipTutorial);
         }
         if let Some(on) = &mut st.projector
             && toggle_row(
