@@ -690,6 +690,8 @@ fn session(
                         .is_none_or(|db| db.holds(aime))
                 })
             };
+            // a public server never evicts the copy of a card on its game server
+            let playing = |aime: u32| sh.cfg.sessions.as_ref().is_some_and(|s| s.holds(aime));
             let said = forza::online::club::serve(
                 db,
                 &line,
@@ -697,7 +699,7 @@ fn session(
                 &mut out,
                 &held,
                 &own,
-                public,
+                public.then_some(&playing as &dyn Fn(u32) -> bool),
             )?;
             if !said.is_empty() {
                 log(&format!("{peer}: {said}"));

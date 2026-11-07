@@ -2688,7 +2688,7 @@ mod tests {
         let rejoin = || {
             let mut st = store.lock().unwrap();
             let c = st.club(20).unwrap();
-            let link = st.import_public(&c, 20, 1, "t").unwrap();
+            let link = st.import_public(&c, 20, 1, "t", &|_| false).unwrap();
             (link.coaches[0].1, link.cards[0].1)
         };
         let again = rejoin();

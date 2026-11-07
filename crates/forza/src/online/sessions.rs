@@ -117,6 +117,13 @@ impl Sessions {
         cards.len()
     }
 
+    /// Whether the card `aime` is logged in on a live connection.
+    pub fn holds(&self, aime: u32) -> bool {
+        self.lock()
+            .live()
+            .any(|s| s.values().any(|s| s.aime == aime))
+    }
+
     /// The periodic line: cards online, connections with a card, plays under way, and the ends of play since the last
     /// call (which it resets). None while nobody is on and nothing ended.
     pub fn summary(&self) -> Option<String> {
