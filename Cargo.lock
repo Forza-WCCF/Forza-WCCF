@@ -2179,6 +2179,7 @@ name = "forza-hook"
 version = "0.6.0"
 dependencies = [
  "forza-native",
+ "no-panic",
  "windows-sys 0.61.2",
 ]
 

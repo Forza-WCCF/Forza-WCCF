@@ -71,9 +71,16 @@ pub fn players(records: &[u8]) -> Vec<(usize, usize, u32)> {
     out
 }
 
-/// Whether the semifinals hold a player's team ([`players`]).
+/// Whether the semifinals hold a player's team: the places [`players`] lists, without its allocation, so the check
+/// below can prove it cannot panic.
+#[cfg_attr(all(test, not(debug_assertions)), no_panic::no_panic)]
 pub fn human_in(records: &[u8]) -> bool {
-    !players(records).is_empty()
+    (0..2).any(|m| {
+        (0..2).any(|t| {
+            let at = m * RECORD + TEAM_ID + t * TEAM;
+            records.get(at..at + 4) == Some(&[0; 4])
+        })
+    })
 }
 
 /// [`live_flag`]'s line: the championship's match `idx` (0, 1 semifinals, 2 the final) of `day` (0 today, 1 the next
