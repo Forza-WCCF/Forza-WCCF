@@ -30,8 +30,10 @@ One program for every online service of both editions. Std threads and blocking 
   `OK size` + the id map, `CLUB GET aime token stamp` -> `SAME` or `OK size stamp` + the club, `CLUB DONE aime token`
   -> `OK 0`; `NO why` for any refusal. Only with `WCCF_CLUB_DB` (the arcade host's `gamesvr.db`, set by the Launcher);
   a PUT needs a seat held on this desk, at most 2 MiB. `all` with its game server and no `WCCF_CLUB_DB`: the store is
-  the game server's own, a PUT needs no seat (the per-address ask limit applies), replaces what the server kept for
-  that card and drops the oldest copy past 256; the Launcher sends its club there before an online start.
+  the game server's own and follows its allowlist (`--allow-any` opens it), a PUT needs no seat (the per-address ask
+  limit applies) and replaces what the server kept for that card. Past 256 copies the oldest one whose card is not on
+  the game server makes room; a bring is refused only while all 256 cards are on it. A replaced, rejoined or evicted
+  copy goes to `backups` first (at most 100 of each kind). The Launcher sends its club there before an online start.
 - The projector hold no longer touches the firewall and is not enforced (`HOLD` stays `HOLD 0`). A Windows server that ran an
   older version: remove the leftover rule by hand with `netsh advfirewall firewall delete rule name="WCCF hold projector box"`.
 
