@@ -8,6 +8,17 @@
 //! DllMain also loads the panel when the Launcher sets FORZA_PANEL ([`panel`]), and, only with WCCF_TRACE_NET=1, logs
 //! the program's send and recv ([`trace`]).
 #![cfg(target_arch = "x86")]
+// This code runs in the game's process, where a panic ends the game: no call that can panic (tests may, clippy.toml)
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::unreachable,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::string_slice
+)]
 
 use std::ffi::c_void;
 use std::io::Write;
@@ -70,8 +81,11 @@ extern "system" fn DllMain(
             DisableThreadLibraryCalls(inst);
             GetModuleFileNameW(inst, buf.as_mut_ptr(), buf.len() as u32) as usize
         };
-        if n > 0 && n < buf.len() {
-            let dll = PathBuf::from(String::from_utf16_lossy(&buf[..n]));
+        if n > 0
+            && n < buf.len()
+            && let Some(name) = buf.get(..n)
+        {
+            let dll = PathBuf::from(String::from_utf16_lossy(name));
             let _ = LOG.set(dll.with_file_name("wccfnet.log"));
         }
         log(&forza_native::hosts::install(log));
@@ -306,10 +320,13 @@ mod trace {
 
     /// The real call, then the line (a "nothing yet" of a non-blocking socket is not logged), its error kept.
     fn pass(dir: &str, real: &AtomicUsize, s: SOCKET, buf: *mut u8, len: i32, flags: i32) -> i32 {
-        let ws = WS.get().expect("patched only after WS is set");
         // SAFETY: `real` is the import's own target (set before the slot pointed here), with the hook's signature
         unsafe {
             let f = std::mem::transmute::<usize, Xfer>(real.load(Relaxed));
+            // patched only after WS is set; without it the call goes through untraced
+            let Some(ws) = WS.get() else {
+                return f(s, buf, len, flags);
+            };
             let ret = f(s, buf, len, flags);
             let err = (ws.last_error)();
             if ret != SOCKET_ERROR || err != WSAEWOULDBLOCK {
