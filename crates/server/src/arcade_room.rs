@@ -71,6 +71,8 @@ struct Room {
     code: String,
     /// The creator's address, for the per-address room cap
     by: String,
+    /// The hash of the host's room secret: only that secret replaces the room ([`ArcadeRooms::replace_stale`])
+    secret: Option<SecretHash>,
     /// Listed in `LOBBY` (without its code)
     public: bool,
     /// Its name in `LOBBY`, from `CREATE shop` ([`forza::online::lobby::arcade_name`]); empty: the desk's default
@@ -142,9 +144,16 @@ impl ArcadeRooms {
         })
     }
 
-    /// Before a `CREATE shop` by `host`: no room of its yet; its room whose lease runs to no later than `quiet` (no
-    /// `HEARTBEAT` for a while: the host crashed and came back) taken out; else the host's room is alive.
-    pub fn replace_stale(&mut self, host: &str, quiet: Instant) -> Prior {
+    /// Before a `CREATE shop` by `host` with `secret`: no room of its yet; its room taken out when it was made with
+    /// that secret (the host back from a restart, at once), or, made without one (a Launcher before secrets), when its
+    /// lease runs to no later than `quiet` (no `HEARTBEAT` for a while); else the host's room is alive. A room made
+    /// with a secret is never taken by another: whoever learnt the tunnel id cannot take the room over.
+    pub fn replace_stale(
+        &mut self,
+        host: &str,
+        quiet: Instant,
+        secret: Option<&SecretHash>,
+    ) -> Prior {
         let Some(i) = self.rooms.iter().position(|r| {
             r.seats[0]
                 .id
@@ -153,7 +162,11 @@ impl ArcadeRooms {
         }) else {
             return Prior::None;
         };
-        if self.rooms[i].seats[0].end > quiet {
+        let theirs = match &self.rooms[i].secret {
+            Some(s) => Some(s) == secret,
+            None => self.rooms[i].seats[0].end <= quiet,
+        };
+        if !theirs {
             return Prior::Alive;
         }
         Prior::Replaced(self.rooms.remove(i).code)
@@ -198,6 +211,7 @@ impl ArcadeRooms {
             id,
             code,
             by: by.to_owned(),
+            secret,
             public,
             name,
             seats: vec![Sitter {

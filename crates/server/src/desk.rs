@@ -95,8 +95,9 @@ pub struct DeskConfig {
     /// ceiling (logged when it trips), so one stranger cannot lock every player out.
     pub join_fail_limit: u32,
     pub join_fail_window: Duration,
-    /// A room's host that has not sent a `HEARTBEAT` for this long (15 s) may be replaced by a new `CREATE shop`
-    /// with the same tunnel id (a host that crashed and came back within the lease).
+    /// A room made without a room secret whose host has not sent a `HEARTBEAT` for this long (45 s, two of the
+    /// Launcher's 20 s beats missed) may be replaced by a new `CREATE shop` with the same tunnel id (a host that crashed
+    /// and came back within the lease). A room made with a secret is replaced by that secret alone, at once.
     pub host_stale: Duration,
     /// `RESERVE` and `CREATE` per address in [`DeskConfig::ask_window`], else `ERR slow` (20 per 60 s).
     pub ask_limit: u32,
@@ -169,7 +170,7 @@ impl DeskConfig {
             join_fail_address_window: Duration::from_secs(600),
             join_fail_limit: 2000,
             join_fail_window: Duration::from_secs(60),
-            host_stale: Duration::from_secs(15),
+            host_stale: Duration::from_secs(45),
             ask_window: Duration::from_secs(60),
         }
     }
@@ -1126,12 +1127,12 @@ fn create_arcade(
     let now = Instant::now();
     let mut st = sh.state.lock().unwrap();
     expire(sh, &mut st, now);
-    // one live room per host; a host silent for host_stale (crashed, back within the lease) replaces its own, before
-    // the caps count that stale room
+    // one live room per host; its secret's holder (or, without one, a host silent for host_stale) replaces its own,
+    // before the caps count that room
     let quiet_since = (now + sh.cfg.reserve_lease)
         .checked_sub(sh.cfg.host_stale)
         .unwrap_or(now);
-    match st.arcades.replace_stale(host, quiet_since) {
+    match st.arcades.replace_stale(host, quiet_since, secret.as_ref()) {
         crate::arcade_room::Prior::Alive => {
             drop(st);
             return out.write_all(b"ERR host\n");

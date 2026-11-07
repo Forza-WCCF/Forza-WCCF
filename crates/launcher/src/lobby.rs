@@ -338,10 +338,11 @@ pub fn join_code(a: SocketAddr, code: &str, own: &str) -> Result<CodeJoin, Strin
     }
 }
 
-/// The desk replaces a host's room from before (a crash) once it has had no `HEARTBEAT` this long (`DeskConfig::host_stale`,
-/// 15 s by default); a host that gets `ERR host` waits this much more than that, then asks once more. A desk set to a
-/// longer stale time answers `ERR host` again, and the host says so.
-pub const DESK_HOST_STALE: Duration = Duration::from_secs(15);
+/// The desk replaces a host's room from before (a crash) made without a room secret once it has had no `HEARTBEAT` this
+/// long (`DeskConfig::host_stale`, 45 s by default; older desks 15 s); a host that gets `ERR host` waits this
+/// much more than that, then asks once more. A desk set to a longer stale time answers `ERR host` again, and the host
+/// says so. With its room secret the host's room is replaced at once.
+pub const DESK_HOST_STALE: Duration = Duration::from_secs(45);
 /// How often the host asks the desk for its room's guests without a guest waiting (a guest at the door asks at once).
 const GUESTS_EVERY: Duration = Duration::from_secs(10);
 /// How long a guest at the door waits for the desk's answer (up to 9 s of time-outs on a slow desk, after the

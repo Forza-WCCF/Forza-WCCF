@@ -176,8 +176,8 @@ fn host_arcade_then_a_guest_joins_by_code_through_the_tunnel() {
     drop((guest, host));
 }
 
-/// A host back from a crash, its old room still on the desk: `ERR host`, a wait past the desk's stale time (said),
-/// then a new room with the old code (the same tunnel key, so the same room secret). Slow: the wait is the real one.
+/// A host back from a crash, its old room still on the desk: the same tunnel key, so the same room secret, replaces
+/// that room at once (no `ERR host`, no wait) and keeps its code.
 #[test]
 fn a_host_back_from_a_crash_gets_a_new_room_with_its_code() {
     let d = desk();
@@ -202,10 +202,7 @@ fn a_host_back_from_a_crash_gets_a_new_room_with_its_code() {
     let secret = launcher::lobby::room_secret(&key).unwrap(); // read again, as a restarted Launcher does
     let new = HostRoom::open(&d.addr().to_string(), &id, Some(&secret), false, "", log, &note).unwrap();
     assert_eq!(old.code, new.code, "the restarted host keeps its code");
-    assert!(
-        said.lock().unwrap().iter().any(|l| l.contains("asking again")),
-        "the wait is said"
-    );
+    assert!(said.lock().unwrap().is_empty(), "no wait");
 }
 
 /// The desk loses the room (its lease lapsed): the room says so and lets nobody in, not even a guest it named.
@@ -364,11 +361,17 @@ fn an_old_desk_with_a_stale_room_never_gets_the_name_again() {
     let dir = tempfile::tempdir().unwrap();
     let id = arcade::id_text(&arcade::own_id(&dir.path().join("host.key")).unwrap());
     let (log, _) = logger("old desk stale host");
-    let room = HostRoom::open(&addr.to_string(), &id, None, true, "Sala Roma", log, &|_| {}).unwrap();
+    let said = Mutex::new(vec![]);
+    let note = |l: &launcher::run::Text| said.lock().unwrap().push(l.en());
+    let room = HostRoom::open(&addr.to_string(), &id, None, true, "Sala Roma", log, &note).unwrap();
     assert_eq!(room.code, "K7QMZDRX");
     let asked = asked.lock().unwrap();
     assert_eq!(
         asked[1..3],
         [format!("CREATE shop {id} public"), format!("CREATE shop {id} public")]
+    );
+    assert!(
+        said.lock().unwrap().iter().any(|l| l.contains("asking again")),
+        "the wait is said"
     );
 }

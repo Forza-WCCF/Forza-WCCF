@@ -571,22 +571,20 @@ fn the_desk_wide_ceiling_still_trips() {
     );
 }
 
-/// A host that crashed and came back within the lease opens a new room once its old one has had no heartbeat for
-/// a while; a live room is never taken over.
+/// A host from before room secrets that crashed and came back within the lease opens a new room once its old one has
+/// had no heartbeat for a while; a live room is never taken over.
 #[test]
 fn a_host_replaces_its_own_stale_room() {
     let d = desk(|c| c.host_stale = Duration::from_millis(300));
     let a = d.addr();
-    let secret = room_secret(1);
-    let (_, old_code, old_t) = kept_room(a, &tunnel_id(1), Some(&secret), false);
+    let (_, _, old_t) = arcade_room(a, &tunnel_id(1), false);
     assert_eq!(
         say(a, &format!("CREATE shop {}", tunnel_id(1))),
         "ERR host",
         "alive: kept"
     );
     std::thread::sleep(Duration::from_millis(400));
-    let (_, new_code, new_t) = kept_room(a, &tunnel_id(1), Some(&secret), false);
-    assert_eq!(new_code, old_code, "back from a crash: the same code");
+    let (_, _, new_t) = arcade_room(a, &tunnel_id(1), false);
     assert!(
         !lobby::heartbeat(a, &old_t).unwrap(),
         "the stale room is gone"
@@ -597,6 +595,40 @@ fn a_host_replaces_its_own_stale_room() {
         "ERR host",
         "just beat: alive"
     );
+}
+
+/// A room made with a room secret is replaced by that secret alone, at once and with its code (the host restarted);
+/// whoever else learnt the tunnel id, with another secret or none, gets `ERR host` even when the room has gone quiet.
+/// A stale time of two missed 20 s heartbeats by default.
+#[test]
+fn only_its_secret_replaces_a_room() {
+    let d = desk(|c| c.host_stale = Duration::from_millis(300));
+    let a = d.addr();
+    let (host, mine) = (tunnel_id(1), room_secret(1));
+    let (_, code, old_t) = kept_room(a, &host, Some(&mine), false);
+    std::thread::sleep(Duration::from_millis(400));
+    assert_eq!(
+        say(a, &format!("CREATE shop {host}")),
+        "ERR host",
+        "no secret"
+    );
+    assert_eq!(
+        say(a, &format!("CREATE shop {host} {} private", room_secret(2))),
+        "ERR host",
+        "another secret"
+    );
+    assert!(
+        lobby::heartbeat(a, &old_t).unwrap(),
+        "the room is untouched"
+    );
+    let (_, again, new_t) = kept_room(a, &host, Some(&mine), false);
+    assert_eq!(again, code);
+    assert!(!lobby::heartbeat(a, &old_t).unwrap(), "replaced");
+    let (_, third, _) = kept_room(a, &host, Some(&mine), false);
+    assert_eq!(third, code, "a live room too, at once");
+    assert!(!lobby::heartbeat(a, &new_t).unwrap());
+    let defaults = DeskConfig::new(Edition::E1718);
+    assert!(defaults.host_stale >= Duration::from_secs(2 * lobby::HEARTBEAT_EVERY));
 }
 
 /// A kept code belongs to the room secret, not to the address or the tunnel id: from the host's own address, another
