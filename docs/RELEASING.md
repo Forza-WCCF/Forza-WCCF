@@ -20,7 +20,7 @@
   `forza-wccf.ico`. Two local builds, also in separate target folders, give one hash. The bytes follow the toolset: a
   local MSVC 14.44 build and a CI 14.51 build of the same commit differ by about 2.8 KB. Putting 14.44 in front of
   cargo does **not** give the local bytes: a run with `vcvarsall -vcvars_ver=14.44` produced a `FPR_Emu.exe`
-  byte-identical to the 14.51 one (`FlsAlloc` CRT imports and all, 2026-11-01, `E:\wccf-builds\av-bisect-20261101\`),
+  byte-identical to the 14.51 one (`FlsAlloc` CRT imports and all, 2026-11-01, `E:\wccf\wccf-builds\av-bisect-20261101\`),
   because rustc takes the CRT's lib directories from its own detection of the newest MSVC, not from PATH. A hash
   recorded here therefore still differs between a build PC and the runner, so `editions/2017-18/fpr_emu.sha256` freezes
   the published file instead of comparing builds (see "Antivirus verdicts").
@@ -125,7 +125,7 @@ as clean because an earlier scan did. What helps:
   the shape is the only lever measured to work.
 
 Obfuscation and packing raise the verdict instead of lowering it (Microsoft says so outright), and signing without a
-paid certificate leaves `!ml` verdicts untouched: `E:\wccf-builds\codesign-20261101\OPTIONS.md`.
+paid certificate leaves `!ml` verdicts untouched: `E:\wccf\wccf-builds\codesign-20261101\OPTIONS.md`.
 
 ## In-app UPDATE
 

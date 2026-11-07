@@ -21,17 +21,17 @@ builds on plain Linux (`cargo build --release -p forza-server`).
    git config --global core.longpaths true
    ```
 
-3. Keep the repository on a local NTFS drive, near the drive root (`E:\forza-wccf`). Windows 11: put it on a
-   [Dev Drive](https://learn.microsoft.com/windows/dev-drive/). Windows 10 has no Dev Drive; add Defender exclusions for
-   the repository, `%USERPROFILE%\.cargo` and `%USERPROFILE%\.rustup` instead (admin PowerShell):
+3. Keep the repository on a local NTFS drive, in a folder near the drive root (`E:\wccf\forza-wccf`). Windows 11:
+   put it on a [Dev Drive](https://learn.microsoft.com/windows/dev-drive/). Windows 10 has no Dev Drive; add Defender
+   exclusions for that folder, `%USERPROFILE%\.cargo` and `%USERPROFILE%\.rustup` instead (admin PowerShell):
 
    ```powershell
-   Add-MpPreference -ExclusionPath E:\forza-wccf, $env:USERPROFILE\.cargo, $env:USERPROFILE\.rustup
+   Add-MpPreference -ExclusionPath E:\wccf, $env:USERPROFILE\.cargo, $env:USERPROFILE\.rustup
    ```
 
-   A worktree beside the repository (`E:\forza-wccf-<branch>`) is another folder: add it too, or keep the worktrees in
-   one excluded folder. The exclusions switch off Defender scanning for those folders, so keep the list short. Without
-   them or a Dev Drive, builds run noticeably slower.
+   Keep worktrees in the same folder (`E:\wccf\forza-wccf-<branch>`) so the one exclusion covers them. The exclusions
+   switch off Defender scanning for those folders, so keep the list short. Without them or a Dev Drive, builds run
+   noticeably slower.
 4. Install the commit-message hook once per clone:
 
    ```sh
