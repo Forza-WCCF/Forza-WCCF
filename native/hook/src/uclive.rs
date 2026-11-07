@@ -102,7 +102,10 @@ const _: () =
     assert!(GAME_SECS < 980 && 157 + GAME_SECS + 14 >= 480 && 157 + GAME_SECS + 14 <= 505);
 
 /// The GAME state's answer: the original's `finished`, or with UC live 0 and no Universal Cup round running (a cup
-/// round waits for its own matches, as before) a state [`GAME_SECS`] old (`secs` since it started).
+/// round waits for its own matches, as before) a state [`GAME_SECS`] old (`secs` since it started). A seat's friendly
+/// still running then is not cut: the next state (game_result_wait, 0x456139) waits until every listed seat match has
+/// its result (0x460F20 -> GameManage +0x14355 with UC live 0), as the original's UC-live slots end on the projector's
+/// match alone.
 pub fn game_over(finished: bool, uc_live: bool, cup: bool, secs: i32) -> bool {
     finished || (!uc_live && !cup && secs >= GAME_SECS as i32)
 }
