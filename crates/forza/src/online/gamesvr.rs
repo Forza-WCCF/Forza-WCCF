@@ -1797,7 +1797,7 @@ pub fn spawn_opts(
     ));
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
-    accept_loop(listener, stop, move |mut conn, peer| {
+    accept_loop(listener, stop, log.clone(), move |mut conn, peer| {
         if allow.as_ref().is_some_and(|f| !f(peer.ip())) {
             log(&format!("refused {peer}: not on the allowlist"));
             return;

@@ -226,7 +226,7 @@ pub fn spawn_with(
     let aes = Arc::new(Aes::new(KEY));
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
-    accept_loop(listener, stop, move |mut conn, peer| {
+    accept_loop(listener, stop, log.clone(), move |mut conn, peer| {
         log(&format!("connection from {peer}"));
         let mut buf: Vec<u8> = Vec::new();
         let mut last = Instant::now();
