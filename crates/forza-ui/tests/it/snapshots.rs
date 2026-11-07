@@ -87,6 +87,32 @@ fn launcher_screens() {
     all.unwrap();
 }
 
+/// 2010-11 keeps its pack choice (From the game | High-quality pack, Choose pack…); 2017-18 has the one download button.
+#[test]
+fn the_card_pictures_row_is_the_pack_choice_in_2010_11_and_the_download_in_2017_18() {
+    let _gpu = gpu();
+    for (ed, has, lacks) in [
+        (
+            Edition::E1011,
+            "Choose pack…",
+            "Download high-quality pictures",
+        ),
+        (
+            Edition::E1718,
+            "Download high-quality pictures",
+            "Choose pack…",
+        ),
+    ] {
+        let mut st = launcher::LauncherState::sample(ed, Lang::En, launcher::Scenario::NotSetUp);
+        let mut h = harness(launcher::SIZE, 1.0, ed, |ui| {
+            launcher::show(ui, &mut st);
+        });
+        h.run_steps(8);
+        assert!(h.query_by_label(has).is_some(), "{ed:?}: {has}");
+        assert!(h.query_by_label(lacks).is_none(), "{ed:?}: {lacks}");
+    }
+}
+
 /// A setup that reports a percentage keeps its bar; the working band is for a job that reports none.
 #[test]
 fn launcher_busy_progress() {

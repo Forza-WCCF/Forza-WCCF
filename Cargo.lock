@@ -3442,6 +3442,7 @@ dependencies = [
  "forza",
  "forza-server",
  "forza-ui",
+ "fs4",
  "iroh",
  "junction",
  "object",
