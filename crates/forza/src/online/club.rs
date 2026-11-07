@@ -482,8 +482,14 @@ fn has_rows(db: &Connection, aime: u32) -> rusqlite::Result<bool> {
 /// Writes every row of `aime` to `backups\<what>-<aime>-<time>.json` beside the store; [`KEEP_SET_ASIDE`] of `what`.
 fn set_aside(tx: &Connection, aime: u32, what: &str) -> Result<(), String> {
     let old = serde_json::to_vec(&export(tx, aime).map_err(db_err)?).map_err(|e| e.to_string())?;
-    let dir = tx.path().and_then(|p| Path::new(p).parent());
-    let dir = dir.unwrap_or(Path::new("."));
+    // a store in memory (tests) has nothing on disk to keep the club beside
+    let Some(dir) = tx
+        .path()
+        .filter(|p| !p.is_empty())
+        .and_then(|p| Path::new(p).parent())
+    else {
+        return Ok(());
+    };
     backup(dir, &format!("{what}-{aime}"), &old).map_err(|e| format!("backup: {e}"))?;
     let kind = format!("{what}-");
     prune(&dir.join("backups"), KEEP_SET_ASIDE, |name| {
