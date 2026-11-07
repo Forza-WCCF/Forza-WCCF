@@ -164,6 +164,9 @@ pub struct Online {
     connect: bool,
     /// The project server's notice and that server (2017-18 only; [`launcher::notice`]).
     notices: Option<(Notices, String)>,
+    /// The desk of the server the next run's seat plays on, when that is not the project server (a LAN arcade, a seat
+    /// another listed server reserved): its notice is the one the seat shows while the run lasts.
+    play_on: Option<String>,
 }
 
 impl Online {
@@ -190,6 +193,11 @@ impl Online {
             o.notices = Some((n, project));
         }
         o
+    }
+
+    /// The next run's seat plays on `desk` (`None`: the project server's notice, as without a run).
+    pub fn play_on(&mut self, desk: Option<String>) {
+        self.play_on = desk;
     }
 
     fn save_last(&self, settings: &Path) {
@@ -253,6 +261,9 @@ impl Online {
                 self.save_last(settings);
             }
         }
+        if let Some((n, project)) = &self.notices {
+            n.ask(self.play_on.as_ref().filter(|_| st.running).unwrap_or(project));
+        }
         if st.running
             && let Some(l) = &mut self.last
             && unix() >= l.at + LAST_EVERY
@@ -268,8 +279,8 @@ impl Online {
                     if let Msg::Poll {
                         server, result: Ok(l), ..
                     } = &m
-                        && let Some((n, project)) = &self.notices
-                        && server == project
+                        && let Some((n, _)) = &self.notices
+                        && *server == n.server()
                     {
                         n.heard(l, &super::log);
                     }

@@ -1,7 +1,8 @@
 //! The project server's notice to players (`forza::online::lobby::ServerNotice`): a thread asks the project server's
 //! `LOBBY` at the start and every [`EVERY`] (a game running too), the ONLINE lobby's own answers from that server feed
-//! it as well, and each change goes to `data\notice.json` for the panel, which shows each id once. Only the project
-//! server is asked (`lobby::project_server`); the ask carries the edition and nothing else.
+//! it as well, and each change goes to `data\notice.json` for the panel, which shows each id once. The project server
+//! is asked (`lobby::project_server`), or the LAN arcade's desk while a seat plays there ([`Notices::ask`]): a seat
+//! shows the notice of the server it plays on. The ask carries the edition and nothing else.
 
 use crate::lobby::{Wake, socket};
 use forza::online::lobby::{self, Lobby, ServerNotice};
@@ -25,6 +26,8 @@ const FIRST_STEP: Duration = Duration::from_secs(1);
 
 struct Inner {
     file: PathBuf,
+    /// The server asked: the project server, or a LAN arcade's desk while a seat plays there.
+    server: String,
     notice: Option<ServerNotice>,
     at: Option<Instant>,
     /// The file holds `notice`: `false` after a write that failed, so the next answer tries again.
@@ -41,16 +44,18 @@ impl Notices {
         let _ = std::fs::remove_file(&file);
         Notices(Arc::new(Mutex::new(Inner {
             file,
+            server: String::new(),
             notice: None,
             at: None,
             saved: true,
         })))
     }
 
-    /// The watcher: asks `server` for `edition` at the start and every `every`, while no other answer came within
-    /// [`FRESH`]; it ends when the last other copy of this box is dropped. `log` hears about each change and each
-    /// write that failed.
+    /// The watcher: asks `server` (later the one [`Notices::ask`] names) for `edition` at the start and every `every`,
+    /// while no other answer came within [`FRESH`]; it ends when the last other copy of this box is dropped. `log`
+    /// hears about each change and each write that failed.
     pub fn watch(&self, server: String, edition: &'static str, every: Duration, wake: Wake, log: Log) {
+        self.lock().server = server;
         let me = self.clone();
         thread::spawn(move || {
             let started = Instant::now();
@@ -62,7 +67,11 @@ impl Notices {
                 if Arc::strong_count(&me.0) == 1 {
                     return;
                 }
-                if me.lock().at.is_none_or(|t| t.elapsed() >= FRESH)
+                let (server, due) = {
+                    let i = me.lock();
+                    (i.server.clone(), i.at.is_none_or(|t| t.elapsed() >= FRESH))
+                };
+                if due
                     && let Some(a) = socket(&server)
                     && let Ok(l) = lobby::fetch(a, edition)
                     && me.heard(&l, log.as_ref())
@@ -111,6 +120,21 @@ impl Notices {
         changed
     }
 
+    /// Asks `server` from the watcher's next round on (a LAN arcade's desk while a seat plays there, the project server
+    /// after); its first answer replaces the notice of the server asked before.
+    pub fn ask(&self, server: &str) {
+        let mut i = self.lock();
+        if i.server != server {
+            i.server = server.to_owned();
+            i.at = None;
+        }
+    }
+
+    /// The server asked now ([`Notices::ask`]).
+    pub fn server(&self) -> String {
+        self.lock().server.clone()
+    }
+
     /// The text in language `code`, else English; none without a notice.
     pub fn text(&self, code: &str) -> Option<String> {
         self.lock().notice.as_ref().map(|n| n.text(code).to_owned())
@@ -152,6 +176,7 @@ mod tests {
     fn inner(at: Option<Instant>) -> Inner {
         Inner {
             file: PathBuf::new(),
+            server: String::new(),
             notice: None,
             at,
             saved: true,
@@ -213,6 +238,24 @@ mod tests {
         let kept: ServerNotice = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
         assert_eq!(kept.id, "n7", "the retry wrote it");
         let _ = std::fs::remove_file(&file);
+    }
+
+    /// A LAN seat shows its own server's notice: `ask` turns the watcher to that desk at once (no wait for
+    /// [`FRESH`]), and back again after the run.
+    #[test]
+    fn ask_turns_to_the_server_the_seat_plays_on() {
+        let n = Notices::new(dir("ask").join("notice.json"));
+        n.lock().server = "lobby.wccf.it:20032".into();
+        n.heard(&answer(None), &|_| {});
+        assert!(n.lock().at.is_some());
+        n.ask("192.168.1.20");
+        assert_eq!(n.server(), "192.168.1.20");
+        assert!(n.lock().at.is_none(), "the LAN desk is asked on the next round");
+        n.heard(&answer(None), &|_| {});
+        n.ask("192.168.1.20");
+        assert!(n.lock().at.is_some(), "the same server: no extra ask");
+        n.ask("lobby.wccf.it:20032");
+        assert_eq!(n.server(), "lobby.wccf.it:20032");
     }
 
     /// The one-ask-first race: the watcher waits for the window's own poll before its first ask, so the two never
