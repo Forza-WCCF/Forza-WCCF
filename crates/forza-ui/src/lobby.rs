@@ -955,12 +955,14 @@ pub fn show_with(
                     ui.horizontal(|ui| {
                         let connect = tr!(lang, "lobby.connect");
                         let bw = text_w(ui, &connect) + 40.0;
-                        let r = ui.add(
-                            egui::TextEdit::singleline(&mut v.address)
-                                .font(theme::mono(15.0))
-                                .desired_width(ui.available_width() - bw)
-                                .margin(vec2(10.0, 7.0)),
-                        );
+                        let r = ui
+                            .add(
+                                egui::TextEdit::singleline(&mut v.address)
+                                    .font(theme::mono(15.0))
+                                    .desired_width(ui.available_width() - bw)
+                                    .margin(vec2(10.0, 7.0)),
+                            )
+                            .accessible_name(direct.as_str());
                         if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
                             act = Some(LobbyAction::DirectAddress(v.address.clone()));
                         }
@@ -1005,10 +1007,10 @@ pub fn show_with(
     }
     // list_fit: the height under the list this frame, scrolled-away folds included, sizes the list next frame (once more
     // when it changed)
-    let list_bottom: Option<f32> = ui.data(|d| d.get_temp(egui::Id::new(LIST_BOTTOM)));
+    let list_bottom: Option<f32> = ui.data(|d| d.get_temp(egui::Id::unique(LIST_BOTTOM)));
     if let Some(top) = list_bottom.filter(|_| v.list_fit && !v.hosting && v.room.is_none()) {
         let below = ui.cursor().top() - top + hidden;
-        let id = egui::Id::new(BELOW_LIST);
+        let id = egui::Id::unique(BELOW_LIST);
         let old: Option<f32> = ui.data(|d| d.get_temp(id));
         if old.is_none_or(|o| (o - below).abs() > 0.5) {
             ui.data_mut(|d| d.insert_temp(id, below));
@@ -1050,13 +1052,15 @@ fn lan_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAc
     }
     ui.add_space(6.0);
     ui.horizontal(|ui| {
-        field(ui, &tr!(lang, "lobby.lan_type"), 130.0);
-        let r = ui.add(
-            egui::TextEdit::singleline(&mut v.lan_address)
-                .font(theme::mono(15.0))
-                .desired_width(180.0)
-                .margin(vec2(10.0, 6.0)),
-        );
+        let label = field(ui, &tr!(lang, "lobby.lan_type"), 130.0);
+        let r = ui
+            .add(
+                egui::TextEdit::singleline(&mut v.lan_address)
+                    .font(theme::mono(15.0))
+                    .desired_width(180.0)
+                    .margin(vec2(10.0, 6.0)),
+            )
+            .labelled_by(label.id);
         let enter = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
         let typed = !v.lan_address.trim().is_empty();
         if ui
@@ -1246,7 +1250,7 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
     let vis = v.visible();
     v.selected = v.selected.min(vis.len().saturating_sub(1));
     let list_h = if v.list_fit {
-        let below: f32 = ui.data(|d| d.get_temp(egui::Id::new(BELOW_LIST)).unwrap_or(0.0));
+        let below: f32 = ui.data(|d| d.get_temp(egui::Id::unique(BELOW_LIST)).unwrap_or(0.0));
         (ui.available_height() - below).max(LIST_MIN_H)
     } else {
         LIST_H
@@ -1274,7 +1278,7 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
                 let dim = offline || v.view_only(r);
                 let off = dim || !r.joinable();
                 resp.widget_info(|| {
-                    egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, sel, &r.name)
+                    egui::WidgetInfo::selected(egui::Role::RadioButton, true, sel, &r.name)
                 });
                 if resp.clicked() {
                     v.selected = n;
@@ -1355,7 +1359,7 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
             }
         });
     let bottom = ui.cursor().top();
-    ui.data_mut(|d| d.insert_temp(egui::Id::new(LIST_BOTTOM), bottom));
+    ui.data_mut(|d| d.insert_temp(egui::Id::unique(LIST_BOTTOM), bottom));
     ui.add_space(8.0);
     if v.codes {
         code_row(ui, v, lang, act);
@@ -1501,7 +1505,7 @@ pub fn cup_rows(
 /// both back as they were.
 fn host_dialog(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAction>) {
     let (mut host, mut cancel) = (false, false);
-    let modal = egui::Modal::new(egui::Id::new("lobby-host"))
+    let modal = egui::Modal::new(egui::Id::unique("lobby-host"))
         .backdrop_color(egui::Color32::from_black_alpha(150))
         .frame(
             egui::Frame::new()
@@ -1533,14 +1537,15 @@ fn host_dialog(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<Lobb
                 &hint,
             );
             ui.horizontal(|ui| {
-                field(ui, &tr!(lang, "lobby.arcade_name"), 130.0);
+                let label = field(ui, &tr!(lang, "lobby.arcade_name"), 130.0);
                 ui.add(
                     egui::TextEdit::singleline(&mut v.arcade_name)
                         .hint_text(forza::online::lobby::ARCADE_ROOM_NAME)
                         .char_limit(forza::online::lobby::ARCADE_NAME_LEN)
                         .desired_width(ui.available_width())
                         .margin(vec2(10.0, 6.0)),
-                );
+                )
+                .labelled_by(label.id);
             });
             let now = v.clock.unwrap_or_else(local_clock);
             let refused = cup_rows(ui, &mut v.cup, now, lang, 130.0, false);
@@ -1571,14 +1576,16 @@ fn host_dialog(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<Lobb
 fn code_row(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAction>) {
     ui.add_enabled_ui(v.joining.is_none(), |ui| {
         ui.horizontal(|ui| {
-            field(ui, &tr!(lang, "lobby.room_code"), 130.0);
-            let r = ui.add(
-                egui::TextEdit::singleline(&mut v.code)
-                    .font(theme::mono(17.0))
-                    .char_limit(forza::online::lobby::ARCADE_CODE_LEN)
-                    .desired_width(110.0)
-                    .margin(vec2(10.0, 6.0)),
-            );
+            let label = field(ui, &tr!(lang, "lobby.room_code"), 130.0);
+            let r = ui
+                .add(
+                    egui::TextEdit::singleline(&mut v.code)
+                        .font(theme::mono(17.0))
+                        .char_limit(forza::online::lobby::ARCADE_CODE_LEN)
+                        .desired_width(110.0)
+                        .margin(vec2(10.0, 6.0)),
+                )
+                .labelled_by(label.id);
             if r.lost_focus()
                 && ui.input(|i| i.key_pressed(Key::Enter))
                 && !v.code.trim().is_empty()

@@ -478,6 +478,10 @@ pub struct Note {
 
 const NOTE_SECS: f64 = 4.0;
 
+/// The CATALOGUE filter's country and club list boxes: wide enough for "Argentina (231)", narrow enough that both
+/// fit on one line beside their labels in English, Italian and Japanese.
+const COMBO_W: f32 = 136.0;
+
 impl Note {
     pub fn new(tone: Tone, text: String) -> Note {
         Note {
@@ -1466,7 +1470,7 @@ fn touched_card(ui: &Ui, st: &mut PanelState, area: Rect, lang: Lang) {
 fn paused(ui: &Ui, pic: Rect, lang: Lang, key: &str, left: u64) {
     let p = ui.ctx().layer_painter(egui::LayerId::new(
         egui::Order::Foreground,
-        egui::Id::new("paused"),
+        egui::Id::unique("paused"),
     ));
     p.rect_filled(pic, 0, Color32::from_black_alpha(150));
     let r = Rect::from_center_size(pic.center(), vec2((pic.width() - 40.0).min(560.0), 150.0));
@@ -1511,7 +1515,7 @@ fn paused(ui: &Ui, pic: Rect, lang: Lang, key: &str, left: u64) {
 /// while the dialog is open.
 fn close_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let edition = st.edition;
-    let modal = egui::Modal::new(egui::Id::new("close-dialog"))
+    let modal = egui::Modal::new(egui::Id::unique("close-dialog"))
         .backdrop_color(Color32::from_black_alpha(170))
         .frame(
             egui::Frame::new()
@@ -1576,7 +1580,7 @@ fn import_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let Some(ask) = st.import_ask.clone() else {
         return;
     };
-    let modal = egui::Modal::new(egui::Id::new("import-dialog"))
+    let modal = egui::Modal::new(egui::Id::unique("import-dialog"))
         .backdrop_color(Color32::from_black_alpha(170))
         .frame(
             egui::Frame::new()
@@ -1643,7 +1647,7 @@ fn formations_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     };
     let in_match = st.in_match;
     let mut close = false;
-    let modal = egui::Modal::new(egui::Id::new("formations-dialog"))
+    let modal = egui::Modal::new(egui::Id::unique("formations-dialog"))
         .backdrop_color(Color32::from_black_alpha(170))
         .frame(
             egui::Frame::new()
@@ -1752,7 +1756,7 @@ fn formations_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             if let Some((i, name)) = &mut f.naming {
                 let i = *i;
                 ui.separator();
-                ui.label(
+                let label = ui.label(
                     egui::RichText::new(tr!(lang, "form.name_for", n = i + 1))
                         .font(theme::bold(15.0))
                         .color(theme::TEXT),
@@ -1765,13 +1769,15 @@ fn formations_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                         &tr!(lang, "form.replaces", name = o.name.clone()),
                     );
                 }
-                let edit = ui.add(
-                    egui::TextEdit::singleline(name)
-                        .id_salt("form-name")
-                        .char_limit(40)
-                        .font(theme::body(16.0))
-                        .desired_width(f32::INFINITY),
-                );
+                let edit = ui
+                    .add(
+                        egui::TextEdit::singleline(name)
+                            .id_salt("form-name")
+                            .char_limit(40)
+                            .font(theme::body(16.0))
+                            .desired_width(f32::INFINITY),
+                    )
+                    .labelled_by(label.id);
                 if !edit.has_focus() {
                     edit.request_focus();
                 }
@@ -1852,7 +1858,7 @@ fn deal_window(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
     };
     let size = vec2(360.0, 640.0f32.min(area.height() - 20.0));
     let r = Rect::from_center_size(area.center(), size);
-    let resp = egui::Area::new(egui::Id::new("deal"))
+    let resp = egui::Area::new(egui::Id::unique("deal"))
         .order(egui::Order::Foreground)
         .fixed_pos(r.min)
         .show(ui.ctx(), |ui| {
@@ -1882,7 +1888,7 @@ fn deal_window(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
                     "deal.title"
                 }
             );
-            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &title));
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &title));
             let g = widgets::fit(&p, &title, theme::display(28.0), col, size.x - 24.0);
             p.galley(
                 pos2(r.center().x - g.size().x / 2.0, r.top() + 14.0),
@@ -3177,6 +3183,7 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                         .desired_width(f32::INFINITY)
                         .margin(vec2(12.0, 8.0)),
                 )
+                .accessible_name(tr!(lang, "cat.search_hint"))
             },
         )
         .inner;
@@ -3205,20 +3212,22 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                 f.pos = i + 1;
             }
         }
-        ui.add_space(16.0);
+        ui.add_space(8.0);
         let index = c.index.as_ref();
-        field(ui, &tr!(lang, "cat.country"), 80.0);
+        let country = field(ui, &tr!(lang, "cat.country"), 80.0);
         combo(
             ui,
             "country",
+            country.id,
             &mut f.country,
             index.map_or(&[][..], |x| &x.countries),
             lang,
         );
-        field(ui, &tr!(lang, "cat.club"), 56.0);
+        let club = field(ui, &tr!(lang, "cat.club"), 56.0);
         combo(
             ui,
             "club",
+            club.id,
             &mut f.club,
             index.map_or(&[][..], |x| &x.clubs),
             lang,
@@ -3566,23 +3575,37 @@ fn card_view(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     }
 }
 
-fn combo(ui: &mut Ui, id: &str, value: &mut String, options: &[(String, usize)], lang: Lang) {
+fn combo(
+    ui: &mut Ui,
+    id: &str,
+    label: egui::Id,
+    value: &mut String,
+    options: &[(String, usize)],
+    lang: Lang,
+) {
     let all = tr!(lang, "cat.all");
     let shown = if value.is_empty() {
         all.clone()
     } else {
         value.clone()
     };
-    egui::ComboBox::from_id_salt(id)
-        .selected_text(shown)
-        .width(150.0)
-        .height(400.0)
-        .show_ui(ui, |ui| {
-            ui.selectable_value(value, String::new(), all);
-            for (o, n) in options {
-                ui.selectable_value(value, o.clone(), format!("{o} ({n})"));
-            }
-        });
+    // 0.37's combo grows to the space it is offered, and the wrapped row then moves it to the next line (a box
+    // 150 wide touched the pane's edge even on 0.36): it gets its own slot, which the row can measure
+    let slot = vec2(COMBO_W, ui.spacing().interact_size.y);
+    ui.allocate_ui_with_layout(slot, egui::Layout::top_down(egui::Align::Min), |ui| {
+        egui::ComboBox::from_id_salt(id)
+            .selected_text(shown)
+            .width(COMBO_W)
+            .height(400.0)
+            .show_ui(ui, |ui| {
+                ui.selectable_value(value, String::new(), all);
+                for (o, n) in options {
+                    ui.selectable_value(value, o.clone(), format!("{o} ({n})"));
+                }
+            })
+            .response
+            .labelled_by(label);
+    });
 }
 
 /// The card's partners by affinity, best first (from the game's own files), a tick on those already on the table.
@@ -4254,19 +4277,21 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                 } else {
                     st.address.clear();
                     st.say(Tone::Notice, "settings.msg_type_address");
-                    ui.memory_mut(|m| m.request_focus(egui::Id::new("settings-address")));
+                    ui.memory_mut(|m| m.request_focus(egui::Id::unique("settings-address")));
                 }
             }
             // the server's address: digits and dots; Enter (or a click elsewhere) keeps a good one, Esc leaves it
-            let r = ui.add(
-                egui::TextEdit::singleline(&mut st.address)
-                    .id(egui::Id::new("settings-address"))
-                    .char_limit(15)
-                    .hint_text(tr!(lang, "settings.address_hint"))
-                    .font(theme::mono(15.0))
-                    .desired_width(w)
-                    .margin(vec2(10.0, 7.0)),
-            );
+            let r = ui
+                .add(
+                    egui::TextEdit::singleline(&mut st.address)
+                        .id(egui::Id::unique("settings-address"))
+                        .char_limit(15)
+                        .hint_text(tr!(lang, "settings.address_hint"))
+                        .font(theme::mono(15.0))
+                        .desired_width(w)
+                        .margin(vec2(10.0, 7.0)),
+                )
+                .accessible_name(tr!(lang, "settings.address_hint"));
             st.address.retain(|c| c.is_ascii_digit() || c == '.');
             if r.lost_focus() {
                 if ui.input(|i| i.key_pressed(egui::Key::Escape)) || st.address == st.file.server {
@@ -5401,8 +5426,9 @@ mod tests {
             st.popped = true;
             frame(&game_ctx, st, 1920.0, 1080.0, t, vec![]);
         };
-        let big =
-            |ctx: &egui::Context| ctx.memory(|m| m.area_rect(egui::Id::new("board-big")).is_some());
+        let big = |ctx: &egui::Context| {
+            ctx.memory(|m| m.area_rect(egui::Id::unique("board-big")).is_some())
+        };
         both(&mut st, 0.0, vec![egui::Event::PointerMoved(pos)]);
         assert!(st.touched.is_none());
         both(&mut st, 0.1, vec![press(true)]);
