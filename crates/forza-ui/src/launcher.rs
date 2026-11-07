@@ -58,8 +58,14 @@ pub enum Action {
     UndoNow,
     /// Browse for the game folder.
     Browse,
-    /// The card pictures choice changed (`pictures_hq`), or "Choose pack…" (`choose`).
+    /// 2010–11: the card pictures choice changed (`pictures_hq`), or "Choose pack…" (`choose`).
     Pictures { choose: bool },
+    /// 2017–18: DOWNLOAD or REMOVE the high-quality card pictures asked: Launcher.exe asks to confirm.
+    PicturesAsk,
+    /// DOWNLOAD or REMOVE the high-quality card pictures, confirmed.
+    PicturesNow,
+    /// The skip-the-tutorial switch changed.
+    SkipTutorial,
     /// The projector switch changed.
     Projector,
     /// The CPU championship switch changed.
@@ -154,7 +160,7 @@ pub struct LauncherState {
     /// The tab shown.
     pub tab: Tab,
     pub folder: String,
-    /// The card pictures: the high-quality pack, else the game's own.
+    /// The card pictures: the high-quality pack (2017–18: the downloaded one), else the game's own.
     pub pictures_hq: bool,
     /// The projector switch: its window shown (2017–18 only).
     pub projector: Option<bool>,
@@ -709,28 +715,53 @@ fn setup(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Actio
             }
         });
         ui.add_space(2.0);
-        ui.horizontal(|ui| {
-            let label_w = 150.0;
-            field(ui, &tr!(lang, "launcher.card_pictures"), label_w);
-            let choose = tr!(lang, "launcher.choose_pack");
-            let w = ui.available_width() - text_w(ui, &choose) - 40.0;
-            let mut i = st.pictures_hq as usize;
-            if segmented(
+        if st.edition == Edition::E1718 {
+            ui.horizontal(|ui| {
+                field(ui, &tr!(lang, "launcher.card_pictures"), 150.0);
+                let key = if st.pictures_hq {
+                    "launcher.pictures_remove"
+                } else {
+                    "launcher.pictures_download"
+                };
+                if action(ui, &tr!(lang, key)).clicked() {
+                    *act = Some(Action::PicturesAsk);
+                }
+            });
+        } else {
+            ui.horizontal(|ui| {
+                let label_w = 150.0;
+                field(ui, &tr!(lang, "launcher.card_pictures"), label_w);
+                let choose = tr!(lang, "launcher.choose_pack");
+                let w = ui.available_width() - text_w(ui, &choose) - 40.0;
+                let mut i = st.pictures_hq as usize;
+                if segmented(
+                    ui,
+                    &mut i,
+                    &[
+                        &tr!(lang, "launcher.from_game"),
+                        &tr!(lang, "launcher.hq_pack"),
+                    ],
+                    w,
+                ) {
+                    st.pictures_hq = i == 1;
+                    *act = Some(Action::Pictures { choose: false });
+                }
+                if action(ui, &choose).clicked() {
+                    *act = Some(Action::Pictures { choose: true });
+                }
+            });
+        }
+        if let Some(skip) = &mut st.skip_tutorial
+            && toggle_row(
                 ui,
-                &mut i,
-                &[
-                    &tr!(lang, "launcher.from_game"),
-                    &tr!(lang, "launcher.hq_pack"),
-                ],
-                w,
-            ) {
-                st.pictures_hq = i == 1;
-                *act = Some(Action::Pictures { choose: false });
-            }
-            if action(ui, &choose).clicked() {
-                *act = Some(Action::Pictures { choose: true });
-            }
-        });
+                skip,
+                &tr!(lang, "launcher.skip_tutorial"),
+                &tr!(lang, "launcher.skip_tutorial_hint"),
+            )
+            .clicked()
+        {
+            *act = Some(Action::SkipTutorial);
+        }
         if let Some(on) = &mut st.projector
             && toggle_row(
                 ui,

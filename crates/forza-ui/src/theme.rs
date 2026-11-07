@@ -198,8 +198,12 @@ pub fn install_fonts(ctx: &Context, edition: Edition, fonts: FontDefinitions) {
     ctx.set_fonts(fonts);
     ctx.set_theme(egui::Theme::Dark);
     ctx.set_global_style(style(edition));
-    // the card pictures: PNG and JPEG files through egui's loaders
+    // the card pictures: PNG and JPEG files through egui's loaders, the downloaded ones shrunk first
     egui_extras::install_image_loaders(ctx);
+    let hq = crate::board::HqLoader::ID;
+    if !ctx.loaders().image.lock().iter().any(|l| l.id() == hq) {
+        ctx.add_image_loader(Arc::new(crate::board::HqLoader::default()));
+    }
 }
 
 // ---- the style ----

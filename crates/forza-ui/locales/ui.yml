@@ -40,6 +40,12 @@ launcher.card_pictures: {en: "CARD PICTURES", it: "IMMAGINI CARTE", ja: "カー�
 launcher.from_game: {en: "From the game", it: "Dal gioco", ja: "ゲームから"}
 launcher.hq_pack: {en: "High-quality pack", it: "Pacchetto HQ", ja: "高画質パック"}
 launcher.choose_pack: {en: "Choose pack…", it: "Scegli pacchetto…", ja: "パックを選択…"}
+launcher.pictures_download: {en: "Download high-quality pictures", it: "Scarica immagini in alta qualità", ja: "高画質画像をダウンロード"}
+launcher.pictures_remove: {en: "Remove high-quality pictures", it: "Rimuovi immagini in alta qualità", ja: "高画質画像を削除"}
+launcher.pictures_download_ask: {en: "Download high-quality card pictures (%{size} MB)? A cut download goes on where it stopped.", it: "Scaricare le immagini delle carte in alta qualità (%{size} MB)? Un download interrotto riprende da dove si è fermato.", ja: "高画質カード画像をダウンロードしますか？（%{size} MB）中断しても続きから再開します。"}
+launcher.pictures_remove_ask: {en: "Remove the high-quality card pictures? The game's own pictures come back. The download stays saved.", it: "Rimuovere le immagini delle carte in alta qualità? Tornano le immagini del gioco. Il download resta salvato.", ja: "高画質カード画像を削除しますか？ゲーム本来の画像に戻ります。ダウンロードしたファイルは残ります。"}
+launcher.skip_tutorial: {en: "Skip the tutorial", it: "Salta il tutorial", ja: "チュートリアルを省略"}
+launcher.skip_tutorial_hint: {en: "Applied at the next start.", it: "Si applica al prossimo avvio.", ja: "次回の起動時に反映されます。"}
 launcher.projector: {en: "Projector", it: "Proiettore", ja: "プロジェクター"}
 launcher.projector_hint: {en: "Its window, shown or hidden at once. Also in the game's SETTINGS.", it: "La sua finestra, mostrata o nascosta subito. Anche nelle IMPOSTAZIONI del gioco.", ja: "ウィンドウをすぐに表示・非表示。ゲームの設定でも変更できます。"}
 launcher.cpu_championship: {en: "CPU championship", it: "Campionato CPU", ja: "CPU大会"}
@@ -121,6 +127,9 @@ launcher.msg_link_taken: {en: "This folder path may not work. If the game does n
 launcher.msg_link_no_junction: {en: "This folder path may not work. If the game does not start, move it to C:\\Games.", it: "Questo percorso potrebbe non funzionare. Se il gioco non parte, spostalo in C:\\Games.", ja: "このフォルダーのパスでは動かない場合があります。起動しないときは C:\\Games へ移動してください。"}
 launcher.msg_link_failed: {en: "This folder path may not work. If the game does not start, move it to C:\\Games.", it: "Questo percorso potrebbe non funzionare. Se il gioco non parte, spostalo in C:\\Games.", ja: "このフォルダーのパスでは動かない場合があります。起動しないときは C:\\Games へ移動してください。"}
 launcher.msg_pack_title: {en: "Pick the high-quality card pack (forza-wccf-card-pictures-hq-*.zip)", it: "Scegli il pacchetto di immagini carte in alta qualità (forza-wccf-card-pictures-hq-*.zip)", ja: "高画質カード画像パックを選んでください（forza-wccf-card-pictures-hq-*.zip）"}
+launcher.msg_pack_downloading: {en: "Downloading card pictures", it: "Scarico le immagini delle carte", ja: "カード画像をダウンロード中"}
+launcher.msg_pack_no_space: {en: "Not enough disk space: %{need} MB needed.", it: "Spazio su disco insufficiente: servono %{need} MB.", ja: "ディスクの空き容量が足りません：%{need} MB 必要です。"}
+launcher.msg_pack_bad_hash: {en: "Download damaged. Try again.", it: "Download danneggiato. Riprova.", ja: "ダウンロードが壊れています。もう一度お試しください。"}
 launcher.msg_making_pictures: {en: "Making card pictures ...", it: "Creo le immagini delle carte ...", ja: "カード画像を作成中..."}
 launcher.msg_updating_pictures: {en: "Updating card pictures ...", it: "Aggiorno le immagini delle carte ...", ja: "カード画像を更新中..."}
 launcher.msg_no_fonts: {en: "Missing file: %{error}. Check your antivirus, then reinstall Forza-WCCF.", it: "File mancante: %{error}. Controlla l'antivirus, poi reinstalla Forza-WCCF.", ja: "ファイルがありません：%{error}。ウイルス対策ソフトを確認し、Forza-WCCF を再インストールしてください。"}
