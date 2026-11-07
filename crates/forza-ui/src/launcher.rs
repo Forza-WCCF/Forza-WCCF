@@ -3,7 +3,9 @@
 //! from the real kit, the gallery and the snapshots draw [`LauncherState::sample`].
 
 use super::Lang;
-use super::lobby::{self, CupPlan, Grey, Kind, LobbyAction, LobbyView, Scenario as LobbyScenario};
+use super::lobby::{
+    self, CupPlan, CupRefused, Grey, Kind, LobbyAction, LobbyView, Scenario as LobbyScenario,
+};
 use super::theme::{self, Edition};
 use super::widgets::{
     self, Cab, Tone, action, cabinet, field, progress, segmented, start_bar, status_line, steps,
@@ -142,9 +144,9 @@ pub struct LauncherState {
     pub set_up: bool,
     /// A run is on in this folder (here or in another Launcher.exe): PLAY offers STOP THE GAME.
     pub running: bool,
-    /// The Universal Cup plan the run on this folder was started with (2017-18, this PC): the PLAY tab shows its open
-    /// time while the run is on, so the line keeps the time PLAY gave it instead of moving with the clock.
-    pub cup_started: Option<CupPlan>,
+    /// What the run on this folder got for the Universal Cup (2017-18, this PC): the PLAY tab shows it while the run is
+    /// on, so a slot keeps the open time PLAY gave it and a refusal stays refused instead of moving with the clock.
+    pub cup_started: Option<Result<CupPlan, CupRefused>>,
     /// A job runs (setup, an update, the run): the choices wait.
     pub busy: bool,
     /// The job's steps done of all (a start's "N/M" lines), else its progress 0..1.

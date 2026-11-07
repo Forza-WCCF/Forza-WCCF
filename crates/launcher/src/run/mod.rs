@@ -53,7 +53,7 @@ use forza::online::save_logs::{self, Scrub};
 use forza::online::seat::{self, Lease};
 use forza::online::{championship, club, gamesvr};
 use forza::standins::{Handle, Log, aime, aimedb, card_reader, io_board, network, scenes};
-use forza_ui::lobby::CupPlan;
+use forza_ui::lobby::{CupPlan, CupRefused};
 use regex::Regex;
 use windows_sys::Win32::Foundation::{ERROR_ALREADY_EXISTS, FALSE, GetLastError, WAIT_ABANDONED, WAIT_OBJECT_0};
 use windows_sys::Win32::System::Threading::{
@@ -420,13 +420,19 @@ pub fn any_on(kit: &Kit) -> bool {
     is_on(kit, Kind::Run) || is_on(kit, Kind::Server)
 }
 
-/// The Universal Cup plan the run in this process was started with (2017-18, this PC: `Run::start_gamesvr` writes the
-/// control's schedule from it): the window's PLAY tab shows its open time while the run is on.
-static CUP_STARTED: Mutex<Option<CupPlan>> = Mutex::new(None);
+/// What the run in this process got for the Universal Cup (2017-18, this PC: `Run::start_gamesvr` writes the control's
+/// schedule from it): the window's PLAY tab shows that while the run is on, never a new preview.
+static CUP_STARTED: Mutex<Option<Result<CupPlan, CupRefused>>> = Mutex::new(None);
 
-/// [`CUP_STARTED`]: `None` until a run on this PC set one, or when the cup time it read was refused.
-pub fn cup_started() -> Option<CupPlan> {
+/// [`CUP_STARTED`]: `None` while no run on this PC is on, else what that run got - a refusal included, so the PLAY tab
+/// keeps showing the refusal the run was started with.
+pub fn cup_started() -> Option<Result<CupPlan, CupRefused>> {
     *CUP_STARTED.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// [`CUP_STARTED`]: what the run being started got; `None` once it ends.
+fn remember_cup(got: Option<Result<CupPlan, CupRefused>>) {
+    *CUP_STARTED.lock().unwrap_or_else(PoisonError::into_inner) = got;
 }
 
 fn request_file(kit: &Kit, kind: Kind) -> PathBuf {
@@ -632,8 +638,18 @@ fn stop_command(kit: &Kit, p: &Params, force: bool, check: bool, ui: &dyn Ui) ->
     })
 }
 
+/// The run is over: [`CUP_STARTED`] is cleared, so the PLAY tab previews the choice again.
+struct ForgetCup;
+
+impl Drop for ForgetCup {
+    fn drop(&mut self) {
+        remember_cup(None);
+    }
+}
+
 /// Starts and supervises; a full RESTART NOW starts again with what a plain start chooses.
 pub fn play(kit: &Kit, p: &Params, mode: Option<Mode>, debug: bool, ui: &dyn Ui) -> i32 {
+    let _forget = ForgetCup; // every way out: the run it remembers has ended
     let mut mode = mode;
     loop {
         let m = mode.take().unwrap_or_else(|| plain_mode(kit, p, ui));
@@ -2211,6 +2227,8 @@ impl Run<'_> {
     /// GAME_SVR_ENTRY=1 (the control's VS entries, 243-246), the lobby's VS room claimed at its desk, the direct VS
     /// link. A cabinet on a server uses that server's.
     fn start_gamesvr(&mut self, steps: u32) -> Result<(), Failed> {
+        // a new run: nothing of the last one until this one picks its cup
+        remember_cup(None);
         if !matches!(self.mode, Mode::Remote(..)) {
             self.club_leftover(&self.kit.save().join("gamesvr"));
         }
@@ -2224,8 +2242,8 @@ impl Run<'_> {
         // new start; local play's PLAY tab writes the same setting). A cup at a time is a schedule slot
         // (local\schedule_option.conf); VS keeps the game's times.
         let plan = rules::cup_plan(&self.mode, &self.kit.settings(), forza_ui::lobby::local_clock());
-        // the window's PLAY tab shows this run's open time while it runs, not a new one every frame
-        *CUP_STARTED.lock().unwrap_or_else(PoisonError::into_inner) = plan.as_ref().ok().copied();
+        // the window's PLAY tab shows this run's result while it runs, not a new one every frame
+        remember_cup(Some(plan));
         let ((times, friendlies), line) = match plan {
             Ok(p) => (
                 conf::cup_files(p),

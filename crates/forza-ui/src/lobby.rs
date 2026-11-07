@@ -1441,7 +1441,7 @@ pub fn cup_rows(
     lang: Lang,
     label_w: f32,
     local: bool,
-    started: Option<CupPlan>,
+    started: Option<Result<CupPlan, CupRefused>>,
 ) -> bool {
     let (off_key, note_key) = if local {
         ("lobby.cup_off_local", "lobby.cup_local")
@@ -1513,10 +1513,14 @@ pub fn cup_rows(
     refused
 }
 
-/// The cup line's plan: a run on this folder keeps the plan it was started with, so its open time stays the one PLAY
-/// gave it; with no run, the choice previewed at `now`.
-fn cup_shown(started: Option<CupPlan>, cup: &CupChoice, now: u32) -> Result<CupPlan, CupRefused> {
-    started.map_or_else(|| cup.plan(now), Ok)
+/// The cup line's plan: a run on this folder shows what it was started with (a refusal stays the refusal row, a slot
+/// keeps the time PLAY gave it); with no run, the choice previewed at `now`.
+fn cup_shown(
+    started: Option<Result<CupPlan, CupRefused>>,
+    cup: &CupChoice,
+    now: u32,
+) -> Result<CupPlan, CupRefused> {
+    started.unwrap_or_else(|| cup.plan(now))
 }
 
 /// The host dialog (HOST ARCADE): "List my arcade", the arcade's name, HOST and CANCEL; CANCEL, Esc or a click outside put
@@ -1958,8 +1962,8 @@ mod tests {
         );
     }
 
-    /// A run on this folder keeps the cup time PLAY gave it (the run line's time, not a new now + N every frame); with
-    /// no run, the choice is previewed at the clock.
+    /// A run on this folder shows the cup result PLAY gave it (the run line's time, not a new now + N every frame) and
+    /// keeps a refusal; with no run, the choice is previewed at the clock.
     #[test]
     fn a_run_keeps_the_cup_time_it_was_started_with() {
         let h = |h: u32, m: u32| h * 3600 + m * 60;
@@ -1968,19 +1972,30 @@ mod tests {
             minutes: 8,
             at: 0,
         };
-        let started = cup.plan(h(18, 8)).unwrap();
+        let started = cup.plan(h(18, 8));
         // the run line's time (18:16), not the 18:26 the same choice previews at 18:18
         assert_eq!(
             started,
-            CupPlan::Slot {
+            Ok(CupPlan::Slot {
                 friendlies: 1,
                 opens: h(18, 16) + 25
-            }
+            })
         );
         // ten minutes into the run: the preview would say 18:26, the run's line stays 18:16
-        assert_eq!(cup_shown(Some(started), &cup, h(18, 18)), Ok(started));
+        assert_eq!(cup_shown(Some(started), &cup, h(18, 18)), started);
         assert_eq!(cup_shown(None, &cup, h(18, 18)), cup.plan(h(18, 18)));
-        assert_ne!(cup_shown(None, &cup, h(18, 18)), Ok(started));
+        assert_ne!(cup_shown(None, &cup, h(18, 18)), started);
+        // refused at PLAY ("At 21:00" picked at 18:00, 180 min > the 150 it takes) stays refused: later, when the
+        // preview turns legal, the run's line keeps the refusal it was started with
+        let at = CupChoice {
+            mode: CupMode::At,
+            at: 21 * 60,
+            ..cup
+        };
+        let refused = at.plan(h(18, 0));
+        assert_eq!(refused, Err(CupRefused::TooFar));
+        assert_eq!(cup_shown(Some(refused), &at, h(18, 40)), refused);
+        assert_ne!(cup_shown(None, &at, h(18, 40)), refused);
     }
 
     #[test]
