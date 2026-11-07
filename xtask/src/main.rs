@@ -2616,6 +2616,31 @@ fn walk(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+
+    // The scrub check's two halves on any text: `mask` walks `line[i..]` by hand, so it must not panic on any UTF-8
+    // (a cut inside a character), and a line it masked already holds no name, so the check run through its own mask
+    // finds nothing. The third case is the surname that only holds the name (Hasegawa), which the name list allows.
+    proptest! {
+        #[test]
+        fn mask_never_panics_and_leaves_nothing_for_the_check(
+            pre in "\\PC{0,30}",
+            post in "\\PC{0,30}",
+            which in 0usize..3,
+        ) {
+            let [p, k] = publisher();
+            let name = match which {
+                0 => p.clone(),
+                1 => p.to_uppercase(),
+                _ => format!("Ha{p}wa"),
+            };
+            let text = format!("{pre}{name}{post}");
+            let masked = mask(&text);
+            prop_assert!(!masked.to_ascii_lowercase().contains(&p), "{masked:?}");
+            prop_assert!(!masked.contains(&k), "{masked:?}");
+            prop_assert!(!names_publisher(&masked), "{masked:?}");
+        }
+    }
 
     /// `check quick` must rebuild when a source is gone: deleted and not staged, git still lists it and the mtime
     /// comparison skips it (the 2026-11-06 sweep); deleted and staged, it is not in the list at all.
