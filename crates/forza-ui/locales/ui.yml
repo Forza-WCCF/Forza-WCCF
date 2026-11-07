@@ -328,8 +328,8 @@ cat.back: {en: "BACK", it: "RETRO", ja: "裏面"}
 cat.msg_added: {en: "%{name} added (%{n}/16)", it: "%{name} aggiunto (%{n}/16)", ja: "%{name} を追加しました（%{n}/16）"}
 cat.msg_on_table: {en: "%{name} is on the table", it: "%{name} è già sul tavolo", ja: "%{name} はすでにテーブルにあります"}
 cat.msg_same_player: {en: "%{name}: another card of this player is on the table (%{season})", it: "%{name}: un'altra carta di questo giocatore è già sul tavolo (%{season})", ja: "%{name}：この選手の別のカードがすでにテーブルにあります（%{season}）"}
-cat.msg_full: {en: "The table is full (16 cards). Right-click a card to remove it.", it: "Il tavolo è pieno (16 carte). Clic destro su una carta per toglierla.", ja: "テーブルが満杯です（16枚）。カードを右クリックすると外せます。"}
-cat.msg_no_place: {en: "No room on the table. Right-click a card to remove it.", it: "Non c'è spazio sul tavolo. Clic destro su una carta per toglierla.", ja: "テーブルに空きがありません。カードを右クリックすると外せます。"}
+cat.msg_full: {en: "The table is full (16 cards). Drag a card off the table to make room.", it: "Il tavolo è pieno (16 carte). Trascina una carta fuori dal tavolo per fare spazio.", ja: "テーブルが満杯です（16枚）。カードをテーブルの外へドラッグすると空きができます。"}
+cat.msg_no_place: {en: "No free place on the table for this card. Drag a card off the table to make room.", it: "Nessun posto libero sul tavolo per questa carta. Trascina una carta fuori dal tavolo per fare spazio.", ja: "このカードを置ける場所がありません。カードをテーブルの外へドラッグすると空きができます。"}
 cat.import: {en: "IMPORT LINEUP", it: "IMPORTA FORMAZIONE", ja: "編成を読み込む"}
 cat.lineup: {en: "Lineup", it: "Formazione", ja: "編成"}
 cat.msg_imported: {en: "%{name}: %{n} cards on the table.", it: "%{name}: %{n} carte sul tavolo.", ja: "%{name}：%{n}枚をテーブルに置きました。"}
