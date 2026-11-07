@@ -151,7 +151,7 @@ fn control() -> (Option<u32>, Option<HWND>) {
                 let b = GetDlgItem(Some(HWND(w.hwnd)), 1035).ok()?;
                 let mut class = [0u16; 32];
                 let n = GetClassNameW(b, &mut class).max(0) as usize;
-                String::from_utf16_lossy(&class[..n])
+                String::from_utf16_lossy(class.get(..n).unwrap_or_default())
                     .eq_ignore_ascii_case("Button")
                     .then_some(b)
             }

@@ -237,10 +237,16 @@ fn money_text(buf: &mut [u8], v: i64) -> i32 {
         out.push(b'-');
     }
     out.reverse();
-    let n = out.len().min(buf.len() - 1);
-    buf[..n].copy_from_slice(&out[..n]);
-    buf[n] = 0;
-    n as i32
+    put_cut(buf, &out).map_or(-1, |n| n as i32)
+}
+
+/// `text` cut to `buf` with its 0 after it; the length, None = no room for the 0.
+fn put_cut(buf: &mut [u8], text: &[u8]) -> Option<usize> {
+    let n = text.len().min(buf.len().checked_sub(1)?);
+    let (head, rest) = buf.split_at_mut_checked(n)?;
+    head.copy_from_slice(text.get(..n)?);
+    *rest.first_mut()? = 0;
+    Some(n)
 }
 
 /// The C's `money_value`: the amount in $100, from the game's own arguments.
@@ -268,10 +274,13 @@ unsafe fn money_place(
     fmt: usize,
     ap: *const i32,
 ) -> i32 {
-    let Some(i) = MSITES.iter().position(|s| s.ret == ret && s.kind == kind) else {
+    let Some((site, said)) = MSITES
+        .iter()
+        .zip(&MSITE_SAID)
+        .find(|(s, _)| s.ret == ret && s.kind == kind)
+    else {
         return -2;
     };
-    let site = &MSITES[i];
     let buf: &mut [u8] = if buf.is_null() || size == 0 {
         &mut []
     } else {
@@ -298,15 +307,15 @@ unsafe fn money_place(
     };
     let r = match role {
         Oku => {
-            if buf.is_empty() {
+            let Some(end) = buf.first_mut() else {
                 return -2;
-            }
+            };
             *pend() = Pend {
                 tid,
                 grp: site.grp,
                 oku: a0(),
             };
-            buf[0] = 0;
+            *end = 0;
             0
         }
         Pass => return -2, // no 100-million part: the game's own empty text
@@ -329,7 +338,7 @@ unsafe fn money_place(
     if r < 0 {
         return -2;
     }
-    if !MSITE_SAID[i].swap(true, Relaxed) {
+    if !said.swap(true, Relaxed) {
         let how = if role != site.role {
             ", its other format"
         } else if role == Man && waiting {
@@ -337,7 +346,7 @@ unsafe fn money_place(
         } else {
             ""
         };
-        let text = String::from_utf8_lossy(&buf[..r as usize]);
+        let text = String::from_utf8_lossy(buf.get(..r as usize).unwrap_or_default());
         log(&format!(
             "money: {} (place 0x{ret:08X}{how}) -> \"{text}\"",
             site.what
@@ -463,11 +472,11 @@ extern "C" fn safe_vsprintf_s_impl(
             (h ^ u32::from(c)).wrapping_mul(16_777_619)
         });
         let known = BADFMT_N.load(Relaxed).min(64) as usize;
-        let seen = BADFMT_SEEN[..known].iter().any(|s| s.load(Relaxed) == h);
+        let seen = BADFMT_SEEN.iter().take(known).any(|s| s.load(Relaxed) == h);
         if !seen && BADFMT_N.load(Relaxed) < 64 {
             let k = BADFMT_N.fetch_add(1, Relaxed);
-            if k < 64 {
-                BADFMT_SEEN[k as usize].store(h, Relaxed);
+            if let Some(s) = BADFMT_SEEN.get(k as usize) {
+                s.store(h, Relaxed);
             }
             let mut esc = String::new();
             for &c in text {
@@ -505,10 +514,7 @@ fn after_refusal(
     if let Some(n) = fit(boxed) {
         return (n, true);
     }
-    let n = fmt.len().min(boxed.len() - 1);
-    boxed[..n].copy_from_slice(&fmt[..n]);
-    boxed[n] = 0;
-    (n, false)
+    (put_cut(boxed, fmt).unwrap_or(0), false)
 }
 
 /// The C's `iat_slot`: the import slot of `dll!func` in the module at `base` (by name, from the import table).
@@ -751,7 +757,7 @@ impl Mt {
 
     fn text(&mut self, name: &str, size: usize, v: i64, want: &str) {
         let mut b = [0u8; 48];
-        money_text(&mut b[..size], v);
+        money_text(b.get_mut(..size).unwrap_or_default(), v);
         self.check(name, &cstr(&b), want);
     }
 }
@@ -933,7 +939,7 @@ fn money_checks(log: fn(&str)) -> Option<u32> {
     let mut bad = 0;
     for s in &MSITES {
         let p = s.ret as usize;
-        let b = bytes(p - 6, 6)?;
+        let b: [u8; 6] = bytes(p - 6, 6)?.try_into().ok()?;
         let to = (p as u32).wrapping_add(u32::from_le_bytes([b[2], b[3], b[4], b[5]])); // where an E8 call before p goes
         let ok = match s.kind {
             b'S' => b[1] == 0xE8 && to == 0x006D_7DA0,
