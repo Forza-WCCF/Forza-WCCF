@@ -1,8 +1,10 @@
 //! The 2017-18 control's Universal Championship day file, `game\log\<date>_uc.bin` (control 0x47D0D0): 3 match inits
 //! (6,480 bytes each), the 3 match records (7,636 bytes each: semifinal 1, semifinal 2, final), then an MD5 of both.
 //! The date is the control's business date, `YYYYMMDD` of the day before until 05:00 (0x47D800). A record's +8 counts
-//! its teams (0..2), its team blocks (3,800 bytes) start at +36: +4 the CPU id (0 = an arcade player's team, 0x47DB20),
-//! three 28-byte Shift-JIS names at +8, +36 and +64. The day's 4 Universal Cup winners fill the semifinals; empty places
+//! its teams (0..2), its team blocks (3,800 bytes) start at +36: +0 the coach id, +4 the CPU id (0 = an arcade
+//! player's team, 0x47DB20), three 28-byte Shift-JIS names at +8, +36 and +64, +96 `fix` and +3796 `hasDvs` (the
+//! fields the control's "change cpu!" line prints, 0x47DCF0: finalising the day swaps a team with either 0 for a CPU
+//! team). The day's 4 Universal Cup winners fill the semifinals; empty places
 //! get random CPU teams.
 
 use std::path::{Path, PathBuf};
@@ -18,6 +20,11 @@ pub struct Team {
     pub names: Vec<String>,
     /// An arcade player's team (CPU id 0), not a CPU team.
     pub player: bool,
+    pub coach: u32,
+    /// The club save reached the control (the stand-in's 278 echo).
+    pub fix: u8,
+    /// The client's DATA_VS_ENTRY reached the control.
+    pub has_dvs: u8,
 }
 
 /// The control's day file for `date` in `game`.
@@ -52,13 +59,27 @@ pub fn teams(b: &[u8]) -> Vec<Team> {
                     .filter(|n| !n.is_empty())
                     .collect(),
                 player: u32_at(blk + 4) == 0,
+                coach: u32_at(blk),
+                fix: b[blk + 96],
+                has_dvs: b[blk + TEAM - 4],
             });
         }
     }
     out
 }
 
-/// The log's line for `date`: `championship: <date> teams: ...` (a player's team marked `[player]`), or why there is
+/// The player's teams' names (each team's first name), joined with " and "; empty when all are CPU teams.
+pub fn players(teams: &[Team]) -> String {
+    teams
+        .iter()
+        .filter(|t| t.player)
+        .map(|t| t.names.first().map_or("?", String::as_str))
+        .collect::<Vec<_>>()
+        .join(" and ")
+}
+
+/// The log's line for `date`: `championship: <date> teams: ...` (a player's team marked `[player, coach N, fix F,
+/// hasDvs D]`: with fix or hasDvs 0 the control swaps it for a CPU team when it finalises the day), or why there is
 /// none.
 pub fn line(game: &Path, date: u32) -> String {
     let f = file(game, date);
@@ -71,17 +92,42 @@ pub fn line(game: &Path, date: u32) -> String {
     let teams: Vec<String> = teams(&b)
         .iter()
         .map(|t| {
-            format!(
-                "{}{}",
-                t.names.join(" / "),
-                if t.player { " [player]" } else { "" }
-            )
+            let name = t.names.join(" / ");
+            if t.player {
+                format!(
+                    "{name} [player, coach {}, fix {}, hasDvs {}]",
+                    t.coach, t.fix, t.has_dvs
+                )
+            } else {
+                name
+            }
         })
         .collect();
     if teams.is_empty() {
         return format!("championship: {date} teams: none");
     }
     format!("championship: {date} teams: {}", teams.join(", "))
+}
+
+/// The run's last line about today's championship: `Universal Championship today: <club> in`, `all-CPU` (with the
+/// club the run saw in it before, when the control swapped it), or `not held` (no bracket).
+pub fn summary(game: &Path, date: u32, seen: Option<&str>) -> String {
+    let lead = format!("Universal Championship today ({date}):");
+    let Ok(b) = std::fs::read(file(game, date)) else {
+        return format!("{lead} not held (no bracket)");
+    };
+    let t = teams(&b);
+    let mine = players(&t);
+    match (t.is_empty(), mine.is_empty(), seen) {
+        (true, ..) => format!("{lead} not held (no teams)"),
+        (_, false, _) => format!("{lead} {mine} in"),
+        (_, true, Some(c)) => {
+            format!(
+                "{lead} all-CPU - {c} was in it and was swapped for a CPU team (fix or hasDvs 0)"
+            )
+        }
+        (_, true, None) => format!("{lead} all-CPU"),
+    }
 }
 
 #[cfg(test)]
@@ -116,9 +162,14 @@ mod tests {
             t[0],
             Team {
                 names: vec!["FC Madcaps".into()],
-                player: true
+                player: true,
+                coach: 0,
+                fix: 0,
+                has_dvs: 0,
             }
         );
+        assert_eq!(players(&t), "FC Madcaps");
+        assert_eq!(players(&t[1..]), "");
         assert!(t[1..].iter().all(|t| !t.player));
         assert_eq!(t[3].names, ["CPU C"]);
         // the second name field too, in its place
@@ -142,7 +193,41 @@ mod tests {
         .unwrap();
         assert_eq!(
             line(&dir, 20261102),
-            "championship: 20261102 teams: FC Madcaps [player], CPU A"
+            "championship: 20261102 teams: FC Madcaps [player, coach 0, fix 0, hasDvs 0], CPU A"
+        );
+        // coach, fix and hasDvs from the block's +0, +96 and +3796
+        let mut b = day(&[("FC Madcaps", 0), ("CPU A", 950)]);
+        let blk = RECORDS + 36;
+        b[blk] = 3;
+        b[blk + 96] = 1;
+        b[blk + TEAM - 4] = 1;
+        std::fs::write(file(&dir, 20261102), &b).unwrap();
+        assert_eq!(
+            line(&dir, 20261102),
+            "championship: 20261102 teams: FC Madcaps [player, coach 3, fix 1, hasDvs 1], CPU A"
+        );
+        let sum = |d, seen| summary(&dir, d, seen);
+        assert_eq!(
+            sum(20261102, None),
+            "Universal Championship today (20261102): FC Madcaps in"
+        );
+        assert_eq!(
+            sum(20261101, None),
+            "Universal Championship today (20261101): not held (no bracket)"
+        );
+        std::fs::write(file(&dir, 20261102), day(&[("CPU A", 950), ("CPU B", 951)])).unwrap();
+        assert_eq!(
+            sum(20261102, None),
+            "Universal Championship today (20261102): all-CPU"
+        );
+        assert_eq!(
+            sum(20261102, Some("FC Madcaps")),
+            "Universal Championship today (20261102): all-CPU - FC Madcaps was in it and was swapped for a CPU team (fix or hasDvs 0)"
+        );
+        std::fs::write(file(&dir, 20261102), day(&[])).unwrap();
+        assert_eq!(
+            sum(20261102, None),
+            "Universal Championship today (20261102): not held (no teams)"
         );
         std::fs::remove_dir_all(&dir).unwrap();
         let midnight = time::Date::from_calendar_date(2026, time::Month::November, 2)
