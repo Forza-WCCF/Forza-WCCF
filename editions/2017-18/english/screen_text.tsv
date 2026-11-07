@@ -9584,7 +9584,7 @@ NET_TWIT_week_0005	Fri
 NET_TWIT_week_0006	Sat
 INF_TITLE_message_0001	□To mark your title, a $c[FF0000FF]star of honor$c has been added to the emblem
 INF_058_TOPICS_title_0000	Supporter News
-INF_058_TOPICS_message_0000	The supporters seem to have given the team a nickname lately.\nThey seem to be calling you\n$c[FF0000FF]"%s%s"$c.
+INF_058_TOPICS_message_0000	The supporters seem to have given the team a nickname lately.\nThey seem to be calling you\n$c[FF0000FF]"%s %s"$c.
 INF_060_TOPICS_title_0000	Discontent Report
 INF_060_TOPICS_message_0000	$c[FF0000FF]%s$c has seemed irritated lately,\nperhaps unhappy about $c[FF0000FF]%s$c.\nSay a word to him before his discontent boils over.
 INF_070_TOPICS_title_0000	Manager Contract Renewed
