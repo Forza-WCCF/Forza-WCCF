@@ -99,7 +99,11 @@ impl Files {
     }
 
     pub fn lang(&self) -> Lang {
-        let saved = self.settings()["language"].as_str().map(str::to_owned);
+        let saved = self
+            .settings()
+            .get("language")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
         // SAFETY: a plain query without arguments
         let windows = match unsafe { GetUserDefaultUILanguage() } & 0x3ff {
             0x10 => "it",
@@ -209,14 +213,24 @@ impl Files {
                 .position(|n| *n == name)
                 .unwrap_or(0)
         };
-        let (keys, _) = load_keys_with(raw, std::array::from_fn(|i| ui[at(ACTIONS[i].name)]));
+        let (keys, _) = load_keys_with(
+            raw,
+            std::array::from_fn(|i| {
+                ACTIONS
+                    .get(i)
+                    .and_then(|a| ui.get(at(a.name)))
+                    .copied()
+                    .unwrap_or(0)
+            }),
+        );
         let (pads, _) = load_pads(raw);
         let back = |v: [u32; 16]| -> [u32; COUNT] {
             std::array::from_fn(|i| {
-                ACTIONS
-                    .iter()
-                    .position(|a| a.name == forza::keys::NAMES[i])
-                    .map_or(0, |j| v[j])
+                forza::keys::NAMES
+                    .get(i)
+                    .and_then(|n| ACTIONS.iter().position(|a| a.name == *n))
+                    .and_then(|j| v.get(j).copied())
+                    .unwrap_or(0)
             })
         };
         let mut keys = back(keys);
@@ -344,12 +358,13 @@ fn tcp_rows() -> Option<Vec<[u32; 6]>> {
         if get(buf.as_mut_ptr().cast(), &mut n, 0, 2, 5, 0) != 0 {
             return None;
         }
+        // the row count, then the rows
+        let (&count, rows) = buf.split_first()?;
         Some(
-            buf[1..]
-                .as_chunks::<6>()
+            rows.as_chunks::<6>()
                 .0
                 .iter()
-                .take(buf[0] as usize)
+                .take(count as usize)
                 .copied()
                 .collect(),
         )
@@ -372,8 +387,9 @@ impl SysWinmm {
         // SAFETY: a buffer we own; the module stays loaded for the process (never freed), so the functions stay valid
         unsafe {
             let n = GetSystemDirectoryW(Some(&mut dir)) as usize;
-            let path: Vec<u16> = dir[..n.min(260)]
+            let path: Vec<u16> = dir
                 .iter()
+                .take(n)
                 .copied()
                 .chain("\\winmm.dll\0".encode_utf16())
                 .collect();

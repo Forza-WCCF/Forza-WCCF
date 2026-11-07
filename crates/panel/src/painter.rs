@@ -140,7 +140,8 @@ impl Painter {
             let is = std::slice::from_raw_parts_mut(q.cast::<u32>(), ni);
             let (mut v, mut i) = (0, 0);
             for (_, m) in meshes {
-                for (dst, src) in vs[v..].iter_mut().zip(&m.vertices) {
+                // nv and ni are the meshes' totals: every mesh fits
+                for (dst, src) in vs.iter_mut().skip(v).zip(&m.vertices) {
                     let [r, g, b, a] = src.color.to_array();
                     *dst = Vertex {
                         // D3D9 puts pixel centres on whole numbers, egui between them
@@ -149,7 +150,9 @@ impl Painter {
                         uv: [src.uv.x, src.uv.y],
                     };
                 }
-                is[i..i + m.indices.len()].copy_from_slice(&m.indices);
+                for (dst, src) in is.iter_mut().skip(i).zip(&m.indices) {
+                    *dst = *src;
+                }
                 v += m.vertices.len();
                 i += m.indices.len();
             }

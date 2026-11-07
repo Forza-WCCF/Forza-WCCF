@@ -26,6 +26,17 @@
 //! size has held for 10 (fakegame.exe's `size:` and `copy:` steps); `WCCFPANEL_DRYKEYS=1` logs the keys instead of
 //! pressing them.
 #![cfg(target_arch = "x86")]
+// This code runs in the game's process, where a panic ends the game: no call that can panic (tests may, clippy.toml)
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::unreachable,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::string_slice
+)]
 
 mod exe_text;
 mod fullscreen;
@@ -109,6 +120,11 @@ static SCALE: AtomicU32 = AtomicU32::new(0x3F80_0000); // pixels per point (f32 
 /// `PointerButton`) and the last pointer spot (x and y as f32 bits), so a release lost to a focus change can be sent.
 static HELD: [AtomicU8; 2] = [AtomicU8::new(0), AtomicU8::new(0)];
 static HELD_AT: [AtomicU64; 2] = [AtomicU64::new(0), AtomicU64::new(0)];
+
+/// The game window's entry of `HELD` or `HELD_AT`, or the board window's (`board`).
+fn of<T>([game, board_window]: &[T; 2], board: bool) -> &T {
+    if board { board_window } else { game }
+}
 static WANTS_KEYS: AtomicBool = AtomicBool::new(false);
 /// A page is open: its keys are the page's, never the game's.
 static PAGE_OPEN: AtomicBool = AtomicBool::new(false);
@@ -246,7 +262,9 @@ extern "system" fn DllMain(inst: HINSTANCE, reason: u32, reserved: *mut c_void) 
             let _ = DisableThreadLibraryCalls(inst.into());
             GetModuleFileNameW(Some(inst.into()), &mut buf)
         };
-        let path = PathBuf::from(String::from_utf16_lossy(&buf[..n as usize]));
+        let path = PathBuf::from(String::from_utf16_lossy(
+            buf.get(..n as usize).unwrap_or_default(),
+        ));
         let _ = DLL_DIR.set(path.parent().map(Into::into).unwrap_or_default());
         // the device and the window are not ours to touch under the loader lock: a thread does it once we return
         std::thread::spawn(init);
@@ -822,8 +840,7 @@ fn clipboard_text() -> Option<String> {
                 return None;
             }
             let all = std::slice::from_raw_parts(p, (GlobalSize(g) / 2).min(65536));
-            let n = all.iter().position(|&c| c == 0).unwrap_or(all.len());
-            let t = String::from_utf16_lossy(&all[..n]);
+            let t = String::from_utf16_lossy(all.split(|&c| c == 0).next().unwrap_or(all));
             let _ = GlobalUnlock(g);
             Some(t)
         });
@@ -2489,9 +2506,8 @@ impl Render {
     }
 
     fn deal(&mut self) {
-        match cards::deal_now(catalogue()) {
-            Some(i) => {
-                let c = &catalogue()[i];
+        match cards::deal_now(catalogue()).and_then(|i| Some((i, catalogue().get(i)?))) {
+            Some((i, c)) => {
                 log(&format!(
                     "deal: card {} {} ({:?}) - shown only, the club card is not changed",
                     c.number,
@@ -3014,7 +3030,8 @@ impl Render {
             let vk = forza::keys::NAMES
                 .iter()
                 .position(|n| *n == action)
-                .map_or(0, |i| self.st.keys[i]);
+                .and_then(|i| self.st.keys.get(i).copied())
+                .unwrap_or(0);
             log(&format!("button {action} -> key 0x{vk:02X}"));
             kit::send_key(vk, false, log);
             self.key = Some((vk, Instant::now()));
@@ -3051,7 +3068,8 @@ impl Render {
             forza::keys::NAMES
                 .iter()
                 .position(|n| *n == a)
-                .map_or(0, |i| self.st.keys[i])
+                .and_then(|i| self.st.keys.get(i).copied())
+                .unwrap_or(0)
         });
         if want == self.latch {
             return;
@@ -3296,9 +3314,8 @@ fn game_window() -> Option<HWND> {
 /// up (at the last spot: a card in hand drops there), else the pointer is gone. `PointerGone` alone leaves egui's
 /// buttons down, and with them a card dragged from the board.
 fn release_held(board: bool) {
-    let i = usize::from(board);
-    let held = HELD[i].swap(0, Relaxed);
-    let at = HELD_AT[i].load(Relaxed);
+    let held = of(&HELD, board).swap(0, Relaxed);
+    let at = of(&HELD_AT, board).load(Relaxed);
     let pos = pos2(f32::from_bits(at as u32), f32::from_bits((at >> 32) as u32));
     let mut events: Vec<Event> = [
         PointerButton::Primary,
@@ -3519,7 +3536,7 @@ fn input(board: bool, m: u32, wp: WPARAM, lp: LPARAM) -> bool {
     );
     let modifiers = modifiers();
     let seen = |pos: Pos2| {
-        HELD_AT[usize::from(board)].store(
+        of(&HELD_AT, board).store(
             u64::from(pos.x.to_bits()) | (u64::from(pos.y.to_bits()) << 32),
             Relaxed,
         );
@@ -3528,9 +3545,9 @@ fn input(board: bool, m: u32, wp: WPARAM, lp: LPARAM) -> bool {
         seen(pos);
         let bit = 1 << button as u8;
         if pressed {
-            HELD[usize::from(board)].fetch_or(bit, Relaxed);
+            of(&HELD, board).fetch_or(bit, Relaxed);
         } else {
-            HELD[usize::from(board)].fetch_and(!bit, Relaxed);
+            of(&HELD, board).fetch_and(!bit, Relaxed);
         }
         vec![
             Event::PointerMoved(pos),
