@@ -575,7 +575,7 @@ fn the_desk_wide_ceiling_still_trips() {
 /// had no heartbeat for a while; a live room is never taken over.
 #[test]
 fn a_host_replaces_its_own_stale_room() {
-    let d = desk(|c| c.host_stale = Duration::from_millis(300));
+    let d = desk(|c| c.old_host_stale = Duration::from_millis(300));
     let a = d.addr();
     let (_, _, old_t) = arcade_room(a, &tunnel_id(1), false);
     assert_eq!(
@@ -597,15 +597,41 @@ fn a_host_replaces_its_own_stale_room() {
     );
 }
 
-/// A room made with a room secret is replaced by that secret alone, at once and with its code (the host restarted);
-/// whoever else learnt the tunnel id, with another secret or none, gets `ERR host` even when the room has gone quiet.
-/// A stale time of two missed 20 s heartbeats by default.
+/// The 0.7.0 timeline at 1/20 of the time: a host without a room secret beats, crashes and is back at once (`ERR
+/// host`); the retry its Launcher has compiled in, 15 + 2 s later, gets the room. By default the old rule waits less.
 #[test]
-fn only_its_secret_replaces_a_room() {
+fn a_0_7_0_host_back_from_a_crash_gets_its_room_on_the_retry() {
+    const RETRY_0_7_0: Duration = Duration::from_secs(15 + 2);
+    let defaults = DeskConfig::new(Edition::E1718);
+    assert!(defaults.old_host_stale < RETRY_0_7_0);
+    let d = desk(|c| c.old_host_stale = defaults.old_host_stale / 20);
+    let a = d.addr();
+    let host = tunnel_id(1);
+    let (_, _, t) = arcade_room(a, &host, false);
+    assert!(lobby::heartbeat(a, &t).unwrap(), "its last beat");
+    assert_eq!(
+        say(a, &format!("CREATE shop {host}")),
+        "ERR host",
+        "at once"
+    );
+    std::thread::sleep(RETRY_0_7_0 / 20);
+    assert!(say(a, &format!("CREATE shop {host}")).starts_with("ROOM "));
+}
+
+/// A room made with a room secret is replaced by that secret alone and only once quiet, with its code (the host
+/// restarted): a secret read off the wire takes no live room, under its tunnel id or another, and whoever learnt the
+/// tunnel id, with another secret or none, gets `ERR host` even when the room has gone quiet. A stale time of two
+/// missed 20 s heartbeats by default.
+#[test]
+fn only_its_secret_replaces_a_quiet_room() {
     let d = desk(|c| c.host_stale = Duration::from_millis(300));
     let a = d.addr();
     let (host, mine) = (tunnel_id(1), room_secret(1));
     let (_, code, old_t) = kept_room(a, &host, Some(&mine), false);
+    for id in [&host, &tunnel_id(2)] {
+        let line = format!("CREATE shop {id} {mine} private");
+        assert_eq!(say(a, &line), "ERR host", "live: {id}");
+    }
     std::thread::sleep(Duration::from_millis(400));
     assert_eq!(
         say(a, &format!("CREATE shop {host}")),
@@ -621,19 +647,20 @@ fn only_its_secret_replaces_a_room() {
         lobby::heartbeat(a, &old_t).unwrap(),
         "the room is untouched"
     );
-    let (_, again, new_t) = kept_room(a, &host, Some(&mine), false);
+    let line = format!("CREATE shop {host} {mine} private");
+    assert_eq!(say(a, &line), "ERR host", "beating again: live");
+    std::thread::sleep(Duration::from_millis(400));
+    let (_, again, _) = kept_room(a, &host, Some(&mine), false);
     assert_eq!(again, code);
     assert!(!lobby::heartbeat(a, &old_t).unwrap(), "replaced");
-    let (_, third, _) = kept_room(a, &host, Some(&mine), false);
-    assert_eq!(third, code, "a live room too, at once");
-    assert!(!lobby::heartbeat(a, &new_t).unwrap());
     let defaults = DeskConfig::new(Edition::E1718);
     assert!(defaults.host_stale >= Duration::from_secs(2 * lobby::HEARTBEAT_EVERY));
 }
 
 /// A kept code belongs to the room secret, not to the address or the tunnel id: from the host's own address, another
 /// secret or none (a guest behind the same NAT who learnt the tunnel id) gets a fresh code, and its rooms take nothing
-/// away from the holder, who gets the code back from any tunnel id. The secret shows in no lobby answer or log line.
+/// away from the holder, who gets the code back from any tunnel id once its room is closed (one live room per secret:
+/// while it lives, another tunnel id with that secret gets `ERR host`). The secret shows in no lobby answer or log line.
 #[test]
 fn a_kept_code_belongs_to_its_room_secret() {
     let said = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
@@ -662,6 +689,12 @@ fn a_kept_code_belongs_to_its_room_secret() {
     );
     assert_ne!(made(None), code, "same address, no secret");
     assert_eq!(made(Some(&mine)), code, "still the holder's");
+    let (id, live, t) = kept_room(a, &host, Some(&mine), false);
+    assert_eq!(live, code);
+    let line = format!("CREATE shop {} {mine} private", tunnel_id(2));
+    assert_eq!(say(a, &line), "ERR host", "its room is live: no second one");
+    assert!(lobby::heartbeat(a, &t).unwrap(), "untouched");
+    assert!(lobby::close(a, &id, &t).unwrap());
     let (_, other, _) = kept_room(a, &tunnel_id(2), Some(&mine), false);
     assert_eq!(other, code, "the secret's code, whatever the tunnel id");
     let said = said.lock().unwrap();

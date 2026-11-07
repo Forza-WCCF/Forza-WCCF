@@ -95,10 +95,13 @@ pub struct DeskConfig {
     /// ceiling (logged when it trips), so one stranger cannot lock every player out.
     pub join_fail_limit: u32,
     pub join_fail_window: Duration,
-    /// A room made without a room secret whose host has not sent a `HEARTBEAT` for this long (45 s, two of the
-    /// Launcher's 20 s beats missed) may be replaced by a new `CREATE shop` with the same tunnel id (a host that crashed
-    /// and came back within the lease). A room made with a secret is replaced by that secret alone, at once.
+    /// A room made with a room secret whose host has not sent a `HEARTBEAT` for this long (45 s, two of the Launcher's
+    /// 20 s beats missed) may be replaced by a new `CREATE shop` with that secret (a host that crashed and came back
+    /// within the lease); a live room never, so a secret read off the wire cannot take a room that is in use.
     pub host_stale: Duration,
+    /// The same for a room made without a secret (Launchers up to 0.7.0), by a `CREATE shop` with its tunnel id from
+    /// its creator's address: 15 s, the rule whose 15 + 2 s wait those Launchers have compiled in.
+    pub old_host_stale: Duration,
     /// `RESERVE` and `CREATE` per address in [`DeskConfig::ask_window`], else `ERR slow` (20 per 60 s).
     pub ask_limit: u32,
     pub ask_window: Duration,
@@ -171,6 +174,7 @@ impl DeskConfig {
             join_fail_limit: 2000,
             join_fail_window: Duration::from_secs(60),
             host_stale: Duration::from_secs(45),
+            old_host_stale: Duration::from_secs(15),
             ask_window: Duration::from_secs(60),
         }
     }
@@ -1107,7 +1111,8 @@ fn create(sh: &Shared, ip: &str, open: bool, out: &mut TcpStream) -> io::Result<
 
 /// `CREATE shop ID [SECRET] [public]` (or `... public|private NAME...`) -> `ROOM id code t 1` (the host PC on seat 1),
 /// `FULL` (the desk's rooms, or this address's [`DeskConfig::arcade_rooms_per_address`]), `ERR id` (not a tunnel id)
-/// or `ERR host` (that tunnel id holds a live room already: one room per host). A `secret` gets its last room's code.
+/// or `ERR host` (that tunnel id or secret holds a live room already: one room per host). A `secret` gets its last
+/// room's code.
 #[allow(clippy::too_many_arguments)]
 fn create_arcade(
     sh: &Shared,
@@ -1127,12 +1132,18 @@ fn create_arcade(
     let now = Instant::now();
     let mut st = sh.state.lock().unwrap();
     expire(sh, &mut st, now);
-    // one live room per host; its secret's holder (or, without one, a host silent for host_stale) replaces its own,
-    // before the caps count that room
-    let quiet_since = (now + sh.cfg.reserve_lease)
-        .checked_sub(sh.cfg.host_stale)
-        .unwrap_or(now);
-    match st.arcades.replace_stale(host, quiet_since, secret.as_ref()) {
+    // one live room per host and per secret; a quiet one is replaced (by its secret, or without one from its
+    // address), before the caps count that room
+    let quiet = |stale| {
+        (now + sh.cfg.reserve_lease)
+            .checked_sub(stale)
+            .unwrap_or(now)
+    };
+    let (quiet, old_quiet) = (quiet(sh.cfg.host_stale), quiet(sh.cfg.old_host_stale));
+    match st
+        .arcades
+        .replace_stale(host, ip, secret.as_ref(), quiet, old_quiet)
+    {
         crate::arcade_room::Prior::Alive => {
             drop(st);
             return out.write_all(b"ERR host\n");

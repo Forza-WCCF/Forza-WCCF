@@ -144,32 +144,46 @@ impl ArcadeRooms {
         })
     }
 
-    /// Before a `CREATE shop` by `host` with `secret`: no room of its yet; its room taken out when it was made with
-    /// that secret (the host back from a restart, at once), or, made without one (a Launcher before secrets), when its
-    /// lease runs to no later than `quiet` (no `HEARTBEAT` for a while); else the host's room is alive. A room made
-    /// with a secret is never taken by another: whoever learnt the tunnel id cannot take the room over.
+    /// Before a `CREATE shop` by tunnel `host` from address `by` with `secret`: no room of its yet, or its earlier
+    /// rooms (that tunnel id's, or that secret's under any id) taken out once quiet, else alive. A room made with a
+    /// secret is quiet to that secret alone, when its lease runs to no later than `quiet` (no `HEARTBEAT` for a while):
+    /// a secret read off the wire never takes a live room, nor does whoever learnt the tunnel id. One made without (a
+    /// Launcher before secrets) is quiet to a `CREATE` from its creator's address by `old_quiet`.
     pub fn replace_stale(
         &mut self,
         host: &str,
-        quiet: Instant,
+        by: &str,
         secret: Option<&SecretHash>,
+        quiet: Instant,
+        old_quiet: Instant,
     ) -> Prior {
-        let Some(i) = self.rooms.iter().position(|r| {
-            r.seats[0]
-                .id
-                .as_deref()
-                .is_some_and(|h| h.eq_ignore_ascii_case(host))
-        }) else {
-            return Prior::None;
+        let mine = |r: &Room| {
+            (secret.is_some() && r.secret.as_ref() == secret)
+                || r.seats[0]
+                    .id
+                    .as_deref()
+                    .is_some_and(|h| h.eq_ignore_ascii_case(host))
         };
-        let theirs = match &self.rooms[i].secret {
-            Some(s) => Some(s) == secret,
-            None => self.rooms[i].seats[0].end <= quiet,
+        let stale = |r: &Room| match &r.secret {
+            Some(s) => Some(s) == secret && r.seats[0].end <= quiet,
+            None => r.by == by && r.seats[0].end <= old_quiet,
         };
-        if !theirs {
+        if self.rooms.iter().any(|r| mine(r) && !stale(r)) {
             return Prior::Alive;
         }
-        Prior::Replaced(self.rooms.remove(i).code)
+        let mut old = Vec::new();
+        self.rooms.retain(|r| {
+            let keep = !mine(r);
+            if !keep {
+                old.push(r.code.clone());
+            }
+            keep
+        });
+        if old.is_empty() {
+            Prior::None
+        } else {
+            Prior::Replaced(old.join(" "))
+        }
     }
 
     /// Rooms open now that `by` made.
@@ -518,6 +532,42 @@ mod tests {
             r.kept_code(&[1; 32]).as_deref(),
             Some("K7QMZDRX"),
             "still its"
+        );
+    }
+
+    /// A secret read off the wire never takes a live room, under its tunnel id or another; once quiet, its own secret
+    /// replaces it from any id. A room without a secret is replaced only once quiet by the old rule, from its
+    /// creator's address.
+    #[test]
+    fn a_room_is_replaced_only_once_quiet() {
+        let (mut r, now, host) = room(false);
+        let (live, quiet) = (now, now + Duration::from_secs(60));
+        let mine = Some(&[1; 32]);
+        for (id, why) in [(&host, "its tunnel id"), (&key(9), "another id")] {
+            let p = r.replace_stale(id, "10.9.9.9", mine, live, quiet);
+            assert_eq!(p, Prior::Alive, "live, {why}");
+        }
+        for other in [Some(&[2; 32]), None] {
+            let p = r.replace_stale(&host, "10.0.0.1", other, quiet, quiet);
+            assert_eq!(p, Prior::Alive, "{other:?}");
+        }
+        assert_eq!(
+            r.replace_stale(&key(9), "10.9.9.9", mine, quiet, live),
+            Prior::Replaced("K7QMZDRX".into())
+        );
+        assert!(r.is_empty());
+        make(&mut r, now, "AAAAAAAA", "10.0.0.1", None);
+        let p = r.replace_stale(&key(2), "10.0.0.2", None, quiet, quiet);
+        assert_eq!(p, Prior::Alive, "another address");
+        let p = r.replace_stale(&key(2), "10.0.0.1", mine, quiet, live);
+        assert_eq!(p, Prior::Alive, "not quiet by the old rule yet");
+        assert_eq!(
+            r.replace_stale(&key(2), "10.0.0.1", None, live, quiet),
+            Prior::Replaced("AAAAAAAA".into())
+        );
+        assert_eq!(
+            r.replace_stale(&key(2), "10.0.0.1", None, live, live),
+            Prior::None
         );
     }
 
