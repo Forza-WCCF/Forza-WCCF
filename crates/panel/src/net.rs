@@ -379,8 +379,13 @@ unsafe extern "system" fn relay_sendto(
     let payload = unsafe { std::slice::from_raw_parts(buf, len as usize) };
     // 7 + at most 4096 bytes: always room
     let Some(n) = frame_d(&mut pkt, seat as u8, MY_SEAT.load(Relaxed) as u8, payload) else {
-        // SAFETY: the caller's arguments, unchanged.
-        return unsafe { real_sendto()(s, buf, len, flags, to, tolen) };
+        // fail closed: never send the opponent's address a packet that skips the relay
+        say(&format!(
+            "relay: dropped a {len}-byte packet for seat {seat}: too big to frame"
+        ));
+        // SAFETY: sets this thread's Winsock error, nothing else.
+        unsafe { WSASetLastError(WSAEMSGSIZE) };
+        return SOCKET_ERROR;
     };
     let r = relay_addr();
     // SAFETY: the real `sendto` with our packet and a 16-byte `sockaddr_in`.
@@ -1118,6 +1123,7 @@ mod tests {
         let mut out = [0u8; 64];
         let n = frame_d(&mut out, 2, 1, b"abc").unwrap();
         assert_eq!(&out[..n], b"WRL1D\x02\x01abc");
+        assert_eq!(frame_d(&mut out[..9], 2, 1, b"abc"), None); // no room: relay_sendto drops it
         let f = b"WRL1F\x02\x7f\x00\x00\x02xyz";
         assert_eq!(parse_f(f), Some((2, [127, 0, 0, 2], &b"xyz"[..])));
         assert_eq!(
