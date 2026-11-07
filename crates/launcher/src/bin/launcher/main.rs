@@ -1330,7 +1330,8 @@ impl App {
             }
             Action::Lobby(LobbyAction::JoinLan(address)) if !self.st.busy && !self.st.running => {
                 if launcher::lobby::valid_server(&address) {
-                    self.play(&kit, vec!["remote".into(), address.into()]);
+                    self.play(&kit, vec!["remote".into(), address.clone().into()]);
+                    self.online.play_on(Some(address));
                 } else {
                     refuse(t("launcher.msg_bad_address"));
                 }
@@ -1407,6 +1408,7 @@ impl App {
         // (2017-18: a VS room's only, crates/server/README.md "VS rooms")
         let vs_only = kit.edition() == Edition::E1718;
         let seat = online.then(|| self.online.take_ticket(vs_only)).flatten();
+        self.online.play_on(seat.as_ref().map(|(s, _)| s.clone()));
         if let Some((s, _)) = &seat {
             server.clone_from(s);
         } else if online && words.is_empty() && !launcher::lobby::valid_server(&server) && !club_only {

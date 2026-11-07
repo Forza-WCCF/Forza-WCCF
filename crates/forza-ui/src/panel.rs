@@ -477,6 +477,8 @@ pub struct Note {
 }
 
 const NOTE_SECS: f64 = 4.0;
+/// How long the server's notice stays across the top of the game picture.
+pub const BANNER_SECS: f64 = 30.0;
 
 /// The CATALOGUE filter's country and club list boxes: wide enough for "Argentina (231)", narrow enough that both
 /// fit on one line beside their labels in English, Italian and Japanese.
@@ -497,6 +499,14 @@ impl Note {
         Note {
             secs: IMPORT_UNDO_SECS,
             ..Note::new(tone, text)
+        }
+    }
+
+    /// The server's notice across the top of the game picture ([`PanelState::banner`]): shown for [`BANNER_SECS`].
+    pub fn banner(text: String) -> Note {
+        Note {
+            secs: BANNER_SECS,
+            ..Note::new(Tone::Notice, text)
         }
     }
 
@@ -588,6 +598,8 @@ pub struct PanelState {
     pub ping_ms: u32,
     /// The last thing done, refused or worth knowing; one line for every page.
     pub message: Option<Note>,
+    /// The server's notice, across the top of the game picture on the game page ([`Note::banner`]).
+    pub banner: Option<Note>,
     pub catalogue: Catalogue,
     /// Each action's key (virtual-key code, 0 none) and controller control (`forza::keys`), in [`ACTIONS`] order.
     pub keys: [u32; forza::keys::COUNT],
@@ -749,6 +761,7 @@ impl PanelState {
             online: false,
             ping_ms: 0,
             message: None,
+            banner: None,
             catalogue: Catalogue::default(),
             keys: forza::keys::defaults(edition == Edition::E1718),
             pads: [0; forza::keys::COUNT],
@@ -1414,6 +1427,9 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
         Stroke::new(1.0, theme::RIM),
     );
     game_picture(ui, pic, st.picture);
+    if st.page == Page::Game {
+        banner(ui, pic, &mut st.banner);
+    }
     // the dealt card and the dialogs drawn here cover the picture: clicks there are theirs, not the game's
     let dialog = st.import_ask.is_some()
         || (st.formations.is_some() && (!st.formations_desk || !st.file.board_window))
@@ -3286,6 +3302,50 @@ fn note_height(ctx: &egui::Context, message: Option<&Note>, width: f32) -> f32 {
     } else {
         g.size().y + top + bottom
     }
+}
+
+/// The server's notice across the top of the game picture, while its time lasts; the dialogs drawn after it cover it,
+/// and clicks go through it to the game.
+fn banner(ui: &mut Ui, pic: Rect, note: &mut Option<Note>) {
+    let now = ui.input(|i| i.time);
+    let Some(n) = note else { return };
+    let at = *n.shown.get_or_insert(now);
+    if now - at >= n.secs {
+        *note = None;
+        return;
+    }
+    ui.ctx()
+        .request_repaint_after(std::time::Duration::from_secs_f64(n.secs - (now - at)));
+    let col = n.tone.color();
+    let r = ui
+        .scope_builder(egui::UiBuilder::new().max_rect(pic), |ui| {
+            egui::Frame::new()
+                .fill(theme::NIGHT.gamma_multiply(0.9))
+                .inner_margin(egui::Margin::symmetric(24, 10))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.vertical_centered(|ui| {
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(&n.text)
+                                    .color(theme::TEXT)
+                                    .font(theme::body(20.0)),
+                            )
+                            .selectable(false),
+                        );
+                    });
+                })
+                .response
+        })
+        .inner;
+    ui.painter().rect_filled(
+        Rect::from_min_size(
+            pos2(r.rect.left(), r.rect.bottom() - 2.0),
+            vec2(r.rect.width(), 2.0),
+        ),
+        0,
+        col,
+    );
 }
 
 /// The message line, while its time lasts.

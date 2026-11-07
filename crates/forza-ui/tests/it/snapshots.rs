@@ -6,7 +6,7 @@ use egui_kittest::kittest::Queryable;
 use egui_kittest::{Harness, SnapshotResults};
 use forza_ui::Lang;
 use forza_ui::theme::{self, Edition};
-use forza_ui::{installer, launcher, lobby, panel, widgets};
+use forza_ui::{installer, launcher, lobby, panel};
 
 /// One test on the GPU at a time: wgpu devices made in parallel crashed the test process now and then (exit 116,
 /// about 1 run in 4 on 2026-10-12); one after another they never did.
@@ -413,24 +413,32 @@ fn panel_compact() {
     all.unwrap();
 }
 
-/// The server's notice: on the panel's message line (2017-18 game page) and under the Launcher's status line.
+/// The server's notice: across the top of the game picture (2017-18 game page) and under the Launcher's status line.
 #[test]
 fn server_notice() {
     let _gpu = gpu();
     let mut all = SnapshotResults::new();
     for (lang, text) in [
         (Lang::En, "Server update at 23:00 CET, about 10 minutes."),
+        (
+            Lang::It,
+            "Aggiornamento del server alle 23:00 CET, circa 10 minuti. Così è.",
+        ),
         (Lang::Ja, "23:00(CET)にサーバーを更新します。約10分。"),
     ] {
         let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
-        st.message = Some(panel::Note::long(widgets::Tone::Notice, text.into()));
-        snap(
-            &mut all,
-            &format!("panel_notice_1718_{}", lang.code()),
-            panel::SIZE,
-            Edition::E1718,
-            |ui| panel::show(ui, &mut st),
+        st.banner = Some(panel::Note::banner(text.into()));
+        let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+            panel::show(ui, &mut st)
+        });
+        h.run_steps(8);
+        let banner = h.get_by_label(text).rect();
+        assert!(
+            banner.top() < 120.0,
+            "{lang:?}: the notice sits at the top of the picture, not at {banner:?}"
         );
+        h.snapshot(format!("panel_notice_1718_{}", lang.code()));
+        all.extend_harness(&mut h);
         let mut st =
             launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
         st.server_notice = Some(text.into());
