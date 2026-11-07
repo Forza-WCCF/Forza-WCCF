@@ -352,8 +352,8 @@ struct Shared {
     lobby_cached: Mutex<Option<(Instant, String)>>,
     /// The notice file as last read: its modified time, and its notice with the window's start and end.
     notice: Mutex<Option<(Option<SystemTime>, Option<Notice>)>>,
-    /// Open connections per address ([`MAX_PER_IP`]).
-    open: Mutex<HashMap<String, usize>>,
+    /// Open connections per address ([`MAX_PER_IP`]), each one a [`Slot`].
+    open: Arc<Mutex<HashMap<String, usize>>>,
     /// `RESERVE` + `CREATE` per address: window start, count.
     asks: Mutex<HashMap<String, (Instant, u32)>>,
     /// Wrong `JOIN` codes, desk-wide: window start, count.
@@ -543,7 +543,7 @@ fn taken(st: &State) -> String {
         .join(", ")
 }
 
-/// Returns the connection for [`crate::hang_up`], which the caller runs once the per-IP slot is free.
+/// Returns the connection for [`crate::hang_up`], which the caller runs once the lease is free.
 fn serve(sh: &Shared, conn: TcpStream, peer: String) -> Option<TcpStream> {
     let keep = conn.try_clone().ok();
     let _ = conn.set_read_timeout(Some(sh.cfg.silent));
@@ -1364,6 +1364,57 @@ fn release(sh: &Shared, t: &str, out: &mut TcpStream) -> io::Result<()> {
     out.write_all(if ok { b"OK\n" } else { b"GONE\n" })
 }
 
+/// A connection's place in [`MAX_OPEN`] and [`MAX_PER_IP`], given back when dropped. It is held through `serve` and
+/// the hang-up after it, so connections the desk is still hanging up on count too.
+struct Slot {
+    open: Arc<Mutex<HashMap<String, usize>>>,
+    ip: String,
+}
+
+impl Slot {
+    /// `None` when the desk is full or `ip` holds its share ([`per_address`] decides whether the share applies).
+    fn take(open: &Arc<Mutex<HashMap<String, usize>>>, ip: String, tunnel: bool) -> Option<Slot> {
+        let mut map = open.lock().unwrap();
+        if map.values().sum::<usize>() >= MAX_OPEN {
+            return None;
+        }
+        let n = map.entry(ip.clone()).or_default();
+        if *n >= MAX_PER_IP && per_address(tunnel, &ip) {
+            return None;
+        }
+        *n += 1;
+        Some(Slot {
+            open: open.clone(),
+            ip,
+        })
+    }
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        let mut map = self.open.lock().unwrap();
+        if let Some(n) = map.get_mut(&self.ip) {
+            *n -= 1;
+            if *n == 0 {
+                map.remove(&self.ip);
+            }
+        }
+    }
+}
+
+/// Runs `work` on its own thread, holding `slot` until it ends. When `spawn` fails (no threads or memory left),
+/// `work` and `slot` are dropped at once, with the connection `work` owns, and the accept loop goes on.
+fn spawn_in(
+    slot: Slot,
+    work: impl FnOnce() + Send + 'static,
+    spawn: impl FnOnce(Box<dyn FnOnce() + Send>) -> io::Result<()>,
+) -> io::Result<()> {
+    spawn(Box::new(move || {
+        let _slot = slot;
+        work();
+    }))
+}
+
 /// Starts the desk. Err(io error) when the port cannot be bound (the caller logs "cannot listen ...").
 pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
     let listener = TcpListener::bind((cfg.bind.as_str(), cfg.port))?;
@@ -1379,7 +1430,7 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
         lobby_seen: Mutex::default(),
         lobby_cached: Mutex::default(),
         notice: Mutex::default(),
-        open: Mutex::default(),
+        open: Arc::default(),
         asks: Mutex::default(),
         join_fails: Mutex::new((Instant::now(), 0)),
         join_fails_by: Mutex::default(),
@@ -1441,41 +1492,36 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
     }
     let stopped = stop.clone();
     threads.push(thread::spawn(move || {
+        let (log, mut said) = (sh.log.clone(), None);
         for conn in listener.incoming() {
             if stopped.load(Ordering::Relaxed) {
                 break;
             }
-            let Ok(conn) = conn else { continue };
-            let Ok(peer) = conn.peer_addr() else { continue };
-            let sh = sh.clone();
-            let ip = peer.ip().to_string();
-            {
-                let mut open = sh.open.lock().unwrap();
-                if open.values().sum::<usize>() >= MAX_OPEN {
+            let conn = match conn {
+                Ok(c) => c,
+                // out of handles (EMFILE): wait for some to close instead of spinning
+                Err(_) => {
+                    thread::sleep(Duration::from_millis(50));
                     continue;
                 }
-                let n = open.entry(ip.clone()).or_default();
-                if *n >= MAX_PER_IP && per_address(sh.cfg.tunnel, &ip) {
-                    continue; // dropped without an answer: nothing to lose to a reset
-                }
-                *n += 1;
-            }
-            thread::spawn(move || {
-                let keep = serve(&sh, conn, peer.to_string());
-                {
-                    let mut open = sh.open.lock().unwrap();
-                    if let Some(n) = open.get_mut(&ip) {
-                        *n -= 1;
-                        if *n == 0 {
-                            open.remove(&ip);
-                        }
-                    }
-                }
-                // slot and lease are free before we wait for the PC to read our last line
-                if let Some(keep) = keep {
+            };
+            let Ok(peer) = conn.peer_addr() else { continue };
+            // none left: dropped without an answer, nothing to lose to a reset
+            let Some(slot) = Slot::take(&sh.open, peer.ip().to_string(), sh.cfg.tunnel) else {
+                continue;
+            };
+            let sh = sh.clone();
+            let work = move || {
+                // the lease is free before we wait for the PC to read our last line; the slot is held to the end
+                if let Some(keep) = serve(&sh, conn, peer.to_string()) {
                     crate::hang_up(keep);
                 }
-            });
+            };
+            if let Err(e) = spawn_in(slot, work, |f| thread::Builder::new().spawn(f).map(drop))
+                && forza::service::once_a_minute(&mut said)
+            {
+                log(&format!("{peer}: dropped, cannot start a thread ({e})"));
+            }
         }
     }));
     Ok(Handle::new(addr, stop, true, threads, tickers))
@@ -1485,6 +1531,59 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    /// A thread the OS refuses must cost the desk that one connection only: its slot comes back, nothing panics,
+    /// and the next connection gets a slot and a thread.
+    #[test]
+    fn a_failed_spawn_drops_the_connection_and_frees_its_slot() {
+        let open = Arc::default();
+        let ran = Arc::new(AtomicBool::new(false));
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut pc = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (conn, _) = listener.accept().unwrap();
+        let slot = Slot::take(&open, "203.0.113.9".into(), false).unwrap();
+        let r = ran.clone();
+        let failed = spawn_in(
+            slot,
+            move || {
+                let _conn = conn;
+                r.store(true, Ordering::Relaxed);
+            },
+            |_| Err(io::Error::other("no threads left")),
+        );
+        assert!(failed.is_err() && !ran.load(Ordering::Relaxed));
+        assert!(open.lock().unwrap().is_empty(), "the slot is given back");
+        pc.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        assert_eq!(
+            pc.read(&mut [0u8; 1]).unwrap(),
+            0,
+            "the connection is closed"
+        );
+        let slot = Slot::take(&open, "203.0.113.9".into(), false).unwrap();
+        let (tx, rx) = mpsc::channel();
+        spawn_in(
+            slot,
+            move || tx.send(()).unwrap(),
+            |f| thread::Builder::new().spawn(f).map(drop),
+        )
+        .unwrap();
+        rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    }
+
+    #[test]
+    fn slots_stop_at_the_per_address_share_but_not_behind_a_tunnel() {
+        let open = Arc::default();
+        let held: Vec<Slot> = (0..MAX_PER_IP)
+            .map(|_| Slot::take(&open, "203.0.113.9".into(), false).unwrap())
+            .collect();
+        assert!(Slot::take(&open, "203.0.113.9".into(), false).is_none());
+        assert!(Slot::take(&open, "203.0.113.10".into(), false).is_some());
+        let tunnel: Vec<Slot> = (0..MAX_PER_IP + 1)
+            .map(|_| Slot::take(&open, "127.0.0.1".into(), true).unwrap())
+            .collect();
+        drop((held, tunnel));
+        assert!(open.lock().unwrap().is_empty());
+    }
 
     /// Behind an arcade tunnel the guests all come from loopback: the per-address limits leave them to the tunnel's
     /// own caps. Any other desk limits loopback as any address.

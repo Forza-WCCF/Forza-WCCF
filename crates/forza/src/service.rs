@@ -6,7 +6,7 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Where a service writes its log lines (the caller adds timestamps and files).
 pub type Log = Arc<dyn Fn(&str) + Send + Sync>;
@@ -58,29 +58,46 @@ impl Drop for Handle {
     }
 }
 
-/// Accepts connections until `stop` is set; each one runs `serve` on its own thread.
+/// Accepts connections until `stop` is set; each one runs `serve` on its own thread. A connection whose thread the
+/// OS refuses is dropped and logged (once a minute at most).
 pub(crate) fn accept_loop(
     listener: TcpListener,
     stop: Arc<AtomicBool>,
+    log: Log,
     serve: impl Fn(TcpStream, SocketAddr) + Send + Sync + 'static,
 ) -> io::Result<Handle> {
     listener.set_nonblocking(true)?;
     let serve = Arc::new(serve);
     let flag = stop.clone();
     let thread = thread::spawn(move || {
+        let mut said: Option<Instant> = None;
         while !flag.load(Ordering::Relaxed) {
             match listener.accept() {
                 Ok((conn, peer)) => {
                     let serve = serve.clone();
                     let _ = conn.set_nonblocking(false);
                     let _ = conn.set_read_timeout(Some(Duration::from_millis(100)));
-                    thread::spawn(move || serve(conn, peer));
+                    // no threads or memory left: drop this connection, keep accepting (spawn would panic)
+                    if let Err(e) = thread::Builder::new().spawn(move || serve(conn, peer))
+                        && once_a_minute(&mut said)
+                    {
+                        log(&format!("dropped {peer}: cannot start a thread ({e})"));
+                    }
                 }
                 Err(_) => thread::sleep(Duration::from_millis(20)),
             }
         }
     });
     Ok(Handle::new(stop, thread))
+}
+
+/// True at most once a minute: for a log line that would otherwise repeat for every connection.
+pub fn once_a_minute(last: &mut Option<Instant>) -> bool {
+    if last.is_some_and(|t| t.elapsed() < Duration::from_secs(60)) {
+        return false;
+    }
+    *last = Some(Instant::now());
+    true
 }
 
 /// Reads at least one byte into `buf`, retrying on the 100 ms read timeout until `stop` is set.
@@ -102,5 +119,20 @@ pub(crate) fn read_some(
                 ) => {}
             r => return r,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The dropped-connection line is said for the first refused thread, then not again within the minute.
+    #[test]
+    fn once_a_minute_says_the_first_and_skips_the_rest() {
+        let mut last = None;
+        assert!(once_a_minute(&mut last));
+        assert!(!once_a_minute(&mut last));
+        last = Some(Instant::now() - Duration::from_secs(61));
+        assert!(once_a_minute(&mut last));
     }
 }
