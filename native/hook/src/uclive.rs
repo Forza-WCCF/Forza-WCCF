@@ -31,6 +31,7 @@ const TEAM: usize = 3_800;
 
 /// Whether the semifinals' 4 team places (records 0 and 1, `records` from the first) hold a player's team. Only called
 /// on a valid bracket (all 4 places filled, 0x47CFC0), so an empty place never counts.
+#[cfg_attr(all(test, not(debug_assertions)), no_panic::no_panic)]
 pub fn human_in(records: &[u8]) -> bool {
     (0..2).any(|m| {
         (0..2).any(|t| {

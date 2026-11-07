@@ -57,6 +57,7 @@ pub fn build() -> Vec<u8> {
 }
 
 /// `out.len()` bytes of physical memory from `addr`: the area where it covers them, zeros elsewhere.
+#[cfg_attr(all(test, not(debug_assertions)), no_panic::no_panic)]
 pub fn read(area: &[u8], addr: u32, out: &mut [u8]) {
     for (i, b) in out.iter_mut().enumerate() {
         let p = addr.wrapping_add(i as u32);
