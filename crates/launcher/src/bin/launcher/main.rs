@@ -837,6 +837,7 @@ impl App {
             rejoin: None,
             set_up,
             running: RUNNING.load(Ordering::Relaxed),
+            cup_started: launcher::run::cup_started(),
             busy: false,
             steps: None,
             clock: (0.0, 0.0),
@@ -966,6 +967,8 @@ impl App {
             )
         };
         self.st.running = RUNNING.load(Ordering::Relaxed);
+        // the cup time the run was started with, while it is on (its open time does not move with this window's clock)
+        self.st.cup_started = launcher::run::cup_started().filter(|_| self.st.running);
         self.st.output.extend(log);
         let kit = Kit::here();
         // HOST ARCADE: its code once the lobby gave it, gone with the room if the lobby loses it; the job over, the arcade is
