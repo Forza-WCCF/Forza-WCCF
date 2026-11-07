@@ -449,7 +449,7 @@ settings.msg_compact: {en: "Compact view: the game picture is bigger.", it: "Vis
 settings.msg_cabinet: {en: "Cabinet view: all the buttons are shown.", it: "Vista cabinato: i pulsanti sono tutti visibili.", ja: "筐体表示：ボタンがすべて表示されます。"}
 settings.board: {en: "FORMATION BOARD", it: "FORMAZIONE", ja: "フォーメーション"}
 settings.board_here: {en: "WITH THE GAME", it: "CON IL GIOCO", ja: "ゲームと同じ画面"}
-settings.board_window: {en: "Pop out the formation board", it: "Formazione in finestra", ja: "フォーメーションボードをポップアウト"}
+settings.board_window: {en: "OWN WINDOW", it: "IN FINESTRA", ja: "別ウィンドウ"}
 settings.msg_board_window: {en: "Formation board in its own window: move it to another screen", it: "Formazione in una finestra a parte: spostala su un altro schermo", ja: "フォーメーションを別ウィンドウに表示：別の画面へ移動できます"}
 settings.msg_board_docked: {en: "The formation board is back with the game.", it: "La formazione è di nuovo con il gioco.", ja: "フォーメーションをゲーム画面に戻しました"}
 settings.board_buttons: {en: "Buttons on the board window", it: "Pulsanti nella finestra della formazione", ja: "ボードのウィンドウにもボタン"}
@@ -652,7 +652,7 @@ pause.msg_too_soon: {en: "Next pause in %{s} s.", it: "Prossima pausa tra %{s} s
 # ---- language, logs, edition-aware warnings ----
 launcher.msg_stop_anyway_1718: {en: "A match is on. Stop anyway?", it: "Partita in corso. Fermare comunque?", ja: "試合中です。終了しますか？"}
 close.body_1718: {en: "Closing now ends the match.", it: "Chiudere ora termina la partita.", ja: "今閉じると試合が終了します。"}
-launcher.save_logs: {en: "SAVE LOGS", it: "SALVA I LOG", ja: "ログを保存"}
+launcher.save_logs: {en: "Save logs", it: "Salva i log", ja: "ログを保存"}
 settings.save_logs: {en: "SAVE LOGS", it: "SALVA I LOG", ja: "ログを保存"}
 logs.saved: {en: "Logs saved: %{path}. Send this file with your problem report.", it: "Log salvati: %{path}. Allega questo file alla tua segnalazione.", ja: "ログを保存しました：%{path}。問題の報告にこのファイルを添付してください。"}
 logs.save_failed: {en: "Could not save the logs: %{why}", it: "Impossibile salvare i log: %{why}", ja: "ログを保存できません：%{why}"}
