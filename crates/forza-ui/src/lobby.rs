@@ -1441,6 +1441,7 @@ pub fn cup_rows(
     lang: Lang,
     label_w: f32,
     local: bool,
+    started: Option<CupPlan>,
 ) -> bool {
     let (off_key, note_key) = if local {
         ("lobby.cup_off_local", "lobby.cup_local")
@@ -1493,7 +1494,7 @@ pub fn cup_rows(
             }
         });
     }
-    let (tone, line) = match cup.plan(now) {
+    let (tone, line) = match cup_shown(started, cup, now) {
         Ok(CupPlan::Off) => (Tone::Notice, tr!(lang, off_key)),
         Ok(CupPlan::GameTimes) => (Tone::Done, tr!(lang, "lobby.cup_game_times_line")),
         Ok(CupPlan::Slot { opens, .. }) => (
@@ -1510,6 +1511,12 @@ pub fn cup_rows(
             .color(theme::TEXT_DIM),
     );
     refused
+}
+
+/// The cup line's plan: a run on this folder keeps the plan it was started with, so its open time stays the one PLAY
+/// gave it; with no run, the choice previewed at `now`.
+fn cup_shown(started: Option<CupPlan>, cup: &CupChoice, now: u32) -> Result<CupPlan, CupRefused> {
+    started.map_or_else(|| cup.plan(now), Ok)
 }
 
 /// The host dialog (HOST ARCADE): "List my arcade", the arcade's name, HOST and CANCEL; CANCEL, Esc or a click outside put
@@ -1558,7 +1565,7 @@ fn host_dialog(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<Lobb
                 );
             });
             let now = v.clock.unwrap_or_else(local_clock);
-            let refused = cup_rows(ui, &mut v.cup, now, lang, 130.0, false);
+            let refused = cup_rows(ui, &mut v.cup, now, lang, 130.0, false, None);
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 let size = vec2(216.0, 48.0);
@@ -1949,6 +1956,31 @@ mod tests {
             cup(CupMode::GameTimes, 0, 0).plan(h(4, 0)),
             Ok(CupPlan::GameTimes)
         );
+    }
+
+    /// A run on this folder keeps the cup time PLAY gave it (the run line's time, not a new now + N every frame); with
+    /// no run, the choice is previewed at the clock.
+    #[test]
+    fn a_run_keeps_the_cup_time_it_was_started_with() {
+        let h = |h: u32, m: u32| h * 3600 + m * 60;
+        let cup = CupChoice {
+            mode: CupMode::In,
+            minutes: 8,
+            at: 0,
+        };
+        let started = cup.plan(h(18, 8)).unwrap();
+        // the run line's time (18:16), not the 18:26 the same choice previews at 18:18
+        assert_eq!(
+            started,
+            CupPlan::Slot {
+                friendlies: 1,
+                opens: h(18, 16) + 25
+            }
+        );
+        // ten minutes into the run: the preview would say 18:26, the run's line stays 18:16
+        assert_eq!(cup_shown(Some(started), &cup, h(18, 18)), Ok(started));
+        assert_eq!(cup_shown(None, &cup, h(18, 18)), cup.plan(h(18, 18)));
+        assert_ne!(cup_shown(None, &cup, h(18, 18)), Ok(started));
     }
 
     #[test]

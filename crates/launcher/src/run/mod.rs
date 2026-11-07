@@ -420,6 +420,15 @@ pub fn any_on(kit: &Kit) -> bool {
     is_on(kit, Kind::Run) || is_on(kit, Kind::Server)
 }
 
+/// The Universal Cup plan the run in this process was started with (2017-18, this PC: `Run::start_gamesvr` writes the
+/// control's schedule from it): the window's PLAY tab shows its open time while the run is on.
+static CUP_STARTED: Mutex<Option<CupPlan>> = Mutex::new(None);
+
+/// [`CUP_STARTED`]: `None` until a run on this PC set one, or when the cup time it read was refused.
+pub fn cup_started() -> Option<CupPlan> {
+    *CUP_STARTED.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 fn request_file(kit: &Kit, kind: Kind) -> PathBuf {
     kit.data().join(format!("{}.request", kind.name()))
 }
@@ -2215,6 +2224,8 @@ impl Run<'_> {
         // new start; local play's PLAY tab writes the same setting). A cup at a time is a schedule slot
         // (local\schedule_option.conf); VS keeps the game's times.
         let plan = rules::cup_plan(&self.mode, &self.kit.settings(), forza_ui::lobby::local_clock());
+        // the window's PLAY tab shows this run's open time while it runs, not a new one every frame
+        *CUP_STARTED.lock().unwrap_or_else(PoisonError::into_inner) = plan.as_ref().ok().copied();
         let ((times, friendlies), line) = match plan {
             Ok(p) => (
                 conf::cup_files(p),
