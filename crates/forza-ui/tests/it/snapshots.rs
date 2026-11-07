@@ -741,6 +741,9 @@ fn board_reset_lineup() {
         ("board_reset_lineup_in_match_en", true, true),
     ] {
         let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
+        if ready {
+            st.before_match = Some(forza::cards::table_after(&[], &st.board));
+        }
         st.reset_ready = ready;
         st.in_match = in_match;
         snap(&mut all, name, panel::SIZE, Edition::E1718, |ui| {
@@ -750,14 +753,21 @@ fn board_reset_lineup() {
     all.unwrap();
 }
 
-/// RESET LINEUP is offered outside a match whatever the table, also while it is the one the match began with, and
-/// greyed out in one.
+/// RESET LINEUP is offered outside a match with a table kept, also while the board holds that table (the club office
+/// between matches), and greyed out in a match or before any table was kept.
 #[test]
 fn board_reset_lineup_offered_outside_a_match() {
     let _gpu = gpu();
-    for (in_match, disabled) in [(false, false), (true, true)] {
+    for (in_match, kept, disabled) in [
+        (false, true, false),
+        (true, true, true),
+        (false, false, true),
+    ] {
         let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
         st.in_match = in_match;
+        if kept {
+            st.before_match = Some(forza::cards::table_after(&[], &st.board));
+        }
         assert!(!st.reset_ready, "the table is the one the match began with");
         let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
             panel::show(ui, &mut st)
@@ -780,6 +790,7 @@ fn board_foot_inside_the_board() {
     ] {
         for lang in Lang::ALL {
             let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+            st.before_match = Some(forza::cards::table_after(&[], &st.board));
             snap(
                 &mut all,
                 &format!("board_foot_{tag}_{}", lang.code()),

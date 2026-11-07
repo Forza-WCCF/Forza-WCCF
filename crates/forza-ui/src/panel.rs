@@ -689,7 +689,7 @@ pub struct PanelState {
     /// panel starts is one left over, not a match beginning.
     pub seat_on: bool,
     /// The table differs from `before_match`: RESET LINEUP's hover names the table it goes back to. It is offered
-    /// whenever the panel is not in a match, so the flag only feeds that text.
+    /// whenever the panel is not in a match and a table was kept, so the flag only feeds that text.
     pub reset_ready: bool,
     /// RESET LINEUP's CONFIRM clicked: the panel DLL calls [`take_reset`].
     pub reset_lineup: bool,
@@ -2909,7 +2909,7 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
             .size()
             .x
             + pad;
-        let r = Rect::from_min_size(pos2(right - w, row.top()), vec2(w, 22.0));
+        let r = Rect::from_min_size(pos2((right - w).max(row.left()), row.top()), vec2(w, 22.0));
         right = r.left() - 6.0;
         at.push(r);
     }
@@ -2931,11 +2931,11 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
             },
         );
     }
-    // 2017-18: RESET LINEUP, offered outside a match, and FORMATIONS at its left
+    // 2017-18: RESET LINEUP, offered outside a match with a table kept, and FORMATIONS at its left
     if st.edition == Edition::E1718 {
         let mut c = b.new_child(egui::UiBuilder::new().max_rect(at[1]));
         let hint = reset_hint(st, lang);
-        let r = c.add_enabled(!st.in_match, button(&texts[1]));
+        let r = c.add_enabled(!st.in_match && st.before_match.is_some(), button(&texts[1]));
         if r.clicked() {
             st.reset_ask = Some(st.desk);
         }
@@ -2951,7 +2951,7 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
     let text = if st.edition == Edition::E1718 && !st.desk {
         Rect::from_min_max(pos2(row.left(), row.top() + 30.0), row.max)
     } else {
-        row.with_max_x(left - 8.0)
+        row.with_max_x((left - 8.0).max(row.left()))
     };
     let mut b = b.new_child(egui::UiBuilder::new().max_rect(text));
     // an UNDO row no higher than the hint's line: the theme's 32-point buttons, centred on it, rose into the row over it
