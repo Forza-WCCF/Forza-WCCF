@@ -1724,7 +1724,7 @@ fn lobby_arcade_rooms() {
     cup_at(22 * 3600, 23 * 60 + 30);
     h.run_steps(2);
     h.get_by_label(
-        "Opens at about 23:30. Card in before then; entry closes about 1.5 min after it opens.",
+        "Opens at about 23:30. Insert your card before then; entries close about a minute and a half after it opens.",
     );
     // the tab's HOST ARCADE, then the dialog's
     h.get_all_by_label("HOST ARCADE").last().unwrap().click();

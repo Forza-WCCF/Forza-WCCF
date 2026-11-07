@@ -1058,7 +1058,7 @@ impl App {
         });
     }
 
-    /// CLEAN UP AFTER A CRASH: the leftovers of a crash go after a backup (`launcher::cleanup`); one line in the window,
+    /// CLEAN UP: the leftovers of a crash go after a backup (`launcher::cleanup`); one line in the window,
     /// one per item in DETAILS and launcher.txt.
     fn clean_up(&mut self, kit: &Kit) {
         let game = game_folder(kit).unwrap_or_else(|| kit.dir().join("game"));
