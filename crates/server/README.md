@@ -83,7 +83,7 @@ word with `ERR rooms are on the lobby` and only seats its own PCs.
 
 | Ask | Answer |
 |---|---|
-| `CREATE shop ID [public]` or `CREATE shop ID public\|private NAME...` (ID = the arcade tunnel's iroh EndpointId: 64 hex, a real ed25519 key; NAME the rest of the line, control characters dropped, spaces collapsed, at most 24 characters) | `ROOM id code t 1` (the host on seat 1, an 8-letter code), `FULL`, `ERR id`, `ERR host` |
+| `CREATE shop ID SECRET public\|private [NAME...]` (ID = the arcade tunnel's iroh EndpointId: 64 hex, a real ed25519 key; SECRET = the host's room secret, 64 hex; NAME the rest of the line, control characters dropped, spaces collapsed, at most 24 characters); Launchers up to 0.7.0 send `CREATE shop ID [public]` or `CREATE shop ID public\|private NAME...` | `ROOM id code t 1` (the host on seat 1, an 8-letter code), `FULL`, `ERR id`, `ERR host` |
 | `JOIN CODE [n]` | `TICKET t n` (lowest free of 2-8, or n), `FULL`, `TAKEN`, `CLOSED` (no such code) |
 | `SHOP t [ID]` | a guest's ticket (telling its own tunnel id): `HOST id`; the host's: `GUESTS id ...` (guests that told theirs); else `GONE` |
 | `HEARTBEAT t`, `RELEASE t`, `CLOSE id t` | as for VS rooms: the host's `RELEASE`/`CLOSE` or lease end closes the room |
@@ -91,8 +91,20 @@ word with `ERR rooms are on the lobby` and only seats its own PCs.
 Rooms are private: the code, which the host passes on, is the only way in (`RESERVE` of a room's id answers
 `CLOSED`). `JOIN` counts in the per-address `RESERVE`/`CREATE` limit; wrong codes are braked per address (10 per
 10 min, then that address's `JOIN`s answer `ERR slow` for the rest of the window), under a desk-wide ceiling of 2,000
-a minute (logged when it trips). A `CREATE shop` from a tunnel id whose room has had no `HEARTBEAT` for 15 s replaces
-that room (a host that crashed and came back); a live room answers `ERR host`.
+a minute (logged when it trips).
+
+A room secret keeps the room's code across a host restart: the desk keeps only its SHA-256 (with the code; never in
+a log line or `LOBBY`), and the next `CREATE shop` with that secret, from any tunnel id or address, gets the same code.
+Another secret, or none, never gets, draws or replaces it. At most 4096 codes are kept, 4 per address (a full list
+keeps no new one and drops none); a code lapses 30 days after its last room ended. Kept codes live in memory only: a
+desk restart draws new ones.
+
+One tunnel id or secret holds one live room; a second `CREATE shop` answers `ERR host`. A room that went quiet (a host
+that crashed and came back) is replaced: one made with a secret by that secret only, after 45 s without a `HEARTBEAT`
+(`host_stale`, two missed 20 s beats; a live room never, so a secret read off the plain TCP link cannot take a room in
+use); one made without a secret (Launchers up to 0.7.0) by a `CREATE shop` with its tunnel id from the same address,
+after 15 s (`old_host_stale`, the rule their 15 + 2 s retry expects). A stale room is replaced before the room caps
+count it.
 The key check on `CREATE shop` is about form only (a canonical ed25519 point not of small order): it proves nothing
 about who holds the key, so anyone can open a room naming any id. What protects a host's tunnel is its admit list
 (`vslink::arcade::ArcadeConfig::admit` fed from `SHOP`'s `GUESTS`), which lets in only guests who joined its room. `LOBBY` lists only `public` rooms, as a `shops` row named

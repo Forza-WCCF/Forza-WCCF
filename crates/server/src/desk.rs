@@ -20,6 +20,7 @@ use forza::online::sessions::Sessions;
 use forza::online::vs::Matcher;
 use forza::online::{Reply, SEATS, Want, seat};
 use regex::Regex;
+use sha2::Digest as _;
 use std::collections::{BTreeMap, HashMap};
 use std::io::{self, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -94,9 +95,13 @@ pub struct DeskConfig {
     /// ceiling (logged when it trips), so one stranger cannot lock every player out.
     pub join_fail_limit: u32,
     pub join_fail_window: Duration,
-    /// A room's host that has not sent a `HEARTBEAT` for this long (15 s) may be replaced by a new `CREATE shop`
-    /// with the same tunnel id (a host that crashed and came back within the lease).
+    /// A room made with a room secret whose host has not sent a `HEARTBEAT` for this long (45 s, two of the Launcher's
+    /// 20 s beats missed) may be replaced by a new `CREATE shop` with that secret (a host that crashed and came back
+    /// within the lease); a live room never, so a secret read off the wire cannot take a room that is in use.
     pub host_stale: Duration,
+    /// The same for a room made without a secret (Launchers up to 0.7.0), by a `CREATE shop` with its tunnel id from
+    /// its creator's address: 15 s, the rule whose 15 + 2 s wait those Launchers have compiled in.
+    pub old_host_stale: Duration,
     /// `RESERVE` and `CREATE` per address in [`DeskConfig::ask_window`], else `ERR slow` (20 per 60 s).
     pub ask_limit: u32,
     pub ask_window: Duration,
@@ -168,7 +173,8 @@ impl DeskConfig {
             join_fail_address_window: Duration::from_secs(600),
             join_fail_limit: 2000,
             join_fail_window: Duration::from_secs(60),
-            host_stale: Duration::from_secs(15),
+            host_stale: Duration::from_secs(45),
+            old_host_stale: Duration::from_secs(15),
             ask_window: Duration::from_secs(60),
         }
     }
@@ -619,10 +625,23 @@ fn session(
         // 2017-18 arcade rooms: no matcher needed, the arcade's own desk seats its PCs; the wire tokens `CREATE shop`
         // and `SHOP` are kept from before the arcade rename, as 0.6.x clients send them
         ["CREATE", "shop", host] if !e1011 => {
-            return create_arcade(sh, ip, host, false, String::new(), &mut out);
+            return create_arcade(sh, ip, host, None, false, String::new(), &mut out);
         }
         ["CREATE", "shop", host, "public"] if !e1011 => {
-            return create_arcade(sh, ip, host, true, String::new(), &mut out);
+            return create_arcade(sh, ip, host, None, true, String::new(), &mut out);
+        }
+        // the host's room secret, then public or private and maybe a name: the secret gets its last code again
+        [
+            "CREATE",
+            "shop",
+            host,
+            secret,
+            vis @ ("public" | "private"),
+            ref name @ ..,
+        ] if !e1011 && lobby::valid_room_secret(secret) => {
+            let name = lobby::arcade_name(&name.join(" "));
+            let public = vis == "public";
+            return create_arcade(sh, ip, host, Some(secret), public, name, &mut out);
         }
         // a named room: the rest of the line is its name
         [
@@ -633,7 +652,7 @@ fn session(
             ref name @ ..,
         ] if !e1011 => {
             let name = lobby::arcade_name(&name.join(" "));
-            return create_arcade(sh, ip, host, vis == "public", name, &mut out);
+            return create_arcade(sh, ip, host, None, vis == "public", name, &mut out);
         }
         ["JOIN", code] if !e1011 => return join_arcade(sh, ip, code, None, &mut out),
         ["JOIN", code, n] if !e1011 => {
@@ -1090,13 +1109,16 @@ fn create(sh: &Shared, ip: &str, open: bool, out: &mut TcpStream) -> io::Result<
     out.write_all(reply.line().as_bytes())
 }
 
-/// `CREATE shop ID [public]` (or `CREATE shop ID public|private NAME...`) -> `ROOM id code t 1` (the host PC on seat 1), `FULL` (the desk's rooms, or this
-/// address's [`DeskConfig::arcade_rooms_per_address`]), `ERR id` (not a tunnel id) or `ERR host` (that tunnel id
-/// holds a live room already: one room per host).
+/// `CREATE shop ID [SECRET] [public]` (or `... public|private NAME...`) -> `ROOM id code t 1` (the host PC on seat 1),
+/// `FULL` (the desk's rooms, or this address's [`DeskConfig::arcade_rooms_per_address`]), `ERR id` (not a tunnel id)
+/// or `ERR host` (that tunnel id or secret holds a live room already: one room per host). A `secret` gets its last
+/// room's code.
+#[allow(clippy::too_many_arguments)]
 fn create_arcade(
     sh: &Shared,
     ip: &str,
     host: &str,
+    secret: Option<&str>,
     public: bool,
     name: String,
     out: &mut TcpStream,
@@ -1104,21 +1126,24 @@ fn create_arcade(
     if !crate::arcade_room::valid_id(host) {
         return out.write_all(b"ERR id\n");
     }
+    // the desk keeps only the hash: the secret goes in no log or list
+    let secret: Option<crate::arcade_room::SecretHash> =
+        secret.map(|s| sha2::Sha256::digest(s.to_ascii_lowercase().as_bytes()).into());
     let now = Instant::now();
     let mut st = sh.state.lock().unwrap();
     expire(sh, &mut st, now);
-    if st.rooms.len() + st.arcades.len() >= sh.cfg.max_rooms
-        || (st.arcades.count_by(ip) >= sh.cfg.arcade_rooms_per_address
-            && per_address(sh.cfg.tunnel, ip))
+    // one live room per host and per secret; a quiet one is replaced (by its secret, or without one from its
+    // address), before the caps count that room
+    let quiet = |stale| {
+        (now + sh.cfg.reserve_lease)
+            .checked_sub(stale)
+            .unwrap_or(now)
+    };
+    let (quiet, old_quiet) = (quiet(sh.cfg.host_stale), quiet(sh.cfg.old_host_stale));
+    match st
+        .arcades
+        .replace_stale(host, ip, secret.as_ref(), quiet, old_quiet)
     {
-        drop(st);
-        return out.write_all(Created::Full.line().as_bytes());
-    }
-    // one live room per host; a host silent for host_stale (crashed, back within the lease) replaces its own
-    let quiet_since = (now + sh.cfg.reserve_lease)
-        .checked_sub(sh.cfg.host_stale)
-        .unwrap_or(now);
-    match st.arcades.replace_stale(host, quiet_since) {
         crate::arcade_room::Prior::Alive => {
             drop(st);
             return out.write_all(b"ERR host\n");
@@ -1130,12 +1155,26 @@ fn create_arcade(
         }
         crate::arcade_room::Prior::None => {}
     }
+    if st.rooms.len() + st.arcades.len() >= sh.cfg.max_rooms
+        || (st.arcades.count_by(ip) >= sh.cfg.arcade_rooms_per_address
+            && per_address(sh.cfg.tunnel, ip))
+    {
+        drop(st);
+        return out.write_all(Created::Full.line().as_bytes());
+    }
+    // a host back from a restart keeps its code: its guests have that one
+    let mut kept = secret.as_ref().and_then(|s| st.arcades.kept_code(s));
     let (id, code) = loop {
-        let (id, code) = (random_hex(4), code(crate::arcade_room::CODE_LEN));
+        let id = random_hex(4);
+        let code = kept
+            .clone()
+            .unwrap_or_else(|| code(crate::arcade_room::CODE_LEN));
         let vs = st.rooms.iter().any(|r| r.id == id || r.code == code);
-        if id != sh.arcade_id && !vs && !st.arcades.holds(&id, &code) {
+        if id != sh.arcade_id && !vs && !st.arcades.holds(&id, &code, secret.as_ref()) {
             break (id, code);
         }
+        // no other room holds a kept code; after a clash anyway, a fresh one rather than an endless loop
+        kept = None;
     };
     let ticket = random_hex(8);
     let reply = Created::Room {
@@ -1149,6 +1188,7 @@ fn create_arcade(
         code.clone(),
         host,
         ip,
+        secret,
         public,
         name,
         ticket,

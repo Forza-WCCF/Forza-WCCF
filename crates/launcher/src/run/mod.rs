@@ -2554,9 +2554,16 @@ impl Run<'_> {
         // settings keys kept from before the arcade rename: players' settings.json already holds them
         let public = self.kit.settings()["list_shop"].as_bool() == Some(true);
         let name = choices::setting(&self.kit.settings_file(), "shop_name").unwrap_or_default();
-        crate::lobby::HostRoom::open(&desk, &vslink::arcade::id_text(&id), public, &name, log, &|t| {
-            self.tell("     ", t)
-        })
+        let secret = crate::lobby::room_secret(key);
+        crate::lobby::HostRoom::open(
+            &desk,
+            &vslink::arcade::id_text(&id),
+            secret.as_deref(),
+            public,
+            &name,
+            log,
+            &|t| self.tell("     ", t),
+        )
     }
 
     /// A 2017-18 server's arcade room: its code, the lobby server holding it and the flag set when that lobby loses it;
