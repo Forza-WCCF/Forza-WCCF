@@ -86,7 +86,7 @@ pub enum Action {
     Lobby(LobbyAction),
     /// "Rejoin ..." (`rejoin`): reserve the last seat again.
     Rejoin,
-    /// CLEAN UP AFTER A CRASH (2017-18): the leftovers of a crash and a dropped arcade visit go, after a backup.
+    /// CLEAN UP (2017-18): the leftovers of a crash and a dropped arcade visit go, after a backup.
     CleanUp,
     /// REPORT A PROBLEM: open the report dialog (`report`).
     Report,
@@ -173,7 +173,7 @@ pub struct LauncherState {
     pub club_server: Option<String>,
     /// The direct VS link switch, for club-server runs (2017–18 only).
     pub vs_link: Option<bool>,
-    /// CLEAN UP AFTER A CRASH is offered (2017–18 only) and its last result line.
+    /// CLEAN UP is offered (2017–18 only) and its last result line.
     pub clean_up: bool,
     pub clean_status: Option<(Tone, String)>,
     /// The UPDATE section (2010–11 only: the releases are 2010–11 versions).
@@ -223,7 +223,7 @@ pub enum Scenario {
     Online,
     /// The report dialog after a crash, words typed.
     Report,
-    /// SETUP on 2017-18 after CLEAN UP AFTER A CRASH cleaned something.
+    /// SETUP on 2017-18 after CLEAN UP cleaned something.
     CleanedUp,
 }
 

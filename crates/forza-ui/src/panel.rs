@@ -5976,7 +5976,11 @@ mod tests {
         let (mut st, old) = importer();
         let text = "game 1011\nP 1 50 90\n";
         for (lineup, in_match, said) in [
-            (text, true, "Not during a match. Import between matches."),
+            (
+                text,
+                true,
+                "Not possible during a match. Try again between matches.",
+            ),
             (
                 "game 1718\nP 1 50 90\n",
                 false,
@@ -5985,7 +5989,7 @@ mod tests {
             (
                 "",
                 false,
-                "Copy a lineup's db.wccf.it link (or its text), then IMPORT LINEUP.",
+                "Copy a lineup's db.wccf.it link (or its text), then press IMPORT LINEUP.",
             ),
         ] {
             assert_eq!(import_lineup(&mut st, &old, lineup, in_match, 0.0), None);
@@ -6007,7 +6011,7 @@ mod tests {
         assert!(ShareFetch::start(&mut st, "abcd123", true, 0.0, |_| unreachable!()).is_none());
         assert_eq!(
             st.message.as_ref().unwrap().text,
-            "Not during a match. Import between matches."
+            "Not possible during a match. Try again between matches."
         );
         let f = ShareFetch::start(&mut st, "abcd123", false, 0.0, |path| {
             assert_eq!(path, "/api/share/abcd123.txt");
@@ -6103,7 +6107,7 @@ mod tests {
         assert_eq!(
             m.text,
             format!(
-                "Test XI: 3 cards on the table.\nKey player on the site: {kp}. Set it in the game.\n\
+                "Test XI: 3 cards on the table.\nThe lineup on db.wccf.it has this key player: {kp}. Set it in the game.\n\
                  Skipped: OLD · 13 GES 3 (no number in this game), 999 (not in the catalogue)"
             )
         );
@@ -6311,7 +6315,7 @@ mod tests {
         assert_eq!(load_formation(&mut st, &old, 1, true, 1.0), None);
         assert_eq!(
             st.message.as_ref().unwrap().text,
-            "Not during a match. Import between matches."
+            "Not possible during a match. Try again between matches."
         );
         assert!(st.formations.is_some() && st.import_undo.is_none());
         // an empty slot loads nothing
