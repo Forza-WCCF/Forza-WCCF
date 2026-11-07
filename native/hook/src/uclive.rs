@@ -50,15 +50,66 @@ pub const RECORD: usize = 7_636;
 const TEAM_ID: usize = 40;
 const TEAM: usize = 3_800;
 
-/// Whether the semifinals' 4 team places (records 0 and 1, `records` from the first) hold a player's team. Only called
-/// on a valid bracket (all 4 places filled, 0x47CFC0), so an empty place never counts.
-pub fn human_in(records: &[u8]) -> bool {
-    (0..2).any(|m| {
-        (0..2).any(|t| {
+/// The semifinals' team places (records 0 and 1, `records` from the first) that hold a player's team: (semifinal 0 or
+/// 1, place 0 or 1, the block's coach id at +0). Only called on a valid bracket (all 4 places filled, 0x47CFC0), so an
+/// empty place never counts.
+pub fn players(records: &[u8]) -> Vec<(usize, usize, u32)> {
+    let u32_at = |at: usize| {
+        records
+            .get(at..at + 4)
+            .map(|b| u32::from_le_bytes(b.try_into().unwrap_or_default()))
+    };
+    let mut out = vec![];
+    for m in 0..2 {
+        for t in 0..2 {
             let at = m * RECORD + TEAM_ID + t * TEAM;
-            records.get(at..at + 4) == Some(&[0; 4])
-        })
-    })
+            if u32_at(at) == Some(0) {
+                out.push((m, t, u32_at(at - 4).unwrap_or(0)));
+            }
+        }
+    }
+    out
+}
+
+/// Whether the semifinals hold a player's team ([`players`]).
+pub fn human_in(records: &[u8]) -> bool {
+    !players(records).is_empty()
+}
+
+/// [`live_flag`]'s line: the championship's match `idx` (0, 1 semifinals, 2 the final) of `day` (0 today, 1 the next
+/// day's) and its decision.
+pub fn verdict(records: &[u8], day: u32, idx: u32) -> String {
+    let p = players(records);
+    let head = format!("UC live: championship match {}/3 (day {day})", idx + 1);
+    if p.is_empty() {
+        return format!("{head}: all-CPU - kept off the projector");
+    }
+    let places: Vec<String> = p
+        .iter()
+        .map(|(m, t, coach)| format!("semifinal {} place {} (coach {coach})", m + 1, t + 1))
+        .collect();
+    format!(
+        "{head}: a player's club in {} - live on the projector",
+        places.join(", ")
+    )
+}
+
+/// The slot line ([`slot_over`], once per GAME state): `uc_live` the flag, `cup` a Universal Cup round, `checked`
+/// whether [`live_flag`] looked at a bracket since the last slot line (else the control had no valid one, or played
+/// replays).
+pub fn slot_line(uc_live: bool, cup: bool, checked: bool) -> &'static str {
+    match (cup, uc_live, checked) {
+        (true, ..) => "UC live: slot GAME state: a Universal Cup round",
+        (_, true, _) => {
+            "UC live: slot GAME state: friendly slot, the Universal Championship plays live on the projector"
+        }
+        (_, _, true) => {
+            "UC live: slot GAME state: friendly slot, the championship is all-CPU - not shown"
+        }
+        _ => {
+            "UC live: slot GAME state: friendly slot, no championship this slot (no valid bracket today, or none held yet)"
+        }
+    }
 }
 
 /// Whether WCCF_UCLIVE asks for the patch: only `on` (`1` kept the original before, so it still does). Unset, the
@@ -129,33 +180,38 @@ unsafe extern "C" fn uc_site() {
     )
 }
 
-/// 1 when the current day's championship has a player's team, else 0; logged when the answer changes.
+/// Set by [`live_flag`], taken by the next slot line.
+#[cfg(target_arch = "x86")]
+static CHECKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// 1 when the current day's championship has a player's team, else 0; its [`verdict`] logged when it changes (a new
+/// match, day or answer).
 #[cfg(target_arch = "x86")]
 extern "C" fn live_flag(ucs: *const u8) -> u8 {
-    use std::sync::atomic::{AtomicU8, Ordering::Relaxed};
-    static LAST: AtomicU8 = AtomicU8::new(u8::MAX);
-    // SAFETY: control's championship object, just checked valid by 0x47CFC0: day (+16) 0 or 1, its records' pointer at
-    // +8 + 4 * day, the semifinals' two records behind it
-    let live = unsafe {
-        let day = ucs.add(16).cast::<u32>().read_unaligned() as usize;
+    use std::sync::Mutex;
+    use std::sync::atomic::Ordering::Relaxed;
+    static LAST: Mutex<String> = Mutex::new(String::new());
+    // SAFETY: control's championship object, just checked valid by 0x47CFC0: day (+16) 0 or 1, the match (+20, 0..2,
+    // as 0x45DFB3 reads it), its records' pointer at +8 + 4 * day, the semifinals' two records behind it
+    let (line, live) = unsafe {
+        let day = ucs.add(16).cast::<u32>().read_unaligned();
+        let idx = ucs.add(20).cast::<u32>().read_unaligned();
         let records = ucs
-            .add(8 + 4 * day.min(1))
+            .add(8 + 4 * day.min(1) as usize)
             .cast::<*const u8>()
             .read_unaligned();
-        human_in(std::slice::from_raw_parts(records, 2 * RECORD))
+        let r = std::slice::from_raw_parts(records, 2 * RECORD);
+        (verdict(r, day, idx.min(2)), human_in(r))
     };
-    let v = u8::from(live);
-    if LAST.swap(v, Relaxed) != v {
-        crate::log::log!(
-            "UC live: {}",
-            if live {
-                "the Universal Championship has a player's club - on the projector"
-            } else {
-                "an all-CPU Universal Championship - kept off the projector"
-            }
-        );
+    CHECKED.store(true, Relaxed);
+    let mut last = LAST
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if *last != line {
+        crate::log::log!("{line}");
+        *last = line;
     }
-    v
+    u8::from(live)
 }
 
 /// sub_461CD0's address in the running control, set by [`install`] before the patch.
@@ -198,11 +254,19 @@ unsafe extern "C" fn slot_site() {
     )
 }
 
-/// [`game_over`] for [`slot_site`]; logs the first slot it ends.
+/// [`game_over`] for [`slot_site`]; logs each GAME state's [`slot_line`] and the first slot it ends.
 #[cfg(target_arch = "x86")]
 extern "C" fn slot_over(finished: u32, uc_live: u32, cup: u32, secs: i32) -> u8 {
-    use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
+    use std::sync::atomic::{AtomicBool, AtomicI32, Ordering::Relaxed};
     static TOLD: AtomicBool = AtomicBool::new(false);
+    static LAST_SECS: AtomicI32 = AtomicI32::new(i32::MAX);
+    // a new GAME state: its seconds start again from 0
+    if secs < LAST_SECS.swap(secs, Relaxed) {
+        crate::log::log!(
+            "{}",
+            slot_line(uc_live != 0, cup != 0, CHECKED.swap(false, Relaxed))
+        );
+    }
     let over = game_over(finished != 0, uc_live != 0, cup != 0, secs);
     if over && finished == 0 && !TOLD.swap(true, Relaxed) {
         crate::log::log!(
@@ -244,11 +308,111 @@ fn patch_code<R>(
     }
 }
 
+/// Client sub_80EDF0, which sends a Universal Cup winner's DATA_VS_ENTRY, from the program's base (ASLR moves it):
+/// `cmp byte [6D9F24F],1 / mov byte [6D9F258],0 / jnz / mov eax,[6D9F288] / cmp byte [eax+0D1h],0 / mov bl,1 / jnz /
+/// mov bl,[683653F] / mov al,[6D9F25A] / mov [esp+7],al`: it sends when bl (the online flag, 0x80EE07) is set and
+/// [6D9F25A] is 0, and then sets [6D9F258] (0x80EE38).
+pub const ENTRY: usize = 0x40_EDF0;
+/// The original bytes, absolute addresses as at image base 0x400000.
+pub const ENTRY_SIG: [u8; 49] = [
+    0x51, 0x80, 0x3D, 0x4F, 0xF2, 0xD9, 0x06, 0x01, 0x53, 0xC6, 0x05, 0x58, 0xF2, 0xD9, 0x06, 0x00,
+    0x75, 0x55, 0xA1, 0x88, 0xF2, 0xD9, 0x06, 0x80, 0xB8, 0xD1, 0x00, 0x00, 0x00, 0x00, 0xB3, 0x01,
+    0x75, 0x06, 0x8A, 0x1D, 0x3F, 0x65, 0x83, 0x06, 0xA0, 0x5A, 0xF2, 0xD9, 0x06, 0x88, 0x44, 0x24,
+    0x07,
+];
+/// Where [`ENTRY_SIG`] holds the globals' addresses: the gate [6D9F24F], sent [6D9F258], the online object's pointer
+/// [6D9F288] (its +209 = 0xD1 byte), the second online flag [683653F] (HIBYTE of dword_683653C), entered [6D9F25A].
+pub const ENTRY_ADDRS: [usize; 5] = [3, 11, 19, 36, 41];
+
+/// The globals' addresses from `code` (sub_80EDF0's first bytes in the running client, its base `delta` above
+/// 0x400000), or None when it is not [`ENTRY_SIG`] relocated by `delta`.
+pub fn entry_globals(code: &[u8], delta: u32) -> Option<[u32; 5]> {
+    let mut want = ENTRY_SIG;
+    for at in ENTRY_ADDRS {
+        let a = u32::from_le_bytes(want[at..at + 4].try_into().ok()?).wrapping_add(delta);
+        want[at..at + 4].copy_from_slice(&a.to_le_bytes());
+    }
+    (code.get(..want.len())? == want).then(|| {
+        ENTRY_ADDRS.map(|at| u32::from_le_bytes(want[at..at + 4].try_into().unwrap_or_default()))
+    })
+}
+
+/// The client's entry line: the gate, the two online flags (`a` = [[6D9F288]+209], None when unreadable), entered and
+/// sent, and what they mean for DATA_VS_ENTRY.
+pub fn entry_line(gate: u8, a: Option<u8>, b: u8, entered: u8, sent: u8) -> String {
+    let online = a.unwrap_or(0) != 0 || b != 0;
+    let why = match (sent != 0, gate == 1, online, entered != 0) {
+        (true, ..) => "DATA_VS_ENTRY sent",
+        (_, false, ..) => "no entry due (gate not 1)",
+        (_, _, false, _) => "entry due but NOT sent: the online flag is off",
+        (_, _, _, true) => "entry due but not sent: already entered",
+        _ => "entry due, not sent yet",
+    };
+    let a = a.map_or("?".to_owned(), |a| a.to_string());
+    format!(
+        "UC entry (client 0x80EDF0): gate {gate}, online [6D9F288]+209 {a} / [683653F] {b}, entered {entered}, sent {sent} - {why}"
+    )
+}
+
+/// Reads `N` bytes of this process at `at`; None when they are not readable (ReadProcessMemory never faults).
+#[cfg(target_arch = "x86")]
+fn peek<const N: usize>(at: u32) -> Option<[u8; N]> {
+    use windows_sys::Win32::System::Diagnostics::Debug::ReadProcessMemory;
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+    let mut b = [0u8; N];
+    let mut got = 0;
+    // SAFETY: reads into our own buffer of N bytes; the source may be anything, the call checks it
+    let ok = unsafe {
+        ReadProcessMemory(
+            GetCurrentProcess(),
+            at as usize as *const _,
+            b.as_mut_ptr().cast(),
+            N,
+            &mut got,
+        )
+    };
+    (ok != 0 && got == N).then_some(b)
+}
+
+/// The client's watch on sub_80EDF0's globals (read-only, no patch): a line at the start and whenever they change.
+#[cfg(target_arch = "x86")]
+fn watch_entry() {
+    use crate::log::log;
+    let base = crate::patch::exe() as usize as u32;
+    let delta = base.wrapping_sub(0x40_0000);
+    let Some(g) = peek::<49>(base + ENTRY as u32).and_then(|c| entry_globals(&c, delta)) else {
+        log!("UC entry: client 0x80EDF0 is not the code studied - its flags are not logged");
+        return;
+    };
+    log!("UC entry: watching client 0x80EDF0's flags (read-only)");
+    std::thread::spawn(move || {
+        let mut last = String::new();
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            let byte = |at: u32| peek::<1>(at).map_or(0, |b| b[0]);
+            let a = peek::<4>(g[2])
+                .map(u32::from_le_bytes)
+                .filter(|&p| p != 0)
+                .and_then(|p| peek::<1>(p.wrapping_add(0xD1)))
+                .map(|b| b[0]);
+            let line = entry_line(byte(g[0]), a, byte(g[3]), byte(g[4]), byte(g[1]));
+            if line != last {
+                log!("{line}");
+                last = line;
+            }
+        }
+    });
+}
+
 #[cfg(target_arch = "x86")]
 pub fn install() {
     use crate::log::log;
     use crate::patch::{exe, exe_is};
 
+    if exe_is("client_Release.exe") {
+        watch_entry();
+        return;
+    }
     if !exe_is("control_Release.exe") {
         return;
     }
@@ -416,6 +580,71 @@ mod tests {
         // the championship live (its match ends the slot) or a cup round (its matches do): untouched
         assert!(!game_over(false, true, false, 900));
         assert!(!game_over(false, false, true, 900));
+    }
+
+    #[test]
+    fn the_lines_name_the_player_s_places_and_the_slot_s_state() {
+        let mut r = vec![0u8; 2 * RECORD];
+        for (m, t) in [(0, 0), (0, 1), (1, 0), (1, 1)] {
+            let at = m * RECORD + 40 + t * 3_800;
+            r[at..at + 4].copy_from_slice(&950u32.to_le_bytes());
+        }
+        assert_eq!(
+            verdict(&r, 0, 0),
+            "UC live: championship match 1/3 (day 0): all-CPU - kept off the projector"
+        );
+        let at = RECORD + 40 + 3_800; // semifinal 2, place 2
+        r[at..at + 4].fill(0);
+        r[at - 4..at].copy_from_slice(&3u32.to_le_bytes());
+        assert_eq!(players(&r), [(1, 1, 3)]);
+        assert_eq!(
+            verdict(&r, 1, 2),
+            "UC live: championship match 3/3 (day 1): a player's club in semifinal 2 place 2 (coach 3) - live on the projector"
+        );
+        assert!(slot_line(false, true, false).ends_with("a Universal Cup round"));
+        assert!(slot_line(true, false, true).contains("plays live"));
+        assert!(slot_line(false, false, true).contains("all-CPU"));
+        assert!(slot_line(false, false, false).contains("no championship this slot"));
+    }
+
+    #[test]
+    fn the_entry_watch_reads_only_the_studied_code_and_says_why_no_entry_went() {
+        // 0x80EE07 is the online test, 23 bytes in
+        assert_eq!(ENTRY + 23, 0x40_EE07);
+        assert_eq!(ENTRY_SIG[23..30], [0x80, 0xB8, 0xD1, 0, 0, 0, 0]);
+        let g = [
+            0x06D9_F24F,
+            0x06D9_F258,
+            0x06D9_F288,
+            0x0683_653F,
+            0x06D9_F25A,
+        ];
+        assert_eq!(entry_globals(&ENTRY_SIG, 0), Some(g));
+        // relocated: each address moves with the base
+        let delta = 0x0010_0000;
+        let mut moved = ENTRY_SIG;
+        for at in ENTRY_ADDRS {
+            let a = u32::from_le_bytes(moved[at..at + 4].try_into().unwrap()) + delta;
+            moved[at..at + 4].copy_from_slice(&a.to_le_bytes());
+        }
+        assert_eq!(entry_globals(&moved, delta), Some(g.map(|a| a + delta)));
+        assert_eq!(
+            entry_globals(&ENTRY_SIG, delta),
+            None,
+            "not relocated as the base says"
+        );
+        let mut other = ENTRY_SIG;
+        other[24] = 0xB9;
+        assert_eq!(entry_globals(&other, 0), None, "another build");
+        assert_eq!(entry_globals(&ENTRY_SIG[..48], 0), None, "short");
+        assert!(entry_line(1, Some(0), 0, 0, 0).ends_with("NOT sent: the online flag is off"));
+        assert!(entry_line(1, Some(1), 0, 0, 1).ends_with("- DATA_VS_ENTRY sent"));
+        assert!(entry_line(1, None, 1, 1, 0).ends_with("already entered"));
+        assert!(entry_line(0, Some(1), 1, 0, 0).ends_with("(gate not 1)"));
+        assert_eq!(
+            entry_line(1, Some(1), 0, 0, 0),
+            "UC entry (client 0x80EDF0): gate 1, online [6D9F288]+209 1 / [683653F] 0, entered 0, sent 0 - entry due, not sent yet"
+        );
     }
 
     #[test]
