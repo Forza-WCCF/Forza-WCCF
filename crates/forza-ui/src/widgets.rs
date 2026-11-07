@@ -273,7 +273,8 @@ pub fn cabinet_face(p: &Painter, rect: Rect, label: &str, kind: Cab, f: Face) {
     cabinet_shape_face(p, rect, label, kind, Shape::Key, f)
 }
 
-/// `cabinet_face` in any shape. The cabinet's shapes are solid colour on a darker skirt, with no lamp window.
+/// `cabinet_face` in any shape. The deck's shapes show the cabinet art in `assets/panel`; others are solid colour on
+/// a darker skirt, with no lamp window.
 pub fn cabinet_shape_face(p: &Painter, rect: Rect, label: &str, kind: Cab, shape: Shape, f: Face) {
     if shape != Shape::Key {
         return solid_face(p, rect, label, kind, shape, f);
@@ -361,7 +362,63 @@ pub fn cabinet_shape_face(p: &Painter, rect: Rect, label: &str, kind: Cab, shape
     );
 }
 
+/// The cabinet art for a deck button (`assets/panel`, cut from the project's button drawings), if it has one.
+fn art(kind: Cab, shape: Shape) -> Option<egui::ImageSource<'static>> {
+    use egui::include_image as img;
+    Some(match (kind, shape) {
+        (Cab::Tactic, Shape::Tri(Dir::Up)) => img!("../assets/panel/arrow_up.png"),
+        (Cab::Tactic, Shape::Tri(Dir::Down)) => img!("../assets/panel/arrow_down.png"),
+        (Cab::Tactic, Shape::Tri(Dir::Left)) => img!("../assets/panel/arrow_left.png"),
+        (Cab::Tactic, Shape::Tri(Dir::Right)) => img!("../assets/panel/arrow_right.png"),
+        (Cab::Press, Shape::Square) => img!("../assets/panel/press.png"),
+        (Cab::Shoot, Shape::Round) => img!("../assets/panel/shoot.png"),
+        (Cab::Keeper, Shape::Round) => img!("../assets/panel/keeper.png"),
+        (Cab::KeyPlayer, Shape::Round) => img!("../assets/panel/key_player.png"),
+        (Cab::Go, Shape::Round) => img!("../assets/panel/start.png"),
+        (Cab::Data, Shape::Square) => img!("../assets/panel/data.png"),
+        _ => return None,
+    })
+}
+
+/// How much a deck button's art is brightened (0..1) and its tint: the toggle lamps (arrows, PRESS) dim when off and
+/// show full colour when lit; the action buttons rest at full colour and brighten while pressed or held.
+fn art_light(kind: Cab, f: Face) -> (Color32, f32) {
+    if !f.enabled {
+        return (Color32::from_gray(0x60), 0.0);
+    }
+    if matches!(kind, Cab::Tactic | Cab::Press) {
+        let tint = Color32::from_gray(0x55).lerp_to_gamma(Color32::WHITE, f.glow);
+        (tint, 0.1 * f.hover)
+    } else {
+        let up = (0.6 * f.press).max(0.35 * f.glow) + 0.1 * f.hover;
+        (Color32::WHITE, up.min(1.0))
+    }
+}
+
 fn solid_face(p: &Painter, rect: Rect, label: &str, kind: Cab, shape: Shape, f: Face) {
+    // the art, once its loader has it (the first frames draw the plain shape); it carries no label
+    if let Some(src) = art(kind, shape)
+        && let Ok(egui::load::TexturePoll::Ready { texture }) = src.load(
+            p.ctx(),
+            egui::TextureOptions::LINEAR,
+            egui::SizeHint::default(),
+        )
+    {
+        let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+        let (tint, up) = art_light(kind, f);
+        p.image(texture.id, rect, uv, tint);
+        if up > 0.0 {
+            // the art again with zero alpha: premultiplied blending adds it, so the face brightens inside its outline
+            let k = (255.0 * up) as u8;
+            p.image(
+                texture.id,
+                rect,
+                uv,
+                Color32::from_rgba_premultiplied(k, k, k, 0),
+            );
+        }
+        return;
+    }
     let base = if f.enabled {
         kind.color()
     } else {
@@ -373,12 +430,16 @@ fn solid_face(p: &Painter, rect: Rect, label: &str, kind: Cab, shape: Shape, f: 
         rect.min + vec2(0.0, f.press * travel),
         rect.size() - vec2(0.0, travel),
     );
-    let fill = if f.lit {
-        base.lerp_to_gamma(Color32::WHITE, 0.3)
+    // only the tactic lamps grey out when off (lit = full colour); the action buttons keep their colour at rest
+    let lamp = matches!(kind, Cab::Tactic | Cab::Press);
+    let tone = if lamp && !f.lit {
+        base.lerp_to_gamma(Color32::from_gray(0x80), 0.65)
     } else {
-        base.lerp_to_gamma(Color32::WHITE, 0.1 * f.hover)
+        base
     };
-    let rim = Stroke::new(1.0, base.lerp_to_gamma(Color32::BLACK, 0.4));
+    let wash = if !lamp && f.lit { 0.3 } else { 0.1 * f.hover };
+    let fill = tone.lerp_to_gamma(Color32::WHITE, wash);
+    let rim = Stroke::new(1.0, tone.lerp_to_gamma(Color32::BLACK, 0.4));
     let draw = |r: Rect, fill: Color32, stroke: Stroke| match shape {
         Shape::Round => {
             p.circle(r.center(), r.width().min(r.height()) / 2.0, fill, stroke);
@@ -396,7 +457,7 @@ fn solid_face(p: &Painter, rect: Rect, label: &str, kind: Cab, shape: Shape, f: 
     };
     draw(
         skirt,
-        base.lerp_to_gamma(Color32::BLACK, 0.55),
+        tone.lerp_to_gamma(Color32::BLACK, 0.55),
         Stroke::NONE,
     );
     draw(face, fill, rim);
@@ -1290,5 +1351,40 @@ mod shape_tests {
         // a left triangle: apex at the left middle
         assert!(!shape_contains(Shape::Tri(Dir::Left), r, corner));
         assert!(shape_contains(Shape::Tri(Dir::Left), r, pos2(39.0, 1.0)));
+    }
+
+    #[test]
+    fn art_lamps_dim_and_actions_brighten() {
+        let f = |lit: bool, press: f32| Face {
+            lit,
+            glow: if lit { 1.0 } else { 0.0 },
+            press,
+            hover: 0.0,
+            enabled: true,
+        };
+        // a toggle lamp off is darker than lit; pressing it does not brighten it
+        let (off, _) = art_light(Cab::Tactic, f(false, 0.0));
+        let (on, up) = art_light(Cab::Press, f(true, 1.0));
+        assert!(off.r() < on.r() && up == 0.0);
+        // an action button rests at full colour and brightens while pressed
+        for kind in [Cab::Shoot, Cab::Keeper, Cab::KeyPlayer, Cab::Go, Cab::Data] {
+            let (rest, still) = art_light(kind, f(false, 0.0));
+            let (_, pressed) = art_light(kind, f(false, 1.0));
+            assert!(
+                rest == Color32::WHITE && still == 0.0 && pressed > 0.3,
+                "{kind:?}"
+            );
+            assert!(
+                art(
+                    kind,
+                    if kind == Cab::Data {
+                        Shape::Square
+                    } else {
+                        Shape::Round
+                    }
+                )
+                .is_some()
+            );
+        }
     }
 }

@@ -2113,8 +2113,8 @@ fn deal_window(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
     }
 }
 
-/// One button of the cabinet's two plates: where it sits and how it looks. `label` is the side a small button's name
-/// is printed on (the big ones carry it inside); `tactic` indexes `PanelState::tactics`.
+/// One button of the cabinet's two plates: where it sits and how it looks. `label` is the side a button's name
+/// is printed on (PRESS, in the diamond, has none); `tactic` indexes `PanelState::tactics`.
 pub struct DeckItem {
     pub key: &'static str,
     pub action: &'static str,
@@ -2163,7 +2163,7 @@ fn grow(r: Rect, c: Pos2, s: f32) -> Rect {
 
 /// The cabinet's buttons in one row (a departure from the cabinet on purpose, to leave the picture room). Left: a
 /// diamond of yellow triangles (CENTRAL up, COUNTER down, L-SIDE left, R-SIDE right) round a red PRESS square, a
-/// small green DATA square beside it. Middle: small yellow KEY PLAYER, big red SHOOT, big blue KEEPER, small green
+/// tall green DATA key beside it. Middle: small yellow KEY PLAYER, big red SHOOT, big blue KEEPER, small green
 /// START in a line.
 pub fn deck_layout(area: Rect) -> Vec<DeckItem> {
     deck_layout_for(area, true, 1.0, false)
@@ -2174,7 +2174,8 @@ fn deck_layout_for(area: Rect, both: bool, s: f32, stack: bool) -> Vec<DeckItem>
     let [left, mid, _] = deck_plates(area, both, 1.0, stack);
     let (cy, my) = (left.center().y, mid.center().y);
     let c = pos2(left.left() + 132.0, cy);
-    let (sq, tl, g) = (40.0, 26.0, 2.0);
+    // the art's proportions: the triangles are 8/7 as wide as tall
+    let (sq, tl, g) = (32.0, 28.0, 2.0);
     let off = sq / 2.0 + g + tl / 2.0;
     let item = |key, action, kind, shape, centre: Pos2, size: egui::Vec2, label, tactic| DeckItem {
         key,
@@ -2249,8 +2250,8 @@ fn deck_layout_for(area: Rect, both: bool, s: f32, stack: bool) -> Vec<DeckItem>
             "DATA",
             Cab::Data,
             Shape::Square,
-            pos2(left.right() - 19.0, cy),
-            vec2(30.0, 30.0),
+            pos2(left.right() - 32.0, cy),
+            vec2(25.0, 40.0),
             Some(Dir::Down),
             None,
         ),
@@ -2281,7 +2282,7 @@ fn deck_layout_for(area: Rect, both: bool, s: f32, stack: bool) -> Vec<DeckItem>
             Shape::Round,
             pos2(shoot_x, my),
             vec2(big, big),
-            None,
+            Some(Dir::Down),
             None,
         ),
         item(
@@ -2291,7 +2292,7 @@ fn deck_layout_for(area: Rect, both: bool, s: f32, stack: bool) -> Vec<DeckItem>
             Shape::Round,
             pos2(keeper_x, my),
             vec2(big, big),
-            None,
+            Some(Dir::Down),
             None,
         ),
     ]
@@ -2400,7 +2401,7 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
     for it in deck_layout_for(area, both, s, stack) {
         let on = held == Some(it.action);
         let lit = on || it.tactic.is_some_and(|i| st.tactics[i]);
-        // a name printed beside the button is not printed in it too (the side layout's big buttons)
+        // a name printed beside the button is not printed in it too
         let inside = it.label.is_none();
         put(
             ui,
@@ -2463,7 +2464,7 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
                 paint_keycap(p, r, &cap);
             }
         } else {
-            // the big buttons carry their name: the keycap sits inside, at the bottom
+            // PRESS has no name beside it: the keycap sits inside, at the bottom
             let cap_w = keycap_width(p, &cap, it.rect.width() - 10.0);
             if cap_w > 0.0 {
                 let r = Rect::from_center_size(
