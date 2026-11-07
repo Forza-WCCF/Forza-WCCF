@@ -2015,9 +2015,11 @@ pub fn deck_layout(area: Rect) -> Vec<DeckItem> {
 fn deck_layout_for(area: Rect, both: bool, s: f32, stack: bool) -> Vec<DeckItem> {
     let [left, mid, _] = deck_plates(area, both, 1.0, stack);
     let (cy, my) = (left.center().y, mid.center().y);
-    let c = pos2(left.left() + 132.0, cy);
-    // the art's proportions: the triangles are 8/7 as wide as tall
-    let (sq, tl, g) = (32.0, 28.0, 2.0);
+    let c = pos2(left.left() + 134.0, cy);
+    // the art's proportions: the triangles are 8/7 as wide as tall; the pad drawn 1.3 times the art's base size, the
+    // room above and below it free since CENTRAL and COUNTER print their names beside their arrows
+    let k = 1.3;
+    let (sq, tl, g) = (32.0 * k, 28.0 * k, 2.0 * k);
     let off = sq / 2.0 + g + tl / 2.0;
     let item = |key, action, kind, shape, centre: Pos2, size: egui::Vec2, label, tactic| DeckItem {
         key,
@@ -2044,7 +2046,7 @@ fn deck_layout_for(area: Rect, both: bool, s: f32, stack: bool) -> Vec<DeckItem>
             tri(Dir::Up),
             c - vec2(0.0, off),
             tall,
-            Some(Dir::Up),
+            Some(Dir::Right),
             Some(0),
         ),
         item(
@@ -2054,7 +2056,7 @@ fn deck_layout_for(area: Rect, both: bool, s: f32, stack: bool) -> Vec<DeckItem>
             tri(Dir::Down),
             c + vec2(0.0, off),
             tall,
-            Some(Dir::Down),
+            Some(Dir::Right),
             Some(1),
         ),
         item(
@@ -2092,7 +2094,7 @@ fn deck_layout_for(area: Rect, both: bool, s: f32, stack: bool) -> Vec<DeckItem>
             "DATA",
             Cab::Data,
             Shape::Square,
-            pos2(left.right() - 32.0, cy),
+            pos2(left.right() - 22.0, cy),
             vec2(25.0, 40.0),
             Some(Dir::Down),
             None,
@@ -2138,6 +2140,19 @@ fn deck_layout_for(area: Rect, both: bool, s: f32, stack: bool) -> Vec<DeckItem>
             None,
         ),
     ]
+}
+
+/// Where a deck button's name (and keycap), `size`, sits: 4 points off `rect` on `side`, centred on it the other
+/// way, never past `plate`'s right edge (DATA sits close to it).
+fn deck_label_rect(rect: Rect, side: Dir, size: egui::Vec2, plate: Rect) -> Rect {
+    let (w, h) = (size.x, size.y);
+    let (left, cy) = match side {
+        Dir::Up => (rect.center().x - w / 2.0, rect.top() - 4.0 - h / 2.0),
+        Dir::Down => (rect.center().x - w / 2.0, rect.bottom() + 4.0 + h / 2.0),
+        Dir::Left => (rect.left() - 4.0 - w, rect.center().y),
+        Dir::Right => (rect.right() + 4.0, rect.center().y),
+    };
+    Rect::from_min_size(pos2(left.min(plate.right() - 4.0 - w), cy - h / 2.0), size)
 }
 
 /// The machine plate's one key, CARD, centred (2017-18 has no card and no machine plate).
@@ -2255,7 +2270,12 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
             StrokeKind::Inside,
         );
     }
-    for it in deck_layout_for(area, both, s, stack) {
+    let items = deck_layout_for(area, both, s, stack);
+    let data = items
+        .iter()
+        .find(|i| i.action == "DATA")
+        .map_or(area, |i| i.rect);
+    for it in items {
         let on = held == Some(it.action);
         let lit = on || it.tactic.is_some_and(|i| st.tactics[i]);
         // a name printed beside the button is not printed in it too
@@ -2292,27 +2312,19 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
             let name = p.layout_no_wrap(tr!(lang, it.key), theme::display(14.0), theme::TEXT_DIM);
             let room = match side {
                 Dir::Left => it.rect.left() - deck_plates(area, both, s, stack)[0].left() - 8.0,
+                // CENTRAL, COUNTER, R-SIDE: up to the DATA lamp
+                Dir::Right => data.left() - 8.0 - it.rect.right(),
                 _ => 110.0,
             };
             let cap_w = keycap_width(p, &cap, room - name.size().x - 4.0);
             let w = name.size().x + if cap_w > 0.0 { 4.0 + cap_w } else { 0.0 };
-            let h = name.size().y;
-            let (left, cy) = match side {
-                Dir::Up => (it.rect.center().x - w / 2.0, it.rect.top() - 4.0 - h / 2.0),
-                Dir::Down => (
-                    it.rect.center().x - w / 2.0,
-                    it.rect.bottom() + 4.0 + h / 2.0,
-                ),
-                Dir::Left => (it.rect.left() - 4.0 - w, it.rect.center().y),
-                Dir::Right => (it.rect.right() + 4.0, it.rect.center().y),
-            };
-            // never past the plate's edge (DATA sits close to it)
             let plate = deck_plates(area, both, s, stack)
                 .into_iter()
                 .find(|r| r.contains(it.rect.center()))
                 .unwrap_or(area);
-            let left = left.min(plate.right() - 4.0 - w);
-            p.galley(pos2(left, cy - h / 2.0), name.clone(), theme::TEXT_DIM);
+            let at = deck_label_rect(it.rect, side, vec2(w, name.size().y), plate);
+            let (left, cy) = (at.left(), at.center().y);
+            p.galley(at.min, name.clone(), theme::TEXT_DIM);
             if cap_w > 0.0 {
                 let r = Rect::from_min_size(
                     pos2(left + name.size().x + 4.0, cy - KEYCAP_H / 2.0),
@@ -5270,6 +5282,73 @@ mod tests {
         assert_eq!(latch_kept(on, false, true), on);
         assert_eq!(latch_kept(on, true, true), None);
         assert_eq!(latch_kept(on, false, false), None);
+    }
+
+    /// The tactic pad: CENTRAL and COUNTER print their names right of their arrows (centred on them), the pad is drawn
+    /// bigger than the art's base size, and no button or name overlaps another or leaves its plate, in EN, IT and JA,
+    /// in the row and stacked, with and without the machine plate.
+    #[test]
+    fn the_pad_names_sit_beside_their_arrows() {
+        let ctx = egui::Context::default();
+        theme::install(&ctx, Edition::E1718, &theme::font_dir())
+            .expect("the fonts in assets/fonts");
+        ctx.run_ui(Default::default(), |_| {})
+            .textures_delta
+            .clear();
+        for lang in [Lang::En, Lang::It, Lang::Ja] {
+            for (both, stack) in [(true, false), (false, false), (true, true), (false, true)] {
+                let area = Rect::from_min_size(pos2(0.0, 0.0), vec2(860.0, 520.0));
+                let plates = deck_plates(area, both, 1.0, stack);
+                let items = deck_layout_for(area, both, 1.0, stack);
+                let at = |a: &str| items.iter().find(|i| i.action == a).unwrap().rect;
+                assert!(at("PRESS").width() > 40.0, "the pad is drawn bigger");
+                // every button and every printed name, each with its plate
+                let mut boxes = Vec::new();
+                for it in &items {
+                    let plate = *plates
+                        .iter()
+                        .find(|p| p.contains(it.rect.center()))
+                        .unwrap();
+                    boxes.push((it.action.to_owned(), it.rect, plate));
+                    if let Some(side) = it.label {
+                        let size = ctx
+                            .fonts_mut(|f| {
+                                f.layout_no_wrap(
+                                    tr!(lang, it.key),
+                                    theme::display(14.0),
+                                    Color32::WHITE,
+                                )
+                            })
+                            .size();
+                        let name = deck_label_rect(it.rect, side, size, plate);
+                        if matches!(it.action, "UP" | "DOWN") {
+                            let ctx = format!("{lang:?} {} both={both} stack={stack}", it.key);
+                            assert!(
+                                name.left() >= it.rect.right() + 3.0,
+                                "{ctx}: right of its arrow"
+                            );
+                            assert!(
+                                (name.center().y - it.rect.center().y).abs() < 0.5,
+                                "{ctx}: centred on its arrow"
+                            );
+                        }
+                        boxes.push((format!("{} name", it.action), name, plate));
+                    }
+                }
+                for (n, (a, ra, pa)) in boxes.iter().enumerate() {
+                    assert!(
+                        pa.contains_rect(*ra),
+                        "{lang:?} {a} leaves its plate ({ra:?} in {pa:?})"
+                    );
+                    for (b, rb, _) in &boxes[n + 1..] {
+                        assert!(
+                            !ra.intersects(*rb),
+                            "{lang:?} stack={stack}: {a} overlaps {b}"
+                        );
+                    }
+                }
+            }
+        }
     }
 
     /// A held hotkey presses its button for exactly the frames the key is down: repeats change nothing, the release
