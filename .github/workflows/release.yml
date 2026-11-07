@@ -6,8 +6,8 @@ name: Release
 # bumps it: v0.6.1 -> version.txt kit-0.6.1, the programs' version information and the file names.
 # A release candidate is a dispatch with `version` (on the `next` branch): its files already carry that version, and
 # the tag run on the same commit takes the candidate's files instead of building again (job candidate) and checks
-# them (publish, "Same bytes as the candidate"). A tag without a candidate builds as a dispatch does, and publish
-# stops there: no draft without a played candidate.
+# them (publish, "Same bytes as the candidate"). A tag without a successful candidate stops at job candidate, before
+# the build: no draft comes from bytes nobody played (d5f83b64).
 on:
   push:
     tags: ['v*']
@@ -53,7 +53,10 @@ jobs:
           V=${GITHUB_REF_NAME#v}
           rc=0
           cand=$(.github/scripts/candidate.sh find "$V" "$GITHUB_SHA") || rc=$?
-          if [ "$rc" = 2 ]; then echo "::warning::no candidate for $V on $GITHUB_SHA: the tag is built"; exit 0; fi
+          if [ "$rc" = 2 ]; then
+            echo "::error::no candidate for $V on $GITHUB_SHA (reasons above): dispatch the Release workflow with version=$V on this commit, play the build, then tag the played commit"
+            exit 1
+          fi
           [ "$rc" = 0 ] || exit "$rc"
           .github/scripts/candidate.sh verify "cand-$cand" "$V"
           mv "cand-$cand" dist
@@ -70,7 +73,7 @@ jobs:
   build:
     name: build
     needs: candidate
-    # a dispatch (candidate skipped) or a tag without a candidate
+    # a dispatch: a tag push takes the candidate's files or fails in job candidate
     if: ${{ !cancelled() && needs.candidate.result != 'failure' && needs.candidate.outputs.run == '' }}
     # the same image as ci.yml's build-test; Git Bash runs the scripts below unchanged
     runs-on: windows-2025-vs2026
@@ -255,7 +258,7 @@ jobs:
 
   publish:
     name: publish
-    needs: [build, virustotal]
+    needs: [candidate, build, virustotal]
     # a tag push only: a dispatch never publishes, also when it runs on a tag. virustotal passed on a build or on the
     # candidate's files (explicit: build is skipped when the candidate's files are taken)
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref_type == 'tag' && needs.virustotal.result == 'success' }}
@@ -274,21 +277,25 @@ jobs:
         with:
           name: dist
           path: dist
-      # A candidate was played (a dispatch with `version` on this commit): no draft from bytes that differ from it. The
-      # newest completed candidate whose `dist` artifact carries the tag's version counts; with none, the release stops.
-      # On the candidate's own files (job candidate) this checks the copy.
+      # A candidate was played (a dispatch with `version` on this commit): no draft from bytes that differ from it.
+      # The run is the one job candidate took, not a second lookup: a newer dispatch on this commit during the virustotal
+      # job cannot swap the files. On the candidate's own files (job candidate) this checks the copy.
       - name: Same bytes as the candidate
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          CAND: ${{ needs.candidate.outputs.run }}
         run: |
           set -euo pipefail
           V=${GITHUB_REF_NAME#v}
-          rc=0
-          cand=$(.github/scripts/candidate.sh find "$V" "$GITHUB_SHA") || rc=$?
-          if [ "$rc" != 0 ]; then
+          cand=$CAND
+          if [ -z "$cand" ]; then
             echo "### Candidate: none found for $V on $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
-            echo "::error::no candidate with version=$V on $GITHUB_SHA (reasons above): dispatch the Release workflow with version=$V on this commit, play the build, then tag the played commit"
+            echo "::error::no candidate with version=$V on $GITHUB_SHA: dispatch the Release workflow with version=$V on this commit, play the build, then tag the played commit"
+            exit 1
+          fi
+          if ! gh run download "$cand" -R "$REPO" -n dist -D "cand-$cand" >&2; then
+            echo "::error::run $cand: its dist artifact cannot be downloaded (expired after 14 days, or the run is gone)"
             exit 1
           fi
           url="https://github.com/$REPO/actions/runs/$cand"

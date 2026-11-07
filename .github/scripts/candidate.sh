@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The release candidate of a tag: a workflow_dispatch run of release.yml on the tagged commit whose files carry the
-# tag's version. Used by release.yml on a tag push (jobs candidate and publish). Needs GH_TOKEN and REPO.
-#   candidate.sh find VERSION SHA     the newest completed candidate run's id on stdout, its dist left in cand-<id>/;
+# tag's version. Used by release.yml on a tag push (job candidate). Needs GH_TOKEN and REPO.
+#   candidate.sh find VERSION SHA     the newest successful candidate run's id on stdout, its dist left in cand-<id>/;
 #                                     exit 2 when there is none, the reasons on stderr
 #   candidate.sh verify DIR VERSION   every file in DIR is listed in SHA256SUMS.txt and matches it, and the files
 #                                     carry VERSION (names, version.txt in the 2017-18 ZIP)
@@ -12,8 +12,8 @@ names() { awk '{ name = $2; sub(/^\*/, "", name); print name }' "$1"; }
 
 find_candidate() {
   local v=$1 sha=$2 runs id skipped='' found=''
-  # a failed virustotal job (a Microsoft false positive) does not spoil a candidate; its artifact decides
-  if ! runs=$(gh run list -R "$REPO" -w release.yml -e workflow_dispatch -c "$sha" -s completed -L 20 --json databaseId --jq '.[].databaseId'); then
+  # only a successful dispatch is a candidate: a build, a check or a virustotal job that failed is not one
+  if ! runs=$(gh run list -R "$REPO" -w release.yml -e workflow_dispatch -c "$sha" -s success -L 20 --json databaseId --jq '.[].databaseId'); then
     echo "gh run list failed: cannot look for a candidate on $sha" >&2
     return 1
   fi
@@ -23,7 +23,7 @@ find_candidate() {
     if names "cand-$id/SHA256SUMS.txt" | grep -xF "Forza-WCCF-2017-18-$v.zip" >/dev/null; then echo "$id"; return 0; fi
     found="$found $(names "cand-$id/SHA256SUMS.txt" | grep -E '^Forza-WCCF-2017-18-.*\.zip$' | tr '\n' ' ' || true)"
   done
-  echo "no candidate with version=$v on $sha" >&2
+  echo "no candidate with version=$v on $sha (only a successful dispatch counts)" >&2
   if [ -n "${found// /}" ]; then echo "the candidates on this commit carry other versions:$found" >&2; fi
   if [ -n "$skipped" ]; then echo "the dist artifact could not be downloaded from run(s):$skipped" >&2; fi
   return 2
