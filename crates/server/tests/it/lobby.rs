@@ -380,3 +380,36 @@ fn bump() -> u64 {
     static N: AtomicU64 = AtomicU64::new(1);
     N.fetch_add(1, Ordering::Relaxed)
 }
+
+/// A public server's `CLUB` words follow its game server's allowlist (the real policy's wiring: `cli`'s
+/// `the_club_store_follows_the_game_servers_allowlist`): an address off it is refused before anything is read or
+/// stored (a PUT's 2 MiB upload never sent is not waited for, and no store is opened), one on it reaches the store.
+#[test]
+fn club_on_a_public_server_follows_the_allowlist() {
+    let dir = std::env::temp_dir().join(format!("forza_club_allow_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let ask = |allowed: bool, line: &str| {
+        let d = desk(|c| {
+            c.club_db = Some(dir.join("gamesvr.db"));
+            c.club_public = true;
+            c.club_allow = Some(forza_server::desk::Allow(std::sync::Arc::new(move |_| {
+                allowed
+            })));
+        });
+        say(d.addr(), line)
+    };
+    let token = "ab".repeat(32);
+    let put = format!("CLUB PUT 1 5 {token} {}", 2 << 20);
+    assert_eq!(ask(false, &put), "NO not allowed on this server");
+    assert_eq!(
+        ask(false, &format!("CLUB GET 5 {token} -")),
+        "NO not allowed on this server"
+    );
+    assert!(!dir.join("gamesvr.db").exists(), "nothing stored");
+    assert_eq!(
+        ask(true, &format!("CLUB GET 5 {token} -")),
+        "NO no club of this card was brought here"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
