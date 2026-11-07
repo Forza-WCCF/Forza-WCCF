@@ -54,7 +54,7 @@ launcher.cleanup_failed: {en: "Not everything was cleaned: %{what}", it: "Non tu
 launcher.club_server: {en: "Club server", it: "Server club", ja: "クラブサーバー"}
 launcher.club_server_hint: {en: "Leave it empty to use the server you play on.", it: "Lascia vuoto per usare il server su cui giochi.", ja: "空欄にすると、プレイ中のサーバーを使います。"}
 launcher.vs_link: {en: "Direct VS link", it: "Collegamento VS diretto", ja: "ダイレクトVSリンク"}
-launcher.vs_link_hint: {en: "VS matches run directly between the two PCs, without a game server.", it: "Le sfide VS passano direttamente tra i due PC, senza un server di gioco.", ja: "VS対戦はゲームサーバーを介さず、2台のPC間で直接つながります。"}
+launcher.vs_link_hint: {en: "The match data of a VS match goes directly between the two PCs.", it: "I dati di una sfida VS passano direttamente tra i due PC.", ja: "VS対戦の試合データは2台のPC間で直接やり取りされます。"}
 # messages: the status line, the questions, the output; the run's own lines stay English
 launcher.msg_starting: {en: "Starting the game ...", it: "Avvio del gioco ...", ja: "ゲームを起動しています..."}
 launcher.stage_server: {en: "Starting the server ...", it: "Avvio del server ...", ja: "サーバーを起動しています..."}
