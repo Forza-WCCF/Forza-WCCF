@@ -202,10 +202,14 @@ fn load_picture(
         return Pic::Missing;
     }
     let loaded = ctx.try_load_texture(&uri, options, egui::SizeHint::default());
-    if loaded.is_err() {
-        ctx.data_mut(|d| d.insert_temp(miss, true));
-    } else {
-        keep_recent(ctx, &uri);
+    match &loaded {
+        Err(_) => {
+            ctx.data_mut(|d| d.insert_temp(miss, true));
+        }
+        Ok(egui::load::TexturePoll::Ready { texture }) => {
+            keep_recent(ctx, &uri, (texture.size.x * texture.size.y * 4.0) as usize);
+        }
+        Ok(_) => keep_recent(ctx, &uri, 0),
     }
     match loaded {
         Ok(egui::load::TexturePoll::Ready { texture }) => Pic::Ready(texture.id, texture.size),
@@ -214,45 +218,47 @@ fn load_picture(
     }
 }
 
-/// The card pictures one egui context keeps loaded: the ones drawn last. A catalogue browsed for long would otherwise
-/// keep every picture it ever showed. One screen draws at most about 130: the catalogue grid (6 to 12 a row from
+/// The card pictures one egui context keeps loaded: the ones drawn last, at most this many and [`PICTURE_BYTES`] of
+/// textures. A catalogue browsed for long would otherwise keep every picture it ever showed. One screen draws at most about 130: the catalogue grid (6 to 12 a row from
 /// `sizing::grid`; at most 110 in sight, partial rows included, on a 4:3 to 16:9 window at 100-200 % scaling), the
 /// board's 16 slots and the card in hand, the stats pane's card and the card view's two sides. Worst case per
 /// context: 150 album pictures (256x357 RGBA, 365 KB) = 55 MB of textures, plus a second texture for the few drawn
 /// both NEAREST and LINEAR (the card view, the large hover pane); the panel's contexts set `reduce_texture_memory`, so
 /// no decoded copy sits beside them.
 const PICTURES_KEPT: usize = 150;
+/// The texture bytes one context keeps for card pictures. The panel runs in the game's 32-bit process, and its
+/// Direct3D 9 textures are MANAGED, so each also has a copy in that process. 150 album pictures (55 MB) fit as before;
+/// the downloaded pictures (decoded at most [`HQ_MAX`]: 1.4 MB each) keep about 44 beside the ones on screen, where
+/// 150 at their full 664x911 would be 363 MB.
+const PICTURE_BYTES: usize = 64 << 20;
 
-/// The picture URIs loaded lately, each with the pass that last drew it.
+/// The picture URIs loaded lately, each with the pass that last drew it and its texture's bytes (0 while it loads).
 #[derive(Clone, Default)]
-struct RecentPictures(HashMap<String, u64>);
+struct RecentPictures(HashMap<String, (u64, usize)>);
 
-/// Marks the picture `uri` drawn in this pass; past [`PICTURES_KEPT`], forgets those drawn longest ago, never one
-/// drawn in this pass or the previous one: a card still on screen may come later in this pass. With more than the
-/// bound on screen the set grows past it instead (no flicker, no reload loop).
-fn keep_recent(ctx: &egui::Context, uri: &str) {
+/// Marks the picture `uri` (`bytes` of texture) drawn in this pass; past [`PICTURES_KEPT`] or [`PICTURE_BYTES`],
+/// forgets those drawn longest ago, never one drawn in this pass or the previous one: a card still on screen may come
+/// later in this pass. With more than the bound on screen the set grows past it instead (no flicker, no reload loop).
+fn keep_recent(ctx: &egui::Context, uri: &str, bytes: usize) {
     let now = ctx.cumulative_pass_nr();
     let gone = ctx.data_mut(|d| {
         let r = &mut d
             .get_temp_mut_or_default::<RecentPictures>(Id::new("card-pictures-recent"))
             .0;
-        match r.get_mut(uri) {
-            Some(pass) => *pass = now,
-            None => {
-                r.insert(uri.to_owned(), now);
-            }
-        }
+        r.insert(uri.to_owned(), (now, bytes));
         let mut gone = Vec::new();
-        while r.len() > PICTURES_KEPT {
-            let Some(old) = r
+        let mut total: usize = r.values().map(|(_, b)| b).sum();
+        while r.len() > PICTURES_KEPT || total > PICTURE_BYTES {
+            let Some((old, b)) = r
                 .iter()
-                .filter(|(_, pass)| **pass + 1 < now)
-                .min_by_key(|(_, pass)| **pass)
-                .map(|(u, _)| u.clone())
+                .filter(|(_, (pass, _))| *pass + 1 < now)
+                .min_by_key(|(_, (pass, _))| *pass)
+                .map(|(u, (_, b))| (u.clone(), *b))
             else {
                 break;
             };
             r.remove(&old);
+            total -= b;
             gone.push(old);
         }
         gone
@@ -260,6 +266,97 @@ fn keep_recent(ctx: &egui::Context, uri: &str) {
     // outside `data_mut`: forgetting locks the context again
     for u in gone {
         ctx.forget_image(&u);
+    }
+}
+
+/// The largest the board draws a downloaded picture, in pixels: the card view's album slot at 2x.
+pub const HQ_MAX: (u32, u32) = (512, 714);
+
+type Decoded = std::task::Poll<Result<Arc<egui::ColorImage>, String>>;
+
+/// Decodes the downloaded pictures (`<number>_hq.jpg`, `<number>_hq_b.jpg`, 664x911) on a thread and shrinks them
+/// to fit [`HQ_MAX`]: their textures cost 1.4 MB, not 2.4 MB. Other pictures go to egui's own loaders. Installed by
+/// `theme::install_fonts`.
+#[derive(Default)]
+pub struct HqLoader(Arc<egui::mutex::Mutex<HashMap<String, Decoded>>>);
+
+impl HqLoader {
+    pub const ID: &'static str = egui::generate_loader_id!(HqLoader);
+}
+
+impl egui::load::ImageLoader for HqLoader {
+    fn id(&self) -> &str {
+        Self::ID
+    }
+
+    fn load(
+        &self,
+        ctx: &egui::Context,
+        uri: &str,
+        _: egui::SizeHint,
+    ) -> egui::load::ImageLoadResult {
+        use egui::load::{BytesPoll, ImagePoll, LoadError};
+        use std::task::Poll;
+        if !(uri.ends_with("_hq.jpg") || uri.ends_with("_hq_b.jpg")) {
+            return Err(LoadError::NotSupported);
+        }
+        if let Some(e) = self.0.lock().get(uri).cloned() {
+            return match e {
+                Poll::Ready(Ok(image)) => Ok(ImagePoll::Ready { image }),
+                Poll::Ready(Err(e)) => Err(LoadError::Loading(e)),
+                Poll::Pending => Ok(ImagePoll::Pending { size: None }),
+            };
+        }
+        match ctx.try_load_bytes(uri)? {
+            BytesPoll::Pending { size } => Ok(ImagePoll::Pending { size }),
+            BytesPoll::Ready { bytes, .. } => {
+                self.0.lock().insert(uri.to_owned(), Poll::Pending);
+                let (ctx, cache, uri) = (ctx.clone(), Arc::clone(&self.0), uri.to_owned());
+                std::thread::spawn(move || {
+                    let r = image::load_from_memory(&bytes)
+                        .map(|i| {
+                            let i = if i.width() > HQ_MAX.0 || i.height() > HQ_MAX.1 {
+                                i.resize(HQ_MAX.0, HQ_MAX.1, image::imageops::FilterType::Triangle)
+                            } else {
+                                i
+                            };
+                            let i = i.to_rgba8();
+                            let size = [i.width() as usize, i.height() as usize];
+                            Arc::new(egui::ColorImage::from_rgba_unmultiplied(size, i.as_raw()))
+                        })
+                        .map_err(|e| e.to_string());
+                    // forgotten while it decoded: nothing to keep; the context is locked only after the cache
+                    let kept = cache
+                        .lock()
+                        .get_mut(&uri)
+                        .map(|e| *e = Poll::Ready(r))
+                        .is_some();
+                    if kept {
+                        ctx.request_repaint();
+                    }
+                });
+                Ok(ImagePoll::Pending { size: None })
+            }
+        }
+    }
+
+    fn forget(&self, uri: &str) {
+        self.0.lock().remove(uri);
+    }
+
+    fn forget_all(&self) {
+        self.0.lock().clear();
+    }
+
+    fn byte_size(&self) -> usize {
+        self.0
+            .lock()
+            .values()
+            .map(|e| match e {
+                std::task::Poll::Ready(Ok(i)) => i.pixels.len() * 4,
+                _ => 0,
+            })
+            .sum()
     }
 }
 
@@ -3633,6 +3730,72 @@ mod tests {
         ));
     }
 
+    /// The downloaded 664x911 pictures, browsed one a pass past 300 cards as in the panel: each texture shrunk to fit
+    /// [`HQ_MAX`], and the textures kept stay within [`PICTURE_BYTES`] plus the cards on screen. Prints the peak.
+    #[test]
+    fn downloaded_pictures_stay_within_the_byte_bound() {
+        let dir = tempfile::tempdir().unwrap();
+        let big = image::RgbImage::from_fn(664, 911, |x, y| image::Rgb([x as u8, y as u8, 7]));
+        big.save(dir.path().join("0_hq.jpg")).unwrap();
+        let n = 300u32;
+        for i in 1..=n {
+            std::fs::copy(
+                dir.path().join("0_hq.jpg"),
+                dir.path().join(format!("{i}_hq.jpg")),
+            )
+            .unwrap();
+        }
+        let ctx = egui::Context::default();
+        egui_extras::install_image_loaders(&ctx);
+        ctx.add_image_loader(Arc::new(HqLoader::default()));
+        ctx.options_mut(|o| o.reduce_texture_memory = true);
+        // (all, the largest one)
+        let hq_bytes = |ctx: &egui::Context| -> (usize, usize) {
+            ctx.tex_manager()
+                .read()
+                .allocated()
+                .filter(|(_, m)| m.name.ends_with("_hq.jpg"))
+                .map(|(_, m)| {
+                    assert!(
+                        m.size[0] as u32 <= HQ_MAX.0 && m.size[1] as u32 <= HQ_MAX.1,
+                        "{:?}",
+                        m.size
+                    );
+                    m.size[0] * m.size[1] * m.bytes_per_pixel
+                })
+                .fold((0, 0), |(all, one), b| (all + b, one.max(b)))
+        };
+        let (mut peak, mut one) = (0, 0);
+        for i in 0..n {
+            let mut ready = false;
+            for _ in 0..4000 {
+                ctx.run_ui(egui::RawInput::default(), |_| {
+                    ready = card_picture_texture(&ctx, dir.path(), i).is_some();
+                    let _ = card_picture_texture(&ctx, dir.path(), n); // a card on screen all along
+                })
+                .textures_delta
+                .clear();
+                if ready {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            assert!(ready, "card {i} loaded");
+            let (all, largest) = hq_bytes(&ctx);
+            (peak, one) = (peak.max(all), one.max(largest));
+        }
+        println!(
+            "downloaded pictures: {} KB a texture, peak {:.1} MB of textures for {n} cards browsed",
+            one / 1024,
+            peak as f64 / 1_048_576.0
+        );
+        assert!(peak <= PICTURE_BYTES + 2 * one, "{peak} bytes");
+        assert!(
+            peak >= PICTURE_BYTES - 2 * one,
+            "the bound is used: {peak} bytes"
+        );
+    }
+
     /// Past [`PICTURES_KEPT`] distinct pictures, the oldest are forgotten (their textures freed), while a picture
     /// drawn in every pass keeps its first texture.
     #[test]
@@ -3648,6 +3811,7 @@ mod tests {
         let new_ctx = || {
             let ctx = egui::Context::default();
             egui_extras::install_image_loaders(&ctx);
+            ctx.add_image_loader(Arc::new(HqLoader::default()));
             ctx.options_mut(|o| o.reduce_texture_memory = true);
             ctx
         };
