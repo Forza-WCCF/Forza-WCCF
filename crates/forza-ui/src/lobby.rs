@@ -441,6 +441,8 @@ pub enum Scenario {
     ArcadeHost,
     /// An arcade code typed and being joined.
     ArcadeJoining,
+    /// An arcade code typed, not joined yet: the one status line says which room JOIN goes to.
+    ArcadeCode,
     /// An arcade code no room has.
     ArcadeNoRoom,
     /// HOST ARCADE after the lobby lost the room: no code, the line that says so.
@@ -454,7 +456,7 @@ pub enum Scenario {
 }
 
 impl Scenario {
-    pub const ALL: [Scenario; 17] = [
+    pub const ALL: [Scenario; 18] = [
         Scenario::List,
         Scenario::Empty,
         Scenario::Full,
@@ -467,6 +469,7 @@ impl Scenario {
         Scenario::Cpu,
         Scenario::ArcadeHost,
         Scenario::ArcadeJoining,
+        Scenario::ArcadeCode,
         Scenario::ArcadeNoRoom,
         Scenario::ArcadeLost,
         Scenario::LanList,
@@ -488,6 +491,7 @@ impl Scenario {
             Scenario::Cpu => "cpu",
             Scenario::ArcadeHost => "arcade_host",
             Scenario::ArcadeJoining => "arcade_joining",
+            Scenario::ArcadeCode => "arcade_code",
             Scenario::ArcadeNoRoom => "arcade_no_room",
             Scenario::ArcadeLost => "arcade_lost",
             Scenario::LanList => "lan_list",
@@ -687,6 +691,7 @@ impl LobbyView {
             }
             Scenario::ArcadeHost
             | Scenario::ArcadeJoining
+            | Scenario::ArcadeCode
             | Scenario::ArcadeNoRoom
             | Scenario::ArcadeLost => {
                 // 2017-18 with the shared arcade on: one public room listed, the rest by code
@@ -705,6 +710,7 @@ impl LobbyView {
                     Scenario::ArcadeJoining => {
                         (v.joining, v.list_arcade) = (Some("K7QM2XPD".into()), true)
                     }
+                    Scenario::ArcadeCode => {}
                     Scenario::ArcadeLost => (v.hosting, v.notice) = (true, Some(Notice::RoomLost)),
                     _ => v.notice = Some(Notice::NoRoom),
                 }
@@ -779,9 +785,16 @@ impl LobbyView {
             .collect()
     }
 
-    /// The selected row, when it can be joined now.
+    /// The code typed in the box: while there is one, JOIN joins it and no row is picked, so the two targets never
+    /// compete.
+    pub fn code_now(&self) -> Option<&str> {
+        let code = self.code.trim();
+        (self.codes && !code.is_empty()).then_some(code)
+    }
+
+    /// The selected row, when it can be joined now: none while a code is typed.
     pub fn joinable(&self) -> Option<&Row> {
-        if self.offline || self.stale() || self.grey_now().is_some() {
+        if self.code_now().is_some() || self.offline || self.stale() || self.grey_now().is_some() {
             return None;
         }
         let r = self.selected_row()?;
@@ -790,8 +803,7 @@ impl LobbyView {
 
     /// JOIN: the room code typed, else the selected row when it can be joined now.
     pub fn join_action(&self) -> Option<LobbyAction> {
-        let code = self.code.trim();
-        if self.codes && !code.is_empty() {
+        if let Some(code) = self.code_now() {
             return self
                 .joining
                 .is_none()
@@ -802,7 +814,7 @@ impl LobbyView {
 
     /// Why JOIN is greyed, in a few words; `None` when it can join or the greyed list already says why.
     pub fn why_not_join(&self, lang: Lang) -> Option<String> {
-        if self.join_action().is_some() || self.grey_now().is_some() {
+        if self.join_action().is_some() || self.grey_now().is_some() || self.code_now().is_some() {
             return None;
         }
         Some(if self.offline {
@@ -885,10 +897,12 @@ fn keys(ui: &Ui, v: &mut LobbyView) -> Option<LobbyAction> {
     if pressed(Key::ArrowDown, none) && v.selected + 1 < n {
         v.selected += 1;
         v.scroll = true;
+        v.code.clear(); // a row picked: the code typed is no longer the target
     }
     if pressed(Key::ArrowUp, none) && v.selected > 0 {
         v.selected -= 1;
         v.scroll = true;
+        v.code.clear();
     }
     if pressed(Key::ArrowLeft, none) {
         v.set_kind(Kind::Arcades);
@@ -1274,7 +1288,8 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
             for (n, &i) in vis.iter().enumerate() {
                 let r = &v.rows()[i].clone();
                 let (rect, resp) = ui.allocate_exact_size(vec2(rw, ROW_H), Sense::click());
-                let sel = n == v.selected;
+                // a code typed is the target instead: then no row looks picked
+                let sel = v.code_now().is_none() && n == v.selected;
                 let dim = offline || v.view_only(r);
                 let off = dim || !r.joinable();
                 resp.widget_info(|| {
@@ -1740,6 +1755,11 @@ fn status(v: &LobbyView, lang: Lang) -> Option<(Tone, String)> {
     if let Some(k) = key {
         return Some((Tone::Notice, tr!(lang, k)));
     }
+    // a code typed: name what JOIN joins, so no row can pass for the target
+    if let Some(code) = v.code_now() {
+        let code = code.to_ascii_uppercase();
+        return Some((Tone::Notice, tr!(lang, "lobby.code_target", code = code)));
+    }
     if let (true, Some(s)) = (v.stale(), v.updated_s) {
         return Some((Tone::Notice, tr!(lang, "lobby.stale", s = s)));
     }
@@ -1976,6 +1996,7 @@ mod tests {
     #[test]
     fn listed_arcade_rooms_join_from_their_row() {
         let mut v = LobbyView::sample(Scenario::ArcadeNoRoom);
+        v.code.clear();
         assert_eq!(v.joinable().map(|r| r.id.as_str()), Some("p1"));
         v.arcades[0].room = false;
         assert_eq!(v.visible().len(), 1);
@@ -1987,9 +2008,34 @@ mod tests {
         // a code typed joins by code: JOIN is live
         v.arcade_rooms = true;
         v.arcades.clear();
+        v.code = "K7QM2XPD".into();
         assert_eq!(v.why_not_join(Lang::En), None);
         v.code.clear();
         assert_eq!(v.why_not_join(Lang::En).as_deref(), Some("Pick a room"));
+    }
+
+    /// A typed code and a picked row are never both the target: the code hides the row, a pick clears the code.
+    #[test]
+    fn a_code_and_a_row_never_compete() {
+        let mut v = LobbyView::sample(Scenario::ArcadeCode);
+        assert_eq!(v.selected, 0);
+        assert_eq!(v.code_now(), Some("K7QM2XPD"));
+        assert!(v.joinable().is_none(), "no row is picked with a code typed");
+        assert_eq!(
+            v.join_action(),
+            Some(LobbyAction::JoinCode("K7QM2XPD".into()))
+        );
+        // the one status line names it, in every language
+        for lang in Lang::ALL {
+            let (_, said) = status(&v, lang).expect("the code's target is named");
+            assert!(said.contains("K7QM2XPD"), "{lang:?}: {said}");
+        }
+        // a row picked: the code goes
+        v.code.clear();
+        assert_eq!(v.joinable().map(|r| r.id.as_str()), Some("p1"));
+        assert_eq!(v.join_action(), Some(LobbyAction::Join("p1".into())));
+        v.code = "K7QM2XPD".into();
+        assert!(v.joinable().is_none(), "a code typed again hides the row");
     }
 
     /// The host's own arcade showed no count while it ran (2026-10-28 live test: seats 1-3 taken, nothing shown).

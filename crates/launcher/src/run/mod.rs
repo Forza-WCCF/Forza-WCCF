@@ -909,6 +909,15 @@ fn launched_pid(logs: &Path, log: &str) -> Option<u32> {
 }
 
 /// A log of the run's stand-ins: data\logs\<name>, a line each with the wall clock and the seconds since it started.
+/// The name a LAN arcade answers searches with: its cleaned arcade name, else this PC's.
+fn lan_name(arcade: String) -> String {
+    if arcade.is_empty() {
+        env::var("COMPUTERNAME").unwrap_or_else(|_| "Forza-WCCF".into())
+    } else {
+        arcade
+    }
+}
+
 fn file_log(path: PathBuf) -> Log {
     let t0 = Instant::now();
     let file = Mutex::new(File::create(path).ok());
@@ -1961,10 +1970,18 @@ impl Run<'_> {
             // every tunnel guest reaches the desk as 127.0.0.1: no per-address limits there
             env.push(("WCCF_DESK_TUNNEL".to_owned(), "1".to_owned()));
         }
+        // the arcade's name this runtime set; empty: the desk's and the LAN answer's defaults
+        let name = forza::online::lobby::arcade_name(
+            &choices::setting(&self.kit.settings_file(), "shop_name").unwrap_or_default(),
+        );
         if self.edition == Edition::E1718 {
             // guests bring their own clubs into this PC's store (online::club), on the tunnel and on the LAN
             let db = self.kit.save().join("gamesvr").join("gamesvr.db");
             env.push(("WCCF_CLUB_DB".to_owned(), db.display().to_string()));
+            // the ARCADES row for this desk's own arcade (a private room is never listed)
+            if !name.is_empty() {
+                env.push(("WCCF_SHOP_NAME".to_owned(), name.clone()));
+            }
         }
         // 2017-18 ships no forza-server.exe (an AV false positive): the kit's Launcher.exe runs it as `server ...`
         let mut cmd = if self.edition == Edition::E1718 {
@@ -1980,9 +1997,8 @@ impl Run<'_> {
             cmd.arg("--no-gmsvr");
         }
         if lan_only {
-            // the name guests see in their list: this PC's
-            cmd.arg("--lan")
-                .arg(env::var("COMPUTERNAME").unwrap_or_else(|_| "Forza-WCCF".into()));
+            // the name guests see in their list: the arcade's, as on its ARCADES row, else this PC's
+            cmd.arg("--lan").arg(lan_name(name));
         }
         cmd.arg((LIFE.as_secs() + 60).to_string()).arg(&logs);
         clean_env(&mut cmd, &logs, &env);
@@ -3202,6 +3218,13 @@ mod tests {
     use super::due;
     use std::fs;
     use std::path::Path;
+
+    /// LAN search answers carry the arcade's name, as its ARCADES row does (2026-11-06: they showed the PC's).
+    #[test]
+    fn a_lan_arcade_answers_with_its_name() {
+        assert_eq!(super::lan_name("Bar Sport".into()), "Bar Sport");
+        assert!(!super::lan_name(String::new()).is_empty());
+    }
 
     #[test]
     fn the_championship_notice_gives_the_time_in_every_language() {
