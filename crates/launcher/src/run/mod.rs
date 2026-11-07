@@ -2284,6 +2284,17 @@ impl Run<'_> {
         conf::set_cup_times(&ctrl_conf, times)?;
         conf::set_cup_schedule(&self.game.join(r"local\schedule_option.conf"), friendlies)?;
         self.tell("  ", &line);
+        // for live checks: when the control should open the Universal Championship, the cup's winner in it (a refused
+        // time leaves the game's times)
+        let plan_line = match plan.unwrap_or(CupPlan::GameTimes).championship() {
+            Some(t) => format!(
+                "championship plan: from about {}, the slot after the cup's final, {} matches",
+                forza_ui::lobby::clock_text(t),
+                forza_ui::lobby::CHAMPIONSHIP_SLOTS
+            ),
+            None => "championship plan: none, no cup".to_owned(),
+        };
+        crate::logs::append(&self.logs().join("run_launcher.txt"), &plan_line);
         if let Mode::Vs(_) = self.mode {
             let panel_file = self.kit.data().join("panel.txt");
             let panel = choices::read_ok(&panel_file).map_err(|e| {
