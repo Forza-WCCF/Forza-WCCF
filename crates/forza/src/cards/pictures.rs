@@ -20,6 +20,9 @@ use std::path::{Path, PathBuf};
 pub const FACE: (u32, u32) = (88, 128);
 /// The folder's note of what made it; another answer from [`wanted`] makes it again.
 const MARKER: &str = "source.txt";
+/// The files the pack wrote, one name a line: the next rebuild deletes these and nothing else (a picture a player put
+/// in the folder stays, unless the pack writes the same name).
+const PACK_FILES: &str = "pack-files.txt";
 pub const VERSION: u32 = 2; // 2: the album fronts and backs (`<number>_f.jpg`, `<number>_b.jpg`)
 /// The album card in the top of its 256x512 texture (the rows under it are edge smear).
 pub const ALBUM: (u32, u32) = (256, 357);
@@ -307,7 +310,7 @@ pub fn from_game(game: &Path, edition: &str, out: &Path) -> io::Result<Made> {
 /// The pack's card per game card number: the name+stats link first, then a regular printing, then the oldest
 /// (the pack's own export order).
 const PICK: &str = "SELECT l.game_card_no, c.front FROM game_link l JOIN cards c USING (ver, card)
-    WHERE l.game = ?1 AND c.front IS NOT NULL
+    WHERE l.game = ?1 AND l.ver <> ?2 AND c.front IS NOT NULL
     ORDER BY l.game_card_no, l.method != 'name+stats', c.card LIKE '%EXTRA%', c.ver, c.card";
 
 /// The pack's scans for `edition` ("1011" or "1718") into `out` as `<number>.jpg`, copied as they are (180x254
@@ -330,11 +333,14 @@ pub fn from_pack(pack: &Path, edition: &str, out: &Path) -> io::Result<(usize, V
         .map_err(io::Error::other)?;
         let mut q = con.prepare(PICK).map_err(io::Error::other)?;
         let rows = q
-            .query_map([edition], |r| Ok((r.get(0)?, r.get(1)?)))
+            .query_map(rusqlite::params![edition, super::hq::NOT_IN_GAME], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
             .map_err(io::Error::other)?;
         rows.collect::<Result<_, _>>().map_err(io::Error::other)?
     };
     fs::create_dir_all(out)?;
+    let mut listed = pack_list(out)?;
     let (mut done, mut fails, mut last) = (0, Vec::new(), None);
     // the real stats come along into the same folder (the board reads them from there)
     if let Err(e) = super::hq::from_db(db.path(), edition, out) {
@@ -347,6 +353,7 @@ pub fn from_pack(pack: &Path, edition: &str, out: &Path) -> io::Result<(usize, V
         let mut one = || -> io::Result<()> {
             let mut f = zip.by_name(&front).map_err(io::Error::other)?;
             let path = out.join(format!("{no}.jpg"));
+            writeln!(listed, "{no}.jpg")?;
             let tmp = path.with_extension("jpg.tmp");
             io::copy(&mut f, &mut File::create(&tmp)?)?;
             fs::rename(&tmp, &path)
@@ -380,10 +387,12 @@ fn from_prebuilt(
         &mut list,
     )?;
     fs::create_dir_all(out)?;
+    let mut listed = pack_list(out)?;
     let (mut done, mut fails) = (0, Vec::new());
     let mut copy = |from: &str, to: &str| -> io::Result<()> {
         let mut f = zip.by_name(from).map_err(io::Error::other)?;
         let path = out.join(to);
+        writeln!(listed, "{to}")?;
         let tmp = path.with_extension("tmp");
         io::copy(&mut f, &mut File::create(&tmp)?)?;
         fs::rename(&tmp, &path)
@@ -416,6 +425,33 @@ fn wanted(pack: Option<&Path>) -> String {
         ),
         None => format!("{VERSION} game"),
     }
+}
+
+/// The pack's list in `dir`, to add to: each name goes in before its file is written, so a cut leaves none unlisted.
+fn pack_list(dir: &Path) -> io::Result<File> {
+    fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join(PACK_FILES))
+}
+
+/// Deletes the files the pack's list names, then the list. Names come from the list only as plain file names.
+fn remove_listed(dir: &Path) -> io::Result<()> {
+    let list = match fs::read_to_string(dir.join(PACK_FILES)) {
+        Ok(l) => l,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    for name in list
+        .lines()
+        .filter(|n| !n.is_empty() && !n.starts_with('.') && !n.contains(['/', '\\', ':']))
+    {
+        match fs::remove_file(dir.join(name)) {
+            Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
+            _ => {}
+        }
+    }
+    fs::remove_file(dir.join(PACK_FILES))
 }
 
 /// Deletes the `.jpg` files in `dir` named `<number>` (the pack's scans) or, with `art`, `<number>_f` / `<number>_b`.
@@ -496,9 +532,15 @@ fn build(
 ) -> io::Result<()> {
     let marker: PathBuf = cards.join(MARKER);
     let want = wanted(pack);
+    // a pack applied before the list existed: its scans are every `<number>.jpg`, swept once
+    let unlisted_pack =
+        note(cards).split(' ').nth(1) == Some("hq") && !cards.join(PACK_FILES).exists();
     let _ = fs::remove_file(&marker); // half made stays "not made"
     let _ = fs::remove_file(cards.join(super::hq::FILE));
-    remove_jpgs(cards, false)?; // the pack's scans; the album art (`_f`, `_b`) is the game's and stays
+    remove_listed(cards)?; // the pack's files; the album art (`_f`, `_b`) is the game's and stays
+    if unlisted_pack {
+        remove_jpgs(cards, false)?;
+    }
     if !made {
         remove_jpgs(cards, true)?; // a full rebuild: no stale art may outrank the new pictures
         say("  ", &Line::key("setup.pic_making"));
@@ -854,6 +896,101 @@ mod tests {
             .finish()
             .unwrap();
         assert!(from_pack(&empty, "1718", &d.path().join("y")).is_err());
+    }
+
+    /// A pack ZIP at `path` with these files.
+    fn zip_of(path: &Path, files: &[(&str, &[u8])]) {
+        let mut z = zip::ZipWriter::new(File::create(path).unwrap());
+        for (name, bytes) in files {
+            z.start_file(*name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            std::io::Write::write_all(&mut z, bytes).unwrap();
+        }
+        z.finish().unwrap();
+    }
+
+    #[test]
+    fn a_picture_the_player_put_in_the_folder_survives_switching_the_pack_on_and_off() {
+        let d = tempfile::tempdir().unwrap();
+        fake_game(d.path());
+        let pack = d.path().join("pack.zip");
+        zip_of(
+            &pack,
+            &[
+                ("pictures/ab.jpg", b"A"),
+                ("2017-2018/cards.tsv", b"7049\tab.jpg\n"),
+                ("2017-2018/hq_stats.tsv", b"7049\tFW\t1\t1\t1\t1\t1\t1\t6\n"),
+            ],
+        );
+        let out = d.path().join("cards");
+        fs::create_dir_all(&out).unwrap();
+        fs::write(out.join("123.jpg"), b"mine").unwrap();
+        for p in [None, Some(&*pack), None, Some(&*pack), None] {
+            ensure(d.path(), "1718", &out, p, &|_, _| {}).unwrap();
+            assert_eq!(fs::read(out.join("123.jpg")).unwrap(), b"mine", "{p:?}");
+            assert_eq!(out.join("7049.jpg").exists(), p.is_some(), "{p:?}");
+        }
+        assert!(!out.join(PACK_FILES).exists());
+    }
+
+    #[test]
+    fn a_pack_applied_before_the_list_existed_is_cleaned_once() {
+        let d = tempfile::tempdir().unwrap();
+        fake_game(d.path());
+        let out = d.path().join("cards");
+        ensure(d.path(), "1718", &out, None, &|_, _| {}).unwrap();
+        // an older Launcher's pack: its scans `<number>.jpg` and no list
+        fs::write(out.join(MARKER), format!("{VERSION} hq 9 old.zip")).unwrap();
+        fs::write(out.join("7049.jpg"), b"old scan").unwrap();
+        ensure(d.path(), "1718", &out, None, &|_, _| {}).unwrap();
+        assert!(!out.join("7049.jpg").exists());
+        assert!(out.join("7049_f.jpg").is_file() && out.join("7049.png").is_file());
+        // from now on the folder has no unlisted pack: a picture put there later stays
+        fs::write(out.join("7049.jpg"), b"mine").unwrap();
+        ensure(
+            d.path(),
+            "1718",
+            &out,
+            Some(Path::new("none.zip")),
+            &|_, _| {},
+        )
+        .unwrap_err();
+        ensure(d.path(), "1718", &out, None, &|_, _| {}).unwrap();
+        assert!(out.join("7049.jpg").is_file());
+    }
+
+    #[test]
+    fn a_card_linked_only_to_ver_3_0_gets_no_picture_and_no_stats() {
+        let d = tempfile::tempdir().unwrap();
+        fake_game(d.path());
+        let db = d.path().join("cards.db");
+        let con = rusqlite::Connection::open(&db).unwrap();
+        con.execute_batch(
+            "CREATE TABLE cards (ver INTEGER, card TEXT, front TEXT, position TEXT, off INTEGER, def INTEGER, tec INTEGER,
+                                 pow INTEGER, spe INTEGER, sta INTEGER, tot INTEGER);
+             CREATE TABLE game_link (ver INTEGER, card TEXT, game TEXT, game_card_no INTEGER, method TEXT);
+             INSERT INTO cards VALUES (28, '240', 'images/a.jpg', 'FW', 1, 2, 3, 4, 5, 6, 21),
+                 (30, 'ARS-EXT_1', 'images/v3.jpg', 'MF', 1, 1, 1, 1, 1, 1, 6);
+             INSERT INTO game_link VALUES (28, '240', '1718', 7049, 'name+stats'),
+                                          (30, 'ARS-EXT_1', '1718', 7441, 'name+stats');",
+        )
+        .unwrap();
+        drop(con);
+        let pack = d.path().join("pack.zip");
+        zip_of(
+            &pack,
+            &[
+                ("cards.db", &fs::read(&db).unwrap()),
+                ("images/a.jpg", b"A"),
+                ("images/v3.jpg", b"V3"),
+            ],
+        );
+        let out = d.path().join("cards");
+        let (n, fails) = from_pack(&pack, "1718", &out).unwrap();
+        assert_eq!((n, fails.len()), (1, 0));
+        assert!(out.join("7049.jpg").is_file() && !out.join("7441.jpg").exists());
+        let stats = super::super::hq::load(&out.join(super::super::hq::FILE));
+        assert!(stats.contains_key(&7049) && !stats.contains_key(&7441));
     }
 
     /// The player's own game and, if given, the pack: `FORZA_PICTURES_GAME` (the game folder), `FORZA_PICTURES_OUT`
