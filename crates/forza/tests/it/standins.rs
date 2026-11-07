@@ -164,11 +164,14 @@ fn new_club(c: &mut TcpStream) -> (u32, u32) {
     (word(&a, 8), word(&a, 12))
 }
 
-/// A synthetic save block: word i = i * 0x9E37_79B9 (non-zero, wraps).
+/// A synthetic save block: word i = i * 0x9E37_79B9 (non-zero, wraps), but no Universal Championship entry date
+/// (bytes 2,883..2,886), which the stand-in's SAVE_DATA always answers as 0.
 fn block() -> Vec<u8> {
-    (0..768u32)
+    let mut b: Vec<u8> = (0..768u32)
         .flat_map(|i| i.wrapping_mul(0x9E37_79B9).wrapping_add(7).to_le_bytes())
-        .collect()
+        .collect();
+    b[2883..2887].fill(0);
+    b
 }
 
 /// SAVE_DATA_SET of `blk` for a club, with the client's block sum at +5,236 (`bad` spoils it).

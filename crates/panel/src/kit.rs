@@ -82,19 +82,14 @@ impl Files {
             .unwrap_or_default()
     }
 
-    /// settings.json's "projector" (its window shown) set, every other key kept, and the old switch's CPU
-    /// championship pinned first (missing, it would follow the window). A missing, locked or damaged
+    /// settings.json's "projector" (its window shown) set, every other key kept. A missing, locked or damaged
     /// file is never written over: it holds the game folder.
     pub fn save_projector(&self, on: bool) -> std::io::Result<()> {
         let path = self.data.join("settings.json");
         let mut v: serde_json::Value = serde_json::from_slice(&std::fs::read(&path)?)?;
-        let championship = forza::kit::cpu_championship_on(&v);
-        let o = v
-            .as_object_mut()
-            .ok_or_else(|| std::io::Error::other("settings.json is not an object"))?;
-        o.entry(forza::kit::CPU_CHAMPIONSHIP)
-            .or_insert(championship.into());
-        o.insert(forza::kit::PROJECTOR.into(), on.into());
+        v.as_object_mut()
+            .ok_or_else(|| std::io::Error::other("settings.json is not an object"))?
+            .insert(forza::kit::PROJECTOR.into(), on.into());
         swap_write(&path, &serde_json::to_string_pretty(&v)?)
     }
 
@@ -568,16 +563,13 @@ mod tests {
         serde_json::from_slice(&std::fs::read(dir.join("settings.json")).unwrap()).unwrap()
     }
 
-    /// The old combined switch was off: turning the window on leaves the championship off, as it was.
+    /// The championship has no key of its own here: saving the window writes none (missing means off).
     #[test]
-    fn saving_the_projector_pins_the_championship_from_the_old_switch() {
+    fn saving_the_projector_writes_no_championship() {
         let (files, d) = files("pinned");
         std::fs::write(d.join("settings.json"), r#"{"projector": false}"#).unwrap();
         files.save_projector(true).unwrap();
-        assert_eq!(
-            saved(&d),
-            serde_json::json!({"projector": true, "cpu_championship": false})
-        );
+        assert_eq!(saved(&d), serde_json::json!({"projector": true}));
         let _ = std::fs::remove_dir_all(&d);
     }
 

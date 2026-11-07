@@ -170,7 +170,7 @@ pub fn spawn(
 ) -> io::Result<Handle> {
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
-    accept_loop(listener, stop, move |conn, peer| {
+    accept_loop(listener, stop, log.clone(), move |conn, peer| {
         log(&format!("{name:<13} {} connected", peer.port()));
         let _ = client(conn, kind, name, game_id, &log, &flag);
         if kind == Kind::Binary {

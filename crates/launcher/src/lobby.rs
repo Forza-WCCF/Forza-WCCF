@@ -9,7 +9,7 @@ use forza::online::lobby::{self, Created, Lobby, Peers, Reserved, State, VsRoom}
 use forza::service::Log;
 use forza_ui::Lang;
 use forza_ui::lobby::{LobbyView, Row, RowState};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::net::{SocketAddr, TcpStream};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -66,6 +66,18 @@ pub enum Msg {
 pub const PROJECT_SERVER_1011: &str = "lobby.wccf.it:20030";
 /// The project's lobby server for 2017-18 (its desk beside the game server on 20060).
 pub const PROJECT_SERVER_1718: &str = "lobby.wccf.it:20032";
+
+/// The arcade host's room secret: a hash of its tunnel key file (made once, kept on this PC), so the desk gives a
+/// restarted host its room's code again and nobody else gets it; `None` when the file cannot be read (a fresh code).
+pub fn room_secret(key: &Path) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    let k = std::fs::read(key).ok()?;
+    let h = Sha256::new()
+        .chain_update(b"forza-wccf arcade room secret\0")
+        .chain_update(k)
+        .finalize();
+    Some(h.iter().map(|b| format!("{b:02x}")).collect())
+}
 
 /// Where 2017-18 arcade rooms are made and joined: the desk beside the club server's game server (the project server's
 /// desk port on that host), or the project's server ([`project_server`]) when no club server is set. Never this PC's
@@ -326,10 +338,16 @@ pub fn join_code(a: SocketAddr, code: &str, own: &str) -> Result<CodeJoin, Strin
     }
 }
 
-/// The desk replaces a host's room from before (a crash) once it has had no `HEARTBEAT` this long (`DeskConfig::host_stale`,
-/// 15 s by default); a host that gets `ERR host` waits this much more than that, then asks once more. A desk set to a
-/// longer stale time answers `ERR host` again, and the host says so.
-pub const DESK_HOST_STALE: Duration = Duration::from_secs(15);
+/// The desk replaces a host's room from before (a crash) made with its room secret once it has had no `HEARTBEAT` this
+/// long (`DeskConfig::host_stale`, 45 s by default; older desks 15 s, for any room); a host that gets `ERR host` waits
+/// a little more than that, then asks once more. A desk set to a longer stale time answers `ERR host` again, and the
+/// host says so.
+pub const DESK_HOST_STALE: Duration = Duration::from_secs(45);
+
+/// Desks that refused a `CREATE shop` form this run (address: (no room secrets, no names)): later rooms there skip
+/// that form, as each `CREATE` counts in the desk's per-address limit. shortcut: a desk updated meanwhile gets the
+/// new forms from the next Launcher start.
+static OLD_DESKS: Mutex<BTreeMap<SocketAddr, (bool, bool)>> = Mutex::new(BTreeMap::new());
 /// How often the host asks the desk for its room's guests without a guest waiting (a guest at the door asks at once).
 const GUESTS_EVERY: Duration = Duration::from_secs(10);
 /// How long a guest at the door waits for the desk's answer (up to 9 s of time-outs on a slow desk, after the
@@ -370,10 +388,11 @@ pub struct HostRoom {
 impl HostRoom {
     /// A room on `server` ([`arcade_lobby`]) for the arcade tunnel `arcade_id`, private unless `public` (listed in ARCADES as
     /// `name`, never with its code; empty: the desk's name); else why not (`FULL`, `ERR slow`, `ERR host`, no answer). `note` hears about a wait (this
-    /// id's room from before still on the desk).
+    /// id's room from before still on the desk). `secret` ([`room_secret`]) gets the code of its last room again.
     pub fn open(
         server: &str,
         arcade_id: &str,
+        secret: Option<&str>,
         public: bool,
         name: &str,
         log: Log,
@@ -382,15 +401,42 @@ impl HostRoom {
         let addr = socket(server).ok_or_else(|| format!("{server} is not an address"))?;
         // the name only shows in ARCADES: a private room sends none (an old desk's ERR costs a CREATE)
         let mut name = if public { name } else { "" };
-        let mut made = lobby::create_arcade(addr, arcade_id, public, name);
-        // a desk from before names answers ERR to the named word: once more, with its own name, and keep it so
-        if !lobby::arcade_name(name).is_empty()
-            && made
-                .as_ref()
-                .is_err_and(|e| e.starts_with("ERR") && e != "ERR host" && e != "ERR slow")
-        {
+        let mut secret = secret;
+        let old = OLD_DESKS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&addr)
+            .copied();
+        let (mut no_secret, mut no_name) = old.unwrap_or_default();
+        if no_secret {
+            secret = None;
+        }
+        if no_name {
             name = "";
-            made = lobby::create_arcade(addr, arcade_id, public, name);
+        }
+        let old_desk = |made: &Result<Created, String>| {
+            made.as_ref()
+                .is_err_and(|e| e.starts_with("ERR") && e != "ERR host" && e != "ERR slow")
+        };
+        let mut made = lobby::create_arcade(addr, arcade_id, secret, public, name);
+        // a desk from before room secrets answers ERR: once more without (a fresh code), and keep it so
+        if secret.is_some() && old_desk(&made) {
+            secret = None;
+            made = lobby::create_arcade(addr, arcade_id, secret, public, name);
+            no_secret = !old_desk(&made);
+        }
+        // a desk from before names answers ERR to the named word: once more, with its own name, and keep it so
+        if !lobby::arcade_name(name).is_empty() && old_desk(&made) {
+            name = "";
+            made = lobby::create_arcade(addr, arcade_id, secret, public, name);
+            if !old_desk(&made) {
+                // a desk without names has no secrets either
+                (no_secret, no_name) = (true, true);
+            }
+        }
+        if (no_secret, no_name) != old.unwrap_or_default() {
+            let mut old_desks = OLD_DESKS.lock().unwrap_or_else(PoisonError::into_inner);
+            old_desks.insert(addr, (no_secret, no_name));
         }
         if made.as_ref().is_err_and(|e| e == "ERR host") {
             // one more CREATE only: each counts in the desk's per-address limit
@@ -401,7 +447,7 @@ impl HostRoom {
                     .arg("s", wait.as_secs()),
             );
             thread::sleep(wait);
-            made = lobby::create_arcade(addr, arcade_id, public, name);
+            made = lobby::create_arcade(addr, arcade_id, secret, public, name);
         }
         match made {
             Ok(Created::Room { id, code, ticket, .. }) => {

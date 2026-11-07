@@ -106,6 +106,16 @@ impl Db {
             .unwrap_or_else(|| hash_id(code))
     }
 
+    /// Whether `aime` is one of this PC's cards: the ID the file keeps for it or the hash it answers online. An
+    /// arcade's own club lives under these, and a guest's bring never replaces it (online::club).
+    pub fn holds(&self, aime: u32) -> bool {
+        self.cards
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(code, &id)| id as u32 == aime || hash_id(code) as u32 == aime)
+    }
+
     pub fn aime_id(&self, code: &str) -> i32 {
         let mut cards = self.cards.lock().unwrap();
         if !cards.contains_key(code) {
@@ -226,7 +236,7 @@ pub fn spawn_with(
     let aes = Arc::new(Aes::new(KEY));
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
-    accept_loop(listener, stop, move |mut conn, peer| {
+    accept_loop(listener, stop, log.clone(), move |mut conn, peer| {
         log(&format!("connection from {peer}"));
         let mut buf: Vec<u8> = Vec::new();
         let mut last = Instant::now();

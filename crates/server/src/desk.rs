@@ -20,6 +20,7 @@ use forza::online::sessions::Sessions;
 use forza::online::vs::Matcher;
 use forza::online::{Reply, SEATS, Want, seat};
 use regex::Regex;
+use sha2::Digest as _;
 use std::collections::{BTreeMap, HashMap};
 use std::io::{self, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -94,9 +95,13 @@ pub struct DeskConfig {
     /// ceiling (logged when it trips), so one stranger cannot lock every player out.
     pub join_fail_limit: u32,
     pub join_fail_window: Duration,
-    /// A room's host that has not sent a `HEARTBEAT` for this long (15 s) may be replaced by a new `CREATE shop`
-    /// with the same tunnel id (a host that crashed and came back within the lease).
+    /// A room made with a room secret whose host has not sent a `HEARTBEAT` for this long (45 s, two of the Launcher's
+    /// 20 s beats missed) may be replaced by a new `CREATE shop` with that secret (a host that crashed and came back
+    /// within the lease); a live room never, so a secret read off the wire cannot take a room that is in use.
     pub host_stale: Duration,
+    /// The same for a room made without a secret (Launchers up to 0.7.0), by a `CREATE shop` with its tunnel id from
+    /// its creator's address: 15 s, the rule whose 15 + 2 s wait those Launchers have compiled in.
+    pub old_host_stale: Duration,
     /// `RESERVE` and `CREATE` per address in [`DeskConfig::ask_window`], else `ERR slow` (20 per 60 s).
     pub ask_limit: u32,
     pub ask_window: Duration,
@@ -109,6 +114,12 @@ pub struct DeskConfig {
     /// club there without a seat, and it replaces what the server kept for the card
     /// ([`forza::online::club::Store::import_public`]).
     pub club_public: bool,
+    /// Who may use `CLUB` on a public server: the game server's allowlist (`forza-server all`, unless
+    /// `--allow-any`). None: anyone.
+    pub club_allow: Option<Allow>,
+    /// The arcade host's own cards (its `aimedb.json`, beside the `gamesvr` folder of [`DeskConfig::club_db`] as the
+    /// Launcher lays them out): a bring never replaces the club of one of them ([`forza::online::club::serve`]).
+    pub club_cards: Option<PathBuf>,
     /// The game server's open connections when they run together (`forza-server all`): 2017-18 players log in there
     /// with a card and take no seat, so the lobby row counts their cards, and the desk logs a summary line every
     /// [`DeskConfig::summary_every`] while anyone is on.
@@ -120,6 +131,16 @@ pub struct DeskConfig {
     /// example: `docs/SELF-HOSTING.md`). Read again when its time changes; missing or unreadable = no notice, and a
     /// `start`/`end` that is not such a date drops the notice too (the log says why). None: never a notice.
     pub notice: Option<PathBuf>,
+}
+
+/// An address check ([`DeskConfig::club_allow`]).
+#[derive(Clone)]
+pub struct Allow(pub Arc<dyn Fn(std::net::IpAddr) -> bool + Send + Sync>);
+
+impl std::fmt::Debug for Allow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Allow(..)")
+    }
 }
 
 /// A positive count from the environment variable `name`, else `default`.
@@ -145,6 +166,10 @@ impl DeskConfig {
             tunnel: std::env::var("WCCF_DESK_TUNNEL").is_ok_and(|v| v == "1"),
             club_db: std::env::var_os("WCCF_CLUB_DB").map(PathBuf::from),
             club_public: false,
+            club_allow: None,
+            // save\gamesvr\gamesvr.db and save\aimedb.json (launcher run/mod.rs)
+            club_cards: std::env::var_os("WCCF_CLUB_DB")
+                .and_then(|db| Some(Path::new(&db).parent()?.parent()?.join("aimedb.json"))),
             sessions: None,
             summary_every: Duration::from_secs(300),
             notice: std::env::var_os("WCCF_NOTICE")
@@ -168,7 +193,8 @@ impl DeskConfig {
             join_fail_address_window: Duration::from_secs(600),
             join_fail_limit: 2000,
             join_fail_window: Duration::from_secs(60),
-            host_stale: Duration::from_secs(15),
+            host_stale: Duration::from_secs(45),
+            old_host_stale: Duration::from_secs(15),
             ask_window: Duration::from_secs(60),
         }
     }
@@ -352,8 +378,8 @@ struct Shared {
     lobby_cached: Mutex<Option<(Instant, String)>>,
     /// The notice file as last read: its modified time, and its notice with the window's start and end.
     notice: Mutex<Option<(Option<SystemTime>, Option<Notice>)>>,
-    /// Open connections per address ([`MAX_PER_IP`]).
-    open: Mutex<HashMap<String, usize>>,
+    /// Open connections per address ([`MAX_PER_IP`]), each one a [`Slot`].
+    open: Arc<Mutex<HashMap<String, usize>>>,
     /// `RESERVE` + `CREATE` per address: window start, count.
     asks: Mutex<HashMap<String, (Instant, u32)>>,
     /// Wrong `JOIN` codes, desk-wide: window start, count.
@@ -543,7 +569,7 @@ fn taken(st: &State) -> String {
         .join(", ")
 }
 
-/// Returns the connection for [`crate::hang_up`], which the caller runs once the per-IP slot is free.
+/// Returns the connection for [`crate::hang_up`], which the caller runs once the lease is free.
 fn serve(sh: &Shared, conn: TcpStream, peer: String) -> Option<TcpStream> {
     let keep = conn.try_clone().ok();
     let _ = conn.set_read_timeout(Some(sh.cfg.silent));
@@ -619,10 +645,23 @@ fn session(
         // 2017-18 arcade rooms: no matcher needed, the arcade's own desk seats its PCs; the wire tokens `CREATE shop`
         // and `SHOP` are kept from before the arcade rename, as 0.6.x clients send them
         ["CREATE", "shop", host] if !e1011 => {
-            return create_arcade(sh, ip, host, false, String::new(), &mut out);
+            return create_arcade(sh, ip, host, None, false, String::new(), &mut out);
         }
         ["CREATE", "shop", host, "public"] if !e1011 => {
-            return create_arcade(sh, ip, host, true, String::new(), &mut out);
+            return create_arcade(sh, ip, host, None, true, String::new(), &mut out);
+        }
+        // the host's room secret, then public or private and maybe a name: the secret gets its last code again
+        [
+            "CREATE",
+            "shop",
+            host,
+            secret,
+            vis @ ("public" | "private"),
+            ref name @ ..,
+        ] if !e1011 && lobby::valid_room_secret(secret) => {
+            let name = lobby::arcade_name(&name.join(" "));
+            let public = vis == "public";
+            return create_arcade(sh, ip, host, Some(secret), public, name, &mut out);
         }
         // a named room: the rest of the line is its name
         [
@@ -633,7 +672,7 @@ fn session(
             ref name @ ..,
         ] if !e1011 => {
             let name = lobby::arcade_name(&name.join(" "));
-            return create_arcade(sh, ip, host, vis == "public", name, &mut out);
+            return create_arcade(sh, ip, host, None, vis == "public", name, &mut out);
         }
         ["JOIN", code] if !e1011 => return join_arcade(sh, ip, code, None, &mut out),
         ["JOIN", code, n] if !e1011 => {
@@ -650,18 +689,36 @@ fn session(
                 return out.write_all(b"NO no club store here\n");
             };
             let public = sh.cfg.club_public;
+            // the game server's allowlist holds for the clubs brought to it as well
+            if public
+                && let Some(allow) = &sh.cfg.club_allow
+                && !ip.parse().is_ok_and(|a| allow.0(a))
+            {
+                return out.write_all(b"NO not allowed on this server\n");
+            }
             // no seat holds a public server's uploads back: the per-address ask limit does
             if public && line.starts_with("CLUB PUT") && sh.slow(ip, Instant::now()) {
                 return out.write_all(b"NO slow\n");
             }
             let held = |s: u8| sh.state.lock().unwrap().leases.contains_key(&s);
+            // a cards file it cannot read counts every Aime id as the host's own: nothing kept is replaced
+            let own = |aime: u32| {
+                sh.cfg.club_cards.as_ref().is_some_and(|f| {
+                    forza::standins::aimedb::Db::open(f.clone())
+                        .ok()
+                        .is_none_or(|db| db.holds(aime))
+                })
+            };
+            // a public server never evicts the copy of a card on its game server
+            let playing = |aime: u32| sh.cfg.sessions.as_ref().is_some_and(|s| s.holds(aime));
             let said = forza::online::club::serve(
                 db,
                 &line,
                 std::mem::take(&mut lines.buf),
                 &mut out,
                 &held,
-                public,
+                &own,
+                public.then_some(&playing as &dyn Fn(u32) -> bool),
             )?;
             if !said.is_empty() {
                 log(&format!("{peer}: {said}"));
@@ -1090,13 +1147,16 @@ fn create(sh: &Shared, ip: &str, open: bool, out: &mut TcpStream) -> io::Result<
     out.write_all(reply.line().as_bytes())
 }
 
-/// `CREATE shop ID [public]` (or `CREATE shop ID public|private NAME...`) -> `ROOM id code t 1` (the host PC on seat 1), `FULL` (the desk's rooms, or this
-/// address's [`DeskConfig::arcade_rooms_per_address`]), `ERR id` (not a tunnel id) or `ERR host` (that tunnel id
-/// holds a live room already: one room per host).
+/// `CREATE shop ID [SECRET] [public]` (or `... public|private NAME...`) -> `ROOM id code t 1` (the host PC on seat 1),
+/// `FULL` (the desk's rooms, or this address's [`DeskConfig::arcade_rooms_per_address`]), `ERR id` (not a tunnel id)
+/// or `ERR host` (that tunnel id or secret holds a live room already: one room per host). A `secret` gets its last
+/// room's code.
+#[allow(clippy::too_many_arguments)]
 fn create_arcade(
     sh: &Shared,
     ip: &str,
     host: &str,
+    secret: Option<&str>,
     public: bool,
     name: String,
     out: &mut TcpStream,
@@ -1104,21 +1164,24 @@ fn create_arcade(
     if !crate::arcade_room::valid_id(host) {
         return out.write_all(b"ERR id\n");
     }
+    // the desk keeps only the hash: the secret goes in no log or list
+    let secret: Option<crate::arcade_room::SecretHash> =
+        secret.map(|s| sha2::Sha256::digest(s.to_ascii_lowercase().as_bytes()).into());
     let now = Instant::now();
     let mut st = sh.state.lock().unwrap();
     expire(sh, &mut st, now);
-    if st.rooms.len() + st.arcades.len() >= sh.cfg.max_rooms
-        || (st.arcades.count_by(ip) >= sh.cfg.arcade_rooms_per_address
-            && per_address(sh.cfg.tunnel, ip))
+    // one live room per host and per secret; a quiet one is replaced (by its secret, or without one from its
+    // address), before the caps count that room
+    let quiet = |stale| {
+        (now + sh.cfg.reserve_lease)
+            .checked_sub(stale)
+            .unwrap_or(now)
+    };
+    let (quiet, old_quiet) = (quiet(sh.cfg.host_stale), quiet(sh.cfg.old_host_stale));
+    match st
+        .arcades
+        .replace_stale(host, ip, secret.as_ref(), quiet, old_quiet)
     {
-        drop(st);
-        return out.write_all(Created::Full.line().as_bytes());
-    }
-    // one live room per host; a host silent for host_stale (crashed, back within the lease) replaces its own
-    let quiet_since = (now + sh.cfg.reserve_lease)
-        .checked_sub(sh.cfg.host_stale)
-        .unwrap_or(now);
-    match st.arcades.replace_stale(host, quiet_since) {
         crate::arcade_room::Prior::Alive => {
             drop(st);
             return out.write_all(b"ERR host\n");
@@ -1130,12 +1193,26 @@ fn create_arcade(
         }
         crate::arcade_room::Prior::None => {}
     }
+    if st.rooms.len() + st.arcades.len() >= sh.cfg.max_rooms
+        || (st.arcades.count_by(ip) >= sh.cfg.arcade_rooms_per_address
+            && per_address(sh.cfg.tunnel, ip))
+    {
+        drop(st);
+        return out.write_all(Created::Full.line().as_bytes());
+    }
+    // a host back from a restart keeps its code: its guests have that one
+    let mut kept = secret.as_ref().and_then(|s| st.arcades.kept_code(s));
     let (id, code) = loop {
-        let (id, code) = (random_hex(4), code(crate::arcade_room::CODE_LEN));
+        let id = random_hex(4);
+        let code = kept
+            .clone()
+            .unwrap_or_else(|| code(crate::arcade_room::CODE_LEN));
         let vs = st.rooms.iter().any(|r| r.id == id || r.code == code);
-        if id != sh.arcade_id && !vs && !st.arcades.holds(&id, &code) {
+        if id != sh.arcade_id && !vs && !st.arcades.holds(&id, &code, secret.as_ref()) {
             break (id, code);
         }
+        // no other room holds a kept code; after a clash anyway, a fresh one rather than an endless loop
+        kept = None;
     };
     let ticket = random_hex(8);
     let reply = Created::Room {
@@ -1149,6 +1226,7 @@ fn create_arcade(
         code.clone(),
         host,
         ip,
+        secret,
         public,
         name,
         ticket,
@@ -1364,6 +1442,57 @@ fn release(sh: &Shared, t: &str, out: &mut TcpStream) -> io::Result<()> {
     out.write_all(if ok { b"OK\n" } else { b"GONE\n" })
 }
 
+/// A connection's place in [`MAX_OPEN`] and [`MAX_PER_IP`], given back when dropped. It is held through `serve` and
+/// the hang-up after it, so connections the desk is still hanging up on count too.
+struct Slot {
+    open: Arc<Mutex<HashMap<String, usize>>>,
+    ip: String,
+}
+
+impl Slot {
+    /// `None` when the desk is full or `ip` holds its share ([`per_address`] decides whether the share applies).
+    fn take(open: &Arc<Mutex<HashMap<String, usize>>>, ip: String, tunnel: bool) -> Option<Slot> {
+        let mut map = open.lock().unwrap();
+        if map.values().sum::<usize>() >= MAX_OPEN {
+            return None;
+        }
+        let n = map.entry(ip.clone()).or_default();
+        if *n >= MAX_PER_IP && per_address(tunnel, &ip) {
+            return None;
+        }
+        *n += 1;
+        Some(Slot {
+            open: open.clone(),
+            ip,
+        })
+    }
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        let mut map = self.open.lock().unwrap();
+        if let Some(n) = map.get_mut(&self.ip) {
+            *n -= 1;
+            if *n == 0 {
+                map.remove(&self.ip);
+            }
+        }
+    }
+}
+
+/// Runs `work` on its own thread, holding `slot` until it ends. When `spawn` fails (no threads or memory left),
+/// `work` and `slot` are dropped at once, with the connection `work` owns, and the accept loop goes on.
+fn spawn_in(
+    slot: Slot,
+    work: impl FnOnce() + Send + 'static,
+    spawn: impl FnOnce(Box<dyn FnOnce() + Send>) -> io::Result<()>,
+) -> io::Result<()> {
+    spawn(Box::new(move || {
+        let _slot = slot;
+        work();
+    }))
+}
+
 /// Starts the desk. Err(io error) when the port cannot be bound (the caller logs "cannot listen ...").
 pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
     let listener = TcpListener::bind((cfg.bind.as_str(), cfg.port))?;
@@ -1379,7 +1508,7 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
         lobby_seen: Mutex::default(),
         lobby_cached: Mutex::default(),
         notice: Mutex::default(),
-        open: Mutex::default(),
+        open: Arc::default(),
         asks: Mutex::default(),
         join_fails: Mutex::new((Instant::now(), 0)),
         join_fails_by: Mutex::default(),
@@ -1441,41 +1570,36 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
     }
     let stopped = stop.clone();
     threads.push(thread::spawn(move || {
+        let (log, mut said) = (sh.log.clone(), None);
         for conn in listener.incoming() {
             if stopped.load(Ordering::Relaxed) {
                 break;
             }
-            let Ok(conn) = conn else { continue };
-            let Ok(peer) = conn.peer_addr() else { continue };
-            let sh = sh.clone();
-            let ip = peer.ip().to_string();
-            {
-                let mut open = sh.open.lock().unwrap();
-                if open.values().sum::<usize>() >= MAX_OPEN {
+            let conn = match conn {
+                Ok(c) => c,
+                // out of handles (EMFILE): wait for some to close instead of spinning
+                Err(_) => {
+                    thread::sleep(Duration::from_millis(50));
                     continue;
                 }
-                let n = open.entry(ip.clone()).or_default();
-                if *n >= MAX_PER_IP && per_address(sh.cfg.tunnel, &ip) {
-                    continue; // dropped without an answer: nothing to lose to a reset
-                }
-                *n += 1;
-            }
-            thread::spawn(move || {
-                let keep = serve(&sh, conn, peer.to_string());
-                {
-                    let mut open = sh.open.lock().unwrap();
-                    if let Some(n) = open.get_mut(&ip) {
-                        *n -= 1;
-                        if *n == 0 {
-                            open.remove(&ip);
-                        }
-                    }
-                }
-                // slot and lease are free before we wait for the PC to read our last line
-                if let Some(keep) = keep {
+            };
+            let Ok(peer) = conn.peer_addr() else { continue };
+            // none left: dropped without an answer, nothing to lose to a reset
+            let Some(slot) = Slot::take(&sh.open, peer.ip().to_string(), sh.cfg.tunnel) else {
+                continue;
+            };
+            let sh = sh.clone();
+            let work = move || {
+                // the lease is free before we wait for the PC to read our last line; the slot is held to the end
+                if let Some(keep) = serve(&sh, conn, peer.to_string()) {
                     crate::hang_up(keep);
                 }
-            });
+            };
+            if let Err(e) = spawn_in(slot, work, |f| thread::Builder::new().spawn(f).map(drop))
+                && forza::service::once_a_minute(&mut said)
+            {
+                log(&format!("{peer}: dropped, cannot start a thread ({e})"));
+            }
         }
     }));
     Ok(Handle::new(addr, stop, true, threads, tickers))
@@ -1485,6 +1609,59 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    /// A thread the OS refuses must cost the desk that one connection only: its slot comes back, nothing panics,
+    /// and the next connection gets a slot and a thread.
+    #[test]
+    fn a_failed_spawn_drops_the_connection_and_frees_its_slot() {
+        let open = Arc::default();
+        let ran = Arc::new(AtomicBool::new(false));
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut pc = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (conn, _) = listener.accept().unwrap();
+        let slot = Slot::take(&open, "203.0.113.9".into(), false).unwrap();
+        let r = ran.clone();
+        let failed = spawn_in(
+            slot,
+            move || {
+                let _conn = conn;
+                r.store(true, Ordering::Relaxed);
+            },
+            |_| Err(io::Error::other("no threads left")),
+        );
+        assert!(failed.is_err() && !ran.load(Ordering::Relaxed));
+        assert!(open.lock().unwrap().is_empty(), "the slot is given back");
+        pc.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        assert_eq!(
+            pc.read(&mut [0u8; 1]).unwrap(),
+            0,
+            "the connection is closed"
+        );
+        let slot = Slot::take(&open, "203.0.113.9".into(), false).unwrap();
+        let (tx, rx) = mpsc::channel();
+        spawn_in(
+            slot,
+            move || tx.send(()).unwrap(),
+            |f| thread::Builder::new().spawn(f).map(drop),
+        )
+        .unwrap();
+        rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    }
+
+    #[test]
+    fn slots_stop_at_the_per_address_share_but_not_behind_a_tunnel() {
+        let open = Arc::default();
+        let held: Vec<Slot> = (0..MAX_PER_IP)
+            .map(|_| Slot::take(&open, "203.0.113.9".into(), false).unwrap())
+            .collect();
+        assert!(Slot::take(&open, "203.0.113.9".into(), false).is_none());
+        assert!(Slot::take(&open, "203.0.113.10".into(), false).is_some());
+        let tunnel: Vec<Slot> = (0..MAX_PER_IP + 1)
+            .map(|_| Slot::take(&open, "127.0.0.1".into(), true).unwrap())
+            .collect();
+        drop((held, tunnel));
+        assert!(open.lock().unwrap().is_empty());
+    }
 
     /// Behind an arcade tunnel the guests all come from loopback: the per-address limits leave them to the tunnel's
     /// own caps. Any other desk limits loopback as any address.

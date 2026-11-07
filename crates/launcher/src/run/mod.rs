@@ -909,6 +909,15 @@ fn launched_pid(logs: &Path, log: &str) -> Option<u32> {
 }
 
 /// A log of the run's stand-ins: data\logs\<name>, a line each with the wall clock and the seconds since it started.
+/// The name a LAN arcade answers searches with: its cleaned arcade name, else this PC's.
+fn lan_name(arcade: String) -> String {
+    if arcade.is_empty() {
+        env::var("COMPUTERNAME").unwrap_or_else(|_| "Forza-WCCF".into())
+    } else {
+        arcade
+    }
+}
+
 fn file_log(path: PathBuf) -> Log {
     let t0 = Instant::now();
     let file = Mutex::new(File::create(path).ok());
@@ -1794,9 +1803,11 @@ impl Run<'_> {
         } else {
             let ctrl_conf = self.game.join(r"local\ctrl_user_option.conf");
             if matches!(self.mode, Mode::Local | Mode::Vs(_)) {
-                // 2017-18 CPU championship off: no projector program (it plays the championship), nobody waits for it;
-                // the "projector" setting only shows or hides its window (the panel in it)
-                projector = self.edition != Edition::E1718 || choices::cpu_championship_on(&self.kit.settings());
+                // 2017-18: the projector program runs for its window or for the CPU championship it plays (hidden when
+                // only the championship wants it); with both off, none, and nobody waits for it
+                let s = self.kit.settings();
+                projector =
+                    self.edition != Edition::E1718 || choices::projector_shown(&s) || choices::cpu_championship_on(&s);
                 let wait = if projector { "1" } else { "0" };
                 for c in &confs {
                     conf::set_control_ip(c, "127.0.0.1")?; // after a "remote" run: the cabinets play on this PC again
@@ -1819,7 +1830,14 @@ impl Run<'_> {
                 // the control saves the Universal Championship in log\<date>_uc.bin but makes no folder (0x41EF00)
                 fs::create_dir_all(game.join("log"))?;
             }
-            self.start_game(Role::Server, p.control_args.clone(), &game, !self.debug, Vec::new())?;
+            // the CPU championship off: the control's hook keeps an all-CPU Universal Championship off the projector
+            // (native/hook/src/uclive.rs); the projector then plays the control's own demo pair instead
+            let env = if self.edition == Edition::E1718 && !choices::cpu_championship_on(&self.kit.settings()) {
+                vec![("WCCF_UCLIVE".to_owned(), "on".to_owned())]
+            } else {
+                Vec::new()
+            };
+            self.start_game(Role::Server, p.control_args.clone(), &game, !self.debug, env)?;
             let said = std::cell::Cell::new(false);
             wait_for(
                 Text::key("launcher.run_part_server"),
@@ -1961,10 +1979,18 @@ impl Run<'_> {
             // every tunnel guest reaches the desk as 127.0.0.1: no per-address limits there
             env.push(("WCCF_DESK_TUNNEL".to_owned(), "1".to_owned()));
         }
+        // the arcade's name this runtime set; empty: the desk's and the LAN answer's defaults
+        let name = forza::online::lobby::arcade_name(
+            &choices::setting(&self.kit.settings_file(), "shop_name").unwrap_or_default(),
+        );
         if self.edition == Edition::E1718 {
             // guests bring their own clubs into this PC's store (online::club), on the tunnel and on the LAN
             let db = self.kit.save().join("gamesvr").join("gamesvr.db");
             env.push(("WCCF_CLUB_DB".to_owned(), db.display().to_string()));
+            // the ARCADES row for this desk's own arcade (a private room is never listed)
+            if !name.is_empty() {
+                env.push(("WCCF_SHOP_NAME".to_owned(), name.clone()));
+            }
         }
         // 2017-18 ships no forza-server.exe (an AV false positive): the kit's Launcher.exe runs it as `server ...`
         let mut cmd = if self.edition == Edition::E1718 {
@@ -1980,9 +2006,8 @@ impl Run<'_> {
             cmd.arg("--no-gmsvr");
         }
         if lan_only {
-            // the name guests see in their list: this PC's
-            cmd.arg("--lan")
-                .arg(env::var("COMPUTERNAME").unwrap_or_else(|_| "Forza-WCCF".into()));
+            // the name guests see in their list: the arcade's, as on its ARCADES row, else this PC's
+            cmd.arg("--lan").arg(lan_name(name));
         }
         cmd.arg((LIFE.as_secs() + 60).to_string()).arg(&logs);
         clean_env(&mut cmd, &logs, &env);
@@ -2327,6 +2352,7 @@ impl Run<'_> {
         let log = file_log(self.logs().join("gamesvr_log.txt"));
         // the run's game folder (also recorded as "game" by the 2017-18 setup): the stand-in pre-registers its 2D-code cards,
         // and data\settings.json "skip_tutorial": true makes it give a new Aime id a club from the game's cpu_50.dat
+        // (no window sets it now: seed-club.sh and the fixture use it, players play the tutorial)
         let skip = self.kit.settings()["skip_tutorial"].as_bool().unwrap_or(false);
         let game = Some(self.game.clone());
         // guests' clubs a crashed arcade left here (online::club): their players keep their home copies
@@ -2554,9 +2580,16 @@ impl Run<'_> {
         // settings keys kept from before the arcade rename: players' settings.json already holds them
         let public = self.kit.settings()["list_shop"].as_bool() == Some(true);
         let name = choices::setting(&self.kit.settings_file(), "shop_name").unwrap_or_default();
-        crate::lobby::HostRoom::open(&desk, &vslink::arcade::id_text(&id), public, &name, log, &|t| {
-            self.tell("     ", t)
-        })
+        let secret = crate::lobby::room_secret(key);
+        crate::lobby::HostRoom::open(
+            &desk,
+            &vslink::arcade::id_text(&id),
+            secret.as_deref(),
+            public,
+            &name,
+            log,
+            &|t| self.tell("     ", t),
+        )
     }
 
     /// A 2017-18 server's arcade room: its code, the lobby server holding it and the flag set when that lobby loses it;
@@ -3194,6 +3227,13 @@ mod tests {
     use super::due;
     use std::fs;
     use std::path::Path;
+
+    /// LAN search answers carry the arcade's name, as its ARCADES row does (2026-11-06: they showed the PC's).
+    #[test]
+    fn a_lan_arcade_answers_with_its_name() {
+        assert_eq!(super::lan_name("Bar Sport".into()), "Bar Sport");
+        assert!(!super::lan_name(String::new()).is_empty());
+    }
 
     #[test]
     fn the_championship_notice_gives_the_time_in_every_language() {

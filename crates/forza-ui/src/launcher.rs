@@ -58,10 +58,12 @@ pub enum Action {
     UndoNow,
     /// Browse for the game folder.
     Browse,
-    /// The card pictures choice changed (`pictures_hq`), or "Choose pack…" (`choose`).
+    /// 2010–11: the card pictures choice changed (`pictures_hq`), or "Choose pack…" (`choose`).
     Pictures { choose: bool },
-    /// The skip-the-tutorial switch changed.
-    SkipTutorial,
+    /// 2017–18: DOWNLOAD or REMOVE the high-quality card pictures asked: Launcher.exe asks to confirm.
+    PicturesAsk,
+    /// DOWNLOAD or REMOVE the high-quality card pictures, confirmed.
+    PicturesNow,
     /// The projector switch changed.
     Projector,
     /// The CPU championship switch changed.
@@ -156,10 +158,8 @@ pub struct LauncherState {
     /// The tab shown.
     pub tab: Tab,
     pub folder: String,
-    /// The card pictures: the high-quality pack, else the game's own.
+    /// The card pictures: the high-quality pack (2017–18: the downloaded one), else the game's own.
     pub pictures_hq: bool,
-    /// The skip-the-tutorial switch (2017–18 only).
-    pub skip_tutorial: Option<bool>,
     /// The projector switch: its window shown (2017–18 only).
     pub projector: Option<bool>,
     /// The CPU championship switch: the projector program runs, shown or hidden (2017–18 only).
@@ -265,7 +265,6 @@ impl LauncherState {
             tab: Tab::Play,
             folder: r"C:\Games\Forza-WCCF\2010-2011".into(),
             pictures_hq: false,
-            skip_tutorial: None,
             projector: None,
             cpu_championship: None,
             club_server: None,
@@ -299,7 +298,6 @@ impl LauncherState {
         };
         if edition == Edition::E1718 {
             st.folder = r"C:\Games\Forza-WCCF\2017-2018".into();
-            st.skip_tutorial = Some(true);
             st.projector = Some(true);
             st.cpu_championship = Some(true);
             st.club_server = Some(String::new());
@@ -668,7 +666,7 @@ fn setup(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Actio
         status_line(ui, Tone::Notice, &tr!(lang, "launcher.setup_needed"));
     }
     ui.add_enabled_ui(!st.busy, |ui| {
-        ui.label(
+        let folder_hint = ui.label(
             egui::RichText::new(tr!(lang, "launcher.folder_hint"))
                 .font(theme::body(13.0))
                 .color(theme::TEXT_DIM),
@@ -681,7 +679,8 @@ fn setup(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Actio
                     .font(theme::mono(14.0))
                     .desired_width(ui.available_width() - bw)
                     .margin(vec2(10.0, 7.0)),
-            );
+            )
+            .labelled_by(folder_hint.id);
             if action(ui, &browse).clicked() {
                 *act = Some(Action::Browse);
             }
@@ -714,38 +713,41 @@ fn setup(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Actio
             }
         });
         ui.add_space(2.0);
-        ui.horizontal(|ui| {
-            let label_w = 150.0;
-            field(ui, &tr!(lang, "launcher.card_pictures"), label_w);
-            let choose = tr!(lang, "launcher.choose_pack");
-            let w = ui.available_width() - text_w(ui, &choose) - 40.0;
-            let mut i = st.pictures_hq as usize;
-            if segmented(
-                ui,
-                &mut i,
-                &[
-                    &tr!(lang, "launcher.from_game"),
-                    &tr!(lang, "launcher.hq_pack"),
-                ],
-                w,
-            ) {
-                st.pictures_hq = i == 1;
-                *act = Some(Action::Pictures { choose: false });
-            }
-            if action(ui, &choose).clicked() {
-                *act = Some(Action::Pictures { choose: true });
-            }
-        });
-        if let Some(skip) = &mut st.skip_tutorial
-            && toggle_row(
-                ui,
-                skip,
-                &tr!(lang, "launcher.skip_tutorial"),
-                &tr!(lang, "launcher.skip_tutorial_hint"),
-            )
-            .clicked()
-        {
-            *act = Some(Action::SkipTutorial);
+        if st.edition == Edition::E1718 {
+            ui.horizontal(|ui| {
+                field(ui, &tr!(lang, "launcher.card_pictures"), 150.0);
+                let key = if st.pictures_hq {
+                    "launcher.pictures_remove"
+                } else {
+                    "launcher.pictures_download"
+                };
+                if action(ui, &tr!(lang, key)).clicked() {
+                    *act = Some(Action::PicturesAsk);
+                }
+            });
+        } else {
+            ui.horizontal(|ui| {
+                let label_w = 150.0;
+                field(ui, &tr!(lang, "launcher.card_pictures"), label_w);
+                let choose = tr!(lang, "launcher.choose_pack");
+                let w = ui.available_width() - text_w(ui, &choose) - 40.0;
+                let mut i = st.pictures_hq as usize;
+                if segmented(
+                    ui,
+                    &mut i,
+                    &[
+                        &tr!(lang, "launcher.from_game"),
+                        &tr!(lang, "launcher.hq_pack"),
+                    ],
+                    w,
+                ) {
+                    st.pictures_hq = i == 1;
+                    *act = Some(Action::Pictures { choose: false });
+                }
+                if action(ui, &choose).clicked() {
+                    *act = Some(Action::Pictures { choose: true });
+                }
+            });
         }
         if let Some(on) = &mut st.projector
             && toggle_row(
@@ -798,14 +800,15 @@ fn club_rows(
 ) -> bool {
     if let Some(club) = club_server {
         ui.horizontal(|ui| {
-            field(ui, &tr!(lang, "launcher.club_server"), 150.0);
+            let label = field(ui, &tr!(lang, "launcher.club_server"), 150.0);
             ui.add(
                 egui::TextEdit::singleline(club)
                     .font(theme::mono(14.0))
                     .hint_text(tr!(lang, "launcher.club_server_hint"))
                     .desired_width(ui.available_width())
                     .margin(vec2(10.0, 7.0)),
-            );
+            )
+            .labelled_by(label.id);
         });
     }
     vs_link.as_mut().is_some_and(|on| {
@@ -854,7 +857,7 @@ fn update(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
         ui.spacing_mut().interact_size.y = 44.0;
         ui.add_enabled_ui(!st.busy, |ui| {
             let shown = chosen.map_or_else(String::new, |i| release_text(&st.releases[i], lang));
-            egui::ComboBox::from_id_salt("releases")
+            let list = egui::ComboBox::from_id_salt("releases")
                 .selected_text(egui::RichText::new(shown).font(theme::body(14.0)))
                 .width(ui.available_width() - bw - 8.0)
                 .height(400.0)
@@ -867,6 +870,7 @@ fn update(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
                         );
                     }
                 });
+            list.response.accessible_name(tr!(lang, "settings.version"));
         });
         let up = ui.add_enabled_ui(chosen.is_some() && !st.busy, |ui| {
             cabinet(
@@ -953,7 +957,7 @@ fn output(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
 
 fn confirm_modal(ui: &mut Ui, st: &mut LauncherState, c: &Confirm, lang: Lang) -> Option<Action> {
     let mut act = None;
-    let modal = egui::Modal::new(egui::Id::new("launcher-confirm"))
+    let modal = egui::Modal::new(egui::Id::unique("launcher-confirm"))
         .backdrop_color(Color32::from_black_alpha(150))
         .frame(
             egui::Frame::new()
@@ -1001,7 +1005,7 @@ fn report_modal(ui: &mut Ui, st: &mut LauncherState, lang: Lang) -> Option<Actio
     let mut act = None;
     let mut close = false;
     let f = st.report.as_mut()?;
-    let modal = egui::Modal::new(egui::Id::new("launcher-report"))
+    let modal = egui::Modal::new(egui::Id::unique("launcher-report"))
         .backdrop_color(Color32::from_black_alpha(150))
         .frame(
             egui::Frame::new()
@@ -1023,7 +1027,7 @@ fn report_modal(ui: &mut Ui, st: &mut LauncherState, lang: Lang) -> Option<Actio
                     .color(theme::TEXT),
             );
             ui.add_space(4.0);
-            field(ui, &tr!(lang, "report.what_happened"), 460.0);
+            let label = field(ui, &tr!(lang, "report.what_happened"), 460.0);
             ui.add_enabled(
                 !f.sending && !f.sent,
                 egui::TextEdit::multiline(&mut f.words)
@@ -1032,7 +1036,8 @@ fn report_modal(ui: &mut Ui, st: &mut LauncherState, lang: Lang) -> Option<Actio
                     .desired_width(f32::INFINITY)
                     .font(theme::body(14.0))
                     .margin(vec2(10.0, 7.0)),
-            );
+            )
+            .labelled_by(label.id);
             ui.add_space(4.0);
             field(ui, &tr!(lang, "report.what_is_sent"), 460.0);
             egui::Frame::new()

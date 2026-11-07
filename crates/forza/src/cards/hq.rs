@@ -18,11 +18,15 @@ pub struct Hq {
     pub total: u8,
 }
 
+/// The card database's version 30 (17-18 V3.0): newer than the 2017-18 game (it ends at Ver.2.0), so never linked to
+/// a game card number, for the stats here and the pictures (`pictures::PICK`).
+pub const NOT_IN_GAME: i64 = 30;
+
 /// The pack's row per game card number, in the same order as the pictures' pick (name+stats link first).
 const PICK: &str =
     "SELECT l.game_card_no, c.position, c.off, c.def, c.tec, c.pow, c.spe, c.sta, c.tot
     FROM game_link l JOIN cards c USING (ver, card)
-    WHERE l.game = ?1 AND c.off IS NOT NULL AND c.tot IS NOT NULL
+    WHERE l.game = ?1 AND l.ver <> ?2 AND c.off IS NOT NULL AND c.tot IS NOT NULL
     ORDER BY l.game_card_no, l.method != 'name+stats', c.card LIKE '%EXTRA%', c.ver, c.card";
 
 /// Writes `out`\hq_stats.tsv from the pack's database file for `edition` ("1011" or "1718"); returns the card count.
@@ -31,7 +35,7 @@ pub fn from_db(db: &Path, edition: &str, out: &Path) -> io::Result<usize> {
         .map_err(io::Error::other)?;
     let mut q = con.prepare(PICK).map_err(io::Error::other)?;
     let rows = q
-        .query_map([edition], |r| {
+        .query_map(rusqlite::params![edition, NOT_IN_GAME], |r| {
             Ok((
                 r.get::<_, i64>(0)?,
                 r.get::<_, String>(1).unwrap_or_default(),

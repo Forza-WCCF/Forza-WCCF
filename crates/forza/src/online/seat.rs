@@ -138,7 +138,8 @@ pub const NO_DMATH: &str = "none";
 /// This 2017-18 runtime's match engine math, as the seat desk compares it between PCs (an engine with dmath.dll
 /// desyncs against one without, or with another dmath.dll, from the first differing frame): [`NO_DMATH`] without
 /// `game\dmath.dll`; else the first 16 hex digits of its SHA-256, with `-off` when the last engine start in the newer
-/// `dmath.log` (game or seat folder, wherever the engine ran) did not patch all sites and hook atan2.
+/// `dmath.log` (game or seat folder, wherever the engine ran) did not patch all sites and hook atan2, `-tst` when it
+/// ran a dmath.cfg mode that changes the math (`foreign`).
 /// shortcut: no dmath.log yet (no match played since setup) counts as patched, since setup pinned the engine; a strict
 /// check would refuse every first online match.
 pub fn dmath_token(game: &Path, seat: &Path) -> String {
@@ -159,17 +160,39 @@ pub fn dmath_token(game: &Path, seat: &Path) -> String {
         return hash;
     };
     let text = String::from_utf8_lossy(&text);
-    // engine starts only: the frame-log and its error lines also begin "det-math"
-    let last = text.lines().rev().find(|l| {
-        ["det-math NOT applied", "det-math off"]
-            .iter()
-            .any(|s| l.starts_with(s))
-            || l.starts_with("det-math ") && l.contains("/") && l.contains("atan2")
-    });
+    // engine starts only: the frame-log and its error lines also begin "det-math". Each record carries the DLL's
+    // "yyyy-mm-dd hh:mm:ss pid=N " prefix (native/detmath/src/dll.rs `log`), and a record cut short by a kill runs
+    // into the next one on the same line: every " pid=N " starts a record. The text before the first is the date, or
+    // the whole line from the first dmath.dll, which wrote no prefix.
+    let last = text
+        .lines()
+        .rev()
+        .flat_map(|l| {
+            let mut records: Vec<&str> = l.split(" pid=").collect();
+            for r in &mut records[1..] {
+                *r = r.split_once(' ').map_or(*r, |(_, m)| m);
+            }
+            records.into_iter().rev()
+        })
+        .find(|l| {
+            ["det-math NOT applied", "det-math off"]
+                .iter()
+                .any(|s| l.starts_with(s))
+                || l.starts_with("det-math ") && l.contains("/") && l.contains("atan2")
+        });
     match last {
         // the DLL writes "det-math n/n" only when every site of its table was patched (140 today)
         Some(l) if !l.contains(", atan2 hooked") || l.starts_with("det-math NOT") => {
             format!("{hash}-off")
+        }
+        // past the CW value only the frame log (no change to the math) pairs: foreign or any other suffix must not
+        // (4 letters, as `-off`: the vslink hello holds 20, vs::HELLO_DMATH)
+        Some(l)
+            if l.trim_end_matches(", frame log on")
+                .rsplit_once(", CW ")
+                .is_none_or(|(_, cw)| cw.contains([' ', ','])) =>
+        {
+            format!("{hash}-tst")
         }
         _ => hash,
     }
@@ -354,32 +377,102 @@ mod tests {
         std::fs::write(game.join("dmath.dll"), b"dll").unwrap();
         let patched = dmath_token(&game, &seat);
         assert_eq!(patched.len(), 16, "{patched}");
-        let ok = "det-math 140/140, atan2 hooked, MXCSR 0x1F80, CW 0x027F\n";
+        // the shape of native/detmath/src/dll.rs `log`: "{date} {time} pid={pid} {text}\r\n"
+        let at = |text: &str| format!("2026-11-06 22:44:17 pid=21684 {text}\r\n");
+        let ok = at("det-math 140/140, atan2 hooked, MXCSR 0x1F80, CW 0x027F");
         std::fs::write(
             seat.join("dmath.log"),
-            format!("{ok}det-math frame log on the sim thread: MXCSR 0x1F80\n"),
+            format!(
+                "{ok}{}",
+                at("det-math frame log on the sim thread: MXCSR 0x1F80")
+            ),
         )
         .unwrap();
         assert_eq!(dmath_token(&game, &seat), patched);
         let off = format!("{patched}-off");
         for bad in [
-            "det-math NOT applied, nothing patched: not the pinned original\n",
-            "det-math off (dmath.cfg): nothing patched\n",
-            "det-math 140/140, atan2 NOT hooked, MXCSR 0x1F80, CW 0x027F\n",
+            "det-math NOT applied, nothing patched: not the pinned original",
+            "det-math off (dmath.cfg): nothing patched",
+            "det-math 140/140, atan2 NOT hooked, MXCSR 0x1F80, CW 0x027F",
         ] {
-            std::fs::write(seat.join("dmath.log"), format!("{ok}{bad}")).unwrap();
+            std::fs::write(seat.join("dmath.log"), format!("{ok}{}", at(bad))).unwrap();
             assert_eq!(dmath_token(&game, &seat), off, "{bad}");
         }
         // a later good start counts again
         std::fs::write(
             seat.join("dmath.log"),
-            format!("det-math NOT applied, nothing patched: x\n{ok}"),
+            format!("{}{ok}", at("det-math NOT applied, nothing patched: x")),
         )
         .unwrap();
         assert_eq!(dmath_token(&game, &seat), patched);
         std::fs::write(game.join("dmath.dll"), b"another dll").unwrap();
         assert_ne!(dmath_token(&game, &seat), patched);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The token for a seat dmath.log holding `log`, and the plain hash of the same DLL.
+    fn token_with_log(name: &str, log: &str) -> (String, String) {
+        let root = std::env::temp_dir().join(format!("forza_dmath_{name}_{}", std::process::id()));
+        let (game, seat) = (root.join("game"), root.join("seat1"));
+        std::fs::create_dir_all(&game).unwrap();
+        std::fs::create_dir_all(&seat).unwrap();
+        std::fs::write(game.join("dmath.dll"), b"dll").unwrap();
+        let hash = dmath_token(&game, &seat);
+        std::fs::write(seat.join("dmath.log"), log).unwrap();
+        let token = dmath_token(&game, &seat);
+        let _ = std::fs::remove_dir_all(&root);
+        (token, hash)
+    }
+
+    const DMATH_OK: &str = "det-math 140/140, atan2 hooked, MXCSR 0x1F80, CW 0x027F";
+
+    /// dmath.cfg `foreign` (native/detmath/src/dll.rs `patch`) and any unknown suffix never pair with the normal
+    /// mode; `frames` alone only logs, and pairs.
+    #[test]
+    fn dmath_test_modes_never_pair_with_the_normal_hash() {
+        let log = format!("2026-11-06 22:44:17 pid=21684 {DMATH_OK}, frame log on\r\n");
+        let (token, hash) = token_with_log("frames", &log);
+        assert_eq!(token, hash);
+        for (i, suffix) in [
+            ", FOREIGN estimate (test)",
+            ", FOREIGN estimate (test), frame log on",
+            ", something later",
+            ", something later, frame log on",
+        ]
+        .iter()
+        .enumerate()
+        {
+            let log = format!("2026-11-06 22:44:17 pid=21684 {DMATH_OK}{suffix}\r\n");
+            let (token, hash) = token_with_log(&format!("mode{i}"), &log);
+            assert_eq!(token, format!("{hash}-tst"), "{suffix}");
+        }
+    }
+
+    /// A start line cut short by a kill, with the next start's line written onto it, reads as that next start.
+    #[test]
+    fn dmath_truncated_line_reads_as_the_start_written_onto_it() {
+        let cut = "2026-11-06 22:44:17 pid=21684 det-math 140/140, atan2 hook";
+        let ok = format!("2026-11-06 22:40:00 pid=1 {DMATH_OK}\r\n");
+        let off = "2026-11-07 10:00:00 pid=999 det-math off (dmath.cfg): nothing patched\r\n";
+        let (token, hash) = token_with_log("cut_off", &format!("{ok}{cut}{off}"));
+        assert_eq!(token, format!("{hash}-off"));
+        // cut short and followed by a frame-log line: the cut start is the newest, and it is not a whole patch line
+        let frame =
+            "2026-11-07 10:00:00 pid=21684 det-math frame log on the sim thread: MXCSR 0x1F80\r\n";
+        let (token, hash) = token_with_log("cut_frame", &format!("{ok}{cut}{frame}"));
+        assert_eq!(token, format!("{hash}-off"));
+        let (token, hash) = token_with_log("cut_ok", &format!("{cut}{ok}"));
+        assert_eq!(token, hash);
+    }
+
+    /// The first dmath.dll (before commit 2c39a13e) wrote its lines with no date and pid prefix.
+    #[test]
+    fn dmath_reads_a_line_without_the_prefix() {
+        let (token, hash) = token_with_log("bare_ok", &format!("{DMATH_OK}\r\n"));
+        assert_eq!(token, hash);
+        let log = format!("{DMATH_OK}\r\ndet-math off (dmath.cfg): nothing patched\r\n");
+        let (token, hash) = token_with_log("bare_off", &log);
+        assert_eq!(token, format!("{hash}-off"));
     }
 
     /// A desk that keeps sending without a line end is refused at once, not read until its own timeout (and not grown

@@ -124,7 +124,7 @@ pub fn heat_zone(p: &Painter, pitch: Rect, field: Rect, apt: &Aptitude, size: f3
 /// player's PC), or none for the drawn stand-in. Pictures load in the background through egui's loaders and the last
 /// [`PICTURES_KEPT`] drawn stay cached, so scrolling the catalogue back seldom waits on a file.
 pub fn set_picture_dir(ctx: &egui::Context, dir: Option<std::path::PathBuf>) {
-    ctx.data_mut(|d| d.insert_temp(Id::new("card-pictures"), dir));
+    ctx.data_mut(|d| d.insert_temp(Id::unique("card-pictures"), dir));
 }
 
 /// The card face in a picture of `size`, whole (never cut): a square picture is the game's 128x128 one, its face
@@ -144,13 +144,15 @@ fn letterbox(r: Rect, aspect: f32) -> Rect {
 }
 
 fn picture_dir(ctx: &egui::Context) -> Option<std::path::PathBuf> {
-    ctx.data(|d| d.get_temp::<Option<std::path::PathBuf>>(Id::new("card-pictures")))
+    ctx.data(|d| d.get_temp::<Option<std::path::PathBuf>>(Id::unique("card-pictures")))
         .flatten()
 }
 
-/// The card's picture files in the order the board takes them: the game's album art, the pack's scan, the game's face.
-fn picture_names(number: u32) -> [String; 3] {
+/// The card's picture files in the order the board takes them: the downloaded high-quality picture, the game's album
+/// art, the older pack's scan, the game's face.
+fn picture_names(number: u32) -> [String; 4] {
     [
+        format!("{number}_hq.jpg"),
         format!("{number}_f.jpg"),
         format!("{number}.jpg"),
         format!("{number}.png"),
@@ -195,15 +197,19 @@ fn load_picture(
         "file:///{}",
         file.display().to_string().trim_start_matches('/')
     );
-    let miss = Id::new(("card-picture-miss", &uri));
+    let miss = Id::unique(("card-picture-miss", &uri));
     if ctx.data(|d| d.get_temp::<bool>(miss)).is_some() {
         return Pic::Missing;
     }
     let loaded = ctx.try_load_texture(&uri, options, egui::SizeHint::default());
-    if loaded.is_err() {
-        ctx.data_mut(|d| d.insert_temp(miss, true));
-    } else {
-        keep_recent(ctx, &uri);
+    match &loaded {
+        Err(_) => {
+            ctx.data_mut(|d| d.insert_temp(miss, true));
+        }
+        Ok(egui::load::TexturePoll::Ready { texture }) => {
+            keep_recent(ctx, &uri, (texture.size.x * texture.size.y * 4.0) as usize);
+        }
+        Ok(_) => keep_recent(ctx, &uri, 0),
     }
     match loaded {
         Ok(egui::load::TexturePoll::Ready { texture }) => Pic::Ready(texture.id, texture.size),
@@ -212,45 +218,47 @@ fn load_picture(
     }
 }
 
-/// The card pictures one egui context keeps loaded: the ones drawn last. A catalogue browsed for long would otherwise
-/// keep every picture it ever showed. One screen draws at most about 130: the catalogue grid (6 to 12 a row from
+/// The card pictures one egui context keeps loaded: the ones drawn last, at most this many and [`PICTURE_BYTES`] of
+/// textures. A catalogue browsed for long would otherwise keep every picture it ever showed. One screen draws at most about 130: the catalogue grid (4 to 6 a row from
 /// `sizing::grid`; at most 110 in sight, partial rows included, on a 4:3 to 16:9 window at 100-200 % scaling), the
 /// board's 16 slots and the card in hand, the stats pane's card and the card view's two sides. Worst case per
 /// context: 150 album pictures (256x357 RGBA, 365 KB) = 55 MB of textures, plus a second texture for the few drawn
 /// both NEAREST and LINEAR (the card view, the large hover pane); the panel's contexts set `reduce_texture_memory`, so
 /// no decoded copy sits beside them.
 const PICTURES_KEPT: usize = 150;
+/// The texture bytes one context keeps for card pictures. The panel runs in the game's 32-bit process, and its
+/// Direct3D 9 textures are MANAGED, so each also has a copy in that process. 150 album pictures (55 MB) fit as before;
+/// the downloaded pictures (decoded at most [`HQ_MAX`]: 1.4 MB each) keep about 44 beside the ones on screen, where
+/// 150 at their full 664x911 would be 363 MB.
+const PICTURE_BYTES: usize = 64 << 20;
 
-/// The picture URIs loaded lately, each with the pass that last drew it.
+/// The picture URIs loaded lately, each with the pass that last drew it and its texture's bytes (0 while it loads).
 #[derive(Clone, Default)]
-struct RecentPictures(HashMap<String, u64>);
+struct RecentPictures(HashMap<String, (u64, usize)>);
 
-/// Marks the picture `uri` drawn in this pass; past [`PICTURES_KEPT`], forgets those drawn longest ago, never one
-/// drawn in this pass or the previous one: a card still on screen may come later in this pass. With more than the
-/// bound on screen the set grows past it instead (no flicker, no reload loop).
-fn keep_recent(ctx: &egui::Context, uri: &str) {
+/// Marks the picture `uri` (`bytes` of texture) drawn in this pass; past [`PICTURES_KEPT`] or [`PICTURE_BYTES`],
+/// forgets those drawn longest ago, never one drawn in this pass or the previous one: a card still on screen may come
+/// later in this pass. With more than the bound on screen the set grows past it instead (no flicker, no reload loop).
+fn keep_recent(ctx: &egui::Context, uri: &str, bytes: usize) {
     let now = ctx.cumulative_pass_nr();
     let gone = ctx.data_mut(|d| {
         let r = &mut d
-            .get_temp_mut_or_default::<RecentPictures>(Id::new("card-pictures-recent"))
+            .get_temp_mut_or_default::<RecentPictures>(Id::unique("card-pictures-recent"))
             .0;
-        match r.get_mut(uri) {
-            Some(pass) => *pass = now,
-            None => {
-                r.insert(uri.to_owned(), now);
-            }
-        }
+        r.insert(uri.to_owned(), (now, bytes));
         let mut gone = Vec::new();
-        while r.len() > PICTURES_KEPT {
-            let Some(old) = r
+        let mut total: usize = r.values().map(|(_, b)| b).sum();
+        while r.len() > PICTURES_KEPT || total > PICTURE_BYTES {
+            let Some((old, b)) = r
                 .iter()
-                .filter(|(_, pass)| **pass + 1 < now)
-                .min_by_key(|(_, pass)| **pass)
-                .map(|(u, _)| u.clone())
+                .filter(|(_, (pass, _))| *pass + 1 < now)
+                .min_by_key(|(_, (pass, _))| *pass)
+                .map(|(u, (_, b))| (u.clone(), *b))
             else {
                 break;
             };
             r.remove(&old);
+            total -= b;
             gone.push(old);
         }
         gone
@@ -261,8 +269,100 @@ fn keep_recent(ctx: &egui::Context, uri: &str) {
     }
 }
 
-/// A card's picture for the 1:1 views, at its own pixels: the front (the album's `<number>_f.jpg`, else the pack's scan
-/// `<number>.jpg`) or the back (the album's `<number>_b.jpg`). `nearest`: a texture filtered by nearest pixel, for
+/// The largest the board draws a downloaded picture, in pixels: the card view's album slot at 2x.
+pub const HQ_MAX: (u32, u32) = (512, 714);
+
+type Decoded = std::task::Poll<Result<Arc<egui::ColorImage>, String>>;
+
+/// Decodes the downloaded pictures (`<number>_hq.jpg`, `<number>_hq_b.jpg`, 664x911) on a thread and shrinks them
+/// to fit [`HQ_MAX`]: their textures cost 1.4 MB, not 2.4 MB. Other pictures go to egui's own loaders. Installed by
+/// `theme::install_fonts`.
+#[derive(Default)]
+pub struct HqLoader(Arc<egui::mutex::Mutex<HashMap<String, Decoded>>>);
+
+impl HqLoader {
+    pub const ID: &'static str = egui::generate_loader_id!(HqLoader);
+}
+
+impl egui::load::ImageLoader for HqLoader {
+    fn id(&self) -> &str {
+        Self::ID
+    }
+
+    fn load(
+        &self,
+        ctx: &egui::Context,
+        uri: &str,
+        _: egui::SizeHint,
+    ) -> egui::load::ImageLoadResult {
+        use egui::load::{BytesPoll, ImagePoll, LoadError};
+        use std::task::Poll;
+        if !(uri.ends_with("_hq.jpg") || uri.ends_with("_hq_b.jpg")) {
+            return Err(LoadError::NotSupported);
+        }
+        if let Some(e) = self.0.lock().get(uri).cloned() {
+            return match e {
+                Poll::Ready(Ok(image)) => Ok(ImagePoll::Ready { image }),
+                Poll::Ready(Err(e)) => Err(LoadError::Loading(e)),
+                Poll::Pending => Ok(ImagePoll::Pending { size: None }),
+            };
+        }
+        match ctx.try_load_bytes(uri)? {
+            BytesPoll::Pending { size } => Ok(ImagePoll::Pending { size }),
+            BytesPoll::Ready { bytes, .. } => {
+                self.0.lock().insert(uri.to_owned(), Poll::Pending);
+                let (ctx, cache, uri) = (ctx.clone(), Arc::clone(&self.0), uri.to_owned());
+                std::thread::spawn(move || {
+                    let r = image::load_from_memory(&bytes)
+                        .map(|i| {
+                            let i = if i.width() > HQ_MAX.0 || i.height() > HQ_MAX.1 {
+                                i.resize(HQ_MAX.0, HQ_MAX.1, image::imageops::FilterType::Triangle)
+                            } else {
+                                i
+                            };
+                            let i = i.to_rgba8();
+                            let size = [i.width() as usize, i.height() as usize];
+                            Arc::new(egui::ColorImage::from_rgba_unmultiplied(size, i.as_raw()))
+                        })
+                        .map_err(|e| e.to_string());
+                    // forgotten while it decoded: nothing to keep; the context is locked only after the cache
+                    let kept = cache
+                        .lock()
+                        .get_mut(&uri)
+                        .map(|e| *e = Poll::Ready(r))
+                        .is_some();
+                    if kept {
+                        ctx.request_repaint();
+                    }
+                });
+                Ok(ImagePoll::Pending { size: None })
+            }
+        }
+    }
+
+    fn forget(&self, uri: &str) {
+        self.0.lock().remove(uri);
+    }
+
+    fn forget_all(&self) {
+        self.0.lock().clear();
+    }
+
+    fn byte_size(&self) -> usize {
+        self.0
+            .lock()
+            .values()
+            .map(|e| match e {
+                std::task::Poll::Ready(Ok(i)) => i.pixels.len() * 4,
+                _ => 0,
+            })
+            .sum()
+    }
+}
+
+/// A card's picture for the 1:1 views, at its own pixels: the front (the downloaded `<number>_hq.jpg`, else the album's
+/// `<number>_f.jpg`, else the pack's scan `<number>.jpg`) or the back (`<number>_hq_b.jpg`, else the album's
+/// `<number>_b.jpg`). `nearest`: a texture filtered by nearest pixel, for
 /// whole multiples past 1x. `None` while it loads or when there is no file: the drawn face or back stands in.
 pub fn card_picture_px(
     ctx: &egui::Context,
@@ -277,9 +377,13 @@ pub fn card_picture_px(
         egui::TextureOptions::LINEAR
     };
     let names = if back {
-        vec![format!("{number}_b.jpg")]
+        vec![format!("{number}_hq_b.jpg"), format!("{number}_b.jpg")]
     } else {
-        vec![format!("{number}_f.jpg"), format!("{number}.jpg")]
+        vec![
+            format!("{number}_hq.jpg"),
+            format!("{number}_f.jpg"),
+            format!("{number}.jpg"),
+        ]
     };
     for f in names {
         match load_picture(ctx, &dir, &f, options) {
@@ -335,7 +439,7 @@ pub fn card_side(p: &Painter, rect: Rect, card: &Card, back: bool, nearest: bool
 /// The pack's real values by card number (`hq_stats.tsv` beside the pictures), read once per folder.
 fn hq_map(ctx: &egui::Context) -> Option<std::sync::Arc<std::collections::HashMap<u32, Hq>>> {
     let dir = picture_dir(ctx)?;
-    let id = Id::new(("card-hq", &dir));
+    let id = Id::unique(("card-hq", &dir));
     if let Some(m) =
         ctx.data(|d| d.get_temp::<std::sync::Arc<std::collections::HashMap<u32, Hq>>>(id))
     {
@@ -451,7 +555,7 @@ pub struct Look {
 }
 
 /// The card face, upright at the real card's shape ([`CARD_ASPECT`]): the card's picture whole, never cut (the game's
-/// album art `<number>_f.jpg`, else the pack's scan `<number>.jpg`, else the game's face `<number>.png`, letterboxed on a dark ground when its shape differs),
+/// downloaded picture `<number>_hq.jpg`, else album art `<number>_f.jpg`, else the pack's scan `<number>.jpg`, else the game's face `<number>.png`, letterboxed on a dark ground when its shape differs),
 /// from the folder [`set_picture_dir`] names; else a drawn face: the position band with TOTAL, a stand-in, the name on
 /// its foot, and on large ones the club and the season. Returns the corner radius it drew with, for whatever a caller
 /// paints over the face (a square picture has none).
@@ -1088,7 +1192,7 @@ fn target_slot(
 /// The grab of the drag in progress: the card centre less the press point, as a fraction of the card. Board drags
 /// store it on their first frame; a catalogue card stores it when its drag starts ([`catalogue_card`]).
 fn grab_id() -> Id {
-    Id::new("board-grab")
+    Id::unique("board-grab")
 }
 
 /// A card taken off the board (dragged off it and let go): what UNDO puts back.
@@ -1104,15 +1208,15 @@ pub struct Removed {
 }
 
 fn removed_id() -> Id {
-    Id::new("board-removed")
+    Id::unique("board-removed")
 }
 
 fn keep_id() -> Id {
-    Id::new("board-keep")
+    Id::unique("board-keep")
 }
 
 fn kept_id() -> Id {
-    Id::new("board-kept")
+    Id::unique("board-kept")
 }
 
 /// While `keep` (a match runs), a card let go off the board stays on the table and snaps back to its spot
@@ -1127,7 +1231,7 @@ pub fn take_kept(ui: &Ui) -> Option<u32> {
 }
 
 fn touched_id() -> Id {
-    Id::new("board-touched")
+    Id::unique("board-touched")
 }
 
 /// The card pressed or in hand on a `pure` [`formation_board`] this frame, if any.
@@ -1210,7 +1314,7 @@ pub fn formation_board(
     let lines_at = ui.painter().add(egui::Shape::Noop);
     let card = card_size(pitch.width());
     // the selection: the card in hand, else the card clicked last (while it is on the board)
-    let select_id = Id::new("board-select");
+    let select_id = Id::unique("board-select");
     let clicked_card = ui
         .data(|d| d.get_temp::<Option<u32>>(select_id))
         .flatten()
@@ -1230,7 +1334,7 @@ pub fn formation_board(
     }
     // a pitch card in hand moves live: the table follows it every frame, as the C panels' board_move, so the game
     // sees the card slide and rub, not one jump on release; its spot before the lift is kept for a swap
-    let origin_id = Id::new("board-origin");
+    let origin_id = Id::unique("board-origin");
     if dragging.is_some() || incoming.is_some() {
         // the first frame of a board drag: the grab is measured on the card's resting rect, before it moves
         if let Some(from) = dragging.filter(|&d| d < 16 && board.slots[d].is_some())
@@ -1306,8 +1410,8 @@ pub fn formation_board(
     });
     let mut removed: Option<(usize, Pos2)> = None;
 
-    let hover_id = Id::new("board-hover");
-    let flip_id = Id::new("board-flip");
+    let hover_id = Id::unique("board-hover");
+    let flip_id = Id::unique("board-flip");
     let mut hovered_card = None;
     let mut drop_target = None;
     // the swap target is the card under the held card's centre (as drawn), not under the pointer
@@ -1324,7 +1428,11 @@ pub fn formation_board(
         if slot < 11 && board.slots[slot].is_none() {
             continue;
         }
-        let resp = ui.interact(rect, Id::new(("board-slot", slot)), Sense::click_and_drag());
+        let resp = ui.interact(
+            rect,
+            Id::unique(("board-slot", slot)),
+            Sense::click_and_drag(),
+        );
         let p = ui.painter();
         let hovered_by_drag = (dragging.is_some() || incoming.is_some()) && target == Some(slot);
         if hovered_by_drag {
@@ -1381,9 +1489,10 @@ pub fn formation_board(
                 }
                 if is_dragged && let Some(pt) = pointer {
                     // the lifted card follows the pointer above everything
-                    let lp = ui
-                        .ctx()
-                        .layer_painter(egui::LayerId::new(Order::Tooltip, Id::new("board-lift")));
+                    let lp = ui.ctx().layer_painter(egui::LayerId::new(
+                        Order::Tooltip,
+                        Id::unique("board-lift"),
+                    ));
                     let at = drag_centre(pt, grab, card);
                     card_face(
                         &lp,
@@ -1471,7 +1580,7 @@ pub fn formation_board(
     if let (Some(c), Some(pt)) = (incoming.as_ref(), pointer) {
         let lp = ui
             .ctx()
-            .layer_painter(egui::LayerId::new(Order::Tooltip, Id::new("board-lift")));
+            .layer_painter(egui::LayerId::new(Order::Tooltip, Id::unique("board-lift")));
         card_face(
             &lp,
             Rect::from_center_size(drag_centre(pt, grab, card), card * 1.08),
@@ -1509,7 +1618,7 @@ pub fn formation_board(
     // a selection lets go by itself `SELECT_HOLD` seconds after the last touch of the board: a card in hand, a press
     // on the board, the mouse on the selected card, a key. A drag in progress keeps it, whatever its length.
     let now = ui.input(|i| i.time);
-    let touch_id = Id::new("board-select-touch");
+    let touch_id = Id::unique("board-select-touch");
     let on_board = |p: Pos2| shown.union(bench).contains(p);
     let over_selected = clicked_card.is_some_and(|s| {
         (0..16).any(|i| board.number(i) == Some(s) && pointer.is_some_and(|p| rects[i].contains(p)))
@@ -1607,7 +1716,7 @@ pub fn formation_board(
                 let fit = Fit::of(apt.at(board.spots[slot]));
                 let lp = ui
                     .ctx()
-                    .layer_painter(egui::LayerId::new(Order::Tooltip, Id::new("board-fit")));
+                    .layer_painter(egui::LayerId::new(Order::Tooltip, Id::unique("board-fit")));
                 fit_badge(&lp, pos2(rect.center().x, rect.bottom() + 4.0), fit, lang);
             }
         } else {
@@ -1699,7 +1808,7 @@ fn partner_list(ui: &Ui, board: &Board, links: &Links, sel: u32, at: Pos2, lang:
         .map(|(p, v)| (p.name.as_str(), v))
         .collect();
     let w = 230.0;
-    egui::Area::new(Id::new("board-partners"))
+    egui::Area::new(Id::unique("board-partners"))
         .order(Order::Foreground)
         .fixed_pos(at)
         .interactable(false)
@@ -2175,12 +2284,12 @@ struct PaneAsk {
 }
 
 fn pane_id() -> Id {
-    Id::new("board-pane-ask")
+    Id::unique("board-pane-ask")
 }
 
 /// The selected card's partner list asked for: its number and where it lies.
 fn partners_id() -> Id {
-    Id::new("board-partners-ask")
+    Id::unique("board-partners-ask")
 }
 
 /// The info pane's two sizes: large (the face at its picture's own pixels, the position map beside it, the caption
@@ -2275,7 +2384,7 @@ pub fn info_panes(
         // as tall as it was last frame (about 220 points the first time)
         let h = ui
             .ctx()
-            .memory(|m| m.area_rect(Id::new("board-partners")))
+            .memory(|m| m.area_rect(Id::unique("board-partners")))
             .map_or(220.0, |r| r.height());
         let (r, _) = pane_place(pitch, hint_bottom, foot, f32::INFINITY, h, at.center().y);
         partner_list(ui, board, links, sel, r.min, lang);
@@ -2322,7 +2431,7 @@ fn info_pane(
     let map_w = ((face.y - 22.0) / PITCH_ASPECT).min(pane.width() - BIG_FRAME - 10.0 - face.x);
     let map = vec2(map_w, map_w * PITCH_ASPECT);
     let ppp = ui.ctx().pixels_per_point();
-    egui::Area::new(Id::new("board-big"))
+    egui::Area::new(Id::unique("board-big"))
         .order(Order::Tooltip)
         .fixed_pos(pane.min)
         .interactable(false)
@@ -2581,8 +2690,11 @@ mod tests {
         let (uv, a) = face_uv(vec2(256.0, 357.0));
         assert_eq!((uv.min, uv.max), (pos2(0.0, 0.0), pos2(1.0, 1.0)));
         assert!((a / CARD_ASPECT - 1.0).abs() < 0.02, "{a}");
-        // the album art first, then the pack's scan, then the game's face
-        assert_eq!(picture_names(7049), ["7049_f.jpg", "7049.jpg", "7049.png"]);
+        // the downloaded picture first, then the album art, the older pack's scan, the game's face
+        assert_eq!(
+            picture_names(7049),
+            ["7049_hq.jpg", "7049_f.jpg", "7049.jpg", "7049.png"]
+        );
         let tile = card_size(400.0);
         assert!((tile.x / tile.y - CARD_ASPECT).abs() < 0.01, "{tile:?}");
         // the game's narrower face in a card tile: full height, bars at the sides, nothing cut
@@ -3021,7 +3133,10 @@ mod tests {
                 mat = Some(Mat::column(ui.cursor().min, ui.available_width()));
                 formation_board(ui, b, &links, Some(0.5), crate::Lang::En, true, true);
                 let big = ui.data(|d| d.get_temp::<PaneAsk>(pane_id()).is_some());
-                let sel = ui.data(|d| d.get_temp::<Option<u32>>(Id::new("board-select")).flatten());
+                let sel = ui.data(|d| {
+                    d.get_temp::<Option<u32>>(Id::unique("board-select"))
+                        .flatten()
+                });
                 seen = (take_touched(ui).map(|c| c.number), big || sel.is_some());
             })
             .textures_delta
@@ -3082,7 +3197,10 @@ mod tests {
             ctx.run_ui(raw, |ui| {
                 mat = Some(Mat::column(ui.cursor().min, ui.available_width()));
                 formation_board(ui, b, &links, Some(0.5), crate::Lang::En, true, false);
-                let sel = ui.data(|d| d.get_temp::<Option<u32>>(Id::new("board-select")).flatten());
+                let sel = ui.data(|d| {
+                    d.get_temp::<Option<u32>>(Id::unique("board-select"))
+                        .flatten()
+                });
                 seen = (
                     sel,
                     egui::DragAndDrop::has_payload_of_type::<usize>(ui.ctx()),
@@ -3623,21 +3741,88 @@ mod tests {
         ));
     }
 
+    /// The downloaded 664x911 pictures, browsed one a pass past 300 cards as in the panel: each texture shrunk to fit
+    /// [`HQ_MAX`], and the textures kept stay within [`PICTURE_BYTES`] plus the cards on screen. Prints the peak.
+    #[test]
+    fn downloaded_pictures_stay_within_the_byte_bound() {
+        let dir = tempfile::tempdir().unwrap();
+        let big = image::RgbImage::from_fn(664, 911, |x, y| image::Rgb([x as u8, y as u8, 7]));
+        big.save(dir.path().join("0_hq.jpg")).unwrap();
+        let n = 300u32;
+        for i in 1..=n {
+            std::fs::copy(
+                dir.path().join("0_hq.jpg"),
+                dir.path().join(format!("{i}_hq.jpg")),
+            )
+            .unwrap();
+        }
+        let ctx = egui::Context::default();
+        egui_extras::install_image_loaders(&ctx);
+        ctx.add_image_loader(Arc::new(HqLoader::default()));
+        ctx.options_mut(|o| o.reduce_texture_memory = true);
+        // (all, the largest one)
+        let hq_bytes = |ctx: &egui::Context| -> (usize, usize) {
+            ctx.tex_manager()
+                .read()
+                .allocated()
+                .filter(|(_, m)| m.name.ends_with("_hq.jpg"))
+                .map(|(_, m)| {
+                    assert!(
+                        m.size[0] as u32 <= HQ_MAX.0 && m.size[1] as u32 <= HQ_MAX.1,
+                        "{:?}",
+                        m.size
+                    );
+                    m.size[0] * m.size[1] * m.bytes_per_pixel
+                })
+                .fold((0, 0), |(all, one), b| (all + b, one.max(b)))
+        };
+        let (mut peak, mut one) = (0, 0);
+        for i in 0..n {
+            let mut ready = false;
+            for _ in 0..4000 {
+                ctx.run_ui(egui::RawInput::default(), |_| {
+                    ready = card_picture_texture(&ctx, dir.path(), i).is_some();
+                    let _ = card_picture_texture(&ctx, dir.path(), n); // a card on screen all along
+                })
+                .textures_delta
+                .clear();
+                if ready {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            assert!(ready, "card {i} loaded");
+            let (all, largest) = hq_bytes(&ctx);
+            (peak, one) = (peak.max(all), one.max(largest));
+        }
+        println!(
+            "downloaded pictures: {} KB a texture, peak {:.1} MB of textures for {n} cards browsed",
+            one / 1024,
+            peak as f64 / 1_048_576.0
+        );
+        assert!(peak <= PICTURE_BYTES + 2 * one, "{peak} bytes");
+        assert!(
+            peak >= PICTURE_BYTES - 2 * one,
+            "the bound is used: {peak} bytes"
+        );
+    }
+
     /// Past [`PICTURES_KEPT`] distinct pictures, the oldest are forgotten (their textures freed), while a picture
     /// drawn in every pass keeps its first texture.
     #[test]
     fn card_pictures_stay_bounded() {
         let dir = tempfile::tempdir().unwrap();
         let n = PICTURES_KEPT as u32 + 40;
-        // the album name, tried first: no missed name leaves its error in the loaders
+        // the name tried first: no missed name leaves its error in the loaders
         let px = image::RgbImage::from_pixel(2, 2, image::Rgb([9, 9, 9]));
         for i in 0..=n {
-            px.save(dir.path().join(format!("{i}_f.jpg"))).unwrap();
+            px.save(dir.path().join(format!("{i}_hq.jpg"))).unwrap();
         }
         // as the panel's contexts: a picture's file and decoded pixels go once its texture exists
         let new_ctx = || {
             let ctx = egui::Context::default();
             egui_extras::install_image_loaders(&ctx);
+            ctx.add_image_loader(Arc::new(HqLoader::default()));
             ctx.options_mut(|o| o.reduce_texture_memory = true);
             ctx
         };
@@ -3672,11 +3857,11 @@ mod tests {
             assert!(ready, "card {i} loaded");
         }
         let kept = ctx
-            .data(|d| d.get_temp::<RecentPictures>(Id::new("card-pictures-recent")))
+            .data(|d| d.get_temp::<RecentPictures>(Id::unique("card-pictures-recent")))
             .unwrap()
             .0;
         assert!(kept.len() <= PICTURES_KEPT, "{} kept", kept.len());
-        assert!(kept.keys().any(|u| u.ends_with(&format!("{still}_f.jpg"))));
+        assert!(kept.keys().any(|u| u.ends_with(&format!("{still}_hq.jpg"))));
         // the textures: the kept pictures and the font atlas
         let textures = ctx.tex_manager().read().num_allocated();
         assert!(textures <= PICTURES_KEPT + 1, "{textures} textures");

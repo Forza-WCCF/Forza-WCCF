@@ -35,7 +35,7 @@ const TABS_H: f32 = 56.0;
 /// The deck row under the picture keeps at least this; on wide sheets the picture stops growing first.
 const DECK_MIN: f32 = 148.0;
 /// What the board's height needs per point of pitch width (pitch 1.25, the artwork's bench 0.205) and besides (margins 32,
-/// gaps 12, and the foot: a gap 4, the row of buttons 22, a gap 8 and a hint line 23).
+/// gaps 12, and the foot: a gap 4, the row of buttons 22, a gap 8 and a line 23: the hint, or a note and its UNDO 22).
 const BOARD_PER_W: f32 = 1.455;
 const BOARD_EXTRA: f32 = 101.0;
 /// The pop-out board's window lays its bench beside the pitch (a column, [`board::COLUMN_ASPECT`]) when its room is at
@@ -477,6 +477,12 @@ pub struct Note {
 }
 
 const NOTE_SECS: f64 = 4.0;
+/// How long the server's notice stays across the top of the game picture.
+pub const BANNER_SECS: f64 = 30.0;
+
+/// The CATALOGUE filter's country and club list boxes: wide enough for "Argentina (231)", narrow enough that both
+/// fit on one line beside their labels in English, Italian and Japanese.
+const COMBO_W: f32 = 136.0;
 
 impl Note {
     pub fn new(tone: Tone, text: String) -> Note {
@@ -493,6 +499,14 @@ impl Note {
         Note {
             secs: IMPORT_UNDO_SECS,
             ..Note::new(tone, text)
+        }
+    }
+
+    /// The server's notice across the top of the game picture ([`PanelState::banner`]): shown for [`BANNER_SECS`].
+    pub fn banner(text: String) -> Note {
+        Note {
+            secs: BANNER_SECS,
+            ..Note::new(Tone::Notice, text)
         }
     }
 
@@ -584,6 +598,8 @@ pub struct PanelState {
     pub ping_ms: u32,
     /// The last thing done, refused or worth knowing; one line for every page.
     pub message: Option<Note>,
+    /// The server's notice, across the top of the game picture on the game page ([`Note::banner`]).
+    pub banner: Option<Note>,
     pub catalogue: Catalogue,
     /// Each action's key (virtual-key code, 0 none) and controller control (`forza::keys`), in [`ACTIONS`] order.
     pub keys: [u32; forza::keys::COUNT],
@@ -685,8 +701,11 @@ pub struct PanelState {
     pub seat_on: bool,
     /// The table differs from `before_match`: RESET LINEUP is offered, greyed out while `in_match`.
     pub reset_ready: bool,
-    /// RESET LINEUP clicked: the panel DLL calls [`take_reset`].
+    /// RESET LINEUP's CONFIRM clicked: the panel DLL calls [`take_reset`].
     pub reset_lineup: bool,
+    /// RESET LINEUP clicked: its dialog shows the kept table until CONFIRM or CANCEL; `Some(true)`: on the board
+    /// window ([`PanelState::desk`]), as FORMATIONS does.
+    pub reset_ask: Option<bool>,
     /// A slot clicked to load: the panel DLL calls [`load_formation`].
     pub formation_load: Option<usize>,
     /// SAVE confirmed (slot, name): the panel DLL writes the table into the slot.
@@ -742,6 +761,7 @@ impl PanelState {
             online: false,
             ping_ms: 0,
             message: None,
+            banner: None,
             catalogue: Catalogue::default(),
             keys: forza::keys::defaults(edition == Edition::E1718),
             pads: [0; forza::keys::COUNT],
@@ -793,6 +813,7 @@ impl PanelState {
             seat_on: true,
             reset_ready: false,
             reset_lineup: false,
+            reset_ask: None,
             formation_load: None,
             formation_save: None,
             formation_copy: None,
@@ -1195,12 +1216,27 @@ pub fn lineup_tick(
         .before_match
         .as_ref()
         .is_some_and(|b| lineup_differs(b, placed));
+    if !st.reset_ready || st.in_match {
+        st.reset_ask = None;
+    }
 }
 
 /// The table a match begins with, kept for RESET LINEUP, and when.
 fn keep_table(st: &mut PanelState, placed: &[Placed]) {
     let t = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
     st.before_match = Some(placed.to_vec());
+    st.before_match_at = Some(format!("{:02}:{:02}", t.hour(), t.minute()));
+}
+
+/// The table an earlier run kept when its last match began (the panel DLL's copy beside the table), `at` the copy's
+/// time: RESET LINEUP offers it from the start, until the next match keeps its own. An empty table keeps nothing.
+pub fn keep_saved(st: &mut PanelState, table: Vec<Placed>, at: std::time::SystemTime) {
+    if table.is_empty() {
+        return;
+    }
+    let t = time::OffsetDateTime::from(at);
+    let t = time::UtcOffset::current_local_offset().map_or(t, |o| t.to_offset(o));
+    st.before_match = Some(table);
     st.before_match_at = Some(format!("{:02}:{:02}", t.hour(), t.minute()));
 }
 
@@ -1391,9 +1427,13 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
         Stroke::new(1.0, theme::RIM),
     );
     game_picture(ui, pic, st.picture);
+    if st.page == Page::Game {
+        banner(ui, pic, &mut st.banner);
+    }
     // the dealt card and the dialogs drawn here cover the picture: clicks there are theirs, not the game's
     let dialog = st.import_ask.is_some()
-        || (st.formations.is_some() && (!st.formations_desk || !st.file.board_window));
+        || (st.formations.is_some() && (!st.formations_desk || !st.file.board_window))
+        || (st.reset_ask.is_some() && (st.reset_ask == Some(false) || !st.file.board_window));
     st.picture_rect =
         (st.page == Page::Game && st.deal.is_none() && !st.close_warn && !dialog).then_some(pic);
     // popped out the deck is the column's: COMPACT is the docked layout's choice
@@ -1434,6 +1474,9 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
     } else if st.formations.is_some() && (!st.formations_desk || !st.file.board_window) {
         st.formations_desk = false; // the board window closed under it: the dialog comes back to the game window
         formations_dialog(ui, st, lang);
+    } else if st.reset_ask.is_some() && (st.reset_ask == Some(false) || !st.file.board_window) {
+        st.reset_ask = Some(false);
+        reset_dialog(ui, st, lang);
     }
     if st.page != Page::Game {
         let mut pg = ui.new_child(egui::UiBuilder::new().max_rect(above));
@@ -1466,7 +1509,7 @@ fn touched_card(ui: &Ui, st: &mut PanelState, area: Rect, lang: Lang) {
 fn paused(ui: &Ui, pic: Rect, lang: Lang, key: &str, left: u64) {
     let p = ui.ctx().layer_painter(egui::LayerId::new(
         egui::Order::Foreground,
-        egui::Id::new("paused"),
+        egui::Id::unique("paused"),
     ));
     p.rect_filled(pic, 0, Color32::from_black_alpha(150));
     let r = Rect::from_center_size(pic.center(), vec2((pic.width() - 40.0).min(560.0), 150.0));
@@ -1511,7 +1554,7 @@ fn paused(ui: &Ui, pic: Rect, lang: Lang, key: &str, left: u64) {
 /// while the dialog is open.
 fn close_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let edition = st.edition;
-    let modal = egui::Modal::new(egui::Id::new("close-dialog"))
+    let modal = egui::Modal::new(egui::Id::unique("close-dialog"))
         .backdrop_color(Color32::from_black_alpha(170))
         .frame(
             egui::Frame::new()
@@ -1576,7 +1619,7 @@ fn import_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let Some(ask) = st.import_ask.clone() else {
         return;
     };
-    let modal = egui::Modal::new(egui::Id::new("import-dialog"))
+    let modal = egui::Modal::new(egui::Id::unique("import-dialog"))
         .backdrop_color(Color32::from_black_alpha(170))
         .frame(
             egui::Frame::new()
@@ -1633,6 +1676,119 @@ fn import_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     }
 }
 
+/// RESET LINEUP's question: the kept table as a squad list (the pitch by position, left to right, then the subs), the
+/// cards that change place in gold. CONFIRM (or Enter) asks the panel DLL for [`take_reset`]; CANCEL (or Esc) leaves
+/// the table as it is.
+fn reset_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
+    let Some(kept) = st.before_match.as_deref() else {
+        st.reset_ask = None;
+        return;
+    };
+    let kept = cards::board(kept, &st.cards);
+    let now = &st.board;
+    let pitch_now: Vec<u32> = (0..11).filter_map(|s| now.number(s)).collect();
+    let bench_now: Vec<u32> = (11..16).filter_map(|s| now.number(s)).collect();
+    // one row per position, the subs last: (label, [(name, changes place)])
+    let mut rows: Vec<(String, Vec<(String, bool)>)> = Vec::new();
+    for pos in Position::ALL {
+        let mut on: Vec<usize> = (0..11)
+            .filter(|&s| kept.slots[s].is_some_and(|ci| kept.cards[ci].pos == pos))
+            .collect();
+        on.sort_by(|&a, &b| kept.spots[a].x.total_cmp(&kept.spots[b].x));
+        let names = on
+            .iter()
+            .filter_map(|&s| kept.slots[s].map(|ci| &kept.cards[ci]))
+            .map(|c| (c.short_name().to_owned(), !pitch_now.contains(&c.number)))
+            .collect::<Vec<_>>();
+        if !names.is_empty() {
+            rows.push((pos.code().to_owned(), names));
+        }
+    }
+    let subs: Vec<_> = (11..16)
+        .filter_map(|s| kept.slots[s].map(|ci| &kept.cards[ci]))
+        .map(|c| (c.short_name().to_owned(), !bench_now.contains(&c.number)))
+        .collect();
+    if !subs.is_empty() {
+        rows.push((tr!(lang, "board.reset_subs"), subs));
+    }
+    let at = st.before_match_at.clone().unwrap_or_default();
+    let modal = egui::Modal::new(egui::Id::unique("reset-dialog"))
+        .backdrop_color(Color32::from_black_alpha(170))
+        .frame(
+            egui::Frame::new()
+                .fill(Color32::from_rgba_unmultiplied(10, 16, 28, 240))
+                .stroke(Stroke::new(3.0, theme::GOLD))
+                .corner_radius(theme::RADIUS_BIG)
+                .inner_margin(24),
+        )
+        .show(ui.ctx(), |ui| {
+            ui.set_width(440.0);
+            ui.spacing_mut().item_spacing.y = 10.0;
+            ui.vertical_centered(|ui| {
+                ui.label(
+                    egui::RichText::new(tr!(lang, "board.reset_ask_title"))
+                        .font(theme::display(32.0))
+                        .color(theme::GOLD),
+                );
+                ui.label(
+                    egui::RichText::new(tr!(lang, "board.reset_to", at = at))
+                        .font(theme::body(15.0))
+                        .color(theme::TEXT_DIM),
+                );
+            });
+            for (label, names) in &rows {
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = 10.0;
+                    let (r, _) = ui.allocate_exact_size(vec2(44.0, 20.0), Sense::hover());
+                    ui.painter().text(
+                        r.left_center(),
+                        Align2::LEFT_CENTER,
+                        label,
+                        theme::bold(14.0),
+                        theme::TEXT_DIM,
+                    );
+                    for (name, moves) in names {
+                        ui.label(
+                            egui::RichText::new(name)
+                                .font(theme::body(16.0))
+                                .color(if *moves { theme::GOLD } else { theme::TEXT }),
+                        );
+                    }
+                });
+            }
+            ui.label(
+                egui::RichText::new(tr!(lang, "board.reset_moves"))
+                    .font(theme::body(13.0))
+                    .color(theme::GOLD),
+            );
+            ui.add_space(6.0);
+            let go = widgets::cabinet(
+                ui,
+                vec2(440.0, 56.0),
+                &tr!(lang, "cat.ask_confirm"),
+                Cab::Go,
+                true,
+            );
+            let cancel = widgets::cabinet(
+                ui,
+                vec2(440.0, 44.0),
+                &tr!(lang, "cat.ask_cancel"),
+                Cab::Plain,
+                false,
+            );
+            (go, cancel)
+        });
+    let (go, cancel) = modal.inner;
+    let enter = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+    let esc = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+    if cancel.clicked() || esc {
+        st.reset_ask = None;
+    } else if go.clicked() || enter {
+        st.reset_ask = None;
+        st.reset_lineup = true;
+    }
+}
+
 /// FORMATIONS: ten slots, each its name (or Empty), the club it was saved from and the day. LOAD puts a slot's cards
 /// on the table (greyed out during a match, the reason under the list); SAVE asks for a name (REPLACE when the slot is
 /// filled) and stores the table at any time; COPY TEXT puts the slot's lineup, COPY TABLE AS TEXT the table's, on the
@@ -1643,7 +1799,7 @@ fn formations_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     };
     let in_match = st.in_match;
     let mut close = false;
-    let modal = egui::Modal::new(egui::Id::new("formations-dialog"))
+    let modal = egui::Modal::new(egui::Id::unique("formations-dialog"))
         .backdrop_color(Color32::from_black_alpha(170))
         .frame(
             egui::Frame::new()
@@ -1752,7 +1908,7 @@ fn formations_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             if let Some((i, name)) = &mut f.naming {
                 let i = *i;
                 ui.separator();
-                ui.label(
+                let label = ui.label(
                     egui::RichText::new(tr!(lang, "form.name_for", n = i + 1))
                         .font(theme::bold(15.0))
                         .color(theme::TEXT),
@@ -1765,13 +1921,15 @@ fn formations_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                         &tr!(lang, "form.replaces", name = o.name.clone()),
                     );
                 }
-                let edit = ui.add(
-                    egui::TextEdit::singleline(name)
-                        .id_salt("form-name")
-                        .char_limit(40)
-                        .font(theme::body(16.0))
-                        .desired_width(f32::INFINITY),
-                );
+                let edit = ui
+                    .add(
+                        egui::TextEdit::singleline(name)
+                            .id_salt("form-name")
+                            .char_limit(40)
+                            .font(theme::body(16.0))
+                            .desired_width(f32::INFINITY),
+                    )
+                    .labelled_by(label.id);
                 if !edit.has_focus() {
                     edit.request_focus();
                 }
@@ -1852,7 +2010,7 @@ fn deal_window(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
     };
     let size = vec2(360.0, 640.0f32.min(area.height() - 20.0));
     let r = Rect::from_center_size(area.center(), size);
-    let resp = egui::Area::new(egui::Id::new("deal"))
+    let resp = egui::Area::new(egui::Id::unique("deal"))
         .order(egui::Order::Foreground)
         .fixed_pos(r.min)
         .show(ui.ctx(), |ui| {
@@ -1882,7 +2040,7 @@ fn deal_window(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
                     "deal.title"
                 }
             );
-            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &title));
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &title));
             let g = widgets::fit(&p, &title, theme::display(28.0), col, size.x - 24.0);
             p.galley(
                 pos2(r.center().x - g.size().x / 2.0, r.top() + 14.0),
@@ -2699,6 +2857,9 @@ fn board_window(ui: &mut Ui, st: &mut PanelState, lang: Lang, sheet: Rect) {
     if st.formations_desk {
         formations_dialog(ui, st, lang);
     }
+    if st.reset_ask == Some(true) {
+        reset_dialog(ui, st, lang);
+    }
 }
 
 /// Under a board: a card just taken off (its name and UNDO) or a lineup just imported (its UNDO) at the left, POP OUT
@@ -2756,7 +2917,9 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
         let button = egui::Button::new(label).wrap_mode(egui::TextWrapMode::Extend);
         let hint = reset_hint(st, lang);
         let r = c.add_enabled(ready, button);
-        st.reset_lineup |= r.clicked();
+        if r.clicked() {
+            st.reset_ask = Some(st.desk);
+        }
         r.on_hover_text(&hint).on_disabled_hover_text(&hint);
         // FORMATIONS at its left: the same dialog as the catalogue's button
         let label = egui::RichText::new(tr!(lang, "form.open")).font(theme::bold(12.0));
@@ -2794,6 +2957,9 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
         row.with_max_x(left - 8.0)
     };
     let mut b = b.new_child(egui::UiBuilder::new().max_rect(text));
+    // an UNDO row no higher than the hint's line: the theme's 32-point buttons, centred on it, rose into the row over it
+    b.spacing_mut().interact_size.y = 22.0;
+    b.spacing_mut().button_padding.y = 2.0;
     if import_undo_line(&mut b, st, lang, now) {
         return None;
     }
@@ -2808,7 +2974,7 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
                     .font(theme::body(HINT))
                     .color(theme::TEXT),
             );
-            if widgets::action(ui, &tr!(lang, "board.undo")).clicked() {
+            if foot_undo(ui, lang).clicked() {
                 st.board_changed |= board::undo(&mut st.board, &r);
                 st.undo = None;
             }
@@ -2860,11 +3026,20 @@ fn import_undo_line(ui: &mut Ui, st: &mut PanelState, lang: Lang, now: f64) -> b
             .font(theme::body(HINT))
             .color(theme::TEXT),
         );
-        if widgets::action(ui, &tr!(lang, "board.undo")).clicked() {
+        if foot_undo(ui, lang).clicked() {
             st.import_undone = true;
         }
     });
     true
+}
+
+/// UNDO under a board: 22 high in the type of the buttons above it, so its row fits the hint's line (23 points,
+/// [`BOARD_EXTRA`]).
+fn foot_undo(ui: &mut Ui, lang: Lang) -> egui::Response {
+    ui.add(
+        egui::Button::new(egui::RichText::new(tr!(lang, "board.undo")).font(theme::bold(12.0)))
+            .min_size(vec2(0.0, 22.0)),
+    )
 }
 
 /// How long UNDO stays offered after a card is taken off the board.
@@ -3129,6 +3304,50 @@ fn note_height(ctx: &egui::Context, message: Option<&Note>, width: f32) -> f32 {
     }
 }
 
+/// The server's notice across the top of the game picture, while its time lasts; the dialogs drawn after it cover it,
+/// and clicks go through it to the game.
+fn banner(ui: &mut Ui, pic: Rect, note: &mut Option<Note>) {
+    let now = ui.input(|i| i.time);
+    let Some(n) = note else { return };
+    let at = *n.shown.get_or_insert(now);
+    if now - at >= n.secs {
+        *note = None;
+        return;
+    }
+    ui.ctx()
+        .request_repaint_after(std::time::Duration::from_secs_f64(n.secs - (now - at)));
+    let col = n.tone.color();
+    let r = ui
+        .scope_builder(egui::UiBuilder::new().max_rect(pic), |ui| {
+            egui::Frame::new()
+                .fill(theme::NIGHT.gamma_multiply(0.9))
+                .inner_margin(egui::Margin::symmetric(24, 10))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.vertical_centered(|ui| {
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(&n.text)
+                                    .color(theme::TEXT)
+                                    .font(theme::body(20.0)),
+                            )
+                            .selectable(false),
+                        );
+                    });
+                })
+                .response
+        })
+        .inner;
+    ui.painter().rect_filled(
+        Rect::from_min_size(
+            pos2(r.rect.left(), r.rect.bottom() - 2.0),
+            vec2(r.rect.width(), 2.0),
+        ),
+        0,
+        col,
+    );
+}
+
 /// The message line, while its time lasts.
 fn note_line(ui: &mut Ui, message: &mut Option<Note>) {
     let now = ui.input(|i| i.time);
@@ -3177,6 +3396,7 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                         .desired_width(f32::INFINITY)
                         .margin(vec2(12.0, 8.0)),
                 )
+                .accessible_name(tr!(lang, "cat.search_hint"))
             },
         )
         .inner;
@@ -3205,20 +3425,22 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                 f.pos = i + 1;
             }
         }
-        ui.add_space(16.0);
+        ui.add_space(8.0);
         let index = c.index.as_ref();
-        field(ui, &tr!(lang, "cat.country"), 80.0);
+        let country = field(ui, &tr!(lang, "cat.country"), 80.0);
         combo(
             ui,
             "country",
+            country.id,
             &mut f.country,
             index.map_or(&[][..], |x| &x.countries),
             lang,
         );
-        field(ui, &tr!(lang, "cat.club"), 56.0);
+        let club = field(ui, &tr!(lang, "cat.club"), 56.0);
         combo(
             ui,
             "club",
+            club.id,
             &mut f.club,
             index.map_or(&[][..], |x| &x.clubs),
             lang,
@@ -3566,23 +3788,37 @@ fn card_view(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     }
 }
 
-fn combo(ui: &mut Ui, id: &str, value: &mut String, options: &[(String, usize)], lang: Lang) {
+fn combo(
+    ui: &mut Ui,
+    id: &str,
+    label: egui::Id,
+    value: &mut String,
+    options: &[(String, usize)],
+    lang: Lang,
+) {
     let all = tr!(lang, "cat.all");
     let shown = if value.is_empty() {
         all.clone()
     } else {
         value.clone()
     };
-    egui::ComboBox::from_id_salt(id)
-        .selected_text(shown)
-        .width(150.0)
-        .height(400.0)
-        .show_ui(ui, |ui| {
-            ui.selectable_value(value, String::new(), all);
-            for (o, n) in options {
-                ui.selectable_value(value, o.clone(), format!("{o} ({n})"));
-            }
-        });
+    // 0.37's combo grows to the space it is offered, and the wrapped row then moves it to the next line (a box
+    // 150 wide touched the pane's edge even on 0.36): it gets its own slot, which the row can measure
+    let slot = vec2(COMBO_W, ui.spacing().interact_size.y);
+    ui.allocate_ui_with_layout(slot, egui::Layout::top_down(egui::Align::Min), |ui| {
+        egui::ComboBox::from_id_salt(id)
+            .selected_text(shown)
+            .width(COMBO_W)
+            .height(400.0)
+            .show_ui(ui, |ui| {
+                ui.selectable_value(value, String::new(), all);
+                for (o, n) in options {
+                    ui.selectable_value(value, o.clone(), format!("{o} ({n})"));
+                }
+            })
+            .response
+            .labelled_by(label);
+    });
 }
 
 /// The card's partners by affinity, best first (from the game's own files), a tick on those already on the table.
@@ -4254,19 +4490,21 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                 } else {
                     st.address.clear();
                     st.say(Tone::Notice, "settings.msg_type_address");
-                    ui.memory_mut(|m| m.request_focus(egui::Id::new("settings-address")));
+                    ui.memory_mut(|m| m.request_focus(egui::Id::unique("settings-address")));
                 }
             }
             // the server's address: digits and dots; Enter (or a click elsewhere) keeps a good one, Esc leaves it
-            let r = ui.add(
-                egui::TextEdit::singleline(&mut st.address)
-                    .id(egui::Id::new("settings-address"))
-                    .char_limit(15)
-                    .hint_text(tr!(lang, "settings.address_hint"))
-                    .font(theme::mono(15.0))
-                    .desired_width(w)
-                    .margin(vec2(10.0, 7.0)),
-            );
+            let r = ui
+                .add(
+                    egui::TextEdit::singleline(&mut st.address)
+                        .id(egui::Id::unique("settings-address"))
+                        .char_limit(15)
+                        .hint_text(tr!(lang, "settings.address_hint"))
+                        .font(theme::mono(15.0))
+                        .desired_width(w)
+                        .margin(vec2(10.0, 7.0)),
+                )
+                .accessible_name(tr!(lang, "settings.address_hint"));
             st.address.retain(|c| c.is_ascii_digit() || c == '.');
             if r.lost_focus() {
                 if ui.input(|i| i.key_pressed(egui::Key::Escape)) || st.address == st.file.server {
@@ -4840,7 +5078,7 @@ pub struct WidgetSheet {
     pub seg: usize,
     pub range: (u8, u8),
     pub total: (u8, u8),
-    pub toggles: [bool; 2],
+    pub toggles: [bool; 1],
     pub launcher_lang: Lang,
 }
 
@@ -4851,7 +5089,7 @@ impl WidgetSheet {
             seg: 1,
             range: (8, 17),
             total: (60, 100),
-            toggles: [true, false],
+            toggles: [false],
             launcher_lang: lang,
         }
     }
@@ -5003,12 +5241,6 @@ pub fn widget_sheet(ui: &mut Ui, ws: &mut WidgetSheet) {
                     widgets::toggle_row(
                         ui,
                         &mut ws.toggles[0],
-                        &tr!(lang, "launcher.skip_tutorial"),
-                        &tr!(lang, "launcher.skip_tutorial_hint"),
-                    );
-                    widgets::toggle_row(
-                        ui,
-                        &mut ws.toggles[1],
                         &tr!(lang, "installer.opt_shortcuts"),
                         &tr!(lang, "installer.opt_shortcuts_hint"),
                     );
@@ -5401,8 +5633,9 @@ mod tests {
             st.popped = true;
             frame(&game_ctx, st, 1920.0, 1080.0, t, vec![]);
         };
-        let big =
-            |ctx: &egui::Context| ctx.memory(|m| m.area_rect(egui::Id::new("board-big")).is_some());
+        let big = |ctx: &egui::Context| {
+            ctx.memory(|m| m.area_rect(egui::Id::unique("board-big")).is_some())
+        };
         both(&mut st, 0.0, vec![egui::Event::PointerMoved(pos)]);
         assert!(st.touched.is_none());
         both(&mut st, 0.1, vec![press(true)]);
@@ -6016,7 +6249,10 @@ mod tests {
         lineup_tick(&mut st, None, None, &start);
         assert!(reset_hint(&st, Lang::En).starts_with("Already the lineup"));
         st.in_match = true;
-        assert_eq!(reset_hint(&st, Lang::En), "Not during a match");
+        assert_eq!(
+            reset_hint(&st, Lang::En),
+            "The lineup cannot be reset during a match."
+        );
     }
 
     /// The game leaves the seat's match flag on after a match: out of the match the table is neither kept again nor
