@@ -3568,6 +3568,8 @@ fn input(board: bool, m: u32, wp: WPARAM, lp: LPARAM) -> bool {
                 unit: egui::MouseWheelUnit::Line,
                 delta: vec2(0.0, f32::from((wp.0 >> 16) as i16) / 120.0),
                 phase: egui::TouchPhase::Move,
+                // WM_MOUSEWHEEL says nothing about a wheel or a touchpad: both arrive the same
+                source: egui::MouseWheelSource::Unknown,
                 modifiers,
             }],
             false,
