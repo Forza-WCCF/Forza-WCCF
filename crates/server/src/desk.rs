@@ -1492,6 +1492,7 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
     }
     let stopped = stop.clone();
     threads.push(thread::spawn(move || {
+        let (log, mut said) = (sh.log.clone(), None);
         for conn in listener.incoming() {
             if stopped.load(Ordering::Relaxed) {
                 break;
@@ -1516,7 +1517,11 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
                     crate::hang_up(keep);
                 }
             };
-            let _ = spawn_in(slot, work, |f| thread::Builder::new().spawn(f).map(drop));
+            if let Err(e) = spawn_in(slot, work, |f| thread::Builder::new().spawn(f).map(drop))
+                && forza::service::once_a_minute(&mut said)
+            {
+                log(&format!("{peer}: dropped, cannot start a thread ({e})"));
+            }
         }
     }));
     Ok(Handle::new(addr, stop, true, threads, tickers))
@@ -1533,15 +1538,27 @@ mod tests {
     fn a_failed_spawn_drops_the_connection_and_frees_its_slot() {
         let open = Arc::default();
         let ran = Arc::new(AtomicBool::new(false));
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut pc = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (conn, _) = listener.accept().unwrap();
         let slot = Slot::take(&open, "203.0.113.9".into(), false).unwrap();
         let r = ran.clone();
         let failed = spawn_in(
             slot,
-            move || r.store(true, Ordering::Relaxed),
+            move || {
+                let _conn = conn;
+                r.store(true, Ordering::Relaxed);
+            },
             |_| Err(io::Error::other("no threads left")),
         );
         assert!(failed.is_err() && !ran.load(Ordering::Relaxed));
         assert!(open.lock().unwrap().is_empty(), "the slot is given back");
+        pc.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        assert_eq!(
+            pc.read(&mut [0u8; 1]).unwrap(),
+            0,
+            "the connection is closed"
+        );
         let slot = Slot::take(&open, "203.0.113.9".into(), false).unwrap();
         let (tx, rx) = mpsc::channel();
         spawn_in(

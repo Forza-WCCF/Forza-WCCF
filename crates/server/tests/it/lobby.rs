@@ -3,7 +3,7 @@
 
 use forza::online::lobby::{self, Lobby, Reserved, State};
 use forza_server::desk::{DeskConfig, start};
-use forza_server::{Edition, Handle};
+use forza_server::{Edition, HANG_UP, Handle};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
@@ -210,18 +210,18 @@ fn per_address_connection_cap() {
 }
 
 /// A PC that never reads our answer and never hangs up, but sends a byte now and then (well inside any per-read
-/// timeout), is cut off once the desk's hang-up deadline (3 s) has passed.
+/// timeout), is cut off once the desk's hang-up deadline ([`HANG_UP`]) has passed, and not long after.
 #[test]
 fn a_client_that_never_reads_or_closes_is_dropped_after_the_deadline() {
     let d = desk(|_| {});
     let mut c = TcpStream::connect(d.addr()).unwrap();
+    let t = Instant::now(); // before the line, so the desk's deadline cannot start earlier
     c.write_all(b"REPORT\n").unwrap();
-    let t = Instant::now();
     while c.write_all(b"x").is_ok() {
-        assert!(t.elapsed() < Duration::from_secs(8), "still held");
+        assert!(t.elapsed() < HANG_UP + Duration::from_secs(2), "still held");
         std::thread::sleep(Duration::from_millis(200));
     }
-    assert!(t.elapsed() >= Duration::from_secs(2), "{:?}", t.elapsed());
+    assert!(t.elapsed() >= HANG_UP, "{:?}", t.elapsed());
 }
 
 /// Connections the desk is still hanging up on keep their slot until the hang-up ends, so one address cannot get
@@ -253,7 +253,7 @@ fn connections_past_the_cap_are_refused_while_held_ones_keep_working() {
         "the held one still works"
     );
     // the hang-ups end at their deadline and give the slots back
-    std::thread::sleep(Duration::from_millis(3500).saturating_sub(t.elapsed()));
+    std::thread::sleep((HANG_UP + Duration::from_millis(500)).saturating_sub(t.elapsed()));
     assert!(say(d.addr(), "LOBBY 2017-18").starts_with('{'));
     drop(hanging);
 }

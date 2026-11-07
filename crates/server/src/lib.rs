@@ -147,4 +147,4 @@ pub(crate) fn hang_up(conn: TcpStream) {
 }
 
 /// How long [`hang_up`] waits in all for the PC to hang up.
-pub(crate) const HANG_UP: Duration = Duration::from_secs(3);
+pub const HANG_UP: Duration = Duration::from_secs(3);
