@@ -222,6 +222,7 @@ static ADDR_LOGGED: [AtomicBool; BLOCKED_ADDRS.len()] =
 
 /// The [`BLOCKED_ADDRS`] index and port of a socket address (`AF_INET`, or `AF_INET6` holding a mapped IPv4) that is
 /// one of them; None for every other address and for anything too short to read.
+#[cfg_attr(all(test, not(debug_assertions)), no_panic::no_panic)]
 fn blocked_dest(sa: &[u8]) -> Option<(usize, u16)> {
     let family = u16::from_le_bytes(sa.get(..2)?.try_into().ok()?);
     let port = u16::from_be_bytes(sa.get(2..4)?.try_into().ok()?);
