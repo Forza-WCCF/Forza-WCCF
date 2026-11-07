@@ -1,6 +1,6 @@
 //! Card sizes from the card pictures' own size. The HQ pack's scans are all 180x254 pixels (7,601 pictures, 99.99 %
 //! within a pixel), so a card is drawn at a whole fraction of that in physical pixels (1, 1/2, 1/3: a clean downscale)
-//! or, for the thumbnail grid only, 1.5x. Points convert with `pixels_per_point`, so Windows scaling (100/125/150/200 %)
+//! or, for the thumbnail grid only, 1.5x or 2x (the downloaded 664x911 pictures fill those). Points convert with `pixels_per_point`, so Windows scaling (100/125/150/200 %)
 //! changes the point size, never the sharpness.
 
 use egui::{Vec2, vec2};
@@ -10,9 +10,10 @@ pub const NATIVE: Vec2 = vec2(180.0, 254.0);
 /// The grid's gap between cards, in points.
 pub const GAP: f32 = 10.0;
 /// The grid shows at least this many cards per row on a window wide enough for one.
-const MIN_COLS: usize = 6;
-/// Grid card widths as a part of the scan: 1.5x (the one upscale: a thumbnail), native, then clean downscales.
-const GRID_STEPS: [f32; 4] = [1.5, 1.0, 0.5, 1.0 / 3.0];
+const MIN_COLS: usize = 4;
+/// Grid card widths as a part of the scan: 2x and 1.5x (upscales of the scan, downscales of the 664x911 pictures),
+/// native, then clean downscales.
+const GRID_STEPS: [f32; 5] = [2.0, 1.5, 1.0, 0.5, 1.0 / 3.0];
 /// The hover card's face is about this wide in points; its size is the whole-fraction of the scan nearest to it.
 const HOVER_PTS: f32 = 100.0;
 
@@ -83,10 +84,10 @@ mod tests {
     #[test]
     fn the_grid_follows_the_pictures_own_size() {
         for (w, h, dpi, cols_min, cols_max) in [
-            (1920.0, 1080.0, 96.0, 6, 9),  // 1080p at 100 %: half size, sharp
-            (2560.0, 1440.0, 120.0, 6, 9), // 1440p at 125 %
-            (3840.0, 2160.0, 96.0, 6, 9),  // 4K at 100 %: 12 before
-            (3840.0, 2160.0, 144.0, 6, 9), // 4K at 150 %
+            (1920.0, 1080.0, 96.0, 4, 6),  // 1080p at 100 %: native size
+            (2560.0, 1440.0, 120.0, 4, 6), // 1440p at 125 %
+            (3840.0, 2160.0, 96.0, 4, 6),  // 4K at 100 %
+            (3840.0, 2160.0, 144.0, 4, 6), // 4K at 150 %
         ] {
             let (a, ppp) = avail(w, h, dpi);
             let g = grid(a, ppp);
@@ -97,7 +98,7 @@ mod tests {
             // whole physical pixels: a card of a clean fraction of the scan (or 1.5x)
             let px = g.card.x * ppp;
             assert!(
-                [270.0, 180.0, 90.0, 60.0]
+                [360.0, 270.0, 180.0, 90.0, 60.0]
                     .iter()
                     .any(|n| (px - n).abs() < 0.01),
                 "{px}"
