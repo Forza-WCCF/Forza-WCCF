@@ -74,6 +74,10 @@ windows.workspace = true
 [lints]
 workspace = true
 
+[dev-dependencies]
+# the property tests: `online::save_logs`, `online::gamesvr` and `standins::card_reader`
+proptest.workspace = true
+
 [[example]]
 name = "catalogue"
 required-features = ["full"]
