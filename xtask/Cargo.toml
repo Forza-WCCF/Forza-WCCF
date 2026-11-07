@@ -20,6 +20,8 @@ zip.workspace = true
 
 [lints]
 workspace = true
+# clippy::pedantic (deny, this crate only) is in src/main.rs: Cargo cannot combine `workspace = true` with the
+# `priority = -1` that entry needs, and copying the workspace's lints here would let them drift
 
 [dev-dependencies]
 # the property tests of `mask` and `names_publisher`

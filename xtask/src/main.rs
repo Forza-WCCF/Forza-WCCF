@@ -1,3 +1,11 @@
+#![deny(clippy::pedantic)]
+// the doc comments are the `cargo xtask --help` text, which clap shows as it is, and quotes of file and API names
+#![allow(clippy::doc_markdown)]
+// each comparison uses a name xtask itself spells, or one already lowercased above it
+#![allow(clippy::case_sensitive_file_extension_comparisons)]
+// build, package and staging steps read top to bottom; a line limit would split them for its own sake
+#![allow(clippy::too_many_lines)]
+
 //! `cargo xtask build | check | package <edition> | stage <edition>`: the 2010-11 kit's build, checks and ZIP, replacing
 //! source/build.ps1, check.ps1 and package.ps1; the 2017-18 kit is staged and zipped from its committed programs.
 //!
@@ -14,6 +22,7 @@ use clap::Parser;
 use fs_err as fs;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::fmt::Write as _;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
@@ -1140,7 +1149,7 @@ fn target_scopes(scope: &[String], hook: &str) -> Vec<(&'static str, Vec<String>
     }
     if has_native {
         x86.extend(["-p", "forza-hook", "--features", hook].map(String::from));
-        x86.extend(NATIVE_CRATES.iter().map(|a| a.to_string()));
+        x86.extend(NATIVE_CRATES.iter().map(ToString::to_string));
     }
     [(TARGET, rest), (PANEL_TARGET, x86)]
         .into_iter()
@@ -1754,19 +1763,16 @@ fn mask(line: &str) -> String {
     let mut out = String::new();
     let mut i = 0;
     while i < line.len() {
-        match publisher()
+        if let Some(p) = publisher()
             .iter()
             .find(|p| lower[i..].starts_with(p.as_str()))
         {
-            Some(p) => {
-                out.push_str("<P>");
-                i += p.len();
-            }
-            None => {
-                let c = line[i..].chars().next().unwrap();
-                out.push(c);
-                i += c.len_utf8();
-            }
+            out.push_str("<P>");
+            i += p.len();
+        } else {
+            let c = line[i..].chars().next().unwrap();
+            out.push(c);
+            i += c.len_utf8();
         }
     }
     out
@@ -2085,6 +2091,15 @@ fn smoke_in(root: &Path, exe: &Path, dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The bytes' SHA-256 as lowercase hex: the spelling SHA256SUMS.txt, files.sha256 and the release's sums use.
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hex = String::with_capacity(64);
+    for b in Sha256::digest(bytes) {
+        let _ = write!(hex, "{b:02x}");
+    }
+    hex
+}
+
 /// `dist/`: the installer exe, its notices, `NAME.zip` of exactly those files, and SHA256SUMS.txt for the exe and the ZIP.
 /// NAME defaults to `Forza-WCCF-Installer-<version>-windows-x64`. Run `cargo xtask check` first (it builds the exe).
 fn package_installer(root: &Path, name: Option<String>) -> Result<()> {
@@ -2130,11 +2145,8 @@ fn package_installer(root: &Path, name: Option<String>) -> Result<()> {
     zip.finish()?;
     let mut sums = String::new();
     for n in [&exe_name, &zip_name] {
-        let hash: String = Sha256::digest(fs::read(dist.join(n))?)
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
-        sums.push_str(&format!("{hash}  {n}\n"));
+        let hash = sha256_hex(&fs::read(dist.join(n))?);
+        let _ = writeln!(sums, "{hash}  {n}");
     }
     fs::write(dist.join("SHA256SUMS.txt"), sums)?;
     let mut ar = zip::ZipArchive::new(fs::File::open(dist.join(&zip_name))?)?;
@@ -2344,11 +2356,8 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
     shipped.retain(|f| f != "files.txt" && f != "files.sha256");
     let mut sums = String::new();
     for f in &shipped {
-        let hash: String = Sha256::digest(fs::read(kit.join(f))?)
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
-        sums.push_str(&format!("{hash}  {}\r\n", f.replace('/', "\\")));
+        let hash = sha256_hex(&fs::read(kit.join(f))?);
+        let _ = write!(sums, "{hash}  {}\r\n", f.replace('/', "\\"));
     }
     fs::write(kit.join("files.sha256"), sums)?;
     shipped.insert("files.sha256".to_owned());
@@ -2395,16 +2404,15 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
     ensure!(missing.is_empty(), "the ZIP lacks: {}", missing.join(", "));
     println!("the ZIP has every program: {}", programs.join(", "));
 
-    let hash: String = Sha256::digest(fs::read(&zip_path)?)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
+    let hash = sha256_hex(&fs::read(&zip_path)?);
     let mut sha = fs::File::create(dist.join(format!("{name}.zip.sha256")))?;
     write!(sha, "{hash}  {name}.zip\r\n")?;
+    // a kit ZIP is far below 2^53 bytes, where f64 stops counting exactly
+    #[allow(clippy::cast_precision_loss)]
+    let mb = fs::metadata(&zip_path)?.len() as f64 / 1_048_576.0;
     println!(
-        "packaged {} ({:.1} MB, sha256 {hash})",
-        zip_path.display(),
-        fs::metadata(&zip_path)?.len() as f64 / 1048576.0
+        "packaged {} ({mb:.1} MB, sha256 {hash})",
+        zip_path.display()
     );
     Ok(())
 }
@@ -2483,10 +2491,7 @@ fn freeze_fpr_emu(root: &Path, kit: &Path) -> Result<()> {
     }();
     let _ = fs::remove_file(&zip_path);
     read?;
-    let got: String = Sha256::digest(&bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
+    let got = sha256_hex(&bytes);
     ensure!(
         got == hash,
         "the {tag} file is sha256 {got}, {FREEZE_FILE} says {hash}"
@@ -2540,7 +2545,6 @@ fn resource(file: &[u8], ty: u16) -> Result<&[u8]> {
 /// The string table of a PE file's version resource (ProductName, FileVersion, ...), read in Rust so it works on any host;
 /// the VS_VERSIONINFO block layout inside the data is parsed here.
 fn version_strings(file: &[u8]) -> Result<HashMap<String, String>> {
-    let data = resource(file, object::pe::RT_VERSION)?;
     // VS_VERSIONINFO: blocks of (length, value length, type, UTF-16 key, 4-aligned value, 4-aligned child blocks)
     fn blocks(d: &[u8], out: &mut HashMap<String, String>) {
         let u16_at = |i: usize| {
@@ -2581,6 +2585,7 @@ fn version_strings(file: &[u8]) -> Result<HashMap<String, String>> {
             at += a4(len);
         }
     }
+    let data = resource(file, object::pe::RT_VERSION)?;
     let mut out = HashMap::new();
     blocks(data, &mut out);
     Ok(out)
@@ -2728,7 +2733,7 @@ mod tests {
         // other rustflags give every crate another hash: the test build would compile the workspace a second time
         let _ = PROFILE.set("ci"); // the release tests build in the test profile, which shares nothing with the kits
         let root = Path::new("C:/repo");
-        let args = |c: &Command| c.get_args().map(|a| a.to_owned()).collect::<Vec<_>>();
+        let args = |c: &Command| c.get_args().map(ToOwned::to_owned).collect::<Vec<_>>();
         let config = |c: Command| {
             let a = args(&c);
             a.iter()
@@ -2748,7 +2753,7 @@ mod tests {
 
     #[test]
     fn the_32_bit_panel_is_linted_and_tested_for_its_own_target() {
-        let v = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let v = |a: &[&str]| a.iter().map(ToString::to_string).collect::<Vec<_>>();
         let native: Vec<String> = ["-p", "forza-hook", "--features", "f"]
             .into_iter()
             .chain(NATIVE_CRATES.iter().copied())
@@ -2793,12 +2798,12 @@ mod tests {
                 ("forza-panel", "native/panel", &[][..]),
             ]
             .map(|(n, d, deps)| {
-                let deps = deps.iter().map(|s| s.to_string()).collect();
+                let deps = deps.iter().map(ToString::to_string).collect();
                 (n.to_owned(), d.to_owned(), deps)
             })
             .to_vec()
         };
-        let set = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<BTreeSet<_>>();
+        let set = |a: &[&str]| a.iter().map(ToString::to_string).collect::<BTreeSet<_>>();
         assert_eq!(affected(info(), ""), Some(set(&[])));
         assert_eq!(affected(info(), "docs/README.md\n"), Some(set(&[])));
         // a leaf: itself only
