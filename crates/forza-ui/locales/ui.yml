@@ -44,7 +44,7 @@ launcher.skip_tutorial: {en: "Skip the tutorial", it: "Salta il tutorial", ja: "
 launcher.skip_tutorial_hint: {en: "Takes effect the next time you play.", it: "Si applica la prossima volta che giochi.", ja: "次にプレイするときから適用されます。"}
 launcher.projector: {en: "Projector", it: "Proiettore", ja: "プロジェクター"}
 launcher.projector_hint: {en: "Its window, shown or hidden at once. Also in the game's SETTINGS.", it: "La sua finestra, mostrata o nascosta subito. Anche nelle IMPOSTAZIONI del gioco.", ja: "ウィンドウをすぐに表示・非表示。ゲームの設定でも変更できます。"}
-launcher.cpu_championship: {en: "CPU championship", it: "Campionato CPU", ja: "CPU大会"}
+launcher.cpu_championship: {en: "CPU championship", it: "Campionato CPU", ja: "CPU選手権"}
 launcher.cpu_championship_hint: {en: "Plays on the projector, shown or hidden. Off saves CPU. Applied at the next start.", it: "Si gioca sul proiettore, visibile o nascosto. Off risparmia CPU. Si applica al prossimo avvio.", ja: "プロジェクターで行われます (表示・非表示どちらでも)。オフでCPUを節約。次回の起動時に反映されます。"}
 launcher.cleanup: {en: "CLEAN UP", it: "RIPULISCI", ja: "後片付け"}
 launcher.cleanup_hint: {en: "Removes what a crashed game left behind. Your club is kept.", it: "Rimuove ciò che un arresto anomalo ha lasciato. Il tuo club resta.", ja: "クラッシュで残ったファイルを片付けます。クラブは残ります。"}
@@ -551,7 +551,7 @@ lobby.ready: {en: "READY", it: "PRONTO", ja: "準備OK"}
 lobby.leave: {en: "LEAVE", it: "ESCI", ja: "退出"}
 lobby.direct: {en: "Server address", it: "Indirizzo del server", ja: "サーバーアドレス"}
 lobby.next_entry: {en: "Next ENTRY in %{t}", it: "Prossima ENTRY tra %{t}", ja: "次のエントリーまで %{t}"}
-lobby.wait_entry: {en: "Next ENTRY in %{t}.", it: "Prossimo ENTRY tra %{t}.", ja: "次の ENTRY まで %{t}。"}
+lobby.wait_entry: {en: "Next ENTRY in %{t}.", it: "Prossima ENTRY tra %{t}.", ja: "次の ENTRY まで %{t}。"}
 # beyond the ROADMAP table: columns, filters, room lines and status lines
 lobby.name: {en: "NAME", it: "NOME", ja: "名前"}
 lobby.code: {en: "CODE", it: "CODICE", ja: "コード"}
