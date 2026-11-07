@@ -683,7 +683,8 @@ pub struct PanelState {
     /// game leaves it on after the match until the next sequence writes its own). Starts on: a flag already on when the
     /// panel starts is one left over, not a match beginning.
     pub seat_on: bool,
-    /// The table differs from `before_match`: RESET LINEUP is offered, greyed out while `in_match`.
+    /// The table differs from `before_match`: RESET LINEUP's hover names the table it goes back to. It is offered
+    /// whenever the panel is not in a match, so the flag only feeds that text.
     pub reset_ready: bool,
     /// RESET LINEUP's CONFIRM clicked: the panel DLL calls [`take_reset`].
     pub reset_lineup: bool,
@@ -1199,7 +1200,7 @@ pub fn lineup_tick(
         .before_match
         .as_ref()
         .is_some_and(|b| lineup_differs(b, placed));
-    if !st.reset_ready || st.in_match {
+    if st.in_match {
         st.reset_ask = None;
     }
 }
@@ -1250,9 +1251,9 @@ fn lineup_differs(a: &[Placed], b: &[Placed]) -> bool {
     key(a) != key(b)
 }
 
-/// RESET LINEUP: the table kept when the match began (`placed`: the table now, kept for UNDO), to be written like a card move; `None` when nothing differs, or
+/// RESET LINEUP: the table kept when the match began (`placed`: the table now, kept for UNDO), to be written like a card move; `None` when there is nothing kept, or
 /// in a match (`in_match`, read at the click, not the last poll's: refused with a note, as the import is). The board
-/// shows it at once.
+/// shows it at once; a reset to the table the board already holds is allowed and changes nothing (no UNDO line).
 pub fn take_reset(st: &mut PanelState, placed: &[Placed], in_match: bool) -> Option<Vec<Placed>> {
     if !std::mem::take(&mut st.reset_lineup) {
         return None;
@@ -1262,15 +1263,14 @@ pub fn take_reset(st: &mut PanelState, placed: &[Placed], in_match: bool) -> Opt
         st.say(Tone::Refused, "cat.msg_import_match");
         return None;
     }
-    if !st.reset_ready {
-        return None;
-    }
     let before = st.before_match.clone()?;
     st.board = cards::board(&before, &st.cards);
-    // the UNDO lines belong to an older table; the new one undoes the reset
-    st.undo = None;
-    st.import_undo = Some((placed.to_vec(), 0.0));
-    st.reset_after = Some(before.clone());
+    if st.reset_ready {
+        // the UNDO lines belong to an older table; the new one undoes the reset
+        st.undo = None;
+        st.import_undo = Some((placed.to_vec(), 0.0));
+        st.reset_after = Some(before.clone());
+    }
     st.reset_ready = false;
     Some(before)
 }
@@ -2878,7 +2878,7 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
         vec2(text_w + pad, 22.0),
     );
     let button = egui::Button::new(label).wrap_mode(egui::TextWrapMode::Extend);
-    // 2017-18: RESET LINEUP at its left, greyed out in a match and while the table is the one the match began with
+    // 2017-18: RESET LINEUP at its left, greyed out in a match
     let mut left = btn.left();
     if st.edition == Edition::E1718 {
         let label = egui::RichText::new(tr!(lang, "board.reset")).font(theme::bold(12.0));
@@ -2891,7 +2891,7 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
         let at = Rect::from_min_size(pos2(btn.left() - 6.0 - w, row.top()), vec2(w, 22.0));
         left = at.left();
         let mut c = b.new_child(egui::UiBuilder::new().max_rect(at));
-        let ready = st.reset_ready && !st.in_match;
+        let ready = !st.in_match;
         let button = egui::Button::new(label).wrap_mode(egui::TextWrapMode::Extend);
         let hint = reset_hint(st, lang);
         let r = c.add_enabled(ready, button);
@@ -6094,11 +6094,12 @@ mod tests {
         st.reset_lineup = true;
         assert_eq!(take_reset(&mut st, &subbed, false), Some(start.clone()));
         assert_eq!(cards::table_after(&start, &st.board), start);
-        // written back: nothing differs any more
+        // written back: nothing differs any more, though RESET LINEUP still takes the click and writes the same table
         lineup_tick(&mut st, None, None, &start);
         assert!(!st.reset_ready);
         st.reset_lineup = true;
-        assert_eq!(take_reset(&mut st, &start, false), None);
+        assert_eq!(take_reset(&mut st, &start, false), Some(start.clone()));
+        assert_eq!(cards::table_after(&start, &st.board), start);
         // a card session outside a match (a manager transfer) greys RESET out but keeps nothing
         lineup_tick(&mut st, None, Some((true, false)), &subbed);
         assert!(st.in_match);

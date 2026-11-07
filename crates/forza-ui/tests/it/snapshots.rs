@@ -2,7 +2,7 @@
 //! (`UPDATE_SNAPSHOTS=1` writes new ones). Rendered with wgpu on the machine's GPU.
 
 use egui::{Ui, Vec2};
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 use egui_kittest::{Harness, SnapshotResults};
 use forza_ui::Lang;
 use forza_ui::theme::{self, Edition};
@@ -748,6 +748,24 @@ fn board_reset_lineup() {
         });
     }
     all.unwrap();
+}
+
+/// RESET LINEUP is offered outside a match whatever the table, also while it is the one the match began with, and
+/// greyed out in one.
+#[test]
+fn board_reset_lineup_offered_outside_a_match() {
+    let _gpu = gpu();
+    for (in_match, disabled) in [(false, false), (true, true)] {
+        let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
+        st.in_match = in_match;
+        assert!(!st.reset_ready, "the table is the one the match began with");
+        let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+            panel::show(ui, &mut st)
+        });
+        h.run_steps(4);
+        let button = h.get_by_label("RESET LINEUP");
+        assert_eq!(button.accesskit_node().is_disabled(), disabled);
+    }
 }
 
 /// RESET LINEUP names the moment its table was kept in its hover text, and a reset leaves an UNDO under the board.
