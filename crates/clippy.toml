@@ -1,0 +1,6 @@
+# Crates here that deny panicking calls (each crate root: server, installer, linux-host) let their tests unwrap,
+# expect, panic and index. Clippy reads the nearest clippy.toml above a crate; the panel keeps its own.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true

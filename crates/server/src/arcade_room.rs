@@ -59,6 +59,13 @@ struct Room {
     seats: Vec<Sitter>,
 }
 
+impl Room {
+    /// The host's tunnel id, lower case.
+    fn host_id(&self) -> Option<&str> {
+        self.seats.first()?.id.as_deref()
+    }
+}
+
 /// What a host's earlier room is to its new `CREATE shop` ([`ArcadeRooms::replace_stale`]).
 #[derive(Debug, PartialEq, Eq)]
 pub enum Prior {
@@ -98,26 +105,27 @@ impl ArcadeRooms {
 
     /// Whether the tunnel `host` holds a live room (one room per host).
     pub fn has_host(&self, host: &str) -> bool {
-        self.rooms.iter().any(|r| {
-            r.seats[0]
-                .id
-                .as_deref()
-                .is_some_and(|h| h.eq_ignore_ascii_case(host))
-        })
+        self.rooms
+            .iter()
+            .any(|r| r.host_id().is_some_and(|h| h.eq_ignore_ascii_case(host)))
     }
 
     /// Before a `CREATE shop` by `host`: no room of its yet; its room whose lease runs to no later than `quiet` (no
     /// `HEARTBEAT` for a while: the host crashed and came back) taken out; else the host's room is alive.
     pub fn replace_stale(&mut self, host: &str, quiet: Instant) -> Prior {
-        let Some(i) = self.rooms.iter().position(|r| {
-            r.seats[0]
-                .id
-                .as_deref()
-                .is_some_and(|h| h.eq_ignore_ascii_case(host))
-        }) else {
+        let Some(i) = self
+            .rooms
+            .iter()
+            .position(|r| r.host_id().is_some_and(|h| h.eq_ignore_ascii_case(host)))
+        else {
             return Prior::None;
         };
-        if self.rooms[i].seats[0].end > quiet {
+        if self
+            .rooms
+            .get(i)
+            .and_then(|r| r.seats.first())
+            .is_some_and(|h| h.end > quiet)
+        {
             return Prior::Alive;
         }
         Prior::Replaced(self.rooms.remove(i).code)
@@ -195,7 +203,8 @@ impl ArcadeRooms {
     /// `HEARTBEAT t`: the ticket's lease runs to `end`; false when it is no arcade room's.
     pub fn heartbeat(&mut self, t: &str, end: Instant) -> bool {
         self.find(t)
-            .map(|(r, s)| self.rooms[r].seats[s].end = end)
+            .and_then(|(r, s)| self.rooms.get_mut(r)?.seats.get_mut(s))
+            .map(|s| s.end = end)
             .is_some()
     }
 
@@ -203,13 +212,13 @@ impl ArcadeRooms {
     /// returned, for the log). `None`: no arcade room's ticket.
     pub fn leave(&mut self, id: Option<&str>, t: &str) -> Option<Option<String>> {
         let (r, s) = self.find(t)?;
-        if id.is_some_and(|id| id != self.rooms[r].id) {
+        if id.is_some_and(|id| self.rooms.get(r).is_none_or(|room| id != room.id)) {
             return None;
         }
         if s == 0 {
             return Some(Some(self.rooms.remove(r).code));
         }
-        self.rooms[r].seats.remove(s);
+        self.rooms.get_mut(r)?.seats.remove(s);
         Some(None)
     }
 
@@ -217,19 +226,23 @@ impl ArcadeRooms {
     /// gets the guests' ids. `None`: no arcade room's ticket (`GONE`).
     pub fn peers(&mut self, t: &str, own: Option<&str>) -> Option<Peers> {
         let (r, s) = self.find(t)?;
-        let room = &mut self.rooms[r];
+        let room = self.rooms.get_mut(r)?;
         if s == 0 {
-            let mut guests: Vec<&Sitter> =
-                room.seats[1..].iter().filter(|g| g.id.is_some()).collect();
+            let mut guests: Vec<&Sitter> = room
+                .seats
+                .iter()
+                .skip(1)
+                .filter(|g| g.id.is_some())
+                .collect();
             guests.sort_by_key(|g| g.seat);
             return Some(Peers::Guests(
                 guests.iter().filter_map(|g| g.id.clone()).collect(),
             ));
         }
-        if let Some(id) = own {
-            room.seats[s].id = Some(id.to_ascii_lowercase());
+        if let (Some(id), Some(g)) = (own, room.seats.get_mut(s)) {
+            g.id = Some(id.to_ascii_lowercase());
         }
-        room.seats[0].id.clone().map(Peers::Host)
+        room.host_id().map(|h| Peers::Host(h.to_owned()))
     }
 
     /// Drops guests whose lease ended and rooms whose host's did; the closed rooms' codes.
@@ -239,7 +252,7 @@ impl ArcadeRooms {
         }
         let mut closed = Vec::new();
         self.rooms.retain(|r| {
-            let live = r.seats[0].end > now;
+            let live = r.seats.first().is_some_and(|h| h.end > now);
             if !live {
                 closed.push(r.code.clone());
             }
@@ -317,7 +330,9 @@ mod tests {
         identity.replace_range(..2, "01");
         assert!(!valid_id(&identity), "the identity point");
         assert!(
-            !valid_id(&host[..63]) && !valid_id(&format!("{host}0")) && !valid_id(&"zz".repeat(32))
+            !valid_id(host.get(..63).unwrap())
+                && !valid_id(&format!("{host}0"))
+                && !valid_id(&"zz".repeat(32))
         );
     }
 

@@ -25,7 +25,7 @@ use std::io::{self, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, mpsc};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -196,6 +196,10 @@ struct InGame {
 }
 
 impl InGame {
+    #[allow(
+        clippy::unwrap_used,
+        reason = "fixed patterns, built by every desk test"
+    )]
     fn new(path: Option<PathBuf>) -> Self {
         Self {
             path,
@@ -242,7 +246,11 @@ impl InGame {
     }
 
     fn at(&mut self, now: Instant) -> BTreeMap<u32, String> {
-        let Some(meta) = self.path.as_ref().and_then(|p| std::fs::metadata(p).ok()) else {
+        let Some((path, meta)) = self
+            .path
+            .clone()
+            .and_then(|p| std::fs::metadata(&p).ok().map(|m| (p, m)))
+        else {
             self.reset(None);
             return BTreeMap::new();
         };
@@ -251,7 +259,7 @@ impl InGame {
             self.reset(born);
         }
         let mut data = Vec::new();
-        let read = std::fs::File::open(self.path.as_ref().unwrap()).and_then(|mut f| {
+        let read = std::fs::File::open(path).and_then(|mut f| {
             io::Seek::seek(&mut f, io::SeekFrom::Start(self.pos))?;
             f.read_to_end(&mut data)
         });
@@ -376,7 +384,7 @@ impl Shared {
             return false;
         }
         let w = self.cfg.ask_window;
-        let mut asks = self.asks.lock().unwrap();
+        let mut asks = lock(&self.asks);
         asks.retain(|_, (t, _)| now.duration_since(*t) < w);
         let a = asks.entry(ip.to_string()).or_insert((now, 0));
         a.1 += 1;
@@ -392,6 +400,11 @@ impl Shared {
     }
 }
 
+/// `m` locked; a lock a panicked thread held is used as it was left, so one failed connection never stops the desk.
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 /// No 0/O, 1/I/L: read out loud or typed from a screen.
 const CODE_CHARS: &[u8] = b"ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
@@ -400,10 +413,16 @@ pub(crate) fn code(n: usize) -> String {
     let mut out = String::new();
     while out.len() < n {
         let mut b = [0u8; 1];
+        #[allow(
+            clippy::expect_used,
+            reason = "no OS randomness: drop the connection, never hand out a guessable code"
+        )]
         getrandom::fill(&mut b).expect("the OS random source");
         // 248 = 8 * 31: no modulo bias
-        if b[0] < 248 {
-            out.push(CODE_CHARS[usize::from(b[0]) % CODE_CHARS.len()] as char);
+        if b[0] < 248
+            && let Some(&c) = CODE_CHARS.get(usize::from(b[0]) % CODE_CHARS.len())
+        {
+            out.push(c as char);
         }
     }
     out
@@ -411,6 +430,10 @@ pub(crate) fn code(n: usize) -> String {
 
 fn random_hex(n: usize) -> String {
     let mut b = vec![0u8; n];
+    #[allow(
+        clippy::expect_used,
+        reason = "no OS randomness: drop the connection, never hand out a guessable ticket"
+    )]
     getrandom::fill(&mut b).expect("the OS has randomness");
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
@@ -463,7 +486,7 @@ struct Hold {
 
 impl Hold {
     fn tick(&mut self, sh: &Shared) {
-        let game = sh.in_game.lock().unwrap().now();
+        let game = lock(&sh.in_game).now();
         let player = game.keys().any(|&s| s >= 1);
         let want = !player && game.get(&0) != Some(&self.ip);
         if Some(want) == self.held {
@@ -505,19 +528,20 @@ struct Lines {
 
 impl Lines {
     fn read(&mut self) -> io::Result<String> {
-        while !self.buf.contains(&b'\n') {
+        loop {
+            if let Some(at) = self.buf.iter().position(|&b| b == b'\n') {
+                let line: Vec<u8> = self.buf.drain(..=at).collect();
+                return Ok(String::from_utf8_lossy(line.trim_ascii()).into_owned());
+            }
             if self.buf.len() > 200 {
                 return Err(io::Error::other("line too long"));
             }
             let mut b = [0u8; 256];
             match self.conn.read(&mut b)? {
                 0 => return Err(io::Error::other("closed")),
-                n => self.buf.extend_from_slice(&b[..n]),
+                n => self.buf.extend_from_slice(b.get(..n).unwrap_or_default()),
             }
         }
-        let at = self.buf.iter().position(|&b| b == b'\n').unwrap();
-        let line: Vec<u8> = self.buf.drain(..=at).collect();
-        Ok(String::from_utf8_lossy(line.trim_ascii()).into_owned())
     }
 }
 
@@ -551,7 +575,7 @@ fn serve(sh: &Shared, conn: TcpStream, peer: String) -> Option<TcpStream> {
     let mut lease: Option<(u8, u64)> = None;
     let _ = session(sh, conn, &peer, &mut lease);
     if let Some((seat, id)) = lease {
-        let mut st = sh.state.lock().unwrap();
+        let mut st = lock(&sh.state);
         if st.leases.get(&seat).is_some_and(|l| l.1 == id) {
             st.leases.remove(&seat);
             if st.projector == Some(seat) {
@@ -654,7 +678,7 @@ fn session(
             if public && line.starts_with("CLUB PUT") && sh.slow(ip, Instant::now()) {
                 return out.write_all(b"NO slow\n");
             }
-            let held = |s: u8| sh.state.lock().unwrap().leases.contains_key(&s);
+            let held = |s: u8| lock(&sh.state).leases.contains_key(&s);
             let said = forza::online::club::serve(
                 db,
                 &line,
@@ -694,10 +718,10 @@ fn session(
     };
     let (line, relay) = kit_words(&line);
     {
-        let mut st = sh.state.lock().unwrap();
+        let mut st = lock(&sh.state);
         expire(sh, &mut st, Instant::now());
         let others: BTreeMap<u32, String> = if e1011 {
-            sh.in_game.lock().unwrap().now()
+            lock(&sh.in_game).now()
         } else {
             BTreeMap::new()
         }
@@ -760,7 +784,7 @@ fn session(
                             .join(", ");
                         let addrs = skipped
                             .iter()
-                            .map(|s| others[&u32::from(*s)].as_str())
+                            .filter_map(|s| others.get(&u32::from(*s)).map(String::as_str))
                             .collect::<Vec<_>>()
                             .join(", ");
                         log(&format!(
@@ -772,10 +796,13 @@ fn session(
                 Some(Want::Seat(n)) => {
                     if busy(&st, n) {
                         out.write_all(Reply::Taken(n).line().as_bytes())?;
-                        let by = if st.leases.contains_key(&n) || st.reserved.contains_key(&n) {
-                            String::new()
-                        } else {
-                            format!(" (in the game by {})", others[&u32::from(n)])
+                        let by = match others.get(&u32::from(n)) {
+                            Some(a)
+                                if !st.leases.contains_key(&n) && !st.reserved.contains_key(&n) =>
+                            {
+                                format!(" (in the game by {a})")
+                            }
+                            _ => String::new(),
                         };
                         log(&format!("{peer}: seat {n} refused - taken{by}"));
                         return Ok(());
@@ -828,10 +855,10 @@ fn session(
 /// the upstream witness read it, from `leases.json`; this desk writes no `leases.json`).
 fn kit_words(line: &str) -> (String, bool) {
     let mut w: Vec<&str> = line.split_whitespace().collect();
-    if let [_, "TOKEN", _] = w[w.len().saturating_sub(3)..] {
+    if let Some([_, "TOKEN", _]) = w.get(w.len().saturating_sub(3)..) {
         w.truncate(w.len() - 2);
     }
-    if let [_, "CARD", c] = w[w.len().saturating_sub(3)..]
+    if let Some(&[_, "CARD", c]) = w.get(w.len().saturating_sub(3)..)
         && c.bytes().all(|b| b.is_ascii_digit())
     {
         w.truncate(w.len() - 2);
@@ -846,7 +873,7 @@ fn kit_words(line: &str) -> (String, bool) {
 /// Seats in use: led by a lease, held by a reservation, or in the game (2010-11).
 fn used(sh: &Shared, st: &State) -> Vec<u8> {
     let game = if sh.cfg.edition == Edition::E1011 {
-        sh.in_game.lock().unwrap().now()
+        lock(&sh.in_game).now()
     } else {
         BTreeMap::new()
     };
@@ -867,7 +894,7 @@ fn lobby_answer(sh: &Shared, ip: &str, edition: &str, out: &mut TcpStream) -> io
     }
     let now = Instant::now();
     {
-        let mut seen = sh.lobby_seen.lock().unwrap();
+        let mut seen = lock(&sh.lobby_seen);
         seen.retain(|_, t| now.duration_since(*t) < sh.cfg.lobby_gap.max(Duration::from_secs(60)));
         if per_address(sh.cfg.tunnel, ip)
             && seen
@@ -877,14 +904,14 @@ fn lobby_answer(sh: &Shared, ip: &str, edition: &str, out: &mut TcpStream) -> io
             return out.write_all(b"ERR slow\n");
         }
     }
-    let mut cache = sh.lobby_cached.lock().unwrap();
+    let mut cache = lock(&sh.lobby_cached);
     if let Some((at, line)) = cache.as_ref()
         && now.duration_since(*at) < sh.cfg.lobby_cache
     {
         return out.write_all(line.as_bytes());
     }
     let (seats, vs, rooms) = {
-        let mut st = sh.state.lock().unwrap();
+        let mut st = lock(&sh.state);
         expire(sh, &mut st, now);
         (
             // the larger, not the sum: one PC may hold a seat lease and a card on the game server
@@ -896,7 +923,7 @@ fn lobby_answer(sh: &Shared, ip: &str, edition: &str, out: &mut TcpStream) -> io
             st.arcades.listed(),
         )
     };
-    let (phase, next_entry) = sh.in_game.lock().unwrap().phase(now);
+    let (phase, next_entry) = lock(&sh.in_game).phase(now);
     let arcade = Arcade {
         id: sh.arcade_id.clone(),
         name: sh.cfg.name.chars().take(24).collect(),
@@ -972,7 +999,7 @@ fn read_notice(raw: &[u8]) -> Result<Notice, String> {
 fn notice(sh: &Shared, now: u64) -> Option<ServerNotice> {
     let path = sh.cfg.notice.as_ref()?;
     let stamp = std::fs::metadata(path).and_then(|m| m.modified()).ok();
-    let mut cached = sh.notice.lock().unwrap();
+    let mut cached = lock(&sh.notice);
     if cached.as_ref().is_none_or(|(t, _)| *t != stamp) {
         let read = stamp.map(|_| {
             std::fs::read(path)
@@ -1029,7 +1056,7 @@ fn sitter(sh: &Shared, now: Instant) -> Sitter {
 /// oldest open room still waiting (`ROOM id code t 2`), else makes an open room.
 fn create(sh: &Shared, ip: &str, open: bool, out: &mut TcpStream) -> io::Result<()> {
     let now = Instant::now();
-    let mut st = sh.state.lock().unwrap();
+    let mut st = lock(&sh.state);
     expire(sh, &mut st, now);
     if open && let Some(r) = st.rooms.iter_mut().find(|r| r.open && r.seats[1].is_none()) {
         let s = sitter(sh, now);
@@ -1065,6 +1092,10 @@ fn create(sh: &Shared, ip: &str, open: bool, out: &mut TcpStream) -> io::Result<
         }
     };
     let s = sitter(sh, now);
+    #[allow(
+        clippy::expect_used,
+        reason = "no OS randomness: drop the connection, never hand out a guessable key"
+    )]
     let key = getrandom::u64().expect("the OS has randomness");
     sh.bind(&s.ticket, Some(key));
     let reply = Created::Room {
@@ -1105,7 +1136,7 @@ fn create_arcade(
         return out.write_all(b"ERR id\n");
     }
     let now = Instant::now();
-    let mut st = sh.state.lock().unwrap();
+    let mut st = lock(&sh.state);
     expire(sh, &mut st, now);
     if st.rooms.len() + st.arcades.len() >= sh.cfg.max_rooms
         || (st.arcades.count_by(ip) >= sh.cfg.arcade_rooms_per_address
@@ -1172,13 +1203,13 @@ fn join_arcade(
     out: &mut TcpStream,
 ) -> io::Result<()> {
     let now = Instant::now();
-    let mut st = sh.state.lock().unwrap();
+    let mut st = lock(&sh.state);
     expire(sh, &mut st, now);
     // wrong codes: this address's own budget, and a high desk-wide ceiling
-    let mut by = sh.join_fails_by.lock().unwrap();
+    let mut by = lock(&sh.join_fails_by);
     by.retain(|_, (t, _)| now.duration_since(*t) < sh.cfg.join_fail_address_window);
     let mine = by.entry(ip.to_owned()).or_insert((now, 0));
-    let mut all = sh.join_fails.lock().unwrap();
+    let mut all = lock(&sh.join_fails);
     if now.duration_since(all.0) >= sh.cfg.join_fail_window {
         *all = (now, 0);
     }
@@ -1210,7 +1241,7 @@ fn arcade_peers(sh: &Shared, t: &str, own: Option<&str>, out: &mut TcpStream) ->
     if own.is_some_and(|o| !crate::arcade_room::valid_id(o)) {
         return out.write_all(b"ERR id\n");
     }
-    let mut st = sh.state.lock().unwrap();
+    let mut st = lock(&sh.state);
     expire(sh, &mut st, Instant::now());
     let peers = st.arcades.peers(t, own);
     drop(st);
@@ -1223,7 +1254,9 @@ fn arcade_peers(sh: &Shared, t: &str, own: Option<&str>, out: &mut TcpStream) ->
 /// The room `id` and the seat (0 host, 1 guest) whose ticket is `t`.
 fn sat(st: &mut State, id: &str, t: &str) -> Option<(usize, usize)> {
     let r = st.rooms.iter().position(|r| r.id == id)?;
-    let s = st.rooms[r]
+    let s = st
+        .rooms
+        .get(r)?
         .seats
         .iter()
         .position(|s| s.as_ref().is_some_and(|s| s.ticket == t))?;
@@ -1232,11 +1265,11 @@ fn sat(st: &mut State, id: &str, t: &str) -> Option<(usize, usize)> {
 
 /// `READY id t` -> `OK` (the ticket's seat is ready) or `GONE`.
 fn ready(sh: &Shared, id: &str, t: &str, out: &mut TcpStream) -> io::Result<()> {
-    let mut st = sh.state.lock().unwrap();
+    let mut st = lock(&sh.state);
     expire(sh, &mut st, Instant::now());
-    let ok = sat(&mut st, id, t).map(|(r, s)| {
-        st.rooms[r].seats[s].as_mut().unwrap().ready = true;
-    });
+    let ok = sat(&mut st, id, t)
+        .and_then(|(r, s)| st.rooms.get_mut(r)?.seats.get_mut(s)?.as_mut())
+        .map(|g| g.ready = true);
     drop(st);
     out.write_all(if ok.is_some() { b"OK\n" } else { b"GONE\n" })
 }
@@ -1244,7 +1277,7 @@ fn ready(sh: &Shared, id: &str, t: &str, out: &mut TcpStream) -> io::Result<()> 
 /// `CLOSE id t` -> `OK` or `GONE`: the host's ticket closes the room (the guest's ticket goes too, its `HEARTBEAT`
 /// then answers `GONE`); a guest's ticket leaves its seat.
 fn close(sh: &Shared, id: &str, t: &str, out: &mut TcpStream) -> io::Result<()> {
-    let mut st = sh.state.lock().unwrap();
+    let mut st = lock(&sh.state);
     expire(sh, &mut st, Instant::now());
     if let Some(closed) = st.arcades.leave(Some(id), t) {
         if let Some(code) = closed {
@@ -1263,7 +1296,7 @@ fn leave(sh: &Shared, st: &mut State, (r, s): (usize, usize)) {
     if s == 0 {
         let room = st.rooms.remove(r);
         sh.drop_room(&room);
-    } else if let Some(g) = st.rooms[r].seats[1].take() {
+    } else if let Some(g) = st.rooms.get_mut(r).and_then(|room| room.seats[1].take()) {
         sh.bind(&g.ticket, None);
     }
 }
@@ -1271,7 +1304,7 @@ fn leave(sh: &Shared, st: &mut State, (r, s): (usize, usize)) {
 /// `RESERVE id [n]`: a ticket for the lowest free seat (or seat n) for the lease, `FULL`, `TAKEN` (n is busy) or
 /// `CLOSED` (not this desk's arcade).
 fn reserve(sh: &Shared, id: &str, seat: Option<u8>, out: &mut TcpStream) -> io::Result<()> {
-    let mut st = sh.state.lock().unwrap();
+    let mut st = lock(&sh.state);
     let now = Instant::now();
     expire(sh, &mut st, now);
     let reply = if st.arcades.has_id(id) {
@@ -1316,7 +1349,7 @@ fn take(st: &mut State, seat: u8, now: Instant, lease: Duration) -> Reserved {
 
 /// `HEARTBEAT t` -> `OK` (lease extended) or `GONE`.
 fn heartbeat(sh: &Shared, t: &str, out: &mut TcpStream) -> io::Result<()> {
-    let mut st = sh.state.lock().unwrap();
+    let mut st = lock(&sh.state);
     let now = Instant::now();
     expire(sh, &mut st, now);
     let end = now + sh.cfg.reserve_lease;
@@ -1341,7 +1374,7 @@ fn heartbeat(sh: &Shared, t: &str, out: &mut TcpStream) -> io::Result<()> {
 
 /// `RELEASE t` -> `OK` (the seat is free at once) or `GONE`. The ticket is the secret, so only its holder gets here.
 fn release(sh: &Shared, t: &str, out: &mut TcpStream) -> io::Result<()> {
-    let mut st = sh.state.lock().unwrap();
+    let mut st = lock(&sh.state);
     expire(sh, &mut st, Instant::now());
     let had = st.reserved.len();
     st.reserved.retain(|_, (k, _)| k != t);
@@ -1428,7 +1461,7 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
             while rx.recv_timeout(every) == Err(mpsc::RecvTimeoutError::Timeout) {
                 if let Some(line) = sessions.summary() {
                     let (vs, arcades) = {
-                        let mut st = sh.state.lock().unwrap();
+                        let mut st = lock(&sh.state);
                         expire(&sh, &mut st, Instant::now());
                         (st.rooms.len(), st.arcades.len())
                     };
@@ -1450,7 +1483,7 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
             let sh = sh.clone();
             let ip = peer.ip().to_string();
             {
-                let mut open = sh.open.lock().unwrap();
+                let mut open = lock(&sh.open);
                 if open.values().sum::<usize>() >= MAX_OPEN {
                     continue;
                 }
@@ -1463,7 +1496,7 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
             thread::spawn(move || {
                 let keep = serve(&sh, conn, peer.to_string());
                 {
-                    let mut open = sh.open.lock().unwrap();
+                    let mut open = lock(&sh.open);
                     if let Some(n) = open.get_mut(&ip) {
                         *n -= 1;
                         if *n == 0 {
