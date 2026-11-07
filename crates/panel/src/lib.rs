@@ -1392,6 +1392,8 @@ struct Render {
     /// The notice on the message line, waiting for a frame to paint it: its id and its text as shown. The id goes to
     /// data\notice_seen.txt only once the line has drawn it.
     notice_pending: Option<(String, String)>,
+    /// The id of the notice on the banner, for the log line when it goes off early ([`banner_off`]).
+    notice_shown: Option<String>,
     painter: painter::Painter,
     start: Instant,
     sc: Option<(IDirect3DSwapChain9, u32, u32, HWND)>,
@@ -1515,6 +1517,7 @@ impl Render {
             notice_stamp: None,
             notice: None,
             notice_pending: None,
+            notice_shown: None,
             deal_at: Instant::now(),
             deal_last: None,
             painter: painter::Painter::default(),
@@ -2542,7 +2545,13 @@ impl Render {
             if st.is_none() {
                 self.notice_stamp = None;
                 self.notice = None;
-                self.st.banner = None;
+                if let Some(l) = banner_off(
+                    &mut self.st.banner,
+                    self.notice_shown.as_deref(),
+                    "withdrawn",
+                ) {
+                    log(&l);
+                }
             } else {
                 match read_notice(&path) {
                     // a file there but not read (held by a scanner, say): looked at again on the next tick
@@ -2570,13 +2579,26 @@ impl Render {
         }
         if match_check().0 {
             // the top of a match screen is the score and the clock: the banner waits for the match's end
-            if self.st.banner.take().is_some() {
-                log("notice: off for the match");
+            if let Some(l) = banner_off(
+                &mut self.st.banner,
+                self.notice_shown.as_deref(),
+                "off for the match",
+            ) {
+                log(&l);
             }
             return;
         }
         let Some(n) = self.notice.take() else { return };
+        // a newer notice replaces the one on the banner at once: the server's file changed, the old text is stale
+        if let Some(l) = banner_off(
+            &mut self.st.banner,
+            self.notice_shown.as_deref(),
+            "replaced",
+        ) {
+            log(&l);
+        }
         log(&format!("notice: {} shown", n.id));
+        self.notice_shown = Some(n.id.clone());
         let text = n.text(self.st.lang.code()).to_owned();
         self.st.banner = Some(panel::Note::banner(text.clone()));
         self.notice_pending = Some((n.id, text));
@@ -3160,6 +3182,14 @@ fn stamp(p: &Path) -> Option<std::time::SystemTime> {
     std::fs::metadata(p).and_then(|m| m.modified()).ok()
 }
 
+/// The server's notice taken off the banner before its time (`why`: withdrawn, replaced, off for the match): the log
+/// line naming it, none when the banner showed nothing (its 30 s had run out).
+fn banner_off(banner: &mut Option<panel::Note>, id: Option<&str>, why: &str) -> Option<String> {
+    banner
+        .take()
+        .map(|_| format!("notice: {} {why}", id.unwrap_or("?")))
+}
+
 /// A notice file larger than this is not a notice: never read whole (the panel is 32-bit, so a huge file would
 /// abort the game and answer again on every start).
 const NOTICE_MAX: u64 = 64 * 1024;
@@ -3667,7 +3697,26 @@ fn take_off_lines(
 
 #[cfg(test)]
 mod tests {
-    use super::{NOTICE_MAX, cards, read_notice, take_off_lines};
+    use super::{NOTICE_MAX, banner_off, cards, read_notice, take_off_lines};
+
+    /// A notice taken off early says so in the log (the live run of 2026-11-07 saw no line when the server withdrew
+    /// one); a banner whose time had run out is gone already and logs nothing.
+    #[test]
+    fn a_notice_taken_off_early_is_logged() {
+        let mut b = Some(forza_ui::panel::Note::banner(
+            "Server update at 23:00".into(),
+        ));
+        assert_eq!(
+            banner_off(&mut b, Some("n1"), "withdrawn").as_deref(),
+            Some("notice: n1 withdrawn")
+        );
+        assert!(b.is_none(), "the banner is off");
+        assert_eq!(
+            banner_off(&mut b, Some("n1"), "withdrawn"),
+            None,
+            "nothing on the banner: no line"
+        );
+    }
 
     /// A botched copy in data\notice.json must not be read whole into the 32-bit panel: the cap holds, and the file
     /// is ignored rather than retried on every tick.
