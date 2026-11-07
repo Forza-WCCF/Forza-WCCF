@@ -60,8 +60,6 @@ pub enum Action {
     Browse,
     /// The card pictures choice changed (`pictures_hq`), or "Choose pack…" (`choose`).
     Pictures { choose: bool },
-    /// The skip-the-tutorial switch changed.
-    SkipTutorial,
     /// The projector switch changed.
     Projector,
     /// The CPU championship switch changed.
@@ -158,8 +156,6 @@ pub struct LauncherState {
     pub folder: String,
     /// The card pictures: the high-quality pack, else the game's own.
     pub pictures_hq: bool,
-    /// The skip-the-tutorial switch (2017–18 only).
-    pub skip_tutorial: Option<bool>,
     /// The projector switch: its window shown (2017–18 only).
     pub projector: Option<bool>,
     /// The CPU championship switch: the projector program runs, shown or hidden (2017–18 only).
@@ -265,7 +261,6 @@ impl LauncherState {
             tab: Tab::Play,
             folder: r"C:\Games\Forza-WCCF\2010-2011".into(),
             pictures_hq: false,
-            skip_tutorial: None,
             projector: None,
             cpu_championship: None,
             club_server: None,
@@ -299,7 +294,6 @@ impl LauncherState {
         };
         if edition == Edition::E1718 {
             st.folder = r"C:\Games\Forza-WCCF\2017-2018".into();
-            st.skip_tutorial = Some(true);
             st.projector = Some(true);
             st.cpu_championship = Some(true);
             st.club_server = Some(String::new());
@@ -737,17 +731,6 @@ fn setup(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Actio
                 *act = Some(Action::Pictures { choose: true });
             }
         });
-        if let Some(skip) = &mut st.skip_tutorial
-            && toggle_row(
-                ui,
-                skip,
-                &tr!(lang, "launcher.skip_tutorial"),
-                &tr!(lang, "launcher.skip_tutorial_hint"),
-            )
-            .clicked()
-        {
-            *act = Some(Action::SkipTutorial);
-        }
         if let Some(on) = &mut st.projector
             && toggle_row(
                 ui,

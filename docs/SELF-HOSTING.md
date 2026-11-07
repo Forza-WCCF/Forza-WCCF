@@ -33,7 +33,7 @@ The repository and its builds ship no game files. You need your own copies:
 - 2010-11: the game folder (the Rev D programs and their data), the same one the Forza-WCCF Launcher sets up on a
   player's PC. `guard_imports.py` checks control against the original's pinned hash.
 - 2017-18: `prog_data/player_data/player_data.bin` (the 2D-code cards) and `prog_data/cpu_team/cpu_50.dat` (the club
-  a new player starts with when the tutorial is skipped), from your game folder.
+  the test-only `--skip-tutorial` makes; players play the game's tutorial), from your game folder.
 
 Keep them on the server with mode 600. Never put them, the databases or the logs in a repository.
 
