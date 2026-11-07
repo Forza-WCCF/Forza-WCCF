@@ -74,7 +74,8 @@ pub(crate) fn accept_loop(
                     let serve = serve.clone();
                     let _ = conn.set_nonblocking(false);
                     let _ = conn.set_read_timeout(Some(Duration::from_millis(100)));
-                    thread::spawn(move || serve(conn, peer));
+                    // no threads or memory left: drop this connection, keep accepting (spawn would panic)
+                    let _ = thread::Builder::new().spawn(move || serve(conn, peer));
                 }
                 Err(_) => thread::sleep(Duration::from_millis(20)),
             }
