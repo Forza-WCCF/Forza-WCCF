@@ -85,6 +85,8 @@ type ResetFn = unsafe extern "system" fn(*mut c_void, *mut D3DPRESENT_PARAMETERS
 
 /// The game's frame, as the painter knows it.
 const GAME: TextureId = TextureId::User(0);
+/// RESET LINEUP's table (2017-18), beside the card table: the table the last match began with.
+const KEPT_TABLE: &str = "fpr_table0.before-match.txt";
 
 /// The trampolines (the detoured functions' first bytes, then a jump back).
 static PRESENT: AtomicUsize = AtomicUsize::new(0);
@@ -1448,6 +1450,21 @@ impl Render {
         let lang = files.lang();
         let cards = CATALOGUE.get().cloned().unwrap_or_else(|| Arc::new([]));
         let mut st = PanelState::new(files.edition, lang, cards::board(&placed, &cards), cards);
+        // RESET LINEUP's table from the last match of an earlier run
+        let kept = table.table.with_file_name(KEPT_TABLE);
+        if files.edition == theme::Edition::E1718
+            && let (Ok(text), Ok(at)) = (
+                std::fs::read(&kept),
+                std::fs::metadata(&kept).and_then(|m| m.modified()),
+            )
+        {
+            panel::keep_saved(&mut st, cards::parse_table(&text), at);
+            log(&format!(
+                "board: {} - {} card(s) for RESET LINEUP",
+                kept.display(),
+                st.before_match.as_ref().map_or(0, Vec::len)
+            ));
+        }
         // both files are read once and then written whole: a failed read is remembered, and nothing is written back
         let panel_ok = match files.panel_text() {
             Ok(text) => {
@@ -2828,7 +2845,7 @@ impl Render {
         }
     }
 
-    /// 2017-18: the table kept when a match begins (the seat state read every frame, the full match state once a
+    /// 2017-18: the table kept when a match begins (also written to [`KEPT_TABLE`], so the next run offers it) (the seat state read every frame, the full match state once a
     /// second), and RESET LINEUP writing it back like a card move.
     fn lineup(&mut self) {
         if self.st.edition != theme::Edition::E1718 {
@@ -2853,6 +2870,10 @@ impl Render {
                 "board: match began, {} card(s) kept for RESET LINEUP",
                 self.placed.len()
             ));
+            let kept = self.table.table.with_file_name(KEPT_TABLE);
+            if let Err(e) = std::fs::write(&kept, cards::table_text(&self.placed)) {
+                log(&format!("board: {} not written ({e})", kept.display()));
+            }
         }
         // the click is served on the match state now, not the last second's
         let fresh = self.st.reset_lineup && match_check().0;
