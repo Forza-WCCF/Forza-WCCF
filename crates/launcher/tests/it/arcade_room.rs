@@ -176,32 +176,31 @@ fn host_arcade_then_a_guest_joins_by_code_through_the_tunnel() {
     drop((guest, host));
 }
 
-/// A host back from a crash, its old room still on the desk: the same tunnel key, so the same room secret, replaces
-/// that room at once (no `ERR host`, no wait) and keeps its code.
+/// A host back from a crash, its old room still on the desk and gone quiet (no heartbeat for the desk's stale time):
+/// the same tunnel key, so the same room secret, replaces that room (no `ERR host`, no wait) and keeps its code.
 #[test]
 fn a_host_back_from_a_crash_gets_a_new_room_with_its_code() {
-    let d = desk();
+    let mut c = DeskConfig::new(Edition::E1718);
+    (c.bind, c.port, c.lobby_gap, c.lobby_cache) = ("127.0.0.1".into(), 0, Duration::ZERO, Duration::ZERO);
+    c.host_stale = Duration::from_millis(300);
+    let d = start(c, Arc::new(|_| {})).unwrap();
     let dir = tempfile::tempdir().unwrap();
     let key = dir.path().join("host.key");
     let id = arcade::id_text(&arcade::own_id(&key).unwrap());
     let secret = launcher::lobby::room_secret(&key).unwrap();
     assert!(forza::online::lobby::valid_room_secret(&secret) && !secret.eq_ignore_ascii_case(&id));
-    let (log, _) = logger("crashed host");
-    let old = HostRoom::open(
-        &d.addr().to_string(),
-        &id,
-        Some(&secret),
-        false,
-        "",
-        log.clone(),
-        &|_| {},
-    )
-    .unwrap();
+    // the crashed Launcher's room: made, then no heartbeat and no CLOSE
+    let old = match forza::online::lobby::create_arcade(d.addr(), &id, Some(&secret), false, "").unwrap() {
+        forza::online::lobby::Created::Room { code, .. } => code,
+        r => panic!("{r:?}"),
+    };
+    thread::sleep(Duration::from_millis(400));
     let said = Mutex::new(vec![]);
     let note = |l: &launcher::run::Text| said.lock().unwrap().push(l.en());
     let secret = launcher::lobby::room_secret(&key).unwrap(); // read again, as a restarted Launcher does
+    let (log, _) = logger("crashed host");
     let new = HostRoom::open(&d.addr().to_string(), &id, Some(&secret), false, "", log, &note).unwrap();
-    assert_eq!(old.code, new.code, "the restarted host keeps its code");
+    assert_eq!(old, new.code, "the restarted host keeps its code");
     assert!(said.lock().unwrap().is_empty(), "no wait");
 }
 
@@ -274,15 +273,12 @@ fn a_listed_room_is_joined_from_its_row() {
     assert_eq!(room.admit()(&guest), Verdict::In);
 }
 
-/// A desk from before room secrets and names answers ERR to both: the host asks again without the secret, then without
-/// the name.
-#[test]
-fn an_old_desk_gets_the_room_without_its_name() {
+/// A desk from before room secrets and names: ERR to any CREATE with more than 4 words. Every line it was asked.
+fn old_desk() -> (SocketAddr, Lines) {
     let l = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = l.local_addr().unwrap();
     let asked: Lines = Arc::default();
     let seen = asked.clone();
-    let seen2 = asked.clone();
     thread::spawn(move || {
         for mut c in l.incoming().flatten() {
             let mut b = [0u8; 256];
@@ -298,37 +294,66 @@ fn an_old_desk_gets_the_room_without_its_name() {
             let _ = c.write_all(answer);
         }
     });
+    (addr, asked)
+}
+
+fn creates(asked: &Lines) -> Vec<String> {
+    let asked = asked.lock().unwrap();
+    asked.iter().filter(|l| l.starts_with("CREATE")).cloned().collect()
+}
+
+/// A desk from before room secrets and names answers ERR to both: the host asks again without the secret, then without
+/// the name; a private room sends no name, so the CREATE with the secret, then the plain one.
+#[test]
+fn an_old_desk_gets_the_room_without_its_name() {
     let dir = tempfile::tempdir().unwrap();
     let id = arcade::id_text(&arcade::own_id(&dir.path().join("host.key")).unwrap());
-    let (log, _) = logger("old desk host");
     let secret = launcher::lobby::room_secret(&dir.path().join("host.key")).unwrap();
+    let (addr, asked) = old_desk();
+    let (log, _) = logger("old desk host");
     let room = HostRoom::open(&addr.to_string(), &id, Some(&secret), true, "Sala Roma", log, &|_| {}).unwrap();
     assert_eq!(room.code, "K7QMZDRX");
-    let asked = asked.lock().unwrap();
     assert_eq!(
-        asked[..3],
+        creates(&asked),
         [
             format!("CREATE shop {id} {secret} public Sala Roma"),
             format!("CREATE shop {id} public Sala Roma"),
             format!("CREATE shop {id} public")
         ]
     );
-    drop(asked);
     drop(room);
-    // a private room sends no name: on an old desk, the CREATE with the secret, then the plain one
-    let n = seen2.lock().unwrap().len();
+    let (addr, asked) = old_desk();
     let (log, _) = logger("old desk private host");
     HostRoom::open(&addr.to_string(), &id, Some(&secret), false, "Sala Roma", log, &|_| {}).unwrap();
-    let asked = seen2.lock().unwrap();
     assert_eq!(
-        asked[n..]
-            .iter()
-            .filter(|l| l.starts_with("CREATE"))
-            .collect::<Vec<_>>(),
+        creates(&asked),
         [
-            &format!("CREATE shop {id} {secret} private"),
-            &format!("CREATE shop {id}")
+            format!("CREATE shop {id} {secret} private"),
+            format!("CREATE shop {id}")
         ]
+    );
+}
+
+/// What an old desk refused is remembered for the run: the next rooms there cost one CREATE each of its per-address
+/// limit, not two or three.
+#[test]
+fn an_old_desk_is_asked_its_own_form_from_then_on() {
+    let dir = tempfile::tempdir().unwrap();
+    let id = arcade::id_text(&arcade::own_id(&dir.path().join("host.key")).unwrap());
+    let secret = launcher::lobby::room_secret(&dir.path().join("host.key")).unwrap();
+    let (addr, asked) = old_desk();
+    let open = |public| {
+        let (log, _) = logger("old desk again");
+        HostRoom::open(&addr.to_string(), &id, Some(&secret), public, "Sala Roma", log, &|_| {}).unwrap()
+    };
+    drop(open(true));
+    let n = creates(&asked).len();
+    assert_eq!(n, 3);
+    drop(open(true));
+    drop(open(false));
+    assert_eq!(
+        creates(&asked)[n..],
+        [format!("CREATE shop {id} public"), format!("CREATE shop {id}")]
     );
 }
 
