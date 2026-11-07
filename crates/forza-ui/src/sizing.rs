@@ -1,44 +1,39 @@
-//! Card sizes from the card pictures' own size. The HQ pack's scans are all 180x254 pixels (7,601 pictures, 99.99 %
-//! within a pixel), so a card is drawn at a whole fraction of that in physical pixels (1, 1/2, 1/3: a clean downscale)
-//! or, for the thumbnail grid only, 1.5x or 2x (the downloaded 664x911 pictures fill those). Points convert with `pixels_per_point`, so Windows scaling (100/125/150/200 %)
-//! changes the point size, never the sharpness.
-
+//! Card sizes in physical pixels. The catalogue grid fills its width: whole-pixel cards in the scan's shape (the HQ
+//! pack's 180x254), as many a row as fit at most 170 points wide. The detail pane and the card view draw a picture at
+//! a whole multiple or a whole fraction of its own pixels ([`whole_fit`], [`exact`]). Points convert with
+//! `pixels_per_point`, so Windows scaling (100/125/150/200 %) changes the point size, never the sharpness.
 use egui::{Vec2, vec2};
 
 /// The pack's scan, in physical pixels.
 pub const NATIVE: Vec2 = vec2(180.0, 254.0);
 /// The grid's gap between cards, in points.
 pub const GAP: f32 = 10.0;
-/// The grid shows at least this many cards per row on a window wide enough for one.
-const MIN_COLS: usize = 4;
-/// Grid card widths as a part of the scan: 2x and 1.5x (upscales of the scan, downscales of the 664x911 pictures),
-/// native, then clean downscales.
-const GRID_STEPS: [f32; 5] = [2.0, 1.5, 1.0, 0.5, 1.0 / 3.0];
+/// A grid card is at most this wide, in points: about 6 a row at 1920x1080 beside the detail pane.
+const MAX_CARD: f32 = 170.0;
 /// The hover card's face is about this wide in points; its size is the whole-fraction of the scan nearest to it.
 const HOVER_PTS: f32 = 100.0;
 
-/// The catalogue grid: a card's size in points and how many sit in a row of `avail` points.
+/// The catalogue grid: a card's size in points, how many sit in a row, and the margin left of the first one that
+/// centres the rows in their width.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Grid {
     pub card: Vec2,
     pub cols: usize,
+    pub pad: f32,
 }
 
-/// The largest card size (a step of [`GRID_STEPS`]) that still fits [`MIN_COLS`] in `avail` points; the smallest when
-/// none does.
+/// The grid that fills `avail` points: the fewest columns whose cards are at most [`MAX_CARD`] wide, each card as wide
+/// as the row allows (whole physical pixels, the scan's shape), the pixels left over split on both sides.
 pub fn grid(avail: f32, ppp: f32) -> Grid {
-    let cols = |card: Vec2| (((avail + GAP) / (card.x + GAP)).floor() as usize).max(1);
-    let size = |k: f32| NATIVE * k / ppp;
-    let step = GRID_STEPS
-        .iter()
-        .copied()
-        .find(|&k| cols(size(k)) >= MIN_COLS)
-        .unwrap_or(GRID_STEPS[GRID_STEPS.len() - 1]);
-    let card = size(step);
-    Grid {
-        card,
-        cols: cols(card),
-    }
+    let cols = (((avail + GAP) / (MAX_CARD + GAP)).ceil() as usize).max(1);
+    let n = cols as f32;
+    let w = ((avail - (n - 1.0) * GAP) / n * ppp).floor().max(1.0);
+    let card = vec2(w, (w * NATIVE.y / NATIVE.x).round()) / ppp;
+    let pad = ((avail - n * card.x - (n - 1.0) * GAP) / 2.0 * ppp)
+        .floor()
+        .max(0.0)
+        / ppp;
+    Grid { card, cols, pad }
 }
 
 /// The hover card's face in points: the scan divided by a whole number (at least 1, so never upscaled), as near
@@ -65,44 +60,137 @@ pub fn exact(pic_px: Vec2, n: usize, room: Vec2, ppp: f32) -> Option<f32> {
     })
 }
 
-/// How much the hover card's text grows with its face: 1 at the base size (a 90 point face), within 0.9..1.3.
-pub fn text_unit(face_w: f32) -> f32 {
-    (face_w / 90.0).clamp(0.9, 1.3)
+/// The catalogue's detail pane width in points: room for the album art's 256 pixels and the pane's margins, at the
+/// step [`whole_fit`] takes under the 330-point cap (x2 from about 167 %, else x1), within 250..330 points (under that,
+/// [`whole_fit`] halves the picture).
+pub fn detail_width(ppp: f32) -> f32 {
+    // a point of slack beside the 512 pixels: the strip rounds its cell to the pixel
+    let (k, slack) = if ALBUM.x * 2.0 / ppp + 25.0 <= 330.0 {
+        (2.0, 1.0)
+    } else {
+        (1.0, 0.0)
+    };
+    (ALBUM.x * k / ppp + 24.0 + slack).clamp(250.0, 330.0)
+}
+
+/// The most the results header (the card count and the affinity row) may take of a cell `cell_h` points tall: the rest
+/// is at least one row of `card_h` cards and the gap above them, however long the expanded affinity list is.
+pub fn header_cap(cell_h: f32, card_h: f32) -> f32 {
+    (cell_h - card_h - GAP).max(48.0)
+}
+
+/// A picture of `pic_px` pixels drawn whole in `room` points: its size in points at the largest of x2, x1, 1/2, 1/3 or
+/// 1/4 of its pixels that fits (the smallest when none does). Every drawn pixel is then a whole number of the
+/// picture's, or a whole number of them in one, so it is never soft at any window size or Windows scaling.
+pub fn whole_fit(pic_px: Vec2, room: Vec2, ppp: f32) -> Vec2 {
+    let steps = [2.0, 1.0, 0.5, 1.0 / 3.0, 0.25];
+    let fits = |k: f32| pic_px.x * k <= room.x * ppp + 0.01 && pic_px.y * k <= room.y * ppp + 0.01;
+    let k = steps.into_iter().find(|&k| fits(k)).unwrap_or(0.25);
+    (pic_px * k).floor() / ppp
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The catalogue's results column in points for a window of `w` x `h` pixels at `dpi`: the sheet less the board,
-    /// the stats pane and the page's margins (measured on the 1440x900 sheet and up: about 0.46 of the width).
+    /// The catalogue's results column in points for a window of `w` x `h` pixels at `dpi`: the page beside the board,
+    /// less its margins (12 around, 20 inside), the detail pane and the gap before it.
     fn avail(w: f32, h: f32, dpi: f32) -> (f32, f32) {
         let ppp = crate::panel::scale(w, h, dpi);
-        (w / ppp * 0.46, ppp)
+        let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(w, h) / ppp);
+        let page = crate::panel::layout(sheet, false).pages.width() - 64.0;
+        (page - detail_width(ppp) - 6.0, ppp)
+    }
+
+    fn close(a: Vec2, b: Vec2) -> bool {
+        (a - b).length() < 1e-3
     }
 
     #[test]
-    fn the_grid_follows_the_pictures_own_size() {
-        for (w, h, dpi, cols_min, cols_max) in [
-            (1920.0, 1080.0, 96.0, 4, 6),  // 1080p at 100 %: native size
-            (2560.0, 1440.0, 120.0, 4, 6), // 1440p at 125 %
-            (3840.0, 2160.0, 96.0, 4, 6),  // 4K at 100 %
-            (3840.0, 2160.0, 144.0, 4, 6), // 4K at 150 %
+    fn the_grid_fills_its_width() {
+        for (w, h, dpi, cols_min) in [
+            (1920.0, 1080.0, 96.0, 6),  // 1080p at 100 %
+            (2014.0, 1080.0, 96.0, 6),  // the play-test window
+            (2560.0, 1440.0, 120.0, 6), // 1440p at 125 %
+            (3840.0, 2160.0, 144.0, 6), // 4K at 150 %
+            (1440.0, 900.0, 96.0, 3),   // the base sheet
         ] {
             let (a, ppp) = avail(w, h, dpi);
             let g = grid(a, ppp);
+            assert!(g.cols >= cols_min, "{w}x{h}@{dpi}: {g:?}");
+            assert!(g.card.x <= MAX_CARD + 0.01, "{g:?}");
+            // whole physical pixels, and the row less its two margins is the width, within a pixel a column
+            let px = g.card * ppp;
+            assert!(close(px, px.round()), "{px:?}");
+            let row = 2.0 * g.pad + g.cols as f32 * g.card.x + (g.cols - 1) as f32 * GAP;
             assert!(
-                (cols_min..=cols_max).contains(&g.cols),
-                "{w}x{h}@{dpi}: {g:?}"
+                row <= a + 0.01 && a - row < g.cols as f32 / ppp + 1.0 / ppp,
+                "{a} {row} {g:?}"
             );
-            // whole physical pixels: a card of a clean fraction of the scan (or 1.5x)
-            let px = g.card.x * ppp;
+        }
+    }
+
+    /// The detail pane's picture: a whole multiple or a whole fraction of its pixels at every Windows scaling, the
+    /// largest that fits.
+    #[test]
+    fn the_detail_picture_is_whole_pixels() {
+        let room = vec2(276.0, 480.0);
+        // x2 once the room holds 512 pixels; under 1 px a point (a window smaller than the sheet) half size
+        for (ppp, k) in [
+            (1.0, 1.0),
+            (1.25, 1.0),
+            (1.5, 1.0),
+            (2.0, 2.0),
+            (0.889, 0.5),
+            (0.625, 0.5),
+        ] {
+            let s = whole_fit(ALBUM, room, ppp);
+            assert!(close(s * ppp, (ALBUM * k).floor()), "{ppp}: {s:?}");
+        }
+        // the pack's 180x254 scan doubles when the room takes it, the 664x911 picture is a third
+        assert_eq!(whole_fit(NATIVE, vec2(400.0, 600.0), 1.0), NATIVE * 2.0);
+        assert_eq!(whole_fit(vec2(664.0, 911.0), room, 1.0), vec2(221.0, 303.0));
+        for ppp in [1.0, 1.25, 1.5, 2.0] {
+            let px = whole_fit(vec2(664.0, 911.0), room, ppp) * ppp;
+            assert!(close(px, px.round()), "{ppp}: {px:?}");
             assert!(
-                [360.0, 270.0, 180.0, 90.0, 60.0]
-                    .iter()
-                    .any(|n| (px - n).abs() < 0.01),
-                "{px}"
+                px.x / ppp <= room.x + 0.01 && px.y / ppp <= room.y + 0.01,
+                "{ppp}"
             );
+        }
+    }
+
+    /// At 175 and 200 % the pane is sized for the picture's x2 step, so the detail picture is wider than a grid card
+    /// (sized at x1 it stayed 256 pixels against a 267- and a 323-pixel card).
+    #[test]
+    fn the_detail_picture_is_never_smaller_than_a_card_at_high_scaling() {
+        for (w, h, dpi) in [(3840.0, 2160.0, 168.0), (3840.0, 2160.0, 192.0)] {
+            let (a, ppp) = avail(w, h, dpi);
+            assert!([1.75, 2.0].contains(&ppp), "{w}x{h}@{dpi}: {ppp}");
+            let card = grid(a, ppp).card.x * ppp;
+            let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(w, h) / ppp);
+            let page = crate::panel::layout(sheet, false).pages;
+            // the pane's inner width less its frame, and the height its picture has under the rest of the pane
+            let room = vec2(detail_width(ppp) - 24.0, page.height() - 300.0);
+            let picture = whole_fit(ALBUM, room, ppp) * ppp;
+            assert!(close(picture, ALBUM * 2.0), "{ppp} px a point: {picture:?}");
+            assert!(
+                picture.x >= card,
+                "{ppp} px a point: a {} px picture against a {card} px card ({room:?})",
+                picture.x
+            );
+        }
+    }
+
+    /// The header's cap always leaves the grid a row of cards and the gap above it.
+    #[test]
+    fn the_catalogue_header_leaves_a_row_of_cards() {
+        for cell in [300.0, 650.0, 900.0] {
+            for card in [20.0, 120.0, 170.0] {
+                let cap = header_cap(cell, card);
+                assert!(cap >= 48.0, "{cell} {card}: {cap}");
+                assert!(cell - cap >= card + GAP, "{cell} {card}: {cap}");
+            }
         }
     }
 

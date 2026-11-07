@@ -219,8 +219,9 @@ fn load_picture(
 }
 
 /// The card pictures one egui context keeps loaded: the ones drawn last, at most this many and [`PICTURE_BYTES`] of
-/// textures. A catalogue browsed for long would otherwise keep every picture it ever showed. One screen draws at most about 130: the catalogue grid (4 to 6 a row from
-/// `sizing::grid`; at most 110 in sight, partial rows included, on a 4:3 to 16:9 window at 100-200 % scaling), the
+/// textures. A catalogue browsed for long would otherwise keep every picture it ever showed. One screen draws at
+/// most about 130: the catalogue grid (cards up to 170 points wide from `sizing::grid`; at most 110 in sight, partial
+/// rows included, on a 4:3 to 16:9 window at 100-200 % scaling), the
 /// board's 16 slots and the card in hand, the stats pane's card and the card view's two sides. Worst case per
 /// context: 150 album pictures (256x357 RGBA, 365 KB) = 55 MB of textures, plus a second texture for the few drawn
 /// both NEAREST and LINEAR (the card view, the large hover pane); the panel's contexts set `reduce_texture_memory`, so
@@ -398,9 +399,11 @@ pub fn card_picture_px(
 /// A card side in a 1:1 slot `rect` (its top left on a whole pixel): its picture, letterboxed when its shape differs
 /// from the slot's, or the drawn face or back.
 pub fn card_side(p: &Painter, rect: Rect, card: &Card, back: bool, nearest: bool, lang: Lang) {
-    // nearest filtering only for the album art's own 256x357: an older, smaller picture filling the slot stays smooth
+    // nearest filtering only for a whole multiple of the picture's pixels: a smaller picture letterboxed in the slot
+    // stays smooth
+    let ppp = p.pixels_per_point();
     let got = card_picture_px(p.ctx(), card.number, back, nearest).and_then(|(id, size)| {
-        if nearest && size != crate::sizing::ALBUM {
+        if nearest && ((rect.width() * ppp / size.x).fract().abs() > 0.01) {
             card_picture_px(p.ctx(), card.number, back, false)
         } else {
             Some((id, size))

@@ -325,6 +325,8 @@ cat.pow: {en: "POW", it: "POT", ja: "パワー"}
 cat.spd: {en: "SPD", it: "VEL", ja: "スピード"}
 cat.sta: {en: "STA", it: "RES", ja: "スタミナ"}
 cat.reset: {en: "RESET", it: "AZZERA", ja: "リセット"}
+cat.ranges: {en: "STAT RANGES", it: "FASCE STATISTICHE", ja: "能力値の範囲"}
+cat.fewer: {en: "SHOW FEWER", it: "MOSTRA MENO", ja: "少なく表示"}
 cat.results: {en: "%{n} CARDS", it: "%{n} CARTE", ja: "%{n} 枚"}
 cat.add: {en: "+ ADD", it: "+ AGGIUNGI", ja: "＋追加"}
 cat.view_list: {en: "‹ LIST", it: "‹ ELENCO", ja: "‹ 一覧"}
