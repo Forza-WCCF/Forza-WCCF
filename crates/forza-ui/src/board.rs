@@ -213,7 +213,7 @@ fn load_picture(
 }
 
 /// The card pictures one egui context keeps loaded: the ones drawn last. A catalogue browsed for long would otherwise
-/// keep every picture it ever showed. One screen draws at most about 130: the catalogue grid (6 to 12 a row from
+/// keep every picture it ever showed. One screen draws at most about 130: the catalogue grid (4 to 6 a row from
 /// `sizing::grid`; at most 110 in sight, partial rows included, on a 4:3 to 16:9 window at 100-200 % scaling), the
 /// board's 16 slots and the card in hand, the stats pane's card and the card view's two sides. Worst case per
 /// context: 150 album pictures (256x357 RGBA, 365 KB) = 55 MB of textures, plus a second texture for the few drawn
