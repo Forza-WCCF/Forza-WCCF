@@ -815,6 +815,143 @@ pub fn save(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+
+    /// Whether `data` still holds `needle` anywhere, ASCII case aside (the way [`Scrub`] itself matches).
+    fn holds(data: &[u8], needle: &[u8]) -> bool {
+        !needle.is_empty()
+            && data
+                .windows(needle.len())
+                .any(|w| w.eq_ignore_ascii_case(needle))
+    }
+
+    /// `text` in the other two encodings a log takes: Latin-1 (None for a char it cannot hold) and UTF-16LE.
+    fn latin1(text: &str) -> Option<Vec<u8>> {
+        text.chars()
+            .map(|c| u8::try_from(u32::from(c)).ok())
+            .collect()
+    }
+
+    fn utf16(text: &str) -> Vec<u8> {
+        text.encode_utf16().flat_map(u16::to_le_bytes).collect()
+    }
+
+    // The scrub's promise, stated as a rule: the user name, the PC name and the home path sit at any offset of the
+    // text, in both encodings it comes in, and none of them survives. `before`/`mid`/`after` keep them apart, as a
+    // whole word needs a non-letter beside it; a name the placeholder spells itself ("Use" in "USER") cannot be
+    // looked for in the output, so it is left out.
+    proptest! {
+        #[test]
+        fn scrub_leaves_no_name_behind(
+            user in "[a-z]{2,5}[éeèü]",
+            pc in "[A-Z][a-z]{2,6}",
+            drive in "[A-Za-z]",
+            (before, mid, after) in ("[ ._\\\\/:,;()#!-]{0,10}", "[ ._\\\\/:,;()#!-]{0,10}", "[ ._\\\\/:,;()#!-]{0,10}"),
+        ) {
+            // the scrub takes out names of 3 characters and more, and a name the placeholders spell themselves ("use"
+            // in "USER") cannot be looked for in the output: both are left out here rather than taken on trust from the
+            // patterns above, which a reported case does not always stay inside
+            prop_assume!(user.chars().count() >= 3 && pc.chars().count() >= 3);
+            prop_assume!([&user, &pc].iter().all(|n| {
+                !"USER %USERPROFILE%".to_ascii_lowercase().contains(&n.to_ascii_lowercase())
+            }));
+            let home = format!("{drive}:\\Users\\{user}");
+            let scrub = Scrub {
+                home: home.clone(),
+                user: user.clone(),
+                pc: pc.clone(),
+                folders: true,
+            };
+            let text = format!("{before}|{user}|{mid}|{pc}|{after}|{home}|");
+            // only text Latin-1 can hold has a Latin-1 form to check
+            prop_assume!(latin1(&text).is_some());
+            // the same text as UTF-8 and as Latin-1, each name looked for in the encoding it went in as
+            for latin in [false, true] {
+                let enc = |s: &str| match latin {
+                    false => s.as_bytes().to_vec(),
+                    true => latin1(s).unwrap(),
+                };
+                let data = enc(&text);
+                let out = scrub.scrub(data.clone());
+                for needle in [&user, &pc, &home] {
+                    let form = enc(needle);
+                    prop_assert!(holds(&data, &form), "{needle:?} was never in the text");
+                    prop_assert!(
+                        !holds(&out, &form),
+                        "{needle:?} survived as {form:02x?} in {:?}",
+                        String::from_utf8_lossy(&out)
+                    );
+                }
+            }
+        }
+
+        // A binary file (`blank`): the three encodings, UTF-16LE included, and nothing moves, so a snapshot stays one.
+        #[test]
+        fn blank_keeps_the_length_and_every_encoding_goes(
+            user in "[a-z]{2,5}[éeèü]",
+            pc in "[A-Z][a-z]{2,6}",
+            drive in "[A-Za-z]",
+            (before, mid, after) in ("[ ._\\\\/:,;()#!-]{0,10}", "[ ._\\\\/:,;()#!-]{0,10}", "[ ._\\\\/:,;()#!-]{0,10}"),
+        ) {
+            // the scrub takes out names of 3 characters and more, and a name the placeholders spell themselves ("use"
+            // in "USER") cannot be looked for in the output: both are left out here rather than taken on trust from the
+            // patterns above, which a reported case does not always stay inside
+            prop_assume!(user.chars().count() >= 3 && pc.chars().count() >= 3);
+            prop_assume!([&user, &pc].iter().all(|n| {
+                !"USER %USERPROFILE%".to_ascii_lowercase().contains(&n.to_ascii_lowercase())
+            }));
+            let home = format!("{drive}:\\Users\\{user}");
+            let text = format!("{before}|{user}|{mid}|{pc}|{after}|{home}|");
+            // only text Latin-1 can hold has a Latin-1 form to check
+            prop_assume!(latin1(&text).is_some());
+            let mut dump = text.clone().into_bytes();
+            dump.extend(latin1(&text).unwrap());
+            dump.extend(utf16(&text));
+            let scrub = Scrub {
+                home: home.clone(),
+                user: user.clone(),
+                pc: pc.clone(),
+                folders: true,
+            };
+            let out = scrub.blank(dump.clone());
+            prop_assert_eq!(out.len(), dump.len());
+            for needle in [&user, &pc, &home] {
+                for form in [
+                    needle.as_bytes().to_vec(),
+                    latin1(needle).unwrap(),
+                    utf16(needle),
+                ] {
+                    prop_assert!(holds(&dump, &form), "{needle:?} was never in the dump");
+                    prop_assert!(!holds(&out, &form), "{needle:?} left in as {form:02x?}");
+                }
+            }
+        }
+
+        // `aimedb.json` keeps the ids; the codes, which would let anyone play as that card, are the only thing that
+        // goes. The 20 digits are the game's own code, far too long to sit inside a 64-character hash by accident.
+        #[test]
+        fn masked_aimedb_drops_every_access_code(
+            codes in prop::collection::btree_map("[0-9]{20}", 0u32..1_000_000, 1..8),
+        ) {
+            let json = serde_json::to_vec(&codes).unwrap();
+            let out = masked_aimedb(&json).unwrap();
+            let text = String::from_utf8(out.clone()).unwrap();
+            for code in codes.keys() {
+                prop_assert!(!text.contains(code.as_str()), "{code} left in");
+            }
+            let back: serde_json::Map<String, serde_json::Value> = serde_json::from_slice(&out).unwrap();
+            prop_assert_eq!(back.len(), codes.len());
+            prop_assert!(back.iter().all(|(k, _)| k.len() == "sha256:".len() + 64));
+            for (code, id) in &codes {
+                let hex: String = Sha256::digest(code.as_bytes())
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect();
+                let id = serde_json::Value::from(*id);
+                prop_assert_eq!(back.get(&format!("sha256:{hex}")), Some(&id));
+            }
+        }
+    }
 
     #[test]
     fn user_folders_become_userprofile_on_any_drive_and_case() {
