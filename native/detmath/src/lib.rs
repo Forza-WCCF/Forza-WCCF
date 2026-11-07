@@ -8,10 +8,28 @@
 //! `dmath.cfg` beside the DLL (words, for tests only): `off` patches nothing, `foreign` gives the other-CPU estimate
 //! (RUN.md V2), `frames` logs (frame, random number) per sim frame to `dmath_frames_<pid>.log` (V3).
 #![cfg(target_arch = "x86")]
+// This code runs in the game's process, where a panic ends the game: no call that can panic (tests may, clippy.toml)
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::unreachable,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::string_slice
+)]
 
 pub mod cave;
 #[cfg(windows)]
 mod dll;
+// the cave tests' and examples/v4.rs's runner, never called in the game: its asserts and indexing stay
+#[allow(
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_used,
+    clippy::expect_used
+)]
 pub mod harness;
 pub mod sites;
 

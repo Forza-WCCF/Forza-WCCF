@@ -80,7 +80,9 @@ pub fn verify_file(file: &[u8]) -> Result<(), String> {
         ));
     };
     let mut orig = file.to_vec();
-    orig[at..at + IMPORT.len()].copy_from_slice(ORIGINAL_IMPORT);
+    orig.get_mut(at..at + IMPORT.len())
+        .ok_or("the import name runs past the file")?
+        .copy_from_slice(ORIGINAL_IMPORT);
     let got: String = Sha256::digest(&orig)
         .iter()
         .map(|b| format!("{b:02x}"))
@@ -266,10 +268,9 @@ fn dll_dir(inst: HINSTANCE) -> Option<PathBuf> {
     let mut buf = [0u16; 1024];
     // SAFETY: our own module handle and a buffer we own
     let n = unsafe { GetModuleFileNameW(inst, buf.as_mut_ptr(), buf.len() as u32) } as usize;
-    (n > 0 && n < buf.len()).then(|| {
-        let p = PathBuf::from(String::from_utf16_lossy(&buf[..n]));
-        p.parent().map(PathBuf::from).unwrap_or_default()
-    })
+    let name = buf.get(..n).filter(|_| n > 0 && n < buf.len())?;
+    let p = PathBuf::from(String::from_utf16_lossy(name));
+    Some(p.parent().map(PathBuf::from).unwrap_or_default())
 }
 
 fn start(inst: HINSTANCE) {
