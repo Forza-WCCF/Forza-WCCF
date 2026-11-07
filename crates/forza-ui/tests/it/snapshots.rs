@@ -768,6 +768,30 @@ fn board_reset_lineup_offered_outside_a_match() {
     }
 }
 
+/// The board's foot inside the board's own margin at the narrowest and widest panel the tests draw: the buttons and
+/// the hint keep clear of the pitch's border, in English, Italian and Japanese (whose labels are the longest).
+#[test]
+fn board_foot_inside_the_board() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for (size, tag) in [
+        (panel::SIZE, "1440x900"),
+        (Vec2::new(2560.0, 1440.0), "2560x1440"),
+    ] {
+        for lang in Lang::ALL {
+            let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+            snap(
+                &mut all,
+                &format!("board_foot_{tag}_{}", lang.code()),
+                size,
+                Edition::E1718,
+                |ui| panel::show(ui, &mut st),
+            );
+        }
+    }
+    all.unwrap();
+}
+
 /// RESET LINEUP names the moment its table was kept in its hover text, and a reset leaves an UNDO under the board.
 #[test]
 fn board_reset_lineup_hint_and_undo() {
