@@ -58,14 +58,22 @@ pub fn exact(
     s: usize,
     foreign: bool,
 ) -> Result<(), String> {
-    let (dr, sr) = (XMM[d], XMM[s]);
+    let reg = |r: usize| {
+        XMM.get(r)
+            .copied()
+            .ok_or_else(|| format!("no register xmm{r}"))
+    };
+    let (dr, sr) = (reg(d)?, reg(s)?);
     if kind == Kind::Rcpps && d != s && !foreign {
         one(a, dr)?;
         return a.divps(dr, sr).map_err(err);
     }
-    let mut free = (0..8).filter(|&r| r != d && r != s).map(|r| XMM[r]);
+    let mut free = (0..8)
+        .filter(|&r| r != d && r != s)
+        .filter_map(|r| XMM.get(r).copied());
+    // 8 registers, at most 2 taken
     let (Some(t), Some(u)) = (free.next(), free.next()) else {
-        unreachable!("8 registers, at most 2 taken")
+        return Err("no free xmm register".into());
     };
     a.lea(esp, ptr(esp - 32)).map_err(err)?;
     a.movups(xmmword_ptr(esp), t).map_err(err)?;
@@ -106,7 +114,8 @@ pub fn exact(
 fn tail(a: &mut CodeAssembler, old: &[u8], from: usize, at: u32) -> Result<(), String> {
     let mut d = Decoder::with_ip(
         32,
-        &old[from..],
+        old.get(from..)
+            .ok_or("the moved bytes start past the site")?,
         u64::from(at) + from as u64,
         DecoderOptions::NONE,
     );
