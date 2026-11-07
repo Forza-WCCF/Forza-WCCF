@@ -261,5 +261,22 @@
     {"at": 19944, "len": 4, "en": "Team"},
     {"at": 20764, "len": 6, "en": "Game1"},
     {"at": 21996, "len": 5, "en": "Game2"},
-    {"at": 23227, "len": 5, "en": "Game3"}]}
+    {"at": 23227, "len": 5, "en": "Game3"}]},
+  {"id": "mng_dataview_playerdata", "where": "Players, one player's data: the six stat names under Abilities (scene text, in place)", "sha256": "8D74956E921294C9A7A77F28B67176274E917B57C0C16172BA4B5DDBA9F78EB5", "files": ["data/sb_data/management/MNG_DataView/Scene_MNG_DataView_PlayerData.sbscene"],
+   "labels": [
+    {"at": 45969, "len": 10, "en": "Offence"},
+    {"at": 46415, "len": 12, "en": "Defence"},
+    {"at": 46768, "len": 10, "en": "Technique"},
+    {"at": 47309, "len": 6, "en": "Power"},
+    {"at": 47751, "len": 8, "en": "Speed"},
+    {"at": 48195, "len": 8, "en": "Stamina"}]},
+  {"id": "mng_itemlist_detail", "where": "the item list, one item's detail: EXP and the six stat names (scene text, in place)", "sha256": "0A925E1ACD7B907BCC7FEB96806F3ACA6995BFA76535C03C2695AEC3D8E07508", "files": ["data/sb_data/management/MNG_ItemList/Scene_MNG_ItemList_Detail.sbscene"],
+   "labels": [
+    {"at": 23170, "len": 6, "en": "EXP"},
+    {"at": 23268, "len": 10, "en": "Offence"},
+    {"at": 23370, "len": 12, "en": "Defence"},
+    {"at": 23474, "len": 10, "en": "Technique"},
+    {"at": 23576, "len": 6, "en": "Power"},
+    {"at": 23674, "len": 8, "en": "Speed"},
+    {"at": 23774, "len": 8, "en": "Stamina"}]}
  ]}
