@@ -43,6 +43,11 @@ const BOARD_EXTRA: f32 = 101.0;
 pub const BENCH_BESIDE: f32 = 2.0 / 3.0;
 /// The pop-out board's foot: a gap 4 and one row for DOCK and UNDO 24.
 const DESK_FOOT: f32 = 28.0;
+/// The foot's buttons and hint keep this much of the board at their sides, the margin the board itself keeps in its
+/// column: none sits on the pitch's border.
+const FOOT_PAD: f32 = 16.0;
+/// The foot's labels shrink to this when the board is too narrow for them (long Italian or Japanese labels).
+const FOOT_TEXT_MIN: f32 = 9.0;
 
 /// Points per pixel for a window of `w` x `h` pixels on a monitor of `dpi` (96 = 100%): 1 from 1440x900 up (a bigger
 /// window gets a bigger sheet, so the game's picture can grow past its own size), 2 from 2880x1800 (4K), the window's
@@ -699,7 +704,8 @@ pub struct PanelState {
     /// game leaves it on after the match until the next sequence writes its own). Starts on: a flag already on when the
     /// panel starts is one left over, not a match beginning.
     pub seat_on: bool,
-    /// The table differs from `before_match`: RESET LINEUP is offered, greyed out while `in_match`.
+    /// The table differs from `before_match`: RESET LINEUP's hover names the table it goes back to. It is offered
+    /// whenever the panel is not in a match and a table was kept, so the flag only feeds that text.
     pub reset_ready: bool,
     /// RESET LINEUP's CONFIRM clicked: the panel DLL calls [`take_reset`].
     pub reset_lineup: bool,
@@ -1216,7 +1222,7 @@ pub fn lineup_tick(
         .before_match
         .as_ref()
         .is_some_and(|b| lineup_differs(b, placed));
-    if !st.reset_ready || st.in_match {
+    if st.in_match {
         st.reset_ask = None;
     }
 }
@@ -1267,9 +1273,9 @@ fn lineup_differs(a: &[Placed], b: &[Placed]) -> bool {
     key(a) != key(b)
 }
 
-/// RESET LINEUP: the table kept when the match began (`placed`: the table now, kept for UNDO), to be written like a card move; `None` when nothing differs, or
+/// RESET LINEUP: the table kept when the match began (`placed`: the table now, kept for UNDO), to be written like a card move; `None` when there is nothing kept, or
 /// in a match (`in_match`, read at the click, not the last poll's: refused with a note, as the import is). The board
-/// shows it at once.
+/// shows it at once; a reset to the table the board already holds is allowed and changes nothing (no UNDO line).
 pub fn take_reset(st: &mut PanelState, placed: &[Placed], in_match: bool) -> Option<Vec<Placed>> {
     if !std::mem::take(&mut st.reset_lineup) {
         return None;
@@ -1279,15 +1285,14 @@ pub fn take_reset(st: &mut PanelState, placed: &[Placed], in_match: bool) -> Opt
         st.say(Tone::Refused, "cat.msg_import_match");
         return None;
     }
-    if !st.reset_ready {
-        return None;
-    }
     let before = st.before_match.clone()?;
     st.board = cards::board(&before, &st.cards);
-    // the UNDO lines belong to an older table; the new one undoes the reset
-    st.undo = None;
-    st.import_undo = Some((placed.to_vec(), 0.0));
-    st.reset_after = Some(before.clone());
+    if st.reset_ready {
+        // the UNDO lines belong to an older table; the new one undoes the reset
+        st.undo = None;
+        st.import_undo = Some((placed.to_vec(), 0.0));
+        st.reset_after = Some(before.clone());
+    }
     st.reset_ready = false;
     Some(before)
 }
@@ -2879,66 +2884,65 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
         st.kept_log = Some(n);
     }
     b.add_space(4.0);
-    // at the hint's right: the board in its own window, or back with the game
-    let row = Rect::from_min_max(b.cursor().min, b.max_rect().max);
-    let label = egui::RichText::new(tr!(
+    // the row keeps the board's own margin at its sides: no button or hint line sits on the pitch's border
+    let row = Rect::from_min_max(b.cursor().min, b.max_rect().max).shrink2(vec2(FOOT_PAD, 0.0));
+    // at the hint's right: the board in its own window, or back with the game; 2017-18 at its left: RESET LINEUP and
+    // FORMATIONS
+    let mut texts = vec![tr!(
         lang,
         if st.file.board_window {
             "board.dock"
         } else {
             "board.pop_out"
         }
-    ))
-    .font(theme::bold(12.0));
-    let text_w = b
-        .painter()
-        .layout_no_wrap(label.text().to_owned(), theme::bold(12.0), theme::TEXT)
-        .size()
-        .x;
-    let pad = b.spacing().button_padding.x * 2.0 + 2.0;
-    let btn = Rect::from_min_size(
-        pos2(row.right() - text_w - pad, row.top()),
-        vec2(text_w + pad, 22.0),
-    );
-    let button = egui::Button::new(label).wrap_mode(egui::TextWrapMode::Extend);
-    // 2017-18: RESET LINEUP at its left, greyed out in a match and while the table is the one the match began with
-    let mut left = btn.left();
+    )];
     if st.edition == Edition::E1718 {
-        let label = egui::RichText::new(tr!(lang, "board.reset")).font(theme::bold(12.0));
-        let w = b
-            .painter()
-            .layout_no_wrap(label.text().to_owned(), theme::bold(12.0), theme::TEXT)
-            .size()
-            .x
-            + pad;
-        let at = Rect::from_min_size(pos2(btn.left() - 6.0 - w, row.top()), vec2(w, 22.0));
-        left = at.left();
-        let mut c = b.new_child(egui::UiBuilder::new().max_rect(at));
-        let ready = st.reset_ready && !st.in_match;
-        let button = egui::Button::new(label).wrap_mode(egui::TextWrapMode::Extend);
-        let hint = reset_hint(st, lang);
-        let r = c.add_enabled(ready, button);
-        if r.clicked() {
-            st.reset_ask = Some(st.desk);
-        }
-        r.on_hover_text(&hint).on_disabled_hover_text(&hint);
-        // FORMATIONS at its left: the same dialog as the catalogue's button
-        let label = egui::RichText::new(tr!(lang, "form.open")).font(theme::bold(12.0));
-        let w = b
-            .painter()
-            .layout_no_wrap(label.text().to_owned(), theme::bold(12.0), theme::TEXT)
-            .size()
-            .x
-            + pad;
-        let at = Rect::from_min_size(pos2(left - 6.0 - w, row.top()), vec2(w, 22.0));
-        left = at.left();
-        let button = egui::Button::new(label).wrap_mode(egui::TextWrapMode::Extend);
-        if b.put(at, button).clicked() {
-            st.formations_open = true;
-            st.formations_desk = st.desk;
-        }
+        texts.push(tr!(lang, "board.reset"));
+        texts.push(tr!(lang, "form.open"));
     }
-    if b.put(btn, button).clicked() {
+    let pad = b.spacing().button_padding.x * 2.0 + 2.0;
+    let gaps = 6.0 * (texts.len() - 1) as f32;
+    let text_width = |b: &Ui, fs: f32| {
+        texts
+            .iter()
+            .map(|t| {
+                b.painter()
+                    .layout_no_wrap(t.clone(), theme::bold(fs), theme::TEXT)
+                    .size()
+                    .x
+            })
+            .sum::<f32>()
+    };
+    // long labels on a narrow board share the row: the text shrinks rather than a button running past the board
+    let fs = {
+        let room = row.width() - gaps - pad * texts.len() as f32;
+        let text = text_width(b, 12.0);
+        if text <= room {
+            12.0
+        } else {
+            (12.0 * room / text).clamp(FOOT_TEXT_MIN, 12.0)
+        }
+    };
+    let mut at = Vec::with_capacity(texts.len());
+    let mut right = row.right();
+    for t in &texts {
+        let w = b
+            .painter()
+            .layout_no_wrap(t.clone(), theme::bold(fs), theme::TEXT)
+            .size()
+            .x
+            + pad;
+        let r = Rect::from_min_size(pos2((right - w).max(row.left()), row.top()), vec2(w, 22.0));
+        right = r.left() - 6.0;
+        at.push(r);
+    }
+    let left = at.last().map_or(row.left(), |r| r.left());
+    let button = |text: &str| {
+        egui::Button::new(egui::RichText::new(text).font(theme::bold(fs)))
+            .wrap_mode(egui::TextWrapMode::Extend)
+    };
+    let btn = at[0];
+    if b.put(btn, button(&texts[0])).clicked() {
         st.file.board_window = !st.file.board_window;
         st.file_changed = true;
         st.say(
@@ -2950,12 +2954,27 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
             },
         );
     }
+    // 2017-18: RESET LINEUP, offered outside a match with a table kept, and FORMATIONS at its left
+    if st.edition == Edition::E1718 {
+        let mut c = b.new_child(egui::UiBuilder::new().max_rect(at[1]));
+        let hint = reset_hint(st, lang);
+        let r = c.add_enabled(!st.in_match && st.before_match.is_some(), button(&texts[1]));
+        if r.clicked() {
+            st.reset_ask = Some(st.desk);
+        }
+        r.on_hover_text(&hint).on_disabled_hover_text(&hint);
+        let formations = button(&texts[2]);
+        if b.put(at[2], formations).clicked() {
+            st.formations_open = true;
+            st.formations_desk = st.desk;
+        }
+    }
     // 2017-18 on the game window: three buttons leave the hint little room at their left, so it takes the full width
     // under them, 8 points under them (the buttons are 22 high; the strip's foot, BOARD_EXTRA, holds both and the line)
     let text = if st.edition == Edition::E1718 && !st.desk {
         Rect::from_min_max(pos2(row.left(), row.top() + 30.0), row.max)
     } else {
-        row.with_max_x(left - 8.0)
+        row.with_max_x((left - 8.0).max(row.left()))
     };
     let mut b = b.new_child(egui::UiBuilder::new().max_rect(text));
     // an UNDO row no higher than the hint's line: the theme's 32-point buttons, centred on it, rose into the row over it
@@ -6179,11 +6198,12 @@ mod tests {
         st.reset_lineup = true;
         assert_eq!(take_reset(&mut st, &subbed, false), Some(start.clone()));
         assert_eq!(cards::table_after(&start, &st.board), start);
-        // written back: nothing differs any more
+        // written back: nothing differs any more, though RESET LINEUP still takes the click and writes the same table
         lineup_tick(&mut st, None, None, &start);
         assert!(!st.reset_ready);
         st.reset_lineup = true;
-        assert_eq!(take_reset(&mut st, &start, false), None);
+        assert_eq!(take_reset(&mut st, &start, false), Some(start.clone()));
+        assert_eq!(cards::table_after(&start, &st.board), start);
         // a card session outside a match (a manager transfer) greys RESET out but keeps nothing
         lineup_tick(&mut st, None, Some((true, false)), &subbed);
         assert!(st.in_match);

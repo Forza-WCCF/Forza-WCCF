@@ -2,7 +2,7 @@
 //! (`UPDATE_SNAPSHOTS=1` writes new ones). Rendered with wgpu on the machine's GPU.
 
 use egui::{Ui, Vec2};
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 use egui_kittest::{Harness, SnapshotResults};
 use forza_ui::Lang;
 use forza_ui::theme::{self, Edition};
@@ -824,11 +824,64 @@ fn board_reset_lineup() {
         ("board_reset_lineup_in_match_en", true, true),
     ] {
         let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
+        if ready {
+            st.before_match = Some(forza::cards::table_after(&[], &st.board));
+        }
         st.reset_ready = ready;
         st.in_match = in_match;
         snap(&mut all, name, panel::SIZE, Edition::E1718, |ui| {
             panel::show(ui, &mut st)
         });
+    }
+    all.unwrap();
+}
+
+/// RESET LINEUP is offered outside a match with a table kept, also while the board holds that table (the club office
+/// between matches), and greyed out in a match or before any table was kept.
+#[test]
+fn board_reset_lineup_offered_outside_a_match() {
+    let _gpu = gpu();
+    for (in_match, kept, disabled) in [
+        (false, true, false),
+        (true, true, true),
+        (false, false, true),
+    ] {
+        let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
+        st.in_match = in_match;
+        if kept {
+            st.before_match = Some(forza::cards::table_after(&[], &st.board));
+        }
+        assert!(!st.reset_ready, "the table is the one the match began with");
+        let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+            panel::show(ui, &mut st)
+        });
+        h.run_steps(4);
+        let button = h.get_by_label("RESET LINEUP");
+        assert_eq!(button.accesskit_node().is_disabled(), disabled);
+    }
+}
+
+/// The board's foot inside the board's own margin at the narrowest and widest panel the tests draw: the buttons and
+/// the hint keep clear of the pitch's border, in English, Italian and Japanese (whose labels are the longest).
+#[test]
+fn board_foot_inside_the_board() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for (size, tag) in [
+        (panel::SIZE, "1440x900"),
+        (Vec2::new(2560.0, 1440.0), "2560x1440"),
+    ] {
+        for lang in Lang::ALL {
+            let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+            st.before_match = Some(forza::cards::table_after(&[], &st.board));
+            snap(
+                &mut all,
+                &format!("board_foot_{tag}_{}", lang.code()),
+                size,
+                Edition::E1718,
+                |ui| panel::show(ui, &mut st),
+            );
+        }
     }
     all.unwrap();
 }
