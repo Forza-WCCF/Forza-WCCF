@@ -804,16 +804,24 @@ fn board_foot_inside_the_board() {
 }
 
 /// The hint under the game window's board keeps a clear gap under its row of buttons and stays inside the board, at
-/// the snapshot sizes and the game window players run (1972x1080), in English, Italian and Japanese. Laid out only:
-/// no GPU.
+/// the windows the panel's layout test covers and the game window players run (1972x1080), in English, Italian and
+/// Japanese. Laid out only: no GPU.
 #[test]
 fn board_hint_clear_of_the_buttons() {
     const GAP: f32 = 8.0;
-    for size in [
-        panel::SIZE,
-        Vec2::new(1972.0, 1080.0),
-        Vec2::new(2560.0, 1440.0),
+    for (w, h) in [
+        (1440.0, 900.0),
+        (1600.0, 900.0),
+        (1280.0, 800.0),
+        (1920.0, 1049.0),
+        (1920.0, 1080.0),
+        (1972.0, 1080.0),
+        (2560.0, 1369.0),
+        (2560.0, 1440.0),
+        (3440.0, 1440.0),
     ] {
+        // the sheet such a window shows, in points
+        let size = Vec2::new(w, h) / panel::scale(w, h, 96.0);
         for lang in Lang::ALL {
             let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
             st.before_match = Some(forza::cards::table_after(&[], &st.board));

@@ -35,10 +35,13 @@ const TABS_H: f32 = 56.0;
 /// The deck row under the picture keeps at least this; on wide sheets the picture stops growing first.
 const DECK_MIN: f32 = 148.0;
 /// What the board's height needs per point of pitch width (pitch 1.25, the artwork's bench 0.205) and besides (margins 32,
-/// gaps 12, and the foot: a gap 4, the row of buttons 32 (the theme's buttons, drawn taller than their 22-point rects),
-/// [`FOOT_GAP`] 8 and a line 24: the hint, or a note and its UNDO 22).
+/// gaps 12, and the foot: a gap 4, the row of buttons 22, a gap 8 and a line 23: the hint, or a note and its UNDO 22).
+/// The layout's column and the 2010-11 board use this.
 const BOARD_PER_W: f32 = 1.455;
-const BOARD_EXTRA: f32 = 112.0;
+const BOARD_EXTRA: f32 = 101.0;
+/// The 2017-18 game window's board besides its pitch: its foot is taller, a gap 4, the row of buttons 32 (the theme's
+/// buttons, drawn taller than their 22-point rects), [`FOOT_GAP`] 8 and the hint's line 24 under them.
+const BOARD_EXTRA_1718: f32 = 112.0;
 /// The pop-out board's window lays its bench beside the pitch (a column, [`board::COLUMN_ASPECT`]) when its room is at
 /// least this wide for its height (3:4 and wider), under the pitch when narrower (9:16).
 pub const BENCH_BESIDE: f32 = 2.0 / 3.0;
@@ -2774,9 +2777,14 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     strip_ground(ui);
     let r = ui.max_rect().shrink(16.0);
     // as wide as the strip, or as its height can use, centred
+    let extra = if st.edition == Edition::E1718 {
+        BOARD_EXTRA_1718
+    } else {
+        BOARD_EXTRA
+    };
     let w = r
         .width()
-        .min((ui.max_rect().height() - BOARD_EXTRA) / BOARD_PER_W);
+        .min((ui.max_rect().height() - extra) / BOARD_PER_W);
     let r = Rect::from_min_size(pos2(r.center().x - w / 2.0, r.top()), vec2(w, r.height()));
     let pitch = board::pitch_rect(r.min + vec2(0.0, BOARD_HEAD), r.width());
     let mut b = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(pitch.min, r.max)));
@@ -2955,7 +2963,7 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
         }
     }
     // 2017-18 on the game window: three buttons leave the hint little room at their left, so it takes the full width
-    // under them, FOOT_GAP under the buttons as drawn (the strip's foot, BOARD_EXTRA, holds both and the line)
+    // under them, FOOT_GAP under the buttons as drawn (the strip's foot, BOARD_EXTRA_1718, holds both and the line)
     let text = if st.edition == Edition::E1718 && !st.desk {
         Rect::from_min_max(pos2(row.left(), buttons_bottom + FOOT_GAP), row.max)
     } else {
@@ -5329,20 +5337,19 @@ mod tests {
                     "{at}"
                 );
                 assert!(compact || l.deck.height() >= DECK_MIN - 0.01, "{at}");
-                // the board's pitch, bench and hint fit its height: at the least board width (1440x900) the strip
-                // narrows the pitch to the height, as board_strip does
-                let bw =
-                    (l.board.width() - 32.0).min((l.board.height() - BOARD_EXTRA) / BOARD_PER_W);
+                // the board's pitch, bench and hint fit its height (the 2017-18 board's taller foot, drawn, is measured
+                // at these windows by snapshots::board_hint_clear_of_the_buttons)
+                let bw = l.board.width() - 32.0;
                 assert!(
                     compact || BOARD_PER_W * bw + BOARD_EXTRA <= l.board.height() + 1.0,
                     "{at}"
                 );
-                // and the foot under it holds the row of buttons and the hint's line, FOOT_GAP under them: the gap 4,
-                // the buttons 32, the gap 8 and the line 24 of BOARD_EXTRA, or more where the width, not the height,
+                // and the foot under it holds the row of buttons and the hint's line, 8 points under them: the gap 4,
+                // the buttons 22, the gap 8 and the line 23 of BOARD_EXTRA, or more where the width, not the height,
                 // makes the board
                 let foot = l.board.height() - 32.0 - board::row_height(bw);
                 assert!(
-                    compact || foot >= 4.0 + 32.0 + FOOT_GAP + 24.0 - 0.5,
+                    compact || foot >= 4.0 + 22.0 + 8.0 + 23.0 - 0.5,
                     "{at}: the foot is {foot}"
                 );
             }
@@ -5367,11 +5374,16 @@ mod tests {
             for compact in [false, true] {
                 let l = layout(sheet_of(w, h), compact);
                 let col = l.board.shrink(16.0);
-                let pitch = board::pitch_rect(col.min, col.width());
+                // the 2017-18 pitch, as board_strip narrows it to the board's height
+                let w = col
+                    .width()
+                    .min((l.board.height() - BOARD_EXTRA_1718) / BOARD_PER_W);
+                let pitch = board::pitch_rect(pos2(col.center().x - w / 2.0, col.top()), w);
                 let tile = board::card_size(pitch.width());
-                // the bench (8 + its well), the gap 4 and the row of buttons 22 with the hint's line 23 under it, as
-                // board_strip lays them out
-                let hint_bottom = pitch.bottom() + 8.0 + tile.y * 0.8 + 12.0 + 4.0 + 22.0 + 23.0;
+                // the bench (8 + its well), the gap 4 and the row of buttons 32 with the hint's line 24 FOOT_GAP under
+                // it, as board_strip lays them out
+                let hint_bottom =
+                    pitch.bottom() + 8.0 + tile.y * 0.8 + 12.0 + 4.0 + 32.0 + FOOT_GAP + 24.0;
                 for card_y in [
                     pitch.top() + 40.0,
                     pitch.bottom() - 40.0,
