@@ -9,7 +9,9 @@
 //! [`live_flag`], which writes 1 only when the current day's semifinals hold a player's team (team block +4 == 0; a CPU
 //! team carries its CPU id there, 0x47DB20/0x45E840). A real bracket then shows, advances and sends its results (cmd
 //! 301/257); an all-CPU one never goes live. Every other store to the flag writes 0 (constructor 0x45CAB4, each state
-//! entry 0x45DE47). Off unless WCCF_UCLIVE=on ([`opted_in`]): the projector then loops the CPU championship as before.
+//! entry 0x45DE47). Off unless WCCF_UCLIVE=on ([`opted_in`]), which the Launcher sets when the CPU championship setting
+//! is off; else the projector loops the CPU championship as before. With nothing live the control sends the projector
+//! its own demo pair (0x4394E0), which the panel's "projector league" patch lets show (crates/panel/src/patches.rs).
 
 /// The two `mov byte [ebp+14938h], 1` in GameManage's state entry (control sub_45D840), as offsets from the program's
 /// base (ASLR moves it): the replay store, patched to store 0, and the championship store, replaced by the call. Both
@@ -40,9 +42,9 @@ pub fn human_in(records: &[u8]) -> bool {
     })
 }
 
-/// Whether WCCF_UCLIVE asks for the patch: only `on` (`1` kept the original before, so it still does). Off by default:
-/// with UC live 0 the control sends the projector an empty `TO MATCH INI` and its league scene reads NULL, a black
-/// projector at match start (2026-11-02).
+/// Whether WCCF_UCLIVE asks for the patch: only `on` (`1` kept the original before, so it still does). Unset, the
+/// original: the CPU championship setting on. With UC live 0 the projector gets the control's demo pair, whose league
+/// scene read NULL (a black projector, 2026-11-02) until the panel's "projector league" patch.
 pub fn opted_in(var: Option<&str>) -> bool {
     var == Some("on")
 }
