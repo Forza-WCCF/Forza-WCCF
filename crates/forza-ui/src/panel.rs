@@ -35,9 +35,10 @@ const TABS_H: f32 = 56.0;
 /// The deck row under the picture keeps at least this; on wide sheets the picture stops growing first.
 const DECK_MIN: f32 = 148.0;
 /// What the board's height needs per point of pitch width (pitch 1.25, the artwork's bench 0.205) and besides (margins 32,
-/// gaps 12, and the foot: a gap 4, the row of buttons 22, a gap 8 and a line 23: the hint, or a note and its UNDO 22).
+/// gaps 12, and the foot: a gap 4, the row of buttons 32 (the theme's buttons, drawn taller than their 22-point rects),
+/// [`FOOT_GAP`] 8 and a line 24: the hint, or a note and its UNDO 22).
 const BOARD_PER_W: f32 = 1.455;
-const BOARD_EXTRA: f32 = 101.0;
+const BOARD_EXTRA: f32 = 112.0;
 /// The pop-out board's window lays its bench beside the pitch (a column, [`board::COLUMN_ASPECT`]) when its room is at
 /// least this wide for its height (3:4 and wider), under the pitch when narrower (9:16).
 pub const BENCH_BESIDE: f32 = 2.0 / 3.0;
@@ -46,6 +47,8 @@ const DESK_FOOT: f32 = 28.0;
 /// The foot's buttons and hint keep this much of the board at their sides, the margin the board itself keeps in its
 /// column: none sits on the pitch's border.
 const FOOT_PAD: f32 = 16.0;
+/// The game window's board: the hint's gap under the row of buttons as drawn.
+const FOOT_GAP: f32 = 8.0;
 /// The foot's labels shrink to this when the board is too narrow for them (long Italian or Japanese labels).
 const FOOT_TEXT_MIN: f32 = 9.0;
 
@@ -2919,7 +2922,10 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
             .wrap_mode(egui::TextWrapMode::Extend)
     };
     let btn = at[0];
-    if b.put(btn, button(&texts[0])).clicked() {
+    // the buttons' drawn bottom: the theme's 32-point buttons overflow their 22-point rects
+    let pop = b.put(btn, button(&texts[0]));
+    let mut buttons_bottom = pop.rect.bottom();
+    if pop.clicked() {
         st.file.board_window = !st.file.board_window;
         st.file_changed = true;
         st.say(
@@ -2936,20 +2942,22 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
         let mut c = b.new_child(egui::UiBuilder::new().max_rect(at[1]));
         let hint = reset_hint(st, lang);
         let r = c.add_enabled(!st.in_match && st.before_match.is_some(), button(&texts[1]));
+        buttons_bottom = buttons_bottom.max(r.rect.bottom());
         if r.clicked() {
             st.reset_ask = Some(st.desk);
         }
         r.on_hover_text(&hint).on_disabled_hover_text(&hint);
-        let formations = button(&texts[2]);
-        if b.put(at[2], formations).clicked() {
+        let formations = b.put(at[2], button(&texts[2]));
+        buttons_bottom = buttons_bottom.max(formations.rect.bottom());
+        if formations.clicked() {
             st.formations_open = true;
             st.formations_desk = st.desk;
         }
     }
     // 2017-18 on the game window: three buttons leave the hint little room at their left, so it takes the full width
-    // under them, 8 points under them (the buttons are 22 high; the strip's foot, BOARD_EXTRA, holds both and the line)
+    // under them, FOOT_GAP under the buttons as drawn (the strip's foot, BOARD_EXTRA, holds both and the line)
     let text = if st.edition == Edition::E1718 && !st.desk {
-        Rect::from_min_max(pos2(row.left(), row.top() + 30.0), row.max)
+        Rect::from_min_max(pos2(row.left(), buttons_bottom + FOOT_GAP), row.max)
     } else {
         row.with_max_x((left - 8.0).max(row.left()))
     };
@@ -3030,7 +3038,7 @@ fn import_undo_line(ui: &mut Ui, st: &mut PanelState, lang: Lang, now: f64) -> b
     true
 }
 
-/// UNDO under a board: 22 high in the type of the buttons above it, so its row fits the hint's line (23 points,
+/// UNDO under a board: 22 high in the type of the buttons above it, so its row fits the hint's line (24 points,
 /// [`BOARD_EXTRA`]).
 fn foot_undo(ui: &mut Ui, lang: Lang) -> egui::Response {
     ui.add(
@@ -5321,18 +5329,20 @@ mod tests {
                     "{at}"
                 );
                 assert!(compact || l.deck.height() >= DECK_MIN - 0.01, "{at}");
-                // the board's pitch, bench and hint fit its height
-                let bw = l.board.width() - 32.0;
+                // the board's pitch, bench and hint fit its height: at the least board width (1440x900) the strip
+                // narrows the pitch to the height, as board_strip does
+                let bw =
+                    (l.board.width() - 32.0).min((l.board.height() - BOARD_EXTRA) / BOARD_PER_W);
                 assert!(
                     compact || BOARD_PER_W * bw + BOARD_EXTRA <= l.board.height() + 1.0,
                     "{at}"
                 );
-                // and the foot under it holds the row of buttons and the hint's line, 8 points under them: the gap 4,
-                // the buttons 22, the gap 8 and the line 23 of BOARD_EXTRA, or more where the width, not the height,
+                // and the foot under it holds the row of buttons and the hint's line, FOOT_GAP under them: the gap 4,
+                // the buttons 32, the gap 8 and the line 24 of BOARD_EXTRA, or more where the width, not the height,
                 // makes the board
                 let foot = l.board.height() - 32.0 - board::row_height(bw);
                 assert!(
-                    compact || foot >= 4.0 + 22.0 + 8.0 + 23.0 - 0.5,
+                    compact || foot >= 4.0 + 32.0 + FOOT_GAP + 24.0 - 0.5,
                     "{at}: the foot is {foot}"
                 );
             }
