@@ -5,7 +5,9 @@ name: Release
 # dry run: build and VirusTotal, no release. The version comes from the tag (cargo xtask: `git describe`), no commit
 # bumps it: v0.6.1 -> version.txt kit-0.6.1, the programs' version information and the file names.
 # A release candidate is a dispatch with `version` (on the `next` branch): its files already carry that version, and
-# the tag run on the same commit checks that it built the same bytes (publish, "Same bytes as the candidate").
+# the tag run on the same commit takes the candidate's files instead of building again (job candidate) and checks
+# them (publish, "Same bytes as the candidate"). A tag without a successful candidate stops at job candidate, before
+# the build: no draft comes from bytes nobody played (d5f83b64).
 on:
   push:
     tags: ['v*']
@@ -23,8 +25,56 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # A tag push on a commit with a candidate: the candidate's `dist`, checked against its SHA256SUMS.txt and the tag's
+  # version, becomes this run's `dist`, and build and reproducibility (done in the candidate run) are skipped. That saves
+  # the ~40 minute build of the same bytes. virustotal and publish run on it as on a build.
+  candidate:
+    name: candidate
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      run: ${{ steps.find.outputs.run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - name: Find and check the candidate
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          V=${GITHUB_REF_NAME#v}
+          rc=0
+          cand=$(.github/scripts/candidate.sh find "$V" "$GITHUB_SHA") || rc=$?
+          if [ "$rc" = 2 ]; then
+            echo "::error::no candidate for $V on $GITHUB_SHA (reasons above): dispatch the Release workflow with version=$V on this commit, play the build, then tag the played commit"
+            exit 1
+          fi
+          [ "$rc" = 0 ] || exit "$rc"
+          .github/scripts/candidate.sh verify "cand-$cand" "$V"
+          mv "cand-$cand" dist
+          echo "run=$cand" >> "$GITHUB_OUTPUT"
+          echo "### Files of candidate run [$cand](https://github.com/$REPO/actions/runs/$cand), not rebuilt" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.find.outputs.run != ''
+        with:
+          name: dist
+          path: dist/
+          retention-days: 14
+          if-no-files-found: error
+
   build:
     name: build
+    needs: candidate
+    # a dispatch: a tag push takes the candidate's files or fails in job candidate
+    if: ${{ !cancelled() && needs.candidate.result != 'failure' && needs.candidate.outputs.run == '' }}
     # the same image as ci.yml's build-test; Git Bash runs the scripts below unchanged
     runs-on: windows-2025-vs2026
     timeout-minutes: 120
@@ -93,6 +143,8 @@ jobs:
   reproducibility:
     name: reproducibility
     needs: build
+    # explicit: a skipped candidate job (a dispatch) would skip this job too
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     continue-on-error: true
@@ -121,7 +173,9 @@ jobs:
   # false alarms are common). The results table goes to the job summary and the release notes.
   virustotal:
     name: virustotal
-    needs: build
+    needs: [candidate, build]
+    # a fresh verdict also on a candidate's files: VirusTotal knows them, so no upload, only the polls
+    if: ${{ !cancelled() && (needs.build.result == 'success' || needs.candidate.outputs.run != '') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -204,50 +258,44 @@ jobs:
 
   publish:
     name: publish
-    needs: [build, virustotal]
-    # a tag push only: a dispatch never publishes, also when it runs on a tag
-    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: [candidate, build, virustotal]
+    # a tag push only: a dispatch never publishes, also when it runs on a tag. virustotal passed on a build or on the
+    # candidate's files (explicit: build is skipped when the candidate's files are taken)
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref_type == 'tag' && needs.virustotal.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: write
       actions: read
     steps:
+      # first: checkout empties the workspace
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dist
           path: dist
-      # A candidate was played (a dispatch with `version` on this commit): no draft from bytes that differ from it. The
-      # newest completed candidate whose `dist` artifact carries the tag's version counts; with none, the release stops.
+      # A candidate was played (a dispatch with `version` on this commit): no draft from bytes that differ from it.
+      # The run is the one job candidate took, not a second lookup: a newer dispatch on this commit during the virustotal
+      # job cannot swap the files. On the candidate's own files (job candidate) this checks the copy.
       - name: Same bytes as the candidate
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          CAND: ${{ needs.candidate.outputs.run }}
         run: |
           set -euo pipefail
           V=${GITHUB_REF_NAME#v}
-          # a failed virustotal job (a Microsoft false positive) does not spoil a candidate; its artifact decides
-          if ! runs=$(gh run list -R "$REPO" -w release.yml -e workflow_dispatch -c "$GITHUB_SHA" -s completed -L 20 --json databaseId --jq '.[].databaseId'); then
-            echo "::error::gh run list failed: cannot look for a candidate on $GITHUB_SHA"
-            exit 1
-          fi
-          cand=
-          skipped=
-          : > "$RUNNER_TEMP/found"
-          for id in $runs; do
-            # a missing artifact is reported below; anything else is not swallowed
-            if ! gh run download "$id" -R "$REPO" -n dist -D "cand-$id"; then skipped="$skipped $id"; continue; fi
-            # Git Bash's sha256sum writes "<hash> *<name>" (binary mode)
-            if grep -qE " [ *]Forza-WCCF-2017-18-${V//./\\.}\.zip\$" "cand-$id/SHA256SUMS.txt"; then cand=$id; break; fi
-            awk '$2 ~ /Forza-WCCF-2017-18-.*\.zip$/ { name = $2; sub(/^\*/, "", name); print name }' "cand-$id/SHA256SUMS.txt" >> "$RUNNER_TEMP/found"
-          done
+          cand=$CAND
           if [ -z "$cand" ]; then
             echo "### Candidate: none found for $V on $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
             echo "::error::no candidate with version=$V on $GITHUB_SHA: dispatch the Release workflow with version=$V on this commit, play the build, then tag the played commit"
-            if [ -s "$RUNNER_TEMP/found" ]; then
-              echo "::error::the candidates on this commit carry other versions: $(sort -u "$RUNNER_TEMP/found" | tr '\n' ' ')"
-            fi
-            if [ -n "$skipped" ]; then echo "::error::the dist artifact could not be downloaded from run(s):$skipped"; fi
+            exit 1
+          fi
+          if ! gh run download "$cand" -R "$REPO" -n dist -D "cand-$cand" >&2; then
+            echo "::error::run $cand: its dist artifact cannot be downloaded (expired after 14 days, or the run is gone)"
             exit 1
           fi
           url="https://github.com/$REPO/actions/runs/$cand"
